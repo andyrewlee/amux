@@ -15,20 +15,20 @@ import (
 
 // FilePicker is a file/directory picker dialog
 type FilePicker struct {
-	id           string
-	title        string
-	currentPath  string
-	entries      []os.DirEntry
-	filteredIdx  []int
-	cursor       int
-	input        textinput.Model
-	showHidden   bool
+	id              string
+	title           string
+	currentPath     string
+	entries         []os.DirEntry
+	filteredIdx     []int
+	cursor          int
+	input           textinput.Model
+	showHidden      bool
 	directoriesOnly bool
-	visible      bool
-	width        int
-	height       int
-	scrollOffset int
-	maxVisible   int
+	visible         bool
+	width           int
+	height          int
+	scrollOffset    int
+	maxVisible      int
 }
 
 // NewFilePicker creates a new file picker starting at the given path
