@@ -200,11 +200,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateLayout()
 
 	case tea.MouseMsg:
-		// Handle mouse clicks for pane focusing
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			dashWidth := a.layout.DashboardWidth()
-			centerWidth := a.layout.CenterWidth()
+		// Handle mouse events
+		dashWidth := a.layout.DashboardWidth()
+		centerWidth := a.layout.CenterWidth()
 
+		// Focus pane on left-click press
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			if msg.X < dashWidth {
 				// Clicked on dashboard (left bar)
 				a.focusPane(messages.PaneDashboard)
@@ -214,6 +215,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if a.layout.ShowSidebar() {
 				// Clicked on sidebar
 				a.focusPane(messages.PaneSidebar)
+			}
+		}
+
+		// Forward mouse events to center pane for selection handling
+		if msg.X >= dashWidth && msg.X < dashWidth+centerWidth {
+			newCenter, cmd := a.center.Update(msg)
+			a.center = newCenter
+			if cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 		}
 
@@ -962,6 +972,7 @@ func (a *App) focusPane(pane messages.PaneType) {
 func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
 	a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
+	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
 	a.sidebar.SetSize(a.layout.SidebarWidth(), a.layout.Height())
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)

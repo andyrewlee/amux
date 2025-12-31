@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -27,6 +28,15 @@ func formatScrollPos(offset, total int) string {
 	return fmt.Sprintf("%d/%d lines up", offset, total)
 }
 
+// SelectionState tracks mouse selection state for copy/paste
+type SelectionState struct {
+	Active bool // Selection in progress?
+	StartX int  // Start column (terminal coordinates)
+	StartY int  // Start row (terminal coordinates, relative to visible area)
+	EndX   int  // End column
+	EndY   int  // End row
+}
+
 // Tab represents a single tab in the center pane
 type Tab struct {
 	Name      string
@@ -39,6 +49,8 @@ type Tab struct {
 	// Buffer PTY output to avoid rendering partial screen updates.
 	pendingOutput  []byte
 	flushScheduled bool
+	// Mouse selection state
+	Selection SelectionState
 }
 
 // PendingGTimeout fires when 'g' prefix times out
@@ -58,8 +70,9 @@ type Model struct {
 	pendingGTime time.Time
 
 	// Layout
-	width  int
-	height int
+	width   int
+	height  int
+	offsetX int // X offset from screen left (dashboard width)
 
 	// Config
 	config *config.Config
@@ -144,6 +157,105 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Handle mouse events for text selection
+		if !m.focused || !m.hasActiveAgent() {
+			return m, nil
+		}
+
+		tabs := m.getTabs()
+		activeIdx := m.getActiveTabIdx()
+		if activeIdx >= len(tabs) {
+			return m, nil
+		}
+		tab := tabs[activeIdx]
+
+		// Convert screen coordinates to terminal coordinates
+		termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
+
+		switch msg.Action {
+		case tea.MouseActionPress:
+			if msg.Button == tea.MouseButtonLeft && inBounds {
+				// Start selection
+				tab.mu.Lock()
+				tab.Selection = SelectionState{
+					Active: true,
+					StartX: termX,
+					StartY: termY,
+					EndX:   termX,
+					EndY:   termY,
+				}
+				if tab.Terminal != nil {
+					tab.Terminal.SetSelection(termX, termY, termX, termY, true)
+				}
+				tab.mu.Unlock()
+				logging.Debug("Selection started at (%d, %d)", termX, termY)
+			}
+
+		case tea.MouseActionMotion:
+			// Update selection while dragging
+			tab.mu.Lock()
+			if tab.Selection.Active {
+				// Clamp to terminal bounds
+				if termX < 0 {
+					termX = 0
+				}
+				if termY < 0 {
+					termY = 0
+				}
+				termWidth := m.width - 4
+				termHeight := m.height - 6
+				if termWidth < 10 {
+					termWidth = 80
+				}
+				if termHeight < 5 {
+					termHeight = 24
+				}
+				if termX >= termWidth {
+					termX = termWidth - 1
+				}
+				if termY >= termHeight {
+					termY = termHeight - 1
+				}
+
+				tab.Selection.EndX = termX
+				tab.Selection.EndY = termY
+				if tab.Terminal != nil {
+					tab.Terminal.SetSelection(
+						tab.Selection.StartX, tab.Selection.StartY,
+						termX, termY, true,
+					)
+				}
+			}
+			tab.mu.Unlock()
+
+		case tea.MouseActionRelease:
+			if msg.Button == tea.MouseButtonLeft {
+				tab.mu.Lock()
+				if tab.Selection.Active {
+					// Extract selected text and copy to clipboard
+					if tab.Terminal != nil {
+						text := tab.Terminal.GetSelectedText(
+							tab.Selection.StartX, tab.Selection.StartY,
+							tab.Selection.EndX, tab.Selection.EndY,
+						)
+						if text != "" {
+							if err := clipboard.WriteAll(text); err != nil {
+								logging.Error("Failed to copy to clipboard: %v", err)
+							} else {
+								logging.Info("Copied %d chars to clipboard", len(text))
+							}
+						}
+						// Clear selection after copying
+						tab.Terminal.ClearSelection()
+					}
+					tab.Selection.Active = false
+				}
+				tab.mu.Unlock()
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		tabs := m.getTabs()
 		activeIdx := m.getActiveTabIdx()
@@ -763,6 +875,47 @@ func (m *Model) SetSize(width, height int) {
 			}
 		}
 	}
+}
+
+// SetOffset sets the X offset of the pane from screen left (for mouse coordinate conversion)
+func (m *Model) SetOffset(x int) {
+	m.offsetX = x
+}
+
+// screenToTerminal converts screen coordinates to terminal coordinates
+// Returns the terminal X, Y and whether the coordinates are within the terminal content area
+func (m *Model) screenToTerminal(screenX, screenY int) (termX, termY int, inBounds bool) {
+	// Calculate content area offsets within the pane:
+	// - Border: 1 on each side
+	// - Padding: 1 on left
+	// - Tab bar: 1 line at top (after border)
+	borderTop := 1
+	borderLeft := 1
+	paddingLeft := 1
+	tabBarHeight := 1
+
+	// X offset: border + padding
+	contentStartX := m.offsetX + borderLeft + paddingLeft
+	// Y offset: border + tab bar
+	contentStartY := borderTop + tabBarHeight
+
+	// Terminal dimensions
+	termWidth := m.width - 4
+	termHeight := m.height - 6
+	if termWidth < 10 {
+		termWidth = 80
+	}
+	if termHeight < 5 {
+		termHeight = 24
+	}
+
+	// Convert screen coordinates to terminal coordinates
+	termX = screenX - contentStartX
+	termY = screenY - contentStartY
+
+	// Check bounds
+	inBounds = termX >= 0 && termX < termWidth && termY >= 0 && termY < termHeight
+	return
 }
 
 // Focus sets the focus state
