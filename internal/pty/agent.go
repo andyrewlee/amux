@@ -15,6 +15,7 @@ const (
 	AgentClaude AgentType = "claude"
 	AgentCodex  AgentType = "codex"
 	AgentGemini AgentType = "gemini"
+	AgentAmp    AgentType = "amp"
 )
 
 // Agent represents a running AI agent instance

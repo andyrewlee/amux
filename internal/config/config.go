@@ -52,6 +52,11 @@ func DefaultConfig() (*Config, error) {
 				InterruptCount:   1,
 				InterruptDelayMs: 0,
 			},
+			"amp": {
+				Command:          "amp",
+				InterruptCount:   1,
+				InterruptDelayMs: 0,
+			},
 			"term": {
 				Command:          "bash",
 				InterruptCount:   1,

@@ -47,6 +47,7 @@ type Styles struct {
 	AgentClaude lipgloss.Style
 	AgentCodex  lipgloss.Style
 	AgentGemini lipgloss.Style
+	AgentAmp    lipgloss.Style
 	AgentTerm   lipgloss.Style
 
 	// Sidebar
@@ -202,6 +203,9 @@ func DefaultStyles() Styles {
 
 		AgentGemini: lipgloss.NewStyle().
 			Foreground(ColorGemini),
+
+		AgentAmp: lipgloss.NewStyle().
+			Foreground(ColorAmp),
 
 		AgentTerm: lipgloss.NewStyle().
 			Foreground(ColorForeground),

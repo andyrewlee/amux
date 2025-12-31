@@ -101,6 +101,7 @@ func DefaultAgentOptions() []AgentOption {
 		{ID: "claude", Name: "claude", Desc: "Claude Code AI assistant"},
 		{ID: "codex", Name: "codex", Desc: "OpenAI Codex"},
 		{ID: "gemini", Name: "gemini", Desc: "Google Gemini"},
+		{ID: "amp", Name: "amp", Desc: "Sourcegraph Amp"},
 		{ID: "term", Name: "term", Desc: "Plain terminal shell"},
 	}
 }
@@ -295,6 +296,8 @@ func (d *Dialog) renderOptions() string {
 				colorStyle = lipgloss.NewStyle().Foreground(ColorCodex)
 			case "gemini":
 				colorStyle = lipgloss.NewStyle().Foreground(ColorGemini)
+			case "amp":
+				colorStyle = lipgloss.NewStyle().Foreground(ColorAmp)
 			default:
 				colorStyle = lipgloss.NewStyle().Foreground(ColorForeground)
 			}
