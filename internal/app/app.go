@@ -63,7 +63,6 @@ type App struct {
 	// Dialog context
 	dialogProject  *data.Project
 	dialogWorktree *data.Worktree
-	dialogBase     string // Base branch for creating worktrees
 
 	// Process management
 	scripts *process.ScriptRunner
@@ -412,12 +411,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowCreateWorktreeDialog:
 		a.dialogProject = msg.Project
-		a.dialogBase = msg.Base
-		title := "Create Worktree"
-		if msg.Base != "" {
-			title = fmt.Sprintf("Create Worktree (from %s)", msg.Base)
-		}
-		a.dialog = common.NewInputDialog(DialogCreateWorktree, title, "Enter worktree name...")
+		a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
 		a.dialog.Show()
 
 	case messages.ShowDeleteWorktreeDialog:
@@ -458,13 +452,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.center.StartPTYReaders())
 		// NOW switch focus to center - tab is ready
 		a.focusPane(messages.PaneCenter)
-		// Broadcast agent counts to dashboard
-		cmds = append(cmds, a.broadcastAgentCounts())
 
 	case messages.TabClosed:
 		logging.Info("Tab closed: %d", msg.Index)
-		// Broadcast agent counts to dashboard
-		cmds = append(cmds, a.broadcastAgentCounts())
 
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		newCenter, cmd := a.center.Update(msg)
@@ -529,15 +519,11 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				}
 			}
 			project := a.dialogProject
-			base := a.dialogBase
-			if base == "" {
-				base = "HEAD"
-			}
 			return func() tea.Msg {
 				return messages.CreateWorktree{
 					Project: project,
 					Name:    name,
-					Base:    base,
+					Base:    "HEAD",
 				}
 			}
 		}
@@ -911,22 +897,6 @@ func (a *App) renderWelcome() string {
 	b.WriteString(quickStartStyle.Render(quickStart))
 
 	return b.String()
-}
-
-// broadcastAgentCounts sends agent counts to the dashboard for all worktrees
-func (a *App) broadcastAgentCounts() tea.Cmd {
-	counts := a.center.GetAllAgentCounts()
-	var cmds []tea.Cmd
-	for root, count := range counts {
-		root, count := root, count // capture for closure
-		cmds = append(cmds, func() tea.Msg {
-			return messages.AgentCountUpdated{
-				WorktreeRoot: root,
-				Count:        count,
-			}
-		})
-	}
-	return tea.Batch(cmds...)
 }
 
 // loadProjects loads all registered projects and their worktrees
