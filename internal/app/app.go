@@ -405,7 +405,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowAddProjectDialog:
 		logging.Info("Showing Add Project file picker")
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = "/"
+		}
 		a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
 		a.filePicker.Show()
 

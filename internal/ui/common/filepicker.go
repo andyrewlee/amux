@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -360,7 +361,7 @@ func (fp *FilePicker) View() string {
 		// Scroll indicator
 		if len(fp.filteredIdx) > fp.maxVisible {
 			indicator := lipgloss.NewStyle().Foreground(ColorMuted).Render(
-				"  (" + string(rune('0'+fp.scrollOffset+1)) + "-" + string(rune('0'+end)) + " of " + string(rune('0'+len(fp.filteredIdx))) + ")",
+				fmt.Sprintf("  (%d-%d of %d)", fp.scrollOffset+1, end, len(fp.filteredIdx)),
 			)
 			content.WriteString(indicator)
 		}
