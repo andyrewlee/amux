@@ -358,6 +358,8 @@ func keyToBytes(msg tea.KeyMsg) []byte {
 		return []byte{0x7f}
 	case tea.KeyTab:
 		return []byte{'\t'}
+	case tea.KeyShiftTab:
+		return []byte{0x1b, '[', 'Z'} // Back tab / reverse tab
 	case tea.KeySpace:
 		return []byte{' '}
 	case tea.KeyEsc:
