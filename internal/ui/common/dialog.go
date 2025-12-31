@@ -103,7 +103,6 @@ func DefaultAgentOptions() []AgentOption {
 		{ID: "gemini", Name: "gemini", Desc: "Google Gemini"},
 		{ID: "amp", Name: "amp", Desc: "Sourcegraph Amp"},
 		{ID: "opencode", Name: "opencode", Desc: "SST OpenCode"},
-		{ID: "term", Name: "term", Desc: "Plain terminal shell"},
 	}
 }
 

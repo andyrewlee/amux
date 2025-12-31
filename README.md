@@ -39,4 +39,4 @@ Launch `amux` and use the keyboard to navigate:
 - **codex** - OpenAI Codex
 - **gemini** - Google Gemini
 - **amp** - Sourcegraph Amp
-- **term** - Plain terminal
+- **opencode** - SST OpenCode
