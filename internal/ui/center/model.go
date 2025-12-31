@@ -60,6 +60,7 @@ type Tab struct {
 	Terminal  *vterm.VTerm // Virtual terminal emulator with scrollback
 	mu        sync.Mutex   // Protects Terminal
 	Running   bool         // Whether the agent is actively running
+	readerActive bool      // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 	pendingOutput     []byte
 	flushScheduled    bool
@@ -541,6 +542,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
 			tab.Running = false
+			tab.readerActive = false
 			logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
 		}
 		// Do NOT schedule another read - the loop is done
@@ -858,11 +860,13 @@ func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
 	}
 
 	if tab.Agent == nil || tab.Agent.Terminal == nil {
+		tab.readerActive = false
 		return nil
 	}
 
 	// Check if terminal is already closed before starting read
 	if tab.Agent.Terminal.IsClosed() {
+		tab.readerActive = false
 		return nil
 	}
 
@@ -879,6 +883,18 @@ func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
 		// No data but no error - continue polling
 		return PTYTick{WorktreeID: wtID, TabID: tabID}
 	}
+}
+
+func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
+	if tab == nil || tab.readerActive {
+		return nil
+	}
+	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
+		tab.readerActive = false
+		return nil
+	}
+	tab.readerActive = true
+	return m.readPTYForTab(wtID, tab.ID)
 }
 
 // closeCurrentTab closes the current tab
@@ -1038,7 +1054,9 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 	var cmds []tea.Cmd
 	for wtID, tabs := range m.tabsByWorktree {
 		for _, tab := range tabs {
-			cmds = append(cmds, m.readPTYForTab(wtID, tab.ID))
+			if cmd := m.startPTYReader(wtID, tab); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 	return tea.Batch(cmds...)
