@@ -655,12 +655,13 @@ func (m *Model) View() string {
 		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
 	}
 	help := strings.Join(helpItems, "  ")
-	contentHeight := strings.Count(b.String(), "\n") + 2
-	padding := m.height - contentHeight - 5
-	if padding > 0 {
-		b.WriteString(strings.Repeat("\n", padding))
+	// Account for: border (2 lines) + help line (1)
+	contentHeight := strings.Count(b.String(), "\n") + 1
+	targetHeight := m.height - 4 // 2 for border, 1 for help, 1 for safety
+	if targetHeight > contentHeight {
+		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
-	b.WriteString("\n" + help)
+	b.WriteString(help)
 
 	// Apply pane styling
 	style := m.styles.Pane
@@ -668,7 +669,7 @@ func (m *Model) View() string {
 		style = m.styles.FocusedPane
 	}
 
-	return style.Width(m.width - 2).Height(m.height - 2).Render(b.String())
+	return style.Width(m.width - 2).Render(b.String())
 }
 
 // renderTabBar renders the tab bar with activity indicators
