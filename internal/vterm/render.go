@@ -84,6 +84,11 @@ func (v *VTerm) renderScreenFrom(screen [][]Cell) string {
 				firstCell = false
 			}
 
+			// Skip continuation cells (part of wide character)
+			if cell.Width == 0 {
+				continue
+			}
+
 			if cell.Rune == 0 {
 				buf.WriteRune(' ')
 			} else {
@@ -159,6 +164,11 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 				lastStyle = style
 				lastReverse = inSel
 				firstCell = false
+			}
+
+			// Skip continuation cells (part of wide character)
+			if cell.Width == 0 {
+				continue
 			}
 
 			if cell.Rune == 0 {

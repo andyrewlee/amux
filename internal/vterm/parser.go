@@ -60,8 +60,10 @@ func (p *Parser) parseByte(b byte) {
 		p.parseGround(b)
 	case stateEscape:
 		p.parseEscape(b)
-	case stateCSI, stateCSIParam:
+	case stateCSI:
 		p.parseCSI(b)
+	case stateCSIParam:
+		p.parseCSIParam(b)
 	case stateOSC:
 		p.parseOSC(b)
 	case stateDCS:
@@ -212,10 +214,45 @@ func (p *Parser) parseCSI(b byte) {
 	}
 }
 
+func (p *Parser) parseCSIParam(b byte) {
+	switch {
+	case b >= '0' && b <= '9':
+		p.paramBuf.WriteByte(b)
+	case b == ';':
+		p.pushParam()
+	case b == ':': // Sub-parameter separator
+		p.paramBuf.WriteByte(b)
+	case b >= 0x20 && b <= 0x2f: // Intermediate bytes (e.g. '$')
+		p.csiIntermediate = b
+	case b >= 0x40 && b <= 0x7e: // Final byte
+		p.pushParam()
+		p.executeCSI(b)
+		p.state = stateGround
+	case b == 0x1b: // Escape interrupts
+		p.state = stateEscape
+	default:
+		p.state = stateGround
+	}
+}
+
 func (p *Parser) pushParam() {
 	if p.paramBuf.Len() > 0 {
-		val, _ := strconv.Atoi(p.paramBuf.String())
-		p.params = append(p.params, val)
+		s := p.paramBuf.String()
+		// Handle sub-parameters (colon-separated values like "38:2:255:128:0")
+		if strings.Contains(s, ":") {
+			parts := strings.Split(s, ":")
+			for _, part := range parts {
+				if part == "" {
+					p.params = append(p.params, 0)
+				} else {
+					val, _ := strconv.Atoi(part)
+					p.params = append(p.params, val)
+				}
+			}
+		} else {
+			val, _ := strconv.Atoi(s)
+			p.params = append(p.params, val)
+		}
 	} else {
 		p.params = append(p.params, 0)
 	}
