@@ -133,6 +133,13 @@ func (t *Terminal) Running() bool {
 	return t.cmd.ProcessState == nil
 }
 
+// IsClosed returns whether the terminal has been closed
+func (t *Terminal) IsClosed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closed
+}
+
 // File returns the underlying PTY file
 func (t *Terminal) File() *os.File {
 	return t.ptyFile
