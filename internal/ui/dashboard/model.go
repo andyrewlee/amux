@@ -216,9 +216,11 @@ func (m *Model) View() string {
 	help := strings.Join(helpItems, "  ")
 
 	// Calculate remaining height and add padding
-	contentHeight := strings.Count(b.String(), "\n") + 2
-	if m.height > contentHeight {
-		b.WriteString(strings.Repeat("\n", m.height-contentHeight-1))
+	// Account for: border (2 lines) + help line (1)
+	contentHeight := strings.Count(b.String(), "\n") + 1
+	targetHeight := m.height - 4 // 2 for border, 1 for help, 1 for safety
+	if targetHeight > contentHeight {
+		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
 	b.WriteString(help)
 
@@ -228,7 +230,7 @@ func (m *Model) View() string {
 		style = m.styles.FocusedPane
 	}
 
-	return style.Width(m.width - 2).Height(m.height - 2).Render(b.String())
+	return style.Width(m.width - 2).Render(b.String())
 }
 
 // renderRow renders a single dashboard row
