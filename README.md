@@ -40,3 +40,7 @@ Launch `amux` and use the keyboard to navigate:
 - **gemini** - Google Gemini
 - **amp** - Sourcegraph Amp
 - **opencode** - SST OpenCode
+
+## Developer Notes
+
+- Terminal rendering and flicker mitigation: `docs/terminal-rendering.md`
