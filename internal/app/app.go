@@ -527,6 +527,13 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	return nil
 }
 
+// Synchronized Output Mode 2026 sequences
+// https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036
+const (
+	syncBegin = "\x1b[?2026h"
+	syncEnd   = "\x1b[?2026l"
+)
+
 // View renders the application
 func (a *App) View() string {
 	if a.quitting {
@@ -579,7 +586,8 @@ func (a *App) View() string {
 		content = a.overlayError(content)
 	}
 
-	return content
+	// Wrap with synchronized output to prevent flickering
+	return syncBegin + content + syncEnd
 }
 
 // overlayToast renders a toast notification at the bottom
