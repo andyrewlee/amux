@@ -414,7 +414,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// NOW switch focus to center - tab is ready
 		a.focusPane(messages.PaneCenter)
 
-	case center.PTYOutput, center.PTYTick:
+	case center.PTYOutput, center.PTYTick, center.PTYFlush:
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
 		cmds = append(cmds, cmd)
