@@ -549,16 +549,14 @@ func (a *App) View() string {
 
 	sidebarView := a.sidebar.View()
 
-	// Combine using layout manager and ensure full width
+	// Combine using layout manager
 	var content string
 	if a.layout.ShowSidebar() {
-		joined := lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView, sidebarView)
-		content = lipgloss.Place(a.width, a.height, lipgloss.Left, lipgloss.Top, joined)
+		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView, sidebarView)
 	} else if a.layout.ShowCenter() {
-		joined := lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView)
-		content = lipgloss.Place(a.width, a.height, lipgloss.Left, lipgloss.Top, joined)
+		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView)
 	} else {
-		content = lipgloss.Place(a.width, a.height, lipgloss.Left, lipgloss.Top, dashView)
+		content = dashView
 	}
 
 	// Overlay dialog if visible
