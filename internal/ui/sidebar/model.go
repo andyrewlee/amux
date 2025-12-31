@@ -128,8 +128,9 @@ func (m *Model) View() string {
 	}
 	help := strings.Join(helpItems, "  ")
 	contentHeight := strings.Count(b.String(), "\n") + 2
-	if m.height > contentHeight {
-		b.WriteString(strings.Repeat("\n", m.height-contentHeight-5))
+	padding := m.height - contentHeight - 5
+	if padding > 0 {
+		b.WriteString(strings.Repeat("\n", padding))
 	}
 	b.WriteString("\n" + help)
 
