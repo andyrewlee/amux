@@ -62,11 +62,6 @@ func DefaultConfig() (*Config, error) {
 				InterruptCount:   1,
 				InterruptDelayMs: 0,
 			},
-			"term": {
-				Command:          "bash",
-				InterruptCount:   1,
-				InterruptDelayMs: 0,
-			},
 		},
 		Layout: LayoutConfig{
 			MinChatWidth:      60,
