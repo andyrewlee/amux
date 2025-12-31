@@ -17,7 +17,7 @@
 # no-daemon: false
 
 # Disable auto-flush of database to JSONL after mutations
-# no-auto-flush: false
+no-auto-flush: true
 
 # Disable auto-import from JSONL when it's newer than database
 # no-auto-import: false
