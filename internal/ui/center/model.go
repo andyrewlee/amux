@@ -36,6 +36,9 @@ type Tab struct {
 	Terminal  *vterm.VTerm // Virtual terminal emulator with scrollback
 	mu        sync.Mutex   // Protects Terminal
 	Running   bool         // Whether the agent is actively running
+	// Buffer PTY output to avoid rendering partial screen updates.
+	pendingOutput  []byte
+	flushScheduled bool
 }
 
 // PendingGTimeout fires when 'g' prefix times out
@@ -44,11 +47,11 @@ type PendingGTimeout struct{}
 // Model is the Bubbletea model for the center pane
 type Model struct {
 	// State
-	worktree           *data.Worktree
-	tabsByWorktree     map[string][]*Tab // tabs per worktree ID
-	activeTabByWorktree map[string]int   // active tab index per worktree
-	focused            bool
-	agentManager       *appPty.AgentManager
+	worktree            *data.Worktree
+	tabsByWorktree      map[string][]*Tab // tabs per worktree ID
+	activeTabByWorktree map[string]int    // active tab index per worktree
+	focused             bool
+	agentManager        *appPty.AgentManager
 
 	// Key sequence state for vim-style gt/gT
 	pendingG     bool
@@ -126,6 +129,12 @@ type PTYOutput struct {
 
 // PTYTick triggers a PTY read
 type PTYTick struct {
+	WorktreeID string
+	TabIndex   int
+}
+
+// PTYFlush applies buffered PTY output for a tab.
+type PTYFlush struct {
 	WorktreeID string
 	TabIndex   int
 }
@@ -288,15 +297,32 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		wtTabs := m.tabsByWorktree[msg.WorktreeID]
 		if msg.TabIndex >= 0 && msg.TabIndex < len(wtTabs) {
 			tab := wtTabs[msg.TabIndex]
-			tab.mu.Lock()
-			if tab.Terminal != nil {
-				tab.Terminal.Write(msg.Data)
+			tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
+			if !tab.flushScheduled {
+				tab.flushScheduled = true
+				cmds = append(cmds, tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg {
+					return PTYFlush{WorktreeID: msg.WorktreeID, TabIndex: msg.TabIndex}
+				}))
 			}
-			tab.mu.Unlock()
 		}
 		// Continue reading
 		if msg.TabIndex < len(wtTabs) {
 			cmds = append(cmds, m.readPTYForWorktree(msg.WorktreeID, msg.TabIndex))
+		}
+
+	case PTYFlush:
+		wtTabs := m.tabsByWorktree[msg.WorktreeID]
+		if msg.TabIndex >= 0 && msg.TabIndex < len(wtTabs) {
+			tab := wtTabs[msg.TabIndex]
+			tab.flushScheduled = false
+			if len(tab.pendingOutput) > 0 {
+				tab.mu.Lock()
+				if tab.Terminal != nil {
+					tab.Terminal.Write(tab.pendingOutput)
+				}
+				tab.mu.Unlock()
+				tab.pendingOutput = tab.pendingOutput[:0]
+			}
 		}
 
 	case PTYTick:
