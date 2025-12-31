@@ -248,24 +248,35 @@ func (m *Model) renderRow(row Row, selected bool) string {
 	case RowHome:
 		style := m.styles.HomeRow
 		if selected {
-			style = m.styles.SelectedRow
+			style = m.styles.HomeRow.
+				Bold(true).
+				Foreground(common.ColorForeground).
+				Background(common.ColorSelection)
 		}
 		return cursor + style.Render("["+common.Icons.Home+" home]")
 
 	case RowAddProject:
 		style := m.styles.AddProjectRow
 		if selected {
-			style = m.styles.SelectedRow
+			style = m.styles.AddProjectRow.
+				Bold(true).
+				Foreground(common.ColorForeground).
+				Background(common.ColorSelection)
 		}
 		return cursor + style.Render("["+common.Icons.Add+" Add Project]")
 
 	case RowProject:
 		// Project headers are uppercase - selectable to access main branch
-		style := m.styles.ProjectHeader
+		// Remove MarginTop from style to keep cursor on same line as text
+		// Add spacing as newline prefix instead
+		style := m.styles.ProjectHeader.MarginTop(0)
 		if selected {
-			style = m.styles.SelectedRow
+			style = style.
+				Bold(true).
+				Foreground(common.ColorForeground).
+				Background(common.ColorSelection)
 		}
-		return cursor + style.Render(strings.ToUpper(row.Project.Name))
+		return "\n" + cursor + style.Render(strings.ToUpper(row.Project.Name))
 
 	case RowWorktree:
 		name := row.Worktree.Name

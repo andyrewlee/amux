@@ -844,34 +844,15 @@ func (a *App) renderWorktreeInfo() string {
 // renderWelcome renders the welcome screen
 func (a *App) renderWelcome() string {
 	logo := `
-    ___    __  __ _   ___  __
-   / _ \  |  \/  | | | \ \/ /
-  / /_\ \ | |\/| | | | |>  <
- / _____ \| |  | | |_| / /\ \
-/_/     \_\_|  |_|\___/_/  \_\`
-
-	tagline := "AI Coding Agents × Git Worktrees"
+ 8888b.  88888b.d88b.  888  888 888  888
+    "88b 888 "888 "88b 888  888  Y8bd8P
+.d888888 888  888  888 888  888   X88K
+888  888 888  888  888 Y88b 888 .d8""8b.
+"Y888888 888  888  888  "Y88888 888  888`
 
 	logoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#7aa2f7")).
 		Bold(true)
-
-	taglineStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#bb9af7")).
-		Italic(true)
-
-	// Stats section
-	projectCount := len(a.projects)
-	var statsText string
-	if projectCount == 0 {
-		statsText = "No projects yet — press 'a' to add one"
-	} else if projectCount == 1 {
-		statsText = "1 project registered"
-	} else {
-		statsText = fmt.Sprintf("%d projects registered", projectCount)
-	}
-	statsStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9ece6a"))
 
 	// Quick start section
 	quickStart := `
@@ -885,18 +866,17 @@ func (a *App) renderWelcome() string {
 	quickStartStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#565f89"))
 
-	// Build the welcome screen
+	// Build the welcome screen content
 	var b strings.Builder
-	b.WriteString("\n")
 	b.WriteString(logoStyle.Render(logo))
-	b.WriteString("\n")
-	b.WriteString(taglineStyle.Render(tagline))
 	b.WriteString("\n\n")
-	b.WriteString(statsStyle.Render(statsText))
-	b.WriteString("\n")
 	b.WriteString(quickStartStyle.Render(quickStart))
 
-	return b.String()
+	// Center the content in the pane
+	width := a.layout.CenterWidth() - 4 // Account for borders/padding
+	height := a.layout.Height() - 4
+
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, b.String())
 }
 
 // loadProjects loads all registered projects and their worktrees
