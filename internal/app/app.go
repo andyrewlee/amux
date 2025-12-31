@@ -18,12 +18,12 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
-	"github.com/andyrewlee/amux/internal/validation"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 // DialogID constants
@@ -67,9 +67,9 @@ type App struct {
 	scripts *process.ScriptRunner
 
 	// Git status management
-	statusManager   *git.StatusManager
-	fileWatcher     *git.FileWatcher
-	fileWatcherCh   chan messages.FileWatcherEvent
+	statusManager *git.StatusManager
+	fileWatcher   *git.FileWatcher
+	fileWatcherCh chan messages.FileWatcherEvent
 
 	// Layout
 	width, height int
@@ -114,13 +114,13 @@ func New() (*App, error) {
 	})
 
 	return &App{
-		config:   cfg,
-		registry: registry,
-		metadata: metadata,
-		scripts:  scripts,
-		statusManager:   statusManager,
-		fileWatcher:     fileWatcher,
-		fileWatcherCh:   fileWatcherCh,
+		config:        cfg,
+		registry:      registry,
+		metadata:      metadata,
+		scripts:       scripts,
+		statusManager: statusManager,
+		fileWatcher:   fileWatcher,
+		fileWatcherCh: fileWatcherCh,
 		layout:        layout.NewManager(),
 		dashboard:     dashboard.New(),
 		center:        center.New(cfg),
@@ -719,8 +719,8 @@ func (a *App) renderCenterPane() string {
 	height := a.layout.Height()
 
 	style := lipgloss.NewStyle().
-		Width(width - 2).
-		Height(height - 2).
+		Width(width-2).
+		Height(height-2).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#5c6370")).
 		Padding(0, 1)

@@ -47,7 +47,7 @@ type VTerm struct {
 	responseWriter ResponseWriter
 
 	// Selection state for copy/paste highlighting
-	selActive           bool
+	selActive            bool
 	selStartX, selStartY int
 	selEndX, selEndY     int
 }

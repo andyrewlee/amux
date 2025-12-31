@@ -24,17 +24,17 @@ type Parser struct {
 	state parseState
 
 	// CSI sequence building
-	params     []int
-	paramBuf   strings.Builder
+	params       []int
+	paramBuf     strings.Builder
 	intermediate byte
 
 	// OSC sequence building
 	oscBuf strings.Builder
 
 	// UTF-8 decoding state
-	utf8Buf    [4]byte
-	utf8Len    int // expected length
-	utf8Pos    int // current position
+	utf8Buf [4]byte
+	utf8Len int // expected length
+	utf8Pos int // current position
 }
 
 // NewParser creates a new parser for the given VTerm
