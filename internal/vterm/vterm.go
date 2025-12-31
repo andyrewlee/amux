@@ -45,6 +45,11 @@ type VTerm struct {
 
 	// Response writer for terminal queries (DSR, DA, etc.)
 	responseWriter ResponseWriter
+
+	// Selection state for copy/paste highlighting
+	selActive           bool
+	selStartX, selStartY int
+	selEndX, selEndY     int
 }
 
 // New creates a new VTerm with the given dimensions

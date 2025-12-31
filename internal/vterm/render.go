@@ -13,20 +13,62 @@ func (v *VTerm) Render() string {
 	return v.renderScreen()
 }
 
+// isInSelection checks if coordinate (x, y) is within the selection
+func (v *VTerm) isInSelection(x, y int) bool {
+	if !v.selActive {
+		return false
+	}
+
+	// Normalize selection so start is before end
+	startX, startY := v.selStartX, v.selStartY
+	endX, endY := v.selEndX, v.selEndY
+	if startY > endY || (startY == endY && startX > endX) {
+		startX, endX = endX, startX
+		startY, endY = endY, startY
+	}
+
+	// Check if (x, y) is in selection range
+	if y < startY || y > endY {
+		return false
+	}
+	if y == startY && y == endY {
+		// Single line selection
+		return x >= startX && x <= endX
+	}
+	if y == startY {
+		return x >= startX
+	}
+	if y == endY {
+		return x <= endX
+	}
+	// Middle lines are fully selected
+	return true
+}
+
 // renderScreen renders just the current screen
 func (v *VTerm) renderScreen() string {
 	var buf strings.Builder
 	buf.Grow(v.Width * v.Height * 2) // Rough estimate
 
 	var lastStyle Style
+	var lastReverse bool
 	firstCell := true
 
 	for y, row := range v.Screen {
-		for _, cell := range row {
-			// Apply style changes
-			if firstCell || cell.Style != lastStyle {
-				buf.WriteString(styleToANSI(cell.Style))
-				lastStyle = cell.Style
+		for x, cell := range row {
+			// Check if this cell is in selection
+			inSel := v.isInSelection(x, y)
+
+			// Apply style changes (toggle reverse for selection)
+			style := cell.Style
+			if inSel {
+				style.Reverse = !style.Reverse
+			}
+
+			if firstCell || style != lastStyle || inSel != lastReverse {
+				buf.WriteString(styleToANSI(style))
+				lastStyle = style
+				lastReverse = inSel
 				firstCell = false
 			}
 
@@ -67,6 +109,7 @@ func (v *VTerm) renderWithScrollback() string {
 	}
 
 	var lastStyle Style
+	var lastReverse bool
 	firstCell := true
 
 	for i := 0; i < v.Height; i++ {
@@ -88,9 +131,19 @@ func (v *VTerm) renderWithScrollback() string {
 				cell = DefaultCell()
 			}
 
-			if firstCell || cell.Style != lastStyle {
-				buf.WriteString(styleToANSI(cell.Style))
-				lastStyle = cell.Style
+			// Check if this cell is in selection (i is the visible Y coord)
+			inSel := v.isInSelection(x, i)
+
+			// Apply style changes (toggle reverse for selection)
+			style := cell.Style
+			if inSel {
+				style.Reverse = !style.Reverse
+			}
+
+			if firstCell || style != lastStyle || inSel != lastReverse {
+				buf.WriteString(styleToANSI(style))
+				lastStyle = style
+				lastReverse = inSel
 				firstCell = false
 			}
 
@@ -247,4 +300,116 @@ func (v *VTerm) ScrollToLine(lineIdx int) {
 	}
 
 	v.ViewOffset = targetOffset
+}
+
+// GetSelectedText extracts text from the selection range.
+// startX, startY, endX, endY are in visible screen coordinates (0-indexed).
+// This handles scrollback by converting visible Y to absolute line numbers.
+func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
+	// Normalize coordinates so start is before end
+	if startY > endY || (startY == endY && startX > endX) {
+		startX, endX = endX, startX
+		startY, endY = endY, startY
+	}
+
+	// Clamp to valid range
+	if startX < 0 {
+		startX = 0
+	}
+	if endX >= v.Width {
+		endX = v.Width - 1
+	}
+	if startY < 0 {
+		startY = 0
+	}
+	if endY >= v.Height {
+		endY = v.Height - 1
+	}
+
+	// Convert visible Y coordinates to absolute line numbers
+	// (matching the logic in renderWithScrollback)
+	scrollbackLen := len(v.Scrollback)
+	screenLen := len(v.Screen)
+	startLine := scrollbackLen + screenLen - v.Height - v.ViewOffset
+	if startLine < 0 {
+		startLine = 0
+	}
+
+	var result strings.Builder
+
+	for y := startY; y <= endY; y++ {
+		absLineNum := startLine + y
+
+		// Get the row from scrollback or screen
+		var row []Cell
+		if absLineNum < scrollbackLen {
+			row = v.Scrollback[absLineNum]
+		} else if absLineNum-scrollbackLen < screenLen {
+			row = v.Screen[absLineNum-scrollbackLen]
+		}
+
+		if row == nil {
+			if y < endY {
+				result.WriteRune('\n')
+			}
+			continue
+		}
+
+		// Determine X range for this line
+		xStart := 0
+		xEnd := len(row) - 1
+		if y == startY {
+			xStart = startX
+		}
+		if y == endY {
+			xEnd = endX
+		}
+		if xEnd >= len(row) {
+			xEnd = len(row) - 1
+		}
+
+		// Extract characters from the row
+		for x := xStart; x <= xEnd; x++ {
+			if x < len(row) {
+				r := row[x].Rune
+				if r == 0 {
+					r = ' '
+				}
+				result.WriteRune(r)
+			}
+		}
+
+		// Add newline between lines (but not after the last line)
+		if y < endY {
+			// Trim trailing spaces from the line before adding newline
+			line := strings.TrimRight(result.String()[result.Len()-xEnd-1+xStart:], " ")
+			if len(line) < xEnd-xStart+1 {
+				// Rebuild without trailing spaces for this line
+				// Actually, simpler approach: just add newline and trim at the end
+			}
+			result.WriteRune('\n')
+		}
+	}
+
+	// Trim trailing spaces from each line
+	lines := strings.Split(result.String(), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// SetSelection stores selection coordinates for rendering with highlight.
+// Pass nil coordinates to clear selection.
+func (v *VTerm) SetSelection(startX, startY, endX, endY int, active bool) {
+	v.selStartX = startX
+	v.selStartY = startY
+	v.selEndX = endX
+	v.selEndY = endY
+	v.selActive = active
+}
+
+// ClearSelection clears the current selection
+func (v *VTerm) ClearSelection() {
+	v.selActive = false
 }
