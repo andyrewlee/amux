@@ -61,14 +61,21 @@ type Tab struct {
 	mu        sync.Mutex   // Protects Terminal
 	Running   bool         // Whether the agent is actively running
 	// Buffer PTY output to avoid rendering partial screen updates.
-	pendingOutput  []byte
-	flushScheduled bool
+	pendingOutput     []byte
+	flushScheduled    bool
+	lastOutputAt      time.Time
+	flushPendingSince time.Time
 	// Mouse selection state
 	Selection SelectionState
 }
 
 // PendingGTimeout fires when 'g' prefix times out
 type PendingGTimeout struct{}
+
+const (
+	ptyFlushQuiet       = 12 * time.Millisecond
+	ptyFlushMaxInterval = 50 * time.Millisecond
+)
 
 // Model is the Bubbletea model for the center pane
 type Model struct {
@@ -462,10 +469,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
 			tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
+			tab.lastOutputAt = time.Now()
 			if !tab.flushScheduled {
 				tab.flushScheduled = true
+				tab.flushPendingSince = tab.lastOutputAt
 				tabID := msg.TabID // Capture for closure
-				cmds = append(cmds, tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg {
+				cmds = append(cmds, tea.Tick(ptyFlushQuiet, func(t time.Time) tea.Msg {
 					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
 				}))
 			}
@@ -477,7 +486,27 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case PTYFlush:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
+			now := time.Now()
+			quietFor := now.Sub(tab.lastOutputAt)
+			pendingFor := time.Duration(0)
+			if !tab.flushPendingSince.IsZero() {
+				pendingFor = now.Sub(tab.flushPendingSince)
+			}
+			if quietFor < ptyFlushQuiet && pendingFor < ptyFlushMaxInterval {
+				delay := ptyFlushQuiet - quietFor
+				if delay < time.Millisecond {
+					delay = time.Millisecond
+				}
+				tabID := msg.TabID
+				tab.flushScheduled = true
+				cmds = append(cmds, tea.Tick(delay, func(t time.Time) tea.Msg {
+					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
+				}))
+				break
+			}
+
 			tab.flushScheduled = false
+			tab.flushPendingSince = time.Time{}
 			if len(tab.pendingOutput) > 0 {
 				tab.mu.Lock()
 				if tab.Terminal != nil {
