@@ -5,10 +5,9 @@ import "github.com/charmbracelet/bubbles/key"
 // KeyMap defines all keybindings for the application
 type KeyMap struct {
 	// Global
-	Quit        key.Binding
-	FocusLeft   key.Binding
-	FocusCenter key.Binding
-	FocusRight  key.Binding
+	Quit      key.Binding
+	MoveLeft  key.Binding
+	MoveRight key.Binding
 	NextTab     key.Binding
 	PrevTab     key.Binding
 	CloseTab    key.Binding
@@ -41,17 +40,13 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+q"),
 			key.WithHelp("ctrl+q", "quit"),
 		),
-		FocusLeft: key.NewBinding(
+		MoveLeft: key.NewBinding(
 			key.WithKeys("ctrl+h"),
-			key.WithHelp("ctrl+h", "focus dashboard"),
+			key.WithHelp("ctrl+h", "move left"),
 		),
-		FocusCenter: key.NewBinding(
+		MoveRight: key.NewBinding(
 			key.WithKeys("ctrl+l"),
-			key.WithHelp("ctrl+l", "focus center"),
-		),
-		FocusRight: key.NewBinding(
-			key.WithKeys("ctrl+;"),
-			key.WithHelp("ctrl+;", "focus sidebar"),
+			key.WithHelp("ctrl+l", "move right"),
 		),
 		NextTab: key.NewBinding(
 			key.WithKeys("tab"),

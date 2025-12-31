@@ -125,6 +125,7 @@ func New() (*App, error) {
 // Init initializes the application
 func (a *App) Init() tea.Cmd {
 	return tea.Batch(
+		tea.EnableMouseCellMotion, // Enable mouse support for click-to-focus
 		a.loadProjects(),
 		a.dashboard.Init(),
 		a.center.Init(),
@@ -197,6 +198,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.layout.Resize(msg.Width, msg.Height)
 		a.updateLayout()
 
+	case tea.MouseMsg:
+		// Handle mouse clicks for pane focusing
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			dashWidth := a.layout.DashboardWidth()
+			centerWidth := a.layout.CenterWidth()
+
+			if msg.X < dashWidth {
+				// Clicked on dashboard (left bar)
+				a.focusPane(messages.PaneDashboard)
+			} else if msg.X < dashWidth+centerWidth {
+				// Clicked on center pane
+				a.focusPane(messages.PaneCenter)
+			} else if a.layout.ShowSidebar() {
+				// Clicked on sidebar
+				a.focusPane(messages.PaneSidebar)
+			}
+		}
+
 	case tea.KeyMsg:
 		// Handle quit first
 		if key.Matches(msg, a.keymap.Quit) {
@@ -224,6 +243,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 
+			// Check for global navigation keys BEFORE forwarding to terminal
+			// These must be intercepted or user gets stuck in terminal
+			switch {
+			case key.Matches(msg, a.keymap.MoveLeft):
+				// From center, move left to dashboard
+				a.focusPane(messages.PaneDashboard)
+				return a, nil
+			case key.Matches(msg, a.keymap.MoveRight):
+				// From center, move right to sidebar (if visible)
+				if a.layout.ShowSidebar() {
+					a.focusPane(messages.PaneSidebar)
+				}
+				return a, nil
+			case key.Matches(msg, a.keymap.Quit):
+				a.center.Close()
+				a.quitting = true
+				return a, tea.Quit
+			}
+
 			// When we have active tabs, forward all other keys to the terminal
 			if a.center.HasTabs() {
 				logging.Debug("Forwarding key to center pane: %s", msg.String())
@@ -235,14 +273,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Global keybindings (only when NOT in terminal mode)
+		// Relative vim-style navigation: Ctrl+H = left, Ctrl+L = right
 		switch {
-		case key.Matches(msg, a.keymap.FocusLeft):
-			a.focusPane(messages.PaneDashboard)
-		case key.Matches(msg, a.keymap.FocusCenter):
-			a.focusPane(messages.PaneCenter)
-		case key.Matches(msg, a.keymap.FocusRight):
-			if a.layout.ShowSidebar() {
-				a.focusPane(messages.PaneSidebar)
+		case key.Matches(msg, a.keymap.MoveLeft):
+			switch a.focusedPane {
+			case messages.PaneCenter:
+				a.focusPane(messages.PaneDashboard)
+			case messages.PaneSidebar:
+				a.focusPane(messages.PaneCenter)
+			}
+		case key.Matches(msg, a.keymap.MoveRight):
+			switch a.focusedPane {
+			case messages.PaneDashboard:
+				a.focusPane(messages.PaneCenter)
+			case messages.PaneCenter:
+				if a.layout.ShowSidebar() {
+					a.focusPane(messages.PaneSidebar)
+				}
 			}
 		case key.Matches(msg, a.keymap.Home):
 			a.showWelcome = true
