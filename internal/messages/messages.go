@@ -169,4 +169,3 @@ type GitStatusTick struct{}
 type FileWatcherEvent struct {
 	Root string
 }
-
