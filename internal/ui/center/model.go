@@ -476,10 +476,10 @@ func (m *Model) renderTabBar() string {
 	activeIdx := m.getActiveTabIdx()
 
 	if len(currentTabs) == 0 {
-		return m.styles.TabBar.Render(m.styles.Muted.Render("No agents"))
+		return m.styles.Muted.Render("No agents")
 	}
 
-	var tabs []string
+	var renderedTabs []string
 	for i, tab := range currentTabs {
 		name := tab.Assistant
 		if name == "" {
@@ -511,22 +511,29 @@ func (m *Model) renderTabBar() string {
 			agentStyle = m.styles.AgentTerm
 		}
 
-		// Build tab content
-		content := indicator + name
+		// Build tab content with agent-colored indicator
+		content := agentStyle.Render(indicator) + name
 
 		if i == activeIdx {
-			// Active tab gets full highlight
-			tabs = append(tabs, m.styles.ActiveTab.Render(content))
+			// Active tab gets highlight border
+			renderedTabs = append(renderedTabs, m.styles.ActiveTab.Render(content))
 		} else {
-			// Inactive tab with agent color for indicator
-			tabs = append(tabs, m.styles.Tab.Render(agentStyle.Render(indicator)+name))
+			// Inactive tab
+			renderedTabs = append(renderedTabs, m.styles.Tab.Render(content))
 		}
 	}
 
-	// Add the plus button for new tab
-	plusBtn := m.styles.TabPlus.Render("[+]")
+	// Add the plus button styled to match the tab bar line
+	plusBtn := lipgloss.NewStyle().
+		Padding(0, 1).
+		Foreground(common.ColorMuted).
+		Border(lipgloss.Border{Bottom: "─"}, false, false, true, false).
+		BorderForeground(common.ColorBorder).
+		Render("[+]")
+	renderedTabs = append(renderedTabs, plusBtn)
 
-	return m.styles.TabBar.Render(strings.Join(tabs, " ") + " " + plusBtn)
+	// Join tabs horizontally at the bottom so borders align
+	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
 }
 
 // renderEmpty renders the empty state
