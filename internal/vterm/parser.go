@@ -1,6 +1,7 @@
 package vterm
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -258,10 +259,11 @@ func (p *Parser) executeCSI(final byte) {
 		p.vt.restoreCursor()
 	case 'c': // DA - device attributes
 		if p.intermediate == '>' {
-			// Secondary DA - ignore
-		} else {
-			// Primary DA - report VT100
-			// Would need to write back to PTY
+			// Secondary DA - report VT220
+			p.vt.respond([]byte("\x1b[>1;10;0c"))
+		} else if p.intermediate == 0 {
+			// Primary DA - report VT220 with ANSI color
+			p.vt.respond([]byte("\x1b[?62;22c"))
 		}
 	case 'h': // SM/DECSET - set mode
 		p.executeMode(true)
@@ -361,8 +363,20 @@ func (p *Parser) parseExtendedColor(i int, color *Color) int {
 }
 
 func (p *Parser) executeDSR() {
-	// Device status reports - would need to write back to PTY
-	// For now, ignore
+	if len(p.params) == 0 {
+		return
+	}
+
+	switch p.params[0] {
+	case 5: // Status report - respond "OK"
+		p.vt.respond([]byte("\x1b[0n"))
+	case 6: // Cursor position report
+		// Response: ESC [ row ; col R (1-indexed)
+		row := p.vt.CursorY + 1
+		col := p.vt.CursorX + 1
+		response := fmt.Sprintf("\x1b[%d;%dR", row, col)
+		p.vt.respond([]byte(response))
+	}
 }
 
 func (p *Parser) executeMode(set bool) {

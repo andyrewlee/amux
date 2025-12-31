@@ -463,6 +463,13 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		// Create virtual terminal emulator with scrollback
 		term := vterm.New(termWidth, termHeight)
 
+		// Set up response writer for terminal queries (DSR, DA, etc.)
+		if agent.Terminal != nil {
+			term.SetResponseWriter(func(data []byte) {
+				agent.Terminal.SendString(string(data))
+			})
+		}
+
 		// Create tab
 		tab := &Tab{
 			Name:      assistant,

@@ -2,6 +2,9 @@ package vterm
 
 const MaxScrollback = 10000
 
+// ResponseWriter is called when the terminal needs to send a response back to the PTY
+type ResponseWriter func([]byte)
+
 // VTerm is a virtual terminal emulator with scrollback support
 type VTerm struct {
 	// Screen buffer (visible area)
@@ -39,6 +42,9 @@ type VTerm struct {
 
 	// Parser state
 	parser *Parser
+
+	// Response writer for terminal queries (DSR, DA, etc.)
+	responseWriter ResponseWriter
 }
 
 // New creates a new VTerm with the given dimensions
@@ -128,6 +134,18 @@ func (v *VTerm) Resize(width, height int) {
 // Write processes input bytes from PTY
 func (v *VTerm) Write(data []byte) {
 	v.parser.Parse(data)
+}
+
+// SetResponseWriter sets the callback for terminal query responses
+func (v *VTerm) SetResponseWriter(w ResponseWriter) {
+	v.responseWriter = w
+}
+
+// respond sends a response back to the PTY (for terminal queries)
+func (v *VTerm) respond(data []byte) {
+	if v.responseWriter != nil {
+		v.responseWriter(data)
+	}
 }
 
 // trimScrollback keeps scrollback under MaxScrollback
