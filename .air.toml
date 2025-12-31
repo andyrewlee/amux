@@ -1,0 +1,15 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/amux"
+  cmd = "go build -o ./tmp/amux ./cmd/amux"
+  delay = 500
+  exclude_dir = ["tmp", "vendor", ".git", ".github"]
+  exclude_regex = ["_test\\.go$"]
+  include_ext = ["go"]
+  send_interrupt = true
+  kill_delay = 500
+
+[misc]
+  clean_on_exit = true

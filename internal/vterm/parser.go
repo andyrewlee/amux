@@ -24,9 +24,10 @@ type Parser struct {
 	state parseState
 
 	// CSI sequence building
-	params       []int
-	paramBuf     strings.Builder
-	intermediate byte
+	params          []int
+	paramBuf        strings.Builder
+	intermediate    byte
+	csiIntermediate byte
 
 	// OSC sequence building
 	oscBuf strings.Builder
@@ -143,6 +144,7 @@ func (p *Parser) parseEscape(b byte) {
 		p.params = p.params[:0]
 		p.paramBuf.Reset()
 		p.intermediate = 0
+		p.csiIntermediate = 0
 	case ']': // OSC
 		p.state = stateOSC
 		p.oscBuf.Reset()
@@ -193,6 +195,9 @@ func (p *Parser) parseCSI(b byte) {
 	case b == '?', b == '>', b == '!', b == '<':
 		p.intermediate = b
 		p.state = stateCSIParam
+	case b >= 0x20 && b <= 0x2f: // Intermediate bytes (e.g. '$')
+		p.csiIntermediate = b
+		p.state = stateCSIParam
 	case b >= 0x40 && b <= 0x7e: // Final byte
 		p.pushParam()
 		p.executeCSI(b)
@@ -201,26 +206,9 @@ func (p *Parser) parseCSI(b byte) {
 		p.state = stateEscape
 	default:
 		// Intermediate bytes
-		if p.intermediate == 0 && (b == ' ' || b == '"' || b == '\'' || b == '*' || b == '+') {
-			p.intermediate = b
+		if b >= 0x20 && b <= 0x2f {
+			p.csiIntermediate = b
 		}
-	}
-}
-
-func (p *Parser) parseCSIParam(b byte) {
-	switch {
-	case b >= '0' && b <= '9':
-		p.paramBuf.WriteByte(b)
-	case b == ';':
-		p.pushParam()
-	case b == ':': // Sub-parameter separator
-		p.paramBuf.WriteByte(b)
-	case b >= 0x40 && b <= 0x7e: // Final byte
-		p.pushParam()
-		p.executeCSI(b)
-		p.state = stateGround
-	case b == 0x1b:
-		p.state = stateEscape
 	}
 }
 
@@ -319,6 +307,10 @@ func (p *Parser) executeCSI(final byte) {
 		p.executeMode(false)
 	case 't': // Window operations
 		// Ignore
+	case 'p': // DECRQM - request mode report
+		if p.intermediate == '?' && p.csiIntermediate == '$' {
+			p.executeDECRQM()
+		}
 	}
 }
 
@@ -448,9 +440,33 @@ func (p *Parser) executeMode(set bool) {
 			} else {
 				p.vt.exitAltScreen()
 			}
+		case 2026: // Synchronized output
+			p.vt.setSynchronizedOutput(set)
 		case 2004: // Bracketed paste mode
 			// Ignore
 		}
+	}
+}
+
+func (p *Parser) executeDECRQM() {
+	if len(p.params) == 0 {
+		return
+	}
+
+	for _, param := range p.params {
+		status := 0
+		switch param {
+		case 2026:
+			if p.vt.syncActive {
+				status = 1
+			} else {
+				status = 2
+			}
+		default:
+			status = 0
+		}
+		response := fmt.Sprintf("\x1b[?%d;%d$y", param, status)
+		p.vt.respond([]byte(response))
 	}
 }
 

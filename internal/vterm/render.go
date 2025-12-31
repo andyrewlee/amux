@@ -7,10 +7,22 @@ import (
 
 // Render returns the terminal content as a string with ANSI codes
 func (v *VTerm) Render() string {
+	screen, scrollbackLen := v.renderBuffers()
 	if v.ViewOffset > 0 {
-		return v.renderWithScrollback()
+		return v.renderWithScrollbackFrom(screen, scrollbackLen)
 	}
-	return v.renderScreen()
+	return v.renderScreenFrom(screen)
+}
+
+func (v *VTerm) renderBuffers() ([][]Cell, int) {
+	if v.syncActive && v.syncScreen != nil {
+		scrollbackLen := v.syncScrollbackLen
+		if scrollbackLen > len(v.Scrollback) {
+			scrollbackLen = len(v.Scrollback)
+		}
+		return v.syncScreen, scrollbackLen
+	}
+	return v.Screen, len(v.Scrollback)
 }
 
 // isInSelection checks if coordinate (x, y) is within the selection
@@ -45,8 +57,8 @@ func (v *VTerm) isInSelection(x, y int) bool {
 	return true
 }
 
-// renderScreen renders just the current screen
-func (v *VTerm) renderScreen() string {
+// renderScreenFrom renders the given screen buffer
+func (v *VTerm) renderScreenFrom(screen [][]Cell) string {
 	var buf strings.Builder
 	buf.Grow(v.Width * v.Height * 2) // Rough estimate
 
@@ -54,7 +66,7 @@ func (v *VTerm) renderScreen() string {
 	var lastReverse bool
 	firstCell := true
 
-	for y, row := range v.Screen {
+	for y, row := range screen {
 		for x, cell := range row {
 			// Check if this cell is in selection
 			inSel := v.isInSelection(x, y)
@@ -90,15 +102,17 @@ func (v *VTerm) renderScreen() string {
 	return buf.String()
 }
 
-// renderWithScrollback renders content from scrollback + screen
-func (v *VTerm) renderWithScrollback() string {
+// renderWithScrollbackFrom renders content from scrollback + screen
+func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) string {
 	var buf strings.Builder
 	buf.Grow(v.Width * v.Height * 2)
 
 	// Calculate which lines to show
 	// ViewOffset = how many lines scrolled up into history
-	scrollbackLen := len(v.Scrollback)
-	screenLen := len(v.Screen)
+	if scrollbackLen > len(v.Scrollback) {
+		scrollbackLen = len(v.Scrollback)
+	}
+	screenLen := len(screen)
 
 	// Start position in the combined buffer (scrollback + screen)
 	// When ViewOffset = scrollbackLen, we show from the start of scrollback
@@ -119,7 +133,7 @@ func (v *VTerm) renderWithScrollback() string {
 		if lineIdx < scrollbackLen {
 			row = v.Scrollback[lineIdx]
 		} else if lineIdx-scrollbackLen < screenLen {
-			row = v.Screen[lineIdx-scrollbackLen]
+			row = screen[lineIdx-scrollbackLen]
 		}
 
 		// Render the row
@@ -328,8 +342,8 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 
 	// Convert visible Y coordinates to absolute line numbers
 	// (matching the logic in renderWithScrollback)
-	scrollbackLen := len(v.Scrollback)
-	screenLen := len(v.Screen)
+	screen, scrollbackLen := v.renderBuffers()
+	screenLen := len(screen)
 	startLine := scrollbackLen + screenLen - v.Height - v.ViewOffset
 	if startLine < 0 {
 		startLine = 0
@@ -345,7 +359,7 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 		if absLineNum < scrollbackLen {
 			row = v.Scrollback[absLineNum]
 		} else if absLineNum-scrollbackLen < screenLen {
-			row = v.Screen[absLineNum-scrollbackLen]
+			row = screen[absLineNum-scrollbackLen]
 		}
 
 		if row == nil {
@@ -381,12 +395,6 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 
 		// Add newline between lines (but not after the last line)
 		if y < endY {
-			// Trim trailing spaces from the line before adding newline
-			line := strings.TrimRight(result.String()[result.Len()-xEnd-1+xStart:], " ")
-			if len(line) < xEnd-xStart+1 {
-				// Rebuild without trailing spaces for this line
-				// Actually, simpler approach: just add newline and trim at the end
-			}
 			result.WriteRune('\n')
 		}
 	}
