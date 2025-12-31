@@ -31,6 +31,11 @@ func (w Worktree) IsPrimaryCheckout() bool {
 	return w.Root == w.Repo
 }
 
+// IsMainBranch returns true if this worktree is on main or master branch
+func (w Worktree) IsMainBranch() bool {
+	return w.Branch == "main" || w.Branch == "master"
+}
+
 // NewWorktree creates a new Worktree with the current timestamp
 func NewWorktree(name, branch, base, repo, root string) *Worktree {
 	return &Worktree{

@@ -44,6 +44,11 @@ type Dialog struct {
 	cursor    int
 	confirmed bool
 
+	// Fuzzy filter state
+	filterEnabled   bool
+	filterInput     textinput.Model
+	filteredIndices []int // indices into options
+
 	// Layout
 	width  int
 	height int
@@ -106,31 +111,80 @@ func DefaultAgentOptions() []AgentOption {
 	}
 }
 
-// NewAgentPicker creates a new agent selection dialog
+// NewAgentPicker creates a new agent selection dialog with fuzzy filtering
 func NewAgentPicker() *Dialog {
 	options := DefaultAgentOptions()
 	optionNames := make([]string, len(options))
+	allIndices := make([]int, len(options))
 	for i, opt := range options {
 		optionNames[i] = opt.ID
+		allIndices[i] = i
 	}
 
+	// Create filter input
+	fi := textinput.New()
+	fi.Placeholder = "Type to filter..."
+	fi.Focus()
+	fi.CharLimit = 20
+	fi.Width = 30
+
 	return &Dialog{
-		id:      "agent-picker",
-		dtype:   DialogSelect,
-		title:   "New Agent",
-		message: "Select agent type:",
-		options: optionNames,
-		cursor:  0, // Default to claude
+		id:              "agent-picker",
+		dtype:           DialogSelect,
+		title:           "New Agent",
+		message:         "Select agent type:",
+		options:         optionNames,
+		cursor:          0,
+		filterEnabled:   true,
+		filterInput:     fi,
+		filteredIndices: allIndices,
 	}
+}
+
+// fuzzyMatch returns true if pattern fuzzy-matches target (case-insensitive)
+func fuzzyMatch(pattern, target string) bool {
+	if pattern == "" {
+		return true
+	}
+	pattern = strings.ToLower(pattern)
+	target = strings.ToLower(target)
+	pi := 0
+	for ti := 0; ti < len(target) && pi < len(pattern); ti++ {
+		if target[ti] == pattern[pi] {
+			pi++
+		}
+	}
+	return pi == len(pattern)
 }
 
 // Show makes the dialog visible
 func (d *Dialog) Show() {
 	d.visible = true
 	d.confirmed = false
+	d.cursor = 0
 	if d.dtype == DialogInput {
 		d.input.SetValue("")
 		d.input.Focus()
+	}
+	if d.filterEnabled {
+		d.filterInput.SetValue("")
+		d.filterInput.Focus()
+		d.applyFilter()
+	}
+}
+
+// applyFilter updates filteredIndices based on current filter input
+func (d *Dialog) applyFilter() {
+	query := d.filterInput.Value()
+	d.filteredIndices = nil
+	for i, opt := range d.options {
+		if fuzzyMatch(query, opt) {
+			d.filteredIndices = append(d.filteredIndices, i)
+		}
+	}
+	// Clamp cursor to filtered range
+	if d.cursor >= len(d.filteredIndices) {
+		d.cursor = max(0, len(d.filteredIndices)-1)
 	}
 }
 
@@ -182,26 +236,54 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 					}
 				}
 			case DialogSelect:
+				// For filtered dialogs, return the original index
+				var originalIdx int
+				var value string
+				if d.filterEnabled && len(d.filteredIndices) > 0 {
+					originalIdx = d.filteredIndices[d.cursor]
+					value = d.options[originalIdx]
+				} else if !d.filterEnabled && d.cursor < len(d.options) {
+					originalIdx = d.cursor
+					value = d.options[d.cursor]
+				} else {
+					// No valid selection
+					d.visible = false
+					return d, func() tea.Msg {
+						return DialogResult{ID: d.id, Confirmed: false}
+					}
+				}
 				return d, func() tea.Msg {
 					return DialogResult{
 						ID:        d.id,
 						Confirmed: true,
-						Index:     d.cursor,
-						Value:     d.options[d.cursor],
+						Index:     originalIdx,
+						Value:     value,
 					}
 				}
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "j", "down"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down"))):
 			if d.dtype != DialogInput {
-				d.cursor = (d.cursor + 1) % len(d.options)
+				maxLen := len(d.options)
+				if d.filterEnabled {
+					maxLen = len(d.filteredIndices)
+				}
+				if maxLen > 0 {
+					d.cursor = (d.cursor + 1) % maxLen
+				}
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "k", "up"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "up"))):
 			if d.dtype != DialogInput {
-				d.cursor--
-				if d.cursor < 0 {
-					d.cursor = len(d.options) - 1
+				maxLen := len(d.options)
+				if d.filterEnabled {
+					maxLen = len(d.filteredIndices)
+				}
+				if maxLen > 0 {
+					d.cursor--
+					if d.cursor < 0 {
+						d.cursor = maxLen - 1
+					}
 				}
 			}
 
@@ -221,6 +303,18 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	if d.dtype == DialogInput {
 		var cmd tea.Cmd
 		d.input, cmd = d.input.Update(msg)
+		return d, cmd
+	}
+
+	// Update filter input for filtered select dialogs
+	if d.dtype == DialogSelect && d.filterEnabled {
+		oldValue := d.filterInput.Value()
+		var cmd tea.Cmd
+		d.filterInput, cmd = d.filterInput.Update(msg)
+		// Reapply filter if input changed
+		if d.filterInput.Value() != oldValue {
+			d.applyFilter()
+		}
 		return d, cmd
 	}
 
@@ -278,12 +372,27 @@ func (d *Dialog) View() string {
 func (d *Dialog) renderOptions() string {
 	var b strings.Builder
 
-	// For agent picker, show vertical list with descriptions
+	// For agent picker, show filter input and filtered list
 	if d.id == "agent-picker" {
+		// Show filter input
+		if d.filterEnabled {
+			b.WriteString(d.filterInput.View())
+			b.WriteString("\n\n")
+		}
+
 		agentOptions := DefaultAgentOptions()
-		for i, opt := range agentOptions {
+
+		// If no matches, show message
+		if d.filterEnabled && len(d.filteredIndices) == 0 {
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("No matches"))
+			return b.String()
+		}
+
+		// Render only filtered options
+		for cursorIdx, originalIdx := range d.filteredIndices {
+			opt := agentOptions[originalIdx]
 			cursor := Icons.CursorEmpty + " "
-			if i == d.cursor {
+			if cursorIdx == d.cursor {
 				cursor = Icons.Cursor + " "
 			}
 
@@ -304,7 +413,7 @@ func (d *Dialog) renderOptions() string {
 				colorStyle = lipgloss.NewStyle().Foreground(ColorForeground)
 			}
 
-			name := colorStyle.Bold(i == d.cursor).Render("[" + opt.Name + "]")
+			name := colorStyle.Bold(cursorIdx == d.cursor).Render("[" + opt.Name + "]")
 			desc := lipgloss.NewStyle().Foreground(ColorMuted).Render("  " + opt.Desc)
 
 			b.WriteString(cursor + name + desc + "\n")
