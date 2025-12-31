@@ -149,6 +149,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.statusCache[msg.Root] = msg.Status
 		}
+		// Rebuild rows if dirty filter is active (status change may affect visibility)
+		if m.filterDirty {
+			m.rebuildRows()
+		}
 
 	case messages.WorktreeActivated:
 		if msg.Worktree != nil {
