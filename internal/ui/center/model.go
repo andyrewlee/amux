@@ -75,6 +75,8 @@ type PendingGTimeout struct{}
 const (
 	ptyFlushQuiet       = 12 * time.Millisecond
 	ptyFlushMaxInterval = 50 * time.Millisecond
+	ptyFlushQuietAlt    = 30 * time.Millisecond
+	ptyFlushMaxAlt      = 120 * time.Millisecond
 )
 
 // Model is the Bubbletea model for the center pane
@@ -142,6 +144,20 @@ func (m *Model) getActiveTabIdx() int {
 // setActiveTabIdx sets the active tab index for the current worktree
 func (m *Model) setActiveTabIdx(idx int) {
 	m.activeTabByWorktree[m.worktreeID()] = idx
+}
+
+func (m *Model) flushTiming(tab *Tab) (time.Duration, time.Duration) {
+	quiet := ptyFlushQuiet
+	maxInterval := ptyFlushMaxInterval
+
+	tab.mu.Lock()
+	if tab.Terminal != nil && (tab.Terminal.AltScreen || tab.Terminal.SyncActive()) {
+		quiet = ptyFlushQuietAlt
+		maxInterval = ptyFlushMaxAlt
+	}
+	tab.mu.Unlock()
+
+	return quiet, maxInterval
 }
 
 // addTab adds a tab to the current worktree
@@ -473,8 +489,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !tab.flushScheduled {
 				tab.flushScheduled = true
 				tab.flushPendingSince = tab.lastOutputAt
+				quiet, _ := m.flushTiming(tab)
 				tabID := msg.TabID // Capture for closure
-				cmds = append(cmds, tea.Tick(ptyFlushQuiet, func(t time.Time) tea.Msg {
+				cmds = append(cmds, tea.Tick(quiet, func(t time.Time) tea.Msg {
 					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
 				}))
 			}
@@ -492,8 +509,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !tab.flushPendingSince.IsZero() {
 				pendingFor = now.Sub(tab.flushPendingSince)
 			}
-			if quietFor < ptyFlushQuiet && pendingFor < ptyFlushMaxInterval {
-				delay := ptyFlushQuiet - quietFor
+			quiet, maxInterval := m.flushTiming(tab)
+			if quietFor < quiet && pendingFor < maxInterval {
+				delay := quiet - quietFor
 				if delay < time.Millisecond {
 					delay = time.Millisecond
 				}

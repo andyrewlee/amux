@@ -163,6 +163,11 @@ func (v *VTerm) SetResponseWriter(w ResponseWriter) {
 	v.responseWriter = w
 }
 
+// SyncActive reports whether synchronized output is currently active.
+func (v *VTerm) SyncActive() bool {
+	return v.syncActive
+}
+
 // respond sends a response back to the PTY (for terminal queries)
 func (v *VTerm) respond(data []byte) {
 	if v.responseWriter != nil {
