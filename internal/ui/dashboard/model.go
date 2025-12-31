@@ -109,12 +109,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 			return m, m.refresh()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):
-			m.cursor = len(m.rows) - 1
-			m.moveCursor(0) // Ensure on selectable row
+			// Jump to last selectable row
+			if idx := m.findSelectableRow(len(m.rows)-1, -1); idx != -1 {
+				m.cursor = idx
+			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
-			// Jump to top
-			m.cursor = 0
-			m.moveCursor(0) // Ensure on selectable row
+			// Jump to first selectable row
+			if idx := m.findSelectableRow(0, 1); idx != -1 {
+				m.cursor = idx
+			}
 		}
 
 	case spinnerTickMsg:
@@ -344,24 +347,47 @@ func (m *Model) rebuildRows() {
 	}
 }
 
+// isSelectable returns whether a row type can be selected
+func isSelectable(rt RowType) bool {
+	return rt != RowProject && rt != RowSpacer
+}
+
+// findSelectableRow finds a selectable row starting from 'from' in direction 'dir'.
+// Returns -1 if none found.
+func (m *Model) findSelectableRow(from, dir int) int {
+	if dir == 0 {
+		dir = 1 // Default to forward
+	}
+	for i := from; i >= 0 && i < len(m.rows); i += dir {
+		if isSelectable(m.rows[i].Type) {
+			return i
+		}
+	}
+	return -1
+}
+
 // moveCursor moves the cursor by delta, skipping non-selectable rows
 func (m *Model) moveCursor(delta int) {
 	if len(m.rows) == 0 {
 		return
 	}
 
-	newCursor := m.cursor + delta
+	target := m.cursor + delta
 
-	// Skip non-selectable rows
-	for newCursor >= 0 && newCursor < len(m.rows) {
-		row := m.rows[newCursor]
-		if row.Type != RowProject && row.Type != RowSpacer {
-			break
-		}
-		newCursor += delta
+	// Determine search direction
+	dir := delta
+	if dir == 0 {
+		dir = 1 // For delta==0, search forward first
 	}
 
-	if newCursor >= 0 && newCursor < len(m.rows) {
+	newCursor := m.findSelectableRow(target, dir)
+
+	// If not found and delta was 0, try the other direction
+	if newCursor == -1 && delta == 0 {
+		newCursor = m.findSelectableRow(target, -1)
+	}
+
+	if newCursor != -1 {
 		m.cursor = newCursor
 	}
 }
