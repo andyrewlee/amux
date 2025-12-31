@@ -6,12 +6,12 @@ import (
 
 func TestParseStatus(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantClean  bool
-		wantFiles  int
-		wantCodes  []string
-		wantPaths  []string
+		name      string
+		output    string
+		wantClean bool
+		wantFiles int
+		wantCodes []string
+		wantPaths []string
 	}{
 		{
 			name:      "empty output",

@@ -136,6 +136,16 @@ func (m *StatusManager) Invalidate(root string) {
 	delete(m.cache, root)
 }
 
+// UpdateCache directly updates the cache with a status result (no fetch)
+func (m *StatusManager) UpdateCache(root string, status *StatusResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cache[root] = &StatusCache{
+		Status:    status,
+		FetchedAt: time.Now(),
+	}
+}
+
 // InvalidateAll clears the entire cache
 func (m *StatusManager) InvalidateAll() {
 	m.mu.Lock()

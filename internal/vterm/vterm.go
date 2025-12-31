@@ -47,9 +47,15 @@ type VTerm struct {
 	responseWriter ResponseWriter
 
 	// Selection state for copy/paste highlighting
-	selActive           bool
+	selActive            bool
 	selStartX, selStartY int
 	selEndX, selEndY     int
+
+	// Synchronized output (DEC mode 2026)
+	syncActive        bool
+	syncScreen        [][]Cell
+	syncScrollbackLen int
+	syncDeferTrim     bool
 }
 
 // New creates a new VTerm with the given dimensions
@@ -142,6 +148,17 @@ func (v *VTerm) Resize(width, height int) {
 		}
 		v.altScreenBuf = newAlt
 	}
+
+	// Keep synchronized output snapshot aligned with new size
+	if v.syncScreen != nil {
+		newSync := v.makeScreen(width, height)
+		for y := 0; y < min(height, len(v.syncScreen)); y++ {
+			for x := 0; x < min(width, len(v.syncScreen[y])); x++ {
+				newSync[y][x] = v.syncScreen[y][x]
+			}
+		}
+		v.syncScreen = newSync
+	}
 }
 
 // Write processes input bytes from PTY
@@ -154,6 +171,11 @@ func (v *VTerm) SetResponseWriter(w ResponseWriter) {
 	v.responseWriter = w
 }
 
+// SyncActive reports whether synchronized output is currently active.
+func (v *VTerm) SyncActive() bool {
+	return v.syncActive
+}
+
 // respond sends a response back to the PTY (for terminal queries)
 func (v *VTerm) respond(data []byte) {
 	if v.responseWriter != nil {
@@ -161,9 +183,44 @@ func (v *VTerm) respond(data []byte) {
 	}
 }
 
+func (v *VTerm) setSynchronizedOutput(active bool) {
+	if active {
+		if v.syncActive {
+			return
+		}
+		v.syncActive = true
+		v.syncScreen = copyScreen(v.Screen)
+		v.syncScrollbackLen = len(v.Scrollback)
+		return
+	}
+
+	if !v.syncActive {
+		return
+	}
+	v.syncActive = false
+	v.syncScreen = nil
+	v.syncScrollbackLen = 0
+	if v.syncDeferTrim {
+		v.syncDeferTrim = false
+		v.trimScrollback()
+	}
+}
+
+func copyScreen(src [][]Cell) [][]Cell {
+	dst := make([][]Cell, len(src))
+	for i := range src {
+		dst[i] = CopyLine(src[i])
+	}
+	return dst
+}
+
 // trimScrollback keeps scrollback under MaxScrollback
 func (v *VTerm) trimScrollback() {
 	if len(v.Scrollback) > MaxScrollback {
+		if v.syncActive {
+			v.syncDeferTrim = true
+			return
+		}
 		v.Scrollback = v.Scrollback[len(v.Scrollback)-MaxScrollback:]
 	}
 	// Clamp ViewOffset after trim to prevent stale offsets

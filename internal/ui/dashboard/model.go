@@ -149,6 +149,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.statusCache[msg.Root] = msg.Status
 		}
+		// Rebuild rows if dirty filter is active (status change may affect visibility)
+		if m.filterDirty {
+			m.rebuildRows()
+		}
 
 	case messages.WorktreeActivated:
 		if msg.Worktree != nil {
@@ -246,14 +250,14 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return cursor + style.Render("[" + common.Icons.Home + " home]")
+		return cursor + style.Render("["+common.Icons.Home+" home]")
 
 	case RowAddProject:
 		style := m.styles.AddProjectRow
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return cursor + style.Render("[" + common.Icons.Add + " Add Project]")
+		return cursor + style.Render("["+common.Icons.Add+" Add Project]")
 
 	case RowProject:
 		// Project headers are uppercase and muted
@@ -291,7 +295,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return cursor + style.Render(common.Icons.Add + " New")
+		return cursor + style.Render(common.Icons.Add+" New")
 
 	case RowSpacer:
 		return ""

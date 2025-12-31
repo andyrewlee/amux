@@ -5,9 +5,9 @@ import "github.com/charmbracelet/bubbles/key"
 // KeyMap defines all keybindings for the application
 type KeyMap struct {
 	// Global
-	Quit      key.Binding
-	MoveLeft  key.Binding
-	MoveRight key.Binding
+	Quit        key.Binding
+	MoveLeft    key.Binding
+	MoveRight   key.Binding
 	NextTab     key.Binding
 	PrevTab     key.Binding
 	CloseTab    key.Binding

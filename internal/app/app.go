@@ -18,12 +18,12 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
-	"github.com/andyrewlee/amux/internal/validation"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 // DialogID constants
@@ -69,6 +69,7 @@ type App struct {
 	// Git status management
 	statusManager *git.StatusManager
 	fileWatcher   *git.FileWatcher
+	fileWatcherCh chan messages.FileWatcherEvent
 
 	// Layout
 	width, height int
@@ -100,16 +101,26 @@ func New() (*App, error) {
 	// Create status manager (callback will be nil, we use it for caching only)
 	statusManager := git.NewStatusManager(nil)
 
-	// Create file watcher (may fail, that's ok)
-	fileWatcher, _ := git.NewFileWatcher(nil)
+	// Create file watcher event channel
+	fileWatcherCh := make(chan messages.FileWatcherEvent, 10)
+
+	// Create file watcher with callback that sends to channel
+	fileWatcher, _ := git.NewFileWatcher(func(root string) {
+		select {
+		case fileWatcherCh <- messages.FileWatcherEvent{Root: root}:
+		default:
+			// Channel full, drop event (will catch on next change)
+		}
+	})
 
 	return &App{
-		config:   cfg,
-		registry: registry,
-		metadata: metadata,
-		scripts:  scripts,
+		config:        cfg,
+		registry:      registry,
+		metadata:      metadata,
+		scripts:       scripts,
 		statusManager: statusManager,
 		fileWatcher:   fileWatcher,
+		fileWatcherCh: fileWatcherCh,
 		layout:        layout.NewManager(),
 		dashboard:     dashboard.New(),
 		center:        center.New(cfg),
@@ -145,10 +156,12 @@ func (a *App) startGitStatusTicker() tea.Cmd {
 
 // startFileWatcher starts watching for file changes and returns events
 func (a *App) startFileWatcher() tea.Cmd {
-	if a.fileWatcher == nil {
+	if a.fileWatcher == nil || a.fileWatcherCh == nil {
 		return nil
 	}
-	return nil // File watcher runs in background, we'll handle it differently
+	return func() tea.Msg {
+		return <-a.fileWatcherCh
+	}
 }
 
 // Update handles all messages
@@ -350,7 +363,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.requestGitStatus(msg.Worktree.Root))
 			// Set up file watching for this worktree
 			if a.fileWatcher != nil {
-				a.fileWatcher.Watch(msg.Worktree.Root)
+				_ = a.fileWatcher.Watch(msg.Worktree.Root)
 			}
 		}
 
@@ -441,6 +454,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// File changed, invalidate cache and refresh
 		a.statusManager.Invalidate(msg.Root)
 		cmds = append(cmds, a.requestGitStatus(msg.Root))
+		// Continue listening for file changes
+		cmds = append(cmds, a.startFileWatcher())
 
 	case messages.Error:
 		a.err = msg.Err
@@ -704,8 +719,8 @@ func (a *App) renderCenterPane() string {
 	height := a.layout.Height()
 
 	style := lipgloss.NewStyle().
-		Width(width - 2).
-		Height(height - 2).
+		Width(width-2).
+		Height(height-2).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#5c6370")).
 		Padding(0, 1)
@@ -801,9 +816,9 @@ func (a *App) loadProjects() tea.Cmd {
 func (a *App) requestGitStatus(root string) tea.Cmd {
 	return func() tea.Msg {
 		status, err := git.GetStatus(root)
-		// Update cache
+		// Update cache directly (no async refresh needed, we just fetched)
 		if a.statusManager != nil && err == nil {
-			a.statusManager.RequestRefresh(root)
+			a.statusManager.UpdateCache(root, status)
 		}
 		return messages.GitStatusResult{
 			Root:   root,
@@ -939,8 +954,8 @@ func (a *App) deleteWorktree(project *data.Project, wt *data.Worktree) tea.Cmd {
 			return messages.Error{Err: err, Context: "removing worktree"}
 		}
 
-		git.DeleteBranch(project.Path, wt.Branch)
-		a.metadata.Delete(wt)
+		_ = git.DeleteBranch(project.Path, wt.Branch)
+		_ = a.metadata.Delete(wt)
 
 		return messages.RefreshDashboard{}
 	}
