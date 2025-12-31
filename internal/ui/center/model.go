@@ -41,11 +41,11 @@ type Tab struct {
 // Model is the Bubbletea model for the center pane
 type Model struct {
 	// State
-	worktree     *data.Worktree
-	tabs         []*Tab
-	activeTab    int
-	focused      bool
-	agentManager *appPty.AgentManager
+	worktree           *data.Worktree
+	tabsByWorktree     map[string][]*Tab // tabs per worktree ID
+	activeTabByWorktree map[string]int   // active tab index per worktree
+	focused            bool
+	agentManager       *appPty.AgentManager
 
 	// Layout
 	width  int
@@ -59,10 +59,49 @@ type Model struct {
 // New creates a new center pane model
 func New(cfg *config.Config) *Model {
 	return &Model{
-		tabs:         []*Tab{},
-		config:       cfg,
-		agentManager: appPty.NewAgentManager(cfg),
-		styles:       common.DefaultStyles(),
+		tabsByWorktree:      make(map[string][]*Tab),
+		activeTabByWorktree: make(map[string]int),
+		config:              cfg,
+		agentManager:        appPty.NewAgentManager(cfg),
+		styles:              common.DefaultStyles(),
+	}
+}
+
+// worktreeID returns the ID of the current worktree, or empty string
+func (m *Model) worktreeID() string {
+	if m.worktree == nil {
+		return ""
+	}
+	return string(m.worktree.ID())
+}
+
+// getTabs returns the tabs for the current worktree
+func (m *Model) getTabs() []*Tab {
+	return m.tabsByWorktree[m.worktreeID()]
+}
+
+// getActiveTabIdx returns the active tab index for the current worktree
+func (m *Model) getActiveTabIdx() int {
+	return m.activeTabByWorktree[m.worktreeID()]
+}
+
+// setActiveTabIdx sets the active tab index for the current worktree
+func (m *Model) setActiveTabIdx(idx int) {
+	m.activeTabByWorktree[m.worktreeID()] = idx
+}
+
+// addTab adds a tab to the current worktree
+func (m *Model) addTab(tab *Tab) {
+	wtID := m.worktreeID()
+	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+}
+
+// removeTab removes a tab at index from the current worktree
+func (m *Model) removeTab(idx int) {
+	wtID := m.worktreeID()
+	tabs := m.tabsByWorktree[wtID]
+	if idx >= 0 && idx < len(tabs) {
+		m.tabsByWorktree[wtID] = append(tabs[:idx], tabs[idx+1:]...)
 	}
 }
 
@@ -73,13 +112,15 @@ func (m *Model) Init() tea.Cmd {
 
 // PTYOutput is a message containing PTY output data
 type PTYOutput struct {
-	TabIndex int
-	Data     []byte
+	WorktreeID string
+	TabIndex   int
+	Data       []byte
 }
 
 // PTYTick triggers a PTY read
 type PTYTick struct {
-	TabIndex int
+	WorktreeID string
+	TabIndex   int
 }
 
 // Update handles messages
@@ -88,8 +129,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		tabs := m.getTabs()
+		activeIdx := m.getActiveTabIdx()
 		logging.Debug("Center received key: %s, focused=%v, hasTabs=%v, numTabs=%d",
-			msg.String(), m.focused, m.hasActiveAgent(), len(m.tabs))
+			msg.String(), m.focused, m.hasActiveAgent(), len(tabs))
 
 		if !m.focused {
 			logging.Debug("Center not focused, ignoring key")
@@ -99,7 +142,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// When we have an active agent, forward almost ALL keys to the terminal
 		// Only intercept essential control keys
 		if m.hasActiveAgent() {
-			tab := m.tabs[m.activeTab]
+			tab := tabs[activeIdx]
 			logging.Debug("Has active agent, Agent=%v, Terminal=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil)
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
 				// Only intercept these specific keys - everything else goes to terminal
@@ -203,8 +246,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
 
 	case PTYOutput:
-		if msg.TabIndex >= 0 && msg.TabIndex < len(m.tabs) {
-			tab := m.tabs[msg.TabIndex]
+		wtTabs := m.tabsByWorktree[msg.WorktreeID]
+		if msg.TabIndex >= 0 && msg.TabIndex < len(wtTabs) {
+			tab := wtTabs[msg.TabIndex]
 			tab.mu.Lock()
 			if tab.Terminal != nil {
 				tab.Terminal.Write(msg.Data)
@@ -212,13 +256,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab.mu.Unlock()
 		}
 		// Continue reading
-		if msg.TabIndex < len(m.tabs) {
-			cmds = append(cmds, m.readPTY(msg.TabIndex))
+		if msg.TabIndex < len(wtTabs) {
+			cmds = append(cmds, m.readPTYForWorktree(msg.WorktreeID, msg.TabIndex))
 		}
 
 	case PTYTick:
-		if msg.TabIndex < len(m.tabs) {
-			cmds = append(cmds, m.readPTY(msg.TabIndex))
+		wtTabs := m.tabsByWorktree[msg.WorktreeID]
+		if msg.TabIndex < len(wtTabs) {
+			cmds = append(cmds, m.readPTYForWorktree(msg.WorktreeID, msg.TabIndex))
 		}
 	}
 
@@ -323,10 +368,12 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 
 	// Content
-	if len(m.tabs) == 0 {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 {
 		b.WriteString(m.renderEmpty())
-	} else if m.activeTab < len(m.tabs) {
-		tab := m.tabs[m.activeTab]
+	} else if activeIdx < len(tabs) {
+		tab := tabs[activeIdx]
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			b.WriteString(tab.Terminal.Render())
@@ -372,12 +419,15 @@ func (m *Model) View() string {
 
 // renderTabBar renders the tab bar with activity indicators
 func (m *Model) renderTabBar() string {
-	if len(m.tabs) == 0 {
+	currentTabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+
+	if len(currentTabs) == 0 {
 		return m.styles.TabBar.Render(m.styles.Muted.Render("No agents"))
 	}
 
 	var tabs []string
-	for i, tab := range m.tabs {
+	for i, tab := range currentTabs {
 		name := tab.Assistant
 		if name == "" {
 			name = tab.Name
@@ -411,7 +461,7 @@ func (m *Model) renderTabBar() string {
 		// Build tab content
 		content := indicator + name
 
-		if i == m.activeTab {
+		if i == activeIdx {
 			// Active tab gets full highlight
 			tabs = append(tabs, m.styles.ActiveTab.Render(content))
 		} else {
@@ -486,21 +536,29 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 			logging.Info("Terminal size set to %dx%d", termWidth, termHeight)
 		}
 
-		m.tabs = append(m.tabs, tab)
-		m.activeTab = len(m.tabs) - 1
-		logging.Info("Tab added, numTabs=%d, activeTab=%d", len(m.tabs), m.activeTab)
+		// Add tab to the worktree's tab list
+		wtID := string(wt.ID())
+		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+		logging.Info("Tab added to worktree %s, numTabs=%d, activeTab=%d", wtID, len(m.tabsByWorktree[wtID]), m.activeTabByWorktree[wtID])
 
-		return messages.TabCreated{Index: m.activeTab, Name: assistant}
+		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: assistant}
 	}
 }
 
-// readPTY reads from the PTY for a tab
+// readPTY reads from the PTY for a tab in the current worktree
 func (m *Model) readPTY(tabIndex int) tea.Cmd {
-	if tabIndex >= len(m.tabs) {
+	return m.readPTYForWorktree(m.worktreeID(), tabIndex)
+}
+
+// readPTYForWorktree reads from the PTY for a tab in a specific worktree
+func (m *Model) readPTYForWorktree(wtID string, tabIndex int) tea.Cmd {
+	wtTabs := m.tabsByWorktree[wtID]
+	if tabIndex >= len(wtTabs) {
 		return nil
 	}
 
-	tab := m.tabs[tabIndex]
+	tab := wtTabs[tabIndex]
 	if tab.Agent == nil || tab.Agent.Terminal == nil {
 		return nil
 	}
@@ -511,23 +569,26 @@ func (m *Model) readPTY(tabIndex int) tea.Cmd {
 		if err != nil {
 			// PTY closed, schedule retry after delay
 			time.Sleep(100 * time.Millisecond)
-			return PTYTick{TabIndex: tabIndex}
+			return PTYTick{WorktreeID: wtID, TabIndex: tabIndex}
 		}
 		if n > 0 {
-			return PTYOutput{TabIndex: tabIndex, Data: buf[:n]}
+			return PTYOutput{WorktreeID: wtID, TabIndex: tabIndex, Data: buf[:n]}
 		}
-		return PTYTick{TabIndex: tabIndex}
+		return PTYTick{WorktreeID: wtID, TabIndex: tabIndex}
 	}
 }
 
 // closeCurrentTab closes the current tab
 func (m *Model) closeCurrentTab() tea.Cmd {
-	if len(m.tabs) == 0 || m.activeTab >= len(m.tabs) {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
 		return nil
 	}
 
-	tab := m.tabs[m.activeTab]
-	index := m.activeTab
+	tab := tabs[activeIdx]
+	index := activeIdx
 
 	// Close agent
 	if tab.Agent != nil {
@@ -535,11 +596,12 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 	}
 
 	// Remove from tabs
-	m.tabs = append(m.tabs[:index], m.tabs[index+1:]...)
+	m.removeTab(index)
 
 	// Adjust active tab
-	if m.activeTab >= len(m.tabs) && m.activeTab > 0 {
-		m.activeTab--
+	tabs = m.getTabs() // Get updated tabs
+	if activeIdx >= len(tabs) && activeIdx > 0 {
+		m.setActiveTabIdx(activeIdx - 1)
 	}
 
 	return func() tea.Msg {
@@ -553,7 +615,8 @@ func (m *Model) sendInterrupt() tea.Cmd {
 		return nil
 	}
 
-	tab := m.tabs[m.activeTab]
+	tabs := m.getTabs()
+	tab := tabs[m.getActiveTabIdx()]
 	if tab.Agent != nil {
 		m.agentManager.SendInterrupt(tab.Agent)
 	}
@@ -563,23 +626,27 @@ func (m *Model) sendInterrupt() tea.Cmd {
 
 // hasActiveAgent returns whether there's an active agent
 func (m *Model) hasActiveAgent() bool {
-	return len(m.tabs) > 0 && m.activeTab < len(m.tabs)
+	tabs := m.getTabs()
+	return len(tabs) > 0 && m.getActiveTabIdx() < len(tabs)
 }
 
 // nextTab switches to the next tab
 func (m *Model) nextTab() {
-	if len(m.tabs) > 0 {
-		m.activeTab = (m.activeTab + 1) % len(m.tabs)
+	tabs := m.getTabs()
+	if len(tabs) > 0 {
+		m.setActiveTabIdx((m.getActiveTabIdx() + 1) % len(tabs))
 	}
 }
 
 // prevTab switches to the previous tab
 func (m *Model) prevTab() {
-	if len(m.tabs) > 0 {
-		m.activeTab--
-		if m.activeTab < 0 {
-			m.activeTab = len(m.tabs) - 1
+	tabs := m.getTabs()
+	if len(tabs) > 0 {
+		idx := m.getActiveTabIdx() - 1
+		if idx < 0 {
+			idx = len(tabs) - 1
 		}
+		m.setActiveTabIdx(idx)
 	}
 }
 
@@ -597,15 +664,17 @@ func (m *Model) SetSize(width, height int) {
 		termHeight = 24
 	}
 
-	// Update all terminals
-	for _, tab := range m.tabs {
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.Resize(termWidth, termHeight)
-		}
-		tab.mu.Unlock()
-		if tab.Agent != nil && tab.Agent.Terminal != nil {
-			tab.Agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+	// Update all terminals across all worktrees
+	for _, tabs := range m.tabsByWorktree {
+		for _, tab := range tabs {
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				tab.Terminal.Resize(termWidth, termHeight)
+			}
+			tab.mu.Unlock()
+			if tab.Agent != nil && tab.Agent.Terminal != nil {
+				tab.Agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+			}
 		}
 	}
 }
@@ -630,16 +699,18 @@ func (m *Model) SetWorktree(wt *data.Worktree) {
 	m.worktree = wt
 }
 
-// HasTabs returns whether there are any tabs
+// HasTabs returns whether there are any tabs for the current worktree
 func (m *Model) HasTabs() bool {
-	return len(m.tabs) > 0
+	return len(m.getTabs()) > 0
 }
 
-// StartPTYReaders starts reading from all PTYs
+// StartPTYReaders starts reading from all PTYs across all worktrees
 func (m *Model) StartPTYReaders() tea.Cmd {
 	var cmds []tea.Cmd
-	for i := range m.tabs {
-		cmds = append(cmds, m.readPTY(i))
+	for wtID, tabs := range m.tabsByWorktree {
+		for i := range tabs {
+			cmds = append(cmds, m.readPTYForWorktree(wtID, i))
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -655,7 +726,8 @@ func (m *Model) SendText(text string) {
 		return
 	}
 
-	tab := m.tabs[m.activeTab]
+	tabs := m.getTabs()
+	tab := tabs[m.getActiveTabIdx()]
 	if tab.Agent != nil && tab.Agent.Terminal != nil {
 		// Use bracketed paste mode for multi-line text
 		// This prevents newlines from being interpreted as command execution
@@ -674,23 +746,19 @@ func (m *Model) SendText(text string) {
 
 // GetTabsInfo returns information about current tabs for persistence
 func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
-	var tabs []data.TabInfo
-	for _, tab := range m.tabs {
-		tabs = append(tabs, data.TabInfo{
+	var result []data.TabInfo
+	tabs := m.getTabs()
+	for _, tab := range tabs {
+		result = append(result, data.TabInfo{
 			Assistant: tab.Assistant,
 			Name:      tab.Name,
 		})
 	}
-	return tabs, m.activeTab
+	return result, m.getActiveTabIdx()
 }
 
-// CloseAllTabs closes all tabs and cleans up agents
+// CloseAllTabs is deprecated - tabs now persist per-worktree
+// This is kept for compatibility but does nothing
 func (m *Model) CloseAllTabs() {
-	for _, tab := range m.tabs {
-		if tab.Agent != nil {
-			m.agentManager.CloseAgent(tab.Agent)
-		}
-	}
-	m.tabs = []*Tab{}
-	m.activeTab = 0
+	// No-op: tabs now persist per-worktree and are not closed when switching
 }
