@@ -49,11 +49,12 @@ type App struct {
 	showWelcome    bool
 
 	// UI Components
-	layout    *layout.Manager
-	dashboard *dashboard.Model
-	center    *center.Model
-	sidebar   *sidebar.Model
-	dialog    *common.Dialog
+	layout     *layout.Manager
+	dashboard  *dashboard.Model
+	center     *center.Model
+	sidebar    *sidebar.Model
+	dialog     *common.Dialog
+	filePicker *common.FilePicker
 
 	// Overlays
 	helpOverlay *common.HelpOverlay
@@ -199,6 +200,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Don't process other keys while dialog is open
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+	}
+
+	// Handle file picker if visible
+	if a.filePicker != nil && a.filePicker.Visible() {
+		newPicker, cmd := a.filePicker.Update(msg)
+		a.filePicker = newPicker
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		// Don't process other keys while file picker is open
 		if _, ok := msg.(tea.KeyMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
@@ -389,9 +404,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.ShowAddProjectDialog:
-		logging.Info("Showing Add Project dialog")
-		a.dialog = common.NewInputDialog(DialogAddProject, "Add Project", "Enter repository path...")
-		a.dialog.Show()
+		logging.Info("Showing Add Project file picker")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = "/"
+		}
+		a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
+		a.filePicker.Show()
 
 	case messages.ShowCreateWorktreeDialog:
 		a.dialogProject = msg.Project
@@ -436,6 +455,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.center.StartPTYReaders())
 		// NOW switch focus to center - tab is ready
 		a.focusPane(messages.PaneCenter)
+
+	case messages.TabClosed:
+		logging.Info("Tab closed: %d", msg.Index)
 
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		newCenter, cmd := a.center.Update(msg)
@@ -586,6 +608,11 @@ func (a *App) View() string {
 		content = a.overlayDialog(content)
 	}
 
+	// Overlay file picker if visible
+	if a.filePicker != nil && a.filePicker.Visible() {
+		content = a.overlayFilePicker(content)
+	}
+
 	// Show help overlay if visible
 	if a.helpOverlay.Visible() {
 		content = a.helpOverlay.View()
@@ -687,6 +714,65 @@ func (a *App) overlayDialog(content string) string {
 	return strings.Join(contentLines, "\n")
 }
 
+// overlayFilePicker renders the file picker as a modal overlay
+func (a *App) overlayFilePicker(content string) string {
+	pickerView := a.filePicker.View()
+	pickerLines := strings.Split(pickerView, "\n")
+
+	// Calculate picker dimensions
+	pickerHeight := len(pickerLines)
+	pickerWidth := 0
+	for _, line := range pickerLines {
+		if w := lipgloss.Width(line); w > pickerWidth {
+			pickerWidth = w
+		}
+	}
+
+	// Center the picker
+	x := (a.width - pickerWidth) / 2
+	y := (a.height - pickerHeight) / 2
+
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	// Split content into lines
+	contentLines := strings.Split(content, "\n")
+	originalLineCount := len(contentLines)
+
+	// Overlay picker lines onto content
+	for i, pickerLine := range pickerLines {
+		contentY := y + i
+		if contentY >= 0 && contentY < len(contentLines) {
+			bgLine := contentLines[contentY]
+			bgWidth := lipgloss.Width(bgLine)
+
+			// Build the line: left part + picker line + right part
+			var left string
+			if x > 0 {
+				left = ansi.Truncate(bgLine, x, "")
+			}
+
+			rightStart := x + lipgloss.Width(pickerLine)
+			var right string
+			if rightStart < bgWidth {
+				right = ansi.TruncateLeft(bgLine, rightStart, "")
+			}
+
+			contentLines[contentY] = left + pickerLine + right
+		}
+	}
+
+	if len(contentLines) > originalLineCount {
+		contentLines = contentLines[:originalLineCount]
+	}
+
+	return strings.Join(contentLines, "\n")
+}
+
 // overlayError renders an error banner at the bottom of the screen
 func (a *App) overlayError(content string) string {
 	errStyle := lipgloss.NewStyle().
@@ -761,28 +847,39 @@ func (a *App) renderWorktreeInfo() string {
 // renderWelcome renders the welcome screen
 func (a *App) renderWelcome() string {
 	logo := `
+ 8888b.  88888b.d88b.  888  888 888  888
+    "88b 888 "888 "88b 888  888  Y8bd8P
+.d888888 888  888  888 888  888   X88K
+888  888 888  888  888 Y88b 888 .d8""8b.
+"Y888888 888  888  888  "Y88888 888  888`
 
-   __ _ _ __ ___  _   ___  __
-  / _' | '_ ' _ \| | | \ \/ /
- | (_| | | | | | | |_| |>  <
-  \__,_|_| |_| |_|\__,_/_/\_\
-`
+	logoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7aa2f7")).
+		Bold(true)
 
-	title := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#98c379")).
-		Bold(true).
-		Render(logo)
+	// Quick start section
+	quickStart := `
+┌─ Quick Start ─────────────────────┐
+│  a       Add a project            │
+│  n       Create new worktree      │
+│  Ctrl+T  Launch AI agent          │
+│  ?       Show all shortcuts       │
+└───────────────────────────────────┘`
 
-	stats := fmt.Sprintf("\n%d projects registered", len(a.projects))
-	statsStyled := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#61afef")).
-		Render(stats)
+	quickStartStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#565f89"))
 
-	help := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#5c6370")).
-		Render("\n\nctrl+q: quit • j/k: navigate • enter: select • a: add project")
+	// Build the welcome screen content
+	var b strings.Builder
+	b.WriteString(logoStyle.Render(logo))
+	b.WriteString("\n\n")
+	b.WriteString(quickStartStyle.Render(quickStart))
 
-	return title + statsStyled + help
+	// Center the content in the pane
+	width := a.layout.CenterWidth() - 4 // Account for borders/padding
+	height := a.layout.Height() - 4
+
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, b.String())
 }
 
 // loadProjects loads all registered projects and their worktrees

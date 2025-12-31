@@ -248,20 +248,35 @@ func (m *Model) renderRow(row Row, selected bool) string {
 	case RowHome:
 		style := m.styles.HomeRow
 		if selected {
-			style = m.styles.SelectedRow
+			style = m.styles.HomeRow.
+				Bold(true).
+				Foreground(common.ColorForeground).
+				Background(common.ColorSelection)
 		}
 		return cursor + style.Render("["+common.Icons.Home+" home]")
 
 	case RowAddProject:
 		style := m.styles.AddProjectRow
 		if selected {
-			style = m.styles.SelectedRow
+			style = m.styles.AddProjectRow.
+				Bold(true).
+				Foreground(common.ColorForeground).
+				Background(common.ColorSelection)
 		}
 		return cursor + style.Render("["+common.Icons.Add+" Add Project]")
 
 	case RowProject:
-		// Project headers are uppercase and muted
-		return "  " + m.styles.ProjectHeader.Render(strings.ToUpper(row.Project.Name))
+		// Project headers are uppercase - selectable to access main branch
+		// Remove MarginTop from style to keep cursor on same line as text
+		// Add spacing as newline prefix instead
+		style := m.styles.ProjectHeader.MarginTop(0)
+		if selected {
+			style = style.
+				Bold(true).
+				Foreground(common.ColorForeground).
+				Background(common.ColorSelection)
+		}
+		return "\n" + cursor + style.Render(strings.ToUpper(row.Project.Name))
 
 	case RowWorktree:
 		name := row.Worktree.Name
@@ -322,6 +337,11 @@ func (m *Model) rebuildRows() {
 		for j := range project.Worktrees {
 			wt := &project.Worktrees[j]
 
+			// Hide main branch - users access via project row
+			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
+				continue
+			}
+
 			// Filter dirty worktrees if filter is enabled
 			if m.filterDirty {
 				if s, ok := m.statusCache[wt.Root]; ok && s.Clean {
@@ -355,7 +375,7 @@ func (m *Model) rebuildRows() {
 
 // isSelectable returns whether a row type can be selected
 func isSelectable(rt RowType) bool {
-	return rt != RowProject && rt != RowSpacer
+	return rt != RowSpacer
 }
 
 // findSelectableRow finds a selectable row starting from 'from' in direction 'dir'.
@@ -449,6 +469,25 @@ func (m *Model) handleEnter() tea.Cmd {
 		return func() tea.Msg { return messages.ShowWelcome{} }
 	case RowAddProject:
 		return func() tea.Msg { return messages.ShowAddProjectDialog{} }
+	case RowProject:
+		// Find and activate the main/primary worktree for this project
+		var mainWT *data.Worktree
+		for i := range row.Project.Worktrees {
+			wt := &row.Project.Worktrees[i]
+			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
+				mainWT = wt
+				break
+			}
+		}
+		if mainWT != nil {
+			return func() tea.Msg {
+				return messages.WorktreeActivated{
+					Project:  row.Project,
+					Worktree: mainWT,
+				}
+			}
+		}
+		return nil
 	case RowWorktree:
 		return func() tea.Msg {
 			return messages.WorktreeActivated{
