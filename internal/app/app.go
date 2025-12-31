@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -624,15 +625,23 @@ func (a *App) overlayToast(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-// overlayDialog renders the dialog on top of the content
+// overlayDialog renders the dialog as a true modal overlay on top of content
 func (a *App) overlayDialog(content string) string {
 	dialogView := a.dialog.View()
+	dialogLines := strings.Split(dialogView, "\n")
 
-	dialogWidth := 52
-	dialogHeight := 10
+	// Calculate dialog dimensions
+	dialogHeight := len(dialogLines)
+	dialogWidth := 0
+	for _, line := range dialogLines {
+		if w := lipgloss.Width(line); w > dialogWidth {
+			dialogWidth = w
+		}
+	}
 
+	// Center the dialog (true center)
 	x := (a.width - dialogWidth) / 2
-	y := (a.height - dialogHeight) / 3
+	y := (a.height - dialogHeight) / 2
 
 	if x < 0 {
 		x = 0
@@ -641,17 +650,43 @@ func (a *App) overlayDialog(content string) string {
 		y = 0
 	}
 
-	positioned := lipgloss.NewStyle().
-		MarginLeft(x).
-		MarginTop(y).
-		Render(dialogView)
+	// Split content into lines - preserve exact line count
+	contentLines := strings.Split(content, "\n")
+	originalLineCount := len(contentLines)
 
-	return lipgloss.Place(
-		a.width, a.height,
-		lipgloss.Left, lipgloss.Top,
-		content,
-		lipgloss.WithWhitespaceChars(" "),
-	) + "\n" + positioned
+	// Overlay dialog lines onto content using ANSI-aware functions
+	for i, dialogLine := range dialogLines {
+		contentY := y + i
+		if contentY >= 0 && contentY < len(contentLines) {
+			bgLine := contentLines[contentY]
+
+			// Get left portion of background (before dialog)
+			left := ansi.Truncate(bgLine, x, "")
+			// Pad left if needed
+			leftWidth := lipgloss.Width(left)
+			if leftWidth < x {
+				left += strings.Repeat(" ", x-leftWidth)
+			}
+
+			// Get right portion of background (after dialog)
+			rightStart := x + dialogWidth
+			bgWidth := lipgloss.Width(bgLine)
+			var right string
+			if rightStart < bgWidth {
+				right = ansi.TruncateLeft(bgLine, rightStart, "")
+			}
+
+			// Compose: left + dialog + right
+			contentLines[contentY] = left + dialogLine + right
+		}
+	}
+
+	// Preserve original line count exactly
+	if len(contentLines) > originalLineCount {
+		contentLines = contentLines[:originalLineCount]
+	}
+
+	return strings.Join(contentLines, "\n")
 }
 
 // overlayError renders an error banner at the bottom of the screen
