@@ -24,6 +24,7 @@ var (
 	ColorClaude = lipgloss.Color("#e9967a") // Salmon/orange
 	ColorCodex  = lipgloss.Color("#98c379") // Green
 	ColorGemini = lipgloss.Color("#61afef") // Blue
+	ColorAmp    = lipgloss.Color("#c678dd") // Purple (Sourcegraph)
 
 	// Surface colors for layering
 	ColorSurface0 = lipgloss.Color("#1a1b26") // Base background
@@ -45,6 +46,8 @@ func AgentColor(agent string) lipgloss.Color {
 		return ColorCodex
 	case "gemini":
 		return ColorGemini
+	case "amp":
+		return ColorAmp
 	default:
 		return ColorPrimary
 	}

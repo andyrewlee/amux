@@ -118,6 +118,7 @@ func ValidateAssistant(assistant string) error {
 		"claude": true,
 		"codex":  true,
 		"gemini": true,
+		"amp":    true,
 		"term":   true,
 	}
 

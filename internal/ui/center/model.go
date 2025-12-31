@@ -318,6 +318,8 @@ func (m *Model) renderTabBar() string {
 			agentStyle = m.styles.AgentCodex
 		case "gemini":
 			agentStyle = m.styles.AgentGemini
+		case "amp":
+			agentStyle = m.styles.AgentAmp
 		default:
 			agentStyle = m.styles.AgentTerm
 		}
