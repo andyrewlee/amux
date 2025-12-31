@@ -738,7 +738,6 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		wtID := string(wt.ID())
 		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
 		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
-		logging.Info("Tab added to worktree %s, numTabs=%d, activeTab=%d", wtID, len(m.tabsByWorktree[wtID]), m.activeTabByWorktree[wtID])
 
 		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: assistant}
 	}

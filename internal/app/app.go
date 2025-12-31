@@ -243,17 +243,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		logging.Debug("Key: %s, focusedPane=%d, centerHasTabs=%v", msg.String(), a.focusedPane, a.center.HasTabs())
 
-		// Escape ALWAYS returns to dashboard from center pane
+		// When focused on center pane with terminal, handle navigation keys
 		if a.focusedPane == messages.PaneCenter {
-			// Check for escape key (can be "esc", "escape", or ctrl+[)
-			isEscape := msg.Type == tea.KeyEsc || msg.String() == "esc" || key.Matches(msg, key.NewBinding(key.WithKeys("esc")))
-			logging.Debug("Checking escape: type=%v string=%s isEscape=%v", msg.Type, msg.String(), isEscape)
-			if isEscape {
-				logging.Info("Escape pressed, returning to dashboard")
-				a.focusPane(messages.PaneDashboard)
-				return a, nil
-			}
-
 			// Check for global navigation keys BEFORE forwarding to terminal
 			// These must be intercepted or user gets stuck in terminal
 			switch {
@@ -433,7 +424,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// NOW switch focus to center - tab is ready
 		a.focusPane(messages.PaneCenter)
 
-	case center.PTYOutput, center.PTYTick:
+	case center.PTYOutput, center.PTYTick, center.PTYFlush:
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
 		cmds = append(cmds, cmd)
