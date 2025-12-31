@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -19,6 +20,18 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
+
+// TabID is a unique identifier for a tab that survives slice reordering
+type TabID string
+
+// tabIDCounter is used to generate unique tab IDs
+var tabIDCounter uint64
+
+// generateTabID creates a new unique tab ID
+func generateTabID() TabID {
+	id := atomic.AddUint64(&tabIDCounter, 1)
+	return TabID(fmt.Sprintf("tab-%d", id))
+}
 
 // formatScrollPos formats the scroll position for display
 func formatScrollPos(offset, total int) string {
@@ -39,6 +52,7 @@ type SelectionState struct {
 
 // Tab represents a single tab in the center pane
 type Tab struct {
+	ID        TabID // Unique identifier that survives slice reordering
 	Name      string
 	Assistant string
 	Worktree  *data.Worktree
@@ -103,6 +117,16 @@ func (m *Model) getTabs() []*Tab {
 	return m.tabsByWorktree[m.worktreeID()]
 }
 
+// getTabByID returns the tab with the given ID, or nil if not found
+func (m *Model) getTabByID(wtID string, tabID TabID) *Tab {
+	for _, tab := range m.tabsByWorktree[wtID] {
+		if tab.ID == tabID {
+			return tab
+		}
+	}
+	return nil
+}
+
 // getActiveTabIdx returns the active tab index for the current worktree
 func (m *Model) getActiveTabIdx() int {
 	return m.activeTabByWorktree[m.worktreeID()]
@@ -136,20 +160,27 @@ func (m *Model) Init() tea.Cmd {
 // PTYOutput is a message containing PTY output data
 type PTYOutput struct {
 	WorktreeID string
-	TabIndex   int
+	TabID      TabID
 	Data       []byte
 }
 
 // PTYTick triggers a PTY read
 type PTYTick struct {
 	WorktreeID string
-	TabIndex   int
+	TabID      TabID
 }
 
 // PTYFlush applies buffered PTY output for a tab.
 type PTYFlush struct {
 	WorktreeID string
-	TabIndex   int
+	TabID      TabID
+}
+
+// PTYStopped signals that the PTY read loop has stopped (terminal closed or error)
+type PTYStopped struct {
+	WorktreeID string
+	TabID      TabID
+	Err        error
 }
 
 // Update handles messages
@@ -428,26 +459,24 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
 
 	case PTYOutput:
-		wtTabs := m.tabsByWorktree[msg.WorktreeID]
-		if msg.TabIndex >= 0 && msg.TabIndex < len(wtTabs) {
-			tab := wtTabs[msg.TabIndex]
+		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		if tab != nil {
 			tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
 			if !tab.flushScheduled {
 				tab.flushScheduled = true
+				tabID := msg.TabID // Capture for closure
 				cmds = append(cmds, tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg {
-					return PTYFlush{WorktreeID: msg.WorktreeID, TabIndex: msg.TabIndex}
+					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
 				}))
 			}
+			// Continue reading
+			cmds = append(cmds, m.readPTYForTab(msg.WorktreeID, msg.TabID))
 		}
-		// Continue reading
-		if msg.TabIndex < len(wtTabs) {
-			cmds = append(cmds, m.readPTYForWorktree(msg.WorktreeID, msg.TabIndex))
-		}
+		// If tab is nil, it was closed - silently drop the message and don't reschedule
 
 	case PTYFlush:
-		wtTabs := m.tabsByWorktree[msg.WorktreeID]
-		if msg.TabIndex >= 0 && msg.TabIndex < len(wtTabs) {
-			tab := wtTabs[msg.TabIndex]
+		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		if tab != nil {
 			tab.flushScheduled = false
 			if len(tab.pendingOutput) > 0 {
 				tab.mu.Lock()
@@ -460,10 +489,20 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 	case PTYTick:
-		wtTabs := m.tabsByWorktree[msg.WorktreeID]
-		if msg.TabIndex < len(wtTabs) {
-			cmds = append(cmds, m.readPTYForWorktree(msg.WorktreeID, msg.TabIndex))
+		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		if tab != nil {
+			cmds = append(cmds, m.readPTYForTab(msg.WorktreeID, msg.TabID))
 		}
+		// If tab is nil, it was closed - stop polling
+
+	case PTYStopped:
+		// Terminal closed - mark tab as not running, but keep it visible
+		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		if tab != nil {
+			tab.Running = false
+			logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
+		}
+		// Do NOT schedule another read - the loop is done
 
 	case PendingGTimeout:
 		// If still pending after timeout, forward 'g' to terminal
@@ -742,8 +781,9 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 			})
 		}
 
-		// Create tab
+		// Create tab with unique ID
 		tab := &Tab{
+			ID:        generateTabID(),
 			Name:      assistant,
 			Assistant: assistant,
 			Worktree:  wt,
@@ -768,19 +808,24 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 }
 
 // readPTY reads from the PTY for a tab in the current worktree
-func (m *Model) readPTY(tabIndex int) tea.Cmd {
-	return m.readPTYForWorktree(m.worktreeID(), tabIndex)
+func (m *Model) readPTY(tabID TabID) tea.Cmd {
+	return m.readPTYForTab(m.worktreeID(), tabID)
 }
 
-// readPTYForWorktree reads from the PTY for a tab in a specific worktree
-func (m *Model) readPTYForWorktree(wtID string, tabIndex int) tea.Cmd {
-	wtTabs := m.tabsByWorktree[wtID]
-	if tabIndex >= len(wtTabs) {
+// readPTYForTab reads from the PTY for a tab in a specific worktree
+func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
+	tab := m.getTabByID(wtID, tabID)
+	if tab == nil {
+		// Tab no longer exists, stop the read loop
 		return nil
 	}
 
-	tab := wtTabs[tabIndex]
 	if tab.Agent == nil || tab.Agent.Terminal == nil {
+		return nil
+	}
+
+	// Check if terminal is already closed before starting read
+	if tab.Agent.Terminal.IsClosed() {
 		return nil
 	}
 
@@ -788,14 +833,14 @@ func (m *Model) readPTYForWorktree(wtID string, tabIndex int) tea.Cmd {
 		buf := make([]byte, 4096)
 		n, err := tab.Agent.Terminal.Read(buf)
 		if err != nil {
-			// PTY closed, schedule retry after delay
-			time.Sleep(100 * time.Millisecond)
-			return PTYTick{WorktreeID: wtID, TabIndex: tabIndex}
+			// PTY closed or error - stop the read loop entirely
+			return PTYStopped{WorktreeID: wtID, TabID: tabID, Err: err}
 		}
 		if n > 0 {
-			return PTYOutput{WorktreeID: wtID, TabIndex: tabIndex, Data: buf[:n]}
+			return PTYOutput{WorktreeID: wtID, TabID: tabID, Data: buf[:n]}
 		}
-		return PTYTick{WorktreeID: wtID, TabIndex: tabIndex}
+		// No data but no error - continue polling
+		return PTYTick{WorktreeID: wtID, TabID: tabID}
 	}
 }
 
@@ -970,8 +1015,8 @@ func (m *Model) HasTabs() bool {
 func (m *Model) StartPTYReaders() tea.Cmd {
 	var cmds []tea.Cmd
 	for wtID, tabs := range m.tabsByWorktree {
-		for i := range tabs {
-			cmds = append(cmds, m.readPTYForWorktree(wtID, i))
+		for _, tab := range tabs {
+			cmds = append(cmds, m.readPTYForTab(wtID, tab.ID))
 		}
 	}
 	return tea.Batch(cmds...)
