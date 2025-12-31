@@ -58,6 +58,7 @@ func (v *VTerm) scrollUp(n int) {
 	if n <= 0 {
 		return
 	}
+	v.ClearSelection()
 
 	// Capture lines to scrollback (only when not in alt screen)
 	if !v.AltScreen {

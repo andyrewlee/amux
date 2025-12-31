@@ -162,6 +162,7 @@ func (v *VTerm) trimScrollback() {
 
 // ScrollView scrolls the view by delta lines (positive = up into history)
 func (v *VTerm) ScrollView(delta int) {
+	v.ClearSelection()
 	v.ViewOffset += delta
 	maxOffset := len(v.Scrollback)
 	if v.ViewOffset > maxOffset {
@@ -174,6 +175,7 @@ func (v *VTerm) ScrollView(delta int) {
 
 // ScrollViewTo sets absolute scroll position
 func (v *VTerm) ScrollViewTo(offset int) {
+	v.ClearSelection()
 	v.ViewOffset = offset
 	maxOffset := len(v.Scrollback)
 	if v.ViewOffset > maxOffset {
@@ -186,11 +188,13 @@ func (v *VTerm) ScrollViewTo(offset int) {
 
 // ScrollViewToTop scrolls to oldest content
 func (v *VTerm) ScrollViewToTop() {
+	v.ClearSelection()
 	v.ViewOffset = len(v.Scrollback)
 }
 
 // ScrollViewToBottom returns to live view
 func (v *VTerm) ScrollViewToBottom() {
+	v.ClearSelection()
 	v.ViewOffset = 0
 }
 
