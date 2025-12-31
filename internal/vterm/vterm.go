@@ -77,6 +77,14 @@ func (v *VTerm) makeScreen(width, height int) [][]Cell {
 
 // Resize handles terminal resize
 func (v *VTerm) Resize(width, height int) {
+	// Enforce minimum dimensions to prevent negative cursor positions
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+
 	if width == v.Width && height == v.Height {
 		return
 	}
@@ -157,6 +165,10 @@ func (v *VTerm) respond(data []byte) {
 func (v *VTerm) trimScrollback() {
 	if len(v.Scrollback) > MaxScrollback {
 		v.Scrollback = v.Scrollback[len(v.Scrollback)-MaxScrollback:]
+	}
+	// Clamp ViewOffset after trim to prevent stale offsets
+	if v.ViewOffset > len(v.Scrollback) {
+		v.ViewOffset = len(v.Scrollback)
 	}
 }
 

@@ -59,8 +59,10 @@ func (p *Parser) parseByte(b byte) {
 		p.parseGround(b)
 	case stateEscape:
 		p.parseEscape(b)
-	case stateCSI, stateCSIParam:
+	case stateCSI:
 		p.parseCSI(b)
+	case stateCSIParam:
+		p.parseCSIParam(b)
 	case stateOSC:
 		p.parseOSC(b)
 	case stateDCS:
@@ -226,8 +228,22 @@ func (p *Parser) parseCSIParam(b byte) {
 
 func (p *Parser) pushParam() {
 	if p.paramBuf.Len() > 0 {
-		val, _ := strconv.Atoi(p.paramBuf.String())
-		p.params = append(p.params, val)
+		s := p.paramBuf.String()
+		// Handle sub-parameters (colon-separated values like "38:2:255:128:0")
+		if strings.Contains(s, ":") {
+			parts := strings.Split(s, ":")
+			for _, part := range parts {
+				if part == "" {
+					p.params = append(p.params, 0)
+				} else {
+					val, _ := strconv.Atoi(part)
+					p.params = append(p.params, val)
+				}
+			}
+		} else {
+			val, _ := strconv.Atoi(s)
+			p.params = append(p.params, val)
+		}
 	} else {
 		p.params = append(p.params, 0)
 	}
