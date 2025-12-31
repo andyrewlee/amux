@@ -1,9 +1,43 @@
 package vterm
 
+import "github.com/mattn/go-runewidth"
+
 // putChar places a character at current cursor position
 func (v *VTerm) putChar(r rune) {
-	if v.CursorX >= v.Width {
-		// Auto-wrap
+	width := runewidth.RuneWidth(r)
+
+	// Combining characters (width 0) attach to previous cell
+	if width == 0 {
+		// Find previous cell to attach to
+		prevX := v.CursorX - 1
+		prevY := v.CursorY
+		if prevX < 0 && prevY > 0 {
+			prevY--
+			prevX = v.Width - 1
+		}
+		if prevY >= 0 && prevY < len(v.Screen) && prevX >= 0 && prevX < len(v.Screen[prevY]) {
+			// Append combining character to previous cell's rune
+			// Note: This stores combined as a single rune which works for simple cases
+			// For full combining support, Cell.Rune would need to be a string
+			cell := &v.Screen[prevY][prevX]
+			// Skip if previous cell is a continuation cell (Width==0)
+			// For non-continuation cells, we could append combining chars
+			// Full support would require storing multiple runes per cell
+			_ = cell // Currently no-op for combining characters
+		}
+		return // Don't advance cursor for combining chars
+	}
+
+	// Wide characters: if at last column, wrap first to avoid splitting
+	if width == 2 && v.CursorX == v.Width-1 {
+		// Put a space in the last column and wrap
+		if v.CursorY >= 0 && v.CursorY < len(v.Screen) {
+			v.Screen[v.CursorY][v.CursorX] = Cell{
+				Rune:  ' ',
+				Style: v.CurrentStyle,
+				Width: 1,
+			}
+		}
 		v.CursorX = 0
 		v.CursorY++
 		if v.CursorY >= v.ScrollBottom {
@@ -12,15 +46,37 @@ func (v *VTerm) putChar(r rune) {
 		}
 	}
 
+	// Normal auto-wrap check
+	if v.CursorX >= v.Width {
+		v.CursorX = 0
+		v.CursorY++
+		if v.CursorY >= v.ScrollBottom {
+			v.scrollUp(1)
+			v.CursorY = v.ScrollBottom - 1
+		}
+	}
+
+	// Place the character
 	if v.CursorY >= 0 && v.CursorY < len(v.Screen) &&
 		v.CursorX >= 0 && v.CursorX < len(v.Screen[v.CursorY]) {
 		v.Screen[v.CursorY][v.CursorX] = Cell{
 			Rune:  r,
 			Style: v.CurrentStyle,
-			Width: 1,
+			Width: width,
+		}
+
+		// For wide characters, create continuation cell
+		if width == 2 && v.CursorX+1 < v.Width {
+			v.Screen[v.CursorY][v.CursorX+1] = Cell{
+				Rune:  0, // Continuation marker
+				Style: v.CurrentStyle,
+				Width: 0, // Continuation cell
+			}
 		}
 	}
-	v.CursorX++
+
+	// Advance cursor by character width
+	v.CursorX += width
 }
 
 // newline moves cursor down, scrolling if needed
@@ -60,6 +116,12 @@ func (v *VTerm) scrollUp(n int) {
 	}
 	v.ClearSelection()
 
+	// Clamp n to scroll region height
+	regionHeight := v.ScrollBottom - v.ScrollTop
+	if n > regionHeight {
+		n = regionHeight
+	}
+
 	// Capture lines to scrollback (only when not in alt screen)
 	if !v.AltScreen {
 		top := v.ScrollTop
@@ -94,6 +156,12 @@ func (v *VTerm) scrollUp(n int) {
 func (v *VTerm) scrollDown(n int) {
 	if n <= 0 {
 		return
+	}
+
+	// Clamp n to scroll region height
+	regionHeight := v.ScrollBottom - v.ScrollTop
+	if n > regionHeight {
+		n = regionHeight
 	}
 
 	// Shift screen content down within scroll region
@@ -287,6 +355,12 @@ func (v *VTerm) insertLines(n int) {
 		return
 	}
 
+	// Clamp n to remaining space in scroll region
+	maxN := v.ScrollBottom - v.CursorY
+	if n > maxN {
+		n = maxN
+	}
+
 	// Shift lines down
 	for i := v.ScrollBottom - 1; i >= v.CursorY+n; i-- {
 		if i < len(v.Screen) && i-n >= 0 {
@@ -306,6 +380,12 @@ func (v *VTerm) insertLines(n int) {
 func (v *VTerm) deleteLines(n int) {
 	if v.CursorY < v.ScrollTop || v.CursorY >= v.ScrollBottom {
 		return
+	}
+
+	// Clamp n to remaining space in scroll region
+	maxN := v.ScrollBottom - v.CursorY
+	if n > maxN {
+		n = maxN
 	}
 
 	// Shift lines up
