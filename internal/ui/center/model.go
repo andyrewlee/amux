@@ -1,6 +1,7 @@
 package center
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -8,7 +9,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/vt"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -16,7 +16,16 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
+
+// formatScrollPos formats the scroll position for display
+func formatScrollPos(offset, total int) string {
+	if total == 0 {
+		return "0/0"
+	}
+	return fmt.Sprintf("%d/%d lines up", offset, total)
+}
 
 // Tab represents a single tab in the center pane
 type Tab struct {
@@ -24,7 +33,7 @@ type Tab struct {
 	Assistant string
 	Worktree  *data.Worktree
 	Agent     *appPty.Agent
-	Terminal  *vt.Emulator // Virtual terminal emulator
+	Terminal  *vterm.VTerm // Virtual terminal emulator with scrollback
 	mu        sync.Mutex   // Protects Terminal
 	Running   bool         // Whether the agent is actively running
 }
@@ -109,7 +118,68 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					tab.Agent.Terminal.SendString("\x1b")
 					return m, nil
 
+				case msg.Type == tea.KeyPgUp:
+					// Scroll up in scrollback
+					tab.mu.Lock()
+					if tab.Terminal != nil {
+						tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+					}
+					tab.mu.Unlock()
+					return m, nil
+
+				case msg.Type == tea.KeyPgDown:
+					// Scroll down in scrollback
+					tab.mu.Lock()
+					if tab.Terminal != nil {
+						tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+					}
+					tab.mu.Unlock()
+					return m, nil
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+					// Scroll up half page (vim style)
+					tab.mu.Lock()
+					if tab.Terminal != nil {
+						tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+					}
+					tab.mu.Unlock()
+					return m, nil
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+					// Scroll down half page (vim style)
+					tab.mu.Lock()
+					if tab.Terminal != nil {
+						tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+					}
+					tab.mu.Unlock()
+					return m, nil
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
+					// Scroll to top
+					tab.mu.Lock()
+					if tab.Terminal != nil {
+						tab.Terminal.ScrollViewToTop()
+					}
+					tab.mu.Unlock()
+					return m, nil
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
+					// Scroll to bottom (live)
+					tab.mu.Lock()
+					if tab.Terminal != nil {
+						tab.Terminal.ScrollViewToBottom()
+					}
+					tab.mu.Unlock()
+					return m, nil
+
 				default:
+					// If scrolled, any typing goes back to live and sends key
+					tab.mu.Lock()
+					if tab.Terminal != nil && tab.Terminal.IsScrolled() {
+						tab.Terminal.ScrollViewToBottom()
+					}
+					tab.mu.Unlock()
+
 					// EVERYTHING else goes to terminal
 					input := keyToBytes(msg)
 					if len(input) > 0 {
@@ -260,6 +330,17 @@ func (m *Model) View() string {
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			b.WriteString(tab.Terminal.Render())
+
+			// Show scroll indicator if scrolled
+			if tab.Terminal.IsScrolled() {
+				offset, total := tab.Terminal.GetScrollInfo()
+				scrollStyle := lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("#1a1b26")).
+					Background(lipgloss.Color("#e0af68"))
+				indicator := scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
+				b.WriteString("\n" + indicator)
+			}
 		}
 		tab.mu.Unlock()
 	}
@@ -269,6 +350,7 @@ func (m *Model) View() string {
 		m.styles.HelpKey.Render("esc") + m.styles.HelpDesc.Render(":dashboard"),
 		m.styles.HelpKey.Render("ctrl+w") + m.styles.HelpDesc.Render(":close"),
 		m.styles.HelpKey.Render("ctrl+]") + m.styles.HelpDesc.Render(":next tab"),
+		m.styles.HelpKey.Render("pgup/dn") + m.styles.HelpDesc.Render(":scroll"),
 		m.styles.HelpKey.Render("ctrl+c") + m.styles.HelpDesc.Render(":interrupt"),
 	}
 	help := strings.Join(helpItems, "  ")
@@ -378,8 +460,8 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 			termHeight = 24
 		}
 
-		// Create virtual terminal emulator
-		term := vt.NewEmulator(termWidth, termHeight)
+		// Create virtual terminal emulator with scrollback
+		term := vterm.New(termWidth, termHeight)
 
 		// Create tab
 		tab := &Tab{
