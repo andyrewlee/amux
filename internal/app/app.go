@@ -18,12 +18,12 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
-	"github.com/andyrewlee/amux/internal/validation"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 // DialogID constants
@@ -104,10 +104,10 @@ func New() (*App, error) {
 	fileWatcher, _ := git.NewFileWatcher(nil)
 
 	return &App{
-		config:   cfg,
-		registry: registry,
-		metadata: metadata,
-		scripts:  scripts,
+		config:        cfg,
+		registry:      registry,
+		metadata:      metadata,
+		scripts:       scripts,
 		statusManager: statusManager,
 		fileWatcher:   fileWatcher,
 		layout:        layout.NewManager(),
@@ -350,7 +350,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.requestGitStatus(msg.Worktree.Root))
 			// Set up file watching for this worktree
 			if a.fileWatcher != nil {
-				a.fileWatcher.Watch(msg.Worktree.Root)
+				_ = a.fileWatcher.Watch(msg.Worktree.Root)
 			}
 		}
 
@@ -704,8 +704,8 @@ func (a *App) renderCenterPane() string {
 	height := a.layout.Height()
 
 	style := lipgloss.NewStyle().
-		Width(width - 2).
-		Height(height - 2).
+		Width(width-2).
+		Height(height-2).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#5c6370")).
 		Padding(0, 1)
@@ -939,8 +939,8 @@ func (a *App) deleteWorktree(project *data.Project, wt *data.Worktree) tea.Cmd {
 			return messages.Error{Err: err, Context: "removing worktree"}
 		}
 
-		git.DeleteBranch(project.Path, wt.Branch)
-		a.metadata.Delete(wt)
+		_ = git.DeleteBranch(project.Path, wt.Branch)
+		_ = a.metadata.Delete(wt)
 
 		return messages.RefreshDashboard{}
 	}

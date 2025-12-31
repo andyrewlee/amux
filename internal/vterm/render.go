@@ -57,11 +57,6 @@ func (v *VTerm) isInSelection(x, y int) bool {
 	return true
 }
 
-// renderScreen renders just the current screen
-func (v *VTerm) renderScreen() string {
-	return v.renderScreenFrom(v.Screen)
-}
-
 // renderScreenFrom renders the given screen buffer
 func (v *VTerm) renderScreenFrom(screen [][]Cell) string {
 	var buf strings.Builder
@@ -105,11 +100,6 @@ func (v *VTerm) renderScreenFrom(screen [][]Cell) string {
 	buf.WriteString("\x1b[0m")
 
 	return buf.String()
-}
-
-// renderWithScrollback renders content from scrollback + screen
-func (v *VTerm) renderWithScrollback() string {
-	return v.renderWithScrollbackFrom(v.Screen, len(v.Scrollback))
 }
 
 // renderWithScrollbackFrom renders content from scrollback + screen
@@ -405,12 +395,6 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 
 		// Add newline between lines (but not after the last line)
 		if y < endY {
-			// Trim trailing spaces from the line before adding newline
-			line := strings.TrimRight(result.String()[result.Len()-xEnd-1+xStart:], " ")
-			if len(line) < xEnd-xStart+1 {
-				// Rebuild without trailing spaces for this line
-				// Actually, simpler approach: just add newline and trim at the end
-			}
 			result.WriteRune('\n')
 		}
 	}

@@ -6,8 +6,9 @@ import (
 	"os/exec"
 	"sync"
 
-	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/creack/pty"
+
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 // Terminal wraps a PTY with an associated command
@@ -113,8 +114,8 @@ func (t *Terminal) Close() error {
 	}
 
 	if t.cmd != nil && t.cmd.Process != nil {
-		t.cmd.Process.Kill()
-		t.cmd.Wait()
+		_ = t.cmd.Process.Kill()
+		_ = t.cmd.Wait()
 	}
 
 	return nil

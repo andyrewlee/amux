@@ -212,25 +212,6 @@ func (p *Parser) parseCSI(b byte) {
 	}
 }
 
-func (p *Parser) parseCSIParam(b byte) {
-	switch {
-	case b >= '0' && b <= '9':
-		p.paramBuf.WriteByte(b)
-	case b == ';':
-		p.pushParam()
-	case b == ':': // Sub-parameter separator
-		p.paramBuf.WriteByte(b)
-	case b >= 0x20 && b <= 0x2f: // Intermediate bytes
-		p.csiIntermediate = b
-	case b >= 0x40 && b <= 0x7e: // Final byte
-		p.pushParam()
-		p.executeCSI(b)
-		p.state = stateGround
-	case b == 0x1b:
-		p.state = stateEscape
-	}
-}
-
 func (p *Parser) pushParam() {
 	if p.paramBuf.Len() > 0 {
 		val, _ := strconv.Atoi(p.paramBuf.String())
