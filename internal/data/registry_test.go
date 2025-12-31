@@ -74,8 +74,8 @@ func TestRegistry_RemoveProject(t *testing.T) {
 	registryPath := filepath.Join(tmpDir, "projects.json")
 
 	r := NewRegistry(registryPath)
-	r.AddProject("/path/to/project1")
-	r.AddProject("/path/to/project2")
+	_ = r.AddProject("/path/to/project1")
+	_ = r.AddProject("/path/to/project2")
 
 	// Remove one
 	if err := r.RemoveProject("/path/to/project1"); err != nil {
@@ -98,7 +98,7 @@ func TestRegistry_LoadLegacyFormat(t *testing.T) {
 	// Write legacy format (plain array)
 	legacyData := []string{"/path/to/project1", "/path/to/project2"}
 	data, _ := json.Marshal(legacyData)
-	os.WriteFile(registryPath, data, 0644)
+	_ = os.WriteFile(registryPath, data, 0644)
 
 	r := NewRegistry(registryPath)
 	paths, err := r.Load()
@@ -116,7 +116,7 @@ func TestRegistry_LoadStringArrayFormat(t *testing.T) {
 
 	// Write string array format
 	data := `{"projects": ["/path/to/project1", "/path/to/project2"]}`
-	os.WriteFile(registryPath, []byte(data), 0644)
+	_ = os.WriteFile(registryPath, []byte(data), 0644)
 
 	r := NewRegistry(registryPath)
 	paths, err := r.Load()

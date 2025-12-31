@@ -350,7 +350,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.requestGitStatus(msg.Worktree.Root))
 			// Set up file watching for this worktree
 			if a.fileWatcher != nil {
-				a.fileWatcher.Watch(msg.Worktree.Root)
+				_ = a.fileWatcher.Watch(msg.Worktree.Root)
 			}
 		}
 
@@ -939,8 +939,8 @@ func (a *App) deleteWorktree(project *data.Project, wt *data.Worktree) tea.Cmd {
 			return messages.Error{Err: err, Context: "removing worktree"}
 		}
 
-		git.DeleteBranch(project.Path, wt.Branch)
-		a.metadata.Delete(wt)
+		_ = git.DeleteBranch(project.Path, wt.Branch)
+		_ = a.metadata.Delete(wt)
 
 		return messages.RefreshDashboard{}
 	}
