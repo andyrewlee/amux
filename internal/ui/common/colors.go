@@ -21,10 +21,11 @@ var (
 	ColorInfo      = lipgloss.Color("#7dcfff") // Cyan - info messages
 
 	// Agent colors (distinct for quick recognition)
-	ColorClaude = lipgloss.Color("#e9967a") // Salmon/orange
-	ColorCodex  = lipgloss.Color("#98c379") // Green
-	ColorGemini = lipgloss.Color("#61afef") // Blue
-	ColorAmp    = lipgloss.Color("#c678dd") // Purple (Sourcegraph)
+	ColorClaude   = lipgloss.Color("#e9967a") // Salmon/orange
+	ColorCodex    = lipgloss.Color("#98c379") // Green
+	ColorGemini   = lipgloss.Color("#61afef") // Blue
+	ColorAmp      = lipgloss.Color("#c678dd") // Purple (Sourcegraph)
+	ColorOpencode = lipgloss.Color("#56b6c2") // Cyan (SST)
 
 	// Surface colors for layering
 	ColorSurface0 = lipgloss.Color("#1a1b26") // Base background
@@ -48,6 +49,8 @@ func AgentColor(agent string) lipgloss.Color {
 		return ColorGemini
 	case "amp":
 		return ColorAmp
+	case "opencode":
+		return ColorOpencode
 	default:
 		return ColorPrimary
 	}

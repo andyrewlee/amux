@@ -12,10 +12,11 @@ import (
 type AgentType string
 
 const (
-	AgentClaude AgentType = "claude"
-	AgentCodex  AgentType = "codex"
-	AgentGemini AgentType = "gemini"
-	AgentAmp    AgentType = "amp"
+	AgentClaude   AgentType = "claude"
+	AgentCodex    AgentType = "codex"
+	AgentGemini   AgentType = "gemini"
+	AgentAmp      AgentType = "amp"
+	AgentOpencode AgentType = "opencode"
 )
 
 // Agent represents a running AI agent instance
