@@ -334,19 +334,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.WorktreeActivated:
-		// Save current worktree's tabs before switching
-		if a.activeWorktree != nil && a.center.HasTabs() {
-			tabs, activeIdx := a.center.GetTabsInfo()
-			if meta, err := a.metadata.Load(a.activeWorktree); err == nil {
-				meta.OpenTabs = tabs
-				meta.ActiveTabIndex = activeIdx
-				a.metadata.Save(a.activeWorktree, meta)
-			}
-		}
-
-		// Close current tabs
-		a.center.CloseAllTabs()
-
+		// Tabs now persist in memory per-worktree, no need to save/restore from disk
 		a.activeProject = msg.Project
 		a.activeWorktree = msg.Worktree
 		a.showWelcome = false
@@ -362,20 +350,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Set up file watching for this worktree
 			if a.fileWatcher != nil {
 				a.fileWatcher.Watch(msg.Worktree.Root)
-			}
-
-			// Restore tabs for this worktree
-			if meta, err := a.metadata.Load(msg.Worktree); err == nil && len(meta.OpenTabs) > 0 {
-				for _, tabInfo := range meta.OpenTabs {
-					ti := tabInfo // Capture loop variable
-					wt := msg.Worktree
-					cmds = append(cmds, func() tea.Msg {
-						return messages.LaunchAgent{
-							Assistant: ti.Assistant,
-							Worktree:  wt,
-						}
-					})
-				}
 			}
 		}
 
