@@ -109,6 +109,7 @@ type ShowAddProjectDialog struct{}
 // ShowCreateWorktreeDialog requests showing the create worktree dialog
 type ShowCreateWorktreeDialog struct {
 	Project *data.Project
+	Base    string // Optional: branch to base new worktree on (for nested worktrees)
 }
 
 // ShowDeleteWorktreeDialog requests showing the delete worktree confirmation
@@ -168,4 +169,10 @@ type GitStatusTick struct{}
 // FileWatcherEvent is sent when a watched file changes
 type FileWatcherEvent struct {
 	Root string
+}
+
+// AgentCountUpdated is sent when the number of agents for a worktree changes
+type AgentCountUpdated struct {
+	WorktreeRoot string
+	Count        int
 }

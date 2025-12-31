@@ -121,6 +121,29 @@ func (m *Model) worktreeID() string {
 	return string(m.worktree.ID())
 }
 
+// GetAgentCount returns the number of agents for a worktree by root path
+func (m *Model) GetAgentCount(worktreeRoot string) int {
+	// Find the worktree ID from root path by checking all tabs
+	for wtID, tabs := range m.tabsByWorktree {
+		if len(tabs) > 0 && tabs[0].Worktree != nil && tabs[0].Worktree.Root == worktreeRoot {
+			return len(tabs)
+		}
+		_ = wtID // use wtID to avoid unused warning
+	}
+	return 0
+}
+
+// GetAllAgentCounts returns agent counts for all worktrees
+func (m *Model) GetAllAgentCounts() map[string]int {
+	counts := make(map[string]int)
+	for _, tabs := range m.tabsByWorktree {
+		if len(tabs) > 0 && tabs[0].Worktree != nil {
+			counts[tabs[0].Worktree.Root] = len(tabs)
+		}
+	}
+	return counts
+}
+
 // getTabs returns the tabs for the current worktree
 func (m *Model) getTabs() []*Tab {
 	return m.tabsByWorktree[m.worktreeID()]
