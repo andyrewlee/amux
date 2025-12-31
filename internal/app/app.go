@@ -18,12 +18,12 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
-	"github.com/andyrewlee/amux/internal/validation"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 // DialogID constants
@@ -104,10 +104,10 @@ func New() (*App, error) {
 	fileWatcher, _ := git.NewFileWatcher(nil)
 
 	return &App{
-		config:   cfg,
-		registry: registry,
-		metadata: metadata,
-		scripts:  scripts,
+		config:        cfg,
+		registry:      registry,
+		metadata:      metadata,
+		scripts:       scripts,
 		statusManager: statusManager,
 		fileWatcher:   fileWatcher,
 		layout:        layout.NewManager(),
@@ -704,8 +704,8 @@ func (a *App) renderCenterPane() string {
 	height := a.layout.Height()
 
 	style := lipgloss.NewStyle().
-		Width(width - 2).
-		Height(height - 2).
+		Width(width-2).
+		Height(height-2).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#5c6370")).
 		Padding(0, 1)
