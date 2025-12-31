@@ -38,6 +38,9 @@ type Tab struct {
 	Running   bool         // Whether the agent is actively running
 }
 
+// PendingGTimeout fires when 'g' prefix times out
+type PendingGTimeout struct{}
+
 // Model is the Bubbletea model for the center pane
 type Model struct {
 	// State
@@ -46,6 +49,10 @@ type Model struct {
 	activeTabByWorktree map[string]int   // active tab index per worktree
 	focused            bool
 	agentManager       *appPty.AgentManager
+
+	// Key sequence state for vim-style gt/gT
+	pendingG     bool
+	pendingGTime time.Time
 
 	// Layout
 	width  int
@@ -145,6 +152,38 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab := tabs[activeIdx]
 			logging.Debug("Has active agent, Agent=%v, Terminal=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil)
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
+				// Handle pending 'g' key sequence for vim-style gt/gT
+				if m.pendingG {
+					m.pendingG = false
+					if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+						switch msg.Runes[0] {
+						case 't':
+							m.nextTab()
+							return m, nil
+						case 'T':
+							m.prevTab()
+							return m, nil
+						default:
+							// Forward both 'g' and current key to terminal
+							tab.Agent.Terminal.SendString("g")
+							// Fall through to normal key handling
+						}
+					} else {
+						// Non-rune key after 'g' - forward both
+						tab.Agent.Terminal.SendString("g")
+						// Fall through to normal key handling
+					}
+				}
+
+				// Start 'g' sequence
+				if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'g' {
+					m.pendingG = true
+					m.pendingGTime = time.Now()
+					return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+						return PendingGTimeout{}
+					})
+				}
+
 				// Only intercept these specific keys - everything else goes to terminal
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
@@ -264,6 +303,20 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		wtTabs := m.tabsByWorktree[msg.WorktreeID]
 		if msg.TabIndex < len(wtTabs) {
 			cmds = append(cmds, m.readPTYForWorktree(msg.WorktreeID, msg.TabIndex))
+		}
+
+	case PendingGTimeout:
+		// If still pending after timeout, forward 'g' to terminal
+		if m.pendingG && time.Since(m.pendingGTime) >= time.Second {
+			m.pendingG = false
+			tabs := m.getTabs()
+			activeIdx := m.getActiveTabIdx()
+			if len(tabs) > 0 && activeIdx < len(tabs) {
+				tab := tabs[activeIdx]
+				if tab.Agent != nil && tab.Agent.Terminal != nil {
+					tab.Agent.Terminal.SendString("g")
+				}
+			}
 		}
 	}
 
@@ -396,7 +449,7 @@ func (m *Model) View() string {
 	helpItems := []string{
 		m.styles.HelpKey.Render("esc") + m.styles.HelpDesc.Render(":dashboard"),
 		m.styles.HelpKey.Render("^w") + m.styles.HelpDesc.Render(":close"),
-		m.styles.HelpKey.Render("^]") + m.styles.HelpDesc.Render(":next"),
+		m.styles.HelpKey.Render("gt/gT") + m.styles.HelpDesc.Render(":tabs"),
 		m.styles.HelpKey.Render("^u/d") + m.styles.HelpDesc.Render(":scroll"),
 		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
 	}
