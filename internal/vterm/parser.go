@@ -30,6 +30,11 @@ type Parser struct {
 
 	// OSC sequence building
 	oscBuf strings.Builder
+
+	// UTF-8 decoding state
+	utf8Buf    [4]byte
+	utf8Len    int // expected length
+	utf8Pos    int // current position
 }
 
 // NewParser creates a new parser for the given VTerm
@@ -64,6 +69,27 @@ func (p *Parser) parseByte(b byte) {
 }
 
 func (p *Parser) parseGround(b byte) {
+	// Handle UTF-8 continuation if we're in the middle of a sequence
+	if p.utf8Len > 0 {
+		if b >= 0x80 && b <= 0xBF {
+			// Valid continuation byte
+			p.utf8Buf[p.utf8Pos] = b
+			p.utf8Pos++
+			if p.utf8Pos == p.utf8Len {
+				// Complete UTF-8 sequence - decode it
+				r := decodeUTF8(p.utf8Buf[:p.utf8Len])
+				p.vt.putChar(r)
+				p.utf8Len = 0
+				p.utf8Pos = 0
+			}
+			return
+		} else {
+			// Invalid continuation - reset and process this byte normally
+			p.utf8Len = 0
+			p.utf8Pos = 0
+		}
+	}
+
 	switch {
 	case b == 0x1b: // ESC
 		p.state = stateEscape
@@ -81,10 +107,32 @@ func (p *Parser) parseGround(b byte) {
 		// Ignore
 	case b >= 0x20 && b < 0x7f: // Printable ASCII
 		p.vt.putChar(rune(b))
-	case b >= 0x80: // UTF-8 start or continuation
-		// Simple handling: treat as single char
-		// TODO: proper UTF-8 handling
-		p.vt.putChar(rune(b))
+	case b >= 0xC0 && b <= 0xDF: // 2-byte UTF-8 start
+		p.utf8Buf[0] = b
+		p.utf8Len = 2
+		p.utf8Pos = 1
+	case b >= 0xE0 && b <= 0xEF: // 3-byte UTF-8 start
+		p.utf8Buf[0] = b
+		p.utf8Len = 3
+		p.utf8Pos = 1
+	case b >= 0xF0 && b <= 0xF7: // 4-byte UTF-8 start
+		p.utf8Buf[0] = b
+		p.utf8Len = 4
+		p.utf8Pos = 1
+	}
+}
+
+// decodeUTF8 decodes a UTF-8 byte sequence into a rune
+func decodeUTF8(b []byte) rune {
+	switch len(b) {
+	case 2:
+		return rune(b[0]&0x1F)<<6 | rune(b[1]&0x3F)
+	case 3:
+		return rune(b[0]&0x0F)<<12 | rune(b[1]&0x3F)<<6 | rune(b[2]&0x3F)
+	case 4:
+		return rune(b[0]&0x07)<<18 | rune(b[1]&0x3F)<<12 | rune(b[2]&0x3F)<<6 | rune(b[3]&0x3F)
+	default:
+		return 0xFFFD // replacement character
 	}
 }
 
