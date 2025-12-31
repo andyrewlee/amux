@@ -69,6 +69,7 @@ type App struct {
 	// Git status management
 	statusManager *git.StatusManager
 	fileWatcher   *git.FileWatcher
+	fileWatcherCh chan messages.FileWatcherEvent
 
 	// Layout
 	width, height int
@@ -100,8 +101,17 @@ func New() (*App, error) {
 	// Create status manager (callback will be nil, we use it for caching only)
 	statusManager := git.NewStatusManager(nil)
 
-	// Create file watcher (may fail, that's ok)
-	fileWatcher, _ := git.NewFileWatcher(nil)
+	// Create file watcher event channel
+	fileWatcherCh := make(chan messages.FileWatcherEvent, 10)
+
+	// Create file watcher with callback that sends to channel
+	fileWatcher, _ := git.NewFileWatcher(func(root string) {
+		select {
+		case fileWatcherCh <- messages.FileWatcherEvent{Root: root}:
+		default:
+			// Channel full, drop event (will catch on next change)
+		}
+	})
 
 	return &App{
 		config:        cfg,
@@ -110,6 +120,7 @@ func New() (*App, error) {
 		scripts:       scripts,
 		statusManager: statusManager,
 		fileWatcher:   fileWatcher,
+		fileWatcherCh: fileWatcherCh,
 		layout:        layout.NewManager(),
 		dashboard:     dashboard.New(),
 		center:        center.New(cfg),
@@ -145,10 +156,12 @@ func (a *App) startGitStatusTicker() tea.Cmd {
 
 // startFileWatcher starts watching for file changes and returns events
 func (a *App) startFileWatcher() tea.Cmd {
-	if a.fileWatcher == nil {
+	if a.fileWatcher == nil || a.fileWatcherCh == nil {
 		return nil
 	}
-	return nil // File watcher runs in background, we'll handle it differently
+	return func() tea.Msg {
+		return <-a.fileWatcherCh
+	}
 }
 
 // Update handles all messages
@@ -441,6 +454,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// File changed, invalidate cache and refresh
 		a.statusManager.Invalidate(msg.Root)
 		cmds = append(cmds, a.requestGitStatus(msg.Root))
+		// Continue listening for file changes
+		cmds = append(cmds, a.startFileWatcher())
 
 	case messages.Error:
 		a.err = msg.Err
@@ -801,9 +816,9 @@ func (a *App) loadProjects() tea.Cmd {
 func (a *App) requestGitStatus(root string) tea.Cmd {
 	return func() tea.Msg {
 		status, err := git.GetStatus(root)
-		// Update cache
+		// Update cache directly (no async refresh needed, we just fetched)
 		if a.statusManager != nil && err == nil {
-			a.statusManager.RequestRefresh(root)
+			a.statusManager.UpdateCache(root, status)
 		}
 		return messages.GitStatusResult{
 			Root:   root,

@@ -13,6 +13,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -96,9 +97,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
 			cmds = append(cmds, m.refreshStatus())
 		}
-
-	case git.StatusResult:
-		// This would come from a refresh command
 	}
 
 	return m, tea.Batch(cmds...)
@@ -428,14 +426,9 @@ func (m *Model) refreshStatus() tea.Cmd {
 
 	root := m.worktree.Root
 	return func() tea.Msg {
-		status, _ := git.GetStatus(root)
-		return StatusRefreshed{Status: status}
+		status, err := git.GetStatus(root)
+		return messages.GitStatusResult{Root: root, Status: status, Err: err}
 	}
-}
-
-// StatusRefreshed is sent when status is refreshed
-type StatusRefreshed struct {
-	Status *git.StatusResult
 }
 
 // SetSize sets the sidebar size
