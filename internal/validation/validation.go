@@ -115,11 +115,12 @@ func ValidateBaseRef(ref string) error {
 // ValidateAssistant validates an assistant name
 func ValidateAssistant(assistant string) error {
 	valid := map[string]bool{
-		"claude": true,
-		"codex":  true,
-		"gemini": true,
-		"amp":    true,
-		"term":   true,
+		"claude":   true,
+		"codex":    true,
+		"gemini":   true,
+		"amp":      true,
+		"opencode": true,
+		"term":     true,
 	}
 
 	if !valid[assistant] {
