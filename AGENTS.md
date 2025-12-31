@@ -1,36 +1,8 @@
 # Agent Instructions
 
-## Project: amux
-
-A Go TUI for managing AI coding agents across git worktrees. See `CLAUDE.md` for architecture details.
-
-### Build & Test
-```bash
-go build ./...                           # Quick compile check
-go build -o amux ./cmd/amux && ./amux   # Build and run
-go vet ./...                             # Lint
-```
-
-### Key Files to Understand First
-- `internal/app/app.go` - Root model, message routing
-- `internal/ui/dashboard/model.go` - Project/worktree list
-- `internal/messages/messages.go` - All message types
-- `internal/ui/common/dialog.go` - Dialog system
-
-### Running for Testing
-Build and run: `go build -o amux ./cmd/amux && ./amux`
-- Use `a` to add a project (any git repo path)
-- Use `n` to create worktree
-- Use `Ctrl+T` to launch agent
-- Use `?` for help overlay
-
----
-
-## Issue Tracking (beads)
-
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
-### Quick Reference
+## Quick Reference
 
 ```bash
 bd ready              # Find available work
