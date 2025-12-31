@@ -25,10 +25,11 @@ type Styles struct {
 	AddProjectRow  lipgloss.Style
 
 	// Status badges
-	StatusClean   lipgloss.Style
-	StatusDirty   lipgloss.Style
-	StatusPending lipgloss.Style
-	StatusRunning lipgloss.Style
+	StatusClean    lipgloss.Style
+	StatusDirty    lipgloss.Style
+	StatusPending  lipgloss.Style
+	StatusRunning  lipgloss.Style
+	AgentIndicator lipgloss.Style
 
 	// Git status file indicators
 	StatusModified  lipgloss.Style
@@ -183,6 +184,9 @@ func DefaultStyles() Styles {
 
 		StatusRunning: lipgloss.NewStyle().
 			Foreground(ColorSecondary),
+
+		AgentIndicator: lipgloss.NewStyle().
+			Foreground(ColorClaude),
 
 		// Git status file indicators
 		StatusModified: lipgloss.NewStyle().

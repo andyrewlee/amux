@@ -46,6 +46,7 @@ type Model struct {
 	rows        []Row
 	activeRoot  string // Currently active worktree root
 	statusCache map[string]*git.StatusResult
+	agentCounts map[string]int // Number of agents per worktree root
 
 	// UI state
 	cursor       int
@@ -69,6 +70,7 @@ func New() *Model {
 		projects:      []data.Project{},
 		rows:          []Row{},
 		statusCache:   make(map[string]*git.StatusResult),
+		agentCounts:   make(map[string]int),
 		loadingStatus: make(map[string]bool),
 		cursor:        0,
 		focused:       true,
@@ -100,6 +102,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, m.handleEnter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("n"))):
 			return m, m.handleNew()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("N"))):
+			return m, m.handleNewFromCurrent()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("d", "D"))):
 			return m, m.handleDelete()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("a"))):
@@ -157,6 +161,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.WorktreeActivated:
 		if msg.Worktree != nil {
 			m.activeRoot = msg.Worktree.Root
+		}
+
+	case messages.AgentCountUpdated:
+		if msg.Count > 0 {
+			m.agentCounts[msg.WorktreeRoot] = msg.Count
+		} else {
+			delete(m.agentCounts, msg.WorktreeRoot)
 		}
 	}
 
@@ -260,8 +271,12 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		return cursor + style.Render("["+common.Icons.Add+" Add Project]")
 
 	case RowProject:
-		// Project headers are uppercase and muted
-		return "  " + m.styles.ProjectHeader.Render(strings.ToUpper(row.Project.Name))
+		// Project headers are uppercase - selectable to access main branch
+		style := m.styles.ProjectHeader
+		if selected {
+			style = m.styles.SelectedRow
+		}
+		return cursor + style.Render(strings.ToUpper(row.Project.Name))
 
 	case RowWorktree:
 		name := row.Worktree.Name
@@ -281,6 +296,12 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			}
 		}
 
+		// Agent count indicator
+		agentIndicator := ""
+		if count, ok := m.agentCounts[row.Worktree.Root]; ok && count > 0 {
+			agentIndicator = " " + m.styles.AgentIndicator.Render(common.Icons.Agent + strconv.Itoa(count))
+		}
+
 		// Determine row style based on selection and active state
 		style := m.styles.WorktreeRow
 		if selected {
@@ -288,7 +309,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if row.Worktree.Root == m.activeRoot {
 			style = m.styles.ActiveWorktree
 		}
-		return cursor + style.Render(name) + status
+		return cursor + style.Render(name) + status + agentIndicator
 
 	case RowCreate:
 		style := m.styles.CreateButton
@@ -321,6 +342,11 @@ func (m *Model) rebuildRows() {
 
 		for j := range project.Worktrees {
 			wt := &project.Worktrees[j]
+
+			// Hide main branch - users access via project row
+			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
+				continue
+			}
 
 			// Filter dirty worktrees if filter is enabled
 			if m.filterDirty {
@@ -355,7 +381,7 @@ func (m *Model) rebuildRows() {
 
 // isSelectable returns whether a row type can be selected
 func isSelectable(rt RowType) bool {
-	return rt != RowProject && rt != RowSpacer
+	return rt != RowSpacer
 }
 
 // findSelectableRow finds a selectable row starting from 'from' in direction 'dir'.
@@ -449,6 +475,25 @@ func (m *Model) handleEnter() tea.Cmd {
 		return func() tea.Msg { return messages.ShowWelcome{} }
 	case RowAddProject:
 		return func() tea.Msg { return messages.ShowAddProjectDialog{} }
+	case RowProject:
+		// Find and activate the main/primary worktree for this project
+		var mainWT *data.Worktree
+		for i := range row.Project.Worktrees {
+			wt := &row.Project.Worktrees[i]
+			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
+				mainWT = wt
+				break
+			}
+		}
+		if mainWT != nil {
+			return func() tea.Msg {
+				return messages.WorktreeActivated{
+					Project:  row.Project,
+					Worktree: mainWT,
+				}
+			}
+		}
+		return nil
 	case RowWorktree:
 		return func() tea.Msg {
 			return messages.WorktreeActivated{
@@ -484,6 +529,25 @@ func (m *Model) handleNew() tea.Cmd {
 		}
 	}
 
+	return nil
+}
+
+// handleNewFromCurrent creates a new worktree branching from the currently selected worktree
+func (m *Model) handleNewFromCurrent() tea.Cmd {
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		row := m.rows[m.cursor]
+		// Only works on worktree rows
+		if row.Type == RowWorktree && row.Project != nil && row.Worktree != nil {
+			return func() tea.Msg {
+				return messages.ShowCreateWorktreeDialog{
+					Project: row.Project,
+					Base:    row.Worktree.Branch,
+				}
+			}
+		}
+		// For other rows, fall back to regular new
+		return m.handleNew()
+	}
 	return nil
 }
 

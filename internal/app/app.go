@@ -49,11 +49,12 @@ type App struct {
 	showWelcome    bool
 
 	// UI Components
-	layout    *layout.Manager
-	dashboard *dashboard.Model
-	center    *center.Model
-	sidebar   *sidebar.Model
-	dialog    *common.Dialog
+	layout     *layout.Manager
+	dashboard  *dashboard.Model
+	center     *center.Model
+	sidebar    *sidebar.Model
+	dialog     *common.Dialog
+	filePicker *common.FilePicker
 
 	// Overlays
 	helpOverlay *common.HelpOverlay
@@ -62,6 +63,7 @@ type App struct {
 	// Dialog context
 	dialogProject  *data.Project
 	dialogWorktree *data.Worktree
+	dialogBase     string // Base branch for creating worktrees
 
 	// Process management
 	scripts *process.ScriptRunner
@@ -199,6 +201,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Don't process other keys while dialog is open
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+	}
+
+	// Handle file picker if visible
+	if a.filePicker != nil && a.filePicker.Visible() {
+		newPicker, cmd := a.filePicker.Update(msg)
+		a.filePicker = newPicker
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		// Don't process other keys while file picker is open
 		if _, ok := msg.(tea.KeyMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
@@ -389,13 +405,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.ShowAddProjectDialog:
-		logging.Info("Showing Add Project dialog")
-		a.dialog = common.NewInputDialog(DialogAddProject, "Add Project", "Enter repository path...")
-		a.dialog.Show()
+		logging.Info("Showing Add Project file picker")
+		home, _ := os.UserHomeDir()
+		a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
+		a.filePicker.Show()
 
 	case messages.ShowCreateWorktreeDialog:
 		a.dialogProject = msg.Project
-		a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
+		a.dialogBase = msg.Base
+		title := "Create Worktree"
+		if msg.Base != "" {
+			title = fmt.Sprintf("Create Worktree (from %s)", msg.Base)
+		}
+		a.dialog = common.NewInputDialog(DialogCreateWorktree, title, "Enter worktree name...")
 		a.dialog.Show()
 
 	case messages.ShowDeleteWorktreeDialog:
@@ -436,6 +458,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.center.StartPTYReaders())
 		// NOW switch focus to center - tab is ready
 		a.focusPane(messages.PaneCenter)
+		// Broadcast agent counts to dashboard
+		cmds = append(cmds, a.broadcastAgentCounts())
+
+	case messages.TabClosed:
+		logging.Info("Tab closed: %d", msg.Index)
+		// Broadcast agent counts to dashboard
+		cmds = append(cmds, a.broadcastAgentCounts())
 
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		newCenter, cmd := a.center.Update(msg)
@@ -500,11 +529,15 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				}
 			}
 			project := a.dialogProject
+			base := a.dialogBase
+			if base == "" {
+				base = "HEAD"
+			}
 			return func() tea.Msg {
 				return messages.CreateWorktree{
 					Project: project,
 					Name:    name,
-					Base:    "HEAD",
+					Base:    base,
 				}
 			}
 		}
@@ -584,6 +617,11 @@ func (a *App) View() string {
 	// Overlay dialog if visible
 	if a.dialog != nil && a.dialog.Visible() {
 		content = a.overlayDialog(content)
+	}
+
+	// Overlay file picker if visible
+	if a.filePicker != nil && a.filePicker.Visible() {
+		content = a.overlayFilePicker(content)
 	}
 
 	// Show help overlay if visible
@@ -687,6 +725,65 @@ func (a *App) overlayDialog(content string) string {
 	return strings.Join(contentLines, "\n")
 }
 
+// overlayFilePicker renders the file picker as a modal overlay
+func (a *App) overlayFilePicker(content string) string {
+	pickerView := a.filePicker.View()
+	pickerLines := strings.Split(pickerView, "\n")
+
+	// Calculate picker dimensions
+	pickerHeight := len(pickerLines)
+	pickerWidth := 0
+	for _, line := range pickerLines {
+		if w := lipgloss.Width(line); w > pickerWidth {
+			pickerWidth = w
+		}
+	}
+
+	// Center the picker
+	x := (a.width - pickerWidth) / 2
+	y := (a.height - pickerHeight) / 2
+
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	// Split content into lines
+	contentLines := strings.Split(content, "\n")
+	originalLineCount := len(contentLines)
+
+	// Overlay picker lines onto content
+	for i, pickerLine := range pickerLines {
+		contentY := y + i
+		if contentY >= 0 && contentY < len(contentLines) {
+			bgLine := contentLines[contentY]
+			bgWidth := lipgloss.Width(bgLine)
+
+			// Build the line: left part + picker line + right part
+			var left string
+			if x > 0 {
+				left = ansi.Truncate(bgLine, x, "")
+			}
+
+			rightStart := x + lipgloss.Width(pickerLine)
+			var right string
+			if rightStart < bgWidth {
+				right = ansi.TruncateLeft(bgLine, rightStart, "")
+			}
+
+			contentLines[contentY] = left + pickerLine + right
+		}
+	}
+
+	if len(contentLines) > originalLineCount {
+		contentLines = contentLines[:originalLineCount]
+	}
+
+	return strings.Join(contentLines, "\n")
+}
+
 // overlayError renders an error banner at the bottom of the screen
 func (a *App) overlayError(content string) string {
 	errStyle := lipgloss.NewStyle().
@@ -761,28 +858,75 @@ func (a *App) renderWorktreeInfo() string {
 // renderWelcome renders the welcome screen
 func (a *App) renderWelcome() string {
 	logo := `
+    ___    __  __ _   ___  __
+   / _ \  |  \/  | | | \ \/ /
+  / /_\ \ | |\/| | | | |>  <
+ / _____ \| |  | | |_| / /\ \
+/_/     \_\_|  |_|\___/_/  \_\`
 
-   __ _ _ __ ___  _   ___  __
-  / _' | '_ ' _ \| | | \ \/ /
- | (_| | | | | | | |_| |>  <
-  \__,_|_| |_| |_|\__,_/_/\_\
-`
+	tagline := "AI Coding Agents × Git Worktrees"
 
-	title := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#98c379")).
-		Bold(true).
-		Render(logo)
+	logoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7aa2f7")).
+		Bold(true)
 
-	stats := fmt.Sprintf("\n%d projects registered", len(a.projects))
-	statsStyled := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#61afef")).
-		Render(stats)
+	taglineStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#bb9af7")).
+		Italic(true)
 
-	help := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#5c6370")).
-		Render("\n\nctrl+q: quit • j/k: navigate • enter: select • a: add project")
+	// Stats section
+	projectCount := len(a.projects)
+	var statsText string
+	if projectCount == 0 {
+		statsText = "No projects yet — press 'a' to add one"
+	} else if projectCount == 1 {
+		statsText = "1 project registered"
+	} else {
+		statsText = fmt.Sprintf("%d projects registered", projectCount)
+	}
+	statsStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#9ece6a"))
 
-	return title + statsStyled + help
+	// Quick start section
+	quickStart := `
+┌─ Quick Start ─────────────────────┐
+│  a       Add a project            │
+│  n       Create new worktree      │
+│  Ctrl+T  Launch AI agent          │
+│  ?       Show all shortcuts       │
+└───────────────────────────────────┘`
+
+	quickStartStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#565f89"))
+
+	// Build the welcome screen
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(logoStyle.Render(logo))
+	b.WriteString("\n")
+	b.WriteString(taglineStyle.Render(tagline))
+	b.WriteString("\n\n")
+	b.WriteString(statsStyle.Render(statsText))
+	b.WriteString("\n")
+	b.WriteString(quickStartStyle.Render(quickStart))
+
+	return b.String()
+}
+
+// broadcastAgentCounts sends agent counts to the dashboard for all worktrees
+func (a *App) broadcastAgentCounts() tea.Cmd {
+	counts := a.center.GetAllAgentCounts()
+	var cmds []tea.Cmd
+	for root, count := range counts {
+		root, count := root, count // capture for closure
+		cmds = append(cmds, func() tea.Msg {
+			return messages.AgentCountUpdated{
+				WorktreeRoot: root,
+				Count:        count,
+			}
+		})
+	}
+	return tea.Batch(cmds...)
 }
 
 // loadProjects loads all registered projects and their worktrees
