@@ -175,21 +175,31 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 		switch msg.Action {
 		case tea.MouseActionPress:
-			if msg.Button == tea.MouseButtonLeft && inBounds {
-				// Start selection
+			if msg.Button == tea.MouseButtonLeft {
 				tab.mu.Lock()
-				tab.Selection = SelectionState{
-					Active: true,
-					StartX: termX,
-					StartY: termY,
-					EndX:   termX,
-					EndY:   termY,
-				}
+				// Clear any existing selection first
 				if tab.Terminal != nil {
-					tab.Terminal.SetSelection(termX, termY, termX, termY, true)
+					tab.Terminal.ClearSelection()
+				}
+
+				if inBounds {
+					// Start new selection
+					tab.Selection = SelectionState{
+						Active: true,
+						StartX: termX,
+						StartY: termY,
+						EndX:   termX,
+						EndY:   termY,
+					}
+					if tab.Terminal != nil {
+						tab.Terminal.SetSelection(termX, termY, termX, termY, true)
+					}
+					logging.Debug("Selection started at (%d, %d)", termX, termY)
+				} else {
+					// Clicked outside terminal content, just clear selection
+					tab.Selection = SelectionState{}
 				}
 				tab.mu.Unlock()
-				logging.Debug("Selection started at (%d, %d)", termX, termY)
 			}
 
 		case tea.MouseActionMotion:
@@ -246,9 +256,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 								logging.Info("Copied %d chars to clipboard", len(text))
 							}
 						}
-						// Clear selection after copying
-						tab.Terminal.ClearSelection()
+						// Keep selection visible - don't clear it
+						// Selection will be cleared when user clicks again or types
 					}
+					// Mark selection as no longer being dragged, but keep it visible
 					tab.Selection.Active = false
 				}
 				tab.mu.Unlock()
@@ -261,6 +272,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		activeIdx := m.getActiveTabIdx()
 		logging.Debug("Center received key: %s, focused=%v, hasTabs=%v, numTabs=%d",
 			msg.String(), m.focused, m.hasActiveAgent(), len(tabs))
+
+		// Clear any selection when user types
+		if len(tabs) > 0 && activeIdx < len(tabs) {
+			tab := tabs[activeIdx]
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				tab.Terminal.ClearSelection()
+			}
+			tab.Selection = SelectionState{}
+			tab.mu.Unlock()
+		}
 
 		if !m.focused {
 			logging.Debug("Center not focused, ignoring key")
