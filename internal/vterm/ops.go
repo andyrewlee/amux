@@ -20,11 +20,10 @@ func (v *VTerm) putChar(r rune) {
 			// Note: This stores combined as a single rune which works for simple cases
 			// For full combining support, Cell.Rune would need to be a string
 			cell := &v.Screen[prevY][prevX]
-			// Skip if previous cell is a continuation cell
-			if cell.Width != 0 {
-				// Store as combining - for now we just keep the base rune
-				// Full support would require storing multiple runes per cell
-			}
+			// Skip if previous cell is a continuation cell (Width==0)
+			// For non-continuation cells, we could append combining chars
+			// Full support would require storing multiple runes per cell
+			_ = cell // Currently no-op for combining characters
 		}
 		return // Don't advance cursor for combining chars
 	}
