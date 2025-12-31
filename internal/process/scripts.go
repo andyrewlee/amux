@@ -119,7 +119,7 @@ func (r *ScriptRunner) RunScript(wt *data.Worktree, meta *data.Metadata, scriptT
 
 	// Check for existing process in non-concurrent mode
 	if meta != nil && meta.ScriptMode == "nonconcurrent" {
-		r.Stop(wt)
+		_ = r.Stop(wt)
 	}
 
 	env := r.envBuilder.BuildEnv(wt, meta)
@@ -138,7 +138,7 @@ func (r *ScriptRunner) RunScript(wt *data.Worktree, meta *data.Metadata, scriptT
 
 	// Monitor in background
 	go func() {
-		cmd.Wait()
+		_ = cmd.Wait()
 		r.mu.Lock()
 		delete(r.running, wt.Root)
 		r.mu.Unlock()
@@ -179,7 +179,7 @@ func (r *ScriptRunner) StopAll() {
 
 	for _, cmd := range r.running {
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 	}
 	r.running = make(map[string]*exec.Cmd)

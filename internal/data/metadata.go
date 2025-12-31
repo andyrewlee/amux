@@ -13,9 +13,9 @@ type Metadata struct {
 	Repo                 string            `json:"repo"`
 	Base                 string            `json:"base"`
 	Created              string            `json:"created"`
-	Assistant            string            `json:"assistant"`    // "claude", "codex", "gemini"
+	Assistant            string            `json:"assistant"` // "claude", "codex", "gemini"
 	Scripts              ScriptsConfig     `json:"scripts"`
-	ScriptMode           string            `json:"script_mode"`  // "concurrent" or "nonconcurrent"
+	ScriptMode           string            `json:"script_mode"` // "concurrent" or "nonconcurrent"
 	Env                  map[string]string `json:"env"`
 	PortBase             *int              `json:"port_base"`
 	LastActiveBufferName string            `json:"last_active_buffer_name"`

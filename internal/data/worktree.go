@@ -10,9 +10,9 @@ import (
 type Worktree struct {
 	Name    string    `json:"name"`
 	Branch  string    `json:"branch"`
-	Base    string    `json:"base"`    // Base ref (e.g., origin/main)
-	Repo    string    `json:"repo"`    // Primary checkout path
-	Root    string    `json:"root"`    // Worktree path
+	Base    string    `json:"base"` // Base ref (e.g., origin/main)
+	Repo    string    `json:"repo"` // Primary checkout path
+	Root    string    `json:"root"` // Worktree path
 	Created time.Time `json:"created"`
 }
 

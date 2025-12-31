@@ -246,14 +246,14 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return cursor + style.Render("[" + common.Icons.Home + " home]")
+		return cursor + style.Render("["+common.Icons.Home+" home]")
 
 	case RowAddProject:
 		style := m.styles.AddProjectRow
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return cursor + style.Render("[" + common.Icons.Add + " Add Project]")
+		return cursor + style.Render("["+common.Icons.Add+" Add Project]")
 
 	case RowProject:
 		// Project headers are uppercase and muted
@@ -291,7 +291,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return cursor + style.Render(common.Icons.Add + " New")
+		return cursor + style.Render(common.Icons.Add+" New")
 
 	case RowSpacer:
 		return ""

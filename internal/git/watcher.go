@@ -3,6 +3,7 @@ package git
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,8 +91,8 @@ func (fw *FileWatcher) Unwatch(root string) {
 	}
 
 	gitPath := filepath.Join(root, ".git")
-	fw.watcher.Remove(gitPath)
-	fw.watcher.Remove(filepath.Join(gitPath, "index"))
+	_ = fw.watcher.Remove(gitPath)
+	_ = fw.watcher.Remove(filepath.Join(gitPath, "index"))
 
 	delete(fw.watching, root)
 }
@@ -146,7 +147,7 @@ func (fw *FileWatcher) findWorktreeRoot(path string) string {
 
 	for root := range fw.watching {
 		gitPath := filepath.Join(root, ".git")
-		if path == gitPath || filepath.Dir(path) == gitPath || filepath.HasPrefix(path, gitPath) {
+		if path == gitPath || filepath.Dir(path) == gitPath || strings.HasPrefix(path, gitPath+string(filepath.Separator)) {
 			return root
 		}
 	}

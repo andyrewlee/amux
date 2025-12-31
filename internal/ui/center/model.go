@@ -160,12 +160,6 @@ func (m *Model) flushTiming(tab *Tab) (time.Duration, time.Duration) {
 	return quiet, maxInterval
 }
 
-// addTab adds a tab to the current worktree
-func (m *Model) addTab(tab *Tab) {
-	wtID := m.worktreeID()
-	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-}
-
 // removeTab removes a tab at index from the current worktree
 func (m *Model) removeTab(idx int) {
 	wtID := m.worktreeID()
@@ -362,12 +356,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 							return m, nil
 						default:
 							// Forward both 'g' and current key to terminal
-							tab.Agent.Terminal.SendString("g")
+							_ = tab.Agent.Terminal.SendString("g")
 							// Fall through to normal key handling
 						}
 					} else {
 						// Non-rune key after 'g' - forward both
-						tab.Agent.Terminal.SendString("g")
+						_ = tab.Agent.Terminal.SendString("g")
 						// Fall through to normal key handling
 					}
 				}
@@ -394,7 +388,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
 					// This is Escape - let it go to terminal
-					tab.Agent.Terminal.SendString("\x1b")
+					_ = tab.Agent.Terminal.SendString("\x1b")
 					return m, nil
 
 				case msg.Type == tea.KeyPgUp:
@@ -463,7 +457,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					input := keyToBytes(msg)
 					if len(input) > 0 {
 						logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
-						tab.Agent.Terminal.SendString(string(input))
+						_ = tab.Agent.Terminal.SendString(string(input))
 					} else {
 						logging.Debug("keyToBytes returned empty for: %s", msg.String())
 					}
@@ -560,7 +554,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if len(tabs) > 0 && activeIdx < len(tabs) {
 				tab := tabs[activeIdx]
 				if tab.Agent != nil && tab.Agent.Terminal != nil {
-					tab.Agent.Terminal.SendString("g")
+					_ = tab.Agent.Terminal.SendString("g")
 				}
 			}
 		}
@@ -825,7 +819,7 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		// Set up response writer for terminal queries (DSR, DA, etc.)
 		if agent.Terminal != nil {
 			term.SetResponseWriter(func(data []byte) {
-				agent.Terminal.SendString(string(data))
+				_ = agent.Terminal.SendString(string(data))
 			})
 		}
 
@@ -842,7 +836,7 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 
 		// Set PTY size to match
 		if agent.Terminal != nil {
-			agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+			_ = agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
 			logging.Info("Terminal size set to %dx%d", termWidth, termHeight)
 		}
 
@@ -853,11 +847,6 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 
 		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: assistant}
 	}
-}
-
-// readPTY reads from the PTY for a tab in the current worktree
-func (m *Model) readPTY(tabID TabID) tea.Cmd {
-	return m.readPTYForTab(m.worktreeID(), tabID)
 }
 
 // readPTYForTab reads from the PTY for a tab in a specific worktree
@@ -906,7 +895,7 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 
 	// Close agent
 	if tab.Agent != nil {
-		m.agentManager.CloseAgent(tab.Agent)
+		_ = m.agentManager.CloseAgent(tab.Agent)
 	}
 
 	// Remove from tabs
@@ -921,21 +910,6 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 	return func() tea.Msg {
 		return messages.TabClosed{Index: index}
 	}
-}
-
-// sendInterrupt sends an interrupt to the active agent
-func (m *Model) sendInterrupt() tea.Cmd {
-	if !m.hasActiveAgent() {
-		return nil
-	}
-
-	tabs := m.getTabs()
-	tab := tabs[m.getActiveTabIdx()]
-	if tab.Agent != nil {
-		m.agentManager.SendInterrupt(tab.Agent)
-	}
-
-	return nil
 }
 
 // hasActiveAgent returns whether there's an active agent
@@ -987,7 +961,7 @@ func (m *Model) SetSize(width, height int) {
 			}
 			tab.mu.Unlock()
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
-				tab.Agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+				_ = tab.Agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
 			}
 		}
 	}
@@ -1090,12 +1064,12 @@ func (m *Model) SendText(text string) {
 			// Start bracketed paste: \e[200~
 			// End bracketed paste: \e[201~
 			bracketedText := "\x1b[200~" + text + "\x1b[201~"
-			tab.Agent.Terminal.SendString(bracketedText)
+			_ = tab.Agent.Terminal.SendString(bracketedText)
 		} else {
-			tab.Agent.Terminal.SendString(text)
+			_ = tab.Agent.Terminal.SendString(text)
 		}
 		// Send enter to submit
-		tab.Agent.Terminal.SendString("\r")
+		_ = tab.Agent.Terminal.SendString("\r")
 	}
 }
 
