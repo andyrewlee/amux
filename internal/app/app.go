@@ -49,12 +49,13 @@ type App struct {
 	showWelcome    bool
 
 	// UI Components
-	layout     *layout.Manager
-	dashboard  *dashboard.Model
-	center     *center.Model
-	sidebar    *sidebar.Model
-	dialog     *common.Dialog
-	filePicker *common.FilePicker
+	layout          *layout.Manager
+	dashboard       *dashboard.Model
+	center          *center.Model
+	sidebar         *sidebar.Model
+	sidebarTerminal *sidebar.TerminalModel
+	dialog          *common.Dialog
+	filePicker      *common.FilePicker
 
 	// Overlays
 	helpOverlay *common.HelpOverlay
@@ -115,23 +116,24 @@ func New() (*App, error) {
 	})
 
 	return &App{
-		config:        cfg,
-		registry:      registry,
-		metadata:      metadata,
-		scripts:       scripts,
-		statusManager: statusManager,
-		fileWatcher:   fileWatcher,
-		fileWatcherCh: fileWatcherCh,
-		layout:        layout.NewManager(),
-		dashboard:     dashboard.New(),
-		center:        center.New(cfg),
-		sidebar:       sidebar.New(),
-		helpOverlay:   common.NewHelpOverlay(),
-		toast:         common.NewToastModel(),
-		focusedPane:   messages.PaneDashboard,
-		showWelcome:   true,
-		keymap:        DefaultKeyMap(),
-		styles:        common.DefaultStyles(),
+		config:          cfg,
+		registry:        registry,
+		metadata:        metadata,
+		scripts:         scripts,
+		statusManager:   statusManager,
+		fileWatcher:     fileWatcher,
+		fileWatcherCh:   fileWatcherCh,
+		layout:          layout.NewManager(),
+		dashboard:       dashboard.New(),
+		center:          center.New(cfg),
+		sidebar:         sidebar.New(),
+		sidebarTerminal: sidebar.NewTerminalModel(),
+		helpOverlay:     common.NewHelpOverlay(),
+		toast:           common.NewToastModel(),
+		focusedPane:     messages.PaneDashboard,
+		showWelcome:     true,
+		keymap:          DefaultKeyMap(),
+		styles:          common.DefaultStyles(),
 	}, nil
 }
 
@@ -143,6 +145,7 @@ func (a *App) Init() tea.Cmd {
 		a.dashboard.Init(),
 		a.center.Init(),
 		a.sidebar.Init(),
+		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
 		a.startFileWatcher(),
 	)
@@ -303,13 +306,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Global keybindings (only when NOT in terminal mode)
-		// Relative vim-style navigation: Ctrl+H = left, Ctrl+L = right
+		// Relative vim-style navigation: Ctrl+H = left, Ctrl+L = right, Ctrl+J = down, Ctrl+K = up
 		switch {
 		case key.Matches(msg, a.keymap.MoveLeft):
 			switch a.focusedPane {
 			case messages.PaneCenter:
 				a.focusPane(messages.PaneDashboard)
-			case messages.PaneSidebar:
+			case messages.PaneSidebar, messages.PaneSidebarTerminal:
 				a.focusPane(messages.PaneCenter)
 			}
 		case key.Matches(msg, a.keymap.MoveRight):
@@ -320,6 +323,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if a.layout.ShowSidebar() {
 					a.focusPane(messages.PaneSidebar)
 				}
+			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+j"))):
+			// Move down: Sidebar -> SidebarTerminal
+			if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
+				a.focusPane(messages.PaneSidebarTerminal)
+			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+k"))):
+			// Move up: SidebarTerminal -> Sidebar
+			if a.focusedPane == messages.PaneSidebarTerminal {
+				a.focusPane(messages.PaneSidebar)
 			}
 		case key.Matches(msg, a.keymap.Home):
 			a.showWelcome = true
@@ -349,6 +362,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newSidebar, cmd := a.sidebar.Update(msg)
 			a.sidebar = newSidebar
 			cmds = append(cmds, cmd)
+		case messages.PaneSidebarTerminal:
+			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
+			a.sidebarTerminal = newSidebarTerminal
+			cmds = append(cmds, cmd)
 		}
 
 	case messages.ProjectsLoaded:
@@ -369,6 +386,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.showWelcome = false
 		a.center.SetWorktree(msg.Worktree)
 		a.sidebar.SetWorktree(msg.Worktree)
+		// Set up sidebar terminal for the worktree
+		if termCmd := a.sidebarTerminal.SetWorktree(msg.Worktree); termCmd != nil {
+			cmds = append(cmds, termCmd)
+		}
 		newDashboard, cmd := a.dashboard.Update(msg)
 		a.dashboard = newDashboard
 		cmds = append(cmds, cmd)
@@ -462,6 +483,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
+		cmds = append(cmds, cmd)
+
+	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, sidebar.SidebarTerminalCreated:
+		newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
+		a.sidebarTerminal = newSidebarTerminal
 		cmds = append(cmds, cmd)
 
 	case messages.GitStatusTick:
@@ -591,7 +617,8 @@ func (a *App) View() string {
 		centerView = a.renderCenterPane()
 	}
 
-	sidebarView := a.sidebar.View()
+	// Render sidebar as vertical split: file changes (top) + terminal (bottom)
+	sidebarView := a.renderSidebarPane()
 
 	// Combine using layout manager
 	var content string
@@ -1066,14 +1093,22 @@ func (a *App) focusPane(pane messages.PaneType) {
 		a.dashboard.Focus()
 		a.center.Blur()
 		a.sidebar.Blur()
+		a.sidebarTerminal.Blur()
 	case messages.PaneCenter:
 		a.dashboard.Blur()
 		a.center.Focus()
 		a.sidebar.Blur()
+		a.sidebarTerminal.Blur()
 	case messages.PaneSidebar:
 		a.dashboard.Blur()
 		a.center.Blur()
 		a.sidebar.Focus()
+		a.sidebarTerminal.Blur()
+	case messages.PaneSidebarTerminal:
+		a.dashboard.Blur()
+		a.center.Blur()
+		a.sidebar.Blur()
+		a.sidebarTerminal.Focus()
 	}
 }
 
@@ -1082,8 +1117,23 @@ func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
 	a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
-	a.sidebar.SetSize(a.layout.SidebarWidth(), a.layout.Height())
+
+	// Split sidebar height between file changes and terminal (50/50)
+	sidebarWidth := a.layout.SidebarWidth()
+	sidebarHeight := a.layout.Height()
+	topHeight := sidebarHeight / 2
+	bottomHeight := sidebarHeight - topHeight
+	a.sidebar.SetSize(sidebarWidth, topHeight)
+	a.sidebarTerminal.SetSize(sidebarWidth, bottomHeight)
+
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
 	}
+}
+
+// renderSidebarPane renders the sidebar as a vertical split with file changes and terminal
+func (a *App) renderSidebarPane() string {
+	topView := a.sidebar.View()
+	bottomView := a.sidebarTerminal.View()
+	return lipgloss.JoinVertical(lipgloss.Left, topView, bottomView)
 }
