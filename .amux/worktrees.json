@@ -1,0 +1,3 @@
+{
+  "setup-worktree": ["sh \"$AMUX_REPO_ROOT/.amux/setup-worktree.sh\""]
+}
