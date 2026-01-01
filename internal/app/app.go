@@ -1157,7 +1157,9 @@ func (a *App) updateLayout() {
 
 // renderSidebarPane renders the sidebar as a vertical split with file changes and terminal
 func (a *App) renderSidebarPane() string {
-	topView := a.sidebar.View()
-	bottomView := a.sidebarTerminal.View()
-	return lipgloss.JoinVertical(lipgloss.Left, topView, bottomView)
+	// Show only one pane based on focus - no vertical split
+	if a.focusedPane == messages.PaneSidebarTerminal {
+		return a.sidebarTerminal.View()
+	}
+	return a.sidebar.View()
 }
