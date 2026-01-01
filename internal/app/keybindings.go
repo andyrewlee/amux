@@ -8,11 +8,14 @@ type KeyMap struct {
 	Quit        key.Binding
 	MoveLeft    key.Binding
 	MoveRight   key.Binding
+	MoveUp      key.Binding
+	MoveDown    key.Binding
 	NextTab     key.Binding
 	PrevTab     key.Binding
 	CloseTab    key.Binding
 	NewAgentTab key.Binding
 	Home        key.Binding
+	Help        key.Binding
 
 	// Dashboard
 	Enter        key.Binding
@@ -48,6 +51,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+l"),
 			key.WithHelp("ctrl+l", "move right"),
 		),
+		MoveUp: key.NewBinding(
+			key.WithKeys("ctrl+k"),
+			key.WithHelp("ctrl+k", "move up"),
+		),
+		MoveDown: key.NewBinding(
+			key.WithKeys("ctrl+j"),
+			key.WithHelp("ctrl+j", "move down"),
+		),
 		NextTab: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "next tab"),
@@ -67,6 +78,10 @@ func DefaultKeyMap() KeyMap {
 		Home: key.NewBinding(
 			key.WithKeys("ctrl+g"),
 			key.WithHelp("ctrl+g", "go home"),
+		),
+		Help: key.NewBinding(
+			key.WithKeys("?"),
+			key.WithHelp("?", "toggle help"),
 		),
 
 		// Dashboard
