@@ -326,13 +326,8 @@ func (m *TerminalModel) View() string {
 	}
 	b.WriteString(help)
 
-	// Apply pane styling
-	style := m.styles.Pane
-	if m.focused {
-		style = m.styles.FocusedPane
-	}
-
-	return style.Width(m.width - 2).Render(b.String())
+	// Apply pane styling with focus gutter to avoid slow border styles.
+	return wrapPane(b.String(), m.width, m.focused)
 }
 
 // SetSize sets the terminal section size
@@ -341,7 +336,7 @@ func (m *TerminalModel) SetSize(width, height int) {
 	m.height = height
 
 	// Calculate actual terminal dimensions
-	termWidth := width - 4 // Account for borders and padding
+	termWidth := width - 4 - focusGutterWidth // Account for borders, padding, and focus gutter
 	termHeight := height - 4
 	if termWidth < 10 {
 		termWidth = 10

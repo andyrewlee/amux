@@ -118,28 +118,22 @@ func (m *Model) View() string {
 		b.WriteString(m.renderExplorer())
 	}
 
-	// Help bar with styled keys
+	// Help bar
 	helpItems := []string{
 		m.styles.HelpKey.Render("1/2") + m.styles.HelpDesc.Render(":tabs"),
 		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
-		m.styles.HelpKey.Render("g") + m.styles.HelpDesc.Render(":refresh"),
 	}
-	help := strings.Join(helpItems, "  ")
-	// Account for: border (2 lines) + help line (1)
+
+	// Padding
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := m.height - 4 // 2 for border, 1 for help, 1 for safety
+	targetHeight := m.height - 4
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
-	b.WriteString(help)
+	b.WriteString(strings.Join(helpItems, "  "))
 
-	// Apply pane styling
-	style := m.styles.Pane
-	if m.focused {
-		style = m.styles.FocusedPane
-	}
-
-	return style.Width(m.width - 2).Render(b.String())
+	// Apply pane styling with focus gutter to avoid slow border styles.
+	return wrapPane(b.String(), m.width, m.focused)
 }
 
 // renderTabBar renders the sidebar tab bar
@@ -232,7 +226,7 @@ func (m *Model) renderChanges() string {
 
 		// Truncate path to fit within available width
 		// Account for: cursor (2) + code (2) + spaces (2) + padding (4) = 10 chars overhead
-		maxPathLen := m.width - 14
+		maxPathLen := m.width - 14 - focusGutterWidth
 		if maxPathLen < 10 {
 			maxPathLen = 10
 		}
