@@ -80,6 +80,7 @@ const (
 	ptyFlushMaxAlt      = 120 * time.Millisecond
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
 	ptyFlushInactiveMultiplier = 4
+	ptyFlushChunkSize          = 32 * 1024
 )
 
 // Model is the Bubbletea model for the center pane
@@ -545,10 +546,25 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if len(tab.pendingOutput) > 0 {
 				tab.mu.Lock()
 				if tab.Terminal != nil {
-					tab.Terminal.Write(tab.pendingOutput)
+					chunkSize := len(tab.pendingOutput)
+					if chunkSize > ptyFlushChunkSize {
+						chunkSize = ptyFlushChunkSize
+					}
+					tab.Terminal.Write(tab.pendingOutput[:chunkSize])
+					copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
+					tab.pendingOutput = tab.pendingOutput[:len(tab.pendingOutput)-chunkSize]
 				}
 				tab.mu.Unlock()
-				tab.pendingOutput = tab.pendingOutput[:0]
+				if len(tab.pendingOutput) == 0 {
+					tab.pendingOutput = tab.pendingOutput[:0]
+				} else {
+					tab.flushScheduled = true
+					tab.flushPendingSince = time.Now()
+					tabID := msg.TabID
+					cmds = append(cmds, tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
+						return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
+					}))
+				}
 			}
 		}
 
