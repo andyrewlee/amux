@@ -49,12 +49,13 @@ type App struct {
 	showWelcome    bool
 
 	// UI Components
-	layout     *layout.Manager
-	dashboard  *dashboard.Model
-	center     *center.Model
-	sidebar    *sidebar.Model
-	dialog     *common.Dialog
-	filePicker *common.FilePicker
+	layout          *layout.Manager
+	dashboard       *dashboard.Model
+	center          *center.Model
+	sidebar         *sidebar.Model
+	sidebarTerminal *sidebar.TerminalModel
+	dialog          *common.Dialog
+	filePicker      *common.FilePicker
 
 	// Overlays
 	helpOverlay *common.HelpOverlay
@@ -115,23 +116,24 @@ func New() (*App, error) {
 	})
 
 	return &App{
-		config:        cfg,
-		registry:      registry,
-		metadata:      metadata,
-		scripts:       scripts,
-		statusManager: statusManager,
-		fileWatcher:   fileWatcher,
-		fileWatcherCh: fileWatcherCh,
-		layout:        layout.NewManager(),
-		dashboard:     dashboard.New(),
-		center:        center.New(cfg),
-		sidebar:       sidebar.New(),
-		helpOverlay:   common.NewHelpOverlay(),
-		toast:         common.NewToastModel(),
-		focusedPane:   messages.PaneDashboard,
-		showWelcome:   true,
-		keymap:        DefaultKeyMap(),
-		styles:        common.DefaultStyles(),
+		config:          cfg,
+		registry:        registry,
+		metadata:        metadata,
+		scripts:         scripts,
+		statusManager:   statusManager,
+		fileWatcher:     fileWatcher,
+		fileWatcherCh:   fileWatcherCh,
+		layout:          layout.NewManager(),
+		dashboard:       dashboard.New(),
+		center:          center.New(cfg),
+		sidebar:         sidebar.New(),
+		sidebarTerminal: sidebar.NewTerminalModel(),
+		helpOverlay:     common.NewHelpOverlay(),
+		toast:           common.NewToastModel(),
+		focusedPane:     messages.PaneDashboard,
+		showWelcome:     true,
+		keymap:          DefaultKeyMap(),
+		styles:          common.DefaultStyles(),
 	}, nil
 }
 
@@ -143,6 +145,7 @@ func (a *App) Init() tea.Cmd {
 		a.dashboard.Init(),
 		a.center.Init(),
 		a.sidebar.Init(),
+		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
 		a.startFileWatcher(),
 	)
@@ -269,7 +272,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		logging.Debug("Key: %s, focusedPane=%d, centerHasTabs=%v", msg.String(), a.focusedPane, a.center.HasTabs())
+		// Uncomment for key debugging (causes latency due to sync file I/O):
+		// logging.Debug("Key: %s, focusedPane=%d, centerHasTabs=%v", msg.String(), a.focusedPane, a.center.HasTabs())
+
+		// When focused on sidebar terminal, intercept navigation keys before forwarding
+		if a.focusedPane == messages.PaneSidebarTerminal {
+			switch {
+			case key.Matches(msg, a.keymap.MoveLeft):
+				a.focusPane(messages.PaneCenter)
+				return a, nil
+			case key.Matches(msg, a.keymap.MoveUp):
+				a.focusPane(messages.PaneSidebar)
+				return a, nil
+			case key.Matches(msg, a.keymap.Quit):
+				a.sidebarTerminal.CloseAll()
+				a.quitting = true
+				return a, tea.Quit
+			}
+
+			// Forward all other keys to terminal
+			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
+			a.sidebarTerminal = newSidebarTerminal
+			return a, cmd
+		}
 
 		// When focused on center pane with terminal, handle navigation keys
 		if a.focusedPane == messages.PaneCenter {
@@ -303,13 +328,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Global keybindings (only when NOT in terminal mode)
-		// Relative vim-style navigation: Ctrl+H = left, Ctrl+L = right
+		// Relative vim-style navigation: Ctrl+H = left, Ctrl+L = right, Ctrl+J = down, Ctrl+K = up
 		switch {
 		case key.Matches(msg, a.keymap.MoveLeft):
 			switch a.focusedPane {
 			case messages.PaneCenter:
 				a.focusPane(messages.PaneDashboard)
-			case messages.PaneSidebar:
+			case messages.PaneSidebar, messages.PaneSidebarTerminal:
 				a.focusPane(messages.PaneCenter)
 			}
 		case key.Matches(msg, a.keymap.MoveRight):
@@ -321,6 +346,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.focusPane(messages.PaneSidebar)
 				}
 			}
+		case key.Matches(msg, a.keymap.MoveDown):
+			// Move down: Sidebar -> SidebarTerminal
+			if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
+				a.focusPane(messages.PaneSidebarTerminal)
+				return a, nil
+			}
+		case key.Matches(msg, a.keymap.MoveUp):
+			// Move up: SidebarTerminal -> Sidebar
+			if a.focusedPane == messages.PaneSidebarTerminal {
+				a.focusPane(messages.PaneSidebar)
+				return a, nil
+			}
 		case key.Matches(msg, a.keymap.Home):
 			a.showWelcome = true
 			a.activeWorktree = nil
@@ -328,7 +365,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.activeWorktree != nil {
 				return a, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 			}
-		case key.Matches(msg, key.NewBinding(key.WithKeys("?"))):
+		case key.Matches(msg, a.keymap.Help):
 			// Toggle help overlay
 			a.helpOverlay.SetSize(a.width, a.height)
 			a.helpOverlay.Toggle()
@@ -348,6 +385,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case messages.PaneSidebar:
 			newSidebar, cmd := a.sidebar.Update(msg)
 			a.sidebar = newSidebar
+			cmds = append(cmds, cmd)
+		case messages.PaneSidebarTerminal:
+			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
+			a.sidebarTerminal = newSidebarTerminal
 			cmds = append(cmds, cmd)
 		}
 
@@ -369,6 +410,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.showWelcome = false
 		a.center.SetWorktree(msg.Worktree)
 		a.sidebar.SetWorktree(msg.Worktree)
+		// Set up sidebar terminal for the worktree
+		if termCmd := a.sidebarTerminal.SetWorktree(msg.Worktree); termCmd != nil {
+			cmds = append(cmds, termCmd)
+		}
 		newDashboard, cmd := a.dashboard.Update(msg)
 		a.dashboard = newDashboard
 		cmds = append(cmds, cmd)
@@ -462,6 +507,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
+		cmds = append(cmds, cmd)
+
+	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, sidebar.SidebarTerminalCreated:
+		newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
+		a.sidebarTerminal = newSidebarTerminal
 		cmds = append(cmds, cmd)
 
 	case messages.GitStatusTick:
@@ -591,7 +641,8 @@ func (a *App) View() string {
 		centerView = a.renderCenterPane()
 	}
 
-	sidebarView := a.sidebar.View()
+	// Render sidebar as vertical split: file changes (top) + terminal (bottom)
+	sidebarView := a.renderSidebarPane()
 
 	// Combine using layout manager
 	var content string
@@ -1066,14 +1117,22 @@ func (a *App) focusPane(pane messages.PaneType) {
 		a.dashboard.Focus()
 		a.center.Blur()
 		a.sidebar.Blur()
+		a.sidebarTerminal.Blur()
 	case messages.PaneCenter:
 		a.dashboard.Blur()
 		a.center.Focus()
 		a.sidebar.Blur()
+		a.sidebarTerminal.Blur()
 	case messages.PaneSidebar:
 		a.dashboard.Blur()
 		a.center.Blur()
 		a.sidebar.Focus()
+		a.sidebarTerminal.Blur()
+	case messages.PaneSidebarTerminal:
+		a.dashboard.Blur()
+		a.center.Blur()
+		a.sidebar.Blur()
+		a.sidebarTerminal.Focus()
 	}
 }
 
@@ -1082,8 +1141,143 @@ func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
 	a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
-	a.sidebar.SetSize(a.layout.SidebarWidth(), a.layout.Height())
+
+	sidebarLayout := a.sidebarLayoutInfo()
+	a.sidebar.SetSize(sidebarLayout.bodyWidth, sidebarLayout.topHeight)
+	a.sidebarTerminal.SetSize(sidebarLayout.bodyWidth, sidebarLayout.bottomHeight)
+
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
 	}
+}
+
+const (
+	sidebarBorderWidth        = 1
+	sidebarPaddingX           = 1
+	sidebarGutterWidth        = 1
+	sidebarSeparatorMinHeight = 3
+)
+
+type sidebarLayoutInfo struct {
+	innerWidth    int
+	contentWidth  int
+	bodyWidth     int
+	contentHeight int
+	topHeight     int
+	bottomHeight  int
+	hasSeparator  bool
+}
+
+func (a *App) sidebarLayoutInfo() sidebarLayoutInfo {
+	outerWidth := a.layout.SidebarWidth()
+	outerHeight := a.layout.Height()
+
+	innerWidth := outerWidth - (sidebarBorderWidth * 2)
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	contentWidth := innerWidth - (sidebarPaddingX * 2)
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	bodyWidth := contentWidth - sidebarGutterWidth
+	if bodyWidth < 1 {
+		bodyWidth = 1
+	}
+
+	contentHeight := outerHeight - (sidebarBorderWidth * 2)
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	available := contentHeight
+	hasSeparator := false
+	if available >= sidebarSeparatorMinHeight {
+		hasSeparator = true
+		available--
+	}
+
+	topHeight := available / 2
+	bottomHeight := available - topHeight
+	if available > 0 {
+		if topHeight < 1 {
+			topHeight = 1
+			bottomHeight = available - topHeight
+		}
+		if bottomHeight < 1 {
+			bottomHeight = 1
+			topHeight = available - bottomHeight
+		}
+	}
+
+	return sidebarLayoutInfo{
+		innerWidth:    innerWidth,
+		contentWidth:  contentWidth,
+		bodyWidth:     bodyWidth,
+		contentHeight: contentHeight,
+		topHeight:     topHeight,
+		bottomHeight:  bottomHeight,
+		hasSeparator:  hasSeparator,
+	}
+}
+
+// renderSidebarPane renders the sidebar as a vertical split with file changes and terminal
+func (a *App) renderSidebarPane() string {
+	layout := a.sidebarLayoutInfo()
+
+	topFocused := a.focusedPane == messages.PaneSidebar
+	bottomFocused := a.focusedPane == messages.PaneSidebarTerminal
+	sidebarFocused := topFocused || bottomFocused
+
+	topView := renderSidebarSection(a.sidebar.View(), layout.contentWidth, topFocused)
+	bottomView := renderSidebarSection(a.sidebarTerminal.View(), layout.contentWidth, bottomFocused)
+
+	var parts []string
+	parts = append(parts, topView)
+	if layout.hasSeparator {
+		separator := lipgloss.NewStyle().
+			Foreground(common.ColorBorder).
+			Render(strings.Repeat("─", layout.contentWidth))
+		parts = append(parts, separator)
+	}
+	parts = append(parts, bottomView)
+
+	content := lipgloss.JoinVertical(lipgloss.Top, parts...)
+	style := a.styles.Pane
+	if sidebarFocused {
+		style = a.styles.FocusedPane
+	}
+
+	return style.Width(layout.innerWidth).Render(content)
+}
+
+func renderSidebarSection(content string, width int, focused bool) string {
+	if width <= 0 {
+		return ""
+	}
+	if width <= sidebarGutterWidth {
+		return lipgloss.NewStyle().Width(width).Render(content)
+	}
+
+	contentWidth := width - sidebarGutterWidth
+	normalized := lipgloss.NewStyle().Width(contentWidth).Render(content)
+	lines := strings.Split(normalized, "\n")
+	gutter := " "
+	gutterStyle := lipgloss.NewStyle()
+	if focused {
+		gutter = "▌"
+		gutterStyle = gutterStyle.Foreground(common.ColorBorderFocused)
+	}
+
+	for i := range lines {
+		if focused {
+			lines[i] = gutterStyle.Render(gutter) + lines[i]
+		} else {
+			lines[i] = gutter + lines[i]
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }

@@ -12,6 +12,7 @@ const (
 	PaneDashboard PaneType = iota
 	PaneCenter
 	PaneSidebar
+	PaneSidebarTerminal
 )
 
 // ProjectsLoaded is sent when projects have been loaded/reloaded
@@ -168,4 +169,31 @@ type GitStatusTick struct{}
 // FileWatcherEvent is sent when a watched file changes
 type FileWatcherEvent struct {
 	Root string
+}
+
+// SidebarPTYOutput contains PTY output for sidebar terminal
+type SidebarPTYOutput struct {
+	WorktreeID string
+	Data       []byte
+}
+
+// SidebarPTYTick triggers a sidebar PTY read
+type SidebarPTYTick struct {
+	WorktreeID string
+}
+
+// SidebarPTYFlush applies buffered PTY output for sidebar terminal
+type SidebarPTYFlush struct {
+	WorktreeID string
+}
+
+// SidebarPTYStopped signals that the sidebar PTY read loop has stopped
+type SidebarPTYStopped struct {
+	WorktreeID string
+	Err        error
+}
+
+// SidebarTerminalCreated signals that the sidebar terminal was created
+type SidebarTerminalCreated struct {
+	WorktreeID string
 }
