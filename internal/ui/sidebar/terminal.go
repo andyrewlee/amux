@@ -24,6 +24,7 @@ const (
 	ptyFlushMaxInterval = 50 * time.Millisecond
 	ptyFlushQuietAlt    = 30 * time.Millisecond
 	ptyFlushMaxAlt      = 120 * time.Millisecond
+	ptyFlushChunkSize   = 32 * 1024
 )
 
 // TerminalState holds the terminal state for a worktree
@@ -251,10 +252,25 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			if len(ts.pendingOutput) > 0 {
 				ts.mu.Lock()
 				if ts.VTerm != nil {
-					ts.VTerm.Write(ts.pendingOutput)
+					chunkSize := len(ts.pendingOutput)
+					if chunkSize > ptyFlushChunkSize {
+						chunkSize = ptyFlushChunkSize
+					}
+					ts.VTerm.Write(ts.pendingOutput[:chunkSize])
+					copy(ts.pendingOutput, ts.pendingOutput[chunkSize:])
+					ts.pendingOutput = ts.pendingOutput[:len(ts.pendingOutput)-chunkSize]
 				}
 				ts.mu.Unlock()
-				ts.pendingOutput = ts.pendingOutput[:0]
+				if len(ts.pendingOutput) == 0 {
+					ts.pendingOutput = ts.pendingOutput[:0]
+				} else {
+					ts.flushScheduled = true
+					ts.flushPendingSince = time.Now()
+					wtID := msg.WorktreeID
+					cmds = append(cmds, tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
+						return messages.SidebarPTYFlush{WorktreeID: wtID}
+					}))
+				}
 			}
 		}
 
