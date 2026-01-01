@@ -80,3 +80,25 @@ func TestWorktree_IsPrimaryCheckout(t *testing.T) {
 		})
 	}
 }
+
+func TestWorktree_IsMainBranch(t *testing.T) {
+	tests := []struct {
+		name    string
+		branch  string
+		wantYes bool
+	}{
+		{"main", "main", true},
+		{"master", "master", true},
+		{"feature", "feature-1", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wt := Worktree{Branch: tt.branch}
+			if wt.IsMainBranch() != tt.wantYes {
+				t.Fatalf("IsMainBranch() = %v, want %v", wt.IsMainBranch(), tt.wantYes)
+			}
+		})
+	}
+}
