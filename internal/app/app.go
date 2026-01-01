@@ -1231,18 +1231,28 @@ func (a *App) renderSidebarPane() string {
 	bottomFocused := a.focusedPane == messages.PaneSidebarTerminal
 	sidebarFocused := topFocused || bottomFocused
 
-	topView := renderSidebarSection(a.sidebar.View(), layout.contentWidth, topFocused)
-	bottomView := renderSidebarSection(a.sidebarTerminal.View(), layout.contentWidth, bottomFocused)
+	topView := ""
+	if layout.topHeight > 0 {
+		topView = renderSidebarSection(a.sidebar.View(), layout.contentWidth, layout.topHeight, topFocused)
+	}
+	bottomView := ""
+	if layout.bottomHeight > 0 {
+		bottomView = renderSidebarSection(a.sidebarTerminal.View(), layout.contentWidth, layout.bottomHeight, bottomFocused)
+	}
 
 	var parts []string
-	parts = append(parts, topView)
-	if layout.hasSeparator {
+	if topView != "" {
+		parts = append(parts, topView)
+	}
+	if layout.hasSeparator && topView != "" && bottomView != "" {
 		separator := lipgloss.NewStyle().
 			Foreground(common.ColorBorder).
 			Render(strings.Repeat("─", layout.contentWidth))
 		parts = append(parts, separator)
 	}
-	parts = append(parts, bottomView)
+	if bottomView != "" {
+		parts = append(parts, bottomView)
+	}
 
 	content := lipgloss.JoinVertical(lipgloss.Top, parts...)
 	style := a.styles.Pane
@@ -1253,16 +1263,16 @@ func (a *App) renderSidebarPane() string {
 	return style.Width(layout.innerWidth).Render(content)
 }
 
-func renderSidebarSection(content string, width int, focused bool) string {
-	if width <= 0 {
+func renderSidebarSection(content string, width, height int, focused bool) string {
+	if width <= 0 || height <= 0 {
 		return ""
 	}
 	if width <= sidebarGutterWidth {
-		return lipgloss.NewStyle().Width(width).Render(content)
+		return lipgloss.NewStyle().Width(width).Height(height).Render(content)
 	}
 
 	contentWidth := width - sidebarGutterWidth
-	normalized := lipgloss.NewStyle().Width(contentWidth).Render(content)
+	normalized := lipgloss.NewStyle().Width(contentWidth).Height(height).Render(content)
 	lines := strings.Split(normalized, "\n")
 	gutter := " "
 	gutterStyle := lipgloss.NewStyle()
