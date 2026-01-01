@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,10 +17,16 @@ type FileWatcher struct {
 
 	watcher    *fsnotify.Watcher
 	watching   map[string]bool // worktree root -> watching
+	watchPaths map[string][]watchTarget
 	onChanged  func(root string)
 	stopCh     chan struct{}
 	debounce   time.Duration
 	lastChange map[string]time.Time
+}
+
+type watchTarget struct {
+	path  string
+	isDir bool
 }
 
 // NewFileWatcher creates a new file watcher
@@ -32,6 +39,7 @@ func NewFileWatcher(onChanged func(root string)) (*FileWatcher, error) {
 	fw := &FileWatcher{
 		watcher:    watcher,
 		watching:   make(map[string]bool),
+		watchPaths: make(map[string][]watchTarget),
 		onChanged:  onChanged,
 		stopCh:     make(chan struct{}),
 		debounce:   500 * time.Millisecond,
@@ -61,23 +69,36 @@ func (fw *FileWatcher) Watch(root string) error {
 		return err
 	}
 
+	var targets []watchTarget
+
 	if info.IsDir() {
 		// Watch .git/index for main repo
 		indexPath := filepath.Join(gitPath, "index")
-		if err := fw.watcher.Add(indexPath); err != nil {
-			// Try watching the .git directory instead
-			if err := fw.watcher.Add(gitPath); err != nil {
-				return err
-			}
+		if target, err := fw.addWatchPath(indexPath); err == nil {
+			targets = append(targets, target)
+		} else if target, err := fw.addWatchPath(gitPath); err == nil {
+			targets = append(targets, target)
+		} else {
+			return err
 		}
 	} else {
-		// For worktrees, watch the .git file
-		if err := fw.watcher.Add(gitPath); err != nil {
+		// For worktrees, .git is a file pointing to the real gitdir
+		gitDir, err := readGitDirFromFile(gitPath)
+		if err != nil {
+			return err
+		}
+		indexPath := filepath.Join(gitDir, "index")
+		if target, err := fw.addWatchPath(indexPath); err == nil {
+			targets = append(targets, target)
+		} else if target, err := fw.addWatchPath(gitDir); err == nil {
+			targets = append(targets, target)
+		} else {
 			return err
 		}
 	}
 
 	fw.watching[root] = true
+	fw.watchPaths[root] = targets
 	return nil
 }
 
@@ -90,11 +111,12 @@ func (fw *FileWatcher) Unwatch(root string) {
 		return
 	}
 
-	gitPath := filepath.Join(root, ".git")
-	_ = fw.watcher.Remove(gitPath)
-	_ = fw.watcher.Remove(filepath.Join(gitPath, "index"))
+	for _, target := range fw.watchPaths[root] {
+		_ = fw.watcher.Remove(target.path)
+	}
 
 	delete(fw.watching, root)
+	delete(fw.watchPaths, root)
 }
 
 // run processes file system events
@@ -146,12 +168,59 @@ func (fw *FileWatcher) findWorktreeRoot(path string) string {
 	defer fw.mu.Unlock()
 
 	for root := range fw.watching {
+		if targets, ok := fw.watchPaths[root]; ok {
+			for _, target := range targets {
+				if path == target.path {
+					return root
+				}
+				if target.isDir && strings.HasPrefix(path, target.path+string(filepath.Separator)) {
+					return root
+				}
+			}
+			continue
+		}
+
+		// Fallback for legacy entries without watch targets.
 		gitPath := filepath.Join(root, ".git")
 		if path == gitPath || filepath.Dir(path) == gitPath || strings.HasPrefix(path, gitPath+string(filepath.Separator)) {
 			return root
 		}
 	}
 	return ""
+}
+
+func (fw *FileWatcher) addWatchPath(path string) (watchTarget, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return watchTarget{}, err
+	}
+	if err := fw.watcher.Add(path); err != nil {
+		return watchTarget{}, err
+	}
+	return watchTarget{path: path, isDir: info.IsDir()}, nil
+}
+
+func readGitDirFromFile(gitPath string) (string, error) {
+	data, err := os.ReadFile(gitPath)
+	if err != nil {
+		return "", err
+	}
+
+	line := strings.TrimSpace(string(data))
+	const prefix = "gitdir:"
+	if !strings.HasPrefix(line, prefix) {
+		return "", fmt.Errorf("invalid gitdir file: %s", gitPath)
+	}
+
+	gitDir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if gitDir == "" {
+		return "", fmt.Errorf("invalid gitdir file: %s", gitPath)
+	}
+
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(filepath.Dir(gitPath), gitDir)
+	}
+	return filepath.Clean(gitDir), nil
 }
 
 // Close stops the watcher and releases resources
