@@ -52,15 +52,15 @@ type SelectionState struct {
 
 // Tab represents a single tab in the center pane
 type Tab struct {
-	ID        TabID // Unique identifier that survives slice reordering
-	Name      string
-	Assistant string
-	Worktree  *data.Worktree
-	Agent     *appPty.Agent
-	Terminal  *vterm.VTerm // Virtual terminal emulator with scrollback
-	mu        sync.Mutex   // Protects Terminal
-	Running   bool         // Whether the agent is actively running
-	readerActive bool      // Guard to ensure only one PTY read loop per tab
+	ID           TabID // Unique identifier that survives slice reordering
+	Name         string
+	Assistant    string
+	Worktree     *data.Worktree
+	Agent        *appPty.Agent
+	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
+	mu           sync.Mutex   // Protects Terminal
+	Running      bool         // Whether the agent is actively running
+	readerActive bool         // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 	pendingOutput     []byte
 	flushScheduled    bool
