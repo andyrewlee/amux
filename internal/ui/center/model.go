@@ -720,9 +720,16 @@ func (m *Model) View() string {
 		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
 	}
 	help := strings.Join(helpItems, "  ")
-	// Account for: border (2 lines) + help line (1)
+	// Pad to the inner pane height (border excluded), reserving the help line.
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := m.height - 4 // 2 for border, 1 for help, 1 for safety
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	targetHeight := innerHeight - 1 // help line
+	if targetHeight < 0 {
+		targetHeight = 0
+	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}

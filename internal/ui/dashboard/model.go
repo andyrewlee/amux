@@ -179,8 +179,17 @@ func (m *Model) View() string {
 	}
 	b.WriteString("\n")
 
-	// Calculate visible area
-	visibleHeight := m.height - 6 // Account for header, help, borders
+	// Calculate visible area (inner height minus header + help)
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	headerHeight := 1 // trailing blank line
+	if m.filterDirty {
+		headerHeight++
+	}
+	helpHeight := 1
+	visibleHeight := innerHeight - headerHeight - helpHeight
 	if visibleHeight < 1 {
 		visibleHeight = 1
 	}
@@ -215,10 +224,12 @@ func (m *Model) View() string {
 	}
 	help := strings.Join(helpItems, "  ")
 
-	// Calculate remaining height and add padding
-	// Account for: border (2 lines) + help line (1)
+	// Pad to the inner pane height (border excluded), reserving the help line.
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := m.height - 4 // 2 for border, 1 for help, 1 for safety
+	targetHeight := innerHeight - helpHeight
+	if targetHeight < 0 {
+		targetHeight = 0
+	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
