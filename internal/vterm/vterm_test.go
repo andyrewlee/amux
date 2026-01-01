@@ -232,6 +232,36 @@ func TestWideCharacterAtEndOfLine(t *testing.T) {
 	}
 }
 
+func TestRowToStringSkipsContinuationCells(t *testing.T) {
+	vt := New(10, 1)
+	vt.Write([]byte("你A"))
+
+	got := rowToString(vt.Screen[0])
+	if got != "你A" {
+		t.Fatalf("rowToString() = %q, want %q", got, "你A")
+	}
+}
+
+func TestSearchSkipsContinuationCells(t *testing.T) {
+	vt := New(10, 1)
+	vt.Write([]byte("你A"))
+
+	matches := vt.Search("你A")
+	if len(matches) != 1 || matches[0] != 0 {
+		t.Fatalf("Search() = %v, want [0]", matches)
+	}
+}
+
+func TestGetSelectedTextSkipsContinuationCells(t *testing.T) {
+	vt := New(10, 1)
+	vt.Write([]byte("你A"))
+
+	got := vt.GetSelectedText(0, 0, 2, 0)
+	if got != "你A" {
+		t.Fatalf("GetSelectedText() = %q, want %q", got, "你A")
+	}
+}
+
 func TestNormalCharacterWidth(t *testing.T) {
 	vt := New(80, 24)
 
