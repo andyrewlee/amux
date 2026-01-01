@@ -69,9 +69,9 @@ type App struct {
 	scripts *process.ScriptRunner
 
 	// Git status management
-	statusManager *git.StatusManager
-	fileWatcher   *git.FileWatcher
-	fileWatcherCh chan messages.FileWatcherEvent
+	statusManager  *git.StatusManager
+	fileWatcher    *git.FileWatcher
+	fileWatcherCh  chan messages.FileWatcherEvent
 	fileWatcherErr error
 
 	// Layout
