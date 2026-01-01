@@ -4,6 +4,7 @@ import "github.com/mattn/go-runewidth"
 
 // putChar places a character at current cursor position
 func (v *VTerm) putChar(r rune) {
+	lineY := v.CursorY
 	width := runewidth.RuneWidth(r)
 
 	// Combining characters (width 0) attach to previous cell
@@ -37,6 +38,7 @@ func (v *VTerm) putChar(r rune) {
 				Style: v.CurrentStyle,
 				Width: 1,
 			}
+			v.markDirtyLine(v.CursorY)
 		}
 		v.CursorX = 0
 		v.CursorY++
@@ -74,6 +76,9 @@ func (v *VTerm) putChar(r rune) {
 			}
 		}
 	}
+
+	v.markDirtyLine(lineY)
+	v.markDirtyLine(v.CursorY)
 
 	// Advance cursor by character width
 	v.CursorX += width
@@ -158,6 +163,7 @@ func (v *VTerm) scrollUp(n int) {
 			v.Screen[i] = MakeBlankLine(v.Width)
 		}
 	}
+	v.markDirtyRange(v.ScrollTop, v.ScrollBottom-1)
 }
 
 // scrollDown scrolls the screen down by n lines (reverse scroll)
@@ -185,6 +191,7 @@ func (v *VTerm) scrollDown(n int) {
 			v.Screen[i] = MakeBlankLine(v.Width)
 		}
 	}
+	v.markDirtyRange(v.ScrollTop, v.ScrollBottom-1)
 }
 
 // eraseDisplay clears parts of the display
@@ -205,6 +212,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 				v.Screen[y] = MakeBlankLine(v.Width)
 			}
 		}
+		v.markDirtyRange(v.CursorY, v.Height-1)
 	case 1: // Start to cursor
 		// Clear all lines above
 		for y := 0; y < v.CursorY; y++ {
@@ -220,6 +228,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 				}
 			}
 		}
+		v.markDirtyRange(0, v.CursorY)
 	case 2, 3: // Entire display (3 also clears scrollback)
 		for y := 0; y < v.Height; y++ {
 			if y < len(v.Screen) {
@@ -229,6 +238,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 		if mode == 3 {
 			v.Scrollback = v.Scrollback[:0]
 		}
+		v.markDirtyRange(0, v.Height-1)
 	}
 }
 
@@ -254,6 +264,7 @@ func (v *VTerm) eraseLine(mode int) {
 	case 2: // Entire line
 		v.Screen[v.CursorY] = MakeBlankLine(v.Width)
 	}
+	v.markDirtyLine(v.CursorY)
 }
 
 // setCursorPos sets cursor position (1-indexed input, converts to 0-indexed)
@@ -329,6 +340,7 @@ func (v *VTerm) enterAltScreen() {
 	v.Screen = v.makeScreen(v.Width, v.Height)
 	v.CursorX = 0
 	v.CursorY = 0
+	v.invalidateRenderCache()
 }
 
 // exitAltScreen returns to main screen buffer
@@ -341,6 +353,7 @@ func (v *VTerm) exitAltScreen() {
 	v.altScreenBuf = nil
 	v.CursorX = v.altCursorX
 	v.CursorY = v.altCursorY
+	v.invalidateRenderCache()
 }
 
 // saveCursor saves cursor position and attributes
@@ -382,6 +395,7 @@ func (v *VTerm) insertLines(n int) {
 			v.Screen[i] = MakeBlankLine(v.Width)
 		}
 	}
+	v.markDirtyRange(v.ScrollTop, v.ScrollBottom-1)
 }
 
 // deleteLines deletes n lines at cursor, pulling content up
@@ -409,6 +423,7 @@ func (v *VTerm) deleteLines(n int) {
 			v.Screen[i] = MakeBlankLine(v.Width)
 		}
 	}
+	v.markDirtyRange(v.ScrollTop, v.ScrollBottom-1)
 }
 
 // insertChars inserts n blank chars at cursor, shifting content right
@@ -433,6 +448,7 @@ func (v *VTerm) insertChars(n int) {
 		}
 	}
 	normalizeLine(line)
+	v.markDirtyLine(v.CursorY)
 }
 
 // deleteChars deletes n chars at cursor, shifting content left
@@ -457,6 +473,7 @@ func (v *VTerm) deleteChars(n int) {
 		}
 	}
 	normalizeLine(line)
+	v.markDirtyLine(v.CursorY)
 }
 
 // eraseChars erases n chars at cursor (doesn't shift)
@@ -472,6 +489,7 @@ func (v *VTerm) eraseChars(n int) {
 		}
 	}
 	normalizeLine(line)
+	v.markDirtyLine(v.CursorY)
 }
 
 // normalizeLine ensures wide characters (Width==2) and continuation cells (Width==0)

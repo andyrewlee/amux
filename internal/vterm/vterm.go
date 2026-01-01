@@ -56,6 +56,11 @@ type VTerm struct {
 	syncScreen        [][]Cell
 	syncScrollbackLen int
 	syncDeferTrim     bool
+
+	// Render cache for live screen (ViewOffset == 0)
+	renderCache    []string
+	renderDirty    []bool
+	renderDirtyAll bool
 }
 
 // New creates a new VTerm with the given dimensions
@@ -167,6 +172,7 @@ func (v *VTerm) Resize(width, height int) {
 		}
 		v.syncScreen = newSync
 	}
+	v.invalidateRenderCache()
 }
 
 // Write processes input bytes from PTY
@@ -199,6 +205,7 @@ func (v *VTerm) setSynchronizedOutput(active bool) {
 		v.syncActive = true
 		v.syncScreen = copyScreen(v.Screen)
 		v.syncScrollbackLen = len(v.Scrollback)
+		v.invalidateRenderCache()
 		return
 	}
 
@@ -212,6 +219,7 @@ func (v *VTerm) setSynchronizedOutput(active bool) {
 		v.syncDeferTrim = false
 		v.trimScrollback()
 	}
+	v.invalidateRenderCache()
 }
 
 func copyScreen(src [][]Cell) [][]Cell {
@@ -290,4 +298,48 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (v *VTerm) ensureRenderCache(height int) {
+	if len(v.renderCache) != height {
+		v.renderCache = make([]string, height)
+		v.renderDirty = make([]bool, height)
+		v.renderDirtyAll = true
+	}
+}
+
+func (v *VTerm) markDirtyLine(y int) {
+	if y < 0 || y >= v.Height {
+		return
+	}
+	if len(v.renderDirty) == v.Height {
+		v.renderDirty[y] = true
+	} else {
+		v.renderDirtyAll = true
+	}
+}
+
+func (v *VTerm) markDirtyRange(start, end int) {
+	if start < 0 {
+		start = 0
+	}
+	if end >= v.Height {
+		end = v.Height - 1
+	}
+	if start > end {
+		return
+	}
+	if len(v.renderDirty) == v.Height {
+		for y := start; y <= end; y++ {
+			v.renderDirty[y] = true
+		}
+		return
+	}
+	v.renderDirtyAll = true
+}
+
+func (v *VTerm) invalidateRenderCache() {
+	v.renderCache = nil
+	v.renderDirty = nil
+	v.renderDirtyAll = true
 }

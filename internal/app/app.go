@@ -72,6 +72,7 @@ type App struct {
 	statusManager *git.StatusManager
 	fileWatcher   *git.FileWatcher
 	fileWatcherCh chan messages.FileWatcherEvent
+	fileWatcherErr error
 
 	// Layout
 	width, height int
@@ -107,13 +108,17 @@ func New() (*App, error) {
 	fileWatcherCh := make(chan messages.FileWatcherEvent, 10)
 
 	// Create file watcher with callback that sends to channel
-	fileWatcher, _ := git.NewFileWatcher(func(root string) {
+	fileWatcher, fileWatcherErr := git.NewFileWatcher(func(root string) {
 		select {
 		case fileWatcherCh <- messages.FileWatcherEvent{Root: root}:
 		default:
 			// Channel full, drop event (will catch on next change)
 		}
 	})
+	if fileWatcherErr != nil {
+		logging.Warn("File watcher disabled: %v", fileWatcherErr)
+		fileWatcher = nil
+	}
 
 	return &App{
 		config:          cfg,
@@ -123,6 +128,7 @@ func New() (*App, error) {
 		statusManager:   statusManager,
 		fileWatcher:     fileWatcher,
 		fileWatcherCh:   fileWatcherCh,
+		fileWatcherErr:  fileWatcherErr,
 		layout:          layout.NewManager(),
 		dashboard:       dashboard.New(),
 		center:          center.New(cfg),
@@ -139,7 +145,7 @@ func New() (*App, error) {
 
 // Init initializes the application
 func (a *App) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		tea.EnableMouseCellMotion, // Enable mouse support for click-to-focus
 		a.loadProjects(),
 		a.dashboard.Init(),
@@ -148,7 +154,11 @@ func (a *App) Init() tea.Cmd {
 		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
 		a.startFileWatcher(),
-	)
+	}
+	if a.fileWatcherErr != nil {
+		cmds = append(cmds, a.toast.ShowWarning("File watching disabled; git status may be stale"))
+	}
+	return tea.Batch(cmds...)
 }
 
 // startGitStatusTicker returns a command that ticks every 3 seconds for git status refresh

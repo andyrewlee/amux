@@ -11,7 +11,10 @@ func (v *VTerm) Render() string {
 	if v.ViewOffset > 0 {
 		return v.renderWithScrollbackFrom(screen, scrollbackLen)
 	}
-	return v.renderScreenFrom(screen)
+	if v.syncActive {
+		return v.renderScreenFrom(screen)
+	}
+	return v.renderScreenCached(screen)
 }
 
 func (v *VTerm) renderBuffers() ([][]Cell, int) {
@@ -62,39 +65,8 @@ func (v *VTerm) renderScreenFrom(screen [][]Cell) string {
 	var buf strings.Builder
 	buf.Grow(v.Width * v.Height * 2) // Rough estimate
 
-	var lastStyle Style
-	var lastReverse bool
-	firstCell := true
-
 	for y, row := range screen {
-		for x, cell := range row {
-			// Check if this cell is in selection
-			inSel := v.isInSelection(x, y)
-
-			// Apply style changes (toggle reverse for selection)
-			style := cell.Style
-			if inSel {
-				style.Reverse = !style.Reverse
-			}
-
-			if firstCell || style != lastStyle || inSel != lastReverse {
-				buf.WriteString(styleToANSI(style))
-				lastStyle = style
-				lastReverse = inSel
-				firstCell = false
-			}
-
-			// Skip continuation cells (part of wide character)
-			if cell.Width == 0 {
-				continue
-			}
-
-			if cell.Rune == 0 {
-				buf.WriteRune(' ')
-			} else {
-				buf.WriteRune(cell.Rune)
-			}
-		}
+		buf.WriteString(v.renderRow(row, y))
 
 		if y < len(v.Screen)-1 {
 			buf.WriteString("\n")
@@ -103,6 +75,65 @@ func (v *VTerm) renderScreenFrom(screen [][]Cell) string {
 
 	// Reset styles at end
 	buf.WriteString("\x1b[0m")
+
+	return buf.String()
+}
+
+func (v *VTerm) renderScreenCached(screen [][]Cell) string {
+	v.ensureRenderCache(len(screen))
+
+	lines := make([]string, len(screen))
+	for y, row := range screen {
+		if v.renderDirtyAll || v.renderDirty[y] || v.renderCache[y] == "" {
+			lines[y] = v.renderRow(row, y)
+			v.renderCache[y] = lines[y]
+			v.renderDirty[y] = false
+		} else {
+			lines[y] = v.renderCache[y]
+		}
+	}
+	v.renderDirtyAll = false
+
+	out := strings.Join(lines, "\n")
+	return out + "\x1b[0m"
+}
+
+func (v *VTerm) renderRow(row []Cell, y int) string {
+	var buf strings.Builder
+	buf.Grow(v.Width * 2)
+
+	// Reset per-line to make cached lines independent.
+	buf.WriteString("\x1b[0m")
+	var lastStyle Style
+	var lastReverse bool
+
+	for x, cell := range row {
+		// Check if this cell is in selection
+		inSel := v.isInSelection(x, y)
+
+		// Apply style changes (toggle reverse for selection)
+		style := cell.Style
+		if inSel {
+			style.Reverse = !style.Reverse
+		}
+
+		if style != lastStyle || inSel != lastReverse {
+			buf.WriteString(styleToANSI(style))
+			lastStyle = style
+			lastReverse = inSel
+		}
+
+		// Skip continuation cells (part of wide character)
+		if cell.Width == 0 {
+			continue
+		}
+
+		if cell.Rune == 0 {
+			buf.WriteRune(' ')
+		} else {
+			buf.WriteRune(cell.Rune)
+		}
+	}
 
 	return buf.String()
 }
@@ -281,6 +312,9 @@ func (v *VTerm) GetAllLines() []string {
 func rowToString(row []Cell) string {
 	var buf strings.Builder
 	for _, cell := range row {
+		if cell.Width == 0 {
+			continue
+		}
 		if cell.Rune == 0 {
 			buf.WriteRune(' ')
 		} else {
@@ -395,6 +429,9 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 		// Extract characters from the row
 		for x := xStart; x <= xEnd; x++ {
 			if x < len(row) {
+				if row[x].Width == 0 {
+					continue
+				}
 				r := row[x].Rune
 				if r == 0 {
 					r = ' '
@@ -425,9 +462,11 @@ func (v *VTerm) SetSelection(startX, startY, endX, endY int, active bool) {
 	v.selEndX = endX
 	v.selEndY = endY
 	v.selActive = active
+	v.renderDirtyAll = true
 }
 
 // ClearSelection clears the current selection
 func (v *VTerm) ClearSelection() {
 	v.selActive = false
+	v.renderDirtyAll = true
 }
