@@ -36,6 +36,47 @@ func TestMetadataStoreLoadDefault(t *testing.T) {
 	}
 }
 
+func TestMetadataStoreLoadMalformedJSON(t *testing.T) {
+	root := t.TempDir()
+	store := NewMetadataStore(root)
+	wt := &Worktree{
+		Name:   "feature-bad",
+		Branch: "feature-bad",
+		Repo:   "/repo",
+		Root:   "/worktrees/feature-bad",
+	}
+
+	// Create malformed metadata file (note: file is named worktree.json)
+	metaDir := filepath.Join(root, string(wt.ID()))
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(metaDir, "worktree.json"), []byte(`{invalid json}`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err := store.Load(wt)
+	if err == nil {
+		t.Fatalf("Load() should fail for malformed JSON")
+	}
+}
+
+func TestMetadataStoreDeleteNonExistent(t *testing.T) {
+	root := t.TempDir()
+	store := NewMetadataStore(root)
+	wt := &Worktree{
+		Name:   "nonexistent",
+		Branch: "nonexistent",
+		Repo:   "/repo",
+		Root:   "/worktrees/nonexistent",
+	}
+
+	// Delete should not error for non-existent metadata
+	if err := store.Delete(wt); err != nil {
+		t.Fatalf("Delete() should not fail for non-existent metadata: %v", err)
+	}
+}
+
 func TestMetadataStoreSaveLoadDelete(t *testing.T) {
 	root := t.TempDir()
 	store := NewMetadataStore(root)

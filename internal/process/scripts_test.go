@@ -33,6 +33,41 @@ func TestScriptRunnerLoadConfigMissing(t *testing.T) {
 	}
 }
 
+func TestScriptRunnerLoadConfigMalformedJSON(t *testing.T) {
+	repo := t.TempDir()
+	writeWorktreeConfig(t, repo, `{invalid json}`)
+
+	runner := NewScriptRunner(6200, 10)
+	_, err := runner.LoadConfig(repo)
+	if err == nil {
+		t.Fatalf("LoadConfig() should fail for malformed JSON")
+	}
+}
+
+func TestScriptRunnerLoadConfigValidJSON(t *testing.T) {
+	repo := t.TempDir()
+	writeWorktreeConfig(t, repo, `{
+  "setup-worktree": ["echo setup1", "echo setup2"],
+  "run": "npm start",
+  "archive": "tar -czf archive.tar.gz ."
+}`)
+
+	runner := NewScriptRunner(6200, 10)
+	cfg, err := runner.LoadConfig(repo)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if len(cfg.SetupWorktree) != 2 {
+		t.Fatalf("expected 2 setup commands, got %d", len(cfg.SetupWorktree))
+	}
+	if cfg.RunScript != "npm start" {
+		t.Fatalf("expected run script 'npm start', got %s", cfg.RunScript)
+	}
+	if cfg.ArchiveScript != "tar -czf archive.tar.gz ." {
+		t.Fatalf("expected archive script, got %s", cfg.ArchiveScript)
+	}
+}
+
 func TestScriptRunnerRunSetupAndEnv(t *testing.T) {
 	repo := t.TempDir()
 	worktreeRoot := t.TempDir()

@@ -41,6 +41,7 @@ func TestStatusManagerCacheExpiry(t *testing.T) {
 }
 
 func TestStatusManagerRequestRefreshDebounced(t *testing.T) {
+	skipIfNoGit(t)
 	repo := initRepo(t)
 
 	var count int32

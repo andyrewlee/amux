@@ -9,6 +9,7 @@ import (
 )
 
 func TestCreateDiscoverRemoveWorktree(t *testing.T) {
+	skipIfNoGit(t)
 	repo := initRepo(t)
 	project := data.NewProject(repo)
 
