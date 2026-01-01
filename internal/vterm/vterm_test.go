@@ -245,3 +245,75 @@ func TestNormalCharacterWidth(t *testing.T) {
 		t.Errorf("Normal char should have Width=1, got %d", vt.Screen[0][0].Width)
 	}
 }
+
+func assertLineNormalized(t *testing.T, line []Cell) {
+	t.Helper()
+	for i := 0; i < len(line); i++ {
+		switch line[i].Width {
+		case 0:
+			if i == 0 || line[i-1].Width != 2 {
+				t.Fatalf("continuation cell at %d without leading wide cell", i)
+			}
+		case 2:
+			if i+1 >= len(line) || line[i+1].Width != 0 {
+				t.Fatalf("wide cell at %d without continuation", i)
+			}
+		}
+	}
+}
+
+func TestScrollbackViewOffsetAnchorsOnScrollUp(t *testing.T) {
+	vt := New(5, 3)
+	// Seed scrollback so ViewOffset is meaningful.
+	for i := 0; i < 3; i++ {
+		line := MakeBlankLine(5)
+		line[0] = Cell{Rune: rune('0' + i), Width: 1}
+		vt.Scrollback = append(vt.Scrollback, line)
+	}
+	vt.ViewOffset = 2
+
+	// Scroll up by one line, which appends to scrollback.
+	vt.scrollUp(1)
+
+	if vt.ViewOffset != 3 {
+		t.Fatalf("expected ViewOffset to advance to 3, got %d", vt.ViewOffset)
+	}
+}
+
+func TestScrollbackViewOffsetAnchorsOnResize(t *testing.T) {
+	vt := New(5, 3)
+	// Seed scrollback so ViewOffset is meaningful.
+	for i := 0; i < 2; i++ {
+		line := MakeBlankLine(5)
+		line[0] = Cell{Rune: rune('0' + i), Width: 1}
+		vt.Scrollback = append(vt.Scrollback, line)
+	}
+	vt.ViewOffset = 1
+
+	// Shrink height by 1; one line moves into scrollback.
+	vt.Resize(5, 2)
+
+	if vt.ViewOffset != 2 {
+		t.Fatalf("expected ViewOffset to advance to 2 after resize, got %d", vt.ViewOffset)
+	}
+}
+
+func TestWideGlyphNormalizationAfterEdits(t *testing.T) {
+	vt := New(6, 1)
+	vt.Write([]byte("你A"))
+
+	// Insert at continuation cell.
+	vt.CursorX = 1
+	vt.insertChars(1)
+	assertLineNormalized(t, vt.Screen[0])
+
+	// Delete at continuation cell.
+	vt.CursorX = 1
+	vt.deleteChars(1)
+	assertLineNormalized(t, vt.Screen[0])
+
+	// Erase at continuation cell.
+	vt.CursorX = 1
+	vt.eraseChars(1)
+	assertLineNormalized(t, vt.Screen[0])
+}

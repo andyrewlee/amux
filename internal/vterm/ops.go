@@ -129,9 +129,17 @@ func (v *VTerm) scrollUp(n int) {
 		if bottom > v.ScrollBottom {
 			bottom = v.ScrollBottom
 		}
+		added := 0
 		for i := top; i < bottom; i++ {
 			if i < len(v.Screen) {
 				v.Scrollback = append(v.Scrollback, CopyLine(v.Screen[i]))
+				added++
+			}
+		}
+		if added > 0 && v.ViewOffset > 0 {
+			v.ViewOffset += added
+			if v.ViewOffset > len(v.Scrollback) {
+				v.ViewOffset = len(v.Scrollback)
 			}
 		}
 		v.trimScrollback()
@@ -409,6 +417,7 @@ func (v *VTerm) insertChars(n int) {
 		return
 	}
 	line := v.Screen[v.CursorY]
+	normalizeLine(line)
 
 	// Shift right
 	for i := v.Width - 1; i >= v.CursorX+n; i-- {
@@ -423,6 +432,7 @@ func (v *VTerm) insertChars(n int) {
 			line[i] = DefaultCell()
 		}
 	}
+	normalizeLine(line)
 }
 
 // deleteChars deletes n chars at cursor, shifting content left
@@ -431,6 +441,7 @@ func (v *VTerm) deleteChars(n int) {
 		return
 	}
 	line := v.Screen[v.CursorY]
+	normalizeLine(line)
 
 	// Shift left
 	for i := v.CursorX; i < v.Width-n; i++ {
@@ -445,6 +456,7 @@ func (v *VTerm) deleteChars(n int) {
 			line[i] = DefaultCell()
 		}
 	}
+	normalizeLine(line)
 }
 
 // eraseChars erases n chars at cursor (doesn't shift)
@@ -457,6 +469,26 @@ func (v *VTerm) eraseChars(n int) {
 	for i := v.CursorX; i < v.CursorX+n && i < v.Width; i++ {
 		if i < len(line) {
 			line[i] = DefaultCell()
+		}
+	}
+	normalizeLine(line)
+}
+
+// normalizeLine ensures wide characters (Width==2) and continuation cells (Width==0)
+// are consistent after in-place line edits (insert/delete/erase).
+func normalizeLine(line []Cell) {
+	for i := 0; i < len(line); i++ {
+		switch line[i].Width {
+		case 0:
+			// Continuation without a leading wide cell is invalid.
+			if i == 0 || line[i-1].Width != 2 {
+				line[i] = DefaultCell()
+			}
+		case 2:
+			// If the continuation cell is missing, drop the wide glyph.
+			if i+1 >= len(line) || line[i+1].Width != 0 {
+				line[i] = DefaultCell()
+			}
 		}
 	}
 }

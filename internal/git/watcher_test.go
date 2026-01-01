@@ -67,6 +67,39 @@ func TestFileWatcher(t *testing.T) {
 		}
 	})
 
+	t.Run("worktree gitdir file", func(t *testing.T) {
+		root := t.TempDir()
+		gitDir := filepath.Join(t.TempDir(), "gitdir")
+		if err := os.MkdirAll(gitDir, 0755); err != nil {
+			t.Fatalf("mkdir gitdir: %v", err)
+		}
+		indexPath := filepath.Join(gitDir, "index")
+		if err := os.WriteFile(indexPath, []byte(""), 0644); err != nil {
+			t.Fatalf("write index: %v", err)
+		}
+
+		gitFile := filepath.Join(root, ".git")
+		if err := os.WriteFile(gitFile, []byte("gitdir: "+gitDir), 0644); err != nil {
+			t.Fatalf("write .git file: %v", err)
+		}
+
+		fw, err := NewFileWatcher(nil)
+		if err != nil {
+			t.Fatalf("NewFileWatcher() error = %v", err)
+		}
+		defer func() {
+			_ = fw.Close()
+		}()
+
+		if err := fw.Watch(root); err != nil {
+			t.Fatalf("Watch() error = %v", err)
+		}
+
+		if got := fw.findWorktreeRoot(indexPath); got != root {
+			t.Fatalf("findWorktreeRoot() = %s, want %s", got, root)
+		}
+	})
+
 	t.Run("watch non-existent path", func(t *testing.T) {
 		fw, err := NewFileWatcher(nil)
 		if err != nil {

@@ -99,10 +99,18 @@ func (v *VTerm) Resize(width, height int) {
 	if height < v.Height && !v.AltScreen {
 		overflow := v.Height - height
 		if overflow > 0 {
+			added := 0
 			for i := 0; i < overflow; i++ {
 				if len(v.Screen) > 0 {
 					v.Scrollback = append(v.Scrollback, v.Screen[0])
 					v.Screen = v.Screen[1:]
+					added++
+				}
+			}
+			if added > 0 && v.ViewOffset > 0 {
+				v.ViewOffset += added
+				if v.ViewOffset > len(v.Scrollback) {
+					v.ViewOffset = len(v.Scrollback)
 				}
 			}
 			v.trimScrollback()
