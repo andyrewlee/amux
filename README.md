@@ -1,11 +1,15 @@
 # amux
 
-A terminal multiplexer for AI coding agents. Manage multiple git worktrees with different AI assistants (Claude, Codex, Gemini, Amp) in a single TUI.
+Agent orchestrator made for developers to run parallel coding agents using git worktrees.
 
-## Requirements
+<img width="1388" height="838" alt="image" src="https://github.com/user-attachments/assets/11feae87-ff9f-4322-84fd-e4144bcca3e3" />
 
-- Go 1.21+
-- Git
+Here are some reasons why you would use amux over others:
+* Use coding agents directly (i.e. Claude Code, Codex CLI). There's no new coding agent, wrapper, or SDK involved.
+* Supports all of the major coding agents: Claude Code, Codex CLI, Gemini CLI, Amp, OpenCode.
+* Navigate with keyboard only using vim inspired shortcuts.
+* Run it on the terminal.
+* Open source.
 
 ## Quick Start
 
@@ -15,28 +19,3 @@ cd amux
 go build -o amux ./cmd/amux
 ./amux
 ```
-
-## Usage
-
-Launch `amux` and use the keyboard to navigate:
-
-| Key | Action |
-|-----|--------|
-| `j/k` | Navigate up/down |
-| `Enter` | Select worktree |
-| `a` | Add project |
-| `n` | New worktree |
-| `d` | Delete worktree |
-| `Ctrl+T` | Launch AI agent |
-| `Ctrl+H/L` | Switch panes |
-| `Esc` | Return to dashboard |
-| `?` | Help |
-| `Ctrl+Q` | Quit |
-
-## Supported Agents
-
-- **claude** - Claude Code
-- **codex** - OpenAI Codex
-- **gemini** - Google Gemini
-- **amp** - Sourcegraph Amp
-- **opencode** - SST OpenCode
