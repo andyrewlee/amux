@@ -102,8 +102,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, m.handleNew()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("d", "D"))):
 			return m, m.handleDelete()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("a"))):
-			return m, m.handleAddProject()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("f"))):
 			m.toggleFilter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
@@ -175,12 +173,11 @@ func (m *Model) View() string {
 	var b strings.Builder
 
 	// Header
-	header := m.styles.Title.Render("amux")
 	if m.filterDirty {
-		header += m.styles.StatusDirty.Render(" [dirty]")
+		b.WriteString(m.styles.StatusDirty.Render("[dirty]"))
+		b.WriteString("\n")
 	}
-	b.WriteString(header)
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	// Calculate visible area
 	visibleHeight := m.height - 6 // Account for header, help, borders
@@ -214,7 +211,6 @@ func (m *Model) View() string {
 		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
 		m.styles.HelpKey.Render("enter") + m.styles.HelpDesc.Render(":select"),
 		m.styles.HelpKey.Render("n") + m.styles.HelpDesc.Render(":new"),
-		m.styles.HelpKey.Render("a") + m.styles.HelpDesc.Render(":add"),
 		m.styles.HelpKey.Render("ctrl+t") + m.styles.HelpDesc.Render(":agent"),
 	}
 	help := strings.Join(helpItems, "  ")
@@ -254,16 +250,6 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Background(common.ColorSelection)
 		}
 		return cursor + style.Render("["+common.Icons.Home+" home]")
-
-	case RowAddProject:
-		style := m.styles.AddProjectRow
-		if selected {
-			style = m.styles.AddProjectRow.
-				Bold(true).
-				Foreground(common.ColorForeground).
-				Background(common.ColorSelection)
-		}
-		return cursor + style.Render("["+common.Icons.Add+" Add Project]")
 
 	case RowProject:
 		// Project headers are uppercase - selectable to access main branch
@@ -323,7 +309,6 @@ func (m *Model) renderRow(row Row, selected bool) string {
 func (m *Model) rebuildRows() {
 	m.rows = []Row{
 		{Type: RowHome},
-		{Type: RowAddProject},
 	}
 
 	for i := range m.projects {
@@ -543,11 +528,6 @@ func (m *Model) handleDelete() tea.Cmd {
 	}
 
 	return nil
-}
-
-// handleAddProject handles the add project key
-func (m *Model) handleAddProject() tea.Cmd {
-	return func() tea.Msg { return messages.ShowAddProjectDialog{} }
 }
 
 // refresh requests a dashboard refresh
