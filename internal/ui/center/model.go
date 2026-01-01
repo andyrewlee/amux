@@ -78,6 +78,8 @@ const (
 	ptyFlushMaxInterval = 50 * time.Millisecond
 	ptyFlushQuietAlt    = 30 * time.Millisecond
 	ptyFlushMaxAlt      = 120 * time.Millisecond
+	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
+	ptyFlushInactiveMultiplier = 4
 )
 
 // Model is the Bubbletea model for the center pane
@@ -147,7 +149,19 @@ func (m *Model) setActiveTabIdx(idx int) {
 	m.activeTabByWorktree[m.worktreeID()] = idx
 }
 
-func (m *Model) flushTiming(tab *Tab) (time.Duration, time.Duration) {
+func (m *Model) isActiveTab(wtID string, tabID TabID) bool {
+	if m.worktree == nil || wtID != m.worktreeID() {
+		return false
+	}
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return false
+	}
+	return tabs[activeIdx].ID == tabID
+}
+
+func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration) {
 	quiet := ptyFlushQuiet
 	maxInterval := ptyFlushMaxInterval
 
@@ -157,6 +171,14 @@ func (m *Model) flushTiming(tab *Tab) (time.Duration, time.Duration) {
 		maxInterval = ptyFlushMaxAlt
 	}
 	tab.mu.Unlock()
+
+	if !active {
+		quiet *= ptyFlushInactiveMultiplier
+		maxInterval *= ptyFlushInactiveMultiplier
+		if maxInterval < quiet {
+			maxInterval = quiet
+		}
+	}
 
 	return quiet, maxInterval
 }
@@ -484,7 +506,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !tab.flushScheduled {
 				tab.flushScheduled = true
 				tab.flushPendingSince = tab.lastOutputAt
-				quiet, _ := m.flushTiming(tab)
+				quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorktreeID, msg.TabID))
 				tabID := msg.TabID // Capture for closure
 				cmds = append(cmds, tea.Tick(quiet, func(t time.Time) tea.Msg {
 					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
@@ -504,7 +526,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !tab.flushPendingSince.IsZero() {
 				pendingFor = now.Sub(tab.flushPendingSince)
 			}
-			quiet, maxInterval := m.flushTiming(tab)
+			quiet, maxInterval := m.flushTiming(tab, m.isActiveTab(msg.WorktreeID, msg.TabID))
 			if quietFor < quiet && pendingFor < maxInterval {
 				delay := quiet - quietFor
 				if delay < time.Millisecond {
