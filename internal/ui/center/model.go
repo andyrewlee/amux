@@ -52,14 +52,15 @@ type SelectionState struct {
 
 // Tab represents a single tab in the center pane
 type Tab struct {
-	ID        TabID // Unique identifier that survives slice reordering
-	Name      string
-	Assistant string
-	Worktree  *data.Worktree
-	Agent     *appPty.Agent
-	Terminal  *vterm.VTerm // Virtual terminal emulator with scrollback
-	mu        sync.Mutex   // Protects Terminal
-	Running   bool         // Whether the agent is actively running
+	ID           TabID // Unique identifier that survives slice reordering
+	Name         string
+	Assistant    string
+	Worktree     *data.Worktree
+	Agent        *appPty.Agent
+	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
+	mu           sync.Mutex   // Protects Terminal
+	Running      bool         // Whether the agent is actively running
+	readerActive bool         // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 	pendingOutput     []byte
 	flushScheduled    bool
@@ -77,6 +78,8 @@ const (
 	ptyFlushMaxInterval = 50 * time.Millisecond
 	ptyFlushQuietAlt    = 30 * time.Millisecond
 	ptyFlushMaxAlt      = 120 * time.Millisecond
+	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
+	ptyFlushInactiveMultiplier = 4
 )
 
 // Model is the Bubbletea model for the center pane
@@ -146,7 +149,19 @@ func (m *Model) setActiveTabIdx(idx int) {
 	m.activeTabByWorktree[m.worktreeID()] = idx
 }
 
-func (m *Model) flushTiming(tab *Tab) (time.Duration, time.Duration) {
+func (m *Model) isActiveTab(wtID string, tabID TabID) bool {
+	if m.worktree == nil || wtID != m.worktreeID() {
+		return false
+	}
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return false
+	}
+	return tabs[activeIdx].ID == tabID
+}
+
+func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration) {
 	quiet := ptyFlushQuiet
 	maxInterval := ptyFlushMaxInterval
 
@@ -156,6 +171,14 @@ func (m *Model) flushTiming(tab *Tab) (time.Duration, time.Duration) {
 		maxInterval = ptyFlushMaxAlt
 	}
 	tab.mu.Unlock()
+
+	if !active {
+		quiet *= ptyFlushInactiveMultiplier
+		maxInterval *= ptyFlushInactiveMultiplier
+		if maxInterval < quiet {
+			maxInterval = quiet
+		}
+	}
 
 	return quiet, maxInterval
 }
@@ -483,7 +506,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !tab.flushScheduled {
 				tab.flushScheduled = true
 				tab.flushPendingSince = tab.lastOutputAt
-				quiet, _ := m.flushTiming(tab)
+				quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorktreeID, msg.TabID))
 				tabID := msg.TabID // Capture for closure
 				cmds = append(cmds, tea.Tick(quiet, func(t time.Time) tea.Msg {
 					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
@@ -503,7 +526,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !tab.flushPendingSince.IsZero() {
 				pendingFor = now.Sub(tab.flushPendingSince)
 			}
-			quiet, maxInterval := m.flushTiming(tab)
+			quiet, maxInterval := m.flushTiming(tab, m.isActiveTab(msg.WorktreeID, msg.TabID))
 			if quietFor < quiet && pendingFor < maxInterval {
 				delay := quiet - quietFor
 				if delay < time.Millisecond {
@@ -541,6 +564,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
 			tab.Running = false
+			tab.readerActive = false
 			logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
 		}
 		// Do NOT schedule another read - the loop is done
@@ -858,11 +882,13 @@ func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
 	}
 
 	if tab.Agent == nil || tab.Agent.Terminal == nil {
+		tab.readerActive = false
 		return nil
 	}
 
 	// Check if terminal is already closed before starting read
 	if tab.Agent.Terminal.IsClosed() {
+		tab.readerActive = false
 		return nil
 	}
 
@@ -879,6 +905,18 @@ func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
 		// No data but no error - continue polling
 		return PTYTick{WorktreeID: wtID, TabID: tabID}
 	}
+}
+
+func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
+	if tab == nil || tab.readerActive {
+		return nil
+	}
+	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
+		tab.readerActive = false
+		return nil
+	}
+	tab.readerActive = true
+	return m.readPTYForTab(wtID, tab.ID)
 }
 
 // closeCurrentTab closes the current tab
@@ -1038,7 +1076,9 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 	var cmds []tea.Cmd
 	for wtID, tabs := range m.tabsByWorktree {
 		for _, tab := range tabs {
-			cmds = append(cmds, m.readPTYForTab(wtID, tab.ID))
+			if cmd := m.startPTYReader(wtID, tab); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 	return tea.Batch(cmds...)
