@@ -54,7 +54,6 @@ func defaultHelpSections() []HelpSection {
 				{"Enter", "Activate worktree"},
 				{"n", "New worktree"},
 				{"d", "Delete worktree"},
-				{"a", "Add project"},
 				{"f", "Toggle dirty filter"},
 				{"r", "Refresh"},
 			},

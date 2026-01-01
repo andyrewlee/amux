@@ -39,7 +39,7 @@ func NewManager() *Manager {
 		minDashboardWidth: 20,
 		minSidebarWidth:   20,
 		startupLeftWidth:  28,
-		startupRightWidth: 40,
+		startupRightWidth: 55,
 	}
 }
 
