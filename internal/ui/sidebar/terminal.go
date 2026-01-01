@@ -44,6 +44,23 @@ type TerminalState struct {
 	flushPendingSince time.Time
 }
 
+// terminalKeyMap holds pre-allocated key bindings for the terminal
+type terminalKeyMap struct {
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
+	Home       key.Binding
+	End        key.Binding
+}
+
+func newTerminalKeyMap() terminalKeyMap {
+	return terminalKeyMap{
+		ScrollUp:   key.NewBinding(key.WithKeys("ctrl+u")),
+		ScrollDown: key.NewBinding(key.WithKeys("ctrl+d")),
+		Home:       key.NewBinding(key.WithKeys("home")),
+		End:        key.NewBinding(key.WithKeys("end")),
+	}
+}
+
 // TerminalModel is the Bubbletea model for the sidebar terminal section
 type TerminalModel struct {
 	// State per worktree
@@ -59,6 +76,9 @@ type TerminalModel struct {
 
 	// Styles
 	styles common.Styles
+
+	// Pre-allocated key bindings
+	keys terminalKeyMap
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -66,6 +86,7 @@ func NewTerminalModel() *TerminalModel {
 	return &TerminalModel{
 		terminals: make(map[string]*TerminalState),
 		styles:    common.DefaultStyles(),
+		keys:      newTerminalKeyMap(),
 	}
 }
 
@@ -136,7 +157,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.mu.Unlock()
 			return m, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+		case key.Matches(msg, m.keys.ScrollUp):
 			ts.mu.Lock()
 			if ts.VTerm != nil {
 				ts.VTerm.ScrollView(ts.VTerm.Height / 2)
@@ -144,7 +165,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.mu.Unlock()
 			return m, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+		case key.Matches(msg, m.keys.ScrollDown):
 			ts.mu.Lock()
 			if ts.VTerm != nil {
 				ts.VTerm.ScrollView(-ts.VTerm.Height / 2)
@@ -152,7 +173,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.mu.Unlock()
 			return m, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
+		case key.Matches(msg, m.keys.Home):
 			ts.mu.Lock()
 			if ts.VTerm != nil {
 				ts.VTerm.ScrollViewToTop()
@@ -160,7 +181,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.mu.Unlock()
 			return m, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
+		case key.Matches(msg, m.keys.End):
 			ts.mu.Lock()
 			if ts.VTerm != nil {
 				ts.VTerm.ScrollViewToBottom()

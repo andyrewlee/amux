@@ -259,14 +259,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		// Debug timing for focus transitions
-		// start := time.Now()
-		// defer func() {
-		// 	if elapsed := time.Since(start); elapsed > 10*time.Millisecond {
-		// 		logging.Info("Key %s took %v", msg.String(), elapsed)
-		// 	}
-		// }()
-
 		// Handle quit first
 		if key.Matches(msg, a.keymap.Quit) {
 			a.center.Close()
@@ -289,7 +281,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, a.keymap.MoveLeft):
 				a.focusPane(messages.PaneCenter)
 				return a, nil
-			case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+k"))):
+			case key.Matches(msg, a.keymap.MoveUp):
 				a.focusPane(messages.PaneSidebar)
 				return a, nil
 			case key.Matches(msg, a.keymap.Quit):
@@ -354,13 +346,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.focusPane(messages.PaneSidebar)
 				}
 			}
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+j"))):
+		case key.Matches(msg, a.keymap.MoveDown):
 			// Move down: Sidebar -> SidebarTerminal
 			if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
 				a.focusPane(messages.PaneSidebarTerminal)
 				return a, nil
 			}
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+k"))):
+		case key.Matches(msg, a.keymap.MoveUp):
 			// Move up: SidebarTerminal -> Sidebar
 			if a.focusedPane == messages.PaneSidebarTerminal {
 				a.focusPane(messages.PaneSidebar)
@@ -373,7 +365,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.activeWorktree != nil {
 				return a, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 			}
-		case key.Matches(msg, key.NewBinding(key.WithKeys("?"))):
+		case key.Matches(msg, a.keymap.Help):
 			// Toggle help overlay
 			a.helpOverlay.SetSize(a.width, a.height)
 			a.helpOverlay.Toggle()
