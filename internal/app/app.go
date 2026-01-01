@@ -274,6 +274,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		logging.Debug("Key: %s, focusedPane=%d, centerHasTabs=%v", msg.String(), a.focusedPane, a.center.HasTabs())
 
+		// When focused on sidebar terminal, intercept navigation keys before forwarding
+		if a.focusedPane == messages.PaneSidebarTerminal {
+			switch {
+			case key.Matches(msg, a.keymap.MoveLeft):
+				a.focusPane(messages.PaneCenter)
+				return a, nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+k"))):
+				a.focusPane(messages.PaneSidebar)
+				return a, nil
+			case key.Matches(msg, a.keymap.Quit):
+				a.sidebarTerminal.CloseAll()
+				a.quitting = true
+				return a, tea.Quit
+			}
+
+			// Forward all other keys to terminal
+			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
+			a.sidebarTerminal = newSidebarTerminal
+			return a, cmd
+		}
+
 		// When focused on center pane with terminal, handle navigation keys
 		if a.focusedPane == messages.PaneCenter {
 			// Check for global navigation keys BEFORE forwarding to terminal

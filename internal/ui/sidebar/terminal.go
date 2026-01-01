@@ -33,6 +33,10 @@ type TerminalState struct {
 	Running  bool
 	mu       sync.Mutex
 
+	// Track last size to avoid unnecessary resizes
+	lastWidth  int
+	lastHeight int
+
 	// PTY output buffering
 	pendingOutput     []byte
 	flushScheduled    bool
@@ -316,18 +320,22 @@ func (m *TerminalModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 
-	// Resize all terminal vtems
+	// Calculate actual terminal dimensions
+	termWidth := width - 4 // Account for borders and padding
+	termHeight := height - 4
+	if termWidth < 10 {
+		termWidth = 10
+	}
+	if termHeight < 3 {
+		termHeight = 3
+	}
+
+	// Resize all terminal vtems only if size changed
 	for _, ts := range m.terminals {
 		ts.mu.Lock()
-		if ts.VTerm != nil {
-			termWidth := width - 4  // Account for borders and padding
-			termHeight := height - 4
-			if termWidth < 10 {
-				termWidth = 10
-			}
-			if termHeight < 3 {
-				termHeight = 3
-			}
+		if ts.VTerm != nil && (ts.lastWidth != termWidth || ts.lastHeight != termHeight) {
+			ts.lastWidth = termWidth
+			ts.lastHeight = termHeight
 			ts.VTerm.Resize(termWidth, termHeight)
 			if ts.Terminal != nil {
 				_ = ts.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
@@ -411,9 +419,11 @@ func (m *TerminalModel) HandleTerminalCreated(wtID string, term *pty.Terminal) t
 	_ = term.SetSize(uint16(termHeight), uint16(termWidth))
 
 	ts := &TerminalState{
-		Terminal: term,
-		VTerm:    vt,
-		Running:  true,
+		Terminal:   term,
+		VTerm:      vt,
+		Running:    true,
+		lastWidth:  termWidth,
+		lastHeight: termHeight,
 	}
 	m.terminals[wtID] = ts
 
