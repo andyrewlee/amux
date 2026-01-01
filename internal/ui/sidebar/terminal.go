@@ -336,7 +336,7 @@ func (m *TerminalModel) SetSize(width, height int) {
 	m.height = height
 
 	// Calculate actual terminal dimensions
-	termWidth := width - 4 - focusGutterWidth // Account for borders, padding, and focus gutter
+	termWidth := paneContentWidth(width) // Account for borders and padding
 	termHeight := height - 4
 	if termWidth < 10 {
 		termWidth = 10

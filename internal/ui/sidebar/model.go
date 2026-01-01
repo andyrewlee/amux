@@ -226,7 +226,7 @@ func (m *Model) renderChanges() string {
 
 		// Truncate path to fit within available width
 		// Account for: cursor (2) + code (2) + spaces (2) + padding (4) = 10 chars overhead
-		maxPathLen := m.width - 14 - focusGutterWidth
+		maxPathLen := paneContentWidth(m.width) - 10
 		if maxPathLen < 10 {
 			maxPathLen = 10
 		}
