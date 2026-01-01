@@ -272,7 +272,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		logging.Debug("Key: %s, focusedPane=%d, centerHasTabs=%v", msg.String(), a.focusedPane, a.center.HasTabs())
+		// Uncomment for key debugging (causes latency due to sync file I/O):
+		// logging.Debug("Key: %s, focusedPane=%d, centerHasTabs=%v", msg.String(), a.focusedPane, a.center.HasTabs())
 
 		// When focused on sidebar terminal, intercept navigation keys before forwarding
 		if a.focusedPane == messages.PaneSidebarTerminal {

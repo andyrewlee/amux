@@ -179,7 +179,6 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			// Send input to terminal
 			input := keyToBytes(msg)
 			if len(input) > 0 {
-				logging.Debug("Sidebar terminal: sending %q", input)
 				_ = ts.Terminal.SendString(string(input))
 			}
 			return m, nil
