@@ -262,6 +262,13 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 		return cursor + style.Render("["+common.Icons.Home+" home]")
 
+	case RowAddProject:
+		style := m.styles.CreateButton
+		if selected {
+			style = m.styles.SelectedRow
+		}
+		return cursor + style.Render(common.Icons.Add+" Add Project")
+
 	case RowProject:
 		// Project headers are uppercase - selectable to access main branch
 		// Remove MarginTop from style to keep cursor on same line as text
@@ -320,6 +327,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 func (m *Model) rebuildRows() {
 	m.rows = []Row{
 		{Type: RowHome},
+		{Type: RowAddProject},
 	}
 
 	for i := range m.projects {
