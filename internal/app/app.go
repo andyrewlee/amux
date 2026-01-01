@@ -1142,22 +1142,142 @@ func (a *App) updateLayout() {
 	a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
 
-	// Split sidebar height between file changes and terminal (50/50)
-	sidebarWidth := a.layout.SidebarWidth()
-	sidebarHeight := a.layout.Height()
-	topHeight := sidebarHeight / 2
-	bottomHeight := sidebarHeight - topHeight
-	a.sidebar.SetSize(sidebarWidth, topHeight)
-	a.sidebarTerminal.SetSize(sidebarWidth, bottomHeight)
+	sidebarLayout := a.sidebarLayoutInfo()
+	a.sidebar.SetSize(sidebarLayout.bodyWidth, sidebarLayout.topHeight)
+	a.sidebarTerminal.SetSize(sidebarLayout.bodyWidth, sidebarLayout.bottomHeight)
 
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
 	}
 }
 
+const (
+	sidebarBorderWidth        = 1
+	sidebarPaddingX           = 1
+	sidebarGutterWidth        = 1
+	sidebarSeparatorMinHeight = 3
+)
+
+type sidebarLayoutInfo struct {
+	innerWidth    int
+	contentWidth  int
+	bodyWidth     int
+	contentHeight int
+	topHeight     int
+	bottomHeight  int
+	hasSeparator  bool
+}
+
+func (a *App) sidebarLayoutInfo() sidebarLayoutInfo {
+	outerWidth := a.layout.SidebarWidth()
+	outerHeight := a.layout.Height()
+
+	innerWidth := outerWidth - (sidebarBorderWidth * 2)
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	contentWidth := innerWidth - (sidebarPaddingX * 2)
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	bodyWidth := contentWidth - sidebarGutterWidth
+	if bodyWidth < 1 {
+		bodyWidth = 1
+	}
+
+	contentHeight := outerHeight - (sidebarBorderWidth * 2)
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	available := contentHeight
+	hasSeparator := false
+	if available >= sidebarSeparatorMinHeight {
+		hasSeparator = true
+		available--
+	}
+
+	topHeight := available / 2
+	bottomHeight := available - topHeight
+	if available > 0 {
+		if topHeight < 1 {
+			topHeight = 1
+			bottomHeight = available - topHeight
+		}
+		if bottomHeight < 1 {
+			bottomHeight = 1
+			topHeight = available - bottomHeight
+		}
+	}
+
+	return sidebarLayoutInfo{
+		innerWidth:    innerWidth,
+		contentWidth:  contentWidth,
+		bodyWidth:     bodyWidth,
+		contentHeight: contentHeight,
+		topHeight:     topHeight,
+		bottomHeight:  bottomHeight,
+		hasSeparator:  hasSeparator,
+	}
+}
+
 // renderSidebarPane renders the sidebar as a vertical split with file changes and terminal
 func (a *App) renderSidebarPane() string {
-	topView := a.sidebar.View()
-	bottomView := a.sidebarTerminal.View()
-	return topView + "\n" + bottomView
+	layout := a.sidebarLayoutInfo()
+
+	topFocused := a.focusedPane == messages.PaneSidebar
+	bottomFocused := a.focusedPane == messages.PaneSidebarTerminal
+	sidebarFocused := topFocused || bottomFocused
+
+	topView := renderSidebarSection(a.sidebar.View(), layout.contentWidth, topFocused)
+	bottomView := renderSidebarSection(a.sidebarTerminal.View(), layout.contentWidth, bottomFocused)
+
+	var parts []string
+	parts = append(parts, topView)
+	if layout.hasSeparator {
+		separator := lipgloss.NewStyle().
+			Foreground(common.ColorBorder).
+			Render(strings.Repeat("─", layout.contentWidth))
+		parts = append(parts, separator)
+	}
+	parts = append(parts, bottomView)
+
+	content := lipgloss.JoinVertical(lipgloss.Top, parts...)
+	style := a.styles.Pane
+	if sidebarFocused {
+		style = a.styles.FocusedPane
+	}
+
+	return style.Width(layout.innerWidth).Render(content)
+}
+
+func renderSidebarSection(content string, width int, focused bool) string {
+	if width <= 0 {
+		return ""
+	}
+	if width <= sidebarGutterWidth {
+		return lipgloss.NewStyle().Width(width).Render(content)
+	}
+
+	contentWidth := width - sidebarGutterWidth
+	normalized := lipgloss.NewStyle().Width(contentWidth).Render(content)
+	lines := strings.Split(normalized, "\n")
+	gutter := " "
+	gutterStyle := lipgloss.NewStyle()
+	if focused {
+		gutter = "▌"
+		gutterStyle = gutterStyle.Foreground(common.ColorBorderFocused)
+	}
+
+	for i := range lines {
+		if focused {
+			lines[i] = gutterStyle.Render(gutter) + lines[i]
+		} else {
+			lines[i] = gutter + lines[i]
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }

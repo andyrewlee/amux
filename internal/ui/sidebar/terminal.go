@@ -320,14 +320,16 @@ func (m *TerminalModel) View() string {
 
 	// Pad to fill height
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := m.height - 3 // Account for border and help
+	targetHeight := m.height - 1 // Account for help
+	if targetHeight < 0 {
+		targetHeight = 0
+	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
 	b.WriteString(help)
 
-	// Apply pane styling with focus gutter to avoid slow border styles.
-	return wrapPane(b.String(), m.width, m.focused)
+	return b.String()
 }
 
 // SetSize sets the terminal section size
@@ -336,8 +338,8 @@ func (m *TerminalModel) SetSize(width, height int) {
 	m.height = height
 
 	// Calculate actual terminal dimensions
-	termWidth := paneContentWidth(width) // Account for borders and padding
-	termHeight := height - 4
+	termWidth := width
+	termHeight := height - 1
 	if termWidth < 10 {
 		termWidth = 10
 	}

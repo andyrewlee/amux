@@ -126,14 +126,16 @@ func (m *Model) View() string {
 
 	// Padding
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := m.height - 4
+	targetHeight := m.height - 1
+	if targetHeight < 0 {
+		targetHeight = 0
+	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
 	b.WriteString(strings.Join(helpItems, "  "))
 
-	// Apply pane styling with focus gutter to avoid slow border styles.
-	return wrapPane(b.String(), m.width, m.focused)
+	return b.String()
 }
 
 // renderTabBar renders the sidebar tab bar
@@ -225,8 +227,8 @@ func (m *Model) renderChanges() string {
 		}
 
 		// Truncate path to fit within available width
-		// Account for: cursor (2) + code (2) + spaces (2) + padding (4) = 10 chars overhead
-		maxPathLen := paneContentWidth(m.width) - 10
+		prefixWidth := lipgloss.Width(cursor + file.Code + " ")
+		maxPathLen := m.width - prefixWidth
 		if maxPathLen < 10 {
 			maxPathLen = 10
 		}
