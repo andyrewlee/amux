@@ -259,6 +259,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Debug timing for focus transitions
+		// start := time.Now()
+		// defer func() {
+		// 	if elapsed := time.Since(start); elapsed > 10*time.Millisecond {
+		// 		logging.Info("Key %s took %v", msg.String(), elapsed)
+		// 	}
+		// }()
+
 		// Handle quit first
 		if key.Matches(msg, a.keymap.Quit) {
 			a.center.Close()
