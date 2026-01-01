@@ -349,11 +349,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Move down: Sidebar -> SidebarTerminal
 			if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
 				a.focusPane(messages.PaneSidebarTerminal)
+				return a, nil
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+k"))):
 			// Move up: SidebarTerminal -> Sidebar
 			if a.focusedPane == messages.PaneSidebarTerminal {
 				a.focusPane(messages.PaneSidebar)
+				return a, nil
 			}
 		case key.Matches(msg, a.keymap.Home):
 			a.showWelcome = true
