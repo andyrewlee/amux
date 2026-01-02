@@ -722,13 +722,8 @@ func (m *Model) renderTabBar() string {
 		}
 	}
 
-	// Add the plus button styled to match the tab bar line
-	plusBtn := lipgloss.NewStyle().
-		Padding(0, 1).
-		Foreground(common.ColorMuted).
-		Border(lipgloss.Border{Bottom: "─"}, false, false, true, false).
-		BorderForeground(common.ColorBorder).
-		Render("[+]")
+	// Add the plus button with matching border style
+	plusBtn := m.styles.TabPlus.Render("[+]")
 	renderedTabs = append(renderedTabs, plusBtn)
 
 	// Join tabs horizontally at the bottom so borders align

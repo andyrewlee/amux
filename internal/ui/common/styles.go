@@ -82,30 +82,9 @@ type Styles struct {
 	ToastInfo    lipgloss.Style
 }
 
-// activeTabBorder returns a border for active tabs (open bottom to connect to content)
-func activeTabBorder() lipgloss.Border {
-	b := lipgloss.RoundedBorder()
-	b.BottomLeft = "│"
-	b.Bottom = " "
-	b.BottomRight = "│"
-	return b
-}
-
-// inactiveTabBorder returns a border for inactive tabs (closed bottom)
-func inactiveTabBorder() lipgloss.Border {
-	b := lipgloss.RoundedBorder()
-	b.BottomLeft = "┴"
-	b.Bottom = "─"
-	b.BottomRight = "┴"
-	return b
-}
-
-// TabGap returns a string to fill the gap between tabs in the tab bar
-func TabGap() string {
-	return lipgloss.NewStyle().
-		Border(lipgloss.Border{Bottom: "─"}, false, false, true, false).
-		BorderForeground(ColorBorder).
-		Render(" ")
+// tabBorder returns a border for tabs (standard rounded border)
+func tabBorder() lipgloss.Border {
+	return lipgloss.RoundedBorder()
 }
 
 // DefaultStyles returns the default application styles using Tokyo Night palette
@@ -200,25 +179,27 @@ func DefaultStyles() Styles {
 		StatusUntracked: lipgloss.NewStyle().
 			Foreground(ColorMuted),
 
-		// Center pane - Tabs (browser-style with rounded corners)
+		// Center pane - Tabs (clean bordered boxes)
 		Tab: lipgloss.NewStyle().
 			Padding(0, 1).
 			Foreground(ColorMuted).
-			Border(inactiveTabBorder(), true).
+			Border(tabBorder()).
 			BorderForeground(ColorBorder),
 
 		ActiveTab: lipgloss.NewStyle().
 			Padding(0, 1).
 			Bold(true).
 			Foreground(ColorForeground).
-			Border(activeTabBorder(), true).
+			Border(tabBorder()).
 			BorderForeground(ColorPrimary),
 
 		TabBar: lipgloss.NewStyle(),
 
 		TabPlus: lipgloss.NewStyle().
 			Padding(0, 1).
-			Foreground(ColorMuted),
+			Foreground(ColorMuted).
+			Border(tabBorder()).
+			BorderForeground(ColorBorder),
 
 		// Center pane - Agent indicators
 		AgentClaude: lipgloss.NewStyle().
