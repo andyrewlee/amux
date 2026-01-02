@@ -83,9 +83,6 @@ const (
 	ptyFlushChunkSize          = 32 * 1024
 )
 
-// AutoScrollTick triggers an auto-scroll step
-type AutoScrollTick struct{}
-
 // Model is the Bubbletea model for the center pane
 type Model struct {
 	// State
@@ -94,7 +91,6 @@ type Model struct {
 	activeTabByWorktree map[string]int    // active tab index per worktree
 	focused             bool
 	agentManager        *appPty.AgentManager
-	autoScrollDir       int // -1 for up, 1 for down, 0 for stop
 
 	// Key sequence state for vim-style gt/gT
 	pendingG     bool
@@ -291,24 +287,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					termHeight = 24
 				}
 
-				// Check for auto-scroll
-				var newScrollDir int
-				if termY < 0 {
-					newScrollDir = 1 // Scroll Up (History)
-				} else if termY >= termHeight {
-					newScrollDir = -1 // Scroll Down (Live)
-				} else {
-					newScrollDir = 0
-				}
-
-				// If scroll direction changed to non-zero, start the ticker
-				if newScrollDir != 0 && m.autoScrollDir == 0 {
-					cmds = append(cmds, tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
-						return AutoScrollTick{}
-					}))
-				}
-				m.autoScrollDir = newScrollDir
-
 				// Clamp to terminal bounds
 				if termX < 0 {
 					termX = 0
@@ -335,7 +313,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab.mu.Unlock()
 
 		case tea.MouseActionRelease:
-			m.autoScrollDir = 0 // Stop auto-scrolling
 			if msg.Button == tea.MouseButtonLeft {
 				tab.mu.Lock()
 				if tab.Selection.Active {
@@ -362,27 +339,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 		}
 		return m, tea.Batch(cmds...)
-
-	case AutoScrollTick:
-		if m.autoScrollDir == 0 {
-			return m, nil
-		}
-		
-		tabs := m.getTabs()
-		activeIdx := m.getActiveTabIdx()
-		if activeIdx < len(tabs) {
-			tab := tabs[activeIdx]
-			tab.mu.Lock()
-			if tab.Terminal != nil {
-				tab.Terminal.ScrollView(m.autoScrollDir)
-			}
-			tab.mu.Unlock()
-		}
-		
-		return m, tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
-			return AutoScrollTick{}
-		})
-
 
 	case tea.KeyMsg:
 		tabs := m.getTabs()
