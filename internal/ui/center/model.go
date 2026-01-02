@@ -367,6 +367,16 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab := tabs[activeIdx]
 			logging.Debug("Has active agent, Agent=%v, Terminal=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil)
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
+				// Handle bracketed paste - send entire content at once with escape sequences
+				// This is much faster than processing character by character
+				if msg.Paste && msg.Type == tea.KeyRunes {
+					text := string(msg.Runes)
+					bracketedText := "\x1b[200~" + text + "\x1b[201~"
+					_ = tab.Agent.Terminal.SendString(bracketedText)
+					logging.Debug("Pasted %d bytes via bracketed paste", len(text))
+					return m, nil
+				}
+
 				// Handle pending 'g' key sequence for vim-style gt/gT
 				if m.pendingG {
 					m.pendingG = false

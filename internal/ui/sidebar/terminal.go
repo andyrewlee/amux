@@ -140,6 +140,16 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle bracketed paste - send entire content at once with escape sequences
+		// This is much faster than processing character by character
+		if msg.Paste && msg.Type == tea.KeyRunes {
+			text := string(msg.Runes)
+			bracketedText := "\x1b[200~" + text + "\x1b[201~"
+			_ = ts.Terminal.SendString(bracketedText)
+			logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
+			return m, nil
+		}
+
 		// Handle scroll keys
 		switch {
 		case msg.Type == tea.KeyPgUp:
