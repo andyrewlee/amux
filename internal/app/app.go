@@ -1156,6 +1156,17 @@ func (a *App) updateLayout() {
 	a.sidebar.SetSize(sidebarLayout.bodyWidth, sidebarLayout.topHeight)
 	a.sidebarTerminal.SetSize(sidebarLayout.bodyWidth, sidebarLayout.bottomHeight)
 
+	// Calculate and set offsets for sidebar terminal mouse handling
+	// X: Dashboard + Center + Border(1) + Padding(1) + Gutter(1)
+	termOffsetX := a.layout.DashboardWidth() + a.layout.CenterWidth() + 3
+	
+	// Y: Border(1) + TopHeight
+	termOffsetY := 1 + sidebarLayout.topHeight
+	if sidebarLayout.hasSeparator {
+		termOffsetY++ // + Separator(1)
+	}
+	a.sidebarTerminal.SetOffset(termOffsetX, termOffsetY)
+
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
 	}
