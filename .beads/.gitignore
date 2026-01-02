@@ -33,3 +33,6 @@ beads.right.meta.json
 !interactions.jsonl
 !metadata.json
 !config.json
+
+# Worktree redirect
+redirect
