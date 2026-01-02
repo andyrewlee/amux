@@ -18,7 +18,18 @@ func skipIfNoGit(t *testing.T) {
 func runGit(t *testing.T, dir string, args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+
+	// Filter out GIT_ environment variables that might be set by pre-push hooks
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "GIT_DIR=") &&
+			!strings.HasPrefix(e, "GIT_WORK_TREE=") &&
+			!strings.HasPrefix(e, "GIT_INDEX_FILE=") {
+			env = append(env, e)
+		}
+	}
+
+	cmd.Env = append(env,
 		"GIT_AUTHOR_NAME=Test",
 		"GIT_AUTHOR_EMAIL=test@example.com",
 		"GIT_COMMITTER_NAME=Test",

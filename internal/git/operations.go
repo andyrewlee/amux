@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -10,6 +11,18 @@ import (
 func RunGit(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+
+	// Filter out GIT_ environment variables to ensure we run against the target repo
+	// and ignore any parent git process environment (e.g. when running in hooks)
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "GIT_DIR=") &&
+			!strings.HasPrefix(e, "GIT_WORK_TREE=") &&
+			!strings.HasPrefix(e, "GIT_INDEX_FILE=") {
+			env = append(env, e)
+		}
+	}
+	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
