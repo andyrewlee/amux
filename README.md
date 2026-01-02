@@ -19,3 +19,21 @@ cd amux
 go build -o amux ./cmd/amux
 ./amux
 ```
+
+## Setup Worktrees Script
+
+The setup worktrees script allows you to configure commands that run when creating new worktrees. You can define setup commands in your `.amux/worktrees.json` file.
+
+Example configuration:
+
+```json
+{
+  "setup-worktree": [
+    "pnpm i",
+    "cp $ROOT_WORKTREE_PATH/.env.local .env.local",
+    "cp -r $ROOT_WORKTREE_PATH/.clerk ."
+  ]
+}
+```
+
+This will run the specified commands in each new worktree after creation.
