@@ -75,6 +75,9 @@ func newTerminalKeyMap() terminalKeyMap {
 	}
 }
 
+// AutoScrollTick triggers an auto-scroll step
+type AutoScrollTick struct{}
+
 // TerminalModel is the Bubbletea model for the sidebar terminal section
 type TerminalModel struct {
 	// State per worktree
@@ -89,6 +92,9 @@ type TerminalModel struct {
 	focused bool
 	offsetX int
 	offsetY int
+
+	// Auto-scroll state
+	autoScrollDir int
 
 	// Styles
 	styles common.Styles
@@ -192,14 +198,23 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					termHeight = ts.VTerm.Height
 				}
 
-				// Auto-scroll logic
-				if ts.VTerm != nil {
-					if termY <= 0 {
-						ts.VTerm.ScrollView(-1)
-					} else if termY >= termHeight-1 {
-						ts.VTerm.ScrollView(1)
-					}
+				// Check for auto-scroll
+				var newScrollDir int
+				if termY < 0 {
+					newScrollDir = -1
+				} else if termY >= termHeight {
+					newScrollDir = 1
+				} else {
+					newScrollDir = 0
 				}
+
+				// If scroll direction changed to non-zero, start the ticker
+				if newScrollDir != 0 && m.autoScrollDir == 0 {
+					cmds = append(cmds, tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+						return AutoScrollTick{}
+					}))
+				}
+				m.autoScrollDir = newScrollDir
 
 				// Clamp
 				if termX < 0 {
@@ -227,6 +242,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.mu.Unlock()
 
 		case tea.MouseActionRelease:
+			m.autoScrollDir = 0
 			if msg.Button == tea.MouseButtonLeft {
 				ts.mu.Lock()
 				if ts.Selection.Active {
@@ -248,6 +264,24 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				ts.mu.Unlock()
 			}
 		}
+
+	case AutoScrollTick:
+		if m.autoScrollDir == 0 {
+			return m, nil
+		}
+
+		ts := m.getTerminal()
+		if ts != nil {
+			ts.mu.Lock()
+			if ts.VTerm != nil {
+				ts.VTerm.ScrollView(m.autoScrollDir)
+			}
+			ts.mu.Unlock()
+		}
+
+		return m, tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+			return AutoScrollTick{}
+		})
 
 	case tea.KeyMsg:
 		if !m.focused {

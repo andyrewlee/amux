@@ -254,8 +254,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Clicked on center pane
 				a.focusPane(messages.PaneCenter)
 			} else if a.layout.ShowSidebar() {
-				// Clicked on sidebar
-				a.focusPane(messages.PaneSidebar)
+				// Clicked on sidebar - determine top (changes) or bottom (terminal)
+				sidebarLayout := a.sidebarLayoutInfo()
+				// Calculate split point (Y offset of terminal)
+				// Border(1) + TopHeight + Separator(1 if present)
+				splitY := 1 + sidebarLayout.topHeight
+				if sidebarLayout.hasSeparator {
+					splitY++
+				}
+				
+				if msg.Y >= splitY {
+					a.focusPane(messages.PaneSidebarTerminal)
+				} else {
+					a.focusPane(messages.PaneSidebar)
+				}
 			}
 		}
 
