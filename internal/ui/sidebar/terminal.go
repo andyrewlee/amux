@@ -643,7 +643,7 @@ func (m *TerminalModel) screenToTerminal(screenX, screenY int) (termX, termY int
 	// Terminal width/height are set in SetSize (minus 1 for help bar usually?)
 	// Actually SetSize sets m.width and m.height for the whole pane section.
 	// The VTerm is resized to m.width, m.height-1.
-	
+
 	ts := m.getTerminal()
 	if ts != nil && ts.VTerm != nil {
 		inBounds = termX >= 0 && termX < ts.VTerm.Width && termY >= 0 && termY < ts.VTerm.Height
