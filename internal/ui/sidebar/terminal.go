@@ -459,6 +459,9 @@ func (m *TerminalModel) HandleTerminalCreated(wtID string, term *pty.Terminal) t
 	}
 
 	vt := vterm.New(termWidth, termHeight)
+	vt.SetResponseWriter(func(data []byte) {
+		_, _ = term.Write(data)
+	})
 	_ = term.SetSize(uint16(termHeight), uint16(termWidth))
 
 	ts := &TerminalState{
