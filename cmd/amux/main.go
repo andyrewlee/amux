@@ -34,6 +34,8 @@ func main() {
 		a,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
+		// Note: Bracketed paste is enabled by default in bubbletea v1.x
+		// Pasted text arrives as tea.KeyMsg with Paste=true and the full content in Runes
 	)
 
 	if _, err := p.Run(); err != nil {
