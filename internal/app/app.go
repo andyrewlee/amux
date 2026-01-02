@@ -245,42 +245,107 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		dashWidth := a.layout.DashboardWidth()
 		centerWidth := a.layout.CenterWidth()
 
-		// Focus pane on left-click press
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			if msg.X < dashWidth {
-				// Clicked on dashboard (left bar)
-				a.focusPane(messages.PaneDashboard)
-			} else if msg.X < dashWidth+centerWidth {
-				// Clicked on center pane
-				a.focusPane(messages.PaneCenter)
-			} else if a.layout.ShowSidebar() {
-				// Clicked on sidebar - determine top (changes) or bottom (terminal)
-				sidebarLayout := a.sidebarLayoutInfo()
-				// Calculate split point (Y offset of terminal)
-				// Border(1) + TopHeight + Separator(1 if present)
-				splitY := 1 + sidebarLayout.topHeight
-				if sidebarLayout.hasSeparator {
-					splitY++
-				}
-				
-				if msg.Y >= splitY {
-					a.focusPane(messages.PaneSidebarTerminal)
-				} else {
-					a.focusPane(messages.PaneSidebar)
-				}
-			}
-		}
+				// Focus pane on left-click press
 
-		// Forward mouse events to center pane for selection handling
-		if msg.X >= dashWidth && msg.X < dashWidth+centerWidth {
-			newCenter, cmd := a.center.Update(msg)
-			a.center = newCenter
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
+				if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 
-	case tea.KeyMsg:
+					if msg.X < dashWidth {
+
+						// Clicked on dashboard (left bar)
+
+						a.focusPane(messages.PaneDashboard)
+
+					} else if msg.X < dashWidth+centerWidth {
+
+						// Clicked on center pane
+
+						a.focusPane(messages.PaneCenter)
+
+					} else if a.layout.ShowSidebar() {
+
+						// Clicked on sidebar - determine top (changes) or bottom (terminal)
+
+						sidebarLayout := a.sidebarLayoutInfo()
+
+						// Calculate split point (Y offset of terminal)
+
+						// Border(1) + TopHeight + Separator(1 if present)
+
+						splitY := 1 + sidebarLayout.topHeight
+
+						if sidebarLayout.hasSeparator {
+
+							splitY++
+
+						}
+
+		
+
+						if msg.Y >= splitY {
+
+							a.focusPane(messages.PaneSidebarTerminal)
+
+						} else {
+
+							a.focusPane(messages.PaneSidebar)
+
+						}
+
+					}
+
+				}
+
+		
+
+				// Forward mouse events to the focused pane
+
+				// This ensures drag events are received even if the mouse leaves the pane bounds
+
+				switch a.focusedPane {
+
+				case messages.PaneCenter:
+
+					newCenter, cmd := a.center.Update(msg)
+
+					a.center = newCenter
+
+					if cmd != nil {
+
+						cmds = append(cmds, cmd)
+
+					}
+
+				case messages.PaneSidebarTerminal:
+
+					newTerm, cmd := a.sidebarTerminal.Update(msg)
+
+					a.sidebarTerminal = newTerm
+
+					if cmd != nil {
+
+						cmds = append(cmds, cmd)
+
+					}
+
+				case messages.PaneSidebar:
+
+					newSidebar, cmd := a.sidebar.Update(msg)
+
+					a.sidebar = newSidebar
+
+					if cmd != nil {
+
+						cmds = append(cmds, cmd)
+
+					}
+
+				}
+
+		
+
+			case tea.KeyMsg:
+
+		
 		// Handle quit first
 		if key.Matches(msg, a.keymap.Quit) {
 			a.center.Close()
