@@ -31,7 +31,7 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 		"AMUX_WORKTREE_NAME":   "feature-1",
 		"AMUX_WORKTREE_ROOT":   "/home/user/.amux/worktrees/feature-1",
 		"AMUX_WORKTREE_BRANCH": "feature-1",
-		"AMUX_REPO_ROOT":       "/home/user/repo",
+		"ROOT_WORKTREE_PATH":   "/home/user/repo",
 		"CUSTOM_VAR":           "custom_value",
 	}
 

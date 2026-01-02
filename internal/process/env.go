@@ -28,7 +28,7 @@ func (b *EnvBuilder) BuildEnv(wt *data.Worktree, meta *data.Metadata) []string {
 		fmt.Sprintf("AMUX_WORKTREE_NAME=%s", wt.Name),
 		fmt.Sprintf("AMUX_WORKTREE_ROOT=%s", wt.Root),
 		fmt.Sprintf("AMUX_WORKTREE_BRANCH=%s", wt.Branch),
-		fmt.Sprintf("AMUX_REPO_ROOT=%s", wt.Repo),
+		fmt.Sprintf("ROOT_WORKTREE_PATH=%s", wt.Repo),
 	)
 
 	// Add port allocation
@@ -57,7 +57,7 @@ func (b *EnvBuilder) BuildEnvMap(wt *data.Worktree, meta *data.Metadata) map[str
 	envMap["AMUX_WORKTREE_NAME"] = wt.Name
 	envMap["AMUX_WORKTREE_ROOT"] = wt.Root
 	envMap["AMUX_WORKTREE_BRANCH"] = wt.Branch
-	envMap["AMUX_REPO_ROOT"] = wt.Repo
+	envMap["ROOT_WORKTREE_PATH"] = wt.Repo
 
 	if b.portAllocator != nil {
 		port, rangeEnd := b.portAllocator.PortRange(wt.Root)

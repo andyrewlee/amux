@@ -2,10 +2,10 @@
 set -eu
 
 wt="${AMUX_WORKTREE_ROOT:-}"
-repo="${AMUX_REPO_ROOT:-}"
+repo="${ROOT_WORKTREE_PATH:-}"
 
 if [ -z "$wt" ] || [ -z "$repo" ]; then
-  echo "AMUX_WORKTREE_ROOT or AMUX_REPO_ROOT not set" >&2
+  echo "AMUX_WORKTREE_ROOT or ROOT_WORKTREE_PATH not set" >&2
   exit 1
 fi
 
