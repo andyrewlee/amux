@@ -278,13 +278,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			// Update selection while dragging
 			tab.mu.Lock()
 			if tab.Selection.Active {
-				// Clamp to terminal bounds
-				if termX < 0 {
-					termX = 0
-				}
-				if termY < 0 {
-					termY = 0
-				}
 				termWidth := m.width - 4
 				termHeight := m.height - 6
 				if termWidth < 10 {
@@ -292,6 +285,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 				if termHeight < 5 {
 					termHeight = 24
+				}
+
+				// Clamp to terminal bounds
+				if termX < 0 {
+					termX = 0
+				}
+				if termY < 0 {
+					termY = 0
 				}
 				if termX >= termWidth {
 					termX = termWidth - 1
@@ -337,7 +338,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				tab.mu.Unlock()
 			}
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
 		tabs := m.getTabs()
@@ -953,11 +954,11 @@ func (m *Model) screenToTerminal(screenX, screenY int) (termX, termY int, inBoun
 	// Calculate content area offsets within the pane:
 	// - Border: 1 on each side
 	// - Padding: 1 on left
-	// - Tab bar: 1 line at top (after border)
+	// - Tab bar: 3 lines at top (border + content + border)
 	borderTop := 1
 	borderLeft := 1
 	paddingLeft := 1
-	tabBarHeight := 1
+	tabBarHeight := 3
 
 	// X offset: border + padding
 	contentStartX := m.offsetX + borderLeft + paddingLeft
