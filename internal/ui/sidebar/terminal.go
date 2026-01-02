@@ -201,9 +201,9 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				// Check for auto-scroll
 				var newScrollDir int
 				if termY < 0 {
-					newScrollDir = -1
+					newScrollDir = 1 // Scroll Up
 				} else if termY >= termHeight {
-					newScrollDir = 1
+					newScrollDir = -1 // Scroll Down
 				} else {
 					newScrollDir = 0
 				}

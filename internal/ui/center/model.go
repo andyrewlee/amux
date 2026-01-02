@@ -294,9 +294,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				// Check for auto-scroll
 				var newScrollDir int
 				if termY < 0 {
-					newScrollDir = -1
+					newScrollDir = 1 // Scroll Up (History)
 				} else if termY >= termHeight {
-					newScrollDir = 1
+					newScrollDir = -1 // Scroll Down (Live)
 				} else {
 					newScrollDir = 0
 				}
