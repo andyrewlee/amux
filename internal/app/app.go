@@ -47,6 +47,7 @@ type App struct {
 	activeProject  *data.Project
 	focusedPane    messages.PaneType
 	showWelcome    bool
+	monitorMode    bool
 
 	// UI Components
 	layout          *layout.Manager
@@ -244,6 +245,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle mouse events
 		dashWidth := a.layout.DashboardWidth()
 		centerWidth := a.layout.CenterWidth()
+		rightWidth := centerWidth
+		if a.layout.ShowSidebar() {
+			rightWidth += a.layout.SidebarWidth()
+		}
 
 		// Focus pane on left-click press
 
@@ -254,7 +259,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Clicked on dashboard (left bar)
 
 				a.focusPane(messages.PaneDashboard)
-
+			} else if a.monitorMode && msg.X < dashWidth+rightWidth {
+				// Clicked on monitor pane
+				a.focusPane(messages.PaneMonitor)
 			} else if msg.X < dashWidth+centerWidth {
 
 				// Clicked on center pane
@@ -359,7 +366,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focusedPane == messages.PaneSidebarTerminal {
 			switch {
 			case key.Matches(msg, a.keymap.MoveLeft):
-				a.focusPane(messages.PaneCenter)
+				if a.monitorMode {
+					a.focusPane(messages.PaneMonitor)
+				} else {
+					a.focusPane(messages.PaneCenter)
+				}
 				return a, nil
 			case key.Matches(msg, a.keymap.MoveUp):
 				a.focusPane(messages.PaneSidebar)
@@ -386,8 +397,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focusPane(messages.PaneDashboard)
 				return a, nil
 			case key.Matches(msg, a.keymap.MoveRight):
-				// From center, move right to sidebar (if visible)
-				if a.layout.ShowSidebar() {
+				// From center, move right to sidebar or monitor (if visible)
+				if a.monitorMode {
+					a.focusPane(messages.PaneMonitor)
+				} else if a.layout.ShowSidebar() {
 					a.focusPane(messages.PaneSidebar)
 				}
 				return a, nil
@@ -416,26 +429,41 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focusPane(messages.PaneDashboard)
 			case messages.PaneSidebar, messages.PaneSidebarTerminal:
 				a.focusPane(messages.PaneCenter)
+			case messages.PaneMonitor:
+				a.focusPane(messages.PaneDashboard)
 			}
 		case key.Matches(msg, a.keymap.MoveRight):
 			switch a.focusedPane {
 			case messages.PaneDashboard:
-				a.focusPane(messages.PaneCenter)
+				if a.monitorMode {
+					a.focusPane(messages.PaneMonitor)
+				} else {
+					a.focusPane(messages.PaneCenter)
+				}
 			case messages.PaneCenter:
-				if a.layout.ShowSidebar() {
+				if a.monitorMode {
+					a.focusPane(messages.PaneMonitor)
+				} else if a.layout.ShowSidebar() {
 					a.focusPane(messages.PaneSidebar)
 				}
+			case messages.PaneMonitor:
+				// No-op; monitor is the rightmost pane
 			}
 		case key.Matches(msg, a.keymap.MoveDown):
 			// Move down: Sidebar -> SidebarTerminal
-			if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
+			if !a.monitorMode && a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
 				a.focusPane(messages.PaneSidebarTerminal)
 				return a, nil
 			}
 		case key.Matches(msg, a.keymap.MoveUp):
 			// Move up: SidebarTerminal -> Sidebar
-			if a.focusedPane == messages.PaneSidebarTerminal {
+			if !a.monitorMode && a.focusedPane == messages.PaneSidebarTerminal {
 				a.focusPane(messages.PaneSidebar)
+				return a, nil
+			}
+		case key.Matches(msg, a.keymap.Monitor):
+			if a.focusedPane == messages.PaneDashboard || a.focusedPane == messages.PaneMonitor {
+				a.toggleMonitorMode()
 				return a, nil
 			}
 		case key.Matches(msg, a.keymap.Home):
@@ -470,6 +498,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
 			a.sidebarTerminal = newSidebarTerminal
 			cmds = append(cmds, cmd)
+		case messages.PaneMonitor:
+			// No interactive updates yet; use global bindings to navigate.
 		}
 
 	case messages.ProjectsLoaded:
@@ -617,7 +647,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Start reading from the new PTY
 		cmds = append(cmds, a.center.StartPTYReaders())
 		// NOW switch focus to center - tab is ready
-		a.focusPane(messages.PaneCenter)
+		if a.monitorMode {
+			a.focusPane(messages.PaneMonitor)
+		} else {
+			a.focusPane(messages.PaneCenter)
+		}
 
 	case messages.TabClosed:
 		logging.Info("Tab closed: %d", msg.Index)
@@ -784,7 +818,10 @@ func (a *App) View() string {
 
 	// Combine using layout manager
 	var content string
-	if a.layout.ShowSidebar() {
+	if a.monitorMode && a.layout.ShowCenter() {
+		monitorView := a.renderMonitorPane()
+		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, monitorView)
+	} else if a.layout.ShowSidebar() {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView, sidebarView)
 	} else if a.layout.ShowCenter() {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView)
@@ -1013,6 +1050,195 @@ func (a *App) renderCenterPane() string {
 	}
 
 	return style.Render("Select a worktree from the dashboard")
+}
+
+func (a *App) renderMonitorPane() string {
+	paneWidth := a.width - a.layout.DashboardWidth()
+	paneHeight := a.layout.Height()
+	if paneWidth <= 0 || paneHeight <= 0 {
+		return ""
+	}
+
+	innerWidth := paneWidth - 4
+	innerHeight := paneHeight - 2
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	if innerHeight < 1 {
+		innerHeight = 1
+	}
+
+	style := a.styles.Pane
+	if a.focusedPane == messages.PaneMonitor {
+		style = a.styles.FocusedPane
+	}
+
+	snapshots := a.center.MonitorSnapshots()
+	if len(snapshots) == 0 {
+		empty := a.styles.Muted.Render("No agents running")
+		content := lipgloss.Place(innerWidth, innerHeight, lipgloss.Center, lipgloss.Center, empty)
+		return style.Width(paneWidth - 2).Render(content)
+	}
+
+	projectNames := make(map[string]string, len(a.projects))
+	for _, project := range a.projects {
+		projectNames[project.Path] = project.Name
+	}
+
+	visible := snapshots
+	minTileHeight := 2
+	maxTiles := innerHeight / minTileHeight
+	if maxTiles < 1 {
+		maxTiles = 1
+	}
+	if len(visible) > maxTiles {
+		visible = visible[:maxTiles]
+	}
+
+	tileCount := len(visible)
+	baseHeight := innerHeight / tileCount
+	extra := innerHeight % tileCount
+	if baseHeight < 1 {
+		baseHeight = 1
+		extra = 0
+	}
+
+	var blocks []string
+	for i, snap := range visible {
+		tileHeight := baseHeight
+		if i < extra {
+			tileHeight++
+		}
+		projectName := ""
+		if snap.Worktree != nil {
+			projectName = projectNames[snap.Worktree.Repo]
+		}
+		if projectName == "" {
+			projectName = monitorProjectName(snap.Worktree)
+		}
+		blocks = append(blocks, a.renderMonitorTile(snap, projectName, innerWidth, tileHeight))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Top, blocks...)
+	return style.Width(paneWidth - 2).Render(content)
+}
+
+func (a *App) renderMonitorTile(snapshot center.MonitorSnapshot, projectName string, width, height int) string {
+	if height <= 0 {
+		return ""
+	}
+
+	worktreeName := "unknown"
+	if snapshot.Worktree != nil && snapshot.Worktree.Name != "" {
+		worktreeName = snapshot.Worktree.Name
+	}
+
+	assistant := snapshot.Assistant
+	if assistant == "" {
+		assistant = snapshot.Name
+	}
+
+	statusStyle := a.styles.Muted
+	statusIcon := common.Icons.Idle
+	if snapshot.Running {
+		statusStyle = a.styles.StatusRunning
+		statusIcon = common.Icons.Running
+	}
+
+	header := statusStyle.Render(statusIcon) + " " + a.styles.Bold.Render(projectName) + "/" + a.styles.Body.Render(worktreeName)
+	if assistant != "" {
+		agentStyle := monitorAgentStyle(a.styles, assistant)
+		header += " [" + agentStyle.Render(assistant) + "]"
+	}
+	lines := []string{renderMonitorLine(header, width)}
+
+	contentHeight := height - 1
+	if contentHeight > 0 {
+		lines = append(lines, renderMonitorContent(snapshot.Rendered, a.styles, width, contentHeight)...)
+	}
+
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func renderMonitorContent(rendered string, styles common.Styles, width, height int) []string {
+	if height <= 0 {
+		return nil
+	}
+
+	if rendered == "" {
+		line := styles.Muted.Render("No active agent")
+		return padMonitorLines([]string{line}, width, height)
+	}
+
+	lines := strings.Split(rendered, "\n")
+	if len(lines) > height {
+		lines = lines[len(lines)-height:]
+	}
+
+	return padMonitorLines(lines, width, height)
+}
+
+func padMonitorLines(lines []string, width, height int) []string {
+	var normalized []string
+	for _, line := range lines {
+		normalized = append(normalized, renderMonitorLine(line, width))
+	}
+	for len(normalized) < height {
+		normalized = append(normalized, strings.Repeat(" ", width))
+	}
+	if len(normalized) > height {
+		normalized = normalized[:height]
+	}
+	return normalized
+}
+
+func renderMonitorLine(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	trimmed := ansi.Truncate(line, width, "")
+	lineWidth := lipgloss.Width(trimmed)
+	if lineWidth < width {
+		trimmed += strings.Repeat(" ", width-lineWidth)
+	}
+	return trimmed
+}
+
+func monitorProjectName(wt *data.Worktree) string {
+	if wt == nil {
+		return "unknown"
+	}
+	if wt.Repo != "" {
+		return filepath.Base(wt.Repo)
+	}
+	if wt.Root != "" {
+		return filepath.Base(wt.Root)
+	}
+	return "unknown"
+}
+
+func monitorAgentStyle(styles common.Styles, assistant string) lipgloss.Style {
+	switch assistant {
+	case "claude":
+		return styles.AgentClaude
+	case "codex":
+		return styles.AgentCodex
+	case "gemini":
+		return styles.AgentGemini
+	case "amp":
+		return styles.AgentAmp
+	case "opencode":
+		return styles.AgentOpencode
+	default:
+		return styles.AgentTerm
+	}
 }
 
 // renderWorktreeInfo renders information about the active worktree
@@ -1287,13 +1513,33 @@ func (a *App) focusPane(pane messages.PaneType) {
 		a.center.Blur()
 		a.sidebar.Blur()
 		a.sidebarTerminal.Focus()
+	case messages.PaneMonitor:
+		a.dashboard.Blur()
+		a.center.Blur()
+		a.sidebar.Blur()
+		a.sidebarTerminal.Blur()
 	}
+}
+
+func (a *App) toggleMonitorMode() {
+	a.monitorMode = !a.monitorMode
+	if a.monitorMode {
+		a.focusPane(messages.PaneMonitor)
+	} else {
+		a.focusPane(messages.PaneDashboard)
+	}
+	a.updateLayout()
 }
 
 // updateLayout updates component sizes based on window size
 func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
-	a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
+
+	centerWidth := a.layout.CenterWidth()
+	if a.monitorMode && a.layout.ShowCenter() {
+		centerWidth += a.layout.SidebarWidth()
+	}
+	a.center.SetSize(centerWidth, a.layout.Height())
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
 
 	sidebarLayout := a.sidebarLayoutInfo()

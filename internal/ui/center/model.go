@@ -2,6 +2,7 @@ package center
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,6 +69,15 @@ type Tab struct {
 	flushPendingSince time.Time
 	// Mouse selection state
 	Selection SelectionState
+}
+
+// MonitorSnapshot captures the active tab display for a worktree.
+type MonitorSnapshot struct {
+	Worktree  *data.Worktree
+	Assistant string
+	Name      string
+	Running   bool
+	Rendered  string
 }
 
 // PendingGTimeout fires when 'g' prefix times out
@@ -1042,4 +1052,55 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 		})
 	}
 	return result, m.getActiveTabIdx()
+}
+
+// MonitorSnapshots returns a snapshot of the active tab for each worktree.
+func (m *Model) MonitorSnapshots() []MonitorSnapshot {
+	var snapshots []MonitorSnapshot
+
+	for wtID, tabs := range m.tabsByWorktree {
+		if len(tabs) == 0 {
+			continue
+		}
+		activeIdx := m.activeTabByWorktree[wtID]
+		if activeIdx < 0 || activeIdx >= len(tabs) {
+			continue
+		}
+		tab := tabs[activeIdx]
+		rendered := ""
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			rendered = tab.Terminal.Render()
+		}
+		tab.mu.Unlock()
+		snapshots = append(snapshots, MonitorSnapshot{
+			Worktree:  tab.Worktree,
+			Assistant: tab.Assistant,
+			Name:      tab.Name,
+			Running:   tab.Running,
+			Rendered:  rendered,
+		})
+	}
+
+	sort.Slice(snapshots, func(i, j int) bool {
+		left := snapshots[i]
+		right := snapshots[j]
+		leftKey := left.Assistant
+		rightKey := right.Assistant
+		if left.Worktree != nil {
+			leftKey = left.Worktree.Repo + "::" + left.Worktree.Name + "::" + leftKey
+		}
+		if right.Worktree != nil {
+			rightKey = right.Worktree.Repo + "::" + right.Worktree.Name + "::" + rightKey
+		}
+		return leftKey < rightKey
+	})
+
+	return snapshots
+}
+
+// CloseAllTabs is deprecated - tabs now persist per-worktree
+// This is kept for compatibility but does nothing
+func (m *Model) CloseAllTabs() {
+	// No-op: tabs now persist per-worktree and are not closed when switching
 }
