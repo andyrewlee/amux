@@ -35,14 +35,14 @@ func TestAgentManagerCreateAndClose(t *testing.T) {
 		t.Fatalf("CreateAgent() returned nil agent/terminal")
 	}
 
-	if len(mgr.GetAgentsForWorktree(wt)) != 1 {
+	if len(mgr.agents[wt.ID()]) != 1 {
 		t.Fatalf("expected 1 agent for worktree")
 	}
 
 	if err := mgr.CloseAgent(agent); err != nil {
 		t.Fatalf("CloseAgent() error = %v", err)
 	}
-	if len(mgr.GetAgentsForWorktree(wt)) != 0 {
+	if len(mgr.agents[wt.ID()]) != 0 {
 		t.Fatalf("expected 0 agents after close")
 	}
 }
