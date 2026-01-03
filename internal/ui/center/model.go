@@ -634,6 +634,7 @@ func (m *Model) View() string {
 		tab := tabs[activeIdx]
 		tab.mu.Lock()
 		if tab.Terminal != nil {
+			tab.Terminal.ShowCursor = m.focused
 			b.WriteString(tab.Terminal.Render())
 
 			// Show scroll indicator if scrolled

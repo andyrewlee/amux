@@ -429,6 +429,7 @@ func (m *TerminalModel) View() string {
 		b.WriteString(placeholder)
 	} else {
 		ts.mu.Lock()
+		ts.VTerm.ShowCursor = m.focused
 		content := ts.VTerm.Render()
 		isScrolled := ts.VTerm.IsScrolled()
 		var scrollInfo string
