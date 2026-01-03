@@ -129,7 +129,10 @@ func (m *TerminalModel) flushTiming() (time.Duration, time.Duration) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
-	if ts.VTerm != nil && (ts.VTerm.AltScreen || ts.VTerm.SyncActive()) {
+	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs like vim).
+	// SyncActive (DEC 2026) already handles partial updates via screen snapshots,
+	// so we don't need slower flush timing - it just makes streaming text feel laggy.
+	if ts.VTerm != nil && ts.VTerm.AltScreen {
 		return ptyFlushQuietAlt, ptyFlushMaxAlt
 	}
 	return ptyFlushQuiet, ptyFlushMaxInterval

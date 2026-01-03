@@ -74,10 +74,10 @@ type Tab struct {
 type PendingGTimeout struct{}
 
 const (
-	ptyFlushQuiet       = 12 * time.Millisecond
-	ptyFlushMaxInterval = 50 * time.Millisecond
-	ptyFlushQuietAlt    = 30 * time.Millisecond
-	ptyFlushMaxAlt      = 120 * time.Millisecond
+	ptyFlushQuiet       = 4 * time.Millisecond
+	ptyFlushMaxInterval = 16 * time.Millisecond
+	ptyFlushQuietAlt    = 8 * time.Millisecond
+	ptyFlushMaxAlt      = 32 * time.Millisecond
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
 	ptyFlushInactiveMultiplier = 4
 	ptyFlushChunkSize          = 32 * 1024
@@ -167,7 +167,10 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	maxInterval := ptyFlushMaxInterval
 
 	tab.mu.Lock()
-	if tab.Terminal != nil && (tab.Terminal.AltScreen || tab.Terminal.SyncActive()) {
+	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs like vim).
+	// SyncActive (DEC 2026) already handles partial updates via screen snapshots,
+	// so we don't need slower flush timing - it just makes streaming text feel laggy.
+	if tab.Terminal != nil && tab.Terminal.AltScreen {
 		quiet = ptyFlushQuietAlt
 		maxInterval = ptyFlushMaxAlt
 	}
