@@ -1030,30 +1030,6 @@ func (m *Model) Close() {
 	m.agentManager.CloseAll()
 }
 
-// SendText sends text to the active agent's terminal
-func (m *Model) SendText(text string) {
-	if !m.hasActiveAgent() {
-		return
-	}
-
-	tabs := m.getTabs()
-	tab := tabs[m.getActiveTabIdx()]
-	if tab.Agent != nil && tab.Agent.Terminal != nil {
-		// Use bracketed paste mode for multi-line text
-		// This prevents newlines from being interpreted as command execution
-		if strings.Contains(text, "\n") {
-			// Start bracketed paste: \e[200~
-			// End bracketed paste: \e[201~
-			bracketedText := "\x1b[200~" + text + "\x1b[201~"
-			_ = tab.Agent.Terminal.SendString(bracketedText)
-		} else {
-			_ = tab.Agent.Terminal.SendString(text)
-		}
-		// Send enter to submit
-		_ = tab.Agent.Terminal.SendString("\r")
-	}
-}
-
 // GetTabsInfo returns information about current tabs for persistence
 func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 	var result []data.TabInfo
@@ -1065,10 +1041,4 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 		})
 	}
 	return result, m.getActiveTabIdx()
-}
-
-// CloseAllTabs is deprecated - tabs now persist per-worktree
-// This is kept for compatibility but does nothing
-func (m *Model) CloseAllTabs() {
-	// No-op: tabs now persist per-worktree and are not closed when switching
 }

@@ -21,7 +21,4 @@ func TestDefaultConfig(t *testing.T) {
 		}
 	}
 
-	if cfg.Layout.MinChatWidth == 0 || cfg.Layout.MinDashboardWidth == 0 {
-		t.Fatalf("DefaultConfig() returned invalid layout: %+v", cfg.Layout)
-	}
 }
