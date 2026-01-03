@@ -51,6 +51,12 @@ type VTerm struct {
 	selStartX, selStartY int
 	selEndX, selEndY     int
 
+	// Cursor visibility (controlled externally when pane is focused)
+	ShowCursor     bool
+	lastShowCursor bool
+	lastCursorX    int
+	lastCursorY    int
+
 	// Synchronized output (DEC mode 2026)
 	syncActive        bool
 	syncScreen        [][]Cell

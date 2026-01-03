@@ -82,6 +82,21 @@ func (v *VTerm) renderScreenFrom(screen [][]Cell) string {
 func (v *VTerm) renderScreenCached(screen [][]Cell) string {
 	v.ensureRenderCache(len(screen))
 
+	// Invalidate cursor lines if cursor state changed
+	if v.ShowCursor != v.lastShowCursor || v.CursorX != v.lastCursorX || v.CursorY != v.lastCursorY {
+		// Mark old cursor line dirty
+		if v.lastCursorY >= 0 && v.lastCursorY < len(v.renderDirty) {
+			v.renderDirty[v.lastCursorY] = true
+		}
+		// Mark new cursor line dirty
+		if v.CursorY >= 0 && v.CursorY < len(v.renderDirty) {
+			v.renderDirty[v.CursorY] = true
+		}
+		v.lastShowCursor = v.ShowCursor
+		v.lastCursorX = v.CursorX
+		v.lastCursorY = v.CursorY
+	}
+
 	lines := make([]string, len(screen))
 	for y, row := range screen {
 		if v.renderDirtyAll || v.renderDirty[y] || v.renderCache[y] == "" {
@@ -107,17 +122,23 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 	var lastStyle Style
 	var lastReverse bool
 
+	// Determine if cursor is on this row and should be shown
+	cursorOnRow := v.ShowCursor && y == v.CursorY && v.ViewOffset == 0
+
 	for x, cell := range row {
 		// Check if this cell is in selection
 		inSel := v.isInSelection(x, y)
 
-		// Apply style changes (toggle reverse for selection)
+		// Check if cursor is at this position
+		isCursor := cursorOnRow && x == v.CursorX
+
+		// Apply style changes (toggle reverse for selection or cursor)
 		style := cell.Style
-		if inSel {
+		if inSel || isCursor {
 			style.Reverse = !style.Reverse
 		}
 
-		if style != lastStyle || inSel != lastReverse {
+		if style != lastStyle || inSel != lastReverse || isCursor {
 			buf.WriteString(styleToANSI(style))
 			lastStyle = style
 			lastReverse = inSel
