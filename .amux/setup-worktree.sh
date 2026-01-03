@@ -9,6 +9,11 @@ if [ -z "$wt" ] || [ -z "$repo" ]; then
   exit 1
 fi
 
+# Only configure beads if the main repo already uses it
+if [ ! -d "$repo/.beads" ]; then
+  exit 0
+fi
+
 # Create redirect to main repo's .beads
 mkdir -p "$wt/.beads"
 redirect="$wt/.beads/redirect"
@@ -22,4 +27,7 @@ if gitdir=$(git -C "$wt" rev-parse --git-dir 2>/dev/null); then
   mkdir -p "$(dirname "$exclude")"
   touch "$exclude"
   grep -qxF ".beads/redirect" "$exclude" || printf "\n.beads/redirect\n" >> "$exclude"
+  if ! git -C "$wt" ls-files --error-unmatch ".beads/issues.jsonl" >/dev/null 2>&1; then
+    grep -qxF ".beads/issues.jsonl" "$exclude" || printf "\n.beads/issues.jsonl\n" >> "$exclude"
+  fi
 fi
