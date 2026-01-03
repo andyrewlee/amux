@@ -72,11 +72,6 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType) (*Age
 	return agent, nil
 }
 
-// GetAgentsForWorktree returns all agents for a worktree
-func (m *AgentManager) GetAgentsForWorktree(wt *data.Worktree) []*Agent {
-	return m.agents[wt.ID()]
-}
-
 // CloseAgent closes an agent
 func (m *AgentManager) CloseAgent(agent *Agent) error {
 	if agent.Terminal != nil {
