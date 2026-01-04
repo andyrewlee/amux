@@ -470,7 +470,7 @@ func (p *Parser) executeMode(set bool) {
 		case 12: // Blinking cursor
 			// Ignore
 		case 25: // DECTCEM - cursor visible
-			// Ignore
+			p.vt.CursorHidden = !set
 		case 1049: // Alternate screen buffer
 			if set {
 				p.vt.enterAltScreen()
