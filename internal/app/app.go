@@ -50,8 +50,8 @@ type App struct {
 	focusedPane      messages.PaneType
 	showWelcome      bool
 	monitorMode      bool
-	monitorIndex     int
 	monitorLayoutKey string
+	monitorCanvas    *compositor.Canvas
 
 	// UI Components
 	layout          *layout.Manager
@@ -1125,7 +1125,7 @@ func (a *App) renderMonitorGrid() string {
 
 	tabs := a.center.MonitorTabs()
 	if len(tabs) == 0 {
-		canvas := compositor.NewCanvas(a.width, a.height)
+		canvas := a.monitorCanvasFor(a.width, a.height)
 		canvas.Fill(vterm.Style{Fg: compositor.HexColor(string(common.ColorForeground)), Bg: compositor.HexColor(string(common.ColorBackground))})
 		empty := "No agents running"
 		x := (a.width - ansi.StringWidth(empty)) / 2
@@ -1176,7 +1176,7 @@ func (a *App) renderMonitorGrid() string {
 		snapByID[snap.ID] = snap
 	}
 
-	canvas := compositor.NewCanvas(a.width, a.height)
+	canvas := a.monitorCanvasFor(a.width, a.height)
 	canvas.Fill(vterm.Style{
 		Fg: compositor.HexColor(string(common.ColorForeground)),
 		Bg: compositor.HexColor(string(common.ColorBackground)),
@@ -1190,7 +1190,7 @@ func (a *App) renderMonitorGrid() string {
 		projectNames[project.Path] = project.Name
 	}
 
-	selectedIndex := clampMonitorIndex(a.monitorIndex, len(tabs))
+	selectedIndex := a.center.MonitorSelectedIndex(len(tabs))
 
 	for idx, tab := range tabs {
 		rect := monitorTileRect(grid, idx, gridX, gridY)
@@ -1401,22 +1401,24 @@ func monitorTileRect(grid monitorGrid, index int, offsetX, offsetY int) monitorR
 	}
 }
 
-func (a *App) monitorPaneInnerSize() (int, int) {
-	_, _, w, h := a.monitorGridArea()
-	if w < 0 {
-		w = 0
-	}
-	if h < 0 {
-		h = 0
-	}
-	return w, h
-}
-
 func (a *App) monitorGridArea() (int, int, int, int) {
 	if a.height <= 2 {
 		return 0, 0, a.width, a.height
 	}
 	return 0, 1, a.width, a.height - 1
+}
+
+func (a *App) monitorCanvasFor(width, height int) *compositor.Canvas {
+	if width <= 0 || height <= 0 {
+		width = 1
+		height = 1
+	}
+	if a.monitorCanvas == nil {
+		a.monitorCanvas = compositor.NewCanvas(width, height)
+	} else if a.monitorCanvas.Width != width || a.monitorCanvas.Height != height {
+		a.monitorCanvas.Resize(width, height)
+	}
+	return a.monitorCanvas
 }
 
 func (a *App) monitorLayoutKeyFor(tabs []center.MonitorTab, gridW, gridH int, sizes []center.TabSize) string {
@@ -1432,32 +1434,30 @@ func (a *App) monitorLayoutKeyFor(tabs []center.MonitorTab, gridW, gridH int, si
 	return b.String()
 }
 
-func clampMonitorIndex(index, count int) int {
-	if count <= 0 {
-		return 0
-	}
-	if index < 0 {
-		return 0
-	}
-	if index >= count {
-		return count - 1
-	}
-	return index
-}
-
 func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
+	tabs := a.center.MonitorTabs()
+	if len(tabs) == 0 {
+		return false
+	}
+
+	_, _, gridW, gridH := a.monitorGridArea()
+	grid := monitorGridLayout(len(tabs), gridW, gridH)
+	if grid.cols == 0 || grid.rows == 0 {
+		return false
+	}
+
 	switch {
 	case key.Matches(msg, a.keymap.MoveLeft) || key.Matches(msg, a.keymap.Left):
-		a.moveMonitorSelection(-1, 0)
+		a.center.MoveMonitorSelection(-1, 0, grid.cols, grid.rows, len(tabs))
 		return true
 	case key.Matches(msg, a.keymap.MoveRight) || key.Matches(msg, a.keymap.Right):
-		a.moveMonitorSelection(1, 0)
+		a.center.MoveMonitorSelection(1, 0, grid.cols, grid.rows, len(tabs))
 		return true
 	case key.Matches(msg, a.keymap.MoveUp) || key.Matches(msg, a.keymap.Up):
-		a.moveMonitorSelection(0, -1)
+		a.center.MoveMonitorSelection(0, -1, grid.cols, grid.rows, len(tabs))
 		return true
 	case key.Matches(msg, a.keymap.MoveDown) || key.Matches(msg, a.keymap.Down):
-		a.moveMonitorSelection(0, 1)
+		a.center.MoveMonitorSelection(0, 1, grid.cols, grid.rows, len(tabs))
 		return true
 	}
 	return false
@@ -1468,7 +1468,7 @@ func (a *App) handleMonitorInput(msg tea.KeyMsg) tea.Cmd {
 	if len(tabs) == 0 {
 		return nil
 	}
-	idx := clampMonitorIndex(a.monitorIndex, len(tabs))
+	idx := a.center.MonitorSelectedIndex(len(tabs))
 	if idx < 0 || idx >= len(tabs) {
 		return nil
 	}
@@ -1480,7 +1480,7 @@ func (a *App) activateMonitorSelection() tea.Cmd {
 	if len(snapshots) == 0 {
 		return nil
 	}
-	idx := clampMonitorIndex(a.monitorIndex, len(snapshots))
+	idx := a.center.MonitorSelectedIndex(len(snapshots))
 	snap := snapshots[idx]
 	if snap.Worktree == nil {
 		return nil
@@ -1516,49 +1516,6 @@ func (a *App) projectForWorktree(wt *data.Worktree) *data.Project {
 		}
 	}
 	return nil
-}
-
-func (a *App) moveMonitorSelection(dx, dy int) {
-	snapshots := a.center.MonitorSnapshots()
-	count := len(snapshots)
-	if count == 0 {
-		return
-	}
-
-	innerWidth, innerHeight := a.monitorPaneInnerSize()
-	grid := monitorGridLayout(count, innerWidth, innerHeight)
-	if grid.cols == 0 || grid.rows == 0 {
-		return
-	}
-
-	idx := clampMonitorIndex(a.monitorIndex, count)
-	row := idx / grid.cols
-	col := idx % grid.cols
-
-	row += dy
-	col += dx
-
-	if row < 0 {
-		row = 0
-	}
-	if row >= grid.rows {
-		row = grid.rows - 1
-	}
-	if col < 0 {
-		col = 0
-	}
-	if col >= grid.cols {
-		col = grid.cols - 1
-	}
-
-	newIndex := row*grid.cols + col
-	if newIndex >= count {
-		newIndex = count - 1
-	}
-	if newIndex < 0 {
-		newIndex = 0
-	}
-	a.monitorIndex = newIndex
 }
 
 func (a *App) selectMonitorTile(paneX, paneY int) {
@@ -1616,7 +1573,7 @@ func (a *App) selectMonitorTile(paneX, paneY int) {
 
 	index := row*grid.cols + col
 	if index >= 0 && index < count {
-		a.monitorIndex = index
+		a.center.SetMonitorSelectedIndex(index, count)
 	}
 }
 
@@ -1933,7 +1890,7 @@ func (a *App) focusPane(pane messages.PaneType) {
 func (a *App) toggleMonitorMode() {
 	a.monitorMode = !a.monitorMode
 	if a.monitorMode {
-		a.monitorIndex = 0
+		a.center.ResetMonitorSelection()
 		a.monitorLayoutKey = ""
 		a.focusPane(messages.PaneMonitor)
 	} else {

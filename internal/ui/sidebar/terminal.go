@@ -94,6 +94,9 @@ type TerminalModel struct {
 	// Styles
 	styles common.Styles
 
+	// Rendering
+	terminalCanvas *compositor.Canvas
+
 	// Pre-allocated key bindings
 	keys terminalKeyMap
 }
@@ -433,7 +436,7 @@ func (m *TerminalModel) View() string {
 		ts.VTerm.ShowCursor = m.focused
 		termWidth := ts.VTerm.Width
 		termHeight := ts.VTerm.Height
-		content := renderTerminalCanvas(ts.VTerm, termWidth, termHeight, m.focused)
+		content := m.renderTerminalCanvas(ts.VTerm, termWidth, termHeight, m.focused)
 		isScrolled := ts.VTerm.IsScrolled()
 		var scrollInfo string
 		if isScrolled {
@@ -475,8 +478,15 @@ func (m *TerminalModel) View() string {
 	return b.String()
 }
 
-func renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
-	return compositor.RenderTerminal(
+func (m *TerminalModel) renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
+	if term == nil || width <= 0 || height <= 0 {
+		return ""
+	}
+	if m.terminalCanvas == nil || m.terminalCanvas.Width != width || m.terminalCanvas.Height != height {
+		m.terminalCanvas = compositor.NewCanvas(width, height)
+	}
+	return compositor.RenderTerminalWithCanvas(
+		m.terminalCanvas,
 		term,
 		width,
 		height,

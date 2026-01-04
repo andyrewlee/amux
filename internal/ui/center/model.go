@@ -208,6 +208,8 @@ type Model struct {
 	activeTabByWorktree map[string]int    // active tab index per worktree
 	focused             bool
 	agentManager        *appPty.AgentManager
+	monitor             MonitorModel
+	terminalCanvas      *compositor.Canvas
 
 	// Key sequence state for vim-style gt/gT
 	pendingG     bool
@@ -754,7 +756,7 @@ func (m *Model) View() string {
 			tab.Terminal.ShowCursor = m.focused
 			termWidth := tab.Terminal.Width
 			termHeight := tab.Terminal.Height
-			b.WriteString(renderTerminalCanvas(tab.Terminal, termWidth, termHeight, m.focused))
+			b.WriteString(m.renderTerminalCanvas(tab.Terminal, termWidth, termHeight, m.focused))
 
 			// Show scroll indicator if scrolled
 			if tab.Terminal.IsScrolled() {
@@ -1290,8 +1292,35 @@ func (m *Model) getTabByIDGlobal(tabID TabID) *Tab {
 	return nil
 }
 
-func renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
-	return compositor.RenderTerminal(
+// MonitorSelectedIndex returns the clamped monitor selection.
+func (m *Model) MonitorSelectedIndex(count int) int {
+	return m.monitor.SelectedIndex(count)
+}
+
+// SetMonitorSelectedIndex updates the monitor selection.
+func (m *Model) SetMonitorSelectedIndex(index, count int) {
+	m.monitor.SetSelectedIndex(index, count)
+}
+
+// MoveMonitorSelection adjusts the monitor selection based on grid movement.
+func (m *Model) MoveMonitorSelection(dx, dy, cols, rows, count int) {
+	m.monitor.MoveSelection(dx, dy, cols, rows, count)
+}
+
+// ResetMonitorSelection clears monitor selection state.
+func (m *Model) ResetMonitorSelection() {
+	m.monitor.Reset()
+}
+
+func (m *Model) renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
+	if term == nil || width <= 0 || height <= 0 {
+		return ""
+	}
+	if m.terminalCanvas == nil || m.terminalCanvas.Width != width || m.terminalCanvas.Height != height {
+		m.terminalCanvas = compositor.NewCanvas(width, height)
+	}
+	return compositor.RenderTerminalWithCanvas(
+		m.terminalCanvas,
 		term,
 		width,
 		height,

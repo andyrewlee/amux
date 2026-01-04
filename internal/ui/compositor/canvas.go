@@ -14,6 +14,11 @@ type Canvas struct {
 	Width  int
 	Height int
 	Cells  [][]vterm.Cell
+
+	// renderBuffers keep two frames alive to avoid reallocations while preserving
+	// the previous render output for diffing.
+	renderBuffers    [2]strings.Builder
+	renderBufferNext int
 }
 
 // NewCanvas creates a new canvas filled with blank cells.
@@ -35,6 +40,26 @@ func NewCanvas(width, height int) *Canvas {
 		Height: height,
 		Cells:  rows,
 	}
+}
+
+// Resize resets the canvas dimensions when the size changes.
+func (c *Canvas) Resize(width, height int) {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	if width == c.Width && height == c.Height {
+		return
+	}
+	rows := make([][]vterm.Cell, height)
+	for y := range rows {
+		rows[y] = vterm.MakeBlankLine(width)
+	}
+	c.Width = width
+	c.Height = height
+	c.Cells = rows
 }
 
 // Fill sets the entire canvas to the given style.
@@ -150,7 +175,9 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 
 // Render converts the canvas to an ANSI string.
 func (c *Canvas) Render() string {
-	var b strings.Builder
+	b := &c.renderBuffers[c.renderBufferNext]
+	c.renderBufferNext = (c.renderBufferNext + 1) % len(c.renderBuffers)
+	b.Reset()
 	b.Grow(c.Width * c.Height * 2)
 
 	for y := 0; y < c.Height; y++ {
@@ -184,11 +211,20 @@ func (c *Canvas) Render() string {
 
 // RenderTerminal renders a vterm into a canvas and returns the ANSI string.
 func RenderTerminal(term *vterm.VTerm, width, height int, showCursor bool, fg, bg vterm.Color) string {
+	return RenderTerminalWithCanvas(nil, term, width, height, showCursor, fg, bg)
+}
+
+// RenderTerminalWithCanvas renders a vterm into a reusable canvas.
+func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height int, showCursor bool, fg, bg vterm.Color) string {
 	if term == nil || width <= 0 || height <= 0 {
 		return ""
 	}
 
-	canvas := NewCanvas(width, height)
+	if canvas == nil {
+		canvas = NewCanvas(width, height)
+	} else {
+		canvas.Resize(width, height)
+	}
 	canvas.Fill(vterm.Style{Fg: fg, Bg: bg})
 	screen := term.VisibleScreenWithSelection()
 	canvas.DrawScreen(0, 0, width, height, screen, term.CursorX, term.CursorY, showCursor, term.ViewOffset)
