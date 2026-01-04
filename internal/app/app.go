@@ -1786,7 +1786,24 @@ func (a *App) addProject(path string) tea.Cmd {
 
 // createWorktree creates a new git worktree
 func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
-	return func() tea.Msg {
+	return func() (msg tea.Msg) {
+		var wt *data.Worktree
+		defer func() {
+			if r := recover(); r != nil {
+				logging.Error("panic in createWorktree: %v", r)
+				msg = messages.WorktreeCreateFailed{
+					Worktree: wt,
+					Err:      fmt.Errorf("create worktree panicked: %v", r),
+				}
+			}
+		}()
+
+		if project == nil || name == "" {
+			return messages.WorktreeCreateFailed{
+				Err: fmt.Errorf("missing project or worktree name"),
+			}
+		}
+
 		worktreePath := filepath.Join(
 			a.config.Paths.WorktreesRoot,
 			project.Name,
@@ -1794,7 +1811,7 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 		)
 
 		branch := name
-		wt := data.NewWorktree(name, branch, base, project.Path, worktreePath)
+		wt = data.NewWorktree(name, branch, base, project.Path, worktreePath)
 
 		if err := git.CreateWorktree(project.Path, worktreePath, branch, base); err != nil {
 			return messages.WorktreeCreateFailed{
