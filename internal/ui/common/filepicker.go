@@ -266,18 +266,6 @@ func (fp *FilePicker) handlePathInput(input string) {
 
 // handleEnter handles the enter key
 func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
-	// If cursor is on the "Use this directory" row, select current directory.
-	if fp.cursor == 0 {
-		fp.visible = false
-		return fp, func() tea.Msg {
-			return DialogResult{
-				ID:        fp.id,
-				Confirmed: true,
-				Value:     fp.currentPath,
-			}
-		}
-	}
-
 	// If input looks like a path, try to open it
 	input := strings.TrimSpace(fp.input.Value())
 	if input != "" {
@@ -289,11 +277,35 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 		} else if !filepath.IsAbs(path) {
 			path = filepath.Join(fp.currentPath, path)
 		}
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			fp.currentPath = path
-			fp.input.SetValue("")
-			fp.loadDirectory()
-			return fp, nil
+		if info, err := os.Stat(path); err == nil {
+			if info.IsDir() {
+				fp.currentPath = path
+				fp.input.SetValue("")
+				fp.loadDirectory()
+				return fp, nil
+			}
+			if !fp.directoriesOnly {
+				fp.visible = false
+				return fp, func() tea.Msg {
+					return DialogResult{
+						ID:        fp.id,
+						Confirmed: true,
+						Value:     path,
+					}
+				}
+			}
+		}
+	}
+
+	// If cursor is on the "Use this directory" row, select current directory.
+	if fp.cursor == 0 {
+		fp.visible = false
+		return fp, func() tea.Msg {
+			return DialogResult{
+				ID:        fp.id,
+				Confirmed: true,
+				Value:     fp.currentPath,
+			}
 		}
 	}
 

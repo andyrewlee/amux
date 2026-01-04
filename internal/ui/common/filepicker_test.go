@@ -46,6 +46,25 @@ func TestFilePickerEnterOpensDirectory(t *testing.T) {
 	}
 }
 
+func TestFilePickerEnterOpensTypedDirectoryOnSelectRow(t *testing.T) {
+	tempDir := t.TempDir()
+	subdir := filepath.Join(tempDir, "child")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	fp := NewFilePicker("test", tempDir, true)
+	fp.input.SetValue("child")
+	fp.cursor = 0
+	_, cmd := fp.handleEnter()
+	if cmd != nil {
+		t.Fatalf("expected no command when opening directory")
+	}
+	if fp.currentPath != subdir {
+		t.Fatalf("expected current path %q, got %q", subdir, fp.currentPath)
+	}
+}
+
 func TestFilePickerEnterSelectsFileWhenAllowed(t *testing.T) {
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "note.txt")
