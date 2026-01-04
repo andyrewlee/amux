@@ -43,6 +43,36 @@ func formatScrollPos(offset, total int) string {
 	return fmt.Sprintf("%d/%d lines up", offset, total)
 }
 
+func nextAssistantName(assistant string, tabs []*Tab) string {
+	assistant = strings.TrimSpace(assistant)
+	if assistant == "" {
+		return ""
+	}
+
+	used := make(map[string]struct{})
+	for _, tab := range tabs {
+		if tab == nil || tab.Assistant != assistant {
+			continue
+		}
+		name := strings.TrimSpace(tab.Name)
+		if name == "" {
+			name = assistant
+		}
+		used[name] = struct{}{}
+	}
+
+	if _, ok := used[assistant]; !ok {
+		return assistant
+	}
+
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("%s %d", assistant, i)
+		if _, ok := used[candidate]; !ok {
+			return candidate
+		}
+	}
+}
+
 // SelectionState tracks mouse selection state for copy/paste
 type SelectionState struct {
 	Active bool // Selection in progress?
@@ -72,7 +102,7 @@ type Tab struct {
 	Selection SelectionState
 }
 
-// MonitorSnapshot captures the active tab display for a worktree.
+// MonitorSnapshot captures a tab display for the monitor grid.
 type MonitorSnapshot struct {
 	Worktree  *data.Worktree
 	Assistant string
@@ -81,7 +111,7 @@ type MonitorSnapshot struct {
 	Rendered  string
 }
 
-// MonitorTab describes the active tab for a worktree.
+// MonitorTab describes a tab for the monitor grid.
 type MonitorTab struct {
 	ID        TabID
 	Worktree  *data.Worktree
@@ -816,9 +846,9 @@ func (m *Model) renderTabBar() string {
 
 	var renderedTabs []string
 	for i, tab := range currentTabs {
-		name := tab.Assistant
+		name := tab.Name
 		if name == "" {
-			name = tab.Name
+			name = tab.Assistant
 		}
 
 		// Add status indicator
@@ -911,9 +941,11 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		}
 
 		// Create tab with unique ID
+		wtID := string(wt.ID())
+		displayName := nextAssistantName(assistant, m.tabsByWorktree[wtID])
 		tab := &Tab{
 			ID:        generateTabID(),
-			Name:      assistant,
+			Name:      displayName,
 			Assistant: assistant,
 			Worktree:  wt,
 			Agent:     agent,
@@ -928,11 +960,10 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		}
 
 		// Add tab to the worktree's tab list
-		wtID := string(wt.ID())
 		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
 		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
 
-		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: assistant}
+		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
 	}
 }
 
@@ -1165,7 +1196,7 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 	return result, m.getActiveTabIdx()
 }
 
-// MonitorSnapshots returns a snapshot of the active tab for each worktree.
+// MonitorSnapshots returns a snapshot of each tab for the monitor grid.
 func (m *Model) MonitorSnapshots() []MonitorSnapshot {
 	tabs := m.monitorTabs()
 	snapshots := make([]MonitorSnapshot, 0, len(tabs))
@@ -1187,7 +1218,7 @@ func (m *Model) MonitorSnapshots() []MonitorSnapshot {
 	return snapshots
 }
 
-// MonitorTabs returns the active tab for each worktree in a stable order.
+// MonitorTabs returns all tabs in a stable order for the monitor grid.
 func (m *Model) MonitorTabs() []MonitorTab {
 	tabs := m.monitorTabs()
 	out := make([]MonitorTab, 0, len(tabs))
@@ -1254,31 +1285,38 @@ func (m *Model) ResizeTabs(sizes []TabSize) {
 }
 
 func (m *Model) monitorTabs() []*Tab {
-	var tabs []*Tab
+	type monitorGroup struct {
+		key  string
+		tabs []*Tab
+	}
+
+	groups := make([]monitorGroup, 0, len(m.tabsByWorktree))
 	for wtID, worktreeTabs := range m.tabsByWorktree {
 		if len(worktreeTabs) == 0 {
 			continue
 		}
-		activeIdx := m.activeTabByWorktree[wtID]
-		if activeIdx < 0 || activeIdx >= len(worktreeTabs) {
-			continue
+		key := wtID
+		for _, tab := range worktreeTabs {
+			if tab != nil && tab.Worktree != nil {
+				key = tab.Worktree.Repo + "::" + tab.Worktree.Name
+				break
+			}
 		}
-		tabs = append(tabs, worktreeTabs[activeIdx])
+		groups = append(groups, monitorGroup{key: key, tabs: worktreeTabs})
 	}
 
-	sort.Slice(tabs, func(i, j int) bool {
-		left := tabs[i]
-		right := tabs[j]
-		leftKey := left.Assistant
-		rightKey := right.Assistant
-		if left.Worktree != nil {
-			leftKey = left.Worktree.Repo + "::" + left.Worktree.Name + "::" + leftKey
-		}
-		if right.Worktree != nil {
-			rightKey = right.Worktree.Repo + "::" + right.Worktree.Name + "::" + rightKey
-		}
-		return leftKey < rightKey
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].key < groups[j].key
 	})
+
+	var tabs []*Tab
+	for _, group := range groups {
+		for _, tab := range group.tabs {
+			if tab != nil {
+				tabs = append(tabs, tab)
+			}
+		}
+	}
 
 	return tabs
 }

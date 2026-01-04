@@ -1230,9 +1230,9 @@ func (a *App) renderMonitorGrid() string {
 			statusIcon = common.Icons.Running
 		}
 
-		assistant := tab.Assistant
+		assistant := tab.Name
 		if assistant == "" {
-			assistant = tab.Name
+			assistant = tab.Assistant
 		}
 
 		cursor := common.Icons.CursorEmpty
