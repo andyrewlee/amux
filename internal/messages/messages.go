@@ -31,6 +31,12 @@ type WorktreeCreated struct {
 	Worktree *data.Worktree
 }
 
+// WorktreeCreateFailed is sent when a worktree creation fails
+type WorktreeCreateFailed struct {
+	Worktree *data.Worktree
+	Err      error
+}
+
 // WorktreeDeleted is sent when a worktree is deleted
 type WorktreeDeleted struct {
 	Project  *data.Project

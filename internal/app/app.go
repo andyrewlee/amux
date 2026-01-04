@@ -517,7 +517,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.WorktreeCreatedWithWarning:
 		// Worktree was created but setup had issues - still refresh and show warning
 		a.err = fmt.Errorf("worktree created with warning: %s", msg.Warning)
+		if msg.Worktree != nil {
+			if cmd := a.dashboard.SetWorktreeCreating(msg.Worktree, false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 		cmds = append(cmds, a.loadProjects())
+
+	case messages.WorktreeCreated:
+		if msg.Worktree != nil {
+			if cmd := a.dashboard.SetWorktreeCreating(msg.Worktree, false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		cmds = append(cmds, a.loadProjects())
+
+	case messages.WorktreeCreateFailed:
+		if msg.Worktree != nil {
+			if cmd := a.dashboard.SetWorktreeCreating(msg.Worktree, false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		a.err = msg.Err
+		logging.Error("Error in creating worktree: %v", msg.Err)
 
 	case messages.GitStatusResult:
 		newDashboard, cmd := a.dashboard.Update(msg)
@@ -559,6 +581,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.CreateWorktree:
+		if msg.Project != nil && msg.Name != "" {
+			worktreePath := filepath.Join(
+				a.config.Paths.WorktreesRoot,
+				msg.Project.Name,
+				msg.Name,
+			)
+			pending := data.NewWorktree(msg.Name, msg.Name, msg.Base, msg.Project.Path, worktreePath)
+			if cmd := a.dashboard.SetWorktreeCreating(pending, true); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 		cmds = append(cmds, a.createWorktree(msg.Project, msg.Name, msg.Base))
 
 	case messages.DeleteWorktree:
@@ -1143,9 +1176,13 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 		)
 
 		branch := name
+		wt := data.NewWorktree(name, branch, base, project.Path, worktreePath)
 
 		if err := git.CreateWorktree(project.Path, worktreePath, branch, base); err != nil {
-			return messages.Error{Err: err, Context: "creating worktree"}
+			return messages.WorktreeCreateFailed{
+				Worktree: wt,
+				Err:      err,
+			}
 		}
 
 		// Wait for .git file to exist (race condition from git worktree add)
@@ -1157,7 +1194,6 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		wt := data.NewWorktree(name, branch, base, project.Path, worktreePath)
 		meta := &data.Metadata{
 			Name:       name,
 			Branch:     branch,
@@ -1170,7 +1206,12 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 		}
 
 		if err := a.metadata.Save(wt, meta); err != nil {
-			return messages.Error{Err: err, Context: "saving metadata"}
+			_ = git.RemoveWorktree(project.Path, worktreePath)
+			_ = git.DeleteBranch(project.Path, branch)
+			return messages.WorktreeCreateFailed{
+				Worktree: wt,
+				Err:      err,
+			}
 		}
 
 		// Run setup scripts from .amux/worktrees.json
@@ -1182,7 +1223,7 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 			}
 		}
 
-		return messages.RefreshDashboard{}
+		return messages.WorktreeCreated{Worktree: wt}
 	}
 }
 
