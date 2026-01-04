@@ -57,6 +57,10 @@ type VTerm struct {
 	lastCursorX    int
 	lastCursorY    int
 
+	// CursorHidden tracks if terminal app hid cursor via DECTCEM (mode 25)
+	CursorHidden     bool
+	lastCursorHidden bool
+
 	// Synchronized output (DEC mode 2026)
 	syncActive        bool
 	syncScreen        [][]Cell

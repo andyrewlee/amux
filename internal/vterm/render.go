@@ -152,7 +152,7 @@ func (v *VTerm) renderScreenCached(screen [][]Cell) string {
 	v.ensureRenderCache(len(screen))
 
 	// Invalidate cursor lines if cursor state changed
-	if v.ShowCursor != v.lastShowCursor || v.CursorX != v.lastCursorX || v.CursorY != v.lastCursorY {
+	if v.ShowCursor != v.lastShowCursor || v.CursorHidden != v.lastCursorHidden || v.CursorX != v.lastCursorX || v.CursorY != v.lastCursorY {
 		// Mark old cursor line dirty
 		if v.lastCursorY >= 0 && v.lastCursorY < len(v.renderDirty) {
 			v.renderDirty[v.lastCursorY] = true
@@ -162,6 +162,7 @@ func (v *VTerm) renderScreenCached(screen [][]Cell) string {
 			v.renderDirty[v.CursorY] = true
 		}
 		v.lastShowCursor = v.ShowCursor
+		v.lastCursorHidden = v.CursorHidden
 		v.lastCursorX = v.CursorX
 		v.lastCursorY = v.CursorY
 	}
@@ -192,7 +193,8 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 	var lastReverse bool
 
 	// Determine if cursor is on this row and should be shown
-	cursorOnRow := v.ShowCursor && y == v.CursorY && v.ViewOffset == 0
+	// Don't show cursor if terminal app hid it via DECTCEM
+	cursorOnRow := v.ShowCursor && !v.CursorHidden && y == v.CursorY && v.ViewOffset == 0
 
 	for x, cell := range row {
 		// Check if this cell is in selection
