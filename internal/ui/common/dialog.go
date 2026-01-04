@@ -103,7 +103,7 @@ type AgentOption struct {
 // DefaultAgentOptions returns the default agent options
 func DefaultAgentOptions() []AgentOption {
 	return []AgentOption{
-		{ID: "claude", Name: "claude", Desc: "Claude Code AI assistant"},
+		{ID: "claude", Name: "claude", Desc: "Claude Code"},
 		{ID: "codex", Name: "codex", Desc: "OpenAI Codex"},
 		{ID: "gemini", Name: "gemini", Desc: "Google Gemini"},
 		{ID: "amp", Name: "amp", Desc: "Sourcegraph Amp"},
