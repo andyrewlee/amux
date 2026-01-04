@@ -1118,76 +1118,6 @@ func (a *App) renderCenterPane() string {
 	return style.Render("Select a worktree from the dashboard")
 }
 
-func (a *App) renderMonitorPane() string {
-	paneWidth := a.width - a.layout.DashboardWidth()
-	paneHeight := a.layout.Height()
-	if paneWidth <= 0 || paneHeight <= 0 {
-		return ""
-	}
-
-	innerWidth := paneWidth - 4
-	innerHeight := paneHeight - 2
-	if innerWidth < 1 {
-		innerWidth = 1
-	}
-	if innerHeight < 1 {
-		innerHeight = 1
-	}
-
-	style := a.styles.Pane
-	if a.focusedPane == messages.PaneMonitor {
-		style = a.styles.FocusedPane
-	}
-
-	snapshots := a.center.MonitorSnapshots()
-	if len(snapshots) == 0 {
-		empty := a.styles.Muted.Render("No agents running")
-		content := lipgloss.Place(innerWidth, innerHeight, lipgloss.Center, lipgloss.Center, empty)
-		return style.Width(paneWidth - 2).Render(content)
-	}
-
-	projectNames := make(map[string]string, len(a.projects))
-	for _, project := range a.projects {
-		projectNames[project.Path] = project.Name
-	}
-
-	grid := monitorGridLayout(len(snapshots), innerWidth, innerHeight)
-	if grid.cols == 0 || grid.rows == 0 {
-		return style.Width(paneWidth - 2).Render("")
-	}
-
-	selectedIndex := clampMonitorIndex(a.monitorIndex, len(snapshots))
-
-	var rows []string
-	idx := 0
-	for r := 0; r < grid.rows; r++ {
-		rowHeight := grid.rowHeights[r]
-		var tiles []string
-		for c := 0; c < grid.cols; c++ {
-			tileWidth := grid.colWidths[c]
-			if idx < len(snapshots) {
-				snap := snapshots[idx]
-				projectName := ""
-				if snap.Worktree != nil {
-					projectName = projectNames[snap.Worktree.Repo]
-				}
-				if projectName == "" {
-					projectName = monitorProjectName(snap.Worktree)
-				}
-				focused := a.focusedPane == messages.PaneMonitor && idx == selectedIndex
-				tiles = append(tiles, a.renderMonitorTile(snap, projectName, tileWidth, rowHeight, focused))
-			} else {
-				tiles = append(tiles, renderMonitorEmptyTile(tileWidth, rowHeight))
-			}
-			idx++
-		}
-		rows = append(rows, joinMonitorRow(tiles, grid.gapX, rowHeight))
-	}
-
-	content := joinMonitorRows(rows, grid.gapY, innerWidth)
-	return style.Width(paneWidth - 2).Render(content)
-}
-
 func (a *App) renderMonitorGrid() string {
 	if a.width <= 0 || a.height <= 0 {
 		return ""
@@ -1348,69 +1278,6 @@ func (a *App) renderMonitorGrid() string {
 	return canvas.Render()
 }
 
-func (a *App) renderMonitorTile(snapshot center.MonitorSnapshot, projectName string, width, height int, focused bool) string {
-	if width <= 0 || height <= 0 {
-		return ""
-	}
-
-	tileStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(common.ColorBorder)
-	if focused {
-		tileStyle = tileStyle.Border(lipgloss.DoubleBorder()).BorderForeground(common.ColorBorderFocused)
-	}
-
-	innerWidth := width - 2
-	innerHeight := height - 2
-	if innerWidth <= 0 || innerHeight <= 0 {
-		return tileStyle.Width(width).Height(height).Render("")
-	}
-
-	worktreeName := "unknown"
-	if snapshot.Worktree != nil && snapshot.Worktree.Name != "" {
-		worktreeName = snapshot.Worktree.Name
-	}
-
-	assistant := snapshot.Assistant
-	if assistant == "" {
-		assistant = snapshot.Name
-	}
-
-	statusStyle := a.styles.Muted
-	statusIcon := common.Icons.Idle
-	if snapshot.Running {
-		statusStyle = a.styles.StatusRunning
-		statusIcon = common.Icons.Running
-	}
-
-	cursor := common.Icons.CursorEmpty
-	if focused {
-		cursor = common.Icons.Cursor
-	}
-	header := cursor + " " + statusStyle.Render(statusIcon) + " " + a.styles.Bold.Render(projectName) + "/" + a.styles.Body.Render(worktreeName)
-	if assistant != "" {
-		agentStyle := monitorAgentStyle(a.styles, assistant)
-		header += " [" + agentStyle.Render(assistant) + "]"
-	}
-	if focused {
-		header = lipgloss.NewStyle().Background(common.ColorSelection).Render(header)
-	}
-	lines := []string{renderMonitorLine(header, innerWidth)}
-
-	contentHeight := innerHeight - 1
-	if contentHeight > 0 {
-		lines = append(lines, renderMonitorContent(snapshot.Rendered, a.styles, innerWidth, contentHeight)...)
-	}
-
-	if len(lines) > innerHeight {
-		lines = lines[:innerHeight]
-	}
-	for len(lines) < innerHeight {
-		lines = append(lines, strings.Repeat(" ", innerWidth))
-	}
-
-	content := strings.Join(lines, "\n")
-	return tileStyle.Width(width).Height(height).Render(content)
-}
-
 type monitorGrid struct {
 	cols       int
 	rows       int
@@ -1532,40 +1399,6 @@ func monitorTileRect(grid monitorGrid, index int, offsetX, offsetY int) monitorR
 		W: grid.colWidths[col],
 		H: grid.rowHeights[row],
 	}
-}
-
-func joinMonitorRow(tiles []string, gap int, height int) string {
-	if len(tiles) == 0 {
-		return ""
-	}
-	gapBlock := lipgloss.NewStyle().Width(gap).Height(height).Render("")
-	parts := make([]string, 0, len(tiles)*2-1)
-	for i, tile := range tiles {
-		if i > 0 {
-			parts = append(parts, gapBlock)
-		}
-		parts = append(parts, tile)
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
-}
-
-func joinMonitorRows(rows []string, gap int, width int) string {
-	if len(rows) == 0 {
-		return ""
-	}
-	gapBlock := lipgloss.NewStyle().Width(width).Height(gap).Render("")
-	parts := make([]string, 0, len(rows)*2-1)
-	for i, row := range rows {
-		if i > 0 {
-			parts = append(parts, gapBlock)
-		}
-		parts = append(parts, row)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-func renderMonitorEmptyTile(width, height int) string {
-	return lipgloss.NewStyle().Width(width).Height(height).Render("")
 }
 
 func (a *App) monitorPaneInnerSize() (int, int) {
@@ -1787,96 +1620,6 @@ func (a *App) selectMonitorTile(paneX, paneY int) {
 	}
 }
 
-func renderMonitorContent(rendered string, styles common.Styles, width, height int) []string {
-	if height <= 0 {
-		return nil
-	}
-
-	if strings.TrimSpace(ansi.Strip(rendered)) == "" {
-		line := styles.Muted.Render("No active agent")
-		return padMonitorLines([]string{line}, width, height)
-	}
-
-	lines := strings.Split(rendered, "\n")
-	lines = normalizeMonitorLines(lines)
-	if len(lines) > height {
-		lines = lines[len(lines)-height:]
-	}
-
-	return padMonitorLines(lines, width, height)
-}
-
-func normalizeMonitorLines(lines []string) []string {
-	if len(lines) == 0 {
-		return lines
-	}
-
-	// Strip carriage returns to avoid double-spacing artifacts in some terminals.
-	for i, line := range lines {
-		if strings.Contains(line, "\r") {
-			lines[i] = strings.ReplaceAll(line, "\r", "")
-		}
-	}
-
-	if len(lines) < 2 {
-		return lines
-	}
-
-	oddCount, oddEmpty := 0, 0
-	evenCount, evenEmpty := 0, 0
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(ansi.Strip(line))
-		if i%2 == 1 {
-			oddCount++
-			if trimmed == "" {
-				oddEmpty++
-			}
-		} else {
-			evenCount++
-			if trimmed == "" {
-				evenEmpty++
-			}
-		}
-	}
-
-	// If every other line is empty, collapse to a single-spaced view.
-	if oddCount > 0 && (oddEmpty*100/oddCount) >= 80 && evenCount > 0 && (evenEmpty*100/evenCount) <= 40 {
-		compact := make([]string, 0, evenCount)
-		for i := 0; i < len(lines); i += 2 {
-			compact = append(compact, lines[i])
-		}
-		return compact
-	}
-
-	return lines
-}
-
-func padMonitorLines(lines []string, width, height int) []string {
-	var normalized []string
-	for _, line := range lines {
-		normalized = append(normalized, renderMonitorLine(line, width))
-	}
-	for len(normalized) < height {
-		normalized = append(normalized, strings.Repeat(" ", width))
-	}
-	if len(normalized) > height {
-		normalized = normalized[:height]
-	}
-	return normalized
-}
-
-func renderMonitorLine(line string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	trimmed := ansi.Truncate(line, width, "")
-	lineWidth := lipgloss.Width(trimmed)
-	if lineWidth < width {
-		trimmed += strings.Repeat(" ", width-lineWidth)
-	}
-	return trimmed
-}
-
 func monitorProjectName(wt *data.Worktree) string {
 	if wt == nil {
 		return "unknown"
@@ -1888,23 +1631,6 @@ func monitorProjectName(wt *data.Worktree) string {
 		return filepath.Base(wt.Root)
 	}
 	return "unknown"
-}
-
-func monitorAgentStyle(styles common.Styles, assistant string) lipgloss.Style {
-	switch assistant {
-	case "claude":
-		return styles.AgentClaude
-	case "codex":
-		return styles.AgentCodex
-	case "gemini":
-		return styles.AgentGemini
-	case "amp":
-		return styles.AgentAmp
-	case "opencode":
-		return styles.AgentOpencode
-	default:
-		return styles.AgentTerm
-	}
 }
 
 // renderWorktreeInfo renders information about the active worktree
