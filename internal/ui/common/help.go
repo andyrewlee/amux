@@ -60,6 +60,13 @@ func defaultHelpSections() []HelpSection {
 			},
 		},
 		{
+			Title: "Monitor",
+			Bindings: []HelpBinding{
+				{"h/j/k/l", "Move between agents"},
+				{"arrow keys", "Move between agents"},
+			},
+		},
+		{
 			Title: "Center Pane",
 			Bindings: []HelpBinding{
 				{"Ctrl+T", "New agent tab"},

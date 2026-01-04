@@ -48,6 +48,7 @@ type App struct {
 	focusedPane    messages.PaneType
 	showWelcome    bool
 	monitorMode    bool
+	monitorIndex   int
 
 	// UI Components
 	layout          *layout.Manager
@@ -262,6 +263,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if a.monitorMode && msg.X < dashWidth+rightWidth {
 				// Clicked on monitor pane
 				a.focusPane(messages.PaneMonitor)
+				a.selectMonitorTile(msg.X-dashWidth, msg.Y)
 			} else if msg.X < dashWidth+centerWidth {
 
 				// Clicked on center pane
@@ -385,6 +387,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
 			a.sidebarTerminal = newSidebarTerminal
 			return a, cmd
+		}
+
+		// Monitor pane navigation (tile selection)
+		if a.focusedPane == messages.PaneMonitor {
+			if a.handleMonitorNavigation(msg) {
+				return a, nil
+			}
 		}
 
 		// When focused on center pane with terminal, handle navigation keys
@@ -1085,47 +1094,57 @@ func (a *App) renderMonitorPane() string {
 		projectNames[project.Path] = project.Name
 	}
 
-	visible := snapshots
-	minTileHeight := 2
-	maxTiles := innerHeight / minTileHeight
-	if maxTiles < 1 {
-		maxTiles = 1
-	}
-	if len(visible) > maxTiles {
-		visible = visible[:maxTiles]
+	grid := monitorGridLayout(len(snapshots), innerWidth, innerHeight)
+	if grid.cols == 0 || grid.rows == 0 {
+		return style.Width(paneWidth - 2).Render("")
 	}
 
-	tileCount := len(visible)
-	baseHeight := innerHeight / tileCount
-	extra := innerHeight % tileCount
-	if baseHeight < 1 {
-		baseHeight = 1
-		extra = 0
+	selectedIndex := clampMonitorIndex(a.monitorIndex, len(snapshots))
+
+	var rows []string
+	idx := 0
+	for r := 0; r < grid.rows; r++ {
+		rowHeight := grid.rowHeights[r]
+		var tiles []string
+		for c := 0; c < grid.cols; c++ {
+			tileWidth := grid.colWidths[c]
+			if idx < len(snapshots) {
+				snap := snapshots[idx]
+				projectName := ""
+				if snap.Worktree != nil {
+					projectName = projectNames[snap.Worktree.Repo]
+				}
+				if projectName == "" {
+					projectName = monitorProjectName(snap.Worktree)
+				}
+				focused := a.focusedPane == messages.PaneMonitor && idx == selectedIndex
+				tiles = append(tiles, a.renderMonitorTile(snap, projectName, tileWidth, rowHeight, focused))
+			} else {
+				tiles = append(tiles, renderMonitorEmptyTile(tileWidth, rowHeight))
+			}
+			idx++
+		}
+		rows = append(rows, joinMonitorRow(tiles, grid.gapX, rowHeight))
 	}
 
-	var blocks []string
-	for i, snap := range visible {
-		tileHeight := baseHeight
-		if i < extra {
-			tileHeight++
-		}
-		projectName := ""
-		if snap.Worktree != nil {
-			projectName = projectNames[snap.Worktree.Repo]
-		}
-		if projectName == "" {
-			projectName = monitorProjectName(snap.Worktree)
-		}
-		blocks = append(blocks, a.renderMonitorTile(snap, projectName, innerWidth, tileHeight))
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Top, blocks...)
+	content := joinMonitorRows(rows, grid.gapY, innerWidth)
 	return style.Width(paneWidth - 2).Render(content)
 }
 
-func (a *App) renderMonitorTile(snapshot center.MonitorSnapshot, projectName string, width, height int) string {
-	if height <= 0 {
+func (a *App) renderMonitorTile(snapshot center.MonitorSnapshot, projectName string, width, height int, focused bool) string {
+	if width <= 0 || height <= 0 {
 		return ""
+	}
+
+	tileStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(common.ColorBorder)
+	if focused {
+		tileStyle = tileStyle.BorderForeground(common.ColorBorderFocused)
+	}
+
+	innerWidth := width - 2
+	innerHeight := height - 2
+	if innerWidth <= 0 || innerHeight <= 0 {
+		return tileStyle.Width(width).Height(height).Render("")
 	}
 
 	worktreeName := "unknown"
@@ -1150,21 +1169,294 @@ func (a *App) renderMonitorTile(snapshot center.MonitorSnapshot, projectName str
 		agentStyle := monitorAgentStyle(a.styles, assistant)
 		header += " [" + agentStyle.Render(assistant) + "]"
 	}
-	lines := []string{renderMonitorLine(header, width)}
+	lines := []string{renderMonitorLine(header, innerWidth)}
 
-	contentHeight := height - 1
+	contentHeight := innerHeight - 1
 	if contentHeight > 0 {
-		lines = append(lines, renderMonitorContent(snapshot.Rendered, a.styles, width, contentHeight)...)
+		lines = append(lines, renderMonitorContent(snapshot.Rendered, a.styles, innerWidth, contentHeight)...)
 	}
 
-	if len(lines) > height {
-		lines = lines[:height]
+	if len(lines) > innerHeight {
+		lines = lines[:innerHeight]
 	}
-	for len(lines) < height {
-		lines = append(lines, strings.Repeat(" ", width))
+	for len(lines) < innerHeight {
+		lines = append(lines, strings.Repeat(" ", innerWidth))
 	}
 
-	return strings.Join(lines, "\n")
+	content := strings.Join(lines, "\n")
+	return tileStyle.Width(width).Height(height).Render(content)
+}
+
+type monitorGrid struct {
+	cols       int
+	rows       int
+	colWidths  []int
+	rowHeights []int
+	gapX       int
+	gapY       int
+}
+
+func monitorGridLayout(count, width, height int) monitorGrid {
+	grid := monitorGrid{
+		gapX: 1,
+		gapY: 1,
+	}
+	if count <= 0 || width <= 0 || height <= 0 {
+		return grid
+	}
+
+	minTileWidth := 20
+	minTileHeight := 6
+	bestCols := 1
+	bestScore := -1
+	bestArea := -1
+
+	for cols := 1; cols <= count; cols++ {
+		rows := (count + cols - 1) / cols
+		gridWidth := width - grid.gapX*(cols-1)
+		gridHeight := height - grid.gapY*(rows-1)
+		if gridWidth <= 0 || gridHeight <= 0 {
+			continue
+		}
+
+		tileWidth := gridWidth / cols
+		tileHeight := gridHeight / rows
+		if tileWidth <= 0 || tileHeight <= 0 {
+			continue
+		}
+
+		score := tileWidth
+		if tileHeight < score {
+			score = tileHeight
+		}
+		if tileWidth < minTileWidth || tileHeight < minTileHeight {
+			score /= 2
+		}
+		area := tileWidth * tileHeight
+		if score > bestScore || (score == bestScore && area > bestArea) {
+			bestScore = score
+			bestArea = area
+			bestCols = cols
+		}
+	}
+
+	rows := (count + bestCols - 1) / bestCols
+	gridWidth := width - grid.gapX*(bestCols-1)
+	if gridWidth < bestCols {
+		gridWidth = bestCols
+	}
+	gridHeight := height - grid.gapY*(rows-1)
+	if gridHeight < rows {
+		gridHeight = rows
+	}
+
+	grid.cols = bestCols
+	grid.rows = rows
+	grid.colWidths = make([]int, bestCols)
+	grid.rowHeights = make([]int, rows)
+
+	baseCol := gridWidth / bestCols
+	extraCol := gridWidth % bestCols
+	for i := 0; i < bestCols; i++ {
+		grid.colWidths[i] = baseCol
+		if i < extraCol {
+			grid.colWidths[i]++
+		}
+	}
+
+	baseRow := gridHeight / rows
+	extraRow := gridHeight % rows
+	for i := 0; i < rows; i++ {
+		grid.rowHeights[i] = baseRow
+		if i < extraRow {
+			grid.rowHeights[i]++
+		}
+	}
+
+	return grid
+}
+
+func joinMonitorRow(tiles []string, gap int, height int) string {
+	if len(tiles) == 0 {
+		return ""
+	}
+	gapBlock := lipgloss.NewStyle().Width(gap).Height(height).Render("")
+	parts := make([]string, 0, len(tiles)*2-1)
+	for i, tile := range tiles {
+		if i > 0 {
+			parts = append(parts, gapBlock)
+		}
+		parts = append(parts, tile)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+}
+
+func joinMonitorRows(rows []string, gap int, width int) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	gapBlock := lipgloss.NewStyle().Width(width).Height(gap).Render("")
+	parts := make([]string, 0, len(rows)*2-1)
+	for i, row := range rows {
+		if i > 0 {
+			parts = append(parts, gapBlock)
+		}
+		parts = append(parts, row)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func renderMonitorEmptyTile(width, height int) string {
+	return lipgloss.NewStyle().Width(width).Height(height).Render("")
+}
+
+func (a *App) monitorPaneInnerSize() (int, int) {
+	paneWidth := a.width - a.layout.DashboardWidth()
+	paneHeight := a.layout.Height()
+	innerWidth := paneWidth - 4
+	innerHeight := paneHeight - 2
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	return innerWidth, innerHeight
+}
+
+func clampMonitorIndex(index, count int) int {
+	if count <= 0 {
+		return 0
+	}
+	if index < 0 {
+		return 0
+	}
+	if index >= count {
+		return count - 1
+	}
+	return index
+}
+
+func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
+	switch {
+	case key.Matches(msg, a.keymap.Left):
+		a.moveMonitorSelection(-1, 0)
+		return true
+	case key.Matches(msg, a.keymap.Right):
+		a.moveMonitorSelection(1, 0)
+		return true
+	case key.Matches(msg, a.keymap.Up):
+		a.moveMonitorSelection(0, -1)
+		return true
+	case key.Matches(msg, a.keymap.Down):
+		a.moveMonitorSelection(0, 1)
+		return true
+	}
+	return false
+}
+
+func (a *App) moveMonitorSelection(dx, dy int) {
+	snapshots := a.center.MonitorSnapshots()
+	count := len(snapshots)
+	if count == 0 {
+		return
+	}
+
+	innerWidth, innerHeight := a.monitorPaneInnerSize()
+	grid := monitorGridLayout(count, innerWidth, innerHeight)
+	if grid.cols == 0 || grid.rows == 0 {
+		return
+	}
+
+	idx := clampMonitorIndex(a.monitorIndex, count)
+	row := idx / grid.cols
+	col := idx % grid.cols
+
+	row += dy
+	col += dx
+
+	if row < 0 {
+		row = 0
+	}
+	if row >= grid.rows {
+		row = grid.rows - 1
+	}
+	if col < 0 {
+		col = 0
+	}
+	if col >= grid.cols {
+		col = grid.cols - 1
+	}
+
+	newIndex := row*grid.cols + col
+	if newIndex >= count {
+		newIndex = count - 1
+	}
+	if newIndex < 0 {
+		newIndex = 0
+	}
+	a.monitorIndex = newIndex
+}
+
+func (a *App) selectMonitorTile(paneX, paneY int) {
+	snapshots := a.center.MonitorSnapshots()
+	count := len(snapshots)
+	if count == 0 {
+		return
+	}
+
+	innerWidth, innerHeight := a.monitorPaneInnerSize()
+	grid := monitorGridLayout(count, innerWidth, innerHeight)
+	if grid.cols == 0 || grid.rows == 0 {
+		return
+	}
+
+	innerX := paneX - 2
+	innerY := paneY - 1
+	if innerX < 0 || innerY < 0 || innerX >= innerWidth || innerY >= innerHeight {
+		return
+	}
+
+	col := -1
+	x := innerX
+	for c := 0; c < grid.cols; c++ {
+		if x < grid.colWidths[c] {
+			col = c
+			break
+		}
+		x -= grid.colWidths[c]
+		if c < grid.cols-1 {
+			if x < grid.gapX {
+				return
+			}
+			x -= grid.gapX
+		}
+	}
+
+	row := -1
+	y := innerY
+	for r := 0; r < grid.rows; r++ {
+		if y < grid.rowHeights[r] {
+			row = r
+			break
+		}
+		y -= grid.rowHeights[r]
+		if r < grid.rows-1 {
+			if y < grid.gapY {
+				return
+			}
+			y -= grid.gapY
+		}
+	}
+
+	if row < 0 || col < 0 {
+		return
+	}
+
+	index := row*grid.cols + col
+	if index >= 0 && index < count {
+		a.monitorIndex = index
+	}
 }
 
 func renderMonitorContent(rendered string, styles common.Styles, width, height int) []string {
@@ -1172,7 +1464,7 @@ func renderMonitorContent(rendered string, styles common.Styles, width, height i
 		return nil
 	}
 
-	if rendered == "" {
+	if strings.TrimSpace(ansi.Strip(rendered)) == "" {
 		line := styles.Muted.Render("No active agent")
 		return padMonitorLines([]string{line}, width, height)
 	}
@@ -1524,6 +1816,7 @@ func (a *App) focusPane(pane messages.PaneType) {
 func (a *App) toggleMonitorMode() {
 	a.monitorMode = !a.monitorMode
 	if a.monitorMode {
+		a.monitorIndex = 0
 		a.focusPane(messages.PaneMonitor)
 	} else {
 		a.focusPane(messages.PaneDashboard)
