@@ -307,6 +307,17 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 			fp.loadDirectory()
 			return fp, nil
 		}
+		if !fp.directoriesOnly {
+			selectedPath := filepath.Join(fp.currentPath, entry.Name())
+			fp.visible = false
+			return fp, func() tea.Msg {
+				return DialogResult{
+					ID:        fp.id,
+					Confirmed: true,
+					Value:     selectedPath,
+				}
+			}
+		}
 	}
 
 	// Otherwise, select current directory
