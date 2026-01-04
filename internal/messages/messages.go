@@ -33,7 +33,15 @@ type WorktreeCreated struct {
 
 // WorktreeDeleted is sent when a worktree is deleted
 type WorktreeDeleted struct {
-	Root string
+	Project  *data.Project
+	Worktree *data.Worktree
+}
+
+// WorktreeDeleteFailed is sent when a worktree deletion fails
+type WorktreeDeleteFailed struct {
+	Project  *data.Project
+	Worktree *data.Worktree
+	Err      error
 }
 
 // ProjectAdded is sent when a new project is registered

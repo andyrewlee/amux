@@ -56,8 +56,10 @@ type Model struct {
 	scrollOffset int
 
 	// Loading state
-	loadingStatus map[string]bool // Worktrees currently loading git status
-	spinnerFrame  int             // Current spinner animation frame
+	loadingStatus     map[string]bool // Worktrees currently loading git status
+	deletingWorktrees map[string]bool // Worktrees currently being deleted
+	spinnerFrame      int             // Current spinner animation frame
+	spinnerActive     bool            // Whether spinner ticks are active
 
 	// Styles
 	styles common.Styles
@@ -66,13 +68,14 @@ type Model struct {
 // New creates a new dashboard model
 func New() *Model {
 	return &Model{
-		projects:      []data.Project{},
-		rows:          []Row{},
-		statusCache:   make(map[string]*git.StatusResult),
-		loadingStatus: make(map[string]bool),
-		cursor:        0,
-		focused:       true,
-		styles:        common.DefaultStyles(),
+		projects:          []data.Project{},
+		rows:              []Row{},
+		statusCache:       make(map[string]*git.StatusResult),
+		loadingStatus:     make(map[string]bool),
+		deletingWorktrees: make(map[string]bool),
+		cursor:            0,
+		focused:           true,
+		styles:            common.DefaultStyles(),
 	}
 }
 
@@ -120,9 +123,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case spinnerTickMsg:
 		// Advance spinner frame if we have loading items
-		if len(m.loadingStatus) > 0 {
+		if len(m.loadingStatus) > 0 || len(m.deletingWorktrees) > 0 {
 			m.spinnerFrame++
 			cmds = append(cmds, m.tickSpinner())
+		} else {
+			m.spinnerActive = false
 		}
 
 	case messages.ProjectsLoaded:
@@ -137,8 +142,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 		}
 		// Start spinner if we have loading items
-		if len(m.loadingStatus) > 0 {
-			cmds = append(cmds, m.tickSpinner())
+		if cmd := m.startSpinnerIfNeeded(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case messages.GitStatusResult:
@@ -166,6 +171,18 @@ func (m *Model) tickSpinner() tea.Cmd {
 	return tea.Tick(spinnerInterval, func(t time.Time) tea.Msg {
 		return spinnerTickMsg{}
 	})
+}
+
+// startSpinnerIfNeeded starts spinner ticks if we have pending activity.
+func (m *Model) startSpinnerIfNeeded() tea.Cmd {
+	if m.spinnerActive {
+		return nil
+	}
+	if len(m.loadingStatus) == 0 && len(m.deletingWorktrees) == 0 {
+		return nil
+	}
+	m.spinnerActive = true
+	return m.tickSpinner()
 }
 
 // View renders the dashboard
@@ -286,8 +303,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		name := row.Worktree.Name
 		status := ""
 
-		// Check loading state first
-		if m.loadingStatus[row.Worktree.Root] {
+		// Check deletion state first
+		if m.deletingWorktrees[row.Worktree.Root] {
+			frame := common.SpinnerFrame(m.spinnerFrame)
+			status = " " + m.styles.StatusPending.Render(frame+" deleting")
+		} else if m.loadingStatus[row.Worktree.Root] {
 			// Show spinner while loading
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			status = " " + m.styles.StatusPending.Render(frame)
@@ -321,6 +341,16 @@ func (m *Model) renderRow(row Row, selected bool) string {
 	}
 
 	return ""
+}
+
+// SetWorktreeDeleting marks a worktree as deleting (or clears it).
+func (m *Model) SetWorktreeDeleting(root string, deleting bool) tea.Cmd {
+	if deleting {
+		m.deletingWorktrees[root] = true
+		return m.startSpinnerIfNeeded()
+	}
+	delete(m.deletingWorktrees, root)
+	return nil
 }
 
 // rebuildRows rebuilds the row list from projects

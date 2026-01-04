@@ -562,6 +562,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.createWorktree(msg.Project, msg.Name, msg.Base))
 
 	case messages.DeleteWorktree:
+		if msg.Worktree != nil {
+			if cmd := a.dashboard.SetWorktreeDeleting(msg.Worktree.Root, true); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 		cmds = append(cmds, a.deleteWorktree(msg.Project, msg.Worktree))
 
 	case messages.AddProject:
@@ -608,6 +613,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.requestGitStatus(msg.Root))
 		// Continue listening for file changes
 		cmds = append(cmds, a.startFileWatcher())
+
+	case messages.WorktreeDeleted:
+		if msg.Worktree != nil {
+			if cmd := a.dashboard.SetWorktreeDeleting(msg.Worktree.Root, false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			if a.statusManager != nil {
+				a.statusManager.Invalidate(msg.Worktree.Root)
+			}
+		}
+		cmds = append(cmds, a.loadProjects())
+
+	case messages.WorktreeDeleteFailed:
+		if msg.Worktree != nil {
+			if cmd := a.dashboard.SetWorktreeDeleting(msg.Worktree.Root, false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		a.err = msg.Err
+		logging.Error("Error in removing worktree: %v", msg.Err)
 
 	case messages.Error:
 		a.err = msg.Err
@@ -1172,20 +1197,28 @@ func (a *App) deleteWorktree(project *data.Project, wt *data.Worktree) tea.Cmd {
 
 	return func() tea.Msg {
 		if wt.IsPrimaryCheckout() {
-			return messages.Error{
-				Err:     fmt.Errorf("cannot delete primary checkout"),
-				Context: "deleting worktree",
+			return messages.WorktreeDeleteFailed{
+				Project:  project,
+				Worktree: wt,
+				Err:      fmt.Errorf("cannot delete primary checkout"),
 			}
 		}
 
 		if err := git.RemoveWorktree(project.Path, wt.Root); err != nil {
-			return messages.Error{Err: err, Context: "removing worktree"}
+			return messages.WorktreeDeleteFailed{
+				Project:  project,
+				Worktree: wt,
+				Err:      err,
+			}
 		}
 
 		_ = git.DeleteBranch(project.Path, wt.Branch)
 		_ = a.metadata.Delete(wt)
 
-		return messages.RefreshDashboard{}
+		return messages.WorktreeDeleted{
+			Project:  project,
+			Worktree: wt,
+		}
 	}
 }
 
