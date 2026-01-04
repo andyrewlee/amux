@@ -311,6 +311,27 @@ func TestDashboardHandleDeleteNonWorktree(t *testing.T) {
 	}
 }
 
+func TestDashboardCreatingWorktreeRow(t *testing.T) {
+	m := New()
+	project := makeProject()
+	m.SetProjects([]data.Project{project})
+	m.filterDirty = true
+
+	wt := data.NewWorktree("creating", "creating", "HEAD", project.Path, project.Path+"/.amux/worktrees/creating")
+	m.SetWorktreeCreating(wt, true)
+
+	found := false
+	for _, row := range m.rows {
+		if row.Type == RowWorktree && row.Worktree != nil && row.Worktree.Root == wt.Root {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected creating worktree to be visible in rows")
+	}
+}
+
 func TestDashboardToggleFilter(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})

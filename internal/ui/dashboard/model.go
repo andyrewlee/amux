@@ -56,8 +56,11 @@ type Model struct {
 	scrollOffset int
 
 	// Loading state
-	loadingStatus map[string]bool // Worktrees currently loading git status
-	spinnerFrame  int             // Current spinner animation frame
+	loadingStatus     map[string]bool           // Worktrees currently loading git status
+	creatingWorktrees map[string]*data.Worktree // Worktrees currently being created
+	deletingWorktrees map[string]bool           // Worktrees currently being deleted
+	spinnerFrame      int                       // Current spinner animation frame
+	spinnerActive     bool                      // Whether spinner ticks are active
 
 	// Styles
 	styles common.Styles
@@ -66,13 +69,15 @@ type Model struct {
 // New creates a new dashboard model
 func New() *Model {
 	return &Model{
-		projects:      []data.Project{},
-		rows:          []Row{},
-		statusCache:   make(map[string]*git.StatusResult),
-		loadingStatus: make(map[string]bool),
-		cursor:        0,
-		focused:       true,
-		styles:        common.DefaultStyles(),
+		projects:          []data.Project{},
+		rows:              []Row{},
+		statusCache:       make(map[string]*git.StatusResult),
+		loadingStatus:     make(map[string]bool),
+		creatingWorktrees: make(map[string]*data.Worktree),
+		deletingWorktrees: make(map[string]bool),
+		cursor:            0,
+		focused:           true,
+		styles:            common.DefaultStyles(),
 	}
 }
 
@@ -120,9 +125,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case spinnerTickMsg:
 		// Advance spinner frame if we have loading items
-		if len(m.loadingStatus) > 0 {
+		if len(m.loadingStatus) > 0 || len(m.creatingWorktrees) > 0 || len(m.deletingWorktrees) > 0 {
 			m.spinnerFrame++
 			cmds = append(cmds, m.tickSpinner())
+		} else {
+			m.spinnerActive = false
 		}
 
 	case messages.ProjectsLoaded:
@@ -137,8 +144,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 		}
 		// Start spinner if we have loading items
-		if len(m.loadingStatus) > 0 {
-			cmds = append(cmds, m.tickSpinner())
+		if cmd := m.startSpinnerIfNeeded(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case messages.GitStatusResult:
@@ -166,6 +173,18 @@ func (m *Model) tickSpinner() tea.Cmd {
 	return tea.Tick(spinnerInterval, func(t time.Time) tea.Msg {
 		return spinnerTickMsg{}
 	})
+}
+
+// startSpinnerIfNeeded starts spinner ticks if we have pending activity.
+func (m *Model) startSpinnerIfNeeded() tea.Cmd {
+	if m.spinnerActive {
+		return nil
+	}
+	if len(m.loadingStatus) == 0 && len(m.creatingWorktrees) == 0 && len(m.deletingWorktrees) == 0 {
+		return nil
+	}
+	m.spinnerActive = true
+	return m.tickSpinner()
 }
 
 // View renders the dashboard
@@ -286,8 +305,14 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		name := row.Worktree.Name
 		status := ""
 
-		// Check loading state first
-		if m.loadingStatus[row.Worktree.Root] {
+		// Check deletion state first
+		if m.deletingWorktrees[row.Worktree.Root] {
+			frame := common.SpinnerFrame(m.spinnerFrame)
+			status = " " + m.styles.StatusPending.Render(frame+" deleting")
+		} else if _, ok := m.creatingWorktrees[row.Worktree.Root]; ok {
+			frame := common.SpinnerFrame(m.spinnerFrame)
+			status = " " + m.styles.StatusPending.Render(frame+" creating")
+		} else if m.loadingStatus[row.Worktree.Root] {
 			// Show spinner while loading
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			status = " " + m.styles.StatusPending.Render(frame)
@@ -323,6 +348,31 @@ func (m *Model) renderRow(row Row, selected bool) string {
 	return ""
 }
 
+// SetWorktreeCreating marks a worktree as creating (or clears it).
+func (m *Model) SetWorktreeCreating(wt *data.Worktree, creating bool) tea.Cmd {
+	if wt == nil {
+		return nil
+	}
+	if creating {
+		m.creatingWorktrees[wt.Root] = wt
+		m.rebuildRows()
+		return m.startSpinnerIfNeeded()
+	}
+	delete(m.creatingWorktrees, wt.Root)
+	m.rebuildRows()
+	return nil
+}
+
+// SetWorktreeDeleting marks a worktree as deleting (or clears it).
+func (m *Model) SetWorktreeDeleting(root string, deleting bool) tea.Cmd {
+	if deleting {
+		m.deletingWorktrees[root] = true
+		return m.startSpinnerIfNeeded()
+	}
+	delete(m.deletingWorktrees, root)
+	return nil
+}
+
 // rebuildRows rebuilds the row list from projects
 func (m *Model) rebuildRows() {
 	m.rows = []Row{
@@ -332,6 +382,7 @@ func (m *Model) rebuildRows() {
 
 	for i := range m.projects {
 		project := &m.projects[i]
+		existingRoots := make(map[string]bool)
 
 		m.rows = append(m.rows, Row{
 			Type:    RowProject,
@@ -340,6 +391,7 @@ func (m *Model) rebuildRows() {
 
 		for j := range project.Worktrees {
 			wt := &project.Worktrees[j]
+			existingRoots[wt.Root] = true
 
 			// Hide main branch - users access via project row
 			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
@@ -353,6 +405,20 @@ func (m *Model) rebuildRows() {
 				}
 			}
 
+			m.rows = append(m.rows, Row{
+				Type:     RowWorktree,
+				Project:  project,
+				Worktree: wt,
+			})
+		}
+
+		for _, wt := range m.creatingWorktrees {
+			if wt == nil || wt.Repo != project.Path {
+				continue
+			}
+			if existingRoots[wt.Root] {
+				continue
+			}
 			m.rows = append(m.rows, Row{
 				Type:     RowWorktree,
 				Project:  project,
