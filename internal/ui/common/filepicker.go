@@ -160,8 +160,10 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			return fp.handleEnter()
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("right", "l"))):
-			return fp.handleOpen()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
+			if fp.handleOpenFromInput() {
+				return fp, nil
+			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 			// Tab = autocomplete or select first match
@@ -299,22 +301,30 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 	}
 }
 
-// handleOpen navigates into the selected directory
-func (fp *FilePicker) handleOpen() (*FilePicker, tea.Cmd) {
-	if len(fp.filteredIdx) == 0 || fp.cursor >= len(fp.filteredIdx) {
-		return fp, nil
+// handleOpenFromInput navigates into the path typed in the input when it is a directory.
+func (fp *FilePicker) handleOpenFromInput() bool {
+	input := strings.TrimSpace(fp.input.Value())
+	if input == "" {
+		return false
 	}
 
-	entry := fp.entries[fp.filteredIdx[fp.cursor]]
-	if !entry.IsDir() {
-		return fp, nil
+	path := input
+	if strings.HasPrefix(path, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, path[1:])
+		}
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(fp.currentPath, path)
 	}
 
-	newPath := filepath.Join(fp.currentPath, entry.Name())
-	fp.currentPath = newPath
-	fp.input.SetValue("")
-	fp.loadDirectory()
-	return fp, nil
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		fp.currentPath = path
+		fp.input.SetValue("")
+		fp.loadDirectory()
+		return true
+	}
+
+	return false
 }
 
 // ensureVisible scrolls to keep cursor visible
@@ -393,7 +403,7 @@ func (fp *FilePicker) View() string {
 		Foreground(ColorMuted).
 		MarginTop(1)
 	content.WriteString("\n")
-	content.WriteString(helpStyle.Render("enter: select • right: open • esc: cancel • tab: complete • ctrl+h: toggle hidden"))
+	content.WriteString(helpStyle.Render("enter: select • /: open • esc: cancel • tab: autocomplete • ctrl+h: toggle hidden"))
 
 	// Dialog box
 	dialogStyle := lipgloss.NewStyle().
