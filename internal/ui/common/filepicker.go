@@ -112,6 +112,10 @@ func (fp *FilePicker) applyFilter() {
 	}
 
 	fp.filteredIdx = nil
+	if strings.Contains(query, "/") {
+		parts := strings.Split(query, "/")
+		query = parts[len(parts)-1]
+	}
 	query = strings.ToLower(query)
 	for i, e := range fp.entries {
 		if fuzzyMatch(query, e.Name()) {
@@ -169,7 +173,14 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 			// Tab = autocomplete or select first match
 			if len(fp.filteredIdx) > 0 {
 				entry := fp.entries[fp.filteredIdx[fp.cursor]]
-				fp.input.SetValue(entry.Name())
+				if entry.IsDir() {
+					fp.input.SetValue(entry.Name() + "/")
+					if fp.handleOpenFromInput() {
+						return fp, nil
+					}
+				} else {
+					fp.input.SetValue(entry.Name())
+				}
 				fp.applyFilter()
 			}
 
@@ -253,17 +264,19 @@ func (fp *FilePicker) handlePathInput(input string) {
 // handleEnter handles the enter key
 func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 	// If input looks like a path, try to use it directly
-	input := fp.input.Value()
-	if strings.HasPrefix(input, "~") || strings.HasPrefix(input, "/") {
+	input := strings.TrimSpace(fp.input.Value())
+	if input != "" {
 		// Expand and validate
 		path := input
 		if strings.HasPrefix(path, "~") {
 			if home, err := os.UserHomeDir(); err == nil {
 				path = filepath.Join(home, path[1:])
 			}
+		} else if !filepath.IsAbs(path) {
+			path = filepath.Join(fp.currentPath, path)
 		}
 		if info, err := os.Stat(path); err == nil {
-			if info.IsDir() {
+			if info.IsDir() || !fp.directoriesOnly {
 				fp.visible = false
 				return fp, func() tea.Msg {
 					return DialogResult{
@@ -272,20 +285,6 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 						Value:     path,
 					}
 				}
-			}
-		}
-	}
-
-	// If we have a selected entry
-	if len(fp.filteredIdx) > 0 && fp.cursor < len(fp.filteredIdx) {
-		entry := fp.entries[fp.filteredIdx[fp.cursor]]
-		selectedPath := filepath.Join(fp.currentPath, entry.Name())
-		fp.visible = false
-		return fp, func() tea.Msg {
-			return DialogResult{
-				ID:        fp.id,
-				Confirmed: true,
-				Value:     selectedPath,
 			}
 		}
 	}
