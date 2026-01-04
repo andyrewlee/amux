@@ -17,6 +17,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -92,6 +93,9 @@ type TerminalModel struct {
 
 	// Styles
 	styles common.Styles
+
+	// Rendering
+	terminalCanvas *compositor.Canvas
 
 	// Pre-allocated key bindings
 	keys terminalKeyMap
@@ -430,7 +434,9 @@ func (m *TerminalModel) View() string {
 	} else {
 		ts.mu.Lock()
 		ts.VTerm.ShowCursor = m.focused
-		content := ts.VTerm.Render()
+		termWidth := ts.VTerm.Width
+		termHeight := ts.VTerm.Height
+		content := m.renderTerminalCanvas(ts.VTerm, termWidth, termHeight, m.focused)
 		isScrolled := ts.VTerm.IsScrolled()
 		var scrollInfo string
 		if isScrolled {
@@ -470,6 +476,24 @@ func (m *TerminalModel) View() string {
 	b.WriteString(help)
 
 	return b.String()
+}
+
+func (m *TerminalModel) renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
+	if term == nil || width <= 0 || height <= 0 {
+		return ""
+	}
+	if m.terminalCanvas == nil || m.terminalCanvas.Width != width || m.terminalCanvas.Height != height {
+		m.terminalCanvas = compositor.NewCanvas(width, height)
+	}
+	return compositor.RenderTerminalWithCanvas(
+		m.terminalCanvas,
+		term,
+		width,
+		height,
+		showCursor,
+		compositor.HexColor(string(common.ColorForeground)),
+		compositor.HexColor(string(common.ColorBackground)),
+	)
 }
 
 // SetSize sets the terminal section size

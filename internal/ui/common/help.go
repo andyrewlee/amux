@@ -55,7 +55,16 @@ func defaultHelpSections() []HelpSection {
 				{"n", "New worktree"},
 				{"d", "Delete worktree"},
 				{"f", "Toggle dirty filter"},
+				{"m", "Monitor tabs"},
 				{"r", "Refresh"},
+			},
+		},
+		{
+			Title: "Monitor",
+			Bindings: []HelpBinding{
+				{"Ctrl+h/j/k/l", "Move between agents"},
+				{"arrow keys", "Move between agents"},
+				{"Ctrl+g", "Open selected agent"},
 			},
 		},
 		{
