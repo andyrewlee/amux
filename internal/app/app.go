@@ -20,10 +20,12 @@ import (
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 	"github.com/andyrewlee/amux/internal/validation"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 // DialogID constants
@@ -42,13 +44,14 @@ type App struct {
 	metadata *data.MetadataStore
 
 	// State
-	projects       []data.Project
-	activeWorktree *data.Worktree
-	activeProject  *data.Project
-	focusedPane    messages.PaneType
-	showWelcome    bool
-	monitorMode    bool
-	monitorIndex   int
+	projects         []data.Project
+	activeWorktree   *data.Worktree
+	activeProject    *data.Project
+	focusedPane      messages.PaneType
+	showWelcome      bool
+	monitorMode      bool
+	monitorIndex     int
+	monitorLayoutKey string
 
 	// UI Components
 	layout          *layout.Manager
@@ -244,6 +247,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		// Handle mouse events
+		if a.monitorMode {
+			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+				a.focusPane(messages.PaneMonitor)
+				a.selectMonitorTile(msg.X, msg.Y)
+			}
+			break
+		}
+
 		dashWidth := a.layout.DashboardWidth()
 		centerWidth := a.layout.CenterWidth()
 		rightWidth := centerWidth
@@ -394,6 +405,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.handleMonitorNavigation(msg) {
 				return a, nil
 			}
+			if key.Matches(msg, a.keymap.Home) {
+				cmd := a.exitMonitorToSelection()
+				return a, cmd
+			}
+			if cmd := a.handleMonitorInput(msg); cmd != nil {
+				return a, cmd
+			}
+			return a, nil
 		}
 
 		// When focused on center pane with terminal, handle navigation keys
@@ -812,6 +831,28 @@ func (a *App) View() string {
 		return "Loading..."
 	}
 
+	// Monitor mode uses the compositor for a full-screen grid.
+	if a.monitorMode {
+		content := a.renderMonitorGrid()
+
+		if a.dialog != nil && a.dialog.Visible() {
+			content = a.overlayDialog(content)
+		}
+		if a.filePicker != nil && a.filePicker.Visible() {
+			content = a.overlayFilePicker(content)
+		}
+		if a.helpOverlay.Visible() {
+			content = a.helpOverlay.View()
+		}
+		if a.toast.Visible() {
+			content = a.overlayToast(content)
+		}
+		if a.err != nil {
+			content = a.overlayError(content)
+		}
+		return syncBegin + content + syncEnd
+	}
+
 	// Render panes
 	dashView := a.dashboard.View()
 
@@ -825,12 +866,16 @@ func (a *App) View() string {
 	// Render sidebar as vertical split: file changes (top) + terminal (bottom)
 	sidebarView := a.renderSidebarPane()
 
+	// Hard-clamp pane output to allocated size to prevent bleed.
+	if a.layout != nil {
+		dashView = clampPane(dashView, a.layout.DashboardWidth(), a.layout.Height())
+		centerView = clampPane(centerView, a.layout.CenterWidth(), a.layout.Height())
+		sidebarView = clampPane(sidebarView, a.layout.SidebarWidth(), a.layout.Height())
+	}
+
 	// Combine using layout manager
 	var content string
-	if a.monitorMode && a.layout.ShowCenter() {
-		monitorView := a.renderMonitorPane()
-		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, monitorView)
-	} else if a.layout.ShowSidebar() {
+	if a.layout.ShowSidebar() {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView, sidebarView)
 	} else if a.layout.ShowCenter() {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView)
@@ -865,6 +910,18 @@ func (a *App) View() string {
 
 	// Wrap with synchronized output to prevent flickering
 	return syncBegin + content + syncEnd
+}
+
+func clampPane(view string, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		MaxWidth(width).
+		MaxHeight(height).
+		Render(view)
 }
 
 // overlayToast renders a toast notification at the bottom
@@ -1131,6 +1188,166 @@ func (a *App) renderMonitorPane() string {
 	return style.Width(paneWidth - 2).Render(content)
 }
 
+func (a *App) renderMonitorGrid() string {
+	if a.width <= 0 || a.height <= 0 {
+		return ""
+	}
+
+	tabs := a.center.MonitorTabs()
+	if len(tabs) == 0 {
+		canvas := compositor.NewCanvas(a.width, a.height)
+		canvas.Fill(vterm.Style{Fg: compositor.HexColor(string(common.ColorForeground)), Bg: compositor.HexColor(string(common.ColorBackground))})
+		empty := "No agents running"
+		x := (a.width - ansi.StringWidth(empty)) / 2
+		y := a.height / 2
+		if x < 0 {
+			x = 0
+		}
+		if y < 0 {
+			y = 0
+		}
+		canvas.DrawText(x, y, empty, vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))})
+		return canvas.Render()
+	}
+
+	gridX, gridY, gridW, gridH := a.monitorGridArea()
+	grid := monitorGridLayout(len(tabs), gridW, gridH)
+	if grid.cols == 0 || grid.rows == 0 {
+		return ""
+	}
+
+	tabSizes := make([]center.TabSize, 0, len(tabs))
+	for i, tab := range tabs {
+		rect := monitorTileRect(grid, i, gridX, gridY)
+		contentW := rect.W - 2
+		contentH := rect.H - 3 // border + header line
+		if contentW < 1 {
+			contentW = 1
+		}
+		if contentH < 1 {
+			contentH = 1
+		}
+		tabSizes = append(tabSizes, center.TabSize{
+			ID:     tab.ID,
+			Width:  contentW,
+			Height: contentH,
+		})
+	}
+
+	layoutKey := a.monitorLayoutKeyFor(tabs, gridW, gridH, tabSizes)
+	if layoutKey != a.monitorLayoutKey {
+		a.center.ResizeTabs(tabSizes)
+		a.monitorLayoutKey = layoutKey
+	}
+
+	snapshots := a.center.MonitorTabSnapshots()
+	snapByID := make(map[center.TabID]center.MonitorTabSnapshot, len(snapshots))
+	for _, snap := range snapshots {
+		snapByID[snap.ID] = snap
+	}
+
+	canvas := compositor.NewCanvas(a.width, a.height)
+	canvas.Fill(vterm.Style{
+		Fg: compositor.HexColor(string(common.ColorForeground)),
+		Bg: compositor.HexColor(string(common.ColorBackground)),
+	})
+
+	headerStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))}
+	canvas.DrawText(0, 0, "Monitor: ctrl+hjkl/arrows select • ctrl+g open/exit", headerStyle)
+
+	projectNames := make(map[string]string, len(a.projects))
+	for _, project := range a.projects {
+		projectNames[project.Path] = project.Name
+	}
+
+	selectedIndex := clampMonitorIndex(a.monitorIndex, len(tabs))
+
+	for idx, tab := range tabs {
+		rect := monitorTileRect(grid, idx, gridX, gridY)
+		focused := idx == selectedIndex
+		if rect.W < 4 || rect.H < 4 {
+			continue
+		}
+
+		borderStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorBorder))}
+		if focused {
+			borderStyle.Fg = compositor.HexColor(string(common.ColorBorderFocused))
+		}
+		canvas.DrawBorder(rect.X, rect.Y, rect.W, rect.H, borderStyle, focused)
+
+		innerX := rect.X + 1
+		innerY := rect.Y + 1
+		innerW := rect.W - 2
+		innerH := rect.H - 2
+		if innerW < 1 || innerH < 1 {
+			continue
+		}
+
+		worktreeName := "unknown"
+		if tab.Worktree != nil && tab.Worktree.Name != "" {
+			worktreeName = tab.Worktree.Name
+		}
+		projectName := ""
+		if tab.Worktree != nil {
+			projectName = projectNames[tab.Worktree.Repo]
+		}
+		if projectName == "" {
+			projectName = monitorProjectName(tab.Worktree)
+		}
+
+		statusIcon := common.Icons.Idle
+		if tab.Running {
+			statusIcon = common.Icons.Running
+		}
+
+		assistant := tab.Assistant
+		if assistant == "" {
+			assistant = tab.Name
+		}
+
+		cursor := common.Icons.CursorEmpty
+		if focused {
+			cursor = common.Icons.Cursor
+		}
+		header := fmt.Sprintf("%s %s %s/%s", cursor, statusIcon, projectName, worktreeName)
+		if assistant != "" {
+			header += " [" + assistant + "]"
+		}
+
+		hStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorForeground)), Bold: true}
+		if focused {
+			hStyle.Bg = compositor.HexColor(string(common.ColorSelection))
+		}
+		canvas.DrawText(innerX, innerY, header, hStyle)
+
+		contentY := innerY + 1
+		contentH := innerH - 1
+		if contentH <= 0 {
+			continue
+		}
+
+		snap, ok := snapByID[tab.ID]
+		if !ok || len(snap.Screen) == 0 {
+			canvas.DrawText(innerX, contentY, "No active agent", vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))})
+			continue
+		}
+
+		canvas.DrawScreen(
+			innerX,
+			contentY,
+			innerW,
+			contentH,
+			snap.Screen,
+			snap.CursorX,
+			snap.CursorY,
+			focused,
+			snap.ViewOffset,
+		)
+	}
+
+	return canvas.Render()
+}
+
 func (a *App) renderMonitorTile(snapshot center.MonitorSnapshot, projectName string, width, height int, focused bool) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -1138,7 +1355,7 @@ func (a *App) renderMonitorTile(snapshot center.MonitorSnapshot, projectName str
 
 	tileStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(common.ColorBorder)
 	if focused {
-		tileStyle = tileStyle.BorderForeground(common.ColorBorderFocused)
+		tileStyle = tileStyle.Border(lipgloss.DoubleBorder()).BorderForeground(common.ColorBorderFocused)
 	}
 
 	innerWidth := width - 2
@@ -1164,10 +1381,17 @@ func (a *App) renderMonitorTile(snapshot center.MonitorSnapshot, projectName str
 		statusIcon = common.Icons.Running
 	}
 
-	header := statusStyle.Render(statusIcon) + " " + a.styles.Bold.Render(projectName) + "/" + a.styles.Body.Render(worktreeName)
+	cursor := common.Icons.CursorEmpty
+	if focused {
+		cursor = common.Icons.Cursor
+	}
+	header := cursor + " " + statusStyle.Render(statusIcon) + " " + a.styles.Bold.Render(projectName) + "/" + a.styles.Body.Render(worktreeName)
 	if assistant != "" {
 		agentStyle := monitorAgentStyle(a.styles, assistant)
 		header += " [" + agentStyle.Render(assistant) + "]"
+	}
+	if focused {
+		header = lipgloss.NewStyle().Background(common.ColorSelection).Render(header)
 	}
 	lines := []string{renderMonitorLine(header, innerWidth)}
 
@@ -1276,6 +1500,40 @@ func monitorGridLayout(count, width, height int) monitorGrid {
 	return grid
 }
 
+type monitorRect struct {
+	X int
+	Y int
+	W int
+	H int
+}
+
+func monitorTileRect(grid monitorGrid, index int, offsetX, offsetY int) monitorRect {
+	if grid.cols == 0 || grid.rows == 0 {
+		return monitorRect{}
+	}
+	row := index / grid.cols
+	col := index % grid.cols
+	if row < 0 || col < 0 || row >= len(grid.rowHeights) || col >= len(grid.colWidths) {
+		return monitorRect{}
+	}
+
+	x := offsetX
+	for i := 0; i < col; i++ {
+		x += grid.colWidths[i] + grid.gapX
+	}
+	y := offsetY
+	for i := 0; i < row; i++ {
+		y += grid.rowHeights[i] + grid.gapY
+	}
+
+	return monitorRect{
+		X: x,
+		Y: y,
+		W: grid.colWidths[col],
+		H: grid.rowHeights[row],
+	}
+}
+
 func joinMonitorRow(tiles []string, gap int, height int) string {
 	if len(tiles) == 0 {
 		return ""
@@ -1311,17 +1569,34 @@ func renderMonitorEmptyTile(width, height int) string {
 }
 
 func (a *App) monitorPaneInnerSize() (int, int) {
-	paneWidth := a.width - a.layout.DashboardWidth()
-	paneHeight := a.layout.Height()
-	innerWidth := paneWidth - 4
-	innerHeight := paneHeight - 2
-	if innerWidth < 0 {
-		innerWidth = 0
+	_, _, w, h := a.monitorGridArea()
+	if w < 0 {
+		w = 0
 	}
-	if innerHeight < 0 {
-		innerHeight = 0
+	if h < 0 {
+		h = 0
 	}
-	return innerWidth, innerHeight
+	return w, h
+}
+
+func (a *App) monitorGridArea() (int, int, int, int) {
+	if a.height <= 2 {
+		return 0, 0, a.width, a.height
+	}
+	return 0, 1, a.width, a.height - 1
+}
+
+func (a *App) monitorLayoutKeyFor(tabs []center.MonitorTab, gridW, gridH int, sizes []center.TabSize) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%dx%d:%d|", gridW, gridH, len(tabs))
+	for i, tab := range tabs {
+		b.WriteString(string(tab.ID))
+		if i < len(sizes) {
+			fmt.Fprintf(&b, ":%dx%d", sizes[i].Width, sizes[i].Height)
+		}
+		b.WriteString("|")
+	}
+	return b.String()
 }
 
 func clampMonitorIndex(index, count int) int {
@@ -1339,20 +1614,75 @@ func clampMonitorIndex(index, count int) int {
 
 func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
 	switch {
-	case key.Matches(msg, a.keymap.Left):
+	case key.Matches(msg, a.keymap.MoveLeft) || key.Matches(msg, a.keymap.Left):
 		a.moveMonitorSelection(-1, 0)
 		return true
-	case key.Matches(msg, a.keymap.Right):
+	case key.Matches(msg, a.keymap.MoveRight) || key.Matches(msg, a.keymap.Right):
 		a.moveMonitorSelection(1, 0)
 		return true
-	case key.Matches(msg, a.keymap.Up):
+	case key.Matches(msg, a.keymap.MoveUp) || key.Matches(msg, a.keymap.Up):
 		a.moveMonitorSelection(0, -1)
 		return true
-	case key.Matches(msg, a.keymap.Down):
+	case key.Matches(msg, a.keymap.MoveDown) || key.Matches(msg, a.keymap.Down):
 		a.moveMonitorSelection(0, 1)
 		return true
 	}
 	return false
+}
+
+func (a *App) handleMonitorInput(msg tea.KeyMsg) tea.Cmd {
+	tabs := a.center.MonitorTabs()
+	if len(tabs) == 0 {
+		return nil
+	}
+	idx := clampMonitorIndex(a.monitorIndex, len(tabs))
+	if idx < 0 || idx >= len(tabs) {
+		return nil
+	}
+	return a.center.HandleMonitorInput(tabs[idx].ID, msg)
+}
+
+func (a *App) activateMonitorSelection() tea.Cmd {
+	snapshots := a.center.MonitorSnapshots()
+	if len(snapshots) == 0 {
+		return nil
+	}
+	idx := clampMonitorIndex(a.monitorIndex, len(snapshots))
+	snap := snapshots[idx]
+	if snap.Worktree == nil {
+		return nil
+	}
+	project := a.projectForWorktree(snap.Worktree)
+	return func() tea.Msg {
+		return messages.WorktreeActivated{Project: project, Worktree: snap.Worktree}
+	}
+}
+
+func (a *App) exitMonitorToSelection() tea.Cmd {
+	cmd := a.activateMonitorSelection()
+	a.monitorMode = false
+	a.monitorLayoutKey = ""
+	a.focusPane(messages.PaneCenter)
+	a.updateLayout()
+	return cmd
+}
+
+func (a *App) projectForWorktree(wt *data.Worktree) *data.Project {
+	if wt == nil {
+		return nil
+	}
+	for i := range a.projects {
+		project := &a.projects[i]
+		if project.Path == wt.Repo {
+			return project
+		}
+		for j := range project.Worktrees {
+			if project.Worktrees[j].Root == wt.Root {
+				return project
+			}
+		}
+	}
+	return nil
 }
 
 func (a *App) moveMonitorSelection(dx, dy int) {
@@ -1399,26 +1729,25 @@ func (a *App) moveMonitorSelection(dx, dy int) {
 }
 
 func (a *App) selectMonitorTile(paneX, paneY int) {
-	snapshots := a.center.MonitorSnapshots()
-	count := len(snapshots)
+	tabs := a.center.MonitorTabs()
+	count := len(tabs)
 	if count == 0 {
 		return
 	}
 
-	innerWidth, innerHeight := a.monitorPaneInnerSize()
-	grid := monitorGridLayout(count, innerWidth, innerHeight)
+	gridX, gridY, gridW, gridH := a.monitorGridArea()
+	x := paneX - gridX
+	y := paneY - gridY
+	if x < 0 || y < 0 || x >= gridW || y >= gridH {
+		return
+	}
+
+	grid := monitorGridLayout(count, gridW, gridH)
 	if grid.cols == 0 || grid.rows == 0 {
 		return
 	}
 
-	innerX := paneX - 2
-	innerY := paneY - 1
-	if innerX < 0 || innerY < 0 || innerX >= innerWidth || innerY >= innerHeight {
-		return
-	}
-
 	col := -1
-	x := innerX
 	for c := 0; c < grid.cols; c++ {
 		if x < grid.colWidths[c] {
 			col = c
@@ -1434,7 +1763,6 @@ func (a *App) selectMonitorTile(paneX, paneY int) {
 	}
 
 	row := -1
-	y := innerY
 	for r := 0; r < grid.rows; r++ {
 		if y < grid.rowHeights[r] {
 			row = r
@@ -1470,11 +1798,57 @@ func renderMonitorContent(rendered string, styles common.Styles, width, height i
 	}
 
 	lines := strings.Split(rendered, "\n")
+	lines = normalizeMonitorLines(lines)
 	if len(lines) > height {
 		lines = lines[len(lines)-height:]
 	}
 
 	return padMonitorLines(lines, width, height)
+}
+
+func normalizeMonitorLines(lines []string) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+
+	// Strip carriage returns to avoid double-spacing artifacts in some terminals.
+	for i, line := range lines {
+		if strings.Contains(line, "\r") {
+			lines[i] = strings.ReplaceAll(line, "\r", "")
+		}
+	}
+
+	if len(lines) < 2 {
+		return lines
+	}
+
+	oddCount, oddEmpty := 0, 0
+	evenCount, evenEmpty := 0, 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(ansi.Strip(line))
+		if i%2 == 1 {
+			oddCount++
+			if trimmed == "" {
+				oddEmpty++
+			}
+		} else {
+			evenCount++
+			if trimmed == "" {
+				evenEmpty++
+			}
+		}
+	}
+
+	// If every other line is empty, collapse to a single-spaced view.
+	if oddCount > 0 && (oddEmpty*100/oddCount) >= 80 && evenCount > 0 && (evenEmpty*100/evenCount) <= 40 {
+		compact := make([]string, 0, evenCount)
+		for i := 0; i < len(lines); i += 2 {
+			compact = append(compact, lines[i])
+		}
+		return compact
+	}
+
+	return lines
 }
 
 func padMonitorLines(lines []string, width, height int) []string {
@@ -1817,8 +2191,10 @@ func (a *App) toggleMonitorMode() {
 	a.monitorMode = !a.monitorMode
 	if a.monitorMode {
 		a.monitorIndex = 0
+		a.monitorLayoutKey = ""
 		a.focusPane(messages.PaneMonitor)
 	} else {
+		a.monitorLayoutKey = ""
 		a.focusPane(messages.PaneDashboard)
 	}
 	a.updateLayout()

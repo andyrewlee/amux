@@ -19,6 +19,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -78,6 +79,112 @@ type MonitorSnapshot struct {
 	Name      string
 	Running   bool
 	Rendered  string
+}
+
+// MonitorTab describes the active tab for a worktree.
+type MonitorTab struct {
+	ID        TabID
+	Worktree  *data.Worktree
+	Assistant string
+	Name      string
+	Running   bool
+}
+
+// TabSize defines a desired size for a tab.
+type TabSize struct {
+	ID     TabID
+	Width  int
+	Height int
+}
+
+// MonitorTabSnapshot captures a monitor tab with its visible screen.
+type MonitorTabSnapshot struct {
+	MonitorTab
+	Screen     [][]vterm.Cell
+	CursorX    int
+	CursorY    int
+	ViewOffset int
+	Width      int
+	Height     int
+}
+
+// HandleMonitorInput forwards input to a specific tab while in monitor view.
+func (m *Model) HandleMonitorInput(tabID TabID, msg tea.KeyMsg) tea.Cmd {
+	tab := m.getTabByIDGlobal(tabID)
+	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
+		return nil
+	}
+
+	// Handle bracketed paste - send entire content at once with escape sequences
+	if msg.Paste && msg.Type == tea.KeyRunes {
+		text := string(msg.Runes)
+		bracketedText := "\x1b[200~" + text + "\x1b[201~"
+		_ = tab.Agent.Terminal.SendString(bracketedText)
+		return nil
+	}
+
+	switch {
+	case msg.Type == tea.KeyPgUp:
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	case msg.Type == tea.KeyPgDown:
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollViewToTop()
+		}
+		tab.mu.Unlock()
+		return nil
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollViewToBottom()
+		}
+		tab.mu.Unlock()
+		return nil
+	}
+
+	// If scrolled, any typing goes back to live and sends key.
+	tab.mu.Lock()
+	if tab.Terminal != nil && tab.Terminal.IsScrolled() {
+		tab.Terminal.ScrollViewToBottom()
+	}
+	tab.mu.Unlock()
+
+	input := common.KeyToBytes(msg)
+	if len(input) > 0 {
+		_ = tab.Agent.Terminal.SendString(string(input))
+	}
+	return nil
 }
 
 // PendingGTimeout fires when 'g' prefix times out
@@ -645,7 +752,9 @@ func (m *Model) View() string {
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			tab.Terminal.ShowCursor = m.focused
-			b.WriteString(tab.Terminal.Render())
+			termWidth := tab.Terminal.Width
+			termHeight := tab.Terminal.Height
+			b.WriteString(renderTerminalCanvas(tab.Terminal, termWidth, termHeight, m.focused))
 
 			// Show scroll indicator if scrolled
 			if tab.Terminal.IsScrolled() {
@@ -1056,17 +1165,9 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 
 // MonitorSnapshots returns a snapshot of the active tab for each worktree.
 func (m *Model) MonitorSnapshots() []MonitorSnapshot {
-	var snapshots []MonitorSnapshot
-
-	for wtID, tabs := range m.tabsByWorktree {
-		if len(tabs) == 0 {
-			continue
-		}
-		activeIdx := m.activeTabByWorktree[wtID]
-		if activeIdx < 0 || activeIdx >= len(tabs) {
-			continue
-		}
-		tab := tabs[activeIdx]
+	tabs := m.monitorTabs()
+	snapshots := make([]MonitorSnapshot, 0, len(tabs))
+	for _, tab := range tabs {
 		rendered := ""
 		tab.mu.Lock()
 		if tab.Terminal != nil {
@@ -1081,10 +1182,91 @@ func (m *Model) MonitorSnapshots() []MonitorSnapshot {
 			Rendered:  rendered,
 		})
 	}
+	return snapshots
+}
 
-	sort.Slice(snapshots, func(i, j int) bool {
-		left := snapshots[i]
-		right := snapshots[j]
+// MonitorTabs returns the active tab for each worktree in a stable order.
+func (m *Model) MonitorTabs() []MonitorTab {
+	tabs := m.monitorTabs()
+	out := make([]MonitorTab, 0, len(tabs))
+	for _, tab := range tabs {
+		out = append(out, MonitorTab{
+			ID:        tab.ID,
+			Worktree:  tab.Worktree,
+			Assistant: tab.Assistant,
+			Name:      tab.Name,
+			Running:   tab.Running,
+		})
+	}
+	return out
+}
+
+// MonitorTabSnapshots returns monitor tabs with their visible screens.
+func (m *Model) MonitorTabSnapshots() []MonitorTabSnapshot {
+	tabs := m.monitorTabs()
+	snapshots := make([]MonitorTabSnapshot, 0, len(tabs))
+	for _, tab := range tabs {
+		snap := MonitorTabSnapshot{
+			MonitorTab: MonitorTab{
+				ID:        tab.ID,
+				Worktree:  tab.Worktree,
+				Assistant: tab.Assistant,
+				Name:      tab.Name,
+				Running:   tab.Running,
+			},
+		}
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			snap.Screen = tab.Terminal.VisibleScreenWithSelection()
+			snap.CursorX = tab.Terminal.CursorX
+			snap.CursorY = tab.Terminal.CursorY
+			snap.ViewOffset = tab.Terminal.ViewOffset
+			snap.Width = tab.Terminal.Width
+			snap.Height = tab.Terminal.Height
+		}
+		tab.mu.Unlock()
+		snapshots = append(snapshots, snap)
+	}
+	return snapshots
+}
+
+// ResizeTabs resizes the given tabs to the desired sizes.
+func (m *Model) ResizeTabs(sizes []TabSize) {
+	for _, size := range sizes {
+		if size.Width < 1 || size.Height < 1 {
+			continue
+		}
+		tab := m.getTabByIDGlobal(size.ID)
+		if tab == nil {
+			continue
+		}
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.Resize(size.Width, size.Height)
+		}
+		if tab.Agent != nil && tab.Agent.Terminal != nil {
+			_ = tab.Agent.Terminal.SetSize(uint16(size.Height), uint16(size.Width))
+		}
+		tab.mu.Unlock()
+	}
+}
+
+func (m *Model) monitorTabs() []*Tab {
+	var tabs []*Tab
+	for wtID, worktreeTabs := range m.tabsByWorktree {
+		if len(worktreeTabs) == 0 {
+			continue
+		}
+		activeIdx := m.activeTabByWorktree[wtID]
+		if activeIdx < 0 || activeIdx >= len(worktreeTabs) {
+			continue
+		}
+		tabs = append(tabs, worktreeTabs[activeIdx])
+	}
+
+	sort.Slice(tabs, func(i, j int) bool {
+		left := tabs[i]
+		right := tabs[j]
 		leftKey := left.Assistant
 		rightKey := right.Assistant
 		if left.Worktree != nil {
@@ -1096,7 +1278,27 @@ func (m *Model) MonitorSnapshots() []MonitorSnapshot {
 		return leftKey < rightKey
 	})
 
-	return snapshots
+	return tabs
+}
+
+func (m *Model) getTabByIDGlobal(tabID TabID) *Tab {
+	for wtID := range m.tabsByWorktree {
+		if tab := m.getTabByID(wtID, tabID); tab != nil {
+			return tab
+		}
+	}
+	return nil
+}
+
+func renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
+	return compositor.RenderTerminal(
+		term,
+		width,
+		height,
+		showCursor,
+		compositor.HexColor(string(common.ColorForeground)),
+		compositor.HexColor(string(common.ColorBackground)),
+	)
 }
 
 // CloseAllTabs is deprecated - tabs now persist per-worktree
