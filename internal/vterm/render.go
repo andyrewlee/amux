@@ -28,6 +28,75 @@ func (v *VTerm) renderBuffers() ([][]Cell, int) {
 	return v.Screen, len(v.Scrollback)
 }
 
+// VisibleScreen returns the currently visible screen buffer as a copy.
+func (v *VTerm) VisibleScreen() [][]Cell {
+	screen, scrollbackLen := v.renderBuffers()
+	width := v.Width
+	height := v.Height
+
+	lines := make([][]Cell, height)
+
+	// If scrolled, pull from scrollback + screen.
+	if v.ViewOffset > 0 {
+		if scrollbackLen > len(v.Scrollback) {
+			scrollbackLen = len(v.Scrollback)
+		}
+		screenLen := len(screen)
+		startLine := scrollbackLen + screenLen - height - v.ViewOffset
+		if startLine < 0 {
+			startLine = 0
+		}
+
+		for i := 0; i < height; i++ {
+			lineIdx := startLine + i
+			var row []Cell
+			if lineIdx < scrollbackLen {
+				row = v.Scrollback[lineIdx]
+			} else if lineIdx-scrollbackLen < screenLen {
+				row = screen[lineIdx-scrollbackLen]
+			}
+			line := MakeBlankLine(width)
+			if row != nil {
+				copy(line, row)
+			}
+			lines[i] = line
+		}
+		return lines
+	}
+
+	// Live screen.
+	for y := 0; y < height; y++ {
+		line := MakeBlankLine(width)
+		if y < len(screen) {
+			copy(line, screen[y])
+		}
+		lines[y] = line
+	}
+	return lines
+}
+
+// VisibleScreenWithSelection returns the visible screen with selection highlighting applied.
+func (v *VTerm) VisibleScreenWithSelection() [][]Cell {
+	lines := v.VisibleScreen()
+	if !v.selActive {
+		return lines
+	}
+
+	for y := 0; y < len(lines); y++ {
+		row := lines[y]
+		for x := 0; x < len(row); x++ {
+			if v.isInSelection(x, y) {
+				cell := row[x]
+				cell.Style.Reverse = !cell.Style.Reverse
+				row[x] = cell
+			}
+		}
+		lines[y] = row
+	}
+
+	return lines
+}
+
 // isInSelection checks if coordinate (x, y) is within the selection
 func (v *VTerm) isInSelection(x, y int) bool {
 	if !v.selActive {
@@ -139,7 +208,7 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 		}
 
 		if style != lastStyle || inSel != lastReverse || isCursor {
-			buf.WriteString(styleToANSI(style))
+			buf.WriteString(StyleToANSI(style))
 			lastStyle = style
 			lastReverse = inSel
 		}
@@ -212,7 +281,7 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 			}
 
 			if firstCell || style != lastStyle || inSel != lastReverse {
-				buf.WriteString(styleToANSI(style))
+				buf.WriteString(StyleToANSI(style))
 				lastStyle = style
 				lastReverse = inSel
 				firstCell = false
@@ -239,8 +308,8 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 	return buf.String()
 }
 
-// styleToANSI converts a Style to ANSI escape codes
-func styleToANSI(s Style) string {
+// StyleToANSI converts a Style to ANSI escape codes.
+func StyleToANSI(s Style) string {
 	var codes []string
 
 	// Reset first if any attributes
@@ -280,7 +349,7 @@ func styleToANSI(s Style) string {
 	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
 }
 
-// colorToANSI converts a Color to ANSI code strings
+// colorToANSI converts a Color to ANSI code strings.
 func colorToANSI(c Color, fg bool) []string {
 	switch c.Type {
 	case ColorDefault:

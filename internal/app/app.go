@@ -20,10 +20,12 @@ import (
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 	"github.com/andyrewlee/amux/internal/validation"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 // DialogID constants
@@ -42,11 +44,14 @@ type App struct {
 	metadata *data.MetadataStore
 
 	// State
-	projects       []data.Project
-	activeWorktree *data.Worktree
-	activeProject  *data.Project
-	focusedPane    messages.PaneType
-	showWelcome    bool
+	projects         []data.Project
+	activeWorktree   *data.Worktree
+	activeProject    *data.Project
+	focusedPane      messages.PaneType
+	showWelcome      bool
+	monitorMode      bool
+	monitorLayoutKey string
+	monitorCanvas    *compositor.Canvas
 
 	// UI Components
 	layout          *layout.Manager
@@ -242,8 +247,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		// Handle mouse events
+		if a.monitorMode {
+			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+				a.focusPane(messages.PaneMonitor)
+				a.selectMonitorTile(msg.X, msg.Y)
+			}
+			break
+		}
+
 		dashWidth := a.layout.DashboardWidth()
 		centerWidth := a.layout.CenterWidth()
+		rightWidth := centerWidth
+		if a.layout.ShowSidebar() {
+			rightWidth += a.layout.SidebarWidth()
+		}
 
 		// Focus pane on left-click press
 
@@ -254,7 +271,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Clicked on dashboard (left bar)
 
 				a.focusPane(messages.PaneDashboard)
-
+			} else if a.monitorMode && msg.X < dashWidth+rightWidth {
+				// Clicked on monitor pane
+				a.focusPane(messages.PaneMonitor)
+				a.selectMonitorTile(msg.X-dashWidth, msg.Y)
 			} else if msg.X < dashWidth+centerWidth {
 
 				// Clicked on center pane
@@ -359,7 +379,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focusedPane == messages.PaneSidebarTerminal {
 			switch {
 			case key.Matches(msg, a.keymap.MoveLeft):
-				a.focusPane(messages.PaneCenter)
+				if a.monitorMode {
+					a.focusPane(messages.PaneMonitor)
+				} else {
+					a.focusPane(messages.PaneCenter)
+				}
 				return a, nil
 			case key.Matches(msg, a.keymap.MoveUp):
 				a.focusPane(messages.PaneSidebar)
@@ -376,6 +400,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
+		// Monitor pane navigation (tile selection)
+		if a.focusedPane == messages.PaneMonitor {
+			if a.handleMonitorNavigation(msg) {
+				return a, nil
+			}
+			if key.Matches(msg, a.keymap.Home) {
+				cmd := a.exitMonitorToSelection()
+				return a, cmd
+			}
+			if cmd := a.handleMonitorInput(msg); cmd != nil {
+				return a, cmd
+			}
+			return a, nil
+		}
+
 		// When focused on center pane with terminal, handle navigation keys
 		if a.focusedPane == messages.PaneCenter {
 			// Check for global navigation keys BEFORE forwarding to terminal
@@ -386,8 +425,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focusPane(messages.PaneDashboard)
 				return a, nil
 			case key.Matches(msg, a.keymap.MoveRight):
-				// From center, move right to sidebar (if visible)
-				if a.layout.ShowSidebar() {
+				// From center, move right to sidebar or monitor (if visible)
+				if a.monitorMode {
+					a.focusPane(messages.PaneMonitor)
+				} else if a.layout.ShowSidebar() {
 					a.focusPane(messages.PaneSidebar)
 				}
 				return a, nil
@@ -416,26 +457,41 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focusPane(messages.PaneDashboard)
 			case messages.PaneSidebar, messages.PaneSidebarTerminal:
 				a.focusPane(messages.PaneCenter)
+			case messages.PaneMonitor:
+				a.focusPane(messages.PaneDashboard)
 			}
 		case key.Matches(msg, a.keymap.MoveRight):
 			switch a.focusedPane {
 			case messages.PaneDashboard:
-				a.focusPane(messages.PaneCenter)
+				if a.monitorMode {
+					a.focusPane(messages.PaneMonitor)
+				} else {
+					a.focusPane(messages.PaneCenter)
+				}
 			case messages.PaneCenter:
-				if a.layout.ShowSidebar() {
+				if a.monitorMode {
+					a.focusPane(messages.PaneMonitor)
+				} else if a.layout.ShowSidebar() {
 					a.focusPane(messages.PaneSidebar)
 				}
+			case messages.PaneMonitor:
+				// No-op; monitor is the rightmost pane
 			}
 		case key.Matches(msg, a.keymap.MoveDown):
 			// Move down: Sidebar -> SidebarTerminal
-			if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
+			if !a.monitorMode && a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
 				a.focusPane(messages.PaneSidebarTerminal)
 				return a, nil
 			}
 		case key.Matches(msg, a.keymap.MoveUp):
 			// Move up: SidebarTerminal -> Sidebar
-			if a.focusedPane == messages.PaneSidebarTerminal {
+			if !a.monitorMode && a.focusedPane == messages.PaneSidebarTerminal {
 				a.focusPane(messages.PaneSidebar)
+				return a, nil
+			}
+		case key.Matches(msg, a.keymap.Monitor):
+			if a.focusedPane == messages.PaneDashboard || a.focusedPane == messages.PaneMonitor {
+				a.toggleMonitorMode()
 				return a, nil
 			}
 		case key.Matches(msg, a.keymap.Home):
@@ -470,6 +526,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
 			a.sidebarTerminal = newSidebarTerminal
 			cmds = append(cmds, cmd)
+		case messages.PaneMonitor:
+			// No interactive updates yet; use global bindings to navigate.
 		}
 
 	case messages.ProjectsLoaded:
@@ -617,7 +675,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Start reading from the new PTY
 		cmds = append(cmds, a.center.StartPTYReaders())
 		// NOW switch focus to center - tab is ready
-		a.focusPane(messages.PaneCenter)
+		if a.monitorMode {
+			a.focusPane(messages.PaneMonitor)
+		} else {
+			a.focusPane(messages.PaneCenter)
+		}
 
 	case messages.TabClosed:
 		logging.Info("Tab closed: %d", msg.Index)
@@ -769,6 +831,28 @@ func (a *App) View() string {
 		return "Loading..."
 	}
 
+	// Monitor mode uses the compositor for a full-screen grid.
+	if a.monitorMode {
+		content := a.renderMonitorGrid()
+
+		if a.dialog != nil && a.dialog.Visible() {
+			content = a.overlayDialog(content)
+		}
+		if a.filePicker != nil && a.filePicker.Visible() {
+			content = a.overlayFilePicker(content)
+		}
+		if a.helpOverlay.Visible() {
+			content = a.helpOverlay.View()
+		}
+		if a.toast.Visible() {
+			content = a.overlayToast(content)
+		}
+		if a.err != nil {
+			content = a.overlayError(content)
+		}
+		return syncBegin + content + syncEnd
+	}
+
 	// Render panes
 	dashView := a.dashboard.View()
 
@@ -781,6 +865,13 @@ func (a *App) View() string {
 
 	// Render sidebar as vertical split: file changes (top) + terminal (bottom)
 	sidebarView := a.renderSidebarPane()
+
+	// Hard-clamp pane output to allocated size to prevent bleed.
+	if a.layout != nil {
+		dashView = clampPane(dashView, a.layout.DashboardWidth(), a.layout.Height())
+		centerView = clampPane(centerView, a.layout.CenterWidth(), a.layout.Height())
+		sidebarView = clampPane(sidebarView, a.layout.SidebarWidth(), a.layout.Height())
+	}
 
 	// Combine using layout manager
 	var content string
@@ -819,6 +910,18 @@ func (a *App) View() string {
 
 	// Wrap with synchronized output to prevent flickering
 	return syncBegin + content + syncEnd
+}
+
+func clampPane(view string, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		MaxWidth(width).
+		MaxHeight(height).
+		Render(view)
 }
 
 // overlayToast renders a toast notification at the bottom
@@ -1015,6 +1118,478 @@ func (a *App) renderCenterPane() string {
 	return style.Render("Select a worktree from the dashboard")
 }
 
+func (a *App) renderMonitorGrid() string {
+	if a.width <= 0 || a.height <= 0 {
+		return ""
+	}
+
+	tabs := a.center.MonitorTabs()
+	if len(tabs) == 0 {
+		canvas := a.monitorCanvasFor(a.width, a.height)
+		canvas.Fill(vterm.Style{Fg: compositor.HexColor(string(common.ColorForeground)), Bg: compositor.HexColor(string(common.ColorBackground))})
+		empty := "No agents running"
+		x := (a.width - ansi.StringWidth(empty)) / 2
+		y := a.height / 2
+		if x < 0 {
+			x = 0
+		}
+		if y < 0 {
+			y = 0
+		}
+		canvas.DrawText(x, y, empty, vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))})
+		return canvas.Render()
+	}
+
+	gridX, gridY, gridW, gridH := a.monitorGridArea()
+	grid := monitorGridLayout(len(tabs), gridW, gridH)
+	if grid.cols == 0 || grid.rows == 0 {
+		return ""
+	}
+
+	tabSizes := make([]center.TabSize, 0, len(tabs))
+	for i, tab := range tabs {
+		rect := monitorTileRect(grid, i, gridX, gridY)
+		contentW := rect.W - 2
+		contentH := rect.H - 3 // border + header line
+		if contentW < 1 {
+			contentW = 1
+		}
+		if contentH < 1 {
+			contentH = 1
+		}
+		tabSizes = append(tabSizes, center.TabSize{
+			ID:     tab.ID,
+			Width:  contentW,
+			Height: contentH,
+		})
+	}
+
+	layoutKey := a.monitorLayoutKeyFor(tabs, gridW, gridH, tabSizes)
+	if layoutKey != a.monitorLayoutKey {
+		a.center.ResizeTabs(tabSizes)
+		a.monitorLayoutKey = layoutKey
+	}
+
+	snapshots := a.center.MonitorTabSnapshots()
+	snapByID := make(map[center.TabID]center.MonitorTabSnapshot, len(snapshots))
+	for _, snap := range snapshots {
+		snapByID[snap.ID] = snap
+	}
+
+	canvas := a.monitorCanvasFor(a.width, a.height)
+	canvas.Fill(vterm.Style{
+		Fg: compositor.HexColor(string(common.ColorForeground)),
+		Bg: compositor.HexColor(string(common.ColorBackground)),
+	})
+
+	headerStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))}
+	canvas.DrawText(0, 0, "Monitor: ctrl+hjkl/arrows select • ctrl+g open/exit", headerStyle)
+
+	projectNames := make(map[string]string, len(a.projects))
+	for _, project := range a.projects {
+		projectNames[project.Path] = project.Name
+	}
+
+	selectedIndex := a.center.MonitorSelectedIndex(len(tabs))
+
+	for idx, tab := range tabs {
+		rect := monitorTileRect(grid, idx, gridX, gridY)
+		focused := idx == selectedIndex
+		if rect.W < 4 || rect.H < 4 {
+			continue
+		}
+
+		borderStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorBorder))}
+		if focused {
+			borderStyle.Fg = compositor.HexColor(string(common.ColorBorderFocused))
+		}
+		canvas.DrawBorder(rect.X, rect.Y, rect.W, rect.H, borderStyle, focused)
+
+		innerX := rect.X + 1
+		innerY := rect.Y + 1
+		innerW := rect.W - 2
+		innerH := rect.H - 2
+		if innerW < 1 || innerH < 1 {
+			continue
+		}
+
+		worktreeName := "unknown"
+		if tab.Worktree != nil && tab.Worktree.Name != "" {
+			worktreeName = tab.Worktree.Name
+		}
+		projectName := ""
+		if tab.Worktree != nil {
+			projectName = projectNames[tab.Worktree.Repo]
+		}
+		if projectName == "" {
+			projectName = monitorProjectName(tab.Worktree)
+		}
+
+		statusIcon := common.Icons.Idle
+		if tab.Running {
+			statusIcon = common.Icons.Running
+		}
+
+		assistant := tab.Name
+		if assistant == "" {
+			assistant = tab.Assistant
+		}
+
+		cursor := common.Icons.CursorEmpty
+		if focused {
+			cursor = common.Icons.Cursor
+		}
+		header := fmt.Sprintf("%s %s %s/%s", cursor, statusIcon, projectName, worktreeName)
+		if assistant != "" {
+			header += " [" + assistant + "]"
+		}
+
+		hStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorForeground)), Bold: true}
+		if focused {
+			hStyle.Bg = compositor.HexColor(string(common.ColorSelection))
+		}
+		canvas.DrawText(innerX, innerY, header, hStyle)
+
+		contentY := innerY + 1
+		contentH := innerH - 1
+		if contentH <= 0 {
+			continue
+		}
+
+		snap, ok := snapByID[tab.ID]
+		if !ok || len(snap.Screen) == 0 {
+			canvas.DrawText(innerX, contentY, "No active agent", vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))})
+			continue
+		}
+
+		canvas.DrawScreen(
+			innerX,
+			contentY,
+			innerW,
+			contentH,
+			snap.Screen,
+			snap.CursorX,
+			snap.CursorY,
+			focused,
+			snap.ViewOffset,
+		)
+	}
+
+	return canvas.Render()
+}
+
+type monitorGrid struct {
+	cols       int
+	rows       int
+	colWidths  []int
+	rowHeights []int
+	gapX       int
+	gapY       int
+}
+
+func monitorGridLayout(count, width, height int) monitorGrid {
+	grid := monitorGrid{
+		gapX: 1,
+		gapY: 1,
+	}
+	if count <= 0 || width <= 0 || height <= 0 {
+		return grid
+	}
+
+	minTileWidth := 20
+	minTileHeight := 6
+	bestCols := 1
+	bestScore := -1
+	bestArea := -1
+
+	for cols := 1; cols <= count; cols++ {
+		rows := (count + cols - 1) / cols
+		gridWidth := width - grid.gapX*(cols-1)
+		gridHeight := height - grid.gapY*(rows-1)
+		if gridWidth <= 0 || gridHeight <= 0 {
+			continue
+		}
+
+		tileWidth := gridWidth / cols
+		tileHeight := gridHeight / rows
+		if tileWidth <= 0 || tileHeight <= 0 {
+			continue
+		}
+
+		score := tileWidth
+		if tileHeight < score {
+			score = tileHeight
+		}
+		if tileWidth < minTileWidth || tileHeight < minTileHeight {
+			score /= 2
+		}
+		area := tileWidth * tileHeight
+		if score > bestScore || (score == bestScore && area > bestArea) {
+			bestScore = score
+			bestArea = area
+			bestCols = cols
+		}
+	}
+
+	rows := (count + bestCols - 1) / bestCols
+	gridWidth := width - grid.gapX*(bestCols-1)
+	if gridWidth < bestCols {
+		gridWidth = bestCols
+	}
+	gridHeight := height - grid.gapY*(rows-1)
+	if gridHeight < rows {
+		gridHeight = rows
+	}
+
+	grid.cols = bestCols
+	grid.rows = rows
+	grid.colWidths = make([]int, bestCols)
+	grid.rowHeights = make([]int, rows)
+
+	baseCol := gridWidth / bestCols
+	extraCol := gridWidth % bestCols
+	for i := 0; i < bestCols; i++ {
+		grid.colWidths[i] = baseCol
+		if i < extraCol {
+			grid.colWidths[i]++
+		}
+	}
+
+	baseRow := gridHeight / rows
+	extraRow := gridHeight % rows
+	for i := 0; i < rows; i++ {
+		grid.rowHeights[i] = baseRow
+		if i < extraRow {
+			grid.rowHeights[i]++
+		}
+	}
+
+	return grid
+}
+
+type monitorRect struct {
+	X int
+	Y int
+	W int
+	H int
+}
+
+func monitorTileRect(grid monitorGrid, index int, offsetX, offsetY int) monitorRect {
+	if grid.cols == 0 || grid.rows == 0 {
+		return monitorRect{}
+	}
+	row := index / grid.cols
+	col := index % grid.cols
+	if row < 0 || col < 0 || row >= len(grid.rowHeights) || col >= len(grid.colWidths) {
+		return monitorRect{}
+	}
+
+	x := offsetX
+	for i := 0; i < col; i++ {
+		x += grid.colWidths[i] + grid.gapX
+	}
+	y := offsetY
+	for i := 0; i < row; i++ {
+		y += grid.rowHeights[i] + grid.gapY
+	}
+
+	return monitorRect{
+		X: x,
+		Y: y,
+		W: grid.colWidths[col],
+		H: grid.rowHeights[row],
+	}
+}
+
+func (a *App) monitorGridArea() (int, int, int, int) {
+	if a.height <= 2 {
+		return 0, 0, a.width, a.height
+	}
+	return 0, 1, a.width, a.height - 1
+}
+
+func (a *App) monitorCanvasFor(width, height int) *compositor.Canvas {
+	if width <= 0 || height <= 0 {
+		width = 1
+		height = 1
+	}
+	if a.monitorCanvas == nil {
+		a.monitorCanvas = compositor.NewCanvas(width, height)
+	} else if a.monitorCanvas.Width != width || a.monitorCanvas.Height != height {
+		a.monitorCanvas.Resize(width, height)
+	}
+	return a.monitorCanvas
+}
+
+func (a *App) monitorLayoutKeyFor(tabs []center.MonitorTab, gridW, gridH int, sizes []center.TabSize) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%dx%d:%d|", gridW, gridH, len(tabs))
+	for i, tab := range tabs {
+		b.WriteString(string(tab.ID))
+		if i < len(sizes) {
+			fmt.Fprintf(&b, ":%dx%d", sizes[i].Width, sizes[i].Height)
+		}
+		b.WriteString("|")
+	}
+	return b.String()
+}
+
+func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
+	tabs := a.center.MonitorTabs()
+	if len(tabs) == 0 {
+		return false
+	}
+
+	_, _, gridW, gridH := a.monitorGridArea()
+	grid := monitorGridLayout(len(tabs), gridW, gridH)
+	if grid.cols == 0 || grid.rows == 0 {
+		return false
+	}
+
+	switch {
+	case key.Matches(msg, a.keymap.MoveLeft) || key.Matches(msg, a.keymap.Left):
+		a.center.MoveMonitorSelection(-1, 0, grid.cols, grid.rows, len(tabs))
+		return true
+	case key.Matches(msg, a.keymap.MoveRight) || key.Matches(msg, a.keymap.Right):
+		a.center.MoveMonitorSelection(1, 0, grid.cols, grid.rows, len(tabs))
+		return true
+	case key.Matches(msg, a.keymap.MoveUp) || key.Matches(msg, a.keymap.Up):
+		a.center.MoveMonitorSelection(0, -1, grid.cols, grid.rows, len(tabs))
+		return true
+	case key.Matches(msg, a.keymap.MoveDown) || key.Matches(msg, a.keymap.Down):
+		a.center.MoveMonitorSelection(0, 1, grid.cols, grid.rows, len(tabs))
+		return true
+	}
+	return false
+}
+
+func (a *App) handleMonitorInput(msg tea.KeyMsg) tea.Cmd {
+	tabs := a.center.MonitorTabs()
+	if len(tabs) == 0 {
+		return nil
+	}
+	idx := a.center.MonitorSelectedIndex(len(tabs))
+	if idx < 0 || idx >= len(tabs) {
+		return nil
+	}
+	return a.center.HandleMonitorInput(tabs[idx].ID, msg)
+}
+
+func (a *App) activateMonitorSelection() tea.Cmd {
+	snapshots := a.center.MonitorSnapshots()
+	if len(snapshots) == 0 {
+		return nil
+	}
+	idx := a.center.MonitorSelectedIndex(len(snapshots))
+	snap := snapshots[idx]
+	if snap.Worktree == nil {
+		return nil
+	}
+	project := a.projectForWorktree(snap.Worktree)
+	return func() tea.Msg {
+		return messages.WorktreeActivated{Project: project, Worktree: snap.Worktree}
+	}
+}
+
+func (a *App) exitMonitorToSelection() tea.Cmd {
+	cmd := a.activateMonitorSelection()
+	a.monitorMode = false
+	a.monitorLayoutKey = ""
+	a.focusPane(messages.PaneCenter)
+	a.updateLayout()
+	return cmd
+}
+
+func (a *App) projectForWorktree(wt *data.Worktree) *data.Project {
+	if wt == nil {
+		return nil
+	}
+	for i := range a.projects {
+		project := &a.projects[i]
+		if project.Path == wt.Repo {
+			return project
+		}
+		for j := range project.Worktrees {
+			if project.Worktrees[j].Root == wt.Root {
+				return project
+			}
+		}
+	}
+	return nil
+}
+
+func (a *App) selectMonitorTile(paneX, paneY int) {
+	tabs := a.center.MonitorTabs()
+	count := len(tabs)
+	if count == 0 {
+		return
+	}
+
+	gridX, gridY, gridW, gridH := a.monitorGridArea()
+	x := paneX - gridX
+	y := paneY - gridY
+	if x < 0 || y < 0 || x >= gridW || y >= gridH {
+		return
+	}
+
+	grid := monitorGridLayout(count, gridW, gridH)
+	if grid.cols == 0 || grid.rows == 0 {
+		return
+	}
+
+	col := -1
+	for c := 0; c < grid.cols; c++ {
+		if x < grid.colWidths[c] {
+			col = c
+			break
+		}
+		x -= grid.colWidths[c]
+		if c < grid.cols-1 {
+			if x < grid.gapX {
+				return
+			}
+			x -= grid.gapX
+		}
+	}
+
+	row := -1
+	for r := 0; r < grid.rows; r++ {
+		if y < grid.rowHeights[r] {
+			row = r
+			break
+		}
+		y -= grid.rowHeights[r]
+		if r < grid.rows-1 {
+			if y < grid.gapY {
+				return
+			}
+			y -= grid.gapY
+		}
+	}
+
+	if row < 0 || col < 0 {
+		return
+	}
+
+	index := row*grid.cols + col
+	if index >= 0 && index < count {
+		a.center.SetMonitorSelectedIndex(index, count)
+	}
+}
+
+func monitorProjectName(wt *data.Worktree) string {
+	if wt == nil {
+		return "unknown"
+	}
+	if wt.Repo != "" {
+		return filepath.Base(wt.Repo)
+	}
+	if wt.Root != "" {
+		return filepath.Base(wt.Root)
+	}
+	return "unknown"
+}
+
 // renderWorktreeInfo renders information about the active worktree
 func (a *App) renderWorktreeInfo() string {
 	wt := a.activeWorktree
@@ -1168,7 +1743,24 @@ func (a *App) addProject(path string) tea.Cmd {
 
 // createWorktree creates a new git worktree
 func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
-	return func() tea.Msg {
+	return func() (msg tea.Msg) {
+		var wt *data.Worktree
+		defer func() {
+			if r := recover(); r != nil {
+				logging.Error("panic in createWorktree: %v", r)
+				msg = messages.WorktreeCreateFailed{
+					Worktree: wt,
+					Err:      fmt.Errorf("create worktree panicked: %v", r),
+				}
+			}
+		}()
+
+		if project == nil || name == "" {
+			return messages.WorktreeCreateFailed{
+				Err: fmt.Errorf("missing project or worktree name"),
+			}
+		}
+
 		worktreePath := filepath.Join(
 			a.config.Paths.WorktreesRoot,
 			project.Name,
@@ -1176,7 +1768,7 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 		)
 
 		branch := name
-		wt := data.NewWorktree(name, branch, base, project.Path, worktreePath)
+		wt = data.NewWorktree(name, branch, base, project.Path, worktreePath)
 
 		if err := git.CreateWorktree(project.Path, worktreePath, branch, base); err != nil {
 			return messages.WorktreeCreateFailed{
@@ -1287,13 +1879,36 @@ func (a *App) focusPane(pane messages.PaneType) {
 		a.center.Blur()
 		a.sidebar.Blur()
 		a.sidebarTerminal.Focus()
+	case messages.PaneMonitor:
+		a.dashboard.Blur()
+		a.center.Blur()
+		a.sidebar.Blur()
+		a.sidebarTerminal.Blur()
 	}
+}
+
+func (a *App) toggleMonitorMode() {
+	a.monitorMode = !a.monitorMode
+	if a.monitorMode {
+		a.center.ResetMonitorSelection()
+		a.monitorLayoutKey = ""
+		a.focusPane(messages.PaneMonitor)
+	} else {
+		a.monitorLayoutKey = ""
+		a.focusPane(messages.PaneDashboard)
+	}
+	a.updateLayout()
 }
 
 // updateLayout updates component sizes based on window size
 func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
-	a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
+
+	centerWidth := a.layout.CenterWidth()
+	if a.monitorMode && a.layout.ShowCenter() {
+		centerWidth += a.layout.SidebarWidth()
+	}
+	a.center.SetSize(centerWidth, a.layout.Height())
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
 
 	sidebarLayout := a.sidebarLayoutInfo()

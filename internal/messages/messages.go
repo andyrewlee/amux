@@ -13,6 +13,7 @@ const (
 	PaneCenter
 	PaneSidebar
 	PaneSidebarTerminal
+	PaneMonitor
 )
 
 // ProjectsLoaded is sent when projects have been loaded/reloaded
