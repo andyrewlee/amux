@@ -112,6 +112,10 @@ func (fp *FilePicker) applyFilter() {
 	}
 
 	fp.filteredIdx = nil
+	if strings.Contains(query, "/") {
+		parts := strings.Split(query, "/")
+		query = parts[len(parts)-1]
+	}
 	query = strings.ToLower(query)
 	for i, e := range fp.entries {
 		if fuzzyMatch(query, e.Name()) {
@@ -120,7 +124,10 @@ func (fp *FilePicker) applyFilter() {
 	}
 
 	if fp.cursor >= len(fp.filteredIdx) {
-		fp.cursor = max(0, len(fp.filteredIdx)-1)
+		fp.cursor = min(fp.cursor, len(fp.filteredIdx))
+	}
+	if fp.cursor < 0 {
+		fp.cursor = 0
 	}
 }
 
@@ -160,25 +167,37 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			return fp.handleEnter()
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
+			if fp.handleOpenFromInput() {
+				return fp, nil
+			}
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 			// Tab = autocomplete or select first match
-			if len(fp.filteredIdx) > 0 {
-				entry := fp.entries[fp.filteredIdx[fp.cursor]]
-				fp.input.SetValue(entry.Name())
+			if fp.cursor > 0 && len(fp.filteredIdx) > 0 {
+				entry := fp.entries[fp.filteredIdx[fp.cursor-1]]
+				if entry.IsDir() {
+					fp.input.SetValue(entry.Name() + "/")
+					if fp.handleOpenFromInput() {
+						return fp, nil
+					}
+				} else {
+					fp.input.SetValue(entry.Name())
+				}
 				fp.applyFilter()
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("down", "ctrl+n"))):
-			if len(fp.filteredIdx) > 0 {
-				fp.cursor = (fp.cursor + 1) % len(fp.filteredIdx)
+			if fp.displayCount() > 0 {
+				fp.cursor = (fp.cursor + 1) % fp.displayCount()
 				fp.ensureVisible()
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "ctrl+p"))):
-			if len(fp.filteredIdx) > 0 {
+			if fp.displayCount() > 0 {
 				fp.cursor--
 				if fp.cursor < 0 {
-					fp.cursor = len(fp.filteredIdx) - 1
+					fp.cursor = fp.displayCount() - 1
 				}
 				fp.ensureVisible()
 			}
@@ -247,18 +266,25 @@ func (fp *FilePicker) handlePathInput(input string) {
 
 // handleEnter handles the enter key
 func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
-	// If input looks like a path, try to use it directly
-	input := fp.input.Value()
-	if strings.HasPrefix(input, "~") || strings.HasPrefix(input, "/") {
-		// Expand and validate
+	// If input looks like a path, try to open it
+	input := strings.TrimSpace(fp.input.Value())
+	if input != "" {
 		path := input
 		if strings.HasPrefix(path, "~") {
 			if home, err := os.UserHomeDir(); err == nil {
 				path = filepath.Join(home, path[1:])
 			}
+		} else if !filepath.IsAbs(path) {
+			path = filepath.Join(fp.currentPath, path)
 		}
 		if info, err := os.Stat(path); err == nil {
 			if info.IsDir() {
+				fp.currentPath = path
+				fp.input.SetValue("")
+				fp.loadDirectory()
+				return fp, nil
+			}
+			if !fp.directoriesOnly {
 				fp.visible = false
 				return fp, func() tea.Msg {
 					return DialogResult{
@@ -271,17 +297,38 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 		}
 	}
 
-	// If we have a selected entry
-	if len(fp.filteredIdx) > 0 && fp.cursor < len(fp.filteredIdx) {
-		entry := fp.entries[fp.filteredIdx[fp.cursor]]
-		newPath := filepath.Join(fp.currentPath, entry.Name())
+	// If cursor is on the "Use this directory" row, select current directory.
+	if fp.cursor == 0 {
+		fp.visible = false
+		return fp, func() tea.Msg {
+			return DialogResult{
+				ID:        fp.id,
+				Confirmed: true,
+				Value:     fp.currentPath,
+			}
+		}
+	}
 
+	// If we have a selected entry, open directories
+	if len(fp.filteredIdx) > 0 && fp.cursor > 0 && fp.cursor-1 < len(fp.filteredIdx) {
+		entry := fp.entries[fp.filteredIdx[fp.cursor-1]]
 		if entry.IsDir() {
-			// Navigate into directory
+			newPath := filepath.Join(fp.currentPath, entry.Name())
 			fp.currentPath = newPath
 			fp.input.SetValue("")
 			fp.loadDirectory()
 			return fp, nil
+		}
+		if !fp.directoriesOnly {
+			selectedPath := filepath.Join(fp.currentPath, entry.Name())
+			fp.visible = false
+			return fp, func() tea.Msg {
+				return DialogResult{
+					ID:        fp.id,
+					Confirmed: true,
+					Value:     selectedPath,
+				}
+			}
 		}
 	}
 
@@ -296,13 +343,49 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 	}
 }
 
+// handleOpenFromInput navigates into the path typed in the input when it is a directory.
+func (fp *FilePicker) handleOpenFromInput() bool {
+	input := strings.TrimSpace(fp.input.Value())
+	if input == "" {
+		return false
+	}
+
+	path := input
+	if strings.HasPrefix(path, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, path[1:])
+		}
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(fp.currentPath, path)
+	}
+
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		fp.currentPath = path
+		fp.input.SetValue("")
+		fp.loadDirectory()
+		return true
+	}
+
+	return false
+}
+
 // ensureVisible scrolls to keep cursor visible
 func (fp *FilePicker) ensureVisible() {
+	total := fp.displayCount()
+	if total == 0 {
+		fp.scrollOffset = 0
+		return
+	}
+
 	if fp.cursor < fp.scrollOffset {
 		fp.scrollOffset = fp.cursor
 	} else if fp.cursor >= fp.scrollOffset+fp.maxVisible {
 		fp.scrollOffset = fp.cursor - fp.maxVisible + 1
 	}
+}
+
+func (fp *FilePicker) displayCount() int {
+	return len(fp.filteredIdx) + 1
 }
 
 // View renders the picker
@@ -332,39 +415,47 @@ func (fp *FilePicker) View() string {
 	content.WriteString("\n\n")
 
 	// Entries
+	totalRows := fp.displayCount()
+	end := min(fp.scrollOffset+fp.maxVisible, totalRows)
+	for i := fp.scrollOffset; i < end; i++ {
+		cursor := "  "
+		if i == fp.cursor {
+			cursor = "> "
+		}
+
+		if i == 0 {
+			label := "Use this directory"
+			style := lipgloss.NewStyle().Foreground(ColorForeground)
+			if i == fp.cursor {
+				style = style.Background(ColorSelection).Bold(true)
+			}
+			content.WriteString(cursor + style.Render(label) + "\n")
+			continue
+		}
+
+		idx := fp.filteredIdx[i-1]
+		entry := fp.entries[idx]
+
+		name := entry.Name()
+		style := lipgloss.NewStyle().Foreground(ColorForeground)
+		if entry.IsDir() {
+			name += "/"
+			style = lipgloss.NewStyle().Foreground(ColorSecondary).Bold(i == fp.cursor)
+		}
+		if i == fp.cursor {
+			style = style.Background(ColorSelection)
+		}
+
+		content.WriteString(cursor + style.Render(name) + "\n")
+	}
+
 	if len(fp.filteredIdx) == 0 {
 		content.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("No matches"))
-	} else {
-		end := min(fp.scrollOffset+fp.maxVisible, len(fp.filteredIdx))
-		for i := fp.scrollOffset; i < end; i++ {
-			idx := fp.filteredIdx[i]
-			entry := fp.entries[idx]
-
-			cursor := "  "
-			if i == fp.cursor {
-				cursor = "> "
-			}
-
-			name := entry.Name()
-			style := lipgloss.NewStyle().Foreground(ColorForeground)
-			if entry.IsDir() {
-				name += "/"
-				style = lipgloss.NewStyle().Foreground(ColorSecondary).Bold(i == fp.cursor)
-			}
-			if i == fp.cursor {
-				style = style.Background(ColorSelection)
-			}
-
-			content.WriteString(cursor + style.Render(name) + "\n")
-		}
-
-		// Scroll indicator
-		if len(fp.filteredIdx) > fp.maxVisible {
-			indicator := lipgloss.NewStyle().Foreground(ColorMuted).Render(
-				fmt.Sprintf("  (%d-%d of %d)", fp.scrollOffset+1, end, len(fp.filteredIdx)),
-			)
-			content.WriteString(indicator)
-		}
+	} else if totalRows > fp.maxVisible {
+		indicator := lipgloss.NewStyle().Foreground(ColorMuted).Render(
+			fmt.Sprintf("  (%d-%d of %d)", fp.scrollOffset+1, end, totalRows),
+		)
+		content.WriteString(indicator)
 	}
 
 	// Help
@@ -372,7 +463,7 @@ func (fp *FilePicker) View() string {
 		Foreground(ColorMuted).
 		MarginTop(1)
 	content.WriteString("\n")
-	content.WriteString(helpStyle.Render("enter: select • esc: cancel • tab: complete • ctrl+h: toggle hidden"))
+	content.WriteString(helpStyle.Render("enter: open • ↑/↓: choose • tab: autocomplete • /: open typed • esc: cancel • ctrl+h: toggle hidden"))
 
 	// Dialog box
 	dialogStyle := lipgloss.NewStyle().
