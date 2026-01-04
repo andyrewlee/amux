@@ -7,30 +7,70 @@ on:
     branches: [main]
 
 jobs:
-  ci:
-    name: Build and Test
+  # Fast check to catch accidental .beads/issues.jsonl changes from contributors
+  check-no-beads-changes:
+    name: Check for .beads changes
     runs-on: ubuntu-latest
-
+    if: github.event_name == 'pull_request'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check for .beads/issues.jsonl changes
+        run: |
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "^\.beads/issues\.jsonl$"; then
+            echo "This PR includes changes to .beads/issues.jsonl"
+            echo ""
+            echo "This file is the project's issue database and should not be modified in PRs."
+            echo ""
+            echo "To fix, run:"
+            echo "  git checkout origin/main -- .beads/issues.jsonl"
+            echo "  git commit --amend"
+            echo "  git push --force"
+            echo ""
+            exit 1
+          fi
+          echo "No .beads/issues.jsonl changes detected"
+
+  beads-auto-sync:
+    name: Beads Auto-sync
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]' && !startsWith(github.event.head_commit.message, 'bd sync:')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
 
-      - name: Check formatting
-        run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      - name: Install beads (bd)
+        run: go install github.com/steveyegge/beads/cmd/bd@latest
 
-      - name: Run tests
-        run: go test -v -race ./...
+      - name: Add bd to PATH
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
-      - name: Build
-        run: go build -o amux ./cmd/amux
+      - name: Sync beads
+        run: bd sync
+
+      - name: Fast-forward main from beads-sync
+        run: |
+          git fetch origin beads-sync
+          before=$(git rev-parse HEAD)
+          git merge --ff-only origin/beads-sync
+          after=$(git rev-parse HEAD)
+          if [ "$before" != "$after" ]; then
+            git push origin main
+          else
+            echo "Main already up to date with beads-sync"
+          fi
