@@ -319,6 +319,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch a.focusedPane {
 
+		case messages.PaneDashboard:
+
+			newDashboard, cmd := a.dashboard.Update(msg)
+
+			a.dashboard = newDashboard
+
+			if cmd != nil {
+
+				cmds = append(cmds, cmd)
+
+			}
+
 		case messages.PaneCenter:
 
 			newCenter, cmd := a.center.Update(msg)
