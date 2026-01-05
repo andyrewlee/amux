@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -414,16 +415,13 @@ func (m *Model) rebuildRows() {
 
 	for i := range m.projects {
 		project := &m.projects[i]
-		existingRoots := make(map[string]bool)
 
 		m.rows = append(m.rows, Row{
 			Type:    RowProject,
 			Project: project,
 		})
 
-		for j := range project.Worktrees {
-			wt := &project.Worktrees[j]
-			existingRoots[wt.Root] = true
+		for _, wt := range m.sortedWorktrees(project) {
 
 			// Hide main branch - users access via project row
 			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
@@ -437,20 +435,6 @@ func (m *Model) rebuildRows() {
 				}
 			}
 
-			m.rows = append(m.rows, Row{
-				Type:     RowWorktree,
-				Project:  project,
-				Worktree: wt,
-			})
-		}
-
-		for _, wt := range m.creatingWorktrees {
-			if wt == nil || wt.Repo != project.Path {
-				continue
-			}
-			if existingRoots[wt.Root] {
-				continue
-			}
 			m.rows = append(m.rows, Row{
 				Type:     RowWorktree,
 				Project:  project,
@@ -473,6 +457,33 @@ func (m *Model) rebuildRows() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+}
+
+func (m *Model) sortedWorktrees(project *data.Project) []*data.Worktree {
+	existingRoots := make(map[string]bool, len(project.Worktrees))
+	worktrees := make([]*data.Worktree, 0, len(project.Worktrees)+len(m.creatingWorktrees))
+
+	for i := range project.Worktrees {
+		wt := &project.Worktrees[i]
+		existingRoots[wt.Root] = true
+		worktrees = append(worktrees, wt)
+	}
+
+	for _, wt := range m.creatingWorktrees {
+		if wt == nil || wt.Repo != project.Path {
+			continue
+		}
+		if existingRoots[wt.Root] {
+			continue
+		}
+		worktrees = append(worktrees, wt)
+	}
+
+	sort.SliceStable(worktrees, func(i, j int) bool {
+		return worktrees[i].Created.After(worktrees[j].Created)
+	})
+
+	return worktrees
 }
 
 // isSelectable returns whether a row type can be selected
