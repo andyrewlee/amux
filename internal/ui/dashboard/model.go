@@ -101,26 +101,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.MouseMsg:
-		if !m.focused {
-			return m, nil
-		}
-
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			idx, ok := m.rowIndexAt(msg.X, msg.Y)
-			if !ok {
-				return m, nil
-			}
-			if idx < 0 || idx >= len(m.rows) {
-				return m, nil
-			}
-			if !isSelectable(m.rows[idx].Type) {
-				return m, nil
-			}
-			m.cursor = idx
-			return m, m.handleEnter()
-		}
-
 	case tea.KeyMsg:
 		if !m.focused {
 			return m, nil
@@ -171,8 +151,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			case tea.MouseButtonWheelDown:
 				m.moveCursor(1)
 			case tea.MouseButtonLeft:
-				rowIdx, ok := m.rowIndexAt(localY)
+				rowIdx, ok := m.rowIndexAt(localX, localY)
 				if !ok {
+					return m, nil
+				}
+				if rowIdx < 0 || rowIdx >= len(m.rows) {
+					return m, nil
+				}
+				if !isSelectable(m.rows[rowIdx].Type) {
 					return m, nil
 				}
 				m.cursor = rowIdx
@@ -261,7 +247,26 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 
 	// Calculate visible area (inner height minus header + help)
-	_, visibleHeight := m.layoutHeights()
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	headerHeight := 1 // trailing blank line
+	if m.filterDirty {
+		headerHeight++
+	}
+	keys := m.helpKeys()
+	// Calculate help height based on content width (pane width minus border and padding)
+	contentWidth := m.width - 4
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	helpText := helpTextFromKeys(keys)
+	helpHeight := calcHelpHeight(contentWidth, helpText)
+	visibleHeight := innerHeight - headerHeight - helpHeight
+	if visibleHeight < 1 {
+		visibleHeight = 1
+	}
 
 	// Adjust scroll offset to keep cursor visible
 	if m.cursor < m.scrollOffset {
@@ -286,21 +291,18 @@ func (m *Model) View() string {
 
 	// Help bar with styled keys
 	helpItems := []string{
-		m.styles.HelpKey.Render(keymap.PairHint(m.keymap.DashboardDown, m.keymap.DashboardUp)) + m.styles.HelpDesc.Render(":nav"),
-		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardEnter)) + m.styles.HelpDesc.Render(":select"),
-		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardNewWorktree)) + m.styles.HelpDesc.Render(":new"),
-		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardDelete)) + m.styles.HelpDesc.Render(":delete"),
-		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardToggle)) + m.styles.HelpDesc.Render(":filter"),
-		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardRefresh)) + m.styles.HelpDesc.Render(":refresh"),
+		m.styles.HelpKey.Render(keys.nav) + m.styles.HelpDesc.Render(":nav"),
+		m.styles.HelpKey.Render(keys.selectKey) + m.styles.HelpDesc.Render(":select"),
+		m.styles.HelpKey.Render(keys.newKey) + m.styles.HelpDesc.Render(":new"),
+		m.styles.HelpKey.Render(keys.deleteKey) + m.styles.HelpDesc.Render(":delete"),
+		m.styles.HelpKey.Render(keys.filterKey) + m.styles.HelpDesc.Render(":filter"),
+		m.styles.HelpKey.Render(keys.refreshKey) + m.styles.HelpDesc.Render(":refresh"),
+		m.styles.HelpKey.Render(keys.monitorKey) + m.styles.HelpDesc.Render(":monitor"),
+		m.styles.HelpKey.Render(keys.helpKey) + m.styles.HelpDesc.Render(":help"),
 	}
 	help := strings.Join(helpItems, "  ")
 
 	// Pad to the inner pane height (border excluded), reserving the help line.
-	innerHeight := m.height - 2
-	if innerHeight < 0 {
-		innerHeight = 0
-	}
-	helpHeight := 1
 	contentHeight := strings.Count(b.String(), "\n") + 1
 	targetHeight := innerHeight - helpHeight
 	if targetHeight < 0 {
@@ -318,35 +320,6 @@ func (m *Model) View() string {
 	}
 
 	return style.Width(m.width - 2).Render(b.String())
-}
-
-func (m *Model) layoutHeights() (headerHeight int, visibleHeight int) {
-	innerHeight := m.height - 2
-	if innerHeight < 0 {
-		innerHeight = 0
-	}
-	headerHeight = 1 // trailing blank line
-	if m.filterDirty {
-		headerHeight++
-	}
-	helpHeight := 1
-	visibleHeight = innerHeight - headerHeight - helpHeight
-	if visibleHeight < 1 {
-		visibleHeight = 1
-	}
-	return headerHeight, visibleHeight
-}
-
-func (m *Model) rowIndexAt(y int) (int, bool) {
-	headerHeight, visibleHeight := m.layoutHeights()
-	if y < headerHeight || y >= headerHeight+visibleHeight {
-		return -1, false
-	}
-	idx := m.scrollOffset + (y - headerHeight)
-	if idx < 0 || idx >= len(m.rows) {
-		return -1, false
-	}
-	return idx, true
 }
 
 // renderRow renders a single dashboard row
@@ -574,6 +547,54 @@ func (m *Model) moveCursor(delta int) {
 	}
 }
 
+type dashboardHelpKeys struct {
+	nav        string
+	selectKey  string
+	newKey     string
+	deleteKey  string
+	filterKey  string
+	refreshKey string
+	monitorKey string
+	helpKey    string
+}
+
+func (m *Model) helpKeys() dashboardHelpKeys {
+	return dashboardHelpKeys{
+		nav:        keymap.PairHint(m.keymap.DashboardDown, m.keymap.DashboardUp),
+		selectKey:  keymap.PrimaryKey(m.keymap.DashboardEnter),
+		newKey:     keymap.PrimaryKey(m.keymap.DashboardNewWorktree),
+		deleteKey:  keymap.PrimaryKey(m.keymap.DashboardDelete),
+		filterKey:  keymap.PrimaryKey(m.keymap.DashboardToggle),
+		refreshKey: keymap.PrimaryKey(m.keymap.DashboardRefresh),
+		monitorKey: keymap.LeaderSequenceHint(m.keymap, m.keymap.MonitorToggle),
+		helpKey:    keymap.LeaderSequenceHint(m.keymap, m.keymap.Help),
+	}
+}
+
+func helpTextFromKeys(keys dashboardHelpKeys) string {
+	return strings.Join([]string{
+		keys.nav + ":nav",
+		keys.selectKey + ":select",
+		keys.newKey + ":new",
+		keys.deleteKey + ":delete",
+		keys.filterKey + ":filter",
+		keys.refreshKey + ":refresh",
+		keys.monitorKey + ":monitor",
+		keys.helpKey + ":help",
+	}, "  ")
+}
+
+func calcHelpHeight(contentWidth int, helpText string) int {
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	height := (len(helpText) + contentWidth - 1) / contentWidth
+	if height < 1 {
+		height = 1
+	}
+	return height
+}
+
 func rowLineCount(row Row) int {
 	switch row.Type {
 	case RowProject:
@@ -583,15 +604,15 @@ func rowLineCount(row Row) int {
 	}
 }
 
-func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
+func (m *Model) rowIndexAt(localX, localY int) (int, bool) {
 	borderTop := 1
 	borderLeft := 1
 	borderRight := 1
 	paddingLeft := 1
 	paddingRight := 1
 
-	contentX := screenX - borderLeft - paddingLeft
-	contentY := screenY - borderTop
+	contentX := localX - borderLeft - paddingLeft
+	contentY := localY - borderTop
 
 	contentWidth := m.width - (borderLeft + borderRight + paddingLeft + paddingRight)
 	innerHeight := m.height - 2
@@ -609,7 +630,7 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	if m.filterDirty {
 		headerHeight++
 	}
-	helpHeight := 1
+	helpHeight := calcHelpHeight(contentWidth, helpTextFromKeys(m.helpKeys()))
 	rowAreaHeight := innerHeight - headerHeight - helpHeight
 	if rowAreaHeight < 1 {
 		rowAreaHeight = 1
