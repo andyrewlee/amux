@@ -2,6 +2,7 @@ package keymapeditor
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -67,10 +68,14 @@ type Editor struct {
 	styles common.Styles
 	keymap keymap.KeyMap
 
-	overrides map[string][]string
-	entries   []entry
-	cursor    int
-	scroll    int
+	overrides      map[string][]string
+	entries        []entry
+	visibleEntries []int
+	cursor         int
+	scroll         int
+
+	filtering   bool
+	filterInput textinput.Model
 
 	editing bool
 	input   textinput.Model
@@ -87,8 +92,9 @@ func New(km keymap.KeyMap, cfg config.KeyMapConfig) *Editor {
 		styles:    common.DefaultStyles(),
 		overrides: cloneBindings(cfg.Bindings),
 	}
-	editor.SetKeyMap(km, cfg)
 	editor.initInput()
+	editor.initFilter()
+	editor.SetKeyMap(km, cfg)
 	return editor
 }
 
@@ -98,14 +104,20 @@ func (e *Editor) initInput() {
 	e.input.Placeholder = "ctrl+space, ctrl+@"
 }
 
+func (e *Editor) initFilter() {
+	e.filterInput = textinput.New()
+	e.filterInput.Prompt = ""
+	e.filterInput.Placeholder = " / to filter"
+	e.filterInput.Blur()
+}
+
 // SetKeyMap updates the editor's keymap and overrides.
 func (e *Editor) SetKeyMap(km keymap.KeyMap, cfg config.KeyMapConfig) {
 	e.keymap = km
 	e.overrides = cloneBindings(cfg.Bindings)
 	e.entries = buildEntries()
-	if !isSelectableEntry(e.cursor, e.entries) {
-		e.cursor = firstSelectableEntry(e.entries)
-	}
+	e.updateFilter()
+	e.ensureCursorValid()
 }
 
 // Show displays the editor.
@@ -113,9 +125,11 @@ func (e *Editor) Show(km keymap.KeyMap, cfg config.KeyMapConfig) {
 	e.visible = true
 	e.SetKeyMap(km, cfg)
 	e.scroll = 0
-	e.cursor = firstSelectableEntry(e.entries)
+	e.cursor = 0
 	e.editing = false
 	e.errMsg = ""
+	e.filtering = false
+	e.filterInput.Blur()
 }
 
 // Hide hides the editor.
@@ -174,6 +188,25 @@ func (e *Editor) handleKey(msg tea.KeyMsg) (*Editor, tea.Cmd) {
 		return e, cmd
 	}
 
+	if e.filtering {
+		switch {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))),
+			key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+			e.filtering = false
+			e.filterInput.Blur()
+			return e, nil
+		}
+
+		prev := e.filterInput.Value()
+		var cmd tea.Cmd
+		e.filterInput, cmd = e.filterInput.Update(msg)
+		if e.filterInput.Value() != prev {
+			e.updateFilter()
+			e.ensureCursorValid()
+		}
+		return e, cmd
+	}
+
 	switch {
 	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 		e.Hide()
@@ -188,6 +221,9 @@ func (e *Editor) handleKey(msg tea.KeyMsg) (*Editor, tea.Cmd) {
 		return e, e.resetCurrent()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("R"))):
 		return e, e.resetAll()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
+		e.filtering = true
+		e.filterInput.Focus()
 	}
 
 	return e, nil
@@ -212,8 +248,14 @@ func (e *Editor) handleMouse(msg tea.MouseMsg) (*Editor, tea.Cmd) {
 	}
 
 	_, _, listHeight, listStart, _ := e.layout()
+	filterLineY := listStart - 1
 
 	if msg.Button == tea.MouseButtonLeft {
+		if contentY == filterLineY {
+			e.filtering = true
+			e.filterInput.Focus()
+			return e, nil
+		}
 		for _, btn := range e.buttons {
 			if contentY == btn.y && contentX >= btn.x0 && contentX < btn.x1 {
 				switch btn.id {
@@ -234,10 +276,11 @@ func (e *Editor) handleMouse(msg tea.MouseMsg) (*Editor, tea.Cmd) {
 	}
 
 	index := e.scroll + (contentY - listStart)
-	if index < 0 || index >= len(e.entries) {
+	if index < 0 || index >= len(e.visibleEntries) {
 		return e, nil
 	}
-	if e.entries[index].kind != entryAction {
+	entryIndex := e.visibleEntries[index]
+	if e.entries[entryIndex].kind != entryAction {
 		return e, nil
 	}
 
@@ -253,10 +296,10 @@ func (e *Editor) handleMouse(msg tea.MouseMsg) (*Editor, tea.Cmd) {
 }
 
 func (e *Editor) startEditing() {
-	if !isSelectableEntry(e.cursor, e.entries) {
+	entry, ok := e.currentEntry()
+	if !ok || entry.kind != entryAction {
 		return
 	}
-	entry := e.entries[e.cursor]
 	current := bindingHint(keymap.BindingForAction(e.keymap, entry.action))
 	e.editing = true
 	e.errMsg = ""
@@ -266,7 +309,10 @@ func (e *Editor) startEditing() {
 }
 
 func (e *Editor) applyInput() tea.Cmd {
-	entry := e.entries[e.cursor]
+	entry, ok := e.currentEntry()
+	if !ok {
+		return nil
+	}
 	keys := parseKeys(e.input.Value())
 	if len(keys) == 0 {
 		e.errMsg = "Enter at least one key (use commas to separate)"
@@ -282,10 +328,11 @@ func (e *Editor) applyInput() tea.Cmd {
 }
 
 func (e *Editor) resetCurrent() tea.Cmd {
-	if !isSelectableEntry(e.cursor, e.entries) {
+	entry, ok := e.currentEntry()
+	if !ok || entry.kind != entryAction {
 		return nil
 	}
-	actionKey := string(e.entries[e.cursor].action)
+	actionKey := string(entry.action)
 	delete(e.overrides, actionKey)
 	e.rebuildKeymap()
 	return e.emitUpdate()
@@ -311,12 +358,12 @@ func (e *Editor) emitUpdate() tea.Cmd {
 }
 
 func (e *Editor) moveCursor(delta int) {
-	if len(e.entries) == 0 {
+	if len(e.visibleEntries) == 0 {
 		return
 	}
 	next := e.cursor + delta
-	for next >= 0 && next < len(e.entries) {
-		if e.entries[next].kind == entryAction {
+	for next >= 0 && next < len(e.visibleEntries) {
+		if e.entries[e.visibleEntries[next]].kind == entryAction {
 			e.cursor = next
 			e.ensureVisible()
 			return
@@ -361,27 +408,59 @@ func (e *Editor) View() string {
 		Foreground(common.ColorMuted).
 		Render("Tip: change Leader if Ctrl+Space doesn't work")
 
-	lines := []string{title, subtitle, ansi.Truncate(tip, contentWidth, "")}
+	filterLabel := lipgloss.NewStyle().
+		Foreground(common.ColorMuted).
+		Render("Filter: ")
+	filterWidth := contentWidth - lipgloss.Width(filterLabel)
+	if filterWidth < 6 {
+		filterWidth = 6
+	}
+	e.filterInput.Width = filterWidth
+	filterLine := filterLabel + e.filterInput.View()
 
-	for i := 0; i < listHeight; i++ {
-		idx := e.scroll + i
-		if idx >= len(e.entries) {
+	lines := []string{
+		title,
+		subtitle,
+		ansi.Truncate(tip, contentWidth, ""),
+		ansi.Truncate(filterLine, contentWidth, ""),
+	}
+
+	if len(e.visibleEntries) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(common.ColorMuted).Render("No matches"))
+		for i := 1; i < listHeight; i++ {
 			lines = append(lines, "")
-			continue
 		}
-		lines = append(lines, e.renderEntry(idx, contentWidth))
+	} else {
+		for i := 0; i < listHeight; i++ {
+			idx := e.scroll + i
+			if idx >= len(e.visibleEntries) {
+				lines = append(lines, "")
+				continue
+			}
+			entryIndex := e.visibleEntries[idx]
+			lines = append(lines, e.renderEntry(entryIndex, contentWidth, idx == e.cursor))
+		}
+	}
+
+	warnings := e.warningLines(4)
+	if len(warnings) > 0 {
+		for _, warning := range warnings {
+			lines = append(lines, ansi.Truncate(warning, contentWidth, ""))
+		}
 	}
 
 	if e.editing {
-		entry := e.entries[e.cursor]
-		label := fmt.Sprintf("Keys for %s:", entry.label)
-		lines = append(lines, "")
-		lines = append(lines, ansi.Truncate(label, contentWidth, ""))
-		e.input.Width = contentWidth
-		lines = append(lines, ansi.Truncate(e.input.View(), contentWidth, ""))
-		if e.errMsg != "" {
-			errLine := lipgloss.NewStyle().Foreground(common.ColorError).Render(e.errMsg)
-			lines = append(lines, ansi.Truncate(errLine, contentWidth, ""))
+		entry, ok := e.currentEntry()
+		if ok {
+			label := fmt.Sprintf("Keys for %s:", entry.label)
+			lines = append(lines, "")
+			lines = append(lines, ansi.Truncate(label, contentWidth, ""))
+			e.input.Width = contentWidth
+			lines = append(lines, ansi.Truncate(e.input.View(), contentWidth, ""))
+			if e.errMsg != "" {
+				errLine := lipgloss.NewStyle().Foreground(common.ColorError).Render(e.errMsg)
+				lines = append(lines, ansi.Truncate(errLine, contentWidth, ""))
+			}
 		}
 	} else if e.errMsg != "" {
 		lines = append(lines, "")
@@ -403,7 +482,7 @@ func (e *Editor) View() string {
 	return content
 }
 
-func (e *Editor) renderEntry(index int, contentWidth int) string {
+func (e *Editor) renderEntry(index int, contentWidth int, selected bool) string {
 	entry := e.entries[index]
 	switch entry.kind {
 	case entryHeader:
@@ -429,7 +508,7 @@ func (e *Editor) renderEntry(index int, contentWidth int) string {
 		keyCell := keyStyle.Render(padRight(keys, keyWidth))
 		line := keyCell + " " + entry.label
 		line = ansi.Truncate(line, contentWidth, "")
-		if index == e.cursor {
+		if selected {
 			return e.styles.SelectedRow.Render(line)
 		}
 		return line
@@ -488,7 +567,7 @@ func (e *Editor) layout() (boxWidth int, boxHeight int, listHeight int, listStar
 		boxHeight = maxHeight
 	}
 
-	headerLines := 3
+	headerLines := 4
 	inputLines := 0
 	if e.editing {
 		inputLines = 3
@@ -498,21 +577,173 @@ func (e *Editor) layout() (boxWidth int, boxHeight int, listHeight int, listStar
 	} else if e.errMsg != "" {
 		inputLines = 2
 	}
+	warningLines := e.warningCount(4)
 	footerLines := 2
 
-	listHeight = boxHeight - headerLines - inputLines - footerLines
+	listHeight = boxHeight - headerLines - inputLines - warningLines - footerLines
 	if listHeight < 3 {
 		listHeight = 3
 	}
 
 	listStart = headerLines
-	footerY = listStart + listHeight + inputLines + 1
+	footerY = listStart + listHeight + inputLines + warningLines + 1
 	return boxWidth, boxHeight, listHeight, listStart, footerY
 }
 
 func (e *Editor) hasOverride(action keymap.Action) bool {
 	_, ok := e.overrides[string(action)]
 	return ok
+}
+
+func (e *Editor) updateFilter() {
+	query := strings.ToLower(strings.TrimSpace(e.filterInput.Value()))
+	e.visibleEntries = e.visibleEntries[:0]
+	if query == "" {
+		for i := range e.entries {
+			e.visibleEntries = append(e.visibleEntries, i)
+		}
+		e.scroll = 0
+		return
+	}
+
+	for i, entry := range e.entries {
+		if entry.kind != entryAction {
+			continue
+		}
+		if strings.Contains(strings.ToLower(entry.label), query) ||
+			strings.Contains(strings.ToLower(string(entry.action)), query) {
+			e.visibleEntries = append(e.visibleEntries, i)
+		}
+	}
+	e.scroll = 0
+}
+
+func (e *Editor) ensureCursorValid() {
+	if len(e.visibleEntries) == 0 {
+		e.cursor = 0
+		e.scroll = 0
+		return
+	}
+	if e.cursor >= len(e.visibleEntries) {
+		e.cursor = len(e.visibleEntries) - 1
+	}
+	if e.cursor < 0 {
+		e.cursor = 0
+	}
+	if e.entries[e.visibleEntries[e.cursor]].kind == entryAction {
+		e.ensureVisible()
+		return
+	}
+	for i, idx := range e.visibleEntries {
+		if e.entries[idx].kind == entryAction {
+			e.cursor = i
+			e.ensureVisible()
+			return
+		}
+	}
+	e.cursor = 0
+	e.scroll = 0
+}
+
+func (e *Editor) currentEntry() (entry, bool) {
+	if len(e.visibleEntries) == 0 || e.cursor < 0 || e.cursor >= len(e.visibleEntries) {
+		return entry{}, false
+	}
+	return e.entries[e.visibleEntries[e.cursor]], true
+}
+
+func (e *Editor) warningCount(limit int) int {
+	lines := e.warningLines(limit)
+	if len(lines) == 0 {
+		return 0
+	}
+	return len(lines)
+}
+
+func (e *Editor) warningLines(limit int) []string {
+	warnings := e.validationWarnings()
+	if len(warnings) == 0 {
+		return nil
+	}
+	if limit > 0 && len(warnings) > limit {
+		remaining := len(warnings) - limit
+		warnings = warnings[:limit]
+		warnings = append(warnings, fmt.Sprintf("…and %d more", remaining))
+	}
+	out := make([]string, 0, len(warnings)+1)
+	out = append(out, lipgloss.NewStyle().Foreground(common.ColorWarning).Render("Warnings:"))
+	out = append(out, warnings...)
+	return out
+}
+
+func (e *Editor) validationWarnings() []string {
+	infos := keymap.ActionInfos()
+	keyToActions := make(map[string]map[string][]string)
+
+	for _, info := range infos {
+		binding := keymap.BindingForAction(e.keymap, info.Action)
+		for _, keyName := range binding.Keys() {
+			if keyName == "" {
+				continue
+			}
+			normalized := strings.ToLower(keyName)
+			groupMap := keyToActions[normalized]
+			if groupMap == nil {
+				groupMap = make(map[string][]string)
+				keyToActions[normalized] = groupMap
+			}
+			groupMap[info.Group] = append(groupMap[info.Group], info.Desc)
+		}
+	}
+
+	var warnings []string
+
+	leaderBinding := keymap.BindingForAction(e.keymap, keymap.ActionLeader)
+	for _, keyName := range leaderBinding.Keys() {
+		if keyName == "" {
+			continue
+		}
+		if isRiskyLeaderKey(keyName) {
+			warnings = append(warnings, fmt.Sprintf("Leader '%s' may conflict with terminal input", keyName))
+		}
+	}
+
+	var dupEntries []string
+	for keyName, groups := range keyToActions {
+		for group, actions := range groups {
+			if len(actions) > 1 {
+				entry := keyName + "|" + group + "|" + strings.Join(uniqueStrings(actions), ", ")
+				dupEntries = append(dupEntries, entry)
+			}
+		}
+	}
+	sort.Strings(dupEntries)
+	for _, entry := range dupEntries {
+		parts := strings.SplitN(entry, "|", 3)
+		if len(parts) == 3 {
+			warnings = append(warnings, fmt.Sprintf("Duplicate '%s' in %s: %s", parts[0], parts[1], parts[2]))
+		}
+	}
+
+	var reservedKeys []string
+	for keyName, groups := range keyToActions {
+		var actions []string
+		for _, groupActions := range groups {
+			actions = append(actions, groupActions...)
+		}
+		if isTerminalReservedKey(keyName) {
+			reservedKeys = append(reservedKeys, keyName+"|"+strings.Join(uniqueStrings(actions), ", "))
+		}
+	}
+	sort.Strings(reservedKeys)
+	for _, item := range reservedKeys {
+		parts := strings.SplitN(item, "|", 2)
+		if len(parts) == 2 {
+			warnings = append(warnings, fmt.Sprintf("Terminal key '%s' bound to %s", parts[0], parts[1]))
+		}
+	}
+
+	return warnings
 }
 
 func buildEntries() []entry {
@@ -602,4 +833,60 @@ func cloneBindings(input map[string][]string) map[string][]string {
 		out[key] = clone
 	}
 	return out
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	var out []string
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func isTerminalReservedKey(keyName string) bool {
+	keyName = strings.ToLower(strings.TrimSpace(keyName))
+	switch keyName {
+	case "ctrl+c",
+		"ctrl+d",
+		"ctrl+z",
+		"ctrl+\\",
+		"ctrl+s",
+		"ctrl+q",
+		"ctrl+r",
+		"ctrl+w",
+		"ctrl+u",
+		"ctrl+a",
+		"ctrl+e",
+		"ctrl+k",
+		"ctrl+l":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRiskyLeaderKey(keyName string) bool {
+	keyName = strings.ToLower(strings.TrimSpace(keyName))
+	if keyName == "" {
+		return false
+	}
+	if isTerminalReservedKey(keyName) {
+		return true
+	}
+	if strings.HasPrefix(keyName, "ctrl+") || strings.HasPrefix(keyName, "alt+") || strings.HasPrefix(keyName, "shift+") {
+		return false
+	}
+	if strings.HasPrefix(keyName, "meta+") || strings.HasPrefix(keyName, "cmd+") {
+		return false
+	}
+	if len(keyName) == 1 {
+		return true
+	}
+	return keyName == "space"
 }
