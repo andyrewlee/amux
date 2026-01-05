@@ -239,15 +239,31 @@ func (p *Parser) pushParam() {
 	if p.paramBuf.Len() > 0 {
 		s := p.paramBuf.String()
 		// Handle sub-parameters (colon-separated values like "38:2:255:128:0")
+		// Only expand sequences we understand to avoid misinterpreting sub-params
+		// (e.g. underline color) as standalone SGR codes.
 		if strings.Contains(s, ":") {
 			parts := strings.Split(s, ":")
-			for _, part := range parts {
-				if part == "" {
-					p.params = append(p.params, 0)
-				} else {
-					val, _ := strconv.Atoi(part)
-					p.params = append(p.params, val)
+			base, _ := strconv.Atoi(parts[0])
+			switch base {
+			case 38, 48:
+				for _, part := range parts {
+					if part == "" {
+						p.params = append(p.params, 0)
+					} else {
+						val, _ := strconv.Atoi(part)
+						p.params = append(p.params, val)
+					}
 				}
+			case 4:
+				// 4:0 disables underline; other 4:x variants enable it.
+				if len(parts) > 1 && parts[1] == "0" {
+					p.params = append(p.params, 24)
+				} else {
+					p.params = append(p.params, 4)
+				}
+			default:
+				// Ignore sub-params; keep only the base code.
+				p.params = append(p.params, base)
 			}
 		} else {
 			val, _ := strconv.Atoi(s)

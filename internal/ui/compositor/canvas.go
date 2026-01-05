@@ -161,15 +161,6 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 			if targetX < 0 || targetY < 0 || targetX >= c.Width || targetY >= c.Height {
 				continue
 			}
-			// Resolve default colors to the canvas baseline so terminal defaults
-			// match the pane theme instead of the outer terminal.
-			baseStyle := c.Cells[targetY][targetX].Style
-			if cell.Style.Fg.Type == vterm.ColorDefault {
-				cell.Style.Fg = baseStyle.Fg
-			}
-			if cell.Style.Bg.Type == vterm.ColorDefault {
-				cell.Style.Bg = baseStyle.Bg
-			}
 			c.SetCell(targetX, targetY, cell)
 		}
 	}
