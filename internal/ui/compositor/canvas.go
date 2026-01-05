@@ -195,6 +195,12 @@ func (c *Canvas) Render() string {
 				continue
 			}
 			style := cell.Style
+			if style.Underline && (cell.Rune == 0 || cell.Rune == ' ') &&
+				!style.Bold && !style.Dim && !style.Italic && !style.Blink &&
+				!style.Reverse && !style.Hidden && !style.Strike &&
+				style.Fg.Type == vterm.ColorDefault && style.Bg.Type == vterm.ColorDefault {
+				style.Underline = false
+			}
 			if style != lastStyle {
 				b.WriteString(vterm.StyleToANSI(style))
 				lastStyle = style
