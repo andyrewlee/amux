@@ -91,6 +91,26 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		if !m.focused {
+			return m, nil
+		}
+
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			idx, ok := m.rowIndexAt(msg.X, msg.Y)
+			if !ok {
+				return m, nil
+			}
+			if idx < 0 || idx >= len(m.rows) {
+				return m, nil
+			}
+			if !isSelectable(m.rows[idx].Type) {
+				return m, nil
+			}
+			m.cursor = idx
+			return m, m.handleEnter()
+		}
+
 	case tea.KeyMsg:
 		if !m.focused {
 			return m, nil
@@ -486,6 +506,67 @@ func (m *Model) moveCursor(delta int) {
 	if newCursor != -1 {
 		m.cursor = newCursor
 	}
+}
+
+func rowLineCount(row Row) int {
+	switch row.Type {
+	case RowProject:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
+	borderTop := 1
+	borderLeft := 1
+	borderRight := 1
+	paddingLeft := 1
+	paddingRight := 1
+
+	contentX := screenX - borderLeft - paddingLeft
+	contentY := screenY - borderTop
+
+	contentWidth := m.width - (borderLeft + borderRight + paddingLeft + paddingRight)
+	innerHeight := m.height - 2
+	if contentWidth <= 0 || innerHeight <= 0 {
+		return -1, false
+	}
+	if contentX < 0 || contentX >= contentWidth {
+		return -1, false
+	}
+	if contentY < 0 || contentY >= innerHeight {
+		return -1, false
+	}
+
+	headerHeight := 1 // trailing blank line
+	if m.filterDirty {
+		headerHeight++
+	}
+	helpHeight := 1
+	rowAreaHeight := innerHeight - headerHeight - helpHeight
+	if rowAreaHeight < 1 {
+		rowAreaHeight = 1
+	}
+
+	if contentY < headerHeight || contentY >= headerHeight+rowAreaHeight {
+		return -1, false
+	}
+
+	rowY := contentY - headerHeight
+	line := 0
+	for i := m.scrollOffset; i < len(m.rows); i++ {
+		if line >= rowAreaHeight {
+			break
+		}
+		rowLines := rowLineCount(m.rows[i])
+		if rowY < line+rowLines {
+			return i, true
+		}
+		line += rowLines
+	}
+
+	return -1, false
 }
 
 // toggleFilter toggles the dirty filter
