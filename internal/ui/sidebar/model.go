@@ -10,6 +10,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/keymap"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -29,12 +30,15 @@ type Model struct {
 
 	// Styles
 	styles common.Styles
+
+	keymap keymap.KeyMap
 }
 
 // New creates a new sidebar model
-func New() *Model {
+func New(km keymap.KeyMap) *Model {
 	return &Model{
 		styles: common.DefaultStyles(),
+		keymap: km,
 	}
 }
 
@@ -54,11 +58,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("j", "down"))):
+		case key.Matches(msg, m.keymap.SidebarDown):
 			m.moveCursor(1)
-		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
+		case key.Matches(msg, m.keymap.SidebarUp):
 			m.moveCursor(-1)
-		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
+		case key.Matches(msg, m.keymap.SidebarRefresh):
 			cmds = append(cmds, m.refreshStatus())
 		}
 	}
@@ -75,7 +79,8 @@ func (m *Model) View() string {
 
 	// Help bar
 	helpItems := []string{
-		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
+		m.styles.HelpKey.Render(keymap.PairHint(m.keymap.SidebarDown, m.keymap.SidebarUp)) + m.styles.HelpDesc.Render(":nav"),
+		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.SidebarRefresh)) + m.styles.HelpDesc.Render(":refresh"),
 	}
 
 	// Padding

@@ -37,3 +37,27 @@ Example configuration:
 ```
 
 This will run the specified commands in each new worktree after creation.
+
+## Keymap Configuration
+
+You can override keybindings in `~/.amux/config.json`:
+
+```json
+{
+  "keymap": {
+    "bindings": {
+      "leader": ["ctrl+space"],
+      "tab_next": ["t"],
+      "tab_prev": ["T"],
+      "tab_new": ["n"],
+      "tab_close": ["x"],
+      "focus_left": ["h"],
+      "focus_right": ["l"],
+      "focus_up": ["k"],
+      "focus_down": ["j"]
+    }
+  }
+}
+```
+
+Any actions you don't specify keep their defaults. See `internal/keymap/keymap.go` for the full list of action IDs.

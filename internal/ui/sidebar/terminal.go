@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/keymap"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
@@ -27,6 +27,7 @@ const (
 	ptyFlushQuietAlt    = 30 * time.Millisecond
 	ptyFlushMaxAlt      = 120 * time.Millisecond
 	ptyFlushChunkSize   = 32 * 1024
+	mouseWheelScroll    = 3
 )
 
 // SelectionState tracks mouse selection state
@@ -59,23 +60,6 @@ type TerminalState struct {
 	Selection SelectionState
 }
 
-// terminalKeyMap holds pre-allocated key bindings for the terminal
-type terminalKeyMap struct {
-	ScrollUp   key.Binding
-	ScrollDown key.Binding
-	Home       key.Binding
-	End        key.Binding
-}
-
-func newTerminalKeyMap() terminalKeyMap {
-	return terminalKeyMap{
-		ScrollUp:   key.NewBinding(key.WithKeys("ctrl+u")),
-		ScrollDown: key.NewBinding(key.WithKeys("ctrl+d")),
-		Home:       key.NewBinding(key.WithKeys("home")),
-		End:        key.NewBinding(key.WithKeys("end")),
-	}
-}
-
 // TerminalModel is the Bubbletea model for the sidebar terminal section
 type TerminalModel struct {
 	// State per worktree
@@ -97,16 +81,15 @@ type TerminalModel struct {
 	// Rendering
 	terminalCanvas *compositor.Canvas
 
-	// Pre-allocated key bindings
-	keys terminalKeyMap
+	keymap keymap.KeyMap
 }
 
 // NewTerminalModel creates a new sidebar terminal model
-func NewTerminalModel() *TerminalModel {
+func NewTerminalModel(km keymap.KeyMap) *TerminalModel {
 	return &TerminalModel{
 		terminals: make(map[string]*TerminalState),
 		styles:    common.DefaultStyles(),
-		keys:      newTerminalKeyMap(),
+		keymap:    km,
 	}
 }
 
@@ -160,6 +143,17 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		ts := m.getTerminal()
 		if ts == nil {
 			return m, nil
+		}
+
+		if msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m.ScrollLines(1, mouseWheelScroll)
+				return m, nil
+			case tea.MouseButtonWheelDown:
+				m.ScrollLines(-1, mouseWheelScroll)
+				return m, nil
+			}
 		}
 
 		termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
@@ -267,71 +261,19 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle scroll keys
-		switch {
-		case msg.Type == tea.KeyPgUp:
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(ts.VTerm.Height / 2)
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		case msg.Type == tea.KeyPgDown:
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(-ts.VTerm.Height / 2)
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		case key.Matches(msg, m.keys.ScrollUp):
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(ts.VTerm.Height / 2)
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		case key.Matches(msg, m.keys.ScrollDown):
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(-ts.VTerm.Height / 2)
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		case key.Matches(msg, m.keys.Home):
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollViewToTop()
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		case key.Matches(msg, m.keys.End):
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollViewToBottom()
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		default:
-			// If scrolled, any typing goes back to live and sends key
-			ts.mu.Lock()
-			if ts.VTerm != nil && ts.VTerm.IsScrolled() {
-				ts.VTerm.ScrollViewToBottom()
-			}
-			ts.mu.Unlock()
-
-			// Send input to terminal
-			input := common.KeyToBytes(msg)
-			if len(input) > 0 {
-				_ = ts.Terminal.SendString(string(input))
-			}
-			return m, nil
+		// If scrolled, any typing goes back to live and sends key
+		ts.mu.Lock()
+		if ts.VTerm != nil && ts.VTerm.IsScrolled() {
+			ts.VTerm.ScrollViewToBottom()
 		}
+		ts.mu.Unlock()
+
+		// Send input to terminal
+		input := common.KeyToBytes(msg)
+		if len(input) > 0 {
+			_ = ts.Terminal.SendString(string(input))
+		}
+		return m, nil
 
 	case messages.SidebarPTYOutput:
 		wtID := msg.WorktreeID
@@ -459,8 +401,9 @@ func (m *TerminalModel) View() string {
 
 	// Help bar
 	helpItems := []string{
-		m.styles.HelpKey.Render("^u/d") + m.styles.HelpDesc.Render(":scroll"),
-		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
+		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.ScrollUpHalf, m.keymap.ScrollDownHalf)) + m.styles.HelpDesc.Render(":scroll"),
+		m.styles.HelpKey.Render("wheel") + m.styles.HelpDesc.Render(":scroll"),
+		m.styles.HelpKey.Render("ctrl+c") + m.styles.HelpDesc.Render(":interrupt"),
 	}
 	help := strings.Join(helpItems, "  ")
 
@@ -524,6 +467,42 @@ func (m *TerminalModel) SetSize(width, height int) {
 		}
 		ts.mu.Unlock()
 	}
+}
+
+// ScrollHalf scrolls the sidebar terminal by half a page.
+func (m *TerminalModel) ScrollHalf(delta int) {
+	if delta == 0 {
+		return
+	}
+	ts := m.getTerminal()
+	if ts == nil {
+		return
+	}
+	ts.mu.Lock()
+	if ts.VTerm != nil {
+		lines := ts.VTerm.Height / 2
+		if lines < 1 {
+			lines = 1
+		}
+		ts.VTerm.ScrollView(lines * delta)
+	}
+	ts.mu.Unlock()
+}
+
+// ScrollLines scrolls the sidebar terminal by a fixed number of lines.
+func (m *TerminalModel) ScrollLines(delta int, lines int) {
+	if delta == 0 || lines <= 0 {
+		return
+	}
+	ts := m.getTerminal()
+	if ts == nil {
+		return
+	}
+	ts.mu.Lock()
+	if ts.VTerm != nil {
+		ts.VTerm.ScrollView(lines * delta)
+	}
+	ts.mu.Unlock()
 }
 
 // Focus sets focus state

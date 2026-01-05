@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/andyrewlee/amux/internal/keymap"
 )
 
 // HelpSection represents a group of keybindings
@@ -28,61 +30,73 @@ type HelpOverlay struct {
 }
 
 // NewHelpOverlay creates a new help overlay
-func NewHelpOverlay() *HelpOverlay {
+func NewHelpOverlay(km keymap.KeyMap) *HelpOverlay {
 	return &HelpOverlay{
 		styles:   DefaultStyles(),
-		sections: defaultHelpSections(),
+		sections: defaultHelpSections(km),
 	}
 }
 
 // defaultHelpSections returns the default help sections
-func defaultHelpSections() []HelpSection {
+func defaultHelpSections(km keymap.KeyMap) []HelpSection {
+	leaderHint := keymap.LeaderSequenceHint(km)
+	if leaderHint == "" {
+		leaderHint = "leader"
+	}
+
 	return []HelpSection{
 		{
-			Title: "Navigation",
+			Title: "Leader",
 			Bindings: []HelpBinding{
-				{"Ctrl+H", "Focus dashboard"},
-				{"Ctrl+L", "Focus center pane"},
-				{"Ctrl+;", "Focus sidebar"},
-				{"Esc", "Return to dashboard"},
+				{leaderHint, "Command prefix"},
+				{keymap.LeaderSequenceHint(km, km.FocusLeft, km.FocusDown, km.FocusUp, km.FocusRight), "Focus panes"},
+				{keymap.LeaderSequenceHint(km, km.TabPrev, km.TabNext), "Switch tabs"},
+				{keymap.LeaderSequenceHint(km, km.TabNew), "New agent tab"},
+				{keymap.LeaderSequenceHint(km, km.TabClose), "Close tab"},
+				{keymap.LeaderSequenceHint(km, km.MonitorToggle), "Monitor tabs"},
+				{keymap.LeaderSequenceHint(km, km.Home), "Home"},
+				{keymap.LeaderSequenceHint(km, km.Help), "Toggle help"},
+				{keymap.LeaderSequenceHint(km, km.Quit), "Quit"},
+				{keymap.LeaderSequenceHint(km, km.ScrollUpHalf, km.ScrollDownHalf), "Scroll"},
 			},
 		},
 		{
 			Title: "Dashboard",
 			Bindings: []HelpBinding{
-				{"j/k", "Navigate up/down"},
-				{"Enter", "Activate worktree"},
-				{"n", "New worktree"},
-				{"d", "Delete worktree"},
-				{"f", "Toggle dirty filter"},
-				{"m", "Monitor tabs"},
-				{"r", "Refresh"},
+				{keymap.PairHint(km.DashboardDown, km.DashboardUp), "Navigate"},
+				{keymap.PairHint(km.DashboardTop, km.DashboardBottom), "Top/bottom"},
+				{keymap.PrimaryKey(km.DashboardEnter), "Activate worktree"},
+				{keymap.PrimaryKey(km.DashboardNewWorktree), "New worktree"},
+				{km.DashboardDelete.Help().Key, "Delete worktree"},
+				{keymap.PrimaryKey(km.DashboardToggle), "Toggle dirty filter"},
+				{keymap.PrimaryKey(km.DashboardRefresh), "Refresh"},
 			},
 		},
 		{
 			Title: "Monitor",
 			Bindings: []HelpBinding{
-				{"Ctrl+h/j/k/l", "Move between agents"},
-				{"arrow keys", "Move between agents"},
-				{"Ctrl+g", "Open selected agent"},
-			},
-		},
-		{
-			Title: "Center Pane",
-			Bindings: []HelpBinding{
-				{"Ctrl+T", "New agent tab"},
-				{"Ctrl+W", "Close tab"},
-				{"Ctrl+]", "Next tab"},
-				{"Ctrl+C", "Interrupt agent"},
+				{keymap.PairHint(km.MonitorLeft, km.MonitorRight), "Move left/right"},
+				{keymap.PairHint(km.MonitorUp, km.MonitorDown), "Move up/down"},
+				{keymap.PrimaryKey(km.MonitorActivate), "Open selected agent"},
+				{keymap.PrimaryKey(km.MonitorExit), "Exit monitor"},
 			},
 		},
 		{
 			Title: "Sidebar",
 			Bindings: []HelpBinding{
-				{"1/2", "Switch tabs"},
-				{"j/k", "Navigate files"},
-				{"Enter", "Toggle/select"},
-				{"g", "Refresh status"},
+				{keymap.PairHint(km.SidebarDown, km.SidebarUp), "Navigate files"},
+				{keymap.PrimaryKey(km.SidebarRefresh), "Refresh status"},
+			},
+		},
+		{
+			Title: "Mouse",
+			Bindings: []HelpBinding{
+				{"Click pane", "Focus pane"},
+				{"Click tab", "Switch tabs"},
+				{"Right-click tab", "Close tab"},
+				{"Click [+]", "New agent tab"},
+				{"Scroll wheel", "Scroll terminal"},
+				{"Click monitor tile", "Open agent"},
 			},
 		},
 	}

@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/keymap"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
@@ -153,56 +153,6 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	switch {
-	case msg.Type == tea.KeyPgUp:
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(tab.Terminal.Height / 2)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case msg.Type == tea.KeyPgDown:
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(tab.Terminal.Height / 2)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToTop()
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToBottom()
-		}
-		tab.mu.Unlock()
-		return nil
-	}
-
 	// If scrolled, any typing goes back to live and sends key.
 	tab.mu.Lock()
 	if tab.Terminal != nil && tab.Terminal.IsScrolled() {
@@ -217,9 +167,6 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// PendingGTimeout fires when 'g' prefix times out
-type PendingGTimeout struct{}
-
 const (
 	ptyFlushQuiet       = 4 * time.Millisecond
 	ptyFlushMaxInterval = 16 * time.Millisecond
@@ -228,6 +175,7 @@ const (
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
 	ptyFlushInactiveMultiplier = 4
 	ptyFlushChunkSize          = 32 * 1024
+	mouseWheelScrollLines      = 3
 )
 
 // Model is the Bubbletea model for the center pane
@@ -241,10 +189,6 @@ type Model struct {
 	monitor             MonitorModel
 	terminalCanvas      *compositor.Canvas
 
-	// Key sequence state for vim-style gt/gT
-	pendingG     bool
-	pendingGTime time.Time
-
 	// Layout
 	width   int
 	height  int
@@ -253,16 +197,18 @@ type Model struct {
 	// Config
 	config *config.Config
 	styles common.Styles
+	keymap keymap.KeyMap
 }
 
 // New creates a new center pane model
-func New(cfg *config.Config) *Model {
+func New(cfg *config.Config, km keymap.KeyMap) *Model {
 	return &Model{
 		tabsByWorktree:      make(map[string][]*Tab),
 		activeTabByWorktree: make(map[string]int),
 		config:              cfg,
 		agentManager:        appPty.NewAgentManager(cfg),
 		styles:              common.DefaultStyles(),
+		keymap:              km,
 	}
 }
 
@@ -382,8 +328,33 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
+		if !m.focused {
+			return m, nil
+		}
+
+		if msg.Action == tea.MouseActionPress {
+			if handled, cmd := m.handleTabBarClick(msg); handled {
+				return m, cmd
+			}
+		}
+
+		if msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				if m.hasActiveAgent() {
+					m.ScrollLines(1, mouseWheelScrollLines)
+				}
+				return m, nil
+			case tea.MouseButtonWheelDown:
+				if m.hasActiveAgent() {
+					m.ScrollLines(-1, mouseWheelScrollLines)
+				}
+				return m, nil
+			}
+		}
+
 		// Handle mouse events for text selection
-		if !m.focused || !m.hasActiveAgent() {
+		if !m.hasActiveAgent() {
 			return m, nil
 		}
 
@@ -515,7 +486,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 		// When we have an active agent, forward almost ALL keys to the terminal
-		// Only intercept essential control keys
 		if m.hasActiveAgent() {
 			tab := tabs[activeIdx]
 			logging.Debug("Has active agent, Agent=%v, Terminal=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil)
@@ -530,133 +500,23 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					return m, nil
 				}
 
-				// Handle pending 'g' key sequence for vim-style gt/gT
-				if m.pendingG {
-					m.pendingG = false
-					if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-						switch msg.Runes[0] {
-						case 't':
-							m.nextTab()
-							return m, nil
-						case 'T':
-							m.prevTab()
-							return m, nil
-						default:
-							// Forward both 'g' and current key to terminal
-							_ = tab.Agent.Terminal.SendString("g")
-							// Fall through to normal key handling
-						}
-					} else {
-						// Non-rune key after 'g' - forward both
-						_ = tab.Agent.Terminal.SendString("g")
-						// Fall through to normal key handling
-					}
+				// If scrolled, any typing goes back to live and sends key
+				tab.mu.Lock()
+				if tab.Terminal != nil && tab.Terminal.IsScrolled() {
+					tab.Terminal.ScrollViewToBottom()
 				}
+				tab.mu.Unlock()
 
-				// Start 'g' sequence
-				if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'g' {
-					m.pendingG = true
-					m.pendingGTime = time.Now()
-					return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-						return PendingGTimeout{}
-					})
+				// EVERYTHING else goes to terminal
+				input := common.KeyToBytes(msg)
+				if len(input) > 0 {
+					logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
+					_ = tab.Agent.Terminal.SendString(string(input))
+				} else {
+					logging.Debug("keyToBytes returned empty for: %s", msg.String())
 				}
-
-				// Only intercept these specific keys - everything else goes to terminal
-				switch {
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
-					// Close tab
-					return m, m.closeCurrentTab()
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+]"))):
-					// Switch to next tab (escape hatch that won't conflict)
-					m.nextTab()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
-					// This is Escape - let it go to terminal
-					_ = tab.Agent.Terminal.SendString("\x1b")
-					return m, nil
-
-				case msg.Type == tea.KeyPgUp:
-					// Scroll up in scrollback
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(tab.Terminal.Height / 2)
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				case msg.Type == tea.KeyPgDown:
-					// Scroll down in scrollback
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
-					// Scroll up half page (vim style)
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(tab.Terminal.Height / 2)
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
-					// Scroll down half page (vim style)
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
-					// Scroll to top
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollViewToTop()
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
-					// Scroll to bottom (live)
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollViewToBottom()
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				default:
-					// If scrolled, any typing goes back to live and sends key
-					tab.mu.Lock()
-					if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-						tab.Terminal.ScrollViewToBottom()
-					}
-					tab.mu.Unlock()
-
-					// EVERYTHING else goes to terminal
-					input := common.KeyToBytes(msg)
-					if len(input) > 0 {
-						logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
-						_ = tab.Agent.Terminal.SendString(string(input))
-					} else {
-						logging.Debug("keyToBytes returned empty for: %s", msg.String())
-					}
-					return m, nil
-				}
+				return m, nil
 			}
-		}
-
-		// No active agent - handle tab management keys
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
-			return m, m.closeCurrentTab()
 		}
 
 	case messages.LaunchAgent:
@@ -748,19 +608,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		// Do NOT schedule another read - the loop is done
 
-	case PendingGTimeout:
-		// If still pending after timeout, forward 'g' to terminal
-		if m.pendingG && time.Since(m.pendingGTime) >= time.Second {
-			m.pendingG = false
-			tabs := m.getTabs()
-			activeIdx := m.getActiveTabIdx()
-			if len(tabs) > 0 && activeIdx < len(tabs) {
-				tab := tabs[activeIdx]
-				if tab.Agent != nil && tab.Agent.Terminal != nil {
-					_ = tab.Agent.Terminal.SendString("g")
-				}
-			}
-		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -804,12 +651,10 @@ func (m *Model) View() string {
 
 	// Help bar with styled keys (vim-friendly)
 	helpItems := []string{
-		m.styles.HelpKey.Render("esc") + m.styles.HelpDesc.Render(":dashboard"),
-		m.styles.HelpKey.Render("^w") + m.styles.HelpDesc.Render(":close"),
-		m.styles.HelpKey.Render("^t") + m.styles.HelpDesc.Render(":agent"),
-		m.styles.HelpKey.Render("gt/gT") + m.styles.HelpDesc.Render(":tabs"),
-		m.styles.HelpKey.Render("^u/d") + m.styles.HelpDesc.Render(":scroll"),
-		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
+		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.TabPrev, m.keymap.TabNext)) + m.styles.HelpDesc.Render(":tabs"),
+		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.TabNew)) + m.styles.HelpDesc.Render(":new"),
+		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.TabClose)) + m.styles.HelpDesc.Render(":close"),
+		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.ScrollUpHalf, m.keymap.ScrollDownHalf)) + m.styles.HelpDesc.Render(":scroll"),
 	}
 	help := strings.Join(helpItems, "  ")
 	// Pad to the inner pane height (border excluded), reserving the help line.
@@ -836,16 +681,18 @@ func (m *Model) View() string {
 	return style.Width(m.width - 2).Render(b.String())
 }
 
-// renderTabBar renders the tab bar with activity indicators
-func (m *Model) renderTabBar() string {
+type tabBarSegment struct {
+	index  int
+	isPlus bool
+	width  int
+	render string
+}
+
+func (m *Model) buildTabBarSegments() []tabBarSegment {
 	currentTabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 
-	if len(currentTabs) == 0 {
-		return m.styles.Muted.Render("No agents")
-	}
-
-	var renderedTabs []string
+	var segments []tabBarSegment
 	for i, tab := range currentTabs {
 		name := tab.Name
 		if name == "" {
@@ -879,19 +726,44 @@ func (m *Model) renderTabBar() string {
 
 		// Build tab content with agent-colored indicator
 		content := agentStyle.Render(indicator) + name
-
+		var rendered string
 		if i == activeIdx {
-			// Active tab gets highlight border
-			renderedTabs = append(renderedTabs, m.styles.ActiveTab.Render(content))
+			rendered = m.styles.ActiveTab.Render(content)
 		} else {
-			// Inactive tab
-			renderedTabs = append(renderedTabs, m.styles.Tab.Render(content))
+			rendered = m.styles.Tab.Render(content)
 		}
+
+		segments = append(segments, tabBarSegment{
+			index:  i,
+			width:  lipgloss.Width(rendered),
+			render: rendered,
+		})
 	}
 
-	// Add the plus button with matching border style
 	plusBtn := m.styles.TabPlus.Render("[+]")
-	renderedTabs = append(renderedTabs, plusBtn)
+	segments = append(segments, tabBarSegment{
+		index:  -1,
+		isPlus: true,
+		width:  lipgloss.Width(plusBtn),
+		render: plusBtn,
+	})
+
+	return segments
+}
+
+// renderTabBar renders the tab bar with activity indicators
+func (m *Model) renderTabBar() string {
+	segments := m.buildTabBarSegments()
+	if len(segments) == 0 {
+		return m.styles.Muted.Render("No agents")
+	}
+
+	renderedTabs := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		if seg.render != "" {
+			renderedTabs = append(renderedTabs, seg.render)
+		}
+	}
 
 	// Join tabs horizontally at the bottom so borders align
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
@@ -904,7 +776,7 @@ func (m *Model) renderEmpty() string {
 	b.WriteString(m.styles.Title.Render("No agents running"))
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Muted.Render("Press "))
-	b.WriteString(m.styles.HelpKey.Render("Ctrl+T"))
+	b.WriteString(m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.TabNew)))
 	b.WriteString(m.styles.Muted.Render(" to launch an agent"))
 	return b.String()
 }
@@ -1016,15 +888,28 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 
 // closeCurrentTab closes the current tab
 func (m *Model) closeCurrentTab() tea.Cmd {
+	return m.closeTabAtIndex(m.getActiveTabIdx())
+}
+
+// CloseActiveTab closes the currently active tab.
+func (m *Model) CloseActiveTab() tea.Cmd {
+	return m.closeTabAtIndex(m.getActiveTabIdx())
+}
+
+// CloseTabByIndex closes a tab by its index.
+func (m *Model) CloseTabByIndex(index int) tea.Cmd {
+	return m.closeTabAtIndex(index)
+}
+
+func (m *Model) closeTabAtIndex(index int) tea.Cmd {
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
+	if len(tabs) == 0 || index < 0 || index >= len(tabs) {
 		return nil
 	}
 
-	tab := tabs[activeIdx]
-	index := activeIdx
+	tab := tabs[index]
 
 	// Close agent
 	if tab.Agent != nil {
@@ -1036,7 +921,11 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 
 	// Adjust active tab
 	tabs = m.getTabs() // Get updated tabs
-	if activeIdx >= len(tabs) && activeIdx > 0 {
+	if index == activeIdx {
+		if activeIdx >= len(tabs) && activeIdx > 0 {
+			m.setActiveTabIdx(activeIdx - 1)
+		}
+	} else if index < activeIdx {
 		m.setActiveTabIdx(activeIdx - 1)
 	}
 
@@ -1049,6 +938,25 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 func (m *Model) hasActiveAgent() bool {
 	tabs := m.getTabs()
 	return len(tabs) > 0 && m.getActiveTabIdx() < len(tabs)
+}
+
+// ActivateTabByIndex switches to a specific tab index.
+func (m *Model) ActivateTabByIndex(index int) {
+	tabs := m.getTabs()
+	if index < 0 || index >= len(tabs) {
+		return
+	}
+	m.setActiveTabIdx(index)
+}
+
+// NextTab switches to the next tab.
+func (m *Model) NextTab() {
+	m.nextTab()
+}
+
+// PrevTab switches to the previous tab.
+func (m *Model) PrevTab() {
+	m.prevTab()
 }
 
 // nextTab switches to the next tab
@@ -1069,6 +977,46 @@ func (m *Model) prevTab() {
 		}
 		m.setActiveTabIdx(idx)
 	}
+}
+
+// ScrollHalf scrolls the active terminal by half a page.
+func (m *Model) ScrollHalf(delta int) {
+	if delta == 0 {
+		return
+	}
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		lines := tab.Terminal.Height / 2
+		if lines < 1 {
+			lines = 1
+		}
+		tab.Terminal.ScrollView(lines * delta)
+	}
+	tab.mu.Unlock()
+}
+
+// ScrollLines scrolls the active terminal by a fixed number of lines.
+func (m *Model) ScrollLines(delta int, lines int) {
+	if delta == 0 || lines <= 0 {
+		return
+	}
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		tab.Terminal.ScrollView(lines * delta)
+	}
+	tab.mu.Unlock()
 }
 
 // SetSize sets the center pane size
@@ -1139,6 +1087,56 @@ func (m *Model) screenToTerminal(screenX, screenY int) (termX, termY int, inBoun
 	// Check bounds
 	inBounds = termX >= 0 && termX < termWidth && termY >= 0 && termY < termHeight
 	return
+}
+
+func (m *Model) tabBarHitTest(screenX, screenY int) (index int, isPlus bool, ok bool) {
+	borderTop := 1
+	borderLeft := 1
+	paddingLeft := 1
+	tabBarHeight := 3
+
+	tabBarStartY := borderTop
+	if screenY < tabBarStartY || screenY >= tabBarStartY+tabBarHeight {
+		return -1, false, false
+	}
+
+	contentStartX := m.offsetX + borderLeft + paddingLeft
+	contentX := screenX - contentStartX
+	if contentX < 0 {
+		return -1, false, false
+	}
+
+	segments := m.buildTabBarSegments()
+	cursor := 0
+	for _, seg := range segments {
+		if contentX >= cursor && contentX < cursor+seg.width {
+			return seg.index, seg.isPlus, true
+		}
+		cursor += seg.width
+	}
+	return -1, false, false
+}
+
+func (m *Model) handleTabBarClick(msg tea.MouseMsg) (bool, tea.Cmd) {
+	index, isPlus, ok := m.tabBarHitTest(msg.X, msg.Y)
+	if !ok {
+		return false, nil
+	}
+
+	switch {
+	case isPlus && msg.Button == tea.MouseButtonLeft:
+		if m.worktree == nil {
+			return true, nil
+		}
+		return true, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+	case index >= 0 && msg.Button == tea.MouseButtonLeft:
+		m.ActivateTabByIndex(index)
+		return true, nil
+	case index >= 0 && msg.Button == tea.MouseButtonRight:
+		return true, m.CloseTabByIndex(index)
+	default:
+		return true, nil
+	}
 }
 
 // Focus sets the focus state

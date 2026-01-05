@@ -10,6 +10,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/keymap"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -64,10 +65,12 @@ type Model struct {
 
 	// Styles
 	styles common.Styles
+
+	keymap keymap.KeyMap
 }
 
 // New creates a new dashboard model
-func New() *Model {
+func New(km keymap.KeyMap) *Model {
 	return &Model{
 		projects:          []data.Project{},
 		rows:              []Row{},
@@ -78,6 +81,7 @@ func New() *Model {
 		cursor:            0,
 		focused:           true,
 		styles:            common.DefaultStyles(),
+		keymap:            km,
 	}
 }
 
@@ -117,26 +121,26 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("j", "down"))):
+		case key.Matches(msg, m.keymap.DashboardDown):
 			m.moveCursor(1)
-		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
+		case key.Matches(msg, m.keymap.DashboardUp):
 			m.moveCursor(-1)
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+		case key.Matches(msg, m.keymap.DashboardEnter):
 			return m, m.handleEnter()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("n"))):
+		case key.Matches(msg, m.keymap.DashboardNewWorktree):
 			return m, m.handleNew()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("d", "D"))):
+		case key.Matches(msg, m.keymap.DashboardDelete):
 			return m, m.handleDelete()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("f"))):
+		case key.Matches(msg, m.keymap.DashboardToggle):
 			m.toggleFilter()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
+		case key.Matches(msg, m.keymap.DashboardRefresh):
 			return m, m.refresh()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):
+		case key.Matches(msg, m.keymap.DashboardBottom):
 			// Jump to last selectable row
 			if idx := m.findSelectableRow(len(m.rows)-1, -1); idx != -1 {
 				m.cursor = idx
 			}
-		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
+		case key.Matches(msg, m.keymap.DashboardTop):
 			// Jump to first selectable row
 			if idx := m.findSelectableRow(0, 1); idx != -1 {
 				m.cursor = idx
@@ -265,13 +269,12 @@ func (m *Model) View() string {
 
 	// Help bar with styled keys
 	helpItems := []string{
-		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
-		m.styles.HelpKey.Render("enter") + m.styles.HelpDesc.Render(":select"),
-		m.styles.HelpKey.Render("n") + m.styles.HelpDesc.Render(":new"),
-		m.styles.HelpKey.Render("d") + m.styles.HelpDesc.Render(":delete"),
-		m.styles.HelpKey.Render("m") + m.styles.HelpDesc.Render(":monitor"),
-		m.styles.HelpKey.Render("^t") + m.styles.HelpDesc.Render(":agent"),
-		m.styles.HelpKey.Render("?") + m.styles.HelpDesc.Render(":help"),
+		m.styles.HelpKey.Render(keymap.PairHint(m.keymap.DashboardDown, m.keymap.DashboardUp)) + m.styles.HelpDesc.Render(":nav"),
+		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardEnter)) + m.styles.HelpDesc.Render(":select"),
+		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardNewWorktree)) + m.styles.HelpDesc.Render(":new"),
+		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardDelete)) + m.styles.HelpDesc.Render(":delete"),
+		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardToggle)) + m.styles.HelpDesc.Render(":filter"),
+		m.styles.HelpKey.Render(keymap.PrimaryKey(m.keymap.DashboardRefresh)) + m.styles.HelpDesc.Render(":refresh"),
 	}
 	help := strings.Join(helpItems, "  ")
 

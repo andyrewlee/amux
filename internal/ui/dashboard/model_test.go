@@ -3,10 +3,16 @@ package dashboard
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/keymap"
 	"github.com/andyrewlee/amux/internal/messages"
 )
+
+func newModel() *Model {
+	return New(keymap.New(config.KeyMapConfig{}))
+}
 
 func makeProject() data.Project {
 	return data.Project{
@@ -20,7 +26,7 @@ func makeProject() data.Project {
 }
 
 func TestDashboardRebuildRowsSkipsMainAndPrimary(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	var worktreeRows int
@@ -43,7 +49,7 @@ func TestDashboardRebuildRowsSkipsMainAndPrimary(t *testing.T) {
 }
 
 func TestDashboardDirtyFilter(t *testing.T) {
-	m := New()
+	m := newModel()
 	project := makeProject()
 	m.SetProjects([]data.Project{project})
 
@@ -73,7 +79,7 @@ func TestDashboardDirtyFilter(t *testing.T) {
 }
 
 func TestDashboardHandleEnterProjectSelectsMain(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	// Row order: Home, AddProject, Project...
@@ -94,7 +100,7 @@ func TestDashboardHandleEnterProjectSelectsMain(t *testing.T) {
 }
 
 func TestDashboardCursorMovement(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	t.Run("move down", func(t *testing.T) {
@@ -146,7 +152,7 @@ func TestDashboardCursorMovement(t *testing.T) {
 }
 
 func TestDashboardFocus(t *testing.T) {
-	m := New()
+	m := newModel()
 
 	t.Run("initial focus", func(t *testing.T) {
 		if !m.Focused() {
@@ -171,7 +177,7 @@ func TestDashboardFocus(t *testing.T) {
 }
 
 func TestDashboardHandleEnterHome(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 	m.cursor = 0 // Home row
 
@@ -187,7 +193,7 @@ func TestDashboardHandleEnterHome(t *testing.T) {
 }
 
 func TestDashboardHandleEnterAddProject(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 	m.cursor = 1 // AddProject row
 
@@ -203,7 +209,7 @@ func TestDashboardHandleEnterAddProject(t *testing.T) {
 }
 
 func TestDashboardHandleEnterWorktree(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	// Find a worktree row
@@ -230,7 +236,7 @@ func TestDashboardHandleEnterWorktree(t *testing.T) {
 }
 
 func TestDashboardHandleEnterCreate(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	// Find a create row
@@ -253,7 +259,7 @@ func TestDashboardHandleEnterCreate(t *testing.T) {
 }
 
 func TestDashboardHandleNew(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	// Cursor on project row
@@ -274,7 +280,7 @@ func TestDashboardHandleNew(t *testing.T) {
 }
 
 func TestDashboardHandleDelete(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	// Find a worktree row
@@ -301,7 +307,7 @@ func TestDashboardHandleDelete(t *testing.T) {
 }
 
 func TestDashboardHandleDeleteNonWorktree(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 	m.cursor = 0 // Home row
 
@@ -312,7 +318,7 @@ func TestDashboardHandleDeleteNonWorktree(t *testing.T) {
 }
 
 func TestDashboardCreatingWorktreeRow(t *testing.T) {
-	m := New()
+	m := newModel()
 	project := makeProject()
 	m.SetProjects([]data.Project{project})
 	m.filterDirty = true
@@ -333,7 +339,7 @@ func TestDashboardCreatingWorktreeRow(t *testing.T) {
 }
 
 func TestDashboardToggleFilter(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	if m.filterDirty {
@@ -352,7 +358,7 @@ func TestDashboardToggleFilter(t *testing.T) {
 }
 
 func TestDashboardSelectedRow(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetProjects([]data.Project{makeProject()})
 
 	t.Run("valid cursor", func(t *testing.T) {
@@ -379,7 +385,7 @@ func TestDashboardSelectedRow(t *testing.T) {
 }
 
 func TestDashboardSetSize(t *testing.T) {
-	m := New()
+	m := newModel()
 	m.SetSize(100, 50)
 
 	if m.width != 100 {
@@ -391,7 +397,7 @@ func TestDashboardSetSize(t *testing.T) {
 }
 
 func TestDashboardProjects(t *testing.T) {
-	m := New()
+	m := newModel()
 	projects := []data.Project{makeProject()}
 	m.SetProjects(projects)
 
@@ -405,7 +411,7 @@ func TestDashboardProjects(t *testing.T) {
 }
 
 func TestDashboardEmptyState(t *testing.T) {
-	m := New()
+	m := newModel()
 	// Set empty projects to trigger rebuildRows
 	m.SetProjects([]data.Project{})
 
@@ -423,7 +429,7 @@ func TestDashboardEmptyState(t *testing.T) {
 }
 
 func TestDashboardRefresh(t *testing.T) {
-	m := New()
+	m := newModel()
 
 	cmd := m.refresh()
 	if cmd == nil {

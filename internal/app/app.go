@@ -15,6 +15,7 @@ import (
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/keymap"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
@@ -36,6 +37,10 @@ const (
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
 )
+
+const leaderTimeout = time.Second
+
+type leaderTimeoutMsg struct{}
 
 // App is the root Bubbletea model
 type App struct {
@@ -82,18 +87,21 @@ type App struct {
 
 	// Layout
 	width, height int
-	keymap        KeyMap
+	keymap        keymap.KeyMap
 	styles        common.Styles
 
 	// Lifecycle
 	ready    bool
 	quitting bool
 	err      error
+
+	leaderPending   bool
+	leaderPendingAt time.Time
 }
 
 // New creates a new App instance
 func New() (*App, error) {
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +134,8 @@ func New() (*App, error) {
 		fileWatcher = nil
 	}
 
+	km := keymap.New(cfg.KeyMap)
+
 	return &App{
 		config:          cfg,
 		registry:        registry,
@@ -136,15 +146,15 @@ func New() (*App, error) {
 		fileWatcherCh:   fileWatcherCh,
 		fileWatcherErr:  fileWatcherErr,
 		layout:          layout.NewManager(),
-		dashboard:       dashboard.New(),
-		center:          center.New(cfg),
-		sidebar:         sidebar.New(),
-		sidebarTerminal: sidebar.NewTerminalModel(),
-		helpOverlay:     common.NewHelpOverlay(),
+		dashboard:       dashboard.New(km),
+		center:          center.New(cfg, km),
+		sidebar:         sidebar.New(km),
+		sidebarTerminal: sidebar.NewTerminalModel(km),
+		helpOverlay:     common.NewHelpOverlay(km),
 		toast:           common.NewToastModel(),
 		focusedPane:     messages.PaneDashboard,
 		showWelcome:     true,
-		keymap:          DefaultKeyMap(),
+		keymap:          km,
 		styles:          common.DefaultStyles(),
 	}, nil
 }
@@ -252,6 +262,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 				a.focusPane(messages.PaneMonitor)
 				a.selectMonitorTile(msg.X, msg.Y)
+				cmd := a.exitMonitorToSelection()
+				return a, cmd
 			}
 			break
 		}
@@ -263,9 +275,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			rightWidth += a.layout.SidebarWidth()
 		}
 
-		// Focus pane on left-click press
-
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		// Focus pane on click press
+		if msg.Action == tea.MouseActionPress && (msg.Button == tea.MouseButtonLeft || msg.Button == tea.MouseButtonRight) {
 
 			if msg.X < dashWidth {
 
@@ -371,13 +382,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-
-		// Handle quit first
-		if key.Matches(msg, a.keymap.Quit) {
-			a.showQuitDialog()
-			return a, nil
-		}
-
 		// Dismiss error on any key
 		if a.err != nil {
 			a.err = nil
@@ -386,25 +390,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Uncomment for key debugging (causes latency due to sync file I/O):
 		// logging.Debug("Key: %s, focusedPane=%d, centerHasTabs=%v", msg.String(), a.focusedPane, a.center.HasTabs())
-
-		// When focused on sidebar terminal, intercept navigation keys before forwarding
-		if a.focusedPane == messages.PaneSidebarTerminal {
-			switch {
-			case key.Matches(msg, a.keymap.MoveLeft):
-				if a.monitorMode {
-					a.focusPane(messages.PaneMonitor)
-				} else {
-					a.focusPane(messages.PaneCenter)
-				}
-				return a, nil
-			case key.Matches(msg, a.keymap.MoveUp):
-				a.focusPane(messages.PaneSidebar)
-				return a, nil
-			}
-
-			// Forward all other keys to terminal
-			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
-			a.sidebarTerminal = newSidebarTerminal
+		if handled, cmd := a.handleLeader(msg); handled {
 			return a, cmd
 		}
 
@@ -413,9 +399,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.handleMonitorNavigation(msg) {
 				return a, nil
 			}
-			if key.Matches(msg, a.keymap.Home) {
+			if key.Matches(msg, a.keymap.MonitorActivate) {
 				cmd := a.exitMonitorToSelection()
 				return a, cmd
+			}
+			if key.Matches(msg, a.keymap.MonitorExit) {
+				a.toggleMonitorMode()
+				return a, nil
 			}
 			if cmd := a.handleMonitorInput(msg); cmd != nil {
 				return a, cmd
@@ -423,95 +413,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		// When focused on center pane with terminal, handle navigation keys
-		if a.focusedPane == messages.PaneCenter {
-			// Check for global navigation keys BEFORE forwarding to terminal
-			// These must be intercepted or user gets stuck in terminal
-			switch {
-			case key.Matches(msg, a.keymap.MoveLeft):
-				// From center, move left to dashboard
-				a.focusPane(messages.PaneDashboard)
-				return a, nil
-			case key.Matches(msg, a.keymap.MoveRight):
-				// From center, move right to sidebar or monitor (if visible)
-				if a.monitorMode {
-					a.focusPane(messages.PaneMonitor)
-				} else if a.layout.ShowSidebar() {
-					a.focusPane(messages.PaneSidebar)
-				}
-				return a, nil
-			case key.Matches(msg, a.keymap.Home):
-				a.goHome()
-				return a, nil
-			}
-
-			// When we have active tabs, forward all other keys to the terminal
-			if a.center.HasTabs() {
+		if a.inTerminalFocus() {
+			switch a.focusedPane {
+			case messages.PaneCenter:
 				logging.Debug("Forwarding key to center pane: %s", msg.String())
 				newCenter, cmd := a.center.Update(msg)
 				a.center = newCenter
 				return a, cmd
+			case messages.PaneSidebarTerminal:
+				newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
+				a.sidebarTerminal = newSidebarTerminal
+				return a, cmd
 			}
-			logging.Debug("Center has no tabs, not forwarding")
-		}
-
-		// Global keybindings (only when NOT in terminal mode)
-		// Relative vim-style navigation: Ctrl+H = left, Ctrl+L = right, Ctrl+J = down, Ctrl+K = up
-		switch {
-		case key.Matches(msg, a.keymap.MoveLeft):
-			switch a.focusedPane {
-			case messages.PaneCenter:
-				a.focusPane(messages.PaneDashboard)
-			case messages.PaneSidebar, messages.PaneSidebarTerminal:
-				a.focusPane(messages.PaneCenter)
-			case messages.PaneMonitor:
-				a.focusPane(messages.PaneDashboard)
-			}
-		case key.Matches(msg, a.keymap.MoveRight):
-			switch a.focusedPane {
-			case messages.PaneDashboard:
-				if a.monitorMode {
-					a.focusPane(messages.PaneMonitor)
-				} else {
-					a.focusPane(messages.PaneCenter)
-				}
-			case messages.PaneCenter:
-				if a.monitorMode {
-					a.focusPane(messages.PaneMonitor)
-				} else if a.layout.ShowSidebar() {
-					a.focusPane(messages.PaneSidebar)
-				}
-			case messages.PaneMonitor:
-				// No-op; monitor is the rightmost pane
-			}
-		case key.Matches(msg, a.keymap.MoveDown):
-			// Move down: Sidebar -> SidebarTerminal
-			if !a.monitorMode && a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
-				a.focusPane(messages.PaneSidebarTerminal)
-				return a, nil
-			}
-		case key.Matches(msg, a.keymap.MoveUp):
-			// Move up: SidebarTerminal -> Sidebar
-			if !a.monitorMode && a.focusedPane == messages.PaneSidebarTerminal {
-				a.focusPane(messages.PaneSidebar)
-				return a, nil
-			}
-		case key.Matches(msg, a.keymap.Monitor):
-			if a.focusedPane == messages.PaneDashboard || a.focusedPane == messages.PaneMonitor {
-				a.toggleMonitorMode()
-				return a, nil
-			}
-		case key.Matches(msg, a.keymap.Home):
-			a.goHome()
-		case key.Matches(msg, a.keymap.NewAgentTab):
-			if a.activeWorktree != nil {
-				return a, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-			}
-		case key.Matches(msg, a.keymap.Help):
-			// Toggle help overlay
-			a.helpOverlay.SetSize(a.width, a.height)
-			a.helpOverlay.Toggle()
-			return a, nil
 		}
 
 		// Route to focused pane
@@ -534,6 +447,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		case messages.PaneMonitor:
 			// No interactive updates yet; use global bindings to navigate.
+		}
+
+	case leaderTimeoutMsg:
+		if a.leaderPending && time.Since(a.leaderPendingAt) >= leaderTimeout {
+			a.leaderPending = false
 		}
 
 	case messages.ProjectsLoaded:
@@ -1215,7 +1133,10 @@ func (a *App) renderMonitorGrid() string {
 	})
 
 	headerStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))}
-	canvas.DrawText(0, 0, "Monitor: ctrl+hjkl/arrows select • ctrl+g open/exit", headerStyle)
+	navHint := keymap.PairHint(a.keymap.MonitorLeft, a.keymap.MonitorRight) + " " + keymap.PairHint(a.keymap.MonitorUp, a.keymap.MonitorDown)
+	openHint := keymap.PrimaryKey(a.keymap.MonitorActivate)
+	exitHint := keymap.PrimaryKey(a.keymap.MonitorExit)
+	canvas.DrawText(0, 0, fmt.Sprintf("Monitor: %s move • %s open • %s exit", navHint, openHint, exitHint), headerStyle)
 
 	projectNames := make(map[string]string, len(a.projects))
 	for _, project := range a.projects {
@@ -1479,16 +1400,16 @@ func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
 	}
 
 	switch {
-	case key.Matches(msg, a.keymap.MoveLeft) || key.Matches(msg, a.keymap.Left):
+	case key.Matches(msg, a.keymap.MonitorLeft):
 		a.center.MoveMonitorSelection(-1, 0, grid.cols, grid.rows, len(tabs))
 		return true
-	case key.Matches(msg, a.keymap.MoveRight) || key.Matches(msg, a.keymap.Right):
+	case key.Matches(msg, a.keymap.MonitorRight):
 		a.center.MoveMonitorSelection(1, 0, grid.cols, grid.rows, len(tabs))
 		return true
-	case key.Matches(msg, a.keymap.MoveUp) || key.Matches(msg, a.keymap.Up):
+	case key.Matches(msg, a.keymap.MonitorUp):
 		a.center.MoveMonitorSelection(0, -1, grid.cols, grid.rows, len(tabs))
 		return true
-	case key.Matches(msg, a.keymap.MoveDown) || key.Matches(msg, a.keymap.Down):
+	case key.Matches(msg, a.keymap.MonitorDown):
 		a.center.MoveMonitorSelection(0, 1, grid.cols, grid.rows, len(tabs))
 		return true
 	}
@@ -1635,7 +1556,7 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	content += "\n" + a.styles.Help.Render("Press Ctrl+T to launch an agent")
+	content += "\n" + a.styles.Help.Render("Press "+keymap.LeaderSequenceHint(a.keymap, a.keymap.TabNew)+" to launch an agent")
 
 	return content
 }
@@ -1658,8 +1579,8 @@ func (a *App) renderWelcome() string {
 ┌─ Quick Start ─────────────────────┐
 │  a       Add a project            │
 │  n       Create new worktree      │
-│  Ctrl+T  Launch AI agent          │
-│  ?       Show all shortcuts       │
+│  Leader+n Launch AI agent         │
+│  Leader+? Show all shortcuts      │
 └───────────────────────────────────┘`
 
 	quickStartStyle := lipgloss.NewStyle().
@@ -1930,6 +1851,124 @@ func (a *App) toggleMonitorMode() {
 		a.focusPane(messages.PaneDashboard)
 	}
 	a.updateLayout()
+}
+
+func (a *App) inTerminalFocus() bool {
+	switch a.focusedPane {
+	case messages.PaneCenter:
+		return a.center.HasTabs()
+	case messages.PaneSidebarTerminal:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *App) handleLeader(msg tea.KeyMsg) (bool, tea.Cmd) {
+	if a.leaderPending {
+		a.leaderPending = false
+		return true, a.runLeaderCommand(msg)
+	}
+	if key.Matches(msg, a.keymap.Leader) {
+		a.leaderPending = true
+		a.leaderPendingAt = time.Now()
+		return true, tea.Tick(leaderTimeout, func(time.Time) tea.Msg {
+			return leaderTimeoutMsg{}
+		})
+	}
+	return false, nil
+}
+
+func (a *App) runLeaderCommand(msg tea.KeyMsg) tea.Cmd {
+	switch {
+	case key.Matches(msg, a.keymap.FocusLeft):
+		a.focusLeft()
+	case key.Matches(msg, a.keymap.FocusRight):
+		a.focusRight()
+	case key.Matches(msg, a.keymap.FocusUp):
+		a.focusUp()
+	case key.Matches(msg, a.keymap.FocusDown):
+		a.focusDown()
+	case key.Matches(msg, a.keymap.TabNext):
+		a.center.NextTab()
+	case key.Matches(msg, a.keymap.TabPrev):
+		a.center.PrevTab()
+	case key.Matches(msg, a.keymap.TabNew):
+		if a.activeWorktree != nil {
+			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+		}
+	case key.Matches(msg, a.keymap.TabClose):
+		return a.center.CloseActiveTab()
+	case key.Matches(msg, a.keymap.MonitorToggle):
+		a.toggleMonitorMode()
+	case key.Matches(msg, a.keymap.Home):
+		a.showWelcome = true
+		a.activeWorktree = nil
+		a.focusPane(messages.PaneDashboard)
+	case key.Matches(msg, a.keymap.Help):
+		a.helpOverlay.SetSize(a.width, a.height)
+		a.helpOverlay.Toggle()
+	case key.Matches(msg, a.keymap.Quit):
+		a.showQuitDialog()
+	case key.Matches(msg, a.keymap.ScrollUpHalf):
+		a.scrollFocusedTerminal(1)
+	case key.Matches(msg, a.keymap.ScrollDownHalf):
+		a.scrollFocusedTerminal(-1)
+	}
+	return nil
+}
+
+func (a *App) focusLeft() {
+	switch a.focusedPane {
+	case messages.PaneCenter:
+		a.focusPane(messages.PaneDashboard)
+	case messages.PaneSidebar, messages.PaneSidebarTerminal:
+		a.focusPane(messages.PaneCenter)
+	case messages.PaneMonitor:
+		a.focusPane(messages.PaneDashboard)
+	}
+}
+
+func (a *App) focusRight() {
+	switch a.focusedPane {
+	case messages.PaneDashboard:
+		if a.monitorMode {
+			a.focusPane(messages.PaneMonitor)
+		} else {
+			a.focusPane(messages.PaneCenter)
+		}
+	case messages.PaneCenter:
+		if a.monitorMode {
+			a.focusPane(messages.PaneMonitor)
+		} else if a.layout.ShowSidebar() {
+			a.focusPane(messages.PaneSidebar)
+		}
+	case messages.PaneMonitor:
+		// No-op; monitor is the rightmost pane
+	}
+}
+
+func (a *App) focusUp() {
+	if !a.monitorMode && a.focusedPane == messages.PaneSidebarTerminal {
+		a.focusPane(messages.PaneSidebar)
+	}
+}
+
+func (a *App) focusDown() {
+	if !a.monitorMode && a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
+		a.focusPane(messages.PaneSidebarTerminal)
+	}
+}
+
+func (a *App) scrollFocusedTerminal(delta int) {
+	switch a.focusedPane {
+	case messages.PaneCenter:
+		if a.center.HasTabs() {
+			a.center.ScrollHalf(delta)
+		}
+	case messages.PaneSidebarTerminal:
+		a.sidebarTerminal.ScrollHalf(delta)
+	}
 }
 
 // updateLayout updates component sizes based on window size
