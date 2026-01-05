@@ -546,9 +546,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, a.requestGitStatus(wt.Root))
 			}
 		}
+		cmds = append(cmds, a.restoreTabsForProjects(a.projects)...)
 
 	case messages.WorktreeActivated:
-		// Tabs now persist in memory per-worktree, no need to save/restore from disk
+		// Tabs persist in memory per-worktree; disk restore happens on startup.
 		a.activeProject = msg.Project
 		a.activeWorktree = msg.Worktree
 		a.showWelcome = false
@@ -679,15 +680,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Info("Tab created: %s", msg.Name)
 		// Start reading from the new PTY
 		cmds = append(cmds, a.center.StartPTYReaders())
-		// NOW switch focus to center - tab is ready
-		if a.monitorMode {
-			a.focusPane(messages.PaneMonitor)
-		} else {
-			a.focusPane(messages.PaneCenter)
+		if !msg.Restored {
+			// NOW switch focus to center - tab is ready
+			if a.monitorMode {
+				a.focusPane(messages.PaneMonitor)
+			} else {
+				a.focusPane(messages.PaneCenter)
+			}
+			a.persistOpenTabs()
 		}
 
 	case messages.TabClosed:
 		logging.Info("Tab closed: %d", msg.Index)
+		a.persistOpenTabs()
 
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		newCenter, cmd := a.center.Update(msg)
@@ -816,6 +821,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogQuit:
+		a.persistOpenTabs()
 		a.center.Close()
 		a.sidebarTerminal.CloseAll()
 		a.quitting = true
@@ -1676,6 +1682,84 @@ func (a *App) renderWelcome() string {
 	height := a.layout.Height() - 4
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, b.String())
+}
+
+// persistOpenTabs saves open tab state for all worktrees.
+func (a *App) persistOpenTabs() {
+	if a.metadata == nil || a.center == nil {
+		return
+	}
+	for i := range a.projects {
+		project := &a.projects[i]
+		for j := range project.Worktrees {
+			wt := &project.Worktrees[j]
+			meta, err := a.metadata.Load(wt)
+			if err != nil {
+				logging.Warn("Failed to load metadata for %s: %v", wt.Root, err)
+				continue
+			}
+			tabs, activeIdx := a.center.GetTabsInfoForWorktree(wt)
+			meta.OpenTabs = tabs
+			meta.ActiveTabIndex = activeIdx
+			if err := a.metadata.Save(wt, meta); err != nil {
+				logging.Warn("Failed to save metadata for %s: %v", wt.Root, err)
+			}
+		}
+	}
+}
+
+// restoreTabsForProjects restores tabs from metadata for all projects/worktrees.
+func (a *App) restoreTabsForProjects(projects []data.Project) []tea.Cmd {
+	if a.metadata == nil || a.center == nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for i := range projects {
+		project := &projects[i]
+		for j := range project.Worktrees {
+			wt := &project.Worktrees[j]
+			if a.center.HasTabsForWorktree(wt) {
+				continue
+			}
+			meta, err := a.metadata.Load(wt)
+			if err != nil {
+				logging.Warn("Failed to load metadata for %s: %v", wt.Root, err)
+				continue
+			}
+			if len(meta.OpenTabs) == 0 {
+				continue
+			}
+			var tabs []data.TabInfo
+			for _, tab := range meta.OpenTabs {
+				if tab.Assistant == "" {
+					continue
+				}
+				if _, ok := a.config.Assistants[tab.Assistant]; !ok {
+					logging.Warn("Skipping unknown assistant %q for %s", tab.Assistant, wt.Root)
+					continue
+				}
+				tabs = append(tabs, tab)
+			}
+			if len(tabs) == 0 {
+				continue
+			}
+			a.center.BeginRestoreTabs(wt, len(tabs), meta.ActiveTabIndex)
+			for _, tab := range tabs {
+				tab := tab
+				wt := wt
+				cmds = append(cmds, func() tea.Msg {
+					return messages.LaunchAgent{
+						Assistant: tab.Assistant,
+						Worktree:  wt,
+						Name:      tab.Name,
+						Resume:    tab.Resume,
+						Restored:  true,
+					}
+				})
+			}
+		}
+	}
+	return cmds
 }
 
 // loadProjects loads all registered projects and their worktrees

@@ -27,7 +27,7 @@ func TestAgentManagerCreateAndClose(t *testing.T) {
 		Root:   os.TempDir(),
 	}
 
-	agent, err := mgr.CreateAgent(wt, AgentCodex)
+	agent, err := mgr.CreateAgent(wt, AgentCodex, data.ResumeInfo{})
 	if err != nil {
 		t.Fatalf("CreateAgent() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestAgentManagerSendInterrupt(t *testing.T) {
 
 	mgr := NewAgentManager(cfg)
 	wt := &data.Worktree{Root: os.TempDir()}
-	agent, err := mgr.CreateAgent(wt, AgentCodex)
+	agent, err := mgr.CreateAgent(wt, AgentCodex, data.ResumeInfo{})
 	if err != nil {
 		t.Fatalf("CreateAgent() error = %v", err)
 	}
