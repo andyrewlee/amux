@@ -764,22 +764,6 @@ func buildEntries() []entry {
 	return entries
 }
 
-func isSelectableEntry(index int, entries []entry) bool {
-	if index < 0 || index >= len(entries) {
-		return false
-	}
-	return entries[index].kind == entryAction
-}
-
-func firstSelectableEntry(entries []entry) int {
-	for i, entry := range entries {
-		if entry.kind == entryAction {
-			return i
-		}
-	}
-	return 0
-}
-
 func bindingHint(binding key.Binding) string {
 	if binding.Help().Key != "" {
 		return binding.Help().Key
