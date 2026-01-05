@@ -156,7 +156,12 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 			if cell.Width == 2 && col+1 >= w {
 				cell = vterm.DefaultCell()
 			}
-			c.SetCell(x+col, y+row, cell)
+			targetX := x + col
+			targetY := y + row
+			if targetX < 0 || targetY < 0 || targetX >= c.Width || targetY >= c.Height {
+				continue
+			}
+			c.SetCell(targetX, targetY, cell)
 		}
 	}
 
@@ -190,6 +195,10 @@ func (c *Canvas) Render() string {
 				continue
 			}
 			style := cell.Style
+			// Prevent underline-on-spaces from rendering as scanlines.
+			if style.Underline && (cell.Rune == 0 || cell.Rune == ' ') {
+				style.Underline = false
+			}
 			if style != lastStyle {
 				b.WriteString(vterm.StyleToANSI(style))
 				lastStyle = style
