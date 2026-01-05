@@ -35,6 +35,25 @@ const (
 	DialogDeleteWorktree  = "delete_worktree"
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
+	DialogNewMenu         = "new_menu"
+	DialogNewAgentPrompt  = "new_agent_prompt"
+	DialogNewAgentShared  = "new_agent_shared_prompt"
+)
+
+type newAgentFlowMode int
+
+const (
+	newAgentFlowNone newAgentFlowMode = iota
+	newAgentFlowSingle
+	newAgentFlowMultiCustom
+	newAgentFlowMultiShared
+)
+
+const (
+	newMenuOptionWorktree = iota
+	newMenuOptionAgentSingle
+	newMenuOptionAgentMultiCustom
+	newMenuOptionAgentMultiShared
 )
 
 // App is the root Bubbletea model
@@ -70,6 +89,14 @@ type App struct {
 	// Dialog context
 	dialogProject  *data.Project
 	dialogWorktree *data.Worktree
+
+	// New agent flow context
+	newAgentMode       newAgentFlowMode
+	newAgentWorktree   *data.Worktree
+	newAgentSelections []string
+	newAgentPrompt     string
+	newAgentPrompts    map[string]string
+	newAgentPromptIdx  int
 
 	// Process management
 	scripts *process.ScriptRunner
@@ -622,6 +649,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
 		a.filePicker.Show()
 
+	case messages.ShowNewDialog:
+		a.dialogProject = msg.Project
+		a.dialog = common.NewSelectDialog(DialogNewMenu, "New", []string{
+			"New worktree",
+			"New agent (single)",
+			"New agents (custom prompts)",
+			"One-shot prompt (multi)",
+		})
+		a.dialog.Show()
+
 	case messages.ShowCreateWorktreeDialog:
 		a.dialogProject = msg.Project
 		a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
@@ -748,6 +785,9 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
+		if a.newAgentMode != newAgentFlowNone {
+			a.resetNewAgentFlow()
+		}
 		logging.Debug("Dialog cancelled")
 		return nil
 	}
@@ -798,7 +838,193 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 		}
 
+	case DialogNewMenu:
+		project := a.dialogProject
+		if project == nil && len(a.projects) > 0 {
+			project = &a.projects[0]
+		}
+
+		switch result.Index {
+		case newMenuOptionWorktree:
+			if project != nil {
+				return func() tea.Msg {
+					return messages.ShowCreateWorktreeDialog{Project: project}
+				}
+			}
+			return a.toast.ShowWarning("No project available for a new worktree")
+
+		case newMenuOptionAgentSingle:
+			wt := a.resolveNewAgentWorktree(project)
+			if wt == nil {
+				return a.toast.ShowWarning("Select a worktree before launching agents")
+			}
+			a.resetNewAgentFlow()
+			a.newAgentMode = newAgentFlowSingle
+			a.newAgentWorktree = wt
+			a.dialog = common.NewAgentPickerWithTitle("New Agent", "Select agent type:")
+			a.dialog.Show()
+			return nil
+
+		case newMenuOptionAgentMultiCustom:
+			wt := a.resolveNewAgentWorktree(project)
+			if wt == nil {
+				return a.toast.ShowWarning("Select a worktree before launching agents")
+			}
+			a.resetNewAgentFlow()
+			a.newAgentMode = newAgentFlowMultiCustom
+			a.newAgentWorktree = wt
+			a.dialog = common.NewAgentMultiPicker()
+			a.dialog.Show()
+			return nil
+
+		case newMenuOptionAgentMultiShared:
+			wt := a.resolveNewAgentWorktree(project)
+			if wt == nil {
+				return a.toast.ShowWarning("Select a worktree before launching agents")
+			}
+			a.resetNewAgentFlow()
+			a.newAgentMode = newAgentFlowMultiShared
+			a.newAgentWorktree = wt
+			a.dialog = common.NewInputDialog(DialogNewAgentShared, "Shared Prompt", "Enter prompt to send to all agents...")
+			a.dialog.Show()
+			return nil
+		}
+
+	case DialogNewAgentShared:
+		prompt := strings.TrimSpace(result.Value)
+		if prompt == "" {
+			a.dialog = common.NewInputDialog(DialogNewAgentShared, "Shared Prompt", "Enter prompt to send to all agents...")
+			a.dialog.Show()
+			return a.toast.ShowWarning("Prompt cannot be empty")
+		}
+		a.newAgentPrompt = prompt
+		a.dialog = common.NewAgentMultiPicker()
+		a.dialog.Show()
+		return nil
+
+	case DialogNewAgentPrompt:
+		prompt := strings.TrimSpace(result.Value)
+		switch a.newAgentMode {
+		case newAgentFlowSingle:
+			if len(a.newAgentSelections) == 0 || a.newAgentWorktree == nil {
+				a.resetNewAgentFlow()
+				return a.toast.ShowWarning("No agent selected")
+			}
+			assistant := a.newAgentSelections[0]
+			if err := validation.ValidateAssistant(assistant); err != nil {
+				a.resetNewAgentFlow()
+				return func() tea.Msg {
+					return messages.Error{Err: err, Context: "validating assistant"}
+				}
+			}
+			wt := a.newAgentWorktree
+			a.resetNewAgentFlow()
+			return func() tea.Msg {
+				return messages.LaunchAgent{
+					Assistant: assistant,
+					Worktree:  wt,
+					Prompt:    prompt,
+				}
+			}
+
+		case newAgentFlowMultiCustom:
+			if len(a.newAgentSelections) == 0 || a.newAgentWorktree == nil {
+				a.resetNewAgentFlow()
+				return a.toast.ShowWarning("No agents selected")
+			}
+			if a.newAgentPrompts == nil {
+				a.newAgentPrompts = make(map[string]string)
+			}
+			if a.newAgentPromptIdx < len(a.newAgentSelections) {
+				agent := a.newAgentSelections[a.newAgentPromptIdx]
+				a.newAgentPrompts[agent] = prompt
+				a.newAgentPromptIdx++
+			}
+			if a.newAgentPromptIdx < len(a.newAgentSelections) {
+				nextAgent := a.newAgentSelections[a.newAgentPromptIdx]
+				a.dialog = common.NewInputDialog(DialogNewAgentPrompt, fmt.Sprintf("Prompt for %s", nextAgent), "Optional prompt (enter to skip)...")
+				a.dialog.Show()
+				return nil
+			}
+			wt := a.newAgentWorktree
+			var cmds []tea.Cmd
+			for _, assistant := range a.newAgentSelections {
+				if err := validation.ValidateAssistant(assistant); err != nil {
+					a.resetNewAgentFlow()
+					return func() tea.Msg {
+						return messages.Error{Err: err, Context: "validating assistant"}
+					}
+				}
+				p := strings.TrimSpace(a.newAgentPrompts[assistant])
+				assistant := assistant
+				cmds = append(cmds, func() tea.Msg {
+					return messages.LaunchAgent{
+						Assistant: assistant,
+						Worktree:  wt,
+						Prompt:    p,
+					}
+				})
+			}
+			a.resetNewAgentFlow()
+			return tea.Batch(cmds...)
+		}
+
+	case "agent-multi-picker":
+		if a.newAgentMode != newAgentFlowMultiCustom && a.newAgentMode != newAgentFlowMultiShared {
+			return nil
+		}
+		if len(result.Values) == 0 {
+			a.dialog = common.NewAgentMultiPicker()
+			a.dialog.Show()
+			return a.toast.ShowWarning("Select at least one agent")
+		}
+		a.newAgentSelections = result.Values
+
+		if a.newAgentMode == newAgentFlowMultiShared {
+			if a.newAgentWorktree == nil {
+				a.resetNewAgentFlow()
+				return a.toast.ShowWarning("Select a worktree before launching agents")
+			}
+			wt := a.newAgentWorktree
+			var cmds []tea.Cmd
+			for _, assistant := range a.newAgentSelections {
+				if err := validation.ValidateAssistant(assistant); err != nil {
+					a.resetNewAgentFlow()
+					return func() tea.Msg {
+						return messages.Error{Err: err, Context: "validating assistant"}
+					}
+				}
+				assistant := assistant
+				cmds = append(cmds, func() tea.Msg {
+					return messages.LaunchAgent{
+						Assistant: assistant,
+						Worktree:  wt,
+						Prompt:    a.newAgentPrompt,
+					}
+				})
+			}
+			a.resetNewAgentFlow()
+			return tea.Batch(cmds...)
+		}
+
+		a.newAgentPrompts = make(map[string]string)
+		a.newAgentPromptIdx = 0
+		firstAgent := a.newAgentSelections[0]
+		a.dialog = common.NewInputDialog(DialogNewAgentPrompt, fmt.Sprintf("Prompt for %s", firstAgent), "Optional prompt (enter to skip)...")
+		a.dialog.Show()
+		return nil
+
 	case DialogSelectAssistant, "agent-picker":
+		if a.newAgentMode == newAgentFlowSingle {
+			if result.Value == "" {
+				a.resetNewAgentFlow()
+				return a.toast.ShowWarning("Select an agent")
+			}
+			a.newAgentSelections = []string{result.Value}
+			a.dialog = common.NewInputDialog(DialogNewAgentPrompt, fmt.Sprintf("Prompt for %s", result.Value), "Optional prompt (enter to skip)...")
+			a.dialog.Show()
+			return nil
+		}
 		if a.activeWorktree != nil {
 			assistant := result.Value
 			if err := validation.ValidateAssistant(assistant); err != nil {
@@ -822,6 +1048,36 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		return tea.Quit
 	}
 
+	return nil
+}
+
+func (a *App) resetNewAgentFlow() {
+	a.newAgentMode = newAgentFlowNone
+	a.newAgentWorktree = nil
+	a.newAgentSelections = nil
+	a.newAgentPrompt = ""
+	a.newAgentPrompts = nil
+	a.newAgentPromptIdx = 0
+}
+
+func (a *App) resolveNewAgentWorktree(project *data.Project) *data.Worktree {
+	if a.activeWorktree != nil {
+		if project == nil || a.activeWorktree.Repo == project.Path {
+			return a.activeWorktree
+		}
+	}
+	if project == nil {
+		return nil
+	}
+	for i := range project.Worktrees {
+		wt := &project.Worktrees[i]
+		if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
+			return wt
+		}
+	}
+	if len(project.Worktrees) > 0 {
+		return &project.Worktrees[0]
+	}
 	return nil
 }
 

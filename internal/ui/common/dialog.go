@@ -19,6 +19,7 @@ const (
 	DialogInput
 	DialogConfirm
 	DialogSelect
+	DialogMultiSelect
 )
 
 // DialogResult is sent when a dialog is completed
@@ -27,6 +28,8 @@ type DialogResult struct {
 	Confirmed bool
 	Value     string
 	Index     int
+	Values    []string
+	Indices   []int
 }
 
 // Dialog is a modal dialog component
@@ -43,6 +46,7 @@ type Dialog struct {
 	input     textinput.Model
 	cursor    int
 	confirmed bool
+	selected  []bool
 
 	// Fuzzy filter state
 	filterEnabled   bool
@@ -93,6 +97,18 @@ func NewSelectDialog(id, title string, options []string) *Dialog {
 	}
 }
 
+// NewMultiSelectDialog creates a new multi-selection dialog
+func NewMultiSelectDialog(id, title string, options []string) *Dialog {
+	return &Dialog{
+		id:       id,
+		dtype:    DialogMultiSelect,
+		title:    title,
+		options:  options,
+		cursor:   0,
+		selected: make([]bool, len(options)),
+	}
+}
+
 // AgentOption represents an agent option with description
 type AgentOption struct {
 	ID   string
@@ -111,8 +127,8 @@ func DefaultAgentOptions() []AgentOption {
 	}
 }
 
-// NewAgentPicker creates a new agent selection dialog with fuzzy filtering
-func NewAgentPicker() *Dialog {
+// NewAgentPickerWithTitle creates a new agent selection dialog with fuzzy filtering and custom title/message
+func NewAgentPickerWithTitle(title, message string) *Dialog {
 	options := DefaultAgentOptions()
 	optionNames := make([]string, len(options))
 	allIndices := make([]int, len(options))
@@ -131,10 +147,45 @@ func NewAgentPicker() *Dialog {
 	return &Dialog{
 		id:              "agent-picker",
 		dtype:           DialogSelect,
-		title:           "New Agent",
-		message:         "Select agent type:",
+		title:           title,
+		message:         message,
 		options:         optionNames,
 		cursor:          0,
+		filterEnabled:   true,
+		filterInput:     fi,
+		filteredIndices: allIndices,
+	}
+}
+
+// NewAgentPicker creates a new agent selection dialog with fuzzy filtering
+func NewAgentPicker() *Dialog {
+	return NewAgentPickerWithTitle("New Agent", "Select agent type:")
+}
+
+// NewAgentMultiPicker creates a multi-select agent picker with fuzzy filtering
+func NewAgentMultiPicker() *Dialog {
+	options := DefaultAgentOptions()
+	optionNames := make([]string, len(options))
+	allIndices := make([]int, len(options))
+	for i, opt := range options {
+		optionNames[i] = opt.ID
+		allIndices[i] = i
+	}
+
+	fi := textinput.New()
+	fi.Placeholder = "Type to filter..."
+	fi.Focus()
+	fi.CharLimit = 20
+	fi.Width = 30
+
+	return &Dialog{
+		id:              "agent-multi-picker",
+		dtype:           DialogMultiSelect,
+		title:           "Select Agents",
+		message:         "Choose one or more agents:",
+		options:         optionNames,
+		cursor:          0,
+		selected:        make([]bool, len(optionNames)),
 		filterEnabled:   true,
 		filterInput:     fi,
 		filteredIndices: allIndices,
@@ -166,6 +217,11 @@ func (d *Dialog) Show() {
 		d.input.SetValue("")
 		d.input.Focus()
 	}
+	if d.dtype == DialogMultiSelect && len(d.selected) > 0 {
+		for i := range d.selected {
+			d.selected[i] = false
+		}
+	}
 	if d.filterEnabled {
 		d.filterInput.SetValue("")
 		d.filterInput.Focus()
@@ -188,6 +244,20 @@ func (d *Dialog) applyFilter() {
 	}
 }
 
+// currentOptionIndex returns the current option index (original index) based on filter state.
+func (d *Dialog) currentOptionIndex() (int, bool) {
+	if d.filterEnabled {
+		if len(d.filteredIndices) == 0 || d.cursor < 0 || d.cursor >= len(d.filteredIndices) {
+			return -1, false
+		}
+		return d.filteredIndices[d.cursor], true
+	}
+	if d.cursor < 0 || d.cursor >= len(d.options) {
+		return -1, false
+	}
+	return d.cursor, true
+}
+
 // Hide hides the dialog
 func (d *Dialog) Hide() {
 	d.visible = false
@@ -207,6 +277,14 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case key.Matches(msg, key.NewBinding(key.WithKeys(" ", "space"))):
+			if d.dtype == DialogMultiSelect {
+				if idx, ok := d.currentOptionIndex(); ok && idx < len(d.selected) {
+					d.selected[idx] = !d.selected[idx]
+				}
+				return d, nil
+			}
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			d.visible = false
 			return d, func() tea.Msg {
@@ -239,12 +317,11 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				// For filtered dialogs, return the original index
 				var originalIdx int
 				var value string
-				if d.filterEnabled && len(d.filteredIndices) > 0 {
-					originalIdx = d.filteredIndices[d.cursor]
-					value = d.options[originalIdx]
-				} else if !d.filterEnabled && d.cursor < len(d.options) {
-					originalIdx = d.cursor
-					value = d.options[d.cursor]
+				if idx, ok := d.currentOptionIndex(); ok {
+					originalIdx = idx
+					if idx < len(d.options) {
+						value = d.options[idx]
+					}
 				} else {
 					// No valid selection
 					d.visible = false
@@ -258,6 +335,23 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 						Confirmed: true,
 						Index:     originalIdx,
 						Value:     value,
+					}
+				}
+			case DialogMultiSelect:
+				var indices []int
+				var values []string
+				for i, selected := range d.selected {
+					if selected && i < len(d.options) {
+						indices = append(indices, i)
+						values = append(values, d.options[i])
+					}
+				}
+				return d, func() tea.Msg {
+					return DialogResult{
+						ID:        d.id,
+						Confirmed: true,
+						Indices:   indices,
+						Values:    values,
 					}
 				}
 			}
@@ -307,7 +401,7 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	}
 
 	// Update filter input for filtered select dialogs
-	if d.dtype == DialogSelect && d.filterEnabled {
+	if (d.dtype == DialogSelect || d.dtype == DialogMultiSelect) && d.filterEnabled {
 		oldValue := d.filterInput.Value()
 		var cmd tea.Cmd
 		d.filterInput, cmd = d.filterInput.Update(msg)
@@ -349,14 +443,21 @@ func (d *Dialog) View() string {
 
 	case DialogSelect:
 		content.WriteString(d.renderOptions())
+
+	case DialogMultiSelect:
+		content.WriteString(d.renderOptions())
 	}
 
 	// Help
 	helpStyle := lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		MarginTop(1)
+	helpText := "enter: confirm • esc: cancel"
+	if d.dtype == DialogMultiSelect {
+		helpText = "space: toggle • enter: confirm • esc: cancel"
+	}
 	content.WriteString("\n")
-	content.WriteString(helpStyle.Render("enter: confirm • esc: cancel"))
+	content.WriteString(helpStyle.Render(helpText))
 
 	// Dialog box
 	dialogStyle := lipgloss.NewStyle().
@@ -373,7 +474,7 @@ func (d *Dialog) renderOptions() string {
 	var b strings.Builder
 
 	// For agent picker, show filter input and filtered list
-	if d.id == "agent-picker" {
+	if d.id == "agent-picker" || d.id == "agent-multi-picker" {
 		// Show filter input
 		if d.filterEnabled {
 			b.WriteString(d.filterInput.View())
@@ -396,6 +497,15 @@ func (d *Dialog) renderOptions() string {
 				cursor = Icons.Cursor + " "
 			}
 
+			check := ""
+			if d.dtype == DialogMultiSelect {
+				if originalIdx < len(d.selected) && d.selected[originalIdx] {
+					check = "[x] "
+				} else {
+					check = "[ ] "
+				}
+			}
+
 			// Get agent color
 			var colorStyle lipgloss.Style
 			switch opt.ID {
@@ -416,7 +526,33 @@ func (d *Dialog) renderOptions() string {
 			name := colorStyle.Bold(cursorIdx == d.cursor).Render("[" + opt.Name + "]")
 			desc := lipgloss.NewStyle().Foreground(ColorMuted).Render("  " + opt.Desc)
 
-			b.WriteString(cursor + name + desc + "\n")
+			b.WriteString(cursor + check + name + desc + "\n")
+		}
+		return b.String()
+	}
+
+	// For select dialogs, show vertical options
+	if d.dtype == DialogSelect || d.dtype == DialogMultiSelect {
+		for i, opt := range d.options {
+			cursor := Icons.CursorEmpty + " "
+			if i == d.cursor {
+				cursor = Icons.Cursor + " "
+			}
+
+			check := ""
+			if d.dtype == DialogMultiSelect {
+				if i < len(d.selected) && d.selected[i] {
+					check = "[x] "
+				} else {
+					check = "[ ] "
+				}
+			}
+
+			style := lipgloss.NewStyle().Foreground(ColorForeground)
+			if i == d.cursor {
+				style = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+			}
+			b.WriteString(cursor + style.Render(check+opt) + "\n")
 		}
 		return b.String()
 	}

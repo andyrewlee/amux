@@ -52,7 +52,7 @@ func defaultHelpSections() []HelpSection {
 			Bindings: []HelpBinding{
 				{"j/k", "Navigate up/down"},
 				{"Enter", "Activate worktree"},
-				{"n", "New worktree"},
+				{"n", "New..."},
 				{"d", "Delete worktree"},
 				{"f", "Toggle dirty filter"},
 				{"m", "Monitor tabs"},

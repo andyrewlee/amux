@@ -372,7 +372,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return cursor + style.Render(common.Icons.Add+" New")
+		return cursor + style.Render(common.Icons.Add+" New...")
 
 	case RowSpacer:
 		return ""
@@ -671,7 +671,7 @@ func (m *Model) handleEnter() tea.Cmd {
 		}
 	case RowCreate:
 		return func() tea.Msg {
-			return messages.ShowCreateWorktreeDialog{Project: row.Project}
+			return messages.ShowNewDialog{Project: row.Project}
 		}
 	}
 
@@ -685,7 +685,7 @@ func (m *Model) handleNew() tea.Cmd {
 		row := m.rows[m.cursor]
 		if row.Project != nil {
 			return func() tea.Msg {
-				return messages.ShowCreateWorktreeDialog{Project: row.Project}
+				return messages.ShowNewDialog{Project: row.Project}
 			}
 		}
 	}
@@ -693,7 +693,7 @@ func (m *Model) handleNew() tea.Cmd {
 	// Otherwise, if there are projects, use the first one
 	if len(m.projects) > 0 {
 		return func() tea.Msg {
-			return messages.ShowCreateWorktreeDialog{Project: &m.projects[0]}
+			return messages.ShowNewDialog{Project: &m.projects[0]}
 		}
 	}
 

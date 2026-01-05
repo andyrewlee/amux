@@ -49,24 +49,32 @@ func nextAssistantName(assistant string, tabs []*Tab) string {
 		return ""
 	}
 
+	return uniqueTabName(assistant, tabs)
+}
+
+func uniqueTabName(base string, tabs []*Tab) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+
 	used := make(map[string]struct{})
 	for _, tab := range tabs {
-		if tab == nil || tab.Assistant != assistant {
+		if tab == nil {
 			continue
 		}
 		name := strings.TrimSpace(tab.Name)
-		if name == "" {
-			name = assistant
+		if name != "" {
+			used[name] = struct{}{}
 		}
-		used[name] = struct{}{}
 	}
 
-	if _, ok := used[assistant]; !ok {
-		return assistant
+	if _, ok := used[base]; !ok {
+		return base
 	}
 
 	for i := 1; ; i++ {
-		candidate := fmt.Sprintf("%s %d", assistant, i)
+		candidate := fmt.Sprintf("%s %d", base, i)
 		if _, ok := used[candidate]; !ok {
 			return candidate
 		}
@@ -660,7 +668,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 	case messages.LaunchAgent:
-		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
+		return m, m.createAgentTab(msg.Assistant, msg.Worktree, msg.Name, msg.Prompt)
 
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
@@ -910,7 +918,7 @@ func (m *Model) renderEmpty() string {
 }
 
 // createAgentTab creates a new agent tab
-func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
+func (m *Model) createAgentTab(assistant string, wt *data.Worktree, name string, prompt string) tea.Cmd {
 	return func() tea.Msg {
 		logging.Info("Creating agent tab: assistant=%s worktree=%s", assistant, wt.Name)
 		agent, err := m.agentManager.CreateAgent(wt, appPty.AgentType(assistant))
@@ -944,6 +952,9 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		// Create tab with unique ID
 		wtID := string(wt.ID())
 		displayName := nextAssistantName(assistant, m.tabsByWorktree[wtID])
+		if strings.TrimSpace(name) != "" {
+			displayName = uniqueTabName(strings.TrimSpace(name), m.tabsByWorktree[wtID])
+		}
 		tab := &Tab{
 			ID:        generateTabID(),
 			Name:      displayName,
@@ -958,6 +969,13 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		if agent.Terminal != nil {
 			_ = agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
 			logging.Info("Terminal size set to %dx%d", termWidth, termHeight)
+		}
+
+		if agent.Terminal != nil {
+			p := strings.TrimSpace(prompt)
+			if p != "" {
+				_ = agent.Terminal.SendString(p + "\n")
+			}
 		}
 
 		// Add tab to the worktree's tab list

@@ -127,6 +127,11 @@ type ShowCreateWorktreeDialog struct {
 	Project *data.Project
 }
 
+// ShowNewDialog requests showing the new action dialog
+type ShowNewDialog struct {
+	Project *data.Project
+}
+
 // ShowDeleteWorktreeDialog requests showing the delete worktree confirmation
 type ShowDeleteWorktreeDialog struct {
 	Project  *data.Project
@@ -158,6 +163,8 @@ type ShowSelectAssistantDialog struct{}
 type LaunchAgent struct {
 	Assistant string
 	Worktree  *data.Worktree
+	Name      string
+	Prompt    string
 }
 
 // WorktreeCreatedWithWarning indicates worktree was created but setup had issues

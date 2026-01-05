@@ -248,8 +248,8 @@ func TestDashboardHandleEnterCreate(t *testing.T) {
 	}
 
 	msg := cmd()
-	if _, ok := msg.(messages.ShowCreateWorktreeDialog); !ok {
-		t.Fatalf("expected ShowCreateWorktreeDialog message, got %T", msg)
+	if _, ok := msg.(messages.ShowNewDialog); !ok {
+		t.Fatalf("expected ShowNewDialog message, got %T", msg)
 	}
 }
 
@@ -265,9 +265,9 @@ func TestDashboardHandleNew(t *testing.T) {
 	}
 
 	msg := cmd()
-	dialog, ok := msg.(messages.ShowCreateWorktreeDialog)
+	dialog, ok := msg.(messages.ShowNewDialog)
 	if !ok {
-		t.Fatalf("expected ShowCreateWorktreeDialog message, got %T", msg)
+		t.Fatalf("expected ShowNewDialog message, got %T", msg)
 	}
 	if dialog.Project == nil {
 		t.Fatalf("expected project in dialog message")
