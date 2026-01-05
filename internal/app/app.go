@@ -445,8 +445,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return a, nil
 			case key.Matches(msg, a.keymap.Home):
-				a.showWelcome = true
-				a.activeWorktree = nil
+				a.goHome()
 				return a, nil
 			case key.Matches(msg, a.keymap.Quit):
 				a.center.Close()
@@ -511,8 +510,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 		case key.Matches(msg, a.keymap.Home):
-			a.showWelcome = true
-			a.activeWorktree = nil
+			a.goHome()
 		case key.Matches(msg, a.keymap.NewAgentTab):
 			if a.activeWorktree != nil {
 				return a, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
@@ -582,8 +580,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.ShowWelcome:
-		a.showWelcome = true
-		a.activeWorktree = nil
+		a.goHome()
 
 	case messages.RefreshDashboard:
 		cmds = append(cmds, a.loadProjects())
@@ -1132,6 +1129,15 @@ func (a *App) renderCenterPane() string {
 	}
 
 	return style.Render("Select a worktree from the dashboard")
+}
+
+func (a *App) goHome() {
+	a.showWelcome = true
+	a.activeWorktree = nil
+	a.center.SetWorktree(nil)
+	a.sidebar.SetWorktree(nil)
+	a.sidebar.SetGitStatus(nil)
+	_ = a.sidebarTerminal.SetWorktree(nil)
 }
 
 func (a *App) renderMonitorGrid() string {
