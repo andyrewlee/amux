@@ -680,6 +680,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Info("Tab created: %s", msg.Name)
 		// Start reading from the new PTY
 		cmds = append(cmds, a.center.StartPTYReaders())
+		if cmd := a.center.ResolveResumeIDCmd(msg.WorktreeID, msg.TabID); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		if !msg.Restored {
 			// NOW switch focus to center - tab is ready
 			if a.monitorMode {
@@ -692,6 +695,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.TabClosed:
 		logging.Info("Tab closed: %d", msg.Index)
+		a.persistOpenTabs()
+
+	case messages.ResumeIDResolved:
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		a.persistOpenTabs()
 
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:

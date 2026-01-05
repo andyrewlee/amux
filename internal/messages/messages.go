@@ -88,6 +88,7 @@ type CreateAgentTab struct {
 type TabCreated struct {
 	Index      int
 	Name       string
+	TabID      string
 	WorktreeID string
 	Restored   bool
 }
@@ -163,6 +164,13 @@ type LaunchAgent struct {
 	Name      string
 	Resume    data.ResumeInfo
 	Restored  bool
+}
+
+// ResumeIDResolved signals that a session/thread ID was detected for a tab.
+type ResumeIDResolved struct {
+	WorktreeID string
+	TabID      string
+	Resume     data.ResumeInfo
 }
 
 // WorktreeCreatedWithWarning indicates worktree was created but setup had issues

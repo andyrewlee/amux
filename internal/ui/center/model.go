@@ -91,6 +91,7 @@ type Tab struct {
 	Agent        *appPty.Agent
 	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
 	Resume       data.ResumeInfo
+	StartedAt    time.Time
 	mu           sync.Mutex // Protects Terminal
 	Running      bool       // Whether the agent is actively running
 	readerActive bool       // Guard to ensure only one PTY read loop per tab
@@ -673,6 +674,19 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		return m, m.createAgentTab(msg.Assistant, msg.Worktree, opts)
 
+	case messages.ResumeIDResolved:
+		tab := m.getTabByID(msg.WorktreeID, TabID(msg.TabID))
+		if tab != nil && msg.Resume.ID != "" {
+			resume := tab.Resume
+			resume.ID = msg.Resume.ID
+			if msg.Resume.Mode != data.ResumeModeNone {
+				resume.Mode = msg.Resume.Mode
+			} else if resume.Mode == data.ResumeModeNone {
+				resume.Mode = data.ResumeModeID
+			}
+			tab.Resume = resume
+		}
+
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
@@ -974,18 +988,21 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree, opts tabOpti
 
 		// Create tab with unique ID
 		wtID := string(wt.ID())
+		tabID := generateTabID()
+		startedAt := time.Now()
 		displayName := opts.Name
 		if strings.TrimSpace(displayName) == "" {
 			displayName = nextAssistantName(assistant, m.tabsByWorktree[wtID])
 		}
 		tab := &Tab{
-			ID:        generateTabID(),
+			ID:        tabID,
 			Name:      displayName,
 			Assistant: assistant,
 			Worktree:  wt,
 			Agent:     agent,
 			Terminal:  term,
 			Resume:    resumeInfo,
+			StartedAt: startedAt,
 			Running:   true, // Agent starts running
 		}
 
@@ -1032,6 +1049,7 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree, opts tabOpti
 		return messages.TabCreated{
 			Index:      m.activeTabByWorktree[wtID],
 			Name:       displayName,
+			TabID:      string(tabID),
 			WorktreeID: wtID,
 			Restored:   opts.Restore,
 		}
@@ -1302,6 +1320,41 @@ func (m *Model) GetTabsInfoForWorktree(wt *data.Worktree) ([]data.TabInfo, int) 
 		})
 	}
 	return result, m.activeTabByWorktree[wtID]
+}
+
+// ResolveResumeIDCmd returns a command that attempts to resolve a session/thread ID for a tab.
+func (m *Model) ResolveResumeIDCmd(wtID string, tabID string) tea.Cmd {
+	if wtID == "" || tabID == "" {
+		return nil
+	}
+	tab := m.getTabByID(wtID, TabID(tabID))
+	if tab == nil {
+		return nil
+	}
+	assistant := tab.Assistant
+	startedAt := tab.StartedAt
+	worktreeRoot := ""
+	if tab.Worktree != nil {
+		worktreeRoot = tab.Worktree.Root
+	}
+
+	return func() tea.Msg {
+		const attempts = 3
+		for i := 0; i < attempts; i++ {
+			if i > 0 {
+				time.Sleep(time.Second)
+			}
+			resume := appPty.ResolveResumeID(appPty.AgentType(assistant), worktreeRoot, startedAt)
+			if resume.ID != "" {
+				return messages.ResumeIDResolved{
+					WorktreeID: wtID,
+					TabID:      tabID,
+					Resume:     resume,
+				}
+			}
+		}
+		return nil
+	}
 }
 
 // MonitorSnapshots returns a snapshot of each tab for the monitor grid.
