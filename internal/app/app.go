@@ -444,6 +444,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.focusPane(messages.PaneSidebar)
 				}
 				return a, nil
+			case key.Matches(msg, a.keymap.Home):
+				a.showWelcome = true
+				a.activeWorktree = nil
+				return a, nil
 			case key.Matches(msg, a.keymap.Quit):
 				a.center.Close()
 				a.quitting = true
