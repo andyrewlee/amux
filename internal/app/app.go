@@ -34,6 +34,7 @@ const (
 	DialogCreateWorktree  = "create_worktree"
 	DialogDeleteWorktree  = "delete_worktree"
 	DialogSelectAssistant = "select_assistant"
+	DialogQuit            = "quit"
 )
 
 // App is the root Bubbletea model
@@ -373,9 +374,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle quit first
 		if key.Matches(msg, a.keymap.Quit) {
-			a.center.Close()
-			a.quitting = true
-			return a, tea.Quit
+			a.showQuitDialog()
+			return a, nil
 		}
 
 		// Dismiss error on any key
@@ -400,10 +400,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, a.keymap.MoveUp):
 				a.focusPane(messages.PaneSidebar)
 				return a, nil
-			case key.Matches(msg, a.keymap.Quit):
-				a.sidebarTerminal.CloseAll()
-				a.quitting = true
-				return a, tea.Quit
 			}
 
 			// Forward all other keys to terminal
@@ -447,10 +443,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, a.keymap.Home):
 				a.goHome()
 				return a, nil
-			case key.Matches(msg, a.keymap.Quit):
-				a.center.Close()
-				a.quitting = true
-				return a, tea.Quit
 			}
 
 			// When we have active tabs, forward all other keys to the terminal
@@ -822,9 +814,27 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				}
 			}
 		}
+
+	case DialogQuit:
+		a.center.Close()
+		a.sidebarTerminal.CloseAll()
+		a.quitting = true
+		return tea.Quit
 	}
 
 	return nil
+}
+
+func (a *App) showQuitDialog() {
+	if a.dialog != nil && a.dialog.Visible() {
+		return
+	}
+	a.dialog = common.NewConfirmDialog(
+		DialogQuit,
+		"Quit AMUX",
+		"Are you sure you want to quit?",
+	)
+	a.dialog.Show()
 }
 
 // Synchronized Output Mode 2026 sequences
