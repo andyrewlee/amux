@@ -86,8 +86,10 @@ type CreateAgentTab struct {
 
 // TabCreated is sent when a new tab is created
 type TabCreated struct {
-	Index int
-	Name  string
+	Index      int
+	Name       string
+	WorktreeID string
+	Restored   bool
 }
 
 // TabClosed is sent when a tab is closed
@@ -158,6 +160,9 @@ type ShowSelectAssistantDialog struct{}
 type LaunchAgent struct {
 	Assistant string
 	Worktree  *data.Worktree
+	Name      string
+	Resume    data.ResumeInfo
+	Restored  bool
 }
 
 // WorktreeCreatedWithWarning indicates worktree was created but setup had issues

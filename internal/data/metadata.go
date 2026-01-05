@@ -23,10 +23,25 @@ type Metadata struct {
 	ActiveTabIndex       int               `json:"active_tab_index"`
 }
 
+// ResumeInfo stores assistant-specific resume metadata for a tab.
+type ResumeInfo struct {
+	Mode string `json:"mode,omitempty"` // "id", "last", "continue", "index"
+	ID   string `json:"id,omitempty"`
+}
+
+const (
+	ResumeModeNone     = ""
+	ResumeModeID       = "id"
+	ResumeModeLast     = "last"
+	ResumeModeContinue = "continue"
+	ResumeModeIndex    = "index"
+)
+
 // TabInfo stores information about an open tab
 type TabInfo struct {
-	Assistant string `json:"assistant"`
-	Name      string `json:"name"`
+	Assistant string     `json:"assistant"`
+	Name      string     `json:"name"`
+	Resume    ResumeInfo `json:"resume,omitempty"`
 }
 
 // ScriptsConfig holds the setup/run/archive script commands

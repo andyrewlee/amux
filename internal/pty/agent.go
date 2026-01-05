@@ -42,7 +42,7 @@ func NewAgentManager(cfg *config.Config) *AgentManager {
 }
 
 // CreateAgent creates a new agent for the given worktree
-func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType) (*Agent, error) {
+func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType, resume data.ResumeInfo) (*Agent, error) {
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
@@ -55,7 +55,12 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType) (*Age
 	}
 
 	// Create terminal with agent command
-	term, err := New(assistantCfg.Command, wt.Root, env)
+	command := ApplyResumeCommand(assistantCfg.Command, agentType, resume)
+	term, err := New(command, wt.Root, env)
+	if err != nil && command != assistantCfg.Command {
+		// If resume failed, fall back to starting a fresh session.
+		term, err = New(assistantCfg.Command, wt.Root, env)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}

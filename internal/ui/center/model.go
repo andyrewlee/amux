@@ -90,9 +90,10 @@ type Tab struct {
 	Worktree     *data.Worktree
 	Agent        *appPty.Agent
 	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
-	mu           sync.Mutex   // Protects Terminal
-	Running      bool         // Whether the agent is actively running
-	readerActive bool         // Guard to ensure only one PTY read loop per tab
+	Resume       data.ResumeInfo
+	mu           sync.Mutex // Protects Terminal
+	Running      bool       // Whether the agent is actively running
+	readerActive bool       // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 	pendingOutput     []byte
 	flushScheduled    bool
@@ -236,6 +237,8 @@ type Model struct {
 	worktree            *data.Worktree
 	tabsByWorktree      map[string][]*Tab // tabs per worktree ID
 	activeTabByWorktree map[string]int    // active tab index per worktree
+	restorePending      map[string]int    // tabs left to restore per worktree
+	restoreActiveIndex  map[string]int    // desired active tab index per worktree
 	focused             bool
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
@@ -260,6 +263,8 @@ func New(cfg *config.Config) *Model {
 	return &Model{
 		tabsByWorktree:      make(map[string][]*Tab),
 		activeTabByWorktree: make(map[string]int),
+		restorePending:      make(map[string]int),
+		restoreActiveIndex:  make(map[string]int),
 		config:              cfg,
 		agentManager:        appPty.NewAgentManager(cfg),
 		styles:              common.DefaultStyles(),
@@ -660,7 +665,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 	case messages.LaunchAgent:
-		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
+		opts := tabOptions{
+			Name:     msg.Name,
+			Resume:   msg.Resume,
+			Restore:  msg.Restored,
+			Activate: !msg.Restored,
+		}
+		return m, m.createAgentTab(msg.Assistant, msg.Worktree, opts)
 
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
@@ -909,11 +920,31 @@ func (m *Model) renderEmpty() string {
 	return b.String()
 }
 
+type tabOptions struct {
+	Name     string
+	Resume   data.ResumeInfo
+	Restore  bool
+	Activate bool
+}
+
 // createAgentTab creates a new agent tab
-func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
+func (m *Model) createAgentTab(assistant string, wt *data.Worktree, opts tabOptions) tea.Cmd {
 	return func() tea.Msg {
 		logging.Info("Creating agent tab: assistant=%s worktree=%s", assistant, wt.Name)
-		agent, err := m.agentManager.CreateAgent(wt, appPty.AgentType(assistant))
+		resumeInfo := opts.Resume
+		if resumeInfo.Mode == data.ResumeModeNone {
+			resumeInfo = appPty.DefaultResumeInfo(appPty.AgentType(assistant))
+		}
+		resumeForCommand := data.ResumeInfo{}
+		if opts.Restore {
+			resumeForCommand = resumeInfo
+		}
+
+		agent, err := m.agentManager.CreateAgent(wt, appPty.AgentType(assistant), resumeForCommand)
+		if err != nil && opts.Restore {
+			// Retry without resume if the CLI doesn't support the resume flag.
+			agent, err = m.agentManager.CreateAgent(wt, appPty.AgentType(assistant), data.ResumeInfo{})
+		}
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}
@@ -943,7 +974,10 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 
 		// Create tab with unique ID
 		wtID := string(wt.ID())
-		displayName := nextAssistantName(assistant, m.tabsByWorktree[wtID])
+		displayName := opts.Name
+		if strings.TrimSpace(displayName) == "" {
+			displayName = nextAssistantName(assistant, m.tabsByWorktree[wtID])
+		}
 		tab := &Tab{
 			ID:        generateTabID(),
 			Name:      displayName,
@@ -951,6 +985,7 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 			Worktree:  wt,
 			Agent:     agent,
 			Terminal:  term,
+			Resume:    resumeInfo,
 			Running:   true, // Agent starts running
 		}
 
@@ -962,9 +997,44 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 
 		// Add tab to the worktree's tab list
 		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+		if opts.Activate {
+			m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+		}
 
-		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
+		if opts.Restore {
+			if remaining, ok := m.restorePending[wtID]; ok {
+				remaining--
+				if remaining <= 0 {
+					delete(m.restorePending, wtID)
+					desired := m.restoreActiveIndex[wtID]
+					delete(m.restoreActiveIndex, wtID)
+					if desired < 0 {
+						desired = 0
+					}
+					if desired >= len(m.tabsByWorktree[wtID]) {
+						desired = len(m.tabsByWorktree[wtID]) - 1
+					}
+					if desired >= 0 && len(m.tabsByWorktree[wtID]) > 0 {
+						m.activeTabByWorktree[wtID] = desired
+					}
+				} else {
+					m.restorePending[wtID] = remaining
+				}
+			}
+		}
+
+		if opts.Restore {
+			if autoInput := appPty.AutoResumeInput(appPty.AgentType(assistant), resumeInfo); autoInput != "" {
+				_ = agent.Terminal.SendString(autoInput)
+			}
+		}
+
+		return messages.TabCreated{
+			Index:      m.activeTabByWorktree[wtID],
+			Name:       displayName,
+			WorktreeID: wtID,
+			Restored:   opts.Restore,
+		}
 	}
 }
 
@@ -1166,6 +1236,24 @@ func (m *Model) HasTabs() bool {
 	return len(m.getTabs()) > 0
 }
 
+// HasTabsForWorktree returns whether there are any tabs for a given worktree.
+func (m *Model) HasTabsForWorktree(wt *data.Worktree) bool {
+	if wt == nil {
+		return false
+	}
+	return len(m.tabsByWorktree[string(wt.ID())]) > 0
+}
+
+// BeginRestoreTabs sets up restore bookkeeping for a worktree.
+func (m *Model) BeginRestoreTabs(wt *data.Worktree, count int, activeIdx int) {
+	if wt == nil || count <= 0 {
+		return
+	}
+	wtID := string(wt.ID())
+	m.restorePending[wtID] = count
+	m.restoreActiveIndex[wtID] = activeIdx
+}
+
 // StartPTYReaders starts reading from all PTYs across all worktrees
 func (m *Model) StartPTYReaders() tea.Cmd {
 	var cmds []tea.Cmd
@@ -1192,9 +1280,28 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 		result = append(result, data.TabInfo{
 			Assistant: tab.Assistant,
 			Name:      tab.Name,
+			Resume:    tab.Resume,
 		})
 	}
 	return result, m.getActiveTabIdx()
+}
+
+// GetTabsInfoForWorktree returns tabs and active index for a given worktree.
+func (m *Model) GetTabsInfoForWorktree(wt *data.Worktree) ([]data.TabInfo, int) {
+	if wt == nil {
+		return nil, 0
+	}
+	wtID := string(wt.ID())
+	tabs := m.tabsByWorktree[wtID]
+	result := make([]data.TabInfo, 0, len(tabs))
+	for _, tab := range tabs {
+		result = append(result, data.TabInfo{
+			Assistant: tab.Assistant,
+			Name:      tab.Name,
+			Resume:    tab.Resume,
+		})
+	}
+	return result, m.activeTabByWorktree[wtID]
 }
 
 // MonitorSnapshots returns a snapshot of each tab for the monitor grid.
