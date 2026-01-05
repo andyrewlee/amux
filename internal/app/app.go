@@ -1222,8 +1222,27 @@ func (a *App) renderMonitorGrid() string {
 		return ""
 	}
 
-	layoutKey := a.monitorLayoutKeyFor(tabs, gridW, gridH, nil)
+	tabSizes := make([]center.TabSize, 0, len(tabs))
+	for i, tab := range tabs {
+		rect := monitorTileRect(grid, i, gridX, gridY)
+		contentW := rect.W - 2
+		contentH := rect.H - 3 // border + header line
+		if contentW < 1 {
+			contentW = 1
+		}
+		if contentH < 1 {
+			contentH = 1
+		}
+		tabSizes = append(tabSizes, center.TabSize{
+			ID:     tab.ID,
+			Width:  contentW,
+			Height: contentH,
+		})
+	}
+
+	layoutKey := a.monitorLayoutKeyFor(tabs, gridW, gridH, tabSizes)
 	if layoutKey != a.monitorLayoutKey {
+		a.center.ResizeTabs(tabSizes)
 		a.monitorLayoutKey = layoutKey
 	}
 
@@ -2171,7 +2190,9 @@ func (a *App) sendPrefixToTerminal() {
 func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
 
-	a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
+	if !a.monitorMode {
+		a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
+	}
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
 	a.center.SetCanFocusRight(a.layout.ShowSidebar())
 	a.dashboard.SetCanFocusRight(a.layout.ShowCenter())
