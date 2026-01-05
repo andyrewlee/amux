@@ -806,6 +806,7 @@ func (m *Model) View() string {
 	helpItems := []string{
 		m.styles.HelpKey.Render("esc") + m.styles.HelpDesc.Render(":dashboard"),
 		m.styles.HelpKey.Render("^w") + m.styles.HelpDesc.Render(":close"),
+		m.styles.HelpKey.Render("^t") + m.styles.HelpDesc.Render(":agent"),
 		m.styles.HelpKey.Render("gt/gT") + m.styles.HelpDesc.Render(":tabs"),
 		m.styles.HelpKey.Render("^u/d") + m.styles.HelpDesc.Render(":scroll"),
 		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
