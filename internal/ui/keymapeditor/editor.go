@@ -505,7 +505,7 @@ func (e *Editor) View() string {
 
 	tip := lipgloss.NewStyle().
 		Foreground(common.ColorMuted).
-		Render("Tip: change Leader if Ctrl+Space doesn't work")
+		Render("Tip: Leader defaults to Ctrl+Space (Ctrl+; fallback). Change if needed.")
 
 	filterLabel := lipgloss.NewStyle().
 		Foreground(common.ColorMuted).

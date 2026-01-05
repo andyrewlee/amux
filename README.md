@@ -40,13 +40,15 @@ This will run the specified commands in each new worktree after creation.
 
 ## Keymap Configuration
 
-You can override keybindings in `~/.amux/config.json`:
+You can edit keybindings in-app (Leader+, or click Keymap in the dashboard action bar). Changes are saved to `~/.amux/config.json`.
+
+You can also override keybindings manually in `~/.amux/config.json`:
 
 ```json
 {
   "keymap": {
     "bindings": {
-      "leader": ["ctrl+space"],
+      "leader": ["ctrl+space", "ctrl+;"],
       "tab_next": ["t"],
       "tab_prev": ["T"],
       "tab_new": ["n"],
