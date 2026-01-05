@@ -313,6 +313,8 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 }
 
 func suppressBlankUnderline(cell Cell, style Style) Style {
+	// Some TUIs leave underline enabled while clearing rows; underline on spaces
+	// renders as scanlines, so drop it for blank cells at render time.
 	if !style.Underline {
 		return style
 	}

@@ -195,6 +195,7 @@ func (c *Canvas) Render() string {
 				continue
 			}
 			style := cell.Style
+			// Prevent underline-on-spaces from rendering as scanlines.
 			if style.Underline && (cell.Rune == 0 || cell.Rune == ' ') {
 				style.Underline = false
 			}
