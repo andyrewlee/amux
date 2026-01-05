@@ -1902,8 +1902,7 @@ func (a *App) runLeaderCommand(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keymap.MonitorToggle):
 		a.toggleMonitorMode()
 	case key.Matches(msg, a.keymap.Home):
-		a.showWelcome = true
-		a.activeWorktree = nil
+		a.goHome()
 		a.focusPane(messages.PaneDashboard)
 	case key.Matches(msg, a.keymap.Help):
 		a.helpOverlay.SetSize(a.width, a.height)
