@@ -21,6 +21,12 @@ if [ ! -f "$redirect" ]; then
   printf "%s\n" "$repo/.beads" > "$redirect"
 fi
 
+# Install beads hooks and import JSONL in the worktree when available
+if command -v bd >/dev/null 2>&1 && git -C "$wt" rev-parse --git-dir >/dev/null 2>&1; then
+  (cd "$wt" && bd hooks install) || true
+  (cd "$wt" && bd sync --import-only) || true
+fi
+
 # Locally ignore redirect file to avoid untracked noise
 if gitdir=$(git -C "$wt" rev-parse --git-dir 2>/dev/null); then
   exclude="$gitdir/info/exclude"
