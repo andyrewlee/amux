@@ -23,8 +23,8 @@ fi
 
 # Install beads hooks and import JSONL in the worktree when available
 if command -v bd >/dev/null 2>&1 && git -C "$wt" rev-parse --git-dir >/dev/null 2>&1; then
-  bd -C "$wt" hooks install || true
-  bd -C "$wt" sync --import-only || true
+  (cd "$wt" && bd hooks install) || true
+  (cd "$wt" && bd sync --import-only) || true
 fi
 
 # Locally ignore redirect file to avoid untracked noise
