@@ -641,9 +641,9 @@ func (m *Model) renderActionBar() string {
 	}
 
 	buttons := []btnSpec{
-		{id: actionMonitor, label: "[ Monitor ]"},
-		{id: actionHelp, label: "[ Help ]"},
-		{id: actionKeymap, label: "[ Keymap ]"},
+		{id: actionMonitor, label: actionLabel("Monitor", leaderShort(m.keymap, m.keymap.MonitorToggle))},
+		{id: actionHelp, label: actionLabel("Help", leaderShort(m.keymap, m.keymap.Help))},
+		{id: actionKeymap, label: actionLabel("Keymap", leaderShort(m.keymap, m.keymap.KeymapEditor))},
 	}
 
 	m.actionButtons = m.actionButtons[:0]
@@ -668,6 +668,29 @@ func (m *Model) renderActionBar() string {
 
 	line := strings.Join(parts, "")
 	return ansi.Truncate(line, contentWidth, "")
+}
+
+func actionLabel(title, hint string) string {
+	if hint == "" {
+		return "[ " + title + " ]"
+	}
+	return "[ " + title + " " + hint + " ]"
+}
+
+func leaderShort(km keymap.KeyMap, binding key.Binding) string {
+	leader := keymap.PrimaryKey(km.Leader)
+	prefix := "L"
+	if len(leader) == 1 {
+		prefix = leader
+	}
+	keyName := keymap.PrimaryKey(binding)
+	if keyName == "" {
+		keyName = binding.Help().Key
+	}
+	if keyName == "" {
+		return prefix
+	}
+	return prefix + "+" + keyName
 }
 
 func (m *Model) actionButtonAt(x int) (actionButtonID, bool) {

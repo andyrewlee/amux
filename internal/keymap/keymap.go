@@ -111,7 +111,7 @@ func New(cfg config.KeyMapConfig) KeyMap {
 	return KeyMap{
 		Leader: bindingFromDef(cfg, bindingDef{
 			action: ActionLeader,
-			keys:   []string{"ctrl+space", "ctrl+@"},
+			keys:   []string{"ctrl+space", "ctrl+@", "ctrl+;"},
 			desc:   "leader",
 		}),
 

@@ -45,6 +45,7 @@ type buttonID int
 const (
 	buttonDone buttonID = iota
 	buttonReset
+	buttonResetAll
 )
 
 type button struct {
@@ -185,6 +186,8 @@ func (e *Editor) handleKey(msg tea.KeyMsg) (*Editor, tea.Cmd) {
 		e.startEditing()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 		return e, e.resetCurrent()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("R"))):
+		return e, e.resetAll()
 	}
 
 	return e, nil
@@ -219,6 +222,8 @@ func (e *Editor) handleMouse(msg tea.MouseMsg) (*Editor, tea.Cmd) {
 					return e, nil
 				case buttonReset:
 					return e, e.resetCurrent()
+				case buttonResetAll:
+					return e, e.resetAll()
 				}
 			}
 		}
@@ -286,6 +291,14 @@ func (e *Editor) resetCurrent() tea.Cmd {
 	return e.emitUpdate()
 }
 
+func (e *Editor) resetAll() tea.Cmd {
+	e.overrides = map[string][]string{}
+	e.rebuildKeymap()
+	e.editing = false
+	e.errMsg = ""
+	return e.emitUpdate()
+}
+
 func (e *Editor) rebuildKeymap() {
 	e.keymap = keymap.New(config.KeyMapConfig{Bindings: cloneBindings(e.overrides)})
 }
@@ -342,7 +355,7 @@ func (e *Editor) View() string {
 
 	subtitle := lipgloss.NewStyle().
 		Foreground(common.ColorMuted).
-		Render("Enter to edit • R to reset • Esc to close")
+		Render("Enter to edit • r reset • R reset all • Esc to close")
 
 	tip := lipgloss.NewStyle().
 		Foreground(common.ColorMuted).
@@ -433,6 +446,7 @@ func (e *Editor) renderFooter(contentWidth int, footerY int) string {
 	}{
 		{buttonDone, "[ Done ]"},
 		{buttonReset, "[ Reset ]"},
+		{buttonResetAll, "[ Reset All ]"},
 	}
 
 	x := 0
