@@ -1222,27 +1222,8 @@ func (a *App) renderMonitorGrid() string {
 		return ""
 	}
 
-	tabSizes := make([]center.TabSize, 0, len(tabs))
-	for i, tab := range tabs {
-		rect := monitorTileRect(grid, i, gridX, gridY)
-		contentW := rect.W - 2
-		contentH := rect.H - 3 // border + header line
-		if contentW < 1 {
-			contentW = 1
-		}
-		if contentH < 1 {
-			contentH = 1
-		}
-		tabSizes = append(tabSizes, center.TabSize{
-			ID:     tab.ID,
-			Width:  contentW,
-			Height: contentH,
-		})
-	}
-
-	layoutKey := a.monitorLayoutKeyFor(tabs, gridW, gridH, tabSizes)
+	layoutKey := a.monitorLayoutKeyFor(tabs, gridW, gridH, nil)
 	if layoutKey != a.monitorLayoutKey {
-		a.center.ResizeTabs(tabSizes)
 		a.monitorLayoutKey = layoutKey
 	}
 
@@ -1338,14 +1319,25 @@ func (a *App) renderMonitorGrid() string {
 			continue
 		}
 
+		screen := snap.Screen
+		cursorY := snap.CursorY
+		if len(screen) > contentH {
+			startRow := len(screen) - contentH
+			screen = screen[startRow:]
+			cursorY -= startRow
+		}
+		if cursorY < 0 || cursorY >= contentH {
+			cursorY = -1
+		}
+
 		canvas.DrawScreen(
 			innerX,
 			contentY,
 			innerW,
 			contentH,
-			snap.Screen,
+			screen,
 			snap.CursorX,
-			snap.CursorY,
+			cursorY,
 			focused,
 			snap.ViewOffset,
 		)
@@ -1542,16 +1534,16 @@ func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
 	}
 
 	switch {
-	case key.Matches(msg, a.keymap.MoveLeft) || key.Matches(msg, a.keymap.Left):
+	case key.Matches(msg, a.keymap.MoveLeft) || msg.Type == tea.KeyLeft:
 		a.center.MoveMonitorSelection(-1, 0, grid.cols, grid.rows, len(tabs))
 		return true
-	case key.Matches(msg, a.keymap.MoveRight) || key.Matches(msg, a.keymap.Right):
+	case key.Matches(msg, a.keymap.MoveRight) || msg.Type == tea.KeyRight:
 		a.center.MoveMonitorSelection(1, 0, grid.cols, grid.rows, len(tabs))
 		return true
-	case key.Matches(msg, a.keymap.MoveUp) || key.Matches(msg, a.keymap.Up):
+	case key.Matches(msg, a.keymap.MoveUp) || msg.Type == tea.KeyUp:
 		a.center.MoveMonitorSelection(0, -1, grid.cols, grid.rows, len(tabs))
 		return true
-	case key.Matches(msg, a.keymap.MoveDown) || key.Matches(msg, a.keymap.Down):
+	case key.Matches(msg, a.keymap.MoveDown) || msg.Type == tea.KeyDown:
 		a.center.MoveMonitorSelection(0, 1, grid.cols, grid.rows, len(tabs))
 		return true
 	}
@@ -2179,11 +2171,7 @@ func (a *App) sendPrefixToTerminal() {
 func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
 
-	centerWidth := a.layout.CenterWidth()
-	if a.monitorMode && a.layout.ShowCenter() {
-		centerWidth += a.layout.SidebarWidth()
-	}
-	a.center.SetSize(centerWidth, a.layout.Height())
+	a.center.SetSize(a.layout.CenterWidth(), a.layout.Height())
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
 	a.center.SetCanFocusRight(a.layout.ShowSidebar())
 	a.dashboard.SetCanFocusRight(a.layout.ShowCenter())
