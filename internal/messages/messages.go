@@ -154,6 +154,20 @@ type AddProject struct {
 // ShowSelectAssistantDialog requests showing the assistant selection dialog
 type ShowSelectAssistantDialog struct{}
 
+// ShowKeymapEditor requests showing the keymap editor.
+type ShowKeymapEditor struct{}
+
+// ToggleMonitor requests toggling monitor mode.
+type ToggleMonitor struct{}
+
+// ToggleHelpOverlay requests toggling the help overlay.
+type ToggleHelpOverlay struct{}
+
+// KeymapUpdated carries updated keymap overrides.
+type KeymapUpdated struct {
+	Bindings map[string][]string
+}
+
 // LaunchAgent requests launching an agent in a new tab
 type LaunchAgent struct {
 	Assistant string

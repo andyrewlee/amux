@@ -37,6 +37,11 @@ func NewHelpOverlay(km keymap.KeyMap) *HelpOverlay {
 	}
 }
 
+// SetKeyMap updates the help bindings for a new keymap.
+func (h *HelpOverlay) SetKeyMap(km keymap.KeyMap) {
+	h.sections = defaultHelpSections(km)
+}
+
 // defaultHelpSections returns the default help sections
 func defaultHelpSections(km keymap.KeyMap) []HelpSection {
 	leaderHint := keymap.LeaderSequenceHint(km)
@@ -56,6 +61,7 @@ func defaultHelpSections(km keymap.KeyMap) []HelpSection {
 				{keymap.LeaderSequenceHint(km, km.MonitorToggle), "Monitor tabs"},
 				{keymap.LeaderSequenceHint(km, km.Home), "Home"},
 				{keymap.LeaderSequenceHint(km, km.Help), "Toggle help"},
+				{keymap.LeaderSequenceHint(km, km.KeymapEditor), "Keymap editor"},
 				{keymap.LeaderSequenceHint(km, km.Quit), "Quit"},
 				{keymap.LeaderSequenceHint(km, km.ScrollUpHalf, km.ScrollDownHalf), "Scroll"},
 			},
@@ -96,6 +102,9 @@ func defaultHelpSections(km keymap.KeyMap) []HelpSection {
 				{"Right-click tab", "Close tab"},
 				{"Click [+]", "New agent tab"},
 				{"Click row", "Select/activate"},
+				{"Click monitor", "Toggle monitor"},
+				{"Click help", "Open help"},
+				{"Click keymap", "Open keymap editor"},
 				{"Scroll wheel", "Scroll terminal"},
 				{"Click monitor tile", "Open agent"},
 			},

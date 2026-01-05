@@ -27,6 +27,7 @@ const (
 	ActionMonitorToggle Action = "monitor_toggle"
 	ActionHome          Action = "home"
 	ActionHelp          Action = "help"
+	ActionKeymap        Action = "keymap_editor"
 	ActionQuit          Action = "quit"
 
 	ActionScrollUpHalf   Action = "scroll_up_half"
@@ -77,6 +78,7 @@ type KeyMap struct {
 	MonitorToggle key.Binding
 	Home          key.Binding
 	Help          key.Binding
+	KeymapEditor  key.Binding
 	Quit          key.Binding
 
 	ScrollUpHalf   key.Binding
@@ -169,6 +171,11 @@ func New(cfg config.KeyMapConfig) KeyMap {
 			action: ActionHelp,
 			keys:   []string{"?"},
 			desc:   "help",
+		}),
+		KeymapEditor: bindingFromDef(cfg, bindingDef{
+			action: ActionKeymap,
+			keys:   []string{","},
+			desc:   "keymap editor",
 		}),
 		Quit: bindingFromDef(cfg, bindingDef{
 			action: ActionQuit,
@@ -345,4 +352,128 @@ func LeaderSequenceHint(km KeyMap, bindings ...key.Binding) string {
 		return leader
 	}
 	return leader + " " + strings.Join(keys, "/")
+}
+
+// ActionInfo describes a configurable action for UI display.
+type ActionInfo struct {
+	Action   Action
+	Desc     string
+	Group    string
+	Editable bool
+}
+
+// ActionInfos returns the ordered list of actions for UI display.
+func ActionInfos() []ActionInfo {
+	return []ActionInfo{
+		{Action: ActionLeader, Desc: "Leader prefix", Group: "Leader", Editable: true},
+		{Action: ActionFocusLeft, Desc: "Focus left", Group: "Focus", Editable: true},
+		{Action: ActionFocusRight, Desc: "Focus right", Group: "Focus", Editable: true},
+		{Action: ActionFocusUp, Desc: "Focus up", Group: "Focus", Editable: true},
+		{Action: ActionFocusDown, Desc: "Focus down", Group: "Focus", Editable: true},
+		{Action: ActionTabPrev, Desc: "Previous tab", Group: "Tabs", Editable: true},
+		{Action: ActionTabNext, Desc: "Next tab", Group: "Tabs", Editable: true},
+		{Action: ActionTabNew, Desc: "New agent tab", Group: "Tabs", Editable: true},
+		{Action: ActionTabClose, Desc: "Close tab", Group: "Tabs", Editable: true},
+		{Action: ActionMonitorToggle, Desc: "Monitor tabs", Group: "Global", Editable: true},
+		{Action: ActionHome, Desc: "Home", Group: "Global", Editable: true},
+		{Action: ActionHelp, Desc: "Toggle help", Group: "Global", Editable: true},
+		{Action: ActionKeymap, Desc: "Keymap editor", Group: "Global", Editable: true},
+		{Action: ActionQuit, Desc: "Quit", Group: "Global", Editable: true},
+		{Action: ActionScrollUpHalf, Desc: "Scroll up", Group: "Global", Editable: true},
+		{Action: ActionScrollDownHalf, Desc: "Scroll down", Group: "Global", Editable: true},
+		{Action: ActionDashboardUp, Desc: "Navigate up", Group: "Dashboard", Editable: true},
+		{Action: ActionDashboardDown, Desc: "Navigate down", Group: "Dashboard", Editable: true},
+		{Action: ActionDashboardTop, Desc: "Jump to top", Group: "Dashboard", Editable: true},
+		{Action: ActionDashboardBottom, Desc: "Jump to bottom", Group: "Dashboard", Editable: true},
+		{Action: ActionDashboardEnter, Desc: "Activate worktree", Group: "Dashboard", Editable: true},
+		{Action: ActionDashboardNewWorktree, Desc: "New worktree", Group: "Dashboard", Editable: true},
+		{Action: ActionDashboardDelete, Desc: "Delete worktree", Group: "Dashboard", Editable: true},
+		{Action: ActionDashboardToggle, Desc: "Toggle dirty filter", Group: "Dashboard", Editable: true},
+		{Action: ActionDashboardRefresh, Desc: "Refresh dashboard", Group: "Dashboard", Editable: true},
+		{Action: ActionSidebarUp, Desc: "Navigate up", Group: "Sidebar", Editable: true},
+		{Action: ActionSidebarDown, Desc: "Navigate down", Group: "Sidebar", Editable: true},
+		{Action: ActionSidebarRefresh, Desc: "Refresh status", Group: "Sidebar", Editable: true},
+		{Action: ActionMonitorLeft, Desc: "Move left", Group: "Monitor", Editable: true},
+		{Action: ActionMonitorRight, Desc: "Move right", Group: "Monitor", Editable: true},
+		{Action: ActionMonitorUp, Desc: "Move up", Group: "Monitor", Editable: true},
+		{Action: ActionMonitorDown, Desc: "Move down", Group: "Monitor", Editable: true},
+		{Action: ActionMonitorActivate, Desc: "Open selected agent", Group: "Monitor", Editable: true},
+		{Action: ActionMonitorExit, Desc: "Exit monitor", Group: "Monitor", Editable: true},
+	}
+}
+
+// BindingForAction returns the binding for the given action.
+func BindingForAction(km KeyMap, action Action) key.Binding {
+	switch action {
+	case ActionLeader:
+		return km.Leader
+	case ActionFocusLeft:
+		return km.FocusLeft
+	case ActionFocusRight:
+		return km.FocusRight
+	case ActionFocusUp:
+		return km.FocusUp
+	case ActionFocusDown:
+		return km.FocusDown
+	case ActionTabNext:
+		return km.TabNext
+	case ActionTabPrev:
+		return km.TabPrev
+	case ActionTabNew:
+		return km.TabNew
+	case ActionTabClose:
+		return km.TabClose
+	case ActionMonitorToggle:
+		return km.MonitorToggle
+	case ActionHome:
+		return km.Home
+	case ActionHelp:
+		return km.Help
+	case ActionKeymap:
+		return km.KeymapEditor
+	case ActionQuit:
+		return km.Quit
+	case ActionScrollUpHalf:
+		return km.ScrollUpHalf
+	case ActionScrollDownHalf:
+		return km.ScrollDownHalf
+	case ActionDashboardUp:
+		return km.DashboardUp
+	case ActionDashboardDown:
+		return km.DashboardDown
+	case ActionDashboardTop:
+		return km.DashboardTop
+	case ActionDashboardBottom:
+		return km.DashboardBottom
+	case ActionDashboardEnter:
+		return km.DashboardEnter
+	case ActionDashboardNewWorktree:
+		return km.DashboardNewWorktree
+	case ActionDashboardDelete:
+		return km.DashboardDelete
+	case ActionDashboardToggle:
+		return km.DashboardToggle
+	case ActionDashboardRefresh:
+		return km.DashboardRefresh
+	case ActionSidebarUp:
+		return km.SidebarUp
+	case ActionSidebarDown:
+		return km.SidebarDown
+	case ActionSidebarRefresh:
+		return km.SidebarRefresh
+	case ActionMonitorLeft:
+		return km.MonitorLeft
+	case ActionMonitorRight:
+		return km.MonitorRight
+	case ActionMonitorUp:
+		return km.MonitorUp
+	case ActionMonitorDown:
+		return km.MonitorDown
+	case ActionMonitorActivate:
+		return km.MonitorActivate
+	case ActionMonitorExit:
+		return km.MonitorExit
+	default:
+		return key.Binding{}
+	}
 }

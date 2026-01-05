@@ -635,6 +635,11 @@ func (m *TerminalModel) CloseAll() {
 	}
 }
 
+// SetKeyMap updates the keymap used for hints.
+func (m *TerminalModel) SetKeyMap(km keymap.KeyMap) {
+	m.keymap = km
+}
+
 // SetOffset sets the absolute screen coordinates where the terminal starts
 func (m *TerminalModel) SetOffset(x, y int) {
 	m.offsetX = x

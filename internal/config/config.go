@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -110,4 +111,49 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// SaveKeyMap persists keymap overrides to the config file.
+func SaveKeyMap(paths *Paths, keymapCfg KeyMapConfig) error {
+	if paths == nil {
+		return os.ErrInvalid
+	}
+
+	if err := os.MkdirAll(filepath.Dir(paths.ConfigPath), 0o755); err != nil {
+		return err
+	}
+
+	var raw map[string]any
+	data, err := os.ReadFile(paths.ConfigPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	if raw == nil {
+		raw = map[string]any{}
+	}
+
+	if len(keymapCfg.Bindings) == 0 {
+		delete(raw, "keymap")
+	} else {
+		raw["keymap"] = keymapCfg
+	}
+
+	if len(raw) == 0 {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return os.Remove(paths.ConfigPath)
+	}
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+	return os.WriteFile(paths.ConfigPath, out, 0o644)
 }

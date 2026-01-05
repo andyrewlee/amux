@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -42,6 +44,20 @@ type Row struct {
 
 const doubleClickThreshold = 400 * time.Millisecond
 
+type actionButtonID int
+
+const (
+	actionMonitor actionButtonID = iota
+	actionHelp
+	actionKeymap
+)
+
+type actionButton struct {
+	id actionButtonID
+	x0 int
+	x1 int
+}
+
 // Model is the Bubbletea model for the dashboard pane
 type Model struct {
 	// Data
@@ -51,16 +67,17 @@ type Model struct {
 	statusCache map[string]*git.StatusResult
 
 	// UI state
-	cursor       int
-	focused      bool
-	width        int
-	height       int
-	offsetX      int
-	offsetY      int
-	lastClickAt  time.Time
-	lastClickRow int
-	filterDirty  bool // Only show dirty worktrees
-	scrollOffset int
+	cursor        int
+	focused       bool
+	width         int
+	height        int
+	offsetX       int
+	offsetY       int
+	lastClickAt   time.Time
+	lastClickRow  int
+	filterDirty   bool // Only show dirty worktrees
+	scrollOffset  int
+	actionButtons []actionButton
 
 	// Loading state
 	loadingStatus     map[string]bool           // Worktrees currently loading git status
@@ -144,6 +161,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
+		contentX, contentY, ok := m.contentCoords(localX, localY)
+		if !ok {
+			return m, nil
+		}
+
 		if msg.Action == tea.MouseActionPress {
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
@@ -151,7 +173,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			case tea.MouseButtonWheelDown:
 				m.moveCursor(1)
 			case tea.MouseButtonLeft:
-				rowIdx, ok := m.rowIndexAt(localX, localY)
+				if contentY == m.actionBarY() {
+					if action, ok := m.actionButtonAt(contentX); ok {
+						return m, m.handleAction(action)
+					}
+				}
+				rowIdx, ok := m.rowIndexAt(contentX, contentY)
 				if !ok {
 					return m, nil
 				}
@@ -245,28 +272,20 @@ func (m *Model) View() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+	b.WriteString(m.renderActionBar())
+	b.WriteString("\n")
 
 	// Calculate visible area (inner height minus header + help)
 	innerHeight := m.height - 2
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
-	headerHeight := 1 // trailing blank line
-	if m.filterDirty {
-		headerHeight++
-	}
-	keys := m.helpKeys()
-	// Calculate help height based on content width (pane width minus border and padding)
 	contentWidth := m.width - 4
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	helpText := helpTextFromKeys(keys)
-	helpHeight := calcHelpHeight(contentWidth, helpText)
-	visibleHeight := innerHeight - headerHeight - helpHeight
-	if visibleHeight < 1 {
-		visibleHeight = 1
-	}
+	_, helpHeight, visibleHeight := m.layoutHeights(contentWidth)
+	keys := m.helpKeys()
 
 	// Adjust scroll offset to keep cursor visible
 	if m.cursor < m.scrollOffset {
@@ -584,6 +603,95 @@ func helpTextFromKeys(keys dashboardHelpKeys) string {
 	}, "  ")
 }
 
+func (m *Model) layoutHeights(contentWidth int) (headerHeight int, helpHeight int, visibleHeight int) {
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	headerHeight = 1 // blank line
+	if m.filterDirty {
+		headerHeight++
+	}
+	headerHeight++ // action bar
+	helpHeight = calcHelpHeight(contentWidth, helpTextFromKeys(m.helpKeys()))
+	visibleHeight = innerHeight - headerHeight - helpHeight
+	if visibleHeight < 1 {
+		visibleHeight = 1
+	}
+	return headerHeight, helpHeight, visibleHeight
+}
+
+func (m *Model) actionBarY() int {
+	y := 1
+	if m.filterDirty {
+		y++
+	}
+	return y
+}
+
+func (m *Model) renderActionBar() string {
+	contentWidth := m.width - 4
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	type btnSpec struct {
+		id    actionButtonID
+		label string
+	}
+
+	buttons := []btnSpec{
+		{id: actionMonitor, label: "[ Monitor ]"},
+		{id: actionHelp, label: "[ Help ]"},
+		{id: actionKeymap, label: "[ Keymap ]"},
+	}
+
+	m.actionButtons = m.actionButtons[:0]
+	var parts []string
+	x := 0
+	for _, btn := range buttons {
+		width := lipgloss.Width(btn.label)
+		if x > 0 {
+			if x+2+width > contentWidth {
+				break
+			}
+			parts = append(parts, "  ")
+			x += 2
+		} else if width > contentWidth {
+			break
+		}
+
+		m.actionButtons = append(m.actionButtons, actionButton{id: btn.id, x0: x, x1: x + width})
+		parts = append(parts, m.styles.HelpKey.Render(btn.label))
+		x += width
+	}
+
+	line := strings.Join(parts, "")
+	return ansi.Truncate(line, contentWidth, "")
+}
+
+func (m *Model) actionButtonAt(x int) (actionButtonID, bool) {
+	for _, btn := range m.actionButtons {
+		if x >= btn.x0 && x < btn.x1 {
+			return btn.id, true
+		}
+	}
+	return 0, false
+}
+
+func (m *Model) handleAction(action actionButtonID) tea.Cmd {
+	switch action {
+	case actionMonitor:
+		return func() tea.Msg { return messages.ToggleMonitor{} }
+	case actionHelp:
+		return func() tea.Msg { return messages.ToggleHelpOverlay{} }
+	case actionKeymap:
+		return func() tea.Msg { return messages.ShowKeymapEditor{} }
+	default:
+		return nil
+	}
+}
+
 func calcHelpHeight(contentWidth int, helpText string) int {
 	if contentWidth < 1 {
 		contentWidth = 1
@@ -604,7 +712,7 @@ func rowLineCount(row Row) int {
 	}
 }
 
-func (m *Model) rowIndexAt(localX, localY int) (int, bool) {
+func (m *Model) contentCoords(localX, localY int) (int, int, bool) {
 	borderTop := 1
 	borderLeft := 1
 	borderRight := 1
@@ -617,6 +725,21 @@ func (m *Model) rowIndexAt(localX, localY int) (int, bool) {
 	contentWidth := m.width - (borderLeft + borderRight + paddingLeft + paddingRight)
 	innerHeight := m.height - 2
 	if contentWidth <= 0 || innerHeight <= 0 {
+		return -1, -1, false
+	}
+	if contentX < 0 || contentX >= contentWidth {
+		return -1, -1, false
+	}
+	if contentY < 0 || contentY >= innerHeight {
+		return -1, -1, false
+	}
+	return contentX, contentY, true
+}
+
+func (m *Model) rowIndexAt(contentX, contentY int) (int, bool) {
+	contentWidth := m.width - 4
+	innerHeight := m.height - 2
+	if contentWidth <= 0 || innerHeight <= 0 {
 		return -1, false
 	}
 	if contentX < 0 || contentX >= contentWidth {
@@ -626,16 +749,11 @@ func (m *Model) rowIndexAt(localX, localY int) (int, bool) {
 		return -1, false
 	}
 
-	headerHeight := 1 // trailing blank line
-	if m.filterDirty {
-		headerHeight++
-	}
-	helpHeight := calcHelpHeight(contentWidth, helpTextFromKeys(m.helpKeys()))
+	headerHeight, helpHeight, _ := m.layoutHeights(contentWidth)
 	rowAreaHeight := innerHeight - headerHeight - helpHeight
 	if rowAreaHeight < 1 {
 		rowAreaHeight = 1
 	}
-
 	if contentY < headerHeight || contentY >= headerHeight+rowAreaHeight {
 		return -1, false
 	}
@@ -792,6 +910,11 @@ func (m *Model) refresh() tea.Cmd {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+}
+
+// SetKeyMap updates the keymap used for hints and input.
+func (m *Model) SetKeyMap(km keymap.KeyMap) {
+	m.keymap = km
 }
 
 // SetOffset sets the top-left origin for mouse hit testing.

@@ -274,6 +274,11 @@ func (m *Model) SetSize(width, height int) {
 	m.height = height
 }
 
+// SetKeyMap updates the keymap used for hints and input.
+func (m *Model) SetKeyMap(km keymap.KeyMap) {
+	m.keymap = km
+}
+
 // SetOffset sets the top-left origin for mouse hit testing.
 func (m *Model) SetOffset(x, y int) {
 	m.offsetX = x

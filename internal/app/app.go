@@ -23,6 +23,7 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
+	"github.com/andyrewlee/amux/internal/ui/keymapeditor"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 	"github.com/andyrewlee/amux/internal/validation"
@@ -69,8 +70,9 @@ type App struct {
 	filePicker      *common.FilePicker
 
 	// Overlays
-	helpOverlay *common.HelpOverlay
-	toast       *common.ToastModel
+	helpOverlay  *common.HelpOverlay
+	keymapEditor *keymapeditor.Editor
+	toast        *common.ToastModel
 
 	// Dialog context
 	dialogProject  *data.Project
@@ -151,6 +153,7 @@ func New() (*App, error) {
 		sidebar:         sidebar.New(km),
 		sidebarTerminal: sidebar.NewTerminalModel(km),
 		helpOverlay:     common.NewHelpOverlay(km),
+		keymapEditor:    keymapeditor.New(km, cfg.KeyMap),
 		toast:           common.NewToastModel(),
 		focusedPane:     messages.PaneDashboard,
 		showWelcome:     true,
@@ -204,12 +207,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.handleDialogResult(result)
 	}
 
+	// Route input to keymap editor if visible
+	if a.keymapEditor != nil && a.keymapEditor.Visible() {
+		newEditor, cmd := a.keymapEditor.Update(msg)
+		a.keymapEditor = newEditor
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		switch msg.(type) {
+		case tea.KeyMsg, tea.MouseMsg:
+			return a, tea.Batch(cmds...)
+		}
+	}
+
 	// Handle help overlay toggle (highest priority)
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && a.helpOverlay.Visible() {
-		// Any key dismisses help
-		a.helpOverlay.Hide()
-		_ = keyMsg // consume the key
-		return a, nil
+	if a.helpOverlay.Visible() {
+		switch msg.(type) {
+		case tea.KeyMsg, tea.MouseMsg:
+			a.helpOverlay.Hide()
+			return a, nil
+		}
 	}
 
 	// Handle toast updates
@@ -561,6 +578,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.dialog.Show()
 		}
 
+	case messages.ShowKeymapEditor:
+		if a.keymapEditor != nil {
+			a.helpOverlay.Hide()
+			a.dialog = nil
+			a.filePicker = nil
+			a.keymapEditor.Show(a.keymap, a.config.KeyMap)
+			a.keymapEditor.SetSize(a.width, a.height)
+		}
+
+	case messages.ToggleMonitor:
+		a.toggleMonitorMode()
+
+	case messages.ToggleHelpOverlay:
+		a.helpOverlay.SetSize(a.width, a.height)
+		a.helpOverlay.Toggle()
+
+	case messages.KeymapUpdated:
+		a.applyKeyMap(msg.Bindings, &cmds)
+
 	case messages.CreateWorktree:
 		if msg.Project != nil && msg.Name != "" {
 			worktreePath := filepath.Join(
@@ -755,6 +791,41 @@ func (a *App) showQuitDialog() {
 	a.dialog.Show()
 }
 
+func (a *App) applyKeyMap(bindings map[string][]string, cmds *[]tea.Cmd) {
+	clone := cloneBindings(bindings)
+	cfg := config.KeyMapConfig{Bindings: clone}
+	a.config.KeyMap = cfg
+	if err := config.SaveKeyMap(a.config.Paths, cfg); err != nil {
+		if cmds != nil {
+			*cmds = append(*cmds, a.toast.ShowError(fmt.Sprintf("Failed to save keymap: %v", err)))
+		}
+	}
+
+	km := keymap.New(cfg)
+	a.keymap = km
+	a.dashboard.SetKeyMap(km)
+	a.center.SetKeyMap(km)
+	a.sidebar.SetKeyMap(km)
+	a.sidebarTerminal.SetKeyMap(km)
+	a.helpOverlay.SetKeyMap(km)
+	if a.keymapEditor != nil {
+		a.keymapEditor.SetKeyMap(km, cfg)
+	}
+}
+
+func cloneBindings(bindings map[string][]string) map[string][]string {
+	if len(bindings) == 0 {
+		return map[string][]string{}
+	}
+	out := make(map[string][]string, len(bindings))
+	for key, values := range bindings {
+		clone := make([]string, len(values))
+		copy(clone, values)
+		out[key] = clone
+	}
+	return out
+}
+
 // Synchronized Output Mode 2026 sequences
 // https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036
 const (
@@ -782,7 +853,9 @@ func (a *App) View() string {
 		if a.filePicker != nil && a.filePicker.Visible() {
 			content = a.overlayFilePicker(content)
 		}
-		if a.helpOverlay.Visible() {
+		if a.keymapEditor != nil && a.keymapEditor.Visible() {
+			content = a.overlayKeymapEditor(content)
+		} else if a.helpOverlay.Visible() {
 			content = a.helpOverlay.View()
 		}
 		if a.toast.Visible() {
@@ -834,8 +907,11 @@ func (a *App) View() string {
 		content = a.overlayFilePicker(content)
 	}
 
-	// Show help overlay if visible
-	if a.helpOverlay.Visible() {
+	// Show keymap editor if visible
+	if a.keymapEditor != nil && a.keymapEditor.Visible() {
+		content = a.overlayKeymapEditor(content)
+	} else if a.helpOverlay.Visible() {
+		// Show help overlay if visible
 		content = a.helpOverlay.View()
 	}
 
@@ -940,6 +1016,64 @@ func (a *App) overlayDialog(content string) string {
 	}
 
 	// Preserve original line count exactly
+	if len(contentLines) > originalLineCount {
+		contentLines = contentLines[:originalLineCount]
+	}
+
+	return strings.Join(contentLines, "\n")
+}
+
+// overlayKeymapEditor renders the keymap editor as a modal overlay on top of content
+func (a *App) overlayKeymapEditor(content string) string {
+	if a.keymapEditor == nil {
+		return content
+	}
+	editorView := a.keymapEditor.View()
+	editorLines := strings.Split(editorView, "\n")
+
+	editorHeight := len(editorLines)
+	editorWidth := 0
+	for _, line := range editorLines {
+		if w := lipgloss.Width(line); w > editorWidth {
+			editorWidth = w
+		}
+	}
+
+	x := (a.width - editorWidth) / 2
+	y := (a.height - editorHeight) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	a.keymapEditor.SetOffset(x, y)
+
+	contentLines := strings.Split(content, "\n")
+	originalLineCount := len(contentLines)
+
+	for i, editorLine := range editorLines {
+		contentY := y + i
+		if contentY >= 0 && contentY < len(contentLines) {
+			bgLine := contentLines[contentY]
+
+			left := ansi.Truncate(bgLine, x, "")
+			leftWidth := lipgloss.Width(left)
+			if leftWidth < x {
+				left += strings.Repeat(" ", x-leftWidth)
+			}
+
+			rightStart := x + editorWidth
+			bgWidth := lipgloss.Width(bgLine)
+			var right string
+			if rightStart < bgWidth {
+				right = ansi.TruncateLeft(bgLine, rightStart, "")
+			}
+
+			contentLines[contentY] = left + editorLine + right
+		}
+	}
+
 	if len(contentLines) > originalLineCount {
 		contentLines = contentLines[:originalLineCount]
 	}
@@ -1907,6 +2041,8 @@ func (a *App) runLeaderCommand(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keymap.Help):
 		a.helpOverlay.SetSize(a.width, a.height)
 		a.helpOverlay.Toggle()
+	case key.Matches(msg, a.keymap.KeymapEditor):
+		return func() tea.Msg { return messages.ShowKeymapEditor{} }
 	case key.Matches(msg, a.keymap.Quit):
 		a.showQuitDialog()
 	case key.Matches(msg, a.keymap.ScrollUpHalf):
@@ -2003,6 +2139,9 @@ func (a *App) updateLayout() {
 
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
+	}
+	if a.keymapEditor != nil {
+		a.keymapEditor.SetSize(a.width, a.height)
 	}
 }
 

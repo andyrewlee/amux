@@ -1043,6 +1043,11 @@ func (m *Model) SetSize(width, height int) {
 	}
 }
 
+// SetKeyMap updates the keymap used for hints and input.
+func (m *Model) SetKeyMap(km keymap.KeyMap) {
+	m.keymap = km
+}
+
 // SetOffset sets the X offset of the pane from screen left (for mouse coordinate conversion)
 func (m *Model) SetOffset(x int) {
 	m.offsetX = x
