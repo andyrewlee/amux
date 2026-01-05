@@ -303,11 +303,6 @@ func (m *Model) View() string {
 	help := strings.Join(helpItems, "  ")
 
 	// Pad to the inner pane height (border excluded), reserving the help line.
-	innerHeight := m.height - 2
-	if innerHeight < 0 {
-		innerHeight = 0
-	}
-	helpHeight := 1
 	contentHeight := strings.Count(b.String(), "\n") + 1
 	targetHeight := innerHeight - helpHeight
 	if targetHeight < 0 {
