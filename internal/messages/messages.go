@@ -163,6 +163,9 @@ type ToggleMonitor struct{}
 // ToggleHelpOverlay requests toggling the help overlay.
 type ToggleHelpOverlay struct{}
 
+// ShowQuitDialog requests showing the quit confirmation dialog.
+type ShowQuitDialog struct{}
+
 // KeymapUpdated carries updated keymap overrides.
 type KeymapUpdated struct {
 	Bindings map[string][]string

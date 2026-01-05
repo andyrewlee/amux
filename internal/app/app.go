@@ -594,6 +594,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.helpOverlay.SetSize(a.width, a.height)
 		a.helpOverlay.Toggle()
 
+	case messages.ShowQuitDialog:
+		a.showQuitDialog()
+
 	case messages.KeymapUpdated:
 		a.applyKeyMap(msg.Bindings, &cmds)
 

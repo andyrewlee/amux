@@ -50,6 +50,7 @@ const (
 	actionMonitor actionButtonID = iota
 	actionHelp
 	actionKeymap
+	actionQuit
 )
 
 type actionButton struct {
@@ -644,6 +645,7 @@ func (m *Model) renderActionBar() string {
 		{id: actionMonitor, label: actionLabel("Monitor", leaderShort(m.keymap, m.keymap.MonitorToggle))},
 		{id: actionHelp, label: actionLabel("Help", leaderShort(m.keymap, m.keymap.Help))},
 		{id: actionKeymap, label: actionLabel("Keymap", leaderShort(m.keymap, m.keymap.KeymapEditor))},
+		{id: actionQuit, label: actionLabel("Quit", leaderShort(m.keymap, m.keymap.Quit))},
 	}
 
 	m.actionButtons = m.actionButtons[:0]
@@ -710,6 +712,8 @@ func (m *Model) handleAction(action actionButtonID) tea.Cmd {
 		return func() tea.Msg { return messages.ToggleHelpOverlay{} }
 	case actionKeymap:
 		return func() tea.Msg { return messages.ShowKeymapEditor{} }
+	case actionQuit:
+		return func() tea.Msg { return messages.ShowQuitDialog{} }
 	default:
 		return nil
 	}
