@@ -1697,6 +1697,26 @@ func (a *App) loadProjects() tea.Cmd {
 			if err != nil {
 				continue
 			}
+			for i := range worktrees {
+				wt := &worktrees[i]
+				meta, err := a.metadata.Load(wt)
+				if err != nil {
+					logging.Warn("Failed to load metadata for %s: %v", wt.Root, err)
+					continue
+				}
+				if meta.Base != "" {
+					wt.Base = meta.Base
+				}
+				if meta.Created != "" {
+					if createdAt, err := time.Parse(time.RFC3339, meta.Created); err == nil {
+						wt.Created = createdAt
+					} else if createdAt, err := time.Parse(time.RFC3339Nano, meta.Created); err == nil {
+						wt.Created = createdAt
+					} else {
+						logging.Warn("Failed to parse worktree created time for %s: %v", wt.Root, err)
+					}
+				}
+			}
 			project.Worktrees = worktrees
 			projects = append(projects, *project)
 		}
