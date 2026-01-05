@@ -186,17 +186,6 @@ func (c *Canvas) Render() string {
 	b.Grow(c.Width * c.Height * 2)
 
 	for y := 0; y < c.Height; y++ {
-		rowBlank := true
-		for x := 0; x < c.Width; x++ {
-			cell := c.Cells[y][x]
-			if cell.Width == 0 {
-				continue
-			}
-			if cell.Rune != 0 && cell.Rune != ' ' {
-				rowBlank = false
-				break
-			}
-		}
 		// Reset per line.
 		b.WriteString("\x1b[0m")
 		var lastStyle vterm.Style
@@ -206,7 +195,7 @@ func (c *Canvas) Render() string {
 				continue
 			}
 			style := cell.Style
-			if rowBlank && style.Underline {
+			if style.Underline && (cell.Rune == 0 || cell.Rune == ' ') {
 				style.Underline = false
 			}
 			if style != lastStyle {

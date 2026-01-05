@@ -195,7 +195,6 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 	// Determine if cursor is on this row and should be shown
 	// Don't show cursor if terminal app hid it via DECTCEM
 	cursorOnRow := v.ShowCursor && !v.CursorHidden && y == v.CursorY && v.ViewOffset == 0
-	rowBlank := isRowBlank(row)
 
 	for x, cell := range row {
 		// Check if this cell is in selection
@@ -209,7 +208,7 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 		if inSel || isCursor {
 			style.Reverse = !style.Reverse
 		}
-		style = suppressBlankUnderline(style, rowBlank)
+		style = suppressBlankUnderline(cell, style)
 
 		if style != lastStyle || inSel != lastReverse || isCursor {
 			buf.WriteString(StyleToANSI(style))
@@ -267,7 +266,6 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 		}
 
 		// Render the row
-		rowBlank := isRowBlank(row)
 		for x := 0; x < v.Width; x++ {
 			var cell Cell
 			if row != nil && x < len(row) {
@@ -284,7 +282,7 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 			if inSel {
 				style.Reverse = !style.Reverse
 			}
-			style = suppressBlankUnderline(style, rowBlank)
+			style = suppressBlankUnderline(cell, style)
 
 			if firstCell || style != lastStyle || inSel != lastReverse {
 				buf.WriteString(StyleToANSI(style))
@@ -314,24 +312,14 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 	return buf.String()
 }
 
-func suppressBlankUnderline(style Style, rowBlank bool) Style {
-	if !rowBlank || !style.Underline {
+func suppressBlankUnderline(cell Cell, style Style) Style {
+	if !style.Underline {
 		return style
 	}
-	style.Underline = false
-	return style
-}
-
-func isRowBlank(row []Cell) bool {
-	for _, cell := range row {
-		if cell.Width == 0 {
-			continue
-		}
-		if cell.Rune != 0 && cell.Rune != ' ' {
-			return false
-		}
+	if cell.Rune == 0 || cell.Rune == ' ' {
+		style.Underline = false
 	}
-	return true
+	return style
 }
 
 // StyleToANSI converts a Style to ANSI escape codes.
