@@ -95,6 +95,7 @@ func defaultHelpSections(km keymap.KeyMap) []HelpSection {
 				{"Click tab", "Switch tabs"},
 				{"Right-click tab", "Close tab"},
 				{"Click [+]", "New agent tab"},
+				{"Click row", "Select/activate"},
 				{"Scroll wheel", "Scroll terminal"},
 				{"Click monitor tile", "Open agent"},
 			},

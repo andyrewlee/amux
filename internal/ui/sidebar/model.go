@@ -25,8 +25,10 @@ type Model struct {
 	scrollOffset int
 
 	// Layout
-	width  int
-	height int
+	width   int
+	height  int
+	offsetX int
+	offsetY int
 
 	// Styles
 	styles common.Styles
@@ -64,6 +66,33 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.moveCursor(-1)
 		case key.Matches(msg, m.keymap.SidebarRefresh):
 			cmds = append(cmds, m.refreshStatus())
+		}
+	case tea.MouseMsg:
+		if !m.focused {
+			return m, nil
+		}
+
+		localY := msg.Y - m.offsetY
+		localX := msg.X - m.offsetX
+		if localX < 0 || localY < 0 || localX >= m.width || localY >= m.height {
+			return m, nil
+		}
+
+		if msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m.moveCursor(-1)
+			case tea.MouseButtonWheelDown:
+				m.moveCursor(1)
+			case tea.MouseButtonLeft:
+				idx, ok := m.fileIndexAt(localY)
+				if !ok {
+					return m, nil
+				}
+				m.cursor = idx
+			case tea.MouseButtonRight:
+				cmds = append(cmds, m.refreshStatus())
+			}
 		}
 	}
 
@@ -181,6 +210,32 @@ func (m *Model) renderChanges() string {
 	return b.String()
 }
 
+func (m *Model) fileIndexAt(y int) (int, bool) {
+	if m.gitStatus == nil || m.gitStatus.Clean || len(m.gitStatus.Files) == 0 {
+		return -1, false
+	}
+
+	startY := 0
+	if m.worktree != nil && m.worktree.Branch != "" {
+		startY++
+	}
+	startY += 2 // file count + blank line
+
+	visibleHeight := m.height - 10
+	if visibleHeight < 1 {
+		visibleHeight = 1
+	}
+
+	if y < startY || y >= startY+visibleHeight {
+		return -1, false
+	}
+	idx := m.scrollOffset + (y - startY)
+	if idx < 0 || idx >= len(m.gitStatus.Files) {
+		return -1, false
+	}
+	return idx, true
+}
+
 // moveCursor moves the cursor
 func (m *Model) moveCursor(delta int) {
 	maxLen := 0
@@ -217,6 +272,12 @@ func (m *Model) refreshStatus() tea.Cmd {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+}
+
+// SetOffset sets the top-left origin for mouse hit testing.
+func (m *Model) SetOffset(x, y int) {
+	m.offsetX = x
+	m.offsetY = y
 }
 
 // Focus sets the focus state

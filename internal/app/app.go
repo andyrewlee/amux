@@ -1974,6 +1974,7 @@ func (a *App) scrollFocusedTerminal(delta int) {
 // updateLayout updates component sizes based on window size
 func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
+	a.dashboard.SetOffset(2, 1)
 
 	centerWidth := a.layout.CenterWidth()
 	if a.monitorMode && a.layout.ShowCenter() {
@@ -1985,6 +1986,10 @@ func (a *App) updateLayout() {
 	sidebarLayout := a.sidebarLayoutInfo()
 	a.sidebar.SetSize(sidebarLayout.bodyWidth, sidebarLayout.topHeight)
 	a.sidebarTerminal.SetSize(sidebarLayout.bodyWidth, sidebarLayout.bottomHeight)
+
+	// Sidebar top section mouse handling offset
+	topOffsetX := a.layout.DashboardWidth() + a.layout.CenterWidth() + 3
+	a.sidebar.SetOffset(topOffsetX, 1)
 
 	// Calculate and set offsets for sidebar terminal mouse handling
 	// X: Dashboard + Center + Border(1) + Padding(1) + Gutter(1)

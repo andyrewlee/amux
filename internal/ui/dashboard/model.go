@@ -40,6 +40,8 @@ type Row struct {
 	Worktree *data.Worktree
 }
 
+const doubleClickThreshold = 400 * time.Millisecond
+
 // Model is the Bubbletea model for the dashboard pane
 type Model struct {
 	// Data
@@ -53,6 +55,10 @@ type Model struct {
 	focused      bool
 	width        int
 	height       int
+	offsetX      int
+	offsetY      int
+	lastClickAt  time.Time
+	lastClickRow int
 	filterDirty  bool // Only show dirty worktrees
 	scrollOffset int
 
@@ -147,6 +153,38 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 		}
 
+	case tea.MouseMsg:
+		if !m.focused {
+			return m, nil
+		}
+
+		localY := msg.Y - m.offsetY
+		localX := msg.X - m.offsetX
+		if localX < 0 || localY < 0 || localX >= m.width || localY >= m.height {
+			return m, nil
+		}
+
+		if msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m.moveCursor(-1)
+			case tea.MouseButtonWheelDown:
+				m.moveCursor(1)
+			case tea.MouseButtonLeft:
+				rowIdx, ok := m.rowIndexAt(localY)
+				if !ok {
+					return m, nil
+				}
+				m.cursor = rowIdx
+				if m.lastClickRow == rowIdx && time.Since(m.lastClickAt) <= doubleClickThreshold {
+					m.lastClickAt = time.Time{}
+					return m, m.handleEnter()
+				}
+				m.lastClickRow = rowIdx
+				m.lastClickAt = time.Now()
+			}
+		}
+
 	case spinnerTickMsg:
 		// Advance spinner frame if we have loading items
 		if len(m.loadingStatus) > 0 || len(m.creatingWorktrees) > 0 || len(m.deletingWorktrees) > 0 {
@@ -223,28 +261,7 @@ func (m *Model) View() string {
 	b.WriteString("\n")
 
 	// Calculate visible area (inner height minus header + help)
-	innerHeight := m.height - 2
-	if innerHeight < 0 {
-		innerHeight = 0
-	}
-	headerHeight := 1 // trailing blank line
-	if m.filterDirty {
-		headerHeight++
-	}
-	// Calculate help height based on content width (pane width minus border and padding)
-	contentWidth := m.width - 4
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
-	helpText := "j/k:nav  enter:select  n:new  d:delete  m:monitor  ^t:agent  ?:help"
-	helpHeight := (len(helpText) + contentWidth - 1) / contentWidth
-	if helpHeight < 1 {
-		helpHeight = 1
-	}
-	visibleHeight := innerHeight - headerHeight - helpHeight
-	if visibleHeight < 1 {
-		visibleHeight = 1
-	}
+	_, visibleHeight := m.layoutHeights()
 
 	// Adjust scroll offset to keep cursor visible
 	if m.cursor < m.scrollOffset {
@@ -279,6 +296,11 @@ func (m *Model) View() string {
 	help := strings.Join(helpItems, "  ")
 
 	// Pad to the inner pane height (border excluded), reserving the help line.
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	helpHeight := 1
 	contentHeight := strings.Count(b.String(), "\n") + 1
 	targetHeight := innerHeight - helpHeight
 	if targetHeight < 0 {
@@ -296,6 +318,35 @@ func (m *Model) View() string {
 	}
 
 	return style.Width(m.width - 2).Render(b.String())
+}
+
+func (m *Model) layoutHeights() (headerHeight int, visibleHeight int) {
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	headerHeight = 1 // trailing blank line
+	if m.filterDirty {
+		headerHeight++
+	}
+	helpHeight := 1
+	visibleHeight = innerHeight - headerHeight - helpHeight
+	if visibleHeight < 1 {
+		visibleHeight = 1
+	}
+	return headerHeight, visibleHeight
+}
+
+func (m *Model) rowIndexAt(y int) (int, bool) {
+	headerHeight, visibleHeight := m.layoutHeights()
+	if y < headerHeight || y >= headerHeight+visibleHeight {
+		return -1, false
+	}
+	idx := m.scrollOffset + (y - headerHeight)
+	if idx < 0 || idx >= len(m.rows) {
+		return -1, false
+	}
+	return idx, true
 }
 
 // renderRow renders a single dashboard row
@@ -720,6 +771,12 @@ func (m *Model) refresh() tea.Cmd {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+}
+
+// SetOffset sets the top-left origin for mouse hit testing.
+func (m *Model) SetOffset(x, y int) {
+	m.offsetX = x
+	m.offsetY = y
 }
 
 // Focus sets the focus state
