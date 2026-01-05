@@ -34,6 +34,14 @@ const (
 	entryAction
 )
 
+type confirmAction int
+
+const (
+	confirmNone confirmAction = iota
+	confirmResetAll
+	confirmLeaderChange
+)
+
 type entry struct {
 	kind   entryKind
 	label  string
@@ -47,6 +55,8 @@ const (
 	buttonDone buttonID = iota
 	buttonReset
 	buttonResetAll
+	buttonConfirmYes
+	buttonConfirmNo
 )
 
 type button struct {
@@ -76,6 +86,11 @@ type Editor struct {
 
 	filtering   bool
 	filterInput textinput.Model
+
+	confirming     bool
+	confirmMessage string
+	confirmAction  confirmAction
+	pendingKeys    []string
 
 	editing bool
 	input   textinput.Model
@@ -130,6 +145,7 @@ func (e *Editor) Show(km keymap.KeyMap, cfg config.KeyMapConfig) {
 	e.errMsg = ""
 	e.filtering = false
 	e.filterInput.Blur()
+	e.clearConfirm()
 }
 
 // Hide hides the editor.
@@ -137,6 +153,7 @@ func (e *Editor) Hide() {
 	e.visible = false
 	e.editing = false
 	e.errMsg = ""
+	e.clearConfirm()
 }
 
 // Visible returns whether the editor is visible.
@@ -173,6 +190,16 @@ func (e *Editor) Update(msg tea.Msg) (*Editor, tea.Cmd) {
 }
 
 func (e *Editor) handleKey(msg tea.KeyMsg) (*Editor, tea.Cmd) {
+	if e.confirming {
+		switch {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("y", "Y", "enter"))):
+			return e, e.applyConfirm(true)
+		case key.Matches(msg, key.NewBinding(key.WithKeys("n", "N", "esc"))):
+			return e, e.applyConfirm(false)
+		}
+		return e, nil
+	}
+
 	if e.editing {
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
@@ -251,6 +278,19 @@ func (e *Editor) handleMouse(msg tea.MouseMsg) (*Editor, tea.Cmd) {
 	filterLineY := listStart - 1
 
 	if msg.Button == tea.MouseButtonLeft {
+		if e.confirming {
+			for _, btn := range e.buttons {
+				if contentY == btn.y && contentX >= btn.x0 && contentX < btn.x1 {
+					switch btn.id {
+					case buttonConfirmYes:
+						return e, e.applyConfirm(true)
+					case buttonConfirmNo:
+						return e, e.applyConfirm(false)
+					}
+				}
+			}
+			return e, nil
+		}
 		if contentY == filterLineY {
 			e.filtering = true
 			e.filterInput.Focus()
@@ -319,6 +359,14 @@ func (e *Editor) applyInput() tea.Cmd {
 		return nil
 	}
 
+	if entry.action == keymap.ActionLeader {
+		currentKeys := keymap.BindingForAction(e.keymap, entry.action).Keys()
+		if !equalKeySet(currentKeys, keys) {
+			e.requestLeaderChange(keys)
+			return nil
+		}
+	}
+
 	actionKey := string(entry.action)
 	e.overrides[actionKey] = keys
 	e.rebuildKeymap()
@@ -339,11 +387,62 @@ func (e *Editor) resetCurrent() tea.Cmd {
 }
 
 func (e *Editor) resetAll() tea.Cmd {
-	e.overrides = map[string][]string{}
-	e.rebuildKeymap()
+	e.requestResetAll()
+	return nil
+}
+
+func (e *Editor) requestResetAll() {
+	e.confirming = true
+	e.confirmAction = confirmResetAll
+	e.confirmMessage = "Reset all keybindings to defaults?"
+	e.pendingKeys = nil
 	e.editing = false
-	e.errMsg = ""
-	return e.emitUpdate()
+	e.filtering = false
+	e.filterInput.Blur()
+}
+
+func (e *Editor) requestLeaderChange(keys []string) {
+	e.confirming = true
+	e.confirmAction = confirmLeaderChange
+	e.confirmMessage = fmt.Sprintf("Change leader to %s?", strings.Join(keys, "/"))
+	e.pendingKeys = keys
+	e.editing = false
+	e.filtering = false
+	e.filterInput.Blur()
+}
+
+func (e *Editor) applyConfirm(confirmed bool) tea.Cmd {
+	if !e.confirming {
+		return nil
+	}
+	if !confirmed {
+		e.clearConfirm()
+		return nil
+	}
+	switch e.confirmAction {
+	case confirmResetAll:
+		e.overrides = map[string][]string{}
+		e.rebuildKeymap()
+		e.clearConfirm()
+		return e.emitUpdate()
+	case confirmLeaderChange:
+		if len(e.pendingKeys) > 0 {
+			e.overrides[string(keymap.ActionLeader)] = e.pendingKeys
+			e.rebuildKeymap()
+		}
+		e.clearConfirm()
+		return e.emitUpdate()
+	default:
+		e.clearConfirm()
+		return nil
+	}
+}
+
+func (e *Editor) clearConfirm() {
+	e.confirming = false
+	e.confirmAction = confirmNone
+	e.confirmMessage = ""
+	e.pendingKeys = nil
 }
 
 func (e *Editor) rebuildKeymap() {
@@ -449,6 +548,13 @@ func (e *Editor) View() string {
 		}
 	}
 
+	if e.confirming {
+		confirmLine := lipgloss.NewStyle().
+			Foreground(common.ColorWarning).
+			Render(e.confirmMessage + " (y/n)")
+		lines = append(lines, ansi.Truncate(confirmLine, contentWidth, ""))
+	}
+
 	if e.editing {
 		entry, ok := e.currentEntry()
 		if ok {
@@ -519,13 +625,27 @@ func (e *Editor) renderEntry(index int, contentWidth int, selected bool) string 
 
 func (e *Editor) renderFooter(contentWidth int, footerY int) string {
 	e.buttons = e.buttons[:0]
-	labels := []struct {
+	var labels []struct {
 		id    buttonID
 		label string
-	}{
-		{buttonDone, "[ Done ]"},
-		{buttonReset, "[ Reset ]"},
-		{buttonResetAll, "[ Reset All ]"},
+	}
+	if e.confirming {
+		labels = []struct {
+			id    buttonID
+			label string
+		}{
+			{buttonConfirmYes, "[ Yes ]"},
+			{buttonConfirmNo, "[ No ]"},
+		}
+	} else {
+		labels = []struct {
+			id    buttonID
+			label string
+		}{
+			{buttonDone, "[ Done ]"},
+			{buttonReset, "[ Reset ]"},
+			{buttonResetAll, "[ Reset All ]"},
+		}
 	}
 
 	x := 0
@@ -578,15 +698,19 @@ func (e *Editor) layout() (boxWidth int, boxHeight int, listHeight int, listStar
 		inputLines = 2
 	}
 	warningLines := e.warningCount(4)
+	confirmLines := 0
+	if e.confirming {
+		confirmLines = 1
+	}
 	footerLines := 2
 
-	listHeight = boxHeight - headerLines - inputLines - warningLines - footerLines
+	listHeight = boxHeight - headerLines - inputLines - warningLines - confirmLines - footerLines
 	if listHeight < 3 {
 		listHeight = 3
 	}
 
 	listStart = headerLines
-	footerY = listStart + listHeight + inputLines + warningLines + 1
+	footerY = listStart + listHeight + inputLines + warningLines + confirmLines + 1
 	return boxWidth, boxHeight, listHeight, listStart, footerY
 }
 
@@ -804,6 +928,28 @@ func parseKeys(value string) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+func equalKeySet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	normalize := func(values []string) []string {
+		out := make([]string, len(values))
+		for i, value := range values {
+			out[i] = strings.ToLower(strings.TrimSpace(value))
+		}
+		sort.Strings(out)
+		return out
+	}
+	aa := normalize(a)
+	bb := normalize(b)
+	for i := range aa {
+		if aa[i] != bb[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func cloneBindings(input map[string][]string) map[string][]string {
