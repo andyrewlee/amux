@@ -95,7 +95,7 @@ type Tab struct {
 	mu           sync.Mutex // Protects Terminal
 	Running      bool       // Whether the agent is actively running
 	readerActive bool       // Guard to ensure only one PTY read loop per tab
-	CopyMode     bool         // Whether the tab is in copy/scroll mode (keys not sent to PTY)
+	CopyMode     bool       // Whether the tab is in copy/scroll mode (keys not sent to PTY)
 	// Buffer PTY output to avoid rendering partial screen updates.
 	pendingOutput     []byte
 	flushScheduled    bool
