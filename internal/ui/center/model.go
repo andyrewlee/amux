@@ -886,11 +886,6 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 	return m.readPTYForTab(wtID, tab.ID)
 }
 
-// closeCurrentTab closes the current tab
-func (m *Model) closeCurrentTab() tea.Cmd {
-	return m.closeTabAtIndex(m.getActiveTabIdx())
-}
-
 // CloseActiveTab closes the currently active tab.
 func (m *Model) CloseActiveTab() tea.Cmd {
 	return m.closeTabAtIndex(m.getActiveTabIdx())
