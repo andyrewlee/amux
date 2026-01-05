@@ -207,7 +207,16 @@ func (m *Model) View() string {
 	if m.filterDirty {
 		headerHeight++
 	}
-	helpHeight := 1
+	// Calculate help height based on content width (pane width minus border and padding)
+	contentWidth := m.width - 4
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	helpText := "j/k:nav  enter:select  n:new  d:delete  m:monitor  ^t:agent  ?:help"
+	helpHeight := (len(helpText) + contentWidth - 1) / contentWidth
+	if helpHeight < 1 {
+		helpHeight = 1
+	}
 	visibleHeight := innerHeight - headerHeight - helpHeight
 	if visibleHeight < 1 {
 		visibleHeight = 1
@@ -239,7 +248,10 @@ func (m *Model) View() string {
 		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
 		m.styles.HelpKey.Render("enter") + m.styles.HelpDesc.Render(":select"),
 		m.styles.HelpKey.Render("n") + m.styles.HelpDesc.Render(":new"),
-		m.styles.HelpKey.Render("ctrl+t") + m.styles.HelpDesc.Render(":agent"),
+		m.styles.HelpKey.Render("d") + m.styles.HelpDesc.Render(":delete"),
+		m.styles.HelpKey.Render("m") + m.styles.HelpDesc.Render(":monitor"),
+		m.styles.HelpKey.Render("^t") + m.styles.HelpDesc.Render(":agent"),
+		m.styles.HelpKey.Render("?") + m.styles.HelpDesc.Render(":help"),
 	}
 	help := strings.Join(helpItems, "  ")
 
@@ -279,7 +291,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
 		}
-		return cursor + style.Render("["+common.Icons.Home+" home]")
+		return cursor + style.Render("["+common.Icons.Home+" Home]")
 
 	case RowAddProject:
 		style := m.styles.CreateButton
@@ -299,7 +311,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
 		}
-		return "\n" + cursor + style.Render(strings.ToUpper(row.Project.Name))
+		return "\n" + cursor + style.Render(row.Project.Name)
 
 	case RowWorktree:
 		name := row.Worktree.Name
