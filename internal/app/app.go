@@ -95,7 +95,7 @@ type App struct {
 	newAgentWorktree   *data.Worktree
 	newAgentSelections []string
 	newAgentPrompt     string
-	newAgentPrompts    map[string]string
+	newAgentPrompts    []string
 	newAgentPromptIdx  int
 
 	// Process management
@@ -932,30 +932,32 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				a.resetNewAgentFlow()
 				return a.toast.ShowWarning("No agents selected")
 			}
-			if a.newAgentPrompts == nil {
-				a.newAgentPrompts = make(map[string]string)
+			if a.newAgentPrompts == nil || len(a.newAgentPrompts) != len(a.newAgentSelections) {
+				a.newAgentPrompts = make([]string, len(a.newAgentSelections))
 			}
 			if a.newAgentPromptIdx < len(a.newAgentSelections) {
-				agent := a.newAgentSelections[a.newAgentPromptIdx]
-				a.newAgentPrompts[agent] = prompt
+				a.newAgentPrompts[a.newAgentPromptIdx] = prompt
 				a.newAgentPromptIdx++
 			}
 			if a.newAgentPromptIdx < len(a.newAgentSelections) {
-				nextAgent := a.newAgentSelections[a.newAgentPromptIdx]
-				a.dialog = common.NewInputDialog(DialogNewAgentPrompt, fmt.Sprintf("Prompt for %s", nextAgent), "Optional prompt (enter to skip)...")
+				title := promptTitleForSelection(a.newAgentSelections, a.newAgentPromptIdx)
+				a.dialog = common.NewInputDialog(DialogNewAgentPrompt, title, "Optional prompt (enter to skip)...")
 				a.dialog.Show()
 				return nil
 			}
 			wt := a.newAgentWorktree
 			var cmds []tea.Cmd
-			for _, assistant := range a.newAgentSelections {
+			for i, assistant := range a.newAgentSelections {
 				if err := validation.ValidateAssistant(assistant); err != nil {
 					a.resetNewAgentFlow()
 					return func() tea.Msg {
 						return messages.Error{Err: err, Context: "validating assistant"}
 					}
 				}
-				p := strings.TrimSpace(a.newAgentPrompts[assistant])
+				p := ""
+				if i < len(a.newAgentPrompts) {
+					p = strings.TrimSpace(a.newAgentPrompts[i])
+				}
 				assistant := assistant
 				cmds = append(cmds, func() tea.Msg {
 					return messages.LaunchAgent{
@@ -1007,10 +1009,10 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			return tea.Batch(cmds...)
 		}
 
-		a.newAgentPrompts = make(map[string]string)
+		a.newAgentPrompts = make([]string, len(a.newAgentSelections))
 		a.newAgentPromptIdx = 0
-		firstAgent := a.newAgentSelections[0]
-		a.dialog = common.NewInputDialog(DialogNewAgentPrompt, fmt.Sprintf("Prompt for %s", firstAgent), "Optional prompt (enter to skip)...")
+		firstTitle := promptTitleForSelection(a.newAgentSelections, 0)
+		a.dialog = common.NewInputDialog(DialogNewAgentPrompt, firstTitle, "Optional prompt (enter to skip)...")
 		a.dialog.Show()
 		return nil
 
@@ -1058,6 +1060,30 @@ func (a *App) resetNewAgentFlow() {
 	a.newAgentPrompt = ""
 	a.newAgentPrompts = nil
 	a.newAgentPromptIdx = 0
+}
+
+func promptTitleForSelection(selections []string, idx int) string {
+	if idx < 0 || idx >= len(selections) {
+		return "Prompt"
+	}
+	assistant := selections[idx]
+	if assistant == "" {
+		return "Prompt"
+	}
+	total := 0
+	position := 0
+	for i, name := range selections {
+		if name == assistant {
+			total++
+			if i <= idx {
+				position++
+			}
+		}
+	}
+	if total > 1 {
+		return fmt.Sprintf("Prompt for %s (%d/%d)", assistant, position, total)
+	}
+	return fmt.Sprintf("Prompt for %s", assistant)
 }
 
 func (a *App) resolveNewAgentWorktree(project *data.Project) *data.Worktree {

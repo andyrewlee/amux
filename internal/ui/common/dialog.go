@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -30,6 +31,7 @@ type DialogResult struct {
 	Index     int
 	Values    []string
 	Indices   []int
+	Counts    []int
 }
 
 // Dialog is a modal dialog component
@@ -46,7 +48,7 @@ type Dialog struct {
 	input     textinput.Model
 	cursor    int
 	confirmed bool
-	selected  []bool
+	counts    []int
 
 	// Fuzzy filter state
 	filterEnabled   bool
@@ -100,12 +102,12 @@ func NewSelectDialog(id, title string, options []string) *Dialog {
 // NewMultiSelectDialog creates a new multi-selection dialog
 func NewMultiSelectDialog(id, title string, options []string) *Dialog {
 	return &Dialog{
-		id:       id,
-		dtype:    DialogMultiSelect,
-		title:    title,
-		options:  options,
-		cursor:   0,
-		selected: make([]bool, len(options)),
+		id:      id,
+		dtype:   DialogMultiSelect,
+		title:   title,
+		options: options,
+		cursor:  0,
+		counts:  make([]int, len(options)),
 	}
 }
 
@@ -185,7 +187,7 @@ func NewAgentMultiPicker() *Dialog {
 		message:         "Choose one or more agents:",
 		options:         optionNames,
 		cursor:          0,
-		selected:        make([]bool, len(optionNames)),
+		counts:          make([]int, len(optionNames)),
 		filterEnabled:   true,
 		filterInput:     fi,
 		filteredIndices: allIndices,
@@ -217,9 +219,9 @@ func (d *Dialog) Show() {
 		d.input.SetValue("")
 		d.input.Focus()
 	}
-	if d.dtype == DialogMultiSelect && len(d.selected) > 0 {
-		for i := range d.selected {
-			d.selected[i] = false
+	if d.dtype == DialogMultiSelect && len(d.counts) > 0 {
+		for i := range d.counts {
+			d.counts[i] = 0
 		}
 	}
 	if d.filterEnabled {
@@ -279,8 +281,16 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys(" ", "space"))):
 			if d.dtype == DialogMultiSelect {
-				if idx, ok := d.currentOptionIndex(); ok && idx < len(d.selected) {
-					d.selected[idx] = !d.selected[idx]
+				if idx, ok := d.currentOptionIndex(); ok && idx < len(d.counts) {
+					d.counts[idx]++
+				}
+				return d, nil
+			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("-"))):
+			if d.dtype == DialogMultiSelect {
+				if idx, ok := d.currentOptionIndex(); ok && idx < len(d.counts) && d.counts[idx] > 0 {
+					d.counts[idx]--
 				}
 				return d, nil
 			}
@@ -340,10 +350,14 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 			case DialogMultiSelect:
 				var indices []int
 				var values []string
-				for i, selected := range d.selected {
-					if selected && i < len(d.options) {
-						indices = append(indices, i)
-						values = append(values, d.options[i])
+				counts := make([]int, len(d.counts))
+				copy(counts, d.counts)
+				for i, count := range d.counts {
+					if count > 0 && i < len(d.options) {
+						for j := 0; j < count; j++ {
+							indices = append(indices, i)
+							values = append(values, d.options[i])
+						}
 					}
 				}
 				return d, func() tea.Msg {
@@ -352,6 +366,7 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 						Confirmed: true,
 						Indices:   indices,
 						Values:    values,
+						Counts:    counts,
 					}
 				}
 			}
@@ -454,7 +469,7 @@ func (d *Dialog) View() string {
 		MarginTop(1)
 	helpText := "enter: confirm • esc: cancel"
 	if d.dtype == DialogMultiSelect {
-		helpText = "space: toggle • enter: confirm • esc: cancel"
+		helpText = "space: add • -: remove • enter: confirm • esc: cancel"
 	}
 	content.WriteString("\n")
 	content.WriteString(helpStyle.Render(helpText))
@@ -499,8 +514,12 @@ func (d *Dialog) renderOptions() string {
 
 			check := ""
 			if d.dtype == DialogMultiSelect {
-				if originalIdx < len(d.selected) && d.selected[originalIdx] {
-					check = "[x] "
+				count := 0
+				if originalIdx < len(d.counts) {
+					count = d.counts[originalIdx]
+				}
+				if count > 0 {
+					check = fmt.Sprintf("[%d] ", count)
 				} else {
 					check = "[ ] "
 				}
@@ -541,8 +560,12 @@ func (d *Dialog) renderOptions() string {
 
 			check := ""
 			if d.dtype == DialogMultiSelect {
-				if i < len(d.selected) && d.selected[i] {
-					check = "[x] "
+				count := 0
+				if i < len(d.counts) {
+					count = d.counts[i]
+				}
+				if count > 0 {
+					check = fmt.Sprintf("[%d] ", count)
 				} else {
 					check = "[ ] "
 				}
