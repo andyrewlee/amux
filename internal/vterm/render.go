@@ -208,6 +208,7 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 		if inSel || isCursor {
 			style.Reverse = !style.Reverse
 		}
+		style = suppressBlankUnderline(cell, style)
 
 		if style != lastStyle || inSel != lastReverse || isCursor {
 			buf.WriteString(StyleToANSI(style))
@@ -281,6 +282,7 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 			if inSel {
 				style.Reverse = !style.Reverse
 			}
+			style = suppressBlankUnderline(cell, style)
 
 			if firstCell || style != lastStyle || inSel != lastReverse {
 				buf.WriteString(StyleToANSI(style))
@@ -308,6 +310,18 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 
 	buf.WriteString("\x1b[0m")
 	return buf.String()
+}
+
+func suppressBlankUnderline(cell Cell, style Style) Style {
+	// Some TUIs leave underline enabled while clearing rows; underline on spaces
+	// renders as scanlines, so drop it for blank cells at render time.
+	if !style.Underline {
+		return style
+	}
+	if cell.Rune == 0 || cell.Rune == ' ' {
+		style.Underline = false
+	}
+	return style
 }
 
 // StyleToANSI converts a Style to ANSI escape codes.
