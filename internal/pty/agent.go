@@ -2,6 +2,7 @@ package pty
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/config"
@@ -52,14 +53,24 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType, resum
 	env := []string{
 		fmt.Sprintf("WORKTREE_ROOT=%s", wt.Root),
 		fmt.Sprintf("WORKTREE_NAME=%s", wt.Name),
+		"LINES=",   // Unset to force ioctl usage
+		"COLUMNS=", // Unset to force ioctl usage
 	}
 
-	// Create terminal with agent command
+	// Create terminal with agent command, falling back to shell on exit
 	command := ApplyResumeCommand(assistantCfg.Command, agentType, resume)
-	term, err := New(command, wt.Root, env)
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+
+	// Execute agent, then reset terminal state (RIS), print message, and drop to shell
+	fullCommand := fmt.Sprintf("%s; printf '\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s", command, shell)
+	term, err := New(fullCommand, wt.Root, env)
 	if err != nil && command != assistantCfg.Command {
 		// If resume failed, fall back to starting a fresh session.
-		term, err = New(assistantCfg.Command, wt.Root, env)
+		fullCommand = fmt.Sprintf("%s; printf '\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s", assistantCfg.Command, shell)
+		term, err = New(fullCommand, wt.Root, env)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
