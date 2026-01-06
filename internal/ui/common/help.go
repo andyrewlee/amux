@@ -106,7 +106,7 @@ func defaultHelpSections(km keymap.KeyMap) []HelpSection {
 				{"Click tab", "Switch tabs"},
 				{"Right-click tab", "Close tab"},
 				{"Click [+]", "New agent tab"},
-				{"Click row", "Select/activate"},
+				{"Click row", "Open"},
 				{"Click monitor", "Toggle monitor"},
 				{"Click help", "Open help"},
 				{"Click keymap", "Open keymap editor"},

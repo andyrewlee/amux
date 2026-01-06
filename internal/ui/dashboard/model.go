@@ -42,8 +42,6 @@ type Row struct {
 	Worktree *data.Worktree
 }
 
-const doubleClickThreshold = 400 * time.Millisecond
-
 type actionButtonID int
 
 const (
@@ -74,8 +72,6 @@ type Model struct {
 	height        int
 	offsetX       int
 	offsetY       int
-	lastClickAt   time.Time
-	lastClickRow  int
 	filterDirty   bool // Only show dirty worktrees
 	scrollOffset  int
 	actionButtons []actionButton
@@ -190,12 +186,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					return m, nil
 				}
 				m.cursor = rowIdx
-				if m.lastClickRow == rowIdx && time.Since(m.lastClickAt) <= doubleClickThreshold {
-					m.lastClickAt = time.Time{}
-					return m, m.handleEnter()
-				}
-				m.lastClickRow = rowIdx
-				m.lastClickAt = time.Now()
+				return m, m.handleEnter()
 			}
 		}
 
