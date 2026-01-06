@@ -219,9 +219,6 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// PendingGTimeout fires when 'g' prefix times out
-type PendingGTimeout struct{}
-
 const (
 	ptyFlushQuiet       = 4 * time.Millisecond
 	ptyFlushMaxInterval = 16 * time.Millisecond
@@ -244,10 +241,6 @@ type Model struct {
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
 	terminalCanvas      *compositor.Canvas
-
-	// Key sequence state for vim-style gt/gT
-	pendingG     bool
-	pendingGTime time.Time
 
 	// Layout
 	width   int
@@ -536,40 +529,16 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					return m, nil
 				}
 
-				// Handle pending 'g' key sequence for vim-style gt/gT
-				if m.pendingG {
-					m.pendingG = false
-					if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-						switch msg.Runes[0] {
-						case 't':
-							m.nextTab()
-							return m, nil
-						case 'T':
-							m.prevTab()
-							return m, nil
-						default:
-							// Forward both 'g' and current key to terminal
-							_ = tab.Agent.Terminal.SendString("g")
-							// Fall through to normal key handling
-						}
-					} else {
-						// Non-rune key after 'g' - forward both
-						_ = tab.Agent.Terminal.SendString("g")
-						// Fall through to normal key handling
-					}
-				}
-
-				// Start 'g' sequence
-				if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'g' {
-					m.pendingG = true
-					m.pendingGTime = time.Now()
-					return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-						return PendingGTimeout{}
-					})
-				}
-
 				// Only intercept these specific keys - everything else goes to terminal
 				switch {
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
+					m.nextTab()
+					return m, nil
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))):
+					m.prevTab()
+					return m, nil
+
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
 					// Close tab
 					return m, m.closeCurrentTab()
@@ -772,20 +741,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
 		}
 		// Do NOT schedule another read - the loop is done
-
-	case PendingGTimeout:
-		// If still pending after timeout, forward 'g' to terminal
-		if m.pendingG && time.Since(m.pendingGTime) >= time.Second {
-			m.pendingG = false
-			tabs := m.getTabs()
-			activeIdx := m.getActiveTabIdx()
-			if len(tabs) > 0 && activeIdx < len(tabs) {
-				tab := tabs[activeIdx]
-				if tab.Agent != nil && tab.Agent.Terminal != nil {
-					_ = tab.Agent.Terminal.SendString("g")
-				}
-			}
-		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -832,7 +787,7 @@ func (m *Model) View() string {
 		m.styles.HelpKey.Render("esc") + m.styles.HelpDesc.Render(":dashboard"),
 		m.styles.HelpKey.Render("^w") + m.styles.HelpDesc.Render(":close"),
 		m.styles.HelpKey.Render("^t") + m.styles.HelpDesc.Render(":agent"),
-		m.styles.HelpKey.Render("gt/gT") + m.styles.HelpDesc.Render(":tabs"),
+		m.styles.HelpKey.Render("^n/p") + m.styles.HelpDesc.Render(":tabs"),
 		m.styles.HelpKey.Render("^u/d") + m.styles.HelpDesc.Render(":scroll"),
 		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
 	}

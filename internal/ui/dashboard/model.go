@@ -124,9 +124,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.moveCursor(-1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			return m, m.handleEnter()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("n"))):
-			return m, m.handleNew()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("d", "D"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
 			return m, m.handleDelete()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("f"))):
 			m.toggleFilter()
@@ -233,7 +231,7 @@ func (m *Model) View() string {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	helpText := "j/k:nav  enter:select  n:new  d:delete  m:monitor  ^t:agent  ?:help"
+	helpText := "j/k:nav  enter:select  D:delete  m:monitor  ^t:agent  ?:help"
 	helpHeight := (len(helpText) + contentWidth - 1) / contentWidth
 	if helpHeight < 1 {
 		helpHeight = 1
@@ -268,8 +266,7 @@ func (m *Model) View() string {
 	helpItems := []string{
 		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
 		m.styles.HelpKey.Render("enter") + m.styles.HelpDesc.Render(":select"),
-		m.styles.HelpKey.Render("n") + m.styles.HelpDesc.Render(":new"),
-		m.styles.HelpKey.Render("d") + m.styles.HelpDesc.Render(":delete"),
+		m.styles.HelpKey.Render("D") + m.styles.HelpDesc.Render(":delete"),
 		m.styles.HelpKey.Render("m") + m.styles.HelpDesc.Render(":monitor"),
 		m.styles.HelpKey.Render("^t") + m.styles.HelpDesc.Render(":agent"),
 		m.styles.HelpKey.Render("?") + m.styles.HelpDesc.Render(":help"),
@@ -672,28 +669,6 @@ func (m *Model) handleEnter() tea.Cmd {
 	case RowCreate:
 		return func() tea.Msg {
 			return messages.ShowCreateWorktreeDialog{Project: row.Project}
-		}
-	}
-
-	return nil
-}
-
-// handleNew handles the new worktree key
-func (m *Model) handleNew() tea.Cmd {
-	// If cursor is on a project-related row, create for that project
-	if m.cursor >= 0 && m.cursor < len(m.rows) {
-		row := m.rows[m.cursor]
-		if row.Project != nil {
-			return func() tea.Msg {
-				return messages.ShowCreateWorktreeDialog{Project: row.Project}
-			}
-		}
-	}
-
-	// Otherwise, if there are projects, use the first one
-	if len(m.projects) > 0 {
-		return func() tea.Msg {
-			return messages.ShowCreateWorktreeDialog{Project: &m.projects[0]}
 		}
 	}
 
