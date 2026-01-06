@@ -117,22 +117,22 @@ func New(cfg config.KeyMapConfig) KeyMap {
 
 		FocusLeft: bindingFromDef(cfg, bindingDef{
 			action: ActionFocusLeft,
-			keys:   []string{"h", "left"},
+			keys:   []string{"alt+h"},
 			desc:   "focus left",
 		}),
 		FocusRight: bindingFromDef(cfg, bindingDef{
 			action: ActionFocusRight,
-			keys:   []string{"l", "right"},
+			keys:   []string{"alt+l"},
 			desc:   "focus right",
 		}),
 		FocusUp: bindingFromDef(cfg, bindingDef{
 			action: ActionFocusUp,
-			keys:   []string{"k", "up"},
+			keys:   []string{"alt+k"},
 			desc:   "focus up",
 		}),
 		FocusDown: bindingFromDef(cfg, bindingDef{
 			action: ActionFocusDown,
-			keys:   []string{"j", "down"},
+			keys:   []string{"alt+j"},
 			desc:   "focus down",
 		}),
 
@@ -159,38 +159,38 @@ func New(cfg config.KeyMapConfig) KeyMap {
 
 		MonitorToggle: bindingFromDef(cfg, bindingDef{
 			action: ActionMonitorToggle,
-			keys:   []string{"m"},
+			keys:   []string{"alt+m"},
 			desc:   "monitor tabs",
 		}),
 		Home: bindingFromDef(cfg, bindingDef{
 			action: ActionHome,
-			keys:   []string{"g"},
+			keys:   []string{"alt+g"},
 			desc:   "home",
 		}),
 		Help: bindingFromDef(cfg, bindingDef{
 			action: ActionHelp,
-			keys:   []string{"?"},
+			keys:   []string{"alt+?"},
 			desc:   "help",
 		}),
 		KeymapEditor: bindingFromDef(cfg, bindingDef{
 			action: ActionKeymap,
-			keys:   []string{","},
+			keys:   []string{"alt+,"},
 			desc:   "keymap editor",
 		}),
 		Quit: bindingFromDef(cfg, bindingDef{
 			action: ActionQuit,
-			keys:   []string{"q"},
+			keys:   []string{"alt+q"},
 			desc:   "quit",
 		}),
 
 		ScrollUpHalf: bindingFromDef(cfg, bindingDef{
 			action: ActionScrollUpHalf,
-			keys:   []string{"u"},
+			keys:   []string{"alt+u"},
 			desc:   "scroll up",
 		}),
 		ScrollDownHalf: bindingFromDef(cfg, bindingDef{
 			action: ActionScrollDownHalf,
-			keys:   []string{"d"},
+			keys:   []string{"alt+d"},
 			desc:   "scroll down",
 		}),
 
@@ -310,16 +310,19 @@ func PrimaryKey(binding key.Binding) string {
 	return keys[0]
 }
 
+// BindingHint returns a single key hint for a binding, falling back to help text.
+func BindingHint(binding key.Binding) string {
+	key := PrimaryKey(binding)
+	if key == "" {
+		return binding.Help().Key
+	}
+	return key
+}
+
 // PairHint joins two bindings with a slash using their primary keys.
 func PairHint(a, b key.Binding) string {
-	left := PrimaryKey(a)
-	right := PrimaryKey(b)
-	if left == "" {
-		left = a.Help().Key
-	}
-	if right == "" {
-		right = b.Help().Key
-	}
+	left := BindingHint(a)
+	right := BindingHint(b)
 	if left == "" {
 		return right
 	}
@@ -327,6 +330,18 @@ func PairHint(a, b key.Binding) string {
 		return left
 	}
 	return left + "/" + right
+}
+
+// SequenceHint joins multiple bindings with slashes using their primary keys.
+func SequenceHint(bindings ...key.Binding) string {
+	var keys []string
+	for _, binding := range bindings {
+		key := BindingHint(binding)
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return strings.Join(keys, "/")
 }
 
 // LeaderSequenceHint formats a leader sequence hint using the primary keys.
@@ -337,10 +352,7 @@ func LeaderSequenceHint(km KeyMap, bindings ...key.Binding) string {
 	}
 	var keys []string
 	for _, binding := range bindings {
-		key := PrimaryKey(binding)
-		if key == "" {
-			key = binding.Help().Key
-		}
+		key := BindingHint(binding)
 		if key != "" {
 			keys = append(keys, key)
 		}
@@ -365,7 +377,7 @@ type ActionInfo struct {
 // ActionInfos returns the ordered list of actions for UI display.
 func ActionInfos() []ActionInfo {
 	return []ActionInfo{
-		{Action: ActionLeader, Desc: "Leader prefix", Group: "Leader", Editable: true},
+		{Action: ActionLeader, Desc: "Tab prefix", Group: "Leader", Editable: true},
 		{Action: ActionFocusLeft, Desc: "Focus left", Group: "Focus", Editable: true},
 		{Action: ActionFocusRight, Desc: "Focus right", Group: "Focus", Editable: true},
 		{Action: ActionFocusUp, Desc: "Focus up", Group: "Focus", Editable: true},

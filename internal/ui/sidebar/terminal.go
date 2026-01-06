@@ -401,7 +401,7 @@ func (m *TerminalModel) View() string {
 
 	// Help bar
 	helpItems := []string{
-		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.ScrollUpHalf, m.keymap.ScrollDownHalf)) + m.styles.HelpDesc.Render(":scroll"),
+		m.styles.HelpKey.Render(keymap.PairHint(m.keymap.ScrollUpHalf, m.keymap.ScrollDownHalf)) + m.styles.HelpDesc.Render(":scroll"),
 		m.styles.HelpKey.Render("wheel") + m.styles.HelpDesc.Render(":scroll"),
 		m.styles.HelpKey.Render("ctrl+c") + m.styles.HelpDesc.Render(":interrupt"),
 	}

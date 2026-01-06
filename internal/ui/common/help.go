@@ -51,19 +51,24 @@ func defaultHelpSections(km keymap.KeyMap) []HelpSection {
 
 	return []HelpSection{
 		{
-			Title: "Leader",
+			Title: "Tabs",
 			Bindings: []HelpBinding{
-				{leaderHint, "Command prefix"},
-				{keymap.LeaderSequenceHint(km, km.FocusLeft, km.FocusDown, km.FocusUp, km.FocusRight), "Focus panes"},
+				{leaderHint, "Tab prefix"},
 				{keymap.LeaderSequenceHint(km, km.TabPrev, km.TabNext), "Switch tabs"},
 				{keymap.LeaderSequenceHint(km, km.TabNew), "New agent tab"},
 				{keymap.LeaderSequenceHint(km, km.TabClose), "Close tab"},
-				{keymap.LeaderSequenceHint(km, km.MonitorToggle), "Monitor tabs"},
-				{keymap.LeaderSequenceHint(km, km.Home), "Home"},
-				{keymap.LeaderSequenceHint(km, km.Help), "Toggle help"},
-				{keymap.LeaderSequenceHint(km, km.KeymapEditor), "Keymap editor"},
-				{keymap.LeaderSequenceHint(km, km.Quit), "Quit"},
-				{keymap.LeaderSequenceHint(km, km.ScrollUpHalf, km.ScrollDownHalf), "Scroll"},
+			},
+		},
+		{
+			Title: "Global",
+			Bindings: []HelpBinding{
+				{keymap.SequenceHint(km.FocusLeft, km.FocusDown, km.FocusUp, km.FocusRight), "Focus panes"},
+				{keymap.BindingHint(km.MonitorToggle), "Monitor tabs"},
+				{keymap.BindingHint(km.Home), "Home"},
+				{keymap.BindingHint(km.Help), "Toggle help"},
+				{keymap.BindingHint(km.KeymapEditor), "Keymap editor"},
+				{keymap.BindingHint(km.Quit), "Quit"},
+				{keymap.PairHint(km.ScrollUpHalf, km.ScrollDownHalf), "Scroll"},
 			},
 		},
 		{

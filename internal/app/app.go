@@ -410,6 +410,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if handled, cmd := a.handleLeader(msg); handled {
 			return a, cmd
 		}
+		if handled, cmd := a.handleGlobalKeys(msg); handled {
+			return a, cmd
+		}
 
 		// Monitor pane navigation (tile selection)
 		if a.focusedPane == messages.PaneMonitor {
@@ -1717,7 +1720,7 @@ func (a *App) renderWelcome() string {
 │  a       Add a project            │
 │  n       Create new worktree      │
 │  Leader+n Launch AI agent         │
-│  Leader+? Show all shortcuts      │
+│  Alt+?   Show all shortcuts       │
 └───────────────────────────────────┘`
 
 	quickStartStyle := lipgloss.NewStyle().
@@ -2016,16 +2019,48 @@ func (a *App) handleLeader(msg tea.KeyMsg) (bool, tea.Cmd) {
 	return false, nil
 }
 
-func (a *App) runLeaderCommand(msg tea.KeyMsg) tea.Cmd {
+func (a *App) handleGlobalKeys(msg tea.KeyMsg) (bool, tea.Cmd) {
 	switch {
 	case key.Matches(msg, a.keymap.FocusLeft):
 		a.focusLeft()
+		return true, nil
 	case key.Matches(msg, a.keymap.FocusRight):
 		a.focusRight()
+		return true, nil
 	case key.Matches(msg, a.keymap.FocusUp):
 		a.focusUp()
+		return true, nil
 	case key.Matches(msg, a.keymap.FocusDown):
 		a.focusDown()
+		return true, nil
+	case key.Matches(msg, a.keymap.MonitorToggle):
+		a.toggleMonitorMode()
+		return true, nil
+	case key.Matches(msg, a.keymap.Home):
+		a.goHome()
+		a.focusPane(messages.PaneDashboard)
+		return true, nil
+	case key.Matches(msg, a.keymap.Help):
+		a.helpOverlay.SetSize(a.width, a.height)
+		a.helpOverlay.Toggle()
+		return true, nil
+	case key.Matches(msg, a.keymap.KeymapEditor):
+		return true, func() tea.Msg { return messages.ShowKeymapEditor{} }
+	case key.Matches(msg, a.keymap.Quit):
+		a.showQuitDialog()
+		return true, nil
+	case key.Matches(msg, a.keymap.ScrollUpHalf):
+		a.scrollFocusedTerminal(1)
+		return true, nil
+	case key.Matches(msg, a.keymap.ScrollDownHalf):
+		a.scrollFocusedTerminal(-1)
+		return true, nil
+	}
+	return false, nil
+}
+
+func (a *App) runLeaderCommand(msg tea.KeyMsg) tea.Cmd {
+	switch {
 	case key.Matches(msg, a.keymap.TabNext):
 		a.center.NextTab()
 	case key.Matches(msg, a.keymap.TabPrev):
@@ -2036,22 +2071,6 @@ func (a *App) runLeaderCommand(msg tea.KeyMsg) tea.Cmd {
 		}
 	case key.Matches(msg, a.keymap.TabClose):
 		return a.center.CloseActiveTab()
-	case key.Matches(msg, a.keymap.MonitorToggle):
-		a.toggleMonitorMode()
-	case key.Matches(msg, a.keymap.Home):
-		a.goHome()
-		a.focusPane(messages.PaneDashboard)
-	case key.Matches(msg, a.keymap.Help):
-		a.helpOverlay.SetSize(a.width, a.height)
-		a.helpOverlay.Toggle()
-	case key.Matches(msg, a.keymap.KeymapEditor):
-		return func() tea.Msg { return messages.ShowKeymapEditor{} }
-	case key.Matches(msg, a.keymap.Quit):
-		a.showQuitDialog()
-	case key.Matches(msg, a.keymap.ScrollUpHalf):
-		a.scrollFocusedTerminal(1)
-	case key.Matches(msg, a.keymap.ScrollDownHalf):
-		a.scrollFocusedTerminal(-1)
 	}
 	return nil
 }

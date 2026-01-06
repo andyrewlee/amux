@@ -654,7 +654,7 @@ func (m *Model) View() string {
 		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.TabPrev, m.keymap.TabNext)) + m.styles.HelpDesc.Render(":tabs"),
 		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.TabNew)) + m.styles.HelpDesc.Render(":new"),
 		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.TabClose)) + m.styles.HelpDesc.Render(":close"),
-		m.styles.HelpKey.Render(keymap.LeaderSequenceHint(m.keymap, m.keymap.ScrollUpHalf, m.keymap.ScrollDownHalf)) + m.styles.HelpDesc.Render(":scroll"),
+		m.styles.HelpKey.Render(keymap.PairHint(m.keymap.ScrollUpHalf, m.keymap.ScrollDownHalf)) + m.styles.HelpDesc.Render(":scroll"),
 	}
 	help := strings.Join(helpItems, "  ")
 	// Pad to the inner pane height (border excluded), reserving the help line.

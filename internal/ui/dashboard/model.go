@@ -586,8 +586,8 @@ func (m *Model) helpKeys() dashboardHelpKeys {
 		deleteKey:  keymap.PrimaryKey(m.keymap.DashboardDelete),
 		filterKey:  keymap.PrimaryKey(m.keymap.DashboardToggle),
 		refreshKey: keymap.PrimaryKey(m.keymap.DashboardRefresh),
-		monitorKey: keymap.LeaderSequenceHint(m.keymap, m.keymap.MonitorToggle),
-		helpKey:    keymap.LeaderSequenceHint(m.keymap, m.keymap.Help),
+		monitorKey: keymap.BindingHint(m.keymap.MonitorToggle),
+		helpKey:    keymap.BindingHint(m.keymap.Help),
 	}
 }
 
@@ -642,10 +642,10 @@ func (m *Model) renderActionBar() string {
 	}
 
 	buttons := []btnSpec{
-		{id: actionMonitor, label: actionLabel("Monitor", leaderShort(m.keymap, m.keymap.MonitorToggle))},
-		{id: actionHelp, label: actionLabel("Help", leaderShort(m.keymap, m.keymap.Help))},
-		{id: actionKeymap, label: actionLabel("Keymap", leaderShort(m.keymap, m.keymap.KeymapEditor))},
-		{id: actionQuit, label: actionLabel("Quit", leaderShort(m.keymap, m.keymap.Quit))},
+		{id: actionMonitor, label: actionLabel("Monitor", bindingShort(m.keymap.MonitorToggle))},
+		{id: actionHelp, label: actionLabel("Help", bindingShort(m.keymap.Help))},
+		{id: actionKeymap, label: actionLabel("Keymap", bindingShort(m.keymap.KeymapEditor))},
+		{id: actionQuit, label: actionLabel("Quit", bindingShort(m.keymap.Quit))},
 	}
 
 	m.actionButtons = m.actionButtons[:0]
@@ -679,20 +679,8 @@ func actionLabel(title, hint string) string {
 	return "[ " + title + " " + hint + " ]"
 }
 
-func leaderShort(km keymap.KeyMap, binding key.Binding) string {
-	leader := keymap.PrimaryKey(km.Leader)
-	prefix := "L"
-	if len(leader) == 1 {
-		prefix = leader
-	}
-	keyName := keymap.PrimaryKey(binding)
-	if keyName == "" {
-		keyName = binding.Help().Key
-	}
-	if keyName == "" {
-		return prefix
-	}
-	return prefix + "+" + keyName
+func bindingShort(binding key.Binding) string {
+	return keymap.BindingHint(binding)
 }
 
 func (m *Model) actionButtonAt(x int) (actionButtonID, bool) {

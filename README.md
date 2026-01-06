@@ -40,7 +40,8 @@ This will run the specified commands in each new worktree after creation.
 
 ## Keymap Configuration
 
-You can edit keybindings in-app (Leader+, or click Keymap in the dashboard action bar). Changes are saved to `~/.amux/config.json`.
+You can edit keybindings in-app (Alt+,, or click Keymap in the dashboard action bar). Changes are saved to `~/.amux/config.json`.
+Leader is reserved for tab shortcuts by default.
 
 You can also override keybindings manually in `~/.amux/config.json`:
 
@@ -53,10 +54,10 @@ You can also override keybindings manually in `~/.amux/config.json`:
       "tab_prev": ["T"],
       "tab_new": ["n"],
       "tab_close": ["x"],
-      "focus_left": ["h"],
-      "focus_right": ["l"],
-      "focus_up": ["k"],
-      "focus_down": ["j"]
+      "focus_left": ["alt+h"],
+      "focus_right": ["alt+l"],
+      "focus_up": ["alt+k"],
+      "focus_down": ["alt+j"]
     }
   }
 }

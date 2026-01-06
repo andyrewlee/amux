@@ -505,7 +505,7 @@ func (e *Editor) View() string {
 
 	tip := lipgloss.NewStyle().
 		Foreground(common.ColorMuted).
-		Render("Tip: Leader defaults to Ctrl+Space (Ctrl+; fallback). Change if needed.")
+		Render("Tip: Leader defaults to Ctrl+Space (Ctrl+; fallback) and is used for tabs.")
 
 	filterLabel := lipgloss.NewStyle().
 		Foreground(common.ColorMuted).
