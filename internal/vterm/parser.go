@@ -471,7 +471,7 @@ func (p *Parser) executeMode(set bool) {
 			// Ignore
 		case 25: // DECTCEM - cursor visible
 			p.vt.CursorHidden = !set
-		case 1049: // Alternate screen buffer
+		case 47, 1047, 1049: // Alternate screen buffer
 			if set {
 				p.vt.enterAltScreen()
 			} else {
