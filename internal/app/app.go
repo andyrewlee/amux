@@ -443,6 +443,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, a.keymap.Home):
 				a.goHome()
 				return a, nil
+			case key.Matches(msg, a.keymap.NewAgentTab):
+				if a.activeWorktree != nil {
+					return a, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+				}
+				return a, nil
 			}
 
 			// When we have active tabs, forward all other keys to the terminal
@@ -1657,7 +1662,6 @@ func (a *App) renderWelcome() string {
 	quickStart := `
 ┌─ Quick Start ─────────────────────┐
 │  a       Add a project            │
-│  n       Create new worktree      │
 │  Ctrl+T  Launch AI agent          │
 │  ?       Show all shortcuts       │
 └───────────────────────────────────┘`

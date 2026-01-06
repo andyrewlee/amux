@@ -20,7 +20,6 @@ type KeyMap struct {
 
 	// Dashboard
 	Enter        key.Binding
-	NewWorktree  key.Binding
 	Delete       key.Binding
 	ToggleFilter key.Binding
 	Refresh      key.Binding
@@ -94,13 +93,9 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "activate"),
 		),
-		NewWorktree: key.NewBinding(
-			key.WithKeys("n"),
-			key.WithHelp("n", "new worktree"),
-		),
 		Delete: key.NewBinding(
-			key.WithKeys("d", "D"),
-			key.WithHelp("d", "delete"),
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
 		),
 		ToggleFilter: key.NewBinding(
 			key.WithKeys("f"),
