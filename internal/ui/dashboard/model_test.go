@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -253,27 +255,6 @@ func TestDashboardHandleEnterCreate(t *testing.T) {
 	}
 }
 
-func TestDashboardHandleNew(t *testing.T) {
-	m := New()
-	m.SetProjects([]data.Project{makeProject()})
-
-	// Cursor on project row
-	m.cursor = 2
-	cmd := m.handleNew()
-	if cmd == nil {
-		t.Fatalf("expected handleNew to return a command")
-	}
-
-	msg := cmd()
-	dialog, ok := msg.(messages.ShowCreateWorktreeDialog)
-	if !ok {
-		t.Fatalf("expected ShowCreateWorktreeDialog message, got %T", msg)
-	}
-	if dialog.Project == nil {
-		t.Fatalf("expected project in dialog message")
-	}
-}
-
 func TestDashboardHandleDelete(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
@@ -495,4 +476,57 @@ func TestDashboardRefresh(t *testing.T) {
 	if _, ok := msg.(messages.RefreshDashboard); !ok {
 		t.Fatalf("expected RefreshDashboard message, got %T", msg)
 	}
+}
+
+func TestDashboardDeleteKeyBinding(t *testing.T) {
+	m := New()
+	m.SetProjects([]data.Project{makeProject()})
+	m.Focus()
+
+	// Find a worktree row
+	for i, row := range m.rows {
+		if row.Type == RowWorktree {
+			m.cursor = i
+			break
+		}
+	}
+
+	t.Run("lowercase d ignored", func(t *testing.T) {
+		// tea.KeyMsg for 'd'
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+		_, cmd := m.Update(msg)
+		if cmd != nil {
+			t.Fatalf("expected no command for lowercase 'd'")
+		}
+	})
+
+	t.Run("uppercase D triggers delete", func(t *testing.T) {
+		// tea.KeyMsg for 'D'
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}}
+		_, cmd := m.Update(msg)
+		if cmd == nil {
+			t.Fatalf("expected command for uppercase 'D'")
+		}
+
+		// Verify it's the right command
+		res := cmd()
+		if _, ok := res.(messages.ShowDeleteWorktreeDialog); !ok {
+			t.Fatalf("expected ShowDeleteWorktreeDialog message, got %T", res)
+		}
+	})
+}
+
+func TestDashboardNewKeyBinding(t *testing.T) {
+	m := New()
+	m.SetProjects([]data.Project{makeProject()})
+	m.Focus()
+
+	t.Run("n key ignored", func(t *testing.T) {
+		// tea.KeyMsg for 'n'
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+		_, cmd := m.Update(msg)
+		if cmd != nil {
+			t.Fatalf("expected no command for 'n'")
+		}
+	})
 }
