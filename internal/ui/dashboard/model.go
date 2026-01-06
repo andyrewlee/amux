@@ -304,7 +304,6 @@ func (m *Model) View() string {
 	helpItems := []string{
 		m.styles.HelpKey.Render(keys.nav) + m.styles.HelpDesc.Render(":nav"),
 		m.styles.HelpKey.Render(keys.selectKey) + m.styles.HelpDesc.Render(":select"),
-		m.styles.HelpKey.Render(keys.newKey) + m.styles.HelpDesc.Render(":new"),
 		m.styles.HelpKey.Render(keys.deleteKey) + m.styles.HelpDesc.Render(":delete"),
 		m.styles.HelpKey.Render(keys.filterKey) + m.styles.HelpDesc.Render(":filter"),
 		m.styles.HelpKey.Render(keys.refreshKey) + m.styles.HelpDesc.Render(":refresh"),
@@ -561,7 +560,6 @@ func (m *Model) moveCursor(delta int) {
 type dashboardHelpKeys struct {
 	nav        string
 	selectKey  string
-	newKey     string
 	deleteKey  string
 	filterKey  string
 	refreshKey string
@@ -573,7 +571,6 @@ func (m *Model) helpKeys() dashboardHelpKeys {
 	return dashboardHelpKeys{
 		nav:        keymap.PairHint(m.keymap.DashboardDown, m.keymap.DashboardUp),
 		selectKey:  keymap.PrimaryKey(m.keymap.DashboardEnter),
-		newKey:     keymap.PrimaryKey(m.keymap.DashboardNewWorktree),
 		deleteKey:  keymap.PrimaryKey(m.keymap.DashboardDelete),
 		filterKey:  keymap.PrimaryKey(m.keymap.DashboardToggle),
 		refreshKey: keymap.PrimaryKey(m.keymap.DashboardRefresh),
@@ -586,7 +583,6 @@ func helpTextFromKeys(keys dashboardHelpKeys) string {
 	return strings.Join([]string{
 		keys.nav + ":nav",
 		keys.selectKey + ":select",
-		keys.newKey + ":new",
 		keys.deleteKey + ":delete",
 		keys.filterKey + ":filter",
 		keys.refreshKey + ":refresh",

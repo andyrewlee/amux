@@ -77,7 +77,6 @@ func defaultHelpSections(km keymap.KeyMap) []HelpSection {
 				{keymap.PairHint(km.DashboardDown, km.DashboardUp), "Navigate"},
 				{keymap.PairHint(km.DashboardTop, km.DashboardBottom), "Top/bottom"},
 				{keymap.PrimaryKey(km.DashboardEnter), "Activate worktree"},
-				{keymap.PrimaryKey(km.DashboardNewWorktree), "New worktree"},
 				{km.DashboardDelete.Help().Key, "Delete worktree"},
 				{keymap.PrimaryKey(km.DashboardToggle), "Toggle dirty filter"},
 				{keymap.PrimaryKey(km.DashboardRefresh), "Refresh"},

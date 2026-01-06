@@ -221,7 +221,7 @@ func New(cfg config.KeyMapConfig) KeyMap {
 		}),
 		DashboardNewWorktree: bindingFromDef(cfg, bindingDef{
 			action: ActionDashboardNewWorktree,
-			keys:   []string{"n"},
+			keys:   []string{},
 			desc:   "new worktree",
 		}),
 		DashboardDelete: bindingFromDef(cfg, bindingDef{

@@ -1717,8 +1717,7 @@ func (a *App) renderWelcome() string {
 	// Quick start section
 	quickStart := `
 ┌─ Quick Start ─────────────────────┐
-│  a       Add a project            │
-│  n       Create new worktree      │
+│  Enter   Open selected row        │
 │  Leader+n Launch AI agent         │
 │  Alt+?   Show all shortcuts       │
 └───────────────────────────────────┘`
