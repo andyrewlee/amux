@@ -39,12 +39,30 @@ func NewHelpOverlay() *HelpOverlay {
 func defaultHelpSections() []HelpSection {
 	return []HelpSection{
 		{
-			Title: "Navigation",
+			Title: "Prefix Key (tmux-style)",
 			Bindings: []HelpBinding{
-				{"Ctrl+H", "Focus dashboard"},
-				{"Ctrl+L", "Focus center pane"},
-				{"Ctrl+;", "Focus sidebar"},
-				{"Esc", "Return to dashboard"},
+				{"C-Space", "Enter prefix mode"},
+				{"C-Space C-Space", "Send literal Ctrl+Space"},
+			},
+		},
+		{
+			Title: "After Prefix: Navigation",
+			Bindings: []HelpBinding{
+				{"h/u/d/l", "Focus pane (←↑↓→)"},
+				{"g", "Go home (dashboard)"},
+				{"m", "Toggle monitor"},
+				{"?", "This help"},
+				{"q", "Quit"},
+			},
+		},
+		{
+			Title: "After Prefix: Tabs",
+			Bindings: []HelpBinding{
+				{"a", "Create new agent tab"},
+				{"x", "Close current tab"},
+				{"n/p", "Next/prev tab"},
+				{"1-9", "Jump to tab N"},
+				{"[", "Enter copy/scroll mode"},
 			},
 		},
 		{
@@ -52,37 +70,16 @@ func defaultHelpSections() []HelpSection {
 			Bindings: []HelpBinding{
 				{"j/k", "Navigate up/down"},
 				{"Enter", "Activate worktree"},
-				{"n", "New worktree"},
-				{"d", "Delete worktree"},
+				{"D", "Delete worktree"},
 				{"f", "Toggle dirty filter"},
-				{"m", "Monitor tabs"},
-				{"r", "Refresh"},
+				{"r/g", "Refresh"},
 			},
 		},
 		{
-			Title: "Monitor",
+			Title: "Terminal (passthrough)",
 			Bindings: []HelpBinding{
-				{"Ctrl+h/j/k/l", "Move between agents"},
-				{"arrow keys", "Move between agents"},
-				{"Ctrl+g", "Open selected agent"},
-			},
-		},
-		{
-			Title: "Center Pane",
-			Bindings: []HelpBinding{
-				{"Ctrl+T", "New agent tab"},
-				{"Ctrl+W", "Close tab"},
-				{"Ctrl+]", "Next tab"},
-				{"Ctrl+C", "Interrupt agent"},
-			},
-		},
-		{
-			Title: "Sidebar",
-			Bindings: []HelpBinding{
-				{"1/2", "Switch tabs"},
-				{"j/k", "Navigate files"},
-				{"Enter", "Toggle/select"},
-				{"g", "Refresh status"},
+				{"PgUp/PgDn", "Scroll in scrollback"},
+				{"(all keys)", "Sent to terminal"},
 			},
 		},
 	}

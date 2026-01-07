@@ -93,6 +93,7 @@ type Tab struct {
 	mu           sync.Mutex   // Protects Terminal
 	Running      bool         // Whether the agent is actively running
 	readerActive bool         // Guard to ensure only one PTY read loop per tab
+	CopyMode     bool         // Whether the tab is in copy/scroll mode (keys not sent to PTY)
 	// Buffer PTY output to avoid rendering partial screen updates.
 	pendingOutput     []byte
 	flushScheduled    bool
@@ -507,14 +508,18 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// When we have an active agent, forward almost ALL keys to the terminal
-		// Only intercept essential control keys
+		// When we have an active agent, handle keys
 		if m.hasActiveAgent() {
 			tab := tabs[activeIdx]
-			logging.Debug("Has active agent, Agent=%v, Terminal=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil)
+			logging.Debug("Has active agent, Agent=%v, Terminal=%v, CopyMode=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil, tab.CopyMode)
+
+			// Copy mode: handle scroll navigation without sending to PTY
+			if tab.CopyMode {
+				return m, m.handleCopyModeKey(tab, msg)
+			}
+
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
 				// Handle bracketed paste - send entire content at once with escape sequences
-				// This is much faster than processing character by character
 				if msg.Paste && msg.Type == tea.KeyRunes {
 					text := string(msg.Runes)
 					bracketedText := "\x1b[200~" + text + "\x1b[201~"
@@ -523,32 +528,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					return m, nil
 				}
 
-				// Only intercept these specific keys - everything else goes to terminal
-				switch {
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
-					m.nextTab()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))):
-					m.prevTab()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
-					// Close tab
-					return m, m.closeCurrentTab()
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+]"))):
-					// Switch to next tab (escape hatch that won't conflict)
-					m.nextTab()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
-					// This is Escape - let it go to terminal
+				// Handle Ctrl+[ as Escape (some terminals report it this way)
+				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))) {
 					_ = tab.Agent.Terminal.SendString("\x1b")
 					return m, nil
+				}
 
-				case msg.Type == tea.KeyPgUp:
-					// Scroll up in scrollback
+				// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
+				switch msg.Type {
+				case tea.KeyPgUp:
 					tab.mu.Lock()
 					if tab.Terminal != nil {
 						tab.Terminal.ScrollView(tab.Terminal.Height / 2)
@@ -556,76 +544,32 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					tab.mu.Unlock()
 					return m, nil
 
-				case msg.Type == tea.KeyPgDown:
-					// Scroll down in scrollback
+				case tea.KeyPgDown:
 					tab.mu.Lock()
 					if tab.Terminal != nil {
 						tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
 					}
 					tab.mu.Unlock()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
-					// Scroll up half page (vim style)
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(tab.Terminal.Height / 2)
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
-					// Scroll down half page (vim style)
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
-					// Scroll to top
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollViewToTop()
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
-					// Scroll to bottom (live)
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						tab.Terminal.ScrollViewToBottom()
-					}
-					tab.mu.Unlock()
-					return m, nil
-
-				default:
-					// If scrolled, any typing goes back to live and sends key
-					tab.mu.Lock()
-					if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-						tab.Terminal.ScrollViewToBottom()
-					}
-					tab.mu.Unlock()
-
-					// EVERYTHING else goes to terminal
-					input := common.KeyToBytes(msg)
-					if len(input) > 0 {
-						logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
-						_ = tab.Agent.Terminal.SendString(string(input))
-					} else {
-						logging.Debug("keyToBytes returned empty for: %s", msg.String())
-					}
 					return m, nil
 				}
-			}
-		}
 
-		// No active agent - handle tab management keys
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
-			return m, m.closeCurrentTab()
+				// If scrolled, any typing goes back to live and sends key
+				tab.mu.Lock()
+				if tab.Terminal != nil && tab.Terminal.IsScrolled() {
+					tab.Terminal.ScrollViewToBottom()
+				}
+				tab.mu.Unlock()
+
+				// Forward ALL keys to terminal (no Ctrl interceptions)
+				input := common.KeyToBytes(msg)
+				if len(input) > 0 {
+					logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
+					_ = tab.Agent.Terminal.SendString(string(input))
+				} else {
+					logging.Debug("keyToBytes returned empty for: %s", msg.String())
+				}
+				return m, nil
+			}
 		}
 
 	case messages.LaunchAgent:
@@ -744,7 +688,14 @@ func (m *Model) View() string {
 			b.WriteString(m.renderTerminalCanvas(tab.Terminal, termWidth, termHeight, m.focused))
 
 			// Show scroll indicator if scrolled
-			if tab.Terminal.IsScrolled() {
+			if tab.CopyMode {
+				modeStyle := lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("#1a1b26")).
+					Background(lipgloss.Color("#ff9e64"))
+				indicator := modeStyle.Render(" COPY MODE (q/Esc to exit) ")
+				b.WriteString("\n" + indicator)
+			} else if tab.Terminal.IsScrolled() {
 				offset, total := tab.Terminal.GetScrollInfo()
 				scrollStyle := lipgloss.NewStyle().
 					Bold(true).
@@ -757,14 +708,13 @@ func (m *Model) View() string {
 		tab.mu.Unlock()
 	}
 
-	// Help bar with styled keys (vim-friendly)
+	// Help bar with styled keys (prefix mode)
 	helpItems := []string{
-		m.styles.HelpKey.Render("esc") + m.styles.HelpDesc.Render(":dashboard"),
-		m.styles.HelpKey.Render("^w") + m.styles.HelpDesc.Render(":close"),
-		m.styles.HelpKey.Render("^t") + m.styles.HelpDesc.Render(":agent"),
-		m.styles.HelpKey.Render("^n/p") + m.styles.HelpDesc.Render(":tabs"),
-		m.styles.HelpKey.Render("^u/d") + m.styles.HelpDesc.Render(":scroll"),
-		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
+		m.styles.HelpKey.Render("C-Spc") + m.styles.HelpDesc.Render(":prefix"),
+		m.styles.HelpKey.Render("+a") + m.styles.HelpDesc.Render(":new"),
+		m.styles.HelpKey.Render("+x") + m.styles.HelpDesc.Render(":close"),
+		m.styles.HelpKey.Render("+n/p") + m.styles.HelpDesc.Render(":tabs"),
+		m.styles.HelpKey.Render("PgUp/Dn") + m.styles.HelpDesc.Render(":scroll"),
 	}
 	help := strings.Join(helpItems, "  ")
 	// Pad to the inner pane height (border excluded), reserving the help line.
@@ -859,7 +809,7 @@ func (m *Model) renderEmpty() string {
 	b.WriteString(m.styles.Title.Render("No agents running"))
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Muted.Render("Press "))
-	b.WriteString(m.styles.HelpKey.Render("Ctrl+T"))
+	b.WriteString(m.styles.HelpKey.Render("C-Space a"))
 	b.WriteString(m.styles.Muted.Render(" to launch an agent"))
 	return b.String()
 }
@@ -1023,6 +973,163 @@ func (m *Model) prevTab() {
 			idx = len(tabs) - 1
 		}
 		m.setActiveTabIdx(idx)
+	}
+}
+
+// Public wrappers for prefix mode commands
+
+// NextTab switches to the next tab (public wrapper)
+func (m *Model) NextTab() {
+	m.nextTab()
+}
+
+// PrevTab switches to the previous tab (public wrapper)
+func (m *Model) PrevTab() {
+	m.prevTab()
+}
+
+// CloseActiveTab closes the current tab (public wrapper)
+func (m *Model) CloseActiveTab() tea.Cmd {
+	return m.closeCurrentTab()
+}
+
+// SelectTab switches to a specific tab by index (0-indexed)
+func (m *Model) SelectTab(index int) {
+	tabs := m.getTabs()
+	if index >= 0 && index < len(tabs) {
+		m.setActiveTabIdx(index)
+	}
+}
+
+// EnterCopyMode enters copy/scroll mode for the active tab
+func (m *Model) EnterCopyMode() {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	tab.CopyMode = true
+}
+
+// ExitCopyMode exits copy/scroll mode for the active tab
+func (m *Model) ExitCopyMode() {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	tab.CopyMode = false
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		tab.Terminal.ScrollViewToBottom()
+	}
+	tab.mu.Unlock()
+}
+
+// CopyModeActive returns whether the active tab is in copy mode
+func (m *Model) CopyModeActive() bool {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return false
+	}
+	return tabs[activeIdx].CopyMode
+}
+
+// handleCopyModeKey handles keys while in copy mode (scroll navigation)
+func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
+	switch {
+	// Exit copy mode
+	case msg.Type == tea.KeyEsc:
+		fallthrough
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q':
+		tab.CopyMode = false
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollViewToBottom()
+		}
+		tab.mu.Unlock()
+		return nil
+
+	// Scroll up one line
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'k':
+		fallthrough
+	case msg.Type == tea.KeyUp:
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollView(1)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	// Scroll down one line
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'j':
+		fallthrough
+	case msg.Type == tea.KeyDown:
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollView(-1)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	// Scroll up half page
+	case msg.Type == tea.KeyPgUp:
+		fallthrough
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	// Scroll down half page
+	case msg.Type == tea.KeyPgDown:
+		fallthrough
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	// Scroll to top
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'g':
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollViewToTop()
+		}
+		tab.mu.Unlock()
+		return nil
+
+	// Scroll to bottom
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'G':
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollViewToBottom()
+		}
+		tab.mu.Unlock()
+		return nil
+	}
+
+	// Ignore other keys in copy mode (don't forward to PTY)
+	return nil
+}
+
+// SendToTerminal sends a string directly to the active terminal
+func (m *Model) SendToTerminal(s string) {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	if tab.Agent != nil && tab.Agent.Terminal != nil {
+		_ = tab.Agent.Terminal.SendString(s)
 	}
 }
 
