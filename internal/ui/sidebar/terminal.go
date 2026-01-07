@@ -43,6 +43,7 @@ type TerminalState struct {
 	Terminal *pty.Terminal
 	VTerm    *vterm.VTerm
 	Running  bool
+	CopyMode bool // Whether in copy/scroll mode (keys not sent to PTY)
 	mu       sync.Mutex
 
 	// Track last size to avoid unnecessary resizes
@@ -57,23 +58,6 @@ type TerminalState struct {
 
 	// Selection state
 	Selection SelectionState
-}
-
-// terminalKeyMap holds pre-allocated key bindings for the terminal
-type terminalKeyMap struct {
-	ScrollUp   key.Binding
-	ScrollDown key.Binding
-	Home       key.Binding
-	End        key.Binding
-}
-
-func newTerminalKeyMap() terminalKeyMap {
-	return terminalKeyMap{
-		ScrollUp:   key.NewBinding(key.WithKeys("ctrl+u")),
-		ScrollDown: key.NewBinding(key.WithKeys("ctrl+d")),
-		Home:       key.NewBinding(key.WithKeys("home")),
-		End:        key.NewBinding(key.WithKeys("end")),
-	}
 }
 
 // TerminalModel is the Bubbletea model for the sidebar terminal section
@@ -96,9 +80,6 @@ type TerminalModel struct {
 
 	// Rendering
 	terminalCanvas *compositor.Canvas
-
-	// Pre-allocated key bindings
-	keys terminalKeyMap
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -106,7 +87,6 @@ func NewTerminalModel() *TerminalModel {
 	return &TerminalModel{
 		terminals: make(map[string]*TerminalState),
 		styles:    common.DefaultStyles(),
-		keys:      newTerminalKeyMap(),
 	}
 }
 
@@ -257,8 +237,12 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			return m, nil
 		}
 
+		// Copy mode: handle scroll navigation without sending to PTY
+		if ts.CopyMode {
+			return m, m.handleCopyModeKey(ts, msg)
+		}
+
 		// Handle bracketed paste - send entire content at once with escape sequences
-		// This is much faster than processing character by character
 		if msg.Paste && msg.Type == tea.KeyRunes {
 			text := string(msg.Runes)
 			bracketedText := "\x1b[200~" + text + "\x1b[201~"
@@ -267,9 +251,9 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle scroll keys
-		switch {
-		case msg.Type == tea.KeyPgUp:
+		// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
+		switch msg.Type {
+		case tea.KeyPgUp:
 			ts.mu.Lock()
 			if ts.VTerm != nil {
 				ts.VTerm.ScrollView(ts.VTerm.Height / 2)
@@ -277,60 +261,26 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.mu.Unlock()
 			return m, nil
 
-		case msg.Type == tea.KeyPgDown:
+		case tea.KeyPgDown:
 			ts.mu.Lock()
 			if ts.VTerm != nil {
 				ts.VTerm.ScrollView(-ts.VTerm.Height / 2)
 			}
 			ts.mu.Unlock()
 			return m, nil
+		}
 
-		case key.Matches(msg, m.keys.ScrollUp):
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(ts.VTerm.Height / 2)
-			}
-			ts.mu.Unlock()
-			return m, nil
+		// If scrolled, any typing goes back to live and sends key
+		ts.mu.Lock()
+		if ts.VTerm != nil && ts.VTerm.IsScrolled() {
+			ts.VTerm.ScrollViewToBottom()
+		}
+		ts.mu.Unlock()
 
-		case key.Matches(msg, m.keys.ScrollDown):
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(-ts.VTerm.Height / 2)
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		case key.Matches(msg, m.keys.Home):
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollViewToTop()
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		case key.Matches(msg, m.keys.End):
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollViewToBottom()
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		default:
-			// If scrolled, any typing goes back to live and sends key
-			ts.mu.Lock()
-			if ts.VTerm != nil && ts.VTerm.IsScrolled() {
-				ts.VTerm.ScrollViewToBottom()
-			}
-			ts.mu.Unlock()
-
-			// Send input to terminal
-			input := common.KeyToBytes(msg)
-			if len(input) > 0 {
-				_ = ts.Terminal.SendString(string(input))
-			}
-			return m, nil
+		// Forward ALL keys to terminal (no Ctrl interceptions)
+		input := common.KeyToBytes(msg)
+		if len(input) > 0 {
+			_ = ts.Terminal.SendString(string(input))
 		}
 
 	case messages.SidebarPTYOutput:
@@ -447,7 +397,14 @@ func (m *TerminalModel) View() string {
 
 		b.WriteString(content)
 
-		if isScrolled {
+		if ts.CopyMode {
+			b.WriteString("\n")
+			modeStyle := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#1a1b26")).
+				Background(lipgloss.Color("#ff9e64"))
+			b.WriteString(modeStyle.Render(" COPY MODE (q/Esc to exit) "))
+		} else if isScrolled {
 			b.WriteString("\n")
 			scrollStyle := lipgloss.NewStyle().
 				Bold(true).
@@ -459,8 +416,8 @@ func (m *TerminalModel) View() string {
 
 	// Help bar
 	helpItems := []string{
-		m.styles.HelpKey.Render("^u/d") + m.styles.HelpDesc.Render(":scroll"),
-		m.styles.HelpKey.Render("^c") + m.styles.HelpDesc.Render(":interrupt"),
+		m.styles.HelpKey.Render("C-Spc") + m.styles.HelpDesc.Render(":prefix"),
+		m.styles.HelpKey.Render("PgUp/Dn") + m.styles.HelpDesc.Render(":scroll"),
 	}
 	help := strings.Join(helpItems, "  ")
 
@@ -690,4 +647,121 @@ func formatScrollPos(offset, total int) string {
 		return "0/0"
 	}
 	return fmt.Sprintf("%d/%d lines up", offset, total)
+}
+
+// SendToTerminal sends a string directly to the current terminal
+func (m *TerminalModel) SendToTerminal(s string) {
+	ts := m.getTerminal()
+	if ts != nil && ts.Terminal != nil {
+		_ = ts.Terminal.SendString(s)
+	}
+}
+
+// EnterCopyMode enters copy/scroll mode for the current terminal
+func (m *TerminalModel) EnterCopyMode() {
+	ts := m.getTerminal()
+	if ts != nil {
+		ts.CopyMode = true
+	}
+}
+
+// ExitCopyMode exits copy/scroll mode for the current terminal
+func (m *TerminalModel) ExitCopyMode() {
+	ts := m.getTerminal()
+	if ts != nil {
+		ts.CopyMode = false
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollViewToBottom()
+		}
+		ts.mu.Unlock()
+	}
+}
+
+// CopyModeActive returns whether the current terminal is in copy mode
+func (m *TerminalModel) CopyModeActive() bool {
+	ts := m.getTerminal()
+	return ts != nil && ts.CopyMode
+}
+
+// handleCopyModeKey handles keys while in copy mode (scroll navigation)
+func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea.Cmd {
+	switch {
+	// Exit copy mode
+	case msg.Type == tea.KeyEsc:
+		fallthrough
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q':
+		ts.CopyMode = false
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollViewToBottom()
+		}
+		ts.mu.Unlock()
+		return nil
+
+	// Scroll up one line
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'k':
+		fallthrough
+	case msg.Type == tea.KeyUp:
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollView(1)
+		}
+		ts.mu.Unlock()
+		return nil
+
+	// Scroll down one line
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'j':
+		fallthrough
+	case msg.Type == tea.KeyDown:
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollView(-1)
+		}
+		ts.mu.Unlock()
+		return nil
+
+	// Scroll up half page
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+		fallthrough
+	case msg.Type == tea.KeyPgUp:
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollView(ts.VTerm.Height / 2)
+		}
+		ts.mu.Unlock()
+		return nil
+
+	// Scroll down half page
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+		fallthrough
+	case msg.Type == tea.KeyPgDown:
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollView(-ts.VTerm.Height / 2)
+		}
+		ts.mu.Unlock()
+		return nil
+
+	// Scroll to top
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'g':
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollViewToTop()
+		}
+		ts.mu.Unlock()
+		return nil
+
+	// Scroll to bottom
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'G':
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollViewToBottom()
+		}
+		ts.mu.Unlock()
+		return nil
+	}
+
+	// Ignore other keys in copy mode
+	return nil
 }
