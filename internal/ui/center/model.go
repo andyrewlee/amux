@@ -809,7 +809,7 @@ func (m *Model) renderEmpty() string {
 	b.WriteString(m.styles.Title.Render("No agents running"))
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Muted.Render("Press "))
-	b.WriteString(m.styles.HelpKey.Render("Ctrl+T"))
+	b.WriteString(m.styles.HelpKey.Render("C-Space c"))
 	b.WriteString(m.styles.Muted.Render(" to launch an agent"))
 	return b.String()
 }

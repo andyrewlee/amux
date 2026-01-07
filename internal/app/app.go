@@ -1616,7 +1616,7 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	content += "\n" + a.styles.Help.Render("Press Ctrl+T to launch an agent")
+	content += "\n" + a.styles.Help.Render("Press C-Space c to launch an agent")
 
 	return content
 }
@@ -1637,9 +1637,9 @@ func (a *App) renderWelcome() string {
 	// Quick start section
 	quickStart := `
 ┌─ Quick Start ─────────────────────┐
-│  a       Add a project            │
-│  Ctrl+T  Launch AI agent          │
-│  ?       Show all shortcuts       │
+│  a          Add a project         │
+│  C-Space c  Launch AI agent       │
+│  C-Space ?  Show all shortcuts    │
 └───────────────────────────────────┘`
 
 	quickStartStyle := lipgloss.NewStyle().
