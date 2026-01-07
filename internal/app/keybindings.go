@@ -63,12 +63,12 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("l", "focus right"),
 		),
 		MoveUp: key.NewBinding(
-			key.WithKeys("k", "up"),
-			key.WithHelp("k", "focus up"),
+			key.WithKeys("u", "up"),
+			key.WithHelp("u", "focus up"),
 		),
 		MoveDown: key.NewBinding(
-			key.WithKeys("j", "down"),
-			key.WithHelp("j", "focus down"),
+			key.WithKeys("d", "down"),
+			key.WithHelp("d", "focus down"),
 		),
 		NextTab: key.NewBinding(
 			key.WithKeys("n"),
@@ -83,8 +83,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("x", "close tab"),
 		),
 		NewAgentTab: key.NewBinding(
-			key.WithKeys("c"),
-			key.WithHelp("c", "new agent tab"),
+			key.WithKeys("a"),
+			key.WithHelp("a", "new agent tab"),
 		),
 		Home: key.NewBinding(
 			key.WithKeys("g"),

@@ -48,7 +48,7 @@ func defaultHelpSections() []HelpSection {
 		{
 			Title: "After Prefix: Navigation",
 			Bindings: []HelpBinding{
-				{"h/j/k/l", "Focus pane (←↓↑→)"},
+				{"h/u/d/l", "Focus pane (←↑↓→)"},
 				{"g", "Go home (dashboard)"},
 				{"m", "Toggle monitor"},
 				{"?", "This help"},
@@ -58,7 +58,7 @@ func defaultHelpSections() []HelpSection {
 		{
 			Title: "After Prefix: Tabs",
 			Bindings: []HelpBinding{
-				{"c", "Create new agent tab"},
+				{"a", "Create new agent tab"},
 				{"x", "Close current tab"},
 				{"n/p", "Next/prev tab"},
 				{"1-9", "Jump to tab N"},

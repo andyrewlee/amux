@@ -711,7 +711,7 @@ func (m *Model) View() string {
 	// Help bar with styled keys (prefix mode)
 	helpItems := []string{
 		m.styles.HelpKey.Render("C-Spc") + m.styles.HelpDesc.Render(":prefix"),
-		m.styles.HelpKey.Render("+c") + m.styles.HelpDesc.Render(":new"),
+		m.styles.HelpKey.Render("+a") + m.styles.HelpDesc.Render(":new"),
 		m.styles.HelpKey.Render("+x") + m.styles.HelpDesc.Render(":close"),
 		m.styles.HelpKey.Render("+n/p") + m.styles.HelpDesc.Render(":tabs"),
 		m.styles.HelpKey.Render("PgUp/Dn") + m.styles.HelpDesc.Render(":scroll"),
@@ -809,7 +809,7 @@ func (m *Model) renderEmpty() string {
 	b.WriteString(m.styles.Title.Render("No agents running"))
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Muted.Render("Press "))
-	b.WriteString(m.styles.HelpKey.Render("C-Space c"))
+	b.WriteString(m.styles.HelpKey.Render("C-Space a"))
 	b.WriteString(m.styles.Muted.Render(" to launch an agent"))
 	return b.String()
 }
