@@ -794,6 +794,9 @@ func (a *App) View() string {
 		if a.helpOverlay.Visible() {
 			content = a.helpOverlay.View()
 		}
+		if a.prefixActive {
+			content = a.overlayPrefixIndicator(content)
+		}
 		if a.toast.Visible() {
 			content = a.overlayToast(content)
 		}
@@ -1185,7 +1188,7 @@ func (a *App) renderMonitorGrid() string {
 	})
 
 	headerStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))}
-	canvas.DrawText(0, 0, "Monitor: hjkl/arrows select • Enter open • C-Spc g exit • C-Spc m toggle", headerStyle)
+	canvas.DrawText(0, 0, "Monitor: hjkl/arrows select • Enter open • q/Esc cancel", headerStyle)
 
 	projectNames := make(map[string]string, len(a.projects))
 	for _, project := range a.projects {
@@ -1466,15 +1469,23 @@ func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
 }
 
 func (a *App) handleMonitorInput(msg tea.KeyMsg) tea.Cmd {
-	tabs := a.center.MonitorTabs()
-	if len(tabs) == 0 {
+	// Monitor chooser semantics:
+	// Enter -> Select and Open (exit monitor)
+	// q/Esc -> Cancel (exit monitor)
+	// No other keys are forwarded to terminals
+
+	switch {
+	case key.Matches(msg, a.keymap.Enter):
+		return a.exitMonitorToSelection()
+	case msg.Type == tea.KeyEsc:
+		a.toggleMonitorMode()
+		return nil
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q':
+		a.toggleMonitorMode()
 		return nil
 	}
-	idx := a.center.MonitorSelectedIndex(len(tabs))
-	if idx < 0 || idx >= len(tabs) {
-		return nil
-	}
-	return a.center.HandleMonitorInput(tabs[idx].ID, msg)
+
+	return nil
 }
 
 func (a *App) activateMonitorSelection() tea.Cmd {

@@ -688,7 +688,14 @@ func (m *Model) View() string {
 			b.WriteString(m.renderTerminalCanvas(tab.Terminal, termWidth, termHeight, m.focused))
 
 			// Show scroll indicator if scrolled
-			if tab.Terminal.IsScrolled() {
+			if tab.CopyMode {
+				modeStyle := lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("#1a1b26")).
+					Background(lipgloss.Color("#ff9e64"))
+				indicator := modeStyle.Render(" COPY MODE (q/Esc to exit) ")
+				b.WriteString("\n" + indicator)
+			} else if tab.Terminal.IsScrolled() {
 				offset, total := tab.Terminal.GetScrollInfo()
 				scrollStyle := lipgloss.NewStyle().
 					Bold(true).
@@ -1035,6 +1042,8 @@ func (m *Model) CopyModeActive() bool {
 func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
 	switch {
 	// Exit copy mode
+	case msg.Type == tea.KeyEsc:
+		fallthrough
 	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q':
 		tab.CopyMode = false
 		tab.mu.Lock()

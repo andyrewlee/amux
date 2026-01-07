@@ -231,7 +231,7 @@ func (m *Model) View() string {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	helpText := "j/k:nav  enter:select  D:delete  C-Spc m:monitor  C-Spc c:agent  C-Spc ?:help"
+	helpText := "j/k:nav  enter:select  D:delete  C-Spc c:new  C-Spc m:mon  C-Spc ?:help"
 	helpHeight := (len(helpText) + contentWidth - 1) / contentWidth
 	if helpHeight < 1 {
 		helpHeight = 1
@@ -267,7 +267,9 @@ func (m *Model) View() string {
 		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
 		m.styles.HelpKey.Render("enter") + m.styles.HelpDesc.Render(":select"),
 		m.styles.HelpKey.Render("D") + m.styles.HelpDesc.Render(":delete"),
-		m.styles.HelpKey.Render("C-Spc") + m.styles.HelpDesc.Render(":prefix"),
+		m.styles.HelpKey.Render("C-Spc c") + m.styles.HelpDesc.Render(":new"),
+		m.styles.HelpKey.Render("C-Spc m") + m.styles.HelpDesc.Render(":mon"),
+		m.styles.HelpKey.Render("C-Spc ?") + m.styles.HelpDesc.Render(":help"),
 	}
 	help := strings.Join(helpItems, "  ")
 

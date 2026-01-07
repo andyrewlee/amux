@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -396,7 +397,14 @@ func (m *TerminalModel) View() string {
 
 		b.WriteString(content)
 
-		if isScrolled {
+		if ts.CopyMode {
+			b.WriteString("\n")
+			modeStyle := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#1a1b26")).
+				Background(lipgloss.Color("#ff9e64"))
+			b.WriteString(modeStyle.Render(" COPY MODE (q/Esc to exit) "))
+		} else if isScrolled {
 			b.WriteString("\n")
 			scrollStyle := lipgloss.NewStyle().
 				Bold(true).
@@ -680,6 +688,8 @@ func (m *TerminalModel) CopyModeActive() bool {
 func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea.Cmd {
 	switch {
 	// Exit copy mode
+	case msg.Type == tea.KeyEsc:
+		fallthrough
 	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q':
 		ts.CopyMode = false
 		ts.mu.Lock()
@@ -712,6 +722,8 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea
 		return nil
 
 	// Scroll up half page
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+		fallthrough
 	case msg.Type == tea.KeyPgUp:
 		ts.mu.Lock()
 		if ts.VTerm != nil {
@@ -721,6 +733,8 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea
 		return nil
 
 	// Scroll down half page
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+		fallthrough
 	case msg.Type == tea.KeyPgDown:
 		ts.mu.Lock()
 		if ts.VTerm != nil {
