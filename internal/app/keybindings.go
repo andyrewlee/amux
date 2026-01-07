@@ -4,7 +4,10 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all keybindings for the application
 type KeyMap struct {
-	// Global
+	// Prefix key (tmux-style leader)
+	Prefix key.Binding
+
+	// Global (active only after prefix)
 	Quit        key.Binding
 	MoveLeft    key.Binding
 	MoveRight   key.Binding
@@ -17,6 +20,7 @@ type KeyMap struct {
 	Home        key.Binding
 	Help        key.Binding
 	Monitor     key.Binding
+	CopyMode    key.Binding
 
 	// Dashboard
 	Enter        key.Binding
@@ -38,46 +42,53 @@ type KeyMap struct {
 // DefaultKeyMap returns the default keybindings
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
-		// Global
+		// Prefix key (tmux-style leader)
+		// Ctrl-Space is reported as ctrl+@ or ctrl+space depending on terminal
+		Prefix: key.NewBinding(
+			key.WithKeys("ctrl+@", "ctrl+space"),
+			key.WithHelp("C-Space", "prefix"),
+		),
+
+		// Commands active after prefix
 		Quit: key.NewBinding(
-			key.WithKeys("ctrl+q"),
-			key.WithHelp("ctrl+q", "quit"),
+			key.WithKeys("q"),
+			key.WithHelp("q", "quit"),
 		),
 		MoveLeft: key.NewBinding(
-			key.WithKeys("ctrl+h"),
-			key.WithHelp("ctrl+h", "move left"),
+			key.WithKeys("h", "left"),
+			key.WithHelp("h", "focus left"),
 		),
 		MoveRight: key.NewBinding(
-			key.WithKeys("ctrl+l"),
-			key.WithHelp("ctrl+l", "move right"),
+			key.WithKeys("l", "right"),
+			key.WithHelp("l", "focus right"),
 		),
 		MoveUp: key.NewBinding(
-			key.WithKeys("ctrl+k"),
-			key.WithHelp("ctrl+k", "move up"),
+			key.WithKeys("k", "up"),
+			key.WithHelp("k", "focus up"),
 		),
 		MoveDown: key.NewBinding(
-			key.WithKeys("ctrl+j"),
-			key.WithHelp("ctrl+j", "move down"),
+			key.WithKeys("j", "down"),
+			key.WithHelp("j", "focus down"),
 		),
 		NextTab: key.NewBinding(
-			key.WithKeys("tab"),
-			key.WithHelp("tab", "next tab"),
+			key.WithKeys("n"),
+			key.WithHelp("n", "next tab"),
 		),
 		PrevTab: key.NewBinding(
-			key.WithKeys("shift+tab"),
-			key.WithHelp("shift+tab", "previous tab"),
+			key.WithKeys("p"),
+			key.WithHelp("p", "previous tab"),
 		),
 		CloseTab: key.NewBinding(
-			key.WithKeys("ctrl+w"),
-			key.WithHelp("ctrl+w", "close tab"),
+			key.WithKeys("x"),
+			key.WithHelp("x", "close tab"),
 		),
 		NewAgentTab: key.NewBinding(
-			key.WithKeys("ctrl+t"),
-			key.WithHelp("ctrl+t", "new agent tab"),
+			key.WithKeys("c"),
+			key.WithHelp("c", "new agent tab"),
 		),
 		Home: key.NewBinding(
-			key.WithKeys("ctrl+g"),
-			key.WithHelp("ctrl+g", "go home"),
+			key.WithKeys("g"),
+			key.WithHelp("g", "go home"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
@@ -86,6 +97,10 @@ func DefaultKeyMap() KeyMap {
 		Monitor: key.NewBinding(
 			key.WithKeys("m"),
 			key.WithHelp("m", "monitor"),
+		),
+		CopyMode: key.NewBinding(
+			key.WithKeys("["),
+			key.WithHelp("[", "copy mode"),
 		),
 
 		// Dashboard

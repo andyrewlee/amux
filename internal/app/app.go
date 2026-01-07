@@ -37,6 +37,16 @@ const (
 	DialogQuit            = "quit"
 )
 
+// Prefix mode constants
+const (
+	prefixRepeatTime = 700 * time.Millisecond
+)
+
+// prefixTimeoutMsg is sent when the prefix mode timer expires
+type prefixTimeoutMsg struct {
+	token int
+}
+
 // App is the root Bubbletea model
 type App struct {
 	// Configuration
@@ -89,6 +99,10 @@ type App struct {
 	ready    bool
 	quitting bool
 	err      error
+
+	// Prefix mode (tmux-style leader key)
+	prefixActive bool
+	prefixToken  int
 }
 
 // New creates a new App instance
@@ -370,152 +384,62 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		}
 
-	case tea.KeyMsg:
-
-		// Handle quit first
-		if key.Matches(msg, a.keymap.Quit) {
-			a.showQuitDialog()
-			return a, nil
+	case prefixTimeoutMsg:
+		if msg.token == a.prefixToken && a.prefixActive {
+			a.exitPrefix()
 		}
 
+	case tea.KeyMsg:
 		// Dismiss error on any key
 		if a.err != nil {
 			a.err = nil
 			return a, nil
 		}
 
-		// Uncomment for key debugging (causes latency due to sync file I/O):
-		// logging.Debug("Key: %s, focusedPane=%d, centerHasTabs=%v", msg.String(), a.focusedPane, a.center.HasTabs())
-
-		// When focused on sidebar terminal, intercept navigation keys before forwarding
-		if a.focusedPane == messages.PaneSidebarTerminal {
-			switch {
-			case key.Matches(msg, a.keymap.MoveLeft):
-				if a.monitorMode {
-					a.focusPane(messages.PaneMonitor)
-				} else {
-					a.focusPane(messages.PaneCenter)
-				}
+		// 1. Handle prefix key (Ctrl+Space)
+		if a.isPrefixKey(msg) {
+			if a.prefixActive {
+				// Prefix + Prefix = send literal Ctrl+Space to terminal
+				a.sendPrefixToTerminal()
+				a.exitPrefix()
 				return a, nil
-			case key.Matches(msg, a.keymap.MoveUp):
-				a.focusPane(messages.PaneSidebar)
+			}
+			// Enter prefix mode
+			return a, a.enterPrefix()
+		}
+
+		// 2. If prefix is active, handle mux commands
+		if a.prefixActive {
+			// Esc cancels prefix mode without forwarding
+			if msg.Type == tea.KeyEsc {
+				a.exitPrefix()
 				return a, nil
 			}
 
-			// Forward all other keys to terminal
-			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
-			a.sidebarTerminal = newSidebarTerminal
-			return a, cmd
+			handled, repeatable, cmd := a.handlePrefixCommand(msg)
+			if handled {
+				if repeatable {
+					// Stay in prefix mode, reset timer
+					return a, tea.Batch(cmd, a.bumpPrefixTimer())
+				}
+				// Non-repeatable command, exit prefix
+				a.exitPrefix()
+				return a, cmd
+			}
+			// Unknown key in prefix mode: exit prefix and pass through
+			a.exitPrefix()
+			// Fall through to normal handling below
 		}
 
-		// Monitor pane navigation (tile selection)
+		// 3. Passthrough mode - route keys to focused pane
+		// Monitor pane has its own navigation
 		if a.focusedPane == messages.PaneMonitor {
 			if a.handleMonitorNavigation(msg) {
 				return a, nil
 			}
-			if key.Matches(msg, a.keymap.Home) {
-				cmd := a.exitMonitorToSelection()
-				return a, cmd
-			}
 			if cmd := a.handleMonitorInput(msg); cmd != nil {
 				return a, cmd
 			}
-			return a, nil
-		}
-
-		// When focused on center pane with terminal, handle navigation keys
-		if a.focusedPane == messages.PaneCenter {
-			// Check for global navigation keys BEFORE forwarding to terminal
-			// These must be intercepted or user gets stuck in terminal
-			switch {
-			case key.Matches(msg, a.keymap.MoveLeft):
-				// From center, move left to dashboard
-				a.focusPane(messages.PaneDashboard)
-				return a, nil
-			case key.Matches(msg, a.keymap.MoveRight):
-				// From center, move right to sidebar or monitor (if visible)
-				if a.monitorMode {
-					a.focusPane(messages.PaneMonitor)
-				} else if a.layout.ShowSidebar() {
-					a.focusPane(messages.PaneSidebar)
-				}
-				return a, nil
-			case key.Matches(msg, a.keymap.Home):
-				a.goHome()
-				return a, nil
-			case key.Matches(msg, a.keymap.NewAgentTab):
-				if a.activeWorktree != nil {
-					return a, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-				}
-				return a, nil
-			}
-
-			// When we have active tabs, forward all other keys to the terminal
-			if a.center.HasTabs() {
-				logging.Debug("Forwarding key to center pane: %s", msg.String())
-				newCenter, cmd := a.center.Update(msg)
-				a.center = newCenter
-				return a, cmd
-			}
-			logging.Debug("Center has no tabs, not forwarding")
-		}
-
-		// Global keybindings (only when NOT in terminal mode)
-		// Relative vim-style navigation: Ctrl+H = left, Ctrl+L = right, Ctrl+J = down, Ctrl+K = up
-		switch {
-		case key.Matches(msg, a.keymap.MoveLeft):
-			switch a.focusedPane {
-			case messages.PaneCenter:
-				a.focusPane(messages.PaneDashboard)
-			case messages.PaneSidebar, messages.PaneSidebarTerminal:
-				a.focusPane(messages.PaneCenter)
-			case messages.PaneMonitor:
-				a.focusPane(messages.PaneDashboard)
-			}
-		case key.Matches(msg, a.keymap.MoveRight):
-			switch a.focusedPane {
-			case messages.PaneDashboard:
-				if a.monitorMode {
-					a.focusPane(messages.PaneMonitor)
-				} else {
-					a.focusPane(messages.PaneCenter)
-				}
-			case messages.PaneCenter:
-				if a.monitorMode {
-					a.focusPane(messages.PaneMonitor)
-				} else if a.layout.ShowSidebar() {
-					a.focusPane(messages.PaneSidebar)
-				}
-			case messages.PaneMonitor:
-				// No-op; monitor is the rightmost pane
-			}
-		case key.Matches(msg, a.keymap.MoveDown):
-			// Move down: Sidebar -> SidebarTerminal
-			if !a.monitorMode && a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
-				a.focusPane(messages.PaneSidebarTerminal)
-				return a, nil
-			}
-		case key.Matches(msg, a.keymap.MoveUp):
-			// Move up: SidebarTerminal -> Sidebar
-			if !a.monitorMode && a.focusedPane == messages.PaneSidebarTerminal {
-				a.focusPane(messages.PaneSidebar)
-				return a, nil
-			}
-		case key.Matches(msg, a.keymap.Monitor):
-			if a.focusedPane == messages.PaneDashboard || a.focusedPane == messages.PaneMonitor {
-				a.toggleMonitorMode()
-				return a, nil
-			}
-		case key.Matches(msg, a.keymap.Home):
-			a.goHome()
-		case key.Matches(msg, a.keymap.NewAgentTab):
-			if a.activeWorktree != nil {
-				return a, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-			}
-		case key.Matches(msg, a.keymap.Help):
-			// Toggle help overlay
-			a.helpOverlay.SetSize(a.width, a.height)
-			a.helpOverlay.Toggle()
 			return a, nil
 		}
 
@@ -537,8 +461,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
 			a.sidebarTerminal = newSidebarTerminal
 			cmds = append(cmds, cmd)
-		case messages.PaneMonitor:
-			// No interactive updates yet; use global bindings to navigate.
 		}
 
 	case messages.ProjectsLoaded:
@@ -926,6 +848,11 @@ func (a *App) View() string {
 		content = a.helpOverlay.View()
 	}
 
+	// Show prefix mode indicator
+	if a.prefixActive {
+		content = a.overlayPrefixIndicator(content)
+	}
+
 	// Show toast notification if visible
 	if a.toast.Visible() {
 		content = a.overlayToast(content)
@@ -950,6 +877,44 @@ func clampPane(view string, width, height int) string {
 		MaxWidth(width).
 		MaxHeight(height).
 		Render(view)
+}
+
+// overlayPrefixIndicator shows a visual indicator when prefix mode is active
+func (a *App) overlayPrefixIndicator(content string) string {
+	indicator := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#1a1b26")).
+		Background(lipgloss.Color("#7aa2f7")).
+		Padding(0, 1).
+		Render("PREFIX")
+
+	// Position at bottom-right (above toast area, row a.height-3)
+	lines := strings.Split(content, "\n")
+	if len(lines) >= a.height && a.height > 3 {
+		indicatorWidth := lipgloss.Width(indicator)
+		targetRow := a.height - 3
+		targetLine := lines[targetRow]
+
+		// Pad line to full width if needed
+		lineWidth := lipgloss.Width(targetLine)
+		if lineWidth < a.width {
+			targetLine += strings.Repeat(" ", a.width-lineWidth)
+		}
+
+		// Replace rightmost characters with indicator
+		x := a.width - indicatorWidth - 1
+		if x < 0 {
+			x = 0
+		}
+		// Use the visible portion + indicator
+		stripped := ansi.Strip(targetLine)
+		runes := []rune(stripped)
+		if len(runes) > x {
+			lines[targetRow] = string(runes[:x]) + indicator
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // overlayToast renders a toast notification at the bottom
@@ -1220,7 +1185,7 @@ func (a *App) renderMonitorGrid() string {
 	})
 
 	headerStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))}
-	canvas.DrawText(0, 0, "Monitor: ctrl+hjkl/arrows select • ctrl+g open/exit", headerStyle)
+	canvas.DrawText(0, 0, "Monitor: hjkl/arrows select • Enter open • C-Spc g exit • C-Spc m toggle", headerStyle)
 
 	projectNames := make(map[string]string, len(a.projects))
 	for _, project := range a.projects {
@@ -1954,6 +1919,164 @@ func (a *App) toggleMonitorMode() {
 		a.focusPane(messages.PaneDashboard)
 	}
 	a.updateLayout()
+}
+
+// Prefix mode helpers (tmux-style leader key)
+
+// isPrefixKey returns true if the key is the prefix key
+func (a *App) isPrefixKey(msg tea.KeyMsg) bool {
+	return key.Matches(msg, a.keymap.Prefix)
+}
+
+// enterPrefix enters prefix mode and schedules a timeout
+func (a *App) enterPrefix() tea.Cmd {
+	a.prefixActive = true
+	a.prefixToken++
+	token := a.prefixToken
+	return tea.Tick(prefixRepeatTime, func(t time.Time) tea.Msg {
+		return prefixTimeoutMsg{token: token}
+	})
+}
+
+// exitPrefix exits prefix mode
+func (a *App) exitPrefix() {
+	a.prefixActive = false
+}
+
+// bumpPrefixTimer resets the prefix timeout for repeatable commands
+func (a *App) bumpPrefixTimer() tea.Cmd {
+	a.prefixToken++
+	token := a.prefixToken
+	return tea.Tick(prefixRepeatTime, func(t time.Time) tea.Msg {
+		return prefixTimeoutMsg{token: token}
+	})
+}
+
+// handlePrefixCommand handles a key press while in prefix mode
+// Returns (handled, repeatable, cmd)
+func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
+	switch {
+	// Pane focus (repeatable)
+	case key.Matches(msg, a.keymap.MoveLeft):
+		switch a.focusedPane {
+		case messages.PaneCenter:
+			a.focusPane(messages.PaneDashboard)
+		case messages.PaneSidebar, messages.PaneSidebarTerminal:
+			if a.monitorMode {
+				a.focusPane(messages.PaneMonitor)
+			} else {
+				a.focusPane(messages.PaneCenter)
+			}
+		case messages.PaneMonitor:
+			a.focusPane(messages.PaneDashboard)
+		}
+		return true, true, nil
+
+	case key.Matches(msg, a.keymap.MoveRight):
+		switch a.focusedPane {
+		case messages.PaneDashboard:
+			if a.monitorMode {
+				a.focusPane(messages.PaneMonitor)
+			} else {
+				a.focusPane(messages.PaneCenter)
+			}
+		case messages.PaneCenter:
+			if a.monitorMode {
+				a.focusPane(messages.PaneMonitor)
+			} else if a.layout.ShowSidebar() {
+				a.focusPane(messages.PaneSidebar)
+			}
+		case messages.PaneMonitor:
+			if a.layout.ShowSidebar() {
+				a.focusPane(messages.PaneSidebar)
+			}
+		}
+		return true, true, nil
+
+	case key.Matches(msg, a.keymap.MoveUp):
+		if a.focusedPane == messages.PaneSidebarTerminal {
+			a.focusPane(messages.PaneSidebar)
+		}
+		return true, true, nil
+
+	case key.Matches(msg, a.keymap.MoveDown):
+		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
+			a.focusPane(messages.PaneSidebarTerminal)
+		}
+		return true, true, nil
+
+	// Tab management (repeatable for n/p)
+	case key.Matches(msg, a.keymap.NextTab):
+		a.center.NextTab()
+		return true, true, nil
+
+	case key.Matches(msg, a.keymap.PrevTab):
+		a.center.PrevTab()
+		return true, true, nil
+
+	// Tab management (non-repeatable)
+	case key.Matches(msg, a.keymap.NewAgentTab):
+		if a.activeWorktree != nil {
+			return true, false, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+		}
+		return true, false, nil
+
+	case key.Matches(msg, a.keymap.CloseTab):
+		cmd := a.center.CloseActiveTab()
+		return true, false, cmd
+
+	// Global commands (non-repeatable)
+	case key.Matches(msg, a.keymap.Monitor):
+		a.toggleMonitorMode()
+		return true, false, nil
+
+	case key.Matches(msg, a.keymap.Home):
+		if a.monitorMode {
+			return true, false, a.exitMonitorToSelection()
+		}
+		a.goHome()
+		a.focusPane(messages.PaneDashboard)
+		return true, false, nil
+
+	case key.Matches(msg, a.keymap.Help):
+		a.helpOverlay.SetSize(a.width, a.height)
+		a.helpOverlay.Toggle()
+		return true, false, nil
+
+	case key.Matches(msg, a.keymap.Quit):
+		a.showQuitDialog()
+		return true, false, nil
+
+	// Copy mode (scroll in terminal) - targets focused pane
+	case key.Matches(msg, a.keymap.CopyMode):
+		switch a.focusedPane {
+		case messages.PaneCenter:
+			a.center.EnterCopyMode()
+		case messages.PaneSidebarTerminal:
+			a.sidebarTerminal.EnterCopyMode()
+		}
+		return true, false, nil
+
+	// Tab numbers 1-9
+	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1:
+		r := msg.Runes[0]
+		if r >= '1' && r <= '9' {
+			index := int(r - '1')
+			a.center.SelectTab(index)
+			return true, false, nil
+		}
+	}
+
+	return false, false, nil
+}
+
+// sendPrefixToTerminal sends a literal Ctrl-Space (NUL) to the focused terminal
+func (a *App) sendPrefixToTerminal() {
+	if a.focusedPane == messages.PaneCenter {
+		a.center.SendToTerminal("\x00")
+	} else if a.focusedPane == messages.PaneSidebarTerminal {
+		a.sidebarTerminal.SendToTerminal("\x00")
+	}
 }
 
 // updateLayout updates component sizes based on window size
