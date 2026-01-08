@@ -18,6 +18,7 @@ const (
 	AgentGemini   AgentType = "gemini"
 	AgentAmp      AgentType = "amp"
 	AgentOpencode AgentType = "opencode"
+	AgentDroid    AgentType = "droid"
 )
 
 // Agent represents a running AI agent instance

@@ -52,6 +52,11 @@ func DefaultConfig() (*Config, error) {
 				InterruptCount:   1,
 				InterruptDelayMs: 0,
 			},
+			"droid": {
+				Command:          "droid",
+				InterruptCount:   1,
+				InterruptDelayMs: 0,
+			},
 		},
 	}, nil
 }
