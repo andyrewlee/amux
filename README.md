@@ -6,7 +6,7 @@ Agent orchestrator made for developers to run parallel coding agents using git w
 
 Here are some reasons why you would use amux over others:
 * Use coding agents directly (i.e. Claude Code, Codex CLI). There's no new coding agent, wrapper, or SDK involved.
-* Supports all of the major coding agents: Claude Code, Codex CLI, Gemini CLI, Amp, OpenCode.
+* Supports all of the major coding agents: Claude Code, Codex CLI, Gemini CLI, Amp, OpenCode, Droid.
 * Navigate with keyboard only using vim inspired shortcuts.
 * Run it on the terminal.
 * Open source.
