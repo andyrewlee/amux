@@ -26,6 +26,7 @@ var (
 	ColorGemini   = lipgloss.Color("#61afef") // Blue
 	ColorAmp      = lipgloss.Color("#c678dd") // Purple (Sourcegraph)
 	ColorOpencode = lipgloss.Color("#56b6c2") // Cyan (SST)
+	ColorDroid    = lipgloss.Color("#ff6b6b") // Red/coral (Factory)
 
 	// Surface colors for layering
 	ColorSurface0 = lipgloss.Color("#1a1b26") // Base background
@@ -51,6 +52,8 @@ func AgentColor(agent string) lipgloss.Color {
 		return ColorAmp
 	case "opencode":
 		return ColorOpencode
+	case "droid":
+		return ColorDroid
 	default:
 		return ColorPrimary
 	}

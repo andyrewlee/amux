@@ -778,6 +778,8 @@ func (m *Model) renderTabBar() string {
 			agentStyle = m.styles.AgentAmp
 		case "opencode":
 			agentStyle = m.styles.AgentOpencode
+		case "droid":
+			agentStyle = m.styles.AgentDroid
 		default:
 			agentStyle = m.styles.AgentTerm
 		}
