@@ -120,6 +120,7 @@ func ValidateAssistant(assistant string) error {
 		"gemini":   true,
 		"amp":      true,
 		"opencode": true,
+		"droid":    true,
 		"term":     true,
 	}
 
