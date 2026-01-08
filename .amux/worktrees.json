@@ -1,3 +1,0 @@
-{
-  "setup-worktree": ["sh \"$ROOT_WORKTREE_PATH/.amux/setup-worktree.sh\""]
-}
