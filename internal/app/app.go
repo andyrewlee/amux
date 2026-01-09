@@ -1700,8 +1700,12 @@ func (a *App) renderWorktreeInfo() string {
 	}
 
 	content += "\n" + a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
-	content += "\n" + a.styles.Help.Render("C-Spc h/l/u/d:focus  C-Spc a:new agent  C-Spc m:monitor")
-	content += "\n" + a.styles.Help.Render("C-Spc ?:help  C-Spc g:home  C-Spc q:quit")
+	focusHint := "C-Spc h:focus left"
+	if a.layout.ShowSidebar() {
+		focusHint += "  C-Spc l:focus right"
+	}
+	content += "\n" + a.styles.Help.Render(focusHint+"  C-Spc a:new agent")
+	content += "\n" + a.styles.Help.Render("C-Spc m:monitor  C-Spc ?:help  C-Spc g:home  C-Spc q:quit")
 
 	return content
 }
@@ -1726,7 +1730,11 @@ func (a *App) welcomeContent() string {
 	b.WriteString("\n")
 	b.WriteString(a.styles.Help.Render("Dashboard: j/k to move • Enter to select"))
 	b.WriteString("\n")
-	b.WriteString(a.styles.Help.Render("C-Spc h/l/u/d: focus • C-Spc ?: help • C-Spc q: quit"))
+	focusHint := "C-Spc h: focus left"
+	if a.layout.ShowSidebar() {
+		focusHint += " • C-Spc l: focus right"
+	}
+	b.WriteString(a.styles.Help.Render(focusHint + " • C-Spc ?: help • C-Spc q: quit"))
 	return b.String()
 }
 
@@ -2186,6 +2194,8 @@ func (a *App) updateLayout() {
 	}
 	a.center.SetSize(centerWidth, a.layout.Height())
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
+	a.center.SetCanFocusRight(a.layout.ShowSidebar())
+	a.dashboard.SetCanFocusRight(a.layout.ShowCenter())
 
 	sidebarLayout := a.sidebarLayoutInfo()
 	a.sidebar.SetSize(sidebarLayout.bodyWidth, sidebarLayout.topHeight)

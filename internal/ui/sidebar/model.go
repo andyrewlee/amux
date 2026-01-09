@@ -240,11 +240,8 @@ func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
 		m.helpItem("", "j/k", "nav"),
 		m.helpItem("sidebar-help-refresh", "g", "refresh"),
-		m.helpItem("", "C-Spc h/l/u/d", "focus"),
-		m.helpItem("sidebar-help-new-agent", "C-Spc a", "new agent"),
-		m.helpItem("", "C-Spc n/p", "tab prev/next"),
-		m.helpItem("", "C-Spc x", "close tab"),
-		m.helpItem("", "C-Spc 1-9", "jump tab"),
+		m.helpItem("", "C-Spc h", "focus left"),
+		m.helpItem("", "C-Spc d", "focus down"),
 		m.helpItem("sidebar-help-home", "C-Spc g", "home"),
 		m.helpItem("sidebar-help-monitor", "C-Spc m", "monitor"),
 		m.helpItem("sidebar-help-help", "C-Spc ?", "help"),

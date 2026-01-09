@@ -236,6 +236,7 @@ type Model struct {
 	tabsByWorktree      map[string][]*Tab // tabs per worktree ID
 	activeTabByWorktree map[string]int    // active tab index per worktree
 	focused             bool
+	canFocusRight       bool
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
 	terminalCanvas      *compositor.Canvas
@@ -265,6 +266,11 @@ func New(cfg *config.Config) *Model {
 // SetZone sets the shared zone manager for click targets.
 func (m *Model) SetZone(z *zone.Manager) {
 	m.zone = z
+}
+
+// SetCanFocusRight controls whether focus-right hints should be shown.
+func (m *Model) SetCanFocusRight(can bool) {
+	m.canFocusRight = can
 }
 
 // worktreeID returns the ID of the current worktree, or empty string
@@ -765,23 +771,40 @@ func (m *Model) helpItem(id, key, desc string) string {
 
 func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
-		m.helpItem("", "C-Spc", "prefix"),
-		m.helpItem("", "C-Spc h/l/u/d", "focus"),
-		m.helpItem("center-help-new", "C-Spc a", "new tab"),
-		m.helpItem("center-help-close", "C-Spc x", "close"),
-		m.helpItem("center-help-prev", "C-Spc p", "prev"),
-		m.helpItem("center-help-next", "C-Spc n", "next"),
-		m.helpItem("", "C-Spc 1-9", "jump"),
-		m.helpItem("center-help-copy", "C-Spc [", "copy"),
-		m.helpItem("center-help-scroll-up", "PgUp", "half up"),
-		m.helpItem("center-help-scroll-down", "PgDn", "half down"),
-		m.helpItem("center-help-scroll-top", "g", "top (copy)"),
-		m.helpItem("center-help-scroll-bottom", "G", "bottom (copy)"),
+		m.helpItem("", "C-Spc h", "focus left"),
+	}
+	if m.canFocusRight {
+		items = append(items, m.helpItem("", "C-Spc l", "focus right"))
+	}
+
+	hasTabs := len(m.getTabs()) > 0
+	if m.worktree != nil {
+		items = append(items, m.helpItem("center-help-new", "C-Spc a", "new tab"))
+	}
+	if hasTabs {
+		items = append(items,
+			m.helpItem("center-help-close", "C-Spc x", "close"),
+			m.helpItem("center-help-prev", "C-Spc p", "prev"),
+			m.helpItem("center-help-next", "C-Spc n", "next"),
+			m.helpItem("", "C-Spc 1-9", "jump"),
+			m.helpItem("center-help-copy", "C-Spc [", "copy"),
+			m.helpItem("center-help-scroll-up", "PgUp", "half up"),
+			m.helpItem("center-help-scroll-down", "PgDn", "half down"),
+		)
+		if m.CopyModeActive() {
+			items = append(items,
+				m.helpItem("center-help-scroll-top", "g", "top"),
+				m.helpItem("center-help-scroll-bottom", "G", "bottom"),
+			)
+		}
+	}
+
+	items = append(items,
 		m.helpItem("center-help-home", "C-Spc g", "home"),
 		m.helpItem("center-help-monitor", "C-Spc m", "monitor"),
 		m.helpItem("center-help-help", "C-Spc ?", "help"),
 		m.helpItem("center-help-quit", "C-Spc q", "quit"),
-	}
+	)
 	return common.WrapHelpItems(items, contentWidth)
 }
 

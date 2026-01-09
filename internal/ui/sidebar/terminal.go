@@ -547,21 +547,32 @@ func (m *TerminalModel) helpItem(id, key, desc string) string {
 
 func (m *TerminalModel) helpLines(contentWidth int) []string {
 	items := []string{
-		m.helpItem("", "C-Spc h/l/u/d", "focus"),
-		m.helpItem("sidebar-term-copy", "C-Spc [", "copy"),
-		m.helpItem("sidebar-term-scroll-up", "PgUp", "half up"),
-		m.helpItem("sidebar-term-scroll-down", "PgDn", "half down"),
-		m.helpItem("sidebar-term-scroll-top", "g", "top (copy)"),
-		m.helpItem("sidebar-term-scroll-bottom", "G", "bottom (copy)"),
-		m.helpItem("sidebar-term-new-agent", "C-Spc a", "new agent"),
-		m.helpItem("", "C-Spc n/p", "tab prev/next"),
-		m.helpItem("", "C-Spc x", "close tab"),
-		m.helpItem("", "C-Spc 1-9", "jump tab"),
+		m.helpItem("", "C-Spc h", "focus left"),
+		m.helpItem("", "C-Spc u", "focus up"),
+	}
+
+	ts := m.getTerminal()
+	hasTerm := ts != nil && ts.VTerm != nil
+	if hasTerm {
+		items = append(items,
+			m.helpItem("sidebar-term-copy", "C-Spc [", "copy"),
+			m.helpItem("sidebar-term-scroll-up", "PgUp", "half up"),
+			m.helpItem("sidebar-term-scroll-down", "PgDn", "half down"),
+		)
+		if ts.CopyMode {
+			items = append(items,
+				m.helpItem("sidebar-term-scroll-top", "g", "top"),
+				m.helpItem("sidebar-term-scroll-bottom", "G", "bottom"),
+			)
+		}
+	}
+
+	items = append(items,
 		m.helpItem("sidebar-term-home", "C-Spc g", "home"),
 		m.helpItem("sidebar-term-monitor", "C-Spc m", "monitor"),
 		m.helpItem("sidebar-term-help", "C-Spc ?", "help"),
 		m.helpItem("sidebar-term-quit", "C-Spc q", "quit"),
-	}
+	)
 	return common.WrapHelpItems(items, contentWidth)
 }
 

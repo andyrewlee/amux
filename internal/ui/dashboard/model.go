@@ -50,12 +50,13 @@ type Model struct {
 	statusCache map[string]*git.StatusResult
 
 	// UI state
-	cursor       int
-	focused      bool
-	width        int
-	height       int
-	filterDirty  bool // Only show dirty worktrees
-	scrollOffset int
+	cursor        int
+	focused       bool
+	width         int
+	height        int
+	filterDirty   bool // Only show dirty worktrees
+	scrollOffset  int
+	canFocusRight bool
 
 	// Loading state
 	loadingStatus     map[string]bool           // Worktrees currently loading git status
@@ -87,6 +88,11 @@ func New() *Model {
 // SetZone sets the shared zone manager for click targets.
 func (m *Model) SetZone(z *zone.Manager) {
 	m.zone = z
+}
+
+// SetCanFocusRight controls whether focus-right hints should be shown.
+func (m *Model) SetCanFocusRight(can bool) {
+	m.canFocusRight = can
 }
 
 // Init initializes the dashboard
@@ -338,21 +344,25 @@ func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
 		m.helpItem("", "j/k", "nav"),
 		m.helpItem("", "enter", "open"),
-		m.helpItem("dash-help-delete", "D", "delete"),
+	}
+	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
+		items = append(items, m.helpItem("dash-help-delete", "D", "delete"))
+	}
+	items = append(items,
 		m.helpItem("dash-help-filter", "f", "filter"),
 		m.helpItem("dash-help-refresh", "r", "refresh"),
 		m.helpItem("dash-help-top", "g", "top"),
 		m.helpItem("dash-help-bottom", "G", "bottom"),
-		m.helpItem("", "C-Spc h/l/u/d", "focus"),
-		m.helpItem("dash-help-new-agent", "C-Spc a", "new agent"),
-		m.helpItem("", "C-Spc n/p", "tab prev/next"),
-		m.helpItem("", "C-Spc x", "close tab"),
-		m.helpItem("", "C-Spc 1-9", "jump tab"),
+	)
+	if m.canFocusRight {
+		items = append(items, m.helpItem("", "C-Spc l", "focus right"))
+	}
+	items = append(items,
 		m.helpItem("dash-help-home", "C-Spc g", "home"),
 		m.helpItem("dash-help-monitor", "C-Spc m", "monitor"),
 		m.helpItem("dash-help-help", "C-Spc ?", "help"),
 		m.helpItem("dash-help-quit", "C-Spc q", "quit"),
-	}
+	)
 	return common.WrapHelpItems(items, contentWidth)
 }
 
