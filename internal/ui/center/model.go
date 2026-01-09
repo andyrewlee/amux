@@ -242,9 +242,10 @@ type Model struct {
 	terminalCanvas      *compositor.Canvas
 
 	// Layout
-	width   int
-	height  int
-	offsetX int // X offset from screen left (dashboard width)
+	width           int
+	height          int
+	offsetX         int // X offset from screen left (dashboard width)
+	showKeymapHints bool
 
 	// Config
 	config *config.Config
@@ -271,6 +272,11 @@ func (m *Model) SetZone(z *zone.Manager) {
 // SetCanFocusRight controls whether focus-right hints should be shown.
 func (m *Model) SetCanFocusRight(can bool) {
 	m.canFocusRight = can
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (m *Model) SetShowKeymapHints(show bool) {
+	m.showKeymapHints = show
 }
 
 // worktreeID returns the ID of the current worktree, or empty string
@@ -737,6 +743,9 @@ func (m *Model) View() string {
 		contentWidth = 1
 	}
 	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
+	}
 	// Pad to the inner pane height (border excluded), reserving the help line.
 	contentHeight := strings.Count(b.String(), "\n") + 1
 	innerHeight := m.height - 2
@@ -781,7 +790,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 			m.helpItem("center-help-close", "C-Spc x", "close"),
 			m.helpItem("center-help-prev", "C-Spc p", "prev"),
 			m.helpItem("center-help-next", "C-Spc n", "next"),
-			m.helpItem("", "C-Spc 1-9", "tab"),
+			m.helpItem("", "C-Spc 1-9", "jump tab"),
 			m.helpItem("center-help-copy", "C-Spc [", "copy"),
 			m.helpItem("center-help-scroll-up", "PgUp", "half up"),
 			m.helpItem("center-help-scroll-down", "PgDn", "half down"),

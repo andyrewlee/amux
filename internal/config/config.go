@@ -6,6 +6,7 @@ type Config struct {
 	PortStart     int
 	PortRangeSize int
 	Assistants    map[string]AssistantConfig
+	UI            UISettings
 }
 
 // AssistantConfig defines how to launch an AI assistant
@@ -22,10 +23,11 @@ func DefaultConfig() (*Config, error) {
 		return nil, err
 	}
 
-	return &Config{
+	cfg := &Config{
 		Paths:         paths,
 		PortStart:     6200,
 		PortRangeSize: 10,
+		UI:            loadUISettings(paths.ConfigPath),
 		Assistants: map[string]AssistantConfig{
 			"claude": {
 				Command:          "claude",
@@ -58,5 +60,6 @@ func DefaultConfig() (*Config, error) {
 				InterruptDelayMs: 0,
 			},
 		},
-	}, nil
+	}
+	return cfg, nil
 }

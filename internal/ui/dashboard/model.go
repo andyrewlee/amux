@@ -50,13 +50,14 @@ type Model struct {
 	statusCache map[string]*git.StatusResult
 
 	// UI state
-	cursor        int
-	focused       bool
-	width         int
-	height        int
-	filterDirty   bool // Only show dirty worktrees
-	scrollOffset  int
-	canFocusRight bool
+	cursor          int
+	focused         bool
+	width           int
+	height          int
+	filterDirty     bool // Only show dirty worktrees
+	scrollOffset    int
+	canFocusRight   bool
+	showKeymapHints bool
 
 	// Loading state
 	loadingStatus     map[string]bool           // Worktrees currently loading git status
@@ -93,6 +94,11 @@ func (m *Model) SetZone(z *zone.Manager) {
 // SetCanFocusRight controls whether focus-right hints should be shown.
 func (m *Model) SetCanFocusRight(can bool) {
 	m.canFocusRight = can
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (m *Model) SetShowKeymapHints(show bool) {
+	m.showKeymapHints = show
 }
 
 // Init initializes the dashboard
@@ -304,6 +310,9 @@ func (m *Model) View() string {
 		contentWidth = 1
 	}
 	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
+	}
 	helpHeight := len(helpLines)
 	visibleHeight := innerHeight - headerHeight - helpHeight
 	if visibleHeight < 1 {
@@ -374,10 +383,11 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("dash-help-top", "g", "top"),
 		m.helpItem("dash-help-bottom", "G", "bottom"),
 	)
-	items = append(items, m.helpItem("", "C-Spc h/u/d", "focus"))
+	focusKey := "C-Spc h/j/k"
 	if m.canFocusRight {
-		items = append(items, m.helpItem("", "C-Spc l", "focus right"))
+		focusKey = "C-Spc h/j/k/l"
 	}
+	items = append(items, m.helpItem("", focusKey, "focus (or ←↑↓→)"))
 	items = append(items,
 		m.helpItem("dash-help-monitor", "C-Spc m", "monitor"),
 		m.helpItem("dash-help-help", "C-Spc ?", "help"),

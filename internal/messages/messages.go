@@ -125,6 +125,9 @@ type ToggleHelp struct{}
 // ShowQuitDialog requests showing the quit confirmation dialog
 type ShowQuitDialog struct{}
 
+// ToggleKeymapHints toggles display of keymap helper text
+type ToggleKeymapHints struct{}
+
 // RefreshDashboard requests a dashboard refresh
 type RefreshDashboard struct{}
 

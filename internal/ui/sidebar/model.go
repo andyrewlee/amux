@@ -26,8 +26,9 @@ type Model struct {
 	scrollOffset int
 
 	// Layout
-	width  int
-	height int
+	width           int
+	height          int
+	showKeymapHints bool
 
 	// Styles
 	styles common.Styles
@@ -44,6 +45,11 @@ func New() *Model {
 // SetZone sets the shared zone manager for click targets.
 func (m *Model) SetZone(z *zone.Manager) {
 	m.zone = z
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (m *Model) SetShowKeymapHints(show bool) {
+	m.showKeymapHints = show
 }
 
 // Init initializes the sidebar
@@ -145,6 +151,9 @@ func (m *Model) View() string {
 		contentWidth = 1
 	}
 	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
+	}
 
 	// Padding
 	contentHeight := strings.Count(b.String(), "\n") + 1

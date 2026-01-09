@@ -57,6 +57,8 @@ type Dialog struct {
 
 	// Zone manager for mouse handling
 	zone *zone.Manager
+	// Display settings
+	showKeymapHints bool
 }
 
 // NewInputDialog creates a new input dialog
@@ -206,6 +208,11 @@ func (d *Dialog) Visible() bool {
 // SetZone sets the shared zone manager for click targets.
 func (d *Dialog) SetZone(z *zone.Manager) {
 	d.zone = z
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (d *Dialog) SetShowKeymapHints(show bool) {
+	d.showKeymapHints = show
 }
 
 // Update handles messages
@@ -452,12 +459,13 @@ func (d *Dialog) View() string {
 		content.WriteString(d.renderOptions())
 	}
 
-	// Help
-	helpStyle := lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		MarginTop(1)
-	content.WriteString("\n")
-	content.WriteString(helpStyle.Render(d.helpText()))
+	if d.showKeymapHints {
+		helpStyle := lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			MarginTop(1)
+		content.WriteString("\n")
+		content.WriteString(helpStyle.Render(d.helpText()))
+	}
 
 	// Dialog box
 	dialogStyle := lipgloss.NewStyle().

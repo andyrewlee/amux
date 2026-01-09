@@ -32,6 +32,7 @@ type FilePicker struct {
 	maxVisible      int
 	zone            *zone.Manager
 	styles          Styles
+	showKeymapHints bool
 }
 
 // NewFilePicker creates a new file picker starting at the given path
@@ -58,6 +59,7 @@ func NewFilePicker(id, startPath string, directoriesOnly bool) *FilePicker {
 		directoriesOnly: directoriesOnly,
 		maxVisible:      8,
 		styles:          DefaultStyles(),
+		showKeymapHints: true,
 	}
 
 	fp.loadDirectory()
@@ -67,6 +69,11 @@ func NewFilePicker(id, startPath string, directoriesOnly bool) *FilePicker {
 // SetZone sets the shared zone manager for click targets.
 func (fp *FilePicker) SetZone(z *zone.Manager) {
 	fp.zone = z
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (fp *FilePicker) SetShowKeymapHints(show bool) {
+	fp.showKeymapHints = show
 }
 
 // loadDirectory loads entries from the current path
@@ -562,11 +569,12 @@ func (fp *FilePicker) View() string {
 	content.WriteString("\n")
 	content.WriteString(strings.Join(buttons, "  "))
 
-	// Help
-	content.WriteString("\n")
-	helpWidth := 51
-	helpLines := fp.helpLines(helpWidth)
-	content.WriteString(strings.Join(helpLines, "\n"))
+	if fp.showKeymapHints {
+		content.WriteString("\n")
+		helpWidth := 51
+		helpLines := fp.helpLines(helpWidth)
+		content.WriteString(strings.Join(helpLines, "\n"))
+	}
 
 	// Dialog box
 	dialogStyle := lipgloss.NewStyle().

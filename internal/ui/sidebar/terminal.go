@@ -70,11 +70,12 @@ type TerminalModel struct {
 	worktree *data.Worktree
 
 	// Layout
-	width   int
-	height  int
-	focused bool
-	offsetX int
-	offsetY int
+	width           int
+	height          int
+	focused         bool
+	offsetX         int
+	offsetY         int
+	showKeymapHints bool
 
 	// Styles
 	styles common.Styles
@@ -95,6 +96,11 @@ func NewTerminalModel() *TerminalModel {
 // SetZone sets the shared zone manager for click targets.
 func (m *TerminalModel) SetZone(z *zone.Manager) {
 	m.zone = z
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (m *TerminalModel) SetShowKeymapHints(show bool) {
+	m.showKeymapHints = show
 }
 
 // worktreeID returns the ID of the current worktree
@@ -433,6 +439,9 @@ func (m *TerminalModel) View() string {
 		contentWidth = 1
 	}
 	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
+	}
 
 	// Pad to fill height
 	contentHeight := strings.Count(b.String(), "\n") + 1

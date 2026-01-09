@@ -40,7 +40,7 @@ const (
 
 // Prefix mode constants
 const (
-	prefixRepeatTime = 700 * time.Millisecond
+	prefixTimeout = 700 * time.Millisecond
 )
 
 // prefixTimeoutMsg is sent when the prefix mode timer expires
@@ -169,6 +169,7 @@ func New() (*App, error) {
 	app.dashboard.SetZone(app.zone)
 	app.sidebar.SetZone(app.zone)
 	app.sidebarTerminal.SetZone(app.zone)
+	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	return app, nil
 }
 
@@ -333,6 +334,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if a.showWelcome {
 						if z := a.zone.Get("welcome-new-project"); z != nil && z.InBounds(msg) {
 							cmds = append(cmds, func() tea.Msg { return messages.ShowAddProjectDialog{} })
+						} else if z := a.zone.Get("welcome-toggle-help"); z != nil && z.InBounds(msg) {
+							cmds = append(cmds, func() tea.Msg { return messages.ToggleKeymapHints{} })
 						}
 					} else if !a.center.HasTabs() && a.activeWorktree != nil {
 						if z := a.zone.Get("worktree-new-agent"); z != nil && z.InBounds(msg) {
@@ -461,13 +464,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 
-			handled, repeatable, cmd := a.handlePrefixCommand(msg)
+			handled, cmd := a.handlePrefixCommand(msg)
 			if handled {
-				if repeatable {
-					// Stay in prefix mode, reset timer
-					return a, tea.Batch(cmd, a.bumpPrefixTimer())
-				}
-				// Non-repeatable command, exit prefix
 				a.exitPrefix()
 				return a, cmd
 			}
@@ -553,6 +551,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.helpOverlay.SetSize(a.width, a.height)
 		a.helpOverlay.Toggle()
 
+	case messages.ToggleKeymapHints:
+		a.setKeymapHintsEnabled(!a.config.UI.ShowKeymapHints)
+		if err := a.config.SaveUISettings(); err != nil {
+			cmds = append(cmds, a.toast.ShowWarning("Failed to save keymap setting"))
+		}
+
 	case messages.ShowQuitDialog:
 		a.showQuitDialog()
 
@@ -603,12 +607,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
 		a.filePicker.SetZone(a.zone)
+		a.filePicker.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.filePicker.Show()
 
 	case messages.ShowCreateWorktreeDialog:
 		a.dialogProject = msg.Project
 		a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
 		a.dialog.SetZone(a.zone)
+		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.dialog.Show()
 
 	case messages.ShowDeleteWorktreeDialog:
@@ -620,12 +626,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fmt.Sprintf("Delete worktree '%s' and its branch?", msg.Worktree.Name),
 		)
 		a.dialog.SetZone(a.zone)
+		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.dialog.Show()
 
 	case messages.ShowSelectAssistantDialog:
 		if a.activeWorktree != nil {
 			a.dialog = common.NewAgentPicker()
 			a.dialog.SetZone(a.zone)
+			a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 			a.dialog.Show()
 		}
 
@@ -821,6 +829,7 @@ func (a *App) showQuitDialog() {
 		"Are you sure you want to quit?",
 	)
 	a.dialog.SetZone(a.zone)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
 }
 
@@ -1700,7 +1709,9 @@ func (a *App) renderWorktreeInfo() string {
 	}
 
 	content += "\n" + a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
-	content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
+	if a.config.UI.ShowKeymapHints {
+		content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
+	}
 
 	return content
 }
@@ -1721,9 +1732,17 @@ func (a *App) welcomeContent() string {
 	var b strings.Builder
 	b.WriteString(logoStyle.Render(logo))
 	b.WriteString("\n\n")
-	b.WriteString(a.zone.Mark("welcome-new-project", a.styles.TabPlus.Render("[+] New project")))
+	newProject := a.zone.Mark("welcome-new-project", a.styles.TabPlus.Render("[+] New project"))
+	helpLabel := "[?] Hide keymap"
+	if !a.config.UI.ShowKeymapHints {
+		helpLabel = "[?] Show keymap"
+	}
+	helpToggle := a.zone.Mark("welcome-toggle-help", a.styles.TabPlus.Render(helpLabel))
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, newProject, "  ", helpToggle))
 	b.WriteString("\n")
-	b.WriteString(a.styles.Help.Render("Dashboard: j/k to move • Enter to select"))
+	if a.config.UI.ShowKeymapHints {
+		b.WriteString(a.styles.Help.Render("Dashboard: j/k to move • Enter to select"))
+	}
 	return b.String()
 }
 
@@ -2027,7 +2046,7 @@ func (a *App) enterPrefix() tea.Cmd {
 	a.prefixActive = true
 	a.prefixToken++
 	token := a.prefixToken
-	return tea.Tick(prefixRepeatTime, func(t time.Time) tea.Msg {
+	return tea.Tick(prefixTimeout, func(t time.Time) tea.Msg {
 		return prefixTimeoutMsg{token: token}
 	})
 }
@@ -2037,20 +2056,11 @@ func (a *App) exitPrefix() {
 	a.prefixActive = false
 }
 
-// bumpPrefixTimer resets the prefix timeout for repeatable commands
-func (a *App) bumpPrefixTimer() tea.Cmd {
-	a.prefixToken++
-	token := a.prefixToken
-	return tea.Tick(prefixRepeatTime, func(t time.Time) tea.Msg {
-		return prefixTimeoutMsg{token: token}
-	})
-}
-
 // handlePrefixCommand handles a key press while in prefix mode
-// Returns (handled, repeatable, cmd)
-func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
+// Returns (handled, cmd)
+func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, tea.Cmd) {
 	switch {
-	// Pane focus (repeatable)
+	// Pane focus
 	case key.Matches(msg, a.keymap.MoveLeft):
 		switch a.focusedPane {
 		case messages.PaneCenter:
@@ -2064,7 +2074,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 		case messages.PaneMonitor:
 			a.focusPane(messages.PaneDashboard)
 		}
-		return true, true, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveRight):
 		switch a.focusedPane {
@@ -2085,53 +2095,53 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 				a.focusPane(messages.PaneSidebar)
 			}
 		}
-		return true, true, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveUp):
 		if a.focusedPane == messages.PaneSidebarTerminal {
 			a.focusPane(messages.PaneSidebar)
 		}
-		return true, true, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveDown):
 		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
 			a.focusPane(messages.PaneSidebarTerminal)
 		}
-		return true, true, nil
+		return true, nil
 
-	// Tab management (repeatable for n/p)
+	// Tab management
 	case key.Matches(msg, a.keymap.NextTab):
 		a.center.NextTab()
-		return true, true, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.PrevTab):
 		a.center.PrevTab()
-		return true, true, nil
+		return true, nil
 
-	// Tab management (non-repeatable)
+	// Tab management
 	case key.Matches(msg, a.keymap.NewAgentTab):
 		if a.activeWorktree != nil {
-			return true, false, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+			return true, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 		}
-		return true, false, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.CloseTab):
 		cmd := a.center.CloseActiveTab()
-		return true, false, cmd
+		return true, cmd
 
-	// Global commands (non-repeatable)
+	// Global commands
 	case key.Matches(msg, a.keymap.Monitor):
 		a.toggleMonitorMode()
-		return true, false, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.Help):
 		a.helpOverlay.SetSize(a.width, a.height)
 		a.helpOverlay.Toggle()
-		return true, false, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.Quit):
 		a.showQuitDialog()
-		return true, false, nil
+		return true, nil
 
 	// Copy mode (scroll in terminal) - targets focused pane
 	case key.Matches(msg, a.keymap.CopyMode):
@@ -2141,7 +2151,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 		case messages.PaneSidebarTerminal:
 			a.sidebarTerminal.EnterCopyMode()
 		}
-		return true, false, nil
+		return true, nil
 
 	// Tab numbers 1-9
 	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1:
@@ -2149,11 +2159,11 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 		if r >= '1' && r <= '9' {
 			index := int(r - '1')
 			a.center.SelectTab(index)
-			return true, false, nil
+			return true, nil
 		}
 	}
 
-	return false, false, nil
+	return false, nil
 }
 
 // sendPrefixToTerminal sends a literal Ctrl-Space (NUL) to the focused terminal
@@ -2195,6 +2205,22 @@ func (a *App) updateLayout() {
 
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
+	}
+}
+
+func (a *App) setKeymapHintsEnabled(enabled bool) {
+	if a.config != nil {
+		a.config.UI.ShowKeymapHints = enabled
+	}
+	a.dashboard.SetShowKeymapHints(enabled)
+	a.center.SetShowKeymapHints(enabled)
+	a.sidebar.SetShowKeymapHints(enabled)
+	a.sidebarTerminal.SetShowKeymapHints(enabled)
+	if a.dialog != nil {
+		a.dialog.SetShowKeymapHints(enabled)
+	}
+	if a.filePicker != nil {
+		a.filePicker.SetShowKeymapHints(enabled)
 	}
 }
 

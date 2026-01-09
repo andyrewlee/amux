@@ -48,7 +48,7 @@ func defaultHelpSections() []HelpSection {
 		{
 			Title: "After Prefix: Navigation",
 			Bindings: []HelpBinding{
-				{"h/u/d/l", "Focus pane (←↑↓→)"},
+				{"h/j/k/l", "Focus pane (←↑↓→)"},
 				{"m", "Toggle monitor"},
 				{"?", "This help"},
 				{"q", "Quit"},
