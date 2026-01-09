@@ -59,6 +59,11 @@ func DefaultConfig() (*Config, error) {
 				InterruptCount:   1,
 				InterruptDelayMs: 0,
 			},
+			"cursor": {
+				Command:          "agent",
+				InterruptCount:   1,
+				InterruptDelayMs: 0,
+			},
 		},
 	}
 	return cfg, nil

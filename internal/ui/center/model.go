@@ -948,23 +948,7 @@ func (m *Model) renderTabBar() string {
 		}
 
 		// Get agent-specific color
-		var agentStyle lipgloss.Style
-		switch tab.Assistant {
-		case "claude":
-			agentStyle = m.styles.AgentClaude
-		case "codex":
-			agentStyle = m.styles.AgentCodex
-		case "gemini":
-			agentStyle = m.styles.AgentGemini
-		case "amp":
-			agentStyle = m.styles.AgentAmp
-		case "opencode":
-			agentStyle = m.styles.AgentOpencode
-		case "droid":
-			agentStyle = m.styles.AgentDroid
-		default:
-			agentStyle = m.styles.AgentTerm
-		}
+		agentStyle := lipgloss.NewStyle().Foreground(common.AgentColor(tab.Assistant))
 
 		// Build tab content with agent-colored indicator and a close affordance
 		closeLabel := m.styles.Muted.Render("x")
