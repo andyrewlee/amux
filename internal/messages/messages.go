@@ -116,6 +116,18 @@ func (e Error) Error() string {
 // ShowWelcome requests showing the welcome screen
 type ShowWelcome struct{}
 
+// ToggleMonitor requests toggling monitor mode
+type ToggleMonitor struct{}
+
+// ToggleHelp requests toggling the help overlay
+type ToggleHelp struct{}
+
+// ShowQuitDialog requests showing the quit confirmation dialog
+type ShowQuitDialog struct{}
+
+// ToggleKeymapHints toggles display of keymap helper text
+type ToggleKeymapHints struct{}
+
 // RefreshDashboard requests a dashboard refresh
 type RefreshDashboard struct{}
 

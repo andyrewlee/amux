@@ -1,12 +1,14 @@
 package common
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/logging"
 )
@@ -52,6 +54,11 @@ type Dialog struct {
 	// Layout
 	width  int
 	height int
+
+	// Zone manager for mouse handling
+	zone *zone.Manager
+	// Display settings
+	showKeymapHints bool
 }
 
 // NewInputDialog creates a new input dialog
@@ -93,22 +100,21 @@ func NewSelectDialog(id, title string, options []string) *Dialog {
 	}
 }
 
-// AgentOption represents an agent option with description
+// AgentOption represents an agent option
 type AgentOption struct {
 	ID   string
 	Name string
-	Desc string
 }
 
 // DefaultAgentOptions returns the default agent options
 func DefaultAgentOptions() []AgentOption {
 	return []AgentOption{
-		{ID: "claude", Name: "claude", Desc: "Claude Code"},
-		{ID: "codex", Name: "codex", Desc: "OpenAI Codex"},
-		{ID: "gemini", Name: "gemini", Desc: "Google Gemini"},
-		{ID: "amp", Name: "amp", Desc: "Sourcegraph Amp"},
-		{ID: "opencode", Name: "opencode", Desc: "SST OpenCode"},
-		{ID: "droid", Name: "droid", Desc: "Factory Droid"},
+		{ID: "claude", Name: "claude"},
+		{ID: "codex", Name: "codex"},
+		{ID: "gemini", Name: "gemini"},
+		{ID: "amp", Name: "amp"},
+		{ID: "opencode", Name: "opencode"},
+		{ID: "droid", Name: "droid"},
 	}
 }
 
@@ -199,6 +205,16 @@ func (d *Dialog) Visible() bool {
 	return d.visible
 }
 
+// SetZone sets the shared zone manager for click targets.
+func (d *Dialog) SetZone(z *zone.Manager) {
+	d.zone = z
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (d *Dialog) SetShowKeymapHints(show bool) {
+	d.showKeymapHints = show
+}
+
 // Update handles messages
 func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	if !d.visible {
@@ -206,6 +222,13 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if cmd := d.handleClick(msg); cmd != nil {
+				return d, cmd
+			}
+		}
+
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
@@ -322,6 +345,88 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	return d, nil
 }
 
+func (d *Dialog) handleClick(msg tea.MouseMsg) tea.Cmd {
+	if d.zone == nil {
+		return nil
+	}
+
+	switch d.dtype {
+	case DialogInput:
+		if z := d.zone.Get("dialog-" + d.id + "-opt-0"); z != nil && z.InBounds(msg) {
+			value := d.input.Value()
+			d.visible = false
+			return func() tea.Msg {
+				return DialogResult{
+					ID:        d.id,
+					Confirmed: true,
+					Value:     value,
+				}
+			}
+		}
+		if z := d.zone.Get("dialog-" + d.id + "-opt-1"); z != nil && z.InBounds(msg) {
+			d.visible = false
+			return func() tea.Msg {
+				return DialogResult{ID: d.id, Confirmed: false}
+			}
+		}
+
+	case DialogConfirm:
+		if z := d.zone.Get("dialog-" + d.id + "-opt-0"); z != nil && z.InBounds(msg) {
+			d.cursor = 0
+			d.visible = false
+			return func() tea.Msg {
+				return DialogResult{ID: d.id, Confirmed: true}
+			}
+		}
+		if z := d.zone.Get("dialog-" + d.id + "-opt-1"); z != nil && z.InBounds(msg) {
+			d.cursor = 1
+			d.visible = false
+			return func() tea.Msg {
+				return DialogResult{ID: d.id, Confirmed: false}
+			}
+		}
+
+	case DialogSelect:
+		if d.filterEnabled {
+			for cursorIdx, originalIdx := range d.filteredIndices {
+				id := "dialog-" + d.id + "-opt-" + strconv.Itoa(originalIdx)
+				if z := d.zone.Get(id); z != nil && z.InBounds(msg) {
+					d.cursor = cursorIdx
+					value := d.options[originalIdx]
+					d.visible = false
+					return func() tea.Msg {
+						return DialogResult{
+							ID:        d.id,
+							Confirmed: true,
+							Index:     originalIdx,
+							Value:     value,
+						}
+					}
+				}
+			}
+		} else {
+			for i := range d.options {
+				id := "dialog-" + d.id + "-opt-" + strconv.Itoa(i)
+				if z := d.zone.Get(id); z != nil && z.InBounds(msg) {
+					d.cursor = i
+					d.visible = false
+					value := d.options[i]
+					return func() tea.Msg {
+						return DialogResult{
+							ID:        d.id,
+							Confirmed: true,
+							Index:     i,
+							Value:     value,
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // View renders the dialog
 func (d *Dialog) View() string {
 	if !d.visible {
@@ -342,6 +447,8 @@ func (d *Dialog) View() string {
 	switch d.dtype {
 	case DialogInput:
 		content.WriteString(d.input.View())
+		content.WriteString("\n\n")
+		content.WriteString(d.renderInputButtons())
 
 	case DialogConfirm:
 		content.WriteString(d.message)
@@ -352,12 +459,13 @@ func (d *Dialog) View() string {
 		content.WriteString(d.renderOptions())
 	}
 
-	// Help
-	helpStyle := lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		MarginTop(1)
-	content.WriteString("\n")
-	content.WriteString(helpStyle.Render("enter: confirm • esc: cancel"))
+	if d.showKeymapHints {
+		helpStyle := lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			MarginTop(1)
+		content.WriteString("\n")
+		content.WriteString(helpStyle.Render(d.helpText()))
+	}
 
 	// Dialog box
 	dialogStyle := lipgloss.NewStyle().
@@ -397,7 +505,7 @@ func (d *Dialog) renderOptions() string {
 				cursor = Icons.Cursor + " "
 			}
 
-			// Get agent color
+			// Get agent color for indicator only
 			var colorStyle lipgloss.Style
 			switch opt.ID {
 			case "claude":
@@ -416,10 +524,17 @@ func (d *Dialog) renderOptions() string {
 				colorStyle = lipgloss.NewStyle().Foreground(ColorForeground)
 			}
 
-			name := colorStyle.Bold(cursorIdx == d.cursor).Render("[" + opt.Name + "]")
-			desc := lipgloss.NewStyle().Foreground(ColorMuted).Render("  " + opt.Desc)
-
-			b.WriteString(cursor + name + desc + "\n")
+			indicator := colorStyle.Render(Icons.Running)
+			nameStyle := lipgloss.NewStyle().Foreground(ColorForeground)
+			if cursorIdx == d.cursor {
+				nameStyle = nameStyle.Bold(true)
+			}
+			name := nameStyle.Render("[" + opt.Name + "]")
+			line := cursor + indicator + " " + name
+			if d.zone != nil {
+				line = d.zone.Mark("dialog-"+d.id+"-opt-"+strconv.Itoa(originalIdx), line)
+			}
+			b.WriteString(line + "\n")
 		}
 		return b.String()
 	}
@@ -435,17 +550,57 @@ func (d *Dialog) renderOptions() string {
 		Padding(0, 1)
 
 	for i, opt := range d.options {
+		rendered := normalStyle.Render(opt)
 		if i == d.cursor {
-			b.WriteString(selectedStyle.Render(opt))
-		} else {
-			b.WriteString(normalStyle.Render(opt))
+			rendered = selectedStyle.Render(opt)
 		}
+		if d.zone != nil {
+			rendered = d.zone.Mark("dialog-"+d.id+"-opt-"+strconv.Itoa(i), rendered)
+		}
+		b.WriteString(rendered)
 		if i < len(d.options)-1 {
 			b.WriteString("  ")
 		}
 	}
 
 	return b.String()
+}
+
+func (d *Dialog) renderInputButtons() string {
+	selectedStyle := lipgloss.NewStyle().
+		Foreground(ColorForeground).
+		Background(ColorPrimary).
+		Padding(0, 1)
+
+	normalStyle := lipgloss.NewStyle().
+		Foreground(ColorMuted).
+		Padding(0, 1)
+
+	// Highlight OK by default for visual affordance
+	ok := selectedStyle.Render("OK")
+	cancel := normalStyle.Render("Cancel")
+	if d.zone != nil {
+		ok = d.zone.Mark("dialog-"+d.id+"-opt-0", ok)
+		cancel = d.zone.Mark("dialog-"+d.id+"-opt-1", cancel)
+	}
+
+	return ok + "  " + cancel
+}
+
+func (d *Dialog) helpText() string {
+	switch d.dtype {
+	case DialogInput:
+		return "enter: confirm • esc: cancel • click OK/Cancel"
+	case DialogConfirm:
+		return "h/l or tab: choose • enter: confirm • esc: cancel"
+	case DialogSelect:
+		if d.filterEnabled {
+			return "type to filter • ↑/↓ or tab: move • enter: select • esc: cancel"
+		}
+		return "↑/↓ or tab: move • enter: select • esc: cancel"
+	default:
+		return "enter: confirm • esc: cancel"
+	}
 }
 
 // SetSize sets the dialog size

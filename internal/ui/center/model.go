@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -235,18 +236,21 @@ type Model struct {
 	tabsByWorktree      map[string][]*Tab // tabs per worktree ID
 	activeTabByWorktree map[string]int    // active tab index per worktree
 	focused             bool
+	canFocusRight       bool
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
 	terminalCanvas      *compositor.Canvas
 
 	// Layout
-	width   int
-	height  int
-	offsetX int // X offset from screen left (dashboard width)
+	width           int
+	height          int
+	offsetX         int // X offset from screen left (dashboard width)
+	showKeymapHints bool
 
 	// Config
 	config *config.Config
 	styles common.Styles
+	zone   *zone.Manager
 }
 
 // New creates a new center pane model
@@ -258,6 +262,21 @@ func New(cfg *config.Config) *Model {
 		agentManager:        appPty.NewAgentManager(cfg),
 		styles:              common.DefaultStyles(),
 	}
+}
+
+// SetZone sets the shared zone manager for click targets.
+func (m *Model) SetZone(z *zone.Manager) {
+	m.zone = z
+}
+
+// SetCanFocusRight controls whether focus-right hints should be shown.
+func (m *Model) SetCanFocusRight(can bool) {
+	m.canFocusRight = can
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (m *Model) SetShowKeymapHints(show bool) {
+	m.showKeymapHints = show
 }
 
 // worktreeID returns the ID of the current worktree, or empty string
@@ -376,6 +395,16 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
+		// Handle tab bar clicks (e.g., the plus button) even without an active agent.
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if cmd := m.handleTabBarClick(msg); cmd != nil {
+				return m, cmd
+			}
+			if cmd := m.handleHelpClick(msg); cmd != nil {
+				return m, cmd
+			}
+		}
+
 		// Handle mouse events for text selection
 		if !m.focused || !m.hasActiveAgent() {
 			return m, nil
@@ -693,7 +722,7 @@ func (m *Model) View() string {
 					Bold(true).
 					Foreground(lipgloss.Color("#1a1b26")).
 					Background(lipgloss.Color("#ff9e64"))
-				indicator := modeStyle.Render(" COPY MODE (q/Esc to exit) ")
+				indicator := modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) ")
 				b.WriteString("\n" + indicator)
 			} else if tab.Terminal.IsScrolled() {
 				offset, total := tab.Terminal.GetScrollInfo()
@@ -709,28 +738,28 @@ func (m *Model) View() string {
 	}
 
 	// Help bar with styled keys (prefix mode)
-	helpItems := []string{
-		m.styles.HelpKey.Render("C-Spc") + m.styles.HelpDesc.Render(":prefix"),
-		m.styles.HelpKey.Render("+a") + m.styles.HelpDesc.Render(":new"),
-		m.styles.HelpKey.Render("+x") + m.styles.HelpDesc.Render(":close"),
-		m.styles.HelpKey.Render("+n/p") + m.styles.HelpDesc.Render(":tabs"),
-		m.styles.HelpKey.Render("PgUp/Dn") + m.styles.HelpDesc.Render(":scroll"),
+	contentWidth := m.width - 4
+	if contentWidth < 1 {
+		contentWidth = 1
 	}
-	help := strings.Join(helpItems, "  ")
+	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
+	}
 	// Pad to the inner pane height (border excluded), reserving the help line.
 	contentHeight := strings.Count(b.String(), "\n") + 1
 	innerHeight := m.height - 2
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
-	targetHeight := innerHeight - 1 // help line
+	targetHeight := innerHeight - len(helpLines) // help lines
 	if targetHeight < 0 {
 		targetHeight = 0
 	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
-	b.WriteString(help)
+	b.WriteString(strings.Join(helpLines, "\n"))
 
 	// Apply pane styling
 	style := m.styles.Pane
@@ -741,13 +770,166 @@ func (m *Model) View() string {
 	return style.Width(m.width - 2).Render(b.String())
 }
 
+func (m *Model) helpItem(id, key, desc string) string {
+	item := common.RenderHelpItem(m.styles, key, desc)
+	if id == "" || m.zone == nil {
+		return item
+	}
+	return m.zone.Mark(id, item)
+}
+
+func (m *Model) helpLines(contentWidth int) []string {
+	items := []string{}
+
+	hasTabs := len(m.getTabs()) > 0
+	if m.worktree != nil {
+		items = append(items, m.helpItem("center-help-new", "C-Spc a", "new tab"))
+	}
+	if hasTabs {
+		items = append(items,
+			m.helpItem("center-help-close", "C-Spc x", "close"),
+			m.helpItem("center-help-prev", "C-Spc p", "prev"),
+			m.helpItem("center-help-next", "C-Spc n", "next"),
+			m.helpItem("", "C-Spc 1-9", "jump tab"),
+			m.helpItem("center-help-copy", "C-Spc [", "copy"),
+			m.helpItem("center-help-scroll-up", "PgUp", "half up"),
+			m.helpItem("center-help-scroll-down", "PgDn", "half down"),
+		)
+		if m.CopyModeActive() {
+			items = append(items,
+				m.helpItem("center-help-scroll-top", "g", "top"),
+				m.helpItem("center-help-scroll-bottom", "G", "bottom"),
+			)
+		}
+	}
+	return common.WrapHelpItems(items, contentWidth)
+}
+
+func (m *Model) handleHelpClick(msg tea.MouseMsg) tea.Cmd {
+	if m.zone == nil {
+		return nil
+	}
+	if z := m.zone.Get("center-help-copy"); z != nil && z.InBounds(msg) {
+		m.toggleCopyMode()
+		return nil
+	}
+	if z := m.zone.Get("center-help-scroll-up"); z != nil && z.InBounds(msg) {
+		m.scrollByHalfPage(1)
+		return nil
+	}
+	if z := m.zone.Get("center-help-scroll-down"); z != nil && z.InBounds(msg) {
+		m.scrollByHalfPage(-1)
+		return nil
+	}
+	if z := m.zone.Get("center-help-scroll-top"); z != nil && z.InBounds(msg) {
+		m.scrollToTop()
+		return nil
+	}
+	if z := m.zone.Get("center-help-scroll-bottom"); z != nil && z.InBounds(msg) {
+		m.scrollToBottom()
+		return nil
+	}
+	if z := m.zone.Get("center-help-new"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+	}
+	if z := m.zone.Get("center-help-close"); z != nil && z.InBounds(msg) {
+		return m.closeCurrentTab()
+	}
+	if z := m.zone.Get("center-help-prev"); z != nil && z.InBounds(msg) {
+		m.prevTab()
+		return nil
+	}
+	if z := m.zone.Get("center-help-next"); z != nil && z.InBounds(msg) {
+		m.nextTab()
+		return nil
+	}
+	if z := m.zone.Get("center-help-home"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ShowWelcome{} }
+	}
+	if z := m.zone.Get("center-help-monitor"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ToggleMonitor{} }
+	}
+	if z := m.zone.Get("center-help-help"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ToggleHelp{} }
+	}
+	if z := m.zone.Get("center-help-quit"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ShowQuitDialog{} }
+	}
+	return nil
+}
+
+func (m *Model) scrollByHalfPage(delta int) {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		tab.Terminal.ScrollView(delta * (tab.Terminal.Height / 2))
+	}
+	tab.mu.Unlock()
+}
+
+func (m *Model) scrollToTop() {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		tab.Terminal.ScrollViewToTop()
+	}
+	tab.mu.Unlock()
+}
+
+func (m *Model) scrollToBottom() {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		tab.Terminal.ScrollViewToBottom()
+	}
+	tab.mu.Unlock()
+}
+
+func (m *Model) toggleCopyMode() {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	if tab.CopyMode {
+		tab.CopyMode = false
+		tab.mu.Lock()
+		if tab.Terminal != nil {
+			tab.Terminal.ScrollViewToBottom()
+		}
+		tab.mu.Unlock()
+		return
+	}
+	tab.CopyMode = true
+}
+
 // renderTabBar renders the tab bar with activity indicators
 func (m *Model) renderTabBar() string {
 	currentTabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 
 	if len(currentTabs) == 0 {
-		return m.styles.Muted.Render("No agents")
+		empty := m.styles.TabPlus.Render("[+] New agent")
+		if m.zone != nil {
+			empty = m.zone.Mark("center-tab-plus", empty)
+		}
+		return empty
 	}
 
 	var renderedTabs []string
@@ -784,24 +966,69 @@ func (m *Model) renderTabBar() string {
 			agentStyle = m.styles.AgentTerm
 		}
 
-		// Build tab content with agent-colored indicator
-		content := agentStyle.Render(indicator) + name
+		// Build tab content with agent-colored indicator and a close affordance
+		closeLabel := m.styles.Muted.Render("x")
+		if m.zone != nil {
+			closeLabel = m.zone.Mark(fmt.Sprintf("center-tab-close-%d", i), closeLabel)
+		}
+		content := agentStyle.Render(indicator) + name + " " + closeLabel
 
+		var rendered string
 		if i == activeIdx {
 			// Active tab gets highlight border
-			renderedTabs = append(renderedTabs, m.styles.ActiveTab.Render(content))
+			rendered = m.styles.ActiveTab.Render(content)
 		} else {
 			// Inactive tab
-			renderedTabs = append(renderedTabs, m.styles.Tab.Render(content))
+			rendered = m.styles.Tab.Render(content)
 		}
+		if m.zone != nil {
+			rendered = m.zone.Mark(fmt.Sprintf("center-tab-%d", i), rendered)
+		}
+		renderedTabs = append(renderedTabs, rendered)
 	}
 
-	// Add the plus button with matching border style
-	plusBtn := m.styles.TabPlus.Render("[+]")
-	renderedTabs = append(renderedTabs, plusBtn)
+	// Add control buttons with matching border style
+	controls := []struct {
+		id    string
+		label string
+	}{
+		{id: "center-tab-plus", label: "[+]"},
+	}
+	for _, ctrl := range controls {
+		btn := m.styles.TabPlus.Render(ctrl.label)
+		if m.zone != nil {
+			btn = m.zone.Mark(ctrl.id, btn)
+		}
+		renderedTabs = append(renderedTabs, btn)
+	}
 
 	// Join tabs horizontally at the bottom so borders align
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
+}
+
+func (m *Model) handleTabBarClick(msg tea.MouseMsg) tea.Cmd {
+	if m.zone == nil {
+		return nil
+	}
+	if z := m.zone.Get("center-tab-plus"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+	}
+
+	tabs := m.getTabs()
+	for i := range tabs {
+		id := fmt.Sprintf("center-tab-close-%d", i)
+		if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
+			return m.closeTabAt(i)
+		}
+	}
+	for i := range tabs {
+		id := fmt.Sprintf("center-tab-%d", i)
+		if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
+			m.setActiveTabIdx(i)
+			return nil
+		}
+	}
+	return nil
 }
 
 // renderEmpty renders the empty state
@@ -810,9 +1037,11 @@ func (m *Model) renderEmpty() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Title.Render("No agents running"))
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.Muted.Render("Press "))
-	b.WriteString(m.styles.HelpKey.Render("C-Space a"))
-	b.WriteString(m.styles.Muted.Render(" to launch an agent"))
+	btn := m.styles.TabPlus.Render("[+] New agent")
+	if m.zone != nil {
+		btn = m.zone.Mark("center-tab-plus", btn)
+	}
+	b.WriteString(btn)
 	return b.String()
 }
 
@@ -930,8 +1159,16 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 		return nil
 	}
 
-	tab := tabs[activeIdx]
-	index := activeIdx
+	return m.closeTabAt(activeIdx)
+}
+
+func (m *Model) closeTabAt(index int) tea.Cmd {
+	tabs := m.getTabs()
+	if len(tabs) == 0 || index < 0 || index >= len(tabs) {
+		return nil
+	}
+
+	tab := tabs[index]
 
 	// Close agent
 	if tab.Agent != nil {
@@ -943,7 +1180,12 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 
 	// Adjust active tab
 	tabs = m.getTabs() // Get updated tabs
-	if activeIdx >= len(tabs) && activeIdx > 0 {
+	activeIdx := m.getActiveTabIdx()
+	if index == activeIdx {
+		if activeIdx >= len(tabs) && activeIdx > 0 {
+			m.setActiveTabIdx(activeIdx - 1)
+		}
+	} else if index < activeIdx {
 		m.setActiveTabIdx(activeIdx - 1)
 	}
 

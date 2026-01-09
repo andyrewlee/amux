@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -49,12 +50,14 @@ type Model struct {
 	statusCache map[string]*git.StatusResult
 
 	// UI state
-	cursor       int
-	focused      bool
-	width        int
-	height       int
-	filterDirty  bool // Only show dirty worktrees
-	scrollOffset int
+	cursor          int
+	focused         bool
+	width           int
+	height          int
+	filterDirty     bool // Only show dirty worktrees
+	scrollOffset    int
+	canFocusRight   bool
+	showKeymapHints bool
 
 	// Loading state
 	loadingStatus     map[string]bool           // Worktrees currently loading git status
@@ -65,6 +68,7 @@ type Model struct {
 
 	// Styles
 	styles common.Styles
+	zone   *zone.Manager
 }
 
 // New creates a new dashboard model
@@ -82,6 +86,21 @@ func New() *Model {
 	}
 }
 
+// SetZone sets the shared zone manager for click targets.
+func (m *Model) SetZone(z *zone.Manager) {
+	m.zone = z
+}
+
+// SetCanFocusRight controls whether focus-right hints should be shown.
+func (m *Model) SetCanFocusRight(can bool) {
+	m.canFocusRight = can
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (m *Model) SetShowKeymapHints(show bool) {
+	m.showKeymapHints = show
+}
+
 // Init initializes the dashboard
 func (m *Model) Init() tea.Cmd {
 	return nil
@@ -97,7 +116,66 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if msg.Action == tea.MouseActionPress {
+			if msg.Button == tea.MouseButtonWheelUp {
+				m.moveCursor(-1)
+				return m, nil
+			}
+			if msg.Button == tea.MouseButtonWheelDown {
+				m.moveCursor(1)
+				return m, nil
+			}
+		}
+
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if m.zone != nil {
+				if z := m.zone.Get("dash-help-up"); z != nil && z.InBounds(msg) {
+					m.moveCursor(-1)
+					return m, nil
+				}
+				if z := m.zone.Get("dash-help-down"); z != nil && z.InBounds(msg) {
+					m.moveCursor(1)
+					return m, nil
+				}
+				if z := m.zone.Get("dash-help-filter"); z != nil && z.InBounds(msg) {
+					m.toggleFilter()
+					return m, nil
+				}
+				if z := m.zone.Get("dash-help-refresh"); z != nil && z.InBounds(msg) {
+					return m, m.refresh()
+				}
+				if z := m.zone.Get("dash-help-delete"); z != nil && z.InBounds(msg) {
+					return m, m.handleDelete()
+				}
+				if z := m.zone.Get("dash-help-top"); z != nil && z.InBounds(msg) {
+					if idx := m.findSelectableRow(0, 1); idx != -1 {
+						m.cursor = idx
+					}
+					return m, nil
+				}
+				if z := m.zone.Get("dash-help-bottom"); z != nil && z.InBounds(msg) {
+					if idx := m.findSelectableRow(len(m.rows)-1, -1); idx != -1 {
+						m.cursor = idx
+					}
+					return m, nil
+				}
+				if z := m.zone.Get("dash-help-new-agent"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+				}
+				if z := m.zone.Get("dash-help-home"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ShowWelcome{} }
+				}
+				if z := m.zone.Get("dash-help-monitor"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ToggleMonitor{} }
+				}
+				if z := m.zone.Get("dash-help-help"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ToggleHelp{} }
+				}
+				if z := m.zone.Get("dash-help-quit"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ShowQuitDialog{} }
+				}
+			}
+
 			idx, ok := m.rowIndexAt(msg.X, msg.Y)
 			if !ok {
 				return m, nil
@@ -231,11 +309,11 @@ func (m *Model) View() string {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	helpText := "j/k:nav  enter:select  D:delete  C-Spc a:new  C-Spc m:mon  C-Spc ?:help"
-	helpHeight := (len(helpText) + contentWidth - 1) / contentWidth
-	if helpHeight < 1 {
-		helpHeight = 1
+	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
 	}
+	helpHeight := len(helpLines)
 	visibleHeight := innerHeight - headerHeight - helpHeight
 	if visibleHeight < 1 {
 		visibleHeight = 1
@@ -262,17 +340,6 @@ func (m *Model) View() string {
 		b.WriteString("\n")
 	}
 
-	// Help bar with styled keys (prefix commands)
-	helpItems := []string{
-		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
-		m.styles.HelpKey.Render("enter") + m.styles.HelpDesc.Render(":select"),
-		m.styles.HelpKey.Render("D") + m.styles.HelpDesc.Render(":delete"),
-		m.styles.HelpKey.Render("C-Spc a") + m.styles.HelpDesc.Render(":new"),
-		m.styles.HelpKey.Render("C-Spc m") + m.styles.HelpDesc.Render(":mon"),
-		m.styles.HelpKey.Render("C-Spc ?") + m.styles.HelpDesc.Render(":help"),
-	}
-	help := strings.Join(helpItems, "  ")
-
 	// Pad to the inner pane height (border excluded), reserving the help line.
 	contentHeight := strings.Count(b.String(), "\n") + 1
 	targetHeight := innerHeight - helpHeight
@@ -282,7 +349,7 @@ func (m *Model) View() string {
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
-	b.WriteString(help)
+	b.WriteString(strings.Join(helpLines, "\n"))
 
 	// Apply pane styling
 	style := m.styles.Pane
@@ -291,6 +358,42 @@ func (m *Model) View() string {
 	}
 
 	return style.Width(m.width - 2).Render(b.String())
+}
+
+func (m *Model) helpItem(id, key, desc string) string {
+	item := common.RenderHelpItem(m.styles, key, desc)
+	if id == "" || m.zone == nil {
+		return item
+	}
+	return m.zone.Mark(id, item)
+}
+
+func (m *Model) helpLines(contentWidth int) []string {
+	items := []string{
+		m.helpItem("dash-help-up", "k/↑", "up"),
+		m.helpItem("dash-help-down", "j/↓", "down"),
+		m.helpItem("", "enter", "open"),
+	}
+	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
+		items = append(items, m.helpItem("dash-help-delete", "D", "delete"))
+	}
+	items = append(items,
+		m.helpItem("dash-help-filter", "f", "filter"),
+		m.helpItem("dash-help-refresh", "r", "refresh"),
+		m.helpItem("dash-help-top", "g", "top"),
+		m.helpItem("dash-help-bottom", "G", "bottom"),
+	)
+	focusKey := "C-Spc h/j/k"
+	if m.canFocusRight {
+		focusKey = "C-Spc h/j/k/l"
+	}
+	items = append(items, m.helpItem("", focusKey, "focus (or ←↑↓→)"))
+	items = append(items,
+		m.helpItem("dash-help-monitor", "C-Spc m", "monitor"),
+		m.helpItem("dash-help-help", "C-Spc ?", "help"),
+		m.helpItem("dash-help-quit", "C-Spc q", "quit"),
+	)
+	return common.WrapHelpItems(items, contentWidth)
 }
 
 // renderRow renders a single dashboard row
@@ -563,7 +666,8 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	if m.filterDirty {
 		headerHeight++
 	}
-	helpHeight := 1
+	helpLines := m.helpLines(contentWidth)
+	helpHeight := len(helpLines)
 	rowAreaHeight := innerHeight - headerHeight - helpHeight
 	if rowAreaHeight < 1 {
 		rowAreaHeight = 1

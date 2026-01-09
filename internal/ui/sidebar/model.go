@@ -1,12 +1,14 @@
 package sidebar
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -24,11 +26,13 @@ type Model struct {
 	scrollOffset int
 
 	// Layout
-	width  int
-	height int
+	width           int
+	height          int
+	showKeymapHints bool
 
 	// Styles
 	styles common.Styles
+	zone   *zone.Manager
 }
 
 // New creates a new sidebar model
@@ -36,6 +40,16 @@ func New() *Model {
 	return &Model{
 		styles: common.DefaultStyles(),
 	}
+}
+
+// SetZone sets the shared zone manager for click targets.
+func (m *Model) SetZone(z *zone.Manager) {
+	m.zone = z
+}
+
+// SetShowKeymapHints controls whether helper text is rendered.
+func (m *Model) SetShowKeymapHints(show bool) {
+	m.showKeymapHints = show
 }
 
 // Init initializes the sidebar
@@ -48,6 +62,64 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		if !m.focused {
+			return m, nil
+		}
+
+		if msg.Action == tea.MouseActionPress {
+			if msg.Button == tea.MouseButtonWheelUp {
+				m.moveCursor(-1)
+				return m, nil
+			}
+			if msg.Button == tea.MouseButtonWheelDown {
+				m.moveCursor(1)
+				return m, nil
+			}
+		}
+
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if m.zone != nil {
+				if z := m.zone.Get("sidebar-help-up"); z != nil && z.InBounds(msg) {
+					m.moveCursor(-1)
+					return m, nil
+				}
+				if z := m.zone.Get("sidebar-help-down"); z != nil && z.InBounds(msg) {
+					m.moveCursor(1)
+					return m, nil
+				}
+				if z := m.zone.Get("sidebar-help-refresh"); z != nil && z.InBounds(msg) {
+					cmds = append(cmds, m.refreshStatus())
+					return m, tea.Batch(cmds...)
+				}
+				if z := m.zone.Get("sidebar-help-home"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ShowWelcome{} }
+				}
+				if z := m.zone.Get("sidebar-help-monitor"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ToggleMonitor{} }
+				}
+				if z := m.zone.Get("sidebar-help-help"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ToggleHelp{} }
+				}
+				if z := m.zone.Get("sidebar-help-quit"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ShowQuitDialog{} }
+				}
+				if z := m.zone.Get("sidebar-help-new-agent"); z != nil && z.InBounds(msg) {
+					return m, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+				}
+			}
+
+			if m.zone != nil && m.gitStatus != nil {
+				for i := range m.gitStatus.Files {
+					id := fmt.Sprintf("sidebar-file-%d", i)
+					if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
+						m.cursor = i
+						return m, nil
+					}
+				}
+			}
+		}
+
 	case tea.KeyMsg:
 		if !m.focused {
 			return m, nil
@@ -74,20 +146,25 @@ func (m *Model) View() string {
 	b.WriteString(m.renderChanges())
 
 	// Help bar
-	helpItems := []string{
-		m.styles.HelpKey.Render("j/k") + m.styles.HelpDesc.Render(":nav"),
+	contentWidth := m.width
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
 	}
 
 	// Padding
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := m.height - 1
+	targetHeight := m.height - len(helpLines)
 	if targetHeight < 0 {
 		targetHeight = 0
 	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
-	b.WriteString(strings.Join(helpItems, "  "))
+	b.WriteString(strings.Join(helpLines, "\n"))
 
 	return b.String()
 }
@@ -170,10 +247,29 @@ func (m *Model) renderChanges() string {
 		}
 
 		line := cursor + statusStyle.Render(file.Code) + " " + m.styles.FilePath.Render(displayPath)
+		if m.zone != nil {
+			line = m.zone.Mark(fmt.Sprintf("sidebar-file-%d", i), line)
+		}
 		b.WriteString(line + "\n")
 	}
 
 	return b.String()
+}
+
+func (m *Model) helpItem(id, key, desc string) string {
+	item := common.RenderHelpItem(m.styles, key, desc)
+	if id == "" || m.zone == nil {
+		return item
+	}
+	return m.zone.Mark(id, item)
+}
+
+func (m *Model) helpLines(contentWidth int) []string {
+	items := []string{
+		m.helpItem("sidebar-help-up", "k/↑", "up"),
+		m.helpItem("sidebar-help-down", "j/↓", "down"),
+	}
+	return common.WrapHelpItems(items, contentWidth)
 }
 
 // moveCursor moves the cursor

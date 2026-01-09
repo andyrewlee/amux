@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -39,7 +40,7 @@ const (
 
 // Prefix mode constants
 const (
-	prefixRepeatTime = 700 * time.Millisecond
+	prefixTimeout = 700 * time.Millisecond
 )
 
 // prefixTimeoutMsg is sent when the prefix mode timer expires
@@ -103,6 +104,8 @@ type App struct {
 	// Prefix mode (tmux-style leader key)
 	prefixActive bool
 	prefixToken  int
+
+	zone *zone.Manager
 }
 
 // New creates a new App instance
@@ -140,7 +143,7 @@ func New() (*App, error) {
 		fileWatcher = nil
 	}
 
-	return &App{
+	app := &App{
 		config:          cfg,
 		registry:        registry,
 		metadata:        metadata,
@@ -160,7 +163,14 @@ func New() (*App, error) {
 		showWelcome:     true,
 		keymap:          DefaultKeyMap(),
 		styles:          common.DefaultStyles(),
-	}, nil
+	}
+	app.zone = zone.New()
+	app.center.SetZone(app.zone)
+	app.dashboard.SetZone(app.zone)
+	app.sidebar.SetZone(app.zone)
+	app.sidebarTerminal.SetZone(app.zone)
+	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
+	return app, nil
 }
 
 // Init initializes the application
@@ -216,6 +226,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
+	// Allow clicking to dismiss help or error overlays
+	if mouseMsg, ok := msg.(tea.MouseMsg); ok {
+		if mouseMsg.Action == tea.MouseActionPress && mouseMsg.Button == tea.MouseButtonLeft {
+			if a.helpOverlay.Visible() {
+				a.helpOverlay.Hide()
+				return a, nil
+			}
+			if a.err != nil {
+				a.err = nil
+				return a, nil
+			}
+		}
+	}
+
 	// Handle toast updates
 	if _, ok := msg.(common.ToastDismissed); ok {
 		newToast, cmd := a.toast.Update(msg)
@@ -265,7 +289,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.monitorMode {
 			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 				a.focusPane(messages.PaneMonitor)
-				a.selectMonitorTile(msg.X, msg.Y)
+				if a.monitorExitHit(msg.X, msg.Y) {
+					a.toggleMonitorMode()
+					break
+				}
+				tabs := a.center.MonitorTabs()
+				prevIdx := a.center.MonitorSelectedIndex(len(tabs))
+				if idx, ok := a.selectMonitorTile(msg.X, msg.Y); ok {
+					if idx == prevIdx {
+						cmds = append(cmds, a.exitMonitorToSelection())
+					}
+				}
 			}
 			break
 		}
@@ -289,12 +323,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if a.monitorMode && msg.X < dashWidth+rightWidth {
 				// Clicked on monitor pane
 				a.focusPane(messages.PaneMonitor)
-				a.selectMonitorTile(msg.X-dashWidth, msg.Y)
+				_, _ = a.selectMonitorTile(msg.X-dashWidth, msg.Y)
 			} else if msg.X < dashWidth+centerWidth {
 
 				// Clicked on center pane
 
 				a.focusPane(messages.PaneCenter)
+
+				if a.dialog == nil || !a.dialog.Visible() {
+					if a.showWelcome {
+						if z := a.zone.Get("welcome-new-project"); z != nil && z.InBounds(msg) {
+							cmds = append(cmds, func() tea.Msg { return messages.ShowAddProjectDialog{} })
+						} else if z := a.zone.Get("welcome-toggle-help"); z != nil && z.InBounds(msg) {
+							cmds = append(cmds, func() tea.Msg { return messages.ToggleKeymapHints{} })
+						}
+					} else if !a.center.HasTabs() && a.activeWorktree != nil {
+						if z := a.zone.Get("worktree-new-agent"); z != nil && z.InBounds(msg) {
+							cmds = append(cmds, func() tea.Msg { return messages.ShowSelectAssistantDialog{} })
+						}
+					}
+				}
 
 			} else if a.layout.ShowSidebar() {
 
@@ -416,13 +464,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 
-			handled, repeatable, cmd := a.handlePrefixCommand(msg)
+			handled, cmd := a.handlePrefixCommand(msg)
 			if handled {
-				if repeatable {
-					// Stay in prefix mode, reset timer
-					return a, tea.Batch(cmd, a.bumpPrefixTimer())
-				}
-				// Non-repeatable command, exit prefix
 				a.exitPrefix()
 				return a, cmd
 			}
@@ -501,6 +544,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ShowWelcome:
 		a.goHome()
 
+	case messages.ToggleMonitor:
+		a.toggleMonitorMode()
+
+	case messages.ToggleHelp:
+		a.helpOverlay.SetSize(a.width, a.height)
+		a.helpOverlay.Toggle()
+
+	case messages.ToggleKeymapHints:
+		a.setKeymapHintsEnabled(!a.config.UI.ShowKeymapHints)
+		if err := a.config.SaveUISettings(); err != nil {
+			cmds = append(cmds, a.toast.ShowWarning("Failed to save keymap setting"))
+		}
+
+	case messages.ShowQuitDialog:
+		a.showQuitDialog()
+
 	case messages.RefreshDashboard:
 		cmds = append(cmds, a.loadProjects())
 
@@ -547,11 +606,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			home = "/"
 		}
 		a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
+		a.filePicker.SetZone(a.zone)
+		a.filePicker.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.filePicker.Show()
 
 	case messages.ShowCreateWorktreeDialog:
 		a.dialogProject = msg.Project
 		a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
+		a.dialog.SetZone(a.zone)
+		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.dialog.Show()
 
 	case messages.ShowDeleteWorktreeDialog:
@@ -562,11 +625,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			"Delete Worktree",
 			fmt.Sprintf("Delete worktree '%s' and its branch?", msg.Worktree.Name),
 		)
+		a.dialog.SetZone(a.zone)
+		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.dialog.Show()
 
 	case messages.ShowSelectAssistantDialog:
 		if a.activeWorktree != nil {
 			a.dialog = common.NewAgentPicker()
+			a.dialog.SetZone(a.zone)
+			a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 			a.dialog.Show()
 		}
 
@@ -761,6 +828,8 @@ func (a *App) showQuitDialog() {
 		"Quit AMUX",
 		"Are you sure you want to quit?",
 	)
+	a.dialog.SetZone(a.zone)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
 }
 
@@ -803,6 +872,7 @@ func (a *App) View() string {
 		if a.err != nil {
 			content = a.overlayError(content)
 		}
+		content = a.zone.Scan(content)
 		return syncBegin + content + syncEnd
 	}
 
@@ -866,6 +936,7 @@ func (a *App) View() string {
 		content = a.overlayError(content)
 	}
 
+	content = a.zone.Scan(content)
 	// Wrap with synchronized output to prevent flickering
 	return syncBegin + content + syncEnd
 }
@@ -1070,7 +1141,7 @@ func (a *App) overlayError(content string) string {
 		Padding(0, 2).
 		Width(a.width)
 
-	errMsg := fmt.Sprintf(" Error: %s (press any key to dismiss)", a.err.Error())
+	errMsg := fmt.Sprintf(" Error: %s (press any key or click to dismiss)", a.err.Error())
 	errBanner := errStyle.Render(errMsg)
 
 	// Place error at the bottom
@@ -1188,7 +1259,7 @@ func (a *App) renderMonitorGrid() string {
 	})
 
 	headerStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))}
-	canvas.DrawText(0, 0, "Monitor: hjkl/arrows select • Enter open • q/Esc cancel", headerStyle)
+	canvas.DrawText(0, 0, monitorHeaderText(), headerStyle)
 
 	projectNames := make(map[string]string, len(a.projects))
 	for _, project := range a.projects {
@@ -1281,6 +1352,25 @@ func (a *App) renderMonitorGrid() string {
 	}
 
 	return canvas.Render()
+}
+
+func monitorHeaderText() string {
+	return "Monitor: hjkl/arrows select • Enter open • click tile open • q/Esc cancel • [Exit]"
+}
+
+func (a *App) monitorExitHit(x, y int) bool {
+	if y != 0 {
+		return false
+	}
+	header := monitorHeaderText()
+	exitLabel := "[Exit]"
+	idx := strings.Index(header, exitLabel)
+	if idx < 0 {
+		return false
+	}
+	start := ansi.StringWidth(header[:idx])
+	end := start + ansi.StringWidth(exitLabel)
+	return x >= start && x < end
 }
 
 type monitorGrid struct {
@@ -1531,23 +1621,23 @@ func (a *App) projectForWorktree(wt *data.Worktree) *data.Project {
 	return nil
 }
 
-func (a *App) selectMonitorTile(paneX, paneY int) {
+func (a *App) selectMonitorTile(paneX, paneY int) (int, bool) {
 	tabs := a.center.MonitorTabs()
 	count := len(tabs)
 	if count == 0 {
-		return
+		return -1, false
 	}
 
 	gridX, gridY, gridW, gridH := a.monitorGridArea()
 	x := paneX - gridX
 	y := paneY - gridY
 	if x < 0 || y < 0 || x >= gridW || y >= gridH {
-		return
+		return -1, false
 	}
 
 	grid := monitorGridLayout(count, gridW, gridH)
 	if grid.cols == 0 || grid.rows == 0 {
-		return
+		return -1, false
 	}
 
 	col := -1
@@ -1559,7 +1649,7 @@ func (a *App) selectMonitorTile(paneX, paneY int) {
 		x -= grid.colWidths[c]
 		if c < grid.cols-1 {
 			if x < grid.gapX {
-				return
+				return -1, false
 			}
 			x -= grid.gapX
 		}
@@ -1574,20 +1664,22 @@ func (a *App) selectMonitorTile(paneX, paneY int) {
 		y -= grid.rowHeights[r]
 		if r < grid.rows-1 {
 			if y < grid.gapY {
-				return
+				return -1, false
 			}
 			y -= grid.gapY
 		}
 	}
 
 	if row < 0 || col < 0 {
-		return
+		return -1, false
 	}
 
 	index := row*grid.cols + col
 	if index >= 0 && index < count {
 		a.center.SetMonitorSelectedIndex(index, count)
+		return index, true
 	}
+	return -1, false
 }
 
 func monitorProjectName(wt *data.Worktree) string {
@@ -1616,13 +1708,45 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	content += "\n" + a.styles.Help.Render("Press C-Space a to launch an agent")
+	content += "\n" + a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
+	if a.config.UI.ShowKeymapHints {
+		content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
+	}
 
 	return content
 }
 
 // renderWelcome renders the welcome screen
 func (a *App) renderWelcome() string {
+	content := a.welcomeContent()
+
+	// Center the content in the pane
+	width := a.layout.CenterWidth() - 4 // Account for borders/padding
+	height := a.layout.Height() - 4
+
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (a *App) welcomeContent() string {
+	logo, logoStyle := a.welcomeLogo()
+	var b strings.Builder
+	b.WriteString(logoStyle.Render(logo))
+	b.WriteString("\n\n")
+	newProject := a.zone.Mark("welcome-new-project", a.styles.TabPlus.Render("[+] New project"))
+	helpLabel := "[?] Hide keymap"
+	if !a.config.UI.ShowKeymapHints {
+		helpLabel = "[?] Show keymap"
+	}
+	helpToggle := a.zone.Mark("welcome-toggle-help", a.styles.TabPlus.Render(helpLabel))
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, newProject, "  ", helpToggle))
+	b.WriteString("\n")
+	if a.config.UI.ShowKeymapHints {
+		b.WriteString(a.styles.Help.Render("Dashboard: j/k to move • Enter to select"))
+	}
+	return b.String()
+}
+
+func (a *App) welcomeLogo() (string, lipgloss.Style) {
 	logo := `
  8888b.  88888b.d88b.  888  888 888  888
     "88b 888 "888 "88b 888  888  Y8bd8P
@@ -1633,29 +1757,7 @@ func (a *App) renderWelcome() string {
 	logoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#7aa2f7")).
 		Bold(true)
-
-	// Quick start section
-	quickStart := `
-┌─ Quick Start ─────────────────────┐
-│  a          Add a project         │
-│  C-Space a  Launch AI agent       │
-│  C-Space ?  Show all shortcuts    │
-└───────────────────────────────────┘`
-
-	quickStartStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#565f89"))
-
-	// Build the welcome screen content
-	var b strings.Builder
-	b.WriteString(logoStyle.Render(logo))
-	b.WriteString("\n\n")
-	b.WriteString(quickStartStyle.Render(quickStart))
-
-	// Center the content in the pane
-	width := a.layout.CenterWidth() - 4 // Account for borders/padding
-	height := a.layout.Height() - 4
-
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, b.String())
+	return logo, logoStyle
 }
 
 // loadProjects loads all registered projects and their worktrees
@@ -1944,7 +2046,7 @@ func (a *App) enterPrefix() tea.Cmd {
 	a.prefixActive = true
 	a.prefixToken++
 	token := a.prefixToken
-	return tea.Tick(prefixRepeatTime, func(t time.Time) tea.Msg {
+	return tea.Tick(prefixTimeout, func(t time.Time) tea.Msg {
 		return prefixTimeoutMsg{token: token}
 	})
 }
@@ -1954,20 +2056,11 @@ func (a *App) exitPrefix() {
 	a.prefixActive = false
 }
 
-// bumpPrefixTimer resets the prefix timeout for repeatable commands
-func (a *App) bumpPrefixTimer() tea.Cmd {
-	a.prefixToken++
-	token := a.prefixToken
-	return tea.Tick(prefixRepeatTime, func(t time.Time) tea.Msg {
-		return prefixTimeoutMsg{token: token}
-	})
-}
-
 // handlePrefixCommand handles a key press while in prefix mode
-// Returns (handled, repeatable, cmd)
-func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
+// Returns (handled, cmd)
+func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, tea.Cmd) {
 	switch {
-	// Pane focus (repeatable)
+	// Pane focus
 	case key.Matches(msg, a.keymap.MoveLeft):
 		switch a.focusedPane {
 		case messages.PaneCenter:
@@ -1981,7 +2074,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 		case messages.PaneMonitor:
 			a.focusPane(messages.PaneDashboard)
 		}
-		return true, true, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveRight):
 		switch a.focusedPane {
@@ -2002,61 +2095,53 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 				a.focusPane(messages.PaneSidebar)
 			}
 		}
-		return true, true, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveUp):
 		if a.focusedPane == messages.PaneSidebarTerminal {
 			a.focusPane(messages.PaneSidebar)
 		}
-		return true, true, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveDown):
 		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
 			a.focusPane(messages.PaneSidebarTerminal)
 		}
-		return true, true, nil
+		return true, nil
 
-	// Tab management (repeatable for n/p)
+	// Tab management
 	case key.Matches(msg, a.keymap.NextTab):
 		a.center.NextTab()
-		return true, true, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.PrevTab):
 		a.center.PrevTab()
-		return true, true, nil
+		return true, nil
 
-	// Tab management (non-repeatable)
+	// Tab management
 	case key.Matches(msg, a.keymap.NewAgentTab):
 		if a.activeWorktree != nil {
-			return true, false, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+			return true, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 		}
-		return true, false, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.CloseTab):
 		cmd := a.center.CloseActiveTab()
-		return true, false, cmd
+		return true, cmd
 
-	// Global commands (non-repeatable)
+	// Global commands
 	case key.Matches(msg, a.keymap.Monitor):
 		a.toggleMonitorMode()
-		return true, false, nil
-
-	case key.Matches(msg, a.keymap.Home):
-		if a.monitorMode {
-			return true, false, a.exitMonitorToSelection()
-		}
-		a.goHome()
-		a.focusPane(messages.PaneDashboard)
-		return true, false, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.Help):
 		a.helpOverlay.SetSize(a.width, a.height)
 		a.helpOverlay.Toggle()
-		return true, false, nil
+		return true, nil
 
 	case key.Matches(msg, a.keymap.Quit):
 		a.showQuitDialog()
-		return true, false, nil
+		return true, nil
 
 	// Copy mode (scroll in terminal) - targets focused pane
 	case key.Matches(msg, a.keymap.CopyMode):
@@ -2066,7 +2151,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 		case messages.PaneSidebarTerminal:
 			a.sidebarTerminal.EnterCopyMode()
 		}
-		return true, false, nil
+		return true, nil
 
 	// Tab numbers 1-9
 	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1:
@@ -2074,11 +2159,11 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 		if r >= '1' && r <= '9' {
 			index := int(r - '1')
 			a.center.SelectTab(index)
-			return true, false, nil
+			return true, nil
 		}
 	}
 
-	return false, false, nil
+	return false, nil
 }
 
 // sendPrefixToTerminal sends a literal Ctrl-Space (NUL) to the focused terminal
@@ -2100,6 +2185,8 @@ func (a *App) updateLayout() {
 	}
 	a.center.SetSize(centerWidth, a.layout.Height())
 	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
+	a.center.SetCanFocusRight(a.layout.ShowSidebar())
+	a.dashboard.SetCanFocusRight(a.layout.ShowCenter())
 
 	sidebarLayout := a.sidebarLayoutInfo()
 	a.sidebar.SetSize(sidebarLayout.bodyWidth, sidebarLayout.topHeight)
@@ -2118,6 +2205,22 @@ func (a *App) updateLayout() {
 
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
+	}
+}
+
+func (a *App) setKeymapHintsEnabled(enabled bool) {
+	if a.config != nil {
+		a.config.UI.ShowKeymapHints = enabled
+	}
+	a.dashboard.SetShowKeymapHints(enabled)
+	a.center.SetShowKeymapHints(enabled)
+	a.sidebar.SetShowKeymapHints(enabled)
+	a.sidebarTerminal.SetShowKeymapHints(enabled)
+	if a.dialog != nil {
+		a.dialog.SetShowKeymapHints(enabled)
+	}
+	if a.filePicker != nil {
+		a.filePicker.SetShowKeymapHints(enabled)
 	}
 }
 

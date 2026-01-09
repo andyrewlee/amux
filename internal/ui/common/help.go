@@ -48,8 +48,7 @@ func defaultHelpSections() []HelpSection {
 		{
 			Title: "After Prefix: Navigation",
 			Bindings: []HelpBinding{
-				{"h/u/d/l", "Focus pane (←↑↓→)"},
-				{"g", "Go home (dashboard)"},
+				{"h/j/k/l", "Focus pane (←↑↓→)"},
 				{"m", "Toggle monitor"},
 				{"?", "This help"},
 				{"q", "Quit"},
@@ -72,7 +71,47 @@ func defaultHelpSections() []HelpSection {
 				{"Enter", "Activate worktree"},
 				{"D", "Delete worktree"},
 				{"f", "Toggle dirty filter"},
-				{"r/g", "Refresh"},
+				{"r", "Refresh"},
+				{"g/G", "Top/bottom"},
+			},
+		},
+		{
+			Title: "Monitor Mode",
+			Bindings: []HelpBinding{
+				{"hjkl/↑↓←→", "Move selection"},
+				{"Enter", "Open selection"},
+				{"q/Esc", "Exit monitor"},
+			},
+		},
+		{
+			Title: "Copy Mode (center/sidebar terminals)",
+			Bindings: []HelpBinding{
+				{"q/Esc", "Exit copy mode"},
+				{"j/k or ↑/↓", "Scroll line"},
+				{"PgUp/PgDn", "Scroll half page"},
+				{"Ctrl+u/Ctrl+d", "Scroll half page"},
+				{"g/G", "Top/bottom"},
+			},
+		},
+		{
+			Title: "Dialogs",
+			Bindings: []HelpBinding{
+				{"Enter", "Confirm"},
+				{"Esc", "Cancel"},
+				{"Tab/Shift+Tab", "Next/prev option"},
+				{"↑/↓", "Move selection"},
+			},
+		},
+		{
+			Title: "File Picker",
+			Bindings: []HelpBinding{
+				{"Enter", "Open/select"},
+				{"Esc", "Cancel"},
+				{"↑/↓ or Ctrl+n/p", "Move"},
+				{"Tab", "Autocomplete"},
+				{"/", "Open typed path"},
+				{"Backspace", "Up directory"},
+				{"Ctrl+h", "Toggle hidden"},
 			},
 		},
 		{
@@ -156,7 +195,7 @@ func (h *HelpOverlay) View() string {
 	footer := lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		Italic(true).
-		Render("Press any key to close")
+		Render("Press any key or click to close")
 	b.WriteString(footer)
 
 	// Create the overlay box
@@ -192,4 +231,45 @@ func RenderHelpBarItems(styles Styles, items []HelpBinding) string {
 		parts = append(parts, RenderHelpItem(styles, item.Key, item.Desc))
 	}
 	return strings.Join(parts, "  ")
+}
+
+// WrapHelpItems wraps pre-rendered help items into multiple lines constrained by width.
+func WrapHelpItems(items []string, width int) []string {
+	if len(items) == 0 {
+		return []string{""}
+	}
+	if width <= 0 {
+		return []string{strings.Join(items, "  ")}
+	}
+
+	var lines []string
+	current := ""
+	currentWidth := 0
+	sep := "  "
+	sepWidth := lipgloss.Width(sep)
+
+	for _, item := range items {
+		itemWidth := lipgloss.Width(item)
+		if current == "" {
+			current = item
+			currentWidth = itemWidth
+			continue
+		}
+		if currentWidth+sepWidth+itemWidth <= width {
+			current += sep + item
+			currentWidth += sepWidth + itemWidth
+			continue
+		}
+		lines = append(lines, current)
+		current = item
+		currentWidth = itemWidth
+	}
+
+	if current != "" {
+		lines = append(lines, current)
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "")
+	}
+	return lines
 }

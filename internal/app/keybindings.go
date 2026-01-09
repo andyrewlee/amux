@@ -17,7 +17,6 @@ type KeyMap struct {
 	PrevTab     key.Binding
 	CloseTab    key.Binding
 	NewAgentTab key.Binding
-	Home        key.Binding
 	Help        key.Binding
 	Monitor     key.Binding
 	CopyMode    key.Binding
@@ -63,12 +62,12 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("l", "focus right"),
 		),
 		MoveUp: key.NewBinding(
-			key.WithKeys("u", "up"),
-			key.WithHelp("u", "focus up"),
+			key.WithKeys("k", "up"),
+			key.WithHelp("k", "focus up"),
 		),
 		MoveDown: key.NewBinding(
-			key.WithKeys("d", "down"),
-			key.WithHelp("d", "focus down"),
+			key.WithKeys("j", "down"),
+			key.WithHelp("j", "focus down"),
 		),
 		NextTab: key.NewBinding(
 			key.WithKeys("n"),
@@ -85,10 +84,6 @@ func DefaultKeyMap() KeyMap {
 		NewAgentTab: key.NewBinding(
 			key.WithKeys("a"),
 			key.WithHelp("a", "new agent tab"),
-		),
-		Home: key.NewBinding(
-			key.WithKeys("g"),
-			key.WithHelp("g", "go home"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
