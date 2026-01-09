@@ -166,6 +166,9 @@ func New() (*App, error) {
 	}
 	app.zone = zone.New()
 	app.center.SetZone(app.zone)
+	app.dashboard.SetZone(app.zone)
+	app.sidebar.SetZone(app.zone)
+	app.sidebarTerminal.SetZone(app.zone)
 	return app, nil
 }
 
@@ -222,6 +225,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
+	// Allow clicking to dismiss help or error overlays
+	if mouseMsg, ok := msg.(tea.MouseMsg); ok {
+		if mouseMsg.Action == tea.MouseActionPress && mouseMsg.Button == tea.MouseButtonLeft {
+			if a.helpOverlay.Visible() {
+				a.helpOverlay.Hide()
+				return a, nil
+			}
+			if a.err != nil {
+				a.err = nil
+				return a, nil
+			}
+		}
+	}
+
 	// Handle toast updates
 	if _, ok := msg.(common.ToastDismissed); ok {
 		newToast, cmd := a.toast.Update(msg)
@@ -231,10 +248,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Handle dialog input if visible
 	if a.dialog != nil && a.dialog.Visible() {
-		if _, ok := msg.(tea.MouseMsg); ok {
-			x, y, _, _ := a.dialogBounds()
-			a.dialog.SetOffset(x, y)
-		}
 		newDialog, cmd := a.dialog.Update(msg)
 		a.dialog = newDialog
 		if cmd != nil {
@@ -275,7 +288,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.monitorMode {
 			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 				a.focusPane(messages.PaneMonitor)
-				a.selectMonitorTile(msg.X, msg.Y)
+				if a.monitorExitHit(msg.X, msg.Y) {
+					a.toggleMonitorMode()
+					break
+				}
+				tabs := a.center.MonitorTabs()
+				prevIdx := a.center.MonitorSelectedIndex(len(tabs))
+				if idx, ok := a.selectMonitorTile(msg.X, msg.Y); ok {
+					if idx == prevIdx {
+						cmds = append(cmds, a.exitMonitorToSelection())
+					}
+				}
 			}
 			break
 		}
@@ -299,7 +322,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if a.monitorMode && msg.X < dashWidth+rightWidth {
 				// Clicked on monitor pane
 				a.focusPane(messages.PaneMonitor)
-				a.selectMonitorTile(msg.X-dashWidth, msg.Y)
+				_, _ = a.selectMonitorTile(msg.X-dashWidth, msg.Y)
 			} else if msg.X < dashWidth+centerWidth {
 
 				// Clicked on center pane
@@ -307,10 +330,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focusPane(messages.PaneCenter)
 
 				if a.dialog == nil || !a.dialog.Visible() {
-					if a.showWelcome && a.zone.Get("welcome-new-project").InBounds(msg) {
-						cmds = append(cmds, func() tea.Msg { return messages.ShowAddProjectDialog{} })
-					} else if !a.center.HasTabs() && a.activeWorktree != nil && a.zone.Get("worktree-new-agent").InBounds(msg) {
-						cmds = append(cmds, func() tea.Msg { return messages.ShowSelectAssistantDialog{} })
+					if a.showWelcome {
+						if z := a.zone.Get("welcome-new-project"); z != nil && z.InBounds(msg) {
+							cmds = append(cmds, func() tea.Msg { return messages.ShowAddProjectDialog{} })
+						}
+					} else if !a.center.HasTabs() && a.activeWorktree != nil {
+						if z := a.zone.Get("worktree-new-agent"); z != nil && z.InBounds(msg) {
+							cmds = append(cmds, func() tea.Msg { return messages.ShowSelectAssistantDialog{} })
+						}
 					}
 				}
 
@@ -519,6 +546,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ShowWelcome:
 		a.goHome()
 
+	case messages.ToggleMonitor:
+		a.toggleMonitorMode()
+
+	case messages.ToggleHelp:
+		a.helpOverlay.SetSize(a.width, a.height)
+		a.helpOverlay.Toggle()
+
+	case messages.ShowQuitDialog:
+		a.showQuitDialog()
+
 	case messages.RefreshDashboard:
 		cmds = append(cmds, a.loadProjects())
 
@@ -565,11 +602,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			home = "/"
 		}
 		a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
+		a.filePicker.SetZone(a.zone)
 		a.filePicker.Show()
 
 	case messages.ShowCreateWorktreeDialog:
 		a.dialogProject = msg.Project
 		a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
+		a.dialog.SetZone(a.zone)
 		a.dialog.Show()
 
 	case messages.ShowDeleteWorktreeDialog:
@@ -580,11 +619,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			"Delete Worktree",
 			fmt.Sprintf("Delete worktree '%s' and its branch?", msg.Worktree.Name),
 		)
+		a.dialog.SetZone(a.zone)
 		a.dialog.Show()
 
 	case messages.ShowSelectAssistantDialog:
 		if a.activeWorktree != nil {
 			a.dialog = common.NewAgentPicker()
+			a.dialog.SetZone(a.zone)
 			a.dialog.Show()
 		}
 
@@ -779,6 +820,7 @@ func (a *App) showQuitDialog() {
 		"Quit AMUX",
 		"Are you sure you want to quit?",
 	)
+	a.dialog.SetZone(a.zone)
 	a.dialog.Show()
 }
 
@@ -1022,30 +1064,6 @@ func (a *App) overlayDialog(content string) string {
 	return strings.Join(contentLines, "\n")
 }
 
-func (a *App) dialogBounds() (x int, y int, width int, height int) {
-	if a.dialog == nil {
-		return 0, 0, 0, 0
-	}
-	dialogView := a.dialog.View()
-	dialogLines := strings.Split(dialogView, "\n")
-	height = len(dialogLines)
-	for _, line := range dialogLines {
-		if w := lipgloss.Width(line); w > width {
-			width = w
-		}
-	}
-
-	x = (a.width - width) / 2
-	y = (a.height - height) / 2
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	return x, y, width, height
-}
-
 // overlayFilePicker renders the file picker as a modal overlay
 func (a *App) overlayFilePicker(content string) string {
 	pickerView := a.filePicker.View()
@@ -1114,7 +1132,7 @@ func (a *App) overlayError(content string) string {
 		Padding(0, 2).
 		Width(a.width)
 
-	errMsg := fmt.Sprintf(" Error: %s (press any key to dismiss)", a.err.Error())
+	errMsg := fmt.Sprintf(" Error: %s (press any key or click to dismiss)", a.err.Error())
 	errBanner := errStyle.Render(errMsg)
 
 	// Place error at the bottom
@@ -1232,7 +1250,7 @@ func (a *App) renderMonitorGrid() string {
 	})
 
 	headerStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))}
-	canvas.DrawText(0, 0, "Monitor: hjkl/arrows select • Enter open • q/Esc cancel", headerStyle)
+	canvas.DrawText(0, 0, monitorHeaderText(), headerStyle)
 
 	projectNames := make(map[string]string, len(a.projects))
 	for _, project := range a.projects {
@@ -1325,6 +1343,25 @@ func (a *App) renderMonitorGrid() string {
 	}
 
 	return canvas.Render()
+}
+
+func monitorHeaderText() string {
+	return "Monitor: hjkl/arrows select • Enter open • click tile open • q/Esc cancel • [Exit]"
+}
+
+func (a *App) monitorExitHit(x, y int) bool {
+	if y != 0 {
+		return false
+	}
+	header := monitorHeaderText()
+	exitLabel := "[Exit]"
+	idx := strings.Index(header, exitLabel)
+	if idx < 0 {
+		return false
+	}
+	start := ansi.StringWidth(header[:idx])
+	end := start + ansi.StringWidth(exitLabel)
+	return x >= start && x < end
 }
 
 type monitorGrid struct {
@@ -1575,23 +1612,23 @@ func (a *App) projectForWorktree(wt *data.Worktree) *data.Project {
 	return nil
 }
 
-func (a *App) selectMonitorTile(paneX, paneY int) {
+func (a *App) selectMonitorTile(paneX, paneY int) (int, bool) {
 	tabs := a.center.MonitorTabs()
 	count := len(tabs)
 	if count == 0 {
-		return
+		return -1, false
 	}
 
 	gridX, gridY, gridW, gridH := a.monitorGridArea()
 	x := paneX - gridX
 	y := paneY - gridY
 	if x < 0 || y < 0 || x >= gridW || y >= gridH {
-		return
+		return -1, false
 	}
 
 	grid := monitorGridLayout(count, gridW, gridH)
 	if grid.cols == 0 || grid.rows == 0 {
-		return
+		return -1, false
 	}
 
 	col := -1
@@ -1603,7 +1640,7 @@ func (a *App) selectMonitorTile(paneX, paneY int) {
 		x -= grid.colWidths[c]
 		if c < grid.cols-1 {
 			if x < grid.gapX {
-				return
+				return -1, false
 			}
 			x -= grid.gapX
 		}
@@ -1618,20 +1655,22 @@ func (a *App) selectMonitorTile(paneX, paneY int) {
 		y -= grid.rowHeights[r]
 		if r < grid.rows-1 {
 			if y < grid.gapY {
-				return
+				return -1, false
 			}
 			y -= grid.gapY
 		}
 	}
 
 	if row < 0 || col < 0 {
-		return
+		return -1, false
 	}
 
 	index := row*grid.cols + col
 	if index >= 0 && index < count {
 		a.center.SetMonitorSelectedIndex(index, count)
+		return index, true
 	}
+	return -1, false
 }
 
 func monitorProjectName(wt *data.Worktree) string {
@@ -1661,7 +1700,8 @@ func (a *App) renderWorktreeInfo() string {
 	}
 
 	content += "\n" + a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
-	content += "\n" + a.styles.Help.Render("Press C-Space a to launch an agent")
+	content += "\n" + a.styles.Help.Render("C-Spc h/l/u/d:focus  C-Spc a:new agent  C-Spc m:monitor")
+	content += "\n" + a.styles.Help.Render("C-Spc ?:help  C-Spc g:home  C-Spc q:quit")
 
 	return content
 }
@@ -1683,6 +1723,10 @@ func (a *App) welcomeContent() string {
 	b.WriteString(logoStyle.Render(logo))
 	b.WriteString("\n\n")
 	b.WriteString(a.zone.Mark("welcome-new-project", a.styles.TabPlus.Render("[+] New project")))
+	b.WriteString("\n")
+	b.WriteString(a.styles.Help.Render("Dashboard: j/k to move • Enter to select"))
+	b.WriteString("\n")
+	b.WriteString(a.styles.Help.Render("C-Spc h/l/u/d: focus • C-Spc ?: help • C-Spc q: quit"))
 	return b.String()
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
@@ -77,6 +78,7 @@ type TerminalModel struct {
 
 	// Styles
 	styles common.Styles
+	zone   *zone.Manager
 
 	// Rendering
 	terminalCanvas *compositor.Canvas
@@ -88,6 +90,11 @@ func NewTerminalModel() *TerminalModel {
 		terminals: make(map[string]*TerminalState),
 		styles:    common.DefaultStyles(),
 	}
+}
+
+// SetZone sets the shared zone manager for click targets.
+func (m *TerminalModel) SetZone(z *zone.Manager) {
+	m.zone = z
 }
 
 // worktreeID returns the ID of the current worktree
@@ -133,6 +140,12 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if cmd := m.handleHelpClick(msg); cmd != nil {
+				return m, cmd
+			}
+		}
+
 		if !m.focused {
 			return m, nil
 		}
@@ -403,7 +416,7 @@ func (m *TerminalModel) View() string {
 				Bold(true).
 				Foreground(lipgloss.Color("#1a1b26")).
 				Background(lipgloss.Color("#ff9e64"))
-			b.WriteString(modeStyle.Render(" COPY MODE (q/Esc to exit) "))
+			b.WriteString(modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) "))
 		} else if isScrolled {
 			b.WriteString("\n")
 			scrollStyle := lipgloss.NewStyle().
@@ -415,24 +428,141 @@ func (m *TerminalModel) View() string {
 	}
 
 	// Help bar
-	helpItems := []string{
-		m.styles.HelpKey.Render("C-Spc") + m.styles.HelpDesc.Render(":prefix"),
-		m.styles.HelpKey.Render("PgUp/Dn") + m.styles.HelpDesc.Render(":scroll"),
+	contentWidth := m.width
+	if contentWidth < 1 {
+		contentWidth = 1
 	}
-	help := strings.Join(helpItems, "  ")
+	helpLines := m.helpLines(contentWidth)
 
 	// Pad to fill height
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := m.height - 1 // Account for help
+	targetHeight := m.height - len(helpLines) // Account for help
 	if targetHeight < 0 {
 		targetHeight = 0
 	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
-	b.WriteString(help)
+	b.WriteString(strings.Join(helpLines, "\n"))
 
 	return b.String()
+}
+
+func (m *TerminalModel) handleHelpClick(msg tea.MouseMsg) tea.Cmd {
+	if m.zone == nil {
+		return nil
+	}
+	if z := m.zone.Get("sidebar-term-copy"); z != nil && z.InBounds(msg) {
+		m.toggleCopyMode()
+		return nil
+	}
+	if z := m.zone.Get("sidebar-term-scroll-up"); z != nil && z.InBounds(msg) {
+		m.scrollByHalfPage(1)
+		return nil
+	}
+	if z := m.zone.Get("sidebar-term-scroll-down"); z != nil && z.InBounds(msg) {
+		m.scrollByHalfPage(-1)
+		return nil
+	}
+	if z := m.zone.Get("sidebar-term-scroll-top"); z != nil && z.InBounds(msg) {
+		m.scrollToTop()
+		return nil
+	}
+	if z := m.zone.Get("sidebar-term-scroll-bottom"); z != nil && z.InBounds(msg) {
+		m.scrollToBottom()
+		return nil
+	}
+	if z := m.zone.Get("sidebar-term-new-agent"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+	}
+	if z := m.zone.Get("sidebar-term-home"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ShowWelcome{} }
+	}
+	if z := m.zone.Get("sidebar-term-monitor"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ToggleMonitor{} }
+	}
+	if z := m.zone.Get("sidebar-term-help"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ToggleHelp{} }
+	}
+	if z := m.zone.Get("sidebar-term-quit"); z != nil && z.InBounds(msg) {
+		return func() tea.Msg { return messages.ShowQuitDialog{} }
+	}
+	return nil
+}
+
+func (m *TerminalModel) scrollByHalfPage(delta int) {
+	ts := m.getTerminal()
+	if ts == nil || ts.VTerm == nil {
+		return
+	}
+	ts.mu.Lock()
+	ts.VTerm.ScrollView(delta * (ts.VTerm.Height / 2))
+	ts.mu.Unlock()
+}
+
+func (m *TerminalModel) toggleCopyMode() {
+	ts := m.getTerminal()
+	if ts == nil {
+		return
+	}
+	if ts.CopyMode {
+		ts.CopyMode = false
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollViewToBottom()
+		}
+		ts.mu.Unlock()
+		return
+	}
+	ts.CopyMode = true
+}
+
+func (m *TerminalModel) scrollToTop() {
+	ts := m.getTerminal()
+	if ts == nil || ts.VTerm == nil {
+		return
+	}
+	ts.mu.Lock()
+	ts.VTerm.ScrollViewToTop()
+	ts.mu.Unlock()
+}
+
+func (m *TerminalModel) scrollToBottom() {
+	ts := m.getTerminal()
+	if ts == nil || ts.VTerm == nil {
+		return
+	}
+	ts.mu.Lock()
+	ts.VTerm.ScrollViewToBottom()
+	ts.mu.Unlock()
+}
+
+func (m *TerminalModel) helpItem(id, key, desc string) string {
+	item := common.RenderHelpItem(m.styles, key, desc)
+	if id == "" || m.zone == nil {
+		return item
+	}
+	return m.zone.Mark(id, item)
+}
+
+func (m *TerminalModel) helpLines(contentWidth int) []string {
+	items := []string{
+		m.helpItem("", "C-Spc h/l/u/d", "focus"),
+		m.helpItem("sidebar-term-copy", "C-Spc [", "copy"),
+		m.helpItem("sidebar-term-scroll-up", "PgUp", "half up"),
+		m.helpItem("sidebar-term-scroll-down", "PgDn", "half down"),
+		m.helpItem("sidebar-term-scroll-top", "g", "top (copy)"),
+		m.helpItem("sidebar-term-scroll-bottom", "G", "bottom (copy)"),
+		m.helpItem("sidebar-term-new-agent", "C-Spc a", "new agent"),
+		m.helpItem("", "C-Spc n/p", "tab prev/next"),
+		m.helpItem("", "C-Spc x", "close tab"),
+		m.helpItem("", "C-Spc 1-9", "jump tab"),
+		m.helpItem("sidebar-term-home", "C-Spc g", "home"),
+		m.helpItem("sidebar-term-monitor", "C-Spc m", "monitor"),
+		m.helpItem("sidebar-term-help", "C-Spc ?", "help"),
+		m.helpItem("sidebar-term-quit", "C-Spc q", "quit"),
+	}
+	return common.WrapHelpItems(items, contentWidth)
 }
 
 func (m *TerminalModel) renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {

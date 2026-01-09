@@ -1,13 +1,14 @@
 package common
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/logging"
 )
@@ -54,9 +55,8 @@ type Dialog struct {
 	width  int
 	height int
 
-	// Position (screen coordinates) for mouse handling
-	offsetX int
-	offsetY int
+	// Zone manager for mouse handling
+	zone *zone.Manager
 }
 
 // NewInputDialog creates a new input dialog
@@ -203,6 +203,11 @@ func (d *Dialog) Visible() bool {
 	return d.visible
 }
 
+// SetZone sets the shared zone manager for click targets.
+func (d *Dialog) SetZone(z *zone.Manager) {
+	d.zone = z
+}
+
 // Update handles messages
 func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	if !d.visible {
@@ -211,39 +216,9 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && d.id == "agent-picker" {
-			relX := msg.X - d.offsetX
-			relY := msg.Y - d.offsetY
-			if relX < 0 || relY < 0 {
-				return d, nil
-			}
-
-			lines := strings.Split(d.View(), "\n")
-			if relY >= len(lines) {
-				return d, nil
-			}
-
-			line := ansi.Strip(lines[relY])
-			agentOptions := DefaultAgentOptions()
-
-			for cursorIdx, originalIdx := range d.filteredIndices {
-				if originalIdx < 0 || originalIdx >= len(agentOptions) {
-					continue
-				}
-				opt := agentOptions[originalIdx]
-				label := "[" + opt.Name + "]"
-				if strings.Contains(line, label) {
-					d.cursor = cursorIdx
-					d.visible = false
-					return d, func() tea.Msg {
-						return DialogResult{
-							ID:        d.id,
-							Confirmed: true,
-							Index:     originalIdx,
-							Value:     opt.ID,
-						}
-					}
-				}
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if cmd := d.handleClick(msg); cmd != nil {
+				return d, cmd
 			}
 		}
 
@@ -363,6 +338,88 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	return d, nil
 }
 
+func (d *Dialog) handleClick(msg tea.MouseMsg) tea.Cmd {
+	if d.zone == nil {
+		return nil
+	}
+
+	switch d.dtype {
+	case DialogInput:
+		if z := d.zone.Get("dialog-" + d.id + "-opt-0"); z != nil && z.InBounds(msg) {
+			value := d.input.Value()
+			d.visible = false
+			return func() tea.Msg {
+				return DialogResult{
+					ID:        d.id,
+					Confirmed: true,
+					Value:     value,
+				}
+			}
+		}
+		if z := d.zone.Get("dialog-" + d.id + "-opt-1"); z != nil && z.InBounds(msg) {
+			d.visible = false
+			return func() tea.Msg {
+				return DialogResult{ID: d.id, Confirmed: false}
+			}
+		}
+
+	case DialogConfirm:
+		if z := d.zone.Get("dialog-" + d.id + "-opt-0"); z != nil && z.InBounds(msg) {
+			d.cursor = 0
+			d.visible = false
+			return func() tea.Msg {
+				return DialogResult{ID: d.id, Confirmed: true}
+			}
+		}
+		if z := d.zone.Get("dialog-" + d.id + "-opt-1"); z != nil && z.InBounds(msg) {
+			d.cursor = 1
+			d.visible = false
+			return func() tea.Msg {
+				return DialogResult{ID: d.id, Confirmed: false}
+			}
+		}
+
+	case DialogSelect:
+		if d.filterEnabled {
+			for cursorIdx, originalIdx := range d.filteredIndices {
+				id := "dialog-" + d.id + "-opt-" + strconv.Itoa(originalIdx)
+				if z := d.zone.Get(id); z != nil && z.InBounds(msg) {
+					d.cursor = cursorIdx
+					value := d.options[originalIdx]
+					d.visible = false
+					return func() tea.Msg {
+						return DialogResult{
+							ID:        d.id,
+							Confirmed: true,
+							Index:     originalIdx,
+							Value:     value,
+						}
+					}
+				}
+			}
+		} else {
+			for i := range d.options {
+				id := "dialog-" + d.id + "-opt-" + strconv.Itoa(i)
+				if z := d.zone.Get(id); z != nil && z.InBounds(msg) {
+					d.cursor = i
+					d.visible = false
+					value := d.options[i]
+					return func() tea.Msg {
+						return DialogResult{
+							ID:        d.id,
+							Confirmed: true,
+							Index:     i,
+							Value:     value,
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // View renders the dialog
 func (d *Dialog) View() string {
 	if !d.visible {
@@ -383,6 +440,8 @@ func (d *Dialog) View() string {
 	switch d.dtype {
 	case DialogInput:
 		content.WriteString(d.input.View())
+		content.WriteString("\n\n")
+		content.WriteString(d.renderInputButtons())
 
 	case DialogConfirm:
 		content.WriteString(d.message)
@@ -398,7 +457,7 @@ func (d *Dialog) View() string {
 		Foreground(ColorMuted).
 		MarginTop(1)
 	content.WriteString("\n")
-	content.WriteString(helpStyle.Render("enter: confirm • esc: cancel"))
+	content.WriteString(helpStyle.Render(d.helpText()))
 
 	// Dialog box
 	dialogStyle := lipgloss.NewStyle().
@@ -463,8 +522,11 @@ func (d *Dialog) renderOptions() string {
 				nameStyle = nameStyle.Bold(true)
 			}
 			name := nameStyle.Render("[" + opt.Name + "]")
-
-			b.WriteString(cursor + indicator + " " + name + "\n")
+			line := cursor + indicator + " " + name
+			if d.zone != nil {
+				line = d.zone.Mark("dialog-"+d.id+"-opt-"+strconv.Itoa(originalIdx), line)
+			}
+			b.WriteString(line + "\n")
 		}
 		return b.String()
 	}
@@ -480,17 +542,57 @@ func (d *Dialog) renderOptions() string {
 		Padding(0, 1)
 
 	for i, opt := range d.options {
+		rendered := normalStyle.Render(opt)
 		if i == d.cursor {
-			b.WriteString(selectedStyle.Render(opt))
-		} else {
-			b.WriteString(normalStyle.Render(opt))
+			rendered = selectedStyle.Render(opt)
 		}
+		if d.zone != nil {
+			rendered = d.zone.Mark("dialog-"+d.id+"-opt-"+strconv.Itoa(i), rendered)
+		}
+		b.WriteString(rendered)
 		if i < len(d.options)-1 {
 			b.WriteString("  ")
 		}
 	}
 
 	return b.String()
+}
+
+func (d *Dialog) renderInputButtons() string {
+	selectedStyle := lipgloss.NewStyle().
+		Foreground(ColorForeground).
+		Background(ColorPrimary).
+		Padding(0, 1)
+
+	normalStyle := lipgloss.NewStyle().
+		Foreground(ColorMuted).
+		Padding(0, 1)
+
+	// Highlight OK by default for visual affordance
+	ok := selectedStyle.Render("OK")
+	cancel := normalStyle.Render("Cancel")
+	if d.zone != nil {
+		ok = d.zone.Mark("dialog-"+d.id+"-opt-0", ok)
+		cancel = d.zone.Mark("dialog-"+d.id+"-opt-1", cancel)
+	}
+
+	return ok + "  " + cancel
+}
+
+func (d *Dialog) helpText() string {
+	switch d.dtype {
+	case DialogInput:
+		return "enter: confirm • esc: cancel • click OK/Cancel"
+	case DialogConfirm:
+		return "h/l or tab: choose • enter: confirm • esc: cancel"
+	case DialogSelect:
+		if d.filterEnabled {
+			return "type to filter • ↑/↓ or tab: move • enter: select • esc: cancel"
+		}
+		return "↑/↓ or tab: move • enter: select • esc: cancel"
+	default:
+		return "enter: confirm • esc: cancel"
+	}
 }
 
 // SetSize sets the dialog size
@@ -500,10 +602,4 @@ func (d *Dialog) SetSize(width, height int) {
 	if d.dtype == DialogInput {
 		d.input.Width = min(40, width-10)
 	}
-}
-
-// SetOffset sets the dialog's top-left screen coordinates for mouse handling.
-func (d *Dialog) SetOffset(x, y int) {
-	d.offsetX = x
-	d.offsetY = y
 }
