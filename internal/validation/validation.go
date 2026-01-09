@@ -121,6 +121,7 @@ func ValidateAssistant(assistant string) error {
 		"amp":      true,
 		"opencode": true,
 		"droid":    true,
+		"cursor":   true,
 		"term":     true,
 	}
 
