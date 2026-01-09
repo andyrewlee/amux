@@ -61,8 +61,27 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if msg.Action == tea.MouseActionPress {
+			if msg.Button == tea.MouseButtonWheelUp {
+				m.moveCursor(-1)
+				return m, nil
+			}
+			if msg.Button == tea.MouseButtonWheelDown {
+				m.moveCursor(1)
+				return m, nil
+			}
+		}
+
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			if m.zone != nil {
+				if z := m.zone.Get("sidebar-help-up"); z != nil && z.InBounds(msg) {
+					m.moveCursor(-1)
+					return m, nil
+				}
+				if z := m.zone.Get("sidebar-help-down"); z != nil && z.InBounds(msg) {
+					m.moveCursor(1)
+					return m, nil
+				}
 				if z := m.zone.Get("sidebar-help-refresh"); z != nil && z.InBounds(msg) {
 					cmds = append(cmds, m.refreshStatus())
 					return m, tea.Batch(cmds...)
@@ -238,14 +257,8 @@ func (m *Model) helpItem(id, key, desc string) string {
 
 func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
-		m.helpItem("", "j/k", "nav"),
-		m.helpItem("sidebar-help-refresh", "g", "refresh"),
-		m.helpItem("", "C-Spc h", "focus left"),
-		m.helpItem("", "C-Spc d", "focus down"),
-		m.helpItem("sidebar-help-home", "C-Spc g", "home"),
-		m.helpItem("sidebar-help-monitor", "C-Spc m", "monitor"),
-		m.helpItem("sidebar-help-help", "C-Spc ?", "help"),
-		m.helpItem("sidebar-help-quit", "C-Spc q", "quit"),
+		m.helpItem("sidebar-help-up", "k/↑", "up"),
+		m.helpItem("sidebar-help-down", "j/↓", "down"),
 	}
 	return common.WrapHelpItems(items, contentWidth)
 }

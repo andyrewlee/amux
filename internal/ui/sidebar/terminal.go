@@ -546,10 +546,7 @@ func (m *TerminalModel) helpItem(id, key, desc string) string {
 }
 
 func (m *TerminalModel) helpLines(contentWidth int) []string {
-	items := []string{
-		m.helpItem("", "C-Spc h", "focus left"),
-		m.helpItem("", "C-Spc u", "focus up"),
-	}
+	items := []string{}
 
 	ts := m.getTerminal()
 	hasTerm := ts != nil && ts.VTerm != nil
@@ -567,12 +564,6 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 		}
 	}
 
-	items = append(items,
-		m.helpItem("sidebar-term-home", "C-Spc g", "home"),
-		m.helpItem("sidebar-term-monitor", "C-Spc m", "monitor"),
-		m.helpItem("sidebar-term-help", "C-Spc ?", "help"),
-		m.helpItem("sidebar-term-quit", "C-Spc q", "quit"),
-	)
 	return common.WrapHelpItems(items, contentWidth)
 }
 

@@ -1700,12 +1700,7 @@ func (a *App) renderWorktreeInfo() string {
 	}
 
 	content += "\n" + a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
-	focusHint := "C-Spc h:focus left"
-	if a.layout.ShowSidebar() {
-		focusHint += "  C-Spc l:focus right"
-	}
-	content += "\n" + a.styles.Help.Render(focusHint+"  C-Spc a:new agent")
-	content += "\n" + a.styles.Help.Render("C-Spc m:monitor  C-Spc ?:help  C-Spc g:home  C-Spc q:quit")
+	content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
 
 	return content
 }
@@ -1729,12 +1724,6 @@ func (a *App) welcomeContent() string {
 	b.WriteString(a.zone.Mark("welcome-new-project", a.styles.TabPlus.Render("[+] New project")))
 	b.WriteString("\n")
 	b.WriteString(a.styles.Help.Render("Dashboard: j/k to move • Enter to select"))
-	b.WriteString("\n")
-	focusHint := "C-Spc h: focus left"
-	if a.layout.ShowSidebar() {
-		focusHint += " • C-Spc l: focus right"
-	}
-	b.WriteString(a.styles.Help.Render(focusHint + " • C-Spc ?: help • C-Spc q: quit"))
 	return b.String()
 }
 
@@ -2133,14 +2122,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, bool, tea.Cmd) {
 	// Global commands (non-repeatable)
 	case key.Matches(msg, a.keymap.Monitor):
 		a.toggleMonitorMode()
-		return true, false, nil
-
-	case key.Matches(msg, a.keymap.Home):
-		if a.monitorMode {
-			return true, false, a.exitMonitorToSelection()
-		}
-		a.goHome()
-		a.focusPane(messages.PaneDashboard)
 		return true, false, nil
 
 	case key.Matches(msg, a.keymap.Help):

@@ -770,12 +770,7 @@ func (m *Model) helpItem(id, key, desc string) string {
 }
 
 func (m *Model) helpLines(contentWidth int) []string {
-	items := []string{
-		m.helpItem("", "C-Spc h", "focus left"),
-	}
-	if m.canFocusRight {
-		items = append(items, m.helpItem("", "C-Spc l", "focus right"))
-	}
+	items := []string{}
 
 	hasTabs := len(m.getTabs()) > 0
 	if m.worktree != nil {
@@ -786,7 +781,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 			m.helpItem("center-help-close", "C-Spc x", "close"),
 			m.helpItem("center-help-prev", "C-Spc p", "prev"),
 			m.helpItem("center-help-next", "C-Spc n", "next"),
-			m.helpItem("", "C-Spc 1-9", "jump"),
+			m.helpItem("", "C-Spc 1-9", "tab"),
 			m.helpItem("center-help-copy", "C-Spc [", "copy"),
 			m.helpItem("center-help-scroll-up", "PgUp", "half up"),
 			m.helpItem("center-help-scroll-down", "PgDn", "half down"),
@@ -798,13 +793,6 @@ func (m *Model) helpLines(contentWidth int) []string {
 			)
 		}
 	}
-
-	items = append(items,
-		m.helpItem("center-help-home", "C-Spc g", "home"),
-		m.helpItem("center-help-monitor", "C-Spc m", "monitor"),
-		m.helpItem("center-help-help", "C-Spc ?", "help"),
-		m.helpItem("center-help-quit", "C-Spc q", "quit"),
-	)
 	return common.WrapHelpItems(items, contentWidth)
 }
 
@@ -969,8 +957,12 @@ func (m *Model) renderTabBar() string {
 			agentStyle = m.styles.AgentTerm
 		}
 
-		// Build tab content with agent-colored indicator
-		content := agentStyle.Render(indicator) + name
+		// Build tab content with agent-colored indicator and a close affordance
+		closeLabel := m.styles.Muted.Render("x")
+		if m.zone != nil {
+			closeLabel = m.zone.Mark(fmt.Sprintf("center-tab-close-%d", i), closeLabel)
+		}
+		content := agentStyle.Render(indicator) + name + " " + closeLabel
 
 		var rendered string
 		if i == activeIdx {
@@ -991,9 +983,6 @@ func (m *Model) renderTabBar() string {
 		id    string
 		label string
 	}{
-		{id: "center-tab-prev", label: "[<]"},
-		{id: "center-tab-next", label: "[>]"},
-		{id: "center-tab-close", label: "[x]"},
 		{id: "center-tab-plus", label: "[+]"},
 	}
 	for _, ctrl := range controls {
@@ -1015,19 +1004,14 @@ func (m *Model) handleTabBarClick(msg tea.MouseMsg) tea.Cmd {
 	if z := m.zone.Get("center-tab-plus"); z != nil && z.InBounds(msg) {
 		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 	}
-	if z := m.zone.Get("center-tab-prev"); z != nil && z.InBounds(msg) {
-		m.prevTab()
-		return nil
-	}
-	if z := m.zone.Get("center-tab-next"); z != nil && z.InBounds(msg) {
-		m.nextTab()
-		return nil
-	}
-	if z := m.zone.Get("center-tab-close"); z != nil && z.InBounds(msg) {
-		return m.closeCurrentTab()
-	}
 
 	tabs := m.getTabs()
+	for i := range tabs {
+		id := fmt.Sprintf("center-tab-close-%d", i)
+		if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
+			return m.closeTabAt(i)
+		}
+	}
 	for i := range tabs {
 		id := fmt.Sprintf("center-tab-%d", i)
 		if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
@@ -1166,8 +1150,16 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 		return nil
 	}
 
-	tab := tabs[activeIdx]
-	index := activeIdx
+	return m.closeTabAt(activeIdx)
+}
+
+func (m *Model) closeTabAt(index int) tea.Cmd {
+	tabs := m.getTabs()
+	if len(tabs) == 0 || index < 0 || index >= len(tabs) {
+		return nil
+	}
+
+	tab := tabs[index]
 
 	// Close agent
 	if tab.Agent != nil {
@@ -1179,7 +1171,12 @@ func (m *Model) closeCurrentTab() tea.Cmd {
 
 	// Adjust active tab
 	tabs = m.getTabs() // Get updated tabs
-	if activeIdx >= len(tabs) && activeIdx > 0 {
+	activeIdx := m.getActiveTabIdx()
+	if index == activeIdx {
+		if activeIdx >= len(tabs) && activeIdx > 0 {
+			m.setActiveTabIdx(activeIdx - 1)
+		}
+	} else if index < activeIdx {
 		m.setActiveTabIdx(activeIdx - 1)
 	}
 

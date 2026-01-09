@@ -31,6 +31,7 @@ type FilePicker struct {
 	scrollOffset    int
 	maxVisible      int
 	zone            *zone.Manager
+	styles          Styles
 }
 
 // NewFilePicker creates a new file picker starting at the given path
@@ -56,6 +57,7 @@ func NewFilePicker(id, startPath string, directoriesOnly bool) *FilePicker {
 		showHidden:      false,
 		directoriesOnly: directoriesOnly,
 		maxVisible:      8,
+		styles:          DefaultStyles(),
 	}
 
 	fp.loadDirectory()
@@ -164,8 +166,27 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress {
+			if msg.Button == tea.MouseButtonWheelUp {
+				fp.moveCursor(-1)
+				return fp, nil
+			}
+			if msg.Button == tea.MouseButtonWheelDown {
+				fp.moveCursor(1)
+				return fp, nil
+			}
+		}
+
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			if fp.zone != nil {
+				if z := fp.zone.Get("filepicker-help-up"); z != nil && z.InBounds(msg) {
+					fp.moveCursor(-1)
+					return fp, nil
+				}
+				if z := fp.zone.Get("filepicker-help-down"); z != nil && z.InBounds(msg) {
+					fp.moveCursor(1)
+					return fp, nil
+				}
 				if z := fp.zone.Get("filepicker-open"); z != nil && z.InBounds(msg) {
 					return fp.handleEnter()
 				}
@@ -426,6 +447,23 @@ func (fp *FilePicker) ensureVisible() {
 	}
 }
 
+func (fp *FilePicker) moveCursor(delta int) {
+	total := fp.displayCount()
+	if total == 0 {
+		return
+	}
+
+	if delta > 0 {
+		fp.cursor = (fp.cursor + 1) % total
+	} else if delta < 0 {
+		fp.cursor--
+		if fp.cursor < 0 {
+			fp.cursor = total - 1
+		}
+	}
+	fp.ensureVisible()
+}
+
 func (fp *FilePicker) displayCount() int {
 	return len(fp.filteredIdx) + 1
 }
@@ -525,11 +563,10 @@ func (fp *FilePicker) View() string {
 	content.WriteString(strings.Join(buttons, "  "))
 
 	// Help
-	helpStyle := lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		MarginTop(1)
 	content.WriteString("\n")
-	content.WriteString(helpStyle.Render("enter: open • esc: cancel • ↑/↓ or ctrl+n/p: move • tab: autocomplete • /: open typed • backspace: up • ctrl+h: toggle hidden"))
+	helpWidth := 51
+	helpLines := fp.helpLines(helpWidth)
+	content.WriteString(strings.Join(helpLines, "\n"))
 
 	// Dialog box
 	dialogStyle := lipgloss.NewStyle().
@@ -539,6 +576,29 @@ func (fp *FilePicker) View() string {
 		Width(55)
 
 	return dialogStyle.Render(content.String())
+}
+
+func (fp *FilePicker) helpItem(id, key, desc string) string {
+	item := RenderHelpItem(fp.styles, key, desc)
+	if id == "" || fp.zone == nil {
+		return item
+	}
+	return fp.zone.Mark(id, item)
+}
+
+func (fp *FilePicker) helpLines(width int) []string {
+	items := []string{
+		fp.helpItem("", "enter", "open"),
+		fp.helpItem("", "esc", "cancel"),
+		fp.helpItem("filepicker-help-up", "↑", "up"),
+		fp.helpItem("filepicker-help-down", "↓", "down"),
+		fp.helpItem("", "ctrl+n/p", "move"),
+		fp.helpItem("", "tab", "autocomplete"),
+		fp.helpItem("", "/", "open typed"),
+		fp.helpItem("", "backspace", "parent"),
+		fp.helpItem("", "ctrl+h", "hidden"),
+	}
+	return WrapHelpItems(items, width)
 }
 
 func (fp *FilePicker) handleAutocomplete() {

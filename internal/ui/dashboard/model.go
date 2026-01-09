@@ -110,8 +110,27 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if msg.Action == tea.MouseActionPress {
+			if msg.Button == tea.MouseButtonWheelUp {
+				m.moveCursor(-1)
+				return m, nil
+			}
+			if msg.Button == tea.MouseButtonWheelDown {
+				m.moveCursor(1)
+				return m, nil
+			}
+		}
+
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			if m.zone != nil {
+				if z := m.zone.Get("dash-help-up"); z != nil && z.InBounds(msg) {
+					m.moveCursor(-1)
+					return m, nil
+				}
+				if z := m.zone.Get("dash-help-down"); z != nil && z.InBounds(msg) {
+					m.moveCursor(1)
+					return m, nil
+				}
 				if z := m.zone.Get("dash-help-filter"); z != nil && z.InBounds(msg) {
 					m.toggleFilter()
 					return m, nil
@@ -342,7 +361,8 @@ func (m *Model) helpItem(id, key, desc string) string {
 
 func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
-		m.helpItem("", "j/k", "nav"),
+		m.helpItem("dash-help-up", "k/↑", "up"),
+		m.helpItem("dash-help-down", "j/↓", "down"),
 		m.helpItem("", "enter", "open"),
 	}
 	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
@@ -354,11 +374,11 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("dash-help-top", "g", "top"),
 		m.helpItem("dash-help-bottom", "G", "bottom"),
 	)
+	items = append(items, m.helpItem("", "C-Spc h/u/d", "focus"))
 	if m.canFocusRight {
 		items = append(items, m.helpItem("", "C-Spc l", "focus right"))
 	}
 	items = append(items,
-		m.helpItem("dash-help-home", "C-Spc g", "home"),
 		m.helpItem("dash-help-monitor", "C-Spc m", "monitor"),
 		m.helpItem("dash-help-help", "C-Spc ?", "help"),
 		m.helpItem("dash-help-quit", "C-Spc q", "quit"),
