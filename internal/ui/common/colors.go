@@ -21,12 +21,12 @@ var (
 	ColorInfo      = lipgloss.Color("#7dcfff") // Cyan - info messages
 
 	// Agent colors (distinct for quick recognition)
-	ColorClaude   = lipgloss.Color("#e9967a") // Salmon/orange
-	ColorCodex    = lipgloss.Color("#98c379") // Green
-	ColorGemini   = lipgloss.Color("#61afef") // Blue
-	ColorAmp      = lipgloss.Color("#c678dd") // Purple (Sourcegraph)
-	ColorOpencode = lipgloss.Color("#56b6c2") // Cyan (SST)
-	ColorDroid    = lipgloss.Color("#ff6b6b") // Red/coral (Factory)
+	ColorClaude   = lipgloss.Color("#CC785C")
+	ColorCodex    = lipgloss.Color("#FFFFFF")
+	ColorGemini   = lipgloss.Color("#4285f4")
+	ColorAmp      = lipgloss.Color("#ED4C3D")
+	ColorOpencode = lipgloss.Color("#000000")
+	ColorDroid    = lipgloss.Color("#EE6018")
 
 	// Surface colors for layering
 	ColorSurface0 = lipgloss.Color("#1a1b26") // Base background

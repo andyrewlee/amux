@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -247,6 +248,7 @@ type Model struct {
 	// Config
 	config *config.Config
 	styles common.Styles
+	zone   *zone.Manager
 }
 
 // New creates a new center pane model
@@ -258,6 +260,11 @@ func New(cfg *config.Config) *Model {
 		agentManager:        appPty.NewAgentManager(cfg),
 		styles:              common.DefaultStyles(),
 	}
+}
+
+// SetZone sets the shared zone manager for click targets.
+func (m *Model) SetZone(z *zone.Manager) {
+	m.zone = z
 }
 
 // worktreeID returns the ID of the current worktree, or empty string
@@ -376,6 +383,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
+		// Handle tab bar clicks (e.g., the plus button) even without an active agent.
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if cmd := m.handleTabBarClick(msg); cmd != nil {
+				return m, cmd
+			}
+		}
+
 		// Handle mouse events for text selection
 		if !m.focused || !m.hasActiveAgent() {
 			return m, nil
@@ -747,7 +761,7 @@ func (m *Model) renderTabBar() string {
 	activeIdx := m.getActiveTabIdx()
 
 	if len(currentTabs) == 0 {
-		return m.styles.Muted.Render("No agents")
+		return m.styles.TabPlus.Render("[+] New agent")
 	}
 
 	var renderedTabs []string
@@ -798,10 +812,20 @@ func (m *Model) renderTabBar() string {
 
 	// Add the plus button with matching border style
 	plusBtn := m.styles.TabPlus.Render("[+]")
+	if m.zone != nil {
+		plusBtn = m.zone.Mark("tab-plus", plusBtn)
+	}
 	renderedTabs = append(renderedTabs, plusBtn)
 
 	// Join tabs horizontally at the bottom so borders align
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
+}
+
+func (m *Model) handleTabBarClick(msg tea.MouseMsg) tea.Cmd {
+	if m.zone != nil && m.zone.Get("tab-plus").InBounds(msg) {
+		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+	}
+	return nil
 }
 
 // renderEmpty renders the empty state
@@ -810,9 +834,7 @@ func (m *Model) renderEmpty() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Title.Render("No agents running"))
 	b.WriteString("\n\n")
-	b.WriteString(m.styles.Muted.Render("Press "))
-	b.WriteString(m.styles.HelpKey.Render("C-Space a"))
-	b.WriteString(m.styles.Muted.Render(" to launch an agent"))
+	b.WriteString(m.styles.TabPlus.Render("[+] New agent"))
 	return b.String()
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/logging"
 )
@@ -52,6 +53,10 @@ type Dialog struct {
 	// Layout
 	width  int
 	height int
+
+	// Position (screen coordinates) for mouse handling
+	offsetX int
+	offsetY int
 }
 
 // NewInputDialog creates a new input dialog
@@ -93,22 +98,21 @@ func NewSelectDialog(id, title string, options []string) *Dialog {
 	}
 }
 
-// AgentOption represents an agent option with description
+// AgentOption represents an agent option
 type AgentOption struct {
 	ID   string
 	Name string
-	Desc string
 }
 
 // DefaultAgentOptions returns the default agent options
 func DefaultAgentOptions() []AgentOption {
 	return []AgentOption{
-		{ID: "claude", Name: "claude", Desc: "Claude Code"},
-		{ID: "codex", Name: "codex", Desc: "OpenAI Codex"},
-		{ID: "gemini", Name: "gemini", Desc: "Google Gemini"},
-		{ID: "amp", Name: "amp", Desc: "Sourcegraph Amp"},
-		{ID: "opencode", Name: "opencode", Desc: "SST OpenCode"},
-		{ID: "droid", Name: "droid", Desc: "Factory Droid"},
+		{ID: "claude", Name: "claude"},
+		{ID: "codex", Name: "codex"},
+		{ID: "gemini", Name: "gemini"},
+		{ID: "amp", Name: "amp"},
+		{ID: "opencode", Name: "opencode"},
+		{ID: "droid", Name: "droid"},
 	}
 }
 
@@ -206,6 +210,43 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && d.id == "agent-picker" {
+			relX := msg.X - d.offsetX
+			relY := msg.Y - d.offsetY
+			if relX < 0 || relY < 0 {
+				return d, nil
+			}
+
+			lines := strings.Split(d.View(), "\n")
+			if relY >= len(lines) {
+				return d, nil
+			}
+
+			line := ansi.Strip(lines[relY])
+			agentOptions := DefaultAgentOptions()
+
+			for cursorIdx, originalIdx := range d.filteredIndices {
+				if originalIdx < 0 || originalIdx >= len(agentOptions) {
+					continue
+				}
+				opt := agentOptions[originalIdx]
+				label := "[" + opt.Name + "]"
+				if strings.Contains(line, label) {
+					d.cursor = cursorIdx
+					d.visible = false
+					return d, func() tea.Msg {
+						return DialogResult{
+							ID:        d.id,
+							Confirmed: true,
+							Index:     originalIdx,
+							Value:     opt.ID,
+						}
+					}
+				}
+			}
+		}
+
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
@@ -397,7 +438,7 @@ func (d *Dialog) renderOptions() string {
 				cursor = Icons.Cursor + " "
 			}
 
-			// Get agent color
+			// Get agent color for indicator only
 			var colorStyle lipgloss.Style
 			switch opt.ID {
 			case "claude":
@@ -416,10 +457,14 @@ func (d *Dialog) renderOptions() string {
 				colorStyle = lipgloss.NewStyle().Foreground(ColorForeground)
 			}
 
-			name := colorStyle.Bold(cursorIdx == d.cursor).Render("[" + opt.Name + "]")
-			desc := lipgloss.NewStyle().Foreground(ColorMuted).Render("  " + opt.Desc)
+			indicator := colorStyle.Render(Icons.Running)
+			nameStyle := lipgloss.NewStyle().Foreground(ColorForeground)
+			if cursorIdx == d.cursor {
+				nameStyle = nameStyle.Bold(true)
+			}
+			name := nameStyle.Render("[" + opt.Name + "]")
 
-			b.WriteString(cursor + name + desc + "\n")
+			b.WriteString(cursor + indicator + " " + name + "\n")
 		}
 		return b.String()
 	}
@@ -455,4 +500,10 @@ func (d *Dialog) SetSize(width, height int) {
 	if d.dtype == DialogInput {
 		d.input.Width = min(40, width-10)
 	}
+}
+
+// SetOffset sets the dialog's top-left screen coordinates for mouse handling.
+func (d *Dialog) SetOffset(x, y int) {
+	d.offsetX = x
+	d.offsetY = y
 }

@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -103,6 +104,8 @@ type App struct {
 	// Prefix mode (tmux-style leader key)
 	prefixActive bool
 	prefixToken  int
+
+	zone *zone.Manager
 }
 
 // New creates a new App instance
@@ -140,7 +143,7 @@ func New() (*App, error) {
 		fileWatcher = nil
 	}
 
-	return &App{
+	app := &App{
 		config:          cfg,
 		registry:        registry,
 		metadata:        metadata,
@@ -160,7 +163,10 @@ func New() (*App, error) {
 		showWelcome:     true,
 		keymap:          DefaultKeyMap(),
 		styles:          common.DefaultStyles(),
-	}, nil
+	}
+	app.zone = zone.New()
+	app.center.SetZone(app.zone)
+	return app, nil
 }
 
 // Init initializes the application
@@ -225,6 +231,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Handle dialog input if visible
 	if a.dialog != nil && a.dialog.Visible() {
+		if _, ok := msg.(tea.MouseMsg); ok {
+			x, y, _, _ := a.dialogBounds()
+			a.dialog.SetOffset(x, y)
+		}
 		newDialog, cmd := a.dialog.Update(msg)
 		a.dialog = newDialog
 		if cmd != nil {
@@ -295,6 +305,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Clicked on center pane
 
 				a.focusPane(messages.PaneCenter)
+
+				if a.dialog == nil || !a.dialog.Visible() {
+					if a.showWelcome && a.zone.Get("welcome-new-project").InBounds(msg) {
+						cmds = append(cmds, func() tea.Msg { return messages.ShowAddProjectDialog{} })
+					} else if !a.center.HasTabs() && a.activeWorktree != nil && a.zone.Get("worktree-new-agent").InBounds(msg) {
+						cmds = append(cmds, func() tea.Msg { return messages.ShowSelectAssistantDialog{} })
+					}
+				}
 
 			} else if a.layout.ShowSidebar() {
 
@@ -803,6 +821,7 @@ func (a *App) View() string {
 		if a.err != nil {
 			content = a.overlayError(content)
 		}
+		content = a.zone.Scan(content)
 		return syncBegin + content + syncEnd
 	}
 
@@ -866,6 +885,7 @@ func (a *App) View() string {
 		content = a.overlayError(content)
 	}
 
+	content = a.zone.Scan(content)
 	// Wrap with synchronized output to prevent flickering
 	return syncBegin + content + syncEnd
 }
@@ -1000,6 +1020,30 @@ func (a *App) overlayDialog(content string) string {
 	}
 
 	return strings.Join(contentLines, "\n")
+}
+
+func (a *App) dialogBounds() (x int, y int, width int, height int) {
+	if a.dialog == nil {
+		return 0, 0, 0, 0
+	}
+	dialogView := a.dialog.View()
+	dialogLines := strings.Split(dialogView, "\n")
+	height = len(dialogLines)
+	for _, line := range dialogLines {
+		if w := lipgloss.Width(line); w > width {
+			width = w
+		}
+	}
+
+	x = (a.width - width) / 2
+	y = (a.height - height) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	return x, y, width, height
 }
 
 // overlayFilePicker renders the file picker as a modal overlay
@@ -1616,6 +1660,7 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
+	content += "\n" + a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
 	content += "\n" + a.styles.Help.Render("Press C-Space a to launch an agent")
 
 	return content
@@ -1623,6 +1668,25 @@ func (a *App) renderWorktreeInfo() string {
 
 // renderWelcome renders the welcome screen
 func (a *App) renderWelcome() string {
+	content := a.welcomeContent()
+
+	// Center the content in the pane
+	width := a.layout.CenterWidth() - 4 // Account for borders/padding
+	height := a.layout.Height() - 4
+
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (a *App) welcomeContent() string {
+	logo, logoStyle := a.welcomeLogo()
+	var b strings.Builder
+	b.WriteString(logoStyle.Render(logo))
+	b.WriteString("\n\n")
+	b.WriteString(a.zone.Mark("welcome-new-project", a.styles.TabPlus.Render("[+] New project")))
+	return b.String()
+}
+
+func (a *App) welcomeLogo() (string, lipgloss.Style) {
 	logo := `
  8888b.  88888b.d88b.  888  888 888  888
     "88b 888 "888 "88b 888  888  Y8bd8P
@@ -1633,29 +1697,7 @@ func (a *App) renderWelcome() string {
 	logoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#7aa2f7")).
 		Bold(true)
-
-	// Quick start section
-	quickStart := `
-┌─ Quick Start ─────────────────────┐
-│  a          Add a project         │
-│  C-Space a  Launch AI agent       │
-│  C-Space ?  Show all shortcuts    │
-└───────────────────────────────────┘`
-
-	quickStartStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#565f89"))
-
-	// Build the welcome screen content
-	var b strings.Builder
-	b.WriteString(logoStyle.Render(logo))
-	b.WriteString("\n\n")
-	b.WriteString(quickStartStyle.Render(quickStart))
-
-	// Center the content in the pane
-	width := a.layout.CenterWidth() - 4 // Account for borders/padding
-	height := a.layout.Height() - 4
-
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, b.String())
+	return logo, logoStyle
 }
 
 // loadProjects loads all registered projects and their worktrees
