@@ -20,12 +20,24 @@ func KeyToBytes(msg tea.KeyMsg) []byte {
 	case tea.KeyEsc:
 		return []byte{0x1b}
 	case tea.KeyUp:
+		if msg.Alt {
+			return []byte{0x1b, '[', '1', ';', '3', 'A'}
+		}
 		return []byte{0x1b, '[', 'A'}
 	case tea.KeyDown:
+		if msg.Alt {
+			return []byte{0x1b, '[', '1', ';', '3', 'B'}
+		}
 		return []byte{0x1b, '[', 'B'}
 	case tea.KeyRight:
+		if msg.Alt {
+			return []byte{0x1b, '[', '1', ';', '3', 'C'}
+		}
 		return []byte{0x1b, '[', 'C'}
 	case tea.KeyLeft:
+		if msg.Alt {
+			return []byte{0x1b, '[', '1', ';', '3', 'D'}
+		}
 		return []byte{0x1b, '[', 'D'}
 	case tea.KeyHome:
 		return []byte{0x1b, '[', 'H'}
