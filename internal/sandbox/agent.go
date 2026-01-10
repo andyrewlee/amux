@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ const (
 	sshReadyTimeout      = 15 * time.Second
 	sshReadyInterval     = 1 * time.Second
 	agentInstallBasePath = "/amux/.installed"
+	agentInstallTTL      = 24 * time.Hour // Re-check for updates after 24 hours
 )
 
 // AgentConfig configures interactive agent sessions.
@@ -163,22 +165,57 @@ func agentInstallMarker(agent string) string {
 	return fmt.Sprintf("%s/%s", agentInstallBasePath, agent)
 }
 
-func isAgentInstalled(sandbox *daytona.Sandbox, agent string) bool {
-	resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf("test -f %s && echo exists", agentInstallMarker(agent)))
-	return err == nil && strings.Contains(getStdoutFromResponse(resp), "exists")
+// isAgentInstallFresh checks if the agent was installed recently (within TTL).
+// Returns true if the marker exists and is fresh, false if missing or stale.
+func isAgentInstallFresh(sandbox *daytona.Sandbox, agent string) bool {
+	marker := agentInstallMarker(agent)
+	// Check if marker exists and get its age in seconds
+	resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf(
+		`if [ -f %s ]; then stat -c %%Y %s 2>/dev/null || stat -f %%m %s 2>/dev/null; else echo 0; fi`,
+		marker, marker, marker,
+	))
+	if err != nil {
+		return false
+	}
+	stdout := strings.TrimSpace(getStdoutFromResponse(resp))
+	if stdout == "" || stdout == "0" {
+		return false
+	}
+	// Parse the modification timestamp
+	modTime, err := strconv.ParseInt(stdout, 10, 64)
+	if err != nil || modTime == 0 {
+		return false
+	}
+	// Check if within TTL
+	age := time.Since(time.Unix(modTime, 0))
+	return age < agentInstallTTL
 }
 
-func installClaude(sandbox *daytona.Sandbox, verbose bool) error {
+// touchAgentMarker creates or updates the install marker timestamp.
+func touchAgentMarker(sandbox *daytona.Sandbox, agent string) {
+	marker := agentInstallMarker(agent)
+	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, marker))
+}
+
+func installClaude(sandbox *daytona.Sandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
 		fmt.Println("Installing Claude Code...")
 	}
 	resp, _ := sandbox.Process.ExecuteCommand("which claude")
-	if resp != nil && resp.ExitCode == 0 {
+	alreadyInstalled := resp != nil && resp.ExitCode == 0
+	if alreadyInstalled && !forceUpdate {
 		if verbose {
 			fmt.Println("Claude Code already installed")
 		}
 	} else {
-		resp, err := sandbox.Process.ExecuteCommand("npm install -g @anthropic-ai/claude-code")
+		action := "Installing"
+		if alreadyInstalled {
+			action = "Updating"
+		}
+		if verbose {
+			fmt.Printf("%s Claude Code...\n", action)
+		}
+		resp, err := sandbox.Process.ExecuteCommand("npm install -g @anthropic-ai/claude-code@latest")
 		if err != nil || resp.ExitCode != 0 {
 			return errors.New("failed to install claude code in sandbox")
 		}
@@ -186,21 +223,29 @@ func installClaude(sandbox *daytona.Sandbox, verbose bool) error {
 			fmt.Println("Claude Code installed")
 		}
 	}
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("claude")))
+	touchAgentMarker(sandbox, "claude")
 	return nil
 }
 
-func installCodex(sandbox *daytona.Sandbox, verbose bool) error {
+func installCodex(sandbox *daytona.Sandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
 		fmt.Println("Installing Codex CLI...")
 	}
 	resp, _ := sandbox.Process.ExecuteCommand("which codex")
-	if resp != nil && resp.ExitCode == 0 {
+	alreadyInstalled := resp != nil && resp.ExitCode == 0
+	if alreadyInstalled && !forceUpdate {
 		if verbose {
 			fmt.Println("Codex CLI already installed")
 		}
 	} else {
-		resp, err := sandbox.Process.ExecuteCommand("npm install -g @openai/codex")
+		action := "Installing"
+		if alreadyInstalled {
+			action = "Updating"
+		}
+		if verbose {
+			fmt.Printf("%s Codex CLI...\n", action)
+		}
+		resp, err := sandbox.Process.ExecuteCommand("npm install -g @openai/codex@latest")
 		if err != nil || resp.ExitCode != 0 {
 			return errors.New("failed to install codex cli in sandbox")
 		}
@@ -208,26 +253,34 @@ func installCodex(sandbox *daytona.Sandbox, verbose bool) error {
 			fmt.Println("Codex CLI installed")
 		}
 	}
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("codex")))
+	touchAgentMarker(sandbox, "codex")
 	return nil
 }
 
-func installOpenCode(sandbox *daytona.Sandbox, verbose bool) error {
+func installOpenCode(sandbox *daytona.Sandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
 		fmt.Println("Installing OpenCode CLI...")
 	}
 	resp, _ := sandbox.Process.ExecuteCommand("which opencode")
-	if resp != nil && resp.ExitCode == 0 {
+	alreadyInstalled := resp != nil && resp.ExitCode == 0
+	if alreadyInstalled && !forceUpdate {
 		if verbose {
 			fmt.Println("OpenCode CLI already installed")
 		}
 	} else {
+		action := "Installing"
+		if alreadyInstalled {
+			action = "Updating"
+		}
+		if verbose {
+			fmt.Printf("%s OpenCode CLI...\n", action)
+		}
 		resp, err := sandbox.Process.ExecuteCommand(`bash -lc "curl -fsSL https://opencode.ai/install | bash"`)
 		if err != nil || resp.ExitCode != 0 {
 			if verbose {
 				fmt.Println("OpenCode install script failed, trying npm...")
 			}
-			resp, err = sandbox.Process.ExecuteCommand("npm install -g opencode-ai")
+			resp, err = sandbox.Process.ExecuteCommand("npm install -g opencode-ai@latest")
 			if err != nil || resp.ExitCode != 0 {
 				return errors.New("failed to install opencode cli in sandbox")
 			}
@@ -236,28 +289,36 @@ func installOpenCode(sandbox *daytona.Sandbox, verbose bool) error {
 			fmt.Println("OpenCode CLI installed")
 		}
 	}
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("opencode")))
+	touchAgentMarker(sandbox, "opencode")
 	return nil
 }
 
-func installAmp(sandbox *daytona.Sandbox, verbose bool) error {
+func installAmp(sandbox *daytona.Sandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
 		fmt.Println("Installing Amp CLI...")
 	}
 	home := getHomeDir(sandbox)
 	ampBin := fmt.Sprintf("%s/.amp/bin/amp", home)
 	resp, _ := sandbox.Process.ExecuteCommand(fmt.Sprintf("sh -lc \"command -v amp >/dev/null 2>&1 || test -x %s\"", quoteForShell(ampBin)))
-	if resp != nil && resp.ExitCode == 0 {
+	alreadyInstalled := resp != nil && resp.ExitCode == 0
+	if alreadyInstalled && !forceUpdate {
 		if verbose {
 			fmt.Println("Amp CLI already installed")
 		}
 	} else {
+		action := "Installing"
+		if alreadyInstalled {
+			action = "Updating"
+		}
+		if verbose {
+			fmt.Printf("%s Amp CLI...\n", action)
+		}
 		resp, err := sandbox.Process.ExecuteCommand(`bash -lc "curl -fsSL https://ampcode.com/install.sh | bash"`)
 		if err != nil || resp.ExitCode != 0 {
 			if verbose {
 				fmt.Println("Amp install script failed, trying npm...")
 			}
-			resp, err = sandbox.Process.ExecuteCommand("npm install -g @sourcegraph/amp")
+			resp, err = sandbox.Process.ExecuteCommand("npm install -g @sourcegraph/amp@latest")
 			if err != nil || resp.ExitCode != 0 {
 				return errors.New("failed to install amp cli in sandbox")
 			}
@@ -266,21 +327,29 @@ func installAmp(sandbox *daytona.Sandbox, verbose bool) error {
 			fmt.Println("Amp CLI installed")
 		}
 	}
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("amp")))
+	touchAgentMarker(sandbox, "amp")
 	return nil
 }
 
-func installGemini(sandbox *daytona.Sandbox, verbose bool) error {
+func installGemini(sandbox *daytona.Sandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
 		fmt.Println("Installing Gemini CLI...")
 	}
 	resp, _ := sandbox.Process.ExecuteCommand("which gemini")
-	if resp != nil && resp.ExitCode == 0 {
+	alreadyInstalled := resp != nil && resp.ExitCode == 0
+	if alreadyInstalled && !forceUpdate {
 		if verbose {
 			fmt.Println("Gemini CLI already installed")
 		}
 	} else {
-		resp, err := sandbox.Process.ExecuteCommand("npm install -g @google/gemini-cli")
+		action := "Installing"
+		if alreadyInstalled {
+			action = "Updating"
+		}
+		if verbose {
+			fmt.Printf("%s Gemini CLI...\n", action)
+		}
+		resp, err := sandbox.Process.ExecuteCommand("npm install -g @google/gemini-cli@latest")
 		if err != nil || resp.ExitCode != 0 {
 			return errors.New("failed to install gemini cli in sandbox")
 		}
@@ -288,20 +357,28 @@ func installGemini(sandbox *daytona.Sandbox, verbose bool) error {
 			fmt.Println("Gemini CLI installed")
 		}
 	}
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("gemini")))
+	touchAgentMarker(sandbox, "gemini")
 	return nil
 }
 
-func installDroid(sandbox *daytona.Sandbox, verbose bool) error {
+func installDroid(sandbox *daytona.Sandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
 		fmt.Println("Installing Droid CLI...")
 	}
 	resp, _ := sandbox.Process.ExecuteCommand("which droid")
-	if resp != nil && resp.ExitCode == 0 {
+	alreadyInstalled := resp != nil && resp.ExitCode == 0
+	if alreadyInstalled && !forceUpdate {
 		if verbose {
 			fmt.Println("Droid CLI already installed")
 		}
 	} else {
+		action := "Installing"
+		if alreadyInstalled {
+			action = "Updating"
+		}
+		if verbose {
+			fmt.Printf("%s Droid CLI...\n", action)
+		}
 		resp, err := sandbox.Process.ExecuteCommand(`bash -lc "curl -fsSL https://app.factory.ai/cli | sh"`)
 		if err != nil || resp.ExitCode != 0 {
 			return errors.New("failed to install droid cli in sandbox")
@@ -310,37 +387,67 @@ func installDroid(sandbox *daytona.Sandbox, verbose bool) error {
 			fmt.Println("Droid CLI installed")
 		}
 	}
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("droid")))
+	touchAgentMarker(sandbox, "droid")
 	return nil
 }
 
-// EnsureAgentInstalled installs the requested agent if missing.
-func EnsureAgentInstalled(sandbox *daytona.Sandbox, agent Agent, verbose bool) error {
+// EnsureAgentInstalled installs the requested agent if missing or stale.
+// If forceUpdate is true, always reinstalls to get the latest version.
+// Otherwise, uses TTL-based caching (24h) to avoid unnecessary reinstalls.
+func EnsureAgentInstalled(sandbox *daytona.Sandbox, agent Agent, verbose bool, forceUpdate bool) error {
 	if agent == AgentShell {
 		return nil
 	}
-	if isAgentInstalled(sandbox, agent.String()) {
+
+	// Check if we can skip installation (marker is fresh and not forcing update)
+	if !forceUpdate && isAgentInstallFresh(sandbox, agent.String()) {
 		if verbose {
-			fmt.Printf("%s already installed\n", agent)
+			fmt.Printf("%s already installed (checked within 24h)\n", agent)
 		}
 		return nil
 	}
+
+	// Determine if this is an update (for messaging)
+	needsUpdate := forceUpdate && isAgentInstallFresh(sandbox, agent.String())
+	if needsUpdate && verbose {
+		fmt.Printf("Checking for %s updates...\n", agent)
+	}
+
 	switch agent {
 	case AgentClaude:
-		return installClaude(sandbox, verbose)
+		return installClaude(sandbox, verbose, forceUpdate)
 	case AgentCodex:
-		return installCodex(sandbox, verbose)
+		return installCodex(sandbox, verbose, forceUpdate)
 	case AgentOpenCode:
-		return installOpenCode(sandbox, verbose)
+		return installOpenCode(sandbox, verbose, forceUpdate)
 	case AgentAmp:
-		return installAmp(sandbox, verbose)
+		return installAmp(sandbox, verbose, forceUpdate)
 	case AgentGemini:
-		return installGemini(sandbox, verbose)
+		return installGemini(sandbox, verbose, forceUpdate)
 	case AgentDroid:
-		return installDroid(sandbox, verbose)
+		return installDroid(sandbox, verbose, forceUpdate)
 	default:
 		return nil
 	}
+}
+
+// UpdateAgent forces a reinstall of the agent to get the latest version.
+func UpdateAgent(sandbox *daytona.Sandbox, agent Agent, verbose bool) error {
+	return EnsureAgentInstalled(sandbox, agent, verbose, true)
+}
+
+// UpdateAllAgents updates all supported agents to their latest versions.
+func UpdateAllAgents(sandbox *daytona.Sandbox, verbose bool) error {
+	agents := []Agent{AgentClaude, AgentCodex, AgentOpenCode, AgentAmp, AgentGemini, AgentDroid}
+	for _, agent := range agents {
+		if err := UpdateAgent(sandbox, agent, verbose); err != nil {
+			if verbose {
+				fmt.Printf("Warning: failed to update %s: %v\n", agent, err)
+			}
+			// Continue with other agents
+		}
+	}
+	return nil
 }
 
 func waitForSshAccess(sandbox *daytona.Sandbox, token string) (string, error) {

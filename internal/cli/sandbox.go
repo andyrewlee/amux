@@ -22,6 +22,7 @@ func buildSandboxCommand() *cobra.Command {
 		Short: "Manage sandboxes",
 	}
 	cmd.AddCommand(buildSandboxRunCommand())
+	cmd.AddCommand(buildSandboxUpdateCommand())
 	cmd.AddCommand(buildSandboxPreviewCommand())
 	cmd.AddCommand(buildSandboxDesktopCommand())
 	cmd.AddCommand(buildSandboxLsCommand())
@@ -37,6 +38,7 @@ func buildSandboxRunCommand() *cobra.Command {
 	var snapshot string
 	var noSync bool
 	var autoStop int32
+	var update bool
 
 	cmd := &cobra.Command{
 		Use:   "run <agent>",
@@ -145,6 +147,7 @@ func buildSandboxRunCommand() *cobra.Command {
 				snapshotID:  snapshotID,
 				recreate:    recreate,
 				syncEnabled: syncEnabled,
+				forceUpdate: update,
 				agentArgs:   agentArgs,
 			})
 		},
@@ -157,7 +160,87 @@ func buildSandboxRunCommand() *cobra.Command {
 	cmd.Flags().StringVar(&snapshot, "snapshot", "", "Use a specific snapshot")
 	cmd.Flags().BoolVar(&noSync, "no-sync", false, "Skip workspace sync")
 	cmd.Flags().Int32Var(&autoStop, "auto-stop", 30, "Auto-stop interval in minutes (0 to disable)")
+	cmd.Flags().BoolVarP(&update, "update", "u", false, "Update agent to latest version")
 	cmd.Flags().BoolVarP(&Verbose, "verbose", "V", false, "Enable verbose output")
+
+	return cmd
+}
+
+func buildSandboxUpdateCommand() *cobra.Command {
+	var all bool
+	var snapshot string
+
+	cmd := &cobra.Command{
+		Use:   "update [agent]",
+		Short: "Update agent CLIs to latest versions",
+		Long: `Update agent CLIs to their latest versions in the current workspace sandbox.
+
+If no agent is specified, updates the default agent (claude).
+Use --all to update all supported agents.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := sandbox.RunPreflight(); err != nil {
+				return err
+			}
+
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+
+			cfg, err := sandbox.LoadConfig()
+			if err != nil {
+				return err
+			}
+
+			snapshotID := snapshot
+			if snapshotID == "" {
+				snapshotID = sandbox.ResolveSnapshotID(cfg)
+			}
+
+			// Get or create sandbox
+			spinner := NewSpinner("Connecting to sandbox")
+			spinner.Start()
+			sb, _, err := resolveWorkspaceSandbox(cwd, snapshotID)
+			if err != nil {
+				spinner.StopWithMessage("✗ Failed to connect")
+				return err
+			}
+			spinner.StopWithMessage("✓ Connected")
+
+			if all {
+				// Update all agents
+				fmt.Println("Updating all agents...")
+				if err := sandbox.UpdateAllAgents(sb, true); err != nil {
+					return err
+				}
+				fmt.Println("✓ All agents updated")
+			} else {
+				// Update specific agent
+				agentName := "claude"
+				if len(args) > 0 {
+					agentName = args[0]
+				}
+				if !sandbox.IsValidAgent(agentName) {
+					return fmt.Errorf("invalid agent: use claude, codex, opencode, amp, gemini, or droid")
+				}
+				agent := sandbox.Agent(agentName)
+
+				spinner := NewSpinner(fmt.Sprintf("Updating %s", agent))
+				spinner.Start()
+				if err := sandbox.UpdateAgent(sb, agent, false); err != nil {
+					spinner.StopWithMessage(fmt.Sprintf("✗ Failed to update %s", agent))
+					return err
+				}
+				spinner.StopWithMessage(fmt.Sprintf("✓ %s updated", agent))
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&all, "all", false, "Update all agents")
+	cmd.Flags().StringVar(&snapshot, "snapshot", "", "Use a specific snapshot")
 
 	return cmd
 }
@@ -172,6 +255,7 @@ type runAgentParams struct {
 	snapshotID  string
 	recreate    bool
 	syncEnabled bool
+	forceUpdate bool
 	agentArgs   []string
 }
 
@@ -246,26 +330,37 @@ func runAgent(p runAgentParams) error {
 	if err != nil {
 		return err
 	}
+
+	// Determine spinner message based on update flag
+	setupMsg := "Setting up environment"
+	if p.forceUpdate {
+		setupMsg = "Updating agent"
+	}
+
 	if Verbose {
-		fmt.Println("Setting up environment...")
+		fmt.Println(setupMsg + "...")
 		if err := sandbox.SetupCredentials(client, sb, sandbox.CredentialsConfig{Mode: p.credMode, Agent: p.agent}, Verbose); err != nil {
 			return err
 		}
-		if err := sandbox.EnsureAgentInstalled(sb, p.agent, Verbose); err != nil {
+		if err := sandbox.EnsureAgentInstalled(sb, p.agent, Verbose, p.forceUpdate); err != nil {
 			return err
 		}
 	} else {
-		spinner := NewSpinner("Setting up environment")
+		spinner := NewSpinner(setupMsg)
 		spinner.Start()
 		if err := sandbox.SetupCredentials(client, sb, sandbox.CredentialsConfig{Mode: p.credMode, Agent: p.agent}, false); err != nil {
 			spinner.StopWithMessage("✗ Setup failed")
 			return err
 		}
-		if err := sandbox.EnsureAgentInstalled(sb, p.agent, false); err != nil {
+		if err := sandbox.EnsureAgentInstalled(sb, p.agent, false, p.forceUpdate); err != nil {
 			spinner.StopWithMessage("✗ Agent install failed")
 			return err
 		}
-		spinner.StopWithMessage("✓ Ready")
+		if p.forceUpdate {
+			spinner.StopWithMessage("✓ Updated")
+		} else {
+			spinner.StopWithMessage("✓ Ready")
+		}
 	}
 
 	// Step 4: Check credentials and handle login if needed

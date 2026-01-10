@@ -20,13 +20,14 @@ func buildAgentAliasCommand(agent string, description string) *cobra.Command {
 	var snapshot string
 	var noSync bool
 	var autoStop int32
+	var update bool
 
 	cmd := &cobra.Command{
 		Use:   agent + " [-- agent-args...]",
 		Short: description,
 		Long:  description + "\n\nThis is a shortcut for `amux sandbox run " + agent + "`.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAgentAlias(agent, envVars, volumes, credentials, recreate, snapshot, noSync, autoStop, args)
+			return runAgentAlias(agent, envVars, volumes, credentials, recreate, snapshot, noSync, autoStop, update, args)
 		},
 	}
 
@@ -37,12 +38,13 @@ func buildAgentAliasCommand(agent string, description string) *cobra.Command {
 	cmd.Flags().StringVar(&snapshot, "snapshot", "", "Use a specific snapshot")
 	cmd.Flags().BoolVar(&noSync, "no-sync", false, "Skip workspace sync")
 	cmd.Flags().Int32Var(&autoStop, "auto-stop", 30, "Auto-stop interval in minutes (0 to disable)")
+	cmd.Flags().BoolVarP(&update, "update", "u", false, "Update agent to latest version")
 	cmd.Flags().BoolVarP(&Verbose, "verbose", "V", false, "Enable verbose output")
 
 	return cmd
 }
 
-func runAgentAlias(agentName string, envVars, volumes []string, credentials string, recreate bool, snapshotID string, noSync bool, autoStop int32, passthroughArgs []string) error {
+func runAgentAlias(agentName string, envVars, volumes []string, credentials string, recreate bool, snapshotID string, noSync bool, autoStop int32, forceUpdate bool, passthroughArgs []string) error {
 	agent := sandbox.Agent(agentName)
 
 	if err := sandbox.RunPreflight(); err != nil {
@@ -132,6 +134,7 @@ func runAgentAlias(agentName string, envVars, volumes []string, credentials stri
 		snapshotID:  snapshotID,
 		recreate:    recreate,
 		syncEnabled: syncEnabled,
+		forceUpdate: forceUpdate,
 		agentArgs:   agentArgs,
 	})
 }
