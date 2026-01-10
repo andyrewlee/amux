@@ -13,6 +13,9 @@ import (
 	"github.com/andyrewlee/amux/internal/sandbox"
 )
 
+// Verbose controls whether verbose output is enabled.
+var Verbose bool
+
 func buildSandboxCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sandbox",
@@ -33,6 +36,7 @@ func buildSandboxRunCommand() *cobra.Command {
 	var recreate bool
 	var snapshot string
 	var noSync bool
+	var autoStop int32
 
 	cmd := &cobra.Command{
 		Use:   "run <agent>",
@@ -41,7 +45,7 @@ func buildSandboxRunCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentName := args[0]
 			if !sandbox.IsValidAgent(agentName) {
-				return fmt.Errorf("invalid agent. Use: claude, codex, opencode, amp, gemini, droid, or shell")
+				return fmt.Errorf("invalid agent: use claude, codex, opencode, amp, gemini, droid, or shell")
 			}
 			agent := sandbox.Agent(agentName)
 
@@ -62,6 +66,7 @@ func buildSandboxRunCommand() *cobra.Command {
 				return err
 			}
 
+			// Parse credentials mode
 			credMode := strings.ToLower(credentials)
 			switch credMode {
 			case "sandbox", "none", "auto", "":
@@ -69,7 +74,7 @@ func buildSandboxRunCommand() *cobra.Command {
 					credMode = "auto"
 				}
 			default:
-				return fmt.Errorf("invalid credentials mode. Use: sandbox, none, or auto")
+				return fmt.Errorf("invalid credentials mode: use sandbox, none, or auto")
 			}
 			if credMode == "auto" {
 				if agent == sandbox.AgentShell {
@@ -79,6 +84,7 @@ func buildSandboxRunCommand() *cobra.Command {
 				}
 			}
 
+			// Parse environment variables
 			envMap := map[string]string{}
 			for _, env := range envVars {
 				parts := strings.SplitN(env, "=", 2)
@@ -87,6 +93,7 @@ func buildSandboxRunCommand() *cobra.Command {
 				}
 			}
 
+			// Parse volume specs
 			volumeSpecs := []sandbox.VolumeSpec{}
 			for _, spec := range volumes {
 				vol, err := parseVolumeSpec(spec)
@@ -96,309 +103,50 @@ func buildSandboxRunCommand() *cobra.Command {
 				volumeSpecs = append(volumeSpecs, vol)
 			}
 
+			// Parse agent args
 			syncEnabled := !noSync
 			userArgs := getAgentArgs(os.Args, agentName)
 			agentArgs := append([]string{}, userArgs...)
-			hasUserArgs := len(userArgs) > 0
-			if agent == sandbox.AgentCodex {
-				pref := getenvFallback("AMUX_CODEX_TUI2")
-				if pref != "0" {
-					hasFlag := false
-					for i := 0; i < len(agentArgs); i++ {
-						arg := agentArgs[i]
-						if (arg == "--enable" || arg == "--disable") && i+1 < len(agentArgs) && agentArgs[i+1] == "tui2" {
-							hasFlag = true
-							break
-						}
-						if arg == "-c" && i+1 < len(agentArgs) && strings.HasPrefix(agentArgs[i+1], "features.tui2") {
-							hasFlag = true
-							break
-						}
+			if agent == sandbox.AgentCodex && getenvFallback("AMUX_CODEX_TUI2") != "0" {
+				hasTui2Flag := false
+				for i := 0; i < len(agentArgs); i++ {
+					arg := agentArgs[i]
+					if (arg == "--enable" || arg == "--disable") && i+1 < len(agentArgs) && agentArgs[i+1] == "tui2" {
+						hasTui2Flag = true
+						break
 					}
-					if !hasFlag {
-						agentArgs = append([]string{"--enable", "tui2"}, agentArgs...)
+					if arg == "-c" && i+1 < len(agentArgs) && strings.HasPrefix(agentArgs[i+1], "features.tui2") {
+						hasTui2Flag = true
+						break
 					}
+				}
+				if !hasTui2Flag {
+					agentArgs = append([]string{"--enable", "tui2"}, agentArgs...)
 				}
 			}
 
+			// Resolve snapshot
 			snapshotID := snapshot
 			if snapshotID == "" {
 				snapshotID = sandbox.ResolveSnapshotID(cfg)
 			}
-			if snapshotID != "" {
+			if Verbose && snapshotID != "" {
 				fmt.Printf("Using snapshot: %s\n", snapshotID)
 			}
 
-			fmt.Printf("Starting %s sandbox...\n", agent)
-			sb, meta, err := sandbox.EnsureSandbox(cwd, sandbox.SandboxConfig{
-				Agent:           agent,
-				EnvVars:         envMap,
-				Volumes:         volumeSpecs,
-				CredentialsMode: credMode,
-				Snapshot:        snapshotID,
-			}, recreate)
-			if err != nil {
-				return err
-			}
-
-			fmt.Println("Sandbox ID: " + sb.ID)
-			fmt.Println("Sandbox state: " + string(sb.State))
-
-			workspacePath := sandbox.GetWorkspaceRepoPath(sb, sandbox.SyncOptions{Cwd: cwd, WorkspaceID: meta.WorkspaceID})
-
-			if syncEnabled {
-				fmt.Println("\nSyncing workspace to sandbox...")
-				if err := sandbox.UploadWorkspace(sb, sandbox.SyncOptions{Cwd: cwd, WorkspaceID: meta.WorkspaceID}); err != nil {
-					return err
-				}
-			} else {
-				_, _ = sb.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s", workspacePath))
-			}
-
-			fmt.Println("\nConfiguring credentials...")
-			client, err := sandbox.GetDaytonaClient()
-			if err != nil {
-				return err
-			}
-			if err := sandbox.SetupCredentials(client, sb, sandbox.CredentialsConfig{Mode: credMode, Agent: agent}); err != nil {
-				return err
-			}
-			if credMode != "none" {
-				fmt.Println("Credentials: stored in shared volume (login once).")
-			}
-
-			fmt.Println("\nInstalling agent...")
-			if err := sandbox.EnsureAgentInstalled(sb, agent); err != nil {
-				return err
-			}
-
-			var exitCode *int
-			attemptedCodexLogin := false
-			attemptedOpenCodeLogin := false
-
-			if agent == sandbox.AgentCodex && credMode != "none" && getenvFallback("AMUX_CODEX_AUTO_LOGIN") != "0" && !hasUserArgs {
-				attemptedCodexLogin = true
-				loginArgs := []string{"login"}
-				if getenvFallback("AMUX_CODEX_DEVICE_AUTH") != "0" {
-					loginArgs = append(loginArgs, "--device-auth")
-				}
-				fmt.Println("\nCodex login required (first run).")
-				fmt.Println("Complete login once; credentials persist in the volume.")
-				raw := false
-				code, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
-					Agent:         sandbox.AgentCodex,
-					WorkspacePath: workspacePath,
-					Args:          loginArgs,
-					Env:           envMap,
-					RawMode:       &raw,
-				})
-				if err != nil {
-					return err
-				}
-				if code != 0 {
-					exitCode = &code
-				} else {
-					fmt.Println("\nCodex login complete.")
-					fmt.Println()
-				}
-			}
-
-			if exitCode == nil && credMode != "none" && !hasUserArgs {
-				switch agent {
-				case sandbox.AgentOpenCode:
-					if getenvFallback("AMUX_OPENCODE_AUTO_LOGIN") != "0" {
-						check, _ := sb.Process.ExecuteCommand(`sh -lc "test -f ~/.local/share/opencode/auth.json"`)
-						if check == nil || check.ExitCode != 0 {
-							attemptedOpenCodeLogin = true
-							fmt.Println("\nOpenCode login required (first run).")
-							fmt.Println("Complete login once; credentials persist in the volume.")
-							raw := false
-							code, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
-								Agent:         sandbox.AgentOpenCode,
-								WorkspacePath: workspacePath,
-								Args:          []string{"auth", "login"},
-								Env:           envMap,
-								RawMode:       &raw,
-							})
-							if err != nil {
-								return err
-							}
-							if code != 0 {
-								exitCode = &code
-							} else {
-								fmt.Println("\nOpenCode login complete.")
-								fmt.Println()
-							}
-						}
-					}
-				case sandbox.AgentAmp:
-					if getenvFallback("AMUX_AMP_AUTO_LOGIN") != "0" && envMap["AMP_API_KEY"] == "" {
-						check, _ := sb.Process.ExecuteCommand(`sh -lc "test -f ~/.local/share/amp/secrets.json"`)
-						if check == nil || check.ExitCode != 0 {
-							fmt.Println("\nAmp login required (first run).")
-							fmt.Println("Complete login once; credentials persist in the volume.")
-							raw := false
-							code, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
-								Agent:         sandbox.AgentAmp,
-								WorkspacePath: workspacePath,
-								Args:          []string{"login"},
-								Env:           envMap,
-								RawMode:       &raw,
-							})
-							if err != nil {
-								return err
-							}
-							if code != 0 {
-								exitCode = &code
-							} else {
-								fmt.Println("\nAmp login complete.")
-								fmt.Println()
-							}
-						}
-					}
-				case sandbox.AgentGemini:
-					if getenvFallback("AMUX_GEMINI_AUTO_LOGIN") != "0" && envMap["GEMINI_API_KEY"] == "" && envMap["GOOGLE_API_KEY"] == "" && envMap["GOOGLE_APPLICATION_CREDENTIALS"] == "" {
-						check, _ := sb.Process.ExecuteCommand(`sh -lc "test -f ~/.gemini/oauth_creds.json"`)
-						if check == nil || check.ExitCode != 0 {
-							fmt.Println("\nGemini login required (first run). Choose a login method inside the CLI.")
-							fmt.Println("Complete login once; credentials persist in the volume.")
-						}
-					}
-				case sandbox.AgentDroid:
-					if getenvFallback("AMUX_DROID_AUTO_LOGIN") != "0" && envMap["FACTORY_API_KEY"] == "" {
-						check, _ := sb.Process.ExecuteCommand(`sh -lc "test -f ~/.factory/config.json"`)
-						if check == nil || check.ExitCode != 0 {
-							fmt.Println("\nDroid login required (first run). Run `/login` inside Droid to authenticate.")
-							fmt.Println("Complete login once; credentials persist in the volume.")
-						}
-					}
-				}
-			}
-
-			if exitCode == nil {
-				fmt.Printf("\nStarting %s in interactive mode...\n", agent)
-				fmt.Println("Workspace: " + workspacePath)
-				fmt.Println()
-				if agent == sandbox.AgentClaude {
-					fmt.Println("Tip: if Claude doesn't prompt, pass `--env ANTHROPIC_BASE_URL=...` or `--env HTTP_PROXY=...` to match your local setup.")
-				}
-				code, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
-					Agent:         agent,
-					WorkspacePath: workspacePath,
-					Args:          agentArgs,
-					Env:           envMap,
-				})
-				if err != nil {
-					return err
-				}
-				exitCode = &code
-
-				if agent == sandbox.AgentCodex && code == 255 && !attemptedCodexLogin && credMode != "none" && getenvFallback("AMUX_CODEX_AUTO_LOGIN") != "0" && !hasUserArgs {
-					fmt.Println("\nCodex exited unexpectedly. Attempting login...")
-					raw := false
-					loginExit, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
-						Agent:         sandbox.AgentCodex,
-						WorkspacePath: workspacePath,
-						Args:          []string{"login"},
-						Env:           envMap,
-						RawMode:       &raw,
-					})
-					if err != nil {
-						return err
-					}
-					if loginExit == 0 {
-						fmt.Println("\nCodex login complete.")
-						fmt.Println()
-						code, err = sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
-							Agent:         sandbox.AgentCodex,
-							WorkspacePath: workspacePath,
-							Args:          agentArgs,
-							Env:           envMap,
-						})
-						if err != nil {
-							return err
-						}
-						exitCode = &code
-					} else {
-						exitCode = &loginExit
-					}
-				}
-
-				if agent == sandbox.AgentOpenCode && code == 255 && !attemptedOpenCodeLogin && credMode != "none" && getenvFallback("AMUX_OPENCODE_AUTO_LOGIN") != "0" && !hasUserArgs {
-					fmt.Println("\nOpenCode exited unexpectedly. Attempting login...")
-					raw := false
-					loginExit, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
-						Agent:         sandbox.AgentOpenCode,
-						WorkspacePath: workspacePath,
-						Args:          []string{"auth", "login"},
-						Env:           envMap,
-						RawMode:       &raw,
-					})
-					if err != nil {
-						return err
-					}
-					if loginExit == 0 {
-						fmt.Println("\nOpenCode login complete.")
-						fmt.Println()
-						code, err = sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
-							Agent:         sandbox.AgentOpenCode,
-							WorkspacePath: workspacePath,
-							Args:          agentArgs,
-							Env:           envMap,
-						})
-						if err != nil {
-							return err
-						}
-						exitCode = &code
-					} else {
-						exitCode = &loginExit
-					}
-				}
-			}
-
-			finalCode := 0
-			if exitCode != nil {
-				finalCode = *exitCode
-			}
-			fmt.Printf("\nAgent exited with code: %d\n", finalCode)
-
-			if credMode != "none" {
-				_ = sandbox.SyncCredentialsFromSandbox(sb, sandbox.CredentialsConfig{Mode: credMode, Agent: agent})
-			}
-
-			if finalCode == 127 {
-				switch agent {
-				case sandbox.AgentClaude:
-					if envMap["ANTHROPIC_API_KEY"] == "" && envMap["CLAUDE_API_KEY"] == "" && envMap["ANTHROPIC_AUTH_TOKEN"] == "" {
-						fmt.Println("\nClaude Code requires credentials in the sandbox (ANTHROPIC_AUTH_TOKEN from `claude /login`, or ANTHROPIC_API_KEY/CLAUDE_API_KEY). Log in inside the sandbox or pass --env ANTHROPIC_AUTH_TOKEN=... then retry.")
-					}
-				case sandbox.AgentCodex:
-					if envMap["OPENAI_API_KEY"] == "" {
-						fmt.Println("\nCodex requires OpenAI credentials in the sandbox. Log in inside the sandbox (`codex login`) or pass --env OPENAI_API_KEY=... then retry.")
-					}
-				case sandbox.AgentOpenCode:
-					fmt.Println("\nOpenCode stores credentials in ~/.local/share/opencode/auth.json. Run `opencode auth login` inside the sandbox or pass provider keys via --env/your project .env.")
-				case sandbox.AgentAmp:
-					fmt.Println("\nAmp stores credentials in ~/.local/share/amp/secrets.json. Run `amp login` inside the sandbox or pass --env AMP_API_KEY=... then retry.")
-				case sandbox.AgentGemini:
-					fmt.Println("\nGemini stores OAuth credentials in ~/.gemini/oauth_creds.json. Run `gemini` and choose Login with Google, or pass --env GEMINI_API_KEY=.../GOOGLE_API_KEY=... then retry.")
-				case sandbox.AgentDroid:
-					fmt.Println("\nDroid stores settings in ~/.factory. Run `/login` inside Droid or pass --env FACTORY_API_KEY=... then retry.")
-				}
-			}
-
-			if syncEnabled {
-				fmt.Println("\nSyncing workspace from sandbox...")
-				if err := sandbox.DownloadWorkspace(sb, sandbox.SyncOptions{Cwd: cwd, WorkspaceID: meta.WorkspaceID}); err != nil {
-					return err
-				}
-				fmt.Println("\nWorkspace synced successfully")
-			}
-
-			if finalCode != 0 {
-				return exitError{code: finalCode}
-			}
-			return nil
+			// Run the agent with clean output
+			return runAgent(runAgentParams{
+				agent:       agent,
+				cwd:         cwd,
+				envMap:      envMap,
+				volumeSpecs: volumeSpecs,
+				credMode:    credMode,
+				autoStop:    autoStop,
+				snapshotID:  snapshotID,
+				recreate:    recreate,
+				syncEnabled: syncEnabled,
+				agentArgs:   agentArgs,
+			})
 		},
 	}
 
@@ -408,8 +156,299 @@ func buildSandboxRunCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&recreate, "recreate", false, "Recreate sandbox with new config")
 	cmd.Flags().StringVar(&snapshot, "snapshot", "", "Use a specific snapshot")
 	cmd.Flags().BoolVar(&noSync, "no-sync", false, "Skip workspace sync")
+	cmd.Flags().Int32Var(&autoStop, "auto-stop", 30, "Auto-stop interval in minutes (0 to disable)")
+	cmd.Flags().BoolVarP(&Verbose, "verbose", "V", false, "Enable verbose output")
 
 	return cmd
+}
+
+type runAgentParams struct {
+	agent       sandbox.Agent
+	cwd         string
+	envMap      map[string]string
+	volumeSpecs []sandbox.VolumeSpec
+	credMode    string
+	autoStop    int32
+	snapshotID  string
+	recreate    bool
+	syncEnabled bool
+	agentArgs   []string
+}
+
+// runAgent is the core logic for running an agent in a sandbox.
+// It provides a clean, minimal output experience similar to docker sandbox run.
+func runAgent(p runAgentParams) error {
+	var sb *daytona.Sandbox
+	var meta *sandbox.WorkspaceMeta
+	var err error
+
+	// Step 1: Create/get sandbox
+	if Verbose {
+		fmt.Printf("Starting %s sandbox...\n", p.agent)
+		sb, meta, err = sandbox.EnsureSandbox(p.cwd, sandbox.SandboxConfig{
+			Agent:            p.agent,
+			EnvVars:          p.envMap,
+			Volumes:          p.volumeSpecs,
+			CredentialsMode:  p.credMode,
+			AutoStopInterval: p.autoStop,
+			Snapshot:         p.snapshotID,
+		}, p.recreate)
+	} else {
+		spinner := NewSpinner(fmt.Sprintf("Starting %s sandbox", p.agent))
+		spinner.Start()
+		sb, meta, err = sandbox.EnsureSandbox(p.cwd, sandbox.SandboxConfig{
+			Agent:            p.agent,
+			EnvVars:          p.envMap,
+			Volumes:          p.volumeSpecs,
+			CredentialsMode:  p.credMode,
+			AutoStopInterval: p.autoStop,
+			Snapshot:         p.snapshotID,
+		}, p.recreate)
+		if err != nil {
+			spinner.StopWithMessage("✗ Failed to start sandbox")
+		} else {
+			spinner.StopWithMessage("✓ Sandbox ready")
+		}
+	}
+	if err != nil {
+		return err
+	}
+
+	if Verbose {
+		fmt.Println("Sandbox ID: " + sb.ID)
+	}
+
+	workspacePath := sandbox.GetWorkspaceRepoPath(sb, sandbox.SyncOptions{Cwd: p.cwd, WorkspaceID: meta.WorkspaceID})
+
+	// Step 2: Sync workspace
+	if p.syncEnabled {
+		if Verbose {
+			fmt.Println("Syncing workspace...")
+			if err := sandbox.UploadWorkspace(sb, sandbox.SyncOptions{Cwd: p.cwd, WorkspaceID: meta.WorkspaceID}, Verbose); err != nil {
+				return err
+			}
+		} else {
+			spinner := NewSpinner("Syncing workspace")
+			spinner.Start()
+			syncErr := sandbox.UploadWorkspace(sb, sandbox.SyncOptions{Cwd: p.cwd, WorkspaceID: meta.WorkspaceID}, false)
+			if syncErr != nil {
+				spinner.StopWithMessage("✗ Sync failed")
+				return syncErr
+			}
+			spinner.StopWithMessage("✓ Workspace synced")
+		}
+	} else {
+		_, _ = sb.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s", workspacePath))
+	}
+
+	// Step 3: Setup credentials
+	client, err := sandbox.GetDaytonaClient()
+	if err != nil {
+		return err
+	}
+	if Verbose {
+		fmt.Println("Setting up environment...")
+		if err := sandbox.SetupCredentials(client, sb, sandbox.CredentialsConfig{Mode: p.credMode, Agent: p.agent}, Verbose); err != nil {
+			return err
+		}
+		if err := sandbox.EnsureAgentInstalled(sb, p.agent, Verbose); err != nil {
+			return err
+		}
+	} else {
+		spinner := NewSpinner("Setting up environment")
+		spinner.Start()
+		if err := sandbox.SetupCredentials(client, sb, sandbox.CredentialsConfig{Mode: p.credMode, Agent: p.agent}, false); err != nil {
+			spinner.StopWithMessage("✗ Setup failed")
+			return err
+		}
+		if err := sandbox.EnsureAgentInstalled(sb, p.agent, false); err != nil {
+			spinner.StopWithMessage("✗ Agent install failed")
+			return err
+		}
+		spinner.StopWithMessage("✓ Ready")
+	}
+
+	// Step 4: Check credentials and handle login if needed
+	needsLogin := false
+	if p.credMode != "none" && len(p.agentArgs) == 0 {
+		needsLogin = checkNeedsLogin(sb, p.agent, p.envMap)
+	}
+
+	var exitCode int
+
+	if needsLogin {
+		// Handle first-time login
+		exitCode, err = handleAgentLogin(sb, p.agent, workspacePath, p.envMap)
+		if err != nil {
+			return err
+		}
+		if exitCode != 0 {
+			return handleAgentExit(sb, p.agent, exitCode, p.credMode, p.syncEnabled, p.cwd, meta)
+		}
+	}
+
+	// Step 5: Run the agent
+	fmt.Println() // Clean line before agent starts
+	exitCode, err = sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
+		Agent:         p.agent,
+		WorkspacePath: workspacePath,
+		Args:          p.agentArgs,
+		Env:           p.envMap,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Handle agent exit
+	return handleAgentExit(sb, p.agent, exitCode, p.credMode, p.syncEnabled, p.cwd, meta)
+}
+
+// checkNeedsLogin determines if an agent needs login based on stored credentials
+func checkNeedsLogin(sb *daytona.Sandbox, agent sandbox.Agent, envMap map[string]string) bool {
+	// Check if credentials already exist in the volume
+	credStatus := sandbox.CheckAgentCredentials(sb, agent)
+	if credStatus.HasCredential {
+		return false
+	}
+
+	// Check if API key is provided via environment
+	switch agent {
+	case sandbox.AgentClaude:
+		if envMap["ANTHROPIC_API_KEY"] != "" || envMap["CLAUDE_API_KEY"] != "" || envMap["ANTHROPIC_AUTH_TOKEN"] != "" {
+			return false
+		}
+	case sandbox.AgentCodex:
+		if envMap["OPENAI_API_KEY"] != "" {
+			return false
+		}
+	case sandbox.AgentGemini:
+		if envMap["GEMINI_API_KEY"] != "" || envMap["GOOGLE_API_KEY"] != "" || envMap["GOOGLE_APPLICATION_CREDENTIALS"] != "" {
+			return false
+		}
+	case sandbox.AgentDroid:
+		if envMap["FACTORY_API_KEY"] != "" {
+			return false
+		}
+	case sandbox.AgentAmp:
+		if envMap["AMP_API_KEY"] != "" {
+			return false
+		}
+	}
+
+	// Agents that need explicit login
+	switch agent {
+	case sandbox.AgentCodex, sandbox.AgentOpenCode, sandbox.AgentAmp:
+		return true
+	}
+
+	return false
+}
+
+// handleAgentLogin runs the login flow for agents that need it
+func handleAgentLogin(sb *daytona.Sandbox, agent sandbox.Agent, workspacePath string, envMap map[string]string) (int, error) {
+	fmt.Printf("\n%s requires authentication (first run)\n", agent)
+	fmt.Println("Credentials will persist for future sessions.")
+	fmt.Println()
+
+	var loginArgs []string
+	switch agent {
+	case sandbox.AgentCodex:
+		loginArgs = []string{"login"}
+		if getenvFallback("AMUX_CODEX_DEVICE_AUTH") != "0" {
+			loginArgs = append(loginArgs, "--device-auth")
+		}
+	case sandbox.AgentOpenCode:
+		loginArgs = []string{"auth", "login"}
+	case sandbox.AgentAmp:
+		loginArgs = []string{"login"}
+	default:
+		return 0, nil
+	}
+
+	raw := false
+	exitCode, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
+		Agent:         agent,
+		WorkspacePath: workspacePath,
+		Args:          loginArgs,
+		Env:           envMap,
+		RawMode:       &raw,
+	})
+	if err != nil {
+		return 1, err
+	}
+
+	if exitCode == 0 {
+		fmt.Println("\n✓ Authentication complete")
+	}
+
+	return exitCode, nil
+}
+
+// handleAgentExit handles post-exit tasks (credential sync, workspace download, exit tips)
+func handleAgentExit(sb *daytona.Sandbox, agent sandbox.Agent, exitCode int, credMode string, syncEnabled bool, cwd string, meta *sandbox.WorkspaceMeta) error {
+	// Sync credentials back (no-op for volume-based credentials)
+	if credMode != "none" {
+		_ = sandbox.SyncCredentialsFromSandbox(sb, sandbox.CredentialsConfig{Mode: credMode, Agent: agent})
+	}
+
+	// Show tips for exit code 127 (command not found)
+	if exitCode == 127 {
+		showAgentTips(agent)
+	}
+
+	// Show exit code if non-zero
+	if exitCode != 0 && exitCode != 127 {
+		fmt.Printf("\nExited with code %d\n", exitCode)
+	}
+
+	// Sync workspace back
+	if syncEnabled {
+		if Verbose {
+			fmt.Println("\nSyncing changes...")
+			if err := sandbox.DownloadWorkspace(sb, sandbox.SyncOptions{Cwd: cwd, WorkspaceID: meta.WorkspaceID}, Verbose); err != nil {
+				return err
+			}
+			fmt.Println("Done")
+		} else {
+			spinner := NewSpinner("Syncing changes")
+			spinner.Start()
+			if err := sandbox.DownloadWorkspace(sb, sandbox.SyncOptions{Cwd: cwd, WorkspaceID: meta.WorkspaceID}, false); err != nil {
+				spinner.StopWithMessage("✗ Sync failed")
+				return err
+			}
+			spinner.StopWithMessage("✓ Changes synced")
+		}
+	}
+
+	if exitCode != 0 {
+		return exitError{code: exitCode}
+	}
+	return nil
+}
+
+// showAgentTips displays helpful tips when an agent fails to start
+func showAgentTips(agent sandbox.Agent) {
+	fmt.Println()
+	switch agent {
+	case sandbox.AgentClaude:
+		fmt.Println("Tip: Claude requires authentication. Run `claude` and complete login,")
+		fmt.Println("     or pass --env ANTHROPIC_API_KEY=...")
+	case sandbox.AgentCodex:
+		fmt.Println("Tip: Codex requires OpenAI credentials. Login will start automatically,")
+		fmt.Println("     or pass --env OPENAI_API_KEY=...")
+	case sandbox.AgentOpenCode:
+		fmt.Println("Tip: OpenCode requires authentication. Login will start automatically,")
+		fmt.Println("     or pass provider API keys via --env")
+	case sandbox.AgentAmp:
+		fmt.Println("Tip: Amp requires authentication. Login will start automatically,")
+		fmt.Println("     or pass --env AMP_API_KEY=...")
+	case sandbox.AgentGemini:
+		fmt.Println("Tip: Gemini requires authentication. Choose a login method in the CLI,")
+		fmt.Println("     or pass --env GEMINI_API_KEY=...")
+	case sandbox.AgentDroid:
+		fmt.Println("Tip: Droid requires authentication. Run `/login` inside Droid,")
+		fmt.Println("     or pass --env FACTORY_API_KEY=...")
+	}
 }
 
 func buildSandboxPreviewCommand() *cobra.Command {
@@ -551,21 +590,19 @@ func buildSandboxDesktopCommand() *cobra.Command {
 func buildSandboxLsCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ls",
-		Short: "List all AMUX sandboxes",
+		Short: "List all amux sandboxes",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sandboxes, err := sandbox.ListAmuxSandboxes()
 			if err != nil {
 				return err
 			}
 			if len(sandboxes) == 0 {
-				fmt.Println("No AMUX sandboxes found")
+				fmt.Println("No sandboxes found")
 				return nil
 			}
-			fmt.Println("AMUX Sandboxes:")
-			fmt.Println(strings.Repeat("-", 80))
+			fmt.Printf("%-12s %-10s %-10s %s\n", "ID", "STATE", "AGENT", "WORKSPACE")
+			fmt.Println(strings.Repeat("─", 60))
 			for _, sb := range sandboxes {
-				fmt.Println("\n  ID: " + sb.ID)
-				fmt.Println("  State: " + string(sb.State))
 				agent := "unknown"
 				workspace := "unknown"
 				if sb.Labels != nil {
@@ -573,14 +610,19 @@ func buildSandboxLsCommand() *cobra.Command {
 						agent = val
 					}
 					if val, ok := sb.Labels["amux.workspaceId"]; ok {
-						workspace = val
+						if len(val) > 8 {
+							workspace = val[:8]
+						} else {
+							workspace = val
+						}
 					}
 				}
-				fmt.Println("  Agent: " + agent)
-				fmt.Println("  Workspace ID: " + workspace)
-				fmt.Printf("  CPU: %.2f, RAM: %.2fGiB\n", sb.CPU, sb.Memory)
+				id := sb.ID
+				if len(id) > 12 {
+					id = id[:12]
+				}
+				fmt.Printf("%-12s %-10s %-10s %s\n", id, sb.State, agent, workspace)
 			}
-			fmt.Println("\n" + strings.Repeat("-", 80))
 			return nil
 		},
 	}
@@ -605,7 +647,7 @@ func buildSandboxRmCommand() *cobra.Command {
 				return nil
 			}
 			if len(args) == 0 {
-				return fmt.Errorf("either provide a sandbox ID or use --workspace")
+				return fmt.Errorf("provide a sandbox ID or use --workspace to remove the current workspace sandbox")
 			}
 			if err := sandbox.RemoveSandbox(cwd, args[0]); err != nil {
 				return err

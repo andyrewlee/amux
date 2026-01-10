@@ -28,7 +28,7 @@ func buildAuthCommand() *cobra.Command {
 			case "login":
 				if provider != "" {
 					if provider != "gh" && provider != "github" {
-						return fmt.Errorf("unknown provider. Supported: gh")
+						return fmt.Errorf("unknown provider: use gh")
 					}
 					return runGhAuthLogin()
 				}
@@ -68,21 +68,72 @@ func buildAuthCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				showAll := len(args) > 1 && args[1] == "--all"
+
+				fmt.Println("amux auth status")
+				fmt.Println(strings.Repeat("─", 50))
+				fmt.Println()
+
+				// Daytona API key
 				if sandbox.ResolveAPIKey(cfg) != "" {
-					fmt.Println("Daytona API key is configured.")
+					fmt.Println("✓ Daytona API key configured")
 				} else {
-					fmt.Println("No Daytona API key found. Set AMUX_DAYTONA_API_KEY or run `amux auth login`.")
+					fmt.Println("✗ Daytona API key not set")
+					fmt.Println("  Run: amux auth login")
 				}
+
+				if showAll {
+					fmt.Println()
+
+					// Anthropic API key
+					anthropicKey := cfg.AnthropicAPIKey
+					if anthropicKey == "" {
+						anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
+					}
+					if anthropicKey != "" {
+						fmt.Println("✓ Anthropic API key configured (Claude)")
+					} else {
+						fmt.Println("• Anthropic API key not set (needed for Claude)")
+					}
+
+					// OpenAI API key
+					openaiKey := cfg.OpenAIAPIKey
+					if openaiKey == "" {
+						openaiKey = os.Getenv("OPENAI_API_KEY")
+					}
+					if openaiKey != "" {
+						fmt.Println("✓ OpenAI API key configured (Codex)")
+					} else {
+						fmt.Println("• OpenAI API key not set (needed for Codex)")
+					}
+
+					// Gemini API key
+					geminiKey := os.Getenv("GEMINI_API_KEY")
+					if geminiKey == "" {
+						geminiKey = os.Getenv("GOOGLE_API_KEY")
+					}
+					if geminiKey != "" {
+						fmt.Println("✓ Gemini API key configured")
+					} else {
+						fmt.Println("• Gemini API key not set (needed for Gemini CLI)")
+					}
+				} else {
+					fmt.Println()
+					fmt.Println("Run `amux auth status --all` to see all API keys")
+				}
+
+				fmt.Println()
+				fmt.Println(strings.Repeat("─", 50))
 				return nil
 			case "logout":
 				if err := sandbox.ClearConfigKeys(); err != nil {
 					return err
 				}
 				fmt.Println("Removed saved credentials from ~/.amux/config.json")
-				fmt.Println("If you use env vars, unset AMUX_DAYTONA_API_KEY.")
+				fmt.Println("If you use env vars, unset AMUX_DAYTONA_API_KEY")
 				return nil
 			default:
-				return fmt.Errorf("unknown action. Use: login, logout, status")
+				return fmt.Errorf("unknown action: use login, logout, or status")
 			}
 		},
 	}
@@ -129,7 +180,7 @@ func runGhAuthLogin() error {
 		}
 	}()
 
-	if err := sandbox.SetupCredentials(client, sb, sandbox.CredentialsConfig{Mode: "sandbox", Agent: sandbox.AgentShell}); err != nil {
+	if err := sandbox.SetupCredentials(client, sb, sandbox.CredentialsConfig{Mode: "sandbox", Agent: sandbox.AgentShell}, false); err != nil {
 		return err
 	}
 
@@ -139,32 +190,32 @@ func runGhAuthLogin() error {
 
 	status, _ := sb.Process.ExecuteCommand(`bash -lc "gh auth status -h github.com >/dev/null 2>&1"`)
 	if status != nil && status.ExitCode == 0 {
-		fmt.Println("OK: GitHub is already authenticated in the credentials volume.")
+		fmt.Println("GitHub is already authenticated in the credentials volume")
 		return nil
 	}
 
-	fmt.Println("Amux GitHub Login")
-	fmt.Println("1) A one-time device code will appear below.")
-	fmt.Println("2) Open https://github.com/login/device locally.")
-	fmt.Println("3) Paste the code, finish the login, then return here.")
-	fmt.Println("If prompted, choose GitHub.com + HTTPS.")
-	fmt.Println("Tip: If you see \"Press Enter\", just hit Enter.")
+	fmt.Println("\namux GitHub login")
+	fmt.Println("1. A one-time device code will appear below")
+	fmt.Println("2. Open https://github.com/login/device locally")
+	fmt.Println("3. Paste the code, finish the login, then return here")
+	fmt.Println("If prompted, choose GitHub.com + HTTPS")
+	fmt.Println("Tip: if you see \"Press Enter\", just hit Enter")
 
 	homeDir := resolveSandboxHome(sb)
 	script := strings.Join([]string{
 		"echo ''",
-		"echo 'Amux: GitHub device login starting.'",
-		"echo 'Amux: Open https://github.com/login/device on your local machine.'",
-		"echo 'Amux: Paste the one-time code shown below.'",
+		"echo 'GitHub device login starting'",
+		"echo 'Open https://github.com/login/device on your local machine'",
+		"echo 'Paste the one-time code shown below'",
 		"echo ''",
 		"gh auth login --hostname github.com --git-protocol https --device --skip-ssh-key",
 		"gh auth setup-git",
 		"if gh auth status -h github.com >/dev/null 2>&1; then",
 		"  echo ''",
-		"  echo 'Amux: OK - GitHub auth saved in the credentials volume.'",
+		"  echo 'GitHub auth saved in the credentials volume'",
 		"else",
 		"  echo ''",
-		"  echo 'Amux: WARN - GitHub auth not confirmed. Run `amux auth login gh` again.'",
+		"  echo 'GitHub auth not confirmed - run `amux auth login gh` again'",
 		"fi",
 	}, "\n")
 
@@ -190,12 +241,12 @@ func ensureGhCli(sb *daytona.Sandbox) bool {
 	if check != nil && check.ExitCode == 0 {
 		return true
 	}
-	fmt.Println("GitHub CLI not found in the sandbox. Attempting install...")
+	fmt.Println("GitHub CLI not found, attempting install...")
 	installCmd := `bash -lc "if command -v apt-get >/dev/null 2>&1; then (apt-get update -y || sudo apt-get update -y) >/dev/null 2>&1; (apt-get install -y gh || sudo apt-get install -y gh) >/dev/null 2>&1; elif command -v apk >/dev/null 2>&1; then (apk add --no-cache github-cli) >/dev/null 2>&1; elif command -v yum >/dev/null 2>&1; then (yum install -y gh || sudo yum install -y gh) >/dev/null 2>&1; elif command -v dnf >/dev/null 2>&1; then (dnf install -y gh || sudo dnf install -y gh) >/dev/null 2>&1; else exit 1; fi"`
 	resp, _ := sb.Process.ExecuteCommand(installCmd)
 	if resp != nil && resp.ExitCode == 0 {
 		return true
 	}
-	fmt.Println("Failed to install GitHub CLI automatically. Run `gh auth login` inside a sandbox shell after installing gh manually.")
+	fmt.Println("Failed to install GitHub CLI - install gh manually and run `gh auth login` inside a sandbox shell")
 	return false
 }

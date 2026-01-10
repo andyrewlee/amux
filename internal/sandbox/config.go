@@ -29,18 +29,20 @@ var configKeys = []string{
 	"defaultSnapshotName",
 	"snapshotAgents",
 	"snapshotBaseImage",
+	"settingsSync",
 }
 
 // Config stores AMUX sandbox configuration.
 type Config struct {
-	DaytonaAPIKey       string   `json:"daytonaApiKey,omitempty"`
-	DaytonaAPIURL       string   `json:"daytonaApiUrl,omitempty"`
-	DaytonaTarget       string   `json:"daytonaTarget,omitempty"`
-	AnthropicAPIKey     string   `json:"anthropicApiKey,omitempty"`
-	OpenAIAPIKey        string   `json:"openaiApiKey,omitempty"`
-	DefaultSnapshotName string   `json:"defaultSnapshotName,omitempty"`
-	SnapshotAgents      []string `json:"snapshotAgents,omitempty"`
-	SnapshotBaseImage   string   `json:"snapshotBaseImage,omitempty"`
+	DaytonaAPIKey       string             `json:"daytonaApiKey,omitempty"`
+	DaytonaAPIURL       string             `json:"daytonaApiUrl,omitempty"`
+	DaytonaTarget       string             `json:"daytonaTarget,omitempty"`
+	AnthropicAPIKey     string             `json:"anthropicApiKey,omitempty"`
+	OpenAIAPIKey        string             `json:"openaiApiKey,omitempty"`
+	DefaultSnapshotName string             `json:"defaultSnapshotName,omitempty"`
+	SnapshotAgents      []string           `json:"snapshotAgents,omitempty"`
+	SnapshotBaseImage   string             `json:"snapshotBaseImage,omitempty"`
+	SettingsSync        SettingsSyncConfig `json:"settingsSync,omitempty"`
 }
 
 func configPath() (string, error) {

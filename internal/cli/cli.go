@@ -32,11 +32,27 @@ func buildRootCommand() *cobra.Command {
 	root.SetHelpCommand(&cobra.Command{Hidden: true})
 	root.CompletionOptions.DisableDefaultCmd = true
 
+	// Core commands
 	root.AddCommand(buildSetupCommand())
 	root.AddCommand(buildDoctorCommand())
 	root.AddCommand(buildSnapshotCommand())
 	root.AddCommand(buildAuthCommand())
 	root.AddCommand(buildSandboxCommand())
+	root.AddCommand(buildSettingsCommand())
+
+	// Quick access commands
+	root.AddCommand(buildStatusCommand())
+	root.AddCommand(buildSSHCommand())
+	root.AddCommand(buildExecCommand())
+
+	// Agent aliases - shortcuts for `amux sandbox run <agent>`
+	root.AddCommand(buildAgentAliasCommand("claude", "Run Claude Code in a sandbox"))
+	root.AddCommand(buildAgentAliasCommand("codex", "Run Codex in a sandbox"))
+	root.AddCommand(buildAgentAliasCommand("opencode", "Run OpenCode in a sandbox"))
+	root.AddCommand(buildAgentAliasCommand("amp", "Run Amp in a sandbox"))
+	root.AddCommand(buildAgentAliasCommand("gemini", "Run Gemini CLI in a sandbox"))
+	root.AddCommand(buildAgentAliasCommand("droid", "Run Droid in a sandbox"))
+	root.AddCommand(buildAgentAliasCommand("shell", "Run a shell in a sandbox"))
 
 	return root
 }

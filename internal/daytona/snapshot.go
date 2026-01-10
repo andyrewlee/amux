@@ -15,6 +15,15 @@ type SnapshotService struct {
 	client *Daytona
 }
 
+// List retrieves all snapshots.
+func (s *SnapshotService) List() ([]*Snapshot, error) {
+	var resp []*Snapshot
+	if err := s.client.doJSON(context.Background(), httpMethodGet, "/snapshots", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 // Get retrieves a snapshot by name or ID.
 func (s *SnapshotService) Get(name string) (*Snapshot, error) {
 	var resp Snapshot

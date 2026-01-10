@@ -245,18 +245,24 @@ func createTarball(opts SyncOptions) (string, error) {
 }
 
 // UploadWorkspace syncs local workspace to a sandbox.
-func UploadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions) error {
-	fmt.Println("Creating tarball of local workspace...")
+func UploadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions, verbose bool) error {
+	if verbose {
+		fmt.Println("Creating tarball of local workspace...")
+	}
 	tarPath, err := createTarball(opts)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tarPath)
-	fmt.Printf("Uploading to %s in sandbox...\n", uploadTarPath)
+	if verbose {
+		fmt.Printf("Uploading to %s in sandbox...\n", uploadTarPath)
+	}
 	if err := sandbox.FS.UploadFile(tarPath, uploadTarPath, timeoutSeconds*time.Second); err != nil {
 		return err
 	}
-	fmt.Println("Upload complete")
+	if verbose {
+		fmt.Println("Upload complete")
+	}
 
 	repoPath := resolveWorkspaceRepoPath(sandbox, opts.WorkspaceID)
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("rm -rf %s", repoPath))
@@ -265,11 +271,12 @@ func UploadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := assertCommandSuccess(resp, "Failed to extract workspace tarball in sandbox"); err != nil {
+	if err := assertCommandSuccess(resp, "failed to extract workspace tarball in sandbox"); err != nil {
 		return err
 	}
-	fmt.Println("Workspace synced to sandbox")
-	fmt.Printf("Workspace location: %s\n", repoPath)
+	if verbose {
+		fmt.Printf("Workspace location: %s\n", repoPath)
+	}
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("rm -f %s", uploadTarPath))
 	return nil
 }
@@ -336,18 +343,22 @@ func extractTarball(tarPath, dest string) error {
 }
 
 // DownloadWorkspace syncs workspace from sandbox to local.
-func DownloadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions) error {
-	fmt.Println("Creating tarball in sandbox...")
+func DownloadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions, verbose bool) error {
+	if verbose {
+		fmt.Println("Creating tarball in sandbox...")
+	}
 	repoPath := resolveWorkspaceRepoPath(sandbox, opts.WorkspaceID)
 	resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf("tar -czf %s -C %s .", downloadTarPath, repoPath))
 	if err != nil {
 		return err
 	}
-	if err := assertCommandSuccess(resp, "Failed to create tarball in sandbox"); err != nil {
+	if err := assertCommandSuccess(resp, "failed to create tarball in sandbox"); err != nil {
 		return err
 	}
 	remoteSize := getRemoteFileSize(sandbox, downloadTarPath)
-	fmt.Println("Tarball created in sandbox")
+	if verbose {
+		fmt.Println("Tarball created in sandbox")
+	}
 
 	tmpFile, err := os.CreateTemp("", "amux-download-*.tgz")
 	if err != nil {
@@ -357,11 +368,15 @@ func DownloadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions) error {
 	localPath := tmpFile.Name()
 	defer os.Remove(localPath)
 
-	fmt.Printf("Downloading to %s...\n", opts.Cwd)
+	if verbose {
+		fmt.Printf("Downloading to %s...\n", opts.Cwd)
+	}
 	if err := sandbox.FS.DownloadFileTo(downloadTarPath, localPath, timeoutSeconds*time.Second); err != nil {
 		return err
 	}
-	fmt.Println("Download complete")
+	if verbose {
+		fmt.Println("Download complete")
+	}
 
 	if remoteSize > 0 {
 		if stat, err := os.Stat(localPath); err == nil {
@@ -379,7 +394,9 @@ func DownloadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions) error {
 		if remoteSize > maxBufferDownloadSize {
 			return original
 		}
-		fmt.Println("Retrying download using buffer...")
+		if verbose {
+			fmt.Println("Retrying download using buffer...")
+		}
 		data, err := sandbox.FS.DownloadFile(downloadTarPath, timeoutSeconds*time.Second)
 		if err != nil {
 			return original
@@ -397,7 +414,9 @@ func DownloadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions) error {
 		}
 	}
 
-	fmt.Println("Extracting tarball locally...")
+	if verbose {
+		fmt.Println("Extracting tarball locally...")
+	}
 	if err := extractTarball(localPath, opts.Cwd); err != nil {
 		if !isArchiveError(err) {
 			return err
@@ -410,7 +429,6 @@ func DownloadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions) error {
 		}
 	}
 
-	fmt.Println("Workspace synced from sandbox")
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("rm -f %s", downloadTarPath))
 	return nil
 }

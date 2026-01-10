@@ -20,8 +20,8 @@ func buildSetupCommand() *cobra.Command {
 		Use:   "setup",
 		Short: "One-time setup: create credentials volume, build a snapshot, and save defaults",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Amux setup")
-			fmt.Println("• Credentials will persist across sandboxes")
+			fmt.Println("amux setup")
+			fmt.Println("Credentials will persist across sandboxes")
 			if err := ensureDaytonaAPIKey(); err != nil {
 				return err
 			}
@@ -46,8 +46,8 @@ func buildSetupCommand() *cobra.Command {
 				if name == "" {
 					name = sandbox.BuildSnapshotName("amux")
 				}
-				fmt.Println("• Building snapshot (this can take a few minutes)")
-				fmt.Printf("Creating snapshot \"%s\" with agents: %s\n", name, joinAgents(parsedAgents))
+				fmt.Println("\nBuilding snapshot (this can take a few minutes)...")
+				fmt.Printf("Creating snapshot %q with agents: %s\n", name, joinAgents(parsedAgents))
 				snap, err := sandbox.CreateSnapshot(client, name, parsedAgents, baseImage, func(chunk string) {
 					fmt.Println(chunk)
 				})
@@ -66,7 +66,7 @@ func buildSetupCommand() *cobra.Command {
 				}
 				fmt.Printf("Saved default snapshot: %s\n", snap.Name)
 			} else {
-				fmt.Println("• Skipping snapshot build (per --skip-snapshot)")
+				fmt.Println("Skipping snapshot build (--skip-snapshot)")
 			}
 
 			if withGh {
@@ -74,13 +74,13 @@ func buildSetupCommand() *cobra.Command {
 					return err
 				}
 			} else {
-				fmt.Println("Optional: run `amux auth login gh` to enable git push from sandboxes.")
+				fmt.Println("\nOptional: run `amux auth login gh` to enable git push from sandboxes")
 			}
 
-			fmt.Println("Setup complete.")
-			fmt.Println("Next:")
-			fmt.Println("  1) amux doctor")
-			fmt.Println("  2) amux sandbox run claude")
+			fmt.Println("\nSetup complete")
+			fmt.Println("Next steps:")
+			fmt.Println("  1. amux doctor")
+			fmt.Println("  2. amux sandbox run claude")
 			return nil
 		},
 	}

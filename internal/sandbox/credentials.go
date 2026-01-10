@@ -139,21 +139,25 @@ func symlinkGitConfig(sandbox *daytona.Sandbox, homeDir string) {
 }
 
 // SetupCredentials mounts/symlinks the shared credentials volume inside the sandbox.
-func SetupCredentials(client *daytona.Daytona, sandbox *daytona.Sandbox, cfg CredentialsConfig) error {
+func SetupCredentials(client *daytona.Daytona, sandbox *daytona.Sandbox, cfg CredentialsConfig, verbose bool) error {
 	if cfg.Mode != "sandbox" && cfg.Mode != "none" && cfg.Mode != "auto" {
 		return fmt.Errorf("unsupported credentials mode: %s", cfg.Mode)
 	}
 	if cfg.Mode == "none" {
-		fmt.Println("Credentials mode: none - no credentials volume mounted")
+		if verbose {
+			fmt.Println("Credentials mode: none")
+		}
 		return nil
 	}
 	if _, err := waitForVolumeReady(client, CredentialsVolumeName); err != nil {
 		return err
 	}
-	if cfg.Mode == "auto" {
-		fmt.Println("Credentials mode: auto - sandbox credentials")
-	} else {
-		fmt.Printf("Credentials mode: %s\n", cfg.Mode)
+	if verbose {
+		if cfg.Mode == "auto" {
+			fmt.Println("Credentials mode: sandbox (auto)")
+		} else {
+			fmt.Printf("Credentials mode: %s\n", cfg.Mode)
+		}
 	}
 	homeDir, err := ensureCredentialDirs(sandbox)
 	if err != nil {
@@ -167,7 +171,24 @@ func SetupCredentials(client *daytona.Daytona, sandbox *daytona.Sandbox, cfg Cre
 	prepareFactoryHome(sandbox, homeDir)
 	prepareGhHome(sandbox, homeDir)
 	symlinkGitConfig(sandbox, homeDir)
-	fmt.Println("Sandbox credentials volume ready - credentials will persist in sandbox")
+
+	// Sync local settings if enabled (opt-in feature)
+	amuxCfg, _ := LoadConfig()
+	if amuxCfg.SettingsSync.Enabled {
+		if verbose {
+			fmt.Println("Syncing local settings...")
+		}
+		if err := SyncSettingsToVolume(sandbox, amuxCfg.SettingsSync, verbose); err != nil {
+			if verbose {
+				fmt.Printf("Warning: settings sync failed: %v\n", err)
+			}
+			// Don't fail the whole setup for settings sync errors
+		}
+	}
+
+	if verbose {
+		fmt.Println("Credentials volume ready")
+	}
 	return nil
 }
 
@@ -177,4 +198,101 @@ func SyncCredentialsFromSandbox(_ *daytona.Sandbox, cfg CredentialsConfig) error
 		return nil
 	}
 	return nil
+}
+
+// AgentCredentialStatus represents whether an agent has credentials stored
+type AgentCredentialStatus struct {
+	Agent         Agent
+	HasCredential bool
+	CredentialAge string // e.g., "2 days ago" or empty if unknown
+}
+
+// CheckAgentCredentials checks if credentials exist for an agent in the sandbox volume
+func CheckAgentCredentials(sandbox *daytona.Sandbox, agent Agent) AgentCredentialStatus {
+	status := AgentCredentialStatus{Agent: agent, HasCredential: false}
+
+	switch agent {
+	case AgentClaude:
+		// Claude stores auth in ~/.claude/.credentials.json or uses ANTHROPIC_AUTH_TOKEN
+		resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf(
+			"test -f %s/claude/.credentials.json && echo exists",
+			CredentialsMountPath,
+		))
+		if err == nil && resp != nil && resp.ExitCode == 0 {
+			status.HasCredential = true
+		}
+
+	case AgentCodex:
+		// Codex stores auth in ~/.codex/auth.json
+		resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf(
+			"test -f %s/codex/auth.json && echo exists",
+			CredentialsMountPath,
+		))
+		if err == nil && resp != nil && resp.ExitCode == 0 {
+			status.HasCredential = true
+		}
+
+	case AgentOpenCode:
+		// OpenCode stores auth in ~/.local/share/opencode/auth.json
+		resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf(
+			"test -f %s/opencode/auth.json && echo exists",
+			CredentialsMountPath,
+		))
+		if err == nil && resp != nil && resp.ExitCode == 0 {
+			status.HasCredential = true
+		}
+
+	case AgentAmp:
+		// Amp stores auth in ~/.local/share/amp/secrets.json
+		resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf(
+			"test -f %s/amp/secrets.json && echo exists",
+			CredentialsMountPath,
+		))
+		if err == nil && resp != nil && resp.ExitCode == 0 {
+			status.HasCredential = true
+		}
+
+	case AgentGemini:
+		// Gemini stores OAuth in ~/.gemini/oauth_creds.json
+		resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf(
+			"test -f %s/gemini/oauth_creds.json && echo exists",
+			CredentialsMountPath,
+		))
+		if err == nil && resp != nil && resp.ExitCode == 0 {
+			status.HasCredential = true
+		}
+
+	case AgentDroid:
+		// Droid stores config in ~/.factory/config.json
+		resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf(
+			"test -f %s/factory/config.json && echo exists",
+			CredentialsMountPath,
+		))
+		if err == nil && resp != nil && resp.ExitCode == 0 {
+			status.HasCredential = true
+		}
+	}
+
+	return status
+}
+
+// CheckAllAgentCredentials returns credential status for all agents
+func CheckAllAgentCredentials(sandbox *daytona.Sandbox) []AgentCredentialStatus {
+	agents := []Agent{AgentClaude, AgentCodex, AgentOpenCode, AgentAmp, AgentGemini, AgentDroid}
+	results := make([]AgentCredentialStatus, 0, len(agents))
+
+	for _, agent := range agents {
+		results = append(results, CheckAgentCredentials(sandbox, agent))
+	}
+
+	return results
+}
+
+// HasGitHubCredentials checks if GitHub CLI is authenticated
+func HasGitHubCredentials(sandbox *daytona.Sandbox) bool {
+	resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf(
+		"test -f %s/gh/hosts.yml && echo exists",
+		CredentialsMountPath,
+	))
+	return err == nil && resp != nil && resp.ExitCode == 0
 }

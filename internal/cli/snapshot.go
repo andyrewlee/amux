@@ -16,6 +16,7 @@ func buildSnapshotCommand() *cobra.Command {
 	}
 	cmd.AddCommand(buildSnapshotCreateCommand())
 	cmd.AddCommand(buildSnapshotUpdateCommand())
+	cmd.AddCommand(buildSnapshotListCommand())
 	return cmd
 }
 
@@ -190,4 +191,51 @@ func appendMissingAgents(current []sandbox.Agent, add []sandbox.Agent) []sandbox
 		}
 	}
 	return current
+}
+
+func buildSnapshotListCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "list",
+		Short:   "List available snapshots",
+		Aliases: []string{"ls"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureDaytonaAPIKey(); err != nil {
+				return err
+			}
+			cfg, err := sandbox.LoadConfig()
+			if err != nil {
+				return err
+			}
+			defaultSnapshot := sandbox.ResolveSnapshotID(cfg)
+
+			client, err := sandbox.GetDaytonaClient()
+			if err != nil {
+				return err
+			}
+			snapshots, err := client.Snapshot.List()
+			if err != nil {
+				return err
+			}
+			if len(snapshots) == 0 {
+				fmt.Println("No snapshots found")
+				fmt.Println("Run `amux setup` or `amux snapshot create` to create one")
+				return nil
+			}
+			fmt.Println("amux snapshots:")
+			fmt.Println(strings.Repeat("─", 60))
+			for _, snap := range snapshots {
+				marker := "  "
+				if snap.Name == defaultSnapshot {
+					marker = "* "
+				}
+				fmt.Printf("%s%s (%s)\n", marker, snap.Name, snap.State)
+			}
+			fmt.Println(strings.Repeat("─", 60))
+			if defaultSnapshot != "" {
+				fmt.Printf("* = default snapshot (%s)\n", defaultSnapshot)
+			}
+			return nil
+		},
+	}
+	return cmd
 }

@@ -168,134 +168,176 @@ func isAgentInstalled(sandbox *daytona.Sandbox, agent string) bool {
 	return err == nil && strings.Contains(getStdoutFromResponse(resp), "exists")
 }
 
-func installClaude(sandbox *daytona.Sandbox) error {
-	fmt.Println("Installing Claude Code...")
+func installClaude(sandbox *daytona.Sandbox, verbose bool) error {
+	if verbose {
+		fmt.Println("Installing Claude Code...")
+	}
 	resp, _ := sandbox.Process.ExecuteCommand("which claude")
 	if resp != nil && resp.ExitCode == 0 {
-		fmt.Println("Claude Code already installed")
+		if verbose {
+			fmt.Println("Claude Code already installed")
+		}
 	} else {
 		resp, err := sandbox.Process.ExecuteCommand("npm install -g @anthropic-ai/claude-code")
 		if err != nil || resp.ExitCode != 0 {
-			return errors.New("failed to install Claude Code in sandbox")
+			return errors.New("failed to install claude code in sandbox")
 		}
-		fmt.Println("Claude Code installed")
+		if verbose {
+			fmt.Println("Claude Code installed")
+		}
 	}
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("claude")))
 	return nil
 }
 
-func installCodex(sandbox *daytona.Sandbox) error {
-	fmt.Println("Installing Codex CLI...")
+func installCodex(sandbox *daytona.Sandbox, verbose bool) error {
+	if verbose {
+		fmt.Println("Installing Codex CLI...")
+	}
 	resp, _ := sandbox.Process.ExecuteCommand("which codex")
 	if resp != nil && resp.ExitCode == 0 {
-		fmt.Println("Codex CLI already installed")
+		if verbose {
+			fmt.Println("Codex CLI already installed")
+		}
 	} else {
 		resp, err := sandbox.Process.ExecuteCommand("npm install -g @openai/codex")
 		if err != nil || resp.ExitCode != 0 {
-			return errors.New("failed to install Codex CLI in sandbox")
+			return errors.New("failed to install codex cli in sandbox")
 		}
-		fmt.Println("Codex CLI installed")
+		if verbose {
+			fmt.Println("Codex CLI installed")
+		}
 	}
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("codex")))
 	return nil
 }
 
-func installOpenCode(sandbox *daytona.Sandbox) error {
-	fmt.Println("Installing OpenCode CLI...")
+func installOpenCode(sandbox *daytona.Sandbox, verbose bool) error {
+	if verbose {
+		fmt.Println("Installing OpenCode CLI...")
+	}
 	resp, _ := sandbox.Process.ExecuteCommand("which opencode")
 	if resp != nil && resp.ExitCode == 0 {
-		fmt.Println("OpenCode CLI already installed")
+		if verbose {
+			fmt.Println("OpenCode CLI already installed")
+		}
 	} else {
 		resp, err := sandbox.Process.ExecuteCommand(`bash -lc "curl -fsSL https://opencode.ai/install | bash"`)
 		if err != nil || resp.ExitCode != 0 {
-			fmt.Println("OpenCode install script failed, trying npm...")
+			if verbose {
+				fmt.Println("OpenCode install script failed, trying npm...")
+			}
 			resp, err = sandbox.Process.ExecuteCommand("npm install -g opencode-ai")
 			if err != nil || resp.ExitCode != 0 {
-				return errors.New("failed to install OpenCode CLI in sandbox")
+				return errors.New("failed to install opencode cli in sandbox")
 			}
 		}
-		fmt.Println("OpenCode CLI installed")
+		if verbose {
+			fmt.Println("OpenCode CLI installed")
+		}
 	}
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("opencode")))
 	return nil
 }
 
-func installAmp(sandbox *daytona.Sandbox) error {
-	fmt.Println("Installing Amp CLI...")
+func installAmp(sandbox *daytona.Sandbox, verbose bool) error {
+	if verbose {
+		fmt.Println("Installing Amp CLI...")
+	}
 	home := getHomeDir(sandbox)
 	ampBin := fmt.Sprintf("%s/.amp/bin/amp", home)
 	resp, _ := sandbox.Process.ExecuteCommand(fmt.Sprintf("sh -lc \"command -v amp >/dev/null 2>&1 || test -x %s\"", quoteForShell(ampBin)))
 	if resp != nil && resp.ExitCode == 0 {
-		fmt.Println("Amp CLI already installed")
+		if verbose {
+			fmt.Println("Amp CLI already installed")
+		}
 	} else {
 		resp, err := sandbox.Process.ExecuteCommand(`bash -lc "curl -fsSL https://ampcode.com/install.sh | bash"`)
 		if err != nil || resp.ExitCode != 0 {
-			fmt.Println("Amp install script failed, trying npm...")
+			if verbose {
+				fmt.Println("Amp install script failed, trying npm...")
+			}
 			resp, err = sandbox.Process.ExecuteCommand("npm install -g @sourcegraph/amp")
 			if err != nil || resp.ExitCode != 0 {
-				return errors.New("failed to install Amp CLI in sandbox")
+				return errors.New("failed to install amp cli in sandbox")
 			}
 		}
-		fmt.Println("Amp CLI installed")
+		if verbose {
+			fmt.Println("Amp CLI installed")
+		}
 	}
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("amp")))
 	return nil
 }
 
-func installGemini(sandbox *daytona.Sandbox) error {
-	fmt.Println("Installing Gemini CLI...")
+func installGemini(sandbox *daytona.Sandbox, verbose bool) error {
+	if verbose {
+		fmt.Println("Installing Gemini CLI...")
+	}
 	resp, _ := sandbox.Process.ExecuteCommand("which gemini")
 	if resp != nil && resp.ExitCode == 0 {
-		fmt.Println("Gemini CLI already installed")
+		if verbose {
+			fmt.Println("Gemini CLI already installed")
+		}
 	} else {
 		resp, err := sandbox.Process.ExecuteCommand("npm install -g @google/gemini-cli")
 		if err != nil || resp.ExitCode != 0 {
-			return errors.New("failed to install Gemini CLI in sandbox")
+			return errors.New("failed to install gemini cli in sandbox")
 		}
-		fmt.Println("Gemini CLI installed")
+		if verbose {
+			fmt.Println("Gemini CLI installed")
+		}
 	}
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("gemini")))
 	return nil
 }
 
-func installDroid(sandbox *daytona.Sandbox) error {
-	fmt.Println("Installing Droid CLI...")
+func installDroid(sandbox *daytona.Sandbox, verbose bool) error {
+	if verbose {
+		fmt.Println("Installing Droid CLI...")
+	}
 	resp, _ := sandbox.Process.ExecuteCommand("which droid")
 	if resp != nil && resp.ExitCode == 0 {
-		fmt.Println("Droid CLI already installed")
+		if verbose {
+			fmt.Println("Droid CLI already installed")
+		}
 	} else {
 		resp, err := sandbox.Process.ExecuteCommand(`bash -lc "curl -fsSL https://app.factory.ai/cli | sh"`)
 		if err != nil || resp.ExitCode != 0 {
-			return errors.New("failed to install Droid CLI in sandbox")
+			return errors.New("failed to install droid cli in sandbox")
 		}
-		fmt.Println("Droid CLI installed")
+		if verbose {
+			fmt.Println("Droid CLI installed")
+		}
 	}
 	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, agentInstallMarker("droid")))
 	return nil
 }
 
 // EnsureAgentInstalled installs the requested agent if missing.
-func EnsureAgentInstalled(sandbox *daytona.Sandbox, agent Agent) error {
+func EnsureAgentInstalled(sandbox *daytona.Sandbox, agent Agent, verbose bool) error {
 	if agent == AgentShell {
 		return nil
 	}
 	if isAgentInstalled(sandbox, agent.String()) {
-		fmt.Printf("%s already installed\n", agent)
+		if verbose {
+			fmt.Printf("%s already installed\n", agent)
+		}
 		return nil
 	}
 	switch agent {
 	case AgentClaude:
-		return installClaude(sandbox)
+		return installClaude(sandbox, verbose)
 	case AgentCodex:
-		return installCodex(sandbox)
+		return installCodex(sandbox, verbose)
 	case AgentOpenCode:
-		return installOpenCode(sandbox)
+		return installOpenCode(sandbox, verbose)
 	case AgentAmp:
-		return installAmp(sandbox)
+		return installAmp(sandbox, verbose)
 	case AgentGemini:
-		return installGemini(sandbox)
+		return installGemini(sandbox, verbose)
 	case AgentDroid:
-		return installDroid(sandbox)
+		return installDroid(sandbox, verbose)
 	default:
 		return nil
 	}
