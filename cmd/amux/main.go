@@ -8,10 +8,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/andyrewlee/amux/internal/app"
+	"github.com/andyrewlee/amux/internal/cli"
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		os.Exit(cli.Run(os.Args[1:]))
+	}
+
 	// Initialize logging
 	home, _ := os.UserHomeDir()
 	logDir := filepath.Join(home, ".amux", "logs")
