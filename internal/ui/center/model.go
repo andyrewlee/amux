@@ -604,6 +604,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.LaunchAgent:
 		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
 
+	case messages.OpenDiff:
+		return m, m.createViewerTab(msg.File, msg.Worktree)
+
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
@@ -1094,6 +1097,79 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		if agent.Terminal != nil {
 			_ = agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
 			logging.Info("Terminal size set to %dx%d", termWidth, termHeight)
+		}
+
+		// Add tab to the worktree's tab list
+		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+
+		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
+	}
+}
+
+// createViewerTab creates a new viewer tab for a file diff
+func (m *Model) createViewerTab(file string, wt *data.Worktree) tea.Cmd {
+	if wt == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating viewer"}
+		}
+	}
+	return func() tea.Msg {
+		logging.Info("Creating viewer tab: file=%s worktree=%s", file, wt.Name)
+
+		// Escape filename for shell
+		escapedFile := "'" + strings.ReplaceAll(file, "'", "'\\''") + "'"
+		// Use git diff with color, piped through less for interactive viewing
+		cmd := fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
+
+		agent, err := m.agentManager.CreateViewer(wt, cmd)
+		if err != nil {
+			logging.Error("Failed to create viewer: %v", err)
+			return messages.Error{Err: err, Context: "creating viewer"}
+		}
+
+		logging.Info("Viewer created, Terminal=%v", agent.Terminal != nil)
+
+		// Calculate terminal dimensions
+		termWidth := m.width - 4
+		termHeight := m.height - 6
+		if termWidth < 10 {
+			termWidth = 80
+		}
+		if termHeight < 5 {
+			termHeight = 24
+		}
+
+		// Create virtual terminal emulator with scrollback
+		term := vterm.New(termWidth, termHeight)
+
+		// Set up response writer for terminal queries (DSR, DA, etc.)
+		if agent.Terminal != nil {
+			term.SetResponseWriter(func(data []byte) {
+				_ = agent.Terminal.SendString(string(data))
+			})
+		}
+
+		// Create tab with unique ID
+		wtID := string(wt.ID())
+		displayName := fmt.Sprintf("Diff: %s", file)
+		if len(displayName) > 20 {
+			displayName = "..." + displayName[len(displayName)-17:]
+		}
+
+		tab := &Tab{
+			ID:        generateTabID(),
+			Name:      displayName,
+			Assistant: "viewer", // Use a generic type for styling
+			Worktree:  wt,
+			Agent:     agent,
+			Terminal:  term,
+			Running:   true,
+		}
+
+		// Set PTY size to match
+		if agent.Terminal != nil {
+			_ = agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
 		}
 
 		// Add tab to the worktree's tab list
