@@ -215,7 +215,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle dialog result first (arrives after dialog is hidden)
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
-		return a, a.handleDialogResult(result)
+		switch result.ID {
+		case DialogAddProject, DialogCreateWorktree, DialogDeleteWorktree, DialogSelectAssistant, "agent-picker", DialogQuit:
+			return a, a.handleDialogResult(result)
+		}
+		// If not an App-level dialog, let it fall through to components
+		// Currently only Center uses custom dialogs
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		return a, cmd
 	}
 
 	// Handle help overlay toggle (highest priority)
@@ -737,6 +745,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.Error:
 		a.err = msg.Err
 		logging.Error("Error in %s: %v", msg.Context, msg.Err)
+
+	case messages.ThreadExported:
+		msgStr := fmt.Sprintf("Thread saved: %s", filepath.Base(msg.Path))
+		if msg.Copied {
+			msgStr += " (copied)"
+		}
+		cmds = append(cmds, a.toast.ShowSuccess(msgStr))
+
+	case messages.ThreadExportFailed:
+		logging.Error("Thread export failed: %v", msg.Err)
+		cmds = append(cmds, a.toast.ShowError(fmt.Sprintf("Export failed: %v", msg.Err)))
 	}
 
 	return a, tea.Batch(cmds...)
@@ -2133,6 +2152,11 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, tea.Cmd) {
 
 	case key.Matches(msg, a.keymap.CloseTab):
 		cmd := a.center.CloseActiveTab()
+		return true, cmd
+
+	case key.Matches(msg, a.keymap.SaveThread):
+		newCenter, cmd := a.center.Update(messages.SaveThreadRequest{})
+		a.center = newCenter
 		return true, cmd
 
 	// Global commands

@@ -121,6 +121,21 @@ func defaultHelpSections() []HelpSection {
 				{"(all keys)", "Sent to terminal"},
 			},
 		},
+		{
+			Title: "Center Pane (direct)",
+			Bindings: []HelpBinding{
+				{"Ctrl+W", "Close tab"},
+				{"Ctrl+S", "Save thread"},
+				{"Ctrl+N/P", "Next/prev tab"},
+			},
+		},
+		{
+			Title: "Sidebar",
+			Bindings: []HelpBinding{
+				{"j/k", "Navigate files"},
+				{"g", "Refresh status"},
+			},
+		},
 	}
 }
 

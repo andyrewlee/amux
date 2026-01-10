@@ -27,7 +27,6 @@ var (
 	ColorAmp      = lipgloss.Color("#ED4C3D")
 	ColorOpencode = lipgloss.Color("#000000")
 	ColorDroid    = lipgloss.Color("#EE6018")
-	ColorCursor   = lipgloss.Color("#1B1812")
 
 	// Surface colors for layering
 	ColorSurface0 = lipgloss.Color("#1a1b26") // Base background
@@ -55,8 +54,6 @@ func AgentColor(agent string) lipgloss.Color {
 		return ColorOpencode
 	case "droid":
 		return ColorDroid
-	case "cursor":
-		return ColorCursor
 	default:
 		return ColorPrimary
 	}

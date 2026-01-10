@@ -230,3 +230,17 @@ type SidebarPTYStopped struct {
 type SidebarTerminalCreated struct {
 	WorktreeID string
 }
+
+// SaveThreadRequest triggers the save thread dialog.
+type SaveThreadRequest struct{}
+
+// ThreadExported signals a thread export completed successfully.
+type ThreadExported struct {
+	Path   string
+	Copied bool
+}
+
+// ThreadExportFailed signals a thread export failure.
+type ThreadExportFailed struct {
+	Err error
+}
