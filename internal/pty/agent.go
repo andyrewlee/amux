@@ -85,6 +85,35 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType) (*Age
 	return agent, nil
 }
 
+// CreateViewer creates a new agent (viewer) for the given worktree and command
+func (m *AgentManager) CreateViewer(wt *data.Worktree, command string) (*Agent, error) {
+	if wt == nil {
+		return nil, fmt.Errorf("worktree is required")
+	}
+	// Build environment
+	env := []string{
+		fmt.Sprintf("WORKTREE_ROOT=%s", wt.Root),
+		fmt.Sprintf("WORKTREE_NAME=%s", wt.Name),
+		"TERM=xterm-256color",
+	}
+
+	term, err := New(command, wt.Root, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create terminal: %w", err)
+	}
+
+	agent := &Agent{
+		Type:     AgentType("viewer"),
+		Terminal: term,
+		Worktree: wt,
+		Config:   config.AssistantConfig{}, // No specific config
+	}
+
+	m.agents[wt.ID()] = append(m.agents[wt.ID()], agent)
+
+	return agent, nil
+}
+
 // CloseAgent closes an agent
 func (m *AgentManager) CloseAgent(agent *Agent) error {
 	if agent.Terminal != nil {

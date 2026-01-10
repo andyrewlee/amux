@@ -662,6 +662,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.AddProject:
 		cmds = append(cmds, a.addProject(msg.Path))
 
+	case messages.OpenDiff:
+		logging.Info("Opening diff: %s", msg.File)
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		cmds = append(cmds, cmd)
+
 	case messages.LaunchAgent:
 		logging.Info("Launching agent: %s", msg.Assistant)
 		newCenter, cmd := a.center.Update(msg)

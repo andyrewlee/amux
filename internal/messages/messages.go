@@ -172,6 +172,12 @@ type LaunchAgent struct {
 	Worktree  *data.Worktree
 }
 
+// OpenDiff requests opening a diff viewer for a file
+type OpenDiff struct {
+	File     string
+	Worktree *data.Worktree
+}
+
 // WorktreeCreatedWithWarning indicates worktree was created but setup had issues
 type WorktreeCreatedWithWarning struct {
 	Worktree *data.Worktree

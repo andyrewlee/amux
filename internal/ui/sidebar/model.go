@@ -114,6 +114,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					id := fmt.Sprintf("sidebar-file-%d", i)
 					if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
 						m.cursor = i
+						if m.gitStatus != nil && i < len(m.gitStatus.Files) {
+							file := m.gitStatus.Files[i]
+							return m, func() tea.Msg {
+								return messages.OpenDiff{File: file.Path, Worktree: m.worktree}
+							}
+						}
 						return m, nil
 					}
 				}
@@ -130,6 +136,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.moveCursor(1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.moveCursor(-1)
+		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "space", "o"))):
+			if m.gitStatus != nil && m.cursor >= 0 && m.cursor < len(m.gitStatus.Files) {
+				file := m.gitStatus.Files[m.cursor]
+				cmds = append(cmds, func() tea.Msg {
+					return messages.OpenDiff{File: file.Path, Worktree: m.worktree}
+				})
+			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
 			cmds = append(cmds, m.refreshStatus())
 		}
