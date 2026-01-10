@@ -90,11 +90,12 @@ func NewConfirmDialog(id, title, message string) *Dialog {
 }
 
 // NewSelectDialog creates a new selection dialog
-func NewSelectDialog(id, title string, options []string) *Dialog {
+func NewSelectDialog(id, title, message string, options []string) *Dialog {
 	return &Dialog{
 		id:      id,
 		dtype:   DialogSelect,
 		title:   title,
+		message: message,
 		options: options,
 		cursor:  0,
 	}
@@ -115,7 +116,6 @@ func DefaultAgentOptions() []AgentOption {
 		{ID: "amp", Name: "amp"},
 		{ID: "opencode", Name: "opencode"},
 		{ID: "droid", Name: "droid"},
-		{ID: "cursor", Name: "cursor"},
 	}
 }
 
@@ -457,6 +457,10 @@ func (d *Dialog) View() string {
 		content.WriteString(d.renderOptions())
 
 	case DialogSelect:
+		if d.message != "" {
+			content.WriteString(d.message)
+			content.WriteString("\n\n")
+		}
 		content.WriteString(d.renderOptions())
 	}
 
@@ -469,11 +473,19 @@ func (d *Dialog) View() string {
 	}
 
 	// Dialog box
+	width := 50
+	if d.width > 0 {
+		// Use available width, but cap at reasonable max for readability if needed,
+		// or just use a percentage.
+		// For paths, we want more space.
+		width = min(80, max(50, d.width-10))
+	}
+
 	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorPrimary).
 		Padding(1, 2).
-		Width(50)
+		Width(width)
 
 	return dialogStyle.Render(content.String())
 }
@@ -521,8 +533,6 @@ func (d *Dialog) renderOptions() string {
 				colorStyle = lipgloss.NewStyle().Foreground(ColorOpencode)
 			case "droid":
 				colorStyle = lipgloss.NewStyle().Foreground(ColorDroid)
-			case "cursor":
-				colorStyle = lipgloss.NewStyle().Foreground(ColorCursor)
 			default:
 				colorStyle = lipgloss.NewStyle().Foreground(ColorForeground)
 			}

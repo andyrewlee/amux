@@ -2,6 +2,8 @@ package center
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/config"
@@ -96,6 +99,7 @@ type Tab struct {
 	readerActive bool         // Guard to ensure only one PTY read loop per tab
 	CopyMode     bool         // Whether the tab is in copy/scroll mode (keys not sent to PTY)
 	// Buffer PTY output to avoid rendering partial screen updates.
+
 	pendingOutput     []byte
 	flushScheduled    bool
 	lastOutputAt      time.Time
@@ -240,6 +244,11 @@ type Model struct {
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
 	terminalCanvas      *compositor.Canvas
+
+	// Dialog state
+	saveDialog      *common.Dialog
+	savedThreadPath string
+	dialogOpenTime  time.Time
 
 	// Layout
 	width           int
@@ -393,7 +402,48 @@ type PTYStopped struct {
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Handle dialog update if visible
+	if m.saveDialog != nil && m.saveDialog.Visible() {
+		// Debounce input to prevent accidental double-confirms (e.g. holding Enter)
+		if _, ok := msg.(tea.KeyMsg); ok && time.Since(m.dialogOpenTime) < 500*time.Millisecond {
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		m.saveDialog, cmd = m.saveDialog.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
+	}
+
 	switch msg := msg.(type) {
+	case common.DialogResult:
+		if !msg.Confirmed {
+			m.saveDialog = nil
+			return m, nil
+		}
+
+		switch msg.ID {
+		case "save-thread":
+			// Index 0 is "Save & Copy Path"
+			if msg.Index == 0 {
+				path, err := m.exportActiveThread()
+				if err != nil {
+					m.saveDialog = nil
+					return m, func() tea.Msg { return messages.ThreadExportFailed{Err: err} }
+				}
+				if err := copyToClipboard(path); err != nil {
+					logging.Error("Failed to copy path: %v", err)
+				}
+				m.savedThreadPath = path
+				m.saveDialog = nil
+				return m, func() tea.Msg { return messages.ThreadExported{Path: path, Copied: true} }
+			}
+			// Cancel
+			m.saveDialog = nil
+		}
+		return m, nil
 	case tea.MouseMsg:
 		// Handle tab bar clicks (e.g., the plus button) even without an active agent.
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
@@ -498,7 +548,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 							tab.Selection.EndX, tab.Selection.EndY,
 						)
 						if text != "" {
-							if err := clipboard.WriteAll(text); err != nil {
+							if err := copyToClipboard(text); err != nil {
 								logging.Error("Failed to copy to clipboard: %v", err)
 							} else {
 								logging.Info("Copied %d chars to clipboard", len(text))
@@ -557,8 +607,27 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					return m, nil
 				}
 
-				// Handle Ctrl+[ as Escape (some terminals report it this way)
-				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))) {
+				// Only intercept these specific keys - everything else goes to terminal
+				switch {
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
+					m.nextTab()
+					return m, nil
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))):
+					m.prevTab()
+					return m, nil
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
+					// Close tab
+					return m, m.closeCurrentTab()
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+]"))):
+					// Switch to next tab (escape hatch that won't conflict)
+					m.nextTab()
+					return m, nil
+
+				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
+					// This is Escape - let it go to terminal
 					_ = tab.Agent.Terminal.SendString("\x1b")
 					return m, nil
 				}
@@ -603,6 +672,18 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case messages.LaunchAgent:
 		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
+
+	case messages.SaveThreadRequest:
+		m.saveDialog = common.NewSelectDialog(
+			"save-thread",
+			"Save Thread",
+			"Save current thread to file?",
+			[]string{"Save & Copy Path", "Cancel"},
+		)
+		m.saveDialog.Show()
+		m.saveDialog.SetSize(m.width, m.height)
+		m.dialogOpenTime = time.Now()
+		return m, nil
 
 	case messages.OpenDiff:
 		return m, m.createViewerTab(msg.File, msg.Worktree)
@@ -770,7 +851,99 @@ func (m *Model) View() string {
 		style = m.styles.FocusedPane
 	}
 
-	return style.Width(m.width - 2).Render(b.String())
+	content := style.Width(m.width - 2).Render(b.String())
+
+	if m.saveDialog != nil && m.saveDialog.Visible() {
+		dialogView := m.saveDialog.View()
+		return m.overlayCenter(content, dialogView)
+	}
+
+	return content
+}
+
+// overlayCenter renders the dialog as a true modal overlay on top of content
+func (m *Model) overlayCenter(content string, dialogView string) string {
+	dialogLines := strings.Split(dialogView, "\n")
+
+	// Calculate dialog dimensions
+	dialogHeight := len(dialogLines)
+	dialogWidth := 0
+	for _, line := range dialogLines {
+		if w := lipgloss.Width(line); w > dialogWidth {
+			dialogWidth = w
+		}
+	}
+
+	// Center the dialog (true center)
+	x := (m.width - dialogWidth) / 2
+	y := (m.height - dialogHeight) / 2
+
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	// Split content into lines - preserve exact line count
+	contentLines := strings.Split(content, "\n")
+	originalLineCount := len(contentLines)
+	neededHeight := y + dialogHeight
+
+	// Pad content lines if needed so the dialog can render within bounds.
+	if originalLineCount < neededHeight {
+		padWidth := 0
+		if originalLineCount > 0 {
+			padWidth = lipgloss.Width(contentLines[0])
+		} else if m.width > 0 {
+			padWidth = m.width - 2
+		}
+		padding := ""
+		if padWidth > 0 {
+			padding = strings.Repeat(" ", padWidth)
+		}
+		for len(contentLines) < neededHeight {
+			contentLines = append(contentLines, padding)
+		}
+	}
+
+	// Overlay dialog lines onto content using ANSI-aware functions
+	for i, dialogLine := range dialogLines {
+		contentY := y + i
+		if contentY >= 0 && contentY < len(contentLines) {
+			bgLine := contentLines[contentY]
+
+			// Get left portion of background (before dialog)
+			left := ansi.Truncate(bgLine, x, "")
+			// Pad left if needed
+			leftWidth := lipgloss.Width(left)
+			if leftWidth < x {
+				left += strings.Repeat(" ", x-leftWidth)
+			}
+
+			// Get right portion of background (after dialog)
+			rightStart := x + dialogWidth
+			bgWidth := lipgloss.Width(bgLine)
+			var right string
+			if rightStart < bgWidth {
+				right = ansi.TruncateLeft(bgLine, rightStart, "")
+			}
+
+			// Compose: left + dialog + right
+			contentLines[contentY] = left + dialogLine + right
+		}
+	}
+
+	// Preserve original line count exactly
+	maxLines := originalLineCount
+	if neededHeight > maxLines {
+		maxLines = neededHeight
+	}
+	if len(contentLines) > maxLines {
+		contentLines = contentLines[:maxLines]
+	}
+
+	return strings.Join(contentLines, "\n")
 }
 
 func (m *Model) helpItem(id, key, desc string) string {
@@ -790,6 +963,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 	}
 	if hasTabs {
 		items = append(items,
+			m.helpItem("center-help-save", "C-Spc s", "save"),
 			m.helpItem("center-help-close", "C-Spc x", "close"),
 			m.helpItem("center-help-prev", "C-Spc p", "prev"),
 			m.helpItem("center-help-next", "C-Spc n", "next"),
@@ -951,7 +1125,23 @@ func (m *Model) renderTabBar() string {
 		}
 
 		// Get agent-specific color
-		agentStyle := lipgloss.NewStyle().Foreground(common.AgentColor(tab.Assistant))
+		var agentStyle lipgloss.Style
+		switch tab.Assistant {
+		case "claude":
+			agentStyle = m.styles.AgentClaude
+		case "codex":
+			agentStyle = m.styles.AgentCodex
+		case "gemini":
+			agentStyle = m.styles.AgentGemini
+		case "amp":
+			agentStyle = m.styles.AgentAmp
+		case "opencode":
+			agentStyle = m.styles.AgentOpencode
+		case "droid":
+			agentStyle = m.styles.AgentDroid
+		default:
+			agentStyle = m.styles.AgentTerm
+		}
 
 		// Build tab content with agent-colored indicator and a close affordance
 		closeLabel := m.styles.Muted.Render("x")
@@ -1442,6 +1632,10 @@ func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 
+	if m.saveDialog != nil {
+		m.saveDialog.SetSize(width, height)
+	}
+
 	termWidth := width - 4
 	termHeight := height - 6
 	if termWidth < 10 {
@@ -1739,4 +1933,18 @@ func (m *Model) renderTerminalCanvas(term *vterm.VTerm, width, height int, showC
 // This is kept for compatibility but does nothing
 func (m *Model) CloseAllTabs() {
 	// No-op: tabs now persist per-worktree and are not closed when switching
+}
+
+func copyToClipboard(text string) error {
+	// Prioritize pbcopy on macOS as it is more reliable in various environments (tmux, etc.)
+	if runtime.GOOS == "darwin" {
+		cmd := exec.Command("pbcopy")
+		cmd.Stdin = strings.NewReader(text)
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+	}
+
+	// Fallback to library for other OS or if pbcopy fails
+	return clipboard.WriteAll(text)
 }
