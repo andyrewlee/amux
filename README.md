@@ -2,12 +2,12 @@
 
 Agent orchestrator made for developers to run parallel coding agents using git worktrees.
 
-<img width="1388" height="838" alt="image" src="https://github.com/user-attachments/assets/11feae87-ff9f-4322-84fd-e4144bcca3e3" />
+![amux](https://github.com/user-attachments/assets/6929836c-760b-4c13-8042-a67fbebed0a8)
 
 Here are some reasons why you would use amux over others:
 * Use coding agents directly (i.e. Claude Code, Codex). There's no new coding agent, wrapper, or SDK involved.
 * Supports all of the major coding agents: Claude Code, Codex, Gemini, Amp, OpenCode, Droid, Cursor.
-* Navigate with keyboard only using vim inspired shortcuts.
+* Navigate with keyboard or mouse.
 * Run it on the terminal.
 * Open source.
 
@@ -36,4 +36,4 @@ Example configuration:
 }
 ```
 
-This will run the specified commands in each new worktree after creation.
+This will run the specified commands in each new worktree after creation. Worktrees are saved inside ~/.amux/worktrees/<project>.
