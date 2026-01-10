@@ -1,6 +1,8 @@
 package center
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -93,4 +95,123 @@ func TestThreadFilename(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTrimTrailingEmptyLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "no trailing empty",
+			input:    []string{"line1", "line2"},
+			expected: []string{"line1", "line2"},
+		},
+		{
+			name:     "trailing empty lines",
+			input:    []string{"line1", "line2", "", "  ", ""},
+			expected: []string{"line1", "line2"},
+		},
+		{
+			name:     "all empty",
+			input:    []string{"", "", ""},
+			expected: []string{},
+		},
+		{
+			name:     "empty input",
+			input:    []string{},
+			expected: []string{},
+		},
+		{
+			name:     "whitespace only lines",
+			input:    []string{"content", "  \t  "},
+			expected: []string{"content"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := trimTrailingEmptyLines(tc.input)
+			if len(got) != len(tc.expected) {
+				t.Errorf("expected %d lines, got %d", len(tc.expected), len(got))
+				return
+			}
+			for i := range got {
+				if got[i] != tc.expected[i] {
+					t.Errorf("line %d: expected %q, got %q", i, tc.expected[i], got[i])
+				}
+			}
+		})
+	}
+}
+
+func TestUniqueThreadPath(t *testing.T) {
+	t.Run("returns path when file does not exist", func(t *testing.T) {
+		dir := t.TempDir()
+		path, err := uniqueThreadPath(dir, "thread.txt")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := filepath.Join(dir, "thread.txt")
+		if path != expected {
+			t.Errorf("expected %q, got %q", expected, path)
+		}
+	})
+
+	t.Run("increments suffix when file exists", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create existing file
+		existing := filepath.Join(dir, "thread.txt")
+		if err := os.WriteFile(existing, []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to create test file: %v", err)
+		}
+
+		path, err := uniqueThreadPath(dir, "thread.txt")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := filepath.Join(dir, "thread-2.txt")
+		if path != expected {
+			t.Errorf("expected %q, got %q", expected, path)
+		}
+	})
+
+	t.Run("finds next available number", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create thread.txt, thread-2.txt, thread-3.txt
+		for _, name := range []string{"thread.txt", "thread-2.txt", "thread-3.txt"} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("test"), 0644); err != nil {
+				t.Fatalf("failed to create test file: %v", err)
+			}
+		}
+
+		path, err := uniqueThreadPath(dir, "thread.txt")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := filepath.Join(dir, "thread-4.txt")
+		if path != expected {
+			t.Errorf("expected %q, got %q", expected, path)
+		}
+	})
+
+	t.Run("preserves extension", func(t *testing.T) {
+		dir := t.TempDir()
+
+		existing := filepath.Join(dir, "20260106-120000-project.txt")
+		if err := os.WriteFile(existing, []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to create test file: %v", err)
+		}
+
+		path, err := uniqueThreadPath(dir, "20260106-120000-project.txt")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.HasSuffix(path, "-2.txt") {
+			t.Errorf("expected suffix -2.txt, got %q", path)
+		}
+	})
 }
