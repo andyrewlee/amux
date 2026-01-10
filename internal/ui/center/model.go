@@ -402,19 +402,24 @@ type PTYStopped struct {
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// Handle dialog update if visible
+	// Handle dialog update if visible, but only for interactive messages.
+	// PTY messages must still be processed to keep the terminal running.
 	if m.saveDialog != nil && m.saveDialog.Visible() {
-		// Debounce input to prevent accidental double-confirms (e.g. holding Enter)
-		if _, ok := msg.(tea.KeyMsg); ok && time.Since(m.dialogOpenTime) < 500*time.Millisecond {
-			return m, nil
-		}
+		switch msg.(type) {
+		case tea.KeyMsg, tea.MouseMsg:
+			// Debounce input to prevent accidental double-confirms (e.g. holding Enter)
+			if _, ok := msg.(tea.KeyMsg); ok && time.Since(m.dialogOpenTime) < 500*time.Millisecond {
+				return m, nil
+			}
 
-		var cmd tea.Cmd
-		m.saveDialog, cmd = m.saveDialog.Update(msg)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
+			var cmd tea.Cmd
+			m.saveDialog, cmd = m.saveDialog.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
 		}
-		return m, tea.Batch(cmds...)
+		// Fall through for PTY messages, window size, etc.
 	}
 
 	switch msg := msg.(type) {

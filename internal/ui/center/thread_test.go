@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 func TestOverlayCenter(t *testing.T) {
@@ -214,4 +215,46 @@ func TestUniqueThreadPath(t *testing.T) {
 			t.Errorf("expected suffix -2.txt, got %q", path)
 		}
 	})
+}
+
+func TestPTYMessagesProcessedWhileDialogVisible(t *testing.T) {
+	m := &Model{
+		tabsByWorktree:      make(map[string][]*Tab),
+		activeTabByWorktree: make(map[string]int),
+		width:               80,
+		height:              24,
+	}
+
+	m.saveDialog = common.NewSelectDialog(
+		"save-thread",
+		"Save Thread",
+		"Save current thread to file?",
+		[]string{"Save & Copy Path", "Cancel"},
+	)
+	m.saveDialog.Show()
+	m.dialogOpenTime = time.Now().Add(-time.Second)
+
+	wtID := "test-worktree"
+	tabID := TabID("test-tab")
+	m.tabsByWorktree[wtID] = []*Tab{{ID: tabID}}
+
+	outputMsg := PTYOutput{
+		WorktreeID: wtID,
+		TabID:      tabID,
+		Data:       []byte("test output"),
+	}
+
+	_, cmd := m.Update(outputMsg)
+
+	if cmd == nil {
+		t.Error("PTYOutput should return a command to continue reading, but got nil")
+	}
+
+	tab := m.tabsByWorktree[wtID][0]
+	if len(tab.pendingOutput) == 0 {
+		t.Error("PTYOutput data should be buffered in pendingOutput")
+	}
+	if string(tab.pendingOutput) != "test output" {
+		t.Errorf("expected pending output %q, got %q", "test output", string(tab.pendingOutput))
+	}
 }
