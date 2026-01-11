@@ -18,8 +18,9 @@ type StatusResult struct {
 }
 
 // GetStatus returns the git status for a repository
+// Uses -u flag to show individual files in untracked directories
 func GetStatus(repoPath string) (*StatusResult, error) {
-	output, err := RunGit(repoPath, "status", "--short")
+	output, err := RunGit(repoPath, "status", "--short", "-u")
 	if err != nil {
 		return nil, err
 	}
@@ -81,4 +82,18 @@ func (f *FileStatus) IsDeleted() bool {
 // IsUntracked checks if a file is untracked
 func (f *FileStatus) IsUntracked() bool {
 	return f.Code == "??"
+}
+
+// DisplayCode returns a user-friendly display code
+// For untracked files, returns "A " instead of "??" to indicate they are additions
+func (f *FileStatus) DisplayCode() string {
+	if f.Code == "??" {
+		return "A "
+	}
+	return f.Code
+}
+
+// IsDirectory checks if the path is a directory (ends with /)
+func (f *FileStatus) IsDirectory() bool {
+	return strings.HasSuffix(f.Path, "/")
 }

@@ -691,7 +691,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		return m, nil
 
 	case messages.OpenDiff:
-		return m, m.createViewerTab(msg.File, msg.Worktree)
+		return m, m.createViewerTab(msg.File, msg.StatusCode, msg.Worktree)
 
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
@@ -1287,19 +1287,26 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 }
 
 // createViewerTab creates a new viewer tab for a file diff
-func (m *Model) createViewerTab(file string, wt *data.Worktree) tea.Cmd {
+func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktree) tea.Cmd {
 	if wt == nil {
 		return func() tea.Msg {
 			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating viewer"}
 		}
 	}
 	return func() tea.Msg {
-		logging.Info("Creating viewer tab: file=%s worktree=%s", file, wt.Name)
+		logging.Info("Creating viewer tab: file=%s statusCode=%s worktree=%s", file, statusCode, wt.Name)
 
 		// Escape filename for shell
 		escapedFile := "'" + strings.ReplaceAll(file, "'", "'\\''") + "'"
-		// Use git diff with color, piped through less for interactive viewing
-		cmd := fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
+
+		var cmd string
+		if statusCode == "??" {
+			// Untracked file: show full content with line numbers prefixed by + to indicate additions
+			cmd = fmt.Sprintf("awk '{print \"\\033[32m+ \" $0 \"\\033[0m\"}' %s | less -R", escapedFile)
+		} else {
+			// Tracked file: use git diff with color
+			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
+		}
 
 		agent, err := m.agentManager.CreateViewer(wt, cmd)
 		if err != nil {

@@ -117,7 +117,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 						if m.gitStatus != nil && i < len(m.gitStatus.Files) {
 							file := m.gitStatus.Files[i]
 							return m, func() tea.Msg {
-								return messages.OpenDiff{File: file.Path, Worktree: m.worktree}
+								return messages.OpenDiff{File: file.Path, StatusCode: file.Code, Worktree: m.worktree}
 							}
 						}
 						return m, nil
@@ -140,7 +140,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if m.gitStatus != nil && m.cursor >= 0 && m.cursor < len(m.gitStatus.Files) {
 				file := m.gitStatus.Files[m.cursor]
 				cmds = append(cmds, func() tea.Msg {
-					return messages.OpenDiff{File: file.Path, Worktree: m.worktree}
+					return messages.OpenDiff{File: file.Path, StatusCode: file.Code, Worktree: m.worktree}
 				})
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
@@ -248,8 +248,11 @@ func (m *Model) renderChanges() string {
 			statusStyle = m.styles.Muted
 		}
 
+		// Use display code (shows "A " for untracked instead of "??")
+		displayCode := file.DisplayCode()
+
 		// Truncate path to fit within available width
-		prefixWidth := lipgloss.Width(cursor + file.Code + " ")
+		prefixWidth := lipgloss.Width(cursor + displayCode + " ")
 		maxPathLen := m.width - prefixWidth
 		if maxPathLen < 10 {
 			maxPathLen = 10
@@ -259,7 +262,7 @@ func (m *Model) renderChanges() string {
 			displayPath = "..." + displayPath[len(displayPath)-maxPathLen+3:]
 		}
 
-		line := cursor + statusStyle.Render(file.Code) + " " + m.styles.FilePath.Render(displayPath)
+		line := cursor + statusStyle.Render(displayCode) + " " + m.styles.FilePath.Render(displayPath)
 		if m.zone != nil {
 			line = m.zone.Mark(fmt.Sprintf("sidebar-file-%d", i), line)
 		}

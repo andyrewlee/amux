@@ -174,8 +174,9 @@ type LaunchAgent struct {
 
 // OpenDiff requests opening a diff viewer for a file
 type OpenDiff struct {
-	File     string
-	Worktree *data.Worktree
+	File       string
+	StatusCode string // Git status code (e.g., "M ", "??", "A ")
+	Worktree   *data.Worktree
 }
 
 // WorktreeCreatedWithWarning indicates worktree was created but setup had issues
