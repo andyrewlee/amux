@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -41,47 +40,22 @@ func getSSHHost() string {
 	return host
 }
 
+// quoteForShell quotes a string for safe use in shell commands.
+// Uses the central ShellQuote function for consistency.
 func quoteForShell(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	return ShellQuote(value)
 }
 
-var validEnvKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-func isValidEnvKey(key string) bool {
-	return validEnvKey.MatchString(key)
+func buildEnvExportsLocal(env map[string]string) []string {
+	return BuildEnvExports(env)
 }
 
-func buildEnvExports(env map[string]string) []string {
-	if len(env) == 0 {
-		return nil
-	}
-	lines := make([]string, 0, len(env))
-	for key, value := range env {
-		if !isValidEnvKey(key) {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("export %s=%s", key, quoteForShell(value)))
-	}
-	return lines
-}
-
-func buildEnvAssignments(env map[string]string) string {
-	if len(env) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(env))
-	for key, value := range env {
-		if !isValidEnvKey(key) {
-			continue
-		}
-		parts = append(parts, fmt.Sprintf("%s=%s", key, quoteForShell(value)))
-	}
-	return strings.Join(parts, " ")
+func buildEnvAssignmentsLocal(env map[string]string) string {
+	return BuildEnvAssignments(env)
 }
 
 func redactExports(input string) string {
-	re := regexp.MustCompile(`export [^\n]+`)
-	return re.ReplaceAllString(input, "export <redacted>")
+	return RedactSecrets(input)
 }
 
 func getStdoutFromResponse(resp *daytona.ExecuteResponse) string {
@@ -194,7 +168,8 @@ func isAgentInstallFresh(sandbox *daytona.Sandbox, agent string) bool {
 // touchAgentMarker creates or updates the install marker timestamp.
 func touchAgentMarker(sandbox *daytona.Sandbox, agent string) {
 	marker := agentInstallMarker(agent)
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s && touch %s", agentInstallBasePath, marker))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.MkdirP(agentInstallBasePath))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.Touch(marker))
 }
 
 func installClaude(sandbox *daytona.Sandbox, verbose bool, forceUpdate bool) error {
@@ -555,7 +530,7 @@ func RunAgentInteractive(sandbox *daytona.Sandbox, cfg AgentConfig) (int, error)
 		`fi`,
 	}, "\n")
 	unsetCi := `if [ -n "$CI" ]; then unset CI; fi`
-	envExports := buildEnvExports(cfg.Env)
+	envExports := buildEnvExportsLocal(cfg.Env)
 	debugEnabled := envIsOne("AMUX_SSH_DEBUG")
 	debugLines := []string{}
 	if debugEnabled {
@@ -767,7 +742,7 @@ func RunAgentCommand(sandbox *daytona.Sandbox, cfg AgentConfig, args []string) (
 	if allArgs != "" {
 		cmdLine = fmt.Sprintf("%s %s", resolved, allArgs)
 	}
-	envAssignments := buildEnvAssignments(cfg.Env)
+	envAssignments := buildEnvAssignmentsLocal(cfg.Env)
 	if envAssignments != "" {
 		cmdLine = fmt.Sprintf("%s %s", envAssignments, cmdLine)
 	}

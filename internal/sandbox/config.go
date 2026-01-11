@@ -30,6 +30,7 @@ var configKeys = []string{
 	"snapshotAgents",
 	"snapshotBaseImage",
 	"settingsSync",
+	"firstRunComplete",
 }
 
 // Config stores AMUX sandbox configuration.
@@ -43,6 +44,7 @@ type Config struct {
 	SnapshotAgents      []string           `json:"snapshotAgents,omitempty"`
 	SnapshotBaseImage   string             `json:"snapshotBaseImage,omitempty"`
 	SettingsSync        SettingsSyncConfig `json:"settingsSync,omitempty"`
+	FirstRunComplete    bool               `json:"firstRunComplete,omitempty"`
 }
 
 func configPath() (string, error) {

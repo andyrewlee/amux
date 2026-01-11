@@ -265,9 +265,9 @@ func UploadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions, verbose bool) e
 	}
 
 	repoPath := resolveWorkspaceRepoPath(sandbox, opts.WorkspaceID)
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("rm -rf %s", repoPath))
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s", repoPath))
-	resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf("tar -xzf %s -C %s", uploadTarPath, repoPath))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.RmRf(repoPath))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.MkdirP(repoPath))
+	resp, err := sandbox.Process.ExecuteCommand(SafeCommands.TarExtract(uploadTarPath, repoPath))
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func UploadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions, verbose bool) e
 	if verbose {
 		fmt.Printf("Workspace location: %s\n", repoPath)
 	}
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("rm -f %s", uploadTarPath))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.RmF(uploadTarPath))
 	return nil
 }
 
@@ -348,7 +348,7 @@ func DownloadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions, verbose bool)
 		fmt.Println("Creating tarball in sandbox...")
 	}
 	repoPath := resolveWorkspaceRepoPath(sandbox, opts.WorkspaceID)
-	resp, err := sandbox.Process.ExecuteCommand(fmt.Sprintf("tar -czf %s -C %s .", downloadTarPath, repoPath))
+	resp, err := sandbox.Process.ExecuteCommand(SafeCommands.TarCreate(downloadTarPath, repoPath))
 	if err != nil {
 		return err
 	}
@@ -429,7 +429,7 @@ func DownloadWorkspace(sandbox *daytona.Sandbox, opts SyncOptions, verbose bool)
 		}
 	}
 
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("rm -f %s", downloadTarPath))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.RmF(downloadTarPath))
 	return nil
 }
 

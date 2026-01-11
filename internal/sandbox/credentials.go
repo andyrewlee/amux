@@ -46,42 +46,30 @@ func getSandboxHomeDir(sandbox *daytona.Sandbox) string {
 func ensureCredentialDirs(sandbox *daytona.Sandbox) (string, error) {
 	homeDir := getSandboxHomeDir(sandbox)
 	volPath := CredentialsMountPath
-	cmds := []string{
-		fmt.Sprintf("mkdir -p %s/claude", volPath),
-		fmt.Sprintf("mkdir -p %s/codex", volPath),
-		fmt.Sprintf("mkdir -p %s/opencode", volPath),
-		fmt.Sprintf("mkdir -p %s/amp", volPath),
-		fmt.Sprintf("mkdir -p %s/gemini", volPath),
-		fmt.Sprintf("mkdir -p %s/factory", volPath),
-		fmt.Sprintf("mkdir -p %s/gh", volPath),
-		fmt.Sprintf("mkdir -p %s/git", volPath),
-	}
-	for _, cmd := range cmds {
-		_, _ = sandbox.Process.ExecuteCommand(cmd)
+	dirs := []string{"claude", "codex", "opencode", "amp", "gemini", "factory", "gh", "git"}
+	for _, dir := range dirs {
+		_, _ = sandbox.Process.ExecuteCommand(SafeCommands.MkdirP(fmt.Sprintf("%s/%s", volPath, dir)))
 	}
 	return homeDir, nil
 }
 
 func ensureSymlink(sandbox *daytona.Sandbox, targetPath, sourcePath string) {
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p $(dirname %s)", targetPath))
-	_, _ = sandbox.Process.ExecuteCommand(
-		fmt.Sprintf("if [ -e %s ] && [ ! -L %s ]; then rm -rf %s; fi", targetPath, targetPath, targetPath),
-	)
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("ln -sfn %s %s", sourcePath, targetPath))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.MkdirParent(targetPath))
+	// Remove existing file/directory if it exists and is not a symlink
+	cmd := fmt.Sprintf("if [ -e %s ] && [ ! -L %s ]; then rm -rf %s; fi",
+		ShellQuote(targetPath), ShellQuote(targetPath), ShellQuote(targetPath))
+	_, _ = sandbox.Process.ExecuteCommand(cmd)
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.LnForce(sourcePath, targetPath))
 }
 
 func prepareClaudeHome(sandbox *daytona.Sandbox, homeDir string) {
 	volPath := CredentialsMountPath
 	claudeHome := fmt.Sprintf("%s/.claude", homeDir)
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("mkdir -p %s/claude", volPath))
-	_, _ = sandbox.Process.ExecuteCommand("mkdir -p /tmp/amux-claude-cache")
-	_, _ = sandbox.Process.ExecuteCommand("mkdir -p /tmp/amux-claude-debug")
-	_, _ = sandbox.Process.ExecuteCommand(
-		fmt.Sprintf("ln -sfn /tmp/amux-claude-cache %s/claude/cache", volPath),
-	)
-	_, _ = sandbox.Process.ExecuteCommand(
-		fmt.Sprintf("ln -sfn /tmp/amux-claude-debug %s/claude/debug", volPath),
-	)
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.MkdirP(fmt.Sprintf("%s/claude", volPath)))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.MkdirP("/tmp/amux-claude-cache"))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.MkdirP("/tmp/amux-claude-debug"))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.LnForce("/tmp/amux-claude-cache", fmt.Sprintf("%s/claude/cache", volPath)))
+	_, _ = sandbox.Process.ExecuteCommand(SafeCommands.LnForce("/tmp/amux-claude-debug", fmt.Sprintf("%s/claude/debug", volPath)))
 	ensureSymlink(sandbox, claudeHome, fmt.Sprintf("%s/claude", volPath))
 }
 
@@ -135,7 +123,10 @@ func prepareGhHome(sandbox *daytona.Sandbox, homeDir string) {
 
 func symlinkGitConfig(sandbox *daytona.Sandbox, homeDir string) {
 	volPath := CredentialsMountPath
-	_, _ = sandbox.Process.ExecuteCommand(fmt.Sprintf("ln -sf %s/git/.gitconfig %s/.gitconfig || true", volPath, homeDir))
+	gitconfigSrc := fmt.Sprintf("%s/git/.gitconfig", volPath)
+	gitconfigDst := fmt.Sprintf("%s/.gitconfig", homeDir)
+	cmd := fmt.Sprintf("ln -sf %s %s || true", ShellQuote(gitconfigSrc), ShellQuote(gitconfigDst))
+	_, _ = sandbox.Process.ExecuteCommand(cmd)
 }
 
 // SetupCredentials mounts/symlinks the shared credentials volume inside the sandbox.
