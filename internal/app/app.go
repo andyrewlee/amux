@@ -339,15 +339,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focusPane(messages.PaneCenter)
 
 				if a.dialog == nil || !a.dialog.Visible() {
-					if a.showWelcome {
-						if z := a.zone.Get("welcome-new-project"); z != nil && z.InBounds(msg) {
-							cmds = append(cmds, func() tea.Msg { return messages.ShowAddProjectDialog{} })
-						} else if z := a.zone.Get("welcome-toggle-help"); z != nil && z.InBounds(msg) {
-							cmds = append(cmds, func() tea.Msg { return messages.ToggleKeymapHints{} })
-						}
-					} else if !a.center.HasTabs() && a.activeWorktree != nil {
-						if z := a.zone.Get("worktree-new-agent"); z != nil && z.InBounds(msg) {
-							cmds = append(cmds, func() tea.Msg { return messages.ShowSelectAssistantDialog{} })
+					// Handle welcome screen clicks
+					if z := a.zone.Get("welcome-new-project"); z != nil && z.InBounds(msg) {
+						cmds = append(cmds, func() tea.Msg { return messages.ShowAddProjectDialog{} })
+					} else if z := a.zone.Get("welcome-toggle-help"); z != nil && z.InBounds(msg) {
+						cmds = append(cmds, func() tea.Msg { return messages.ToggleKeymapHints{} })
+					}
+					// Handle worktree info screen clicks
+					if z := a.zone.Get("worktree-new-agent"); z != nil && z.InBounds(msg) {
+						cmds = append(cmds, func() tea.Msg { return messages.ShowSelectAssistantDialog{} })
+					} else if z := a.zone.Get("worktree-commits"); z != nil && z.InBounds(msg) {
+						if a.activeWorktree != nil {
+							wt := a.activeWorktree
+							cmds = append(cmds, func() tea.Msg { return messages.OpenCommitViewer{Worktree: wt} })
 						}
 					}
 				}
@@ -676,6 +680,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.center = newCenter
 		cmds = append(cmds, cmd)
 
+	case messages.OpenCommitViewer:
+		logging.Info("Opening commit viewer")
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		cmds = append(cmds, cmd)
+		a.focusPane(messages.PaneCenter)
+
+	case messages.ViewCommitDiff:
+		logging.Info("Viewing commit diff: %s", msg.Hash)
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		cmds = append(cmds, cmd)
+
+	case messages.CloseTab:
+		cmd := a.center.CloseActiveTab()
+		cmds = append(cmds, cmd)
+
 	case messages.LaunchAgent:
 		logging.Info("Launching agent: %s", msg.Assistant)
 		newCenter, cmd := a.center.Update(msg)
@@ -756,6 +777,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ThreadExportFailed:
 		logging.Error("Thread export failed: %v", msg.Err)
 		cmds = append(cmds, a.toast.ShowError(fmt.Sprintf("Export failed: %v", msg.Err)))
+
+	default:
+		// Forward unknown messages to center pane (e.g., commit viewer internal messages)
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	return a, tea.Batch(cmds...)
@@ -1733,9 +1762,11 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	content += "\n" + a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
+	agentBtn := a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
+	commitsBtn := a.zone.Mark("worktree-commits", a.styles.TabPlus.Render("[d] Commits"))
+	content += "\n" + lipgloss.JoinHorizontal(lipgloss.Bottom, agentBtn, commitsBtn)
 	if a.config.UI.ShowKeymapHints {
-		content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
+		content += "\n" + a.styles.Help.Render("C-Spc a:new agent  C-Spc d:commits")
 	}
 
 	return content
@@ -2147,6 +2178,13 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, tea.Cmd) {
 	case key.Matches(msg, a.keymap.NewAgentTab):
 		if a.activeWorktree != nil {
 			return true, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+		}
+		return true, nil
+
+	case key.Matches(msg, a.keymap.CommitViewer):
+		if a.activeWorktree != nil {
+			wt := a.activeWorktree
+			return true, func() tea.Msg { return messages.OpenCommitViewer{Worktree: wt} }
 		}
 		return true, nil
 
