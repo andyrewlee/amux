@@ -179,6 +179,20 @@ type OpenDiff struct {
 	Worktree   *data.Worktree
 }
 
+// OpenCommitViewer requests opening the commit viewer
+type OpenCommitViewer struct {
+	Worktree *data.Worktree
+}
+
+// ViewCommitDiff requests viewing a specific commit's diff
+type ViewCommitDiff struct {
+	Worktree *data.Worktree
+	Hash     string
+}
+
+// CloseTab requests closing the current tab
+type CloseTab struct{}
+
 // WorktreeCreatedWithWarning indicates worktree was created but setup had issues
 type WorktreeCreatedWithWarning struct {
 	Worktree *data.Worktree

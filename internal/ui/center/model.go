@@ -22,6 +22,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/commits"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -93,11 +94,12 @@ type Tab struct {
 	Assistant    string
 	Worktree     *data.Worktree
 	Agent        *appPty.Agent
-	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
-	mu           sync.Mutex   // Protects Terminal
-	Running      bool         // Whether the agent is actively running
-	readerActive bool         // Guard to ensure only one PTY read loop per tab
-	CopyMode     bool         // Whether the tab is in copy/scroll mode (keys not sent to PTY)
+	Terminal     *vterm.VTerm   // Virtual terminal emulator with scrollback
+	CommitViewer *commits.Model // Commit viewer component (if this is a commit viewer tab)
+	mu           sync.Mutex     // Protects Terminal
+	Running      bool           // Whether the agent is actively running
+	readerActive bool           // Guard to ensure only one PTY read loop per tab
+	CopyMode     bool           // Whether the tab is in copy/scroll mode (keys not sent to PTY)
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
@@ -472,6 +474,18 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		tab := tabs[activeIdx]
 
+		// CommitViewer tabs: forward mouse events to commit viewer
+		tab.mu.Lock()
+		cv := tab.CommitViewer
+		tab.mu.Unlock()
+		if cv != nil {
+			newCV, cmd := cv.Update(msg)
+			tab.mu.Lock()
+			tab.CommitViewer = newCV
+			tab.mu.Unlock()
+			return m, cmd
+		}
+
 		// Convert screen coordinates to terminal coordinates
 		termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
 
@@ -597,6 +611,32 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab := tabs[activeIdx]
 			logging.Debug("Has active agent, Agent=%v, Terminal=%v, CopyMode=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil, tab.CopyMode)
 
+			// CommitViewer tabs: forward keys to commit viewer
+			tab.mu.Lock()
+			cv := tab.CommitViewer
+			tab.mu.Unlock()
+			if cv != nil {
+				// Handle ctrl+w for closing tab
+				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))) {
+					return m, m.closeCurrentTab()
+				}
+				// Handle ctrl+n/p for tab switching
+				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))) {
+					m.nextTab()
+					return m, nil
+				}
+				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))) {
+					m.prevTab()
+					return m, nil
+				}
+				// Forward all other keys to commit viewer
+				newCV, cmd := cv.Update(msg)
+				tab.mu.Lock()
+				tab.CommitViewer = newCV
+				tab.mu.Unlock()
+				return m, cmd
+			}
+
 			// Copy mode: handle scroll navigation without sending to PTY
 			if tab.CopyMode {
 				return m, m.handleCopyModeKey(tab, msg)
@@ -693,6 +733,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.OpenDiff:
 		return m, m.createViewerTab(msg.File, msg.StatusCode, msg.Worktree)
 
+	case messages.OpenCommitViewer:
+		return m, m.createCommitViewerTab(msg.Worktree)
+
+	case messages.ViewCommitDiff:
+		return m, m.createCommitDiffTab(msg.Hash, msg.Worktree)
+
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
@@ -778,6 +824,26 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
 		}
 		// Do NOT schedule another read - the loop is done
+
+	default:
+		// Forward unknown messages to active commit viewer if one exists
+		tabs := m.getTabs()
+		activeIdx := m.getActiveTabIdx()
+		if len(tabs) > 0 && activeIdx < len(tabs) {
+			tab := tabs[activeIdx]
+			tab.mu.Lock()
+			cv := tab.CommitViewer
+			tab.mu.Unlock()
+			if cv != nil {
+				newCV, cmd := cv.Update(msg)
+				tab.mu.Lock()
+				tab.CommitViewer = newCV
+				tab.mu.Unlock()
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -799,7 +865,12 @@ func (m *Model) View() string {
 	} else if activeIdx < len(tabs) {
 		tab := tabs[activeIdx]
 		tab.mu.Lock()
-		if tab.Terminal != nil {
+		if tab.CommitViewer != nil {
+			// Sync focus state with center pane focus
+			tab.CommitViewer.SetFocused(m.focused)
+			// Render commit viewer
+			b.WriteString(tab.CommitViewer.View())
+		} else if tab.Terminal != nil {
 			tab.Terminal.ShowCursor = m.focused
 			termWidth := tab.Terminal.Width
 			termHeight := tab.Terminal.Height
@@ -964,7 +1035,10 @@ func (m *Model) helpLines(contentWidth int) []string {
 
 	hasTabs := len(m.getTabs()) > 0
 	if m.worktree != nil {
-		items = append(items, m.helpItem("center-help-new", "C-Spc a", "new tab"))
+		items = append(items,
+			m.helpItem("center-help-new", "C-Spc a", "new tab"),
+			m.helpItem("center-help-commits", "C-Spc d", "commits"),
+		)
 	}
 	if hasTabs {
 		items = append(items,
@@ -1195,6 +1269,12 @@ func (m *Model) handleTabBarClick(msg tea.MouseMsg) tea.Cmd {
 	if z := m.zone.Get("center-tab-plus"); z != nil && z.InBounds(msg) {
 		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 	}
+	if z := m.zone.Get("center-empty-commits"); z != nil && z.InBounds(msg) {
+		if m.worktree != nil {
+			wt := m.worktree
+			return func() tea.Msg { return messages.OpenCommitViewer{Worktree: wt} }
+		}
+	}
 
 	tabs := m.getTabs()
 	for i := range tabs {
@@ -1219,11 +1299,27 @@ func (m *Model) renderEmpty() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.styles.Title.Render("No agents running"))
 	b.WriteString("\n\n")
-	btn := m.styles.TabPlus.Render("[+] New agent")
+
+	// New agent button
+	agentBtn := m.styles.TabPlus.Render("[+] New agent")
 	if m.zone != nil {
-		btn = m.zone.Mark("center-tab-plus", btn)
+		agentBtn = m.zone.Mark("center-tab-plus", agentBtn)
 	}
-	b.WriteString(btn)
+	b.WriteString(agentBtn)
+	b.WriteString("  ")
+
+	// Commits button
+	commitsBtn := m.styles.TabPlus.Render("[d] Commits")
+	if m.zone != nil {
+		commitsBtn = m.zone.Mark("center-empty-commits", commitsBtn)
+	}
+	b.WriteString(commitsBtn)
+
+	// Help text
+	b.WriteString("\n\n")
+	helpStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
+	b.WriteString(helpStyle.Render("C-Spc a:new agent  C-Spc d:commits"))
+
 	return b.String()
 }
 
@@ -1366,6 +1462,120 @@ func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktre
 	}
 }
 
+// createCommitViewerTab creates a tab with the commit viewer component
+func (m *Model) createCommitViewerTab(wt *data.Worktree) tea.Cmd {
+	if wt == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating commit viewer"}
+		}
+	}
+
+	logging.Info("Creating commit viewer tab: worktree=%s", wt.Name)
+
+	// Calculate dimensions for the commit viewer
+	viewerWidth := m.width - 4
+	viewerHeight := m.height - 6
+	if viewerWidth < 40 {
+		viewerWidth = 80
+	}
+	if viewerHeight < 10 {
+		viewerHeight = 24
+	}
+
+	// Create commit viewer model
+	cv := commits.New(wt, viewerWidth, viewerHeight)
+	cv.SetZone(m.zone)
+	cv.SetFocused(true)
+
+	// Create tab with unique ID
+	wtID := string(wt.ID())
+	displayName := "Commits"
+
+	tab := &Tab{
+		ID:           generateTabID(),
+		Name:         displayName,
+		Assistant:    "commits",
+		Worktree:     wt,
+		CommitViewer: cv,
+	}
+
+	// Add tab to the worktree's tab list
+	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+
+	// Return the Init command to start loading commits
+	return tea.Batch(
+		cv.Init(),
+		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName} },
+	)
+}
+
+// createCommitDiffTab creates a viewer tab showing a specific commit's diff
+func (m *Model) createCommitDiffTab(hash string, wt *data.Worktree) tea.Cmd {
+	if wt == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating commit diff viewer"}
+		}
+	}
+	return func() tea.Msg {
+		logging.Info("Creating commit diff tab: hash=%s worktree=%s", hash, wt.Name)
+
+		// Use git show with color, piped through less for interactive viewing
+		cmd := fmt.Sprintf("git show --color=always %s | less -R", hash)
+
+		agent, err := m.agentManager.CreateViewer(wt, cmd)
+		if err != nil {
+			logging.Error("Failed to create commit diff viewer: %v", err)
+			return messages.Error{Err: err, Context: "creating commit diff viewer"}
+		}
+
+		// Calculate terminal dimensions
+		termWidth := m.width - 4
+		termHeight := m.height - 6
+		if termWidth < 10 {
+			termWidth = 80
+		}
+		if termHeight < 5 {
+			termHeight = 24
+		}
+
+		// Create virtual terminal emulator with scrollback
+		term := vterm.New(termWidth, termHeight)
+
+		// Set up response writer for terminal queries
+		if agent.Terminal != nil {
+			term.SetResponseWriter(func(data []byte) {
+				_ = agent.Terminal.SendString(string(data))
+			})
+		}
+
+		// Create tab with unique ID
+		wtID := string(wt.ID())
+		displayName := fmt.Sprintf("Commit: %s", hash)
+
+		tab := &Tab{
+			ID:        generateTabID(),
+			Name:      displayName,
+			Assistant: "viewer",
+			Worktree:  wt,
+			Agent:     agent,
+			Terminal:  term,
+			Running:   true,
+		}
+
+		// Set PTY size to match
+		if agent.Terminal != nil {
+			_ = agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+		}
+
+		// Add tab to the worktree's tab list
+		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+
+		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
+	}
+}
+
 // readPTYForTab reads from the PTY for a tab in a specific worktree
 func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
 	tab := m.getTabByID(wtID, tabID)
@@ -1436,6 +1646,11 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	if tab.Agent != nil {
 		_ = m.agentManager.CloseAgent(tab.Agent)
 	}
+
+	// Clean up CommitViewer
+	tab.mu.Lock()
+	tab.CommitViewer = nil
+	tab.mu.Unlock()
 
 	// Remove from tabs
 	m.removeTab(index)
@@ -1657,12 +1872,24 @@ func (m *Model) SetSize(width, height int) {
 		termHeight = 24
 	}
 
+	viewerWidth := width - 4
+	viewerHeight := height - 6
+	if viewerWidth < 40 {
+		viewerWidth = 80
+	}
+	if viewerHeight < 10 {
+		viewerHeight = 24
+	}
+
 	// Update all terminals across all worktrees
 	for _, tabs := range m.tabsByWorktree {
 		for _, tab := range tabs {
 			tab.mu.Lock()
 			if tab.Terminal != nil {
 				tab.Terminal.Resize(termWidth, termHeight)
+			}
+			if tab.CommitViewer != nil {
+				tab.CommitViewer.SetSize(viewerWidth, viewerHeight)
 			}
 			tab.mu.Unlock()
 			if tab.Agent != nil && tab.Agent.Terminal != nil {

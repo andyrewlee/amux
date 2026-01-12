@@ -8,19 +8,20 @@ type KeyMap struct {
 	Prefix key.Binding
 
 	// Global (active only after prefix)
-	Quit        key.Binding
-	MoveLeft    key.Binding
-	MoveRight   key.Binding
-	MoveUp      key.Binding
-	MoveDown    key.Binding
-	NextTab     key.Binding
-	PrevTab     key.Binding
-	CloseTab    key.Binding
-	NewAgentTab key.Binding
-	SaveThread  key.Binding
-	Help        key.Binding
-	Monitor     key.Binding
-	CopyMode    key.Binding
+	Quit         key.Binding
+	MoveLeft     key.Binding
+	MoveRight    key.Binding
+	MoveUp       key.Binding
+	MoveDown     key.Binding
+	NextTab      key.Binding
+	PrevTab      key.Binding
+	CloseTab     key.Binding
+	NewAgentTab  key.Binding
+	CommitViewer key.Binding
+	SaveThread   key.Binding
+	Help         key.Binding
+	Monitor      key.Binding
+	CopyMode     key.Binding
 
 	// Dashboard
 	Enter        key.Binding
@@ -85,6 +86,10 @@ func DefaultKeyMap() KeyMap {
 		NewAgentTab: key.NewBinding(
 			key.WithKeys("a"),
 			key.WithHelp("a", "new agent tab"),
+		),
+		CommitViewer: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "commit viewer"),
 		),
 		SaveThread: key.NewBinding(
 			key.WithKeys("s"),
