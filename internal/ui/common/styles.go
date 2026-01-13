@@ -1,6 +1,6 @@
 package common
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 // Styles contains all the application styles
 type Styles struct {

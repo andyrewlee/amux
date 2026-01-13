@@ -1,92 +1,46 @@
 package common
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
-func TestFilePickerEnterSelectsCurrentDirectory(t *testing.T) {
-	tempDir := t.TempDir()
-	fp := NewFilePicker("test", tempDir, true)
-
-	fp.cursor = 0
-	_, cmd := fp.handleEnter()
-	if cmd == nil {
-		t.Fatalf("expected selection command")
-	}
-	msg := cmd()
-	result, ok := msg.(DialogResult)
-	if !ok {
-		t.Fatalf("expected DialogResult, got %T", msg)
-	}
-	if !result.Confirmed {
-		t.Fatalf("expected confirmed result")
-	}
-	if result.Value != tempDir {
-		t.Fatalf("expected %q, got %q", tempDir, result.Value)
+func TestFilePickerCursorHiddenWhenNotVisible(t *testing.T) {
+	fp := NewFilePicker("id", t.TempDir(), true)
+	if c := fp.Cursor(); c != nil {
+		t.Fatalf("expected nil cursor when file picker is hidden, got %+v", c)
 	}
 }
 
-func TestFilePickerEnterOpensDirectory(t *testing.T) {
-	tempDir := t.TempDir()
-	subdir := filepath.Join(tempDir, "child")
-	if err := os.MkdirAll(subdir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+func TestFilePickerCursorPosition(t *testing.T) {
+	fp := NewFilePicker("id", t.TempDir(), true)
+	fp.Show()
+	fp.input.SetValue("abc")
+	fp.input.SetCursor(3)
+
+	inputCursor := fp.input.Cursor()
+	if inputCursor == nil {
+		t.Fatalf("expected input cursor, got nil")
 	}
 
-	fp := NewFilePicker("test", tempDir, true)
-	fp.cursor = 1
-	_, cmd := fp.handleEnter()
-	if cmd != nil {
-		t.Fatalf("expected no command when opening directory")
-	}
-	if fp.currentPath != subdir {
-		t.Fatalf("expected current path %q, got %q", subdir, fp.currentPath)
-	}
-}
-
-func TestFilePickerEnterOpensTypedDirectoryOnSelectRow(t *testing.T) {
-	tempDir := t.TempDir()
-	subdir := filepath.Join(tempDir, "child")
-	if err := os.MkdirAll(subdir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	c := fp.Cursor()
+	if c == nil {
+		t.Fatalf("expected file picker cursor, got nil")
 	}
 
-	fp := NewFilePicker("test", tempDir, true)
-	fp.input.SetValue("child")
-	fp.cursor = 0
-	_, cmd := fp.handleEnter()
-	if cmd != nil {
-		t.Fatalf("expected no command when opening directory")
-	}
-	if fp.currentPath != subdir {
-		t.Fatalf("expected current path %q, got %q", subdir, fp.currentPath)
-	}
-}
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorPrimary).
+		MarginBottom(1)
+	pathStyle := lipgloss.NewStyle().
+		Foreground(ColorSecondary)
 
-func TestFilePickerEnterSelectsFileWhenAllowed(t *testing.T) {
-	tempDir := t.TempDir()
-	filePath := filepath.Join(tempDir, "note.txt")
-	if err := os.WriteFile(filePath, []byte("hello"), 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
+	prefix := titleStyle.Render(fp.title) + "\n\n" + pathStyle.Render(fp.currentPath) + "\n\n"
+	expectedX := inputCursor.X + 3
+	expectedY := inputCursor.Y + lipgloss.Height(prefix) + 2
 
-	fp := NewFilePicker("test", tempDir, false)
-	fp.cursor = 1
-	_, cmd := fp.handleEnter()
-	if cmd == nil {
-		t.Fatalf("expected selection command for file")
-	}
-	msg := cmd()
-	result, ok := msg.(DialogResult)
-	if !ok {
-		t.Fatalf("expected DialogResult, got %T", msg)
-	}
-	if !result.Confirmed {
-		t.Fatalf("expected confirmed result")
-	}
-	if result.Value != filePath {
-		t.Fatalf("expected %q, got %q", filePath, result.Value)
+	if c.X != expectedX || c.Y != expectedY {
+		t.Fatalf("unexpected cursor position: got (%d,%d), want (%d,%d)", c.X, c.Y, expectedX, expectedY)
 	}
 }

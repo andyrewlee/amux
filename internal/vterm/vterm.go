@@ -22,7 +22,7 @@ type VTerm struct {
 	// Scroll viewing position (0 = live, >0 = lines scrolled up)
 	ViewOffset int
 
-	// Alt screen mode (vim, etc.)
+	// Alt screen mode (full-screen TUI applications).
 	AltScreen    bool
 	altScreenBuf [][]Cell
 	altCursorX   int

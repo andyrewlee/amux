@@ -7,17 +7,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -101,11 +101,21 @@ type App struct {
 	quitting bool
 	err      error
 
-	// Prefix mode (tmux-style leader key)
+	// Prefix mode (leader key)
 	prefixActive bool
 	prefixToken  int
 
-	zone *zone.Manager
+	// Terminal capabilities
+	keyboardEnhancements tea.KeyboardEnhancementsMsg
+
+	// Perf tracking
+	lastInputAt         time.Time
+	pendingInputLatency bool
+}
+
+func (a *App) markInput() {
+	a.lastInputAt = time.Now()
+	a.pendingInputLatency = true
 }
 
 // New creates a new App instance
@@ -164,11 +174,6 @@ func New() (*App, error) {
 		keymap:          DefaultKeyMap(),
 		styles:          common.DefaultStyles(),
 	}
-	app.zone = zone.New()
-	app.center.SetZone(app.zone)
-	app.dashboard.SetZone(app.zone)
-	app.sidebar.SetZone(app.zone)
-	app.sidebarTerminal.SetZone(app.zone)
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	return app, nil
 }
@@ -176,7 +181,6 @@ func New() (*App, error) {
 // Init initializes the application
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{
-		tea.EnableMouseCellMotion, // Enable mouse support for click-to-focus
 		a.loadProjects(),
 		a.dashboard.Init(),
 		a.center.Init(),
@@ -210,7 +214,14 @@ func (a *App) startFileWatcher() tea.Cmd {
 
 // Update handles all messages
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	defer perf.Time("update")()
 	var cmds []tea.Cmd
+	if perf.Enabled() {
+		switch msg.(type) {
+		case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.PasteMsg:
+			a.markInput()
+		}
+	}
 
 	// Handle dialog result first (arrives after dialog is hidden)
 	if result, ok := msg.(common.DialogResult); ok {
@@ -227,24 +238,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle help overlay toggle (highest priority)
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && a.helpOverlay.Visible() {
+	if _, ok := msg.(tea.KeyPressMsg); ok && a.helpOverlay.Visible() {
 		// Any key dismisses help
 		a.helpOverlay.Hide()
-		_ = keyMsg // consume the key
 		return a, nil
 	}
 
 	// Allow clicking to dismiss help or error overlays
-	if mouseMsg, ok := msg.(tea.MouseMsg); ok {
-		if mouseMsg.Action == tea.MouseActionPress && mouseMsg.Button == tea.MouseButtonLeft {
-			if a.helpOverlay.Visible() {
-				a.helpOverlay.Hide()
-				return a, nil
-			}
-			if a.err != nil {
-				a.err = nil
-				return a, nil
-			}
+	if mouseMsg, ok := msg.(tea.MouseClickMsg); ok && mouseMsg.Button == tea.MouseLeft {
+		if a.helpOverlay.Visible() {
+			a.helpOverlay.Hide()
+			return a, nil
+		}
+		if a.err != nil {
+			a.err = nil
+			return a, nil
 		}
 	}
 
@@ -265,7 +273,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Don't process other keys while dialog is open
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+		if _, ok := msg.(tea.PasteMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -279,12 +290,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Don't process other keys while file picker is open
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+		if _, ok := msg.(tea.PasteMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
 	}
 
 	switch msg := msg.(type) {
+	case tea.KeyboardEnhancementsMsg:
+		a.keyboardEnhancements = msg
+		logging.Info("Keyboard enhancements: disambiguation=%t event_types=%t", msg.SupportsKeyDisambiguation(), msg.SupportsEventTypes())
+
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
@@ -292,10 +310,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.layout.Resize(msg.Width, msg.Height)
 		a.updateLayout()
 
-	case tea.MouseMsg:
-		// Handle mouse events
+	case tea.MouseClickMsg:
+		// Handle mouse click events
 		if a.monitorMode {
-			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if msg.Button == tea.MouseLeft {
 				a.focusPane(messages.PaneMonitor)
 				if a.monitorExitHit(msg.X, msg.Y) {
 					a.toggleMonitorMode()
@@ -314,134 +332,91 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		dashWidth := a.layout.DashboardWidth()
 		centerWidth := a.layout.CenterWidth()
-		rightWidth := centerWidth
-		if a.layout.ShowSidebar() {
-			rightWidth += a.layout.SidebarWidth()
-		}
 
 		// Focus pane on left-click press
-
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-
+		if msg.Button == tea.MouseLeft {
 			if msg.X < dashWidth {
-
 				// Clicked on dashboard (left bar)
-
 				a.focusPane(messages.PaneDashboard)
-			} else if a.monitorMode && msg.X < dashWidth+rightWidth {
-				// Clicked on monitor pane
-				a.focusPane(messages.PaneMonitor)
-				_, _ = a.selectMonitorTile(msg.X-dashWidth, msg.Y)
 			} else if msg.X < dashWidth+centerWidth {
-
 				// Clicked on center pane
-
 				a.focusPane(messages.PaneCenter)
-
-				if a.dialog == nil || !a.dialog.Visible() {
-					// Handle welcome screen clicks
-					if z := a.zone.Get("welcome-new-project"); z != nil && z.InBounds(msg) {
-						cmds = append(cmds, func() tea.Msg { return messages.ShowAddProjectDialog{} })
-					} else if z := a.zone.Get("welcome-toggle-help"); z != nil && z.InBounds(msg) {
-						cmds = append(cmds, func() tea.Msg { return messages.ToggleKeymapHints{} })
-					}
-					// Handle worktree info screen clicks
-					if z := a.zone.Get("worktree-new-agent"); z != nil && z.InBounds(msg) {
-						cmds = append(cmds, func() tea.Msg { return messages.ShowSelectAssistantDialog{} })
-					} else if z := a.zone.Get("worktree-commits"); z != nil && z.InBounds(msg) {
-						if a.activeWorktree != nil {
-							wt := a.activeWorktree
-							cmds = append(cmds, func() tea.Msg { return messages.OpenCommitViewer{Worktree: wt} })
-						}
-					}
-				}
-
 			} else if a.layout.ShowSidebar() {
-
 				// Clicked on sidebar - determine top (changes) or bottom (terminal)
-
 				sidebarLayout := a.sidebarLayoutInfo()
 
 				// Calculate split point (Y offset of terminal)
-
 				// Border(1) + TopHeight + Separator(1 if present)
-
 				splitY := 1 + sidebarLayout.topHeight
-
 				if sidebarLayout.hasSeparator {
-
 					splitY++
-
 				}
-
 				if msg.Y >= splitY {
-
 					a.focusPane(messages.PaneSidebarTerminal)
-
 				} else {
-
 					a.focusPane(messages.PaneSidebar)
-
 				}
-
 			}
-
 		}
 
 		// Forward mouse events to the focused pane
-
 		// This ensures drag events are received even if the mouse leaves the pane bounds
-
 		switch a.focusedPane {
-
 		case messages.PaneDashboard:
-
 			newDashboard, cmd := a.dashboard.Update(msg)
-
 			a.dashboard = newDashboard
-
 			if cmd != nil {
-
 				cmds = append(cmds, cmd)
-
 			}
-
 		case messages.PaneCenter:
-
 			newCenter, cmd := a.center.Update(msg)
-
 			a.center = newCenter
-
 			if cmd != nil {
-
 				cmds = append(cmds, cmd)
-
 			}
-
 		case messages.PaneSidebarTerminal:
-
 			newTerm, cmd := a.sidebarTerminal.Update(msg)
-
 			a.sidebarTerminal = newTerm
-
 			if cmd != nil {
-
 				cmds = append(cmds, cmd)
-
 			}
-
 		case messages.PaneSidebar:
-
 			newSidebar, cmd := a.sidebar.Update(msg)
-
 			a.sidebar = newSidebar
-
 			if cmd != nil {
-
 				cmds = append(cmds, cmd)
-
 			}
+		}
 
+	case tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		if a.monitorMode {
+			break
+		}
+		switch a.focusedPane {
+		case messages.PaneDashboard:
+			newDashboard, cmd := a.dashboard.Update(msg)
+			a.dashboard = newDashboard
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneCenter:
+			newCenter, cmd := a.center.Update(msg)
+			a.center = newCenter
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneSidebarTerminal:
+			newTerm, cmd := a.sidebarTerminal.Update(msg)
+			a.sidebarTerminal = newTerm
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneSidebar:
+			newSidebar, cmd := a.sidebar.Update(msg)
+			a.sidebar = newSidebar
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 
 	case prefixTimeoutMsg:
@@ -449,7 +424,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.exitPrefix()
 		}
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// Dismiss error on any key
 		if a.err != nil {
 			a.err = nil
@@ -471,7 +446,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 2. If prefix is active, handle mux commands
 		if a.prefixActive {
 			// Esc cancels prefix mode without forwarding
-			if msg.Type == tea.KeyEsc {
+			code := msg.Key().Code
+			if code == tea.KeyEsc || code == tea.KeyEscape {
 				a.exitPrefix()
 				return a, nil
 			}
@@ -618,14 +594,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			home = "/"
 		}
 		a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
-		a.filePicker.SetZone(a.zone)
+		a.filePicker.SetSize(a.width, a.height)
 		a.filePicker.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.filePicker.Show()
 
 	case messages.ShowCreateWorktreeDialog:
 		a.dialogProject = msg.Project
 		a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
-		a.dialog.SetZone(a.zone)
+		a.dialog.SetSize(a.width, a.height)
 		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.dialog.Show()
 
@@ -637,14 +613,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			"Delete Worktree",
 			fmt.Sprintf("Delete worktree '%s' and its branch?", msg.Worktree.Name),
 		)
-		a.dialog.SetZone(a.zone)
+		a.dialog.SetSize(a.width, a.height)
 		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.dialog.Show()
 
 	case messages.ShowSelectAssistantDialog:
 		if a.activeWorktree != nil {
 			a.dialog = common.NewAgentPicker()
-			a.dialog.SetZone(a.zone)
+			a.dialog.SetSize(a.width, a.height)
 			a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 			a.dialog.Show()
 		}
@@ -882,7 +858,7 @@ func (a *App) showQuitDialog() {
 		"Quit AMUX",
 		"Are you sure you want to quit?",
 	)
-	a.dialog.SetZone(a.zone)
+	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
 }
@@ -895,18 +871,32 @@ const (
 )
 
 // View renders the application
-func (a *App) View() string {
+func (a *App) View() tea.View {
+	defer perf.Time("view")()
+	buildView := func(content string, cursor *tea.Cursor) tea.View {
+		view := tea.NewView(content)
+		view.AltScreen = true
+		view.MouseMode = tea.MouseModeCellMotion
+		view.BackgroundColor = common.ColorBackground
+		view.ForegroundColor = common.ColorForeground
+		view.KeyboardEnhancements.ReportEventTypes = true
+		view.Cursor = cursor
+		return view
+	}
+
 	if a.quitting {
-		return "Goodbye!\n"
+		return a.finalizeView(buildView("Goodbye!\n", nil))
 	}
 
 	if !a.ready {
-		return "Loading..."
+		return a.finalizeView(buildView("Loading...", nil))
 	}
+
+	var content string
 
 	// Monitor mode uses the compositor for a full-screen grid.
 	if a.monitorMode {
-		content := a.renderMonitorGrid()
+		content = a.renderMonitorGrid()
 
 		if a.dialog != nil && a.dialog.Visible() {
 			content = a.overlayDialog(content)
@@ -926,8 +916,8 @@ func (a *App) View() string {
 		if a.err != nil {
 			content = a.overlayError(content)
 		}
-		content = a.zone.Scan(content)
-		return syncBegin + content + syncEnd
+		content = syncBegin + content + syncEnd
+		return a.finalizeView(buildView(content, a.overlayCursor()))
 	}
 
 	// Render panes
@@ -951,7 +941,6 @@ func (a *App) View() string {
 	}
 
 	// Combine using layout manager
-	var content string
 	if a.layout.ShowSidebar() {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView, sidebarView)
 	} else if a.layout.ShowCenter() {
@@ -989,10 +978,18 @@ func (a *App) View() string {
 	if a.err != nil {
 		content = a.overlayError(content)
 	}
-
-	content = a.zone.Scan(content)
 	// Wrap with synchronized output to prevent flickering
-	return syncBegin + content + syncEnd
+	content = syncBegin + content + syncEnd
+
+	return a.finalizeView(buildView(content, a.overlayCursor()))
+}
+
+func (a *App) finalizeView(view tea.View) tea.View {
+	if a.pendingInputLatency {
+		perf.Record("input_latency", time.Since(a.lastInputAt))
+		a.pendingInputLatency = false
+	}
+	return view
 }
 
 func clampPane(view string, width, height int) string {
@@ -1005,6 +1002,74 @@ func clampPane(view string, width, height int) string {
 		MaxWidth(width).
 		MaxHeight(height).
 		Render(view)
+}
+
+func viewDimensions(view string) (width, height int) {
+	lines := strings.Split(view, "\n")
+	height = len(lines)
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > width {
+			width = w
+		}
+	}
+	return width, height
+}
+
+func (a *App) centeredPosition(width, height int) (x, y int) {
+	x = (a.width - width) / 2
+	y = (a.height - height) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	return x, y
+}
+
+func (a *App) overlayCursor() *tea.Cursor {
+	if a.dialog != nil && a.dialog.Visible() {
+		if c := a.dialog.Cursor(); c != nil {
+			dialogView := a.dialog.View()
+			dialogWidth, dialogHeight := viewDimensions(dialogView)
+			x, y := a.centeredPosition(dialogWidth, dialogHeight)
+			c.X += x
+			c.Y += y
+			return c
+		}
+		return nil
+	}
+
+	if a.filePicker != nil && a.filePicker.Visible() {
+		if c := a.filePicker.Cursor(); c != nil {
+			pickerView := a.filePicker.View()
+			pickerWidth, pickerHeight := viewDimensions(pickerView)
+			x, y := a.centeredPosition(pickerWidth, pickerHeight)
+			c.X += x
+			c.Y += y
+			return c
+		}
+	}
+
+	return nil
+}
+
+func versionAtLeast(version string, minimum string) bool {
+	var vMajor, vMinor, vPatch int
+	if _, err := fmt.Sscanf(version, "%d.%d.%d", &vMajor, &vMinor, &vPatch); err != nil {
+		return false
+	}
+	var mMajor, mMinor, mPatch int
+	if _, err := fmt.Sscanf(minimum, "%d.%d.%d", &mMajor, &mMinor, &mPatch); err != nil {
+		return false
+	}
+	if vMajor != mMajor {
+		return vMajor > mMajor
+	}
+	if vMinor != mMinor {
+		return vMinor > mMinor
+	}
+	return vPatch >= mPatch
 }
 
 // overlayPrefixIndicator shows a visual indicator when prefix mode is active
@@ -1069,24 +1134,10 @@ func (a *App) overlayDialog(content string) string {
 	dialogLines := strings.Split(dialogView, "\n")
 
 	// Calculate dialog dimensions
-	dialogHeight := len(dialogLines)
-	dialogWidth := 0
-	for _, line := range dialogLines {
-		if w := lipgloss.Width(line); w > dialogWidth {
-			dialogWidth = w
-		}
-	}
+	dialogWidth, dialogHeight := viewDimensions(dialogView)
 
 	// Center the dialog (true center)
-	x := (a.width - dialogWidth) / 2
-	y := (a.height - dialogHeight) / 2
-
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
+	x, y := a.centeredPosition(dialogWidth, dialogHeight)
 
 	// Split content into lines - preserve exact line count
 	contentLines := strings.Split(content, "\n")
@@ -1133,24 +1184,10 @@ func (a *App) overlayFilePicker(content string) string {
 	pickerLines := strings.Split(pickerView, "\n")
 
 	// Calculate picker dimensions
-	pickerHeight := len(pickerLines)
-	pickerWidth := 0
-	for _, line := range pickerLines {
-		if w := lipgloss.Width(line); w > pickerWidth {
-			pickerWidth = w
-		}
-	}
+	pickerWidth, pickerHeight := viewDimensions(pickerView)
 
 	// Center the picker
-	x := (a.width - pickerWidth) / 2
-	y := (a.height - pickerHeight) / 2
-
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
+	x, y := a.centeredPosition(pickerWidth, pickerHeight)
 
 	// Split content into lines
 	contentLines := strings.Split(content, "\n")
@@ -1256,7 +1293,7 @@ func (a *App) renderMonitorGrid() string {
 	tabs := a.center.MonitorTabs()
 	if len(tabs) == 0 {
 		canvas := a.monitorCanvasFor(a.width, a.height)
-		canvas.Fill(vterm.Style{Fg: compositor.HexColor(string(common.ColorForeground)), Bg: compositor.HexColor(string(common.ColorBackground))})
+		canvas.Fill(vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorForeground)), Bg: compositor.HexColor(common.HexColor(common.ColorBackground))})
 		empty := "No agents running"
 		x := (a.width - ansi.StringWidth(empty)) / 2
 		y := a.height / 2
@@ -1266,7 +1303,7 @@ func (a *App) renderMonitorGrid() string {
 		if y < 0 {
 			y = 0
 		}
-		canvas.DrawText(x, y, empty, vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))})
+		canvas.DrawText(x, y, empty, vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorMuted))})
 		return canvas.Render()
 	}
 
@@ -1308,11 +1345,11 @@ func (a *App) renderMonitorGrid() string {
 
 	canvas := a.monitorCanvasFor(a.width, a.height)
 	canvas.Fill(vterm.Style{
-		Fg: compositor.HexColor(string(common.ColorForeground)),
-		Bg: compositor.HexColor(string(common.ColorBackground)),
+		Fg: compositor.HexColor(common.HexColor(common.ColorForeground)),
+		Bg: compositor.HexColor(common.HexColor(common.ColorBackground)),
 	})
 
-	headerStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))}
+	headerStyle := vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorMuted))}
 	canvas.DrawText(0, 0, monitorHeaderText(), headerStyle)
 
 	projectNames := make(map[string]string, len(a.projects))
@@ -1329,9 +1366,9 @@ func (a *App) renderMonitorGrid() string {
 			continue
 		}
 
-		borderStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorBorder))}
+		borderStyle := vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorBorder))}
 		if focused {
-			borderStyle.Fg = compositor.HexColor(string(common.ColorBorderFocused))
+			borderStyle.Fg = compositor.HexColor(common.HexColor(common.ColorBorderFocused))
 		}
 		canvas.DrawBorder(rect.X, rect.Y, rect.W, rect.H, borderStyle, focused)
 
@@ -1374,9 +1411,9 @@ func (a *App) renderMonitorGrid() string {
 			header += " [" + assistant + "]"
 		}
 
-		hStyle := vterm.Style{Fg: compositor.HexColor(string(common.ColorForeground)), Bold: true}
+		hStyle := vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorForeground)), Bold: true}
 		if focused {
-			hStyle.Bg = compositor.HexColor(string(common.ColorSelection))
+			hStyle.Bg = compositor.HexColor(common.HexColor(common.ColorSelection))
 		}
 		canvas.DrawText(innerX, innerY, header, hStyle)
 
@@ -1388,7 +1425,7 @@ func (a *App) renderMonitorGrid() string {
 
 		snap, ok := snapByID[tab.ID]
 		if !ok || len(snap.Screen) == 0 {
-			canvas.DrawText(innerX, contentY, "No active agent", vterm.Style{Fg: compositor.HexColor(string(common.ColorMuted))})
+			canvas.DrawText(innerX, contentY, "No active agent", vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorMuted))})
 			continue
 		}
 
@@ -1583,7 +1620,7 @@ func (a *App) monitorLayoutKeyFor(tabs []center.MonitorTab, gridW, gridH int, si
 	return b.String()
 }
 
-func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
+func (a *App) handleMonitorNavigation(msg tea.KeyPressMsg) bool {
 	tabs := a.center.MonitorTabs()
 	if len(tabs) == 0 {
 		return false
@@ -1612,7 +1649,7 @@ func (a *App) handleMonitorNavigation(msg tea.KeyMsg) bool {
 	return false
 }
 
-func (a *App) handleMonitorInput(msg tea.KeyMsg) tea.Cmd {
+func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
 	// Monitor chooser semantics:
 	// Enter -> Select and Open (exit monitor)
 	// q/Esc -> Cancel (exit monitor)
@@ -1621,10 +1658,10 @@ func (a *App) handleMonitorInput(msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, a.keymap.Enter):
 		return a.exitMonitorToSelection()
-	case msg.Type == tea.KeyEsc:
+	case msg.Key().Code == tea.KeyEsc || msg.Key().Code == tea.KeyEscape:
 		a.toggleMonitorMode()
 		return nil
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q':
+	case msg.String() == "q":
 		a.toggleMonitorMode()
 		return nil
 	}
@@ -1762,8 +1799,8 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	agentBtn := a.zone.Mark("worktree-new-agent", a.styles.TabPlus.Render("[+] New agent"))
-	commitsBtn := a.zone.Mark("worktree-commits", a.styles.TabPlus.Render("[d] Commits"))
+	agentBtn := a.styles.TabPlus.Render("[+] New agent")
+	commitsBtn := a.styles.TabPlus.Render("[d] Commits")
 	content += "\n" + lipgloss.JoinHorizontal(lipgloss.Bottom, agentBtn, commitsBtn)
 	if a.config.UI.ShowKeymapHints {
 		content += "\n" + a.styles.Help.Render("C-Spc a:new agent  C-Spc d:commits")
@@ -1788,12 +1825,12 @@ func (a *App) welcomeContent() string {
 	var b strings.Builder
 	b.WriteString(logoStyle.Render(logo))
 	b.WriteString("\n\n")
-	newProject := a.zone.Mark("welcome-new-project", a.styles.TabPlus.Render("[+] New project"))
+	newProject := a.styles.TabPlus.Render("[+] New project")
 	helpLabel := "[?] Hide keymap"
 	if !a.config.UI.ShowKeymapHints {
 		helpLabel = "[?] Show keymap"
 	}
-	helpToggle := a.zone.Mark("welcome-toggle-help", a.styles.TabPlus.Render(helpLabel))
+	helpToggle := a.styles.TabPlus.Render(helpLabel)
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, newProject, "  ", helpToggle))
 	b.WriteString("\n")
 	if a.config.UI.ShowKeymapHints {
@@ -2090,10 +2127,10 @@ func (a *App) toggleMonitorMode() {
 	a.updateLayout()
 }
 
-// Prefix mode helpers (tmux-style leader key)
+// Prefix mode helpers (leader key)
 
 // isPrefixKey returns true if the key is the prefix key
-func (a *App) isPrefixKey(msg tea.KeyMsg) bool {
+func (a *App) isPrefixKey(msg tea.KeyPressMsg) bool {
 	return key.Matches(msg, a.keymap.Prefix)
 }
 
@@ -2114,7 +2151,7 @@ func (a *App) exitPrefix() {
 
 // handlePrefixCommand handles a key press while in prefix mode
 // Returns (handled, cmd)
-func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, tea.Cmd) {
+func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 	switch {
 	// Pane focus
 	case key.Matches(msg, a.keymap.MoveLeft):
@@ -2222,8 +2259,12 @@ func (a *App) handlePrefixCommand(msg tea.KeyMsg) (bool, tea.Cmd) {
 		return true, nil
 
 	// Tab numbers 1-9
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1:
-		r := msg.Runes[0]
+	case len(msg.Key().Text) > 0:
+		runes := []rune(msg.Key().Text)
+		if len(runes) != 1 {
+			break
+		}
+		r := runes[0]
 		if r >= '1' && r <= '9' {
 			index := int(r - '1')
 			a.center.SelectTab(index)
@@ -2273,6 +2314,9 @@ func (a *App) updateLayout() {
 
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
+	}
+	if a.filePicker != nil {
+		a.filePicker.SetSize(a.width, a.height)
 	}
 }
 

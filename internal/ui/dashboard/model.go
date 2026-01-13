@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	zone "github.com/lrstanley/bubblezone"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -68,7 +67,6 @@ type Model struct {
 
 	// Styles
 	styles common.Styles
-	zone   *zone.Manager
 }
 
 // New creates a new dashboard model
@@ -84,11 +82,6 @@ func New() *Model {
 		focused:           true,
 		styles:            common.DefaultStyles(),
 	}
-}
-
-// SetZone sets the shared zone manager for click targets.
-func (m *Model) SetZone(z *zone.Manager) {
-	m.zone = z
 }
 
 // SetCanFocusRight controls whether focus-right hints should be shown.
@@ -111,71 +104,24 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.MouseMsg:
+	case tea.MouseWheelMsg:
 		if !m.focused {
 			return m, nil
 		}
-
-		if msg.Action == tea.MouseActionPress {
-			if msg.Button == tea.MouseButtonWheelUp {
-				m.moveCursor(-1)
-				return m, nil
-			}
-			if msg.Button == tea.MouseButtonWheelDown {
-				m.moveCursor(1)
-				return m, nil
-			}
+		if msg.Button == tea.MouseWheelUp {
+			m.moveCursor(-1)
+			return m, nil
+		}
+		if msg.Button == tea.MouseWheelDown {
+			m.moveCursor(1)
+			return m, nil
 		}
 
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			if m.zone != nil {
-				if z := m.zone.Get("dash-help-up"); z != nil && z.InBounds(msg) {
-					m.moveCursor(-1)
-					return m, nil
-				}
-				if z := m.zone.Get("dash-help-down"); z != nil && z.InBounds(msg) {
-					m.moveCursor(1)
-					return m, nil
-				}
-				if z := m.zone.Get("dash-help-filter"); z != nil && z.InBounds(msg) {
-					m.toggleFilter()
-					return m, nil
-				}
-				if z := m.zone.Get("dash-help-refresh"); z != nil && z.InBounds(msg) {
-					return m, m.refresh()
-				}
-				if z := m.zone.Get("dash-help-delete"); z != nil && z.InBounds(msg) {
-					return m, m.handleDelete()
-				}
-				if z := m.zone.Get("dash-help-top"); z != nil && z.InBounds(msg) {
-					if idx := m.findSelectableRow(0, 1); idx != -1 {
-						m.cursor = idx
-					}
-					return m, nil
-				}
-				if z := m.zone.Get("dash-help-bottom"); z != nil && z.InBounds(msg) {
-					if idx := m.findSelectableRow(len(m.rows)-1, -1); idx != -1 {
-						m.cursor = idx
-					}
-					return m, nil
-				}
-				if z := m.zone.Get("dash-help-new-agent"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-				}
-				if z := m.zone.Get("dash-help-home"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ShowWelcome{} }
-				}
-				if z := m.zone.Get("dash-help-monitor"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ToggleMonitor{} }
-				}
-				if z := m.zone.Get("dash-help-help"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ToggleHelp{} }
-				}
-				if z := m.zone.Get("dash-help-quit"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ShowQuitDialog{} }
-				}
-			}
-
+	case tea.MouseClickMsg:
+		if !m.focused {
+			return m, nil
+		}
+		if msg.Button == tea.MouseLeft {
 			idx, ok := m.rowIndexAt(msg.X, msg.Y)
 			if !ok {
 				return m, nil
@@ -190,7 +136,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, m.handleEnter()
 		}
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if !m.focused {
 			return m, nil
 		}
@@ -360,38 +306,34 @@ func (m *Model) View() string {
 	return style.Width(m.width - 2).Render(b.String())
 }
 
-func (m *Model) helpItem(id, key, desc string) string {
-	item := common.RenderHelpItem(m.styles, key, desc)
-	if id == "" || m.zone == nil {
-		return item
-	}
-	return m.zone.Mark(id, item)
+func (m *Model) helpItem(key, desc string) string {
+	return common.RenderHelpItem(m.styles, key, desc)
 }
 
 func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
-		m.helpItem("dash-help-up", "k/↑", "up"),
-		m.helpItem("dash-help-down", "j/↓", "down"),
-		m.helpItem("", "enter", "open"),
+		m.helpItem("k/↑", "up"),
+		m.helpItem("j/↓", "down"),
+		m.helpItem("enter", "open"),
 	}
 	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
-		items = append(items, m.helpItem("dash-help-delete", "D", "delete"))
+		items = append(items, m.helpItem("D", "delete"))
 	}
 	items = append(items,
-		m.helpItem("dash-help-filter", "f", "filter"),
-		m.helpItem("dash-help-refresh", "r", "refresh"),
-		m.helpItem("dash-help-top", "g", "top"),
-		m.helpItem("dash-help-bottom", "G", "bottom"),
+		m.helpItem("f", "filter"),
+		m.helpItem("r", "refresh"),
+		m.helpItem("g", "top"),
+		m.helpItem("G", "bottom"),
 	)
 	focusKey := "C-Spc h/j/k"
 	if m.canFocusRight {
 		focusKey = "C-Spc h/j/k/l"
 	}
-	items = append(items, m.helpItem("", focusKey, "focus (or ←↑↓→)"))
+	items = append(items, m.helpItem(focusKey, "focus (or ←↑↓→)"))
 	items = append(items,
-		m.helpItem("dash-help-monitor", "C-Spc m", "monitor"),
-		m.helpItem("dash-help-help", "C-Spc ?", "help"),
-		m.helpItem("dash-help-quit", "C-Spc q", "quit"),
+		m.helpItem("C-Spc m", "monitor"),
+		m.helpItem("C-Spc ?", "help"),
+		m.helpItem("C-Spc q", "quit"),
 	)
 	return common.WrapHelpItems(items, contentWidth)
 }

@@ -1,7 +1,7 @@
 package layout
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // LayoutMode determines how many panes are visible

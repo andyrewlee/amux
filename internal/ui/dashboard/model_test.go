@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -492,8 +492,8 @@ func TestDashboardDeleteKeyBinding(t *testing.T) {
 	}
 
 	t.Run("lowercase d ignored", func(t *testing.T) {
-		// tea.KeyMsg for 'd'
-		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+		// tea.KeyPressMsg for 'd'
+		msg := tea.KeyPressMsg{Code: 'd', Text: "d"}
 		_, cmd := m.Update(msg)
 		if cmd != nil {
 			t.Fatalf("expected no command for lowercase 'd'")
@@ -501,8 +501,8 @@ func TestDashboardDeleteKeyBinding(t *testing.T) {
 	})
 
 	t.Run("uppercase D triggers delete", func(t *testing.T) {
-		// tea.KeyMsg for 'D'
-		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}}
+		// tea.KeyPressMsg for 'D'
+		msg := tea.KeyPressMsg{Code: 'D', Text: "D"}
 		_, cmd := m.Update(msg)
 		if cmd == nil {
 			t.Fatalf("expected command for uppercase 'D'")
@@ -522,8 +522,8 @@ func TestDashboardNewKeyBinding(t *testing.T) {
 	m.Focus()
 
 	t.Run("n key ignored", func(t *testing.T) {
-		// tea.KeyMsg for 'n'
-		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+		// tea.KeyPressMsg for 'n'
+		msg := tea.KeyPressMsg{Code: 'n', Text: "n"}
 		_, cmd := m.Update(msg)
 		if cmd != nil {
 			t.Fatalf("expected no command for 'n'")
