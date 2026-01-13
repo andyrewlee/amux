@@ -1,6 +1,11 @@
 package common
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"fmt"
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+)
 
 // Tokyo Night-inspired color palette
 // Muted, accessible, easy on eyes
@@ -40,7 +45,7 @@ var (
 )
 
 // AgentColor returns the color for a given agent type
-func AgentColor(agent string) lipgloss.Color {
+func AgentColor(agent string) color.Color {
 	switch agent {
 	case "claude":
 		return ColorClaude
@@ -57,4 +62,13 @@ func AgentColor(agent string) lipgloss.Color {
 	default:
 		return ColorPrimary
 	}
+}
+
+// HexColor converts a color.Color into a #RRGGBB string.
+func HexColor(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
 }

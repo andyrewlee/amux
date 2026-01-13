@@ -1,10 +1,10 @@
 package app
 
-import "github.com/charmbracelet/bubbles/key"
+import "charm.land/bubbles/v2/key"
 
 // KeyMap defines all keybindings for the application
 type KeyMap struct {
-	// Prefix key (tmux-style leader)
+	// Prefix key (leader)
 	Prefix key.Binding
 
 	// Global (active only after prefix)
@@ -43,7 +43,7 @@ type KeyMap struct {
 // DefaultKeyMap returns the default keybindings
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
-		// Prefix key (tmux-style leader)
+		// Prefix key (leader)
 		// Ctrl-Space is reported as ctrl+@ or ctrl+space depending on terminal
 		Prefix: key.NewBinding(
 			key.WithKeys("ctrl+@", "ctrl+space"),

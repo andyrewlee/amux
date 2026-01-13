@@ -1,41 +1,94 @@
 package common
 
-import (
-	tea "github.com/charmbracelet/bubbletea"
-)
+import tea "charm.land/bubbletea/v2"
 
-// KeyToBytes converts a key message to bytes for the terminal.
-func KeyToBytes(msg tea.KeyMsg) []byte {
-	switch msg.Type {
+// KeyToBytes converts a key press message to bytes for the terminal.
+func KeyToBytes(msg tea.KeyPressMsg) []byte {
+	key := msg.Key()
+
+	if key.Mod&tea.ModCtrl != 0 {
+		switch key.Code {
+		case 'a':
+			return []byte{0x01}
+		case 'b':
+			return []byte{0x02}
+		case 'c':
+			return []byte{0x03}
+		case 'd':
+			return []byte{0x04}
+		case 'e':
+			return []byte{0x05}
+		case 'f':
+			return []byte{0x06}
+		case 'g':
+			return []byte{0x07}
+		case 'h':
+			return []byte{0x08}
+		// ctrl+i is tab, ctrl+m is enter; handled below
+		case 'j':
+			return []byte{0x0a}
+		case 'k':
+			return []byte{0x0b}
+		case 'l':
+			return []byte{0x0c}
+		case 'n':
+			return []byte{0x0e}
+		case 'o':
+			return []byte{0x0f}
+		case 'p':
+			return []byte{0x10}
+		case 'r':
+			return []byte{0x12}
+		case 's':
+			return []byte{0x13}
+		case 't':
+			return []byte{0x14}
+		case 'u':
+			return []byte{0x15}
+		case 'v':
+			return []byte{0x16}
+		case 'w':
+			return []byte{0x17}
+		case 'x':
+			return []byte{0x18}
+		case 'y':
+			return []byte{0x19}
+		case 'z':
+			return []byte{0x1a}
+		}
+	}
+
+	switch key.Code {
 	case tea.KeyEnter:
 		return []byte{'\r'}
 	case tea.KeyBackspace:
 		return []byte{0x7f}
 	case tea.KeyTab:
+		if key.Mod&tea.ModShift != 0 {
+			return []byte{0x1b, '[', 'Z'}
+		}
 		return []byte{'\t'}
-	case tea.KeyShiftTab:
-		return []byte{0x1b, '[', 'Z'}
 	case tea.KeySpace:
 		return []byte{' '}
-	case tea.KeyEsc:
+	case tea.KeyEscape:
 		return []byte{0x1b}
 	case tea.KeyUp:
-		if msg.Alt {
+		if key.Mod&tea.ModAlt != 0 {
 			return []byte{0x1b, '[', '1', ';', '3', 'A'}
 		}
 		return []byte{0x1b, '[', 'A'}
 	case tea.KeyDown:
-		if msg.Alt {
+		if key.Mod&tea.ModAlt != 0 {
 			return []byte{0x1b, '[', '1', ';', '3', 'B'}
 		}
 		return []byte{0x1b, '[', 'B'}
 	case tea.KeyRight:
-		if msg.Alt {
+		if key.Mod&tea.ModAlt != 0 {
 			return []byte{0x1b, '[', '1', ';', '3', 'C'}
 		}
 		return []byte{0x1b, '[', 'C'}
 	case tea.KeyLeft:
-		if msg.Alt {
+		if key.Mod&tea.ModAlt != 0 {
 			return []byte{0x1b, '[', '1', ';', '3', 'D'}
 		}
 		return []byte{0x1b, '[', 'D'}
@@ -49,60 +102,19 @@ func KeyToBytes(msg tea.KeyMsg) []byte {
 		return []byte{0x1b, '[', '5', '~'}
 	case tea.KeyPgDown:
 		return []byte{0x1b, '[', '6', '~'}
-	case tea.KeyCtrlA:
-		return []byte{0x01}
-	case tea.KeyCtrlB:
-		return []byte{0x02}
-	case tea.KeyCtrlC:
-		return []byte{0x03}
-	case tea.KeyCtrlD:
-		return []byte{0x04}
-	case tea.KeyCtrlE:
-		return []byte{0x05}
-	case tea.KeyCtrlF:
-		return []byte{0x06}
-	case tea.KeyCtrlG:
-		return []byte{0x07}
-	case tea.KeyCtrlH:
-		return []byte{0x08}
-	// Note: KeyCtrlI is same as Tab, KeyCtrlM is same as Enter - handled above.
-	case tea.KeyCtrlJ:
-		return []byte{0x0a}
-	case tea.KeyCtrlK:
-		return []byte{0x0b}
-	case tea.KeyCtrlL:
-		return []byte{0x0c}
-	case tea.KeyCtrlN:
-		return []byte{0x0e}
-	case tea.KeyCtrlO:
-		return []byte{0x0f}
-	case tea.KeyCtrlP:
-		return []byte{0x10}
-	case tea.KeyCtrlR:
-		return []byte{0x12}
-	case tea.KeyCtrlS:
-		return []byte{0x13}
-	case tea.KeyCtrlT:
-		return []byte{0x14}
-	case tea.KeyCtrlU:
-		return []byte{0x15}
-	case tea.KeyCtrlV:
-		return []byte{0x16}
-	case tea.KeyCtrlW:
-		return []byte{0x17}
-	case tea.KeyCtrlX:
-		return []byte{0x18}
-	case tea.KeyCtrlY:
-		return []byte{0x19}
-	case tea.KeyCtrlZ:
-		return []byte{0x1a}
-	case tea.KeyRunes:
-		return []byte(string(msg.Runes))
-	default:
-		s := msg.String()
-		if len(s) == 1 {
-			return []byte(s)
-		}
-		return nil
 	}
+
+	if key.Mod&tea.ModAlt != 0 && key.Text != "" {
+		return append([]byte{0x1b}, []byte(key.Text)...)
+	}
+
+	if key.Text != "" {
+		return []byte(key.Text)
+	}
+
+	if s := msg.String(); len(s) == 1 {
+		return []byte(s)
+	}
+
+	return nil
 }

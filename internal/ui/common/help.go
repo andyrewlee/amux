@@ -3,7 +3,7 @@ package common
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // HelpSection represents a group of keybindings
@@ -39,7 +39,7 @@ func NewHelpOverlay() *HelpOverlay {
 func defaultHelpSections() []HelpSection {
 	return []HelpSection{
 		{
-			Title: "Prefix Key (tmux-style)",
+			Title: "Prefix Key (leader key)",
 			Bindings: []HelpBinding{
 				{"C-Space", "Enter prefix mode"},
 				{"C-Space C-Space", "Send literal Ctrl+Space"},

@@ -7,11 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
@@ -79,7 +78,6 @@ type TerminalModel struct {
 
 	// Styles
 	styles common.Styles
-	zone   *zone.Manager
 
 	// Rendering
 	terminalCanvas *compositor.Canvas
@@ -91,11 +89,6 @@ func NewTerminalModel() *TerminalModel {
 		terminals: make(map[string]*TerminalState),
 		styles:    common.DefaultStyles(),
 	}
-}
-
-// SetZone sets the shared zone manager for click targets.
-func (m *TerminalModel) SetZone(z *zone.Manager) {
-	m.zone = z
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.
@@ -126,7 +119,7 @@ func (m *TerminalModel) flushTiming() (time.Duration, time.Duration) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
-	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs like vim).
+	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs).
 	// SyncActive (DEC 2026) already handles partial updates via screen snapshots,
 	// so we don't need slower flush timing - it just makes streaming text feel laggy.
 	if ts.VTerm != nil && ts.VTerm.AltScreen {
@@ -145,13 +138,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			if cmd := m.handleHelpClick(msg); cmd != nil {
-				return m, cmd
-			}
-		}
-
+	case tea.MouseClickMsg:
 		if !m.focused {
 			return m, nil
 		}
@@ -161,92 +148,132 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			return m, nil
 		}
 
-		termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
+		if msg.Button == tea.MouseLeft {
+			termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
 
-		switch msg.Action {
-		case tea.MouseActionPress:
-			if msg.Button == tea.MouseButtonLeft {
-				ts.mu.Lock()
-				if ts.VTerm != nil {
-					ts.VTerm.ClearSelection()
-				}
-				if inBounds {
-					ts.Selection = SelectionState{
-						Active: true,
-						StartX: termX,
-						StartY: termY,
-						EndX:   termX,
-						EndY:   termY,
-					}
-					if ts.VTerm != nil {
-						ts.VTerm.SetSelection(termX, termY, termX, termY, true)
-					}
-				} else {
-					ts.Selection = SelectionState{}
-				}
-				ts.mu.Unlock()
-			}
-
-		case tea.MouseActionMotion:
 			ts.mu.Lock()
-			if ts.Selection.Active {
-				// Dimensions
-				termWidth := m.width
-				termHeight := m.height
+			if ts.VTerm != nil {
+				ts.VTerm.ClearSelection()
+			}
+			if inBounds {
+				ts.Selection = SelectionState{
+					Active: true,
+					StartX: termX,
+					StartY: termY,
+					EndX:   termX,
+					EndY:   termY,
+				}
 				if ts.VTerm != nil {
-					termWidth = ts.VTerm.Width
-					termHeight = ts.VTerm.Height
+					ts.VTerm.SetSelection(termX, termY, termX, termY, true)
 				}
-
-				// Clamp
-				if termX < 0 {
-					termX = 0
-				}
-				if termY < 0 {
-					termY = 0
-				}
-				if termX >= termWidth {
-					termX = termWidth - 1
-				}
-				if termY >= termHeight {
-					termY = termHeight - 1
-				}
-
-				ts.Selection.EndX = termX
-				ts.Selection.EndY = termY
-				if ts.VTerm != nil {
-					ts.VTerm.SetSelection(
-						ts.Selection.StartX, ts.Selection.StartY,
-						termX, termY, true,
-					)
-				}
+			} else {
+				ts.Selection = SelectionState{}
 			}
 			ts.mu.Unlock()
-
-		case tea.MouseActionRelease:
-			if msg.Button == tea.MouseButtonLeft {
-				ts.mu.Lock()
-				if ts.Selection.Active {
-					if ts.VTerm != nil {
-						text := ts.VTerm.GetSelectedText(
-							ts.Selection.StartX, ts.Selection.StartY,
-							ts.Selection.EndX, ts.Selection.EndY,
-						)
-						if text != "" {
-							if err := clipboard.WriteAll(text); err != nil {
-								logging.Error("Failed to copy sidebar selection: %v", err)
-							} else {
-								logging.Info("Copied %d chars from sidebar", len(text))
-							}
-						}
-					}
-					ts.Selection.Active = false
-				}
-				ts.mu.Unlock()
-			}
 		}
 
-	case tea.KeyMsg:
+	case tea.MouseMotionMsg:
+		if !m.focused {
+			return m, nil
+		}
+
+		if msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+
+		ts := m.getTerminal()
+		if ts == nil {
+			return m, nil
+		}
+
+		termX, termY, _ := m.screenToTerminal(msg.X, msg.Y)
+
+		ts.mu.Lock()
+		if ts.Selection.Active {
+			// Dimensions
+			termWidth := m.width
+			termHeight := m.height
+			if ts.VTerm != nil {
+				termWidth = ts.VTerm.Width
+				termHeight = ts.VTerm.Height
+			}
+
+			// Clamp
+			if termX < 0 {
+				termX = 0
+			}
+			if termY < 0 {
+				termY = 0
+			}
+			if termX >= termWidth {
+				termX = termWidth - 1
+			}
+			if termY >= termHeight {
+				termY = termHeight - 1
+			}
+
+			ts.Selection.EndX = termX
+			ts.Selection.EndY = termY
+			if ts.VTerm != nil {
+				ts.VTerm.SetSelection(
+					ts.Selection.StartX, ts.Selection.StartY,
+					termX, termY, true,
+				)
+			}
+		}
+		ts.mu.Unlock()
+
+	case tea.MouseReleaseMsg:
+		if !m.focused {
+			return m, nil
+		}
+
+		if msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+
+		ts := m.getTerminal()
+		if ts == nil {
+			return m, nil
+		}
+
+		ts.mu.Lock()
+		if ts.Selection.Active {
+			if ts.VTerm != nil {
+				text := ts.VTerm.GetSelectedText(
+					ts.Selection.StartX, ts.Selection.StartY,
+					ts.Selection.EndX, ts.Selection.EndY,
+				)
+				if text != "" {
+					if err := clipboard.WriteAll(text); err != nil {
+						logging.Error("Failed to copy sidebar selection: %v", err)
+					} else {
+						logging.Info("Copied %d chars from sidebar", len(text))
+					}
+				}
+			}
+			ts.Selection.Active = false
+		}
+		ts.mu.Unlock()
+
+	case tea.PasteMsg:
+		if !m.focused {
+			return m, nil
+		}
+
+		ts := m.getTerminal()
+		if ts == nil || ts.Terminal == nil {
+			return m, nil
+		}
+
+		// Handle bracketed paste - send entire content at once with escape sequences
+		text := msg.Content
+		bracketedText := "\x1b[200~" + text + "\x1b[201~"
+		_ = ts.Terminal.SendString(bracketedText)
+		logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
+		return m, nil
+
+	case tea.KeyPressMsg:
 		if !m.focused {
 			return m, nil
 		}
@@ -261,17 +288,8 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			return m, m.handleCopyModeKey(ts, msg)
 		}
 
-		// Handle bracketed paste - send entire content at once with escape sequences
-		if msg.Paste && msg.Type == tea.KeyRunes {
-			text := string(msg.Runes)
-			bracketedText := "\x1b[200~" + text + "\x1b[201~"
-			_ = ts.Terminal.SendString(bracketedText)
-			logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
-			return m, nil
-		}
-
 		// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
-		switch msg.Type {
+		switch msg.Key().Code {
 		case tea.KeyPgUp:
 			ts.mu.Lock()
 			if ts.VTerm != nil {
@@ -457,101 +475,8 @@ func (m *TerminalModel) View() string {
 	return b.String()
 }
 
-func (m *TerminalModel) handleHelpClick(msg tea.MouseMsg) tea.Cmd {
-	if m.zone == nil {
-		return nil
-	}
-	if z := m.zone.Get("sidebar-term-copy"); z != nil && z.InBounds(msg) {
-		m.toggleCopyMode()
-		return nil
-	}
-	if z := m.zone.Get("sidebar-term-scroll-up"); z != nil && z.InBounds(msg) {
-		m.scrollByHalfPage(1)
-		return nil
-	}
-	if z := m.zone.Get("sidebar-term-scroll-down"); z != nil && z.InBounds(msg) {
-		m.scrollByHalfPage(-1)
-		return nil
-	}
-	if z := m.zone.Get("sidebar-term-scroll-top"); z != nil && z.InBounds(msg) {
-		m.scrollToTop()
-		return nil
-	}
-	if z := m.zone.Get("sidebar-term-scroll-bottom"); z != nil && z.InBounds(msg) {
-		m.scrollToBottom()
-		return nil
-	}
-	if z := m.zone.Get("sidebar-term-new-agent"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-	}
-	if z := m.zone.Get("sidebar-term-home"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ShowWelcome{} }
-	}
-	if z := m.zone.Get("sidebar-term-monitor"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ToggleMonitor{} }
-	}
-	if z := m.zone.Get("sidebar-term-help"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ToggleHelp{} }
-	}
-	if z := m.zone.Get("sidebar-term-quit"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ShowQuitDialog{} }
-	}
-	return nil
-}
-
-func (m *TerminalModel) scrollByHalfPage(delta int) {
-	ts := m.getTerminal()
-	if ts == nil || ts.VTerm == nil {
-		return
-	}
-	ts.mu.Lock()
-	ts.VTerm.ScrollView(delta * (ts.VTerm.Height / 2))
-	ts.mu.Unlock()
-}
-
-func (m *TerminalModel) toggleCopyMode() {
-	ts := m.getTerminal()
-	if ts == nil {
-		return
-	}
-	if ts.CopyMode {
-		ts.CopyMode = false
-		ts.mu.Lock()
-		if ts.VTerm != nil {
-			ts.VTerm.ScrollViewToBottom()
-		}
-		ts.mu.Unlock()
-		return
-	}
-	ts.CopyMode = true
-}
-
-func (m *TerminalModel) scrollToTop() {
-	ts := m.getTerminal()
-	if ts == nil || ts.VTerm == nil {
-		return
-	}
-	ts.mu.Lock()
-	ts.VTerm.ScrollViewToTop()
-	ts.mu.Unlock()
-}
-
-func (m *TerminalModel) scrollToBottom() {
-	ts := m.getTerminal()
-	if ts == nil || ts.VTerm == nil {
-		return
-	}
-	ts.mu.Lock()
-	ts.VTerm.ScrollViewToBottom()
-	ts.mu.Unlock()
-}
-
-func (m *TerminalModel) helpItem(id, key, desc string) string {
-	item := common.RenderHelpItem(m.styles, key, desc)
-	if id == "" || m.zone == nil {
-		return item
-	}
-	return m.zone.Mark(id, item)
+func (m *TerminalModel) helpItem(key, desc string) string {
+	return common.RenderHelpItem(m.styles, key, desc)
 }
 
 func (m *TerminalModel) helpLines(contentWidth int) []string {
@@ -561,14 +486,14 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 	hasTerm := ts != nil && ts.VTerm != nil
 	if hasTerm {
 		items = append(items,
-			m.helpItem("sidebar-term-copy", "C-Spc [", "copy"),
-			m.helpItem("sidebar-term-scroll-up", "PgUp", "half up"),
-			m.helpItem("sidebar-term-scroll-down", "PgDn", "half down"),
+			m.helpItem("C-Spc [", "copy"),
+			m.helpItem("PgUp", "half up"),
+			m.helpItem("PgDn", "half down"),
 		)
 		if ts.CopyMode {
 			items = append(items,
-				m.helpItem("sidebar-term-scroll-top", "g", "top"),
-				m.helpItem("sidebar-term-scroll-bottom", "G", "bottom"),
+				m.helpItem("g", "top"),
+				m.helpItem("G", "bottom"),
 			)
 		}
 	}
@@ -589,8 +514,8 @@ func (m *TerminalModel) renderTerminalCanvas(term *vterm.VTerm, width, height in
 		width,
 		height,
 		showCursor,
-		compositor.HexColor(string(common.ColorForeground)),
-		compositor.HexColor(string(common.ColorBackground)),
+		compositor.HexColor(common.HexColor(common.ColorForeground)),
+		compositor.HexColor(common.HexColor(common.ColorBackground)),
 	)
 }
 
@@ -826,12 +751,12 @@ func (m *TerminalModel) CopyModeActive() bool {
 }
 
 // handleCopyModeKey handles keys while in copy mode (scroll navigation)
-func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea.Cmd {
+func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	// Exit copy mode
-	case msg.Type == tea.KeyEsc:
+	case msg.Key().Code == tea.KeyEsc || msg.Key().Code == tea.KeyEscape:
 		fallthrough
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q':
+	case msg.String() == "q":
 		ts.CopyMode = false
 		ts.mu.Lock()
 		if ts.VTerm != nil {
@@ -841,9 +766,9 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea
 		return nil
 
 	// Scroll up one line
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'k':
+	case msg.String() == "k":
 		fallthrough
-	case msg.Type == tea.KeyUp:
+	case msg.Key().Code == tea.KeyUp:
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			ts.VTerm.ScrollView(1)
@@ -852,9 +777,9 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea
 		return nil
 
 	// Scroll down one line
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'j':
+	case msg.String() == "j":
 		fallthrough
-	case msg.Type == tea.KeyDown:
+	case msg.Key().Code == tea.KeyDown:
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			ts.VTerm.ScrollView(-1)
@@ -865,7 +790,7 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea
 	// Scroll up half page
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
 		fallthrough
-	case msg.Type == tea.KeyPgUp:
+	case msg.Key().Code == tea.KeyPgUp:
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			ts.VTerm.ScrollView(ts.VTerm.Height / 2)
@@ -876,7 +801,7 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea
 	// Scroll down half page
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
 		fallthrough
-	case msg.Type == tea.KeyPgDown:
+	case msg.Key().Code == tea.KeyPgDown:
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			ts.VTerm.ScrollView(-ts.VTerm.Height / 2)
@@ -885,7 +810,7 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea
 		return nil
 
 	// Scroll to top
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'g':
+	case msg.String() == "g":
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			ts.VTerm.ScrollViewToTop()
@@ -894,7 +819,7 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyMsg) tea
 		return nil
 
 	// Scroll to bottom
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'G':
+	case msg.String() == "G":
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			ts.VTerm.ScrollViewToBottom()

@@ -10,17 +10,17 @@ import (
 	"sync/atomic"
 	"time"
 
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/perf"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/commits"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -147,81 +147,83 @@ type MonitorTabSnapshot struct {
 }
 
 // HandleMonitorInput forwards input to a specific tab while in monitor view.
-func (m *Model) HandleMonitorInput(tabID TabID, msg tea.KeyMsg) tea.Cmd {
+func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 	tab := m.getTabByIDGlobal(tabID)
 	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
 		return nil
 	}
 
-	// Handle bracketed paste - send entire content at once with escape sequences
-	if msg.Paste && msg.Type == tea.KeyRunes {
-		text := string(msg.Runes)
-		bracketedText := "\x1b[200~" + text + "\x1b[201~"
+	switch msg := msg.(type) {
+	case tea.PasteMsg:
+		// Handle bracketed paste - send entire content at once with escape sequences.
+		bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
 		_ = tab.Agent.Terminal.SendString(bracketedText)
 		return nil
-	}
 
-	switch {
-	case msg.Type == tea.KeyPgUp:
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+	case tea.KeyPressMsg:
+		switch {
+		case msg.Key().Code == tea.KeyPgUp:
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+			}
+			tab.mu.Unlock()
+			return nil
+
+		case msg.Key().Code == tea.KeyPgDown:
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+			}
+			tab.mu.Unlock()
+			return nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+			}
+			tab.mu.Unlock()
+			return nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+			}
+			tab.mu.Unlock()
+			return nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				tab.Terminal.ScrollViewToTop()
+			}
+			tab.mu.Unlock()
+			return nil
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				tab.Terminal.ScrollViewToBottom()
+			}
+			tab.mu.Unlock()
+			return nil
 		}
-		tab.mu.Unlock()
-		return nil
 
-	case msg.Type == tea.KeyPgDown:
+		// If scrolled, any typing goes back to live and sends key.
 		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(tab.Terminal.Height / 2)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToTop()
-		}
-		tab.mu.Unlock()
-		return nil
-
-	case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
+		if tab.Terminal != nil && tab.Terminal.IsScrolled() {
 			tab.Terminal.ScrollViewToBottom()
 		}
 		tab.mu.Unlock()
-		return nil
+
+		input := common.KeyToBytes(msg)
+		if len(input) > 0 {
+			_ = tab.Agent.Terminal.SendString(string(input))
+		}
 	}
 
-	// If scrolled, any typing goes back to live and sends key.
-	tab.mu.Lock()
-	if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-		tab.Terminal.ScrollViewToBottom()
-	}
-	tab.mu.Unlock()
-
-	input := common.KeyToBytes(msg)
-	if len(input) > 0 {
-		_ = tab.Agent.Terminal.SendString(string(input))
-	}
 	return nil
 }
 
@@ -259,9 +261,40 @@ type Model struct {
 	showKeymapHints bool
 
 	// Config
-	config *config.Config
-	styles common.Styles
-	zone   *zone.Manager
+	config  *config.Config
+	styles  common.Styles
+	tabHits []tabHit
+}
+
+type tabHitKind int
+
+const (
+	tabHitTab tabHitKind = iota
+	tabHitClose
+	tabHitPlus
+)
+
+type tabHit struct {
+	kind   tabHitKind
+	index  int
+	region common.HitRegion
+}
+
+func (m *Model) paneWidth() int {
+	paneWidth := m.width - 2
+	if paneWidth < 1 {
+		return 1
+	}
+	return paneWidth
+}
+
+func (m *Model) contentWidth() int {
+	frameX, _ := m.styles.Pane.GetFrameSize()
+	width := m.paneWidth() - frameX
+	if width < 1 {
+		return 1
+	}
+	return width
 }
 
 // New creates a new center pane model
@@ -273,11 +306,6 @@ func New(cfg *config.Config) *Model {
 		agentManager:        appPty.NewAgentManager(cfg),
 		styles:              common.DefaultStyles(),
 	}
-}
-
-// SetZone sets the shared zone manager for click targets.
-func (m *Model) SetZone(z *zone.Manager) {
-	m.zone = z
 }
 
 // SetCanFocusRight controls whether focus-right hints should be shown.
@@ -340,7 +368,7 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	maxInterval := ptyFlushMaxInterval
 
 	tab.mu.Lock()
-	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs like vim).
+	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs).
 	// SyncActive (DEC 2026) already handles partial updates via screen snapshots,
 	// so we don't need slower flush timing - it just makes streaming text feel laggy.
 	if tab.Terminal != nil && tab.Terminal.AltScreen {
@@ -402,15 +430,16 @@ type PTYStopped struct {
 
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
+	defer perf.Time("center_update")()
 	var cmds []tea.Cmd
 
 	// Handle dialog update if visible, but only for interactive messages.
 	// PTY messages must still be processed to keep the terminal running.
 	if m.saveDialog != nil && m.saveDialog.Visible() {
 		switch msg.(type) {
-		case tea.KeyMsg, tea.MouseMsg:
+		case tea.KeyPressMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.PasteMsg:
 			// Debounce input to prevent accidental double-confirms (e.g. holding Enter)
-			if _, ok := msg.(tea.KeyMsg); ok && time.Since(m.dialogOpenTime) < 500*time.Millisecond {
+			if _, ok := msg.(tea.KeyPressMsg); ok && time.Since(m.dialogOpenTime) < 500*time.Millisecond {
 				return m, nil
 			}
 
@@ -451,13 +480,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.saveDialog = nil
 		}
 		return m, nil
-	case tea.MouseMsg:
+	case tea.MouseClickMsg:
 		// Handle tab bar clicks (e.g., the plus button) even without an active agent.
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		if msg.Button == tea.MouseLeft {
 			if cmd := m.handleTabBarClick(msg); cmd != nil {
-				return m, cmd
-			}
-			if cmd := m.handleHelpClick(msg); cmd != nil {
 				return m, cmd
 			}
 		}
@@ -486,105 +512,205 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		if msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+
 		// Convert screen coordinates to terminal coordinates
 		termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
 
-		switch msg.Action {
-		case tea.MouseActionPress:
-			if msg.Button == tea.MouseButtonLeft {
-				tab.mu.Lock()
-				// Clear any existing selection first
-				if tab.Terminal != nil {
-					tab.Terminal.ClearSelection()
-				}
-
-				if inBounds {
-					// Start new selection
-					tab.Selection = SelectionState{
-						Active: true,
-						StartX: termX,
-						StartY: termY,
-						EndX:   termX,
-						EndY:   termY,
-					}
-					if tab.Terminal != nil {
-						tab.Terminal.SetSelection(termX, termY, termX, termY, true)
-					}
-					logging.Debug("Selection started at (%d, %d)", termX, termY)
-				} else {
-					// Clicked outside terminal content, just clear selection
-					tab.Selection = SelectionState{}
-				}
-				tab.mu.Unlock()
-			}
-
-		case tea.MouseActionMotion:
-			// Update selection while dragging
-			tab.mu.Lock()
-			if tab.Selection.Active {
-				termWidth := m.width - 4
-				termHeight := m.height - 6
-				if termWidth < 10 {
-					termWidth = 80
-				}
-				if termHeight < 5 {
-					termHeight = 24
-				}
-
-				// Clamp to terminal bounds
-				if termX < 0 {
-					termX = 0
-				}
-				if termY < 0 {
-					termY = 0
-				}
-				if termX >= termWidth {
-					termX = termWidth - 1
-				}
-				if termY >= termHeight {
-					termY = termHeight - 1
-				}
-
-				tab.Selection.EndX = termX
-				tab.Selection.EndY = termY
-				if tab.Terminal != nil {
-					tab.Terminal.SetSelection(
-						tab.Selection.StartX, tab.Selection.StartY,
-						termX, termY, true,
-					)
-				}
-			}
-			tab.mu.Unlock()
-
-		case tea.MouseActionRelease:
-			if msg.Button == tea.MouseButtonLeft {
-				tab.mu.Lock()
-				if tab.Selection.Active {
-					// Extract selected text and copy to clipboard
-					if tab.Terminal != nil {
-						text := tab.Terminal.GetSelectedText(
-							tab.Selection.StartX, tab.Selection.StartY,
-							tab.Selection.EndX, tab.Selection.EndY,
-						)
-						if text != "" {
-							if err := copyToClipboard(text); err != nil {
-								logging.Error("Failed to copy to clipboard: %v", err)
-							} else {
-								logging.Info("Copied %d chars to clipboard", len(text))
-							}
-						}
-						// Keep selection visible - don't clear it
-						// Selection will be cleared when user clicks again or types
-					}
-					// Mark selection as no longer being dragged, but keep it visible
-					tab.Selection.Active = false
-				}
-				tab.mu.Unlock()
-			}
+		tab.mu.Lock()
+		// Clear any existing selection first
+		if tab.Terminal != nil {
+			tab.Terminal.ClearSelection()
 		}
+
+		if inBounds {
+			// Start new selection
+			tab.Selection = SelectionState{
+				Active: true,
+				StartX: termX,
+				StartY: termY,
+				EndX:   termX,
+				EndY:   termY,
+			}
+			if tab.Terminal != nil {
+				tab.Terminal.SetSelection(termX, termY, termX, termY, true)
+			}
+			logging.Debug("Selection started at (%d, %d)", termX, termY)
+		} else {
+			// Clicked outside terminal content, just clear selection
+			tab.Selection = SelectionState{}
+		}
+		tab.mu.Unlock()
 		return m, tea.Batch(cmds...)
 
-	case tea.KeyMsg:
+	case tea.MouseMotionMsg:
+		// Handle mouse drag events for text selection
+		if !m.focused || !m.hasActiveAgent() {
+			return m, nil
+		}
+
+		if msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+
+		tabs := m.getTabs()
+		activeIdx := m.getActiveTabIdx()
+		if activeIdx >= len(tabs) {
+			return m, nil
+		}
+		tab := tabs[activeIdx]
+
+		// CommitViewer tabs: forward mouse events to commit viewer
+		tab.mu.Lock()
+		cv := tab.CommitViewer
+		tab.mu.Unlock()
+		if cv != nil {
+			newCV, cmd := cv.Update(msg)
+			tab.mu.Lock()
+			tab.CommitViewer = newCV
+			tab.mu.Unlock()
+			return m, cmd
+		}
+
+		termX, termY, _ := m.screenToTerminal(msg.X, msg.Y)
+
+		// Update selection while dragging
+		tab.mu.Lock()
+		if tab.Selection.Active {
+			termWidth := m.contentWidth()
+			termHeight := m.height - 6
+			if termWidth < 10 {
+				termWidth = 80
+			}
+			if termHeight < 5 {
+				termHeight = 24
+			}
+
+			// Clamp to terminal bounds
+			if termX < 0 {
+				termX = 0
+			}
+			if termY < 0 {
+				termY = 0
+			}
+			if termX >= termWidth {
+				termX = termWidth - 1
+			}
+			if termY >= termHeight {
+				termY = termHeight - 1
+			}
+
+			tab.Selection.EndX = termX
+			tab.Selection.EndY = termY
+			if tab.Terminal != nil {
+				tab.Terminal.SetSelection(
+					tab.Selection.StartX, tab.Selection.StartY,
+					termX, termY, true,
+				)
+			}
+		}
+		tab.mu.Unlock()
+		return m, tea.Batch(cmds...)
+
+	case tea.MouseReleaseMsg:
+		// Handle mouse release events for text selection
+		if !m.focused || !m.hasActiveAgent() {
+			return m, nil
+		}
+
+		if msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+
+		tabs := m.getTabs()
+		activeIdx := m.getActiveTabIdx()
+		if activeIdx >= len(tabs) {
+			return m, nil
+		}
+		tab := tabs[activeIdx]
+
+		// CommitViewer tabs: forward mouse events to commit viewer
+		tab.mu.Lock()
+		cv := tab.CommitViewer
+		tab.mu.Unlock()
+		if cv != nil {
+			newCV, cmd := cv.Update(msg)
+			tab.mu.Lock()
+			tab.CommitViewer = newCV
+			tab.mu.Unlock()
+			return m, cmd
+		}
+
+		tab.mu.Lock()
+		if tab.Selection.Active {
+			// Extract selected text and copy to clipboard
+			if tab.Terminal != nil {
+				text := tab.Terminal.GetSelectedText(
+					tab.Selection.StartX, tab.Selection.StartY,
+					tab.Selection.EndX, tab.Selection.EndY,
+				)
+				if text != "" {
+					if err := copyToClipboard(text); err != nil {
+						logging.Error("Failed to copy to clipboard: %v", err)
+					} else {
+						logging.Info("Copied %d chars to clipboard", len(text))
+					}
+				}
+				// Keep selection visible - don't clear it
+				// Selection will be cleared when user clicks again or types
+			}
+			// Mark selection as no longer being dragged, but keep it visible
+			tab.Selection.Active = false
+		}
+		tab.mu.Unlock()
+		return m, tea.Batch(cmds...)
+
+	case tea.MouseWheelMsg:
+		if !m.focused || !m.hasActiveAgent() {
+			return m, nil
+		}
+
+		tabs := m.getTabs()
+		activeIdx := m.getActiveTabIdx()
+		if activeIdx >= len(tabs) {
+			return m, nil
+		}
+		tab := tabs[activeIdx]
+
+		// CommitViewer tabs: forward mouse events to commit viewer
+		tab.mu.Lock()
+		cv := tab.CommitViewer
+		tab.mu.Unlock()
+		if cv != nil {
+			newCV, cmd := cv.Update(msg)
+			tab.mu.Lock()
+			tab.CommitViewer = newCV
+			tab.mu.Unlock()
+			return m, cmd
+		}
+
+		return m, nil
+
+	case tea.PasteMsg:
+		tabs := m.getTabs()
+		activeIdx := m.getActiveTabIdx()
+		if len(tabs) > 0 && activeIdx < len(tabs) {
+			tab := tabs[activeIdx]
+			if !m.focused {
+				return m, nil
+			}
+			if tab.Agent != nil && tab.Agent.Terminal != nil {
+				bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
+				_ = tab.Agent.Terminal.SendString(bracketedText)
+				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
+				return m, nil
+			}
+		}
+		return m, nil
+
+	case tea.KeyPressMsg:
 		tabs := m.getTabs()
 		activeIdx := m.getActiveTabIdx()
 		logging.Debug("Center received key: %s, focused=%v, hasTabs=%v, numTabs=%d",
@@ -643,15 +769,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
-				// Handle bracketed paste - send entire content at once with escape sequences
-				if msg.Paste && msg.Type == tea.KeyRunes {
-					text := string(msg.Runes)
-					bracketedText := "\x1b[200~" + text + "\x1b[201~"
-					_ = tab.Agent.Terminal.SendString(bracketedText)
-					logging.Debug("Pasted %d bytes via bracketed paste", len(text))
-					return m, nil
-				}
-
 				// Only intercept these specific keys - everything else goes to terminal
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
@@ -678,7 +795,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 
 				// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
-				switch msg.Type {
+				switch msg.Key().Code {
 				case tea.KeyPgUp:
 					tab.mu.Lock()
 					if tab.Terminal != nil {
@@ -743,6 +860,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
 			tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
+			perf.Count("pty_output_bytes", int64(len(msg.Data)))
 			tab.lastOutputAt = time.Now()
 			if !tab.flushScheduled {
 				tab.flushScheduled = true
@@ -790,7 +908,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					if chunkSize > ptyFlushChunkSize {
 						chunkSize = ptyFlushChunkSize
 					}
+					flushDone := perf.Time("pty_flush")
 					tab.Terminal.Write(tab.pendingOutput[:chunkSize])
+					flushDone()
+					perf.Count("pty_flush_bytes", int64(chunkSize))
 					copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
 					tab.pendingOutput = tab.pendingOutput[:len(tab.pendingOutput)-chunkSize]
 				}
@@ -851,6 +972,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 // View renders the center pane
 func (m *Model) View() string {
+	defer perf.Time("center_view")()
 	var b strings.Builder
 
 	// Tab bar
@@ -898,7 +1020,7 @@ func (m *Model) View() string {
 	}
 
 	// Help bar with styled keys (prefix mode)
-	contentWidth := m.width - 4
+	contentWidth := m.contentWidth()
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -1022,12 +1144,8 @@ func (m *Model) overlayCenter(content string, dialogView string) string {
 	return strings.Join(contentLines, "\n")
 }
 
-func (m *Model) helpItem(id, key, desc string) string {
-	item := common.RenderHelpItem(m.styles, key, desc)
-	if id == "" || m.zone == nil {
-		return item
-	}
-	return m.zone.Mark(id, item)
+func (m *Model) helpItem(key, desc string) string {
+	return common.RenderHelpItem(m.styles, key, desc)
 }
 
 func (m *Model) helpLines(contentWidth int) []string {
@@ -1036,159 +1154,57 @@ func (m *Model) helpLines(contentWidth int) []string {
 	hasTabs := len(m.getTabs()) > 0
 	if m.worktree != nil {
 		items = append(items,
-			m.helpItem("center-help-new", "C-Spc a", "new tab"),
-			m.helpItem("center-help-commits", "C-Spc d", "commits"),
+			m.helpItem("C-Spc a", "new tab"),
+			m.helpItem("C-Spc d", "commits"),
 		)
 	}
 	if hasTabs {
 		items = append(items,
-			m.helpItem("center-help-save", "C-Spc s", "save"),
-			m.helpItem("center-help-close", "C-Spc x", "close"),
-			m.helpItem("center-help-prev", "C-Spc p", "prev"),
-			m.helpItem("center-help-next", "C-Spc n", "next"),
-			m.helpItem("", "C-Spc 1-9", "jump tab"),
-			m.helpItem("center-help-copy", "C-Spc [", "copy"),
-			m.helpItem("center-help-scroll-up", "PgUp", "half up"),
-			m.helpItem("center-help-scroll-down", "PgDn", "half down"),
+			m.helpItem("C-Spc s", "save"),
+			m.helpItem("C-Spc x", "close"),
+			m.helpItem("C-Spc p", "prev"),
+			m.helpItem("C-Spc n", "next"),
+			m.helpItem("C-Spc 1-9", "jump tab"),
+			m.helpItem("C-Spc [", "copy"),
+			m.helpItem("PgUp", "half up"),
+			m.helpItem("PgDn", "half down"),
 		)
 		if m.CopyModeActive() {
 			items = append(items,
-				m.helpItem("center-help-scroll-top", "g", "top"),
-				m.helpItem("center-help-scroll-bottom", "G", "bottom"),
+				m.helpItem("g", "top"),
+				m.helpItem("G", "bottom"),
 			)
 		}
 	}
 	return common.WrapHelpItems(items, contentWidth)
 }
 
-func (m *Model) handleHelpClick(msg tea.MouseMsg) tea.Cmd {
-	if m.zone == nil {
-		return nil
-	}
-	if z := m.zone.Get("center-help-copy"); z != nil && z.InBounds(msg) {
-		m.toggleCopyMode()
-		return nil
-	}
-	if z := m.zone.Get("center-help-scroll-up"); z != nil && z.InBounds(msg) {
-		m.scrollByHalfPage(1)
-		return nil
-	}
-	if z := m.zone.Get("center-help-scroll-down"); z != nil && z.InBounds(msg) {
-		m.scrollByHalfPage(-1)
-		return nil
-	}
-	if z := m.zone.Get("center-help-scroll-top"); z != nil && z.InBounds(msg) {
-		m.scrollToTop()
-		return nil
-	}
-	if z := m.zone.Get("center-help-scroll-bottom"); z != nil && z.InBounds(msg) {
-		m.scrollToBottom()
-		return nil
-	}
-	if z := m.zone.Get("center-help-new"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-	}
-	if z := m.zone.Get("center-help-close"); z != nil && z.InBounds(msg) {
-		return m.closeCurrentTab()
-	}
-	if z := m.zone.Get("center-help-prev"); z != nil && z.InBounds(msg) {
-		m.prevTab()
-		return nil
-	}
-	if z := m.zone.Get("center-help-next"); z != nil && z.InBounds(msg) {
-		m.nextTab()
-		return nil
-	}
-	if z := m.zone.Get("center-help-home"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ShowWelcome{} }
-	}
-	if z := m.zone.Get("center-help-monitor"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ToggleMonitor{} }
-	}
-	if z := m.zone.Get("center-help-help"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ToggleHelp{} }
-	}
-	if z := m.zone.Get("center-help-quit"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ShowQuitDialog{} }
-	}
-	return nil
-}
-
-func (m *Model) scrollByHalfPage(delta int) {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		tab.Terminal.ScrollView(delta * (tab.Terminal.Height / 2))
-	}
-	tab.mu.Unlock()
-}
-
-func (m *Model) scrollToTop() {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		tab.Terminal.ScrollViewToTop()
-	}
-	tab.mu.Unlock()
-}
-
-func (m *Model) scrollToBottom() {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		tab.Terminal.ScrollViewToBottom()
-	}
-	tab.mu.Unlock()
-}
-
-func (m *Model) toggleCopyMode() {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	if tab.CopyMode {
-		tab.CopyMode = false
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToBottom()
-		}
-		tab.mu.Unlock()
-		return
-	}
-	tab.CopyMode = true
-}
-
 // renderTabBar renders the tab bar with activity indicators
 func (m *Model) renderTabBar() string {
+	m.tabHits = m.tabHits[:0]
 	currentTabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 
 	if len(currentTabs) == 0 {
 		empty := m.styles.TabPlus.Render("[+] New agent")
-		if m.zone != nil {
-			empty = m.zone.Mark("center-tab-plus", empty)
+		emptyWidth := lipgloss.Width(empty)
+		if emptyWidth > 0 {
+			m.tabHits = append(m.tabHits, tabHit{
+				kind:  tabHitPlus,
+				index: -1,
+				region: common.HitRegion{
+					X:      0,
+					Y:      0,
+					Width:  emptyWidth,
+					Height: 1,
+				},
+			})
 		}
 		return empty
 	}
 
 	var renderedTabs []string
+	x := 0
 	for i, tab := range currentTabs {
 		name := tab.Name
 		if name == "" {
@@ -1224,70 +1240,93 @@ func (m *Model) renderTabBar() string {
 
 		// Build tab content with agent-colored indicator and a close affordance
 		closeLabel := m.styles.Muted.Render("x")
-		if m.zone != nil {
-			closeLabel = m.zone.Mark(fmt.Sprintf("center-tab-close-%d", i), closeLabel)
-		}
 		content := agentStyle.Render(indicator) + name + " " + closeLabel
 
+		style := m.styles.Tab
 		var rendered string
 		if i == activeIdx {
 			// Active tab gets highlight border
-			rendered = m.styles.ActiveTab.Render(content)
+			style = m.styles.ActiveTab
+			rendered = style.Render(content)
 		} else {
 			// Inactive tab
-			rendered = m.styles.Tab.Render(content)
+			rendered = style.Render(content)
 		}
-		if m.zone != nil {
-			rendered = m.zone.Mark(fmt.Sprintf("center-tab-%d", i), rendered)
+		renderedWidth := lipgloss.Width(rendered)
+		if renderedWidth > 0 {
+			m.tabHits = append(m.tabHits, tabHit{
+				kind:  tabHitTab,
+				index: i,
+				region: common.HitRegion{
+					X:      x,
+					Y:      0,
+					Width:  renderedWidth,
+					Height: 1,
+				},
+			})
+
+			frameX, _ := style.GetFrameSize()
+			leftFrame := frameX / 2
+			prefixWidth := lipgloss.Width(agentStyle.Render(indicator) + name + " ")
+			closeWidth := lipgloss.Width(closeLabel)
+			closeX := x + leftFrame + prefixWidth
+			if closeWidth > 0 {
+				m.tabHits = append(m.tabHits, tabHit{
+					kind:  tabHitClose,
+					index: i,
+					region: common.HitRegion{
+						X:      closeX,
+						Y:      0,
+						Width:  closeWidth,
+						Height: 1,
+					},
+				})
+			}
 		}
+		x += renderedWidth
 		renderedTabs = append(renderedTabs, rendered)
 	}
 
 	// Add control buttons with matching border style
-	controls := []struct {
-		id    string
-		label string
-	}{
-		{id: "center-tab-plus", label: "[+]"},
+	btn := m.styles.TabPlus.Render("[+]")
+	btnWidth := lipgloss.Width(btn)
+	if btnWidth > 0 {
+		m.tabHits = append(m.tabHits, tabHit{
+			kind:  tabHitPlus,
+			index: -1,
+			region: common.HitRegion{
+				X:      x,
+				Y:      0,
+				Width:  btnWidth,
+				Height: 1,
+			},
+		})
 	}
-	for _, ctrl := range controls {
-		btn := m.styles.TabPlus.Render(ctrl.label)
-		if m.zone != nil {
-			btn = m.zone.Mark(ctrl.id, btn)
-		}
-		renderedTabs = append(renderedTabs, btn)
-	}
+	renderedTabs = append(renderedTabs, btn)
 
 	// Join tabs horizontally at the bottom so borders align
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
 }
 
-func (m *Model) handleTabBarClick(msg tea.MouseMsg) tea.Cmd {
-	if m.zone == nil {
+func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
+	if msg.Y != 0 {
 		return nil
 	}
-	if z := m.zone.Get("center-tab-plus"); z != nil && z.InBounds(msg) {
-		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+	localX := msg.X - m.offsetX
+	if localX < 0 {
+		return nil
 	}
-	if z := m.zone.Get("center-empty-commits"); z != nil && z.InBounds(msg) {
-		if m.worktree != nil {
-			wt := m.worktree
-			return func() tea.Msg { return messages.OpenCommitViewer{Worktree: wt} }
-		}
-	}
-
-	tabs := m.getTabs()
-	for i := range tabs {
-		id := fmt.Sprintf("center-tab-close-%d", i)
-		if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
-			return m.closeTabAt(i)
-		}
-	}
-	for i := range tabs {
-		id := fmt.Sprintf("center-tab-%d", i)
-		if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
-			m.setActiveTabIdx(i)
-			return nil
+	for _, hit := range m.tabHits {
+		if hit.region.Contains(localX, msg.Y) {
+			switch hit.kind {
+			case tabHitPlus:
+				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+			case tabHitClose:
+				return m.closeTabAt(hit.index)
+			case tabHitTab:
+				m.setActiveTabIdx(hit.index)
+				return nil
+			}
 		}
 	}
 	return nil
@@ -1302,17 +1341,11 @@ func (m *Model) renderEmpty() string {
 
 	// New agent button
 	agentBtn := m.styles.TabPlus.Render("[+] New agent")
-	if m.zone != nil {
-		agentBtn = m.zone.Mark("center-tab-plus", agentBtn)
-	}
 	b.WriteString(agentBtn)
 	b.WriteString("  ")
 
 	// Commits button
 	commitsBtn := m.styles.TabPlus.Render("[d] Commits")
-	if m.zone != nil {
-		commitsBtn = m.zone.Mark("center-empty-commits", commitsBtn)
-	}
 	b.WriteString(commitsBtn)
 
 	// Help text
@@ -1336,7 +1369,7 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		logging.Info("Agent created, Terminal=%v", agent.Terminal != nil)
 
 		// Calculate terminal dimensions
-		termWidth := m.width - 4
+		termWidth := m.contentWidth()
 		termHeight := m.height - 6
 		if termWidth < 10 {
 			termWidth = 80
@@ -1413,7 +1446,7 @@ func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktre
 		logging.Info("Viewer created, Terminal=%v", agent.Terminal != nil)
 
 		// Calculate terminal dimensions
-		termWidth := m.width - 4
+		termWidth := m.contentWidth()
 		termHeight := m.height - 6
 		if termWidth < 10 {
 			termWidth = 80
@@ -1473,7 +1506,7 @@ func (m *Model) createCommitViewerTab(wt *data.Worktree) tea.Cmd {
 	logging.Info("Creating commit viewer tab: worktree=%s", wt.Name)
 
 	// Calculate dimensions for the commit viewer
-	viewerWidth := m.width - 4
+	viewerWidth := m.contentWidth()
 	viewerHeight := m.height - 6
 	if viewerWidth < 40 {
 		viewerWidth = 80
@@ -1484,7 +1517,6 @@ func (m *Model) createCommitViewerTab(wt *data.Worktree) tea.Cmd {
 
 	// Create commit viewer model
 	cv := commits.New(wt, viewerWidth, viewerHeight)
-	cv.SetZone(m.zone)
 	cv.SetFocused(true)
 
 	// Create tab with unique ID
@@ -1530,7 +1562,7 @@ func (m *Model) createCommitDiffTab(hash string, wt *data.Worktree) tea.Cmd {
 		}
 
 		// Calculate terminal dimensions
-		termWidth := m.width - 4
+		termWidth := m.contentWidth()
 		termHeight := m.height - 6
 		if termWidth < 10 {
 			termWidth = 80
@@ -1760,12 +1792,12 @@ func (m *Model) CopyModeActive() bool {
 }
 
 // handleCopyModeKey handles keys while in copy mode (scroll navigation)
-func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	// Exit copy mode
-	case msg.Type == tea.KeyEsc:
+	case msg.Key().Code == tea.KeyEsc || msg.Key().Code == tea.KeyEscape:
 		fallthrough
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q':
+	case msg.String() == "q":
 		tab.CopyMode = false
 		tab.mu.Lock()
 		if tab.Terminal != nil {
@@ -1775,9 +1807,9 @@ func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	// Scroll up one line
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'k':
+	case msg.String() == "k":
 		fallthrough
-	case msg.Type == tea.KeyUp:
+	case msg.Key().Code == tea.KeyUp:
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			tab.Terminal.ScrollView(1)
@@ -1786,9 +1818,9 @@ func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	// Scroll down one line
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'j':
+	case msg.String() == "j":
 		fallthrough
-	case msg.Type == tea.KeyDown:
+	case msg.Key().Code == tea.KeyDown:
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			tab.Terminal.ScrollView(-1)
@@ -1797,7 +1829,7 @@ func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	// Scroll up half page
-	case msg.Type == tea.KeyPgUp:
+	case msg.Key().Code == tea.KeyPgUp:
 		fallthrough
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
 		tab.mu.Lock()
@@ -1808,7 +1840,7 @@ func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	// Scroll down half page
-	case msg.Type == tea.KeyPgDown:
+	case msg.Key().Code == tea.KeyPgDown:
 		fallthrough
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
 		tab.mu.Lock()
@@ -1819,7 +1851,7 @@ func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	// Scroll to top
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'g':
+	case msg.String() == "g":
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			tab.Terminal.ScrollViewToTop()
@@ -1828,7 +1860,7 @@ func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	// Scroll to bottom
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'G':
+	case msg.String() == "G":
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			tab.Terminal.ScrollViewToBottom()
@@ -1863,7 +1895,7 @@ func (m *Model) SetSize(width, height int) {
 		m.saveDialog.SetSize(width, height)
 	}
 
-	termWidth := width - 4
+	termWidth := m.contentWidth()
 	termHeight := height - 6
 	if termWidth < 10 {
 		termWidth = 80
@@ -1872,7 +1904,7 @@ func (m *Model) SetSize(width, height int) {
 		termHeight = 24
 	}
 
-	viewerWidth := width - 4
+	viewerWidth := m.contentWidth()
 	viewerHeight := height - 6
 	if viewerWidth < 40 {
 		viewerWidth = 80
@@ -1922,7 +1954,7 @@ func (m *Model) screenToTerminal(screenX, screenY int) (termX, termY int, inBoun
 	contentStartY := borderTop + tabBarHeight
 
 	// Terminal dimensions
-	termWidth := m.width - 4
+	termWidth := m.contentWidth()
 	termHeight := m.height - 6
 	if termWidth < 10 {
 		termWidth = 80
@@ -1963,6 +1995,38 @@ func (m *Model) SetWorktree(wt *data.Worktree) {
 // HasTabs returns whether there are any tabs for the current worktree
 func (m *Model) HasTabs() bool {
 	return len(m.getTabs()) > 0
+}
+
+// HasRunningAgents returns whether any tab has an active agent across worktrees.
+func (m *Model) HasRunningAgents() bool {
+	for _, tabs := range m.tabsByWorktree {
+		for _, tab := range tabs {
+			if tab.Running {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// HasActiveAgents returns whether any tab has emitted output recently.
+// This is used to drive UI activity indicators without relying on process liveness alone.
+func (m *Model) HasActiveAgents() bool {
+	now := time.Now()
+	for _, tabs := range m.tabsByWorktree {
+		for _, tab := range tabs {
+			if !tab.Running {
+				continue
+			}
+			if tab.flushScheduled || len(tab.pendingOutput) > 0 {
+				return true
+			}
+			if !tab.lastOutputAt.IsZero() && now.Sub(tab.lastOutputAt) < 2*time.Second {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // StartPTYReaders starts reading from all PTYs across all worktrees
@@ -2163,8 +2227,8 @@ func (m *Model) renderTerminalCanvas(term *vterm.VTerm, width, height int, showC
 		width,
 		height,
 		showCursor,
-		compositor.HexColor(string(common.ColorForeground)),
-		compositor.HexColor(string(common.ColorBackground)),
+		compositor.HexColor(common.HexColor(common.ColorForeground)),
+		compositor.HexColor(common.HexColor(common.ColorBackground)),
 	)
 }
 
@@ -2175,7 +2239,7 @@ func (m *Model) CloseAllTabs() {
 }
 
 func copyToClipboard(text string) error {
-	// Prioritize pbcopy on macOS as it is more reliable in various environments (tmux, etc.)
+	// Prioritize pbcopy on macOS as it is more reliable in various environments.
 	if runtime.GOOS == "darwin" {
 		cmd := exec.Command("pbcopy")
 		cmd.Stdin = strings.NewReader(text)

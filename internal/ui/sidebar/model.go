@@ -1,14 +1,12 @@
 package sidebar
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	zone "github.com/lrstanley/bubblezone"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -32,7 +30,6 @@ type Model struct {
 
 	// Styles
 	styles common.Styles
-	zone   *zone.Manager
 }
 
 // New creates a new sidebar model
@@ -40,11 +37,6 @@ func New() *Model {
 	return &Model{
 		styles: common.DefaultStyles(),
 	}
-}
-
-// SetZone sets the shared zone manager for click targets.
-func (m *Model) SetZone(z *zone.Manager) {
-	m.zone = z
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.
@@ -62,71 +54,38 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.MouseMsg:
+	case tea.MouseWheelMsg:
 		if !m.focused {
 			return m, nil
 		}
-
-		if msg.Action == tea.MouseActionPress {
-			if msg.Button == tea.MouseButtonWheelUp {
-				m.moveCursor(-1)
-				return m, nil
-			}
-			if msg.Button == tea.MouseButtonWheelDown {
-				m.moveCursor(1)
-				return m, nil
-			}
+		if msg.Button == tea.MouseWheelUp {
+			m.moveCursor(-1)
+			return m, nil
+		}
+		if msg.Button == tea.MouseWheelDown {
+			m.moveCursor(1)
+			return m, nil
 		}
 
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			if m.zone != nil {
-				if z := m.zone.Get("sidebar-help-up"); z != nil && z.InBounds(msg) {
-					m.moveCursor(-1)
-					return m, nil
-				}
-				if z := m.zone.Get("sidebar-help-down"); z != nil && z.InBounds(msg) {
-					m.moveCursor(1)
-					return m, nil
-				}
-				if z := m.zone.Get("sidebar-help-refresh"); z != nil && z.InBounds(msg) {
-					cmds = append(cmds, m.refreshStatus())
-					return m, tea.Batch(cmds...)
-				}
-				if z := m.zone.Get("sidebar-help-home"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ShowWelcome{} }
-				}
-				if z := m.zone.Get("sidebar-help-monitor"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ToggleMonitor{} }
-				}
-				if z := m.zone.Get("sidebar-help-help"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ToggleHelp{} }
-				}
-				if z := m.zone.Get("sidebar-help-quit"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ShowQuitDialog{} }
-				}
-				if z := m.zone.Get("sidebar-help-new-agent"); z != nil && z.InBounds(msg) {
-					return m, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-				}
+	case tea.MouseClickMsg:
+		if !m.focused {
+			return m, nil
+		}
+		if msg.Button == tea.MouseLeft {
+			idx, ok := m.rowIndexAt(msg.Y)
+			if !ok {
+				return m, nil
 			}
-
-			if m.zone != nil && m.gitStatus != nil {
-				for i := range m.gitStatus.Files {
-					id := fmt.Sprintf("sidebar-file-%d", i)
-					if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
-						m.cursor = i
-						if m.gitStatus != nil && i < len(m.gitStatus.Files) {
-							file := m.gitStatus.Files[i]
-							return m, func() tea.Msg {
-								return messages.OpenDiff{File: file.Path, StatusCode: file.Code, Worktree: m.worktree}
-							}
-						}
-						return m, nil
-					}
+			m.cursor = idx
+			if m.gitStatus != nil && idx < len(m.gitStatus.Files) {
+				file := m.gitStatus.Files[idx]
+				return m, func() tea.Msg {
+					return messages.OpenDiff{File: file.Path, StatusCode: file.Code, Worktree: m.worktree}
 				}
 			}
 		}
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if !m.focused {
 			return m, nil
 		}
@@ -207,10 +166,7 @@ func (m *Model) renderChanges() string {
 	b.WriteString(m.styles.Muted.Render(strconv.Itoa(len(m.gitStatus.Files)) + " changed files"))
 	b.WriteString("\n\n")
 
-	visibleHeight := m.height - 10
-	if visibleHeight < 1 {
-		visibleHeight = 1
-	}
+	visibleHeight := m.visibleHeight()
 
 	// Adjust scroll
 	if m.cursor < m.scrollOffset {
@@ -263,29 +219,76 @@ func (m *Model) renderChanges() string {
 		}
 
 		line := cursor + statusStyle.Render(displayCode) + " " + m.styles.FilePath.Render(displayPath)
-		if m.zone != nil {
-			line = m.zone.Mark(fmt.Sprintf("sidebar-file-%d", i), line)
-		}
 		b.WriteString(line + "\n")
 	}
 
 	return b.String()
 }
 
-func (m *Model) helpItem(id, key, desc string) string {
-	item := common.RenderHelpItem(m.styles, key, desc)
-	if id == "" || m.zone == nil {
-		return item
-	}
-	return m.zone.Mark(id, item)
+func (m *Model) helpItem(key, desc string) string {
+	return common.RenderHelpItem(m.styles, key, desc)
 }
 
 func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
-		m.helpItem("sidebar-help-up", "k/↑", "up"),
-		m.helpItem("sidebar-help-down", "j/↓", "down"),
+		m.helpItem("k/↑", "up"),
+		m.helpItem("j/↓", "down"),
 	}
 	return common.WrapHelpItems(items, contentWidth)
+}
+
+func (m *Model) helpLineCount() int {
+	if !m.showKeymapHints {
+		return 0
+	}
+	contentWidth := m.width
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	return len(m.helpLines(contentWidth))
+}
+
+func (m *Model) listHeaderLines() int {
+	if m.gitStatus == nil || m.gitStatus.Clean {
+		return 0
+	}
+	header := 0
+	if m.worktree != nil && m.worktree.Branch != "" {
+		header++
+	}
+	header += 2 // "changed files" + blank line
+	return header
+}
+
+func (m *Model) visibleHeight() int {
+	header := m.listHeaderLines()
+	help := m.helpLineCount()
+	visible := m.height - header - help
+	if visible < 1 {
+		visible = 1
+	}
+	return visible
+}
+
+func (m *Model) rowIndexAt(screenY int) (int, bool) {
+	if m.gitStatus == nil || m.gitStatus.Clean {
+		return -1, false
+	}
+	header := m.listHeaderLines()
+	help := m.helpLineCount()
+	contentHeight := m.height - help
+	if screenY < header || screenY >= contentHeight {
+		return -1, false
+	}
+	rowY := screenY - header
+	if rowY < 0 || rowY >= m.visibleHeight() {
+		return -1, false
+	}
+	index := m.scrollOffset + rowY
+	if index < 0 || index >= len(m.gitStatus.Files) {
+		return -1, false
+	}
+	return index, true
 }
 
 // moveCursor moves the cursor

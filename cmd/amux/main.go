@@ -2,10 +2,15 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/app"
 	"github.com/andyrewlee/amux/internal/logging"
@@ -29,13 +34,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error initializing app: %v\n", err)
 		os.Exit(1)
 	}
+	startPprof()
 
 	p := tea.NewProgram(
 		a,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-		// Note: Bracketed paste is enabled by default in bubbletea v1.x
-		// Pasted text arrives as tea.KeyMsg with Paste=true and the full content in Runes
+		tea.WithFilter(mouseEventFilter),
 	)
 
 	if _, err := p.Run(); err != nil {
@@ -45,4 +48,43 @@ func main() {
 	}
 
 	logging.Info("amux shutdown complete")
+}
+
+var lastMouseEvent time.Time
+
+func mouseEventFilter(m tea.Model, msg tea.Msg) tea.Msg {
+	switch msg.(type) {
+	case tea.MouseWheelMsg, tea.MouseMotionMsg:
+		now := time.Now()
+		if now.Sub(lastMouseEvent) < 15*time.Millisecond {
+			return nil
+		}
+		lastMouseEvent = now
+	}
+	return msg
+}
+
+func startPprof() {
+	raw := strings.TrimSpace(os.Getenv("AMUX_PPROF"))
+	if raw == "" {
+		return
+	}
+	switch strings.ToLower(raw) {
+	case "0", "false", "no":
+		return
+	}
+
+	addr := raw
+	if raw == "1" || strings.ToLower(raw) == "true" {
+		addr = "127.0.0.1:6060"
+	} else if _, err := strconv.Atoi(raw); err == nil {
+		addr = "127.0.0.1:" + raw
+	}
+
+	go func() {
+		logging.Info("pprof listening on %s", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			logging.Warn("pprof server stopped: %v", err)
+		}
+	}()
 }

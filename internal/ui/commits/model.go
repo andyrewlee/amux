@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	zone "github.com/lrstanley/bubblezone"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -35,7 +34,6 @@ type Model struct {
 
 	// Dependencies
 	styles common.Styles
-	zone   *zone.Manager
 }
 
 // New creates a new commit viewer model
@@ -48,11 +46,6 @@ func New(wt *data.Worktree, width, height int) *Model {
 		styles:   common.DefaultStyles(),
 		loading:  true,
 	}
-}
-
-// SetZone sets the shared zone manager for click targets
-func (m *Model) SetZone(z *zone.Manager) {
-	m.zone = z
 }
 
 // SetFocused sets whether the commit viewer is focused
@@ -130,46 +123,42 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.MouseMsg:
+	case tea.MouseWheelMsg:
 		if !m.focused {
 			return m, nil
 		}
 
-		if msg.Action == tea.MouseActionPress {
-			// Wheel scroll
-			if msg.Button == tea.MouseButtonWheelUp {
-				m.moveCursor(-3)
-				return m, nil
-			}
-			if msg.Button == tea.MouseButtonWheelDown {
-				m.moveCursor(3)
-				return m, nil
-			}
+		// Wheel scroll
+		if msg.Button == tea.MouseWheelUp {
+			m.moveCursor(-3)
+			return m, nil
+		}
+		if msg.Button == tea.MouseWheelDown {
+			m.moveCursor(3)
+			return m, nil
 		}
 
 		// Click on commit rows (only check visible rows for efficiency)
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			if m.zone != nil {
-				visible := m.visibleHeight()
-				end := m.scrollOffset + visible
-				if end > len(m.commits) {
-					end = len(m.commits)
-				}
-				for i := m.scrollOffset; i < end; i++ {
-					// Skip non-commit lines (graph-only)
-					if m.commits[i].ShortHash == "" {
-						continue
-					}
-					id := fmt.Sprintf("commit-%d", i)
-					if z := m.zone.Get(id); z != nil && z.InBounds(msg) {
-						m.cursor = i
-						return m, m.openSelectedCommit()
-					}
-				}
+	case tea.MouseClickMsg:
+		if !m.focused {
+			return m, nil
+		}
+		if msg.Button == tea.MouseLeft {
+			idx, ok := m.rowIndexAt(msg.Y)
+			if !ok {
+				return m, nil
 			}
+			if idx < 0 || idx >= len(m.commits) {
+				return m, nil
+			}
+			if m.commits[idx].ShortHash == "" {
+				return m, nil
+			}
+			m.cursor = idx
+			return m, m.openSelectedCommit()
 		}
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if !m.focused {
 			return m, nil
 		}
@@ -290,6 +279,19 @@ func (m *Model) adjustScroll() {
 func (m *Model) visibleHeight() int {
 	// Account for header and help bar
 	return m.height - 4
+}
+
+func (m *Model) rowIndexAt(screenY int) (int, bool) {
+	headerLines := 1
+	visible := m.visibleHeight()
+	if screenY < headerLines || screenY >= headerLines+visible {
+		return -1, false
+	}
+	index := m.scrollOffset + (screenY - headerLines)
+	if index < 0 || index >= len(m.commits) {
+		return -1, false
+	}
+	return index, true
 }
 
 // openSelectedCommit returns a command to open the selected commit's diff
@@ -512,11 +514,6 @@ func (m *Model) renderCommitLine(index int, commit git.Commit) string {
 				Background(common.ColorSelection).
 				Render(padding)
 		}
-	}
-
-	// Wrap with zone for mouse clicks
-	if m.zone != nil {
-		line = m.zone.Mark(fmt.Sprintf("commit-%d", index), line)
 	}
 
 	return line

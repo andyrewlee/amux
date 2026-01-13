@@ -6,6 +6,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
+	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -180,6 +181,7 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 
 // Render converts the canvas to an ANSI string.
 func (c *Canvas) Render() string {
+	defer perf.Time("compositor_render")()
 	b := &c.renderBuffers[c.renderBufferNext]
 	c.renderBufferNext = (c.renderBufferNext + 1) % len(c.renderBuffers)
 	b.Reset()

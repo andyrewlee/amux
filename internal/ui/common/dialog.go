@@ -1,14 +1,12 @@
 package common
 
 import (
-	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	zone "github.com/lrstanley/bubblezone"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 )
@@ -52,13 +50,17 @@ type Dialog struct {
 	filteredIndices []int // indices into options
 
 	// Layout
-	width  int
-	height int
-
-	// Zone manager for mouse handling
-	zone *zone.Manager
+	width      int
+	height     int
+	optionHits []dialogOptionHit
 	// Display settings
 	showKeymapHints bool
+}
+
+type dialogOptionHit struct {
+	cursorIndex int
+	optionIndex int
+	region      HitRegion
 }
 
 // NewInputDialog creates a new input dialog
@@ -67,7 +69,8 @@ func NewInputDialog(id, title, placeholder string) *Dialog {
 	ti.Placeholder = placeholder
 	ti.Focus()
 	ti.CharLimit = 100
-	ti.Width = 40
+	ti.SetWidth(40)
+	ti.SetVirtualCursor(false)
 
 	return &Dialog{
 		id:    id,
@@ -134,7 +137,8 @@ func NewAgentPicker() *Dialog {
 	fi.Placeholder = "Type to filter..."
 	fi.Focus()
 	fi.CharLimit = 20
-	fi.Width = 30
+	fi.SetWidth(30)
+	fi.SetVirtualCursor(false)
 
 	return &Dialog{
 		id:              "agent-picker",
@@ -206,11 +210,6 @@ func (d *Dialog) Visible() bool {
 	return d.visible
 }
 
-// SetZone sets the shared zone manager for click targets.
-func (d *Dialog) SetZone(z *zone.Manager) {
-	d.zone = z
-}
-
 // SetShowKeymapHints controls whether helper text is rendered.
 func (d *Dialog) SetShowKeymapHints(show bool) {
 	d.showKeymapHints = show
@@ -223,14 +222,14 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
 			if cmd := d.handleClick(msg); cmd != nil {
 				return d, cmd
 			}
 		}
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			d.visible = false
@@ -346,79 +345,55 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	return d, nil
 }
 
-func (d *Dialog) handleClick(msg tea.MouseMsg) tea.Cmd {
-	if d.zone == nil {
+func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
+	if !d.visible {
 		return nil
 	}
 
-	switch d.dtype {
-	case DialogInput:
-		if z := d.zone.Get("dialog-" + d.id + "-opt-0"); z != nil && z.InBounds(msg) {
-			value := d.input.Value()
-			d.visible = false
-			return func() tea.Msg {
-				return DialogResult{
-					ID:        d.id,
-					Confirmed: true,
-					Value:     value,
-				}
-			}
-		}
-		if z := d.zone.Get("dialog-" + d.id + "-opt-1"); z != nil && z.InBounds(msg) {
-			d.visible = false
-			return func() tea.Msg {
-				return DialogResult{ID: d.id, Confirmed: false}
-			}
-		}
+	contentHeight := len(d.renderLines())
+	if contentHeight == 0 {
+		return nil
+	}
 
-	case DialogConfirm:
-		if z := d.zone.Get("dialog-" + d.id + "-opt-0"); z != nil && z.InBounds(msg) {
-			d.cursor = 0
-			d.visible = false
-			return func() tea.Msg {
-				return DialogResult{ID: d.id, Confirmed: true}
-			}
-		}
-		if z := d.zone.Get("dialog-" + d.id + "-opt-1"); z != nil && z.InBounds(msg) {
-			d.cursor = 1
-			d.visible = false
-			return func() tea.Msg {
-				return DialogResult{ID: d.id, Confirmed: false}
-			}
-		}
+	dialogX, dialogY, dialogW, dialogH := d.dialogBounds(contentHeight)
+	if msg.X < dialogX || msg.X >= dialogX+dialogW || msg.Y < dialogY || msg.Y >= dialogY+dialogH {
+		return nil
+	}
 
-	case DialogSelect:
-		if d.filterEnabled {
-			for cursorIdx, originalIdx := range d.filteredIndices {
-				id := "dialog-" + d.id + "-opt-" + strconv.Itoa(originalIdx)
-				if z := d.zone.Get(id); z != nil && z.InBounds(msg) {
-					d.cursor = cursorIdx
-					value := d.options[originalIdx]
-					d.visible = false
-					return func() tea.Msg {
-						return DialogResult{
-							ID:        d.id,
-							Confirmed: true,
-							Index:     originalIdx,
-							Value:     value,
-						}
+	_, _, contentOffsetX, contentOffsetY := d.dialogFrame()
+	localX := msg.X - dialogX - contentOffsetX
+	localY := msg.Y - dialogY - contentOffsetY
+	if localX < 0 || localY < 0 {
+		return nil
+	}
+
+	for _, hit := range d.optionHits {
+		if hit.region.Contains(localX, localY) {
+			d.cursor = hit.cursorIndex
+			d.visible = false
+
+			switch d.dtype {
+			case DialogInput:
+				value := d.input.Value()
+				return func() tea.Msg {
+					return DialogResult{
+						ID:        d.id,
+						Confirmed: hit.optionIndex == 0,
+						Value:     value,
 					}
 				}
-			}
-		} else {
-			for i := range d.options {
-				id := "dialog-" + d.id + "-opt-" + strconv.Itoa(i)
-				if z := d.zone.Get(id); z != nil && z.InBounds(msg) {
-					d.cursor = i
-					d.visible = false
-					value := d.options[i]
-					return func() tea.Msg {
-						return DialogResult{
-							ID:        d.id,
-							Confirmed: true,
-							Index:     i,
-							Value:     value,
-						}
+			case DialogConfirm:
+				return func() tea.Msg {
+					return DialogResult{ID: d.id, Confirmed: hit.optionIndex == 0}
+				}
+			case DialogSelect:
+				value := d.options[hit.optionIndex]
+				return func() tea.Msg {
+					return DialogResult{
+						ID:        d.id,
+						Confirmed: true,
+						Index:     hit.optionIndex,
+						Value:     value,
 					}
 				}
 			}
@@ -434,83 +409,170 @@ func (d *Dialog) View() string {
 		return ""
 	}
 
-	var content strings.Builder
+	lines := d.renderLines()
+	content := strings.Join(lines, "\n")
+	return d.dialogStyle().Render(content)
+}
 
-	// Title
+// Cursor returns the cursor position relative to the dialog view.
+func (d *Dialog) Cursor() *tea.Cursor {
+	if !d.visible {
+		return nil
+	}
+
+	var input *textinput.Model
+	var prefix strings.Builder
+
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
 		MarginBottom(1)
-	content.WriteString(titleStyle.Render(d.title))
-	content.WriteString("\n\n")
+	prefix.WriteString(titleStyle.Render(d.title))
+	prefix.WriteString("\n\n")
 
-	// Content based on type
 	switch d.dtype {
 	case DialogInput:
-		content.WriteString(d.input.View())
-		content.WriteString("\n\n")
-		content.WriteString(d.renderInputButtons())
+		input = &d.input
+	case DialogSelect:
+		if d.filterEnabled {
+			if d.message != "" {
+				prefix.WriteString(d.message)
+				prefix.WriteString("\n\n")
+			}
+			input = &d.filterInput
+		}
+	default:
+		return nil
+	}
 
+	if input == nil || input.VirtualCursor() || !input.Focused() {
+		return nil
+	}
+
+	c := input.Cursor()
+	if c == nil {
+		return nil
+	}
+
+	c.Y += lipgloss.Height(prefix.String())
+
+	// Account for border + padding (Border=1, Padding=(1,2)).
+	c.X += 3
+	c.Y += 2
+
+	return c
+}
+
+func (d *Dialog) dialogContentWidth() int {
+	width := 50
+	if d.width > 0 {
+		width = min(80, max(50, d.width-10))
+	}
+	return width
+}
+
+func (d *Dialog) dialogStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorPrimary).
+		Padding(1, 2).
+		Width(d.dialogContentWidth())
+}
+
+func (d *Dialog) dialogFrame() (frameX, frameY, offsetX, offsetY int) {
+	frameX, frameY = d.dialogStyle().GetFrameSize()
+	offsetX = frameX / 2
+	offsetY = frameY / 2
+	return frameX, frameY, offsetX, offsetY
+}
+
+func (d *Dialog) dialogBounds(contentHeight int) (x, y, w, h int) {
+	contentWidth := d.dialogContentWidth()
+	frameX, frameY, _, _ := d.dialogFrame()
+	w = contentWidth + frameX
+	h = contentHeight + frameY
+	x = (d.width - w) / 2
+	y = (d.height - h) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	return x, y, w, h
+}
+
+func (d *Dialog) renderLines() []string {
+	d.optionHits = d.optionHits[:0]
+	lines := []string{}
+
+	appendLines := func(s string) {
+		if s == "" {
+			return
+		}
+		lines = append(lines, strings.Split(s, "\n")...)
+	}
+	appendBlank := func(count int) {
+		for i := 0; i < count; i++ {
+			lines = append(lines, "")
+		}
+	}
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorPrimary).
+		MarginBottom(1)
+	appendLines(titleStyle.Render(d.title))
+	appendBlank(2)
+
+	switch d.dtype {
+	case DialogInput:
+		appendLines(d.input.View())
+		appendBlank(2)
+		line := d.renderInputButtonsLine(len(lines))
+		lines = append(lines, line)
 	case DialogConfirm:
-		content.WriteString(d.message)
-		content.WriteString("\n\n")
-		content.WriteString(d.renderOptions())
-
+		appendLines(d.message)
+		appendBlank(2)
+		lines = append(lines, d.renderOptionsLines(len(lines))...)
 	case DialogSelect:
 		if d.message != "" {
-			content.WriteString(d.message)
-			content.WriteString("\n\n")
+			appendLines(d.message)
+			appendBlank(2)
 		}
-		content.WriteString(d.renderOptions())
+		lines = append(lines, d.renderOptionsLines(len(lines))...)
 	}
 
 	if d.showKeymapHints {
 		helpStyle := lipgloss.NewStyle().
 			Foreground(ColorMuted).
 			MarginTop(1)
-		content.WriteString("\n")
-		content.WriteString(helpStyle.Render(d.helpText()))
+		appendBlank(1)
+		appendLines(helpStyle.Render(d.helpText()))
 	}
 
-	// Dialog box
-	width := 50
-	if d.width > 0 {
-		// Use available width, but cap at reasonable max for readability if needed,
-		// or just use a percentage.
-		// For paths, we want more space.
-		width = min(80, max(50, d.width-10))
-	}
-
-	dialogStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorPrimary).
-		Padding(1, 2).
-		Width(width)
-
-	return dialogStyle.Render(content.String())
+	return lines
 }
 
-// renderOptions renders the selection options
-func (d *Dialog) renderOptions() string {
-	var b strings.Builder
-
-	// For agent picker, show filter input and filtered list
+func (d *Dialog) renderOptionsLines(baseLine int) []string {
 	if d.id == "agent-picker" {
-		// Show filter input
+		lines := []string{}
+		lineIndex := baseLine
+
 		if d.filterEnabled {
-			b.WriteString(d.filterInput.View())
-			b.WriteString("\n\n")
+			inputLines := strings.Split(d.filterInput.View(), "\n")
+			lines = append(lines, inputLines...)
+			lineIndex += len(inputLines)
+			lines = append(lines, "", "")
+			lineIndex += 2
+		}
+
+		if d.filterEnabled && len(d.filteredIndices) == 0 {
+			lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted).Render("No matches"))
+			return lines
 		}
 
 		agentOptions := DefaultAgentOptions()
-
-		// If no matches, show message
-		if d.filterEnabled && len(d.filteredIndices) == 0 {
-			b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("No matches"))
-			return b.String()
-		}
-
-		// Render only filtered options
 		for cursorIdx, originalIdx := range d.filteredIndices {
 			opt := agentOptions[originalIdx]
 			cursor := Icons.CursorEmpty + " "
@@ -518,7 +580,6 @@ func (d *Dialog) renderOptions() string {
 				cursor = Icons.Cursor + " "
 			}
 
-			// Get agent color for indicator only
 			var colorStyle lipgloss.Style
 			switch opt.ID {
 			case "claude":
@@ -544,15 +605,19 @@ func (d *Dialog) renderOptions() string {
 			}
 			name := nameStyle.Render("[" + opt.Name + "]")
 			line := cursor + indicator + " " + name
-			if d.zone != nil {
-				line = d.zone.Mark("dialog-"+d.id+"-opt-"+strconv.Itoa(originalIdx), line)
-			}
-			b.WriteString(line + "\n")
+
+			width := min(lipgloss.Width(line), d.dialogContentWidth())
+			d.addOptionHit(cursorIdx, originalIdx, lineIndex, 0, width)
+			lines = append(lines, line)
+			lineIndex++
 		}
-		return b.String()
+		return lines
 	}
 
-	// For confirm dialogs, show horizontal options
+	return []string{d.renderHorizontalOptionsLine(baseLine)}
+}
+
+func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {
 	selectedStyle := lipgloss.NewStyle().
 		Foreground(ColorForeground).
 		Background(ColorPrimary).
@@ -562,24 +627,28 @@ func (d *Dialog) renderOptions() string {
 		Foreground(ColorMuted).
 		Padding(0, 1)
 
+	var b strings.Builder
+	x := 0
 	for i, opt := range d.options {
 		rendered := normalStyle.Render(opt)
 		if i == d.cursor {
 			rendered = selectedStyle.Render(opt)
 		}
-		if d.zone != nil {
-			rendered = d.zone.Mark("dialog-"+d.id+"-opt-"+strconv.Itoa(i), rendered)
-		}
+		width := min(lipgloss.Width(rendered), d.dialogContentWidth()-x)
+		d.addOptionHit(i, i, baseLine, x, width)
 		b.WriteString(rendered)
 		if i < len(d.options)-1 {
 			b.WriteString("  ")
+			x += width + 2
+		} else {
+			x += width
 		}
 	}
 
 	return b.String()
 }
 
-func (d *Dialog) renderInputButtons() string {
+func (d *Dialog) renderInputButtonsLine(baseLine int) string {
 	selectedStyle := lipgloss.NewStyle().
 		Foreground(ColorForeground).
 		Background(ColorPrimary).
@@ -589,15 +658,33 @@ func (d *Dialog) renderInputButtons() string {
 		Foreground(ColorMuted).
 		Padding(0, 1)
 
-	// Highlight OK by default for visual affordance
 	ok := selectedStyle.Render("OK")
 	cancel := normalStyle.Render("Cancel")
-	if d.zone != nil {
-		ok = d.zone.Mark("dialog-"+d.id+"-opt-0", ok)
-		cancel = d.zone.Mark("dialog-"+d.id+"-opt-1", cancel)
-	}
+
+	okWidth := min(lipgloss.Width(ok), d.dialogContentWidth())
+	d.addOptionHit(0, 0, baseLine, 0, okWidth)
+
+	cancelX := okWidth + 2
+	cancelWidth := min(lipgloss.Width(cancel), max(0, d.dialogContentWidth()-cancelX))
+	d.addOptionHit(1, 1, baseLine, cancelX, cancelWidth)
 
 	return ok + "  " + cancel
+}
+
+func (d *Dialog) addOptionHit(cursorIdx, optionIdx, line, x, width int) {
+	if width <= 0 {
+		return
+	}
+	d.optionHits = append(d.optionHits, dialogOptionHit{
+		cursorIndex: cursorIdx,
+		optionIndex: optionIdx,
+		region: HitRegion{
+			X:      x,
+			Y:      line,
+			Width:  width,
+			Height: 1,
+		},
+	})
 }
 
 func (d *Dialog) helpText() string {
@@ -621,6 +708,9 @@ func (d *Dialog) SetSize(width, height int) {
 	d.width = width
 	d.height = height
 	if d.dtype == DialogInput {
-		d.input.Width = min(40, width-10)
+		d.input.SetWidth(min(40, width-10))
+	}
+	if d.dtype == DialogSelect && d.filterEnabled {
+		d.filterInput.SetWidth(min(30, width-10))
 	}
 }
