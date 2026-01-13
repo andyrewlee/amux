@@ -272,11 +272,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-		// Don't process other keys while dialog is open
+		// Don't process other input while dialog is open
 		if _, ok := msg.(tea.KeyPressMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
 		if _, ok := msg.(tea.PasteMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -289,11 +292,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-		// Don't process other keys while file picker is open
+		// Don't process other input while file picker is open
 		if _, ok := msg.(tea.KeyPressMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
 		if _, ok := msg.(tea.PasteMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
 	}
@@ -1954,6 +1960,20 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 		region.Y += offsetY
 		if region.Contains(localX, localY) {
 			return func() tea.Msg { return messages.ShowAddProjectDialog{} }
+		}
+	}
+
+	// Help toggle button
+	helpLabel := "[?] Hide keymap"
+	if !a.config.UI.ShowKeymapHints {
+		helpLabel = "[?] Show keymap"
+	}
+	helpToggleBtn := a.styles.TabPlus.Render(helpLabel)
+	if region, ok := findButtonRegion(lines, helpToggleBtn); ok {
+		region.X += offsetX
+		region.Y += offsetY
+		if region.Contains(localX, localY) {
+			return func() tea.Msg { return messages.ToggleKeymapHints{} }
 		}
 	}
 
