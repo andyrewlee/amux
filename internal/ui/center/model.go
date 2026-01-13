@@ -1309,15 +1309,19 @@ func (m *Model) renderTabBar() string {
 }
 
 func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
-	if msg.Y != 0 {
+	// Tab bar is at screen Y=1 due to the pane's top border (Y=0 is the border itself)
+	const borderTop = 1
+	if msg.Y != borderTop {
 		return nil
 	}
 	localX := msg.X - m.offsetX
 	if localX < 0 {
 		return nil
 	}
+	// Convert screen Y to local Y within tab bar content (all tab hits are at Y=0)
+	localY := msg.Y - borderTop
 	for _, hit := range m.tabHits {
-		if hit.region.Contains(localX, msg.Y) {
+		if hit.region.Contains(localX, localY) {
 			switch hit.kind {
 			case tabHitPlus:
 				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
