@@ -359,6 +359,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if cmd := a.handleCenterPaneClick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+			break
+		}
+
 		// Forward mouse events to the focused pane
 		// This ensures drag events are received even if the mouse leaves the pane bounds
 		switch a.focusedPane {
@@ -1054,24 +1059,6 @@ func (a *App) overlayCursor() *tea.Cursor {
 	return nil
 }
 
-func versionAtLeast(version string, minimum string) bool {
-	var vMajor, vMinor, vPatch int
-	if _, err := fmt.Sscanf(version, "%d.%d.%d", &vMajor, &vMinor, &vPatch); err != nil {
-		return false
-	}
-	var mMajor, mMinor, mPatch int
-	if _, err := fmt.Sscanf(minimum, "%d.%d.%d", &mMajor, &mMinor, &mPatch); err != nil {
-		return false
-	}
-	if vMajor != mMajor {
-		return vMajor > mMajor
-	}
-	if vMinor != mMinor {
-		return vMinor > mMinor
-	}
-	return vPatch >= mPatch
-}
-
 // overlayPrefixIndicator shows a visual indicator when prefix mode is active
 func (a *App) overlayPrefixIndicator(content string) string {
 	indicator := lipgloss.NewStyle().
@@ -1249,8 +1236,7 @@ func (a *App) overlayError(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderCenterPane renders the center pane content when no tabs
-func (a *App) renderCenterPane() string {
+func (a *App) centerPaneStyle() lipgloss.Style {
 	width := a.layout.CenterWidth()
 	height := a.layout.Height()
 
@@ -1264,6 +1250,12 @@ func (a *App) renderCenterPane() string {
 	if a.focusedPane == messages.PaneCenter {
 		style = style.BorderForeground(lipgloss.Color("#61afef"))
 	}
+	return style
+}
+
+// renderCenterPane renders the center pane content when no tabs
+func (a *App) renderCenterPane() string {
+	style := a.centerPaneStyle()
 
 	if a.showWelcome {
 		return style.Render(a.renderWelcome())
@@ -1274,6 +1266,14 @@ func (a *App) renderCenterPane() string {
 	}
 
 	return style.Render("Select a worktree from the dashboard")
+}
+
+func (a *App) centerPaneContentOrigin() (x, y int) {
+	if a.layout == nil {
+		return 0, 0
+	}
+	frameX, frameY := a.centerPaneStyle().GetFrameSize()
+	return a.layout.DashboardWidth() + frameX/2, frameY / 2
 }
 
 func (a *App) goHome() {
@@ -1839,6 +1839,55 @@ func (a *App) welcomeContent() string {
 	return b.String()
 }
 
+func centerOffset(container, content int) int {
+	if container <= content {
+		return 0
+	}
+	return (container - content) / 2
+}
+
+func findButtonRegion(lines []string, button string) (common.HitRegion, bool) {
+	buttonLines := strings.Split(button, "\n")
+	if len(buttonLines) == 0 {
+		return common.HitRegion{}, false
+	}
+	strippedButtonLines := make([]string, len(buttonLines))
+	for i, line := range buttonLines {
+		strippedButtonLines[i] = ansi.Strip(line)
+		if strippedButtonLines[i] == "" && len(buttonLines) == 1 {
+			return common.HitRegion{}, false
+		}
+	}
+	buttonWidth, buttonHeight := viewDimensions(button)
+
+	for i := 0; i+len(buttonLines) <= len(lines); i++ {
+		strippedLine := ansi.Strip(lines[i])
+		idx := strings.Index(strippedLine, strippedButtonLines[0])
+		if idx < 0 {
+			continue
+		}
+		start := ansi.StringWidth(strippedLine[:idx])
+		matched := true
+		for j := 1; j < len(buttonLines); j++ {
+			lineStripped := ansi.Strip(lines[i+j])
+			if idx >= len(lineStripped) || !strings.HasPrefix(lineStripped[idx:], strippedButtonLines[j]) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return common.HitRegion{
+				X:      start,
+				Y:      i,
+				Width:  buttonWidth,
+				Height: buttonHeight,
+			}, true
+		}
+	}
+
+	return common.HitRegion{}, false
+}
+
 func (a *App) welcomeLogo() (string, lipgloss.Style) {
 	logo := `
  8888b.  88888b.d88b.  888  888 888  888
@@ -1851,6 +1900,89 @@ func (a *App) welcomeLogo() (string, lipgloss.Style) {
 		Foreground(lipgloss.Color("#7aa2f7")).
 		Bold(true)
 	return logo, logoStyle
+}
+
+func (a *App) handleCenterPaneClick(msg tea.MouseClickMsg) tea.Cmd {
+	if msg.Button != tea.MouseLeft {
+		return nil
+	}
+	if a.layout == nil || !a.layout.ShowCenter() || a.center.HasTabs() {
+		return nil
+	}
+	dashWidth := a.layout.DashboardWidth()
+	centerWidth := a.layout.CenterWidth()
+	if centerWidth <= 0 {
+		return nil
+	}
+	if msg.X < dashWidth || msg.X >= dashWidth+centerWidth {
+		return nil
+	}
+	contentX, contentY := a.centerPaneContentOrigin()
+	localX := msg.X - contentX
+	localY := msg.Y - contentY
+	if localX < 0 || localY < 0 {
+		return nil
+	}
+
+	if a.showWelcome {
+		return a.handleWelcomeClick(localX, localY)
+	}
+	if a.activeWorktree != nil {
+		return a.handleWorktreeInfoClick(localX, localY)
+	}
+	return nil
+}
+
+func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
+	content := a.welcomeContent()
+	lines := strings.Split(content, "\n")
+	contentWidth, contentHeight := viewDimensions(content)
+
+	// Match the width/height used by renderWelcome for centering.
+	placeWidth := a.layout.CenterWidth() - 4
+	placeHeight := a.layout.Height() - 4
+	if placeWidth <= 0 || placeHeight <= 0 {
+		return nil
+	}
+
+	offsetX := centerOffset(placeWidth, contentWidth)
+	offsetY := centerOffset(placeHeight, contentHeight)
+
+	newProjectBtn := a.styles.TabPlus.Render("[+] New project")
+	if region, ok := findButtonRegion(lines, newProjectBtn); ok {
+		region.X += offsetX
+		region.Y += offsetY
+		if region.Contains(localX, localY) {
+			return func() tea.Msg { return messages.ShowAddProjectDialog{} }
+		}
+	}
+
+	return nil
+}
+
+func (a *App) handleWorktreeInfoClick(localX, localY int) tea.Cmd {
+	if a.activeWorktree == nil {
+		return nil
+	}
+	content := a.renderWorktreeInfo()
+	lines := strings.Split(content, "\n")
+
+	agentBtn := a.styles.TabPlus.Render("[+] New agent")
+	if region, ok := findButtonRegion(lines, agentBtn); ok {
+		if region.Contains(localX, localY) {
+			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+		}
+	}
+
+	commitsBtn := a.styles.TabPlus.Render("[d] Commits")
+	if region, ok := findButtonRegion(lines, commitsBtn); ok {
+		if region.Contains(localX, localY) {
+			wt := a.activeWorktree
+			return func() tea.Msg { return messages.OpenCommitViewer{Worktree: wt} }
+		}
+	}
+
+	return nil
 }
 
 // loadProjects loads all registered projects and their worktrees

@@ -475,53 +475,6 @@ func (m *TerminalModel) View() string {
 	return b.String()
 }
 
-func (m *TerminalModel) scrollByHalfPage(delta int) {
-	ts := m.getTerminal()
-	if ts == nil || ts.VTerm == nil {
-		return
-	}
-	ts.mu.Lock()
-	ts.VTerm.ScrollView(delta * (ts.VTerm.Height / 2))
-	ts.mu.Unlock()
-}
-
-func (m *TerminalModel) toggleCopyMode() {
-	ts := m.getTerminal()
-	if ts == nil {
-		return
-	}
-	if ts.CopyMode {
-		ts.CopyMode = false
-		ts.mu.Lock()
-		if ts.VTerm != nil {
-			ts.VTerm.ScrollViewToBottom()
-		}
-		ts.mu.Unlock()
-		return
-	}
-	ts.CopyMode = true
-}
-
-func (m *TerminalModel) scrollToTop() {
-	ts := m.getTerminal()
-	if ts == nil || ts.VTerm == nil {
-		return
-	}
-	ts.mu.Lock()
-	ts.VTerm.ScrollViewToTop()
-	ts.mu.Unlock()
-}
-
-func (m *TerminalModel) scrollToBottom() {
-	ts := m.getTerminal()
-	if ts == nil || ts.VTerm == nil {
-		return
-	}
-	ts.mu.Lock()
-	ts.VTerm.ScrollViewToBottom()
-	ts.mu.Unlock()
-}
-
 func (m *TerminalModel) helpItem(key, desc string) string {
 	return common.RenderHelpItem(m.styles, key, desc)
 }

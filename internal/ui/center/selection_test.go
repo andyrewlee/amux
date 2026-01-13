@@ -71,7 +71,7 @@ func TestSelectionLifecycle(t *testing.T) {
 	tab.mu.Unlock()
 
 	release := tea.MouseReleaseMsg{X: 14, Y: 12, Button: tea.MouseLeft}
-	m, _ = m.Update(release)
+	_, _ = m.Update(release)
 
 	tab.mu.Lock()
 	if tab.Selection.Active {
@@ -86,7 +86,7 @@ func TestSelectionIgnoredWhenUnfocused(t *testing.T) {
 	m.Blur()
 
 	click := tea.MouseClickMsg{X: 10, Y: 10, Button: tea.MouseLeft}
-	m, _ = m.Update(click)
+	_, _ = m.Update(click)
 
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
@@ -99,7 +99,7 @@ func TestSelectionClearsOutsideBounds(t *testing.T) {
 	m, tab := setupSelectionModel(t)
 
 	click := tea.MouseClickMsg{X: 0, Y: 0, Button: tea.MouseLeft}
-	m, _ = m.Update(click)
+	_, _ = m.Update(click)
 
 	tab.mu.Lock()
 	defer tab.mu.Unlock()

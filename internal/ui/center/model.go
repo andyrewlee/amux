@@ -1179,67 +1179,6 @@ func (m *Model) helpLines(contentWidth int) []string {
 	return common.WrapHelpItems(items, contentWidth)
 }
 
-func (m *Model) scrollByHalfPage(delta int) {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		tab.Terminal.ScrollView(delta * (tab.Terminal.Height / 2))
-	}
-	tab.mu.Unlock()
-}
-
-func (m *Model) scrollToTop() {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		tab.Terminal.ScrollViewToTop()
-	}
-	tab.mu.Unlock()
-}
-
-func (m *Model) scrollToBottom() {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		tab.Terminal.ScrollViewToBottom()
-	}
-	tab.mu.Unlock()
-}
-
-func (m *Model) toggleCopyMode() {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	if tab.CopyMode {
-		tab.CopyMode = false
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToBottom()
-		}
-		tab.mu.Unlock()
-		return
-	}
-	tab.CopyMode = true
-}
-
 // renderTabBar renders the tab bar with activity indicators
 func (m *Model) renderTabBar() string {
 	m.tabHits = m.tabHits[:0]

@@ -56,9 +56,9 @@ var (
 	statsMu  sync.Mutex
 	statsMap = map[string]*stat{}
 
-	countersMu  sync.Mutex
-	counterMap  = map[string]*counter{}
-	initOnce    sync.Once
+	countersMu sync.Mutex
+	counterMap = map[string]*counter{}
+	initOnce   sync.Once
 )
 
 func init() {
