@@ -321,13 +321,7 @@ func (m *Model) View() string {
 		contentStr = strings.Join(lines, "\n")
 	}
 
-	// Apply pane styling
-	style := m.styles.Pane
-	if m.focused {
-		style = m.styles.FocusedPane
-	}
-
-	return style.Width(m.width - 2).Height(m.height - 2).Render(contentStr)
+	return contentStr
 }
 
 func (m *Model) helpItem(key, desc string) string {

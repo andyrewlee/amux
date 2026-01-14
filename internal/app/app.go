@@ -348,15 +348,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focusPane(messages.PaneCenter)
 			} else if a.layout.ShowSidebar() {
 				// Clicked on sidebar - determine top (changes) or bottom (terminal)
-				sidebarLayout := a.sidebarLayoutInfo()
+				sidebarHeight := a.layout.Height()
+				topPaneHeight := sidebarHeight / 2
 
-				// Calculate split point (Y offset of terminal)
-				// Border(1) + TopHeight + Separator(1 if present)
-				splitY := 1 + sidebarLayout.topHeight
-				if sidebarLayout.hasSeparator {
-					splitY++
-				}
-				if msg.Y >= splitY {
+				// Split point is after top pane
+				if msg.Y >= topPaneHeight {
 					a.focusPane(messages.PaneSidebarTerminal)
 				} else {
 					a.focusPane(messages.PaneSidebar)
@@ -930,14 +926,21 @@ func (a *App) View() tea.View {
 		return a.finalizeView(buildView(content, a.overlayCursor()))
 	}
 
-	// Render panes
-	dashView := a.dashboard.View()
+	// Render panes with manual borders for guaranteed dimensions
+	dashContent := a.dashboard.View()
+	dashView := buildBorderedPane(dashContent, a.layout.DashboardWidth(), a.layout.Height(), a.dashboard.Focused())
 
 	var centerView string
+	centerFocused := a.focusedPane == messages.PaneCenter
 	if a.center.HasTabs() {
-		centerView = a.center.View()
+		centerContent := a.center.View()
+		centerView = buildBorderedPane(centerContent, a.layout.CenterWidth(), a.layout.Height(), centerFocused)
+		if a.center.HasSaveDialog() {
+			centerView = a.center.OverlayDialog(centerView)
+		}
 	} else {
-		centerView = a.renderCenterPane()
+		centerContent := a.renderCenterPaneContent()
+		centerView = buildBorderedPane(centerContent, a.layout.CenterWidth(), a.layout.Height(), centerFocused)
 	}
 
 	// Render sidebar as vertical split: file changes (top) + terminal (bottom)
@@ -1258,19 +1261,17 @@ func (a *App) centerPaneStyle() lipgloss.Style {
 	return style
 }
 
-// renderCenterPane renders the center pane content when no tabs
-func (a *App) renderCenterPane() string {
-	style := a.centerPaneStyle()
-
+// renderCenterPaneContent renders the center pane content when no tabs (raw content, no borders)
+func (a *App) renderCenterPaneContent() string {
 	if a.showWelcome {
-		return style.Render(a.renderWelcome())
+		return a.renderWelcome()
 	}
 
 	if a.activeWorktree != nil {
-		return style.Render(a.renderWorktreeInfo())
+		return a.renderWorktreeInfo()
 	}
 
-	return style.Render("Select a worktree from the dashboard")
+	return "Select a worktree from the dashboard"
 }
 
 func (a *App) centerPaneContentOrigin() (x, y int) {
@@ -2452,7 +2453,7 @@ func (a *App) updateLayout() {
 	sidebarWidth := a.layout.SidebarWidth()
 	sidebarHeight := a.layout.Height()
 
-	// Each pane gets half the height
+	// Each pane gets half the height (borders touch)
 	topPaneHeight := sidebarHeight / 2
 	bottomPaneHeight := sidebarHeight - topPaneHeight
 
@@ -2583,7 +2584,7 @@ func (a *App) renderSidebarPane() string {
 	outerWidth := a.layout.SidebarWidth()
 	outerHeight := a.layout.Height()
 
-	// Split height evenly between the two panes
+	// Split height evenly between the two panes (borders touch)
 	paneHeight := outerHeight / 2
 	if paneHeight < 3 {
 		paneHeight = 3

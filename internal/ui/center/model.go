@@ -1054,20 +1054,20 @@ func (m *Model) View() string {
 		contentStr = strings.Join(lines, "\n")
 	}
 
-	// Apply pane styling
-	style := m.styles.Pane
-	if m.focused {
-		style = m.styles.FocusedPane
+	return contentStr
+}
+
+// HasSaveDialog returns true if a save dialog is visible
+func (m *Model) HasSaveDialog() bool {
+	return m.saveDialog != nil && m.saveDialog.Visible()
+}
+
+// OverlayDialog overlays the save dialog on top of bordered content
+func (m *Model) OverlayDialog(borderedContent string) string {
+	if m.saveDialog == nil || !m.saveDialog.Visible() {
+		return borderedContent
 	}
-
-	content := style.Width(m.width - 2).Height(m.height - 2).Render(contentStr)
-
-	if m.saveDialog != nil && m.saveDialog.Visible() {
-		dialogView := m.saveDialog.View()
-		return m.overlayCenter(content, dialogView)
-	}
-
-	return content
+	return m.overlayCenter(borderedContent, m.saveDialog.View())
 }
 
 // overlayCenter renders the dialog as a true modal overlay on top of content
