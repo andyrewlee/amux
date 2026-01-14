@@ -207,6 +207,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if msg.Worktree != nil {
 			m.activeRoot = msg.Worktree.Root
 		}
+
+	case messages.ShowWelcome:
+		m.activeRoot = ""
 	}
 
 	return m, tea.Batch(cmds...)
@@ -349,6 +352,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Bold(true).
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
+		} else if m.activeRoot == "" {
+			style = style.Bold(true).Foreground(common.ColorPrimary)
 		}
 		return cursor + style.Render("["+common.Icons.Home+" Home]")
 
@@ -360,6 +365,25 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		return cursor + style.Render(common.Icons.Add+" Add Project")
 
 	case RowProject:
+		status := ""
+		main := m.getMainWorktree(row.Project)
+		if main != nil {
+			if m.deletingWorktrees[main.Root] {
+				frame := common.SpinnerFrame(m.spinnerFrame)
+				status = " " + m.styles.StatusPending.Render(frame+" deleting")
+			} else if m.loadingStatus[main.Root] {
+				frame := common.SpinnerFrame(m.spinnerFrame)
+				status = " " + m.styles.StatusPending.Render(frame)
+			} else if s, ok := m.statusCache[main.Root]; ok {
+				if s.Clean {
+					status = " " + m.styles.StatusClean.Render(common.Icons.Clean)
+				} else {
+					count := len(s.Files)
+					status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
+				}
+			}
+		}
+
 		// Project headers are uppercase - selectable to access main branch
 		// Remove MarginTop from style to keep cursor on same line as text
 		// Add spacing as newline prefix instead
@@ -369,10 +393,13 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Bold(true).
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
+		} else if m.isProjectActive(row.Project) {
+			style = m.styles.ActiveWorktree.PaddingLeft(0)
 		}
-		// Truncate project name to fit within pane (width - border - padding - cursor)
+
+		// Truncate project name to fit within pane (width - border - padding - cursor - status)
 		name := row.Project.Name
-		maxNameWidth := m.width - 4 - lipgloss.Width(cursor) - 1
+		maxNameWidth := m.width - 4 - lipgloss.Width(cursor) - lipgloss.Width(status) - 1
 		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
 			runes := []rune(name)
 			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
@@ -380,7 +407,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			}
 			name = string(runes) + "…"
 		}
-		return "\n" + cursor + style.Render(name)
+		return "\n" + cursor + style.Render(name) + status
 
 	case RowWorktree:
 		name := row.Worktree.Name
@@ -788,6 +815,32 @@ func (m *Model) SetProjects(projects []data.Project) {
 	m.rebuildRows()
 }
 
+// isProjectActive returns true if the project's main worktree is active
+func (m *Model) isProjectActive(p *data.Project) bool {
+	if p == nil {
+		return false
+	}
+	main := m.getMainWorktree(p)
+	if main == nil {
+		return false
+	}
+	return main.Root == m.activeRoot
+}
+
+// getMainWorktree returns the primary or main branch worktree for a project
+func (m *Model) getMainWorktree(p *data.Project) *data.Worktree {
+	if p == nil {
+		return nil
+	}
+	for i := range p.Worktrees {
+		wt := &p.Worktrees[i]
+		if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
+			return wt
+		}
+	}
+	return nil
+}
+
 // SelectedRow returns the currently selected row
 func (m *Model) SelectedRow() *Row {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
@@ -799,4 +852,9 @@ func (m *Model) SelectedRow() *Row {
 // Projects returns the current projects
 func (m *Model) Projects() []data.Project {
 	return m.projects
+}
+
+// ClearActiveRoot resets the active worktree selection to "Home".
+func (m *Model) ClearActiveRoot() {
+	m.activeRoot = ""
 }
