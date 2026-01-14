@@ -357,13 +357,6 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 		return cursor + style.Render("["+common.Icons.Home+" Home]")
 
-	case RowAddProject:
-		style := m.styles.CreateButton
-		if selected {
-			style = m.styles.SelectedRow
-		}
-		return cursor + style.Render(common.Icons.Add+" Add Project")
-
 	case RowProject:
 		status := ""
 		main := m.getMainWorktree(row.Project)
@@ -495,7 +488,6 @@ func (m *Model) SetWorktreeDeleting(root string, deleting bool) tea.Cmd {
 func (m *Model) rebuildRows() {
 	m.rows = []Row{
 		{Type: RowHome},
-		{Type: RowAddProject},
 	}
 
 	for i := range m.projects {
@@ -727,8 +719,6 @@ func (m *Model) handleEnter() tea.Cmd {
 	switch row.Type {
 	case RowHome:
 		return func() tea.Msg { return messages.ShowWelcome{} }
-	case RowAddProject:
-		return func() tea.Msg { return messages.ShowAddProjectDialog{} }
 	case RowProject:
 		// Find and activate the main/primary worktree for this project
 		var mainWT *data.Worktree
