@@ -454,7 +454,7 @@ func (d *Dialog) Cursor() *tea.Cursor {
 		return nil
 	}
 
-	c.Y += lipgloss.Height(prefix.String())
+	c.Y += lipgloss.Height(prefix.String()) - 1
 
 	// Account for border + padding (Border=1, Padding=(1,2)).
 	c.X += 3
@@ -523,22 +523,22 @@ func (d *Dialog) renderLines() []string {
 		Foreground(ColorPrimary).
 		MarginBottom(1)
 	appendLines(titleStyle.Render(d.title))
-	appendBlank(2)
+	appendBlank(1)
 
 	switch d.dtype {
 	case DialogInput:
 		appendLines(d.input.View())
-		appendBlank(2)
+		appendBlank(1)
 		line := d.renderInputButtonsLine(len(lines))
 		lines = append(lines, line)
 	case DialogConfirm:
 		appendLines(d.message)
-		appendBlank(2)
+		appendBlank(1)
 		lines = append(lines, d.renderOptionsLines(len(lines))...)
 	case DialogSelect:
 		if d.message != "" {
 			appendLines(d.message)
-			appendBlank(2)
+			appendBlank(1)
 		}
 		lines = append(lines, d.renderOptionsLines(len(lines))...)
 	}
