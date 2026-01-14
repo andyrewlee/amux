@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -297,13 +298,8 @@ func (m *Model) View() string {
 	}
 	b.WriteString(strings.Join(helpLines, "\n"))
 
-	// Apply pane styling
-	style := m.styles.Pane
-	if m.focused {
-		style = m.styles.FocusedPane
-	}
-
-	return style.Width(m.width - 2).Render(b.String())
+	// Return raw content - buildBorderedPane in app.go handles truncation
+	return b.String()
 }
 
 func (m *Model) helpItem(key, desc string) string {
@@ -374,7 +370,17 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
 		}
-		return "\n" + cursor + style.Render(row.Project.Name)
+		// Truncate project name to fit within pane (width - border - padding - cursor)
+		name := row.Project.Name
+		maxNameWidth := m.width - 4 - lipgloss.Width(cursor) - 1
+		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
+			runes := []rune(name)
+			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
+				runes = runes[:len(runes)-1]
+			}
+			name = string(runes) + "…"
+		}
+		return "\n" + cursor + style.Render(name)
 
 	case RowWorktree:
 		name := row.Worktree.Name
@@ -406,6 +412,16 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			style = m.styles.SelectedRow
 		} else if row.Worktree.Root == m.activeRoot {
 			style = m.styles.ActiveWorktree
+		}
+
+		// Truncate worktree name to fit within pane (width - border - padding - cursor - status)
+		maxNameWidth := m.width - 4 - lipgloss.Width(cursor) - lipgloss.Width(status) - 1
+		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
+			runes := []rune(name)
+			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
+				runes = runes[:len(runes)-1]
+			}
+			name = string(runes) + "…"
 		}
 		return cursor + style.Render(name) + status
 

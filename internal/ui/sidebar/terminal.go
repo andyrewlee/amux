@@ -472,7 +472,16 @@ func (m *TerminalModel) View() string {
 	}
 	b.WriteString(strings.Join(helpLines, "\n"))
 
-	return b.String()
+	// Ensure output doesn't exceed m.height lines
+	result := b.String()
+	if m.height > 0 {
+		lines := strings.Split(result, "\n")
+		if len(lines) > m.height {
+			lines = lines[:m.height]
+			result = strings.Join(lines, "\n")
+		}
+	}
+	return result
 }
 
 func (m *TerminalModel) helpItem(key, desc string) string {

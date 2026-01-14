@@ -1028,35 +1028,58 @@ func (m *Model) View() string {
 	if !m.showKeymapHints {
 		helpLines = nil
 	}
-	// Pad to the inner pane height (border excluded), reserving the help line.
-	contentHeight := strings.Count(b.String(), "\n") + 1
+	// Pad to the inner pane height (border excluded), reserving the help lines.
+	// buildBorderedPane will use contentHeight = height - 2, so we target that.
 	innerHeight := m.height - 2
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
-	targetHeight := innerHeight - len(helpLines) // help lines
-	if targetHeight < 0 {
-		targetHeight = 0
-	}
-	if targetHeight > contentHeight {
-		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
-	}
-	b.WriteString(strings.Join(helpLines, "\n"))
 
-	// Apply pane styling
-	style := m.styles.Pane
-	if m.focused {
-		style = m.styles.FocusedPane
-	}
+	// Build content with help at bottom
+	content := b.String()
+	helpContent := strings.Join(helpLines, "\n")
 
-	content := style.Width(m.width - 2).Render(b.String())
+	// Count current lines
+	contentLines := strings.Split(content, "\n")
+	helpLineCount := len(helpLines)
 
-	if m.saveDialog != nil && m.saveDialog.Visible() {
-		dialogView := m.saveDialog.View()
-		return m.overlayCenter(content, dialogView)
+	// Calculate padding needed
+	targetContentLines := innerHeight - helpLineCount
+	if targetContentLines < 0 {
+		targetContentLines = 0
 	}
 
-	return content
+	// Pad or truncate content to targetContentLines
+	if len(contentLines) < targetContentLines {
+		// Pad with empty lines
+		for len(contentLines) < targetContentLines {
+			contentLines = append(contentLines, "")
+		}
+	} else if len(contentLines) > targetContentLines {
+		// Truncate
+		contentLines = contentLines[:targetContentLines]
+	}
+
+	// Combine content and help
+	result := strings.Join(contentLines, "\n")
+	if helpContent != "" {
+		result += "\n" + helpContent
+	}
+
+	return result
+}
+
+// HasSaveDialog returns true if a save dialog is visible
+func (m *Model) HasSaveDialog() bool {
+	return m.saveDialog != nil && m.saveDialog.Visible()
+}
+
+// OverlayDialog overlays the save dialog on top of bordered content
+func (m *Model) OverlayDialog(borderedContent string) string {
+	if m.saveDialog == nil || !m.saveDialog.Visible() {
+		return borderedContent
+	}
+	return m.overlayCenter(borderedContent, m.saveDialog.View())
 }
 
 // overlayCenter renders the dialog as a true modal overlay on top of content
