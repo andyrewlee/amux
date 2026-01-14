@@ -398,7 +398,17 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
 		}
-		return "\n" + cursor + style.Render(row.Project.Name)
+		// Truncate project name to fit within pane (width - border - padding - cursor)
+		name := row.Project.Name
+		maxNameWidth := m.width - 4 - lipgloss.Width(cursor) - 1
+		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
+			runes := []rune(name)
+			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
+				runes = runes[:len(runes)-1]
+			}
+			name = string(runes) + "…"
+		}
+		return "\n" + cursor + style.Render(name)
 
 	case RowWorktree:
 		name := row.Worktree.Name
@@ -430,6 +440,16 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			style = m.styles.SelectedRow
 		} else if row.Worktree.Root == m.activeRoot {
 			style = m.styles.ActiveWorktree
+		}
+
+		// Truncate worktree name to fit within pane (width - border - padding - cursor - status)
+		maxNameWidth := m.width - 4 - lipgloss.Width(cursor) - lipgloss.Width(status) - 1
+		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
+			runes := []rune(name)
+			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
+				runes = runes[:len(runes)-1]
+			}
+			name = string(runes) + "…"
 		}
 		return cursor + style.Render(name) + status
 
