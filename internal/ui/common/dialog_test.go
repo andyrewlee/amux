@@ -37,7 +37,7 @@ func TestDialogCursorPositionInput(t *testing.T) {
 	prefix := titleStyle.Render(d.title) + "\n\n"
 
 	expectedX := inputCursor.X + 3
-	expectedY := inputCursor.Y + lipgloss.Height(prefix) + 2
+	expectedY := inputCursor.Y + lipgloss.Height(prefix) + 1
 
 	if c.X != expectedX || c.Y != expectedY {
 		t.Fatalf("unexpected cursor position: got (%d,%d), want (%d,%d)", c.X, c.Y, expectedX, expectedY)
@@ -70,7 +70,7 @@ func TestDialogCursorPositionFilter(t *testing.T) {
 	}
 
 	expectedX := inputCursor.X + 3
-	expectedY := inputCursor.Y + lipgloss.Height(prefix) + 2
+	expectedY := inputCursor.Y + lipgloss.Height(prefix) + 1
 
 	if c.X != expectedX || c.Y != expectedY {
 		t.Fatalf("unexpected cursor position: got (%d,%d), want (%d,%d)", c.X, c.Y, expectedX, expectedY)
