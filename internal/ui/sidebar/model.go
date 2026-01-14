@@ -138,7 +138,16 @@ func (m *Model) View() string {
 	}
 	b.WriteString(strings.Join(helpLines, "\n"))
 
-	return b.String()
+	// Ensure output doesn't exceed m.height lines
+	result := b.String()
+	if m.height > 0 {
+		lines := strings.Split(result, "\n")
+		if len(lines) > m.height {
+			lines = lines[:m.height]
+			result = strings.Join(lines, "\n")
+		}
+	}
+	return result
 }
 
 // renderChanges renders the git changes
@@ -207,18 +216,29 @@ func (m *Model) renderChanges() string {
 		// Use display code (shows "A " for untracked instead of "??")
 		displayCode := file.DisplayCode()
 
-		// Truncate path to fit within available width
-		prefixWidth := lipgloss.Width(cursor + displayCode + " ")
-		maxPathLen := m.width - prefixWidth
-		if maxPathLen < 10 {
-			maxPathLen = 10
-		}
-		displayPath := file.Path
-		if len(displayPath) > maxPathLen {
-			displayPath = "..." + displayPath[len(displayPath)-maxPathLen+3:]
+		// Build the prefix (cursor + status code)
+		prefix := cursor + statusStyle.Render(displayCode) + " "
+		prefixWidth := lipgloss.Width(prefix)
+
+		// Calculate max path width, leaving room for prefix
+		maxPathWidth := m.width - prefixWidth
+		if maxPathWidth < 5 {
+			maxPathWidth = 5
 		}
 
-		line := cursor + statusStyle.Render(displayCode) + " " + m.styles.FilePath.Render(displayPath)
+		// Truncate path from left to fit, showing end of path (most relevant part)
+		displayPath := file.Path
+		pathWidth := lipgloss.Width(displayPath)
+		if pathWidth > maxPathWidth {
+			// Remove characters from start until it fits
+			runes := []rune(displayPath)
+			for len(runes) > 4 && lipgloss.Width(string(runes)) > maxPathWidth-3 {
+				runes = runes[1:]
+			}
+			displayPath = "..." + string(runes)
+		}
+
+		line := prefix + m.styles.FilePath.Render(displayPath)
 		b.WriteString(line + "\n")
 	}
 

@@ -1043,13 +1043,24 @@ func (m *Model) View() string {
 	}
 	b.WriteString(strings.Join(helpLines, "\n"))
 
+	// Truncate content to fit within pane height (excluding border)
+	contentStr := b.String()
+	maxContentHeight := m.height - 2
+	if maxContentHeight > 0 {
+		lines := strings.Split(contentStr, "\n")
+		if len(lines) > maxContentHeight {
+			lines = lines[:maxContentHeight]
+		}
+		contentStr = strings.Join(lines, "\n")
+	}
+
 	// Apply pane styling
 	style := m.styles.Pane
 	if m.focused {
 		style = m.styles.FocusedPane
 	}
 
-	content := style.Width(m.width - 2).Render(b.String())
+	content := style.Width(m.width - 2).Height(m.height - 2).Render(contentStr)
 
 	if m.saveDialog != nil && m.saveDialog.Visible() {
 		dialogView := m.saveDialog.View()

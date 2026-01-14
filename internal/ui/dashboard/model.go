@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -297,13 +298,36 @@ func (m *Model) View() string {
 	}
 	b.WriteString(strings.Join(helpLines, "\n"))
 
+	// Truncate content: limit height and truncate wide lines (no word wrap)
+	contentStr := b.String()
+	maxContentHeight := m.height - 2
+	truncWidth := m.width - 2 - 2 // subtract border (2) and padding (2)
+	if maxContentHeight > 0 && truncWidth > 0 {
+		lines := strings.Split(contentStr, "\n")
+		if len(lines) > maxContentHeight {
+			lines = lines[:maxContentHeight]
+		}
+		// Truncate lines that are too wide
+		for i, line := range lines {
+			if lipgloss.Width(line) > truncWidth {
+				// Truncate by removing characters from the end
+				runes := []rune(line)
+				for len(runes) > 0 && lipgloss.Width(string(runes)) > truncWidth-1 {
+					runes = runes[:len(runes)-1]
+				}
+				lines[i] = string(runes) + "…"
+			}
+		}
+		contentStr = strings.Join(lines, "\n")
+	}
+
 	// Apply pane styling
 	style := m.styles.Pane
 	if m.focused {
 		style = m.styles.FocusedPane
 	}
 
-	return style.Width(m.width - 2).Render(b.String())
+	return style.Width(m.width - 2).Height(m.height - 2).Render(contentStr)
 }
 
 func (m *Model) helpItem(key, desc string) string {

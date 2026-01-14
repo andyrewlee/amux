@@ -2448,19 +2448,38 @@ func (a *App) updateLayout() {
 	a.center.SetCanFocusRight(a.layout.ShowSidebar())
 	a.dashboard.SetCanFocusRight(a.layout.ShowCenter())
 
-	sidebarLayout := a.sidebarLayoutInfo()
-	a.sidebar.SetSize(sidebarLayout.bodyWidth, sidebarLayout.topHeight)
-	a.sidebarTerminal.SetSize(sidebarLayout.bodyWidth, sidebarLayout.bottomHeight)
+	// New two-pane sidebar structure: each pane has its own border
+	sidebarWidth := a.layout.SidebarWidth()
+	sidebarHeight := a.layout.Height()
+
+	// Each pane gets half the height
+	topPaneHeight := sidebarHeight / 2
+	bottomPaneHeight := sidebarHeight - topPaneHeight
+
+	// Content dimensions inside each pane (subtract border + padding)
+	// Border: 2 (top + bottom), Padding: 2 (left + right from Pane style)
+	contentWidth := sidebarWidth - 2 - 2 // border + padding
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	topContentHeight := topPaneHeight - 2 // border only (no vertical padding in Pane style)
+	if topContentHeight < 1 {
+		topContentHeight = 1
+	}
+	bottomContentHeight := bottomPaneHeight - 2
+	if bottomContentHeight < 1 {
+		bottomContentHeight = 1
+	}
+
+	a.sidebar.SetSize(contentWidth, topContentHeight)
+	a.sidebarTerminal.SetSize(contentWidth, bottomContentHeight)
 
 	// Calculate and set offsets for sidebar terminal mouse handling
-	// X: Dashboard + Center + Border(1) + Padding(1) + Gutter(1)
-	termOffsetX := a.layout.DashboardWidth() + a.layout.CenterWidth() + 3
+	// X: Dashboard + Center + Border(1) + Padding(1)
+	termOffsetX := a.layout.DashboardWidth() + a.layout.CenterWidth() + 2
 
-	// Y: Border(1) + TopHeight
-	termOffsetY := 1 + sidebarLayout.topHeight
-	if sidebarLayout.hasSeparator {
-		termOffsetY++ // + Separator(1)
-	}
+	// Y: Top pane height (including its border) + Bottom pane border(1)
+	termOffsetY := topPaneHeight + 1
 	a.sidebarTerminal.SetOffset(termOffsetX, termOffsetY)
 
 	if a.dialog != nil {
@@ -2559,71 +2578,98 @@ func (a *App) sidebarLayoutInfo() sidebarLayoutInfo {
 	}
 }
 
-// renderSidebarPane renders the sidebar as a vertical split with file changes and terminal
+// renderSidebarPane renders the sidebar as two stacked panes: file changes (top) and terminal (bottom)
 func (a *App) renderSidebarPane() string {
-	layout := a.sidebarLayoutInfo()
+	outerWidth := a.layout.SidebarWidth()
+	outerHeight := a.layout.Height()
+
+	// Split height evenly between the two panes
+	paneHeight := outerHeight / 2
+	if paneHeight < 3 {
+		paneHeight = 3
+	}
+	bottomPaneHeight := outerHeight - paneHeight
 
 	topFocused := a.focusedPane == messages.PaneSidebar
 	bottomFocused := a.focusedPane == messages.PaneSidebarTerminal
-	sidebarFocused := topFocused || bottomFocused
 
-	topView := ""
-	if layout.topHeight > 0 {
-		topView = renderSidebarSection(a.sidebar.View(), layout.contentWidth, layout.topHeight, topFocused)
-	}
-	bottomView := ""
-	if layout.bottomHeight > 0 {
-		bottomView = renderSidebarSection(a.sidebarTerminal.View(), layout.contentWidth, layout.bottomHeight, bottomFocused)
-	}
+	// Build top pane manually with guaranteed border
+	topView := buildBorderedPane(a.sidebar.View(), outerWidth, paneHeight, topFocused)
 
-	var parts []string
-	if topView != "" {
-		parts = append(parts, topView)
-	}
-	if layout.hasSeparator && topView != "" && bottomView != "" {
-		separator := lipgloss.NewStyle().
-			Foreground(common.ColorBorder).
-			Render(strings.Repeat("─", layout.contentWidth))
-		parts = append(parts, separator)
-	}
-	if bottomView != "" {
-		parts = append(parts, bottomView)
-	}
+	// Build bottom pane manually with guaranteed border
+	bottomView := buildBorderedPane(a.sidebarTerminal.View(), outerWidth, bottomPaneHeight, bottomFocused)
 
-	content := lipgloss.JoinVertical(lipgloss.Top, parts...)
-	style := a.styles.Pane
-	if sidebarFocused {
-		style = a.styles.FocusedPane
-	}
-
-	return style.Width(layout.innerWidth).Render(content)
+	// Stack the two panes vertically
+	return lipgloss.JoinVertical(lipgloss.Top, topView, bottomView)
 }
 
-func renderSidebarSection(content string, width, height int, focused bool) string {
-	if width <= 0 || height <= 0 {
+// buildBorderedPane creates a bordered pane with exact dimensions, manually drawing the border
+func buildBorderedPane(content string, width, height int, focused bool) string {
+	if width < 3 || height < 3 {
 		return ""
 	}
-	if width <= sidebarGutterWidth {
-		return lipgloss.NewStyle().Width(width).Height(height).Render(content)
-	}
 
-	contentWidth := width - sidebarGutterWidth
-	normalized := lipgloss.NewStyle().Width(contentWidth).Height(height).Render(content)
-	lines := strings.Split(normalized, "\n")
-	gutter := " "
-	gutterStyle := lipgloss.NewStyle()
+	borderColor := common.ColorBorder
 	if focused {
-		gutter = "▌"
-		gutterStyle = gutterStyle.Foreground(common.ColorBorderFocused)
+		borderColor = common.ColorBorderFocused
+	}
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
+
+	// Content area dimensions (inside border and padding)
+	contentWidth := width - 4   // 2 for border, 2 for padding
+	contentHeight := height - 2 // 2 for border (top + bottom)
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	if contentHeight < 1 {
+		contentHeight = 1
 	}
 
-	for i := range lines {
-		if focused {
-			lines[i] = gutterStyle.Render(gutter) + lines[i]
-		} else {
-			lines[i] = gutter + lines[i]
+	// Truncate and pad content to exact size
+	lines := strings.Split(content, "\n")
+	if len(lines) > contentHeight {
+		lines = lines[:contentHeight]
+	}
+	// Pad with empty lines if needed
+	for len(lines) < contentHeight {
+		lines = append(lines, "")
+	}
+	// Truncate each line to width and pad
+	for i, line := range lines {
+		w := lipgloss.Width(line)
+		if w > contentWidth {
+			// Truncate
+			runes := []rune(line)
+			for len(runes) > 0 && lipgloss.Width(string(runes)) > contentWidth {
+				runes = runes[:len(runes)-1]
+			}
+			lines[i] = string(runes)
+		} else if w < contentWidth {
+			// Pad with spaces
+			lines[i] = line + strings.Repeat(" ", contentWidth-w)
 		}
 	}
 
-	return strings.Join(lines, "\n")
+	// Build the box
+	var result strings.Builder
+	innerWidth := width - 2 // width inside left/right borders
+
+	// Top border
+	result.WriteString(borderStyle.Render("╭" + strings.Repeat("─", innerWidth) + "╮"))
+	result.WriteString("\n")
+
+	// Content lines with side borders and padding
+	for _, line := range lines {
+		result.WriteString(borderStyle.Render("│"))
+		result.WriteString(" ") // left padding
+		result.WriteString(line)
+		result.WriteString(" ") // right padding
+		result.WriteString(borderStyle.Render("│"))
+		result.WriteString("\n")
+	}
+
+	// Bottom border
+	result.WriteString(borderStyle.Render("╰" + strings.Repeat("─", innerWidth) + "╯"))
+
+	return result.String()
 }
