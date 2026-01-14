@@ -606,7 +606,8 @@ func (d *Dialog) renderOptionsLines(baseLine int) []string {
 			name := nameStyle.Render("[" + opt.Name + "]")
 			line := cursor + indicator + " " + name
 
-			width := min(lipgloss.Width(line), d.dialogContentWidth())
+			// Use full dialog content width for easier clicking
+			width := d.dialogContentWidth()
 			d.addOptionHit(cursorIdx, originalIdx, lineIndex, 0, width)
 			lines = append(lines, line)
 			lineIndex++
@@ -627,6 +628,7 @@ func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {
 		Foreground(ColorMuted).
 		Padding(0, 1)
 
+	const gap = 2 // gap between buttons
 	var b strings.Builder
 	x := 0
 	for i, opt := range d.options {
@@ -635,11 +637,16 @@ func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {
 			rendered = selectedStyle.Render(opt)
 		}
 		width := min(lipgloss.Width(rendered), d.dialogContentWidth()-x)
-		d.addOptionHit(i, i, baseLine, x, width)
+		// Extend hit region to include gap (for easier clicking)
+		hitWidth := width
+		if i < len(d.options)-1 {
+			hitWidth += gap // extend to cover the gap after this button
+		}
+		d.addOptionHit(i, i, baseLine, x, hitWidth)
 		b.WriteString(rendered)
 		if i < len(d.options)-1 {
 			b.WriteString("  ")
-			x += width + 2
+			x += width + gap
 		} else {
 			x += width
 		}
@@ -661,10 +668,12 @@ func (d *Dialog) renderInputButtonsLine(baseLine int) string {
 	ok := selectedStyle.Render("OK")
 	cancel := normalStyle.Render("Cancel")
 
-	okWidth := min(lipgloss.Width(ok), d.dialogContentWidth())
-	d.addOptionHit(0, 0, baseLine, 0, okWidth)
+	const gap = 2
+	okWidth := lipgloss.Width(ok)
+	// Extend OK hit region to include gap
+	d.addOptionHit(0, 0, baseLine, 0, okWidth+gap)
 
-	cancelX := okWidth + 2
+	cancelX := okWidth + gap
 	cancelWidth := min(lipgloss.Width(cancel), max(0, d.dialogContentWidth()-cancelX))
 	d.addOptionHit(1, 1, baseLine, cancelX, cancelWidth)
 

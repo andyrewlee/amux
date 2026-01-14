@@ -268,7 +268,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newDialog, cmd := a.dialog.Update(msg)
 		a.dialog = newDialog
 		if cmd != nil {
-			logging.Debug("Dialog returned command")
 			cmds = append(cmds, cmd)
 		}
 

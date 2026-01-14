@@ -110,3 +110,70 @@ func TestSelectionClearsOutsideBounds(t *testing.T) {
 		t.Fatalf("expected selection to be cleared when clicking outside bounds, got %+v", tab.Selection)
 	}
 }
+
+func TestTabBarClickPlusButton(t *testing.T) {
+	// This tests that clicking the + button in the tab bar triggers the right action
+	cfg, err := config.DefaultConfig()
+	if err != nil {
+		t.Fatalf("default config: %v", err)
+	}
+	m := New(cfg)
+	wt := &data.Worktree{
+		Name: "wt",
+		Repo: "/tmp/repo",
+		Root: "/tmp/repo",
+	}
+	m.SetWorktree(wt)
+	wtID := string(wt.ID())
+	tab := &Tab{
+		ID:       TabID("tab-1"),
+		Worktree: wt,
+		Terminal: vterm.New(80, 24),
+		Name:     "claude",
+	}
+	m.tabsByWorktree[wtID] = []*Tab{tab}
+	m.activeTabByWorktree[wtID] = 0
+	m.SetSize(100, 40)
+	m.SetOffset(20) // Simulate dashboard width of 20
+	m.Focus()
+
+	// Render to populate tab hits
+	_ = m.View()
+
+	t.Logf("Tab hits (%d):", len(m.tabHits))
+	for i, hit := range m.tabHits {
+		t.Logf("  [%d]: kind=%d index=%d region=(%d,%d,%d,%d)",
+			i, hit.kind, hit.index, hit.region.X, hit.region.Y, hit.region.Width, hit.region.Height)
+	}
+
+	// Find the plus button hit
+	var plusHit *tabHit
+	for i := range m.tabHits {
+		if m.tabHits[i].kind == tabHitPlus {
+			plusHit = &m.tabHits[i]
+			break
+		}
+	}
+	if plusHit == nil {
+		t.Fatalf("No plus button found in tab hits")
+	}
+
+	// Calculate screen coordinates for clicking the plus button
+	// The tab bar is at Y=2 (Y=0 is pane border, Y=1 is tab border, Y=2 is tab content)
+	// Content X = offsetX + borderLeft(1) + paddingLeft(1) + localX
+	const (
+		borderTop   = 2
+		borderLeft  = 1
+		paddingLeft = 1
+	)
+	screenX := m.offsetX + borderLeft + paddingLeft + plusHit.region.X + 1 // +1 to be inside the button
+	screenY := borderTop
+	t.Logf("Clicking plus button at screen (%d,%d), local (%d,%d)", screenX, screenY, plusHit.region.X, plusHit.region.Y)
+
+	click := tea.MouseClickMsg{X: screenX, Y: screenY, Button: tea.MouseLeft}
+	_, cmd := m.Update(click)
+
+	if cmd == nil {
+		t.Fatalf("Expected command from clicking plus button, got nil")
+	}
+}

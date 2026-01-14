@@ -1271,13 +1271,17 @@ func (m *Model) renderTabBar() string {
 			closeWidth := lipgloss.Width(closeLabel)
 			closeX := x + leftFrame + prefixWidth
 			if closeWidth > 0 {
+				// Expand close button hit region for easier clicking
+				// Include the space before "x" and extend to end of tab
+				expandedCloseX := closeX - 1 // include the space before "x"
+				expandedCloseWidth := renderedWidth - leftFrame - prefixWidth + 1
 				m.tabHits = append(m.tabHits, tabHit{
 					kind:  tabHitClose,
 					index: i,
 					region: common.HitRegion{
-						X:      closeX,
+						X:      expandedCloseX,
 						Y:      0,
-						Width:  closeWidth,
+						Width:  expandedCloseWidth,
 						Height: 1,
 					},
 				})
@@ -1309,24 +1313,35 @@ func (m *Model) renderTabBar() string {
 }
 
 func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
-	// Tab bar is at screen Y=1 due to the pane's top border (Y=0 is the border itself)
-	const borderTop = 1
+	// Tab bar is at screen Y=2: Y=0 is pane border, Y=1 is tab border, Y=2 is tab content
+	// Account for border (1) and padding (1) on the left side when converting X coordinates
+	const (
+		borderTop   = 2
+		borderLeft  = 1
+		paddingLeft = 1
+	)
 	if msg.Y != borderTop {
 		return nil
 	}
-	localX := msg.X - m.offsetX
+	// Convert screen X to content X (subtract pane offset, border, and padding)
+	localX := msg.X - m.offsetX - borderLeft - paddingLeft
 	if localX < 0 {
 		return nil
 	}
 	// Convert screen Y to local Y within tab bar content (all tab hits are at Y=0)
 	localY := msg.Y - borderTop
+	// Check close buttons first (they overlap with tab regions)
+	for _, hit := range m.tabHits {
+		if hit.kind == tabHitClose && hit.region.Contains(localX, localY) {
+			return m.closeTabAt(hit.index)
+		}
+	}
+	// Then check tabs and plus button
 	for _, hit := range m.tabHits {
 		if hit.region.Contains(localX, localY) {
 			switch hit.kind {
 			case tabHitPlus:
 				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-			case tabHitClose:
-				return m.closeTabAt(hit.index)
 			case tabHitTab:
 				m.setActiveTabIdx(hit.index)
 				return nil
