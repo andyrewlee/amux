@@ -1289,6 +1289,7 @@ func (a *App) goHome() {
 	a.sidebar.SetWorktree(nil)
 	a.sidebar.SetGitStatus(nil)
 	_ = a.sidebarTerminal.SetWorktree(nil)
+	a.dashboard.ClearActiveRoot()
 }
 
 func (a *App) renderMonitorGrid() string {
