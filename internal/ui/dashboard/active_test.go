@@ -62,7 +62,7 @@ func TestDashboardGetMainWorktree(t *testing.T) {
 
 func TestDashboardHomeActive(t *testing.T) {
 	m := New()
-	
+
 	// Initially home is active (activeRoot is empty)
 	if m.activeRoot != "" {
 		t.Errorf("expected activeRoot to be empty initially")
