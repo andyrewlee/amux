@@ -1028,33 +1028,45 @@ func (m *Model) View() string {
 	if !m.showKeymapHints {
 		helpLines = nil
 	}
-	// Pad to the inner pane height (border excluded), reserving the help line.
-	contentHeight := strings.Count(b.String(), "\n") + 1
+	// Pad to the inner pane height (border excluded), reserving the help lines.
+	// buildBorderedPane will use contentHeight = height - 2, so we target that.
 	innerHeight := m.height - 2
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
-	targetHeight := innerHeight - len(helpLines) // help lines
-	if targetHeight < 0 {
-		targetHeight = 0
-	}
-	if targetHeight > contentHeight {
-		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
-	}
-	b.WriteString(strings.Join(helpLines, "\n"))
 
-	// Truncate content to fit within pane height (excluding border)
-	contentStr := b.String()
-	maxContentHeight := m.height - 2
-	if maxContentHeight > 0 {
-		lines := strings.Split(contentStr, "\n")
-		if len(lines) > maxContentHeight {
-			lines = lines[:maxContentHeight]
+	// Build content with help at bottom
+	content := b.String()
+	helpContent := strings.Join(helpLines, "\n")
+
+	// Count current lines
+	contentLines := strings.Split(content, "\n")
+	helpLineCount := len(helpLines)
+
+	// Calculate padding needed
+	targetContentLines := innerHeight - helpLineCount
+	if targetContentLines < 0 {
+		targetContentLines = 0
+	}
+
+	// Pad or truncate content to targetContentLines
+	if len(contentLines) < targetContentLines {
+		// Pad with empty lines
+		for len(contentLines) < targetContentLines {
+			contentLines = append(contentLines, "")
 		}
-		contentStr = strings.Join(lines, "\n")
+	} else if len(contentLines) > targetContentLines {
+		// Truncate
+		contentLines = contentLines[:targetContentLines]
 	}
 
-	return contentStr
+	// Combine content and help
+	result := strings.Join(contentLines, "\n")
+	if helpContent != "" {
+		result += "\n" + helpContent
+	}
+
+	return result
 }
 
 // HasSaveDialog returns true if a save dialog is visible
