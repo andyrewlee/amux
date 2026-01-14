@@ -349,7 +349,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if a.layout.ShowSidebar() {
 				// Clicked on sidebar - determine top (changes) or bottom (terminal)
 				sidebarHeight := a.layout.Height()
-				topPaneHeight := sidebarHeight / 2
+				topPaneHeight, _ := sidebarPaneHeights(sidebarHeight)
 
 				// Split point is after top pane
 				if msg.Y >= topPaneHeight {
@@ -2454,8 +2454,7 @@ func (a *App) updateLayout() {
 	sidebarHeight := a.layout.Height()
 
 	// Each pane gets half the height (borders touch)
-	topPaneHeight := sidebarHeight / 2
-	bottomPaneHeight := sidebarHeight - topPaneHeight
+	topPaneHeight, bottomPaneHeight := sidebarPaneHeights(sidebarHeight)
 
 	// Content dimensions inside each pane (subtract border + padding)
 	// Border: 2 (top + bottom), Padding: 2 (left + right from Pane style)
@@ -2513,11 +2512,7 @@ func (a *App) renderSidebarPane() string {
 	outerHeight := a.layout.Height()
 
 	// Split height evenly between the two panes (borders touch)
-	paneHeight := outerHeight / 2
-	if paneHeight < 3 {
-		paneHeight = 3
-	}
-	bottomPaneHeight := outerHeight - paneHeight
+	paneHeight, bottomPaneHeight := sidebarPaneHeights(outerHeight)
 
 	topFocused := a.focusedPane == messages.PaneSidebar
 	bottomFocused := a.focusedPane == messages.PaneSidebarTerminal
@@ -2530,6 +2525,45 @@ func (a *App) renderSidebarPane() string {
 
 	// Stack the two panes vertically
 	return lipgloss.JoinVertical(lipgloss.Top, topView, bottomView)
+}
+
+func sidebarPaneHeights(total int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	top := total / 2
+	bottom := total - top
+
+	// Prefer keeping both panes visible when there's room.
+	if total >= 6 {
+		if top < 3 {
+			top = 3
+			bottom = total - top
+		}
+		if bottom < 3 {
+			bottom = 3
+			top = total - bottom
+		}
+		return top, bottom
+	}
+
+	// In tight spaces, keep the terminal visible by shrinking the top pane first.
+	if total >= 3 && bottom < 3 {
+		bottom = 3
+		top = total - bottom
+		if top < 0 {
+			top = 0
+		}
+		return top, bottom
+	}
+
+	if top > total {
+		top = total
+	}
+	if bottom < 0 {
+		bottom = 0
+	}
+	return top, bottom
 }
 
 // buildBorderedPane creates a bordered pane with exact dimensions, manually drawing the border
