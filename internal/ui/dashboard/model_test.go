@@ -79,8 +79,8 @@ func TestDashboardHandleEnterProjectSelectsMain(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
 
-	// Row order: Home, AddProject, Project...
-	m.cursor = 2
+	// Row order: Home, Project...
+	m.cursor = 1
 	cmd := m.handleEnter()
 	if cmd == nil {
 		t.Fatalf("expected handleEnter to return a command")
@@ -186,22 +186,6 @@ func TestDashboardHandleEnterHome(t *testing.T) {
 	msg := cmd()
 	if _, ok := msg.(messages.ShowWelcome); !ok {
 		t.Fatalf("expected ShowWelcome message, got %T", msg)
-	}
-}
-
-func TestDashboardHandleEnterAddProject(t *testing.T) {
-	m := New()
-	m.SetProjects([]data.Project{makeProject()})
-	m.cursor = 1 // AddProject row
-
-	cmd := m.handleEnter()
-	if cmd == nil {
-		t.Fatalf("expected handleEnter to return a command")
-	}
-
-	msg := cmd()
-	if _, ok := msg.(messages.ShowAddProjectDialog); !ok {
-		t.Fatalf("expected ShowAddProjectDialog message, got %T", msg)
 	}
 }
 
@@ -409,7 +393,7 @@ func TestDashboardSelectedRow(t *testing.T) {
 	})
 
 	t.Run("cursor at project", func(t *testing.T) {
-		m.cursor = 2 // Project row
+		m.cursor = 1 // Project row
 		row := m.SelectedRow()
 		if row == nil {
 			t.Fatalf("expected non-nil row")
@@ -451,16 +435,13 @@ func TestDashboardEmptyState(t *testing.T) {
 	// Set empty projects to trigger rebuildRows
 	m.SetProjects([]data.Project{})
 
-	// Should still have Home and AddProject rows
-	if len(m.rows) < 2 {
-		t.Fatalf("expected at least 2 rows (Home, AddProject), got %d", len(m.rows))
+	// Should still have Home row
+	if len(m.rows) < 1 {
+		t.Fatalf("expected at least 1 row (Home), got %d", len(m.rows))
 	}
 
 	if m.rows[0].Type != RowHome {
 		t.Fatalf("expected first row to be RowHome")
-	}
-	if m.rows[1].Type != RowAddProject {
-		t.Fatalf("expected second row to be RowAddProject")
 	}
 }
 
