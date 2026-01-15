@@ -35,6 +35,11 @@ func NewHelpOverlay() *HelpOverlay {
 	}
 }
 
+// SetStyles updates the help overlay styles (for theme changes).
+func (h *HelpOverlay) SetStyles(styles Styles) {
+	h.styles = styles
+}
+
 // defaultHelpSections returns the default help sections
 func defaultHelpSections() []HelpSection {
 	return []HelpSection{

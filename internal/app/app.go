@@ -73,6 +73,7 @@ type App struct {
 	sidebarTerminal *sidebar.TerminalModel
 	dialog          *common.Dialog
 	filePicker      *common.FilePicker
+	settingsDialog  *common.SettingsDialog
 
 	// Overlays
 	helpOverlay *common.HelpOverlay
@@ -172,8 +173,17 @@ func New() (*App, error) {
 		focusedPane:     messages.PaneDashboard,
 		showWelcome:     true,
 		keymap:          DefaultKeyMap(),
-		styles:          common.DefaultStyles(),
 	}
+	// Apply saved theme before creating styles
+	common.SetCurrentTheme(common.ThemeID(cfg.UI.Theme))
+	app.styles = common.DefaultStyles()
+	// Propagate styles to all components (they were created with default theme)
+	app.dashboard.SetStyles(app.styles)
+	app.sidebar.SetStyles(app.styles)
+	app.sidebarTerminal.SetStyles(app.styles)
+	app.center.SetStyles(app.styles)
+	app.toast.SetStyles(app.styles)
+	app.helpOverlay.SetStyles(app.styles)
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	return app, nil
 }
@@ -296,6 +306,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmds...)
 		}
 		if _, ok := msg.(tea.PasteMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+	}
+
+	// Handle settings dialog if visible
+	if a.settingsDialog != nil && a.settingsDialog.Visible() {
+		newSettings, cmd := a.settingsDialog.Update(msg)
+		a.settingsDialog = newSettings
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		// Don't process other input while settings dialog is open
+		if _, ok := msg.(tea.KeyPressMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
 		if _, ok := msg.(tea.MouseClickMsg); ok {
@@ -631,6 +658,57 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.dialog.Show()
 		}
 
+	case messages.ShowSettingsDialog:
+		a.settingsDialog = common.NewSettingsDialog(
+			common.ThemeID(a.config.UI.Theme),
+			a.config.UI.ShowKeymapHints,
+		)
+		a.settingsDialog.SetSize(a.width, a.height)
+		a.settingsDialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+		a.settingsDialog.Show()
+
+	case common.ThemePreview:
+		// Live preview - apply theme without saving
+		common.SetCurrentTheme(msg.Theme)
+		a.styles = common.DefaultStyles()
+		// Propagate styles to all components
+		a.dashboard.SetStyles(a.styles)
+		a.sidebar.SetStyles(a.styles)
+		a.sidebarTerminal.SetStyles(a.styles)
+		a.center.SetStyles(a.styles)
+		a.toast.SetStyles(a.styles)
+		a.helpOverlay.SetStyles(a.styles)
+		if a.filePicker != nil {
+			a.filePicker.SetStyles(a.styles)
+		}
+
+	case common.SettingsResult:
+		a.settingsDialog = nil
+		if msg.Confirmed {
+			// Apply theme
+			common.SetCurrentTheme(msg.Theme)
+			a.config.UI.Theme = string(msg.Theme)
+			a.styles = common.DefaultStyles()
+			// Propagate styles to all components
+			a.dashboard.SetStyles(a.styles)
+			a.sidebar.SetStyles(a.styles)
+			a.sidebarTerminal.SetStyles(a.styles)
+			a.center.SetStyles(a.styles)
+			a.toast.SetStyles(a.styles)
+			a.helpOverlay.SetStyles(a.styles)
+			if a.filePicker != nil {
+				a.filePicker.SetStyles(a.styles)
+			}
+
+			// Apply keymap hints
+			a.setKeymapHintsEnabled(msg.ShowKeymapHints)
+
+			// Save settings
+			if err := a.config.SaveUISettings(); err != nil {
+				cmds = append(cmds, a.toast.ShowWarning("Failed to save settings"))
+			}
+		}
+
 	case messages.CreateWorktree:
 		if msg.Project != nil && msg.Name != "" {
 			worktreePath := filepath.Join(
@@ -910,6 +988,9 @@ func (a *App) View() tea.View {
 		if a.filePicker != nil && a.filePicker.Visible() {
 			content = a.overlayFilePicker(content)
 		}
+		if a.settingsDialog != nil && a.settingsDialog.Visible() {
+			content = a.overlaySettingsDialog(content)
+		}
 		if a.helpOverlay.Visible() {
 			content = a.helpOverlay.View()
 		}
@@ -970,6 +1051,11 @@ func (a *App) View() tea.View {
 	// Overlay file picker if visible
 	if a.filePicker != nil && a.filePicker.Visible() {
 		content = a.overlayFilePicker(content)
+	}
+
+	// Overlay settings dialog if visible
+	if a.settingsDialog != nil && a.settingsDialog.Visible() {
+		content = a.overlaySettingsDialog(content)
 	}
 
 	// Show help overlay if visible
@@ -1071,8 +1157,8 @@ func (a *App) overlayCursor() *tea.Cursor {
 func (a *App) overlayPrefixIndicator(content string) string {
 	indicator := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#1a1b26")).
-		Background(lipgloss.Color("#7aa2f7")).
+		Foreground(common.ColorBackground).
+		Background(common.ColorPrimary).
 		Padding(0, 1).
 		Render("PREFIX")
 
@@ -1218,11 +1304,56 @@ func (a *App) overlayFilePicker(content string) string {
 	return strings.Join(contentLines, "\n")
 }
 
+// overlaySettingsDialog renders the settings dialog as a modal overlay on top of content.
+func (a *App) overlaySettingsDialog(content string) string {
+	settingsView := a.settingsDialog.View()
+	settingsLines := strings.Split(settingsView, "\n")
+
+	// Calculate settings dialog dimensions
+	settingsWidth, settingsHeight := viewDimensions(settingsView)
+
+	// Center the dialog
+	x, y := a.centeredPosition(settingsWidth, settingsHeight)
+
+	// Split content into lines
+	contentLines := strings.Split(content, "\n")
+	originalLineCount := len(contentLines)
+
+	// Overlay settings dialog lines onto content
+	for i, settingsLine := range settingsLines {
+		contentY := y + i
+		if contentY >= 0 && contentY < len(contentLines) {
+			bgLine := contentLines[contentY]
+			bgWidth := lipgloss.Width(bgLine)
+
+			// Build the line: left part + settings line + right part
+			var left string
+			if x > 0 {
+				left = ansi.Truncate(bgLine, x, "")
+			}
+
+			rightStart := x + lipgloss.Width(settingsLine)
+			var right string
+			if rightStart < bgWidth {
+				right = ansi.TruncateLeft(bgLine, rightStart, "")
+			}
+
+			contentLines[contentY] = left + settingsLine + right
+		}
+	}
+
+	if len(contentLines) > originalLineCount {
+		contentLines = contentLines[:originalLineCount]
+	}
+
+	return strings.Join(contentLines, "\n")
+}
+
 // overlayError renders an error banner at the bottom of the screen
 func (a *App) overlayError(content string) string {
 	errStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#ffffff")).
-		Background(lipgloss.Color("#e06c75")).
+		Foreground(common.ColorForeground).
+		Background(common.ColorError).
 		Bold(true).
 		Padding(0, 2).
 		Width(a.width)
@@ -1252,11 +1383,13 @@ func (a *App) centerPaneStyle() lipgloss.Style {
 		Width(width-2).
 		Height(height-2).
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#5c6370")).
+		BorderForeground(common.ColorBorder).
 		Padding(0, 1)
 
 	if a.focusedPane == messages.PaneCenter {
-		style = style.BorderForeground(lipgloss.Color("#61afef"))
+		style = style.
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(common.ColorBorderFocused)
 	}
 	return style
 }
@@ -1806,8 +1939,8 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	agentBtn := a.styles.TabPlus.Render("[+] New agent")
-	commitsBtn := a.styles.TabPlus.Render("[d] Commits")
+	agentBtn := a.styles.TabPlus.Render("New agent")
+	commitsBtn := a.styles.TabPlus.Render("Commits")
 	content += "\n" + lipgloss.JoinHorizontal(lipgloss.Bottom, agentBtn, commitsBtn)
 	if a.config.UI.ShowKeymapHints {
 		content += "\n" + a.styles.Help.Render("C-Spc a:new agent  C-Spc d:commits")
@@ -1832,13 +1965,9 @@ func (a *App) welcomeContent() string {
 	var b strings.Builder
 	b.WriteString(logoStyle.Render(logo))
 	b.WriteString("\n\n")
-	newProject := a.styles.TabPlus.Render("[+] New project")
-	helpLabel := "[?] Hide keymap"
-	if !a.config.UI.ShowKeymapHints {
-		helpLabel = "[?] Show keymap"
-	}
-	helpToggle := a.styles.TabPlus.Render(helpLabel)
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, newProject, "  ", helpToggle))
+	newProject := a.styles.TabPlus.Render("New project")
+	settingsBtn := a.styles.TabPlus.Render("Settings")
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, newProject, "  ", settingsBtn))
 	b.WriteString("\n")
 	if a.config.UI.ShowKeymapHints {
 		b.WriteString(a.styles.Help.Render("Dashboard: j/k to move • Enter to select"))
@@ -1904,7 +2033,7 @@ func (a *App) welcomeLogo() (string, lipgloss.Style) {
 "Y888888 888  888  888  "Y88888 888  888`
 
 	logoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7aa2f7")).
+		Foreground(common.ColorPrimary).
 		Bold(true)
 	return logo, logoStyle
 }
@@ -1955,26 +2084,36 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 	offsetX := centerOffset(placeWidth, contentWidth)
 	offsetY := centerOffset(placeHeight, contentHeight)
 
-	newProjectBtn := a.styles.TabPlus.Render("[+] New project")
-	if region, ok := findButtonRegion(lines, newProjectBtn); ok {
-		region.X += offsetX
-		region.Y += offsetY
-		if region.Contains(localX, localY) {
-			return func() tea.Msg { return messages.ShowAddProjectDialog{} }
-		}
-	}
+	// Both buttons are on the same line, find them by searching for plain text
+	for i, line := range lines {
+		strippedLine := ansi.Strip(line)
 
-	// Help toggle button
-	helpLabel := "[?] Hide keymap"
-	if !a.config.UI.ShowKeymapHints {
-		helpLabel = "[?] Show keymap"
-	}
-	helpToggleBtn := a.styles.TabPlus.Render(helpLabel)
-	if region, ok := findButtonRegion(lines, helpToggleBtn); ok {
-		region.X += offsetX
-		region.Y += offsetY
-		if region.Contains(localX, localY) {
-			return func() tea.Msg { return messages.ToggleKeymapHints{} }
+		// Settings button - check first so it's not blocked by New project's region
+		settingsText := "Settings"
+		if idx := strings.Index(strippedLine, settingsText); idx >= 0 {
+			region := common.HitRegion{
+				X:      idx + offsetX,
+				Y:      i + offsetY,
+				Width:  len(settingsText),
+				Height: 1,
+			}
+			if region.Contains(localX, localY) {
+				return func() tea.Msg { return messages.ShowSettingsDialog{} }
+			}
+		}
+
+		// New project button
+		newProjectText := "New project"
+		if idx := strings.Index(strippedLine, newProjectText); idx >= 0 {
+			region := common.HitRegion{
+				X:      idx + offsetX,
+				Y:      i + offsetY,
+				Width:  len(newProjectText),
+				Height: 1,
+			}
+			if region.Contains(localX, localY) {
+				return func() tea.Msg { return messages.ShowAddProjectDialog{} }
+			}
 		}
 	}
 
@@ -1988,14 +2127,14 @@ func (a *App) handleWorktreeInfoClick(localX, localY int) tea.Cmd {
 	content := a.renderWorktreeInfo()
 	lines := strings.Split(content, "\n")
 
-	agentBtn := a.styles.TabPlus.Render("[+] New agent")
+	agentBtn := a.styles.TabPlus.Render("New agent")
 	if region, ok := findButtonRegion(lines, agentBtn); ok {
 		if region.Contains(localX, localY) {
 			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 		}
 	}
 
-	commitsBtn := a.styles.TabPlus.Render("[d] Commits")
+	commitsBtn := a.styles.TabPlus.Render("Commits")
 	if region, ok := findButtonRegion(lines, commitsBtn); ok {
 		if region.Contains(localX, localY) {
 			wt := a.activeWorktree
@@ -2489,6 +2628,9 @@ func (a *App) updateLayout() {
 	if a.filePicker != nil {
 		a.filePicker.SetSize(a.width, a.height)
 	}
+	if a.settingsDialog != nil {
+		a.settingsDialog.SetSize(a.width, a.height)
+	}
 }
 
 func (a *App) setKeymapHintsEnabled(enabled bool) {
@@ -2574,8 +2716,14 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 	}
 
 	borderColor := common.ColorBorder
+	// Border characters - use thick borders for focused panes
+	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
+	horizontal, vertical := "─", "│"
 	if focused {
 		borderColor = common.ColorBorderFocused
+		// Use thick border characters for focused pane
+		topLeft, topRight, bottomLeft, bottomRight = "┏", "┓", "┗", "┛"
+		horizontal, vertical = "━", "┃"
 	}
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 
@@ -2598,16 +2746,12 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 	for len(lines) < contentHeight {
 		lines = append(lines, "")
 	}
-	// Truncate each line to width and pad
+	// Truncate each line to width and pad (ANSI-aware to preserve styled content)
 	for i, line := range lines {
 		w := lipgloss.Width(line)
 		if w > contentWidth {
-			// Truncate
-			runes := []rune(line)
-			for len(runes) > 0 && lipgloss.Width(string(runes)) > contentWidth {
-				runes = runes[:len(runes)-1]
-			}
-			lines[i] = string(runes)
+			// Truncate using ANSI-aware function to preserve escape sequences
+			lines[i] = ansi.Truncate(line, contentWidth, "")
 		} else if w < contentWidth {
 			// Pad with spaces
 			lines[i] = line + strings.Repeat(" ", contentWidth-w)
@@ -2619,21 +2763,21 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 	innerWidth := width - 2 // width inside left/right borders
 
 	// Top border
-	result.WriteString(borderStyle.Render("╭" + strings.Repeat("─", innerWidth) + "╮"))
+	result.WriteString(borderStyle.Render(topLeft + strings.Repeat(horizontal, innerWidth) + topRight))
 	result.WriteString("\n")
 
 	// Content lines with side borders and padding
 	for _, line := range lines {
-		result.WriteString(borderStyle.Render("│"))
+		result.WriteString(borderStyle.Render(vertical))
 		result.WriteString(" ") // left padding
 		result.WriteString(line)
 		result.WriteString(" ") // right padding
-		result.WriteString(borderStyle.Render("│"))
+		result.WriteString(borderStyle.Render(vertical))
 		result.WriteString("\n")
 	}
 
 	// Bottom border
-	result.WriteString(borderStyle.Render("╰" + strings.Repeat("─", innerWidth) + "╯"))
+	result.WriteString(borderStyle.Render(bottomLeft + strings.Repeat(horizontal, innerWidth) + bottomRight))
 
 	return result.String()
 }

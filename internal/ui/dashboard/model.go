@@ -41,6 +41,21 @@ type Row struct {
 	Worktree *data.Worktree
 }
 
+// toolbarButtonKind identifies toolbar buttons
+type toolbarButtonKind int
+
+const (
+	toolbarHelp toolbarButtonKind = iota
+	toolbarMonitor
+	toolbarDelete
+)
+
+// toolbarButton tracks a clickable button in the toolbar
+type toolbarButton struct {
+	kind   toolbarButtonKind
+	region common.HitRegion
+}
+
 // Model is the Bubbletea model for the dashboard pane
 type Model struct {
 	// Data
@@ -54,10 +69,11 @@ type Model struct {
 	focused         bool
 	width           int
 	height          int
-	filterDirty     bool // Only show dirty worktrees
 	scrollOffset    int
 	canFocusRight   bool
 	showKeymapHints bool
+	toolbarHits     []toolbarButton // Clickable toolbar buttons
+	toolbarY        int             // Y position of toolbar in content coordinates
 
 	// Loading state
 	loadingStatus     map[string]bool           // Worktrees currently loading git status
@@ -95,6 +111,11 @@ func (m *Model) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
 }
 
+// SetStyles updates the component's styles (for theme changes).
+func (m *Model) SetStyles(styles common.Styles) {
+	m.styles = styles
+}
+
 // Init initializes the dashboard
 func (m *Model) Init() tea.Cmd {
 	return nil
@@ -123,6 +144,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.Button == tea.MouseLeft {
+			// Check toolbar clicks first
+			if cmd := m.handleToolbarClick(msg.X, msg.Y); cmd != nil {
+				return m, cmd
+			}
+
+			// Then check row clicks
 			idx, ok := m.rowIndexAt(msg.X, msg.Y)
 			if !ok {
 				return m, nil
@@ -151,8 +178,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, m.handleEnter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
 			return m, m.handleDelete()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("f"))):
-			m.toggleFilter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 			return m, m.refresh()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):
@@ -198,10 +223,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.statusCache[msg.Root] = msg.Status
 		}
-		// Rebuild rows if dirty filter is active (status change may affect visibility)
-		if m.filterDirty {
-			m.rebuildRows()
-		}
 
 	case messages.WorktreeActivated:
 		if msg.Worktree != nil {
@@ -239,21 +260,14 @@ func (m *Model) View() string {
 	var b strings.Builder
 
 	// Header
-	if m.filterDirty {
-		b.WriteString(m.styles.StatusDirty.Render("[dirty]"))
-		b.WriteString("\n")
-	}
 	b.WriteString("\n")
 
-	// Calculate visible area (inner height minus header + help)
+	// Calculate visible area (inner height minus header + toolbar + help)
 	innerHeight := m.height - 2
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
 	headerHeight := 1 // trailing blank line
-	if m.filterDirty {
-		headerHeight++
-	}
 	// Calculate help height based on content width (pane width minus border and padding)
 	contentWidth := m.width - 4
 	if contentWidth < 1 {
@@ -264,7 +278,8 @@ func (m *Model) View() string {
 		helpLines = nil
 	}
 	helpHeight := len(helpLines)
-	visibleHeight := innerHeight - headerHeight - helpHeight
+	toolbarHeight := m.toolbarHeight()
+	visibleHeight := innerHeight - headerHeight - toolbarHeight - helpHeight
 	if visibleHeight < 1 {
 		visibleHeight = 1
 	}
@@ -290,16 +305,31 @@ func (m *Model) View() string {
 		b.WriteString("\n")
 	}
 
-	// Pad to the inner pane height (border excluded), reserving the help line.
+	// Pad to the inner pane height (border excluded), reserving toolbar and help lines.
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := innerHeight - helpHeight
+	targetHeight := innerHeight - toolbarHeight - helpHeight
 	if targetHeight < 0 {
 		targetHeight = 0
+	}
+	paddedHeight := targetHeight
+	if contentHeight > paddedHeight {
+		paddedHeight = contentHeight
 	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
-	b.WriteString(strings.Join(helpLines, "\n"))
+
+	// Render toolbar and track its Y position for click handling
+	// toolbarY is the first line of the 3-line-tall toolbar
+	toolbar := m.renderToolbar()
+	m.toolbarY = paddedHeight
+	b.WriteString(toolbar)
+	b.WriteString("\n")
+
+	// Help lines
+	if len(helpLines) > 0 {
+		b.WriteString(strings.Join(helpLines, "\n"))
+	}
 
 	// Return raw content - buildBorderedPane in app.go handles truncation
 	return b.String()
@@ -319,7 +349,6 @@ func (m *Model) helpLines(contentWidth int) []string {
 		items = append(items, m.helpItem("D", "delete"))
 	}
 	items = append(items,
-		m.helpItem("f", "filter"),
 		m.helpItem("r", "refresh"),
 		m.helpItem("g", "top"),
 		m.helpItem("G", "bottom"),
@@ -335,6 +364,112 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("C-Spc q", "quit"),
 	)
 	return common.WrapHelpItems(items, contentWidth)
+}
+
+// renderToolbar renders the action buttons toolbar
+func (m *Model) renderToolbar() string {
+	m.toolbarHits = m.toolbarHits[:0]
+
+	// Toolbar buttons use TabPlus style which has border (3 lines tall)
+	buttonHeight := 3
+
+	// First row: Help and Monitor
+	var row1 []string
+	x := 0
+
+	// Help button
+	helpBtn := m.styles.TabPlus.Render("Help")
+	helpWidth := lipgloss.Width(helpBtn)
+	m.toolbarHits = append(m.toolbarHits, toolbarButton{
+		kind: toolbarHelp,
+		region: common.HitRegion{
+			X:      x,
+			Y:      0,
+			Width:  helpWidth,
+			Height: buttonHeight,
+		},
+	})
+	row1 = append(row1, helpBtn)
+	x += helpWidth
+
+	// Monitor button
+	monitorBtn := m.styles.TabPlus.Render("Monitor")
+	monitorWidth := lipgloss.Width(monitorBtn)
+	m.toolbarHits = append(m.toolbarHits, toolbarButton{
+		kind: toolbarMonitor,
+		region: common.HitRegion{
+			X:      x,
+			Y:      0,
+			Width:  monitorWidth,
+			Height: buttonHeight,
+		},
+	})
+	row1 = append(row1, monitorBtn)
+
+	firstRow := lipgloss.JoinHorizontal(lipgloss.Bottom, row1...)
+
+	// Second row: Delete button (only when cursor is on a worktree)
+	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
+		deleteBtn := m.styles.TabPlus.Render("Delete")
+		deleteWidth := lipgloss.Width(deleteBtn)
+		m.toolbarHits = append(m.toolbarHits, toolbarButton{
+			kind: toolbarDelete,
+			region: common.HitRegion{
+				X:      0,
+				Y:      buttonHeight, // Second row starts after first row
+				Width:  deleteWidth,
+				Height: buttonHeight,
+			},
+		})
+		return firstRow + "\n" + deleteBtn
+	}
+
+	return firstRow
+}
+
+// toolbarHeight returns the current toolbar height based on whether delete is visible
+func (m *Model) toolbarHeight() int {
+	buttonHeight := 3
+	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
+		return buttonHeight * 2 // Two rows
+	}
+	return buttonHeight // One row
+}
+
+// handleToolbarClick checks if a click is on a toolbar button and returns the appropriate command
+func (m *Model) handleToolbarClick(screenX, screenY int) tea.Cmd {
+	// Convert screen coordinates to content coordinates
+	borderTop := 1
+	borderLeft := 1
+	paddingLeft := 1
+
+	contentX := screenX - borderLeft - paddingLeft
+	contentY := screenY - borderTop
+
+	toolbarHeight := m.toolbarHeight()
+
+	// Check if click is within the toolbar area
+	if contentY < m.toolbarY || contentY >= m.toolbarY+toolbarHeight {
+		return nil
+	}
+
+	// Calculate Y relative to toolbar start
+	localY := contentY - m.toolbarY
+
+	// Check toolbar button hits
+	for _, hit := range m.toolbarHits {
+		if hit.region.Contains(contentX, localY) {
+			switch hit.kind {
+			case toolbarHelp:
+				return func() tea.Msg { return messages.ToggleHelp{} }
+			case toolbarMonitor:
+				return func() tea.Msg { return messages.ToggleMonitor{} }
+			case toolbarDelete:
+				return m.handleDelete()
+			}
+		}
+	}
+	return nil
 }
 
 // renderRow renders a single dashboard row
@@ -505,13 +640,6 @@ func (m *Model) rebuildRows() {
 				continue
 			}
 
-			// Filter dirty worktrees if filter is enabled
-			if m.filterDirty {
-				if s, ok := m.statusCache[wt.Root]; ok && s.Clean {
-					continue
-				}
-			}
-
 			m.rows = append(m.rows, Row{
 				Type:     RowWorktree,
 				Project:  project,
@@ -640,12 +768,10 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	}
 
 	headerHeight := 1 // trailing blank line
-	if m.filterDirty {
-		headerHeight++
-	}
 	helpLines := m.helpLines(contentWidth)
 	helpHeight := len(helpLines)
-	rowAreaHeight := innerHeight - headerHeight - helpHeight
+	toolbarHeight := m.toolbarHeight()
+	rowAreaHeight := innerHeight - headerHeight - toolbarHeight - helpHeight
 	if rowAreaHeight < 1 {
 		rowAreaHeight = 1
 	}
@@ -668,45 +794,6 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	}
 
 	return -1, false
-}
-
-// toggleFilter toggles the dirty filter
-func (m *Model) toggleFilter() {
-	// Remember current row for position restoration
-	var currentItem interface{}
-	if m.cursor < len(m.rows) {
-		row := m.rows[m.cursor]
-		if row.Worktree != nil {
-			currentItem = row.Worktree.Root
-		} else if row.Project != nil {
-			currentItem = row.Project.Path
-		}
-	}
-
-	m.filterDirty = !m.filterDirty
-	m.rebuildRows()
-
-	// Try to restore cursor position to the same item
-	if currentItem != nil {
-		for i, row := range m.rows {
-			if row.Worktree != nil && row.Worktree.Root == currentItem {
-				m.cursor = i
-				return
-			}
-			if row.Project != nil && row.Project.Path == currentItem {
-				m.cursor = i
-				return
-			}
-		}
-	}
-
-	// If item not found, clamp cursor to valid range
-	if m.cursor >= len(m.rows) {
-		m.cursor = len(m.rows) - 1
-	}
-	if m.cursor < 0 {
-		m.cursor = 0
-	}
 }
 
 // handleEnter handles the enter key

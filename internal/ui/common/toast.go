@@ -38,6 +38,11 @@ func NewToastModel() *ToastModel {
 	}
 }
 
+// SetStyles updates the toast styles (for theme changes).
+func (m *ToastModel) SetStyles(styles Styles) {
+	m.styles = styles
+}
+
 // ToastDismissed is sent when a toast should be dismissed
 type ToastDismissed struct{}
 
@@ -109,10 +114,7 @@ func (m *ToastModel) View() string {
 		style = m.styles.ToastError
 		icon = Icons.Dirty + " "
 	case ToastWarning:
-		style = lipgloss.NewStyle().
-			Padding(0, 1).
-			Background(ColorWarning).
-			Foreground(ColorBackground)
+		style = m.styles.ToastWarning
 		icon = "! "
 	case ToastInfo:
 		style = m.styles.ToastInfo

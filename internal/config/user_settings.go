@@ -9,10 +9,14 @@ import (
 // UISettings stores user-facing display preferences.
 type UISettings struct {
 	ShowKeymapHints bool
+	Theme           string // Theme ID, defaults to "gruvbox"
 }
 
 func defaultUISettings() UISettings {
-	return UISettings{ShowKeymapHints: true}
+	return UISettings{
+		ShowKeymapHints: false,
+		Theme:           "gruvbox",
+	}
 }
 
 func loadUISettings(path string) UISettings {
@@ -24,7 +28,8 @@ func loadUISettings(path string) UISettings {
 
 	var raw struct {
 		UI struct {
-			ShowKeymapHints *bool `json:"show_keymap_hints"`
+			ShowKeymapHints *bool   `json:"show_keymap_hints"`
+			Theme           *string `json:"theme"`
 		} `json:"ui"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -32,6 +37,9 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.ShowKeymapHints != nil {
 		settings.ShowKeymapHints = *raw.UI.ShowKeymapHints
+	}
+	if raw.UI.Theme != nil {
+		settings.Theme = *raw.UI.Theme
 	}
 	return settings
 }
@@ -51,6 +59,7 @@ func saveUISettings(path string, settings UISettings) error {
 		ui = map[string]any{}
 	}
 	ui["show_keymap_hints"] = settings.ShowKeymapHints
+	ui["theme"] = settings.Theme
 	payload["ui"] = ui
 
 	data, err := json.MarshalIndent(payload, "", "  ")

@@ -134,6 +134,9 @@ type RefreshDashboard struct{}
 // ShowAddProjectDialog requests showing the add project dialog
 type ShowAddProjectDialog struct{}
 
+// ShowSettingsDialog requests showing the settings dialog
+type ShowSettingsDialog struct{}
+
 // ShowCreateWorktreeDialog requests showing the create worktree dialog
 type ShowCreateWorktreeDialog struct {
 	Project *data.Project

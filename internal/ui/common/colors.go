@@ -7,42 +7,81 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Tokyo Night-inspired color palette
-// Muted, accessible, easy on eyes
+// currentTheme holds the active color theme.
+var currentTheme = GruvboxTheme()
+
+// Theme-dependent colors (updated by SetCurrentTheme)
 var (
 	// Base palette
-	ColorBackground    = lipgloss.Color("#1a1b26") // Dark blue-gray
-	ColorForeground    = lipgloss.Color("#a9b1d6") // Soft lavender-white
-	ColorMuted         = lipgloss.Color("#565f89") // Dimmed text
-	ColorBorder        = lipgloss.Color("#292e42") // Subtle borders
-	ColorBorderFocused = lipgloss.Color("#7aa2f7") // Blue highlight
+	ColorBackground    = currentTheme.Colors.Background
+	ColorForeground    = currentTheme.Colors.Foreground
+	ColorMuted         = currentTheme.Colors.Muted
+	ColorBorder        = currentTheme.Colors.Border
+	ColorBorderFocused = currentTheme.Colors.BorderFocused
 
 	// Semantic colors
-	ColorPrimary   = lipgloss.Color("#7aa2f7") // Blue - primary actions, focus
-	ColorSecondary = lipgloss.Color("#bb9af7") // Purple - secondary elements
-	ColorSuccess   = lipgloss.Color("#9ece6a") // Green - clean status
-	ColorWarning   = lipgloss.Color("#e0af68") // Yellow - warnings, modified
-	ColorError     = lipgloss.Color("#f7768e") // Red - errors, dirty status
-	ColorInfo      = lipgloss.Color("#7dcfff") // Cyan - info messages
+	ColorPrimary   = currentTheme.Colors.Primary
+	ColorSecondary = currentTheme.Colors.Secondary
+	ColorSuccess   = currentTheme.Colors.Success
+	ColorWarning   = currentTheme.Colors.Warning
+	ColorError     = currentTheme.Colors.Error
+	ColorInfo      = currentTheme.Colors.Info
 
-	// Agent colors (distinct for quick recognition)
+	// Surface colors for layering
+	ColorSurface0 = currentTheme.Colors.Surface0
+	ColorSurface1 = currentTheme.Colors.Surface1
+	ColorSurface2 = currentTheme.Colors.Surface2
+	ColorSurface3 = currentTheme.Colors.Surface3
+
+	// Selection/highlight
+	ColorSelection = currentTheme.Colors.Selection
+	ColorHighlight = currentTheme.Colors.Highlight
+)
+
+// Agent colors remain constant across themes for brand recognition.
+var (
 	ColorClaude   = lipgloss.Color("#CC785C")
 	ColorCodex    = lipgloss.Color("#FFFFFF")
 	ColorGemini   = lipgloss.Color("#4285f4")
 	ColorAmp      = lipgloss.Color("#ED4C3D")
 	ColorOpencode = lipgloss.Color("#000000")
 	ColorDroid    = lipgloss.Color("#EE6018")
-
-	// Surface colors for layering
-	ColorSurface0 = lipgloss.Color("#1a1b26") // Base background
-	ColorSurface1 = lipgloss.Color("#1f2335") // Slightly elevated
-	ColorSurface2 = lipgloss.Color("#24283b") // More elevated
-	ColorSurface3 = lipgloss.Color("#292e42") // Most elevated
-
-	// Selection/highlight
-	ColorSelection = lipgloss.Color("#33467c") // Selection background
-	ColorHighlight = lipgloss.Color("#3d59a1") // Highlighted text background
 )
+
+// GetCurrentTheme returns the currently active theme.
+func GetCurrentTheme() Theme {
+	return currentTheme
+}
+
+// SetCurrentTheme applies a new theme and updates all color variables.
+func SetCurrentTheme(id ThemeID) {
+	currentTheme = GetTheme(id)
+	applyThemeColors()
+}
+
+// applyThemeColors updates all color variables from the current theme.
+func applyThemeColors() {
+	ColorBackground = currentTheme.Colors.Background
+	ColorForeground = currentTheme.Colors.Foreground
+	ColorMuted = currentTheme.Colors.Muted
+	ColorBorder = currentTheme.Colors.Border
+	ColorBorderFocused = currentTheme.Colors.BorderFocused
+
+	ColorPrimary = currentTheme.Colors.Primary
+	ColorSecondary = currentTheme.Colors.Secondary
+	ColorSuccess = currentTheme.Colors.Success
+	ColorWarning = currentTheme.Colors.Warning
+	ColorError = currentTheme.Colors.Error
+	ColorInfo = currentTheme.Colors.Info
+
+	ColorSurface0 = currentTheme.Colors.Surface0
+	ColorSurface1 = currentTheme.Colors.Surface1
+	ColorSurface2 = currentTheme.Colors.Surface2
+	ColorSurface3 = currentTheme.Colors.Surface3
+
+	ColorSelection = currentTheme.Colors.Selection
+	ColorHighlight = currentTheme.Colors.Highlight
+}
 
 // AgentColor returns the color for a given agent type
 func AgentColor(agent string) color.Color {
