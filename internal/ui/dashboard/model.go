@@ -311,6 +311,10 @@ func (m *Model) View() string {
 	if targetHeight < 0 {
 		targetHeight = 0
 	}
+	paddedHeight := targetHeight
+	if contentHeight > paddedHeight {
+		paddedHeight = contentHeight
+	}
 	if targetHeight > contentHeight {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
@@ -318,7 +322,7 @@ func (m *Model) View() string {
 	// Render toolbar and track its Y position for click handling
 	// toolbarY is the first line of the 3-line-tall toolbar
 	toolbar := m.renderToolbar()
-	m.toolbarY = targetHeight
+	m.toolbarY = paddedHeight
 	b.WriteString(toolbar)
 	b.WriteString("\n")
 

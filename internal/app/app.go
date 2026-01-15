@@ -2628,6 +2628,9 @@ func (a *App) updateLayout() {
 	if a.filePicker != nil {
 		a.filePicker.SetSize(a.width, a.height)
 	}
+	if a.settingsDialog != nil {
+		a.settingsDialog.SetSize(a.width, a.height)
+	}
 }
 
 func (a *App) setKeymapHintsEnabled(enabled bool) {
