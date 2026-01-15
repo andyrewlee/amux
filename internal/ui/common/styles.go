@@ -80,6 +80,7 @@ type Styles struct {
 	// Toast notifications
 	ToastSuccess lipgloss.Style
 	ToastError   lipgloss.Style
+	ToastWarning lipgloss.Style
 	ToastInfo    lipgloss.Style
 }
 
@@ -88,7 +89,7 @@ func tabBorder() lipgloss.Border {
 	return lipgloss.RoundedBorder()
 }
 
-// DefaultStyles returns the default application styles using Tokyo Night palette
+// DefaultStyles returns the default application styles using the current theme
 func DefaultStyles() Styles {
 	return Styles{
 		// Layout - Pane borders
@@ -98,7 +99,7 @@ func DefaultStyles() Styles {
 			Padding(0, 1),
 
 		FocusedPane: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(ColorBorderFocused).
 			Padding(0, 1),
 
@@ -298,6 +299,11 @@ func DefaultStyles() Styles {
 		ToastError: lipgloss.NewStyle().
 			Padding(0, 1).
 			Background(ColorError).
+			Foreground(ColorBackground),
+
+		ToastWarning: lipgloss.NewStyle().
+			Padding(0, 1).
+			Background(ColorWarning).
 			Foreground(ColorBackground),
 
 		ToastInfo: lipgloss.NewStyle().

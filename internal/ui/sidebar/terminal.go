@@ -96,6 +96,11 @@ func (m *TerminalModel) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
 }
 
+// SetStyles updates the component's styles (for theme changes).
+func (m *TerminalModel) SetStyles(styles common.Styles) {
+	m.styles = styles
+}
+
 // worktreeID returns the ID of the current worktree
 func (m *TerminalModel) worktreeID() string {
 	if m.worktree == nil {
@@ -438,15 +443,15 @@ func (m *TerminalModel) View() string {
 			b.WriteString("\n")
 			modeStyle := lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#1a1b26")).
-				Background(lipgloss.Color("#ff9e64"))
+				Foreground(common.ColorBackground).
+				Background(common.ColorWarning)
 			b.WriteString(modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) "))
 		} else if isScrolled {
 			b.WriteString("\n")
 			scrollStyle := lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#1a1b26")).
-				Background(lipgloss.Color("#e0af68"))
+				Foreground(common.ColorBackground).
+				Background(common.ColorInfo)
 			b.WriteString(scrollStyle.Render(" SCROLL: " + scrollInfo + " "))
 		}
 	}

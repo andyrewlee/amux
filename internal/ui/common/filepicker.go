@@ -77,6 +77,11 @@ func (fp *FilePicker) SetShowKeymapHints(show bool) {
 	fp.showKeymapHints = show
 }
 
+// SetStyles updates the file picker styles (for theme changes).
+func (fp *FilePicker) SetStyles(styles Styles) {
+	fp.styles = styles
+}
+
 // loadDirectory loads entries from the current path
 func (fp *FilePicker) loadDirectory() {
 	fp.entries = nil

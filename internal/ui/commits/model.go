@@ -74,6 +74,11 @@ func (m *Model) SetSize(width, height int) {
 	m.height = height
 }
 
+// SetStyles updates the component's styles (for theme changes).
+func (m *Model) SetStyles(styles common.Styles) {
+	m.styles = styles
+}
+
 // commitsLoaded is sent when commits have been loaded
 type commitsLoaded struct {
 	commits []git.Commit

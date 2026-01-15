@@ -95,6 +95,11 @@ func (m *Model) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
 }
 
+// SetStyles updates the component's styles (for theme changes).
+func (m *Model) SetStyles(styles common.Styles) {
+	m.styles = styles
+}
+
 // Init initializes the dashboard
 func (m *Model) Init() tea.Cmd {
 	return nil

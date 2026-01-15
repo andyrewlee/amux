@@ -318,6 +318,19 @@ func (m *Model) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
 }
 
+// SetStyles updates the component's styles (for theme changes).
+func (m *Model) SetStyles(styles common.Styles) {
+	m.styles = styles
+	// Propagate to all commit viewers in tabs
+	for _, tabs := range m.tabsByWorktree {
+		for _, tab := range tabs {
+			if tab != nil && tab.CommitViewer != nil {
+				tab.CommitViewer.SetStyles(styles)
+			}
+		}
+	}
+}
+
 // worktreeID returns the ID of the current worktree, or empty string
 func (m *Model) worktreeID() string {
 	if m.worktree == nil {
@@ -1002,16 +1015,16 @@ func (m *Model) View() string {
 			if tab.CopyMode {
 				modeStyle := lipgloss.NewStyle().
 					Bold(true).
-					Foreground(lipgloss.Color("#1a1b26")).
-					Background(lipgloss.Color("#ff9e64"))
+					Foreground(common.ColorBackground).
+					Background(common.ColorWarning)
 				indicator := modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) ")
 				b.WriteString("\n" + indicator)
 			} else if tab.Terminal.IsScrolled() {
 				offset, total := tab.Terminal.GetScrollInfo()
 				scrollStyle := lipgloss.NewStyle().
 					Bold(true).
-					Foreground(lipgloss.Color("#1a1b26")).
-					Background(lipgloss.Color("#e0af68"))
+					Foreground(common.ColorBackground).
+					Background(common.ColorInfo)
 				indicator := scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
 				b.WriteString("\n" + indicator)
 			}
