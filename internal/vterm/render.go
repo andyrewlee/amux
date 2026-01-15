@@ -7,7 +7,7 @@ import (
 
 // Render returns the terminal content as a string with ANSI codes
 func (v *VTerm) Render() string {
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	if v.ViewOffset > 0 {
 		return v.renderWithScrollbackFrom(screen, scrollbackLen)
 	}
@@ -17,7 +17,9 @@ func (v *VTerm) Render() string {
 	return v.renderScreenCached(screen)
 }
 
-func (v *VTerm) renderBuffers() ([][]Cell, int) {
+// RenderBuffers returns the current screen buffer and scrollback length.
+// During synchronized output, it returns the frozen snapshot.
+func (v *VTerm) RenderBuffers() ([][]Cell, int) {
 	if v.syncActive && v.syncScreen != nil {
 		scrollbackLen := v.syncScrollbackLen
 		if scrollbackLen > len(v.Scrollback) {
@@ -30,7 +32,7 @@ func (v *VTerm) renderBuffers() ([][]Cell, int) {
 
 // VisibleScreen returns the currently visible screen buffer as a copy.
 func (v *VTerm) VisibleScreen() [][]Cell {
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	width := v.Width
 	height := v.Height
 
@@ -85,7 +87,7 @@ func (v *VTerm) VisibleScreenWithSelection() [][]Cell {
 	for y := 0; y < len(lines); y++ {
 		row := lines[y]
 		for x := 0; x < len(row); x++ {
-			if v.isInSelection(x, y) {
+			if v.IsInSelection(x, y) {
 				cell := row[x]
 				cell.Style.Reverse = !cell.Style.Reverse
 				row[x] = cell
@@ -97,8 +99,8 @@ func (v *VTerm) VisibleScreenWithSelection() [][]Cell {
 	return lines
 }
 
-// isInSelection checks if coordinate (x, y) is within the selection
-func (v *VTerm) isInSelection(x, y int) bool {
+// IsInSelection checks if coordinate (x, y) is within the selection
+func (v *VTerm) IsInSelection(x, y int) bool {
 	if !v.selActive {
 		return false
 	}
@@ -198,7 +200,7 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 
 	for x, cell := range row {
 		// Check if this cell is in selection
-		inSel := v.isInSelection(x, y)
+		inSel := v.IsInSelection(x, y)
 
 		// Check if cursor is at this position
 		isCursor := cursorOnRow && x == v.CursorX
@@ -211,7 +213,12 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 		style = suppressBlankUnderline(cell, style)
 
 		if style != lastStyle || inSel != lastReverse || isCursor {
-			buf.WriteString(StyleToANSI(style))
+			// Use delta encoding after the first style (which has reset)
+			if x == 0 {
+				buf.WriteString(StyleToANSI(style))
+			} else {
+				buf.WriteString(StyleToDeltaANSI(lastStyle, style))
+			}
 			lastStyle = style
 			lastReverse = inSel
 		}
@@ -275,7 +282,7 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 			}
 
 			// Check if this cell is in selection (i is the visible Y coord)
-			inSel := v.isInSelection(x, i)
+			inSel := v.IsInSelection(x, i)
 
 			// Apply style changes (toggle reverse for selection)
 			style := cell.Style
@@ -361,6 +368,157 @@ func StyleToANSI(s Style) string {
 
 	// Background color
 	codes = append(codes, colorToANSI(s.Bg, false)...)
+
+	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
+}
+
+// StyleToDeltaANSI returns the minimal SGR escape sequence to transition from prev to next style.
+// This avoids the overhead of always emitting a full reset.
+func StyleToDeltaANSI(prev, next Style) string {
+	if prev == next {
+		return ""
+	}
+
+	var codes []string
+
+	// Check if we need to reset (turning OFF attributes that can't be individually disabled)
+	// Most attributes can be disabled individually (e.g., 22 disables bold, 23 disables italic)
+	// but it's often simpler to reset if multiple are changing from on→off
+	needsReset := false
+	turningOff := 0
+	if prev.Bold && !next.Bold {
+		turningOff++
+	}
+	if prev.Dim && !next.Dim {
+		turningOff++
+	}
+	if prev.Italic && !next.Italic {
+		turningOff++
+	}
+	if prev.Underline && !next.Underline {
+		turningOff++
+	}
+	if prev.Blink && !next.Blink {
+		turningOff++
+	}
+	if prev.Reverse && !next.Reverse {
+		turningOff++
+	}
+	if prev.Hidden && !next.Hidden {
+		turningOff++
+	}
+	if prev.Strike && !next.Strike {
+		turningOff++
+	}
+
+	// If turning off multiple attributes, reset is more efficient
+	if turningOff > 1 {
+		needsReset = true
+	}
+
+	if needsReset {
+		codes = append(codes, "0")
+		// After reset, add all active attributes
+		if next.Bold {
+			codes = append(codes, "1")
+		}
+		if next.Dim {
+			codes = append(codes, "2")
+		}
+		if next.Italic {
+			codes = append(codes, "3")
+		}
+		if next.Underline {
+			codes = append(codes, "4")
+		}
+		if next.Blink {
+			codes = append(codes, "5")
+		}
+		if next.Reverse {
+			codes = append(codes, "7")
+		}
+		if next.Hidden {
+			codes = append(codes, "8")
+		}
+		if next.Strike {
+			codes = append(codes, "9")
+		}
+		// Colors after reset
+		codes = append(codes, colorToANSI(next.Fg, true)...)
+		codes = append(codes, colorToANSI(next.Bg, false)...)
+	} else {
+		// Emit individual changes only
+
+		// Turn off attributes individually
+		// Note: SGR 22 turns off both Bold and Dim, so we only emit it once
+		if (prev.Bold && !next.Bold) || (prev.Dim && !next.Dim) {
+			codes = append(codes, "22") // Normal intensity (turns off bold and dim)
+		}
+		if prev.Italic && !next.Italic {
+			codes = append(codes, "23")
+		}
+		if prev.Underline && !next.Underline {
+			codes = append(codes, "24")
+		}
+		if prev.Blink && !next.Blink {
+			codes = append(codes, "25")
+		}
+		if prev.Reverse && !next.Reverse {
+			codes = append(codes, "27")
+		}
+		if prev.Hidden && !next.Hidden {
+			codes = append(codes, "28")
+		}
+		if prev.Strike && !next.Strike {
+			codes = append(codes, "29")
+		}
+
+		// Turn on attributes
+		if !prev.Bold && next.Bold {
+			codes = append(codes, "1")
+		}
+		if !prev.Dim && next.Dim {
+			codes = append(codes, "2")
+		}
+		if !prev.Italic && next.Italic {
+			codes = append(codes, "3")
+		}
+		if !prev.Underline && next.Underline {
+			codes = append(codes, "4")
+		}
+		if !prev.Blink && next.Blink {
+			codes = append(codes, "5")
+		}
+		if !prev.Reverse && next.Reverse {
+			codes = append(codes, "7")
+		}
+		if !prev.Hidden && next.Hidden {
+			codes = append(codes, "8")
+		}
+		if !prev.Strike && next.Strike {
+			codes = append(codes, "9")
+		}
+
+		// Colors only if changed
+		if prev.Fg != next.Fg {
+			if next.Fg.Type == ColorDefault {
+				codes = append(codes, "39") // Default foreground
+			} else {
+				codes = append(codes, colorToANSI(next.Fg, true)...)
+			}
+		}
+		if prev.Bg != next.Bg {
+			if next.Bg.Type == ColorDefault {
+				codes = append(codes, "49") // Default background
+			} else {
+				codes = append(codes, colorToANSI(next.Bg, false)...)
+			}
+		}
+	}
+
+	if len(codes) == 0 {
+		return ""
+	}
 
 	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
 }
@@ -492,7 +650,7 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 
 	// Convert visible Y coordinates to absolute line numbers
 	// (matching the logic in renderWithScrollback)
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	screenLen := len(screen)
 	startLine := scrollbackLen + screenLen - v.Height - v.ViewOffset
 	if startLine < 0 {

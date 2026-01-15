@@ -947,140 +947,252 @@ func (a *App) showQuitDialog() {
 	a.dialog.Show()
 }
 
-// Synchronized Output Mode 2026 sequences
-// https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036
-const (
-	syncBegin = "\x1b[?2026h"
-	syncEnd   = "\x1b[?2026l"
-)
-
-// View renders the application
+// View renders the application using layer-based composition.
+// This uses lipgloss Canvas to compose layers directly, enabling ultraviolet's
+// cell-level differential rendering for optimal performance.
 func (a *App) View() tea.View {
 	defer perf.Time("view")()
-	buildView := func(content string, cursor *tea.Cursor) tea.View {
-		view := tea.NewView(content)
+
+	baseView := func() tea.View {
+		var view tea.View
 		view.AltScreen = true
 		view.MouseMode = tea.MouseModeCellMotion
 		view.BackgroundColor = common.ColorBackground
 		view.ForegroundColor = common.ColorForeground
 		view.KeyboardEnhancements.ReportEventTypes = true
-		view.Cursor = cursor
 		return view
 	}
 
 	if a.quitting {
-		return a.finalizeView(buildView("Goodbye!\n", nil))
+		view := baseView()
+		view.SetContent("Goodbye!\n")
+		return a.finalizeView(view)
 	}
 
 	if !a.ready {
-		return a.finalizeView(buildView("Loading...", nil))
+		view := baseView()
+		view.SetContent("Loading...")
+		return a.finalizeView(view)
 	}
-
-	var content string
 
 	// Monitor mode uses the compositor for a full-screen grid.
 	if a.monitorMode {
-		content = a.renderMonitorGrid()
-
-		if a.dialog != nil && a.dialog.Visible() {
-			content = a.overlayDialog(content)
-		}
-		if a.filePicker != nil && a.filePicker.Visible() {
-			content = a.overlayFilePicker(content)
-		}
-		if a.settingsDialog != nil && a.settingsDialog.Visible() {
-			content = a.overlaySettingsDialog(content)
-		}
-		if a.helpOverlay.Visible() {
-			content = a.helpOverlay.View()
-		}
-		if a.prefixActive {
-			content = a.overlayPrefixIndicator(content)
-		}
-		if a.toast.Visible() {
-			content = a.overlayToast(content)
-		}
-		if a.err != nil {
-			content = a.overlayError(content)
-		}
-		content = syncBegin + content + syncEnd
-		return a.finalizeView(buildView(content, a.overlayCursor()))
+		return a.finalizeView(a.viewMonitorMode())
 	}
 
-	// Render panes with manual borders for guaranteed dimensions
+	// Use layer-based rendering for normal mode
+	return a.finalizeView(a.viewLayerBased())
+}
+
+// viewLayerBased renders the application using lipgloss Canvas composition.
+// This enables ultraviolet to perform cell-level differential updates.
+func (a *App) viewLayerBased() tea.View {
+	view := tea.View{
+		AltScreen:            true,
+		MouseMode:            tea.MouseModeCellMotion,
+		BackgroundColor:      common.ColorBackground,
+		ForegroundColor:      common.ColorForeground,
+		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
+	}
+
+	// Create canvas at screen dimensions
+	canvas := lipgloss.NewCanvas(a.width, a.height)
+
+	// Dashboard pane (leftmost)
 	dashContent := a.dashboard.View()
-	dashView := buildBorderedPane(dashContent, a.layout.DashboardWidth(), a.layout.Height(), a.dashboard.Focused())
+	dashWidth := a.layout.DashboardWidth()
+	dashView := buildBorderedPane(dashContent, dashWidth, a.layout.Height(), a.dashboard.Focused())
+	dashDrawable := compositor.NewStringDrawable(clampPane(dashView, dashWidth, a.layout.Height()), 0, 0)
+	canvas.Compose(dashDrawable)
 
-	var centerView string
-	centerFocused := a.focusedPane == messages.PaneCenter
-	if a.center.HasTabs() {
-		centerContent := a.center.View()
-		centerView = buildBorderedPane(centerContent, a.layout.CenterWidth(), a.layout.Height(), centerFocused)
-		if a.center.HasSaveDialog() {
-			centerView = a.center.OverlayDialog(centerView)
+	// Center pane
+	if a.layout.ShowCenter() {
+		centerX := dashWidth
+		centerWidth := a.layout.CenterWidth()
+		centerHeight := a.layout.Height()
+		centerFocused := a.focusedPane == messages.PaneCenter
+
+		// Check if we can use VTermLayer for direct cell rendering
+		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasCommitViewer() {
+			// Get terminal viewport from center model (accounts for borders, tab bar, help lines)
+			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
+			termX := centerX + termOffsetX
+			termY := termOffsetY
+
+			// Draw the pane chrome with borders using buildBorderedPane
+			centerContent := a.center.ViewChromeOnly()
+			centerView := buildBorderedPane(centerContent, centerWidth, centerHeight, centerFocused)
+			if a.center.HasSaveDialog() {
+				centerView = a.center.OverlayDialog(centerView)
+			}
+			centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, 0)
+			canvas.Compose(centerDrawable)
+
+			// Compose VTermLayer on top for the terminal content
+			// Position it within the pane's content area
+			positionedTermLayer := &compositor.PositionedVTermLayer{
+				VTermLayer: termLayer,
+				PosX:       termX,
+				PosY:       termY,
+				Width:      termW,
+				Height:     termH,
+			}
+			canvas.Compose(positionedTermLayer)
+		} else {
+			// Fallback to string-based rendering with borders
+			var centerContent string
+			if a.center.HasTabs() {
+				centerContent = a.center.View()
+			} else {
+				centerContent = a.renderCenterPaneContent()
+			}
+			centerView := buildBorderedPane(centerContent, centerWidth, centerHeight, centerFocused)
+			if a.center.HasTabs() && a.center.HasSaveDialog() {
+				centerView = a.center.OverlayDialog(centerView)
+			}
+			centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, 0)
+			canvas.Compose(centerDrawable)
 		}
-	} else {
-		centerContent := a.renderCenterPaneContent()
-		centerView = buildBorderedPane(centerContent, a.layout.CenterWidth(), a.layout.Height(), centerFocused)
 	}
 
-	// Render sidebar as vertical split: file changes (top) + terminal (bottom)
-	sidebarView := a.renderSidebarPane()
-
-	// Hard-clamp pane output to allocated size to prevent bleed.
-	if a.layout != nil {
-		dashView = clampPane(dashView, a.layout.DashboardWidth(), a.layout.Height())
-		centerView = clampPane(centerView, a.layout.CenterWidth(), a.layout.Height())
-		sidebarView = clampPane(sidebarView, a.layout.SidebarWidth(), a.layout.Height())
-	}
-
-	// Combine using layout manager
+	// Sidebar pane (rightmost)
 	if a.layout.ShowSidebar() {
-		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView, sidebarView)
-	} else if a.layout.ShowCenter() {
-		content = lipgloss.JoinHorizontal(lipgloss.Top, dashView, centerView)
-	} else {
-		content = dashView
+		sidebarX := a.layout.DashboardWidth() + a.layout.CenterWidth()
+		sidebarView := a.renderSidebarPane()
+		sidebarDrawable := compositor.NewStringDrawable(clampPane(sidebarView, a.layout.SidebarWidth(), a.layout.Height()), sidebarX, 0)
+		canvas.Compose(sidebarDrawable)
 	}
 
-	// Overlay dialog if visible
+	// Overlay layers (dialogs, toasts, etc.)
+	a.composeOverlays(canvas)
+
+	view.SetContent(canvas.Render())
+	view.Cursor = a.overlayCursor()
+	return view
+}
+
+// composeOverlays adds overlay layers (dialogs, toasts, help, etc.) to the canvas.
+func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
+	// Dialog overlay
 	if a.dialog != nil && a.dialog.Visible() {
-		content = a.overlayDialog(content)
+		dialogView := a.dialog.View()
+		dialogWidth, dialogHeight := viewDimensions(dialogView)
+		x, y := a.centeredPosition(dialogWidth, dialogHeight)
+		dialogDrawable := compositor.NewStringDrawable(dialogView, x, y)
+		canvas.Compose(dialogDrawable)
 	}
 
-	// Overlay file picker if visible
+	// File picker overlay
 	if a.filePicker != nil && a.filePicker.Visible() {
-		content = a.overlayFilePicker(content)
+		pickerView := a.filePicker.View()
+		pickerWidth, pickerHeight := viewDimensions(pickerView)
+		x, y := a.centeredPosition(pickerWidth, pickerHeight)
+		pickerDrawable := compositor.NewStringDrawable(pickerView, x, y)
+		canvas.Compose(pickerDrawable)
 	}
 
-	// Overlay settings dialog if visible
+	// Settings dialog overlay
 	if a.settingsDialog != nil && a.settingsDialog.Visible() {
-		content = a.overlaySettingsDialog(content)
+		settingsView := a.settingsDialog.View()
+		settingsWidth, settingsHeight := viewDimensions(settingsView)
+		x, y := a.centeredPosition(settingsWidth, settingsHeight)
+		settingsDrawable := compositor.NewStringDrawable(settingsView, x, y)
+		canvas.Compose(settingsDrawable)
 	}
 
-	// Show help overlay if visible
+	// Help overlay (replaces entire content)
 	if a.helpOverlay.Visible() {
-		content = a.helpOverlay.View()
+		helpView := a.helpOverlay.View()
+		helpDrawable := compositor.NewStringDrawable(helpView, 0, 0)
+		canvas.Compose(helpDrawable)
 	}
 
-	// Show prefix mode indicator
+	// Prefix mode indicator
 	if a.prefixActive {
-		content = a.overlayPrefixIndicator(content)
+		indicator := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#1a1b26")).
+			Background(lipgloss.Color("#7aa2f7")).
+			Padding(0, 1).
+			Render("PREFIX")
+		indicatorWidth := lipgloss.Width(indicator)
+		x := a.width - indicatorWidth - 1
+		y := a.height - 3
+		if x < 0 {
+			x = 0
+		}
+		if y < 0 {
+			y = 0
+		}
+		prefixDrawable := compositor.NewStringDrawable(indicator, x, y)
+		canvas.Compose(prefixDrawable)
 	}
 
-	// Show toast notification if visible
+	// Toast notification
 	if a.toast.Visible() {
-		content = a.overlayToast(content)
+		toastView := a.toast.View()
+		if toastView != "" {
+			toastWidth := lipgloss.Width(toastView)
+			x := (a.width - toastWidth) / 2
+			y := a.height - 2
+			if x < 0 {
+				x = 0
+			}
+			if y < 0 {
+				y = 0
+			}
+			toastDrawable := compositor.NewStringDrawable(toastView, x, y)
+			canvas.Compose(toastDrawable)
+		}
 	}
 
-	// Show error message if present
+	// Error overlay
 	if a.err != nil {
-		content = a.overlayError(content)
+		errView := a.renderErrorOverlay()
+		errWidth, errHeight := viewDimensions(errView)
+		x, y := a.centeredPosition(errWidth, errHeight)
+		errDrawable := compositor.NewStringDrawable(errView, x, y)
+		canvas.Compose(errDrawable)
 	}
-	// Wrap with synchronized output to prevent flickering
-	content = syncBegin + content + syncEnd
+}
 
-	return a.finalizeView(buildView(content, a.overlayCursor()))
+// viewMonitorMode renders monitor mode using layer-based compositing.
+func (a *App) viewMonitorMode() tea.View {
+	view := tea.View{
+		AltScreen:            true,
+		MouseMode:            tea.MouseModeCellMotion,
+		BackgroundColor:      common.ColorBackground,
+		ForegroundColor:      common.ColorForeground,
+		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
+	}
+
+	// Create canvas at screen dimensions
+	canvas := lipgloss.NewCanvas(a.width, a.height)
+
+	// Render monitor grid content
+	gridContent := a.renderMonitorGrid()
+	gridDrawable := compositor.NewStringDrawable(gridContent, 0, 0)
+	canvas.Compose(gridDrawable)
+
+	// Compose overlays using the same layer-based approach as normal mode
+	a.composeOverlays(canvas)
+
+	view.SetContent(canvas.Render())
+	view.Cursor = a.overlayCursor()
+	return view
+}
+
+// renderErrorOverlay returns the error overlay content.
+func (a *App) renderErrorOverlay() string {
+	if a.err == nil {
+		return ""
+	}
+	errStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#f7768e")).
+		Padding(1, 2).
+		MaxWidth(60)
+	return errStyle.Render("Error: " + a.err.Error() + "\n\nPress any key to dismiss.")
 }
 
 func (a *App) finalizeView(view tea.View) tea.View {
@@ -1151,228 +1263,6 @@ func (a *App) overlayCursor() *tea.Cursor {
 	}
 
 	return nil
-}
-
-// overlayPrefixIndicator shows a visual indicator when prefix mode is active
-func (a *App) overlayPrefixIndicator(content string) string {
-	indicator := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(common.ColorBackground).
-		Background(common.ColorPrimary).
-		Padding(0, 1).
-		Render("PREFIX")
-
-	// Position at bottom-right (above toast area, row a.height-3)
-	lines := strings.Split(content, "\n")
-	if len(lines) >= a.height && a.height > 3 {
-		indicatorWidth := lipgloss.Width(indicator)
-		targetRow := a.height - 3
-		targetLine := lines[targetRow]
-
-		// Pad line to full width if needed
-		lineWidth := lipgloss.Width(targetLine)
-		if lineWidth < a.width {
-			targetLine += strings.Repeat(" ", a.width-lineWidth)
-		}
-
-		// Replace rightmost characters with indicator
-		x := a.width - indicatorWidth - 1
-		if x < 0 {
-			x = 0
-		}
-		// Use the visible portion + indicator
-		stripped := ansi.Strip(targetLine)
-		runes := []rune(stripped)
-		if len(runes) > x {
-			lines[targetRow] = string(runes[:x]) + indicator
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// overlayToast renders a toast notification at the bottom
-func (a *App) overlayToast(content string) string {
-	toastView := a.toast.View()
-	if toastView == "" {
-		return content
-	}
-
-	// Position toast at bottom center
-	lines := strings.Split(content, "\n")
-	if len(lines) >= a.height && a.height > 2 {
-		// Replace second-to-last line with toast
-		toastLine := lipgloss.PlaceHorizontal(a.width, lipgloss.Center, toastView)
-		lines[a.height-2] = toastLine
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// overlayDialog renders the dialog as a true modal overlay on top of content
-func (a *App) overlayDialog(content string) string {
-	dialogView := a.dialog.View()
-	dialogLines := strings.Split(dialogView, "\n")
-
-	// Calculate dialog dimensions
-	dialogWidth, dialogHeight := viewDimensions(dialogView)
-
-	// Center the dialog (true center)
-	x, y := a.centeredPosition(dialogWidth, dialogHeight)
-
-	// Split content into lines - preserve exact line count
-	contentLines := strings.Split(content, "\n")
-	originalLineCount := len(contentLines)
-
-	// Overlay dialog lines onto content using ANSI-aware functions
-	for i, dialogLine := range dialogLines {
-		contentY := y + i
-		if contentY >= 0 && contentY < len(contentLines) {
-			bgLine := contentLines[contentY]
-
-			// Get left portion of background (before dialog)
-			left := ansi.Truncate(bgLine, x, "")
-			// Pad left if needed
-			leftWidth := lipgloss.Width(left)
-			if leftWidth < x {
-				left += strings.Repeat(" ", x-leftWidth)
-			}
-
-			// Get right portion of background (after dialog)
-			rightStart := x + dialogWidth
-			bgWidth := lipgloss.Width(bgLine)
-			var right string
-			if rightStart < bgWidth {
-				right = ansi.TruncateLeft(bgLine, rightStart, "")
-			}
-
-			// Compose: left + dialog + right
-			contentLines[contentY] = left + dialogLine + right
-		}
-	}
-
-	// Preserve original line count exactly
-	if len(contentLines) > originalLineCount {
-		contentLines = contentLines[:originalLineCount]
-	}
-
-	return strings.Join(contentLines, "\n")
-}
-
-// overlayFilePicker renders the file picker as a modal overlay
-func (a *App) overlayFilePicker(content string) string {
-	pickerView := a.filePicker.View()
-	pickerLines := strings.Split(pickerView, "\n")
-
-	// Calculate picker dimensions
-	pickerWidth, pickerHeight := viewDimensions(pickerView)
-
-	// Center the picker
-	x, y := a.centeredPosition(pickerWidth, pickerHeight)
-
-	// Split content into lines
-	contentLines := strings.Split(content, "\n")
-	originalLineCount := len(contentLines)
-
-	// Overlay picker lines onto content
-	for i, pickerLine := range pickerLines {
-		contentY := y + i
-		if contentY >= 0 && contentY < len(contentLines) {
-			bgLine := contentLines[contentY]
-			bgWidth := lipgloss.Width(bgLine)
-
-			// Build the line: left part + picker line + right part
-			var left string
-			if x > 0 {
-				left = ansi.Truncate(bgLine, x, "")
-			}
-
-			rightStart := x + lipgloss.Width(pickerLine)
-			var right string
-			if rightStart < bgWidth {
-				right = ansi.TruncateLeft(bgLine, rightStart, "")
-			}
-
-			contentLines[contentY] = left + pickerLine + right
-		}
-	}
-
-	if len(contentLines) > originalLineCount {
-		contentLines = contentLines[:originalLineCount]
-	}
-
-	return strings.Join(contentLines, "\n")
-}
-
-// overlaySettingsDialog renders the settings dialog as a modal overlay on top of content.
-func (a *App) overlaySettingsDialog(content string) string {
-	settingsView := a.settingsDialog.View()
-	settingsLines := strings.Split(settingsView, "\n")
-
-	// Calculate settings dialog dimensions
-	settingsWidth, settingsHeight := viewDimensions(settingsView)
-
-	// Center the dialog
-	x, y := a.centeredPosition(settingsWidth, settingsHeight)
-
-	// Split content into lines
-	contentLines := strings.Split(content, "\n")
-	originalLineCount := len(contentLines)
-
-	// Overlay settings dialog lines onto content
-	for i, settingsLine := range settingsLines {
-		contentY := y + i
-		if contentY >= 0 && contentY < len(contentLines) {
-			bgLine := contentLines[contentY]
-			bgWidth := lipgloss.Width(bgLine)
-
-			// Build the line: left part + settings line + right part
-			var left string
-			if x > 0 {
-				left = ansi.Truncate(bgLine, x, "")
-			}
-
-			rightStart := x + lipgloss.Width(settingsLine)
-			var right string
-			if rightStart < bgWidth {
-				right = ansi.TruncateLeft(bgLine, rightStart, "")
-			}
-
-			contentLines[contentY] = left + settingsLine + right
-		}
-	}
-
-	if len(contentLines) > originalLineCount {
-		contentLines = contentLines[:originalLineCount]
-	}
-
-	return strings.Join(contentLines, "\n")
-}
-
-// overlayError renders an error banner at the bottom of the screen
-func (a *App) overlayError(content string) string {
-	errStyle := lipgloss.NewStyle().
-		Foreground(common.ColorForeground).
-		Background(common.ColorError).
-		Bold(true).
-		Padding(0, 2).
-		Width(a.width)
-
-	errMsg := fmt.Sprintf(" Error: %s (press any key or click to dismiss)", a.err.Error())
-	errBanner := errStyle.Render(errMsg)
-
-	// Place error at the bottom
-	lines := strings.Split(content, "\n")
-	if len(lines) > 0 && a.height > 1 {
-		// Replace last line with error banner
-		if len(lines) >= a.height {
-			lines[a.height-1] = errBanner
-		} else {
-			lines = append(lines, errBanner)
-		}
-	}
-
-	return strings.Join(lines, "\n")
 }
 
 func (a *App) centerPaneStyle() lipgloss.Style {

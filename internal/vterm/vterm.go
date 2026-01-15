@@ -86,6 +86,8 @@ func New(width, height int) *VTerm {
 	v.Screen = v.makeScreen(width, height)
 	v.Scrollback = make([][]Cell, 0, MaxScrollback)
 	v.parser = NewParser(v)
+	// Initialize dirty tracking for layer-based rendering
+	v.ensureRenderCache(height)
 	return v
 }
 
@@ -186,6 +188,8 @@ func (v *VTerm) Resize(width, height int) {
 		v.syncScreen = newSync
 	}
 	v.invalidateRenderCache()
+	// Re-initialize dirty tracking for new size
+	v.ensureRenderCache(height)
 }
 
 // Write processes input bytes from PTY
@@ -355,4 +359,46 @@ func (v *VTerm) invalidateRenderCache() {
 	v.renderCache = nil
 	v.renderDirty = nil
 	v.renderDirtyAll = true
+}
+
+// DirtyLines returns the dirty line flags and whether all lines are dirty.
+// This is used by VTermLayer for optimized rendering.
+func (v *VTerm) DirtyLines() ([]bool, bool) {
+	// When scrolled, we can't use dirty tracking effectively
+	if v.ViewOffset > 0 {
+		return nil, true
+	}
+	// When sync is active, always redraw
+	if v.syncActive {
+		return nil, true
+	}
+	return v.renderDirty, v.renderDirtyAll
+}
+
+// ClearDirty resets dirty tracking state after a render.
+func (v *VTerm) ClearDirty() {
+	v.renderDirtyAll = false
+	for i := range v.renderDirty {
+		v.renderDirty[i] = false
+	}
+}
+
+// ClearDirtyWithCursor resets dirty tracking state and updates cursor tracking.
+// This should be called after snapshotting to track cursor position changes.
+func (v *VTerm) ClearDirtyWithCursor(showCursor bool) {
+	v.renderDirtyAll = false
+	for i := range v.renderDirty {
+		v.renderDirty[i] = false
+	}
+	// Track cursor state for next frame's dirty detection
+	v.lastShowCursor = showCursor
+	v.lastCursorHidden = v.CursorHidden
+	v.lastCursorX = v.CursorX
+	v.lastCursorY = v.CursorY
+}
+
+// LastCursorY returns the cursor Y position from the previous render frame.
+// Used to detect cursor movement and mark old cursor line dirty.
+func (v *VTerm) LastCursorY() int {
+	return v.lastCursorY
 }

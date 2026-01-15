@@ -279,6 +279,11 @@ const (
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
 	ptyFlushInactiveMultiplier = 4
 	ptyFlushChunkSize          = 32 * 1024
+
+	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
+	// When pending output exceeds this, we throttle rendering frequency
+	ptyBackpressureMultiplier = 8 // threshold = multiplier * width * height
+	ptyBackpressureFlushMin   = 32 * time.Millisecond
 )
 
 // Model is the Bubbletea model for the center pane
@@ -291,7 +296,6 @@ type Model struct {
 	canFocusRight       bool
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
-	terminalCanvas      *compositor.Canvas
 
 	// Dialog state
 	saveDialog      *common.Dialog
@@ -341,6 +345,51 @@ func (m *Model) contentWidth() int {
 		return 1
 	}
 	return width
+}
+
+// TerminalMetrics holds the computed geometry for the terminal content area.
+// This is the single source of truth for terminal positioning and sizing.
+type TerminalMetrics struct {
+	// For mouse hit-testing (screen coordinates to terminal coordinates)
+	ContentStartX int // X offset from pane left edge (border + padding)
+	ContentStartY int // Y offset from pane top edge (border + tab bar)
+
+	// Terminal dimensions
+	Width  int // Terminal width in columns
+	Height int // Terminal height in rows
+}
+
+// terminalMetrics computes the terminal content area geometry.
+// This matches the original hardcoded values that work correctly:
+// - height - 6 for terminal height (accounts for borders, tab bar, help lines)
+// - tabBarHeight = 3 for Y offset (border + tab content + separator)
+// - borderLeft + paddingLeft = 2 for X offset
+func (m *Model) terminalMetrics() TerminalMetrics {
+	// These values match the original working implementation
+	const (
+		borderLeft    = 1
+		paddingLeft   = 1
+		borderTop     = 1
+		tabBarHeight  = 3 // border + tab content + separator
+		totalOverhead = 6 // total vertical overhead (borders, tab bar, help lines)
+	)
+
+	width := m.contentWidth()
+	height := m.height - totalOverhead
+
+	if width < 10 {
+		width = 80
+	}
+	if height < 5 {
+		height = 24
+	}
+
+	return TerminalMetrics{
+		ContentStartX: borderLeft + paddingLeft,
+		ContentStartY: borderTop + tabBarHeight,
+		Width:         width,
+		Height:        height,
+	}
 }
 
 // New creates a new center pane model
@@ -433,6 +482,21 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	if tab.Terminal != nil && tab.Terminal.AltScreen {
 		quiet = ptyFlushQuietAlt
 		maxInterval = ptyFlushMaxAlt
+	}
+
+	// Apply backpressure when pending output exceeds threshold
+	// This prevents renderer thrashing during heavy output (like builds)
+	if tab.Terminal != nil && len(tab.pendingOutput) > 0 {
+		threshold := ptyBackpressureMultiplier * tab.Terminal.Width * tab.Terminal.Height
+		if len(tab.pendingOutput) > threshold {
+			// Under backpressure: use minimum flush interval
+			if quiet < ptyBackpressureFlushMin {
+				quiet = ptyBackpressureFlushMin
+			}
+			if maxInterval < ptyBackpressureFlushMin {
+				maxInterval = ptyBackpressureFlushMin
+			}
+		}
 	}
 	tab.mu.Unlock()
 
@@ -1072,9 +1136,8 @@ func (m *Model) View() string {
 			b.WriteString(tab.CommitViewer.View())
 		} else if tab.Terminal != nil {
 			tab.Terminal.ShowCursor = m.focused
-			termWidth := tab.Terminal.Width
-			termHeight := tab.Terminal.Height
-			b.WriteString(m.renderTerminalCanvas(tab.Terminal, termWidth, termHeight, m.focused))
+			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
+			b.WriteString(tab.Terminal.Render())
 
 			// Show scroll indicator if scrolled
 			if tab.CopyMode {
@@ -2112,23 +2175,14 @@ func (m *Model) SetSize(width, height int) {
 		m.saveDialog.SetSize(width, height)
 	}
 
-	termWidth := m.contentWidth()
-	termHeight := height - 6
-	if termWidth < 10 {
-		termWidth = 80
-	}
-	if termHeight < 5 {
-		termHeight = 24
-	}
+	// Use centralized metrics for terminal sizing
+	tm := m.terminalMetrics()
+	termWidth := tm.Width
+	termHeight := tm.Height
 
-	viewerWidth := m.contentWidth()
-	viewerHeight := height - 6
-	if viewerWidth < 40 {
-		viewerWidth = 80
-	}
-	if viewerHeight < 10 {
-		viewerHeight = 24
-	}
+	// CommitViewer uses the same dimensions
+	viewerWidth := termWidth
+	viewerHeight := termHeight
 
 	// Update all terminals across all worktrees
 	for _, tabs := range m.tabsByWorktree {
@@ -2156,36 +2210,20 @@ func (m *Model) SetOffset(x int) {
 // screenToTerminal converts screen coordinates to terminal coordinates
 // Returns the terminal X, Y and whether the coordinates are within the terminal content area
 func (m *Model) screenToTerminal(screenX, screenY int) (termX, termY int, inBounds bool) {
-	// Calculate content area offsets within the pane:
-	// - Border: 1 on each side
-	// - Padding: 1 on left
-	// - Tab bar: 3 lines at top (border + content + border)
-	borderTop := 1
-	borderLeft := 1
-	paddingLeft := 1
-	tabBarHeight := 3
+	// Use centralized metrics for consistent geometry
+	tm := m.terminalMetrics()
 
-	// X offset: border + padding
-	contentStartX := m.offsetX + borderLeft + paddingLeft
-	// Y offset: border + tab bar
-	contentStartY := borderTop + tabBarHeight
-
-	// Terminal dimensions
-	termWidth := m.contentWidth()
-	termHeight := m.height - 6
-	if termWidth < 10 {
-		termWidth = 80
-	}
-	if termHeight < 5 {
-		termHeight = 24
-	}
+	// X offset includes pane position + border + padding
+	contentStartX := m.offsetX + tm.ContentStartX
+	// Y offset is just border + tab bar (pane Y starts at 0)
+	contentStartY := tm.ContentStartY
 
 	// Convert screen coordinates to terminal coordinates
 	termX = screenX - contentStartX
 	termY = screenY - contentStartY
 
 	// Check bounds
-	inBounds = termX >= 0 && termX < termWidth && termY >= 0 && termY < termHeight
+	inBounds = termX >= 0 && termX < tm.Width && termY >= 0 && termY < tm.Height
 	return
 }
 
@@ -2431,22 +2469,147 @@ func (m *Model) ResetMonitorSelection() {
 	m.monitor.Reset()
 }
 
-func (m *Model) renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
-	if term == nil || width <= 0 || height <= 0 {
-		return ""
+// TerminalLayer returns a VTermLayer for the active terminal, if any.
+// This creates a snapshot of the terminal state while holding the lock,
+// so the returned layer can be safely used for rendering without locks.
+func (m *Model) TerminalLayer() *compositor.VTermLayer {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return nil
 	}
-	if m.terminalCanvas == nil || m.terminalCanvas.Width != width || m.terminalCanvas.Height != height {
-		m.terminalCanvas = compositor.NewCanvas(width, height)
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if tab.Terminal == nil {
+		return nil
 	}
-	return compositor.RenderTerminalWithCanvas(
-		m.terminalCanvas,
-		term,
-		width,
-		height,
-		showCursor,
-		compositor.HexColor(common.HexColor(common.ColorForeground)),
-		compositor.HexColor(common.HexColor(common.ColorBackground)),
+	// Create snapshot while holding the lock - this is thread-safe
+	snap := compositor.NewVTermSnapshot(tab.Terminal, m.focused)
+	if snap == nil {
+		return nil
+	}
+	return compositor.NewVTermLayer(snap)
+}
+
+// HasCommitViewer returns true if the active tab has a commit viewer.
+func (m *Model) HasCommitViewer() bool {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return false
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	return tab.CommitViewer != nil
+}
+
+// TerminalViewport returns the terminal content area coordinates relative to the pane.
+// Returns (x, y, width, height) where the terminal content should be rendered.
+// This is for layer-based rendering positioning within the bordered pane.
+func (m *Model) TerminalViewport() (x, y, width, height int) {
+	// buildBorderedPane structure:
+	// - Y=0: top border "╭───╮"
+	// - Y=1 to Y=height-2: content lines "│ content │"
+	// - Y=height-1: bottom border "╰───╯"
+	//
+	// Content lines have:
+	// - X=0: left border "│"
+	// - X=1: left padding " "
+	// - X=2 to X=width-3: actual content
+	// - X=width-2: right padding " "
+	// - X=width-1: right border "│"
+	//
+	// Within content area (after border wrapping):
+	// - Line 0 (Y=1 in bordered): tab bar
+	// - Lines 1+ (Y=2+ in bordered): terminal content
+	// - Last lines: help text
+	const (
+		borderAndPaddingX = 2 // "│" + " "
+		topBorderY        = 1 // top border line
+		tabBarHeight      = 1 // tab bar line
 	)
+
+	x = borderAndPaddingX
+	y = topBorderY + tabBarHeight
+
+	// Width is the content width (what fits between border+padding on each side)
+	width = m.contentWidth()
+
+	// Height: total content lines minus tab bar minus help lines
+	helpLineCount := 0
+	if m.showKeymapHints {
+		helpLineCount = len(m.helpLines(width))
+	}
+	innerHeight := m.height - 2 // content height inside bordered pane
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	height = innerHeight - tabBarHeight - helpLineCount
+	if height < 1 {
+		height = 1
+	}
+
+	return x, y, width, height
+}
+
+// ViewChromeOnly renders only the pane chrome (border, tab bar, help lines) without
+// the terminal content. This is used with VTermLayer for layer-based rendering.
+// IMPORTANT: The output structure must match View() exactly so buildBorderedPane
+// produces the same layout.
+func (m *Model) ViewChromeOnly() string {
+	defer perf.Time("center_view_chrome")()
+	var b strings.Builder
+
+	// Tab bar
+	b.WriteString(m.renderTabBar())
+	b.WriteString("\n")
+
+	// Calculate content dimensions to match View() exactly
+	contentWidth := m.contentWidth()
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
+	}
+
+	// Match View()'s padding logic exactly:
+	// innerHeight = m.height - 2 (space inside buildBorderedPane)
+	// targetContentLines = innerHeight - helpLineCount
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	helpLineCount := len(helpLines)
+	targetContentLines := innerHeight - helpLineCount
+	if targetContentLines < 0 {
+		targetContentLines = 0
+	}
+
+	// We already have 1 line (tab bar), so we need targetContentLines - 1 more lines
+	emptyLinesNeeded := targetContentLines - 1
+	if emptyLinesNeeded < 0 {
+		emptyLinesNeeded = 0
+	}
+
+	// Fill with empty lines (will be overwritten by VTermLayer)
+	emptyLine := strings.Repeat(" ", contentWidth)
+	for i := 0; i < emptyLinesNeeded; i++ {
+		b.WriteString(emptyLine)
+		b.WriteString("\n")
+	}
+
+	// Add help lines at bottom (matching View()'s format)
+	helpContent := strings.Join(helpLines, "\n")
+	if helpContent != "" {
+		b.WriteString(helpContent)
+	}
+
+	return b.String()
 }
 
 // CloseAllTabs is deprecated - tabs now persist per-worktree
