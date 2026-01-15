@@ -1939,8 +1939,8 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	agentBtn := a.styles.TabPlus.Render("[+] New agent")
-	commitsBtn := a.styles.TabPlus.Render("[d] Commits")
+	agentBtn := a.styles.TabPlus.Render("New agent")
+	commitsBtn := a.styles.TabPlus.Render("Commits")
 	content += "\n" + lipgloss.JoinHorizontal(lipgloss.Bottom, agentBtn, commitsBtn)
 	if a.config.UI.ShowKeymapHints {
 		content += "\n" + a.styles.Help.Render("C-Spc a:new agent  C-Spc d:commits")
@@ -1965,8 +1965,8 @@ func (a *App) welcomeContent() string {
 	var b strings.Builder
 	b.WriteString(logoStyle.Render(logo))
 	b.WriteString("\n\n")
-	newProject := a.styles.TabPlus.Render("[+] New project")
-	settingsBtn := a.styles.TabPlus.Render("[*] Settings")
+	newProject := a.styles.TabPlus.Render("New project")
+	settingsBtn := a.styles.TabPlus.Render("Settings")
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, newProject, "  ", settingsBtn))
 	b.WriteString("\n")
 	if a.config.UI.ShowKeymapHints {
@@ -2089,7 +2089,7 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 		strippedLine := ansi.Strip(line)
 
 		// Settings button - check first so it's not blocked by New project's region
-		settingsText := "[*] Settings"
+		settingsText := "Settings"
 		if idx := strings.Index(strippedLine, settingsText); idx >= 0 {
 			region := common.HitRegion{
 				X:      idx + offsetX,
@@ -2103,7 +2103,7 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 		}
 
 		// New project button
-		newProjectText := "[+] New project"
+		newProjectText := "New project"
 		if idx := strings.Index(strippedLine, newProjectText); idx >= 0 {
 			region := common.HitRegion{
 				X:      idx + offsetX,
@@ -2127,14 +2127,14 @@ func (a *App) handleWorktreeInfoClick(localX, localY int) tea.Cmd {
 	content := a.renderWorktreeInfo()
 	lines := strings.Split(content, "\n")
 
-	agentBtn := a.styles.TabPlus.Render("[+] New agent")
+	agentBtn := a.styles.TabPlus.Render("New agent")
 	if region, ok := findButtonRegion(lines, agentBtn); ok {
 		if region.Contains(localX, localY) {
 			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 		}
 	}
 
-	commitsBtn := a.styles.TabPlus.Render("[d] Commits")
+	commitsBtn := a.styles.TabPlus.Render("Commits")
 	if region, ok := findButtonRegion(lines, commitsBtn); ok {
 		if region.Contains(localX, localY) {
 			wt := a.activeWorktree
@@ -2743,16 +2743,12 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 	for len(lines) < contentHeight {
 		lines = append(lines, "")
 	}
-	// Truncate each line to width and pad
+	// Truncate each line to width and pad (ANSI-aware to preserve styled content)
 	for i, line := range lines {
 		w := lipgloss.Width(line)
 		if w > contentWidth {
-			// Truncate
-			runes := []rune(line)
-			for len(runes) > 0 && lipgloss.Width(string(runes)) > contentWidth {
-				runes = runes[:len(runes)-1]
-			}
-			lines[i] = string(runes)
+			// Truncate using ANSI-aware function to preserve escape sequences
+			lines[i] = ansi.Truncate(line, contentWidth, "")
 		} else if w < contentWidth {
 			// Pad with spaces
 			lines[i] = line + strings.Repeat(" ", contentWidth-w)

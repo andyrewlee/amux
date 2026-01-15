@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
@@ -42,36 +41,6 @@ func TestDashboardRebuildRowsSkipsMainAndPrimary(t *testing.T) {
 	}
 	if worktreeRows != 1 {
 		t.Fatalf("expected only non-main/non-primary worktree rows, got %d", worktreeRows)
-	}
-}
-
-func TestDashboardDirtyFilter(t *testing.T) {
-	m := New()
-	project := makeProject()
-	m.SetProjects([]data.Project{project})
-
-	root := project.Worktrees[1].Root
-	m.statusCache[root] = &git.StatusResult{Clean: true}
-	m.filterDirty = true
-	m.rebuildRows()
-
-	for _, row := range m.rows {
-		if row.Type == RowWorktree {
-			t.Fatalf("expected clean worktree to be hidden by dirty filter")
-		}
-	}
-
-	m.statusCache[root] = &git.StatusResult{Clean: false}
-	m.rebuildRows()
-
-	found := false
-	for _, row := range m.rows {
-		if row.Type == RowWorktree {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected dirty worktree to be visible when filter enabled")
 	}
 }
 
@@ -297,7 +266,6 @@ func TestDashboardCreatingWorktreeRow(t *testing.T) {
 	m := New()
 	project := makeProject()
 	m.SetProjects([]data.Project{project})
-	m.filterDirty = true
 
 	wt := data.NewWorktree("creating", "creating", "HEAD", project.Path, project.Path+"/.amux/worktrees/creating")
 	m.SetWorktreeCreating(wt, true)
@@ -371,25 +339,6 @@ func TestDashboardCreatingWorktreeOrder(t *testing.T) {
 
 	if len(got) == 0 || got[0] != "creating" {
 		t.Fatalf("expected creating worktree to be first, got %v", got)
-	}
-}
-
-func TestDashboardToggleFilter(t *testing.T) {
-	m := New()
-	m.SetProjects([]data.Project{makeProject()})
-
-	if m.filterDirty {
-		t.Fatalf("expected filterDirty to be false by default")
-	}
-
-	m.toggleFilter()
-	if !m.filterDirty {
-		t.Fatalf("expected filterDirty to be true after toggle")
-	}
-
-	m.toggleFilter()
-	if m.filterDirty {
-		t.Fatalf("expected filterDirty to be false after second toggle")
 	}
 }
 

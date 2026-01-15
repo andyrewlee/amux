@@ -272,6 +272,9 @@ const (
 	tabHitTab tabHitKind = iota
 	tabHitClose
 	tabHitPlus
+	tabHitPrev
+	tabHitNext
+	tabHitSave
 )
 
 type tabHit struct {
@@ -449,13 +452,32 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	// Handle dialog update if visible, but only for interactive messages.
 	// PTY messages must still be processed to keep the terminal running.
 	if m.saveDialog != nil && m.saveDialog.Visible() {
-		switch msg.(type) {
-		case tea.KeyPressMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.PasteMsg:
+		switch typedMsg := msg.(type) {
+		case tea.KeyPressMsg:
 			// Debounce input to prevent accidental double-confirms (e.g. holding Enter)
-			if _, ok := msg.(tea.KeyPressMsg); ok && time.Since(m.dialogOpenTime) < 500*time.Millisecond {
+			if time.Since(m.dialogOpenTime) < 500*time.Millisecond {
 				return m, nil
 			}
-
+			var cmd tea.Cmd
+			m.saveDialog, cmd = m.saveDialog.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		case tea.MouseClickMsg:
+			// Translate screen coordinates to center pane local coordinates for dialog
+			localMsg := tea.MouseClickMsg{
+				X:      typedMsg.X - m.offsetX,
+				Y:      typedMsg.Y,
+				Button: typedMsg.Button,
+			}
+			var cmd tea.Cmd
+			m.saveDialog, cmd = m.saveDialog.Update(localMsg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		case tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.PasteMsg:
 			var cmd tea.Cmd
 			m.saveDialog, cmd = m.saveDialog.Update(msg)
 			if cmd != nil {
@@ -1222,7 +1244,7 @@ func (m *Model) renderTabBar() string {
 	activeIdx := m.getActiveTabIdx()
 
 	if len(currentTabs) == 0 {
-		empty := m.styles.TabPlus.Render("[+] New agent")
+		empty := m.styles.TabPlus.Render("New agent")
 		emptyWidth := lipgloss.Width(empty)
 		if emptyWidth > 0 {
 			m.tabHits = append(m.tabHits, tabHit{
@@ -1241,6 +1263,27 @@ func (m *Model) renderTabBar() string {
 
 	var renderedTabs []string
 	x := 0
+
+	// Add prev button when there are multiple tabs
+	if len(currentTabs) > 1 {
+		prevBtn := m.styles.TabPlus.Render("Prev")
+		prevWidth := lipgloss.Width(prevBtn)
+		if prevWidth > 0 {
+			m.tabHits = append(m.tabHits, tabHit{
+				kind:  tabHitPrev,
+				index: -1,
+				region: common.HitRegion{
+					X:      x,
+					Y:      0,
+					Width:  prevWidth,
+					Height: 1,
+				},
+			})
+		}
+		renderedTabs = append(renderedTabs, prevBtn)
+		x += prevWidth
+	}
+
 	for i, tab := range currentTabs {
 		name := tab.Name
 		if name == "" {
@@ -1327,8 +1370,28 @@ func (m *Model) renderTabBar() string {
 		renderedTabs = append(renderedTabs, rendered)
 	}
 
+	// Add next button when there are multiple tabs
+	if len(currentTabs) > 1 {
+		nextBtn := m.styles.TabPlus.Render("Next")
+		nextWidth := lipgloss.Width(nextBtn)
+		if nextWidth > 0 {
+			m.tabHits = append(m.tabHits, tabHit{
+				kind:  tabHitNext,
+				index: -1,
+				region: common.HitRegion{
+					X:      x,
+					Y:      0,
+					Width:  nextWidth,
+					Height: 1,
+				},
+			})
+		}
+		renderedTabs = append(renderedTabs, nextBtn)
+		x += nextWidth
+	}
+
 	// Add control buttons with matching border style
-	btn := m.styles.TabPlus.Render("[+]")
+	btn := m.styles.TabPlus.Render("New")
 	btnWidth := lipgloss.Width(btn)
 	if btnWidth > 0 {
 		m.tabHits = append(m.tabHits, tabHit{
@@ -1343,6 +1406,26 @@ func (m *Model) renderTabBar() string {
 		})
 	}
 	renderedTabs = append(renderedTabs, btn)
+	x += btnWidth
+
+	// Add save button when there are tabs
+	if len(currentTabs) > 0 {
+		saveBtn := m.styles.TabPlus.Render("Save")
+		saveWidth := lipgloss.Width(saveBtn)
+		if saveWidth > 0 {
+			m.tabHits = append(m.tabHits, tabHit{
+				kind:  tabHitSave,
+				index: -1,
+				region: common.HitRegion{
+					X:      x,
+					Y:      0,
+					Width:  saveWidth,
+					Height: 1,
+				},
+			})
+		}
+		renderedTabs = append(renderedTabs, saveBtn)
+	}
 
 	// Join tabs horizontally at the bottom so borders align
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
@@ -1372,7 +1455,7 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 			return m.closeTabAt(hit.index)
 		}
 	}
-	// Then check tabs and plus button
+	// Then check tabs and other buttons
 	for _, hit := range m.tabHits {
 		if hit.region.Contains(localX, localY) {
 			switch hit.kind {
@@ -1381,6 +1464,14 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 			case tabHitTab:
 				m.setActiveTabIdx(hit.index)
 				return nil
+			case tabHitPrev:
+				m.prevTab()
+				return nil
+			case tabHitNext:
+				m.nextTab()
+				return nil
+			case tabHitSave:
+				return func() tea.Msg { return messages.SaveThreadRequest{} }
 			}
 		}
 	}
@@ -1395,12 +1486,12 @@ func (m *Model) renderEmpty() string {
 	b.WriteString("\n\n")
 
 	// New agent button
-	agentBtn := m.styles.TabPlus.Render("[+] New agent")
+	agentBtn := m.styles.TabPlus.Render("New agent")
 	b.WriteString(agentBtn)
 	b.WriteString("  ")
 
 	// Commits button
-	commitsBtn := m.styles.TabPlus.Render("[d] Commits")
+	commitsBtn := m.styles.TabPlus.Render("Commits")
 	b.WriteString(commitsBtn)
 
 	// Help text
