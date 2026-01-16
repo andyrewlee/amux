@@ -3,8 +3,9 @@ package compositor
 import (
 	"testing"
 
-	"github.com/andyrewlee/amux/internal/vterm"
 	uv "github.com/charmbracelet/ultraviolet"
+
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 func TestVTermLayerSelectionCursorOverlap(t *testing.T) {
