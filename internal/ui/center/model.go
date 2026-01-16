@@ -1,8 +1,11 @@
 package center
 
 import (
+	"encoding/hex"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -46,6 +49,29 @@ func formatScrollPos(offset, total int) string {
 		return "0/0"
 	}
 	return fmt.Sprintf("%d/%d lines up", offset, total)
+}
+
+const ptyTraceLimit = 256 * 1024
+
+func ptyTraceEnabled() bool {
+	value := strings.TrimSpace(os.Getenv("AMUX_PTY_TRACE"))
+	if value == "" {
+		return false
+	}
+	switch strings.ToLower(value) {
+	case "0", "false", "no":
+		return false
+	default:
+		return true
+	}
+}
+
+func ptyTraceDir() string {
+	logPath := logging.GetLogPath()
+	if logPath != "" {
+		return filepath.Dir(logPath)
+	}
+	return os.TempDir()
 }
 
 func nextAssistantName(assistant string, tabs []*Tab) string {
@@ -108,6 +134,10 @@ type Tab struct {
 	flushPendingSince time.Time
 	// Mouse selection state
 	Selection SelectionState
+
+	ptyTraceFile   *os.File
+	ptyTraceBytes  int
+	ptyTraceClosed bool
 }
 
 // MonitorSnapshot captures a tab display for the monitor grid.
@@ -1781,10 +1811,70 @@ func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
 			return PTYStopped{WorktreeID: wtID, TabID: tabID, Err: err}
 		}
 		if n > 0 {
+			m.tracePTYOutput(tab, buf[:n])
 			return PTYOutput{WorktreeID: wtID, TabID: tabID, Data: buf[:n]}
 		}
 		// No data but no error - continue polling
 		return PTYTick{WorktreeID: wtID, TabID: tabID}
+	}
+}
+
+func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
+	if tab == nil || tab.Assistant != "claude" || !ptyTraceEnabled() {
+		return
+	}
+
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+
+	if tab.ptyTraceClosed {
+		return
+	}
+
+	if tab.ptyTraceFile == nil {
+		dir := ptyTraceDir()
+		name := fmt.Sprintf("amux-pty-claude-%s-%s.log", tab.ID, time.Now().Format("20060102-150405"))
+		path := filepath.Join(dir, name)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			logging.Warn("PTY trace open failed: %v", err)
+			tab.ptyTraceClosed = true
+			return
+		}
+		tab.ptyTraceFile = file
+		worktreeName := ""
+		if tab.Worktree != nil {
+			worktreeName = tab.Worktree.Name
+		}
+		_, _ = file.Write([]byte(fmt.Sprintf(
+			"TRACE %s assistant=%s worktree=%s tab=%s\n",
+			time.Now().Format(time.RFC3339Nano),
+			tab.Assistant,
+			worktreeName,
+			tab.ID,
+		)))
+		logging.Info("PTY trace enabled: %s", path)
+	}
+
+	remaining := ptyTraceLimit - tab.ptyTraceBytes
+	if remaining <= 0 {
+		_ = tab.ptyTraceFile.Close()
+		tab.ptyTraceClosed = true
+		return
+	}
+
+	if len(data) > remaining {
+		data = data[:remaining]
+	}
+
+	_, _ = tab.ptyTraceFile.Write([]byte(fmt.Sprintf("chunk offset=%d bytes=%d\n", tab.ptyTraceBytes, len(data))))
+	_, _ = tab.ptyTraceFile.Write([]byte(hex.Dump(data)))
+	tab.ptyTraceBytes += len(data)
+
+	if tab.ptyTraceBytes >= ptyTraceLimit {
+		_, _ = tab.ptyTraceFile.Write([]byte("TRACE TRUNCATED\n"))
+		_ = tab.ptyTraceFile.Close()
+		tab.ptyTraceClosed = true
 	}
 }
 
@@ -1825,8 +1915,13 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 		_ = m.agentManager.CloseAgent(tab.Agent)
 	}
 
-	// Clean up CommitViewer
 	tab.mu.Lock()
+	if tab.ptyTraceFile != nil {
+		_ = tab.ptyTraceFile.Close()
+		tab.ptyTraceFile = nil
+		tab.ptyTraceClosed = true
+	}
+	// Clean up CommitViewer
 	tab.CommitViewer = nil
 	tab.mu.Unlock()
 
