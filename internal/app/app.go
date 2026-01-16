@@ -359,13 +359,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.toggleMonitorMode()
 					break
 				}
-				tabs := a.center.MonitorTabs()
-				prevIdx := a.center.MonitorSelectedIndex(len(tabs))
-				if idx, ok := a.selectMonitorTile(msg.X, msg.Y); ok {
-					if idx == prevIdx {
-						cmds = append(cmds, a.exitMonitorToSelection())
-					}
-				}
+				// Click to focus tile (just select, don't exit)
+				a.selectMonitorTile(msg.X, msg.Y)
 			}
 			break
 		}
@@ -460,6 +455,34 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case tea.PasteMsg:
+		// Handle paste in monitor mode - forward to selected tile
+		if a.monitorMode && a.focusedPane == messages.PaneMonitor {
+			tabs := a.center.MonitorTabs()
+			if len(tabs) > 0 {
+				idx := a.center.MonitorSelectedIndex(len(tabs))
+				if cmd := a.center.HandleMonitorInput(tabs[idx].ID, msg); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+			break
+		}
+		// Non-monitor paste handling falls through to focused pane
+		switch a.focusedPane {
+		case messages.PaneCenter:
+			newCenter, cmd := a.center.Update(msg)
+			a.center = newCenter
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneSidebarTerminal:
+			newTerm, cmd := a.sidebarTerminal.Update(msg)
+			a.sidebarTerminal = newTerm
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 	case prefixTimeoutMsg:
 		if msg.token == a.prefixToken && a.prefixActive {
 			a.exitPrefix()
@@ -504,11 +527,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// 3. Passthrough mode - route keys to focused pane
-		// Monitor pane has its own navigation
+		// Monitor pane: all keys go to the selected tile's PTY (navigation is via prefix mode)
 		if a.focusedPane == messages.PaneMonitor {
-			if a.handleMonitorNavigation(msg) {
-				return a, nil
-			}
 			if cmd := a.handleMonitorInput(msg); cmd != nil {
 				return a, cmd
 			}
@@ -1227,6 +1247,11 @@ func (a *App) viewMonitorMode() tea.View {
 	gridDrawable := compositor.NewStringDrawable(gridContent, 0, 0)
 	canvas.Compose(gridDrawable)
 
+	// Render styled toolbar at top (composed separately to support styled buttons)
+	toolbarContent := a.monitorHeaderText()
+	toolbarDrawable := compositor.NewStringDrawable(toolbarContent, 0, 0)
+	canvas.Compose(toolbarDrawable)
+
 	// Compose overlays using the same layer-based approach as normal mode
 	a.composeOverlays(canvas)
 
@@ -1432,8 +1457,7 @@ func (a *App) renderMonitorGrid() string {
 		Bg: compositor.HexColor(common.HexColor(common.ColorBackground)),
 	})
 
-	headerStyle := vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorMuted))}
-	canvas.DrawText(0, 0, monitorHeaderText(), headerStyle)
+	// Header/toolbar is rendered separately in viewMonitorMode to support styled buttons
 
 	projectNames := make(map[string]string, len(a.projects))
 	for _, project := range a.projects {
@@ -1533,22 +1557,28 @@ func (a *App) renderMonitorGrid() string {
 	return canvas.Render()
 }
 
-func monitorHeaderText() string {
-	return "Monitor: hjkl/arrows select • Enter open • click tile open • q/Esc cancel • [Exit]"
+func (a *App) monitorHeaderText() string {
+	exitBtn := a.styles.TabPlus.Render("Exit")
+	if a.config.UI.ShowKeymapHints {
+		return "Monitor: type to interact • C-Spc hjkl select • Enter open • C-Spc m  " + exitBtn
+	}
+	return "Monitor  " + exitBtn
 }
 
 func (a *App) monitorExitHit(x, y int) bool {
 	if y != 0 {
 		return false
 	}
-	header := monitorHeaderText()
-	exitLabel := "[Exit]"
-	idx := strings.Index(header, exitLabel)
+	header := a.monitorHeaderText()
+	exitBtn := a.styles.TabPlus.Render("Exit")
+	exitStripped := ansi.Strip(exitBtn)
+	headerStripped := ansi.Strip(header)
+	idx := strings.Index(headerStripped, exitStripped)
 	if idx < 0 {
 		return false
 	}
-	start := ansi.StringWidth(header[:idx])
-	end := start + ansi.StringWidth(exitLabel)
+	start := idx
+	end := start + ansi.StringWidth(exitBtn)
 	return x >= start && x < end
 }
 
@@ -1708,53 +1738,22 @@ func (a *App) monitorLayoutKeyFor(tabs []center.MonitorTab, gridW, gridH int, si
 	return b.String()
 }
 
-func (a *App) handleMonitorNavigation(msg tea.KeyPressMsg) bool {
+func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
+	// Monitor mode - type to interact:
+	// Enter -> Select and Open (exit monitor and switch to tile)
+	// All other keys -> Forward to selected tile's PTY
+
+	if key.Matches(msg, a.keymap.Enter) {
+		return a.exitMonitorToSelection()
+	}
+
+	// Forward all other keys to selected tile's PTY
 	tabs := a.center.MonitorTabs()
 	if len(tabs) == 0 {
-		return false
-	}
-
-	_, _, gridW, gridH := a.monitorGridArea()
-	grid := monitorGridLayout(len(tabs), gridW, gridH)
-	if grid.cols == 0 || grid.rows == 0 {
-		return false
-	}
-
-	switch {
-	case key.Matches(msg, a.keymap.MoveLeft) || key.Matches(msg, a.keymap.Left):
-		a.center.MoveMonitorSelection(-1, 0, grid.cols, grid.rows, len(tabs))
-		return true
-	case key.Matches(msg, a.keymap.MoveRight) || key.Matches(msg, a.keymap.Right):
-		a.center.MoveMonitorSelection(1, 0, grid.cols, grid.rows, len(tabs))
-		return true
-	case key.Matches(msg, a.keymap.MoveUp) || key.Matches(msg, a.keymap.Up):
-		a.center.MoveMonitorSelection(0, -1, grid.cols, grid.rows, len(tabs))
-		return true
-	case key.Matches(msg, a.keymap.MoveDown) || key.Matches(msg, a.keymap.Down):
-		a.center.MoveMonitorSelection(0, 1, grid.cols, grid.rows, len(tabs))
-		return true
-	}
-	return false
-}
-
-func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
-	// Monitor chooser semantics:
-	// Enter -> Select and Open (exit monitor)
-	// q/Esc -> Cancel (exit monitor)
-	// No other keys are forwarded to terminals
-
-	switch {
-	case key.Matches(msg, a.keymap.Enter):
-		return a.exitMonitorToSelection()
-	case msg.Key().Code == tea.KeyEsc || msg.Key().Code == tea.KeyEscape:
-		a.toggleMonitorMode()
-		return nil
-	case msg.String() == "q":
-		a.toggleMonitorMode()
 		return nil
 	}
-
-	return nil
+	idx := a.center.MonitorSelectedIndex(len(tabs))
+	return a.center.HandleMonitorInput(tabs[idx].ID, msg)
 }
 
 func (a *App) activateMonitorSelection() tea.Cmd {
@@ -2392,9 +2391,27 @@ func (a *App) exitPrefix() {
 // handlePrefixCommand handles a key press while in prefix mode
 // Returns (handled, cmd)
 func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
+	// Helper to move monitor selection
+	moveMonitorTile := func(dx, dy int) {
+		tabs := a.center.MonitorTabs()
+		if len(tabs) == 0 {
+			return
+		}
+		_, _, gridW, gridH := a.monitorGridArea()
+		grid := monitorGridLayout(len(tabs), gridW, gridH)
+		if grid.cols > 0 && grid.rows > 0 {
+			a.center.MoveMonitorSelection(dx, dy, grid.cols, grid.rows, len(tabs))
+		}
+	}
+
 	switch {
-	// Pane focus
+	// Pane focus / Monitor tile navigation
 	case key.Matches(msg, a.keymap.MoveLeft):
+		if a.focusedPane == messages.PaneMonitor {
+			// Move selection left in grid (like pane focus in normal mode)
+			moveMonitorTile(-1, 0)
+			return true, nil
+		}
 		switch a.focusedPane {
 		case messages.PaneCenter:
 			a.focusPane(messages.PaneDashboard)
@@ -2404,12 +2421,15 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			} else {
 				a.focusPane(messages.PaneCenter)
 			}
-		case messages.PaneMonitor:
-			a.focusPane(messages.PaneDashboard)
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveRight):
+		if a.focusedPane == messages.PaneMonitor {
+			// Move selection right in grid (like pane focus in normal mode)
+			moveMonitorTile(1, 0)
+			return true, nil
+		}
 		switch a.focusedPane {
 		case messages.PaneDashboard:
 			if a.monitorMode {
@@ -2423,20 +2443,26 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			} else if a.layout.ShowSidebar() {
 				a.focusPane(messages.PaneSidebar)
 			}
-		case messages.PaneMonitor:
-			if a.layout.ShowSidebar() {
-				a.focusPane(messages.PaneSidebar)
-			}
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveUp):
+		if a.focusedPane == messages.PaneMonitor {
+			// Move selection up in grid
+			moveMonitorTile(0, -1)
+			return true, nil
+		}
 		if a.focusedPane == messages.PaneSidebarTerminal {
 			a.focusPane(messages.PaneSidebar)
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveDown):
+		if a.focusedPane == messages.PaneMonitor {
+			// Move selection down in grid
+			moveMonitorTile(0, 1)
+			return true, nil
+		}
 		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
 			a.focusPane(messages.PaneSidebarTerminal)
 		}
