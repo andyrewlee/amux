@@ -310,7 +310,7 @@ func ensureCursorVisible(term *vterm.VTerm, state *CopyState) {
 		return
 	}
 
-	newStart := start
+	var newStart int
 	switch {
 	case state.CursorLine < start:
 		newStart = state.CursorLine
