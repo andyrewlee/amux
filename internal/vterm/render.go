@@ -805,7 +805,7 @@ func (v *VTerm) VisibleLineRange() (start, end, total int) {
 		return 0, 0, 0
 	}
 
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	total = scrollbackLen + len(screen)
 	if total <= 0 || v.Height <= 0 {
 		return 0, 0, total
@@ -827,7 +827,7 @@ func (v *VTerm) TotalLines() int {
 	if v == nil {
 		return 0
 	}
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	return scrollbackLen + len(screen)
 }
 
@@ -836,7 +836,7 @@ func (v *VTerm) MaxViewOffset() int {
 	if v == nil {
 		return 0
 	}
-	_, scrollbackLen := v.renderBuffers()
+	_, scrollbackLen := v.RenderBuffers()
 	return scrollbackLen
 }
 
@@ -847,7 +847,7 @@ func (v *VTerm) GetTextRange(startX, startLine, endX, endLine int) string {
 		return ""
 	}
 
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	total := scrollbackLen + len(screen)
 	if total == 0 {
 		return ""
@@ -958,7 +958,7 @@ func (v *VTerm) LineCells(line int) []Cell {
 	if v == nil {
 		return nil
 	}
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	if line < 0 {
 		return nil
 	}
