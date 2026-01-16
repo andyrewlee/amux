@@ -386,6 +386,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			sidebarStart = centerEnd + gapX
 			sidebarEnd = sidebarStart + a.layout.SidebarWidth()
 		}
+		inSidebarX := a.layout.ShowSidebar() && msg.X >= sidebarStart && msg.X < sidebarEnd
 		localY := msg.Y - topGutter
 
 		// Focus pane on left-click press
@@ -398,7 +399,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if msg.X < centerEnd {
 				// Clicked on center pane
 				a.focusPane(messages.PaneCenter)
-			} else if a.layout.ShowSidebar() && msg.X >= sidebarStart && msg.X < sidebarEnd {
+			} else if inSidebarX {
 				// Clicked on sidebar - determine top (changes) or bottom (terminal)
 				sidebarHeight := a.layout.Height()
 				topPaneHeight, _ := sidebarPaneHeights(sidebarHeight)
@@ -442,20 +443,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		case messages.PaneSidebarTerminal:
-			newTerm, cmd := a.sidebarTerminal.Update(msg)
-			a.sidebarTerminal = newTerm
-			if cmd != nil {
-				cmds = append(cmds, cmd)
+			// Ignore clicks in the gap/right gutter so they don't trigger sidebar actions.
+			if inSidebarX {
+				newTerm, cmd := a.sidebarTerminal.Update(msg)
+				a.sidebarTerminal = newTerm
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 		case messages.PaneSidebar:
 			adjusted := msg
 			if a.layout != nil {
 				adjusted.Y -= a.layout.TopGutter()
 			}
-			newSidebar, cmd := a.sidebar.Update(adjusted)
-			a.sidebar = newSidebar
-			if cmd != nil {
-				cmds = append(cmds, cmd)
+			// Ignore clicks in the gap/right gutter so they don't trigger sidebar actions.
+			if inSidebarX {
+				newSidebar, cmd := a.sidebar.Update(adjusted)
+				a.sidebar = newSidebar
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 		}
 
