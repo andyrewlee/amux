@@ -338,11 +338,12 @@ func (d *StringDrawable) Draw(screen uv.Screen, r uv.Rectangle) {
 			} else {
 				// Printable grapheme
 				if screenX >= r.Min.X && screenX < r.Max.X {
-					screen.SetCell(screenX, screenY, &uv.Cell{
-						Content: seq,
-						Style:   style,
-						Width:   width,
-					})
+					cell := getCell()
+					cell.Content = seq
+					cell.Style = style
+					cell.Width = width
+					screen.SetCell(screenX, screenY, cell)
+					putCell(cell)
 				}
 				screenX += width
 			}

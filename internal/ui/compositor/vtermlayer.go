@@ -8,8 +8,7 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
-// asciiStrings is a lookup table for single-character strings.
-// Avoids allocations for common ASCII characters (0-127).
+// asciiStrings avoids allocations when converting ASCII runes to strings.
 var asciiStrings [128]string
 
 func init() {
@@ -176,45 +175,45 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 				continue
 			}
 
-			// Build the ultraviolet cell
+			// Build the ultraviolet cell from pool
 			uvCell := cellToUVSnapshot(cell, snap, x, y)
 
-			// Set cell at screen position
+			// Set cell at screen position (ultraviolet copies the value)
 			s.SetCell(posX+x, posY+y, uvCell)
+
+			// Return cell to pool for reuse
+			putCell(uvCell)
 		}
 	}
 }
 
-// cellToUVSnapshot converts a vterm.Cell to an ultraviolet Cell using snapshot state.
-// Optimized to minimize allocations.
+// cellToUVSnapshot converts a vterm.Cell to a pooled uv.Cell.
+// Caller must call putCell() after passing to SetCell.
 func cellToUVSnapshot(cell vterm.Cell, snap *VTermSnapshot, x, y int) *uv.Cell {
 	style := cell.Style
 
-	// Check if cursor is at this position
+	// Toggle reverse for cursor position
 	cursorHere := snap.ShowCursor && !snap.CursorHidden &&
 		y == snap.CursorY && x == snap.CursorX && snap.ViewOffset == 0
-
-	// Toggle reverse for cursor (selection is already baked into the screen)
 	if cursorHere {
 		style.Reverse = !style.Reverse
 	}
 
-	// Suppress underline on blank cells (prevents scanlines)
+	// Suppress underline on blank cells (prevents visual scanlines)
 	if style.Underline && (cell.Rune == 0 || cell.Rune == ' ') {
 		style.Underline = false
 	}
 
-	// Get the character - use lookup table for ASCII to avoid allocation
 	r := cell.Rune
 	if r == 0 {
 		r = ' '
 	}
 
-	return &uv.Cell{
-		Content: runeToString(r),
-		Style:   vtermStyleToUV(style),
-		Width:   cell.Width,
-	}
+	uvCell := getCell()
+	uvCell.Content = runeToString(r)
+	uvCell.Style = vtermStyleToUV(style)
+	uvCell.Width = cell.Width
+	return uvCell
 }
 
 // vtermStyleToUV converts a vterm.Style to ultraviolet's Style.

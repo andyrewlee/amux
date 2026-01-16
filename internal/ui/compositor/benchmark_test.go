@@ -270,7 +270,7 @@ func BenchmarkStyleToANSI(b *testing.B) {
 			style: vterm.Style{Fg: vterm.Color{Type: vterm.ColorIndexed, Value: 7}},
 		},
 		{
-			name:  "rgb_full",
+			name: "rgb_full",
 			style: vterm.Style{
 				Fg:        vterm.Color{Type: vterm.ColorRGB, Value: 0xFF0000},
 				Bg:        vterm.Color{Type: vterm.ColorRGB, Value: 0x0000FF},

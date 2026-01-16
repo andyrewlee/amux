@@ -633,41 +633,6 @@ func writeColorToBuilderFirst(b *strings.Builder, c Color, fg bool, first *bool)
 	}
 }
 
-// colorToANSI converts a Color to ANSI code strings (legacy, used by renderRow).
-func colorToANSI(c Color, fg bool) []string {
-	switch c.Type {
-	case ColorDefault:
-		return nil
-	case ColorIndexed:
-		idx := c.Value
-		if idx < 8 {
-			if fg {
-				return []string{strconv.FormatUint(uint64(30+idx), 10)}
-			}
-			return []string{strconv.FormatUint(uint64(40+idx), 10)}
-		} else if idx < 16 {
-			if fg {
-				return []string{strconv.FormatUint(uint64(90+idx-8), 10)}
-			}
-			return []string{strconv.FormatUint(uint64(100+idx-8), 10)}
-		} else {
-			if fg {
-				return []string{"38", "5", strconv.FormatUint(uint64(idx), 10)}
-			}
-			return []string{"48", "5", strconv.FormatUint(uint64(idx), 10)}
-		}
-	case ColorRGB:
-		r := (c.Value >> 16) & 0xFF
-		g := (c.Value >> 8) & 0xFF
-		b := c.Value & 0xFF
-		if fg {
-			return []string{"38", "2", strconv.FormatUint(uint64(r), 10), strconv.FormatUint(uint64(g), 10), strconv.FormatUint(uint64(b), 10)}
-		}
-		return []string{"48", "2", strconv.FormatUint(uint64(r), 10), strconv.FormatUint(uint64(g), 10), strconv.FormatUint(uint64(b), 10)}
-	}
-	return nil
-}
-
 // GetAllLines returns all content (scrollback + screen) as lines for search
 func (v *VTerm) GetAllLines() []string {
 	lines := make([]string, 0, len(v.Scrollback)+len(v.Screen))

@@ -44,31 +44,12 @@ func (c *ChromeCache) Invalidate() {
 	c.content = ""
 }
 
-// ChromeCacheKey holds the parameters for cache lookup.
-// Used for more complex caching scenarios where content hash is computed separately.
-type ChromeCacheKey struct {
-	Width   int
-	Height  int
-	Focused bool
-	PosX    int
-	PosY    int
-	// ContentHash is a hash of the content string for faster comparison.
-	// Use 0 if content comparison should be used directly.
-	ContentHash uint64
-}
-
-// Matches returns true if the key matches the given parameters.
-func (k ChromeCacheKey) Matches(other ChromeCacheKey) bool {
-	return k == other
-}
-
-// FastHash computes a simple hash for cache invalidation.
-// This is not cryptographically secure, just fast for cache comparison.
+// FastHash computes a FNV-1a hash for cache invalidation benchmarks.
 func FastHash(s string) uint64 {
-	var h uint64 = 14695981039346656037 // FNV-1a offset basis
+	var h uint64 = 14695981039346656037
 	for i := 0; i < len(s); i++ {
 		h ^= uint64(s[i])
-		h *= 1099511628211 // FNV-1a prime
+		h *= 1099511628211
 	}
 	return h
 }
