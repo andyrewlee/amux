@@ -31,6 +31,8 @@ type VTerm struct {
 	// Scrolling region (for DECSTBM)
 	ScrollTop    int
 	ScrollBottom int
+	// Origin mode (DECOM) - cursor positions are relative to scroll region.
+	OriginMode bool
 
 	// Current style for new characters
 	CurrentStyle Style
@@ -160,6 +162,7 @@ func (v *VTerm) Resize(width, height int) {
 	if v.CursorY >= height {
 		v.CursorY = height - 1
 	}
+	v.clampCursor()
 
 	// Also resize alt screen if it exists
 	if v.altScreenBuf != nil {

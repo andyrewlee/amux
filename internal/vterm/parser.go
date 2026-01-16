@@ -311,13 +311,13 @@ func (p *Parser) executeCSI(final byte) {
 	case '@': // ICH - insert chars
 		p.vt.insertChars(p.getParam(0, 1))
 	case 'd': // VPA - vertical position absolute
-		p.vt.CursorY = p.getParam(0, 1) - 1
-		if p.vt.CursorY < 0 {
-			p.vt.CursorY = 0
+		row := p.getParam(0, 1)
+		if p.vt.OriginMode {
+			p.vt.CursorY = p.vt.ScrollTop + row - 1
+		} else {
+			p.vt.CursorY = row - 1
 		}
-		if p.vt.CursorY >= p.vt.Height {
-			p.vt.CursorY = p.vt.Height - 1
-		}
+		p.vt.clampCursor()
 	case 'm': // SGR - select graphic rendition
 		p.executeSGR()
 	case 'n': // DSR - device status report
@@ -327,9 +327,13 @@ func (p *Parser) executeCSI(final byte) {
 		bottom := p.getParam(1, p.vt.Height)
 		p.vt.setScrollRegion(top, bottom)
 	case 's': // SCP - save cursor position
-		p.vt.saveCursor()
+		if p.intermediate == 0 && p.csiIntermediate == 0 {
+			p.vt.saveCursor()
+		}
 	case 'u': // RCP - restore cursor position
-		p.vt.restoreCursor()
+		if p.intermediate == 0 && p.csiIntermediate == 0 {
+			p.vt.restoreCursor()
+		}
 	case 'c': // DA - device attributes
 		if p.intermediate == '>' {
 			// Secondary DA - report VT220
@@ -463,6 +467,15 @@ func (p *Parser) executeMode(set bool) {
 
 	for _, param := range p.params {
 		switch param {
+		case 6: // DECOM - origin mode
+			p.vt.OriginMode = set
+			p.vt.CursorX = 0
+			if set {
+				p.vt.CursorY = p.vt.ScrollTop
+			} else {
+				p.vt.CursorY = 0
+			}
+			p.vt.clampCursor()
 		case 1: // DECCKM - cursor keys mode
 			// Ignore
 		case 7: // DECAWM - auto-wrap mode

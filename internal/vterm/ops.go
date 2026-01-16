@@ -267,18 +267,24 @@ func (v *VTerm) eraseLine(mode int) {
 	v.markDirtyLine(v.CursorY)
 }
 
-// setCursorPos sets cursor position (1-indexed input, converts to 0-indexed)
-func (v *VTerm) setCursorPos(row, col int) {
-	v.CursorY = row - 1
-	v.CursorX = col - 1
-
-	// Clamp to bounds
+func (v *VTerm) clampCursor() {
 	if v.CursorX < 0 {
 		v.CursorX = 0
 	}
 	if v.CursorX >= v.Width {
 		v.CursorX = v.Width - 1
 	}
+
+	if v.OriginMode {
+		if v.CursorY < v.ScrollTop {
+			v.CursorY = v.ScrollTop
+		}
+		if v.CursorY >= v.ScrollBottom {
+			v.CursorY = v.ScrollBottom - 1
+		}
+		return
+	}
+
 	if v.CursorY < 0 {
 		v.CursorY = 0
 	}
@@ -287,24 +293,26 @@ func (v *VTerm) setCursorPos(row, col int) {
 	}
 }
 
+// setCursorPos sets cursor position (1-indexed input, converts to 0-indexed)
+func (v *VTerm) setCursorPos(row, col int) {
+	if v.OriginMode {
+		v.CursorY = v.ScrollTop + row - 1
+		v.CursorX = col - 1
+		v.clampCursor()
+		return
+	}
+
+	v.CursorY = row - 1
+	v.CursorX = col - 1
+	v.clampCursor()
+}
+
 // moveCursor moves cursor relative to current position
 func (v *VTerm) moveCursor(dy, dx int) {
 	v.CursorX += dx
 	v.CursorY += dy
 
-	// Clamp
-	if v.CursorX < 0 {
-		v.CursorX = 0
-	}
-	if v.CursorX >= v.Width {
-		v.CursorX = v.Width - 1
-	}
-	if v.CursorY < 0 {
-		v.CursorY = 0
-	}
-	if v.CursorY >= v.Height {
-		v.CursorY = v.Height - 1
-	}
+	v.clampCursor()
 }
 
 // setScrollRegion sets the scrolling region (1-indexed input)
@@ -325,7 +333,12 @@ func (v *VTerm) setScrollRegion(top, bottom int) {
 	v.ScrollTop = t
 	v.ScrollBottom = b
 	v.CursorX = 0
-	v.CursorY = 0
+	if v.OriginMode {
+		v.CursorY = v.ScrollTop
+	} else {
+		v.CursorY = 0
+	}
+	v.clampCursor()
 }
 
 // enterAltScreen switches to alternate screen buffer
