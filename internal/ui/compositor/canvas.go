@@ -146,7 +146,7 @@ func (c *Canvas) DrawBorder(x, y, w, h int, style vterm.Style, focused bool) {
 }
 
 // DrawScreen draws a vterm screen into the canvas with clipping.
-func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, cursorY int, showCursor bool, viewOffset int) {
+func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, cursorY int, showCursor bool, viewOffset int, selActive bool, selStartX, selStartY, selEndX, selEndY int) {
 	if w <= 0 || h <= 0 {
 		return
 	}
@@ -158,6 +158,9 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 			cell := line[col]
 			if cell.Width == 2 && col+1 >= w {
 				cell = vterm.DefaultCell()
+			}
+			if inSelection(selActive, selStartX, selStartY, selEndX, selEndY, col, row) {
+				cell.Style.Reverse = !cell.Style.Reverse
 			}
 			targetX := x + col
 			targetY := y + row
@@ -179,6 +182,31 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 			}
 		}
 	}
+}
+
+func inSelection(active bool, startX, startY, endX, endY, x, y int) bool {
+	if !active {
+		return false
+	}
+
+	if startY > endY || (startY == endY && startX > endX) {
+		startX, endX = endX, startX
+		startY, endY = endY, startY
+	}
+
+	if y < startY || y > endY {
+		return false
+	}
+	if y == startY && y == endY {
+		return x >= startX && x <= endX
+	}
+	if y == startY {
+		return x >= startX
+	}
+	if y == endY {
+		return x <= endX
+	}
+	return true
 }
 
 // Render converts the canvas to an ANSI string.
@@ -246,8 +274,23 @@ func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height i
 		canvas.Resize(width, height)
 	}
 	canvas.Fill(vterm.Style{Fg: fg, Bg: bg})
-	screen := term.VisibleScreenWithSelection()
-	canvas.DrawScreen(0, 0, width, height, screen, term.CursorX, term.CursorY, showCursor, term.ViewOffset)
+	screen := term.VisibleScreen()
+	canvas.DrawScreen(
+		0,
+		0,
+		width,
+		height,
+		screen,
+		term.CursorX,
+		term.CursorY,
+		showCursor,
+		term.ViewOffset,
+		term.SelActive(),
+		term.SelStartX(),
+		term.SelStartY(),
+		term.SelEndX(),
+		term.SelEndY(),
+	)
 	return canvas.Render()
 }
 
@@ -312,6 +355,8 @@ func (d *StringDrawable) Draw(screen uv.Screen, r uv.Rectangle) {
 	p := ansi.GetParser()
 	defer ansi.PutParser(p)
 
+	var style uv.Style
+	var state byte
 	for lineIdx, line := range d.lines {
 		screenY := d.y + lineIdx
 		if screenY < r.Min.Y || screenY >= r.Max.Y {
@@ -320,8 +365,6 @@ func (d *StringDrawable) Draw(screen uv.Screen, r uv.Rectangle) {
 
 		// Parse ANSI styled string and write cells
 		screenX := d.x
-		var style uv.Style
-		var state byte
 
 		for len(line) > 0 {
 			seq, width, n, newState := ansi.DecodeSequence(line, state, p)

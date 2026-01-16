@@ -277,12 +277,17 @@ func (p *Parser) executeCSI(final byte) {
 	case 'D': // CUB - cursor back
 		p.vt.moveCursor(0, -p.getParam(0, 1))
 	case 'E': // CNL - cursor next line
+		oldX, oldY := p.vt.CursorX, p.vt.CursorY
 		p.vt.CursorX = 0
 		p.vt.moveCursor(p.getParam(0, 1), 0)
+		p.vt.bumpVersionIfCursorMoved(oldX, oldY)
 	case 'F': // CPL - cursor previous line
+		oldX, oldY := p.vt.CursorX, p.vt.CursorY
 		p.vt.CursorX = 0
 		p.vt.moveCursor(-p.getParam(0, 1), 0)
+		p.vt.bumpVersionIfCursorMoved(oldX, oldY)
 	case 'G': // CHA - cursor horizontal absolute
+		oldX, oldY := p.vt.CursorX, p.vt.CursorY
 		p.vt.CursorX = p.getParam(0, 1) - 1
 		if p.vt.CursorX < 0 {
 			p.vt.CursorX = 0
@@ -290,6 +295,7 @@ func (p *Parser) executeCSI(final byte) {
 		if p.vt.CursorX >= p.vt.Width {
 			p.vt.CursorX = p.vt.Width - 1
 		}
+		p.vt.bumpVersionIfCursorMoved(oldX, oldY)
 	case 'H', 'f': // CUP - cursor position
 		p.vt.setCursorPos(p.getParam(0, 1), p.getParam(1, 1))
 	case 'J': // ED - erase display
@@ -311,6 +317,7 @@ func (p *Parser) executeCSI(final byte) {
 	case '@': // ICH - insert chars
 		p.vt.insertChars(p.getParam(0, 1))
 	case 'd': // VPA - vertical position absolute
+		oldX, oldY := p.vt.CursorX, p.vt.CursorY
 		row := p.getParam(0, 1)
 		if p.vt.OriginMode {
 			p.vt.CursorY = p.vt.ScrollTop + row - 1
@@ -318,6 +325,7 @@ func (p *Parser) executeCSI(final byte) {
 			p.vt.CursorY = row - 1
 		}
 		p.vt.clampCursor()
+		p.vt.bumpVersionIfCursorMoved(oldX, oldY)
 	case 'm': // SGR - select graphic rendition
 		p.executeSGR()
 	case 'n': // DSR - device status report
@@ -483,7 +491,11 @@ func (p *Parser) executeMode(set bool) {
 		case 12: // Blinking cursor
 			// Ignore
 		case 25: // DECTCEM - cursor visible
-			p.vt.CursorHidden = !set
+			hidden := !set
+			if p.vt.CursorHidden != hidden {
+				p.vt.CursorHidden = hidden
+				p.vt.bumpVersion()
+			}
 		case 47, 1047, 1049: // Alternate screen buffer
 			if set {
 				p.vt.enterAltScreen()

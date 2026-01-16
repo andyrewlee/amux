@@ -144,7 +144,7 @@ func BenchmarkCanvasDrawScreen(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				canvas.DrawScreen(0, 0, size.width, size.height, screen, 0, 0, true, 0)
+				canvas.DrawScreen(0, 0, size.width, size.height, screen, 0, 0, true, 0, false, 0, 0, 0, 0)
 			}
 		})
 	}

@@ -458,8 +458,10 @@ func StyleToDeltaANSI(prev, next Style) string {
 		// Emit individual changes only
 
 		// Turn off attributes individually
+		emitted22 := false
 		if (prev.Bold && !next.Bold) || (prev.Dim && !next.Dim) {
 			writeCode("22") // Normal intensity
+			emitted22 = true
 		}
 		if prev.Italic && !next.Italic {
 			writeCode("23")
@@ -481,10 +483,10 @@ func StyleToDeltaANSI(prev, next Style) string {
 		}
 
 		// Turn on attributes
-		if !prev.Bold && next.Bold {
+		if (!prev.Bold && next.Bold) || (emitted22 && next.Bold) {
 			writeCode("1")
 		}
-		if !prev.Dim && next.Dim {
+		if (!prev.Dim && next.Dim) || (emitted22 && next.Dim) {
 			writeCode("2")
 		}
 		if !prev.Italic && next.Italic {
@@ -796,16 +798,29 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 // SetSelection stores selection coordinates for rendering with highlight.
 // Pass nil coordinates to clear selection.
 func (v *VTerm) SetSelection(startX, startY, endX, endY int, active bool) {
+	changed := v.selStartX != startX ||
+		v.selStartY != startY ||
+		v.selEndX != endX ||
+		v.selEndY != endY ||
+		v.selActive != active
+	if !changed {
+		return
+	}
 	v.selStartX = startX
 	v.selStartY = startY
 	v.selEndX = endX
 	v.selEndY = endY
 	v.selActive = active
 	v.renderDirtyAll = true
+	v.bumpVersion()
 }
 
 // ClearSelection clears the current selection
 func (v *VTerm) ClearSelection() {
+	if !v.selActive {
+		return
+	}
 	v.selActive = false
 	v.renderDirtyAll = true
+	v.bumpVersion()
 }

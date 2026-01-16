@@ -1,6 +1,7 @@
 package center
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -108,6 +109,20 @@ func TestSelectionClearsOutsideBounds(t *testing.T) {
 	}
 	if tab.Selection.StartX != 0 || tab.Selection.StartY != 0 || tab.Selection.EndX != 0 || tab.Selection.EndY != 0 {
 		t.Fatalf("expected selection to be cleared when clicking outside bounds, got %+v", tab.Selection)
+	}
+}
+
+func TestViewChromeOnlyShowsCopyModeStatus(t *testing.T) {
+	m, tab := setupSelectionModel(t)
+	m.SetShowKeymapHints(false)
+
+	tab.mu.Lock()
+	tab.CopyMode = true
+	tab.mu.Unlock()
+
+	view := m.ViewChromeOnly()
+	if !strings.Contains(view, "COPY MODE") {
+		t.Fatalf("expected copy mode status line in chrome view")
 	}
 }
 

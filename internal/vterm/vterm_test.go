@@ -245,6 +245,30 @@ func TestRenderSuppressesUnderlineOnBlankCells(t *testing.T) {
 	}
 }
 
+func TestStyleToDeltaANSIPreservesBoldWhenTurningOffDim(t *testing.T) {
+	prev := Style{Bold: true, Dim: true}
+	next := Style{Bold: true}
+	out := StyleToDeltaANSI(prev, next)
+	if !strings.Contains(out, "22") || !strings.Contains(out, "1") {
+		t.Fatalf("expected delta to disable dim and preserve bold, got %q", out)
+	}
+}
+
+func TestVersionBumpsOnCursorMoveAndHide(t *testing.T) {
+	vt := New(10, 5)
+	v0 := vt.Version()
+	vt.Write([]byte("\x1b[C")) // CUF - cursor forward
+	if vt.Version() == v0 {
+		t.Fatalf("expected version to bump on cursor move")
+	}
+
+	v1 := vt.Version()
+	vt.Write([]byte("\x1b[?25l")) // hide cursor
+	if vt.Version() == v1 {
+		t.Fatalf("expected version to bump on cursor hide")
+	}
+}
+
 func TestRenderKeepsUnderlineForText(t *testing.T) {
 	vt := New(2, 1)
 	vt.CurrentStyle.Underline = true

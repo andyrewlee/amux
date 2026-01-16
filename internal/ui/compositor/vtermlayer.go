@@ -60,7 +60,10 @@ type VTermSnapshot struct {
 	ShowCursor   bool
 	Width        int
 	Height       int
-	// Selection state (already baked into Screen via VisibleScreenWithSelection)
+	// Selection state (used during rendering)
+	SelActive            bool
+	SelStartX, SelStartY int
+	SelEndX, SelEndY     int
 }
 
 // NewVTermSnapshot creates a snapshot from a VTerm.
@@ -70,8 +73,8 @@ func NewVTermSnapshot(term *vterm.VTerm, showCursor bool) *VTermSnapshot {
 		return nil
 	}
 
-	// Get the visible screen with selection highlighting already applied
-	screen := term.VisibleScreenWithSelection()
+	// Get the visible screen (selection applied during rendering)
+	screen := term.VisibleScreen()
 	if len(screen) == 0 {
 		return nil
 	}
@@ -84,19 +87,31 @@ func NewVTermSnapshot(term *vterm.VTerm, showCursor bool) *VTermSnapshot {
 		copy(dirtyLinesCopy, dirtyLines)
 	}
 
-	// P1 FIX: Ensure cursor lines are always dirty when cursor is visible.
-	// The VTerm dirty tracking doesn't account for cursor movement or ShowCursor
-	// changes, so we must force the current cursor line to be redrawn.
-	// Also mark the previous cursor line dirty if it differs (cursor moved).
-	if !allDirty && showCursor && !term.CursorHidden && term.ViewOffset == 0 {
-		cursorY := term.CursorY
-		if cursorY >= 0 && cursorY < len(dirtyLinesCopy) {
-			dirtyLinesCopy[cursorY] = true
-		}
-		// Also mark the previous cursor position dirty if it differs
+	// Ensure cursor-only changes mark lines dirty for layer rendering.
+	// Cursor moves or visibility toggles don't always touch renderDirty,
+	// so we force redraw of the previous and current cursor lines when needed.
+	if !allDirty && term.ViewOffset == 0 {
+		lastCursorX := term.LastCursorX()
 		lastCursorY := term.LastCursorY()
-		if lastCursorY != cursorY && lastCursorY >= 0 && lastCursorY < len(dirtyLinesCopy) {
-			dirtyLinesCopy[lastCursorY] = true
+		lastShowCursor := term.LastShowCursor()
+		lastCursorHidden := term.LastCursorHidden()
+
+		cursorChanged := showCursor != lastShowCursor ||
+			term.CursorHidden != lastCursorHidden ||
+			term.CursorX != lastCursorX ||
+			term.CursorY != lastCursorY
+
+		if cursorChanged {
+			// Defensive: ensure dirtyLinesCopy matches screen height.
+			if dirtyLinesCopy == nil {
+				dirtyLinesCopy = make([]bool, len(screen))
+			}
+			if lastCursorY >= 0 && lastCursorY < len(dirtyLinesCopy) {
+				dirtyLinesCopy[lastCursorY] = true
+			}
+			if term.CursorY >= 0 && term.CursorY < len(dirtyLinesCopy) {
+				dirtyLinesCopy[term.CursorY] = true
+			}
 		}
 	}
 
@@ -111,6 +126,11 @@ func NewVTermSnapshot(term *vterm.VTerm, showCursor bool) *VTermSnapshot {
 		ShowCursor:   showCursor,
 		Width:        term.Width,
 		Height:       term.Height,
+		SelActive:    term.SelActive(),
+		SelStartX:    term.SelStartX(),
+		SelStartY:    term.SelStartY(),
+		SelEndX:      term.SelEndX(),
+		SelEndY:      term.SelEndY(),
 	}
 
 	// Clear dirty state after snapshotting (while still holding the lock)
@@ -192,10 +212,11 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 func cellToUVSnapshot(cell vterm.Cell, snap *VTermSnapshot, x, y int) *uv.Cell {
 	style := cell.Style
 
-	// Toggle reverse for cursor position
+	// Apply selection and cursor reverse (selection has precedence over cursor)
+	inSel := inSelectionSnapshot(snap, x, y)
 	cursorHere := snap.ShowCursor && !snap.CursorHidden &&
 		y == snap.CursorY && x == snap.CursorX && snap.ViewOffset == 0
-	if cursorHere {
+	if inSel || cursorHere {
 		style.Reverse = !style.Reverse
 	}
 
@@ -214,6 +235,34 @@ func cellToUVSnapshot(cell vterm.Cell, snap *VTermSnapshot, x, y int) *uv.Cell {
 	uvCell.Style = vtermStyleToUV(style)
 	uvCell.Width = cell.Width
 	return uvCell
+}
+
+// inSelectionSnapshot checks if a coordinate is within the snapshot's selection.
+func inSelectionSnapshot(snap *VTermSnapshot, x, y int) bool {
+	if snap == nil || !snap.SelActive {
+		return false
+	}
+
+	startX, startY := snap.SelStartX, snap.SelStartY
+	endX, endY := snap.SelEndX, snap.SelEndY
+	if startY > endY || (startY == endY && startX > endX) {
+		startX, endX = endX, startX
+		startY, endY = endY, startY
+	}
+
+	if y < startY || y > endY {
+		return false
+	}
+	if y == startY && y == endY {
+		return x >= startX && x <= endX
+	}
+	if y == startY {
+		return x >= startX
+	}
+	if y == endY {
+		return x <= endX
+	}
+	return true
 }
 
 // vtermStyleToUV converts a vterm.Style to ultraviolet's Style.

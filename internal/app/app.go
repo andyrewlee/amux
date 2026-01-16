@@ -955,6 +955,13 @@ func (a *App) showQuitDialog() {
 	a.dialog.Show()
 }
 
+// Synchronized Output Mode 2026 sequences
+// https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036
+const (
+	syncBegin = "\x1b[?2026h"
+	syncEnd   = "\x1b[?2026l"
+)
+
 // View renders the application using layer-based composition.
 // This uses lipgloss Canvas to compose layers directly, enabling ultraviolet's
 // cell-level differential rendering for optimal performance.
@@ -1112,7 +1119,7 @@ func (a *App) viewLayerBased() tea.View {
 	// Overlay layers (dialogs, toasts, etc.)
 	a.composeOverlays(canvas)
 
-	view.SetContent(canvas.Render())
+	view.SetContent(syncBegin + canvas.Render() + syncEnd)
 	view.Cursor = a.overlayCursor()
 	return view
 }
@@ -1223,7 +1230,7 @@ func (a *App) viewMonitorMode() tea.View {
 	// Compose overlays using the same layer-based approach as normal mode
 	a.composeOverlays(canvas)
 
-	view.SetContent(canvas.Render())
+	view.SetContent(syncBegin + canvas.Render() + syncEnd)
 	view.Cursor = a.overlayCursor()
 	return view
 }
@@ -1515,6 +1522,11 @@ func (a *App) renderMonitorGrid() string {
 			snap.CursorY,
 			focused,
 			snap.ViewOffset,
+			snap.SelActive,
+			snap.SelStartX,
+			snap.SelStartY,
+			snap.SelEndX,
+			snap.SelEndY,
 		)
 	}
 

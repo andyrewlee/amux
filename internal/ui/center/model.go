@@ -193,6 +193,11 @@ type MonitorTabSnapshot struct {
 	ViewOffset int
 	Width      int
 	Height     int
+	SelActive  bool
+	SelStartX  int
+	SelStartY  int
+	SelEndX    int
+	SelEndY    int
 }
 
 // HandleMonitorInput forwards input to a specific tab while in monitor view.
@@ -365,26 +370,29 @@ type TerminalMetrics struct {
 }
 
 // terminalMetrics computes the terminal content area geometry.
-// This matches the original hardcoded values that work correctly:
-// - height - 6 for terminal height (accounts for borders, tab bar, help lines)
-// - tabBarHeight = 3 for Y offset (border + tab content + separator)
-// - borderLeft + paddingLeft = 2 for X offset
+// It preserves the original layout constants while accounting for dynamic help lines.
 func (m *Model) terminalMetrics() TerminalMetrics {
 	// These values match the original working implementation
 	const (
-		borderLeft    = 1
-		paddingLeft   = 1
-		borderTop     = 1
-		tabBarHeight  = 3 // border + tab content + separator
-		totalOverhead = 6 // total vertical overhead (borders, tab bar, help lines)
+		borderLeft   = 1
+		paddingLeft  = 1
+		borderTop    = 1
+		tabBarHeight = 3 // tab border + content (tabs render as 3 lines)
+		baseOverhead = 6 // borders + tab bar + status line reserve
 	)
 
 	width := m.contentWidth()
-	height := m.height - totalOverhead
-
+	if width < 1 {
+		width = 1
+	}
 	if width < 10 {
 		width = 80
 	}
+	helpLineCount := 0
+	if m.showKeymapHints {
+		helpLineCount = len(m.helpLines(width))
+	}
+	height := m.height - baseOverhead - helpLineCount
 	if height < 5 {
 		height = 24
 	}
@@ -1144,22 +1152,8 @@ func (m *Model) View() string {
 			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
 			b.WriteString(tab.Terminal.Render())
 
-			// Show scroll indicator if scrolled
-			if tab.CopyMode {
-				modeStyle := lipgloss.NewStyle().
-					Bold(true).
-					Foreground(common.ColorBackground).
-					Background(common.ColorWarning)
-				indicator := modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) ")
-				b.WriteString("\n" + indicator)
-			} else if tab.Terminal.IsScrolled() {
-				offset, total := tab.Terminal.GetScrollInfo()
-				scrollStyle := lipgloss.NewStyle().
-					Bold(true).
-					Foreground(common.ColorBackground).
-					Background(common.ColorInfo)
-				indicator := scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
-				b.WriteString("\n" + indicator)
+			if status := m.terminalStatusLineLocked(tab); status != "" {
+				b.WriteString("\n" + status)
 			}
 		}
 		tab.mu.Unlock()
@@ -2374,12 +2368,17 @@ func (m *Model) MonitorTabSnapshots() []MonitorTabSnapshot {
 		}
 		tab.mu.Lock()
 		if tab.Terminal != nil {
-			snap.Screen = tab.Terminal.VisibleScreenWithSelection()
+			snap.Screen = tab.Terminal.VisibleScreen()
 			snap.CursorX = tab.Terminal.CursorX
 			snap.CursorY = tab.Terminal.CursorY
 			snap.ViewOffset = tab.Terminal.ViewOffset
 			snap.Width = tab.Terminal.Width
 			snap.Height = tab.Terminal.Height
+			snap.SelActive = tab.Terminal.SelActive()
+			snap.SelStartX = tab.Terminal.SelStartX()
+			snap.SelStartY = tab.Terminal.SelStartY()
+			snap.SelEndX = tab.Terminal.SelEndX()
+			snap.SelEndY = tab.Terminal.SelEndY()
 		}
 		tab.mu.Unlock()
 		snapshots = append(snapshots, snap)
@@ -2559,6 +2558,7 @@ func (m *Model) ViewChromeOnly() string {
 	if !m.showKeymapHints {
 		helpLines = nil
 	}
+	statusLine := m.activeTerminalStatusLine()
 
 	// Match View()'s padding logic exactly:
 	// innerHeight = m.height - 2 (space inside buildBorderedPane)
@@ -2575,6 +2575,14 @@ func (m *Model) ViewChromeOnly() string {
 
 	// We already have 1 line (tab bar), so we need targetContentLines - 1 more lines
 	emptyLinesNeeded := targetContentLines - 1
+	statusLineVisible := statusLine != ""
+	if statusLineVisible {
+		if emptyLinesNeeded > 0 {
+			emptyLinesNeeded--
+		} else {
+			statusLineVisible = false
+		}
+	}
 	if emptyLinesNeeded < 0 {
 		emptyLinesNeeded = 0
 	}
@@ -2586,6 +2594,13 @@ func (m *Model) ViewChromeOnly() string {
 		b.WriteString("\n")
 	}
 
+	if statusLineVisible {
+		b.WriteString(statusLine)
+		if helpLineCount > 0 {
+			b.WriteString("\n")
+		}
+	}
+
 	// Add help lines at bottom (matching View()'s format)
 	helpContent := strings.Join(helpLines, "\n")
 	if helpContent != "" {
@@ -2593,6 +2608,43 @@ func (m *Model) ViewChromeOnly() string {
 	}
 
 	return b.String()
+}
+
+// terminalStatusLineLocked returns the status line for the active terminal.
+// Caller must hold tab.mu.
+func (m *Model) terminalStatusLineLocked(tab *Tab) string {
+	if tab == nil || tab.Terminal == nil {
+		return ""
+	}
+	if tab.CopyMode {
+		modeStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(common.ColorBackground).
+			Background(common.ColorWarning)
+		return modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) ")
+	}
+	if tab.Terminal.IsScrolled() {
+		offset, total := tab.Terminal.GetScrollInfo()
+		scrollStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(common.ColorBackground).
+			Background(common.ColorInfo)
+		return scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
+	}
+	return ""
+}
+
+// activeTerminalStatusLine returns the status line for the active terminal.
+func (m *Model) activeTerminalStatusLine() string {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return ""
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	return m.terminalStatusLineLocked(tab)
 }
 
 // CloseAllTabs is deprecated - tabs now persist per-worktree
