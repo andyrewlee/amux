@@ -69,13 +69,20 @@ type VTermSnapshot struct {
 // NewVTermSnapshot creates a snapshot from a VTerm.
 // MUST be called while holding the appropriate lock on the VTerm.
 func NewVTermSnapshot(term *vterm.VTerm, showCursor bool) *VTermSnapshot {
+	return NewVTermSnapshotWithCache(term, showCursor, nil)
+}
+
+// NewVTermSnapshotWithCache creates a snapshot from a VTerm, optionally reusing
+// lines from a previous snapshot when dirty line tracking allows.
+// MUST be called while holding the appropriate lock on the VTerm.
+func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSnapshot) *VTermSnapshot {
 	if term == nil {
 		return nil
 	}
 
-	// Get the visible screen (selection applied during rendering)
-	screen := term.VisibleScreen()
-	if len(screen) == 0 {
+	width := term.Width
+	height := term.Height
+	if width <= 0 || height <= 0 {
 		return nil
 	}
 
@@ -104,7 +111,7 @@ func NewVTermSnapshot(term *vterm.VTerm, showCursor bool) *VTermSnapshot {
 		if cursorChanged {
 			// Defensive: ensure dirtyLinesCopy matches screen height.
 			if dirtyLinesCopy == nil {
-				dirtyLinesCopy = make([]bool, len(screen))
+				dirtyLinesCopy = make([]bool, height)
 			}
 			if lastCursorY >= 0 && lastCursorY < len(dirtyLinesCopy) {
 				dirtyLinesCopy[lastCursorY] = true
@@ -115,23 +122,72 @@ func NewVTermSnapshot(term *vterm.VTerm, showCursor bool) *VTermSnapshot {
 		}
 	}
 
-	snap := &VTermSnapshot{
-		Screen:       screen,
-		DirtyLines:   dirtyLinesCopy,
-		AllDirty:     allDirty,
-		CursorX:      term.CursorX,
-		CursorY:      term.CursorY,
-		ViewOffset:   term.ViewOffset,
-		CursorHidden: term.CursorHidden,
-		ShowCursor:   showCursor,
-		Width:        term.Width,
-		Height:       term.Height,
-		SelActive:    term.SelActive(),
-		SelStartX:    term.SelStartX(),
-		SelStartY:    term.SelStartY(),
-		SelEndX:      term.SelEndX(),
-		SelEndY:      term.SelEndY(),
+	canReuse := prev != nil && prev.Width == width && prev.Height == height && len(prev.Screen) == height
+	useDirty := canReuse &&
+		prev.ViewOffset == term.ViewOffset &&
+		!allDirty &&
+		term.ViewOffset == 0 &&
+		dirtyLines != nil &&
+		len(dirtyLines) == height
+
+	var screen [][]vterm.Cell
+	if useDirty {
+		screen = prev.Screen
+		if screen == nil || len(screen) != height {
+			screen = make([][]vterm.Cell, height)
+		}
+
+		visible, _ := term.RenderBuffers()
+		for y := 0; y < height; y++ {
+			needsCopy := dirtyLines[y]
+			if screen[y] == nil || len(screen[y]) != width {
+				needsCopy = true
+			}
+			if !needsCopy {
+				continue
+			}
+
+			line := screen[y]
+			if line == nil || len(line) != width {
+				line = vterm.MakeBlankLine(width)
+			}
+			if y < len(visible) {
+				copy(line, visible[y])
+			} else {
+				for i := range line {
+					line[i] = vterm.DefaultCell()
+				}
+			}
+			screen[y] = line
+		}
+	} else {
+		// Full snapshot when dirty tracking isn't usable.
+		screen = term.VisibleScreen()
+		if len(screen) == 0 {
+			return nil
+		}
 	}
+
+	snap := prev
+	if snap == nil {
+		snap = &VTermSnapshot{}
+	}
+
+	snap.Screen = screen
+	snap.DirtyLines = dirtyLinesCopy
+	snap.AllDirty = allDirty
+	snap.CursorX = term.CursorX
+	snap.CursorY = term.CursorY
+	snap.ViewOffset = term.ViewOffset
+	snap.CursorHidden = term.CursorHidden
+	snap.ShowCursor = showCursor
+	snap.Width = width
+	snap.Height = height
+	snap.SelActive = term.SelActive()
+	snap.SelStartX = term.SelStartX()
+	snap.SelStartY = term.SelStartY()
+	snap.SelEndX = term.SelEndX()
+	snap.SelEndY = term.SelEndY()
 
 	// Clear dirty state after snapshotting (while still holding the lock)
 	// Also update cursor tracking for next frame
@@ -190,7 +246,7 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 		for x := 0; x < width && x < len(row); x++ {
 			cell := row[x]
 
-			// Skip continuation cells (part of wide character)
+			// Skip continuation cells (part of wide character).
 			if cell.Width == 0 {
 				continue
 			}
