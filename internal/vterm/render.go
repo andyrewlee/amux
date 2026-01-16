@@ -1,13 +1,13 @@
 package vterm
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 )
 
 // Render returns the terminal content as a string with ANSI codes
 func (v *VTerm) Render() string {
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	if v.ViewOffset > 0 {
 		return v.renderWithScrollbackFrom(screen, scrollbackLen)
 	}
@@ -17,7 +17,9 @@ func (v *VTerm) Render() string {
 	return v.renderScreenCached(screen)
 }
 
-func (v *VTerm) renderBuffers() ([][]Cell, int) {
+// RenderBuffers returns the current screen buffer and scrollback length.
+// During synchronized output, it returns the frozen snapshot.
+func (v *VTerm) RenderBuffers() ([][]Cell, int) {
 	if v.syncActive && v.syncScreen != nil {
 		scrollbackLen := v.syncScrollbackLen
 		if scrollbackLen > len(v.Scrollback) {
@@ -30,7 +32,7 @@ func (v *VTerm) renderBuffers() ([][]Cell, int) {
 
 // VisibleScreen returns the currently visible screen buffer as a copy.
 func (v *VTerm) VisibleScreen() [][]Cell {
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	width := v.Width
 	height := v.Height
 
@@ -85,7 +87,7 @@ func (v *VTerm) VisibleScreenWithSelection() [][]Cell {
 	for y := 0; y < len(lines); y++ {
 		row := lines[y]
 		for x := 0; x < len(row); x++ {
-			if v.isInSelection(x, y) {
+			if v.IsInSelection(x, y) {
 				cell := row[x]
 				cell.Style.Reverse = !cell.Style.Reverse
 				row[x] = cell
@@ -97,8 +99,8 @@ func (v *VTerm) VisibleScreenWithSelection() [][]Cell {
 	return lines
 }
 
-// isInSelection checks if coordinate (x, y) is within the selection
-func (v *VTerm) isInSelection(x, y int) bool {
+// IsInSelection checks if coordinate (x, y) is within the selection
+func (v *VTerm) IsInSelection(x, y int) bool {
 	if !v.selActive {
 		return false
 	}
@@ -198,7 +200,7 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 
 	for x, cell := range row {
 		// Check if this cell is in selection
-		inSel := v.isInSelection(x, y)
+		inSel := v.IsInSelection(x, y)
 
 		// Check if cursor is at this position
 		isCursor := cursorOnRow && x == v.CursorX
@@ -211,7 +213,12 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 		style = suppressBlankUnderline(cell, style)
 
 		if style != lastStyle || inSel != lastReverse || isCursor {
-			buf.WriteString(StyleToANSI(style))
+			// Use delta encoding after the first style (which has reset)
+			if x == 0 {
+				buf.WriteString(StyleToANSI(style))
+			} else {
+				buf.WriteString(StyleToDeltaANSI(lastStyle, style))
+			}
 			lastStyle = style
 			lastReverse = inSel
 		}
@@ -275,7 +282,7 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 			}
 
 			// Check if this cell is in selection (i is the visible Y coord)
-			inSel := v.isInSelection(x, i)
+			inSel := v.IsInSelection(x, i)
 
 			// Apply style changes (toggle reverse for selection)
 			style := cell.Style
@@ -325,79 +332,307 @@ func suppressBlankUnderline(cell Cell, style Style) Style {
 }
 
 // StyleToANSI converts a Style to ANSI escape codes.
+// Optimized to avoid allocations using strings.Builder.
 func StyleToANSI(s Style) string {
-	var codes []string
+	var b strings.Builder
+	b.Grow(32) // Pre-allocate for typical SGR sequence
 
-	// Reset first if any attributes
-	codes = append(codes, "0")
+	b.WriteString("\x1b[0") // Reset first
 
 	if s.Bold {
-		codes = append(codes, "1")
+		b.WriteString(";1")
 	}
 	if s.Dim {
-		codes = append(codes, "2")
+		b.WriteString(";2")
 	}
 	if s.Italic {
-		codes = append(codes, "3")
+		b.WriteString(";3")
 	}
 	if s.Underline {
-		codes = append(codes, "4")
+		b.WriteString(";4")
 	}
 	if s.Blink {
-		codes = append(codes, "5")
+		b.WriteString(";5")
 	}
 	if s.Reverse {
-		codes = append(codes, "7")
+		b.WriteString(";7")
 	}
 	if s.Hidden {
-		codes = append(codes, "8")
+		b.WriteString(";8")
 	}
 	if s.Strike {
-		codes = append(codes, "9")
+		b.WriteString(";9")
 	}
 
 	// Foreground color
-	codes = append(codes, colorToANSI(s.Fg, true)...)
+	writeColorToBuilder(&b, s.Fg, true)
 
 	// Background color
-	codes = append(codes, colorToANSI(s.Bg, false)...)
+	writeColorToBuilder(&b, s.Bg, false)
 
-	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
+	b.WriteByte('m')
+	return b.String()
 }
 
-// colorToANSI converts a Color to ANSI code strings.
-func colorToANSI(c Color, fg bool) []string {
+// StyleToDeltaANSI returns the minimal SGR escape sequence to transition from prev to next style.
+// This avoids the overhead of always emitting a full reset.
+// Optimized to avoid allocations using strings.Builder.
+func StyleToDeltaANSI(prev, next Style) string {
+	if prev == next {
+		return ""
+	}
+
+	var b strings.Builder
+	b.Grow(32) // Pre-allocate for typical SGR sequence
+	first := true
+
+	writeCode := func(code string) {
+		if first {
+			b.WriteString("\x1b[")
+			first = false
+		} else {
+			b.WriteByte(';')
+		}
+		b.WriteString(code)
+	}
+
+	// Check if we need to reset (turning OFF attributes that can't be individually disabled)
+	turningOff := 0
+	if prev.Bold && !next.Bold {
+		turningOff++
+	}
+	if prev.Dim && !next.Dim {
+		turningOff++
+	}
+	if prev.Italic && !next.Italic {
+		turningOff++
+	}
+	if prev.Underline && !next.Underline {
+		turningOff++
+	}
+	if prev.Blink && !next.Blink {
+		turningOff++
+	}
+	if prev.Reverse && !next.Reverse {
+		turningOff++
+	}
+	if prev.Hidden && !next.Hidden {
+		turningOff++
+	}
+	if prev.Strike && !next.Strike {
+		turningOff++
+	}
+
+	// If turning off multiple attributes, reset is more efficient
+	if turningOff > 1 {
+		writeCode("0")
+		// After reset, add all active attributes
+		if next.Bold {
+			writeCode("1")
+		}
+		if next.Dim {
+			writeCode("2")
+		}
+		if next.Italic {
+			writeCode("3")
+		}
+		if next.Underline {
+			writeCode("4")
+		}
+		if next.Blink {
+			writeCode("5")
+		}
+		if next.Reverse {
+			writeCode("7")
+		}
+		if next.Hidden {
+			writeCode("8")
+		}
+		if next.Strike {
+			writeCode("9")
+		}
+		// Colors after reset
+		writeColorToBuilderFirst(&b, next.Fg, true, &first)
+		writeColorToBuilderFirst(&b, next.Bg, false, &first)
+	} else {
+		// Emit individual changes only
+
+		// Turn off attributes individually
+		emitted22 := false
+		if (prev.Bold && !next.Bold) || (prev.Dim && !next.Dim) {
+			writeCode("22") // Normal intensity
+			emitted22 = true
+		}
+		if prev.Italic && !next.Italic {
+			writeCode("23")
+		}
+		if prev.Underline && !next.Underline {
+			writeCode("24")
+		}
+		if prev.Blink && !next.Blink {
+			writeCode("25")
+		}
+		if prev.Reverse && !next.Reverse {
+			writeCode("27")
+		}
+		if prev.Hidden && !next.Hidden {
+			writeCode("28")
+		}
+		if prev.Strike && !next.Strike {
+			writeCode("29")
+		}
+
+		// Turn on attributes
+		if (!prev.Bold && next.Bold) || (emitted22 && next.Bold) {
+			writeCode("1")
+		}
+		if (!prev.Dim && next.Dim) || (emitted22 && next.Dim) {
+			writeCode("2")
+		}
+		if !prev.Italic && next.Italic {
+			writeCode("3")
+		}
+		if !prev.Underline && next.Underline {
+			writeCode("4")
+		}
+		if !prev.Blink && next.Blink {
+			writeCode("5")
+		}
+		if !prev.Reverse && next.Reverse {
+			writeCode("7")
+		}
+		if !prev.Hidden && next.Hidden {
+			writeCode("8")
+		}
+		if !prev.Strike && next.Strike {
+			writeCode("9")
+		}
+
+		// Colors only if changed
+		if prev.Fg != next.Fg {
+			if next.Fg.Type == ColorDefault {
+				writeCode("39")
+			} else {
+				writeColorToBuilderFirst(&b, next.Fg, true, &first)
+			}
+		}
+		if prev.Bg != next.Bg {
+			if next.Bg.Type == ColorDefault {
+				writeCode("49")
+			} else {
+				writeColorToBuilderFirst(&b, next.Bg, false, &first)
+			}
+		}
+	}
+
+	if first {
+		return "" // No codes written
+	}
+
+	b.WriteByte('m')
+	return b.String()
+}
+
+// writeColorToBuilder appends color codes to a strings.Builder.
+// Assumes the builder already has "\x1b[" prefix and uses ";" separator.
+func writeColorToBuilder(b *strings.Builder, c Color, fg bool) {
 	switch c.Type {
 	case ColorDefault:
-		return nil
+		return
 	case ColorIndexed:
 		idx := c.Value
+		b.WriteByte(';')
 		if idx < 8 {
 			if fg {
-				return []string{fmt.Sprintf("%d", 30+idx)}
+				b.WriteString(strconv.FormatUint(uint64(30+idx), 10))
+			} else {
+				b.WriteString(strconv.FormatUint(uint64(40+idx), 10))
 			}
-			return []string{fmt.Sprintf("%d", 40+idx)}
 		} else if idx < 16 {
 			if fg {
-				return []string{fmt.Sprintf("%d", 90+idx-8)}
+				b.WriteString(strconv.FormatUint(uint64(90+idx-8), 10))
+			} else {
+				b.WriteString(strconv.FormatUint(uint64(100+idx-8), 10))
 			}
-			return []string{fmt.Sprintf("%d", 100+idx-8)}
 		} else {
 			if fg {
-				return []string{"38", "5", fmt.Sprintf("%d", idx)}
+				b.WriteString("38;5;")
+			} else {
+				b.WriteString("48;5;")
 			}
-			return []string{"48", "5", fmt.Sprintf("%d", idx)}
+			b.WriteString(strconv.FormatUint(uint64(idx), 10))
 		}
 	case ColorRGB:
 		r := (c.Value >> 16) & 0xFF
 		g := (c.Value >> 8) & 0xFF
-		b := c.Value & 0xFF
+		bv := c.Value & 0xFF
 		if fg {
-			return []string{"38", "2", fmt.Sprintf("%d", r), fmt.Sprintf("%d", g), fmt.Sprintf("%d", b)}
+			b.WriteString(";38;2;")
+		} else {
+			b.WriteString(";48;2;")
 		}
-		return []string{"48", "2", fmt.Sprintf("%d", r), fmt.Sprintf("%d", g), fmt.Sprintf("%d", b)}
+		b.WriteString(strconv.FormatUint(uint64(r), 10))
+		b.WriteByte(';')
+		b.WriteString(strconv.FormatUint(uint64(g), 10))
+		b.WriteByte(';')
+		b.WriteString(strconv.FormatUint(uint64(bv), 10))
 	}
-	return nil
+}
+
+// writeColorToBuilderFirst appends color codes, handling first code specially.
+func writeColorToBuilderFirst(b *strings.Builder, c Color, fg bool, first *bool) {
+	switch c.Type {
+	case ColorDefault:
+		return
+	case ColorIndexed:
+		idx := c.Value
+		if *first {
+			b.WriteString("\x1b[")
+			*first = false
+		} else {
+			b.WriteByte(';')
+		}
+		if idx < 8 {
+			if fg {
+				b.WriteString(strconv.FormatUint(uint64(30+idx), 10))
+			} else {
+				b.WriteString(strconv.FormatUint(uint64(40+idx), 10))
+			}
+		} else if idx < 16 {
+			if fg {
+				b.WriteString(strconv.FormatUint(uint64(90+idx-8), 10))
+			} else {
+				b.WriteString(strconv.FormatUint(uint64(100+idx-8), 10))
+			}
+		} else {
+			if fg {
+				b.WriteString("38;5;")
+			} else {
+				b.WriteString("48;5;")
+			}
+			b.WriteString(strconv.FormatUint(uint64(idx), 10))
+		}
+	case ColorRGB:
+		r := (c.Value >> 16) & 0xFF
+		g := (c.Value >> 8) & 0xFF
+		bv := c.Value & 0xFF
+		if *first {
+			b.WriteString("\x1b[")
+			*first = false
+		} else {
+			b.WriteByte(';')
+		}
+		if fg {
+			b.WriteString("38;2;")
+		} else {
+			b.WriteString("48;2;")
+		}
+		b.WriteString(strconv.FormatUint(uint64(r), 10))
+		b.WriteByte(';')
+		b.WriteString(strconv.FormatUint(uint64(g), 10))
+		b.WriteByte(';')
+		b.WriteString(strconv.FormatUint(uint64(bv), 10))
+	}
 }
 
 // GetAllLines returns all content (scrollback + screen) as lines for search
@@ -492,7 +727,7 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 
 	// Convert visible Y coordinates to absolute line numbers
 	// (matching the logic in renderWithScrollback)
-	screen, scrollbackLen := v.renderBuffers()
+	screen, scrollbackLen := v.RenderBuffers()
 	screenLen := len(screen)
 	startLine := scrollbackLen + screenLen - v.Height - v.ViewOffset
 	if startLine < 0 {
@@ -563,16 +798,29 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 // SetSelection stores selection coordinates for rendering with highlight.
 // Pass nil coordinates to clear selection.
 func (v *VTerm) SetSelection(startX, startY, endX, endY int, active bool) {
+	changed := v.selStartX != startX ||
+		v.selStartY != startY ||
+		v.selEndX != endX ||
+		v.selEndY != endY ||
+		v.selActive != active
+	if !changed {
+		return
+	}
 	v.selStartX = startX
 	v.selStartY = startY
 	v.selEndX = endX
 	v.selEndY = endY
 	v.selActive = active
 	v.renderDirtyAll = true
+	v.bumpVersion()
 }
 
 // ClearSelection clears the current selection
 func (v *VTerm) ClearSelection() {
+	if !v.selActive {
+		return
+	}
 	v.selActive = false
 	v.renderDirtyAll = true
+	v.bumpVersion()
 }

@@ -152,6 +152,11 @@ type Tab struct {
 	ptyTraceFile   *os.File
 	ptyTraceBytes  int
 	ptyTraceClosed bool
+
+	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
+	cachedSnap       *compositor.VTermSnapshot
+	cachedVersion    uint64
+	cachedShowCursor bool
 }
 
 // MonitorSnapshot captures a tab display for the monitor grid.
@@ -188,6 +193,11 @@ type MonitorTabSnapshot struct {
 	ViewOffset int
 	Width      int
 	Height     int
+	SelActive  bool
+	SelStartX  int
+	SelStartY  int
+	SelEndX    int
+	SelEndY    int
 }
 
 // HandleMonitorInput forwards input to a specific tab while in monitor view.
@@ -279,6 +289,11 @@ const (
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
 	ptyFlushInactiveMultiplier = 4
 	ptyFlushChunkSize          = 32 * 1024
+
+	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
+	// When pending output exceeds this, we throttle rendering frequency
+	ptyBackpressureMultiplier = 8 // threshold = multiplier * width * height
+	ptyBackpressureFlushMin   = 32 * time.Millisecond
 )
 
 // Model is the Bubbletea model for the center pane
@@ -291,7 +306,6 @@ type Model struct {
 	canFocusRight       bool
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
-	terminalCanvas      *compositor.Canvas
 
 	// Dialog state
 	saveDialog      *common.Dialog
@@ -341,6 +355,54 @@ func (m *Model) contentWidth() int {
 		return 1
 	}
 	return width
+}
+
+// TerminalMetrics holds the computed geometry for the terminal content area.
+// This is the single source of truth for terminal positioning and sizing.
+type TerminalMetrics struct {
+	// For mouse hit-testing (screen coordinates to terminal coordinates)
+	ContentStartX int // X offset from pane left edge (border + padding)
+	ContentStartY int // Y offset from pane top edge (border + tab bar)
+
+	// Terminal dimensions
+	Width  int // Terminal width in columns
+	Height int // Terminal height in rows
+}
+
+// terminalMetrics computes the terminal content area geometry.
+// It preserves the original layout constants while accounting for dynamic help lines.
+func (m *Model) terminalMetrics() TerminalMetrics {
+	// These values match the original working implementation
+	const (
+		borderLeft   = 1
+		paddingLeft  = 1
+		borderTop    = 1
+		tabBarHeight = 3 // tab border + content (tabs render as 3 lines)
+		baseOverhead = 6 // borders + tab bar + status line reserve
+	)
+
+	width := m.contentWidth()
+	if width < 1 {
+		width = 1
+	}
+	if width < 10 {
+		width = 80
+	}
+	helpLineCount := 0
+	if m.showKeymapHints {
+		helpLineCount = len(m.helpLines(width))
+	}
+	height := m.height - baseOverhead - helpLineCount
+	if height < 5 {
+		height = 24
+	}
+
+	return TerminalMetrics{
+		ContentStartX: borderLeft + paddingLeft,
+		ContentStartY: borderTop + tabBarHeight,
+		Width:         width,
+		Height:        height,
+	}
 }
 
 // New creates a new center pane model
@@ -433,6 +495,21 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	if tab.Terminal != nil && tab.Terminal.AltScreen {
 		quiet = ptyFlushQuietAlt
 		maxInterval = ptyFlushMaxAlt
+	}
+
+	// Apply backpressure when pending output exceeds threshold
+	// This prevents renderer thrashing during heavy output (like builds)
+	if tab.Terminal != nil && len(tab.pendingOutput) > 0 {
+		threshold := ptyBackpressureMultiplier * tab.Terminal.Width * tab.Terminal.Height
+		if len(tab.pendingOutput) > threshold {
+			// Under backpressure: use minimum flush interval
+			if quiet < ptyBackpressureFlushMin {
+				quiet = ptyBackpressureFlushMin
+			}
+			if maxInterval < ptyBackpressureFlushMin {
+				maxInterval = ptyBackpressureFlushMin
+			}
+		}
 	}
 	tab.mu.Unlock()
 
@@ -1072,26 +1149,11 @@ func (m *Model) View() string {
 			b.WriteString(tab.CommitViewer.View())
 		} else if tab.Terminal != nil {
 			tab.Terminal.ShowCursor = m.focused
-			termWidth := tab.Terminal.Width
-			termHeight := tab.Terminal.Height
-			b.WriteString(m.renderTerminalCanvas(tab.Terminal, termWidth, termHeight, m.focused))
+			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
+			b.WriteString(tab.Terminal.Render())
 
-			// Show scroll indicator if scrolled
-			if tab.CopyMode {
-				modeStyle := lipgloss.NewStyle().
-					Bold(true).
-					Foreground(common.ColorBackground).
-					Background(common.ColorWarning)
-				indicator := modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) ")
-				b.WriteString("\n" + indicator)
-			} else if tab.Terminal.IsScrolled() {
-				offset, total := tab.Terminal.GetScrollInfo()
-				scrollStyle := lipgloss.NewStyle().
-					Bold(true).
-					Foreground(common.ColorBackground).
-					Background(common.ColorInfo)
-				indicator := scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
-				b.WriteString("\n" + indicator)
+			if status := m.terminalStatusLineLocked(tab); status != "" {
+				b.WriteString("\n" + status)
 			}
 		}
 		tab.mu.Unlock()
@@ -2112,23 +2174,14 @@ func (m *Model) SetSize(width, height int) {
 		m.saveDialog.SetSize(width, height)
 	}
 
-	termWidth := m.contentWidth()
-	termHeight := height - 6
-	if termWidth < 10 {
-		termWidth = 80
-	}
-	if termHeight < 5 {
-		termHeight = 24
-	}
+	// Use centralized metrics for terminal sizing
+	tm := m.terminalMetrics()
+	termWidth := tm.Width
+	termHeight := tm.Height
 
-	viewerWidth := m.contentWidth()
-	viewerHeight := height - 6
-	if viewerWidth < 40 {
-		viewerWidth = 80
-	}
-	if viewerHeight < 10 {
-		viewerHeight = 24
-	}
+	// CommitViewer uses the same dimensions
+	viewerWidth := termWidth
+	viewerHeight := termHeight
 
 	// Update all terminals across all worktrees
 	for _, tabs := range m.tabsByWorktree {
@@ -2156,36 +2209,20 @@ func (m *Model) SetOffset(x int) {
 // screenToTerminal converts screen coordinates to terminal coordinates
 // Returns the terminal X, Y and whether the coordinates are within the terminal content area
 func (m *Model) screenToTerminal(screenX, screenY int) (termX, termY int, inBounds bool) {
-	// Calculate content area offsets within the pane:
-	// - Border: 1 on each side
-	// - Padding: 1 on left
-	// - Tab bar: 3 lines at top (border + content + border)
-	borderTop := 1
-	borderLeft := 1
-	paddingLeft := 1
-	tabBarHeight := 3
+	// Use centralized metrics for consistent geometry
+	tm := m.terminalMetrics()
 
-	// X offset: border + padding
-	contentStartX := m.offsetX + borderLeft + paddingLeft
-	// Y offset: border + tab bar
-	contentStartY := borderTop + tabBarHeight
-
-	// Terminal dimensions
-	termWidth := m.contentWidth()
-	termHeight := m.height - 6
-	if termWidth < 10 {
-		termWidth = 80
-	}
-	if termHeight < 5 {
-		termHeight = 24
-	}
+	// X offset includes pane position + border + padding
+	contentStartX := m.offsetX + tm.ContentStartX
+	// Y offset is just border + tab bar (pane Y starts at 0)
+	contentStartY := tm.ContentStartY
 
 	// Convert screen coordinates to terminal coordinates
 	termX = screenX - contentStartX
 	termY = screenY - contentStartY
 
 	// Check bounds
-	inBounds = termX >= 0 && termX < termWidth && termY >= 0 && termY < termHeight
+	inBounds = termX >= 0 && termX < tm.Width && termY >= 0 && termY < tm.Height
 	return
 }
 
@@ -2331,12 +2368,17 @@ func (m *Model) MonitorTabSnapshots() []MonitorTabSnapshot {
 		}
 		tab.mu.Lock()
 		if tab.Terminal != nil {
-			snap.Screen = tab.Terminal.VisibleScreenWithSelection()
+			snap.Screen = tab.Terminal.VisibleScreen()
 			snap.CursorX = tab.Terminal.CursorX
 			snap.CursorY = tab.Terminal.CursorY
 			snap.ViewOffset = tab.Terminal.ViewOffset
 			snap.Width = tab.Terminal.Width
 			snap.Height = tab.Terminal.Height
+			snap.SelActive = tab.Terminal.SelActive()
+			snap.SelStartX = tab.Terminal.SelStartX()
+			snap.SelStartY = tab.Terminal.SelStartY()
+			snap.SelEndX = tab.Terminal.SelEndX()
+			snap.SelEndY = tab.Terminal.SelEndY()
 		}
 		tab.mu.Unlock()
 		snapshots = append(snapshots, snap)
@@ -2431,22 +2473,178 @@ func (m *Model) ResetMonitorSelection() {
 	m.monitor.Reset()
 }
 
-func (m *Model) renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
-	if term == nil || width <= 0 || height <= 0 {
+// TerminalLayer returns a VTermLayer for the active terminal, if any.
+// This creates a snapshot of the terminal state while holding the lock,
+// so the returned layer can be safely used for rendering without locks.
+// Uses snapshot caching to avoid recreating when terminal state unchanged.
+func (m *Model) TerminalLayer() *compositor.VTermLayer {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return nil
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if tab.Terminal == nil {
+		return nil
+	}
+
+	// Check if we can reuse the cached snapshot
+	version := tab.Terminal.Version()
+	showCursor := m.focused
+	if tab.cachedSnap != nil &&
+		tab.cachedVersion == version &&
+		tab.cachedShowCursor == showCursor {
+		// Reuse cached snapshot
+		return compositor.NewVTermLayer(tab.cachedSnap)
+	}
+
+	// Create new snapshot while holding the lock
+	snap := compositor.NewVTermSnapshot(tab.Terminal, showCursor)
+	if snap == nil {
+		return nil
+	}
+
+	// Cache the snapshot
+	tab.cachedSnap = snap
+	tab.cachedVersion = version
+	tab.cachedShowCursor = showCursor
+
+	return compositor.NewVTermLayer(snap)
+}
+
+// HasCommitViewer returns true if the active tab has a commit viewer.
+func (m *Model) HasCommitViewer() bool {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return false
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	return tab.CommitViewer != nil
+}
+
+// TerminalViewport returns the terminal content area coordinates relative to the pane.
+// Returns (x, y, width, height) where the terminal content should be rendered.
+// This is for layer-based rendering positioning within the bordered pane.
+// Uses terminalMetrics() as the single source of truth for geometry.
+func (m *Model) TerminalViewport() (x, y, width, height int) {
+	tm := m.terminalMetrics()
+	return tm.ContentStartX, tm.ContentStartY, tm.Width, tm.Height
+}
+
+// ViewChromeOnly renders only the pane chrome (border, tab bar, help lines) without
+// the terminal content. This is used with VTermLayer for layer-based rendering.
+// IMPORTANT: The output structure must match View() exactly so buildBorderedPane
+// produces the same layout.
+func (m *Model) ViewChromeOnly() string {
+	defer perf.Time("center_view_chrome")()
+	var b strings.Builder
+
+	// Tab bar
+	b.WriteString(m.renderTabBar())
+	b.WriteString("\n")
+
+	// Calculate content dimensions to match View() exactly
+	contentWidth := m.contentWidth()
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
+	}
+	statusLine := m.activeTerminalStatusLine()
+
+	// Match View()'s padding logic exactly:
+	// innerHeight = m.height - 2 (space inside buildBorderedPane)
+	// targetContentLines = innerHeight - helpLineCount
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	helpLineCount := len(helpLines)
+	targetContentLines := innerHeight - helpLineCount
+	if targetContentLines < 0 {
+		targetContentLines = 0
+	}
+
+	// We already have 1 line (tab bar), so we need targetContentLines - 1 more lines
+	emptyLinesNeeded := targetContentLines - 1
+	statusLineVisible := statusLine != ""
+	if statusLineVisible {
+		if emptyLinesNeeded > 0 {
+			emptyLinesNeeded--
+		} else {
+			statusLineVisible = false
+		}
+	}
+	if emptyLinesNeeded < 0 {
+		emptyLinesNeeded = 0
+	}
+
+	// Fill with empty lines (will be overwritten by VTermLayer)
+	emptyLine := strings.Repeat(" ", contentWidth)
+	for i := 0; i < emptyLinesNeeded; i++ {
+		b.WriteString(emptyLine)
+		b.WriteString("\n")
+	}
+
+	if statusLineVisible {
+		b.WriteString(statusLine)
+		if helpLineCount > 0 {
+			b.WriteString("\n")
+		}
+	}
+
+	// Add help lines at bottom (matching View()'s format)
+	helpContent := strings.Join(helpLines, "\n")
+	if helpContent != "" {
+		b.WriteString(helpContent)
+	}
+
+	return b.String()
+}
+
+// terminalStatusLineLocked returns the status line for the active terminal.
+// Caller must hold tab.mu.
+func (m *Model) terminalStatusLineLocked(tab *Tab) string {
+	if tab == nil || tab.Terminal == nil {
 		return ""
 	}
-	if m.terminalCanvas == nil || m.terminalCanvas.Width != width || m.terminalCanvas.Height != height {
-		m.terminalCanvas = compositor.NewCanvas(width, height)
+	if tab.CopyMode {
+		modeStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(common.ColorBackground).
+			Background(common.ColorWarning)
+		return modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) ")
 	}
-	return compositor.RenderTerminalWithCanvas(
-		m.terminalCanvas,
-		term,
-		width,
-		height,
-		showCursor,
-		compositor.HexColor(common.HexColor(common.ColorForeground)),
-		compositor.HexColor(common.HexColor(common.ColorBackground)),
-	)
+	if tab.Terminal.IsScrolled() {
+		offset, total := tab.Terminal.GetScrollInfo()
+		scrollStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(common.ColorBackground).
+			Background(common.ColorInfo)
+		return scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
+	}
+	return ""
+}
+
+// activeTerminalStatusLine returns the status line for the active terminal.
+func (m *Model) activeTerminalStatusLine() string {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return ""
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	return m.terminalStatusLineLocked(tab)
 }
 
 // CloseAllTabs is deprecated - tabs now persist per-worktree

@@ -73,6 +73,10 @@ type VTerm struct {
 	renderCache    []string
 	renderDirty    []bool
 	renderDirtyAll bool
+
+	// Version counter for snapshot caching - increments on visible content/cursor changes.
+	// UI-driven cursor visibility (ShowCursor) is handled by the snapshot cache key.
+	version uint64
 }
 
 // New creates a new VTerm with the given dimensions
@@ -86,6 +90,8 @@ func New(width, height int) *VTerm {
 	v.Screen = v.makeScreen(width, height)
 	v.Scrollback = make([][]Cell, 0, MaxScrollback)
 	v.parser = NewParser(v)
+	// Initialize dirty tracking for layer-based rendering
+	v.ensureRenderCache(height)
 	return v
 }
 
@@ -186,6 +192,8 @@ func (v *VTerm) Resize(width, height int) {
 		v.syncScreen = newSync
 	}
 	v.invalidateRenderCache()
+	// Re-initialize dirty tracking for new size
+	v.ensureRenderCache(height)
 }
 
 // Write processes input bytes from PTY
@@ -261,6 +269,7 @@ func (v *VTerm) trimScrollback() {
 // ScrollView scrolls the view by delta lines (positive = up into history)
 func (v *VTerm) ScrollView(delta int) {
 	v.ClearSelection()
+	oldOffset := v.ViewOffset
 	v.ViewOffset += delta
 	maxOffset := len(v.Scrollback)
 	if v.ViewOffset > maxOffset {
@@ -269,11 +278,15 @@ func (v *VTerm) ScrollView(delta int) {
 	if v.ViewOffset < 0 {
 		v.ViewOffset = 0
 	}
+	if v.ViewOffset != oldOffset {
+		v.bumpVersion()
+	}
 }
 
 // ScrollViewTo sets absolute scroll position
 func (v *VTerm) ScrollViewTo(offset int) {
 	v.ClearSelection()
+	oldOffset := v.ViewOffset
 	v.ViewOffset = offset
 	maxOffset := len(v.Scrollback)
 	if v.ViewOffset > maxOffset {
@@ -282,18 +295,29 @@ func (v *VTerm) ScrollViewTo(offset int) {
 	if v.ViewOffset < 0 {
 		v.ViewOffset = 0
 	}
+	if v.ViewOffset != oldOffset {
+		v.bumpVersion()
+	}
 }
 
 // ScrollViewToTop scrolls to oldest content
 func (v *VTerm) ScrollViewToTop() {
 	v.ClearSelection()
+	oldOffset := v.ViewOffset
 	v.ViewOffset = len(v.Scrollback)
+	if v.ViewOffset != oldOffset {
+		v.bumpVersion()
+	}
 }
 
 // ScrollViewToBottom returns to live view
 func (v *VTerm) ScrollViewToBottom() {
 	v.ClearSelection()
+	oldOffset := v.ViewOffset
 	v.ViewOffset = 0
+	if v.ViewOffset != oldOffset {
+		v.bumpVersion()
+	}
 }
 
 // IsScrolled returns true if viewing scrollback
@@ -325,6 +349,7 @@ func (v *VTerm) markDirtyLine(y int) {
 	if y < 0 || y >= v.Height {
 		return
 	}
+	v.bumpVersion()
 	if len(v.renderDirty) == v.Height {
 		v.renderDirty[y] = true
 	} else {
@@ -342,6 +367,7 @@ func (v *VTerm) markDirtyRange(start, end int) {
 	if start > end {
 		return
 	}
+	v.bumpVersion()
 	if len(v.renderDirty) == v.Height {
 		for y := start; y <= end; y++ {
 			v.renderDirty[y] = true
@@ -355,4 +381,107 @@ func (v *VTerm) invalidateRenderCache() {
 	v.renderCache = nil
 	v.renderDirty = nil
 	v.renderDirtyAll = true
+	v.bumpVersion()
+}
+
+// DirtyLines returns the dirty line flags and whether all lines are dirty.
+// This is used by VTermLayer for optimized rendering.
+func (v *VTerm) DirtyLines() ([]bool, bool) {
+	// When scrolled, we can't use dirty tracking effectively
+	if v.ViewOffset > 0 {
+		return nil, true
+	}
+	// When sync is active, always redraw
+	if v.syncActive {
+		return nil, true
+	}
+	return v.renderDirty, v.renderDirtyAll
+}
+
+// ClearDirty resets dirty tracking state after a render.
+func (v *VTerm) ClearDirty() {
+	v.renderDirtyAll = false
+	for i := range v.renderDirty {
+		v.renderDirty[i] = false
+	}
+}
+
+// ClearDirtyWithCursor resets dirty tracking state and updates cursor tracking.
+// This should be called after snapshotting to track cursor position changes.
+func (v *VTerm) ClearDirtyWithCursor(showCursor bool) {
+	v.renderDirtyAll = false
+	for i := range v.renderDirty {
+		v.renderDirty[i] = false
+	}
+	// Track cursor state for next frame's dirty detection
+	v.lastShowCursor = showCursor
+	v.lastCursorHidden = v.CursorHidden
+	v.lastCursorX = v.CursorX
+	v.lastCursorY = v.CursorY
+}
+
+// LastCursorX returns the cursor X position from the previous render frame.
+// Used to detect cursor movement and mark dirty lines.
+func (v *VTerm) LastCursorX() int {
+	return v.lastCursorX
+}
+
+// LastCursorY returns the cursor Y position from the previous render frame.
+// Used to detect cursor movement and mark old cursor line dirty.
+func (v *VTerm) LastCursorY() int {
+	return v.lastCursorY
+}
+
+// LastShowCursor returns the cursor visibility from the previous render frame.
+func (v *VTerm) LastShowCursor() bool {
+	return v.lastShowCursor
+}
+
+// LastCursorHidden returns the DECTCEM cursor hidden state from the previous render frame.
+func (v *VTerm) LastCursorHidden() bool {
+	return v.lastCursorHidden
+}
+
+// SelActive reports whether a selection is active.
+func (v *VTerm) SelActive() bool {
+	return v.selActive
+}
+
+// SelStartX returns the selection start X.
+func (v *VTerm) SelStartX() int {
+	return v.selStartX
+}
+
+// SelStartY returns the selection start Y.
+func (v *VTerm) SelStartY() int {
+	return v.selStartY
+}
+
+// SelEndX returns the selection end X.
+func (v *VTerm) SelEndX() int {
+	return v.selEndX
+}
+
+// SelEndY returns the selection end Y.
+func (v *VTerm) SelEndY() int {
+	return v.selEndY
+}
+
+// Version returns the current version counter.
+// This increments whenever visible content changes.
+func (v *VTerm) Version() uint64 {
+	return v.version
+}
+
+// bumpVersion increments the version counter.
+// Called internally when content changes.
+func (v *VTerm) bumpVersion() {
+	v.version++
+}
+
+// bumpVersionIfCursorMoved bumps version if cursor position changed.
+func (v *VTerm) bumpVersionIfCursorMoved(prevX, prevY int) {
+	if v.CursorX != prevX || v.CursorY != prevY {
+		v.bumpVersion()
+	}
 }

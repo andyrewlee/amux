@@ -17,7 +17,6 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -78,9 +77,6 @@ type TerminalModel struct {
 
 	// Styles
 	styles common.Styles
-
-	// Rendering
-	terminalCanvas *compositor.Canvas
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -426,9 +422,8 @@ func (m *TerminalModel) View() string {
 	} else {
 		ts.mu.Lock()
 		ts.VTerm.ShowCursor = m.focused
-		termWidth := ts.VTerm.Width
-		termHeight := ts.VTerm.Height
-		content := m.renderTerminalCanvas(ts.VTerm, termWidth, termHeight, m.focused)
+		// Use VTerm.Render() directly - it uses dirty line caching and delta styles
+		content := ts.VTerm.Render()
 		isScrolled := ts.VTerm.IsScrolled()
 		var scrollInfo string
 		if isScrolled {
@@ -513,24 +508,6 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 	}
 
 	return common.WrapHelpItems(items, contentWidth)
-}
-
-func (m *TerminalModel) renderTerminalCanvas(term *vterm.VTerm, width, height int, showCursor bool) string {
-	if term == nil || width <= 0 || height <= 0 {
-		return ""
-	}
-	if m.terminalCanvas == nil || m.terminalCanvas.Width != width || m.terminalCanvas.Height != height {
-		m.terminalCanvas = compositor.NewCanvas(width, height)
-	}
-	return compositor.RenderTerminalWithCanvas(
-		m.terminalCanvas,
-		term,
-		width,
-		height,
-		showCursor,
-		compositor.HexColor(common.HexColor(common.ColorForeground)),
-		compositor.HexColor(common.HexColor(common.ColorBackground)),
-	)
 }
 
 // SetSize sets the terminal section size

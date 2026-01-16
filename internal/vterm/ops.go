@@ -86,31 +86,39 @@ func (v *VTerm) putChar(r rune) {
 
 // newline moves cursor down, scrolling if needed
 func (v *VTerm) newline() {
+	prevX, prevY := v.CursorX, v.CursorY
 	v.CursorY++
 	if v.CursorY >= v.ScrollBottom {
 		v.scrollUp(1)
 		v.CursorY = v.ScrollBottom - 1
 	}
+	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
 // carriageReturn moves cursor to beginning of line
 func (v *VTerm) carriageReturn() {
+	prevX, prevY := v.CursorX, v.CursorY
 	v.CursorX = 0
+	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
 // tab moves cursor to next tab stop (every 8 columns)
 func (v *VTerm) tab() {
+	prevX, prevY := v.CursorX, v.CursorY
 	v.CursorX = ((v.CursorX / 8) + 1) * 8
 	if v.CursorX >= v.Width {
 		v.CursorX = v.Width - 1
 	}
+	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
 // backspace moves cursor back one
 func (v *VTerm) backspace() {
+	prevX, prevY := v.CursorX, v.CursorY
 	if v.CursorX > 0 {
 		v.CursorX--
 	}
+	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
 // scrollUp scrolls the screen up by n lines, capturing to scrollback
@@ -295,28 +303,34 @@ func (v *VTerm) clampCursor() {
 
 // setCursorPos sets cursor position (1-indexed input, converts to 0-indexed)
 func (v *VTerm) setCursorPos(row, col int) {
+	prevX, prevY := v.CursorX, v.CursorY
 	if v.OriginMode {
 		v.CursorY = v.ScrollTop + row - 1
 		v.CursorX = col - 1
 		v.clampCursor()
+		v.bumpVersionIfCursorMoved(prevX, prevY)
 		return
 	}
 
 	v.CursorY = row - 1
 	v.CursorX = col - 1
 	v.clampCursor()
+	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
 // moveCursor moves cursor relative to current position
 func (v *VTerm) moveCursor(dy, dx int) {
+	prevX, prevY := v.CursorX, v.CursorY
 	v.CursorX += dx
 	v.CursorY += dy
 
 	v.clampCursor()
+	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
 // setScrollRegion sets the scrolling region (1-indexed input)
 func (v *VTerm) setScrollRegion(top, bottom int) {
+	prevX, prevY := v.CursorX, v.CursorY
 	t := top - 1
 	b := bottom
 
@@ -339,6 +353,7 @@ func (v *VTerm) setScrollRegion(top, bottom int) {
 		v.CursorY = 0
 	}
 	v.clampCursor()
+	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
 // enterAltScreen switches to alternate screen buffer
@@ -378,9 +393,11 @@ func (v *VTerm) saveCursor() {
 
 // restoreCursor restores cursor position and attributes
 func (v *VTerm) restoreCursor() {
+	prevX, prevY := v.CursorX, v.CursorY
 	v.CursorX = v.SavedCursorX
 	v.CursorY = v.SavedCursorY
 	v.CurrentStyle = v.SavedStyle
+	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
 // insertLines inserts n blank lines at cursor, pushing content down
