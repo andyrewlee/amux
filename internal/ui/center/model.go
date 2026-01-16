@@ -284,11 +284,10 @@ type tabHit struct {
 }
 
 func (m *Model) paneWidth() int {
-	paneWidth := m.width - 2
-	if paneWidth < 1 {
+	if m.width < 1 {
 		return 1
 	}
-	return paneWidth
+	return m.width
 }
 
 func (m *Model) contentWidth() int {
@@ -1264,26 +1263,6 @@ func (m *Model) renderTabBar() string {
 	var renderedTabs []string
 	x := 0
 
-	// Add prev button when there are multiple tabs
-	if len(currentTabs) > 1 {
-		prevBtn := m.styles.TabPlus.Render("Prev")
-		prevWidth := lipgloss.Width(prevBtn)
-		if prevWidth > 0 {
-			m.tabHits = append(m.tabHits, tabHit{
-				kind:  tabHitPrev,
-				index: -1,
-				region: common.HitRegion{
-					X:      x,
-					Y:      0,
-					Width:  prevWidth,
-					Height: 1,
-				},
-			})
-		}
-		renderedTabs = append(renderedTabs, prevBtn)
-		x += prevWidth
-	}
-
 	for i, tab := range currentTabs {
 		name := tab.Name
 		if name == "" {
@@ -1370,28 +1349,8 @@ func (m *Model) renderTabBar() string {
 		renderedTabs = append(renderedTabs, rendered)
 	}
 
-	// Add next button when there are multiple tabs
-	if len(currentTabs) > 1 {
-		nextBtn := m.styles.TabPlus.Render("Next")
-		nextWidth := lipgloss.Width(nextBtn)
-		if nextWidth > 0 {
-			m.tabHits = append(m.tabHits, tabHit{
-				kind:  tabHitNext,
-				index: -1,
-				region: common.HitRegion{
-					X:      x,
-					Y:      0,
-					Width:  nextWidth,
-					Height: 1,
-				},
-			})
-		}
-		renderedTabs = append(renderedTabs, nextBtn)
-		x += nextWidth
-	}
-
 	// Add control buttons with matching border style
-	btn := m.styles.TabPlus.Render("New")
+	btn := m.styles.TabPlus.Render("+")
 	btnWidth := lipgloss.Width(btn)
 	if btnWidth > 0 {
 		m.tabHits = append(m.tabHits, tabHit{
@@ -1408,10 +1367,19 @@ func (m *Model) renderTabBar() string {
 	renderedTabs = append(renderedTabs, btn)
 	x += btnWidth
 
-	// Add save button when there are tabs
+	// Add save button right-aligned when there are tabs
 	if len(currentTabs) > 0 {
 		saveBtn := m.styles.TabPlus.Render("Save")
 		saveWidth := lipgloss.Width(saveBtn)
+
+		// Calculate padding to right-align the Save button
+		contentWidth := m.contentWidth()
+		padding := contentWidth - x - saveWidth
+		if padding > 0 {
+			renderedTabs = append(renderedTabs, strings.Repeat(" ", padding))
+			x += padding
+		}
+
 		if saveWidth > 0 {
 			m.tabHits = append(m.tabHits, tabHit{
 				kind:  tabHitSave,
@@ -1463,12 +1431,6 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 			case tabHitTab:
 				m.setActiveTabIdx(hit.index)
-				return nil
-			case tabHitPrev:
-				m.prevTab()
-				return nil
-			case tabHitNext:
-				m.nextTab()
 				return nil
 			case tabHitSave:
 				return func() tea.Msg { return messages.SaveThreadRequest{} }
