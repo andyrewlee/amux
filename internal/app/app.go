@@ -370,15 +370,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 
+		leftGutter := a.layout.LeftGutter()
+		topGutter := a.layout.TopGutter()
 		dashWidth := a.layout.DashboardWidth()
 		centerWidth := a.layout.CenterWidth()
+		gapX := 0
+		if a.layout.ShowCenter() {
+			gapX = a.layout.GapX()
+		}
+		centerStart := leftGutter + dashWidth + gapX
+		centerEnd := centerStart + centerWidth
+		localY := msg.Y - topGutter
 
 		// Focus pane on left-click press
 		if msg.Button == tea.MouseLeft {
-			if msg.X < dashWidth {
+			if msg.X < leftGutter {
+				a.focusPane(messages.PaneDashboard)
+			} else if msg.X < leftGutter+dashWidth {
 				// Clicked on dashboard (left bar)
 				a.focusPane(messages.PaneDashboard)
-			} else if msg.X < dashWidth+centerWidth {
+			} else if msg.X < centerEnd {
 				// Clicked on center pane
 				a.focusPane(messages.PaneCenter)
 			} else if a.layout.ShowSidebar() {
@@ -387,7 +398,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				topPaneHeight, _ := sidebarPaneHeights(sidebarHeight)
 
 				// Split point is after top pane
-				if msg.Y >= topPaneHeight {
+				if localY >= topPaneHeight {
 					a.focusPane(messages.PaneSidebarTerminal)
 				} else {
 					a.focusPane(messages.PaneSidebar)
@@ -404,13 +415,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This ensures drag events are received even if the mouse leaves the pane bounds
 		switch a.focusedPane {
 		case messages.PaneDashboard:
-			newDashboard, cmd := a.dashboard.Update(msg)
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.X -= a.layout.LeftGutter()
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newDashboard, cmd := a.dashboard.Update(adjusted)
 			a.dashboard = newDashboard
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		case messages.PaneCenter:
-			newCenter, cmd := a.center.Update(msg)
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newCenter, cmd := a.center.Update(adjusted)
 			a.center = newCenter
 			if cmd != nil {
 				cmds = append(cmds, cmd)
@@ -422,26 +442,39 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		case messages.PaneSidebar:
-			newSidebar, cmd := a.sidebar.Update(msg)
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newSidebar, cmd := a.sidebar.Update(adjusted)
 			a.sidebar = newSidebar
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		}
 
-	case tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+	case tea.MouseWheelMsg:
 		if a.monitorMode {
 			break
 		}
 		switch a.focusedPane {
 		case messages.PaneDashboard:
-			newDashboard, cmd := a.dashboard.Update(msg)
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.X -= a.layout.LeftGutter()
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newDashboard, cmd := a.dashboard.Update(adjusted)
 			a.dashboard = newDashboard
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		case messages.PaneCenter:
-			newCenter, cmd := a.center.Update(msg)
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newCenter, cmd := a.center.Update(adjusted)
 			a.center = newCenter
 			if cmd != nil {
 				cmds = append(cmds, cmd)
@@ -453,7 +486,99 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		case messages.PaneSidebar:
-			newSidebar, cmd := a.sidebar.Update(msg)
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newSidebar, cmd := a.sidebar.Update(adjusted)
+			a.sidebar = newSidebar
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
+	case tea.MouseMotionMsg:
+		if a.monitorMode {
+			break
+		}
+		switch a.focusedPane {
+		case messages.PaneDashboard:
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.X -= a.layout.LeftGutter()
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newDashboard, cmd := a.dashboard.Update(adjusted)
+			a.dashboard = newDashboard
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneCenter:
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newCenter, cmd := a.center.Update(adjusted)
+			a.center = newCenter
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneSidebarTerminal:
+			newTerm, cmd := a.sidebarTerminal.Update(msg)
+			a.sidebarTerminal = newTerm
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneSidebar:
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newSidebar, cmd := a.sidebar.Update(adjusted)
+			a.sidebar = newSidebar
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
+	case tea.MouseReleaseMsg:
+		if a.monitorMode {
+			break
+		}
+		switch a.focusedPane {
+		case messages.PaneDashboard:
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.X -= a.layout.LeftGutter()
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newDashboard, cmd := a.dashboard.Update(adjusted)
+			a.dashboard = newDashboard
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneCenter:
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newCenter, cmd := a.center.Update(adjusted)
+			a.center = newCenter
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneSidebarTerminal:
+			newTerm, cmd := a.sidebarTerminal.Update(msg)
+			a.sidebarTerminal = newTerm
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case messages.PaneSidebar:
+			adjusted := msg
+			if a.layout != nil {
+				adjusted.Y -= a.layout.TopGutter()
+			}
+			newSidebar, cmd := a.sidebar.Update(adjusted)
 			a.sidebar = newSidebar
 			if cmd != nil {
 				cmds = append(cmds, cmd)
@@ -1014,6 +1139,8 @@ func (a *App) viewLayerBased() tea.View {
 	canvas := lipgloss.NewCanvas(a.width, a.height)
 
 	// Dashboard pane (leftmost) - use chrome cache
+	leftGutter := a.layout.LeftGutter()
+	topGutter := a.layout.TopGutter()
 	dashWidth := a.layout.DashboardWidth()
 	dashHeight := a.layout.Height()
 	dashFocused := a.dashboard.Focused()
@@ -1022,17 +1149,17 @@ func (a *App) viewLayerBased() tea.View {
 	dashClamped := clampPane(dashView, dashWidth, dashHeight)
 
 	var dashDrawable *compositor.StringDrawable
-	if cached := a.dashboardChrome.Get(dashClamped, dashWidth, dashHeight, dashFocused, 0, 0); cached != nil {
+	if cached := a.dashboardChrome.Get(dashClamped, dashWidth, dashHeight, dashFocused, leftGutter, topGutter); cached != nil {
 		dashDrawable = cached
 	} else {
-		dashDrawable = compositor.NewStringDrawable(dashClamped, 0, 0)
-		a.dashboardChrome.Set(dashClamped, dashWidth, dashHeight, dashFocused, 0, 0, dashDrawable)
+		dashDrawable = compositor.NewStringDrawable(dashClamped, leftGutter, topGutter)
+		a.dashboardChrome.Set(dashClamped, dashWidth, dashHeight, dashFocused, leftGutter, topGutter, dashDrawable)
 	}
 	canvas.Compose(dashDrawable)
 
 	// Center pane
 	if a.layout.ShowCenter() {
-		centerX := dashWidth
+		centerX := leftGutter + dashWidth + a.layout.GapX()
 		centerWidth := a.layout.CenterWidth()
 		centerHeight := a.layout.Height()
 		centerFocused := a.focusedPane == messages.PaneCenter
@@ -1042,7 +1169,7 @@ func (a *App) viewLayerBased() tea.View {
 			// Get terminal viewport from center model (accounts for borders, tab bar, help lines)
 			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
 			termX := centerX + termOffsetX
-			termY := termOffsetY
+			termY := topGutter + termOffsetY
 
 			// Draw the pane chrome with borders using buildBorderedPane - use cache
 			centerContent := a.center.ViewChromeOnly()
@@ -1057,14 +1184,14 @@ func (a *App) viewLayerBased() tea.View {
 
 			var centerDrawable *compositor.StringDrawable
 			if !hasSaveDialog {
-				if cached := a.centerChrome.Get(centerClamped, centerWidth, centerHeight, centerFocused, centerX, 0); cached != nil {
+				if cached := a.centerChrome.Get(centerClamped, centerWidth, centerHeight, centerFocused, centerX, topGutter); cached != nil {
 					centerDrawable = cached
 				}
 			}
 			if centerDrawable == nil {
-				centerDrawable = compositor.NewStringDrawable(centerClamped, centerX, 0)
+				centerDrawable = compositor.NewStringDrawable(centerClamped, centerX, topGutter)
 				if !hasSaveDialog {
-					a.centerChrome.Set(centerClamped, centerWidth, centerHeight, centerFocused, centerX, 0, centerDrawable)
+					a.centerChrome.Set(centerClamped, centerWidth, centerHeight, centerFocused, centerX, topGutter, centerDrawable)
 				}
 			}
 			canvas.Compose(centerDrawable)
@@ -1092,14 +1219,20 @@ func (a *App) viewLayerBased() tea.View {
 			if a.center.HasTabs() && a.center.HasSaveDialog() {
 				centerView = a.center.OverlayDialog(centerView)
 			}
-			centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, 0)
+			centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter)
 			canvas.Compose(centerDrawable)
 		}
 	}
 
 	// Sidebar pane (rightmost) - use chrome cache
 	if a.layout.ShowSidebar() {
-		sidebarX := a.layout.DashboardWidth() + a.layout.CenterWidth()
+		sidebarX := leftGutter + a.layout.DashboardWidth()
+		if a.layout.ShowCenter() {
+			sidebarX += a.layout.GapX() + a.layout.CenterWidth()
+		}
+		if a.layout.ShowSidebar() {
+			sidebarX += a.layout.GapX()
+		}
 		sidebarWidth := a.layout.SidebarWidth()
 		sidebarHeight := a.layout.Height()
 		sidebarFocused := a.focusedPane == messages.PaneSidebar || a.focusedPane == messages.PaneSidebarTerminal
@@ -1107,11 +1240,11 @@ func (a *App) viewLayerBased() tea.View {
 		sidebarClamped := clampPane(sidebarView, sidebarWidth, sidebarHeight)
 
 		var sidebarDrawable *compositor.StringDrawable
-		if cached := a.sidebarChrome.Get(sidebarClamped, sidebarWidth, sidebarHeight, sidebarFocused, sidebarX, 0); cached != nil {
+		if cached := a.sidebarChrome.Get(sidebarClamped, sidebarWidth, sidebarHeight, sidebarFocused, sidebarX, topGutter); cached != nil {
 			sidebarDrawable = cached
 		} else {
-			sidebarDrawable = compositor.NewStringDrawable(sidebarClamped, sidebarX, 0)
-			a.sidebarChrome.Set(sidebarClamped, sidebarWidth, sidebarHeight, sidebarFocused, sidebarX, 0, sidebarDrawable)
+			sidebarDrawable = compositor.NewStringDrawable(sidebarClamped, sidebarX, topGutter)
+			a.sidebarChrome.Set(sidebarClamped, sidebarWidth, sidebarHeight, sidebarFocused, sidebarX, topGutter, sidebarDrawable)
 		}
 		canvas.Compose(sidebarDrawable)
 	}
@@ -1355,7 +1488,11 @@ func (a *App) centerPaneContentOrigin() (x, y int) {
 		return 0, 0
 	}
 	frameX, frameY := a.centerPaneStyle().GetFrameSize()
-	return a.layout.DashboardWidth() + frameX/2, frameY / 2
+	gapX := 0
+	if a.layout.ShowCenter() {
+		gapX = a.layout.GapX()
+	}
+	return a.layout.LeftGutter() + a.layout.DashboardWidth() + gapX + frameX/2, a.layout.TopGutter() + frameY/2
 }
 
 func (a *App) goHome() {
@@ -1995,10 +2132,13 @@ func (a *App) handleCenterPaneClick(msg tea.MouseClickMsg) tea.Cmd {
 	}
 	dashWidth := a.layout.DashboardWidth()
 	centerWidth := a.layout.CenterWidth()
+	gapX := a.layout.GapX()
 	if centerWidth <= 0 {
 		return nil
 	}
-	if msg.X < dashWidth || msg.X >= dashWidth+centerWidth {
+	centerStart := a.layout.LeftGutter() + dashWidth + gapX
+	centerEnd := centerStart + centerWidth
+	if msg.X < centerStart || msg.X >= centerEnd {
 		return nil
 	}
 	contentX, contentY := a.centerPaneContentOrigin()
@@ -2533,7 +2673,13 @@ func (a *App) updateLayout() {
 		centerWidth += a.layout.SidebarWidth()
 	}
 	a.center.SetSize(centerWidth, a.layout.Height())
-	a.center.SetOffset(a.layout.DashboardWidth()) // Set X offset for mouse coordinate conversion
+	leftGutter := a.layout.LeftGutter()
+	topGutter := a.layout.TopGutter()
+	gapX := 0
+	if a.layout.ShowCenter() {
+		gapX = a.layout.GapX()
+	}
+	a.center.SetOffset(leftGutter + a.layout.DashboardWidth() + gapX) // Set X offset for mouse coordinate conversion
 	a.center.SetCanFocusRight(a.layout.ShowSidebar())
 	a.dashboard.SetCanFocusRight(a.layout.ShowCenter())
 
@@ -2564,10 +2710,17 @@ func (a *App) updateLayout() {
 
 	// Calculate and set offsets for sidebar terminal mouse handling
 	// X: Dashboard + Center + Border(1) + Padding(1)
-	termOffsetX := a.layout.DashboardWidth() + a.layout.CenterWidth() + 2
+	sidebarX := leftGutter + a.layout.DashboardWidth()
+	if a.layout.ShowCenter() {
+		sidebarX += a.layout.GapX() + a.layout.CenterWidth()
+	}
+	if a.layout.ShowSidebar() {
+		sidebarX += a.layout.GapX()
+	}
+	termOffsetX := sidebarX + 2
 
 	// Y: Top pane height (including its border) + Bottom pane border(1)
-	termOffsetY := topPaneHeight + 1
+	termOffsetY := topGutter + topPaneHeight + 1
 	a.sidebarTerminal.SetOffset(termOffsetX, termOffsetY)
 
 	if a.dialog != nil {
