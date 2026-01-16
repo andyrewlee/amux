@@ -117,6 +117,9 @@ func (v *VTerm) IsInSelection(x, y int) bool {
 	if y < startY || y > endY {
 		return false
 	}
+	if v.selRect {
+		return x >= startX && x <= endX
+	}
 	if y == startY && y == endY {
 		// Single line selection
 		return x >= startX && x <= endX
@@ -795,14 +798,188 @@ func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
 	return strings.Join(lines, "\n")
 }
 
+// VisibleLineRange returns the [start, end) line indices in the combined
+// scrollback+screen buffer that are currently visible, along with total lines.
+func (v *VTerm) VisibleLineRange() (start, end, total int) {
+	if v == nil {
+		return 0, 0, 0
+	}
+
+	screen, scrollbackLen := v.renderBuffers()
+	total = scrollbackLen + len(screen)
+	if total <= 0 || v.Height <= 0 {
+		return 0, 0, total
+	}
+
+	start = total - v.Height - v.ViewOffset
+	if start < 0 {
+		start = 0
+	}
+	end = start + v.Height
+	if end > total {
+		end = total
+	}
+	return
+}
+
+// TotalLines returns the total number of lines in scrollback+screen.
+func (v *VTerm) TotalLines() int {
+	if v == nil {
+		return 0
+	}
+	screen, scrollbackLen := v.renderBuffers()
+	return scrollbackLen + len(screen)
+}
+
+// MaxViewOffset returns the maximum scrollback offset for the current buffers.
+func (v *VTerm) MaxViewOffset() int {
+	if v == nil {
+		return 0
+	}
+	_, scrollbackLen := v.renderBuffers()
+	return scrollbackLen
+}
+
+// GetTextRange extracts text from a range in the combined scrollback+screen buffer.
+// Coordinates are absolute line indices (0-based) and columns.
+func (v *VTerm) GetTextRange(startX, startLine, endX, endLine int) string {
+	if v == nil {
+		return ""
+	}
+
+	screen, scrollbackLen := v.renderBuffers()
+	total := scrollbackLen + len(screen)
+	if total == 0 {
+		return ""
+	}
+
+	// Normalize selection so start is before end.
+	if startLine > endLine || (startLine == endLine && startX > endX) {
+		startX, endX = endX, startX
+		startLine, endLine = endLine, startLine
+	}
+
+	if startLine < 0 {
+		startLine = 0
+	}
+	if endLine < 0 {
+		endLine = 0
+	}
+	if startLine >= total {
+		startLine = total - 1
+	}
+	if endLine >= total {
+		endLine = total - 1
+	}
+
+	width := v.Width
+	if width < 1 {
+		width = 1
+	}
+	if startX < 0 {
+		startX = 0
+	}
+	if endX < 0 {
+		endX = 0
+	}
+	if startX >= width {
+		startX = width - 1
+	}
+	if endX >= width {
+		endX = width - 1
+	}
+
+	lineAt := func(idx int) []Cell {
+		if idx < 0 {
+			return nil
+		}
+		if idx < scrollbackLen {
+			return v.Scrollback[idx]
+		}
+		si := idx - scrollbackLen
+		if si >= 0 && si < len(screen) {
+			return screen[si]
+		}
+		return nil
+	}
+
+	var result strings.Builder
+	for line := startLine; line <= endLine; line++ {
+		row := lineAt(line)
+		if row == nil {
+			row = MakeBlankLine(width)
+		}
+
+		xStart := 0
+		xEnd := len(row) - 1
+		if line == startLine {
+			xStart = startX
+		}
+		if line == endLine {
+			xEnd = endX
+		}
+		if xStart < 0 {
+			xStart = 0
+		}
+		if xEnd >= len(row) {
+			xEnd = len(row) - 1
+		}
+		if xEnd < xStart {
+			xEnd = xStart
+		}
+
+		for x := xStart; x <= xEnd; x++ {
+			if x < len(row) {
+				if row[x].Width == 0 {
+					continue
+				}
+				r := row[x].Rune
+				if r == 0 {
+					r = ' '
+				}
+				result.WriteRune(r)
+			}
+		}
+
+		if line < endLine {
+			result.WriteRune('\n')
+		}
+	}
+
+	lines := strings.Split(result.String(), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// LineCells returns the cell slice for an absolute line index in scrollback+screen.
+func (v *VTerm) LineCells(line int) []Cell {
+	if v == nil {
+		return nil
+	}
+	screen, scrollbackLen := v.renderBuffers()
+	if line < 0 {
+		return nil
+	}
+	if line < scrollbackLen {
+		return v.Scrollback[line]
+	}
+	idx := line - scrollbackLen
+	if idx >= 0 && idx < len(screen) {
+		return screen[idx]
+	}
+	return nil
+}
+
 // SetSelection stores selection coordinates for rendering with highlight.
-// Pass nil coordinates to clear selection.
-func (v *VTerm) SetSelection(startX, startY, endX, endY int, active bool) {
+func (v *VTerm) SetSelection(startX, startY, endX, endY int, active bool, rect bool) {
 	changed := v.selStartX != startX ||
 		v.selStartY != startY ||
 		v.selEndX != endX ||
 		v.selEndY != endY ||
-		v.selActive != active
+		v.selActive != active ||
+		v.selRect != rect
 	if !changed {
 		return
 	}
@@ -811,6 +988,7 @@ func (v *VTerm) SetSelection(startX, startY, endX, endY int, active bool) {
 	v.selEndX = endX
 	v.selEndY = endY
 	v.selActive = active
+	v.selRect = rect
 	v.renderDirtyAll = true
 	v.bumpVersion()
 }
@@ -821,6 +999,7 @@ func (v *VTerm) ClearSelection() {
 		return
 	}
 	v.selActive = false
+	v.selRect = false
 	v.renderDirtyAll = true
 	v.bumpVersion()
 }

@@ -52,6 +52,7 @@ type VTerm struct {
 	selActive            bool
 	selStartX, selStartY int
 	selEndX, selEndY     int
+	selRect              bool
 
 	// Cursor visibility (controlled externally when pane is focused)
 	ShowCursor     bool

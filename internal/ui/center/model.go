@@ -4,9 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -16,7 +14,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/config"
@@ -140,6 +137,7 @@ type Tab struct {
 	Running      bool           // Whether the agent is actively running
 	readerActive bool           // Guard to ensure only one PTY read loop per tab
 	CopyMode     bool           // Whether the tab is in copy/scroll mode (keys not sent to PTY)
+	CopyState    common.CopyState
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
@@ -624,7 +622,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					m.saveDialog = nil
 					return m, func() tea.Msg { return messages.ThreadExportFailed{Err: err} }
 				}
-				if err := copyToClipboard(path); err != nil {
+				if err := common.CopyToClipboard(path); err != nil {
 					logging.Error("Failed to copy path: %v", err)
 				}
 				m.savedThreadPath = path
@@ -690,7 +688,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				EndY:   termY,
 			}
 			if tab.Terminal != nil {
-				tab.Terminal.SetSelection(termX, termY, termX, termY, true)
+				tab.Terminal.SetSelection(termX, termY, termX, termY, true, false)
 			}
 			logging.Debug("Selection started at (%d, %d)", termX, termY)
 		} else {
@@ -762,7 +760,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if tab.Terminal != nil {
 				tab.Terminal.SetSelection(
 					tab.Selection.StartX, tab.Selection.StartY,
-					termX, termY, true,
+					termX, termY, true, false,
 				)
 			}
 		}
@@ -807,7 +805,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					tab.Selection.EndX, tab.Selection.EndY,
 				)
 				if text != "" {
-					if err := copyToClipboard(text); err != nil {
+					if err := common.CopyToClipboard(text); err != nil {
 						logging.Error("Failed to copy to clipboard: %v", err)
 					} else {
 						logging.Info("Copied %d chars to clipboard", len(text))
@@ -871,14 +869,16 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		logging.Debug("Center received key: %s, focused=%v, hasTabs=%v, numTabs=%d",
 			msg.String(), m.focused, m.hasActiveAgent(), len(tabs))
 
-		// Clear any selection when user types
+		// Clear any selection when user types (unless in copy mode)
 		if len(tabs) > 0 && activeIdx < len(tabs) {
 			tab := tabs[activeIdx]
 			tab.mu.Lock()
-			if tab.Terminal != nil {
-				tab.Terminal.ClearSelection()
+			if !tab.CopyMode {
+				if tab.Terminal != nil {
+					tab.Terminal.ClearSelection()
+				}
+				tab.Selection = SelectionState{}
 			}
-			tab.Selection = SelectionState{}
 			tab.mu.Unlock()
 		}
 
@@ -1148,7 +1148,7 @@ func (m *Model) View() string {
 			// Render commit viewer
 			b.WriteString(tab.CommitViewer.View())
 		} else if tab.Terminal != nil {
-			tab.Terminal.ShowCursor = m.focused
+			tab.Terminal.ShowCursor = m.focused && !tab.CopyMode
 			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
 			b.WriteString(tab.Terminal.Render())
 
@@ -1336,6 +1336,13 @@ func (m *Model) helpLines(contentWidth int) []string {
 			items = append(items,
 				m.helpItem("g", "top"),
 				m.helpItem("G", "bottom"),
+				m.helpItem("Space/v", "select"),
+				m.helpItem("y/Enter", "copy"),
+				m.helpItem("C-v", "rect"),
+				m.helpItem("/?", "search"),
+				m.helpItem("n/N", "next/prev"),
+				m.helpItem("w/b/e", "word"),
+				m.helpItem("H/M/L", "top/mid/bot"),
 			)
 		}
 	}
@@ -2042,6 +2049,11 @@ func (m *Model) EnterCopyMode() {
 	}
 	tab := tabs[activeIdx]
 	tab.CopyMode = true
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		tab.CopyState = common.InitCopyState(tab.Terminal)
+	}
+	tab.mu.Unlock()
 }
 
 // ExitCopyMode exits copy/scroll mode for the active tab
@@ -2055,8 +2067,10 @@ func (m *Model) ExitCopyMode() {
 	tab.CopyMode = false
 	tab.mu.Lock()
 	if tab.Terminal != nil {
+		tab.Terminal.ClearSelection()
 		tab.Terminal.ScrollViewToBottom()
 	}
+	tab.CopyState = common.CopyState{}
 	tab.mu.Unlock()
 }
 
@@ -2072,82 +2086,247 @@ func (m *Model) CopyModeActive() bool {
 
 // handleCopyModeKey handles keys while in copy mode (scroll navigation)
 func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyPressMsg) tea.Cmd {
-	switch {
-	// Exit copy mode
-	case msg.Key().Code == tea.KeyEsc || msg.Key().Code == tea.KeyEscape:
-		fallthrough
-	case msg.String() == "q":
-		tab.CopyMode = false
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToBottom()
+	var copyText string
+	var didCopy bool
+
+	tab.mu.Lock()
+	term := tab.Terminal
+	k := msg.Key()
+	if term == nil {
+		// Allow exiting copy mode even when no terminal is available.
+		if k.Code == tea.KeyEsc || k.Code == tea.KeyEscape || msg.String() == "q" {
+			tab.CopyMode = false
+			tab.CopyState = common.CopyState{}
 		}
 		tab.mu.Unlock()
 		return nil
-
-	// Scroll up one line
-	case msg.String() == "k":
-		fallthrough
-	case msg.Key().Code == tea.KeyUp:
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(1)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	// Scroll down one line
-	case msg.String() == "j":
-		fallthrough
-	case msg.Key().Code == tea.KeyDown:
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(-1)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	// Scroll up quarter page
-	case msg.Key().Code == tea.KeyPgUp:
-		fallthrough
-	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(tab.Terminal.Height / 4)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	// Scroll down quarter page
-	case msg.Key().Code == tea.KeyPgDown:
-		fallthrough
-	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(-tab.Terminal.Height / 4)
-		}
-		tab.mu.Unlock()
-		return nil
-
-	// Scroll to top
-	case msg.String() == "g":
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToTop()
-		}
-		tab.mu.Unlock()
-		return nil
-
-	// Scroll to bottom
-	case msg.String() == "G":
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToBottom()
+	}
+	if tab.CopyState.SearchActive {
+		switch {
+		case k.Code == tea.KeyEsc || k.Code == tea.KeyEscape:
+			common.CancelSearch(&tab.CopyState)
+		case k.Code == tea.KeyEnter:
+			common.ExecuteSearch(term, &tab.CopyState)
+		case k.Code == tea.KeyBackspace:
+			common.BackspaceSearchQuery(&tab.CopyState)
+		default:
+			if k.Text != "" && (k.Mod&(tea.ModCtrl|tea.ModAlt|tea.ModMeta|tea.ModSuper|tea.ModHyper)) == 0 {
+				common.AppendSearchQuery(&tab.CopyState, k.Text)
+			}
 		}
 		tab.mu.Unlock()
 		return nil
 	}
 
+	switch {
+	// Exit copy mode
+	case k.Code == tea.KeyEsc || k.Code == tea.KeyEscape:
+		fallthrough
+	case msg.String() == "q":
+		tab.CopyMode = false
+		tab.CopyState = common.CopyState{}
+		term.ClearSelection()
+		term.ScrollViewToBottom()
+		tab.mu.Unlock()
+		return nil
+
+	// Copy selection
+	case k.Code == tea.KeyEnter || msg.String() == "y":
+		copyText = common.CopySelectionText(term, &tab.CopyState)
+		if copyText != "" {
+			tab.CopyMode = false
+			tab.CopyState = common.CopyState{}
+			term.ClearSelection()
+			term.ScrollViewToBottom()
+			didCopy = true
+		}
+		tab.mu.Unlock()
+		if didCopy {
+			if err := common.CopyToClipboard(copyText); err != nil {
+				logging.Error("Failed to copy to clipboard: %v", err)
+			} else {
+				logging.Info("Copied %d chars to clipboard", len(copyText))
+			}
+		}
+		return nil
+
+	// Toggle selection
+	case msg.String() == " " || msg.String() == "v":
+		common.ToggleCopySelection(&tab.CopyState)
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	// Toggle rectangle selection
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+v"))):
+		common.ToggleRectangle(&tab.CopyState)
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	// Search
+	case msg.String() == "/":
+		common.StartSearch(&tab.CopyState, false)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "?":
+		common.StartSearch(&tab.CopyState, true)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "n":
+		common.RepeatSearch(term, &tab.CopyState, tab.CopyState.LastSearchBackward)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "N":
+		common.RepeatSearch(term, &tab.CopyState, !tab.CopyState.LastSearchBackward)
+		tab.mu.Unlock()
+		return nil
+
+	// Move left/right
+	case msg.String() == "h":
+		fallthrough
+	case k.Code == tea.KeyLeft:
+		tab.CopyState.CursorX--
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "l":
+		fallthrough
+	case k.Code == tea.KeyRight:
+		tab.CopyState.CursorX++
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	// Move up/down
+	case msg.String() == "k":
+		fallthrough
+	case k.Code == tea.KeyUp:
+		tab.CopyState.CursorLine--
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "j":
+		fallthrough
+	case k.Code == tea.KeyDown:
+		tab.CopyState.CursorLine++
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	// Word motions
+	case msg.String() == "w":
+		common.MoveWordForward(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "b":
+		common.MoveWordBackward(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "e":
+		common.MoveWordEnd(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	// Scroll up/down half page
+	case k.Code == tea.KeyPgUp:
+		fallthrough
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+		fallthrough
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+b"))):
+		delta := term.Height / 2
+		if delta < 1 {
+			delta = 1
+		}
+		tab.CopyState.CursorLine -= delta
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	case k.Code == tea.KeyPgDown:
+		fallthrough
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+		fallthrough
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+f"))):
+		delta := term.Height / 2
+		if delta < 1 {
+			delta = 1
+		}
+		tab.CopyState.CursorLine += delta
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	// Scroll to top/bottom
+	case msg.String() == "g":
+		tab.CopyState.CursorLine = 0
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "G":
+		total := term.TotalLines()
+		if total > 0 {
+			tab.CopyState.CursorLine = total - 1
+		}
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	// Move to top/middle/bottom of view
+	case msg.String() == "H":
+		start, end, _ := term.VisibleLineRange()
+		if end > start {
+			tab.CopyState.CursorLine = start
+			common.SyncCopyState(term, &tab.CopyState)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "M":
+		start, end, _ := term.VisibleLineRange()
+		if end > start {
+			tab.CopyState.CursorLine = start + (end-start)/2
+			common.SyncCopyState(term, &tab.CopyState)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "L":
+		start, end, _ := term.VisibleLineRange()
+		if end > start {
+			tab.CopyState.CursorLine = end - 1
+			common.SyncCopyState(term, &tab.CopyState)
+		}
+		tab.mu.Unlock()
+		return nil
+
+	// Line start/end
+	case msg.String() == "0":
+		fallthrough
+	case k.Code == tea.KeyHome:
+		tab.CopyState.CursorX = 0
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+
+	case msg.String() == "$":
+		fallthrough
+	case k.Code == tea.KeyEnd:
+		tab.CopyState.CursorX = term.Width - 1
+		common.SyncCopyState(term, &tab.CopyState)
+		tab.mu.Unlock()
+		return nil
+	}
+
+	tab.mu.Unlock()
 	// Ignore other keys in copy mode (don't forward to PTY)
 	return nil
 }
@@ -2651,18 +2830,4 @@ func (m *Model) activeTerminalStatusLine() string {
 // This is kept for compatibility but does nothing
 func (m *Model) CloseAllTabs() {
 	// No-op: tabs now persist per-worktree and are not closed when switching
-}
-
-func copyToClipboard(text string) error {
-	// Prioritize pbcopy on macOS as it is more reliable in various environments.
-	if runtime.GOOS == "darwin" {
-		cmd := exec.Command("pbcopy")
-		cmd.Stdin = strings.NewReader(text)
-		if err := cmd.Run(); err == nil {
-			return nil
-		}
-	}
-
-	// Fallback to library for other OS or if pbcopy fails
-	return clipboard.WriteAll(text)
 }
