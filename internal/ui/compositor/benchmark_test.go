@@ -87,6 +87,35 @@ func BenchmarkVTermSnapshotCreation(b *testing.B) {
 	}
 }
 
+// BenchmarkVTermSnapshotDirtyReuse benchmarks snapshot creation when only a single line changes.
+func BenchmarkVTermSnapshotDirtyReuse(b *testing.B) {
+	sizes := []struct {
+		name          string
+		width, height int
+	}{
+		{"80x24", 80, 24},
+		{"120x40", 120, 40},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			term := setupVTerm(size.width, size.height)
+			snap := NewVTermSnapshotWithCache(term, true, nil)
+
+			moveCursor := []byte("\x1b[2;1H") // row 2, col 1
+			writeChar := []byte("X")
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				term.Write(moveCursor)
+				term.Write(writeChar)
+				snap = NewVTermSnapshotWithCache(term, true, snap)
+			}
+		})
+	}
+}
+
 // BenchmarkCanvasRender benchmarks the Canvas.Render ANSI output generation
 func BenchmarkCanvasRender(b *testing.B) {
 	sizes := []struct {

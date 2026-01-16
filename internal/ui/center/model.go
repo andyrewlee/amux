@@ -2500,8 +2500,8 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 		return compositor.NewVTermLayer(tab.cachedSnap)
 	}
 
-	// Create new snapshot while holding the lock
-	snap := compositor.NewVTermSnapshot(tab.Terminal, showCursor)
+	// Create new snapshot while holding the lock, reusing cached lines when possible.
+	snap := compositor.NewVTermSnapshotWithCache(tab.Terminal, showCursor, tab.cachedSnap)
 	if snap == nil {
 		return nil
 	}
