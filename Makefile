@@ -2,13 +2,16 @@ BINARY_NAME := amux
 MAIN_PACKAGE := ./cmd/amux
 .DEFAULT_GOAL := build
 
-.PHONY: build test lint fmt fmt-check vet clean run dev help
+.PHONY: build test bench lint fmt fmt-check vet clean run dev help
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
 
 test:
 	go test -v ./...
+
+bench:
+	go test -bench=. -benchmem ./internal/ui/compositor/ -run=^$$
 
 lint: test
 	golangci-lint run
@@ -43,3 +46,4 @@ help:
 	@echo "  clean      - Remove build artifacts"
 	@echo "  run        - Build and run"
 	@echo "  dev        - Run with hot reload (requires air)"
+	@echo "  bench      - Run rendering benchmarks"

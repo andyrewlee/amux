@@ -152,6 +152,11 @@ type Tab struct {
 	ptyTraceFile   *os.File
 	ptyTraceBytes  int
 	ptyTraceClosed bool
+
+	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
+	cachedSnap       *compositor.VTermSnapshot
+	cachedVersion    uint64
+	cachedShowCursor bool
 }
 
 // MonitorSnapshot captures a tab display for the monitor grid.
@@ -2472,6 +2477,7 @@ func (m *Model) ResetMonitorSelection() {
 // TerminalLayer returns a VTermLayer for the active terminal, if any.
 // This creates a snapshot of the terminal state while holding the lock,
 // so the returned layer can be safely used for rendering without locks.
+// Uses snapshot caching to avoid recreating when terminal state unchanged.
 func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
@@ -2484,11 +2490,28 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	if tab.Terminal == nil {
 		return nil
 	}
-	// Create snapshot while holding the lock - this is thread-safe
-	snap := compositor.NewVTermSnapshot(tab.Terminal, m.focused)
+
+	// Check if we can reuse the cached snapshot
+	version := tab.Terminal.Version()
+	showCursor := m.focused
+	if tab.cachedSnap != nil &&
+		tab.cachedVersion == version &&
+		tab.cachedShowCursor == showCursor {
+		// Reuse cached snapshot
+		return compositor.NewVTermLayer(tab.cachedSnap)
+	}
+
+	// Create new snapshot while holding the lock
+	snap := compositor.NewVTermSnapshot(tab.Terminal, showCursor)
 	if snap == nil {
 		return nil
 	}
+
+	// Cache the snapshot
+	tab.cachedSnap = snap
+	tab.cachedVersion = version
+	tab.cachedShowCursor = showCursor
+
 	return compositor.NewVTermLayer(snap)
 }
 
@@ -2508,50 +2531,10 @@ func (m *Model) HasCommitViewer() bool {
 // TerminalViewport returns the terminal content area coordinates relative to the pane.
 // Returns (x, y, width, height) where the terminal content should be rendered.
 // This is for layer-based rendering positioning within the bordered pane.
+// Uses terminalMetrics() as the single source of truth for geometry.
 func (m *Model) TerminalViewport() (x, y, width, height int) {
-	// buildBorderedPane structure:
-	// - Y=0: top border "╭───╮"
-	// - Y=1 to Y=height-2: content lines "│ content │"
-	// - Y=height-1: bottom border "╰───╯"
-	//
-	// Content lines have:
-	// - X=0: left border "│"
-	// - X=1: left padding " "
-	// - X=2 to X=width-3: actual content
-	// - X=width-2: right padding " "
-	// - X=width-1: right border "│"
-	//
-	// Within content area (after border wrapping):
-	// - Line 0 (Y=1 in bordered): tab bar
-	// - Lines 1+ (Y=2+ in bordered): terminal content
-	// - Last lines: help text
-	const (
-		borderAndPaddingX = 2 // "│" + " "
-		topBorderY        = 1 // top border line
-		tabBarHeight      = 1 // tab bar line
-	)
-
-	x = borderAndPaddingX
-	y = topBorderY + tabBarHeight
-
-	// Width is the content width (what fits between border+padding on each side)
-	width = m.contentWidth()
-
-	// Height: total content lines minus tab bar minus help lines
-	helpLineCount := 0
-	if m.showKeymapHints {
-		helpLineCount = len(m.helpLines(width))
-	}
-	innerHeight := m.height - 2 // content height inside bordered pane
-	if innerHeight < 0 {
-		innerHeight = 0
-	}
-	height = innerHeight - tabBarHeight - helpLineCount
-	if height < 1 {
-		height = 1
-	}
-
-	return x, y, width, height
+	tm := m.terminalMetrics()
+	return tm.ContentStartX, tm.ContentStartY, tm.Width, tm.Height
 }
 
 // ViewChromeOnly renders only the pane chrome (border, tab bar, help lines) without

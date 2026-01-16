@@ -73,6 +73,9 @@ type VTerm struct {
 	renderCache    []string
 	renderDirty    []bool
 	renderDirtyAll bool
+
+	// Version counter for snapshot caching - increments on any visible change
+	version uint64
 }
 
 // New creates a new VTerm with the given dimensions
@@ -265,6 +268,7 @@ func (v *VTerm) trimScrollback() {
 // ScrollView scrolls the view by delta lines (positive = up into history)
 func (v *VTerm) ScrollView(delta int) {
 	v.ClearSelection()
+	oldOffset := v.ViewOffset
 	v.ViewOffset += delta
 	maxOffset := len(v.Scrollback)
 	if v.ViewOffset > maxOffset {
@@ -273,11 +277,15 @@ func (v *VTerm) ScrollView(delta int) {
 	if v.ViewOffset < 0 {
 		v.ViewOffset = 0
 	}
+	if v.ViewOffset != oldOffset {
+		v.bumpVersion()
+	}
 }
 
 // ScrollViewTo sets absolute scroll position
 func (v *VTerm) ScrollViewTo(offset int) {
 	v.ClearSelection()
+	oldOffset := v.ViewOffset
 	v.ViewOffset = offset
 	maxOffset := len(v.Scrollback)
 	if v.ViewOffset > maxOffset {
@@ -286,18 +294,29 @@ func (v *VTerm) ScrollViewTo(offset int) {
 	if v.ViewOffset < 0 {
 		v.ViewOffset = 0
 	}
+	if v.ViewOffset != oldOffset {
+		v.bumpVersion()
+	}
 }
 
 // ScrollViewToTop scrolls to oldest content
 func (v *VTerm) ScrollViewToTop() {
 	v.ClearSelection()
+	oldOffset := v.ViewOffset
 	v.ViewOffset = len(v.Scrollback)
+	if v.ViewOffset != oldOffset {
+		v.bumpVersion()
+	}
 }
 
 // ScrollViewToBottom returns to live view
 func (v *VTerm) ScrollViewToBottom() {
 	v.ClearSelection()
+	oldOffset := v.ViewOffset
 	v.ViewOffset = 0
+	if v.ViewOffset != oldOffset {
+		v.bumpVersion()
+	}
 }
 
 // IsScrolled returns true if viewing scrollback
@@ -329,6 +348,7 @@ func (v *VTerm) markDirtyLine(y int) {
 	if y < 0 || y >= v.Height {
 		return
 	}
+	v.bumpVersion()
 	if len(v.renderDirty) == v.Height {
 		v.renderDirty[y] = true
 	} else {
@@ -346,6 +366,7 @@ func (v *VTerm) markDirtyRange(start, end int) {
 	if start > end {
 		return
 	}
+	v.bumpVersion()
 	if len(v.renderDirty) == v.Height {
 		for y := start; y <= end; y++ {
 			v.renderDirty[y] = true
@@ -359,6 +380,7 @@ func (v *VTerm) invalidateRenderCache() {
 	v.renderCache = nil
 	v.renderDirty = nil
 	v.renderDirtyAll = true
+	v.bumpVersion()
 }
 
 // DirtyLines returns the dirty line flags and whether all lines are dirty.
@@ -401,4 +423,16 @@ func (v *VTerm) ClearDirtyWithCursor(showCursor bool) {
 // Used to detect cursor movement and mark old cursor line dirty.
 func (v *VTerm) LastCursorY() int {
 	return v.lastCursorY
+}
+
+// Version returns the current version counter.
+// This increments whenever visible content changes.
+func (v *VTerm) Version() uint64 {
+	return v.version
+}
+
+// bumpVersion increments the version counter.
+// Called internally when content changes.
+func (v *VTerm) bumpVersion() {
+	v.version++
 }

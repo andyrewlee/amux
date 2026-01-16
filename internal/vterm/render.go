@@ -1,7 +1,7 @@
 package vterm
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -332,59 +332,71 @@ func suppressBlankUnderline(cell Cell, style Style) Style {
 }
 
 // StyleToANSI converts a Style to ANSI escape codes.
+// Optimized to avoid allocations using strings.Builder.
 func StyleToANSI(s Style) string {
-	var codes []string
+	var b strings.Builder
+	b.Grow(32) // Pre-allocate for typical SGR sequence
 
-	// Reset first if any attributes
-	codes = append(codes, "0")
+	b.WriteString("\x1b[0") // Reset first
 
 	if s.Bold {
-		codes = append(codes, "1")
+		b.WriteString(";1")
 	}
 	if s.Dim {
-		codes = append(codes, "2")
+		b.WriteString(";2")
 	}
 	if s.Italic {
-		codes = append(codes, "3")
+		b.WriteString(";3")
 	}
 	if s.Underline {
-		codes = append(codes, "4")
+		b.WriteString(";4")
 	}
 	if s.Blink {
-		codes = append(codes, "5")
+		b.WriteString(";5")
 	}
 	if s.Reverse {
-		codes = append(codes, "7")
+		b.WriteString(";7")
 	}
 	if s.Hidden {
-		codes = append(codes, "8")
+		b.WriteString(";8")
 	}
 	if s.Strike {
-		codes = append(codes, "9")
+		b.WriteString(";9")
 	}
 
 	// Foreground color
-	codes = append(codes, colorToANSI(s.Fg, true)...)
+	writeColorToBuilder(&b, s.Fg, true)
 
 	// Background color
-	codes = append(codes, colorToANSI(s.Bg, false)...)
+	writeColorToBuilder(&b, s.Bg, false)
 
-	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
+	b.WriteByte('m')
+	return b.String()
 }
 
 // StyleToDeltaANSI returns the minimal SGR escape sequence to transition from prev to next style.
 // This avoids the overhead of always emitting a full reset.
+// Optimized to avoid allocations using strings.Builder.
 func StyleToDeltaANSI(prev, next Style) string {
 	if prev == next {
 		return ""
 	}
 
-	var codes []string
+	var b strings.Builder
+	b.Grow(32) // Pre-allocate for typical SGR sequence
+	first := true
+
+	writeCode := func(code string) {
+		if first {
+			b.WriteString("\x1b[")
+			first = false
+		} else {
+			b.WriteByte(';')
+		}
+		b.WriteString(code)
+	}
 
 	// Check if we need to reset (turning OFF attributes that can't be individually disabled)
-	// Most attributes can be disabled individually (e.g., 22 disables bold, 23 disables italic)
-	// but it's often simpler to reset if multiple are changing from on→off
-	needsReset := false
 	turningOff := 0
 	if prev.Bold && !next.Bold {
 		turningOff++
@@ -413,117 +425,215 @@ func StyleToDeltaANSI(prev, next Style) string {
 
 	// If turning off multiple attributes, reset is more efficient
 	if turningOff > 1 {
-		needsReset = true
-	}
-
-	if needsReset {
-		codes = append(codes, "0")
+		writeCode("0")
 		// After reset, add all active attributes
 		if next.Bold {
-			codes = append(codes, "1")
+			writeCode("1")
 		}
 		if next.Dim {
-			codes = append(codes, "2")
+			writeCode("2")
 		}
 		if next.Italic {
-			codes = append(codes, "3")
+			writeCode("3")
 		}
 		if next.Underline {
-			codes = append(codes, "4")
+			writeCode("4")
 		}
 		if next.Blink {
-			codes = append(codes, "5")
+			writeCode("5")
 		}
 		if next.Reverse {
-			codes = append(codes, "7")
+			writeCode("7")
 		}
 		if next.Hidden {
-			codes = append(codes, "8")
+			writeCode("8")
 		}
 		if next.Strike {
-			codes = append(codes, "9")
+			writeCode("9")
 		}
 		// Colors after reset
-		codes = append(codes, colorToANSI(next.Fg, true)...)
-		codes = append(codes, colorToANSI(next.Bg, false)...)
+		writeColorToBuilderFirst(&b, next.Fg, true, &first)
+		writeColorToBuilderFirst(&b, next.Bg, false, &first)
 	} else {
 		// Emit individual changes only
 
 		// Turn off attributes individually
-		// Note: SGR 22 turns off both Bold and Dim, so we only emit it once
 		if (prev.Bold && !next.Bold) || (prev.Dim && !next.Dim) {
-			codes = append(codes, "22") // Normal intensity (turns off bold and dim)
+			writeCode("22") // Normal intensity
 		}
 		if prev.Italic && !next.Italic {
-			codes = append(codes, "23")
+			writeCode("23")
 		}
 		if prev.Underline && !next.Underline {
-			codes = append(codes, "24")
+			writeCode("24")
 		}
 		if prev.Blink && !next.Blink {
-			codes = append(codes, "25")
+			writeCode("25")
 		}
 		if prev.Reverse && !next.Reverse {
-			codes = append(codes, "27")
+			writeCode("27")
 		}
 		if prev.Hidden && !next.Hidden {
-			codes = append(codes, "28")
+			writeCode("28")
 		}
 		if prev.Strike && !next.Strike {
-			codes = append(codes, "29")
+			writeCode("29")
 		}
 
 		// Turn on attributes
 		if !prev.Bold && next.Bold {
-			codes = append(codes, "1")
+			writeCode("1")
 		}
 		if !prev.Dim && next.Dim {
-			codes = append(codes, "2")
+			writeCode("2")
 		}
 		if !prev.Italic && next.Italic {
-			codes = append(codes, "3")
+			writeCode("3")
 		}
 		if !prev.Underline && next.Underline {
-			codes = append(codes, "4")
+			writeCode("4")
 		}
 		if !prev.Blink && next.Blink {
-			codes = append(codes, "5")
+			writeCode("5")
 		}
 		if !prev.Reverse && next.Reverse {
-			codes = append(codes, "7")
+			writeCode("7")
 		}
 		if !prev.Hidden && next.Hidden {
-			codes = append(codes, "8")
+			writeCode("8")
 		}
 		if !prev.Strike && next.Strike {
-			codes = append(codes, "9")
+			writeCode("9")
 		}
 
 		// Colors only if changed
 		if prev.Fg != next.Fg {
 			if next.Fg.Type == ColorDefault {
-				codes = append(codes, "39") // Default foreground
+				writeCode("39")
 			} else {
-				codes = append(codes, colorToANSI(next.Fg, true)...)
+				writeColorToBuilderFirst(&b, next.Fg, true, &first)
 			}
 		}
 		if prev.Bg != next.Bg {
 			if next.Bg.Type == ColorDefault {
-				codes = append(codes, "49") // Default background
+				writeCode("49")
 			} else {
-				codes = append(codes, colorToANSI(next.Bg, false)...)
+				writeColorToBuilderFirst(&b, next.Bg, false, &first)
 			}
 		}
 	}
 
-	if len(codes) == 0 {
-		return ""
+	if first {
+		return "" // No codes written
 	}
 
-	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
+	b.WriteByte('m')
+	return b.String()
 }
 
-// colorToANSI converts a Color to ANSI code strings.
+// writeColorToBuilder appends color codes to a strings.Builder.
+// Assumes the builder already has "\x1b[" prefix and uses ";" separator.
+func writeColorToBuilder(b *strings.Builder, c Color, fg bool) {
+	switch c.Type {
+	case ColorDefault:
+		return
+	case ColorIndexed:
+		idx := c.Value
+		b.WriteByte(';')
+		if idx < 8 {
+			if fg {
+				b.WriteString(strconv.FormatUint(uint64(30+idx), 10))
+			} else {
+				b.WriteString(strconv.FormatUint(uint64(40+idx), 10))
+			}
+		} else if idx < 16 {
+			if fg {
+				b.WriteString(strconv.FormatUint(uint64(90+idx-8), 10))
+			} else {
+				b.WriteString(strconv.FormatUint(uint64(100+idx-8), 10))
+			}
+		} else {
+			if fg {
+				b.WriteString("38;5;")
+			} else {
+				b.WriteString("48;5;")
+			}
+			b.WriteString(strconv.FormatUint(uint64(idx), 10))
+		}
+	case ColorRGB:
+		r := (c.Value >> 16) & 0xFF
+		g := (c.Value >> 8) & 0xFF
+		bv := c.Value & 0xFF
+		if fg {
+			b.WriteString(";38;2;")
+		} else {
+			b.WriteString(";48;2;")
+		}
+		b.WriteString(strconv.FormatUint(uint64(r), 10))
+		b.WriteByte(';')
+		b.WriteString(strconv.FormatUint(uint64(g), 10))
+		b.WriteByte(';')
+		b.WriteString(strconv.FormatUint(uint64(bv), 10))
+	}
+}
+
+// writeColorToBuilderFirst appends color codes, handling first code specially.
+func writeColorToBuilderFirst(b *strings.Builder, c Color, fg bool, first *bool) {
+	switch c.Type {
+	case ColorDefault:
+		return
+	case ColorIndexed:
+		idx := c.Value
+		if *first {
+			b.WriteString("\x1b[")
+			*first = false
+		} else {
+			b.WriteByte(';')
+		}
+		if idx < 8 {
+			if fg {
+				b.WriteString(strconv.FormatUint(uint64(30+idx), 10))
+			} else {
+				b.WriteString(strconv.FormatUint(uint64(40+idx), 10))
+			}
+		} else if idx < 16 {
+			if fg {
+				b.WriteString(strconv.FormatUint(uint64(90+idx-8), 10))
+			} else {
+				b.WriteString(strconv.FormatUint(uint64(100+idx-8), 10))
+			}
+		} else {
+			if fg {
+				b.WriteString("38;5;")
+			} else {
+				b.WriteString("48;5;")
+			}
+			b.WriteString(strconv.FormatUint(uint64(idx), 10))
+		}
+	case ColorRGB:
+		r := (c.Value >> 16) & 0xFF
+		g := (c.Value >> 8) & 0xFF
+		bv := c.Value & 0xFF
+		if *first {
+			b.WriteString("\x1b[")
+			*first = false
+		} else {
+			b.WriteByte(';')
+		}
+		if fg {
+			b.WriteString("38;2;")
+		} else {
+			b.WriteString("48;2;")
+		}
+		b.WriteString(strconv.FormatUint(uint64(r), 10))
+		b.WriteByte(';')
+		b.WriteString(strconv.FormatUint(uint64(g), 10))
+		b.WriteByte(';')
+		b.WriteString(strconv.FormatUint(uint64(bv), 10))
+	}
+}
+
+// colorToANSI converts a Color to ANSI code strings (legacy, used by renderRow).
 func colorToANSI(c Color, fg bool) []string {
 	switch c.Type {
 	case ColorDefault:
@@ -532,28 +642,28 @@ func colorToANSI(c Color, fg bool) []string {
 		idx := c.Value
 		if idx < 8 {
 			if fg {
-				return []string{fmt.Sprintf("%d", 30+idx)}
+				return []string{strconv.FormatUint(uint64(30+idx), 10)}
 			}
-			return []string{fmt.Sprintf("%d", 40+idx)}
+			return []string{strconv.FormatUint(uint64(40+idx), 10)}
 		} else if idx < 16 {
 			if fg {
-				return []string{fmt.Sprintf("%d", 90+idx-8)}
+				return []string{strconv.FormatUint(uint64(90+idx-8), 10)}
 			}
-			return []string{fmt.Sprintf("%d", 100+idx-8)}
+			return []string{strconv.FormatUint(uint64(100+idx-8), 10)}
 		} else {
 			if fg {
-				return []string{"38", "5", fmt.Sprintf("%d", idx)}
+				return []string{"38", "5", strconv.FormatUint(uint64(idx), 10)}
 			}
-			return []string{"48", "5", fmt.Sprintf("%d", idx)}
+			return []string{"48", "5", strconv.FormatUint(uint64(idx), 10)}
 		}
 	case ColorRGB:
 		r := (c.Value >> 16) & 0xFF
 		g := (c.Value >> 8) & 0xFF
 		b := c.Value & 0xFF
 		if fg {
-			return []string{"38", "2", fmt.Sprintf("%d", r), fmt.Sprintf("%d", g), fmt.Sprintf("%d", b)}
+			return []string{"38", "2", strconv.FormatUint(uint64(r), 10), strconv.FormatUint(uint64(g), 10), strconv.FormatUint(uint64(b), 10)}
 		}
-		return []string{"48", "2", fmt.Sprintf("%d", r), fmt.Sprintf("%d", g), fmt.Sprintf("%d", b)}
+		return []string{"48", "2", strconv.FormatUint(uint64(r), 10), strconv.FormatUint(uint64(g), 10), strconv.FormatUint(uint64(b), 10)}
 	}
 	return nil
 }

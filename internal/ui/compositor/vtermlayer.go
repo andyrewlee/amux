@@ -8,6 +8,24 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
+// asciiStrings is a lookup table for single-character strings.
+// Avoids allocations for common ASCII characters (0-127).
+var asciiStrings [128]string
+
+func init() {
+	for i := 0; i < 128; i++ {
+		asciiStrings[i] = string(rune(i))
+	}
+}
+
+// runeToString converts a rune to a string with minimal allocations.
+func runeToString(r rune) string {
+	if r >= 0 && r < 128 {
+		return asciiStrings[r]
+	}
+	return string(r)
+}
+
 // ansiPalette is the standard ANSI color palette (0-15).
 // Colors 0-7 are standard, 8-15 are bright variants.
 var ansiPalette = []color.RGBA{
@@ -168,6 +186,7 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 }
 
 // cellToUVSnapshot converts a vterm.Cell to an ultraviolet Cell using snapshot state.
+// Optimized to minimize allocations.
 func cellToUVSnapshot(cell vterm.Cell, snap *VTermSnapshot, x, y int) *uv.Cell {
 	style := cell.Style
 
@@ -185,14 +204,14 @@ func cellToUVSnapshot(cell vterm.Cell, snap *VTermSnapshot, x, y int) *uv.Cell {
 		style.Underline = false
 	}
 
-	// Get the character
+	// Get the character - use lookup table for ASCII to avoid allocation
 	r := cell.Rune
 	if r == 0 {
 		r = ' '
 	}
 
 	return &uv.Cell{
-		Content: string(r),
+		Content: runeToString(r),
 		Style:   vtermStyleToUV(style),
 		Width:   cell.Width,
 	}

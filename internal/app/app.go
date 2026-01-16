@@ -112,6 +112,11 @@ type App struct {
 	// Perf tracking
 	lastInputAt         time.Time
 	pendingInputLatency bool
+
+	// Chrome caches for layer-based rendering
+	dashboardChrome *compositor.ChromeCache
+	centerChrome    *compositor.ChromeCache
+	sidebarChrome   *compositor.ChromeCache
 }
 
 func (a *App) markInput() {
@@ -173,6 +178,9 @@ func New() (*App, error) {
 		focusedPane:     messages.PaneDashboard,
 		showWelcome:     true,
 		keymap:          DefaultKeyMap(),
+		dashboardChrome: &compositor.ChromeCache{},
+		centerChrome:    &compositor.ChromeCache{},
+		sidebarChrome:   &compositor.ChromeCache{},
 	}
 	// Apply saved theme before creating styles
 	common.SetCurrentTheme(common.ThemeID(cfg.UI.Theme))
@@ -998,11 +1006,21 @@ func (a *App) viewLayerBased() tea.View {
 	// Create canvas at screen dimensions
 	canvas := lipgloss.NewCanvas(a.width, a.height)
 
-	// Dashboard pane (leftmost)
-	dashContent := a.dashboard.View()
+	// Dashboard pane (leftmost) - use chrome cache
 	dashWidth := a.layout.DashboardWidth()
-	dashView := buildBorderedPane(dashContent, dashWidth, a.layout.Height(), a.dashboard.Focused())
-	dashDrawable := compositor.NewStringDrawable(clampPane(dashView, dashWidth, a.layout.Height()), 0, 0)
+	dashHeight := a.layout.Height()
+	dashFocused := a.dashboard.Focused()
+	dashContent := a.dashboard.View()
+	dashView := buildBorderedPane(dashContent, dashWidth, dashHeight, dashFocused)
+	dashClamped := clampPane(dashView, dashWidth, dashHeight)
+
+	var dashDrawable *compositor.StringDrawable
+	if cached := a.dashboardChrome.Get(dashClamped, dashWidth, dashHeight, dashFocused, 0, 0); cached != nil {
+		dashDrawable = cached
+	} else {
+		dashDrawable = compositor.NewStringDrawable(dashClamped, 0, 0)
+		a.dashboardChrome.Set(dashClamped, dashWidth, dashHeight, dashFocused, 0, 0, dashDrawable)
+	}
 	canvas.Compose(dashDrawable)
 
 	// Center pane
@@ -1019,13 +1037,29 @@ func (a *App) viewLayerBased() tea.View {
 			termX := centerX + termOffsetX
 			termY := termOffsetY
 
-			// Draw the pane chrome with borders using buildBorderedPane
+			// Draw the pane chrome with borders using buildBorderedPane - use cache
 			centerContent := a.center.ViewChromeOnly()
 			centerView := buildBorderedPane(centerContent, centerWidth, centerHeight, centerFocused)
-			if a.center.HasSaveDialog() {
+			hasSaveDialog := a.center.HasSaveDialog()
+			if hasSaveDialog {
 				centerView = a.center.OverlayDialog(centerView)
+				// Don't cache when dialog is shown (it changes frequently)
+				a.centerChrome.Invalidate()
 			}
-			centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, 0)
+			centerClamped := clampPane(centerView, centerWidth, centerHeight)
+
+			var centerDrawable *compositor.StringDrawable
+			if !hasSaveDialog {
+				if cached := a.centerChrome.Get(centerClamped, centerWidth, centerHeight, centerFocused, centerX, 0); cached != nil {
+					centerDrawable = cached
+				}
+			}
+			if centerDrawable == nil {
+				centerDrawable = compositor.NewStringDrawable(centerClamped, centerX, 0)
+				if !hasSaveDialog {
+					a.centerChrome.Set(centerClamped, centerWidth, centerHeight, centerFocused, centerX, 0, centerDrawable)
+				}
+			}
 			canvas.Compose(centerDrawable)
 
 			// Compose VTermLayer on top for the terminal content
@@ -1039,7 +1073,8 @@ func (a *App) viewLayerBased() tea.View {
 			}
 			canvas.Compose(positionedTermLayer)
 		} else {
-			// Fallback to string-based rendering with borders
+			// Fallback to string-based rendering with borders (no caching - content changes)
+			a.centerChrome.Invalidate()
 			var centerContent string
 			if a.center.HasTabs() {
 				centerContent = a.center.View()
@@ -1055,11 +1090,22 @@ func (a *App) viewLayerBased() tea.View {
 		}
 	}
 
-	// Sidebar pane (rightmost)
+	// Sidebar pane (rightmost) - use chrome cache
 	if a.layout.ShowSidebar() {
 		sidebarX := a.layout.DashboardWidth() + a.layout.CenterWidth()
+		sidebarWidth := a.layout.SidebarWidth()
+		sidebarHeight := a.layout.Height()
+		sidebarFocused := a.focusedPane == messages.PaneSidebar || a.focusedPane == messages.PaneSidebarTerminal
 		sidebarView := a.renderSidebarPane()
-		sidebarDrawable := compositor.NewStringDrawable(clampPane(sidebarView, a.layout.SidebarWidth(), a.layout.Height()), sidebarX, 0)
+		sidebarClamped := clampPane(sidebarView, sidebarWidth, sidebarHeight)
+
+		var sidebarDrawable *compositor.StringDrawable
+		if cached := a.sidebarChrome.Get(sidebarClamped, sidebarWidth, sidebarHeight, sidebarFocused, sidebarX, 0); cached != nil {
+			sidebarDrawable = cached
+		} else {
+			sidebarDrawable = compositor.NewStringDrawable(sidebarClamped, sidebarX, 0)
+			a.sidebarChrome.Set(sidebarClamped, sidebarWidth, sidebarHeight, sidebarFocused, sidebarX, 0, sidebarDrawable)
+		}
 		canvas.Compose(sidebarDrawable)
 	}
 
