@@ -16,8 +16,7 @@ Here are some reasons why you would use amux over others:
 ```bash
 git clone https://github.com/andyrewlee/amux.git
 cd amux
-go build -o amux ./cmd/amux
-./amux
+make run
 ```
 
 ## Setup Worktrees Script
