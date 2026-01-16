@@ -165,7 +165,7 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case msg.Key().Code == tea.KeyPgUp:
 			tab.mu.Lock()
 			if tab.Terminal != nil {
-				tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+				tab.Terminal.ScrollView(tab.Terminal.Height / 4)
 			}
 			tab.mu.Unlock()
 			return nil
@@ -173,7 +173,7 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case msg.Key().Code == tea.KeyPgDown:
 			tab.mu.Lock()
 			if tab.Terminal != nil {
-				tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+				tab.Terminal.ScrollView(-tab.Terminal.Height / 4)
 			}
 			tab.mu.Unlock()
 			return nil
@@ -181,7 +181,7 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
 			tab.mu.Lock()
 			if tab.Terminal != nil {
-				tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+				tab.Terminal.ScrollView(tab.Terminal.Height / 4)
 			}
 			tab.mu.Unlock()
 			return nil
@@ -189,7 +189,7 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
 			tab.mu.Lock()
 			if tab.Terminal != nil {
-				tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+				tab.Terminal.ScrollView(-tab.Terminal.Height / 4)
 			}
 			tab.mu.Unlock()
 			return nil
@@ -833,7 +833,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				case tea.KeyPgUp:
 					tab.mu.Lock()
 					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+						tab.Terminal.ScrollView(tab.Terminal.Height / 4)
 					}
 					tab.mu.Unlock()
 					return m, nil
@@ -841,7 +841,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				case tea.KeyPgDown:
 					tab.mu.Lock()
 					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+						tab.Terminal.ScrollView(-tab.Terminal.Height / 4)
 					}
 					tab.mu.Unlock()
 					return m, nil
@@ -1223,8 +1223,8 @@ func (m *Model) helpLines(contentWidth int) []string {
 			m.helpItem("C-Spc n", "next"),
 			m.helpItem("C-Spc 1-9", "jump tab"),
 			m.helpItem("C-Spc [", "copy"),
-			m.helpItem("PgUp", "half up"),
-			m.helpItem("PgDn", "half down"),
+			m.helpItem("PgUp", "scroll up"),
+			m.helpItem("PgDn", "scroll down"),
 		)
 		if m.CopyModeActive() {
 			items = append(items,
@@ -1936,24 +1936,24 @@ func (m *Model) handleCopyModeKey(tab *Tab, msg tea.KeyPressMsg) tea.Cmd {
 		tab.mu.Unlock()
 		return nil
 
-	// Scroll up half page
+	// Scroll up quarter page
 	case msg.Key().Code == tea.KeyPgUp:
 		fallthrough
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
 		tab.mu.Lock()
 		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(tab.Terminal.Height / 2)
+			tab.Terminal.ScrollView(tab.Terminal.Height / 4)
 		}
 		tab.mu.Unlock()
 		return nil
 
-	// Scroll down half page
+	// Scroll down quarter page
 	case msg.Key().Code == tea.KeyPgDown:
 		fallthrough
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
 		tab.mu.Lock()
 		if tab.Terminal != nil {
-			tab.Terminal.ScrollView(-tab.Terminal.Height / 2)
+			tab.Terminal.ScrollView(-tab.Terminal.Height / 4)
 		}
 		tab.mu.Unlock()
 		return nil
