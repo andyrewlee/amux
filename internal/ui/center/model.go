@@ -53,17 +53,31 @@ func formatScrollPos(offset, total int) string {
 
 const ptyTraceLimit = 256 * 1024
 
-func ptyTraceEnabled() bool {
+func ptyTraceAllowed(assistant string) bool {
 	value := strings.TrimSpace(os.Getenv("AMUX_PTY_TRACE"))
 	if value == "" {
 		return false
 	}
+
 	switch strings.ToLower(value) {
 	case "0", "false", "no":
 		return false
-	default:
+	case "1", "true", "yes", "all", "*":
 		return true
 	}
+
+	target := strings.ToLower(strings.TrimSpace(assistant))
+	if target == "" {
+		return false
+	}
+
+	for _, part := range strings.Split(value, ",") {
+		if strings.ToLower(strings.TrimSpace(part)) == target {
+			return true
+		}
+	}
+
+	return false
 }
 
 func ptyTraceDir() string {
@@ -1820,7 +1834,7 @@ func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
 }
 
 func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
-	if tab == nil || tab.Assistant != "claude" || !ptyTraceEnabled() {
+	if tab == nil || !ptyTraceAllowed(tab.Assistant) {
 		return
 	}
 
