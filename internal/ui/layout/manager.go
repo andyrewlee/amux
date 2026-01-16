@@ -187,21 +187,28 @@ func (m *Manager) Render(dashboard, center, sidebar string) string {
 	bottomPad := strings.Repeat("\n", m.bottomGutter)
 	leftPad := strings.Repeat(" ", m.leftGutter)
 	rightPad := strings.Repeat(" ", m.rightGutter)
+	padLines := func(view string) string {
+		lines := strings.Split(view, "\n")
+		for i, line := range lines {
+			lines[i] = leftPad + line + rightPad
+		}
+		return strings.Join(lines, "\n")
+	}
 	switch m.mode {
 	case LayoutThreePane:
 		if m.gapX > 0 {
 			gap := strings.Repeat(" ", m.gapX)
-			return topPad + leftPad + lipgloss.JoinHorizontal(lipgloss.Top, dashboard, gap, center, gap, sidebar) + rightPad + bottomPad
+			return topPad + padLines(lipgloss.JoinHorizontal(lipgloss.Top, dashboard, gap, center, gap, sidebar)) + bottomPad
 		}
-		return topPad + leftPad + lipgloss.JoinHorizontal(lipgloss.Top, dashboard, center, sidebar) + rightPad + bottomPad
+		return topPad + padLines(lipgloss.JoinHorizontal(lipgloss.Top, dashboard, center, sidebar)) + bottomPad
 	case LayoutTwoPane:
 		if m.gapX > 0 {
 			gap := strings.Repeat(" ", m.gapX)
-			return topPad + leftPad + lipgloss.JoinHorizontal(lipgloss.Top, dashboard, gap, center) + rightPad + bottomPad
+			return topPad + padLines(lipgloss.JoinHorizontal(lipgloss.Top, dashboard, gap, center)) + bottomPad
 		}
-		return topPad + leftPad + lipgloss.JoinHorizontal(lipgloss.Top, dashboard, center) + rightPad + bottomPad
+		return topPad + padLines(lipgloss.JoinHorizontal(lipgloss.Top, dashboard, center)) + bottomPad
 	default:
-		return topPad + leftPad + dashboard + rightPad + bottomPad
+		return topPad + padLines(dashboard) + bottomPad
 	}
 }
 
