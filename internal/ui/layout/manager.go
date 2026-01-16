@@ -55,7 +55,7 @@ func NewManager() *Manager {
 		startupRightWidth: 55,
 		gapX:              gapX,
 		baseOuterGutter:   outerGutter,
-		rightBias:         1,
+		rightBias:         0,
 		leftGutter:        outerGutter,
 		rightGutter:       outerGutter,
 		topGutter:         0,
@@ -185,14 +185,14 @@ func (m *Manager) Height() int {
 func (m *Manager) Render(dashboard, center, sidebar string) string {
 	topPad := strings.Repeat("\n", m.topGutter)
 	bottomPad := strings.Repeat("\n", m.bottomGutter)
-	leftPad := strings.Repeat(" ", m.leftGutter)
-	rightPad := strings.Repeat(" ", m.rightGutter)
 	padLines := func(view string) string {
-		lines := strings.Split(view, "\n")
-		for i, line := range lines {
-			lines[i] = leftPad + line + rightPad
+		if m.leftGutter == 0 && m.rightGutter == 0 {
+			return view
 		}
-		return strings.Join(lines, "\n")
+		return lipgloss.NewStyle().
+			PaddingLeft(m.leftGutter).
+			PaddingRight(m.rightGutter).
+			Render(view)
 	}
 	switch m.mode {
 	case LayoutThreePane:

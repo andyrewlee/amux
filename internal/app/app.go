@@ -380,6 +380,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		centerStart := leftGutter + dashWidth + gapX
 		centerEnd := centerStart + centerWidth
+		sidebarStart := centerEnd
+		sidebarEnd := centerEnd
+		if a.layout.ShowSidebar() {
+			sidebarStart = centerEnd + gapX
+			sidebarEnd = sidebarStart + a.layout.SidebarWidth()
+		}
 		localY := msg.Y - topGutter
 
 		// Focus pane on left-click press
@@ -392,7 +398,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if msg.X < centerEnd {
 				// Clicked on center pane
 				a.focusPane(messages.PaneCenter)
-			} else if a.layout.ShowSidebar() {
+			} else if a.layout.ShowSidebar() && msg.X >= sidebarStart && msg.X < sidebarEnd {
 				// Clicked on sidebar - determine top (changes) or bottom (terminal)
 				sidebarHeight := a.layout.Height()
 				topPaneHeight, _ := sidebarPaneHeights(sidebarHeight)
