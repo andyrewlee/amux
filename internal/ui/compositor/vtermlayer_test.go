@@ -12,7 +12,7 @@ func TestVTermLayerSelectionCursorOverlap(t *testing.T) {
 	term := vterm.New(3, 1)
 	term.CursorX = 0
 	term.CursorY = 0
-	term.SetSelection(0, 0, 0, 0, true)
+	term.SetSelection(0, 0, 0, 0, true, false)
 
 	snap := NewVTermSnapshot(term, true)
 	if snap == nil {
