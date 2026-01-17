@@ -148,6 +148,11 @@ type ShowDeleteWorktreeDialog struct {
 	Worktree *data.Worktree
 }
 
+// ShowRemoveProjectDialog requests showing the remove project confirmation
+type ShowRemoveProjectDialog struct {
+	Project *data.Project
+}
+
 // CreateWorktree requests creating a new worktree
 type CreateWorktree struct {
 	Project *data.Project
@@ -159,6 +164,11 @@ type CreateWorktree struct {
 type DeleteWorktree struct {
 	Project  *data.Project
 	Worktree *data.Worktree
+}
+
+// RemoveProject requests removing a project from the registry
+type RemoveProject struct {
+	Project *data.Project
 }
 
 // AddProject requests adding a new project

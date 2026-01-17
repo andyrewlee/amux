@@ -48,6 +48,7 @@ const (
 	toolbarHelp toolbarButtonKind = iota
 	toolbarMonitor
 	toolbarDelete
+	toolbarRemove
 )
 
 // toolbarButton tracks a clickable button in the toolbar
@@ -345,8 +346,13 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("j/↓", "down"),
 		m.helpItem("enter", "open"),
 	}
-	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
-		items = append(items, m.helpItem("D", "delete"))
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		switch m.rows[m.cursor].Type {
+		case RowWorktree:
+			items = append(items, m.helpItem("D", "delete"))
+		case RowProject:
+			items = append(items, m.helpItem("D", "remove"))
+		}
 	}
 	items = append(items,
 		m.helpItem("r", "refresh"),
@@ -408,20 +414,36 @@ func (m *Model) renderToolbar() string {
 
 	firstRow := lipgloss.JoinHorizontal(lipgloss.Bottom, row1...)
 
-	// Second row: Delete button (only when cursor is on a worktree)
-	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
-		deleteBtn := m.styles.TabPlus.Render("Delete")
-		deleteWidth := lipgloss.Width(deleteBtn)
-		m.toolbarHits = append(m.toolbarHits, toolbarButton{
-			kind: toolbarDelete,
-			region: common.HitRegion{
-				X:      0,
-				Y:      buttonHeight, // Second row starts after first row
-				Width:  deleteWidth,
-				Height: buttonHeight,
-			},
-		})
-		return firstRow + "\n" + deleteBtn
+	// Second row: Delete/Remove button (only when cursor is on a worktree or project)
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		switch m.rows[m.cursor].Type {
+		case RowWorktree:
+			deleteBtn := m.styles.TabPlus.Render("Delete")
+			deleteWidth := lipgloss.Width(deleteBtn)
+			m.toolbarHits = append(m.toolbarHits, toolbarButton{
+				kind: toolbarDelete,
+				region: common.HitRegion{
+					X:      0,
+					Y:      buttonHeight, // Second row starts after first row
+					Width:  deleteWidth,
+					Height: buttonHeight,
+				},
+			})
+			return firstRow + "\n" + deleteBtn
+		case RowProject:
+			removeBtn := m.styles.TabPlus.Render("Remove")
+			removeWidth := lipgloss.Width(removeBtn)
+			m.toolbarHits = append(m.toolbarHits, toolbarButton{
+				kind: toolbarRemove,
+				region: common.HitRegion{
+					X:      0,
+					Y:      buttonHeight,
+					Width:  removeWidth,
+					Height: buttonHeight,
+				},
+			})
+			return firstRow + "\n" + removeBtn
+		}
 	}
 
 	return firstRow
@@ -430,8 +452,11 @@ func (m *Model) renderToolbar() string {
 // toolbarHeight returns the current toolbar height based on whether delete is visible
 func (m *Model) toolbarHeight() int {
 	buttonHeight := 3
-	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorktree {
-		return buttonHeight * 2 // Two rows
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		switch m.rows[m.cursor].Type {
+		case RowWorktree, RowProject:
+			return buttonHeight * 2 // Two rows
+		}
 	}
 	return buttonHeight // One row
 }
@@ -465,6 +490,8 @@ func (m *Model) handleToolbarClick(screenX, screenY int) tea.Cmd {
 			case toolbarMonitor:
 				return func() tea.Msg { return messages.ToggleMonitor{} }
 			case toolbarDelete:
+				return m.handleDelete()
+			case toolbarRemove:
 				return m.handleDelete()
 			}
 		}
@@ -853,6 +880,13 @@ func (m *Model) handleDelete() tea.Cmd {
 			return messages.ShowDeleteWorktreeDialog{
 				Project:  row.Project,
 				Worktree: row.Worktree,
+			}
+		}
+	}
+	if row.Type == RowProject && row.Project != nil {
+		return func() tea.Msg {
+			return messages.ShowRemoveProjectDialog{
+				Project: row.Project,
 			}
 		}
 	}
