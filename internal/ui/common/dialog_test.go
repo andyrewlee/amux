@@ -1,6 +1,7 @@
 package common
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -82,17 +83,23 @@ func TestDialogConfirmClickYes(t *testing.T) {
 	d.SetSize(80, 24)
 	d.Show()
 
-	// First render to populate optionHits
-	_ = d.View()
 	lines := d.renderLines()
+	content := strings.Join(lines, "\n")
+	dialogView := d.dialogStyle().Render(content)
+	dialogW, dialogH := viewDimensions(dialogView)
 	t.Logf("Content lines (%d):", len(lines))
 	for i, line := range lines {
 		t.Logf("  [%d]: %q", i, line)
 	}
 
-	// Get dialog bounds
-	contentHeight := len(lines)
-	dialogX, dialogY, dialogW, dialogH := d.dialogBounds(contentHeight)
+	dialogX := (d.width - dialogW) / 2
+	dialogY := (d.height - dialogH) / 2
+	if dialogX < 0 {
+		dialogX = 0
+	}
+	if dialogY < 0 {
+		dialogY = 0
+	}
 	t.Logf("Dialog bounds: x=%d, y=%d, w=%d, h=%d", dialogX, dialogY, dialogW, dialogH)
 
 	frameX, frameY, contentOffsetX, contentOffsetY := d.dialogFrame()
@@ -139,5 +146,112 @@ func TestDialogConfirmClickYes(t *testing.T) {
 	}
 	if !dialogResult.Confirmed {
 		t.Fatalf("Expected Confirmed=true, got false")
+	}
+}
+
+func TestDialogConfirmClickNo(t *testing.T) {
+	d := NewConfirmDialog("quit", "Quit?", "Are you sure you want to quit?")
+	d.SetSize(80, 24)
+	d.Show()
+
+	lines := d.renderLines()
+	content := strings.Join(lines, "\n")
+	dialogView := d.dialogStyle().Render(content)
+	dialogW, dialogH := viewDimensions(dialogView)
+	dialogX := (d.width - dialogW) / 2
+	dialogY := (d.height - dialogH) / 2
+	if dialogX < 0 {
+		dialogX = 0
+	}
+	if dialogY < 0 {
+		dialogY = 0
+	}
+	_, _, contentOffsetX, contentOffsetY := d.dialogFrame()
+
+	var noHit dialogOptionHit
+	for _, hit := range d.optionHits {
+		if hit.optionIndex == 1 {
+			noHit = hit
+			break
+		}
+	}
+	if noHit.region.Width == 0 {
+		t.Fatalf("expected hit region for No option")
+	}
+
+	screenX := dialogX + contentOffsetX + noHit.region.X + 1
+	screenY := dialogY + contentOffsetY + noHit.region.Y
+
+	msg := tea.MouseClickMsg{X: screenX, Y: screenY, Button: tea.MouseLeft}
+	_, cmd := d.Update(msg)
+
+	if cmd == nil {
+		t.Fatalf("expected command from clicking No button, got nil")
+	}
+
+	result := cmd()
+	dialogResult, ok := result.(DialogResult)
+	if !ok {
+		t.Fatalf("expected DialogResult, got %T", result)
+	}
+	if dialogResult.ID != "quit" {
+		t.Fatalf("expected ID 'quit', got %q", dialogResult.ID)
+	}
+	if dialogResult.Confirmed {
+		t.Fatalf("expected Confirmed=false, got true")
+	}
+}
+
+func TestDialogInputClickCancel(t *testing.T) {
+	d := NewInputDialog("create_worktree", "Create Worktree", "Enter worktree name...")
+	d.SetSize(80, 24)
+	d.Show()
+	d.input.SetValue("feature-1")
+
+	lines := d.renderLines()
+	content := strings.Join(lines, "\n")
+	dialogView := d.dialogStyle().Render(content)
+	dialogW, dialogH := viewDimensions(dialogView)
+	dialogX := (d.width - dialogW) / 2
+	dialogY := (d.height - dialogH) / 2
+	if dialogX < 0 {
+		dialogX = 0
+	}
+	if dialogY < 0 {
+		dialogY = 0
+	}
+	_, _, contentOffsetX, contentOffsetY := d.dialogFrame()
+
+	var cancelHit dialogOptionHit
+	for _, hit := range d.optionHits {
+		if hit.optionIndex == 1 {
+			cancelHit = hit
+			break
+		}
+	}
+	if cancelHit.region.Width == 0 {
+		t.Fatalf("expected hit region for Cancel option")
+	}
+
+	screenX := dialogX + contentOffsetX + cancelHit.region.X + 1
+	screenY := dialogY + contentOffsetY + cancelHit.region.Y
+
+	msg := tea.MouseClickMsg{X: screenX, Y: screenY, Button: tea.MouseLeft}
+	_, cmd := d.Update(msg)
+
+	if cmd == nil {
+		t.Fatalf("expected command from clicking Cancel button, got nil")
+	}
+
+	result := cmd()
+	dialogResult, ok := result.(DialogResult)
+	if !ok {
+		t.Fatalf("expected DialogResult, got %T", result)
+	}
+	if dialogResult.ID != "create_worktree" {
+		t.Fatalf("expected ID 'create_worktree', got %q", dialogResult.ID)
+	}
+	if dialogResult.Confirmed {
+		t.Fatalf("expected Confirmed=false, got true")
 	}
 }
