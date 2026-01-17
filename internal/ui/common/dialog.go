@@ -507,22 +507,6 @@ func (d *Dialog) dialogFrame() (frameX, frameY, offsetX, offsetY int) {
 	return frameX, frameY, offsetX, offsetY
 }
 
-func (d *Dialog) dialogBounds(contentHeight int) (x, y, w, h int) {
-	contentWidth := d.dialogContentWidth()
-	frameX, frameY, _, _ := d.dialogFrame()
-	w = contentWidth + frameX
-	h = contentHeight + frameY
-	x = (d.width - w) / 2
-	y = (d.height - h) / 2
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	return x, y, w, h
-}
-
 func (d *Dialog) renderLines() []string {
 	d.optionHits = d.optionHits[:0]
 	lines := []string{}
