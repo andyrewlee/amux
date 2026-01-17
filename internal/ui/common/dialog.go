@@ -350,12 +350,22 @@ func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 
-	contentHeight := len(d.renderLines())
-	if contentHeight == 0 {
+	lines := d.renderLines()
+	if len(lines) == 0 {
 		return nil
 	}
 
-	dialogX, dialogY, dialogW, dialogH := d.dialogBounds(contentHeight)
+	content := strings.Join(lines, "\n")
+	dialogView := d.dialogStyle().Render(content)
+	dialogW, dialogH := viewDimensions(dialogView)
+	dialogX := (d.width - dialogW) / 2
+	dialogY := (d.height - dialogH) / 2
+	if dialogX < 0 {
+		dialogX = 0
+	}
+	if dialogY < 0 {
+		dialogY = 0
+	}
 	if msg.X < dialogX || msg.X >= dialogX+dialogW || msg.Y < dialogY || msg.Y >= dialogY+dialogH {
 		return nil
 	}
@@ -401,6 +411,17 @@ func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 	}
 
 	return nil
+}
+
+func viewDimensions(view string) (width, height int) {
+	lines := strings.Split(view, "\n")
+	height = len(lines)
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > width {
+			width = w
+		}
+	}
+	return width, height
 }
 
 // View renders the dialog
@@ -484,22 +505,6 @@ func (d *Dialog) dialogFrame() (frameX, frameY, offsetX, offsetY int) {
 	offsetX = frameX / 2
 	offsetY = frameY / 2
 	return frameX, frameY, offsetX, offsetY
-}
-
-func (d *Dialog) dialogBounds(contentHeight int) (x, y, w, h int) {
-	contentWidth := d.dialogContentWidth()
-	frameX, frameY, _, _ := d.dialogFrame()
-	w = contentWidth + frameX
-	h = contentHeight + frameY
-	x = (d.width - w) / 2
-	y = (d.height - h) / 2
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	return x, y, w, h
 }
 
 func (d *Dialog) renderLines() []string {

@@ -1018,7 +1018,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleDialogResult handles dialog completion
 func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
+	project := a.dialogProject
+	worktree := a.dialogWorktree
 	a.dialog = nil
+	a.dialogProject = nil
+	a.dialogWorktree = nil
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
@@ -1043,14 +1047,13 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogCreateWorktree:
-		if result.Value != "" && a.dialogProject != nil {
+		if result.Value != "" && project != nil {
 			name := validation.SanitizeInput(result.Value)
 			if err := validation.ValidateWorktreeName(name); err != nil {
 				return func() tea.Msg {
 					return messages.Error{Err: err, Context: "validating worktree name"}
 				}
 			}
-			project := a.dialogProject
 			return func() tea.Msg {
 				return messages.CreateWorktree{
 					Project: project,
@@ -1061,9 +1064,8 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogDeleteWorktree:
-		if a.dialogProject != nil && a.dialogWorktree != nil {
-			project := a.dialogProject
-			wt := a.dialogWorktree
+		if project != nil && worktree != nil {
+			wt := worktree
 			return func() tea.Msg {
 				return messages.DeleteWorktree{
 					Project:  project,
