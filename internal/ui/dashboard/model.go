@@ -490,7 +490,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if m.activeRoot == "" {
 			style = style.Bold(true).Foreground(common.ColorPrimary)
 		}
-		return cursor + style.Render("["+common.Icons.Home+" Home]")
+		return cursor + style.Render("[amux]")
 
 	case RowProject:
 		status := ""
