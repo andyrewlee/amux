@@ -235,6 +235,33 @@ func TestDashboardHandleDelete(t *testing.T) {
 	}
 }
 
+func TestDashboardHandleRemoveProject(t *testing.T) {
+	m := New()
+	m.SetProjects([]data.Project{makeProject()})
+
+	// Find a project row
+	for i, row := range m.rows {
+		if row.Type == RowProject {
+			m.cursor = i
+			break
+		}
+	}
+
+	cmd := m.handleDelete()
+	if cmd == nil {
+		t.Fatalf("expected handleDelete to return a command")
+	}
+
+	msg := cmd()
+	dialog, ok := msg.(messages.ShowRemoveProjectDialog)
+	if !ok {
+		t.Fatalf("expected ShowRemoveProjectDialog message, got %T", msg)
+	}
+	if dialog.Project == nil {
+		t.Fatalf("expected project in dialog message")
+	}
+}
+
 func TestDashboardHandleDeleteNonWorktree(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
@@ -442,6 +469,27 @@ func TestDashboardDeleteKeyBinding(t *testing.T) {
 		res := cmd()
 		if _, ok := res.(messages.ShowDeleteWorktreeDialog); !ok {
 			t.Fatalf("expected ShowDeleteWorktreeDialog message, got %T", res)
+		}
+	})
+
+	t.Run("uppercase D triggers remove on project", func(t *testing.T) {
+		// Find a project row
+		for i, row := range m.rows {
+			if row.Type == RowProject {
+				m.cursor = i
+				break
+			}
+		}
+
+		msg := tea.KeyPressMsg{Code: 'D', Text: "D"}
+		_, cmd := m.Update(msg)
+		if cmd == nil {
+			t.Fatalf("expected command for uppercase 'D'")
+		}
+
+		res := cmd()
+		if _, ok := res.(messages.ShowRemoveProjectDialog); !ok {
+			t.Fatalf("expected ShowRemoveProjectDialog message, got %T", res)
 		}
 	})
 }

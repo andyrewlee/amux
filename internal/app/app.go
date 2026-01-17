@@ -34,6 +34,7 @@ const (
 	DialogAddProject      = "add_project"
 	DialogCreateWorktree  = "create_worktree"
 	DialogDeleteWorktree  = "delete_worktree"
+	DialogRemoveProject   = "remove_project"
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
 )
@@ -245,7 +246,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
-		case DialogAddProject, DialogCreateWorktree, DialogDeleteWorktree, DialogSelectAssistant, "agent-picker", DialogQuit:
+		case DialogAddProject, DialogCreateWorktree, DialogDeleteWorktree, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit:
 			return a, a.handleDialogResult(result)
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -816,6 +817,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.dialog.Show()
 
+	case messages.ShowRemoveProjectDialog:
+		a.dialogProject = msg.Project
+		projectName := ""
+		if msg.Project != nil {
+			projectName = msg.Project.Name
+		}
+		a.dialog = common.NewConfirmDialog(
+			DialogRemoveProject,
+			"Remove Project",
+			fmt.Sprintf("Remove project '%s' from AMUX? This won't delete any files.", projectName),
+		)
+		a.dialog.SetSize(a.width, a.height)
+		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+		a.dialog.Show()
+
 	case messages.ShowSelectAssistantDialog:
 		if a.activeWorktree != nil {
 			a.dialog = common.NewAgentPicker()
@@ -900,6 +916,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.AddProject:
 		cmds = append(cmds, a.addProject(msg.Path))
 
+	case messages.RemoveProject:
+		cmds = append(cmds, a.removeProject(msg.Project))
+
 	case messages.OpenDiff:
 		logging.Info("Opening diff: %s", msg.File)
 		newCenter, cmd := a.center.Update(msg)
@@ -978,6 +997,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.statusManager.Invalidate(msg.Worktree.Root)
 			}
 		}
+		cmds = append(cmds, a.loadProjects())
+
+	case messages.ProjectRemoved:
+		cmds = append(cmds, a.toast.ShowSuccess("Project removed"))
 		cmds = append(cmds, a.loadProjects())
 
 	case messages.WorktreeDeleteFailed:
@@ -1070,6 +1093,16 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				return messages.DeleteWorktree{
 					Project:  project,
 					Worktree: wt,
+				}
+			}
+		}
+
+	case DialogRemoveProject:
+		if a.dialogProject != nil {
+			project := a.dialogProject
+			return func() tea.Msg {
+				return messages.RemoveProject{
+					Project: project,
 				}
 			}
 		}
@@ -2473,6 +2506,26 @@ func (a *App) deleteWorktree(project *data.Project, wt *data.Worktree) tea.Cmd {
 			Project:  project,
 			Worktree: wt,
 		}
+	}
+}
+
+// removeProject removes a project from the registry (does not delete files).
+func (a *App) removeProject(project *data.Project) tea.Cmd {
+	if project == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: fmt.Errorf("missing project"), Context: "removing project"}
+		}
+	}
+
+	if a.activeWorktree != nil && a.activeWorktree.Repo == project.Path {
+		a.goHome()
+	}
+
+	return func() tea.Msg {
+		if err := a.registry.RemoveProject(project.Path); err != nil {
+			return messages.Error{Err: err, Context: "removing project"}
+		}
+		return messages.ProjectRemoved{Path: project.Path}
 	}
 }
 

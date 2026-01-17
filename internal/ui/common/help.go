@@ -75,7 +75,7 @@ func defaultHelpSections() []HelpSection {
 			Bindings: []HelpBinding{
 				{"j/k", "Navigate up/down"},
 				{"Enter", "Activate worktree"},
-				{"D", "Delete worktree"},
+				{"D", "Delete worktree / remove project"},
 				{"f", "Toggle dirty filter"},
 				{"r", "Refresh"},
 				{"g/G", "Top/bottom"},
