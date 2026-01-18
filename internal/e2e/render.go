@@ -27,6 +27,7 @@ func RenderViewToBuffer(view tea.View, width, height int) *uv.Buffer {
 	if content != "" {
 		content = strings.ReplaceAll(content, syncBegin, "")
 		content = strings.ReplaceAll(content, syncEnd, "")
+		content = normalizeSnapshotContent(content)
 	}
 	buf := uv.NewBuffer(width, height)
 	styled := uv.NewStyledString(content)
@@ -96,6 +97,18 @@ func isASCII(s string) bool {
 		}
 	}
 	return true
+}
+
+func normalizeSnapshotContent(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if r > 0x7f {
+			return '?'
+		}
+		return r
+	}, s)
 }
 
 type bufferScreen struct {
