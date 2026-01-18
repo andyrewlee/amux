@@ -61,6 +61,20 @@ func (v *VTerm) putChar(r rune) {
 	// Place the character
 	if v.CursorY >= 0 && v.CursorY < len(v.Screen) &&
 		v.CursorX >= 0 && v.CursorX < len(v.Screen[v.CursorY]) {
+
+		// Before placing the character, handle overwriting wide chars
+		currentCell := v.Screen[v.CursorY][v.CursorX]
+
+		// If we're overwriting a continuation cell (Width==0), clear the wide char before it
+		if currentCell.Width == 0 && v.CursorX > 0 {
+			v.Screen[v.CursorY][v.CursorX-1] = DefaultCell()
+		}
+
+		// If we're overwriting a wide char (Width==2) with something else, clear its continuation
+		if currentCell.Width == 2 && v.CursorX+1 < v.Width {
+			v.Screen[v.CursorY][v.CursorX+1] = DefaultCell()
+		}
+
 		v.Screen[v.CursorY][v.CursorX] = Cell{
 			Rune:  r,
 			Style: v.CurrentStyle,
@@ -69,6 +83,12 @@ func (v *VTerm) putChar(r rune) {
 
 		// For wide characters, create continuation cell
 		if width == 2 && v.CursorX+1 < v.Width {
+			// Also clear any wide char that might start at the continuation position
+			nextCell := v.Screen[v.CursorY][v.CursorX+1]
+			if nextCell.Width == 2 && v.CursorX+2 < v.Width {
+				v.Screen[v.CursorY][v.CursorX+2] = DefaultCell()
+			}
+
 			v.Screen[v.CursorY][v.CursorX+1] = Cell{
 				Rune:  0, // Continuation marker
 				Style: v.CurrentStyle,
