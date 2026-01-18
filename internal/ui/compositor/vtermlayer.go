@@ -246,8 +246,14 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 		for x := 0; x < width && x < len(row); x++ {
 			cell := row[x]
 
-			// Skip continuation cells (part of wide character).
+			// For continuation cells (part of wide character), write an empty cell
+			// to clear any stale content at that position from previous renders.
 			if cell.Width == 0 {
+				uvCell := getCell()
+				uvCell.Content = ""
+				uvCell.Width = 0
+				s.SetCell(posX+x, posY+y, uvCell)
+				putCell(uvCell)
 				continue
 			}
 
