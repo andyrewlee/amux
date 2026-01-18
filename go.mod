@@ -8,7 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251205162909-7869489d8971
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.3
-	github.com/creack/pty v1.1.24
+	github.com/creack/pty v1.1.21
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6
