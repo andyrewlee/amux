@@ -145,6 +145,20 @@ func (m *AgentManager) CloseAll() {
 	m.agents = make(map[data.WorktreeID][]*Agent)
 }
 
+// CloseWorktreeAgents closes and removes all agents for a specific worktree
+func (m *AgentManager) CloseWorktreeAgents(wt *data.Worktree) {
+	if wt == nil {
+		return
+	}
+	wtID := wt.ID()
+	for _, agent := range m.agents[wtID] {
+		if agent.Terminal != nil {
+			agent.Terminal.Close()
+		}
+	}
+	delete(m.agents, wtID)
+}
+
 // SendInterrupt sends an interrupt to an agent
 func (m *AgentManager) SendInterrupt(agent *Agent) error {
 	if agent.Terminal == nil {
