@@ -201,7 +201,13 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 	// Don't show cursor if terminal app hid it via DECTCEM
 	cursorOnRow := v.ShowCursor && !v.CursorHidden && y == v.CursorY && v.ViewOffset == 0
 
-	for x, cell := range row {
+	for x := 0; x < v.Width; x++ {
+		var cell Cell
+		if x < len(row) {
+			cell = row[x]
+		} else {
+			cell = DefaultCell()
+		}
 		// Check if this cell is in selection
 		inSel := v.IsInSelection(x, y)
 

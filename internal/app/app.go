@@ -63,6 +63,7 @@ type App struct {
 	focusedPane      messages.PaneType
 	showWelcome      bool
 	monitorMode      bool
+	monitorFilter    string // "" means "All", otherwise filter by project key (repo path)
 	monitorLayoutKey string
 	monitorCanvas    *compositor.Canvas
 
@@ -358,6 +359,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focusPane(messages.PaneMonitor)
 				if a.monitorExitHit(msg.X, msg.Y) {
 					a.toggleMonitorMode()
+					break
+				}
+				if filter, ok := a.monitorFilterHit(msg.X, msg.Y); ok {
+					a.monitorFilter = filter
 					break
 				}
 				// Click to focus tile (just select, don't exit)
@@ -1583,11 +1588,15 @@ func (a *App) renderMonitorGrid() string {
 		return ""
 	}
 
-	tabs := a.center.MonitorTabs()
+	allTabs := a.center.MonitorTabs()
+	tabs := a.filterMonitorTabs(allTabs)
 	if len(tabs) == 0 {
 		canvas := a.monitorCanvasFor(a.width, a.height)
 		canvas.Fill(vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorForeground)), Bg: compositor.HexColor(common.HexColor(common.ColorBackground))})
 		empty := "No agents running"
+		if a.monitorFilter != "" && len(allTabs) > 0 {
+			empty = "No agents for " + a.monitorFilterLabel(a.monitorFilter)
+		}
 		x := (a.width - ansi.StringWidth(empty)) / 2
 		y := a.height / 2
 		if x < 0 {
@@ -1743,11 +1752,159 @@ func (a *App) renderMonitorGrid() string {
 }
 
 func (a *App) monitorHeaderText() string {
-	exitBtn := a.styles.TabPlus.Render("Exit")
-	if a.config.UI.ShowKeymapHints {
-		return "Monitor: type to interact • C-Spc hjkl select • Enter open • C-Spc m  " + exitBtn
+	// Build filter buttons
+	filters := a.monitorProjectFilters()
+	activeStyle := lipgloss.NewStyle().
+		Foreground(common.ColorForeground).
+		Background(common.ColorBackground).
+		Bold(true).
+		Padding(0, 1)
+	inactiveStyle := lipgloss.NewStyle().
+		Foreground(common.ColorMuted).
+		Background(common.ColorBackground).
+		Padding(0, 1)
+
+	var filterButtons strings.Builder
+	if a.monitorFilter == "" {
+		filterButtons.WriteString(activeStyle.Render("[All]"))
+	} else {
+		filterButtons.WriteString(inactiveStyle.Render("[All]"))
 	}
-	return "Monitor  " + exitBtn
+	for _, filter := range filters {
+		btnText := "[" + filter.Label + "]"
+		if a.monitorFilter == filter.Key {
+			filterButtons.WriteString(activeStyle.Render(btnText))
+		} else {
+			filterButtons.WriteString(inactiveStyle.Render(btnText))
+		}
+	}
+
+	exitBtn := inactiveStyle.Render("[Exit]")
+	filtersStr := filterButtons.String()
+	filtersWidth := ansi.StringWidth(filtersStr)
+	exitWidth := ansi.StringWidth(exitBtn)
+	padding := a.width - filtersWidth - exitWidth
+	if padding < 0 {
+		padding = 0
+	}
+	return filtersStr + strings.Repeat(" ", padding) + exitBtn
+}
+
+type monitorProjectFilter struct {
+	Key   string
+	Label string
+}
+
+func (a *App) monitorProjectFilters() []monitorProjectFilter {
+	tabs := a.center.MonitorTabs()
+	seen := make(map[string]bool)
+	filters := make([]monitorProjectFilter, 0, len(tabs))
+	for _, tab := range tabs {
+		if tab.Worktree == nil {
+			continue
+		}
+		key, label := a.monitorProjectKeyLabel(tab.Worktree)
+		if key == "" {
+			continue
+		}
+		if label == "" {
+			label = key
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		filters = append(filters, monitorProjectFilter{Key: key, Label: label})
+	}
+
+	if len(filters) == 0 {
+		return filters
+	}
+
+	labelCounts := make(map[string]int, len(filters))
+	for _, filter := range filters {
+		labelCounts[filter.Label]++
+	}
+
+	if len(labelCounts) == len(filters) {
+		return filters
+	}
+
+	for i, filter := range filters {
+		if labelCounts[filter.Label] > 1 {
+			suffix := filepath.Base(filepath.Dir(filter.Key))
+			if suffix == "" || suffix == "." || suffix == string(filepath.Separator) {
+				suffix = filepath.Base(filter.Key)
+			}
+			if suffix == "" || suffix == filter.Label {
+				suffix = filter.Key
+			}
+			filters[i].Label = fmt.Sprintf("%s (%s)", filter.Label, suffix)
+		}
+	}
+
+	return filters
+}
+
+func (a *App) monitorProjectKeyLabel(wt *data.Worktree) (string, string) {
+	if wt == nil {
+		return "", ""
+	}
+	if project := a.projectForWorktree(wt); project != nil {
+		key := project.Path
+		if key == "" {
+			key = wt.Repo
+		}
+		if key == "" {
+			key = wt.Root
+		}
+		label := project.Name
+		if label == "" {
+			label = monitorProjectName(wt)
+		}
+		return key, label
+	}
+	key := wt.Repo
+	if key == "" {
+		key = wt.Root
+	}
+	label := monitorProjectName(wt)
+	if label == "" {
+		label = key
+	}
+	return key, label
+}
+
+func (a *App) monitorFilterLabel(key string) string {
+	if key == "" {
+		return "All"
+	}
+	for _, filter := range a.monitorProjectFilters() {
+		if filter.Key == key {
+			return filter.Label
+		}
+	}
+	if base := filepath.Base(key); base != "" && base != "." && base != string(filepath.Separator) {
+		return base
+	}
+	return key
+}
+
+func (a *App) filterMonitorTabs(tabs []center.MonitorTab) []center.MonitorTab {
+	if a.monitorFilter == "" {
+		return tabs
+	}
+	var filtered []center.MonitorTab
+	for _, tab := range tabs {
+		if tab.Worktree == nil {
+			continue
+		}
+		key, _ := a.monitorProjectKeyLabel(tab.Worktree)
+		if key == a.monitorFilter {
+			filtered = append(filtered, tab)
+		}
+	}
+	return filtered
 }
 
 func (a *App) monitorExitHit(x, y int) bool {
@@ -1755,16 +1912,41 @@ func (a *App) monitorExitHit(x, y int) bool {
 		return false
 	}
 	header := a.monitorHeaderText()
-	exitBtn := a.styles.TabPlus.Render("Exit")
-	exitStripped := ansi.Strip(exitBtn)
+	exitText := "[Exit]"
 	headerStripped := ansi.Strip(header)
-	idx := strings.Index(headerStripped, exitStripped)
+	idx := strings.Index(headerStripped, exitText)
 	if idx < 0 {
 		return false
 	}
 	start := idx
-	end := start + ansi.StringWidth(exitBtn)
+	end := start + len(exitText)
 	return x >= start && x < end
+}
+
+func (a *App) monitorFilterHit(x, y int) (string, bool) {
+	if y != 0 {
+		return "", false
+	}
+	header := a.monitorHeaderText()
+	headerStripped := ansi.Strip(header)
+
+	// Check "All" button
+	allText := "[All]"
+	allIdx := strings.Index(headerStripped, allText)
+	if allIdx >= 0 && x >= allIdx && x < allIdx+len(allText) {
+		return "", true
+	}
+
+	// Check project buttons
+	filters := a.monitorProjectFilters()
+	for _, filter := range filters {
+		btnText := "[" + filter.Label + "]"
+		idx := strings.Index(headerStripped, btnText)
+		if idx >= 0 && x >= idx && x < idx+len(btnText) {
+			return filter.Key, true
+		}
+	}
+	return "", false
 }
 
 type monitorGrid struct {

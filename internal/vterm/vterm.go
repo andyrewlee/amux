@@ -141,11 +141,22 @@ func (v *VTerm) Resize(width, height int) {
 		}
 	}
 
-	// Resize screen buffer
-	newScreen := v.makeScreen(width, height)
-	for y := 0; y < min(height, len(v.Screen)); y++ {
-		for x := 0; x < min(width, len(v.Screen[y])); x++ {
-			newScreen[y][x] = v.Screen[y][x]
+	// Resize screen buffer - preserve full row content to allow restoring
+	// on resize back to larger width (e.g., exiting monitor mode)
+	newScreen := make([][]Cell, height)
+	for y := 0; y < height; y++ {
+		if y < len(v.Screen) && len(v.Screen[y]) > 0 {
+			// Preserve the original row content (may be wider than new width)
+			// but ensure it's at least as wide as new width
+			if len(v.Screen[y]) >= width {
+				newScreen[y] = v.Screen[y]
+			} else {
+				// Expand row to new width
+				newScreen[y] = MakeBlankLine(width)
+				copy(newScreen[y], v.Screen[y])
+			}
+		} else {
+			newScreen[y] = MakeBlankLine(width)
 		}
 	}
 	v.Screen = newScreen
@@ -171,23 +182,37 @@ func (v *VTerm) Resize(width, height int) {
 	}
 	v.clampCursor()
 
-	// Also resize alt screen if it exists
+	// Also resize alt screen if it exists - preserve full row content
 	if v.altScreenBuf != nil {
-		newAlt := v.makeScreen(width, height)
-		for y := 0; y < min(height, len(v.altScreenBuf)); y++ {
-			for x := 0; x < min(width, len(v.altScreenBuf[y])); x++ {
-				newAlt[y][x] = v.altScreenBuf[y][x]
+		newAlt := make([][]Cell, height)
+		for y := 0; y < height; y++ {
+			if y < len(v.altScreenBuf) && len(v.altScreenBuf[y]) > 0 {
+				if len(v.altScreenBuf[y]) >= width {
+					newAlt[y] = v.altScreenBuf[y]
+				} else {
+					newAlt[y] = MakeBlankLine(width)
+					copy(newAlt[y], v.altScreenBuf[y])
+				}
+			} else {
+				newAlt[y] = MakeBlankLine(width)
 			}
 		}
 		v.altScreenBuf = newAlt
 	}
 
-	// Keep synchronized output snapshot aligned with new size
+	// Keep synchronized output snapshot aligned with new size - preserve full row content
 	if v.syncScreen != nil {
-		newSync := v.makeScreen(width, height)
-		for y := 0; y < min(height, len(v.syncScreen)); y++ {
-			for x := 0; x < min(width, len(v.syncScreen[y])); x++ {
-				newSync[y][x] = v.syncScreen[y][x]
+		newSync := make([][]Cell, height)
+		for y := 0; y < height; y++ {
+			if y < len(v.syncScreen) && len(v.syncScreen[y]) > 0 {
+				if len(v.syncScreen[y]) >= width {
+					newSync[y] = v.syncScreen[y]
+				} else {
+					newSync[y] = MakeBlankLine(width)
+					copy(newSync[y], v.syncScreen[y])
+				}
+			} else {
+				newSync[y] = MakeBlankLine(width)
 			}
 		}
 		v.syncScreen = newSync
@@ -329,13 +354,6 @@ func (v *VTerm) IsScrolled() bool {
 // GetScrollInfo returns (current offset, max offset)
 func (v *VTerm) GetScrollInfo() (int, int) {
 	return v.ViewOffset, len(v.Scrollback)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (v *VTerm) ensureRenderCache(height int) {
