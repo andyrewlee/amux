@@ -1679,10 +1679,13 @@ func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktre
 
 		var cmd string
 		if statusCode == "??" {
-			// Untracked file: show full content with line numbers prefixed by + to indicate additions
+			// Untracked file: show full content prefixed by + to indicate additions.
 			cmd = fmt.Sprintf("awk '{print \"\\033[32m+ \" $0 \"\\033[0m\"}' %s | less -R", escapedFile)
+		} else if len(statusCode) >= 1 && statusCode[0] != ' ' {
+			// Staged change: show index diff (covers new files with status A).
+			cmd = fmt.Sprintf("git diff --cached --color=always -- %s | less -R", escapedFile)
 		} else {
-			// Tracked file: use git diff with color
+			// Unstaged change: show working tree diff.
 			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
 		}
 
