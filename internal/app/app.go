@@ -455,7 +455,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case messages.PaneSidebar:
 			adjusted := msg
 			if a.layout != nil {
-				adjusted.Y -= a.layout.TopGutter()
+				adjusted.Y = a.adjustSidebarMouseY(adjusted.Y)
 			}
 			// Ignore clicks in the gap/right gutter so they don't trigger sidebar actions.
 			if inSidebarX {
@@ -502,7 +502,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case messages.PaneSidebar:
 			adjusted := msg
 			if a.layout != nil {
-				adjusted.Y -= a.layout.TopGutter()
+				adjusted.Y = a.adjustSidebarMouseY(adjusted.Y)
 			}
 			newSidebar, cmd := a.sidebar.Update(adjusted)
 			a.sidebar = newSidebar
@@ -546,7 +546,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case messages.PaneSidebar:
 			adjusted := msg
 			if a.layout != nil {
-				adjusted.Y -= a.layout.TopGutter()
+				adjusted.Y = a.adjustSidebarMouseY(adjusted.Y)
 			}
 			newSidebar, cmd := a.sidebar.Update(adjusted)
 			a.sidebar = newSidebar
@@ -590,7 +590,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case messages.PaneSidebar:
 			adjusted := msg
 			if a.layout != nil {
-				adjusted.Y -= a.layout.TopGutter()
+				adjusted.Y = a.adjustSidebarMouseY(adjusted.Y)
 			}
 			newSidebar, cmd := a.sidebar.Update(adjusted)
 			a.sidebar = newSidebar
@@ -1500,6 +1500,14 @@ func (a *App) centeredPosition(width, height int) (x, y int) {
 		y = 0
 	}
 	return x, y
+}
+
+func (a *App) adjustSidebarMouseY(y int) int {
+	if a.layout == nil {
+		return y
+	}
+	// Sidebar content starts one row below the top border.
+	return y - a.layout.TopGutter() - 1
 }
 
 func (a *App) overlayCursor() *tea.Cursor {
