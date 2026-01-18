@@ -124,6 +124,7 @@ func createGitRepo(home string) (string, string, error) {
 func runGit(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = stripGitEnv(os.Environ())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

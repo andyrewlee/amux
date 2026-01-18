@@ -69,7 +69,7 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 
 	cmd := exec.Command(bin)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(stripGitEnv(os.Environ()),
 		"HOME="+home,
 		"TERM=xterm-256color",
 		"AMUX_PROFILE=0",
