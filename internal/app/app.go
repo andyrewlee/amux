@@ -62,7 +62,7 @@ type App struct {
 	focusedPane      messages.PaneType
 	showWelcome      bool
 	monitorMode      bool
-	monitorFilter    string // "" means "All", otherwise filter by project name
+	monitorFilter    string // "" means "All", otherwise filter by project key (repo path)
 	monitorLayoutKey string
 	monitorCanvas    *compositor.Canvas
 
@@ -1560,7 +1560,7 @@ func (a *App) renderMonitorGrid() string {
 		canvas.Fill(vterm.Style{Fg: compositor.HexColor(common.HexColor(common.ColorForeground)), Bg: compositor.HexColor(common.HexColor(common.ColorBackground))})
 		empty := "No agents running"
 		if a.monitorFilter != "" && len(allTabs) > 0 {
-			empty = "No agents for " + a.monitorFilter
+			empty = "No agents for " + a.monitorFilterLabel(a.monitorFilter)
 		}
 		x := (a.width - ansi.StringWidth(empty)) / 2
 		y := a.height / 2
@@ -1718,7 +1718,7 @@ func (a *App) renderMonitorGrid() string {
 
 func (a *App) monitorHeaderText() string {
 	// Build filter buttons
-	projects := a.monitorProjectNames()
+	filters := a.monitorProjectFilters()
 	activeStyle := lipgloss.NewStyle().
 		Foreground(common.ColorForeground).
 		Background(common.ColorBackground).
@@ -1729,22 +1729,23 @@ func (a *App) monitorHeaderText() string {
 		Background(common.ColorBackground).
 		Padding(0, 1)
 
-	var filters strings.Builder
+	var filterButtons strings.Builder
 	if a.monitorFilter == "" {
-		filters.WriteString(activeStyle.Render("[All]"))
+		filterButtons.WriteString(activeStyle.Render("[All]"))
 	} else {
-		filters.WriteString(inactiveStyle.Render("[All]"))
+		filterButtons.WriteString(inactiveStyle.Render("[All]"))
 	}
-	for _, proj := range projects {
-		if a.monitorFilter == proj {
-			filters.WriteString(activeStyle.Render("[" + proj + "]"))
+	for _, filter := range filters {
+		btnText := "[" + filter.Label + "]"
+		if a.monitorFilter == filter.Key {
+			filterButtons.WriteString(activeStyle.Render(btnText))
 		} else {
-			filters.WriteString(inactiveStyle.Render("[" + proj + "]"))
+			filterButtons.WriteString(inactiveStyle.Render(btnText))
 		}
 	}
 
 	exitBtn := inactiveStyle.Render("[Exit]")
-	filtersStr := filters.String()
+	filtersStr := filterButtons.String()
 	filtersWidth := ansi.StringWidth(filtersStr)
 	exitWidth := ansi.StringWidth(exitBtn)
 	padding := a.width - filtersWidth - exitWidth
@@ -1754,19 +1755,104 @@ func (a *App) monitorHeaderText() string {
 	return filtersStr + strings.Repeat(" ", padding) + exitBtn
 }
 
-func (a *App) monitorProjectNames() []string {
+type monitorProjectFilter struct {
+	Key   string
+	Label string
+}
+
+func (a *App) monitorProjectFilters() []monitorProjectFilter {
 	tabs := a.center.MonitorTabs()
 	seen := make(map[string]bool)
-	var projects []string
+	filters := make([]monitorProjectFilter, 0, len(tabs))
 	for _, tab := range tabs {
-		if tab.Worktree != nil && tab.Worktree.Name != "" {
-			if !seen[tab.Worktree.Name] {
-				seen[tab.Worktree.Name] = true
-				projects = append(projects, tab.Worktree.Name)
+		if tab.Worktree == nil {
+			continue
+		}
+		key, label := a.monitorProjectKeyLabel(tab.Worktree)
+		if key == "" {
+			continue
+		}
+		if label == "" {
+			label = key
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		filters = append(filters, monitorProjectFilter{Key: key, Label: label})
+	}
+
+	if len(filters) == 0 {
+		return filters
+	}
+
+	labelCounts := make(map[string]int, len(filters))
+	for _, filter := range filters {
+		labelCounts[filter.Label]++
+	}
+
+	if len(labelCounts) == len(filters) {
+		return filters
+	}
+
+	for i, filter := range filters {
+		if labelCounts[filter.Label] > 1 {
+			suffix := filepath.Base(filepath.Dir(filter.Key))
+			if suffix == "" || suffix == "." || suffix == string(filepath.Separator) {
+				suffix = filepath.Base(filter.Key)
 			}
+			if suffix == "" || suffix == filter.Label {
+				suffix = filter.Key
+			}
+			filters[i].Label = fmt.Sprintf("%s (%s)", filter.Label, suffix)
 		}
 	}
-	return projects
+
+	return filters
+}
+
+func (a *App) monitorProjectKeyLabel(wt *data.Worktree) (string, string) {
+	if wt == nil {
+		return "", ""
+	}
+	if project := a.projectForWorktree(wt); project != nil {
+		key := project.Path
+		if key == "" {
+			key = wt.Repo
+		}
+		if key == "" {
+			key = wt.Root
+		}
+		label := project.Name
+		if label == "" {
+			label = monitorProjectName(wt)
+		}
+		return key, label
+	}
+	key := wt.Repo
+	if key == "" {
+		key = wt.Root
+	}
+	label := monitorProjectName(wt)
+	if label == "" {
+		label = key
+	}
+	return key, label
+}
+
+func (a *App) monitorFilterLabel(key string) string {
+	if key == "" {
+		return "All"
+	}
+	for _, filter := range a.monitorProjectFilters() {
+		if filter.Key == key {
+			return filter.Label
+		}
+	}
+	if base := filepath.Base(key); base != "" && base != "." && base != string(filepath.Separator) {
+		return base
+	}
+	return key
 }
 
 func (a *App) filterMonitorTabs(tabs []center.MonitorTab) []center.MonitorTab {
@@ -1775,7 +1861,11 @@ func (a *App) filterMonitorTabs(tabs []center.MonitorTab) []center.MonitorTab {
 	}
 	var filtered []center.MonitorTab
 	for _, tab := range tabs {
-		if tab.Worktree != nil && tab.Worktree.Name == a.monitorFilter {
+		if tab.Worktree == nil {
+			continue
+		}
+		key, _ := a.monitorProjectKeyLabel(tab.Worktree)
+		if key == a.monitorFilter {
 			filtered = append(filtered, tab)
 		}
 	}
@@ -1813,12 +1903,12 @@ func (a *App) monitorFilterHit(x, y int) (string, bool) {
 	}
 
 	// Check project buttons
-	projects := a.monitorProjectNames()
-	for _, proj := range projects {
-		btnText := "[" + proj + "]"
+	filters := a.monitorProjectFilters()
+	for _, filter := range filters {
+		btnText := "[" + filter.Label + "]"
 		idx := strings.Index(headerStripped, btnText)
 		if idx >= 0 && x >= idx && x < idx+len(btnText) {
-			return proj, true
+			return filter.Key, true
 		}
 	}
 	return "", false
