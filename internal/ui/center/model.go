@@ -1679,10 +1679,13 @@ func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktre
 
 		var cmd string
 		if statusCode == "??" {
-			// Untracked file: show full content with line numbers prefixed by + to indicate additions
+			// Untracked file: show full content prefixed by + to indicate additions.
 			cmd = fmt.Sprintf("awk '{print \"\\033[32m+ \" $0 \"\\033[0m\"}' %s | less -R", escapedFile)
+		} else if len(statusCode) >= 1 && statusCode[0] != ' ' {
+			// Staged change: show index diff (covers new files with status A).
+			cmd = fmt.Sprintf("git diff --cached --color=always -- %s | less -R", escapedFile)
 		} else {
-			// Tracked file: use git diff with color
+			// Unstaged change: show working tree diff.
 			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
 		}
 
@@ -2575,22 +2578,43 @@ func (m *Model) MonitorTabSnapshots() []MonitorTabSnapshot {
 		}
 		tab.mu.Lock()
 		if tab.Terminal != nil {
-			snap.Screen = tab.Terminal.VisibleScreen()
-			snap.CursorX = tab.Terminal.CursorX
-			snap.CursorY = tab.Terminal.CursorY
-			snap.ViewOffset = tab.Terminal.ViewOffset
-			snap.Width = tab.Terminal.Width
-			snap.Height = tab.Terminal.Height
-			snap.SelActive = tab.Terminal.SelActive()
-			snap.SelStartX = tab.Terminal.SelStartX()
-			snap.SelStartY = tab.Terminal.SelStartY()
-			snap.SelEndX = tab.Terminal.SelEndX()
-			snap.SelEndY = tab.Terminal.SelEndY()
+			version := tab.Terminal.Version()
+			showCursor := false
+			if tab.cachedSnap != nil &&
+				tab.cachedVersion == version &&
+				tab.cachedShowCursor == showCursor {
+				applyMonitorSnapshot(&snap, tab.cachedSnap)
+			} else {
+				vsnap := compositor.NewVTermSnapshotWithCache(tab.Terminal, showCursor, tab.cachedSnap)
+				if vsnap != nil {
+					tab.cachedSnap = vsnap
+					tab.cachedVersion = version
+					tab.cachedShowCursor = showCursor
+					applyMonitorSnapshot(&snap, vsnap)
+				}
+			}
 		}
 		tab.mu.Unlock()
 		snapshots = append(snapshots, snap)
 	}
 	return snapshots
+}
+
+func applyMonitorSnapshot(out *MonitorTabSnapshot, snap *compositor.VTermSnapshot) {
+	if out == nil || snap == nil {
+		return
+	}
+	out.Screen = snap.Screen
+	out.CursorX = snap.CursorX
+	out.CursorY = snap.CursorY
+	out.ViewOffset = snap.ViewOffset
+	out.Width = snap.Width
+	out.Height = snap.Height
+	out.SelActive = snap.SelActive
+	out.SelStartX = snap.SelStartX
+	out.SelStartY = snap.SelStartY
+	out.SelEndX = snap.SelEndX
+	out.SelEndY = snap.SelEndY
 }
 
 // ResizeTabs resizes the given tabs to the desired sizes.
@@ -2699,7 +2723,7 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 
 	// Check if we can reuse the cached snapshot
 	version := tab.Terminal.Version()
-	showCursor := m.focused
+	showCursor := m.focused && !tab.CopyMode
 	if tab.cachedSnap != nil &&
 		tab.cachedVersion == version &&
 		tab.cachedShowCursor == showCursor {
