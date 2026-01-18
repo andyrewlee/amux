@@ -405,6 +405,17 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	case SidebarTerminalCreated:
 		cmd := m.HandleTerminalCreated(msg.WorktreeID, msg.Terminal)
 		cmds = append(cmds, cmd)
+
+	case messages.WorktreeDeleted:
+		if msg.Worktree != nil {
+			wtID := string(msg.Worktree.ID())
+			if ts := m.terminals[wtID]; ts != nil {
+				if ts.Terminal != nil {
+					ts.Terminal.Close()
+				}
+				delete(m.terminals, wtID)
+			}
+		}
 	}
 
 	return m, tea.Batch(cmds...)

@@ -531,6 +531,30 @@ func (m *Model) removeTab(idx int) {
 	}
 }
 
+// CleanupWorktree removes all tabs and state for a deleted worktree
+func (m *Model) CleanupWorktree(wt *data.Worktree) {
+	if wt == nil {
+		return
+	}
+	wtID := string(wt.ID())
+
+	// Close resources for each tab before removing
+	for _, tab := range m.tabsByWorktree[wtID] {
+		if tab.ptyTraceFile != nil {
+			_ = tab.ptyTraceFile.Close()
+		}
+		tab.pendingOutput = nil
+	}
+
+	delete(m.tabsByWorktree, wtID)
+	delete(m.activeTabByWorktree, wtID)
+
+	// Also cleanup agents for this worktree
+	if m.agentManager != nil {
+		m.agentManager.CloseWorktreeAgents(wt)
+	}
+}
+
 // Init initializes the center pane
 func (m *Model) Init() tea.Cmd {
 	return nil
@@ -1010,6 +1034,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case messages.ViewCommitDiff:
 		return m, m.createCommitDiffTab(msg.Hash, msg.Worktree)
+
+	case messages.WorktreeDeleted:
+		m.CleanupWorktree(msg.Worktree)
+		return m, nil
 
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
