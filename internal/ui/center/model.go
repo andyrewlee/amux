@@ -3,6 +3,7 @@ package center
 import (
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -144,6 +145,10 @@ type Tab struct {
 	flushScheduled    bool
 	lastOutputAt      time.Time
 	flushPendingSince time.Time
+	ptyRows           int
+	ptyCols           int
+	ptyMsgCh          chan tea.Msg
+	readerCancel      chan struct{}
 	// Mouse selection state
 	Selection SelectionState
 
@@ -287,6 +292,10 @@ const (
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
 	ptyFlushInactiveMultiplier = 4
 	ptyFlushChunkSize          = 32 * 1024
+	ptyReadBufferSize          = 32 * 1024
+	ptyReadQueueSize           = 32
+	ptyFrameInterval           = time.Second / 60
+	ptyMaxPendingBytes         = 512 * 1024
 
 	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
 	// When pending output exceeds this, we throttle rendering frequency
@@ -353,6 +362,11 @@ func (m *Model) contentWidth() int {
 		return 1
 	}
 	return width
+}
+
+// ContentWidth returns the content width inside the pane.
+func (m *Model) ContentWidth() int {
+	return m.contentWidth()
 }
 
 // TerminalMetrics holds the computed geometry for the terminal content area.
@@ -540,6 +554,7 @@ func (m *Model) CleanupWorktree(wt *data.Worktree) {
 
 	// Close resources for each tab before removing
 	for _, tab := range m.tabsByWorktree[wtID] {
+		m.stopPTYReader(tab)
 		if tab.ptyTraceFile != nil {
 			_ = tab.ptyTraceFile.Close()
 		}
@@ -1042,6 +1057,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
+			m.tracePTYOutput(tab, msg.Data)
 			tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
 			perf.Count("pty_output_bytes", int64(len(msg.Data)))
 			tab.lastOutputAt = time.Now()
@@ -1124,7 +1140,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
 			tab.Running = false
-			tab.readerActive = false
+			m.stopPTYReader(tab)
 			logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
 		}
 		// Do NOT schedule another read - the loop is done
@@ -1235,6 +1251,22 @@ func (m *Model) View() string {
 	}
 
 	return result
+}
+
+// TabBarView returns the rendered tab bar string.
+func (m *Model) TabBarView() string {
+	return m.renderTabBar()
+}
+
+// HelpLines returns the help lines for the given width, respecting visibility.
+func (m *Model) HelpLines(width int) []string {
+	if !m.showKeymapHints {
+		return nil
+	}
+	if width < 1 {
+		width = 1
+	}
+	return m.helpLines(width)
 }
 
 // HasSaveDialog returns true if a save dialog is visible
@@ -1609,23 +1641,19 @@ func (m *Model) renderEmpty() string {
 func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 	return func() tea.Msg {
 		logging.Info("Creating agent tab: assistant=%s worktree=%s", assistant, wt.Name)
-		agent, err := m.agentManager.CreateAgent(wt, appPty.AgentType(assistant))
+
+		// Calculate terminal dimensions using the same metrics as render/layout.
+		tm := m.terminalMetrics()
+		termWidth := tm.Width
+		termHeight := tm.Height
+
+		agent, err := m.agentManager.CreateAgent(wt, appPty.AgentType(assistant), uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}
 		}
 
 		logging.Info("Agent created, Terminal=%v", agent.Terminal != nil)
-
-		// Calculate terminal dimensions
-		termWidth := m.contentWidth()
-		termHeight := m.height - 6
-		if termWidth < 10 {
-			termWidth = 80
-		}
-		if termHeight < 5 {
-			termHeight = 24
-		}
 
 		// Create virtual terminal emulator with scrollback
 		term := vterm.New(termWidth, termHeight)
@@ -1652,7 +1680,7 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 
 		// Set PTY size to match
 		if agent.Terminal != nil {
-			_ = agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+			m.resizePTY(tab, termHeight, termWidth)
 			logging.Info("Terminal size set to %dx%d", termWidth, termHeight)
 		}
 
@@ -1689,23 +1717,18 @@ func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktre
 			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
 		}
 
-		agent, err := m.agentManager.CreateViewer(wt, cmd)
+		// Calculate terminal dimensions using the same metrics as render/layout.
+		tm := m.terminalMetrics()
+		termWidth := tm.Width
+		termHeight := tm.Height
+
+		agent, err := m.agentManager.CreateViewer(wt, cmd, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating viewer"}
 		}
 
 		logging.Info("Viewer created, Terminal=%v", agent.Terminal != nil)
-
-		// Calculate terminal dimensions
-		termWidth := m.contentWidth()
-		termHeight := m.height - 6
-		if termWidth < 10 {
-			termWidth = 80
-		}
-		if termHeight < 5 {
-			termHeight = 24
-		}
 
 		// Create virtual terminal emulator with scrollback
 		term := vterm.New(termWidth, termHeight)
@@ -1736,7 +1759,7 @@ func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktre
 
 		// Set PTY size to match
 		if agent.Terminal != nil {
-			_ = agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+			m.resizePTY(tab, termHeight, termWidth)
 		}
 
 		// Add tab to the worktree's tab list
@@ -1807,20 +1830,15 @@ func (m *Model) createCommitDiffTab(hash string, wt *data.Worktree) tea.Cmd {
 		// Use git show with color, piped through less for interactive viewing
 		cmd := fmt.Sprintf("git show --color=always %s | less -R", hash)
 
-		agent, err := m.agentManager.CreateViewer(wt, cmd)
+		// Calculate terminal dimensions using the same metrics as render/layout.
+		tm := m.terminalMetrics()
+		termWidth := tm.Width
+		termHeight := tm.Height
+
+		agent, err := m.agentManager.CreateViewer(wt, cmd, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create commit diff viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating commit diff viewer"}
-		}
-
-		// Calculate terminal dimensions
-		termWidth := m.contentWidth()
-		termHeight := m.height - 6
-		if termWidth < 10 {
-			termWidth = 80
-		}
-		if termHeight < 5 {
-			termHeight = 24
 		}
 
 		// Create virtual terminal emulator with scrollback
@@ -1849,7 +1867,7 @@ func (m *Model) createCommitDiffTab(hash string, wt *data.Worktree) tea.Cmd {
 
 		// Set PTY size to match
 		if agent.Terminal != nil {
-			_ = agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+			m.resizePTY(tab, termHeight, termWidth)
 		}
 
 		// Add tab to the worktree's tab list
@@ -1862,36 +1880,119 @@ func (m *Model) createCommitDiffTab(hash string, wt *data.Worktree) tea.Cmd {
 
 // readPTYForTab reads from the PTY for a tab in a specific worktree
 func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
-	tab := m.getTabByID(wtID, tabID)
-	if tab == nil {
-		// Tab no longer exists, stop the read loop
-		return nil
-	}
+	return m.waitPTYMsg(wtID, tabID)
+}
 
-	if tab.Agent == nil || tab.Agent.Terminal == nil {
-		tab.readerActive = false
-		return nil
-	}
-
-	// Check if terminal is already closed before starting read
-	if tab.Agent.Terminal.IsClosed() {
-		tab.readerActive = false
-		return nil
-	}
-
+func (m *Model) waitPTYMsg(wtID string, tabID TabID) tea.Cmd {
 	return func() tea.Msg {
-		buf := make([]byte, 4096)
-		n, err := tab.Agent.Terminal.Read(buf)
-		if err != nil {
-			// PTY closed or error - stop the read loop entirely
-			return PTYStopped{WorktreeID: wtID, TabID: tabID, Err: err}
+		tab := m.getTabByID(wtID, tabID)
+		if tab == nil || tab.ptyMsgCh == nil {
+			return nil
 		}
-		if n > 0 {
-			m.tracePTYOutput(tab, buf[:n])
-			return PTYOutput{WorktreeID: wtID, TabID: tabID, Data: buf[:n]}
+		msg, ok := <-tab.ptyMsgCh
+		if !ok {
+			return PTYStopped{WorktreeID: wtID, TabID: tabID, Err: io.EOF}
 		}
-		// No data but no error - continue polling
-		return PTYTick{WorktreeID: wtID, TabID: tabID}
+		return msg
+	}
+}
+
+func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID TabID) {
+	if term == nil {
+		close(msgCh)
+		return
+	}
+
+	dataCh := make(chan []byte, ptyReadQueueSize)
+	errCh := make(chan error, 1)
+
+	go func() {
+		buf := make([]byte, ptyReadBufferSize)
+		for {
+			n, err := term.Read(buf)
+			if err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				close(dataCh)
+				return
+			}
+			if n == 0 {
+				continue
+			}
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			select {
+			case dataCh <- chunk:
+			case <-cancel:
+				return
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(ptyFrameInterval)
+	defer ticker.Stop()
+
+	var pending []byte
+	var stoppedErr error
+
+	for {
+		select {
+		case <-cancel:
+			close(msgCh)
+			return
+		case err := <-errCh:
+			stoppedErr = err
+		case data, ok := <-dataCh:
+			if !ok {
+				if len(pending) > 0 {
+					if !sendPTYMsg(msgCh, cancel, PTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+						close(msgCh)
+						return
+					}
+				}
+				if stoppedErr == nil {
+					stoppedErr = io.EOF
+				}
+				sendPTYMsg(msgCh, cancel, PTYStopped{WorktreeID: wtID, TabID: tabID, Err: stoppedErr})
+				close(msgCh)
+				return
+			}
+			pending = append(pending, data...)
+			if len(pending) >= ptyMaxPendingBytes {
+				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+					close(msgCh)
+					return
+				}
+				pending = nil
+			}
+		case <-ticker.C:
+			if len(pending) > 0 {
+				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+					close(msgCh)
+					return
+				}
+				pending = nil
+			}
+			if stoppedErr != nil {
+				sendPTYMsg(msgCh, cancel, PTYStopped{WorktreeID: wtID, TabID: tabID, Err: stoppedErr})
+				close(msgCh)
+				return
+			}
+		}
+	}
+}
+
+func sendPTYMsg(msgCh chan tea.Msg, cancel <-chan struct{}, msg tea.Msg) bool {
+	if msgCh == nil {
+		return false
+	}
+	select {
+	case <-cancel:
+		return false
+	case msgCh <- msg:
+		return true
 	}
 }
 
@@ -1963,7 +2064,21 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 		return nil
 	}
 	tab.readerActive = true
-	return m.readPTYForTab(wtID, tab.ID)
+
+	if tab.readerCancel != nil {
+		safeClose(tab.readerCancel)
+	}
+	tab.readerCancel = make(chan struct{})
+	tab.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
+
+	term := tab.Agent.Terminal
+	tabID := tab.ID
+	cancel := tab.readerCancel
+	msgCh := tab.ptyMsgCh
+
+	go runPTYReader(term, msgCh, cancel, wtID, tabID)
+
+	return m.waitPTYMsg(wtID, tab.ID)
 }
 
 // closeCurrentTab closes the current tab
@@ -1985,6 +2100,8 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	}
 
 	tab := tabs[index]
+
+	m.stopPTYReader(tab)
 
 	// Close agent
 	if tab.Agent != nil {
@@ -2398,15 +2515,15 @@ func (m *Model) SetSize(width, height int) {
 		for _, tab := range tabs {
 			tab.mu.Lock()
 			if tab.Terminal != nil {
-				tab.Terminal.Resize(termWidth, termHeight)
+				if tab.Terminal.Width != termWidth || tab.Terminal.Height != termHeight {
+					tab.Terminal.Resize(termWidth, termHeight)
+				}
 			}
 			if tab.CommitViewer != nil {
 				tab.CommitViewer.SetSize(viewerWidth, viewerHeight)
 			}
 			tab.mu.Unlock()
-			if tab.Agent != nil && tab.Agent.Terminal != nil {
-				_ = tab.Agent.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
-			}
+			m.resizePTY(tab, termHeight, termWidth)
 		}
 	}
 }
@@ -2414,6 +2531,42 @@ func (m *Model) SetSize(width, height int) {
 // SetOffset sets the X offset of the pane from screen left (for mouse coordinate conversion)
 func (m *Model) SetOffset(x int) {
 	m.offsetX = x
+}
+
+func safeClose(ch chan struct{}) {
+	defer func() {
+		_ = recover()
+	}()
+	close(ch)
+}
+
+func (m *Model) resizePTY(tab *Tab, rows, cols int) {
+	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
+		return
+	}
+	if rows < 1 || cols < 1 {
+		return
+	}
+	if tab.ptyRows == rows && tab.ptyCols == cols {
+		return
+	}
+	_ = tab.Agent.Terminal.SetSize(uint16(rows), uint16(cols))
+	tab.ptyRows = rows
+	tab.ptyCols = cols
+}
+
+func (m *Model) stopPTYReader(tab *Tab) {
+	if tab == nil {
+		return
+	}
+	tab.mu.Lock()
+	if tab.readerCancel != nil {
+		safeClose(tab.readerCancel)
+		tab.readerCancel = nil
+	}
+	tab.readerActive = false
+	tab.ptyMsgCh = nil
+	tab.mu.Unlock()
 }
 
 // screenToTerminal converts screen coordinates to terminal coordinates
@@ -2629,12 +2782,12 @@ func (m *Model) ResizeTabs(sizes []TabSize) {
 		}
 		tab.mu.Lock()
 		if tab.Terminal != nil {
-			tab.Terminal.Resize(size.Width, size.Height)
-		}
-		if tab.Agent != nil && tab.Agent.Terminal != nil {
-			_ = tab.Agent.Terminal.SetSize(uint16(size.Height), uint16(size.Width))
+			if tab.Terminal.Width != size.Width || tab.Terminal.Height != size.Height {
+				tab.Terminal.Resize(size.Width, size.Height)
+			}
 		}
 		tab.mu.Unlock()
+		m.resizePTY(tab, size.Height, size.Width)
 	}
 }
 
@@ -2876,6 +3029,11 @@ func (m *Model) activeTerminalStatusLine() string {
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
 	return m.terminalStatusLineLocked(tab)
+}
+
+// ActiveTerminalStatusLine returns the status line for the active terminal.
+func (m *Model) ActiveTerminalStatusLine() string {
+	return m.activeTerminalStatusLine()
 }
 
 // CloseAllTabs is deprecated - tabs now persist per-worktree

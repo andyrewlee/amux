@@ -43,8 +43,8 @@ func NewAgentManager(cfg *config.Config) *AgentManager {
 	}
 }
 
-// CreateAgent creates a new agent for the given worktree
-func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType) (*Agent, error) {
+// CreateAgent creates a new agent for the given worktree.
+func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType, rows, cols uint16) (*Agent, error) {
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
@@ -56,6 +56,7 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType) (*Age
 		fmt.Sprintf("WORKTREE_NAME=%s", wt.Name),
 		"LINES=",   // Unset to force ioctl usage
 		"COLUMNS=", // Unset to force ioctl usage
+		"COLORTERM=truecolor",
 	}
 
 	// Create terminal with agent command, falling back to shell on exit
@@ -67,7 +68,7 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType) (*Age
 	// Execute agent, then reset terminal state (RIS), print message, and drop to shell
 	fullCommand := fmt.Sprintf("%s; printf '\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s", assistantCfg.Command, shell)
 
-	term, err := New(fullCommand, wt.Root, env)
+	term, err := NewWithSize(fullCommand, wt.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
@@ -84,8 +85,8 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType) (*Age
 	return agent, nil
 }
 
-// CreateViewer creates a new agent (viewer) for the given worktree and command
-func (m *AgentManager) CreateViewer(wt *data.Worktree, command string) (*Agent, error) {
+// CreateViewer creates a new agent (viewer) for the given worktree and command.
+func (m *AgentManager) CreateViewer(wt *data.Worktree, command string, rows, cols uint16) (*Agent, error) {
 	if wt == nil {
 		return nil, fmt.Errorf("worktree is required")
 	}
@@ -94,9 +95,10 @@ func (m *AgentManager) CreateViewer(wt *data.Worktree, command string) (*Agent, 
 		fmt.Sprintf("WORKTREE_ROOT=%s", wt.Root),
 		fmt.Sprintf("WORKTREE_NAME=%s", wt.Name),
 		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
 	}
 
-	term, err := New(command, wt.Root, env)
+	term, err := NewWithSize(command, wt.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}

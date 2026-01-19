@@ -98,6 +98,7 @@ type App struct {
 	width, height int
 	keymap        KeyMap
 	styles        common.Styles
+	canvas        *lipgloss.Canvas
 
 	// Lifecycle
 	ready    bool
@@ -116,9 +117,71 @@ type App struct {
 	pendingInputLatency bool
 
 	// Chrome caches for layer-based rendering
-	dashboardChrome *compositor.ChromeCache
-	centerChrome    *compositor.ChromeCache
-	sidebarChrome   *compositor.ChromeCache
+	dashboardChrome      *compositor.ChromeCache
+	centerChrome         *compositor.ChromeCache
+	sidebarChrome        *compositor.ChromeCache
+	dashboardContent     drawableCache
+	dashboardBorders     borderCache
+	sidebarTopContent    drawableCache
+	sidebarBottomContent drawableCache
+	sidebarBottomStatus  drawableCache
+	sidebarBottomHelp    drawableCache
+	sidebarTopBorders    borderCache
+	sidebarBottomBorders borderCache
+	centerTabBar         drawableCache
+	centerStatus         drawableCache
+	centerHelp           drawableCache
+	centerBorders        borderCache
+}
+
+type drawableCache struct {
+	content  string
+	x, y     int
+	drawable *compositor.StringDrawable
+}
+
+func (c *drawableCache) get(content string, x, y int) *compositor.StringDrawable {
+	if content == "" {
+		c.content = ""
+		c.drawable = nil
+		return nil
+	}
+	if c.drawable != nil && c.content == content && c.x == x && c.y == y {
+		return c.drawable
+	}
+	c.content = content
+	c.x = x
+	c.y = y
+	c.drawable = compositor.NewStringDrawable(content, x, y)
+	return c.drawable
+}
+
+type borderCache struct {
+	x, y      int
+	width     int
+	height    int
+	focused   bool
+	themeID   common.ThemeID
+	drawables []*compositor.StringDrawable
+}
+
+func (c *borderCache) get(x, y, width, height int, focused bool) []*compositor.StringDrawable {
+	themeID := common.GetCurrentTheme().ID
+	if c.drawables != nil &&
+		c.x == x && c.y == y &&
+		c.width == width && c.height == height &&
+		c.focused == focused &&
+		c.themeID == themeID {
+		return c.drawables
+	}
+	c.x = x
+	c.y = y
+	c.width = width
+	c.height = height
+	c.focused = focused
+	c.themeID = themeID
+	c.drawables = borderDrawables(x, y, width, height, focused)
+	return c.drawables
 }
 
 func (a *App) markInput() {
@@ -1209,26 +1272,29 @@ func (a *App) viewLayerBased() tea.View {
 	}
 
 	// Create canvas at screen dimensions
-	canvas := lipgloss.NewCanvas(a.width, a.height)
+	canvas := a.canvasFor(a.width, a.height)
 
-	// Dashboard pane (leftmost) - use chrome cache
+	// Dashboard pane (leftmost)
 	leftGutter := a.layout.LeftGutter()
 	topGutter := a.layout.TopGutter()
 	dashWidth := a.layout.DashboardWidth()
 	dashHeight := a.layout.Height()
 	dashFocused := a.dashboard.Focused()
-	dashContent := a.dashboard.View()
-	dashView := buildBorderedPane(dashContent, dashWidth, dashHeight, dashFocused)
-	dashClamped := clampPane(dashView, dashWidth, dashHeight)
-
-	var dashDrawable *compositor.StringDrawable
-	if cached := a.dashboardChrome.Get(dashClamped, dashWidth, dashHeight, dashFocused, leftGutter, topGutter); cached != nil {
-		dashDrawable = cached
-	} else {
-		dashDrawable = compositor.NewStringDrawable(dashClamped, leftGutter, topGutter)
-		a.dashboardChrome.Set(dashClamped, dashWidth, dashHeight, dashFocused, leftGutter, topGutter, dashDrawable)
+	dashContentWidth := dashWidth - 4
+	dashContentHeight := dashHeight - 2
+	if dashContentWidth < 1 {
+		dashContentWidth = 1
 	}
-	canvas.Compose(dashDrawable)
+	if dashContentHeight < 1 {
+		dashContentHeight = 1
+	}
+	dashContent := clampLines(a.dashboard.View(), dashContentWidth, dashContentHeight)
+	if dashDrawable := a.dashboardContent.get(dashContent, leftGutter+2, topGutter+1); dashDrawable != nil {
+		canvas.Compose(dashDrawable)
+	}
+	for _, border := range a.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight, dashFocused) {
+		canvas.Compose(border)
+	}
 
 	// Center pane
 	if a.layout.ShowCenter() {
@@ -1238,39 +1304,13 @@ func (a *App) viewLayerBased() tea.View {
 		centerFocused := a.focusedPane == messages.PaneCenter
 
 		// Check if we can use VTermLayer for direct cell rendering
-		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasCommitViewer() {
+		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasCommitViewer() && !a.center.HasSaveDialog() {
 			// Get terminal viewport from center model (accounts for borders, tab bar, help lines)
 			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
 			termX := centerX + termOffsetX
 			termY := topGutter + termOffsetY
 
-			// Draw the pane chrome with borders using buildBorderedPane - use cache
-			centerContent := a.center.ViewChromeOnly()
-			centerView := buildBorderedPane(centerContent, centerWidth, centerHeight, centerFocused)
-			hasSaveDialog := a.center.HasSaveDialog()
-			if hasSaveDialog {
-				centerView = a.center.OverlayDialog(centerView)
-				// Don't cache when dialog is shown (it changes frequently)
-				a.centerChrome.Invalidate()
-			}
-			centerClamped := clampPane(centerView, centerWidth, centerHeight)
-
-			var centerDrawable *compositor.StringDrawable
-			if !hasSaveDialog {
-				if cached := a.centerChrome.Get(centerClamped, centerWidth, centerHeight, centerFocused, centerX, topGutter); cached != nil {
-					centerDrawable = cached
-				}
-			}
-			if centerDrawable == nil {
-				centerDrawable = compositor.NewStringDrawable(centerClamped, centerX, topGutter)
-				if !hasSaveDialog {
-					a.centerChrome.Set(centerClamped, centerWidth, centerHeight, centerFocused, centerX, topGutter, centerDrawable)
-				}
-			}
-			canvas.Compose(centerDrawable)
-
-			// Compose VTermLayer on top for the terminal content
-			// Position it within the pane's content area
+			// Compose terminal layer first; chrome is drawn on top without clearing the content area.
 			positionedTermLayer := &compositor.PositionedVTermLayer{
 				VTermLayer: termLayer,
 				PosX:       termX,
@@ -1279,6 +1319,40 @@ func (a *App) viewLayerBased() tea.View {
 				Height:     termH,
 			}
 			canvas.Compose(positionedTermLayer)
+
+			// Draw borders without touching the content area.
+			for _, border := range a.centerBorders.get(centerX, topGutter, centerWidth, centerHeight, centerFocused) {
+				canvas.Compose(border)
+			}
+
+			contentWidth := a.center.ContentWidth()
+			if contentWidth < 1 {
+				contentWidth = 1
+			}
+
+			// Tab bar (top of content area).
+			tabBar := clampLines(a.center.TabBarView(), contentWidth, termOffsetY-1)
+			if tabBarDrawable := a.centerTabBar.get(tabBar, termX, topGutter+1); tabBarDrawable != nil {
+				canvas.Compose(tabBarDrawable)
+			}
+
+			// Status line (directly below terminal content).
+			if status := clampLines(a.center.ActiveTerminalStatusLine(), contentWidth, 1); status != "" {
+				if statusDrawable := a.centerStatus.get(status, termX, termY+termH); statusDrawable != nil {
+					canvas.Compose(statusDrawable)
+				}
+			}
+
+			// Help lines at bottom of pane.
+			if helpLines := a.center.HelpLines(contentWidth); len(helpLines) > 0 {
+				helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
+				helpY := topGutter + centerHeight - 1 - len(helpLines)
+				if helpY > termY {
+					if helpDrawable := a.centerHelp.get(helpContent, termX, helpY); helpDrawable != nil {
+						canvas.Compose(helpDrawable)
+					}
+				}
+			}
 		} else {
 			// Fallback to string-based rendering with borders (no caching - content changes)
 			a.centerChrome.Invalidate()
@@ -1297,7 +1371,7 @@ func (a *App) viewLayerBased() tea.View {
 		}
 	}
 
-	// Sidebar pane (rightmost) - use chrome cache
+	// Sidebar pane (rightmost)
 	if a.layout.ShowSidebar() {
 		sidebarX := leftGutter + a.layout.DashboardWidth()
 		if a.layout.ShowCenter() {
@@ -1308,18 +1382,104 @@ func (a *App) viewLayerBased() tea.View {
 		}
 		sidebarWidth := a.layout.SidebarWidth()
 		sidebarHeight := a.layout.Height()
-		sidebarFocused := a.focusedPane == messages.PaneSidebar || a.focusedPane == messages.PaneSidebarTerminal
-		sidebarView := a.renderSidebarPane()
-		sidebarClamped := clampPane(sidebarView, sidebarWidth, sidebarHeight)
+		topPaneHeight, bottomPaneHeight := sidebarPaneHeights(sidebarHeight)
+		if bottomPaneHeight > 0 {
+			contentWidth := sidebarWidth - 4
+			if contentWidth < 1 {
+				contentWidth = 1
+			}
 
-		var sidebarDrawable *compositor.StringDrawable
-		if cached := a.sidebarChrome.Get(sidebarClamped, sidebarWidth, sidebarHeight, sidebarFocused, sidebarX, topGutter); cached != nil {
-			sidebarDrawable = cached
-		} else {
-			sidebarDrawable = compositor.NewStringDrawable(sidebarClamped, sidebarX, topGutter)
-			a.sidebarChrome.Set(sidebarClamped, sidebarWidth, sidebarHeight, sidebarFocused, sidebarX, topGutter, sidebarDrawable)
+			topFocused := a.focusedPane == messages.PaneSidebar
+			bottomFocused := a.focusedPane == messages.PaneSidebarTerminal
+
+			if topPaneHeight > 0 {
+				topContentHeight := topPaneHeight - 2
+				if topContentHeight < 1 {
+					topContentHeight = 1
+				}
+				topContent := clampLines(a.sidebar.View(), contentWidth, topContentHeight)
+				if topDrawable := a.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1); topDrawable != nil {
+					canvas.Compose(topDrawable)
+				}
+				for _, border := range a.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight, topFocused) {
+					canvas.Compose(border)
+				}
+			}
+
+			bottomY := topGutter + topPaneHeight
+			bottomContentHeight := bottomPaneHeight - 2
+			if bottomContentHeight < 1 {
+				bottomContentHeight = 1
+			}
+
+			if termLayer := a.sidebarTerminal.TerminalLayer(); termLayer != nil {
+				originX, originY := a.sidebarTerminal.TerminalOrigin()
+				termW, termH := a.sidebarTerminal.TerminalSize()
+				if termW > contentWidth {
+					termW = contentWidth
+				}
+				if termH > bottomContentHeight {
+					termH = bottomContentHeight
+				}
+
+				status := clampLines(a.sidebarTerminal.StatusLine(), contentWidth, 1)
+				helpLines := a.sidebarTerminal.HelpLines(contentWidth)
+				statusLines := 0
+				if status != "" {
+					statusLines = 1
+				}
+				maxHelpHeight := bottomContentHeight - statusLines
+				if maxHelpHeight < 0 {
+					maxHelpHeight = 0
+				}
+				if len(helpLines) > maxHelpHeight {
+					helpLines = helpLines[:maxHelpHeight]
+				}
+				maxTermHeight := bottomContentHeight - statusLines - len(helpLines)
+				if maxTermHeight < 0 {
+					maxTermHeight = 0
+				}
+				if termH > maxTermHeight {
+					termH = maxTermHeight
+				}
+
+				positioned := &compositor.PositionedVTermLayer{
+					VTermLayer: termLayer,
+					PosX:       originX,
+					PosY:       originY,
+					Width:      termW,
+					Height:     termH,
+				}
+				canvas.Compose(positioned)
+
+				if status != "" {
+					if statusDrawable := a.sidebarBottomStatus.get(status, originX, originY+termH); statusDrawable != nil {
+						canvas.Compose(statusDrawable)
+					}
+				}
+
+				if len(helpLines) > 0 {
+					helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
+					helpY := originY + bottomContentHeight - len(helpLines)
+					if helpDrawable := a.sidebarBottomHelp.get(helpContent, originX, helpY); helpDrawable != nil {
+						canvas.Compose(helpDrawable)
+					}
+				} else if status == "" && bottomContentHeight > termH {
+					blank := strings.Repeat(" ", contentWidth)
+					if blankDrawable := a.sidebarBottomHelp.get(blank, originX, originY+bottomContentHeight-1); blankDrawable != nil {
+						canvas.Compose(blankDrawable)
+					}
+				}
+			} else {
+				bottomContent := clampLines(a.sidebarTerminal.View(), contentWidth, bottomContentHeight)
+				if bottomDrawable := a.sidebarBottomContent.get(bottomContent, sidebarX+2, bottomY+1); bottomDrawable != nil {
+					canvas.Compose(bottomDrawable)
+				}
+			}
+			for _, border := range a.sidebarBottomBorders.get(sidebarX, bottomY, sidebarWidth, bottomPaneHeight, bottomFocused) {
+				canvas.Compose(border)
+			}
 		}
-		canvas.Compose(sidebarDrawable)
 	}
 
 	// Overlay layers (dialogs, toasts, etc.)
@@ -1477,6 +1637,22 @@ func clampPane(view string, width, height int) string {
 		MaxWidth(width).
 		MaxHeight(height).
 		Render(view)
+}
+
+func clampLines(content string, width, maxLines int) string {
+	if content == "" || width <= 0 {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	if maxLines > 0 && len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	for i, line := range lines {
+		if w := ansi.StringWidth(line); w > width {
+			lines[i] = ansi.Truncate(line, width, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func viewDimensions(view string) (width, height int) {
@@ -2098,6 +2274,20 @@ func (a *App) monitorCanvasFor(width, height int) *compositor.Canvas {
 		a.monitorCanvas.Resize(width, height)
 	}
 	return a.monitorCanvas
+}
+
+func (a *App) canvasFor(width, height int) *lipgloss.Canvas {
+	if width <= 0 || height <= 0 {
+		width = 1
+		height = 1
+	}
+	if a.canvas == nil {
+		a.canvas = lipgloss.NewCanvas(width, height)
+	} else if a.canvas.Width() != width || a.canvas.Height() != height {
+		a.canvas.Resize(width, height)
+	}
+	a.canvas.Clear()
+	return a.canvas
 }
 
 func (a *App) monitorLayoutKeyFor(tabs []center.MonitorTab, gridW, gridH int, sizes []center.TabSize) string {
@@ -3165,4 +3355,38 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 	result.WriteString(borderStyle.Render(bottomLeft + strings.Repeat(horizontal, innerWidth) + bottomRight))
 
 	return result.String()
+}
+
+func borderDrawables(x, y, width, height int, focused bool) []*compositor.StringDrawable {
+	if width < 3 || height < 3 {
+		return nil
+	}
+
+	borderColor := common.ColorBorder
+	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
+	horizontal, vertical := "─", "│"
+	if focused {
+		borderColor = common.ColorBorderFocused
+		topLeft, topRight, bottomLeft, bottomRight = "┏", "┓", "┗", "┛"
+		horizontal, vertical = "━", "┃"
+	}
+
+	style := lipgloss.NewStyle().Foreground(borderColor)
+	innerWidth := width - 2
+
+	top := style.Render(topLeft + strings.Repeat(horizontal, innerWidth) + topRight)
+	bottom := style.Render(bottomLeft + strings.Repeat(horizontal, innerWidth) + bottomRight)
+
+	vertLines := make([]string, height-2)
+	for i := range vertLines {
+		vertLines[i] = vertical
+	}
+	vertContent := style.Render(strings.Join(vertLines, "\n"))
+
+	return []*compositor.StringDrawable{
+		compositor.NewStringDrawable(top, x, y),
+		compositor.NewStringDrawable(bottom, x, y+height-1),
+		compositor.NewStringDrawable(vertContent, x, y+1),
+		compositor.NewStringDrawable(vertContent, x+width-1, y+1),
+	}
 }
