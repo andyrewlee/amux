@@ -11,7 +11,28 @@ Here are some reasons why you would use amux over others:
 * Run it on the terminal.
 * Open source.
 
+## Installation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/andyrewlee/amux/main/install.sh | sh
+```
+
+Or with Go:
+
+```bash
+go install github.com/andyrewlee/amux/cmd/amux@latest
+```
+
 ## Quick Start
+
+After installing, run `amux` in any git repository:
+
+```bash
+cd your-project
+amux
+```
+
+### Build from source
 
 ```bash
 git clone https://github.com/andyrewlee/amux.git

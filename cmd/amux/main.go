@@ -16,7 +16,19 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
+// Version info set by GoReleaser via ldflags
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	// Handle --version flag
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("amux %s (commit: %s, built: %s)\n", version, commit, date)
+		os.Exit(0)
+	}
 	// Initialize logging
 	home, _ := os.UserHomeDir()
 	logDir := filepath.Join(home, ".amux", "logs")
