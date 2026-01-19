@@ -18,7 +18,6 @@ type KeyMap struct {
 	CloseTab     key.Binding
 	NewAgentTab  key.Binding
 	CommitViewer key.Binding
-	SaveThread   key.Binding
 	Help         key.Binding
 	Monitor      key.Binding
 	CopyMode     key.Binding
@@ -90,10 +89,6 @@ func DefaultKeyMap() KeyMap {
 		CommitViewer: key.NewBinding(
 			key.WithKeys("d"),
 			key.WithHelp("d", "commit viewer"),
-		),
-		SaveThread: key.NewBinding(
-			key.WithKeys("s"),
-			key.WithHelp("s", "save thread"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),

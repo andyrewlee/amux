@@ -15,7 +15,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -314,11 +313,6 @@ type Model struct {
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
 
-	// Dialog state
-	saveDialog      *common.Dialog
-	savedThreadPath string
-	dialogOpenTime  time.Time
-
 	// Layout
 	width           int
 	height          int
@@ -339,7 +333,6 @@ const (
 	tabHitPlus
 	tabHitPrev
 	tabHitNext
-	tabHitSave
 )
 
 type tabHit struct {
@@ -606,72 +599,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	defer perf.Time("center_update")()
 	var cmds []tea.Cmd
 
-	// Handle dialog update if visible, but only for interactive messages.
-	// PTY messages must still be processed to keep the terminal running.
-	if m.saveDialog != nil && m.saveDialog.Visible() {
-		switch typedMsg := msg.(type) {
-		case tea.KeyPressMsg:
-			// Debounce input to prevent accidental double-confirms (e.g. holding Enter)
-			if time.Since(m.dialogOpenTime) < 500*time.Millisecond {
-				return m, nil
-			}
-			var cmd tea.Cmd
-			m.saveDialog, cmd = m.saveDialog.Update(msg)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			return m, tea.Batch(cmds...)
-		case tea.MouseClickMsg:
-			// Translate screen coordinates to center pane local coordinates for dialog
-			localMsg := tea.MouseClickMsg{
-				X:      typedMsg.X - m.offsetX,
-				Y:      typedMsg.Y,
-				Button: typedMsg.Button,
-			}
-			var cmd tea.Cmd
-			m.saveDialog, cmd = m.saveDialog.Update(localMsg)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			return m, tea.Batch(cmds...)
-		case tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.PasteMsg:
-			var cmd tea.Cmd
-			m.saveDialog, cmd = m.saveDialog.Update(msg)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			return m, tea.Batch(cmds...)
-		}
-		// Fall through for PTY messages, window size, etc.
-	}
-
 	switch msg := msg.(type) {
-	case common.DialogResult:
-		if !msg.Confirmed {
-			m.saveDialog = nil
-			return m, nil
-		}
-
-		switch msg.ID {
-		case "save-thread":
-			// Index 0 is "Save & Copy Path"
-			if msg.Index == 0 {
-				path, err := m.exportActiveThread()
-				if err != nil {
-					m.saveDialog = nil
-					return m, func() tea.Msg { return messages.ThreadExportFailed{Err: err} }
-				}
-				if err := common.CopyToClipboard(path); err != nil {
-					logging.Error("Failed to copy path: %v", err)
-				}
-				m.savedThreadPath = path
-				m.saveDialog = nil
-				return m, func() tea.Msg { return messages.ThreadExported{Path: path, Copied: true} }
-			}
-			// Cancel
-			m.saveDialog = nil
-		}
-		return m, nil
 	case tea.MouseClickMsg:
 		// Handle tab bar clicks (e.g., the plus button) even without an active agent.
 		if msg.Button == tea.MouseLeft {
@@ -1029,18 +957,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.LaunchAgent:
 		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
 
-	case messages.SaveThreadRequest:
-		m.saveDialog = common.NewSelectDialog(
-			"save-thread",
-			"Save Thread",
-			"Save current thread to file?",
-			[]string{"Save & Copy Path", "Cancel"},
-		)
-		m.saveDialog.Show()
-		m.saveDialog.SetSize(m.width, m.height)
-		m.dialogOpenTime = time.Now()
-		return m, nil
-
 	case messages.OpenDiff:
 		return m, m.createViewerTab(msg.File, msg.StatusCode, msg.Worktree)
 
@@ -1269,104 +1185,6 @@ func (m *Model) HelpLines(width int) []string {
 	return m.helpLines(width)
 }
 
-// HasSaveDialog returns true if a save dialog is visible
-func (m *Model) HasSaveDialog() bool {
-	return m.saveDialog != nil && m.saveDialog.Visible()
-}
-
-// OverlayDialog overlays the save dialog on top of bordered content
-func (m *Model) OverlayDialog(borderedContent string) string {
-	if m.saveDialog == nil || !m.saveDialog.Visible() {
-		return borderedContent
-	}
-	return m.overlayCenter(borderedContent, m.saveDialog.View())
-}
-
-// overlayCenter renders the dialog as a true modal overlay on top of content
-func (m *Model) overlayCenter(content string, dialogView string) string {
-	dialogLines := strings.Split(dialogView, "\n")
-
-	// Calculate dialog dimensions
-	dialogHeight := len(dialogLines)
-	dialogWidth := 0
-	for _, line := range dialogLines {
-		if w := lipgloss.Width(line); w > dialogWidth {
-			dialogWidth = w
-		}
-	}
-
-	// Center the dialog (true center)
-	x := (m.width - dialogWidth) / 2
-	y := (m.height - dialogHeight) / 2
-
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-
-	// Split content into lines - preserve exact line count
-	contentLines := strings.Split(content, "\n")
-	originalLineCount := len(contentLines)
-	neededHeight := y + dialogHeight
-
-	// Pad content lines if needed so the dialog can render within bounds.
-	if originalLineCount < neededHeight {
-		padWidth := 0
-		if originalLineCount > 0 {
-			padWidth = lipgloss.Width(contentLines[0])
-		} else if m.width > 0 {
-			padWidth = m.width - 2
-		}
-		padding := ""
-		if padWidth > 0 {
-			padding = strings.Repeat(" ", padWidth)
-		}
-		for len(contentLines) < neededHeight {
-			contentLines = append(contentLines, padding)
-		}
-	}
-
-	// Overlay dialog lines onto content using ANSI-aware functions
-	for i, dialogLine := range dialogLines {
-		contentY := y + i
-		if contentY >= 0 && contentY < len(contentLines) {
-			bgLine := contentLines[contentY]
-
-			// Get left portion of background (before dialog)
-			left := ansi.Truncate(bgLine, x, "")
-			// Pad left if needed
-			leftWidth := lipgloss.Width(left)
-			if leftWidth < x {
-				left += strings.Repeat(" ", x-leftWidth)
-			}
-
-			// Get right portion of background (after dialog)
-			rightStart := x + dialogWidth
-			bgWidth := lipgloss.Width(bgLine)
-			var right string
-			if rightStart < bgWidth {
-				right = ansi.TruncateLeft(bgLine, rightStart, "")
-			}
-
-			// Compose: left + dialog + right
-			contentLines[contentY] = left + dialogLine + right
-		}
-	}
-
-	// Preserve original line count exactly
-	maxLines := originalLineCount
-	if neededHeight > maxLines {
-		maxLines = neededHeight
-	}
-	if len(contentLines) > maxLines {
-		contentLines = contentLines[:maxLines]
-	}
-
-	return strings.Join(contentLines, "\n")
-}
-
 func (m *Model) helpItem(key, desc string) string {
 	return common.RenderHelpItem(m.styles, key, desc)
 }
@@ -1538,35 +1356,6 @@ func (m *Model) renderTabBar() string {
 		})
 	}
 	renderedTabs = append(renderedTabs, btn)
-	x += btnWidth
-
-	// Add save button right-aligned when there are tabs
-	if len(currentTabs) > 0 {
-		saveBtn := m.styles.TabPlus.Render("Save")
-		saveWidth := lipgloss.Width(saveBtn)
-
-		// Calculate padding to right-align the Save button
-		contentWidth := m.contentWidth()
-		padding := contentWidth - x - saveWidth
-		if padding > 0 {
-			renderedTabs = append(renderedTabs, strings.Repeat(" ", padding))
-			x += padding
-		}
-
-		if saveWidth > 0 {
-			m.tabHits = append(m.tabHits, tabHit{
-				kind:  tabHitSave,
-				index: -1,
-				region: common.HitRegion{
-					X:      x,
-					Y:      0,
-					Width:  saveWidth,
-					Height: 1,
-				},
-			})
-		}
-		renderedTabs = append(renderedTabs, saveBtn)
-	}
 
 	// Join tabs horizontally at the bottom so borders align
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
@@ -1605,8 +1394,6 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 			case tabHitTab:
 				m.setActiveTabIdx(hit.index)
 				return nil
-			case tabHitSave:
-				return func() tea.Msg { return messages.SaveThreadRequest{} }
 			}
 		}
 	}
@@ -2496,10 +2283,6 @@ func (m *Model) SendToTerminal(s string) {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-
-	if m.saveDialog != nil {
-		m.saveDialog.SetSize(width, height)
-	}
 
 	// Use centralized metrics for terminal sizing
 	tm := m.terminalMetrics()

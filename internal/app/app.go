@@ -1084,17 +1084,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.err = msg.Err
 		logging.Error("Error in %s: %v", msg.Context, msg.Err)
 
-	case messages.ThreadExported:
-		msgStr := fmt.Sprintf("Thread saved: %s", filepath.Base(msg.Path))
-		if msg.Copied {
-			msgStr += " (copied)"
-		}
-		cmds = append(cmds, a.toast.ShowSuccess(msgStr))
-
-	case messages.ThreadExportFailed:
-		logging.Error("Thread export failed: %v", msg.Err)
-		cmds = append(cmds, a.toast.ShowError(fmt.Sprintf("Export failed: %v", msg.Err)))
-
 	default:
 		// Forward unknown messages to center pane (e.g., commit viewer internal messages)
 		newCenter, cmd := a.center.Update(msg)
@@ -1304,7 +1293,7 @@ func (a *App) viewLayerBased() tea.View {
 		centerFocused := a.focusedPane == messages.PaneCenter
 
 		// Check if we can use VTermLayer for direct cell rendering
-		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasCommitViewer() && !a.center.HasSaveDialog() {
+		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasCommitViewer() {
 			// Get terminal viewport from center model (accounts for borders, tab bar, help lines)
 			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
 			termX := centerX + termOffsetX
@@ -1363,9 +1352,6 @@ func (a *App) viewLayerBased() tea.View {
 				centerContent = a.renderCenterPaneContent()
 			}
 			centerView := buildBorderedPane(centerContent, centerWidth, centerHeight, centerFocused)
-			if a.center.HasTabs() && a.center.HasSaveDialog() {
-				centerView = a.center.OverlayDialog(centerView)
-			}
 			centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter)
 			canvas.Compose(centerDrawable)
 		}
@@ -3081,11 +3067,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 
 	case key.Matches(msg, a.keymap.CloseTab):
 		cmd := a.center.CloseActiveTab()
-		return true, cmd
-
-	case key.Matches(msg, a.keymap.SaveThread):
-		newCenter, cmd := a.center.Update(messages.SaveThreadRequest{})
-		a.center = newCenter
 		return true, cmd
 
 	// Global commands
