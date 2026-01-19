@@ -19,14 +19,27 @@ type Terminal struct {
 	closed  bool
 }
 
-// New creates a new terminal with the given command
+// New creates a new terminal with the given command.
 func New(command string, dir string, env []string) (*Terminal, error) {
+	return NewWithSize(command, dir, env, 0, 0)
+}
+
+// NewWithSize creates a new terminal with an initial size, if provided.
+func NewWithSize(command string, dir string, env []string, rows, cols uint16) (*Terminal, error) {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
 
-	ptmx, err := pty.Start(cmd)
+	var (
+		ptmx *os.File
+		err  error
+	)
+	if rows > 0 && cols > 0 {
+		ptmx, err = pty.StartWithSize(cmd, &pty.Winsize{Rows: rows, Cols: cols})
+	} else {
+		ptmx, err = pty.Start(cmd)
+	}
 	if err != nil {
 		return nil, err
 	}

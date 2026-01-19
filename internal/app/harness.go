@@ -34,6 +34,7 @@ type HarnessOptions struct {
 const (
 	HarnessMonitor = "monitor"
 	HarnessCenter  = "center"
+	HarnessSidebar = "sidebar"
 )
 
 // Harness drives a headless render loop for profiling.
@@ -47,6 +48,7 @@ type Harness struct {
 	newlineEvery int
 	payloadBuf   []byte
 	spinner      []byte
+	sidebarTerm  *sidebar.TerminalModel
 }
 
 // NewHarness builds a headless UI harness for the requested mode.
@@ -78,6 +80,8 @@ func NewHarness(opts HarnessOptions) (*Harness, error) {
 		return newMonitorHarness(cfg, opts), nil
 	case HarnessCenter:
 		return newCenterHarness(cfg, opts), nil
+	case HarnessSidebar:
+		return newSidebarHarness(cfg, opts), nil
 	default:
 		return nil, fmt.Errorf("unknown mode %q", opts.Mode)
 	}
@@ -212,12 +216,78 @@ func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 	}
 }
 
+func newSidebarHarness(cfg *config.Config, opts HarnessOptions) *Harness {
+	centerModel := center.New(cfg)
+	centerModel.SetShowKeymapHints(opts.ShowKeymapHints)
+
+	dash := dashboard.New()
+	dash.SetShowKeymapHints(opts.ShowKeymapHints)
+	side := sidebar.New()
+	side.SetShowKeymapHints(opts.ShowKeymapHints)
+	sideTerm := sidebar.NewTerminalModel()
+	sideTerm.SetShowKeymapHints(opts.ShowKeymapHints)
+
+	layoutMgr := layout.NewManager()
+	layoutMgr.Resize(opts.Width, opts.Height)
+
+	wt := &data.Worktree{
+		Name: "primary",
+		Repo: "/repo/primary",
+		Root: "/repo/primary/wt",
+	}
+	project := data.Project{Name: "primary", Path: wt.Repo}
+
+	dash.SetProjects([]data.Project{project})
+
+	app := &App{
+		config:          cfg,
+		layout:          layoutMgr,
+		dashboard:       dash,
+		center:          centerModel,
+		sidebar:         side,
+		sidebarTerminal: sideTerm,
+		styles:          common.DefaultStyles(),
+		width:           opts.Width,
+		height:          opts.Height,
+		helpOverlay:     common.NewHelpOverlay(),
+		toast:           common.NewToastModel(),
+		focusedPane:     messages.PaneSidebarTerminal,
+		dashboardChrome: &compositor.ChromeCache{},
+		centerChrome:    &compositor.ChromeCache{},
+		sidebarChrome:   &compositor.ChromeCache{},
+	}
+
+	app.layout.Resize(opts.Width, opts.Height)
+	app.updateLayout()
+
+	sideTerm.AddTerminalForHarness(wt)
+
+	return &Harness{
+		app:          app,
+		mode:         HarnessSidebar,
+		hotTabs:      opts.HotTabs,
+		payloadBytes: opts.PayloadBytes,
+		newlineEvery: opts.NewlineEvery,
+		payloadBuf:   make([]byte, 0, opts.PayloadBytes+32),
+		spinner:      []byte{'|', '/', '-', '\\'},
+		sidebarTerm:  sideTerm,
+	}
+}
+
 // Step simulates output for the active tabs.
 func (h *Harness) Step(frame int) {
 	if h == nil || h.hotTabs == 0 {
 		return
 	}
 	payload := h.buildPayload(frame)
+	if h.mode == HarnessSidebar {
+		if h.sidebarTerm != nil {
+			for i := 0; i < h.hotTabs; i++ {
+				h.sidebarTerm.WriteToTerminal(payload)
+			}
+		}
+		return
+	}
 	for i := 0; i < h.hotTabs && i < len(h.tabs); i++ {
 		tab := h.tabs[i]
 		if tab == nil {
@@ -234,6 +304,8 @@ func (h *Harness) Render() tea.View {
 	}
 	switch h.mode {
 	case HarnessCenter:
+		return h.app.viewLayerBased()
+	case HarnessSidebar:
 		return h.app.viewLayerBased()
 	default:
 		return h.app.viewMonitorMode()
