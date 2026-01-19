@@ -20,10 +20,12 @@ const terminalCloseTimeout = 5 * time.Second
 
 // Terminal wraps a PTY with an associated command
 type Terminal struct {
-	mu      sync.Mutex
-	ptyFile *os.File
-	cmd     *exec.Cmd
-	closed  bool
+	mu          sync.Mutex
+	ptyFile     *os.File
+	cmd         *exec.Cmd
+	closed      bool
+	cleanup     func()
+	cleanupOnce sync.Once
 }
 
 // New creates a new terminal with the given command.
@@ -56,6 +58,26 @@ func NewWithSize(command, dir string, env []string, rows, cols uint16) (*Termina
 	return &Terminal{
 		ptyFile: ptmx,
 		cmd:     cmd,
+	}, nil
+}
+
+// NewWithCmd creates a new terminal from an exec.Cmd.
+// Optional cleanup runs once on Close.
+func NewWithCmd(cmd *exec.Cmd, cleanup func()) (*Terminal, error) {
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Terminal{
+		ptyFile: ptmx,
+		cmd:     cmd,
+		cleanup: cleanup,
 	}, nil
 }
 
@@ -160,6 +182,9 @@ func (t *Terminal) Close() error {
 		} else {
 			_ = cmd.Wait()
 		}
+	}
+	if t.cleanup != nil {
+		t.cleanupOnce.Do(t.cleanup)
 	}
 
 	return nil

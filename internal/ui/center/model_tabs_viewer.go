@@ -44,7 +44,7 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 			CreatedAt:   time.Now().Unix(),
 			InstanceID:  m.instanceID,
 		}
-		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)
+		agent, err := m.agentProvider.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
 			logging.Error("Failed to create vim viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating vim viewer"}

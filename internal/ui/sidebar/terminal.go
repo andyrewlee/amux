@@ -128,6 +128,8 @@ type TerminalModel struct {
 	tmuxServerName string
 	tmuxConfigPath string
 	instanceID     string
+
+	terminalFactory func(*data.Workspace) (*pty.Terminal, error)
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -160,6 +162,11 @@ func (m *TerminalModel) getTmuxOptions() tmux.Options {
 		opts.ConfigPath = m.tmuxConfigPath
 	}
 	return opts
+}
+
+// SetTerminalFactory provides a custom terminal creator (e.g. sandbox shell).
+func (m *TerminalModel) SetTerminalFactory(factory func(*data.Workspace) (*pty.Terminal, error)) {
+	m.terminalFactory = factory
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.

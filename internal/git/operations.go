@@ -76,6 +76,12 @@ func GetRepoRoot(path string) (string, error) {
 	return RunGitCtx(context.Background(), path, "rev-parse", "--show-toplevel")
 }
 
+// GetRepoCommonDir returns the common git directory for a repo/worktree.
+// For worktrees, this points at the main repo's .git directory.
+func GetRepoCommonDir(path string) (string, error) {
+	return RunGit(path, "rev-parse", "--git-common-dir")
+}
+
 // GetCurrentBranch returns the current branch name
 func GetCurrentBranch(path string) (string, error) {
 	return RunGitCtx(context.Background(), path, "rev-parse", "--abbrev-ref", "HEAD")

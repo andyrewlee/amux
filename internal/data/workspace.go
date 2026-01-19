@@ -21,9 +21,9 @@ func NormalizeRuntime(runtime string) string {
 	switch runtime {
 	case RuntimeLocalWorktree, RuntimeLocalCheckout, RuntimeLocalDocker, RuntimeCloudSandbox:
 		return runtime
-	case "sandbox":
+	case "sandbox": // backward compatibility
 		return RuntimeCloudSandbox
-	case "local", "":
+	case "local", "": // backward compatibility
 		return RuntimeLocalWorktree
 	default:
 		return RuntimeLocalWorktree

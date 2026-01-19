@@ -31,6 +31,8 @@ const (
 	DialogDeleteWorkspace = "delete_workspace"
 	DialogRemoveProject   = "remove_project"
 	DialogSelectAssistant = "select_assistant"
+	DialogSelectRuntime   = "select_runtime"
+	DialogSandboxAPIKey   = "sandbox_api_key"
 	DialogQuit            = "quit"
 	DialogCleanupTmux     = "cleanup_tmux"
 )
@@ -48,6 +50,8 @@ type App struct {
 	gitStatus        GitStatusService
 	tmuxService      *tmuxService
 	updateService    UpdateService
+	sandboxManager   *SandboxManager
+	runtimeProvider  *RuntimeAgentProvider
 
 	// Limits
 	maxAttachedAgentTabs int

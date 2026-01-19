@@ -136,7 +136,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			Assistant:   assistant,
 			InstanceID:  m.instanceID,
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		agent, err := m.agentProvider.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),

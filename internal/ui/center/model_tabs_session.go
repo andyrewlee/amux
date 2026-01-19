@@ -51,7 +51,7 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	tab.Agent = nil
 	tab.mu.Unlock()
 	if agent != nil {
-		_ = m.agentManager.CloseAgent(agent)
+		_ = m.agentProvider.CloseAgent(agent)
 	}
 	workspaceID := ""
 	if tab.Workspace != nil {

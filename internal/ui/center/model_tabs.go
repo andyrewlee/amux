@@ -114,7 +114,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			CreatedAt:   time.Now().Unix(),
 			InstanceID:  m.instanceID,
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		agent, err := m.agentProvider.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}
@@ -233,7 +233,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.cachedShowCursor = false
 		tab.mu.Unlock()
 		if oldAgent != nil && oldAgent != msg.Agent {
-			_ = m.agentManager.CloseAgent(oldAgent)
+			_ = m.agentProvider.CloseAgent(oldAgent)
 		}
 
 		// Set up response writer for terminal queries (DSR, DA, etc.)
