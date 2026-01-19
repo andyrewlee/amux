@@ -3224,27 +3224,6 @@ func (a *App) setKeymapHintsEnabled(enabled bool) {
 	}
 }
 
-// renderSidebarPane renders the sidebar as two stacked panes: file changes (top) and terminal (bottom)
-func (a *App) renderSidebarPane() string {
-	outerWidth := a.layout.SidebarWidth()
-	outerHeight := a.layout.Height()
-
-	// Split height evenly between the two panes (borders touch)
-	paneHeight, bottomPaneHeight := sidebarPaneHeights(outerHeight)
-
-	topFocused := a.focusedPane == messages.PaneSidebar
-	bottomFocused := a.focusedPane == messages.PaneSidebarTerminal
-
-	// Build top pane manually with guaranteed border
-	topView := buildBorderedPane(a.sidebar.View(), outerWidth, paneHeight, topFocused)
-
-	// Build bottom pane manually with guaranteed border
-	bottomView := buildBorderedPane(a.sidebarTerminal.View(), outerWidth, bottomPaneHeight, bottomFocused)
-
-	// Stack the two panes vertically
-	return lipgloss.JoinVertical(lipgloss.Top, topView, bottomView)
-}
-
 func sidebarPaneHeights(total int) (int, int) {
 	if total <= 0 {
 		return 0, 0
