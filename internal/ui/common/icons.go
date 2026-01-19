@@ -101,7 +101,7 @@ func FileStatusIcon(status string) (icon, desc string) {
 	case "U":
 		return "U", "unmerged"
 	case "??":
-		return "A", "new file"
+		return "?", "untracked"
 	case "!!":
 		return "!", "ignored"
 	default:
