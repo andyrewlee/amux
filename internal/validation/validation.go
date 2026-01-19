@@ -37,6 +37,21 @@ func ValidateWorktreeName(name string) error {
 		return &ValidationError{Field: "name", Message: "name must start with letter/number and contain only letters, numbers, dots, dashes, or underscores"}
 	}
 
+	// Disallow consecutive dots (..)
+	if strings.Contains(name, "..") {
+		return &ValidationError{Field: "name", Message: "name cannot contain consecutive dots"}
+	}
+
+	// Disallow .lock suffix
+	if strings.HasSuffix(name, ".lock") {
+		return &ValidationError{Field: "name", Message: "name cannot end with .lock"}
+	}
+
+	// Disallow @{ sequence
+	if strings.Contains(name, "@{") {
+		return &ValidationError{Field: "name", Message: "name cannot contain '@{'"}
+	}
+
 	// Check for reserved names
 	reserved := []string{".", "..", "HEAD", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD"}
 	for _, r := range reserved {

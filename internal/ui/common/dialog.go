@@ -28,6 +28,12 @@ type DialogResult struct {
 	Index     int
 }
 
+// InputTransformFunc transforms input text before it's added to the input field
+type InputTransformFunc func(string) string
+
+// InputValidateFunc validates input and returns an error message (empty = valid)
+type InputValidateFunc func(string) string
+
 // Dialog is a modal dialog component
 type Dialog struct {
 	// Configuration
@@ -42,6 +48,11 @@ type Dialog struct {
 	input     textinput.Model
 	cursor    int
 	confirmed bool
+
+	// Input transformation and validation
+	inputTransform InputTransformFunc
+	inputValidate  InputValidateFunc
+	validationErr  string
 
 	// Fuzzy filter state
 	filterEnabled   bool
@@ -119,10 +130,44 @@ func fuzzyMatch(pattern, target string) bool {
 	return pi == len(pattern)
 }
 
+// SetInputTransform sets a transform function that will be applied to input text
+func (d *Dialog) SetInputTransform(fn InputTransformFunc) *Dialog {
+	d.inputTransform = fn
+	return d
+}
+
+// SetInputValidate sets a validation function that runs on each keystroke
+func (d *Dialog) SetInputValidate(fn InputValidateFunc) *Dialog {
+	d.inputValidate = fn
+	return d
+}
+
+// transformInputMsg applies the input transform to key press and paste messages
+func (d *Dialog) transformInputMsg(msg tea.Msg) tea.Msg {
+	switch m := msg.(type) {
+	case tea.KeyPressMsg:
+		if m.Text != "" {
+			transformed := d.inputTransform(m.Text)
+			if transformed != m.Text {
+				m.Text = transformed
+				return m
+			}
+		}
+	case tea.PasteMsg:
+		transformed := d.inputTransform(m.Content)
+		if transformed != m.Content {
+			m.Content = transformed
+			return m
+		}
+	}
+	return msg
+}
+
 // Show makes the dialog visible
 func (d *Dialog) Show() {
 	d.visible = true
 	d.confirmed = false
+	d.validationErr = ""
 	d.cursor = 0
 	if d.dtype == DialogInput {
 		d.input.SetValue("")
@@ -189,9 +234,13 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			logging.Info("Dialog Enter pressed: id=%s value=%s", d.id, d.input.Value())
-			d.visible = false
 			switch d.dtype {
 			case DialogInput:
+				// Block Enter if validation fails
+				if d.validationErr != "" {
+					return d, nil
+				}
+				d.visible = false
 				value := d.input.Value()
 				id := d.id
 				logging.Info("Dialog returning InputResult: id=%s value=%s", id, value)
@@ -203,6 +252,7 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 					}
 				}
 			case DialogConfirm:
+				d.visible = false
 				return d, func() tea.Msg {
 					return DialogResult{
 						ID:        d.id,
@@ -210,6 +260,7 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 					}
 				}
 			case DialogSelect:
+				d.visible = false
 				// For filtered dialogs, return the original index
 				var originalIdx int
 				var value string
@@ -275,8 +326,19 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 
 	// Update text input if applicable
 	if d.dtype == DialogInput {
+		// Transform incoming text if transform function is set
+		if d.inputTransform != nil {
+			msg = d.transformInputMsg(msg)
+		}
+
 		var cmd tea.Cmd
 		d.input, cmd = d.input.Update(msg)
+
+		// Run validation if validator is set
+		if d.inputValidate != nil {
+			d.validationErr = d.inputValidate(d.input.Value())
+		}
+
 		return d, cmd
 	}
 
@@ -330,10 +392,13 @@ func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 	for _, hit := range d.optionHits {
 		if hit.region.Contains(localX, localY) {
 			d.cursor = hit.cursorIndex
-			d.visible = false
 
 			switch d.dtype {
 			case DialogInput:
+				if hit.optionIndex == 0 && d.validationErr != "" {
+					return nil
+				}
+				d.visible = false
 				value := d.input.Value()
 				return func() tea.Msg {
 					return DialogResult{
@@ -343,10 +408,12 @@ func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 					}
 				}
 			case DialogConfirm:
+				d.visible = false
 				return func() tea.Msg {
 					return DialogResult{ID: d.id, Confirmed: hit.optionIndex == 0}
 				}
 			case DialogSelect:
+				d.visible = false
 				value := d.options[hit.optionIndex]
 				return func() tea.Msg {
 					return DialogResult{

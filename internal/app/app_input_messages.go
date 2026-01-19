@@ -74,6 +74,16 @@ func (a *App) handleShowAddProjectDialog() {
 func (a *App) handleShowCreateWorktreeDialog(msg messages.ShowCreateWorktreeDialog) {
 	a.dialogProject = msg.Project
 	a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return "" // Don't show error for empty input
+		}
+		if err := validation.ValidateWorktreeName(s); err != nil {
+			return err.Error()
+		}
+		return ""
+	})
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
