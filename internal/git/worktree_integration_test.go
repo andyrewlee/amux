@@ -58,3 +58,34 @@ func TestCreateDiscoverRemoveWorktree(t *testing.T) {
 		t.Fatalf("expected worktree path to be removed, err=%v", err)
 	}
 }
+
+func TestRemoveWorktreeWithUntrackedFiles(t *testing.T) {
+	skipIfNoGit(t)
+	repo := initRepo(t)
+
+	worktreePath := filepath.Join(t.TempDir(), "untracked-wt")
+
+	if err := CreateWorktree(repo, worktreePath, "untracked-wt", "HEAD"); err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+
+	// Add untracked files that would cause "Directory not empty" error
+	untrackedDir := filepath.Join(worktreePath, "node_modules", "some-package")
+	if err := os.MkdirAll(untrackedDir, 0o755); err != nil {
+		t.Fatalf("failed to create untracked dir: %v", err)
+	}
+	untrackedFile := filepath.Join(untrackedDir, "index.js")
+	if err := os.WriteFile(untrackedFile, []byte("module.exports = {}"), 0o644); err != nil {
+		t.Fatalf("failed to create untracked file: %v", err)
+	}
+
+	// RemoveWorktree should succeed despite untracked files
+	if err := RemoveWorktree(repo, worktreePath); err != nil {
+		t.Fatalf("RemoveWorktree() error = %v", err)
+	}
+
+	// Directory should be fully removed
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Fatalf("expected worktree path to be removed, err=%v", err)
+	}
+}
