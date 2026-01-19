@@ -1,6 +1,6 @@
 # amux
 
-Agent orchestrator made for developers to run parallel coding agents using git worktrees.
+TUI for running parallel coding agents with first class support for git worktrees.
 
 ![amux](https://github.com/user-attachments/assets/6929836c-760b-4c13-8042-a67fbebed0a8)
 
