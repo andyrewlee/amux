@@ -128,6 +128,11 @@ func (d *Dialog) renderLines() []string {
 	switch d.dtype {
 	case DialogInput:
 		appendLines(d.input.View())
+		// Show validation error if present
+		if d.validationErr != "" {
+			errStyle := lipgloss.NewStyle().Foreground(ColorError)
+			appendLines(errStyle.Render(d.validationErr))
+		}
 		appendBlank(1)
 		line := d.renderInputButtonsLine(len(lines))
 		lines = append(lines, line)
