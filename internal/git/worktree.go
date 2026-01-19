@@ -1,6 +1,7 @@
 package git
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -99,7 +100,22 @@ func CreateWorktree(repoPath, worktreePath, branch, base string) error {
 // RemoveWorktree removes a git worktree
 func RemoveWorktree(repoPath, worktreePath string) error {
 	_, err := RunGit(repoPath, "worktree", "remove", worktreePath, "--force")
-	return err
+	if err != nil {
+		// git worktree remove --force unregisters the worktree (removes .git file)
+		// but fails to delete the directory if it contains untracked files.
+		// If the .git file is gone, the worktree was successfully unregistered
+		// and we can safely remove the remaining directory ourselves.
+		gitFile := filepath.Join(worktreePath, ".git")
+		if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
+			// Worktree was unregistered, clean up leftover directory
+			if removeErr := os.RemoveAll(worktreePath); removeErr != nil {
+				return removeErr
+			}
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // DeleteBranch deletes a git branch
