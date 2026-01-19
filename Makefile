@@ -15,6 +15,8 @@ bench:
 
 lint: test
 	golangci-lint run
+	@echo "Checking file lengths (max 500 lines)..."
+	@find . -name '*.go' -exec wc -l {} + | awk '!/total$$/ && $$1 > 500 { print "ERROR: " $$2 " has " $$1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
 
 fmt:
 	gofmt -w .
@@ -39,7 +41,7 @@ help:
 	@echo "Available targets:"
 	@echo "  build      - Build the binary"
 	@echo "  test       - Run all tests"
-	@echo "  lint       - Run golangci-lint"
+	@echo "  lint       - Run golangci-lint and check file lengths (max 500 lines)"
 	@echo "  fmt        - Format code with gofmt and goimports"
 	@echo "  fmt-check  - Check formatting (for CI)"
 	@echo "  vet        - Run go vet"
