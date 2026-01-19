@@ -78,7 +78,7 @@ func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
 	return func() tea.Msg {
 		logging.Info("Creating agent tab: assistant=%s workspace=%s", assistant, ws.Name)
 
-		agent, err := m.agentManager.CreateAgent(ws, appPty.AgentType(assistant), uint16(termHeight), uint16(termWidth))
+		agent, err := m.agentProvider.CreateAgent(ws, appPty.AgentType(assistant), uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}
@@ -116,7 +116,7 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
 		cmd := fmt.Sprintf("vim -- %s", escapedFile)
 
-		agent, err := m.agentManager.CreateViewer(ws, cmd, uint16(termHeight), uint16(termWidth))
+		agent, err := m.agentProvider.CreateViewer(ws, cmd, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create vim viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating vim viewer"}
@@ -222,7 +222,7 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.W
 			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
 		}
 
-		agent, err := m.agentManager.CreateViewer(ws, cmd, uint16(termHeight), uint16(termWidth))
+		agent, err := m.agentProvider.CreateViewer(ws, cmd, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating viewer"}
@@ -332,6 +332,8 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	}
 }
 
+// createCommitDiffTab creates a viewer tab showing a specific commit's diff
+
 // closeCurrentTab closes the current tab
 func (m *Model) closeCurrentTab() tea.Cmd {
 	tabs := m.getTabs()
@@ -357,7 +359,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 
 	// Close agent
 	if tab.Agent != nil {
-		_ = m.agentManager.CloseAgent(tab.Agent)
+		_ = m.agentProvider.CloseAgent(tab.Agent)
 	}
 
 	tab.mu.Lock()

@@ -16,7 +16,7 @@ func setupSelectionModel(t *testing.T) (*Model, *Tab) {
 	if err != nil {
 		t.Fatalf("default config: %v", err)
 	}
-	m := New(cfg)
+	m := New(cfg, nil)
 	wt := &data.Workspace{
 		Name: "wt",
 		Repo: "/tmp/repo",
@@ -126,7 +126,7 @@ func TestTabBarClickPlusButton(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default config: %v", err)
 	}
-	m := New(cfg)
+	m := New(cfg, nil)
 	wt := &data.Workspace{
 		Name: "wt",
 		Repo: "/tmp/repo",
