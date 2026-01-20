@@ -252,10 +252,3 @@ func (fp *FilePicker) inputOffset() int {
 	offset += 2 // blank lines after path
 	return offset
 }
-
-func (fp *FilePicker) hiddenLabel() string {
-	if fp.showHidden {
-		return "Hide hidden"
-	}
-	return "Show hidden"
-}
