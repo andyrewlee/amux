@@ -102,6 +102,7 @@ func TestValidateAssistant(t *testing.T) {
 		{"codex", "codex", false},
 		{"gemini", "gemini", false},
 		{"term", "term", false},
+		{"cursor", "cursor", false},
 		{"unknown", "gpt4", true},
 		{"empty", "", true},
 	}
