@@ -107,6 +107,8 @@ func (v *VTerm) makeScreen(width, height int) [][]Cell {
 
 // Resize handles terminal resize
 func (v *VTerm) Resize(width, height int) {
+	oldWidth := v.Width
+	oldHeight := v.Height
 	// Enforce minimum dimensions to prevent negative cursor positions
 	if width < 1 {
 		width = 1
@@ -115,13 +117,13 @@ func (v *VTerm) Resize(width, height int) {
 		height = 1
 	}
 
-	if width == v.Width && height == v.Height {
+	if width == oldWidth && height == oldHeight {
 		return
 	}
 
 	// If height shrinks, move lines to scrollback
-	if height < v.Height && !v.AltScreen {
-		overflow := v.Height - height
+	if height < oldHeight && !v.AltScreen {
+		overflow := oldHeight - height
 		if overflow > 0 {
 			added := 0
 			for i := 0; i < overflow; i++ {
@@ -138,6 +140,23 @@ func (v *VTerm) Resize(width, height int) {
 				}
 			}
 			v.trimScrollback()
+		}
+	}
+
+	// If height grows, restore lines from scrollback so the screen fills.
+	// This matches native terminal behavior where expanding reveals history above.
+	if height > oldHeight && !v.AltScreen && v.ViewOffset == 0 {
+		added := height - oldHeight
+		restore := added
+		if restore > len(v.Scrollback) {
+			restore = len(v.Scrollback)
+		}
+		if restore > 0 {
+			start := len(v.Scrollback) - restore
+			restored := v.Scrollback[start:]
+			v.Scrollback = v.Scrollback[:start]
+			v.Screen = append(restored, v.Screen...)
+			v.CursorY += restore
 		}
 	}
 
