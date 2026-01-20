@@ -167,7 +167,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		// Handle paste in monitor mode - forward to selected tile
 		if a.monitorMode && a.focusedPane == messages.PaneMonitor {
-			tabs := a.center.MonitorTabs()
+			tabs := a.filterMonitorTabs(a.center.MonitorTabs())
 			if len(tabs) > 0 {
 				idx := a.center.MonitorSelectedIndex(len(tabs))
 				if cmd := a.center.HandleMonitorInput(tabs[idx].ID, msg); cmd != nil {

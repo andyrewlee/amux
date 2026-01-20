@@ -344,7 +344,7 @@ func (a *App) monitorFilterHit(x, y int) (string, bool) {
 }
 
 func (a *App) selectMonitorTile(paneX, paneY int) (int, bool) {
-	tabs := a.center.MonitorTabs()
+	tabs := a.filterMonitorTabs(a.center.MonitorTabs())
 	count := len(tabs)
 	if count == 0 {
 		return -1, false

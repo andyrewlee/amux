@@ -217,7 +217,7 @@ func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
 	// All keys -> Forward to selected tile's PTY
 
 	// Forward all other keys to selected tile's PTY
-	tabs := a.center.MonitorTabs()
+	tabs := a.filterMonitorTabs(a.center.MonitorTabs())
 	if len(tabs) == 0 {
 		return nil
 	}
