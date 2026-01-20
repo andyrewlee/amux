@@ -60,7 +60,7 @@ func DefaultConfig() (*Config, error) {
 				InterruptDelayMs: 0,
 			},
 			"cursor": {
-				Command:          "cursor",
+				Command:          "agent",
 				InterruptCount:   1,
 				InterruptDelayMs: 0,
 			},
