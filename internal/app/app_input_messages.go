@@ -65,6 +65,8 @@ func (a *App) handleShowAddProjectDialog() {
 		home = "/"
 	}
 	a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
+	a.filePicker.SetTitle("Add Project")
+	a.filePicker.SetPrimaryActionLabel("Add as project")
 	a.filePicker.SetSize(a.width, a.height)
 	a.filePicker.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.filePicker.Show()

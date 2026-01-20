@@ -122,9 +122,8 @@ func defaultHelpSections() []HelpSection {
 			Bindings: []HelpBinding{
 				{"Enter", "Open/select"},
 				{"Esc", "Cancel"},
-				{"↑/↓ or Ctrl+n/p", "Move"},
+				{"↑/↓", "Move"},
 				{"Tab", "Autocomplete"},
-				{"/", "Open typed path"},
 				{"Backspace", "Up directory"},
 				{"Ctrl+h", "Toggle hidden"},
 			},
