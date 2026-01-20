@@ -49,7 +49,6 @@ type HelpOverlay struct {
 	// Doc link hit region (relative to dialog content)
 	docLinkX     int
 	docLinkWidth int
-	contentLines int // number of content lines (for calculating doc link Y)
 }
 
 // NewHelpOverlay creates a new help overlay
@@ -441,11 +440,15 @@ func (h *HelpOverlay) View() string {
 
 	// Calculate box width (wider layout: 70 chars, responsive)
 	boxWidth := 70
-	if h.width > 0 && boxWidth > h.width-10 {
-		boxWidth = h.width - 10
+	if h.width > 0 && boxWidth > h.width-4 {
+		boxWidth = h.width - 4
 	}
-	if boxWidth < 40 {
-		boxWidth = 40
+	// Minimum width of 40, but never wider than terminal
+	if boxWidth < 40 && h.width > 0 {
+		boxWidth = min(40, h.width-2)
+	}
+	if boxWidth < 20 {
+		boxWidth = 20 // absolute minimum for readability
 	}
 
 	// Build content lines with height constraint
@@ -573,9 +576,6 @@ func (h *HelpOverlay) View() string {
 	}
 	lines = append(lines, footerLine)
 
-	// Track content lines for click detection
-	h.contentLines = len(lines)
-
 	// Join all lines
 	content := strings.Join(lines, "\n")
 
@@ -601,9 +601,15 @@ func (h *HelpOverlay) ContainsClick(x, y int) bool {
 		return false
 	}
 
-	// Calculate dialog position (centered)
+	// Calculate dialog position (centered, clamped to screen bounds)
 	dialogX := (h.width - h.dialogWidth) / 2
 	dialogY := (h.height - h.dialogHeight) / 2
+	if dialogX < 0 {
+		dialogX = 0
+	}
+	if dialogY < 0 {
+		dialogY = 0
+	}
 
 	return x >= dialogX && x < dialogX+h.dialogWidth &&
 		y >= dialogY && y < dialogY+h.dialogHeight
@@ -612,20 +618,31 @@ func (h *HelpOverlay) ContainsClick(x, y int) bool {
 // isDocLinkClick checks if a click is on the documentation link.
 func (h *HelpOverlay) isDocLinkClick(x, y int) bool {
 	// Don't check for doc link clicks in search mode (link isn't visible)
-	if !h.visible || h.searchMode || h.dialogWidth == 0 || h.contentLines == 0 {
+	if !h.visible || h.searchMode || h.dialogWidth == 0 || h.dialogHeight == 0 {
 		return false
 	}
 
-	// Calculate dialog position (centered)
+	// Calculate dialog position (centered, clamped to screen bounds)
 	dialogX := (h.width - h.dialogWidth) / 2
 	dialogY := (h.height - h.dialogHeight) / 2
+	if dialogX < 0 {
+		dialogX = 0
+	}
+	if dialogY < 0 {
+		dialogY = 0
+	}
 
 	// Content area starts after border (1) and padding (1)
 	contentStartX := dialogX + 1 + 2 // border + left padding
 	contentStartY := dialogY + 1 + 1 // border + top padding
 
-	// Footer line is the last line of content
-	footerY := contentStartY + h.contentLines - 1
+	// Footer is the last line of rendered content
+	// Use dialogHeight minus frame (border=2 + padding=2) to get actual content height
+	contentHeight := h.dialogHeight - 4 // 1 top border + 1 top padding + 1 bottom padding + 1 bottom border
+	if contentHeight < 1 {
+		return false
+	}
+	footerY := contentStartY + contentHeight - 1
 
 	// Check if click is on the footer line and within doc link X range
 	localX := x - contentStartX

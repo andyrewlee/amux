@@ -146,6 +146,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.ready = true
 		a.layout.Resize(msg.Width, msg.Height)
 		a.updateLayout()
+		// Update help overlay size for accurate hit-testing after resize
+		if a.helpOverlay.Visible() {
+			a.helpOverlay.SetSize(a.width, a.height)
+		}
 
 	case tea.MouseClickMsg:
 		if a.monitorMode {
