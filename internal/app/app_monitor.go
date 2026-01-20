@@ -226,31 +226,6 @@ func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
 	return a.center.HandleMonitorInput(tabs[idx].ID, msg)
 }
 
-func (a *App) activateMonitorSelection() tea.Cmd {
-	snapshots := a.center.MonitorSnapshots()
-	if len(snapshots) == 0 {
-		return nil
-	}
-	idx := a.center.MonitorSelectedIndex(len(snapshots))
-	snap := snapshots[idx]
-	if snap.Worktree == nil {
-		return nil
-	}
-	project := a.projectForWorktree(snap.Worktree)
-	return func() tea.Msg {
-		return messages.WorktreeActivated{Project: project, Worktree: snap.Worktree}
-	}
-}
-
-func (a *App) exitMonitorToSelection() tea.Cmd {
-	cmd := a.activateMonitorSelection()
-	a.monitorMode = false
-	a.monitorLayoutKey = ""
-	a.focusPane(messages.PaneCenter)
-	a.updateLayout()
-	return cmd
-}
-
 func (a *App) projectForWorktree(wt *data.Worktree) *data.Project {
 	if wt == nil {
 		return nil
