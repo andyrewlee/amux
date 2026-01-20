@@ -96,19 +96,7 @@ func (fp *FilePicker) renderLines() []string {
 		}
 
 		lineIndex := len(lines)
-		if i == 0 {
-			label := "Use this directory"
-			style := lipgloss.NewStyle().Foreground(ColorForeground)
-			if i == fp.cursor {
-				style = style.Background(ColorSelection).Bold(true)
-			}
-			line := cursor + style.Render(label)
-			fp.addRowHit(i, lineIndex, line)
-			lines = append(lines, line)
-			continue
-		}
-
-		idx := fp.filteredIdx[i-1]
+		idx := fp.filteredIdx[i]
 		entry := fp.entries[idx]
 
 		name := entry.Name()
@@ -159,11 +147,7 @@ func (fp *FilePicker) renderButtonsLine(baseLine int) string {
 		id    string
 		label string
 	}{
-		{id: "open", label: buttonStyle.Render("Open")},
-		{id: "open-typed", label: buttonStyle.Render("Open typed")},
-		{id: "autocomplete", label: buttonStyle.Render("Autocomplete")},
-		{id: "up", label: buttonStyle.Render("Up")},
-		{id: "hidden", label: buttonStyle.Render(fp.hiddenLabel())},
+		{id: "open", label: buttonStyle.Render(fp.primaryActionLabel())},
 		{id: "cancel", label: buttonStyle.Render("Cancel")},
 	}
 
@@ -183,7 +167,7 @@ func (fp *FilePicker) renderButtonsLine(baseLine int) string {
 }
 
 func (fp *FilePicker) addRowHit(index, lineIndex int, line string) {
-	width := min(lipgloss.Width(line), filePickerContentWidth)
+	width := filePickerContentWidth
 	if width <= 0 {
 		return
 	}
@@ -222,15 +206,7 @@ func (fp *FilePicker) Cursor() *tea.Cursor {
 		return nil
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		MarginBottom(1)
-	pathStyle := lipgloss.NewStyle().
-		Foreground(ColorSecondary)
-
-	prefix := titleStyle.Render(fp.title) + "\n\n" + pathStyle.Render(fp.currentPath) + "\n\n"
-	c.Y += lipgloss.Height(prefix)
+	c.Y += fp.inputOffset()
 
 	// Account for border + padding (Border=1, Padding=(1,2)).
 	c.X += 3
@@ -245,17 +221,36 @@ func (fp *FilePicker) helpItem(key, desc string) string {
 
 func (fp *FilePicker) helpLines(width int) []string {
 	items := []string{
-		fp.helpItem("enter", "open"),
+		fp.helpItem("enter", "open/select"),
 		fp.helpItem("esc", "cancel"),
-		fp.helpItem("↑", "up"),
-		fp.helpItem("↓", "down"),
-		fp.helpItem("ctrl+n/p", "move"),
+		fp.helpItem("↑/↓", "move"),
 		fp.helpItem("tab", "autocomplete"),
-		fp.helpItem("/", "open typed"),
 		fp.helpItem("backspace", "parent"),
 		fp.helpItem("ctrl+h", "hidden"),
 	}
 	return WrapHelpItems(items, width)
+}
+
+func (fp *FilePicker) primaryActionLabel() string {
+	if fp.primaryAction != "" {
+		return fp.primaryAction
+	}
+	return "Open"
+}
+
+func (fp *FilePicker) inputOffset() int {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorPrimary).
+		MarginBottom(1)
+	pathStyle := lipgloss.NewStyle().
+		Foreground(ColorSecondary)
+
+	offset := lipgloss.Height(titleStyle.Render(fp.title))
+	offset += 2 // blank lines after title
+	offset += lipgloss.Height(pathStyle.Render(fp.currentPath))
+	offset += 2 // blank lines after path
+	return offset
 }
 
 func (fp *FilePicker) hiddenLabel() string {

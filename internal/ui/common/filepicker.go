@@ -30,6 +30,7 @@ type FilePicker struct {
 	buttonHits      []HitRegion
 	styles          Styles
 	showKeymapHints bool
+	primaryAction   string
 }
 
 type filePickerRowHit struct {
@@ -47,7 +48,7 @@ func NewFilePicker(id, startPath string, directoriesOnly bool) *FilePicker {
 	}
 
 	ti := textinput.New()
-	ti.Placeholder = "Type to filter or enter path..."
+	ti.Placeholder = "Type to filter or paste path..."
 	ti.Focus()
 	ti.CharLimit = 200
 	ti.SetWidth(45)
@@ -63,6 +64,7 @@ func NewFilePicker(id, startPath string, directoriesOnly bool) *FilePicker {
 		maxVisible:      8,
 		styles:          DefaultStyles(),
 		showKeymapHints: true,
+		primaryAction:   "Open",
 	}
 
 	fp.loadDirectory()
@@ -79,10 +81,27 @@ func (fp *FilePicker) SetStyles(styles Styles) {
 	fp.styles = styles
 }
 
+// SetTitle updates the dialog title.
+func (fp *FilePicker) SetTitle(title string) {
+	if title == "" {
+		return
+	}
+	fp.title = title
+}
+
+// SetPrimaryActionLabel updates the primary action label.
+func (fp *FilePicker) SetPrimaryActionLabel(label string) {
+	if label == "" {
+		return
+	}
+	fp.primaryAction = label
+}
+
 // Show makes the picker visible
 func (fp *FilePicker) Show() {
 	fp.visible = true
-	fp.input.SetValue("")
+	fp.input.SetValue(fp.inputBasePath())
+	fp.input.CursorEnd()
 	fp.input.Focus()
 	fp.loadDirectory()
 }
@@ -95,6 +114,18 @@ func (fp *FilePicker) Hide() {
 // Visible returns whether the picker is visible
 func (fp *FilePicker) Visible() bool {
 	return fp.visible
+}
+
+func (fp *FilePicker) inputBasePath() string {
+	base := filepath.Clean(fp.currentPath)
+	sep := string(os.PathSeparator)
+	if base == sep {
+		return base
+	}
+	if !strings.HasSuffix(base, sep) {
+		base += sep
+	}
+	return base
 }
 
 // Update handles messages
@@ -137,18 +168,13 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 				if hit.Contains(localX, localY) {
 					switch hit.ID {
 					case "open":
-						return fp.handleEnter()
-					case "open-typed":
-						if fp.handleOpenFromInput() {
-							return fp, nil
-						}
-					case "autocomplete":
-						fp.handleAutocomplete()
-						return fp, nil
+						return fp.confirmCurrentDirectory()
 					case "up":
 						parent := filepath.Dir(fp.currentPath)
 						if parent != fp.currentPath {
 							fp.currentPath = parent
+							fp.input.SetValue(fp.inputBasePath())
+							fp.input.CursorEnd()
 							fp.loadDirectory()
 						}
 						return fp, nil
@@ -183,11 +209,6 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			return fp.handleEnter()
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
-			if fp.handleOpenFromInput() {
-				return fp, nil
-			}
-
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 			// Tab = autocomplete or select first match
 			fp.handleAutocomplete()
@@ -208,13 +229,7 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))):
-			// If input is empty and backspace, go up a directory
-			if fp.input.Value() == "" {
-				parent := filepath.Dir(fp.currentPath)
-				if parent != fp.currentPath {
-					fp.currentPath = parent
-					fp.loadDirectory()
-				}
+			if fp.handleBackspace() {
 				return fp, nil
 			}
 
@@ -273,7 +288,7 @@ func (fp *FilePicker) moveCursor(delta int) {
 }
 
 func (fp *FilePicker) displayCount() int {
-	return len(fp.filteredIdx) + 1
+	return len(fp.filteredIdx)
 }
 
 // SetSize sets the picker size
