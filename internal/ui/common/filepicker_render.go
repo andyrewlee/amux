@@ -224,7 +224,7 @@ func (fp *FilePicker) helpLines(width int) []string {
 		fp.helpItem("enter", "open/select"),
 		fp.helpItem("esc", "cancel"),
 		fp.helpItem("↑/↓", "move"),
-		fp.helpItem("tab", "autocomplete"),
+		fp.helpItem("tab", "enter folder"),
 		fp.helpItem("backspace", "parent"),
 		fp.helpItem("ctrl+h", "hidden"),
 	}

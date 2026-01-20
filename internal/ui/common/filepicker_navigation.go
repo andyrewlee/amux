@@ -295,16 +295,21 @@ func (fp *FilePicker) handleOpenFromInput() bool {
 }
 
 func (fp *FilePicker) handleAutocomplete() {
-	if fp.cursor > 0 && len(fp.filteredIdx) > 0 {
-		entry := fp.entries[fp.filteredIdx[fp.cursor-1]]
+	if fp.cursor >= 0 && len(fp.filteredIdx) > 0 && fp.cursor < len(fp.filteredIdx) {
+		entry := fp.entries[fp.filteredIdx[fp.cursor]]
 		if entry.IsDir() {
-			fp.input.SetValue(entry.Name() + "/")
-			if fp.handleOpenFromInput() {
-				return
-			}
+			// Navigate directly into the directory (like Enter does)
+			newPath := filepath.Join(fp.currentPath, entry.Name())
+			fp.currentPath = newPath
+			fp.input.SetValue(fp.inputBasePath())
+			fp.input.CursorEnd()
+			fp.loadDirectory()
 		} else {
 			fp.input.SetValue(entry.Name())
+			fp.applyFilter()
 		}
-		fp.applyFilter()
+		return
 	}
+	// Fallback: try to navigate from typed path
+	fp.handleOpenFromInput()
 }
