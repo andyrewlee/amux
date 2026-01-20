@@ -36,19 +36,35 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 
-	// Handle help overlay toggle (highest priority)
-	if _, ok := msg.(tea.KeyPressMsg); ok && a.helpOverlay.Visible() {
-		// Any key dismisses help
-		a.helpOverlay.Hide()
-		return a, nil
+	// Handle help overlay input (highest priority when visible)
+	if a.helpOverlay.Visible() {
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			var cmd tea.Cmd
+			a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
+			return a, cmd
+		case tea.MouseWheelMsg:
+			a.helpOverlay, _, _ = a.helpOverlay.Update(msg)
+			return a, nil
+		case tea.MouseClickMsg:
+			if msg.Button == tea.MouseLeft {
+				// First check if clicking on a link inside the dialog
+				var cmd tea.Cmd
+				a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
+				if cmd != nil {
+					return a, cmd
+				}
+				// Close if clicking outside the dialog
+				if !a.helpOverlay.ContainsClick(msg.X, msg.Y) {
+					a.helpOverlay.Hide()
+				}
+				return a, nil
+			}
+		}
 	}
 
-	// Allow clicking to dismiss help or error overlays
+	// Allow clicking to dismiss error overlays
 	if mouseMsg, ok := msg.(tea.MouseClickMsg); ok && mouseMsg.Button == tea.MouseLeft {
-		if a.helpOverlay.Visible() {
-			a.helpOverlay.Hide()
-			return a, nil
-		}
 		if a.err != nil {
 			a.err = nil
 			return a, nil

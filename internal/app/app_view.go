@@ -314,10 +314,12 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		canvas.Compose(settingsDrawable)
 	}
 
-	// Help overlay (replaces entire content)
+	// Help overlay (centered like settings dialog)
 	if a.helpOverlay.Visible() {
 		helpView := a.helpOverlay.View()
-		helpDrawable := compositor.NewStringDrawable(helpView, 0, 0)
+		helpWidth, helpHeight := viewDimensions(helpView)
+		x, y := a.centeredPosition(helpWidth, helpHeight)
+		helpDrawable := compositor.NewStringDrawable(helpView, x, y)
 		canvas.Compose(helpDrawable)
 	}
 
