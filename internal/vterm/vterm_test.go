@@ -241,6 +241,41 @@ func TestScrollbackViewOffsetAnchorsOnResize(t *testing.T) {
 	}
 }
 
+func TestResizeRestoresScrollbackOnGrow(t *testing.T) {
+	vt := New(5, 3)
+	// Seed scrollback with two lines.
+	for i := 0; i < 2; i++ {
+		line := MakeBlankLine(5)
+		line[0] = Cell{Rune: rune('s' + i), Width: 1}
+		vt.Scrollback = append(vt.Scrollback, line)
+	}
+	// Seed screen lines.
+	for i := 0; i < 3; i++ {
+		line := MakeBlankLine(5)
+		line[0] = Cell{Rune: rune('a' + i), Width: 1}
+		vt.Screen[i] = line
+	}
+	vt.CursorY = 2
+
+	vt.Resize(5, 5)
+
+	if len(vt.Screen) != 5 {
+		t.Fatalf("expected screen height 5, got %d", len(vt.Screen))
+	}
+	if len(vt.Scrollback) != 0 {
+		t.Fatalf("expected scrollback empty after restore, got %d", len(vt.Scrollback))
+	}
+	if vt.Screen[0][0].Rune != 's' || vt.Screen[1][0].Rune != 't' {
+		t.Fatalf("expected restored scrollback at top, got %c/%c", vt.Screen[0][0].Rune, vt.Screen[1][0].Rune)
+	}
+	if vt.Screen[2][0].Rune != 'a' || vt.Screen[3][0].Rune != 'b' || vt.Screen[4][0].Rune != 'c' {
+		t.Fatalf("expected original screen lines shifted down, got %c/%c/%c", vt.Screen[2][0].Rune, vt.Screen[3][0].Rune, vt.Screen[4][0].Rune)
+	}
+	if vt.CursorY != 4 {
+		t.Fatalf("expected cursor to shift to 4, got %d", vt.CursorY)
+	}
+}
+
 func TestIncrementalCursorPositionedWrites(t *testing.T) {
 	// Test cursor positioning + partial writes (common in Ink/React TUIs, progress bars, etc.)
 	vt := New(20, 3)
