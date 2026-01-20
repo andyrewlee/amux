@@ -218,6 +218,8 @@ func (m *Model) renderTabBar() string {
 			agentStyle = m.styles.AgentOpencode
 		case "droid":
 			agentStyle = m.styles.AgentDroid
+		case "cursor":
+			agentStyle = m.styles.AgentCursor
 		default:
 			agentStyle = m.styles.AgentTerm
 		}
