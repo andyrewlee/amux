@@ -33,8 +33,15 @@ func TestPTYMonitorToggle(t *testing.T) {
 	if err := session.SendString("\x00m"); err != nil {
 		t.Fatalf("send prefix+monitor: %v", err)
 	}
-	if err := session.WaitForContains("Monitor", 5*time.Second); err != nil {
+	if err := session.WaitForContains("[Exit]", 5*time.Second); err != nil {
 		t.Fatalf("monitor header not visible: %v", err)
+	}
+
+	if err := session.SendString("\r"); err != nil {
+		t.Fatalf("send enter in monitor: %v", err)
+	}
+	if err := session.WaitForContains("[Exit]", 5*time.Second); err != nil {
+		t.Fatalf("monitor exited after enter: %v", err)
 	}
 
 	if err := session.SendString("\x00m"); err != nil {

@@ -3,12 +3,10 @@ package app
 import (
 	"fmt"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
@@ -216,12 +214,7 @@ func (a *App) renderMonitorGrid() string {
 
 func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
 	// Monitor mode - type to interact:
-	// Enter -> Select and Open (exit monitor and switch to tile)
-	// All other keys -> Forward to selected tile's PTY
-
-	if key.Matches(msg, a.keymap.Enter) {
-		return a.exitMonitorToSelection()
-	}
+	// All keys -> Forward to selected tile's PTY
 
 	// Forward all other keys to selected tile's PTY
 	tabs := a.center.MonitorTabs()
@@ -230,31 +223,6 @@ func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	idx := a.center.MonitorSelectedIndex(len(tabs))
 	return a.center.HandleMonitorInput(tabs[idx].ID, msg)
-}
-
-func (a *App) activateMonitorSelection() tea.Cmd {
-	snapshots := a.center.MonitorSnapshots()
-	if len(snapshots) == 0 {
-		return nil
-	}
-	idx := a.center.MonitorSelectedIndex(len(snapshots))
-	snap := snapshots[idx]
-	if snap.Worktree == nil {
-		return nil
-	}
-	project := a.projectForWorktree(snap.Worktree)
-	return func() tea.Msg {
-		return messages.WorktreeActivated{Project: project, Worktree: snap.Worktree}
-	}
-}
-
-func (a *App) exitMonitorToSelection() tea.Cmd {
-	cmd := a.activateMonitorSelection()
-	a.monitorMode = false
-	a.monitorLayoutKey = ""
-	a.focusPane(messages.PaneCenter)
-	a.updateLayout()
-	return cmd
 }
 
 func (a *App) projectForWorktree(wt *data.Worktree) *data.Project {

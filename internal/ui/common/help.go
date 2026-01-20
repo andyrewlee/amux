@@ -85,8 +85,8 @@ func defaultHelpSections() []HelpSection {
 			Title: "Monitor Mode",
 			Bindings: []HelpBinding{
 				{"hjkl/↑↓←→", "Move selection"},
-				{"Enter", "Open selection"},
-				{"q/Esc", "Exit monitor"},
+				{"Type/Enter", "Send input to selected agent"},
+				{"C-Space m", "Exit monitor"},
 			},
 		},
 		{
