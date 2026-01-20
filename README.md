@@ -2,7 +2,7 @@
   <img width="339" height="105" alt="Screenshot 2026-01-20 at 1 00 23 AM" src="https://github.com/user-attachments/assets/fdbefab9-9f7c-4e08-a423-a436dda3c496" />  
 </p>
 
-<p align="center">Parallel coding-agent orchestration for git worktrees in a fast TUI.</p>
+<p align="center">TUI for easily running parallel coding agents</p>
 
 <p align="center">
   <a href="https://github.com/andyrewlee/amux/releases">
@@ -21,15 +21,14 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#features">Features</a> ·
   <a href="#configuration">Configuration</a> ·
-  <a href="#development">Development</a> ·
-  <a href="#community">Community</a>
+  <a href="#development">Development</a>
 </p>
 
 ![amux TUI preview](https://github.com/user-attachments/assets/f5c4647e-a6ee-4d62-b548-0fdd73714c90)
 
 ## What is amux?
 
-amux is a terminal UI for running multiple coding agents in parallel with first-class support for git worktrees. Run real agent CLIs—no wrappers, no SDKs—organized, fast, and visible while you work.
+amux is a terminal UI for running multiple coding agents in parallel with first-class support for git worktrees.
 
 ## Quick start
 
@@ -47,10 +46,10 @@ Then run `amux` to open the dashboard.
 
 ## Features
 
-- **Parallel agents**: Launch multiple agents side-by-side, each in its own worktree
+- **Parallel agents**: Launch multiple agents within main repo and within worktrees
 - **No wrappers**: Works with Claude Code, Codex, Gemini, Amp, OpenCode, and Droid
-- **Keyboard + mouse**: Vim-style navigation or click around
-- **Built-in diffs**: Review file changes and commit history without leaving amux
+- **Keyboard + mouse**: Can be operated with just the keyboard or with a mouse
+- **All-in-on tool**: Run agents, view diffs, and access terminal
 
 ## Configuration
 
@@ -74,11 +73,3 @@ git clone https://github.com/andyrewlee/amux.git
 cd amux
 make run
 ```
-
-## Community
-
-Join the [Discord](https://discord.gg/Dswc7KFPxs) for questions and discussion.
-
-## License
-
-MIT
