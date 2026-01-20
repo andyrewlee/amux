@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -216,12 +215,7 @@ func (a *App) renderMonitorGrid() string {
 
 func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
 	// Monitor mode - type to interact:
-	// Enter -> Select and Open (exit monitor and switch to tile)
-	// All other keys -> Forward to selected tile's PTY
-
-	if key.Matches(msg, a.keymap.Enter) {
-		return a.exitMonitorToSelection()
-	}
+	// All keys -> Forward to selected tile's PTY
 
 	// Forward all other keys to selected tile's PTY
 	tabs := a.center.MonitorTabs()
