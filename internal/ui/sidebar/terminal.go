@@ -178,6 +178,24 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	case tea.MouseReleaseMsg:
 		return m.handleMouseRelease(msg)
 
+	case tea.MouseWheelMsg:
+		if !m.focused {
+			return m, nil
+		}
+		ts := m.getTerminal()
+		if ts == nil || ts.VTerm == nil {
+			return m, nil
+		}
+		ts.mu.Lock()
+		delta := common.ScrollDeltaForHeight(ts.VTerm.Height, 8) // ~12.5% of viewport
+		if msg.Button == tea.MouseWheelUp {
+			ts.VTerm.ScrollView(delta)
+		} else if msg.Button == tea.MouseWheelDown {
+			ts.VTerm.ScrollView(-delta)
+		}
+		ts.mu.Unlock()
+		return m, nil
+
 	case tea.PasteMsg:
 		if !m.focused {
 			return m, nil

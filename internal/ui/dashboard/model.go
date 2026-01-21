@@ -128,12 +128,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if !m.focused {
 			return m, nil
 		}
+		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 10) // ~10% of visible
 		if msg.Button == tea.MouseWheelUp {
-			m.moveCursor(-1)
+			m.moveCursor(-delta)
 			return m, nil
 		}
 		if msg.Button == tea.MouseWheelDown {
-			m.moveCursor(1)
+			m.moveCursor(delta)
 			return m, nil
 		}
 
@@ -172,6 +173,20 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.moveCursor(1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.moveCursor(-1)
+		case key.Matches(msg, key.NewBinding(key.WithKeys("pgdown", "ctrl+d"))):
+			// Half-page scroll to maintain context overlap
+			delta := m.visibleHeight() / 2
+			if delta < 1 {
+				delta = 1
+			}
+			m.moveCursor(delta)
+		case key.Matches(msg, key.NewBinding(key.WithKeys("pgup", "ctrl+u"))):
+			// Half-page scroll to maintain context overlap
+			delta := m.visibleHeight() / 2
+			if delta < 1 {
+				delta = 1
+			}
+			m.moveCursor(-delta)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			return m, m.handleEnter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
@@ -339,4 +354,28 @@ func (m *Model) Focused() bool {
 func (m *Model) SetProjects(projects []data.Project) {
 	m.projects = projects
 	m.rebuildRows()
+}
+
+// visibleHeight returns the number of visible rows in the dashboard
+func (m *Model) visibleHeight() int {
+	innerHeight := m.height - 2
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	headerHeight := 1 // trailing blank line
+	contentWidth := m.width - 4
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	helpLines := m.helpLines(contentWidth)
+	if !m.showKeymapHints {
+		helpLines = nil
+	}
+	helpHeight := len(helpLines)
+	toolbarHeight := m.toolbarHeight()
+	visibleHeight := innerHeight - headerHeight - toolbarHeight - helpHeight
+	if visibleHeight < 1 {
+		visibleHeight = 1
+	}
+	return visibleHeight
 }

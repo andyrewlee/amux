@@ -13,6 +13,9 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
+// pollInterval is the fallback polling interval for WaitFor* methods.
+const pollInterval = 50 * time.Millisecond
+
 type PTYSession struct {
 	cmd     *exec.Cmd
 	pty     *os.File
@@ -150,31 +153,63 @@ func (s *PTYSession) ScreenASCII() string {
 }
 
 func (s *PTYSession) WaitForContains(substr string, timeout time.Duration) error {
-	deadline := time.After(timeout)
+	// Immediate check - handles "already visible" case
+	if stringsContains(s.ScreenASCII(), substr) {
+		return nil
+	}
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	poll := time.NewTimer(pollInterval)
+	defer poll.Stop()
+
 	for {
-		if stringsContains(s.ScreenASCII(), substr) {
-			return nil
-		}
 		select {
 		case <-s.updates:
-			continue
-		case <-deadline:
-			return fmt.Errorf("timeout waiting for %q", substr)
+			// Signal received - check immediately
+			if stringsContains(s.ScreenASCII(), substr) {
+				return nil
+			}
+		case <-poll.C:
+			// Periodic check - safety net for missed signals
+			if stringsContains(s.ScreenASCII(), substr) {
+				return nil
+			}
+			poll.Reset(pollInterval)
+		case <-deadline.C:
+			return fmt.Errorf("timeout waiting for %q\n\nScreen:\n%s", substr, s.ScreenASCII())
 		}
 	}
 }
 
 func (s *PTYSession) WaitForAbsent(substr string, timeout time.Duration) error {
-	deadline := time.After(timeout)
+	// Immediate check - handles "already absent" case
+	if !stringsContains(s.ScreenASCII(), substr) {
+		return nil
+	}
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	poll := time.NewTimer(pollInterval)
+	defer poll.Stop()
+
 	for {
-		if !stringsContains(s.ScreenASCII(), substr) {
-			return nil
-		}
 		select {
 		case <-s.updates:
-			continue
-		case <-deadline:
-			return fmt.Errorf("timeout waiting for %q to disappear", substr)
+			// Signal received - check immediately
+			if !stringsContains(s.ScreenASCII(), substr) {
+				return nil
+			}
+		case <-poll.C:
+			// Periodic check - safety net for missed signals
+			if !stringsContains(s.ScreenASCII(), substr) {
+				return nil
+			}
+			poll.Reset(pollInterval)
+		case <-deadline.C:
+			return fmt.Errorf("timeout waiting for %q to disappear\n\nScreen:\n%s", substr, s.ScreenASCII())
 		}
 	}
 }

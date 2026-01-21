@@ -131,13 +131,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Wheel scroll
+		// Wheel scroll: use viewport-proportional delta
+		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 10)
 		if msg.Button == tea.MouseWheelUp {
-			m.moveCursor(-3)
+			m.moveCursor(-delta)
 			return m, nil
 		}
 		if msg.Button == tea.MouseWheelDown {
-			m.moveCursor(3)
+			m.moveCursor(delta)
 			return m, nil
 		}
 
