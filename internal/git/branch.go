@@ -83,7 +83,7 @@ func GetBranchFiles(repoPath string) (*BranchDiff, error) {
 
 	// Parse NUL-separated numstat format:
 	// Normal: "ADDED\tDELETED\tPATH\0"
-	// Rename: "ADDED\tDELETED\t\0OLDPATH\0NEWPATH\0" (empty field signals rename)
+	// Rename: "ADDED\tDELETED\0OLDPATH\0NEWPATH\0" (only 2 tab fields, followed by NUL-separated paths)
 	parts := bytes.Split(output, []byte{0})
 	i := 0
 	for i < len(parts) {
@@ -93,9 +93,8 @@ func GetBranchFiles(repoPath string) (*BranchDiff, error) {
 			continue
 		}
 
-		// Split on tabs to get added, deleted, path
 		fields := strings.Split(part, "\t")
-		if len(fields) < 3 {
+		if len(fields) < 2 {
 			i++
 			continue
 		}
@@ -110,15 +109,19 @@ func GetBranchFiles(repoPath string) (*BranchDiff, error) {
 			file.DeletedLines, _ = strconv.Atoi(fields[1])
 		}
 
-		// Check if this is a rename (empty path field means next two parts are oldpath, newpath)
-		if fields[2] == "" && i+2 < len(parts) {
+		// Check for rename/copy: exactly 2 tab fields means paths come in next NUL-separated parts
+		if len(fields) == 2 && i+2 < len(parts) {
 			file.OldPath = string(parts[i+1])
 			file.Path = string(parts[i+2])
 			file.Kind = ChangeRenamed
 			i += 3
-		} else {
+		} else if len(fields) >= 3 {
+			// Normal file: path is the third tab-separated field
 			file.Path = fields[2]
 			i++
+		} else {
+			i++
+			continue
 		}
 
 		result.Files = append(result.Files, file)

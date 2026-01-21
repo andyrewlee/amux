@@ -186,7 +186,7 @@ func (m *Model) maxScroll() int {
 
 // visibleHeight returns the number of visible lines
 func (m *Model) visibleHeight() int {
-	h := m.height - 2 // Reserve space for header/footer
+	h := m.height - 3 // Reserve space for header/stats/footer
 	if h < 1 {
 		h = 1
 	}

@@ -175,6 +175,13 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		}
 		return true, nil
 
+	case key.Matches(msg, a.keymap.BranchFiles):
+		if a.activeWorktree != nil {
+			wt := a.activeWorktree
+			return true, func() tea.Msg { return messages.OpenBranchFiles{Worktree: wt} }
+		}
+		return true, nil
+
 	case key.Matches(msg, a.keymap.CloseTab):
 		cmd := a.center.CloseActiveTab()
 		return true, cmd
@@ -450,6 +457,14 @@ func (a *App) handleWorktreeInfoClick(localX, localY int) tea.Cmd {
 	if region, ok := findButtonRegion(lines, agentBtn); ok {
 		if region.Contains(localX, localY) {
 			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+		}
+	}
+
+	filesBtn := a.styles.TabPlus.Render("Files changed")
+	if region, ok := findButtonRegion(lines, filesBtn); ok {
+		if region.Contains(localX, localY) {
+			wt := a.activeWorktree
+			return func() tea.Msg { return messages.OpenBranchFiles{Worktree: wt} }
 		}
 	}
 
