@@ -63,12 +63,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if !m.focused {
 			return m, nil
 		}
+		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 10) // ~10% of visible
 		if msg.Button == tea.MouseWheelUp {
-			m.moveCursor(-1)
+			m.moveCursor(-delta)
 			return m, nil
 		}
 		if msg.Button == tea.MouseWheelDown {
-			m.moveCursor(1)
+			m.moveCursor(delta)
 			return m, nil
 		}
 

@@ -32,23 +32,24 @@ func (m *Model) moveCursor(delta int) {
 		return
 	}
 
-	target := m.cursor + delta
-
-	// Determine search direction
-	dir := delta
-	if dir == 0 {
-		dir = 1 // For delta==0, search forward first
+	// Determine direction and number of steps
+	steps := delta
+	if steps < 0 {
+		steps = -steps
+	}
+	direction := 1
+	if delta < 0 {
+		direction = -1
 	}
 
-	newCursor := m.findSelectableRow(target, dir)
-
-	// If not found and delta was 0, try the other direction
-	if newCursor == -1 && delta == 0 {
-		newCursor = m.findSelectableRow(target, -1)
-	}
-
-	if newCursor != -1 {
-		m.cursor = newCursor
+	// Walk row-by-row, skipping non-selectable rows
+	for step := 0; step < steps; step++ {
+		next := m.findSelectableRow(m.cursor+direction, direction)
+		if next == -1 {
+			// No more selectable rows in this direction
+			break
+		}
+		m.cursor = next
 	}
 }
 
