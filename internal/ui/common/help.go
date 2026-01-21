@@ -320,7 +320,7 @@ func openURL(url string) tea.Cmd {
 		default: // linux, freebsd, etc.
 			cmd = exec.Command("xdg-open", url)
 		}
-		_ = cmd.Start()
+		_ = cmd.Run() // Run waits for completion, avoiding zombie processes
 		return nil
 	}
 }
