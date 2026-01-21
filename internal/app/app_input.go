@@ -309,13 +309,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case messages.OpenCommitViewer:
-		if cmd := a.handleOpenCommitViewer(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.ViewCommitDiff:
-		if cmd := a.handleViewCommitDiff(msg); cmd != nil {
+	case messages.OpenBranchFiles:
+		if cmd := a.handleOpenBranchFiles(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 

@@ -1,54 +1,171 @@
 package git
 
 import (
+	"bytes"
+	"sort"
 	"strconv"
-	"strings"
 )
 
-// FileStatus represents the status of a single file
-type FileStatus struct {
-	Code string // Two-character status code (e.g., "M ", " M", "??", "A ")
-	Path string // File path relative to repo root
+// DiffMode specifies which changes to diff
+type DiffMode int
+
+const (
+	DiffModeUnstaged DiffMode = iota // Working tree changes (not staged)
+	DiffModeStaged                   // Index changes (staged)
+	DiffModeBoth                     // Both staged and unstaged
+	DiffModeBranch                   // Branch diff vs base
+)
+
+// ChangeKind represents the type of change
+type ChangeKind int
+
+const (
+	ChangeModified  ChangeKind = iota // File content changed
+	ChangeAdded                       // New file
+	ChangeDeleted                     // File removed
+	ChangeRenamed                     // File renamed
+	ChangeCopied                      // File copied
+	ChangeUntracked                   // Untracked file
+)
+
+// Change represents a single file change in git status
+type Change struct {
+	Path    string     // Current file path
+	OldPath string     // Original path (for renames/copies)
+	Kind    ChangeKind // Type of change
+	Staged  bool       // Whether this change is staged
 }
 
-// StatusResult holds the parsed git status
+// StatusResult holds the parsed git status grouped by category
 type StatusResult struct {
-	Files []FileStatus
-	Clean bool
+	Staged    []Change // Changes staged for commit
+	Unstaged  []Change // Changes in working tree (not staged)
+	Untracked []Change // Untracked files
+	Clean     bool     // True if no changes
 }
 
-// GetStatus returns the git status for a repository
-// Uses -u flag to show individual files in untracked directories
+// GetStatus returns the git status for a repository using porcelain v1 -z format
+// This format handles spaces, unicode, and special characters in paths correctly
 func GetStatus(repoPath string) (*StatusResult, error) {
-	output, err := RunGit(repoPath, "status", "--short", "-u")
+	output, err := RunGitRaw(repoPath, "status", "--porcelain=v1", "-z", "-u")
 	if err != nil {
 		return nil, err
 	}
 
-	return parseStatus(output), nil
+	return parseStatusPorcelain(output), nil
 }
 
-// parseStatus parses the short format git status output
-func parseStatus(output string) *StatusResult {
+// parseStatusPorcelain parses git status --porcelain=v1 -z output
+// Format: XY PATH\0 or XY OLDPATH\0NEWPATH\0 (for renames/copies)
+// Where X is index status, Y is work tree status
+func parseStatusPorcelain(output []byte) *StatusResult {
 	result := &StatusResult{
-		Files: []FileStatus{},
-		Clean: true,
+		Staged:    []Change{},
+		Unstaged:  []Change{},
+		Untracked: []Change{},
+		Clean:     true,
 	}
 
-	for _, line := range strings.Split(output, "\n") {
-		if len(line) < 3 {
+	if len(output) == 0 {
+		return result
+	}
+
+	// Split on NUL bytes
+	entries := bytes.Split(output, []byte{0})
+
+	i := 0
+	for i < len(entries) {
+		entry := entries[i]
+		if len(entry) < 3 {
+			i++
 			continue
 		}
 
 		result.Clean = false
-		status := FileStatus{
-			Code: line[0:2],
-			Path: strings.TrimSpace(line[3:]),
+
+		// First two bytes are status codes
+		indexStatus := entry[0]
+		workTreeStatus := entry[1]
+		// Third byte should be space
+		path := string(entry[3:])
+
+		// Handle renames and copies which have two paths
+		var oldPath string
+		if indexStatus == 'R' || indexStatus == 'C' {
+			// Next entry contains the new path
+			oldPath = path
+			i++
+			if i < len(entries) {
+				path = string(entries[i])
+			}
 		}
-		result.Files = append(result.Files, status)
+
+		// Process staged changes (index status)
+		if indexStatus != ' ' && indexStatus != '?' {
+			change := Change{
+				Path:    path,
+				OldPath: oldPath,
+				Kind:    statusCodeToKind(indexStatus),
+				Staged:  true,
+			}
+			result.Staged = append(result.Staged, change)
+		}
+
+		// Process unstaged changes (work tree status)
+		if workTreeStatus != ' ' && workTreeStatus != '?' {
+			change := Change{
+				Path:    path,
+				OldPath: "", // Unstaged changes don't have renames
+				Kind:    statusCodeToKind(workTreeStatus),
+				Staged:  false,
+			}
+			result.Unstaged = append(result.Unstaged, change)
+		}
+
+		// Process untracked files
+		if indexStatus == '?' && workTreeStatus == '?' {
+			change := Change{
+				Path:   path,
+				Kind:   ChangeUntracked,
+				Staged: false,
+			}
+			result.Untracked = append(result.Untracked, change)
+		}
+
+		i++
 	}
 
+	// Sort each group lexicographically
+	sortChanges(result.Staged)
+	sortChanges(result.Unstaged)
+	sortChanges(result.Untracked)
+
 	return result
+}
+
+// statusCodeToKind converts a git status code to ChangeKind
+func statusCodeToKind(code byte) ChangeKind {
+	switch code {
+	case 'M':
+		return ChangeModified
+	case 'A':
+		return ChangeAdded
+	case 'D':
+		return ChangeDeleted
+	case 'R':
+		return ChangeRenamed
+	case 'C':
+		return ChangeCopied
+	default:
+		return ChangeModified
+	}
+}
+
+// sortChanges sorts changes by path
+func sortChanges(changes []Change) {
+	sort.Slice(changes, func(i, j int) bool {
+		return changes[i].Path < changes[j].Path
+	})
 }
 
 // GetStatusSummary returns a summary string for the status
@@ -56,44 +173,52 @@ func (s *StatusResult) GetStatusSummary() string {
 	if s.Clean {
 		return "Clean"
 	}
-	return "+" + strconv.Itoa(len(s.Files)) + " changes"
+	total := len(s.Staged) + len(s.Unstaged) + len(s.Untracked)
+	return "+" + strconv.Itoa(total) + " changes"
 }
 
-// GetDirtyCount returns the number of modified files
+// GetDirtyCount returns the total number of changes
 func (s *StatusResult) GetDirtyCount() int {
-	return len(s.Files)
+	return len(s.Staged) + len(s.Unstaged) + len(s.Untracked)
 }
 
-// IsModified checks if a file status represents a modification
-func (f *FileStatus) IsModified() bool {
-	return f.Code[0] == 'M' || f.Code[1] == 'M'
+// AllChanges returns all changes as a flat list for backwards compatibility
+func (s *StatusResult) AllChanges() []Change {
+	all := make([]Change, 0, len(s.Staged)+len(s.Unstaged)+len(s.Untracked))
+	all = append(all, s.Staged...)
+	all = append(all, s.Unstaged...)
+	all = append(all, s.Untracked...)
+	return all
 }
 
-// IsAdded checks if a file status represents an addition
-func (f *FileStatus) IsAdded() bool {
-	return f.Code[0] == 'A' || f.Code[1] == 'A'
-}
-
-// IsDeleted checks if a file status represents a deletion
-func (f *FileStatus) IsDeleted() bool {
-	return f.Code[0] == 'D' || f.Code[1] == 'D'
-}
-
-// IsUntracked checks if a file is untracked
-func (f *FileStatus) IsUntracked() bool {
-	return f.Code == "??"
-}
-
-// DisplayCode returns a user-friendly display code
-// For untracked files, returns "A " instead of "??" to indicate they are additions
-func (f *FileStatus) DisplayCode() string {
-	if f.Code == "??" {
-		return "A "
+// KindString returns a display string for the change kind
+func (c *Change) KindString() string {
+	switch c.Kind {
+	case ChangeModified:
+		return "M"
+	case ChangeAdded:
+		return "A"
+	case ChangeDeleted:
+		return "D"
+	case ChangeRenamed:
+		return "R"
+	case ChangeCopied:
+		return "C"
+	case ChangeUntracked:
+		return "?"
+	default:
+		return "?"
 	}
-	return f.Code
 }
 
-// IsDirectory checks if the path is a directory (ends with /)
-func (f *FileStatus) IsDirectory() bool {
-	return strings.HasSuffix(f.Path, "/")
+// DisplayCode returns a two-character status code for display
+// First char is staged status, second is unstaged status
+func (c *Change) DisplayCode() string {
+	if c.Staged {
+		return c.KindString() + " "
+	}
+	if c.Kind == ChangeUntracked {
+		return "??"
+	}
+	return " " + c.KindString()
 }

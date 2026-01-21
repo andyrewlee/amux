@@ -175,14 +175,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		}
 		return true, nil
 
-	case key.Matches(msg, a.keymap.CommitViewer):
-		// Now opens branch files view instead of commit viewer
-		if a.activeWorktree != nil {
-			wt := a.activeWorktree
-			return true, func() tea.Msg { return messages.OpenBranchFiles{Worktree: wt} }
-		}
-		return true, nil
-
 	case key.Matches(msg, a.keymap.CloseTab):
 		cmd := a.center.CloseActiveTab()
 		return true, cmd
@@ -281,7 +273,7 @@ func (a *App) updateLayout() {
 	a.sidebar.SetSize(contentWidth, topContentHeight)
 	a.sidebarTerminal.SetSize(contentWidth, bottomContentHeight)
 
-	// Calculate and set offsets for sidebar terminal mouse handling
+	// Calculate and set offsets for sidebar mouse handling
 	// X: Dashboard + Center + Border(1) + Padding(1)
 	sidebarX := leftGutter + a.layout.DashboardWidth()
 	if a.layout.ShowCenter() {
@@ -290,11 +282,11 @@ func (a *App) updateLayout() {
 	if a.layout.ShowSidebar() {
 		sidebarX += a.layout.GapX()
 	}
-	termOffsetX := sidebarX + 2
+	sidebarContentOffsetX := sidebarX + 2 // +2 for border and padding
 
 	// Y: Top pane height (including its border) + Bottom pane border(1)
 	termOffsetY := topGutter + topPaneHeight + 1
-	a.sidebarTerminal.SetOffset(termOffsetX, termOffsetY)
+	a.sidebarTerminal.SetOffset(sidebarContentOffsetX, termOffsetY)
 
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
@@ -458,14 +450,6 @@ func (a *App) handleWorktreeInfoClick(localX, localY int) tea.Cmd {
 	if region, ok := findButtonRegion(lines, agentBtn); ok {
 		if region.Contains(localX, localY) {
 			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-		}
-	}
-
-	filesBtn := a.styles.TabPlus.Render("Files Changed")
-	if region, ok := findButtonRegion(lines, filesBtn); ok {
-		if region.Contains(localX, localY) {
-			wt := a.activeWorktree
-			return func() tea.Msg { return messages.OpenBranchFiles{Worktree: wt} }
 		}
 	}
 

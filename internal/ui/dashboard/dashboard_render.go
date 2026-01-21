@@ -42,7 +42,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				if s.Clean {
 					status = " " + m.styles.StatusClean.Render(common.Icons.Clean)
 				} else {
-					count := len(s.Files)
+					count := s.GetDirtyCount()
 					status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
 				}
 			}
@@ -92,7 +92,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			if s.Clean {
 				status = " " + m.styles.StatusClean.Render(common.Icons.Clean)
 			} else {
-				count := len(s.Files)
+				count := s.GetDirtyCount()
 				status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
 			}
 		}

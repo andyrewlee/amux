@@ -78,10 +78,9 @@ func (a *App) renderWorktreeInfo() string {
 	}
 
 	agentBtn := a.styles.TabPlus.Render("New agent")
-	commitsBtn := a.styles.TabPlus.Render("Commits")
-	content += "\n" + lipgloss.JoinHorizontal(lipgloss.Bottom, agentBtn, commitsBtn)
+	content += "\n" + agentBtn
 	if a.config.UI.ShowKeymapHints {
-		content += "\n" + a.styles.Help.Render("C-Spc a:new agent  C-Spc d:commits")
+		content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
 	}
 
 	return content

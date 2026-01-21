@@ -37,11 +37,16 @@ func (m *Model) View() string {
 	} else if activeIdx < len(tabs) {
 		tab := tabs[activeIdx]
 		tab.mu.Lock()
-		if tab.CommitViewer != nil {
+		if tab.DiffViewer != nil {
 			// Sync focus state with center pane focus
-			tab.CommitViewer.SetFocused(m.focused)
-			// Render commit viewer
-			b.WriteString(tab.CommitViewer.View())
+			tab.DiffViewer.SetFocused(m.focused)
+			// Render native diff viewer
+			b.WriteString(tab.DiffViewer.View())
+		} else if tab.BranchFiles != nil {
+			// Sync focus state with center pane focus
+			tab.BranchFiles.SetFocused(m.focused)
+			// Render branch files view
+			b.WriteString(tab.BranchFiles.View())
 		} else if tab.Terminal != nil {
 			tab.Terminal.ShowCursor = m.focused && !tab.CopyMode
 			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
@@ -131,7 +136,6 @@ func (m *Model) helpLines(contentWidth int) []string {
 	if m.worktree != nil {
 		items = append(items,
 			m.helpItem("C-Spc a", "new tab"),
-			m.helpItem("C-Spc d", "commits"),
 		)
 	}
 	if hasTabs {
@@ -347,16 +351,11 @@ func (m *Model) renderEmpty() string {
 	// New agent button
 	agentBtn := m.styles.TabPlus.Render("New agent")
 	b.WriteString(agentBtn)
-	b.WriteString("  ")
-
-	// Commits button
-	commitsBtn := m.styles.TabPlus.Render("Commits")
-	b.WriteString(commitsBtn)
 
 	// Help text
 	b.WriteString("\n\n")
 	helpStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
-	b.WriteString(helpStyle.Render("C-Spc a:new agent  C-Spc d:commits"))
+	b.WriteString(helpStyle.Render("C-Spc a:new agent"))
 
 	return b.String()
 }

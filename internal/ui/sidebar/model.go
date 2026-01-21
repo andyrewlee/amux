@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -14,6 +15,15 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+// displayItem represents a single item in the flat display list
+// This combines section headers and file entries
+type displayItem struct {
+	isHeader bool
+	header   string // For section headers like "Staged (2)"
+	change   *git.Change
+	mode     git.DiffMode // Which diff mode to use for this item
+}
+
 // Model is the Bubbletea model for the sidebar pane
 type Model struct {
 	// State
@@ -22,6 +32,14 @@ type Model struct {
 	gitStatus    *git.StatusResult
 	cursor       int
 	scrollOffset int
+
+	// Filter mode
+	filterMode  bool
+	filterQuery string
+	filterInput textinput.Model
+
+	// Display list (flattened from grouped status)
+	displayItems []displayItem
 
 	// Layout
 	width           int
@@ -34,8 +52,13 @@ type Model struct {
 
 // New creates a new sidebar model
 func New() *Model {
+	ti := textinput.New()
+	ti.Placeholder = "filter..."
+	ti.CharLimit = 100
+
 	return &Model{
-		styles: common.DefaultStyles(),
+		styles:      common.DefaultStyles(),
+		filterInput: ti,
 	}
 }
 
@@ -57,6 +80,32 @@ func (m *Model) Init() tea.Cmd {
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	// Handle filter input when in filter mode
+	if m.filterMode {
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				m.filterMode = false
+				m.filterQuery = ""
+				m.filterInput.SetValue("")
+				m.filterInput.Blur()
+				m.rebuildDisplayList()
+				return m, nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				m.filterMode = false
+				m.filterInput.Blur()
+				return m, nil
+			default:
+				newInput, cmd := m.filterInput.Update(msg)
+				m.filterInput = newInput
+				m.filterQuery = m.filterInput.Value()
+				m.rebuildDisplayList()
+				return m, cmd
+			}
+		}
+	}
 
 	switch msg := msg.(type) {
 	case tea.MouseWheelMsg:
@@ -83,12 +132,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				return m, nil
 			}
 			m.cursor = idx
-			if m.gitStatus != nil && idx < len(m.gitStatus.Files) {
-				file := m.gitStatus.Files[idx]
-				return m, func() tea.Msg {
-					return messages.OpenDiff{File: file.Path, StatusCode: file.Code, Worktree: m.worktree}
-				}
-			}
+			return m, m.openCurrentItem()
 		}
 
 	case tea.KeyPressMsg:
@@ -102,18 +146,143 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.moveCursor(-1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "space", "o"))):
-			if m.gitStatus != nil && m.cursor >= 0 && m.cursor < len(m.gitStatus.Files) {
-				file := m.gitStatus.Files[m.cursor]
-				cmds = append(cmds, func() tea.Msg {
-					return messages.OpenDiff{File: file.Path, StatusCode: file.Code, Worktree: m.worktree}
-				})
-			}
+			cmds = append(cmds, m.openCurrentItem())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
 			cmds = append(cmds, m.refreshStatus())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
+			// Enter filter mode
+			m.filterMode = true
+			m.filterInput.Focus()
+			return m, m.filterInput.Focus()
 		}
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// openCurrentItem opens the diff for the currently selected item
+func (m *Model) openCurrentItem() tea.Cmd {
+	if m.cursor < 0 || m.cursor >= len(m.displayItems) {
+		return nil
+	}
+
+	item := m.displayItems[m.cursor]
+	if item.isHeader || item.change == nil {
+		return nil
+	}
+
+	change := item.change
+	mode := item.mode
+	wt := m.worktree
+
+	return func() tea.Msg {
+		return messages.OpenDiff{
+			Change:   change,
+			Mode:     mode,
+			Worktree: wt,
+		}
+	}
+}
+
+// rebuildDisplayList rebuilds the flat display list from grouped status
+func (m *Model) rebuildDisplayList() {
+	m.displayItems = nil
+
+	if m.gitStatus == nil || m.gitStatus.Clean {
+		return
+	}
+
+	// Filter function
+	matchesFilter := func(c *git.Change) bool {
+		if m.filterQuery == "" {
+			return true
+		}
+		return strings.Contains(strings.ToLower(c.Path), strings.ToLower(m.filterQuery))
+	}
+
+	// Count matching items
+	stagedCount := 0
+	for i := range m.gitStatus.Staged {
+		if matchesFilter(&m.gitStatus.Staged[i]) {
+			stagedCount++
+		}
+	}
+	unstagedCount := 0
+	for i := range m.gitStatus.Unstaged {
+		if matchesFilter(&m.gitStatus.Unstaged[i]) {
+			unstagedCount++
+		}
+	}
+	untrackedCount := 0
+	for i := range m.gitStatus.Untracked {
+		if matchesFilter(&m.gitStatus.Untracked[i]) {
+			untrackedCount++
+		}
+	}
+
+	// Add Staged section
+	if stagedCount > 0 {
+		m.displayItems = append(m.displayItems, displayItem{
+			isHeader: true,
+			header:   "Staged (" + strconv.Itoa(stagedCount) + ")",
+		})
+		for i := range m.gitStatus.Staged {
+			if matchesFilter(&m.gitStatus.Staged[i]) {
+				m.displayItems = append(m.displayItems, displayItem{
+					change: &m.gitStatus.Staged[i],
+					mode:   git.DiffModeStaged,
+				})
+			}
+		}
+	}
+
+	// Add Unstaged section
+	if unstagedCount > 0 {
+		m.displayItems = append(m.displayItems, displayItem{
+			isHeader: true,
+			header:   "Unstaged (" + strconv.Itoa(unstagedCount) + ")",
+		})
+		for i := range m.gitStatus.Unstaged {
+			if matchesFilter(&m.gitStatus.Unstaged[i]) {
+				m.displayItems = append(m.displayItems, displayItem{
+					change: &m.gitStatus.Unstaged[i],
+					mode:   git.DiffModeUnstaged,
+				})
+			}
+		}
+	}
+
+	// Add Untracked section
+	if untrackedCount > 0 {
+		m.displayItems = append(m.displayItems, displayItem{
+			isHeader: true,
+			header:   "Untracked (" + strconv.Itoa(untrackedCount) + ")",
+		})
+		for i := range m.gitStatus.Untracked {
+			if matchesFilter(&m.gitStatus.Untracked[i]) {
+				m.displayItems = append(m.displayItems, displayItem{
+					change: &m.gitStatus.Untracked[i],
+					mode:   git.DiffModeUnstaged,
+				})
+			}
+		}
+	}
+
+	// Reset cursor if it's out of bounds
+	if m.cursor >= len(m.displayItems) {
+		m.cursor = len(m.displayItems) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+
+	// Skip to first non-header item
+	for m.cursor < len(m.displayItems) && m.displayItems[m.cursor].isHeader {
+		m.cursor++
+	}
+	if m.cursor >= len(m.displayItems) && len(m.displayItems) > 0 {
+		m.cursor = len(m.displayItems) - 1
+	}
 }
 
 // View renders the sidebar
@@ -156,7 +325,7 @@ func (m *Model) View() string {
 	return result
 }
 
-// renderChanges renders the git changes
+// renderChanges renders the git changes with grouped display
 func (m *Model) renderChanges() string {
 	if m.gitStatus == nil {
 		return m.styles.Muted.Render("No status loaded")
@@ -164,10 +333,22 @@ func (m *Model) renderChanges() string {
 
 	var b strings.Builder
 
-	// Show branch info if available
+	// Show branch info
 	if m.worktree != nil && m.worktree.Branch != "" {
 		b.WriteString(m.styles.Muted.Render("branch: "))
 		b.WriteString(m.styles.BranchName.Render(m.worktree.Branch))
+		b.WriteString("\n")
+	}
+
+	// Filter input when in filter mode
+	if m.filterMode {
+		b.WriteString(m.styles.Muted.Render("/"))
+		b.WriteString(m.filterInput.View())
+		b.WriteString("\n")
+	} else if m.filterQuery != "" {
+		// Show active filter
+		b.WriteString(m.styles.Muted.Render("filter: "))
+		b.WriteString(m.styles.BranchName.Render(m.filterQuery))
 		b.WriteString("\n")
 	}
 
@@ -178,7 +359,8 @@ func (m *Model) renderChanges() string {
 	}
 
 	// Show file count
-	b.WriteString(m.styles.Muted.Render(strconv.Itoa(len(m.gitStatus.Files)) + " changed files"))
+	total := m.gitStatus.GetDirtyCount()
+	b.WriteString(m.styles.Muted.Render(strconv.Itoa(total) + " changed files"))
 	b.WriteString("\n\n")
 
 	visibleHeight := m.visibleHeight()
@@ -191,7 +373,7 @@ func (m *Model) renderChanges() string {
 		m.scrollOffset = m.cursor - visibleHeight + 1
 	}
 
-	for i, file := range m.gitStatus.Files {
+	for i, item := range m.displayItems {
 		if i < m.scrollOffset {
 			continue
 		}
@@ -199,53 +381,63 @@ func (m *Model) renderChanges() string {
 			break
 		}
 
-		cursor := common.Icons.CursorEmpty + " "
-		if i == m.cursor {
-			cursor = common.Icons.Cursor + " "
-		}
-
-		// Status indicator with color
-		var statusStyle lipgloss.Style
-		switch {
-		case file.IsModified():
-			statusStyle = m.styles.StatusModified
-		case file.IsAdded():
-			statusStyle = m.styles.StatusAdded
-		case file.IsDeleted():
-			statusStyle = m.styles.StatusDeleted
-		case file.IsUntracked():
-			statusStyle = m.styles.StatusUntracked
-		default:
-			statusStyle = m.styles.Muted
-		}
-
-		// Use display code (shows "A " for untracked instead of "??")
-		displayCode := file.DisplayCode()
-
-		// Build the prefix (cursor + status code)
-		prefix := cursor + statusStyle.Render(displayCode) + " "
-		prefixWidth := lipgloss.Width(prefix)
-
-		// Calculate max path width, leaving room for prefix
-		maxPathWidth := m.width - prefixWidth
-		if maxPathWidth < 5 {
-			maxPathWidth = 5
-		}
-
-		// Truncate path from left to fit, showing end of path (most relevant part)
-		displayPath := file.Path
-		pathWidth := lipgloss.Width(displayPath)
-		if pathWidth > maxPathWidth {
-			// Remove characters from start until it fits
-			runes := []rune(displayPath)
-			for len(runes) > 4 && lipgloss.Width(string(runes)) > maxPathWidth-3 {
-				runes = runes[1:]
+		if item.isHeader {
+			// Section header
+			headerStyle := m.styles.SidebarHeader
+			b.WriteString(headerStyle.Render(item.header))
+			b.WriteString("\n")
+		} else {
+			// File entry
+			cursor := common.Icons.CursorEmpty + " "
+			if i == m.cursor {
+				cursor = common.Icons.Cursor + " "
 			}
-			displayPath = "..." + string(runes)
-		}
 
-		line := prefix + m.styles.FilePath.Render(displayPath)
-		b.WriteString(line + "\n")
+			// Status indicator with color
+			var statusStyle lipgloss.Style
+			switch item.change.Kind {
+			case git.ChangeModified:
+				statusStyle = m.styles.StatusModified
+			case git.ChangeAdded:
+				statusStyle = m.styles.StatusAdded
+			case git.ChangeDeleted:
+				statusStyle = m.styles.StatusDeleted
+			case git.ChangeRenamed:
+				statusStyle = m.styles.StatusRenamed
+			case git.ChangeUntracked:
+				statusStyle = m.styles.StatusUntracked
+			default:
+				statusStyle = m.styles.Muted
+			}
+
+			// Use single-char status code for consistent alignment
+			statusCode := item.change.KindString()
+
+			// Build the prefix (cursor + status code)
+			prefix := cursor + statusStyle.Render(statusCode) + " "
+			prefixWidth := lipgloss.Width(prefix)
+
+			// Calculate max path width, leaving room for prefix
+			maxPathWidth := m.width - prefixWidth
+			if maxPathWidth < 5 {
+				maxPathWidth = 5
+			}
+
+			// Truncate path from left to fit, showing end of path (most relevant part)
+			displayPath := item.change.Path
+			pathWidth := lipgloss.Width(displayPath)
+			if pathWidth > maxPathWidth {
+				// Remove characters from start until it fits
+				runes := []rune(displayPath)
+				for len(runes) > 4 && lipgloss.Width(string(runes)) > maxPathWidth-3 {
+					runes = runes[1:]
+				}
+				displayPath = "..." + string(runes)
+			}
+
+			line := prefix + m.styles.FilePath.Render(displayPath)
+			b.WriteString(line + "\n")
+		}
 	}
 
 	return b.String()
@@ -259,6 +451,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
 		m.helpItem("k/↑", "up"),
 		m.helpItem("j/↓", "down"),
+		m.helpItem("/", "filter"),
 	}
 	return common.WrapHelpItems(items, contentWidth)
 }
@@ -282,6 +475,9 @@ func (m *Model) listHeaderLines() int {
 	if m.worktree != nil && m.worktree.Branch != "" {
 		header++
 	}
+	if m.filterMode || m.filterQuery != "" {
+		header++
+	}
 	header += 2 // "changed files" + blank line
 	return header
 }
@@ -300,6 +496,9 @@ func (m *Model) rowIndexAt(screenY int) (int, bool) {
 	if m.gitStatus == nil || m.gitStatus.Clean {
 		return -1, false
 	}
+	if len(m.displayItems) == 0 {
+		return -1, false
+	}
 	header := m.listHeaderLines()
 	help := m.helpLineCount()
 	contentHeight := m.height - help
@@ -311,28 +510,47 @@ func (m *Model) rowIndexAt(screenY int) (int, bool) {
 		return -1, false
 	}
 	index := m.scrollOffset + rowY
-	if index < 0 || index >= len(m.gitStatus.Files) {
+	if index < 0 || index >= len(m.displayItems) {
 		return -1, false
 	}
 	return index, true
 }
 
-// moveCursor moves the cursor
+// moveCursor moves the cursor, skipping section headers
 func (m *Model) moveCursor(delta int) {
-	maxLen := 0
-	if m.gitStatus != nil {
-		maxLen = len(m.gitStatus.Files)
+	if len(m.displayItems) == 0 {
+		return
 	}
 
-	m.cursor += delta
-	if m.cursor < 0 {
-		m.cursor = 0
+	newCursor := m.cursor + delta
+
+	// Skip headers when moving
+	for newCursor >= 0 && newCursor < len(m.displayItems) && m.displayItems[newCursor].isHeader {
+		if delta > 0 {
+			newCursor++
+		} else {
+			newCursor--
+		}
 	}
-	if m.cursor >= maxLen {
-		m.cursor = maxLen - 1
+
+	// Clamp to valid range
+	if newCursor < 0 {
+		newCursor = 0
+		// Find first non-header
+		for newCursor < len(m.displayItems) && m.displayItems[newCursor].isHeader {
+			newCursor++
+		}
 	}
-	if m.cursor < 0 {
-		m.cursor = 0
+	if newCursor >= len(m.displayItems) {
+		newCursor = len(m.displayItems) - 1
+		// Find last non-header
+		for newCursor >= 0 && m.displayItems[newCursor].isHeader {
+			newCursor--
+		}
+	}
+
+	if newCursor >= 0 && newCursor < len(m.displayItems) {
+		m.cursor = newCursor
 	}
 }
 
@@ -363,6 +581,11 @@ func (m *Model) Focus() {
 // Blur removes focus
 func (m *Model) Blur() {
 	m.focused = false
+	// Exit filter mode when losing focus
+	if m.filterMode {
+		m.filterMode = false
+		m.filterInput.Blur()
+	}
 }
 
 // Focused returns whether the sidebar is focused
@@ -375,9 +598,13 @@ func (m *Model) SetWorktree(wt *data.Worktree) {
 	m.worktree = wt
 	m.cursor = 0
 	m.scrollOffset = 0
+	m.filterQuery = ""
+	m.filterInput.SetValue("")
+	m.rebuildDisplayList()
 }
 
 // SetGitStatus sets the git status
 func (m *Model) SetGitStatus(status *git.StatusResult) {
 	m.gitStatus = status
+	m.rebuildDisplayList()
 }

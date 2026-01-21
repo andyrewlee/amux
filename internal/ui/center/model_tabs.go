@@ -7,11 +7,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/ui/commits"
+	"github.com/andyrewlee/amux/internal/ui/branchfiles"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/diff"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -100,8 +102,56 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 	}
 }
 
-// createViewerTab creates a new viewer tab for a file diff
-func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktree) tea.Cmd {
+// createDiffTab creates a new native diff viewer tab (no PTY)
+func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, wt *data.Worktree) tea.Cmd {
+	if wt == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating diff viewer"}
+		}
+	}
+
+	logging.Info("Creating diff tab: path=%s mode=%d worktree=%s", change.Path, mode, wt.Name)
+
+	// Calculate dimensions
+	tm := m.terminalMetrics()
+	viewerWidth := tm.Width
+	viewerHeight := tm.Height
+
+	// Create diff viewer model
+	dv := diff.New(wt, change, mode, viewerWidth, viewerHeight)
+	dv.SetFocused(true)
+
+	// Create tab with unique ID
+	wtID := string(wt.ID())
+	displayName := fmt.Sprintf("Diff: %s", change.Path)
+	if len(displayName) > 20 {
+		displayName = "..." + displayName[len(displayName)-17:]
+	}
+
+	tab := &Tab{
+		ID:         generateTabID(),
+		Name:       displayName,
+		Assistant:  "diff",
+		Worktree:   wt,
+		DiffViewer: dv,
+	}
+
+	// Add tab to the worktree's tab list
+	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+
+	// Return the Init command to start loading the diff
+	return tea.Batch(
+		dv.Init(),
+		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName} },
+	)
+}
+
+// createViewerTabLegacy creates a PTY-based viewer tab (for backwards compatibility)
+// This is kept for cases where PTY-based viewing is still needed
+//
+//nolint:unused
+func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.Worktree) tea.Cmd {
 	if wt == nil {
 		return func() tea.Msg {
 			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating viewer"}
@@ -178,112 +228,46 @@ func (m *Model) createViewerTab(file string, statusCode string, wt *data.Worktre
 	}
 }
 
-// createCommitViewerTab creates a tab with the commit viewer component
-func (m *Model) createCommitViewerTab(wt *data.Worktree) tea.Cmd {
+// createBranchFilesTab creates a tab with the branch files view (replaces commit viewer)
+func (m *Model) createBranchFilesTab(wt *data.Worktree) tea.Cmd {
 	if wt == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating commit viewer"}
+			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating branch files view"}
 		}
 	}
 
-	logging.Info("Creating commit viewer tab: worktree=%s", wt.Name)
+	logging.Info("Creating branch files tab: worktree=%s", wt.Name)
 
-	// Calculate dimensions for the commit viewer
-	viewerWidth := m.contentWidth()
-	viewerHeight := m.height - 6
-	if viewerWidth < 40 {
-		viewerWidth = 80
-	}
-	if viewerHeight < 10 {
-		viewerHeight = 24
-	}
+	// Calculate dimensions
+	tm := m.terminalMetrics()
+	viewerWidth := tm.Width
+	viewerHeight := tm.Height
 
-	// Create commit viewer model
-	cv := commits.New(wt, viewerWidth, viewerHeight)
-	cv.SetFocused(true)
+	// Create branch files model
+	bf := branchfiles.New(wt, viewerWidth, viewerHeight)
+	bf.SetFocused(true)
 
 	// Create tab with unique ID
 	wtID := string(wt.ID())
-	displayName := "Commits"
+	displayName := "Files Changed"
 
 	tab := &Tab{
-		ID:           generateTabID(),
-		Name:         displayName,
-		Assistant:    "commits",
-		Worktree:     wt,
-		CommitViewer: cv,
+		ID:          generateTabID(),
+		Name:        displayName,
+		Assistant:   "branchfiles",
+		Worktree:    wt,
+		BranchFiles: bf,
 	}
 
 	// Add tab to the worktree's tab list
 	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
 	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
 
-	// Return the Init command to start loading commits
+	// Return the Init command to start loading files
 	return tea.Batch(
-		cv.Init(),
+		bf.Init(),
 		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName} },
 	)
-}
-
-// createCommitDiffTab creates a viewer tab showing a specific commit's diff
-func (m *Model) createCommitDiffTab(hash string, wt *data.Worktree) tea.Cmd {
-	if wt == nil {
-		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating commit diff viewer"}
-		}
-	}
-	return func() tea.Msg {
-		logging.Info("Creating commit diff tab: hash=%s worktree=%s", hash, wt.Name)
-
-		// Use git show with color, piped through less for interactive viewing
-		cmd := fmt.Sprintf("git show --color=always %s | less -R", hash)
-
-		// Calculate terminal dimensions using the same metrics as render/layout.
-		tm := m.terminalMetrics()
-		termWidth := tm.Width
-		termHeight := tm.Height
-
-		agent, err := m.agentManager.CreateViewer(wt, cmd, uint16(termHeight), uint16(termWidth))
-		if err != nil {
-			logging.Error("Failed to create commit diff viewer: %v", err)
-			return messages.Error{Err: err, Context: "creating commit diff viewer"}
-		}
-
-		// Create virtual terminal emulator with scrollback
-		term := vterm.New(termWidth, termHeight)
-
-		// Set up response writer for terminal queries
-		if agent.Terminal != nil {
-			term.SetResponseWriter(func(data []byte) {
-				_ = agent.Terminal.SendString(string(data))
-			})
-		}
-
-		// Create tab with unique ID
-		wtID := string(wt.ID())
-		displayName := fmt.Sprintf("Commit: %s", hash)
-
-		tab := &Tab{
-			ID:        generateTabID(),
-			Name:      displayName,
-			Assistant: "viewer",
-			Worktree:  wt,
-			Agent:     agent,
-			Terminal:  term,
-			Running:   true,
-		}
-
-		// Set PTY size to match
-		if agent.Terminal != nil {
-			m.resizePTY(tab, termHeight, termWidth)
-		}
-
-		// Add tab to the worktree's tab list
-		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
-
-		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
-	}
 }
 
 // closeCurrentTab closes the current tab
@@ -319,8 +303,9 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 		tab.ptyTraceFile = nil
 		tab.ptyTraceClosed = true
 	}
-	// Clean up CommitViewer
-	tab.CommitViewer = nil
+	// Clean up viewers
+	tab.DiffViewer = nil
+	tab.BranchFiles = nil
 	tab.mu.Unlock()
 
 	// Remove from tabs
@@ -463,8 +448,8 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 	return result, m.getActiveTabIdx()
 }
 
-// HasCommitViewer returns true if the active tab has a commit viewer.
-func (m *Model) HasCommitViewer() bool {
+// HasBranchFiles returns true if the active tab has a branch files viewer.
+func (m *Model) HasBranchFiles() bool {
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 	if len(tabs) == 0 || activeIdx >= len(tabs) {
@@ -473,7 +458,20 @@ func (m *Model) HasCommitViewer() bool {
 	tab := tabs[activeIdx]
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
-	return tab.CommitViewer != nil
+	return tab.BranchFiles != nil
+}
+
+// HasDiffViewer returns true if the active tab has a diff viewer.
+func (m *Model) HasDiffViewer() bool {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return false
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	return tab.DiffViewer != nil
 }
 
 // CloseAllTabs is deprecated - tabs now persist per-worktree
