@@ -213,10 +213,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		tab := tabs[activeIdx]
 
-		// CommitViewer tabs: forward mouse events to commit viewer
 		tab.mu.Lock()
 		cv := tab.CommitViewer
+		term := tab.Terminal
 		tab.mu.Unlock()
+
+		// CommitViewer tabs: forward mouse events to commit viewer
 		if cv != nil {
 			newCV, cmd := cv.Update(msg)
 			tab.mu.Lock()
@@ -225,6 +227,22 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// Handle terminal scrolling with mouse wheel
+		if term != nil {
+			// Scroll 3 lines per wheel tick (standard behavior)
+			var delta int
+			switch msg.Button {
+			case tea.MouseWheelUp:
+				delta = 3
+			case tea.MouseWheelDown:
+				delta = -3 // negative = scroll down (toward live view)
+			default:
+				return m, nil
+			}
+			tab.mu.Lock()
+			tab.Terminal.ScrollView(delta)
+			tab.mu.Unlock()
+		}
 		return m, nil
 
 	case tea.PasteMsg:
