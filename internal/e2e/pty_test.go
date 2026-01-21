@@ -101,8 +101,8 @@ func TestPTYActivateWorktreeAndHelp(t *testing.T) {
 	if err := session.WaitForContains("Prefix Key (leader key)", 5*time.Second); err != nil {
 		t.Fatalf("help overlay not visible: %v", err)
 	}
-	if err := session.SendString("\x00?"); err != nil {
-		t.Fatalf("send prefix+help exit: %v", err)
+	if err := session.SendString("\x1b"); err != nil { // Esc to close help
+		t.Fatalf("send esc to close help: %v", err)
 	}
 	if err := session.WaitForAbsent("Prefix Key (leader key)", 5*time.Second); err != nil {
 		t.Fatalf("help overlay still visible: %v", err)
