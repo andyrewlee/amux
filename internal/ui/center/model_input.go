@@ -215,7 +215,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 		tab.mu.Lock()
 		cv := tab.CommitViewer
-		term := tab.Terminal
 		tab.mu.Unlock()
 
 		// CommitViewer tabs: forward mouse events to commit viewer
