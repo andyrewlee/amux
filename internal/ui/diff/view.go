@@ -205,18 +205,21 @@ func (m *Model) renderDiff() string {
 		contentWidth = 20
 	}
 
-	// Render visible lines
+	// Render visible lines and count actual rows (including wrapped lines)
+	actualRows := 0
 	for i := start; i < end; i++ {
 		line := lines[i]
-		b.WriteString(m.renderLine(i, line, lineNumWidth, contentWidth))
+		rendered := m.renderLine(i, line, lineNumWidth, contentWidth)
+		// Count newlines within the rendered line (from wrapping) plus 1 for the line itself
+		actualRows += strings.Count(rendered, "\n") + 1
+		b.WriteString(rendered)
 		if i < end-1 {
 			b.WriteString("\n")
 		}
 	}
 
-	// Pad to fill height
-	renderedLines := end - start
-	for i := renderedLines; i < visibleHeight; i++ {
+	// Pad to fill height using actual rendered rows
+	for i := actualRows; i < visibleHeight; i++ {
 		b.WriteString("\n")
 	}
 

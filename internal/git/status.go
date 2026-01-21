@@ -168,18 +168,27 @@ func sortChanges(changes []Change) {
 	})
 }
 
+// GetDirtyCount returns the number of unique changed files
+func (s *StatusResult) GetDirtyCount() int {
+	seen := make(map[string]struct{})
+	for _, c := range s.Staged {
+		seen[c.Path] = struct{}{}
+	}
+	for _, c := range s.Unstaged {
+		seen[c.Path] = struct{}{}
+	}
+	for _, c := range s.Untracked {
+		seen[c.Path] = struct{}{}
+	}
+	return len(seen)
+}
+
 // GetStatusSummary returns a summary string for the status
 func (s *StatusResult) GetStatusSummary() string {
 	if s.Clean {
 		return "Clean"
 	}
-	total := len(s.Staged) + len(s.Unstaged) + len(s.Untracked)
-	return "+" + strconv.Itoa(total) + " changes"
-}
-
-// GetDirtyCount returns the total number of changes
-func (s *StatusResult) GetDirtyCount() int {
-	return len(s.Staged) + len(s.Unstaged) + len(s.Untracked)
+	return "+" + strconv.Itoa(s.GetDirtyCount()) + " changes"
 }
 
 // AllChanges returns all changes as a flat list for backwards compatibility

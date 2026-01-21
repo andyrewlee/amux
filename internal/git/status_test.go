@@ -200,19 +200,38 @@ func TestStatusResult_GetStatusSummary(t *testing.T) {
 			name: "dirty with staged",
 			status: StatusResult{
 				Clean:  false,
-				Staged: []Change{{}, {}, {}},
+				Staged: []Change{{Path: "a.txt"}, {Path: "b.txt"}, {Path: "c.txt"}},
 			},
 			want: "+3 changes",
 		},
 		{
-			name: "dirty with mixed",
+			name: "dirty with mixed unique files",
 			status: StatusResult{
 				Clean:     false,
-				Staged:    []Change{{}},
-				Unstaged:  []Change{{}},
-				Untracked: []Change{{}},
+				Staged:    []Change{{Path: "a.txt"}},
+				Unstaged:  []Change{{Path: "b.txt"}},
+				Untracked: []Change{{Path: "c.txt"}},
 			},
 			want: "+3 changes",
+		},
+		{
+			name: "MM status counts as one file",
+			status: StatusResult{
+				Clean:    false,
+				Staged:   []Change{{Path: "file.txt"}},
+				Unstaged: []Change{{Path: "file.txt"}},
+			},
+			want: "+1 changes",
+		},
+		{
+			name: "mixed unique and overlapping files",
+			status: StatusResult{
+				Clean:     false,
+				Staged:    []Change{{Path: "a.txt"}, {Path: "b.txt"}},
+				Unstaged:  []Change{{Path: "b.txt"}, {Path: "c.txt"}},
+				Untracked: []Change{{Path: "d.txt"}},
+			},
+			want: "+4 changes",
 		},
 	}
 

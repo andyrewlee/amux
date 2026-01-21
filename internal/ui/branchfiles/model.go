@@ -81,6 +81,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		m.branchDiff = msg.diff
 		if msg.diff != nil {
 			m.baseBranch = msg.diff.BaseBranch
+			// Clamp cursor and scroll to valid range after refresh
+			m.clampCursorAndScroll()
 		}
 		return m, nil
 
@@ -267,6 +269,36 @@ func (m *Model) SetSize(width, height int) {
 // SetStyles updates the component's styles
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
+}
+
+// clampCursorAndScroll ensures cursor and scroll are within valid bounds
+func (m *Model) clampCursorAndScroll() {
+	if m.branchDiff == nil || len(m.branchDiff.Files) == 0 {
+		m.cursor = 0
+		m.scroll = 0
+		return
+	}
+
+	maxCursor := len(m.branchDiff.Files) - 1
+	if m.cursor > maxCursor {
+		m.cursor = maxCursor
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+
+	// Ensure scroll keeps cursor visible
+	visibleHeight := m.visibleHeight()
+	if m.scroll > m.cursor {
+		m.scroll = m.cursor
+	}
+	maxScroll := len(m.branchDiff.Files) - visibleHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.scroll > maxScroll {
+		m.scroll = maxScroll
+	}
 }
 
 // View is defined in view.go
