@@ -176,9 +176,10 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		return true, nil
 
 	case key.Matches(msg, a.keymap.CommitViewer):
+		// Now opens branch files view instead of commit viewer
 		if a.activeWorktree != nil {
 			wt := a.activeWorktree
-			return true, func() tea.Msg { return messages.OpenCommitViewer{Worktree: wt} }
+			return true, func() tea.Msg { return messages.OpenBranchFiles{Worktree: wt} }
 		}
 		return true, nil
 
@@ -460,11 +461,11 @@ func (a *App) handleWorktreeInfoClick(localX, localY int) tea.Cmd {
 		}
 	}
 
-	commitsBtn := a.styles.TabPlus.Render("Commits")
-	if region, ok := findButtonRegion(lines, commitsBtn); ok {
+	filesBtn := a.styles.TabPlus.Render("Files Changed")
+	if region, ok := findButtonRegion(lines, filesBtn); ok {
 		if region.Contains(localX, localY) {
 			wt := a.activeWorktree
-			return func() tea.Msg { return messages.OpenCommitViewer{Worktree: wt} }
+			return func() tea.Msg { return messages.OpenBranchFiles{Worktree: wt} }
 		}
 	}
 
