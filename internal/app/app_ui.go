@@ -162,17 +162,23 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 
 	// Tab management - route to appropriate pane
 	case key.Matches(msg, a.keymap.NextTab):
-		if a.focusedPane == messages.PaneSidebarTerminal {
+		switch a.focusedPane {
+		case messages.PaneSidebarTerminal:
 			a.sidebarTerminal.NextTab()
-		} else {
+		case messages.PaneSidebar:
+			a.sidebar.NextTab()
+		default:
 			a.center.NextTab()
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.PrevTab):
-		if a.focusedPane == messages.PaneSidebarTerminal {
+		switch a.focusedPane {
+		case messages.PaneSidebarTerminal:
 			a.sidebarTerminal.PrevTab()
-		} else {
+		case messages.PaneSidebar:
+			a.sidebar.PrevTab()
+		default:
 			a.center.PrevTab()
 		}
 		return true, nil

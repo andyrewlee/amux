@@ -101,6 +101,79 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 	}
 }
 
+// createVimTab creates a new tab that opens a file in vim
+func (m *Model) createVimTab(filePath string, wt *data.Worktree) tea.Cmd {
+	if wt == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating vim viewer"}
+		}
+	}
+
+	return func() tea.Msg {
+		logging.Info("Creating vim tab: file=%s worktree=%s", filePath, wt.Name)
+
+		// Escape filename for shell
+		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
+		cmd := fmt.Sprintf("vim -- %s", escapedFile)
+
+		// Calculate terminal dimensions using the same metrics as render/layout.
+		tm := m.terminalMetrics()
+		termWidth := tm.Width
+		termHeight := tm.Height
+
+		agent, err := m.agentManager.CreateViewer(wt, cmd, uint16(termHeight), uint16(termWidth))
+		if err != nil {
+			logging.Error("Failed to create vim viewer: %v", err)
+			return messages.Error{Err: err, Context: "creating vim viewer"}
+		}
+
+		logging.Info("Vim viewer created, Terminal=%v", agent.Terminal != nil)
+
+		// Create virtual terminal emulator with scrollback
+		term := vterm.New(termWidth, termHeight)
+
+		// Set up response writer for terminal queries (DSR, DA, etc.)
+		if agent.Terminal != nil {
+			term.SetResponseWriter(func(data []byte) {
+				_ = agent.Terminal.SendString(string(data))
+			})
+		}
+
+		// Create tab with unique ID
+		wtID := string(wt.ID())
+		// Use filename for display (truncate if needed)
+		fileName := filePath
+		if idx := strings.LastIndex(filePath, "/"); idx >= 0 {
+			fileName = filePath[idx+1:]
+		}
+		displayName := fileName
+		if len(displayName) > 20 {
+			displayName = "..." + displayName[len(displayName)-17:]
+		}
+
+		tab := &Tab{
+			ID:        generateTabID(),
+			Name:      displayName,
+			Assistant: "vim",
+			Worktree:  wt,
+			Agent:     agent,
+			Terminal:  term,
+			Running:   true,
+		}
+
+		// Set PTY size to match
+		if agent.Terminal != nil {
+			m.resizePTY(tab, termHeight, termWidth)
+		}
+
+		// Add tab to the worktree's tab list
+		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+
+		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
+	}
+}
+
 // createDiffTab creates a new native diff viewer tab (no PTY)
 func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, wt *data.Worktree) tea.Cmd {
 	if wt == nil {

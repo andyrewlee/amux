@@ -337,6 +337,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case sidebar.OpenFileInEditor:
+		if cmd := a.handleOpenFileInEditor(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.GitStatusTick:
 		cmds = append(cmds, a.handleGitStatusTick()...)
 

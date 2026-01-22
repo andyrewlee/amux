@@ -23,14 +23,16 @@ var Icons = struct {
 	ArrowDown   string
 
 	// Objects
-	Project  string
-	Worktree string
-	Agent    string
-	Terminal string
-	Folder   string
-	File     string
-	Git      string
-	Home     string
+	Project   string
+	Worktree  string
+	Agent     string
+	Terminal  string
+	Folder    string
+	File      string
+	Git       string
+	Home      string
+	DirOpen   string
+	DirClosed string
 
 	// Tab states
 	TabActive   string
@@ -59,14 +61,16 @@ var Icons = struct {
 	ArrowDown:   "↓",
 
 	// Objects
-	Project:  "□",
-	Worktree: "├",
-	Agent:    "◇",
-	Terminal: "$",
-	Folder:   "/",
-	File:     "·",
-	Git:      "*",
-	Home:     "~",
+	Project:   "□",
+	Worktree:  "├",
+	Agent:     "◇",
+	Terminal:  "$",
+	Folder:    "/",
+	File:      "·",
+	Git:       "*",
+	Home:      "~",
+	DirOpen:   "▼",
+	DirClosed: "▶",
 
 	// Tab states
 	TabActive:   "●",

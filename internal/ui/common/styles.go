@@ -58,6 +58,7 @@ type Styles struct {
 	SidebarRow    lipgloss.Style
 	BranchName    lipgloss.Style
 	FilePath      lipgloss.Style
+	DirName       lipgloss.Style
 
 	// Help bar
 	Help          lipgloss.Style
@@ -231,6 +232,10 @@ func DefaultStyles() Styles {
 
 		FilePath: lipgloss.NewStyle().
 			Foreground(ColorForeground),
+
+		DirName: lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			Bold(true),
 
 		// Help bar
 		Help: lipgloss.NewStyle().

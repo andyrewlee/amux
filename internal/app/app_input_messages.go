@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/sidebar"
 	"github.com/andyrewlee/amux/internal/update"
 	"github.com/andyrewlee/amux/internal/validation"
 )
@@ -549,4 +550,19 @@ func (a *App) handleUpgradeComplete(msg messages.UpgradeComplete) tea.Cmd {
 	}
 	logging.Info("Upgrade complete: %s", msg.NewVersion)
 	return a.toast.ShowSuccess("Upgraded to " + msg.NewVersion + " - restart amux to use new version")
+}
+
+// handleOpenFileInEditor handles the OpenFileInEditor message from the project tree.
+// This opens the file in vim in the center pane.
+func (a *App) handleOpenFileInEditor(msg sidebar.OpenFileInEditor) tea.Cmd {
+	if msg.Worktree == nil || msg.Path == "" {
+		return nil
+	}
+	logging.Info("Opening file in editor: %s", msg.Path)
+	newCenter, cmd := a.center.Update(messages.OpenFileInVim{
+		Path:     msg.Path,
+		Worktree: msg.Worktree,
+	})
+	a.center = newCenter
+	return cmd
 }

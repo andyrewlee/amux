@@ -74,7 +74,7 @@ type App struct {
 	layout          *layout.Manager
 	dashboard       *dashboard.Model
 	center          *center.Model
-	sidebar         *sidebar.Model
+	sidebar         *sidebar.TabbedSidebar
 	sidebarTerminal *sidebar.TerminalModel
 	dialog          *common.Dialog
 	filePicker      *common.FilePicker
@@ -125,6 +125,7 @@ type App struct {
 	sidebarChrome        *compositor.ChromeCache
 	dashboardContent     drawableCache
 	dashboardBorders     borderCache
+	sidebarTopTabBar     drawableCache
 	sidebarTopContent    drawableCache
 	sidebarBottomContent drawableCache
 	sidebarBottomTabBar  drawableCache
@@ -240,7 +241,7 @@ func New(version, commit, date string) (*App, error) {
 		layout:          layout.NewManager(),
 		dashboard:       dashboard.New(),
 		center:          center.New(cfg),
-		sidebar:         sidebar.New(),
+		sidebar:         sidebar.NewTabbedSidebar(),
 		sidebarTerminal: sidebar.NewTerminalModel(),
 		helpOverlay:     common.NewHelpOverlay(),
 		toast:           common.NewToastModel(),

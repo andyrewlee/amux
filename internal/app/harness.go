@@ -150,8 +150,6 @@ func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 
 	dash := dashboard.New()
 	dash.SetShowKeymapHints(opts.ShowKeymapHints)
-	side := sidebar.New()
-	side.SetShowKeymapHints(opts.ShowKeymapHints)
 	sideTerm := sidebar.NewTerminalModel()
 	sideTerm.SetShowKeymapHints(opts.ShowKeymapHints)
 
@@ -183,12 +181,15 @@ func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 
 	dash.SetProjects([]data.Project{project})
 
+	tabbedSidebar := sidebar.NewTabbedSidebar()
+	tabbedSidebar.SetShowKeymapHints(opts.ShowKeymapHints)
+
 	app := &App{
 		config:          cfg,
 		layout:          layoutMgr,
 		dashboard:       dash,
 		center:          centerModel,
-		sidebar:         side,
+		sidebar:         tabbedSidebar,
 		sidebarTerminal: sideTerm,
 		styles:          common.DefaultStyles(),
 		width:           opts.Width,
@@ -222,7 +223,7 @@ func newSidebarHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 
 	dash := dashboard.New()
 	dash.SetShowKeymapHints(opts.ShowKeymapHints)
-	side := sidebar.New()
+	side := sidebar.NewTabbedSidebar()
 	side.SetShowKeymapHints(opts.ShowKeymapHints)
 	sideTerm := sidebar.NewTerminalModel()
 	sideTerm.SetShowKeymapHints(opts.ShowKeymapHints)
