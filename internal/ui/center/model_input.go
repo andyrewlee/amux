@@ -383,6 +383,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.LaunchAgent:
 		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
 
+	case messages.OpenFileInVim:
+		return m, m.createVimTab(msg.Path, msg.Worktree)
+
 	case messages.OpenDiff:
 		// Check if new-style Change is provided, otherwise convert from legacy fields
 		if msg.Change != nil {

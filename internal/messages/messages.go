@@ -286,3 +286,9 @@ type UpgradeComplete struct {
 	NewVersion string
 	Err        error
 }
+
+// OpenFileInVim requests opening a file in vim in the center pane
+type OpenFileInVim struct {
+	Path     string
+	Worktree *data.Worktree
+}

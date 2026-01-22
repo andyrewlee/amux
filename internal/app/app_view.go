@@ -192,8 +192,26 @@ func (a *App) viewLayerBased() tea.View {
 				if topContentHeight < 1 {
 					topContentHeight = 1
 				}
-				topContent := clampLines(a.sidebar.View(), contentWidth, topContentHeight)
-				if topDrawable := a.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1); topDrawable != nil {
+
+				// Sidebar tab bar (Changes/Project tabs)
+				tabBar := a.sidebar.TabBarView()
+				tabBarHeight := 0
+				if tabBar != "" {
+					tabBarHeight = 1
+					tabBarContent := clampLines(tabBar, contentWidth, 1)
+					tabBarY := topGutter + 1 // Inside the border
+					if tabBarDrawable := a.sidebarTopTabBar.get(tabBarContent, sidebarX+2, tabBarY); tabBarDrawable != nil {
+						canvas.Compose(tabBarDrawable)
+					}
+				}
+
+				// Sidebar content (below tab bar)
+				sidebarContentHeight := topContentHeight - tabBarHeight
+				if sidebarContentHeight < 1 {
+					sidebarContentHeight = 1
+				}
+				topContent := clampLines(a.sidebar.ContentView(), contentWidth, sidebarContentHeight)
+				if topDrawable := a.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1+tabBarHeight); topDrawable != nil {
 					canvas.Compose(topDrawable)
 				}
 				for _, border := range a.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight, topFocused) {
@@ -456,12 +474,23 @@ func (a *App) centeredPosition(width, height int) (x, y int) {
 	return x, y
 }
 
-func (a *App) adjustSidebarMouseY(y int) int {
+func (a *App) adjustSidebarMouseXY(x, y int) (int, int) {
 	if a.layout == nil {
-		return y
+		return x, y
 	}
+	// Calculate sidebar X position
+	sidebarX := a.layout.LeftGutter() + a.layout.DashboardWidth()
+	if a.layout.ShowCenter() {
+		sidebarX += a.layout.GapX() + a.layout.CenterWidth()
+	}
+	if a.layout.ShowSidebar() {
+		sidebarX += a.layout.GapX()
+	}
+	// Sidebar content starts 2 columns in (border + padding)
+	adjustedX := x - sidebarX - 2
 	// Sidebar content starts one row below the top border.
-	return y - a.layout.TopGutter() - 1
+	adjustedY := y - a.layout.TopGutter() - 1
+	return adjustedX, adjustedY
 }
 
 func (a *App) overlayCursor() *tea.Cursor {

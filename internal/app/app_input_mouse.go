@@ -85,7 +85,7 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	case messages.PaneSidebar:
 		adjusted := msg
 		if a.layout != nil {
-			adjusted.Y = a.adjustSidebarMouseY(adjusted.Y)
+			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
 		}
 		// Ignore clicks in the gap/right gutter so they don't trigger sidebar actions.
 		if inSidebarX {
@@ -124,7 +124,7 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 	case messages.PaneSidebar:
 		adjusted := msg
 		if a.layout != nil {
-			adjusted.Y = a.adjustSidebarMouseY(adjusted.Y)
+			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
 		}
 		newSidebar, cmd := a.sidebar.Update(adjusted)
 		a.sidebar = newSidebar
@@ -160,7 +160,7 @@ func (a *App) routeMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 	case messages.PaneSidebar:
 		adjusted := msg
 		if a.layout != nil {
-			adjusted.Y = a.adjustSidebarMouseY(adjusted.Y)
+			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
 		}
 		newSidebar, cmd := a.sidebar.Update(adjusted)
 		a.sidebar = newSidebar
@@ -196,7 +196,7 @@ func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 	case messages.PaneSidebar:
 		adjusted := msg
 		if a.layout != nil {
-			adjusted.Y = a.adjustSidebarMouseY(adjusted.Y)
+			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
 		}
 		newSidebar, cmd := a.sidebar.Update(adjusted)
 		a.sidebar = newSidebar
