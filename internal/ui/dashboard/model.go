@@ -353,7 +353,7 @@ func (m *Model) View() string {
 	// Render toolbar and track its Y position for click handling
 	// toolbarY is the first line of the toolbar
 	toolbar := m.renderToolbar()
-	m.toolbarY = paddedHeight
+	m.toolbarY = paddedHeight - 1
 	b.WriteString(toolbar)
 	b.WriteString("\n")
 
