@@ -408,7 +408,7 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 		strippedLine := ansi.Strip(line)
 
 		// Settings button - check first so it's not blocked by New project's region
-		settingsText := "Settings"
+		settingsText := "[Settings]"
 		if idx := strings.Index(strippedLine, settingsText); idx >= 0 {
 			region := common.HitRegion{
 				X:      idx + offsetX,
@@ -422,7 +422,7 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 		}
 
 		// New project button
-		newProjectText := "New project"
+		newProjectText := "[New project]"
 		if idx := strings.Index(strippedLine, newProjectText); idx >= 0 {
 			region := common.HitRegion{
 				X:      idx + offsetX,
@@ -446,10 +446,19 @@ func (a *App) handleWorktreeInfoClick(localX, localY int) tea.Cmd {
 	content := a.renderWorktreeInfo()
 	lines := strings.Split(content, "\n")
 
-	agentBtn := a.styles.TabPlus.Render("New agent")
-	if region, ok := findButtonRegion(lines, agentBtn); ok {
-		if region.Contains(localX, localY) {
-			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+	for i, line := range lines {
+		strippedLine := ansi.Strip(line)
+		agentText := "[New agent]"
+		if idx := strings.Index(strippedLine, agentText); idx >= 0 {
+			region := common.HitRegion{
+				X:      idx,
+				Y:      i,
+				Width:  len(agentText),
+				Height: 1,
+			}
+			if region.Contains(localX, localY) {
+				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+			}
 		}
 	}
 

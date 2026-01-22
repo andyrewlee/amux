@@ -1,6 +1,7 @@
 package app
 
 import (
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -433,6 +434,43 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
+	// Handle button navigation when center pane is focused and showing welcome/worktree info (no tabs)
+	if a.focusedPane == messages.PaneCenter && !a.center.HasTabs() {
+		maxIndex := a.centerButtonCount() - 1
+		switch {
+		case key.Matches(msg, a.keymap.Left), key.Matches(msg, a.keymap.Up):
+			if a.centerBtnFocused {
+				if a.centerBtnIndex > 0 {
+					a.centerBtnIndex--
+				} else {
+					a.centerBtnFocused = false
+				}
+			} else {
+				// Enter from the right/bottom - focus last button
+				a.centerBtnFocused = true
+				a.centerBtnIndex = maxIndex
+			}
+			return nil
+		case key.Matches(msg, a.keymap.Right), key.Matches(msg, a.keymap.Down):
+			if a.centerBtnFocused {
+				if a.centerBtnIndex < maxIndex {
+					a.centerBtnIndex++
+				} else {
+					a.centerBtnFocused = false
+				}
+			} else {
+				// Enter from the left/top - focus first button
+				a.centerBtnFocused = true
+				a.centerBtnIndex = 0
+			}
+			return nil
+		case key.Matches(msg, a.keymap.Enter):
+			if a.centerBtnFocused {
+				return a.activateCenterButton()
+			}
+		}
+	}
+
 	// Route to focused pane
 	switch a.focusedPane {
 	case messages.PaneDashboard:
@@ -451,6 +489,32 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
 		a.sidebarTerminal = newSidebarTerminal
 		return cmd
+	}
+	return nil
+}
+
+// centerButtonCount returns the number of buttons shown on the current center screen
+func (a *App) centerButtonCount() int {
+	if a.showWelcome {
+		return 2 // [New project], [Settings]
+	}
+	if a.activeWorktree != nil {
+		return 1 // [New agent]
+	}
+	return 0
+}
+
+// activateCenterButton activates the currently focused center button
+func (a *App) activateCenterButton() tea.Cmd {
+	if a.showWelcome {
+		switch a.centerBtnIndex {
+		case 0:
+			return func() tea.Msg { return messages.ShowAddProjectDialog{} }
+		case 1:
+			return func() tea.Msg { return messages.ShowSettingsDialog{} }
+		}
+	} else if a.activeWorktree != nil {
+		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 	}
 	return nil
 }

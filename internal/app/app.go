@@ -66,6 +66,10 @@ type App struct {
 	buildDate       string
 	upgradeRunning  bool
 
+	// Button focus state for welcome/worktree info screens
+	centerBtnFocused bool
+	centerBtnIndex   int
+
 	// UI Components
 	layout          *layout.Manager
 	dashboard       *dashboard.Model
