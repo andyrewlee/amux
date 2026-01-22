@@ -50,10 +50,10 @@ type VTerm struct {
 
 	// Selection state for copy/paste highlighting
 	// Uses absolute line numbers (0 = first scrollback line)
-	selActive                  bool
-	selStartX, selStartLine    int
-	selEndX, selEndLine        int
-	selRect                    bool
+	selActive               bool
+	selStartX, selStartLine int
+	selEndX, selEndLine     int
+	selRect                 bool
 
 	// Cursor visibility (controlled externally when pane is focused)
 	ShowCursor     bool

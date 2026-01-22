@@ -48,9 +48,9 @@ type Tab struct {
 	Agent        *appPty.Agent
 	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
 	DiffViewer   *diff.Model  // Native diff viewer (replaces PTY-based viewer)
-	mu           sync.Mutex // Protects Terminal
-	Running      bool       // Whether the agent is actively running
-	readerActive bool       // Guard to ensure only one PTY read loop per tab
+	mu           sync.Mutex   // Protects Terminal
+	Running      bool         // Whether the agent is actively running
+	readerActive bool         // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
