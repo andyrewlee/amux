@@ -46,6 +46,7 @@ const (
 	toolbarMonitor
 	toolbarDelete
 	toolbarRemove
+	toolbarSettings
 )
 
 // toolbarButton tracks a clickable button in the toolbar
@@ -72,6 +73,8 @@ type Model struct {
 	showKeymapHints bool
 	toolbarHits     []toolbarButton // Clickable toolbar buttons
 	toolbarY        int             // Y position of toolbar in content coordinates
+	toolbarFocused  bool            // Whether toolbar actions are focused
+	toolbarIndex    int             // Focused toolbar action index
 
 	// Loading state
 	loadingStatus     map[string]bool           // Worktrees currently loading git status
@@ -158,6 +161,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !isSelectable(m.rows[idx].Type) {
 				return m, nil
 			}
+			m.toolbarFocused = false
 			m.cursor = idx
 			return m, m.handleEnter()
 		}
@@ -167,9 +171,42 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
+		toolbarItems := m.toolbarVisibleItems(m.toolbarItems())
+		if m.toolbarFocused {
+			if len(toolbarItems) == 0 {
+				m.toolbarFocused = false
+				break
+			}
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("left", "h"))):
+				m.toolbarIndex = (m.toolbarIndex - 1 + len(toolbarItems)) % len(toolbarItems)
+			case key.Matches(msg, key.NewBinding(key.WithKeys("right", "l"))):
+				m.toolbarIndex = (m.toolbarIndex + 1) % len(toolbarItems)
+			case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
+				m.toolbarFocused = false
+				if last := m.findSelectableRow(len(m.rows)-1, -1); last != -1 {
+					m.cursor = last
+				}
+			case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
+				m.toolbarFocused = false
+				if last := m.findSelectableRow(len(m.rows)-1, -1); last != -1 {
+					m.cursor = last
+				}
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				return m, m.toolbarCommand(toolbarItems[m.toolbarIndex].kind)
+			}
+			return m, nil
+		}
+
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("j", "down"))):
-			m.moveCursor(1)
+			last := m.findSelectableRow(len(m.rows)-1, -1)
+			if last != -1 && m.cursor == last && len(toolbarItems) > 0 {
+				m.toolbarFocused = true
+				m.toolbarIndex = 0
+			} else {
+				m.moveCursor(1)
+			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.moveCursor(-1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
@@ -299,7 +336,7 @@ func (m *Model) View() string {
 	}
 
 	// Render toolbar and track its Y position for click handling
-	// toolbarY is the first line of the 3-line-tall toolbar
+	// toolbarY is the first line of the toolbar
 	toolbar := m.renderToolbar()
 	m.toolbarY = paddedHeight
 	b.WriteString(toolbar)
