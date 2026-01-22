@@ -11,7 +11,6 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/ui/branchfiles"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/diff"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -228,48 +227,6 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.W
 	}
 }
 
-// createBranchFilesTab creates a tab with the branch files view (replaces commit viewer)
-func (m *Model) createBranchFilesTab(wt *data.Worktree) tea.Cmd {
-	if wt == nil {
-		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating branch files view"}
-		}
-	}
-
-	logging.Info("Creating branch files tab: worktree=%s", wt.Name)
-
-	// Calculate dimensions
-	tm := m.terminalMetrics()
-	viewerWidth := tm.Width
-	viewerHeight := tm.Height
-
-	// Create branch files model
-	bf := branchfiles.New(wt, viewerWidth, viewerHeight)
-	bf.SetFocused(true)
-
-	// Create tab with unique ID
-	wtID := string(wt.ID())
-	displayName := "Files Changed"
-
-	tab := &Tab{
-		ID:          generateTabID(),
-		Name:        displayName,
-		Assistant:   "branchfiles",
-		Worktree:    wt,
-		BranchFiles: bf,
-	}
-
-	// Add tab to the worktree's tab list
-	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
-
-	// Return the Init command to start loading files
-	return tea.Batch(
-		bf.Init(),
-		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName} },
-	)
-}
-
 // closeCurrentTab closes the current tab
 func (m *Model) closeCurrentTab() tea.Cmd {
 	tabs := m.getTabs()
@@ -305,7 +262,6 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	}
 	// Clean up viewers
 	tab.DiffViewer = nil
-	tab.BranchFiles = nil
 	tab.mu.Unlock()
 
 	// Remove from tabs
@@ -446,19 +402,6 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 		})
 	}
 	return result, m.getActiveTabIdx()
-}
-
-// HasBranchFiles returns true if the active tab has a branch files viewer.
-func (m *Model) HasBranchFiles() bool {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return false
-	}
-	tab := tabs[activeIdx]
-	tab.mu.Lock()
-	defer tab.mu.Unlock()
-	return tab.BranchFiles != nil
 }
 
 // HasDiffViewer returns true if the active tab has a diff viewer.

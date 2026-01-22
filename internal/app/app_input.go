@@ -309,11 +309,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case messages.OpenBranchFiles:
-		if cmd := a.handleOpenBranchFiles(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
 	case messages.CloseTab:
 		cmd := a.center.CloseActiveTab()
 		cmds = append(cmds, cmd)

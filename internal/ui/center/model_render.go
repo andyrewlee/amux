@@ -42,11 +42,6 @@ func (m *Model) View() string {
 			tab.DiffViewer.SetFocused(m.focused)
 			// Render native diff viewer
 			b.WriteString(tab.DiffViewer.View())
-		} else if tab.BranchFiles != nil {
-			// Sync focus state with center pane focus
-			tab.BranchFiles.SetFocused(m.focused)
-			// Render branch files view
-			b.WriteString(tab.BranchFiles.View())
 		} else if tab.Terminal != nil {
 			tab.Terminal.ShowCursor = m.focused && !tab.CopyMode
 			// Use VTerm.Render() directly - it uses dirty line caching and delta styles

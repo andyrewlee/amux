@@ -78,10 +78,9 @@ func (a *App) renderWorktreeInfo() string {
 	}
 
 	agentBtn := a.styles.TabPlus.Render("New agent")
-	filesBtn := a.styles.TabPlus.Render("Files changed")
-	content += "\n" + lipgloss.JoinHorizontal(lipgloss.Bottom, agentBtn, "  ", filesBtn)
+	content += "\n" + agentBtn
 	if a.config.UI.ShowKeymapHints {
-		content += "\n" + a.styles.Help.Render("C-Spc a:new agent  d:files")
+		content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
 	}
 
 	return content

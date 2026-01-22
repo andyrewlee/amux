@@ -17,7 +17,6 @@ type KeyMap struct {
 	PrevTab     key.Binding
 	CloseTab    key.Binding
 	NewAgentTab key.Binding
-	BranchFiles key.Binding
 	Help        key.Binding
 	Monitor     key.Binding
 	CopyMode    key.Binding
@@ -85,10 +84,6 @@ func DefaultKeyMap() KeyMap {
 		NewAgentTab: key.NewBinding(
 			key.WithKeys("a"),
 			key.WithHelp("a", "new agent tab"),
-		),
-		BranchFiles: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d", "branch files"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),

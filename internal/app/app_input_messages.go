@@ -304,15 +304,6 @@ func (a *App) handleOpenDiff(msg messages.OpenDiff) tea.Cmd {
 	return cmd
 }
 
-// handleOpenBranchFiles handles the OpenBranchFiles message.
-func (a *App) handleOpenBranchFiles(msg messages.OpenBranchFiles) tea.Cmd {
-	logging.Info("Opening branch files view")
-	newCenter, cmd := a.center.Update(msg)
-	a.center = newCenter
-	a.focusPane(messages.PaneCenter)
-	return cmd
-}
-
 // handleLaunchAgent handles the LaunchAgent message.
 func (a *App) handleLaunchAgent(msg messages.LaunchAgent) tea.Cmd {
 	logging.Info("Launching agent: %s", msg.Assistant)

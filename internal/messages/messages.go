@@ -197,11 +197,6 @@ type OpenDiff struct {
 	Worktree *data.Worktree
 }
 
-// OpenBranchFiles requests opening the branch files view (replaces commit viewer)
-type OpenBranchFiles struct {
-	Worktree *data.Worktree
-}
-
 // CloseTab requests closing the current tab
 type CloseTab struct{}
 

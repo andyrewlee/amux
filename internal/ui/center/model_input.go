@@ -51,18 +51,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// BranchFiles tabs: forward mouse events to branch files
-		tab.mu.Lock()
-		bf := tab.BranchFiles
-		tab.mu.Unlock()
-		if bf != nil {
-			newBF, cmd := bf.Update(msg)
-			tab.mu.Lock()
-			tab.BranchFiles = newBF
-			tab.mu.Unlock()
-			return m, cmd
-		}
-
 		if msg.Button != tea.MouseLeft {
 			return m, nil
 		}
@@ -119,18 +107,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			newDV, cmd := dv.Update(msg)
 			tab.mu.Lock()
 			tab.DiffViewer = newDV
-			tab.mu.Unlock()
-			return m, cmd
-		}
-
-		// BranchFiles tabs: forward mouse events to branch files
-		tab.mu.Lock()
-		bf := tab.BranchFiles
-		tab.mu.Unlock()
-		if bf != nil {
-			newBF, cmd := bf.Update(msg)
-			tab.mu.Lock()
-			tab.BranchFiles = newBF
 			tab.mu.Unlock()
 			return m, cmd
 		}
@@ -202,18 +178,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// BranchFiles tabs: forward mouse events to branch files
-		tab.mu.Lock()
-		bf := tab.BranchFiles
-		tab.mu.Unlock()
-		if bf != nil {
-			newBF, cmd := bf.Update(msg)
-			tab.mu.Lock()
-			tab.BranchFiles = newBF
-			tab.mu.Unlock()
-			return m, cmd
-		}
-
 		tab.mu.Lock()
 		if tab.Selection.Active {
 			// Extract selected text and copy to clipboard
@@ -258,18 +222,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			newDV, cmd := dv.Update(msg)
 			tab.mu.Lock()
 			tab.DiffViewer = newDV
-			tab.mu.Unlock()
-			return m, cmd
-		}
-
-		// BranchFiles tabs: forward mouse events to branch files
-		tab.mu.Lock()
-		bf := tab.BranchFiles
-		tab.mu.Unlock()
-		if bf != nil {
-			newBF, cmd := bf.Update(msg)
-			tab.mu.Lock()
-			tab.BranchFiles = newBF
 			tab.mu.Unlock()
 			return m, cmd
 		}
@@ -355,32 +307,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				newDV, cmd := dv.Update(msg)
 				tab.mu.Lock()
 				tab.DiffViewer = newDV
-				tab.mu.Unlock()
-				return m, cmd
-			}
-
-			// BranchFiles tabs: forward keys to branch files
-			tab.mu.Lock()
-			bf := tab.BranchFiles
-			tab.mu.Unlock()
-			if bf != nil {
-				// Handle ctrl+w for closing tab
-				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))) {
-					return m, m.closeCurrentTab()
-				}
-				// Handle ctrl+n/p for tab switching
-				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))) {
-					m.nextTab()
-					return m, nil
-				}
-				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))) {
-					m.prevTab()
-					return m, nil
-				}
-				// Forward all other keys to branch files
-				newBF, cmd := bf.Update(msg)
-				tab.mu.Lock()
-				tab.BranchFiles = newBF
 				tab.mu.Unlock()
 				return m, cmd
 			}
@@ -498,9 +424,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		return m, m.createDiffTab(change, mode, msg.Worktree)
 
-	case messages.OpenBranchFiles:
-		return m, m.createBranchFilesTab(msg.Worktree)
-
 	case messages.WorktreeDeleted:
 		m.CleanupWorktree(msg.Worktree)
 		return m, nil
@@ -604,20 +527,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab := tabs[activeIdx]
 			tab.mu.Lock()
 			dv := tab.DiffViewer
-			bf := tab.BranchFiles
 			tab.mu.Unlock()
 			if dv != nil {
 				newDV, cmd := dv.Update(msg)
 				tab.mu.Lock()
 				tab.DiffViewer = newDV
-				tab.mu.Unlock()
-				if cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			} else if bf != nil {
-				newBF, cmd := bf.Update(msg)
-				tab.mu.Lock()
-				tab.BranchFiles = newBF
 				tab.mu.Unlock()
 				if cmd != nil {
 					cmds = append(cmds, cmd)

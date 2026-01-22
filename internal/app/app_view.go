@@ -102,7 +102,7 @@ func (a *App) viewLayerBased() tea.View {
 		centerFocused := a.focusedPane == messages.PaneCenter
 
 		// Check if we can use VTermLayer for direct cell rendering
-		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasBranchFiles() && !a.center.HasDiffViewer() {
+		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasDiffViewer() {
 			// Get terminal viewport from center model (accounts for borders, tab bar, help lines)
 			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
 			termX := centerX + termOffsetX
