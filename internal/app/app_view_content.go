@@ -101,7 +101,7 @@ func (a *App) renderWelcome() string {
 
 	// Center the content in the pane
 	width := a.layout.CenterWidth() - 4 // Account for borders/padding
-	height := a.layout.Height() - 4
+	height := a.layout.Height() - 2
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
 }

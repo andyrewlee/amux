@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/messages"
@@ -391,27 +392,30 @@ func (a *App) handleCenterPaneClick(msg tea.MouseClickMsg) tea.Cmd {
 func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 	content := a.welcomeContent()
 	lines := strings.Split(content, "\n")
-	contentWidth, contentHeight := viewDimensions(content)
+	_, contentHeight := viewDimensions(content)
 
 	// Match the width/height used by renderWelcome for centering.
 	placeWidth := a.layout.CenterWidth() - 4
-	placeHeight := a.layout.Height() - 4
+	placeHeight := a.layout.Height() - 2
 	if placeWidth <= 0 || placeHeight <= 0 {
 		return nil
 	}
 
-	offsetX := centerOffset(placeWidth, contentWidth)
 	offsetY := centerOffset(placeHeight, contentHeight)
 
 	// Both buttons are on the same line, find them by searching for plain text
 	for i, line := range lines {
 		strippedLine := ansi.Strip(line)
+		// lipgloss.Place centers each line independently based on that line's width,
+		// so calculate offsetX per-line using the line's visual width.
+		lineWidth := lipgloss.Width(line)
+		lineOffsetX := centerOffset(placeWidth, lineWidth)
 
 		// Settings button - check first so it's not blocked by New project's region
 		settingsText := "[Settings]"
 		if idx := strings.Index(strippedLine, settingsText); idx >= 0 {
 			region := common.HitRegion{
-				X:      idx + offsetX,
+				X:      idx + lineOffsetX,
 				Y:      i + offsetY,
 				Width:  len(settingsText),
 				Height: 1,
@@ -425,7 +429,7 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 		newProjectText := "[New project]"
 		if idx := strings.Index(strippedLine, newProjectText); idx >= 0 {
 			region := common.HitRegion{
-				X:      idx + offsetX,
+				X:      idx + lineOffsetX,
 				Y:      i + offsetY,
 				Width:  len(newProjectText),
 				Height: 1,
