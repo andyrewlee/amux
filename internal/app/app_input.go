@@ -229,6 +229,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.WorktreeActivated:
 		cmds = append(cmds, a.handleWorktreeActivated(msg)...)
 
+	case messages.WorktreePreviewed:
+		cmds = append(cmds, a.handleWorktreePreviewed(msg)...)
+
 	case messages.ShowWelcome:
 		a.goHome()
 

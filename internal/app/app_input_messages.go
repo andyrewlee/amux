@@ -60,6 +60,36 @@ func (a *App) handleWorktreeActivated(msg messages.WorktreeActivated) []tea.Cmd 
 	return cmds
 }
 
+// handleWorktreePreviewed processes the WorktreePreviewed message.
+func (a *App) handleWorktreePreviewed(msg messages.WorktreePreviewed) []tea.Cmd {
+	var cmds []tea.Cmd
+	a.activeProject = msg.Project
+	a.activeWorktree = msg.Worktree
+	a.showWelcome = false
+	a.centerBtnFocused = false
+	a.centerBtnIndex = 0
+	a.center.SetWorktree(msg.Worktree)
+	a.sidebar.SetWorktree(msg.Worktree)
+	a.sidebarTerminal.SetWorktreePreview(msg.Worktree)
+	if msg.Worktree != nil && a.statusManager != nil {
+		if cached := a.statusManager.GetCached(msg.Worktree.Root); cached != nil {
+			a.sidebar.SetGitStatus(cached)
+		} else {
+			a.sidebar.SetGitStatus(nil)
+		}
+	} else {
+		a.sidebar.SetGitStatus(nil)
+	}
+
+	newDashboard, cmd := a.dashboard.Update(msg)
+	a.dashboard = newDashboard
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	return cmds
+}
+
 // handleShowAddProjectDialog shows the add project file picker.
 func (a *App) handleShowAddProjectDialog() {
 	logging.Info("Showing Add Project file picker")

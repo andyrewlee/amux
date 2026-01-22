@@ -27,6 +27,12 @@ type WorktreeActivated struct {
 	Worktree *data.Worktree
 }
 
+// WorktreePreviewed is sent when a worktree is previewed (cursor movement)
+type WorktreePreviewed struct {
+	Project  *data.Project
+	Worktree *data.Worktree
+}
+
 // WorktreeCreated is sent when a new worktree is created
 type WorktreeCreated struct {
 	Worktree *data.Worktree
