@@ -624,6 +624,11 @@ func (m *TerminalModel) SetWorktree(wt *data.Worktree) tea.Cmd {
 	return m.createTerminalTab(wt)
 }
 
+// SetWorktreePreview sets the active worktree without creating tabs.
+func (m *TerminalModel) SetWorktreePreview(wt *data.Worktree) {
+	m.worktree = wt
+}
+
 // CreateNewTab creates a new terminal tab for the current worktree and returns a command
 func (m *TerminalModel) CreateNewTab() tea.Cmd {
 	if m.worktree == nil {

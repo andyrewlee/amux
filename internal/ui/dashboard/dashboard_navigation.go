@@ -113,6 +113,50 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	return -1, false
 }
 
+// previewCurrentRow returns a command to preview the currently selected row.
+// This is called automatically on cursor movement for instant content switching.
+// Returns nil for rows that shouldn't auto-preview (like RowCreate which opens a dialog).
+func (m *Model) previewCurrentRow() tea.Cmd {
+	if m.cursor >= len(m.rows) {
+		return nil
+	}
+
+	row := m.rows[m.cursor]
+	switch row.Type {
+	case RowHome:
+		return func() tea.Msg { return messages.ShowWelcome{} }
+	case RowProject:
+		// Find and activate the main/primary worktree for this project
+		var mainWT *data.Worktree
+		for i := range row.Project.Worktrees {
+			wt := &row.Project.Worktrees[i]
+			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
+				mainWT = wt
+				break
+			}
+		}
+		if mainWT != nil {
+			return func() tea.Msg {
+				return messages.WorktreePreviewed{
+					Project:  row.Project,
+					Worktree: mainWT,
+				}
+			}
+		}
+		return nil
+	case RowWorktree:
+		return func() tea.Msg {
+			return messages.WorktreePreviewed{
+				Project:  row.Project,
+				Worktree: row.Worktree,
+			}
+		}
+	}
+
+	// RowCreate, RowAddProject, RowSpacer - no auto-preview
+	return nil
+}
+
 // handleEnter handles the enter key
 func (m *Model) handleEnter() tea.Cmd {
 	if m.cursor >= len(m.rows) {
