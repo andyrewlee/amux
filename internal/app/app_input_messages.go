@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/update"
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
@@ -140,6 +141,18 @@ func (a *App) handleShowSettingsDialog() {
 	)
 	a.settingsDialog.SetSize(a.width, a.height)
 	a.settingsDialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+
+	// Set update state
+	if a.updateAvailable != nil {
+		a.settingsDialog.SetUpdateInfo(
+			a.updateAvailable.CurrentVersion,
+			a.updateAvailable.LatestVersion,
+			a.updateAvailable.UpdateAvailable,
+		)
+	} else {
+		a.settingsDialog.SetUpdateInfo(a.version, "", false)
+	}
+
 	a.settingsDialog.Show()
 }
 
@@ -486,4 +499,69 @@ func (a *App) showQuitDialog() {
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
+}
+
+// handleUpdateCheckComplete handles the UpdateCheckComplete message.
+func (a *App) handleUpdateCheckComplete(msg messages.UpdateCheckComplete) tea.Cmd {
+	if msg.Err != nil {
+		logging.Debug("Update check error: %v", msg.Err)
+		return nil
+	}
+	if !msg.UpdateAvailable {
+		logging.Debug("No update available (current=%s, latest=%s)", msg.CurrentVersion, msg.LatestVersion)
+		return nil
+	}
+	// Store update info
+	a.updateAvailable = &update.CheckResult{
+		CurrentVersion:  msg.CurrentVersion,
+		LatestVersion:   msg.LatestVersion,
+		UpdateAvailable: msg.UpdateAvailable,
+		ReleaseNotes:    msg.ReleaseNotes,
+	}
+	logging.Info("Update available: %s -> %s", msg.CurrentVersion, msg.LatestVersion)
+	// Update settings dialog if visible
+	if a.settingsDialog != nil && a.settingsDialog.Visible() {
+		a.settingsDialog.SetUpdateInfo(msg.CurrentVersion, msg.LatestVersion, true)
+	}
+	return nil
+}
+
+// handleTriggerUpgrade handles the TriggerUpgrade message.
+func (a *App) handleTriggerUpgrade() tea.Cmd {
+	if a.updateAvailable == nil || a.upgradeRunning {
+		return nil
+	}
+	a.upgradeRunning = true
+	return func() tea.Msg {
+		updater := update.NewUpdater(a.version, a.commit, a.buildDate)
+		// Get the latest release
+		result, err := updater.Check()
+		if err != nil {
+			return messages.UpgradeComplete{Err: err}
+		}
+		if result.Release == nil {
+			return messages.UpgradeComplete{Err: fmt.Errorf("no release found")}
+		}
+		// Perform the upgrade
+		if err := updater.Upgrade(result.Release); err != nil {
+			return messages.UpgradeComplete{Err: err}
+		}
+		return messages.UpgradeComplete{NewVersion: result.Release.TagName}
+	}
+}
+
+// handleUpgradeComplete handles the UpgradeComplete message.
+func (a *App) handleUpgradeComplete(msg messages.UpgradeComplete) tea.Cmd {
+	a.upgradeRunning = false
+	if msg.Err != nil {
+		logging.Error("Upgrade failed: %v", msg.Err)
+		return a.toast.ShowError("Upgrade failed: " + msg.Err.Error())
+	}
+	a.updateAvailable = nil
+	// Update settings dialog if visible
+	if a.settingsDialog != nil && a.settingsDialog.Visible() {
+		a.settingsDialog.SetUpdateInfo(msg.NewVersion, "", false)
+	}
+	logging.Info("Upgrade complete: %s", msg.NewVersion)
+	return a.toast.ShowSuccess("Upgraded to " + msg.NewVersion + " - restart amux to use new version")
 }

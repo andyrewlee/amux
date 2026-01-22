@@ -344,6 +344,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case messages.UpdateCheckComplete:
+		if cmd := a.handleUpdateCheckComplete(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.TriggerUpgrade:
+		if cmd := a.handleTriggerUpgrade(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.UpgradeComplete:
+		if cmd := a.handleUpgradeComplete(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.Error:
 		a.err = msg.Err
 		logging.Error("Error in %s: %v", msg.Context, msg.Err)

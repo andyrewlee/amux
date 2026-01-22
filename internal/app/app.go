@@ -18,6 +18,7 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/amux/internal/update"
 )
 
 // DialogID constants
@@ -57,6 +58,13 @@ type App struct {
 	monitorFilter    string // "" means "All", otherwise filter by project key (repo path)
 	monitorLayoutKey string
 	monitorCanvas    *compositor.Canvas
+
+	// Update state
+	updateAvailable *update.CheckResult // nil if no update or dismissed
+	version         string
+	commit          string
+	buildDate       string
+	upgradeRunning  bool
 
 	// UI Components
 	layout          *layout.Manager
@@ -181,7 +189,7 @@ func (a *App) markInput() {
 }
 
 // New creates a new App instance
-func New() (*App, error) {
+func New(version, commit, date string) (*App, error) {
 	cfg, err := config.DefaultConfig()
 	if err != nil {
 		return nil, err
@@ -237,6 +245,9 @@ func New() (*App, error) {
 		dashboardChrome: &compositor.ChromeCache{},
 		centerChrome:    &compositor.ChromeCache{},
 		sidebarChrome:   &compositor.ChromeCache{},
+		version:         version,
+		commit:          commit,
+		buildDate:       date,
 	}
 	// Apply saved theme before creating styles
 	common.SetCurrentTheme(common.ThemeID(cfg.UI.Theme))
@@ -262,11 +273,31 @@ func (a *App) Init() tea.Cmd {
 		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
 		a.startFileWatcher(),
+		a.checkForUpdates(),
 	}
 	if a.fileWatcherErr != nil {
 		cmds = append(cmds, a.toast.ShowWarning("File watching disabled; git status may be stale"))
 	}
 	return tea.Batch(cmds...)
+}
+
+// checkForUpdates starts a background check for updates.
+func (a *App) checkForUpdates() tea.Cmd {
+	return func() tea.Msg {
+		updater := update.NewUpdater(a.version, a.commit, a.buildDate)
+		result, err := updater.Check()
+		if err != nil {
+			logging.Warn("Update check failed: %v", err)
+			return messages.UpdateCheckComplete{Err: err}
+		}
+		return messages.UpdateCheckComplete{
+			CurrentVersion:  result.CurrentVersion,
+			LatestVersion:   result.LatestVersion,
+			UpdateAvailable: result.UpdateAvailable,
+			ReleaseNotes:    result.ReleaseNotes,
+			Err:             nil,
+		}
+	}
 }
 
 // startGitStatusTicker returns a command that ticks every 3 seconds for git status refresh

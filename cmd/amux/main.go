@@ -40,7 +40,7 @@ func main() {
 
 	logging.Info("Starting amux")
 
-	a, err := app.New()
+	a, err := app.New(version, commit, date)
 	if err != nil {
 		logging.Error("Failed to initialize app: %v", err)
 		fmt.Fprintf(os.Stderr, "Error initializing app: %v\n", err)
