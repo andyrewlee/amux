@@ -10,11 +10,6 @@ import (
 
 // renderRow renders a single dashboard row
 func (m *Model) renderRow(row Row, selected bool) string {
-	cursor := common.Icons.CursorEmpty + " "
-	if selected {
-		cursor = common.Icons.Cursor + " "
-	}
-
 	switch row.Type {
 	case RowHome:
 		style := m.styles.HomeRow
@@ -26,7 +21,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if m.activeRoot == "" {
 			style = style.Bold(true).Foreground(common.ColorPrimary)
 		}
-		return cursor + style.Render("[amux]")
+		return style.Render("[amux]")
 
 	case RowProject:
 		status := ""
@@ -48,9 +43,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			}
 		}
 
-		// Project headers are uppercase - selectable to access main branch
-		// Remove MarginTop from style to keep cursor on same line as text
-		// Add spacing as newline prefix instead
+		// Project headers are selectable to access main branch
 		style := m.styles.ProjectHeader.MarginTop(0)
 		if selected {
 			style = style.
@@ -61,9 +54,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			style = m.styles.ActiveWorktree.PaddingLeft(0)
 		}
 
-		// Truncate project name to fit within pane (width - border - padding - cursor - status)
+		// Truncate project name to fit within pane (width - border - padding - status)
 		name := row.Project.Name
-		maxNameWidth := m.width - 4 - lipgloss.Width(cursor) - lipgloss.Width(status) - 1
+		maxNameWidth := m.width - 4 - lipgloss.Width(status) - 1
 		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
 			runes := []rune(name)
 			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
@@ -71,7 +64,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			}
 			name = string(runes) + "…"
 		}
-		return "\n" + cursor + style.Render(name) + status
+		return style.Render(name) + status
 
 	case RowWorktree:
 		name := row.Worktree.Name
@@ -105,8 +98,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			style = m.styles.ActiveWorktree
 		}
 
-		// Truncate worktree name to fit within pane (width - border - padding - cursor - status)
-		maxNameWidth := m.width - 4 - lipgloss.Width(cursor) - lipgloss.Width(status) - 1
+		// Truncate worktree name to fit within pane (width - border - padding - status)
+		maxNameWidth := m.width - 4 - lipgloss.Width(status) - 1
 		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
 			runes := []rune(name)
 			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
@@ -114,14 +107,14 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			}
 			name = string(runes) + "…"
 		}
-		return cursor + style.Render(name) + status
+		return style.Render(name) + status
 
 	case RowCreate:
 		style := m.styles.CreateButton
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return cursor + style.Render(common.Icons.Add+" New")
+		return style.Render(common.Icons.Add + " New")
 
 	case RowSpacer:
 		return ""

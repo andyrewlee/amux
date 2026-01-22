@@ -125,22 +125,22 @@ func DefaultStyles() Styles {
 			MarginTop(1),
 
 		WorktreeRow: lipgloss.NewStyle().
-			PaddingLeft(2).
+			PaddingLeft(1).
 			Foreground(ColorForeground),
 
 		ActiveWorktree: lipgloss.NewStyle().
-			PaddingLeft(2).
+			PaddingLeft(1).
 			Bold(true).
 			Foreground(ColorPrimary),
 
 		SelectedRow: lipgloss.NewStyle().
-			PaddingLeft(2).
+			PaddingLeft(1).
 			Bold(true).
 			Foreground(ColorForeground).
 			Background(ColorSelection),
 
 		CreateButton: lipgloss.NewStyle().
-			PaddingLeft(2).
+			PaddingLeft(1).
 			Foreground(ColorMuted),
 
 		HomeRow: lipgloss.NewStyle().

@@ -361,7 +361,7 @@ func (m *Model) renderChanges() string {
 	// Show file count
 	total := m.gitStatus.GetDirtyCount()
 	b.WriteString(m.styles.Muted.Render(strconv.Itoa(total) + " changed files"))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	visibleHeight := m.visibleHeight()
 
@@ -478,7 +478,7 @@ func (m *Model) listHeaderLines() int {
 	if m.filterMode || m.filterQuery != "" {
 		header++
 	}
-	header += 2 // "changed files" + blank line
+	header += 1 // "changed files"
 	return header
 }
 
