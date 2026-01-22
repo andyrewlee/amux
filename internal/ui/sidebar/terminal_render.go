@@ -15,20 +15,16 @@ func (m *TerminalModel) renderTabBar() string {
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 
-	// Compact tab styles (no borders, no background - just text styling)
-	inactiveStyle := lipgloss.NewStyle().
-		Padding(0, 1).
-		Foreground(common.ColorMuted)
-	activeStyle := lipgloss.NewStyle().
-		Padding(0, 1).
-		Bold(true).
-		Foreground(common.ColorForeground)
-	plusStyle := lipgloss.NewStyle().
-		Padding(0, 1).
-		Foreground(common.ColorMuted)
+	// Compact tab styles
+	inactiveStyle := m.styles.Tab
+	plusStyle := m.styles.TabPlus
 
 	if len(tabs) == 0 {
-		// Show "New terminal" button when no tabs exist
+		// No worktree selected - show non-interactive message
+		if m.worktree == nil {
+			return m.styles.Muted.Render("No terminal")
+		}
+		// Worktree selected but no tabs - show clickable "New terminal" button
 		empty := plusStyle.Render("+ New terminal")
 		emptyWidth := lipgloss.Width(empty)
 		if emptyWidth > 0 {
@@ -57,15 +53,21 @@ func (m *TerminalModel) renderTabBar() string {
 
 		// Build tab content with close affordance
 		closeLabel := m.styles.Muted.Render("×")
-		content := name + " " + closeLabel
-
-		var style lipgloss.Style
+		var rendered string
 		if i == activeIdx {
-			style = activeStyle
+			// Active tab - single unified style for clean background
+			tabStyle := lipgloss.NewStyle().
+				Padding(0, 1).
+				Foreground(common.ColorForeground).
+				Background(common.ColorSurface2)
+			content := name + " ×"
+			rendered = tabStyle.Render(content)
 		} else {
-			style = inactiveStyle
+			// Inactive tab - muted
+			nameStyled := m.styles.Muted.Render(name)
+			content := nameStyled + " " + closeLabel
+			rendered = inactiveStyle.Render(content)
 		}
-		rendered := style.Render(content)
 
 		renderedWidth := lipgloss.Width(rendered)
 		if renderedWidth > 0 {

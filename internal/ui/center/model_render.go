@@ -223,19 +223,26 @@ func (m *Model) renderTabBar() string {
 			agentStyle = m.styles.AgentTerm
 		}
 
-		// Build tab content with agent-colored indicator and a close affordance
-		closeLabel := m.styles.Muted.Render("x")
-		content := agentStyle.Render(indicator) + name + " " + closeLabel
-
-		style := m.styles.Tab
+		// Build tab content with close affordance
+		closeLabel := m.styles.Muted.Render("×")
 		var rendered string
+		var style lipgloss.Style
 		if i == activeIdx {
-			// Active tab gets highlight border
+			// Active tab - each part styled with same background
+			bg := common.ColorSurface2
+			pad := lipgloss.NewStyle().Background(bg).Render(" ")
+			indicatorPart := lipgloss.NewStyle().Foreground(agentStyle.GetForeground()).Background(bg).Render(indicator)
+			namePart := lipgloss.NewStyle().Foreground(common.ColorForeground).Background(bg).Render(name)
+			space := lipgloss.NewStyle().Background(bg).Render(" ")
+			closePart := lipgloss.NewStyle().Foreground(common.ColorMuted).Background(bg).Render("×")
+			rendered = pad + indicatorPart + namePart + space + closePart + pad
 			style = m.styles.ActiveTab
-			rendered = style.Render(content)
 		} else {
-			// Inactive tab
-			rendered = style.Render(content)
+			// Inactive tab - muted with colored indicator
+			nameStyled := m.styles.Muted.Render(name)
+			content := agentStyle.Render(indicator) + nameStyled + " " + closeLabel
+			rendered = m.styles.Tab.Render(content)
+			style = m.styles.Tab
 		}
 		renderedWidth := lipgloss.Width(rendered)
 		if renderedWidth > 0 {
@@ -257,8 +264,7 @@ func (m *Model) renderTabBar() string {
 			closeX := x + leftFrame + prefixWidth
 			if closeWidth > 0 {
 				// Expand close button hit region for easier clicking
-				// Include the space before "x" and extend to end of tab
-				expandedCloseX := closeX - 1 // include the space before "x"
+				expandedCloseX := closeX - 1
 				expandedCloseWidth := renderedWidth - leftFrame - prefixWidth + 1
 				m.tabHits = append(m.tabHits, tabHit{
 					kind:  tabHitClose,
@@ -298,10 +304,10 @@ func (m *Model) renderTabBar() string {
 }
 
 func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
-	// Tab bar is at screen Y=2: Y=0 is pane border, Y=1 is tab border, Y=2 is tab content
+	// Tab bar is at screen Y=1: Y=0 is pane border, Y=1 is tab content (compact, no tab border)
 	// Account for border (1) and padding (1) on the left side when converting X coordinates
 	const (
-		borderTop   = 2
+		borderTop   = 1
 		borderLeft  = 1
 		paddingLeft = 1
 	)
