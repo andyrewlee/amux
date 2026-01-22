@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
@@ -38,14 +39,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		tab := tabs[activeIdx]
 
-		// CommitViewer tabs: forward mouse events to commit viewer
+		// DiffViewer tabs: forward mouse events to diff viewer
 		tab.mu.Lock()
-		cv := tab.CommitViewer
+		dv := tab.DiffViewer
 		tab.mu.Unlock()
-		if cv != nil {
-			newCV, cmd := cv.Update(msg)
+		if dv != nil {
+			newDV, cmd := dv.Update(msg)
 			tab.mu.Lock()
-			tab.CommitViewer = newCV
+			tab.DiffViewer = newDV
 			tab.mu.Unlock()
 			return m, cmd
 		}
@@ -98,14 +99,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		tab := tabs[activeIdx]
 
-		// CommitViewer tabs: forward mouse events to commit viewer
+		// DiffViewer tabs: forward mouse events to diff viewer
 		tab.mu.Lock()
-		cv := tab.CommitViewer
+		dv := tab.DiffViewer
 		tab.mu.Unlock()
-		if cv != nil {
-			newCV, cmd := cv.Update(msg)
+		if dv != nil {
+			newDV, cmd := dv.Update(msg)
 			tab.mu.Lock()
-			tab.CommitViewer = newCV
+			tab.DiffViewer = newDV
 			tab.mu.Unlock()
 			return m, cmd
 		}
@@ -165,14 +166,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		tab := tabs[activeIdx]
 
-		// CommitViewer tabs: forward mouse events to commit viewer
+		// DiffViewer tabs: forward mouse events to diff viewer
 		tab.mu.Lock()
-		cv := tab.CommitViewer
+		dv := tab.DiffViewer
 		tab.mu.Unlock()
-		if cv != nil {
-			newCV, cmd := cv.Update(msg)
+		if dv != nil {
+			newDV, cmd := dv.Update(msg)
 			tab.mu.Lock()
-			tab.CommitViewer = newCV
+			tab.DiffViewer = newDV
 			tab.mu.Unlock()
 			return m, cmd
 		}
@@ -213,15 +214,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		tab := tabs[activeIdx]
 
+		// DiffViewer tabs: forward mouse events to diff viewer
 		tab.mu.Lock()
-		cv := tab.CommitViewer
+		dv := tab.DiffViewer
 		tab.mu.Unlock()
-
-		// CommitViewer tabs: forward mouse events to commit viewer
-		if cv != nil {
-			newCV, cmd := cv.Update(msg)
+		if dv != nil {
+			newDV, cmd := dv.Update(msg)
 			tab.mu.Lock()
-			tab.CommitViewer = newCV
+			tab.DiffViewer = newDV
 			tab.mu.Unlock()
 			return m, cmd
 		}
@@ -285,11 +285,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab := tabs[activeIdx]
 			logging.Debug("Has active agent, Agent=%v, Terminal=%v, CopyMode=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil, tab.CopyMode)
 
-			// CommitViewer tabs: forward keys to commit viewer
+			// DiffViewer tabs: forward keys to diff viewer
 			tab.mu.Lock()
-			cv := tab.CommitViewer
+			dv := tab.DiffViewer
 			tab.mu.Unlock()
-			if cv != nil {
+			if dv != nil {
 				// Handle ctrl+w for closing tab
 				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))) {
 					return m, m.closeCurrentTab()
@@ -303,10 +303,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					m.prevTab()
 					return m, nil
 				}
-				// Forward all other keys to commit viewer
-				newCV, cmd := cv.Update(msg)
+				// Forward all other keys to diff viewer
+				newDV, cmd := dv.Update(msg)
 				tab.mu.Lock()
-				tab.CommitViewer = newCV
+				tab.DiffViewer = newDV
 				tab.mu.Unlock()
 				return m, cmd
 			}
@@ -384,13 +384,45 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
 
 	case messages.OpenDiff:
-		return m, m.createViewerTab(msg.File, msg.StatusCode, msg.Worktree)
-
-	case messages.OpenCommitViewer:
-		return m, m.createCommitViewerTab(msg.Worktree)
-
-	case messages.ViewCommitDiff:
-		return m, m.createCommitDiffTab(msg.Hash, msg.Worktree)
+		// Check if new-style Change is provided, otherwise convert from legacy fields
+		if msg.Change != nil {
+			return m, m.createDiffTab(msg.Change, msg.Mode, msg.Worktree)
+		}
+		// Legacy path: convert File/StatusCode to Change
+		change := &git.Change{
+			Path: msg.File,
+		}
+		mode := git.DiffModeUnstaged
+		if msg.StatusCode == "??" {
+			change.Kind = git.ChangeUntracked
+		} else if len(msg.StatusCode) >= 1 && msg.StatusCode[0] != ' ' {
+			// Staged change
+			mode = git.DiffModeStaged
+			switch msg.StatusCode[0] {
+			case 'A':
+				change.Kind = git.ChangeAdded
+			case 'D':
+				change.Kind = git.ChangeDeleted
+			case 'M':
+				change.Kind = git.ChangeModified
+			case 'R':
+				change.Kind = git.ChangeRenamed
+			}
+			change.Staged = true
+		} else {
+			// Unstaged change
+			if len(msg.StatusCode) >= 2 {
+				switch msg.StatusCode[1] {
+				case 'A':
+					change.Kind = git.ChangeAdded
+				case 'D':
+					change.Kind = git.ChangeDeleted
+				case 'M':
+					change.Kind = git.ChangeModified
+				}
+			}
+		}
+		return m, m.createDiffTab(change, mode, msg.Worktree)
 
 	case messages.WorktreeDeleted:
 		m.CleanupWorktree(msg.Worktree)
@@ -488,18 +520,18 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Do NOT schedule another read - the loop is done
 
 	default:
-		// Forward unknown messages to active commit viewer if one exists
+		// Forward unknown messages to active viewer if one exists
 		tabs := m.getTabs()
 		activeIdx := m.getActiveTabIdx()
 		if len(tabs) > 0 && activeIdx < len(tabs) {
 			tab := tabs[activeIdx]
 			tab.mu.Lock()
-			cv := tab.CommitViewer
+			dv := tab.DiffViewer
 			tab.mu.Unlock()
-			if cv != nil {
-				newCV, cmd := cv.Update(msg)
+			if dv != nil {
+				newDV, cmd := dv.Update(msg)
 				tab.mu.Lock()
-				tab.CommitViewer = newCV
+				tab.DiffViewer = newDV
 				tab.mu.Unlock()
 				if cmd != nil {
 					cmds = append(cmds, cmd)

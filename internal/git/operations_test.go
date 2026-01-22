@@ -178,8 +178,8 @@ func TestGetStatus(t *testing.T) {
 		if status.Clean {
 			t.Fatalf("expected dirty status")
 		}
-		if len(status.Files) != 1 {
-			t.Fatalf("expected 1 file, got %d", len(status.Files))
+		if len(status.Untracked) != 1 {
+			t.Fatalf("expected 1 untracked file, got %d", len(status.Untracked))
 		}
 	})
 

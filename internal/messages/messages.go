@@ -187,20 +187,14 @@ type LaunchAgent struct {
 
 // OpenDiff requests opening a diff viewer for a file
 type OpenDiff struct {
+	// Legacy fields (for backwards compatibility with sidebar)
 	File       string
 	StatusCode string // Git status code (e.g., "M ", "??", "A ")
-	Worktree   *data.Worktree
-}
 
-// OpenCommitViewer requests opening the commit viewer
-type OpenCommitViewer struct {
+	// New fields
+	Change   *git.Change  // Change object with full info
+	Mode     git.DiffMode // Which diff mode to use
 	Worktree *data.Worktree
-}
-
-// ViewCommitDiff requests viewing a specific commit's diff
-type ViewCommitDiff struct {
-	Worktree *data.Worktree
-	Hash     string
 }
 
 // CloseTab requests closing the current tab

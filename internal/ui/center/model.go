@@ -12,9 +12,9 @@ import (
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/ui/commits"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
+	"github.com/andyrewlee/amux/internal/ui/diff"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -46,12 +46,12 @@ type Tab struct {
 	Assistant    string
 	Worktree     *data.Worktree
 	Agent        *appPty.Agent
-	Terminal     *vterm.VTerm   // Virtual terminal emulator with scrollback
-	CommitViewer *commits.Model // Commit viewer component (if this is a commit viewer tab)
-	mu           sync.Mutex     // Protects Terminal
-	Running      bool           // Whether the agent is actively running
-	readerActive bool           // Guard to ensure only one PTY read loop per tab
-	CopyMode     bool           // Whether the tab is in copy/scroll mode (keys not sent to PTY)
+	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
+	DiffViewer   *diff.Model  // Native diff viewer (replaces PTY-based viewer)
+	mu           sync.Mutex   // Protects Terminal
+	Running      bool         // Whether the agent is actively running
+	readerActive bool         // Guard to ensure only one PTY read loop per tab
+	CopyMode     bool         // Whether the tab is in copy/scroll mode (keys not sent to PTY)
 	CopyState    common.CopyState
 	// Buffer PTY output to avoid rendering partial screen updates.
 
@@ -208,11 +208,13 @@ func (m *Model) SetShowKeymapHints(show bool) {
 // SetStyles updates the component's styles (for theme changes).
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
-	// Propagate to all commit viewers in tabs
+	// Propagate to all viewers in tabs
 	for _, tabs := range m.tabsByWorktree {
 		for _, tab := range tabs {
-			if tab != nil && tab.CommitViewer != nil {
-				tab.CommitViewer.SetStyles(styles)
+			if tab != nil {
+				if tab.DiffViewer != nil {
+					tab.DiffViewer.SetStyles(styles)
+				}
 			}
 		}
 	}
@@ -350,8 +352,8 @@ func (m *Model) SetSize(width, height int) {
 					tab.Terminal.Resize(termWidth, termHeight)
 				}
 			}
-			if tab.CommitViewer != nil {
-				tab.CommitViewer.SetSize(viewerWidth, viewerHeight)
+			if tab.DiffViewer != nil {
+				tab.DiffViewer.SetSize(viewerWidth, viewerHeight)
 			}
 			tab.mu.Unlock()
 			m.resizePTY(tab, termHeight, termWidth)

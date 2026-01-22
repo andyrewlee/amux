@@ -304,23 +304,6 @@ func (a *App) handleOpenDiff(msg messages.OpenDiff) tea.Cmd {
 	return cmd
 }
 
-// handleOpenCommitViewer handles the OpenCommitViewer message.
-func (a *App) handleOpenCommitViewer(msg messages.OpenCommitViewer) tea.Cmd {
-	logging.Info("Opening commit viewer")
-	newCenter, cmd := a.center.Update(msg)
-	a.center = newCenter
-	a.focusPane(messages.PaneCenter)
-	return cmd
-}
-
-// handleViewCommitDiff handles the ViewCommitDiff message.
-func (a *App) handleViewCommitDiff(msg messages.ViewCommitDiff) tea.Cmd {
-	logging.Info("Viewing commit diff: %s", msg.Hash)
-	newCenter, cmd := a.center.Update(msg)
-	a.center = newCenter
-	return cmd
-}
-
 // handleLaunchAgent handles the LaunchAgent message.
 func (a *App) handleLaunchAgent(msg messages.LaunchAgent) tea.Cmd {
 	logging.Info("Launching agent: %s", msg.Assistant)
