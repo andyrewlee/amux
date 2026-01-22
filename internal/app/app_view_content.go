@@ -62,6 +62,8 @@ func (a *App) goHome() {
 	a.sidebar.SetGitStatus(nil)
 	_ = a.sidebarTerminal.SetWorktree(nil)
 	a.dashboard.ClearActiveRoot()
+	a.centerBtnFocused = false
+	a.centerBtnIndex = 0
 }
 
 // renderWorktreeInfo renders information about the active worktree
@@ -77,7 +79,14 @@ func (a *App) renderWorktreeInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	agentBtn := a.styles.TabPlus.Render("New agent")
+	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
+	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
+
+	btnStyle := inactiveStyle
+	if a.centerBtnFocused && a.centerBtnIndex == 0 {
+		btnStyle = activeStyle
+	}
+	agentBtn := btnStyle.Render("[New agent]")
 	content += "\n" + agentBtn
 	if a.config.UI.ShowKeymapHints {
 		content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
@@ -102,8 +111,21 @@ func (a *App) welcomeContent() string {
 	var b strings.Builder
 	b.WriteString(logoStyle.Render(logo))
 	b.WriteString("\n\n")
-	newProject := a.styles.TabPlus.Render("New project")
-	settingsBtn := a.styles.TabPlus.Render("Settings")
+
+	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
+	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
+
+	newProjectStyle := inactiveStyle
+	settingsStyle := inactiveStyle
+	if a.centerBtnFocused {
+		if a.centerBtnIndex == 0 {
+			newProjectStyle = activeStyle
+		} else if a.centerBtnIndex == 1 {
+			settingsStyle = activeStyle
+		}
+	}
+	newProject := newProjectStyle.Render("[New project]")
+	settingsBtn := settingsStyle.Render("[Settings]")
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, newProject, "  ", settingsBtn))
 	b.WriteString("\n")
 	if a.config.UI.ShowKeymapHints {

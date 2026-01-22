@@ -37,6 +37,8 @@ func (a *App) handleWorktreeActivated(msg messages.WorktreeActivated) []tea.Cmd 
 	a.activeProject = msg.Project
 	a.activeWorktree = msg.Worktree
 	a.showWelcome = false
+	a.centerBtnFocused = false
+	a.centerBtnIndex = 0
 	a.center.SetWorktree(msg.Worktree)
 	a.sidebar.SetWorktree(msg.Worktree)
 	// Set up sidebar terminal for the worktree
