@@ -128,7 +128,11 @@ func NewTerminalModel() *TerminalModel {
 
 // SetShowKeymapHints controls whether helper text is rendered.
 func (m *TerminalModel) SetShowKeymapHints(show bool) {
+	if m.showKeymapHints == show {
+		return
+	}
 	m.showKeymapHints = show
+	m.refreshTerminalSize()
 }
 
 // SetStyles updates the component's styles (for theme changes).
@@ -248,6 +252,7 @@ func (m *TerminalModel) NextTab() {
 	idx := m.getActiveTabIdx()
 	idx = (idx + 1) % len(tabs)
 	m.setActiveTabIdx(idx)
+	m.refreshTerminalSize()
 }
 
 // PrevTab switches to the previous terminal tab (circular)
@@ -259,6 +264,7 @@ func (m *TerminalModel) PrevTab() {
 	idx := m.getActiveTabIdx()
 	idx = (idx - 1 + len(tabs)) % len(tabs)
 	m.setActiveTabIdx(idx)
+	m.refreshTerminalSize()
 }
 
 // SelectTab selects a tab by index
@@ -266,6 +272,7 @@ func (m *TerminalModel) SelectTab(idx int) {
 	tabs := m.getTabs()
 	if idx >= 0 && idx < len(tabs) {
 		m.setActiveTabIdx(idx)
+		m.refreshTerminalSize()
 	}
 }
 
@@ -564,10 +571,7 @@ func (m *TerminalModel) View() string {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	helpLines := m.helpLines(contentWidth)
-	if !m.showKeymapHints {
-		helpLines = nil
-	}
+	helpLines := m.helpLinesForLayout(contentWidth)
 
 	// Pad to fill height
 	contentHeight := strings.Count(b.String(), "\n") + 1
@@ -611,12 +615,14 @@ func (m *TerminalModel) Focused() bool {
 func (m *TerminalModel) SetWorktree(wt *data.Worktree) tea.Cmd {
 	m.worktree = wt
 	if wt == nil {
+		m.refreshTerminalSize()
 		return nil
 	}
 
 	wtID := string(wt.ID())
 	if len(m.tabsByWorktree[wtID]) > 0 {
 		// Tabs already exist for this worktree
+		m.refreshTerminalSize()
 		return nil
 	}
 
@@ -666,5 +672,6 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 		m.activeTabByWorktree[wtID] = newLen - 1
 	}
 
+	m.refreshTerminalSize()
 	return nil
 }

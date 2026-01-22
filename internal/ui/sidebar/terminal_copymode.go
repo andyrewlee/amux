@@ -18,6 +18,7 @@ func (m *TerminalModel) EnterCopyMode() {
 			ts.CopyState = common.InitCopyState(ts.VTerm)
 		}
 		ts.mu.Unlock()
+		m.refreshTerminalSize()
 	}
 }
 
@@ -33,6 +34,7 @@ func (m *TerminalModel) ExitCopyMode() {
 		}
 		ts.CopyState = common.CopyState{}
 		ts.mu.Unlock()
+		m.refreshTerminalSize()
 	}
 }
 
@@ -46,6 +48,7 @@ func (m *TerminalModel) CopyModeActive() bool {
 func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyPressMsg) tea.Cmd {
 	var copyText string
 	var didCopy bool
+	var resized bool
 
 	ts.mu.Lock()
 	term := ts.VTerm
@@ -81,7 +84,11 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyPressMsg
 		ts.CopyState = common.CopyState{}
 		term.ClearSelection()
 		term.ScrollViewToBottom()
+		resized = true
 		ts.mu.Unlock()
+		if resized {
+			m.refreshTerminalSize()
+		}
 		return nil
 
 	// Copy selection
@@ -93,8 +100,12 @@ func (m *TerminalModel) handleCopyModeKey(ts *TerminalState, msg tea.KeyPressMsg
 			term.ClearSelection()
 			term.ScrollViewToBottom()
 			didCopy = true
+			resized = true
 		}
 		ts.mu.Unlock()
+		if resized {
+			m.refreshTerminalSize()
+		}
 		if didCopy {
 			if err := common.CopyToClipboard(copyText); err != nil {
 				logging.Error("Failed to copy sidebar selection: %v", err)

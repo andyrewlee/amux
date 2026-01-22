@@ -61,8 +61,7 @@ func (m *TerminalModel) createTerminalTab(wt *data.Worktree) tea.Cmd {
 
 // terminalContentSize returns the terminal content dimensions (excluding tab bar)
 func (m *TerminalModel) terminalContentSize() (int, int) {
-	termWidth := m.width
-	termHeight := m.height - 1 - tabBarHeight // -1 for help bar, -tabBarHeight for tab bar
+	termWidth, termHeight, _ := m.terminalViewportSize()
 	if termWidth < 10 {
 		termWidth = 10
 	}
@@ -100,6 +99,8 @@ func (m *TerminalModel) HandleTerminalCreated(wtID string, tabID TerminalTabID, 
 
 	// Set as active tab (switch to new tab)
 	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+
+	m.refreshTerminalSize()
 
 	// Start reading from PTY
 	return m.startPTYReader(wtID, tabID)
