@@ -127,6 +127,7 @@ type App struct {
 	dashboardBorders     borderCache
 	sidebarTopContent    drawableCache
 	sidebarBottomContent drawableCache
+	sidebarBottomTabBar  drawableCache
 	sidebarBottomStatus  drawableCache
 	sidebarBottomHelp    drawableCache
 	sidebarTopBorders    borderCache

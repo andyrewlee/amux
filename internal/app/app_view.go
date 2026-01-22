@@ -217,20 +217,32 @@ func (a *App) viewLayerBased() tea.View {
 					termH = bottomContentHeight
 				}
 
+				// Tab bar (above terminal content) - compact single line
+				tabBar := a.sidebarTerminal.TabBarView()
+				tabBarHeight := 0
+				if tabBar != "" {
+					tabBarHeight = 1
+					tabBarContent := clampLines(tabBar, contentWidth, 1)
+					tabBarY := bottomY + 1 // Inside the border
+					if tabBarDrawable := a.sidebarBottomTabBar.get(tabBarContent, originX, tabBarY); tabBarDrawable != nil {
+						canvas.Compose(tabBarDrawable)
+					}
+				}
+
 				status := clampLines(a.sidebarTerminal.StatusLine(), contentWidth, 1)
 				helpLines := a.sidebarTerminal.HelpLines(contentWidth)
 				statusLines := 0
 				if status != "" {
 					statusLines = 1
 				}
-				maxHelpHeight := bottomContentHeight - statusLines
+				maxHelpHeight := bottomContentHeight - statusLines - tabBarHeight
 				if maxHelpHeight < 0 {
 					maxHelpHeight = 0
 				}
 				if len(helpLines) > maxHelpHeight {
 					helpLines = helpLines[:maxHelpHeight]
 				}
-				maxTermHeight := bottomContentHeight - statusLines - len(helpLines)
+				maxTermHeight := bottomContentHeight - statusLines - len(helpLines) - tabBarHeight
 				if maxTermHeight < 0 {
 					maxTermHeight = 0
 				}
@@ -255,13 +267,13 @@ func (a *App) viewLayerBased() tea.View {
 
 				if len(helpLines) > 0 {
 					helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
-					helpY := originY + bottomContentHeight - len(helpLines)
+					helpY := originY + bottomContentHeight - len(helpLines) - tabBarHeight
 					if helpDrawable := a.sidebarBottomHelp.get(helpContent, originX, helpY); helpDrawable != nil {
 						canvas.Compose(helpDrawable)
 					}
-				} else if status == "" && bottomContentHeight > termH {
+				} else if status == "" && bottomContentHeight > termH+tabBarHeight {
 					blank := strings.Repeat(" ", contentWidth)
-					if blankDrawable := a.sidebarBottomHelp.get(blank, originX, originY+bottomContentHeight-1); blankDrawable != nil {
+					if blankDrawable := a.sidebarBottomHelp.get(blank, originX, originY+bottomContentHeight-1-tabBarHeight); blankDrawable != nil {
 						canvas.Compose(blankDrawable)
 					}
 				}

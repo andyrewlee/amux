@@ -9,6 +9,125 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
+// renderTabBar renders the terminal tab bar (compact single-line, no borders)
+func (m *TerminalModel) renderTabBar() string {
+	m.tabHits = m.tabHits[:0]
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+
+	// Compact tab styles (no borders, no background - just text styling)
+	inactiveStyle := lipgloss.NewStyle().
+		Padding(0, 1).
+		Foreground(common.ColorMuted)
+	activeStyle := lipgloss.NewStyle().
+		Padding(0, 1).
+		Bold(true).
+		Foreground(common.ColorForeground)
+	plusStyle := lipgloss.NewStyle().
+		Padding(0, 1).
+		Foreground(common.ColorMuted)
+
+	if len(tabs) == 0 {
+		// Show "New terminal" button when no tabs exist
+		empty := plusStyle.Render("+ New terminal")
+		emptyWidth := lipgloss.Width(empty)
+		if emptyWidth > 0 {
+			m.tabHits = append(m.tabHits, terminalTabHit{
+				kind:  terminalTabHitPlus,
+				index: -1,
+				region: common.HitRegion{
+					X:      0,
+					Y:      0,
+					Width:  emptyWidth,
+					Height: 1,
+				},
+			})
+		}
+		return empty
+	}
+
+	var renderedTabs []string
+	x := 0
+
+	for i, tab := range tabs {
+		name := tab.Name
+		if name == "" {
+			name = fmt.Sprintf("Terminal %d", i+1)
+		}
+
+		// Build tab content with close affordance
+		closeLabel := m.styles.Muted.Render("×")
+		content := name + " " + closeLabel
+
+		var style lipgloss.Style
+		if i == activeIdx {
+			style = activeStyle
+		} else {
+			style = inactiveStyle
+		}
+		rendered := style.Render(content)
+
+		renderedWidth := lipgloss.Width(rendered)
+		if renderedWidth > 0 {
+			m.tabHits = append(m.tabHits, terminalTabHit{
+				kind:  terminalTabHitTab,
+				index: i,
+				region: common.HitRegion{
+					X:      x,
+					Y:      0,
+					Width:  renderedWidth,
+					Height: 1,
+				},
+			})
+
+			// Close button hit region (padding=1 on each side, no left/right borders)
+			padding := 1
+			prefixWidth := lipgloss.Width(name + " ")
+			closeWidth := lipgloss.Width(closeLabel)
+			closeX := x + padding + prefixWidth
+			if closeWidth > 0 {
+				// Expand close button hit region for easier clicking
+				m.tabHits = append(m.tabHits, terminalTabHit{
+					kind:  terminalTabHitClose,
+					index: i,
+					region: common.HitRegion{
+						X:      closeX - 1,
+						Y:      0,
+						Width:  closeWidth + padding + 1,
+						Height: 1,
+					},
+				})
+			}
+		}
+		x += renderedWidth
+		renderedTabs = append(renderedTabs, rendered)
+	}
+
+	// Add (+) button
+	btn := plusStyle.Render("+")
+	btnWidth := lipgloss.Width(btn)
+	if btnWidth > 0 {
+		m.tabHits = append(m.tabHits, terminalTabHit{
+			kind:  terminalTabHitPlus,
+			index: -1,
+			region: common.HitRegion{
+				X:      x,
+				Y:      0,
+				Width:  btnWidth,
+				Height: 1,
+			},
+		})
+	}
+	renderedTabs = append(renderedTabs, btn)
+
+	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
+}
+
+// TabBarView returns the rendered tab bar string.
+func (m *TerminalModel) TabBarView() string {
+	return m.renderTabBar()
+}
+
 // TerminalLayer returns a VTermLayer for the active worktree terminal.
 func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
 	ts := m.getTerminal()
@@ -84,6 +203,17 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 
 	ts := m.getTerminal()
 	hasTerm := ts != nil && ts.VTerm != nil
+
+	// Tab management hints
+	items = append(items, m.helpItem("C-Spc t", "new term"))
+	if m.HasMultipleTabs() {
+		items = append(items,
+			m.helpItem("C-Spc n", "next"),
+			m.helpItem("C-Spc p", "prev"),
+			m.helpItem("C-Spc x", "close"),
+		)
+	}
+
 	if hasTerm {
 		items = append(items,
 			m.helpItem("C-Spc [", "copy"),
@@ -108,15 +238,28 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 	return common.WrapHelpItems(items, contentWidth)
 }
 
+// tabBarHeight is the height of the terminal tab bar (single line, no borders)
+const tabBarHeight = 1
+
 // TerminalOrigin returns the absolute origin for terminal rendering.
 func (m *TerminalModel) TerminalOrigin() (int, int) {
+	// Offset Y by tab bar height when tabs exist
+	tabs := m.getTabs()
+	if len(tabs) > 0 {
+		return m.offsetX, m.offsetY + tabBarHeight
+	}
 	return m.offsetX, m.offsetY
 }
 
 // TerminalSize returns the terminal render size.
 func (m *TerminalModel) TerminalSize() (int, int) {
 	width := m.width
-	height := m.height - 1
+	height := m.height - 1 // -1 for help bar
+	// Subtract tab bar height when tabs exist
+	tabs := m.getTabs()
+	if len(tabs) > 0 {
+		height -= tabBarHeight
+	}
 	if width < 1 {
 		width = 1
 	}
@@ -131,9 +274,9 @@ func (m *TerminalModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 
-	// Calculate actual terminal dimensions
+	// Calculate actual terminal dimensions (accounting for tab bar and help bar)
 	termWidth := width
-	termHeight := height - 1
+	termHeight := height - 1 - tabBarHeight // -1 for help bar, -tabBarHeight for tab bar
 	if termWidth < 10 {
 		termWidth = 10
 	}
@@ -141,18 +284,24 @@ func (m *TerminalModel) SetSize(width, height int) {
 		termHeight = 3
 	}
 
-	// Resize all terminal vtems only if size changed
-	for _, ts := range m.terminals {
-		ts.mu.Lock()
-		if ts.VTerm != nil && (ts.lastWidth != termWidth || ts.lastHeight != termHeight) {
-			ts.lastWidth = termWidth
-			ts.lastHeight = termHeight
-			ts.VTerm.Resize(termWidth, termHeight)
-			if ts.Terminal != nil {
-				_ = ts.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+	// Resize all terminal vtems across all worktrees only if size changed
+	for _, tabs := range m.tabsByWorktree {
+		for _, tab := range tabs {
+			if tab.State == nil {
+				continue
 			}
+			ts := tab.State
+			ts.mu.Lock()
+			if ts.VTerm != nil && (ts.lastWidth != termWidth || ts.lastHeight != termHeight) {
+				ts.lastWidth = termWidth
+				ts.lastHeight = termHeight
+				ts.VTerm.Resize(termWidth, termHeight)
+				if ts.Terminal != nil {
+					_ = ts.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+				}
+			}
+			ts.mu.Unlock()
 		}
-		ts.mu.Unlock()
 	}
 }
 
