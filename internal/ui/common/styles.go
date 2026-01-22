@@ -85,11 +85,6 @@ type Styles struct {
 	ToastInfo    lipgloss.Style
 }
 
-// tabBorder returns a border for tabs (standard rounded border)
-func tabBorder() lipgloss.Border {
-	return lipgloss.RoundedBorder()
-}
-
 // DefaultStyles returns the default application styles using the current theme
 func DefaultStyles() Styles {
 	return Styles{
@@ -182,27 +177,21 @@ func DefaultStyles() Styles {
 		StatusUntracked: lipgloss.NewStyle().
 			Foreground(ColorMuted),
 
-		// Center pane - Tabs (clean bordered boxes)
+		// Center pane - Tabs (compact, minimal)
 		Tab: lipgloss.NewStyle().
 			Padding(0, 1).
-			Foreground(ColorMuted).
-			Border(tabBorder()).
-			BorderForeground(ColorBorder),
+			Foreground(ColorMuted),
 
 		ActiveTab: lipgloss.NewStyle().
 			Padding(0, 1).
-			Bold(true).
 			Foreground(ColorForeground).
-			Border(tabBorder()).
-			BorderForeground(ColorPrimary),
+			Background(ColorSurface1),
 
 		TabBar: lipgloss.NewStyle(),
 
 		TabPlus: lipgloss.NewStyle().
 			Padding(0, 1).
-			Foreground(ColorMuted).
-			Border(tabBorder()).
-			BorderForeground(ColorBorder),
+			Foreground(ColorMuted),
 
 		// Center pane - Agent indicators
 		AgentClaude: lipgloss.NewStyle().

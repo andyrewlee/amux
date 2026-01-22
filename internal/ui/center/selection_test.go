@@ -174,10 +174,10 @@ func TestTabBarClickPlusButton(t *testing.T) {
 	}
 
 	// Calculate screen coordinates for clicking the plus button
-	// The tab bar is at Y=2 (Y=0 is pane border, Y=1 is tab border, Y=2 is tab content)
+	// The tab bar is at Y=1 (Y=0 is pane border, Y=1 is tab content - compact, no tab border)
 	// Content X = offsetX + borderLeft(1) + paddingLeft(1) + localX
 	const (
-		borderTop   = 2
+		borderTop   = 1
 		borderLeft  = 1
 		paddingLeft = 1
 	)

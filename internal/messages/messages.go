@@ -229,28 +229,38 @@ type FileWatcherEvent struct {
 // SidebarPTYOutput contains PTY output for sidebar terminal
 type SidebarPTYOutput struct {
 	WorktreeID string
+	TabID      string
 	Data       []byte
 }
 
 // SidebarPTYTick triggers a sidebar PTY read
 type SidebarPTYTick struct {
 	WorktreeID string
+	TabID      string
 }
 
 // SidebarPTYFlush applies buffered PTY output for sidebar terminal
 type SidebarPTYFlush struct {
 	WorktreeID string
+	TabID      string
 }
 
 // SidebarPTYStopped signals that the sidebar PTY read loop has stopped
 type SidebarPTYStopped struct {
 	WorktreeID string
+	TabID      string
 	Err        error
 }
 
 // SidebarTerminalCreated signals that the sidebar terminal was created
 type SidebarTerminalCreated struct {
 	WorktreeID string
+}
+
+// SidebarTerminalTabCreated signals that a sidebar terminal tab was created
+type SidebarTerminalTabCreated struct {
+	WorktreeID string
+	TabID      string
 }
 
 // UpdateCheckComplete is sent when the background update check finishes

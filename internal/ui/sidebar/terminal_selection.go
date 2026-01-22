@@ -7,10 +7,97 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+// handleTabBarClick handles mouse click events on the tab bar
+func (m *TerminalModel) handleTabBarClick(msg tea.MouseClickMsg) (*TerminalModel, tea.Cmd) {
+	// Tab bar is 3 lines tall (border + content + border)
+	// Convert screen coordinates to local coordinates
+	localX := msg.X - m.offsetX
+	localY := msg.Y - m.offsetY
+
+	// Tab bar spans Y=0 to Y=2 (tabBarHeight-1)
+	// The clickable content (tab text) is on Y=1 (middle line)
+	if localY < 0 || localY >= tabBarHeight {
+		return m, nil
+	}
+
+	// Hit regions are calculated for Y=0, but we check against content line Y=1
+	// So we need to check with Y=0 for hit testing
+	hitY := 0
+
+	// Check close buttons first (they overlap with tab regions)
+	for _, hit := range m.tabHits {
+		if hit.kind == terminalTabHitClose && hit.region.Contains(localX, hitY) {
+			tabs := m.getTabs()
+			if hit.index >= 0 && hit.index < len(tabs) {
+				return m.closeTabAt(hit.index)
+			}
+			return m, nil
+		}
+	}
+
+	// Then check tabs and plus button
+	for _, hit := range m.tabHits {
+		if hit.region.Contains(localX, hitY) {
+			switch hit.kind {
+			case terminalTabHitPlus:
+				return m, m.CreateNewTab()
+			case terminalTabHitTab:
+				m.setActiveTabIdx(hit.index)
+				return m, nil
+			}
+		}
+	}
+	return m, nil
+}
+
+// closeTabAt closes the tab at the given index
+func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
+	tabs := m.getTabs()
+	if idx < 0 || idx >= len(tabs) {
+		return m, nil
+	}
+
+	wtID := m.worktreeID()
+	tab := tabs[idx]
+
+	// Close PTY and cleanup
+	if tab.State != nil {
+		m.stopPTYReader(tab.State)
+		if tab.State.Terminal != nil {
+			tab.State.Terminal.Close()
+		}
+	}
+
+	// Remove tab from slice
+	m.tabsByWorktree[wtID] = append(tabs[:idx], tabs[idx+1:]...)
+
+	// Adjust active index
+	activeIdx := m.getActiveTabIdx()
+	newLen := len(m.tabsByWorktree[wtID])
+	if newLen == 0 {
+		m.activeTabByWorktree[wtID] = 0
+	} else if activeIdx >= newLen {
+		m.activeTabByWorktree[wtID] = newLen - 1
+	} else if idx < activeIdx {
+		m.activeTabByWorktree[wtID] = activeIdx - 1
+	}
+
+	return m, nil
+}
+
 // handleMouseClick handles mouse click events for selection
 func (m *TerminalModel) handleMouseClick(msg tea.MouseClickMsg) (*TerminalModel, tea.Cmd) {
 	if !m.focused {
 		return m, nil
+	}
+
+	// Check if clicking on tab bar (3 lines tall)
+	// Tab bar is always visible (shows "New terminal" when no tabs exist)
+	if msg.Button == tea.MouseLeft {
+		localY := msg.Y - m.offsetY
+		if localY >= 0 && localY < tabBarHeight {
+			return m.handleTabBarClick(msg)
+		}
 	}
 
 	ts := m.getTerminal()
@@ -148,18 +235,20 @@ func (m *TerminalModel) screenToTerminal(screenX, screenY int) (termX, termY int
 	termX = screenX - m.offsetX
 	termY = screenY - m.offsetY
 
-	// Check bounds
-	// Terminal width/height are set in SetSize (minus 1 for help bar usually?)
-	// Actually SetSize sets m.width and m.height for the whole pane section.
-	// The VTerm is resized to m.width, m.height-1.
+	// Account for tab bar offset (3 lines)
+	tabs := m.getTabs()
+	if len(tabs) > 0 {
+		termY -= tabBarHeight
+	}
 
+	// Check bounds
 	ts := m.getTerminal()
 	if ts != nil && ts.VTerm != nil {
 		inBounds = termX >= 0 && termX < ts.VTerm.Width && termY >= 0 && termY < ts.VTerm.Height
 	} else {
 		// Fallback if no terminal
 		width := m.width
-		height := m.height - 1
+		height := m.height - 1 - tabBarHeight // -1 for help bar, -tabBarHeight for tab bar
 		inBounds = termX >= 0 && termX < width && termY >= 0 && termY < height
 	}
 	return

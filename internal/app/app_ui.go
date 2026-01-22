@@ -160,13 +160,21 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		}
 		return true, nil
 
-	// Tab management
+	// Tab management - route to appropriate pane
 	case key.Matches(msg, a.keymap.NextTab):
-		a.center.NextTab()
+		if a.focusedPane == messages.PaneSidebarTerminal {
+			a.sidebarTerminal.NextTab()
+		} else {
+			a.center.NextTab()
+		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.PrevTab):
-		a.center.PrevTab()
+		if a.focusedPane == messages.PaneSidebarTerminal {
+			a.sidebarTerminal.PrevTab()
+		} else {
+			a.center.PrevTab()
+		}
 		return true, nil
 
 	// Tab management
@@ -176,7 +184,16 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		}
 		return true, nil
 
+	case key.Matches(msg, a.keymap.NewTerminalTab):
+		if a.focusedPane == messages.PaneSidebarTerminal && a.activeWorktree != nil {
+			return true, a.sidebarTerminal.CreateNewTab()
+		}
+		return true, nil
+
 	case key.Matches(msg, a.keymap.CloseTab):
+		if a.focusedPane == messages.PaneSidebarTerminal {
+			return true, a.sidebarTerminal.CloseActiveTab()
+		}
 		cmd := a.center.CloseActiveTab()
 		return true, cmd
 

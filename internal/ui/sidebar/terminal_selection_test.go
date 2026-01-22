@@ -30,13 +30,22 @@ func TestScreenToTerminalWithVTerm(t *testing.T) {
 	wt := &data.Worktree{Repo: "/repo", Root: "/repo/wt"}
 	m := NewTerminalModel()
 	m.worktree = wt
-	m.terminals[string(wt.ID())] = &TerminalState{VTerm: vterm.New(4, 3)}
+	wtID := string(wt.ID())
+	m.tabsByWorktree[wtID] = []*TerminalTab{
+		{
+			ID:    "test-tab",
+			Name:  "Terminal 1",
+			State: &TerminalState{VTerm: vterm.New(4, 3)},
+		},
+	}
+	m.activeTabByWorktree[wtID] = 0
 	m.offsetX = 1
 	m.offsetY = 1
 
+	// With tabs, Y is offset by tabBarHeight (1)
 	x, y, in := m.screenToTerminal(4, 3)
-	if x != 3 || y != 2 || !in {
-		t.Fatalf("expected (3,2) in bounds, got (%d,%d) in=%v", x, y, in)
+	if x != 3 || y != 1 || !in {
+		t.Fatalf("expected (3,1) in bounds, got (%d,%d) in=%v", x, y, in)
 	}
 
 	_, _, in = m.screenToTerminal(5, 3)

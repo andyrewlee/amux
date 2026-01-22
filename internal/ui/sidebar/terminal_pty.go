@@ -28,50 +28,53 @@ const (
 // SidebarTerminalCreated is a message for terminal creation
 type SidebarTerminalCreated struct {
 	WorktreeID string
+	TabID      TerminalTabID
 	Terminal   *pty.Terminal
 }
 
-// createTerminal creates a new terminal for the worktree
-func (m *TerminalModel) createTerminal(wt *data.Worktree) tea.Cmd {
+// createTerminalTab creates a new terminal tab for the worktree
+func (m *TerminalModel) createTerminalTab(wt *data.Worktree) tea.Cmd {
+	wtID := string(wt.ID())
+	tabID := generateTerminalTabID()
+
 	return func() tea.Msg {
 		shell := os.Getenv("SHELL")
 		if shell == "" {
 			shell = "/bin/bash"
 		}
 
-		termWidth := m.width
-		termHeight := m.height - 1
-		if termWidth < 10 {
-			termWidth = 10
-		}
-		if termHeight < 3 {
-			termHeight = 3
-		}
+		termWidth, termHeight := m.terminalContentSize()
 
 		env := []string{"COLORTERM=truecolor"}
 		term, err := pty.NewWithSize(shell, wt.Root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
-			return messages.Error{Err: err, Context: "creating sidebar terminal"}
+			return messages.Error{Err: err, Context: "creating sidebar terminal tab"}
 		}
 
-		wtID := string(wt.ID())
 		return SidebarTerminalCreated{
 			WorktreeID: wtID,
+			TabID:      tabID,
 			Terminal:   term,
 		}
 	}
 }
 
-// HandleTerminalCreated handles the terminal creation message
-func (m *TerminalModel) HandleTerminalCreated(wtID string, term *pty.Terminal) tea.Cmd {
+// terminalContentSize returns the terminal content dimensions (excluding tab bar)
+func (m *TerminalModel) terminalContentSize() (int, int) {
 	termWidth := m.width
-	termHeight := m.height - 1
+	termHeight := m.height - 1 - tabBarHeight // -1 for help bar, -tabBarHeight for tab bar
 	if termWidth < 10 {
 		termWidth = 10
 	}
 	if termHeight < 3 {
 		termHeight = 3
 	}
+	return termWidth, termHeight
+}
+
+// HandleTerminalCreated handles the terminal tab creation message
+func (m *TerminalModel) HandleTerminalCreated(wtID string, tabID TerminalTabID, term *pty.Terminal) tea.Cmd {
+	termWidth, termHeight := m.terminalContentSize()
 
 	vt := vterm.New(termWidth, termHeight)
 	vt.SetResponseWriter(func(data []byte) {
@@ -86,16 +89,30 @@ func (m *TerminalModel) HandleTerminalCreated(wtID string, term *pty.Terminal) t
 		lastWidth:  termWidth,
 		lastHeight: termHeight,
 	}
-	m.terminals[wtID] = ts
+
+	tabs := m.tabsByWorktree[wtID]
+	tab := &TerminalTab{
+		ID:    tabID,
+		Name:  nextTerminalName(tabs),
+		State: ts,
+	}
+	m.tabsByWorktree[wtID] = append(tabs, tab)
+
+	// Set as active tab (switch to new tab)
+	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
 
 	// Start reading from PTY
-	return m.startPTYReader(wtID)
+	return m.startPTYReader(wtID, tabID)
 }
 
-// readPTY reads from the PTY for the given worktree
-func (m *TerminalModel) readPTY(wtID string) tea.Cmd {
-	ts := m.terminals[wtID]
-	if ts == nil || ts.Terminal == nil || !ts.Running {
+// readPTY reads from the PTY for the given worktree and tab
+func (m *TerminalModel) readPTY(wtID string, tabID TerminalTabID) tea.Cmd {
+	tab := m.getTabByID(wtID, tabID)
+	if tab == nil || tab.State == nil {
+		return nil
+	}
+	ts := tab.State
+	if ts.Terminal == nil || !ts.Running {
 		return nil
 	}
 	ch := ts.ptyMsgCh
@@ -105,15 +122,19 @@ func (m *TerminalModel) readPTY(wtID string) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-ch
 		if !ok {
-			return messages.SidebarPTYStopped{WorktreeID: wtID, Err: io.EOF}
+			return messages.SidebarPTYStopped{WorktreeID: wtID, TabID: string(tabID), Err: io.EOF}
 		}
 		return msg
 	}
 }
 
-func (m *TerminalModel) startPTYReader(wtID string) tea.Cmd {
-	ts := m.terminals[wtID]
-	if ts == nil || ts.readerActive || ts.Terminal == nil || !ts.Running {
+func (m *TerminalModel) startPTYReader(wtID string, tabID TerminalTabID) tea.Cmd {
+	tab := m.getTabByID(wtID, tabID)
+	if tab == nil || tab.State == nil {
+		return nil
+	}
+	ts := tab.State
+	if ts.readerActive || ts.Terminal == nil || !ts.Running {
 		return nil
 	}
 
@@ -128,28 +149,31 @@ func (m *TerminalModel) startPTYReader(wtID string) tea.Cmd {
 	cancel := ts.readerCancel
 	msgCh := ts.ptyMsgCh
 
-	go runPTYReader(term, msgCh, cancel, wtID)
+	go runPTYReader(term, msgCh, cancel, wtID, string(tabID))
 
-	return m.readPTY(wtID)
+	return m.readPTY(wtID, tabID)
 }
 
-// CloseTerminal closes the terminal for the given worktree
+// CloseTerminal closes all terminal tabs for the given worktree
 func (m *TerminalModel) CloseTerminal(wtID string) {
-	ts := m.terminals[wtID]
-	if ts != nil {
-		m.stopPTYReader(ts)
-		ts.mu.Lock()
-		if ts.Terminal != nil {
-			ts.Terminal.Close()
+	tabs := m.tabsByWorktree[wtID]
+	for _, tab := range tabs {
+		if tab.State != nil {
+			m.stopPTYReader(tab.State)
+			tab.State.mu.Lock()
+			if tab.State.Terminal != nil {
+				tab.State.Terminal.Close()
+			}
+			tab.State.mu.Unlock()
 		}
-		ts.mu.Unlock()
-		delete(m.terminals, wtID)
 	}
+	delete(m.tabsByWorktree, wtID)
+	delete(m.activeTabByWorktree, wtID)
 }
 
 // CloseAll closes all terminals
 func (m *TerminalModel) CloseAll() {
-	for wtID := range m.terminals {
+	for wtID := range m.tabsByWorktree {
 		m.CloseTerminal(wtID)
 	}
 }
@@ -175,7 +199,7 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	ts.mu.Unlock()
 }
 
-func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string) {
+func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID string) {
 	if term == nil {
 		close(msgCh)
 		return
@@ -225,7 +249,7 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 		case data, ok := <-dataCh:
 			if !ok {
 				if len(pending) > 0 {
-					if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, Data: pending}) {
+					if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
 						close(msgCh)
 						return
 					}
@@ -233,13 +257,13 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 				if stoppedErr == nil {
 					stoppedErr = io.EOF
 				}
-				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorktreeID: wtID, Err: stoppedErr})
+				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorktreeID: wtID, TabID: tabID, Err: stoppedErr})
 				close(msgCh)
 				return
 			}
 			pending = append(pending, data...)
 			if len(pending) >= ptyMaxPendingBytes {
-				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, Data: pending}) {
+				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
 					close(msgCh)
 					return
 				}
@@ -247,14 +271,14 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 			}
 		case <-ticker.C:
 			if len(pending) > 0 {
-				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, Data: pending}) {
+				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
 					close(msgCh)
 					return
 				}
 				pending = nil
 			}
 			if stoppedErr != nil {
-				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorktreeID: wtID, Err: stoppedErr})
+				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorktreeID: wtID, TabID: tabID, Err: stoppedErr})
 				close(msgCh)
 				return
 			}
