@@ -213,10 +213,9 @@ func (m *Model) rebuildDisplayList() {
 			unstagedCount++
 		}
 	}
-	untrackedCount := 0
 	for i := range m.gitStatus.Untracked {
 		if matchesFilter(&m.gitStatus.Untracked[i]) {
-			untrackedCount++
+			unstagedCount++
 		}
 	}
 
@@ -236,7 +235,7 @@ func (m *Model) rebuildDisplayList() {
 		}
 	}
 
-	// Add Unstaged section
+	// Add Unstaged section (includes both modified and untracked files)
 	if unstagedCount > 0 {
 		m.displayItems = append(m.displayItems, displayItem{
 			isHeader: true,
@@ -250,14 +249,6 @@ func (m *Model) rebuildDisplayList() {
 				})
 			}
 		}
-	}
-
-	// Add Untracked section
-	if untrackedCount > 0 {
-		m.displayItems = append(m.displayItems, displayItem{
-			isHeader: true,
-			header:   "Untracked (" + strconv.Itoa(untrackedCount) + ")",
-		})
 		for i := range m.gitStatus.Untracked {
 			if matchesFilter(&m.gitStatus.Untracked[i]) {
 				m.displayItems = append(m.displayItems, displayItem{
