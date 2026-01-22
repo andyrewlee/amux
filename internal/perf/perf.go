@@ -48,6 +48,16 @@ type counterSnapshot struct {
 	value int64
 }
 
+type statEntry struct {
+	name string
+	stat *stat
+}
+
+type counterEntry struct {
+	name    string
+	counter *counter
+}
+
 var (
 	enabled     bool
 	logInterval time.Duration
@@ -177,17 +187,16 @@ func maybeLog() {
 
 func snapshotAndReset() ([]statSnapshot, []counterSnapshot) {
 	statsMu.Lock()
-	statsList := make([]*stat, 0, len(statsMap))
-	statsNames := make([]string, 0, len(statsMap))
+	statsList := make([]statEntry, 0, len(statsMap))
 	for name, s := range statsMap {
-		statsList = append(statsList, s)
-		statsNames = append(statsNames, name)
+		statsList = append(statsList, statEntry{name: name, stat: s})
 	}
 	statsMu.Unlock()
 
 	snapshots := make([]statSnapshot, 0, len(statsList))
-	for i, s := range statsList {
-		name := statsNames[i]
+	for _, entry := range statsList {
+		name := entry.name
+		s := entry.stat
 		s.mu.Lock()
 		if s.count == 0 {
 			s.mu.Unlock()
@@ -221,17 +230,16 @@ func snapshotAndReset() ([]statSnapshot, []counterSnapshot) {
 	}
 
 	countersMu.Lock()
-	counterNames := make([]string, 0, len(counterMap))
-	counterList := make([]*counter, 0, len(counterMap))
+	counterList := make([]counterEntry, 0, len(counterMap))
 	for name, c := range counterMap {
-		counterNames = append(counterNames, name)
-		counterList = append(counterList, c)
+		counterList = append(counterList, counterEntry{name: name, counter: c})
 	}
 	countersMu.Unlock()
 
 	counterSnapshots := make([]counterSnapshot, 0, len(counterList))
-	for i, c := range counterList {
-		name := counterNames[i]
+	for _, entry := range counterList {
+		name := entry.name
+		c := entry.counter
 		c.mu.Lock()
 		value := c.value
 		c.value = 0

@@ -78,14 +78,14 @@ func SetEnabled(enabled bool) {
 
 // log writes a log entry
 func log(level Level, format string, args ...interface{}) {
-	if defaultLogger == nil || !defaultLogger.enabled {
+	if defaultLogger == nil {
 		return
 	}
 
 	defaultLogger.mu.Lock()
 	defer defaultLogger.mu.Unlock()
 
-	if level < defaultLogger.level {
+	if !defaultLogger.enabled || level < defaultLogger.level {
 		return
 	}
 
