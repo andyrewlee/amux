@@ -252,3 +252,21 @@ type SidebarPTYStopped struct {
 type SidebarTerminalCreated struct {
 	WorktreeID string
 }
+
+// UpdateCheckComplete is sent when the background update check finishes
+type UpdateCheckComplete struct {
+	CurrentVersion  string
+	LatestVersion   string
+	UpdateAvailable bool
+	ReleaseNotes    string
+	Err             error
+}
+
+// TriggerUpgrade is sent when the user requests an upgrade
+type TriggerUpgrade struct{}
+
+// UpgradeComplete is sent when the upgrade finishes
+type UpgradeComplete struct {
+	NewVersion string
+	Err        error
+}
