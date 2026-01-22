@@ -283,7 +283,7 @@ func (m *Model) renderTabBar() string {
 	}
 
 	// Add control buttons with matching border style
-	btn := m.styles.TabPlus.Render("+")
+	btn := m.styles.TabPlus.Render("+ New")
 	btnWidth := lipgloss.Width(btn)
 	if btnWidth > 0 {
 		m.tabHits = append(m.tabHits, tabHit{
