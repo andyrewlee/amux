@@ -54,12 +54,7 @@ func (m *Model) moveCursor(delta int) {
 }
 
 func rowLineCount(row Row) int {
-	switch row.Type {
-	case RowProject:
-		return 2
-	default:
-		return 1
-	}
+	return 1
 }
 
 func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
@@ -84,7 +79,7 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 		return -1, false
 	}
 
-	headerHeight := 1 // trailing blank line
+	headerHeight := 0
 	helpLines := m.helpLines(contentWidth)
 	helpHeight := len(helpLines)
 	toolbarHeight := m.toolbarHeight()

@@ -303,15 +303,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 func (m *Model) View() string {
 	var b strings.Builder
 
-	// Header
-	b.WriteString("\n")
-
-	// Calculate visible area (inner height minus header + toolbar + help)
+	// Calculate visible area (inner height minus toolbar + help)
 	innerHeight := m.height - 2
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
-	headerHeight := 1 // trailing blank line
+	headerHeight := 0
 	// Calculate help height based on content width (pane width minus border and padding)
 	contentWidth := m.width - 4
 	if contentWidth < 1 {
@@ -355,23 +352,22 @@ func (m *Model) View() string {
 	if targetHeight < 0 {
 		targetHeight = 0
 	}
-	paddedHeight := targetHeight
-	if contentHeight > paddedHeight {
-		paddedHeight = contentHeight
-	}
-	if targetHeight > contentHeight {
-		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
+	// Add +1 to account for toolbar not having a trailing newline
+	padding := targetHeight - contentHeight + 1
+	if padding > 0 {
+		b.WriteString(strings.Repeat("\n", padding))
+		m.toolbarY = targetHeight
+	} else {
+		m.toolbarY = contentHeight - 1
 	}
 
-	// Render toolbar and track its Y position for click handling
-	// toolbarY is the first line of the toolbar
+	// Render toolbar
 	toolbar := m.renderToolbar()
-	m.toolbarY = paddedHeight - 1
 	b.WriteString(toolbar)
-	b.WriteString("\n")
 
 	// Help lines
 	if len(helpLines) > 0 {
+		b.WriteString("\n")
 		b.WriteString(strings.Join(helpLines, "\n"))
 	}
 
@@ -412,7 +408,7 @@ func (m *Model) visibleHeight() int {
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
-	headerHeight := 1 // trailing blank line
+	headerHeight := 0
 	contentWidth := m.width - 4
 	if contentWidth < 1 {
 		contentWidth = 1
