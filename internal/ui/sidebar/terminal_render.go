@@ -25,7 +25,7 @@ func (m *TerminalModel) renderTabBar() string {
 			return m.styles.Muted.Render("No terminal")
 		}
 		// Worktree selected but no tabs - show clickable "New terminal" button
-		empty := plusStyle.Render("+ New terminal")
+		empty := plusStyle.Render("+ New")
 		emptyWidth := lipgloss.Width(empty)
 		if emptyWidth > 0 {
 			m.tabHits = append(m.tabHits, terminalTabHit{
@@ -106,7 +106,7 @@ func (m *TerminalModel) renderTabBar() string {
 	}
 
 	// Add (+) button
-	btn := plusStyle.Render("+")
+	btn := plusStyle.Render("+ New")
 	btnWidth := lipgloss.Width(btn)
 	if btnWidth > 0 {
 		m.tabHits = append(m.tabHits, terminalTabHit{
