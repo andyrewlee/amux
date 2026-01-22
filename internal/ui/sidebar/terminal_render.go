@@ -185,15 +185,9 @@ func (m *TerminalModel) StatusLine() string {
 	return ""
 }
 
-// HelpLines returns the help lines for the given width, respecting visibility.
+// HelpLines returns the help lines for the given width, respecting visibility and height.
 func (m *TerminalModel) HelpLines(width int) []string {
-	if !m.showKeymapHints {
-		return nil
-	}
-	if width < 1 {
-		width = 1
-	}
-	return m.helpLines(width)
+	return m.helpLinesForLayout(width)
 }
 
 func (m *TerminalModel) helpItem(key, desc string) string {
@@ -243,31 +237,56 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 // tabBarHeight is the height of the terminal tab bar (single line, no borders)
 const tabBarHeight = 1
 
-// TerminalOrigin returns the absolute origin for terminal rendering.
-func (m *TerminalModel) TerminalOrigin() (int, int) {
-	// Offset Y by tab bar height when tabs exist
-	tabs := m.getTabs()
-	if len(tabs) > 0 {
-		return m.offsetX, m.offsetY + tabBarHeight
-	}
-	return m.offsetX, m.offsetY
-}
+// statusLineReserve keeps space for the status line even when hidden.
+const statusLineReserve = 1
 
-// TerminalSize returns the terminal render size.
-func (m *TerminalModel) TerminalSize() (int, int) {
-	width := m.width
-	height := m.height - 1 // -1 for help bar
-	// Subtract tab bar height when tabs exist
-	tabs := m.getTabs()
-	if len(tabs) > 0 {
-		height -= tabBarHeight
+func (m *TerminalModel) helpLinesForLayout(width int) []string {
+	if !m.showKeymapHints {
+		return nil
 	}
 	if width < 1 {
 		width = 1
 	}
+	helpLines := m.helpLines(width)
+	maxHelpHeight := m.height - tabBarHeight - statusLineReserve
+	if maxHelpHeight < 0 {
+		maxHelpHeight = 0
+	}
+	if len(helpLines) > maxHelpHeight {
+		helpLines = helpLines[:maxHelpHeight]
+	}
+	return helpLines
+}
+
+func (m *TerminalModel) terminalViewportSize() (int, int, []string) {
+	width := m.width
+	if width < 1 {
+		width = 1
+	}
+	helpLines := m.helpLinesForLayout(width)
+	height := m.height - tabBarHeight - statusLineReserve - len(helpLines)
 	if height < 1 {
 		height = 1
 	}
+	return width, height, helpLines
+}
+
+func (m *TerminalModel) refreshTerminalSize() {
+	if m.width <= 0 || m.height <= 0 {
+		return
+	}
+	m.SetSize(m.width, m.height)
+}
+
+// TerminalOrigin returns the absolute origin for terminal rendering.
+func (m *TerminalModel) TerminalOrigin() (int, int) {
+	// Offset Y by tab bar height (tab bar always renders when terminal exists).
+	return m.offsetX, m.offsetY + tabBarHeight
+}
+
+// TerminalSize returns the terminal render size.
+func (m *TerminalModel) TerminalSize() (int, int) {
+	width, height, _ := m.terminalViewportSize()
 	return width, height
 }
 
@@ -276,15 +295,8 @@ func (m *TerminalModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 
-	// Calculate actual terminal dimensions (accounting for tab bar and help bar)
-	termWidth := width
-	termHeight := height - 1 - tabBarHeight // -1 for help bar, -tabBarHeight for tab bar
-	if termWidth < 10 {
-		termWidth = 10
-	}
-	if termHeight < 3 {
-		termHeight = 3
-	}
+	// Calculate actual terminal dimensions (accounting for tab bar, help lines, status reserve)
+	termWidth, termHeight := m.terminalContentSize()
 
 	// Resize all terminal vtems across all worktrees only if size changed
 	for _, tabs := range m.tabsByWorktree {

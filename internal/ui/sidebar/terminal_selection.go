@@ -9,19 +9,17 @@ import (
 
 // handleTabBarClick handles mouse click events on the tab bar
 func (m *TerminalModel) handleTabBarClick(msg tea.MouseClickMsg) (*TerminalModel, tea.Cmd) {
-	// Tab bar is 3 lines tall (border + content + border)
+	// Tab bar is a single line tall.
 	// Convert screen coordinates to local coordinates
 	localX := msg.X - m.offsetX
 	localY := msg.Y - m.offsetY
 
-	// Tab bar spans Y=0 to Y=2 (tabBarHeight-1)
-	// The clickable content (tab text) is on Y=1 (middle line)
+	// Tab bar spans Y=0 to Y=tabBarHeight-1
 	if localY < 0 || localY >= tabBarHeight {
 		return m, nil
 	}
 
-	// Hit regions are calculated for Y=0, but we check against content line Y=1
-	// So we need to check with Y=0 for hit testing
+	// Hit regions are calculated for Y=0, so we check against that line.
 	hitY := 0
 
 	// Check close buttons first (they overlap with tab regions)
@@ -43,6 +41,7 @@ func (m *TerminalModel) handleTabBarClick(msg tea.MouseClickMsg) (*TerminalModel
 				return m, m.CreateNewTab()
 			case terminalTabHitTab:
 				m.setActiveTabIdx(hit.index)
+				m.refreshTerminalSize()
 				return m, nil
 			}
 		}
@@ -82,6 +81,7 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 		m.activeTabByWorktree[wtID] = activeIdx - 1
 	}
 
+	m.refreshTerminalSize()
 	return m, nil
 }
 
@@ -235,11 +235,8 @@ func (m *TerminalModel) screenToTerminal(screenX, screenY int) (termX, termY int
 	termX = screenX - m.offsetX
 	termY = screenY - m.offsetY
 
-	// Account for tab bar offset (3 lines)
-	tabs := m.getTabs()
-	if len(tabs) > 0 {
-		termY -= tabBarHeight
-	}
+	// Account for tab bar offset
+	termY -= tabBarHeight
 
 	// Check bounds
 	ts := m.getTerminal()
@@ -247,8 +244,7 @@ func (m *TerminalModel) screenToTerminal(screenX, screenY int) (termX, termY int
 		inBounds = termX >= 0 && termX < ts.VTerm.Width && termY >= 0 && termY < ts.VTerm.Height
 	} else {
 		// Fallback if no terminal
-		width := m.width
-		height := m.height - 1 - tabBarHeight // -1 for help bar, -tabBarHeight for tab bar
+		width, height, _ := m.terminalViewportSize()
 		inBounds = termX >= 0 && termX < width && termY >= 0 && termY < height
 	}
 	return

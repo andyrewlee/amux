@@ -16,8 +16,8 @@ func TestScreenToTerminalFallback(t *testing.T) {
 	}
 
 	x, y, in := m.screenToTerminal(3, 3)
-	if x != 1 || y != 2 || !in {
-		t.Fatalf("expected (1,2) in bounds, got (%d,%d) in=%v", x, y, in)
+	if x != 1 || y != 1 || !in {
+		t.Fatalf("expected (1,1) in bounds, got (%d,%d) in=%v", x, y, in)
 	}
 
 	_, _, in = m.screenToTerminal(20, 3)
