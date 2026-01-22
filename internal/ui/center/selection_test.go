@@ -1,7 +1,6 @@
 package center
 
 import (
-	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -49,14 +48,19 @@ func TestSelectionLifecycle(t *testing.T) {
 		t.Fatalf("expected click to be in bounds")
 	}
 
+	// Convert termY to absolute line for comparison
+	var expectedStartLine int
 	tab.mu.Lock()
+	if tab.Terminal != nil {
+		expectedStartLine = tab.Terminal.ScreenYToAbsoluteLine(termY)
+	}
 	if !tab.Selection.Active {
 		tab.mu.Unlock()
 		t.Fatalf("expected selection to be active after click")
 	}
-	if tab.Selection.StartX != termX || tab.Selection.StartY != termY {
+	if tab.Selection.StartX != termX || tab.Selection.StartLine != expectedStartLine {
 		tab.mu.Unlock()
-		t.Fatalf("unexpected selection start: got (%d,%d), want (%d,%d)", tab.Selection.StartX, tab.Selection.StartY, termX, termY)
+		t.Fatalf("unexpected selection start: got (%d,%d), want (%d,%d)", tab.Selection.StartX, tab.Selection.StartLine, termX, expectedStartLine)
 	}
 	tab.mu.Unlock()
 
@@ -65,9 +69,13 @@ func TestSelectionLifecycle(t *testing.T) {
 
 	dragX, dragY, _ := m.screenToTerminal(14, 12)
 	tab.mu.Lock()
-	if tab.Selection.EndX != dragX || tab.Selection.EndY != dragY {
+	var expectedEndLine int
+	if tab.Terminal != nil {
+		expectedEndLine = tab.Terminal.ScreenYToAbsoluteLine(dragY)
+	}
+	if tab.Selection.EndX != dragX || tab.Selection.EndLine != expectedEndLine {
 		tab.mu.Unlock()
-		t.Fatalf("unexpected selection end: got (%d,%d), want (%d,%d)", tab.Selection.EndX, tab.Selection.EndY, dragX, dragY)
+		t.Fatalf("unexpected selection end: got (%d,%d), want (%d,%d)", tab.Selection.EndX, tab.Selection.EndLine, dragX, expectedEndLine)
 	}
 	tab.mu.Unlock()
 
@@ -107,22 +115,8 @@ func TestSelectionClearsOutsideBounds(t *testing.T) {
 	if tab.Selection.Active {
 		t.Fatalf("expected selection to be inactive when clicking outside bounds")
 	}
-	if tab.Selection.StartX != 0 || tab.Selection.StartY != 0 || tab.Selection.EndX != 0 || tab.Selection.EndY != 0 {
+	if tab.Selection.StartX != 0 || tab.Selection.StartLine != 0 || tab.Selection.EndX != 0 || tab.Selection.EndLine != 0 {
 		t.Fatalf("expected selection to be cleared when clicking outside bounds, got %+v", tab.Selection)
-	}
-}
-
-func TestViewChromeOnlyShowsCopyModeStatus(t *testing.T) {
-	m, tab := setupSelectionModel(t)
-	m.SetShowKeymapHints(false)
-
-	tab.mu.Lock()
-	tab.CopyMode = true
-	tab.mu.Unlock()
-
-	view := m.ViewChromeOnly()
-	if !strings.Contains(view, "COPY MODE") {
-		t.Fatalf("expected copy mode status line in chrome view")
 	}
 }
 

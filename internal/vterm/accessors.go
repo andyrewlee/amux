@@ -32,9 +32,15 @@ func (v *VTerm) SelStartX() int {
 	return v.selStartX
 }
 
-// SelStartY returns the selection start Y.
+// SelStartLine returns the selection start line (absolute line number).
+func (v *VTerm) SelStartLine() int {
+	return v.selStartLine
+}
+
+// SelStartY returns the selection start Y in screen coordinates.
+// Returns -1 if the start line is not visible.
 func (v *VTerm) SelStartY() int {
-	return v.selStartY
+	return v.AbsoluteLineToScreenY(v.selStartLine)
 }
 
 // SelEndX returns the selection end X.
@@ -42,9 +48,15 @@ func (v *VTerm) SelEndX() int {
 	return v.selEndX
 }
 
-// SelEndY returns the selection end Y.
+// SelEndLine returns the selection end line (absolute line number).
+func (v *VTerm) SelEndLine() int {
+	return v.selEndLine
+}
+
+// SelEndY returns the selection end Y in screen coordinates.
+// Returns -1 if the end line is not visible.
 func (v *VTerm) SelEndY() int {
-	return v.selEndY
+	return v.AbsoluteLineToScreenY(v.selEndLine)
 }
 
 // Version returns the current version counter.

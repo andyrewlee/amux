@@ -275,6 +275,65 @@ func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height i
 	}
 	canvas.Fill(vterm.Style{Fg: fg, Bg: bg})
 	screen := term.VisibleScreen()
+
+	// Get selection state and convert to screen coordinates.
+	selActive := term.SelActive()
+	selStartX := 0
+	selStartY := 0
+	selEndX := 0
+	selEndY := 0
+
+	if selActive {
+		startLine := term.SelStartLine()
+		endLine := term.SelEndLine()
+		startX := term.SelStartX()
+		endX := term.SelEndX()
+
+		// Normalize so start is before end.
+		if startLine > endLine || (startLine == endLine && startX > endX) {
+			startLine, endLine = endLine, startLine
+			startX, endX = endX, startX
+		}
+
+		visibleStartLine := term.ScreenYToAbsoluteLine(0)
+		visibleEndLine := term.ScreenYToAbsoluteLine(height - 1)
+
+		// If selection is entirely outside viewport, disable selection rendering.
+		if endLine < visibleStartLine || startLine > visibleEndLine {
+			selActive = false
+		} else {
+			if startLine < visibleStartLine {
+				selStartY = 0
+				startX = 0
+			} else {
+				selStartY = startLine - visibleStartLine
+			}
+
+			if endLine > visibleEndLine {
+				selEndY = height - 1
+				endX = width - 1
+			} else {
+				selEndY = endLine - visibleStartLine
+			}
+
+			if startX < 0 {
+				startX = 0
+			}
+			if startX >= width {
+				startX = width - 1
+			}
+			if endX < 0 {
+				endX = 0
+			}
+			if endX >= width {
+				endX = width - 1
+			}
+
+			selStartX = startX
+			selEndX = endX
+		}
+	}
+
 	canvas.DrawScreen(
 		0,
 		0,
@@ -285,11 +344,11 @@ func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height i
 		term.CursorY,
 		showCursor,
 		term.ViewOffset,
-		term.SelActive(),
-		term.SelStartX(),
-		term.SelStartY(),
-		term.SelEndX(),
-		term.SelEndY(),
+		selActive,
+		selStartX,
+		selStartY,
+		selEndX,
+		selEndY,
 	)
 	return canvas.Render()
 }

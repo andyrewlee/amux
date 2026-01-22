@@ -11,7 +11,6 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/diff"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -405,50 +404,6 @@ func (m *Model) SelectTab(index int) {
 	if index >= 0 && index < len(tabs) {
 		m.setActiveTabIdx(index)
 	}
-}
-
-// EnterCopyMode enters copy/scroll mode for the active tab
-func (m *Model) EnterCopyMode() {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	tab.CopyMode = true
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		tab.CopyState = common.InitCopyState(tab.Terminal)
-	}
-	tab.mu.Unlock()
-}
-
-// ExitCopyMode exits copy/scroll mode for the active tab
-func (m *Model) ExitCopyMode() {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
-	}
-	tab := tabs[activeIdx]
-	tab.CopyMode = false
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		tab.Terminal.ClearSelection()
-		tab.Terminal.ScrollViewToBottom()
-	}
-	tab.CopyState = common.CopyState{}
-	tab.mu.Unlock()
-}
-
-// CopyModeActive returns whether the active tab is in copy mode
-func (m *Model) CopyModeActive() bool {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return false
-	}
-	return tabs[activeIdx].CopyMode
 }
 
 // SendToTerminal sends a string directly to the active terminal

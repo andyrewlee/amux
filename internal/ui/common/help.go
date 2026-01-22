@@ -91,7 +91,6 @@ func defaultHelpSections() []HelpSection {
 				{"x", "Close current tab"},
 				{"n/p", "Next/prev tab"},
 				{"1-9", "Jump to tab N"},
-				{"[", "Enter copy/scroll mode"},
 			},
 		},
 		{
@@ -111,25 +110,6 @@ func defaultHelpSections() []HelpSection {
 				{"hjkl/↑↓←→", "Move selection"},
 				{"Type/Enter", "Send input to selected agent"},
 				{"C-Space m", "Exit monitor"},
-			},
-		},
-		{
-			Title: "Copy Mode (center/sidebar terminals)",
-			Bindings: []HelpBinding{
-				{"q/Esc", "Exit copy mode"},
-				{"h/j/k/l or ←↑↓→", "Move cursor"},
-				{"PgUp/PgDn", "Scroll half page"},
-				{"Ctrl+u/Ctrl+d", "Scroll half page"},
-				{"Ctrl+b/Ctrl+f", "Scroll half page"},
-				{"g/G", "Top/bottom"},
-				{"H/M/L", "Top/middle/bottom of view"},
-				{"0/$", "Line start/end"},
-				{"w/b/e", "Word forward/back/end"},
-				{"/ or ?", "Search forward/back"},
-				{"n/N", "Next/prev match"},
-				{"Space/v", "Start selection"},
-				{"y/Enter", "Copy selection"},
-				{"Ctrl+v", "Rectangle toggle"},
 			},
 		},
 		{

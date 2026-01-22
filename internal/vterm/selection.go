@@ -2,56 +2,74 @@ package vterm
 
 import "strings"
 
-// IsInSelection checks if coordinate (x, y) is within the selection
-func (v *VTerm) IsInSelection(x, y int) bool {
+// HasSelection returns true if there is an active selection.
+func (v *VTerm) HasSelection() bool {
+	return v.selActive
+}
+
+// IsInSelection checks if coordinate (x, screenY) is within the selection.
+// screenY is a screen-relative coordinate (0 to Height-1).
+func (v *VTerm) IsInSelection(x, screenY int) bool {
 	if !v.selActive {
 		return false
 	}
 
-	// Normalize selection so start is before end
-	startX, startY := v.selStartX, v.selStartY
-	endX, endY := v.selEndX, v.selEndY
-	if startY > endY || (startY == endY && startX > endX) {
+	// Convert screenY to absolute line number
+	absLine := v.ScreenYToAbsoluteLine(screenY)
+
+	// Normalize selection so start is before end.
+	startX, startLine := v.selStartX, v.selStartLine
+	endX, endLine := v.selEndX, v.selEndLine
+	if startLine > endLine || (startLine == endLine && startX > endX) {
 		startX, endX = endX, startX
-		startY, endY = endY, startY
+		startLine, endLine = endLine, startLine
 	}
 
-	// Check if (x, y) is in selection range
-	if y < startY || y > endY {
+	// Check if (x, absLine) is in selection range
+	if absLine < startLine || absLine > endLine {
 		return false
 	}
 	if v.selRect {
-		return x >= startX && x <= endX
+		minX := startX
+		maxX := endX
+		if minX > maxX {
+			minX, maxX = maxX, minX
+		}
+		return x >= minX && x <= maxX
 	}
-	if y == startY && y == endY {
-		// Single line selection
-		return x >= startX && x <= endX
+	if startLine == endLine {
+		minX := startX
+		maxX := endX
+		if minX > maxX {
+			minX, maxX = maxX, minX
+		}
+		return x >= minX && x <= maxX
 	}
-	if y == startY {
+	if absLine == startLine {
 		return x >= startX
 	}
-	if y == endY {
+	if absLine == endLine {
 		return x <= endX
 	}
-	// Middle lines are fully selected
 	return true
 }
 
 // SetSelection stores selection coordinates for rendering with highlight.
-func (v *VTerm) SetSelection(startX, startY, endX, endY int, active bool, rect bool) {
+// startLine and endLine are absolute line numbers (0 = first scrollback line).
+func (v *VTerm) SetSelection(startX, startLine, endX, endLine int, active bool, rect bool) {
 	changed := v.selStartX != startX ||
-		v.selStartY != startY ||
+		v.selStartLine != startLine ||
 		v.selEndX != endX ||
-		v.selEndY != endY ||
+		v.selEndLine != endLine ||
 		v.selActive != active ||
 		v.selRect != rect
 	if !changed {
 		return
 	}
 	v.selStartX = startX
-	v.selStartY = startY
+	v.selStartLine = startLine
 	v.selEndX = endX
-	v.selEndY = endY
+	v.selEndLine = endLine
 	v.selActive = active
 	v.selRect = rect
 	v.renderDirtyAll = true
@@ -69,98 +87,49 @@ func (v *VTerm) ClearSelection() {
 	v.bumpVersion()
 }
 
-// GetSelectedText extracts text from the selection range.
-// startX, startY, endX, endY are in visible screen coordinates (0-indexed).
-// This handles scrollback by converting visible Y to absolute line numbers.
-func (v *VTerm) GetSelectedText(startX, startY, endX, endY int) string {
-	// Normalize coordinates so start is before end
-	if startY > endY || (startY == endY && startX > endX) {
-		startX, endX = endX, startX
-		startY, endY = endY, startY
+// shiftSelectionAfterTrim updates selection line indices after scrollback trimming.
+// If the selection is fully trimmed away, it is cleared. When partially trimmed,
+// the remaining selection is clamped to the new start of scrollback.
+func (v *VTerm) shiftSelectionAfterTrim(trim int) {
+	if !v.selActive || trim <= 0 {
+		return
 	}
 
-	// Clamp to valid range
-	if startX < 0 {
-		startX = 0
-	}
-	if endX >= v.Width {
-		endX = v.Width - 1
-	}
-	if startY < 0 {
-		startY = 0
-	}
-	if endY >= v.Height {
-		endY = v.Height - 1
-	}
+	prevStartX, prevStartLine := v.selStartX, v.selStartLine
+	prevEndX, prevEndLine := v.selEndX, v.selEndLine
+	prevActive := v.selActive
 
-	// Convert visible Y coordinates to absolute line numbers
-	// (matching the logic in renderWithScrollback)
-	screen, scrollbackLen := v.RenderBuffers()
-	screenLen := len(screen)
-	startLine := scrollbackLen + screenLen - v.Height - v.ViewOffset
-	if startLine < 0 {
-		startLine = 0
-	}
+	v.selStartLine -= trim
+	v.selEndLine -= trim
 
-	var result strings.Builder
-
-	for y := startY; y <= endY; y++ {
-		absLineNum := startLine + y
-
-		// Get the row from scrollback or screen
-		var row []Cell
-		if absLineNum < scrollbackLen {
-			row = v.Scrollback[absLineNum]
-		} else if absLineNum-scrollbackLen < screenLen {
-			row = screen[absLineNum-scrollbackLen]
+	if v.selStartLine < 0 && v.selEndLine < 0 {
+		v.selActive = false
+		v.selRect = false
+	} else {
+		if v.selStartLine < 0 {
+			v.selStartLine = 0
+			v.selStartX = 0
 		}
-
-		if row == nil {
-			if y < endY {
-				result.WriteRune('\n')
-			}
-			continue
-		}
-
-		// Determine X range for this line
-		xStart := 0
-		xEnd := len(row) - 1
-		if y == startY {
-			xStart = startX
-		}
-		if y == endY {
-			xEnd = endX
-		}
-		if xEnd >= len(row) {
-			xEnd = len(row) - 1
-		}
-
-		// Extract characters from the row
-		for x := xStart; x <= xEnd; x++ {
-			if x < len(row) {
-				if row[x].Width == 0 {
-					continue
-				}
-				r := row[x].Rune
-				if r == 0 {
-					r = ' '
-				}
-				result.WriteRune(r)
-			}
-		}
-
-		// Add newline between lines (but not after the last line)
-		if y < endY {
-			result.WriteRune('\n')
+		if v.selEndLine < 0 {
+			v.selEndLine = 0
+			v.selEndX = 0
 		}
 	}
 
-	// Trim trailing spaces from each line
-	lines := strings.Split(result.String(), "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRight(line, " ")
+	if prevActive != v.selActive ||
+		prevStartX != v.selStartX ||
+		prevStartLine != v.selStartLine ||
+		prevEndX != v.selEndX ||
+		prevEndLine != v.selEndLine {
+		v.renderDirtyAll = true
+		v.bumpVersion()
 	}
-	return strings.Join(lines, "\n")
+}
+
+// GetSelectedText extracts text from the current selection.
+// Returns empty string if no selection is active.
+func (v *VTerm) GetSelectedText(startX, startLine, endX, endLine int) string {
+	return v.GetTextRange(startX, startLine, endX, endLine)
 }
 
 // GetTextRange extracts text from a range in the combined scrollback+screen buffer.

@@ -143,7 +143,7 @@ func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
 	}
 
 	version := ts.VTerm.Version()
-	showCursor := m.focused && !ts.CopyMode
+	showCursor := m.focused
 	if ts.cachedSnap != nil && ts.cachedVersion == version && ts.cachedShowCursor == showCursor {
 		return compositor.NewVTermLayer(ts.cachedSnap)
 	}
@@ -167,13 +167,6 @@ func (m *TerminalModel) StatusLine() string {
 	}
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if ts.CopyMode {
-		modeStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(common.ColorBackground).
-			Background(common.ColorWarning)
-		return modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) ")
-	}
 	if ts.VTerm.IsScrolled() {
 		offset, total := ts.VTerm.GetScrollInfo()
 		scrollStyle := lipgloss.NewStyle().
@@ -212,23 +205,9 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 
 	if hasTerm {
 		items = append(items,
-			m.helpItem("C-Spc [", "copy"),
 			m.helpItem("PgUp", "half up"),
 			m.helpItem("PgDn", "half down"),
 		)
-		if ts.CopyMode {
-			items = append(items,
-				m.helpItem("g", "top"),
-				m.helpItem("G", "bottom"),
-				m.helpItem("Space/v", "select"),
-				m.helpItem("y/Enter", "copy"),
-				m.helpItem("C-v", "rect"),
-				m.helpItem("/?", "search"),
-				m.helpItem("n/N", "next/prev"),
-				m.helpItem("w/b/e", "word"),
-				m.helpItem("H/M/L", "top/mid/bot"),
-			)
-		}
 	}
 
 	return common.WrapHelpItems(items, contentWidth)

@@ -64,19 +64,19 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab.Terminal.ClearSelection()
 		}
 
-		if inBounds {
+		if inBounds && tab.Terminal != nil {
+			// Convert screen Y to absolute line number
+			absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
 			// Start new selection
 			tab.Selection = SelectionState{
-				Active: true,
-				StartX: termX,
-				StartY: termY,
-				EndX:   termX,
-				EndY:   termY,
+				Active:    true,
+				StartX:    termX,
+				StartLine: absLine,
+				EndX:      termX,
+				EndLine:   absLine,
 			}
-			if tab.Terminal != nil {
-				tab.Terminal.SetSelection(termX, termY, termX, termY, true, false)
-			}
-			logging.Debug("Selection started at (%d, %d)", termX, termY)
+			tab.Terminal.SetSelection(termX, absLine, termX, absLine, true, false)
+			logging.Debug("Selection started at (%d, %d) -> absLine %d", termX, termY, absLine)
 		} else {
 			// Clicked outside terminal content, just clear selection
 			tab.Selection = SelectionState{}
@@ -115,38 +115,45 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 		// Update selection while dragging
 		tab.mu.Lock()
-		if tab.Selection.Active {
-			termWidth := m.contentWidth()
-			termHeight := m.height - 6
-			if termWidth < 10 {
-				termWidth = 80
-			}
-			if termHeight < 5 {
-				termHeight = 24
-			}
+		if tab.Selection.Active && tab.Terminal != nil {
+			termWidth := tab.Terminal.Width
+			termHeight := tab.Terminal.Height
 
-			// Clamp to terminal bounds
+			// Clamp X to terminal bounds
 			if termX < 0 {
 				termX = 0
-			}
-			if termY < 0 {
-				termY = 0
 			}
 			if termX >= termWidth {
 				termX = termWidth - 1
 			}
-			if termY >= termHeight {
+
+			// Auto-scroll when dragging at edges
+			if termY < 0 {
+				// Dragging above viewport - scroll up into history
+				tab.Terminal.ScrollView(1)
+				termY = 0
+			} else if termY >= termHeight {
+				// Dragging below viewport - scroll down toward live
+				tab.Terminal.ScrollView(-1)
 				termY = termHeight - 1
 			}
 
-			tab.Selection.EndX = termX
-			tab.Selection.EndY = termY
-			if tab.Terminal != nil {
-				tab.Terminal.SetSelection(
-					tab.Selection.StartX, tab.Selection.StartY,
-					termX, termY, true, false,
-				)
+			// Convert to absolute line and update selection
+			absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
+			startX := tab.Terminal.SelStartX()
+			startLine := tab.Terminal.SelStartLine()
+			if !tab.Terminal.HasSelection() {
+				startX = tab.Selection.StartX
+				startLine = tab.Selection.StartLine
 			}
+			tab.Selection.EndX = termX
+			tab.Selection.EndLine = absLine
+			tab.Terminal.SetSelection(
+				startX, startLine,
+				termX, absLine, true, false,
+			)
+			tab.Selection.StartX = startX
+			tab.Selection.StartLine = startLine
 		}
 		tab.mu.Unlock()
 		return m, tea.Batch(cmds...)
@@ -180,11 +187,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 		tab.mu.Lock()
 		if tab.Selection.Active {
-			// Extract selected text and copy to clipboard
-			if tab.Terminal != nil {
+			// Only copy if selection spans more than a single point
+			if tab.Terminal != nil &&
+				(tab.Selection.StartX != tab.Selection.EndX ||
+					tab.Selection.StartLine != tab.Selection.EndLine) {
 				text := tab.Terminal.GetSelectedText(
-					tab.Selection.StartX, tab.Selection.StartY,
-					tab.Selection.EndX, tab.Selection.EndY,
+					tab.Terminal.SelStartX(), tab.Terminal.SelStartLine(),
+					tab.Terminal.SelEndX(), tab.Terminal.SelEndLine(),
 				)
 				if text != "" {
 					if err := common.CopyToClipboard(text); err != nil {
@@ -262,16 +271,39 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		logging.Debug("Center received key: %s, focused=%v, hasTabs=%v, numTabs=%d",
 			msg.String(), m.focused, m.hasActiveAgent(), len(tabs))
 
-		// Clear any selection when user types (unless in copy mode)
+		// Check if this is Cmd+C (copy command)
+		k := msg.Key()
+		isCopyKey := k.Mod.Contains(tea.ModSuper) && k.Code == 'c'
+
+		// Handle explicit Cmd+C to copy current selection
+		if isCopyKey && len(tabs) > 0 && activeIdx < len(tabs) {
+			tab := tabs[activeIdx]
+			tab.mu.Lock()
+			if tab.Terminal != nil && tab.Terminal.HasSelection() {
+				text := tab.Terminal.GetSelectedText(
+					tab.Terminal.SelStartX(), tab.Terminal.SelStartLine(),
+					tab.Terminal.SelEndX(), tab.Terminal.SelEndLine(),
+				)
+				if text != "" {
+					if err := common.CopyToClipboard(text); err != nil {
+						logging.Error("Failed to copy to clipboard: %v", err)
+					} else {
+						logging.Info("Cmd+C copied %d chars to clipboard", len(text))
+					}
+				}
+			}
+			tab.mu.Unlock()
+			return m, nil // Don't forward to terminal, don't clear selection
+		}
+
+		// Clear any selection when user types (except Cmd+C which is handled above)
 		if len(tabs) > 0 && activeIdx < len(tabs) {
 			tab := tabs[activeIdx]
 			tab.mu.Lock()
-			if !tab.CopyMode {
-				if tab.Terminal != nil {
-					tab.Terminal.ClearSelection()
-				}
-				tab.Selection = SelectionState{}
+			if tab.Terminal != nil {
+				tab.Terminal.ClearSelection()
 			}
+			tab.Selection = SelectionState{}
 			tab.mu.Unlock()
 		}
 
@@ -283,7 +315,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// When we have an active agent, handle keys
 		if m.hasActiveAgent() {
 			tab := tabs[activeIdx]
-			logging.Debug("Has active agent, Agent=%v, Terminal=%v, CopyMode=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil, tab.CopyMode)
+			logging.Debug("Has active agent, Agent=%v, Terminal=%v", tab.Agent != nil, tab.Agent != nil && tab.Agent.Terminal != nil)
 
 			// DiffViewer tabs: forward keys to diff viewer
 			tab.mu.Lock()
@@ -309,11 +341,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				tab.DiffViewer = newDV
 				tab.mu.Unlock()
 				return m, cmd
-			}
-
-			// Copy mode: handle scroll navigation without sending to PTY
-			if tab.CopyMode {
-				return m, m.handleCopyModeKey(tab, msg)
 			}
 
 			if tab.Agent != nil && tab.Agent.Terminal != nil {

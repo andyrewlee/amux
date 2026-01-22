@@ -442,7 +442,7 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 
 	// Check if we can reuse the cached snapshot
 	version := tab.Terminal.Version()
-	showCursor := m.focused && !tab.CopyMode
+	showCursor := m.focused
 	if tab.cachedSnap != nil &&
 		tab.cachedVersion == version &&
 		tab.cachedShowCursor == showCursor {
