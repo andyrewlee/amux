@@ -144,7 +144,6 @@ type App struct {
 	externalMsgs        chan tea.Msg
 	externalSender      func(tea.Msg)
 	externalOnce        sync.Once
-	externalDropLastLog atomic.Int64
 }
 
 type drawableCache struct {
