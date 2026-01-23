@@ -411,7 +411,7 @@ func (a *App) renderErrorOverlay() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#f7768e")).
 		Padding(1, 2).
-		MaxWidth(60)
+		Width(56)
 	return errStyle.Render("Error: " + a.err.Error() + "\n\nPress any key to dismiss.")
 }
 
