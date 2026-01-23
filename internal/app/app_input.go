@@ -260,6 +260,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.WorktreeCreated:
 		cmds = append(cmds, a.handleWorktreeCreated(msg)...)
 
+	case messages.WorktreeSetupComplete:
+		if cmd := a.handleWorktreeSetupComplete(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.WorktreeCreateFailed:
 		if cmd := a.handleWorktreeCreateFailed(msg); cmd != nil {
 			cmds = append(cmds, cmd)

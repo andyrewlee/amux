@@ -287,9 +287,21 @@ func (a *App) handleWorktreeCreated(msg messages.WorktreeCreated) []tea.Cmd {
 		if cmd := a.dashboard.SetWorktreeCreating(msg.Worktree, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		// Run setup scripts asynchronously
+		if msg.Meta != nil {
+			cmds = append(cmds, a.runSetupAsync(msg.Worktree, msg.Meta))
+		}
 	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds
+}
+
+// handleWorktreeSetupComplete handles the WorktreeSetupComplete message.
+func (a *App) handleWorktreeSetupComplete(msg messages.WorktreeSetupComplete) tea.Cmd {
+	if msg.Err != nil {
+		return a.toast.ShowWarning(fmt.Sprintf("Setup failed for %s: %v", msg.Worktree.Name, msg.Err))
+	}
+	return nil
 }
 
 // handleWorktreeCreateFailed handles the WorktreeCreateFailed message.
