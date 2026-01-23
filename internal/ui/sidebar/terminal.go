@@ -113,6 +113,9 @@ type TerminalModel struct {
 
 	// Styles
 	styles common.Styles
+
+	// PTY message sink
+	msgSink func(tea.Msg)
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -136,6 +139,11 @@ func (m *TerminalModel) SetShowKeymapHints(show bool) {
 // SetStyles updates the component's styles (for theme changes).
 func (m *TerminalModel) SetStyles(styles common.Styles) {
 	m.styles = styles
+}
+
+// SetMsgSink sets a callback for PTY messages.
+func (m *TerminalModel) SetMsgSink(sink func(tea.Msg)) {
+	m.msgSink = sink
 }
 
 // AddTerminalForHarness creates a terminal state without a PTY for benchmarks/tests.
@@ -434,8 +442,6 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					return messages.SidebarPTYFlush{WorktreeID: wtID, TabID: msg.TabID}
 				}))
 			}
-			// Continue reading
-			cmds = append(cmds, m.readPTY(wtID, tabID))
 		}
 
 	case messages.SidebarPTYFlush:
@@ -487,14 +493,6 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					}))
 				}
 			}
-		}
-
-	case messages.SidebarPTYTick:
-		wtID := msg.WorktreeID
-		tabID := TerminalTabID(msg.TabID)
-		tab := m.getTabByID(wtID, tabID)
-		if tab != nil && tab.State != nil && tab.State.Running {
-			cmds = append(cmds, m.readPTY(wtID, tabID))
 		}
 
 	case messages.SidebarPTYStopped:

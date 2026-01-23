@@ -139,22 +139,59 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	return quiet, maxInterval
 }
 
-// readPTYForTab reads from the PTY for a tab in a specific worktree
-func (m *Model) readPTYForTab(wtID string, tabID TabID) tea.Cmd {
-	return m.waitPTYMsg(wtID, tabID)
-}
-
-func (m *Model) waitPTYMsg(wtID string, tabID TabID) tea.Cmd {
-	return func() tea.Msg {
-		tab := m.getTabByID(wtID, tabID)
-		if tab == nil || tab.ptyMsgCh == nil {
-			return nil
+func (m *Model) forwardPTYMsgs(msgCh <-chan tea.Msg) {
+	for msg := range msgCh {
+		if msg == nil {
+			continue
 		}
-		msg, ok := <-tab.ptyMsgCh
+		out, ok := msg.(PTYOutput)
 		if !ok {
-			return PTYStopped{WorktreeID: wtID, TabID: tabID, Err: io.EOF}
+			if m.msgSink != nil {
+				m.msgSink(msg)
+			}
+			continue
 		}
-		return msg
+
+		merged := out
+		for {
+			select {
+			case next, ok := <-msgCh:
+				if !ok {
+					if m.msgSink != nil && len(merged.Data) > 0 {
+						m.msgSink(merged)
+					}
+					return
+				}
+				if next == nil {
+					continue
+				}
+				if nextOut, ok := next.(PTYOutput); ok &&
+					nextOut.WorktreeID == merged.WorktreeID &&
+					nextOut.TabID == merged.TabID {
+					merged.Data = append(merged.Data, nextOut.Data...)
+					if len(merged.Data) >= ptyMaxPendingBytes {
+						if m.msgSink != nil && len(merged.Data) > 0 {
+							m.msgSink(merged)
+						}
+						merged.Data = nil
+					}
+					continue
+				}
+				if m.msgSink != nil && len(merged.Data) > 0 {
+					m.msgSink(merged)
+				}
+				if m.msgSink != nil {
+					m.msgSink(next)
+				}
+				goto nextMsg
+			default:
+				if m.msgSink != nil && len(merged.Data) > 0 {
+					m.msgSink(merged)
+				}
+				goto nextMsg
+			}
+		}
+	nextMsg:
 	}
 }
 
@@ -338,8 +375,8 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 	msgCh := tab.ptyMsgCh
 
 	go runPTYReader(term, msgCh, cancel, wtID, tabID)
-
-	return m.waitPTYMsg(wtID, tab.ID)
+	go m.forwardPTYMsgs(msgCh)
+	return nil
 }
 
 func safeClose(ch chan struct{}) {
@@ -412,15 +449,12 @@ func (m *Model) HasActiveAgents() bool {
 
 // StartPTYReaders starts reading from all PTYs across all worktrees
 func (m *Model) StartPTYReaders() tea.Cmd {
-	var cmds []tea.Cmd
 	for wtID, tabs := range m.tabsByWorktree {
 		for _, tab := range tabs {
-			if cmd := m.startPTYReader(wtID, tab); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+			_ = m.startPTYReader(wtID, tab)
 		}
 	}
-	return tea.Batch(cmds...)
+	return nil
 }
 
 // TerminalLayer returns a VTermLayer for the active terminal, if any.

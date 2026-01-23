@@ -106,29 +106,6 @@ func (m *TerminalModel) HandleTerminalCreated(wtID string, tabID TerminalTabID, 
 	return m.startPTYReader(wtID, tabID)
 }
 
-// readPTY reads from the PTY for the given worktree and tab
-func (m *TerminalModel) readPTY(wtID string, tabID TerminalTabID) tea.Cmd {
-	tab := m.getTabByID(wtID, tabID)
-	if tab == nil || tab.State == nil {
-		return nil
-	}
-	ts := tab.State
-	if ts.Terminal == nil || !ts.Running {
-		return nil
-	}
-	ch := ts.ptyMsgCh
-	if ch == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		msg, ok := <-ch
-		if !ok {
-			return messages.SidebarPTYStopped{WorktreeID: wtID, TabID: string(tabID), Err: io.EOF}
-		}
-		return msg
-	}
-}
-
 func (m *TerminalModel) startPTYReader(wtID string, tabID TerminalTabID) tea.Cmd {
 	tab := m.getTabByID(wtID, tabID)
 	if tab == nil || tab.State == nil {
@@ -151,8 +128,8 @@ func (m *TerminalModel) startPTYReader(wtID string, tabID TerminalTabID) tea.Cmd
 	msgCh := ts.ptyMsgCh
 
 	go runPTYReader(term, msgCh, cancel, wtID, string(tabID))
-
-	return m.readPTY(wtID, tabID)
+	go m.forwardPTYMsgs(msgCh)
+	return nil
 }
 
 // CloseTerminal closes all terminal tabs for the given worktree
@@ -296,6 +273,62 @@ func sendPTYMsg(msgCh chan tea.Msg, cancel <-chan struct{}, msg tea.Msg) bool {
 		return false
 	case msgCh <- msg:
 		return true
+	}
+}
+
+func (m *TerminalModel) forwardPTYMsgs(msgCh <-chan tea.Msg) {
+	for msg := range msgCh {
+		if msg == nil {
+			continue
+		}
+		out, ok := msg.(messages.SidebarPTYOutput)
+		if !ok {
+			if m.msgSink != nil {
+				m.msgSink(msg)
+			}
+			continue
+		}
+
+		merged := out
+		for {
+			select {
+			case next, ok := <-msgCh:
+				if !ok {
+					if m.msgSink != nil && len(merged.Data) > 0 {
+						m.msgSink(merged)
+					}
+					return
+				}
+				if next == nil {
+					continue
+				}
+				if nextOut, ok := next.(messages.SidebarPTYOutput); ok &&
+					nextOut.WorktreeID == merged.WorktreeID &&
+					nextOut.TabID == merged.TabID {
+					merged.Data = append(merged.Data, nextOut.Data...)
+					if len(merged.Data) >= ptyMaxPendingBytes {
+						if m.msgSink != nil && len(merged.Data) > 0 {
+							m.msgSink(merged)
+						}
+						merged.Data = nil
+					}
+					continue
+				}
+				if m.msgSink != nil && len(merged.Data) > 0 {
+					m.msgSink(merged)
+				}
+				if m.msgSink != nil {
+					m.msgSink(next)
+				}
+				goto nextMsg
+			default:
+				if m.msgSink != nil && len(merged.Data) > 0 {
+					m.msgSink(merged)
+				}
+				goto nextMsg
+			}
+		}
+	nextMsg:
 	}
 }
 
