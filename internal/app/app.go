@@ -141,9 +141,9 @@ type App struct {
 	centerBorders        borderCache
 
 	// External message pump (for PTY readers)
-	externalMsgs        chan tea.Msg
-	externalSender      func(tea.Msg)
-	externalOnce        sync.Once
+	externalMsgs   chan tea.Msg
+	externalSender func(tea.Msg)
+	externalOnce   sync.Once
 }
 
 type drawableCache struct {
