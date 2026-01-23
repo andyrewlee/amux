@@ -84,6 +84,7 @@ type Model struct {
 	canFocusRight       bool
 	agentManager        *appPty.AgentManager
 	monitor             MonitorModel
+	msgSink             func(tea.Msg)
 
 	// Layout
 	width           int
@@ -216,6 +217,11 @@ func (m *Model) SetStyles(styles common.Styles) {
 			}
 		}
 	}
+}
+
+// SetMsgSink sets a callback for PTY messages.
+func (m *Model) SetMsgSink(sink func(tea.Msg)) {
+	m.msgSink = sink
 }
 
 // worktreeID returns the ID of the current worktree, or empty string

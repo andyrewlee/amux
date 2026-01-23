@@ -474,8 +474,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
 				}))
 			}
-			// Continue reading
-			cmds = append(cmds, m.readPTYForTab(msg.WorktreeID, msg.TabID))
 		}
 		// If tab is nil, it was closed - silently drop the message and don't reschedule
 
@@ -531,13 +529,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 			}
 		}
-
-	case PTYTick:
-		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
-		if tab != nil {
-			cmds = append(cmds, m.readPTYForTab(msg.WorktreeID, msg.TabID))
-		}
-		// If tab is nil, it was closed - stop polling
 
 	case PTYStopped:
 		// Terminal closed - mark tab as not running, but keep it visible

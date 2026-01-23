@@ -52,6 +52,7 @@ func main() {
 		a,
 		tea.WithFilter(mouseEventFilter),
 	)
+	a.SetMsgSender(p.Send)
 
 	if _, err := p.Run(); err != nil {
 		logging.Error("App exited with error: %v", err)

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -137,6 +139,12 @@ type App struct {
 	centerStatus         drawableCache
 	centerHelp           drawableCache
 	centerBorders        borderCache
+
+	// External message pump (for PTY readers)
+	externalMsgs        chan tea.Msg
+	externalSender      func(tea.Msg)
+	externalOnce        sync.Once
+	externalDropLastLog atomic.Int64
 }
 
 type drawableCache struct {
@@ -254,7 +262,11 @@ func New(version, commit, date string) (*App, error) {
 		version:         version,
 		commit:          commit,
 		buildDate:       date,
+		externalMsgs:    make(chan tea.Msg, 1024),
 	}
+	// Route PTY messages through the app-level pump.
+	app.center.SetMsgSink(app.enqueueExternalMsg)
+	app.sidebarTerminal.SetMsgSink(app.enqueueExternalMsg)
 	// Apply saved theme before creating styles
 	common.SetCurrentTheme(common.ThemeID(cfg.UI.Theme))
 	app.styles = common.DefaultStyles()
