@@ -66,8 +66,10 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType, rows,
 		shell = "/bin/bash"
 	}
 
-	// Execute agent, then reset terminal state (RIS), print message, and drop to shell
-	fullCommand := fmt.Sprintf("%s; printf '\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s", assistantCfg.Command, shell)
+	// Execute agent, then reset terminal state and drop to shell
+	// Reset sequence: stty sane (terminal modes), exit alt screen, show cursor, reset attrs, RIS
+	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
+	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", assistantCfg.Command, shell)
 
 	term, err := NewWithSize(fullCommand, wt.Root, env, rows, cols)
 	if err != nil {
