@@ -2,7 +2,6 @@ package app
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
