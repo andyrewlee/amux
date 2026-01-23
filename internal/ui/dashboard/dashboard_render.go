@@ -33,13 +33,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			} else if m.loadingStatus[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				status = " " + m.styles.StatusPending.Render(frame)
-			} else if s, ok := m.statusCache[main.Root]; ok {
-				if s.Clean {
-					status = " " + m.styles.StatusClean.Render(common.Icons.Clean)
-				} else {
-					count := s.GetDirtyCount()
-					status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
-				}
+			} else if s, ok := m.statusCache[main.Root]; ok && !s.Clean {
+				count := s.GetDirtyCount()
+				status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
 			}
 		}
 
@@ -81,13 +77,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			// Show spinner while loading
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			status = " " + m.styles.StatusPending.Render(frame)
-		} else if s, ok := m.statusCache[row.Worktree.Root]; ok {
-			if s.Clean {
-				status = " " + m.styles.StatusClean.Render(common.Icons.Clean)
-			} else {
-				count := s.GetDirtyCount()
-				status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
-			}
+		} else if s, ok := m.statusCache[row.Worktree.Root]; ok && !s.Clean {
+			count := s.GetDirtyCount()
+			status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
 		}
 
 		// Determine row style based on selection and active state
