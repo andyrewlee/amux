@@ -180,12 +180,18 @@ func (m *Model) renderTabBar() string {
 			name = tab.Assistant
 		}
 
-		// Add status indicator
+		// Add status indicator only for agent tabs (not file viewers)
 		var indicator string
-		if tab.Running {
-			indicator = common.Icons.Running + " "
-		} else {
-			indicator = common.Icons.Idle + " "
+		isAgent := tab.Assistant == "claude" || tab.Assistant == "codex" ||
+			tab.Assistant == "gemini" || tab.Assistant == "amp" ||
+			tab.Assistant == "opencode" || tab.Assistant == "droid" ||
+			tab.Assistant == "cursor"
+		if isAgent {
+			if tab.Running {
+				indicator = common.Icons.Running + " "
+			} else {
+				indicator = common.Icons.Idle + " "
+			}
 		}
 
 		// Get agent-specific color
