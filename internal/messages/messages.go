@@ -36,6 +36,13 @@ type WorktreePreviewed struct {
 // WorktreeCreated is sent when a new worktree is created
 type WorktreeCreated struct {
 	Worktree *data.Worktree
+	Meta     *data.Metadata // For async setup
+}
+
+// WorktreeSetupComplete is sent when async setup scripts finish
+type WorktreeSetupComplete struct {
+	Worktree *data.Worktree
+	Err      error
 }
 
 // WorktreeCreateFailed is sent when a worktree creation fails

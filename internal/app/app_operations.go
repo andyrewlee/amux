@@ -194,16 +194,18 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 			}
 		}
 
-		// Run setup scripts from .amux/worktrees.json
-		if err := a.scripts.RunSetup(wt, meta); err != nil {
-			// Don't fail worktree creation, just log the error
-			return messages.WorktreeCreatedWithWarning{
-				Worktree: wt,
-				Warning:  fmt.Sprintf("setup failed: %v", err),
-			}
-		}
+		// Return immediately with metadata for async setup
+		return messages.WorktreeCreated{Worktree: wt, Meta: meta}
+	}
+}
 
-		return messages.WorktreeCreated{Worktree: wt}
+// runSetupAsync runs setup scripts asynchronously and returns a WorktreeSetupComplete message
+func (a *App) runSetupAsync(wt *data.Worktree, meta *data.Metadata) tea.Cmd {
+	return func() tea.Msg {
+		if err := a.scripts.RunSetup(wt, meta); err != nil {
+			return messages.WorktreeSetupComplete{Worktree: wt, Err: err}
+		}
+		return messages.WorktreeSetupComplete{Worktree: wt}
 	}
 }
 
