@@ -209,11 +209,9 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 
 // deleteWorktree deletes a git worktree
 func (a *App) deleteWorktree(project *data.Project, wt *data.Worktree) tea.Cmd {
-	// Check if we need to clear active worktree before running async
-	clearActive := a.activeWorktree != nil && a.activeWorktree.Root == wt.Root
-	if clearActive {
-		a.activeWorktree = nil
-		a.showWelcome = true
+	// Clear UI components if deleting the active worktree
+	if a.activeWorktree != nil && a.activeWorktree.Root == wt.Root {
+		a.goHome()
 	}
 
 	return func() tea.Msg {
