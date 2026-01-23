@@ -43,7 +43,7 @@ func (m *Model) View() string {
 			// Render native diff viewer
 			b.WriteString(tab.DiffViewer.View())
 		} else if tab.Terminal != nil {
-			tab.Terminal.ShowCursor = m.focused && !tab.CopyMode
+			tab.Terminal.ShowCursor = m.focused
 			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
 			b.WriteString(tab.Terminal.Render())
 
@@ -140,23 +140,9 @@ func (m *Model) helpLines(contentWidth int) []string {
 			m.helpItem("C-Spc p", "prev"),
 			m.helpItem("C-Spc n", "next"),
 			m.helpItem("C-Spc 1-9", "jump tab"),
-			m.helpItem("C-Spc [", "copy"),
 			m.helpItem("PgUp", "scroll up"),
 			m.helpItem("PgDn", "scroll down"),
 		)
-		if m.CopyModeActive() {
-			items = append(items,
-				m.helpItem("g", "top"),
-				m.helpItem("G", "bottom"),
-				m.helpItem("Space/v", "select"),
-				m.helpItem("y/Enter", "copy"),
-				m.helpItem("C-v", "rect"),
-				m.helpItem("/?", "search"),
-				m.helpItem("n/N", "next/prev"),
-				m.helpItem("w/b/e", "word"),
-				m.helpItem("H/M/L", "top/mid/bot"),
-			)
-		}
 	}
 	return common.WrapHelpItems(items, contentWidth)
 }
@@ -449,13 +435,6 @@ func (m *Model) ViewChromeOnly() string {
 func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 	if tab == nil || tab.Terminal == nil {
 		return ""
-	}
-	if tab.CopyMode {
-		modeStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(common.ColorBackground).
-			Background(common.ColorWarning)
-		return modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) ")
 	}
 	if tab.Terminal.IsScrolled() {
 		offset, total := tab.Terminal.GetScrollInfo()

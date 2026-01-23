@@ -49,10 +49,11 @@ type VTerm struct {
 	responseWriter ResponseWriter
 
 	// Selection state for copy/paste highlighting
-	selActive            bool
-	selStartX, selStartY int
-	selEndX, selEndY     int
-	selRect              bool
+	// Uses absolute line numbers (0 = first scrollback line)
+	selActive               bool
+	selStartX, selStartLine int
+	selEndX, selEndLine     int
+	selRect                 bool
 
 	// Cursor visibility (controlled externally when pane is focused)
 	ShowCursor     bool
@@ -265,7 +266,9 @@ func (v *VTerm) trimScrollback() {
 			v.syncDeferTrim = true
 			return
 		}
+		trimmed := len(v.Scrollback) - MaxScrollback
 		v.Scrollback = v.Scrollback[len(v.Scrollback)-MaxScrollback:]
+		v.shiftSelectionAfterTrim(trimmed)
 	}
 	// Clamp ViewOffset after trim to prevent stale offsets
 	if v.ViewOffset > len(v.Scrollback) {
@@ -273,9 +276,45 @@ func (v *VTerm) trimScrollback() {
 	}
 }
 
+// ScreenYToAbsoluteLine converts a screen Y coordinate (0 to Height-1) to an absolute line number.
+// Absolute line 0 is the first line in scrollback.
+func (v *VTerm) ScreenYToAbsoluteLine(screenY int) int {
+	// Total lines = scrollback + screen (respect sync snapshot if active)
+	screen, scrollbackLen := v.RenderBuffers()
+	screenLen := len(screen)
+	totalLines := scrollbackLen + screenLen
+
+	// The visible window starts at this absolute line
+	startLine := totalLines - v.Height - v.ViewOffset
+	if startLine < 0 {
+		startLine = 0
+	}
+
+	return startLine + screenY
+}
+
+// AbsoluteLineToScreenY converts an absolute line number to a screen Y coordinate.
+// Returns -1 if the line is not currently visible.
+func (v *VTerm) AbsoluteLineToScreenY(absLine int) int {
+	screen, scrollbackLen := v.RenderBuffers()
+	screenLen := len(screen)
+	totalLines := scrollbackLen + screenLen
+
+	// The visible window starts at this absolute line
+	startLine := totalLines - v.Height - v.ViewOffset
+	if startLine < 0 {
+		startLine = 0
+	}
+
+	screenY := absLine - startLine
+	if screenY < 0 || screenY >= v.Height {
+		return -1
+	}
+	return screenY
+}
+
 // ScrollView scrolls the view by delta lines (positive = up into history)
 func (v *VTerm) ScrollView(delta int) {
-	v.ClearSelection()
 	oldOffset := v.ViewOffset
 	v.ViewOffset += delta
 	maxOffset := len(v.Scrollback)
@@ -292,7 +331,6 @@ func (v *VTerm) ScrollView(delta int) {
 
 // ScrollViewTo sets absolute scroll position
 func (v *VTerm) ScrollViewTo(offset int) {
-	v.ClearSelection()
 	oldOffset := v.ViewOffset
 	v.ViewOffset = offset
 	maxOffset := len(v.Scrollback)
@@ -309,7 +347,6 @@ func (v *VTerm) ScrollViewTo(offset int) {
 
 // ScrollViewToTop scrolls to oldest content
 func (v *VTerm) ScrollViewToTop() {
-	v.ClearSelection()
 	oldOffset := v.ViewOffset
 	v.ViewOffset = len(v.Scrollback)
 	if v.ViewOffset != oldOffset {
@@ -319,7 +356,6 @@ func (v *VTerm) ScrollViewToTop() {
 
 // ScrollViewToBottom returns to live view
 func (v *VTerm) ScrollViewToBottom() {
-	v.ClearSelection()
 	oldOffset := v.ViewOffset
 	v.ViewOffset = 0
 	if v.ViewOffset != oldOffset {

@@ -184,10 +184,61 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 	snap.Width = width
 	snap.Height = height
 	snap.SelActive = term.SelActive()
-	snap.SelStartX = term.SelStartX()
-	snap.SelStartY = term.SelStartY()
-	snap.SelEndX = term.SelEndX()
-	snap.SelEndY = term.SelEndY()
+	snap.SelStartX = 0
+	snap.SelStartY = 0
+	snap.SelEndX = 0
+	snap.SelEndY = 0
+
+	if snap.SelActive {
+		startLine := term.SelStartLine()
+		endLine := term.SelEndLine()
+		startX := term.SelStartX()
+		endX := term.SelEndX()
+
+		// Normalize so start is before end.
+		if startLine > endLine || (startLine == endLine && startX > endX) {
+			startLine, endLine = endLine, startLine
+			startX, endX = endX, startX
+		}
+
+		visibleStartLine := term.ScreenYToAbsoluteLine(0)
+		visibleEndLine := term.ScreenYToAbsoluteLine(height - 1)
+
+		// If selection is entirely outside viewport, disable selection rendering.
+		if endLine < visibleStartLine || startLine > visibleEndLine {
+			snap.SelActive = false
+		} else {
+			if startLine < visibleStartLine {
+				snap.SelStartY = 0
+				startX = 0
+			} else {
+				snap.SelStartY = startLine - visibleStartLine
+			}
+
+			if endLine > visibleEndLine {
+				snap.SelEndY = height - 1
+				endX = width - 1
+			} else {
+				snap.SelEndY = endLine - visibleStartLine
+			}
+
+			if startX < 0 {
+				startX = 0
+			}
+			if startX >= width {
+				startX = width - 1
+			}
+			if endX < 0 {
+				endX = 0
+			}
+			if endX >= width {
+				endX = width - 1
+			}
+
+			snap.SelStartX = startX
+			snap.SelEndX = endX
+		}
+	}
 
 	// Clear dirty state after snapshotting (while still holding the lock)
 	// Also update cursor tracking for next frame
@@ -307,6 +358,7 @@ func inSelectionSnapshot(snap *VTermSnapshot, x, y int) bool {
 
 	startX, startY := snap.SelStartX, snap.SelStartY
 	endX, endY := snap.SelEndX, snap.SelEndY
+
 	if startY > endY || (startY == endY && startX > endX) {
 		startX, endX = endX, startX
 		startY, endY = endY, startY

@@ -112,17 +112,17 @@ func (m *TerminalModel) handleMouseClick(msg tea.MouseClickMsg) (*TerminalModel,
 		if ts.VTerm != nil {
 			ts.VTerm.ClearSelection()
 		}
-		if inBounds {
+		if inBounds && ts.VTerm != nil {
+			// Convert screen Y to absolute line number
+			absLine := ts.VTerm.ScreenYToAbsoluteLine(termY)
 			ts.Selection = SelectionState{
-				Active: true,
-				StartX: termX,
-				StartY: termY,
-				EndX:   termX,
-				EndY:   termY,
+				Active:    true,
+				StartX:    termX,
+				StartLine: absLine,
+				EndX:      termX,
+				EndLine:   absLine,
 			}
-			if ts.VTerm != nil {
-				ts.VTerm.SetSelection(termX, termY, termX, termY, true, false)
-			}
+			ts.VTerm.SetSelection(termX, absLine, termX, absLine, true, false)
 		} else {
 			ts.Selection = SelectionState{}
 		}
@@ -150,37 +150,45 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 	termX, termY, _ := m.screenToTerminal(msg.X, msg.Y)
 
 	ts.mu.Lock()
-	if ts.Selection.Active {
-		// Dimensions
-		termWidth := m.width
-		termHeight := m.height
-		if ts.VTerm != nil {
-			termWidth = ts.VTerm.Width
-			termHeight = ts.VTerm.Height
-		}
+	if ts.Selection.Active && ts.VTerm != nil {
+		termWidth := ts.VTerm.Width
+		termHeight := ts.VTerm.Height
 
-		// Clamp
+		// Clamp X to terminal bounds
 		if termX < 0 {
 			termX = 0
-		}
-		if termY < 0 {
-			termY = 0
 		}
 		if termX >= termWidth {
 			termX = termWidth - 1
 		}
-		if termY >= termHeight {
+
+		// Auto-scroll when dragging at edges
+		if termY < 0 {
+			// Dragging above viewport - scroll up into history
+			ts.VTerm.ScrollView(1)
+			termY = 0
+		} else if termY >= termHeight {
+			// Dragging below viewport - scroll down toward live
+			ts.VTerm.ScrollView(-1)
 			termY = termHeight - 1
 		}
 
-		ts.Selection.EndX = termX
-		ts.Selection.EndY = termY
-		if ts.VTerm != nil {
-			ts.VTerm.SetSelection(
-				ts.Selection.StartX, ts.Selection.StartY,
-				termX, termY, true, false,
-			)
+		// Convert to absolute line and update selection
+		absLine := ts.VTerm.ScreenYToAbsoluteLine(termY)
+		startX := ts.VTerm.SelStartX()
+		startLine := ts.VTerm.SelStartLine()
+		if !ts.VTerm.HasSelection() {
+			startX = ts.Selection.StartX
+			startLine = ts.Selection.StartLine
 		}
+		ts.Selection.EndX = termX
+		ts.Selection.EndLine = absLine
+		ts.VTerm.SetSelection(
+			startX, startLine,
+			termX, absLine, true, false,
+		)
+		ts.Selection.StartX = startX
+		ts.Selection.StartLine = startLine
 	}
 	ts.mu.Unlock()
 
@@ -204,10 +212,13 @@ func (m *TerminalModel) handleMouseRelease(msg tea.MouseReleaseMsg) (*TerminalMo
 
 	ts.mu.Lock()
 	if ts.Selection.Active {
-		if ts.VTerm != nil {
+		// Only copy if selection spans more than a single point
+		if ts.VTerm != nil &&
+			(ts.Selection.StartX != ts.Selection.EndX ||
+				ts.Selection.StartLine != ts.Selection.EndLine) {
 			text := ts.VTerm.GetSelectedText(
-				ts.Selection.StartX, ts.Selection.StartY,
-				ts.Selection.EndX, ts.Selection.EndY,
+				ts.VTerm.SelStartX(), ts.VTerm.SelStartLine(),
+				ts.VTerm.SelEndX(), ts.VTerm.SelEndLine(),
 			)
 			if text != "" {
 				if err := common.CopyToClipboard(text); err != nil {
@@ -216,6 +227,7 @@ func (m *TerminalModel) handleMouseRelease(msg tea.MouseReleaseMsg) (*TerminalMo
 					logging.Info("Copied %d chars from sidebar", len(text))
 				}
 			}
+			// Keep selection visible - don't clear it
 		}
 		ts.Selection.Active = false
 	}

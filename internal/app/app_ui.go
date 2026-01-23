@@ -217,16 +217,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		a.showQuitDialog()
 		return true, nil
 
-	// Copy mode (scroll in terminal) - targets focused pane
-	case key.Matches(msg, a.keymap.CopyMode):
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			a.center.EnterCopyMode()
-		case messages.PaneSidebarTerminal:
-			a.sidebarTerminal.EnterCopyMode()
-		}
-		return true, nil
-
 	// Tab numbers 1-9
 	case len(msg.Key().Text) > 0:
 		runes := []rune(msg.Key().Text)

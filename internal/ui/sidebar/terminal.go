@@ -21,11 +21,11 @@ import (
 
 // SelectionState tracks mouse selection state
 type SelectionState struct {
-	Active bool
-	StartX int
-	StartY int
-	EndX   int
-	EndY   int
+	Active    bool
+	StartX    int
+	StartLine int // Absolute line number (0 = first scrollback line)
+	EndX      int
+	EndLine   int // Absolute line number
 }
 
 // TerminalTabID is a unique identifier for a terminal tab
@@ -49,12 +49,10 @@ type TerminalTab struct {
 
 // TerminalState holds the terminal state for a worktree
 type TerminalState struct {
-	Terminal  *pty.Terminal
-	VTerm     *vterm.VTerm
-	Running   bool
-	CopyMode  bool // Whether in copy/scroll mode (keys not sent to PTY)
-	CopyState common.CopyState
-	mu        sync.Mutex
+	Terminal *pty.Terminal
+	VTerm    *vterm.VTerm
+	Running  bool
+	mu       sync.Mutex
 
 	// Track last size to avoid unnecessary resizes
 	lastWidth  int
@@ -364,9 +362,28 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			return m, nil
 		}
 
-		// Copy mode: handle scroll navigation without sending to PTY
-		if ts.CopyMode {
-			return m, m.handleCopyModeKey(ts, msg)
+		// Check if this is Cmd+C (copy command)
+		k := msg.Key()
+		isCopyKey := k.Mod.Contains(tea.ModSuper) && k.Code == 'c'
+
+		// Handle explicit Cmd+C to copy current selection
+		if isCopyKey {
+			ts.mu.Lock()
+			if ts.VTerm != nil && ts.VTerm.HasSelection() {
+				text := ts.VTerm.GetSelectedText(
+					ts.VTerm.SelStartX(), ts.VTerm.SelStartLine(),
+					ts.VTerm.SelEndX(), ts.VTerm.SelEndLine(),
+				)
+				if text != "" {
+					if err := common.CopyToClipboard(text); err != nil {
+						logging.Error("Failed to copy to clipboard: %v", err)
+					} else {
+						logging.Info("Cmd+C copied %d chars from sidebar", len(text))
+					}
+				}
+			}
+			ts.mu.Unlock()
+			return m, nil // Don't forward to terminal, don't clear selection
 		}
 
 		// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
@@ -536,7 +553,7 @@ func (m *TerminalModel) View() string {
 		}
 	} else {
 		ts.mu.Lock()
-		ts.VTerm.ShowCursor = m.focused && !ts.CopyMode
+		ts.VTerm.ShowCursor = m.focused
 		// Use VTerm.Render() directly - it uses dirty line caching and delta styles
 		content := ts.VTerm.Render()
 		isScrolled := ts.VTerm.IsScrolled()
@@ -549,14 +566,7 @@ func (m *TerminalModel) View() string {
 
 		b.WriteString(content)
 
-		if ts.CopyMode {
-			b.WriteString("\n")
-			modeStyle := lipgloss.NewStyle().
-				Bold(true).
-				Foreground(common.ColorBackground).
-				Background(common.ColorWarning)
-			b.WriteString(modeStyle.Render(" COPY MODE (q/Esc exit • j/k/↑/↓ line • PgUp/PgDn/Ctrl+u/d half • g/G top/bottom) "))
-		} else if isScrolled {
+		if isScrolled {
 			b.WriteString("\n")
 			scrollStyle := lipgloss.NewStyle().
 				Bold(true).

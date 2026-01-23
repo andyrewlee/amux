@@ -32,11 +32,11 @@ func generateTabID() TabID {
 
 // SelectionState tracks mouse selection state for copy/paste
 type SelectionState struct {
-	Active bool // Selection in progress?
-	StartX int  // Start column (terminal coordinates)
-	StartY int  // Start row (terminal coordinates, relative to visible area)
-	EndX   int  // End column
-	EndY   int  // End row
+	Active    bool // Selection in progress (mouse button down)?
+	StartX    int  // Start column (terminal coordinates)
+	StartLine int  // Start row (absolute line number, 0 = first scrollback line)
+	EndX      int  // End column
+	EndLine   int  // End row (absolute line number)
 }
 
 // Tab represents a single tab in the center pane
@@ -51,8 +51,6 @@ type Tab struct {
 	mu           sync.Mutex   // Protects Terminal
 	Running      bool         // Whether the agent is actively running
 	readerActive bool         // Guard to ensure only one PTY read loop per tab
-	CopyMode     bool         // Whether the tab is in copy/scroll mode (keys not sent to PTY)
-	CopyState    common.CopyState
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
