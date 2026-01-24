@@ -28,6 +28,7 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	localY := msg.Y - topGutter
 
 	// Focus pane on left-click press
+	var focusCmd tea.Cmd
 	if msg.Button == tea.MouseLeft {
 		if msg.X < leftGutter {
 			a.focusPane(messages.PaneDashboard)
@@ -44,7 +45,7 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 
 			// Split point is after top pane
 			if localY >= topPaneHeight {
-				a.focusPane(messages.PaneSidebarTerminal)
+				focusCmd = a.focusPane(messages.PaneSidebarTerminal)
 			} else {
 				a.focusPane(messages.PaneSidebar)
 			}
@@ -80,7 +81,12 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		if inSidebarX {
 			newTerm, cmd := a.sidebarTerminal.Update(msg)
 			a.sidebarTerminal = newTerm
-			return cmd
+			// If the click returned a command (e.g., CreateNewTab from "+ New" button),
+			// skip focusCmd to avoid double terminal creation
+			if cmd != nil {
+				return cmd
+			}
+			return focusCmd
 		}
 	case messages.PaneSidebar:
 		adjusted := msg
@@ -94,7 +100,7 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 			return cmd
 		}
 	}
-	return nil
+	return focusCmd
 }
 
 // routeMouseWheel routes mouse wheel events to the appropriate pane.

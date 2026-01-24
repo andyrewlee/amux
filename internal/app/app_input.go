@@ -340,7 +340,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, sidebar.SidebarTerminalCreated:
+	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
