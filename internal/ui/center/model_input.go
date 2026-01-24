@@ -300,17 +300,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Handle explicit Cmd+C to copy current selection
 		if isCopyKey && len(tabs) > 0 && activeIdx < len(tabs) {
 			tab := tabs[activeIdx]
-				if m.isTabActorReady() {
-					if m.sendTabEvent(tabEvent{
-						tab:        tab,
-						worktreeID: m.worktreeID(),
-						tabID:      tab.ID,
-						kind:       tabEventSelectionCopy,
-						notifyCopy: true,
-					}) {
-						return m, nil
-					}
+			if m.isTabActorReady() {
+				if m.sendTabEvent(tabEvent{
+					tab:        tab,
+					worktreeID: m.worktreeID(),
+					tabID:      tab.ID,
+					kind:       tabEventSelectionCopy,
+					notifyCopy: true,
+				}) {
+					return m, nil
 				}
+			}
 			tab.mu.Lock()
 			if tab.Terminal != nil && tab.Terminal.HasSelection() {
 				text := tab.Terminal.GetSelectedText(

@@ -51,8 +51,8 @@ type Tab struct {
 	mu           sync.Mutex   // Protects Terminal
 	closed       uint32
 	closing      uint32
-	Running      bool         // Whether the agent is actively running
-	readerActive bool         // Guard to ensure only one PTY read loop per tab
+	Running      bool // Whether the agent is actively running
+	readerActive bool // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
@@ -64,18 +64,18 @@ type Tab struct {
 	ptyMsgCh          chan tea.Msg
 	readerCancel      chan struct{}
 	// Mouse selection state
-	Selection SelectionState
-	selectionGen uint64
-	selectionScrollDir int
+	Selection             SelectionState
+	selectionGen          uint64
+	selectionScrollDir    int
 	selectionScrollActive bool
 
-	ptyTraceFile   *os.File
-	ptyTraceBytes  int
-	ptyTraceClosed bool
+	ptyTraceFile      *os.File
+	ptyTraceBytes     int
+	ptyTraceClosed    bool
 	ptyRestartBackoff time.Duration
-	ptyHeartbeat   int64
-	ptyRestartCount int
-	ptyRestartSince time.Time
+	ptyHeartbeat      int64
+	ptyRestartCount   int
+	ptyRestartSince   time.Time
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
 	cachedSnap       *compositor.VTermSnapshot

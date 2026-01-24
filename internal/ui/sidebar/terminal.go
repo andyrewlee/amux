@@ -73,13 +73,13 @@ type TerminalState struct {
 	cachedVersion    uint64
 	cachedShowCursor bool
 
-	readerActive bool
-	ptyMsgCh     chan tea.Msg
-	readerCancel chan struct{}
+	readerActive      bool
+	ptyMsgCh          chan tea.Msg
+	readerCancel      chan struct{}
 	ptyRestartBackoff time.Duration
-	ptyHeartbeat int64
-	ptyRestartCount int
-	ptyRestartSince time.Time
+	ptyHeartbeat      int64
+	ptyRestartCount   int
+	ptyRestartSince   time.Time
 }
 
 // terminalTabHitKind identifies the type of tab bar click target

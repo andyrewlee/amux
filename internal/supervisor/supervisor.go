@@ -60,9 +60,9 @@ func WithMaxBackoff(d time.Duration) Option {
 
 // Supervisor manages worker lifecycles with restart policies.
 type Supervisor struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 	onError func(name string, err error)
 }
 
