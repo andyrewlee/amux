@@ -1,8 +1,6 @@
 package dashboard
 
 import (
-	"strconv"
-
 	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -24,19 +22,24 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		return style.Render("[amux]")
 
 	case RowProject:
+		prefix := " "
 		status := ""
+		statusText := ""
+		dirty := false
 		main := m.getMainWorktree(row.Project)
 		if main != nil {
 			if m.deletingWorktrees[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
-				status = " " + m.styles.StatusPending.Render(frame+" deleting")
+				statusText = m.styles.StatusPending.Render(frame + " deleting")
 			} else if m.loadingStatus[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
-				status = " " + m.styles.StatusPending.Render(frame)
+				statusText = m.styles.StatusPending.Render(frame)
 			} else if s, ok := m.statusCache[main.Root]; ok && !s.Clean {
-				count := s.GetDirtyCount()
-				status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
+				dirty = true
 			}
+		}
+		if statusText != "" {
+			status = " " + statusText
 		}
 
 		// Project headers are selectable to access main branch
@@ -49,10 +52,20 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if m.isProjectActive(row.Project) {
 			style = m.styles.ActiveWorktree.PaddingLeft(0)
 		}
+		if dirty {
+			style = style.Foreground(common.ColorSecondary)
+		}
 
-		// Truncate project name to fit within pane (width - border - padding - status)
+		// Reserve space for delete icon to keep status aligned
+		deleteSlot := "   "
+		deleteSlotWidth := 3
+		if selected {
+			deleteSlot = " " + common.Icons.Close + " "
+		}
+
+		// Truncate project name to fit within pane (width - border - padding - status - deleteSlot)
 		name := row.Project.Name
-		maxNameWidth := m.width - 4 - lipgloss.Width(status) - 1
+		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - lipgloss.Width(prefix) - 1
 		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
 			runes := []rune(name)
 			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
@@ -60,26 +73,38 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			}
 			name = string(runes) + "…"
 		}
-		return style.Render(name) + status
+
+		// Track delete slot position for click detection
+		if selected {
+			m.deleteIconX = lipgloss.Width(style.Render(prefix + name))
+		}
+
+		return style.Render(prefix+name+deleteSlot) + status
 
 	case RowWorktree:
+		unstyledPrefix := " "
+		styledPrefix := " "
 		name := row.Worktree.Name
 		status := ""
+		statusText := ""
+		dirty := false
 
 		// Check deletion state first
 		if m.deletingWorktrees[row.Worktree.Root] {
 			frame := common.SpinnerFrame(m.spinnerFrame)
-			status = " " + m.styles.StatusPending.Render(frame+" deleting")
+			statusText = m.styles.StatusPending.Render(frame + " deleting")
 		} else if _, ok := m.creatingWorktrees[row.Worktree.Root]; ok {
 			frame := common.SpinnerFrame(m.spinnerFrame)
-			status = " " + m.styles.StatusPending.Render(frame+" creating")
+			statusText = m.styles.StatusPending.Render(frame + " creating")
 		} else if m.loadingStatus[row.Worktree.Root] {
 			// Show spinner while loading
 			frame := common.SpinnerFrame(m.spinnerFrame)
-			status = " " + m.styles.StatusPending.Render(frame)
+			statusText = m.styles.StatusPending.Render(frame)
 		} else if s, ok := m.statusCache[row.Worktree.Root]; ok && !s.Clean {
-			count := s.GetDirtyCount()
-			status = " " + m.styles.StatusDirty.Render(common.Icons.Dirty+strconv.Itoa(count))
+			dirty = true
+		}
+		if statusText != "" {
+			status = " " + statusText
 		}
 
 		// Determine row style based on selection and active state
@@ -89,9 +114,19 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if row.Worktree.Root == m.activeRoot {
 			style = m.styles.ActiveWorktree
 		}
+		if dirty {
+			style = style.Foreground(common.ColorSecondary)
+		}
+		// Reserve space for delete icon to keep status aligned
+		deleteSlot := "   "
+		deleteSlotWidth := 3
+		if selected {
+			deleteSlot = " " + common.Icons.Close + " "
+		}
 
-		// Truncate worktree name to fit within pane (width - border - padding - status)
-		maxNameWidth := m.width - 4 - lipgloss.Width(status) - 1
+		// Truncate worktree name to fit within pane (width - border - padding - status - deleteSlot)
+		prefixWidth := lipgloss.Width(unstyledPrefix) + lipgloss.Width(styledPrefix)
+		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - prefixWidth - 1
 		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
 			runes := []rune(name)
 			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
@@ -99,14 +134,22 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			}
 			name = string(runes) + "…"
 		}
-		return style.Render(name) + status
+
+		// Track delete slot position for click detection
+		if selected {
+			m.deleteIconX = lipgloss.Width(unstyledPrefix) + lipgloss.Width(style.Render(styledPrefix+name))
+		}
+
+		return unstyledPrefix + style.Render(styledPrefix+name+deleteSlot) + status
 
 	case RowCreate:
+		unstyledPrefix := " "
+		styledPrefix := " "
 		style := m.styles.CreateButton
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return style.Render(common.Icons.Add + " New")
+		return unstyledPrefix + style.Render(styledPrefix+common.Icons.Add+" New ")
 
 	case RowSpacer:
 		return ""

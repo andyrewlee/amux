@@ -44,8 +44,6 @@ type toolbarButtonKind int
 const (
 	toolbarHelp toolbarButtonKind = iota
 	toolbarMonitor
-	toolbarDelete
-	toolbarRemove
 	toolbarSettings
 )
 
@@ -75,6 +73,7 @@ type Model struct {
 	toolbarY        int             // Y position of toolbar in content coordinates
 	toolbarFocused  bool            // Whether toolbar actions are focused
 	toolbarIndex    int             // Focused toolbar action index
+	deleteIconX     int             // X position of delete "x" icon for currently selected row
 
 	// Loading state
 	loadingStatus     map[string]bool           // Worktrees currently loading git status
@@ -162,6 +161,23 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !isSelectable(m.rows[idx].Type) {
 				return m, nil
 			}
+
+			// Check if click is on the delete "x" icon for the currently selected row
+			if idx == m.cursor {
+				rowType := m.rows[idx].Type
+				if rowType == RowProject || rowType == RowWorktree {
+					// Convert screen X to content X
+					borderLeft := 1
+					paddingLeft := 0
+					contentX := msg.X - borderLeft - paddingLeft
+					// Check if click is on the delete slot (space + x + space)
+					if contentX >= m.deleteIconX && contentX < m.deleteIconX+3 {
+						m.toolbarFocused = false
+						return m, m.handleDelete()
+					}
+				}
+			}
+
 			m.toolbarFocused = false
 			m.cursor = idx
 			return m, m.handleEnter()
@@ -310,7 +326,7 @@ func (m *Model) View() string {
 	}
 	headerHeight := 0
 	// Calculate help height based on content width (pane width minus border and padding)
-	contentWidth := m.width - 4
+	contentWidth := m.width - 3
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -409,7 +425,7 @@ func (m *Model) visibleHeight() int {
 		innerHeight = 0
 	}
 	headerHeight := 0
-	contentWidth := m.width - 4
+	contentWidth := m.width - 3
 	if contentWidth < 1 {
 		contentWidth = 1
 	}

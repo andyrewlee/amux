@@ -61,7 +61,7 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	borderTop := 1
 	borderLeft := 1
 	borderRight := 1
-	paddingLeft := 1
+	paddingLeft := 0
 	paddingRight := 1
 
 	contentX := screenX - borderLeft - paddingLeft

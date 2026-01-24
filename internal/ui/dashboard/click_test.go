@@ -12,9 +12,10 @@ import (
 // setupClickTestModel creates a model with known dimensions and content for click testing.
 // The model has:
 // - Home row at index 0
-// - Project row at index 1
-// - Worktree row at index 2
-// - Create button at index 3
+// - Spacer row at index 1
+// - Project row at index 2
+// - Worktree row at index 3
+// - Create button at index 4
 func setupClickTestModel() *Model {
 	m := New()
 	m.SetSize(30, 20) // Width 30, Height 20
@@ -45,9 +46,10 @@ func TestRowIndexAt(t *testing.T) {
 
 	// Row layout (0-indexed content Y):
 	// 0: [amux] (Home)
-	// 1: testproj (Project)
-	// 2: feature (Worktree)
-	// 3: + New (Create)
+	// 1: (Spacer)
+	// 2: testproj (Project)
+	// 3: feature (Worktree)
+	// 4: + New (Create)
 
 	tests := []struct {
 		name        string
@@ -68,24 +70,24 @@ func TestRowIndexAt(t *testing.T) {
 		{
 			name:        "click on Project row",
 			screenX:     5,
-			screenY:     2, // content Y = 1
-			wantIndex:   1,
+			screenY:     3, // content Y = 2
+			wantIndex:   2,
 			wantOK:      true,
 			wantRowType: RowProject,
 		},
 		{
 			name:        "click on Worktree row",
 			screenX:     5,
-			screenY:     3, // content Y = 2
-			wantIndex:   2,
+			screenY:     4, // content Y = 3
+			wantIndex:   3,
 			wantOK:      true,
 			wantRowType: RowWorktree,
 		},
 		{
 			name:        "click on Create button",
 			screenX:     5,
-			screenY:     4, // content Y = 3
-			wantIndex:   3,
+			screenY:     5, // content Y = 4
+			wantIndex:   4,
 			wantOK:      true,
 			wantRowType: RowCreate,
 		},
@@ -143,23 +145,23 @@ func TestMouseClickOnRows(t *testing.T) {
 		{
 			name:         "click Project row triggers WorktreeActivated",
 			screenX:      5,
-			screenY:      2,
-			wantMsgType:  "WorktreeActivated",
-			wantSelected: 1,
-		},
-		{
-			name:         "click Worktree row triggers WorktreeActivated",
-			screenX:      5,
 			screenY:      3,
 			wantMsgType:  "WorktreeActivated",
 			wantSelected: 2,
 		},
 		{
-			name:         "click Create button triggers ShowCreateWorktreeDialog",
+			name:         "click Worktree row triggers WorktreeActivated",
 			screenX:      5,
 			screenY:      4,
-			wantMsgType:  "ShowCreateWorktreeDialog",
+			wantMsgType:  "WorktreeActivated",
 			wantSelected: 3,
+		},
+		{
+			name:         "click Create button triggers ShowCreateWorktreeDialog",
+			screenX:      5,
+			screenY:      5,
+			wantMsgType:  "ShowCreateWorktreeDialog",
+			wantSelected: 4,
 		},
 	}
 
@@ -397,7 +399,7 @@ func TestDeleteButtonClick(t *testing.T) {
 	m := setupClickTestModel()
 
 	// Select a worktree row to make Delete button visible
-	m.cursor = 2 // Worktree row
+	m.cursor = 3 // Worktree row
 	_ = m.View()
 
 	// Find the Delete button position
@@ -434,7 +436,7 @@ func TestRemoveButtonClickOnProject(t *testing.T) {
 	m := setupClickTestModel()
 
 	// Select a project row to make Remove button visible
-	m.cursor = 1 // Project row
+	m.cursor = 2 // Project row
 	_ = m.View()
 
 	// Toolbar items when project selected: Help, Monitor, Settings, Remove
