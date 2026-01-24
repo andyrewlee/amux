@@ -479,8 +479,8 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogRemoveProject:
-		if a.dialogProject != nil {
-			proj := a.dialogProject
+		if project != nil {
+			proj := project
 			return func() tea.Msg {
 				return messages.RemoveProject{
 					Project: proj,
