@@ -3,6 +3,7 @@ package pty
 import (
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/config"
@@ -33,6 +34,7 @@ type Agent struct {
 // AgentManager manages agent instances
 type AgentManager struct {
 	config *config.Config
+	mu     sync.Mutex
 	agents map[data.WorktreeID][]*Agent
 }
 
@@ -83,7 +85,9 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType, rows,
 		Config:   assistantCfg,
 	}
 
+	m.mu.Lock()
 	m.agents[wt.ID()] = append(m.agents[wt.ID()], agent)
+	m.mu.Unlock()
 
 	return agent, nil
 }
@@ -113,7 +117,9 @@ func (m *AgentManager) CreateViewer(wt *data.Worktree, command string, rows, col
 		Config:   config.AssistantConfig{}, // No specific config
 	}
 
+	m.mu.Lock()
 	m.agents[wt.ID()] = append(m.agents[wt.ID()], agent)
+	m.mu.Unlock()
 
 	return agent, nil
 }
@@ -126,6 +132,8 @@ func (m *AgentManager) CloseAgent(agent *Agent) error {
 
 	// Remove from list
 	if agent.Worktree != nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		agents := m.agents[agent.Worktree.ID()]
 		for i, a := range agents {
 			if a == agent {
@@ -140,14 +148,18 @@ func (m *AgentManager) CloseAgent(agent *Agent) error {
 
 // CloseAll closes all agents
 func (m *AgentManager) CloseAll() {
-	for _, agents := range m.agents {
+	m.mu.Lock()
+	agentsByWorktree := m.agents
+	m.agents = make(map[data.WorktreeID][]*Agent)
+	m.mu.Unlock()
+
+	for _, agents := range agentsByWorktree {
 		for _, agent := range agents {
 			if agent.Terminal != nil {
 				agent.Terminal.Close()
 			}
 		}
 	}
-	m.agents = make(map[data.WorktreeID][]*Agent)
 }
 
 // CloseWorktreeAgents closes and removes all agents for a specific worktree
@@ -156,12 +168,15 @@ func (m *AgentManager) CloseWorktreeAgents(wt *data.Worktree) {
 		return
 	}
 	wtID := wt.ID()
-	for _, agent := range m.agents[wtID] {
+	m.mu.Lock()
+	agents := m.agents[wtID]
+	delete(m.agents, wtID)
+	m.mu.Unlock()
+	for _, agent := range agents {
 		if agent.Terminal != nil {
 			agent.Terminal.Close()
 		}
 	}
-	delete(m.agents, wtID)
 }
 
 // SendInterrupt sends an interrupt to an agent

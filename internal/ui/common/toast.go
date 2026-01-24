@@ -55,7 +55,7 @@ func (m *ToastModel) Show(message string, toastType ToastType, duration time.Dur
 	}
 	m.showUntil = time.Now().Add(duration)
 
-	return tea.Tick(duration, func(t time.Time) tea.Msg {
+	return SafeTick(duration, func(t time.Time) tea.Msg {
 		return ToastDismissed{}
 	})
 }

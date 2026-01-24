@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -51,6 +52,11 @@ func TestStatusManagerRequestRefreshDebounced(t *testing.T) {
 		done <- struct{}{}
 	})
 	m.SetDebounceDelay(10 * time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = m.Run(ctx)
+	}()
 
 	m.RequestRefresh(repo)
 	m.RequestRefresh(repo)

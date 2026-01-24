@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
@@ -24,11 +26,17 @@ const (
 	ptyFlushMaxAlt      = 32 * time.Millisecond
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
 	ptyFlushInactiveMultiplier = 4
+	ptyFlushMonitorMultiplier  = 6
 	ptyFlushChunkSize          = 32 * 1024
 	ptyReadBufferSize          = 32 * 1024
 	ptyReadQueueSize           = 32
 	ptyFrameInterval           = time.Second / 60
 	ptyMaxPendingBytes         = 512 * 1024
+	ptyMaxBufferedBytes        = 8 * 1024 * 1024
+	ptyReaderStallTimeout      = 10 * time.Second
+	tabActorStallTimeout       = 10 * time.Second
+	ptyRestartMax              = 5
+	ptyRestartWindow           = time.Minute
 
 	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
 	// When pending output exceeds this, we throttle rendering frequency
@@ -99,6 +107,18 @@ type PTYStopped struct {
 	Err        error
 }
 
+// PTYRestart requests restarting a PTY reader for a tab.
+type PTYRestart struct {
+	WorktreeID string
+	TabID      TabID
+}
+
+type selectionScrollTick struct {
+	WorktreeID string
+	TabID      TabID
+	Gen        uint64
+}
+
 func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration) {
 	quiet := ptyFlushQuiet
 	maxInterval := ptyFlushMaxInterval
@@ -131,6 +151,13 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	if !active {
 		quiet *= ptyFlushInactiveMultiplier
 		maxInterval *= ptyFlushInactiveMultiplier
+		if maxInterval < quiet {
+			maxInterval = quiet
+		}
+	}
+	if m.monitorMode && !active {
+		quiet *= ptyFlushMonitorMultiplier
+		maxInterval *= ptyFlushMonitorMultiplier
 		if maxInterval < quiet {
 			maxInterval = quiet
 		}
@@ -195,16 +222,22 @@ func (m *Model) forwardPTYMsgs(msgCh <-chan tea.Msg) {
 	}
 }
 
-func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID TabID) {
+func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID TabID, heartbeat *int64) {
 	if term == nil {
 		close(msgCh)
 		return
 	}
+	beat := func() {
+		if heartbeat != nil {
+			atomic.StoreInt64(heartbeat, time.Now().UnixNano())
+		}
+	}
+	beat()
 
 	dataCh := make(chan []byte, ptyReadQueueSize)
 	errCh := make(chan error, 1)
 
-	go func() {
+	safego.Go("center.pty_read_loop", func() {
 		buf := make([]byte, ptyReadBufferSize)
 		for {
 			n, err := term.Read(buf)
@@ -219,6 +252,7 @@ func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struc
 			if n == 0 {
 				continue
 			}
+			beat()
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
 			select {
@@ -227,7 +261,7 @@ func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struc
 				return
 			}
 		}
-	}()
+	})
 
 	ticker := time.NewTicker(ptyFrameInterval)
 	defer ticker.Stop()
@@ -241,8 +275,10 @@ func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struc
 			close(msgCh)
 			return
 		case err := <-errCh:
+			beat()
 			stoppedErr = err
 		case data, ok := <-dataCh:
+			beat()
 			if !ok {
 				if len(pending) > 0 {
 					if !sendPTYMsg(msgCh, cancel, PTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
@@ -266,6 +302,7 @@ func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struc
 				pending = nil
 			}
 		case <-ticker.C:
+			beat()
 			if len(pending) > 0 {
 				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
 					close(msgCh)
@@ -354,14 +391,32 @@ func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
 }
 
 func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
-	if tab == nil || tab.readerActive {
+	if tab == nil {
 		return nil
+	}
+	if tab.isClosed() {
+		return nil
+	}
+	if !tab.Running {
+		return nil
+	}
+	tab.mu.Lock()
+	if tab.readerActive {
+		if tab.ptyMsgCh == nil || tab.readerCancel == nil {
+			tab.readerActive = false
+		} else {
+			tab.mu.Unlock()
+			return nil
+		}
 	}
 	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
 		tab.readerActive = false
+		tab.mu.Unlock()
 		return nil
 	}
 	tab.readerActive = true
+	tab.ptyRestartBackoff = 0
+	atomic.StoreInt64(&tab.ptyHeartbeat, time.Now().UnixNano())
 
 	if tab.readerCancel != nil {
 		safeClose(tab.readerCancel)
@@ -373,9 +428,15 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 	tabID := tab.ID
 	cancel := tab.readerCancel
 	msgCh := tab.ptyMsgCh
+	tab.mu.Unlock()
 
-	go runPTYReader(term, msgCh, cancel, wtID, tabID)
-	go m.forwardPTYMsgs(msgCh)
+	safego.Go("center.pty_reader", func() {
+		defer m.markPTYReaderStopped(tab)
+		runPTYReader(term, msgCh, cancel, wtID, tabID, &tab.ptyHeartbeat)
+	})
+	safego.Go("center.pty_forward", func() {
+		m.forwardPTYMsgs(msgCh)
+	})
 	return nil
 }
 
@@ -413,12 +474,27 @@ func (m *Model) stopPTYReader(tab *Tab) {
 	tab.readerActive = false
 	tab.ptyMsgCh = nil
 	tab.mu.Unlock()
+	atomic.StoreInt64(&tab.ptyHeartbeat, 0)
+}
+
+func (m *Model) markPTYReaderStopped(tab *Tab) {
+	if tab == nil {
+		return
+	}
+	tab.mu.Lock()
+	tab.readerActive = false
+	tab.ptyMsgCh = nil
+	tab.mu.Unlock()
+	atomic.StoreInt64(&tab.ptyHeartbeat, 0)
 }
 
 // HasRunningAgents returns whether any tab has an active agent across worktrees.
 func (m *Model) HasRunningAgents() bool {
 	for _, tabs := range m.tabsByWorktree {
 		for _, tab := range tabs {
+			if tab.isClosed() {
+				continue
+			}
 			if tab.Running {
 				return true
 			}
@@ -433,6 +509,9 @@ func (m *Model) HasActiveAgents() bool {
 	now := time.Now()
 	for _, tabs := range m.tabsByWorktree {
 		for _, tab := range tabs {
+			if tab.isClosed() {
+				continue
+			}
 			if !tab.Running {
 				continue
 			}
@@ -449,8 +528,28 @@ func (m *Model) HasActiveAgents() bool {
 
 // StartPTYReaders starts reading from all PTYs across all worktrees
 func (m *Model) StartPTYReaders() tea.Cmd {
+	if m.isTabActorReady() {
+		lastBeat := atomic.LoadInt64(&m.tabActorHeartbeat)
+		if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > tabActorStallTimeout {
+			logging.Warn("tab actor stalled; clearing readiness for restart")
+			atomic.StoreUint32(&m.tabActorReady, 0)
+		}
+	}
 	for wtID, tabs := range m.tabsByWorktree {
 		for _, tab := range tabs {
+			if tab == nil || tab.isClosed() {
+				continue
+			}
+			tab.mu.Lock()
+			readerActive := tab.readerActive
+			tab.mu.Unlock()
+			if readerActive {
+				lastBeat := atomic.LoadInt64(&tab.ptyHeartbeat)
+				if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > ptyReaderStallTimeout {
+					logging.Warn("PTY reader stalled for tab %s; restarting", tab.ID)
+					m.stopPTYReader(tab)
+				}
+			}
 			_ = m.startPTYReader(wtID, tab)
 		}
 	}

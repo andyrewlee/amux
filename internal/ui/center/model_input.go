@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/diff"
 )
 
 // Update handles messages
@@ -38,16 +39,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 		tab := tabs[activeIdx]
-
-		// DiffViewer tabs: forward mouse events to diff viewer
-		tab.mu.Lock()
-		dv := tab.DiffViewer
-		tab.mu.Unlock()
-		if dv != nil {
-			newDV, cmd := dv.Update(msg)
-			tab.mu.Lock()
-			tab.DiffViewer = newDV
-			tab.mu.Unlock()
+		if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 			return m, cmd
 		}
 
@@ -58,16 +50,26 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Convert screen coordinates to terminal coordinates
 		termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
 
+		if m.isTabActorReady() {
+			if m.sendTabEvent(tabEvent{
+				tab:        tab,
+				worktreeID: m.worktreeID(),
+				tabID:      tab.ID,
+				kind:       tabEventSelectionStart,
+				termX:      termX,
+				termY:      termY,
+				inBounds:   inBounds,
+			}) {
+				return m, common.SafeBatch(cmds...)
+			}
+		}
 		tab.mu.Lock()
-		// Clear any existing selection first
 		if tab.Terminal != nil {
 			tab.Terminal.ClearSelection()
 		}
-
+		tab.Selection = SelectionState{}
 		if inBounds && tab.Terminal != nil {
-			// Convert screen Y to absolute line number
 			absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
-			// Start new selection
 			tab.Selection = SelectionState{
 				Active:    true,
 				StartX:    termX,
@@ -76,13 +78,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				EndLine:   absLine,
 			}
 			tab.Terminal.SetSelection(termX, absLine, termX, absLine, true, false)
-			logging.Debug("Selection started at (%d, %d) -> absLine %d", termX, termY, absLine)
-		} else {
-			// Clicked outside terminal content, just clear selection
-			tab.Selection = SelectionState{}
 		}
 		tab.mu.Unlock()
-		return m, tea.Batch(cmds...)
+		return m, common.SafeBatch(cmds...)
 
 	case tea.MouseMotionMsg:
 		// Handle mouse drag events for text selection
@@ -98,47 +96,41 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 		tab := tabs[activeIdx]
-
-		// DiffViewer tabs: forward mouse events to diff viewer
-		tab.mu.Lock()
-		dv := tab.DiffViewer
-		tab.mu.Unlock()
-		if dv != nil {
-			newDV, cmd := dv.Update(msg)
-			tab.mu.Lock()
-			tab.DiffViewer = newDV
-			tab.mu.Unlock()
+		if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 			return m, cmd
 		}
 
 		termX, termY, _ := m.screenToTerminal(msg.X, msg.Y)
 
-		// Update selection while dragging
+		if m.isTabActorReady() {
+			if m.sendTabEvent(tabEvent{
+				tab:        tab,
+				worktreeID: m.worktreeID(),
+				tabID:      tab.ID,
+				kind:       tabEventSelectionUpdate,
+				termX:      termX,
+				termY:      termY,
+			}) {
+				return m, common.SafeBatch(cmds...)
+			}
+		}
 		tab.mu.Lock()
 		if tab.Selection.Active && tab.Terminal != nil {
 			termWidth := tab.Terminal.Width
 			termHeight := tab.Terminal.Height
-
-			// Clamp X to terminal bounds
 			if termX < 0 {
 				termX = 0
 			}
 			if termX >= termWidth {
 				termX = termWidth - 1
 			}
-
-			// Auto-scroll when dragging at edges
 			if termY < 0 {
-				// Dragging above viewport - scroll up into history
 				tab.Terminal.ScrollView(1)
 				termY = 0
 			} else if termY >= termHeight {
-				// Dragging below viewport - scroll down toward live
 				tab.Terminal.ScrollView(-1)
 				termY = termHeight - 1
 			}
-
-			// Convert to absolute line and update selection
 			absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
 			startX := tab.Terminal.SelStartX()
 			startLine := tab.Terminal.SelStartLine()
@@ -148,15 +140,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 			tab.Selection.EndX = termX
 			tab.Selection.EndLine = absLine
-			tab.Terminal.SetSelection(
-				startX, startLine,
-				termX, absLine, true, false,
-			)
+			tab.Terminal.SetSelection(startX, startLine, termX, absLine, true, false)
 			tab.Selection.StartX = startX
 			tab.Selection.StartLine = startLine
 		}
 		tab.mu.Unlock()
-		return m, tea.Batch(cmds...)
+		return m, common.SafeBatch(cmds...)
 
 	case tea.MouseReleaseMsg:
 		// Handle mouse release events for text selection
@@ -172,22 +161,22 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 		tab := tabs[activeIdx]
-
-		// DiffViewer tabs: forward mouse events to diff viewer
-		tab.mu.Lock()
-		dv := tab.DiffViewer
-		tab.mu.Unlock()
-		if dv != nil {
-			newDV, cmd := dv.Update(msg)
-			tab.mu.Lock()
-			tab.DiffViewer = newDV
-			tab.mu.Unlock()
+		if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 			return m, cmd
 		}
 
+		if m.isTabActorReady() {
+			if m.sendTabEvent(tabEvent{
+				tab:        tab,
+				worktreeID: m.worktreeID(),
+				tabID:      tab.ID,
+				kind:       tabEventSelectionFinish,
+			}) {
+				return m, common.SafeBatch(cmds...)
+			}
+		}
 		tab.mu.Lock()
 		if tab.Selection.Active {
-			// Only copy if selection spans more than a single point
 			if tab.Terminal != nil &&
 				(tab.Selection.StartX != tab.Selection.EndX ||
 					tab.Selection.StartLine != tab.Selection.EndLine) {
@@ -202,14 +191,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 						logging.Info("Copied %d chars to clipboard", len(text))
 					}
 				}
-				// Keep selection visible - don't clear it
-				// Selection will be cleared when user clicks again or types
 			}
-			// Mark selection as no longer being dragged, but keep it visible
 			tab.Selection.Active = false
 		}
 		tab.mu.Unlock()
-		return m, tea.Batch(cmds...)
+		return m, common.SafeBatch(cmds...)
 
 	case tea.MouseWheelMsg:
 		if !m.focused || !m.hasActiveAgent() {
@@ -222,30 +208,50 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 		tab := tabs[activeIdx]
-
-		// DiffViewer tabs: forward mouse events to diff viewer
-		tab.mu.Lock()
-		dv := tab.DiffViewer
-		tab.mu.Unlock()
-		if dv != nil {
-			newDV, cmd := dv.Update(msg)
-			tab.mu.Lock()
-			tab.DiffViewer = newDV
-			tab.mu.Unlock()
+		if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 			return m, cmd
 		}
 
-		// Terminal scroll: use viewport-proportional delta
+		delta := 0
 		tab.mu.Lock()
 		if tab.Terminal != nil {
-			delta := common.ScrollDeltaForHeight(tab.Terminal.Height, 8)
-			if msg.Button == tea.MouseWheelUp {
-				tab.Terminal.ScrollView(delta)
-			} else if msg.Button == tea.MouseWheelDown {
-				tab.Terminal.ScrollView(-delta)
-			}
+			delta = common.ScrollDeltaForHeight(tab.Terminal.Height, 8)
 		}
 		tab.mu.Unlock()
+		if delta > 0 {
+			if m.isTabActorReady() {
+				sent := false
+				if msg.Button == tea.MouseWheelUp {
+					sent = m.sendTabEvent(tabEvent{
+						tab:        tab,
+						worktreeID: m.worktreeID(),
+						tabID:      tab.ID,
+						kind:       tabEventScrollBy,
+						delta:      delta,
+					})
+				} else if msg.Button == tea.MouseWheelDown {
+					sent = m.sendTabEvent(tabEvent{
+						tab:        tab,
+						worktreeID: m.worktreeID(),
+						tabID:      tab.ID,
+						kind:       tabEventScrollBy,
+						delta:      -delta,
+					})
+				}
+				if sent {
+					return m, nil
+				}
+			}
+			tab.mu.Lock()
+			if tab.Terminal != nil {
+				if msg.Button == tea.MouseWheelUp {
+					tab.Terminal.ScrollView(delta)
+				} else if msg.Button == tea.MouseWheelDown {
+					tab.Terminal.ScrollView(-delta)
+				}
+			}
+			tab.mu.Unlock()
+		}
 		return m, nil
 
 	case tea.PasteMsg:
@@ -254,6 +260,22 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if len(tabs) > 0 && activeIdx < len(tabs) {
 			tab := tabs[activeIdx]
 			if !m.focused {
+				return m, nil
+			}
+			if m.isTabActorReady() {
+				if !m.sendTabEvent(tabEvent{
+					tab:        tab,
+					worktreeID: m.worktreeID(),
+					tabID:      tab.ID,
+					kind:       tabEventPaste,
+					pasteText:  msg.Content,
+				}) {
+					if tab.Agent != nil && tab.Agent.Terminal != nil {
+						bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
+						_ = tab.Agent.Terminal.SendString(bracketedText)
+					}
+				}
+				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
 				return m, nil
 			}
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
@@ -278,6 +300,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Handle explicit Cmd+C to copy current selection
 		if isCopyKey && len(tabs) > 0 && activeIdx < len(tabs) {
 			tab := tabs[activeIdx]
+				if m.isTabActorReady() {
+					if m.sendTabEvent(tabEvent{
+						tab:        tab,
+						worktreeID: m.worktreeID(),
+						tabID:      tab.ID,
+						kind:       tabEventSelectionCopy,
+						notifyCopy: true,
+					}) {
+						return m, nil
+					}
+				}
 			tab.mu.Lock()
 			if tab.Terminal != nil && tab.Terminal.HasSelection() {
 				text := tab.Terminal.GetSelectedText(
@@ -299,12 +332,26 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Clear any selection when user types (except Cmd+C which is handled above)
 		if len(tabs) > 0 && activeIdx < len(tabs) {
 			tab := tabs[activeIdx]
-			tab.mu.Lock()
-			if tab.Terminal != nil {
-				tab.Terminal.ClearSelection()
+			sent := false
+			if m.isTabActorReady() {
+				sent = m.sendTabEvent(tabEvent{
+					tab:        tab,
+					worktreeID: m.worktreeID(),
+					tabID:      tab.ID,
+					kind:       tabEventSelectionClear,
+				})
 			}
-			tab.Selection = SelectionState{}
-			tab.mu.Unlock()
+			if !sent {
+				tab.mu.Lock()
+				if tab.Terminal != nil {
+					tab.Terminal.ClearSelection()
+				}
+				tab.Selection = SelectionState{}
+				tab.selectionScrollDir = 0
+				tab.selectionScrollActive = false
+				tab.selectionGen++
+				tab.mu.Unlock()
+			}
 		}
 
 		if !m.focused {
@@ -336,11 +383,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					return m, nil
 				}
 				// Forward all other keys to diff viewer
-				newDV, cmd := dv.Update(msg)
-				tab.mu.Lock()
-				tab.DiffViewer = newDV
-				tab.mu.Unlock()
-				return m, cmd
+				if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
+					return m, cmd
+				}
+				return m, nil
 			}
 
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
@@ -372,6 +418,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
 				switch msg.Key().Code {
 				case tea.KeyPgUp:
+					if m.isTabActorReady() {
+						if m.sendTabEvent(tabEvent{
+							tab:        tab,
+							worktreeID: m.worktreeID(),
+							tabID:      tab.ID,
+							kind:       tabEventScrollPage,
+							scrollPage: 1,
+						}) {
+							return m, nil
+						}
+					}
 					tab.mu.Lock()
 					if tab.Terminal != nil {
 						tab.Terminal.ScrollView(tab.Terminal.Height / 4)
@@ -380,6 +437,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					return m, nil
 
 				case tea.KeyPgDown:
+					if m.isTabActorReady() {
+						if m.sendTabEvent(tabEvent{
+							tab:        tab,
+							worktreeID: m.worktreeID(),
+							tabID:      tab.ID,
+							kind:       tabEventScrollPage,
+							scrollPage: -1,
+						}) {
+							return m, nil
+						}
+					}
 					tab.mu.Lock()
 					if tab.Terminal != nil {
 						tab.Terminal.ScrollView(-tab.Terminal.Height / 4)
@@ -389,17 +457,42 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 
 				// If scrolled, any typing goes back to live and sends key
-				tab.mu.Lock()
-				if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-					tab.Terminal.ScrollViewToBottom()
+				sent := false
+				if m.isTabActorReady() {
+					sent = m.sendTabEvent(tabEvent{
+						tab:        tab,
+						worktreeID: m.worktreeID(),
+						tabID:      tab.ID,
+						kind:       tabEventScrollToBottom,
+					})
 				}
-				tab.mu.Unlock()
+				if !sent {
+					tab.mu.Lock()
+					if tab.Terminal != nil && tab.Terminal.IsScrolled() {
+						tab.Terminal.ScrollViewToBottom()
+					}
+					tab.mu.Unlock()
+				}
 
 				// Forward ALL keys to terminal (no Ctrl interceptions)
 				input := common.KeyToBytes(msg)
 				if len(input) > 0 {
 					logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
-					_ = tab.Agent.Terminal.SendString(string(input))
+					if m.isTabActorReady() {
+						if !m.sendTabEvent(tabEvent{
+							tab:        tab,
+							worktreeID: m.worktreeID(),
+							tabID:      tab.ID,
+							kind:       tabEventSendInput,
+							input:      input,
+						}) {
+							if tab.Agent != nil && tab.Agent.Terminal != nil {
+								_ = tab.Agent.Terminal.SendString(string(input))
+							}
+						}
+					} else {
+						_ = tab.Agent.Terminal.SendString(string(input))
+					}
 				} else {
 					logging.Debug("keyToBytes returned empty for: %s", msg.String())
 				}
@@ -412,6 +505,24 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case messages.OpenFileInVim:
 		return m, m.createVimTab(msg.Path, msg.Worktree)
+
+	case ptyTabCreateResult:
+		return m, m.handlePtyTabCreated(msg)
+
+	case tabActorReady:
+		m.setTabActorReady()
+		m.noteTabActorHeartbeat()
+		return m, nil
+	case tabActorHeartbeat:
+		m.noteTabActorHeartbeat()
+		return m, nil
+
+	case monitorSnapshotTick:
+		return m, m.handleMonitorSnapshotTick(msg)
+
+	case monitorSnapshotResult:
+		m.applyMonitorSnapshotResult(msg.snapshots)
+		return m, nil
 
 	case messages.OpenDiff:
 		// Check if new-style Change is provided, otherwise convert from legacy fields
@@ -458,11 +569,38 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		m.CleanupWorktree(msg.Worktree)
 		return m, nil
 
+	case tabSelectionResult:
+		if msg.clipboard != "" {
+			if err := common.CopyToClipboard(msg.clipboard); err != nil {
+				logging.Error("Failed to copy to clipboard: %v", err)
+			} else {
+				logging.Info("Copied %d chars to clipboard", len(msg.clipboard))
+			}
+		}
+		return m, common.SafeBatch(cmds...)
+
+	case selectionTickRequest:
+		cmds = append(cmds, common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
+			return selectionScrollTick{WorktreeID: msg.worktreeID, TabID: msg.tabID, Gen: msg.gen}
+		}))
+		return m, common.SafeBatch(cmds...)
+
+	case tabDiffCmd:
+		if msg.cmd != nil {
+			cmds = append(cmds, msg.cmd)
+		}
+		return m, common.SafeBatch(cmds...)
+
 	case PTYOutput:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
-		if tab != nil {
+		if tab != nil && !tab.isClosed() {
 			m.tracePTYOutput(tab, msg.Data)
 			tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
+			if len(tab.pendingOutput) > ptyMaxBufferedBytes {
+				overflow := len(tab.pendingOutput) - ptyMaxBufferedBytes
+				perf.Count("pty_output_drop_bytes", int64(overflow))
+				tab.pendingOutput = append([]byte(nil), tab.pendingOutput[overflow:]...)
+			}
 			perf.Count("pty_output_bytes", int64(len(msg.Data)))
 			tab.lastOutputAt = time.Now()
 			if !tab.flushScheduled {
@@ -470,7 +608,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				tab.flushPendingSince = tab.lastOutputAt
 				quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorktreeID, msg.TabID))
 				tabID := msg.TabID // Capture for closure
-				cmds = append(cmds, tea.Tick(quiet, func(t time.Time) tea.Msg {
+				cmds = append(cmds, common.SafeTick(quiet, func(t time.Time) tea.Msg {
 					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
 				}))
 			}
@@ -479,7 +617,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case PTYFlush:
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
-		if tab != nil {
+		if tab != nil && !tab.isClosed() {
 			now := time.Now()
 			quietFor := now.Sub(tab.lastOutputAt)
 			pendingFor := time.Duration(0)
@@ -494,7 +632,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 				tabID := msg.TabID
 				tab.flushScheduled = true
-				cmds = append(cmds, tea.Tick(delay, func(t time.Time) tea.Msg {
+				cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
 					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
 				}))
 				break
@@ -503,27 +641,58 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab.flushScheduled = false
 			tab.flushPendingSince = time.Time{}
 			if len(tab.pendingOutput) > 0 {
+				var chunk []byte
+				writeOutput := false
 				tab.mu.Lock()
 				if tab.Terminal != nil {
 					chunkSize := len(tab.pendingOutput)
 					if chunkSize > ptyFlushChunkSize {
 						chunkSize = ptyFlushChunkSize
 					}
-					flushDone := perf.Time("pty_flush")
-					tab.Terminal.Write(tab.pendingOutput[:chunkSize])
-					flushDone()
-					perf.Count("pty_flush_bytes", int64(chunkSize))
+					chunk = append(chunk, tab.pendingOutput[:chunkSize]...)
 					copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
 					tab.pendingOutput = tab.pendingOutput[:len(tab.pendingOutput)-chunkSize]
+					writeOutput = true
 				}
 				tab.mu.Unlock()
+				if writeOutput && len(chunk) > 0 {
+					if m.isTabActorReady() {
+						if !m.sendTabEvent(tabEvent{
+							tab:        tab,
+							worktreeID: msg.WorktreeID,
+							tabID:      msg.TabID,
+							kind:       tabEventWriteOutput,
+							output:     chunk,
+						}) {
+							tab.mu.Lock()
+							if tab.Terminal != nil {
+								flushDone := perf.Time("pty_flush")
+								tab.Terminal.Write(chunk)
+								flushDone()
+								perf.Count("pty_flush_bytes", int64(len(chunk)))
+								tab.monitorDirty = true
+							}
+							tab.mu.Unlock()
+						}
+					} else {
+						tab.mu.Lock()
+						if tab.Terminal != nil {
+							flushDone := perf.Time("pty_flush")
+							tab.Terminal.Write(chunk)
+							flushDone()
+							perf.Count("pty_flush_bytes", int64(len(chunk)))
+							tab.monitorDirty = true
+						}
+						tab.mu.Unlock()
+					}
+				}
 				if len(tab.pendingOutput) == 0 {
 					tab.pendingOutput = tab.pendingOutput[:0]
 				} else {
 					tab.flushScheduled = true
 					tab.flushPendingSince = time.Now()
 					tabID := msg.TabID
-					cmds = append(cmds, tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
+					cmds = append(cmds, common.SafeTick(time.Millisecond, func(t time.Time) tea.Msg {
 						return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
 					}))
 				}
@@ -534,11 +703,106 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Terminal closed - mark tab as not running, but keep it visible
 		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
 		if tab != nil {
-			tab.Running = false
+			termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 			m.stopPTYReader(tab)
-			logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
+			if termAlive {
+				shouldRestart := true
+				var backoff time.Duration
+				tab.mu.Lock()
+				if tab.ptyRestartSince.IsZero() || time.Since(tab.ptyRestartSince) > ptyRestartWindow {
+					tab.ptyRestartSince = time.Now()
+					tab.ptyRestartCount = 0
+				}
+				tab.ptyRestartCount++
+				if tab.ptyRestartCount > ptyRestartMax {
+					shouldRestart = false
+					tab.Running = false
+					tab.ptyRestartBackoff = 0
+				} else {
+					backoff = tab.ptyRestartBackoff
+					if backoff <= 0 {
+						backoff = 200 * time.Millisecond
+					} else {
+						backoff *= 2
+						if backoff > 5*time.Second {
+							backoff = 5 * time.Second
+						}
+					}
+					tab.ptyRestartBackoff = backoff
+				}
+				tab.mu.Unlock()
+				if shouldRestart {
+					tabID := msg.TabID
+					wtID := msg.WorktreeID
+					cmds = append(cmds, common.SafeTick(backoff, func(time.Time) tea.Msg {
+						return PTYRestart{WorktreeID: wtID, TabID: tabID}
+					}))
+					logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
+				} else {
+					logging.Warn("PTY stopped for tab %s; restart limit reached: %v", msg.TabID, msg.Err)
+				}
+			} else {
+				tab.Running = false
+				tab.mu.Lock()
+				tab.ptyRestartBackoff = 0
+				tab.ptyRestartCount = 0
+				tab.ptyRestartSince = time.Time{}
+				tab.mu.Unlock()
+				logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
+			}
 		}
 		// Do NOT schedule another read - the loop is done
+
+	case PTYRestart:
+		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		if tab == nil {
+			break
+		}
+		if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
+			tab.mu.Lock()
+			tab.ptyRestartBackoff = 0
+			tab.mu.Unlock()
+			break
+		}
+		if cmd := m.startPTYReader(msg.WorktreeID, tab); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case selectionScrollTick:
+		if m.isTabActorReady() {
+			tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+			if tab == nil {
+				break
+			}
+			if m.sendTabEvent(tabEvent{
+				tab:        tab,
+				worktreeID: msg.WorktreeID,
+				tabID:      msg.TabID,
+				kind:       tabEventSelectionScrollTick,
+				gen:        msg.Gen,
+			}) {
+				break
+			}
+		}
+		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		if tab == nil {
+			break
+		}
+		tab.mu.Lock()
+		if !tab.Selection.Active || tab.selectionGen != msg.Gen || tab.Terminal == nil || tab.selectionScrollDir == 0 || !tab.selectionScrollActive {
+			tab.selectionScrollActive = false
+			tab.mu.Unlock()
+			break
+		}
+		// Nudge selection to keep scrollback advancing while dragging.
+		tab.Terminal.ScrollView(tab.selectionScrollDir)
+		tab.monitorDirty = true
+		tab.mu.Unlock()
+		tabID := msg.TabID
+		wtID := msg.WorktreeID
+		cmds = append(cmds, common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
+			return selectionScrollTick{WorktreeID: wtID, TabID: tabID, Gen: msg.Gen}
+		}))
 
 	default:
 		// Forward unknown messages to active viewer if one exists
@@ -546,14 +810,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		activeIdx := m.getActiveTabIdx()
 		if len(tabs) > 0 && activeIdx < len(tabs) {
 			tab := tabs[activeIdx]
-			tab.mu.Lock()
-			dv := tab.DiffViewer
-			tab.mu.Unlock()
-			if dv != nil {
-				newDV, cmd := dv.Update(msg)
-				tab.mu.Lock()
-				tab.DiffViewer = newDV
-				tab.mu.Unlock()
+			if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 				if cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -561,5 +818,41 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 	}
 
-	return m, tea.Batch(cmds...)
+	return m, common.SafeBatch(cmds...)
+}
+
+func (m *Model) getDiffViewer(tab *Tab) *diff.Model {
+	if tab == nil {
+		return nil
+	}
+	tab.mu.Lock()
+	dv := tab.DiffViewer
+	tab.mu.Unlock()
+	return dv
+}
+
+func (m *Model) dispatchDiffInput(tab *Tab, msg tea.Msg) (bool, tea.Cmd) {
+	if tab == nil {
+		return false, nil
+	}
+	dv := m.getDiffViewer(tab)
+	if dv == nil {
+		return false, nil
+	}
+	if m.isTabActorReady() {
+		if m.sendTabEvent(tabEvent{
+			tab:        tab,
+			worktreeID: m.worktreeID(),
+			tabID:      tab.ID,
+			kind:       tabEventDiffInput,
+			diffMsg:    msg,
+		}) {
+			return true, nil
+		}
+	}
+	newDV, cmd := dv.Update(msg)
+	tab.mu.Lock()
+	tab.DiffViewer = newDV
+	tab.mu.Unlock()
+	return true, cmd
 }

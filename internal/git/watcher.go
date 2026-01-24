@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ type FileWatcher struct {
 	watching   map[string]bool // worktree root -> watching
 	watchPaths map[string][]watchTarget
 	onChanged  func(root string)
-	stopCh     chan struct{}
+	closeOnce  sync.Once
 	debounce   time.Duration
 	lastChange map[string]time.Time
 }
@@ -41,12 +42,9 @@ func NewFileWatcher(onChanged func(root string)) (*FileWatcher, error) {
 		watching:   make(map[string]bool),
 		watchPaths: make(map[string][]watchTarget),
 		onChanged:  onChanged,
-		stopCh:     make(chan struct{}),
 		debounce:   500 * time.Millisecond,
 		lastChange: make(map[string]time.Time),
 	}
-
-	go fw.run()
 
 	return fw, nil
 }
@@ -120,15 +118,16 @@ func (fw *FileWatcher) Unwatch(root string) {
 }
 
 // run processes file system events
-func (fw *FileWatcher) run() {
+// Run processes file system events until the context is canceled or the watcher closes.
+func (fw *FileWatcher) Run(ctx context.Context) error {
 	for {
 		select {
-		case <-fw.stopCh:
-			return
+		case <-ctx.Done():
+			return ctx.Err()
 
 		case event, ok := <-fw.watcher.Events:
 			if !ok {
-				return
+				return nil
 			}
 
 			// Find which worktree this event belongs to
@@ -155,7 +154,7 @@ func (fw *FileWatcher) run() {
 
 		case _, ok := <-fw.watcher.Errors:
 			if !ok {
-				return
+				return nil
 			}
 			// Ignore errors for now
 		}
@@ -225,8 +224,11 @@ func readGitDirFromFile(gitPath string) (string, error) {
 
 // Close stops the watcher and releases resources
 func (fw *FileWatcher) Close() error {
-	close(fw.stopCh)
-	return fw.watcher.Close()
+	var err error
+	fw.closeOnce.Do(func() {
+		err = fw.watcher.Close()
+	})
+	return err
 }
 
 // IsWatching checks if a worktree is being watched

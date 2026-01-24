@@ -138,6 +138,15 @@ type ToggleHelp struct{}
 // ShowQuitDialog requests showing the quit confirmation dialog
 type ShowQuitDialog struct{}
 
+// PTYWatchdogTick triggers a periodic check for stalled PTY readers.
+type PTYWatchdogTick struct{}
+
+// SidebarPTYRestart requests restarting a sidebar PTY reader.
+type SidebarPTYRestart struct {
+	WorktreeID string
+	TabID      string
+}
+
 // ToggleKeymapHints toggles display of keymap helper text
 type ToggleKeymapHints struct{}
 

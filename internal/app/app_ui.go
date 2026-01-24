@@ -48,7 +48,7 @@ func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 	return nil
 }
 
-func (a *App) toggleMonitorMode() {
+func (a *App) toggleMonitorMode() tea.Cmd {
 	a.monitorMode = !a.monitorMode
 	if a.monitorMode {
 		a.center.ResetMonitorSelection()
@@ -58,7 +58,12 @@ func (a *App) toggleMonitorMode() {
 		a.monitorLayoutKey = ""
 		a.focusPane(messages.PaneDashboard)
 	}
+	a.center.SetMonitorMode(a.monitorMode)
 	a.updateLayout()
+	if a.monitorMode {
+		return a.center.StartMonitorSnapshots()
+	}
+	return nil
 }
 
 // Prefix mode helpers (leader key)
@@ -73,7 +78,7 @@ func (a *App) enterPrefix() tea.Cmd {
 	a.prefixActive = true
 	a.prefixToken++
 	token := a.prefixToken
-	return tea.Tick(prefixTimeout, func(t time.Time) tea.Msg {
+	return common.SafeTick(prefixTimeout, func(t time.Time) tea.Msg {
 		return prefixTimeoutMsg{token: token}
 	})
 }
@@ -209,8 +214,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 
 	// Global commands
 	case key.Matches(msg, a.keymap.Monitor):
-		a.toggleMonitorMode()
-		return true, nil
+		return true, a.toggleMonitorMode()
 
 	case key.Matches(msg, a.keymap.Help):
 		a.helpOverlay.SetSize(a.width, a.height)

@@ -506,8 +506,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogQuit:
-		a.center.Close()
-		a.sidebarTerminal.CloseAll()
+		a.Shutdown()
 		a.quitting = true
 		return tea.Quit
 	}
