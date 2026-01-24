@@ -78,7 +78,7 @@ func (a *App) viewLayerBased() tea.View {
 	dashWidth := a.layout.DashboardWidth()
 	dashHeight := a.layout.Height()
 	dashFocused := a.dashboard.Focused()
-	dashContentWidth := dashWidth - 4
+	dashContentWidth := dashWidth - 3
 	dashContentHeight := dashHeight - 2
 	if dashContentWidth < 1 {
 		dashContentWidth = 1
@@ -87,7 +87,7 @@ func (a *App) viewLayerBased() tea.View {
 		dashContentHeight = 1
 	}
 	dashContent := clampLines(a.dashboard.View(), dashContentWidth, dashContentHeight)
-	if dashDrawable := a.dashboardContent.get(dashContent, leftGutter+2, topGutter+1); dashDrawable != nil {
+	if dashDrawable := a.dashboardContent.get(dashContent, leftGutter+1, topGutter+1); dashDrawable != nil {
 		canvas.Compose(dashDrawable)
 	}
 	for _, border := range a.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight, dashFocused) {

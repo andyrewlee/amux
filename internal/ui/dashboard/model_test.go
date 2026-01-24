@@ -48,13 +48,13 @@ func TestDashboardCursorMovement(t *testing.T) {
 	t.Run("move down", func(t *testing.T) {
 		m.cursor = 0
 		m.moveCursor(1)
-		if m.cursor != 1 {
-			t.Fatalf("expected cursor at 1, got %d", m.cursor)
+		if m.cursor != 2 {
+			t.Fatalf("expected cursor at 2, got %d", m.cursor)
 		}
 	})
 
 	t.Run("move up", func(t *testing.T) {
-		m.cursor = 1
+		m.cursor = 2
 		m.moveCursor(-1)
 		if m.cursor != 0 {
 			t.Fatalf("expected cursor at 0, got %d", m.cursor)
@@ -134,7 +134,7 @@ func TestDashboardSelectedRow(t *testing.T) {
 	})
 
 	t.Run("cursor at project", func(t *testing.T) {
-		m.cursor = 1 // Project row
+		m.cursor = 2 // Project row
 		row := m.SelectedRow()
 		if row == nil {
 			t.Fatalf("expected non-nil row")

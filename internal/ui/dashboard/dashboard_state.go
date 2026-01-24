@@ -57,6 +57,7 @@ func (m *Model) SetWorktreeDeleting(root string, deleting bool) tea.Cmd {
 func (m *Model) rebuildRows() {
 	m.rows = []Row{
 		{Type: RowHome},
+		{Type: RowSpacer},
 	}
 
 	for i := range m.projects {
@@ -95,6 +96,14 @@ func (m *Model) rebuildRows() {
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
+	}
+	// Ensure cursor lands on a selectable row (skip spacers).
+	if len(m.rows) > 0 && !isSelectable(m.rows[m.cursor].Type) {
+		if next := m.findSelectableRow(m.cursor, 1); next != -1 {
+			m.cursor = next
+		} else if prev := m.findSelectableRow(m.cursor, -1); prev != -1 {
+			m.cursor = prev
+		}
 	}
 }
 

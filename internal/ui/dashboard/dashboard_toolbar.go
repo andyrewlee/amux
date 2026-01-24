@@ -20,8 +20,6 @@ func (m *Model) toolbarItems() []toolbarItem {
 		{kind: toolbarHelp, label: "Help"},
 		{kind: toolbarMonitor, label: "Monitor"},
 		{kind: toolbarSettings, label: "Settings"},
-		{kind: toolbarDelete, label: "Delete"},
-		{kind: toolbarRemove, label: "Remove"},
 	}
 }
 
@@ -31,10 +29,6 @@ func (m *Model) toolbarCommand(kind toolbarButtonKind) tea.Cmd {
 		return func() tea.Msg { return messages.ToggleHelp{} }
 	case toolbarMonitor:
 		return func() tea.Msg { return messages.ToggleMonitor{} }
-	case toolbarDelete:
-		return m.handleDelete()
-	case toolbarRemove:
-		return m.handleDelete()
 	case toolbarSettings:
 		return func() tea.Msg { return messages.ShowSettingsDialog{} }
 	default:
@@ -102,16 +96,7 @@ func (m *Model) renderToolbar() string {
 }
 
 func (m *Model) toolbarVisibleItems(items []toolbarItem) []toolbarItem {
-	visible := items[:3]
-	if m.cursor >= 0 && m.cursor < len(m.rows) {
-		switch m.rows[m.cursor].Type {
-		case RowWorktree:
-			visible = append(visible, items[3])
-		case RowProject:
-			visible = append(visible, items[4])
-		}
-	}
-	return visible
+	return items
 }
 
 // toolbarHeight returns the current toolbar height (always single row)
@@ -132,7 +117,7 @@ func (m *Model) handleToolbarClick(screenX, screenY int) tea.Cmd {
 	// Convert screen coordinates to content coordinates
 	borderTop := 1
 	borderLeft := 1
-	paddingLeft := 1
+	paddingLeft := 0
 
 	contentX := screenX - borderLeft - paddingLeft
 	contentY := screenY - borderTop

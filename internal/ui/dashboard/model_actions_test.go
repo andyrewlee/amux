@@ -13,8 +13,8 @@ func TestDashboardHandleEnterProjectSelectsMain(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
 
-	// Row order: Home, Project...
-	m.cursor = 1
+	// Row order: Home, Spacer, Project...
+	m.cursor = 2
 	cmd := m.handleEnter()
 	if cmd == nil {
 		t.Fatalf("expected handleEnter to return a command")
