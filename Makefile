@@ -2,7 +2,7 @@ BINARY_NAME := amux
 MAIN_PACKAGE := ./cmd/amux
 .DEFAULT_GOAL := build
 
-.PHONY: build test bench lint fmt fmt-check vet clean run dev help
+.PHONY: build test bench lint fmt fmt-check vet clean run dev help release-check release-tag release-push release
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -49,3 +49,24 @@ help:
 	@echo "  run        - Build and run"
 	@echo "  dev        - Run with hot reload (requires air)"
 	@echo "  bench      - Run rendering benchmarks"
+	@echo "  release-check - Run tests and harness smoke checks"
+	@echo "  release-tag   - Create an annotated tag (VERSION=vX.Y.Z)"
+	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"
+	@echo "  release       - release-check + release-tag + release-push"
+
+release-check: test
+	go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1
+	go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
+	go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
+
+release-tag:
+	@test -n "$(VERSION)" || (echo "VERSION is required (e.g. VERSION=v0.0.5)" && exit 1)
+	@[ -z "$$(git status --porcelain)" ] || (echo "Working tree not clean (staged/unstaged/untracked). Commit or stash changes before tagging." && exit 1)
+	@git tag -a "$(VERSION)" -m "$(VERSION)"
+	@echo "Created tag $(VERSION)"
+
+release-push:
+	@test -n "$(VERSION)" || (echo "VERSION is required (e.g. VERSION=v0.0.5)" && exit 1)
+	@git push origin "$(VERSION)"
+
+release: release-check release-tag release-push
