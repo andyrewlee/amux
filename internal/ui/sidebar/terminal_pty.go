@@ -156,6 +156,7 @@ func (m *TerminalModel) CloseTerminal(wtID string) {
 	}
 	delete(m.tabsByWorktree, wtID)
 	delete(m.activeTabByWorktree, wtID)
+	delete(m.pendingCreation, wtID)
 }
 
 // CloseAll closes all terminals

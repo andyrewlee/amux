@@ -534,6 +534,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			}
 			delete(m.tabsByWorktree, wtID)
 			delete(m.activeTabByWorktree, wtID)
+			delete(m.pendingCreation, wtID)
 		}
 	}
 
