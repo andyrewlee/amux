@@ -85,7 +85,10 @@ func (a *App) runExternalMsgs(ctx context.Context) error {
 	for {
 		if a.externalCritical != nil {
 			select {
-			case msg := <-a.externalCritical:
+			case msg, ok := <-a.externalCritical:
+				if !ok {
+					return nil
+				}
 				if msg != nil && a.externalSender != nil {
 					a.externalSender(msg)
 				}
