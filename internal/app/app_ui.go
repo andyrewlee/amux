@@ -14,7 +14,7 @@ import (
 )
 
 // focusPane changes focus to the specified pane
-func (a *App) focusPane(pane messages.PaneType) {
+func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 	a.focusedPane = pane
 	switch pane {
 	case messages.PaneDashboard:
@@ -37,12 +37,15 @@ func (a *App) focusPane(pane messages.PaneType) {
 		a.center.Blur()
 		a.sidebar.Blur()
 		a.sidebarTerminal.Focus()
+		// Lazy initialization: create terminal on focus if none exists
+		return a.sidebarTerminal.EnsureTerminalTab()
 	case messages.PaneMonitor:
 		a.dashboard.Blur()
 		a.center.Blur()
 		a.sidebar.Blur()
 		a.sidebarTerminal.Blur()
 	}
+	return nil
 }
 
 func (a *App) toggleMonitorMode() {
@@ -156,7 +159,8 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			return true, nil
 		}
 		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
-			a.focusPane(messages.PaneSidebarTerminal)
+			cmd := a.focusPane(messages.PaneSidebarTerminal)
+			return true, cmd
 		}
 		return true, nil
 

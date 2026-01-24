@@ -32,6 +32,12 @@ type SidebarTerminalCreated struct {
 	Terminal   *pty.Terminal
 }
 
+// SidebarTerminalCreateFailed is a message for terminal creation failure
+type SidebarTerminalCreateFailed struct {
+	WorktreeID string
+	Err        error
+}
+
 // createTerminalTab creates a new terminal tab for the worktree
 func (m *TerminalModel) createTerminalTab(wt *data.Worktree) tea.Cmd {
 	wtID := string(wt.ID())
@@ -48,7 +54,7 @@ func (m *TerminalModel) createTerminalTab(wt *data.Worktree) tea.Cmd {
 		env := []string{"COLORTERM=truecolor"}
 		term, err := pty.NewWithSize(shell, wt.Root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
-			return messages.Error{Err: err, Context: "creating sidebar terminal tab"}
+			return SidebarTerminalCreateFailed{WorktreeID: wtID, Err: err}
 		}
 
 		return SidebarTerminalCreated{
@@ -96,6 +102,9 @@ func (m *TerminalModel) HandleTerminalCreated(wtID string, tabID TerminalTabID, 
 		State: ts,
 	}
 	m.tabsByWorktree[wtID] = append(tabs, tab)
+
+	// Clear pending creation flag now that tab exists
+	delete(m.pendingCreation, wtID)
 
 	// Set as active tab (switch to new tab)
 	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1

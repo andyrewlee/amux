@@ -99,6 +99,7 @@ type TerminalModel struct {
 	tabsByWorktree      map[string][]*TerminalTab
 	activeTabByWorktree map[string]int
 	tabHits             []terminalTabHit // for mouse click handling
+	pendingCreation     map[string]bool  // tracks worktrees with tab creation in progress
 
 	// Current worktree
 	worktree *data.Worktree
@@ -123,6 +124,7 @@ func NewTerminalModel() *TerminalModel {
 	return &TerminalModel{
 		tabsByWorktree:      make(map[string][]*TerminalTab),
 		activeTabByWorktree: make(map[string]int),
+		pendingCreation:     make(map[string]bool),
 		styles:              common.DefaultStyles(),
 	}
 }
@@ -509,6 +511,15 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		cmd := m.HandleTerminalCreated(msg.WorktreeID, msg.TabID, msg.Terminal)
 		cmds = append(cmds, cmd)
 
+	case SidebarTerminalCreateFailed:
+		// Clear pending flag so user can retry
+		delete(m.pendingCreation, msg.WorktreeID)
+		logging.Error("Failed to create sidebar terminal: %v", msg.Err)
+		// Surface error to user via app-level error handling
+		cmds = append(cmds, func() tea.Msg {
+			return messages.Error{Err: msg.Err, Context: "creating sidebar terminal"}
+		})
+
 	case messages.WorktreeDeleted:
 		if msg.Worktree != nil {
 			wtID := string(msg.Worktree.ID())
@@ -633,14 +644,36 @@ func (m *TerminalModel) SetWorktree(wt *data.Worktree) tea.Cmd {
 		m.refreshTerminalSize()
 		return nil
 	}
+	if m.pendingCreation[wtID] {
+		// Creation already in progress
+		return nil
+	}
 
 	// Create first terminal tab
+	m.pendingCreation[wtID] = true
 	return m.createTerminalTab(wt)
 }
 
 // SetWorktreePreview sets the active worktree without creating tabs.
 func (m *TerminalModel) SetWorktreePreview(wt *data.Worktree) {
 	m.worktree = wt
+}
+
+// EnsureTerminalTab creates a terminal tab if none exists for the current worktree.
+// Used for lazy initialization when the terminal pane is focused.
+func (m *TerminalModel) EnsureTerminalTab() tea.Cmd {
+	if m.worktree == nil {
+		return nil
+	}
+	if len(m.getTabs()) > 0 {
+		return nil
+	}
+	wtID := m.worktreeID()
+	if m.pendingCreation[wtID] {
+		return nil
+	}
+	m.pendingCreation[wtID] = true
+	return m.createTerminalTab(m.worktree)
 }
 
 // CreateNewTab creates a new terminal tab for the current worktree and returns a command
