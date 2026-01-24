@@ -223,8 +223,14 @@ func (m *Model) forwardPTYMsgs(msgCh <-chan tea.Msg) {
 }
 
 func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID TabID, heartbeat *int64) {
-	if term == nil {
+	// Ensure msgCh is always closed even if we panic, so forwardPTYMsgs doesn't block forever.
+	// The inner recover() catches double-close panics from existing close(msgCh) calls.
+	defer func() {
+		defer func() { _ = recover() }()
 		close(msgCh)
+	}()
+
+	if term == nil {
 		return
 	}
 	beat := func() {

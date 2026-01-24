@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/safego"
@@ -78,6 +79,8 @@ func (a *App) runExternalMsgs(ctx context.Context) error {
 			}
 			if msg != nil && a.externalSender != nil {
 				a.externalSender(msg)
+			} else if msg != nil {
+				logging.Warn("critical message dropped: sender not initialized")
 			}
 			continue
 		default:
@@ -89,7 +92,11 @@ func (a *App) runExternalMsgs(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			if msg == nil || a.externalSender == nil {
+			if msg == nil {
+				continue
+			}
+			if a.externalSender == nil {
+				logging.Warn("critical message dropped: sender not initialized")
 				continue
 			}
 			a.externalSender(msg)
@@ -97,7 +104,11 @@ func (a *App) runExternalMsgs(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			if msg == nil || a.externalSender == nil {
+			if msg == nil {
+				continue
+			}
+			if a.externalSender == nil {
+				logging.Warn("message dropped: sender not initialized")
 				continue
 			}
 			a.externalSender(msg)
