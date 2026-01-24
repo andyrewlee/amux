@@ -17,9 +17,9 @@ type toolbarItem struct {
 
 func (m *Model) toolbarItems() []toolbarItem {
 	return []toolbarItem{
-		{kind: toolbarHelp, label: "Help"},
-		{kind: toolbarMonitor, label: "Monitor"},
-		{kind: toolbarSettings, label: "Settings"},
+		{kind: toolbarHelp, label: "?H"},
+		{kind: toolbarMonitor, label: "◆M"},
+		{kind: toolbarSettings, label: "⚙S"},
 	}
 }
 
@@ -42,7 +42,7 @@ func (m *Model) renderToolbar() string {
 
 	buttonHeight := 1
 	gap := 1
-	columns := 2
+	columns := 3
 	items := m.toolbarItems()
 	visibleItems := m.toolbarVisibleItems(items)
 	if len(visibleItems) == 0 {
@@ -105,11 +105,7 @@ func (m *Model) toolbarHeight() int {
 	if len(visibleItems) == 0 {
 		return 0
 	}
-	rows := len(visibleItems) / 2
-	if len(visibleItems)%2 != 0 {
-		rows++
-	}
-	return rows
+	return 1
 }
 
 // handleToolbarClick checks if a click is on a toolbar button and returns the appropriate command
