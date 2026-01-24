@@ -17,12 +17,6 @@ func (a *App) SetMsgSender(send func(tea.Msg)) {
 	if send == nil {
 		return
 	}
-	if a.externalMsgs == nil {
-		a.externalMsgs = make(chan tea.Msg, 1024)
-	}
-	if a.externalCritical == nil {
-		a.externalCritical = make(chan tea.Msg, 256)
-	}
 	a.externalOnce.Do(func() {
 		a.externalSender = send
 		safego.SetPanicHandler(func(name string, recovered any, _ []byte) {
@@ -48,19 +42,15 @@ func (a *App) enqueueExternalMsg(msg tea.Msg) {
 		return
 	}
 	if isCriticalExternalMsg(msg) {
-		if a.externalCritical == nil {
-			a.externalCritical = make(chan tea.Msg, 256)
-		}
 		select {
 		case a.externalCritical <- msg:
 			return
 		default:
-			if a.externalMsgs != nil {
-				select {
-				case <-a.externalMsgs:
-					perf.Count("external_msg_drop_noncritical", 1)
-				default:
-				}
+			// Critical channel full - try to drop a non-critical message to make room
+			select {
+			case <-a.externalMsgs:
+				perf.Count("external_msg_drop_noncritical", 1)
+			default:
 			}
 			select {
 			case a.externalCritical <- msg:
@@ -71,9 +61,6 @@ func (a *App) enqueueExternalMsg(msg tea.Msg) {
 			}
 		}
 	}
-	if a.externalMsgs == nil {
-		a.externalMsgs = make(chan tea.Msg, 1024)
-	}
 	select {
 	case a.externalMsgs <- msg:
 	default:
@@ -83,18 +70,17 @@ func (a *App) enqueueExternalMsg(msg tea.Msg) {
 
 func (a *App) runExternalMsgs(ctx context.Context) error {
 	for {
-		if a.externalCritical != nil {
-			select {
-			case msg, ok := <-a.externalCritical:
-				if !ok {
-					return nil
-				}
-				if msg != nil && a.externalSender != nil {
-					a.externalSender(msg)
-				}
-				continue
-			default:
+		// Fast-path: drain critical messages first (non-blocking)
+		select {
+		case msg, ok := <-a.externalCritical:
+			if !ok {
+				return nil
 			}
+			if msg != nil && a.externalSender != nil {
+				a.externalSender(msg)
+			}
+			continue
+		default:
 		}
 		select {
 		case <-ctx.Done():
