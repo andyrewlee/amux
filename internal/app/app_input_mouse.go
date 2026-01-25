@@ -212,19 +212,18 @@ func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 }
 
 // handleMonitorModeClick handles mouse clicks in monitor mode.
-func (a *App) handleMonitorModeClick(msg tea.MouseClickMsg) bool {
+func (a *App) handleMonitorModeClick(msg tea.MouseClickMsg) tea.Cmd {
 	if msg.Button == tea.MouseLeft {
 		a.focusPane(messages.PaneMonitor)
 		if a.monitorExitHit(msg.X, msg.Y) {
-			a.toggleMonitorMode()
-			return true
+			return a.toggleMonitorMode()
 		}
 		if filter, ok := a.monitorFilterHit(msg.X, msg.Y); ok {
 			a.monitorFilter = filter
-			return true
+			return nil
 		}
 		// Click to focus tile (just select, don't exit)
 		a.selectMonitorTile(msg.X, msg.Y)
 	}
-	return true
+	return nil
 }

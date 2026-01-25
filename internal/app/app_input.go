@@ -1,6 +1,9 @@
 package app
 
 import (
+	"fmt"
+	"runtime/debug"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
@@ -12,8 +15,20 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
-// Update handles all messages
-func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update handles all messages with panic recovery.
+func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Error("panic in app.Update: %v\n%s", r, debug.Stack())
+			a.err = fmt.Errorf("internal error: %v", r)
+			model = a
+			cmd = nil
+		}
+	}()
+	return a.update(msg)
+}
+
+func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer perf.Time("update")()
 	var cmds []tea.Cmd
 	if perf.Enabled() {
@@ -28,13 +43,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
 		case DialogAddProject, DialogCreateWorktree, DialogDeleteWorktree, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit:
-			return a, a.handleDialogResult(result)
+			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
 		// Currently only Center uses custom dialogs
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
-		return a, cmd
+		return a, a.safeCmd(cmd)
 	}
 
 	// Handle help overlay input (highest priority when visible)
@@ -43,7 +58,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyPressMsg:
 			var cmd tea.Cmd
 			a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
-			return a, cmd
+			return a, a.safeCmd(cmd)
 		case tea.MouseWheelMsg:
 			a.helpOverlay, _, _ = a.helpOverlay.Update(msg)
 			return a, nil
@@ -53,7 +68,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var cmd tea.Cmd
 				a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
 				if cmd != nil {
-					return a, cmd
+					return a, a.safeCmd(cmd)
 				}
 				// Close if clicking outside the dialog
 				if !a.helpOverlay.ContainsClick(msg.X, msg.Y) {
@@ -89,13 +104,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Don't process other input while dialog is open
 		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
+			return a, a.safeBatch(cmds...)
 		}
 		if _, ok := msg.(tea.PasteMsg); ok {
-			return a, tea.Batch(cmds...)
+			return a, a.safeBatch(cmds...)
 		}
 		if _, ok := msg.(tea.MouseClickMsg); ok {
-			return a, tea.Batch(cmds...)
+			return a, a.safeBatch(cmds...)
 		}
 	}
 
@@ -109,13 +124,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Don't process other input while file picker is open
 		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
+			return a, a.safeBatch(cmds...)
 		}
 		if _, ok := msg.(tea.PasteMsg); ok {
-			return a, tea.Batch(cmds...)
+			return a, a.safeBatch(cmds...)
 		}
 		if _, ok := msg.(tea.MouseClickMsg); ok {
-			return a, tea.Batch(cmds...)
+			return a, a.safeBatch(cmds...)
 		}
 	}
 
@@ -129,10 +144,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Don't process other input while settings dialog is open
 		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
+			return a, a.safeBatch(cmds...)
 		}
 		if _, ok := msg.(tea.MouseClickMsg); ok {
-			return a, tea.Batch(cmds...)
+			return a, a.safeBatch(cmds...)
 		}
 	}
 
@@ -154,7 +169,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseClickMsg:
 		if a.monitorMode {
-			a.handleMonitorModeClick(msg)
+			if cmd := a.handleMonitorModeClick(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			break
 		}
 		if cmd := a.routeMouseClick(msg); cmd != nil {
@@ -236,7 +253,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.goHome()
 
 	case messages.ToggleMonitor:
-		a.toggleMonitorMode()
+		if cmd := a.toggleMonitorMode(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.ToggleHelp:
 		a.helpOverlay.SetSize(a.width, a.height)
@@ -340,7 +359,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed:
+	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -352,6 +371,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.GitStatusTick:
 		cmds = append(cmds, a.handleGitStatusTick()...)
+
+	case messages.PTYWatchdogTick:
+		if a.center != nil {
+			if cmd := a.center.StartPTYReaders(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if a.sidebarTerminal != nil {
+			if cmd := a.sidebarTerminal.StartPTYReaders(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		cmds = append(cmds, a.startPTYWatchdog())
 
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)
@@ -396,7 +428,39 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return a, tea.Batch(cmds...)
+	return a, a.safeBatch(cmds...)
+}
+
+func (a *App) safeCmd(cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	return func() (msg tea.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				logging.Error("panic in command: %v\n%s", r, debug.Stack())
+				msg = messages.Error{Err: fmt.Errorf("command panic: %v", r), Context: "command"}
+			}
+		}()
+		return cmd()
+	}
+}
+
+func (a *App) safeBatch(cmds ...tea.Cmd) tea.Cmd {
+	if len(cmds) == 0 {
+		return nil
+	}
+	safe := make([]tea.Cmd, 0, len(cmds))
+	for _, cmd := range cmds {
+		if cmd == nil {
+			continue
+		}
+		safe = append(safe, a.safeCmd(cmd))
+	}
+	if len(safe) == 0 {
+		return nil
+	}
+	return tea.Batch(safe...)
 }
 
 // handleKeyPress handles keyboard input

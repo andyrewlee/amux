@@ -49,8 +49,10 @@ type Tab struct {
 	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
 	DiffViewer   *diff.Model  // Native diff viewer (replaces PTY-based viewer)
 	mu           sync.Mutex   // Protects Terminal
-	Running      bool         // Whether the agent is actively running
-	readerActive bool         // Guard to ensure only one PTY read loop per tab
+	closed       uint32
+	closing      uint32
+	Running      bool // Whether the agent is actively running
+	readerActive bool // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
@@ -62,29 +64,73 @@ type Tab struct {
 	ptyMsgCh          chan tea.Msg
 	readerCancel      chan struct{}
 	// Mouse selection state
-	Selection SelectionState
+	Selection             SelectionState
+	selectionGen          uint64
+	selectionScrollDir    int
+	selectionScrollActive bool
 
-	ptyTraceFile   *os.File
-	ptyTraceBytes  int
-	ptyTraceClosed bool
+	ptyTraceFile      *os.File
+	ptyTraceBytes     int
+	ptyTraceClosed    bool
+	ptyRestartBackoff time.Duration
+	ptyHeartbeat      int64
+	ptyRestartCount   int
+	ptyRestartSince   time.Time
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
 	cachedSnap       *compositor.VTermSnapshot
 	cachedVersion    uint64
 	cachedShowCursor bool
+	monitorSnapAt    time.Time
+	monitorDirty     bool
+}
+
+func (t *Tab) isClosed() bool {
+	if t == nil {
+		return true
+	}
+	return atomic.LoadUint32(&t.closed) == 1 || atomic.LoadUint32(&t.closing) == 1
+}
+
+func (t *Tab) markClosing() {
+	if t == nil {
+		return
+	}
+	atomic.StoreUint32(&t.closing, 1)
+}
+
+func (t *Tab) markClosed() {
+	if t == nil {
+		return
+	}
+	atomic.StoreUint32(&t.closed, 1)
+	atomic.StoreUint32(&t.closing, 1)
 }
 
 // Model is the Bubbletea model for the center pane
 type Model struct {
 	// State
-	worktree            *data.Worktree
-	tabsByWorktree      map[string][]*Tab // tabs per worktree ID
-	activeTabByWorktree map[string]int    // active tab index per worktree
-	focused             bool
-	canFocusRight       bool
-	agentManager        *appPty.AgentManager
-	monitor             MonitorModel
-	msgSink             func(tea.Msg)
+	worktree             *data.Worktree
+	tabsByWorktree       map[string][]*Tab // tabs per worktree ID
+	activeTabByWorktree  map[string]int    // active tab index per worktree
+	focused              bool
+	canFocusRight        bool
+	monitorMode          bool
+	monitorSnapshotCache map[TabID]MonitorTabSnapshot
+	monitorSnapshotNext  int
+	monitorSnapCh        chan monitorSnapshotRequest
+	monitorSnapCancel    func()
+	monitorSnapHeartbeat int64
+	monitorActiveID      TabID
+	tabsRevision         uint64
+	monitorTabsRevision  uint64
+	monitorTabsCache     []*Tab
+	agentManager         *appPty.AgentManager
+	monitor              MonitorModel
+	msgSink              func(tea.Msg)
+	tabEvents            chan tabEvent
+	tabActorReady        uint32
+	tabActorHeartbeat    int64
 
 	// Layout
 	width           int
@@ -191,12 +237,25 @@ func New(cfg *config.Config) *Model {
 		config:              cfg,
 		agentManager:        appPty.NewAgentManager(cfg),
 		styles:              common.DefaultStyles(),
+		tabEvents:           make(chan tabEvent, 1024),
 	}
 }
 
 // SetCanFocusRight controls whether focus-right hints should be shown.
 func (m *Model) SetCanFocusRight(can bool) {
 	m.canFocusRight = can
+}
+
+// SetMonitorMode controls whether monitor-mode optimizations are active.
+func (m *Model) SetMonitorMode(enabled bool) {
+	m.monitorMode = enabled
+	if !enabled {
+		m.StopMonitorSnapshots()
+		m.monitorSnapshotCache = nil
+		m.monitorSnapshotNext = 0
+	} else if m.monitorSnapshotCache == nil {
+		m.monitorSnapshotCache = make(map[TabID]MonitorTabSnapshot)
+	}
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.
@@ -224,6 +283,26 @@ func (m *Model) SetMsgSink(sink func(tea.Msg)) {
 	m.msgSink = sink
 }
 
+// TabEvents returns a channel for actor-style tab mutations.
+func (m *Model) TabEvents() chan tabEvent {
+	return m.tabEvents
+}
+
+func (m *Model) isTabActorReady() bool {
+	return atomic.LoadUint32(&m.tabActorReady) == 1
+}
+
+func (m *Model) setTabActorReady() {
+	atomic.StoreUint32(&m.tabActorReady, 1)
+}
+
+func (m *Model) noteTabActorHeartbeat() {
+	atomic.StoreInt64(&m.tabActorHeartbeat, time.Now().UnixNano())
+	if atomic.LoadUint32(&m.tabActorReady) == 0 {
+		atomic.StoreUint32(&m.tabActorReady, 1)
+	}
+}
+
 // worktreeID returns the ID of the current worktree, or empty string
 func (m *Model) worktreeID() string {
 	if m.worktree == nil {
@@ -240,7 +319,7 @@ func (m *Model) getTabs() []*Tab {
 // getTabByID returns the tab with the given ID, or nil if not found
 func (m *Model) getTabByID(wtID string, tabID TabID) *Tab {
 	for _, tab := range m.tabsByWorktree[wtID] {
-		if tab.ID == tabID {
+		if tab.ID == tabID && !tab.isClosed() {
 			return tab
 		}
 	}
@@ -255,6 +334,10 @@ func (m *Model) getActiveTabIdx() int {
 // setActiveTabIdx sets the active tab index for the current worktree
 func (m *Model) setActiveTabIdx(idx int) {
 	m.activeTabByWorktree[m.worktreeID()] = idx
+}
+
+func (m *Model) noteTabsChanged() {
+	m.tabsRevision++
 }
 
 func (m *Model) isActiveTab(wtID string, tabID TabID) bool {
@@ -275,6 +358,7 @@ func (m *Model) removeTab(idx int) {
 	tabs := m.tabsByWorktree[wtID]
 	if idx >= 0 && idx < len(tabs) {
 		m.tabsByWorktree[wtID] = append(tabs[:idx], tabs[idx+1:]...)
+		m.noteTabsChanged()
 	}
 }
 
@@ -287,15 +371,23 @@ func (m *Model) CleanupWorktree(wt *data.Worktree) {
 
 	// Close resources for each tab before removing
 	for _, tab := range m.tabsByWorktree[wtID] {
+		tab.markClosing()
 		m.stopPTYReader(tab)
+		tab.mu.Lock()
 		if tab.ptyTraceFile != nil {
 			_ = tab.ptyTraceFile.Close()
+			tab.ptyTraceFile = nil
+			tab.ptyTraceClosed = true
 		}
 		tab.pendingOutput = nil
+		tab.Running = false
+		tab.mu.Unlock()
+		tab.markClosed()
 	}
 
 	delete(m.tabsByWorktree, wtID)
 	delete(m.activeTabByWorktree, wtID)
+	m.noteTabsChanged()
 
 	// Also cleanup agents for this worktree
 	if m.agentManager != nil {
@@ -372,7 +464,27 @@ func (m *Model) SetOffset(x int) {
 
 // Close cleans up all resources
 func (m *Model) Close() {
-	m.agentManager.CloseAll()
+	m.StopMonitorSnapshots()
+	for _, tabs := range m.tabsByWorktree {
+		for _, tab := range tabs {
+			tab.markClosing()
+			m.stopPTYReader(tab)
+			tab.mu.Lock()
+			if tab.ptyTraceFile != nil {
+				_ = tab.ptyTraceFile.Close()
+				tab.ptyTraceFile = nil
+				tab.ptyTraceClosed = true
+			}
+			tab.pendingOutput = nil
+			tab.DiffViewer = nil
+			tab.Running = false
+			tab.mu.Unlock()
+			tab.markClosed()
+		}
+	}
+	if m.agentManager != nil {
+		m.agentManager.CloseAll()
+	}
 }
 
 // screenToTerminal converts screen coordinates to terminal coordinates

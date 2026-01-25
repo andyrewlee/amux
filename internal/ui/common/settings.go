@@ -116,7 +116,7 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 			s.theme = s.originalTheme
 			s.visible = false
 			return s, func() tea.Msg {
-				return tea.Batch(
+				return SafeBatch(
 					func() tea.Msg { return ThemePreview{Theme: s.originalTheme} },
 					func() tea.Msg { return SettingsResult{Confirmed: false} },
 				)()

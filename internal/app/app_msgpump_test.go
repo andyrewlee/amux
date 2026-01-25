@@ -9,7 +9,7 @@ import (
 
 type testMsg string
 
-func TestEnqueueExternalMsgBlocksWhenFull(t *testing.T) {
+func TestEnqueueExternalMsgDropsWhenFull(t *testing.T) {
 	a := &App{externalMsgs: make(chan tea.Msg, 1)}
 
 	msg1 := testMsg("first")
@@ -28,8 +28,8 @@ func TestEnqueueExternalMsgBlocksWhenFull(t *testing.T) {
 
 	select {
 	case <-done:
-		t.Fatal("expected enqueue to block when external queue is full")
 	case <-time.After(50 * time.Millisecond):
+		t.Fatal("expected enqueue to return quickly when external queue is full")
 	}
 
 	sent := make(chan tea.Msg, 2)
@@ -44,8 +44,10 @@ func TestEnqueueExternalMsgBlocksWhenFull(t *testing.T) {
 	if got := readMsg(t, sent); got != msg1 {
 		t.Fatalf("expected first message %q, got %q", msg1, got)
 	}
-	if got := readMsg(t, sent); got != msg2 {
-		t.Fatalf("expected second message %q, got %q", msg2, got)
+	select {
+	case got := <-sent:
+		t.Fatalf("unexpected extra message %q (wanted drop of %q)", got, msg2)
+	case <-time.After(50 * time.Millisecond):
 	}
 
 	close(a.externalMsgs)

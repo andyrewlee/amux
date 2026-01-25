@@ -7,11 +7,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // tickSpinner returns a command that ticks the spinner
 func (m *Model) tickSpinner() tea.Cmd {
-	return tea.Tick(spinnerInterval, func(t time.Time) tea.Msg {
+	return common.SafeTick(spinnerInterval, func(t time.Time) tea.Msg {
 		return spinnerTickMsg{}
 	})
 }

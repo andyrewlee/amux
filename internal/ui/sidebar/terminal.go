@@ -13,6 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
@@ -72,9 +73,13 @@ type TerminalState struct {
 	cachedVersion    uint64
 	cachedShowCursor bool
 
-	readerActive bool
-	ptyMsgCh     chan tea.Msg
-	readerCancel chan struct{}
+	readerActive      bool
+	ptyMsgCh          chan tea.Msg
+	readerCancel      chan struct{}
+	ptyRestartBackoff time.Duration
+	ptyHeartbeat      int64
+	ptyRestartCount   int
+	ptyRestartSince   time.Time
 }
 
 // terminalTabHitKind identifies the type of tab bar click target
@@ -435,12 +440,17 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		if tab != nil && tab.State != nil {
 			ts := tab.State
 			ts.pendingOutput = append(ts.pendingOutput, msg.Data...)
+			if len(ts.pendingOutput) > ptyMaxBufferedBytes {
+				overflow := len(ts.pendingOutput) - ptyMaxBufferedBytes
+				perf.Count("sidebar_pty_drop_bytes", int64(overflow))
+				ts.pendingOutput = append([]byte(nil), ts.pendingOutput[overflow:]...)
+			}
 			ts.lastOutputAt = time.Now()
 			if !ts.flushScheduled {
 				ts.flushScheduled = true
 				ts.flushPendingSince = ts.lastOutputAt
 				quiet, _ := m.flushTiming()
-				cmds = append(cmds, tea.Tick(quiet, func(t time.Time) tea.Msg {
+				cmds = append(cmds, common.SafeTick(quiet, func(t time.Time) tea.Msg {
 					return messages.SidebarPTYFlush{WorktreeID: wtID, TabID: msg.TabID}
 				}))
 			}
@@ -465,7 +475,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					delay = time.Millisecond
 				}
 				ts.flushScheduled = true
-				cmds = append(cmds, tea.Tick(delay, func(t time.Time) tea.Msg {
+				cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
 					return messages.SidebarPTYFlush{WorktreeID: wtID, TabID: msg.TabID}
 				}))
 				break
@@ -490,7 +500,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				} else {
 					ts.flushScheduled = true
 					ts.flushPendingSince = time.Now()
-					cmds = append(cmds, tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
+					cmds = append(cmds, common.SafeTick(time.Millisecond, func(t time.Time) tea.Msg {
 						return messages.SidebarPTYFlush{WorktreeID: wtID, TabID: msg.TabID}
 					}))
 				}
@@ -502,9 +512,70 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		tabID := TerminalTabID(msg.TabID)
 		tab := m.getTabByID(wtID, tabID)
 		if tab != nil && tab.State != nil {
-			tab.State.Running = false
-			m.stopPTYReader(tab.State)
-			logging.Info("Sidebar PTY stopped for worktree %s tab %s: %v", wtID, tabID, msg.Err)
+			ts := tab.State
+			termAlive := ts.Terminal != nil && !ts.Terminal.IsClosed()
+			m.stopPTYReader(ts)
+			if termAlive {
+				shouldRestart := true
+				var backoff time.Duration
+				ts.mu.Lock()
+				if ts.ptyRestartSince.IsZero() || time.Since(ts.ptyRestartSince) > ptyRestartWindow {
+					ts.ptyRestartSince = time.Now()
+					ts.ptyRestartCount = 0
+				}
+				ts.ptyRestartCount++
+				if ts.ptyRestartCount > ptyRestartMax {
+					shouldRestart = false
+					ts.Running = false
+					ts.ptyRestartBackoff = 0
+				} else {
+					backoff = ts.ptyRestartBackoff
+					if backoff <= 0 {
+						backoff = 200 * time.Millisecond
+					} else {
+						backoff *= 2
+						if backoff > 5*time.Second {
+							backoff = 5 * time.Second
+						}
+					}
+					ts.ptyRestartBackoff = backoff
+				}
+				ts.mu.Unlock()
+				if shouldRestart {
+					restartTab := msg.TabID
+					restartWt := msg.WorktreeID
+					cmds = append(cmds, common.SafeTick(backoff, func(time.Time) tea.Msg {
+						return messages.SidebarPTYRestart{WorktreeID: restartWt, TabID: restartTab}
+					}))
+					logging.Warn("Sidebar PTY stopped for worktree %s tab %s; restarting in %s: %v", wtID, tabID, backoff, msg.Err)
+				} else {
+					logging.Warn("Sidebar PTY stopped for worktree %s tab %s; restart limit reached: %v", wtID, tabID, msg.Err)
+				}
+			} else {
+				ts.Running = false
+				ts.mu.Lock()
+				ts.ptyRestartBackoff = 0
+				ts.ptyRestartCount = 0
+				ts.ptyRestartSince = time.Time{}
+				ts.mu.Unlock()
+				logging.Info("Sidebar PTY stopped for worktree %s tab %s: %v", wtID, tabID, msg.Err)
+			}
+		}
+
+	case messages.SidebarPTYRestart:
+		tab := m.getTabByID(msg.WorktreeID, TerminalTabID(msg.TabID))
+		if tab == nil || tab.State == nil {
+			break
+		}
+		ts := tab.State
+		if ts.Terminal == nil || ts.Terminal.IsClosed() {
+			ts.mu.Lock()
+			ts.ptyRestartBackoff = 0
+			ts.mu.Unlock()
+			break
+		}
+		if cmd := m.startPTYReader(msg.WorktreeID, tab.ID); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case SidebarTerminalCreated:
@@ -527,9 +598,13 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			for _, tab := range tabs {
 				if tab.State != nil {
 					m.stopPTYReader(tab.State)
+					tab.State.mu.Lock()
 					if tab.State.Terminal != nil {
 						tab.State.Terminal.Close()
 					}
+					tab.State.Running = false
+					tab.State.ptyRestartBackoff = 0
+					tab.State.mu.Unlock()
 				}
 			}
 			delete(m.tabsByWorktree, wtID)
@@ -538,7 +613,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		}
 	}
 
-	return m, tea.Batch(cmds...)
+	return m, common.SafeBatch(cmds...)
 }
 
 // View renders the terminal section
@@ -703,9 +778,13 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 	// Close PTY and cleanup
 	if tab.State != nil {
 		m.stopPTYReader(tab.State)
+		tab.State.mu.Lock()
 		if tab.State.Terminal != nil {
 			tab.State.Terminal.Close()
 		}
+		tab.State.Running = false
+		tab.State.ptyRestartBackoff = 0
+		tab.State.mu.Unlock()
 	}
 
 	// Remove tab from slice

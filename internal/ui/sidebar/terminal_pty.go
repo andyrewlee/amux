@@ -3,26 +3,33 @@ package sidebar
 import (
 	"io"
 	"os"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 const (
-	ptyFlushQuiet       = 12 * time.Millisecond
-	ptyFlushMaxInterval = 50 * time.Millisecond
-	ptyFlushQuietAlt    = 30 * time.Millisecond
-	ptyFlushMaxAlt      = 120 * time.Millisecond
-	ptyFlushChunkSize   = 32 * 1024
-	ptyReadBufferSize   = 32 * 1024
-	ptyReadQueueSize    = 32
-	ptyFrameInterval    = time.Second / 60
-	ptyMaxPendingBytes  = 256 * 1024
+	ptyFlushQuiet         = 12 * time.Millisecond
+	ptyFlushMaxInterval   = 50 * time.Millisecond
+	ptyFlushQuietAlt      = 30 * time.Millisecond
+	ptyFlushMaxAlt        = 120 * time.Millisecond
+	ptyFlushChunkSize     = 32 * 1024
+	ptyReadBufferSize     = 32 * 1024
+	ptyReadQueueSize      = 32
+	ptyFrameInterval      = time.Second / 60
+	ptyMaxPendingBytes    = 256 * 1024
+	ptyReaderStallTimeout = 10 * time.Second
+	ptyMaxBufferedBytes   = 4 * 1024 * 1024
+	ptyRestartMax         = 5
+	ptyRestartWindow      = time.Minute
 )
 
 // SidebarTerminalCreated is a message for terminal creation
@@ -121,7 +128,18 @@ func (m *TerminalModel) startPTYReader(wtID string, tabID TerminalTabID) tea.Cmd
 		return nil
 	}
 	ts := tab.State
-	if ts.readerActive || ts.Terminal == nil || !ts.Running {
+	ts.mu.Lock()
+	if ts.readerActive {
+		if ts.ptyMsgCh == nil || ts.readerCancel == nil {
+			ts.readerActive = false
+		} else {
+			ts.mu.Unlock()
+			return nil
+		}
+	}
+	if ts.Terminal == nil || !ts.Running {
+		ts.readerActive = false
+		ts.mu.Unlock()
 		return nil
 	}
 
@@ -131,13 +149,47 @@ func (m *TerminalModel) startPTYReader(wtID string, tabID TerminalTabID) tea.Cmd
 	ts.readerCancel = make(chan struct{})
 	ts.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
 	ts.readerActive = true
+	ts.ptyRestartBackoff = 0
+	atomic.StoreInt64(&ts.ptyHeartbeat, time.Now().UnixNano())
 
 	term := ts.Terminal
 	cancel := ts.readerCancel
 	msgCh := ts.ptyMsgCh
+	ts.mu.Unlock()
 
-	go runPTYReader(term, msgCh, cancel, wtID, string(tabID))
-	go m.forwardPTYMsgs(msgCh)
+	safego.Go("sidebar.pty_reader", func() {
+		defer m.markPTYReaderStopped(ts)
+		runPTYReader(term, msgCh, cancel, wtID, string(tabID), &ts.ptyHeartbeat)
+	})
+	safego.Go("sidebar.pty_forward", func() {
+		m.forwardPTYMsgs(msgCh)
+	})
+	return nil
+}
+
+// StartPTYReaders ensures PTY readers are running for all tabs.
+func (m *TerminalModel) StartPTYReaders() tea.Cmd {
+	for wtID, tabs := range m.tabsByWorktree {
+		for _, tab := range tabs {
+			if tab == nil {
+				continue
+			}
+			ts := tab.State
+			if ts != nil {
+				ts.mu.Lock()
+				readerActive := ts.readerActive
+				ts.mu.Unlock()
+				if readerActive {
+					lastBeat := atomic.LoadInt64(&ts.ptyHeartbeat)
+					if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > ptyReaderStallTimeout {
+						logging.Warn("Sidebar PTY reader stalled for worktree %s tab %s; restarting", wtID, tab.ID)
+						m.stopPTYReader(ts)
+					}
+				}
+			}
+			_ = m.startPTYReader(wtID, tab.ID)
+		}
+	}
 	return nil
 }
 
@@ -151,6 +203,8 @@ func (m *TerminalModel) CloseTerminal(wtID string) {
 			if tab.State.Terminal != nil {
 				tab.State.Terminal.Close()
 			}
+			tab.State.Running = false
+			tab.State.ptyRestartBackoff = 0
 			tab.State.mu.Unlock()
 		}
 	}
@@ -185,18 +239,42 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	ts.readerActive = false
 	ts.ptyMsgCh = nil
 	ts.mu.Unlock()
+	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
 }
 
-func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID string) {
-	if term == nil {
-		close(msgCh)
+func (m *TerminalModel) markPTYReaderStopped(ts *TerminalState) {
+	if ts == nil {
 		return
 	}
+	ts.mu.Lock()
+	ts.readerActive = false
+	ts.ptyMsgCh = nil
+	ts.mu.Unlock()
+	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
+}
+
+func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID string, heartbeat *int64) {
+	// Ensure msgCh is always closed even if we panic, so forwardPTYMsgs doesn't block forever.
+	// The inner recover() catches double-close panics from existing close(msgCh) calls.
+	defer func() {
+		defer func() { _ = recover() }()
+		close(msgCh)
+	}()
+
+	if term == nil {
+		return
+	}
+	beat := func() {
+		if heartbeat != nil {
+			atomic.StoreInt64(heartbeat, time.Now().UnixNano())
+		}
+	}
+	beat()
 
 	dataCh := make(chan []byte, ptyReadQueueSize)
 	errCh := make(chan error, 1)
 
-	go func() {
+	safego.Go("sidebar.pty_read_loop", func() {
 		buf := make([]byte, ptyReadBufferSize)
 		for {
 			n, err := term.Read(buf)
@@ -211,6 +289,7 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 			if n == 0 {
 				continue
 			}
+			beat()
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
 			select {
@@ -219,7 +298,7 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 				return
 			}
 		}
-	}()
+	})
 
 	ticker := time.NewTicker(ptyFrameInterval)
 	defer ticker.Stop()
@@ -233,8 +312,10 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 			close(msgCh)
 			return
 		case err := <-errCh:
+			beat()
 			stoppedErr = err
 		case data, ok := <-dataCh:
+			beat()
 			if !ok {
 				if len(pending) > 0 {
 					if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
@@ -258,6 +339,7 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 				pending = nil
 			}
 		case <-ticker.C:
+			beat()
 			if len(pending) > 0 {
 				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
 					close(msgCh)

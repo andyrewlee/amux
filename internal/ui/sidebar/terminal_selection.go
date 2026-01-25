@@ -62,9 +62,13 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 	// Close PTY and cleanup
 	if tab.State != nil {
 		m.stopPTYReader(tab.State)
+		tab.State.mu.Lock()
 		if tab.State.Terminal != nil {
 			tab.State.Terminal.Close()
 		}
+		tab.State.Running = false
+		tab.State.ptyRestartBackoff = 0
+		tab.State.mu.Unlock()
 	}
 
 	// Remove tab from slice

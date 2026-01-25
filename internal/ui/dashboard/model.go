@@ -312,7 +312,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		m.activeRoot = ""
 	}
 
-	return m, tea.Batch(cmds...)
+	return m, common.SafeBatch(cmds...)
 }
 
 // View renders the dashboard

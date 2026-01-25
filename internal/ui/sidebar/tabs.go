@@ -76,7 +76,7 @@ func (m *TabbedSidebar) SetStyles(styles common.Styles) {
 
 // Init initializes the tabbed sidebar
 func (m *TabbedSidebar) Init() tea.Cmd {
-	return tea.Batch(
+	return common.SafeBatch(
 		m.changes.Init(),
 		m.projectTree.Init(),
 	)
@@ -122,7 +122,7 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			m.projectTree, cmd = m.projectTree.Update(adjustedMsg)
 			cmds = append(cmds, cmd)
 		}
-		return m, tea.Batch(cmds...)
+		return m, common.SafeBatch(cmds...)
 
 	case tea.MouseWheelMsg:
 		// Adjust Y coordinate for tab bar before forwarding
@@ -141,7 +141,7 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			m.projectTree, cmd = m.projectTree.Update(adjustedMsg)
 			cmds = append(cmds, cmd)
 		}
-		return m, tea.Batch(cmds...)
+		return m, common.SafeBatch(cmds...)
 
 	case tea.KeyPressMsg:
 		// Tab switching with number keys when focused
@@ -171,7 +171,7 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
-	return m, tea.Batch(cmds...)
+	return m, common.SafeBatch(cmds...)
 }
 
 // updateFocus ensures only the active tab is focused

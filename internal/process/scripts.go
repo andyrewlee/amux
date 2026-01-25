@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/safego"
 )
 
 // ScriptType identifies the type of script
@@ -137,12 +138,12 @@ func (r *ScriptRunner) RunScript(wt *data.Worktree, meta *data.Metadata, scriptT
 	r.mu.Unlock()
 
 	// Monitor in background
-	go func() {
+	safego.Go("process.script_wait", func() {
 		_ = cmd.Wait()
 		r.mu.Lock()
 		delete(r.running, wt.Root)
 		r.mu.Unlock()
-	}()
+	})
 
 	return cmd, nil
 }

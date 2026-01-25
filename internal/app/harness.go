@@ -90,6 +90,7 @@ func NewHarness(opts HarnessOptions) (*Harness, error) {
 func newMonitorHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 	centerModel := center.New(cfg)
 	centerModel.SetShowKeymapHints(opts.ShowKeymapHints)
+	centerModel.SetMonitorMode(true)
 
 	tabs := make([]*center.Tab, 0, opts.Tabs)
 	for i := 0; i < opts.Tabs; i++ {
@@ -123,6 +124,7 @@ func newMonitorHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 		centerChrome:    &compositor.ChromeCache{},
 		sidebarChrome:   &compositor.ChromeCache{},
 	}
+	app.monitorMode = true
 
 	app.projects = make([]data.Project, 0, opts.Tabs)
 	for i := 0; i < opts.Tabs; i++ {
@@ -295,6 +297,9 @@ func (h *Harness) Step(frame int) {
 			continue
 		}
 		tab.WriteToTerminal(payload)
+	}
+	if h.mode == HarnessMonitor && h.app != nil && h.app.center != nil {
+		h.app.center.RefreshMonitorSnapshots()
 	}
 }
 

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -8,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -24,7 +27,18 @@ const (
 // View renders the application using layer-based composition.
 // This uses lipgloss Canvas to compose layers directly, enabling ultraviolet's
 // cell-level differential rendering for optimal performance.
-func (a *App) View() tea.View {
+func (a *App) View() (view tea.View) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Error("panic in app.View: %v\n%s", r, debug.Stack())
+			a.err = fmt.Errorf("render error: %v", r)
+			view = a.fallbackView()
+		}
+	}()
+	return a.view()
+}
+
+func (a *App) view() tea.View {
 	defer perf.Time("view")()
 
 	baseView := func() tea.View {
@@ -56,6 +70,20 @@ func (a *App) View() tea.View {
 
 	// Use layer-based rendering for normal mode
 	return a.finalizeView(a.viewLayerBased())
+}
+
+func (a *App) fallbackView() tea.View {
+	view := tea.View{
+		AltScreen:       true,
+		BackgroundColor: common.ColorBackground,
+		ForegroundColor: common.ColorForeground,
+	}
+	msg := "A rendering error occurred."
+	if a.err != nil {
+		msg = "Error: " + a.err.Error()
+	}
+	view.SetContent(msg + "\n\nPress any key to dismiss.")
+	return view
 }
 
 // viewLayerBased renders the application using lipgloss Canvas composition.

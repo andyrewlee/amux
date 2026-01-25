@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
+	"github.com/andyrewlee/amux/internal/supervisor"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
@@ -105,9 +107,12 @@ type App struct {
 	canvas        *lipgloss.Canvas
 
 	// Lifecycle
-	ready    bool
-	quitting bool
-	err      error
+	ready        bool
+	quitting     bool
+	err          error
+	shutdownOnce sync.Once
+	ctx          context.Context
+	supervisor   *supervisor.Supervisor
 
 	// Prefix mode (leader key)
 	prefixActive bool
@@ -140,9 +145,10 @@ type App struct {
 	centerBorders        borderCache
 
 	// External message pump (for PTY readers)
-	externalMsgs   chan tea.Msg
-	externalSender func(tea.Msg)
-	externalOnce   sync.Once
+	externalMsgs     chan tea.Msg
+	externalCritical chan tea.Msg
+	externalSender   func(tea.Msg)
+	externalOnce     sync.Once
 }
 
 type drawableCache struct {
@@ -235,33 +241,38 @@ func New(version, commit, date string) (*App, error) {
 		fileWatcher = nil
 	}
 
+	ctx := context.Background()
 	app := &App{
-		config:          cfg,
-		registry:        registry,
-		metadata:        metadata,
-		scripts:         scripts,
-		statusManager:   statusManager,
-		fileWatcher:     fileWatcher,
-		fileWatcherCh:   fileWatcherCh,
-		fileWatcherErr:  fileWatcherErr,
-		layout:          layout.NewManager(),
-		dashboard:       dashboard.New(),
-		center:          center.New(cfg),
-		sidebar:         sidebar.NewTabbedSidebar(),
-		sidebarTerminal: sidebar.NewTerminalModel(),
-		helpOverlay:     common.NewHelpOverlay(),
-		toast:           common.NewToastModel(),
-		focusedPane:     messages.PaneDashboard,
-		showWelcome:     true,
-		keymap:          DefaultKeyMap(),
-		dashboardChrome: &compositor.ChromeCache{},
-		centerChrome:    &compositor.ChromeCache{},
-		sidebarChrome:   &compositor.ChromeCache{},
-		version:         version,
-		commit:          commit,
-		buildDate:       date,
-		externalMsgs:    make(chan tea.Msg, 1024),
+		config:           cfg,
+		registry:         registry,
+		metadata:         metadata,
+		scripts:          scripts,
+		statusManager:    statusManager,
+		fileWatcher:      fileWatcher,
+		fileWatcherCh:    fileWatcherCh,
+		fileWatcherErr:   fileWatcherErr,
+		layout:           layout.NewManager(),
+		dashboard:        dashboard.New(),
+		center:           center.New(cfg),
+		sidebar:          sidebar.NewTabbedSidebar(),
+		sidebarTerminal:  sidebar.NewTerminalModel(),
+		helpOverlay:      common.NewHelpOverlay(),
+		toast:            common.NewToastModel(),
+		focusedPane:      messages.PaneDashboard,
+		showWelcome:      true,
+		keymap:           DefaultKeyMap(),
+		dashboardChrome:  &compositor.ChromeCache{},
+		centerChrome:     &compositor.ChromeCache{},
+		sidebarChrome:    &compositor.ChromeCache{},
+		version:          version,
+		commit:           commit,
+		buildDate:        date,
+		externalMsgs:     make(chan tea.Msg, 1024),
+		externalCritical: make(chan tea.Msg, 256),
+		ctx:              ctx,
 	}
+	app.supervisor = supervisor.New(ctx)
+	app.installSupervisorErrorHandler()
 	// Route PTY messages through the app-level pump.
 	app.center.SetMsgSink(app.enqueueExternalMsg)
 	app.sidebarTerminal.SetMsgSink(app.enqueueExternalMsg)
@@ -276,6 +287,13 @@ func New(version, commit, date string) (*App, error) {
 	app.toast.SetStyles(app.styles)
 	app.helpOverlay.SetStyles(app.styles)
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
+	app.supervisor.Start("center.tab_actor", app.center.RunTabActor, supervisor.WithRestartPolicy(supervisor.RestartAlways))
+	if app.statusManager != nil {
+		app.supervisor.Start("git.status_manager", app.statusManager.Run)
+	}
+	if fileWatcher != nil {
+		app.supervisor.Start("git.file_watcher", fileWatcher.Run, supervisor.WithBackoff(500*time.Millisecond))
+	}
 	return app, nil
 }
 
@@ -288,13 +306,35 @@ func (a *App) Init() tea.Cmd {
 		a.sidebar.Init(),
 		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
+		a.startPTYWatchdog(),
 		a.startFileWatcher(),
 		a.checkForUpdates(),
 	}
 	if a.fileWatcherErr != nil {
 		cmds = append(cmds, a.toast.ShowWarning("File watching disabled; git status may be stale"))
 	}
-	return tea.Batch(cmds...)
+	return a.safeBatch(cmds...)
+}
+
+// Shutdown releases resources that may outlive the Bubble Tea program.
+func (a *App) Shutdown() {
+	a.shutdownOnce.Do(func() {
+		if a.supervisor != nil {
+			a.supervisor.Stop()
+		}
+		if a.fileWatcher != nil {
+			_ = a.fileWatcher.Close()
+		}
+		if a.center != nil {
+			a.center.Close()
+		}
+		if a.sidebarTerminal != nil {
+			a.sidebarTerminal.CloseAll()
+		}
+		if a.scripts != nil {
+			a.scripts.StopAll()
+		}
+	})
 }
 
 // checkForUpdates starts a background check for updates.
@@ -318,8 +358,15 @@ func (a *App) checkForUpdates() tea.Cmd {
 
 // startGitStatusTicker returns a command that ticks every 3 seconds for git status refresh
 func (a *App) startGitStatusTicker() tea.Cmd {
-	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+	return common.SafeTick(3*time.Second, func(t time.Time) tea.Msg {
 		return messages.GitStatusTick{}
+	})
+}
+
+// startPTYWatchdog ticks periodically to ensure PTY readers are running.
+func (a *App) startPTYWatchdog() tea.Cmd {
+	return common.SafeTick(5*time.Second, func(time.Time) tea.Msg {
+		return messages.PTYWatchdogTick{}
 	})
 }
 

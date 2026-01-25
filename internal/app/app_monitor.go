@@ -100,7 +100,12 @@ func (a *App) renderMonitorGrid() string {
 		a.monitorLayoutKey = layoutKey
 	}
 
-	snapshots := a.center.MonitorTabSnapshots()
+	selectedIndex := a.center.MonitorSelectedIndex(len(tabs))
+	activeID := center.TabID("")
+	if selectedIndex >= 0 && selectedIndex < len(tabs) {
+		activeID = tabs[selectedIndex].ID
+	}
+	snapshots := a.center.MonitorTabSnapshotsWithActive(activeID)
 	snapByID := make(map[center.TabID]center.MonitorTabSnapshot, len(snapshots))
 	for _, snap := range snapshots {
 		snapByID[snap.ID] = snap
@@ -118,8 +123,6 @@ func (a *App) renderMonitorGrid() string {
 	for _, project := range a.projects {
 		projectNames[project.Path] = project.Name
 	}
-
-	selectedIndex := a.center.MonitorSelectedIndex(len(tabs))
 
 	for idx, tab := range tabs {
 		rect := monitorTileRect(grid, idx, gridX, gridY)

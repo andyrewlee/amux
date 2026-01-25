@@ -13,6 +13,7 @@ func (m *Model) AddTab(tab *Tab) {
 	}
 	wtID := string(tab.Worktree.ID())
 	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+	m.noteTabsChanged()
 	if _, ok := m.activeTabByWorktree[wtID]; !ok {
 		m.activeTabByWorktree[wtID] = 0
 	}

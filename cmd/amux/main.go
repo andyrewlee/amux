@@ -14,6 +14,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/app"
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/safego"
 )
 
 // Version info set by GoReleaser via ldflags
@@ -59,6 +60,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error running app: %v\n", err)
 		os.Exit(1)
 	}
+	a.Shutdown()
 
 	logging.Info("amux shutdown complete")
 }
@@ -94,10 +96,10 @@ func startPprof() {
 		addr = "127.0.0.1:" + raw
 	}
 
-	go func() {
+	safego.Go("pprof", func() {
 		logging.Info("pprof listening on %s", addr)
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			logging.Warn("pprof server stopped: %v", err)
 		}
-	}()
+	})
 }

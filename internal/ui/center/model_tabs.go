@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/diff"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -45,15 +46,37 @@ func nextAssistantName(assistant string, tabs []*Tab) string {
 	}
 }
 
+type ptyTabCreateResult struct {
+	Worktree    *data.Worktree
+	Assistant   string
+	DisplayName string
+	Agent       *appPty.Agent
+	Rows        int
+	Cols        int
+}
+
+func truncateDisplayName(name string) string {
+	if len(name) > 20 {
+		return "..." + name[len(name)-17:]
+	}
+	return name
+}
+
 // createAgentTab creates a new agent tab
 func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
+	if wt == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating agent"}
+		}
+	}
+
+	// Calculate terminal dimensions using the same metrics as render/layout.
+	tm := m.terminalMetrics()
+	termWidth := tm.Width
+	termHeight := tm.Height
+
 	return func() tea.Msg {
 		logging.Info("Creating agent tab: assistant=%s worktree=%s", assistant, wt.Name)
-
-		// Calculate terminal dimensions using the same metrics as render/layout.
-		tm := m.terminalMetrics()
-		termWidth := tm.Width
-		termHeight := tm.Height
 
 		agent, err := m.agentManager.CreateAgent(wt, appPty.AgentType(assistant), uint16(termHeight), uint16(termWidth))
 		if err != nil {
@@ -63,40 +86,13 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 
 		logging.Info("Agent created, Terminal=%v", agent.Terminal != nil)
 
-		// Create virtual terminal emulator with scrollback
-		term := vterm.New(termWidth, termHeight)
-
-		// Set up response writer for terminal queries (DSR, DA, etc.)
-		if agent.Terminal != nil {
-			term.SetResponseWriter(func(data []byte) {
-				_ = agent.Terminal.SendString(string(data))
-			})
-		}
-
-		// Create tab with unique ID
-		wtID := string(wt.ID())
-		displayName := nextAssistantName(assistant, m.tabsByWorktree[wtID])
-		tab := &Tab{
-			ID:        generateTabID(),
-			Name:      displayName,
-			Assistant: assistant,
+		return ptyTabCreateResult{
 			Worktree:  wt,
+			Assistant: assistant,
 			Agent:     agent,
-			Terminal:  term,
-			Running:   true, // Agent starts running
+			Rows:      termHeight,
+			Cols:      termWidth,
 		}
-
-		// Set PTY size to match
-		if agent.Terminal != nil {
-			m.resizePTY(tab, termHeight, termWidth)
-			logging.Info("Terminal size set to %dx%d", termWidth, termHeight)
-		}
-
-		// Add tab to the worktree's tab list
-		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
-
-		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
 	}
 }
 
@@ -108,17 +104,17 @@ func (m *Model) createVimTab(filePath string, wt *data.Worktree) tea.Cmd {
 		}
 	}
 
+	// Calculate terminal dimensions using the same metrics as render/layout.
+	tm := m.terminalMetrics()
+	termWidth := tm.Width
+	termHeight := tm.Height
+
 	return func() tea.Msg {
 		logging.Info("Creating vim tab: file=%s worktree=%s", filePath, wt.Name)
 
 		// Escape filename for shell
 		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
 		cmd := fmt.Sprintf("vim -- %s", escapedFile)
-
-		// Calculate terminal dimensions using the same metrics as render/layout.
-		tm := m.terminalMetrics()
-		termWidth := tm.Width
-		termHeight := tm.Height
 
 		agent, err := m.agentManager.CreateViewer(wt, cmd, uint16(termHeight), uint16(termWidth))
 		if err != nil {
@@ -128,48 +124,21 @@ func (m *Model) createVimTab(filePath string, wt *data.Worktree) tea.Cmd {
 
 		logging.Info("Vim viewer created, Terminal=%v", agent.Terminal != nil)
 
-		// Create virtual terminal emulator with scrollback
-		term := vterm.New(termWidth, termHeight)
-
-		// Set up response writer for terminal queries (DSR, DA, etc.)
-		if agent.Terminal != nil {
-			term.SetResponseWriter(func(data []byte) {
-				_ = agent.Terminal.SendString(string(data))
-			})
-		}
-
-		// Create tab with unique ID
-		wtID := string(wt.ID())
 		// Use filename for display (truncate if needed)
 		fileName := filePath
 		if idx := strings.LastIndex(filePath, "/"); idx >= 0 {
-			fileName = filePath[idx+1:]
+			fileName = fileName[idx+1:]
 		}
-		displayName := fileName
-		if len(displayName) > 20 {
-			displayName = "..." + displayName[len(displayName)-17:]
+		displayName := truncateDisplayName(fileName)
+
+		return ptyTabCreateResult{
+			Worktree:    wt,
+			Assistant:   "vim",
+			DisplayName: displayName,
+			Agent:       agent,
+			Rows:        termHeight,
+			Cols:        termWidth,
 		}
-
-		tab := &Tab{
-			ID:        generateTabID(),
-			Name:      displayName,
-			Assistant: "vim",
-			Worktree:  wt,
-			Agent:     agent,
-			Terminal:  term,
-			Running:   true,
-		}
-
-		// Set PTY size to match
-		if agent.Terminal != nil {
-			m.resizePTY(tab, termHeight, termWidth)
-		}
-
-		// Add tab to the worktree's tab list
-		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
-
-		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
 	}
 }
 
@@ -210,9 +179,10 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, wt *data.Wo
 	// Add tab to the worktree's tab list
 	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
 	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+	m.noteTabsChanged()
 
 	// Return the Init command to start loading the diff
-	return tea.Batch(
+	return common.SafeBatch(
 		dv.Init(),
 		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName} },
 	)
@@ -228,6 +198,12 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.W
 			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating viewer"}
 		}
 	}
+
+	// Calculate terminal dimensions using the same metrics as render/layout.
+	tm := m.terminalMetrics()
+	termWidth := tm.Width
+	termHeight := tm.Height
+
 	return func() tea.Msg {
 		logging.Info("Creating viewer tab: file=%s statusCode=%s worktree=%s", file, statusCode, wt.Name)
 
@@ -246,11 +222,6 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.W
 			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
 		}
 
-		// Calculate terminal dimensions using the same metrics as render/layout.
-		tm := m.terminalMetrics()
-		termWidth := tm.Width
-		termHeight := tm.Height
-
 		agent, err := m.agentManager.CreateViewer(wt, cmd, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create viewer: %v", err)
@@ -259,42 +230,94 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.W
 
 		logging.Info("Viewer created, Terminal=%v", agent.Terminal != nil)
 
-		// Create virtual terminal emulator with scrollback
-		term := vterm.New(termWidth, termHeight)
+		displayName := truncateDisplayName(fmt.Sprintf("Diff: %s", file))
 
-		// Set up response writer for terminal queries (DSR, DA, etc.)
-		if agent.Terminal != nil {
-			term.SetResponseWriter(func(data []byte) {
-				_ = agent.Terminal.SendString(string(data))
-			})
+		return ptyTabCreateResult{
+			Worktree:    wt,
+			Assistant:   "viewer", // Use a generic type for styling
+			DisplayName: displayName,
+			Agent:       agent,
+			Rows:        termHeight,
+			Cols:        termWidth,
 		}
+	}
+}
 
-		// Create tab with unique ID
-		wtID := string(wt.ID())
-		displayName := fmt.Sprintf("Diff: %s", file)
-		if len(displayName) > 20 {
-			displayName = "..." + displayName[len(displayName)-17:]
+func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
+	if msg.Worktree == nil || msg.Agent == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: fmt.Errorf("missing worktree or agent"), Context: "creating terminal tab"}
 		}
+	}
 
-		tab := &Tab{
-			ID:        generateTabID(),
-			Name:      displayName,
-			Assistant: "viewer", // Use a generic type for styling
-			Worktree:  wt,
-			Agent:     agent,
-			Terminal:  term,
-			Running:   true,
-		}
+	rows := msg.Rows
+	cols := msg.Cols
+	if rows <= 0 || cols <= 0 {
+		tm := m.terminalMetrics()
+		rows = tm.Height
+		cols = tm.Width
+	}
 
-		// Set PTY size to match
-		if agent.Terminal != nil {
-			m.resizePTY(tab, termHeight, termWidth)
-		}
+	displayName := strings.TrimSpace(msg.DisplayName)
+	if displayName == "" {
+		wtID := string(msg.Worktree.ID())
+		displayName = nextAssistantName(msg.Assistant, m.tabsByWorktree[wtID])
+	}
+	if displayName == "" {
+		displayName = "Terminal"
+	}
 
-		// Add tab to the worktree's tab list
-		m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-		m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+	// Create virtual terminal emulator with scrollback
+	term := vterm.New(cols, rows)
 
+	// Create tab with unique ID
+	tabID := generateTabID()
+	tab := &Tab{
+		ID:           tabID,
+		Name:         displayName,
+		Assistant:    msg.Assistant,
+		Worktree:     msg.Worktree,
+		Agent:        msg.Agent,
+		Terminal:     term,
+		Running:      true, // Agent/viewer starts running
+		monitorDirty: true,
+	}
+
+	// Set up response writer for terminal queries (DSR, DA, etc.)
+	if msg.Agent.Terminal != nil {
+		term.SetResponseWriter(func(data []byte) {
+			if len(data) == 0 {
+				return
+			}
+			if m.isTabActorReady() {
+				response := append([]byte(nil), data...)
+				if !m.sendTabEvent(tabEvent{
+					tab:        tab,
+					worktreeID: string(msg.Worktree.ID()),
+					tabID:      tabID,
+					kind:       tabEventSendResponse,
+					response:   response,
+				}) {
+					_ = msg.Agent.Terminal.SendString(string(response))
+				}
+				return
+			}
+			_ = msg.Agent.Terminal.SendString(string(data))
+		})
+	}
+
+	// Set PTY size to match
+	if msg.Agent.Terminal != nil {
+		m.resizePTY(tab, rows, cols)
+	}
+
+	// Add tab to the worktree's tab list
+	wtID := string(msg.Worktree.ID())
+	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+	m.noteTabsChanged()
+
+	return func() tea.Msg {
 		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
 	}
 }
@@ -318,6 +341,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	}
 
 	tab := tabs[index]
+	tab.markClosing()
 
 	m.stopPTYReader(tab)
 
@@ -334,7 +358,10 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	}
 	// Clean up viewers
 	tab.DiffViewer = nil
+	tab.Running = false
+	tab.pendingOutput = nil
 	tab.mu.Unlock()
+	tab.markClosed()
 
 	// Remove from tabs
 	m.removeTab(index)
@@ -414,6 +441,9 @@ func (m *Model) SendToTerminal(s string) {
 		return
 	}
 	tab := tabs[activeIdx]
+	if tab.isClosed() {
+		return
+	}
 	if tab.Agent != nil && tab.Agent.Terminal != nil {
 		_ = tab.Agent.Terminal.SendString(s)
 	}
@@ -440,6 +470,9 @@ func (m *Model) HasDiffViewer() bool {
 		return false
 	}
 	tab := tabs[activeIdx]
+	if tab.isClosed() {
+		return false
+	}
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
 	return tab.DiffViewer != nil
