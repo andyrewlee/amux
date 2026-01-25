@@ -26,6 +26,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		status := ""
 		statusText := ""
 		dirty := false
+		working := false
 		main := m.getMainWorktree(row.Project)
 		if main != nil {
 			if m.deletingWorktrees[main.Root] {
@@ -34,6 +35,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			} else if m.loadingStatus[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				statusText = m.styles.StatusPending.Render(frame)
+			} else if m.activeWorktrees[main.Root] {
+				// Active agents - color change only, no spinner
+				working = true
 			} else if s, ok := m.statusCache[main.Root]; ok && !s.Clean {
 				dirty = true
 			}
@@ -52,7 +56,10 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if m.isProjectActive(row.Project) {
 			style = m.styles.ActiveWorktree.PaddingLeft(0)
 		}
-		if dirty {
+		// Working color takes priority over dirty color
+		if working {
+			style = style.Foreground(common.ColorPrimary).Bold(true)
+		} else if dirty {
 			style = style.Foreground(common.ColorSecondary)
 		}
 
@@ -88,6 +95,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		status := ""
 		statusText := ""
 		dirty := false
+		working := false
 
 		// Check deletion state first
 		if m.deletingWorktrees[row.Worktree.Root] {
@@ -100,6 +108,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			// Show spinner while loading
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame)
+		} else if m.activeWorktrees[row.Worktree.Root] {
+			// Active agents - color change only, no spinner
+			working = true
 		} else if s, ok := m.statusCache[row.Worktree.Root]; ok && !s.Clean {
 			dirty = true
 		}
@@ -114,7 +125,10 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if row.Worktree.Root == m.activeRoot {
 			style = m.styles.ActiveWorktree
 		}
-		if dirty {
+		// Working color takes priority over dirty color
+		if working {
+			style = style.Foreground(common.ColorPrimary).Bold(true)
+		} else if dirty {
 			style = style.Foreground(common.ColorSecondary)
 		}
 		// Reserve space for delete icon to keep status aligned

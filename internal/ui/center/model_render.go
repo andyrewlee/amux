@@ -180,18 +180,16 @@ func (m *Model) renderTabBar() string {
 			name = tab.Assistant
 		}
 
-		// Add status indicator only for agent tabs (not file viewers)
+		// Add brand color indicator for agent tabs (not file viewers)
 		var indicator string
+		var tabActive bool
 		isAgent := tab.Assistant == "claude" || tab.Assistant == "codex" ||
 			tab.Assistant == "gemini" || tab.Assistant == "amp" ||
 			tab.Assistant == "opencode" || tab.Assistant == "droid" ||
 			tab.Assistant == "cursor"
 		if isAgent {
-			if tab.Running {
-				indicator = common.Icons.Running + " "
-			} else {
-				indicator = common.Icons.Idle + " "
-			}
+			indicator = common.Icons.Running + " " // Brand color dot
+			tabActive = m.IsTabActive(tab)
 		}
 
 		// Get agent-specific color
@@ -224,14 +222,24 @@ func (m *Model) renderTabBar() string {
 			bg := common.ColorSurface2
 			pad := lipgloss.NewStyle().Background(bg).Render(" ")
 			indicatorPart := lipgloss.NewStyle().Foreground(agentStyle.GetForeground()).Background(bg).Render(indicator)
-			namePart := lipgloss.NewStyle().Foreground(common.ColorForeground).Background(bg).Render(name)
+			// Use primary color and bold when actively working
+			nameStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Background(bg)
+			if tabActive {
+				nameStyle = nameStyle.Foreground(common.ColorPrimary).Bold(true)
+			}
+			namePart := nameStyle.Render(name)
 			space := lipgloss.NewStyle().Background(bg).Render(" ")
 			closePart := lipgloss.NewStyle().Foreground(common.ColorMuted).Background(bg).Render("×")
 			rendered = pad + indicatorPart + namePart + space + closePart + pad
 			style = m.styles.ActiveTab
 		} else {
-			// Inactive tab - muted with colored indicator
-			nameStyled := m.styles.Muted.Render(name)
+			// Inactive tab - muted with colored indicator, or primary color + bold when active
+			var nameStyled string
+			if tabActive {
+				nameStyled = lipgloss.NewStyle().Foreground(common.ColorPrimary).Bold(true).Render(name)
+			} else {
+				nameStyled = m.styles.Muted.Render(name)
+			}
 			content := agentStyle.Render(indicator) + nameStyled + " " + closeLabel
 			rendered = m.styles.Tab.Render(content)
 			style = m.styles.Tab

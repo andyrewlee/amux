@@ -532,6 +532,66 @@ func (m *Model) HasActiveAgents() bool {
 	return false
 }
 
+// IsTabActive returns whether a specific tab has emitted output recently.
+// This is used for the tab bar spinner animation (shows activity, not just running state).
+func (m *Model) IsTabActive(tab *Tab) bool {
+	if tab == nil {
+		return false
+	}
+	// Check Running state and output state together to avoid race condition
+	// Note: These fields are accessed from the main update goroutine
+	if !tab.Running {
+		return false
+	}
+	// Check buffered output or recent output timestamp
+	if tab.flushScheduled || len(tab.pendingOutput) > 0 {
+		return true
+	}
+	return !tab.lastOutputAt.IsZero() && time.Since(tab.lastOutputAt) < 2*time.Second
+}
+
+// HasActiveAgentsInWorktree returns whether any tab in a worktree is actively outputting.
+func (m *Model) HasActiveAgentsInWorktree(wtID string) bool {
+	for _, tab := range m.tabsByWorktree[wtID] {
+		if m.IsTabActive(tab) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetActiveWorktreeRoots returns all worktree root paths with active agents.
+func (m *Model) GetActiveWorktreeRoots() []string {
+	var active []string
+	for wtID, tabs := range m.tabsByWorktree {
+		if m.HasActiveAgentsInWorktree(wtID) {
+			// Get the root path from one of the tabs
+			for _, tab := range tabs {
+				if tab.Worktree != nil {
+					active = append(active, tab.Worktree.Root)
+					break
+				}
+			}
+		}
+	}
+	return active
+}
+
+// GetRunningWorktreeRoots returns all worktree root paths with running agents.
+// This includes agents that are running but idle (waiting at prompt).
+func (m *Model) GetRunningWorktreeRoots() []string {
+	var running []string
+	for _, tabs := range m.tabsByWorktree {
+		for _, tab := range tabs {
+			if tab.Running && tab.Worktree != nil {
+				running = append(running, tab.Worktree.Root)
+				break // Only need one per worktree
+			}
+		}
+	}
+	return running
+}
+
 // StartPTYReaders starts reading from all PTYs across all worktrees
 func (m *Model) StartPTYReaders() tea.Cmd {
 	if m.isTabActorReady() {

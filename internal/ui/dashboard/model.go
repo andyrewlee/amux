@@ -13,8 +13,8 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// spinnerTickMsg is sent to update the spinner animation
-type spinnerTickMsg struct{}
+// SpinnerTickMsg is sent to update the spinner animation
+type SpinnerTickMsg struct{}
 
 // spinnerInterval is how often the spinner updates
 const spinnerInterval = 80 * time.Millisecond
@@ -82,6 +82,9 @@ type Model struct {
 	spinnerFrame      int                       // Current spinner animation frame
 	spinnerActive     bool                      // Whether spinner ticks are active
 
+	// Agent activity state
+	activeWorktrees map[string]bool // Worktrees with active agents (synced from center)
+
 	// Styles
 	styles common.Styles
 }
@@ -95,10 +98,16 @@ func New() *Model {
 		loadingStatus:     make(map[string]bool),
 		creatingWorktrees: make(map[string]*data.Worktree),
 		deletingWorktrees: make(map[string]bool),
+		activeWorktrees:   make(map[string]bool),
 		cursor:            0,
 		focused:           true,
 		styles:            common.DefaultStyles(),
 	}
+}
+
+// SetActiveWorktrees updates the set of worktrees with active agents.
+func (m *Model) SetActiveWorktrees(active map[string]bool) {
+	m.activeWorktrees = active
 }
 
 // SetCanFocusRight controls whether focus-right hints should be shown.
@@ -266,9 +275,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 		}
 
-	case spinnerTickMsg:
-		// Advance spinner frame if we have loading items
-		if len(m.loadingStatus) > 0 || len(m.creatingWorktrees) > 0 || len(m.deletingWorktrees) > 0 {
+	case SpinnerTickMsg:
+		// Advance spinner frame if we have loading items or active agents
+		if len(m.loadingStatus) > 0 || len(m.creatingWorktrees) > 0 || len(m.deletingWorktrees) > 0 || len(m.activeWorktrees) > 0 {
 			m.spinnerFrame++
 			cmds = append(cmds, m.tickSpinner())
 		} else {
