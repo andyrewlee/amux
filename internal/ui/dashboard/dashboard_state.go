@@ -13,7 +13,7 @@ import (
 // tickSpinner returns a command that ticks the spinner
 func (m *Model) tickSpinner() tea.Cmd {
 	return common.SafeTick(spinnerInterval, func(t time.Time) tea.Msg {
-		return spinnerTickMsg{}
+		return SpinnerTickMsg{}
 	})
 }
 
@@ -22,11 +22,16 @@ func (m *Model) startSpinnerIfNeeded() tea.Cmd {
 	if m.spinnerActive {
 		return nil
 	}
-	if len(m.loadingStatus) == 0 && len(m.creatingWorktrees) == 0 && len(m.deletingWorktrees) == 0 {
+	if len(m.loadingStatus) == 0 && len(m.creatingWorktrees) == 0 && len(m.deletingWorktrees) == 0 && len(m.activeWorktrees) == 0 {
 		return nil
 	}
 	m.spinnerActive = true
 	return m.tickSpinner()
+}
+
+// StartSpinnerIfNeeded is the public version for external callers.
+func (m *Model) StartSpinnerIfNeeded() tea.Cmd {
+	return m.startSpinnerIfNeeded()
 }
 
 // SetWorktreeCreating marks a worktree as creating (or clears it).

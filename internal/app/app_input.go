@@ -12,6 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
@@ -358,6 +359,15 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handlePTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		// Sync active agents state to dashboard (show spinner only when actively outputting)
+		activeWorktrees := make(map[string]bool)
+		for _, root := range a.center.GetActiveWorktreeRoots() {
+			activeWorktrees[root] = true
+		}
+		a.dashboard.SetActiveWorktrees(activeWorktrees)
+		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
+			cmds = append(cmds, startCmd)
+		}
 
 	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
@@ -367,6 +377,29 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sidebar.OpenFileInEditor:
 		if cmd := a.handleOpenFileInEditor(msg); cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+
+	case dashboard.SpinnerTickMsg:
+		// Sync active agents state from center to dashboard
+		activeWorktrees := make(map[string]bool)
+		for _, root := range a.center.GetActiveWorktreeRoots() {
+			activeWorktrees[root] = true
+		}
+		a.dashboard.SetActiveWorktrees(activeWorktrees)
+
+		// Tick center spinner for tab activity animation
+		a.center.TickSpinner()
+
+		// Forward to dashboard for its own spinner handling
+		newDashboard, cmd := a.dashboard.Update(msg)
+		a.dashboard = newDashboard
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		// Start spinner if we have active agents but spinner isn't running
+		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
+			cmds = append(cmds, startCmd)
 		}
 
 	case messages.GitStatusTick:

@@ -138,6 +138,9 @@ type Model struct {
 	offsetX         int // X offset from screen left (dashboard width)
 	showKeymapHints bool
 
+	// Animation
+	spinnerFrame int // Current frame for activity spinner animation
+
 	// Config
 	config  *config.Config
 	styles  common.Styles
@@ -485,6 +488,11 @@ func (m *Model) Close() {
 	if m.agentManager != nil {
 		m.agentManager.CloseAll()
 	}
+}
+
+// TickSpinner advances the spinner animation frame.
+func (m *Model) TickSpinner() {
+	m.spinnerFrame++
 }
 
 // screenToTerminal converts screen coordinates to terminal coordinates
