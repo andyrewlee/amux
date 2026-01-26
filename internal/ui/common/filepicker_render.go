@@ -280,6 +280,8 @@ func (fp *FilePicker) primaryActionLabel() string {
 }
 
 func (fp *FilePicker) inputOffset() int {
+	contentWidth := filePickerContentWidth - 4 // Padding(1, 2) = 2 chars each side
+
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
@@ -287,9 +289,12 @@ func (fp *FilePicker) inputOffset() int {
 	pathStyle := lipgloss.NewStyle().
 		Foreground(ColorSecondary)
 
+	// Use truncated path to match renderLines() behavior
+	displayPath := truncateToWidth(fp.currentPath, contentWidth)
+
 	offset := lipgloss.Height(titleStyle.Render(fp.title))
 	offset += 2 // blank lines after title
-	offset += lipgloss.Height(pathStyle.Render(fp.currentPath))
+	offset += lipgloss.Height(pathStyle.Render(displayPath))
 	offset += 2 // blank lines after path
 	return offset
 }
