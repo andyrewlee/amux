@@ -26,7 +26,7 @@ func TestPTYMonitorToggle(t *testing.T) {
 	}
 	defer cleanup()
 
-	if err := session.WaitForContains("New project", 5*time.Second); err != nil {
+	if err := session.WaitForContains("Add project", 5*time.Second); err != nil {
 		t.Fatalf("welcome not visible: %v", err)
 	}
 
@@ -47,7 +47,7 @@ func TestPTYMonitorToggle(t *testing.T) {
 	if err := session.SendString("\x00m"); err != nil {
 		t.Fatalf("send prefix+monitor exit: %v", err)
 	}
-	if err := session.WaitForContains("New project", 5*time.Second); err != nil {
+	if err := session.WaitForContains("Add project", 5*time.Second); err != nil {
 		t.Fatalf("welcome not visible after exit: %v", err)
 	}
 }

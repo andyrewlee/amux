@@ -432,7 +432,7 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 		lineWidth := lipgloss.Width(line)
 		lineOffsetX := centerOffset(placeWidth, lineWidth)
 
-		// Settings button - check first so it's not blocked by New project's region
+		// Settings button - check first so it's not blocked by Add project's region
 		settingsText := "[Settings]"
 		if idx := strings.Index(strippedLine, settingsText); idx >= 0 {
 			region := common.HitRegion{
@@ -446,13 +446,13 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 			}
 		}
 
-		// New project button
-		newProjectText := "[New project]"
-		if idx := strings.Index(strippedLine, newProjectText); idx >= 0 {
+		// Add project button
+		addProjectText := "[Add project]"
+		if idx := strings.Index(strippedLine, addProjectText); idx >= 0 {
 			region := common.HitRegion{
 				X:      idx + lineOffsetX,
 				Y:      i + offsetY,
-				Width:  len(newProjectText),
+				Width:  len(addProjectText),
 				Height: 1,
 			}
 			if region.Contains(localX, localY) {
