@@ -2,20 +2,20 @@ package center
 
 // AddTab appends a tab to the model. Used by harness/test code that builds tabs manually.
 func (m *Model) AddTab(tab *Tab) {
-	if m == nil || tab == nil || tab.Worktree == nil {
+	if m == nil || tab == nil || tab.Workspace == nil {
 		return
 	}
-	if m.tabsByWorktree == nil {
-		m.tabsByWorktree = make(map[string][]*Tab)
+	if m.tabsByWorkspace == nil {
+		m.tabsByWorkspace = make(map[string][]*Tab)
 	}
-	if m.activeTabByWorktree == nil {
-		m.activeTabByWorktree = make(map[string]int)
+	if m.activeTabByWorkspace == nil {
+		m.activeTabByWorkspace = make(map[string]int)
 	}
-	wtID := string(tab.Worktree.ID())
-	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
+	wtID := string(tab.Workspace.ID())
+	m.tabsByWorkspace[wtID] = append(m.tabsByWorkspace[wtID], tab)
 	m.noteTabsChanged()
-	if _, ok := m.activeTabByWorktree[wtID]; !ok {
-		m.activeTabByWorktree[wtID] = 0
+	if _, ok := m.activeTabByWorkspace[wtID]; !ok {
+		m.activeTabByWorkspace[wtID] = 0
 	}
 }
 

@@ -194,10 +194,10 @@ func (a *App) monitorProjectFilters() []monitorProjectFilter {
 	seen := make(map[string]bool)
 	filters := make([]monitorProjectFilter, 0, len(tabs))
 	for _, tab := range tabs {
-		if tab.Worktree == nil {
+		if tab.Workspace == nil {
 			continue
 		}
-		key, label := a.monitorProjectKeyLabel(tab.Worktree)
+		key, label := a.monitorProjectKeyLabel(tab.Workspace)
 		if key == "" {
 			continue
 		}
@@ -240,29 +240,29 @@ func (a *App) monitorProjectFilters() []monitorProjectFilter {
 	return filters
 }
 
-func (a *App) monitorProjectKeyLabel(wt *data.Worktree) (string, string) {
-	if wt == nil {
+func (a *App) monitorProjectKeyLabel(ws *data.Workspace) (string, string) {
+	if ws == nil {
 		return "", ""
 	}
-	if project := a.projectForWorktree(wt); project != nil {
+	if project := a.projectForWorkspace(ws); project != nil {
 		key := project.Path
 		if key == "" {
-			key = wt.Repo
+			key = ws.Repo
 		}
 		if key == "" {
-			key = wt.Root
+			key = ws.Root
 		}
 		label := project.Name
 		if label == "" {
-			label = monitorProjectName(wt)
+			label = monitorProjectName(ws)
 		}
 		return key, label
 	}
-	key := wt.Repo
+	key := ws.Repo
 	if key == "" {
-		key = wt.Root
+		key = ws.Root
 	}
-	label := monitorProjectName(wt)
+	label := monitorProjectName(ws)
 	if label == "" {
 		label = key
 	}
@@ -290,10 +290,10 @@ func (a *App) filterMonitorTabs(tabs []center.MonitorTab) []center.MonitorTab {
 	}
 	var filtered []center.MonitorTab
 	for _, tab := range tabs {
-		if tab.Worktree == nil {
+		if tab.Workspace == nil {
 			continue
 		}
-		key, _ := a.monitorProjectKeyLabel(tab.Worktree)
+		key, _ := a.monitorProjectKeyLabel(tab.Workspace)
 		if key == a.monitorFilter {
 			filtered = append(filtered, tab)
 		}
@@ -404,15 +404,15 @@ func (a *App) selectMonitorTile(paneX, paneY int) (int, bool) {
 	return -1, false
 }
 
-func monitorProjectName(wt *data.Worktree) string {
-	if wt == nil {
+func monitorProjectName(ws *data.Workspace) string {
+	if ws == nil {
 		return "unknown"
 	}
-	if wt.Repo != "" {
-		return filepath.Base(wt.Repo)
+	if ws.Repo != "" {
+		return filepath.Base(ws.Repo)
 	}
-	if wt.Root != "" {
-		return filepath.Base(wt.Root)
+	if ws.Root != "" {
+		return filepath.Base(ws.Root)
 	}
 	return "unknown"
 }

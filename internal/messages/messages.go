@@ -21,47 +21,47 @@ type ProjectsLoaded struct {
 	Projects []data.Project
 }
 
-// WorktreeActivated is sent when a worktree is selected
-type WorktreeActivated struct {
-	Project  *data.Project
-	Worktree *data.Worktree
+// WorkspaceActivated is sent when a workspace is selected
+type WorkspaceActivated struct {
+	Project   *data.Project
+	Workspace *data.Workspace
 }
 
-// WorktreePreviewed is sent when a worktree is previewed (cursor movement)
-type WorktreePreviewed struct {
-	Project  *data.Project
-	Worktree *data.Worktree
+// WorkspacePreviewed is sent when a workspace is previewed (cursor movement)
+type WorkspacePreviewed struct {
+	Project   *data.Project
+	Workspace *data.Workspace
 }
 
-// WorktreeCreated is sent when a new worktree is created
-type WorktreeCreated struct {
-	Worktree *data.Worktree
-	Meta     *data.Metadata // For async setup
+// WorkspaceCreated is sent when a new workspace is created
+type WorkspaceCreated struct {
+	Workspace *data.Workspace
+	Meta      *data.Metadata // For async setup
 }
 
-// WorktreeSetupComplete is sent when async setup scripts finish
-type WorktreeSetupComplete struct {
-	Worktree *data.Worktree
-	Err      error
+// WorkspaceSetupComplete is sent when async setup scripts finish
+type WorkspaceSetupComplete struct {
+	Workspace *data.Workspace
+	Err       error
 }
 
-// WorktreeCreateFailed is sent when a worktree creation fails
-type WorktreeCreateFailed struct {
-	Worktree *data.Worktree
-	Err      error
+// WorkspaceCreateFailed is sent when a workspace creation fails
+type WorkspaceCreateFailed struct {
+	Workspace *data.Workspace
+	Err       error
 }
 
-// WorktreeDeleted is sent when a worktree is deleted
-type WorktreeDeleted struct {
-	Project  *data.Project
-	Worktree *data.Worktree
+// WorkspaceDeleted is sent when a workspace is deleted
+type WorkspaceDeleted struct {
+	Project   *data.Project
+	Workspace *data.Workspace
 }
 
-// WorktreeDeleteFailed is sent when a worktree deletion fails
-type WorktreeDeleteFailed struct {
-	Project  *data.Project
-	Worktree *data.Worktree
-	Err      error
+// WorkspaceDeleteFailed is sent when a workspace deletion fails
+type WorkspaceDeleteFailed struct {
+	Project   *data.Project
+	Workspace *data.Workspace
+	Err       error
 }
 
 // ProjectAdded is sent when a new project is registered
@@ -94,7 +94,7 @@ type FocusPane struct {
 // CreateAgentTab requests creation of a new agent tab
 type CreateAgentTab struct {
 	Assistant string
-	Worktree  *data.Worktree
+	Workspace *data.Workspace
 }
 
 // TabCreated is sent when a new tab is created
@@ -143,8 +143,8 @@ type PTYWatchdogTick struct{}
 
 // SidebarPTYRestart requests restarting a sidebar PTY reader.
 type SidebarPTYRestart struct {
-	WorktreeID string
-	TabID      string
+	WorkspaceID string
+	TabID       string
 }
 
 // ToggleKeymapHints toggles display of keymap helper text
@@ -159,15 +159,15 @@ type ShowAddProjectDialog struct{}
 // ShowSettingsDialog requests showing the settings dialog
 type ShowSettingsDialog struct{}
 
-// ShowCreateWorktreeDialog requests showing the create worktree dialog
-type ShowCreateWorktreeDialog struct {
+// ShowCreateWorkspaceDialog requests showing the create workspace dialog
+type ShowCreateWorkspaceDialog struct {
 	Project *data.Project
 }
 
-// ShowDeleteWorktreeDialog requests showing the delete worktree confirmation
-type ShowDeleteWorktreeDialog struct {
-	Project  *data.Project
-	Worktree *data.Worktree
+// ShowDeleteWorkspaceDialog requests showing the delete workspace confirmation
+type ShowDeleteWorkspaceDialog struct {
+	Project   *data.Project
+	Workspace *data.Workspace
 }
 
 // ShowRemoveProjectDialog requests showing the remove project confirmation
@@ -175,17 +175,17 @@ type ShowRemoveProjectDialog struct {
 	Project *data.Project
 }
 
-// CreateWorktree requests creating a new worktree
-type CreateWorktree struct {
+// CreateWorkspace requests creating a new workspace
+type CreateWorkspace struct {
 	Project *data.Project
 	Name    string
 	Base    string
 }
 
-// DeleteWorktree requests deleting a worktree
-type DeleteWorktree struct {
-	Project  *data.Project
-	Worktree *data.Worktree
+// DeleteWorkspace requests deleting a workspace
+type DeleteWorkspace struct {
+	Project   *data.Project
+	Workspace *data.Workspace
 }
 
 // RemoveProject requests removing a project from the registry
@@ -204,7 +204,7 @@ type ShowSelectAssistantDialog struct{}
 // LaunchAgent requests launching an agent in a new tab
 type LaunchAgent struct {
 	Assistant string
-	Worktree  *data.Worktree
+	Workspace *data.Workspace
 }
 
 // OpenDiff requests opening a diff viewer for a file
@@ -214,21 +214,21 @@ type OpenDiff struct {
 	StatusCode string // Git status code (e.g., "M ", "??", "A ")
 
 	// New fields
-	Change   *git.Change  // Change object with full info
-	Mode     git.DiffMode // Which diff mode to use
-	Worktree *data.Worktree
+	Change    *git.Change  // Change object with full info
+	Mode      git.DiffMode // Which diff mode to use
+	Workspace *data.Workspace
 }
 
 // CloseTab requests closing the current tab
 type CloseTab struct{}
 
-// WorktreeCreatedWithWarning indicates worktree was created but setup had issues
-type WorktreeCreatedWithWarning struct {
-	Worktree *data.Worktree
-	Warning  string
+// WorkspaceCreatedWithWarning indicates workspace was created but setup had issues
+type WorkspaceCreatedWithWarning struct {
+	Workspace *data.Workspace
+	Warning   string
 }
 
-// RunScript requests running a script for the active worktree
+// RunScript requests running a script for the active workspace
 type RunScript struct {
 	ScriptType string // "setup", "run", or "archive"
 }
@@ -250,39 +250,39 @@ type FileWatcherEvent struct {
 
 // SidebarPTYOutput contains PTY output for sidebar terminal
 type SidebarPTYOutput struct {
-	WorktreeID string
-	TabID      string
-	Data       []byte
+	WorkspaceID string
+	TabID       string
+	Data        []byte
 }
 
 // SidebarPTYTick triggers a sidebar PTY read
 type SidebarPTYTick struct {
-	WorktreeID string
-	TabID      string
+	WorkspaceID string
+	TabID       string
 }
 
 // SidebarPTYFlush applies buffered PTY output for sidebar terminal
 type SidebarPTYFlush struct {
-	WorktreeID string
-	TabID      string
+	WorkspaceID string
+	TabID       string
 }
 
 // SidebarPTYStopped signals that the sidebar PTY read loop has stopped
 type SidebarPTYStopped struct {
-	WorktreeID string
-	TabID      string
-	Err        error
+	WorkspaceID string
+	TabID       string
+	Err         error
 }
 
 // SidebarTerminalCreated signals that the sidebar terminal was created
 type SidebarTerminalCreated struct {
-	WorktreeID string
+	WorkspaceID string
 }
 
 // SidebarTerminalTabCreated signals that a sidebar terminal tab was created
 type SidebarTerminalTabCreated struct {
-	WorktreeID string
-	TabID      string
+	WorkspaceID string
+	TabID       string
 }
 
 // UpdateCheckComplete is sent when the background update check finishes
@@ -305,6 +305,6 @@ type UpgradeComplete struct {
 
 // OpenFileInVim requests opening a file in vim in the center pane
 type OpenFileInVim struct {
-	Path     string
-	Worktree *data.Worktree
+	Path      string
+	Workspace *data.Workspace
 }

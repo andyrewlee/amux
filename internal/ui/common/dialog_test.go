@@ -203,7 +203,7 @@ func TestDialogConfirmClickNo(t *testing.T) {
 }
 
 func TestDialogInputClickCancel(t *testing.T) {
-	d := NewInputDialog("create_worktree", "Create Worktree", "Enter worktree name...")
+	d := NewInputDialog("create_workspace", "Create Workspace", "Enter workspace name...")
 	d.SetSize(80, 24)
 	d.Show()
 	d.input.SetValue("feature-1")
@@ -248,8 +248,8 @@ func TestDialogInputClickCancel(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected DialogResult, got %T", result)
 	}
-	if dialogResult.ID != "create_worktree" {
-		t.Fatalf("expected ID 'create_worktree', got %q", dialogResult.ID)
+	if dialogResult.ID != "create_workspace" {
+		t.Fatalf("expected ID 'create_workspace', got %q", dialogResult.ID)
 	}
 	if dialogResult.Confirmed {
 		t.Fatalf("expected Confirmed=false, got true")

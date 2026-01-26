@@ -37,21 +37,21 @@ func TestPerfScenario(t *testing.T) {
 	}
 
 	m := New(cfg)
-	wt := &data.Worktree{
+	wt := &data.Workspace{
 		Name: "perf",
 		Repo: "/tmp/perf-repo",
 		Root: "/tmp/perf-repo",
 	}
-	m.SetWorktree(wt)
+	m.SetWorkspace(wt)
 	wtID := string(wt.ID())
 	tab := &Tab{
-		ID:       TabID("perf-tab"),
-		Worktree: wt,
-		Terminal: vterm.New(120, 40),
-		Running:  true,
+		ID:        TabID("perf-tab"),
+		Workspace: wt,
+		Terminal:  vterm.New(120, 40),
+		Running:   true,
 	}
-	m.tabsByWorktree[wtID] = []*Tab{tab}
-	m.activeTabByWorktree[wtID] = 0
+	m.tabsByWorkspace[wtID] = []*Tab{tab}
+	m.activeTabByWorkspace[wtID] = 0
 	m.SetSize(120, 40)
 	m.SetOffset(0)
 	m.Focus()
@@ -61,9 +61,9 @@ func TestPerfScenario(t *testing.T) {
 	start := time.Now()
 	for time.Since(start) < 2*time.Second {
 		var cmd tea.Cmd
-		m, cmd = m.Update(PTYOutput{WorktreeID: wtID, TabID: tab.ID, Data: payload})
+		m, cmd = m.Update(PTYOutput{WorkspaceID: wtID, TabID: tab.ID, Data: payload})
 		_ = cmd
-		m, cmd = m.Update(PTYFlush{WorktreeID: wtID, TabID: tab.ID})
+		m, cmd = m.Update(PTYFlush{WorkspaceID: wtID, TabID: tab.ID})
 		_ = cmd
 		_ = m.View()
 	}

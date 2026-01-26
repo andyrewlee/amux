@@ -97,8 +97,8 @@ func defaultHelpSections() []HelpSection {
 			Title: "Dashboard",
 			Bindings: []HelpBinding{
 				{"j/k", "Navigate up/down"},
-				{"Enter", "Activate worktree"},
-				{"D", "Delete worktree / remove project"},
+				{"Enter", "Activate workspace"},
+				{"D", "Delete workspace / remove project"},
 				{"f", "Toggle dirty filter"},
 				{"r", "Refresh"},
 				{"g/G", "Top/bottom"},

@@ -29,17 +29,17 @@ func TestNextAssistantName(t *testing.T) {
 }
 
 func TestMonitorTabsIncludesAllTabs(t *testing.T) {
-	wtA := &data.Worktree{Name: "alpha", Repo: "/repoA", Root: "/repoA/alpha"}
-	wtB := &data.Worktree{Name: "beta", Repo: "/repoB", Root: "/repoB/beta"}
+	wtA := &data.Workspace{Name: "alpha", Repo: "/repoA", Root: "/repoA/alpha"}
+	wtB := &data.Workspace{Name: "beta", Repo: "/repoB", Root: "/repoB/beta"}
 
 	model := &Model{
-		tabsByWorktree: map[string][]*Tab{
+		tabsByWorkspace: map[string][]*Tab{
 			string(wtA.ID()): {
-				{ID: "tab-1", Worktree: wtA, Assistant: "codex", Name: "codex"},
-				{ID: "tab-2", Worktree: wtA, Assistant: "codex", Name: "codex 1"},
+				{ID: "tab-1", Workspace: wtA, Assistant: "codex", Name: "codex"},
+				{ID: "tab-2", Workspace: wtA, Assistant: "codex", Name: "codex 1"},
 			},
 			string(wtB.ID()): {
-				{ID: "tab-3", Worktree: wtB, Assistant: "claude", Name: "claude"},
+				{ID: "tab-3", Workspace: wtB, Assistant: "claude", Name: "claude"},
 			},
 		},
 	}
@@ -54,37 +54,37 @@ func TestMonitorTabsIncludesAllTabs(t *testing.T) {
 	}
 }
 
-func TestCleanupWorktree(t *testing.T) {
-	wtA := &data.Worktree{Name: "alpha", Repo: "/repoA", Root: "/repoA/alpha"}
-	wtB := &data.Worktree{Name: "beta", Repo: "/repoB", Root: "/repoB/beta"}
+func TestCleanupWorkspace(t *testing.T) {
+	wtA := &data.Workspace{Name: "alpha", Repo: "/repoA", Root: "/repoA/alpha"}
+	wtB := &data.Workspace{Name: "beta", Repo: "/repoB", Root: "/repoB/beta"}
 
 	model := &Model{
-		tabsByWorktree: map[string][]*Tab{
+		tabsByWorkspace: map[string][]*Tab{
 			string(wtA.ID()): {
-				{ID: "tab-1", Worktree: wtA, Assistant: "codex", Name: "codex"},
+				{ID: "tab-1", Workspace: wtA, Assistant: "codex", Name: "codex"},
 			},
 			string(wtB.ID()): {
-				{ID: "tab-2", Worktree: wtB, Assistant: "claude", Name: "claude"},
+				{ID: "tab-2", Workspace: wtB, Assistant: "claude", Name: "claude"},
 			},
 		},
-		activeTabByWorktree: map[string]int{
+		activeTabByWorkspace: map[string]int{
 			string(wtA.ID()): 0,
 			string(wtB.ID()): 0,
 		},
 	}
 
-	model.CleanupWorktree(wtA)
+	model.CleanupWorkspace(wtA)
 
-	if _, exists := model.tabsByWorktree[string(wtA.ID())]; exists {
+	if _, exists := model.tabsByWorkspace[string(wtA.ID())]; exists {
 		t.Fatalf("expected wtA tabs to be deleted")
 	}
-	if _, exists := model.activeTabByWorktree[string(wtA.ID())]; exists {
+	if _, exists := model.activeTabByWorkspace[string(wtA.ID())]; exists {
 		t.Fatalf("expected wtA active tab index to be deleted")
 	}
 
-	if len(model.tabsByWorktree[string(wtB.ID())]) != 1 {
+	if len(model.tabsByWorkspace[string(wtB.ID())]) != 1 {
 		t.Fatalf("expected wtB tabs to remain unchanged")
 	}
 
-	model.CleanupWorktree(nil)
+	model.CleanupWorkspace(nil)
 }

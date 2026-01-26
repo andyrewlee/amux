@@ -46,25 +46,25 @@ Then run `amux` to open the dashboard.
 
 ## Features
 
-- **Parallel agents**: Launch multiple agents within main repo and within worktrees
+- **Parallel agents**: Launch multiple agents within main repo and within workspaces
 - **No wrappers**: Works with Claude Code, Codex, Gemini, Amp, OpenCode, and Droid
 - **Keyboard + mouse**: Can be operated with just the keyboard or with a mouse
 - **All-in-on tool**: Run agents, view diffs, and access terminal
 
 ## Configuration
 
-Create `.amux/worktrees.json` in your project to run setup commands for new worktrees:
+Create `.amux/workspaces.json` in your project to run setup commands for new workspaces:
 
 ```json
 {
-  "setup-worktree": [
+  "setup-workspace": [
     "npm install",
-    "cp $ROOT_WORKTREE_PATH/.env.local .env.local"
+    "cp $ROOT_WORKSPACE_PATH/.env.local .env.local"
   ]
 }
 ```
 
-Worktrees are stored in `~/.amux/worktrees/<project>/`.
+Workspaces are stored in `~/.amux/workspaces/<project>/`.
 
 ## Development
 

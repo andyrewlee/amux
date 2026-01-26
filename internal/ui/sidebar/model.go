@@ -27,7 +27,7 @@ type displayItem struct {
 // Model is the Bubbletea model for the sidebar pane
 type Model struct {
 	// State
-	worktree     *data.Worktree
+	workspace    *data.Workspace
 	focused      bool
 	gitStatus    *git.StatusResult
 	cursor       int
@@ -173,13 +173,13 @@ func (m *Model) openCurrentItem() tea.Cmd {
 
 	change := item.change
 	mode := item.mode
-	wt := m.worktree
+	ws := m.workspace
 
 	return func() tea.Msg {
 		return messages.OpenDiff{
-			Change:   change,
-			Mode:     mode,
-			Worktree: wt,
+			Change:    change,
+			Mode:      mode,
+			Workspace: ws,
 		}
 	}
 }
@@ -325,9 +325,9 @@ func (m *Model) renderChanges() string {
 	var b strings.Builder
 
 	// Show branch info
-	if m.worktree != nil && m.worktree.Branch != "" {
+	if m.workspace != nil && m.workspace.Branch != "" {
 		b.WriteString(m.styles.Muted.Render("branch: "))
-		b.WriteString(m.styles.BranchName.Render(m.worktree.Branch))
+		b.WriteString(m.styles.BranchName.Render(m.workspace.Branch))
 		b.WriteString("\n")
 	}
 
@@ -463,7 +463,7 @@ func (m *Model) listHeaderLines() int {
 		return 0
 	}
 	header := 0
-	if m.worktree != nil && m.worktree.Branch != "" {
+	if m.workspace != nil && m.workspace.Branch != "" {
 		header++
 	}
 	if m.filterMode || m.filterQuery != "" {
@@ -547,11 +547,11 @@ func (m *Model) moveCursor(delta int) {
 
 // refreshStatus refreshes the git status
 func (m *Model) refreshStatus() tea.Cmd {
-	if m.worktree == nil {
+	if m.workspace == nil {
 		return nil
 	}
 
-	root := m.worktree.Root
+	root := m.workspace.Root
 	return func() tea.Msg {
 		status, err := git.GetStatus(root)
 		return messages.GitStatusResult{Root: root, Status: status, Err: err}
@@ -584,9 +584,9 @@ func (m *Model) Focused() bool {
 	return m.focused
 }
 
-// SetWorktree sets the active worktree
-func (m *Model) SetWorktree(wt *data.Worktree) {
-	m.worktree = wt
+// SetWorkspace sets the active workspace
+func (m *Model) SetWorkspace(ws *data.Workspace) {
+	m.workspace = ws
 	m.cursor = 0
 	m.scrollOffset = 0
 	m.filterQuery = ""

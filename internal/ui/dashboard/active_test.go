@@ -11,7 +11,7 @@ func TestDashboardIsProjectActive(t *testing.T) {
 	project := data.Project{
 		Name: "test-project",
 		Path: "/test-project",
-		Worktrees: []data.Worktree{
+		Workspaces: []data.Workspace{
 			{Name: "test-project", Branch: "main", Repo: "/test-project", Root: "/test-project"},
 			{Name: "feature", Branch: "feature", Repo: "/test-project", Root: "/test-project/feature"},
 		},
@@ -23,14 +23,14 @@ func TestDashboardIsProjectActive(t *testing.T) {
 	t.Run("main branch active", func(t *testing.T) {
 		m.activeRoot = "/test-project"
 		if !m.isProjectActive(&project) {
-			t.Errorf("expected project to be active when main worktree is active")
+			t.Errorf("expected project to be active when main workspace is active")
 		}
 	})
 
 	t.Run("feature branch active", func(t *testing.T) {
 		m.activeRoot = "/test-project/feature"
 		if m.isProjectActive(&project) {
-			t.Errorf("expected project to NOT be active when feature worktree is active")
+			t.Errorf("expected project to NOT be active when feature workspace is active")
 		}
 	})
 
@@ -42,18 +42,18 @@ func TestDashboardIsProjectActive(t *testing.T) {
 	})
 }
 
-func TestDashboardGetMainWorktree(t *testing.T) {
+func TestDashboardGetMainWorkspace(t *testing.T) {
 	project := data.Project{
-		Worktrees: []data.Worktree{
+		Workspaces: []data.Workspace{
 			{Name: "feature", Branch: "feature", Repo: "/repo", Root: "/repo/feature"},
 			{Name: "main-wt", Branch: "main", Repo: "/repo", Root: "/repo"},
 		},
 	}
 
 	m := New()
-	main := m.getMainWorktree(&project)
+	main := m.getMainWorkspace(&project)
 	if main == nil {
-		t.Fatalf("expected main worktree to be found")
+		t.Fatalf("expected main workspace to be found")
 	}
 	if main.Branch != "main" {
 		t.Errorf("expected main branch, got %s", main.Branch)
@@ -68,9 +68,9 @@ func TestDashboardHomeActive(t *testing.T) {
 		t.Errorf("expected activeRoot to be empty initially")
 	}
 
-	// Activate a worktree
-	m.Update(messages.WorktreeActivated{
-		Worktree: &data.Worktree{Root: "/some/root"},
+	// Activate a workspace
+	m.Update(messages.WorkspaceActivated{
+		Workspace: &data.Workspace{Root: "/some/root"},
 	})
 	if m.activeRoot != "/some/root" {
 		t.Errorf("expected activeRoot to be /some/root")

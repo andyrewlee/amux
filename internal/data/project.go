@@ -4,42 +4,42 @@ import (
 	"path/filepath"
 )
 
-// Project represents a registered git repository with its worktrees
+// Project represents a registered git repository with its workspaces
 type Project struct {
-	Name      string     `json:"name"`
-	Path      string     `json:"path"` // Absolute path to repository
-	Worktrees []Worktree `json:"-"`    // Discovered dynamically via git
+	Name       string      `json:"name"`
+	Path       string      `json:"path"` // Absolute path to repository
+	Workspaces []Workspace `json:"-"`    // Discovered dynamically via git
 }
 
 // NewProject creates a new Project from a repository path
 func NewProject(path string) *Project {
 	return &Project{
-		Name:      filepath.Base(path),
-		Path:      path,
-		Worktrees: []Worktree{},
+		Name:       filepath.Base(path),
+		Path:       path,
+		Workspaces: []Workspace{},
 	}
 }
 
-// AddWorktree adds a worktree to the project
-func (p *Project) AddWorktree(wt Worktree) {
-	p.Worktrees = append(p.Worktrees, wt)
+// AddWorkspace adds a workspace to the project
+func (p *Project) AddWorkspace(ws Workspace) {
+	p.Workspaces = append(p.Workspaces, ws)
 }
 
-// FindWorktree finds a worktree by its root path
-func (p *Project) FindWorktree(root string) *Worktree {
-	for i := range p.Worktrees {
-		if p.Worktrees[i].Root == root {
-			return &p.Worktrees[i]
+// FindWorkspace finds a workspace by its root path
+func (p *Project) FindWorkspace(root string) *Workspace {
+	for i := range p.Workspaces {
+		if p.Workspaces[i].Root == root {
+			return &p.Workspaces[i]
 		}
 	}
 	return nil
 }
 
-// FindWorktreeByName finds a worktree by its name
-func (p *Project) FindWorktreeByName(name string) *Worktree {
-	for i := range p.Worktrees {
-		if p.Worktrees[i].Name == name {
-			return &p.Worktrees[i]
+// FindWorkspaceByName finds a workspace by its name
+func (p *Project) FindWorkspaceByName(name string) *Workspace {
+	for i := range p.Workspaces {
+		if p.Workspaces[i].Name == name {
+			return &p.Workspaces[i]
 		}
 	}
 	return nil

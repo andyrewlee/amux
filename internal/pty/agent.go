@@ -25,29 +25,29 @@ const (
 
 // Agent represents a running AI agent instance
 type Agent struct {
-	Type     AgentType
-	Terminal *Terminal
-	Worktree *data.Worktree
-	Config   config.AssistantConfig
+	Type      AgentType
+	Terminal  *Terminal
+	Workspace *data.Workspace
+	Config    config.AssistantConfig
 }
 
 // AgentManager manages agent instances
 type AgentManager struct {
 	config *config.Config
 	mu     sync.Mutex
-	agents map[data.WorktreeID][]*Agent
+	agents map[data.WorkspaceID][]*Agent
 }
 
 // NewAgentManager creates a new agent manager
 func NewAgentManager(cfg *config.Config) *AgentManager {
 	return &AgentManager{
 		config: cfg,
-		agents: make(map[data.WorktreeID][]*Agent),
+		agents: make(map[data.WorkspaceID][]*Agent),
 	}
 }
 
-// CreateAgent creates a new agent for the given worktree.
-func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType, rows, cols uint16) (*Agent, error) {
+// CreateAgent creates a new agent for the given workspace.
+func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, rows, cols uint16) (*Agent, error) {
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
@@ -55,8 +55,8 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType, rows,
 
 	// Build environment
 	env := []string{
-		fmt.Sprintf("WORKTREE_ROOT=%s", wt.Root),
-		fmt.Sprintf("WORKTREE_NAME=%s", wt.Name),
+		fmt.Sprintf("WORKSPACE_ROOT=%s", ws.Root),
+		fmt.Sprintf("WORKSPACE_NAME=%s", ws.Name),
 		"LINES=",   // Unset to force ioctl usage
 		"COLUMNS=", // Unset to force ioctl usage
 		"COLORTERM=truecolor",
@@ -73,52 +73,52 @@ func (m *AgentManager) CreateAgent(wt *data.Worktree, agentType AgentType, rows,
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", assistantCfg.Command, shell)
 
-	term, err := NewWithSize(fullCommand, wt.Root, env, rows, cols)
+	term, err := NewWithSize(fullCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
 
 	agent := &Agent{
-		Type:     agentType,
-		Terminal: term,
-		Worktree: wt,
-		Config:   assistantCfg,
+		Type:      agentType,
+		Terminal:  term,
+		Workspace: ws,
+		Config:    assistantCfg,
 	}
 
 	m.mu.Lock()
-	m.agents[wt.ID()] = append(m.agents[wt.ID()], agent)
+	m.agents[ws.ID()] = append(m.agents[ws.ID()], agent)
 	m.mu.Unlock()
 
 	return agent, nil
 }
 
-// CreateViewer creates a new agent (viewer) for the given worktree and command.
-func (m *AgentManager) CreateViewer(wt *data.Worktree, command string, rows, cols uint16) (*Agent, error) {
-	if wt == nil {
-		return nil, fmt.Errorf("worktree is required")
+// CreateViewer creates a new agent (viewer) for the given workspace and command.
+func (m *AgentManager) CreateViewer(ws *data.Workspace, command string, rows, cols uint16) (*Agent, error) {
+	if ws == nil {
+		return nil, fmt.Errorf("workspace is required")
 	}
 	// Build environment
 	env := []string{
-		fmt.Sprintf("WORKTREE_ROOT=%s", wt.Root),
-		fmt.Sprintf("WORKTREE_NAME=%s", wt.Name),
+		fmt.Sprintf("WORKSPACE_ROOT=%s", ws.Root),
+		fmt.Sprintf("WORKSPACE_NAME=%s", ws.Name),
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 	}
 
-	term, err := NewWithSize(command, wt.Root, env, rows, cols)
+	term, err := NewWithSize(command, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
 
 	agent := &Agent{
-		Type:     AgentType("viewer"),
-		Terminal: term,
-		Worktree: wt,
-		Config:   config.AssistantConfig{}, // No specific config
+		Type:      AgentType("viewer"),
+		Terminal:  term,
+		Workspace: ws,
+		Config:    config.AssistantConfig{}, // No specific config
 	}
 
 	m.mu.Lock()
-	m.agents[wt.ID()] = append(m.agents[wt.ID()], agent)
+	m.agents[ws.ID()] = append(m.agents[ws.ID()], agent)
 	m.mu.Unlock()
 
 	return agent, nil
@@ -131,13 +131,13 @@ func (m *AgentManager) CloseAgent(agent *Agent) error {
 	}
 
 	// Remove from list
-	if agent.Worktree != nil {
+	if agent.Workspace != nil {
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		agents := m.agents[agent.Worktree.ID()]
+		agents := m.agents[agent.Workspace.ID()]
 		for i, a := range agents {
 			if a == agent {
-				m.agents[agent.Worktree.ID()] = append(agents[:i], agents[i+1:]...)
+				m.agents[agent.Workspace.ID()] = append(agents[:i], agents[i+1:]...)
 				break
 			}
 		}
@@ -149,11 +149,11 @@ func (m *AgentManager) CloseAgent(agent *Agent) error {
 // CloseAll closes all agents
 func (m *AgentManager) CloseAll() {
 	m.mu.Lock()
-	agentsByWorktree := m.agents
-	m.agents = make(map[data.WorktreeID][]*Agent)
+	agentsByWorkspace := m.agents
+	m.agents = make(map[data.WorkspaceID][]*Agent)
 	m.mu.Unlock()
 
-	for _, agents := range agentsByWorktree {
+	for _, agents := range agentsByWorkspace {
 		for _, agent := range agents {
 			if agent.Terminal != nil {
 				agent.Terminal.Close()
@@ -162,15 +162,15 @@ func (m *AgentManager) CloseAll() {
 	}
 }
 
-// CloseWorktreeAgents closes and removes all agents for a specific worktree
-func (m *AgentManager) CloseWorktreeAgents(wt *data.Worktree) {
-	if wt == nil {
+// CloseWorkspaceAgents closes and removes all agents for a specific workspace
+func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace) {
+	if ws == nil {
 		return
 	}
-	wtID := wt.ID()
+	wsID := ws.ID()
 	m.mu.Lock()
-	agents := m.agents[wtID]
-	delete(m.agents, wtID)
+	agents := m.agents[wsID]
+	delete(m.agents, wsID)
 	m.mu.Unlock()
 	for _, agent := range agents {
 		if agent.Terminal != nil {

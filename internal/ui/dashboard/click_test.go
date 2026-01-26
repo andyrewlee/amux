@@ -14,7 +14,7 @@ import (
 // - Home row at index 0
 // - Spacer row at index 1
 // - Project row at index 2
-// - Worktree row at index 3
+// - Workspace row at index 3
 // - Create button at index 4
 func setupClickTestModel() *Model {
 	m := New()
@@ -24,7 +24,7 @@ func setupClickTestModel() *Model {
 	project := data.Project{
 		Name: "testproj",
 		Path: "/testproj",
-		Worktrees: []data.Worktree{
+		Workspaces: []data.Workspace{
 			{Name: "testproj", Branch: "main", Repo: "/testproj", Root: "/testproj"},
 			{Name: "feature", Branch: "feature", Repo: "/testproj", Root: "/testproj/.amux/worktrees/feature"},
 		},
@@ -48,7 +48,7 @@ func TestRowIndexAt(t *testing.T) {
 	// 0: [amux] (Home)
 	// 1: (Spacer)
 	// 2: testproj (Project)
-	// 3: feature (Worktree)
+	// 3: feature (Workspace)
 	// 4: + New (Create)
 
 	tests := []struct {
@@ -76,12 +76,12 @@ func TestRowIndexAt(t *testing.T) {
 			wantRowType: RowProject,
 		},
 		{
-			name:        "click on Worktree row",
+			name:        "click on Workspace row",
 			screenX:     5,
 			screenY:     4, // content Y = 3
 			wantIndex:   3,
 			wantOK:      true,
-			wantRowType: RowWorktree,
+			wantRowType: RowWorkspace,
 		},
 		{
 			name:        "click on Create button",
@@ -143,24 +143,24 @@ func TestMouseClickOnRows(t *testing.T) {
 			wantSelected: 0,
 		},
 		{
-			name:         "click Project row triggers WorktreeActivated",
+			name:         "click Project row triggers WorkspaceActivated",
 			screenX:      5,
 			screenY:      3,
-			wantMsgType:  "WorktreeActivated",
+			wantMsgType:  "WorkspaceActivated",
 			wantSelected: 2,
 		},
 		{
-			name:         "click Worktree row triggers WorktreeActivated",
+			name:         "click Workspace row triggers WorkspaceActivated",
 			screenX:      5,
 			screenY:      4,
-			wantMsgType:  "WorktreeActivated",
+			wantMsgType:  "WorkspaceActivated",
 			wantSelected: 3,
 		},
 		{
-			name:         "click Create button triggers ShowCreateWorktreeDialog",
+			name:         "click Create button triggers ShowCreateWorkspaceDialog",
 			screenX:      5,
 			screenY:      5,
-			wantMsgType:  "ShowCreateWorktreeDialog",
+			wantMsgType:  "ShowCreateWorkspaceDialog",
 			wantSelected: 4,
 		},
 	}
@@ -193,10 +193,10 @@ func TestMouseClickOnRows(t *testing.T) {
 			switch msg.(type) {
 			case messages.ShowWelcome:
 				gotType = "ShowWelcome"
-			case messages.WorktreeActivated:
-				gotType = "WorktreeActivated"
-			case messages.ShowCreateWorktreeDialog:
-				gotType = "ShowCreateWorktreeDialog"
+			case messages.WorkspaceActivated:
+				gotType = "WorkspaceActivated"
+			case messages.ShowCreateWorkspaceDialog:
+				gotType = "ShowCreateWorkspaceDialog"
 			default:
 				gotType = "unknown"
 			}
@@ -291,7 +291,7 @@ func TestRowClickWithScrollOffset(t *testing.T) {
 		projects = append(projects, data.Project{
 			Name: "proj" + string(rune('A'+i)),
 			Path: "/proj" + string(rune('A'+i)),
-			Worktrees: []data.Worktree{
+			Workspaces: []data.Workspace{
 				{Name: "main", Branch: "main", Repo: "/proj", Root: "/proj"},
 			},
 		})
@@ -351,7 +351,7 @@ func TestToolbarYCalculation(t *testing.T) {
 		m.SetProjects([]data.Project{{
 			Name: "test",
 			Path: "/test",
-			Worktrees: []data.Worktree{
+			Workspaces: []data.Workspace{
 				{Name: "main", Branch: "main", Root: "/test"},
 			},
 		}})
@@ -379,7 +379,7 @@ func TestToolbarYCalculation(t *testing.T) {
 			projects = append(projects, data.Project{
 				Name: "proj" + string(rune('A'+i)),
 				Path: "/proj",
-				Worktrees: []data.Worktree{
+				Workspaces: []data.Workspace{
 					{Name: "main", Branch: "main", Root: "/proj"},
 				},
 			})
@@ -398,12 +398,12 @@ func TestToolbarYCalculation(t *testing.T) {
 func TestDeleteButtonClick(t *testing.T) {
 	m := setupClickTestModel()
 
-	// Select a worktree row to make Delete button visible
-	m.cursor = 3 // Worktree row
+	// Select a workspace row to make Delete button visible
+	m.cursor = 3 // Workspace row
 	_ = m.View()
 
 	// Find the Delete button position
-	// Toolbar items when worktree selected: Help, Monitor, Settings, Delete
+	// Toolbar items when workspace selected: Help, Monitor, Settings, Delete
 	// [?H] [◆M] [⚙S] [Delete]
 	toolbarScreenY := m.toolbarY + 1
 
@@ -411,7 +411,7 @@ func TestDeleteButtonClick(t *testing.T) {
 	cmd := m.handleToolbarClick(12, toolbarScreenY) // Same row, right side
 	if cmd != nil {
 		msg := cmd()
-		if _, ok := msg.(messages.ShowDeleteWorktreeDialog); ok {
+		if _, ok := msg.(messages.ShowDeleteWorkspaceDialog); ok {
 			// Success - Delete button was clicked
 			return
 		}
@@ -422,7 +422,7 @@ func TestDeleteButtonClick(t *testing.T) {
 		cmd := m.handleToolbarClick(x, toolbarScreenY+1)
 		if cmd != nil {
 			msg := cmd()
-			if _, ok := msg.(messages.ShowDeleteWorktreeDialog); ok {
+			if _, ok := msg.(messages.ShowDeleteWorkspaceDialog); ok {
 				return // Found it
 			}
 		}

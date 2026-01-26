@@ -44,7 +44,7 @@ type Tab struct {
 	ID           TabID // Unique identifier that survives slice reordering
 	Name         string
 	Assistant    string
-	Worktree     *data.Worktree
+	Workspace    *data.Workspace
 	Agent        *appPty.Agent
 	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
 	DiffViewer   *diff.Model  // Native diff viewer (replaces PTY-based viewer)
@@ -110,9 +110,9 @@ func (t *Tab) markClosed() {
 // Model is the Bubbletea model for the center pane
 type Model struct {
 	// State
-	worktree             *data.Worktree
-	tabsByWorktree       map[string][]*Tab // tabs per worktree ID
-	activeTabByWorktree  map[string]int    // active tab index per worktree
+	workspace            *data.Workspace
+	tabsByWorkspace      map[string][]*Tab // tabs per workspace ID
+	activeTabByWorkspace map[string]int    // active tab index per workspace
 	focused              bool
 	canFocusRight        bool
 	monitorMode          bool
@@ -235,12 +235,12 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 // New creates a new center pane model
 func New(cfg *config.Config) *Model {
 	return &Model{
-		tabsByWorktree:      make(map[string][]*Tab),
-		activeTabByWorktree: make(map[string]int),
-		config:              cfg,
-		agentManager:        appPty.NewAgentManager(cfg),
-		styles:              common.DefaultStyles(),
-		tabEvents:           make(chan tabEvent, 1024),
+		tabsByWorkspace:      make(map[string][]*Tab),
+		activeTabByWorkspace: make(map[string]int),
+		config:               cfg,
+		agentManager:         appPty.NewAgentManager(cfg),
+		styles:               common.DefaultStyles(),
+		tabEvents:            make(chan tabEvent, 1024),
 	}
 }
 
@@ -270,7 +270,7 @@ func (m *Model) SetShowKeymapHints(show bool) {
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
 	// Propagate to all viewers in tabs
-	for _, tabs := range m.tabsByWorktree {
+	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			if tab != nil {
 				if tab.DiffViewer != nil {
@@ -306,22 +306,22 @@ func (m *Model) noteTabActorHeartbeat() {
 	}
 }
 
-// worktreeID returns the ID of the current worktree, or empty string
-func (m *Model) worktreeID() string {
-	if m.worktree == nil {
+// workspaceID returns the ID of the current workspace, or empty string
+func (m *Model) workspaceID() string {
+	if m.workspace == nil {
 		return ""
 	}
-	return string(m.worktree.ID())
+	return string(m.workspace.ID())
 }
 
-// getTabs returns the tabs for the current worktree
+// getTabs returns the tabs for the current workspace
 func (m *Model) getTabs() []*Tab {
-	return m.tabsByWorktree[m.worktreeID()]
+	return m.tabsByWorkspace[m.workspaceID()]
 }
 
 // getTabByID returns the tab with the given ID, or nil if not found
-func (m *Model) getTabByID(wtID string, tabID TabID) *Tab {
-	for _, tab := range m.tabsByWorktree[wtID] {
+func (m *Model) getTabByID(wsID string, tabID TabID) *Tab {
+	for _, tab := range m.tabsByWorkspace[wsID] {
 		if tab.ID == tabID && !tab.isClosed() {
 			return tab
 		}
@@ -329,22 +329,22 @@ func (m *Model) getTabByID(wtID string, tabID TabID) *Tab {
 	return nil
 }
 
-// getActiveTabIdx returns the active tab index for the current worktree
+// getActiveTabIdx returns the active tab index for the current workspace
 func (m *Model) getActiveTabIdx() int {
-	return m.activeTabByWorktree[m.worktreeID()]
+	return m.activeTabByWorkspace[m.workspaceID()]
 }
 
-// setActiveTabIdx sets the active tab index for the current worktree
+// setActiveTabIdx sets the active tab index for the current workspace
 func (m *Model) setActiveTabIdx(idx int) {
-	m.activeTabByWorktree[m.worktreeID()] = idx
+	m.activeTabByWorkspace[m.workspaceID()] = idx
 }
 
 func (m *Model) noteTabsChanged() {
 	m.tabsRevision++
 }
 
-func (m *Model) isActiveTab(wtID string, tabID TabID) bool {
-	if m.worktree == nil || wtID != m.worktreeID() {
+func (m *Model) isActiveTab(wsID string, tabID TabID) bool {
+	if m.workspace == nil || wsID != m.workspaceID() {
 		return false
 	}
 	tabs := m.getTabs()
@@ -355,25 +355,25 @@ func (m *Model) isActiveTab(wtID string, tabID TabID) bool {
 	return tabs[activeIdx].ID == tabID
 }
 
-// removeTab removes a tab at index from the current worktree
+// removeTab removes a tab at index from the current workspace
 func (m *Model) removeTab(idx int) {
-	wtID := m.worktreeID()
-	tabs := m.tabsByWorktree[wtID]
+	wsID := m.workspaceID()
+	tabs := m.tabsByWorkspace[wsID]
 	if idx >= 0 && idx < len(tabs) {
-		m.tabsByWorktree[wtID] = append(tabs[:idx], tabs[idx+1:]...)
+		m.tabsByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)
 		m.noteTabsChanged()
 	}
 }
 
-// CleanupWorktree removes all tabs and state for a deleted worktree
-func (m *Model) CleanupWorktree(wt *data.Worktree) {
-	if wt == nil {
+// CleanupWorkspace removes all tabs and state for a deleted workspace
+func (m *Model) CleanupWorkspace(ws *data.Workspace) {
+	if ws == nil {
 		return
 	}
-	wtID := string(wt.ID())
+	wsID := string(ws.ID())
 
 	// Close resources for each tab before removing
-	for _, tab := range m.tabsByWorktree[wtID] {
+	for _, tab := range m.tabsByWorkspace[wsID] {
 		tab.markClosing()
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
@@ -388,13 +388,13 @@ func (m *Model) CleanupWorktree(wt *data.Worktree) {
 		tab.markClosed()
 	}
 
-	delete(m.tabsByWorktree, wtID)
-	delete(m.activeTabByWorktree, wtID)
+	delete(m.tabsByWorkspace, wsID)
+	delete(m.activeTabByWorkspace, wsID)
 	m.noteTabsChanged()
 
-	// Also cleanup agents for this worktree
+	// Also cleanup agents for this workspace
 	if m.agentManager != nil {
-		m.agentManager.CloseWorktreeAgents(wt)
+		m.agentManager.CloseWorkspaceAgents(ws)
 	}
 }
 
@@ -418,12 +418,12 @@ func (m *Model) Focused() bool {
 	return m.focused
 }
 
-// SetWorktree sets the active worktree
-func (m *Model) SetWorktree(wt *data.Worktree) {
-	m.worktree = wt
+// SetWorkspace sets the active workspace
+func (m *Model) SetWorkspace(ws *data.Workspace) {
+	m.workspace = ws
 }
 
-// HasTabs returns whether there are any tabs for the current worktree
+// HasTabs returns whether there are any tabs for the current workspace
 func (m *Model) HasTabs() bool {
 	return len(m.getTabs()) > 0
 }
@@ -442,8 +442,8 @@ func (m *Model) SetSize(width, height int) {
 	viewerWidth := termWidth
 	viewerHeight := termHeight
 
-	// Update all terminals across all worktrees
-	for _, tabs := range m.tabsByWorktree {
+	// Update all terminals across all workspaces
+	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			tab.mu.Lock()
 			if tab.Terminal != nil {
@@ -468,7 +468,7 @@ func (m *Model) SetOffset(x int) {
 // Close cleans up all resources
 func (m *Model) Close() {
 	m.StopMonitorSnapshots()
-	for _, tabs := range m.tabsByWorktree {
+	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			tab.markClosing()
 			m.stopPTYReader(tab)

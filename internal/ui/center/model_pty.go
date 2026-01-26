@@ -83,40 +83,40 @@ func ptyTraceDir() string {
 
 // PTYOutput is a message containing PTY output data
 type PTYOutput struct {
-	WorktreeID string
-	TabID      TabID
-	Data       []byte
+	WorkspaceID string
+	TabID       TabID
+	Data        []byte
 }
 
 // PTYTick triggers a PTY read
 type PTYTick struct {
-	WorktreeID string
-	TabID      TabID
+	WorkspaceID string
+	TabID       TabID
 }
 
 // PTYFlush applies buffered PTY output for a tab.
 type PTYFlush struct {
-	WorktreeID string
-	TabID      TabID
+	WorkspaceID string
+	TabID       TabID
 }
 
 // PTYStopped signals that the PTY read loop has stopped (terminal closed or error)
 type PTYStopped struct {
-	WorktreeID string
-	TabID      TabID
-	Err        error
+	WorkspaceID string
+	TabID       TabID
+	Err         error
 }
 
 // PTYRestart requests restarting a PTY reader for a tab.
 type PTYRestart struct {
-	WorktreeID string
-	TabID      TabID
+	WorkspaceID string
+	TabID       TabID
 }
 
 type selectionScrollTick struct {
-	WorktreeID string
-	TabID      TabID
-	Gen        uint64
+	WorkspaceID string
+	TabID       TabID
+	Gen         uint64
 }
 
 func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration) {
@@ -193,7 +193,7 @@ func (m *Model) forwardPTYMsgs(msgCh <-chan tea.Msg) {
 					continue
 				}
 				if nextOut, ok := next.(PTYOutput); ok &&
-					nextOut.WorktreeID == merged.WorktreeID &&
+					nextOut.WorkspaceID == merged.WorkspaceID &&
 					nextOut.TabID == merged.TabID {
 					merged.Data = append(merged.Data, nextOut.Data...)
 					if len(merged.Data) >= ptyMaxPendingBytes {
@@ -287,7 +287,7 @@ func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struc
 			beat()
 			if !ok {
 				if len(pending) > 0 {
-					if !sendPTYMsg(msgCh, cancel, PTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+					if !sendPTYMsg(msgCh, cancel, PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: pending}) {
 						close(msgCh)
 						return
 					}
@@ -295,13 +295,13 @@ func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struc
 				if stoppedErr == nil {
 					stoppedErr = io.EOF
 				}
-				sendPTYMsg(msgCh, cancel, PTYStopped{WorktreeID: wtID, TabID: tabID, Err: stoppedErr})
+				sendPTYMsg(msgCh, cancel, PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: stoppedErr})
 				close(msgCh)
 				return
 			}
 			pending = append(pending, data...)
 			if len(pending) >= ptyMaxPendingBytes {
-				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: pending}) {
 					close(msgCh)
 					return
 				}
@@ -310,14 +310,14 @@ func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struc
 		case <-ticker.C:
 			beat()
 			if len(pending) > 0 {
-				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: pending}) {
 					close(msgCh)
 					return
 				}
 				pending = nil
 			}
 			if stoppedErr != nil {
-				sendPTYMsg(msgCh, cancel, PTYStopped{WorktreeID: wtID, TabID: tabID, Err: stoppedErr})
+				sendPTYMsg(msgCh, cancel, PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: stoppedErr})
 				close(msgCh)
 				return
 			}
@@ -360,15 +360,15 @@ func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
 			return
 		}
 		tab.ptyTraceFile = file
-		worktreeName := ""
-		if tab.Worktree != nil {
-			worktreeName = tab.Worktree.Name
+		workspaceName := ""
+		if tab.Workspace != nil {
+			workspaceName = tab.Workspace.Name
 		}
 		_, _ = file.Write([]byte(fmt.Sprintf(
-			"TRACE %s assistant=%s worktree=%s tab=%s\n",
+			"TRACE %s assistant=%s workspace=%s tab=%s\n",
 			time.Now().Format(time.RFC3339Nano),
 			tab.Assistant,
-			worktreeName,
+			workspaceName,
 			tab.ID,
 		)))
 		logging.Info("PTY trace enabled: %s", path)
@@ -494,9 +494,9 @@ func (m *Model) markPTYReaderStopped(tab *Tab) {
 	atomic.StoreInt64(&tab.ptyHeartbeat, 0)
 }
 
-// HasRunningAgents returns whether any tab has an active agent across worktrees.
+// HasRunningAgents returns whether any tab has an active agent across workspaces.
 func (m *Model) HasRunningAgents() bool {
-	for _, tabs := range m.tabsByWorktree {
+	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			if tab.isClosed() {
 				continue
@@ -513,7 +513,7 @@ func (m *Model) HasRunningAgents() bool {
 // This is used to drive UI activity indicators without relying on process liveness alone.
 func (m *Model) HasActiveAgents() bool {
 	now := time.Now()
-	for _, tabs := range m.tabsByWorktree {
+	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			if tab.isClosed() {
 				continue
@@ -550,9 +550,9 @@ func (m *Model) IsTabActive(tab *Tab) bool {
 	return !tab.lastOutputAt.IsZero() && time.Since(tab.lastOutputAt) < 2*time.Second
 }
 
-// HasActiveAgentsInWorktree returns whether any tab in a worktree is actively outputting.
-func (m *Model) HasActiveAgentsInWorktree(wtID string) bool {
-	for _, tab := range m.tabsByWorktree[wtID] {
+// HasActiveAgentsInWorkspace returns whether any tab in a workspace is actively outputting.
+func (m *Model) HasActiveAgentsInWorkspace(wsID string) bool {
+	for _, tab := range m.tabsByWorkspace[wsID] {
 		if m.IsTabActive(tab) {
 			return true
 		}
@@ -560,15 +560,15 @@ func (m *Model) HasActiveAgentsInWorktree(wtID string) bool {
 	return false
 }
 
-// GetActiveWorktreeRoots returns all worktree root paths with active agents.
-func (m *Model) GetActiveWorktreeRoots() []string {
+// GetActiveWorkspaceRoots returns all workspace root paths with active agents.
+func (m *Model) GetActiveWorkspaceRoots() []string {
 	var active []string
-	for wtID, tabs := range m.tabsByWorktree {
-		if m.HasActiveAgentsInWorktree(wtID) {
+	for wsID, tabs := range m.tabsByWorkspace {
+		if m.HasActiveAgentsInWorkspace(wsID) {
 			// Get the root path from one of the tabs
 			for _, tab := range tabs {
-				if tab.Worktree != nil {
-					active = append(active, tab.Worktree.Root)
+				if tab.Workspace != nil {
+					active = append(active, tab.Workspace.Root)
 					break
 				}
 			}
@@ -577,22 +577,22 @@ func (m *Model) GetActiveWorktreeRoots() []string {
 	return active
 }
 
-// GetRunningWorktreeRoots returns all worktree root paths with running agents.
+// GetRunningWorkspaceRoots returns all workspace root paths with running agents.
 // This includes agents that are running but idle (waiting at prompt).
-func (m *Model) GetRunningWorktreeRoots() []string {
+func (m *Model) GetRunningWorkspaceRoots() []string {
 	var running []string
-	for _, tabs := range m.tabsByWorktree {
+	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
-			if tab.Running && tab.Worktree != nil {
-				running = append(running, tab.Worktree.Root)
-				break // Only need one per worktree
+			if tab.Running && tab.Workspace != nil {
+				running = append(running, tab.Workspace.Root)
+				break // Only need one per workspace
 			}
 		}
 	}
 	return running
 }
 
-// StartPTYReaders starts reading from all PTYs across all worktrees
+// StartPTYReaders starts reading from all PTYs across all workspaces
 func (m *Model) StartPTYReaders() tea.Cmd {
 	if m.isTabActorReady() {
 		lastBeat := atomic.LoadInt64(&m.tabActorHeartbeat)
@@ -601,7 +601,7 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 			atomic.StoreUint32(&m.tabActorReady, 0)
 		}
 	}
-	for wtID, tabs := range m.tabsByWorktree {
+	for wtID, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil || tab.isClosed() {
 				continue

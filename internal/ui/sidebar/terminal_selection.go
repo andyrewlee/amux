@@ -56,7 +56,7 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 		return m, nil
 	}
 
-	wtID := m.worktreeID()
+	wtID := m.workspaceID()
 	tab := tabs[idx]
 
 	// Close PTY and cleanup
@@ -72,17 +72,17 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 	}
 
 	// Remove tab from slice
-	m.tabsByWorktree[wtID] = append(tabs[:idx], tabs[idx+1:]...)
+	m.tabsByWorkspace[wtID] = append(tabs[:idx], tabs[idx+1:]...)
 
 	// Adjust active index
 	activeIdx := m.getActiveTabIdx()
-	newLen := len(m.tabsByWorktree[wtID])
+	newLen := len(m.tabsByWorkspace[wtID])
 	if newLen == 0 {
-		m.activeTabByWorktree[wtID] = 0
+		m.activeTabByWorkspace[wtID] = 0
 	} else if activeIdx >= newLen {
-		m.activeTabByWorktree[wtID] = newLen - 1
+		m.activeTabByWorkspace[wtID] = newLen - 1
 	} else if idx < activeIdx {
-		m.activeTabByWorktree[wtID] = activeIdx - 1
+		m.activeTabByWorkspace[wtID] = activeIdx - 1
 	}
 
 	m.refreshTerminalSize()

@@ -20,30 +20,30 @@ import (
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.projects = msg.Projects
 	a.dashboard.SetProjects(a.projects)
-	// Request git status for all worktrees
+	// Request git status for all workspaces
 	var cmds []tea.Cmd
 	for i := range a.projects {
-		for j := range a.projects[i].Worktrees {
-			wt := &a.projects[i].Worktrees[j]
-			cmds = append(cmds, a.requestGitStatus(wt.Root))
+		for j := range a.projects[i].Workspaces {
+			ws := &a.projects[i].Workspaces[j]
+			cmds = append(cmds, a.requestGitStatus(ws.Root))
 		}
 	}
 	return cmds
 }
 
-// handleWorktreeActivated processes the WorktreeActivated message.
-func (a *App) handleWorktreeActivated(msg messages.WorktreeActivated) []tea.Cmd {
+// handleWorkspaceActivated processes the WorkspaceActivated message.
+func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cmd {
 	var cmds []tea.Cmd
-	// Tabs now persist in memory per-worktree, no need to save/restore from disk
+	// Tabs now persist in memory per-workspace, no need to save/restore from disk
 	a.activeProject = msg.Project
-	a.activeWorktree = msg.Worktree
+	a.activeWorkspace = msg.Workspace
 	a.showWelcome = false
 	a.centerBtnFocused = false
 	a.centerBtnIndex = 0
-	a.center.SetWorktree(msg.Worktree)
-	a.sidebar.SetWorktree(msg.Worktree)
-	// Set up sidebar terminal for the worktree
-	if termCmd := a.sidebarTerminal.SetWorktree(msg.Worktree); termCmd != nil {
+	a.center.SetWorkspace(msg.Workspace)
+	a.sidebar.SetWorkspace(msg.Workspace)
+	// Set up sidebar terminal for the workspace
+	if termCmd := a.sidebarTerminal.SetWorkspace(msg.Workspace); termCmd != nil {
 		cmds = append(cmds, termCmd)
 	}
 	newDashboard, cmd := a.dashboard.Update(msg)
@@ -51,29 +51,29 @@ func (a *App) handleWorktreeActivated(msg messages.WorktreeActivated) []tea.Cmd 
 	cmds = append(cmds, cmd)
 
 	// Refresh git status for sidebar
-	if msg.Worktree != nil {
-		cmds = append(cmds, a.requestGitStatus(msg.Worktree.Root))
-		// Set up file watching for this worktree
+	if msg.Workspace != nil {
+		cmds = append(cmds, a.requestGitStatus(msg.Workspace.Root))
+		// Set up file watching for this workspace
 		if a.fileWatcher != nil {
-			_ = a.fileWatcher.Watch(msg.Worktree.Root)
+			_ = a.fileWatcher.Watch(msg.Workspace.Root)
 		}
 	}
 	return cmds
 }
 
-// handleWorktreePreviewed processes the WorktreePreviewed message.
-func (a *App) handleWorktreePreviewed(msg messages.WorktreePreviewed) []tea.Cmd {
+// handleWorkspacePreviewed processes the WorkspacePreviewed message.
+func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cmd {
 	var cmds []tea.Cmd
 	a.activeProject = msg.Project
-	a.activeWorktree = msg.Worktree
+	a.activeWorkspace = msg.Workspace
 	a.showWelcome = false
 	a.centerBtnFocused = false
 	a.centerBtnIndex = 0
-	a.center.SetWorktree(msg.Worktree)
-	a.sidebar.SetWorktree(msg.Worktree)
-	a.sidebarTerminal.SetWorktreePreview(msg.Worktree)
-	if msg.Worktree != nil && a.statusManager != nil {
-		if cached := a.statusManager.GetCached(msg.Worktree.Root); cached != nil {
+	a.center.SetWorkspace(msg.Workspace)
+	a.sidebar.SetWorkspace(msg.Workspace)
+	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
+	if msg.Workspace != nil && a.statusManager != nil {
+		if cached := a.statusManager.GetCached(msg.Workspace.Root); cached != nil {
 			a.sidebar.SetGitStatus(cached)
 		} else {
 			a.sidebar.SetGitStatus(nil)
@@ -106,16 +106,16 @@ func (a *App) handleShowAddProjectDialog() {
 	a.filePicker.Show()
 }
 
-// handleShowCreateWorktreeDialog shows the create worktree dialog.
-func (a *App) handleShowCreateWorktreeDialog(msg messages.ShowCreateWorktreeDialog) {
+// handleShowCreateWorkspaceDialog shows the create workspace dialog.
+func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDialog) {
 	a.dialogProject = msg.Project
-	a.dialog = common.NewInputDialog(DialogCreateWorktree, "Create Worktree", "Enter worktree name...")
+	a.dialog = common.NewInputDialog(DialogCreateWorkspace, "Create Workspace", "Enter workspace name...")
 	a.dialog.SetInputValidate(func(s string) string {
 		s = validation.SanitizeInput(s)
 		if s == "" {
 			return "" // Don't show error for empty input
 		}
-		if err := validation.ValidateWorktreeName(s); err != nil {
+		if err := validation.ValidateWorkspaceName(s); err != nil {
 			return err.Error()
 		}
 		return ""
@@ -125,14 +125,14 @@ func (a *App) handleShowCreateWorktreeDialog(msg messages.ShowCreateWorktreeDial
 	a.dialog.Show()
 }
 
-// handleShowDeleteWorktreeDialog shows the delete worktree dialog.
-func (a *App) handleShowDeleteWorktreeDialog(msg messages.ShowDeleteWorktreeDialog) {
+// handleShowDeleteWorkspaceDialog shows the delete workspace dialog.
+func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDialog) {
 	a.dialogProject = msg.Project
-	a.dialogWorktree = msg.Worktree
+	a.dialogWorkspace = msg.Workspace
 	a.dialog = common.NewConfirmDialog(
-		DialogDeleteWorktree,
-		"Delete Worktree",
-		fmt.Sprintf("Delete worktree '%s' and its branch?", msg.Worktree.Name),
+		DialogDeleteWorkspace,
+		"Delete Workspace",
+		fmt.Sprintf("Delete workspace '%s' and its branch?", msg.Workspace.Name),
 	)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -158,7 +158,7 @@ func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog
 
 // handleShowSelectAssistantDialog shows the select assistant dialog.
 func (a *App) handleShowSelectAssistantDialog() {
-	if a.activeWorktree != nil {
+	if a.activeWorkspace != nil {
 		a.dialog = common.NewAgentPicker()
 		a.dialog.SetSize(a.width, a.height)
 		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -236,43 +236,45 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 	return nil
 }
 
-// handleCreateWorktree handles the CreateWorktree message.
-func (a *App) handleCreateWorktree(msg messages.CreateWorktree) []tea.Cmd {
+// handleCreateWorkspace handles the CreateWorkspace message.
+func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Project != nil && msg.Name != "" {
-		worktreePath := filepath.Join(
-			a.config.Paths.WorktreesRoot,
+		workspacePath := filepath.Join(
+			a.config.Paths.WorkspacesRoot,
 			msg.Project.Name,
 			msg.Name,
 		)
-		pending := data.NewWorktree(msg.Name, msg.Name, msg.Base, msg.Project.Path, worktreePath)
-		if cmd := a.dashboard.SetWorktreeCreating(pending, true); cmd != nil {
+		pending := data.NewWorkspace(msg.Name, msg.Name, msg.Base, msg.Project.Path, workspacePath)
+		if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
-	cmds = append(cmds, a.createWorktree(msg.Project, msg.Name, msg.Base))
+	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base))
 	return cmds
 }
 
-// handleDeleteWorktree handles the DeleteWorktree message.
-func (a *App) handleDeleteWorktree(msg messages.DeleteWorktree) []tea.Cmd {
+// handleDeleteWorkspace handles the DeleteWorkspace message.
+func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
-	if msg.Worktree != nil {
-		if cmd := a.dashboard.SetWorktreeDeleting(msg.Worktree.Root, true); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+	if msg.Project == nil || msg.Workspace == nil {
+		logging.Warn("DeleteWorkspace received with nil project or workspace")
+		return nil
 	}
-	cmds = append(cmds, a.deleteWorktree(msg.Project, msg.Worktree))
+	if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, true); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	cmds = append(cmds, a.deleteWorkspace(msg.Project, msg.Workspace))
 	return cmds
 }
 
-// handleWorktreeCreatedWithWarning handles the WorktreeCreatedWithWarning message.
-func (a *App) handleWorktreeCreatedWithWarning(msg messages.WorktreeCreatedWithWarning) []tea.Cmd {
+// handleWorkspaceCreatedWithWarning handles the WorkspaceCreatedWithWarning message.
+func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWithWarning) []tea.Cmd {
 	var cmds []tea.Cmd
-	// Worktree was created but setup had issues - still refresh and show warning
-	a.err = fmt.Errorf("worktree created with warning: %s", msg.Warning)
-	if msg.Worktree != nil {
-		if cmd := a.dashboard.SetWorktreeCreating(msg.Worktree, false); cmd != nil {
+	// Workspace was created but setup had issues - still refresh and show warning
+	a.err = fmt.Errorf("workspace created with warning: %s", msg.Warning)
+	if msg.Workspace != nil {
+		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -280,66 +282,66 @@ func (a *App) handleWorktreeCreatedWithWarning(msg messages.WorktreeCreatedWithW
 	return cmds
 }
 
-// handleWorktreeCreated handles the WorktreeCreated message.
-func (a *App) handleWorktreeCreated(msg messages.WorktreeCreated) []tea.Cmd {
+// handleWorkspaceCreated handles the WorkspaceCreated message.
+func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 	var cmds []tea.Cmd
-	if msg.Worktree != nil {
-		if cmd := a.dashboard.SetWorktreeCreating(msg.Worktree, false); cmd != nil {
+	if msg.Workspace != nil {
+		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		// Run setup scripts asynchronously
 		if msg.Meta != nil {
-			cmds = append(cmds, a.runSetupAsync(msg.Worktree, msg.Meta))
+			cmds = append(cmds, a.runSetupAsync(msg.Workspace, msg.Meta))
 		}
 	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds
 }
 
-// handleWorktreeSetupComplete handles the WorktreeSetupComplete message.
-func (a *App) handleWorktreeSetupComplete(msg messages.WorktreeSetupComplete) tea.Cmd {
+// handleWorkspaceSetupComplete handles the WorkspaceSetupComplete message.
+func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) tea.Cmd {
 	if msg.Err != nil {
-		return a.toast.ShowWarning(fmt.Sprintf("Setup failed for %s: %v", msg.Worktree.Name, msg.Err))
+		return a.toast.ShowWarning(fmt.Sprintf("Setup failed for %s: %v", msg.Workspace.Name, msg.Err))
 	}
 	return nil
 }
 
-// handleWorktreeCreateFailed handles the WorktreeCreateFailed message.
-func (a *App) handleWorktreeCreateFailed(msg messages.WorktreeCreateFailed) tea.Cmd {
-	if msg.Worktree != nil {
-		if cmd := a.dashboard.SetWorktreeCreating(msg.Worktree, false); cmd != nil {
+// handleWorkspaceCreateFailed handles the WorkspaceCreateFailed message.
+func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) tea.Cmd {
+	if msg.Workspace != nil {
+		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			return cmd
 		}
 	}
 	a.err = msg.Err
-	logging.Error("Error in creating worktree: %v", msg.Err)
+	logging.Error("Error in creating workspace: %v", msg.Err)
 	return nil
 }
 
-// handleWorktreeDeleted handles the WorktreeDeleted message.
-func (a *App) handleWorktreeDeleted(msg messages.WorktreeDeleted) []tea.Cmd {
+// handleWorkspaceDeleted handles the WorkspaceDeleted message.
+func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	var cmds []tea.Cmd
-	if msg.Worktree != nil {
-		if cmd := a.dashboard.SetWorktreeDeleting(msg.Worktree.Root, false); cmd != nil {
+	if msg.Workspace != nil {
+		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		if a.statusManager != nil {
-			a.statusManager.Invalidate(msg.Worktree.Root)
+			a.statusManager.Invalidate(msg.Workspace.Root)
 		}
 	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds
 }
 
-// handleWorktreeDeleteFailed handles the WorktreeDeleteFailed message.
-func (a *App) handleWorktreeDeleteFailed(msg messages.WorktreeDeleteFailed) tea.Cmd {
-	if msg.Worktree != nil {
-		if cmd := a.dashboard.SetWorktreeDeleting(msg.Worktree.Root, false); cmd != nil {
+// handleWorkspaceDeleteFailed handles the WorkspaceDeleteFailed message.
+func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) tea.Cmd {
+	if msg.Workspace != nil {
+		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			return cmd
 		}
 	}
 	a.err = msg.Err
-	logging.Error("Error in removing worktree: %v", msg.Err)
+	logging.Error("Error in removing workspace: %v", msg.Err)
 	return nil
 }
 
@@ -347,8 +349,8 @@ func (a *App) handleWorktreeDeleteFailed(msg messages.WorktreeDeleteFailed) tea.
 func (a *App) handleGitStatusResult(msg messages.GitStatusResult) tea.Cmd {
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
-	// Update sidebar if this is for the active worktree
-	if a.activeWorktree != nil && msg.Root == a.activeWorktree.Root {
+	// Update sidebar if this is for the active workspace
+	if a.activeWorkspace != nil && msg.Root == a.activeWorkspace.Root {
 		a.sidebar.SetGitStatus(msg.Status)
 	}
 	return cmd
@@ -401,9 +403,9 @@ func (a *App) handleSidebarPTYMessages(msg tea.Msg) tea.Cmd {
 // handleGitStatusTick handles the GitStatusTick message.
 func (a *App) handleGitStatusTick() []tea.Cmd {
 	var cmds []tea.Cmd
-	// Refresh git status for active worktree
-	if a.activeWorktree != nil {
-		cmds = append(cmds, a.requestGitStatusCached(a.activeWorktree.Root))
+	// Refresh git status for active workspace
+	if a.activeWorkspace != nil {
+		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root))
 	}
 	// Continue the ticker
 	cmds = append(cmds, a.startGitStatusTicker())
@@ -423,10 +425,10 @@ func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
 // handleDialogResult handles dialog completion
 func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	project := a.dialogProject
-	worktree := a.dialogWorktree
+	workspace := a.dialogWorkspace
 	a.dialog = nil
 	a.dialogProject = nil
-	a.dialogWorktree = nil
+	a.dialogWorkspace = nil
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
@@ -450,16 +452,16 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 		}
 
-	case DialogCreateWorktree:
+	case DialogCreateWorkspace:
 		if result.Value != "" && project != nil {
 			name := validation.SanitizeInput(result.Value)
-			if err := validation.ValidateWorktreeName(name); err != nil {
+			if err := validation.ValidateWorkspaceName(name); err != nil {
 				return func() tea.Msg {
-					return messages.Error{Err: err, Context: "validating worktree name"}
+					return messages.Error{Err: err, Context: "validating workspace name"}
 				}
 			}
 			return func() tea.Msg {
-				return messages.CreateWorktree{
+				return messages.CreateWorkspace{
 					Project: project,
 					Name:    name,
 					Base:    "HEAD",
@@ -467,13 +469,13 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 		}
 
-	case DialogDeleteWorktree:
-		if project != nil && worktree != nil {
-			wt := worktree
+	case DialogDeleteWorkspace:
+		if project != nil && workspace != nil {
+			ws := workspace
 			return func() tea.Msg {
-				return messages.DeleteWorktree{
-					Project:  project,
-					Worktree: wt,
+				return messages.DeleteWorkspace{
+					Project:   project,
+					Workspace: ws,
 				}
 			}
 		}
@@ -489,18 +491,18 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogSelectAssistant, "agent-picker":
-		if a.activeWorktree != nil {
+		if a.activeWorkspace != nil {
 			assistant := result.Value
 			if err := validation.ValidateAssistant(assistant); err != nil {
 				return func() tea.Msg {
 					return messages.Error{Err: err, Context: "validating assistant"}
 				}
 			}
-			wt := a.activeWorktree
+			ws := a.activeWorkspace
 			return func() tea.Msg {
 				return messages.LaunchAgent{
 					Assistant: assistant,
-					Worktree:  wt,
+					Workspace: ws,
 				}
 			}
 		}
@@ -596,13 +598,13 @@ func (a *App) handleUpgradeComplete(msg messages.UpgradeComplete) tea.Cmd {
 // handleOpenFileInEditor handles the OpenFileInEditor message from the project tree.
 // This opens the file in vim in the center pane.
 func (a *App) handleOpenFileInEditor(msg sidebar.OpenFileInEditor) tea.Cmd {
-	if msg.Worktree == nil || msg.Path == "" {
+	if msg.Workspace == nil || msg.Path == "" {
 		return nil
 	}
 	logging.Info("Opening file in editor: %s", msg.Path)
 	newCenter, cmd := a.center.Update(messages.OpenFileInVim{
-		Path:     msg.Path,
-		Worktree: msg.Worktree,
+		Path:      msg.Path,
+		Workspace: msg.Workspace,
 	})
 	a.center = newCenter
 	return cmd

@@ -11,7 +11,7 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 	ports := NewPortAllocator(6200, 10)
 	builder := NewEnvBuilder(ports)
 
-	wt := &data.Worktree{
+	wt := &data.Workspace{
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   "/home/user/repo",
@@ -28,11 +28,11 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 
 	// Check required variables are present
 	checks := map[string]string{
-		"AMUX_WORKTREE_NAME":   "feature-1",
-		"AMUX_WORKTREE_ROOT":   "/home/user/.amux/worktrees/feature-1",
-		"AMUX_WORKTREE_BRANCH": "feature-1",
-		"ROOT_WORKTREE_PATH":   "/home/user/repo",
-		"CUSTOM_VAR":           "custom_value",
+		"AMUX_WORKSPACE_NAME":   "feature-1",
+		"AMUX_WORKSPACE_ROOT":   "/home/user/.amux/worktrees/feature-1",
+		"AMUX_WORKSPACE_BRANCH": "feature-1",
+		"ROOT_WORKSPACE_PATH":   "/home/user/repo",
+		"CUSTOM_VAR":            "custom_value",
 	}
 
 	for key, wantValue := range checks {
@@ -69,7 +69,7 @@ func TestEnvBuilder_BuildEnvMap(t *testing.T) {
 	ports := NewPortAllocator(6200, 10)
 	builder := NewEnvBuilder(ports)
 
-	wt := &data.Worktree{
+	wt := &data.Workspace{
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   "/home/user/repo",
@@ -78,8 +78,8 @@ func TestEnvBuilder_BuildEnvMap(t *testing.T) {
 
 	envMap := builder.BuildEnvMap(wt, nil)
 
-	if envMap["AMUX_WORKTREE_NAME"] != "feature-1" {
-		t.Errorf("AMUX_WORKTREE_NAME = %v, want feature-1", envMap["AMUX_WORKTREE_NAME"])
+	if envMap["AMUX_WORKSPACE_NAME"] != "feature-1" {
+		t.Errorf("AMUX_WORKSPACE_NAME = %v, want feature-1", envMap["AMUX_WORKSPACE_NAME"])
 	}
 	if envMap["AMUX_PORT"] != "6200" {
 		t.Errorf("AMUX_PORT = %v, want 6200", envMap["AMUX_PORT"])
@@ -89,7 +89,7 @@ func TestEnvBuilder_BuildEnvMap(t *testing.T) {
 func TestEnvBuilder_NilPortAllocator(t *testing.T) {
 	builder := NewEnvBuilder(nil)
 
-	wt := &data.Worktree{
+	wt := &data.Workspace{
 		Name: "feature-1",
 		Root: "/path/to/wt",
 	}

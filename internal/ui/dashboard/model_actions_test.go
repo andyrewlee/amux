@@ -21,12 +21,12 @@ func TestDashboardHandleEnterProjectSelectsMain(t *testing.T) {
 	}
 
 	msg := cmd()
-	activated, ok := msg.(messages.WorktreeActivated)
+	activated, ok := msg.(messages.WorkspaceActivated)
 	if !ok {
-		t.Fatalf("expected WorktreeActivated, got %T", msg)
+		t.Fatalf("expected WorkspaceActivated, got %T", msg)
 	}
-	if activated.Worktree == nil || activated.Worktree.Branch != "main" {
-		t.Fatalf("expected main worktree activation, got %+v", activated.Worktree)
+	if activated.Workspace == nil || activated.Workspace.Branch != "main" {
+		t.Fatalf("expected main workspace activation, got %+v", activated.Workspace)
 	}
 }
 
@@ -46,13 +46,13 @@ func TestDashboardHandleEnterHome(t *testing.T) {
 	}
 }
 
-func TestDashboardHandleEnterWorktree(t *testing.T) {
+func TestDashboardHandleEnterWorkspace(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
 
-	// Find a worktree row
+	// Find a workspace row
 	for i, row := range m.rows {
-		if row.Type == RowWorktree {
+		if row.Type == RowWorkspace {
 			m.cursor = i
 			break
 		}
@@ -64,12 +64,12 @@ func TestDashboardHandleEnterWorktree(t *testing.T) {
 	}
 
 	msg := cmd()
-	activated, ok := msg.(messages.WorktreeActivated)
+	activated, ok := msg.(messages.WorkspaceActivated)
 	if !ok {
-		t.Fatalf("expected WorktreeActivated message, got %T", msg)
+		t.Fatalf("expected WorkspaceActivated message, got %T", msg)
 	}
-	if activated.Worktree == nil {
-		t.Fatalf("expected worktree in activation message")
+	if activated.Workspace == nil {
+		t.Fatalf("expected workspace in activation message")
 	}
 }
 
@@ -91,8 +91,8 @@ func TestDashboardHandleEnterCreate(t *testing.T) {
 	}
 
 	msg := cmd()
-	if _, ok := msg.(messages.ShowCreateWorktreeDialog); !ok {
-		t.Fatalf("expected ShowCreateWorktreeDialog message, got %T", msg)
+	if _, ok := msg.(messages.ShowCreateWorkspaceDialog); !ok {
+		t.Fatalf("expected ShowCreateWorkspaceDialog message, got %T", msg)
 	}
 }
 
@@ -100,9 +100,9 @@ func TestDashboardHandleDelete(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
 
-	// Find a worktree row
+	// Find a workspace row
 	for i, row := range m.rows {
-		if row.Type == RowWorktree {
+		if row.Type == RowWorkspace {
 			m.cursor = i
 			break
 		}
@@ -114,12 +114,12 @@ func TestDashboardHandleDelete(t *testing.T) {
 	}
 
 	msg := cmd()
-	dialog, ok := msg.(messages.ShowDeleteWorktreeDialog)
+	dialog, ok := msg.(messages.ShowDeleteWorkspaceDialog)
 	if !ok {
-		t.Fatalf("expected ShowDeleteWorktreeDialog message, got %T", msg)
+		t.Fatalf("expected ShowDeleteWorkspaceDialog message, got %T", msg)
 	}
-	if dialog.Worktree == nil {
-		t.Fatalf("expected worktree in dialog message")
+	if dialog.Workspace == nil {
+		t.Fatalf("expected workspace in dialog message")
 	}
 }
 
@@ -150,14 +150,14 @@ func TestDashboardHandleRemoveProject(t *testing.T) {
 	}
 }
 
-func TestDashboardHandleDeleteNonWorktree(t *testing.T) {
+func TestDashboardHandleDeleteNonWorkspace(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
 	m.cursor = 0 // Home row
 
 	cmd := m.handleDelete()
 	if cmd != nil {
-		t.Fatalf("expected handleDelete to return nil for non-worktree row")
+		t.Fatalf("expected handleDelete to return nil for non-workspace row")
 	}
 }
 
@@ -166,9 +166,9 @@ func TestDashboardDeleteKeyBinding(t *testing.T) {
 	m.SetProjects([]data.Project{makeProject()})
 	m.Focus()
 
-	// Find a worktree row
+	// Find a workspace row
 	for i, row := range m.rows {
-		if row.Type == RowWorktree {
+		if row.Type == RowWorkspace {
 			m.cursor = i
 			break
 		}
@@ -193,8 +193,8 @@ func TestDashboardDeleteKeyBinding(t *testing.T) {
 
 		// Verify it's the right command
 		res := cmd()
-		if _, ok := res.(messages.ShowDeleteWorktreeDialog); !ok {
-			t.Fatalf("expected ShowDeleteWorktreeDialog message, got %T", res)
+		if _, ok := res.(messages.ShowDeleteWorkspaceDialog); !ok {
+			t.Fatalf("expected ShowDeleteWorkspaceDialog message, got %T", res)
 		}
 	})
 

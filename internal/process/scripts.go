@@ -22,19 +22,31 @@ const (
 	ScriptArchive ScriptType = "archive"
 )
 
-// WorktreeConfig holds per-project worktree configuration
-type WorktreeConfig struct {
+const (
+	configFilename       = "workspaces.json"
+	legacyConfigFilename = "worktrees.json"
+)
+
+// WorkspaceConfig holds per-project workspace configuration
+type WorkspaceConfig struct {
+	SetupWorkspace []string `json:"setup-workspace"`
+	RunScript      string   `json:"run"`
+	ArchiveScript  string   `json:"archive"`
+}
+
+// LegacyWorkspaceConfig for backward compatibility with setup-worktree key
+type LegacyWorkspaceConfig struct {
 	SetupWorktree []string `json:"setup-worktree"`
 	RunScript     string   `json:"run"`
 	ArchiveScript string   `json:"archive"`
 }
 
-// ScriptRunner manages script execution for worktrees
+// ScriptRunner manages script execution for workspaces
 type ScriptRunner struct {
 	mu            sync.Mutex
 	portAllocator *PortAllocator
 	envBuilder    *EnvBuilder
-	running       map[string]*exec.Cmd // worktree root -> running process
+	running       map[string]*exec.Cmd // workspace root -> running process
 }
 
 // NewScriptRunner creates a new script runner
@@ -47,39 +59,68 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 	}
 }
 
-// LoadConfig loads the worktree configuration from the repo
-func (r *ScriptRunner) LoadConfig(repoPath string) (*WorktreeConfig, error) {
-	configPath := filepath.Join(repoPath, ".amux", "worktrees.json")
+// LoadConfig loads the workspace configuration from the repo
+func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
+	configDir := filepath.Join(repoPath, ".amux")
+	newPath := filepath.Join(configDir, configFilename)
+	legacyPath := filepath.Join(configDir, legacyConfigFilename)
 
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &WorktreeConfig{}, nil
+	// Try new file first
+	if fileData, err := os.ReadFile(newPath); err == nil {
+		var config WorkspaceConfig
+		if err := json.Unmarshal(fileData, &config); err != nil {
+			return nil, err
 		}
-		return nil, err
+		// Also check legacy key in new file for migration
+		if len(config.SetupWorkspace) == 0 {
+			var legacy LegacyWorkspaceConfig
+			if err := json.Unmarshal(fileData, &legacy); err == nil && len(legacy.SetupWorktree) > 0 {
+				config.SetupWorkspace = legacy.SetupWorktree
+			}
+		}
+		return &config, nil
+	} else if !os.IsNotExist(err) {
+		return nil, err // Real error
 	}
 
-	var config WorktreeConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, err
+	// Try legacy file
+	if data, err := os.ReadFile(legacyPath); err == nil {
+		// Try new keys first in legacy file
+		var config WorkspaceConfig
+		if err := json.Unmarshal(data, &config); err == nil && len(config.SetupWorkspace) > 0 {
+			return &config, nil
+		}
+		// Fall back to legacy keys
+		var legacy LegacyWorkspaceConfig
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			return nil, err
+		}
+		return &WorkspaceConfig{
+			SetupWorkspace: legacy.SetupWorktree,
+			RunScript:      legacy.RunScript,
+			ArchiveScript:  legacy.ArchiveScript,
+		}, nil
+	} else if !os.IsNotExist(err) {
+		return nil, err // Real error
 	}
 
-	return &config, nil
+	// Neither exists
+	return &WorkspaceConfig{}, nil
 }
 
-// RunSetup runs the setup scripts for a worktree
-func (r *ScriptRunner) RunSetup(wt *data.Worktree, meta *data.Metadata) error {
-	config, err := r.LoadConfig(wt.Repo)
+// RunSetup runs the setup scripts for a workspace
+func (r *ScriptRunner) RunSetup(ws *data.Workspace, meta *data.Metadata) error {
+	config, err := r.LoadConfig(ws.Repo)
 	if err != nil {
 		return err
 	}
 
-	env := r.envBuilder.BuildEnv(wt, meta)
+	env := r.envBuilder.BuildEnv(ws, meta)
 
 	// Run each setup command sequentially
-	for _, cmdStr := range config.SetupWorktree {
+	for _, cmdStr := range config.SetupWorkspace {
 		cmd := exec.Command("sh", "-c", cmdStr)
-		cmd.Dir = wt.Root
+		cmd.Dir = ws.Root
 		cmd.Env = env
 
 		var stderr bytes.Buffer
@@ -93,9 +134,9 @@ func (r *ScriptRunner) RunSetup(wt *data.Worktree, meta *data.Metadata) error {
 	return nil
 }
 
-// RunScript runs a script for a worktree
-func (r *ScriptRunner) RunScript(wt *data.Worktree, meta *data.Metadata, scriptType ScriptType) (*exec.Cmd, error) {
-	config, err := r.LoadConfig(wt.Repo)
+// RunScript runs a script for a workspace
+func (r *ScriptRunner) RunScript(ws *data.Workspace, meta *data.Metadata, scriptType ScriptType) (*exec.Cmd, error) {
+	config, err := r.LoadConfig(ws.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -120,13 +161,13 @@ func (r *ScriptRunner) RunScript(wt *data.Worktree, meta *data.Metadata, scriptT
 
 	// Check for existing process in non-concurrent mode
 	if meta != nil && meta.ScriptMode == "nonconcurrent" {
-		_ = r.Stop(wt)
+		_ = r.Stop(ws)
 	}
 
-	env := r.envBuilder.BuildEnv(wt, meta)
+	env := r.envBuilder.BuildEnv(ws, meta)
 
 	cmd := exec.Command("sh", "-c", cmdStr)
-	cmd.Dir = wt.Root
+	cmd.Dir = ws.Root
 	cmd.Env = env
 
 	if err := cmd.Start(); err != nil {
@@ -134,24 +175,24 @@ func (r *ScriptRunner) RunScript(wt *data.Worktree, meta *data.Metadata, scriptT
 	}
 
 	r.mu.Lock()
-	r.running[wt.Root] = cmd
+	r.running[ws.Root] = cmd
 	r.mu.Unlock()
 
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
 		_ = cmd.Wait()
 		r.mu.Lock()
-		delete(r.running, wt.Root)
+		delete(r.running, ws.Root)
 		r.mu.Unlock()
 	})
 
 	return cmd, nil
 }
 
-// Stop stops the running script for a worktree
-func (r *ScriptRunner) Stop(wt *data.Worktree) error {
+// Stop stops the running script for a workspace
+func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	r.mu.Lock()
-	cmd, ok := r.running[wt.Root]
+	cmd, ok := r.running[ws.Root]
 	r.mu.Unlock()
 
 	if !ok {
@@ -165,11 +206,11 @@ func (r *ScriptRunner) Stop(wt *data.Worktree) error {
 	return nil
 }
 
-// IsRunning checks if a script is running for a worktree
-func (r *ScriptRunner) IsRunning(wt *data.Worktree) bool {
+// IsRunning checks if a script is running for a workspace
+func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.running[wt.Root]
+	_, ok := r.running[ws.Root]
 	return ok
 }
 

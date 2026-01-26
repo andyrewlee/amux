@@ -121,29 +121,29 @@ func (m *Model) previewCurrentRow() tea.Cmd {
 	case RowHome:
 		return func() tea.Msg { return messages.ShowWelcome{} }
 	case RowProject:
-		// Find and activate the main/primary worktree for this project
-		var mainWT *data.Worktree
-		for i := range row.Project.Worktrees {
-			wt := &row.Project.Worktrees[i]
-			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
-				mainWT = wt
+		// Find and activate the main/primary workspace for this project
+		var mainWS *data.Workspace
+		for i := range row.Project.Workspaces {
+			ws := &row.Project.Workspaces[i]
+			if ws.IsMainBranch() || ws.IsPrimaryCheckout() {
+				mainWS = ws
 				break
 			}
 		}
-		if mainWT != nil {
+		if mainWS != nil {
 			return func() tea.Msg {
-				return messages.WorktreePreviewed{
-					Project:  row.Project,
-					Worktree: mainWT,
+				return messages.WorkspacePreviewed{
+					Project:   row.Project,
+					Workspace: mainWS,
 				}
 			}
 		}
 		return nil
-	case RowWorktree:
+	case RowWorkspace:
 		return func() tea.Msg {
-			return messages.WorktreePreviewed{
-				Project:  row.Project,
-				Worktree: row.Worktree,
+			return messages.WorkspacePreviewed{
+				Project:   row.Project,
+				Workspace: row.Workspace,
 			}
 		}
 	}
@@ -163,34 +163,34 @@ func (m *Model) handleEnter() tea.Cmd {
 	case RowHome:
 		return func() tea.Msg { return messages.ShowWelcome{} }
 	case RowProject:
-		// Find and activate the main/primary worktree for this project
-		var mainWT *data.Worktree
-		for i := range row.Project.Worktrees {
-			wt := &row.Project.Worktrees[i]
-			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
-				mainWT = wt
+		// Find and activate the main/primary workspace for this project
+		var mainWS *data.Workspace
+		for i := range row.Project.Workspaces {
+			ws := &row.Project.Workspaces[i]
+			if ws.IsMainBranch() || ws.IsPrimaryCheckout() {
+				mainWS = ws
 				break
 			}
 		}
-		if mainWT != nil {
+		if mainWS != nil {
 			return func() tea.Msg {
-				return messages.WorktreeActivated{
-					Project:  row.Project,
-					Worktree: mainWT,
+				return messages.WorkspaceActivated{
+					Project:   row.Project,
+					Workspace: mainWS,
 				}
 			}
 		}
 		return nil
-	case RowWorktree:
+	case RowWorkspace:
 		return func() tea.Msg {
-			return messages.WorktreeActivated{
-				Project:  row.Project,
-				Worktree: row.Worktree,
+			return messages.WorkspaceActivated{
+				Project:   row.Project,
+				Workspace: row.Workspace,
 			}
 		}
 	case RowCreate:
 		return func() tea.Msg {
-			return messages.ShowCreateWorktreeDialog{Project: row.Project}
+			return messages.ShowCreateWorkspaceDialog{Project: row.Project}
 		}
 	}
 
@@ -204,11 +204,11 @@ func (m *Model) handleDelete() tea.Cmd {
 	}
 
 	row := m.rows[m.cursor]
-	if row.Type == RowWorktree && row.Worktree != nil {
+	if row.Type == RowWorkspace && row.Workspace != nil {
 		return func() tea.Msg {
-			return messages.ShowDeleteWorktreeDialog{
-				Project:  row.Project,
-				Worktree: row.Worktree,
+			return messages.ShowDeleteWorkspaceDialog{
+				Project:   row.Project,
+				Workspace: row.Workspace,
 			}
 		}
 	}

@@ -11,9 +11,9 @@ func makeProject() data.Project {
 	return data.Project{
 		Name: "repo",
 		Path: "/repo",
-		Worktrees: []data.Worktree{
+		Workspaces: []data.Workspace{
 			{Name: "repo", Branch: "main", Repo: "/repo", Root: "/repo"},
-			{Name: "feature", Branch: "feature", Repo: "/repo", Root: "/repo/.amux/worktrees/feature"},
+			{Name: "feature", Branch: "feature", Repo: "/repo", Root: "/repo/.amux/workspaces/feature"},
 		},
 	}
 }
@@ -22,12 +22,12 @@ func TestDashboardRebuildRowsSkipsMainAndPrimary(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
 
-	var worktreeRows int
+	var workspaceRows int
 	var projectRows int
 	for _, row := range m.rows {
 		switch row.Type {
-		case RowWorktree:
-			worktreeRows++
+		case RowWorkspace:
+			workspaceRows++
 		case RowProject:
 			projectRows++
 		}
@@ -36,8 +36,8 @@ func TestDashboardRebuildRowsSkipsMainAndPrimary(t *testing.T) {
 	if projectRows != 1 {
 		t.Fatalf("expected 1 project row, got %d", projectRows)
 	}
-	if worktreeRows != 1 {
-		t.Fatalf("expected only non-main/non-primary worktree rows, got %d", worktreeRows)
+	if workspaceRows != 1 {
+		t.Fatalf("expected only non-main/non-primary workspace rows, got %d", workspaceRows)
 	}
 }
 
@@ -205,14 +205,14 @@ func TestMoveCursorRowByRow(t *testing.T) {
 	m := New()
 	// Manually set up rows with spacers to test row-by-row walking
 	m.rows = []Row{
-		{Type: RowHome},     // 0: selectable
-		{Type: RowProject},  // 1: selectable
-		{Type: RowWorktree}, // 2: selectable
-		{Type: RowSpacer},   // 3: NOT selectable
-		{Type: RowProject},  // 4: selectable
-		{Type: RowWorktree}, // 5: selectable
-		{Type: RowSpacer},   // 6: NOT selectable
-		{Type: RowProject},  // 7: selectable
+		{Type: RowHome},      // 0: selectable
+		{Type: RowProject},   // 1: selectable
+		{Type: RowWorkspace}, // 2: selectable
+		{Type: RowSpacer},    // 3: NOT selectable
+		{Type: RowProject},   // 4: selectable
+		{Type: RowWorkspace}, // 5: selectable
+		{Type: RowSpacer},    // 6: NOT selectable
+		{Type: RowProject},   // 7: selectable
 	}
 
 	t.Run("delta=1 moves one selectable row", func(t *testing.T) {
@@ -322,18 +322,18 @@ func TestVisibleHeightPageMovement(t *testing.T) {
 	m := New()
 	// Set up a taller dashboard with many rows
 	m.rows = []Row{
-		{Type: RowHome},     // 0
-		{Type: RowProject},  // 1
-		{Type: RowWorktree}, // 2
-		{Type: RowWorktree}, // 3
-		{Type: RowSpacer},   // 4
-		{Type: RowProject},  // 5
-		{Type: RowWorktree}, // 6
-		{Type: RowWorktree}, // 7
-		{Type: RowSpacer},   // 8
-		{Type: RowProject},  // 9
-		{Type: RowWorktree}, // 10
-		{Type: RowWorktree}, // 11
+		{Type: RowHome},      // 0
+		{Type: RowProject},   // 1
+		{Type: RowWorkspace}, // 2
+		{Type: RowWorkspace}, // 3
+		{Type: RowSpacer},    // 4
+		{Type: RowProject},   // 5
+		{Type: RowWorkspace}, // 6
+		{Type: RowWorkspace}, // 7
+		{Type: RowSpacer},    // 8
+		{Type: RowProject},   // 9
+		{Type: RowWorkspace}, // 10
+		{Type: RowWorkspace}, // 11
 	}
 
 	// Set a size that gives us a visible height of ~5

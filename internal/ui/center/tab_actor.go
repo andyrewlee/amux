@@ -32,34 +32,34 @@ const (
 )
 
 type tabEvent struct {
-	tab        *Tab
-	worktreeID string
-	tabID      TabID
-	kind       tabEventKind
-	termX      int
-	termY      int
-	inBounds   bool
-	delta      int
-	gen        uint64
-	notifyCopy bool
-	scrollPage int
-	diffMsg    tea.Msg
-	input      []byte
-	pasteText  string
-	response   []byte
-	output     []byte
+	tab         *Tab
+	workspaceID string
+	tabID       TabID
+	kind        tabEventKind
+	termX       int
+	termY       int
+	inBounds    bool
+	delta       int
+	gen         uint64
+	notifyCopy  bool
+	scrollPage  int
+	diffMsg     tea.Msg
+	input       []byte
+	pasteText   string
+	response    []byte
+	output      []byte
 }
 
 type tabSelectionResult struct {
-	worktreeID string
-	tabID      TabID
-	clipboard  string
+	workspaceID string
+	tabID       TabID
+	clipboard   string
 }
 
 type selectionTickRequest struct {
-	worktreeID string
-	tabID      TabID
-	gen        uint64
+	workspaceID string
+	tabID       TabID
+	gen         uint64
 }
 
 type tabActorReady struct{}
@@ -176,7 +176,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.selectionGen++
 		tab.mu.Unlock()
 		if ev.notifyCopy && text != "" && m.msgSink != nil {
-			m.msgSink(tabSelectionResult{worktreeID: ev.worktreeID, tabID: ev.tabID, clipboard: text})
+			m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
 		}
 	case tabEventSelectionCopy:
 		tab.mu.Lock()
@@ -189,7 +189,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		}
 		tab.mu.Unlock()
 		if ev.notifyCopy && text != "" && m.msgSink != nil {
-			m.msgSink(tabSelectionResult{worktreeID: ev.worktreeID, tabID: ev.tabID, clipboard: text})
+			m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
 		}
 	case tabEventSelectionStart:
 		tab.mu.Lock()
@@ -258,9 +258,9 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		if tab.Selection.Active && tab.selectionScrollDir != 0 && !tab.selectionScrollActive && m.msgSink != nil {
 			tab.selectionScrollActive = true
 			m.msgSink(selectionTickRequest{
-				worktreeID: ev.worktreeID,
-				tabID:      ev.tabID,
-				gen:        tab.selectionGen,
+				workspaceID: ev.workspaceID,
+				tabID:       ev.tabID,
+				gen:         tab.selectionGen,
 			})
 		}
 	case tabEventSelectionFinish:
@@ -281,7 +281,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 				tab.Terminal.SelEndX(), tab.Terminal.SelEndLine(),
 			)
 			if text != "" && m.msgSink != nil {
-				m.msgSink(tabSelectionResult{worktreeID: ev.worktreeID, tabID: ev.tabID, clipboard: text})
+				m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
 			}
 		}
 	case tabEventScrollBy:
@@ -303,9 +303,9 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.mu.Unlock()
 		if m.msgSink != nil {
 			m.msgSink(selectionTickRequest{
-				worktreeID: ev.worktreeID,
-				tabID:      ev.tabID,
-				gen:        ev.gen,
+				workspaceID: ev.workspaceID,
+				tabID:       ev.tabID,
+				gen:         ev.gen,
 			})
 		}
 	case tabEventScrollToBottom:

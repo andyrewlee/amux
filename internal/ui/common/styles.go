@@ -16,13 +16,13 @@ type Styles struct {
 	Bold     lipgloss.Style // Emphasized text
 
 	// Dashboard - Project tree
-	ProjectHeader  lipgloss.Style
-	WorktreeRow    lipgloss.Style
-	ActiveWorktree lipgloss.Style
-	SelectedRow    lipgloss.Style
-	CreateButton   lipgloss.Style
-	HomeRow        lipgloss.Style
-	AddProjectRow  lipgloss.Style
+	ProjectHeader   lipgloss.Style
+	WorkspaceRow    lipgloss.Style
+	ActiveWorkspace lipgloss.Style
+	SelectedRow     lipgloss.Style
+	CreateButton    lipgloss.Style
+	HomeRow         lipgloss.Style
+	AddProjectRow   lipgloss.Style
 
 	// Status badges
 	StatusClean   lipgloss.Style
@@ -124,10 +124,10 @@ func DefaultStyles() Styles {
 			Foreground(ColorMuted).
 			MarginTop(1),
 
-		WorktreeRow: lipgloss.NewStyle().
+		WorkspaceRow: lipgloss.NewStyle().
 			Foreground(ColorForeground),
 
-		ActiveWorktree: lipgloss.NewStyle().
+		ActiveWorkspace: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(ColorPrimary),
 

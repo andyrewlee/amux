@@ -4,12 +4,12 @@ import (
 	"sync"
 )
 
-// PortAllocator manages port allocation for worktrees
+// PortAllocator manages port allocation for workspaces
 type PortAllocator struct {
 	mu        sync.Mutex
 	portStart int
 	rangeSize int
-	allocated map[string]int // worktree root -> port base
+	allocated map[string]int // workspace root -> port base
 	nextPort  int
 }
 
@@ -23,43 +23,43 @@ func NewPortAllocator(start, rangeSize int) *PortAllocator {
 	}
 }
 
-// AllocatePort allocates a port range for a worktree
-func (p *PortAllocator) AllocatePort(worktreeRoot string) int {
+// AllocatePort allocates a port range for a workspace
+func (p *PortAllocator) AllocatePort(workspaceRoot string) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	// Check if already allocated
-	if port, ok := p.allocated[worktreeRoot]; ok {
+	if port, ok := p.allocated[workspaceRoot]; ok {
 		return port
 	}
 
 	// Allocate new port range
 	port := p.nextPort
-	p.allocated[worktreeRoot] = port
+	p.allocated[workspaceRoot] = port
 	p.nextPort += p.rangeSize
 
 	return port
 }
 
-// GetPort returns the allocated port for a worktree
-func (p *PortAllocator) GetPort(worktreeRoot string) (int, bool) {
+// GetPort returns the allocated port for a workspace
+func (p *PortAllocator) GetPort(workspaceRoot string) (int, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	port, ok := p.allocated[worktreeRoot]
+	port, ok := p.allocated[workspaceRoot]
 	return port, ok
 }
 
-// ReleasePort releases the port allocation for a worktree
-func (p *PortAllocator) ReleasePort(worktreeRoot string) {
+// ReleasePort releases the port allocation for a workspace
+func (p *PortAllocator) ReleasePort(workspaceRoot string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	delete(p.allocated, worktreeRoot)
+	delete(p.allocated, workspaceRoot)
 }
 
-// PortRange returns the port and range size for a worktree
-func (p *PortAllocator) PortRange(worktreeRoot string) (port int, rangeEnd int) {
-	port = p.AllocatePort(worktreeRoot)
+// PortRange returns the port and range size for a workspace
+func (p *PortAllocator) PortRange(workspaceRoot string) (port int, rangeEnd int) {
+	port = p.AllocatePort(workspaceRoot)
 	return port, port + p.rangeSize - 1
 }

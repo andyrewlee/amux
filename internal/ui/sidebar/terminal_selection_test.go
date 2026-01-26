@@ -27,18 +27,18 @@ func TestScreenToTerminalFallback(t *testing.T) {
 }
 
 func TestScreenToTerminalWithVTerm(t *testing.T) {
-	wt := &data.Worktree{Repo: "/repo", Root: "/repo/wt"}
+	wt := &data.Workspace{Repo: "/repo", Root: "/repo/wt"}
 	m := NewTerminalModel()
-	m.worktree = wt
+	m.workspace = wt
 	wtID := string(wt.ID())
-	m.tabsByWorktree[wtID] = []*TerminalTab{
+	m.tabsByWorkspace[wtID] = []*TerminalTab{
 		{
 			ID:    "test-tab",
 			Name:  "Terminal 1",
 			State: &TerminalState{VTerm: vterm.New(4, 3)},
 		},
 	}
-	m.activeTabByWorktree[wtID] = 0
+	m.activeTabByWorkspace[wtID] = 0
 	m.offsetX = 1
 	m.offsetY = 1
 

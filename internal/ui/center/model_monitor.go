@@ -20,7 +20,7 @@ import (
 
 // MonitorSnapshot captures a tab display for the monitor grid.
 type MonitorSnapshot struct {
-	Worktree  *data.Worktree
+	Workspace *data.Workspace
 	Assistant string
 	Name      string
 	Running   bool
@@ -30,7 +30,7 @@ type MonitorSnapshot struct {
 // MonitorTab describes a tab for the monitor grid.
 type MonitorTab struct {
 	ID        TabID
-	Worktree  *data.Worktree
+	Workspace *data.Workspace
 	Assistant string
 	Name      string
 	Running   bool
@@ -66,8 +66,8 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	wtID := ""
-	if tab.Worktree != nil {
-		wtID = string(tab.Worktree.ID())
+	if tab.Workspace != nil {
+		wtID = string(tab.Workspace.ID())
 	}
 
 	switch msg := msg.(type) {
@@ -75,11 +75,11 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		// Handle bracketed paste - send entire content at once with escape sequences.
 		if m.isTabActorReady() {
 			if !m.sendTabEvent(tabEvent{
-				tab:        tab,
-				worktreeID: wtID,
-				tabID:      tab.ID,
-				kind:       tabEventPaste,
-				pasteText:  msg.Content,
+				tab:         tab,
+				workspaceID: wtID,
+				tabID:       tab.ID,
+				kind:        tabEventPaste,
+				pasteText:   msg.Content,
 			}) {
 				bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
 				_ = tab.Agent.Terminal.SendString(bracketedText)
@@ -95,11 +95,11 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case msg.Key().Code == tea.KeyPgUp:
 			if m.isTabActorReady() {
 				if m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: wtID,
-					tabID:      tab.ID,
-					kind:       tabEventScrollPage,
-					scrollPage: 1,
+					tab:         tab,
+					workspaceID: wtID,
+					tabID:       tab.ID,
+					kind:        tabEventScrollPage,
+					scrollPage:  1,
 				}) {
 					return nil
 				}
@@ -117,11 +117,11 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case msg.Key().Code == tea.KeyPgDown:
 			if m.isTabActorReady() {
 				if m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: wtID,
-					tabID:      tab.ID,
-					kind:       tabEventScrollPage,
-					scrollPage: -1,
+					tab:         tab,
+					workspaceID: wtID,
+					tabID:       tab.ID,
+					kind:        tabEventScrollPage,
+					scrollPage:  -1,
 				}) {
 					return nil
 				}
@@ -139,11 +139,11 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
 			if m.isTabActorReady() {
 				if m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: wtID,
-					tabID:      tab.ID,
-					kind:       tabEventScrollPage,
-					scrollPage: 1,
+					tab:         tab,
+					workspaceID: wtID,
+					tabID:       tab.ID,
+					kind:        tabEventScrollPage,
+					scrollPage:  1,
 				}) {
 					return nil
 				}
@@ -161,11 +161,11 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
 			if m.isTabActorReady() {
 				if m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: wtID,
-					tabID:      tab.ID,
-					kind:       tabEventScrollPage,
-					scrollPage: -1,
+					tab:         tab,
+					workspaceID: wtID,
+					tabID:       tab.ID,
+					kind:        tabEventScrollPage,
+					scrollPage:  -1,
 				}) {
 					return nil
 				}
@@ -183,10 +183,10 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
 			if m.isTabActorReady() {
 				if m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: wtID,
-					tabID:      tab.ID,
-					kind:       tabEventScrollToTop,
+					tab:         tab,
+					workspaceID: wtID,
+					tabID:       tab.ID,
+					kind:        tabEventScrollToTop,
 				}) {
 					return nil
 				}
@@ -204,10 +204,10 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
 			if m.isTabActorReady() {
 				if m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: wtID,
-					tabID:      tab.ID,
-					kind:       tabEventScrollToBottom,
+					tab:         tab,
+					workspaceID: wtID,
+					tabID:       tab.ID,
+					kind:        tabEventScrollToBottom,
 				}) {
 					return nil
 				}
@@ -227,10 +227,10 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		sent := false
 		if m.isTabActorReady() {
 			sent = m.sendTabEvent(tabEvent{
-				tab:        tab,
-				worktreeID: wtID,
-				tabID:      tab.ID,
-				kind:       tabEventScrollToBottom,
+				tab:         tab,
+				workspaceID: wtID,
+				tabID:       tab.ID,
+				kind:        tabEventScrollToBottom,
 			})
 		}
 		if !sent {
@@ -246,11 +246,11 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 		if len(input) > 0 {
 			if m.isTabActorReady() {
 				if !m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: wtID,
-					tabID:      tab.ID,
-					kind:       tabEventSendInput,
-					input:      input,
+					tab:         tab,
+					workspaceID: wtID,
+					tabID:       tab.ID,
+					kind:        tabEventSendInput,
+					input:       input,
 				}) {
 					_ = tab.Agent.Terminal.SendString(string(input))
 				}
@@ -275,7 +275,7 @@ func (m *Model) MonitorSnapshots() []MonitorSnapshot {
 		}
 		tab.mu.Unlock()
 		snapshots = append(snapshots, MonitorSnapshot{
-			Worktree:  tab.Worktree,
+			Workspace: tab.Workspace,
 			Assistant: tab.Assistant,
 			Name:      tab.Name,
 			Running:   tab.Running,
@@ -292,7 +292,7 @@ func (m *Model) MonitorTabs() []MonitorTab {
 	for _, tab := range tabs {
 		out = append(out, MonitorTab{
 			ID:        tab.ID,
-			Worktree:  tab.Worktree,
+			Workspace: tab.Workspace,
 			Assistant: tab.Assistant,
 			Name:      tab.Name,
 			Running:   tab.Running,
@@ -322,7 +322,7 @@ func (m *Model) MonitorTabSnapshotsWithActive(activeID TabID) []MonitorTabSnapsh
 		snapshots = append(snapshots, MonitorTabSnapshot{
 			MonitorTab: MonitorTab{
 				ID:        tab.ID,
-				Worktree:  tab.Worktree,
+				Workspace: tab.Workspace,
 				Assistant: tab.Assistant,
 				Name:      tab.Name,
 				Running:   tab.Running,
@@ -587,7 +587,7 @@ func buildMonitorSnapshot(tab *Tab) (MonitorTabSnapshot, bool) {
 	snap := MonitorTabSnapshot{
 		MonitorTab: MonitorTab{
 			ID:        tab.ID,
-			Worktree:  tab.Worktree,
+			Workspace: tab.Workspace,
 			Assistant: tab.Assistant,
 			Name:      tab.Name,
 			Running:   tab.Running,
@@ -604,7 +604,7 @@ func newMonitorSnapshotTarget(tab *Tab) monitorSnapshotTarget {
 		tab: tab,
 		meta: MonitorTab{
 			ID:        tab.ID,
-			Worktree:  tab.Worktree,
+			Workspace: tab.Workspace,
 			Assistant: tab.Assistant,
 			Name:      tab.Name,
 			Running:   tab.Running,
@@ -749,19 +749,19 @@ func (m *Model) monitorTabs() []*Tab {
 		tabs []*Tab
 	}
 
-	groups := make([]monitorGroup, 0, len(m.tabsByWorktree))
-	for wtID, worktreeTabs := range m.tabsByWorktree {
-		if len(worktreeTabs) == 0 {
+	groups := make([]monitorGroup, 0, len(m.tabsByWorkspace))
+	for wsID, workspaceTabs := range m.tabsByWorkspace {
+		if len(workspaceTabs) == 0 {
 			continue
 		}
-		key := wtID
-		for _, tab := range worktreeTabs {
-			if tab != nil && tab.Worktree != nil {
-				key = tab.Worktree.Repo + "::" + tab.Worktree.Name
+		key := wsID
+		for _, tab := range workspaceTabs {
+			if tab != nil && tab.Workspace != nil {
+				key = tab.Workspace.Repo + "::" + tab.Workspace.Name
 				break
 			}
 		}
-		groups = append(groups, monitorGroup{key: key, tabs: worktreeTabs})
+		groups = append(groups, monitorGroup{key: key, tabs: workspaceTabs})
 	}
 
 	sort.Slice(groups, func(i, j int) bool {
@@ -783,7 +783,7 @@ func (m *Model) monitorTabs() []*Tab {
 }
 
 func (m *Model) getTabByIDGlobal(tabID TabID) *Tab {
-	for wtID := range m.tabsByWorktree {
+	for wtID := range m.tabsByWorkspace {
 		if tab := m.getTabByID(wtID, tabID); tab != nil && !tab.isClosed() {
 			return tab
 		}

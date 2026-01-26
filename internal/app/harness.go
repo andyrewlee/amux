@@ -94,17 +94,17 @@ func newMonitorHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 
 	tabs := make([]*center.Tab, 0, opts.Tabs)
 	for i := 0; i < opts.Tabs; i++ {
-		wt := &data.Worktree{
-			Name: fmt.Sprintf("wt-%d", i),
+		ws := &data.Workspace{
+			Name: fmt.Sprintf("ws-%d", i),
 			Repo: fmt.Sprintf("/repo/%d", i),
-			Root: fmt.Sprintf("/repo/%d/wt", i),
+			Root: fmt.Sprintf("/repo/%d/ws", i),
 		}
 		term := vterm.New(80, 24)
 		tab := &center.Tab{
 			ID:        center.TabID(fmt.Sprintf("tab-%d", i)),
 			Name:      fmt.Sprintf("amp-%d", i),
 			Assistant: "amp",
-			Worktree:  wt,
+			Workspace: ws,
 			Terminal:  term,
 			Running:   true,
 		}
@@ -158,12 +158,12 @@ func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 	layoutMgr := layout.NewManager()
 	layoutMgr.Resize(opts.Width, opts.Height)
 
-	wt := &data.Worktree{
+	ws := &data.Workspace{
 		Name: "primary",
 		Repo: "/repo/primary",
-		Root: "/repo/primary/wt",
+		Root: "/repo/primary/ws",
 	}
-	project := data.Project{Name: "primary", Path: wt.Repo}
+	project := data.Project{Name: "primary", Path: ws.Repo}
 
 	tabs := make([]*center.Tab, 0, opts.Tabs)
 	for i := 0; i < opts.Tabs; i++ {
@@ -172,14 +172,14 @@ func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 			ID:        center.TabID(fmt.Sprintf("tab-%d", i)),
 			Name:      fmt.Sprintf("amp-%d", i),
 			Assistant: "amp",
-			Worktree:  wt,
+			Workspace: ws,
 			Terminal:  term,
 			Running:   true,
 		}
 		centerModel.AddTab(tab)
 		tabs = append(tabs, tab)
 	}
-	centerModel.SetWorktree(wt)
+	centerModel.SetWorkspace(ws)
 
 	dash.SetProjects([]data.Project{project})
 
@@ -233,12 +233,12 @@ func newSidebarHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 	layoutMgr := layout.NewManager()
 	layoutMgr.Resize(opts.Width, opts.Height)
 
-	wt := &data.Worktree{
+	ws := &data.Workspace{
 		Name: "primary",
 		Repo: "/repo/primary",
-		Root: "/repo/primary/wt",
+		Root: "/repo/primary/ws",
 	}
-	project := data.Project{Name: "primary", Path: wt.Repo}
+	project := data.Project{Name: "primary", Path: ws.Repo}
 
 	dash.SetProjects([]data.Project{project})
 
@@ -263,7 +263,7 @@ func newSidebarHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 	app.layout.Resize(opts.Width, opts.Height)
 	app.updateLayout()
 
-	sideTerm.AddTerminalForHarness(wt)
+	sideTerm.AddTerminalForHarness(ws)
 
 	return &Harness{
 		app:          app,

@@ -48,7 +48,7 @@ type TerminalTab struct {
 	State *TerminalState
 }
 
-// TerminalState holds the terminal state for a worktree
+// TerminalState holds the terminal state for a workspace
 type TerminalState struct {
 	Terminal *pty.Terminal
 	VTerm    *vterm.VTerm
@@ -100,14 +100,14 @@ type terminalTabHit struct {
 
 // TerminalModel is the Bubbletea model for the sidebar terminal section
 type TerminalModel struct {
-	// State per worktree - multiple tabs per worktree
-	tabsByWorktree      map[string][]*TerminalTab
-	activeTabByWorktree map[string]int
-	tabHits             []terminalTabHit // for mouse click handling
-	pendingCreation     map[string]bool  // tracks worktrees with tab creation in progress
+	// State per workspace - multiple tabs per workspace
+	tabsByWorkspace      map[string][]*TerminalTab
+	activeTabByWorkspace map[string]int
+	tabHits              []terminalTabHit // for mouse click handling
+	pendingCreation      map[string]bool  // tracks workspaces with tab creation in progress
 
-	// Current worktree
-	worktree *data.Worktree
+	// Current workspace
+	workspace *data.Workspace
 
 	// Layout
 	width           int
@@ -127,10 +127,10 @@ type TerminalModel struct {
 // NewTerminalModel creates a new sidebar terminal model
 func NewTerminalModel() *TerminalModel {
 	return &TerminalModel{
-		tabsByWorktree:      make(map[string][]*TerminalTab),
-		activeTabByWorktree: make(map[string]int),
-		pendingCreation:     make(map[string]bool),
-		styles:              common.DefaultStyles(),
+		tabsByWorkspace:      make(map[string][]*TerminalTab),
+		activeTabByWorkspace: make(map[string]int),
+		pendingCreation:      make(map[string]bool),
+		styles:               common.DefaultStyles(),
 	}
 }
 
@@ -154,13 +154,13 @@ func (m *TerminalModel) SetMsgSink(sink func(tea.Msg)) {
 }
 
 // AddTerminalForHarness creates a terminal state without a PTY for benchmarks/tests.
-func (m *TerminalModel) AddTerminalForHarness(wt *data.Worktree) {
-	if wt == nil {
+func (m *TerminalModel) AddTerminalForHarness(ws *data.Workspace) {
+	if ws == nil {
 		return
 	}
-	m.worktree = wt
-	wtID := string(wt.ID())
-	if len(m.tabsByWorktree[wtID]) > 0 {
+	m.workspace = ws
+	wsID := string(ws.ID())
+	if len(m.tabsByWorkspace[wsID]) > 0 {
 		return
 	}
 	termWidth, termHeight := m.TerminalSize()
@@ -175,8 +175,8 @@ func (m *TerminalModel) AddTerminalForHarness(wt *data.Worktree) {
 			lastHeight: termHeight,
 		},
 	}
-	m.tabsByWorktree[wtID] = []*TerminalTab{tab}
-	m.activeTabByWorktree[wtID] = 0
+	m.tabsByWorkspace[wsID] = []*TerminalTab{tab}
+	m.activeTabByWorkspace[wsID] = 0
 }
 
 // WriteToTerminal writes bytes to the active terminal while holding the lock.
@@ -190,30 +190,30 @@ func (m *TerminalModel) WriteToTerminal(data []byte) {
 	ts.mu.Unlock()
 }
 
-// worktreeID returns the ID of the current worktree
-func (m *TerminalModel) worktreeID() string {
-	if m.worktree == nil {
+// workspaceID returns the ID of the current workspace
+func (m *TerminalModel) workspaceID() string {
+	if m.workspace == nil {
 		return ""
 	}
-	return string(m.worktree.ID())
+	return string(m.workspace.ID())
 }
 
-// getTabs returns the tabs for the current worktree
+// getTabs returns the tabs for the current workspace
 func (m *TerminalModel) getTabs() []*TerminalTab {
-	return m.tabsByWorktree[m.worktreeID()]
+	return m.tabsByWorkspace[m.workspaceID()]
 }
 
-// getActiveTabIdx returns the active tab index for the current worktree
+// getActiveTabIdx returns the active tab index for the current workspace
 func (m *TerminalModel) getActiveTabIdx() int {
-	return m.activeTabByWorktree[m.worktreeID()]
+	return m.activeTabByWorkspace[m.workspaceID()]
 }
 
-// setActiveTabIdx sets the active tab index for the current worktree
+// setActiveTabIdx sets the active tab index for the current workspace
 func (m *TerminalModel) setActiveTabIdx(idx int) {
-	m.activeTabByWorktree[m.worktreeID()] = idx
+	m.activeTabByWorkspace[m.workspaceID()] = idx
 }
 
-// getActiveTab returns the active tab for the current worktree
+// getActiveTab returns the active tab for the current workspace
 func (m *TerminalModel) getActiveTab() *TerminalTab {
 	tabs := m.getTabs()
 	idx := m.getActiveTabIdx()
@@ -223,7 +223,7 @@ func (m *TerminalModel) getActiveTab() *TerminalTab {
 	return nil
 }
 
-// getTerminal returns the terminal state for the current worktree's active tab
+// getTerminal returns the terminal state for the current workspace's active tab
 func (m *TerminalModel) getTerminal() *TerminalState {
 	tab := m.getActiveTab()
 	if tab != nil {
@@ -233,8 +233,8 @@ func (m *TerminalModel) getTerminal() *TerminalState {
 }
 
 // getTabByID returns the tab with the given ID, or nil if not found
-func (m *TerminalModel) getTabByID(wtID string, tabID TerminalTabID) *TerminalTab {
-	for _, tab := range m.tabsByWorktree[wtID] {
+func (m *TerminalModel) getTabByID(wsID string, tabID TerminalTabID) *TerminalTab {
+	for _, tab := range m.tabsByWorkspace[wsID] {
 		if tab.ID == tabID {
 			return tab
 		}
@@ -289,7 +289,7 @@ func (m *TerminalModel) SelectTab(idx int) {
 	}
 }
 
-// HasMultipleTabs returns true if there are multiple tabs for the current worktree
+// HasMultipleTabs returns true if there are multiple tabs for the current workspace
 func (m *TerminalModel) HasMultipleTabs() bool {
 	return len(m.getTabs()) > 1
 }
@@ -434,9 +434,9 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		}
 
 	case messages.SidebarPTYOutput:
-		wtID := msg.WorktreeID
+		wsID := msg.WorkspaceID
 		tabID := TerminalTabID(msg.TabID)
-		tab := m.getTabByID(wtID, tabID)
+		tab := m.getTabByID(wsID, tabID)
 		if tab != nil && tab.State != nil {
 			ts := tab.State
 			ts.pendingOutput = append(ts.pendingOutput, msg.Data...)
@@ -451,15 +451,15 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				ts.flushPendingSince = ts.lastOutputAt
 				quiet, _ := m.flushTiming()
 				cmds = append(cmds, common.SafeTick(quiet, func(t time.Time) tea.Msg {
-					return messages.SidebarPTYFlush{WorktreeID: wtID, TabID: msg.TabID}
+					return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 				}))
 			}
 		}
 
 	case messages.SidebarPTYFlush:
-		wtID := msg.WorktreeID
+		wsID := msg.WorkspaceID
 		tabID := TerminalTabID(msg.TabID)
-		tab := m.getTabByID(wtID, tabID)
+		tab := m.getTabByID(wsID, tabID)
 		if tab != nil && tab.State != nil {
 			ts := tab.State
 			now := time.Now()
@@ -476,7 +476,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				}
 				ts.flushScheduled = true
 				cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
-					return messages.SidebarPTYFlush{WorktreeID: wtID, TabID: msg.TabID}
+					return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 				}))
 				break
 			}
@@ -501,16 +501,16 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					ts.flushScheduled = true
 					ts.flushPendingSince = time.Now()
 					cmds = append(cmds, common.SafeTick(time.Millisecond, func(t time.Time) tea.Msg {
-						return messages.SidebarPTYFlush{WorktreeID: wtID, TabID: msg.TabID}
+						return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 					}))
 				}
 			}
 		}
 
 	case messages.SidebarPTYStopped:
-		wtID := msg.WorktreeID
+		wsID := msg.WorkspaceID
 		tabID := TerminalTabID(msg.TabID)
-		tab := m.getTabByID(wtID, tabID)
+		tab := m.getTabByID(wsID, tabID)
 		if tab != nil && tab.State != nil {
 			ts := tab.State
 			termAlive := ts.Terminal != nil && !ts.Terminal.IsClosed()
@@ -543,13 +543,13 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				ts.mu.Unlock()
 				if shouldRestart {
 					restartTab := msg.TabID
-					restartWt := msg.WorktreeID
+					restartWt := msg.WorkspaceID
 					cmds = append(cmds, common.SafeTick(backoff, func(time.Time) tea.Msg {
-						return messages.SidebarPTYRestart{WorktreeID: restartWt, TabID: restartTab}
+						return messages.SidebarPTYRestart{WorkspaceID: restartWt, TabID: restartTab}
 					}))
-					logging.Warn("Sidebar PTY stopped for worktree %s tab %s; restarting in %s: %v", wtID, tabID, backoff, msg.Err)
+					logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restarting in %s: %v", wsID, tabID, backoff, msg.Err)
 				} else {
-					logging.Warn("Sidebar PTY stopped for worktree %s tab %s; restart limit reached: %v", wtID, tabID, msg.Err)
+					logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restart limit reached: %v", wsID, tabID, msg.Err)
 				}
 			} else {
 				ts.Running = false
@@ -558,12 +558,12 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				ts.ptyRestartCount = 0
 				ts.ptyRestartSince = time.Time{}
 				ts.mu.Unlock()
-				logging.Info("Sidebar PTY stopped for worktree %s tab %s: %v", wtID, tabID, msg.Err)
+				logging.Info("Sidebar PTY stopped for workspace %s tab %s: %v", wsID, tabID, msg.Err)
 			}
 		}
 
 	case messages.SidebarPTYRestart:
-		tab := m.getTabByID(msg.WorktreeID, TerminalTabID(msg.TabID))
+		tab := m.getTabByID(msg.WorkspaceID, TerminalTabID(msg.TabID))
 		if tab == nil || tab.State == nil {
 			break
 		}
@@ -574,27 +574,27 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.mu.Unlock()
 			break
 		}
-		if cmd := m.startPTYReader(msg.WorktreeID, tab.ID); cmd != nil {
+		if cmd := m.startPTYReader(msg.WorkspaceID, tab.ID); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
 	case SidebarTerminalCreated:
-		cmd := m.HandleTerminalCreated(msg.WorktreeID, msg.TabID, msg.Terminal)
+		cmd := m.HandleTerminalCreated(msg.WorkspaceID, msg.TabID, msg.Terminal)
 		cmds = append(cmds, cmd)
 
 	case SidebarTerminalCreateFailed:
 		// Clear pending flag so user can retry
-		delete(m.pendingCreation, msg.WorktreeID)
+		delete(m.pendingCreation, msg.WorkspaceID)
 		logging.Error("Failed to create sidebar terminal: %v", msg.Err)
 		// Surface error to user via app-level error handling
 		cmds = append(cmds, func() tea.Msg {
 			return messages.Error{Err: msg.Err, Context: "creating sidebar terminal"}
 		})
 
-	case messages.WorktreeDeleted:
-		if msg.Worktree != nil {
-			wtID := string(msg.Worktree.ID())
-			tabs := m.tabsByWorktree[wtID]
+	case messages.WorkspaceDeleted:
+		if msg.Workspace != nil {
+			wsID := string(msg.Workspace.ID())
+			tabs := m.tabsByWorkspace[wsID]
 			for _, tab := range tabs {
 				if tab.State != nil {
 					m.stopPTYReader(tab.State)
@@ -607,9 +607,9 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					tab.State.mu.Unlock()
 				}
 			}
-			delete(m.tabsByWorktree, wtID)
-			delete(m.activeTabByWorktree, wtID)
-			delete(m.pendingCreation, wtID)
+			delete(m.tabsByWorkspace, wsID)
+			delete(m.activeTabByWorkspace, wsID)
+			delete(m.pendingCreation, wsID)
 		}
 	}
 
@@ -706,58 +706,58 @@ func (m *TerminalModel) Focused() bool {
 	return m.focused
 }
 
-// SetWorktree sets the active worktree and creates terminal tab if needed
-func (m *TerminalModel) SetWorktree(wt *data.Worktree) tea.Cmd {
-	m.worktree = wt
-	if wt == nil {
+// SetWorkspace sets the active workspace and creates terminal tab if needed
+func (m *TerminalModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
+	m.workspace = ws
+	if ws == nil {
 		m.refreshTerminalSize()
 		return nil
 	}
 
-	wtID := string(wt.ID())
-	if len(m.tabsByWorktree[wtID]) > 0 {
-		// Tabs already exist for this worktree
+	wsID := string(ws.ID())
+	if len(m.tabsByWorkspace[wsID]) > 0 {
+		// Tabs already exist for this workspace
 		m.refreshTerminalSize()
 		return nil
 	}
-	if m.pendingCreation[wtID] {
+	if m.pendingCreation[wsID] {
 		// Creation already in progress
 		return nil
 	}
 
 	// Create first terminal tab
-	m.pendingCreation[wtID] = true
-	return m.createTerminalTab(wt)
+	m.pendingCreation[wsID] = true
+	return m.createTerminalTab(ws)
 }
 
-// SetWorktreePreview sets the active worktree without creating tabs.
-func (m *TerminalModel) SetWorktreePreview(wt *data.Worktree) {
-	m.worktree = wt
+// SetWorkspacePreview sets the active workspace without creating tabs.
+func (m *TerminalModel) SetWorkspacePreview(ws *data.Workspace) {
+	m.workspace = ws
 }
 
-// EnsureTerminalTab creates a terminal tab if none exists for the current worktree.
+// EnsureTerminalTab creates a terminal tab if none exists for the current workspace.
 // Used for lazy initialization when the terminal pane is focused.
 func (m *TerminalModel) EnsureTerminalTab() tea.Cmd {
-	if m.worktree == nil {
+	if m.workspace == nil {
 		return nil
 	}
 	if len(m.getTabs()) > 0 {
 		return nil
 	}
-	wtID := m.worktreeID()
-	if m.pendingCreation[wtID] {
+	wsID := m.workspaceID()
+	if m.pendingCreation[wsID] {
 		return nil
 	}
-	m.pendingCreation[wtID] = true
-	return m.createTerminalTab(m.worktree)
+	m.pendingCreation[wsID] = true
+	return m.createTerminalTab(m.workspace)
 }
 
-// CreateNewTab creates a new terminal tab for the current worktree and returns a command
+// CreateNewTab creates a new terminal tab for the current workspace and returns a command
 func (m *TerminalModel) CreateNewTab() tea.Cmd {
-	if m.worktree == nil {
+	if m.workspace == nil {
 		return nil
 	}
-	return m.createTerminalTab(m.worktree)
+	return m.createTerminalTab(m.workspace)
 }
 
 // CloseActiveTab closes the active terminal tab
@@ -767,7 +767,7 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 		return nil
 	}
 
-	wtID := m.worktreeID()
+	wsID := m.workspaceID()
 	idx := m.getActiveTabIdx()
 	if idx < 0 || idx >= len(tabs) {
 		return nil
@@ -788,14 +788,14 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 	}
 
 	// Remove tab from slice
-	m.tabsByWorktree[wtID] = append(tabs[:idx], tabs[idx+1:]...)
+	m.tabsByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)
 
 	// Adjust active index
-	newLen := len(m.tabsByWorktree[wtID])
+	newLen := len(m.tabsByWorkspace[wsID])
 	if newLen == 0 {
-		m.activeTabByWorktree[wtID] = 0
+		m.activeTabByWorkspace[wsID] = 0
 	} else if idx >= newLen {
-		m.activeTabByWorktree[wtID] = newLen - 1
+		m.activeTabByWorkspace[wsID] = newLen - 1
 	}
 
 	m.refreshTerminalSize()

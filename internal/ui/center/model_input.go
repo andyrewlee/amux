@@ -52,13 +52,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 		if m.isTabActorReady() {
 			if m.sendTabEvent(tabEvent{
-				tab:        tab,
-				worktreeID: m.worktreeID(),
-				tabID:      tab.ID,
-				kind:       tabEventSelectionStart,
-				termX:      termX,
-				termY:      termY,
-				inBounds:   inBounds,
+				tab:         tab,
+				workspaceID: m.workspaceID(),
+				tabID:       tab.ID,
+				kind:        tabEventSelectionStart,
+				termX:       termX,
+				termY:       termY,
+				inBounds:    inBounds,
 			}) {
 				return m, common.SafeBatch(cmds...)
 			}
@@ -104,12 +104,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 		if m.isTabActorReady() {
 			if m.sendTabEvent(tabEvent{
-				tab:        tab,
-				worktreeID: m.worktreeID(),
-				tabID:      tab.ID,
-				kind:       tabEventSelectionUpdate,
-				termX:      termX,
-				termY:      termY,
+				tab:         tab,
+				workspaceID: m.workspaceID(),
+				tabID:       tab.ID,
+				kind:        tabEventSelectionUpdate,
+				termX:       termX,
+				termY:       termY,
 			}) {
 				return m, common.SafeBatch(cmds...)
 			}
@@ -167,10 +167,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 		if m.isTabActorReady() {
 			if m.sendTabEvent(tabEvent{
-				tab:        tab,
-				worktreeID: m.worktreeID(),
-				tabID:      tab.ID,
-				kind:       tabEventSelectionFinish,
+				tab:         tab,
+				workspaceID: m.workspaceID(),
+				tabID:       tab.ID,
+				kind:        tabEventSelectionFinish,
 			}) {
 				return m, common.SafeBatch(cmds...)
 			}
@@ -223,19 +223,19 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				sent := false
 				if msg.Button == tea.MouseWheelUp {
 					sent = m.sendTabEvent(tabEvent{
-						tab:        tab,
-						worktreeID: m.worktreeID(),
-						tabID:      tab.ID,
-						kind:       tabEventScrollBy,
-						delta:      delta,
+						tab:         tab,
+						workspaceID: m.workspaceID(),
+						tabID:       tab.ID,
+						kind:        tabEventScrollBy,
+						delta:       delta,
 					})
 				} else if msg.Button == tea.MouseWheelDown {
 					sent = m.sendTabEvent(tabEvent{
-						tab:        tab,
-						worktreeID: m.worktreeID(),
-						tabID:      tab.ID,
-						kind:       tabEventScrollBy,
-						delta:      -delta,
+						tab:         tab,
+						workspaceID: m.workspaceID(),
+						tabID:       tab.ID,
+						kind:        tabEventScrollBy,
+						delta:       -delta,
 					})
 				}
 				if sent {
@@ -264,11 +264,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 			if m.isTabActorReady() {
 				if !m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: m.worktreeID(),
-					tabID:      tab.ID,
-					kind:       tabEventPaste,
-					pasteText:  msg.Content,
+					tab:         tab,
+					workspaceID: m.workspaceID(),
+					tabID:       tab.ID,
+					kind:        tabEventPaste,
+					pasteText:   msg.Content,
 				}) {
 					if tab.Agent != nil && tab.Agent.Terminal != nil {
 						bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
@@ -302,11 +302,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab := tabs[activeIdx]
 			if m.isTabActorReady() {
 				if m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: m.worktreeID(),
-					tabID:      tab.ID,
-					kind:       tabEventSelectionCopy,
-					notifyCopy: true,
+					tab:         tab,
+					workspaceID: m.workspaceID(),
+					tabID:       tab.ID,
+					kind:        tabEventSelectionCopy,
+					notifyCopy:  true,
 				}) {
 					return m, nil
 				}
@@ -335,10 +335,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			sent := false
 			if m.isTabActorReady() {
 				sent = m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: m.worktreeID(),
-					tabID:      tab.ID,
-					kind:       tabEventSelectionClear,
+					tab:         tab,
+					workspaceID: m.workspaceID(),
+					tabID:       tab.ID,
+					kind:        tabEventSelectionClear,
 				})
 			}
 			if !sent {
@@ -420,11 +420,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				case tea.KeyPgUp:
 					if m.isTabActorReady() {
 						if m.sendTabEvent(tabEvent{
-							tab:        tab,
-							worktreeID: m.worktreeID(),
-							tabID:      tab.ID,
-							kind:       tabEventScrollPage,
-							scrollPage: 1,
+							tab:         tab,
+							workspaceID: m.workspaceID(),
+							tabID:       tab.ID,
+							kind:        tabEventScrollPage,
+							scrollPage:  1,
 						}) {
 							return m, nil
 						}
@@ -439,11 +439,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				case tea.KeyPgDown:
 					if m.isTabActorReady() {
 						if m.sendTabEvent(tabEvent{
-							tab:        tab,
-							worktreeID: m.worktreeID(),
-							tabID:      tab.ID,
-							kind:       tabEventScrollPage,
-							scrollPage: -1,
+							tab:         tab,
+							workspaceID: m.workspaceID(),
+							tabID:       tab.ID,
+							kind:        tabEventScrollPage,
+							scrollPage:  -1,
 						}) {
 							return m, nil
 						}
@@ -460,10 +460,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				sent := false
 				if m.isTabActorReady() {
 					sent = m.sendTabEvent(tabEvent{
-						tab:        tab,
-						worktreeID: m.worktreeID(),
-						tabID:      tab.ID,
-						kind:       tabEventScrollToBottom,
+						tab:         tab,
+						workspaceID: m.workspaceID(),
+						tabID:       tab.ID,
+						kind:        tabEventScrollToBottom,
 					})
 				}
 				if !sent {
@@ -480,11 +480,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
 					if m.isTabActorReady() {
 						if !m.sendTabEvent(tabEvent{
-							tab:        tab,
-							worktreeID: m.worktreeID(),
-							tabID:      tab.ID,
-							kind:       tabEventSendInput,
-							input:      input,
+							tab:         tab,
+							workspaceID: m.workspaceID(),
+							tabID:       tab.ID,
+							kind:        tabEventSendInput,
+							input:       input,
 						}) {
 							if tab.Agent != nil && tab.Agent.Terminal != nil {
 								_ = tab.Agent.Terminal.SendString(string(input))
@@ -501,10 +501,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 	case messages.LaunchAgent:
-		return m, m.createAgentTab(msg.Assistant, msg.Worktree)
+		return m, m.createAgentTab(msg.Assistant, msg.Workspace)
 
 	case messages.OpenFileInVim:
-		return m, m.createVimTab(msg.Path, msg.Worktree)
+		return m, m.createVimTab(msg.Path, msg.Workspace)
 
 	case ptyTabCreateResult:
 		return m, m.handlePtyTabCreated(msg)
@@ -527,7 +527,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.OpenDiff:
 		// Check if new-style Change is provided, otherwise convert from legacy fields
 		if msg.Change != nil {
-			return m, m.createDiffTab(msg.Change, msg.Mode, msg.Worktree)
+			return m, m.createDiffTab(msg.Change, msg.Mode, msg.Workspace)
 		}
 		// Legacy path: convert File/StatusCode to Change
 		change := &git.Change{
@@ -563,10 +563,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 			}
 		}
-		return m, m.createDiffTab(change, mode, msg.Worktree)
+		return m, m.createDiffTab(change, mode, msg.Workspace)
 
-	case messages.WorktreeDeleted:
-		m.CleanupWorktree(msg.Worktree)
+	case messages.WorkspaceDeleted:
+		m.CleanupWorkspace(msg.Workspace)
 		return m, nil
 
 	case tabSelectionResult:
@@ -581,7 +581,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case selectionTickRequest:
 		cmds = append(cmds, common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
-			return selectionScrollTick{WorktreeID: msg.worktreeID, TabID: msg.tabID, Gen: msg.gen}
+			return selectionScrollTick{WorkspaceID: msg.workspaceID, TabID: msg.tabID, Gen: msg.gen}
 		}))
 		return m, common.SafeBatch(cmds...)
 
@@ -592,7 +592,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		return m, common.SafeBatch(cmds...)
 
 	case PTYOutput:
-		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 		if tab != nil && !tab.isClosed() {
 			m.tracePTYOutput(tab, msg.Data)
 			tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
@@ -606,17 +606,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !tab.flushScheduled {
 				tab.flushScheduled = true
 				tab.flushPendingSince = tab.lastOutputAt
-				quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorktreeID, msg.TabID))
+				quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
 				tabID := msg.TabID // Capture for closure
 				cmds = append(cmds, common.SafeTick(quiet, func(t time.Time) tea.Msg {
-					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
+					return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
 				}))
 			}
 		}
 		// If tab is nil, it was closed - silently drop the message and don't reschedule
 
 	case PTYFlush:
-		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 		if tab != nil && !tab.isClosed() {
 			now := time.Now()
 			quietFor := now.Sub(tab.lastOutputAt)
@@ -624,7 +624,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !tab.flushPendingSince.IsZero() {
 				pendingFor = now.Sub(tab.flushPendingSince)
 			}
-			quiet, maxInterval := m.flushTiming(tab, m.isActiveTab(msg.WorktreeID, msg.TabID))
+			quiet, maxInterval := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
 			if quietFor < quiet && pendingFor < maxInterval {
 				delay := quiet - quietFor
 				if delay < time.Millisecond {
@@ -633,7 +633,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				tabID := msg.TabID
 				tab.flushScheduled = true
 				cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
-					return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
+					return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
 				}))
 				break
 			}
@@ -658,11 +658,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				if writeOutput && len(chunk) > 0 {
 					if m.isTabActorReady() {
 						if !m.sendTabEvent(tabEvent{
-							tab:        tab,
-							worktreeID: msg.WorktreeID,
-							tabID:      msg.TabID,
-							kind:       tabEventWriteOutput,
-							output:     chunk,
+							tab:         tab,
+							workspaceID: msg.WorkspaceID,
+							tabID:       msg.TabID,
+							kind:        tabEventWriteOutput,
+							output:      chunk,
 						}) {
 							tab.mu.Lock()
 							if tab.Terminal != nil {
@@ -693,7 +693,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					tab.flushPendingSince = time.Now()
 					tabID := msg.TabID
 					cmds = append(cmds, common.SafeTick(time.Millisecond, func(t time.Time) tea.Msg {
-						return PTYFlush{WorktreeID: msg.WorktreeID, TabID: tabID}
+						return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
 					}))
 				}
 			}
@@ -701,7 +701,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case PTYStopped:
 		// Terminal closed - mark tab as not running, but keep it visible
-		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 		if tab != nil {
 			termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 			m.stopPTYReader(tab)
@@ -733,9 +733,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				tab.mu.Unlock()
 				if shouldRestart {
 					tabID := msg.TabID
-					wtID := msg.WorktreeID
+					wtID := msg.WorkspaceID
 					cmds = append(cmds, common.SafeTick(backoff, func(time.Time) tea.Msg {
-						return PTYRestart{WorktreeID: wtID, TabID: tabID}
+						return PTYRestart{WorkspaceID: wtID, TabID: tabID}
 					}))
 					logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
 				} else {
@@ -754,7 +754,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Do NOT schedule another read - the loop is done
 
 	case PTYRestart:
-		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 		if tab == nil {
 			break
 		}
@@ -764,27 +764,27 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			tab.mu.Unlock()
 			break
 		}
-		if cmd := m.startPTYReader(msg.WorktreeID, tab); cmd != nil {
+		if cmd := m.startPTYReader(msg.WorkspaceID, tab); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
 	case selectionScrollTick:
 		if m.isTabActorReady() {
-			tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+			tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 			if tab == nil {
 				break
 			}
 			if m.sendTabEvent(tabEvent{
-				tab:        tab,
-				worktreeID: msg.WorktreeID,
-				tabID:      msg.TabID,
-				kind:       tabEventSelectionScrollTick,
-				gen:        msg.Gen,
+				tab:         tab,
+				workspaceID: msg.WorkspaceID,
+				tabID:       msg.TabID,
+				kind:        tabEventSelectionScrollTick,
+				gen:         msg.Gen,
 			}) {
 				break
 			}
 		}
-		tab := m.getTabByID(msg.WorktreeID, msg.TabID)
+		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 		if tab == nil {
 			break
 		}
@@ -799,9 +799,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		tab.monitorDirty = true
 		tab.mu.Unlock()
 		tabID := msg.TabID
-		wtID := msg.WorktreeID
+		wtID := msg.WorkspaceID
 		cmds = append(cmds, common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
-			return selectionScrollTick{WorktreeID: wtID, TabID: tabID, Gen: msg.Gen}
+			return selectionScrollTick{WorkspaceID: wtID, TabID: tabID, Gen: msg.Gen}
 		}))
 
 	default:
@@ -841,11 +841,11 @@ func (m *Model) dispatchDiffInput(tab *Tab, msg tea.Msg) (bool, tea.Cmd) {
 	}
 	if m.isTabActorReady() {
 		if m.sendTabEvent(tabEvent{
-			tab:        tab,
-			worktreeID: m.worktreeID(),
-			tabID:      tab.ID,
-			kind:       tabEventDiffInput,
-			diffMsg:    msg,
+			tab:         tab,
+			workspaceID: m.workspaceID(),
+			tabID:       tab.ID,
+			kind:        tabEventDiffInput,
+			diffMsg:     msg,
 		}) {
 			return true, nil
 		}

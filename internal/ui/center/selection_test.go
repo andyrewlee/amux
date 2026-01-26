@@ -17,20 +17,20 @@ func setupSelectionModel(t *testing.T) (*Model, *Tab) {
 		t.Fatalf("default config: %v", err)
 	}
 	m := New(cfg)
-	wt := &data.Worktree{
+	wt := &data.Workspace{
 		Name: "wt",
 		Repo: "/tmp/repo",
 		Root: "/tmp/repo",
 	}
-	m.SetWorktree(wt)
+	m.SetWorkspace(wt)
 	wtID := string(wt.ID())
 	tab := &Tab{
-		ID:       TabID("tab-1"),
-		Worktree: wt,
-		Terminal: vterm.New(80, 24),
+		ID:        TabID("tab-1"),
+		Workspace: wt,
+		Terminal:  vterm.New(80, 24),
 	}
-	m.tabsByWorktree[wtID] = []*Tab{tab}
-	m.activeTabByWorktree[wtID] = 0
+	m.tabsByWorkspace[wtID] = []*Tab{tab}
+	m.activeTabByWorkspace[wtID] = 0
 	m.SetSize(100, 40)
 	m.SetOffset(0)
 	m.Focus()
@@ -127,21 +127,21 @@ func TestTabBarClickPlusButton(t *testing.T) {
 		t.Fatalf("default config: %v", err)
 	}
 	m := New(cfg)
-	wt := &data.Worktree{
+	wt := &data.Workspace{
 		Name: "wt",
 		Repo: "/tmp/repo",
 		Root: "/tmp/repo",
 	}
-	m.SetWorktree(wt)
+	m.SetWorkspace(wt)
 	wtID := string(wt.ID())
 	tab := &Tab{
-		ID:       TabID("tab-1"),
-		Worktree: wt,
-		Terminal: vterm.New(80, 24),
-		Name:     "claude",
+		ID:        TabID("tab-1"),
+		Workspace: wt,
+		Terminal:  vterm.New(80, 24),
+		Name:      "claude",
 	}
-	m.tabsByWorktree[wtID] = []*Tab{tab}
-	m.activeTabByWorktree[wtID] = 0
+	m.tabsByWorkspace[wtID] = []*Tab{tab}
+	m.activeTabByWorkspace[wtID] = 0
 	m.SetSize(100, 40)
 	m.SetOffset(20) // Simulate dashboard width of 20
 	m.Focus()

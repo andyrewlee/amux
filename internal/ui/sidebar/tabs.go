@@ -41,7 +41,7 @@ type TabbedSidebar struct {
 	projectTree *ProjectTree
 	tabHits     []tabHit
 
-	worktree        *data.Worktree
+	workspace       *data.Workspace
 	focused         bool
 	width           int
 	height          int
@@ -335,11 +335,11 @@ func (m *TabbedSidebar) Focused() bool {
 	return m.focused
 }
 
-// SetWorktree sets the active worktree
-func (m *TabbedSidebar) SetWorktree(wt *data.Worktree) {
-	m.worktree = wt
-	m.changes.SetWorktree(wt)
-	m.projectTree.SetWorktree(wt)
+// SetWorkspace sets the active workspace
+func (m *TabbedSidebar) SetWorkspace(ws *data.Workspace) {
+	m.workspace = ws
+	m.changes.SetWorkspace(ws)
+	m.projectTree.SetWorkspace(ws)
 }
 
 // SetGitStatus sets the git status (forwards to changes view)

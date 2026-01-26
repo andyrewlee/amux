@@ -26,16 +26,16 @@ const (
 	RowHome RowType = iota
 	RowAddProject
 	RowProject
-	RowWorktree
+	RowWorkspace
 	RowCreate
 	RowSpacer
 )
 
 // Row represents a single row in the dashboard
 type Row struct {
-	Type     RowType
-	Project  *data.Project
-	Worktree *data.Worktree
+	Type      RowType
+	Project   *data.Project
+	Workspace *data.Workspace
 }
 
 // toolbarButtonKind identifies toolbar buttons
@@ -58,7 +58,7 @@ type Model struct {
 	// Data
 	projects    []data.Project
 	rows        []Row
-	activeRoot  string // Currently active worktree root
+	activeRoot  string // Currently active workspace root
 	statusCache map[string]*git.StatusResult
 
 	// UI state
@@ -76,14 +76,14 @@ type Model struct {
 	deleteIconX     int             // X position of delete "x" icon for currently selected row
 
 	// Loading state
-	loadingStatus     map[string]bool           // Worktrees currently loading git status
-	creatingWorktrees map[string]*data.Worktree // Worktrees currently being created
-	deletingWorktrees map[string]bool           // Worktrees currently being deleted
-	spinnerFrame      int                       // Current spinner animation frame
-	spinnerActive     bool                      // Whether spinner ticks are active
+	loadingStatus      map[string]bool            // Workspaces currently loading git status
+	creatingWorkspaces map[string]*data.Workspace // Workspaces currently being created
+	deletingWorkspaces map[string]bool            // Workspaces currently being deleted
+	spinnerFrame       int                        // Current spinner animation frame
+	spinnerActive      bool                       // Whether spinner ticks are active
 
 	// Agent activity state
-	activeWorktrees map[string]bool // Worktrees with active agents (synced from center)
+	activeWorkspaces map[string]bool // Workspaces with active agents (synced from center)
 
 	// Styles
 	styles common.Styles
@@ -92,22 +92,22 @@ type Model struct {
 // New creates a new dashboard model
 func New() *Model {
 	return &Model{
-		projects:          []data.Project{},
-		rows:              []Row{},
-		statusCache:       make(map[string]*git.StatusResult),
-		loadingStatus:     make(map[string]bool),
-		creatingWorktrees: make(map[string]*data.Worktree),
-		deletingWorktrees: make(map[string]bool),
-		activeWorktrees:   make(map[string]bool),
-		cursor:            0,
-		focused:           true,
-		styles:            common.DefaultStyles(),
+		projects:           []data.Project{},
+		rows:               []Row{},
+		statusCache:        make(map[string]*git.StatusResult),
+		loadingStatus:      make(map[string]bool),
+		creatingWorkspaces: make(map[string]*data.Workspace),
+		deletingWorkspaces: make(map[string]bool),
+		activeWorkspaces:   make(map[string]bool),
+		cursor:             0,
+		focused:            true,
+		styles:             common.DefaultStyles(),
 	}
 }
 
-// SetActiveWorktrees updates the set of worktrees with active agents.
-func (m *Model) SetActiveWorktrees(active map[string]bool) {
-	m.activeWorktrees = active
+// SetActiveWorkspaces updates the set of workspaces with active agents.
+func (m *Model) SetActiveWorkspaces(active map[string]bool) {
+	m.activeWorkspaces = active
 }
 
 // SetCanFocusRight controls whether focus-right hints should be shown.
@@ -174,7 +174,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			// Check if click is on the delete "x" icon for the currently selected row
 			if idx == m.cursor {
 				rowType := m.rows[idx].Type
-				if rowType == RowProject || rowType == RowWorktree {
+				if rowType == RowProject || rowType == RowWorkspace {
 					// Convert screen X to content X
 					borderLeft := 1
 					paddingLeft := 0
@@ -277,7 +277,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case SpinnerTickMsg:
 		// Advance spinner frame if we have loading items or active agents
-		if len(m.loadingStatus) > 0 || len(m.creatingWorktrees) > 0 || len(m.deletingWorktrees) > 0 || len(m.activeWorktrees) > 0 {
+		if len(m.loadingStatus) > 0 || len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 || len(m.activeWorkspaces) > 0 {
 			m.spinnerFrame++
 			cmds = append(cmds, m.tickSpinner())
 		} else {
@@ -287,9 +287,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.ProjectsLoaded:
 		m.projects = msg.Projects
 		m.rebuildRows()
-		// Mark all worktrees as loading status
+		// Mark all workspaces as loading status
 		for _, p := range m.projects {
-			for _, wt := range p.Worktrees {
+			for _, wt := range p.Workspaces {
 				if _, ok := m.statusCache[wt.Root]; !ok {
 					m.loadingStatus[wt.Root] = true
 				}
@@ -307,14 +307,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.statusCache[msg.Root] = msg.Status
 		}
 
-	case messages.WorktreeActivated:
-		if msg.Worktree != nil {
-			m.activeRoot = msg.Worktree.Root
+	case messages.WorkspaceActivated:
+		if msg.Workspace != nil {
+			m.activeRoot = msg.Workspace.Root
 		}
 
-	case messages.WorktreePreviewed:
-		if msg.Worktree != nil {
-			m.activeRoot = msg.Worktree.Root
+	case messages.WorkspacePreviewed:
+		if msg.Workspace != nil {
+			m.activeRoot = msg.Workspace.Root
 		}
 
 	case messages.ShowWelcome:

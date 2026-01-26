@@ -36,33 +36,33 @@ func TestNewProject(t *testing.T) {
 			if p.Path != tt.path {
 				t.Errorf("NewProject().Path = %v, want %v", p.Path, tt.path)
 			}
-			if len(p.Worktrees) != 0 {
-				t.Errorf("NewProject().Worktrees should be empty, got %d", len(p.Worktrees))
+			if len(p.Workspaces) != 0 {
+				t.Errorf("NewProject().Workspaces should be empty, got %d", len(p.Workspaces))
 			}
 		})
 	}
 }
 
-func TestProject_AddWorktree(t *testing.T) {
+func TestProject_AddWorkspace(t *testing.T) {
 	p := NewProject("/home/user/myproject")
-	wt := Worktree{Name: "feature-1", Root: "/path/to/wt"}
+	wt := Workspace{Name: "feature-1", Root: "/path/to/wt"}
 
-	p.AddWorktree(wt)
+	p.AddWorkspace(wt)
 
-	if len(p.Worktrees) != 1 {
-		t.Errorf("Expected 1 worktree, got %d", len(p.Worktrees))
+	if len(p.Workspaces) != 1 {
+		t.Errorf("Expected 1 workspace, got %d", len(p.Workspaces))
 	}
-	if p.Worktrees[0].Name != "feature-1" {
-		t.Errorf("Expected worktree name 'feature-1', got %s", p.Worktrees[0].Name)
+	if p.Workspaces[0].Name != "feature-1" {
+		t.Errorf("Expected workspace name 'feature-1', got %s", p.Workspaces[0].Name)
 	}
 }
 
-func TestProject_FindWorktree(t *testing.T) {
+func TestProject_FindWorkspace(t *testing.T) {
 	p := NewProject("/home/user/myproject")
-	wt1 := Worktree{Name: "feature-1", Root: "/path/to/wt1"}
-	wt2 := Worktree{Name: "feature-2", Root: "/path/to/wt2"}
-	p.AddWorktree(wt1)
-	p.AddWorktree(wt2)
+	wt1 := Workspace{Name: "feature-1", Root: "/path/to/wt1"}
+	wt2 := Workspace{Name: "feature-2", Root: "/path/to/wt2"}
+	p.AddWorkspace(wt1)
+	p.AddWorkspace(wt2)
 
 	tests := []struct {
 		name     string
@@ -77,14 +77,14 @@ func TestProject_FindWorktree(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := p.FindWorktree(tt.root)
+			result := p.FindWorkspace(tt.root)
 			if tt.wantNil {
 				if result != nil {
 					t.Errorf("Expected nil, got %v", result)
 				}
 			} else {
 				if result == nil {
-					t.Errorf("Expected worktree, got nil")
+					t.Errorf("Expected workspace, got nil")
 				} else if result.Name != tt.wantName {
 					t.Errorf("Expected name %s, got %s", tt.wantName, result.Name)
 				}
@@ -93,12 +93,12 @@ func TestProject_FindWorktree(t *testing.T) {
 	}
 }
 
-func TestProject_FindWorktreeByName(t *testing.T) {
+func TestProject_FindWorkspaceByName(t *testing.T) {
 	p := NewProject("/home/user/myproject")
-	wt1 := Worktree{Name: "feature-1", Root: "/path/to/wt1"}
-	wt2 := Worktree{Name: "feature-2", Root: "/path/to/wt2"}
-	p.AddWorktree(wt1)
-	p.AddWorktree(wt2)
+	wt1 := Workspace{Name: "feature-1", Root: "/path/to/wt1"}
+	wt2 := Workspace{Name: "feature-2", Root: "/path/to/wt2"}
+	p.AddWorkspace(wt1)
+	p.AddWorkspace(wt2)
 
 	tests := []struct {
 		name     string
@@ -113,14 +113,14 @@ func TestProject_FindWorktreeByName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := p.FindWorktreeByName(tt.findName)
+			result := p.FindWorkspaceByName(tt.findName)
 			if tt.wantNil {
 				if result != nil {
 					t.Errorf("Expected nil, got %v", result)
 				}
 			} else {
 				if result == nil {
-					t.Errorf("Expected worktree, got nil")
+					t.Errorf("Expected workspace, got nil")
 				} else if result.Root != tt.wantRoot {
 					t.Errorf("Expected root %s, got %s", tt.wantRoot, result.Root)
 				}

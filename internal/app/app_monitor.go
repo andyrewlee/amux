@@ -145,16 +145,16 @@ func (a *App) renderMonitorGrid() string {
 			continue
 		}
 
-		worktreeName := "unknown"
-		if tab.Worktree != nil && tab.Worktree.Name != "" {
-			worktreeName = tab.Worktree.Name
+		workspaceName := "unknown"
+		if tab.Workspace != nil && tab.Workspace.Name != "" {
+			workspaceName = tab.Workspace.Name
 		}
 		projectName := ""
-		if tab.Worktree != nil {
-			projectName = projectNames[tab.Worktree.Repo]
+		if tab.Workspace != nil {
+			projectName = projectNames[tab.Workspace.Repo]
 		}
 		if projectName == "" {
-			projectName = monitorProjectName(tab.Worktree)
+			projectName = monitorProjectName(tab.Workspace)
 		}
 
 		statusIcon := common.Icons.Idle
@@ -171,7 +171,7 @@ func (a *App) renderMonitorGrid() string {
 		if focused {
 			cursor = common.Icons.Cursor
 		}
-		header := fmt.Sprintf("%s %s %s/%s", cursor, statusIcon, projectName, worktreeName)
+		header := fmt.Sprintf("%s %s %s/%s", cursor, statusIcon, projectName, workspaceName)
 		if assistant != "" {
 			header += " [" + assistant + "]"
 		}
@@ -228,17 +228,17 @@ func (a *App) handleMonitorInput(msg tea.KeyPressMsg) tea.Cmd {
 	return a.center.HandleMonitorInput(tabs[idx].ID, msg)
 }
 
-func (a *App) projectForWorktree(wt *data.Worktree) *data.Project {
-	if wt == nil {
+func (a *App) projectForWorkspace(ws *data.Workspace) *data.Project {
+	if ws == nil {
 		return nil
 	}
 	for i := range a.projects {
 		project := &a.projects[i]
-		if project.Path == wt.Repo {
+		if project.Path == ws.Repo {
 			return project
 		}
-		for j := range project.Worktrees {
-			if project.Worktrees[j].Root == wt.Root {
+		for j := range project.Workspaces {
+			if project.Workspaces[j].Root == ws.Root {
 				return project
 			}
 		}
