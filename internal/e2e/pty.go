@@ -108,9 +108,10 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 
 	cleanup := func() {
 		_ = ptmx.Close()
-		if cmd.Process != nil {
-			pgid := cmd.Process.Pid
-			_ = process.KillProcessGroup(pgid, process.KillOptions{GracePeriod: 50 * time.Millisecond})
+		proc := cmd.Process
+		if proc != nil {
+			leaderPID := proc.Pid
+			_ = process.KillProcessGroup(leaderPID, process.KillOptions{GracePeriod: 50 * time.Millisecond})
 		}
 		_, _ = cmd.Process.Wait()
 		_ = os.RemoveAll(home)

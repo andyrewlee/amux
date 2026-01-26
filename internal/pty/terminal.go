@@ -130,9 +130,12 @@ func (t *Terminal) Close() error {
 		t.ptyFile.Close()
 	}
 
-	if t.cmd != nil && t.cmd.Process != nil {
-		pgid := t.cmd.Process.Pid
-		_ = process.KillProcessGroup(pgid, process.KillOptions{})
+	if t.cmd != nil {
+		proc := t.cmd.Process
+		if proc != nil {
+			leaderPID := proc.Pid
+			_ = process.KillProcessGroup(leaderPID, process.KillOptions{})
+		}
 		_ = t.cmd.Wait()
 	}
 
