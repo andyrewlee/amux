@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -211,6 +213,26 @@ func New(version, commit, date string) (*App, error) {
 	cfg, err := config.DefaultConfig()
 	if err != nil {
 		return nil, err
+	}
+
+	// Run migrations before ensuring directories
+	migrationResult := cfg.Paths.RunMigrations()
+	if migrationResult.HasMigrations() {
+		logging.Info("Path migration completed successfully")
+	}
+	if migrationResult.Error != nil {
+		logging.Warn("Path migration encountered errors: %v", migrationResult.Error)
+		legacyWorkspacesRoot := filepath.Join(cfg.Paths.Home, "worktrees")
+		if info, err := os.Stat(legacyWorkspacesRoot); err == nil && info.IsDir() {
+			logging.Warn("Falling back to legacy workspaces path: %s", legacyWorkspacesRoot)
+			cfg.Paths.WorkspacesRoot = legacyWorkspacesRoot
+		}
+
+		legacyMetadataRoot := filepath.Join(cfg.Paths.Home, "worktrees-metadata")
+		if info, err := os.Stat(legacyMetadataRoot); err == nil && info.IsDir() {
+			logging.Warn("Falling back to legacy metadata path: %s", legacyMetadataRoot)
+			cfg.Paths.MetadataRoot = legacyMetadataRoot
+		}
 	}
 
 	// Ensure directories exist
