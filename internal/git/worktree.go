@@ -63,20 +63,20 @@ func parseWorktreeList(output string) []WorktreeEntry {
 	return entries
 }
 
-// DiscoverWorktrees discovers all worktrees for a project and converts them to data.Worktree
-func DiscoverWorktrees(project *data.Project) ([]data.Worktree, error) {
+// DiscoverWorktrees discovers all worktrees for a project and converts them to data.Workspace
+func DiscoverWorktrees(project *data.Project) ([]data.Workspace, error) {
 	entries, err := ListWorktrees(project.Path)
 	if err != nil {
 		return nil, err
 	}
 
-	var worktrees []data.Worktree
+	var workspaces []data.Workspace
 	for _, entry := range entries {
 		if entry.Bare {
 			continue
 		}
 
-		wt := data.Worktree{
+		ws := data.Workspace{
 			Name:   filepath.Base(entry.Path),
 			Branch: entry.Branch,
 			Repo:   project.Path,
@@ -84,10 +84,10 @@ func DiscoverWorktrees(project *data.Project) ([]data.Worktree, error) {
 			// Base and Created will be populated from metadata if available
 		}
 
-		worktrees = append(worktrees, wt)
+		workspaces = append(workspaces, ws)
 	}
 
-	return worktrees, nil
+	return workspaces, nil
 }
 
 // CreateWorktree creates a new git worktree

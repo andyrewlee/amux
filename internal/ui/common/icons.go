@@ -24,7 +24,7 @@ var Icons = struct {
 
 	// Objects
 	Project   string
-	Worktree  string
+	Workspace string
 	Agent     string
 	Terminal  string
 	Folder    string
@@ -62,7 +62,7 @@ var Icons = struct {
 
 	// Objects
 	Project:   "□",
-	Worktree:  "├",
+	Workspace: "├",
 	Agent:     "◇",
 	Terminal:  "$",
 	Folder:    "/",

@@ -27,8 +27,8 @@ import (
 // DialogID constants
 const (
 	DialogAddProject      = "add_project"
-	DialogCreateWorktree  = "create_worktree"
-	DialogDeleteWorktree  = "delete_worktree"
+	DialogCreateWorkspace = "create_workspace"
+	DialogDeleteWorkspace = "delete_workspace"
 	DialogRemoveProject   = "remove_project"
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
@@ -53,7 +53,7 @@ type App struct {
 
 	// State
 	projects         []data.Project
-	activeWorktree   *data.Worktree
+	activeWorkspace  *data.Workspace
 	activeProject    *data.Project
 	focusedPane      messages.PaneType
 	showWelcome      bool
@@ -69,7 +69,7 @@ type App struct {
 	buildDate       string
 	upgradeRunning  bool
 
-	// Button focus state for welcome/worktree info screens
+	// Button focus state for welcome/workspace info screens
 	centerBtnFocused bool
 	centerBtnIndex   int
 
@@ -88,8 +88,8 @@ type App struct {
 	toast       *common.ToastModel
 
 	// Dialog context
-	dialogProject  *data.Project
-	dialogWorktree *data.Worktree
+	dialogProject   *data.Project
+	dialogWorkspace *data.Workspace
 
 	// Process management
 	scripts *process.ScriptRunner

@@ -128,7 +128,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{}
 
 	hasTabs := len(m.getTabs()) > 0
-	if m.worktree != nil {
+	if m.workspace != nil {
 		items = append(items,
 			m.helpItem("C-Spc a", "new tab"),
 		)

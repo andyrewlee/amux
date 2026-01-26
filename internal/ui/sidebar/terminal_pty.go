@@ -34,20 +34,20 @@ const (
 
 // SidebarTerminalCreated is a message for terminal creation
 type SidebarTerminalCreated struct {
-	WorktreeID string
-	TabID      TerminalTabID
-	Terminal   *pty.Terminal
+	WorkspaceID string
+	TabID       TerminalTabID
+	Terminal    *pty.Terminal
 }
 
 // SidebarTerminalCreateFailed is a message for terminal creation failure
 type SidebarTerminalCreateFailed struct {
-	WorktreeID string
-	Err        error
+	WorkspaceID string
+	Err         error
 }
 
-// createTerminalTab creates a new terminal tab for the worktree
-func (m *TerminalModel) createTerminalTab(wt *data.Worktree) tea.Cmd {
-	wtID := string(wt.ID())
+// createTerminalTab creates a new terminal tab for the workspace
+func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
+	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 
 	return func() tea.Msg {
@@ -59,15 +59,15 @@ func (m *TerminalModel) createTerminalTab(wt *data.Worktree) tea.Cmd {
 		termWidth, termHeight := m.terminalContentSize()
 
 		env := []string{"COLORTERM=truecolor"}
-		term, err := pty.NewWithSize(shell, wt.Root, env, uint16(termHeight), uint16(termWidth))
+		term, err := pty.NewWithSize(shell, ws.Root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
-			return SidebarTerminalCreateFailed{WorktreeID: wtID, Err: err}
+			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
 
 		return SidebarTerminalCreated{
-			WorktreeID: wtID,
-			TabID:      tabID,
-			Terminal:   term,
+			WorkspaceID: wsID,
+			TabID:       tabID,
+			Terminal:    term,
 		}
 	}
 }
@@ -85,7 +85,7 @@ func (m *TerminalModel) terminalContentSize() (int, int) {
 }
 
 // HandleTerminalCreated handles the terminal tab creation message
-func (m *TerminalModel) HandleTerminalCreated(wtID string, tabID TerminalTabID, term *pty.Terminal) tea.Cmd {
+func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal) tea.Cmd {
 	termWidth, termHeight := m.terminalContentSize()
 
 	vt := vterm.New(termWidth, termHeight)
@@ -102,28 +102,28 @@ func (m *TerminalModel) HandleTerminalCreated(wtID string, tabID TerminalTabID, 
 		lastHeight: termHeight,
 	}
 
-	tabs := m.tabsByWorktree[wtID]
+	tabs := m.tabsByWorkspace[wsID]
 	tab := &TerminalTab{
 		ID:    tabID,
 		Name:  nextTerminalName(tabs),
 		State: ts,
 	}
-	m.tabsByWorktree[wtID] = append(tabs, tab)
+	m.tabsByWorkspace[wsID] = append(tabs, tab)
 
 	// Clear pending creation flag now that tab exists
-	delete(m.pendingCreation, wtID)
+	delete(m.pendingCreation, wsID)
 
 	// Set as active tab (switch to new tab)
-	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
 
 	m.refreshTerminalSize()
 
 	// Start reading from PTY
-	return m.startPTYReader(wtID, tabID)
+	return m.startPTYReader(wsID, tabID)
 }
 
-func (m *TerminalModel) startPTYReader(wtID string, tabID TerminalTabID) tea.Cmd {
-	tab := m.getTabByID(wtID, tabID)
+func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd {
+	tab := m.getTabByID(wsID, tabID)
 	if tab == nil || tab.State == nil {
 		return nil
 	}
@@ -159,7 +159,7 @@ func (m *TerminalModel) startPTYReader(wtID string, tabID TerminalTabID) tea.Cmd
 
 	safego.Go("sidebar.pty_reader", func() {
 		defer m.markPTYReaderStopped(ts)
-		runPTYReader(term, msgCh, cancel, wtID, string(tabID), &ts.ptyHeartbeat)
+		runPTYReader(term, msgCh, cancel, wsID, string(tabID), &ts.ptyHeartbeat)
 	})
 	safego.Go("sidebar.pty_forward", func() {
 		m.forwardPTYMsgs(msgCh)
@@ -169,7 +169,7 @@ func (m *TerminalModel) startPTYReader(wtID string, tabID TerminalTabID) tea.Cmd
 
 // StartPTYReaders ensures PTY readers are running for all tabs.
 func (m *TerminalModel) StartPTYReaders() tea.Cmd {
-	for wtID, tabs := range m.tabsByWorktree {
+	for wsID, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil {
 				continue
@@ -182,20 +182,20 @@ func (m *TerminalModel) StartPTYReaders() tea.Cmd {
 				if readerActive {
 					lastBeat := atomic.LoadInt64(&ts.ptyHeartbeat)
 					if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > ptyReaderStallTimeout {
-						logging.Warn("Sidebar PTY reader stalled for worktree %s tab %s; restarting", wtID, tab.ID)
+						logging.Warn("Sidebar PTY reader stalled for workspace %s tab %s; restarting", wsID, tab.ID)
 						m.stopPTYReader(ts)
 					}
 				}
 			}
-			_ = m.startPTYReader(wtID, tab.ID)
+			_ = m.startPTYReader(wsID, tab.ID)
 		}
 	}
 	return nil
 }
 
-// CloseTerminal closes all terminal tabs for the given worktree
-func (m *TerminalModel) CloseTerminal(wtID string) {
-	tabs := m.tabsByWorktree[wtID]
+// CloseTerminal closes all terminal tabs for the given workspace
+func (m *TerminalModel) CloseTerminal(wsID string) {
+	tabs := m.tabsByWorkspace[wsID]
 	for _, tab := range tabs {
 		if tab.State != nil {
 			m.stopPTYReader(tab.State)
@@ -208,15 +208,15 @@ func (m *TerminalModel) CloseTerminal(wtID string) {
 			tab.State.mu.Unlock()
 		}
 	}
-	delete(m.tabsByWorktree, wtID)
-	delete(m.activeTabByWorktree, wtID)
-	delete(m.pendingCreation, wtID)
+	delete(m.tabsByWorkspace, wsID)
+	delete(m.activeTabByWorkspace, wsID)
+	delete(m.pendingCreation, wsID)
 }
 
 // CloseAll closes all terminals
 func (m *TerminalModel) CloseAll() {
-	for wtID := range m.tabsByWorktree {
-		m.CloseTerminal(wtID)
+	for wsID := range m.tabsByWorkspace {
+		m.CloseTerminal(wsID)
 	}
 }
 
@@ -253,7 +253,7 @@ func (m *TerminalModel) markPTYReaderStopped(ts *TerminalState) {
 	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
 }
 
-func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID string, heartbeat *int64) {
+func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wsID string, tabID string, heartbeat *int64) {
 	// Ensure msgCh is always closed even if we panic, so forwardPTYMsgs doesn't block forever.
 	// The inner recover() catches double-close panics from existing close(msgCh) calls.
 	defer func() {
@@ -318,7 +318,7 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 			beat()
 			if !ok {
 				if len(pending) > 0 {
-					if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+					if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: tabID, Data: pending}) {
 						close(msgCh)
 						return
 					}
@@ -326,13 +326,13 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 				if stoppedErr == nil {
 					stoppedErr = io.EOF
 				}
-				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorktreeID: wtID, TabID: tabID, Err: stoppedErr})
+				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: tabID, Err: stoppedErr})
 				close(msgCh)
 				return
 			}
 			pending = append(pending, data...)
 			if len(pending) >= ptyMaxPendingBytes {
-				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: tabID, Data: pending}) {
 					close(msgCh)
 					return
 				}
@@ -341,14 +341,14 @@ func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}
 		case <-ticker.C:
 			beat()
 			if len(pending) > 0 {
-				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorktreeID: wtID, TabID: tabID, Data: pending}) {
+				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: tabID, Data: pending}) {
 					close(msgCh)
 					return
 				}
 				pending = nil
 			}
 			if stoppedErr != nil {
-				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorktreeID: wtID, TabID: tabID, Err: stoppedErr})
+				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: tabID, Err: stoppedErr})
 				close(msgCh)
 				return
 			}
@@ -395,7 +395,7 @@ func (m *TerminalModel) forwardPTYMsgs(msgCh <-chan tea.Msg) {
 					continue
 				}
 				if nextOut, ok := next.(messages.SidebarPTYOutput); ok &&
-					nextOut.WorktreeID == merged.WorktreeID &&
+					nextOut.WorkspaceID == merged.WorkspaceID &&
 					nextOut.TabID == merged.TabID {
 					merged.Data = append(merged.Data, nextOut.Data...)
 					if len(merged.Data) >= ptyMaxPendingBytes {

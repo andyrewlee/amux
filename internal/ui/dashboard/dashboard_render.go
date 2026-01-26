@@ -27,15 +27,15 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		statusText := ""
 		dirty := false
 		working := false
-		main := m.getMainWorktree(row.Project)
+		main := m.getMainWorkspace(row.Project)
 		if main != nil {
-			if m.deletingWorktrees[main.Root] {
+			if m.deletingWorkspaces[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				statusText = m.styles.StatusPending.Render(frame + " deleting")
 			} else if m.loadingStatus[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				statusText = m.styles.StatusPending.Render(frame)
-			} else if m.activeWorktrees[main.Root] {
+			} else if m.activeWorkspaces[main.Root] {
 				// Active agents - color change only, no spinner
 				working = true
 			} else if s, ok := m.statusCache[main.Root]; ok && !s.Clean {
@@ -54,7 +54,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
 		} else if m.isProjectActive(row.Project) {
-			style = m.styles.ActiveWorktree.PaddingLeft(0)
+			style = m.styles.ActiveWorkspace.PaddingLeft(0)
 		}
 		// Working color takes priority over dirty color
 		if working {
@@ -88,30 +88,30 @@ func (m *Model) renderRow(row Row, selected bool) string {
 
 		return style.Render(prefix+name+deleteSlot) + status
 
-	case RowWorktree:
+	case RowWorkspace:
 		unstyledPrefix := " "
 		styledPrefix := " "
-		name := row.Worktree.Name
+		name := row.Workspace.Name
 		status := ""
 		statusText := ""
 		dirty := false
 		working := false
 
 		// Check deletion state first
-		if m.deletingWorktrees[row.Worktree.Root] {
+		if m.deletingWorkspaces[row.Workspace.Root] {
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame + " deleting")
-		} else if _, ok := m.creatingWorktrees[row.Worktree.Root]; ok {
+		} else if _, ok := m.creatingWorkspaces[row.Workspace.Root]; ok {
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame + " creating")
-		} else if m.loadingStatus[row.Worktree.Root] {
+		} else if m.loadingStatus[row.Workspace.Root] {
 			// Show spinner while loading
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame)
-		} else if m.activeWorktrees[row.Worktree.Root] {
+		} else if m.activeWorkspaces[row.Workspace.Root] {
 			// Active agents - color change only, no spinner
 			working = true
-		} else if s, ok := m.statusCache[row.Worktree.Root]; ok && !s.Clean {
+		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {
 			dirty = true
 		}
 		if statusText != "" {
@@ -119,11 +119,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 
 		// Determine row style based on selection and active state
-		style := m.styles.WorktreeRow
+		style := m.styles.WorkspaceRow
 		if selected {
 			style = m.styles.SelectedRow
-		} else if row.Worktree.Root == m.activeRoot {
-			style = m.styles.ActiveWorktree
+		} else if row.Workspace.Root == m.activeRoot {
+			style = m.styles.ActiveWorkspace
 		}
 		// Working color takes priority over dirty color
 		if working {
@@ -138,7 +138,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			deleteSlot = " " + common.Icons.Close + " "
 		}
 
-		// Truncate worktree name to fit within pane (width - border - padding - status - deleteSlot)
+		// Truncate workspace name to fit within pane (width - border - padding - status - deleteSlot)
 		prefixWidth := lipgloss.Width(unstyledPrefix) + lipgloss.Width(styledPrefix)
 		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - prefixWidth - 1
 		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
@@ -184,7 +184,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 	}
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		switch m.rows[m.cursor].Type {
-		case RowWorktree:
+		case RowWorkspace:
 			items = append(items, m.helpItem("D", "delete"))
 		case RowProject:
 			items = append(items, m.helpItem("D", "remove"))

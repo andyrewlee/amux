@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestValidateWorktreeName(t *testing.T) {
+func TestValidateWorkspaceName(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
@@ -30,9 +30,9 @@ func TestValidateWorktreeName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateWorktreeName(tt.input)
+			err := ValidateWorkspaceName(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateWorktreeName(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				t.Errorf("ValidateWorkspaceName(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
 		})
 	}

@@ -20,11 +20,11 @@ func (m *TerminalModel) renderTabBar() string {
 	plusStyle := m.styles.TabPlus
 
 	if len(tabs) == 0 {
-		// No worktree selected - show non-interactive message
-		if m.worktree == nil {
+		// No workspace selected - show non-interactive message
+		if m.workspace == nil {
 			return m.styles.Muted.Render("No terminal")
 		}
-		// Worktree selected but no tabs - show clickable "New terminal" button
+		// Workspace selected but no tabs - show clickable "New terminal" button
 		empty := plusStyle.Render("+ New")
 		emptyWidth := lipgloss.Width(empty)
 		if emptyWidth > 0 {
@@ -130,7 +130,7 @@ func (m *TerminalModel) TabBarView() string {
 	return m.renderTabBar()
 }
 
-// TerminalLayer returns a VTermLayer for the active worktree terminal.
+// TerminalLayer returns a VTermLayer for the active workspace terminal.
 func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
 	ts := m.getTerminal()
 	if ts == nil {
@@ -277,8 +277,8 @@ func (m *TerminalModel) SetSize(width, height int) {
 	// Calculate actual terminal dimensions (accounting for tab bar, help lines, status reserve)
 	termWidth, termHeight := m.terminalContentSize()
 
-	// Resize all terminal vtems across all worktrees only if size changed
-	for _, tabs := range m.tabsByWorktree {
+	// Resize all terminal vtems across all workspaces only if size changed
+	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			if tab.State == nil {
 				continue

@@ -27,7 +27,7 @@ type ProjectTreeNode struct {
 
 // ProjectTree is a nerdtree-like file browser
 type ProjectTree struct {
-	worktree     *data.Worktree
+	workspace    *data.Workspace
 	root         *ProjectTreeNode
 	flatNodes    []*ProjectTreeNode // flattened visible nodes for rendering
 	cursor       int
@@ -159,20 +159,20 @@ func (m *ProjectTree) handleEnter() tea.Cmd {
 	}
 
 	// File selected - open in vim via center pane
-	wt := m.worktree
+	ws := m.workspace
 	path := node.Path
 	return func() tea.Msg {
 		return OpenFileInEditor{
-			Path:     path,
-			Worktree: wt,
+			Path:      path,
+			Workspace: ws,
 		}
 	}
 }
 
 // OpenFileInEditor is a message to open a file in the editor
 type OpenFileInEditor struct {
-	Path     string
-	Worktree *data.Worktree
+	Path      string
+	Workspace *data.Workspace
 }
 
 // expandNode loads children for a directory node
@@ -258,15 +258,15 @@ func (m *ProjectTree) rebuildFlatList() {
 
 // reloadTree reloads the entire tree from disk
 func (m *ProjectTree) reloadTree() {
-	if m.worktree == nil {
+	if m.workspace == nil {
 		m.root = nil
 		m.flatNodes = nil
 		return
 	}
 
 	m.root = &ProjectTreeNode{
-		Name:   filepath.Base(m.worktree.Root),
-		Path:   m.worktree.Root,
+		Name:   filepath.Base(m.workspace.Root),
+		Path:   m.workspace.Root,
 		IsDir:  true,
 		Depth:  -1, // Root is at depth -1 so children are at 0
 		Parent: nil,
@@ -278,8 +278,8 @@ func (m *ProjectTree) reloadTree() {
 
 // View renders the project tree
 func (m *ProjectTree) View() string {
-	if m.worktree == nil {
-		return m.renderWithHelp(m.styles.Muted.Render("No worktree selected"))
+	if m.workspace == nil {
+		return m.renderWithHelp(m.styles.Muted.Render("No workspace selected"))
 	}
 
 	if len(m.flatNodes) == 0 {
@@ -492,9 +492,9 @@ func (m *ProjectTree) Focused() bool {
 	return m.focused
 }
 
-// SetWorktree sets the active worktree
-func (m *ProjectTree) SetWorktree(wt *data.Worktree) {
-	m.worktree = wt
+// SetWorkspace sets the active workspace
+func (m *ProjectTree) SetWorkspace(ws *data.Workspace) {
+	m.workspace = ws
 	m.cursor = 0
 	m.scrollOffset = 0
 	m.reloadTree()

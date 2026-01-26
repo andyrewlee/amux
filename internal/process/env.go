@@ -19,21 +19,26 @@ func NewEnvBuilder(ports *PortAllocator) *EnvBuilder {
 	}
 }
 
-// BuildEnv creates environment variables for a worktree
-func (b *EnvBuilder) BuildEnv(wt *data.Worktree, meta *data.Metadata) []string {
+// BuildEnv creates environment variables for a workspace
+func (b *EnvBuilder) BuildEnv(ws *data.Workspace, meta *data.Metadata) []string {
 	env := os.Environ()
 
-	// Add worktree-specific variables
+	// Add workspace-specific variables
 	env = append(env,
-		fmt.Sprintf("AMUX_WORKTREE_NAME=%s", wt.Name),
-		fmt.Sprintf("AMUX_WORKTREE_ROOT=%s", wt.Root),
-		fmt.Sprintf("AMUX_WORKTREE_BRANCH=%s", wt.Branch),
-		fmt.Sprintf("ROOT_WORKTREE_PATH=%s", wt.Repo),
+		fmt.Sprintf("AMUX_WORKSPACE_NAME=%s", ws.Name),
+		fmt.Sprintf("AMUX_WORKSPACE_ROOT=%s", ws.Root),
+		fmt.Sprintf("AMUX_WORKSPACE_BRANCH=%s", ws.Branch),
+		fmt.Sprintf("ROOT_WORKSPACE_PATH=%s", ws.Repo),
+		// Legacy variables for backward compatibility
+		fmt.Sprintf("AMUX_WORKTREE_NAME=%s", ws.Name),
+		fmt.Sprintf("AMUX_WORKTREE_ROOT=%s", ws.Root),
+		fmt.Sprintf("AMUX_WORKTREE_BRANCH=%s", ws.Branch),
+		fmt.Sprintf("ROOT_WORKTREE_PATH=%s", ws.Repo),
 	)
 
 	// Add port allocation
 	if b.portAllocator != nil {
-		port, rangeEnd := b.portAllocator.PortRange(wt.Root)
+		port, rangeEnd := b.portAllocator.PortRange(ws.Root)
 		env = append(env,
 			fmt.Sprintf("AMUX_PORT=%d", port),
 			fmt.Sprintf("AMUX_PORT_RANGE=%d-%d", port, rangeEnd),
@@ -51,16 +56,21 @@ func (b *EnvBuilder) BuildEnv(wt *data.Worktree, meta *data.Metadata) []string {
 }
 
 // BuildEnvMap creates a map of environment variables
-func (b *EnvBuilder) BuildEnvMap(wt *data.Worktree, meta *data.Metadata) map[string]string {
+func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace, meta *data.Metadata) map[string]string {
 	envMap := make(map[string]string)
 
-	envMap["AMUX_WORKTREE_NAME"] = wt.Name
-	envMap["AMUX_WORKTREE_ROOT"] = wt.Root
-	envMap["AMUX_WORKTREE_BRANCH"] = wt.Branch
-	envMap["ROOT_WORKTREE_PATH"] = wt.Repo
+	envMap["AMUX_WORKSPACE_NAME"] = ws.Name
+	envMap["AMUX_WORKSPACE_ROOT"] = ws.Root
+	envMap["AMUX_WORKSPACE_BRANCH"] = ws.Branch
+	envMap["ROOT_WORKSPACE_PATH"] = ws.Repo
+	// Legacy variables for backward compatibility
+	envMap["AMUX_WORKTREE_NAME"] = ws.Name
+	envMap["AMUX_WORKTREE_ROOT"] = ws.Root
+	envMap["AMUX_WORKTREE_BRANCH"] = ws.Branch
+	envMap["ROOT_WORKTREE_PATH"] = ws.Repo
 
 	if b.portAllocator != nil {
-		port, rangeEnd := b.portAllocator.PortRange(wt.Root)
+		port, rangeEnd := b.portAllocator.PortRange(ws.Root)
 		envMap["AMUX_PORT"] = fmt.Sprintf("%d", port)
 		envMap["AMUX_PORT_RANGE"] = fmt.Sprintf("%d-%d", port, rangeEnd)
 	}

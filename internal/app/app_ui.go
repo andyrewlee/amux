@@ -194,13 +194,13 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 
 	// Tab management
 	case key.Matches(msg, a.keymap.NewAgentTab):
-		if a.activeWorktree != nil {
+		if a.activeWorkspace != nil {
 			return true, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.NewTerminalTab):
-		if a.focusedPane == messages.PaneSidebarTerminal && a.activeWorktree != nil {
+		if a.focusedPane == messages.PaneSidebarTerminal && a.activeWorkspace != nil {
 			return true, a.sidebarTerminal.CreateNewTab()
 		}
 		return true, nil
@@ -404,8 +404,8 @@ func (a *App) handleCenterPaneClick(msg tea.MouseClickMsg) tea.Cmd {
 	if a.showWelcome {
 		return a.handleWelcomeClick(localX, localY)
 	}
-	if a.activeWorktree != nil {
-		return a.handleWorktreeInfoClick(localX, localY)
+	if a.activeWorkspace != nil {
+		return a.handleWorkspaceInfoClick(localX, localY)
 	}
 	return nil
 }
@@ -464,11 +464,11 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 	return nil
 }
 
-func (a *App) handleWorktreeInfoClick(localX, localY int) tea.Cmd {
-	if a.activeWorktree == nil {
+func (a *App) handleWorkspaceInfoClick(localX, localY int) tea.Cmd {
+	if a.activeWorkspace == nil {
 		return nil
 	}
-	content := a.renderWorktreeInfo()
+	content := a.renderWorkspaceInfo()
 	lines := strings.Split(content, "\n")
 
 	for i, line := range lines {

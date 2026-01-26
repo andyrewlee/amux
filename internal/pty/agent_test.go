@@ -20,7 +20,7 @@ func TestAgentManagerCreateAndClose(t *testing.T) {
 	}
 
 	mgr := NewAgentManager(cfg)
-	wt := &data.Worktree{
+	wt := &data.Workspace{
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   "/tmp",
@@ -36,7 +36,7 @@ func TestAgentManagerCreateAndClose(t *testing.T) {
 	}
 
 	if len(mgr.agents[wt.ID()]) != 1 {
-		t.Fatalf("expected 1 agent for worktree")
+		t.Fatalf("expected 1 agent for workspace")
 	}
 
 	if err := mgr.CloseAgent(agent); err != nil {
@@ -55,7 +55,7 @@ func TestAgentManagerSendInterrupt(t *testing.T) {
 	cfg.Assistants["codex"] = config.AssistantConfig{Command: "sh -c 'sleep 1'", InterruptCount: 1}
 
 	mgr := NewAgentManager(cfg)
-	wt := &data.Worktree{Root: os.TempDir()}
+	wt := &data.Workspace{Root: os.TempDir()}
 	agent, err := mgr.CreateAgent(wt, AgentCodex, 24, 80)
 	if err != nil {
 		t.Fatalf("CreateAgent() error = %v", err)
@@ -69,23 +69,23 @@ func TestAgentManagerSendInterrupt(t *testing.T) {
 	}
 }
 
-func TestAgentManagerCloseWorktreeAgents(t *testing.T) {
+func TestAgentManagerCloseWorkspaceAgents(t *testing.T) {
 	cfg, err := config.DefaultConfig()
 	if err != nil {
 		t.Fatalf("DefaultConfig() error = %v", err)
 	}
 
 	mgr := NewAgentManager(cfg)
-	wt1 := &data.Worktree{Name: "wt1", Repo: "/tmp", Root: "/tmp/wt1"}
-	wt2 := &data.Worktree{Name: "wt2", Repo: "/tmp", Root: "/tmp/wt2"}
+	wt1 := &data.Workspace{Name: "wt1", Repo: "/tmp", Root: "/tmp/wt1"}
+	wt2 := &data.Workspace{Name: "wt2", Repo: "/tmp", Root: "/tmp/wt2"}
 
 	// Directly populate agents map to test cleanup without creating real terminals
 	mgr.agents[wt1.ID()] = []*Agent{
-		{Type: AgentCodex, Worktree: wt1},
-		{Type: AgentClaude, Worktree: wt1},
+		{Type: AgentCodex, Workspace: wt1},
+		{Type: AgentClaude, Workspace: wt1},
 	}
 	mgr.agents[wt2.ID()] = []*Agent{
-		{Type: AgentCodex, Worktree: wt2},
+		{Type: AgentCodex, Workspace: wt2},
 	}
 
 	if len(mgr.agents[wt1.ID()]) != 2 {
@@ -95,7 +95,7 @@ func TestAgentManagerCloseWorktreeAgents(t *testing.T) {
 		t.Fatalf("expected 1 agent for wt2, got %d", len(mgr.agents[wt2.ID()]))
 	}
 
-	mgr.CloseWorktreeAgents(wt1)
+	mgr.CloseWorkspaceAgents(wt1)
 
 	if _, exists := mgr.agents[wt1.ID()]; exists {
 		t.Fatalf("expected wt1 agents to be deleted from map")
@@ -105,5 +105,5 @@ func TestAgentManagerCloseWorktreeAgents(t *testing.T) {
 	}
 
 	// Should not panic on nil
-	mgr.CloseWorktreeAgents(nil)
+	mgr.CloseWorkspaceAgents(nil)
 }

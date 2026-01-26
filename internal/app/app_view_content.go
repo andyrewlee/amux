@@ -35,11 +35,11 @@ func (a *App) renderCenterPaneContent() string {
 		return a.renderWelcome()
 	}
 
-	if a.activeWorktree != nil {
-		return a.renderWorktreeInfo()
+	if a.activeWorkspace != nil {
+		return a.renderWorkspaceInfo()
 	}
 
-	return "Select a worktree from the dashboard"
+	return "Select a workspace from the dashboard"
 }
 
 func (a *App) centerPaneContentOrigin() (x, y int) {
@@ -56,24 +56,24 @@ func (a *App) centerPaneContentOrigin() (x, y int) {
 
 func (a *App) goHome() {
 	a.showWelcome = true
-	a.activeWorktree = nil
-	a.center.SetWorktree(nil)
-	a.sidebar.SetWorktree(nil)
+	a.activeWorkspace = nil
+	a.center.SetWorkspace(nil)
+	a.sidebar.SetWorkspace(nil)
 	a.sidebar.SetGitStatus(nil)
-	_ = a.sidebarTerminal.SetWorktree(nil)
+	_ = a.sidebarTerminal.SetWorkspace(nil)
 	a.dashboard.ClearActiveRoot()
 	a.centerBtnFocused = false
 	a.centerBtnIndex = 0
 }
 
-// renderWorktreeInfo renders information about the active worktree
-func (a *App) renderWorktreeInfo() string {
-	wt := a.activeWorktree
+// renderWorkspaceInfo renders information about the active workspace
+func (a *App) renderWorkspaceInfo() string {
+	ws := a.activeWorkspace
 
-	title := a.styles.Title.Render(wt.Name)
+	title := a.styles.Title.Render(ws.Name)
 	content := title + "\n\n"
-	content += fmt.Sprintf("Branch: %s\n", wt.Branch)
-	content += fmt.Sprintf("Path: %s\n", wt.Root)
+	content += fmt.Sprintf("Branch: %s\n", ws.Branch)
+	content += fmt.Sprintf("Path: %s\n", ws.Root)
 
 	if a.activeProject != nil {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)

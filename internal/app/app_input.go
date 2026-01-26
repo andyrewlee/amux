@@ -43,7 +43,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
-		case DialogAddProject, DialogCreateWorktree, DialogDeleteWorktree, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit:
+		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit:
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -244,11 +244,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ProjectsLoaded:
 		cmds = append(cmds, a.handleProjectsLoaded(msg)...)
 
-	case messages.WorktreeActivated:
-		cmds = append(cmds, a.handleWorktreeActivated(msg)...)
+	case messages.WorkspaceActivated:
+		cmds = append(cmds, a.handleWorkspaceActivated(msg)...)
 
-	case messages.WorktreePreviewed:
-		cmds = append(cmds, a.handleWorktreePreviewed(msg)...)
+	case messages.WorkspacePreviewed:
+		cmds = append(cmds, a.handleWorkspacePreviewed(msg)...)
 
 	case messages.ShowWelcome:
 		a.goHome()
@@ -274,19 +274,19 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.RefreshDashboard:
 		cmds = append(cmds, a.loadProjects())
 
-	case messages.WorktreeCreatedWithWarning:
-		cmds = append(cmds, a.handleWorktreeCreatedWithWarning(msg)...)
+	case messages.WorkspaceCreatedWithWarning:
+		cmds = append(cmds, a.handleWorkspaceCreatedWithWarning(msg)...)
 
-	case messages.WorktreeCreated:
-		cmds = append(cmds, a.handleWorktreeCreated(msg)...)
+	case messages.WorkspaceCreated:
+		cmds = append(cmds, a.handleWorkspaceCreated(msg)...)
 
-	case messages.WorktreeSetupComplete:
-		if cmd := a.handleWorktreeSetupComplete(msg); cmd != nil {
+	case messages.WorkspaceSetupComplete:
+		if cmd := a.handleWorkspaceSetupComplete(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
-	case messages.WorktreeCreateFailed:
-		if cmd := a.handleWorktreeCreateFailed(msg); cmd != nil {
+	case messages.WorkspaceCreateFailed:
+		if cmd := a.handleWorkspaceCreateFailed(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
@@ -298,11 +298,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ShowAddProjectDialog:
 		a.handleShowAddProjectDialog()
 
-	case messages.ShowCreateWorktreeDialog:
-		a.handleShowCreateWorktreeDialog(msg)
+	case messages.ShowCreateWorkspaceDialog:
+		a.handleShowCreateWorkspaceDialog(msg)
 
-	case messages.ShowDeleteWorktreeDialog:
-		a.handleShowDeleteWorktreeDialog(msg)
+	case messages.ShowDeleteWorkspaceDialog:
+		a.handleShowDeleteWorkspaceDialog(msg)
 
 	case messages.ShowRemoveProjectDialog:
 		a.handleShowRemoveProjectDialog(msg)
@@ -321,11 +321,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case messages.CreateWorktree:
-		cmds = append(cmds, a.handleCreateWorktree(msg)...)
+	case messages.CreateWorkspace:
+		cmds = append(cmds, a.handleCreateWorkspace(msg)...)
 
-	case messages.DeleteWorktree:
-		cmds = append(cmds, a.handleDeleteWorktree(msg)...)
+	case messages.DeleteWorkspace:
+		cmds = append(cmds, a.handleDeleteWorkspace(msg)...)
 
 	case messages.AddProject:
 		cmds = append(cmds, a.addProject(msg.Path))
@@ -360,11 +360,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		// Sync active agents state to dashboard (show spinner only when actively outputting)
-		activeWorktrees := make(map[string]bool)
-		for _, root := range a.center.GetActiveWorktreeRoots() {
-			activeWorktrees[root] = true
+		activeWorkspaces := make(map[string]bool)
+		for _, root := range a.center.GetActiveWorkspaceRoots() {
+			activeWorkspaces[root] = true
 		}
-		a.dashboard.SetActiveWorktrees(activeWorktrees)
+		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
 		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
 			cmds = append(cmds, startCmd)
 		}
@@ -381,11 +381,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dashboard.SpinnerTickMsg:
 		// Sync active agents state from center to dashboard
-		activeWorktrees := make(map[string]bool)
-		for _, root := range a.center.GetActiveWorktreeRoots() {
-			activeWorktrees[root] = true
+		activeWorkspaces := make(map[string]bool)
+		for _, root := range a.center.GetActiveWorkspaceRoots() {
+			activeWorkspaces[root] = true
 		}
-		a.dashboard.SetActiveWorktrees(activeWorktrees)
+		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
 
 		// Tick center spinner for tab activity animation
 		a.center.TickSpinner()
@@ -421,15 +421,15 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)
 
-	case messages.WorktreeDeleted:
-		cmds = append(cmds, a.handleWorktreeDeleted(msg)...)
+	case messages.WorkspaceDeleted:
+		cmds = append(cmds, a.handleWorkspaceDeleted(msg)...)
 
 	case messages.ProjectRemoved:
 		cmds = append(cmds, a.toast.ShowSuccess("Project removed"))
 		cmds = append(cmds, a.loadProjects())
 
-	case messages.WorktreeDeleteFailed:
-		if cmd := a.handleWorktreeDeleteFailed(msg); cmd != nil {
+	case messages.WorkspaceDeleteFailed:
+		if cmd := a.handleWorkspaceDeleteFailed(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
@@ -544,7 +544,7 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
-	// Handle button navigation when center pane is focused and showing welcome/worktree info (no tabs)
+	// Handle button navigation when center pane is focused and showing welcome/workspace info (no tabs)
 	if a.focusedPane == messages.PaneCenter && !a.center.HasTabs() {
 		maxIndex := a.centerButtonCount() - 1
 		switch {
@@ -608,7 +608,7 @@ func (a *App) centerButtonCount() int {
 	if a.showWelcome {
 		return 2 // [New project], [Settings]
 	}
-	if a.activeWorktree != nil {
+	if a.activeWorkspace != nil {
 		return 1 // [New agent]
 	}
 	return 0
@@ -623,7 +623,7 @@ func (a *App) activateCenterButton() tea.Cmd {
 		case 1:
 			return func() tea.Msg { return messages.ShowSettingsDialog{} }
 		}
-	} else if a.activeWorktree != nil {
+	} else if a.activeWorkspace != nil {
 		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 	}
 	return nil

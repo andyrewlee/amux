@@ -7,11 +7,11 @@ import (
 
 // Paths holds all the file system paths used by the application
 type Paths struct {
-	Home          string // ~/.amux
-	WorktreesRoot string // ~/.amux/worktrees
-	RegistryPath  string // ~/.amux/projects.json
-	MetadataRoot  string // ~/.amux/worktrees-metadata
-	ConfigPath    string // ~/.amux/config.json
+	Home           string // ~/.amux
+	WorkspacesRoot string // ~/.amux/worktrees (still uses worktrees on disk)
+	RegistryPath   string // ~/.amux/projects.json
+	MetadataRoot   string // ~/.amux/worktrees-metadata
+	ConfigPath     string // ~/.amux/config.json
 }
 
 // DefaultPaths returns the default paths configuration
@@ -22,12 +22,13 @@ func DefaultPaths() (*Paths, error) {
 	}
 
 	amuxHome := filepath.Join(home, ".amux")
+
 	return &Paths{
-		Home:          amuxHome,
-		WorktreesRoot: filepath.Join(amuxHome, "worktrees"),
-		RegistryPath:  filepath.Join(amuxHome, "projects.json"),
-		MetadataRoot:  filepath.Join(amuxHome, "worktrees-metadata"),
-		ConfigPath:    filepath.Join(amuxHome, "config.json"),
+		Home:           amuxHome,
+		WorkspacesRoot: filepath.Join(amuxHome, "worktrees"),
+		RegistryPath:   filepath.Join(amuxHome, "projects.json"),
+		MetadataRoot:   filepath.Join(amuxHome, "worktrees-metadata"),
+		ConfigPath:     filepath.Join(amuxHome, "config.json"),
 	}, nil
 }
 
@@ -35,7 +36,7 @@ func DefaultPaths() (*Paths, error) {
 func (p *Paths) EnsureDirectories() error {
 	dirs := []string{
 		p.Home,
-		p.WorktreesRoot,
+		p.WorkspacesRoot,
 		p.MetadataRoot,
 	}
 

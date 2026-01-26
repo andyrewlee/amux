@@ -22,7 +22,7 @@ func (m *Model) startSpinnerIfNeeded() tea.Cmd {
 	if m.spinnerActive {
 		return nil
 	}
-	if len(m.loadingStatus) == 0 && len(m.creatingWorktrees) == 0 && len(m.deletingWorktrees) == 0 && len(m.activeWorktrees) == 0 {
+	if len(m.loadingStatus) == 0 && len(m.creatingWorkspaces) == 0 && len(m.deletingWorkspaces) == 0 && len(m.activeWorkspaces) == 0 {
 		return nil
 	}
 	m.spinnerActive = true
@@ -34,28 +34,28 @@ func (m *Model) StartSpinnerIfNeeded() tea.Cmd {
 	return m.startSpinnerIfNeeded()
 }
 
-// SetWorktreeCreating marks a worktree as creating (or clears it).
-func (m *Model) SetWorktreeCreating(wt *data.Worktree, creating bool) tea.Cmd {
-	if wt == nil {
+// SetWorkspaceCreating marks a workspace as creating (or clears it).
+func (m *Model) SetWorkspaceCreating(ws *data.Workspace, creating bool) tea.Cmd {
+	if ws == nil {
 		return nil
 	}
 	if creating {
-		m.creatingWorktrees[wt.Root] = wt
+		m.creatingWorkspaces[ws.Root] = ws
 		m.rebuildRows()
 		return m.startSpinnerIfNeeded()
 	}
-	delete(m.creatingWorktrees, wt.Root)
+	delete(m.creatingWorkspaces, ws.Root)
 	m.rebuildRows()
 	return nil
 }
 
-// SetWorktreeDeleting marks a worktree as deleting (or clears it).
-func (m *Model) SetWorktreeDeleting(root string, deleting bool) tea.Cmd {
+// SetWorkspaceDeleting marks a workspace as deleting (or clears it).
+func (m *Model) SetWorkspaceDeleting(root string, deleting bool) tea.Cmd {
 	if deleting {
-		m.deletingWorktrees[root] = true
+		m.deletingWorkspaces[root] = true
 		return m.startSpinnerIfNeeded()
 	}
-	delete(m.deletingWorktrees, root)
+	delete(m.deletingWorkspaces, root)
 	return nil
 }
 
@@ -74,17 +74,17 @@ func (m *Model) rebuildRows() {
 			Project: project,
 		})
 
-		for _, wt := range m.sortedWorktrees(project) {
+		for _, ws := range m.sortedWorkspaces(project) {
 
 			// Hide main branch - users access via project row
-			if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
+			if ws.IsMainBranch() || ws.IsPrimaryCheckout() {
 				continue
 			}
 
 			m.rows = append(m.rows, Row{
-				Type:     RowWorktree,
-				Project:  project,
-				Worktree: wt,
+				Type:      RowWorkspace,
+				Project:   project,
+				Workspace: ws,
 			})
 		}
 
@@ -113,54 +113,54 @@ func (m *Model) rebuildRows() {
 	}
 }
 
-func (m *Model) sortedWorktrees(project *data.Project) []*data.Worktree {
-	existingRoots := make(map[string]bool, len(project.Worktrees))
-	worktrees := make([]*data.Worktree, 0, len(project.Worktrees)+len(m.creatingWorktrees))
+func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
+	existingRoots := make(map[string]bool, len(project.Workspaces))
+	workspaces := make([]*data.Workspace, 0, len(project.Workspaces)+len(m.creatingWorkspaces))
 
-	for i := range project.Worktrees {
-		wt := &project.Worktrees[i]
-		existingRoots[wt.Root] = true
-		worktrees = append(worktrees, wt)
+	for i := range project.Workspaces {
+		ws := &project.Workspaces[i]
+		existingRoots[ws.Root] = true
+		workspaces = append(workspaces, ws)
 	}
 
-	for _, wt := range m.creatingWorktrees {
-		if wt == nil || wt.Repo != project.Path {
+	for _, ws := range m.creatingWorkspaces {
+		if ws == nil || ws.Repo != project.Path {
 			continue
 		}
-		if existingRoots[wt.Root] {
+		if existingRoots[ws.Root] {
 			continue
 		}
-		worktrees = append(worktrees, wt)
+		workspaces = append(workspaces, ws)
 	}
 
-	sort.SliceStable(worktrees, func(i, j int) bool {
-		return worktrees[i].Created.After(worktrees[j].Created)
+	sort.SliceStable(workspaces, func(i, j int) bool {
+		return workspaces[i].Created.After(workspaces[j].Created)
 	})
 
-	return worktrees
+	return workspaces
 }
 
-// isProjectActive returns true if the project's main worktree is active
+// isProjectActive returns true if the project's main workspace is active
 func (m *Model) isProjectActive(p *data.Project) bool {
 	if p == nil {
 		return false
 	}
-	main := m.getMainWorktree(p)
+	main := m.getMainWorkspace(p)
 	if main == nil {
 		return false
 	}
 	return main.Root == m.activeRoot
 }
 
-// getMainWorktree returns the primary or main branch worktree for a project
-func (m *Model) getMainWorktree(p *data.Project) *data.Worktree {
+// getMainWorkspace returns the primary or main branch workspace for a project
+func (m *Model) getMainWorkspace(p *data.Project) *data.Workspace {
 	if p == nil {
 		return nil
 	}
-	for i := range p.Worktrees {
-		wt := &p.Worktrees[i]
-		if wt.IsMainBranch() || wt.IsPrimaryCheckout() {
-			return wt
+	for i := range p.Workspaces {
+		ws := &p.Workspaces[i]
+		if ws.IsMainBranch() || ws.IsPrimaryCheckout() {
+			return ws
 		}
 	}
 	return nil
@@ -179,7 +179,7 @@ func (m *Model) Projects() []data.Project {
 	return m.projects
 }
 
-// ClearActiveRoot resets the active worktree selection to "Home".
+// ClearActiveRoot resets the active workspace selection to "Home".
 func (m *Model) ClearActiveRoot() {
 	m.activeRoot = ""
 }

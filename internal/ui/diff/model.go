@@ -13,10 +13,10 @@ import (
 // Model is the Bubble Tea model for the native diff viewer
 type Model struct {
 	// Data
-	worktree *data.Worktree
-	change   *git.Change
-	diff     *git.DiffResult
-	mode     git.DiffMode
+	workspace *data.Workspace
+	change    *git.Change
+	diff      *git.DiffResult
+	mode      git.DiffMode
 
 	// State
 	loading bool
@@ -41,15 +41,15 @@ type diffLoaded struct {
 }
 
 // New creates a new diff viewer model
-func New(wt *data.Worktree, change *git.Change, mode git.DiffMode, width, height int) *Model {
+func New(ws *data.Workspace, change *git.Change, mode git.DiffMode, width, height int) *Model {
 	return &Model{
-		worktree: wt,
-		change:   change,
-		mode:     mode,
-		loading:  true,
-		width:    width,
-		height:   height,
-		styles:   common.DefaultStyles(),
+		workspace: ws,
+		change:    change,
+		mode:      mode,
+		loading:   true,
+		width:     width,
+		height:    height,
+		styles:    common.DefaultStyles(),
 	}
 }
 
@@ -60,12 +60,12 @@ func (m *Model) Init() tea.Cmd {
 
 // loadDiff returns a command that loads the diff asynchronously
 func (m *Model) loadDiff() tea.Cmd {
-	wt := m.worktree
+	ws := m.workspace
 	change := m.change
 	mode := m.mode
 
 	return func() tea.Msg {
-		if wt == nil || change == nil {
+		if ws == nil || change == nil {
 			return diffLoaded{err: nil, diff: &git.DiffResult{Empty: true}}
 		}
 
@@ -74,11 +74,11 @@ func (m *Model) loadDiff() tea.Cmd {
 
 		switch {
 		case change.Kind == git.ChangeUntracked:
-			diff, err = git.GetUntrackedFileContent(wt.Root, change.Path)
+			diff, err = git.GetUntrackedFileContent(ws.Root, change.Path)
 		case mode == git.DiffModeBranch:
-			diff, err = git.GetBranchFileDiff(wt.Root, change.Path)
+			diff, err = git.GetBranchFileDiff(ws.Root, change.Path)
 		default:
-			diff, err = git.GetFileDiff(wt.Root, change.Path, mode)
+			diff, err = git.GetFileDiff(ws.Root, change.Path, mode)
 		}
 
 		return diffLoaded{diff: diff, err: err}

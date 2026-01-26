@@ -18,11 +18,11 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Field, e.Message)
 }
 
-// worktreeNameRegex matches valid worktree/branch names
-var worktreeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+// workspaceNameRegex matches valid workspace/branch names
+var workspaceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
-// ValidateWorktreeName validates a worktree name
-func ValidateWorktreeName(name string) error {
+// ValidateWorkspaceName validates a workspace name
+func ValidateWorkspaceName(name string) error {
 	name = strings.TrimSpace(name)
 
 	if name == "" {
@@ -33,7 +33,7 @@ func ValidateWorktreeName(name string) error {
 		return &ValidationError{Field: "name", Message: "name too long (max 100 characters)"}
 	}
 
-	if !worktreeNameRegex.MatchString(name) {
+	if !workspaceNameRegex.MatchString(name) {
 		return &ValidationError{Field: "name", Message: "name must start with letter/number and contain only letters, numbers, dots, dashes, or underscores"}
 	}
 

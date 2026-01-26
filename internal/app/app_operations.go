@@ -14,7 +14,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
-// loadProjects loads all registered projects and their worktrees
+// loadProjects loads all registered projects and their workspaces
 func (a *App) loadProjects() tea.Cmd {
 	return func() tea.Msg {
 		paths, err := a.registry.Projects()
@@ -29,31 +29,35 @@ func (a *App) loadProjects() tea.Cmd {
 			}
 
 			project := data.NewProject(path)
-			worktrees, err := git.DiscoverWorktrees(project)
+			workspaces, err := git.DiscoverWorktrees(project)
 			if err != nil {
 				continue
 			}
-			for i := range worktrees {
-				wt := &worktrees[i]
-				meta, err := a.metadata.Load(wt)
+			for i := range workspaces {
+				ws := &workspaces[i]
+				result, err := a.metadata.Load(ws)
 				if err != nil {
-					logging.Warn("Failed to load metadata for %s: %v", wt.Root, err)
+					logging.Warn("Failed to load metadata for %s: %v", ws.Root, err)
 					continue
 				}
+				if result.Warning != "" {
+					logging.Warn("Metadata migration warning for %s: %s", ws.Root, result.Warning)
+				}
+				meta := result.Metadata
 				if meta.Base != "" {
-					wt.Base = meta.Base
+					ws.Base = meta.Base
 				}
 				if meta.Created != "" {
 					if createdAt, err := time.Parse(time.RFC3339, meta.Created); err == nil {
-						wt.Created = createdAt
+						ws.Created = createdAt
 					} else if createdAt, err := time.Parse(time.RFC3339Nano, meta.Created); err == nil {
-						wt.Created = createdAt
+						ws.Created = createdAt
 					} else {
-						logging.Warn("Failed to parse worktree created time for %s: %v", wt.Root, err)
+						logging.Warn("Failed to parse workspace created time for %s: %v", ws.Root, err)
 					}
 				}
 			}
-			project.Worktrees = worktrees
+			project.Workspaces = workspaces
 			projects = append(projects, *project)
 		}
 
@@ -61,7 +65,7 @@ func (a *App) loadProjects() tea.Cmd {
 	}
 }
 
-// requestGitStatus requests git status for a worktree (always fetches fresh)
+// requestGitStatus requests git status for a workspace (always fetches fresh)
 func (a *App) requestGitStatus(root string) tea.Cmd {
 	return func() tea.Msg {
 		status, err := git.GetStatus(root)
@@ -129,44 +133,44 @@ func (a *App) addProject(path string) tea.Cmd {
 	}
 }
 
-// createWorktree creates a new git worktree
-func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
+// createWorkspace creates a new git worktree-based workspace
+func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd {
 	return func() (msg tea.Msg) {
-		var wt *data.Worktree
+		var ws *data.Workspace
 		defer func() {
 			if r := recover(); r != nil {
-				logging.Error("panic in createWorktree: %v", r)
-				msg = messages.WorktreeCreateFailed{
-					Worktree: wt,
-					Err:      fmt.Errorf("create worktree panicked: %v", r),
+				logging.Error("panic in createWorkspace: %v", r)
+				msg = messages.WorkspaceCreateFailed{
+					Workspace: ws,
+					Err:       fmt.Errorf("create workspace panicked: %v", r),
 				}
 			}
 		}()
 
 		if project == nil || name == "" {
-			return messages.WorktreeCreateFailed{
-				Err: fmt.Errorf("missing project or worktree name"),
+			return messages.WorkspaceCreateFailed{
+				Err: fmt.Errorf("missing project or workspace name"),
 			}
 		}
 
-		worktreePath := filepath.Join(
-			a.config.Paths.WorktreesRoot,
+		workspacePath := filepath.Join(
+			a.config.Paths.WorkspacesRoot,
 			project.Name,
 			name,
 		)
 
 		branch := name
-		wt = data.NewWorktree(name, branch, base, project.Path, worktreePath)
+		ws = data.NewWorkspace(name, branch, base, project.Path, workspacePath)
 
-		if err := git.CreateWorktree(project.Path, worktreePath, branch, base); err != nil {
-			return messages.WorktreeCreateFailed{
-				Worktree: wt,
-				Err:      err,
+		if err := git.CreateWorktree(project.Path, workspacePath, branch, base); err != nil {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
 			}
 		}
 
 		// Wait for .git file to exist (race condition from git worktree add)
-		gitPath := filepath.Join(worktreePath, ".git")
+		gitPath := filepath.Join(workspacePath, ".git")
 		for i := 0; i < 10; i++ {
 			if _, err := os.Stat(gitPath); err == nil {
 				break
@@ -181,64 +185,65 @@ func (a *App) createWorktree(project *data.Project, name, base string) tea.Cmd {
 			Base:       base,
 			Created:    time.Now().Format(time.RFC3339),
 			Assistant:  "claude",
+			Runtime:    "local-worktree",
 			ScriptMode: "nonconcurrent",
 			Env:        make(map[string]string),
 		}
 
-		if err := a.metadata.Save(wt, meta); err != nil {
-			_ = git.RemoveWorktree(project.Path, worktreePath)
+		if err := a.metadata.Save(ws, meta); err != nil {
+			_ = git.RemoveWorktree(project.Path, workspacePath)
 			_ = git.DeleteBranch(project.Path, branch)
-			return messages.WorktreeCreateFailed{
-				Worktree: wt,
-				Err:      err,
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
 			}
 		}
 
 		// Return immediately with metadata for async setup
-		return messages.WorktreeCreated{Worktree: wt, Meta: meta}
+		return messages.WorkspaceCreated{Workspace: ws, Meta: meta}
 	}
 }
 
-// runSetupAsync runs setup scripts asynchronously and returns a WorktreeSetupComplete message
-func (a *App) runSetupAsync(wt *data.Worktree, meta *data.Metadata) tea.Cmd {
+// runSetupAsync runs setup scripts asynchronously and returns a WorkspaceSetupComplete message
+func (a *App) runSetupAsync(ws *data.Workspace, meta *data.Metadata) tea.Cmd {
 	return func() tea.Msg {
-		if err := a.scripts.RunSetup(wt, meta); err != nil {
-			return messages.WorktreeSetupComplete{Worktree: wt, Err: err}
+		if err := a.scripts.RunSetup(ws, meta); err != nil {
+			return messages.WorkspaceSetupComplete{Workspace: ws, Err: err}
 		}
-		return messages.WorktreeSetupComplete{Worktree: wt}
+		return messages.WorkspaceSetupComplete{Workspace: ws}
 	}
 }
 
-// deleteWorktree deletes a git worktree
-func (a *App) deleteWorktree(project *data.Project, wt *data.Worktree) tea.Cmd {
-	// Clear UI components if deleting the active worktree
-	if a.activeWorktree != nil && a.activeWorktree.Root == wt.Root {
+// deleteWorkspace deletes a git worktree-based workspace
+func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd {
+	// Clear UI components if deleting the active workspace
+	if a.activeWorkspace != nil && a.activeWorkspace.Root == ws.Root {
 		a.goHome()
 	}
 
 	return func() tea.Msg {
-		if wt.IsPrimaryCheckout() {
-			return messages.WorktreeDeleteFailed{
-				Project:  project,
-				Worktree: wt,
-				Err:      fmt.Errorf("cannot delete primary checkout"),
+		if ws.IsPrimaryCheckout() {
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("cannot delete primary checkout"),
 			}
 		}
 
-		if err := git.RemoveWorktree(project.Path, wt.Root); err != nil {
-			return messages.WorktreeDeleteFailed{
-				Project:  project,
-				Worktree: wt,
-				Err:      err,
+		if err := git.RemoveWorktree(project.Path, ws.Root); err != nil {
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       err,
 			}
 		}
 
-		_ = git.DeleteBranch(project.Path, wt.Branch)
-		_ = a.metadata.Delete(wt)
+		_ = git.DeleteBranch(project.Path, ws.Branch)
+		_ = a.metadata.Delete(ws)
 
-		return messages.WorktreeDeleted{
-			Project:  project,
-			Worktree: wt,
+		return messages.WorkspaceDeleted{
+			Project:   project,
+			Workspace: ws,
 		}
 	}
 }
@@ -251,7 +256,7 @@ func (a *App) removeProject(project *data.Project) tea.Cmd {
 		}
 	}
 
-	if a.activeWorktree != nil && a.activeWorktree.Repo == project.Path {
+	if a.activeWorkspace != nil && a.activeWorkspace.Repo == project.Path {
 		a.goHome()
 	}
 

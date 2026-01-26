@@ -47,7 +47,7 @@ func nextAssistantName(assistant string, tabs []*Tab) string {
 }
 
 type ptyTabCreateResult struct {
-	Worktree    *data.Worktree
+	Workspace   *data.Workspace
 	Assistant   string
 	DisplayName string
 	Agent       *appPty.Agent
@@ -63,10 +63,10 @@ func truncateDisplayName(name string) string {
 }
 
 // createAgentTab creates a new agent tab
-func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
-	if wt == nil {
+func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
+	if ws == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating agent"}
+			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating agent"}
 		}
 	}
 
@@ -76,9 +76,9 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 	termHeight := tm.Height
 
 	return func() tea.Msg {
-		logging.Info("Creating agent tab: assistant=%s worktree=%s", assistant, wt.Name)
+		logging.Info("Creating agent tab: assistant=%s workspace=%s", assistant, ws.Name)
 
-		agent, err := m.agentManager.CreateAgent(wt, appPty.AgentType(assistant), uint16(termHeight), uint16(termWidth))
+		agent, err := m.agentManager.CreateAgent(ws, appPty.AgentType(assistant), uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}
@@ -87,7 +87,7 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 		logging.Info("Agent created, Terminal=%v", agent.Terminal != nil)
 
 		return ptyTabCreateResult{
-			Worktree:  wt,
+			Workspace: ws,
 			Assistant: assistant,
 			Agent:     agent,
 			Rows:      termHeight,
@@ -97,10 +97,10 @@ func (m *Model) createAgentTab(assistant string, wt *data.Worktree) tea.Cmd {
 }
 
 // createVimTab creates a new tab that opens a file in vim
-func (m *Model) createVimTab(filePath string, wt *data.Worktree) tea.Cmd {
-	if wt == nil {
+func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
+	if ws == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating vim viewer"}
+			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating vim viewer"}
 		}
 	}
 
@@ -110,13 +110,13 @@ func (m *Model) createVimTab(filePath string, wt *data.Worktree) tea.Cmd {
 	termHeight := tm.Height
 
 	return func() tea.Msg {
-		logging.Info("Creating vim tab: file=%s worktree=%s", filePath, wt.Name)
+		logging.Info("Creating vim tab: file=%s workspace=%s", filePath, ws.Name)
 
 		// Escape filename for shell
 		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
 		cmd := fmt.Sprintf("vim -- %s", escapedFile)
 
-		agent, err := m.agentManager.CreateViewer(wt, cmd, uint16(termHeight), uint16(termWidth))
+		agent, err := m.agentManager.CreateViewer(ws, cmd, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create vim viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating vim viewer"}
@@ -132,7 +132,7 @@ func (m *Model) createVimTab(filePath string, wt *data.Worktree) tea.Cmd {
 		displayName := truncateDisplayName(fileName)
 
 		return ptyTabCreateResult{
-			Worktree:    wt,
+			Workspace:   ws,
 			Assistant:   "vim",
 			DisplayName: displayName,
 			Agent:       agent,
@@ -143,14 +143,14 @@ func (m *Model) createVimTab(filePath string, wt *data.Worktree) tea.Cmd {
 }
 
 // createDiffTab creates a new native diff viewer tab (no PTY)
-func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, wt *data.Worktree) tea.Cmd {
-	if wt == nil {
+func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Workspace) tea.Cmd {
+	if ws == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating diff viewer"}
+			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating diff viewer"}
 		}
 	}
 
-	logging.Info("Creating diff tab: path=%s mode=%d worktree=%s", change.Path, mode, wt.Name)
+	logging.Info("Creating diff tab: path=%s mode=%d workspace=%s", change.Path, mode, ws.Name)
 
 	// Calculate dimensions
 	tm := m.terminalMetrics()
@@ -158,11 +158,11 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, wt *data.Wo
 	viewerHeight := tm.Height
 
 	// Create diff viewer model
-	dv := diff.New(wt, change, mode, viewerWidth, viewerHeight)
+	dv := diff.New(ws, change, mode, viewerWidth, viewerHeight)
 	dv.SetFocused(true)
 
 	// Create tab with unique ID
-	wtID := string(wt.ID())
+	wsID := string(ws.ID())
 	displayName := fmt.Sprintf("Diff: %s", change.Path)
 	if len(displayName) > 20 {
 		displayName = "..." + displayName[len(displayName)-17:]
@@ -172,19 +172,19 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, wt *data.Wo
 		ID:         generateTabID(),
 		Name:       displayName,
 		Assistant:  "diff",
-		Worktree:   wt,
+		Workspace:  ws,
 		DiffViewer: dv,
 	}
 
-	// Add tab to the worktree's tab list
-	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+	// Add tab to the workspace's tab list
+	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
+	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
 	m.noteTabsChanged()
 
 	// Return the Init command to start loading the diff
 	return common.SafeBatch(
 		dv.Init(),
-		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName} },
+		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorkspace[wsID], Name: displayName} },
 	)
 }
 
@@ -192,10 +192,10 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, wt *data.Wo
 // This is kept for cases where PTY-based viewing is still needed
 //
 //nolint:unused
-func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.Worktree) tea.Cmd {
-	if wt == nil {
+func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.Workspace) tea.Cmd {
+	if ws == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no worktree selected"), Context: "creating viewer"}
+			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating viewer"}
 		}
 	}
 
@@ -205,7 +205,7 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.W
 	termHeight := tm.Height
 
 	return func() tea.Msg {
-		logging.Info("Creating viewer tab: file=%s statusCode=%s worktree=%s", file, statusCode, wt.Name)
+		logging.Info("Creating viewer tab: file=%s statusCode=%s workspace=%s", file, statusCode, ws.Name)
 
 		// Escape filename for shell
 		escapedFile := "'" + strings.ReplaceAll(file, "'", "'\\''") + "'"
@@ -222,7 +222,7 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.W
 			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
 		}
 
-		agent, err := m.agentManager.CreateViewer(wt, cmd, uint16(termHeight), uint16(termWidth))
+		agent, err := m.agentManager.CreateViewer(ws, cmd, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating viewer"}
@@ -233,7 +233,7 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.W
 		displayName := truncateDisplayName(fmt.Sprintf("Diff: %s", file))
 
 		return ptyTabCreateResult{
-			Worktree:    wt,
+			Workspace:   ws,
 			Assistant:   "viewer", // Use a generic type for styling
 			DisplayName: displayName,
 			Agent:       agent,
@@ -244,9 +244,9 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, wt *data.W
 }
 
 func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
-	if msg.Worktree == nil || msg.Agent == nil {
+	if msg.Workspace == nil || msg.Agent == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("missing worktree or agent"), Context: "creating terminal tab"}
+			return messages.Error{Err: fmt.Errorf("missing workspace or agent"), Context: "creating terminal tab"}
 		}
 	}
 
@@ -260,8 +260,8 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 
 	displayName := strings.TrimSpace(msg.DisplayName)
 	if displayName == "" {
-		wtID := string(msg.Worktree.ID())
-		displayName = nextAssistantName(msg.Assistant, m.tabsByWorktree[wtID])
+		wsID := string(msg.Workspace.ID())
+		displayName = nextAssistantName(msg.Assistant, m.tabsByWorkspace[wsID])
 	}
 	if displayName == "" {
 		displayName = "Terminal"
@@ -276,7 +276,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		ID:           tabID,
 		Name:         displayName,
 		Assistant:    msg.Assistant,
-		Worktree:     msg.Worktree,
+		Workspace:    msg.Workspace,
 		Agent:        msg.Agent,
 		Terminal:     term,
 		Running:      true, // Agent/viewer starts running
@@ -292,11 +292,11 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			if m.isTabActorReady() {
 				response := append([]byte(nil), data...)
 				if !m.sendTabEvent(tabEvent{
-					tab:        tab,
-					worktreeID: string(msg.Worktree.ID()),
-					tabID:      tabID,
-					kind:       tabEventSendResponse,
-					response:   response,
+					tab:         tab,
+					workspaceID: string(msg.Workspace.ID()),
+					tabID:       tabID,
+					kind:        tabEventSendResponse,
+					response:    response,
 				}) {
 					_ = msg.Agent.Terminal.SendString(string(response))
 				}
@@ -311,14 +311,14 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		m.resizePTY(tab, rows, cols)
 	}
 
-	// Add tab to the worktree's tab list
-	wtID := string(msg.Worktree.ID())
-	m.tabsByWorktree[wtID] = append(m.tabsByWorktree[wtID], tab)
-	m.activeTabByWorktree[wtID] = len(m.tabsByWorktree[wtID]) - 1
+	// Add tab to the workspace's tab list
+	wsID := string(msg.Workspace.ID())
+	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
+	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
 	m.noteTabsChanged()
 
 	return func() tea.Msg {
-		return messages.TabCreated{Index: m.activeTabByWorktree[wtID], Name: displayName}
+		return messages.TabCreated{Index: m.activeTabByWorkspace[wsID], Name: displayName}
 	}
 }
 
@@ -478,8 +478,8 @@ func (m *Model) HasDiffViewer() bool {
 	return tab.DiffViewer != nil
 }
 
-// CloseAllTabs is deprecated - tabs now persist per-worktree
+// CloseAllTabs is deprecated - tabs now persist per-workspace
 // This is kept for compatibility but does nothing
 func (m *Model) CloseAllTabs() {
-	// No-op: tabs now persist per-worktree and are not closed when switching
+	// No-op: tabs now persist per-workspace and are not closed when switching
 }
