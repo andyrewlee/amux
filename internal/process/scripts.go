@@ -169,6 +169,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, meta *data.Metadata, script
 	cmd := exec.Command("sh", "-c", cmdStr)
 	cmd.Dir = ws.Root
 	cmd.Env = env
+	SetProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -200,7 +201,7 @@ func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	}
 
 	if cmd.Process != nil {
-		return cmd.Process.Kill()
+		return KillProcessGroup(cmd.Process.Pid, KillOptions{})
 	}
 
 	return nil
@@ -221,7 +222,7 @@ func (r *ScriptRunner) StopAll() {
 
 	for _, cmd := range r.running {
 		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+			_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
 		}
 	}
 	r.running = make(map[string]*exec.Cmd)
