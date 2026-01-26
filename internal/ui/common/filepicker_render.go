@@ -55,6 +55,9 @@ func (fp *FilePicker) renderLines() []string {
 	fp.rowHits = fp.rowHits[:0]
 	fp.buttonHits = fp.buttonHits[:0]
 
+	// Content width (dialog width minus horizontal padding)
+	contentWidth := filePickerContentWidth - 4 // Padding(1, 2) = 2 chars each side
+
 	lines := []string{}
 	appendLines := func(s string) {
 		if s == "" {
@@ -76,19 +79,23 @@ func (fp *FilePicker) renderLines() []string {
 	appendLines(titleStyle.Render(fp.title))
 	appendBlank(2)
 
-	// Current path
+	// Current path - truncate if too long
 	pathStyle := lipgloss.NewStyle().
 		Foreground(ColorSecondary)
-	appendLines(pathStyle.Render(fp.currentPath))
+	displayPath := truncateToWidth(fp.currentPath, contentWidth)
+	appendLines(pathStyle.Render(displayPath))
 	appendBlank(2)
 
 	// Input
 	appendLines(fp.input.View())
 	appendBlank(2)
 
-	// Entries
+	// Entries - truncate names to prevent wrapping
 	totalRows := fp.displayCount()
 	end := min(fp.scrollOffset+fp.maxVisible, totalRows)
+	cursorWidth := 2 // "> " or "  "
+	maxNameWidth := contentWidth - cursorWidth
+
 	for i := fp.scrollOffset; i < end; i++ {
 		cursor := "  "
 		if i == fp.cursor {
@@ -100,9 +107,14 @@ func (fp *FilePicker) renderLines() []string {
 		entry := fp.entries[idx]
 
 		name := entry.Name()
-		style := lipgloss.NewStyle().Foreground(ColorForeground)
 		if entry.IsDir() {
 			name += "/"
+		}
+		// Truncate name to fit on one line
+		name = truncateToWidth(name, maxNameWidth)
+
+		style := lipgloss.NewStyle().Foreground(ColorForeground)
+		if entry.IsDir() {
 			style = lipgloss.NewStyle().Foreground(ColorSecondary).Bold(i == fp.cursor)
 		}
 		if i == fp.cursor {
@@ -115,7 +127,11 @@ func (fp *FilePicker) renderLines() []string {
 	}
 
 	if len(fp.filteredIdx) == 0 {
-		lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted).Render("No matches"))
+		message := "No matches"
+		if fp.directoriesOnly {
+			message = "No subdirectories"
+		}
+		lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted).Render(message))
 	} else if totalRows > fp.maxVisible {
 		indicator := lipgloss.NewStyle().Foreground(ColorMuted).Render(
 			fmt.Sprintf("  (%d-%d of %d)", fp.scrollOffset+1, end, totalRows),
@@ -134,7 +150,32 @@ func (fp *FilePicker) renderLines() []string {
 		lines = append(lines, helpLines...)
 	}
 
+	fp.lastContentHeight = len(lines)
 	return lines
+}
+
+// truncateToWidth truncates a string to fit within the given width,
+// adding "..." suffix if truncated. Uses lipgloss.Width for accurate
+// measurement that accounts for ANSI escape sequences.
+func truncateToWidth(s string, maxWidth int) string {
+	if maxWidth <= 3 {
+		return s
+	}
+	w := lipgloss.Width(s)
+	if w <= maxWidth {
+		return s
+	}
+	// Need to truncate - find the right cut point
+	// Account for "..." suffix (3 chars)
+	targetWidth := maxWidth - 3
+	runes := []rune(s)
+	for i := len(runes); i > 0; i-- {
+		candidate := string(runes[:i])
+		if lipgloss.Width(candidate) <= targetWidth {
+			return candidate + "..."
+		}
+	}
+	return "..."
 }
 
 func (fp *FilePicker) renderButtonsLine(baseLine int) string {

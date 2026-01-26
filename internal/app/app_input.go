@@ -606,7 +606,7 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 // centerButtonCount returns the number of buttons shown on the current center screen
 func (a *App) centerButtonCount() int {
 	if a.showWelcome {
-		return 2 // [New project], [Settings]
+		return 2 // [Add project], [Settings]
 	}
 	if a.activeWorkspace != nil {
 		return 1 // [New agent]

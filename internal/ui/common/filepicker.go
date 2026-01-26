@@ -12,25 +12,26 @@ import (
 
 // FilePicker is a file/directory picker dialog
 type FilePicker struct {
-	id              string
-	title           string
-	currentPath     string
-	entries         []os.DirEntry
-	filteredIdx     []int
-	cursor          int
-	input           textinput.Model
-	showHidden      bool
-	directoriesOnly bool
-	visible         bool
-	width           int
-	height          int
-	scrollOffset    int
-	maxVisible      int
-	rowHits         []filePickerRowHit
-	buttonHits      []HitRegion
-	styles          Styles
-	showKeymapHints bool
-	primaryAction   string
+	id                string
+	title             string
+	currentPath       string
+	entries           []os.DirEntry
+	filteredIdx       []int
+	cursor            int
+	input             textinput.Model
+	showHidden        bool
+	directoriesOnly   bool
+	visible           bool
+	width             int
+	height            int
+	scrollOffset      int
+	maxVisible        int
+	rowHits           []filePickerRowHit
+	buttonHits        []HitRegion
+	styles            Styles
+	showKeymapHints   bool
+	primaryAction     string
+	lastContentHeight int // Cached from View() for click handling
 }
 
 type filePickerRowHit struct {
@@ -147,12 +148,12 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
-			contentHeight := len(fp.renderLines())
-			if contentHeight == 0 {
+			// Use cached content height from last View() render
+			if fp.lastContentHeight == 0 {
 				return fp, nil
 			}
 
-			dialogX, dialogY, dialogW, dialogH := fp.dialogBounds(contentHeight)
+			dialogX, dialogY, dialogW, dialogH := fp.dialogBounds(fp.lastContentHeight)
 			if msg.X < dialogX || msg.X >= dialogX+dialogW || msg.Y < dialogY || msg.Y >= dialogY+dialogH {
 				return fp, nil
 			}

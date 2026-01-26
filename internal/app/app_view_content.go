@@ -115,18 +115,18 @@ func (a *App) welcomeContent() string {
 	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
 	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
 
-	newProjectStyle := inactiveStyle
+	addProjectStyle := inactiveStyle
 	settingsStyle := inactiveStyle
 	if a.centerBtnFocused {
 		if a.centerBtnIndex == 0 {
-			newProjectStyle = activeStyle
+			addProjectStyle = activeStyle
 		} else if a.centerBtnIndex == 1 {
 			settingsStyle = activeStyle
 		}
 	}
-	newProject := newProjectStyle.Render("[New project]")
+	addProject := addProjectStyle.Render("[Add project]")
 	settingsBtn := settingsStyle.Render("[Settings]")
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, newProject, "  ", settingsBtn))
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, addProject, "  ", settingsBtn))
 	b.WriteString("\n")
 	if a.config.UI.ShowKeymapHints {
 		b.WriteString(a.styles.Help.Render("Dashboard: j/k to move • Enter to select"))
