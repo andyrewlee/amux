@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 
 	"github.com/creack/pty"
 
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/process"
 )
 
 // Terminal wraps a PTY with an associated command
@@ -30,6 +32,8 @@ func NewWithSize(command string, dir string, env []string, rows, cols uint16) (*
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+	// creack/pty sets Setsid=true; Setpgid here can cause EPERM on start.
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
 
 	var (
 		ptmx *os.File
@@ -127,7 +131,8 @@ func (t *Terminal) Close() error {
 	}
 
 	if t.cmd != nil && t.cmd.Process != nil {
-		_ = t.cmd.Process.Kill()
+		pgid := t.cmd.Process.Pid
+		_ = process.KillProcessGroup(pgid, process.KillOptions{})
 		_ = t.cmd.Wait()
 	}
 

@@ -6,10 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
 
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -72,6 +74,8 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 
 	cmd := exec.Command(bin)
 	cmd.Dir = root
+	// creack/pty sets Setsid=true; Setpgid here can cause EPERM on start (macOS/BSD).
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.Env = append(stripGitEnv(os.Environ()),
 		"HOME="+home,
 		"TERM=xterm-256color",
@@ -105,7 +109,8 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 	cleanup := func() {
 		_ = ptmx.Close()
 		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+			pgid := cmd.Process.Pid
+			_ = process.KillProcessGroup(pgid, process.KillOptions{GracePeriod: 50 * time.Millisecond})
 		}
 		_, _ = cmd.Process.Wait()
 		_ = os.RemoveAll(home)
