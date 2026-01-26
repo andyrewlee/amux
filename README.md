@@ -19,9 +19,9 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">How it works</a> ·
   <a href="#features">Features</a> ·
-  <a href="#configuration">Configuration</a> ·
-  <a href="#development">Development</a>
+  <a href="#configuration">Configuration</a>
 </p>
 
 ![amux TUI preview](https://github.com/user-attachments/assets/f5c4647e-a6ee-4d62-b548-0fdd73714c90)
@@ -44,12 +44,16 @@ go install github.com/andyrewlee/amux/cmd/amux@latest
 
 Then run `amux` to open the dashboard.
 
+## How it works
+
+Each workspace is a git worktree with its own branch. Agents work in isolation without conflicts, then you merge changes back when done.
+
 ## Features
 
 - **Parallel agents**: Launch multiple agents within main repo and within workspaces
 - **No wrappers**: Works with Claude Code, Codex, Gemini, Amp, OpenCode, and Droid
 - **Keyboard + mouse**: Can be operated with just the keyboard or with a mouse
-- **All-in-on tool**: Run agents, view diffs, and access terminal
+- **All-in-one tool**: Run agents, view diffs, and access terminal
 
 ## Configuration
 
@@ -72,22 +76,4 @@ Workspaces are stored in `~/.amux/workspaces/<project>/`.
 git clone https://github.com/andyrewlee/amux.git
 cd amux
 make run
-```
-
-## Release
-
-The release workflow is tag-driven. Pushing a tag like `v0.0.5` triggers the GitHub Actions release job.
-
-Fast path:
-
-```bash
-make release VERSION=v0.0.5
-```
-
-Manual steps:
-
-```bash
-make release-check
-git tag -a v0.0.5 -m "v0.0.5"
-git push origin v0.0.5
 ```
