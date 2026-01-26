@@ -8,9 +8,9 @@ import (
 // Paths holds all the file system paths used by the application
 type Paths struct {
 	Home           string // ~/.amux
-	WorkspacesRoot string // ~/.amux/worktrees (still uses worktrees on disk)
+	WorkspacesRoot string // ~/.amux/workspaces
 	RegistryPath   string // ~/.amux/projects.json
-	MetadataRoot   string // ~/.amux/worktrees-metadata
+	MetadataRoot   string // ~/.amux/workspaces-metadata
 	ConfigPath     string // ~/.amux/config.json
 }
 
@@ -25,9 +25,9 @@ func DefaultPaths() (*Paths, error) {
 
 	return &Paths{
 		Home:           amuxHome,
-		WorkspacesRoot: filepath.Join(amuxHome, "worktrees"),
+		WorkspacesRoot: filepath.Join(amuxHome, "workspaces"),
 		RegistryPath:   filepath.Join(amuxHome, "projects.json"),
-		MetadataRoot:   filepath.Join(amuxHome, "worktrees-metadata"),
+		MetadataRoot:   filepath.Join(amuxHome, "workspaces-metadata"),
 		ConfigPath:     filepath.Join(amuxHome, "config.json"),
 	}, nil
 }
