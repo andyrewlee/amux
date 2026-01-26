@@ -65,16 +65,32 @@ func main() {
 	logging.Info("amux shutdown complete")
 }
 
-var lastMouseEvent time.Time
+var lastMouseMotionEvent time.Time
+var lastMouseWheelEvent time.Time
+var lastMouseX, lastMouseY int
 
 func mouseEventFilter(m tea.Model, msg tea.Msg) tea.Msg {
-	switch msg.(type) {
-	case tea.MouseWheelMsg, tea.MouseMotionMsg:
+	switch msg := msg.(type) {
+	case tea.MouseMotionMsg:
+		// Always allow if position changed
+		if msg.X != lastMouseX || msg.Y != lastMouseY {
+			lastMouseX = msg.X
+			lastMouseY = msg.Y
+			lastMouseMotionEvent = time.Now()
+			return msg
+		}
+		// Same position - apply time throttle
 		now := time.Now()
-		if now.Sub(lastMouseEvent) < 15*time.Millisecond {
+		if now.Sub(lastMouseMotionEvent) < 15*time.Millisecond {
 			return nil
 		}
-		lastMouseEvent = now
+		lastMouseMotionEvent = now
+	case tea.MouseWheelMsg:
+		now := time.Now()
+		if now.Sub(lastMouseWheelEvent) < 15*time.Millisecond {
+			return nil
+		}
+		lastMouseWheelEvent = now
 	}
 	return msg
 }
