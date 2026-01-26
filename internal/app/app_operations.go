@@ -216,6 +216,17 @@ func (a *App) runSetupAsync(ws *data.Workspace, meta *data.Metadata) tea.Cmd {
 
 // deleteWorkspace deletes a git worktree-based workspace
 func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd {
+	// Defensive nil checks
+	if project == nil || ws == nil {
+		return func() tea.Msg {
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("missing project or workspace"),
+			}
+		}
+	}
+
 	// Clear UI components if deleting the active workspace
 	if a.activeWorkspace != nil && a.activeWorkspace.Root == ws.Root {
 		a.goHome()

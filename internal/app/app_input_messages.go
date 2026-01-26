@@ -257,10 +257,12 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 // handleDeleteWorkspace handles the DeleteWorkspace message.
 func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
-	if msg.Workspace != nil {
-		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, true); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+	if msg.Project == nil || msg.Workspace == nil {
+		logging.Warn("DeleteWorkspace received with nil project or workspace")
+		return nil
+	}
+	if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, true); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	cmds = append(cmds, a.deleteWorkspace(msg.Project, msg.Workspace))
 	return cmds
