@@ -77,6 +77,7 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 			a.sidebar.SetGitStatus(cached)
 		} else {
 			a.sidebar.SetGitStatus(nil)
+			a.dashboard.InvalidateStatus(msg.Workspace.Root)
 		}
 	} else {
 		a.sidebar.SetGitStatus(nil)
@@ -416,6 +417,7 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
 	// File changed, invalidate cache and refresh
 	a.statusManager.Invalidate(msg.Root)
+	a.dashboard.InvalidateStatus(msg.Root)
 	return []tea.Cmd{
 		a.requestGitStatus(msg.Root),
 		a.startFileWatcher(),

@@ -110,6 +110,15 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 	m.activeWorkspaces = active
 }
 
+// InvalidateStatus removes a workspace's cached status.
+// This should be called when git status is invalidated externally (e.g., file watcher events)
+// to keep the dashboard cache in sync with the StatusManager cache.
+func (m *Model) InvalidateStatus(root string) {
+	delete(m.statusCache, root)
+	// Mark as loading so UI shows spinner instead of stale state
+	m.loadingStatus[root] = true
+}
+
 // SetCanFocusRight controls whether focus-right hints should be shown.
 func (m *Model) SetCanFocusRight(can bool) {
 	m.canFocusRight = can
