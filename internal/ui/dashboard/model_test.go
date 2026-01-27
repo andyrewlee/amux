@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
@@ -407,4 +408,65 @@ func TestMoveCursorAllSpacers(t *testing.T) {
 	if m.cursor != originalCursor {
 		t.Fatalf("cursor should not move when no selectable rows exist, got %d", m.cursor)
 	}
+}
+
+func TestDashboardInvalidateStatus(t *testing.T) {
+	m := New()
+	root := "/test/workspace"
+
+	t.Run("invalidates cached status", func(t *testing.T) {
+		// Pre-populate the cache with a dirty status
+		m.statusCache[root] = &git.StatusResult{
+			Unstaged: []git.Change{{Path: "test.go", Kind: git.ChangeModified}},
+		}
+		delete(m.loadingStatus, root)
+
+		// Invalidate
+		m.InvalidateStatus(root)
+
+		// Verify cache is cleared
+		if _, ok := m.statusCache[root]; ok {
+			t.Fatal("expected statusCache entry to be deleted")
+		}
+
+		// Verify loading state is set
+		if !m.loadingStatus[root] {
+			t.Fatal("expected loadingStatus to be true after invalidation")
+		}
+	})
+
+	t.Run("handles non-existent root", func(t *testing.T) {
+		// Should not panic when invalidating a root that isn't cached
+		m.InvalidateStatus("/non/existent/path")
+
+		// Loading should still be marked
+		if !m.loadingStatus["/non/existent/path"] {
+			t.Fatal("expected loadingStatus to be true even for uncached root")
+		}
+	})
+
+	t.Run("multiple invalidations", func(t *testing.T) {
+		root1 := "/workspace1"
+		root2 := "/workspace2"
+
+		// Cache both
+		m.statusCache[root1] = &git.StatusResult{Clean: true}
+		m.statusCache[root2] = &git.StatusResult{Clean: true}
+		delete(m.loadingStatus, root1)
+		delete(m.loadingStatus, root2)
+
+		// Invalidate first
+		m.InvalidateStatus(root1)
+
+		// First should be invalidated, second should remain
+		if _, ok := m.statusCache[root1]; ok {
+			t.Fatal("expected root1 to be invalidated")
+		}
+		if _, ok := m.statusCache[root2]; !ok {
+			t.Fatal("expected root2 to remain cached")
+		}
+		if !m.loadingStatus[root1] {
+			t.Fatal("expected root1 loadingStatus to be true")
+		}
+	})
 }
