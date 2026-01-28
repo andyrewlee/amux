@@ -369,6 +369,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, startCmd)
 		}
 
+	case center.TabInputFailed:
+		// PTY input failed (e.g., after sleep) - show warning toast
+		cmds = append(cmds, a.toast.ShowWarning("Session disconnected - scroll history preserved"))
+
 	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)

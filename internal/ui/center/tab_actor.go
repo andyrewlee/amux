@@ -70,6 +70,13 @@ type tabDiffCmd struct {
 	cmd tea.Cmd
 }
 
+// TabInputFailed is sent when input to the PTY fails (e.g., after sleep)
+type TabInputFailed struct {
+	TabID       TabID
+	WorkspaceID string
+	Err         error
+}
+
 func (m *Model) sendTabEvent(ev tabEvent) bool {
 	if m == nil || m.tabEvents == nil {
 		return false
@@ -353,7 +360,15 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		if len(ev.input) == 0 {
 			return
 		}
-		_ = tab.Agent.Terminal.SendString(string(ev.input))
+		if err := tab.Agent.Terminal.SendString(string(ev.input)); err != nil {
+			logging.Warn("Input failed for tab %s: %v", tab.ID, err)
+			tab.mu.Lock()
+			tab.Running = false
+			tab.mu.Unlock()
+			if m.msgSink != nil {
+				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})
+			}
+		}
 	case tabEventPaste:
 		if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
 			return
@@ -362,7 +377,15 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			return
 		}
 		bracketedText := "\x1b[200~" + ev.pasteText + "\x1b[201~"
-		_ = tab.Agent.Terminal.SendString(bracketedText)
+		if err := tab.Agent.Terminal.SendString(bracketedText); err != nil {
+			logging.Warn("Paste failed for tab %s: %v", tab.ID, err)
+			tab.mu.Lock()
+			tab.Running = false
+			tab.mu.Unlock()
+			if m.msgSink != nil {
+				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})
+			}
+		}
 	case tabEventSendResponse:
 		if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
 			return
@@ -370,7 +393,15 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		if len(ev.response) == 0 {
 			return
 		}
-		_ = tab.Agent.Terminal.SendString(string(ev.response))
+		if err := tab.Agent.Terminal.SendString(string(ev.response)); err != nil {
+			logging.Warn("Response send failed for tab %s: %v", tab.ID, err)
+			tab.mu.Lock()
+			tab.Running = false
+			tab.mu.Unlock()
+			if m.msgSink != nil {
+				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})
+			}
+		}
 	case tabEventWriteOutput:
 		if len(ev.output) == 0 {
 			return
