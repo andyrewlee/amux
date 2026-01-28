@@ -32,8 +32,8 @@ func NormalizeRuntime(runtime string) string {
 type Workspace struct {
 	Name    string    `json:"name"`
 	Branch  string    `json:"branch"`
-	Base    string    `json:"base"` // Base ref (e.g., origin/main)
-	Repo    string    `json:"repo"` // Primary checkout path
+	Base    string    `json:"base"`    // Base ref (e.g., origin/main)
+	Repo    string    `json:"repo"`    // Primary checkout path
 	Root    string    `json:"root"`    // Workspace path
 	Runtime string    `json:"runtime"` // Execution runtime
 	Created time.Time `json:"created"`
