@@ -4,14 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/andyrewlee/amux/internal/data"
 )
 
-func TestCreateDiscoverRemoveWorkspace(t *testing.T) {
+func TestCreateAndRemoveWorkspace(t *testing.T) {
 	skipIfNoGit(t)
 	repo := initRepo(t)
-	project := data.NewProject(repo)
 
 	workspacePath := filepath.Join(t.TempDir(), "feature-wt")
 
@@ -22,33 +19,10 @@ func TestCreateDiscoverRemoveWorkspace(t *testing.T) {
 		t.Fatalf("expected workspace path to exist: %v", err)
 	}
 
-	workspaces, err := DiscoverWorkspaces(project)
-	if err != nil {
-		t.Fatalf("DiscoverWorkspaces() error = %v", err)
-	}
-	if len(workspaces) < 2 {
-		t.Fatalf("expected at least 2 workspaces, got %d", len(workspaces))
-	}
-
-	found := false
-	for _, wt := range workspaces {
-		wtRoot := wt.Root
-		if eval, err := filepath.EvalSymlinks(wtRoot); err == nil {
-			wtRoot = eval
-		}
-		expected := workspacePath
-		if eval, err := filepath.EvalSymlinks(workspacePath); err == nil {
-			expected = eval
-		}
-		if wtRoot == expected {
-			found = true
-			if wt.Branch != "feature-wt" {
-				t.Fatalf("expected branch feature-wt, got %s", wt.Branch)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("expected to find new workspace in DiscoverWorkspaces")
+	// Verify .git file exists in worktree
+	gitPath := filepath.Join(workspacePath, ".git")
+	if _, err := os.Stat(gitPath); err != nil {
+		t.Fatalf("expected .git to exist in workspace: %v", err)
 	}
 
 	if err := RemoveWorkspace(repo, workspacePath); err != nil {

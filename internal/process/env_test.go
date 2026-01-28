@@ -16,15 +16,12 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 		Branch: "feature-1",
 		Repo:   "/home/user/repo",
 		Root:   "/home/user/.amux/workspaces/feature-1",
-	}
-
-	meta := &data.Metadata{
 		Env: map[string]string{
 			"CUSTOM_VAR": "custom_value",
 		},
 	}
 
-	env := builder.BuildEnv(wt, meta)
+	env := builder.BuildEnv(wt)
 
 	// Check required variables are present
 	checks := map[string]string{
@@ -76,7 +73,7 @@ func TestEnvBuilder_BuildEnvMap(t *testing.T) {
 		Root:   "/home/user/.amux/workspaces/feature-1",
 	}
 
-	envMap := builder.BuildEnvMap(wt, nil)
+	envMap := builder.BuildEnvMap(wt)
 
 	if envMap["AMUX_WORKSPACE_NAME"] != "feature-1" {
 		t.Errorf("AMUX_WORKSPACE_NAME = %v, want feature-1", envMap["AMUX_WORKSPACE_NAME"])
@@ -94,7 +91,7 @@ func TestEnvBuilder_NilPortAllocator(t *testing.T) {
 		Root: "/path/to/wt",
 	}
 
-	env := builder.BuildEnv(wt, nil)
+	env := builder.BuildEnv(wt)
 
 	// Should not crash with nil port allocator
 	// And should not have port vars

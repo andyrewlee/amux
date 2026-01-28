@@ -47,9 +47,9 @@ type prefixTimeoutMsg struct {
 // App is the root Bubbletea model
 type App struct {
 	// Configuration
-	config   *config.Config
-	registry *data.Registry
-	metadata *data.MetadataStore
+	config     *config.Config
+	registry   *data.Registry
+	workspaces *data.WorkspaceStore
 
 	// State
 	projects         []data.Project
@@ -219,7 +219,7 @@ func New(version, commit, date string) (*App, error) {
 	}
 
 	registry := data.NewRegistry(cfg.Paths.RegistryPath)
-	metadata := data.NewMetadataStore(cfg.Paths.MetadataRoot)
+	workspaces := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
 
 	// Create status manager (callback will be nil, we use it for caching only)
@@ -245,7 +245,7 @@ func New(version, commit, date string) (*App, error) {
 	app := &App{
 		config:           cfg,
 		registry:         registry,
-		metadata:         metadata,
+		workspaces:       workspaces,
 		scripts:          scripts,
 		statusManager:    statusManager,
 		fileWatcher:      fileWatcher,

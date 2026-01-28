@@ -29,30 +29,87 @@ func (a *App) loadProjects() tea.Cmd {
 			}
 
 			project := data.NewProject(path)
-			workspaces, err := git.DiscoverWorkspaces(project)
+
+			// Discover git worktrees first (this gives us Root and Repo)
+			discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
 			if err != nil {
-				continue
+				logging.Warn("Failed to discover workspaces for %s: %v", path, err)
 			}
-			for i := range workspaces {
-				ws := &workspaces[i]
-				meta, err := a.metadata.Load(ws)
-				if err != nil {
-					logging.Warn("Failed to load metadata for %s: %v", ws.Root, err)
-					continue
-				}
-				if meta.Base != "" {
-					ws.Base = meta.Base
-				}
-				if meta.Created != "" {
-					if createdAt, err := time.Parse(time.RFC3339, meta.Created); err == nil {
-						ws.Created = createdAt
-					} else if createdAt, err := time.Parse(time.RFC3339Nano, meta.Created); err == nil {
-						ws.Created = createdAt
-					} else {
-						logging.Warn("Failed to parse workspace created time for %s: %v", ws.Root, err)
+
+			// Track which workspace IDs we've seen from discovery
+			seenIDs := make(map[data.WorkspaceID]bool)
+
+			var workspaces []data.Workspace
+			for _, discovered := range discoveredWorkspaces {
+				// Try to load stored metadata by ID (handles legacy files without Root/Repo)
+				found, loadErr := a.workspaces.LoadMetadataFor(&discovered)
+				if found {
+					// Metadata found and merged
+					workspaces = append(workspaces, discovered)
+				} else if loadErr != nil {
+					// Metadata exists but couldn't be read - log error and skip saving defaults
+					logging.Warn("Failed to load metadata for workspace %s: %v", discovered.Name, loadErr)
+					discovered.Runtime = data.RuntimeLocalWorktree
+					discovered.Assistant = "claude"
+					discovered.ScriptMode = "nonconcurrent"
+					discovered.Env = make(map[string]string)
+					workspaces = append(workspaces, discovered)
+					// Don't save - avoid overwriting potentially corrupted metadata
+				} else {
+					// No stored metadata - apply defaults and save for future
+					discovered.Runtime = data.RuntimeLocalWorktree
+					discovered.Assistant = "claude"
+					discovered.ScriptMode = "nonconcurrent"
+					discovered.Env = make(map[string]string)
+					workspaces = append(workspaces, discovered)
+
+					// Persist newly discovered workspace so changes aren't lost on restart
+					if err := a.workspaces.Save(&discovered); err != nil {
+						logging.Warn("Failed to save discovered workspace %s: %v", discovered.Name, err)
 					}
 				}
+				seenIDs[discovered.ID()] = true
 			}
+
+			// Load any stored workspaces not discovered on disk (orphaned metadata)
+			// These may be cloud sandboxes or workspaces whose directories were deleted
+			storedWorkspaces, err := a.workspaces.ListByRepo(path)
+			if err != nil {
+				logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
+			}
+			for _, ws := range storedWorkspaces {
+				if !seenIDs[ws.ID()] {
+					workspaces = append(workspaces, *ws)
+				}
+			}
+
+			// Add primary checkout as transient workspace if not present
+			hasPrimary := false
+			for _, ws := range workspaces {
+				if ws.IsPrimaryCheckout() {
+					hasPrimary = true
+					break
+				}
+			}
+
+			if !hasPrimary {
+				branch, err := git.GetCurrentBranch(path)
+				if err != nil {
+					logging.Warn("Failed to get current branch for %s: %v", path, err)
+					// Skip creating primary workspace if we can't get the branch -
+					// the repo may be in a bad state or no longer a valid git repo
+				} else {
+					primaryWs := data.NewWorkspace(
+						filepath.Base(path), // name
+						branch,              // branch
+						"",                  // base
+						path,                // repo
+						path,                // root (same as repo for primary)
+					)
+					workspaces = append([]data.Workspace{*primaryWs}, workspaces...)
+				}
+			}
+
 			project.Workspaces = workspaces
 			projects = append(projects, *project)
 		}
@@ -174,19 +231,8 @@ func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd 
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		meta := &data.Metadata{
-			Name:       name,
-			Branch:     branch,
-			Repo:       project.Path,
-			Base:       base,
-			Created:    time.Now().Format(time.RFC3339),
-			Assistant:  "claude",
-			Runtime:    data.RuntimeLocalWorktree,
-			ScriptMode: "nonconcurrent",
-			Env:        make(map[string]string),
-		}
-
-		if err := a.metadata.Save(ws, meta); err != nil {
+		// Save unified workspace
+		if err := a.workspaces.Save(ws); err != nil {
 			_ = git.RemoveWorkspace(project.Path, workspacePath)
 			_ = git.DeleteBranch(project.Path, branch)
 			return messages.WorkspaceCreateFailed{
@@ -195,15 +241,15 @@ func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd 
 			}
 		}
 
-		// Return immediately with metadata for async setup
-		return messages.WorkspaceCreated{Workspace: ws, Meta: meta}
+		// Return immediately for async setup
+		return messages.WorkspaceCreated{Workspace: ws}
 	}
 }
 
 // runSetupAsync runs setup scripts asynchronously and returns a WorkspaceSetupComplete message
-func (a *App) runSetupAsync(ws *data.Workspace, meta *data.Metadata) tea.Cmd {
+func (a *App) runSetupAsync(ws *data.Workspace) tea.Cmd {
 	return func() tea.Msg {
-		if err := a.scripts.RunSetup(ws, meta); err != nil {
+		if err := a.scripts.RunSetup(ws); err != nil {
 			return messages.WorkspaceSetupComplete{Workspace: ws, Err: err}
 		}
 		return messages.WorkspaceSetupComplete{Workspace: ws}
@@ -246,7 +292,7 @@ func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd
 		}
 
 		_ = git.DeleteBranch(project.Path, ws.Branch)
-		_ = a.metadata.Delete(ws)
+		_ = a.workspaces.Delete(ws.ID())
 
 		return messages.WorkspaceDeleted{
 			Project:   project,

@@ -69,13 +69,13 @@ func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
 }
 
 // RunSetup runs the setup scripts for a workspace
-func (r *ScriptRunner) RunSetup(ws *data.Workspace, meta *data.Metadata) error {
+func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 	config, err := r.LoadConfig(ws.Repo)
 	if err != nil {
 		return err
 	}
 
-	env := r.envBuilder.BuildEnv(ws, meta)
+	env := r.envBuilder.BuildEnv(ws)
 
 	// Run each setup command sequentially
 	for _, cmdStr := range config.SetupWorkspace {
@@ -95,7 +95,7 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace, meta *data.Metadata) error {
 }
 
 // RunScript runs a script for a workspace
-func (r *ScriptRunner) RunScript(ws *data.Workspace, meta *data.Metadata, scriptType ScriptType) (*exec.Cmd, error) {
+func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*exec.Cmd, error) {
 	config, err := r.LoadConfig(ws.Repo)
 	if err != nil {
 		return nil, err
@@ -105,13 +105,13 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, meta *data.Metadata, script
 	switch scriptType {
 	case ScriptRun:
 		cmdStr = config.RunScript
-		if cmdStr == "" && meta != nil {
-			cmdStr = meta.Scripts.Run
+		if cmdStr == "" {
+			cmdStr = ws.Scripts.Run
 		}
 	case ScriptArchive:
 		cmdStr = config.ArchiveScript
-		if cmdStr == "" && meta != nil {
-			cmdStr = meta.Scripts.Archive
+		if cmdStr == "" {
+			cmdStr = ws.Scripts.Archive
 		}
 	}
 
@@ -120,11 +120,11 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, meta *data.Metadata, script
 	}
 
 	// Check for existing process in non-concurrent mode
-	if meta != nil && meta.ScriptMode == "nonconcurrent" {
+	if ws.ScriptMode == "nonconcurrent" {
 		_ = r.Stop(ws)
 	}
 
-	env := r.envBuilder.BuildEnv(ws, meta)
+	env := r.envBuilder.BuildEnv(ws)
 
 	cmd := exec.Command("sh", "-c", cmdStr)
 	cmd.Dir = ws.Root
