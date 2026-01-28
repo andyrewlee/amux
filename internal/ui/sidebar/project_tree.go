@@ -46,7 +46,7 @@ type ProjectTree struct {
 func NewProjectTree() *ProjectTree {
 	return &ProjectTree{
 		styles:     common.DefaultStyles(),
-		showHidden: false,
+		showHidden: true,
 	}
 }
 
