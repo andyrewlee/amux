@@ -10,9 +10,9 @@ func TestPathsEnsureDirectories(t *testing.T) {
 	tmp := t.TempDir()
 	paths := &Paths{
 		Home:           filepath.Join(tmp, "amux"),
-		WorkspacesRoot: filepath.Join(tmp, "amux", "worktrees"),
+		WorkspacesRoot: filepath.Join(tmp, "amux", "workspaces"),
 		RegistryPath:   filepath.Join(tmp, "amux", "projects.json"),
-		MetadataRoot:   filepath.Join(tmp, "amux", "worktrees-metadata"),
+		MetadataRoot:   filepath.Join(tmp, "amux", "workspaces-metadata"),
 		ConfigPath:     filepath.Join(tmp, "amux", "config.json"),
 	}
 

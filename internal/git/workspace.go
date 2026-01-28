@@ -8,35 +8,35 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 )
 
-// WorktreeEntry represents a raw worktree entry from git
-type WorktreeEntry struct {
+// workspaceEntry represents a raw workspace entry from git
+type workspaceEntry struct {
 	Path   string
 	Head   string
 	Branch string
 	Bare   bool
 }
 
-// ListWorktrees lists all worktrees for a repository
-func ListWorktrees(repoPath string) ([]WorktreeEntry, error) {
+// listWorkspaces lists all workspaces for a repository
+func listWorkspaces(repoPath string) ([]workspaceEntry, error) {
 	output, err := RunGit(repoPath, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}
 
-	return parseWorktreeList(output), nil
+	return parseWorkspaceList(output), nil
 }
 
-// parseWorktreeList parses the porcelain output of git worktree list
-func parseWorktreeList(output string) []WorktreeEntry {
-	var entries []WorktreeEntry
-	var current WorktreeEntry
+// parseWorkspaceList parses the porcelain output of git worktree list
+func parseWorkspaceList(output string) []workspaceEntry {
+	var entries []workspaceEntry
+	var current workspaceEntry
 
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			if current.Path != "" {
 				entries = append(entries, current)
-				current = WorktreeEntry{}
+				current = workspaceEntry{}
 			}
 			continue
 		}
@@ -63,9 +63,9 @@ func parseWorktreeList(output string) []WorktreeEntry {
 	return entries
 }
 
-// DiscoverWorktrees discovers all worktrees for a project and converts them to data.Workspace
-func DiscoverWorktrees(project *data.Project) ([]data.Workspace, error) {
-	entries, err := ListWorktrees(project.Path)
+// DiscoverWorkspaces discovers all workspaces for a project and converts them to data.Workspace
+func DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error) {
+	entries, err := listWorkspaces(project.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -90,25 +90,25 @@ func DiscoverWorktrees(project *data.Project) ([]data.Workspace, error) {
 	return workspaces, nil
 }
 
-// CreateWorktree creates a new git worktree
-func CreateWorktree(repoPath, worktreePath, branch, base string) error {
-	// Create branch from base and checkout into worktree path
-	_, err := RunGit(repoPath, "worktree", "add", "-b", branch, worktreePath, base)
+// CreateWorkspace creates a new workspace backed by a git worktree
+func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
+	// Create branch from base and checkout into workspace path
+	_, err := RunGit(repoPath, "worktree", "add", "-b", branch, workspacePath, base)
 	return err
 }
 
-// RemoveWorktree removes a git worktree
-func RemoveWorktree(repoPath, worktreePath string) error {
-	_, err := RunGit(repoPath, "worktree", "remove", worktreePath, "--force")
+// RemoveWorkspace removes a workspace backed by a git worktree
+func RemoveWorkspace(repoPath, workspacePath string) error {
+	_, err := RunGit(repoPath, "worktree", "remove", workspacePath, "--force")
 	if err != nil {
-		// git worktree remove --force unregisters the worktree (removes .git file)
+		// git worktree remove --force unregisters the workspace (removes .git file)
 		// but fails to delete the directory if it contains untracked files.
-		// If the .git file is gone, the worktree was successfully unregistered
+		// If the .git file is gone, the workspace was successfully unregistered
 		// and we can safely remove the remaining directory ourselves.
-		gitFile := filepath.Join(worktreePath, ".git")
+		gitFile := filepath.Join(workspacePath, ".git")
 		if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
-			// Worktree was unregistered, clean up leftover directory
-			if removeErr := os.RemoveAll(worktreePath); removeErr != nil {
+			// Workspace was unregistered, clean up leftover directory
+			if removeErr := os.RemoveAll(workspacePath); removeErr != nil {
 				return removeErr
 			}
 			return nil

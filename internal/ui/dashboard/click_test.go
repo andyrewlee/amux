@@ -26,7 +26,7 @@ func setupClickTestModel() *Model {
 		Path: "/testproj",
 		Workspaces: []data.Workspace{
 			{Name: "testproj", Branch: "main", Repo: "/testproj", Root: "/testproj"},
-			{Name: "feature", Branch: "feature", Repo: "/testproj", Root: "/testproj/.amux/worktrees/feature"},
+			{Name: "feature", Branch: "feature", Repo: "/testproj", Root: "/testproj/.amux/workspaces/feature"},
 		},
 	}
 	m.SetProjects([]data.Project{project})

@@ -37,12 +37,6 @@ type ScriptsConfig struct {
 	Archive string `json:"archive"`
 }
 
-// LoadResult includes metadata and any migration warnings
-type LoadResult struct {
-	Metadata *Metadata
-	Warning  string // Non-empty if migration action needed
-}
-
 // MetadataStore manages per-workspace metadata persistence
 type MetadataStore struct {
 	metadataRoot string
@@ -55,10 +49,7 @@ func NewMetadataStore(metadataRoot string) *MetadataStore {
 	}
 }
 
-const (
-	metadataFilename       = "workspace.json"
-	legacyMetadataFilename = "worktree.json" // pre-v1.0 filename
-)
+const metadataFilename = "workspace.json"
 
 // metadataPath returns the path to the metadata file for a workspace (used for saving)
 func (s *MetadataStore) metadataPath(ws *Workspace) string {
@@ -66,69 +57,34 @@ func (s *MetadataStore) metadataPath(ws *Workspace) string {
 }
 
 // Load loads metadata for a workspace
-func (s *MetadataStore) Load(ws *Workspace) (*LoadResult, error) {
-	dir := filepath.Join(s.metadataRoot, string(ws.ID()))
-	newPath := filepath.Join(dir, metadataFilename)
-	legacyPath := filepath.Join(dir, legacyMetadataFilename)
+func (s *MetadataStore) Load(ws *Workspace) (*Metadata, error) {
+	metaPath := filepath.Join(s.metadataRoot, string(ws.ID()), metadataFilename)
 
-	// Try new file first
-	data, readErr := os.ReadFile(newPath)
-	if readErr != nil && !os.IsNotExist(readErr) {
-		// Real read error (permission, I/O) - return it
-		return nil, readErr
-	}
-	if readErr == nil {
-		var meta Metadata
-		unmarshalErr := json.Unmarshal(data, &meta)
-		if unmarshalErr == nil {
-			return &LoadResult{Metadata: &meta}, nil
-		}
-		// New file corrupted, try legacy as fallback
-		if legacyData, legacyErr := os.ReadFile(legacyPath); legacyErr == nil {
-			var legacyMeta Metadata
-			if err := json.Unmarshal(legacyData, &legacyMeta); err != nil {
-				return nil, err // Both corrupted
-			}
-			return &LoadResult{
-				Metadata: &legacyMeta,
-				Warning:  "workspace.json was corrupted; recovered from worktree.json. Please save to recreate workspace.json.",
-			}, nil
-		}
-		// New file corrupted, no legacy - return error
-		return nil, unmarshalErr
-	}
-
-	// Try legacy file
-	legacyData, legacyErr := os.ReadFile(legacyPath)
-	if legacyErr != nil && !os.IsNotExist(legacyErr) {
-		// Real read error (permission, I/O) - return it
-		return nil, legacyErr
-	}
-	if legacyErr == nil {
-		var meta Metadata
-		if err := json.Unmarshal(legacyData, &meta); err != nil {
-			return nil, err
-		}
-		return &LoadResult{
-			Metadata: &meta,
-			Warning:  "Using legacy metadata file. Please rename " + legacyMetadataFilename + " to " + metadataFilename,
-		}, nil
-	}
-
-	// Neither exists, return defaults
-	return &LoadResult{
-		Metadata: &Metadata{
+	data, err := os.ReadFile(metaPath)
+	if os.IsNotExist(err) {
+		// File doesn't exist, return defaults
+		return &Metadata{
 			Name:       ws.Name,
 			Branch:     ws.Branch,
 			Repo:       ws.Repo,
 			Base:       ws.Base,
 			Created:    ws.Created.Format("2006-01-02T15:04:05Z07:00"),
 			Assistant:  "claude",
-			Runtime:    "local-worktree",
+			Runtime:    RuntimeLocalWorktree,
 			ScriptMode: "nonconcurrent",
 			Env:        make(map[string]string),
-		},
-	}, nil
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var meta Metadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	meta.Runtime = NormalizeRuntime(meta.Runtime)
+	return &meta, nil
 }
 
 // Save saves metadata for a workspace

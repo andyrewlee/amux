@@ -21,7 +21,7 @@ func (c *StatusCache) IsExpired(ttl time.Duration) bool {
 type StatusManager struct {
 	mu sync.RWMutex
 
-	// Cache of status results by worktree root
+	// Cache of status results by workspace root
 	cache map[string]*StatusCache
 
 	// Pending refresh requests (for debouncing)
@@ -49,7 +49,7 @@ func NewStatusManager(onUpdate func(root string, status *StatusResult, err error
 	}
 }
 
-// GetCached returns the cached status for a worktree, or nil if not cached/expired
+// GetCached returns the cached status for a workspace, or nil if not cached/expired
 func (m *StatusManager) GetCached(root string) *StatusResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -60,7 +60,7 @@ func (m *StatusManager) GetCached(root string) *StatusResult {
 	return nil
 }
 
-// RequestRefresh requests an async status refresh for a worktree
+// RequestRefresh requests an async status refresh for a workspace
 // Uses debouncing to prevent too frequent refreshes
 func (m *StatusManager) RequestRefresh(root string) {
 	if root == "" {
@@ -179,7 +179,7 @@ func resetTimer(t *time.Timer, next time.Time, ok bool) {
 	t.Reset(d)
 }
 
-// RefreshAll refreshes status for all cached worktrees
+// RefreshAll refreshes status for all cached workspaces
 func (m *StatusManager) RefreshAll() {
 	m.mu.RLock()
 	roots := make([]string, 0, len(m.cache))
@@ -193,7 +193,7 @@ func (m *StatusManager) RefreshAll() {
 	}
 }
 
-// Invalidate removes a worktree from the cache
+// Invalidate removes a workspace from the cache
 func (m *StatusManager) Invalidate(root string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

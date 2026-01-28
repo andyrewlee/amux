@@ -19,20 +19,23 @@ func NormalizeRuntime(runtime string) string {
 	switch runtime {
 	case RuntimeLocalWorktree, RuntimeLocalCheckout, RuntimeLocalDocker, RuntimeCloudSandbox:
 		return runtime
-	case "local", "": // backward compatibility
+	case "sandbox":
+		return RuntimeCloudSandbox
+	case "local", "":
 		return RuntimeLocalWorktree
 	default:
 		return RuntimeLocalWorktree
 	}
 }
 
-// Workspace represents a git worktree entry with its associated metadata
+// Workspace represents a workspace with its associated metadata
 type Workspace struct {
 	Name    string    `json:"name"`
 	Branch  string    `json:"branch"`
-	Base    string    `json:"base"` // Base ref (e.g., origin/main)
-	Repo    string    `json:"repo"` // Primary checkout path
-	Root    string    `json:"root"` // Workspace path
+	Base    string    `json:"base"`    // Base ref (e.g., origin/main)
+	Repo    string    `json:"repo"`    // Primary checkout path
+	Root    string    `json:"root"`    // Workspace path
+	Runtime string    `json:"runtime"` // Execution runtime
 	Created time.Time `json:"created"`
 }
 
@@ -46,7 +49,7 @@ func (w Workspace) ID() WorkspaceID {
 	return WorkspaceID(hex.EncodeToString(hash[:8]))
 }
 
-// IsPrimaryCheckout returns true if this is the main checkout (not a worktree)
+// IsPrimaryCheckout returns true if this is the primary checkout
 func (w Workspace) IsPrimaryCheckout() bool {
 	return w.Root == w.Repo
 }
