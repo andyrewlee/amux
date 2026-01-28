@@ -427,7 +427,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
 					// This is Escape - let it go to terminal
-					_ = tab.Agent.Terminal.SendString("\x1b")
+					if err := tab.Agent.Terminal.SendString("\x1b"); err != nil {
+						logging.Warn("Escape key failed for tab %s: %v", tab.ID, err)
+						tab.mu.Lock()
+						tab.Running = false
+						tab.mu.Unlock()
+						return m, func() tea.Msg {
+							return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
+						}
+					}
 					return m, nil
 				}
 

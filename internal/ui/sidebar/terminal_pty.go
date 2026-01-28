@@ -428,6 +428,11 @@ func (m *TerminalModel) forwardPTYMsgs(msgCh <-chan tea.Msg) {
 func (m *TerminalModel) SendToTerminal(s string) {
 	ts := m.getTerminal()
 	if ts != nil && ts.Terminal != nil {
-		_ = ts.Terminal.SendString(s)
+		if err := ts.Terminal.SendString(s); err != nil {
+			logging.Warn("Sidebar SendToTerminal failed: %v", err)
+			ts.mu.Lock()
+			ts.Running = false
+			ts.mu.Unlock()
+		}
 	}
 }
