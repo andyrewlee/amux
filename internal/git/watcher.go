@@ -70,25 +70,23 @@ func (fw *FileWatcher) Watch(root string) error {
 	var targets []watchTarget
 
 	if info.IsDir() {
-		// Watch .git/index for main repo
-		indexPath := filepath.Join(gitPath, "index")
-		if target, err := fw.addWatchPath(indexPath); err == nil {
-			targets = append(targets, target)
-		} else if target, err := fw.addWatchPath(gitPath); err == nil {
+		// Watch .git directory for main repo (not just the index file)
+		// We watch the directory instead of the index file because git does
+		// atomic index updates (write temp file, then rename). fsnotify watches
+		// inodes, so when git replaces the index, the watch is lost.
+		if target, err := fw.addWatchPath(gitPath); err == nil {
 			targets = append(targets, target)
 		} else {
 			return err
 		}
 	} else {
-		// For workspaces, .git is a file pointing to the real gitdir
+		// For worktrees, .git is a file pointing to the real gitdir
 		gitDir, err := readGitDirFromFile(gitPath)
 		if err != nil {
 			return err
 		}
-		indexPath := filepath.Join(gitDir, "index")
-		if target, err := fw.addWatchPath(indexPath); err == nil {
-			targets = append(targets, target)
-		} else if target, err := fw.addWatchPath(gitDir); err == nil {
+		// Watch the worktree gitdir directory (not just the index file)
+		if target, err := fw.addWatchPath(gitDir); err == nil {
 			targets = append(targets, target)
 		} else {
 			return err
