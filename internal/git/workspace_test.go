@@ -4,95 +4,129 @@ import (
 	"testing"
 )
 
-func TestParseWorkspaceList(t *testing.T) {
+func TestParseWorktreeList(t *testing.T) {
 	tests := []struct {
-		name    string
-		output  string
-		want    int
-		entries []workspaceEntry
+		name     string
+		output   string
+		repoPath string
+		want     int // number of workspaces expected
+		wantBare bool
 	}{
 		{
-			name:   "empty",
-			output: "",
-			want:   0,
+			name:     "empty output",
+			output:   "",
+			repoPath: "/repo",
+			want:     0,
 		},
 		{
-			name: "single workspace",
-			output: `worktree /home/user/repo
-HEAD abc123def456
-branch refs/heads/main
-`,
-			want: 1,
-			entries: []workspaceEntry{
-				{Path: "/home/user/repo", Head: "abc123def456", Branch: "main"},
-			},
-		},
-		{
-			name: "multiple workspaces",
-			output: `worktree /home/user/repo
-HEAD abc123def456
+			name: "single worktree",
+			output: `worktree /home/user/myrepo
+HEAD abc123
 branch refs/heads/main
 
-worktree /home/user/.amux/workspaces/feature
-HEAD def456abc123
+`,
+			repoPath: "/home/user/myrepo",
+			want:     1,
+		},
+		{
+			name: "multiple worktrees",
+			output: `worktree /home/user/myrepo
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/.amux/workspaces/myrepo/feature
+HEAD def456
 branch refs/heads/feature
+
 `,
-			want: 2,
-			entries: []workspaceEntry{
-				{Path: "/home/user/repo", Head: "abc123def456", Branch: "main"},
-				{Path: "/home/user/.amux/workspaces/feature", Head: "def456abc123", Branch: "feature"},
-			},
+			repoPath: "/home/user/myrepo",
+			want:     2,
 		},
 		{
-			name: "bare repository",
-			output: `worktree /home/user/repo.git
+			name: "bare repository filtered out",
+			output: `worktree /home/user/myrepo.git
 bare
+
+worktree /home/user/.amux/workspaces/myrepo/feature
+HEAD def456
+branch refs/heads/feature
+
 `,
-			want: 1,
-			entries: []workspaceEntry{
-				{Path: "/home/user/repo.git", Bare: true},
-			},
+			repoPath: "/home/user/myrepo.git",
+			want:     1, // bare entry should be filtered
 		},
 		{
-			name: "detached HEAD",
-			output: `worktree /home/user/repo
-HEAD abc123def456
+			name: "detached HEAD worktree",
+			output: `worktree /home/user/myrepo
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/.amux/workspaces/myrepo/detached
+HEAD def456
 detached
+
 `,
-			want: 1,
-			entries: []workspaceEntry{
-				{Path: "/home/user/repo", Head: "abc123def456", Branch: ""},
-			},
+			repoPath: "/home/user/myrepo",
+			want:     2, // detached worktree should be included
+		},
+		{
+			name: "no trailing newline",
+			output: `worktree /home/user/myrepo
+HEAD abc123
+branch refs/heads/main`,
+			repoPath: "/home/user/myrepo",
+			want:     1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseWorkspaceList(tt.output)
-
-			if len(result) != tt.want {
-				t.Errorf("parseWorkspaceList() returned %d entries, want %d", len(result), tt.want)
-				return
-			}
-
-			for i, want := range tt.entries {
-				if i >= len(result) {
-					break
-				}
-				got := result[i]
-				if got.Path != want.Path {
-					t.Errorf("entry[%d].Path = %v, want %v", i, got.Path, want.Path)
-				}
-				if got.Head != want.Head {
-					t.Errorf("entry[%d].Head = %v, want %v", i, got.Head, want.Head)
-				}
-				if got.Branch != want.Branch {
-					t.Errorf("entry[%d].Branch = %v, want %v", i, got.Branch, want.Branch)
-				}
-				if got.Bare != want.Bare {
-					t.Errorf("entry[%d].Bare = %v, want %v", i, got.Bare, want.Bare)
-				}
+			workspaces := parseWorktreeList(tt.output, tt.repoPath)
+			if len(workspaces) != tt.want {
+				t.Errorf("parseWorktreeList() returned %d workspaces, want %d", len(workspaces), tt.want)
 			}
 		})
+	}
+}
+
+func TestParseWorktreeList_Fields(t *testing.T) {
+	output := `worktree /home/user/myrepo
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/.amux/workspaces/myrepo/feature-branch
+HEAD def456
+branch refs/heads/feature-branch
+
+`
+	workspaces := parseWorktreeList(output, "/home/user/myrepo")
+
+	if len(workspaces) != 2 {
+		t.Fatalf("expected 2 workspaces, got %d", len(workspaces))
+	}
+
+	// Check first workspace (primary)
+	if workspaces[0].Root != "/home/user/myrepo" {
+		t.Errorf("ws[0].Root = %q, want %q", workspaces[0].Root, "/home/user/myrepo")
+	}
+	if workspaces[0].Branch != "main" {
+		t.Errorf("ws[0].Branch = %q, want %q", workspaces[0].Branch, "main")
+	}
+	if workspaces[0].Name != "myrepo" {
+		t.Errorf("ws[0].Name = %q, want %q", workspaces[0].Name, "myrepo")
+	}
+	if workspaces[0].Repo != "/home/user/myrepo" {
+		t.Errorf("ws[0].Repo = %q, want %q", workspaces[0].Repo, "/home/user/myrepo")
+	}
+
+	// Check second workspace (worktree)
+	if workspaces[1].Root != "/home/user/.amux/workspaces/myrepo/feature-branch" {
+		t.Errorf("ws[1].Root = %q, want %q", workspaces[1].Root, "/home/user/.amux/workspaces/myrepo/feature-branch")
+	}
+	if workspaces[1].Branch != "feature-branch" {
+		t.Errorf("ws[1].Branch = %q, want %q", workspaces[1].Branch, "feature-branch")
+	}
+	if workspaces[1].Name != "feature-branch" {
+		t.Errorf("ws[1].Name = %q, want %q", workspaces[1].Name, "feature-branch")
 	}
 }

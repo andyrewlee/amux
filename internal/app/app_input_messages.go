@@ -302,9 +302,7 @@ func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 		// Run setup scripts asynchronously
-		if msg.Meta != nil {
-			cmds = append(cmds, a.runSetupAsync(msg.Workspace, msg.Meta))
-		}
+		cmds = append(cmds, a.runSetupAsync(msg.Workspace))
 	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds

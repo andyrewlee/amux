@@ -36,7 +36,6 @@ type WorkspacePreviewed struct {
 // WorkspaceCreated is sent when a new workspace is created
 type WorkspaceCreated struct {
 	Workspace *data.Workspace
-	Meta      *data.Metadata // For async setup
 }
 
 // WorkspaceSetupComplete is sent when async setup scripts finish

@@ -20,7 +20,7 @@ func NewEnvBuilder(ports *PortAllocator) *EnvBuilder {
 }
 
 // BuildEnv creates environment variables for a workspace
-func (b *EnvBuilder) BuildEnv(ws *data.Workspace, meta *data.Metadata) []string {
+func (b *EnvBuilder) BuildEnv(ws *data.Workspace) []string {
 	env := os.Environ()
 
 	// Add workspace-specific variables
@@ -40,18 +40,16 @@ func (b *EnvBuilder) BuildEnv(ws *data.Workspace, meta *data.Metadata) []string 
 		)
 	}
 
-	// Add custom environment from metadata
-	if meta != nil {
-		for k, v := range meta.Env {
-			env = append(env, fmt.Sprintf("%s=%s", k, v))
-		}
+	// Add custom environment from workspace
+	for k, v := range ws.Env {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
 	return env
 }
 
 // BuildEnvMap creates a map of environment variables
-func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace, meta *data.Metadata) map[string]string {
+func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace) map[string]string {
 	envMap := make(map[string]string)
 
 	envMap["AMUX_WORKSPACE_NAME"] = ws.Name
@@ -65,10 +63,8 @@ func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace, meta *data.Metadata) map[st
 		envMap["AMUX_PORT_RANGE"] = fmt.Sprintf("%d-%d", port, rangeEnd)
 	}
 
-	if meta != nil {
-		for k, v := range meta.Env {
-			envMap[k] = v
-		}
+	for k, v := range ws.Env {
+		envMap[k] = v
 	}
 
 	return envMap

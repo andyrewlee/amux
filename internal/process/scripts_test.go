@@ -110,12 +110,10 @@ func TestScriptRunnerRunSetupAndEnv(t *testing.T) {
 		Branch: "feature-1",
 		Repo:   repo,
 		Root:   wsRoot,
-	}
-	meta := &data.Metadata{
-		Env: map[string]string{"CUSTOM_VAR": "hello"},
+		Env:    map[string]string{"CUSTOM_VAR": "hello"},
 	}
 
-	if err := runner.RunSetup(wt, meta); err != nil {
+	if err := runner.RunSetup(wt); err != nil {
 		t.Fatalf("RunSetup() error = %v", err)
 	}
 
@@ -139,12 +137,12 @@ func TestScriptRunnerRunSetupFailure(t *testing.T) {
 	runner := NewScriptRunner(6200, 10)
 	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
-	if err := runner.RunSetup(wt, nil); err == nil {
+	if err := runner.RunSetup(wt); err == nil {
 		t.Fatalf("expected RunSetup() to fail for failing command")
 	}
 }
 
-func TestScriptRunnerRunScriptConfigAndMeta(t *testing.T) {
+func TestScriptRunnerRunScriptConfigAndWorkspaceScripts(t *testing.T) {
 	repo := t.TempDir()
 	wsRoot := t.TempDir()
 
@@ -155,7 +153,7 @@ func TestScriptRunnerRunScriptConfigAndMeta(t *testing.T) {
 	runner := NewScriptRunner(6200, 10)
 	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
-	_, err := runner.RunScript(wt, nil, ScriptRun)
+	_, err := runner.RunScript(wt, ScriptRun)
 	if err != nil {
 		t.Fatalf("RunScript() error = %v", err)
 	}
@@ -163,15 +161,15 @@ func TestScriptRunnerRunScriptConfigAndMeta(t *testing.T) {
 		t.Fatalf("expected run.txt to be created: %v", err)
 	}
 
-	// Now test meta override when config missing.
+	// Now test workspace scripts fallback when config missing.
 	writeWorkspaceConfig(t, repo, `{}`)
-	meta := &data.Metadata{Scripts: data.ScriptsConfig{Run: "printf run-meta > run-meta.txt"}}
-	_, err = runner.RunScript(wt, meta, ScriptRun)
+	wt.Scripts = data.ScriptsConfig{Run: "printf run-workspace > run-workspace.txt"}
+	_, err = runner.RunScript(wt, ScriptRun)
 	if err != nil {
-		t.Fatalf("RunScript() meta override error = %v", err)
+		t.Fatalf("RunScript() workspace scripts error = %v", err)
 	}
-	if err := waitForFile(filepath.Join(wsRoot, "run-meta.txt"), 2*time.Second); err != nil {
-		t.Fatalf("expected run-meta.txt to be created: %v", err)
+	if err := waitForFile(filepath.Join(wsRoot, "run-workspace.txt"), 2*time.Second); err != nil {
+		t.Fatalf("expected run-workspace.txt to be created: %v", err)
 	}
 }
 
@@ -184,7 +182,7 @@ func TestScriptRunnerRunScriptMissing(t *testing.T) {
 	runner := NewScriptRunner(6200, 10)
 	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
-	if _, err := runner.RunScript(wt, nil, ScriptRun); err == nil {
+	if _, err := runner.RunScript(wt, ScriptRun); err == nil {
 		t.Fatalf("expected RunScript() to fail when no script configured")
 	}
 }
@@ -200,7 +198,7 @@ func TestScriptRunnerStop(t *testing.T) {
 	runner := NewScriptRunner(6200, 10)
 	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
-	if _, err := runner.RunScript(wt, nil, ScriptRun); err != nil {
+	if _, err := runner.RunScript(wt, ScriptRun); err != nil {
 		t.Fatalf("RunScript() error = %v", err)
 	}
 
