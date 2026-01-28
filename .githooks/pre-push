@@ -9,8 +9,8 @@ fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-monitor_args=(${AMUX_HARNESS_MONITOR_ARGS:-"--mode=monitor --tabs=24 --frames=200 --warmup=20 --hot-tabs=1 --payload-bytes=128"})
-center_args=(${AMUX_HARNESS_CENTER_ARGS:-"--mode=center --tabs=8 --frames=200 --warmup=20 --hot-tabs=1 --payload-bytes=128"})
+monitor_args=(${AMUX_HARNESS_MONITOR_ARGS:---mode=monitor --tabs=24 --frames=200 --warmup=20 --hot-tabs=1 --payload-bytes=128})
+center_args=(${AMUX_HARNESS_CENTER_ARGS:---mode=center --tabs=8 --frames=200 --warmup=20 --hot-tabs=1 --payload-bytes=128})
 
 echo "amux pre-push: running headless UI harness (monitor)..."
 go run ./cmd/amux-harness "${monitor_args[@]}"
