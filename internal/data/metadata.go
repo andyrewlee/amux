@@ -14,7 +14,7 @@ type Metadata struct {
 	Base                 string            `json:"base"`
 	Created              string            `json:"created"`
 	Assistant            string            `json:"assistant"` // "claude", "codex", "gemini"
-	Runtime              string            `json:"runtime"`   // "local", "local-docker", "cloud-sandbox" (default: "local")
+	Runtime              string            `json:"runtime"`   // "local-worktree", "local-docker", "cloud-sandbox" (default: "local-worktree")
 	Scripts              ScriptsConfig     `json:"scripts"`
 	ScriptMode           string            `json:"script_mode"` // "concurrent" or "nonconcurrent"
 	Env                  map[string]string `json:"env"`
@@ -70,7 +70,7 @@ func (s *MetadataStore) Load(ws *Workspace) (*Metadata, error) {
 			Base:       ws.Base,
 			Created:    ws.Created.Format("2006-01-02T15:04:05Z07:00"),
 			Assistant:  "claude",
-			Runtime:    "local",
+			Runtime:    RuntimeLocalWorktree,
 			ScriptMode: "nonconcurrent",
 			Env:        make(map[string]string),
 		}, nil
@@ -83,6 +83,7 @@ func (s *MetadataStore) Load(ws *Workspace) (*Metadata, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, err
 	}
+	meta.Runtime = NormalizeRuntime(meta.Runtime)
 	return &meta, nil
 }
 

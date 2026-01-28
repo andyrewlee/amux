@@ -114,6 +114,34 @@ func TestMetadataStoreLoadPermissionError(t *testing.T) {
 	}
 }
 
+func TestMetadataStoreLoadNormalizesRuntime(t *testing.T) {
+	root := t.TempDir()
+	store := NewMetadataStore(root)
+	ws := &Workspace{
+		Name:   "normalize-runtime",
+		Branch: "normalize-runtime",
+		Repo:   "/repo",
+		Root:   "/workspaces/normalize-runtime",
+	}
+
+	// Write metadata with "sandbox" shorthand runtime
+	metaDir := filepath.Join(root, string(ws.ID()))
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(metaDir, "workspace.json"), []byte(`{"name":"normalize-runtime","runtime":"sandbox"}`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	meta, err := store.Load(ws)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if meta.Runtime != RuntimeCloudSandbox {
+		t.Fatalf("expected runtime %q, got %q", RuntimeCloudSandbox, meta.Runtime)
+	}
+}
+
 func TestMetadataStoreSaveLoadDelete(t *testing.T) {
 	root := t.TempDir()
 	store := NewMetadataStore(root)

@@ -181,7 +181,7 @@ func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd 
 			Base:       base,
 			Created:    time.Now().Format(time.RFC3339),
 			Assistant:  "claude",
-			Runtime:    "local",
+			Runtime:    data.RuntimeLocalWorktree,
 			ScriptMode: "nonconcurrent",
 			Env:        make(map[string]string),
 		}

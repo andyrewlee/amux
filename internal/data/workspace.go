@@ -8,20 +8,23 @@ import (
 
 // Runtime constants for workspace execution backends
 const (
-	RuntimeLocal        = "local"
-	RuntimeLocalDocker  = "local-docker"
-	RuntimeCloudSandbox = "cloud-sandbox"
+	RuntimeLocalWorktree = "local-worktree"
+	RuntimeLocalCheckout = "local-checkout"
+	RuntimeLocalDocker   = "local-docker"
+	RuntimeCloudSandbox  = "cloud-sandbox"
 )
 
 // NormalizeRuntime returns a normalized runtime string
 func NormalizeRuntime(runtime string) string {
 	switch runtime {
-	case RuntimeLocal, RuntimeLocalDocker, RuntimeCloudSandbox:
+	case RuntimeLocalWorktree, RuntimeLocalCheckout, RuntimeLocalDocker, RuntimeCloudSandbox:
 		return runtime
-	case "local-worktree", "local-checkout", "": // backward compatibility
-		return RuntimeLocal
+	case "sandbox":
+		return RuntimeCloudSandbox
+	case "local", "":
+		return RuntimeLocalWorktree
 	default:
-		return RuntimeLocal
+		return RuntimeLocalWorktree
 	}
 }
 
@@ -31,7 +34,8 @@ type Workspace struct {
 	Branch  string    `json:"branch"`
 	Base    string    `json:"base"` // Base ref (e.g., origin/main)
 	Repo    string    `json:"repo"` // Primary checkout path
-	Root    string    `json:"root"` // Workspace path
+	Root    string    `json:"root"`    // Workspace path
+	Runtime string    `json:"runtime"` // Execution runtime
 	Created time.Time `json:"created"`
 }
 
