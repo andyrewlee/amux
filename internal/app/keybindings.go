@@ -20,6 +20,7 @@ type KeyMap struct {
 	NewTerminalTab key.Binding
 	Help           key.Binding
 	Monitor        key.Binding
+	CopyMode       key.Binding
 
 	// Dashboard
 	Enter        key.Binding

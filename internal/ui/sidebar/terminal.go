@@ -117,6 +117,8 @@ type TerminalModel struct {
 
 	// PTY message sink
 	msgSink func(tea.Msg)
+
+	terminalFactory func(*data.Workspace) (*pty.Terminal, error)
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -127,6 +129,11 @@ func NewTerminalModel() *TerminalModel {
 		pendingCreation:      make(map[string]bool),
 		styles:               common.DefaultStyles(),
 	}
+}
+
+// SetTerminalFactory provides a custom terminal creator (e.g. sandbox shell).
+func (m *TerminalModel) SetTerminalFactory(factory func(*data.Workspace) (*pty.Terminal, error)) {
+	m.terminalFactory = factory
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.

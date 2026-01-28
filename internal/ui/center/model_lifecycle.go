@@ -57,8 +57,8 @@ func (m *Model) Close() {
 			tab.markClosed()
 		}
 	}
-	if m.agentManager != nil {
-		m.agentManager.CloseAll()
+	if m.agentProvider != nil {
+		m.agentProvider.CloseAll()
 	}
 }
 

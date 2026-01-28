@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/app"
+	"github.com/andyrewlee/amux/internal/cli"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/safego"
 )
@@ -30,6 +31,12 @@ func main() {
 		fmt.Printf("amux %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
 	}
+
+	// Handle CLI subcommands
+	if len(os.Args) > 1 {
+		os.Exit(cli.Run(os.Args[1:]))
+	}
+
 	// Initialize logging
 	home, _ := os.UserHomeDir()
 	logDir := filepath.Join(home, ".amux", "logs")

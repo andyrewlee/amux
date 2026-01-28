@@ -125,7 +125,7 @@ type Model struct {
 	tabsRevision         uint64
 	monitorTabsRevision  uint64
 	monitorTabsCache     []*Tab
-	agentManager         *appPty.AgentManager
+	agentProvider        AgentProvider
 	monitor              MonitorModel
 	msgSink              func(tea.Msg)
 	tabEvents            chan tabEvent
@@ -145,6 +145,14 @@ type Model struct {
 	config  *config.Config
 	styles  common.Styles
 	tabHits []tabHit
+}
+
+// AgentProvider abstracts agent creation for different runtimes.
+type AgentProvider interface {
+	CreateAgent(ws *data.Workspace, agentType appPty.AgentType, rows, cols uint16) (*appPty.Agent, error)
+	CreateViewer(ws *data.Workspace, command string, rows, cols uint16) (*appPty.Agent, error)
+	CloseAgent(agent *appPty.Agent) error
+	CloseAll()
 }
 
 type tabHitKind int
@@ -233,12 +241,15 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 }
 
 // New creates a new center pane model
-func New(cfg *config.Config) *Model {
+func New(cfg *config.Config, provider AgentProvider) *Model {
+	if provider == nil {
+		provider = appPty.NewAgentManager(cfg)
+	}
 	return &Model{
 		tabsByWorkspace:      make(map[string][]*Tab),
 		activeTabByWorkspace: make(map[string]int),
 		config:               cfg,
-		agentManager:         appPty.NewAgentManager(cfg),
+		agentProvider:        provider,
 		styles:               common.DefaultStyles(),
 		tabEvents:            make(chan tabEvent, 1024),
 	}
@@ -391,11 +402,6 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 	delete(m.tabsByWorkspace, wsID)
 	delete(m.activeTabByWorkspace, wsID)
 	m.noteTabsChanged()
-
-	// Also cleanup agents for this workspace
-	if m.agentManager != nil {
-		m.agentManager.CloseWorkspaceAgents(ws)
-	}
 }
 
 // Init initializes the center pane

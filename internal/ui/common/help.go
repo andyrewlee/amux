@@ -86,7 +86,6 @@ func defaultHelpSections() []HelpSection {
 			Title: "After Prefix: Tabs",
 			Bindings: []HelpBinding{
 				{"a", "Create new agent tab"},
-				{"d", "Commit viewer"},
 				{"x", "Close current tab"},
 				{"n/p", "Next/prev tab"},
 				{"1-9", "Jump to tab N"},

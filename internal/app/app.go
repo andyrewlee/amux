@@ -31,6 +31,8 @@ const (
 	DialogDeleteWorkspace = "delete_workspace"
 	DialogRemoveProject   = "remove_project"
 	DialogSelectAssistant = "select_assistant"
+	DialogSelectRuntime   = "select_runtime"
+	DialogSandboxAPIKey   = "sandbox_api_key"
 	DialogQuit            = "quit"
 )
 
@@ -92,7 +94,9 @@ type App struct {
 	dialogWorkspace *data.Workspace
 
 	// Process management
-	scripts *process.ScriptRunner
+	scripts         *process.ScriptRunner
+	sandboxManager  *SandboxManager
+	runtimeProvider *RuntimeAgentProvider
 
 	// Git status management
 	statusManager  *git.StatusManager
@@ -221,6 +225,8 @@ func New(version, commit, date string) (*App, error) {
 	registry := data.NewRegistry(cfg.Paths.RegistryPath)
 	workspaces := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
+	sandboxManager := NewSandboxManager(cfg)
+	runtimeProvider := NewRuntimeAgentProvider(cfg, sandboxManager)
 
 	// Create status manager (callback will be nil, we use it for caching only)
 	statusManager := git.NewStatusManager(nil)
@@ -247,13 +253,15 @@ func New(version, commit, date string) (*App, error) {
 		registry:         registry,
 		workspaces:       workspaces,
 		scripts:          scripts,
+		sandboxManager:   sandboxManager,
+		runtimeProvider:  runtimeProvider,
 		statusManager:    statusManager,
 		fileWatcher:      fileWatcher,
 		fileWatcherCh:    fileWatcherCh,
 		fileWatcherErr:   fileWatcherErr,
 		layout:           layout.NewManager(),
 		dashboard:        dashboard.New(),
-		center:           center.New(cfg),
+		center:           center.New(cfg, runtimeProvider),
 		sidebar:          sidebar.NewTabbedSidebar(),
 		sidebarTerminal:  sidebar.NewTerminalModel(),
 		helpOverlay:      common.NewHelpOverlay(),
@@ -286,6 +294,7 @@ func New(version, commit, date string) (*App, error) {
 	app.center.SetStyles(app.styles)
 	app.toast.SetStyles(app.styles)
 	app.helpOverlay.SetStyles(app.styles)
+	app.sidebarTerminal.SetTerminalFactory(runtimeProvider.CreateTerminalForWorkspace)
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	app.supervisor.Start("center.tab_actor", app.center.RunTabActor, supervisor.WithRestartPolicy(supervisor.RestartAlways))
 	if app.statusManager != nil {
