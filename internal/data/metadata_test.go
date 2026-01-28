@@ -166,4 +166,3 @@ func TestMetadataStoreSaveLoadDelete(t *testing.T) {
 		t.Fatalf("expected metadata dir to be removed, got err=%v", err)
 	}
 }
-
