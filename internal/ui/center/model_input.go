@@ -1,17 +1,13 @@
 package center
 
 import (
-	"time"
-
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/diff"
 )
 
 // Update handles messages
@@ -21,238 +17,16 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
-		// Handle tab bar clicks (e.g., the plus button) even without an active agent.
-		if msg.Button == tea.MouseLeft {
-			if cmd := m.handleTabBarClick(msg); cmd != nil {
-				return m, cmd
-			}
-		}
-
-		// Handle mouse events for text selection
-		if !m.focused || !m.hasActiveAgent() {
-			return m, nil
-		}
-
-		tabs := m.getTabs()
-		activeIdx := m.getActiveTabIdx()
-		if activeIdx >= len(tabs) {
-			return m, nil
-		}
-		tab := tabs[activeIdx]
-		if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
-			return m, cmd
-		}
-
-		if msg.Button != tea.MouseLeft {
-			return m, nil
-		}
-
-		// Convert screen coordinates to terminal coordinates
-		termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
-
-		if m.isTabActorReady() {
-			if m.sendTabEvent(tabEvent{
-				tab:         tab,
-				workspaceID: m.workspaceID(),
-				tabID:       tab.ID,
-				kind:        tabEventSelectionStart,
-				termX:       termX,
-				termY:       termY,
-				inBounds:    inBounds,
-			}) {
-				return m, common.SafeBatch(cmds...)
-			}
-		}
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ClearSelection()
-		}
-		tab.Selection = SelectionState{}
-		if inBounds && tab.Terminal != nil {
-			absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
-			tab.Selection = SelectionState{
-				Active:    true,
-				StartX:    termX,
-				StartLine: absLine,
-				EndX:      termX,
-				EndLine:   absLine,
-			}
-			tab.Terminal.SetSelection(termX, absLine, termX, absLine, true, false)
-		}
-		tab.mu.Unlock()
-		return m, common.SafeBatch(cmds...)
+		return m.updateMouseClick(msg)
 
 	case tea.MouseMotionMsg:
-		// Handle mouse drag events for text selection
-		if !m.focused || !m.hasActiveAgent() {
-			return m, nil
-		}
-		if msg.Button != tea.MouseLeft {
-			return m, nil
-		}
-		tabs := m.getTabs()
-		activeIdx := m.getActiveTabIdx()
-		if activeIdx >= len(tabs) {
-			return m, nil
-		}
-		tab := tabs[activeIdx]
-		if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
-			return m, cmd
-		}
-
-		termX, termY, _ := m.screenToTerminal(msg.X, msg.Y)
-
-		if m.isTabActorReady() {
-			if m.sendTabEvent(tabEvent{
-				tab:         tab,
-				workspaceID: m.workspaceID(),
-				tabID:       tab.ID,
-				kind:        tabEventSelectionUpdate,
-				termX:       termX,
-				termY:       termY,
-			}) {
-				return m, common.SafeBatch(cmds...)
-			}
-		}
-		tab.mu.Lock()
-		if tab.Selection.Active && tab.Terminal != nil {
-			termWidth := tab.Terminal.Width
-			termHeight := tab.Terminal.Height
-			if termX < 0 {
-				termX = 0
-			}
-			if termX >= termWidth {
-				termX = termWidth - 1
-			}
-			if termY < 0 {
-				tab.Terminal.ScrollView(1)
-				termY = 0
-			} else if termY >= termHeight {
-				tab.Terminal.ScrollView(-1)
-				termY = termHeight - 1
-			}
-			absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
-			startX := tab.Terminal.SelStartX()
-			startLine := tab.Terminal.SelStartLine()
-			if !tab.Terminal.HasSelection() {
-				startX = tab.Selection.StartX
-				startLine = tab.Selection.StartLine
-			}
-			tab.Selection.EndX = termX
-			tab.Selection.EndLine = absLine
-			tab.Terminal.SetSelection(startX, startLine, termX, absLine, true, false)
-			tab.Selection.StartX = startX
-			tab.Selection.StartLine = startLine
-		}
-		tab.mu.Unlock()
-		return m, common.SafeBatch(cmds...)
+		return m.updateMouseMotion(msg)
 
 	case tea.MouseReleaseMsg:
-		// Handle mouse release events for text selection
-		if !m.focused || !m.hasActiveAgent() {
-			return m, nil
-		}
-		if msg.Button != tea.MouseLeft {
-			return m, nil
-		}
-		tabs := m.getTabs()
-		activeIdx := m.getActiveTabIdx()
-		if activeIdx >= len(tabs) {
-			return m, nil
-		}
-		tab := tabs[activeIdx]
-		if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
-			return m, cmd
-		}
-
-		if m.isTabActorReady() {
-			if m.sendTabEvent(tabEvent{
-				tab:         tab,
-				workspaceID: m.workspaceID(),
-				tabID:       tab.ID,
-				kind:        tabEventSelectionFinish,
-			}) {
-				return m, common.SafeBatch(cmds...)
-			}
-		}
-		tab.mu.Lock()
-		if tab.Selection.Active {
-			if tab.Terminal != nil &&
-				(tab.Selection.StartX != tab.Selection.EndX ||
-					tab.Selection.StartLine != tab.Selection.EndLine) {
-				text := tab.Terminal.GetSelectedText(
-					tab.Terminal.SelStartX(), tab.Terminal.SelStartLine(),
-					tab.Terminal.SelEndX(), tab.Terminal.SelEndLine(),
-				)
-				if text != "" {
-					if err := common.CopyToClipboard(text); err != nil {
-						logging.Error("Failed to copy to clipboard: %v", err)
-					} else {
-						logging.Info("Copied %d chars to clipboard", len(text))
-					}
-				}
-			}
-			tab.Selection.Active = false
-		}
-		tab.mu.Unlock()
-		return m, common.SafeBatch(cmds...)
+		return m.updateMouseRelease(msg)
 
 	case tea.MouseWheelMsg:
-		if !m.focused || !m.hasActiveAgent() {
-			return m, nil
-		}
-
-		tabs := m.getTabs()
-		activeIdx := m.getActiveTabIdx()
-		if activeIdx >= len(tabs) {
-			return m, nil
-		}
-		tab := tabs[activeIdx]
-		if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
-			return m, cmd
-		}
-
-		delta := 0
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			delta = common.ScrollDeltaForHeight(tab.Terminal.Height, 8)
-		}
-		tab.mu.Unlock()
-		if delta > 0 {
-			if m.isTabActorReady() {
-				sent := false
-				if msg.Button == tea.MouseWheelUp {
-					sent = m.sendTabEvent(tabEvent{
-						tab:         tab,
-						workspaceID: m.workspaceID(),
-						tabID:       tab.ID,
-						kind:        tabEventScrollBy,
-						delta:       delta,
-					})
-				} else if msg.Button == tea.MouseWheelDown {
-					sent = m.sendTabEvent(tabEvent{
-						tab:         tab,
-						workspaceID: m.workspaceID(),
-						tabID:       tab.ID,
-						kind:        tabEventScrollBy,
-						delta:       -delta,
-					})
-				}
-				if sent {
-					return m, nil
-				}
-			}
-			tab.mu.Lock()
-			if tab.Terminal != nil {
-				if msg.Button == tea.MouseWheelUp {
-					tab.Terminal.ScrollView(delta)
-				} else if msg.Button == tea.MouseWheelDown {
-					tab.Terminal.ScrollView(-delta)
-				}
-			}
-			tab.mu.Unlock()
-		}
-		return m, nil
+		return m.updateMouseWheel(msg)
 
 	case tea.PasteMsg:
 		tabs := m.getTabs()
@@ -541,308 +315,60 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 	case messages.LaunchAgent:
-		return m, m.createAgentTab(msg.Assistant, msg.Workspace)
+		return m.updateLaunchAgent(msg)
 
 	case messages.OpenFileInVim:
-		return m, m.createVimTab(msg.Path, msg.Workspace)
+		return m.updateOpenFileInVim(msg)
 
 	case ptyTabCreateResult:
-		return m, m.handlePtyTabCreated(msg)
+		return m.updatePtyTabCreateResult(msg)
 
 	case tabActorReady:
-		m.setTabActorReady()
-		m.noteTabActorHeartbeat()
-		return m, nil
+		return m.updateTabActorReady(msg)
+
 	case tabActorHeartbeat:
-		m.noteTabActorHeartbeat()
-		return m, nil
+		return m.updateTabActorHeartbeat(msg)
 
 	case monitorSnapshotTick:
-		return m, m.handleMonitorSnapshotTick(msg)
+		return m.updateMonitorSnapshotTick(msg)
 
 	case monitorSnapshotResult:
-		m.applyMonitorSnapshotResult(msg.snapshots)
-		return m, nil
+		return m.updateMonitorSnapshotResult(msg)
 
 	case messages.OpenDiff:
-		// Check if new-style Change is provided, otherwise convert from legacy fields
-		if msg.Change != nil {
-			return m, m.createDiffTab(msg.Change, msg.Mode, msg.Workspace)
-		}
-		// Legacy path: convert File/StatusCode to Change
-		change := &git.Change{
-			Path: msg.File,
-		}
-		mode := git.DiffModeUnstaged
-		if msg.StatusCode == "??" {
-			change.Kind = git.ChangeUntracked
-		} else if len(msg.StatusCode) >= 1 && msg.StatusCode[0] != ' ' {
-			// Staged change
-			mode = git.DiffModeStaged
-			switch msg.StatusCode[0] {
-			case 'A':
-				change.Kind = git.ChangeAdded
-			case 'D':
-				change.Kind = git.ChangeDeleted
-			case 'M':
-				change.Kind = git.ChangeModified
-			case 'R':
-				change.Kind = git.ChangeRenamed
-			}
-			change.Staged = true
-		} else {
-			// Unstaged change
-			if len(msg.StatusCode) >= 2 {
-				switch msg.StatusCode[1] {
-				case 'A':
-					change.Kind = git.ChangeAdded
-				case 'D':
-					change.Kind = git.ChangeDeleted
-				case 'M':
-					change.Kind = git.ChangeModified
-				}
-			}
-		}
-		return m, m.createDiffTab(change, mode, msg.Workspace)
+		return m.updateOpenDiff(msg)
 
 	case messages.WorkspaceDeleted:
-		m.CleanupWorkspace(msg.Workspace)
-		return m, nil
+		return m.updateWorkspaceDeleted(msg)
 
 	case tabSelectionResult:
-		if msg.clipboard != "" {
-			if err := common.CopyToClipboard(msg.clipboard); err != nil {
-				logging.Error("Failed to copy to clipboard: %v", err)
-			} else {
-				logging.Info("Copied %d chars to clipboard", len(msg.clipboard))
-			}
-		}
-		return m, common.SafeBatch(cmds...)
+		return m.updateTabSelectionResult(msg)
 
 	case selectionTickRequest:
-		cmds = append(cmds, common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
-			return selectionScrollTick{WorkspaceID: msg.workspaceID, TabID: msg.tabID, Gen: msg.gen}
-		}))
-		return m, common.SafeBatch(cmds...)
+		return m.updateSelectionTickRequest(msg)
 
 	case tabDiffCmd:
-		if msg.cmd != nil {
-			cmds = append(cmds, msg.cmd)
-		}
-		return m, common.SafeBatch(cmds...)
+		return m.updateTabDiffCmd(msg)
 
 	case PTYOutput:
-		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
-		if tab != nil && !tab.isClosed() {
-			m.tracePTYOutput(tab, msg.Data)
-			tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
-			if len(tab.pendingOutput) > ptyMaxBufferedBytes {
-				overflow := len(tab.pendingOutput) - ptyMaxBufferedBytes
-				perf.Count("pty_output_drop_bytes", int64(overflow))
-				tab.pendingOutput = append([]byte(nil), tab.pendingOutput[overflow:]...)
-			}
-			perf.Count("pty_output_bytes", int64(len(msg.Data)))
-			tab.lastOutputAt = time.Now()
-			if !tab.flushScheduled {
-				tab.flushScheduled = true
-				tab.flushPendingSince = tab.lastOutputAt
-				quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
-				tabID := msg.TabID // Capture for closure
-				cmds = append(cmds, common.SafeTick(quiet, func(t time.Time) tea.Msg {
-					return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
-				}))
-			}
-		}
-		// If tab is nil, it was closed - silently drop the message and don't reschedule
+		cmd := m.updatePTYOutput(msg)
+		cmds = append(cmds, cmd)
 
 	case PTYFlush:
-		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
-		if tab != nil && !tab.isClosed() {
-			now := time.Now()
-			quietFor := now.Sub(tab.lastOutputAt)
-			pendingFor := time.Duration(0)
-			if !tab.flushPendingSince.IsZero() {
-				pendingFor = now.Sub(tab.flushPendingSince)
-			}
-			quiet, maxInterval := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
-			if quietFor < quiet && pendingFor < maxInterval {
-				delay := quiet - quietFor
-				if delay < time.Millisecond {
-					delay = time.Millisecond
-				}
-				tabID := msg.TabID
-				tab.flushScheduled = true
-				cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
-					return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
-				}))
-				break
-			}
-
-			tab.flushScheduled = false
-			tab.flushPendingSince = time.Time{}
-			if len(tab.pendingOutput) > 0 {
-				var chunk []byte
-				writeOutput := false
-				tab.mu.Lock()
-				if tab.Terminal != nil {
-					chunkSize := len(tab.pendingOutput)
-					if chunkSize > ptyFlushChunkSize {
-						chunkSize = ptyFlushChunkSize
-					}
-					chunk = append(chunk, tab.pendingOutput[:chunkSize]...)
-					copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
-					tab.pendingOutput = tab.pendingOutput[:len(tab.pendingOutput)-chunkSize]
-					writeOutput = true
-				}
-				tab.mu.Unlock()
-				if writeOutput && len(chunk) > 0 {
-					if m.isTabActorReady() {
-						if !m.sendTabEvent(tabEvent{
-							tab:         tab,
-							workspaceID: msg.WorkspaceID,
-							tabID:       msg.TabID,
-							kind:        tabEventWriteOutput,
-							output:      chunk,
-						}) {
-							tab.mu.Lock()
-							if tab.Terminal != nil {
-								flushDone := perf.Time("pty_flush")
-								tab.Terminal.Write(chunk)
-								flushDone()
-								perf.Count("pty_flush_bytes", int64(len(chunk)))
-								tab.monitorDirty = true
-							}
-							tab.mu.Unlock()
-						}
-					} else {
-						tab.mu.Lock()
-						if tab.Terminal != nil {
-							flushDone := perf.Time("pty_flush")
-							tab.Terminal.Write(chunk)
-							flushDone()
-							perf.Count("pty_flush_bytes", int64(len(chunk)))
-							tab.monitorDirty = true
-						}
-						tab.mu.Unlock()
-					}
-				}
-				if len(tab.pendingOutput) == 0 {
-					tab.pendingOutput = tab.pendingOutput[:0]
-				} else {
-					tab.flushScheduled = true
-					tab.flushPendingSince = time.Now()
-					tabID := msg.TabID
-					cmds = append(cmds, common.SafeTick(time.Millisecond, func(t time.Time) tea.Msg {
-						return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
-					}))
-				}
-			}
-		}
+		cmd := m.updatePTYFlush(msg)
+		cmds = append(cmds, cmd)
 
 	case PTYStopped:
-		// Terminal closed - mark tab as not running, but keep it visible
-		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
-		if tab != nil {
-			termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
-			m.stopPTYReader(tab)
-			if termAlive {
-				shouldRestart := true
-				var backoff time.Duration
-				tab.mu.Lock()
-				if tab.ptyRestartSince.IsZero() || time.Since(tab.ptyRestartSince) > ptyRestartWindow {
-					tab.ptyRestartSince = time.Now()
-					tab.ptyRestartCount = 0
-				}
-				tab.ptyRestartCount++
-				if tab.ptyRestartCount > ptyRestartMax {
-					shouldRestart = false
-					tab.Running = false
-					tab.ptyRestartBackoff = 0
-				} else {
-					backoff = tab.ptyRestartBackoff
-					if backoff <= 0 {
-						backoff = 200 * time.Millisecond
-					} else {
-						backoff *= 2
-						if backoff > 5*time.Second {
-							backoff = 5 * time.Second
-						}
-					}
-					tab.ptyRestartBackoff = backoff
-				}
-				tab.mu.Unlock()
-				if shouldRestart {
-					tabID := msg.TabID
-					wtID := msg.WorkspaceID
-					cmds = append(cmds, common.SafeTick(backoff, func(time.Time) tea.Msg {
-						return PTYRestart{WorkspaceID: wtID, TabID: tabID}
-					}))
-					logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
-				} else {
-					logging.Warn("PTY stopped for tab %s; restart limit reached: %v", msg.TabID, msg.Err)
-				}
-			} else {
-				tab.Running = false
-				tab.mu.Lock()
-				tab.ptyRestartBackoff = 0
-				tab.ptyRestartCount = 0
-				tab.ptyRestartSince = time.Time{}
-				tab.mu.Unlock()
-				logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
-			}
-		}
-		// Do NOT schedule another read - the loop is done
+		cmd := m.updatePTYStopped(msg)
+		cmds = append(cmds, cmd)
 
 	case PTYRestart:
-		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
-		if tab == nil {
-			break
-		}
-		if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
-			tab.mu.Lock()
-			tab.ptyRestartBackoff = 0
-			tab.mu.Unlock()
-			break
-		}
-		if cmd := m.startPTYReader(msg.WorkspaceID, tab); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		cmd := m.updatePTYRestart(msg)
+		cmds = append(cmds, cmd)
 
 	case selectionScrollTick:
-		if m.isTabActorReady() {
-			tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
-			if tab == nil {
-				break
-			}
-			if m.sendTabEvent(tabEvent{
-				tab:         tab,
-				workspaceID: msg.WorkspaceID,
-				tabID:       msg.TabID,
-				kind:        tabEventSelectionScrollTick,
-				gen:         msg.Gen,
-			}) {
-				break
-			}
-		}
-		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
-		if tab == nil {
-			break
-		}
-		tab.mu.Lock()
-		if !tab.Selection.Active || tab.selectionGen != msg.Gen || tab.Terminal == nil || tab.selectionScrollDir == 0 || !tab.selectionScrollActive {
-			tab.selectionScrollActive = false
-			tab.mu.Unlock()
-			break
-		}
-		// Nudge selection to keep scrollback advancing while dragging.
-		tab.Terminal.ScrollView(tab.selectionScrollDir)
-		tab.monitorDirty = true
-		tab.mu.Unlock()
-		tabID := msg.TabID
-		wtID := msg.WorkspaceID
-		cmds = append(cmds, common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
-			return selectionScrollTick{WorkspaceID: wtID, TabID: tabID, Gen: msg.Gen}
-		}))
+		cmd := m.updateSelectionScrollTick(msg)
+		cmds = append(cmds, cmd)
 
 	default:
 		// Forward unknown messages to active viewer if one exists
@@ -859,40 +385,4 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	}
 
 	return m, common.SafeBatch(cmds...)
-}
-
-func (m *Model) getDiffViewer(tab *Tab) *diff.Model {
-	if tab == nil {
-		return nil
-	}
-	tab.mu.Lock()
-	dv := tab.DiffViewer
-	tab.mu.Unlock()
-	return dv
-}
-
-func (m *Model) dispatchDiffInput(tab *Tab, msg tea.Msg) (bool, tea.Cmd) {
-	if tab == nil {
-		return false, nil
-	}
-	dv := m.getDiffViewer(tab)
-	if dv == nil {
-		return false, nil
-	}
-	if m.isTabActorReady() {
-		if m.sendTabEvent(tabEvent{
-			tab:         tab,
-			workspaceID: m.workspaceID(),
-			tabID:       tab.ID,
-			kind:        tabEventDiffInput,
-			diffMsg:     msg,
-		}) {
-			return true, nil
-		}
-	}
-	newDV, cmd := dv.Update(msg)
-	tab.mu.Lock()
-	tab.DiffViewer = newDV
-	tab.mu.Unlock()
-	return true, cmd
 }

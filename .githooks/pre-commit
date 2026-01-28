@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -n "${AMUX_SKIP_LINT:-}" ]]; then
+  echo "amux pre-commit: skipping lint (AMUX_SKIP_LINT set)"
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+echo "amux pre-commit: checking formatting..."
+bad=$(gofmt -l .)
+if [[ -n "$bad" ]]; then
+  echo "gofmt: these files need formatting:"
+  echo "$bad"
+  echo "(run 'make fmt' to fix)"
+  exit 1
+fi
+
+echo "amux pre-commit: running golangci-lint..."
+golangci-lint run
+
+echo "amux pre-commit: checking file lengths (max 500 lines)..."
+staged_go_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+if [[ -n "$staged_go_files" ]]; then
+  echo "$staged_go_files" | xargs wc -l | awk '!/total$/ && $1 > 500 { print "ERROR: " $2 " has " $1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
+fi
+
+echo "amux pre-commit: all checks passed."
