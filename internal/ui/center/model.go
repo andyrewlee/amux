@@ -54,8 +54,13 @@ type Tab struct {
 	mu           sync.Mutex   // Protects Terminal
 	closed       uint32
 	closing      uint32
-	Running      bool // Whether the agent is actively running
-	readerActive bool // Guard to ensure only one PTY read loop per tab
+	Running      bool      // Whether the agent is actively running
+	StartedAt    time.Time // Start time for process list
+	StoppedAt    time.Time // Completion time for process list
+	ExitCode     int       // Exit code when stopped (0 if success)
+	readerActive bool      // Guard to ensure only one PTY read loop per tab
+	CopyMode     bool      // Whether the tab is in copy/scroll mode (keys not sent to PTY)
+	CopyState    common.CopyState
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
@@ -66,6 +71,7 @@ type Tab struct {
 	ptyCols           int
 	ptyMsgCh          chan tea.Msg
 	readerCancel      chan struct{}
+	amuxBuffer        []byte // Buffer for incomplete AMUX_* protocol messages
 	// Mouse selection state
 	Selection             SelectionState
 	selectionGen          uint64

@@ -42,7 +42,13 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
-		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
+		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux,
+			"issue-menu", "board-search", "board-label-filter", "board-recent-filter",
+			"board-account-filter", "board-project-filter", "oauth-account",
+			"edit-issue-title", "edit-issue-description", "rename-branch",
+			"subtask-title", "change-base", "state-picker", "comment",
+			"diff-comment", "pr-comments", "create-issue", "attempt-picker",
+			"edit-preview-url", "agent-profile-picker":
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -391,6 +397,12 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handlePTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		// Handle agent stopped event for automation (state transitions, follow-ups).
+		if stopped, ok := msg.(center.PTYStopped); ok {
+			if cmd := a.handleAgentStopped(stopped); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 		// Sync active agents state to dashboard (show spinner only when actively outputting)
 		a.syncActiveWorkspacesToDashboard()
 		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
@@ -484,6 +496,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Error("Error in %s: %v", msg.Context, msg.Err)
 
 	default:
+		if cmd, handled := a.handleLinearMsg(msg); handled {
+			cmds = append(cmds, cmd)
+			break
+		}
 		// Forward unknown messages to center pane (e.g., commit viewer internal messages)
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter

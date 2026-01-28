@@ -2,10 +2,12 @@ package center
 
 import (
 	"sort"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/attempt"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -28,6 +30,9 @@ type MonitorTab struct {
 	Assistant string
 	Name      string
 	Running   bool
+	StartedAt time.Time
+	StoppedAt time.Time
+	ExitCode  int
 }
 
 // TabSize defines a desired size for a tab.
@@ -326,6 +331,9 @@ func (m *Model) MonitorTabs() []MonitorTab {
 			Assistant: tab.Assistant,
 			Name:      tab.Name,
 			Running:   tab.Running,
+			StartedAt: tab.StartedAt,
+			StoppedAt: tab.StoppedAt,
+			ExitCode:  tab.ExitCode,
 		})
 	}
 	return out
@@ -356,6 +364,9 @@ func (m *Model) MonitorTabSnapshotsWithActive(activeID TabID) []MonitorTabSnapsh
 				Assistant: tab.Assistant,
 				Name:      tab.Name,
 				Running:   tab.Running,
+				StartedAt: tab.StartedAt,
+				StoppedAt: tab.StoppedAt,
+				ExitCode:  tab.ExitCode,
 			},
 		})
 	}
@@ -453,4 +464,91 @@ func (m *Model) MoveMonitorSelection(dx, dy, cols, rows, count int) {
 // ResetMonitorSelection clears monitor selection state.
 func (m *Model) ResetMonitorSelection() {
 	m.monitor.Reset()
+}
+
+// HasRunningIssue returns true if any running tab is associated with the issue.
+func (m *Model) HasRunningIssue(issueID string) bool {
+	if issueID == "" {
+		return false
+	}
+	for _, tabs := range m.tabsByWorkspace {
+		for _, tab := range tabs {
+			if tab == nil || !tab.Running || tab.Workspace == nil {
+				continue
+			}
+			meta, err := attempt.Load(tab.Workspace.Root)
+			if err != nil || meta == nil {
+				continue
+			}
+			if meta.IssueID == issueID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// CloseTabByID closes a tab by its ID across worktrees.
+func (m *Model) CloseTabByID(id string) tea.Cmd {
+	tabID := TabID(id)
+	for wtID, tabs := range m.tabsByWorkspace {
+		for idx, tab := range tabs {
+			if tab == nil || tab.ID != tabID {
+				continue
+			}
+			// Close agent
+			if tab.Agent != nil {
+				_ = m.agentManager.CloseAgent(tab.Agent)
+			}
+			// Remove tab from slice
+			m.tabsByWorkspace[wtID] = append(tabs[:idx], tabs[idx+1:]...)
+			// Adjust active index for that worktree
+			activeIdx := m.activeTabByWorkspace[wtID]
+			if idx == activeIdx && activeIdx > 0 {
+				activeIdx--
+			}
+			if activeIdx >= len(m.tabsByWorkspace[wtID]) {
+				if len(m.tabsByWorkspace[wtID]) > 0 {
+					activeIdx = len(m.tabsByWorkspace[wtID]) - 1
+				} else {
+					activeIdx = 0
+				}
+			}
+			m.activeTabByWorkspace[wtID] = activeIdx
+			return nil
+		}
+	}
+	return nil
+}
+
+// SendToTerminalForWorktreeID sends to the active tab for a worktree.
+func (m *Model) SendToTerminalForWorktreeID(worktreeID string, s string) {
+	if worktreeID == "" {
+		m.SendToTerminal(s)
+		return
+	}
+	tabs := m.tabsByWorkspace[worktreeID]
+	if len(tabs) == 0 {
+		return
+	}
+	activeIdx := m.activeTabByWorkspace[worktreeID]
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		activeIdx = 0
+	}
+	tab := tabs[activeIdx]
+	if tab.Agent != nil && tab.Agent.Terminal != nil {
+		_ = tab.Agent.Terminal.SendString(s)
+	}
+}
+
+// SendToTerminalForTab sends to a specific tab within a worktree.
+func (m *Model) SendToTerminalForTab(worktreeID string, tabID TabID, s string) {
+	if worktreeID == "" {
+		return
+	}
+	tab := m.getTabByID(worktreeID, tabID)
+	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
+		return
+	}
+	_ = tab.Agent.Terminal.SendString(s)
 }

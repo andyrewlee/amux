@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -13,16 +14,24 @@ import (
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/github"
+	"github.com/andyrewlee/amux/internal/linear"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/supervisor"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/tracker"
+	"github.com/andyrewlee/amux/internal/ui/board"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
+	"github.com/andyrewlee/amux/internal/ui/diffview"
+	"github.com/andyrewlee/amux/internal/ui/drawer"
+	"github.com/andyrewlee/amux/internal/ui/inspector"
 	"github.com/andyrewlee/amux/internal/ui/layout"
+	"github.com/andyrewlee/amux/internal/ui/preview"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 	"github.com/andyrewlee/amux/internal/update"
 )
@@ -47,6 +56,15 @@ const (
 type prefixTimeoutMsg struct {
 	token int
 }
+
+// AuxMode identifies auxiliary pane mode.
+type AuxMode int
+
+const (
+	AuxNone AuxMode = iota
+	AuxPreview
+	AuxDiff
+)
 
 // App is the root Bubbletea model
 type App struct {
@@ -79,10 +97,15 @@ type App struct {
 
 	// UI Components
 	layout          *layout.Manager
-	dashboard       *dashboard.Model
+	board           *board.Model
 	center          *center.Model
+	inspector       *inspector.Model
+	drawer          *drawer.Model
 	sidebar         *sidebar.TabbedSidebar
 	sidebarTerminal *sidebar.TerminalModel
+	dashboard       *dashboard.Model
+	diffView        *diffview.Model
+	previewView     *preview.Model
 	dialog          *common.Dialog
 	filePicker      *common.FilePicker
 	settingsDialog  *common.SettingsDialog
@@ -109,6 +132,59 @@ type App struct {
 	keymap        KeyMap
 	styles        common.Styles
 	canvas        *lipgloss.Canvas
+
+	// Linear
+	linearConfig  *linear.Config
+	linearService *linear.Service
+	linearAdapter *tracker.LinearAdapter
+	webhookCh     chan messages.WebhookEvent
+	webhookCancel context.CancelFunc
+	boardIssues   []linear.Issue
+	selectedIssue *linear.Issue
+	auxMode       AuxMode
+	drawerOpen    bool
+	githubConfig  *github.Config
+
+	statePickerIssueID    string
+	statePickerStates     []linear.State
+	commentIssueID        string
+	attemptPickerIssueID  string
+	attemptPickerBranches []string
+	diffIssueID           string
+	diffComments          map[string][]reviewComment
+	diffCommentFile       string
+	diffCommentSide       string
+	diffCommentLine       int
+	changeBaseIssueID     string
+	prStatuses            map[string]prInfo
+	prCommentIssueID      string
+	prCommentOptions      []string
+	createIssueTeams      []issueTeamOption
+	issueMenuIssueID      string
+	issueMenuActions      []issueMenuAction
+	editIssueID           string
+	editIssueTitle        string
+	editIssueDescription  string
+	renameBranchIssueID   string
+	subtaskParentIssueID  string
+	accountFilterValues   []string
+	projectFilterOptions  []projectFilterOption
+	labelFilterValues     []string
+	recentFilterValues    []int
+	pendingAgentMessages  map[string]string
+	authMissingAccounts   []string
+	oauthAccountValues    []string
+	activityLog           []common.ActivityEntry
+	activitySeq           int
+	approvals             map[string]*approvalState
+	approvalsTickerActive bool
+	agentActivityIDs      map[string]string
+	agentProfileIssueID   string
+	scriptActivityIDs     map[string]string
+	processRecords        map[string]*processRecord
+	nextActions           map[string]nextActionSummary
+	scriptOutputCh        chan messages.ScriptOutput
+
 	// Lifecycle
 	ready        bool
 	quitting     bool
@@ -230,6 +306,26 @@ func New(version, commit, date string) (*App, error) {
 	applyTmuxEnvFromConfig(cfg, false)
 	tmuxOpts := tmux.DefaultOptions()
 
+	// Run migrations before ensuring directories
+	migrationResult := cfg.Paths.RunMigrations()
+	if migrationResult.HasMigrations() {
+		logging.Info("Path migration completed successfully")
+	}
+	if migrationResult.Error != nil {
+		logging.Warn("Path migration encountered errors: %v", migrationResult.Error)
+		legacyWorkspacesRoot := filepath.Join(cfg.Paths.Home, "worktrees")
+		if info, err := os.Stat(legacyWorkspacesRoot); err == nil && info.IsDir() {
+			logging.Warn("Falling back to legacy workspaces path: %s", legacyWorkspacesRoot)
+			cfg.Paths.WorkspacesRoot = legacyWorkspacesRoot
+		}
+
+		legacyMetadataRoot := filepath.Join(cfg.Paths.Home, "worktrees-metadata")
+		if info, err := os.Stat(legacyMetadataRoot); err == nil && info.IsDir() {
+			logging.Warn("Falling back to legacy metadata path: %s", legacyMetadataRoot)
+			cfg.Paths.MetadataRoot = legacyMetadataRoot
+		}
+	}
+
 	// Ensure directories exist
 	if err := cfg.Paths.EnsureDirectories(); err != nil {
 		return nil, err
@@ -258,6 +354,17 @@ func New(version, commit, date string) (*App, error) {
 		fileWatcher = nil
 	}
 
+	linearConfig, err := linear.LoadConfig(cfg.Paths.LinearConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	linearCache := linear.NewCache(cfg.Paths.CacheRoot)
+	linearService := linear.NewService(linearConfig, linearCache)
+	githubConfig, err := github.LoadConfig(cfg.Paths.GitHubConfigPath)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx := context.Background()
 	app := &App{
 		config:                 cfg,
@@ -269,15 +376,35 @@ func New(version, commit, date string) (*App, error) {
 		fileWatcherCh:          fileWatcherCh,
 		fileWatcherErr:         fileWatcherErr,
 		layout:                 layout.NewManager(),
+		board:                  board.New(),
 		dashboard:              dashboard.New(),
 		center:                 center.New(cfg),
+		inspector:              inspector.New(),
+		drawer:                 drawer.New(),
 		sidebar:                sidebar.NewTabbedSidebar(),
 		sidebarTerminal:        sidebar.NewTerminalModel(),
+		diffView:               diffview.New(),
+		previewView:            preview.New(),
 		helpOverlay:            common.NewHelpOverlay(),
 		toast:                  common.NewToastModel(),
 		focusedPane:            messages.PaneDashboard,
 		showWelcome:            true,
 		keymap:                 DefaultKeyMap(),
+		styles:                 common.DefaultStyles(),
+		linearConfig:           linearConfig,
+		linearService:          linearService,
+		linearAdapter:          tracker.NewLinearAdapter(linearService),
+		auxMode:                AuxNone,
+		diffComments:           make(map[string][]reviewComment),
+		prStatuses:             make(map[string]prInfo),
+		githubConfig:           githubConfig,
+		pendingAgentMessages:   make(map[string]string),
+		approvals:              make(map[string]*approvalState),
+		agentActivityIDs:       make(map[string]string),
+		scriptActivityIDs:      make(map[string]string),
+		processRecords:         make(map[string]*processRecord),
+		nextActions:            make(map[string]nextActionSummary),
+		scriptOutputCh:         make(chan messages.ScriptOutput, 200),
 		dashboardChrome:        &compositor.ChromeCache{},
 		centerChrome:           &compositor.ChromeCache{},
 		sidebarChrome:          &compositor.ChromeCache{},
@@ -301,8 +428,9 @@ func New(version, commit, date string) (*App, error) {
 	common.SetCurrentTheme(common.ThemeID(cfg.UI.Theme))
 	app.styles = common.DefaultStyles()
 	// Propagate styles to all components (they were created with default theme)
-	app.dashboard.SetStyles(app.styles)
-	app.sidebar.SetStyles(app.styles)
+	app.board.SetStyles(app.styles)
+	app.inspector.SetStyles(app.styles)
+	app.drawer.SetStyles(app.styles)
 	app.sidebarTerminal.SetStyles(app.styles)
 	app.center.SetStyles(app.styles)
 	app.toast.SetStyles(app.styles)
@@ -318,6 +446,7 @@ func New(version, commit, date string) (*App, error) {
 	if fileWatcher != nil {
 		app.supervisor.Start("git.file_watcher", fileWatcher.Run, supervisor.WithBackoff(500*time.Millisecond))
 	}
+	app.updateAuthStatus()
 	return app, nil
 }
 
@@ -325,9 +454,12 @@ func New(version, commit, date string) (*App, error) {
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		a.loadProjects(),
-		a.dashboard.Init(),
+		a.board.Init(),
 		a.center.Init(),
-		a.sidebar.Init(),
+		a.inspector.Init(),
+		a.drawer.Init(),
+		a.diffView.Init(),
+		a.previewView.Init(),
 		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
 		a.startPTYWatchdog(),
@@ -337,6 +469,11 @@ func (a *App) Init() tea.Cmd {
 		a.checkTmuxAvailable(),
 		a.startFileWatcher(),
 		a.checkForUpdates(),
+		a.listenScriptOutput(),
+		a.refreshBoard(false),
+	}
+	if cmd := a.startWebhookServer(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	if a.fileWatcherErr != nil {
 		cmds = append(cmds, a.toast.ShowWarning("File watching disabled; git status may be stale"))
@@ -403,6 +540,48 @@ func (a *App) checkTmuxAvailable() tea.Cmd {
 func (a *App) IsTmuxAvailable() bool {
 	return a.tmuxAvailable
 }
+
+func (a *App) startWebhookServer() tea.Cmd {
+	if a.linearConfig == nil || len(a.linearConfig.WebhookSecrets) == 0 {
+		return nil
+	}
+	if a.webhookCh == nil {
+		a.webhookCh = make(chan messages.WebhookEvent, 50)
+	}
+	addr := os.Getenv("AMUX_LINEAR_WEBHOOK_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1:8787"
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.webhookCancel = cancel
+	server := linear.NewWebhookServer(addr, a.linearConfig.WebhookSecrets, func(event linear.WebhookEvent) {
+		select {
+		case a.webhookCh <- messages.WebhookEvent{
+			Account: event.Account,
+			Type:    event.Type,
+			Action:  event.Action,
+			Data:    event.Data,
+		}:
+		default:
+		}
+	})
+	go func() {
+		if err := server.Start(ctx); err != nil {
+			logging.Warn("Linear webhook server stopped: %v", err)
+		}
+	}()
+	return a.listenWebhook()
+}
+
+func (a *App) listenWebhook() tea.Cmd {
+	if a.webhookCh == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		return <-a.webhookCh
+	}
+}
+
 
 // startGitStatusTicker returns a command that ticks every 3 seconds for git status refresh
 func (a *App) startGitStatusTicker() tea.Cmd {
@@ -483,5 +662,14 @@ func (a *App) startFileWatcher() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return <-a.fileWatcherCh
+	}
+}
+
+func (a *App) listenScriptOutput() tea.Cmd {
+	if a.scriptOutputCh == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		return <-a.scriptOutputCh
 	}
 }

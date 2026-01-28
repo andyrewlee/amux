@@ -1,6 +1,9 @@
 package git
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -53,4 +56,44 @@ func GetBranchFileDiff(repoPath, path string) (*DiffResult, error) {
 	}
 
 	return parseDiff(path, output), nil
+}
+
+// AheadBehind returns how many commits branch is ahead/behind base.
+func AheadBehind(repoPath, base, branch string) (ahead, behind int, err error) {
+	if repoPath == "" || base == "" || branch == "" {
+		return 0, 0, nil
+	}
+	out, err := RunGit(repoPath, "rev-list", "--left-right", "--count", base+"..."+branch)
+	if err != nil {
+		return 0, 0, err
+	}
+	parts := strings.Fields(out)
+	if len(parts) < 2 {
+		return 0, 0, nil
+	}
+	behind, _ = strconv.Atoi(parts[0])
+	ahead, _ = strconv.Atoi(parts[1])
+	return ahead, behind, nil
+}
+
+// RebaseInProgress reports whether a rebase is in progress.
+func RebaseInProgress(repoPath string) bool {
+	if repoPath == "" {
+		return false
+	}
+	paths := []string{"rebase-merge", "rebase-apply"}
+	for _, p := range paths {
+		path, err := RunGit(repoPath, "rev-parse", "--git-path", p)
+		if err != nil || path == "" {
+			continue
+		}
+		// git rev-parse --git-path can return a relative path; resolve against repo
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(repoPath, path)
+		}
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	return false
 }

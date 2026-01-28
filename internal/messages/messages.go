@@ -1,8 +1,12 @@
 package messages
 
 import (
+	"time"
+
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/diff"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/linear"
 )
 
 // PaneType identifies the focused pane
@@ -98,8 +102,10 @@ type CreateAgentTab struct {
 
 // TabCreated is sent when a new tab is created
 type TabCreated struct {
-	Index int
-	Name  string
+	Index        int
+	Name         string
+	WorktreeID   string
+	WorktreeRoot string
 }
 
 // TabClosed is sent when a tab is closed
@@ -206,6 +212,110 @@ type RefreshDashboard struct{}
 // RescanWorkspaces requests a git worktree rescan/import.
 type RescanWorkspaces struct{}
 
+// RefreshBoard requests a Linear board refresh
+type RefreshBoard struct{}
+
+// BoardIssuesLoaded delivers issues for the board.
+type BoardIssuesLoaded struct {
+	Issues []linear.Issue
+	Cached bool
+	Err    error
+}
+
+// IssueCommentsLoaded delivers comments for an issue.
+type IssueCommentsLoaded struct {
+	IssueID  string
+	Comments []linear.Comment
+	Err      error
+}
+
+// IssueStatesLoaded delivers states for a team.
+type IssueStatesLoaded struct {
+	IssueID string
+	States  []linear.State
+	Err     error
+}
+
+// IssueSelected indicates a Linear issue selection
+type IssueSelected struct {
+	IssueID string
+}
+
+// ShowBoardSearchDialog requests opening the board search dialog
+type ShowBoardSearchDialog struct{}
+
+// BoardFilterChanged indicates board filters toggled
+type BoardFilterChanged struct{}
+
+// ShowCreateIssueDialog requests creating a new issue.
+type ShowCreateIssueDialog struct{}
+
+// ShowAccountFilterDialog requests selecting an account filter.
+type ShowAccountFilterDialog struct{}
+
+// ShowProjectFilterDialog requests selecting a project filter.
+type ShowProjectFilterDialog struct{}
+
+// ShowLabelFilterDialog opens the label filter selector.
+type ShowLabelFilterDialog struct{}
+
+// ShowRecentFilterDialog opens the updated-recently filter selector.
+type ShowRecentFilterDialog struct{}
+
+// ShowIssueMenu requests opening the issue actions menu.
+type ShowIssueMenu struct {
+	IssueID string
+}
+
+// ShowOAuthDialog requests starting Linear OAuth.
+type ShowOAuthDialog struct{}
+
+// ShowPRCommentsDialog requests importing PR comments.
+type ShowPRCommentsDialog struct {
+	IssueID string
+}
+
+// ShowDrawerPane requests opening the drawer to a specific pane.
+type ShowDrawerPane struct {
+	Pane string // "logs", "approvals", "processes"
+}
+
+// CreateSubtask requests creating a subtask from an issue.
+type CreateSubtask struct {
+	IssueID string
+}
+
+// StartOAuth begins OAuth for a specific account.
+type StartOAuth struct {
+	Account string
+}
+
+// OAuthCompleted delivers OAuth result for an account.
+type OAuthCompleted struct {
+	Account string
+	Token   string
+	Err     error
+}
+
+// CycleAuxView cycles preview/diff/attempt view
+type CycleAuxView struct {
+	Direction int
+}
+
+// ShowPreview requests opening preview pane.
+type ShowPreview struct{}
+
+// CloseAuxView requests closing aux pane.
+type CloseAuxView struct{}
+
+// WebhookEvent delivers a Linear webhook event.
+type WebhookEvent struct {
+	Account string
+	Type    string
+	Action  string
+	Data    []byte
+}
+
 // ShowAddProjectDialog requests showing the add project dialog
 type ShowAddProjectDialog struct{}
 
@@ -232,6 +342,7 @@ type ShowRemoveProjectDialog struct {
 type CreateWorkspace struct {
 	Project *data.Project
 	Name    string
+	Branch  string
 	Base    string
 }
 
@@ -258,6 +369,11 @@ type ShowSelectAssistantDialog struct{}
 type LaunchAgent struct {
 	Assistant string
 	Workspace *data.Workspace
+}
+
+// StartIssueWork requests creating a workspace and starting work for an issue
+type StartIssueWork struct {
+	IssueID string
 }
 
 // OpenDiff requests opening a diff viewer for a file
@@ -290,21 +406,22 @@ type WorkspaceCreatedWithWarning struct {
 // RunScript requests running a script for the active workspace
 type RunScript struct {
 	ScriptType string // "setup", "run", or "archive"
+	IssueID    string // Optional: issue context for linear integration
 }
 
-// ScriptOutput contains output from a running script
-type ScriptOutput struct {
-	Output string
-	Done   bool
-	Err    error
+// ResumeIssueWork requests opening an existing workspace for an issue
+type ResumeIssueWork struct {
+	IssueID string
 }
 
-// GitStatusTick triggers periodic git status refresh
-type GitStatusTick struct{}
+// RehydrateIssueWorktree requests rehydrating a missing worktree.
+type RehydrateIssueWorktree struct {
+	IssueID string
+}
 
-// FileWatcherEvent is sent when a watched file changes
-type FileWatcherEvent struct {
-	Root string
+// NewAttempt requests creating a new attempt for an issue
+type NewAttempt struct {
+	IssueID string
 }
 
 // SidebarPTYOutput contains PTY output for sidebar terminal
@@ -312,6 +429,186 @@ type SidebarPTYOutput struct {
 	WorkspaceID string
 	TabID       string
 	Data        []byte
+}
+
+// RunAgentForIssue requests running an agent for an issue
+type RunAgentForIssue struct {
+	IssueID string
+}
+
+// CreatePRForIssue requests creating a PR for an issue
+type CreatePRForIssue struct {
+	IssueID string
+}
+
+// PushBranch requests pushing the current branch.
+type PushBranch struct {
+	IssueID string
+}
+
+// MergePullRequest requests merging the PR for an issue.
+type MergePullRequest struct {
+	IssueID string
+}
+
+// ChangeBaseBranch requests changing the base branch for an issue.
+type ChangeBaseBranch struct {
+	IssueID string
+}
+
+// OpenIssueDiff requests opening a diff for an issue
+type OpenIssueDiff struct {
+	IssueID string
+}
+
+// MoveIssueState requests moving an issue state
+type MoveIssueState struct {
+	IssueID string
+}
+
+// AddIssueComment requests adding a comment to an issue
+type AddIssueComment struct {
+	IssueID string
+	Body    string
+}
+
+// SetIssueStateType requests moving issue to a state type (started/review/completed).
+type SetIssueStateType struct {
+	IssueID   string
+	StateType string
+}
+
+// ShowAttemptsDialog requests opening the attempts selector
+type ShowAttemptsDialog struct {
+	IssueID string
+}
+
+// RebaseWorkspace requests rebase for an issue's workspace
+type RebaseWorkspace struct {
+	IssueID string
+}
+
+// ResolveConflicts requests conflict resolution UI for an issue
+type ResolveConflicts struct {
+	IssueID string
+}
+
+// OpenWorkspaceInEditor requests opening the workspace root in editor.
+type OpenWorkspaceInEditor struct {
+	IssueID string
+}
+
+// AbortRebase requests aborting a rebase for an issue's workspace.
+type AbortRebase struct {
+	IssueID string
+}
+
+// ShowCommentDialog requests opening a comment input dialog.
+type ShowCommentDialog struct{}
+
+// ShowAttemptPicker requests opening the attempts picker dialog.
+type ShowAttemptPicker struct{}
+
+// ReloadDiff requests reloading diff data with current options.
+type ReloadDiff struct {
+	IgnoreWhitespace bool
+}
+
+// DiffLoaded delivers diff data for rendering.
+type DiffLoaded struct {
+	Files []diff.File
+	Err   error
+}
+
+// ShowDiffCommentDialog requests opening a diff comment dialog.
+type ShowDiffCommentDialog struct {
+	File string
+	Line int
+	Side string
+}
+
+// PRStatusLoaded delivers PR status for an issue.
+type PRStatusLoaded struct {
+	IssueID string
+	URL     string
+	State   string
+	Number  int
+	Err     error
+}
+
+// PRCommentsLoaded delivers PR comment options.
+type PRCommentsLoaded struct {
+	IssueID string
+	Options []string
+	Err     error
+}
+
+// OpenFileInEditor requests opening a file in the configured editor.
+type OpenFileInEditor struct {
+	File string
+}
+
+// SendReviewFeedback requests sending aggregated diff comments to the agent.
+type SendReviewFeedback struct {
+	IssueID string
+}
+
+// SendFollowUp sends a freeform follow-up message to the agent.
+type SendFollowUp struct {
+	IssueID string
+	Body    string
+}
+
+// CancelQueuedMessage clears any queued follow-up for an issue.
+type CancelQueuedMessage struct {
+	IssueID string
+}
+
+// RefreshPreview requests preview refresh.
+type RefreshPreview struct{}
+
+// CopyPreviewURL requests copying preview URL.
+type CopyPreviewURL struct{}
+
+// EditPreviewURL requests editing preview URL.
+type EditPreviewURL struct{}
+
+// TogglePreviewLogs toggles preview logs drawer.
+type TogglePreviewLogs struct{}
+
+// StopPreviewServer requests stopping the dev server.
+type StopPreviewServer struct{}
+
+// LogActivity appends an activity log line.
+type LogActivity struct {
+	Line       string
+	Kind       string
+	Status     string
+	Details    []string
+	ProcessID  string
+	ApprovalID string
+}
+
+// ApprovalRequested indicates an approval is pending.
+type ApprovalRequested struct {
+	ID          string
+	Summary     string
+	Details     []string
+	Timeout     time.Duration
+	WorkspaceID string
+	TabID       string
+	Data        []byte
+}
+
+// ApproveApproval marks an approval as approved.
+type ApproveApproval struct {
+	ID string
+}
+
+// DenyApproval marks an approval as denied.
+type DenyApproval struct {
+	ID     string
+	Reason string
 }
 
 // SidebarPTYTick triggers a sidebar PTY read
@@ -367,3 +664,6 @@ type OpenFileInVim struct {
 	Path      string
 	Workspace *data.Workspace
 }
+
+// ApprovalTick triggers approval countdown updates.
+type ApprovalTick struct{}

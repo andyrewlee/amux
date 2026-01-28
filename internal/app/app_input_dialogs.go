@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -109,6 +111,172 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 
 	case DialogCleanupTmux:
 		return func() tea.Msg { return messages.CleanupTmuxSessions{} }
+
+	// ── Linear dialog results ───────────────────────────────────────────
+
+	case "issue-menu":
+		return a.handleIssueMenuSelection(result.Index)
+
+	case "board-search":
+		if a.board != nil {
+			a.board.Filters.Search = result.Value
+			a.updateBoard(a.boardIssues)
+		}
+
+	case "board-label-filter":
+		if result.Index >= 0 && result.Index < len(a.labelFilterValues) {
+			return a.applyLabelFilter(a.labelFilterValues[result.Index])
+		}
+
+	case "board-recent-filter":
+		if a.board != nil && result.Index >= 0 && result.Index < len(a.recentFilterValues) {
+			a.board.Filters.UpdatedWithinDays = a.recentFilterValues[result.Index]
+			a.updateBoard(a.boardIssues)
+		}
+
+	case "board-account-filter":
+		if a.board != nil && result.Index >= 0 && result.Index < len(a.accountFilterValues) {
+			a.board.Filters.Account = a.accountFilterValues[result.Index]
+			a.updateBoard(a.boardIssues)
+		}
+
+	case "board-project-filter":
+		if a.board != nil && result.Index >= 0 && result.Index < len(a.projectFilterOptions) {
+			a.board.Filters.Project = a.projectFilterOptions[result.Index].ID
+			a.updateBoard(a.boardIssues)
+		}
+
+	case "oauth-account":
+		if result.Index >= 0 && result.Index < len(a.oauthAccountValues) {
+			acct := a.oauthAccountValues[result.Index]
+			return func() tea.Msg { return messages.StartOAuth{Account: acct} }
+		}
+
+	case "edit-issue-title":
+		// Store title, show description dialog
+		if result.Value != "" {
+			a.editIssueTitle = result.Value
+		}
+		a.dialog = common.NewInputDialog("edit-issue-description", "Edit Issue", "Description (leave blank to keep)")
+		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+		a.dialog.Show()
+		return nil // Don't clear dialog yet
+
+	case "edit-issue-description":
+		issueID := a.editIssueID
+		title := a.editIssueTitle
+		desc := a.editIssueDescription
+		if result.Value != "" {
+			desc = result.Value
+		}
+		a.editIssueID = ""
+		a.editIssueTitle = ""
+		a.editIssueDescription = ""
+		return a.updateIssue(issueID, title, desc)
+
+	case "rename-branch":
+		issueID := a.renameBranchIssueID
+		a.renameBranchIssueID = ""
+		return a.applyRenameBranch(issueID, result.Value)
+
+	case "subtask-title":
+		issueID := a.subtaskParentIssueID
+		a.subtaskParentIssueID = ""
+		if result.Value != "" {
+			return a.createSubtaskWithDetails(issueID, result.Value, "")
+		}
+
+	case "change-base":
+		issueID := a.changeBaseIssueID
+		a.changeBaseIssueID = ""
+		return a.changeBaseBranch(issueID, result.Value)
+
+	case "state-picker":
+		if a.statePickerIssueID != "" && result.Index >= 0 && result.Index < len(a.statePickerStates) {
+			state := a.statePickerStates[result.Index]
+			issueID := a.statePickerIssueID
+			a.statePickerIssueID = ""
+			a.statePickerStates = nil
+			issue := a.findIssue(issueID)
+			if issue != nil && !a.issueAuthRequired(issue) {
+				acct := findAccountForIssue(a.linearService, issue)
+				if acct.Name != "" {
+					return func() tea.Msg {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						if _, err := a.linearService.UpdateIssueState(ctx, acct, issueID, state.ID); err != nil {
+							return messages.Error{Err: err, Context: "set issue state"}
+						}
+						return messages.RefreshBoard{}
+					}
+				}
+			}
+		}
+
+	case "comment":
+		issueID := a.commentIssueID
+		a.commentIssueID = ""
+		if issueID != "" && result.Value != "" {
+			return func() tea.Msg {
+				return messages.AddIssueComment{IssueID: issueID, Body: result.Value}
+			}
+		}
+
+	case "diff-comment":
+		file := a.diffCommentFile
+		side := a.diffCommentSide
+		line := a.diffCommentLine
+		a.diffCommentFile = ""
+		a.diffCommentSide = ""
+		a.diffCommentLine = 0
+		if result.Value != "" {
+			a.addDiffComment(file, side, line, result.Value)
+		}
+
+	case "pr-comments":
+		// PR comments dialog dismissed; no action needed.
+
+	case "create-issue":
+		if result.Value != "" && len(a.createIssueTeams) > 0 {
+			team := a.createIssueTeams[0]
+			title := result.Value
+			return func() tea.Msg {
+				acct := findAccountByName(a.linearService, team.Account)
+				if acct.Name == "" {
+					return messages.Error{Err: fmt.Errorf("no Linear account"), Context: "create issue"}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if _, err := a.linearService.CreateIssue(ctx, acct, team.TeamID, title, ""); err != nil {
+					return messages.Error{Err: err, Context: "create issue"}
+				}
+				return messages.RefreshBoard{}
+			}
+		}
+
+	case "attempt-picker":
+		if a.attemptPickerIssueID != "" && result.Index >= 0 && result.Index < len(a.attemptPickerBranches) {
+			branch := a.attemptPickerBranches[result.Index]
+			issueID := a.attemptPickerIssueID
+			a.attemptPickerIssueID = ""
+			a.attemptPickerBranches = nil
+			return a.resumeIssueWorkByBranch(issueID, branch)
+		}
+
+	case "edit-preview-url":
+		if result.Value != "" && a.previewView != nil {
+			a.previewView.URL = result.Value
+			if a.drawer != nil {
+				a.drawer.SetDevURL(result.Value)
+			}
+		}
+
+	case "agent-profile-picker":
+		if result.Value != "" && a.agentProfileIssueID != "" {
+			issueID := a.agentProfileIssueID
+			a.agentProfileIssueID = ""
+			return a.updateAgentProfile(issueID, result.Value)
+		}
 	}
 
 	return nil
