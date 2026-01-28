@@ -5,6 +5,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
 git config core.hooksPath .githooks
+chmod +x .githooks/pre-commit
 chmod +x .githooks/pre-push
 
-echo "Installed git hooks to .githooks (pre-push enabled)."
+echo "Installed git hooks to .githooks (pre-commit, pre-push enabled)."
