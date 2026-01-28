@@ -360,11 +360,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		// Sync active agents state to dashboard (show spinner only when actively outputting)
-		activeWorkspaces := make(map[string]bool)
-		for _, root := range a.center.GetActiveWorkspaceRoots() {
-			activeWorkspaces[root] = true
-		}
-		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
+		a.syncActiveWorkspacesToDashboard()
 		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
 			cmds = append(cmds, startCmd)
 		}
@@ -385,11 +381,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dashboard.SpinnerTickMsg:
 		// Sync active agents state from center to dashboard
-		activeWorkspaces := make(map[string]bool)
-		for _, root := range a.center.GetActiveWorkspaceRoots() {
-			activeWorkspaces[root] = true
-		}
-		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
+		a.syncActiveWorkspacesToDashboard()
 
 		// Tick center spinner for tab activity animation
 		a.center.TickSpinner()
@@ -498,6 +490,16 @@ func (a *App) safeBatch(cmds ...tea.Cmd) tea.Cmd {
 		return nil
 	}
 	return tea.Batch(safe...)
+}
+
+// syncActiveWorkspacesToDashboard syncs the active workspace state from center to dashboard.
+// This ensures the dashboard has current data for spinner state decisions.
+func (a *App) syncActiveWorkspacesToDashboard() {
+	activeWorkspaces := make(map[string]bool)
+	for _, root := range a.center.GetActiveWorkspaceRoots() {
+		activeWorkspaces[root] = true
+	}
+	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
 }
 
 // handleKeyPress handles keyboard input
