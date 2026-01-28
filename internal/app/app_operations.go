@@ -107,6 +107,16 @@ func (a *App) loadProjects() tea.Cmd {
 						path,                // repo
 						path,                // root (same as repo for primary)
 					)
+					// Load any persisted UI state (OpenTabs, etc.) for the primary checkout
+					found, loadErr := a.workspaces.LoadMetadataFor(primaryWs)
+					if loadErr != nil {
+						logging.Warn("Failed to load metadata for primary checkout %s: %v", path, loadErr)
+					} else if !found {
+						// No stored metadata - save so UI state persists across restarts
+						if err := a.workspaces.Save(primaryWs); err != nil {
+							logging.Warn("Failed to save primary checkout %s: %v", path, err)
+						}
+					}
 					workspaces = append([]data.Workspace{*primaryWs}, workspaces...)
 				}
 			}
