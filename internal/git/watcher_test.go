@@ -39,7 +39,7 @@ func TestFileWatcher(t *testing.T) {
 		}
 	})
 
-	t.Run("findWorktreeRoot", func(t *testing.T) {
+	t.Run("findRoot", func(t *testing.T) {
 		root := t.TempDir()
 		gitDir := filepath.Join(root, ".git")
 		if err := os.MkdirAll(gitDir, 0755); err != nil {
@@ -62,12 +62,12 @@ func TestFileWatcher(t *testing.T) {
 			t.Fatalf("Watch() error = %v", err)
 		}
 
-		if got := fw.findWorktreeRoot(indexPath); got != root {
-			t.Fatalf("findWorktreeRoot() = %s, want %s", got, root)
+		if got := fw.findRoot(indexPath); got != root {
+			t.Fatalf("findRoot() = %s, want %s", got, root)
 		}
 	})
 
-	t.Run("worktree gitdir file", func(t *testing.T) {
+	t.Run("workspace gitdir file", func(t *testing.T) {
 		root := t.TempDir()
 		gitDir := filepath.Join(t.TempDir(), "gitdir")
 		if err := os.MkdirAll(gitDir, 0755); err != nil {
@@ -95,8 +95,8 @@ func TestFileWatcher(t *testing.T) {
 			t.Fatalf("Watch() error = %v", err)
 		}
 
-		if got := fw.findWorktreeRoot(indexPath); got != root {
-			t.Fatalf("findWorktreeRoot() = %s, want %s", got, root)
+		if got := fw.findRoot(indexPath); got != root {
+			t.Fatalf("findRoot() = %s, want %s", got, root)
 		}
 	})
 

@@ -17,7 +17,7 @@ type FileWatcher struct {
 	mu sync.Mutex
 
 	watcher    *fsnotify.Watcher
-	watching   map[string]bool // worktree root -> watching
+	watching   map[string]bool // workspace root -> watching
 	watchPaths map[string][]watchTarget
 	onChanged  func(root string)
 	closeOnce  sync.Once
@@ -49,7 +49,7 @@ func NewFileWatcher(onChanged func(root string)) (*FileWatcher, error) {
 	return fw, nil
 }
 
-// Watch starts watching a worktree for git changes
+// Watch starts watching a workspace for git changes
 func (fw *FileWatcher) Watch(root string) error {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
@@ -58,10 +58,10 @@ func (fw *FileWatcher) Watch(root string) error {
 		return nil
 	}
 
-	// Watch the .git directory (or .git file for worktrees)
+	// Watch the .git directory (or .git file for workspaces)
 	gitPath := filepath.Join(root, ".git")
 
-	// Check if it's a file (worktree) or directory (main repo)
+	// Check if it's a file (workspace) or directory (main repo)
 	info, err := os.Stat(gitPath)
 	if err != nil {
 		return err
@@ -80,7 +80,7 @@ func (fw *FileWatcher) Watch(root string) error {
 			return err
 		}
 	} else {
-		// For worktrees, .git is a file pointing to the real gitdir
+		// For workspaces, .git is a file pointing to the real gitdir
 		gitDir, err := readGitDirFromFile(gitPath)
 		if err != nil {
 			return err
@@ -100,7 +100,7 @@ func (fw *FileWatcher) Watch(root string) error {
 	return nil
 }
 
-// Unwatch stops watching a worktree
+// Unwatch stops watching a workspace
 func (fw *FileWatcher) Unwatch(root string) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
@@ -130,8 +130,8 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 				return nil
 			}
 
-			// Find which worktree this event belongs to
-			root := fw.findWorktreeRoot(event.Name)
+			// Find which workspace this event belongs to
+			root := fw.findRoot(event.Name)
 			if root == "" {
 				continue
 			}
@@ -161,8 +161,8 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 	}
 }
 
-// findWorktreeRoot finds the worktree root for a given path
-func (fw *FileWatcher) findWorktreeRoot(path string) string {
+// findRoot finds the workspace root for a given path
+func (fw *FileWatcher) findRoot(path string) string {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
@@ -231,7 +231,7 @@ func (fw *FileWatcher) Close() error {
 	return err
 }
 
-// IsWatching checks if a worktree is being watched
+// IsWatching checks if a workspace is being watched
 func (fw *FileWatcher) IsWatching(root string) bool {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()

@@ -98,7 +98,7 @@ func TestScriptRunnerLoadConfigPermissionError(t *testing.T) {
 
 func TestScriptRunnerRunSetupAndEnv(t *testing.T) {
 	repo := t.TempDir()
-	worktreeRoot := t.TempDir()
+	wsRoot := t.TempDir()
 
 	writeWorkspaceConfig(t, repo, `{
   "setup-workspace": ["printf \"$AMUX_WORKSPACE_NAME-$CUSTOM_VAR\" > setup.txt"]
@@ -109,7 +109,7 @@ func TestScriptRunnerRunSetupAndEnv(t *testing.T) {
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   repo,
-		Root:   worktreeRoot,
+		Root:   wsRoot,
 	}
 	meta := &data.Metadata{
 		Env: map[string]string{"CUSTOM_VAR": "hello"},
@@ -119,7 +119,7 @@ func TestScriptRunnerRunSetupAndEnv(t *testing.T) {
 		t.Fatalf("RunSetup() error = %v", err)
 	}
 
-	contents, err := os.ReadFile(filepath.Join(worktreeRoot, "setup.txt"))
+	contents, err := os.ReadFile(filepath.Join(wsRoot, "setup.txt"))
 	if err != nil {
 		t.Fatalf("expected setup.txt to exist: %v", err)
 	}
@@ -130,14 +130,14 @@ func TestScriptRunnerRunSetupAndEnv(t *testing.T) {
 
 func TestScriptRunnerRunSetupFailure(t *testing.T) {
 	repo := t.TempDir()
-	worktreeRoot := t.TempDir()
+	wsRoot := t.TempDir()
 
 	writeWorkspaceConfig(t, repo, `{
   "setup-workspace": ["exit 1"]
 }`)
 
 	runner := NewScriptRunner(6200, 10)
-	wt := &data.Workspace{Repo: repo, Root: worktreeRoot}
+	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	if err := runner.RunSetup(wt, nil); err == nil {
 		t.Fatalf("expected RunSetup() to fail for failing command")
@@ -146,20 +146,20 @@ func TestScriptRunnerRunSetupFailure(t *testing.T) {
 
 func TestScriptRunnerRunScriptConfigAndMeta(t *testing.T) {
 	repo := t.TempDir()
-	worktreeRoot := t.TempDir()
+	wsRoot := t.TempDir()
 
 	writeWorkspaceConfig(t, repo, `{
   "run": "printf run-config > run.txt"
 }`)
 
 	runner := NewScriptRunner(6200, 10)
-	wt := &data.Workspace{Repo: repo, Root: worktreeRoot}
+	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	_, err := runner.RunScript(wt, nil, ScriptRun)
 	if err != nil {
 		t.Fatalf("RunScript() error = %v", err)
 	}
-	if err := waitForFile(filepath.Join(worktreeRoot, "run.txt"), 2*time.Second); err != nil {
+	if err := waitForFile(filepath.Join(wsRoot, "run.txt"), 2*time.Second); err != nil {
 		t.Fatalf("expected run.txt to be created: %v", err)
 	}
 
@@ -170,19 +170,19 @@ func TestScriptRunnerRunScriptConfigAndMeta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunScript() meta override error = %v", err)
 	}
-	if err := waitForFile(filepath.Join(worktreeRoot, "run-meta.txt"), 2*time.Second); err != nil {
+	if err := waitForFile(filepath.Join(wsRoot, "run-meta.txt"), 2*time.Second); err != nil {
 		t.Fatalf("expected run-meta.txt to be created: %v", err)
 	}
 }
 
 func TestScriptRunnerRunScriptMissing(t *testing.T) {
 	repo := t.TempDir()
-	worktreeRoot := t.TempDir()
+	wsRoot := t.TempDir()
 
 	writeWorkspaceConfig(t, repo, `{}`)
 
 	runner := NewScriptRunner(6200, 10)
-	wt := &data.Workspace{Repo: repo, Root: worktreeRoot}
+	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	if _, err := runner.RunScript(wt, nil, ScriptRun); err == nil {
 		t.Fatalf("expected RunScript() to fail when no script configured")
@@ -191,14 +191,14 @@ func TestScriptRunnerRunScriptMissing(t *testing.T) {
 
 func TestScriptRunnerStop(t *testing.T) {
 	repo := t.TempDir()
-	worktreeRoot := t.TempDir()
+	wsRoot := t.TempDir()
 
 	writeWorkspaceConfig(t, repo, `{
   "run": "sleep 5"
 }`)
 
 	runner := NewScriptRunner(6200, 10)
-	wt := &data.Workspace{Repo: repo, Root: worktreeRoot}
+	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	if _, err := runner.RunScript(wt, nil, ScriptRun); err != nil {
 		t.Fatalf("RunScript() error = %v", err)

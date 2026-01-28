@@ -29,7 +29,7 @@ func (a *App) loadProjects() tea.Cmd {
 			}
 
 			project := data.NewProject(path)
-			workspaces, err := git.DiscoverWorktrees(project)
+			workspaces, err := git.DiscoverWorkspaces(project)
 			if err != nil {
 				continue
 			}
@@ -129,7 +129,7 @@ func (a *App) addProject(path string) tea.Cmd {
 	}
 }
 
-// createWorkspace creates a new git worktree-based workspace
+// createWorkspace creates a new workspace
 func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd {
 	return func() (msg tea.Msg) {
 		var ws *data.Workspace
@@ -158,14 +158,14 @@ func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd 
 		branch := name
 		ws = data.NewWorkspace(name, branch, base, project.Path, workspacePath)
 
-		if err := git.CreateWorktree(project.Path, workspacePath, branch, base); err != nil {
+		if err := git.CreateWorkspace(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
 			}
 		}
 
-		// Wait for .git file to exist (race condition from git worktree add)
+		// Wait for .git file to exist (race condition from workspace creation)
 		gitPath := filepath.Join(workspacePath, ".git")
 		for i := 0; i < 10; i++ {
 			if _, err := os.Stat(gitPath); err == nil {
@@ -181,13 +181,13 @@ func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd 
 			Base:       base,
 			Created:    time.Now().Format(time.RFC3339),
 			Assistant:  "claude",
-			Runtime:    "local-worktree",
+			Runtime:    "local",
 			ScriptMode: "nonconcurrent",
 			Env:        make(map[string]string),
 		}
 
 		if err := a.metadata.Save(ws, meta); err != nil {
-			_ = git.RemoveWorktree(project.Path, workspacePath)
+			_ = git.RemoveWorkspace(project.Path, workspacePath)
 			_ = git.DeleteBranch(project.Path, branch)
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
@@ -210,7 +210,7 @@ func (a *App) runSetupAsync(ws *data.Workspace, meta *data.Metadata) tea.Cmd {
 	}
 }
 
-// deleteWorkspace deletes a git worktree-based workspace
+// deleteWorkspace deletes a workspace
 func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd {
 	// Defensive nil checks
 	if project == nil || ws == nil {
@@ -237,7 +237,7 @@ func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd
 			}
 		}
 
-		if err := git.RemoveWorktree(project.Path, ws.Root); err != nil {
+		if err := git.RemoveWorkspace(project.Path, ws.Root); err != nil {
 			return messages.WorkspaceDeleteFailed{
 				Project:   project,
 				Workspace: ws,

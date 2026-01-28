@@ -13,7 +13,7 @@ func TestMetadataStoreLoadDefault(t *testing.T) {
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   "/repo",
-		Root:   "/worktrees/feature-1",
+		Root:   "/workspaces/feature-1",
 		Base:   "origin/main",
 	}
 
@@ -42,7 +42,7 @@ func TestMetadataStoreLoadMalformedJSON(t *testing.T) {
 		Name:   "feature-bad",
 		Branch: "feature-bad",
 		Repo:   "/repo",
-		Root:   "/worktrees/feature-bad",
+		Root:   "/workspaces/feature-bad",
 	}
 
 	// Create malformed metadata file (note: file is named workspace.json)
@@ -67,7 +67,7 @@ func TestMetadataStoreDeleteNonExistent(t *testing.T) {
 		Name:   "nonexistent",
 		Branch: "nonexistent",
 		Repo:   "/repo",
-		Root:   "/worktrees/nonexistent",
+		Root:   "/workspaces/nonexistent",
 	}
 
 	// Delete should not error for non-existent metadata
@@ -83,7 +83,7 @@ func TestMetadataStoreLoadPermissionError(t *testing.T) {
 		Name:   "permission-test",
 		Branch: "permission-test",
 		Repo:   "/repo",
-		Root:   "/worktrees/permission-test",
+		Root:   "/workspaces/permission-test",
 	}
 
 	// Create metadata file with restricted permissions
@@ -121,7 +121,7 @@ func TestMetadataStoreSaveLoadDelete(t *testing.T) {
 		Name:   "feature-2",
 		Branch: "feature-2",
 		Repo:   "/repo",
-		Root:   "/worktrees/feature-2",
+		Root:   "/workspaces/feature-2",
 		Base:   "main",
 	}
 

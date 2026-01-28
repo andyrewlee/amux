@@ -4,12 +4,12 @@ import (
 	"testing"
 )
 
-func TestParseWorktreeList(t *testing.T) {
+func TestParseWorkspaceList(t *testing.T) {
 	tests := []struct {
 		name    string
 		output  string
 		want    int
-		entries []WorktreeEntry
+		entries []workspaceEntry
 	}{
 		{
 			name:   "empty",
@@ -17,30 +17,30 @@ func TestParseWorktreeList(t *testing.T) {
 			want:   0,
 		},
 		{
-			name: "single worktree",
+			name: "single workspace",
 			output: `worktree /home/user/repo
 HEAD abc123def456
 branch refs/heads/main
 `,
 			want: 1,
-			entries: []WorktreeEntry{
+			entries: []workspaceEntry{
 				{Path: "/home/user/repo", Head: "abc123def456", Branch: "main"},
 			},
 		},
 		{
-			name: "multiple worktrees",
+			name: "multiple workspaces",
 			output: `worktree /home/user/repo
 HEAD abc123def456
 branch refs/heads/main
 
-worktree /home/user/.amux/worktrees/feature
+worktree /home/user/.amux/workspaces/feature
 HEAD def456abc123
 branch refs/heads/feature
 `,
 			want: 2,
-			entries: []WorktreeEntry{
+			entries: []workspaceEntry{
 				{Path: "/home/user/repo", Head: "abc123def456", Branch: "main"},
-				{Path: "/home/user/.amux/worktrees/feature", Head: "def456abc123", Branch: "feature"},
+				{Path: "/home/user/.amux/workspaces/feature", Head: "def456abc123", Branch: "feature"},
 			},
 		},
 		{
@@ -49,7 +49,7 @@ branch refs/heads/feature
 bare
 `,
 			want: 1,
-			entries: []WorktreeEntry{
+			entries: []workspaceEntry{
 				{Path: "/home/user/repo.git", Bare: true},
 			},
 		},
@@ -60,7 +60,7 @@ HEAD abc123def456
 detached
 `,
 			want: 1,
-			entries: []WorktreeEntry{
+			entries: []workspaceEntry{
 				{Path: "/home/user/repo", Head: "abc123def456", Branch: ""},
 			},
 		},
@@ -68,10 +68,10 @@ detached
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseWorktreeList(tt.output)
+			result := parseWorkspaceList(tt.output)
 
 			if len(result) != tt.want {
-				t.Errorf("parseWorktreeList() returned %d entries, want %d", len(result), tt.want)
+				t.Errorf("parseWorkspaceList() returned %d entries, want %d", len(result), tt.want)
 				return
 			}
 
