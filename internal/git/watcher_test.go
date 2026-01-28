@@ -1,9 +1,12 @@
 package git
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestFileWatcher(t *testing.T) {
@@ -157,6 +160,88 @@ func TestFileWatcher(t *testing.T) {
 
 		if !fw.IsWatching(root) {
 			t.Fatalf("expected watcher to still be active")
+		}
+	})
+
+	t.Run("detects changes after atomic file replacement", func(t *testing.T) {
+		// This test simulates what git does when committing:
+		// 1. Write to a temp file
+		// 2. Rename temp file over the index file (atomic replacement)
+		// The watcher should still detect changes after this replacement.
+		root := t.TempDir()
+		gitDir := filepath.Join(root, ".git")
+		if err := os.MkdirAll(gitDir, 0755); err != nil {
+			t.Fatalf("mkdir .git: %v", err)
+		}
+		indexPath := filepath.Join(gitDir, "index")
+		if err := os.WriteFile(indexPath, []byte("initial"), 0644); err != nil {
+			t.Fatalf("write index: %v", err)
+		}
+
+		var notifyCount atomic.Int32
+		fw, err := NewFileWatcher(func(r string) {
+			if r == root {
+				notifyCount.Add(1)
+			}
+		})
+		if err != nil {
+			t.Fatalf("NewFileWatcher() error = %v", err)
+		}
+		defer func() {
+			_ = fw.Close()
+		}()
+
+		// Reduce debounce for faster test
+		fw.debounce = 50 * time.Millisecond
+
+		if err := fw.Watch(root); err != nil {
+			t.Fatalf("Watch() error = %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		go func() {
+			_ = fw.Run(ctx)
+		}()
+
+		// Give the watcher time to start
+		time.Sleep(50 * time.Millisecond)
+
+		// Simulate atomic file replacement (like git commit does)
+		tempPath := filepath.Join(gitDir, "index.lock")
+		if err := os.WriteFile(tempPath, []byte("after commit"), 0644); err != nil {
+			t.Fatalf("write temp: %v", err)
+		}
+		if err := os.Rename(tempPath, indexPath); err != nil {
+			t.Fatalf("rename: %v", err)
+		}
+
+		// Wait for notification
+		time.Sleep(100 * time.Millisecond)
+
+		if notifyCount.Load() == 0 {
+			t.Fatalf("expected notification after atomic file replacement")
+		}
+
+		// Reset counter and wait for debounce
+		notifyCount.Store(0)
+		time.Sleep(100 * time.Millisecond)
+
+		// Make another change - this verifies the watch is still active
+		tempPath2 := filepath.Join(gitDir, "index.lock")
+		if err := os.WriteFile(tempPath2, []byte("second commit"), 0644); err != nil {
+			t.Fatalf("write temp2: %v", err)
+		}
+		if err := os.Rename(tempPath2, indexPath); err != nil {
+			t.Fatalf("rename2: %v", err)
+		}
+
+		// Wait for notification
+		time.Sleep(100 * time.Millisecond)
+
+		if notifyCount.Load() == 0 {
+			t.Fatalf("expected notification after second atomic file replacement")
 		}
 	})
 }
