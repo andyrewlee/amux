@@ -76,7 +76,6 @@ type Model struct {
 	deleteIconX     int             // X position of delete "x" icon for currently selected row
 
 	// Loading state
-	loadingStatus      map[string]bool            // Workspaces currently loading git status
 	creatingWorkspaces map[string]*data.Workspace // Workspaces currently being created
 	deletingWorkspaces map[string]bool            // Workspaces currently being deleted
 	spinnerFrame       int                        // Current spinner animation frame
@@ -95,7 +94,6 @@ func New() *Model {
 		projects:           []data.Project{},
 		rows:               []Row{},
 		statusCache:        make(map[string]*git.StatusResult),
-		loadingStatus:      make(map[string]bool),
 		creatingWorkspaces: make(map[string]*data.Workspace),
 		deletingWorkspaces: make(map[string]bool),
 		activeWorkspaces:   make(map[string]bool),
@@ -115,8 +113,6 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 // to keep the dashboard cache in sync with the StatusManager cache.
 func (m *Model) InvalidateStatus(root string) {
 	delete(m.statusCache, root)
-	// Mark as loading so UI shows spinner instead of stale state
-	m.loadingStatus[root] = true
 }
 
 // SetCanFocusRight controls whether focus-right hints should be shown.
@@ -286,7 +282,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case SpinnerTickMsg:
 		// Advance spinner frame if we have loading items or active agents
-		if len(m.loadingStatus) > 0 || len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 || len(m.activeWorkspaces) > 0 {
+		if len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 {
 			m.spinnerFrame++
 			cmds = append(cmds, m.tickSpinner())
 		} else {
@@ -296,22 +292,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.ProjectsLoaded:
 		m.projects = msg.Projects
 		m.rebuildRows()
-		// Mark all workspaces as loading status
-		for _, p := range m.projects {
-			for _, wt := range p.Workspaces {
-				if _, ok := m.statusCache[wt.Root]; !ok {
-					m.loadingStatus[wt.Root] = true
-				}
-			}
-		}
-		// Start spinner if we have loading items
-		if cmd := m.startSpinnerIfNeeded(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 
 	case messages.GitStatusResult:
-		// Remove from loading, add to cache
-		delete(m.loadingStatus, msg.Root)
 		if msg.Err == nil {
 			m.statusCache[msg.Root] = msg.Status
 		}
