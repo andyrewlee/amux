@@ -57,6 +57,7 @@ func (a *App) loadProjects() tea.Cmd {
 					// Don't save - avoid overwriting potentially corrupted metadata
 				} else {
 					// No stored metadata - apply defaults and save for future
+					discovered.Created = time.Now()
 					discovered.Runtime = data.RuntimeLocalWorktree
 					discovered.Assistant = "claude"
 					discovered.ScriptMode = "nonconcurrent"
