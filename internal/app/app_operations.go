@@ -35,15 +35,11 @@ func (a *App) loadProjects() tea.Cmd {
 			}
 			for i := range workspaces {
 				ws := &workspaces[i]
-				result, err := a.metadata.Load(ws)
+				meta, err := a.metadata.Load(ws)
 				if err != nil {
 					logging.Warn("Failed to load metadata for %s: %v", ws.Root, err)
 					continue
 				}
-				if result.Warning != "" {
-					logging.Warn("Metadata migration warning for %s: %s", ws.Root, result.Warning)
-				}
-				meta := result.Metadata
 				if meta.Base != "" {
 					ws.Base = meta.Base
 				}

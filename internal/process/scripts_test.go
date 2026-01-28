@@ -20,16 +20,6 @@ func writeWorkspaceConfig(t *testing.T, repoPath, content string) {
 	}
 }
 
-func writeLegacyConfig(t *testing.T, repoPath, content string) {
-	configDir := filepath.Join(repoPath, ".amux")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		t.Fatalf("mkdir .amux: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(configDir, "worktrees.json"), []byte(content), 0644); err != nil {
-		t.Fatalf("write worktrees.json: %v", err)
-	}
-}
-
 func TestScriptRunnerLoadConfigMissing(t *testing.T) {
 	repo := t.TempDir()
 	runner := NewScriptRunner(6200, 10)
@@ -75,80 +65,6 @@ func TestScriptRunnerLoadConfigValidJSON(t *testing.T) {
 	}
 	if cfg.ArchiveScript != "tar -czf archive.tar.gz ." {
 		t.Fatalf("expected archive script, got %s", cfg.ArchiveScript)
-	}
-}
-
-func TestScriptRunnerLoadConfigLegacyFilename(t *testing.T) {
-	repo := t.TempDir()
-	// Use legacy filename (worktrees.json) with new key (setup-workspace)
-	writeLegacyConfig(t, repo, `{
-  "setup-workspace": ["echo legacy-file"],
-  "run": "npm run legacy"
-}`)
-
-	runner := NewScriptRunner(6200, 10)
-	cfg, err := runner.LoadConfig(repo)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	if len(cfg.SetupWorkspace) != 1 || cfg.SetupWorkspace[0] != "echo legacy-file" {
-		t.Fatalf("expected setup command from legacy file, got %v", cfg.SetupWorkspace)
-	}
-	if cfg.RunScript != "npm run legacy" {
-		t.Fatalf("expected run script from legacy file, got %s", cfg.RunScript)
-	}
-}
-
-func TestScriptRunnerLoadConfigLegacyKey(t *testing.T) {
-	repo := t.TempDir()
-	// Use legacy filename and legacy key (setup-worktree)
-	writeLegacyConfig(t, repo, `{
-  "setup-worktree": ["echo legacy-key1", "echo legacy-key2"],
-  "run": "npm run legacy-key",
-  "archive": "tar legacy"
-}`)
-
-	runner := NewScriptRunner(6200, 10)
-	cfg, err := runner.LoadConfig(repo)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	if len(cfg.SetupWorkspace) != 2 {
-		t.Fatalf("expected 2 setup commands from legacy key, got %d", len(cfg.SetupWorkspace))
-	}
-	if cfg.SetupWorkspace[0] != "echo legacy-key1" {
-		t.Fatalf("expected first setup command 'echo legacy-key1', got %s", cfg.SetupWorkspace[0])
-	}
-	if cfg.RunScript != "npm run legacy-key" {
-		t.Fatalf("expected run script from legacy, got %s", cfg.RunScript)
-	}
-	if cfg.ArchiveScript != "tar legacy" {
-		t.Fatalf("expected archive script from legacy, got %s", cfg.ArchiveScript)
-	}
-}
-
-func TestScriptRunnerLoadConfigNewPreferredOverLegacy(t *testing.T) {
-	repo := t.TempDir()
-	// Create both files - new should take precedence
-	writeWorkspaceConfig(t, repo, `{
-  "setup-workspace": ["echo new-file"],
-  "run": "npm run new"
-}`)
-	writeLegacyConfig(t, repo, `{
-  "setup-worktree": ["echo legacy-file"],
-  "run": "npm run legacy"
-}`)
-
-	runner := NewScriptRunner(6200, 10)
-	cfg, err := runner.LoadConfig(repo)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	if len(cfg.SetupWorkspace) != 1 || cfg.SetupWorkspace[0] != "echo new-file" {
-		t.Fatalf("expected setup command from new file, got %v", cfg.SetupWorkspace)
-	}
-	if cfg.RunScript != "npm run new" {
-		t.Fatalf("expected run script from new file, got %s", cfg.RunScript)
 	}
 }
 

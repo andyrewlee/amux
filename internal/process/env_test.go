@@ -15,7 +15,7 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   "/home/user/repo",
-		Root:   "/home/user/.amux/worktrees/feature-1",
+		Root:   "/home/user/.amux/workspaces/feature-1",
 	}
 
 	meta := &data.Metadata{
@@ -29,7 +29,7 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 	// Check required variables are present
 	checks := map[string]string{
 		"AMUX_WORKSPACE_NAME":   "feature-1",
-		"AMUX_WORKSPACE_ROOT":   "/home/user/.amux/worktrees/feature-1",
+		"AMUX_WORKSPACE_ROOT":   "/home/user/.amux/workspaces/feature-1",
 		"AMUX_WORKSPACE_BRANCH": "feature-1",
 		"ROOT_WORKSPACE_PATH":   "/home/user/repo",
 		"CUSTOM_VAR":            "custom_value",
@@ -73,7 +73,7 @@ func TestEnvBuilder_BuildEnvMap(t *testing.T) {
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   "/home/user/repo",
-		Root:   "/home/user/.amux/worktrees/feature-1",
+		Root:   "/home/user/.amux/workspaces/feature-1",
 	}
 
 	envMap := builder.BuildEnvMap(wt, nil)

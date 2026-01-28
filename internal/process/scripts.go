@@ -22,23 +22,13 @@ const (
 	ScriptArchive ScriptType = "archive"
 )
 
-const (
-	configFilename       = "workspaces.json"
-	legacyConfigFilename = "worktrees.json"
-)
+const configFilename = "workspaces.json"
 
 // WorkspaceConfig holds per-project workspace configuration
 type WorkspaceConfig struct {
 	SetupWorkspace []string `json:"setup-workspace"`
 	RunScript      string   `json:"run"`
 	ArchiveScript  string   `json:"archive"`
-}
-
-// LegacyWorkspaceConfig for backward compatibility with setup-worktree key
-type LegacyWorkspaceConfig struct {
-	SetupWorktree []string `json:"setup-worktree"`
-	RunScript     string   `json:"run"`
-	ArchiveScript string   `json:"archive"`
 }
 
 // ScriptRunner manages script execution for workspaces
@@ -61,51 +51,21 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 
 // LoadConfig loads the workspace configuration from the repo
 func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
-	configDir := filepath.Join(repoPath, ".amux")
-	newPath := filepath.Join(configDir, configFilename)
-	legacyPath := filepath.Join(configDir, legacyConfigFilename)
+	configPath := filepath.Join(repoPath, ".amux", configFilename)
 
-	// Try new file first
-	if fileData, err := os.ReadFile(newPath); err == nil {
-		var config WorkspaceConfig
-		if err := json.Unmarshal(fileData, &config); err != nil {
-			return nil, err
-		}
-		// Also check legacy key in new file for migration
-		if len(config.SetupWorkspace) == 0 {
-			var legacy LegacyWorkspaceConfig
-			if err := json.Unmarshal(fileData, &legacy); err == nil && len(legacy.SetupWorktree) > 0 {
-				config.SetupWorkspace = legacy.SetupWorktree
-			}
-		}
-		return &config, nil
-	} else if !os.IsNotExist(err) {
-		return nil, err // Real error
+	fileData, err := os.ReadFile(configPath)
+	if os.IsNotExist(err) {
+		return &WorkspaceConfig{}, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	// Try legacy file
-	if data, err := os.ReadFile(legacyPath); err == nil {
-		// Try new keys first in legacy file
-		var config WorkspaceConfig
-		if err := json.Unmarshal(data, &config); err == nil && len(config.SetupWorkspace) > 0 {
-			return &config, nil
-		}
-		// Fall back to legacy keys
-		var legacy LegacyWorkspaceConfig
-		if err := json.Unmarshal(data, &legacy); err != nil {
-			return nil, err
-		}
-		return &WorkspaceConfig{
-			SetupWorkspace: legacy.SetupWorktree,
-			RunScript:      legacy.RunScript,
-			ArchiveScript:  legacy.ArchiveScript,
-		}, nil
-	} else if !os.IsNotExist(err) {
-		return nil, err // Real error
+	var config WorkspaceConfig
+	if err := json.Unmarshal(fileData, &config); err != nil {
+		return nil, err
 	}
-
-	// Neither exists
-	return &WorkspaceConfig{}, nil
+	return &config, nil
 }
 
 // RunSetup runs the setup scripts for a workspace

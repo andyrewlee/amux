@@ -17,15 +17,10 @@ func TestMetadataStoreLoadDefault(t *testing.T) {
 		Base:   "origin/main",
 	}
 
-	result, err := store.Load(wt)
+	meta, err := store.Load(wt)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if result.Warning != "" {
-		t.Fatalf("expected no warning for default metadata, got %s", result.Warning)
-	}
-
-	meta := result.Metadata
 	if meta.Name != wt.Name || meta.Branch != wt.Branch || meta.Repo != wt.Repo {
 		t.Fatalf("Load() default metadata mismatch: %+v", meta)
 	}
@@ -62,67 +57,6 @@ func TestMetadataStoreLoadMalformedJSON(t *testing.T) {
 	_, err := store.Load(wt)
 	if err == nil {
 		t.Fatalf("Load() should fail for malformed JSON")
-	}
-}
-
-func TestMetadataStoreLoadLegacyFilename(t *testing.T) {
-	root := t.TempDir()
-	store := NewMetadataStore(root)
-	ws := &Workspace{
-		Name:   "legacy-workspace",
-		Branch: "legacy-workspace",
-		Repo:   "/repo",
-		Root:   "/worktrees/legacy-workspace",
-		Base:   "main",
-	}
-
-	// Create metadata using legacy filename (worktree.json)
-	metaDir := filepath.Join(root, string(ws.ID()))
-	if err := os.MkdirAll(metaDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	legacyContent := `{"name":"legacy-workspace","branch":"legacy-workspace","repo":"/repo","base":"main","assistant":"claude","script_mode":"concurrent"}`
-	if err := os.WriteFile(filepath.Join(metaDir, "worktree.json"), []byte(legacyContent), 0644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-
-	// Load should find and use the legacy file and return a warning
-	result, err := store.Load(ws)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if result.Warning == "" {
-		t.Fatal("expected warning when loading from legacy file")
-	}
-	meta := result.Metadata
-	if meta.Name != "legacy-workspace" {
-		t.Fatalf("expected name 'legacy-workspace', got %s", meta.Name)
-	}
-	if meta.ScriptMode != "concurrent" {
-		t.Fatalf("expected script_mode 'concurrent', got %s", meta.ScriptMode)
-	}
-
-	// Save should write to new filename (workspace.json)
-	if err := store.Save(ws, meta); err != nil {
-		t.Fatalf("Save() error = %v", err)
-	}
-
-	// Verify new file exists
-	newPath := filepath.Join(metaDir, "workspace.json")
-	if _, err := os.Stat(newPath); os.IsNotExist(err) {
-		t.Fatal("expected workspace.json to be created after Save()")
-	}
-
-	// After save, Load should prefer the new file and have no warning
-	result2, err := store.Load(ws)
-	if err != nil {
-		t.Fatalf("Load() after save error = %v", err)
-	}
-	if result2.Warning != "" {
-		t.Fatalf("expected no warning after save, got %s", result2.Warning)
-	}
-	if result2.Metadata.Name != "legacy-workspace" {
-		t.Fatalf("expected name 'legacy-workspace' after save, got %s", result2.Metadata.Name)
 	}
 }
 
@@ -180,44 +114,6 @@ func TestMetadataStoreLoadPermissionError(t *testing.T) {
 	}
 }
 
-func TestMetadataStoreLoadLegacyPermissionError(t *testing.T) {
-	root := t.TempDir()
-	store := NewMetadataStore(root)
-	ws := &Workspace{
-		Name:   "legacy-permission-test",
-		Branch: "legacy-permission-test",
-		Repo:   "/repo",
-		Root:   "/worktrees/legacy-permission-test",
-	}
-
-	// Create only legacy file with restricted permissions
-	metaDir := filepath.Join(root, string(ws.ID()))
-	if err := os.MkdirAll(metaDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	legacyPath := filepath.Join(metaDir, "worktree.json")
-	if err := os.WriteFile(legacyPath, []byte(`{"name":"test"}`), 0644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-	// Make file unreadable
-	if err := os.Chmod(legacyPath, 0000); err != nil {
-		t.Fatalf("chmod: %v", err)
-	}
-	// Restore permissions on cleanup
-	t.Cleanup(func() {
-		_ = os.Chmod(legacyPath, 0644)
-	})
-
-	// Load should return a permission error, not fall back to defaults
-	_, err := store.Load(ws)
-	if err == nil {
-		t.Fatal("expected permission error, got nil")
-	}
-	if os.IsNotExist(err) {
-		t.Fatalf("expected permission error, got IsNotExist: %v", err)
-	}
-}
-
 func TestMetadataStoreSaveLoadDelete(t *testing.T) {
 	root := t.TempDir()
 	store := NewMetadataStore(root)
@@ -250,11 +146,10 @@ func TestMetadataStoreSaveLoadDelete(t *testing.T) {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	result, err := store.Load(wt)
+	loaded, err := store.Load(wt)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	loaded := result.Metadata
 	if loaded.Assistant != "codex" || loaded.ScriptMode != "concurrent" {
 		t.Fatalf("Load() mismatch: %+v", loaded)
 	}
@@ -272,106 +167,3 @@ func TestMetadataStoreSaveLoadDelete(t *testing.T) {
 	}
 }
 
-func TestMetadataStoreLoadBothFilesExist(t *testing.T) {
-	root := t.TempDir()
-	store := NewMetadataStore(root)
-	ws := &Workspace{
-		Name:   "both-exist",
-		Branch: "both-exist",
-		Repo:   "/repo",
-		Root:   "/worktrees/both-exist",
-	}
-
-	// Create both files with different content
-	metaDir := filepath.Join(root, string(ws.ID()))
-	if err := os.MkdirAll(metaDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	newContent := `{"name":"both-exist","assistant":"claude","script_mode":"nonconcurrent"}`
-	legacyContent := `{"name":"both-exist","assistant":"codex","script_mode":"concurrent"}`
-	if err := os.WriteFile(filepath.Join(metaDir, "workspace.json"), []byte(newContent), 0644); err != nil {
-		t.Fatalf("write new file: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(metaDir, "worktree.json"), []byte(legacyContent), 0644); err != nil {
-		t.Fatalf("write legacy file: %v", err)
-	}
-
-	// Load should prefer new file, no warning
-	result, err := store.Load(ws)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if result.Warning != "" {
-		t.Fatalf("expected no warning when new file exists, got %s", result.Warning)
-	}
-	if result.Metadata.Assistant != "claude" {
-		t.Fatalf("expected assistant 'claude' from new file, got %s", result.Metadata.Assistant)
-	}
-}
-
-func TestMetadataStoreLoadNewCorruptedLegacyValid(t *testing.T) {
-	root := t.TempDir()
-	store := NewMetadataStore(root)
-	ws := &Workspace{
-		Name:   "corrupted-new",
-		Branch: "corrupted-new",
-		Repo:   "/repo",
-		Root:   "/worktrees/corrupted-new",
-	}
-
-	// Create corrupted new file and valid legacy file
-	metaDir := filepath.Join(root, string(ws.ID()))
-	if err := os.MkdirAll(metaDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	corruptedContent := `{invalid json content}`
-	legacyContent := `{"name":"corrupted-new","assistant":"codex","script_mode":"concurrent"}`
-	if err := os.WriteFile(filepath.Join(metaDir, "workspace.json"), []byte(corruptedContent), 0644); err != nil {
-		t.Fatalf("write corrupted file: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(metaDir, "worktree.json"), []byte(legacyContent), 0644); err != nil {
-		t.Fatalf("write legacy file: %v", err)
-	}
-
-	// Load should fall back to legacy and return a warning
-	result, err := store.Load(ws)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if result.Warning == "" {
-		t.Fatal("expected warning when recovering from corrupted new file")
-	}
-	if result.Metadata.Assistant != "codex" {
-		t.Fatalf("expected assistant 'codex' from legacy file, got %s", result.Metadata.Assistant)
-	}
-}
-
-func TestMetadataStoreLoadBothCorrupted(t *testing.T) {
-	root := t.TempDir()
-	store := NewMetadataStore(root)
-	ws := &Workspace{
-		Name:   "both-corrupted",
-		Branch: "both-corrupted",
-		Repo:   "/repo",
-		Root:   "/worktrees/both-corrupted",
-	}
-
-	// Create both files with corrupted content
-	metaDir := filepath.Join(root, string(ws.ID()))
-	if err := os.MkdirAll(metaDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	corruptedContent := `{invalid json content}`
-	if err := os.WriteFile(filepath.Join(metaDir, "workspace.json"), []byte(corruptedContent), 0644); err != nil {
-		t.Fatalf("write corrupted new file: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(metaDir, "worktree.json"), []byte(corruptedContent), 0644); err != nil {
-		t.Fatalf("write corrupted legacy file: %v", err)
-	}
-
-	// Load should return an error
-	_, err := store.Load(ws)
-	if err == nil {
-		t.Fatal("expected error when both files are corrupted")
-	}
-}
