@@ -32,9 +32,6 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			if m.deletingWorkspaces[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				statusText = m.styles.StatusPending.Render(frame + " deleting")
-			} else if m.loadingStatus[main.Root] {
-				frame := common.SpinnerFrame(m.spinnerFrame)
-				statusText = m.styles.StatusPending.Render(frame)
 			} else if m.activeWorkspaces[main.Root] {
 				// Active agents - color change only, no spinner
 				working = true
@@ -104,10 +101,6 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if _, ok := m.creatingWorkspaces[row.Workspace.Root]; ok {
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame + " creating")
-		} else if m.loadingStatus[row.Workspace.Root] {
-			// Show spinner while loading
-			frame := common.SpinnerFrame(m.spinnerFrame)
-			statusText = m.styles.StatusPending.Render(frame)
 		} else if m.activeWorkspaces[row.Workspace.Root] {
 			// Active agents - color change only, no spinner
 			working = true

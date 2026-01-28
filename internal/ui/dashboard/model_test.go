@@ -419,7 +419,6 @@ func TestDashboardInvalidateStatus(t *testing.T) {
 		m.statusCache[root] = &git.StatusResult{
 			Unstaged: []git.Change{{Path: "test.go", Kind: git.ChangeModified}},
 		}
-		delete(m.loadingStatus, root)
 
 		// Invalidate
 		m.InvalidateStatus(root)
@@ -428,21 +427,11 @@ func TestDashboardInvalidateStatus(t *testing.T) {
 		if _, ok := m.statusCache[root]; ok {
 			t.Fatal("expected statusCache entry to be deleted")
 		}
-
-		// Verify loading state is set
-		if !m.loadingStatus[root] {
-			t.Fatal("expected loadingStatus to be true after invalidation")
-		}
 	})
 
 	t.Run("handles non-existent root", func(t *testing.T) {
 		// Should not panic when invalidating a root that isn't cached
 		m.InvalidateStatus("/non/existent/path")
-
-		// Loading should still be marked
-		if !m.loadingStatus["/non/existent/path"] {
-			t.Fatal("expected loadingStatus to be true even for uncached root")
-		}
 	})
 
 	t.Run("multiple invalidations", func(t *testing.T) {
@@ -452,8 +441,6 @@ func TestDashboardInvalidateStatus(t *testing.T) {
 		// Cache both
 		m.statusCache[root1] = &git.StatusResult{Clean: true}
 		m.statusCache[root2] = &git.StatusResult{Clean: true}
-		delete(m.loadingStatus, root1)
-		delete(m.loadingStatus, root2)
 
 		// Invalidate first
 		m.InvalidateStatus(root1)
@@ -465,8 +452,79 @@ func TestDashboardInvalidateStatus(t *testing.T) {
 		if _, ok := m.statusCache[root2]; !ok {
 			t.Fatal("expected root2 to remain cached")
 		}
-		if !m.loadingStatus[root1] {
-			t.Fatal("expected root1 loadingStatus to be true")
+	})
+}
+
+func TestSpinnerOnlyForCreateDelete(t *testing.T) {
+	m := New()
+	m.SetProjects([]data.Project{makeProject()})
+
+	t.Run("spinner not active initially", func(t *testing.T) {
+		if m.spinnerActive {
+			t.Fatal("spinner should not be active initially")
+		}
+	})
+
+	t.Run("spinner activates on workspace creation", func(t *testing.T) {
+		ws := &data.Workspace{
+			Name:   "new-ws",
+			Branch: "feature",
+			Repo:   "/repo",
+			Root:   "/repo/.amux/workspaces/new-ws",
+		}
+		cmd := m.SetWorkspaceCreating(ws, true)
+		if cmd == nil {
+			t.Fatal("expected command to start spinner")
+		}
+		if !m.spinnerActive {
+			t.Fatal("spinner should be active during creation")
+		}
+		if len(m.creatingWorkspaces) != 1 {
+			t.Fatalf("expected 1 creating workspace, got %d", len(m.creatingWorkspaces))
+		}
+	})
+
+	t.Run("spinner deactivates when creation completes", func(t *testing.T) {
+		ws := &data.Workspace{
+			Name:   "new-ws",
+			Branch: "feature",
+			Repo:   "/repo",
+			Root:   "/repo/.amux/workspaces/new-ws",
+		}
+		m.SetWorkspaceCreating(ws, false)
+		if len(m.creatingWorkspaces) != 0 {
+			t.Fatalf("expected 0 creating workspaces, got %d", len(m.creatingWorkspaces))
+		}
+	})
+
+	t.Run("spinner activates on workspace deletion", func(t *testing.T) {
+		m.spinnerActive = false
+		cmd := m.SetWorkspaceDeleting("/some/root", true)
+		if cmd == nil {
+			t.Fatal("expected command to start spinner")
+		}
+		if !m.spinnerActive {
+			t.Fatal("spinner should be active during deletion")
+		}
+		if len(m.deletingWorkspaces) != 1 {
+			t.Fatalf("expected 1 deleting workspace, got %d", len(m.deletingWorkspaces))
+		}
+	})
+
+	t.Run("spinner deactivates when deletion completes", func(t *testing.T) {
+		m.SetWorkspaceDeleting("/some/root", false)
+		if len(m.deletingWorkspaces) != 0 {
+			t.Fatalf("expected 0 deleting workspaces, got %d", len(m.deletingWorkspaces))
+		}
+	})
+
+	t.Run("git status refresh does not activate spinner", func(t *testing.T) {
+		m.spinnerActive = false
+		m.InvalidateStatus("/repo")
+		// Spinner should remain inactive - no loading status tracking
+		cmd := m.startSpinnerIfNeeded()
+		if cmd != nil {
+			t.Fatal("spinner should not start for git status refresh")
 		}
 	})
 }
