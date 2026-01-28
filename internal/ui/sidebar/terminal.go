@@ -363,7 +363,12 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		// Handle bracketed paste - send entire content at once with escape sequences
 		text := msg.Content
 		bracketedText := "\x1b[200~" + text + "\x1b[201~"
-		_ = ts.Terminal.SendString(bracketedText)
+		if err := ts.Terminal.SendString(bracketedText); err != nil {
+			logging.Warn("Sidebar paste failed: %v", err)
+			ts.mu.Lock()
+			ts.Running = false
+			ts.mu.Unlock()
+		}
 		logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
 		return m, nil
 
@@ -430,7 +435,12 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		// Forward ALL keys to terminal (no Ctrl interceptions)
 		input := common.KeyToBytes(msg)
 		if len(input) > 0 {
-			_ = ts.Terminal.SendString(string(input))
+			if err := ts.Terminal.SendString(string(input)); err != nil {
+				logging.Warn("Sidebar input failed: %v", err)
+				ts.mu.Lock()
+				ts.Running = false
+				ts.mu.Unlock()
+			}
 		}
 
 	case messages.SidebarPTYOutput:

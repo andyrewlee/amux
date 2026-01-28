@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
@@ -82,11 +83,27 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 				pasteText:   msg.Content,
 			}) {
 				bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
-				_ = tab.Agent.Terminal.SendString(bracketedText)
+				if err := tab.Agent.Terminal.SendString(bracketedText); err != nil {
+					logging.Warn("Monitor paste failed for tab %s: %v", tab.ID, err)
+					tab.mu.Lock()
+					tab.Running = false
+					tab.mu.Unlock()
+					return func() tea.Msg {
+						return TabInputFailed{TabID: tab.ID, WorkspaceID: wtID, Err: err}
+					}
+				}
 			}
 		} else {
 			bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
-			_ = tab.Agent.Terminal.SendString(bracketedText)
+			if err := tab.Agent.Terminal.SendString(bracketedText); err != nil {
+				logging.Warn("Monitor paste failed for tab %s: %v", tab.ID, err)
+				tab.mu.Lock()
+				tab.Running = false
+				tab.mu.Unlock()
+				return func() tea.Msg {
+					return TabInputFailed{TabID: tab.ID, WorkspaceID: wtID, Err: err}
+				}
+			}
 		}
 		return nil
 
@@ -252,10 +269,26 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 					kind:        tabEventSendInput,
 					input:       input,
 				}) {
-					_ = tab.Agent.Terminal.SendString(string(input))
+					if err := tab.Agent.Terminal.SendString(string(input)); err != nil {
+						logging.Warn("Monitor input failed for tab %s: %v", tab.ID, err)
+						tab.mu.Lock()
+						tab.Running = false
+						tab.mu.Unlock()
+						return func() tea.Msg {
+							return TabInputFailed{TabID: tab.ID, WorkspaceID: wtID, Err: err}
+						}
+					}
 				}
 			} else {
-				_ = tab.Agent.Terminal.SendString(string(input))
+				if err := tab.Agent.Terminal.SendString(string(input)); err != nil {
+					logging.Warn("Monitor input failed for tab %s: %v", tab.ID, err)
+					tab.mu.Lock()
+					tab.Running = false
+					tab.mu.Unlock()
+					return func() tea.Msg {
+						return TabInputFailed{TabID: tab.ID, WorkspaceID: wtID, Err: err}
+					}
+				}
 			}
 		}
 	}

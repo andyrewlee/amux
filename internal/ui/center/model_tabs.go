@@ -298,11 +298,21 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 					kind:        tabEventSendResponse,
 					response:    response,
 				}) {
-					_ = msg.Agent.Terminal.SendString(string(response))
+					if err := msg.Agent.Terminal.SendString(string(response)); err != nil {
+						logging.Warn("Response write failed for tab %s: %v", tabID, err)
+						tab.mu.Lock()
+						tab.Running = false
+						tab.mu.Unlock()
+					}
 				}
 				return
 			}
-			_ = msg.Agent.Terminal.SendString(string(data))
+			if err := msg.Agent.Terminal.SendString(string(data)); err != nil {
+				logging.Warn("Response write failed for tab %s: %v", tabID, err)
+				tab.mu.Lock()
+				tab.Running = false
+				tab.mu.Unlock()
+			}
 		})
 	}
 
@@ -445,7 +455,12 @@ func (m *Model) SendToTerminal(s string) {
 		return
 	}
 	if tab.Agent != nil && tab.Agent.Terminal != nil {
-		_ = tab.Agent.Terminal.SendString(s)
+		if err := tab.Agent.Terminal.SendString(s); err != nil {
+			logging.Warn("SendToTerminal failed for tab %s: %v", tab.ID, err)
+			tab.mu.Lock()
+			tab.Running = false
+			tab.mu.Unlock()
+		}
 	}
 }
 

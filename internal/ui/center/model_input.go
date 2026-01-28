@@ -272,7 +272,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}) {
 					if tab.Agent != nil && tab.Agent.Terminal != nil {
 						bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
-						_ = tab.Agent.Terminal.SendString(bracketedText)
+						if err := tab.Agent.Terminal.SendString(bracketedText); err != nil {
+							logging.Warn("Direct paste failed for tab %s: %v", tab.ID, err)
+							tab.mu.Lock()
+							tab.Running = false
+							tab.mu.Unlock()
+							return m, func() tea.Msg {
+								return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
+							}
+						}
 					}
 				}
 				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
@@ -280,7 +288,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
 				bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
-				_ = tab.Agent.Terminal.SendString(bracketedText)
+				if err := tab.Agent.Terminal.SendString(bracketedText); err != nil {
+					logging.Warn("Direct paste failed for tab %s: %v", tab.ID, err)
+					tab.mu.Lock()
+					tab.Running = false
+					tab.mu.Unlock()
+					return m, func() tea.Msg {
+						return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
+					}
+				}
 				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
 				return m, nil
 			}
@@ -411,7 +427,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
 					// This is Escape - let it go to terminal
-					_ = tab.Agent.Terminal.SendString("\x1b")
+					if err := tab.Agent.Terminal.SendString("\x1b"); err != nil {
+						logging.Warn("Escape key failed for tab %s: %v", tab.ID, err)
+						tab.mu.Lock()
+						tab.Running = false
+						tab.mu.Unlock()
+						return m, func() tea.Msg {
+							return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
+						}
+					}
 					return m, nil
 				}
 
@@ -487,11 +511,27 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 							input:       input,
 						}) {
 							if tab.Agent != nil && tab.Agent.Terminal != nil {
-								_ = tab.Agent.Terminal.SendString(string(input))
+								if err := tab.Agent.Terminal.SendString(string(input)); err != nil {
+									logging.Warn("Direct input failed for tab %s: %v", tab.ID, err)
+									tab.mu.Lock()
+									tab.Running = false
+									tab.mu.Unlock()
+									return m, func() tea.Msg {
+										return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
+									}
+								}
 							}
 						}
 					} else {
-						_ = tab.Agent.Terminal.SendString(string(input))
+						if err := tab.Agent.Terminal.SendString(string(input)); err != nil {
+							logging.Warn("Direct input failed for tab %s: %v", tab.ID, err)
+							tab.mu.Lock()
+							tab.Running = false
+							tab.mu.Unlock()
+							return m, func() tea.Msg {
+								return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
+							}
+						}
 					}
 				} else {
 					logging.Debug("keyToBytes returned empty for: %s", msg.String())
