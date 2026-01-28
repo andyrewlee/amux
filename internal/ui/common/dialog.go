@@ -1,6 +1,7 @@
 package common
 
 import (
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -18,6 +19,7 @@ const (
 	DialogInput
 	DialogConfirm
 	DialogSelect
+	DialogMultiSelect
 )
 
 // DialogResult is sent when a dialog is completed
@@ -26,13 +28,9 @@ type DialogResult struct {
 	Confirmed bool
 	Value     string
 	Index     int
+	Values    []string
+	Indices   []int
 }
-
-// InputTransformFunc transforms input text before it's added to the input field
-type InputTransformFunc func(string) string
-
-// InputValidateFunc validates input and returns an error message (empty = valid)
-type InputValidateFunc func(string) string
 
 // Dialog is a modal dialog component
 type Dialog struct {
@@ -48,11 +46,7 @@ type Dialog struct {
 	input     textinput.Model
 	cursor    int
 	confirmed bool
-
-	// Input transformation and validation
-	inputTransform InputTransformFunc
-	inputValidate  InputValidateFunc
-	validationErr  string
+	selected  map[int]bool
 
 	// Fuzzy filter state
 	filterEnabled   bool
@@ -65,6 +59,9 @@ type Dialog struct {
 	optionHits []dialogOptionHit
 	// Display settings
 	showKeymapHints bool
+
+	// Input validation
+	inputValidate func(string) string
 }
 
 type dialogOptionHit struct {
@@ -114,6 +111,19 @@ func NewSelectDialog(id, title, message string, options []string) *Dialog {
 	}
 }
 
+// NewMultiSelectDialog creates a new multi-selection dialog.
+func NewMultiSelectDialog(id, title, message string, options []string) *Dialog {
+	return &Dialog{
+		id:       id,
+		dtype:    DialogMultiSelect,
+		title:    title,
+		message:  message,
+		options:  options,
+		cursor:   0,
+		selected: make(map[int]bool),
+	}
+}
+
 // fuzzyMatch returns true if pattern fuzzy-matches target (case-insensitive)
 func fuzzyMatch(pattern, target string) bool {
 	if pattern == "" {
@@ -130,48 +140,29 @@ func fuzzyMatch(pattern, target string) bool {
 	return pi == len(pattern)
 }
 
-// SetInputTransform sets a transform function that will be applied to input text
-func (d *Dialog) SetInputTransform(fn InputTransformFunc) *Dialog {
-	d.inputTransform = fn
-	return d
-}
-
-// SetInputValidate sets a validation function that runs on each keystroke
-func (d *Dialog) SetInputValidate(fn InputValidateFunc) *Dialog {
-	d.inputValidate = fn
-	return d
-}
-
-// transformInputMsg applies the input transform to key press and paste messages
-func (d *Dialog) transformInputMsg(msg tea.Msg) tea.Msg {
-	switch m := msg.(type) {
-	case tea.KeyPressMsg:
-		if m.Text != "" {
-			transformed := d.inputTransform(m.Text)
-			if transformed != m.Text {
-				m.Text = transformed
-				return m
-			}
-		}
-	case tea.PasteMsg:
-		transformed := d.inputTransform(m.Content)
-		if transformed != m.Content {
-			m.Content = transformed
-			return m
-		}
-	}
-	return msg
+// SetInputValidate sets a validation function for input dialogs.
+// The function receives the current input value and returns an error message
+// (empty string means valid).
+func (d *Dialog) SetInputValidate(validate func(string) string) {
+	d.inputValidate = validate
 }
 
 // Show makes the dialog visible
 func (d *Dialog) Show() {
 	d.visible = true
 	d.confirmed = false
-	d.validationErr = ""
 	d.cursor = 0
 	if d.dtype == DialogInput {
 		d.input.SetValue("")
 		d.input.Focus()
+	}
+	if d.dtype == DialogMultiSelect {
+		if d.selected == nil {
+			d.selected = make(map[int]bool)
+		}
+		for k := range d.selected {
+			delete(d.selected, k)
+		}
 	}
 	if d.filterEnabled {
 		d.filterInput.SetValue("")
@@ -234,13 +225,9 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			logging.Info("Dialog Enter pressed: id=%s value=%s", d.id, d.input.Value())
+			d.visible = false
 			switch d.dtype {
 			case DialogInput:
-				// Block Enter if validation fails
-				if d.validationErr != "" {
-					return d, nil
-				}
-				d.visible = false
 				value := d.input.Value()
 				id := d.id
 				logging.Info("Dialog returning InputResult: id=%s value=%s", id, value)
@@ -252,7 +239,6 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 					}
 				}
 			case DialogConfirm:
-				d.visible = false
 				return d, func() tea.Msg {
 					return DialogResult{
 						ID:        d.id,
@@ -260,7 +246,6 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 					}
 				}
 			case DialogSelect:
-				d.visible = false
 				// For filtered dialogs, return the original index
 				var originalIdx int
 				var value string
@@ -285,7 +270,36 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 						Value:     value,
 					}
 				}
+			case DialogMultiSelect:
+				indices, values := d.selectedValues()
+				if len(indices) == 0 {
+					if idx, ok := d.currentIndex(); ok {
+						indices = []int{idx}
+						values = []string{d.options[idx]}
+					}
+				}
+				return d, func() tea.Msg {
+					return DialogResult{
+						ID:        d.id,
+						Confirmed: true,
+						Indices:   indices,
+						Values:    values,
+					}
+				}
 			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys(" "))) && d.dtype == DialogMultiSelect:
+			if idx, ok := d.currentIndex(); ok {
+				if d.selected == nil {
+					d.selected = make(map[int]bool)
+				}
+				if d.selected[idx] {
+					delete(d.selected, idx)
+				} else {
+					d.selected[idx] = true
+				}
+			}
+			return d, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down"))):
 			if d.dtype != DialogInput {
@@ -326,24 +340,13 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 
 	// Update text input if applicable
 	if d.dtype == DialogInput {
-		// Transform incoming text if transform function is set
-		if d.inputTransform != nil {
-			msg = d.transformInputMsg(msg)
-		}
-
 		var cmd tea.Cmd
 		d.input, cmd = d.input.Update(msg)
-
-		// Run validation if validator is set
-		if d.inputValidate != nil {
-			d.validationErr = d.inputValidate(d.input.Value())
-		}
-
 		return d, cmd
 	}
 
 	// Update filter input for filtered select dialogs
-	if d.dtype == DialogSelect && d.filterEnabled {
+	if (d.dtype == DialogSelect || d.dtype == DialogMultiSelect) && d.filterEnabled {
 		oldValue := d.filterInput.Value()
 		var cmd tea.Cmd
 		d.filterInput, cmd = d.filterInput.Update(msg)
@@ -357,77 +360,35 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	return d, nil
 }
 
-func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
-	if !d.visible {
-		return nil
+func (d *Dialog) currentIndex() (int, bool) {
+	if d.filterEnabled && len(d.filteredIndices) > 0 {
+		if d.cursor >= 0 && d.cursor < len(d.filteredIndices) {
+			return d.filteredIndices[d.cursor], true
+		}
+		return -1, false
 	}
+	if d.cursor >= 0 && d.cursor < len(d.options) {
+		return d.cursor, true
+	}
+	return -1, false
+}
 
-	lines := d.renderLines()
-	if len(lines) == 0 {
-		return nil
+func (d *Dialog) selectedValues() ([]int, []string) {
+	if len(d.selected) == 0 {
+		return nil, nil
 	}
-
-	content := strings.Join(lines, "\n")
-	dialogView := d.dialogStyle().Render(content)
-	dialogW, dialogH := viewDimensions(dialogView)
-	dialogX := (d.width - dialogW) / 2
-	dialogY := (d.height - dialogH) / 2
-	if dialogX < 0 {
-		dialogX = 0
+	indices := make([]int, 0, len(d.selected))
+	for idx := range d.selected {
+		indices = append(indices, idx)
 	}
-	if dialogY < 0 {
-		dialogY = 0
-	}
-	if msg.X < dialogX || msg.X >= dialogX+dialogW || msg.Y < dialogY || msg.Y >= dialogY+dialogH {
-		return nil
-	}
-
-	_, _, contentOffsetX, contentOffsetY := d.dialogFrame()
-	localX := msg.X - dialogX - contentOffsetX
-	localY := msg.Y - dialogY - contentOffsetY
-	if localX < 0 || localY < 0 {
-		return nil
-	}
-
-	for _, hit := range d.optionHits {
-		if hit.region.Contains(localX, localY) {
-			d.cursor = hit.cursorIndex
-
-			switch d.dtype {
-			case DialogInput:
-				if hit.optionIndex == 0 && d.validationErr != "" {
-					return nil
-				}
-				d.visible = false
-				value := d.input.Value()
-				return func() tea.Msg {
-					return DialogResult{
-						ID:        d.id,
-						Confirmed: hit.optionIndex == 0,
-						Value:     value,
-					}
-				}
-			case DialogConfirm:
-				d.visible = false
-				return func() tea.Msg {
-					return DialogResult{ID: d.id, Confirmed: hit.optionIndex == 0}
-				}
-			case DialogSelect:
-				d.visible = false
-				value := d.options[hit.optionIndex]
-				return func() tea.Msg {
-					return DialogResult{
-						ID:        d.id,
-						Confirmed: true,
-						Index:     hit.optionIndex,
-						Value:     value,
-					}
-				}
-			}
+	sort.Ints(indices)
+	values := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		if idx >= 0 && idx < len(d.options) {
+			values = append(values, d.options[idx])
 		}
 	}
-
-	return nil
+	return indices, values
 }
 
 // SetSize sets the dialog size
