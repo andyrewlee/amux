@@ -18,12 +18,15 @@ import (
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.projects = msg.Projects
 	a.dashboard.SetProjects(a.projects)
-	// Request git status for all workspaces
+	// Request git status and start file watching for all workspaces
 	var cmds []tea.Cmd
 	for i := range a.projects {
 		for j := range a.projects[i].Workspaces {
 			ws := &a.projects[i].Workspaces[j]
 			cmds = append(cmds, a.requestGitStatus(ws.Root))
+			if a.fileWatcher != nil {
+				_ = a.fileWatcher.Watch(ws.Root)
+			}
 		}
 	}
 	return cmds
@@ -45,7 +48,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		cmds = append(cmds, termCmd)
 	}
 	// Sync active workspaces to dashboard (fixes spinner race condition)
-	a.syncActiveWorkspacesToDashboard()
+	if syncCmd := a.syncActiveWorkspacesToDashboard(); syncCmd != nil {
+		cmds = append(cmds, syncCmd)
+	}
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
 	cmds = append(cmds, cmd)
@@ -57,10 +62,6 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		if a.fileWatcher != nil {
 			_ = a.fileWatcher.Watch(msg.Workspace.Root)
 		}
-	}
-	// Ensure spinner starts if needed after sync
-	if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
-		cmds = append(cmds, startCmd)
 	}
 	return cmds
 }
@@ -77,7 +78,9 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 	a.sidebar.SetWorkspace(msg.Workspace)
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	// Sync active workspaces to dashboard (fixes spinner race condition)
-	a.syncActiveWorkspacesToDashboard()
+	if syncCmd := a.syncActiveWorkspacesToDashboard(); syncCmd != nil {
+		cmds = append(cmds, syncCmd)
+	}
 	if msg.Workspace != nil && a.statusManager != nil {
 		if cached := a.statusManager.GetCached(msg.Workspace.Root); cached != nil {
 			a.sidebar.SetGitStatus(cached)
@@ -93,11 +96,6 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 	a.dashboard = newDashboard
 	if cmd != nil {
 		cmds = append(cmds, cmd)
-	}
-
-	// Ensure spinner starts if needed after sync
-	if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
-		cmds = append(cmds, startCmd)
 	}
 
 	return cmds
@@ -416,6 +414,12 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 	// Refresh git status for active workspace
 	if a.activeWorkspace != nil {
 		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root))
+	}
+	// Sync active workspace state to dashboard as a fallback
+	// This is purely in-memory and ensures the working indicator refreshes
+	// even if the spinner isn't running
+	if syncCmd := a.syncActiveWorkspacesToDashboard(); syncCmd != nil {
+		cmds = append(cmds, syncCmd)
 	}
 	// Continue the ticker
 	cmds = append(cmds, a.startGitStatusTicker())

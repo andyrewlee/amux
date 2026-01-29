@@ -12,6 +12,19 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// excludedDirs contains directories that should not be watched in the working tree.
+var excludedDirs = map[string]bool{
+	".git":         true,
+	"node_modules": true,
+	".next":        true,
+	"__pycache__":  true,
+	"build":        true,
+	"dist":         true,
+	"target":       true,
+	"vendor":       true,
+	".venv":        true,
+}
+
 // FileWatcher watches git directories for changes and triggers status refreshes
 type FileWatcher struct {
 	mu sync.Mutex
@@ -93,9 +106,41 @@ func (fw *FileWatcher) Watch(root string) error {
 		}
 	}
 
+	// Watch working tree directories for file changes
+	treeTargets := fw.watchWorkingTree(root)
+	targets = append(targets, treeTargets...)
+
 	fw.watching[root] = true
 	fw.watchPaths[root] = targets
 	return nil
+}
+
+// watchWorkingTree recursively watches all directories in the workspace root,
+// excluding common build/dependency directories and hidden directories.
+func (fw *FileWatcher) watchWorkingTree(root string) []watchTarget {
+	var targets []watchTarget
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		// Skip excluded directories
+		if excludedDirs[name] {
+			return filepath.SkipDir
+		}
+		// Skip hidden directories (except the root itself)
+		if path != root && strings.HasPrefix(name, ".") {
+			return filepath.SkipDir
+		}
+		if target, err := fw.addWatchPath(path); err == nil {
+			targets = append(targets, target)
+		}
+		return nil
+	})
+	return targets
 }
 
 // Unwatch stops watching a workspace
@@ -134,6 +179,20 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 				continue
 			}
 
+			// If a new directory was created, add a watch for it
+			if event.Has(fsnotify.Create) {
+				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+					name := filepath.Base(event.Name)
+					if !excludedDirs[name] && !strings.HasPrefix(name, ".") {
+						fw.mu.Lock()
+						if target, err := fw.addWatchPath(event.Name); err == nil {
+							fw.watchPaths[root] = append(fw.watchPaths[root], target)
+						}
+						fw.mu.Unlock()
+					}
+				}
+			}
+
 			// Debounce: ignore if we just triggered for this root
 			fw.mu.Lock()
 			if lastChange, ok := fw.lastChange[root]; ok {
@@ -159,31 +218,48 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 	}
 }
 
-// findRoot finds the workspace root for a given path
+// findRoot finds the workspace root for a given path.
+// For nested workspaces, it returns the longest matching root.
 func (fw *FileWatcher) findRoot(path string) string {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
+	sep := string(filepath.Separator)
+	var bestRoot string
+	bestLen := 0
+
 	for root := range fw.watching {
-		if targets, ok := fw.watchPaths[root]; ok {
-			for _, target := range targets {
-				if path == target.path {
-					return root
-				}
-				if target.isDir && strings.HasPrefix(path, target.path+string(filepath.Separator)) {
-					return root
-				}
+		// Fast path: working tree events always fall under the workspace root
+		if path == root || strings.HasPrefix(path, root+sep) {
+			// Prefer longest matching root for nested workspaces
+			if len(root) > bestLen {
+				bestRoot = root
+				bestLen = len(root)
 			}
 			continue
 		}
 
-		// Fallback for legacy entries without watch targets.
-		gitPath := filepath.Join(root, ".git")
-		if path == gitPath || filepath.Dir(path) == gitPath || strings.HasPrefix(path, gitPath+string(filepath.Separator)) {
-			return root
+		// Check explicit watch targets (e.g. worktree gitdir outside root)
+		if targets, ok := fw.watchPaths[root]; ok {
+			for _, target := range targets {
+				if path == target.path {
+					if len(root) > bestLen {
+						bestRoot = root
+						bestLen = len(root)
+					}
+					break
+				}
+				if target.isDir && strings.HasPrefix(path, target.path+sep) {
+					if len(root) > bestLen {
+						bestRoot = root
+						bestLen = len(root)
+					}
+					break
+				}
+			}
 		}
 	}
-	return ""
+	return bestRoot
 }
 
 func (fw *FileWatcher) addWatchPath(path string) (watchTarget, error) {

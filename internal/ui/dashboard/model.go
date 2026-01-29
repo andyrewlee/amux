@@ -104,8 +104,10 @@ func New() *Model {
 }
 
 // SetActiveWorkspaces updates the set of workspaces with active agents.
-func (m *Model) SetActiveWorkspaces(active map[string]bool) {
+// Returns a command to start the spinner if needed.
+func (m *Model) SetActiveWorkspaces(active map[string]bool) tea.Cmd {
 	m.activeWorkspaces = active
+	return m.startSpinnerIfNeeded()
 }
 
 // InvalidateStatus removes a workspace's cached status.
@@ -282,7 +284,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case SpinnerTickMsg:
 		// Advance spinner frame if we have loading items or active agents
-		if len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 {
+		if len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 || len(m.activeWorkspaces) > 0 {
 			m.spinnerFrame++
 			cmds = append(cmds, m.tickSpinner())
 		} else {
