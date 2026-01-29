@@ -45,12 +45,13 @@ func (a *App) safeBatch(cmds ...tea.Cmd) tea.Cmd {
 
 // syncActiveWorkspacesToDashboard syncs the active workspace state from center to dashboard.
 // This ensures the dashboard has current data for spinner state decisions.
-func (a *App) syncActiveWorkspacesToDashboard() {
+// Returns a command to start the spinner if needed.
+func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 	activeWorkspaces := make(map[string]bool)
 	for _, root := range a.center.GetActiveWorkspaceRoots() {
 		activeWorkspaces[root] = true
 	}
-	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
+	return a.dashboard.SetActiveWorkspaces(activeWorkspaces)
 }
 
 // handleKeyPress handles keyboard input

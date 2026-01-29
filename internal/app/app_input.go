@@ -359,9 +359,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		// Sync active agents state to dashboard (show spinner only when actively outputting)
-		a.syncActiveWorkspacesToDashboard()
-		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
-			cmds = append(cmds, startCmd)
+		if syncCmd := a.syncActiveWorkspacesToDashboard(); syncCmd != nil {
+			cmds = append(cmds, syncCmd)
 		}
 
 	case center.TabInputFailed:
@@ -380,7 +379,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dashboard.SpinnerTickMsg:
 		// Sync active agents state from center to dashboard
-		a.syncActiveWorkspacesToDashboard()
+		if syncCmd := a.syncActiveWorkspacesToDashboard(); syncCmd != nil {
+			cmds = append(cmds, syncCmd)
+		}
 
 		// Tick center spinner for tab activity animation
 		a.center.TickSpinner()
@@ -390,11 +391,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dashboard = newDashboard
 		if cmd != nil {
 			cmds = append(cmds, cmd)
-		}
-
-		// Start spinner if we have active agents but spinner isn't running
-		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
-			cmds = append(cmds, startCmd)
 		}
 
 	case messages.GitStatusTick:

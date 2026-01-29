@@ -22,7 +22,7 @@ func (m *Model) startSpinnerIfNeeded() tea.Cmd {
 	if m.spinnerActive {
 		return nil
 	}
-	if len(m.creatingWorkspaces) == 0 && len(m.deletingWorkspaces) == 0 {
+	if len(m.creatingWorkspaces) == 0 && len(m.deletingWorkspaces) == 0 && len(m.activeWorkspaces) == 0 {
 		return nil
 	}
 	m.spinnerActive = true
