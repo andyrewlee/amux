@@ -325,16 +325,7 @@ func (m *Model) View() string {
 		innerHeight = 0
 	}
 	headerHeight := 0
-	// Calculate help height based on content width (pane width minus border and padding)
-	contentWidth := m.width - 3
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
-	helpLines := m.helpLines(contentWidth)
-	if !m.showKeymapHints {
-		helpLines = nil
-	}
-	helpHeight := len(helpLines)
+	helpHeight := m.helpLineCount()
 	toolbarHeight := m.toolbarHeight()
 	visibleHeight := innerHeight - headerHeight - toolbarHeight - helpHeight
 	if visibleHeight < 1 {
@@ -382,9 +373,16 @@ func (m *Model) View() string {
 	b.WriteString(toolbar)
 
 	// Help lines
-	if len(helpLines) > 0 {
-		b.WriteString("\n")
-		b.WriteString(strings.Join(helpLines, "\n"))
+	if m.showKeymapHints {
+		contentWidth := m.width - 3
+		if contentWidth < 1 {
+			contentWidth = 1
+		}
+		helpLines := m.helpLines(contentWidth)
+		if len(helpLines) > 0 {
+			b.WriteString("\n")
+			b.WriteString(strings.Join(helpLines, "\n"))
+		}
 	}
 
 	// Return raw content - buildBorderedPane in app.go handles truncation
@@ -425,15 +423,7 @@ func (m *Model) visibleHeight() int {
 		innerHeight = 0
 	}
 	headerHeight := 0
-	contentWidth := m.width - 3
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
-	helpLines := m.helpLines(contentWidth)
-	if !m.showKeymapHints {
-		helpLines = nil
-	}
-	helpHeight := len(helpLines)
+	helpHeight := m.helpLineCount()
 	toolbarHeight := m.toolbarHeight()
 	visibleHeight := innerHeight - headerHeight - toolbarHeight - helpHeight
 	if visibleHeight < 1 {

@@ -80,8 +80,7 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	}
 
 	headerHeight := 0
-	helpLines := m.helpLines(contentWidth)
-	helpHeight := len(helpLines)
+	helpHeight := m.helpLineCount()
 	toolbarHeight := m.toolbarHeight()
 	rowAreaHeight := innerHeight - headerHeight - toolbarHeight - helpHeight
 	if rowAreaHeight < 1 {
