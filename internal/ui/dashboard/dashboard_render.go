@@ -169,6 +169,20 @@ func (m *Model) helpItem(key, desc string) string {
 	return common.RenderHelpItem(m.styles, key, desc)
 }
 
+// helpLineCount returns the number of help lines that will be displayed.
+// This encapsulates the showKeymapHints check to avoid bugs where callers
+// forget to check it.
+func (m *Model) helpLineCount() int {
+	if !m.showKeymapHints {
+		return 0
+	}
+	contentWidth := m.width - 3
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	return len(m.helpLines(contentWidth))
+}
+
 func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
 		m.helpItem("k/↑", "up"),
