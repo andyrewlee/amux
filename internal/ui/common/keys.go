@@ -60,6 +60,9 @@ func KeyToBytes(msg tea.KeyPressMsg) []byte {
 
 	switch key.Code {
 	case tea.KeyEnter:
+		if key.Mod&tea.ModShift != 0 {
+			return []byte{0x1b, '[', '1', '3', ';', '2', 'u'}
+		}
 		return []byte{'\r'}
 	case tea.KeyBackspace:
 		return []byte{0x7f}
