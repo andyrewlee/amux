@@ -185,8 +185,11 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 					name := filepath.Base(event.Name)
 					if !excludedDirs[name] && !strings.HasPrefix(name, ".") {
 						fw.mu.Lock()
-						if target, err := fw.addWatchPath(event.Name); err == nil {
-							fw.watchPaths[root] = append(fw.watchPaths[root], target)
+						// Check root is still being watched (may have been unwatched between findRoot and here)
+						if fw.watching[root] {
+							if target, err := fw.addWatchPath(event.Name); err == nil {
+								fw.watchPaths[root] = append(fw.watchPaths[root], target)
+							}
 						}
 						fw.mu.Unlock()
 					}
