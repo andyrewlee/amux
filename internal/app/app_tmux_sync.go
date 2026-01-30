@@ -11,13 +11,12 @@ func (a *App) handleTmuxSyncTick(msg messages.TmuxSyncTick) []tea.Cmd {
 	if msg.Token != a.tmuxSyncToken {
 		return nil
 	}
-	if !a.tmuxAvailable {
-		return nil
-	}
 	var cmds []tea.Cmd
-	for _, ws := range a.tmuxSyncWorkspaces() {
-		if syncCmd := a.syncWorkspaceTabsFromTmux(ws); syncCmd != nil {
-			cmds = append(cmds, syncCmd)
+	if a.tmuxAvailable {
+		for _, ws := range a.tmuxSyncWorkspaces() {
+			if syncCmd := a.syncWorkspaceTabsFromTmux(ws); syncCmd != nil {
+				cmds = append(cmds, syncCmd)
+			}
 		}
 	}
 	cmds = append(cmds, a.startTmuxSyncTicker())

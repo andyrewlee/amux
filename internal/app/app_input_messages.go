@@ -143,7 +143,8 @@ const persistDebounce = 500 * time.Millisecond
 
 // persistDebounceMsg is sent after the debounce period to trigger actual save.
 type persistDebounceMsg struct {
-	token int
+	token       int
+	workspaceID string
 }
 
 func (a *App) persistActiveWorkspaceTabs() tea.Cmd {
@@ -157,8 +158,9 @@ func (a *App) persistActiveWorkspaceTabs() tea.Cmd {
 	// Debounce disk writes
 	a.persistToken++
 	token := a.persistToken
+	wsID := string(a.activeWorkspace.ID())
 	return common.SafeTick(persistDebounce, func(t time.Time) tea.Msg {
-		return persistDebounceMsg{token: token}
+		return persistDebounceMsg{token: token, workspaceID: wsID}
 	})
 }
 
@@ -167,10 +169,14 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	if msg.token != a.persistToken {
 		return nil
 	}
-	if a.activeWorkspace == nil {
+	if msg.workspaceID == "" {
 		return nil
 	}
-	wsSnapshot := snapshotWorkspaceForSave(a.activeWorkspace)
+	ws := a.findWorkspaceByID(msg.workspaceID)
+	if ws == nil {
+		return nil
+	}
+	wsSnapshot := snapshotWorkspaceForSave(ws)
 	return func() tea.Msg {
 		if err := a.workspaces.Save(wsSnapshot); err != nil {
 			logging.Warn("Failed to save workspace tabs: %v", err)

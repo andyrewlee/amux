@@ -66,6 +66,7 @@ type sidebarTerminalReattachFailed struct {
 func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
+	termWidth, termHeight := m.terminalContentSize()
 
 	return func() tea.Msg {
 		shell := os.Getenv("SHELL")
@@ -75,8 +76,6 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		if err := tmux.EnsureAvailable(); err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
-
-		termWidth, termHeight := m.terminalContentSize()
 
 		env := []string{"COLORTERM=truecolor"}
 		sessionName := tmux.SessionName("amux", wsID, string(tabID))
