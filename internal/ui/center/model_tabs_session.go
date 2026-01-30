@@ -84,13 +84,19 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 		return nil
 	}
 	tab := tabs[activeIdx]
-	if tab == nil || !tab.Detached || tab.Workspace == nil {
+	if tab == nil || tab.Workspace == nil {
+		return nil
+	}
+	tab.mu.Lock()
+	detached := tab.Detached
+	sessionName := tab.SessionName
+	tab.mu.Unlock()
+	if !detached {
 		return nil
 	}
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
 	termHeight := tm.Height
-	sessionName := tab.SessionName
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(tab.Workspace.ID()), string(tab.ID))
 	}

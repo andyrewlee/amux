@@ -81,6 +81,7 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	}
 	changed := false
 	var cmds []tea.Cmd
+	wsID := string(ws.ID())
 	for i := range ws.OpenTabs {
 		tab := &ws.OpenTabs[i]
 		if tab.SessionName == "" {
@@ -94,10 +95,11 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 			if !(state.Exists && state.HasLivePane) {
 				tab.Status = "stopped"
 				changed = true
+				sessionName := tab.SessionName // capture for closure
 				cmds = append(cmds, func() tea.Msg {
 					return messages.TabSessionStatus{
-						WorkspaceID: string(ws.ID()),
-						SessionName: tab.SessionName,
+						WorkspaceID: wsID,
+						SessionName: sessionName,
 						Status:      "stopped",
 					}
 				})
@@ -112,10 +114,11 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 			tab.Status = status
 			changed = true
 			if status == "stopped" {
+				sessionName := tab.SessionName // capture for closure
 				cmds = append(cmds, func() tea.Msg {
 					return messages.TabSessionStatus{
-						WorkspaceID: string(ws.ID()),
-						SessionName: tab.SessionName,
+						WorkspaceID: wsID,
+						SessionName: sessionName,
 						Status:      "stopped",
 					}
 				})
