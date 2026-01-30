@@ -1,11 +1,13 @@
 package tmux
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type Options struct {
@@ -20,6 +22,8 @@ type SessionState struct {
 	Exists      bool
 	HasLivePane bool
 }
+
+const tmuxCommandTimeout = 5 * time.Second
 
 func DefaultOptions() Options {
 	server := strings.TrimSpace(os.Getenv("AMUX_TMUX_SERVER"))
@@ -147,8 +151,15 @@ func tmuxArgs(opts Options, args ...string) []string {
 	return out
 }
 
+func tmuxCommand(opts Options, args ...string) (*exec.Cmd, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), tmuxCommandTimeout)
+	cmd := exec.CommandContext(ctx, "tmux", tmuxArgs(opts, args...)...)
+	return cmd, cancel
+}
+
 func hasSession(sessionName string, opts Options) (bool, error) {
-	cmd := exec.Command("tmux", tmuxArgs(opts, "has-session", "-t", sessionName)...)
+	cmd, cancel := tmuxCommand(opts, "has-session", "-t", sessionName)
+	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() == 1 {
@@ -161,7 +172,8 @@ func hasSession(sessionName string, opts Options) (bool, error) {
 }
 
 func hasLivePane(sessionName string, opts Options) (bool, error) {
-	cmd := exec.Command("tmux", tmuxArgs(opts, "list-panes", "-t", sessionName, "-F", "#{pane_dead}")...)
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionName, "-F", "#{pane_dead}")
+	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
 		// Treat exit code 1 as "no live pane" (session may have died between checks)
@@ -189,7 +201,8 @@ func KillSession(sessionName string, opts Options) error {
 	if err := EnsureAvailable(); err != nil {
 		return err
 	}
-	cmd := exec.Command("tmux", tmuxArgs(opts, "kill-session", "-t", sessionName)...)
+	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", sessionName)
+	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() == 1 {
@@ -206,7 +219,8 @@ func ListSessions(opts Options) ([]string, error) {
 	if err := EnsureAvailable(); err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("tmux", tmuxArgs(opts, "list-sessions", "-F", "#{session_name}")...)
+	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", "#{session_name}")
+	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
