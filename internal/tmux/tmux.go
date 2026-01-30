@@ -90,10 +90,9 @@ func ClientCommandWithOptions(sessionName, workDir, command string, opts Options
 		base, session, dir, cmd)
 
 	var settings strings.Builder
-	// Disable tmux prefix and unbind all keys to make it invisible
-	// Use -g (global) since we're on a dedicated server (-L amux)
-	settings.WriteString(fmt.Sprintf("%s set-option -g prefix None 2>/dev/null; ", base))
-	settings.WriteString(fmt.Sprintf("%s unbind-key -a 2>/dev/null; ", base))
+	// Disable tmux prefix for this session only (not global) to make it transparent
+	settings.WriteString(fmt.Sprintf("%s set-option -t %s prefix None 2>/dev/null; ", base, session))
+	settings.WriteString(fmt.Sprintf("%s set-option -t %s prefix2 None 2>/dev/null; ", base, session))
 	if opts.HideStatus {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s status off 2>/dev/null; ", base, session))
 	}

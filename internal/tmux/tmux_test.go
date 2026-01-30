@@ -143,14 +143,12 @@ func TestClientCommandWithOptions(t *testing.T) {
 		t.Error("Command should use atomic new-session -Ads")
 	}
 
-	// Should disable prefix globally
-	if !strings.Contains(cmd, "set-option -g prefix None") {
-		t.Error("Command should disable prefix globally")
+	// Should disable prefix per-session (not globally)
+	if !strings.Contains(cmd, "set-option -t 'test-session' prefix None") {
+		t.Error("Command should disable prefix for session")
 	}
-
-	// Should unbind all keys globally
-	if !strings.Contains(cmd, "unbind-key -a") {
-		t.Error("Command should unbind all keys")
+	if !strings.Contains(cmd, "set-option -t 'test-session' prefix2 None") {
+		t.Error("Command should disable prefix2 for session")
 	}
 
 	// Should use attach -d (detach other clients)
