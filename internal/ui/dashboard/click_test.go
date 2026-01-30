@@ -344,3 +344,115 @@ func TestClickLowerRowsWithKeymapHintsHidden(t *testing.T) {
 		}
 	}
 }
+
+// TestClickAfterDeleteAndAddProject is a regression test for a bug where bottom
+// projects became unclickable after deleting a project and adding a new one in
+// the same session. The root cause was that rebuildRows() did not clamp
+// scrollOffset, leaving it stale so rowIndexAt() couldn't map bottom screen
+// positions to rows.
+func TestClickAfterDeleteAndAddProject(t *testing.T) {
+	m := New()
+	m.SetSize(30, 14) // Height chosen so rows fill visible area
+	m.showKeymapHints = false
+
+	// Create enough projects to fill the visible area
+	makeProjects := func(count int) []data.Project {
+		projects := make([]data.Project, count)
+		for i := 0; i < count; i++ {
+			projects[i] = data.Project{
+				Name: "proj" + string(rune('A'+i)),
+				Path: "/proj" + string(rune('A'+i)),
+				Workspaces: []data.Workspace{
+					{Name: "main", Branch: "main", Repo: "/proj" + string(rune('A'+i)), Root: "/proj" + string(rune('A'+i))},
+				},
+			}
+		}
+		return projects
+	}
+
+	// Step 1: Initial load with 5 projects
+	m.SetProjects(makeProjects(5))
+	_ = m.View()
+
+	// Scroll down to bottom to set a non-zero scrollOffset
+	m.cursor = len(m.rows) - 1
+	_ = m.View() // View() adjusts scrollOffset to keep cursor visible
+
+	initialOffset := m.scrollOffset
+	if initialOffset == 0 {
+		// Verify we actually scrolled (sanity check for test setup)
+		t.Log("warning: scrollOffset is 0 after scrolling to bottom; test may not exercise the bug")
+	}
+
+	// Step 2: Simulate deleting a project (remove last project, now 4 projects)
+	m.SetProjects(makeProjects(4))
+	_ = m.View()
+
+	// Step 3: Simulate adding a new project (back to 5 projects)
+	m.SetProjects(makeProjects(5))
+	_ = m.View()
+
+	// Step 4: Verify ALL visible rows are clickable, especially bottom ones
+	visibleHeight := m.visibleHeight()
+	for rowIdx := m.scrollOffset; rowIdx < len(m.rows) && rowIdx < m.scrollOffset+visibleHeight; rowIdx++ {
+		screenY := rowIdx - m.scrollOffset + 1 // +1 for top border
+		idx, ok := m.rowIndexAt(5, screenY)
+		if !ok {
+			t.Errorf("row %d (type %d) at screenY=%d should be clickable after delete+add, got ok=false",
+				rowIdx, m.rows[rowIdx].Type, screenY)
+			continue
+		}
+		if idx != rowIdx {
+			t.Errorf("click at screenY=%d should map to row %d, got %d", screenY, rowIdx, idx)
+		}
+	}
+
+	// Step 5: Specifically verify the last two visible rows are clickable
+	// (this is where the original bug manifested)
+	for offset := 1; offset <= 2; offset++ {
+		rowIdx := m.scrollOffset + visibleHeight - offset
+		if rowIdx < 0 || rowIdx >= len(m.rows) {
+			continue
+		}
+		screenY := rowIdx - m.scrollOffset + 1
+		idx, ok := m.rowIndexAt(5, screenY)
+		if !ok {
+			t.Errorf("bottom row (offset %d from bottom) at rowIdx=%d, screenY=%d should be clickable, got ok=false",
+				offset, rowIdx, screenY)
+		}
+		if ok && idx != rowIdx {
+			t.Errorf("bottom row click at screenY=%d should map to row %d, got %d", screenY, rowIdx, idx)
+		}
+	}
+}
+
+func TestSetProjectsPreservesScrollOffset(t *testing.T) {
+	m := New()
+	m.SetSize(40, 10)
+	m.showKeymapHints = false
+
+	makeProjects := func(count int) []data.Project {
+		projects := make([]data.Project, count)
+		for i := 0; i < count; i++ {
+			name := "proj" + string(rune('A'+i))
+			projects[i] = data.Project{
+				Name: name,
+				Path: "/" + name,
+				Workspaces: []data.Workspace{
+					{Name: "main", Branch: "main", Repo: "/" + name, Root: "/" + name},
+				},
+			}
+		}
+		return projects
+	}
+
+	m.SetProjects(makeProjects(6))
+	m.cursor = 5
+	m.scrollOffset = 4
+
+	m.SetProjects(makeProjects(6))
+
+	if m.scrollOffset != 4 {
+		t.Fatalf("expected scrollOffset to remain 4 after refresh, got %d", m.scrollOffset)
+	}
+}

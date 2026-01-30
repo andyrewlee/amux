@@ -111,6 +111,22 @@ func (m *Model) rebuildRows() {
 			m.cursor = prev
 		}
 	}
+
+	m.clampScrollOffset()
+}
+
+// clampScrollOffset ensures scrollOffset stays within valid bounds.
+func (m *Model) clampScrollOffset() {
+	maxOffset := len(m.rows) - m.visibleHeight()
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.scrollOffset > maxOffset {
+		m.scrollOffset = maxOffset
+	}
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
 }
 
 func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {

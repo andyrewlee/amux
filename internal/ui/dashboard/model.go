@@ -290,8 +290,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 	case messages.ProjectsLoaded:
-		m.projects = msg.Projects
-		m.rebuildRows()
+		m.SetProjects(msg.Projects)
 
 	case messages.GitStatusResult:
 		if msg.Err == nil {
@@ -412,8 +411,14 @@ func (m *Model) Focused() bool {
 
 // SetProjects sets the projects list
 func (m *Model) SetProjects(projects []data.Project) {
+	prevCursor := m.cursor
+	prevOffset := m.scrollOffset
 	m.projects = projects
 	m.rebuildRows()
+	if m.cursor == prevCursor {
+		m.scrollOffset = prevOffset
+		m.clampScrollOffset()
+	}
 }
 
 // visibleHeight returns the number of visible rows in the dashboard
