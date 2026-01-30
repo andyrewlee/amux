@@ -198,7 +198,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 		}
 	}
 	items = append(items,
-		m.helpItem("r", "refresh"),
+		m.helpItem("r", "rescan"),
 		m.helpItem("g", "top"),
 		m.helpItem("G", "bottom"),
 	)

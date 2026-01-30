@@ -99,7 +99,7 @@ func defaultHelpSections() []HelpSection {
 				{"Enter", "Activate workspace"},
 				{"D", "Delete workspace / remove project"},
 				{"f", "Toggle dirty filter"},
-				{"r", "Refresh"},
+				{"r", "Rescan workspaces"},
 				{"g/G", "Top/bottom"},
 			},
 		},

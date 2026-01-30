@@ -113,7 +113,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("g", "r"),
-			key.WithHelp("g", "refresh"),
+			key.WithHelp("g", "rescan"),
 		),
 
 		// Agent

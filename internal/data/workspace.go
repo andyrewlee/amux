@@ -46,6 +46,7 @@ type Workspace struct {
 	// Identity
 	Name    string    `json:"name"`
 	Created time.Time `json:"created"`
+	storeID WorkspaceID
 
 	// Git info
 	Branch string `json:"branch"`
@@ -69,6 +70,10 @@ type Workspace struct {
 	// UI state
 	OpenTabs       []TabInfo `json:"open_tabs,omitempty"`
 	ActiveTabIndex int       `json:"active_tab_index"`
+
+	// Lifecycle
+	Archived   bool      `json:"archived"`
+	ArchivedAt time.Time `json:"archived_at,omitempty"`
 }
 
 // WorkspaceID is a unique identifier based on repo+root hash
@@ -76,9 +81,7 @@ type WorkspaceID string
 
 // ID returns a unique identifier for the workspace based on its repo and root paths
 func (w Workspace) ID() WorkspaceID {
-	sig := w.Repo + w.Root
-	hash := sha1.Sum([]byte(sig))
-	return WorkspaceID(hex.EncodeToString(hash[:8]))
+	return workspaceIDFromIdentity(workspaceIdentity(w.Repo, w.Root))
 }
 
 // IsPrimaryCheckout returns true if this is the primary checkout
@@ -105,4 +108,13 @@ func NewWorkspace(name, branch, base, repo, root string) *Workspace {
 		ScriptMode: "nonconcurrent",
 		Env:        make(map[string]string),
 	}
+}
+
+func legacyWorkspaceID(repo, root string) WorkspaceID {
+	return workspaceIDFromIdentity(legacyWorkspaceIdentity(repo, root))
+}
+
+func workspaceIDFromIdentity(identity string) WorkspaceID {
+	hash := sha1.Sum([]byte(identity))
+	return WorkspaceID(hex.EncodeToString(hash[:8]))
 }

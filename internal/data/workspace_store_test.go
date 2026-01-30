@@ -194,6 +194,34 @@ func TestWorkspaceStore_ListByRepo_SkipsEmptyRoot(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_ListByRepo_SkipsArchived(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	repo := "/home/user/repo"
+
+	active := &Workspace{Name: "active", Repo: repo, Root: "/path/to/active"}
+	archived := &Workspace{Name: "old", Repo: repo, Root: "/path/to/old", Archived: true}
+
+	if err := store.Save(active); err != nil {
+		t.Fatalf("Save(active) error = %v", err)
+	}
+	if err := store.Save(archived); err != nil {
+		t.Fatalf("Save(archived) error = %v", err)
+	}
+
+	workspaces, err := store.ListByRepo(repo)
+	if err != nil {
+		t.Fatalf("ListByRepo() error = %v", err)
+	}
+	if len(workspaces) != 1 {
+		t.Fatalf("expected 1 workspace after skipping archived, got %d", len(workspaces))
+	}
+	if workspaces[0].Name != "active" {
+		t.Errorf("expected active workspace, got %s", workspaces[0].Name)
+	}
+}
+
 func TestWorkspaceStore_NormalizesRuntime(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)
@@ -333,5 +361,44 @@ func TestWorkspaceStore_LoadAppliesDefaults(t *testing.T) {
 	}
 	if loaded.Runtime != RuntimeLocalWorktree {
 		t.Errorf("Runtime = %v, want %v", loaded.Runtime, RuntimeLocalWorktree)
+	}
+}
+
+func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	base := t.TempDir()
+	repoReal := filepath.Join(base, "repo")
+	if err := os.MkdirAll(repoReal, 0755); err != nil {
+		t.Fatalf("MkdirAll(repo) error = %v", err)
+	}
+	repoLink := filepath.Join(base, "repo-link")
+	if err := os.Symlink(repoReal, repoLink); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	rootReal := filepath.Join(repoReal, ".amux", "workspaces", "feature")
+	if err := os.MkdirAll(rootReal, 0755); err != nil {
+		t.Fatalf("MkdirAll(rootReal) error = %v", err)
+	}
+	rootLink := filepath.Join(repoLink, ".amux", "workspaces", "feature")
+
+	wsReal := &Workspace{Name: "feature", Repo: repoReal, Root: rootReal}
+	wsLink := &Workspace{Name: "feature", Repo: repoLink, Root: rootLink}
+
+	if err := store.Save(wsReal); err != nil {
+		t.Fatalf("Save(wsReal) error = %v", err)
+	}
+	if err := store.Save(wsLink); err != nil {
+		t.Fatalf("Save(wsLink) error = %v", err)
+	}
+
+	workspaces, err := store.ListByRepo(repoReal)
+	if err != nil {
+		t.Fatalf("ListByRepo() error = %v", err)
+	}
+	if len(workspaces) != 1 {
+		t.Fatalf("expected 1 workspace after symlink normalization, got %d", len(workspaces))
 	}
 }

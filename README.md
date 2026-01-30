@@ -28,7 +28,7 @@
 
 ## What is amux?
 
-amux is a terminal UI for running multiple coding agents in parallel with first-class support for git worktrees.
+amux is a terminal UI for running multiple coding agents in parallel with a workspace-first model that can import git worktrees.
 
 ## Quick start
 
@@ -46,7 +46,7 @@ Then run `amux` to open the dashboard.
 
 ## How it works
 
-Each workspace is a git worktree with its own branch. Agents work in isolation without conflicts, then you merge changes back when done.
+Each workspace tracks a repo checkout and its metadata. For local workflows, workspaces are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done.
 
 ## Features
 
@@ -68,7 +68,7 @@ Create `.amux/workspaces.json` in your project to run setup commands for new wor
 }
 ```
 
-Workspaces are stored in `~/.amux/workspaces/<project>/`.
+Workspace metadata is stored in `~/.amux/workspaces/<workspace-id>/workspace.json` and local worktree directories live under `<repo>/.amux/workspaces/`.
 
 ## Development
 

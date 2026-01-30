@@ -37,51 +37,8 @@ func (a *App) loadProjects() tea.Cmd {
 			}
 
 			var workspaces []data.Workspace
-			workspaceIndex := make(map[data.WorkspaceID]int)
 			for _, ws := range storedWorkspaces {
 				workspaces = append(workspaces, *ws)
-				workspaceIndex[ws.ID()] = len(workspaces) - 1
-			}
-
-			// Discover git worktrees to backfill and refresh local metadata.
-			discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
-			if err != nil {
-				logging.Warn("Failed to discover workspaces for %s: %v", path, err)
-			}
-
-			for _, discovered := range discoveredWorkspaces {
-				// Try to load stored metadata by ID (handles legacy files without Root/Repo)
-				found, loadErr := a.workspaces.LoadMetadataFor(&discovered)
-				if found {
-					// Metadata found and merged
-				} else if loadErr != nil {
-					// Metadata exists but couldn't be read - log error and skip saving defaults
-					logging.Warn("Failed to load metadata for workspace %s: %v", discovered.Name, loadErr)
-					discovered.Runtime = data.RuntimeLocalWorktree
-					discovered.Assistant = "claude"
-					discovered.ScriptMode = "nonconcurrent"
-					discovered.Env = make(map[string]string)
-					// Don't save - avoid overwriting potentially corrupted metadata
-				} else {
-					// No stored metadata - apply defaults and save for future
-					discovered.Created = time.Now()
-					discovered.Runtime = data.RuntimeLocalWorktree
-					discovered.Assistant = "claude"
-					discovered.ScriptMode = "nonconcurrent"
-					discovered.Env = make(map[string]string)
-
-					// Persist newly discovered workspace so changes aren't lost on restart
-					if err := a.workspaces.Save(&discovered); err != nil {
-						logging.Warn("Failed to save discovered workspace %s: %v", discovered.Name, err)
-					}
-				}
-
-				if idx, ok := workspaceIndex[discovered.ID()]; ok {
-					workspaces[idx] = discovered
-				} else {
-					workspaces = append(workspaces, discovered)
-					workspaceIndex[discovered.ID()] = len(workspaces) - 1
-				}
 			}
 
 			// Stored workspaces not discovered on disk are already included (store-first).
@@ -129,6 +86,62 @@ func (a *App) loadProjects() tea.Cmd {
 		}
 
 		return messages.ProjectsLoaded{Projects: projects}
+	}
+}
+
+// rescanWorkspaces discovers git worktrees and updates the workspace store.
+func (a *App) rescanWorkspaces() tea.Cmd {
+	return func() tea.Msg {
+		paths, err := a.registry.Projects()
+		if err != nil {
+			return messages.Error{Err: err, Context: "rescanning workspaces"}
+		}
+
+		for _, path := range paths {
+			if !git.IsGitRepository(path) {
+				continue
+			}
+
+			project := data.NewProject(path)
+			discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
+			if err != nil {
+				logging.Warn("Failed to discover workspaces for %s: %v", path, err)
+				continue
+			}
+
+			discoveredSet := make(map[string]bool, len(discoveredWorkspaces))
+			for i := range discoveredWorkspaces {
+				ws := &discoveredWorkspaces[i]
+				discoveredSet[string(ws.ID())] = true
+				if err := a.workspaces.UpsertFromDiscovery(ws); err != nil {
+					logging.Warn("Failed to import workspace %s: %v", ws.Name, err)
+				}
+			}
+
+			storedWorkspaces, err := a.workspaces.ListByRepoIncludingArchived(path)
+			if err != nil {
+				logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
+				continue
+			}
+
+			for _, ws := range storedWorkspaces {
+				if ws == nil || ws.Root == "" {
+					continue
+				}
+				if discoveredSet[string(ws.ID())] {
+					continue
+				}
+				if !ws.Archived {
+					ws.Archived = true
+					ws.ArchivedAt = time.Now()
+					if err := a.workspaces.Save(ws); err != nil {
+						logging.Warn("Failed to archive workspace %s: %v", ws.Name, err)
+					}
+				}
+			}
+		}
+
+		return messages.RefreshDashboard{}
 	}
 }
 

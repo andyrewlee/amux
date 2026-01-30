@@ -222,7 +222,7 @@ func (m *Model) handleDelete() tea.Cmd {
 	return nil
 }
 
-// refresh requests a dashboard refresh
+// refresh requests a workspace rescan/import.
 func (m *Model) refresh() tea.Cmd {
-	return func() tea.Msg { return messages.RefreshDashboard{} }
+	return func() tea.Msg { return messages.RescanWorkspaces{} }
 }
