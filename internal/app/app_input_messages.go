@@ -129,7 +129,11 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	if !changed && len(cmds) == 0 {
 		return nil
 	}
+	// Snapshot tabs for async save to avoid race with concurrent mutations
+	tabsSnapshot := make([]data.TabInfo, len(ws.OpenTabs))
+	copy(tabsSnapshot, ws.OpenTabs)
 	cmds = append(cmds, func() tea.Msg {
+		ws.OpenTabs = tabsSnapshot
 		if err := a.workspaces.Save(ws); err != nil {
 			logging.Warn("Failed to sync workspace tabs: %v", err)
 		}

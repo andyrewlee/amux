@@ -332,7 +332,13 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		ts.mu.Unlock()
 		if msg.Terminal != nil {
 			ts.VTerm.SetResponseWriter(func(data []byte) {
-				_, _ = msg.Terminal.Write(data)
+				// Look up current terminal through state to avoid stale reference
+				ts.mu.Lock()
+				t := ts.Terminal
+				ts.mu.Unlock()
+				if t != nil {
+					_, _ = t.Write(data)
+				}
 			})
 			_ = msg.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
 		}
