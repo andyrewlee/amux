@@ -437,18 +437,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.TmuxSyncTick:
-		if msg.Token != a.tmuxSyncToken {
-			break
-		}
-		if !a.tmuxAvailable {
-			break
-		}
-		for _, ws := range a.tmuxSyncWorkspaces() {
-			if syncCmd := a.syncWorkspaceTabsFromTmux(ws); syncCmd != nil {
-				cmds = append(cmds, syncCmd)
-			}
-		}
-		cmds = append(cmds, a.startTmuxSyncTicker())
+		cmds = append(cmds, a.handleTmuxSyncTick(msg)...)
+
+	case tmuxTabsSyncResult:
+		cmds = append(cmds, a.handleTmuxTabsSyncResult(msg)...)
 
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)

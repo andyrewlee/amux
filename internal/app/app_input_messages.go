@@ -81,64 +81,61 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 		return nil // Error shown on startup, don't repeat
 	}
 	// Mutate workspace state on the Bubble Tea update goroutine only.
-	changed := false
-	var cmds []tea.Cmd
 	wsID := string(ws.ID())
-	for i := range ws.OpenTabs {
-		tab := &ws.OpenTabs[i]
-		if tab.SessionName == "" {
-			continue
-		}
-		state, err := tmux.SessionStateFor(tab.SessionName, a.tmuxOptions)
-		if err != nil {
-			continue
-		}
-		if strings.EqualFold(tab.Status, "detached") {
-			if !(state.Exists && state.HasLivePane) {
-				tab.Status = "stopped"
-				changed = true
-				sessionName := tab.SessionName // capture for closure
-				cmds = append(cmds, func() tea.Msg {
-					return messages.TabSessionStatus{
-						WorkspaceID: wsID,
-						SessionName: sessionName,
-						Status:      "stopped",
-					}
-				})
+	tabsSnapshot := make([]data.TabInfo, len(ws.OpenTabs))
+	copy(tabsSnapshot, ws.OpenTabs)
+	opts := a.tmuxOptions
+	return func() tea.Msg {
+		var updates []tmuxTabStatusUpdate
+		for _, tab := range tabsSnapshot {
+			if tab.SessionName == "" {
+				continue
 			}
-			continue
-		}
-		status := "stopped"
-		if state.Exists && state.HasLivePane {
-			status = "running"
-		}
-		if tab.Status != status {
-			tab.Status = status
-			changed = true
-			if status == "stopped" {
-				sessionName := tab.SessionName // capture for closure
-				cmds = append(cmds, func() tea.Msg {
-					return messages.TabSessionStatus{
-						WorkspaceID: wsID,
-						SessionName: sessionName,
-						Status:      "stopped",
-					}
+			state, err := tmux.SessionStateFor(tab.SessionName, opts)
+			if err != nil {
+				continue
+			}
+			if strings.EqualFold(tab.Status, "detached") {
+				if !(state.Exists && state.HasLivePane) {
+					updates = append(updates, tmuxTabStatusUpdate{
+						SessionName:   tab.SessionName,
+						Status:        "stopped",
+						NotifyStopped: true,
+					})
+				}
+				continue
+			}
+			status := "stopped"
+			if state.Exists && state.HasLivePane {
+				status = "running"
+			}
+			if tab.Status != status {
+				updates = append(updates, tmuxTabStatusUpdate{
+					SessionName:   tab.SessionName,
+					Status:        status,
+					NotifyStopped: status == "stopped",
 				})
 			}
 		}
-	}
-	if !changed && len(cmds) == 0 {
-		return nil
-	}
-	// Snapshot workspace for async save to avoid races with concurrent mutations
-	wsSnapshot := snapshotWorkspaceForSave(ws)
-	cmds = append(cmds, func() tea.Msg {
-		if err := a.workspaces.Save(wsSnapshot); err != nil {
-			logging.Warn("Failed to sync workspace tabs: %v", err)
+		if len(updates) == 0 {
+			return nil
 		}
-		return nil
-	})
-	return common.SafeBatch(cmds...)
+		return tmuxTabsSyncResult{
+			WorkspaceID: wsID,
+			Updates:     updates,
+		}
+	}
+}
+
+type tmuxTabStatusUpdate struct {
+	SessionName   string
+	Status        string
+	NotifyStopped bool
+}
+
+type tmuxTabsSyncResult struct {
+	WorkspaceID string
+	Updates     []tmuxTabStatusUpdate
 }
 
 // persistDebounce is the delay before writing workspace state to disk.
