@@ -58,7 +58,14 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 			if len(data) == 0 {
 				return
 			}
-			if err := msg.Agent.Terminal.SendString(string(data)); err != nil {
+			// Look up current agent through tab to avoid stale reference
+			tab.mu.Lock()
+			agent := tab.Agent
+			tab.mu.Unlock()
+			if agent == nil || agent.Terminal == nil {
+				return
+			}
+			if err := agent.Terminal.SendString(string(data)); err != nil {
 				logging.Warn("Response write failed for tab %s: %v", tab.ID, err)
 				tab.mu.Lock()
 				tab.Running = false

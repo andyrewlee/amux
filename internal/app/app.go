@@ -128,6 +128,9 @@ type App struct {
 	tmuxCheckDone   bool
 	tmuxInstallHint string
 
+	// Workspace persistence debounce
+	persistToken int
+
 	// Terminal capabilities
 	keyboardEnhancements tea.KeyboardEnhancementsMsg
 

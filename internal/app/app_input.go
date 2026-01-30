@@ -373,19 +373,16 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.TabDetached:
 		logging.Info("Tab detached: %d", msg.Index)
-		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, a.persistActiveWorkspaceTabs())
 
 	case messages.TabReattached:
-		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, a.persistActiveWorkspaceTabs())
 
 	case messages.TabStateChanged, messages.TabSelectionChanged:
-		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, a.persistActiveWorkspaceTabs())
+
+	case persistDebounceMsg:
+		cmds = append(cmds, a.handlePersistDebounce(msg))
 
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		if cmd := a.handlePTYMessages(msg); cmd != nil {

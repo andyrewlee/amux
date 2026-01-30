@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -137,13 +138,38 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	return common.SafeBatch(cmds...)
 }
 
+// persistDebounce is the delay before writing workspace state to disk.
+const persistDebounce = 500 * time.Millisecond
+
+// persistDebounceMsg is sent after the debounce period to trigger actual save.
+type persistDebounceMsg struct {
+	token int
+}
+
 func (a *App) persistActiveWorkspaceTabs() tea.Cmd {
 	if a.activeWorkspace == nil {
 		return nil
 	}
+	// Update in-memory state immediately
 	tabs, activeIdx := a.center.GetTabsInfo()
 	a.activeWorkspace.OpenTabs = tabs
 	a.activeWorkspace.ActiveTabIndex = activeIdx
+	// Debounce disk writes
+	a.persistToken++
+	token := a.persistToken
+	return common.SafeTick(persistDebounce, func(t time.Time) tea.Msg {
+		return persistDebounceMsg{token: token}
+	})
+}
+
+func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
+	// Ignore stale tokens (newer persist request superseded this one)
+	if msg.token != a.persistToken {
+		return nil
+	}
+	if a.activeWorkspace == nil {
+		return nil
+	}
 	ws := a.activeWorkspace
 	return func() tea.Msg {
 		if err := a.workspaces.Save(ws); err != nil {

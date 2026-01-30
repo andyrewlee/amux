@@ -229,15 +229,9 @@ func (m *TerminalModel) terminalContentSize() (int, int) {
 func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal, sessionName string) tea.Cmd {
 	termWidth, termHeight := m.terminalContentSize()
 
-	vt := vterm.New(termWidth, termHeight)
-	vt.SetResponseWriter(func(data []byte) {
-		_, _ = term.Write(data)
-	})
-	_ = term.SetSize(uint16(termHeight), uint16(termWidth))
-
 	ts := &TerminalState{
 		Terminal:    term,
-		VTerm:       vt,
+		VTerm:       nil, // set below
 		Running:     true,
 		Detached:    false,
 		SessionName: sessionName,
@@ -245,6 +239,20 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 		lastHeight:  termHeight,
 	}
 
+	vt := vterm.New(termWidth, termHeight)
+	// Look up current terminal through state to avoid stale reference
+	vt.SetResponseWriter(func(data []byte) {
+		ts.mu.Lock()
+		t := ts.Terminal
+		ts.mu.Unlock()
+		if t != nil {
+			_, _ = t.Write(data)
+		}
+	})
+	ts.VTerm = vt
+	_ = term.SetSize(uint16(termHeight), uint16(termWidth))
+
+	// ts already initialized above, just need tabs lookup
 	tabs := m.tabsByWorkspace[wsID]
 	tab := &TerminalTab{
 		ID:    tabID,
@@ -261,7 +269,6 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 
 	m.refreshTerminalSize()
 
-	// Start reading from PTY
 	return m.startPTYReader(wsID, tabID)
 }
 
