@@ -127,9 +127,12 @@ func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, t
 		return m, nil
 	}
 	m.stopPTYReader(tab)
-	if tab.Agent != nil {
-		_ = m.agentManager.CloseAgent(tab.Agent)
-		tab.Agent = nil
+	tab.mu.Lock()
+	agent := tab.Agent
+	tab.Agent = nil
+	tab.mu.Unlock()
+	if agent != nil {
+		_ = m.agentManager.CloseAgent(agent)
 	}
 	tab.mu.Lock()
 	tab.Running = false

@@ -28,9 +28,10 @@ func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
 func (a *App) cleanupAllTmuxSessions() tea.Cmd {
 	opts := a.tmuxOptions
 	return func() tea.Msg {
-		if err := tmux.KillSessionsWithPrefix(tmux.SessionName("amux"), opts); err != nil {
+		prefix := tmux.SessionName("amux") + "-"
+		if err := tmux.KillSessionsWithPrefix(prefix, opts); err != nil {
 			return messages.Toast{Message: fmt.Sprintf("tmux cleanup failed: %v", err), Level: messages.ToastWarning}
 		}
-		return messages.Toast{Message: "Cleaned up amux tmux sessions", Level: messages.ToastSuccess}
+		return messages.Toast{Message: fmt.Sprintf("Cleaned up %s* tmux sessions", prefix), Level: messages.ToastSuccess}
 	}
 }

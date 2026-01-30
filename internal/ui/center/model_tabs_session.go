@@ -33,10 +33,11 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	if tab.Agent != nil && tab.SessionName == "" {
 		tab.SessionName = tab.Agent.Session
 	}
+	agent := tab.Agent
+	tab.Agent = nil
 	tab.mu.Unlock()
-	if tab.Agent != nil {
-		_ = m.agentManager.CloseAgent(tab.Agent)
-		tab.Agent = nil
+	if agent != nil {
+		_ = m.agentManager.CloseAgent(agent)
 	}
 	return func() tea.Msg {
 		return messages.TabDetached{Index: index}

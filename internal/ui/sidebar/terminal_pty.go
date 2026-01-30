@@ -157,21 +157,30 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	if ws == nil {
 		return nil
 	}
+	// Snapshot model-dependent values so the async cmd doesn't race on TerminalModel fields.
+	opts := m.getTmuxOptions()
+	termWidth, termHeight := m.terminalContentSize()
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+	env := []string{"COLORTERM=truecolor"}
+	wsID := string(ws.ID())
+	root := ws.Root
 	return func() tea.Msg {
 		if err := tmux.EnsureAvailable(); err != nil {
 			return sidebarTerminalReattachFailed{
-				WorkspaceID: string(ws.ID()),
+				WorkspaceID: wsID,
 				TabID:       tabID,
 				Err:         err,
 				Action:      action,
 			}
 		}
-		opts := m.getTmuxOptions()
 		if action == "reattach" {
 			state, err := tmux.SessionStateFor(sessionName, opts)
 			if err != nil {
 				return sidebarTerminalReattachFailed{
-					WorkspaceID: string(ws.ID()),
+					WorkspaceID: wsID,
 					TabID:       tabID,
 					Err:         err,
 					Action:      action,
@@ -179,7 +188,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			}
 			if !state.Exists || !state.HasLivePane {
 				return sidebarTerminalReattachFailed{
-					WorkspaceID: string(ws.ID()),
+					WorkspaceID: wsID,
 					TabID:       tabID,
 					Err:         fmt.Errorf("tmux session ended"),
 					Stopped:     true,
@@ -187,25 +196,18 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 				}
 			}
 		}
-
-		termWidth, termHeight := m.terminalContentSize()
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/bash"
-		}
-		env := []string{"COLORTERM=truecolor"}
-		command := tmux.ClientCommand(sessionName, ws.Root, fmt.Sprintf("exec %s -l", shell))
-		term, err := pty.NewWithSize(command, ws.Root, env, uint16(termHeight), uint16(termWidth))
+		command := tmux.ClientCommand(sessionName, root, fmt.Sprintf("exec %s -l", shell))
+		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return sidebarTerminalReattachFailed{
-				WorkspaceID: string(ws.ID()),
+				WorkspaceID: wsID,
 				TabID:       tabID,
 				Err:         err,
 				Action:      action,
 			}
 		}
 		return sidebarTerminalReattachResult{
-			WorkspaceID: string(ws.ID()),
+			WorkspaceID: wsID,
 			TabID:       tabID,
 			Terminal:    term,
 			SessionName: sessionName,

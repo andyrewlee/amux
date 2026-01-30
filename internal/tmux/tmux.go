@@ -258,6 +258,7 @@ func KillWorkspaceSessions(wsID string, opts Options) error {
 }
 
 func sanitize(value string) string {
+	// Normalize to lowercase to keep session naming deterministic across inputs.
 	value = strings.ToLower(value)
 	var b strings.Builder
 	b.Grow(len(value))

@@ -80,6 +80,7 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	if !a.tmuxAvailable {
 		return nil // Error shown on startup, don't repeat
 	}
+	// Mutate workspace state on the Bubble Tea update goroutine only.
 	changed := false
 	var cmds []tea.Cmd
 	wsID := string(ws.ID())
@@ -129,12 +130,10 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	if !changed && len(cmds) == 0 {
 		return nil
 	}
-	// Snapshot tabs for async save to avoid race with concurrent mutations
-	tabsSnapshot := make([]data.TabInfo, len(ws.OpenTabs))
-	copy(tabsSnapshot, ws.OpenTabs)
+	// Snapshot workspace for async save to avoid races with concurrent mutations
+	wsSnapshot := snapshotWorkspaceForSave(ws)
 	cmds = append(cmds, func() tea.Msg {
-		ws.OpenTabs = tabsSnapshot
-		if err := a.workspaces.Save(ws); err != nil {
+		if err := a.workspaces.Save(wsSnapshot); err != nil {
 			logging.Warn("Failed to sync workspace tabs: %v", err)
 		}
 		return nil
@@ -174,9 +173,9 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	if a.activeWorkspace == nil {
 		return nil
 	}
-	ws := a.activeWorkspace
+	wsSnapshot := snapshotWorkspaceForSave(a.activeWorkspace)
 	return func() tea.Msg {
-		if err := a.workspaces.Save(ws); err != nil {
+		if err := a.workspaces.Save(wsSnapshot); err != nil {
 			logging.Warn("Failed to save workspace tabs: %v", err)
 		}
 		return nil
@@ -304,7 +303,7 @@ func (a *App) handleShowCleanupTmuxDialog() {
 	a.dialog = common.NewConfirmDialog(
 		DialogCleanupTmux,
 		"Cleanup tmux sessions",
-		"Kill all amux tmux sessions?",
+		fmt.Sprintf("Kill all amux-* tmux sessions on server %q?", a.tmuxOptions.ServerName),
 	)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
