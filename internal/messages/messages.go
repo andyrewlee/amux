@@ -152,6 +152,9 @@ type ToggleKeymapHints struct{}
 // RefreshDashboard requests a dashboard refresh
 type RefreshDashboard struct{}
 
+// RescanWorkspaces requests a git worktree rescan/import.
+type RescanWorkspaces struct{}
+
 // ShowAddProjectDialog requests showing the add project dialog
 type ShowAddProjectDialog struct{}
 

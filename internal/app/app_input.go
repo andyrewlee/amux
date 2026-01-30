@@ -273,6 +273,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.RefreshDashboard:
 		cmds = append(cmds, a.loadProjects())
 
+	case messages.RescanWorkspaces:
+		cmds = append(cmds, a.rescanWorkspaces())
+
 	case messages.WorkspaceCreatedWithWarning:
 		cmds = append(cmds, a.handleWorkspaceCreatedWithWarning(msg)...)
 

@@ -100,7 +100,7 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 	}
 }
 
-func TestLoadProjects_BackfillDiscoveredWorkspace(t *testing.T) {
+func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 	skipIfNoGit(t)
 
 	repo := t.TempDir()
@@ -146,9 +146,43 @@ func TestLoadProjects_BackfillDiscoveredWorkspace(t *testing.T) {
 
 	var (
 		found bool
-		count int
 	)
 	expectedRoot := normalizePath(worktreePath)
+	for i := range project.Workspaces {
+		ws := &project.Workspaces[i]
+		if normalizePath(ws.Root) == expectedRoot {
+			found = true
+		}
+	}
+	if found {
+		t.Fatalf("did not expect workspace for %s before rescan", worktreePath)
+	}
+
+	rescanMsg := app.rescanWorkspaces()()
+	if _, ok := rescanMsg.(messages.RefreshDashboard); !ok {
+		t.Fatalf("expected RefreshDashboard from rescan, got %T", rescanMsg)
+	}
+
+	msg = app.loadProjects()()
+	loaded, ok = msg.(messages.ProjectsLoaded)
+	if !ok {
+		t.Fatalf("expected ProjectsLoaded, got %T", msg)
+	}
+
+	project = nil
+	for i := range loaded.Projects {
+		if loaded.Projects[i].Path == repo {
+			project = &loaded.Projects[i]
+			break
+		}
+	}
+	if project == nil {
+		t.Fatalf("expected project %s to be loaded after rescan", repo)
+	}
+
+	var (
+		count int
+	)
 	for i := range project.Workspaces {
 		ws := &project.Workspaces[i]
 		if normalizePath(ws.Root) == expectedRoot {
@@ -157,7 +191,7 @@ func TestLoadProjects_BackfillDiscoveredWorkspace(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected workspace for %s", worktreePath)
+		t.Fatalf("expected workspace for %s after rescan", worktreePath)
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 workspace entry for %s, got %d", worktreePath, count)
@@ -174,10 +208,59 @@ func TestLoadProjects_BackfillDiscoveredWorkspace(t *testing.T) {
 		t.Fatalf("LoadMetadataFor: %v", err)
 	}
 	if ws.Created.IsZero() {
-		t.Fatalf("expected backfilled metadata to set Created")
+		t.Fatalf("expected imported metadata to set Created")
 	}
 	if ws.Assistant == "" {
-		t.Fatalf("expected backfilled metadata to set Assistant")
+		t.Fatalf("expected imported metadata to set Assistant")
+	}
+}
+
+func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	tmp := t.TempDir()
+	registry := data.NewRegistry(filepath.Join(tmp, "projects.json"))
+	if err := registry.AddProject(repo); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+	ghost := &data.Workspace{
+		Name: "ghost",
+		Repo: repo,
+		Root: filepath.Join(repo, ".amux", "workspaces", "ghost"),
+	}
+	if err := store.Save(ghost); err != nil {
+		t.Fatalf("Save ghost workspace: %v", err)
+	}
+
+	app := &App{
+		registry:   registry,
+		workspaces: store,
+	}
+
+	rescanMsg := app.rescanWorkspaces()()
+	if _, ok := rescanMsg.(messages.RefreshDashboard); !ok {
+		t.Fatalf("expected RefreshDashboard from rescan, got %T", rescanMsg)
+	}
+
+	loaded, err := store.Load(ghost.ID())
+	if err != nil {
+		t.Fatalf("Load ghost workspace: %v", err)
+	}
+	if !loaded.Archived {
+		t.Fatalf("expected ghost workspace to be archived after rescan")
+	}
+	if loaded.ArchivedAt.IsZero() {
+		t.Fatalf("expected archived workspace to set ArchivedAt")
 	}
 }
 

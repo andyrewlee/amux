@@ -33,17 +33,22 @@ func TestNewWorkspace(t *testing.T) {
 func TestWorkspace_ID(t *testing.T) {
 	ws1 := Workspace{Repo: "/repo1", Root: "/workspaces/ws1"}
 	ws2 := Workspace{Repo: "/repo1", Root: "/workspaces/ws2"}
-	ws3 := Workspace{Repo: "/repo1", Root: "/workspaces/ws1"} // Same as ws1
+	ws3 := Workspace{Repo: "/repo1", Root: "/workspaces/ws1"}            // Same as ws1
+	ws4 := Workspace{Repo: "/repo1/../repo1", Root: "/workspaces/./ws1"} // Normalized to ws1
 
 	id1 := ws1.ID()
 	id2 := ws2.ID()
 	id3 := ws3.ID()
+	id4 := ws4.ID()
 
 	if id1 == id2 {
 		t.Errorf("Different workspaces should have different IDs")
 	}
 	if id1 != id3 {
 		t.Errorf("Same workspaces should have same IDs: %v != %v", id1, id3)
+	}
+	if id1 != id4 {
+		t.Errorf("Normalized paths should have same IDs: %v != %v", id1, id4)
 	}
 	if len(id1) != 16 {
 		t.Errorf("ID should be 16 hex characters (8 bytes), got %d", len(id1))

@@ -150,6 +150,12 @@ func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 	}
 
 	sort.SliceStable(workspaces, func(i, j int) bool {
+		if workspaces[i].Created.Equal(workspaces[j].Created) {
+			if workspaces[i].Name == workspaces[j].Name {
+				return workspaces[i].Root < workspaces[j].Root
+			}
+			return workspaces[i].Name < workspaces[j].Name
+		}
 		return workspaces[i].Created.After(workspaces[j].Created)
 	})
 

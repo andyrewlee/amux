@@ -86,3 +86,42 @@ func TestDashboardCreatingWorkspaceOrder(t *testing.T) {
 		t.Fatalf("expected creating workspace to be first, got %v", got)
 	}
 }
+
+func TestDashboardWorkspaceOrderStableWhenCreatedEqual(t *testing.T) {
+	m := New()
+	created := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	project := data.Project{
+		Name: "repo",
+		Path: "/repo",
+		Workspaces: []data.Workspace{
+			{Name: "repo", Branch: "main", Repo: "/repo", Root: "/repo", Created: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{Name: "b", Branch: "b", Repo: "/repo", Root: "/repo/.amux/workspaces/b", Created: created},
+			{Name: "a", Branch: "a", Repo: "/repo", Root: "/repo/.amux/workspaces/a", Created: created},
+			{Name: "a", Branch: "a2", Repo: "/repo", Root: "/repo/.amux/workspaces/a2", Created: created},
+		},
+	}
+
+	m.SetProjects([]data.Project{project})
+
+	var got []string
+	for _, row := range m.rows {
+		if row.Type == RowWorkspace {
+			got = append(got, row.Workspace.Root)
+		}
+	}
+
+	want := []string{
+		"/repo/.amux/workspaces/a",
+		"/repo/.amux/workspaces/a2",
+		"/repo/.amux/workspaces/b",
+	}
+
+	if len(got) < len(want) {
+		t.Fatalf("expected at least %d workspace rows, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected stable order %v, got %v", want, got[:len(want)])
+		}
+	}
+}
