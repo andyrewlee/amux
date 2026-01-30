@@ -10,6 +10,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -45,10 +46,12 @@ type TerminalTab struct {
 
 // TerminalState holds the terminal state for a workspace
 type TerminalState struct {
-	Terminal *pty.Terminal
-	VTerm    *vterm.VTerm
-	Running  bool
-	mu       sync.Mutex
+	Terminal    *pty.Terminal
+	VTerm       *vterm.VTerm
+	Running     bool
+	Detached    bool
+	SessionName string
+	mu          sync.Mutex
 
 	// Track last size to avoid unnecessary resizes
 	lastWidth  int
@@ -117,6 +120,10 @@ type TerminalModel struct {
 
 	// PTY message sink
 	msgSink func(tea.Msg)
+
+	// tmux config
+	tmuxServerName string
+	tmuxConfigPath string
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -127,6 +134,23 @@ func NewTerminalModel() *TerminalModel {
 		pendingCreation:      make(map[string]bool),
 		styles:               common.DefaultStyles(),
 	}
+}
+
+// SetTmuxConfig updates the tmux configuration.
+func (m *TerminalModel) SetTmuxConfig(serverName, configPath string) {
+	m.tmuxServerName = serverName
+	m.tmuxConfigPath = configPath
+}
+
+func (m *TerminalModel) getTmuxOptions() tmux.Options {
+	opts := tmux.DefaultOptions()
+	if m.tmuxServerName != "" {
+		opts.ServerName = m.tmuxServerName
+	}
+	if m.tmuxConfigPath != "" {
+		opts.ConfigPath = m.tmuxConfigPath
+	}
+	return opts
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.

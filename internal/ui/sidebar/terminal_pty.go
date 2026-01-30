@@ -1,7 +1,7 @@
 package sidebar
 
 import (
-	"io"
+	"fmt"
 	"os"
 	"sync/atomic"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -37,12 +38,28 @@ type SidebarTerminalCreated struct {
 	WorkspaceID string
 	TabID       TerminalTabID
 	Terminal    *pty.Terminal
+	SessionName string
 }
 
 // SidebarTerminalCreateFailed is a message for terminal creation failure
 type SidebarTerminalCreateFailed struct {
 	WorkspaceID string
 	Err         error
+}
+
+type sidebarTerminalReattachResult struct {
+	WorkspaceID string
+	TabID       TerminalTabID
+	Terminal    *pty.Terminal
+	SessionName string
+}
+
+type sidebarTerminalReattachFailed struct {
+	WorkspaceID string
+	TabID       TerminalTabID
+	Err         error
+	Stopped     bool
+	Action      string
 }
 
 // createTerminalTab creates a new terminal tab for the workspace
@@ -55,11 +72,16 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		if shell == "" {
 			shell = "/bin/bash"
 		}
+		if err := tmux.EnsureAvailable(); err != nil {
+			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
+		}
 
 		termWidth, termHeight := m.terminalContentSize()
 
 		env := []string{"COLORTERM=truecolor"}
-		term, err := pty.NewWithSize(shell, ws.Root, env, uint16(termHeight), uint16(termWidth))
+		sessionName := tmux.SessionName("amux", wsID, string(tabID))
+		command := tmux.ClientCommand(sessionName, ws.Root, fmt.Sprintf("exec %s -l", shell))
+		term, err := pty.NewWithSize(command, ws.Root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
@@ -68,6 +90,125 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			WorkspaceID: wsID,
 			TabID:       tabID,
 			Terminal:    term,
+			SessionName: sessionName,
+		}
+	}
+}
+
+// DetachActiveTab closes the PTY client but keeps the tmux session alive.
+func (m *TerminalModel) DetachActiveTab() tea.Cmd {
+	tab := m.getActiveTab()
+	if tab == nil || tab.State == nil {
+		return nil
+	}
+	m.detachState(tab.State)
+	return nil
+}
+
+// ReattachActiveTab reattaches to a detached tmux session for the active terminal tab.
+func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
+	tab := m.getActiveTab()
+	if tab == nil || tab.State == nil || m.workspace == nil {
+		return nil
+	}
+	ts := tab.State
+	ts.mu.Lock()
+	running := ts.Running
+	sessionName := ts.SessionName
+	ts.mu.Unlock()
+	if running {
+		return func() tea.Msg {
+			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
+		}
+	}
+	ws := m.workspace
+	if sessionName == "" {
+		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
+	}
+	return m.attachToSession(ws, tab.ID, sessionName, "reattach")
+}
+
+// RestartActiveTab starts a fresh tmux session for the active terminal tab.
+func (m *TerminalModel) RestartActiveTab() tea.Cmd {
+	tab := m.getActiveTab()
+	if tab == nil || tab.State == nil || m.workspace == nil {
+		return nil
+	}
+	ts := tab.State
+	ts.mu.Lock()
+	running := ts.Running
+	sessionName := ts.SessionName
+	ts.mu.Unlock()
+	if running {
+		return func() tea.Msg {
+			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
+		}
+	}
+	ws := m.workspace
+	if sessionName == "" {
+		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
+	}
+	m.detachState(ts)
+	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
+	return m.attachToSession(ws, tab.ID, sessionName, "restart")
+}
+
+func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName, action string) tea.Cmd {
+	if ws == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if err := tmux.EnsureAvailable(); err != nil {
+			return sidebarTerminalReattachFailed{
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Err:         err,
+				Action:      action,
+			}
+		}
+		opts := m.getTmuxOptions()
+		if action == "reattach" {
+			state, err := tmux.SessionStateFor(sessionName, opts)
+			if err != nil {
+				return sidebarTerminalReattachFailed{
+					WorkspaceID: string(ws.ID()),
+					TabID:       tabID,
+					Err:         err,
+					Action:      action,
+				}
+			}
+			if !state.Exists || !state.HasLivePane {
+				return sidebarTerminalReattachFailed{
+					WorkspaceID: string(ws.ID()),
+					TabID:       tabID,
+					Err:         fmt.Errorf("tmux session ended"),
+					Stopped:     true,
+					Action:      action,
+				}
+			}
+		}
+
+		termWidth, termHeight := m.terminalContentSize()
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/bash"
+		}
+		env := []string{"COLORTERM=truecolor"}
+		command := tmux.ClientCommand(sessionName, ws.Root, fmt.Sprintf("exec %s -l", shell))
+		term, err := pty.NewWithSize(command, ws.Root, env, uint16(termHeight), uint16(termWidth))
+		if err != nil {
+			return sidebarTerminalReattachFailed{
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Err:         err,
+				Action:      action,
+			}
+		}
+		return sidebarTerminalReattachResult{
+			WorkspaceID: string(ws.ID()),
+			TabID:       tabID,
+			Terminal:    term,
+			SessionName: sessionName,
 		}
 	}
 }
@@ -85,7 +226,7 @@ func (m *TerminalModel) terminalContentSize() (int, int) {
 }
 
 // HandleTerminalCreated handles the terminal tab creation message
-func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal) tea.Cmd {
+func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal, sessionName string) tea.Cmd {
 	termWidth, termHeight := m.terminalContentSize()
 
 	vt := vterm.New(termWidth, termHeight)
@@ -95,11 +236,13 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 	_ = term.SetSize(uint16(termHeight), uint16(termWidth))
 
 	ts := &TerminalState{
-		Terminal:   term,
-		VTerm:      vt,
-		Running:    true,
-		lastWidth:  termWidth,
-		lastHeight: termHeight,
+		Terminal:    term,
+		VTerm:       vt,
+		Running:     true,
+		Detached:    false,
+		SessionName: sessionName,
+		lastWidth:   termWidth,
+		lastHeight:  termHeight,
 	}
 
 	tabs := m.tabsByWorkspace[wsID]
@@ -242,6 +385,23 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
 }
 
+func (m *TerminalModel) detachState(ts *TerminalState) {
+	if ts == nil {
+		return
+	}
+	m.stopPTYReader(ts)
+	ts.mu.Lock()
+	term := ts.Terminal
+	ts.Terminal = nil
+	ts.Running = false
+	ts.Detached = true
+	ts.pendingOutput = nil
+	ts.mu.Unlock()
+	if term != nil {
+		term.Close()
+	}
+}
+
 func (m *TerminalModel) markPTYReaderStopped(ts *TerminalState) {
 	if ts == nil {
 		return
@@ -251,177 +411,6 @@ func (m *TerminalModel) markPTYReaderStopped(ts *TerminalState) {
 	ts.ptyMsgCh = nil
 	ts.mu.Unlock()
 	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
-}
-
-func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wsID string, tabID string, heartbeat *int64) {
-	// Ensure msgCh is always closed even if we panic, so forwardPTYMsgs doesn't block forever.
-	// The inner recover() catches double-close panics from existing close(msgCh) calls.
-	defer func() {
-		defer func() { _ = recover() }()
-		close(msgCh)
-	}()
-
-	if term == nil {
-		return
-	}
-	beat := func() {
-		if heartbeat != nil {
-			atomic.StoreInt64(heartbeat, time.Now().UnixNano())
-		}
-	}
-	beat()
-
-	dataCh := make(chan []byte, ptyReadQueueSize)
-	errCh := make(chan error, 1)
-
-	safego.Go("sidebar.pty_read_loop", func() {
-		buf := make([]byte, ptyReadBufferSize)
-		for {
-			n, err := term.Read(buf)
-			if err != nil {
-				select {
-				case errCh <- err:
-				default:
-				}
-				close(dataCh)
-				return
-			}
-			if n == 0 {
-				continue
-			}
-			beat()
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			select {
-			case dataCh <- chunk:
-			case <-cancel:
-				return
-			}
-		}
-	})
-
-	ticker := time.NewTicker(ptyFrameInterval)
-	defer ticker.Stop()
-
-	var pending []byte
-	var stoppedErr error
-
-	for {
-		select {
-		case <-cancel:
-			close(msgCh)
-			return
-		case err := <-errCh:
-			beat()
-			stoppedErr = err
-		case data, ok := <-dataCh:
-			beat()
-			if !ok {
-				if len(pending) > 0 {
-					if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: tabID, Data: pending}) {
-						close(msgCh)
-						return
-					}
-				}
-				if stoppedErr == nil {
-					stoppedErr = io.EOF
-				}
-				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: tabID, Err: stoppedErr})
-				close(msgCh)
-				return
-			}
-			pending = append(pending, data...)
-			if len(pending) >= ptyMaxPendingBytes {
-				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: tabID, Data: pending}) {
-					close(msgCh)
-					return
-				}
-				pending = nil
-			}
-		case <-ticker.C:
-			beat()
-			if len(pending) > 0 {
-				if !sendPTYMsg(msgCh, cancel, messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: tabID, Data: pending}) {
-					close(msgCh)
-					return
-				}
-				pending = nil
-			}
-			if stoppedErr != nil {
-				sendPTYMsg(msgCh, cancel, messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: tabID, Err: stoppedErr})
-				close(msgCh)
-				return
-			}
-		}
-	}
-}
-
-func sendPTYMsg(msgCh chan tea.Msg, cancel <-chan struct{}, msg tea.Msg) bool {
-	if msgCh == nil {
-		return false
-	}
-	select {
-	case <-cancel:
-		return false
-	case msgCh <- msg:
-		return true
-	}
-}
-
-func (m *TerminalModel) forwardPTYMsgs(msgCh <-chan tea.Msg) {
-	for msg := range msgCh {
-		if msg == nil {
-			continue
-		}
-		out, ok := msg.(messages.SidebarPTYOutput)
-		if !ok {
-			if m.msgSink != nil {
-				m.msgSink(msg)
-			}
-			continue
-		}
-
-		merged := out
-		for {
-			select {
-			case next, ok := <-msgCh:
-				if !ok {
-					if m.msgSink != nil && len(merged.Data) > 0 {
-						m.msgSink(merged)
-					}
-					return
-				}
-				if next == nil {
-					continue
-				}
-				if nextOut, ok := next.(messages.SidebarPTYOutput); ok &&
-					nextOut.WorkspaceID == merged.WorkspaceID &&
-					nextOut.TabID == merged.TabID {
-					merged.Data = append(merged.Data, nextOut.Data...)
-					if len(merged.Data) >= ptyMaxPendingBytes {
-						if m.msgSink != nil && len(merged.Data) > 0 {
-							m.msgSink(merged)
-						}
-						merged.Data = nil
-					}
-					continue
-				}
-				if m.msgSink != nil && len(merged.Data) > 0 {
-					m.msgSink(merged)
-				}
-				if m.msgSink != nil {
-					m.msgSink(next)
-				}
-				goto nextMsg
-			default:
-				if m.msgSink != nil && len(merged.Data) > 0 {
-					m.msgSink(merged)
-				}
-				goto nextMsg
-			}
-		}
-	nextMsg:
-	}
 }
 
 // SendToTerminal sends a string directly to the current terminal

@@ -128,13 +128,15 @@ func (m *Model) helpLines(contentWidth int) []string {
 	hasTabs := len(m.getTabs()) > 0
 	if m.workspace != nil {
 		items = append(items,
-			m.helpItem("C-Spc a", "new tab"),
+			m.helpItem("C-Spc a", "new agent tab"),
 		)
 	}
 	if hasTabs {
 		items = append(items,
-			m.helpItem("C-Spc s", "save"),
 			m.helpItem("C-Spc x", "close"),
+			m.helpItem("C-Spc D", "detach"),
+			m.helpItem("C-Spc R", "reattach"),
+			m.helpItem("C-Spc S", "restart"),
 			m.helpItem("C-Spc p", "prev"),
 			m.helpItem("C-Spc n", "next"),
 			m.helpItem("C-Spc 1-9", "jump tab"),
@@ -261,7 +263,22 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 			Background(common.ColorInfo)
 		return scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
 	}
-	return ""
+	status := " RUNNING "
+	if tab.Detached {
+		status = " DETACHED "
+	} else if !tab.Running {
+		status = " STOPPED "
+	}
+	statusStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(common.ColorBackground).
+		Background(common.ColorInfo)
+	if tab.Detached {
+		statusStyle = statusStyle.Background(common.ColorWarning)
+	} else if !tab.Running {
+		statusStyle = statusStyle.Background(common.ColorError)
+	}
+	return statusStyle.Render(status)
 }
 
 // activeTerminalStatusLine returns the status line for the active terminal.

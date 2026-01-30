@@ -50,6 +50,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 							logging.Warn("Direct paste failed for tab %s: %v", tab.ID, err)
 							tab.mu.Lock()
 							tab.Running = false
+							tab.Detached = true
 							tab.mu.Unlock()
 							return m, func() tea.Msg {
 								return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
@@ -66,6 +67,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					logging.Warn("Direct paste failed for tab %s: %v", tab.ID, err)
 					tab.mu.Lock()
 					tab.Running = false
+					tab.Detached = true
 					tab.mu.Unlock()
 					return m, func() tea.Msg {
 						return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
@@ -166,11 +168,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				// Handle ctrl+n/p for tab switching
 				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))) {
 					m.nextTab()
-					return m, nil
+					return m, m.tabSelectionChangedCmd()
 				}
 				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))) {
 					m.prevTab()
-					return m, nil
+					return m, m.tabSelectionChangedCmd()
 				}
 				// Forward all other keys to diff viewer
 				if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
@@ -184,11 +186,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
 					m.nextTab()
-					return m, nil
+					return m, m.tabSelectionChangedCmd()
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))):
 					m.prevTab()
-					return m, nil
+					return m, m.tabSelectionChangedCmd()
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
 					// Close tab
@@ -197,7 +199,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+]"))):
 					// Switch to next tab (escape hatch that won't conflict)
 					m.nextTab()
-					return m, nil
+					return m, m.tabSelectionChangedCmd()
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
 					// This is Escape - let it go to terminal
@@ -205,6 +207,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 						logging.Warn("Escape key failed for tab %s: %v", tab.ID, err)
 						tab.mu.Lock()
 						tab.Running = false
+						tab.Detached = true
 						tab.mu.Unlock()
 						return m, func() tea.Msg {
 							return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
@@ -289,6 +292,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 									logging.Warn("Direct input failed for tab %s: %v", tab.ID, err)
 									tab.mu.Lock()
 									tab.Running = false
+									tab.Detached = true
 									tab.mu.Unlock()
 									return m, func() tea.Msg {
 										return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
@@ -301,6 +305,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 							logging.Warn("Direct input failed for tab %s: %v", tab.ID, err)
 							tab.mu.Lock()
 							tab.Running = false
+							tab.Detached = true
 							tab.mu.Unlock()
 							return m, func() tea.Msg {
 								return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
@@ -322,6 +327,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case ptyTabCreateResult:
 		return m.updatePtyTabCreateResult(msg)
+
+	case ptyTabReattachResult:
+		return m.updatePtyTabReattachResult(msg)
+
+	case ptyTabReattachFailed:
+		return m.updatePtyTabReattachFailed(msg)
+
+	case messages.TabSessionStatus:
+		return m.updateTabSessionStatus(msg)
 
 	case tabActorReady:
 		return m.updateTabActorReady(msg)

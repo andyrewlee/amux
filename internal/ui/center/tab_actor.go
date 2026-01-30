@@ -364,6 +364,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			logging.Warn("Input failed for tab %s: %v", tab.ID, err)
 			tab.mu.Lock()
 			tab.Running = false
+			tab.Detached = true
 			tab.mu.Unlock()
 			if m.msgSink != nil {
 				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})
@@ -381,6 +382,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			logging.Warn("Paste failed for tab %s: %v", tab.ID, err)
 			tab.mu.Lock()
 			tab.Running = false
+			tab.Detached = true
 			tab.mu.Unlock()
 			if m.msgSink != nil {
 				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})
@@ -397,6 +399,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			logging.Warn("Response send failed for tab %s: %v", tab.ID, err)
 			tab.mu.Lock()
 			tab.Running = false
+			tab.Detached = true
 			tab.mu.Unlock()
 			if m.msgSink != nil {
 				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})

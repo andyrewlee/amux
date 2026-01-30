@@ -47,7 +47,7 @@ type StatusResult struct {
 // GetStatus returns the git status for a repository using porcelain v1 -z format
 // This format handles spaces, unicode, and special characters in paths correctly
 func GetStatus(repoPath string) (*StatusResult, error) {
-	output, err := RunGitRaw(repoPath, "status", "--porcelain=v1", "-z", "-u")
+	output, err := RunGitRaw(repoPath, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-u")
 	if err != nil {
 		return nil, err
 	}

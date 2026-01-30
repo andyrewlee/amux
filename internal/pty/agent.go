@@ -8,6 +8,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 // AgentType represents the type of AI agent
@@ -29,6 +30,7 @@ type Agent struct {
 	Terminal  *Terminal
 	Workspace *data.Workspace
 	Config    config.AssistantConfig
+	Session   string
 }
 
 // AgentManager manages agent instances
@@ -47,10 +49,16 @@ func NewAgentManager(cfg *config.Config) *AgentManager {
 }
 
 // CreateAgent creates a new agent for the given workspace.
-func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, rows, cols uint16) (*Agent, error) {
+func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16) (*Agent, error) {
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
+	}
+	if sessionName == "" {
+		sessionName = tmux.SessionName("amux", string(ws.ID()), string(agentType))
+	}
+	if err := tmux.EnsureAvailable(); err != nil {
+		return nil, err
 	}
 
 	// Build environment
@@ -73,7 +81,8 @@ func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, rows
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", assistantCfg.Command, shell)
 
-	term, err := NewWithSize(fullCommand, ws.Root, env, rows, cols)
+	termCommand := tmux.ClientCommand(sessionName, ws.Root, fullCommand)
+	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
@@ -83,6 +92,7 @@ func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, rows
 		Terminal:  term,
 		Workspace: ws,
 		Config:    assistantCfg,
+		Session:   sessionName,
 	}
 
 	m.mu.Lock()
@@ -93,9 +103,15 @@ func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, rows
 }
 
 // CreateViewer creates a new agent (viewer) for the given workspace and command.
-func (m *AgentManager) CreateViewer(ws *data.Workspace, command string, rows, cols uint16) (*Agent, error) {
+func (m *AgentManager) CreateViewer(ws *data.Workspace, command string, sessionName string, rows, cols uint16) (*Agent, error) {
 	if ws == nil {
 		return nil, fmt.Errorf("workspace is required")
+	}
+	if sessionName == "" {
+		sessionName = tmux.SessionName("amux", string(ws.ID()), "viewer")
+	}
+	if err := tmux.EnsureAvailable(); err != nil {
+		return nil, err
 	}
 	// Build environment
 	env := []string{
@@ -105,7 +121,8 @@ func (m *AgentManager) CreateViewer(ws *data.Workspace, command string, rows, co
 		"COLORTERM=truecolor",
 	}
 
-	term, err := NewWithSize(command, ws.Root, env, rows, cols)
+	termCommand := tmux.ClientCommand(sessionName, ws.Root, command)
+	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
@@ -115,6 +132,7 @@ func (m *AgentManager) CreateViewer(ws *data.Workspace, command string, rows, co
 		Terminal:  term,
 		Workspace: ws,
 		Config:    config.AssistantConfig{}, // No specific config
+		Session:   sessionName,
 	}
 
 	m.mu.Lock()

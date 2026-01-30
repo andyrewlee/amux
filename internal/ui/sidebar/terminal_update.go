@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 // flushTiming returns the appropriate flush timing
@@ -84,9 +86,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		bracketedText := "\x1b[200~" + text + "\x1b[201~"
 		if err := ts.Terminal.SendString(bracketedText); err != nil {
 			logging.Warn("Sidebar paste failed: %v", err)
-			ts.mu.Lock()
-			ts.Running = false
-			ts.mu.Unlock()
+			m.detachState(ts)
 		}
 		logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
 		return m, nil
@@ -156,9 +156,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		if len(input) > 0 {
 			if err := ts.Terminal.SendString(string(input)); err != nil {
 				logging.Warn("Sidebar input failed: %v", err)
-				ts.mu.Lock()
-				ts.Running = false
-				ts.mu.Unlock()
+				m.detachState(ts)
 			}
 		}
 
@@ -256,6 +254,8 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				if ts.ptyRestartCount > ptyRestartMax {
 					shouldRestart = false
 					ts.Running = false
+					// Mark as detached (tmux session may still be alive)
+					ts.Detached = true
 					ts.ptyRestartBackoff = 0
 				} else {
 					backoff = ts.ptyRestartBackoff
@@ -278,16 +278,18 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					}))
 					logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restarting in %s: %v", wsID, tabID, backoff, msg.Err)
 				} else {
-					logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restart limit reached: %v", wsID, tabID, msg.Err)
+					logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restart limit reached, marking detached: %v", wsID, tabID, msg.Err)
 				}
 			} else {
-				ts.Running = false
 				ts.mu.Lock()
+				ts.Running = false
+				// Mark as detached - tmux session may still be alive
+				ts.Detached = true
 				ts.ptyRestartBackoff = 0
 				ts.ptyRestartCount = 0
 				ts.ptyRestartSince = time.Time{}
 				ts.mu.Unlock()
-				logging.Info("Sidebar PTY stopped for workspace %s tab %s: %v", wsID, tabID, msg.Err)
+				logging.Info("Sidebar PTY stopped for workspace %s tab %s, marking detached: %v", wsID, tabID, msg.Err)
 			}
 		}
 
@@ -308,8 +310,58 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		}
 
 	case SidebarTerminalCreated:
-		cmd := m.HandleTerminalCreated(msg.WorkspaceID, msg.TabID, msg.Terminal)
+		cmd := m.HandleTerminalCreated(msg.WorkspaceID, msg.TabID, msg.Terminal, msg.SessionName)
 		cmds = append(cmds, cmd)
+
+	case sidebarTerminalReattachResult:
+		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+		if tab == nil || tab.State == nil {
+			break
+		}
+		ts := tab.State
+		termWidth, termHeight := m.terminalContentSize()
+		ts.mu.Lock()
+		if ts.VTerm == nil {
+			ts.VTerm = vterm.New(termWidth, termHeight)
+		}
+		ts.Terminal = msg.Terminal
+		ts.Running = true
+		ts.Detached = false
+		ts.SessionName = msg.SessionName
+		ts.pendingOutput = nil
+		ts.mu.Unlock()
+		if msg.Terminal != nil {
+			ts.VTerm.SetResponseWriter(func(data []byte) {
+				_, _ = msg.Terminal.Write(data)
+			})
+			_ = msg.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+		}
+		if cmd := m.startPTYReader(msg.WorkspaceID, tab.ID); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case sidebarTerminalReattachFailed:
+		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+		if tab != nil && tab.State != nil {
+			ts := tab.State
+			ts.mu.Lock()
+			ts.Running = false
+			if msg.Stopped {
+				ts.Detached = false
+			}
+			ts.mu.Unlock()
+		}
+		action := msg.Action
+		if action == "" {
+			action = "reattach"
+		}
+		label := "Reattach"
+		if action == "restart" {
+			label = "Restart"
+		}
+		cmds = append(cmds, func() tea.Msg {
+			return messages.Toast{Message: fmt.Sprintf("%s failed: %v", label, msg.Err), Level: messages.ToastWarning}
+		})
 
 	case SidebarTerminalCreateFailed:
 		// Clear pending flag so user can retry

@@ -12,6 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/diff"
@@ -46,6 +47,8 @@ type Tab struct {
 	Assistant    string
 	Workspace    *data.Workspace
 	Agent        *appPty.Agent
+	SessionName  string
+	Detached     bool
 	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
 	DiffViewer   *diff.Model  // Native diff viewer (replaces PTY-based viewer)
 	mu           sync.Mutex   // Protects Terminal
@@ -142,9 +145,33 @@ type Model struct {
 	spinnerFrame int // Current frame for activity spinner animation
 
 	// Config
-	config  *config.Config
-	styles  common.Styles
-	tabHits []tabHit
+	config     *config.Config
+	styles     common.Styles
+	tabHits    []tabHit
+	tmuxConfig tmuxConfig
+}
+
+// tmuxConfig holds tmux-related configuration
+type tmuxConfig struct {
+	ServerName string
+	ConfigPath string
+}
+
+func (m *Model) getTmuxOptions() tmux.Options {
+	opts := tmux.DefaultOptions()
+	if m.tmuxConfig.ServerName != "" {
+		opts.ServerName = m.tmuxConfig.ServerName
+	}
+	if m.tmuxConfig.ConfigPath != "" {
+		opts.ConfigPath = m.tmuxConfig.ConfigPath
+	}
+	return opts
+}
+
+// SetTmuxConfig updates the tmux configuration.
+func (m *Model) SetTmuxConfig(serverName, configPath string) {
+	m.tmuxConfig.ServerName = serverName
+	m.tmuxConfig.ConfigPath = configPath
 }
 
 type tabHitKind int
@@ -323,6 +350,25 @@ func (m *Model) getTabs() []*Tab {
 func (m *Model) getTabByID(wsID string, tabID TabID) *Tab {
 	for _, tab := range m.tabsByWorkspace[wsID] {
 		if tab.ID == tabID && !tab.isClosed() {
+			return tab
+		}
+	}
+	return nil
+}
+
+// getTabBySession returns the tab with the given tmux session name.
+func (m *Model) getTabBySession(wsID, sessionName string) *Tab {
+	if sessionName == "" {
+		return nil
+	}
+	for _, tab := range m.tabsByWorkspace[wsID] {
+		if tab == nil || tab.isClosed() {
+			continue
+		}
+		if tab.SessionName == sessionName {
+			return tab
+		}
+		if tab.Agent != nil && tab.Agent.Session == sessionName {
 			return tab
 		}
 	}

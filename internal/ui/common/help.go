@@ -78,6 +78,7 @@ func defaultHelpSections() []HelpSection {
 			Bindings: []HelpBinding{
 				{"h/j/k/l", "Focus pane (←↑↓→)"},
 				{"m", "Toggle monitor"},
+				{"K", "Cleanup tmux"},
 				{"?", "This help"},
 				{"q", "Quit"},
 			},
@@ -86,8 +87,10 @@ func defaultHelpSections() []HelpSection {
 			Title: "After Prefix: Tabs",
 			Bindings: []HelpBinding{
 				{"a", "Create new agent tab"},
-				{"d", "Commit viewer"},
 				{"x", "Close current tab"},
+				{"D", "Detach tab"},
+				{"R", "Reattach tab"},
+				{"S", "Restart tab"},
 				{"n/p", "Next/prev tab"},
 				{"1-9", "Jump to tab N"},
 			},

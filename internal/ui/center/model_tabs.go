@@ -7,12 +7,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/diff"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -51,8 +49,26 @@ type ptyTabCreateResult struct {
 	Assistant   string
 	DisplayName string
 	Agent       *appPty.Agent
+	TabID       TabID
+	Activate    bool
 	Rows        int
 	Cols        int
+}
+
+type ptyTabReattachResult struct {
+	WorkspaceID string
+	TabID       TabID
+	Agent       *appPty.Agent
+	Rows        int
+	Cols        int
+}
+
+type ptyTabReattachFailed struct {
+	WorkspaceID string
+	TabID       TabID
+	Err         error
+	Stopped     bool
+	Action      string
 }
 
 func truncateDisplayName(name string) string {
@@ -64,6 +80,10 @@ func truncateDisplayName(name string) string {
 
 // createAgentTab creates a new agent tab
 func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
+	return m.createAgentTabWithSession(assistant, ws, "", "", true)
+}
+
+func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, sessionName string, displayName string, activate bool) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
 			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating agent"}
@@ -74,11 +94,15 @@ func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
 	termHeight := tm.Height
+	tabID := generateTabID()
+	if sessionName == "" {
+		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tabID))
+	}
 
 	return func() tea.Msg {
 		logging.Info("Creating agent tab: assistant=%s workspace=%s", assistant, ws.Name)
 
-		agent, err := m.agentManager.CreateAgent(ws, appPty.AgentType(assistant), uint16(termHeight), uint16(termWidth))
+		agent, err := m.agentManager.CreateAgent(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}
@@ -87,156 +111,12 @@ func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
 		logging.Info("Agent created, Terminal=%v", agent.Terminal != nil)
 
 		return ptyTabCreateResult{
-			Workspace: ws,
-			Assistant: assistant,
-			Agent:     agent,
-			Rows:      termHeight,
-			Cols:      termWidth,
-		}
-	}
-}
-
-// createVimTab creates a new tab that opens a file in vim
-func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
-	if ws == nil {
-		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating vim viewer"}
-		}
-	}
-
-	// Calculate terminal dimensions using the same metrics as render/layout.
-	tm := m.terminalMetrics()
-	termWidth := tm.Width
-	termHeight := tm.Height
-
-	return func() tea.Msg {
-		logging.Info("Creating vim tab: file=%s workspace=%s", filePath, ws.Name)
-
-		// Escape filename for shell
-		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
-		cmd := fmt.Sprintf("vim -- %s", escapedFile)
-
-		agent, err := m.agentManager.CreateViewer(ws, cmd, uint16(termHeight), uint16(termWidth))
-		if err != nil {
-			logging.Error("Failed to create vim viewer: %v", err)
-			return messages.Error{Err: err, Context: "creating vim viewer"}
-		}
-
-		logging.Info("Vim viewer created, Terminal=%v", agent.Terminal != nil)
-
-		// Use filename for display (truncate if needed)
-		fileName := filePath
-		if idx := strings.LastIndex(filePath, "/"); idx >= 0 {
-			fileName = fileName[idx+1:]
-		}
-		displayName := truncateDisplayName(fileName)
-
-		return ptyTabCreateResult{
 			Workspace:   ws,
-			Assistant:   "vim",
-			DisplayName: displayName,
+			Assistant:   assistant,
 			Agent:       agent,
-			Rows:        termHeight,
-			Cols:        termWidth,
-		}
-	}
-}
-
-// createDiffTab creates a new native diff viewer tab (no PTY)
-func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Workspace) tea.Cmd {
-	if ws == nil {
-		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating diff viewer"}
-		}
-	}
-
-	logging.Info("Creating diff tab: path=%s mode=%d workspace=%s", change.Path, mode, ws.Name)
-
-	// Calculate dimensions
-	tm := m.terminalMetrics()
-	viewerWidth := tm.Width
-	viewerHeight := tm.Height
-
-	// Create diff viewer model
-	dv := diff.New(ws, change, mode, viewerWidth, viewerHeight)
-	dv.SetFocused(true)
-
-	// Create tab with unique ID
-	wsID := string(ws.ID())
-	displayName := fmt.Sprintf("Diff: %s", change.Path)
-	if len(displayName) > 20 {
-		displayName = "..." + displayName[len(displayName)-17:]
-	}
-
-	tab := &Tab{
-		ID:         generateTabID(),
-		Name:       displayName,
-		Assistant:  "diff",
-		Workspace:  ws,
-		DiffViewer: dv,
-	}
-
-	// Add tab to the workspace's tab list
-	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
-	m.noteTabsChanged()
-
-	// Return the Init command to start loading the diff
-	return common.SafeBatch(
-		dv.Init(),
-		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorkspace[wsID], Name: displayName} },
-	)
-}
-
-// createViewerTabLegacy creates a PTY-based viewer tab (for backwards compatibility)
-// This is kept for cases where PTY-based viewing is still needed
-//
-//nolint:unused
-func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.Workspace) tea.Cmd {
-	if ws == nil {
-		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating viewer"}
-		}
-	}
-
-	// Calculate terminal dimensions using the same metrics as render/layout.
-	tm := m.terminalMetrics()
-	termWidth := tm.Width
-	termHeight := tm.Height
-
-	return func() tea.Msg {
-		logging.Info("Creating viewer tab: file=%s statusCode=%s workspace=%s", file, statusCode, ws.Name)
-
-		// Escape filename for shell
-		escapedFile := "'" + strings.ReplaceAll(file, "'", "'\\''") + "'"
-
-		var cmd string
-		if statusCode == "??" {
-			// Untracked file: show full content prefixed by + to indicate additions.
-			cmd = fmt.Sprintf("awk '{print \"\\033[32m+ \" $0 \"\\033[0m\"}' %s | less -R", escapedFile)
-		} else if len(statusCode) >= 1 && statusCode[0] != ' ' {
-			// Staged change: show index diff (covers new files with status A).
-			cmd = fmt.Sprintf("git diff --cached --color=always -- %s | less -R", escapedFile)
-		} else {
-			// Unstaged change: show working tree diff.
-			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
-		}
-
-		agent, err := m.agentManager.CreateViewer(ws, cmd, uint16(termHeight), uint16(termWidth))
-		if err != nil {
-			logging.Error("Failed to create viewer: %v", err)
-			return messages.Error{Err: err, Context: "creating viewer"}
-		}
-
-		logging.Info("Viewer created, Terminal=%v", agent.Terminal != nil)
-
-		displayName := truncateDisplayName(fmt.Sprintf("Diff: %s", file))
-
-		return ptyTabCreateResult{
-			Workspace:   ws,
-			Assistant:   "viewer", // Use a generic type for styling
+			TabID:       tabID,
 			DisplayName: displayName,
-			Agent:       agent,
+			Activate:    activate,
 			Rows:        termHeight,
 			Cols:        termWidth,
 		}
@@ -270,14 +150,18 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	// Create virtual terminal emulator with scrollback
 	term := vterm.New(cols, rows)
 
-	// Create tab with unique ID
-	tabID := generateTabID()
+	// Create tab with unique ID (pre-generated if provided)
+	tabID := msg.TabID
+	if tabID == "" {
+		tabID = generateTabID()
+	}
 	tab := &Tab{
 		ID:           tabID,
 		Name:         displayName,
 		Assistant:    msg.Assistant,
 		Workspace:    msg.Workspace,
 		Agent:        msg.Agent,
+		SessionName:  msg.Agent.Session,
 		Terminal:     term,
 		Running:      true, // Agent/viewer starts running
 		monitorDirty: true,
@@ -302,6 +186,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 						logging.Warn("Response write failed for tab %s: %v", tabID, err)
 						tab.mu.Lock()
 						tab.Running = false
+						tab.Detached = true
 						tab.mu.Unlock()
 					}
 				}
@@ -311,6 +196,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				logging.Warn("Response write failed for tab %s: %v", tabID, err)
 				tab.mu.Lock()
 				tab.Running = false
+				tab.Detached = true
 				tab.mu.Unlock()
 			}
 		})
@@ -324,7 +210,9 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	// Add tab to the workspace's tab list
 	wsID := string(msg.Workspace.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
+	if msg.Activate {
+		m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
+	}
 	m.noteTabsChanged()
 
 	return func() tea.Msg {
@@ -354,6 +242,9 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	tab.markClosing()
 
 	m.stopPTYReader(tab)
+	if tab.SessionName != "" {
+		_ = tmux.KillSession(tab.SessionName, m.getTmuxOptions())
+	}
 
 	// Close agent
 	if tab.Agent != nil {
@@ -454,11 +345,15 @@ func (m *Model) SendToTerminal(s string) {
 	if tab.isClosed() {
 		return
 	}
-	if tab.Agent != nil && tab.Agent.Terminal != nil {
-		if err := tab.Agent.Terminal.SendString(s); err != nil {
+	tab.mu.Lock()
+	agent := tab.Agent
+	tab.mu.Unlock()
+	if agent != nil && agent.Terminal != nil {
+		if err := agent.Terminal.SendString(s); err != nil {
 			logging.Warn("SendToTerminal failed for tab %s: %v", tab.ID, err)
 			tab.mu.Lock()
 			tab.Running = false
+			tab.Detached = true
 			tab.mu.Unlock()
 		}
 	}
@@ -469,9 +364,28 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 	var result []data.TabInfo
 	tabs := m.getTabs()
 	for _, tab := range tabs {
+		if tab == nil {
+			continue
+		}
+		tab.mu.Lock()
+		running := tab.Running
+		detached := tab.Detached
+		sessionName := tab.SessionName
+		if sessionName == "" && tab.Agent != nil {
+			sessionName = tab.Agent.Session
+		}
+		tab.mu.Unlock()
+		status := "stopped"
+		if detached {
+			status = "detached"
+		} else if running {
+			status = "running"
+		}
 		result = append(result, data.TabInfo{
-			Assistant: tab.Assistant,
-			Name:      tab.Name,
+			Assistant:   tab.Assistant,
+			Name:        tab.Name,
+			SessionName: sessionName,
+			Status:      status,
 		})
 	}
 	return result, m.getActiveTabIdx()

@@ -44,6 +44,15 @@ go install github.com/andyrewlee/amux/cmd/amux@latest
 
 Then run `amux` to open the dashboard.
 
+## Requirements
+
+amux requires **tmux** for persistent agent sessions.
+
+- macOS: `brew install tmux`
+- Debian/Ubuntu: `sudo apt install tmux`
+- Fedora: `sudo dnf install tmux`
+- Arch: `sudo pacman -S tmux`
+
 ## How it works
 
 Each workspace tracks a repo checkout and its metadata. For local workflows, workspaces are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done.
@@ -54,6 +63,7 @@ Each workspace tracks a repo checkout and its metadata. For local workflows, wor
 - **No wrappers**: Works with Claude Code, Codex, Gemini, Amp, OpenCode, and Droid
 - **Keyboard + mouse**: Can be operated with just the keyboard or with a mouse
 - **All-in-one tool**: Run agents, view diffs, and access terminal
+- **Persistent sessions**: tmux-backed terminals survive UI restarts
 
 ## Configuration
 
@@ -69,6 +79,30 @@ Create `.amux/workspaces.json` in your project to run setup commands for new wor
 ```
 
 Workspace metadata is stored in `~/.amux/workspaces/<workspace-id>/workspace.json` and local worktree directories live under `<repo>/.amux/workspaces/`.
+
+### Environment variables
+
+- `AMUX_TMUX_SERVER` — tmux server name (default: `amux`)
+- `AMUX_TMUX_CONFIG` — tmux config path (default: `/dev/null`)
+- `AMUX_TMUX_SYNC_INTERVAL` — tmux sync tick duration (default: `7s`)
+
+### Config file (optional)
+
+In `~/.amux/config.json`:
+
+```json
+{
+  "ui": {
+    "tmux_server": "amux",
+    "tmux_config": "/dev/null",
+    "tmux_sync_interval": "7s"
+  }
+}
+```
+
+### Cleanup
+
+Use `C-Spc K` to kill all amux tmux sessions (confirmation required).
 
 ## Development
 

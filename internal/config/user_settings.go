@@ -8,14 +8,20 @@ import (
 
 // UISettings stores user-facing display preferences.
 type UISettings struct {
-	ShowKeymapHints bool
-	Theme           string // Theme ID, defaults to "gruvbox"
+	ShowKeymapHints  bool
+	Theme            string // Theme ID, defaults to "gruvbox"
+	TmuxServer       string
+	TmuxConfigPath   string
+	TmuxSyncInterval string
 }
 
 func defaultUISettings() UISettings {
 	return UISettings{
-		ShowKeymapHints: false,
-		Theme:           "gruvbox",
+		ShowKeymapHints:  false,
+		Theme:            "gruvbox",
+		TmuxServer:       "",
+		TmuxConfigPath:   "",
+		TmuxSyncInterval: "",
 	}
 }
 
@@ -28,8 +34,11 @@ func loadUISettings(path string) UISettings {
 
 	var raw struct {
 		UI struct {
-			ShowKeymapHints *bool   `json:"show_keymap_hints"`
-			Theme           *string `json:"theme"`
+			ShowKeymapHints  *bool   `json:"show_keymap_hints"`
+			Theme            *string `json:"theme"`
+			TmuxServer       *string `json:"tmux_server"`
+			TmuxConfigPath   *string `json:"tmux_config"`
+			TmuxSyncInterval *string `json:"tmux_sync_interval"`
 		} `json:"ui"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -40,6 +49,15 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.Theme != nil {
 		settings.Theme = *raw.UI.Theme
+	}
+	if raw.UI.TmuxServer != nil {
+		settings.TmuxServer = *raw.UI.TmuxServer
+	}
+	if raw.UI.TmuxConfigPath != nil {
+		settings.TmuxConfigPath = *raw.UI.TmuxConfigPath
+	}
+	if raw.UI.TmuxSyncInterval != nil {
+		settings.TmuxSyncInterval = *raw.UI.TmuxSyncInterval
 	}
 	return settings
 }
@@ -60,6 +78,9 @@ func saveUISettings(path string, settings UISettings) error {
 	}
 	ui["show_keymap_hints"] = settings.ShowKeymapHints
 	ui["theme"] = settings.Theme
+	ui["tmux_server"] = settings.TmuxServer
+	ui["tmux_config"] = settings.TmuxConfigPath
+	ui["tmux_sync_interval"] = settings.TmuxSyncInterval
 	payload["ui"] = ui
 
 	data, err := json.MarshalIndent(payload, "", "  ")

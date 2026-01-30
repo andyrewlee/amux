@@ -1,6 +1,7 @@
 package center
 
 import (
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 // updateLaunchAgent handles messages.LaunchAgent.
@@ -25,6 +27,110 @@ func (m *Model) updateOpenFileInVim(msg messages.OpenFileInVim) (*Model, tea.Cmd
 // updatePtyTabCreateResult handles ptyTabCreateResult.
 func (m *Model) updatePtyTabCreateResult(msg ptyTabCreateResult) (*Model, tea.Cmd) {
 	return m, m.handlePtyTabCreated(msg)
+}
+
+// updatePtyTabReattachResult handles ptyTabReattachResult.
+func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, tea.Cmd) {
+	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	if tab == nil || msg.Agent == nil {
+		return m, nil
+	}
+	rows := msg.Rows
+	cols := msg.Cols
+	if rows <= 0 || cols <= 0 {
+		tm := m.terminalMetrics()
+		rows = tm.Height
+		cols = tm.Width
+	}
+	tab.mu.Lock()
+	if tab.Terminal == nil {
+		tab.Terminal = vterm.New(cols, rows)
+	}
+	tab.Agent = msg.Agent
+	tab.SessionName = msg.Agent.Session
+	tab.Detached = false
+	tab.Running = true
+	tab.monitorDirty = true
+	tab.mu.Unlock()
+
+	if tab.Terminal != nil && msg.Agent.Terminal != nil {
+		tab.Terminal.SetResponseWriter(func(data []byte) {
+			if len(data) == 0 {
+				return
+			}
+			if err := msg.Agent.Terminal.SendString(string(data)); err != nil {
+				logging.Warn("Response write failed for tab %s: %v", tab.ID, err)
+				tab.mu.Lock()
+				tab.Running = false
+				tab.Detached = true
+				tab.mu.Unlock()
+			}
+		})
+	}
+
+	m.resizePTY(tab, rows, cols)
+
+	cmd := m.startPTYReader(msg.WorkspaceID, tab)
+	return m, common.SafeBatch(cmd, func() tea.Msg {
+		return messages.TabReattached{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
+	})
+}
+
+// updatePtyTabReattachFailed handles ptyTabReattachFailed.
+func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, tea.Cmd) {
+	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	if tab == nil {
+		return m, nil
+	}
+	tab.mu.Lock()
+	tab.Running = false
+	if msg.Stopped {
+		tab.Detached = false
+	}
+	tab.mu.Unlock()
+	logging.Warn("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
+	action := msg.Action
+	if action == "" {
+		action = "reattach"
+	}
+	label := "Reattach"
+	switch action {
+	case "restart":
+		label = "Restart"
+	case "reattach":
+		label = "Reattach"
+	}
+	return m, common.SafeBatch(func() tea.Msg {
+		return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
+	}, func() tea.Msg {
+		return messages.Toast{
+			Message: fmt.Sprintf("%s failed: %v", label, msg.Err),
+			Level:   messages.ToastWarning,
+		}
+	})
+}
+
+// updateTabSessionStatus handles messages.TabSessionStatus.
+func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, tea.Cmd) {
+	if msg.Status != "stopped" {
+		return m, nil
+	}
+	tab := m.getTabBySession(msg.WorkspaceID, msg.SessionName)
+	if tab == nil {
+		return m, nil
+	}
+	m.stopPTYReader(tab)
+	if tab.Agent != nil {
+		_ = m.agentManager.CloseAgent(tab.Agent)
+		tab.Agent = nil
+	}
+	tab.mu.Lock()
+	tab.Running = false
+	tab.Detached = false
+	tab.mu.Unlock()
+	return m, common.SafeBatch(func() tea.Msg {
+		return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(tab.ID)}
+	})
 }
 
 // updateTabActorReady handles tabActorReady.
@@ -260,6 +366,8 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			if tab.ptyRestartCount > ptyRestartMax {
 				shouldRestart = false
 				tab.Running = false
+				// Mark as detached (tmux session may still be alive)
+				tab.Detached = true
 				tab.ptyRestartBackoff = 0
 			} else {
 				backoff = tab.ptyRestartBackoff
@@ -282,16 +390,24 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 				}))
 				logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
 			} else {
-				logging.Warn("PTY stopped for tab %s; restart limit reached: %v", msg.TabID, msg.Err)
+				logging.Warn("PTY stopped for tab %s; restart limit reached, marking detached: %v", msg.TabID, msg.Err)
+				cmds = append(cmds, func() tea.Msg {
+					return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
+				})
 			}
 		} else {
-			tab.Running = false
 			tab.mu.Lock()
+			tab.Running = false
+			// Mark as detached - tmux session may still be alive, sync will confirm
+			tab.Detached = true
 			tab.ptyRestartBackoff = 0
 			tab.ptyRestartCount = 0
 			tab.ptyRestartSince = time.Time{}
 			tab.mu.Unlock()
-			logging.Info("PTY stopped for tab %s: %v", msg.TabID, msg.Err)
+			logging.Info("PTY stopped for tab %s, marking detached: %v", msg.TabID, msg.Err)
+			cmds = append(cmds, func() tea.Msg {
+				return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
+			})
 		}
 	}
 	return common.SafeBatch(cmds...)

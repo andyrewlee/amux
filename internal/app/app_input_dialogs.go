@@ -102,6 +102,9 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		a.Shutdown()
 		a.quitting = true
 		return tea.Quit
+
+	case DialogCleanupTmux:
+		return func() tea.Msg { return messages.CleanupTmuxSessions{} }
 	}
 
 	return nil
