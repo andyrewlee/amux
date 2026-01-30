@@ -430,6 +430,7 @@ func (m *TerminalModel) SendToTerminal(s string) {
 			logging.Warn("Sidebar SendToTerminal failed: %v", err)
 			ts.mu.Lock()
 			ts.Running = false
+			ts.Detached = true
 			ts.mu.Unlock()
 		}
 	}

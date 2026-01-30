@@ -267,7 +267,7 @@ func KillWorkspaceSessions(wsID string, opts Options) error {
 	if wsID == "" {
 		return nil
 	}
-	prefix := SessionName("amux", wsID)
+	prefix := SessionName("amux", wsID) + "-"
 	return KillSessionsWithPrefix(prefix, opts)
 }
 

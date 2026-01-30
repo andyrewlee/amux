@@ -217,13 +217,14 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	// Add tab to the workspace's tab list
 	wsID := string(msg.Workspace.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
+	createdIdx := len(m.tabsByWorkspace[wsID]) - 1
 	if msg.Activate {
-		m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
+		m.activeTabByWorkspace[wsID] = createdIdx
 	}
 	m.noteTabsChanged()
 
 	return func() tea.Msg {
-		return messages.TabCreated{Index: m.activeTabByWorkspace[wsID], Name: displayName}
+		return messages.TabCreated{Index: createdIdx, Name: displayName}
 	}
 }
 
