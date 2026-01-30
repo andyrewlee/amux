@@ -22,7 +22,7 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 	runGit(t, repo, "add", "README.md")
 	runGit(t, repo, "commit", "-m", "init")
 
-	worktreeDir := t.TempDir()
+	worktreeDir := normalizePath(t.TempDir())
 	worktreePath := filepath.Join(worktreeDir, "feature")
 	runGit(t, repo, "worktree", "add", "-b", "feature", worktreePath, "main")
 
@@ -76,9 +76,10 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 		matchTime time.Time
 		count     int
 	)
+	expectedRoot := normalizePath(worktreePath)
 	for i := range project.Workspaces {
 		ws := &project.Workspaces[i]
-		if ws.Root == worktreePath {
+		if normalizePath(ws.Root) == expectedRoot {
 			count++
 			found = true
 			matchAsst = ws.Assistant
@@ -97,6 +98,94 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 	if !matchTime.Equal(createdAt) {
 		t.Fatalf("created = %v, want %v", matchTime, createdAt)
 	}
+}
+
+func TestLoadProjects_BackfillDiscoveredWorkspace(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	worktreeDir := normalizePath(t.TempDir())
+	worktreePath := filepath.Join(worktreeDir, "feature")
+	runGit(t, repo, "worktree", "add", "-b", "feature", worktreePath, "main")
+
+	tmp := t.TempDir()
+	registry := data.NewRegistry(filepath.Join(tmp, "projects.json"))
+	if err := registry.AddProject(repo); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+	app := &App{
+		registry:   registry,
+		workspaces: store,
+	}
+
+	msg := app.loadProjects()()
+	loaded, ok := msg.(messages.ProjectsLoaded)
+	if !ok {
+		t.Fatalf("expected ProjectsLoaded, got %T", msg)
+	}
+
+	var project *data.Project
+	for i := range loaded.Projects {
+		if loaded.Projects[i].Path == repo {
+			project = &loaded.Projects[i]
+			break
+		}
+	}
+	if project == nil {
+		t.Fatalf("expected project %s to be loaded", repo)
+	}
+
+	var (
+		found bool
+		count int
+	)
+	expectedRoot := normalizePath(worktreePath)
+	for i := range project.Workspaces {
+		ws := &project.Workspaces[i]
+		if normalizePath(ws.Root) == expectedRoot {
+			found = true
+			count++
+		}
+	}
+	if !found {
+		t.Fatalf("expected workspace for %s", worktreePath)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 workspace entry for %s, got %d", worktreePath, count)
+	}
+
+	ws := &data.Workspace{
+		Name:   filepath.Base(worktreePath),
+		Branch: "feature",
+		Repo:   repo,
+		Root:   worktreePath,
+	}
+	_, err := store.LoadMetadataFor(ws)
+	if err != nil {
+		t.Fatalf("LoadMetadataFor: %v", err)
+	}
+	if ws.Created.IsZero() {
+		t.Fatalf("expected backfilled metadata to set Created")
+	}
+	if ws.Assistant == "" {
+		t.Fatalf("expected backfilled metadata to set Assistant")
+	}
+}
+
+func normalizePath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(path)
 }
 
 func skipIfNoGit(t *testing.T) {
