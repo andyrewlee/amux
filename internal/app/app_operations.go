@@ -30,22 +30,30 @@ func (a *App) loadProjects() tea.Cmd {
 
 			project := data.NewProject(path)
 
-			// Discover git worktrees first (this gives us Root and Repo)
+			// Start from stored workspaces so metadata is authoritative.
+			storedWorkspaces, err := a.workspaces.ListByRepo(path)
+			if err != nil {
+				logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
+			}
+
+			var workspaces []data.Workspace
+			workspaceIndex := make(map[data.WorkspaceID]int)
+			for _, ws := range storedWorkspaces {
+				workspaces = append(workspaces, *ws)
+				workspaceIndex[ws.ID()] = len(workspaces) - 1
+			}
+
+			// Discover git worktrees to backfill and refresh local metadata.
 			discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
 			if err != nil {
 				logging.Warn("Failed to discover workspaces for %s: %v", path, err)
 			}
 
-			// Track which workspace IDs we've seen from discovery
-			seenIDs := make(map[data.WorkspaceID]bool)
-
-			var workspaces []data.Workspace
 			for _, discovered := range discoveredWorkspaces {
 				// Try to load stored metadata by ID (handles legacy files without Root/Repo)
 				found, loadErr := a.workspaces.LoadMetadataFor(&discovered)
 				if found {
 					// Metadata found and merged
-					workspaces = append(workspaces, discovered)
 				} else if loadErr != nil {
 					// Metadata exists but couldn't be read - log error and skip saving defaults
 					logging.Warn("Failed to load metadata for workspace %s: %v", discovered.Name, loadErr)
@@ -53,7 +61,6 @@ func (a *App) loadProjects() tea.Cmd {
 					discovered.Assistant = "claude"
 					discovered.ScriptMode = "nonconcurrent"
 					discovered.Env = make(map[string]string)
-					workspaces = append(workspaces, discovered)
 					// Don't save - avoid overwriting potentially corrupted metadata
 				} else {
 					// No stored metadata - apply defaults and save for future
@@ -62,27 +69,23 @@ func (a *App) loadProjects() tea.Cmd {
 					discovered.Assistant = "claude"
 					discovered.ScriptMode = "nonconcurrent"
 					discovered.Env = make(map[string]string)
-					workspaces = append(workspaces, discovered)
 
 					// Persist newly discovered workspace so changes aren't lost on restart
 					if err := a.workspaces.Save(&discovered); err != nil {
 						logging.Warn("Failed to save discovered workspace %s: %v", discovered.Name, err)
 					}
 				}
-				seenIDs[discovered.ID()] = true
-			}
 
-			// Load any stored workspaces not discovered on disk (orphaned metadata)
-			// These may be cloud sandboxes or workspaces whose directories were deleted
-			storedWorkspaces, err := a.workspaces.ListByRepo(path)
-			if err != nil {
-				logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
-			}
-			for _, ws := range storedWorkspaces {
-				if !seenIDs[ws.ID()] {
-					workspaces = append(workspaces, *ws)
+				if idx, ok := workspaceIndex[discovered.ID()]; ok {
+					workspaces[idx] = discovered
+				} else {
+					workspaces = append(workspaces, discovered)
+					workspaceIndex[discovered.ID()] = len(workspaces) - 1
 				}
 			}
+
+			// Stored workspaces not discovered on disk are already included (store-first).
+			// These may be workspaces whose directories were deleted.
 
 			// Add primary checkout as transient workspace if not present
 			hasPrimary := false
