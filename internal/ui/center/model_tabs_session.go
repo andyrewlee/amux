@@ -18,6 +18,30 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	if tab == nil {
 		return nil
 	}
+	if tab.DiffViewer != nil {
+		return func() tea.Msg {
+			return messages.Toast{
+				Message: "Diff tabs cannot be detached",
+				Level:   messages.ToastInfo,
+			}
+		}
+	}
+	if m.config == nil || m.config.Assistants == nil {
+		return func() tea.Msg {
+			return messages.Toast{
+				Message: "Tab cannot be detached",
+				Level:   messages.ToastInfo,
+			}
+		}
+	}
+	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+		return func() tea.Msg {
+			return messages.Toast{
+				Message: "Only assistant tabs can be detached",
+				Level:   messages.ToastInfo,
+			}
+		}
+	}
 	tab.mu.Lock()
 	alreadyDetached := tab.Detached
 	hasAgent := tab.Agent != nil
@@ -87,6 +111,22 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	tab := tabs[activeIdx]
 	if tab == nil || tab.Workspace == nil {
 		return nil
+	}
+	if m.config == nil || m.config.Assistants == nil {
+		return func() tea.Msg {
+			return messages.Toast{
+				Message: "Tab cannot be reattached",
+				Level:   messages.ToastInfo,
+			}
+		}
+	}
+	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+		return func() tea.Msg {
+			return messages.Toast{
+				Message: "Only assistant tabs can be reattached",
+				Level:   messages.ToastInfo,
+			}
+		}
 	}
 	tab.mu.Lock()
 	detached := tab.Detached
