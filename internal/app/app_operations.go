@@ -35,6 +35,27 @@ func (a *App) loadProjects() tea.Cmd {
 			if err != nil {
 				logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
 			}
+			needsLegacyImport, err := a.workspaces.HasLegacyWorkspaces(path)
+			if err != nil {
+				logging.Warn("Failed to check legacy workspaces for %s: %v", path, err)
+			}
+			if needsLegacyImport {
+				discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
+				if err != nil {
+					logging.Warn("Failed to discover workspaces for %s: %v", path, err)
+				} else {
+					for i := range discoveredWorkspaces {
+						ws := &discoveredWorkspaces[i]
+						if err := a.workspaces.UpsertFromDiscoveryPreserveArchived(ws); err != nil {
+							logging.Warn("Failed to import workspace %s: %v", ws.Name, err)
+						}
+					}
+					storedWorkspaces, err = a.workspaces.ListByRepo(path)
+					if err != nil {
+						logging.Warn("Failed to reload stored workspaces for %s: %v", path, err)
+					}
+				}
+			}
 
 			var workspaces []data.Workspace
 			for _, ws := range storedWorkspaces {

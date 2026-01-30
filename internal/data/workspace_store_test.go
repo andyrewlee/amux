@@ -144,6 +144,45 @@ func TestWorkspaceStore_ListByRepo(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_HasLegacyWorkspaces(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	repo := "/home/user/repo"
+	otherRepo := "/home/user/other"
+
+	// Legacy entry missing Root.
+	legacyDir := filepath.Join(root, "legacy1")
+	if err := os.MkdirAll(legacyDir, 0755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	legacyData := `{"name":"old-ws","branch":"old-ws","repo":"/home/user/repo"}`
+	if err := os.WriteFile(filepath.Join(legacyDir, "workspace.json"), []byte(legacyData), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	// Non-legacy entry with Root populated.
+	if err := store.Save(&Workspace{Name: "new-ws", Repo: repo, Root: "/path/to/new"}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	hasLegacy, err := store.HasLegacyWorkspaces(repo)
+	if err != nil {
+		t.Fatalf("HasLegacyWorkspaces() error = %v", err)
+	}
+	if !hasLegacy {
+		t.Fatal("expected legacy workspaces to be detected")
+	}
+
+	hasLegacy, err = store.HasLegacyWorkspaces(otherRepo)
+	if err != nil {
+		t.Fatalf("HasLegacyWorkspaces() error = %v", err)
+	}
+	if hasLegacy {
+		t.Fatal("expected no legacy workspaces for other repo")
+	}
+}
+
 func TestWorkspaceStore_LoadNotFound(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

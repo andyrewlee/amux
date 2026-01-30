@@ -136,6 +136,32 @@ func (s *WorkspaceStore) ListByRepo(repoPath string) ([]*Workspace, error) {
 	return s.listByRepo(repoPath, false)
 }
 
+// HasLegacyWorkspaces reports whether the store has legacy metadata entries
+// (missing Root) for the given repo path.
+func (s *WorkspaceStore) HasLegacyWorkspaces(repoPath string) (bool, error) {
+	ids, err := s.List()
+	if err != nil {
+		return false, err
+	}
+
+	targetRepo := NormalizePath(repoPath)
+	for _, id := range ids {
+		ws, err := s.Load(id)
+		if err != nil {
+			logging.Warn("Failed to load workspace %s: %v", id, err)
+			continue
+		}
+		if ws.Root != "" {
+			continue
+		}
+		if ws.Repo == "" || NormalizePath(ws.Repo) == targetRepo {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // LoadMetadataFor loads stored metadata for a workspace and merges it into the provided workspace.
 // This handles legacy metadata files that don't have Root/Repo fields by using the workspace's
 // computed ID (based on Repo+Root from git discovery), with normalization to avoid duplicates.
@@ -177,7 +203,18 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 
 // UpsertFromDiscovery merges a discovered workspace into the store.
 // Store metadata wins; discovery updates Repo/Root/Branch (and Name if empty).
+// Archived state is cleared on discovery.
 func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
+	return s.upsertFromDiscovery(discovered, false)
+}
+
+// UpsertFromDiscoveryPreserveArchived merges a discovered workspace into the store,
+// but preserves archived state if it was set in stored metadata.
+func (s *WorkspaceStore) UpsertFromDiscoveryPreserveArchived(discovered *Workspace) error {
+	return s.upsertFromDiscovery(discovered, true)
+}
+
+func (s *WorkspaceStore) upsertFromDiscovery(discovered *Workspace, preserveArchived bool) error {
 	if discovered == nil {
 		return nil
 	}
@@ -205,8 +242,10 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 	if merged.Created.IsZero() && !discovered.Created.IsZero() {
 		merged.Created = discovered.Created
 	}
-	merged.Archived = false
-	merged.ArchivedAt = time.Time{}
+	if !preserveArchived {
+		merged.Archived = false
+		merged.ArchivedAt = time.Time{}
+	}
 	applyWorkspaceDefaults(&merged)
 
 	newID := merged.ID()
