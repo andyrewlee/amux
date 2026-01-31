@@ -93,6 +93,17 @@ func (m *Model) GetActiveWorkspaceRoots() []string {
 	return active
 }
 
+// GetActiveWorkspaceIDs returns all workspace IDs with active agents.
+func (m *Model) GetActiveWorkspaceIDs() []string {
+	var active []string
+	for wsID := range m.tabsByWorkspace {
+		if m.HasActiveAgentsInWorkspace(wsID) {
+			active = append(active, wsID)
+		}
+	}
+	return active
+}
+
 // GetRunningWorkspaceRoots returns all workspace root paths with running agents.
 // This includes agents that are running but idle (waiting at prompt).
 func (m *Model) GetRunningWorkspaceRoots() []string {

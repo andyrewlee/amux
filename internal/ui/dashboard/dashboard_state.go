@@ -174,6 +174,23 @@ func (m *Model) isProjectActive(p *data.Project) bool {
 	return main.Root == m.activeRoot
 }
 
+// isProjectWorking returns true if any workspace in the project has active output.
+func (m *Model) isProjectWorking(p *data.Project) bool {
+	if p == nil {
+		return false
+	}
+	for i := range p.Workspaces {
+		ws := &p.Workspaces[i]
+		if ws == nil {
+			continue
+		}
+		if m.activeWorkspaceIDs[string(ws.ID())] {
+			return true
+		}
+	}
+	return false
+}
+
 // getMainWorkspace returns the primary or main branch workspace for a project
 func (m *Model) getMainWorkspace(p *data.Project) *data.Workspace {
 	if p == nil {

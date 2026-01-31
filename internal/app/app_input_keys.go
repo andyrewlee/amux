@@ -47,8 +47,8 @@ func (a *App) safeBatch(cmds ...tea.Cmd) tea.Cmd {
 // This ensures the dashboard has current data for spinner state decisions.
 func (a *App) syncActiveWorkspacesToDashboard() {
 	activeWorkspaces := make(map[string]bool)
-	for _, root := range a.center.GetActiveWorkspaceRoots() {
-		activeWorkspaces[root] = true
+	for _, wsID := range a.center.GetActiveWorkspaceIDs() {
+		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
 }
