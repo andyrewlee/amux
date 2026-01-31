@@ -332,6 +332,9 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		if ts.VTerm == nil {
 			ts.VTerm = vterm.New(termWidth, termHeight)
 		}
+		if ts.VTerm != nil {
+			ts.VTerm.AllowAltScreenScrollback = true
+		}
 		ts.Terminal = msg.Terminal
 		ts.Running = true
 		ts.Detached = false

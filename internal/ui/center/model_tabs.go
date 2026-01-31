@@ -156,6 +156,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 
 	// Create virtual terminal emulator with scrollback
 	term := vterm.New(cols, rows)
+	term.AllowAltScreenScrollback = true
 
 	// Create tab with unique ID (pre-generated if provided)
 	tabID := msg.TabID

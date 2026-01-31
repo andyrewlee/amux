@@ -352,6 +352,8 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 	if displayName == "" {
 		displayName = "Terminal"
 	}
+	term := vterm.New(termWidth, termHeight)
+	term.AllowAltScreenScrollback = true
 	tab := &Tab{
 		ID:          generateTabID(),
 		Name:        displayName,
@@ -360,7 +362,7 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 		SessionName: info.SessionName,
 		Detached:    true,
 		Running:     false,
-		Terminal:    vterm.New(termWidth, termHeight),
+		Terminal:    term,
 	}
 	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)

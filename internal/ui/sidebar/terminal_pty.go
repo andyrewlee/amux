@@ -256,6 +256,7 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 	}
 
 	vt := vterm.New(termWidth, termHeight)
+	vt.AllowAltScreenScrollback = true
 	// Look up current terminal through state to avoid stale reference
 	vt.SetResponseWriter(func(data []byte) {
 		ts.mu.Lock()

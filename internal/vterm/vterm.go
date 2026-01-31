@@ -23,10 +23,13 @@ type VTerm struct {
 	ViewOffset int
 
 	// Alt screen mode (full-screen TUI applications).
-	AltScreen    bool
-	altScreenBuf [][]Cell
-	altCursorX   int
-	altCursorY   int
+	AltScreen bool
+	// AllowAltScreenScrollback keeps scrollback active even in alt screen.
+	// Useful for tmux-backed sessions where scrollback should remain available.
+	AllowAltScreenScrollback bool
+	altScreenBuf             [][]Cell
+	altCursorX               int
+	altCursorY               int
 
 	// Scrolling region (for DECSTBM)
 	ScrollTop    int
@@ -97,6 +100,10 @@ func New(width, height int) *VTerm {
 	return v
 }
 
+func (v *VTerm) scrollbackEnabled() bool {
+	return !v.AltScreen || v.AllowAltScreenScrollback
+}
+
 // makeScreen creates a blank screen buffer
 func (v *VTerm) makeScreen(width, height int) [][]Cell {
 	screen := make([][]Cell, height)
@@ -123,7 +130,7 @@ func (v *VTerm) Resize(width, height int) {
 	}
 
 	// If height shrinks, move lines to scrollback
-	if height < oldHeight && !v.AltScreen {
+	if height < oldHeight && v.scrollbackEnabled() {
 		overflow := oldHeight - height
 		if overflow > 0 {
 			added := 0
@@ -146,7 +153,7 @@ func (v *VTerm) Resize(width, height int) {
 
 	// If height grows, restore lines from scrollback so the screen fills.
 	// This matches native terminal behavior where expanding reveals history above.
-	if height > oldHeight && !v.AltScreen && v.ViewOffset == 0 {
+	if height > oldHeight && v.scrollbackEnabled() && v.ViewOffset == 0 {
 		added := height - oldHeight
 		restore := added
 		if restore > len(v.Scrollback) {

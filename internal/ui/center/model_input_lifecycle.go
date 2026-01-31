@@ -46,6 +46,9 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	if tab.Terminal == nil {
 		tab.Terminal = vterm.New(cols, rows)
 	}
+	if tab.Terminal != nil {
+		tab.Terminal.AllowAltScreenScrollback = true
+	}
 	tab.Agent = msg.Agent
 	tab.SessionName = msg.Agent.Session
 	tab.Detached = false
