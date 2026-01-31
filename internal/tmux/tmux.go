@@ -123,6 +123,8 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 	if opts.DefaultTerminal != "" {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s default-terminal %s 2>/dev/null; ", base, session, shellQuote(opts.DefaultTerminal)))
 	}
+	// Ensure activity timestamps update for window_activity-based tracking.
+	settings.WriteString(fmt.Sprintf("%s set-option -t %s -w monitor-activity on 2>/dev/null; ", base, session))
 	appendSessionTags(&settings, base, session, tags)
 
 	// Use attach -d to detach other clients (handles multi-instance gracefully)
@@ -258,6 +260,13 @@ func KillSession(sessionName string, opts Options) error {
 type sessionTagRow struct {
 	Name string
 	Tags map[string]string
+}
+
+type SessionActivity struct {
+	Name        string
+	WorkspaceID string
+	TabID       string
+	Type        string
 }
 
 // SessionTagValue returns a session option value for the given tag key.

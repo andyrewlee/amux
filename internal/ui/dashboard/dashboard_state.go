@@ -162,20 +162,8 @@ func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 	return workspaces
 }
 
-// isProjectActive returns true if the project's main workspace is active
+// isProjectActive returns true if any workspace in the project has active chat output.
 func (m *Model) isProjectActive(p *data.Project) bool {
-	if p == nil {
-		return false
-	}
-	main := m.getMainWorkspace(p)
-	if main == nil {
-		return false
-	}
-	return main.Root == m.activeRoot
-}
-
-// isProjectWorking returns true if any workspace in the project has active output.
-func (m *Model) isProjectWorking(p *data.Project) bool {
 	if p == nil {
 		return false
 	}

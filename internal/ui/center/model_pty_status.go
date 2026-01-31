@@ -17,6 +17,9 @@ func (m *Model) HasRunningAgents() bool {
 			if tab.isClosed() {
 				continue
 			}
+			if !m.isChatTab(tab) {
+				continue
+			}
 			if tab.Running {
 				return true
 			}
@@ -28,19 +31,9 @@ func (m *Model) HasRunningAgents() bool {
 // HasActiveAgents returns whether any tab has emitted output recently.
 // This is used to drive UI activity indicators without relying on process liveness alone.
 func (m *Model) HasActiveAgents() bool {
-	now := time.Now()
 	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
-			if tab.isClosed() {
-				continue
-			}
-			if !tab.Running {
-				continue
-			}
-			if tab.flushScheduled || len(tab.pendingOutput) > 0 {
-				return true
-			}
-			if !tab.lastOutputAt.IsZero() && now.Sub(tab.lastOutputAt) < 2*time.Second {
+			if m.IsTabActive(tab) {
 				return true
 			}
 		}
@@ -54,9 +47,15 @@ func (m *Model) IsTabActive(tab *Tab) bool {
 	if tab == nil {
 		return false
 	}
+	if tab.isClosed() {
+		return false
+	}
+	if !m.isChatTab(tab) {
+		return false
+	}
 	// Check Running state and output state together to avoid race condition
 	// Note: These fields are accessed from the main update goroutine
-	if !tab.Running {
+	if tab.Detached || !tab.Running {
 		return false
 	}
 	// Check buffered output or recent output timestamp
@@ -110,6 +109,9 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 	var running []string
 	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
+			if !m.isChatTab(tab) {
+				continue
+			}
 			if tab.Running && tab.Workspace != nil {
 				running = append(running, tab.Workspace.Root)
 				break // Only need one per workspace
@@ -117,6 +119,25 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 		}
 	}
 	return running
+}
+
+func (m *Model) isChatTab(tab *Tab) bool {
+	if tab == nil {
+		return false
+	}
+	if tab.DiffViewer != nil {
+		return false
+	}
+	if m != nil && m.config != nil && len(m.config.Assistants) > 0 {
+		_, ok := m.config.Assistants[tab.Assistant]
+		return ok
+	}
+	switch tab.Assistant {
+	case "claude", "codex", "gemini", "amp", "opencode", "droid", "cursor":
+		return true
+	default:
+		return false
+	}
 }
 
 // StartPTYReaders starts reading from all PTYs across all workspaces

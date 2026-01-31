@@ -109,7 +109,6 @@ type App struct {
 	keymap        KeyMap
 	styles        common.Styles
 	canvas        *lipgloss.Canvas
-
 	// Lifecycle
 	ready        bool
 	quitting     bool
@@ -117,16 +116,17 @@ type App struct {
 	shutdownOnce sync.Once
 	ctx          context.Context
 	supervisor   *supervisor.Supervisor
-
 	// Prefix mode (leader key)
 	prefixActive bool
 	prefixToken  int
 
-	tmuxSyncToken   int
-	tmuxOptions     tmux.Options
-	tmuxAvailable   bool
-	tmuxCheckDone   bool
-	tmuxInstallHint string
+	tmuxSyncToken          int
+	tmuxActivityToken      int
+	tmuxOptions            tmux.Options
+	tmuxAvailable          bool
+	tmuxCheckDone          bool
+	tmuxInstallHint        string
+	tmuxActiveWorkspaceIDs map[string]bool
 
 	// Workspace persistence debounce
 	persistToken int
@@ -258,34 +258,35 @@ func New(version, commit, date string) (*App, error) {
 
 	ctx := context.Background()
 	app := &App{
-		config:           cfg,
-		registry:         registry,
-		workspaces:       workspaces,
-		scripts:          scripts,
-		statusManager:    statusManager,
-		fileWatcher:      fileWatcher,
-		fileWatcherCh:    fileWatcherCh,
-		fileWatcherErr:   fileWatcherErr,
-		layout:           layout.NewManager(),
-		dashboard:        dashboard.New(),
-		center:           center.New(cfg),
-		sidebar:          sidebar.NewTabbedSidebar(),
-		sidebarTerminal:  sidebar.NewTerminalModel(),
-		helpOverlay:      common.NewHelpOverlay(),
-		toast:            common.NewToastModel(),
-		focusedPane:      messages.PaneDashboard,
-		showWelcome:      true,
-		keymap:           DefaultKeyMap(),
-		dashboardChrome:  &compositor.ChromeCache{},
-		centerChrome:     &compositor.ChromeCache{},
-		sidebarChrome:    &compositor.ChromeCache{},
-		version:          version,
-		commit:           commit,
-		buildDate:        date,
-		externalMsgs:     make(chan tea.Msg, 1024),
-		externalCritical: make(chan tea.Msg, 256),
-		ctx:              ctx,
-		tmuxOptions:      tmuxOpts,
+		config:                 cfg,
+		registry:               registry,
+		workspaces:             workspaces,
+		scripts:                scripts,
+		statusManager:          statusManager,
+		fileWatcher:            fileWatcher,
+		fileWatcherCh:          fileWatcherCh,
+		fileWatcherErr:         fileWatcherErr,
+		layout:                 layout.NewManager(),
+		dashboard:              dashboard.New(),
+		center:                 center.New(cfg),
+		sidebar:                sidebar.NewTabbedSidebar(),
+		sidebarTerminal:        sidebar.NewTerminalModel(),
+		helpOverlay:            common.NewHelpOverlay(),
+		toast:                  common.NewToastModel(),
+		focusedPane:            messages.PaneDashboard,
+		showWelcome:            true,
+		keymap:                 DefaultKeyMap(),
+		dashboardChrome:        &compositor.ChromeCache{},
+		centerChrome:           &compositor.ChromeCache{},
+		sidebarChrome:          &compositor.ChromeCache{},
+		version:                version,
+		commit:                 commit,
+		buildDate:              date,
+		externalMsgs:           make(chan tea.Msg, 1024),
+		externalCritical:       make(chan tea.Msg, 256),
+		ctx:                    ctx,
+		tmuxOptions:            tmuxOpts,
+		tmuxActiveWorkspaceIDs: make(map[string]bool),
 	}
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()
@@ -326,6 +327,8 @@ func (a *App) Init() tea.Cmd {
 		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
 		a.startPTYWatchdog(),
+		a.startTmuxActivityTicker(),
+		a.triggerTmuxActivityScan(),
 		a.startTmuxSyncTicker(),
 		a.checkTmuxAvailable(),
 		a.startFileWatcher(),

@@ -49,11 +49,8 @@ func (m *Model) renderTabBar() string {
 		// Add brand color indicator for agent tabs (not file viewers)
 		var indicator string
 		var tabActive bool
-		isAgent := tab.Assistant == "claude" || tab.Assistant == "codex" ||
-			tab.Assistant == "gemini" || tab.Assistant == "amp" ||
-			tab.Assistant == "opencode" || tab.Assistant == "droid" ||
-			tab.Assistant == "cursor"
-		if isAgent {
+		isChat := m.isChatTab(tab)
+		if isChat {
 			if tabDisconnected {
 				indicator = common.Icons.Idle + " " // Disconnected indicator
 			} else {

@@ -50,6 +50,9 @@ func (a *App) syncActiveWorkspacesToDashboard() {
 	for _, wsID := range a.center.GetActiveWorkspaceIDs() {
 		activeWorkspaces[wsID] = true
 	}
+	for wsID := range a.tmuxActiveWorkspaceIDs {
+		activeWorkspaces[wsID] = true
+	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
 }
 

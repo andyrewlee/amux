@@ -23,6 +23,7 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.dashboard.SetProjects(a.projects)
 	// Request git status for all workspaces
 	var cmds []tea.Cmd
+	cmds = append(cmds, a.scanTmuxActivityNow())
 	for i := range a.projects {
 		for j := range a.projects[i].Workspaces {
 			ws := &a.projects[i].Workspaces[j]
