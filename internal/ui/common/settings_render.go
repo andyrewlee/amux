@@ -81,6 +81,18 @@ func (s *SettingsDialog) renderLines() []string {
 	lines = append(lines, "")
 
 	lines = append(lines, label.Render("Tmux (Advanced)"))
+	checkbox = "[ ]"
+	if s.tmuxPersistence {
+		checkbox = "[" + Icons.Clean + "]"
+	}
+	style = lipgloss.NewStyle().Foreground(ColorForeground)
+	if s.focusedItem == settingsItemTmuxPersistence {
+		style = style.Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render(checkbox+" Keep sessions alive across restarts"))
+	s.addHit(settingsItemTmuxPersistence, -1, y)
+	lines = append(lines, muted.Render("  (agents + terminals, restart required)"))
 	lines = append(lines, s.renderInputLine("Server", s.tmuxServer, s.focusedItem == settingsItemTmuxServer))
 	s.addHit(settingsItemTmuxServer, -1, len(lines)-1)
 	lines = append(lines, s.renderInputLine("Config", s.tmuxConfig, s.focusedItem == settingsItemTmuxConfig))

@@ -318,6 +318,7 @@ func (a *App) handleShowSettingsDialog() {
 	a.settingsDialog = common.NewSettingsDialog(
 		common.ThemeID(a.config.UI.Theme),
 		a.config.UI.ShowKeymapHints,
+		a.config.UI.TmuxPersistence,
 		a.config.UI.TmuxServer,
 		a.config.UI.TmuxConfigPath,
 		a.config.UI.TmuxSyncInterval,
@@ -379,9 +380,11 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		a.setKeymapHintsEnabled(msg.ShowKeymapHints)
 
 		// Apply tmux settings
+		tmuxPersistenceChanged := a.config.UI.TmuxPersistence != msg.TmuxPersistence
 		a.config.UI.TmuxServer = msg.TmuxServer
 		a.config.UI.TmuxConfigPath = msg.TmuxConfigPath
 		a.config.UI.TmuxSyncInterval = msg.TmuxSyncInterval
+		a.config.UI.TmuxPersistence = msg.TmuxPersistence
 		applyTmuxEnvFromConfig(a.config, true)
 		a.tmuxOptions = tmux.DefaultOptions() // Refresh cached options
 		a.center.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
@@ -391,7 +394,11 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		if err := a.config.SaveUISettings(); err != nil {
 			return a.toast.ShowWarning("Failed to save settings")
 		}
-		return a.safeBatch(a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved"))
+		cmds := []tea.Cmd{a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved")}
+		if tmuxPersistenceChanged {
+			cmds = append(cmds, a.toast.ShowInfo("Restart amux to apply tmux persistence change"))
+		}
+		return a.safeBatch(cmds...)
 	}
 	return nil
 }

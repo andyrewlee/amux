@@ -13,6 +13,7 @@ type UISettings struct {
 	TmuxServer       string
 	TmuxConfigPath   string
 	TmuxSyncInterval string
+	TmuxPersistence  bool
 }
 
 func defaultUISettings() UISettings {
@@ -22,6 +23,7 @@ func defaultUISettings() UISettings {
 		TmuxServer:       "",
 		TmuxConfigPath:   "",
 		TmuxSyncInterval: "",
+		TmuxPersistence:  true,
 	}
 }
 
@@ -39,6 +41,7 @@ func loadUISettings(path string) UISettings {
 			TmuxServer       *string `json:"tmux_server"`
 			TmuxConfigPath   *string `json:"tmux_config"`
 			TmuxSyncInterval *string `json:"tmux_sync_interval"`
+			TmuxPersistence  *bool   `json:"tmux_persistence"`
 		} `json:"ui"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -58,6 +61,9 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.TmuxSyncInterval != nil {
 		settings.TmuxSyncInterval = *raw.UI.TmuxSyncInterval
+	}
+	if raw.UI.TmuxPersistence != nil {
+		settings.TmuxPersistence = *raw.UI.TmuxPersistence
 	}
 	return settings
 }
@@ -81,6 +87,7 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["tmux_server"] = settings.TmuxServer
 	ui["tmux_config"] = settings.TmuxConfigPath
 	ui["tmux_sync_interval"] = settings.TmuxSyncInterval
+	ui["tmux_persistence"] = settings.TmuxPersistence
 	payload["ui"] = ui
 
 	data, err := json.MarshalIndent(payload, "", "  ")

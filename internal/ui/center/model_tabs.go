@@ -3,6 +3,7 @@ package center
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -102,7 +103,13 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 	return func() tea.Msg {
 		logging.Info("Creating agent tab: assistant=%s workspace=%s", assistant, ws.Name)
 
-		agent, err := m.agentManager.CreateAgent(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth))
+		tags := tmux.SessionTags{
+			WorkspaceID: string(ws.ID()),
+			TabID:       string(tabID),
+			Type:        "agent",
+			CreatedAt:   time.Now().Unix(),
+		}
+		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}

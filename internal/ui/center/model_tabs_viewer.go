@@ -3,6 +3,7 @@ package center
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -35,7 +36,13 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
 		cmd := fmt.Sprintf("vim -- %s", escapedFile)
 
-		agent, err := m.agentManager.CreateViewer(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth))
+		tags := tmux.SessionTags{
+			WorkspaceID: string(ws.ID()),
+			TabID:       string(tabID),
+			Type:        "viewer",
+			CreatedAt:   time.Now().Unix(),
+		}
+		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
 			logging.Error("Failed to create vim viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating vim viewer"}
@@ -133,7 +140,13 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.W
 			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
 		}
 
-		agent, err := m.agentManager.CreateViewer(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth))
+		tags := tmux.SessionTags{
+			WorkspaceID: string(ws.ID()),
+			TabID:       string(tabID),
+			Type:        "viewer",
+			CreatedAt:   time.Now().Unix(),
+		}
+		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
 			logging.Error("Failed to create viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating viewer"}

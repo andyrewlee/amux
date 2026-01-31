@@ -85,6 +85,16 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if a.statusManager != nil {
 			a.statusManager.Invalidate(msg.Workspace.Root)
 		}
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		newTerminal, cmd := a.sidebarTerminal.Update(msg)
+		a.sidebarTerminal = newTerminal
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds

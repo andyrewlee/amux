@@ -167,6 +167,40 @@ func TestClientCommandWithOptions(t *testing.T) {
 	}
 }
 
+func TestClientCommandWithTags(t *testing.T) {
+	opts := Options{
+		ServerName:      "test-server",
+		ConfigPath:      "/dev/null",
+		HideStatus:      true,
+		DisableMouse:    true,
+		DefaultTerminal: "xterm-256color",
+	}
+	tags := SessionTags{
+		WorkspaceID: "ws-1",
+		TabID:       "tab-2",
+		Type:        "agent",
+		CreatedAt:   123,
+	}
+
+	cmd := ClientCommandWithTags("test-session", "/tmp/work", "echo hello", opts, tags)
+
+	if !strings.Contains(cmd, "@amux 1") {
+		t.Error("Command should set @amux tag")
+	}
+	if !strings.Contains(cmd, "@amux_workspace 'ws-1'") {
+		t.Error("Command should set @amux_workspace tag")
+	}
+	if !strings.Contains(cmd, "@amux_tab 'tab-2'") {
+		t.Error("Command should set @amux_tab tag")
+	}
+	if !strings.Contains(cmd, "@amux_type 'agent'") {
+		t.Error("Command should set @amux_type tag")
+	}
+	if !strings.Contains(cmd, "@amux_created_at '123'") {
+		t.Error("Command should set @amux_created_at tag")
+	}
+}
+
 func TestTmuxBase(t *testing.T) {
 	tests := []struct {
 		name     string

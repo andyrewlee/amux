@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -18,6 +19,17 @@ func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
 	wsID := string(ws.ID())
 	opts := a.tmuxOptions
 	return func() tea.Msg {
+		tags := map[string]string{
+			"@amux":           "1",
+			"@amux_workspace": wsID,
+		}
+		cleaned, err := tmux.KillSessionsMatchingTags(tags, opts)
+		if err != nil {
+			logging.Warn("Failed to cleanup tmux sessions for workspace %s: %v", ws.Name, err)
+		}
+		if cleaned {
+			logging.Info("Cleaned up @amux tmux sessions for workspace %s", ws.Name)
+		}
 		if err := tmux.KillWorkspaceSessions(wsID, opts); err != nil {
 			logging.Warn("Failed to cleanup tmux sessions for workspace %s: %v", ws.Name, err)
 		}
@@ -28,10 +40,42 @@ func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
 func (a *App) cleanupAllTmuxSessions() tea.Cmd {
 	opts := a.tmuxOptions
 	return func() tea.Msg {
+		cleanedTagged, err := tmux.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
+		if err != nil {
+			logging.Warn("Failed to cleanup tmux sessions by tag: %v", err)
+		} else if cleanedTagged {
+			logging.Info("Cleaned up @amux tmux sessions")
+		}
 		prefix := tmux.SessionName("amux") + "-"
 		if err := tmux.KillSessionsWithPrefix(prefix, opts); err != nil {
 			return messages.Toast{Message: fmt.Sprintf("tmux cleanup failed: %v", err), Level: messages.ToastWarning}
 		}
+		if cleanedTagged {
+			return messages.Toast{Message: fmt.Sprintf("Cleaned up @amux and %s* tmux sessions", prefix), Level: messages.ToastSuccess}
+		}
 		return messages.Toast{Message: fmt.Sprintf("Cleaned up %s* tmux sessions", prefix), Level: messages.ToastSuccess}
 	}
+}
+
+// CleanupTmuxOnExit kills amux sessions on exit when persistence is disabled.
+func (a *App) CleanupTmuxOnExit() {
+	if a == nil || a.config == nil {
+		return
+	}
+	if a.config.UI.TmuxPersistence {
+		return
+	}
+	opts := a.tmuxOptions
+	opts.CommandTimeout = 2 * time.Second
+	if cleaned, err := tmux.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, opts); err != nil {
+		logging.Warn("Failed to cleanup tmux sessions on exit by tag: %v", err)
+	} else if cleaned {
+		logging.Info("Cleaned up @amux tmux sessions on exit")
+	}
+	prefix := tmux.SessionName("amux") + "-"
+	if err := tmux.KillSessionsWithPrefix(prefix, opts); err != nil {
+		logging.Warn("Failed to cleanup tmux sessions on exit: %v", err)
+		return
+	}
+	logging.Info("Cleaned up %s* tmux sessions on exit", prefix)
 }

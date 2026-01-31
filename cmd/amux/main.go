@@ -64,8 +64,11 @@ func main() {
 	if _, err := p.Run(); err != nil {
 		logging.Error("App exited with error: %v", err)
 		fmt.Fprintf(os.Stderr, "Error running app: %v\n", err)
+		a.CleanupTmuxOnExit()
+		a.Shutdown()
 		os.Exit(1)
 	}
+	a.CleanupTmuxOnExit()
 	a.Shutdown()
 
 	logging.Info("amux shutdown complete")

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -16,11 +17,19 @@ type Options struct {
 	HideStatus      bool
 	DisableMouse    bool
 	DefaultTerminal string
+	CommandTimeout  time.Duration
 }
 
 type SessionState struct {
 	Exists      bool
 	HasLivePane bool
+}
+
+type SessionTags struct {
+	WorkspaceID string
+	TabID       string
+	Type        string
+	CreatedAt   int64 // Unix seconds for fresh create/restart; may be zero for reattach.
 }
 
 const tmuxCommandTimeout = 5 * time.Second
@@ -84,6 +93,14 @@ func ClientCommand(sessionName, workDir, command string) string {
 }
 
 func ClientCommandWithOptions(sessionName, workDir, command string, opts Options) string {
+	return clientCommand(sessionName, workDir, command, opts, SessionTags{})
+}
+
+func ClientCommandWithTags(sessionName, workDir, command string, opts Options, tags SessionTags) string {
+	return clientCommand(sessionName, workDir, command, opts, tags)
+}
+
+func clientCommand(sessionName, workDir, command string, opts Options, tags SessionTags) string {
 	base := tmuxBase(opts)
 	session := shellQuote(sessionName)
 	dir := shellQuote(workDir)
@@ -106,11 +123,31 @@ func ClientCommandWithOptions(sessionName, workDir, command string, opts Options
 	if opts.DefaultTerminal != "" {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s default-terminal %s 2>/dev/null; ", base, session, shellQuote(opts.DefaultTerminal)))
 	}
+	appendSessionTags(&settings, base, session, tags)
 
 	// Use attach -d to detach other clients (handles multi-instance gracefully)
 	attach := fmt.Sprintf("%s attach -dt %s", base, session)
 
 	return fmt.Sprintf("%s && %s%s", create, settings.String(), attach)
+}
+
+func appendSessionTags(settings *strings.Builder, base, session string, tags SessionTags) {
+	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.CreatedAt == 0 {
+		return
+	}
+	settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux 1 2>/dev/null; ", base, session))
+	if tags.WorkspaceID != "" {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_workspace %s 2>/dev/null; ", base, session, shellQuote(tags.WorkspaceID)))
+	}
+	if tags.TabID != "" {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_tab %s 2>/dev/null; ", base, session, shellQuote(tags.TabID)))
+	}
+	if tags.Type != "" {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_type %s 2>/dev/null; ", base, session, shellQuote(tags.Type)))
+	}
+	if tags.CreatedAt != 0 {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_created_at %s 2>/dev/null; ", base, session, shellQuote(fmt.Sprintf("%d", tags.CreatedAt))))
+	}
 }
 
 func SessionStateFor(sessionName string, opts Options) (SessionState, error) {
@@ -152,7 +189,11 @@ func tmuxArgs(opts Options, args ...string) []string {
 }
 
 func tmuxCommand(opts Options, args ...string) (*exec.Cmd, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), tmuxCommandTimeout)
+	timeout := tmuxCommandTimeout
+	if opts.CommandTimeout > 0 {
+		timeout = opts.CommandTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	cmd := exec.CommandContext(ctx, "tmux", tmuxArgs(opts, args...)...)
 	return cmd, cancel
 }
@@ -214,6 +255,69 @@ func KillSession(sessionName string, opts Options) error {
 	return nil
 }
 
+type sessionTagRow struct {
+	Name string
+	Tags map[string]string
+}
+
+// SessionTagValue returns a session option value for the given tag key.
+func SessionTagValue(sessionName, key string, opts Options) (string, error) {
+	if sessionName == "" || key == "" {
+		return "", nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return "", err
+	}
+	cmd, cancel := tmuxCommand(opts, "show-options", "-t", sessionName, "-v", key)
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return "", nil
+			}
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// ListSessionsMatchingTags returns sessions matching all provided tags.
+func ListSessionsMatchingTags(tags map[string]string, opts Options) ([]string, error) {
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	rows, orderedKeys, err := listSessionsWithTags(tags, opts)
+	if err != nil {
+		return nil, err
+	}
+	var matches []string
+	for _, row := range rows {
+		if matchesTags(row, tags, orderedKeys) {
+			matches = append(matches, row.Name)
+		}
+	}
+	return matches, nil
+}
+
+// KillSessionsMatchingTags kills sessions that match all provided tags.
+func KillSessionsMatchingTags(tags map[string]string, opts Options) (bool, error) {
+	sessions, err := ListSessionsMatchingTags(tags, opts)
+	if err != nil {
+		return false, err
+	}
+	if len(sessions) == 0 {
+		return false, nil
+	}
+	var firstErr error
+	for _, name := range sessions {
+		if err := KillSession(name, opts); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return true, firstErr
+}
+
 // ListSessions returns all tmux session names for the configured server.
 func ListSessions(opts Options) ([]string, error) {
 	if err := EnsureAvailable(); err != nil {
@@ -240,6 +344,72 @@ func ListSessions(opts Options) ([]string, error) {
 		sessions = append(sessions, name)
 	}
 	return sessions, nil
+}
+
+func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow, []string, error) {
+	if err := EnsureAvailable(); err != nil {
+		return nil, nil, err
+	}
+	keys := make([]string, 0, len(tags))
+	for key := range tags {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	format := "#{session_name}"
+	for _, key := range keys {
+		format = fmt.Sprintf("%s\t#{%s}", format, key)
+	}
+	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", format)
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return nil, keys, nil
+			}
+		}
+		return nil, keys, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var rows []sessionTagRow
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) == 0 {
+			continue
+		}
+		row := sessionTagRow{
+			Name: strings.TrimSpace(parts[0]),
+			Tags: make(map[string]string, len(keys)),
+		}
+		for i, key := range keys {
+			if i+1 >= len(parts) {
+				row.Tags[key] = ""
+				continue
+			}
+			row.Tags[key] = strings.TrimSpace(parts[i+1])
+		}
+		rows = append(rows, row)
+	}
+	return rows, keys, nil
+}
+
+func matchesTags(row sessionTagRow, tags map[string]string, orderedKeys []string) bool {
+	for _, key := range orderedKeys {
+		want := tags[key]
+		value := strings.TrimSpace(row.Tags[key])
+		if want == "" {
+			if value == "" {
+				return false
+			}
+		} else if value != want {
+			return false
+		}
+	}
+	return true
 }
 
 // KillSessionsWithPrefix kills all sessions with a matching name prefix.
