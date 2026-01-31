@@ -169,42 +169,35 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)
 	if msg.Agent.Terminal != nil {
+		agentTerm := msg.Agent.Terminal
+		workspaceID := string(msg.Workspace.ID())
 		term.SetResponseWriter(func(data []byte) {
-			if len(data) == 0 {
-				return
-			}
-			// Look up current agent through tab to avoid stale reference
-			tab.mu.Lock()
-			agent := tab.Agent
-			tab.mu.Unlock()
-			if agent == nil || agent.Terminal == nil {
+			if len(data) == 0 || agentTerm == nil {
 				return
 			}
 			if m.isTabActorReady() {
 				response := append([]byte(nil), data...)
 				if !m.sendTabEvent(tabEvent{
 					tab:         tab,
-					workspaceID: string(msg.Workspace.ID()),
+					workspaceID: workspaceID,
 					tabID:       tabID,
 					kind:        tabEventSendResponse,
 					response:    response,
 				}) {
-					if err := agent.Terminal.SendString(string(response)); err != nil {
+					if err := agentTerm.SendString(string(response)); err != nil {
 						logging.Warn("Response write failed for tab %s: %v", tabID, err)
-						tab.mu.Lock()
-						tab.Running = false
-						tab.Detached = true
-						tab.mu.Unlock()
+						if m.msgSink != nil {
+							m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
+						}
 					}
 				}
 				return
 			}
-			if err := agent.Terminal.SendString(string(data)); err != nil {
+			if err := agentTerm.SendString(string(data)); err != nil {
 				logging.Warn("Response write failed for tab %s: %v", tabID, err)
-				tab.mu.Lock()
-				tab.Running = false
-				tab.Detached = true
-				tab.mu.Unlock()
+				if m.msgSink != nil {
+					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
+				}
 			}
 		})
 	}

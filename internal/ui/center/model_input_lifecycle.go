@@ -54,23 +54,18 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	tab.mu.Unlock()
 
 	if tab.Terminal != nil && msg.Agent.Terminal != nil {
+		agentTerm := msg.Agent.Terminal
+		workspaceID := msg.WorkspaceID
+		tabID := tab.ID
 		tab.Terminal.SetResponseWriter(func(data []byte) {
-			if len(data) == 0 {
+			if len(data) == 0 || agentTerm == nil {
 				return
 			}
-			// Look up current agent through tab to avoid stale reference
-			tab.mu.Lock()
-			agent := tab.Agent
-			tab.mu.Unlock()
-			if agent == nil || agent.Terminal == nil {
-				return
-			}
-			if err := agent.Terminal.SendString(string(data)); err != nil {
-				logging.Warn("Response write failed for tab %s: %v", tab.ID, err)
-				tab.mu.Lock()
-				tab.Running = false
-				tab.Detached = true
-				tab.mu.Unlock()
+			if err := agentTerm.SendString(string(data)); err != nil {
+				logging.Warn("Response write failed for tab %s: %v", tabID, err)
+				if m.msgSink != nil {
+					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
+				}
 			}
 		})
 	}

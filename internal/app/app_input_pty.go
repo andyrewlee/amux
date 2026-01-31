@@ -28,6 +28,8 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 	if a.activeWorkspace != nil {
 		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root))
 	}
+	// Refresh active workspace indicators even when no PTY output is flowing.
+	a.syncActiveWorkspacesToDashboard()
 	cmds = append(cmds, a.startGitStatusTicker())
 	return cmds
 }
@@ -86,6 +88,8 @@ func (a *App) handlePTYWatchdogTick() []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	}
+	// Keep dashboard "working" state accurate even when agents go idle.
+	a.syncActiveWorkspacesToDashboard()
 	cmds = append(cmds, a.startPTYWatchdog())
 	return cmds
 }

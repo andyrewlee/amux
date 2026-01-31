@@ -263,7 +263,10 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 			Background(common.ColorInfo)
 		return scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
 	}
-	status := " RUNNING "
+	if tab.Running && !tab.Detached {
+		return ""
+	}
+	status := ""
 	if tab.Detached {
 		status = " DETACHED "
 	} else if !tab.Running {

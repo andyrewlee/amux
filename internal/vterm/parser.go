@@ -14,6 +14,7 @@ const (
 	stateCSIParam
 	stateOSC
 	stateDCS
+	stateCharset
 )
 
 // Parser handles ANSI escape sequence parsing
@@ -66,6 +67,9 @@ func (p *Parser) parseByte(b byte) {
 		p.parseOSC(b)
 	case stateDCS:
 		p.parseDCS(b)
+	case stateCharset:
+		// Ignore the charset designation byte (e.g., ESC ( B).
+		p.state = stateGround
 	}
 }
 
@@ -151,7 +155,7 @@ func (p *Parser) parseEscape(b byte) {
 	case 'P': // DCS
 		p.state = stateDCS
 	case '(', ')': // Charset designation
-		p.state = stateGround // Ignore next char
+		p.state = stateCharset
 	case '7': // DECSC - save cursor
 		p.vt.saveCursor()
 		p.state = stateGround

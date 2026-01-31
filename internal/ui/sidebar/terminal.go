@@ -201,12 +201,15 @@ func (m *TerminalModel) AddTerminalForHarness(ws *data.Workspace) {
 // WriteToTerminal writes bytes to the active terminal while holding the lock.
 func (m *TerminalModel) WriteToTerminal(data []byte) {
 	ts := m.getTerminal()
-	if ts == nil || ts.VTerm == nil {
+	if ts == nil {
 		return
 	}
 	ts.mu.Lock()
-	ts.VTerm.Write(data)
+	vt := ts.VTerm
 	ts.mu.Unlock()
+	if vt != nil {
+		vt.Write(data)
+	}
 }
 
 // workspaceID returns the ID of the current workspace

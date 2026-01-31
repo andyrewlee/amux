@@ -211,17 +211,25 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.flushScheduled = false
 			ts.flushPendingSince = time.Time{}
 			if len(ts.pendingOutput) > 0 {
+				var chunk []byte
+				var vt *vterm.VTerm
 				ts.mu.Lock()
 				if ts.VTerm != nil {
 					chunkSize := len(ts.pendingOutput)
 					if chunkSize > ptyFlushChunkSize {
 						chunkSize = ptyFlushChunkSize
 					}
-					ts.VTerm.Write(ts.pendingOutput[:chunkSize])
+					// Copy the chunk so we can release the lock before VTerm.Write,
+					// which may invoke the response writer and re-enter ts.mu.
+					chunk = append([]byte(nil), ts.pendingOutput[:chunkSize]...)
 					copy(ts.pendingOutput, ts.pendingOutput[chunkSize:])
 					ts.pendingOutput = ts.pendingOutput[:len(ts.pendingOutput)-chunkSize]
+					vt = ts.VTerm
 				}
 				ts.mu.Unlock()
+				if vt != nil && len(chunk) > 0 {
+					vt.Write(chunk)
+				}
 				if len(ts.pendingOutput) == 0 {
 					ts.pendingOutput = ts.pendingOutput[:0]
 				} else {
