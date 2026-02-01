@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/process"
 )
 
 type Options struct {
@@ -247,6 +250,14 @@ func KillSession(sessionName string, opts Options) error {
 	if err := EnsureAvailable(); err != nil {
 		return err
 	}
+	// Kill process trees in each pane before killing the session.
+	// This prevents orphaned processes (e.g. node/turbo/pnpm trees)
+	// that survive SIGHUP from tmux kill-session.
+	if pids, err := PanePIDs(sessionName, opts); err == nil {
+		for _, pid := range pids {
+			_ = process.KillProcessGroup(pid, process.KillOptions{})
+		}
+	}
 	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", sessionName)
 	defer cancel()
 	if err := cmd.Run(); err != nil {
@@ -258,6 +269,29 @@ func KillSession(sessionName string, opts Options) error {
 		return err
 	}
 	return nil
+}
+
+// PanePIDs returns the PID of each pane's initial process in the given session.
+// The -s flag lists panes across all windows in the session, not just the active one.
+func PanePIDs(sessionName string, opts Options) ([]int, error) {
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-s", "-t", sessionName, "-F", "#{pane_pid}")
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return nil, nil
+			}
+		}
+		return nil, err
+	}
+	var pids []int
+	for _, field := range strings.Fields(string(output)) {
+		if pid, err := strconv.Atoi(field); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids, nil
 }
 
 type SessionActivity struct {
@@ -405,6 +439,28 @@ func CapturePane(sessionName string, opts Options) ([]byte, error) {
 		return nil, nil
 	}
 	return output, nil
+}
+
+// AmuxSessionsByWorkspace returns all @amux=1 sessions grouped by their
+// @amux_workspace value. Sessions without a workspace tag are omitted.
+func AmuxSessionsByWorkspace(opts Options) (map[string][]string, error) {
+	rows, err := SessionsWithTags(
+		map[string]string{"@amux": "1"},
+		[]string{"@amux_workspace"},
+		opts,
+	)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string)
+	for _, row := range rows {
+		wsID := row.Tags["@amux_workspace"]
+		if wsID == "" {
+			continue
+		}
+		out[wsID] = append(out[wsID], row.Name)
+	}
+	return out, nil
 }
 
 func sanitize(value string) string {
