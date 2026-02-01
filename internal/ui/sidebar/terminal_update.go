@@ -211,25 +211,18 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.flushScheduled = false
 			ts.flushPendingSince = time.Time{}
 			if len(ts.pendingOutput) > 0 {
-				var chunk []byte
-				var vt *vterm.VTerm
 				ts.mu.Lock()
 				if ts.VTerm != nil {
 					chunkSize := len(ts.pendingOutput)
 					if chunkSize > ptyFlushChunkSize {
 						chunkSize = ptyFlushChunkSize
 					}
-					// Copy the chunk so we can release the lock before VTerm.Write,
-					// which may invoke the response writer and re-enter ts.mu.
-					chunk = append([]byte(nil), ts.pendingOutput[:chunkSize]...)
+					chunk := append([]byte(nil), ts.pendingOutput[:chunkSize]...)
 					copy(ts.pendingOutput, ts.pendingOutput[chunkSize:])
 					ts.pendingOutput = ts.pendingOutput[:len(ts.pendingOutput)-chunkSize]
-					vt = ts.VTerm
+					ts.VTerm.Write(chunk)
 				}
 				ts.mu.Unlock()
-				if vt != nil && len(chunk) > 0 {
-					vt.Write(chunk)
-				}
 				if len(ts.pendingOutput) == 0 {
 					ts.pendingOutput = ts.pendingOutput[:0]
 				} else {
@@ -342,11 +335,8 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		ts.pendingOutput = nil
 		ts.mu.Unlock()
 		if msg.Terminal != nil {
+			t := msg.Terminal
 			ts.VTerm.SetResponseWriter(func(data []byte) {
-				// Look up current terminal through state to avoid stale reference
-				ts.mu.Lock()
-				t := ts.Terminal
-				ts.mu.Unlock()
 				if t != nil {
 					_, _ = t.Write(data)
 				}

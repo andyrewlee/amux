@@ -174,6 +174,9 @@ func isChatSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bo
 		return info.IsChat
 	}
 	name := session.Name
+	if !strings.HasPrefix(name, "amux-") {
+		return false
+	}
 	if strings.Contains(name, "term-tab-") {
 		return false
 	}

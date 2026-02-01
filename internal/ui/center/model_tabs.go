@@ -400,6 +400,38 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 	return result, m.getActiveTabIdx()
 }
 
+// GetTabsInfoForWorkspace returns tab information for a specific workspace ID.
+func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
+	var result []data.TabInfo
+	tabs := m.tabsByWorkspace[wsID]
+	for _, tab := range tabs {
+		if tab == nil {
+			continue
+		}
+		tab.mu.Lock()
+		running := tab.Running
+		detached := tab.Detached
+		sessionName := tab.SessionName
+		if sessionName == "" && tab.Agent != nil {
+			sessionName = tab.Agent.Session
+		}
+		tab.mu.Unlock()
+		status := "stopped"
+		if detached {
+			status = "detached"
+		} else if running {
+			status = "running"
+		}
+		result = append(result, data.TabInfo{
+			Assistant:   tab.Assistant,
+			Name:        tab.Name,
+			SessionName: sessionName,
+			Status:      status,
+		})
+	}
+	return result, m.activeTabByWorkspace[wsID]
+}
+
 // HasDiffViewer returns true if the active tab has a diff viewer.
 func (m *Model) HasDiffViewer() bool {
 	tabs := m.getTabs()

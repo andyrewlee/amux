@@ -129,7 +129,8 @@ type App struct {
 	tmuxActiveWorkspaceIDs map[string]bool
 
 	// Workspace persistence debounce
-	persistToken int
+	dirtyWorkspaces map[string]bool
+	persistToken    int
 
 	// Terminal capabilities
 	keyboardEnhancements tea.KeyboardEnhancementsMsg
@@ -287,6 +288,7 @@ func New(version, commit, date string) (*App, error) {
 		ctx:                    ctx,
 		tmuxOptions:            tmuxOpts,
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
+		dirtyWorkspaces:        make(map[string]bool),
 	}
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()
@@ -450,23 +452,6 @@ func applyTmuxEnvFromConfig(cfg *config.Config, force bool) {
 	setEnvIfNonEmpty("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
 	setEnvIfNonEmpty("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
 	setEnvIfNonEmpty("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
-}
-
-func setEnvOrUnset(key, value string) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		_ = os.Unsetenv(key)
-		return
-	}
-	_ = os.Setenv(key, value)
-}
-
-func setEnvIfNonEmpty(key, value string) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return
-	}
-	_ = os.Setenv(key, value)
 }
 
 func (a *App) tmuxSyncWorkspaces() []*data.Workspace {

@@ -207,10 +207,10 @@ func (m *TerminalModel) WriteToTerminal(data []byte) {
 	}
 	ts.mu.Lock()
 	vt := ts.VTerm
-	ts.mu.Unlock()
 	if vt != nil {
 		vt.Write(data)
 	}
+	ts.mu.Unlock()
 }
 
 // workspaceID returns the ID of the current workspace

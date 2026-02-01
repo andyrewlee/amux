@@ -129,6 +129,9 @@ func startPprof() {
 	})
 }
 
+// startSignalDebug registers a SIGUSR1 handler for debug goroutine dumps.
+// The goroutine and signal handler intentionally live for the process lifetime
+// since this is only active in dev builds or when AMUX_DEBUG_SIGNALS is set.
 func startSignalDebug() {
 	if version != "dev" && strings.TrimSpace(os.Getenv("AMUX_DEBUG_SIGNALS")) == "" {
 		return

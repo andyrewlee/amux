@@ -376,10 +376,13 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.persistActiveWorkspaceTabs())
 
 	case messages.TabReattached:
-		cmds = append(cmds, a.persistActiveWorkspaceTabs())
+		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
 
-	case messages.TabStateChanged, messages.TabSelectionChanged:
-		cmds = append(cmds, a.persistActiveWorkspaceTabs())
+	case messages.TabStateChanged:
+		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
+
+	case messages.TabSelectionChanged:
+		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
 
 	case persistDebounceMsg:
 		cmds = append(cmds, a.handlePersistDebounce(msg))

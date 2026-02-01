@@ -23,6 +23,7 @@ func TestActiveWorkspaceIDsFromSessionActivity(t *testing.T) {
 		{Name: "sess-viewer", WorkspaceID: "ws5", Type: ""},
 		{Name: "amux-ws7-tab-1", WorkspaceID: "", Type: ""},
 		{Name: "amux-ws8-term-tab-1", WorkspaceID: "", Type: ""},
+		{Name: "other-app-tab-99", WorkspaceID: "", Type: ""},
 	}
 	active := activeWorkspaceIDsFromSessionActivity(infoBySession, sessions)
 	if len(active) != 6 {
@@ -45,5 +46,29 @@ func TestActiveWorkspaceIDsFromSessionActivity(t *testing.T) {
 	}
 	if active["ws5"] {
 		t.Fatalf("unexpected active workspaces: %v", active)
+	}
+	// Non-amux session with -tab- in name should NOT match the heuristic
+	if active["other"] {
+		t.Fatalf("non-amux session with -tab- in name should not match: %v", active)
+	}
+}
+
+func TestIsChatSession_NonAmuxPrefix(t *testing.T) {
+	// Sessions without "amux-" prefix should not match the name heuristic
+	session := tmux.SessionActivity{Name: "other-app-tab-99", Type: ""}
+	if isChatSession(session, tabSessionInfo{}, false) {
+		t.Fatal("session without amux- prefix should not be classified as chat")
+	}
+
+	// Sessions with "amux-" prefix and -tab- should match
+	session2 := tmux.SessionActivity{Name: "amux-ws1-tab-1", Type: ""}
+	if !isChatSession(session2, tabSessionInfo{}, false) {
+		t.Fatal("amux session with -tab- should be classified as chat")
+	}
+
+	// Sessions with explicit type should use type regardless of name
+	session3 := tmux.SessionActivity{Name: "random-name", Type: "agent"}
+	if !isChatSession(session3, tabSessionInfo{}, false) {
+		t.Fatal("session with type=agent should be classified as chat")
 	}
 }

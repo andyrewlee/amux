@@ -144,25 +144,28 @@ const persistDebounce = 500 * time.Millisecond
 
 // persistDebounceMsg is sent after the debounce period to trigger actual save.
 type persistDebounceMsg struct {
-	token       int
-	workspaceID string
+	token int
 }
 
+// persistWorkspaceTabs marks a workspace dirty and schedules a debounced save.
+func (a *App) persistWorkspaceTabs(wsID string) tea.Cmd {
+	if wsID == "" {
+		return nil
+	}
+	a.dirtyWorkspaces[wsID] = true
+	a.persistToken++
+	token := a.persistToken
+	return common.SafeTick(persistDebounce, func(t time.Time) tea.Msg {
+		return persistDebounceMsg{token: token}
+	})
+}
+
+// persistActiveWorkspaceTabs is a convenience that persists the active workspace's tabs.
 func (a *App) persistActiveWorkspaceTabs() tea.Cmd {
 	if a.activeWorkspace == nil {
 		return nil
 	}
-	// Update in-memory state immediately
-	tabs, activeIdx := a.center.GetTabsInfo()
-	a.activeWorkspace.OpenTabs = tabs
-	a.activeWorkspace.ActiveTabIndex = activeIdx
-	// Debounce disk writes
-	a.persistToken++
-	token := a.persistToken
-	wsID := string(a.activeWorkspace.ID())
-	return common.SafeTick(persistDebounce, func(t time.Time) tea.Msg {
-		return persistDebounceMsg{token: token, workspaceID: wsID}
-	})
+	return a.persistWorkspaceTabs(string(a.activeWorkspace.ID()))
 }
 
 func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
@@ -170,17 +173,37 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	if msg.token != a.persistToken {
 		return nil
 	}
-	if msg.workspaceID == "" {
+	if len(a.dirtyWorkspaces) == 0 {
 		return nil
 	}
-	ws := a.findWorkspaceByID(msg.workspaceID)
-	if ws == nil {
+
+	// Collect snapshots for all dirty workspaces
+	var snapshots []*data.Workspace
+	for wsID := range a.dirtyWorkspaces {
+		ws := a.findWorkspaceByID(wsID)
+		if ws == nil {
+			continue
+		}
+		// Update in-memory state from center tabs
+		tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)
+		ws.OpenTabs = tabs
+		ws.ActiveTabIndex = activeIdx
+		snapshots = append(snapshots, snapshotWorkspaceForSave(ws))
+	}
+	// Clear dirty set
+	for k := range a.dirtyWorkspaces {
+		delete(a.dirtyWorkspaces, k)
+	}
+
+	if len(snapshots) == 0 {
 		return nil
 	}
-	wsSnapshot := snapshotWorkspaceForSave(ws)
+	store := a.workspaces
 	return func() tea.Msg {
-		if err := a.workspaces.Save(wsSnapshot); err != nil {
-			logging.Warn("Failed to save workspace tabs: %v", err)
+		for _, snap := range snapshots {
+			if err := store.Save(snap); err != nil {
+				logging.Warn("Failed to save workspace tabs: %v", err)
+			}
 		}
 		return nil
 	}
@@ -381,6 +404,7 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		a.setKeymapHintsEnabled(msg.ShowKeymapHints)
 
 		// Apply tmux settings
+		oldServerName := a.tmuxOptions.ServerName
 		tmuxPersistenceChanged := a.config.UI.TmuxPersistence != msg.TmuxPersistence
 		a.config.UI.TmuxServer = msg.TmuxServer
 		a.config.UI.TmuxConfigPath = msg.TmuxConfigPath
@@ -398,6 +422,17 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		cmds := []tea.Cmd{a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved")}
 		if tmuxPersistenceChanged {
 			cmds = append(cmds, a.toast.ShowInfo("Restart amux to apply tmux persistence change"))
+		}
+		// Clean up sessions on the old server if the server name changed
+		if oldServerName != a.tmuxOptions.ServerName {
+			oldOpts := tmux.Options{ServerName: oldServerName, CommandTimeout: 2 * time.Second}
+			cmds = append(cmds, func() tea.Msg {
+				_, _ = tmux.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, oldOpts)
+				_ = tmux.KillSessionsWithPrefix("amux-", oldOpts)
+				return nil
+			})
+			cmds = append(cmds, a.toast.ShowInfo(
+				fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))
 		}
 		return a.safeBatch(cmds...)
 	}
