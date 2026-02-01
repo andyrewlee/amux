@@ -125,6 +125,7 @@ type App struct {
 	tmuxOptions            tmux.Options
 	tmuxAvailable          bool
 	tmuxCheckDone          bool
+	projectsLoaded         bool
 	tmuxInstallHint        string
 	tmuxActiveWorkspaceIDs map[string]bool
 	sessionActivityStates  map[string]*sessionActivityState // Per-session hysteresis state

@@ -20,6 +20,7 @@ import (
 // handleProjectsLoaded processes the ProjectsLoaded message.
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.projects = msg.Projects
+	a.projectsLoaded = true
 	a.dashboard.SetProjects(a.projects)
 	// Request git status for all workspaces
 	var cmds []tea.Cmd

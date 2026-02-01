@@ -28,7 +28,7 @@ func (a *App) collectKnownWorkspaceIDs() map[string]bool {
 // gcOrphanedTmuxSessions returns a Cmd that finds and kills tmux sessions
 // belonging to workspaces that no longer exist.
 func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
-	if !a.tmuxAvailable {
+	if !a.tmuxAvailable || !a.projectsLoaded {
 		return nil
 	}
 	knownIDs := a.collectKnownWorkspaceIDs()
