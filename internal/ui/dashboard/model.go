@@ -140,20 +140,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.MouseWheelMsg:
-		if !m.focused {
-			return m, nil
-		}
-		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 10) // ~10% of visible
-		if msg.Button == tea.MouseWheelUp {
-			m.moveCursor(-delta)
-			return m, m.previewCurrentRow()
-		}
-		if msg.Button == tea.MouseWheelDown {
-			m.moveCursor(delta)
-			return m, m.previewCurrentRow()
-		}
-
 	case tea.MouseClickMsg:
 		if !m.focused {
 			return m, nil
