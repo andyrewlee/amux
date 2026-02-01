@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/tmux"
 )
@@ -23,6 +24,72 @@ func TestIsChatSession_NonAmuxPrefix(t *testing.T) {
 	session3 := tmux.SessionActivity{Name: "random-name", Type: "agent"}
 	if !isChatSession(session3, tabSessionInfo{}, false) {
 		t.Fatal("session with type=agent should be classified as chat")
+	}
+}
+
+func TestHysteresisWorkspaceExtraction(t *testing.T) {
+	// Pre-warm states above threshold so workspace ID extraction is exercised
+	// even without a running tmux. Captures fail (decaying score by 1), but
+	// activityScoreMax-1 still exceeds activityScoreThreshold.
+	warmState := func() *sessionActivityState {
+		return &sessionActivityState{
+			score:        activityScoreMax,
+			initialized:  true,
+			lastActiveAt: time.Now(),
+		}
+	}
+
+	infoBySession := map[string]tabSessionInfo{
+		"sess-info-fallback": {WorkspaceID: "ws-from-info", IsChat: true},
+		"sess-viewer":        {WorkspaceID: "ws-viewer", IsChat: false},
+	}
+	sessions := []tmux.SessionActivity{
+		// Source 1: workspace ID from session field
+		{Name: "sess-direct", WorkspaceID: "ws-direct", Type: "agent"},
+		// Source 2: workspace ID falls back to tab info
+		{Name: "sess-info-fallback", WorkspaceID: "", Type: "agent"},
+		// Source 3: workspace ID falls back to session name
+		{Name: "amux-ws99-tab-1", WorkspaceID: "", Type: "agent"},
+		// Excluded: non-chat session (type="" and IsChat=false)
+		{Name: "sess-viewer", WorkspaceID: "ws-viewer", Type: "", Tagged: true},
+		// Excluded: below threshold
+		{Name: "sess-cold", WorkspaceID: "ws-cold", Type: "agent"},
+	}
+	states := map[string]*sessionActivityState{
+		"sess-direct":        warmState(),
+		"sess-info-fallback": warmState(),
+		"amux-ws99-tab-1":    warmState(),
+		"sess-viewer":        warmState(),
+		"sess-cold":          {score: 0, initialized: true},
+	}
+
+	active, updated := activeWorkspaceIDsWithHysteresis(infoBySession, sessions, states, tmux.Options{})
+
+	// Workspace ID from session.WorkspaceID
+	if !active["ws-direct"] {
+		t.Error("expected ws-direct from session.WorkspaceID")
+	}
+	// Workspace ID from info fallback
+	if !active["ws-from-info"] {
+		t.Error("expected ws-from-info from tabSessionInfo fallback")
+	}
+	// Workspace ID from session name
+	if !active["ws99"] {
+		t.Error("expected ws99 from session name fallback")
+	}
+	// Non-chat session excluded
+	if active["ws-viewer"] {
+		t.Error("non-chat session should be excluded")
+	}
+	// Cold session excluded
+	if active["ws-cold"] {
+		t.Error("session below threshold should not be active")
+	}
+	// Updated states returned for all processed sessions
+	for _, name := range []string{"sess-direct", "sess-info-fallback", "amux-ws99-tab-1", "sess-cold"} {
+		if _, ok := updated[name]; !ok {
+			t.Errorf("expected updated state for %s", name)
+		}
 	}
 }
 
