@@ -207,6 +207,7 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
 	}
 	_ = tmux.SetMonitorActivityOn(a.tmuxOptions)
+	_ = tmux.SetStatusOff(a.tmuxOptions)
 	return []tea.Cmd{a.scanTmuxActivityNow()}
 }
 

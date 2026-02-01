@@ -446,6 +446,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tmuxTabsSyncResult:
 		cmds = append(cmds, a.handleTmuxTabsSyncResult(msg)...)
 
+	case tmuxTabsDiscoverResult:
+		cmds = append(cmds, a.handleTmuxTabsDiscoverResult(msg)...)
+
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)
 

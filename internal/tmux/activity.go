@@ -16,7 +16,7 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 		return nil, err
 	}
 	applyWindow := window > 0
-	format := "#{session_name}\t#{window_activity}\t#{@amux}\t#{@amux_workspace}\t#{@amux_tab}\t#{@amux_type}"
+	format := "#{session_name}\t#{session_attached}\t#{window_activity}\t#{@amux}\t#{@amux_workspace}\t#{@amux_tab}\t#{@amux_type}"
 	cmd, cancel := tmuxCommand(opts, "list-windows", "-a", "-F", format)
 	defer cancel()
 	output, err := cmd.Output()
@@ -37,24 +37,24 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 			continue
 		}
 		parts := strings.Split(line, "\t")
-		if len(parts) < 6 {
+		if len(parts) < 7 {
 			continue
 		}
 		sessionName := strings.TrimSpace(parts[0])
-		amux := strings.TrimSpace(parts[2])
+		amux := strings.TrimSpace(parts[3])
 		tagged := amux != "" && amux != "0"
 		if !tagged {
 			if !strings.HasPrefix(sessionName, "amux-") {
 				continue
 			}
 		}
-		workspaceID := strings.TrimSpace(parts[3])
-		tabID := strings.TrimSpace(parts[4])
-		sessionType := strings.TrimSpace(parts[5])
+		workspaceID := strings.TrimSpace(parts[4])
+		tabID := strings.TrimSpace(parts[5])
+		sessionType := strings.TrimSpace(parts[6])
 		if sessionType != "" && sessionType != "agent" {
 			continue
 		}
-		activityRaw := strings.TrimSpace(parts[1])
+		activityRaw := strings.TrimSpace(parts[2])
 		if activityRaw == "" {
 			continue
 		}
@@ -106,6 +106,21 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 // rather than on every activity scan.
 func SetMonitorActivityOn(opts Options) error {
 	cmd, cancel := tmuxCommand(opts, "set-option", "-g", "monitor-activity", "on")
+	defer cancel()
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+// SetStatusOff disables the tmux status line globally for the server.
+func SetStatusOff(opts Options) error {
+	cmd, cancel := tmuxCommand(opts, "set-option", "-g", "status", "off")
 	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

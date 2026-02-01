@@ -107,6 +107,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			WorkspaceID: string(ws.ID()),
 			TabID:       string(tabID),
 			Type:        "agent",
+			Assistant:   assistant,
 			CreatedAt:   time.Now().Unix(),
 		}
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
