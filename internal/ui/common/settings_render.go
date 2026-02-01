@@ -166,6 +166,8 @@ func (s *SettingsDialog) validate() string {
 	configValue := strings.TrimSpace(s.tmuxConfig.Value())
 	if configValue != "" {
 		// Intentional: fail fast on missing config to avoid confusing tmux startup errors.
+		// An empty value bypasses this check, so optional configs are handled by leaving
+		// the field blank.
 		if _, err := os.Stat(configValue); err != nil {
 			return "tmux config path not found"
 		}

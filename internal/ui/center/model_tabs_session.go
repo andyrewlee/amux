@@ -243,8 +243,12 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	assistant := tab.Assistant
 
 	return func() tea.Msg {
-		// Kill old tmux session asynchronously (inside the cmd goroutine)
-		// to avoid blocking the UI
+		// KillSession is synchronous: it calls cmd.Run() which blocks until the
+		// tmux server processes the kill and returns. By the time it completes,
+		// the session is fully removed from tmux's perspective.
+		// The subsequent CreateAgentWithTags uses `new-session -Ads` which is
+		// atomic (attach-if-exists, create-if-not), providing an additional
+		// safety net in the unlikely event of cleanup lag.
 		_ = tmux.KillSession(sessionName, tmuxOpts)
 
 		tags := tmux.SessionTags{

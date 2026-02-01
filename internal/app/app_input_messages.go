@@ -96,6 +96,7 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 			}
 			state, err := tmux.SessionStateFor(tab.SessionName, opts)
 			if err != nil {
+				// Tolerate transient errors; next tick reconciles. tmuxAvailable gates full outages.
 				continue
 			}
 			if strings.EqualFold(tab.Status, "detached") {

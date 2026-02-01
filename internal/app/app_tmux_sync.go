@@ -7,6 +7,15 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
+// handleTmuxSyncTick syncs tab status for all workspaces on each tick.
+//
+// Cost model: tmuxSyncWorkspaces() returns every workspace (in monitor mode, all of
+// them). Each workspace spawns a separate Bubble Tea Cmd goroutine, so syncs run
+// concurrently. Per workspace, each tab with a session name incurs 1-2 tmux commands
+// (has-session + list-panes). The default 7s tick interval and per-command 5s timeout
+// bound worst-case latency. For typical usage (a handful of projects, a few tabs each)
+// the overhead is negligible. If the number of workspaces grows large, a per-tick cap
+// or adaptive interval can be added here.
 func (a *App) handleTmuxSyncTick(msg messages.TmuxSyncTick) []tea.Cmd {
 	if msg.Token != a.tmuxSyncToken {
 		return nil

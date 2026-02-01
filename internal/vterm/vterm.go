@@ -5,7 +5,13 @@ const MaxScrollback = 10000
 // ResponseWriter is called when the terminal needs to send a response back to the PTY
 type ResponseWriter func([]byte)
 
-// VTerm is a virtual terminal emulator with scrollback support
+// VTerm is a virtual terminal emulator with scrollback support.
+//
+// Synchronization contract: VTerm has no internal mutex. All callers must provide
+// external synchronization. In practice, every call site (WriteToTerminal,
+// SidebarPTYFlush, and TerminalLayer snapshot creation) holds TerminalState.mu
+// for the duration of the operation. Snapshot-based rendering (TerminalLayer)
+// copies data under the lock and then renders the immutable snapshot without locks.
 type VTerm struct {
 	// Screen buffer (visible area)
 	Screen [][]Cell
