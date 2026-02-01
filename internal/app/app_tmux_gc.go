@@ -22,6 +22,9 @@ func (a *App) collectKnownWorkspaceIDs() map[string]bool {
 			ids[string(a.projects[i].Workspaces[j].ID())] = true
 		}
 	}
+	for id := range a.creatingWorkspaceIDs {
+		ids[id] = true
+	}
 	return ids
 }
 
@@ -34,7 +37,7 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 	knownIDs := a.collectKnownWorkspaceIDs()
 	opts := a.tmuxOptions
 	return func() tea.Msg {
-		byWorkspace, err := tmux.AmuxSessionsByWorkspace(opts)
+		byWorkspace, err := a.amuxSessionsByWorkspace(opts)
 		if err != nil {
 			return orphanGCResult{Err: err}
 		}
@@ -53,6 +56,26 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 		}
 		return orphanGCResult{Killed: killed}
 	}
+}
+
+func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]string, error) {
+	match := map[string]string{"@amux": "1"}
+	if a.instanceID != "" {
+		match["@amux_instance"] = a.instanceID
+	}
+	rows, err := tmux.SessionsWithTags(match, []string{"@amux_workspace"}, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string)
+	for _, row := range rows {
+		wsID := row.Tags["@amux_workspace"]
+		if wsID == "" {
+			continue
+		}
+		out[wsID] = append(out[wsID], row.Name)
+	}
+	return out, nil
 }
 
 // handleOrphanGCResult logs the outcome of an orphan GC pass.

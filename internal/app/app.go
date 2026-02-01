@@ -129,10 +129,14 @@ type App struct {
 	tmuxInstallHint        string
 	tmuxActiveWorkspaceIDs map[string]bool
 	sessionActivityStates  map[string]*sessionActivityState // Per-session hysteresis state
+	instanceID             string
 
 	// Workspace persistence debounce
 	dirtyWorkspaces map[string]bool
 	persistToken    int
+
+	// Workspaces in creation flow (not yet loaded into projects list)
+	creatingWorkspaceIDs map[string]bool
 
 	// Terminal capabilities
 	keyboardEnhancements tea.KeyboardEnhancementsMsg
@@ -292,12 +296,16 @@ func New(version, commit, date string) (*App, error) {
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
 		sessionActivityStates:  make(map[string]*sessionActivityState),
 		dirtyWorkspaces:        make(map[string]bool),
+		creatingWorkspaceIDs:   make(map[string]bool),
 	}
+	app.instanceID = newInstanceID()
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()
 	// Route PTY messages through the app-level pump.
 	app.center.SetMsgSink(app.enqueueExternalMsg)
 	app.sidebarTerminal.SetMsgSink(app.enqueueExternalMsg)
+	app.center.SetInstanceID(app.instanceID)
+	app.sidebarTerminal.SetInstanceID(app.instanceID)
 	// Apply saved theme before creating styles
 	common.SetCurrentTheme(common.ThemeID(cfg.UI.Theme))
 	app.styles = common.DefaultStyles()

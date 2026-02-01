@@ -124,6 +124,7 @@ type TerminalModel struct {
 	// tmux config
 	tmuxServerName string
 	tmuxConfigPath string
+	instanceID     string
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -140,6 +141,11 @@ func NewTerminalModel() *TerminalModel {
 func (m *TerminalModel) SetTmuxConfig(serverName, configPath string) {
 	m.tmuxServerName = serverName
 	m.tmuxConfigPath = configPath
+}
+
+// SetInstanceID sets the tmux instance tag for sessions created by this model.
+func (m *TerminalModel) SetInstanceID(id string) {
+	m.instanceID = id
 }
 
 func (m *TerminalModel) getTmuxOptions() tmux.Options {

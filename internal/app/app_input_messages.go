@@ -390,6 +390,9 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 			msg.Name,
 		)
 		pending := data.NewWorkspace(msg.Name, msg.Name, msg.Base, msg.Project.Path, workspacePath)
+		if pending != nil {
+			a.creatingWorkspaceIDs[string(pending.ID())] = true
+		}
 		if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
 			cmds = append(cmds, cmd)
 		}

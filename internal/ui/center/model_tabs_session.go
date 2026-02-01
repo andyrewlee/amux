@@ -170,6 +170,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			TabID:       string(tabID),
 			Type:        "agent",
 			Assistant:   assistant,
+			InstanceID:  m.instanceID,
 		}
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
@@ -261,6 +262,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 			Type:        "agent",
 			Assistant:   assistant,
 			CreatedAt:   time.Now().Unix(),
+			InstanceID:  m.instanceID,
 		}
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {

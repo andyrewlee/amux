@@ -149,6 +149,7 @@ type Model struct {
 	styles     common.Styles
 	tabHits    []tabHit
 	tmuxConfig tmuxConfig
+	instanceID string
 }
 
 // tmuxConfig holds tmux-related configuration
@@ -166,6 +167,11 @@ func (m *Model) getTmuxOptions() tmux.Options {
 		opts.ConfigPath = m.tmuxConfig.ConfigPath
 	}
 	return opts
+}
+
+// SetInstanceID sets the tmux instance tag for sessions created by this model.
+func (m *Model) SetInstanceID(id string) {
+	m.instanceID = id
 }
 
 // SetTmuxConfig updates the tmux configuration.

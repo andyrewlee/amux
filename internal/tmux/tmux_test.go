@@ -181,6 +181,7 @@ func TestClientCommandWithTags(t *testing.T) {
 		Type:        "agent",
 		Assistant:   "claude",
 		CreatedAt:   123,
+		InstanceID:  "inst-9",
 	}
 
 	cmd := ClientCommandWithTags("test-session", "/tmp/work", "echo hello", opts, tags)
@@ -202,6 +203,9 @@ func TestClientCommandWithTags(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "@amux_created_at '123'") {
 		t.Error("Command should set @amux_created_at tag")
+	}
+	if !strings.Contains(cmd, "@amux_instance 'inst-9'") {
+		t.Error("Command should set @amux_instance tag")
 	}
 }
 
