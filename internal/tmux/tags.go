@@ -106,6 +106,7 @@ func matchesTags(row sessionTagRow, tags map[string]string, orderedKeys []string
 	for _, key := range orderedKeys {
 		want := tags[key]
 		value := strings.TrimSpace(row.Tags[key])
+		// Empty means "tag must be present" vs. equal to empty.
 		if want == "" {
 			if value == "" {
 				return false

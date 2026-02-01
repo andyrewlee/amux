@@ -43,6 +43,7 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.centerBtnIndex = 0
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
+	// Discover shared tmux tabs first; restore/sync happens below.
 	if discoverCmd := a.discoverWorkspaceTabsFromTmux(msg.Workspace); discoverCmd != nil {
 		cmds = append(cmds, discoverCmd)
 	}
