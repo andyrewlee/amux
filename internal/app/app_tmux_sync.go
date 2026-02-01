@@ -27,6 +27,9 @@ func (a *App) handleTmuxSyncTick(msg messages.TmuxSyncTick) []tea.Cmd {
 				cmds = append(cmds, syncCmd)
 			}
 		}
+		if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
+			cmds = append(cmds, gcCmd)
+		}
 	}
 	cmds = append(cmds, a.startTmuxSyncTicker())
 	return cmds
