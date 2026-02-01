@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -86,4 +87,40 @@ func assertScreenNeverContains(t *testing.T, session *PTYSession, needles []stri
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
+}
+
+func waitForAssistantSessions(t *testing.T, opts tmux.Options, want map[string]bool, timeout time.Duration) map[string][]string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		rows, err := tmux.SessionsWithTags(map[string]string{
+			"@amux":      "1",
+			"@amux_type": "agent",
+		}, []string{"@amux_assistant"}, opts)
+		if err != nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		byAssistant := make(map[string][]string)
+		for _, row := range rows {
+			assistant := strings.TrimSpace(row.Tags["@amux_assistant"])
+			if assistant == "" {
+				continue
+			}
+			byAssistant[assistant] = append(byAssistant[assistant], row.Name)
+		}
+		ok := true
+		for assistant := range want {
+			if len(byAssistant[assistant]) == 0 {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return byAssistant
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for assistant sessions: %v", want)
+	return nil
 }
