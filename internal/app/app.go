@@ -127,6 +127,7 @@ type App struct {
 	tmuxCheckDone          bool
 	tmuxInstallHint        string
 	tmuxActiveWorkspaceIDs map[string]bool
+	sessionActivityStates  map[string]*sessionActivityState // Per-session hysteresis state
 
 	// Workspace persistence debounce
 	dirtyWorkspaces map[string]bool
@@ -288,6 +289,7 @@ func New(version, commit, date string) (*App, error) {
 		ctx:                    ctx,
 		tmuxOptions:            tmuxOpts,
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
+		sessionActivityStates:  make(map[string]*sessionActivityState),
 		dirtyWorkspaces:        make(map[string]bool),
 	}
 	app.supervisor = supervisor.New(ctx)
