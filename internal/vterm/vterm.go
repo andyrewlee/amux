@@ -385,3 +385,55 @@ func (v *VTerm) IsScrolled() bool {
 func (v *VTerm) GetScrollInfo() (int, int) {
 	return v.ViewOffset, len(v.Scrollback)
 }
+
+// PrependScrollback parses captured scrollback content (with ANSI escapes) and
+// prepends the resulting lines to the scrollback buffer. This is used to
+// populate scrollback history when attaching to an existing tmux session.
+// It is a no-op if data is empty.
+func (v *VTerm) PrependScrollback(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+
+	// Use a temporary vterm to parse the ANSI content into styled cells.
+	tmp := New(v.Width, v.Height)
+	tmp.Write(data)
+
+	// Collect lines: scrollback first, then screen lines (trim trailing unused rows).
+	var lines [][]Cell
+	for _, line := range tmp.Scrollback {
+		lines = append(lines, CopyLine(line))
+	}
+	screenLines := make([][]Cell, 0, len(tmp.Screen))
+	for _, line := range tmp.Screen {
+		screenLines = append(screenLines, CopyLine(line))
+	}
+	lastNonBlank := len(screenLines) - 1
+	for lastNonBlank >= 0 && isBlankLine(screenLines[lastNonBlank]) {
+		lastNonBlank--
+	}
+	if lastNonBlank >= 0 {
+		lines = append(lines, screenLines[:lastNonBlank+1]...)
+	}
+
+	if len(lines) == 0 {
+		return
+	}
+
+	// Prepend captured lines before existing scrollback.
+	newScrollback := make([][]Cell, 0, len(lines)+len(v.Scrollback))
+	newScrollback = append(newScrollback, lines...)
+	newScrollback = append(newScrollback, v.Scrollback...)
+	v.Scrollback = newScrollback
+	v.trimScrollback()
+}
+
+// isBlankLine returns true if every cell in the line is the default blank cell.
+func isBlankLine(line []Cell) bool {
+	for _, c := range line {
+		if c.Rune != ' ' && c.Rune != 0 {
+			return false
+		}
+	}
+	return true
+}

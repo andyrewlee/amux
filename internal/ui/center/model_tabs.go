@@ -46,22 +46,24 @@ func nextAssistantName(assistant string, tabs []*Tab) string {
 }
 
 type ptyTabCreateResult struct {
-	Workspace   *data.Workspace
-	Assistant   string
-	DisplayName string
-	Agent       *appPty.Agent
-	TabID       TabID
-	Activate    bool
-	Rows        int
-	Cols        int
+	Workspace         *data.Workspace
+	Assistant         string
+	DisplayName       string
+	Agent             *appPty.Agent
+	TabID             TabID
+	Activate          bool
+	Rows              int
+	Cols              int
+	ScrollbackCapture []byte
 }
 
 type ptyTabReattachResult struct {
-	WorkspaceID string
-	TabID       TabID
-	Agent       *appPty.Agent
-	Rows        int
-	Cols        int
+	WorkspaceID       string
+	TabID             TabID
+	Agent             *appPty.Agent
+	Rows              int
+	Cols              int
+	ScrollbackCapture []byte
 }
 
 type ptyTabReattachFailed struct {
@@ -118,15 +120,20 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 
 		logging.Info("Agent created, Terminal=%v", agent.Terminal != nil)
 
+		// Best-effort capture of existing scrollback from the tmux pane.
+		// For newly created sessions this returns empty content (harmless no-op).
+		scrollback, _ := tmux.CapturePane(sessionName, m.getTmuxOptions())
+
 		return ptyTabCreateResult{
-			Workspace:   ws,
-			Assistant:   assistant,
-			Agent:       agent,
-			TabID:       tabID,
-			DisplayName: displayName,
-			Activate:    activate,
-			Rows:        termHeight,
-			Cols:        termWidth,
+			Workspace:         ws,
+			Assistant:         assistant,
+			Agent:             agent,
+			TabID:             tabID,
+			DisplayName:       displayName,
+			Activate:          activate,
+			Rows:              termHeight,
+			Cols:              termWidth,
+			ScrollbackCapture: scrollback,
 		}
 	}
 }
@@ -158,6 +165,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	// Create virtual terminal emulator with scrollback
 	term := vterm.New(cols, rows)
 	term.AllowAltScreenScrollback = true
+	term.PrependScrollback(msg.ScrollbackCapture)
 
 	// Create tab with unique ID (pre-generated if provided)
 	tabID := msg.TabID

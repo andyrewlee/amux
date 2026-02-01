@@ -180,12 +180,15 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 				Action:      "reattach",
 			}
 		}
+		// Best-effort capture of existing scrollback from the tmux pane.
+		scrollback, _ := tmux.CapturePane(sessionName, opts)
 		return ptyTabReattachResult{
-			WorkspaceID: string(ws.ID()),
-			TabID:       tabID,
-			Agent:       agent,
-			Rows:        termHeight,
-			Cols:        termWidth,
+			WorkspaceID:       string(ws.ID()),
+			TabID:             tabID,
+			Agent:             agent,
+			Rows:              termHeight,
+			Cols:              termWidth,
+			ScrollbackCapture: scrollback,
 		}
 	}
 }
@@ -269,12 +272,15 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 				Action:      "restart",
 			}
 		}
+		// Best-effort capture of scrollback (empty for fresh sessions, which is fine).
+		scrollback, _ := tmux.CapturePane(sessionName, tmuxOpts)
 		return ptyTabReattachResult{
-			WorkspaceID: string(ws.ID()),
-			TabID:       tabID,
-			Agent:       agent,
-			Rows:        termHeight,
-			Cols:        termWidth,
+			WorkspaceID:       string(ws.ID()),
+			TabID:             tabID,
+			Agent:             agent,
+			Rows:              termHeight,
+			Cols:              termWidth,
+			ScrollbackCapture: scrollback,
 		}
 	}
 }

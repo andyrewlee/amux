@@ -277,3 +277,26 @@ func TestInstallHint(t *testing.T) {
 		t.Error("InstallHint should not be empty")
 	}
 }
+
+func TestCapturePaneEmptySession(t *testing.T) {
+	data, err := CapturePane("", DefaultOptions())
+	if err != nil {
+		t.Errorf("CapturePane with empty session should not error, got %v", err)
+	}
+	if data != nil {
+		t.Errorf("CapturePane with empty session should return nil, got %v", data)
+	}
+}
+
+func TestCapturePaneNonexistentSession(t *testing.T) {
+	opts := Options{
+		ServerName:     "amux-test-nonexistent",
+		ConfigPath:     "/dev/null",
+		CommandTimeout: 5_000_000_000, // 5s
+	}
+	_, err := CapturePane("no-such-session-ever", opts)
+	// Should return an error (session doesn't exist)
+	if err == nil {
+		t.Error("CapturePane with nonexistent session should return an error")
+	}
+}

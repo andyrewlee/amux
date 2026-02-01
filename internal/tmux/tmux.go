@@ -383,6 +383,30 @@ func KillWorkspaceSessions(wsID string, opts Options) error {
 	return KillSessionsWithPrefix(prefix, opts)
 }
 
+// CapturePane captures the scrollback history of a tmux pane (excluding the
+// visible screen area) with ANSI escape codes preserved. Returns nil if the
+// session has no scrollback or does not exist.
+func CapturePane(sessionName string, opts Options) ([]byte, error) {
+	if sessionName == "" {
+		return nil, nil
+	}
+	// -p: output to stdout
+	// -e: include escape sequences (ANSI styling)
+	// -S -: start from beginning of history
+	// -E -1: end at last scrollback line (excludes visible screen)
+	// -t: target session
+	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-e", "-S", "-", "-E", "-1", "-t", sessionName)
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	if len(output) == 0 {
+		return nil, nil
+	}
+	return output, nil
+}
+
 func sanitize(value string) string {
 	// Normalize to lowercase to keep session naming deterministic across inputs.
 	value = strings.ToLower(value)

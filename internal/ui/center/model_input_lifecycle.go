@@ -43,11 +43,16 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 		cols = tm.Width
 	}
 	tab.mu.Lock()
+	createdTerminal := false
 	if tab.Terminal == nil {
 		tab.Terminal = vterm.New(cols, rows)
+		createdTerminal = true
 	}
 	if tab.Terminal != nil {
 		tab.Terminal.AllowAltScreenScrollback = true
+		if createdTerminal {
+			tab.Terminal.PrependScrollback(msg.ScrollbackCapture)
+		}
 	}
 	tab.Agent = msg.Agent
 	tab.SessionName = msg.Agent.Session
