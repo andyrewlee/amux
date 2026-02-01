@@ -272,8 +272,9 @@ func KillSession(sessionName string, opts Options) error {
 }
 
 // PanePIDs returns the PID of each pane's initial process in the given session.
+// The -s flag lists panes across all windows in the session, not just the active one.
 func PanePIDs(sessionName string, opts Options) ([]int, error) {
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionName, "-F", "#{pane_pid}")
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-s", "-t", sessionName, "-F", "#{pane_pid}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
