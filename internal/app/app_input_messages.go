@@ -169,7 +169,7 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	}
 	if autoLaunch {
 		wsID := string(msg.Workspace.ID())
-		if !a.center.HasTabsForWorkspace(wsID) {
+		if !a.center.HasTabsForWorkspace(wsID) && !workspaceHasLiveTabs(msg.Workspace) {
 			ws := msg.Workspace
 			if a.config.UI.DefaultAgent != "" {
 				agent := a.config.UI.DefaultAgent
@@ -698,4 +698,23 @@ func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 		a.focusPane(messages.PaneCenter)
 	}
 	return cmd
+}
+
+// workspaceHasLiveTabs checks persisted OpenTabs for any non-stopped tabs.
+// This catches running/detached agents that haven't been restored into the
+// center's tabsByWorkspace yet (restore is async).
+func workspaceHasLiveTabs(ws *data.Workspace) bool {
+	if ws == nil {
+		return false
+	}
+	for _, tab := range ws.OpenTabs {
+		if tab.Assistant == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(tab.Status), "stopped") {
+			continue
+		}
+		return true
+	}
+	return false
 }
