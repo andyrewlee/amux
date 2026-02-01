@@ -235,7 +235,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	if existingAgent != nil {
 		_ = m.agentManager.CloseAgent(existingAgent)
 	}
-	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
+	tmuxOpts := m.getTmuxOptions()
 
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
@@ -243,6 +243,10 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	assistant := tab.Assistant
 
 	return func() tea.Msg {
+		// Kill old tmux session asynchronously (inside the cmd goroutine)
+		// to avoid blocking the UI
+		_ = tmux.KillSession(sessionName, tmuxOpts)
+
 		tags := tmux.SessionTags{
 			WorkspaceID: string(ws.ID()),
 			TabID:       string(tabID),

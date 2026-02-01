@@ -250,10 +250,11 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	tab := tabs[index]
 	tab.markClosing()
 
+	// Capture session info before cleanup for async kill
+	sessionName := tab.SessionName
+	tmuxOpts := m.getTmuxOptions()
+
 	m.stopPTYReader(tab)
-	if tab.SessionName != "" {
-		_ = tmux.KillSession(tab.SessionName, m.getTmuxOptions())
-	}
 
 	// Close agent
 	if tab.Agent != nil {
@@ -287,9 +288,20 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 		m.setActiveTabIdx(activeIdx - 1)
 	}
 
-	return func() tea.Msg {
+	closedCmd := func() tea.Msg {
 		return messages.TabClosed{Index: index}
 	}
+
+	// Kill tmux session asynchronously to avoid blocking the UI
+	if sessionName != "" {
+		killCmd := func() tea.Msg {
+			_ = tmux.KillSession(sessionName, tmuxOpts)
+			return nil
+		}
+		return tea.Batch(closedCmd, killCmd)
+	}
+
+	return closedCmd
 }
 
 // hasActiveAgent returns whether there's an active agent
