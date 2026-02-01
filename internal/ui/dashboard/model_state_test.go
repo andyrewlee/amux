@@ -27,7 +27,7 @@ func TestDashboardCreatingWorkspaceRow(t *testing.T) {
 	}
 }
 
-func TestDashboardWorkspaceOrderByCreatedDesc(t *testing.T) {
+func TestDashboardWorkspaceOrderByCreatedAsc(t *testing.T) {
 	m := New()
 	project := data.Project{
 		Name: "repo",
@@ -48,7 +48,7 @@ func TestDashboardWorkspaceOrderByCreatedDesc(t *testing.T) {
 		}
 	}
 
-	want := []string{"newer", "older"}
+	want := []string{"older", "newer"}
 	if len(got) != len(want) {
 		t.Fatalf("expected %d workspace rows, got %d", len(want), len(got))
 	}
@@ -82,8 +82,8 @@ func TestDashboardCreatingWorkspaceOrder(t *testing.T) {
 		}
 	}
 
-	if len(got) == 0 || got[0] != "creating" {
-		t.Fatalf("expected creating workspace to be first, got %v", got)
+	if len(got) == 0 || got[len(got)-1] != "creating" {
+		t.Fatalf("expected creating workspace to be last, got %v", got)
 	}
 }
 

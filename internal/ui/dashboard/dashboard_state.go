@@ -42,6 +42,13 @@ func (m *Model) SetWorkspaceCreating(ws *data.Workspace, creating bool) tea.Cmd 
 	if creating {
 		m.creatingWorkspaces[ws.Root] = ws
 		m.rebuildRows()
+		// Move cursor to the newly created workspace row.
+		for i, row := range m.rows {
+			if row.Type == RowWorkspace && row.Workspace != nil && row.Workspace.Root == ws.Root {
+				m.cursor = i
+				break
+			}
+		}
 		return m.startSpinnerIfNeeded()
 	}
 	delete(m.creatingWorkspaces, ws.Root)
@@ -156,7 +163,7 @@ func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 			}
 			return workspaces[i].Name < workspaces[j].Name
 		}
-		return workspaces[i].Created.After(workspaces[j].Created)
+		return workspaces[i].Created.Before(workspaces[j].Created)
 	})
 
 	return workspaces
