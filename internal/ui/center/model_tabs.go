@@ -203,6 +203,10 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		}
 		tabID := existing.ID
 		tab := existing
+		m.stopPTYReader(tab)
+		tab.mu.Lock()
+		oldAgent := tab.Agent
+		tab.mu.Unlock()
 		tab.mu.Lock()
 		createdTerminal := false
 		if tab.Terminal == nil {
@@ -232,6 +236,9 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.cachedVersion = 0
 		tab.cachedShowCursor = false
 		tab.mu.Unlock()
+		if oldAgent != nil && oldAgent != msg.Agent {
+			_ = m.agentManager.CloseAgent(oldAgent)
+		}
 
 		// Set up response writer for terminal queries (DSR, DA, etc.)
 		if msg.Agent.Terminal != nil && tab.Terminal != nil {
@@ -272,6 +279,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		if msg.Agent.Terminal != nil {
 			m.resizePTY(tab, rows, cols)
 		}
+		_ = m.startPTYReader(wsID, tab)
 
 		if msg.Activate && existingIdx >= 0 {
 			m.activeTabByWorkspace[wsID] = existingIdx
