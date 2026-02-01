@@ -86,6 +86,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			Type:        "terminal",
 			Assistant:   "terminal",
 			CreatedAt:   time.Now().Unix(),
+			InstanceID:  m.instanceID,
 		}
 		command := tmux.ClientCommandWithTags(sessionName, ws.Root, fmt.Sprintf("exec %s -l", shell), opts, tags)
 		term, err := pty.NewWithSize(command, ws.Root, env, uint16(termHeight), uint16(termWidth))
@@ -208,6 +209,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			TabID:       string(tabID),
 			Type:        "terminal",
 			Assistant:   "terminal",
+			InstanceID:  m.instanceID,
 		}
 		if action == "restart" {
 			tags.CreatedAt = time.Now().Unix()

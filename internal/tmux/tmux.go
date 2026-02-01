@@ -33,6 +33,7 @@ type SessionTags struct {
 	Type        string
 	Assistant   string
 	CreatedAt   int64 // Unix seconds for fresh create/restart; may be zero for reattach.
+	InstanceID  string
 }
 
 const tmuxCommandTimeout = 5 * time.Second
@@ -155,6 +156,9 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 	}
 	if tags.CreatedAt != 0 {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_created_at %s 2>/dev/null; ", base, session, shellQuote(fmt.Sprintf("%d", tags.CreatedAt))))
+	}
+	if tags.InstanceID != "" {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_instance %s 2>/dev/null; ", base, session, shellQuote(tags.InstanceID)))
 	}
 }
 

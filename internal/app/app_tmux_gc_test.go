@@ -58,6 +58,19 @@ func TestCollectKnownWorkspaceIDs_MultipleProjects(t *testing.T) {
 	}
 }
 
+func TestCollectKnownWorkspaceIDs_IncludesCreating(t *testing.T) {
+	ws := data.Workspace{Repo: "/repo-c", Root: "/repo-c/ws-create"}
+	creatingID := string(ws.ID())
+	app := &App{
+		creatingWorkspaceIDs: map[string]bool{creatingID: true},
+	}
+
+	ids := app.collectKnownWorkspaceIDs()
+	if !ids[creatingID] {
+		t.Fatalf("expected creating workspace ID %s to be included", creatingID)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // gcOrphanedTmuxSessions gating — pure unit tests (no tmux)
 // ---------------------------------------------------------------------------
