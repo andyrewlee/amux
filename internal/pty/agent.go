@@ -62,7 +62,7 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
 	}
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(ws.ID()), string(agentType))
+		sessionName, _ = tmux.NextUniqueSessionName(ws.Name, tmux.DefaultOptions())
 	}
 	if err := tmux.EnsureAvailable(); err != nil {
 		return nil, err
@@ -83,6 +83,9 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	if agentType == AgentClaude && ws.Profile != "" {
 		profileDir := filepath.Join(m.config.Paths.ProfilesRoot, ws.Profile)
 		_ = os.MkdirAll(profileDir, 0755)
+		if m.config.UI.SyncProfilePlugins {
+			_ = config.SyncProfileSharedDirs(m.config.Paths.ProfilesRoot, ws.Profile)
+		}
 		agentCommand = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s %s", shellQuote(profileDir), agentCommand)
 	}
 
@@ -129,7 +132,7 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command string, 
 		return nil, fmt.Errorf("workspace is required")
 	}
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(ws.ID()), "viewer")
+		sessionName, _ = tmux.NextUniqueSessionName(ws.Name, tmux.DefaultOptions())
 	}
 	if err := tmux.EnsureAvailable(); err != nil {
 		return nil, err

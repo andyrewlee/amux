@@ -79,7 +79,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		}
 
 		env := []string{"COLORTERM=truecolor"}
-		sessionName := tmux.SessionName("amux", wsID, string(tabID))
+		sessionName, _ := tmux.NextUniqueSessionName(ws.Name, opts)
 		tags := tmux.SessionTags{
 			WorkspaceID: wsID,
 			TabID:       string(tabID),
@@ -130,7 +130,7 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 	}
 	ws := m.workspace
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
+		sessionName = tmux.SessionName("amux", ws.Name, "1")
 	}
 	return m.attachToSession(ws, tab.ID, sessionName, "reattach")
 }
@@ -153,7 +153,7 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	}
 	ws := m.workspace
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
+		sessionName = tmux.SessionName("amux", ws.Name, "1")
 	}
 	m.detachState(ts)
 	_ = tmux.KillSession(sessionName, m.getTmuxOptions())

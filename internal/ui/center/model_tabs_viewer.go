@@ -28,10 +28,11 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 	termWidth := tm.Width
 	termHeight := tm.Height
 	tabID := generateTabID()
-	sessionName := tmux.SessionName("amux", string(ws.ID()), string(tabID))
 
 	return func() tea.Msg {
 		logging.Info("Creating vim tab: file=%s workspace=%s", filePath, ws.Name)
+
+		sessionName, _ := tmux.NextUniqueSessionName(ws.Name, tmux.DefaultOptions())
 
 		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
 		cmd := fmt.Sprintf("vim -- %s", escapedFile)
@@ -125,10 +126,11 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.W
 	termWidth := tm.Width
 	termHeight := tm.Height
 	tabID := generateTabID()
-	sessionName := tmux.SessionName("amux", string(ws.ID()), string(tabID))
 
 	return func() tea.Msg {
 		logging.Info("Creating viewer tab: file=%s statusCode=%s workspace=%s", file, statusCode, ws.Name)
+
+		sessionName, _ := tmux.NextUniqueSessionName(ws.Name, tmux.DefaultOptions())
 
 		escapedFile := "'" + strings.ReplaceAll(file, "'", "'\\''") + "'"
 

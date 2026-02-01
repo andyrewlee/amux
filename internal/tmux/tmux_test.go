@@ -58,6 +58,68 @@ func TestSessionName(t *testing.T) {
 	}
 }
 
+func TestNextUniqueSessionNameFromList(t *testing.T) {
+	tests := []struct {
+		name          string
+		workspaceName string
+		sessions      []string
+		expected      string
+	}{
+		{
+			name:          "no existing sessions",
+			workspaceName: "my-project",
+			sessions:      nil,
+			expected:      "amux-my-project-1",
+		},
+		{
+			name:          "first slot taken",
+			workspaceName: "my-project",
+			sessions:      []string{"amux-my-project-1"},
+			expected:      "amux-my-project-2",
+		},
+		{
+			name:          "multiple slots taken",
+			workspaceName: "my-project",
+			sessions:      []string{"amux-my-project-1", "amux-my-project-2", "amux-my-project-3"},
+			expected:      "amux-my-project-4",
+		},
+		{
+			name:          "gap in numbering picks first available",
+			workspaceName: "my-project",
+			sessions:      []string{"amux-my-project-1", "amux-my-project-3"},
+			expected:      "amux-my-project-2",
+		},
+		{
+			name:          "unrelated sessions ignored",
+			workspaceName: "my-project",
+			sessions:      []string{"amux-other-project-1", "amux-other-project-2"},
+			expected:      "amux-my-project-1",
+		},
+		{
+			name:          "workspace name with special chars",
+			workspaceName: "My Project/Main",
+			sessions:      []string{"amux-my-project-main-1"},
+			expected:      "amux-my-project-main-2",
+		},
+		{
+			name:          "workspace name with uppercase",
+			workspaceName: "MyProject",
+			sessions:      []string{"amux-myproject-1"},
+			expected:      "amux-myproject-2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := nextUniqueSessionNameFromList(tt.workspaceName, tt.sessions)
+			if result != tt.expected {
+				t.Errorf("nextUniqueSessionNameFromList(%q, %v) = %q, want %q",
+					tt.workspaceName, tt.sessions, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestSanitize(t *testing.T) {
 	tests := []struct {
 		input    string

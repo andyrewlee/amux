@@ -140,7 +140,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	termWidth := tm.Width
 	termHeight := tm.Height
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(tab.Workspace.ID()), string(tab.ID))
+		sessionName = tmux.SessionName("amux", tab.Workspace.Name, "1")
 	}
 	assistant := tab.Assistant
 	ws := tab.Workspace
@@ -228,7 +228,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	ws := tab.Workspace
 	tabID := tab.ID
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tabID))
+		sessionName = tmux.SessionName("amux", ws.Name, "1")
 	}
 	m.stopPTYReader(tab)
 	var existingAgent *appPty.Agent

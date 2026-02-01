@@ -88,6 +88,34 @@ func SessionName(parts ...string) string {
 	return strings.Join(cleaned, "-")
 }
 
+// NextUniqueSessionName returns the first available session name in the format
+// amux-{workspaceName}-{N} where N starts at 1 and increments until no existing
+// session uses that name.
+func NextUniqueSessionName(workspaceName string, opts Options) (string, error) {
+	sessions, err := ListSessions(opts)
+	if err != nil {
+		// On error, fall back to -1 suffix
+		return SessionName("amux", workspaceName) + "-1", nil
+	}
+	return nextUniqueSessionNameFromList(workspaceName, sessions), nil
+}
+
+// nextUniqueSessionNameFromList finds the first available amux-{name}-{N} not
+// present in the given session list.
+func nextUniqueSessionNameFromList(workspaceName string, sessions []string) string {
+	prefix := SessionName("amux", workspaceName)
+	existing := make(map[string]struct{}, len(sessions))
+	for _, s := range sessions {
+		existing[s] = struct{}{}
+	}
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", prefix, i)
+		if _, ok := existing[candidate]; !ok {
+			return candidate
+		}
+	}
+}
+
 func ClientCommand(sessionName, workDir, command string) string {
 	return ClientCommandWithOptions(sessionName, workDir, command, DefaultOptions())
 }
@@ -374,12 +402,12 @@ func KillSessionsWithPrefix(prefix string, opts Options) error {
 	return firstErr
 }
 
-// KillWorkspaceSessions kills all sessions for a workspace ID.
-func KillWorkspaceSessions(wsID string, opts Options) error {
-	if wsID == "" {
+// KillWorkspaceSessions kills all sessions for a workspace by name prefix.
+func KillWorkspaceSessions(workspaceName string, opts Options) error {
+	if workspaceName == "" {
 		return nil
 	}
-	prefix := SessionName("amux", wsID) + "-"
+	prefix := SessionName("amux", workspaceName) + "-"
 	return KillSessionsWithPrefix(prefix, opts)
 }
 
