@@ -41,6 +41,9 @@ type Manager struct {
 	minSidebarWidth   int
 	startupLeftWidth  int
 	startupRightWidth int
+
+	// sidebarHidden forces two-pane mode (no sidebar) regardless of terminal width.
+	sidebarHidden bool
 }
 
 // NewManager creates a new layout manager
@@ -61,6 +64,17 @@ func NewManager() *Manager {
 		topGutter:         0,
 		bottomGutter:      0,
 	}
+}
+
+// SetSidebarHidden controls the sidebar-hidden override. When true, the layout
+// will never enter three-pane mode regardless of terminal width.
+func (m *Manager) SetSidebarHidden(hidden bool) {
+	m.sidebarHidden = hidden
+}
+
+// SidebarHidden returns whether the sidebar is force-hidden.
+func (m *Manager) SidebarHidden() bool {
+	return m.sidebarHidden
 }
 
 // Resize recalculates layout based on new dimensions
@@ -85,7 +99,7 @@ func (m *Manager) Resize(width, height int) {
 	minTwo := m.minDashboardWidth + m.minChatWidth + m.gapX
 
 	switch {
-	case usableWidth >= minThree+20: // Some buffer for borders
+	case !m.sidebarHidden && usableWidth >= minThree+20: // Some buffer for borders
 		m.mode = LayoutThreePane
 		m.calculateThreePaneWidths()
 	case usableWidth >= minTwo+10:

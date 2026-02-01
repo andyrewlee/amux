@@ -279,6 +279,7 @@ func (a *App) handleShowSettingsDialog() {
 	a.settingsDialog = common.NewSettingsDialog(
 		common.ThemeID(a.config.UI.Theme),
 		a.config.UI.ShowKeymapHints,
+		a.config.UI.HideSidebar,
 		a.config.UI.TmuxPersistence,
 		a.config.UI.TmuxServer,
 		a.config.UI.TmuxConfigPath,
@@ -339,6 +340,16 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 
 		// Apply keymap hints
 		a.setKeymapHintsEnabled(msg.ShowKeymapHints)
+
+		// Apply sidebar hidden setting
+		a.config.UI.HideSidebar = msg.HideSidebar
+		a.layout.SetSidebarHidden(msg.HideSidebar)
+		// If sidebar is now hidden and focus is on it, move focus to center
+		if msg.HideSidebar && (a.focusedPane == messages.PaneSidebar || a.focusedPane == messages.PaneSidebarTerminal) {
+			a.focusPane(messages.PaneCenter)
+		}
+		a.layout.Resize(a.width, a.height)
+		a.updateLayout()
 
 		// Apply tmux settings
 		oldServerName := a.tmuxOptions.ServerName

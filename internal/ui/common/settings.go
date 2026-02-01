@@ -16,6 +16,7 @@ type SettingsResult struct {
 	Confirmed        bool
 	Theme            ThemeID
 	ShowKeymapHints  bool
+	HideSidebar      bool
 	TmuxPersistence  bool
 	TmuxServer       string
 	TmuxConfigPath   string
@@ -32,6 +33,7 @@ type settingsItem int
 const (
 	settingsItemTheme settingsItem = iota
 	settingsItemKeymap
+	settingsItemHideSidebar
 	settingsItemTmuxPersistence
 	settingsItemTmuxServer
 	settingsItemTmuxConfig
@@ -50,6 +52,7 @@ type SettingsDialog struct {
 	// Settings values
 	theme           ThemeID
 	showKeymapHints bool
+	hideSidebar     bool
 	originalTheme   ThemeID
 	tmuxPersistence bool
 	tmuxServer      textinput.Model
@@ -79,7 +82,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	themes := AvailableThemes()
 	themeCursor := 0
 	for i, t := range themes {
@@ -111,6 +114,7 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, tmuxPersistence bo
 		theme:           currentTheme,
 		originalTheme:   currentTheme,
 		showKeymapHints: showKeymapHints,
+		hideSidebar:     hideSidebar,
 		tmuxPersistence: tmuxPersistence,
 		tmuxServer:      serverInput,
 		tmuxConfig:      configInput,
@@ -231,6 +235,10 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.showKeymapHints = !s.showKeymapHints
 		return s, nil
 
+	case settingsItemHideSidebar:
+		s.hideSidebar = !s.hideSidebar
+		return s, nil
+
 	case settingsItemTmuxPersistence:
 		s.tmuxPersistence = !s.tmuxPersistence
 		return s, nil
@@ -255,6 +263,7 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 				Confirmed:        true,
 				Theme:            s.theme,
 				ShowKeymapHints:  s.showKeymapHints,
+				HideSidebar:      s.hideSidebar,
 				TmuxPersistence:  s.tmuxPersistence,
 				TmuxServer:       strings.TrimSpace(s.tmuxServer.Value()),
 				TmuxConfigPath:   strings.TrimSpace(s.tmuxConfig.Value()),

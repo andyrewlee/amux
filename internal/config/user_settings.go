@@ -9,6 +9,7 @@ import (
 // UISettings stores user-facing display preferences.
 type UISettings struct {
 	ShowKeymapHints  bool
+	HideSidebar      bool
 	Theme            string // Theme ID, defaults to "gruvbox"
 	TmuxServer       string
 	TmuxConfigPath   string
@@ -37,6 +38,7 @@ func loadUISettings(path string) UISettings {
 	var raw struct {
 		UI struct {
 			ShowKeymapHints  *bool   `json:"show_keymap_hints"`
+			HideSidebar      *bool   `json:"hide_sidebar"`
 			Theme            *string `json:"theme"`
 			TmuxServer       *string `json:"tmux_server"`
 			TmuxConfigPath   *string `json:"tmux_config"`
@@ -49,6 +51,9 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.ShowKeymapHints != nil {
 		settings.ShowKeymapHints = *raw.UI.ShowKeymapHints
+	}
+	if raw.UI.HideSidebar != nil {
+		settings.HideSidebar = *raw.UI.HideSidebar
 	}
 	if raw.UI.Theme != nil {
 		settings.Theme = *raw.UI.Theme
@@ -83,6 +88,7 @@ func saveUISettings(path string, settings UISettings) error {
 		ui = map[string]any{}
 	}
 	ui["show_keymap_hints"] = settings.ShowKeymapHints
+	ui["hide_sidebar"] = settings.HideSidebar
 	ui["theme"] = settings.Theme
 	ui["tmux_server"] = settings.TmuxServer
 	ui["tmux_config"] = settings.TmuxConfigPath

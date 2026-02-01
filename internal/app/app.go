@@ -307,6 +307,7 @@ func New(version, commit, date string) (*App, error) {
 	app.center.SetStyles(app.styles)
 	app.toast.SetStyles(app.styles)
 	app.helpOverlay.SetStyles(app.styles)
+	app.layout.SetSidebarHidden(cfg.UI.HideSidebar)
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	// Propagate tmux config to components
 	app.center.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)
