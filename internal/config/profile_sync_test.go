@@ -354,3 +354,58 @@ func TestSyncPreservesExistingEnabledPlugins(t *testing.T) {
 		t.Errorf("otherSetting should be preserved, got %v", settings["otherSetting"])
 	}
 }
+
+func TestSyncRemovesUninstalledPlugins(t *testing.T) {
+	root := setupTestProfiles(t)
+
+	// Install two plugins initially
+	registry := map[string]any{
+		"version": 2,
+		"plugins": map[string]any{
+			"pluginA@official": []any{map[string]any{"scope": "user"}},
+			"pluginB@official": []any{map[string]any{"scope": "user"}},
+		},
+	}
+	data, _ := json.Marshal(registry)
+	os.WriteFile(filepath.Join(root, "shared", "plugins", "installed_plugins.json"), data, 0644)
+
+	// Sync the profile — both plugins get enabled
+	profileDir := filepath.Join(root, "myprofile")
+	os.MkdirAll(profileDir, 0755)
+	if err := SyncProfileSharedDirs(root, "myprofile"); err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+
+	// Verify both are enabled
+	settingsData, _ := os.ReadFile(filepath.Join(profileDir, "settings.json"))
+	var settings map[string]any
+	json.Unmarshal(settingsData, &settings)
+	enabled := settings["enabledPlugins"].(map[string]any)
+	if len(enabled) != 2 {
+		t.Fatalf("expected 2 enabled plugins, got %d", len(enabled))
+	}
+
+	// Simulate uninstalling pluginB — remove it from installed_plugins.json
+	registry["plugins"] = map[string]any{
+		"pluginA@official": []any{map[string]any{"scope": "user"}},
+	}
+	data, _ = json.Marshal(registry)
+	os.WriteFile(filepath.Join(root, "shared", "plugins", "installed_plugins.json"), data, 0644)
+
+	// Re-sync
+	if err := SyncProfileSharedDirs(root, "myprofile"); err != nil {
+		t.Fatalf("re-sync: %v", err)
+	}
+
+	// pluginB should be gone from enabledPlugins
+	settingsData, _ = os.ReadFile(filepath.Join(profileDir, "settings.json"))
+	json.Unmarshal(settingsData, &settings)
+	enabled = settings["enabledPlugins"].(map[string]any)
+
+	if _, exists := enabled["pluginA@official"]; !exists {
+		t.Errorf("pluginA should still be enabled")
+	}
+	if _, exists := enabled["pluginB@official"]; exists {
+		t.Errorf("pluginB should have been removed after uninstall")
+	}
+}

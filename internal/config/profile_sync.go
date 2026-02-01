@@ -171,6 +171,12 @@ func syncEnabledPlugins(sharedRoot, profileDir string) {
 			existingEnabled[key] = true
 		}
 	}
+	// Remove stale entries for plugins that have been uninstalled.
+	for key := range existingEnabled {
+		if _, installed := enabled[key]; !installed {
+			delete(existingEnabled, key)
+		}
+	}
 	settings["enabledPlugins"] = existingEnabled
 
 	out, err := json.MarshalIndent(settings, "", "  ")
