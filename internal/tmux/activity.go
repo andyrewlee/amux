@@ -42,7 +42,8 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 		}
 		sessionName := strings.TrimSpace(parts[0])
 		amux := strings.TrimSpace(parts[2])
-		if amux == "" || amux == "0" {
+		tagged := amux != "" && amux != "0"
+		if !tagged {
 			if !strings.HasPrefix(sessionName, "amux-") {
 				continue
 			}
@@ -76,6 +77,9 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 			if existing.Type == "" {
 				existing.Type = sessionType
 			}
+			if !existing.Tagged && tagged {
+				existing.Tagged = true
+			}
 			latest[sessionName] = existing
 			continue
 		}
@@ -84,6 +88,7 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 			WorkspaceID: workspaceID,
 			TabID:       tabID,
 			Type:        sessionType,
+			Tagged:      tagged,
 		}
 	}
 	if len(latest) == 0 {

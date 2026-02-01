@@ -267,6 +267,7 @@ type SessionActivity struct {
 	WorkspaceID string
 	TabID       string
 	Type        string
+	Tagged      bool
 }
 
 // SessionTagValue returns a session option value for the given tag key.

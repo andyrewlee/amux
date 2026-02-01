@@ -15,19 +15,19 @@ func TestActiveWorkspaceIDsFromSessionActivity(t *testing.T) {
 		"sess-viewer":   {Status: "running", WorkspaceID: "ws5", IsChat: false},
 	}
 	sessions := []tmux.SessionActivity{
-		{Name: "sess-running", WorkspaceID: "ws1", Type: "agent"},
-		{Name: "sess-detached", WorkspaceID: "ws2", Type: "agent"},
-		{Name: "sess-stopped", WorkspaceID: "ws3", Type: "agent"},
-		{Name: "sess-empty", WorkspaceID: "", Type: "agent"},
-		{Name: "sess-missing", WorkspaceID: "ws6", Type: "agent"},
-		{Name: "sess-viewer", WorkspaceID: "ws5", Type: ""},
-		{Name: "amux-ws7-tab-1", WorkspaceID: "", Type: ""},
-		{Name: "amux-ws8-term-tab-1", WorkspaceID: "", Type: ""},
+		{Name: "sess-running", WorkspaceID: "ws1", Type: "agent", Tagged: true},
+		{Name: "sess-detached", WorkspaceID: "ws2", Type: "agent", Tagged: true},
+		{Name: "sess-stopped", WorkspaceID: "ws3", Type: "agent", Tagged: true},
+		{Name: "sess-empty", WorkspaceID: "", Type: "agent", Tagged: true},
+		{Name: "sess-missing", WorkspaceID: "ws6", Type: "agent", Tagged: true},
+		{Name: "sess-viewer", WorkspaceID: "ws5", Type: "", Tagged: true},
+		{Name: "amux-ws7-tab-1", WorkspaceID: "", Type: "", Tagged: false},
+		{Name: "amux-ws8-term-tab-1", WorkspaceID: "", Type: "", Tagged: true},
 		{Name: "other-app-tab-99", WorkspaceID: "", Type: ""},
 	}
 	active := activeWorkspaceIDsFromSessionActivity(infoBySession, sessions)
-	if len(active) != 6 {
-		t.Fatalf("expected 6 active workspaces, got %d", len(active))
+	if len(active) != 5 {
+		t.Fatalf("expected 5 active workspaces, got %d", len(active))
 	}
 	if !active["ws1"] {
 		t.Fatalf("expected ws1 to be active")
@@ -37,9 +37,6 @@ func TestActiveWorkspaceIDsFromSessionActivity(t *testing.T) {
 	}
 	if !active["ws2"] || !active["ws3"] {
 		t.Fatalf("expected ws2 and ws3 to be active despite stale status")
-	}
-	if !active["ws7"] {
-		t.Fatalf("expected ws7 to be active for amux session without stored info")
 	}
 	if !active["ws6"] {
 		t.Fatalf("expected ws6 to be active for tagged session without stored info")
@@ -61,9 +58,9 @@ func TestIsChatSession_NonAmuxPrefix(t *testing.T) {
 	}
 
 	// Sessions with "amux-" prefix and -tab- should match
-	session2 := tmux.SessionActivity{Name: "amux-ws1-tab-1", Type: ""}
+	session2 := tmux.SessionActivity{Name: "amux-ws1-tab-1", Type: "", Tagged: true}
 	if !isChatSession(session2, tabSessionInfo{}, false) {
-		t.Fatal("amux session with -tab- should be classified as chat")
+		t.Fatal("tagged amux session with -tab- should be classified as chat")
 	}
 
 	// Sessions with explicit type should use type regardless of name
