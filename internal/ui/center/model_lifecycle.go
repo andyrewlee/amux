@@ -52,6 +52,9 @@ func (m *Model) Close() {
 			}
 			tab.pendingOutput = nil
 			tab.DiffViewer = nil
+			tab.Terminal = nil
+			tab.cachedSnap = nil
+			tab.Workspace = nil
 			tab.Running = false
 			tab.mu.Unlock()
 			tab.markClosed()

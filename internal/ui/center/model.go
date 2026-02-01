@@ -267,7 +267,7 @@ func New(cfg *config.Config) *Model {
 		config:               cfg,
 		agentManager:         appPty.NewAgentManager(cfg),
 		styles:               common.DefaultStyles(),
-		tabEvents:            make(chan tabEvent, 1024),
+		tabEvents:            make(chan tabEvent, 4096),
 	}
 }
 
@@ -429,6 +429,10 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 			tab.ptyTraceClosed = true
 		}
 		tab.pendingOutput = nil
+		tab.DiffViewer = nil
+		tab.Terminal = nil
+		tab.cachedSnap = nil
+		tab.Workspace = nil
 		tab.Running = false
 		tab.mu.Unlock()
 		tab.markClosed()
