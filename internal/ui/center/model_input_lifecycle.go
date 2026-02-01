@@ -50,7 +50,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	}
 	if tab.Terminal != nil {
 		tab.Terminal.AllowAltScreenScrollback = true
-		if createdTerminal {
+		if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
 			tab.Terminal.PrependScrollback(msg.ScrollbackCapture)
 		}
 	}
