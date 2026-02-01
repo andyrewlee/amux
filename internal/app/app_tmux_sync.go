@@ -36,11 +36,11 @@ func (a *App) handleTmuxSyncTick(msg messages.TmuxSyncTick) []tea.Cmd {
 }
 
 func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
-	if msg.WorkspaceID == "" || len(msg.Updates) == 0 {
+	if msg.WorkspaceID == "" {
 		return nil
 	}
 	ws := a.findWorkspaceByID(msg.WorkspaceID)
-	if ws == nil {
+	if ws == nil || len(msg.Updates) == 0 {
 		return nil
 	}
 	changed := false
