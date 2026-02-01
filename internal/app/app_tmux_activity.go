@@ -175,15 +175,18 @@ func activeWorkspaceIDsFromSessionActivity(infoBySession map[string]tabSessionIn
 //  1. Session tag (@amux_type == "agent") — authoritative, set at creation time.
 //  2. Stored tab metadata (info.IsChat) — from assistant config lookup.
 //  3. Name heuristic (legacy fallback) — matches "amux-*-tab-*" sessions,
-//     excluding terminal tabs ("term-tab-"). Covers sessions created before
-//     @amux_type tagging was introduced. The "amux-" prefix guard prevents
-//     false positives from other applications' tmux sessions.
+//     excluding terminal tabs ("term-tab-"). Only used for sessions tagged
+//     with @amux but missing @amux_type (older versions), to avoid false
+//     positives from unrelated tmux sessions.
 func isChatSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bool) bool {
 	if session.Type != "" {
 		return session.Type == "agent"
 	}
 	if hasInfo {
 		return info.IsChat
+	}
+	if !session.Tagged {
+		return false
 	}
 	// Legacy fallback for untagged sessions (pre-tagging era).
 	name := session.Name

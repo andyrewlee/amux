@@ -24,8 +24,8 @@ func TestDashboardIsProjectActive(t *testing.T) {
 		m.activeWorkspaceIDs = map[string]bool{
 			string(project.Workspaces[0].ID()): true,
 		}
-		if !m.isProjectActive(&project) {
-			t.Errorf("expected project to be active when main workspace is active")
+		if m.isProjectActive(&project) {
+			t.Errorf("expected project to remain inactive when main workspace is active")
 		}
 	})
 
@@ -33,8 +33,8 @@ func TestDashboardIsProjectActive(t *testing.T) {
 		m.activeWorkspaceIDs = map[string]bool{
 			string(project.Workspaces[1].ID()): true,
 		}
-		if !m.isProjectActive(&project) {
-			t.Errorf("expected project to be active when feature workspace is active")
+		if m.isProjectActive(&project) {
+			t.Errorf("expected project to remain inactive when feature workspace is active")
 		}
 	})
 
