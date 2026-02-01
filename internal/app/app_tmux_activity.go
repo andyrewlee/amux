@@ -80,8 +80,7 @@ func (a *App) triggerTmuxActivityScan() tea.Cmd {
 }
 
 func (a *App) scanTmuxActivityNow() tea.Cmd {
-	// Use current token without incrementing - the tick handler manages tokens.
-	// Manual scans should not disrupt the ticker's token sequence.
+	a.tmuxActivityToken++
 	scanToken := a.tmuxActivityToken
 	infoBySession := a.tabSessionInfoByName()
 	statesSnapshot := a.snapshotActivityStates()
@@ -101,7 +100,7 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 
 func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 	if msg.Token != a.tmuxActivityToken {
-		return nil
+		return []tea.Cmd{a.scheduleTmuxActivityTick()}
 	}
 	if !a.tmuxAvailable {
 		return []tea.Cmd{a.scheduleTmuxActivityTick()}
@@ -194,27 +193,6 @@ func (a *App) tabSessionInfoByName() map[string]tabSessionInfo {
 		}
 	}
 	return infoBySession
-}
-
-func activeWorkspaceIDsFromSessionActivity(infoBySession map[string]tabSessionInfo, sessions []tmux.SessionActivity) map[string]bool {
-	active := make(map[string]bool)
-	for _, session := range sessions {
-		info, ok := infoBySession[session.Name]
-		if !isChatSession(session, info, ok) {
-			continue
-		}
-		workspaceID := strings.TrimSpace(session.WorkspaceID)
-		if workspaceID == "" && ok {
-			workspaceID = strings.TrimSpace(info.WorkspaceID)
-		}
-		if workspaceID == "" {
-			workspaceID = workspaceIDFromSessionName(session.Name)
-		}
-		if workspaceID != "" {
-			active[workspaceID] = true
-		}
-	}
-	return active
 }
 
 // activeWorkspaceIDsWithHysteresis uses screen-delta detection with hysteresis

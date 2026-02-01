@@ -6,50 +6,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-func TestActiveWorkspaceIDsFromSessionActivity(t *testing.T) {
-	infoBySession := map[string]tabSessionInfo{
-		"sess-running":  {Status: "running", WorkspaceID: "ws1", IsChat: true},
-		"sess-detached": {Status: "detached", WorkspaceID: "ws2", IsChat: true},
-		"sess-stopped":  {Status: "stopped", WorkspaceID: "ws3", IsChat: true},
-		"sess-empty":    {Status: "", WorkspaceID: "ws4", IsChat: true},
-		"sess-viewer":   {Status: "running", WorkspaceID: "ws5", IsChat: false},
-	}
-	sessions := []tmux.SessionActivity{
-		{Name: "sess-running", WorkspaceID: "ws1", Type: "agent", Tagged: true},
-		{Name: "sess-detached", WorkspaceID: "ws2", Type: "agent", Tagged: true},
-		{Name: "sess-stopped", WorkspaceID: "ws3", Type: "agent", Tagged: true},
-		{Name: "sess-empty", WorkspaceID: "", Type: "agent", Tagged: true},
-		{Name: "sess-missing", WorkspaceID: "ws6", Type: "agent", Tagged: true},
-		{Name: "sess-viewer", WorkspaceID: "ws5", Type: "", Tagged: true},
-		{Name: "amux-ws7-tab-1", WorkspaceID: "", Type: "", Tagged: false},
-		{Name: "amux-ws8-term-tab-1", WorkspaceID: "", Type: "", Tagged: true},
-		{Name: "other-app-tab-99", WorkspaceID: "", Type: ""},
-	}
-	active := activeWorkspaceIDsFromSessionActivity(infoBySession, sessions)
-	if len(active) != 5 {
-		t.Fatalf("expected 5 active workspaces, got %d", len(active))
-	}
-	if !active["ws1"] {
-		t.Fatalf("expected ws1 to be active")
-	}
-	if !active["ws4"] {
-		t.Fatalf("expected ws4 to be active for empty status")
-	}
-	if !active["ws2"] || !active["ws3"] {
-		t.Fatalf("expected ws2 and ws3 to be active despite stale status")
-	}
-	if !active["ws6"] {
-		t.Fatalf("expected ws6 to be active for tagged session without stored info")
-	}
-	if active["ws5"] {
-		t.Fatalf("unexpected active workspaces: %v", active)
-	}
-	// Non-amux session with -tab- in name should NOT match the heuristic
-	if active["other"] {
-		t.Fatalf("non-amux session with -tab- in name should not match: %v", active)
-	}
-}
-
 func TestIsChatSession_NonAmuxPrefix(t *testing.T) {
 	// Sessions without "amux-" prefix should not match the name heuristic
 	session := tmux.SessionActivity{Name: "other-app-tab-99", Type: ""}
