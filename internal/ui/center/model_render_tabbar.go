@@ -181,6 +181,24 @@ func (m *Model) renderTabBar() string {
 		})
 	}
 	renderedTabs = append(renderedTabs, btn)
+	x += btnWidth
+
+	// Add "+ New (Select Agent)" button to allow overriding the default agent
+	selectBtn := m.styles.TabPlus.Render("New (Select Agent)")
+	selectBtnWidth := lipgloss.Width(selectBtn)
+	if selectBtnWidth > 0 {
+		m.tabHits = append(m.tabHits, tabHit{
+			kind:  tabHitPlusSelect,
+			index: -1,
+			region: common.HitRegion{
+				X:      x,
+				Y:      0,
+				Width:  selectBtnWidth,
+				Height: 1,
+			},
+		})
+	}
+	renderedTabs = append(renderedTabs, selectBtn)
 
 	// Join tabs horizontally at the bottom so borders align
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
@@ -216,6 +234,8 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 			switch hit.kind {
 			case tabHitPlus:
 				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+			case tabHitPlusSelect:
+				return func() tea.Msg { return messages.ShowSelectAssistantDialog{ForceDialog: true} }
 			case tabHitTab:
 				m.setActiveTabIdx(hit.index)
 				return m.tabSelectionChangedCmd()
