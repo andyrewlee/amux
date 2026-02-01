@@ -13,15 +13,16 @@ import (
 
 // SettingsResult is sent when the settings dialog is closed.
 type SettingsResult struct {
-	Confirmed        bool
-	Theme            ThemeID
-	ShowKeymapHints  bool
-	HideSidebar      bool
-	AutoStartAgent   bool
-	TmuxPersistence  bool
-	TmuxServer       string
-	TmuxConfigPath   string
-	TmuxSyncInterval string
+	Confirmed          bool
+	Theme              ThemeID
+	ShowKeymapHints    bool
+	HideSidebar        bool
+	AutoStartAgent     bool
+	SyncProfilePlugins bool
+	TmuxPersistence    bool
+	TmuxServer         string
+	TmuxConfigPath     string
+	TmuxSyncInterval   string
 }
 
 // ThemePreview is sent when user navigates through themes for live preview.
@@ -36,6 +37,7 @@ const (
 	settingsItemKeymap
 	settingsItemHideSidebar
 	settingsItemAutoStart
+	settingsItemSyncPlugins
 	settingsItemTmuxPersistence
 	settingsItemTmuxServer
 	settingsItemTmuxConfig
@@ -52,11 +54,12 @@ type SettingsDialog struct {
 	height  int
 
 	// Settings values
-	theme           ThemeID
-	showKeymapHints bool
-	hideSidebar     bool
-	autoStartAgent  bool
-	originalTheme   ThemeID
+	theme              ThemeID
+	showKeymapHints    bool
+	hideSidebar        bool
+	autoStartAgent     bool
+	syncProfilePlugins bool
+	originalTheme      ThemeID
 	tmuxPersistence bool
 	tmuxServer      textinput.Model
 	tmuxConfig      textinput.Model
@@ -85,7 +88,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoStartAgent, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoStartAgent, syncProfilePlugins, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	themes := AvailableThemes()
 	themeCursor := 0
 	for i, t := range themes {
@@ -114,12 +117,13 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoS
 	syncInput.SetValue(strings.TrimSpace(tmuxSync))
 
 	return &SettingsDialog{
-		theme:           currentTheme,
-		originalTheme:   currentTheme,
-		showKeymapHints: showKeymapHints,
-		hideSidebar:     hideSidebar,
-		autoStartAgent:  autoStartAgent,
-		tmuxPersistence: tmuxPersistence,
+		theme:              currentTheme,
+		originalTheme:      currentTheme,
+		showKeymapHints:    showKeymapHints,
+		hideSidebar:        hideSidebar,
+		autoStartAgent:     autoStartAgent,
+		syncProfilePlugins: syncProfilePlugins,
+		tmuxPersistence:    tmuxPersistence,
 		tmuxServer:      serverInput,
 		tmuxConfig:      configInput,
 		tmuxSync:        syncInput,
@@ -247,6 +251,10 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.autoStartAgent = !s.autoStartAgent
 		return s, nil
 
+	case settingsItemSyncPlugins:
+		s.syncProfilePlugins = !s.syncProfilePlugins
+		return s, nil
+
 	case settingsItemTmuxPersistence:
 		s.tmuxPersistence = !s.tmuxPersistence
 		return s, nil
@@ -268,15 +276,16 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.visible = false
 		return s, func() tea.Msg {
 			return SettingsResult{
-				Confirmed:        true,
-				Theme:            s.theme,
-				ShowKeymapHints:  s.showKeymapHints,
-				HideSidebar:      s.hideSidebar,
-				AutoStartAgent:   s.autoStartAgent,
-				TmuxPersistence:  s.tmuxPersistence,
-				TmuxServer:       strings.TrimSpace(s.tmuxServer.Value()),
-				TmuxConfigPath:   strings.TrimSpace(s.tmuxConfig.Value()),
-				TmuxSyncInterval: strings.TrimSpace(s.tmuxSync.Value()),
+				Confirmed:          true,
+				Theme:              s.theme,
+				ShowKeymapHints:    s.showKeymapHints,
+				HideSidebar:        s.hideSidebar,
+				AutoStartAgent:     s.autoStartAgent,
+				SyncProfilePlugins: s.syncProfilePlugins,
+				TmuxPersistence:    s.tmuxPersistence,
+				TmuxServer:         strings.TrimSpace(s.tmuxServer.Value()),
+				TmuxConfigPath:     strings.TrimSpace(s.tmuxConfig.Value()),
+				TmuxSyncInterval:   strings.TrimSpace(s.tmuxSync.Value()),
 			}
 		}
 

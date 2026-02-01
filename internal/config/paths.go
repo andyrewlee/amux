@@ -7,12 +7,13 @@ import (
 
 // Paths holds all the file system paths used by the application
 type Paths struct {
-	Home           string // ~/.amux
-	WorkspacesRoot string // ~/.amux/workspaces
-	RegistryPath   string // ~/.amux/projects.json
-	MetadataRoot   string // ~/.amux/workspaces-metadata
-	ConfigPath     string // ~/.amux/config.json
-	ProfilesRoot   string // ~/.amux/profiles
+	Home              string // ~/.amux
+	WorkspacesRoot    string // ~/.amux/workspaces
+	RegistryPath      string // ~/.amux/projects.json
+	MetadataRoot      string // ~/.amux/workspaces-metadata
+	ConfigPath        string // ~/.amux/config.json
+	ProfilesRoot      string // ~/.amux/profiles
+	SharedProfileRoot string // ~/.amux/profiles/shared
 }
 
 // DefaultPaths returns the default paths configuration
@@ -24,13 +25,15 @@ func DefaultPaths() (*Paths, error) {
 
 	amuxHome := filepath.Join(home, ".amux")
 
+	profilesRoot := filepath.Join(amuxHome, "profiles")
 	return &Paths{
-		Home:           amuxHome,
-		WorkspacesRoot: filepath.Join(amuxHome, "workspaces"),
-		RegistryPath:   filepath.Join(amuxHome, "projects.json"),
-		MetadataRoot:   filepath.Join(amuxHome, "workspaces-metadata"),
-		ConfigPath:     filepath.Join(amuxHome, "config.json"),
-		ProfilesRoot:   filepath.Join(amuxHome, "profiles"),
+		Home:              amuxHome,
+		WorkspacesRoot:    filepath.Join(amuxHome, "workspaces"),
+		RegistryPath:      filepath.Join(amuxHome, "projects.json"),
+		MetadataRoot:      filepath.Join(amuxHome, "workspaces-metadata"),
+		ConfigPath:        filepath.Join(amuxHome, "config.json"),
+		ProfilesRoot:      profilesRoot,
+		SharedProfileRoot: filepath.Join(profilesRoot, "shared"),
 	}, nil
 }
 
@@ -41,6 +44,8 @@ func (p *Paths) EnsureDirectories() error {
 		p.WorkspacesRoot,
 		p.MetadataRoot,
 		p.ProfilesRoot,
+		filepath.Join(p.SharedProfileRoot, "skills"),
+		filepath.Join(p.SharedProfileRoot, "plugins"),
 	}
 
 	for _, dir := range dirs {

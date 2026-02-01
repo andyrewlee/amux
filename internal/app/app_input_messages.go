@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -96,7 +97,9 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 
 	if a.pendingNewProjectPath != "" {
 		path := a.pendingNewProjectPath
-		a.pendingNewProjectPath = ""
+		// Don't clear pendingNewProjectPath yet — it's cleared by
+		// handleDialogResult (cancel) or handleSetProfile (confirm)
+		// so we can remove the project if the user cancels profile selection.
 		for i := range a.projects {
 			if a.projects[i].Path == path {
 				project := &a.projects[i]
@@ -343,7 +346,7 @@ func (a *App) listProfiles() []string {
 	}
 	var items []profileEntry
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || entry.Name() == "shared" {
 			continue
 		}
 		info, err := entry.Info()
@@ -383,6 +386,10 @@ func (a *App) handleSetProfile(msg messages.SetProfile) tea.Cmd {
 		}
 		now := time.Now()
 		_ = os.Chtimes(profileDir, now, now)
+
+		if a.config.UI.SyncProfilePlugins {
+			_ = config.SyncProfileSharedDirs(a.config.Paths.ProfilesRoot, profile)
+		}
 	}
 
 	// Update profile in-place on current projects so that any pending
@@ -531,6 +538,7 @@ func (a *App) handleShowSettingsDialog() {
 		a.config.UI.ShowKeymapHints,
 		a.config.UI.HideSidebar,
 		a.config.UI.AutoStartAgent,
+		a.config.UI.SyncProfilePlugins,
 		a.config.UI.TmuxPersistence,
 		a.config.UI.TmuxServer,
 		a.config.UI.TmuxConfigPath,
@@ -594,6 +602,15 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 
 		// Apply auto-start agent setting
 		a.config.UI.AutoStartAgent = msg.AutoStartAgent
+
+		// Apply sync profile plugins setting
+		oldSync := a.config.UI.SyncProfilePlugins
+		a.config.UI.SyncProfilePlugins = msg.SyncProfilePlugins
+		if msg.SyncProfilePlugins && !oldSync {
+			_ = config.SyncAllProfiles(a.config.Paths.ProfilesRoot)
+		} else if !msg.SyncProfilePlugins && oldSync {
+			_ = config.UnsyncAllProfiles(a.config.Paths.ProfilesRoot)
+		}
 
 		// Apply sidebar hidden setting
 		a.config.UI.HideSidebar = msg.HideSidebar
