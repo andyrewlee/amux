@@ -119,6 +119,15 @@ func (a *App) viewLayerBased() tea.View {
 		canvas.Compose(border)
 	}
 
+	// Dashboard scrollbar
+	offset, total, visible := a.dashboard.ScrollInfo()
+	if total > visible {
+		trackLength := dashHeight - 2
+		if sb := scrollbarDrawable(leftGutter+dashWidth-1, topGutter+1, trackLength, offset, total, visible); sb != nil {
+			canvas.Compose(sb)
+		}
+	}
+
 	// Center pane
 	if a.layout.ShowCenter() {
 		centerX := leftGutter + dashWidth + a.layout.GapX()

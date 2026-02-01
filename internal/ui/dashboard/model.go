@@ -392,6 +392,7 @@ func (m *Model) View() string {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.clampScrollOffset()
 }
 
 // Focus sets the focus state
@@ -419,6 +420,11 @@ func (m *Model) SetProjects(projects []data.Project) {
 		m.scrollOffset = prevOffset
 		m.clampScrollOffset()
 	}
+}
+
+// ScrollInfo returns the scroll state needed to render a scrollbar overlay.
+func (m *Model) ScrollInfo() (scrollOffset, totalRows, visible int) {
+	return m.scrollOffset, len(m.rows), m.visibleHeight()
 }
 
 // visibleHeight returns the number of visible rows in the dashboard

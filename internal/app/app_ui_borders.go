@@ -117,6 +117,37 @@ func borderDrawables(x, y, width, height int, focused bool) []*compositor.String
 	}
 }
 
+// scrollbarDrawable creates a StringDrawable for a scrollbar thumb overlaid
+// on the right border of a pane. Returns nil if there is no overflow.
+func scrollbarDrawable(x, y, trackLength, scrollOffset, totalRows, visibleRows int) *compositor.StringDrawable {
+	if totalRows <= visibleRows || trackLength < 1 {
+		return nil
+	}
+
+	thumbSize := trackLength * visibleRows / totalRows
+	if thumbSize < 1 {
+		thumbSize = 1
+	}
+
+	maxScroll := totalRows - visibleRows
+	thumbStart := 0
+	if maxScroll > 0 {
+		thumbStart = (trackLength - thumbSize) * scrollOffset / maxScroll
+	}
+	if thumbStart+thumbSize > trackLength {
+		thumbStart = trackLength - thumbSize
+	}
+
+	style := lipgloss.NewStyle().Foreground(common.ColorMuted)
+	lines := make([]string, thumbSize)
+	for i := range lines {
+		lines[i] = "█"
+	}
+	content := style.Render(strings.Join(lines, "\n"))
+
+	return compositor.NewStringDrawable(content, x, y+thumbStart)
+}
+
 func centerOffset(container, content int) int {
 	if container <= content {
 		return 0
