@@ -187,12 +187,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	}
 
 	displayName := strings.TrimSpace(msg.DisplayName)
-	if displayName == "" && existing == nil {
-		displayName = nextAssistantName(msg.Assistant, tabs)
-	}
-	if displayName == "" {
-		displayName = "Terminal"
-	}
 
 	if existing != nil {
 		if displayName == "" {
@@ -289,6 +283,13 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		return func() tea.Msg {
 			return messages.TabCreated{Index: existingIdx, Name: tab.Name}
 		}
+	}
+
+	if displayName == "" {
+		displayName = nextAssistantName(msg.Assistant, tabs)
+	}
+	if displayName == "" {
+		displayName = "Terminal"
 	}
 
 	// Create virtual terminal emulator with scrollback
