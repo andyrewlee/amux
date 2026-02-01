@@ -112,10 +112,6 @@ func NewWorkspace(name, branch, base, repo, root string) *Workspace {
 	}
 }
 
-func legacyWorkspaceID(repo, root string) WorkspaceID {
-	return workspaceIDFromIdentity(legacyWorkspaceIdentity(repo, root))
-}
-
 func workspaceIDFromIdentity(identity string) WorkspaceID {
 	hash := sha1.Sum([]byte(identity))
 	return WorkspaceID(hex.EncodeToString(hash[:8]))
