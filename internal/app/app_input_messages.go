@@ -74,6 +74,8 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	return cmds
 }
 
+// Concurrency safety: takes a snapshot of ws.OpenTabs in the Update loop before
+// spawning the Cmd. Results return as messages processed where mutations are safe.
 func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	if ws == nil || len(ws.OpenTabs) == 0 {
 		return nil
@@ -431,8 +433,9 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 				_ = tmux.KillSessionsWithPrefix("amux-", oldOpts)
 				return nil
 			})
-			cmds = append(cmds, a.toast.ShowInfo(
-				fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))
+			cmds = append(cmds, a.toast.ShowInfo(fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))
+			cmds = append(cmds, a.resetAllTabStatuses()...)
+			_ = tmux.SetMonitorActivityOn(a.tmuxOptions)
 		}
 		return a.safeBatch(cmds...)
 	}

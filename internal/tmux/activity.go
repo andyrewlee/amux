@@ -9,13 +9,13 @@ import (
 
 // ActiveAgentSessionsByActivity returns tagged agent sessions with recent tmux activity.
 // Activity is derived from tmux's window_activity timestamp.
+// Note: monitor-activity is set once at startup and per-session at creation
+// via SetMonitorActivityOn, not on every scan.
 func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]SessionActivity, error) {
 	if err := EnsureAvailable(); err != nil {
 		return nil, err
 	}
 	applyWindow := window > 0
-	// Ensure activity timestamps update for window_activity tracking.
-	_ = setMonitorActivityOn(opts)
 	format := "#{session_name}\t#{window_activity}\t#{@amux}\t#{@amux_workspace}\t#{@amux_tab}\t#{@amux_type}"
 	cmd, cancel := tmuxCommand(opts, "list-windows", "-a", "-F", format)
 	defer cancel()
@@ -96,7 +96,10 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 	return sessions, nil
 }
 
-func setMonitorActivityOn(opts Options) error {
+// SetMonitorActivityOn enables tmux monitor-activity globally.
+// Called once at startup and when the tmux server name changes,
+// rather than on every activity scan.
+func SetMonitorActivityOn(opts Options) error {
 	cmd, cancel := tmuxCommand(opts, "set-option", "-g", "monitor-activity", "on")
 	defer cancel()
 	if err := cmd.Run(); err != nil {

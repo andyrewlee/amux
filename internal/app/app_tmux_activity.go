@@ -111,6 +111,9 @@ type tabSessionInfo struct {
 	IsChat      bool
 }
 
+// Concurrency safety: builds the map synchronously in the Update loop.
+// Goroutine closures capture only the returned map, never accessing
+// a.projects or ws.OpenTabs directly.
 func (a *App) tabSessionInfoByName() map[string]tabSessionInfo {
 	infoBySession := make(map[string]tabSessionInfo)
 	assistants := map[string]struct{}{}
@@ -166,6 +169,15 @@ func activeWorkspaceIDsFromSessionActivity(infoBySession map[string]tabSessionIn
 	return active
 }
 
+// isChatSession determines whether a tmux session represents an active AI agent.
+//
+// Detection priority:
+//  1. Session tag (@amux_type == "agent") — authoritative, set at creation time.
+//  2. Stored tab metadata (info.IsChat) — from assistant config lookup.
+//  3. Name heuristic (legacy fallback) — matches "amux-*-tab-*" sessions,
+//     excluding terminal tabs ("term-tab-"). Covers sessions created before
+//     @amux_type tagging was introduced. The "amux-" prefix guard prevents
+//     false positives from other applications' tmux sessions.
 func isChatSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bool) bool {
 	if session.Type != "" {
 		return session.Type == "agent"
@@ -173,6 +185,7 @@ func isChatSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bo
 	if hasInfo {
 		return info.IsChat
 	}
+	// Legacy fallback for untagged sessions (pre-tagging era).
 	name := session.Name
 	if !strings.HasPrefix(name, "amux-") {
 		return false
@@ -181,6 +194,40 @@ func isChatSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bo
 		return false
 	}
 	return strings.Contains(name, "-tab-")
+}
+
+func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
+	a.tmuxCheckDone = true
+	a.tmuxAvailable = msg.available
+	a.tmuxInstallHint = msg.installHint
+	if !msg.available {
+		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
+	}
+	_ = tmux.SetMonitorActivityOn(a.tmuxOptions)
+	return []tea.Cmd{a.scanTmuxActivityNow()}
+}
+
+// resetAllTabStatuses marks all non-stopped tabs as stopped and schedules
+// persistence for changed workspaces. Used when switching tmux servers so
+// the UI doesn't show stale running/detached status.
+func (a *App) resetAllTabStatuses() []tea.Cmd {
+	var cmds []tea.Cmd
+	for i := range a.projects {
+		for j := range a.projects[i].Workspaces {
+			ws := &a.projects[i].Workspaces[j]
+			changed := false
+			for k := range ws.OpenTabs {
+				if ws.OpenTabs[k].Status != "" && ws.OpenTabs[k].Status != "stopped" {
+					ws.OpenTabs[k].Status = "stopped"
+					changed = true
+				}
+			}
+			if changed {
+				cmds = append(cmds, a.persistWorkspaceTabs(string(ws.ID())))
+			}
+		}
+	}
+	return cmds
 }
 
 func workspaceIDFromSessionName(name string) string {

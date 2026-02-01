@@ -438,14 +438,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.handleTmuxActivityResult(msg)...)
 
 	case tmuxAvailableResult:
-		a.tmuxCheckDone = true
-		a.tmuxAvailable = msg.available
-		a.tmuxInstallHint = msg.installHint
-		if !msg.available {
-			cmds = append(cmds, a.toast.ShowError("tmux not installed. "+msg.installHint))
-		} else {
-			cmds = append(cmds, a.scanTmuxActivityNow())
-		}
+		cmds = append(cmds, a.handleTmuxAvailableResult(msg)...)
 
 	case messages.TmuxSyncTick:
 		cmds = append(cmds, a.handleTmuxSyncTick(msg)...)
