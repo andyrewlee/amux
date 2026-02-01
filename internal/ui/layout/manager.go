@@ -54,7 +54,7 @@ func NewManager() *Manager {
 		minChatWidth:      60,
 		minDashboardWidth: 20,
 		minSidebarWidth:   20,
-		startupLeftWidth:  28,
+		startupLeftWidth:  35,
 		startupRightWidth: 55,
 		gapX:              gapX,
 		baseOuterGutter:   outerGutter,
