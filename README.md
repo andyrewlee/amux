@@ -30,6 +30,10 @@
 
 amux is a terminal UI for running multiple coding agents in parallel with a workspace-first model that can import git worktrees.
 
+## Prerequisites
+
+amux requires [tmux](https://github.com/tmux/tmux). Each agent runs in its own tmux session for terminal isolation and persistence.
+
 ## Quick start
 
 ```bash
