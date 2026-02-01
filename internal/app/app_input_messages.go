@@ -371,7 +371,6 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 			cmds = append(cmds, a.toast.ShowInfo(fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))
 			cmds = append(cmds, a.resetAllTabStatuses()...)
 			_ = tmux.SetMonitorActivityOn(a.tmuxOptions)
-			_ = tmux.SetStatusOff(a.tmuxOptions)
 		}
 		return a.safeBatch(cmds...)
 	}
