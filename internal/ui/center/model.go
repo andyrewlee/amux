@@ -86,6 +86,8 @@ type Tab struct {
 	cachedShowCursor bool
 	monitorSnapAt    time.Time
 	monitorDirty     bool
+
+	createdAt int64 // Unix timestamp for ordering; persisted in workspace.json
 }
 
 func (t *Tab) isClosed() bool {

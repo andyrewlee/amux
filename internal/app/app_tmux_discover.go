@@ -1,6 +1,8 @@
 package app
 
 import (
+	"sort"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -39,7 +41,7 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 			"@amux_workspace": wsID,
 			"@amux_type":      "agent",
 		}
-		rows, err := tmux.SessionsWithTags(match, []string{"@amux_assistant"}, opts)
+		rows, err := tmux.SessionsWithTags(match, []string{"@amux_assistant", "@amux_created_at"}, opts)
 		if err != nil {
 			logging.Warn("tmux session discovery failed: %v", err)
 			return nil
@@ -60,13 +62,31 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 			if name == "" {
 				name = "agent"
 			}
+			var createdAt int64
+			if raw := strings.TrimSpace(row.Tags["@amux_created_at"]); raw != "" {
+				createdAt, _ = strconv.ParseInt(raw, 10, 64)
+			}
 			tabs = append(tabs, data.TabInfo{
 				Assistant:   assistantName,
 				Name:        name,
 				SessionName: row.Name,
 				Status:      "running",
+				CreatedAt:   createdAt,
 			})
 		}
+		sort.Slice(tabs, func(i, j int) bool {
+			ci, cj := tabs[i].CreatedAt, tabs[j].CreatedAt
+			if ci == 0 && cj == 0 {
+				return false
+			}
+			if ci == 0 {
+				return false // zero sorts last
+			}
+			if cj == 0 {
+				return true
+			}
+			return ci < cj
+		})
 		if len(tabs) == 0 {
 			return nil
 		}

@@ -1,7 +1,6 @@
 package center
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 // detachTab is the core implementation for detaching a tab (closes PTY, keeps tmux session).
@@ -157,12 +155,34 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			}
 		}
 		if !state.Exists || !state.HasLivePane {
-			return ptyTabReattachFailed{
+			if state.Exists && !state.HasLivePane {
+				_ = tmux.KillSession(sessionName, opts)
+			}
+			tags := tmux.SessionTags{
 				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Err:         fmt.Errorf("tmux session ended"),
-				Stopped:     true,
-				Action:      "reattach",
+				TabID:       string(tabID),
+				Type:        "agent",
+				Assistant:   assistant,
+				CreatedAt:   time.Now().Unix(),
+			}
+			agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+			if err != nil {
+				return ptyTabReattachFailed{
+					WorkspaceID: string(ws.ID()),
+					TabID:       tabID,
+					Err:         err,
+					Stopped:     true,
+					Action:      "reattach",
+				}
+			}
+			scrollback, _ := tmux.CapturePane(sessionName, opts)
+			return ptyTabReattachResult{
+				WorkspaceID:       string(ws.ID()),
+				TabID:             tabID,
+				Agent:             agent,
+				Rows:              termHeight,
+				Cols:              termWidth,
+				ScrollbackCapture: scrollback,
 			}
 		}
 		tags := tmux.SessionTags{
@@ -336,7 +356,8 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 			continue
 		}
 		restoreCount++
-		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, tab.SessionName, tab.Name, false))
+		tabID, sessionName := m.addPlaceholderTab(ws, tab)
+		cmds = append(cmds, m.reattachToSession(ws, tabID, tab.Assistant, sessionName))
 	}
 	if restoreCount > 0 {
 		desired := lastBeforeActive
@@ -397,57 +418,8 @@ func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) te
 			m.addDetachedTab(ws, tab)
 			continue
 		}
-		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, sessionName, tab.Name, false))
+		tabID, sn := m.addPlaceholderTab(ws, tab)
+		cmds = append(cmds, m.reattachToSession(ws, tabID, tab.Assistant, sn))
 	}
 	return safeBatch(cmds...)
-}
-
-func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
-	tm := m.terminalMetrics()
-	termWidth := tm.Width
-	termHeight := tm.Height
-	if termWidth < 1 {
-		termWidth = 80
-	}
-	if termHeight < 1 {
-		termHeight = 24
-	}
-	displayName := strings.TrimSpace(info.Name)
-	if displayName == "" {
-		displayName = strings.TrimSpace(info.Assistant)
-	}
-	if displayName == "" {
-		displayName = "Terminal"
-	}
-	term := vterm.New(termWidth, termHeight)
-	term.AllowAltScreenScrollback = true
-	tab := &Tab{
-		ID:          generateTabID(),
-		Name:        displayName,
-		Assistant:   info.Assistant,
-		Workspace:   ws,
-		SessionName: info.SessionName,
-		Detached:    true,
-		Running:     false,
-		Terminal:    term,
-	}
-	wsID := string(ws.ID())
-	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-}
-
-// safeBatch wraps commands in a batch, handling nil commands gracefully.
-func safeBatch(cmds ...tea.Cmd) tea.Cmd {
-	var valid []tea.Cmd
-	for _, cmd := range cmds {
-		if cmd != nil {
-			valid = append(valid, cmd)
-		}
-	}
-	if len(valid) == 0 {
-		return nil
-	}
-	if len(valid) == 1 {
-		return valid[0]
-	}
-	return tea.Batch(valid...)
 }

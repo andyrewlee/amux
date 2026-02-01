@@ -34,6 +34,7 @@ type TabInfo struct {
 	Name        string `json:"name"`
 	SessionName string `json:"session_name,omitempty"`
 	Status      string `json:"status,omitempty"`
+	CreatedAt   int64  `json:"created_at,omitempty"`
 }
 
 // ScriptsConfig holds the setup/run/archive script commands

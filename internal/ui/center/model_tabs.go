@@ -182,6 +182,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		Terminal:     term,
 		Running:      true, // Agent/viewer starts running
 		monitorDirty: true,
+		createdAt:    time.Now().Unix(),
 	}
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)
@@ -422,6 +423,7 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 			Name:        tab.Name,
 			SessionName: sessionName,
 			Status:      status,
+			CreatedAt:   tab.createdAt,
 		})
 	}
 	return result, m.getActiveTabIdx()
@@ -454,6 +456,7 @@ func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 			Name:        tab.Name,
 			SessionName: sessionName,
 			Status:      status,
+			CreatedAt:   tab.createdAt,
 		})
 	}
 	return result, m.activeTabByWorkspace[wsID]
