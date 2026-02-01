@@ -80,6 +80,7 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 					logging.Warn("Monitor paste failed for tab %s: %v", tab.ID, err)
 					tab.mu.Lock()
 					tab.Running = false
+					tab.Detached = true
 					tab.mu.Unlock()
 					return func() tea.Msg {
 						return TabInputFailed{TabID: tab.ID, WorkspaceID: wtID, Err: err}
@@ -92,6 +93,7 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 				logging.Warn("Monitor paste failed for tab %s: %v", tab.ID, err)
 				tab.mu.Lock()
 				tab.Running = false
+				tab.Detached = true
 				tab.mu.Unlock()
 				return func() tea.Msg {
 					return TabInputFailed{TabID: tab.ID, WorkspaceID: wtID, Err: err}
@@ -266,6 +268,7 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 						logging.Warn("Monitor input failed for tab %s: %v", tab.ID, err)
 						tab.mu.Lock()
 						tab.Running = false
+						tab.Detached = true
 						tab.mu.Unlock()
 						return func() tea.Msg {
 							return TabInputFailed{TabID: tab.ID, WorkspaceID: wtID, Err: err}
@@ -277,6 +280,7 @@ func (m *Model) HandleMonitorInput(tabID TabID, msg tea.Msg) tea.Cmd {
 					logging.Warn("Monitor input failed for tab %s: %v", tab.ID, err)
 					tab.mu.Lock()
 					tab.Running = false
+					tab.Detached = true
 					tab.mu.Unlock()
 					return func() tea.Msg {
 						return TabInputFailed{TabID: tab.ID, WorkspaceID: wtID, Err: err}

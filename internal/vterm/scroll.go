@@ -14,8 +14,8 @@ func (v *VTerm) scrollUp(n int) {
 		n = regionHeight
 	}
 
-	// Capture lines to scrollback (only when not in alt screen)
-	if !v.AltScreen {
+	// Capture lines to scrollback (skip alt screen unless explicitly enabled)
+	if v.scrollbackEnabled() {
 		top := v.ScrollTop
 		bottom := top + n
 		if bottom > v.ScrollBottom {

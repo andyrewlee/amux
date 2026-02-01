@@ -41,19 +41,16 @@ func (m *Model) renderTabBar() string {
 			name = tab.Assistant
 		}
 
-		// Check if tab is disconnected (PTY write failed)
+		// Check if tab is disconnected (detached or stopped)
 		tab.mu.Lock()
-		tabDisconnected := !tab.Running && tab.Agent != nil
+		tabDisconnected := tab.Detached || !tab.Running
 		tab.mu.Unlock()
 
 		// Add brand color indicator for agent tabs (not file viewers)
 		var indicator string
 		var tabActive bool
-		isAgent := tab.Assistant == "claude" || tab.Assistant == "codex" ||
-			tab.Assistant == "gemini" || tab.Assistant == "amp" ||
-			tab.Assistant == "opencode" || tab.Assistant == "droid" ||
-			tab.Assistant == "cursor"
-		if isAgent {
+		isChat := m.isChatTab(tab)
+		if isChat {
 			if tabDisconnected {
 				indicator = common.Icons.Idle + " " // Disconnected indicator
 			} else {
@@ -221,7 +218,7 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 			case tabHitTab:
 				m.setActiveTabIdx(hit.index)
-				return nil
+				return m.tabSelectionChangedCmd()
 			}
 		}
 	}

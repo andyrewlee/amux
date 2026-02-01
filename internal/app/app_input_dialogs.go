@@ -99,9 +99,16 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogQuit:
+		// Persist workspace tabs synchronously before shutdown.
+		// Shutdown() closes tabs (sets Running=false), so we must
+		// capture current state first to avoid saving "stopped" status.
+		a.persistAllWorkspacesNow()
 		a.Shutdown()
 		a.quitting = true
 		return tea.Quit
+
+	case DialogCleanupTmux:
+		return func() tea.Msg { return messages.CleanupTmuxSessions{} }
 	}
 
 	return nil

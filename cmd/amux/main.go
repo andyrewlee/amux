@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -41,6 +45,8 @@ func main() {
 
 	logging.Info("Starting amux")
 
+	startSignalDebug()
+
 	a, err := app.New(version, commit, date)
 	if err != nil {
 		logging.Error("Failed to initialize app: %v", err)
@@ -58,8 +64,11 @@ func main() {
 	if _, err := p.Run(); err != nil {
 		logging.Error("App exited with error: %v", err)
 		fmt.Fprintf(os.Stderr, "Error running app: %v\n", err)
+		a.CleanupTmuxOnExit()
+		a.Shutdown()
 		os.Exit(1)
 	}
+	a.CleanupTmuxOnExit()
 	a.Shutdown()
 
 	logging.Info("amux shutdown complete")
@@ -116,6 +125,27 @@ func startPprof() {
 		logging.Info("pprof listening on %s", addr)
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			logging.Warn("pprof server stopped: %v", err)
+		}
+	})
+}
+
+// startSignalDebug registers a SIGUSR1 handler for debug goroutine dumps.
+// The goroutine and signal handler intentionally live for the process lifetime
+// since this is only active in dev builds or when AMUX_DEBUG_SIGNALS is set.
+func startSignalDebug() {
+	if version != "dev" && strings.TrimSpace(os.Getenv("AMUX_DEBUG_SIGNALS")) == "" {
+		return
+	}
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGUSR1)
+	safego.Go("signal-debug", func() {
+		for range ch {
+			var buf bytes.Buffer
+			if err := pprof.Lookup("goroutine").WriteTo(&buf, 2); err != nil {
+				logging.Warn("Failed to write goroutine dump: %v", err)
+				continue
+			}
+			logging.Warn("GOROUTINE DUMP\n%s", buf.String())
 		}
 	})
 }

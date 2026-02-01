@@ -32,6 +32,7 @@ type PTYOptions struct {
 	Height int
 	Setup  func(home string) error
 	Env    []string
+	Home   string
 }
 
 var (
@@ -59,15 +60,23 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 		return nil, nil, err
 	}
 
-	home, err := os.MkdirTemp("", "amux-e2e-home-*")
-	if err != nil {
-		cleanupBin()
-		return nil, nil, err
+	home := opts.Home
+	ownHome := false
+	if home == "" {
+		var err error
+		home, err = os.MkdirTemp("", "amux-e2e-home-*")
+		if err != nil {
+			cleanupBin()
+			return nil, nil, err
+		}
+		ownHome = true
 	}
 	if opts.Setup != nil {
 		if err := opts.Setup(home); err != nil {
 			cleanupBin()
-			_ = os.RemoveAll(home)
+			if ownHome {
+				_ = os.RemoveAll(home)
+			}
 			return nil, nil, err
 		}
 	}
@@ -92,7 +101,9 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 	})
 	if err != nil {
 		cleanupBin()
-		_ = os.RemoveAll(home)
+		if ownHome {
+			_ = os.RemoveAll(home)
+		}
 		return nil, nil, err
 	}
 
@@ -114,7 +125,9 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 			_ = process.KillProcessGroup(leaderPID, process.KillOptions{GracePeriod: 50 * time.Millisecond})
 		}
 		_, _ = cmd.Process.Wait()
-		_ = os.RemoveAll(home)
+		if ownHome {
+			_ = os.RemoveAll(home)
+		}
 		cleanupBin()
 	}
 
@@ -217,6 +230,17 @@ func (s *PTYSession) WaitForAbsent(substr string, timeout time.Duration) error {
 		case <-deadline.C:
 			return fmt.Errorf("timeout waiting for %q to disappear\n\nScreen:\n%s", substr, s.ScreenASCII())
 		}
+	}
+}
+
+func (s *PTYSession) WaitForExit(timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-s.done:
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("timeout waiting for session exit")
 	}
 }
 

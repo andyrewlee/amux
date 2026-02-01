@@ -16,6 +16,10 @@ type KeyMap struct {
 	NextTab        key.Binding
 	PrevTab        key.Binding
 	CloseTab       key.Binding
+	DetachTab      key.Binding
+	ReattachTab    key.Binding
+	RestartTab     key.Binding
+	CleanupTmux    key.Binding
 	NewAgentTab    key.Binding
 	NewTerminalTab key.Binding
 	Help           key.Binding
@@ -80,6 +84,22 @@ func DefaultKeyMap() KeyMap {
 		CloseTab: key.NewBinding(
 			key.WithKeys("x"),
 			key.WithHelp("x", "close tab"),
+		),
+		DetachTab: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "detach tab"),
+		),
+		ReattachTab: key.NewBinding(
+			key.WithKeys("R"),
+			key.WithHelp("R", "reattach tab"),
+		),
+		RestartTab: key.NewBinding(
+			key.WithKeys("S"),
+			key.WithHelp("S", "restart tab"),
+		),
+		CleanupTmux: key.NewBinding(
+			key.WithKeys("K"),
+			key.WithHelp("K", "cleanup tmux"),
 		),
 		NewAgentTab: key.NewBinding(
 			key.WithKeys("a"),

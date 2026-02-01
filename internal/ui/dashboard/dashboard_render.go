@@ -26,15 +26,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		status := ""
 		statusText := ""
 		dirty := false
-		working := false
 		main := m.getMainWorkspace(row.Project)
 		if main != nil {
 			if m.deletingWorkspaces[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				statusText = m.styles.StatusPending.Render(frame + " deleting")
-			} else if m.activeWorkspaces[main.Root] {
-				// Active agents - color change only, no spinner
-				working = true
 			} else if s, ok := m.statusCache[main.Root]; ok && !s.Clean {
 				dirty = true
 			}
@@ -53,10 +49,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if m.isProjectActive(row.Project) {
 			style = m.styles.ActiveWorkspace.PaddingLeft(0)
 		}
-		// Working color takes priority over dirty color
-		if working {
-			style = style.Foreground(common.ColorPrimary).Bold(true)
-		} else if dirty {
+		// Dirty color takes priority for project headers.
+		if dirty && !m.isProjectActive(row.Project) {
 			style = style.Foreground(common.ColorSecondary)
 		}
 
@@ -101,7 +95,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if _, ok := m.creatingWorkspaces[row.Workspace.Root]; ok {
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame + " creating")
-		} else if m.activeWorkspaces[row.Workspace.Root] {
+		} else if row.Workspace != nil && m.activeWorkspaceIDs[string(row.Workspace.ID())] {
 			// Active agents - color change only, no spinner
 			working = true
 		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {
@@ -115,13 +109,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		style := m.styles.WorkspaceRow
 		if selected {
 			style = m.styles.SelectedRow
-		} else if row.Workspace.Root == m.activeRoot {
+		} else if working {
 			style = m.styles.ActiveWorkspace
 		}
-		// Working color takes priority over dirty color
-		if working {
-			style = style.Foreground(common.ColorPrimary).Bold(true)
-		} else if dirty {
+		// Dirty color takes priority for inactive workspaces.
+		if !working && !selected && dirty {
 			style = style.Foreground(common.ColorSecondary)
 		}
 		// Reserve space for delete icon to keep status aligned

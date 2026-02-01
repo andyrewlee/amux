@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/supervisor"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
@@ -32,6 +35,7 @@ const (
 	DialogRemoveProject   = "remove_project"
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
+	DialogCleanupTmux     = "cleanup_tmux"
 )
 
 // Prefix mode constants
@@ -105,7 +109,6 @@ type App struct {
 	keymap        KeyMap
 	styles        common.Styles
 	canvas        *lipgloss.Canvas
-
 	// Lifecycle
 	ready        bool
 	quitting     bool
@@ -113,10 +116,21 @@ type App struct {
 	shutdownOnce sync.Once
 	ctx          context.Context
 	supervisor   *supervisor.Supervisor
-
 	// Prefix mode (leader key)
 	prefixActive bool
 	prefixToken  int
+
+	tmuxSyncToken          int
+	tmuxActivityToken      int
+	tmuxOptions            tmux.Options
+	tmuxAvailable          bool
+	tmuxCheckDone          bool
+	tmuxInstallHint        string
+	tmuxActiveWorkspaceIDs map[string]bool
+
+	// Workspace persistence debounce
+	dirtyWorkspaces map[string]bool
+	persistToken    int
 
 	// Terminal capabilities
 	keyboardEnhancements tea.KeyboardEnhancementsMsg
@@ -212,6 +226,8 @@ func New(version, commit, date string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	applyTmuxEnvFromConfig(cfg, false)
+	tmuxOpts := tmux.DefaultOptions()
 
 	// Ensure directories exist
 	if err := cfg.Paths.EnsureDirectories(); err != nil {
@@ -243,33 +259,36 @@ func New(version, commit, date string) (*App, error) {
 
 	ctx := context.Background()
 	app := &App{
-		config:           cfg,
-		registry:         registry,
-		workspaces:       workspaces,
-		scripts:          scripts,
-		statusManager:    statusManager,
-		fileWatcher:      fileWatcher,
-		fileWatcherCh:    fileWatcherCh,
-		fileWatcherErr:   fileWatcherErr,
-		layout:           layout.NewManager(),
-		dashboard:        dashboard.New(),
-		center:           center.New(cfg),
-		sidebar:          sidebar.NewTabbedSidebar(),
-		sidebarTerminal:  sidebar.NewTerminalModel(),
-		helpOverlay:      common.NewHelpOverlay(),
-		toast:            common.NewToastModel(),
-		focusedPane:      messages.PaneDashboard,
-		showWelcome:      true,
-		keymap:           DefaultKeyMap(),
-		dashboardChrome:  &compositor.ChromeCache{},
-		centerChrome:     &compositor.ChromeCache{},
-		sidebarChrome:    &compositor.ChromeCache{},
-		version:          version,
-		commit:           commit,
-		buildDate:        date,
-		externalMsgs:     make(chan tea.Msg, 1024),
-		externalCritical: make(chan tea.Msg, 256),
-		ctx:              ctx,
+		config:                 cfg,
+		registry:               registry,
+		workspaces:             workspaces,
+		scripts:                scripts,
+		statusManager:          statusManager,
+		fileWatcher:            fileWatcher,
+		fileWatcherCh:          fileWatcherCh,
+		fileWatcherErr:         fileWatcherErr,
+		layout:                 layout.NewManager(),
+		dashboard:              dashboard.New(),
+		center:                 center.New(cfg),
+		sidebar:                sidebar.NewTabbedSidebar(),
+		sidebarTerminal:        sidebar.NewTerminalModel(),
+		helpOverlay:            common.NewHelpOverlay(),
+		toast:                  common.NewToastModel(),
+		focusedPane:            messages.PaneDashboard,
+		showWelcome:            true,
+		keymap:                 DefaultKeyMap(),
+		dashboardChrome:        &compositor.ChromeCache{},
+		centerChrome:           &compositor.ChromeCache{},
+		sidebarChrome:          &compositor.ChromeCache{},
+		version:                version,
+		commit:                 commit,
+		buildDate:              date,
+		externalMsgs:           make(chan tea.Msg, 1024),
+		externalCritical:       make(chan tea.Msg, 256),
+		ctx:                    ctx,
+		tmuxOptions:            tmuxOpts,
+		tmuxActiveWorkspaceIDs: make(map[string]bool),
+		dirtyWorkspaces:        make(map[string]bool),
 	}
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()
@@ -287,6 +306,9 @@ func New(version, commit, date string) (*App, error) {
 	app.toast.SetStyles(app.styles)
 	app.helpOverlay.SetStyles(app.styles)
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
+	// Propagate tmux config to components
+	app.center.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)
+	app.sidebarTerminal.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)
 	app.supervisor.Start("center.tab_actor", app.center.RunTabActor, supervisor.WithRestartPolicy(supervisor.RestartAlways))
 	if app.statusManager != nil {
 		app.supervisor.Start("git.status_manager", app.statusManager.Run)
@@ -307,6 +329,10 @@ func (a *App) Init() tea.Cmd {
 		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
 		a.startPTYWatchdog(),
+		a.startTmuxActivityTicker(),
+		a.triggerTmuxActivityScan(),
+		a.startTmuxSyncTicker(),
+		a.checkTmuxAvailable(),
 		a.startFileWatcher(),
 		a.checkForUpdates(),
 	}
@@ -356,6 +382,26 @@ func (a *App) checkForUpdates() tea.Cmd {
 	}
 }
 
+// tmuxAvailableResult is sent after checking tmux availability
+type tmuxAvailableResult struct {
+	available   bool
+	installHint string
+}
+
+func (a *App) checkTmuxAvailable() tea.Cmd {
+	return func() tea.Msg {
+		if err := tmux.EnsureAvailable(); err != nil {
+			return tmuxAvailableResult{available: false, installHint: tmux.InstallHint()}
+		}
+		return tmuxAvailableResult{available: true}
+	}
+}
+
+// IsTmuxAvailable returns whether tmux is installed and available.
+func (a *App) IsTmuxAvailable() bool {
+	return a.tmuxAvailable
+}
+
 // startGitStatusTicker returns a command that ticks every 3 seconds for git status refresh
 func (a *App) startGitStatusTicker() tea.Cmd {
 	return common.SafeTick(3*time.Second, func(t time.Time) tea.Msg {
@@ -368,6 +414,64 @@ func (a *App) startPTYWatchdog() tea.Cmd {
 	return common.SafeTick(5*time.Second, func(time.Time) tea.Msg {
 		return messages.PTYWatchdogTick{}
 	})
+}
+
+// startTmuxSyncTicker returns a command that ticks for tmux session reconciliation.
+func (a *App) startTmuxSyncTicker() tea.Cmd {
+	a.tmuxSyncToken++
+	token := a.tmuxSyncToken
+	return common.SafeTick(a.tmuxSyncInterval(), func(time.Time) tea.Msg {
+		return messages.TmuxSyncTick{Token: token}
+	})
+}
+
+func (a *App) tmuxSyncInterval() time.Duration {
+	const defaultInterval = 7 * time.Second
+	value := strings.TrimSpace(os.Getenv("AMUX_TMUX_SYNC_INTERVAL"))
+	if value == "" {
+		return defaultInterval
+	}
+	interval, err := time.ParseDuration(value)
+	if err != nil || interval <= 0 {
+		logging.Warn("Invalid AMUX_TMUX_SYNC_INTERVAL=%q; using %s", value, defaultInterval)
+		return defaultInterval
+	}
+	return interval
+}
+
+func applyTmuxEnvFromConfig(cfg *config.Config, force bool) {
+	if cfg == nil {
+		return
+	}
+	if force {
+		setEnvOrUnset("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
+		setEnvOrUnset("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
+		setEnvOrUnset("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
+		return
+	}
+	setEnvIfNonEmpty("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
+	setEnvIfNonEmpty("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
+	setEnvIfNonEmpty("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
+}
+
+func (a *App) tmuxSyncWorkspaces() []*data.Workspace {
+	if a.monitorMode {
+		var targets []*data.Workspace
+		for i := range a.projects {
+			project := &a.projects[i]
+			if a.monitorFilter != "" && project.Path != a.monitorFilter {
+				continue
+			}
+			for j := range project.Workspaces {
+				targets = append(targets, &project.Workspaces[j])
+			}
+		}
+		return targets
+	}
+	if a.activeWorkspace != nil {
+		return []*data.Workspace{a.activeWorkspace}
+	}
+	return nil
 }
 
 // startFileWatcher starts watching for file changes and returns events

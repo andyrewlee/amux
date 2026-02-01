@@ -42,7 +42,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
-		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit:
+		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -315,6 +315,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ShowSettingsDialog:
 		a.handleShowSettingsDialog()
 
+	case messages.ShowCleanupTmuxDialog:
+		a.handleShowCleanupTmuxDialog()
+
 	case common.ThemePreview:
 		a.handleThemePreview(msg)
 
@@ -328,6 +331,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.DeleteWorkspace:
 		cmds = append(cmds, a.handleDeleteWorkspace(msg)...)
+
+	case messages.CleanupTmuxSessions:
+		if cmd := a.cleanupAllTmuxSessions(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.AddProject:
 		cmds = append(cmds, a.addProject(msg.Path))
@@ -353,9 +361,31 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handleTabCreated(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.TabClosed:
 		logging.Info("Tab closed: %d", msg.Index)
+		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.TabDetached:
+		logging.Info("Tab detached: %d", msg.Index)
+		cmds = append(cmds, a.persistActiveWorkspaceTabs())
+
+	case messages.TabReattached:
+		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
+
+	case messages.TabStateChanged:
+		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
+
+	case messages.TabSelectionChanged:
+		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
+
+	case persistDebounceMsg:
+		cmds = append(cmds, a.handlePersistDebounce(msg))
 
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		if cmd := a.handlePTYMessages(msg); cmd != nil {
@@ -368,8 +398,19 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case center.TabInputFailed:
-		// PTY input failed (e.g., after sleep) - show warning toast
-		cmds = append(cmds, a.toast.ShowWarning("Session disconnected - scroll history preserved"))
+		cmds = append(cmds, a.handleTabInputFailed(msg)...)
+
+	case messages.Toast:
+		switch msg.Level {
+		case messages.ToastSuccess:
+			cmds = append(cmds, a.toast.ShowSuccess(msg.Message))
+		case messages.ToastError:
+			cmds = append(cmds, a.toast.ShowError(msg.Message))
+		case messages.ToastWarning:
+			cmds = append(cmds, a.toast.ShowWarning(msg.Message))
+		default:
+			cmds = append(cmds, a.toast.ShowInfo(msg.Message))
+		}
 
 	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
@@ -382,39 +423,28 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case dashboard.SpinnerTickMsg:
-		// Sync active agents state from center to dashboard
-		a.syncActiveWorkspacesToDashboard()
-
-		// Tick center spinner for tab activity animation
-		a.center.TickSpinner()
-
-		// Forward to dashboard for its own spinner handling
-		newDashboard, cmd := a.dashboard.Update(msg)
-		a.dashboard = newDashboard
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-		// Start spinner if we have active agents but spinner isn't running
-		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
-			cmds = append(cmds, startCmd)
-		}
+		cmds = append(cmds, a.handleSpinnerTick(msg)...)
 
 	case messages.GitStatusTick:
 		cmds = append(cmds, a.handleGitStatusTick()...)
 
 	case messages.PTYWatchdogTick:
-		if a.center != nil {
-			if cmd := a.center.StartPTYReaders(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		if a.sidebarTerminal != nil {
-			if cmd := a.sidebarTerminal.StartPTYReaders(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		cmds = append(cmds, a.startPTYWatchdog())
+		cmds = append(cmds, a.handlePTYWatchdogTick()...)
+
+	case tmuxActivityTick:
+		cmds = append(cmds, a.handleTmuxActivityTick(msg)...)
+
+	case tmuxActivityResult:
+		cmds = append(cmds, a.handleTmuxActivityResult(msg)...)
+
+	case tmuxAvailableResult:
+		cmds = append(cmds, a.handleTmuxAvailableResult(msg)...)
+
+	case messages.TmuxSyncTick:
+		cmds = append(cmds, a.handleTmuxSyncTick(msg)...)
+
+	case tmuxTabsSyncResult:
+		cmds = append(cmds, a.handleTmuxTabsSyncResult(msg)...)
 
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)

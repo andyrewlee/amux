@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/validation"
 )
@@ -20,6 +23,7 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.dashboard.SetProjects(a.projects)
 	// Request git status for all workspaces
 	var cmds []tea.Cmd
+	cmds = append(cmds, a.scanTmuxActivityNow())
 	for i := range a.projects {
 		for j := range a.projects[i].Workspaces {
 			ws := &a.projects[i].Workspaces[j]
@@ -32,7 +36,6 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 // handleWorkspaceActivated processes the WorkspaceActivated message.
 func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cmd {
 	var cmds []tea.Cmd
-	// Tabs now persist in memory per-workspace, no need to save/restore from disk
 	a.activeProject = msg.Project
 	a.activeWorkspace = msg.Workspace
 	a.showWelcome = false
@@ -40,6 +43,12 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.centerBtnIndex = 0
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
+	if syncCmd := a.syncWorkspaceTabsFromTmux(msg.Workspace); syncCmd != nil {
+		cmds = append(cmds, syncCmd)
+	}
+	if restoreCmd := a.center.RestoreTabsFromWorkspace(msg.Workspace); restoreCmd != nil {
+		cmds = append(cmds, restoreCmd)
+	}
 	// Set up sidebar terminal for the workspace
 	if termCmd := a.sidebarTerminal.SetWorkspace(msg.Workspace); termCmd != nil {
 		cmds = append(cmds, termCmd)
@@ -63,6 +72,74 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		cmds = append(cmds, startCmd)
 	}
 	return cmds
+}
+
+// Concurrency safety: takes a snapshot of ws.OpenTabs in the Update loop before
+// spawning the Cmd. Results return as messages processed where mutations are safe.
+func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
+	if ws == nil || len(ws.OpenTabs) == 0 {
+		return nil
+	}
+	if !a.tmuxAvailable {
+		return nil // Error shown on startup, don't repeat
+	}
+	// Mutate workspace state on the Bubble Tea update goroutine only.
+	wsID := string(ws.ID())
+	tabsSnapshot := make([]data.TabInfo, len(ws.OpenTabs))
+	copy(tabsSnapshot, ws.OpenTabs)
+	opts := a.tmuxOptions
+	return func() tea.Msg {
+		var updates []tmuxTabStatusUpdate
+		for _, tab := range tabsSnapshot {
+			if tab.SessionName == "" {
+				continue
+			}
+			state, err := tmux.SessionStateFor(tab.SessionName, opts)
+			if err != nil {
+				// Tolerate transient errors; next tick reconciles. tmuxAvailable gates full outages.
+				continue
+			}
+			if strings.EqualFold(tab.Status, "detached") {
+				if !(state.Exists && state.HasLivePane) {
+					updates = append(updates, tmuxTabStatusUpdate{
+						SessionName:   tab.SessionName,
+						Status:        "stopped",
+						NotifyStopped: true,
+					})
+				}
+				continue
+			}
+			status := "stopped"
+			if state.Exists && state.HasLivePane {
+				status = "running"
+			}
+			if tab.Status != status {
+				updates = append(updates, tmuxTabStatusUpdate{
+					SessionName:   tab.SessionName,
+					Status:        status,
+					NotifyStopped: status == "stopped",
+				})
+			}
+		}
+		if len(updates) == 0 {
+			return nil
+		}
+		return tmuxTabsSyncResult{
+			WorkspaceID: wsID,
+			Updates:     updates,
+		}
+	}
+}
+
+type tmuxTabStatusUpdate struct {
+	SessionName   string
+	Status        string
+	NotifyStopped bool
+}
+
+type tmuxTabsSyncResult struct {
+	WorkspaceID string
+	Updates     []tmuxTabStatusUpdate
 }
 
 // handleWorkspacePreviewed processes the WorkspacePreviewed message.
@@ -178,11 +255,30 @@ func (a *App) handleShowSelectAssistantDialog() {
 	}
 }
 
+// handleShowCleanupTmuxDialog shows the tmux cleanup dialog.
+func (a *App) handleShowCleanupTmuxDialog() {
+	if a.dialog != nil && a.dialog.Visible() {
+		return
+	}
+	a.dialog = common.NewConfirmDialog(
+		DialogCleanupTmux,
+		"Cleanup tmux sessions",
+		fmt.Sprintf("Kill all amux-* tmux sessions on server %q?", a.tmuxOptions.ServerName),
+	)
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
 // handleShowSettingsDialog shows the settings dialog.
 func (a *App) handleShowSettingsDialog() {
 	a.settingsDialog = common.NewSettingsDialog(
 		common.ThemeID(a.config.UI.Theme),
 		a.config.UI.ShowKeymapHints,
+		a.config.UI.TmuxPersistence,
+		a.config.UI.TmuxServer,
+		a.config.UI.TmuxConfigPath,
+		a.config.UI.TmuxSyncInterval,
 	)
 	a.settingsDialog.SetSize(a.width, a.height)
 	a.settingsDialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -240,10 +336,39 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		// Apply keymap hints
 		a.setKeymapHintsEnabled(msg.ShowKeymapHints)
 
+		// Apply tmux settings
+		oldServerName := a.tmuxOptions.ServerName
+		tmuxPersistenceChanged := a.config.UI.TmuxPersistence != msg.TmuxPersistence
+		a.config.UI.TmuxServer = msg.TmuxServer
+		a.config.UI.TmuxConfigPath = msg.TmuxConfigPath
+		a.config.UI.TmuxSyncInterval = msg.TmuxSyncInterval
+		a.config.UI.TmuxPersistence = msg.TmuxPersistence
+		applyTmuxEnvFromConfig(a.config, true)
+		a.tmuxOptions = tmux.DefaultOptions() // Refresh cached options
+		a.center.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
+		a.sidebarTerminal.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
+
 		// Save settings
 		if err := a.config.SaveUISettings(); err != nil {
 			return a.toast.ShowWarning("Failed to save settings")
 		}
+		cmds := []tea.Cmd{a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved")}
+		if tmuxPersistenceChanged {
+			cmds = append(cmds, a.toast.ShowInfo("Restart amux to apply tmux persistence change"))
+		}
+		// Clean up sessions on the old server if the server name changed
+		if oldServerName != a.tmuxOptions.ServerName {
+			oldOpts := tmux.Options{ServerName: oldServerName, CommandTimeout: 2 * time.Second}
+			cmds = append(cmds, func() tea.Msg {
+				_, _ = tmux.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, oldOpts)
+				_ = tmux.KillSessionsWithPrefix("amux-", oldOpts)
+				return nil
+			})
+			cmds = append(cmds, a.toast.ShowInfo(fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))
+			cmds = append(cmds, a.resetAllTabStatuses()...)
+			_ = tmux.SetMonitorActivityOn(a.tmuxOptions)
+		}
+		return a.safeBatch(cmds...)
 	}
 	return nil
 }
@@ -266,100 +391,10 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	return cmds
 }
 
-// handleDeleteWorkspace handles the DeleteWorkspace message.
-func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
-	var cmds []tea.Cmd
-	if msg.Project == nil || msg.Workspace == nil {
-		logging.Warn("DeleteWorkspace received with nil project or workspace")
-		return nil
-	}
-	if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, true); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	cmds = append(cmds, a.deleteWorkspace(msg.Project, msg.Workspace))
-	return cmds
-}
-
-// handleWorkspaceCreatedWithWarning handles the WorkspaceCreatedWithWarning message.
-func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWithWarning) []tea.Cmd {
-	var cmds []tea.Cmd
-	// Workspace was created but setup had issues - still refresh and show warning
-	a.err = fmt.Errorf("workspace created with warning: %s", msg.Warning)
-	if msg.Workspace != nil {
-		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-	cmds = append(cmds, a.loadProjects())
-	return cmds
-}
-
-// handleWorkspaceCreated handles the WorkspaceCreated message.
-func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
-	var cmds []tea.Cmd
-	if msg.Workspace != nil {
-		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		// Run setup scripts asynchronously
-		cmds = append(cmds, a.runSetupAsync(msg.Workspace))
-	}
-	cmds = append(cmds, a.loadProjects())
-	return cmds
-}
-
-// handleWorkspaceSetupComplete handles the WorkspaceSetupComplete message.
-func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) tea.Cmd {
-	if msg.Err != nil {
-		return a.toast.ShowWarning(fmt.Sprintf("Setup failed for %s: %v", msg.Workspace.Name, msg.Err))
-	}
-	return nil
-}
-
-// handleWorkspaceCreateFailed handles the WorkspaceCreateFailed message.
-func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) tea.Cmd {
-	if msg.Workspace != nil {
-		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
-			return cmd
-		}
-	}
-	a.err = msg.Err
-	logging.Error("Error in creating workspace: %v", msg.Err)
-	return nil
-}
-
-// handleWorkspaceDeleted handles the WorkspaceDeleted message.
-func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
-	var cmds []tea.Cmd
-	if msg.Workspace != nil {
-		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		if a.statusManager != nil {
-			a.statusManager.Invalidate(msg.Workspace.Root)
-		}
-	}
-	cmds = append(cmds, a.loadProjects())
-	return cmds
-}
-
-// handleWorkspaceDeleteFailed handles the WorkspaceDeleteFailed message.
-func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) tea.Cmd {
-	if msg.Workspace != nil {
-		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
-			return cmd
-		}
-	}
-	a.err = msg.Err
-	logging.Error("Error in removing workspace: %v", msg.Err)
-	return nil
-}
-
 // handleGitStatusResult handles the GitStatusResult message.
 func (a *App) handleGitStatusResult(msg messages.GitStatusResult) tea.Cmd {
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
-	// Update sidebar if this is for the active workspace
 	if a.activeWorkspace != nil && msg.Root == a.activeWorkspace.Root {
 		a.sidebar.SetGitStatus(msg.Status)
 	}
@@ -385,50 +420,11 @@ func (a *App) handleLaunchAgent(msg messages.LaunchAgent) tea.Cmd {
 // handleTabCreated handles the TabCreated message.
 func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 	logging.Info("Tab created: %s", msg.Name)
-	// Start reading from the new PTY
 	cmd := a.center.StartPTYReaders()
-	// NOW switch focus to center - tab is ready
 	if a.monitorMode {
 		a.focusPane(messages.PaneMonitor)
 	} else {
 		a.focusPane(messages.PaneCenter)
 	}
 	return cmd
-}
-
-// handlePTYMessages handles PTY-related messages for center pane.
-func (a *App) handlePTYMessages(msg tea.Msg) tea.Cmd {
-	newCenter, cmd := a.center.Update(msg)
-	a.center = newCenter
-	return cmd
-}
-
-// handleSidebarPTYMessages handles PTY-related messages for sidebar terminal.
-func (a *App) handleSidebarPTYMessages(msg tea.Msg) tea.Cmd {
-	newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
-	a.sidebarTerminal = newSidebarTerminal
-	return cmd
-}
-
-// handleGitStatusTick handles the GitStatusTick message.
-func (a *App) handleGitStatusTick() []tea.Cmd {
-	var cmds []tea.Cmd
-	// Refresh git status for active workspace
-	if a.activeWorkspace != nil {
-		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root))
-	}
-	// Continue the ticker
-	cmds = append(cmds, a.startGitStatusTicker())
-	return cmds
-}
-
-// handleFileWatcherEvent handles the FileWatcherEvent message.
-func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
-	// File changed, invalidate cache and refresh
-	a.statusManager.Invalidate(msg.Root)
-	a.dashboard.InvalidateStatus(msg.Root)
-	return []tea.Cmd{
-		a.requestGitStatus(msg.Root),
-		a.startFileWatcher(),
-	}
 }

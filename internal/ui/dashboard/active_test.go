@@ -21,21 +21,25 @@ func TestDashboardIsProjectActive(t *testing.T) {
 	m.SetProjects([]data.Project{project})
 
 	t.Run("main branch active", func(t *testing.T) {
-		m.activeRoot = "/test-project"
+		m.activeWorkspaceIDs = map[string]bool{
+			string(project.Workspaces[0].ID()): true,
+		}
 		if !m.isProjectActive(&project) {
 			t.Errorf("expected project to be active when main workspace is active")
 		}
 	})
 
 	t.Run("feature branch active", func(t *testing.T) {
-		m.activeRoot = "/test-project/feature"
-		if m.isProjectActive(&project) {
-			t.Errorf("expected project to NOT be active when feature workspace is active")
+		m.activeWorkspaceIDs = map[string]bool{
+			string(project.Workspaces[1].ID()): true,
+		}
+		if !m.isProjectActive(&project) {
+			t.Errorf("expected project to be active when feature workspace is active")
 		}
 	})
 
 	t.Run("no branch active", func(t *testing.T) {
-		m.activeRoot = ""
+		m.activeWorkspaceIDs = map[string]bool{}
 		if m.isProjectActive(&project) {
 			t.Errorf("expected project to NOT be active when nothing is active")
 		}

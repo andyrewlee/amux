@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -12,9 +13,13 @@ import (
 
 // SettingsResult is sent when the settings dialog is closed.
 type SettingsResult struct {
-	Confirmed       bool
-	Theme           ThemeID
-	ShowKeymapHints bool
+	Confirmed        bool
+	Theme            ThemeID
+	ShowKeymapHints  bool
+	TmuxPersistence  bool
+	TmuxServer       string
+	TmuxConfigPath   string
+	TmuxSyncInterval string
 }
 
 // ThemePreview is sent when user navigates through themes for live preview.
@@ -27,7 +32,12 @@ type settingsItem int
 const (
 	settingsItemTheme settingsItem = iota
 	settingsItemKeymap
+	settingsItemTmuxPersistence
+	settingsItemTmuxServer
+	settingsItemTmuxConfig
+	settingsItemTmuxSync
 	settingsItemUpdate // only shown when update available
+	settingsItemSave
 	settingsItemClose
 )
 
@@ -41,6 +51,11 @@ type SettingsDialog struct {
 	theme           ThemeID
 	showKeymapHints bool
 	originalTheme   ThemeID
+	tmuxPersistence bool
+	tmuxServer      textinput.Model
+	tmuxConfig      textinput.Model
+	tmuxSync        textinput.Model
+	validationErr   string
 
 	// UI state
 	focusedItem settingsItem
@@ -64,7 +79,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints bool) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	themes := AvailableThemes()
 	themeCursor := 0
 	for i, t := range themes {
@@ -74,10 +89,32 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints bool) *SettingsDial
 		}
 	}
 
+	serverInput := textinput.New()
+	serverInput.Placeholder = "default"
+	serverInput.SetWidth(24)
+	serverInput.SetVirtualCursor(false)
+	serverInput.SetValue(strings.TrimSpace(tmuxServer))
+
+	configInput := textinput.New()
+	configInput.Placeholder = "default"
+	configInput.SetWidth(24)
+	configInput.SetVirtualCursor(false)
+	configInput.SetValue(strings.TrimSpace(tmuxConfig))
+
+	syncInput := textinput.New()
+	syncInput.Placeholder = "7s"
+	syncInput.SetWidth(12)
+	syncInput.SetVirtualCursor(false)
+	syncInput.SetValue(strings.TrimSpace(tmuxSync))
+
 	return &SettingsDialog{
 		theme:           currentTheme,
 		originalTheme:   currentTheme,
 		showKeymapHints: showKeymapHints,
+		tmuxPersistence: tmuxPersistence,
+		tmuxServer:      serverInput,
+		tmuxConfig:      configInput,
+		tmuxSync:        syncInput,
 		themes:          themes,
 		themeCursor:     themeCursor,
 		focusedItem:     settingsItemTheme,
@@ -103,6 +140,7 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 	if !s.visible {
 		return s, nil
 	}
+	defer s.syncInputFocus()
 
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
@@ -137,6 +175,45 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
 			return s.handlePrev()
 		}
+		switch s.focusedItem {
+		case settingsItemTmuxServer:
+			var cmd tea.Cmd
+			s.tmuxServer, cmd = s.tmuxServer.Update(msg)
+			s.validationErr = ""
+			return s, cmd
+		case settingsItemTmuxConfig:
+			var cmd tea.Cmd
+			s.tmuxConfig, cmd = s.tmuxConfig.Update(msg)
+			s.validationErr = ""
+			return s, cmd
+		case settingsItemTmuxSync:
+			var cmd tea.Cmd
+			s.tmuxSync, cmd = s.tmuxSync.Update(msg)
+			s.validationErr = ""
+			return s, cmd
+		}
+	case tea.PasteMsg:
+		switch s.focusedItem {
+		case settingsItemTmuxServer:
+			var cmd tea.Cmd
+			s.tmuxServer, cmd = s.tmuxServer.Update(msg)
+			s.validationErr = ""
+			return s, cmd
+		case settingsItemTmuxConfig:
+			var cmd tea.Cmd
+			s.tmuxConfig, cmd = s.tmuxConfig.Update(msg)
+			s.validationErr = ""
+			return s, cmd
+		case settingsItemTmuxSync:
+			var cmd tea.Cmd
+			s.tmuxSync, cmd = s.tmuxSync.Update(msg)
+			s.validationErr = ""
+			return s, cmd
+		}
+	}
+
+	if s.validationErr != "" {
+		s.validationErr = ""
 	}
 
 	return s, nil
@@ -148,17 +225,18 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		if s.themeCursor >= 0 && s.themeCursor < len(s.themes) {
 			s.theme = s.themes[s.themeCursor].ID
 		}
-		s.visible = false
-		return s, func() tea.Msg {
-			return SettingsResult{Confirmed: true, Theme: s.theme, ShowKeymapHints: s.showKeymapHints}
-		}
+		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
 
 	case settingsItemKeymap:
 		s.showKeymapHints = !s.showKeymapHints
-		s.visible = false
-		return s, func() tea.Msg {
-			return SettingsResult{Confirmed: true, Theme: s.theme, ShowKeymapHints: s.showKeymapHints}
-		}
+		return s, nil
+
+	case settingsItemTmuxPersistence:
+		s.tmuxPersistence = !s.tmuxPersistence
+		return s, nil
+
+	case settingsItemTmuxServer, settingsItemTmuxConfig, settingsItemTmuxSync:
+		return s, nil
 
 	case settingsItemUpdate:
 		if s.updateAvailable {
@@ -166,9 +244,33 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 			return s, func() tea.Msg { return messages.TriggerUpgrade{} }
 		}
 
-	case settingsItemClose:
+	case settingsItemSave:
+		s.validationErr = s.validate()
+		if s.validationErr != "" {
+			return s, nil
+		}
 		s.visible = false
-		return s, func() tea.Msg { return SettingsResult{Confirmed: false} }
+		return s, func() tea.Msg {
+			return SettingsResult{
+				Confirmed:        true,
+				Theme:            s.theme,
+				ShowKeymapHints:  s.showKeymapHints,
+				TmuxPersistence:  s.tmuxPersistence,
+				TmuxServer:       strings.TrimSpace(s.tmuxServer.Value()),
+				TmuxConfigPath:   strings.TrimSpace(s.tmuxConfig.Value()),
+				TmuxSyncInterval: strings.TrimSpace(s.tmuxSync.Value()),
+			}
+		}
+
+	case settingsItemClose:
+		s.theme = s.originalTheme
+		s.visible = false
+		return s, func() tea.Msg {
+			return SafeBatch(
+				func() tea.Msg { return ThemePreview{Theme: s.originalTheme} },
+				func() tea.Msg { return SettingsResult{Confirmed: false} },
+			)()
+		}
 	}
 	return s, nil
 }
@@ -178,7 +280,7 @@ func (s *SettingsDialog) handleNextSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem++
 	// Skip update item if no update available
 	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemClose
+		s.focusedItem = settingsItemSave
 	}
 	if s.focusedItem > settingsItemClose {
 		s.focusedItem = settingsItemTheme
@@ -191,7 +293,7 @@ func (s *SettingsDialog) handlePrevSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem--
 	// Skip update item if no update available
 	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemKeymap
+		s.focusedItem = settingsItemTmuxSync
 	}
 	if s.focusedItem < 0 {
 		s.focusedItem = settingsItemClose
@@ -222,6 +324,30 @@ func (s *SettingsDialog) handlePrev() (*SettingsDialog, tea.Cmd) {
 		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
 	}
 	return s.handlePrevSection()
+}
+
+func (s *SettingsDialog) syncInputFocus() {
+	if !s.visible {
+		s.tmuxServer.Blur()
+		s.tmuxConfig.Blur()
+		s.tmuxSync.Blur()
+		return
+	}
+	if s.focusedItem == settingsItemTmuxServer {
+		s.tmuxServer.Focus()
+	} else {
+		s.tmuxServer.Blur()
+	}
+	if s.focusedItem == settingsItemTmuxConfig {
+		s.tmuxConfig.Focus()
+	} else {
+		s.tmuxConfig.Blur()
+	}
+	if s.focusedItem == settingsItemTmuxSync {
+		s.tmuxSync.Focus()
+	} else {
+		s.tmuxSync.Blur()
+	}
 }
 
 func (s *SettingsDialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
@@ -276,104 +402,4 @@ func (s *SettingsDialog) dialogStyle() lipgloss.Style {
 		BorderForeground(ColorPrimary).
 		Padding(1, 2).
 		Width(s.dialogContentWidth())
-}
-
-func (s *SettingsDialog) dialogFrame() (frameX, frameY, offsetX, offsetY int) {
-	frameX, frameY = s.dialogStyle().GetFrameSize()
-	return frameX, frameY, frameX / 2, frameY / 2
-}
-
-func (s *SettingsDialog) dialogBounds(contentHeight int) (x, y, w, h int) {
-	contentWidth := s.dialogContentWidth()
-	frameX, frameY, _, _ := s.dialogFrame()
-	w, h = contentWidth+frameX, contentHeight+frameY
-	x, y = (s.width-w)/2, (s.height-h)/2
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	return
-}
-
-func (s *SettingsDialog) addHit(item settingsItem, index, y int) {
-	s.hitRegions = append(s.hitRegions, settingsHitRegion{
-		item: item, index: index,
-		region: HitRegion{X: 0, Y: y, Width: s.dialogContentWidth(), Height: 1},
-	})
-}
-
-func (s *SettingsDialog) renderLines() []string {
-	s.hitRegions = s.hitRegions[:0]
-	var lines []string
-
-	title := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
-	label := lipgloss.NewStyle().Foreground(ColorMuted)
-	muted := lipgloss.NewStyle().Foreground(ColorMuted)
-
-	lines = append(lines, title.Render("Settings"), "")
-
-	// Theme
-	lines = append(lines, label.Render("Theme"))
-	for i, t := range s.themes {
-		style, prefix := muted, "  "
-		if i == s.themeCursor {
-			style = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
-			prefix = Icons.Cursor + " "
-		}
-		y := len(lines)
-		lines = append(lines, prefix+style.Render(t.Name))
-		s.addHit(settingsItemTheme, i, y)
-	}
-	lines = append(lines, "")
-
-	// Keymap
-	checkbox := "[ ]"
-	if s.showKeymapHints {
-		checkbox = "[" + Icons.Clean + "]"
-	}
-	style := lipgloss.NewStyle().Foreground(ColorForeground)
-	if s.focusedItem == settingsItemKeymap {
-		style = style.Foreground(ColorPrimary)
-	}
-	y := len(lines)
-	lines = append(lines, style.Render(checkbox+" Show keymap hints"))
-	s.addHit(settingsItemKeymap, -1, y)
-	lines = append(lines, "")
-
-	// Version info
-	lines = append(lines, label.Render("Version"))
-	if s.currentVersion == "" || s.currentVersion == "dev" {
-		lines = append(lines, muted.Render("  Development build"))
-	} else {
-		lines = append(lines, muted.Render("  "+s.currentVersion))
-	}
-
-	// Update button (only if available)
-	if s.updateAvailable {
-		style := lipgloss.NewStyle().Foreground(ColorSuccess)
-		if s.focusedItem == settingsItemUpdate {
-			style = style.Bold(true)
-		}
-		y = len(lines)
-		lines = append(lines, style.Render("  [Update to "+s.latestVersion+"]"))
-		s.addHit(settingsItemUpdate, -1, y)
-	}
-	lines = append(lines, "")
-
-	// Close
-	style = muted
-	if s.focusedItem == settingsItemClose {
-		style = lipgloss.NewStyle().Foreground(ColorPrimary)
-	}
-	y = len(lines)
-	lines = append(lines, style.Render("[Esc] Close"))
-	s.addHit(settingsItemClose, -1, y)
-
-	if s.showKeymapHintsUI {
-		lines = append(lines, "", muted.Render("↑/↓ navigate • Enter select"))
-	}
-
-	return lines
 }

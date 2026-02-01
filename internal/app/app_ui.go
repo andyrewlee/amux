@@ -1,13 +1,10 @@
 package app
 
 import (
-	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -178,6 +175,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			a.sidebar.NextTab()
 		default:
 			a.center.NextTab()
+			return true, a.persistActiveWorkspaceTabs()
 		}
 		return true, nil
 
@@ -189,18 +187,25 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			a.sidebar.PrevTab()
 		default:
 			a.center.PrevTab()
+			return true, a.persistActiveWorkspaceTabs()
 		}
 		return true, nil
 
 	// Tab management
 	case key.Matches(msg, a.keymap.NewAgentTab):
 		if a.activeWorkspace != nil {
+			if !a.tmuxAvailable {
+				return true, a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
+			}
 			return true, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.NewTerminalTab):
 		if a.focusedPane == messages.PaneSidebarTerminal && a.activeWorkspace != nil {
+			if !a.tmuxAvailable {
+				return true, a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
+			}
 			return true, a.sidebarTerminal.CreateNewTab()
 		}
 		return true, nil
@@ -211,6 +216,45 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		}
 		cmd := a.center.CloseActiveTab()
 		return true, cmd
+
+	case key.Matches(msg, a.keymap.DetachTab):
+		switch a.focusedPane {
+		case messages.PaneCenter:
+			cmd := a.center.DetachActiveTab()
+			return true, a.safeBatch(cmd, a.persistActiveWorkspaceTabs())
+		case messages.PaneSidebarTerminal:
+			if cmd := a.sidebarTerminal.DetachActiveTab(); cmd != nil {
+				return true, cmd
+			}
+		}
+		return true, nil
+
+	case key.Matches(msg, a.keymap.ReattachTab):
+		switch a.focusedPane {
+		case messages.PaneCenter:
+			cmd := a.center.ReattachActiveTab()
+			return true, cmd
+		case messages.PaneSidebarTerminal:
+			if cmd := a.sidebarTerminal.ReattachActiveTab(); cmd != nil {
+				return true, cmd
+			}
+		}
+		return true, nil
+
+	case key.Matches(msg, a.keymap.RestartTab):
+		switch a.focusedPane {
+		case messages.PaneCenter:
+			cmd := a.center.RestartActiveTab()
+			return true, cmd
+		case messages.PaneSidebarTerminal:
+			if cmd := a.sidebarTerminal.RestartActiveTab(); cmd != nil {
+				return true, cmd
+			}
+		}
+		return true, nil
+
+	case key.Matches(msg, a.keymap.CleanupTmux):
+		return true, func() tea.Msg { return messages.ShowCleanupTmuxDialog{} }
 
 	// Global commands
 	case key.Matches(msg, a.keymap.Monitor):
@@ -235,7 +279,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		if r >= '1' && r <= '9' {
 			index := int(r - '1')
 			a.center.SelectTab(index)
-			return true, nil
+			return true, a.persistActiveWorkspaceTabs()
 		}
 	}
 
@@ -374,118 +418,4 @@ func sidebarPaneHeights(total int) (int, int) {
 		bottom = 0
 	}
 	return top, bottom
-}
-
-func (a *App) handleCenterPaneClick(msg tea.MouseClickMsg) tea.Cmd {
-	if msg.Button != tea.MouseLeft {
-		return nil
-	}
-	if a.layout == nil || !a.layout.ShowCenter() || a.center.HasTabs() {
-		return nil
-	}
-	dashWidth := a.layout.DashboardWidth()
-	centerWidth := a.layout.CenterWidth()
-	gapX := a.layout.GapX()
-	if centerWidth <= 0 {
-		return nil
-	}
-	centerStart := a.layout.LeftGutter() + dashWidth + gapX
-	centerEnd := centerStart + centerWidth
-	if msg.X < centerStart || msg.X >= centerEnd {
-		return nil
-	}
-	contentX, contentY := a.centerPaneContentOrigin()
-	localX := msg.X - contentX
-	localY := msg.Y - contentY
-	if localX < 0 || localY < 0 {
-		return nil
-	}
-
-	if a.showWelcome {
-		return a.handleWelcomeClick(localX, localY)
-	}
-	if a.activeWorkspace != nil {
-		return a.handleWorkspaceInfoClick(localX, localY)
-	}
-	return nil
-}
-
-func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
-	content := a.welcomeContent()
-	lines := strings.Split(content, "\n")
-	_, contentHeight := viewDimensions(content)
-
-	// Match the width/height used by renderWelcome for centering.
-	placeWidth := a.layout.CenterWidth() - 4
-	placeHeight := a.layout.Height() - 2
-	if placeWidth <= 0 || placeHeight <= 0 {
-		return nil
-	}
-
-	offsetY := centerOffset(placeHeight, contentHeight)
-
-	// Both buttons are on the same line, find them by searching for plain text
-	for i, line := range lines {
-		strippedLine := ansi.Strip(line)
-		// lipgloss.Place centers each line independently based on that line's width,
-		// so calculate offsetX per-line using the line's visual width.
-		lineWidth := lipgloss.Width(line)
-		lineOffsetX := centerOffset(placeWidth, lineWidth)
-
-		// Settings button - check first so it's not blocked by Add project's region
-		settingsText := "[Settings]"
-		if idx := strings.Index(strippedLine, settingsText); idx >= 0 {
-			region := common.HitRegion{
-				X:      idx + lineOffsetX,
-				Y:      i + offsetY,
-				Width:  len(settingsText),
-				Height: 1,
-			}
-			if region.Contains(localX, localY) {
-				return func() tea.Msg { return messages.ShowSettingsDialog{} }
-			}
-		}
-
-		// Add project button
-		addProjectText := "[Add project]"
-		if idx := strings.Index(strippedLine, addProjectText); idx >= 0 {
-			region := common.HitRegion{
-				X:      idx + lineOffsetX,
-				Y:      i + offsetY,
-				Width:  len(addProjectText),
-				Height: 1,
-			}
-			if region.Contains(localX, localY) {
-				return func() tea.Msg { return messages.ShowAddProjectDialog{} }
-			}
-		}
-	}
-
-	return nil
-}
-
-func (a *App) handleWorkspaceInfoClick(localX, localY int) tea.Cmd {
-	if a.activeWorkspace == nil {
-		return nil
-	}
-	content := a.renderWorkspaceInfo()
-	lines := strings.Split(content, "\n")
-
-	for i, line := range lines {
-		strippedLine := ansi.Strip(line)
-		agentText := "[New agent]"
-		if idx := strings.Index(strippedLine, agentText); idx >= 0 {
-			region := common.HitRegion{
-				X:      idx,
-				Y:      i,
-				Width:  len(agentText),
-				Height: 1,
-			}
-			if region.Contains(localX, localY) {
-				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-			}
-		}
-	}
-
-	return nil
 }

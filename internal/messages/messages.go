@@ -107,6 +107,52 @@ type TabClosed struct {
 	Index int
 }
 
+// TabDetached is sent when a tab is detached (tmux session remains).
+type TabDetached struct {
+	Index int
+}
+
+// TabReattached is sent when a detached tab is reattached.
+type TabReattached struct {
+	WorkspaceID string
+	TabID       string
+}
+
+// TabStateChanged indicates a tab state change that should be persisted.
+type TabStateChanged struct {
+	WorkspaceID string
+	TabID       string
+}
+
+// ToastLevel identifies the type of toast notification to display.
+type ToastLevel string
+
+const (
+	ToastInfo    ToastLevel = "info"
+	ToastSuccess ToastLevel = "success"
+	ToastError   ToastLevel = "error"
+	ToastWarning ToastLevel = "warning"
+)
+
+// Toast requests a toast notification in the UI.
+type Toast struct {
+	Message string
+	Level   ToastLevel
+}
+
+// TabSessionStatus reports a tmux session status change for a tab.
+type TabSessionStatus struct {
+	WorkspaceID string
+	SessionName string
+	Status      string
+}
+
+// TabSelectionChanged indicates the active tab changed for a workspace.
+type TabSelectionChanged struct {
+	WorkspaceID string
+	ActiveIndex int
+}
+
 // SwitchTab requests switching to a specific tab
 type SwitchTab struct {
 	Index int
@@ -139,6 +185,11 @@ type ShowQuitDialog struct{}
 
 // PTYWatchdogTick triggers a periodic check for stalled PTY readers.
 type PTYWatchdogTick struct{}
+
+// TmuxSyncTick triggers a periodic tmux session sync for the active workspace.
+type TmuxSyncTick struct {
+	Token int
+}
 
 // SidebarPTYRestart requests restarting a sidebar PTY reader.
 type SidebarPTYRestart struct {
@@ -223,6 +274,12 @@ type OpenDiff struct {
 
 // CloseTab requests closing the current tab
 type CloseTab struct{}
+
+// ShowCleanupTmuxDialog requests confirmation before cleaning tmux sessions.
+type ShowCleanupTmuxDialog struct{}
+
+// CleanupTmuxSessions requests cleanup of amux tmux sessions.
+type CleanupTmuxSessions struct{}
 
 // WorkspaceCreatedWithWarning indicates workspace was created but setup had issues
 type WorkspaceCreatedWithWarning struct {
