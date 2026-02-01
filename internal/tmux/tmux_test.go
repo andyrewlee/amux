@@ -179,6 +179,7 @@ func TestClientCommandWithTags(t *testing.T) {
 		WorkspaceID: "ws-1",
 		TabID:       "tab-2",
 		Type:        "agent",
+		Assistant:   "claude",
 		CreatedAt:   123,
 	}
 
@@ -195,6 +196,9 @@ func TestClientCommandWithTags(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "@amux_type 'agent'") {
 		t.Error("Command should set @amux_type tag")
+	}
+	if !strings.Contains(cmd, "@amux_assistant 'claude'") {
+		t.Error("Command should set @amux_assistant tag")
 	}
 	if !strings.Contains(cmd, "@amux_created_at '123'") {
 		t.Error("Command should set @amux_created_at tag")

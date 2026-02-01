@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 )
@@ -29,6 +28,7 @@ type SessionTags struct {
 	WorkspaceID string
 	TabID       string
 	Type        string
+	Assistant   string
 	CreatedAt   int64 // Unix seconds for fresh create/restart; may be zero for reattach.
 }
 
@@ -134,7 +134,7 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 }
 
 func appendSessionTags(settings *strings.Builder, base, session string, tags SessionTags) {
-	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.CreatedAt == 0 {
+	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Assistant == "" && tags.CreatedAt == 0 {
 		return
 	}
 	settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux 1 2>/dev/null; ", base, session))
@@ -146,6 +146,9 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 	}
 	if tags.Type != "" {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_type %s 2>/dev/null; ", base, session, shellQuote(tags.Type)))
+	}
+	if tags.Assistant != "" {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_assistant %s 2>/dev/null; ", base, session, shellQuote(tags.Assistant)))
 	}
 	if tags.CreatedAt != 0 {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_created_at %s 2>/dev/null; ", base, session, shellQuote(fmt.Sprintf("%d", tags.CreatedAt))))
@@ -257,11 +260,6 @@ func KillSession(sessionName string, opts Options) error {
 	return nil
 }
 
-type sessionTagRow struct {
-	Name string
-	Tags map[string]string
-}
-
 type SessionActivity struct {
 	Name        string
 	WorkspaceID string
@@ -354,72 +352,6 @@ func ListSessions(opts Options) ([]string, error) {
 		sessions = append(sessions, name)
 	}
 	return sessions, nil
-}
-
-func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow, []string, error) {
-	if err := EnsureAvailable(); err != nil {
-		return nil, nil, err
-	}
-	keys := make([]string, 0, len(tags))
-	for key := range tags {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	format := "#{session_name}"
-	for _, key := range keys {
-		format = fmt.Sprintf("%s\t#{%s}", format, key)
-	}
-	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", format)
-	defer cancel()
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return nil, keys, nil
-			}
-		}
-		return nil, keys, err
-	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var rows []sessionTagRow
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) == 0 {
-			continue
-		}
-		row := sessionTagRow{
-			Name: strings.TrimSpace(parts[0]),
-			Tags: make(map[string]string, len(keys)),
-		}
-		for i, key := range keys {
-			if i+1 >= len(parts) {
-				row.Tags[key] = ""
-				continue
-			}
-			row.Tags[key] = strings.TrimSpace(parts[i+1])
-		}
-		rows = append(rows, row)
-	}
-	return rows, keys, nil
-}
-
-func matchesTags(row sessionTagRow, tags map[string]string, orderedKeys []string) bool {
-	for _, key := range orderedKeys {
-		want := tags[key]
-		value := strings.TrimSpace(row.Tags[key])
-		if want == "" {
-			if value == "" {
-				return false
-			}
-		} else if value != want {
-			return false
-		}
-	}
-	return true
 }
 
 // KillSessionsWithPrefix kills all sessions with a matching name prefix.

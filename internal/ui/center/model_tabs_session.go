@@ -169,6 +169,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			WorkspaceID: string(ws.ID()),
 			TabID:       string(tabID),
 			Type:        "agent",
+			Assistant:   assistant,
 		}
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
@@ -255,6 +256,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 			WorkspaceID: string(ws.ID()),
 			TabID:       string(tabID),
 			Type:        "agent",
+			Assistant:   assistant,
 			CreatedAt:   time.Now().Unix(),
 		}
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
@@ -339,6 +341,57 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 			desired = restoreCount - 1
 		}
 		m.activeTabByWorkspace[wsID] = desired
+	}
+	return safeBatch(cmds...)
+}
+
+// AddTabsFromWorkspace adds new tabs without resetting existing UI state.
+func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) tea.Cmd {
+	if ws == nil || len(tabs) == 0 {
+		return nil
+	}
+	if m.config == nil || m.config.Assistants == nil {
+		return nil
+	}
+	wsID := string(ws.ID())
+	existing := make(map[string]struct{}, len(m.tabsByWorkspace[wsID]))
+	for _, tab := range m.tabsByWorkspace[wsID] {
+		if tab == nil || tab.isClosed() {
+			continue
+		}
+		sessionName := strings.TrimSpace(tab.SessionName)
+		if sessionName == "" && tab.Agent != nil {
+			sessionName = strings.TrimSpace(tab.Agent.Session)
+		}
+		if sessionName != "" {
+			existing[sessionName] = struct{}{}
+		}
+	}
+
+	var cmds []tea.Cmd
+	for _, tab := range tabs {
+		if tab.Assistant == "" {
+			continue
+		}
+		if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+			continue
+		}
+		sessionName := strings.TrimSpace(tab.SessionName)
+		if sessionName != "" {
+			if _, ok := existing[sessionName]; ok {
+				continue
+			}
+			existing[sessionName] = struct{}{}
+		}
+		status := strings.ToLower(strings.TrimSpace(tab.Status))
+		if status == "stopped" {
+			continue
+		}
+		if status == "detached" {
+			m.addDetachedTab(ws, tab)
+			continue
+		}
+		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, sessionName, tab.Name, false))
 	}
 	return safeBatch(cmds...)
 }

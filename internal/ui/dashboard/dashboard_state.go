@@ -162,9 +162,16 @@ func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 	return workspaces
 }
 
-// isProjectActive returns false; activity is shown only at the workspace level.
+// isProjectActive returns true if the project's primary workspace is active.
 func (m *Model) isProjectActive(p *data.Project) bool {
-	return false
+	if p == nil {
+		return false
+	}
+	mainWS := m.getMainWorkspace(p)
+	if mainWS == nil {
+		return false
+	}
+	return m.activeWorkspaceIDs[string(mainWS.ID())]
 }
 
 // getMainWorkspace returns the primary or main branch workspace for a project

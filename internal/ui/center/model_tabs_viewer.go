@@ -40,6 +40,7 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 			WorkspaceID: string(ws.ID()),
 			TabID:       string(tabID),
 			Type:        "viewer",
+			Assistant:   "viewer",
 			CreatedAt:   time.Now().Unix(),
 		}
 		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)
@@ -144,6 +145,7 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.W
 			WorkspaceID: string(ws.ID()),
 			TabID:       string(tabID),
 			Type:        "viewer",
+			Assistant:   "viewer",
 			CreatedAt:   time.Now().Unix(),
 		}
 		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)

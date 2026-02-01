@@ -117,3 +117,18 @@ func SetMonitorActivityOn(opts Options) error {
 	}
 	return nil
 }
+
+// SetStatusOff disables the tmux status line globally for the server.
+func SetStatusOff(opts Options) error {
+	cmd, cancel := tmuxCommand(opts, "set-option", "-g", "status", "off")
+	defer cancel()
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}

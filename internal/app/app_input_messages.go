@@ -43,6 +43,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.centerBtnIndex = 0
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
+	if discoverCmd := a.discoverWorkspaceTabsFromTmux(msg.Workspace); discoverCmd != nil {
+		cmds = append(cmds, discoverCmd)
+	}
 	if syncCmd := a.syncWorkspaceTabsFromTmux(msg.Workspace); syncCmd != nil {
 		cmds = append(cmds, syncCmd)
 	}
@@ -347,6 +350,7 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		a.tmuxOptions = tmux.DefaultOptions() // Refresh cached options
 		a.center.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
 		a.sidebarTerminal.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
+		_ = tmux.SetStatusOff(a.tmuxOptions)
 
 		// Save settings
 		if err := a.config.SaveUISettings(); err != nil {
