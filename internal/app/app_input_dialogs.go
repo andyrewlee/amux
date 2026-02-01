@@ -17,9 +17,11 @@ import (
 func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	project := a.dialogProject
 	workspace := a.dialogWorkspace
+	defaultName := a.dialogDefaultName
 	a.dialog = nil
 	a.dialogProject = nil
 	a.dialogWorkspace = nil
+	a.dialogDefaultName = ""
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
@@ -44,8 +46,11 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogCreateWorkspace:
-		if result.Value != "" && project != nil {
+		if project != nil {
 			name := validation.SanitizeInput(result.Value)
+			if name == "" {
+				name = defaultName
+			}
 			if err := validation.ValidateWorkspaceName(name); err != nil {
 				return func() tea.Msg {
 					return messages.Error{Err: err, Context: "validating workspace name"}

@@ -92,8 +92,9 @@ type App struct {
 	toast       *common.ToastModel
 
 	// Dialog context
-	dialogProject   *data.Project
-	dialogWorkspace *data.Workspace
+	dialogProject     *data.Project
+	dialogWorkspace   *data.Workspace
+	dialogDefaultName string
 
 	// Process management
 	scripts *process.ScriptRunner

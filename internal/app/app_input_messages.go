@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,41 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/validation"
 )
+
+var randomAnimals = []string{
+	"falcon", "otter", "panda", "wolf", "hawk", "lynx", "fox", "bear",
+	"eagle", "cobra", "raven", "tiger", "shark", "crane", "bison", "viper",
+	"whale", "heron", "moose", "gecko", "horse", "finch", "manta", "newt",
+}
+
+var randomColors = []string{
+	"red", "blue", "green", "amber", "coral", "ivory", "onyx", "jade",
+	"gold", "teal", "plum", "sage", "ruby", "slate", "peach", "rust",
+	"cyan", "lime", "navy", "sand", "rose", "mint", "dusk", "gray",
+}
+
+// generateWorkspaceName generates a unique random name in the format
+// {project}-{animal}-{color} that doesn't conflict with existing workspaces.
+func generateWorkspaceName(project *data.Project) string {
+	const maxAttempts = 50
+	for range maxAttempts {
+		name := fmt.Sprintf("%s-%s-%s",
+			project.Name,
+			randomAnimals[rand.IntN(len(randomAnimals))],
+			randomColors[rand.IntN(len(randomColors))],
+		)
+		if project.FindWorkspaceByName(name) == nil {
+			return name
+		}
+	}
+	// Fallback: append a random number to guarantee uniqueness
+	return fmt.Sprintf("%s-%s-%s-%d",
+		project.Name,
+		randomAnimals[rand.IntN(len(randomAnimals))],
+		randomColors[rand.IntN(len(randomColors))],
+		rand.IntN(1000),
+	)
+}
 
 // handleProjectsLoaded processes the ProjectsLoaded message.
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
@@ -202,7 +238,8 @@ func (a *App) handleShowAddProjectDialog() {
 // handleShowCreateWorkspaceDialog shows the create workspace dialog.
 func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDialog) {
 	a.dialogProject = msg.Project
-	a.dialog = common.NewInputDialog(DialogCreateWorkspace, "Create Workspace", "Enter workspace name...")
+	a.dialogDefaultName = generateWorkspaceName(msg.Project)
+	a.dialog = common.NewInputDialog(DialogCreateWorkspace, "Create Session", a.dialogDefaultName)
 	a.dialog.SetInputValidate(func(s string) string {
 		s = validation.SanitizeInput(s)
 		if s == "" {

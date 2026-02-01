@@ -44,7 +44,7 @@ func (d *Dialog) Cursor() *tea.Cursor {
 		Foreground(ColorPrimary).
 		MarginBottom(1)
 	prefix.WriteString(titleStyle.Render(d.title))
-	prefix.WriteString("\n\n")
+	prefix.WriteString("\n")
 
 	switch d.dtype {
 	case DialogInput:
@@ -123,7 +123,6 @@ func (d *Dialog) renderLines() []string {
 		Foreground(ColorPrimary).
 		MarginBottom(1)
 	appendLines(titleStyle.Render(d.title))
-	appendBlank(1)
 
 	switch d.dtype {
 	case DialogInput:
