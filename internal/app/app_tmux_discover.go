@@ -90,6 +90,7 @@ func (a *App) handleTmuxTabsDiscoverResult(msg tmuxTabsDiscoverResult) []tea.Cmd
 		existing[tab.SessionName] = struct{}{}
 	}
 	added := false
+	var addedTabs []data.TabInfo
 	for _, tab := range msg.Tabs {
 		if tab.SessionName == "" {
 			continue
@@ -98,6 +99,7 @@ func (a *App) handleTmuxTabsDiscoverResult(msg tmuxTabsDiscoverResult) []tea.Cmd
 			continue
 		}
 		ws.OpenTabs = append(ws.OpenTabs, tab)
+		addedTabs = append(addedTabs, tab)
 		added = true
 	}
 	if !added {
@@ -105,7 +107,7 @@ func (a *App) handleTmuxTabsDiscoverResult(msg tmuxTabsDiscoverResult) []tea.Cmd
 	}
 	cmds := []tea.Cmd{a.persistWorkspaceTabs(msg.WorkspaceID)}
 	if a.activeWorkspace != nil && string(a.activeWorkspace.ID()) == msg.WorkspaceID {
-		if restoreCmd := a.center.RestoreTabsFromWorkspace(ws); restoreCmd != nil {
+		if restoreCmd := a.center.AddTabsFromWorkspace(ws, addedTabs); restoreCmd != nil {
 			cmds = append(cmds, restoreCmd)
 		}
 	}

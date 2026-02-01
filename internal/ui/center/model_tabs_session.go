@@ -345,6 +345,57 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 	return safeBatch(cmds...)
 }
 
+// AddTabsFromWorkspace adds new tabs without resetting existing UI state.
+func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) tea.Cmd {
+	if ws == nil || len(tabs) == 0 {
+		return nil
+	}
+	if m.config == nil || m.config.Assistants == nil {
+		return nil
+	}
+	wsID := string(ws.ID())
+	existing := make(map[string]struct{}, len(m.tabsByWorkspace[wsID]))
+	for _, tab := range m.tabsByWorkspace[wsID] {
+		if tab == nil || tab.isClosed() {
+			continue
+		}
+		sessionName := strings.TrimSpace(tab.SessionName)
+		if sessionName == "" && tab.Agent != nil {
+			sessionName = strings.TrimSpace(tab.Agent.Session)
+		}
+		if sessionName != "" {
+			existing[sessionName] = struct{}{}
+		}
+	}
+
+	var cmds []tea.Cmd
+	for _, tab := range tabs {
+		if tab.Assistant == "" {
+			continue
+		}
+		if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+			continue
+		}
+		sessionName := strings.TrimSpace(tab.SessionName)
+		if sessionName != "" {
+			if _, ok := existing[sessionName]; ok {
+				continue
+			}
+			existing[sessionName] = struct{}{}
+		}
+		status := strings.ToLower(strings.TrimSpace(tab.Status))
+		if status == "stopped" {
+			continue
+		}
+		if status == "detached" {
+			m.addDetachedTab(ws, tab)
+			continue
+		}
+		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, sessionName, tab.Name, false))
+	}
+	return safeBatch(cmds...)
+}
+
 func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
