@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -329,17 +330,34 @@ func (a *App) handleShowSetProfileDialog(msg messages.ShowSetProfileDialog) {
 	a.dialog.Show()
 }
 
-// listProfiles returns the names of existing profile directories.
+// listProfiles returns the names of existing profile directories,
+// sorted by modification time (most recent first).
 func (a *App) listProfiles() []string {
 	entries, err := os.ReadDir(a.config.Paths.ProfilesRoot)
 	if err != nil {
 		return nil
 	}
-	var profiles []string
+	type profileEntry struct {
+		name    string
+		modTime time.Time
+	}
+	var items []profileEntry
 	for _, entry := range entries {
-		if entry.IsDir() {
-			profiles = append(profiles, entry.Name())
+		if !entry.IsDir() {
+			continue
 		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		items = append(items, profileEntry{name: entry.Name(), modTime: info.ModTime()})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].modTime.After(items[j].modTime)
+	})
+	profiles := make([]string, len(items))
+	for i, item := range items {
+		profiles[i] = item.name
 	}
 	return profiles
 }
@@ -356,12 +374,15 @@ func (a *App) handleSetProfile(msg messages.SetProfile) tea.Cmd {
 		return a.toast.ShowError("Failed to set profile: " + err.Error())
 	}
 
-	// Create profile directory if non-empty
+	// Create profile directory if non-empty and touch it so the
+	// most-recently-selected profile sorts first in the picker.
 	if profile != "" {
 		profileDir := filepath.Join(a.config.Paths.ProfilesRoot, profile)
 		if err := os.MkdirAll(profileDir, 0755); err != nil {
 			logging.Warn("Failed to create profile directory: %v", err)
 		}
+		now := time.Now()
+		_ = os.Chtimes(profileDir, now, now)
 	}
 
 	// Update profile in-place on current projects so that any pending
