@@ -28,6 +28,16 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		a.pendingProfileLaunch = ""
 		a.pendingProfileLaunchRoot = ""
 		logging.Debug("Dialog cancelled")
+		// If we were adding a new project and the user cancelled profile selection,
+		// remove the project since a profile is required.
+		if a.pendingNewProjectPath != "" {
+			path := a.pendingNewProjectPath
+			a.pendingNewProjectPath = ""
+			cmds := []tea.Cmd{
+				a.removeProjectByPath(path),
+			}
+			return a.safeBatch(cmds...)
+		}
 		return nil
 	}
 
@@ -109,6 +119,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogSetProfile:
+		a.pendingNewProjectPath = "" // profile selected (or existing project), clear pending state
 		if project != nil {
 			if result.Value == common.NewProfileOption {
 				// User chose "New profile..." — show the input dialog

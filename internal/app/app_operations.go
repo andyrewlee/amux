@@ -369,6 +369,18 @@ func (a *App) findProjectForWorkspace(ws *data.Workspace) *data.Project {
 	return nil
 }
 
+// removeProjectByPath removes a project from the registry by path string.
+// Unlike removeProject, this does not require a *data.Project pointer, which
+// is useful when the dialog state has already been cleared (e.g. on cancel).
+func (a *App) removeProjectByPath(path string) tea.Cmd {
+	return func() tea.Msg {
+		if err := a.registry.RemoveProject(path); err != nil {
+			return messages.Error{Err: err, Context: "removing project"}
+		}
+		return messages.ProjectRemoved{Path: path}
+	}
+}
+
 // removeProject removes a project from the registry (does not delete files).
 func (a *App) removeProject(project *data.Project) tea.Cmd {
 	if project == nil {
