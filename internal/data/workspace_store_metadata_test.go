@@ -19,7 +19,7 @@ func TestWorkspaceStore_LoadMetadataFor(t *testing.T) {
 		Root:   "/home/user/.amux/workspaces/myrepo/feature-branch",
 	}
 
-	// Simulate legacy metadata file (no Root/Repo, just metadata fields)
+	// Simulate stored metadata file (metadata fields only)
 	// The ID is computed from Repo+Root, so we use discovered's ID
 	id := discovered.ID()
 	dir := filepath.Join(root, string(id))
@@ -27,7 +27,7 @@ func TestWorkspaceStore_LoadMetadataFor(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	// Legacy metadata only had these fields (no Root, Repo, Name, Branch, Runtime)
+	// Stored metadata only had these fields (no Root, Repo, Name, Branch, Runtime)
 	legacyMetadata := `{
 		"created": "2024-06-15T14:30:00Z",
 		"assistant": "codex",
@@ -39,13 +39,13 @@ func TestWorkspaceStore_LoadMetadataFor(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	// LoadMetadataFor should find and merge the legacy metadata
+	// LoadMetadataFor should find and merge the stored metadata
 	found, err := store.LoadMetadataFor(discovered)
 	if err != nil {
 		t.Fatalf("LoadMetadataFor() error = %v", err)
 	}
 	if !found {
-		t.Fatal("LoadMetadataFor() should have found legacy metadata")
+		t.Fatal("LoadMetadataFor() should have found stored metadata")
 	}
 
 	// Verify discovered workspace kept its git info
@@ -62,7 +62,7 @@ func TestWorkspaceStore_LoadMetadataFor(t *testing.T) {
 		t.Errorf("Root = %v, want '/home/user/.amux/workspaces/myrepo/feature-branch'", discovered.Root)
 	}
 
-	// Verify metadata was merged from legacy file
+	// Verify metadata was merged from stored file
 	if discovered.Assistant != "codex" {
 		t.Errorf("Assistant = %v, want 'codex'", discovered.Assistant)
 	}
