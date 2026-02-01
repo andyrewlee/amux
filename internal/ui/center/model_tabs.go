@@ -268,8 +268,14 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 		tab.ptyTraceFile = nil
 		tab.ptyTraceClosed = true
 	}
-	// Clean up viewers
+	// Clean up viewers and release memory
+	// Note: tab.Agent is intentionally NOT niled here to avoid racing with
+	// tab_actor which reads it without locking. The agent is already closed
+	// via CloseAgent() above; leaving the pointer intact is safe.
 	tab.DiffViewer = nil
+	tab.Terminal = nil
+	tab.cachedSnap = nil
+	tab.Workspace = nil
 	tab.Running = false
 	tab.pendingOutput = nil
 	tab.mu.Unlock()

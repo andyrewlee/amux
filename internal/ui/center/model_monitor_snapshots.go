@@ -48,7 +48,7 @@ func (m *Model) StartMonitorSnapshots() tea.Cmd {
 		}
 	}
 	if m.monitorSnapCh == nil {
-		m.monitorSnapCh = make(chan monitorSnapshotRequest, 2)
+		m.monitorSnapCh = make(chan monitorSnapshotRequest, 8)
 		ctx, cancel := context.WithCancel(context.Background())
 		m.monitorSnapCancel = cancel
 		atomic.StoreInt64(&m.monitorSnapHeartbeat, time.Now().UnixNano())

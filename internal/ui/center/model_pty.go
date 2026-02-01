@@ -28,7 +28,7 @@ const (
 	ptyFlushMonitorMultiplier  = 6
 	ptyFlushChunkSize          = 32 * 1024
 	ptyReadBufferSize          = 32 * 1024
-	ptyReadQueueSize           = 32
+	ptyReadQueueSize           = 64
 	ptyFrameInterval           = time.Second / 60
 	ptyMaxPendingBytes         = 512 * 1024
 	ptyMaxBufferedBytes        = 8 * 1024 * 1024
