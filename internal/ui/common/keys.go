@@ -1,10 +1,15 @@
 package common
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/andyrewlee/amux/internal/logging"
+)
 
 // KeyToBytes converts a key press message to bytes for the terminal.
 func KeyToBytes(msg tea.KeyPressMsg) []byte {
 	key := msg.Key()
+	logging.Debug("KeyToBytes: code=%d mod=%d str=%q", key.Code, key.Mod, msg.String())
 
 	if key.Mod&tea.ModCtrl != 0 {
 		switch key.Code {
