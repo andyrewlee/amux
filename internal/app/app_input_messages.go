@@ -129,9 +129,6 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 				})
 			}
 		}
-		if len(updates) == 0 {
-			return nil
-		}
 		return tmuxTabsSyncResult{
 			WorkspaceID: wsID,
 			Updates:     updates,

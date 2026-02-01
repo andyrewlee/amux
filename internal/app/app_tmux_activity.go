@@ -297,8 +297,12 @@ func activeWorkspaceIDsWithHysteresis(
 		if seenSessions[name] {
 			continue // Already processed above
 		}
-		// Reset score for sessions that have been idle long enough to fall out of prefilter
+		// Reset score and baseline so stale hashes/hold timers don't trigger
+		// false positives when a session re-enters the prefilter window.
 		state.score = 0
+		state.lastActiveAt = time.Time{}
+		state.initialized = false
+		state.lastHash = [16]byte{}
 		updatedStates[name] = state
 	}
 
