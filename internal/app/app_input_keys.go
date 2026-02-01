@@ -64,10 +64,10 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
-	// 1. Handle prefix key (Ctrl+Space)
+	// 1. Handle prefix key (Ctrl+a)
 	if a.isPrefixKey(msg) {
 		if a.prefixActive {
-			// Prefix + Prefix = send literal Ctrl+Space to terminal
+			// Prefix + Prefix = send literal Ctrl+a to terminal
 			a.sendPrefixToTerminal()
 			a.exitPrefix()
 			return nil

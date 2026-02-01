@@ -69,8 +69,8 @@ func defaultHelpSections() []HelpSection {
 		{
 			Title: "Prefix Key (leader key)",
 			Bindings: []HelpBinding{
-				{"C-Space", "Enter prefix mode"},
-				{"C-Space C-Space", "Send literal Ctrl+Space"},
+				{"Ctrl-a", "Enter prefix mode"},
+				{"Ctrl-a Ctrl-a", "Send literal Ctrl+a"},
 			},
 		},
 		{
@@ -111,7 +111,7 @@ func defaultHelpSections() []HelpSection {
 			Bindings: []HelpBinding{
 				{"hjkl/↑↓←→", "Move selection"},
 				{"Type/Enter", "Send input to selected agent"},
-				{"C-Space m", "Exit monitor"},
+				{"Ctrl-a m", "Exit monitor"},
 			},
 		},
 		{

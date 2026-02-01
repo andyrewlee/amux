@@ -286,12 +286,12 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 	return false, nil
 }
 
-// sendPrefixToTerminal sends a literal Ctrl-Space (NUL) to the focused terminal
+// sendPrefixToTerminal sends a literal Ctrl-A to the focused terminal
 func (a *App) sendPrefixToTerminal() {
 	if a.focusedPane == messages.PaneCenter {
-		a.center.SendToTerminal("\x00")
+		a.center.SendToTerminal("\x01")
 	} else if a.focusedPane == messages.PaneSidebarTerminal {
-		a.sidebarTerminal.SendToTerminal("\x00")
+		a.sidebarTerminal.SendToTerminal("\x01")
 	}
 }
 
