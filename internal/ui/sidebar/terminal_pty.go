@@ -257,13 +257,13 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 
 	vt := vterm.New(termWidth, termHeight)
 	vt.AllowAltScreenScrollback = true
-	// Look up current terminal through state to avoid stale reference
+	// Capture term directly — the response writer is replaced on reattach,
+	// so the captured reference stays valid. Acquiring ts.mu here would
+	// deadlock because VTerm.Write() (called under ts.mu) triggers this
+	// callback synchronously.
 	vt.SetResponseWriter(func(data []byte) {
-		ts.mu.Lock()
-		t := ts.Terminal
-		ts.mu.Unlock()
-		if t != nil {
-			_, _ = t.Write(data)
+		if term != nil {
+			_, _ = term.Write(data)
 		}
 	})
 	ts.VTerm = vt
