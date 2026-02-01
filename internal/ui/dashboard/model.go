@@ -250,6 +250,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, m.handleEnter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
 			return m, m.handleDelete()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("P"))):
+			return m, m.handleSetProfile()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 			return m, m.refresh()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):

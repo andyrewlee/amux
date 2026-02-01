@@ -251,8 +251,23 @@ type AddProject struct {
 	Path string
 }
 
-// ShowSelectAssistantDialog requests showing the assistant selection dialog
-type ShowSelectAssistantDialog struct{}
+// ShowSetProfileDialog requests showing the profile input dialog
+type ShowSetProfileDialog struct {
+	Project *data.Project
+}
+
+// SetProfile requests setting a profile on a project
+type SetProfile struct {
+	Project *data.Project
+	Profile string
+}
+
+// ShowSelectAssistantDialog requests showing the assistant selection dialog.
+// When ForceDialog is true, the picker is always shown regardless of any
+// saved default agent preference.
+type ShowSelectAssistantDialog struct {
+	ForceDialog bool
+}
 
 // LaunchAgent requests launching an agent in a new tab
 type LaunchAgent struct {

@@ -61,6 +61,7 @@ type Workspace struct {
 
 	// Agent config
 	Assistant string `json:"assistant"` // claude, codex, gemini
+	Profile   string `json:"-"`         // Named profile (transient, inherited from project)
 
 	// Scripts
 	Scripts    ScriptsConfig `json:"scripts"`

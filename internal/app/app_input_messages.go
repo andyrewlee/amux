@@ -66,6 +66,47 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 			cmds = append(cmds, a.requestGitStatus(ws.Root))
 		}
 	}
+
+	// Auto-activate a newly created workspace for auto-launch.
+	// Only clear pendingAutoLaunch when the workspace is found; a stale
+	// ProjectsLoaded from a concurrent loadProjects() call may arrive
+	// before the workspace exists in the store.
+	if a.pendingAutoLaunch != "" {
+		root := a.pendingAutoLaunch
+		for i := range a.projects {
+			for j := range a.projects[i].Workspaces {
+				ws := &a.projects[i].Workspaces[j]
+				if ws.Root == root {
+					a.pendingAutoLaunch = ""
+					a.pendingAgentLaunch = root
+					project := &a.projects[i]
+					cmds = append(cmds, func() tea.Msg {
+						return messages.WorkspaceActivated{
+							Project:   project,
+							Workspace: ws,
+						}
+					})
+					goto pendingFound
+				}
+			}
+		}
+	pendingFound:
+	}
+
+	if a.pendingNewProjectPath != "" {
+		path := a.pendingNewProjectPath
+		a.pendingNewProjectPath = ""
+		for i := range a.projects {
+			if a.projects[i].Path == path {
+				project := &a.projects[i]
+				cmds = append(cmds, func() tea.Msg {
+					return messages.ShowSetProfileDialog{Project: project}
+				})
+				break
+			}
+		}
+	}
+
 	return cmds
 }
 
@@ -111,6 +152,37 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
 		cmds = append(cmds, startCmd)
 	}
+
+	// Auto-start agent when activating a workspace with no tabs.
+	// Two triggers:
+	//   1. pendingAgentLaunch — set after workspace creation, bypasses
+	//      IsPrimaryCheckout guard since we know it's a fresh worktree.
+	//   2. General AutoStartAgent setting — fires for any non-primary
+	//      workspace that the user activates with no existing tabs.
+	autoLaunch := false
+	if a.pendingAgentLaunch != "" && msg.Workspace != nil && msg.Workspace.Root == a.pendingAgentLaunch {
+		a.pendingAgentLaunch = ""
+		autoLaunch = true
+	} else if a.config.UI.AutoStartAgent && msg.Workspace != nil && !msg.Workspace.IsPrimaryCheckout() {
+		autoLaunch = true
+	}
+	if autoLaunch {
+		wsID := string(msg.Workspace.ID())
+		if !a.center.HasTabsForWorkspace(wsID) {
+			ws := msg.Workspace
+			if a.config.UI.DefaultAgent != "" {
+				agent := a.config.UI.DefaultAgent
+				cmds = append(cmds, func() tea.Msg {
+					return messages.LaunchAgent{Assistant: agent, Workspace: ws}
+				})
+			} else {
+				cmds = append(cmds, func() tea.Msg {
+					return messages.ShowSelectAssistantDialog{}
+				})
+			}
+		}
+	}
+
 	return cmds
 }
 
@@ -235,6 +307,111 @@ func (a *App) handleShowAddProjectDialog() {
 	a.filePicker.Show()
 }
 
+// handleShowSetProfileDialog shows the set profile input dialog or profile
+// picker if profiles already exist on disk.
+func (a *App) handleShowSetProfileDialog(msg messages.ShowSetProfileDialog) {
+	a.dialogProject = msg.Project
+	currentProfile := ""
+	if msg.Project != nil {
+		currentProfile = msg.Project.Profile
+	}
+
+	profiles := a.listProfiles()
+	if len(profiles) > 0 {
+		a.dialog = common.NewProfilePicker(DialogSetProfile, profiles, currentProfile)
+	} else {
+		a.dialogDefaultName = "Default"
+		a.dialog = common.NewInputDialog(DialogSetProfile, "Set Profile", "Default")
+		a.dialog.SetMessage("Profile isolates Claude settings (permissions, memory) for this project.")
+	}
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
+// listProfiles returns the names of existing profile directories.
+func (a *App) listProfiles() []string {
+	entries, err := os.ReadDir(a.config.Paths.ProfilesRoot)
+	if err != nil {
+		return nil
+	}
+	var profiles []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			profiles = append(profiles, entry.Name())
+		}
+	}
+	return profiles
+}
+
+// handleSetProfile persists a profile for a project and reloads.
+func (a *App) handleSetProfile(msg messages.SetProfile) tea.Cmd {
+	if msg.Project == nil {
+		return nil
+	}
+	profile := strings.TrimSpace(msg.Profile)
+
+	if err := a.registry.SetProfile(msg.Project.Path, profile); err != nil {
+		logging.Error("Failed to set profile: %v", err)
+		return a.toast.ShowError("Failed to set profile: " + err.Error())
+	}
+
+	// Create profile directory if non-empty
+	if profile != "" {
+		profileDir := filepath.Join(a.config.Paths.ProfilesRoot, profile)
+		if err := os.MkdirAll(profileDir, 0755); err != nil {
+			logging.Warn("Failed to create profile directory: %v", err)
+		}
+	}
+
+	// Update profile in-place on current projects so that any pending
+	// LaunchAgent sees the new value without waiting for loadProjects.
+	for i := range a.projects {
+		if a.projects[i].Path == msg.Project.Path {
+			a.projects[i].Profile = profile
+			for j := range a.projects[i].Workspaces {
+				a.projects[i].Workspaces[j].Profile = profile
+			}
+			break
+		}
+	}
+
+	var cmds []tea.Cmd
+	if profile != "" {
+		cmds = append(cmds, a.toast.ShowSuccess(fmt.Sprintf("Profile set to '%s'", profile)))
+	} else {
+		cmds = append(cmds, a.toast.ShowSuccess("Profile cleared"))
+	}
+	cmds = append(cmds, a.loadProjects())
+
+	// Resume a pending agent launch that was blocked on profile selection.
+	if a.pendingProfileLaunch != "" && profile != "" {
+		assistant := a.pendingProfileLaunch
+		root := a.pendingProfileLaunchRoot
+		a.pendingProfileLaunch = ""
+		a.pendingProfileLaunchRoot = ""
+		// Find the workspace by root in the (now-updated) projects.
+		for i := range a.projects {
+			for j := range a.projects[i].Workspaces {
+				if a.projects[i].Workspaces[j].Root == root {
+					ws := &a.projects[i].Workspaces[j]
+					cmds = append(cmds, func() tea.Msg {
+						return messages.LaunchAgent{Assistant: assistant, Workspace: ws}
+					})
+					goto foundPending
+				}
+			}
+		}
+	foundPending:
+	} else {
+		// Profile was empty or no pending launch — just clear state.
+		a.pendingProfileLaunch = ""
+		a.pendingProfileLaunchRoot = ""
+	}
+
+	return a.safeBatch(cmds...)
+}
+
 // handleShowCreateWorkspaceDialog shows the create workspace dialog.
 func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDialog) {
 	a.dialogProject = msg.Project
@@ -287,13 +464,28 @@ func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog
 }
 
 // handleShowSelectAssistantDialog shows the select assistant dialog.
-func (a *App) handleShowSelectAssistantDialog() {
-	if a.activeWorkspace != nil {
-		a.dialog = common.NewAgentPicker()
-		a.dialog.SetSize(a.width, a.height)
-		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-		a.dialog.Show()
+// If ForceDialog is false and a default agent is saved, it skips the picker
+// and launches the agent directly.
+func (a *App) handleShowSelectAssistantDialog(msg messages.ShowSelectAssistantDialog) tea.Cmd {
+	if a.activeWorkspace == nil {
+		return nil
 	}
+	// Use the saved default agent when not forcing the dialog
+	if !msg.ForceDialog && a.config.UI.DefaultAgent != "" {
+		ws := a.activeWorkspace
+		agent := a.config.UI.DefaultAgent
+		return func() tea.Msg {
+			return messages.LaunchAgent{
+				Assistant: agent,
+				Workspace: ws,
+			}
+		}
+	}
+	a.dialog = common.NewAgentPicker()
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+	return nil
 }
 
 // handleShowCleanupTmuxDialog shows the tmux cleanup dialog.
@@ -317,6 +509,7 @@ func (a *App) handleShowSettingsDialog() {
 		common.ThemeID(a.config.UI.Theme),
 		a.config.UI.ShowKeymapHints,
 		a.config.UI.HideSidebar,
+		a.config.UI.AutoStartAgent,
 		a.config.UI.TmuxPersistence,
 		a.config.UI.TmuxServer,
 		a.config.UI.TmuxConfigPath,
@@ -377,6 +570,9 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 
 		// Apply keymap hints
 		a.setKeymapHintsEnabled(msg.ShowKeymapHints)
+
+		// Apply auto-start agent setting
+		a.config.UI.AutoStartAgent = msg.AutoStartAgent
 
 		// Apply sidebar hidden setting
 		a.config.UI.HideSidebar = msg.HideSidebar

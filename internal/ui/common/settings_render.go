@@ -90,6 +90,18 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Hide sidebar"))
 	s.addHit(settingsItemHideSidebar, -1, y)
+
+	checkbox = "[ ]"
+	if s.autoStartAgent {
+		checkbox = "[" + Icons.Clean + "]"
+	}
+	style = lipgloss.NewStyle().Foreground(ColorForeground)
+	if s.focusedItem == settingsItemAutoStart {
+		style = style.Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render(checkbox+" Auto start agent in new workspaces"))
+	s.addHit(settingsItemAutoStart, -1, y)
 	lines = append(lines, "")
 
 	lines = append(lines, label.Render("Tmux (Advanced)"))

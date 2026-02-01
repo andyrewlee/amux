@@ -36,6 +36,7 @@ const (
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
 	DialogCleanupTmux     = "cleanup_tmux"
+	DialogSetProfile      = "set_profile"
 )
 
 // Prefix mode constants
@@ -129,6 +130,20 @@ type App struct {
 	tmuxInstallHint        string
 	tmuxActiveWorkspaceIDs map[string]bool
 	sessionActivityStates  map[string]*sessionActivityState // Per-session hysteresis state
+
+	// Auto-start agent: stores workspace root for post-creation auto-launch.
+	// pendingAutoLaunch is set in handleWorkspaceCreated and consumed by
+	// handleProjectsLoaded once the workspace appears in the loaded projects.
+	// pendingAgentLaunch is set by handleProjectsLoaded to tell
+	// handleWorkspaceActivated to launch an agent for this specific workspace.
+	pendingAutoLaunch     string
+	pendingAgentLaunch    string
+	pendingNewProjectPath string // path of newly added project awaiting profile selection
+
+	// Profile gate: stores a pending agent launch while the profile dialog
+	// is shown. Consumed by handleSetProfile after the user sets a profile.
+	pendingProfileLaunch     string // assistant name awaiting profile
+	pendingProfileLaunchRoot string // workspace root awaiting profile
 
 	// Workspace persistence debounce
 	dirtyWorkspaces map[string]bool

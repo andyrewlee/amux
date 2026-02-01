@@ -48,6 +48,11 @@ func (d *Dialog) Cursor() *tea.Cursor {
 
 	switch d.dtype {
 	case DialogInput:
+		if d.message != "" {
+			msgStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+			prefix.WriteString(msgStyle.Render(d.message))
+			prefix.WriteString("\n\n")
+		}
 		input = &d.input
 	case DialogSelect:
 		if d.filterEnabled {
@@ -126,6 +131,11 @@ func (d *Dialog) renderLines() []string {
 
 	switch d.dtype {
 	case DialogInput:
+		if d.message != "" {
+			msgStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+			appendLines(msgStyle.Render(d.message))
+			appendBlank(1)
+		}
 		appendLines(d.input.View())
 		// Show validation error if present
 		if d.validationErr != "" {
@@ -162,7 +172,40 @@ func (d *Dialog) renderOptionsLines(baseLine int) []string {
 	if d.id == "agent-picker" {
 		return d.renderAgentPickerOptions(baseLine)
 	}
+	if d.verticalLayout {
+		return d.renderVerticalOptionsLines(baseLine)
+	}
 	return []string{d.renderHorizontalOptionsLine(baseLine)}
+}
+
+func (d *Dialog) renderVerticalOptionsLines(baseLine int) []string {
+	var lines []string
+	lineIndex := baseLine
+
+	indices := make([]int, len(d.options))
+	for i := range d.options {
+		indices[i] = i
+	}
+
+	for cursorIdx, originalIdx := range indices {
+		opt := d.options[originalIdx]
+		cursor := Icons.CursorEmpty + " "
+		if cursorIdx == d.cursor {
+			cursor = Icons.Cursor + " "
+		}
+
+		nameStyle := lipgloss.NewStyle().Foreground(ColorForeground)
+		if cursorIdx == d.cursor {
+			nameStyle = nameStyle.Bold(true)
+		}
+		line := cursor + nameStyle.Render(opt)
+
+		width := d.dialogContentWidth()
+		d.addOptionHit(cursorIdx, originalIdx, lineIndex, 0, width)
+		lines = append(lines, line)
+		lineIndex++
+	}
+	return lines
 }
 
 func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {

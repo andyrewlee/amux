@@ -7,8 +7,9 @@ import (
 // Project represents a registered git repository with its workspaces
 type Project struct {
 	Name       string      `json:"name"`
-	Path       string      `json:"path"` // Absolute path to repository
-	Workspaces []Workspace `json:"-"`    // Discovered dynamically via git
+	Path       string      `json:"path"`    // Absolute path to repository
+	Profile    string      `json:"profile"` // Named profile for Claude config
+	Workspaces []Workspace `json:"-"`       // Discovered dynamically via git
 }
 
 // NewProject creates a new Project from a repository path

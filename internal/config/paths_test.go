@@ -14,13 +14,14 @@ func TestPathsEnsureDirectories(t *testing.T) {
 		RegistryPath:   filepath.Join(tmp, "amux", "projects.json"),
 		MetadataRoot:   filepath.Join(tmp, "amux", "workspaces-metadata"),
 		ConfigPath:     filepath.Join(tmp, "amux", "config.json"),
+		ProfilesRoot:   filepath.Join(tmp, "amux", "profiles"),
 	}
 
 	if err := paths.EnsureDirectories(); err != nil {
 		t.Fatalf("EnsureDirectories() error = %v", err)
 	}
 
-	for _, dir := range []string{paths.Home, paths.WorkspacesRoot, paths.MetadataRoot} {
+	for _, dir := range []string{paths.Home, paths.WorkspacesRoot, paths.MetadataRoot, paths.ProfilesRoot} {
 		info, err := os.Stat(dir)
 		if err != nil {
 			t.Fatalf("expected directory %s to exist: %v", dir, err)

@@ -222,6 +222,32 @@ func (m *Model) handleDelete() tea.Cmd {
 	return nil
 }
 
+// handleSetProfile opens the profile dialog for the current project
+func (m *Model) handleSetProfile() tea.Cmd {
+	if m.cursor >= len(m.rows) {
+		return nil
+	}
+
+	row := m.rows[m.cursor]
+	var project *data.Project
+	switch row.Type {
+	case RowProject:
+		project = row.Project
+	case RowWorkspace:
+		project = row.Project
+	default:
+		return nil
+	}
+
+	if project == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		return messages.ShowSetProfileDialog{Project: project}
+	}
+}
+
 // refresh requests a workspace rescan/import.
 func (m *Model) refresh() tea.Cmd {
 	return func() tea.Msg { return messages.RescanWorkspaces{} }

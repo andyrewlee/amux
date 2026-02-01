@@ -42,7 +42,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
-		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
+		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile:
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -309,8 +309,18 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ShowRemoveProjectDialog:
 		a.handleShowRemoveProjectDialog(msg)
 
+	case messages.ShowSetProfileDialog:
+		a.handleShowSetProfileDialog(msg)
+
+	case messages.SetProfile:
+		if cmd := a.handleSetProfile(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.ShowSelectAssistantDialog:
-		a.handleShowSelectAssistantDialog()
+		if cmd := a.handleShowSelectAssistantDialog(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.ShowSettingsDialog:
 		a.handleShowSettingsDialog()
@@ -338,6 +348,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.AddProject:
+		a.pendingNewProjectPath = msg.Path
 		cmds = append(cmds, a.addProject(msg.Path))
 
 	case messages.RemoveProject:
@@ -353,6 +364,15 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 	case messages.LaunchAgent:
+		if msg.Workspace != nil && msg.Workspace.Profile == "" {
+			a.pendingProfileLaunch = msg.Assistant
+			a.pendingProfileLaunchRoot = msg.Workspace.Root
+			project := a.findProjectForWorkspace(msg.Workspace)
+			if project != nil {
+				a.handleShowSetProfileDialog(messages.ShowSetProfileDialog{Project: project})
+			}
+			break
+		}
 		if cmd := a.handleLaunchAgent(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}

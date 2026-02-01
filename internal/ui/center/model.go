@@ -180,6 +180,7 @@ const (
 	tabHitTab tabHitKind = iota
 	tabHitClose
 	tabHitPlus
+	tabHitPlusSelect
 	tabHitPrev
 	tabHitNext
 )
@@ -476,4 +477,9 @@ func (m *Model) SetWorkspace(ws *data.Workspace) {
 // HasTabs returns whether there are any tabs for the current workspace
 func (m *Model) HasTabs() bool {
 	return len(m.getTabs()) > 0
+}
+
+// HasTabsForWorkspace returns whether there are any tabs for a given workspace ID
+func (m *Model) HasTabsForWorkspace(wsID string) bool {
+	return len(m.tabsByWorkspace[wsID]) > 0
 }

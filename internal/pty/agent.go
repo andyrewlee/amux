@@ -3,6 +3,8 @@ package pty
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +77,15 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		"COLORTERM=truecolor",
 	}
 
+	// Set CLAUDE_CONFIG_DIR for Claude agents with a named profile.
+	// Prefix the agent command directly so it propagates into the tmux session.
+	agentCommand := assistantCfg.Command
+	if agentType == AgentClaude && ws.Profile != "" {
+		profileDir := filepath.Join(m.config.Paths.ProfilesRoot, ws.Profile)
+		_ = os.MkdirAll(profileDir, 0755)
+		agentCommand = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s %s", shellQuote(profileDir), agentCommand)
+	}
+
 	// Create terminal with agent command, falling back to shell on exit
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -84,7 +95,7 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	// Execute agent, then reset terminal state and drop to shell
 	// Reset sequence: stty sane (terminal modes), exit alt screen, show cursor, reset attrs, RIS
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
-	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", assistantCfg.Command, shell)
+	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", agentCommand, shell)
 
 	termCommand := tmux.ClientCommandWithTags(sessionName, ws.Root, fullCommand, tmux.DefaultOptions(), tags)
 	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
@@ -205,6 +216,11 @@ func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace) {
 			agent.Terminal.Close()
 		}
 	}
+}
+
+// shellQuote wraps a value in single quotes for safe shell embedding.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // SendInterrupt sends an interrupt to an agent

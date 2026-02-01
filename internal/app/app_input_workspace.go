@@ -47,6 +47,10 @@ func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 		cmds = append(cmds, a.runSetupAsync(msg.Workspace))
+		// Mark for auto-launch after projects reload
+		if a.config.UI.AutoStartAgent {
+			a.pendingAutoLaunch = msg.Workspace.Root
+		}
 	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds

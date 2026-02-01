@@ -12,6 +12,7 @@ type Paths struct {
 	RegistryPath   string // ~/.amux/projects.json
 	MetadataRoot   string // ~/.amux/workspaces-metadata
 	ConfigPath     string // ~/.amux/config.json
+	ProfilesRoot   string // ~/.amux/profiles
 }
 
 // DefaultPaths returns the default paths configuration
@@ -29,6 +30,7 @@ func DefaultPaths() (*Paths, error) {
 		RegistryPath:   filepath.Join(amuxHome, "projects.json"),
 		MetadataRoot:   filepath.Join(amuxHome, "workspaces-metadata"),
 		ConfigPath:     filepath.Join(amuxHome, "config.json"),
+		ProfilesRoot:   filepath.Join(amuxHome, "profiles"),
 	}, nil
 }
 
@@ -38,6 +40,7 @@ func (p *Paths) EnsureDirectories() error {
 		p.Home,
 		p.WorkspacesRoot,
 		p.MetadataRoot,
+		p.ProfilesRoot,
 	}
 
 	for _, dir := range dirs {

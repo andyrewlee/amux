@@ -25,6 +25,8 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
+		a.pendingProfileLaunch = ""
+		a.pendingProfileLaunchRoot = ""
 		logging.Debug("Dialog cancelled")
 		return nil
 	}
@@ -94,11 +96,40 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 					return messages.Error{Err: err, Context: "validating assistant"}
 				}
 			}
+			// Remember the selected agent as the default for future launches
+			a.config.UI.DefaultAgent = assistant
+			_ = a.config.SaveUISettings()
 			ws := a.activeWorkspace
 			return func() tea.Msg {
 				return messages.LaunchAgent{
 					Assistant: assistant,
 					Workspace: ws,
+				}
+			}
+		}
+
+	case DialogSetProfile:
+		if project != nil {
+			if result.Value == common.NewProfileOption {
+				// User chose "New profile..." — show the input dialog
+				a.dialogProject = project
+				a.dialogDefaultName = "Default"
+				a.dialog = common.NewInputDialog(DialogSetProfile, "Set Profile", "Default")
+				a.dialog.SetMessage("Profile isolates Claude settings (permissions, memory) for this project.")
+				a.dialog.SetSize(a.width, a.height)
+				a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+				a.dialog.Show()
+				return nil
+			}
+			profile := result.Value
+			if profile == "" {
+				profile = defaultName
+			}
+			proj := project
+			return func() tea.Msg {
+				return messages.SetProfile{
+					Project: proj,
+					Profile: profile,
 				}
 			}
 		}

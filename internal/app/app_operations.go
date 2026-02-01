@@ -17,18 +17,20 @@ import (
 // loadProjects loads all registered projects and their workspaces
 func (a *App) loadProjects() tea.Cmd {
 	return func() tea.Msg {
-		paths, err := a.registry.Projects()
+		regProjects, err := a.registry.LoadFull()
 		if err != nil {
 			return messages.Error{Err: err, Context: "loading projects"}
 		}
 
 		var projects []data.Project
-		for _, path := range paths {
+		for _, rp := range regProjects {
+			path := rp.Path
 			if !git.IsGitRepository(path) {
 				continue
 			}
 
 			project := data.NewProject(path)
+			project.Profile = rp.Profile
 
 			// Start from stored workspaces so metadata is authoritative.
 			storedWorkspaces, err := a.workspaces.ListByRepo(path)
@@ -102,6 +104,10 @@ func (a *App) loadProjects() tea.Cmd {
 				}
 			}
 
+			// Propagate project profile to all workspaces
+			for i := range workspaces {
+				workspaces[i].Profile = project.Profile
+			}
 			project.Workspaces = workspaces
 			projects = append(projects, *project)
 		}
@@ -347,6 +353,20 @@ func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd
 			Workspace: ws,
 		}
 	}
+}
+
+// findProjectForWorkspace returns the project that owns the given workspace,
+// matching by ws.Repo == project.Path.
+func (a *App) findProjectForWorkspace(ws *data.Workspace) *data.Project {
+	if ws == nil {
+		return nil
+	}
+	for i := range a.projects {
+		if a.projects[i].Path == ws.Repo {
+			return &a.projects[i]
+		}
+	}
+	return nil
 }
 
 // removeProject removes a project from the registry (does not delete files).

@@ -61,9 +61,15 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			deleteSlot = " " + common.Icons.Close + " "
 		}
 
-		// Truncate project name to fit within pane (width - border - padding - status - deleteSlot)
+		// Append profile indicator if set
 		name := row.Project.Name
-		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - lipgloss.Width(prefix) - 1
+		profileTag := ""
+		if row.Project.Profile != "" {
+			profileTag = " [" + row.Project.Profile + "]"
+		}
+
+		// Truncate project name to fit within pane (width - border - padding - status - deleteSlot)
+		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - lipgloss.Width(prefix) - lipgloss.Width(profileTag) - 1
 		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
 			runes := []rune(name)
 			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
@@ -74,10 +80,10 @@ func (m *Model) renderRow(row Row, selected bool) string {
 
 		// Track delete slot position for click detection
 		if selected {
-			m.deleteIconX = lipgloss.Width(style.Render(prefix + name))
+			m.deleteIconX = lipgloss.Width(style.Render(prefix + name + profileTag))
 		}
 
-		return style.Render(prefix+name+deleteSlot) + status
+		return style.Render(prefix+name+profileTag+deleteSlot) + status
 
 	case RowWorkspace:
 		unstyledPrefix := " "
@@ -185,8 +191,10 @@ func (m *Model) helpLines(contentWidth int) []string {
 		switch m.rows[m.cursor].Type {
 		case RowWorkspace:
 			items = append(items, m.helpItem("D", "delete"))
+			items = append(items, m.helpItem("P", "profile"))
 		case RowProject:
 			items = append(items, m.helpItem("D", "remove"))
+			items = append(items, m.helpItem("P", "profile"))
 		}
 	}
 	items = append(items,

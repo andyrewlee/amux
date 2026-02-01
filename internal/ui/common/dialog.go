@@ -60,9 +60,10 @@ type Dialog struct {
 	filteredIndices []int // indices into options
 
 	// Layout
-	width      int
-	height     int
-	optionHits []dialogOptionHit
+	verticalLayout bool // render options vertically instead of horizontally
+	width          int
+	height         int
+	optionHits     []dialogOptionHit
 	// Display settings
 	showKeymapHints bool
 }
@@ -128,6 +129,12 @@ func fuzzyMatch(pattern, target string) bool {
 		}
 	}
 	return pi == len(pattern)
+}
+
+// SetMessage sets the dialog description/message text.
+func (d *Dialog) SetMessage(msg string) *Dialog {
+	d.message = msg
+	return d
 }
 
 // SetInputTransform sets a transform function that will be applied to input text
