@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -87,6 +88,42 @@ func assertScreenNeverContains(t *testing.T, session *PTYSession, needles []stri
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
+}
+
+func focusSidebarTerminal(t *testing.T, session *PTYSession) {
+	t.Helper()
+	sendPrefixCommand(t, session, "l")
+	sendPrefixCommand(t, session, "l")
+	sendPrefixCommand(t, session, "j")
+}
+
+func createSidebarTerminalTab(t *testing.T, session *PTYSession) {
+	t.Helper()
+	focusSidebarTerminal(t, session)
+	sendPrefixCommand(t, session, "t")
+	waitForUIContains(t, session, "Terminal 2", 10*time.Second)
+}
+
+func workspaceIDForRepo(repo string) string {
+	ws := data.NewWorkspace("ws", "main", "main", repo, repo)
+	return string(ws.ID())
+}
+
+func waitForTerminalSessionCount(t *testing.T, opts tmux.Options, wsID string, count int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		sessions, err := tmux.ListSessionsMatchingTags(map[string]string{
+			"@amux":           "1",
+			"@amux_type":      "terminal",
+			"@amux_workspace": wsID,
+		}, opts)
+		if err == nil && len(sessions) == count {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for %d terminal sessions for workspace %s", count, wsID)
 }
 
 func waitForAssistantSessions(t *testing.T, opts tmux.Options, want map[string]bool, timeout time.Duration) map[string][]string {

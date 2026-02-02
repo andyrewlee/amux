@@ -155,6 +155,10 @@ func TestClientCommandWithOptions(t *testing.T) {
 	if !strings.Contains(cmd, "attach -dt") {
 		t.Error("Command should use attach -dt to detach other clients")
 	}
+	// Should use new-session -Ad when detaching
+	if !strings.Contains(cmd, "new-session -Ads") {
+		t.Error("Command should use new-session -Ads when detaching")
+	}
 
 	// Should use && not ; for chaining
 	if !strings.Contains(cmd, " && ") {
@@ -206,6 +210,29 @@ func TestClientCommandWithTags(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "@amux_instance 'inst-9'") {
 		t.Error("Command should set @amux_instance tag")
+	}
+}
+
+func TestClientCommandWithTagsAttachShared(t *testing.T) {
+	opts := Options{
+		ServerName:      "test-server",
+		ConfigPath:      "/dev/null",
+		HideStatus:      true,
+		DisableMouse:    true,
+		DefaultTerminal: "xterm-256color",
+	}
+	cmd := ClientCommandWithTagsAttach("test-session", "/tmp/work", "echo hello", opts, SessionTags{}, false)
+	if strings.Contains(cmd, "attach -dt") {
+		t.Error("Command should not detach other clients when detachExisting=false")
+	}
+	if !strings.Contains(cmd, "attach -t") {
+		t.Error("Command should attach without detaching other clients")
+	}
+	if strings.Contains(cmd, "new-session -Ads") {
+		t.Error("Command should not detach on new-session when detachExisting=false")
+	}
+	if !strings.Contains(cmd, "new-session -As") {
+		t.Error("Command should use new-session -As when detachExisting=false")
 	}
 }
 

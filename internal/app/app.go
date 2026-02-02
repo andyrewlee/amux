@@ -130,6 +130,7 @@ type App struct {
 	tmuxActiveWorkspaceIDs map[string]bool
 	sessionActivityStates  map[string]*sessionActivityState // Per-session hysteresis state
 	instanceID             string
+	lastTerminalGCRun      time.Time
 
 	// Workspace persistence debounce
 	dirtyWorkspaces map[string]bool

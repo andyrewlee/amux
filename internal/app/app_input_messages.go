@@ -28,6 +28,9 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
 		cmds = append(cmds, gcCmd)
 	}
+	if gcCmd := a.gcStaleTerminalSessions(); gcCmd != nil {
+		cmds = append(cmds, gcCmd)
+	}
 	for i := range a.projects {
 		for j := range a.projects[i].Workspaces {
 			ws := &a.projects[i].Workspaces[j]
@@ -47,19 +50,19 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.centerBtnIndex = 0
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
+	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	// Discover shared tmux tabs first; restore/sync happens below.
 	if discoverCmd := a.discoverWorkspaceTabsFromTmux(msg.Workspace); discoverCmd != nil {
 		cmds = append(cmds, discoverCmd)
+	}
+	if discoverTermCmd := a.discoverSidebarTerminalsFromTmux(msg.Workspace); discoverTermCmd != nil {
+		cmds = append(cmds, discoverTermCmd)
 	}
 	if syncCmd := a.syncWorkspaceTabsFromTmux(msg.Workspace); syncCmd != nil {
 		cmds = append(cmds, syncCmd)
 	}
 	if restoreCmd := a.center.RestoreTabsFromWorkspace(msg.Workspace); restoreCmd != nil {
 		cmds = append(cmds, restoreCmd)
-	}
-	// Set up sidebar terminal for the workspace
-	if termCmd := a.sidebarTerminal.SetWorkspace(msg.Workspace); termCmd != nil {
-		cmds = append(cmds, termCmd)
 	}
 	// Sync active workspaces to dashboard (fixes spinner race condition)
 	a.syncActiveWorkspacesToDashboard()

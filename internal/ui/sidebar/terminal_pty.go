@@ -39,6 +39,7 @@ type SidebarTerminalCreated struct {
 	TabID       TerminalTabID
 	Terminal    *pty.Terminal
 	SessionName string
+	Scrollback  []byte
 }
 
 // SidebarTerminalCreateFailed is a message for terminal creation failure
@@ -47,14 +48,15 @@ type SidebarTerminalCreateFailed struct {
 	Err         error
 }
 
-type sidebarTerminalReattachResult struct {
+type SidebarTerminalReattachResult struct {
 	WorkspaceID string
 	TabID       TerminalTabID
 	Terminal    *pty.Terminal
 	SessionName string
+	Scrollback  []byte
 }
 
-type sidebarTerminalReattachFailed struct {
+type SidebarTerminalReattachFailed struct {
 	WorkspaceID string
 	TabID       TerminalTabID
 	Err         error
@@ -68,6 +70,8 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	tabID := generateTerminalTabID()
 	termWidth, termHeight := m.terminalContentSize()
 	opts := m.getTmuxOptions()
+	instanceID := m.instanceID
+	root := ws.Root
 
 	return func() tea.Msg {
 		shell := os.Getenv("SHELL")
@@ -78,18 +82,24 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
 
+		var scrollback []byte
 		env := []string{"COLORTERM=truecolor"}
 		sessionName := tmux.SessionName("amux", wsID, string(tabID))
+		// Reuse scrollback if a prior tmux session with the same name exists
+		// (e.g., app restart with persisted tmux session).
+		if state, err := tmux.SessionStateFor(sessionName, opts); err == nil && state.Exists && state.HasLivePane {
+			scrollback, _ = tmux.CapturePane(sessionName, opts)
+		}
 		tags := tmux.SessionTags{
 			WorkspaceID: wsID,
 			TabID:       string(tabID),
 			Type:        "terminal",
 			Assistant:   "terminal",
 			CreatedAt:   time.Now().Unix(),
-			InstanceID:  m.instanceID,
+			InstanceID:  instanceID,
 		}
-		command := tmux.ClientCommandWithTags(sessionName, ws.Root, fmt.Sprintf("exec %s -l", shell), opts, tags)
-		term, err := pty.NewWithSize(command, ws.Root, env, uint16(termHeight), uint16(termWidth))
+		command := tmux.ClientCommandWithTagsAttach(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags, true)
+		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
@@ -99,6 +109,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			TabID:       tabID,
 			Terminal:    term,
 			SessionName: sessionName,
+			Scrollback:  scrollback,
 		}
 	}
 }
@@ -133,7 +144,7 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
-	return m.attachToSession(ws, tab.ID, sessionName, "reattach")
+	return m.attachToSession(ws, tab.ID, sessionName, true, "reattach")
 }
 
 // RestartActiveTab starts a fresh tmux session for the active terminal tab.
@@ -158,10 +169,10 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	}
 	m.detachState(ts)
 	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
-	return m.attachToSession(ws, tab.ID, sessionName, "restart")
+	return m.attachToSession(ws, tab.ID, sessionName, true, "restart")
 }
 
-func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName, action string) tea.Cmd {
+func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName string, detachExisting bool, action string) tea.Cmd {
 	if ws == nil {
 		return nil
 	}
@@ -175,9 +186,10 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	env := []string{"COLORTERM=truecolor"}
 	wsID := string(ws.ID())
 	root := ws.Root
+	instanceID := m.instanceID
 	return func() tea.Msg {
 		if err := tmux.EnsureAvailable(); err != nil {
-			return sidebarTerminalReattachFailed{
+			return SidebarTerminalReattachFailed{
 				WorkspaceID: wsID,
 				TabID:       tabID,
 				Err:         err,
@@ -187,7 +199,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		if action == "reattach" {
 			state, err := tmux.SessionStateFor(sessionName, opts)
 			if err != nil {
-				return sidebarTerminalReattachFailed{
+				return SidebarTerminalReattachFailed{
 					WorkspaceID: wsID,
 					TabID:       tabID,
 					Err:         err,
@@ -195,7 +207,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 				}
 			}
 			if !state.Exists || !state.HasLivePane {
-				return sidebarTerminalReattachFailed{
+				return SidebarTerminalReattachFailed{
 					WorkspaceID: wsID,
 					TabID:       tabID,
 					Err:         fmt.Errorf("tmux session ended"),
@@ -209,26 +221,28 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			TabID:       string(tabID),
 			Type:        "terminal",
 			Assistant:   "terminal",
-			InstanceID:  m.instanceID,
+			InstanceID:  instanceID,
 		}
 		if action == "restart" {
 			tags.CreatedAt = time.Now().Unix()
 		}
-		command := tmux.ClientCommandWithTags(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags)
+		command := tmux.ClientCommandWithTagsAttach(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags, detachExisting)
 		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
-			return sidebarTerminalReattachFailed{
+			return SidebarTerminalReattachFailed{
 				WorkspaceID: wsID,
 				TabID:       tabID,
 				Err:         err,
 				Action:      action,
 			}
 		}
-		return sidebarTerminalReattachResult{
+		scrollback, _ := tmux.CapturePane(sessionName, opts)
+		return SidebarTerminalReattachResult{
 			WorkspaceID: wsID,
 			TabID:       tabID,
 			Terminal:    term,
 			SessionName: sessionName,
+			Scrollback:  scrollback,
 		}
 	}
 }
