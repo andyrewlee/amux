@@ -61,6 +61,25 @@ func TestFilterSessionsWithoutClients(t *testing.T) {
 	}
 }
 
+func TestSelectSidebarSessionsIgnoresFilteredInstances(t *testing.T) {
+	sessions := []sidebarSessionInfo{
+		{name: "a1", instanceID: "a", createdAt: 300},
+		{name: "b1", instanceID: "b", createdAt: 200},
+	}
+	hasClients := map[string]bool{"a1": true}
+	filtered := filterSessionsWithoutClients(sessions, hasClients)
+	latest := map[string]int64{}
+	for _, session := range filtered {
+		if session.createdAt > latest[session.instanceID] {
+			latest[session.instanceID] = session.createdAt
+		}
+	}
+	out := selectSidebarSessions(filtered, latest, "")
+	if len(out) != 1 || out[0] != "b1" {
+		t.Fatalf("expected b1 after filtering, got %v", out)
+	}
+}
+
 func TestHandleTmuxSidebarDiscoverResultCreatesTerminalWhenEmpty(t *testing.T) {
 	app := &App{}
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")

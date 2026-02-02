@@ -162,6 +162,15 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			})
 		}
 		sessions = filterSessionsWithoutClients(sessions, hasClients)
+		if len(sessions) == 0 {
+			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
+		}
+		latestByInstance = make(map[string]int64, len(sessions))
+		for _, session := range sessions {
+			if session.createdAt > latestByInstance[session.instanceID] {
+				latestByInstance[session.instanceID] = session.createdAt
+			}
+		}
 		out := selectSidebarSessions(sessions, latestByInstance, a.instanceID)
 		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
 	}
