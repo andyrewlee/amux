@@ -107,6 +107,7 @@ func (a *App) gcStaleTerminalSessions() tea.Cmd {
 		return nil
 	}
 	opts := a.tmuxOptions
+	currentInstanceID := a.instanceID
 	return func() tea.Msg {
 		activeInstances := make(map[string]bool)
 		activeRows, err := tmux.SessionsWithTags(
@@ -146,7 +147,7 @@ func (a *App) gcStaleTerminalSessions() tea.Cmd {
 				continue
 			}
 			instanceID := strings.TrimSpace(row.Tags["@amux_instance"])
-			if shouldSkipTerminalForInstance(instanceID, a.instanceID, activeInstances) {
+			if shouldSkipTerminalForInstance(instanceID, currentInstanceID, activeInstances) {
 				continue
 			}
 			createdAt := int64(0)

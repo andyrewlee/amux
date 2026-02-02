@@ -117,6 +117,7 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 	}
 	wsID := string(ws.ID())
 	opts := a.tmuxOptions
+	instanceID := a.instanceID
 	return func() tea.Msg {
 		match := map[string]string{
 			"@amux":           "1",
@@ -171,7 +172,7 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 				latestByInstance[session.instanceID] = session.createdAt
 			}
 		}
-		out := selectSidebarSessions(sessions, latestByInstance, a.instanceID)
+		out := selectSidebarSessions(sessions, latestByInstance, instanceID)
 		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
 	}
 }

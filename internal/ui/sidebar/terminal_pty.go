@@ -70,6 +70,8 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	tabID := generateTerminalTabID()
 	termWidth, termHeight := m.terminalContentSize()
 	opts := m.getTmuxOptions()
+	instanceID := m.instanceID
+	root := ws.Root
 
 	return func() tea.Msg {
 		shell := os.Getenv("SHELL")
@@ -92,10 +94,10 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			Type:        "terminal",
 			Assistant:   "terminal",
 			CreatedAt:   time.Now().Unix(),
-			InstanceID:  m.instanceID,
+			InstanceID:  instanceID,
 		}
-		command := tmux.ClientCommandWithTags(sessionName, ws.Root, fmt.Sprintf("exec %s -l", shell), opts, tags)
-		term, err := pty.NewWithSize(command, ws.Root, env, uint16(termHeight), uint16(termWidth))
+		command := tmux.ClientCommandWithTags(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags)
+		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
@@ -182,6 +184,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	env := []string{"COLORTERM=truecolor"}
 	wsID := string(ws.ID())
 	root := ws.Root
+	instanceID := m.instanceID
 	return func() tea.Msg {
 		if err := tmux.EnsureAvailable(); err != nil {
 			return SidebarTerminalReattachFailed{
@@ -216,7 +219,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			TabID:       string(tabID),
 			Type:        "terminal",
 			Assistant:   "terminal",
-			InstanceID:  m.instanceID,
+			InstanceID:  instanceID,
 		}
 		if action == "restart" {
 			tags.CreatedAt = time.Now().Unix()
