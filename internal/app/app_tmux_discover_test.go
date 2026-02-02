@@ -42,18 +42,6 @@ func TestSelectSidebarInstanceNoInstanceTags(t *testing.T) {
 	}
 }
 
-func TestFilterSessionsWithoutClients(t *testing.T) {
-	sessions := []sidebarSessionInfo{
-		{name: "a"},
-		{name: "b", hasClients: true},
-		{name: ""},
-	}
-	out := filterSessionsWithoutClients(sessions)
-	if len(out) != 1 || out[0].name != "a" {
-		t.Fatalf("expected only session a, got %v", out)
-	}
-}
-
 func TestSelectSidebarInstanceUsesCountOverRecency(t *testing.T) {
 	sessions := []sidebarSessionInfo{
 		{name: "a1", instanceID: "a", createdAt: 300},
@@ -71,6 +59,7 @@ func TestHandleTmuxSidebarDiscoverResultCreatesTerminalWhenEmpty(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	app.projects = []data.Project{{Name: "p", Path: ws.Repo, Workspaces: []data.Workspace{*ws}}}
 	app.sidebarTerminal = sidebar.NewTerminalModel()
+	app.activeWorkspace = ws
 
 	cmds := app.handleTmuxSidebarDiscoverResult(tmuxSidebarDiscoverResult{
 		WorkspaceID: string(ws.ID()),

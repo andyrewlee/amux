@@ -236,23 +236,6 @@ func selectSidebarInstance(sessions []sidebarSessionInfo, currentInstance string
 	return sidebarInstanceSelection{ID: chosenID, OK: true}
 }
 
-func filterSessionsWithoutClients(sessions []sidebarSessionInfo) []sidebarSessionInfo {
-	if len(sessions) == 0 {
-		return nil
-	}
-	out := make([]sidebarSessionInfo, 0, len(sessions))
-	for _, session := range sessions {
-		if session.name == "" {
-			continue
-		}
-		if session.hasClients {
-			continue
-		}
-		out = append(out, session)
-	}
-	return out
-}
-
 func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo, chosen sidebarInstanceSelection) []sidebar.SessionAttachInfo {
 	chosenSessions := make([]sidebarSessionInfo, 0, len(sessions))
 	for _, session := range sessions {
@@ -336,8 +319,10 @@ func (a *App) handleTmuxSidebarDiscoverResult(msg tmuxSidebarDiscoverResult) []t
 		return nil
 	}
 	if len(msg.Sessions) == 0 {
-		if cmd := a.sidebarTerminal.SetWorkspace(ws); cmd != nil {
-			return []tea.Cmd{cmd}
+		if a.activeWorkspace != nil && string(a.activeWorkspace.ID()) == msg.WorkspaceID {
+			if cmd := a.sidebarTerminal.SetWorkspace(ws); cmd != nil {
+				return []tea.Cmd{cmd}
+			}
 		}
 		return nil
 	}
