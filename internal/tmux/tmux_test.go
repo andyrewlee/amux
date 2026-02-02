@@ -209,6 +209,23 @@ func TestClientCommandWithTags(t *testing.T) {
 	}
 }
 
+func TestClientCommandWithTagsAttachShared(t *testing.T) {
+	opts := Options{
+		ServerName:      "test-server",
+		ConfigPath:      "/dev/null",
+		HideStatus:      true,
+		DisableMouse:    true,
+		DefaultTerminal: "xterm-256color",
+	}
+	cmd := ClientCommandWithTagsAttach("test-session", "/tmp/work", "echo hello", opts, SessionTags{}, false)
+	if strings.Contains(cmd, "attach -dt") {
+		t.Error("Command should not detach other clients when detachExisting=false")
+	}
+	if !strings.Contains(cmd, "attach -t") {
+		t.Error("Command should attach without detaching other clients")
+	}
+}
+
 func TestTmuxBase(t *testing.T) {
 	tests := []struct {
 		name     string

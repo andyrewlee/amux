@@ -1,82 +1,69 @@
 package app
 
 import (
+	"sort"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
-func TestSelectSidebarSessionsPrefersCurrentInstance(t *testing.T) {
+func TestSelectSidebarInstancePrefersCurrentInstance(t *testing.T) {
 	sessions := []sidebarSessionInfo{
 		{name: "a1", instanceID: "a", createdAt: 100},
 		{name: "a2", instanceID: "a", createdAt: 101},
 		{name: "b1", instanceID: "b", createdAt: 200},
 	}
-	latest := map[string]int64{"a": 101, "b": 200}
-	out := selectSidebarSessions(sessions, latest, "a")
-	if len(out) != 2 {
-		t.Fatalf("expected 2 sessions, got %v", out)
-	}
-	for _, name := range out {
-		if name != "a1" && name != "a2" {
-			t.Fatalf("unexpected session %s", name)
-		}
+	out := selectSidebarInstance(sessions, "a")
+	if !out.OK || out.ID != "a" {
+		t.Fatalf("expected instance a, got %#v", out)
 	}
 }
 
-func TestSelectSidebarSessionsFallsBackToLatestInstance(t *testing.T) {
+func TestSelectSidebarInstanceFallsBackToLargestInstance(t *testing.T) {
 	sessions := []sidebarSessionInfo{
-		{name: "a1", instanceID: "a", createdAt: 100},
+		{name: "a1", instanceID: "a", createdAt: 300},
 		{name: "b1", instanceID: "b", createdAt: 200},
+		{name: "b2", instanceID: "b", createdAt: 201},
 	}
-	latest := map[string]int64{"a": 100, "b": 200}
-	out := selectSidebarSessions(sessions, latest, "c")
-	if len(out) != 1 || out[0] != "b1" {
-		t.Fatalf("expected latest instance sessions, got %v", out)
+	out := selectSidebarInstance(sessions, "c")
+	if !out.OK || out.ID != "b" {
+		t.Fatalf("expected instance b by count, got %#v", out)
 	}
 }
 
-func TestSelectSidebarSessionsNoInstanceTags(t *testing.T) {
+func TestSelectSidebarInstanceNoInstanceTags(t *testing.T) {
 	sessions := []sidebarSessionInfo{
 		{name: "x1", instanceID: "", createdAt: 0},
 		{name: "x2", instanceID: "", createdAt: 0},
 	}
-	out := selectSidebarSessions(sessions, map[string]int64{}, "a")
-	if len(out) != 2 {
-		t.Fatalf("expected all sessions when no instance tags, got %v", out)
+	out := selectSidebarInstance(sessions, "a")
+	if !out.OK || out.ID != "" {
+		t.Fatalf("expected empty instance selection, got %#v", out)
 	}
 }
 
 func TestFilterSessionsWithoutClients(t *testing.T) {
 	sessions := []sidebarSessionInfo{
 		{name: "a"},
-		{name: "b"},
+		{name: "b", hasClients: true},
 		{name: ""},
 	}
-	hasClients := map[string]bool{"b": true}
-	out := filterSessionsWithoutClients(sessions, hasClients)
+	out := filterSessionsWithoutClients(sessions)
 	if len(out) != 1 || out[0].name != "a" {
 		t.Fatalf("expected only session a, got %v", out)
 	}
 }
 
-func TestSelectSidebarSessionsIgnoresFilteredInstances(t *testing.T) {
+func TestSelectSidebarInstanceUsesCountOverRecency(t *testing.T) {
 	sessions := []sidebarSessionInfo{
 		{name: "a1", instanceID: "a", createdAt: 300},
 		{name: "b1", instanceID: "b", createdAt: 200},
+		{name: "b2", instanceID: "b", createdAt: 201},
 	}
-	hasClients := map[string]bool{"a1": true}
-	filtered := filterSessionsWithoutClients(sessions, hasClients)
-	latest := map[string]int64{}
-	for _, session := range filtered {
-		if session.createdAt > latest[session.instanceID] {
-			latest[session.instanceID] = session.createdAt
-		}
-	}
-	out := selectSidebarSessions(filtered, latest, "")
-	if len(out) != 1 || out[0] != "b1" {
-		t.Fatalf("expected b1 after filtering, got %v", out)
+	out := selectSidebarInstance(sessions, "")
+	if !out.OK || out.ID != "b" {
+		t.Fatalf("expected instance b by count, got %#v", out)
 	}
 }
 
@@ -92,5 +79,41 @@ func TestHandleTmuxSidebarDiscoverResultCreatesTerminalWhenEmpty(t *testing.T) {
 	})
 	if len(cmds) != 1 {
 		t.Fatalf("expected a command to create a terminal, got %d", len(cmds))
+	}
+}
+
+func TestDiscoverSidebarSessionsOrdersByCreatedAt(t *testing.T) {
+	sessions := []sidebarSessionInfo{
+		{name: "s2", instanceID: "a", createdAt: 200},
+		{name: "s1", instanceID: "a", createdAt: 100},
+	}
+	chosen := selectSidebarInstance(sessions, "a")
+	if !chosen.OK || chosen.ID != "a" {
+		t.Fatalf("expected instance a, got %#v", chosen)
+	}
+	chosenSessions := make([]sidebarSessionInfo, 0, len(sessions))
+	for _, session := range sessions {
+		if session.instanceID != chosen.ID {
+			continue
+		}
+		chosenSessions = append(chosenSessions, session)
+	}
+	sort.SliceStable(chosenSessions, func(i, j int) bool {
+		ci, cj := chosenSessions[i].createdAt, chosenSessions[j].createdAt
+		if ci != 0 || cj != 0 {
+			if ci == 0 {
+				return false
+			}
+			if cj == 0 {
+				return true
+			}
+			if ci != cj {
+				return ci < cj
+			}
+		}
+		return chosenSessions[i].name < chosenSessions[j].name
+	})
+	if chosenSessions[0].name != "s1" || chosenSessions[1].name != "s2" {
+		t.Fatalf("expected created-at ordering, got %v", []string{chosenSessions[0].name, chosenSessions[1].name})
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
 type tmuxTabsDiscoverResult struct {
@@ -19,13 +20,14 @@ type tmuxTabsDiscoverResult struct {
 
 type tmuxSidebarDiscoverResult struct {
 	WorkspaceID string
-	Sessions    []string
+	Sessions    []sidebar.SessionAttachInfo
 }
 
 type sidebarSessionInfo struct {
 	name       string
 	instanceID string
 	createdAt  int64
+	hasClients bool
 }
 
 // discoverWorkspaceTabsFromTmux populates missing tabs from live tmux sessions.
@@ -130,8 +132,6 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
 		sessions := make([]sidebarSessionInfo, 0, len(rows))
-		latestByInstance := make(map[string]int64)
-		hasClients := make(map[string]bool, len(rows))
 		for _, row := range rows {
 			if row.Name == "" {
 				continue
@@ -140,8 +140,9 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			if err != nil || !state.Exists || !state.HasLivePane {
 				continue
 			}
-			if attached, err := tmux.SessionHasClients(row.Name, opts); err == nil {
-				hasClients[row.Name] = attached
+			attached := false
+			if value, err := tmux.SessionHasClients(row.Name, opts); err == nil {
+				attached = value
 			}
 			instanceID := strings.TrimSpace(row.Tags["@amux_instance"])
 			var createdAt int64
@@ -153,60 +154,127 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 					createdAt = fallback
 				}
 			}
-			if createdAt > latestByInstance[instanceID] {
-				latestByInstance[instanceID] = createdAt
-			}
 			sessions = append(sessions, sidebarSessionInfo{
 				name:       row.Name,
 				instanceID: instanceID,
 				createdAt:  createdAt,
+				hasClients: attached,
 			})
 		}
-		sessions = filterSessionsWithoutClients(sessions, hasClients)
 		if len(sessions) == 0 {
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
-		latestByInstance = make(map[string]int64, len(sessions))
+		attachable := filterSessionsWithoutClients(sessions)
+		chosen := selectSidebarInstance(sessions, instanceID)
+		logging.Debug("sidebar discover ws=%s total=%d attachable=%d chosen=%q",
+			wsID, len(sessions), len(attachable), chosen.ID,
+		)
 		for _, session := range sessions {
-			if session.createdAt > latestByInstance[session.instanceID] {
-				latestByInstance[session.instanceID] = session.createdAt
-			}
+			logging.Debug("sidebar session name=%s inst=%s clients=%v created=%d",
+				session.name, session.instanceID, session.hasClients, session.createdAt,
+			)
 		}
-		out := selectSidebarSessions(sessions, latestByInstance, instanceID)
+		chosenSessions := make([]sidebarSessionInfo, 0, len(sessions))
+		for _, session := range sessions {
+			if chosen.OK && session.instanceID != chosen.ID {
+				continue
+			}
+			chosenSessions = append(chosenSessions, session)
+		}
+		sort.SliceStable(chosenSessions, func(i, j int) bool {
+			ci, cj := chosenSessions[i].createdAt, chosenSessions[j].createdAt
+			if ci != 0 || cj != 0 {
+				if ci == 0 {
+					return false
+				}
+				if cj == 0 {
+					return true
+				}
+				if ci != cj {
+					return ci < cj
+				}
+			}
+			return chosenSessions[i].name < chosenSessions[j].name
+		})
+		out := make([]sidebar.SessionAttachInfo, 0, len(chosenSessions))
+		for _, session := range chosenSessions {
+			out = append(out, sidebar.SessionAttachInfo{
+				Name:           session.name,
+				Attach:         true,
+				DetachExisting: !session.hasClients,
+			})
+		}
 		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
 	}
 }
 
-func selectSidebarSessions(sessions []sidebarSessionInfo, latestByInstance map[string]int64, currentInstance string) []string {
-	chosenInstance := ""
-	if currentInstance != "" {
-		if _, ok := latestByInstance[currentInstance]; ok {
-			chosenInstance = currentInstance
-		}
-	}
-	if chosenInstance == "" {
-		var chosenAt int64
-		for instanceID, createdAt := range latestByInstance {
-			if instanceID == "" {
-				continue
-			}
-			if createdAt > chosenAt {
-				chosenAt = createdAt
-				chosenInstance = instanceID
-			}
-		}
-	}
-	out := make([]string, 0, len(sessions))
-	for _, session := range sessions {
-		if chosenInstance != "" && session.instanceID != chosenInstance {
-			continue
-		}
-		out = append(out, session.name)
-	}
-	return out
+type sidebarInstanceSelection struct {
+	ID string
+	OK bool
 }
 
-func filterSessionsWithoutClients(sessions []sidebarSessionInfo, hasClients map[string]bool) []sidebarSessionInfo {
+func selectSidebarInstance(sessions []sidebarSessionInfo, currentInstance string) sidebarInstanceSelection {
+	if len(sessions) == 0 {
+		return sidebarInstanceSelection{}
+	}
+	if currentInstance != "" {
+		for _, session := range sessions {
+			if session.instanceID == currentInstance {
+				return sidebarInstanceSelection{ID: currentInstance, OK: true}
+			}
+		}
+	}
+	type instanceStats struct {
+		count     int
+		createdAt int64
+		isEmpty   bool
+	}
+	stats := make(map[string]*instanceStats)
+	for _, session := range sessions {
+		stat := stats[session.instanceID]
+		if stat == nil {
+			stat = &instanceStats{isEmpty: session.instanceID == ""}
+			stats[session.instanceID] = stat
+		}
+		stat.count++
+		if session.createdAt > stat.createdAt {
+			stat.createdAt = session.createdAt
+		}
+	}
+	var chosenID string
+	var chosen instanceStats
+	hasChoice := false
+	for id, stat := range stats {
+		if !hasChoice {
+			chosenID = id
+			chosen = *stat
+			hasChoice = true
+			continue
+		}
+		if stat.count > chosen.count {
+			chosenID = id
+			chosen = *stat
+			continue
+		}
+		if stat.count == chosen.count {
+			if stat.createdAt > chosen.createdAt {
+				chosenID = id
+				chosen = *stat
+				continue
+			}
+			if stat.createdAt == chosen.createdAt && chosen.isEmpty && !stat.isEmpty {
+				chosenID = id
+				chosen = *stat
+			}
+		}
+	}
+	if !hasChoice {
+		return sidebarInstanceSelection{}
+	}
+	return sidebarInstanceSelection{ID: chosenID, OK: true}
+}
+
+func filterSessionsWithoutClients(sessions []sidebarSessionInfo) []sidebarSessionInfo {
 	if len(sessions) == 0 {
 		return nil
 	}
@@ -215,7 +283,7 @@ func filterSessionsWithoutClients(sessions []sidebarSessionInfo, hasClients map[
 		if session.name == "" {
 			continue
 		}
-		if hasClients[session.name] {
+		if session.hasClients {
 			continue
 		}
 		out = append(out, session)
@@ -277,5 +345,5 @@ func (a *App) handleTmuxSidebarDiscoverResult(msg tmuxSidebarDiscoverResult) []t
 		}
 		return nil
 	}
-	return a.sidebarTerminal.AddTabsFromSessions(ws, msg.Sessions)
+	return a.sidebarTerminal.AddTabsFromSessionInfos(ws, msg.Sessions)
 }

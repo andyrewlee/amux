@@ -271,49 +271,6 @@ func (m *TerminalModel) getTabByID(wsID string, tabID TerminalTabID) *TerminalTa
 	return nil
 }
 
-func (m *TerminalModel) hasSession(wsID, sessionName string) bool {
-	if sessionName == "" {
-		return false
-	}
-	for _, tab := range m.tabsByWorkspace[wsID] {
-		if tab.State != nil && tab.State.SessionName == sessionName {
-			return true
-		}
-	}
-	return false
-}
-
-// AddTabsFromSessions ensures tabs exist for the provided tmux session names.
-func (m *TerminalModel) AddTabsFromSessions(ws *data.Workspace, sessions []string) []tea.Cmd {
-	if ws == nil || len(sessions) == 0 {
-		return nil
-	}
-	wsID := string(ws.ID())
-	var cmds []tea.Cmd
-	for _, sessionName := range sessions {
-		if m.hasSession(wsID, sessionName) {
-			continue
-		}
-		tabID := generateTerminalTabID()
-		tab := &TerminalTab{
-			ID:   tabID,
-			Name: nextTerminalName(m.tabsByWorkspace[wsID]),
-			State: &TerminalState{
-				SessionName: sessionName,
-				Running:     false,
-				Detached:    true,
-			},
-		}
-		m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-		if len(m.tabsByWorkspace[wsID]) == 1 {
-			m.activeTabByWorkspace[wsID] = 0
-		}
-		cmds = append(cmds, m.attachToSession(ws, tabID, sessionName, "reattach"))
-	}
-	m.refreshTerminalSize()
-	return cmds
-}
-
 // nextTerminalName returns the next available terminal name
 func nextTerminalName(tabs []*TerminalTab) string {
 	maxNum := 0

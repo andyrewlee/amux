@@ -96,7 +96,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			CreatedAt:   time.Now().Unix(),
 			InstanceID:  instanceID,
 		}
-		command := tmux.ClientCommandWithTags(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags)
+		command := tmux.ClientCommandWithTagsAttach(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags, true)
 		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
@@ -142,7 +142,7 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
-	return m.attachToSession(ws, tab.ID, sessionName, "reattach")
+	return m.attachToSession(ws, tab.ID, sessionName, true, "reattach")
 }
 
 // RestartActiveTab starts a fresh tmux session for the active terminal tab.
@@ -167,10 +167,10 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	}
 	m.detachState(ts)
 	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
-	return m.attachToSession(ws, tab.ID, sessionName, "restart")
+	return m.attachToSession(ws, tab.ID, sessionName, true, "restart")
 }
 
-func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName, action string) tea.Cmd {
+func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName string, detachExisting bool, action string) tea.Cmd {
 	if ws == nil {
 		return nil
 	}
@@ -224,7 +224,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		if action == "restart" {
 			tags.CreatedAt = time.Now().Unix()
 		}
-		command := tmux.ClientCommandWithTags(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags)
+		command := tmux.ClientCommandWithTagsAttach(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags, detachExisting)
 		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return SidebarTerminalReattachFailed{
