@@ -130,6 +130,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant str
 			TabID:       string(tabID),
 			Type:        "agent",
 			Assistant:   assistant,
+			InstanceID:  m.instanceID,
 		}
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
