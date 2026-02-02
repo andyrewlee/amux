@@ -121,6 +121,28 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 	return running
 }
 
+// GetWorkspaceAgentStates returns a map of workspace ID → hasRunningAgent.
+// A key being present means the workspace has at least one agent tab.
+// The value being true means at least one agent is running (not detached/stopped).
+func (m *Model) GetWorkspaceAgentStates() map[string]bool {
+	states := make(map[string]bool)
+	for wsID, tabs := range m.tabsByWorkspace {
+		for _, tab := range tabs {
+			if tab.isClosed() || !m.isChatTab(tab) {
+				continue
+			}
+			// Workspace has at least one agent tab
+			if _, exists := states[wsID]; !exists {
+				states[wsID] = false
+			}
+			if tab.Running && !tab.Detached {
+				states[wsID] = true
+			}
+		}
+	}
+	return states
+}
+
 func (m *Model) isChatTab(tab *Tab) bool {
 	if tab == nil {
 		return false

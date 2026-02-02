@@ -82,7 +82,8 @@ type Model struct {
 	spinnerActive      bool                       // Whether spinner ticks are active
 
 	// Agent activity state
-	activeWorkspaceIDs map[string]bool // Workspace IDs with active agents (synced from center)
+	activeWorkspaceIDs   map[string]bool // Workspace IDs with active agents (synced from center)
+	workspaceAgentStates map[string]bool // Workspace ID → has running agent (key present = has agents)
 
 	// Styles
 	styles common.Styles
@@ -96,7 +97,8 @@ func New() *Model {
 		statusCache:        make(map[string]*git.StatusResult),
 		creatingWorkspaces: make(map[string]*data.Workspace),
 		deletingWorkspaces: make(map[string]bool),
-		activeWorkspaceIDs: make(map[string]bool),
+		activeWorkspaceIDs:   make(map[string]bool),
+		workspaceAgentStates: make(map[string]bool),
 		cursor:             0,
 		focused:            true,
 		styles:             common.DefaultStyles(),
@@ -106,6 +108,12 @@ func New() *Model {
 // SetActiveWorkspaces updates the set of workspaces with active agents.
 func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 	m.activeWorkspaceIDs = active
+}
+
+// SetWorkspaceAgentStates updates the agent state map for workspaces.
+// Keys present indicate a workspace has agent tabs; value true means at least one is running.
+func (m *Model) SetWorkspaceAgentStates(states map[string]bool) {
+	m.workspaceAgentStates = states
 }
 
 // InvalidateStatus removes a workspace's cached status.

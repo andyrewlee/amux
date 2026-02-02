@@ -94,6 +94,18 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		dirty := false
 		working := false
 
+		// Agent state indicator (● running, ○ idle/no agents)
+		indicatorWidth := 2 // icon + space
+		hasRunningAgent := false
+		indicator := common.Icons.Idle + " "
+		if row.Workspace != nil {
+			wsID := string(row.Workspace.ID())
+			if hasRunning, hasAgents := m.workspaceAgentStates[wsID]; hasAgents && hasRunning {
+				hasRunningAgent = true
+				indicator = common.Icons.Running + " "
+			}
+		}
+
 		// Check deletion state first
 		if m.deletingWorkspaces[row.Workspace.Root] {
 			frame := common.SpinnerFrame(m.spinnerFrame)
@@ -122,6 +134,18 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if !working && !selected && dirty {
 			style = style.Foreground(common.ColorSecondary)
 		}
+
+		// Style indicator separately: primary for running, muted for idle
+		iconFg := common.ColorMuted
+		if hasRunningAgent {
+			iconFg = common.ColorPrimary
+		}
+		iconStyle := lipgloss.NewStyle().Foreground(iconFg)
+		if selected {
+			iconStyle = iconStyle.Bold(true).Background(common.ColorSelection)
+		}
+		indicatorStyled := iconStyle.Render(indicator)
+
 		// Reserve space for delete icon to keep status aligned
 		deleteSlot := "   "
 		deleteSlotWidth := 3
@@ -129,8 +153,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			deleteSlot = " " + common.Icons.Close + " "
 		}
 
-		// Truncate workspace name to fit within pane (width - border - padding - status - deleteSlot)
-		prefixWidth := lipgloss.Width(unstyledPrefix) + lipgloss.Width(styledPrefix)
+		// Truncate workspace name to fit within pane (width - border - padding - status - deleteSlot - indicator)
+		prefixWidth := lipgloss.Width(unstyledPrefix) + lipgloss.Width(styledPrefix) + indicatorWidth
 		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - prefixWidth - 1
 		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
 			runes := []rune(name)
@@ -142,10 +166,10 @@ func (m *Model) renderRow(row Row, selected bool) string {
 
 		// Track delete slot position for click detection
 		if selected {
-			m.deleteIconX = lipgloss.Width(unstyledPrefix) + lipgloss.Width(style.Render(styledPrefix+name))
+			m.deleteIconX = lipgloss.Width(unstyledPrefix+styledPrefix) + indicatorWidth + lipgloss.Width(style.Render(name))
 		}
 
-		return unstyledPrefix + style.Render(styledPrefix+name+deleteSlot) + status
+		return unstyledPrefix + style.Render(styledPrefix) + indicatorStyled + style.Render(name+deleteSlot) + status
 
 	case RowCreate:
 		unstyledPrefix := " "
