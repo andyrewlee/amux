@@ -213,6 +213,28 @@ func TestClientCommandWithTags(t *testing.T) {
 	}
 }
 
+func TestClientCommandWithInstanceIDOnly(t *testing.T) {
+	opts := Options{
+		ServerName:      "test-server",
+		ConfigPath:      "/dev/null",
+		HideStatus:      true,
+		DisableMouse:    true,
+		DefaultTerminal: "xterm-256color",
+	}
+	tags := SessionTags{
+		InstanceID: "inst-only",
+	}
+
+	cmd := ClientCommandWithTags("test-session", "/tmp/work", "echo hello", opts, tags)
+
+	if !strings.Contains(cmd, "@amux 1") {
+		t.Error("Command should set @amux tag when only InstanceID is provided")
+	}
+	if !strings.Contains(cmd, "@amux_instance 'inst-only'") {
+		t.Error("Command should set @amux_instance tag")
+	}
+}
+
 func TestClientCommandWithTagsAttachShared(t *testing.T) {
 	opts := Options{
 		ServerName:      "test-server",

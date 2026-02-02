@@ -147,7 +147,8 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			if err != nil || !state.Exists || !state.HasLivePane {
 				continue
 			}
-			attached := false
+			// Assume clients exist on error to avoid detaching other sessions.
+			attached := true
 			if value, err := tmux.SessionHasClients(row.Name, opts); err == nil {
 				attached = value
 			}

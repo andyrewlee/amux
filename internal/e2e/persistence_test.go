@@ -327,6 +327,27 @@ func skipIfNoTmux(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
+	ensureTmuxServer(t)
+}
+
+func ensureTmuxServer(t *testing.T) {
+	t.Helper()
+	server := fmt.Sprintf("amux-e2e-check-%d", time.Now().UnixNano())
+	args := []string{"-L", server, "start-server"}
+	cmd := exec.Command("tmux", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("tmux server socket unavailable: %v\n%s", err, out)
+	}
+	t.Cleanup(func() {
+		killTmuxServer(t, server)
+	})
+	args = []string{"-L", server, "show-options", "-g"}
+	cmd = exec.Command("tmux", args...)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("tmux server socket unreachable: %v\n%s", err, out)
+	}
 }
 
 func killTmuxServer(t *testing.T, server string) {

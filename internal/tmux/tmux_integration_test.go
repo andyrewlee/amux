@@ -18,6 +18,23 @@ func skipIfNoTmux(t *testing.T) {
 	}
 }
 
+func ensureTmuxServer(t *testing.T, opts Options) {
+	t.Helper()
+	args := tmuxArgs(opts, "start-server")
+	cmd := exec.Command("tmux", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("tmux server socket unavailable: %v\n%s", err, out)
+	}
+	// Verify the server is reachable.
+	args = tmuxArgs(opts, "show-options", "-g")
+	cmd = exec.Command("tmux", args...)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("tmux server socket unreachable: %v\n%s", err, out)
+	}
+}
+
 // testServer returns Options pointing at an isolated tmux server and registers
 // a cleanup that kills the server when the test finishes.
 func testServer(t *testing.T) Options {
@@ -32,6 +49,7 @@ func testServer(t *testing.T) Options {
 		cmd := exec.Command("tmux", "-L", name, "kill-server")
 		_ = cmd.Run()
 	})
+	ensureTmuxServer(t, opts)
 	return opts
 }
 
