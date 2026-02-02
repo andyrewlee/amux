@@ -17,16 +17,26 @@ func (m *Model) tickSpinner() tea.Cmd {
 	})
 }
 
-// startSpinnerIfNeeded starts spinner ticks if we have pending activity.
+// startSpinnerIfNeeded starts spinner ticks if we have pending activity or running agents.
 func (m *Model) startSpinnerIfNeeded() tea.Cmd {
 	if m.spinnerActive {
 		return nil
 	}
-	if len(m.creatingWorkspaces) == 0 && len(m.deletingWorkspaces) == 0 {
+	if len(m.creatingWorkspaces) == 0 && len(m.deletingWorkspaces) == 0 && !m.hasActiveAgents() {
 		return nil
 	}
 	m.spinnerActive = true
 	return m.tickSpinner()
+}
+
+// hasActiveAgents returns true if any workspace has an actively processing agent.
+func (m *Model) hasActiveAgents() bool {
+	for _, state := range m.workspaceAgentStates {
+		if state >= 2 {
+			return true
+		}
+	}
+	return false
 }
 
 // StartSpinnerIfNeeded is the public version for external callers.

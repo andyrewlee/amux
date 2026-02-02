@@ -412,8 +412,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		// Sync active agents state to dashboard (show spinner only when actively outputting)
-		a.syncActiveWorkspacesToDashboard()
-		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
+		if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
 			cmds = append(cmds, startCmd)
 		}
 

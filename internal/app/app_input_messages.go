@@ -143,7 +143,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		}
 	}
 	// Sync active workspaces to dashboard (fixes spinner race condition)
-	a.syncActiveWorkspacesToDashboard()
+	if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
+		cmds = append(cmds, startCmd)
+	}
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
 	cmds = append(cmds, cmd)
@@ -273,7 +275,9 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 	a.sidebar.SetWorkspace(msg.Workspace)
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	// Sync active workspaces to dashboard (fixes spinner race condition)
-	a.syncActiveWorkspacesToDashboard()
+	if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
+		cmds = append(cmds, startCmd)
+	}
 	if msg.Workspace != nil && a.statusManager != nil {
 		if cached := a.statusManager.GetCached(msg.Workspace.Root); cached != nil {
 			a.sidebar.SetGitStatus(cached)

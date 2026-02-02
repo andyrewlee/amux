@@ -30,7 +30,9 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root))
 	}
 	// Refresh active workspace indicators even when no PTY output is flowing.
-	a.syncActiveWorkspacesToDashboard()
+	if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
+		cmds = append(cmds, startCmd)
+	}
 	cmds = append(cmds, a.startGitStatusTicker())
 	return cmds
 }
@@ -65,15 +67,14 @@ func (a *App) handleTabInputFailed(msg center.TabInputFailed) []tea.Cmd {
 // handleSpinnerTick handles the SpinnerTickMsg from dashboard.
 func (a *App) handleSpinnerTick(msg dashboard.SpinnerTickMsg) []tea.Cmd {
 	var cmds []tea.Cmd
-	a.syncActiveWorkspacesToDashboard()
+	if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
+		cmds = append(cmds, startCmd)
+	}
 	a.center.TickSpinner()
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
 	if cmd != nil {
 		cmds = append(cmds, cmd)
-	}
-	if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
-		cmds = append(cmds, startCmd)
 	}
 	return cmds
 }
@@ -92,7 +93,9 @@ func (a *App) handlePTYWatchdogTick() []tea.Cmd {
 		}
 	}
 	// Keep dashboard "working" state accurate even when agents go idle.
-	a.syncActiveWorkspacesToDashboard()
+	if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
+		cmds = append(cmds, startCmd)
+	}
 	cmds = append(cmds, a.startPTYWatchdog())
 	return cmds
 }

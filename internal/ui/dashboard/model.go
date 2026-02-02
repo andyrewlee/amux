@@ -83,7 +83,7 @@ type Model struct {
 
 	// Agent activity state
 	activeWorkspaceIDs   map[string]bool // Workspace IDs with active agents (synced from center)
-	workspaceAgentStates map[string]bool // Workspace ID → has running agent (key present = has agents)
+	workspaceAgentStates map[string]int  // Workspace ID → agent state (0=idle, 1=running, 2=active)
 
 	// Styles
 	styles common.Styles
@@ -98,7 +98,7 @@ func New() *Model {
 		creatingWorkspaces: make(map[string]*data.Workspace),
 		deletingWorkspaces: make(map[string]bool),
 		activeWorkspaceIDs:   make(map[string]bool),
-		workspaceAgentStates: make(map[string]bool),
+		workspaceAgentStates: make(map[string]int),
 		cursor:             0,
 		focused:            true,
 		styles:             common.DefaultStyles(),
@@ -111,9 +111,12 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 }
 
 // SetWorkspaceAgentStates updates the agent state map for workspaces.
-// Keys present indicate a workspace has agent tabs; value true means at least one is running.
-func (m *Model) SetWorkspaceAgentStates(states map[string]bool) {
+// Keys present indicate a workspace has agent tabs.
+// Values: 0=idle, 1=running but waiting, 2=actively processing.
+// Returns a command to start the spinner if any agent is actively processing.
+func (m *Model) SetWorkspaceAgentStates(states map[string]int) tea.Cmd {
 	m.workspaceAgentStates = states
+	return m.startSpinnerIfNeeded()
 }
 
 // InvalidateStatus removes a workspace's cached status.
@@ -277,8 +280,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 	case SpinnerTickMsg:
-		// Advance spinner frame if we have loading items or active agents
-		if len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 {
+		// Advance spinner frame if we have loading items or running agents
+		if len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 || m.hasActiveAgents() {
 			m.spinnerFrame++
 			cmds = append(cmds, m.tickSpinner())
 		} else {

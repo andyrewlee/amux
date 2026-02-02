@@ -94,15 +94,20 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		dirty := false
 		working := false
 
-		// Agent state indicator (● running, ○ idle/no agents)
+		// Agent state indicator (spinner=active, ●=running, ○=idle)
 		indicatorWidth := 2 // icon + space
-		hasRunningAgent := false
+		agentState := 0
 		indicator := common.Icons.Idle + " "
 		if row.Workspace != nil {
 			wsID := string(row.Workspace.ID())
-			if hasRunning, hasAgents := m.workspaceAgentStates[wsID]; hasAgents && hasRunning {
-				hasRunningAgent = true
-				indicator = common.Icons.Running + " "
+			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
+				agentState = state
+				switch {
+				case state >= 2: // actively processing
+					indicator = common.SpinnerFrame(m.spinnerFrame) + " "
+				case state >= 1: // running but idle
+					indicator = common.Icons.Running + " "
+				}
 			}
 		}
 
@@ -135,9 +140,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			style = style.Foreground(common.ColorSecondary)
 		}
 
-		// Style indicator separately: primary for running, muted for idle
+		// Style indicator separately: primary for running/active, muted for idle
 		iconFg := common.ColorMuted
-		if hasRunningAgent {
+		if agentState >= 1 {
 			iconFg = common.ColorPrimary
 		}
 		iconStyle := lipgloss.NewStyle().Foreground(iconFg)

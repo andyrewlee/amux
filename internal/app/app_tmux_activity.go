@@ -144,9 +144,8 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 		a.sessionActivityStates[name] = state
 	}
 	a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
-	a.syncActiveWorkspacesToDashboard()
-	if cmd := a.dashboard.StartSpinnerIfNeeded(); cmd != nil {
-		cmds = append(cmds, cmd)
+	if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
+		cmds = append(cmds, startCmd)
 	}
 	return cmds
 }
