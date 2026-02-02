@@ -267,10 +267,16 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 		return ""
 	}
 	status := ""
+	hint := ""
 	if tab.Detached {
 		status = " DETACHED "
 	} else if !tab.Running {
-		status = " STOPPED "
+		if tab.autoRestartAttempt > 0 && tab.autoRestartAttempt <= tabAutoRestartMax {
+			status = fmt.Sprintf(" RESTARTING (%d/%d) ", tab.autoRestartAttempt, tabAutoRestartMax)
+		} else {
+			status = " STOPPED "
+			hint = " Ctrl-a S to restart "
+		}
 	}
 	statusStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -281,7 +287,13 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 	} else if !tab.Running {
 		statusStyle = statusStyle.Background(common.ColorError)
 	}
-	return statusStyle.Render(status)
+	result := statusStyle.Render(status)
+	if hint != "" {
+		hintStyle := lipgloss.NewStyle().
+			Foreground(common.ColorMuted)
+		result += " " + hintStyle.Render(hint)
+	}
+	return result
 }
 
 // activeTerminalStatusLine returns the status line for the active terminal.

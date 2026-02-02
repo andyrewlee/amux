@@ -1,6 +1,8 @@
 package pty
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +14,31 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
+
+// AgentOptions holds optional flags for agent creation.
+type AgentOptions struct {
+	ClaudeSessionID string // UUID to pass as --session-id or --resume
+	Resume          bool   // If true, use --resume instead of --session-id
+}
+
+// GenerateSessionID returns a new random UUID v4 string.
+func GenerateSessionID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	var buf [36]byte
+	hex.Encode(buf[0:8], b[0:4])
+	buf[8] = '-'
+	hex.Encode(buf[9:13], b[4:6])
+	buf[13] = '-'
+	hex.Encode(buf[14:18], b[6:8])
+	buf[18] = '-'
+	hex.Encode(buf[19:23], b[8:10])
+	buf[23] = '-'
+	hex.Encode(buf[24:36], b[10:16])
+	return string(buf[:])
+}
 
 // AgentType represents the type of AI agent
 type AgentType string
@@ -52,11 +79,11 @@ func NewAgentManager(cfg *config.Config) *AgentManager {
 
 // CreateAgent creates a new agent for the given workspace.
 func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16) (*Agent, error) {
-	return m.CreateAgentWithTags(ws, agentType, sessionName, rows, cols, tmux.SessionTags{})
+	return m.CreateAgentWithTags(ws, agentType, sessionName, rows, cols, tmux.SessionTags{}, AgentOptions{})
 }
 
 // CreateAgentWithTags creates a new agent for the given workspace with tmux tags.
-func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*Agent, error) {
+func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags, opts AgentOptions) (*Agent, error) {
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
@@ -87,6 +114,15 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 			_ = config.SyncProfileSharedDirs(m.config.Paths.ProfilesRoot, ws.Profile)
 		}
 		agentCommand = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s %s", shellQuote(profileDir), agentCommand)
+	}
+
+	// Append Claude session flags for conversation resumption.
+	if agentType == AgentClaude && opts.ClaudeSessionID != "" {
+		if opts.Resume {
+			agentCommand += " --resume " + shellQuote(opts.ClaudeSessionID)
+		} else {
+			agentCommand += " --session-id " + shellQuote(opts.ClaudeSessionID)
+		}
 	}
 
 	// Create terminal with agent command, falling back to shell on exit

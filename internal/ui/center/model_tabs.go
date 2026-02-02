@@ -55,6 +55,7 @@ type ptyTabCreateResult struct {
 	Rows              int
 	Cols              int
 	ScrollbackCapture []byte
+	ClaudeSessionID   string
 }
 
 type ptyTabReattachResult struct {
@@ -64,6 +65,7 @@ type ptyTabReattachResult struct {
 	Rows              int
 	Cols              int
 	ScrollbackCapture []byte
+	ClaudeSessionID   string
 }
 
 type ptyTabReattachFailed struct {
@@ -83,10 +85,10 @@ func truncateDisplayName(name string) string {
 
 // createAgentTab creates a new agent tab
 func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
-	return m.createAgentTabWithSession(assistant, ws, "", "", true)
+	return m.createAgentTabWithSession(assistant, ws, "", "", true, "")
 }
 
-func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, sessionName string, displayName string, activate bool) tea.Cmd {
+func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, sessionName string, displayName string, activate bool, claudeSessionID string) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
 			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating agent"}
@@ -106,6 +108,19 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			sessionName, _ = tmux.NextUniqueSessionName(ws.Name, tmux.DefaultOptions())
 		}
 
+		// Build agent options for Claude session resumption.
+		var agentOpts appPty.AgentOptions
+		if appPty.AgentType(assistant) == appPty.AgentClaude {
+			if claudeSessionID != "" {
+				// Restoring from persisted state — resume existing conversation.
+				agentOpts = appPty.AgentOptions{ClaudeSessionID: claudeSessionID, Resume: true}
+			} else {
+				// New tab — generate a fresh session ID.
+				claudeSessionID = appPty.GenerateSessionID()
+				agentOpts = appPty.AgentOptions{ClaudeSessionID: claudeSessionID}
+			}
+		}
+
 		tags := tmux.SessionTags{
 			WorkspaceID: string(ws.ID()),
 			TabID:       string(tabID),
@@ -113,7 +128,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			Assistant:   assistant,
 			CreatedAt:   time.Now().Unix(),
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags, agentOpts)
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}
@@ -135,6 +150,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			Rows:              termHeight,
 			Cols:              termWidth,
 			ScrollbackCapture: scrollback,
+			ClaudeSessionID:   claudeSessionID,
 		}
 	}
 }
@@ -174,15 +190,16 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tabID = generateTabID()
 	}
 	tab := &Tab{
-		ID:           tabID,
-		Name:         displayName,
-		Assistant:    msg.Assistant,
-		Workspace:    msg.Workspace,
-		Agent:        msg.Agent,
-		SessionName:  msg.Agent.Session,
-		Terminal:     term,
-		Running:      true, // Agent/viewer starts running
-		monitorDirty: true,
+		ID:              tabID,
+		Name:            displayName,
+		Assistant:       msg.Assistant,
+		Workspace:       msg.Workspace,
+		Agent:           msg.Agent,
+		SessionName:     msg.Agent.Session,
+		ClaudeSessionID: msg.ClaudeSessionID,
+		Terminal:        term,
+		Running:         true, // Agent/viewer starts running
+		monitorDirty:    true,
 	}
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)
@@ -411,6 +428,7 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 		if sessionName == "" && tab.Agent != nil {
 			sessionName = tab.Agent.Session
 		}
+		claudeSessionID := tab.ClaudeSessionID
 		tab.mu.Unlock()
 		status := "stopped"
 		if detached {
@@ -419,10 +437,11 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 			status = "running"
 		}
 		result = append(result, data.TabInfo{
-			Assistant:   tab.Assistant,
-			Name:        tab.Name,
-			SessionName: sessionName,
-			Status:      status,
+			Assistant:       tab.Assistant,
+			Name:            tab.Name,
+			SessionName:     sessionName,
+			Status:          status,
+			ClaudeSessionID: claudeSessionID,
 		})
 	}
 	return result, m.getActiveTabIdx()
@@ -443,6 +462,7 @@ func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 		if sessionName == "" && tab.Agent != nil {
 			sessionName = tab.Agent.Session
 		}
+		claudeSessionID := tab.ClaudeSessionID
 		tab.mu.Unlock()
 		status := "stopped"
 		if detached {
@@ -451,10 +471,11 @@ func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 			status = "running"
 		}
 		result = append(result, data.TabInfo{
-			Assistant:   tab.Assistant,
-			Name:        tab.Name,
-			SessionName: sessionName,
-			Status:      status,
+			Assistant:       tab.Assistant,
+			Name:            tab.Name,
+			SessionName:     sessionName,
+			Status:          status,
+			ClaudeSessionID: claudeSessionID,
 		})
 	}
 	return result, m.activeTabByWorkspace[wsID]

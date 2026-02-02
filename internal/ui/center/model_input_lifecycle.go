@@ -10,6 +10,8 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
+	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -56,9 +58,13 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	}
 	tab.Agent = msg.Agent
 	tab.SessionName = msg.Agent.Session
+	if msg.ClaudeSessionID != "" {
+		tab.ClaudeSessionID = msg.ClaudeSessionID
+	}
 	tab.Detached = false
 	tab.Running = true
 	tab.monitorDirty = true
+	tab.autoRestartAttempt = 0
 	tab.mu.Unlock()
 
 	if tab.Terminal != nil && msg.Agent.Terminal != nil {
@@ -140,10 +146,149 @@ func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, t
 	tab.mu.Lock()
 	tab.Running = false
 	tab.Detached = false
+	tab.autoRestartAttempt = 0
+	tabID := tab.ID
 	tab.mu.Unlock()
+
+	// Schedule automatic restart after a brief delay.
+	wsID := msg.WorkspaceID
+	restartCmd := common.SafeTick(tabAutoRestartInitial, func(time.Time) tea.Msg {
+		return tabAutoRestart{WorkspaceID: wsID, TabID: tabID, Attempt: 1}
+	})
+
 	return m, common.SafeBatch(func() tea.Msg {
 		return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(tab.ID)}
-	})
+	}, func() tea.Msg {
+		return messages.Toast{
+			Message: "Detected crash, attempting auto-restart...",
+			Level:   messages.ToastWarning,
+		}
+	}, restartCmd)
+}
+
+// updateTabAutoRestart handles automatic restart attempts for stopped tabs.
+func (m *Model) updateTabAutoRestart(msg tabAutoRestart) (*Model, tea.Cmd) {
+	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	if tab == nil {
+		return m, nil
+	}
+
+	// If the tab was already restarted (manually or by a previous attempt), skip.
+	tab.mu.Lock()
+	running := tab.Running
+	detached := tab.Detached
+	tab.mu.Unlock()
+	if running || detached {
+		return m, nil
+	}
+
+	// Check assistant is still valid.
+	if m.config == nil || m.config.Assistants == nil {
+		return m, nil
+	}
+	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+		return m, nil
+	}
+
+	tab.mu.Lock()
+	sessionName := tab.SessionName
+	claudeSessionID := tab.ClaudeSessionID
+	tab.autoRestartAttempt = msg.Attempt
+	tab.mu.Unlock()
+
+	ws := tab.Workspace
+	if ws == nil {
+		return m, nil
+	}
+	tabID := tab.ID
+	if sessionName == "" {
+		sessionName = tmux.SessionName("amux", ws.Name, "1")
+	}
+
+	// Clean up any leftover agent.
+	m.stopPTYReader(tab)
+	tab.mu.Lock()
+	existingAgent := tab.Agent
+	tab.Agent = nil
+	tab.mu.Unlock()
+	if existingAgent != nil {
+		_ = m.agentManager.CloseAgent(existingAgent)
+	}
+
+	tmuxOpts := m.getTmuxOptions()
+	tm := m.terminalMetrics()
+	termWidth := tm.Width
+	termHeight := tm.Height
+	assistant := tab.Assistant
+	attempt := msg.Attempt
+
+	logging.Info("Auto-restart attempt %d/%d for tab %s", attempt, tabAutoRestartMax, tabID)
+
+	return m, func() tea.Msg {
+		_ = tmux.KillSession(sessionName, tmuxOpts)
+
+		agentOpts := appPty.AgentOptions{}
+		if claudeSessionID != "" {
+			agentOpts = appPty.AgentOptions{ClaudeSessionID: claudeSessionID, Resume: true}
+		}
+
+		tags := tmux.SessionTags{
+			WorkspaceID: string(ws.ID()),
+			TabID:       string(tabID),
+			Type:        "agent",
+			Assistant:   assistant,
+			CreatedAt:   time.Now().Unix(),
+		}
+		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags, agentOpts)
+		if err != nil {
+			logging.Warn("Auto-restart attempt %d failed for tab %s: %v", attempt, tabID, err)
+			return tabAutoRestartFailed{
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Attempt:     attempt,
+				Err:         err,
+			}
+		}
+
+		scrollback, _ := tmux.CapturePane(sessionName, tmuxOpts)
+		return ptyTabReattachResult{
+			WorkspaceID:       string(ws.ID()),
+			TabID:             tabID,
+			Agent:             agent,
+			Rows:              termHeight,
+			Cols:              termWidth,
+			ScrollbackCapture: scrollback,
+			ClaudeSessionID:   claudeSessionID,
+		}
+	}
+}
+
+// updateTabAutoRestartFailed handles a failed auto-restart attempt.
+func (m *Model) updateTabAutoRestartFailed(msg tabAutoRestartFailed) (*Model, tea.Cmd) {
+	if msg.Attempt < tabAutoRestartMax {
+		// Retry with exponential backoff.
+		delay := tabAutoRestartInitial
+		for i := 1; i < msg.Attempt; i++ {
+			delay *= 2
+			if delay > tabAutoRestartMaxWait {
+				delay = tabAutoRestartMaxWait
+				break
+			}
+		}
+		wsID := msg.WorkspaceID
+		tabID := msg.TabID
+		next := msg.Attempt + 1
+		return m, common.SafeTick(delay, func(time.Time) tea.Msg {
+			return tabAutoRestart{WorkspaceID: wsID, TabID: tabID, Attempt: next}
+		})
+	}
+	// Max attempts exhausted — show manual restart hint.
+	return m, func() tea.Msg {
+		return messages.Toast{
+			Message: "Auto-restart failed. Press Ctrl-a S to restart manually.",
+			Level:   messages.ToastWarning,
+		}
+	}
 }
 
 // updateTabActorReady handles tabActorReady.
