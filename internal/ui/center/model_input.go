@@ -139,9 +139,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					tab.Terminal.ClearSelection()
 				}
 				tab.Selection = SelectionState{}
-				tab.selectionScrollDir = 0
-				tab.selectionScrollActive = false
-				tab.selectionGen++
+				tab.selectionScroll.Reset()
 				tab.mu.Unlock()
 			}
 		}

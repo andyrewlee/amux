@@ -53,6 +53,11 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	case tea.MouseReleaseMsg:
 		return m.handleMouseRelease(msg)
 
+	case SidebarSelectionScrollTick:
+		if cmd := m.handleSelectionScrollTick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case tea.MouseWheelMsg:
 		if !m.focused {
 			return m, nil

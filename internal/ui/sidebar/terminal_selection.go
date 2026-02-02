@@ -1,6 +1,8 @@
 package sidebar
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -116,6 +118,7 @@ func (m *TerminalModel) handleMouseClick(msg tea.MouseClickMsg) (*TerminalModel,
 		if ts.VTerm != nil {
 			ts.VTerm.ClearSelection()
 		}
+		ts.selectionScroll.Reset()
 		if inBounds && ts.VTerm != nil {
 			// Convert screen Y to absolute line number
 			absLine := ts.VTerm.ScreenYToAbsoluteLine(termY)
@@ -153,6 +156,8 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 
 	termX, termY, _ := m.screenToTerminal(msg.X, msg.Y)
 
+	var cmd tea.Cmd
+
 	ts.mu.Lock()
 	if ts.Selection.Active && ts.VTerm != nil {
 		termWidth := ts.VTerm.Width
@@ -165,6 +170,9 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 		if termX >= termWidth {
 			termX = termWidth - 1
 		}
+
+		// Set scroll direction from unclamped Y before clamping
+		ts.selectionScroll.SetDirection(termY, termHeight)
 
 		// Auto-scroll when dragging at edges
 		if termY < 0 {
@@ -193,10 +201,25 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 		)
 		ts.Selection.StartX = startX
 		ts.Selection.StartLine = startLine
+
+		// Store last X for tick-based endpoint updates
+		ts.selectionLastTermX = termX
+
+		// Start tick loop for continuous scrolling if needed
+		if needTick, gen := ts.selectionScroll.NeedsTick(); needTick {
+			activeTab := m.getActiveTab()
+			if activeTab != nil {
+				wsID := m.workspaceID()
+				tabID := activeTab.ID
+				cmd = common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
+					return SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+				})
+			}
+		}
 	}
 	ts.mu.Unlock()
 
-	return m, nil
+	return m, cmd
 }
 
 // handleMouseRelease handles mouse release events for selection completion
@@ -234,6 +257,7 @@ func (m *TerminalModel) handleMouseRelease(msg tea.MouseReleaseMsg) (*TerminalMo
 			// Keep selection visible - don't clear it
 		}
 		ts.Selection.Active = false
+		ts.selectionScroll.Reset()
 	}
 	ts.mu.Unlock()
 
@@ -244,6 +268,49 @@ func (m *TerminalModel) handleMouseRelease(msg tea.MouseReleaseMsg) (*TerminalMo
 func (m *TerminalModel) SetOffset(x, y int) {
 	m.offsetX = x
 	m.offsetY = y
+}
+
+// handleSelectionScrollTick handles a SidebarSelectionScrollTick message,
+// scrolling the viewport and extending the selection highlight.
+func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick) tea.Cmd {
+	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	if tab == nil || tab.State == nil {
+		return nil
+	}
+	ts := tab.State
+	ts.mu.Lock()
+	if !ts.Selection.Active || ts.VTerm == nil || !ts.selectionScroll.HandleTick(msg.Gen) {
+		ts.mu.Unlock()
+		return nil
+	}
+	ts.VTerm.ScrollView(ts.selectionScroll.ScrollDir)
+
+	// Update selection endpoint to viewport edge
+	edgeY := 0
+	if ts.selectionScroll.ScrollDir < 0 {
+		edgeY = ts.VTerm.Height - 1
+	}
+	absLine := ts.VTerm.ScreenYToAbsoluteLine(edgeY)
+	endX := ts.selectionLastTermX
+	startX := ts.VTerm.SelStartX()
+	startLine := ts.VTerm.SelStartLine()
+	if !ts.VTerm.HasSelection() {
+		startX = ts.Selection.StartX
+		startLine = ts.Selection.StartLine
+	}
+	ts.Selection.EndX = endX
+	ts.Selection.EndLine = absLine
+	ts.VTerm.SetSelection(startX, startLine, endX, absLine, true, false)
+	ts.Selection.StartX = startX
+	ts.Selection.StartLine = startLine
+
+	ts.mu.Unlock()
+
+	wsID := msg.WorkspaceID
+	tabID := msg.TabID
+	return common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
+		return SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: msg.Gen}
+	})
 }
 
 // screenToTerminal converts screen coordinates to terminal coordinates
