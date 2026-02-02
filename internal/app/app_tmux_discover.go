@@ -144,7 +144,7 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			if value, err := tmux.SessionHasClients(row.Name, opts); err == nil {
 				attached = value
 			}
-			instanceID := strings.TrimSpace(row.Tags["@amux_instance"])
+			rowInstanceID := strings.TrimSpace(row.Tags["@amux_instance"])
 			var createdAt int64
 			if raw := strings.TrimSpace(row.Tags["@amux_created_at"]); raw != "" {
 				createdAt, _ = strconv.ParseInt(raw, 10, 64)
@@ -156,7 +156,7 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			}
 			sessions = append(sessions, sidebarSessionInfo{
 				name:       row.Name,
-				instanceID: instanceID,
+				instanceID: rowInstanceID,
 				createdAt:  createdAt,
 				hasClients: attached,
 			})
@@ -164,46 +164,8 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 		if len(sessions) == 0 {
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
-		attachable := filterSessionsWithoutClients(sessions)
 		chosen := selectSidebarInstance(sessions, instanceID)
-		logging.Debug("sidebar discover ws=%s total=%d attachable=%d chosen=%q",
-			wsID, len(sessions), len(attachable), chosen.ID,
-		)
-		for _, session := range sessions {
-			logging.Debug("sidebar session name=%s inst=%s clients=%v created=%d",
-				session.name, session.instanceID, session.hasClients, session.createdAt,
-			)
-		}
-		chosenSessions := make([]sidebarSessionInfo, 0, len(sessions))
-		for _, session := range sessions {
-			if chosen.OK && session.instanceID != chosen.ID {
-				continue
-			}
-			chosenSessions = append(chosenSessions, session)
-		}
-		sort.SliceStable(chosenSessions, func(i, j int) bool {
-			ci, cj := chosenSessions[i].createdAt, chosenSessions[j].createdAt
-			if ci != 0 || cj != 0 {
-				if ci == 0 {
-					return false
-				}
-				if cj == 0 {
-					return true
-				}
-				if ci != cj {
-					return ci < cj
-				}
-			}
-			return chosenSessions[i].name < chosenSessions[j].name
-		})
-		out := make([]sidebar.SessionAttachInfo, 0, len(chosenSessions))
-		for _, session := range chosenSessions {
-			out = append(out, sidebar.SessionAttachInfo{
-				Name:           session.name,
-				Attach:         true,
-				DetachExisting: !session.hasClients,
-			})
-		}
+		out := buildSidebarSessionAttachInfos(sessions, chosen)
 		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
 	}
 }
@@ -287,6 +249,40 @@ func filterSessionsWithoutClients(sessions []sidebarSessionInfo) []sidebarSessio
 			continue
 		}
 		out = append(out, session)
+	}
+	return out
+}
+
+func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo, chosen sidebarInstanceSelection) []sidebar.SessionAttachInfo {
+	chosenSessions := make([]sidebarSessionInfo, 0, len(sessions))
+	for _, session := range sessions {
+		if chosen.OK && session.instanceID != chosen.ID {
+			continue
+		}
+		chosenSessions = append(chosenSessions, session)
+	}
+	sort.SliceStable(chosenSessions, func(i, j int) bool {
+		ci, cj := chosenSessions[i].createdAt, chosenSessions[j].createdAt
+		if ci != 0 || cj != 0 {
+			if ci == 0 {
+				return false
+			}
+			if cj == 0 {
+				return true
+			}
+			if ci != cj {
+				return ci < cj
+			}
+		}
+		return chosenSessions[i].name < chosenSessions[j].name
+	})
+	out := make([]sidebar.SessionAttachInfo, 0, len(chosenSessions))
+	for _, session := range chosenSessions {
+		out = append(out, sidebar.SessionAttachInfo{
+			Name:           session.name,
+			Attach:         true,
+			DetachExisting: !session.hasClients,
+		})
 	}
 	return out
 }

@@ -85,6 +85,8 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		var scrollback []byte
 		env := []string{"COLORTERM=truecolor"}
 		sessionName := tmux.SessionName("amux", wsID, string(tabID))
+		// Reuse scrollback if a prior tmux session with the same name exists
+		// (e.g., app restart with persisted tmux session).
 		if state, err := tmux.SessionStateFor(sessionName, opts); err == nil && state.Exists && state.HasLivePane {
 			scrollback, _ = tmux.CapturePane(sessionName, opts)
 		}

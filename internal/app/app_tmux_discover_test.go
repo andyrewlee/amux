@@ -1,7 +1,6 @@
 package app
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -91,29 +90,32 @@ func TestDiscoverSidebarSessionsOrdersByCreatedAt(t *testing.T) {
 	if !chosen.OK || chosen.ID != "a" {
 		t.Fatalf("expected instance a, got %#v", chosen)
 	}
-	chosenSessions := make([]sidebarSessionInfo, 0, len(sessions))
-	for _, session := range sessions {
-		if session.instanceID != chosen.ID {
-			continue
-		}
-		chosenSessions = append(chosenSessions, session)
+	out := buildSidebarSessionAttachInfos(sessions, chosen)
+	if len(out) != 2 || out[0].Name != "s1" || out[1].Name != "s2" {
+		t.Fatalf("expected created-at ordering, got %v", []string{out[0].Name, out[1].Name})
 	}
-	sort.SliceStable(chosenSessions, func(i, j int) bool {
-		ci, cj := chosenSessions[i].createdAt, chosenSessions[j].createdAt
-		if ci != 0 || cj != 0 {
-			if ci == 0 {
-				return false
-			}
-			if cj == 0 {
-				return true
-			}
-			if ci != cj {
-				return ci < cj
-			}
+}
+
+func TestDiscoverSidebarAttachFlags(t *testing.T) {
+	sessions := []sidebarSessionInfo{
+		{name: "a1", instanceID: "a", createdAt: 100, hasClients: true},
+		{name: "a2", instanceID: "a", createdAt: 101, hasClients: false},
+		{name: "b1", instanceID: "b", createdAt: 200, hasClients: false},
+	}
+	chosen := selectSidebarInstance(sessions, "a")
+	out := buildSidebarSessionAttachInfos(sessions, chosen)
+	if len(out) != 2 {
+		t.Fatalf("expected 2 sessions for instance a, got %d", len(out))
+	}
+	for _, sess := range out {
+		if sess.Name == "a1" && sess.DetachExisting {
+			t.Fatalf("expected a1 to attach without detaching")
 		}
-		return chosenSessions[i].name < chosenSessions[j].name
-	})
-	if chosenSessions[0].name != "s1" || chosenSessions[1].name != "s2" {
-		t.Fatalf("expected created-at ordering, got %v", []string{chosenSessions[0].name, chosenSessions[1].name})
+		if sess.Name == "a2" && !sess.DetachExisting {
+			t.Fatalf("expected a2 to attach with detach")
+		}
+		if !sess.Attach {
+			t.Fatalf("expected %s to attach", sess.Name)
+		}
 	}
 }

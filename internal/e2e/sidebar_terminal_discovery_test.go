@@ -67,6 +67,7 @@ func TestSidebarTerminalDiscoveryAvoidsExtraSession(t *testing.T) {
 	waitForUIContains(t, sessionB, filepath.Base(repo), 10*time.Second)
 	activatePrimaryWorkspace(t, sessionB)
 	waitForUIContains(t, sessionB, "Terminal 1", 15*time.Second)
+	waitForUIContains(t, sessionB, "Terminal 2", 15*time.Second)
 
 	waitForTerminalSessionCount(t, opts, wsID, 2, 15*time.Second)
 }
