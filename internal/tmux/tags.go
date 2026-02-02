@@ -18,6 +18,8 @@ type SessionTagValues struct {
 	Tags map[string]string
 }
 
+const tagFieldSeparator = "|"
+
 // SessionsWithTags returns sessions matching the provided tags, plus values for requested tag keys.
 func SessionsWithTags(match map[string]string, keys []string, opts Options) ([]SessionTagValues, error) {
 	if len(match) == 0 && len(keys) == 0 {
@@ -62,7 +64,7 @@ func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow
 	sort.Strings(keys)
 	format := "#{session_name}"
 	for _, key := range keys {
-		format = fmt.Sprintf("%s\t#{%s}", format, key)
+		format = fmt.Sprintf("%s%s#{%s}", format, tagFieldSeparator, key)
 	}
 	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", format)
 	defer cancel()
@@ -82,7 +84,7 @@ func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow
 		if line == "" {
 			continue
 		}
-		parts := strings.Split(line, "\t")
+		parts := strings.Split(line, tagFieldSeparator)
 		if len(parts) == 0 {
 			continue
 		}

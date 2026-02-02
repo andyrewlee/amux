@@ -99,10 +99,13 @@ type App struct {
 	scripts *process.ScriptRunner
 
 	// Git status management
-	statusManager  *git.StatusManager
-	fileWatcher    *git.FileWatcher
-	fileWatcherCh  chan messages.FileWatcherEvent
-	fileWatcherErr error
+	statusManager   *git.StatusManager
+	fileWatcher     *git.FileWatcher
+	fileWatcherCh   chan messages.FileWatcherEvent
+	fileWatcherErr  error
+	stateWatcher    *stateWatcher
+	stateWatcherCh  chan messages.StateWatcherEvent
+	stateWatcherErr error
 
 	// Layout
 	width, height int
@@ -172,56 +175,6 @@ type App struct {
 	externalOnce     sync.Once
 }
 
-type drawableCache struct {
-	content  string
-	x, y     int
-	drawable *compositor.StringDrawable
-}
-
-func (c *drawableCache) get(content string, x, y int) *compositor.StringDrawable {
-	if content == "" {
-		c.content = ""
-		c.drawable = nil
-		return nil
-	}
-	if c.drawable != nil && c.content == content && c.x == x && c.y == y {
-		return c.drawable
-	}
-	c.content = content
-	c.x = x
-	c.y = y
-	c.drawable = compositor.NewStringDrawable(content, x, y)
-	return c.drawable
-}
-
-type borderCache struct {
-	x, y      int
-	width     int
-	height    int
-	focused   bool
-	themeID   common.ThemeID
-	drawables []*compositor.StringDrawable
-}
-
-func (c *borderCache) get(x, y, width, height int, focused bool) []*compositor.StringDrawable {
-	themeID := common.GetCurrentTheme().ID
-	if c.drawables != nil &&
-		c.x == x && c.y == y &&
-		c.width == width && c.height == height &&
-		c.focused == focused &&
-		c.themeID == themeID {
-		return c.drawables
-	}
-	c.x = x
-	c.y = y
-	c.width = width
-	c.height = height
-	c.focused = focused
-	c.themeID = themeID
-	c.drawables = borderDrawables(x, y, width, height, focused)
-	return c.drawables
-}
-
 func (a *App) markInput() {
 	a.lastInputAt = time.Now()
 	a.pendingInputLatency = true
@@ -264,6 +217,22 @@ func New(version, commit, date string) (*App, error) {
 		fileWatcher = nil
 	}
 
+	// Create state watcher event channel
+	stateWatcherCh := make(chan messages.StateWatcherEvent, 10)
+
+	// Create state watcher with callback that sends to channel
+	stateWatcher, stateWatcherErr := newStateWatcher(cfg.Paths.RegistryPath, cfg.Paths.MetadataRoot, func(reason string) {
+		select {
+		case stateWatcherCh <- messages.StateWatcherEvent{Reason: reason}:
+		default:
+			// Channel full, drop event (will catch on next change)
+		}
+	})
+	if stateWatcherErr != nil {
+		logging.Warn("State watcher disabled: %v", stateWatcherErr)
+		stateWatcher = nil
+	}
+
 	ctx := context.Background()
 	app := &App{
 		config:                 cfg,
@@ -274,6 +243,9 @@ func New(version, commit, date string) (*App, error) {
 		fileWatcher:            fileWatcher,
 		fileWatcherCh:          fileWatcherCh,
 		fileWatcherErr:         fileWatcherErr,
+		stateWatcher:           stateWatcher,
+		stateWatcherCh:         stateWatcherCh,
+		stateWatcherErr:        stateWatcherErr,
 		layout:                 layout.NewManager(),
 		dashboard:              dashboard.New(),
 		center:                 center.New(cfg),
@@ -328,6 +300,9 @@ func New(version, commit, date string) (*App, error) {
 	if fileWatcher != nil {
 		app.supervisor.Start("git.file_watcher", fileWatcher.Run, supervisor.WithBackoff(500*time.Millisecond))
 	}
+	if stateWatcher != nil {
+		app.supervisor.Start("app.state_watcher", stateWatcher.Run, supervisor.WithBackoff(500*time.Millisecond))
+	}
 	return app, nil
 }
 
@@ -346,10 +321,14 @@ func (a *App) Init() tea.Cmd {
 		a.startTmuxSyncTicker(),
 		a.checkTmuxAvailable(),
 		a.startFileWatcher(),
+		a.startStateWatcher(),
 		a.checkForUpdates(),
 	}
 	if a.fileWatcherErr != nil {
 		cmds = append(cmds, a.toast.ShowWarning("File watching disabled; git status may be stale"))
+	}
+	if a.stateWatcherErr != nil {
+		cmds = append(cmds, a.toast.ShowWarning("Workspace sync disabled; other instances may be stale"))
 	}
 	return a.safeBatch(cmds...)
 }
@@ -362,6 +341,9 @@ func (a *App) Shutdown() {
 		}
 		if a.fileWatcher != nil {
 			_ = a.fileWatcher.Close()
+		}
+		if a.stateWatcher != nil {
+			_ = a.stateWatcher.Close()
 		}
 		if a.center != nil {
 			a.center.Close()
@@ -493,5 +475,15 @@ func (a *App) startFileWatcher() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return <-a.fileWatcherCh
+	}
+}
+
+// startStateWatcher waits for state change notifications.
+func (a *App) startStateWatcher() tea.Cmd {
+	if a.stateWatcher == nil || a.stateWatcherCh == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		return <-a.stateWatcherCh
 	}
 }

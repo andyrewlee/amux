@@ -44,6 +44,14 @@ func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
 	}
 }
 
+// handleStateWatcherEvent handles changes to amux state files (projects/workspaces).
+func (a *App) handleStateWatcherEvent(msg messages.StateWatcherEvent) []tea.Cmd {
+	return []tea.Cmd{
+		a.loadProjects(),
+		a.startStateWatcher(),
+	}
+}
+
 // handleTabInputFailed handles the TabInputFailed message.
 func (a *App) handleTabInputFailed(msg center.TabInputFailed) []tea.Cmd {
 	var cmds []tea.Cmd
