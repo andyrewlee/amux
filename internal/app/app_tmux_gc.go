@@ -103,6 +103,12 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 
 // gcStaleTerminalSessions kills terminal tmux sessions that are inactive and stale.
 func (a *App) gcStaleTerminalSessions() tea.Cmd {
+	if a == nil || a.config == nil {
+		return nil
+	}
+	if a.config.UI.TmuxPersistence {
+		return nil
+	}
 	if !a.tmuxAvailable || !a.projectsLoaded {
 		return nil
 	}

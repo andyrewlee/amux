@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -150,11 +151,13 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 				fw.onChanged(root)
 			}
 
-		case _, ok := <-fw.watcher.Errors:
+		case err, ok := <-fw.watcher.Errors:
 			if !ok {
 				return nil
 			}
-			// Ignore errors for now
+			if err != nil {
+				logging.Warn("File watcher error: %v", err)
+			}
 		}
 	}
 }

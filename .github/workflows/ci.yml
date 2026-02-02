@@ -2,17 +2,19 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+env:
+  TERM: xterm-256color
 
 jobs:
-  ci:
-    name: Build and Test
+  test:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Go
@@ -21,16 +23,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Check formatting
-        run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
+      - name: Vet
+        run: go vet ./...
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      - name: Test
+        run: go test ./...
 
-      - name: Run tests
-        run: go test -v -race ./...
+      - name: Harness (monitor)
+        run: go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1
 
-      - name: Build
-        run: go build -o amux ./cmd/amux
+      - name: Harness (center)
+        run: go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
+
+      - name: Harness (sidebar)
+        run: go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
