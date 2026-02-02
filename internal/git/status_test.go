@@ -1,6 +1,9 @@
 package git
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -302,4 +305,123 @@ func TestChange_DisplayCode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCountUntrackedLines(t *testing.T) {
+	dir := t.TempDir()
+
+	// Helper to create a file and return the Change entry
+	writeFile := func(name, content string) Change {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return Change{Path: name, Kind: ChangeUntracked}
+	}
+
+	t.Run("trailing newline", func(t *testing.T) {
+		c := writeFile("trailing.txt", "line1\nline2\nline3\n")
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 3 {
+			t.Errorf("got %d, want 3", got)
+		}
+	})
+
+	t.Run("no trailing newline", func(t *testing.T) {
+		c := writeFile("notrailing.txt", "line1\nline2\nline3")
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 3 {
+			t.Errorf("got %d, want 3", got)
+		}
+	})
+
+	t.Run("single line no newline", func(t *testing.T) {
+		c := writeFile("single.txt", "hello")
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 1 {
+			t.Errorf("got %d, want 1", got)
+		}
+	})
+
+	t.Run("single line with newline", func(t *testing.T) {
+		c := writeFile("singlenl.txt", "hello\n")
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 1 {
+			t.Errorf("got %d, want 1", got)
+		}
+	})
+
+	t.Run("empty file", func(t *testing.T) {
+		c := writeFile("empty.txt", "")
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 0 {
+			t.Errorf("got %d, want 0", got)
+		}
+	})
+
+	t.Run("binary file skipped", func(t *testing.T) {
+		c := writeFile("binary.bin", "hello\x00world\n")
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 0 {
+			t.Errorf("got %d, want 0 (binary should be skipped)", got)
+		}
+	})
+
+	t.Run("file over 1MB skipped", func(t *testing.T) {
+		big := strings.Repeat("x\n", 1<<20) // 2MB
+		c := writeFile("big.txt", big)
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 0 {
+			t.Errorf("got %d, want 0 (oversized file should be skipped)", got)
+		}
+	})
+
+	t.Run("symlink skipped", func(t *testing.T) {
+		writeFile("target.txt", "line1\nline2\n")
+		linkPath := filepath.Join(dir, "link.txt")
+		if err := os.Symlink(filepath.Join(dir, "target.txt"), linkPath); err != nil {
+			t.Skip("symlinks not supported")
+		}
+		c := Change{Path: "link.txt", Kind: ChangeUntracked}
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 0 {
+			t.Errorf("got %d, want 0 (symlink should be skipped)", got)
+		}
+	})
+
+	t.Run("nonexistent file skipped", func(t *testing.T) {
+		c := Change{Path: "doesnotexist.txt", Kind: ChangeUntracked}
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 0 {
+			t.Errorf("got %d, want 0", got)
+		}
+	})
+
+	t.Run("directory skipped", func(t *testing.T) {
+		subdir := filepath.Join(dir, "subdir")
+		if err := os.Mkdir(subdir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		c := Change{Path: "subdir", Kind: ChangeUntracked}
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 0 {
+			t.Errorf("got %d, want 0 (directory should be skipped)", got)
+		}
+	})
+
+	t.Run("multiple files accumulate", func(t *testing.T) {
+		c1 := writeFile("multi1.txt", "a\nb\nc\n")
+		c2 := writeFile("multi2.txt", "x\ny\n")
+		c3 := writeFile("multi3.txt", "only") // no trailing newline
+		got := countUntrackedLines(dir, []Change{c1, c2, c3})
+		if got != 6 { // 3 + 2 + 1
+			t.Errorf("got %d, want 6", got)
+		}
+	})
+
+	t.Run("nil slice", func(t *testing.T) {
+		got := countUntrackedLines(dir, nil)
+		if got != 0 {
+			t.Errorf("got %d, want 0", got)
+		}
+	})
 }

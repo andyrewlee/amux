@@ -2,6 +2,8 @@ package git
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,7 +65,8 @@ func GetStatus(repoPath string) (*StatusResult, error) {
 	if !result.Clean {
 		unstagedAdd, unstagedDel, _ := getDiffNumstat(repoPath, false)
 		stagedAdd, stagedDel, _ := getDiffNumstat(repoPath, true)
-		result.TotalAdded = unstagedAdd + stagedAdd
+		untrackedAdd := countUntrackedLines(repoPath, result.Untracked)
+		result.TotalAdded = unstagedAdd + stagedAdd + untrackedAdd
 		result.TotalDeleted = unstagedDel + stagedDel
 	}
 
@@ -94,6 +97,57 @@ func getDiffNumstat(repoPath string, staged bool) (added, deleted int, err error
 		deleted += d
 	}
 	return added, deleted, nil
+}
+
+// countUntrackedLines counts the total number of lines across untracked files.
+// Binary files (null byte in first 8KB) and files larger than 1MB are skipped.
+func countUntrackedLines(repoPath string, untracked []Change) int {
+	const maxSize = 1 << 20 // 1MB
+	total := 0
+	for _, c := range untracked {
+		p := filepath.Join(repoPath, c.Path)
+		info, err := os.Lstat(p)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > maxSize {
+			continue
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		// Read first 8KB to check for binary content
+		head := make([]byte, 8192)
+		n, _ := f.Read(head)
+		if n == 0 {
+			f.Close()
+			continue
+		}
+		if bytes.ContainsRune(head[:n], 0) {
+			f.Close()
+			continue
+		}
+		// Count newlines in head
+		lines := bytes.Count(head[:n], []byte{'\n'})
+		lastByte := head[n-1]
+		// Count remaining newlines
+		buf := make([]byte, 32*1024)
+		for {
+			nr, err := f.Read(buf)
+			if nr > 0 {
+				lines += bytes.Count(buf[:nr], []byte{'\n'})
+				lastByte = buf[nr-1]
+			}
+			if err != nil {
+				break
+			}
+		}
+		f.Close()
+		// Count final line if file is non-empty and lacks trailing newline
+		if n > 0 && lastByte != '\n' {
+			lines++
+		}
+		total += lines
+	}
+	return total
 }
 
 // parseStatusPorcelain parses git status --porcelain=v1 -z output
