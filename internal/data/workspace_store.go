@@ -14,7 +14,7 @@ const workspaceFilename = "workspace.json"
 
 // WorkspaceStore manages workspace persistence
 type WorkspaceStore struct {
-	root string // ~/.amux/workspaces
+	root string // ~/.amux/workspaces-metadata
 }
 
 // NewWorkspaceStore creates a new workspace store

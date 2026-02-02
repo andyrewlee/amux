@@ -453,6 +453,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)
 
+	case messages.StateWatcherEvent:
+		cmds = append(cmds, a.handleStateWatcherEvent(msg)...)
+
 	case messages.WorkspaceDeleted:
 		cmds = append(cmds, a.handleWorkspaceDeleted(msg)...)
 

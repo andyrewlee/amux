@@ -72,7 +72,7 @@ Create `.amux/workspaces.json` in your project to run setup commands for new wor
 }
 ```
 
-Workspace metadata is stored in `~/.amux/workspaces/<workspace-id>/workspace.json` and local worktree directories live under `<repo>/.amux/workspaces/`.
+Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`.
 
 ## Development
 
