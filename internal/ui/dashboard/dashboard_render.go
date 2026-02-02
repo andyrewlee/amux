@@ -92,7 +92,6 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		status := ""
 		statusText := ""
 		dirty := false
-		working := false
 
 		// Agent state indicator (spinner=active, ●=running, ○=idle)
 		indicatorWidth := 2 // icon + space
@@ -118,9 +117,6 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if _, ok := m.creatingWorkspaces[row.Workspace.Root]; ok {
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame + " creating")
-		} else if row.Workspace != nil && m.activeWorkspaceIDs[string(row.Workspace.ID())] {
-			// Active agents - color change only, no spinner
-			working = true
 		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {
 			dirty = true
 		}
@@ -128,15 +124,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			status = " " + statusText
 		}
 
-		// Determine row style based on selection and active state
+		// Determine row style based on selection and dirty state
 		style := m.styles.WorkspaceRow
 		if selected {
 			style = m.styles.SelectedRow
-		} else if working {
-			style = m.styles.ActiveWorkspace
-		}
-		// Dirty color takes priority for inactive workspaces.
-		if !working && !selected && dirty {
+		} else if dirty {
 			style = style.Foreground(common.ColorSecondary)
 		}
 
