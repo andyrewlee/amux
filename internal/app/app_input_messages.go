@@ -337,35 +337,33 @@ func (a *App) handleShowSetProfileDialog(msg messages.ShowSetProfileDialog) {
 }
 
 // listProfiles returns the names of existing profile directories,
-// sorted by modification time (most recent first).
+// sorted alphabetically with the most recently used profile first.
 func (a *App) listProfiles() []string {
 	entries, err := os.ReadDir(a.config.Paths.ProfilesRoot)
 	if err != nil {
 		return nil
 	}
-	type profileEntry struct {
-		name    string
-		modTime time.Time
-	}
-	var items []profileEntry
+	var names []string
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name() == "shared" {
 			continue
 		}
-		info, err := entry.Info()
-		if err != nil {
-			continue
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+
+	// Move the most recently used profile to the front.
+	last := a.config.UI.LastProfile
+	if last != "" {
+		for i, name := range names {
+			if name == last {
+				names = append(names[:i], names[i+1:]...)
+				names = append([]string{last}, names...)
+				break
+			}
 		}
-		items = append(items, profileEntry{name: entry.Name(), modTime: info.ModTime()})
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].modTime.After(items[j].modTime)
-	})
-	profiles := make([]string, len(items))
-	for i, item := range items {
-		profiles[i] = item.name
-	}
-	return profiles
+	return names
 }
 
 // handleSetProfile persists a profile for a project and reloads.
@@ -380,15 +378,18 @@ func (a *App) handleSetProfile(msg messages.SetProfile) tea.Cmd {
 		return a.toast.ShowError("Failed to set profile: " + err.Error())
 	}
 
-	// Create profile directory if non-empty and touch it so the
-	// most-recently-selected profile sorts first in the picker.
+	// Create profile directory if non-empty and record it as the most
+	// recently used profile so it sorts first in the picker.
 	if profile != "" {
 		profileDir := filepath.Join(a.config.Paths.ProfilesRoot, profile)
 		if err := os.MkdirAll(profileDir, 0755); err != nil {
 			logging.Warn("Failed to create profile directory: %v", err)
 		}
-		now := time.Now()
-		_ = os.Chtimes(profileDir, now, now)
+
+		a.config.UI.LastProfile = profile
+		if err := a.config.SaveUISettings(); err != nil {
+			logging.Warn("Failed to save last profile: %v", err)
+		}
 
 		if a.config.UI.SyncProfilePlugins {
 			_ = config.SyncProfileSharedDirs(a.config.Paths.ProfilesRoot, profile)
