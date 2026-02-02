@@ -83,9 +83,21 @@ func (m *Model) renderChanges() string {
 		return b.String()
 	}
 
-	// Show file count
+	// Show file count and line stats
 	total := m.gitStatus.GetDirtyCount()
 	b.WriteString(m.styles.Muted.Render(strconv.Itoa(total) + " changed files"))
+	if m.gitStatus.TotalAdded > 0 || m.gitStatus.TotalDeleted > 0 {
+		b.WriteString(" ")
+		if m.gitStatus.TotalAdded > 0 {
+			b.WriteString(m.styles.StatusAdded.Render("+" + strconv.Itoa(m.gitStatus.TotalAdded)))
+		}
+		if m.gitStatus.TotalAdded > 0 && m.gitStatus.TotalDeleted > 0 {
+			b.WriteString(m.styles.Muted.Render(" "))
+		}
+		if m.gitStatus.TotalDeleted > 0 {
+			b.WriteString(m.styles.StatusDeleted.Render("-" + strconv.Itoa(m.gitStatus.TotalDeleted)))
+		}
+	}
 	b.WriteString("\n")
 
 	visibleHeight := m.visibleHeight()
