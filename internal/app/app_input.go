@@ -42,7 +42,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
-		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile:
+		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile, DialogRenameWorkspace:
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -302,6 +302,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowCreateWorkspaceDialog:
 		a.handleShowCreateWorkspaceDialog(msg)
+
+	case messages.ShowRenameWorkspaceDialog:
+		a.handleShowRenameWorkspaceDialog(msg)
+
+	case messages.RenameWorkspace:
+		if cmd := a.handleRenameWorkspace(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.ShowDeleteWorkspaceDialog:
 		a.handleShowDeleteWorkspaceDialog(msg)

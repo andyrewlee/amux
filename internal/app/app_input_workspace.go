@@ -9,6 +9,50 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
+// handleRenameWorkspace handles the RenameWorkspace message.
+func (a *App) handleRenameWorkspace(msg messages.RenameWorkspace) tea.Cmd {
+	if msg.Project == nil || msg.Workspace == nil {
+		return nil
+	}
+
+	wsID := msg.Workspace.ID()
+
+	// 1. Load from store and update name
+	stored, err := a.workspaces.Load(wsID)
+	if err != nil {
+		logging.Error("Failed to load workspace for rename: %v", err)
+		return a.toast.ShowError("Failed to rename: " + err.Error())
+	}
+	stored.Name = msg.NewName
+	if err := a.workspaces.Save(stored); err != nil {
+		logging.Error("Failed to save renamed workspace: %v", err)
+		return a.toast.ShowError("Failed to save rename: " + err.Error())
+	}
+
+	// 2. Update activeWorkspace in-place
+	if a.activeWorkspace != nil && a.activeWorkspace.ID() == wsID {
+		a.activeWorkspace.Name = msg.NewName
+	}
+
+	// 3. Update projects array in-place
+	for i := range a.projects {
+		for j := range a.projects[i].Workspaces {
+			if a.projects[i].Workspaces[j].ID() == wsID {
+				a.projects[i].Workspaces[j].Name = msg.NewName
+			}
+		}
+	}
+
+	// 4. Update center pane tab references
+	a.center.UpdateWorkspaceName(string(wsID), msg.NewName)
+
+	// 5. Reload projects + toast
+	return a.safeBatch(
+		a.toast.ShowSuccess(fmt.Sprintf("Renamed to '%s'", msg.NewName)),
+		a.loadProjects(),
+	)
+}
+
 // handleDeleteWorkspace handles the DeleteWorkspace message.
 func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd

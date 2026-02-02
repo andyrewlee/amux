@@ -448,6 +448,27 @@ func (a *App) handleSetProfile(msg messages.SetProfile) tea.Cmd {
 	return a.safeBatch(cmds...)
 }
 
+// handleShowRenameWorkspaceDialog shows the rename workspace dialog.
+func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDialog) {
+	a.dialogProject = msg.Project
+	a.dialogWorkspace = msg.Workspace
+	a.dialog = common.NewInputDialog(DialogRenameWorkspace, "Rename Session", msg.Workspace.Name)
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return ""
+		}
+		if err := validation.ValidateWorkspaceName(s); err != nil {
+			return err.Error()
+		}
+		return ""
+	})
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+	a.dialog.SetValue(msg.Workspace.Name)
+}
+
 // handleShowCreateWorkspaceDialog shows the create workspace dialog.
 func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDialog) {
 	a.dialogProject = msg.Project

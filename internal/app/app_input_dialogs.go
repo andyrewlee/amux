@@ -118,6 +118,24 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 		}
 
+	case DialogRenameWorkspace:
+		if workspace != nil {
+			name := validation.SanitizeInput(result.Value)
+			if name == "" || name == workspace.Name {
+				return nil // No change
+			}
+			if err := validation.ValidateWorkspaceName(name); err != nil {
+				return func() tea.Msg {
+					return messages.Error{Err: err, Context: "validating workspace name"}
+				}
+			}
+			ws := workspace
+			proj := project
+			return func() tea.Msg {
+				return messages.RenameWorkspace{Project: proj, Workspace: ws, NewName: name}
+			}
+		}
+
 	case DialogSetProfile:
 		a.pendingNewProjectPath = "" // profile selected (or existing project), clear pending state
 		if project != nil {

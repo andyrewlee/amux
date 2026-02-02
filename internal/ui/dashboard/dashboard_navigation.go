@@ -248,6 +248,23 @@ func (m *Model) handleSetProfile() tea.Cmd {
 	}
 }
 
+// handleRename requests renaming the currently selected workspace.
+func (m *Model) handleRename() tea.Cmd {
+	if m.cursor >= len(m.rows) {
+		return nil
+	}
+	row := m.rows[m.cursor]
+	if row.Type == RowWorkspace && row.Workspace != nil {
+		return func() tea.Msg {
+			return messages.ShowRenameWorkspaceDialog{
+				Project:   row.Project,
+				Workspace: row.Workspace,
+			}
+		}
+	}
+	return nil
+}
+
 // refresh requests a workspace rescan/import.
 func (m *Model) refresh() tea.Cmd {
 	return func() tea.Msg { return messages.RescanWorkspaces{} }
