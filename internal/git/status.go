@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // DiffMode specifies which changes to diff
@@ -42,6 +43,10 @@ type StatusResult struct {
 	Unstaged  []Change // Changes in working tree (not staged)
 	Untracked []Change // Untracked files
 	Clean     bool     // True if no changes
+
+	// Aggregate line-level diff stats
+	TotalAdded   int // Total lines added across all changes
+	TotalDeleted int // Total lines deleted across all changes
 }
 
 // GetStatus returns the git status for a repository using porcelain v1 -z format
@@ -52,7 +57,43 @@ func GetStatus(repoPath string) (*StatusResult, error) {
 		return nil, err
 	}
 
-	return parseStatusPorcelain(output), nil
+	result := parseStatusPorcelain(output)
+
+	// Populate aggregate line stats from git diff --numstat
+	if !result.Clean {
+		unstagedAdd, unstagedDel, _ := getDiffNumstat(repoPath, false)
+		stagedAdd, stagedDel, _ := getDiffNumstat(repoPath, true)
+		result.TotalAdded = unstagedAdd + stagedAdd
+		result.TotalDeleted = unstagedDel + stagedDel
+	}
+
+	return result, nil
+}
+
+// getDiffNumstat runs git diff --numstat and returns total added/deleted lines.
+func getDiffNumstat(repoPath string, staged bool) (added, deleted int, err error) {
+	args := []string{"--no-optional-locks", "diff", "--numstat"}
+	if staged {
+		args = []string{"--no-optional-locks", "diff", "--cached", "--numstat"}
+	}
+	output, err := RunGit(repoPath, args...)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 3 || parts[0] == "-" {
+			continue // skip binary files
+		}
+		a, _ := strconv.Atoi(parts[0])
+		d, _ := strconv.Atoi(parts[1])
+		added += a
+		deleted += d
+	}
+	return added, deleted, nil
 }
 
 // parseStatusPorcelain parses git status --porcelain=v1 -z output
