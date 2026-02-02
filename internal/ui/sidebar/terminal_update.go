@@ -313,8 +313,19 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	case SidebarTerminalCreated:
 		cmd := m.HandleTerminalCreated(msg.WorkspaceID, msg.TabID, msg.Terminal, msg.SessionName)
 		cmds = append(cmds, cmd)
+		if len(msg.Scrollback) > 0 {
+			tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+			if tab != nil && tab.State != nil {
+				ts := tab.State
+				ts.mu.Lock()
+				if ts.VTerm != nil {
+					ts.VTerm.PrependScrollback(msg.Scrollback)
+				}
+				ts.mu.Unlock()
+			}
+		}
 
-	case sidebarTerminalReattachResult:
+	case SidebarTerminalReattachResult:
 		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 		if tab == nil || tab.State == nil {
 			break
@@ -327,6 +338,9 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		}
 		if ts.VTerm != nil {
 			ts.VTerm.AllowAltScreenScrollback = true
+			if len(msg.Scrollback) > 0 && len(ts.VTerm.Scrollback) == 0 {
+				ts.VTerm.PrependScrollback(msg.Scrollback)
+			}
 		}
 		ts.Terminal = msg.Terminal
 		ts.Running = true
@@ -347,7 +361,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case sidebarTerminalReattachFailed:
+	case SidebarTerminalReattachFailed:
 		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 		if tab != nil && tab.State != nil {
 			ts := tab.State

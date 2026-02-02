@@ -412,7 +412,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.toast.ShowInfo(msg.Message))
 		}
 
-	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed:
+	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -430,27 +430,25 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.PTYWatchdogTick:
 		cmds = append(cmds, a.handlePTYWatchdogTick()...)
-
 	case tmuxActivityTick:
 		cmds = append(cmds, a.handleTmuxActivityTick(msg)...)
-
 	case tmuxActivityResult:
 		cmds = append(cmds, a.handleTmuxActivityResult(msg)...)
-
 	case tmuxAvailableResult:
 		cmds = append(cmds, a.handleTmuxAvailableResult(msg)...)
-
 	case messages.TmuxSyncTick:
 		cmds = append(cmds, a.handleTmuxSyncTick(msg)...)
 
 	case tmuxTabsSyncResult:
 		cmds = append(cmds, a.handleTmuxTabsSyncResult(msg)...)
-
 	case tmuxTabsDiscoverResult:
 		cmds = append(cmds, a.handleTmuxTabsDiscoverResult(msg)...)
-
+	case tmuxSidebarDiscoverResult:
+		cmds = append(cmds, a.handleTmuxSidebarDiscoverResult(msg)...)
 	case orphanGCResult:
 		a.handleOrphanGCResult(msg)
+	case terminalGCResult:
+		a.handleTerminalGCResult(msg)
 
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)

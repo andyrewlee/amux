@@ -17,6 +17,17 @@ type tmuxTabsDiscoverResult struct {
 	Tabs        []data.TabInfo
 }
 
+type tmuxSidebarDiscoverResult struct {
+	WorkspaceID string
+	Sessions    []string
+}
+
+type sidebarSessionInfo struct {
+	name       string
+	instanceID string
+	createdAt  int64
+}
+
 // discoverWorkspaceTabsFromTmux populates missing tabs from live tmux sessions.
 func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	if ws == nil || !a.tmuxAvailable {
@@ -66,6 +77,11 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 			if raw := strings.TrimSpace(row.Tags["@amux_created_at"]); raw != "" {
 				createdAt, _ = strconv.ParseInt(raw, 10, 64)
 			}
+			if createdAt == 0 {
+				if fallback, err := tmux.SessionCreatedAt(row.Name, opts); err == nil {
+					createdAt = fallback
+				}
+			}
 			tabs = append(tabs, data.TabInfo{
 				Assistant:   assistantName,
 				Name:        name,
@@ -92,6 +108,109 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 		}
 		return tmuxTabsDiscoverResult{WorkspaceID: wsID, Tabs: tabs}
 	}
+}
+
+// discoverSidebarTerminalsFromTmux finds terminal sessions for the workspace.
+func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
+	if ws == nil || !a.tmuxAvailable {
+		return nil
+	}
+	wsID := string(ws.ID())
+	opts := a.tmuxOptions
+	return func() tea.Msg {
+		match := map[string]string{
+			"@amux":           "1",
+			"@amux_workspace": wsID,
+			"@amux_type":      "terminal",
+		}
+		rows, err := tmux.SessionsWithTags(match, []string{"@amux_instance", "@amux_created_at"}, opts)
+		if err != nil {
+			logging.Warn("tmux sidebar discovery failed: %v", err)
+			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
+		}
+		sessions := make([]sidebarSessionInfo, 0, len(rows))
+		latestByInstance := make(map[string]int64)
+		hasClients := make(map[string]bool, len(rows))
+		for _, row := range rows {
+			if row.Name == "" {
+				continue
+			}
+			state, err := tmux.SessionStateFor(row.Name, opts)
+			if err != nil || !state.Exists || !state.HasLivePane {
+				continue
+			}
+			if attached, err := tmux.SessionHasClients(row.Name, opts); err == nil {
+				hasClients[row.Name] = attached
+			}
+			instanceID := strings.TrimSpace(row.Tags["@amux_instance"])
+			var createdAt int64
+			if raw := strings.TrimSpace(row.Tags["@amux_created_at"]); raw != "" {
+				createdAt, _ = strconv.ParseInt(raw, 10, 64)
+			}
+			if createdAt == 0 {
+				if fallback, err := tmux.SessionCreatedAt(row.Name, opts); err == nil {
+					createdAt = fallback
+				}
+			}
+			if createdAt > latestByInstance[instanceID] {
+				latestByInstance[instanceID] = createdAt
+			}
+			sessions = append(sessions, sidebarSessionInfo{
+				name:       row.Name,
+				instanceID: instanceID,
+				createdAt:  createdAt,
+			})
+		}
+		sessions = filterSessionsWithoutClients(sessions, hasClients)
+		out := selectSidebarSessions(sessions, latestByInstance, a.instanceID)
+		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
+	}
+}
+
+func selectSidebarSessions(sessions []sidebarSessionInfo, latestByInstance map[string]int64, currentInstance string) []string {
+	chosenInstance := ""
+	if currentInstance != "" {
+		if _, ok := latestByInstance[currentInstance]; ok {
+			chosenInstance = currentInstance
+		}
+	}
+	if chosenInstance == "" {
+		var chosenAt int64
+		for instanceID, createdAt := range latestByInstance {
+			if instanceID == "" {
+				continue
+			}
+			if createdAt > chosenAt {
+				chosenAt = createdAt
+				chosenInstance = instanceID
+			}
+		}
+	}
+	out := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		if chosenInstance != "" && session.instanceID != chosenInstance {
+			continue
+		}
+		out = append(out, session.name)
+	}
+	return out
+}
+
+func filterSessionsWithoutClients(sessions []sidebarSessionInfo, hasClients map[string]bool) []sidebarSessionInfo {
+	if len(sessions) == 0 {
+		return nil
+	}
+	out := make([]sidebarSessionInfo, 0, len(sessions))
+	for _, session := range sessions {
+		if session.name == "" {
+			continue
+		}
+		if hasClients[session.name] {
+			continue
+		}
+		out = append(out, session)
+	}
+	return out
 }
 
 func (a *App) handleTmuxTabsDiscoverResult(msg tmuxTabsDiscoverResult) []tea.Cmd {
@@ -132,4 +251,21 @@ func (a *App) handleTmuxTabsDiscoverResult(msg tmuxTabsDiscoverResult) []tea.Cmd
 		}
 	}
 	return cmds
+}
+
+func (a *App) handleTmuxSidebarDiscoverResult(msg tmuxSidebarDiscoverResult) []tea.Cmd {
+	if msg.WorkspaceID == "" {
+		return nil
+	}
+	ws := a.findWorkspaceByID(msg.WorkspaceID)
+	if ws == nil {
+		return nil
+	}
+	if len(msg.Sessions) == 0 {
+		if cmd := a.sidebarTerminal.SetWorkspace(ws); cmd != nil {
+			return []tea.Cmd{cmd}
+		}
+		return nil
+	}
+	return a.sidebarTerminal.AddTabsFromSessions(ws, msg.Sessions)
 }
