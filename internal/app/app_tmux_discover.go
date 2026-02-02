@@ -114,10 +114,17 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 
 // discoverSidebarTerminalsFromTmux finds terminal sessions for the workspace.
 func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
-	if ws == nil || !a.tmuxAvailable {
+	if ws == nil {
 		return nil
 	}
 	wsID := string(ws.ID())
+	if !a.tmuxAvailable {
+		// tmux is a required dependency; return an empty result so the sidebar
+		// can still attempt to initialize and surface a clear error if tmux is missing.
+		return func() tea.Msg {
+			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
+		}
+	}
 	opts := a.tmuxOptions
 	instanceID := a.instanceID
 	return func() tea.Msg {

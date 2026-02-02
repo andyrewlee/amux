@@ -27,9 +27,13 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 	dir := shellQuote(workDir)
 	cmd := shellQuote(command)
 
-	// Use atomic new-session -Ad: creates if missing, attaches if exists (detaching other clients)
-	create := fmt.Sprintf("%s new-session -Ads %s -c %s sh -lc %s",
-		base, session, dir, cmd)
+	// Use atomic new-session -A to create/attach. Only pass -d when detaching others.
+	detachFlag := ""
+	if detachExisting {
+		detachFlag = "d"
+	}
+	create := fmt.Sprintf("%s new-session -A%ss %s -c %s sh -lc %s",
+		base, detachFlag, session, dir, cmd)
 
 	var settings strings.Builder
 	// Disable tmux prefix for this session only (not global) to make it transparent

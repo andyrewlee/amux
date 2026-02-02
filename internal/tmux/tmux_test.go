@@ -155,6 +155,10 @@ func TestClientCommandWithOptions(t *testing.T) {
 	if !strings.Contains(cmd, "attach -dt") {
 		t.Error("Command should use attach -dt to detach other clients")
 	}
+	// Should use new-session -Ad when detaching
+	if !strings.Contains(cmd, "new-session -Ads") {
+		t.Error("Command should use new-session -Ads when detaching")
+	}
 
 	// Should use && not ; for chaining
 	if !strings.Contains(cmd, " && ") {
@@ -223,6 +227,12 @@ func TestClientCommandWithTagsAttachShared(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "attach -t") {
 		t.Error("Command should attach without detaching other clients")
+	}
+	if strings.Contains(cmd, "new-session -Ads") {
+		t.Error("Command should not detach on new-session when detachExisting=false")
+	}
+	if !strings.Contains(cmd, "new-session -As") {
+		t.Error("Command should use new-session -As when detachExisting=false")
 	}
 }
 
