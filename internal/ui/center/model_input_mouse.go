@@ -61,6 +61,7 @@ func (m *Model) updateMouseClick(msg tea.MouseClickMsg) (*Model, tea.Cmd) {
 		tab.Terminal.ClearSelection()
 	}
 	tab.Selection = SelectionState{}
+	tab.selectionScroll.Reset()
 	if inBounds && tab.Terminal != nil {
 		absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
 		tab.Selection = SelectionState{
@@ -121,6 +122,10 @@ func (m *Model) updateMouseMotion(msg tea.MouseMotionMsg) (*Model, tea.Cmd) {
 		if termX >= termWidth {
 			termX = termWidth - 1
 		}
+
+		// Set scroll direction from unclamped Y before clamping
+		tab.selectionScroll.SetDirection(termY, termHeight)
+
 		if termY < 0 {
 			tab.Terminal.ScrollView(1)
 			termY = 0
@@ -140,6 +145,15 @@ func (m *Model) updateMouseMotion(msg tea.MouseMotionMsg) (*Model, tea.Cmd) {
 		tab.Terminal.SetSelection(startX, startLine, termX, absLine, true, false)
 		tab.Selection.StartX = startX
 		tab.Selection.StartLine = startLine
+
+		tab.selectionLastTermX = termX
+		if needTick, gen := tab.selectionScroll.NeedsTick(); needTick {
+			wsID := m.workspaceID()
+			tabID := tab.ID
+			cmds = append(cmds, common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
+				return selectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+			}))
+		}
 	}
 	tab.mu.Unlock()
 	return m, common.SafeBatch(cmds...)
@@ -194,6 +208,7 @@ func (m *Model) updateMouseRelease(msg tea.MouseReleaseMsg) (*Model, tea.Cmd) {
 			}
 		}
 		tab.Selection.Active = false
+		tab.selectionScroll.Reset()
 	}
 	tab.mu.Unlock()
 	return m, common.SafeBatch(cmds...)
