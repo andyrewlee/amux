@@ -53,7 +53,7 @@ func (m *TerminalModel) renderTabBar() string {
 		disconnected := false
 		if tab.State != nil {
 			tab.State.mu.Lock()
-			disconnected = tab.State.Detached || !tab.State.Running
+			disconnected = !tab.State.Running
 			tab.State.mu.Unlock()
 		}
 
@@ -184,13 +184,6 @@ func (m *TerminalModel) StatusLine() string {
 			Background(common.ColorInfo)
 		return scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
 	}
-	if ts.Detached {
-		statusStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(common.ColorBackground).
-			Background(common.ColorWarning)
-		return statusStyle.Render(" DETACHED ")
-	}
 	if !ts.Running {
 		statusStyle := lipgloss.NewStyle().
 			Bold(true).
@@ -227,8 +220,6 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 	}
 	if hasTerm {
 		items = append(items,
-			m.helpItem("C-Spc D", "detach"),
-			m.helpItem("C-Spc R", "reattach"),
 			m.helpItem("C-Spc S", "restart"),
 		)
 	}

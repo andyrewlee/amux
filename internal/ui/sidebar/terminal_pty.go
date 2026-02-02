@@ -1,7 +1,6 @@
 package sidebar
 
 import (
-	"fmt"
 	"os"
 	"sync/atomic"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/safego"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -38,7 +36,6 @@ type SidebarTerminalCreated struct {
 	WorkspaceID string
 	TabID       TerminalTabID
 	Terminal    *pty.Terminal
-	SessionName string
 }
 
 // SidebarTerminalCreateFailed is a message for terminal creation failure
@@ -47,47 +44,20 @@ type SidebarTerminalCreateFailed struct {
 	Err         error
 }
 
-type sidebarTerminalReattachResult struct {
-	WorkspaceID string
-	TabID       TerminalTabID
-	Terminal    *pty.Terminal
-	SessionName string
-}
-
-type sidebarTerminalReattachFailed struct {
-	WorkspaceID string
-	TabID       TerminalTabID
-	Err         error
-	Stopped     bool
-	Action      string
-}
-
 // createTerminalTab creates a new terminal tab for the workspace
 func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 	termWidth, termHeight := m.terminalContentSize()
-	opts := m.getTmuxOptions()
 
 	return func() tea.Msg {
 		shell := os.Getenv("SHELL")
 		if shell == "" {
 			shell = "/bin/bash"
 		}
-		if err := tmux.EnsureAvailable(); err != nil {
-			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
-		}
 
 		env := []string{"COLORTERM=truecolor"}
-		sessionName, _ := tmux.NextUniqueSessionName(ws.Name, opts)
-		tags := tmux.SessionTags{
-			WorkspaceID: wsID,
-			TabID:       string(tabID),
-			Type:        "terminal",
-			Assistant:   "terminal",
-			CreatedAt:   time.Now().Unix(),
-		}
-		command := tmux.ClientCommandWithTags(sessionName, ws.Root, fmt.Sprintf("exec %s -l", shell), opts, tags)
+		command := "exec " + shell + " -l"
 		term, err := pty.NewWithSize(command, ws.Root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
@@ -97,45 +67,11 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			WorkspaceID: wsID,
 			TabID:       tabID,
 			Terminal:    term,
-			SessionName: sessionName,
 		}
 	}
 }
 
-// DetachActiveTab closes the PTY client but keeps the tmux session alive.
-func (m *TerminalModel) DetachActiveTab() tea.Cmd {
-	tab := m.getActiveTab()
-	if tab == nil || tab.State == nil {
-		return nil
-	}
-	m.detachState(tab.State)
-	return nil
-}
-
-// ReattachActiveTab reattaches to a detached tmux session for the active terminal tab.
-func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
-	tab := m.getActiveTab()
-	if tab == nil || tab.State == nil || m.workspace == nil {
-		return nil
-	}
-	ts := tab.State
-	ts.mu.Lock()
-	running := ts.Running
-	sessionName := ts.SessionName
-	ts.mu.Unlock()
-	if running {
-		return func() tea.Msg {
-			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
-		}
-	}
-	ws := m.workspace
-	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", ws.Name, "1")
-	}
-	return m.attachToSession(ws, tab.ID, sessionName, "reattach")
-}
-
-// RestartActiveTab starts a fresh tmux session for the active terminal tab.
+// RestartActiveTab closes the PTY and creates a fresh one for the active terminal tab.
 func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	tab := m.getActiveTab()
 	if tab == nil || tab.State == nil || m.workspace == nil {
@@ -144,89 +80,35 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	ts := tab.State
 	ts.mu.Lock()
 	running := ts.Running
-	sessionName := ts.SessionName
 	ts.mu.Unlock()
 	if running {
 		return func() tea.Msg {
 			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
 		}
 	}
-	ws := m.workspace
-	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", ws.Name, "1")
-	}
-	m.detachState(ts)
-	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
-	return m.attachToSession(ws, tab.ID, sessionName, "restart")
-}
+	m.closeState(ts)
 
-func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName, action string) tea.Cmd {
-	if ws == nil {
-		return nil
-	}
-	// Snapshot model-dependent values so the async cmd doesn't race on TerminalModel fields.
-	opts := m.getTmuxOptions()
-	termWidth, termHeight := m.terminalContentSize()
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-	env := []string{"COLORTERM=truecolor"}
+	// Remove the old tab and create a new one in its place
+	ws := m.workspace
 	wsID := string(ws.ID())
-	root := ws.Root
+	tabID := tab.ID
+
+	termWidth, termHeight := m.terminalContentSize()
 	return func() tea.Msg {
-		if err := tmux.EnsureAvailable(); err != nil {
-			return sidebarTerminalReattachFailed{
-				WorkspaceID: wsID,
-				TabID:       tabID,
-				Err:         err,
-				Action:      action,
-			}
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/bash"
 		}
-		if action == "reattach" {
-			state, err := tmux.SessionStateFor(sessionName, opts)
-			if err != nil {
-				return sidebarTerminalReattachFailed{
-					WorkspaceID: wsID,
-					TabID:       tabID,
-					Err:         err,
-					Action:      action,
-				}
-			}
-			if !state.Exists || !state.HasLivePane {
-				return sidebarTerminalReattachFailed{
-					WorkspaceID: wsID,
-					TabID:       tabID,
-					Err:         fmt.Errorf("tmux session ended"),
-					Stopped:     true,
-					Action:      action,
-				}
-			}
-		}
-		tags := tmux.SessionTags{
-			WorkspaceID: wsID,
-			TabID:       string(tabID),
-			Type:        "terminal",
-			Assistant:   "terminal",
-		}
-		if action == "restart" {
-			tags.CreatedAt = time.Now().Unix()
-		}
-		command := tmux.ClientCommandWithTags(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags)
-		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
+		env := []string{"COLORTERM=truecolor"}
+		command := "exec " + shell + " -l"
+		term, err := pty.NewWithSize(command, ws.Root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
-			return sidebarTerminalReattachFailed{
-				WorkspaceID: wsID,
-				TabID:       tabID,
-				Err:         err,
-				Action:      action,
-			}
+			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
-		return sidebarTerminalReattachResult{
+		return SidebarTerminalCreated{
 			WorkspaceID: wsID,
 			TabID:       tabID,
 			Terminal:    term,
-			SessionName: sessionName,
 		}
 	}
 }
@@ -244,25 +126,19 @@ func (m *TerminalModel) terminalContentSize() (int, int) {
 }
 
 // HandleTerminalCreated handles the terminal tab creation message
-func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal, sessionName string) tea.Cmd {
+func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal) tea.Cmd {
 	termWidth, termHeight := m.terminalContentSize()
 
 	ts := &TerminalState{
-		Terminal:    term,
-		VTerm:       nil, // set below
-		Running:     true,
-		Detached:    false,
-		SessionName: sessionName,
-		lastWidth:   termWidth,
-		lastHeight:  termHeight,
+		Terminal:   term,
+		VTerm:      nil, // set below
+		Running:    true,
+		lastWidth:  termWidth,
+		lastHeight: termHeight,
 	}
 
 	vt := vterm.New(termWidth, termHeight)
 	vt.AllowAltScreenScrollback = true
-	// Capture term directly — the response writer is replaced on reattach,
-	// so the captured reference stays valid. Acquiring ts.mu here would
-	// deadlock because VTerm.Write() (called under ts.mu) triggers this
-	// callback synchronously.
 	vt.SetResponseWriter(func(data []byte) {
 		if term != nil {
 			_, _ = term.Write(data)
@@ -271,20 +147,25 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 	ts.VTerm = vt
 	_ = term.SetSize(uint16(termHeight), uint16(termWidth))
 
-	// ts already initialized above, just need tabs lookup
-	tabs := m.tabsByWorkspace[wsID]
-	tab := &TerminalTab{
-		ID:    tabID,
-		Name:  nextTerminalName(tabs),
-		State: ts,
+	// Check if this is a restart (tab already exists)
+	existingTab := m.getTabByID(wsID, tabID)
+	if existingTab != nil {
+		existingTab.State = ts
+	} else {
+		tabs := m.tabsByWorkspace[wsID]
+		tab := &TerminalTab{
+			ID:    tabID,
+			Name:  nextTerminalName(tabs),
+			State: ts,
+		}
+		m.tabsByWorkspace[wsID] = append(tabs, tab)
+
+		// Set as active tab (switch to new tab)
+		m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
 	}
-	m.tabsByWorkspace[wsID] = append(tabs, tab)
 
 	// Clear pending creation flag now that tab exists
 	delete(m.pendingCreation, wsID)
-
-	// Set as active tab (switch to new tab)
-	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
 
 	m.refreshTerminalSize()
 
@@ -411,7 +292,7 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
 }
 
-func (m *TerminalModel) detachState(ts *TerminalState) {
+func (m *TerminalModel) closeState(ts *TerminalState) {
 	if ts == nil {
 		return
 	}
@@ -420,7 +301,6 @@ func (m *TerminalModel) detachState(ts *TerminalState) {
 	term := ts.Terminal
 	ts.Terminal = nil
 	ts.Running = false
-	ts.Detached = true
 	ts.pendingOutput = nil
 	ts.mu.Unlock()
 	if term != nil {
@@ -447,7 +327,6 @@ func (m *TerminalModel) SendToTerminal(s string) {
 			logging.Warn("Sidebar SendToTerminal failed: %v", err)
 			ts.mu.Lock()
 			ts.Running = false
-			ts.Detached = true
 			ts.mu.Unlock()
 		}
 	}

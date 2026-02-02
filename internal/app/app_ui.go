@@ -203,9 +203,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 
 	case key.Matches(msg, a.keymap.NewTerminalTab):
 		if a.focusedPane == messages.PaneSidebarTerminal && a.activeWorkspace != nil {
-			if !a.tmuxAvailable {
-				return true, a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
-			}
 			return true, a.sidebarTerminal.CreateNewTab()
 		}
 		return true, nil
@@ -222,10 +219,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneCenter:
 			cmd := a.center.DetachActiveTab()
 			return true, a.safeBatch(cmd, a.persistActiveWorkspaceTabs())
-		case messages.PaneSidebarTerminal:
-			if cmd := a.sidebarTerminal.DetachActiveTab(); cmd != nil {
-				return true, cmd
-			}
 		}
 		return true, nil
 
@@ -234,10 +227,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneCenter:
 			cmd := a.center.ReattachActiveTab()
 			return true, cmd
-		case messages.PaneSidebarTerminal:
-			if cmd := a.sidebarTerminal.ReattachActiveTab(); cmd != nil {
-				return true, cmd
-			}
 		}
 		return true, nil
 

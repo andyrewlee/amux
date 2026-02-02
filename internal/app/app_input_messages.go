@@ -632,7 +632,6 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		applyTmuxEnvFromConfig(a.config, true)
 		a.tmuxOptions = tmux.DefaultOptions() // Refresh cached options
 		a.center.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
-		a.sidebarTerminal.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
 		_ = tmux.SetStatusOff(a.tmuxOptions)
 
 		// Save settings

@@ -327,7 +327,6 @@ func New(version, commit, date string) (*App, error) {
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	// Propagate tmux config to components
 	app.center.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)
-	app.sidebarTerminal.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)
 	app.supervisor.Start("center.tab_actor", app.center.RunTabActor, supervisor.WithRestartPolicy(supervisor.RestartAlways))
 	if app.statusManager != nil {
 		app.supervisor.Start("git.status_manager", app.statusManager.Run)
