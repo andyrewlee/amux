@@ -80,7 +80,6 @@ func defaultHelpSections() []HelpSection {
 				{"m", "Toggle monitor"},
 				{"K", "Cleanup tmux"},
 				{"?", "This help"},
-				{"q", "Quit"},
 			},
 		},
 		{
@@ -98,6 +97,7 @@ func defaultHelpSections() []HelpSection {
 		{
 			Title: "Dashboard",
 			Bindings: []HelpBinding{
+				{"q", "Quit"},
 				{"j/k", "Navigate up/down"},
 				{"Enter", "Activate workspace"},
 				{"D", "Delete workspace / remove project"},

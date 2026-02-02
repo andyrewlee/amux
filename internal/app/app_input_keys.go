@@ -96,7 +96,21 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		// Fall through to normal handling below
 	}
 
-	// 3. Passthrough mode - route keys to focused pane
+	// 3. Direct quit shortcut: 'q' when a non-input pane is focused
+	if key.Matches(msg, a.keymap.Quit) {
+		switch a.focusedPane {
+		case messages.PaneDashboard, messages.PaneSidebar:
+			a.showQuitDialog()
+			return nil
+		case messages.PaneCenter:
+			if !a.center.HasTabs() {
+				a.showQuitDialog()
+				return nil
+			}
+		}
+	}
+
+	// 4. Passthrough mode - route keys to focused pane
 	// Monitor pane: all keys go to the selected tile's PTY (navigation is via prefix mode)
 	if a.focusedPane == messages.PaneMonitor {
 		if cmd := a.handleMonitorInput(msg); cmd != nil {
