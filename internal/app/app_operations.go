@@ -206,6 +206,18 @@ func (a *App) requestGitStatusCached(root string) tea.Cmd {
 	return a.requestGitStatus(root)
 }
 
+// unwatchAllWorkspaces removes file watches for all known workspaces.
+func (a *App) unwatchAllWorkspaces() {
+	if a.fileWatcher == nil {
+		return
+	}
+	for _, p := range a.projects {
+		for _, ws := range p.Workspaces {
+			a.fileWatcher.Unwatch(ws.Root)
+		}
+	}
+}
+
 // addProject adds a new project to the registry
 func (a *App) addProject(path string) tea.Cmd {
 	return func() tea.Msg {

@@ -25,7 +25,8 @@ func (a *App) handleSidebarPTYMessages(msg tea.Msg) tea.Cmd {
 // handleGitStatusTick handles the GitStatusTick message.
 func (a *App) handleGitStatusTick() []tea.Cmd {
 	var cmds []tea.Cmd
-	if a.activeWorkspace != nil {
+	// Only refresh git status periodically when sidebar is visible
+	if a.activeWorkspace != nil && !a.layout.SidebarHidden() {
 		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root))
 	}
 	// Refresh active workspace indicators even when no PTY output is flowing.
@@ -36,12 +37,14 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 
 // handleFileWatcherEvent handles the FileWatcherEvent message.
 func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
-	a.statusManager.Invalidate(msg.Root)
-	a.dashboard.InvalidateStatus(msg.Root)
-	return []tea.Cmd{
-		a.requestGitStatus(msg.Root),
-		a.startFileWatcher(),
+	// Always re-listen for the next event
+	cmds := []tea.Cmd{a.startFileWatcher()}
+	if !a.layout.SidebarHidden() {
+		a.statusManager.Invalidate(msg.Root)
+		a.dashboard.InvalidateStatus(msg.Root)
+		cmds = append(cmds, a.requestGitStatus(msg.Root))
 	}
+	return cmds
 }
 
 // handleTabInputFailed handles the TabInputFailed message.
@@ -83,7 +86,7 @@ func (a *App) handlePTYWatchdogTick() []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	}
-	if a.sidebarTerminal != nil {
+	if a.sidebarTerminal != nil && !a.layout.SidebarHidden() {
 		if cmd := a.sidebarTerminal.StartPTYReaders(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}

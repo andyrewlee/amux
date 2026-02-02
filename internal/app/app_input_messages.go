@@ -59,13 +59,15 @@ func generateWorkspaceName(project *data.Project) string {
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.projects = msg.Projects
 	a.dashboard.SetProjects(a.projects)
-	// Request git status for all workspaces
 	var cmds []tea.Cmd
 	cmds = append(cmds, a.scanTmuxActivityNow())
-	for i := range a.projects {
-		for j := range a.projects[i].Workspaces {
-			ws := &a.projects[i].Workspaces[j]
-			cmds = append(cmds, a.requestGitStatus(ws.Root))
+	// Request git status for all workspaces (skip when sidebar is hidden)
+	if !a.layout.SidebarHidden() {
+		for i := range a.projects {
+			for j := range a.projects[i].Workspaces {
+				ws := &a.projects[i].Workspaces[j]
+				cmds = append(cmds, a.requestGitStatus(ws.Root))
+			}
 		}
 	}
 
@@ -134,9 +136,11 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	if restoreCmd := a.center.RestoreTabsFromWorkspace(msg.Workspace); restoreCmd != nil {
 		cmds = append(cmds, restoreCmd)
 	}
-	// Set up sidebar terminal for the workspace
-	if termCmd := a.sidebarTerminal.SetWorkspace(msg.Workspace); termCmd != nil {
-		cmds = append(cmds, termCmd)
+	// Set up sidebar terminal for the workspace (skip when sidebar is hidden)
+	if !a.layout.SidebarHidden() {
+		if termCmd := a.sidebarTerminal.SetWorkspace(msg.Workspace); termCmd != nil {
+			cmds = append(cmds, termCmd)
+		}
 	}
 	// Sync active workspaces to dashboard (fixes spinner race condition)
 	a.syncActiveWorkspacesToDashboard()
@@ -144,10 +148,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.dashboard = newDashboard
 	cmds = append(cmds, cmd)
 
-	// Refresh git status for sidebar
-	if msg.Workspace != nil {
+	// Refresh git status and set up file watching (skip when sidebar is hidden)
+	if msg.Workspace != nil && !a.layout.SidebarHidden() {
 		cmds = append(cmds, a.requestGitStatus(msg.Workspace.Root))
-		// Set up file watching for this workspace
 		if a.fileWatcher != nil {
 			_ = a.fileWatcher.Watch(msg.Workspace.Root)
 		}
@@ -613,6 +616,7 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		}
 
 		// Apply sidebar hidden setting
+		wasHidden := a.config.UI.HideSidebar
 		a.config.UI.HideSidebar = msg.HideSidebar
 		a.layout.SetSidebarHidden(msg.HideSidebar)
 		// If sidebar is now hidden and focus is on it, move focus to center
@@ -621,6 +625,27 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		}
 		a.layout.Resize(a.width, a.height)
 		a.updateLayout()
+
+		// Tear down or spin up sidebar resources when visibility changes
+		var sidebarCmds []tea.Cmd
+		if msg.HideSidebar && !wasHidden {
+			// Sidebar just hidden — close terminals and stop file watching
+			a.sidebarTerminal.CloseAll()
+			if a.fileWatcher != nil {
+				a.unwatchAllWorkspaces()
+			}
+		} else if !msg.HideSidebar && wasHidden {
+			// Sidebar just shown — start terminal and file watcher for active workspace
+			if a.activeWorkspace != nil {
+				if termCmd := a.sidebarTerminal.SetWorkspace(a.activeWorkspace); termCmd != nil {
+					sidebarCmds = append(sidebarCmds, termCmd)
+				}
+				sidebarCmds = append(sidebarCmds, a.requestGitStatus(a.activeWorkspace.Root))
+				if a.fileWatcher != nil {
+					_ = a.fileWatcher.Watch(a.activeWorkspace.Root)
+				}
+			}
+		}
 
 		// Apply tmux settings
 		oldServerName := a.tmuxOptions.ServerName
@@ -638,7 +663,7 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		if err := a.config.SaveUISettings(); err != nil {
 			return a.toast.ShowWarning("Failed to save settings")
 		}
-		cmds := []tea.Cmd{a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved")}
+		cmds := append(sidebarCmds, a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved"))
 		if tmuxPersistenceChanged {
 			cmds = append(cmds, a.toast.ShowInfo("Restart amux to apply tmux persistence change"))
 		}
