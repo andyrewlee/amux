@@ -223,6 +223,19 @@ type ShowDeleteWorkspaceDialog struct {
 	Workspace *data.Workspace
 }
 
+// ShowRenameWorkspaceDialog requests showing the rename workspace dialog
+type ShowRenameWorkspaceDialog struct {
+	Project   *data.Project
+	Workspace *data.Workspace
+}
+
+// RenameWorkspace requests renaming a workspace
+type RenameWorkspace struct {
+	Project   *data.Project
+	Workspace *data.Workspace
+	NewName   string
+}
+
 // ShowRemoveProjectDialog requests showing the remove project confirmation
 type ShowRemoveProjectDialog struct {
 	Project *data.Project

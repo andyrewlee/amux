@@ -261,6 +261,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("P"))):
 			return m, m.handleSetProfile()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
+			if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorkspace {
+				return m, m.handleRename()
+			}
 			return m, m.refresh()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):
 			// Jump to last selectable row

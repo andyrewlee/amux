@@ -36,7 +36,8 @@ const (
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
 	DialogCleanupTmux     = "cleanup_tmux"
-	DialogSetProfile      = "set_profile"
+	DialogSetProfile        = "set_profile"
+	DialogRenameWorkspace   = "rename_workspace"
 )
 
 // Prefix mode constants

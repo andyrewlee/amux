@@ -211,9 +211,12 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("j/↓", "down"),
 		m.helpItem("enter", "open"),
 	}
+	onWorkspace := false
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		switch m.rows[m.cursor].Type {
 		case RowWorkspace:
+			onWorkspace = true
+			items = append(items, m.helpItem("r", "rename"))
 			items = append(items, m.helpItem("D", "delete"))
 			items = append(items, m.helpItem("P", "profile"))
 		case RowProject:
@@ -221,8 +224,10 @@ func (m *Model) helpLines(contentWidth int) []string {
 			items = append(items, m.helpItem("P", "profile"))
 		}
 	}
+	if !onWorkspace {
+		items = append(items, m.helpItem("r", "rescan"))
+	}
 	items = append(items,
-		m.helpItem("r", "rescan"),
 		m.helpItem("g", "top"),
 		m.helpItem("G", "bottom"),
 	)

@@ -479,6 +479,15 @@ func (m *Model) HasTabs() bool {
 	return len(m.getTabs()) > 0
 }
 
+// UpdateWorkspaceName updates the display name on all tabs for a given workspace.
+func (m *Model) UpdateWorkspaceName(wsID string, newName string) {
+	for _, tab := range m.tabsByWorkspace[wsID] {
+		if tab != nil && tab.Workspace != nil {
+			tab.Workspace.Name = newName
+		}
+	}
+}
+
 // HasTabsForWorkspace returns whether there are any tabs for a given workspace ID
 func (m *Model) HasTabsForWorkspace(wsID string) bool {
 	return len(m.tabsByWorkspace[wsID]) > 0

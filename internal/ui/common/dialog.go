@@ -131,6 +131,16 @@ func fuzzyMatch(pattern, target string) bool {
 	return pi == len(pattern)
 }
 
+// SetValue sets the input text value. Call after Show() to pre-fill input
+// (Show resets the value to empty). Only applies to DialogInput.
+func (d *Dialog) SetValue(value string) *Dialog {
+	if d.dtype == DialogInput {
+		d.input.SetValue(value)
+		d.input.CursorEnd()
+	}
+	return d
+}
+
 // SetMessage sets the dialog description/message text.
 func (d *Dialog) SetMessage(msg string) *Dialog {
 	d.message = msg
