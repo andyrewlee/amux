@@ -13,6 +13,7 @@ type UISettings struct {
 	AutoStartAgent     bool
 	SyncProfilePlugins bool
 	DefaultAgent       string
+	LastProfile        string // Most recently selected profile name
 	Theme              string // Theme ID, defaults to "gruvbox"
 	TmuxServer         string
 	TmuxConfigPath     string
@@ -47,6 +48,7 @@ func loadUISettings(path string) UISettings {
 			AutoStartAgent     *bool   `json:"auto_start_agent"`
 			SyncProfilePlugins *bool   `json:"sync_profile_plugins"`
 			DefaultAgent       *string `json:"default_agent"`
+			LastProfile        *string `json:"last_profile"`
 			Theme              *string `json:"theme"`
 			TmuxServer         *string `json:"tmux_server"`
 			TmuxConfigPath     *string `json:"tmux_config"`
@@ -71,6 +73,9 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.DefaultAgent != nil {
 		settings.DefaultAgent = *raw.UI.DefaultAgent
+	}
+	if raw.UI.LastProfile != nil {
+		settings.LastProfile = *raw.UI.LastProfile
 	}
 	if raw.UI.Theme != nil {
 		settings.Theme = *raw.UI.Theme
@@ -109,6 +114,7 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["auto_start_agent"] = settings.AutoStartAgent
 	ui["sync_profile_plugins"] = settings.SyncProfilePlugins
 	ui["default_agent"] = settings.DefaultAgent
+	ui["last_profile"] = settings.LastProfile
 	ui["theme"] = settings.Theme
 	ui["tmux_server"] = settings.TmuxServer
 	ui["tmux_config"] = settings.TmuxConfigPath
