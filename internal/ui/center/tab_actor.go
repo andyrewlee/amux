@@ -161,9 +161,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			tab.Terminal.ClearSelection()
 		}
 		tab.Selection = SelectionState{}
-		tab.selectionScrollDir = 0
-		tab.selectionScrollActive = false
-		tab.selectionGen++
+		tab.selectionScroll.Reset()
 		tab.mu.Unlock()
 	case tabEventSelectionClearAndNotify:
 		tab.mu.Lock()
@@ -178,9 +176,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			tab.Terminal.ClearSelection()
 		}
 		tab.Selection = SelectionState{}
-		tab.selectionScrollDir = 0
-		tab.selectionScrollActive = false
-		tab.selectionGen++
+		tab.selectionScroll.Reset()
 		tab.mu.Unlock()
 		if ev.notifyCopy && text != "" && m.msgSink != nil {
 			m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
@@ -204,9 +200,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			tab.Terminal.ClearSelection()
 		}
 		tab.Selection = SelectionState{}
-		tab.selectionGen++
-		tab.selectionScrollDir = 0
-		tab.selectionScrollActive = false
+		tab.selectionScroll.Reset()
 		if ev.inBounds && tab.Terminal != nil {
 			absLine := tab.Terminal.ScreenYToAbsoluteLine(ev.termY)
 			tab.Selection = SelectionState{
@@ -237,17 +231,16 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			termX = termWidth - 1
 		}
 
-		scrollDir := 0
+		// Set scroll direction from unclamped Y before clamping
+		tab.selectionScroll.SetDirection(termY, termHeight)
+
 		if termY < 0 {
 			tab.Terminal.ScrollView(1)
-			scrollDir = 1
 			termY = 0
 		} else if termY >= termHeight {
 			tab.Terminal.ScrollView(-1)
-			scrollDir = -1
 			termY = termHeight - 1
 		}
-		tab.selectionScrollDir = scrollDir
 
 		absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
 		startX := tab.Terminal.SelStartX()
@@ -261,13 +254,13 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.Terminal.SetSelection(startX, startLine, termX, absLine, true, false)
 		tab.Selection.StartX = startX
 		tab.Selection.StartLine = startLine
-		tab.selectionGen++
-		if tab.Selection.Active && tab.selectionScrollDir != 0 && !tab.selectionScrollActive && m.msgSink != nil {
-			tab.selectionScrollActive = true
+
+		tab.selectionLastTermX = termX
+		if needTick, gen := tab.selectionScroll.NeedsTick(); needTick && m.msgSink != nil {
 			m.msgSink(selectionTickRequest{
 				workspaceID: ev.workspaceID,
 				tabID:       ev.tabID,
-				gen:         tab.selectionGen,
+				gen:         gen,
 			})
 		}
 	case tabEventSelectionFinish:
@@ -277,9 +270,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			return
 		}
 		tab.Selection.Active = false
-		tab.selectionScrollDir = 0
-		tab.selectionScrollActive = false
-		tab.selectionGen++
+		tab.selectionScroll.Reset()
 		if tab.Terminal != nil &&
 			(tab.Selection.StartX != tab.Selection.EndX ||
 				tab.Selection.StartLine != tab.Selection.EndLine) {
@@ -300,13 +291,32 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.mu.Unlock()
 	case tabEventSelectionScrollTick:
 		tab.mu.Lock()
-		if !tab.Selection.Active || tab.Terminal == nil || tab.selectionGen != ev.gen || tab.selectionScrollDir == 0 || !tab.selectionScrollActive {
-			tab.selectionScrollActive = false
+		if !tab.Selection.Active || tab.Terminal == nil || !tab.selectionScroll.HandleTick(ev.gen) {
 			tab.mu.Unlock()
 			return
 		}
-		tab.Terminal.ScrollView(tab.selectionScrollDir)
+		tab.Terminal.ScrollView(tab.selectionScroll.ScrollDir)
 		tab.monitorDirty = true
+
+		// Update selection endpoint to viewport edge
+		edgeY := 0
+		if tab.selectionScroll.ScrollDir < 0 {
+			edgeY = tab.Terminal.Height - 1
+		}
+		absLine := tab.Terminal.ScreenYToAbsoluteLine(edgeY)
+		endX := tab.selectionLastTermX
+		startX := tab.Terminal.SelStartX()
+		startLine := tab.Terminal.SelStartLine()
+		if !tab.Terminal.HasSelection() {
+			startX = tab.Selection.StartX
+			startLine = tab.Selection.StartLine
+		}
+		tab.Selection.EndX = endX
+		tab.Selection.EndLine = absLine
+		tab.Terminal.SetSelection(startX, startLine, endX, absLine, true, false)
+		tab.Selection.StartX = startX
+		tab.Selection.StartLine = startLine
+
 		tab.mu.Unlock()
 		if m.msgSink != nil {
 			m.msgSink(selectionTickRequest{

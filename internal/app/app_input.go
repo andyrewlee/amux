@@ -412,7 +412,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.toast.ShowInfo(msg.Message))
 		}
 
-	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed:
+	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed, sidebar.SidebarSelectionScrollTick:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}

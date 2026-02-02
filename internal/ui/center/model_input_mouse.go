@@ -1,6 +1,8 @@
 package center
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -290,4 +292,62 @@ func (m *Model) dispatchDiffInput(tab *Tab, msg tea.Msg) (bool, tea.Cmd) {
 	tab.DiffViewer = newDV
 	tab.mu.Unlock()
 	return true, cmd
+}
+
+// updateSelectionScrollTick handles selectionScrollTick.
+func (m *Model) updateSelectionScrollTick(msg selectionScrollTick) tea.Cmd {
+	var cmds []tea.Cmd
+	if m.isTabActorReady() {
+		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+		if tab == nil {
+			return nil
+		}
+		if m.sendTabEvent(tabEvent{
+			tab:         tab,
+			workspaceID: msg.WorkspaceID,
+			tabID:       msg.TabID,
+			kind:        tabEventSelectionScrollTick,
+			gen:         msg.Gen,
+		}) {
+			return nil
+		}
+	}
+	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	if tab == nil {
+		return nil
+	}
+	tab.mu.Lock()
+	if !tab.Selection.Active || tab.Terminal == nil || !tab.selectionScroll.HandleTick(msg.Gen) {
+		tab.mu.Unlock()
+		return nil
+	}
+	tab.Terminal.ScrollView(tab.selectionScroll.ScrollDir)
+	tab.monitorDirty = true
+
+	// Update selection endpoint to viewport edge
+	edgeY := 0
+	if tab.selectionScroll.ScrollDir < 0 {
+		edgeY = tab.Terminal.Height - 1
+	}
+	absLine := tab.Terminal.ScreenYToAbsoluteLine(edgeY)
+	endX := tab.selectionLastTermX
+	startX := tab.Terminal.SelStartX()
+	startLine := tab.Terminal.SelStartLine()
+	if !tab.Terminal.HasSelection() {
+		startX = tab.Selection.StartX
+		startLine = tab.Selection.StartLine
+	}
+	tab.Selection.EndX = endX
+	tab.Selection.EndLine = absLine
+	tab.Terminal.SetSelection(startX, startLine, endX, absLine, true, false)
+	tab.Selection.StartX = startX
+	tab.Selection.StartLine = startLine
+
+	tab.mu.Unlock()
+	tabID := msg.TabID
+	wtID := msg.WorkspaceID
+	cmds = append(cmds, common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return selectionScrollTick{WorkspaceID: wtID, TabID: tabID, Gen: msg.Gen}
+	}))
+	return common.SafeBatch(cmds...)
 }

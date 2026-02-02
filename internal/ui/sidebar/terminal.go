@@ -64,7 +64,9 @@ type TerminalState struct {
 	flushPendingSince time.Time
 
 	// Selection state
-	Selection SelectionState
+	Selection          SelectionState
+	selectionScroll    common.SelectionScrollState
+	selectionLastTermX int
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
 	cachedSnap       *compositor.VTermSnapshot
@@ -94,6 +96,14 @@ type terminalTabHit struct {
 	kind   terminalTabHitKind
 	index  int
 	region common.HitRegion
+}
+
+// SidebarSelectionScrollTick is sent by the tick loop to continue
+// auto-scrolling during mouse-drag selection past viewport edges.
+type SidebarSelectionScrollTick struct {
+	WorkspaceID string
+	TabID       TerminalTabID
+	Gen         uint64
 }
 
 // TerminalModel is the Bubbletea model for the sidebar terminal section

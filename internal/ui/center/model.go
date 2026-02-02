@@ -67,10 +67,9 @@ type Tab struct {
 	ptyMsgCh          chan tea.Msg
 	readerCancel      chan struct{}
 	// Mouse selection state
-	Selection             SelectionState
-	selectionGen          uint64
-	selectionScrollDir    int
-	selectionScrollActive bool
+	Selection          SelectionState
+	selectionScroll    common.SelectionScrollState
+	selectionLastTermX int
 
 	ptyTraceFile      *os.File
 	ptyTraceBytes     int
