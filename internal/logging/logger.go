@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -45,13 +47,26 @@ type Logger struct {
 
 var defaultLogger *Logger
 
+const (
+	logDateLayout          = "2006-01-02"
+	logPrefix              = "amux-"
+	logSuffix              = ".log"
+	defaultRetentionDays   = 14
+	logRetentionEnvVarName = "AMUX_LOG_RETENTION_DAYS"
+)
+
 // Initialize sets up the default logger
 func Initialize(logDir string, level Level) error {
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return err
 	}
 
-	logPath := filepath.Join(logDir, fmt.Sprintf("amux-%s.log", time.Now().Format("2006-01-02")))
+	retentionDays := logRetentionDays()
+	if retentionDays > 0 {
+		_ = pruneOldLogs(logDir, retentionDays)
+	}
+
+	logPath := filepath.Join(logDir, fmt.Sprintf("%s%s%s", logPrefix, time.Now().Format(logDateLayout), logSuffix))
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -64,6 +79,44 @@ func Initialize(logDir string, level Level) error {
 		filePath: logPath,
 	}
 
+	return nil
+}
+
+func logRetentionDays() int {
+	raw := strings.TrimSpace(os.Getenv(logRetentionEnvVarName))
+	if raw == "" {
+		return defaultRetentionDays
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return defaultRetentionDays
+	}
+	return value
+}
+
+func pruneOldLogs(logDir string, retentionDays int) error {
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().AddDate(0, 0, -retentionDays)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, logPrefix) || !strings.HasSuffix(name, logSuffix) {
+			continue
+		}
+		dateStr := strings.TrimSuffix(strings.TrimPrefix(name, logPrefix), logSuffix)
+		day, err := time.ParseInLocation(logDateLayout, dateStr, time.Local)
+		if err != nil {
+			continue
+		}
+		if day.Before(cutoff) {
+			_ = os.Remove(filepath.Join(logDir, name))
+		}
+	}
 	return nil
 }
 
