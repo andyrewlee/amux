@@ -1,9 +1,11 @@
 package git
 
 import (
+	"context"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // graphPattern matches the git graph prefix (e.g., "* ", "| * ", "| | * ")
@@ -30,6 +32,8 @@ type CommitLog struct {
 // Using a rare sequence to avoid conflicts with commit messages
 const commitDelimiter = "|||"
 
+const commitLogTimeout = 15 * time.Second
+
 // GetCommitLog returns parsed commits with graph information
 // Default limit is 100 commits
 func GetCommitLog(repoPath string, limit int) (*CommitLog, error) {
@@ -41,7 +45,9 @@ func GetCommitLog(repoPath string, limit int) (*CommitLog, error) {
 	// %h = short hash, %H = full hash, %s = subject, %an = author name, %cr = relative date, %d = ref names
 	format := "%h" + commitDelimiter + "%H" + commitDelimiter + "%s" + commitDelimiter + "%an" + commitDelimiter + "%cr" + commitDelimiter + "%d"
 
-	output, err := RunGit(repoPath, "log",
+	ctx, cancel := context.WithTimeout(context.Background(), commitLogTimeout)
+	defer cancel()
+	output, err := RunGitCtx(ctx, repoPath, "log",
 		"--graph",
 		"--all",
 		"--decorate",

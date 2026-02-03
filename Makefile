@@ -57,6 +57,7 @@ help:
 release-check: test
 	go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
 	go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
+	go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1
 
 release-tag:
 	@test -n "$(VERSION)" || (echo "VERSION is required (e.g. VERSION=v0.0.5)" && exit 1)

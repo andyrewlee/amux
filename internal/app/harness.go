@@ -34,6 +34,7 @@ type HarnessOptions struct {
 const (
 	HarnessCenter  = "center"
 	HarnessSidebar = "sidebar"
+	HarnessMonitor = "monitor"
 )
 
 // Harness drives a headless render loop for profiling.
@@ -79,9 +80,17 @@ func NewHarness(opts HarnessOptions) (*Harness, error) {
 		return newCenterHarness(cfg, opts), nil
 	case HarnessSidebar:
 		return newSidebarHarness(cfg, opts), nil
+	case HarnessMonitor:
+		return newMonitorHarness(cfg, opts), nil
 	default:
 		return nil, fmt.Errorf("unknown mode %q", opts.Mode)
 	}
+}
+
+func newMonitorHarness(cfg *config.Config, opts HarnessOptions) *Harness {
+	h := newSidebarHarness(cfg, opts)
+	h.mode = HarnessMonitor
+	return h
 }
 
 func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
@@ -221,7 +230,7 @@ func (h *Harness) Step(frame int) {
 		return
 	}
 	payload := h.buildPayload(frame)
-	if h.mode == HarnessSidebar {
+	if h.mode == HarnessSidebar || h.mode == HarnessMonitor {
 		if h.sidebarTerm != nil {
 			for i := 0; i < h.hotTabs; i++ {
 				h.sidebarTerm.WriteToTerminal(payload)

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -261,6 +262,77 @@ func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
 	}
 	if loaded.ArchivedAt.IsZero() {
 		t.Fatalf("expected archived workspace to set ArchivedAt")
+	}
+}
+
+func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
+	repo := t.TempDir()
+	tmp := t.TempDir()
+
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	metadataRoot := filepath.Join(tmp, "workspaces-metadata")
+
+	store := data.NewWorkspaceStore(metadataRoot)
+	app := &App{
+		config: &config.Config{
+			Paths: &config.Paths{
+				WorkspacesRoot: workspacesRoot,
+			},
+		},
+		workspaces: store,
+	}
+
+	project := data.NewProject(repo)
+
+	origCreate := createWorkspaceFn
+	origRemove := removeWorkspaceFn
+	origDelete := deleteBranchFn
+	origTimeout := gitPathWaitTimeout
+	t.Cleanup(func() {
+		createWorkspaceFn = origCreate
+		removeWorkspaceFn = origRemove
+		deleteBranchFn = origDelete
+		gitPathWaitTimeout = origTimeout
+	})
+
+	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
+		return os.MkdirAll(workspacePath, 0755)
+	}
+
+	var removeCalled bool
+	var deleteCalled bool
+	removeWorkspaceFn = func(repoPath, workspacePath string) error {
+		removeCalled = true
+		return nil
+	}
+	deleteBranchFn = func(repoPath, branch string) error {
+		deleteCalled = true
+		return nil
+	}
+
+	gitPathWaitTimeout = 50 * time.Millisecond
+
+	msg := app.createWorkspace(project, "feature", "main")()
+	failed, ok := msg.(messages.WorkspaceCreateFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+	}
+	if failed.Err == nil {
+		t.Fatalf("expected WorkspaceCreateFailed to include error")
+	}
+	if !removeCalled {
+		t.Fatalf("expected workspace rollback to remove worktree")
+	}
+	if !deleteCalled {
+		t.Fatalf("expected workspace rollback to delete branch")
+	}
+
+	ids, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("expected no persisted workspaces, got %d", len(ids))
 	}
 }
 

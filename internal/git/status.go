@@ -2,12 +2,16 @@ package git
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const diffNumstatTimeout = 10 * time.Second
 
 // DiffMode specifies which changes to diff
 type DiffMode int
@@ -54,7 +58,7 @@ type StatusResult struct {
 // GetStatus returns the git status for a repository using porcelain v1 -z format
 // This format handles spaces, unicode, and special characters in paths correctly
 func GetStatus(repoPath string) (*StatusResult, error) {
-	output, err := RunGitRaw(repoPath, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-u")
+	output, err := RunGitRawCtx(context.Background(), repoPath, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-u")
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +83,9 @@ func getDiffNumstat(repoPath string, staged bool) (added, deleted int, err error
 	if staged {
 		args = []string{"--no-optional-locks", "diff", "--cached", "--numstat"}
 	}
-	output, err := RunGit(repoPath, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), diffNumstatTimeout)
+	defer cancel()
+	output, err := RunGitCtx(ctx, repoPath, args...)
 	if err != nil {
 		return 0, 0, err
 	}

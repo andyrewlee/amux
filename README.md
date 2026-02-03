@@ -68,6 +68,10 @@ Each workspace tracks a repo checkout and its metadata. For local workflows, wor
 
 ## Configuration
 
+## Platform Support
+
+AMUX requires `tmux` and is supported on Linux/macOS. Windows is not supported.
+
 Create `.amux/workspaces.json` in your project to run setup commands for new workspaces:
 
 ```json

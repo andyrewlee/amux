@@ -1,8 +1,12 @@
 package git
 
 import (
+	"context"
 	"strings"
+	"time"
 )
+
+const branchDiffTimeout = 15 * time.Second
 
 // GetBaseBranch returns the base branch (main, master, or the default branch)
 func GetBaseBranch(repoPath string) (string, error) {
@@ -11,14 +15,14 @@ func GetBaseBranch(repoPath string) (string, error) {
 
 	for _, branch := range candidates {
 		// Check if branch exists
-		_, err := RunGit(repoPath, "rev-parse", "--verify", branch)
+		_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
 		if err == nil {
 			return branch, nil
 		}
 	}
 
 	// Try to get the default branch from remote
-	output, err := RunGit(repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
+	output, err := RunGitCtx(context.Background(), repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
 		parts := strings.Split(output, "/")
@@ -38,13 +42,17 @@ func GetBranchFileDiff(repoPath, path string) (*DiffResult, error) {
 		return nil, err
 	}
 
-	mergeBase, err := RunGit(repoPath, "merge-base", base, "HEAD")
+	ctx, cancel := context.WithTimeout(context.Background(), branchDiffTimeout)
+	mergeBase, err := RunGitCtx(ctx, repoPath, "merge-base", base, "HEAD")
+	cancel()
 	if err != nil {
 		mergeBase = base
 	}
 
 	args := []string{"diff", "--no-color", "--no-ext-diff", "-U3", mergeBase + "...HEAD", "--", path}
-	output, err := RunGit(repoPath, args...)
+	ctx, cancel = context.WithTimeout(context.Background(), branchDiffTimeout)
+	defer cancel()
+	output, err := RunGitCtx(ctx, repoPath, args...)
 	if err != nil {
 		return &DiffResult{
 			Path:  path,

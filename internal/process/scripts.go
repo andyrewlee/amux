@@ -36,7 +36,11 @@ type ScriptRunner struct {
 	mu            sync.Mutex
 	portAllocator *PortAllocator
 	envBuilder    *EnvBuilder
-	running       map[string]*exec.Cmd // workspace root -> running process
+	running       map[string]*runningScript // workspace root -> running process
+}
+
+type runningScript struct {
+	cmd *exec.Cmd
 }
 
 // NewScriptRunner creates a new script runner
@@ -45,7 +49,7 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 	return &ScriptRunner{
 		portAllocator: ports,
 		envBuilder:    NewEnvBuilder(ports),
-		running:       make(map[string]*exec.Cmd),
+		running:       make(map[string]*runningScript),
 	}
 }
 
@@ -82,12 +86,13 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		cmd := exec.Command("sh", "-c", cmdStr)
 		cmd.Dir = ws.Root
 		cmd.Env = env
+		SetProcessGroup(cmd)
 
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("setup command failed: %s: %s", cmdStr, stderr.String())
+			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, stderr.String(), err)
 		}
 	}
 
@@ -135,15 +140,19 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		return nil, err
 	}
 
+	running := &runningScript{cmd: cmd}
+	root := ws.Root
 	r.mu.Lock()
-	r.running[ws.Root] = cmd
+	r.running[root] = running
 	r.mu.Unlock()
 
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
 		_ = cmd.Wait()
 		r.mu.Lock()
-		delete(r.running, ws.Root)
+		if current, ok := r.running[root]; ok && current == running {
+			delete(r.running, root)
+		}
 		r.mu.Unlock()
 	})
 
@@ -153,15 +162,15 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 // Stop stops the running script for a workspace
 func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	r.mu.Lock()
-	cmd, ok := r.running[ws.Root]
+	running, ok := r.running[ws.Root]
 	r.mu.Unlock()
 
 	if !ok {
 		return nil
 	}
 
-	if cmd.Process != nil {
-		return KillProcessGroup(cmd.Process.Pid, KillOptions{})
+	if running.cmd != nil && running.cmd.Process != nil {
+		return KillProcessGroup(running.cmd.Process.Pid, KillOptions{})
 	}
 
 	return nil
@@ -178,12 +187,16 @@ func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
 // StopAll stops all running scripts
 func (r *ScriptRunner) StopAll() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	running := make([]*runningScript, 0, len(r.running))
+	for _, entry := range r.running {
+		running = append(running, entry)
+	}
+	r.running = make(map[string]*runningScript)
+	r.mu.Unlock()
 
-	for _, cmd := range r.running {
-		if cmd.Process != nil {
-			_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
+	for _, entry := range running {
+		if entry.cmd != nil && entry.cmd.Process != nil {
+			_ = KillProcessGroup(entry.cmd.Process.Pid, KillOptions{})
 		}
 	}
-	r.running = make(map[string]*exec.Cmd)
 }
