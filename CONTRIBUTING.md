@@ -15,6 +15,7 @@ The release workflow is tag-driven. Pushing a tag like `v0.0.5` triggers the Git
 Fast path:
 
 ```bash
+git pull --ff-only
 make release VERSION=v0.0.5
 ```
 
