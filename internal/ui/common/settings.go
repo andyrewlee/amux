@@ -16,7 +16,6 @@ type SettingsResult struct {
 	Confirmed        bool
 	Theme            ThemeID
 	ShowKeymapHints  bool
-	TmuxPersistence  bool
 	TmuxServer       string
 	TmuxConfigPath   string
 	TmuxSyncInterval string
@@ -32,7 +31,6 @@ type settingsItem int
 const (
 	settingsItemTheme settingsItem = iota
 	settingsItemKeymap
-	settingsItemTmuxPersistence
 	settingsItemTmuxServer
 	settingsItemTmuxConfig
 	settingsItemTmuxSync
@@ -51,7 +49,6 @@ type SettingsDialog struct {
 	theme           ThemeID
 	showKeymapHints bool
 	originalTheme   ThemeID
-	tmuxPersistence bool
 	tmuxServer      textinput.Model
 	tmuxConfig      textinput.Model
 	tmuxSync        textinput.Model
@@ -80,7 +77,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	themes := AvailableThemes()
 	themeCursor := 0
 	for i, t := range themes {
@@ -112,7 +109,6 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, tmuxPersistence bo
 		theme:           currentTheme,
 		originalTheme:   currentTheme,
 		showKeymapHints: showKeymapHints,
-		tmuxPersistence: tmuxPersistence,
 		tmuxServer:      serverInput,
 		tmuxConfig:      configInput,
 		tmuxSync:        syncInput,
@@ -237,10 +233,6 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.showKeymapHints = !s.showKeymapHints
 		return s, nil
 
-	case settingsItemTmuxPersistence:
-		s.tmuxPersistence = !s.tmuxPersistence
-		return s, nil
-
 	case settingsItemTmuxServer, settingsItemTmuxConfig, settingsItemTmuxSync:
 		return s, nil
 
@@ -261,7 +253,6 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 				Confirmed:        true,
 				Theme:            s.theme,
 				ShowKeymapHints:  s.showKeymapHints,
-				TmuxPersistence:  s.tmuxPersistence,
 				TmuxServer:       strings.TrimSpace(s.tmuxServer.Value()),
 				TmuxConfigPath:   strings.TrimSpace(s.tmuxConfig.Value()),
 				TmuxSyncInterval: strings.TrimSpace(s.tmuxSync.Value()),

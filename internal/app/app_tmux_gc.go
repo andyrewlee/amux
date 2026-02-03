@@ -1,10 +1,6 @@
 package app
 
 import (
-	"strconv"
-	"strings"
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -17,43 +13,11 @@ type orphanGCResult struct {
 	Err    error
 }
 
+// terminalGCResult is returned after attempting to clean up stale terminal sessions.
+// This is now a no-op since sessions are always persisted.
 type terminalGCResult struct {
 	Killed int
 	Err    error
-}
-
-type terminalSessionInfo struct {
-	Name       string
-	Workspace  string
-	CreatedAt  int64
-	HasClients bool
-	InstanceID string
-}
-
-const terminalSessionTTL = 24 * time.Hour
-
-func selectStaleTerminalSessions(sessions []terminalSessionInfo, now time.Time, ttl time.Duration) []string {
-	var out []string
-	for _, session := range sessions {
-		if session.Name == "" || session.HasClients {
-			continue
-		}
-		if session.CreatedAt == 0 {
-			continue
-		}
-		age := now.Sub(time.Unix(session.CreatedAt, 0))
-		if age >= ttl {
-			out = append(out, session.Name)
-		}
-	}
-	return out
-}
-
-func shouldSkipTerminalForInstance(sessionInstance, currentInstance string, activeInstances map[string]bool) bool {
-	if sessionInstance == "" || sessionInstance == currentInstance {
-		return false
-	}
-	return activeInstances[sessionInstance]
 }
 
 // collectKnownWorkspaceIDs returns the set of workspace IDs currently tracked
@@ -101,94 +65,9 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 	}
 }
 
-// gcStaleTerminalSessions kills terminal tmux sessions that are inactive and stale.
+// gcStaleTerminalSessions is a no-op since sessions are always persisted.
 func (a *App) gcStaleTerminalSessions() tea.Cmd {
-	if a == nil || a.config == nil {
-		return nil
-	}
-	if a.config.UI.TmuxPersistence {
-		return nil
-	}
-	if !a.tmuxAvailable || !a.projectsLoaded {
-		return nil
-	}
-	opts := a.tmuxOptions
-	currentInstanceID := a.instanceID
-	return func() tea.Msg {
-		activeInstances := make(map[string]bool)
-		activeRows, err := tmux.SessionsWithTags(
-			map[string]string{"@amux": "1"},
-			[]string{"@amux_instance"},
-			opts,
-		)
-		if err == nil {
-			for _, row := range activeRows {
-				instanceID := strings.TrimSpace(row.Tags["@amux_instance"])
-				if instanceID == "" {
-					continue
-				}
-				hasClients, err := tmux.SessionHasClients(row.Name, opts)
-				if err == nil && hasClients {
-					activeInstances[instanceID] = true
-				}
-			}
-		}
-
-		match := map[string]string{
-			"@amux":      "1",
-			"@amux_type": "terminal",
-		}
-		rows, err := tmux.SessionsWithTags(
-			match,
-			[]string{"@amux_workspace", "@amux_created_at", "@amux_instance"},
-			opts,
-		)
-		if err != nil {
-			return terminalGCResult{Err: err}
-		}
-		now := time.Now()
-		sessions := make([]terminalSessionInfo, 0, len(rows))
-		for _, row := range rows {
-			if row.Name == "" {
-				continue
-			}
-			instanceID := strings.TrimSpace(row.Tags["@amux_instance"])
-			if shouldSkipTerminalForInstance(instanceID, currentInstanceID, activeInstances) {
-				continue
-			}
-			createdAt := int64(0)
-			if raw := strings.TrimSpace(row.Tags["@amux_created_at"]); raw != "" {
-				createdAt, _ = strconv.ParseInt(raw, 10, 64)
-			}
-			if createdAt == 0 {
-				if fallback, err := tmux.SessionCreatedAt(row.Name, opts); err == nil {
-					createdAt = fallback
-				}
-			}
-			hasClients, err := tmux.SessionHasClients(row.Name, opts)
-			if err != nil {
-				continue
-			}
-			sessions = append(sessions, terminalSessionInfo{
-				Name:       row.Name,
-				Workspace:  row.Tags["@amux_workspace"],
-				CreatedAt:  createdAt,
-				HasClients: hasClients,
-				InstanceID: instanceID,
-			})
-		}
-		toKill := selectStaleTerminalSessions(sessions, now, terminalSessionTTL)
-		if len(toKill) == 0 {
-			return terminalGCResult{Killed: 0}
-		}
-		killed := 0
-		for _, name := range toKill {
-			if err := tmux.KillSession(name, opts); err == nil {
-				killed++
-			}
-		}
-		return terminalGCResult{Killed: killed}
-	}
+	return nil
 }
 
 func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]string, error) {

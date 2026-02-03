@@ -25,7 +25,6 @@ func TestTmuxPersistenceKeepsSessions(t *testing.T) {
 	home := t.TempDir()
 	repo := initRepo(t)
 	writeRegistry(t, home, repo)
-	writeConfig(t, home, true)
 	binDir := writeStubAssistant(t, home, "claude")
 	server := fmt.Sprintf("amux-e2e-%d", time.Now().UnixNano())
 	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
@@ -72,44 +71,6 @@ func TestTmuxPersistenceKeepsSessions(t *testing.T) {
 	if err := restart.WaitForExit(persistenceTimeout); err != nil {
 		t.Fatalf("waiting for restart exit: %v", err)
 	}
-}
-
-func TestTmuxPersistenceCleansOnExit(t *testing.T) {
-	skipIfNoGit(t)
-	skipIfNoTmux(t)
-
-	home := t.TempDir()
-	repo := initRepo(t)
-	writeRegistry(t, home, repo)
-	writeConfig(t, home, false)
-	binDir := writeStubAssistant(t, home, "claude")
-	server := fmt.Sprintf("amux-e2e-%d", time.Now().UnixNano())
-	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
-	defer killTmuxServer(t, server)
-
-	env := sessionEnv(binDir, server)
-	session, cleanup, err := StartPTYSession(PTYOptions{
-		Home: home,
-		Env:  env,
-	})
-	if err != nil {
-		t.Fatalf("start session: %v", err)
-	}
-	defer cleanup()
-
-	waitForUIContains(t, session, filepath.Base(repo), persistenceTimeout)
-	activatePrimaryWorkspace(t, session)
-	waitForUIContains(t, session, "[New agent]", persistenceTimeout)
-	createAgentTab(t, session)
-	waitForUIContains(t, session, "claude", persistenceTimeout)
-	waitForSessionTypes(t, opts, map[string]bool{"agent": true, "terminal": true}, persistenceTimeout)
-
-	quitApp(t, session)
-	if err := session.WaitForExit(persistenceTimeout); err != nil {
-		t.Fatalf("waiting for exit: %v", err)
-	}
-
-	waitForNoSessions(t, opts, persistenceTimeout)
 }
 
 func activatePrimaryWorkspace(t *testing.T, session *PTYSession) {
@@ -191,27 +152,6 @@ func waitForSessionTypes(t *testing.T, opts tmux.Options, want map[string]bool, 
 	t.Fatalf("timeout waiting for tmux session types %v", want)
 }
 
-func waitForNoSessions(t *testing.T, opts tmux.Options, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	prefix := tmux.SessionName("amux") + "-"
-	for time.Now().Before(deadline) {
-		sessions, err := tmux.ListSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
-		if err != nil {
-			if !hasSessionsWithPrefix(t, opts, prefix, 1) {
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		if len(sessions) == 0 {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	t.Fatalf("expected no tmux sessions remaining")
-}
-
 func waitForUIContains(t *testing.T, session *PTYSession, needle string, timeout time.Duration) {
 	t.Helper()
 	if err := session.WaitForContains(needle, timeout); err != nil {
@@ -243,16 +183,16 @@ func writeRegistry(t *testing.T, home, repo string) {
 	}
 }
 
-func writeConfig(t *testing.T, home string, persistence bool) {
+// writeConfig creates an empty config file. The persistence parameter is ignored
+// since sessions are always persisted now.
+func writeConfig(t *testing.T, home string, _ bool) {
 	t.Helper()
 	configPath := filepath.Join(home, ".amux", "config.json")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config: %v", err)
 	}
 	payload := map[string]any{
-		"ui": map[string]any{
-			"tmux_persistence": persistence,
-		},
+		"ui": map[string]any{},
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -57,25 +56,6 @@ func (a *App) cleanupAllTmuxSessions() tea.Cmd {
 	}
 }
 
-// CleanupTmuxOnExit kills amux sessions on exit when persistence is disabled.
+// CleanupTmuxOnExit is a no-op since sessions are always persisted across restarts.
 func (a *App) CleanupTmuxOnExit() {
-	if a == nil || a.config == nil {
-		return
-	}
-	if a.config.UI.TmuxPersistence {
-		return
-	}
-	opts := a.tmuxOptions
-	opts.CommandTimeout = 2 * time.Second
-	if cleaned, err := tmux.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, opts); err != nil {
-		logging.Warn("Failed to cleanup tmux sessions on exit by tag: %v", err)
-	} else if cleaned {
-		logging.Info("Cleaned up @amux tmux sessions on exit")
-	}
-	prefix := tmux.SessionName("amux") + "-"
-	if err := tmux.KillSessionsWithPrefix(prefix, opts); err != nil {
-		logging.Warn("Failed to cleanup tmux sessions on exit: %v", err)
-		return
-	}
-	logging.Info("Cleaned up %s* tmux sessions on exit", prefix)
 }
