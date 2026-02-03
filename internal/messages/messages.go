@@ -12,7 +12,7 @@ const (
 	PaneDashboard PaneType = iota
 	PaneCenter
 	PaneSidebar
-	PaneSidebarTerminal
+	PaneTerminal // Terminal pane (below center pane)
 	PaneMonitor
 )
 
@@ -199,6 +199,9 @@ type SidebarPTYRestart struct {
 
 // ToggleKeymapHints toggles display of keymap helper text
 type ToggleKeymapHints struct{}
+
+// ToggleTerminalCollapse toggles the terminal pane collapsed state
+type ToggleTerminalCollapse struct{}
 
 // RefreshDashboard requests a dashboard refresh
 type RefreshDashboard struct{}

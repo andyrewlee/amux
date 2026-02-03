@@ -416,3 +416,24 @@ func (m *TerminalModel) View() string {
 	}
 	return result
 }
+
+// ContentView returns the terminal content without the tab bar.
+// Use this when rendering the tab bar separately (layer composition).
+func (m *TerminalModel) ContentView() string {
+	ts := m.getTerminal()
+	if ts == nil || ts.VTerm == nil {
+		// Show placeholder when no terminal
+		if len(m.getTabs()) == 0 {
+			// Empty state - tab bar shows "New terminal" button
+			return ""
+		}
+		return m.styles.Muted.Render("No terminal")
+	}
+
+	ts.mu.Lock()
+	ts.VTerm.ShowCursor = m.focused
+	content := ts.VTerm.Render()
+	ts.mu.Unlock()
+
+	return content
+}
