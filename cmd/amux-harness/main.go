@@ -20,7 +20,7 @@ type stats struct {
 }
 
 func main() {
-	mode := flag.String("mode", app.HarnessMonitor, "render mode: monitor, center, or sidebar")
+	mode := flag.String("mode", app.HarnessCenter, "render mode: center or sidebar")
 	tabs := flag.Int("tabs", 16, "number of tabs/agents")
 	width := flag.Int("width", 160, "screen width in columns")
 	height := flag.Int("height", 48, "screen height in rows")

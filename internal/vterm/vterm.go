@@ -175,7 +175,7 @@ func (v *VTerm) Resize(width, height int) {
 	}
 
 	// Resize screen buffer - preserve full row content to allow restoring
-	// on resize back to larger width (e.g., exiting monitor mode)
+	// on resize back to larger width
 	newScreen := make([][]Cell, height)
 	for y := 0; y < height; y++ {
 		if y < len(v.Screen) && len(v.Screen[y]) > 0 {

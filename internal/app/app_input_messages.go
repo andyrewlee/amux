@@ -432,10 +432,6 @@ func (a *App) handleLaunchAgent(msg messages.LaunchAgent) tea.Cmd {
 func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 	logging.Info("Tab created: %s", msg.Name)
 	cmd := a.center.StartPTYReaders()
-	if a.monitorMode {
-		a.focusPane(messages.PaneMonitor)
-	} else {
-		a.focusPane(messages.PaneCenter)
-	}
+	a.focusPane(messages.PaneCenter)
 	return cmd
 }

@@ -11,8 +11,8 @@ import (
 
 // handleTmuxSyncTick syncs tab status for all workspaces on each tick.
 //
-// Cost model: tmuxSyncWorkspaces() returns every workspace (in monitor mode, all of
-// them). Each workspace spawns a separate Bubble Tea Cmd goroutine, so syncs run
+// Cost model: tmuxSyncWorkspaces() returns every workspace. Each workspace spawns
+// a separate Bubble Tea Cmd goroutine, so syncs run
 // concurrently. Per workspace, each tab with a session name incurs 1-2 tmux commands
 // (has-session + list-panes). The default 7s tick interval and per-command 5s timeout
 // bound worst-case latency. For typical usage (a handful of projects, a few tabs each)

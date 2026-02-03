@@ -93,14 +93,6 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	// 3. Passthrough mode - route keys to focused pane
-	// Monitor pane: all keys go to the selected tile's PTY (navigation is via prefix mode)
-	if a.focusedPane == messages.PaneMonitor {
-		if cmd := a.handleMonitorInput(msg); cmd != nil {
-			return cmd
-		}
-		return nil
-	}
-
 	// Handle button navigation when center pane is focused and showing welcome/workspace info (no tabs)
 	if a.focusedPane == messages.PaneCenter && !a.center.HasTabs() {
 		maxIndex := a.centerButtonCount() - 1

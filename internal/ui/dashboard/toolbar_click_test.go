@@ -15,7 +15,7 @@ func TestToolbarClick(t *testing.T) {
 
 	// The toolbar should be at the bottom of the content area
 	// With showKeymapHints=false, toolbar is rendered without help lines below
-	// Toolbar buttons are: [Help] [Monitor] [Settings] on a single row
+	// Toolbar buttons are: [Help] [Settings] on a single row
 
 	// Get toolbar Y position (set during View())
 	// We need to add border offset (1) to get screen Y
@@ -34,14 +34,8 @@ func TestToolbarClick(t *testing.T) {
 			wantMsgType: "ToggleHelp",
 		},
 		{
-			name:        "click Monitor button",
-			screenX:     8, // [◆M] is after [?H] with gap
-			screenY:     toolbarScreenY,
-			wantMsgType: "ToggleMonitor",
-		},
-		{
 			name:        "click Settings button",
-			screenX:     13, // [⚙S] is after [▤M] with gap
+			screenX:     8, // [⚙S] is after [?H] with gap
 			screenY:     toolbarScreenY,
 			wantMsgType: "ShowSettingsDialog",
 		},
@@ -64,8 +58,6 @@ func TestToolbarClick(t *testing.T) {
 			switch msg.(type) {
 			case messages.ToggleHelp:
 				gotType = "ToggleHelp"
-			case messages.ToggleMonitor:
-				gotType = "ToggleMonitor"
 			case messages.ShowSettingsDialog:
 				gotType = "ShowSettingsDialog"
 			default:
@@ -141,8 +133,8 @@ func TestDeleteButtonClick(t *testing.T) {
 	_ = m.View()
 
 	// Find the Delete button position
-	// Toolbar items when workspace selected: Help, Monitor, Settings, Delete
-	// [?H] [◆M] [⚙S] [Delete]
+	// Toolbar items when workspace selected: Help, Settings, Delete
+	// [?H] [⚙S] [Delete]
 	toolbarScreenY := m.toolbarY + 1
 
 	// Delete should be on same row, after Settings
@@ -176,8 +168,8 @@ func TestRemoveButtonClickOnProject(t *testing.T) {
 	m.cursor = 2 // Project row
 	_ = m.View()
 
-	// Toolbar items when project selected: Help, Monitor, Settings, Remove
-	// [?H] [◆M] [⚙S] [Remove]
+	// Toolbar items when project selected: Help, Settings, Remove
+	// [?H] [⚙S] [Remove]
 	toolbarScreenY := m.toolbarY + 1
 
 	// Try to find Remove button on same row

@@ -55,7 +55,6 @@ help:
 	@echo "  release       - release-check + release-tag + release-push"
 
 release-check: test
-	go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1
 	go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
 	go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
 

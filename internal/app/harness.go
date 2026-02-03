@@ -32,7 +32,6 @@ type HarnessOptions struct {
 
 // HarnessMode values.
 const (
-	HarnessMonitor = "monitor"
 	HarnessCenter  = "center"
 	HarnessSidebar = "sidebar"
 )
@@ -76,73 +75,12 @@ func NewHarness(opts HarnessOptions) (*Harness, error) {
 	cfg.UI.ShowKeymapHints = opts.ShowKeymapHints
 
 	switch opts.Mode {
-	case "", HarnessMonitor:
-		return newMonitorHarness(cfg, opts), nil
-	case HarnessCenter:
+	case "", HarnessCenter:
 		return newCenterHarness(cfg, opts), nil
 	case HarnessSidebar:
 		return newSidebarHarness(cfg, opts), nil
 	default:
 		return nil, fmt.Errorf("unknown mode %q", opts.Mode)
-	}
-}
-
-func newMonitorHarness(cfg *config.Config, opts HarnessOptions) *Harness {
-	centerModel := center.New(cfg)
-	centerModel.SetShowKeymapHints(opts.ShowKeymapHints)
-	centerModel.SetMonitorMode(true)
-
-	tabs := make([]*center.Tab, 0, opts.Tabs)
-	for i := 0; i < opts.Tabs; i++ {
-		ws := &data.Workspace{
-			Name: fmt.Sprintf("ws-%d", i),
-			Repo: fmt.Sprintf("/repo/%d", i),
-			Root: fmt.Sprintf("/repo/%d/ws", i),
-		}
-		term := vterm.New(80, 24)
-		tab := &center.Tab{
-			ID:        center.TabID(fmt.Sprintf("tab-%d", i)),
-			Name:      fmt.Sprintf("amp-%d", i),
-			Assistant: "amp",
-			Workspace: ws,
-			Terminal:  term,
-			Running:   true,
-		}
-		centerModel.AddTab(tab)
-		tabs = append(tabs, tab)
-	}
-
-	app := &App{
-		config:          cfg,
-		center:          centerModel,
-		styles:          common.DefaultStyles(),
-		width:           opts.Width,
-		height:          opts.Height,
-		helpOverlay:     common.NewHelpOverlay(),
-		toast:           common.NewToastModel(),
-		dashboardChrome: &compositor.ChromeCache{},
-		centerChrome:    &compositor.ChromeCache{},
-		sidebarChrome:   &compositor.ChromeCache{},
-	}
-	app.monitorMode = true
-
-	app.projects = make([]data.Project, 0, opts.Tabs)
-	for i := 0; i < opts.Tabs; i++ {
-		app.projects = append(app.projects, data.Project{
-			Name: fmt.Sprintf("repo-%d", i),
-			Path: fmt.Sprintf("/repo/%d", i),
-		})
-	}
-
-	return &Harness{
-		app:          app,
-		mode:         HarnessMonitor,
-		tabs:         tabs,
-		hotTabs:      opts.HotTabs,
-		payloadBytes: opts.PayloadBytes,
-		newlineEvery: opts.NewlineEvery,
-		payloadBuf:   make([]byte, 0, opts.PayloadBytes+32),
-		spinner:      []byte{'|', '/', '-', '\\'},
 	}
 }
 
@@ -298,9 +236,6 @@ func (h *Harness) Step(frame int) {
 		}
 		tab.WriteToTerminal(payload)
 	}
-	if h.mode == HarnessMonitor && h.app != nil && h.app.center != nil {
-		h.app.center.RefreshMonitorSnapshots()
-	}
 }
 
 // Render returns the composed view for the harness mode.
@@ -308,14 +243,7 @@ func (h *Harness) Render() tea.View {
 	if h == nil || h.app == nil {
 		return tea.View{}
 	}
-	switch h.mode {
-	case HarnessCenter:
-		return h.app.viewLayerBased()
-	case HarnessSidebar:
-		return h.app.viewLayerBased()
-	default:
-		return h.app.viewMonitorMode()
-	}
+	return h.app.viewLayerBased()
 }
 
 func (h *Harness) buildPayload(frame int) []byte {

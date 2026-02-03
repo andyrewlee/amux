@@ -43,7 +43,6 @@ type toolbarButtonKind int
 
 const (
 	toolbarHelp toolbarButtonKind = iota
-	toolbarMonitor
 	toolbarSettings
 )
 

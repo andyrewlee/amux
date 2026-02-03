@@ -36,29 +36,6 @@ func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 		a.sidebarTerminal.Focus()
 		// Lazy initialization: create terminal on focus if none exists
 		return a.sidebarTerminal.EnsureTerminalTab()
-	case messages.PaneMonitor:
-		a.dashboard.Blur()
-		a.center.Blur()
-		a.sidebar.Blur()
-		a.sidebarTerminal.Blur()
-	}
-	return nil
-}
-
-func (a *App) toggleMonitorMode() tea.Cmd {
-	a.monitorMode = !a.monitorMode
-	if a.monitorMode {
-		a.center.ResetMonitorSelection()
-		a.monitorLayoutKey = ""
-		a.focusPane(messages.PaneMonitor)
-	} else {
-		a.monitorLayoutKey = ""
-		a.focusPane(messages.PaneDashboard)
-	}
-	a.center.SetMonitorMode(a.monitorMode)
-	a.updateLayout()
-	if a.monitorMode {
-		return a.center.StartMonitorSnapshots()
 	}
 	return nil
 }
@@ -88,78 +65,35 @@ func (a *App) exitPrefix() {
 // handlePrefixCommand handles a key press while in prefix mode
 // Returns (handled, cmd)
 func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
-	// Helper to move monitor selection
-	moveMonitorTile := func(dx, dy int) {
-		tabs := a.center.MonitorTabs()
-		if len(tabs) == 0 {
-			return
-		}
-		_, _, gridW, gridH := a.monitorGridArea()
-		grid := monitorGridLayout(len(tabs), gridW, gridH)
-		if grid.cols > 0 && grid.rows > 0 {
-			a.center.MoveMonitorSelection(dx, dy, grid.cols, grid.rows, len(tabs))
-		}
-	}
-
 	switch {
-	// Pane focus / Monitor tile navigation
+	// Pane focus
 	case key.Matches(msg, a.keymap.MoveLeft):
-		if a.focusedPane == messages.PaneMonitor {
-			// Move selection left in grid (like pane focus in normal mode)
-			moveMonitorTile(-1, 0)
-			return true, nil
-		}
 		switch a.focusedPane {
 		case messages.PaneCenter:
 			a.focusPane(messages.PaneDashboard)
 		case messages.PaneSidebar, messages.PaneSidebarTerminal:
-			if a.monitorMode {
-				a.focusPane(messages.PaneMonitor)
-			} else {
-				a.focusPane(messages.PaneCenter)
-			}
+			a.focusPane(messages.PaneCenter)
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveRight):
-		if a.focusedPane == messages.PaneMonitor {
-			// Move selection right in grid (like pane focus in normal mode)
-			moveMonitorTile(1, 0)
-			return true, nil
-		}
 		switch a.focusedPane {
 		case messages.PaneDashboard:
-			if a.monitorMode {
-				a.focusPane(messages.PaneMonitor)
-			} else {
-				a.focusPane(messages.PaneCenter)
-			}
+			a.focusPane(messages.PaneCenter)
 		case messages.PaneCenter:
-			if a.monitorMode {
-				a.focusPane(messages.PaneMonitor)
-			} else if a.layout.ShowSidebar() {
+			if a.layout.ShowSidebar() {
 				a.focusPane(messages.PaneSidebar)
 			}
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveUp):
-		if a.focusedPane == messages.PaneMonitor {
-			// Move selection up in grid
-			moveMonitorTile(0, -1)
-			return true, nil
-		}
 		if a.focusedPane == messages.PaneSidebarTerminal {
 			a.focusPane(messages.PaneSidebar)
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.MoveDown):
-		if a.focusedPane == messages.PaneMonitor {
-			// Move selection down in grid
-			moveMonitorTile(0, 1)
-			return true, nil
-		}
 		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
 			cmd := a.focusPane(messages.PaneSidebarTerminal)
 			return true, cmd
@@ -257,9 +191,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		return true, func() tea.Msg { return messages.ShowCleanupTmuxDialog{} }
 
 	// Global commands
-	case key.Matches(msg, a.keymap.Monitor):
-		return true, a.toggleMonitorMode()
-
 	case key.Matches(msg, a.keymap.Help):
 		a.helpOverlay.SetSize(a.width, a.height)
 		a.helpOverlay.Toggle()
@@ -300,9 +231,6 @@ func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
 
 	centerWidth := a.layout.CenterWidth()
-	if a.monitorMode && a.layout.ShowCenter() {
-		centerWidth += a.layout.SidebarWidth()
-	}
 	a.center.SetSize(centerWidth, a.layout.Height())
 	leftGutter := a.layout.LeftGutter()
 	topGutter := a.layout.TopGutter()

@@ -58,7 +58,6 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	tab.SessionName = msg.Agent.Session
 	tab.Detached = false
 	tab.Running = true
-	tab.monitorDirty = true
 	tab.mu.Unlock()
 
 	if tab.Terminal != nil && msg.Agent.Terminal != nil {
@@ -156,17 +155,6 @@ func (m *Model) updateTabActorReady(_ tabActorReady) (*Model, tea.Cmd) {
 // updateTabActorHeartbeat handles tabActorHeartbeat.
 func (m *Model) updateTabActorHeartbeat(_ tabActorHeartbeat) (*Model, tea.Cmd) {
 	m.noteTabActorHeartbeat()
-	return m, nil
-}
-
-// updateMonitorSnapshotTick handles monitorSnapshotTick.
-func (m *Model) updateMonitorSnapshotTick(msg monitorSnapshotTick) (*Model, tea.Cmd) {
-	return m, m.handleMonitorSnapshotTick(msg)
-}
-
-// updateMonitorSnapshotResult handles monitorSnapshotResult.
-func (m *Model) updateMonitorSnapshotResult(msg monitorSnapshotResult) (*Model, tea.Cmd) {
-	m.applyMonitorSnapshotResult(msg.snapshots)
 	return m, nil
 }
 
@@ -328,7 +316,6 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 							tab.Terminal.Write(chunk)
 							flushDone()
 							perf.Count("pty_flush_bytes", int64(len(chunk)))
-							tab.monitorDirty = true
 						}
 						tab.mu.Unlock()
 					}
@@ -339,7 +326,6 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						tab.Terminal.Write(chunk)
 						flushDone()
 						perf.Count("pty_flush_bytes", int64(len(chunk)))
-						tab.monitorDirty = true
 					}
 					tab.mu.Unlock()
 				}
