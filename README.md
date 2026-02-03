@@ -37,6 +37,13 @@ amux requires [tmux](https://github.com/tmux/tmux). Each agent runs in its own t
 ## Quick start
 
 ```bash
+brew tap andyrewlee/amux
+brew install amux
+```
+
+Or via the install script:
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/andyrewlee/amux/main/install.sh | sh
 ```
 

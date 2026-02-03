@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 // FileWatcher watches git directories for changes and triggers status refreshes
