@@ -152,6 +152,23 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Handle theme dialog if visible
+	if a.themeDialog != nil && a.themeDialog.Visible() {
+		newTheme, cmd := a.themeDialog.Update(msg)
+		a.themeDialog = newTheme
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		// Don't process other input while theme dialog is open
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+	}
+
 	// Handle permissions dialog if visible
 	if a.permissionsDialog != nil && a.permissionsDialog.Visible() {
 		newDialog, cmd := a.permissionsDialog.Update(msg)
@@ -369,6 +386,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case common.ThemePreview:
 		a.handleThemePreview(msg)
+
+	case common.ShowThemeEditor:
+		a.handleShowThemeEditor()
+
+	case common.ThemeResult:
+		if cmd := a.handleThemeResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case common.SettingsResult:
 		if cmd := a.handleSettingsResult(msg); cmd != nil {

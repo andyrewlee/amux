@@ -89,6 +89,7 @@ type App struct {
 	dialog          *common.Dialog
 	filePicker      *common.FilePicker
 	settingsDialog  *common.SettingsDialog
+	themeDialog     *common.ThemeDialog
 
 	// Overlays
 	helpOverlay *common.HelpOverlay

@@ -54,19 +54,6 @@ func (s *SettingsDialog) renderLines() []string {
 	s.tmuxConfig.SetWidth(inputWidth)
 	s.tmuxSync.SetWidth(min(12, inputWidth))
 
-	lines = append(lines, label.Render("Theme"))
-	for i, t := range s.themes {
-		style, prefix := muted, "  "
-		if i == s.themeCursor {
-			style = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
-			prefix = Icons.Cursor + " "
-		}
-		y := len(lines)
-		lines = append(lines, prefix+style.Render(t.Name))
-		s.addHit(settingsItemTheme, i, y)
-	}
-	lines = append(lines, "")
-
 	checkbox := "[ ]"
 	if s.showKeymapHints {
 		checkbox = "[" + Icons.Clean + "]"
@@ -92,18 +79,6 @@ func (s *SettingsDialog) renderLines() []string {
 	s.addHit(settingsItemHideSidebar, -1, y)
 
 	checkbox = "[ ]"
-	if s.autoStartAgent {
-		checkbox = "[" + Icons.Clean + "]"
-	}
-	style = lipgloss.NewStyle().Foreground(ColorForeground)
-	if s.focusedItem == settingsItemAutoStart {
-		style = style.Foreground(ColorPrimary)
-	}
-	y = len(lines)
-	lines = append(lines, style.Render(checkbox+" Auto start agent in new workspaces"))
-	s.addHit(settingsItemAutoStart, -1, y)
-
-	checkbox = "[ ]"
 	if s.syncProfilePlugins {
 		checkbox = "[" + Icons.Clean + "]"
 	}
@@ -114,7 +89,6 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Sync plugins & skills across profiles"))
 	s.addHit(settingsItemSyncPlugins, -1, y)
-	lines = append(lines, muted.Render("  (makes plugins and skills available in all profiles)"))
 	lines = append(lines, "")
 
 	// Global permissions section
@@ -129,8 +103,17 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Global allow/deny list"))
 	s.addHit(settingsItemGlobalPerms, -1, y)
+	lines = append(lines, muted.Render("  Manage permissions used across all sessions"))
 
 	if s.globalPerms {
+		style = muted
+		if s.focusedItem == settingsItemEditPermissions {
+			style = lipgloss.NewStyle().Foreground(ColorPrimary)
+		}
+		y = len(lines)
+		lines = append(lines, style.Render("  [Edit Global Allow/Deny List]"))
+		s.addHit(settingsItemEditPermissions, -1, y)
+
 		checkbox = "[ ]"
 		if s.autoAddPerms {
 			checkbox = "[" + Icons.Clean + "]"
@@ -142,24 +125,28 @@ func (s *SettingsDialog) renderLines() []string {
 		y = len(lines)
 		lines = append(lines, style.Render(checkbox+" Auto-add new permissions to allow list"))
 		s.addHit(settingsItemAutoAddPerms, -1, y)
-		lines = append(lines, muted.Render("  (automatically promotes permissions granted to any agent)"))
-
-		style = muted
-		if s.focusedItem == settingsItemEditPermissions {
-			style = lipgloss.NewStyle().Foreground(ColorPrimary)
-		}
-		y = len(lines)
-		lines = append(lines, style.Render("  [Edit Global Allow/Deny List]"))
-		s.addHit(settingsItemEditPermissions, -1, y)
+		lines = append(lines, muted.Render("  Auto-promotes granted permissions"))
 	} else {
 		disabledStyle := lipgloss.NewStyle().Foreground(ColorMuted)
-		lines = append(lines, disabledStyle.Render("[ ] Auto-add new permissions to allow list"))
-		lines = append(lines, disabledStyle.Render("  (automatically promotes permissions granted to any agent)"))
 		lines = append(lines, disabledStyle.Render("  [Edit Global Allow/Deny List]"))
+		lines = append(lines, disabledStyle.Render("[ ] Auto-add new permissions to allow list"))
+		lines = append(lines, disabledStyle.Render("  Auto-promotes granted permissions"))
 	}
 	lines = append(lines, "")
 
 	lines = append(lines, label.Render("Tmux (Advanced)"))
+	checkbox = "[ ]"
+	if s.autoStartAgent {
+		checkbox = "[" + Icons.Clean + "]"
+	}
+	style = lipgloss.NewStyle().Foreground(ColorForeground)
+	if s.focusedItem == settingsItemAutoStart {
+		style = style.Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render(checkbox+" Auto start agent in new workspaces"))
+	s.addHit(settingsItemAutoStart, -1, y)
+
 	checkbox = "[ ]"
 	if s.tmuxPersistence {
 		checkbox = "[" + Icons.Clean + "]"
@@ -171,7 +158,8 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Keep sessions alive across restarts"))
 	s.addHit(settingsItemTmuxPersistence, -1, y)
-	lines = append(lines, muted.Render("  (agents + terminals, restart required)"))
+	lines = append(lines, muted.Render("  Restart required to apply"))
+
 	lines = append(lines, s.renderInputLine("Server", s.tmuxServer, s.focusedItem == settingsItemTmuxServer))
 	s.addHit(settingsItemTmuxServer, -1, len(lines)-1)
 	lines = append(lines, s.renderInputLine("Config", s.tmuxConfig, s.focusedItem == settingsItemTmuxConfig))
@@ -196,6 +184,17 @@ func (s *SettingsDialog) renderLines() []string {
 		lines = append(lines, style.Render("  [Update to "+s.latestVersion+"]"))
 		s.addHit(settingsItemUpdate, -1, y)
 	}
+	lines = append(lines, "")
+
+	// Theme link - shows current theme name (moved to bottom)
+	currentTheme := GetTheme(s.theme)
+	themeStyle := muted
+	if s.focusedItem == settingsItemEditTheme {
+		themeStyle = lipgloss.NewStyle().Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, themeStyle.Render("[Change Theme: "+currentTheme.Name+"]"))
+	s.addHit(settingsItemEditTheme, -1, y)
 	lines = append(lines, "")
 
 	style = muted

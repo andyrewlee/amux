@@ -605,6 +605,54 @@ func (a *App) handleShowSettingsDialog() {
 	a.settingsDialog.Show()
 }
 
+// handleShowThemeEditor opens the theme selection dialog.
+func (a *App) handleShowThemeEditor() {
+	currentTheme := common.ThemeID(a.config.UI.Theme)
+	if currentTheme == "" {
+		currentTheme = common.ThemeGruvbox
+	}
+	a.themeDialog = common.NewThemeDialog(currentTheme)
+	a.themeDialog.SetSize(a.width, a.height)
+	a.themeDialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.themeDialog.Show()
+}
+
+// handleThemeResult handles theme dialog completion.
+func (a *App) handleThemeResult(msg common.ThemeResult) tea.Cmd {
+	a.themeDialog = nil
+	if msg.Confirmed {
+		// Apply and save theme
+		common.SetCurrentTheme(msg.Theme)
+		a.config.UI.Theme = string(msg.Theme)
+		a.styles = common.DefaultStyles()
+		// Propagate styles to all components
+		a.dashboard.SetStyles(a.styles)
+		a.sidebar.SetStyles(a.styles)
+		a.sidebarTerminal.SetStyles(a.styles)
+		a.center.SetStyles(a.styles)
+		a.toast.SetStyles(a.styles)
+		a.helpOverlay.SetStyles(a.styles)
+		if a.filePicker != nil {
+			a.filePicker.SetStyles(a.styles)
+		}
+		// Update settings dialog with new theme and re-show it
+		if a.settingsDialog != nil {
+			a.settingsDialog.SetTheme(msg.Theme)
+			a.settingsDialog.Show()
+		}
+		// Save settings
+		if err := a.config.SaveUISettings(); err != nil {
+			return a.toast.ShowWarning("Failed to save theme")
+		}
+		return nil
+	}
+	// Cancelled - re-show settings dialog
+	if a.settingsDialog != nil {
+		a.settingsDialog.Show()
+	}
+	return nil
+}
+
 // handleThemePreview handles live theme preview.
 func (a *App) handleThemePreview(msg common.ThemePreview) {
 	// Live preview - apply theme without saving
