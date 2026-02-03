@@ -70,6 +70,7 @@ type SettingsDialog struct {
 	currentVersion  string
 	latestVersion   string
 	updateAvailable bool
+	updateHint      string
 }
 
 type settingsHitRegion struct {
@@ -133,6 +134,11 @@ func (s *SettingsDialog) SetUpdateInfo(current, latest string, available bool) {
 	s.currentVersion = current
 	s.latestVersion = latest
 	s.updateAvailable = available
+}
+
+// SetUpdateHint sets a hint shown under the current version.
+func (s *SettingsDialog) SetUpdateHint(hint string) {
+	s.updateHint = strings.TrimSpace(hint)
 }
 
 // Update handles input.

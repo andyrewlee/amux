@@ -14,6 +14,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/update"
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
@@ -300,6 +301,9 @@ func (a *App) handleShowSettingsDialog() {
 		)
 	} else {
 		a.settingsDialog.SetUpdateInfo(a.version, "", false)
+	}
+	if update.IsHomebrewBuild() {
+		a.settingsDialog.SetUpdateHint("Installed via Homebrew - update with brew upgrade amux")
 	}
 
 	a.settingsDialog.Show()

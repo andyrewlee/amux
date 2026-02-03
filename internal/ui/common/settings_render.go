@@ -107,6 +107,9 @@ func (s *SettingsDialog) renderLines() []string {
 	} else {
 		lines = append(lines, muted.Render("  "+s.currentVersion))
 	}
+	if s.updateHint != "" {
+		lines = append(lines, muted.Render("  "+s.updateHint))
+	}
 
 	if s.updateAvailable {
 		style := lipgloss.NewStyle().Foreground(ColorSuccess)
