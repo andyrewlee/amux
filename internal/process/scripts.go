@@ -102,6 +102,7 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
 		cmd.Dir = ws.Root
 		cmd.Env = env
+		SetProcessGroup(cmd)
 
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -109,6 +110,9 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		if err := cmd.Run(); err != nil {
 			cancel()
 			if errors.Is(err, context.DeadlineExceeded) {
+				if cmd.Process != nil {
+					_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
+				}
 				return fmt.Errorf("setup command timed out after %s: %s: %w", timeout, cmdStr, context.DeadlineExceeded)
 			}
 			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, stderr.String(), err)
