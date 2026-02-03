@@ -38,19 +38,19 @@ type ThemePreview struct {
 type settingsItem int
 
 const (
-	settingsItemTheme settingsItem = iota
-	settingsItemKeymap
+	settingsItemKeymap settingsItem = iota
 	settingsItemHideSidebar
-	settingsItemAutoStart
 	settingsItemSyncPlugins
 	settingsItemGlobalPerms
-	settingsItemAutoAddPerms
 	settingsItemEditPermissions
+	settingsItemAutoAddPerms
+	settingsItemAutoStart       // first item under Tmux (Advanced)
 	settingsItemTmuxPersistence
 	settingsItemTmuxServer
 	settingsItemTmuxConfig
 	settingsItemTmuxSync
-	settingsItemUpdate // only shown when update available
+	settingsItemUpdate    // only shown when update available
+	settingsItemEditTheme // theme selection moved to bottom
 	settingsItemSave
 	settingsItemClose
 )
@@ -69,17 +69,14 @@ type SettingsDialog struct {
 	syncProfilePlugins bool
 	globalPerms        bool
 	autoAddPerms       bool
-	originalTheme      ThemeID
-	tmuxPersistence bool
-	tmuxServer      textinput.Model
-	tmuxConfig      textinput.Model
-	tmuxSync        textinput.Model
-	validationErr   string
+	tmuxPersistence    bool
+	tmuxServer         textinput.Model
+	tmuxConfig         textinput.Model
+	tmuxSync           textinput.Model
+	validationErr      string
 
 	// UI state
 	focusedItem settingsItem
-	themeCursor int
-	themes      []Theme
 
 	// For mouse hit detection
 	hitRegions        []settingsHitRegion
@@ -99,15 +96,6 @@ type settingsHitRegion struct {
 
 // NewSettingsDialog creates a new settings dialog with current values.
 func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
-	themes := AvailableThemes()
-	themeCursor := 0
-	for i, t := range themes {
-		if t.ID == currentTheme {
-			themeCursor = i
-			break
-		}
-	}
-
 	serverInput := textinput.New()
 	serverInput.Placeholder = "default"
 	serverInput.SetWidth(24)
@@ -128,7 +116,6 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoS
 
 	return &SettingsDialog{
 		theme:              currentTheme,
-		originalTheme:      currentTheme,
 		showKeymapHints:    showKeymapHints,
 		hideSidebar:        hideSidebar,
 		autoStartAgent:     autoStartAgent,
@@ -136,21 +123,20 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoS
 		globalPerms:        globalPerms,
 		autoAddPerms:       autoAddPerms,
 		tmuxPersistence:    tmuxPersistence,
-		tmuxServer:      serverInput,
-		tmuxConfig:      configInput,
-		tmuxSync:        syncInput,
-		themes:          themes,
-		themeCursor:     themeCursor,
-		focusedItem:     settingsItemTheme,
+		tmuxServer:         serverInput,
+		tmuxConfig:         configInput,
+		tmuxSync:           syncInput,
+		focusedItem:        settingsItemKeymap,
 	}
 }
 
-func (s *SettingsDialog) Show()                        { s.visible = true; s.originalTheme = s.theme }
+func (s *SettingsDialog) Show()                        { s.visible = true }
 func (s *SettingsDialog) Hide()                        { s.visible = false }
 func (s *SettingsDialog) Visible() bool                { return s.visible }
 func (s *SettingsDialog) SetSize(w, h int)             { s.width, s.height = w, h }
 func (s *SettingsDialog) SetShowKeymapHints(show bool) { s.showKeymapHintsUI = show }
 func (s *SettingsDialog) Cursor() *tea.Cursor          { return nil }
+func (s *SettingsDialog) SetTheme(theme ThemeID)       { s.theme = theme }
 
 // SetUpdateInfo sets version information for the updates section.
 func (s *SettingsDialog) SetUpdateInfo(current, latest string, available bool) {
@@ -175,14 +161,8 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-			s.theme = s.originalTheme
 			s.visible = false
-			return s, func() tea.Msg {
-				return SafeBatch(
-					func() tea.Msg { return ThemePreview{Theme: s.originalTheme} },
-					func() tea.Msg { return SettingsResult{Confirmed: false} },
-				)()
-			}
+			return s, func() tea.Msg { return SettingsResult{Confirmed: false} }
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", " "))):
 			return s.handleSelect()
@@ -245,11 +225,9 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 
 func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 	switch s.focusedItem {
-	case settingsItemTheme:
-		if s.themeCursor >= 0 && s.themeCursor < len(s.themes) {
-			s.theme = s.themes[s.themeCursor].ID
-		}
-		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
+	case settingsItemEditTheme:
+		s.visible = false
+		return s, func() tea.Msg { return ShowThemeEditor{} }
 
 	case settingsItemKeymap:
 		s.showKeymapHints = !s.showKeymapHints
@@ -321,14 +299,8 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		}
 
 	case settingsItemClose:
-		s.theme = s.originalTheme
 		s.visible = false
-		return s, func() tea.Msg {
-			return SafeBatch(
-				func() tea.Msg { return ThemePreview{Theme: s.originalTheme} },
-				func() tea.Msg { return SettingsResult{Confirmed: false} },
-			)()
-		}
+		return s, func() tea.Msg { return SettingsResult{Confirmed: false} }
 	}
 	return s, nil
 }
@@ -338,7 +310,7 @@ func (s *SettingsDialog) handleNextSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem++
 	s.skipDisabledForward()
 	if s.focusedItem > settingsItemClose {
-		s.focusedItem = settingsItemTheme
+		s.focusedItem = settingsItemKeymap
 	}
 	return s, nil
 }
@@ -354,13 +326,13 @@ func (s *SettingsDialog) handlePrevSection() (*SettingsDialog, tea.Cmd) {
 }
 
 func (s *SettingsDialog) skipDisabledForward() {
-	// Skip auto-add and edit permissions when global perms is off
-	if !s.globalPerms && (s.focusedItem == settingsItemAutoAddPerms || s.focusedItem == settingsItemEditPermissions) {
-		s.focusedItem = settingsItemTmuxPersistence
+	// Skip edit permissions and auto-add when global perms is off
+	if !s.globalPerms && (s.focusedItem == settingsItemEditPermissions || s.focusedItem == settingsItemAutoAddPerms) {
+		s.focusedItem = settingsItemAutoStart
 	}
 	// Skip update item if no update available
 	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemSave
+		s.focusedItem = settingsItemEditTheme
 	}
 }
 
@@ -370,33 +342,22 @@ func (s *SettingsDialog) skipDisabledBackward() {
 		s.focusedItem = settingsItemTmuxSync
 	}
 	// Skip auto-add and edit permissions when global perms is off
-	if !s.globalPerms && (s.focusedItem == settingsItemEditPermissions || s.focusedItem == settingsItemAutoAddPerms) {
+	if !s.globalPerms && (s.focusedItem == settingsItemAutoAddPerms || s.focusedItem == settingsItemEditPermissions) {
 		s.focusedItem = settingsItemGlobalPerms
+	}
+	// Wrap around from before first item to last
+	if s.focusedItem < 0 {
+		s.focusedItem = settingsItemClose
 	}
 }
 
-// handleNext cycles within the current section (down/j keys).
-// For theme section, cycles through themes. For others, moves to next section.
+// handleNext moves to next item (down/j keys).
 func (s *SettingsDialog) handleNext() (*SettingsDialog, tea.Cmd) {
-	if s.focusedItem == settingsItemTheme {
-		s.themeCursor = (s.themeCursor + 1) % len(s.themes)
-		s.theme = s.themes[s.themeCursor].ID
-		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
-	}
 	return s.handleNextSection()
 }
 
-// handlePrev cycles within the current section (up/k keys).
-// For theme section, cycles through themes. For others, moves to previous section.
+// handlePrev moves to previous item (up/k keys).
 func (s *SettingsDialog) handlePrev() (*SettingsDialog, tea.Cmd) {
-	if s.focusedItem == settingsItemTheme {
-		s.themeCursor--
-		if s.themeCursor < 0 {
-			s.themeCursor = len(s.themes) - 1
-		}
-		s.theme = s.themes[s.themeCursor].ID
-		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
-	}
 	return s.handlePrevSection()
 }
 
@@ -446,9 +407,6 @@ func (s *SettingsDialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 	for _, hit := range s.hitRegions {
 		if hit.region.Contains(localX, localY) {
 			s.focusedItem = hit.item
-			if hit.item == settingsItemTheme && hit.index >= 0 {
-				s.themeCursor = hit.index
-			}
 			_, cmd := s.handleSelect()
 			return cmd
 		}

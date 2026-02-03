@@ -41,6 +41,15 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		canvas.Compose(settingsDrawable)
 	}
 
+	// Theme dialog overlay
+	if a.themeDialog != nil && a.themeDialog.Visible() {
+		themeView := a.themeDialog.View()
+		themeWidth, themeHeight := viewDimensions(themeView)
+		x, y := a.centeredPosition(themeWidth, themeHeight)
+		themeDrawable := compositor.NewStringDrawable(themeView, x, y)
+		canvas.Compose(themeDrawable)
+	}
+
 	// Permissions dialog overlay
 	if a.permissionsDialog != nil && a.permissionsDialog.Visible() {
 		permView := a.permissionsDialog.View()
