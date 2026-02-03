@@ -37,6 +37,13 @@ func NewUpdater(version, commit, date string) *Updater {
 
 // Check checks for available updates.
 func (u *Updater) Check() (*CheckResult, error) {
+	if IsHomebrewBuild() {
+		logging.Debug("Skipping update check for Homebrew build")
+		return &CheckResult{
+			CurrentVersion:  u.version,
+			UpdateAvailable: false,
+		}, nil
+	}
 	// Skip check for dev builds
 	if IsDevBuild(u.version) {
 		logging.Debug("Skipping update check for dev build")
@@ -78,6 +85,10 @@ func (u *Updater) Check() (*CheckResult, error) {
 func (u *Updater) Upgrade(release *Release) error {
 	if release == nil {
 		return fmt.Errorf("no release to upgrade to")
+	}
+
+	if IsHomebrewBuild() {
+		return fmt.Errorf("installed via Homebrew; run: brew upgrade amux")
 	}
 
 	// Check if go install user
