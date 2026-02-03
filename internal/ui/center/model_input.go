@@ -341,12 +341,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case tabActorHeartbeat:
 		return m.updateTabActorHeartbeat(msg)
 
-	case monitorSnapshotTick:
-		return m.updateMonitorSnapshotTick(msg)
-
-	case monitorSnapshotResult:
-		return m.updateMonitorSnapshotResult(msg)
-
 	case messages.OpenDiff:
 		return m.updateOpenDiff(msg)
 

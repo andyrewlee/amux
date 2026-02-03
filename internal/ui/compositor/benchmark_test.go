@@ -153,13 +153,13 @@ func BenchmarkCanvasRender(b *testing.B) {
 	}
 }
 
-// BenchmarkCanvasDrawScreen benchmarks the DrawScreen method used in monitor mode
+// BenchmarkCanvasDrawScreen benchmarks the DrawScreen method
 func BenchmarkCanvasDrawScreen(b *testing.B) {
 	sizes := []struct {
 		name          string
 		width, height int
 	}{
-		{"40x20", 40, 20},   // Typical monitor tile
+		{"40x20", 40, 20},   // Small tile
 		{"60x30", 60, 30},   // Larger tile
 		{"120x40", 120, 40}, // Full size
 	}

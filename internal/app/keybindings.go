@@ -23,7 +23,6 @@ type KeyMap struct {
 	NewAgentTab    key.Binding
 	NewTerminalTab key.Binding
 	Help           key.Binding
-	Monitor        key.Binding
 
 	// Dashboard
 	Enter        key.Binding
@@ -112,10 +111,6 @@ func DefaultKeyMap() KeyMap {
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?", "toggle help"),
-		),
-		Monitor: key.NewBinding(
-			key.WithKeys("m"),
-			key.WithHelp("m", "monitor"),
 		),
 
 		// Dashboard

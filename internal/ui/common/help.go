@@ -77,7 +77,6 @@ func defaultHelpSections() []HelpSection {
 			Title: "After Prefix: Navigation",
 			Bindings: []HelpBinding{
 				{"h/j/k/l", "Focus pane (←↑↓→)"},
-				{"m", "Toggle monitor"},
 				{"K", "Cleanup tmux"},
 				{"?", "This help"},
 				{"q", "Quit"},
@@ -106,14 +105,7 @@ func defaultHelpSections() []HelpSection {
 				{"g/G", "Top/bottom"},
 			},
 		},
-		{
-			Title: "Monitor Mode",
-			Bindings: []HelpBinding{
-				{"hjkl/↑↓←→", "Move selection"},
-				{"Type/Enter", "Send input to selected agent"},
-				{"C-Space m", "Exit monitor"},
-			},
-		},
+
 		{
 			Title: "Dialogs",
 			Bindings: []HelpBinding{

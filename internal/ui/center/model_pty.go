@@ -25,7 +25,6 @@ const (
 	ptyFlushMaxAlt      = 32 * time.Millisecond
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
 	ptyFlushInactiveMultiplier = 4
-	ptyFlushMonitorMultiplier  = 6
 	ptyFlushChunkSize          = 32 * 1024
 	ptyReadBufferSize          = 32 * 1024
 	ptyReadQueueSize           = 64
@@ -150,13 +149,6 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	if !active {
 		quiet *= ptyFlushInactiveMultiplier
 		maxInterval *= ptyFlushInactiveMultiplier
-		if maxInterval < quiet {
-			maxInterval = quiet
-		}
-	}
-	if m.monitorMode && !active {
-		quiet *= ptyFlushMonitorMultiplier
-		maxInterval *= ptyFlushMonitorMultiplier
 		if maxInterval < quiet {
 			maxInterval = quiet
 		}

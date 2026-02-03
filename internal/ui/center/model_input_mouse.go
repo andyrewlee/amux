@@ -337,7 +337,6 @@ func (m *Model) updateSelectionScrollTick(msg selectionScrollTick) tea.Cmd {
 		return nil
 	}
 	tab.Terminal.ScrollView(tab.selectionScroll.ScrollDir)
-	tab.monitorDirty = true
 
 	// Update selection endpoint to viewport edge
 	edgeY := 0

@@ -56,15 +56,11 @@ type App struct {
 	workspaces *data.WorkspaceStore
 
 	// State
-	projects         []data.Project
-	activeWorkspace  *data.Workspace
-	activeProject    *data.Project
-	focusedPane      messages.PaneType
-	showWelcome      bool
-	monitorMode      bool
-	monitorFilter    string // "" means "All", otherwise filter by project key (repo path)
-	monitorLayoutKey string
-	monitorCanvas    *compositor.Canvas
+	projects        []data.Project
+	activeWorkspace *data.Workspace
+	activeProject   *data.Project
+	focusedPane     messages.PaneType
+	showWelcome     bool
 
 	// Update state
 	updateAvailable *update.CheckResult // nil if no update or dismissed
@@ -449,19 +445,6 @@ func applyTmuxEnvFromConfig(cfg *config.Config, force bool) {
 }
 
 func (a *App) tmuxSyncWorkspaces() []*data.Workspace {
-	if a.monitorMode {
-		var targets []*data.Workspace
-		for i := range a.projects {
-			project := &a.projects[i]
-			if a.monitorFilter != "" && project.Path != a.monitorFilter {
-				continue
-			}
-			for j := range project.Workspaces {
-				targets = append(targets, &project.Workspaces[j])
-			}
-		}
-		return targets
-	}
 	if a.activeWorkspace != nil {
 		return []*data.Workspace{a.activeWorkspace}
 	}

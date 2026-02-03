@@ -222,7 +222,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.SessionName = msg.Agent.Session
 		tab.Detached = false
 		tab.Running = true
-		tab.monitorDirty = true
 		if tab.createdAt == 0 {
 			tab.createdAt = time.Now().Unix()
 		}
@@ -303,16 +302,15 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tabID = generateTabID()
 	}
 	tab := &Tab{
-		ID:           tabID,
-		Name:         displayName,
-		Assistant:    msg.Assistant,
-		Workspace:    msg.Workspace,
-		Agent:        msg.Agent,
-		SessionName:  msg.Agent.Session,
-		Terminal:     term,
-		Running:      true, // Agent/viewer starts running
-		monitorDirty: true,
-		createdAt:    time.Now().Unix(),
+		ID:          tabID,
+		Name:        displayName,
+		Assistant:   msg.Assistant,
+		Workspace:   msg.Workspace,
+		Agent:       msg.Agent,
+		SessionName: msg.Agent.Session,
+		Terminal:    term,
+		Running:     true, // Agent/viewer starts running
+		createdAt:   time.Now().Unix(),
 	}
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)

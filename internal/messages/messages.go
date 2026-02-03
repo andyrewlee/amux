@@ -13,7 +13,6 @@ const (
 	PaneCenter
 	PaneSidebar
 	PaneSidebarTerminal
-	PaneMonitor
 )
 
 // ProjectsLoaded is sent when projects have been loaded/reloaded
@@ -173,9 +172,6 @@ func (e Error) Error() string {
 
 // ShowWelcome requests showing the welcome screen
 type ShowWelcome struct{}
-
-// ToggleMonitor requests toggling monitor mode
-type ToggleMonitor struct{}
 
 // ToggleHelp requests toggling the help overlay
 type ToggleHelp struct{}

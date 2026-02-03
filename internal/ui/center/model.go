@@ -83,10 +83,7 @@ type Tab struct {
 	cachedSnap       *compositor.VTermSnapshot
 	cachedVersion    uint64
 	cachedShowCursor bool
-	monitorSnapAt    time.Time
-	monitorDirty     bool
-
-	createdAt int64 // Unix timestamp for ordering; persisted in workspace.json
+	createdAt        int64 // Unix timestamp for ordering; persisted in workspace.json
 }
 
 func (t *Tab) isClosed() bool {
@@ -119,18 +116,8 @@ type Model struct {
 	activeTabByWorkspace map[string]int    // active tab index per workspace
 	focused              bool
 	canFocusRight        bool
-	monitorMode          bool
-	monitorSnapshotCache map[TabID]MonitorTabSnapshot
-	monitorSnapshotNext  int
-	monitorSnapCh        chan monitorSnapshotRequest
-	monitorSnapCancel    func()
-	monitorSnapHeartbeat int64
-	monitorActiveID      TabID
 	tabsRevision         uint64
-	monitorTabsRevision  uint64
-	monitorTabsCache     []*Tab
 	agentManager         *appPty.AgentManager
-	monitor              MonitorModel
 	msgSink              func(tea.Msg)
 	tabEvents            chan tabEvent
 	tabActorReady        uint32
@@ -281,18 +268,6 @@ func New(cfg *config.Config) *Model {
 // SetCanFocusRight controls whether focus-right hints should be shown.
 func (m *Model) SetCanFocusRight(can bool) {
 	m.canFocusRight = can
-}
-
-// SetMonitorMode controls whether monitor-mode optimizations are active.
-func (m *Model) SetMonitorMode(enabled bool) {
-	m.monitorMode = enabled
-	if !enabled {
-		m.StopMonitorSnapshots()
-		m.monitorSnapshotCache = nil
-		m.monitorSnapshotNext = 0
-	} else if m.monitorSnapshotCache == nil {
-		m.monitorSnapshotCache = make(map[TabID]MonitorTabSnapshot)
-	}
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.

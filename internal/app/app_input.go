@@ -168,53 +168,26 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseClickMsg:
-		if a.monitorMode {
-			if cmd := a.handleMonitorModeClick(msg); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			break
-		}
 		if cmd := a.routeMouseClick(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
 	case tea.MouseWheelMsg:
-		if a.monitorMode {
-			break
-		}
 		if cmd := a.routeMouseWheel(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
 	case tea.MouseMotionMsg:
-		if a.monitorMode {
-			break
-		}
 		if cmd := a.routeMouseMotion(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
 	case tea.MouseReleaseMsg:
-		if a.monitorMode {
-			break
-		}
 		if cmd := a.routeMouseRelease(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
 	case tea.PasteMsg:
-		// Handle paste in monitor mode - forward to selected tile
-		if a.monitorMode && a.focusedPane == messages.PaneMonitor {
-			tabs := a.filterMonitorTabs(a.center.MonitorTabs())
-			if len(tabs) > 0 {
-				idx := a.center.MonitorSelectedIndex(len(tabs))
-				if cmd := a.center.HandleMonitorInput(tabs[idx].ID, msg); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
-			break
-		}
-		// Non-monitor paste handling falls through to focused pane
 		switch a.focusedPane {
 		case messages.PaneCenter:
 			newCenter, cmd := a.center.Update(msg)
@@ -251,11 +224,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowWelcome:
 		a.goHome()
-
-	case messages.ToggleMonitor:
-		if cmd := a.toggleMonitorMode(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 
 	case messages.ToggleHelp:
 		a.helpOverlay.SetSize(a.width, a.height)

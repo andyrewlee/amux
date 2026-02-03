@@ -286,7 +286,6 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.mu.Lock()
 		if tab.Terminal != nil && ev.delta != 0 {
 			tab.Terminal.ScrollView(ev.delta)
-			tab.monitorDirty = true
 		}
 		tab.mu.Unlock()
 	case tabEventSelectionScrollTick:
@@ -296,7 +295,6 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			return
 		}
 		tab.Terminal.ScrollView(tab.selectionScroll.ScrollDir)
-		tab.monitorDirty = true
 
 		// Update selection endpoint to viewport edge
 		edgeY := 0
@@ -329,7 +327,6 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.mu.Lock()
 		if tab.Terminal != nil && tab.Terminal.IsScrolled() {
 			tab.Terminal.ScrollViewToBottom()
-			tab.monitorDirty = true
 		}
 		tab.mu.Unlock()
 	case tabEventScrollPage:
@@ -340,14 +337,12 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 				delta = 1
 			}
 			tab.Terminal.ScrollView(delta * ev.scrollPage)
-			tab.monitorDirty = true
 		}
 		tab.mu.Unlock()
 	case tabEventScrollToTop:
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			tab.Terminal.ScrollViewToTop()
-			tab.monitorDirty = true
 		}
 		tab.mu.Unlock()
 	case tabEventDiffInput:
@@ -425,7 +420,6 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			tab.Terminal.Write(ev.output)
 			flushDone()
 			perf.Count("pty_flush_bytes", int64(len(ev.output)))
-			tab.monitorDirty = true
 		}
 		tab.mu.Unlock()
 	default:

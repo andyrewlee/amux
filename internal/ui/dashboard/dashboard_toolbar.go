@@ -18,7 +18,6 @@ type toolbarItem struct {
 func (m *Model) toolbarItems() []toolbarItem {
 	return []toolbarItem{
 		{kind: toolbarHelp, label: "?H"},
-		{kind: toolbarMonitor, label: "◆M"},
 		{kind: toolbarSettings, label: "⚙S"},
 	}
 }
@@ -27,8 +26,6 @@ func (m *Model) toolbarCommand(kind toolbarButtonKind) tea.Cmd {
 	switch kind {
 	case toolbarHelp:
 		return func() tea.Msg { return messages.ToggleHelp{} }
-	case toolbarMonitor:
-		return func() tea.Msg { return messages.ToggleMonitor{} }
 	case toolbarSettings:
 		return func() tea.Msg { return messages.ShowSettingsDialog{} }
 	default:

@@ -39,7 +39,6 @@ func (m *Model) SetOffset(x int) {
 
 // Close cleans up all resources
 func (m *Model) Close() {
-	m.StopMonitorSnapshots()
 	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			tab.markClosing()

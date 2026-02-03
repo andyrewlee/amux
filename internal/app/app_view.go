@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -60,13 +61,22 @@ func (a *App) view() tea.View {
 		return a.finalizeView(view)
 	}
 
-	// Monitor mode uses the compositor for a full-screen grid.
-	if a.monitorMode {
-		return a.finalizeView(a.viewMonitorMode())
-	}
-
-	// Use layer-based rendering for normal mode
+	// Use layer-based rendering
 	return a.finalizeView(a.viewLayerBased())
+}
+
+func (a *App) canvasFor(width, height int) *lipgloss.Canvas {
+	if width <= 0 || height <= 0 {
+		width = 1
+		height = 1
+	}
+	if a.canvas == nil {
+		a.canvas = lipgloss.NewCanvas(width, height)
+	} else if a.canvas.Width() != width || a.canvas.Height() != height {
+		a.canvas.Resize(width, height)
+	}
+	a.canvas.Clear()
+	return a.canvas
 }
 
 func (a *App) fallbackView() tea.View {
