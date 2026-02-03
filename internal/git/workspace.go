@@ -1,23 +1,31 @@
 package git
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 )
 
+const worktreeTimeout = 30 * time.Second
+
 // CreateWorkspace creates a new workspace backed by a git worktree
 func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 	// Create branch from base and checkout into workspace path
-	_, err := RunGit(repoPath, "worktree", "add", "-b", branch, workspacePath, base)
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	_, err := RunGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, workspacePath, base)
 	return err
 }
 
 // RemoveWorkspace removes a workspace backed by a git worktree
 func RemoveWorkspace(repoPath, workspacePath string) error {
-	_, err := RunGit(repoPath, "worktree", "remove", workspacePath, "--force")
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	_, err := RunGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
 	if err != nil {
 		// git worktree remove --force unregisters the workspace (removes .git file)
 		// but fails to delete the directory if it contains untracked files.
@@ -38,7 +46,9 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 
 // DeleteBranch deletes a git branch
 func DeleteBranch(repoPath, branch string) error {
-	_, err := RunGit(repoPath, "branch", "-D", branch)
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	_, err := RunGitCtx(ctx, repoPath, "branch", "-D", branch)
 	return err
 }
 
@@ -46,7 +56,9 @@ func DeleteBranch(repoPath, branch string) error {
 // Returns workspaces with minimal fields populated (Name, Branch, Repo, Root).
 // The caller should merge with stored metadata to get full workspace data.
 func DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error) {
-	output, err := RunGit(project.Path, "worktree", "list", "--porcelain")
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	output, err := RunGitCtx(ctx, project.Path, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}

@@ -118,25 +118,29 @@ func (t *Terminal) SendString(s string) error {
 // Close closes the terminal
 func (t *Terminal) Close() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if t.closed {
+		t.mu.Unlock()
 		return nil
 	}
 
 	t.closed = true
+	ptyFile := t.ptyFile
+	cmd := t.cmd
+	t.ptyFile = nil
+	t.cmd = nil
+	t.mu.Unlock()
 
-	if t.ptyFile != nil {
-		t.ptyFile.Close()
+	if ptyFile != nil {
+		_ = ptyFile.Close()
 	}
 
-	if t.cmd != nil {
-		proc := t.cmd.Process
+	if cmd != nil {
+		proc := cmd.Process
 		if proc != nil {
 			leaderPID := proc.Pid
 			_ = process.KillProcessGroup(leaderPID, process.KillOptions{})
 		}
-		_ = t.cmd.Wait()
+		_ = cmd.Wait()
 	}
 
 	return nil

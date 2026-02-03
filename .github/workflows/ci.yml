@@ -29,8 +29,14 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Test (race)
+        run: go test -race ./...
+
       - name: Harness (center)
         run: go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
 
       - name: Harness (sidebar)
         run: go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
+
+      - name: Harness (monitor)
+        run: go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1

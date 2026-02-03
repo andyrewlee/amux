@@ -14,6 +14,16 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
+const gitPathWaitInterval = 100 * time.Millisecond
+
+var gitPathWaitTimeout = 3 * time.Second
+
+var (
+	createWorkspaceFn = git.CreateWorkspace
+	removeWorkspaceFn = git.RemoveWorkspace
+	deleteBranchFn    = git.DeleteBranch
+)
+
 // loadProjects loads all registered projects and their workspaces
 func (a *App) loadProjects() tea.Cmd {
 	return func() tea.Msg {
@@ -242,7 +252,7 @@ func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd 
 		branch := name
 		ws = data.NewWorkspace(name, branch, base, project.Path, workspacePath)
 
-		if err := git.CreateWorkspace(project.Path, workspacePath, branch, base); err != nil {
+		if err := createWorkspaceFn(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -251,17 +261,17 @@ func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd 
 
 		// Wait for .git file to exist (race condition from workspace creation)
 		gitPath := filepath.Join(workspacePath, ".git")
-		for i := 0; i < 10; i++ {
-			if _, err := os.Stat(gitPath); err == nil {
-				break
+		if err := waitForGitPath(gitPath, gitPathWaitTimeout); err != nil {
+			rollbackWorkspaceCreation(project.Path, workspacePath, branch)
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
 			}
-			time.Sleep(100 * time.Millisecond)
 		}
 
 		// Save unified workspace
 		if err := a.workspaces.Save(ws); err != nil {
-			_ = git.RemoveWorkspace(project.Path, workspacePath)
-			_ = git.DeleteBranch(project.Path, branch)
+			rollbackWorkspaceCreation(project.Path, workspacePath, branch)
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -345,5 +355,29 @@ func (a *App) removeProject(project *data.Project) tea.Cmd {
 			return messages.Error{Err: err, Context: "removing project"}
 		}
 		return messages.ProjectRemoved{Path: project.Path}
+	}
+}
+
+func waitForGitPath(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) && err != nil {
+			return fmt.Errorf("failed to stat %s: %w", path, err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("missing git metadata at %s after %s", path, timeout)
+		}
+		time.Sleep(gitPathWaitInterval)
+	}
+}
+
+func rollbackWorkspaceCreation(repoPath, workspacePath, branch string) {
+	if err := removeWorkspaceFn(repoPath, workspacePath); err != nil {
+		logging.Warn("Failed to roll back workspace %s: %v", workspacePath, err)
+	}
+	if err := deleteBranchFn(repoPath, branch); err != nil {
+		logging.Warn("Failed to roll back branch %s: %v", branch, err)
 	}
 }

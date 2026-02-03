@@ -1,14 +1,17 @@
 package git
 
 import (
+	"context"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	// LargeFileSizeThreshold is the size above which files are considered "large"
 	LargeFileSizeThreshold = 2 * 1024 * 1024 // 2MB
+	diffTimeout            = 15 * time.Second
 )
 
 // DiffLineKind represents the type of a diff line
@@ -70,7 +73,9 @@ func GetFileDiff(repoPath, path string, mode DiffMode) (*DiffResult, error) {
 		args = []string{"diff", "--no-color", "--no-ext-diff", "-U3", "--", path}
 	}
 
-	output, err := RunGit(repoPath, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	defer cancel()
+	output, err := RunGitCtx(ctx, repoPath, args...)
 	if err != nil {
 		return &DiffResult{
 			Path:  path,
@@ -86,7 +91,15 @@ func GetUntrackedFileContent(repoPath, path string) (*DiffResult, error) {
 	fullPath := repoPath + "/" + path
 
 	// Use RunGitAllowFailure since --no-index returns exit code 1 when differences exist
-	output, _ := RunGitAllowFailure(repoPath, "diff", "--no-index", "--no-color", "--", "/dev/null", fullPath)
+	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	defer cancel()
+	output, err := RunGitAllowFailureCtx(ctx, repoPath, "diff", "--no-index", "--no-color", "--", "/dev/null", fullPath)
+	if err != nil {
+		return &DiffResult{
+			Path:  path,
+			Error: err.Error(),
+		}, nil
+	}
 
 	if strings.Contains(output, "Binary files") {
 		return &DiffResult{
