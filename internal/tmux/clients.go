@@ -11,7 +11,7 @@ func SessionHasClients(sessionName string, opts Options) (bool, error) {
 	if sessionName == "" {
 		return false, nil
 	}
-	cmd, cancel := tmuxCommand(opts, "list-clients", "-t", sessionName, "-F", "#{client_name}")
+	cmd, cancel := tmuxCommand(opts, "list-clients", "-t", exactTarget(sessionName), "-F", "#{client_name}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -30,7 +30,7 @@ func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
 	if sessionName == "" {
 		return 0, nil
 	}
-	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", sessionName, "#{session_created}")
+	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", exactTarget(sessionName), "#{session_created}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {

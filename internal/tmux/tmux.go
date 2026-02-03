@@ -141,7 +141,7 @@ func tmuxCommand(opts Options, args ...string) (*exec.Cmd, context.CancelFunc) {
 }
 
 func hasSession(sessionName string, opts Options) (bool, error) {
-	cmd, cancel := tmuxCommand(opts, "has-session", "-t", sessionName)
+	cmd, cancel := tmuxCommand(opts, "has-session", "-t", exactTarget(sessionName))
 	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -155,7 +155,7 @@ func hasSession(sessionName string, opts Options) (bool, error) {
 }
 
 func hasLivePane(sessionName string, opts Options) (bool, error) {
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionName, "-F", "#{pane_dead}")
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", exactTarget(sessionName), "-F", "#{pane_dead}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -192,7 +192,7 @@ func KillSession(sessionName string, opts Options) error {
 			_ = process.KillProcessGroup(pid, process.KillOptions{})
 		}
 	}
-	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", sessionName)
+	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", exactTarget(sessionName))
 	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -208,7 +208,7 @@ func KillSession(sessionName string, opts Options) error {
 // PanePIDs returns the PID of each pane's initial process in the given session.
 // The -s flag lists panes across all windows in the session, not just the active one.
 func PanePIDs(sessionName string, opts Options) ([]int, error) {
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-s", "-t", sessionName, "-F", "#{pane_pid}")
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-s", "-t", exactTarget(sessionName), "-F", "#{pane_pid}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -244,7 +244,7 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 	if err := EnsureAvailable(); err != nil {
 		return "", err
 	}
-	cmd, cancel := tmuxCommand(opts, "show-options", "-t", sessionName, "-v", key)
+	cmd, cancel := tmuxCommand(opts, "show-options", "-t", exactTarget(sessionName), "-v", key)
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -363,7 +363,7 @@ func CapturePane(sessionName string, opts Options) ([]byte, error) {
 	// -S -: start from beginning of history
 	// -E -1: end at last scrollback line (excludes visible screen)
 	// -t: target session
-	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-e", "-S", "-", "-E", "-1", "-t", sessionName)
+	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-e", "-S", "-", "-E", "-1", "-t", exactTarget(sessionName))
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -417,6 +417,11 @@ func sanitize(value string) string {
 	}
 	return strings.Trim(b.String(), "-")
 }
+
+// exactTarget returns a tmux target string that forces exact session-name
+// matching.  Without the "=" prefix tmux falls back to prefix matching,
+// which can cause commands aimed at "amux-ws-tab-1" to hit "amux-ws-tab-10".
+func exactTarget(name string) string { return "=" + name }
 
 func shellQuote(value string) string {
 	if value == "" {
