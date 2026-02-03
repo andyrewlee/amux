@@ -29,7 +29,7 @@ func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 		a.center.Blur()
 		a.sidebar.Focus()
 		a.sidebarTerminal.Blur()
-	case messages.PaneSidebarTerminal:
+	case messages.PaneTerminal:
 		a.dashboard.Blur()
 		a.center.Blur()
 		a.sidebar.Blur()
@@ -110,9 +110,9 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			return true, nil
 		}
 		switch a.focusedPane {
-		case messages.PaneCenter:
+		case messages.PaneCenter, messages.PaneTerminal:
 			a.focusPane(messages.PaneDashboard)
-		case messages.PaneSidebar, messages.PaneSidebarTerminal:
+		case messages.PaneSidebar:
 			if a.monitorMode {
 				a.focusPane(messages.PaneMonitor)
 			} else {
@@ -134,7 +134,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			} else {
 				a.focusPane(messages.PaneCenter)
 			}
-		case messages.PaneCenter:
+		case messages.PaneCenter, messages.PaneTerminal:
 			if a.monitorMode {
 				a.focusPane(messages.PaneMonitor)
 			} else if a.layout.ShowSidebar() {
@@ -149,8 +149,8 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			moveMonitorTile(0, -1)
 			return true, nil
 		}
-		if a.focusedPane == messages.PaneSidebarTerminal {
-			a.focusPane(messages.PaneSidebar)
+		if a.focusedPane == messages.PaneTerminal && a.layout.ShowTerminal() {
+			a.focusPane(messages.PaneCenter)
 		}
 		return true, nil
 
@@ -160,8 +160,8 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			moveMonitorTile(0, 1)
 			return true, nil
 		}
-		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
-			cmd := a.focusPane(messages.PaneSidebarTerminal)
+		if a.focusedPane == messages.PaneCenter && a.layout.ShowTerminal() {
+			cmd := a.focusPane(messages.PaneTerminal)
 			return true, cmd
 		}
 		return true, nil
@@ -169,7 +169,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 	// Tab management - route to appropriate pane
 	case key.Matches(msg, a.keymap.NextTab):
 		switch a.focusedPane {
-		case messages.PaneSidebarTerminal:
+		case messages.PaneTerminal:
 			a.sidebarTerminal.NextTab()
 		case messages.PaneSidebar:
 			a.sidebar.NextTab()
@@ -181,7 +181,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 
 	case key.Matches(msg, a.keymap.PrevTab):
 		switch a.focusedPane {
-		case messages.PaneSidebarTerminal:
+		case messages.PaneTerminal:
 			a.sidebarTerminal.PrevTab()
 		case messages.PaneSidebar:
 			a.sidebar.PrevTab()
@@ -202,13 +202,13 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		return true, nil
 
 	case key.Matches(msg, a.keymap.NewTerminalTab):
-		if a.focusedPane == messages.PaneSidebarTerminal && a.activeWorkspace != nil {
+		if a.focusedPane == messages.PaneTerminal && a.activeWorkspace != nil {
 			return true, a.sidebarTerminal.CreateNewTab()
 		}
 		return true, nil
 
 	case key.Matches(msg, a.keymap.CloseTab):
-		if a.focusedPane == messages.PaneSidebarTerminal {
+		if a.focusedPane == messages.PaneTerminal {
 			return true, a.sidebarTerminal.CloseActiveTab()
 		}
 		cmd := a.center.CloseActiveTab()
@@ -235,7 +235,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneCenter:
 			cmd := a.center.RestartActiveTab()
 			return true, cmd
-		case messages.PaneSidebarTerminal:
+		case messages.PaneTerminal:
 			if cmd := a.sidebarTerminal.RestartActiveTab(); cmd != nil {
 				return true, cmd
 			}
@@ -288,7 +288,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 func (a *App) sendPrefixToTerminal() {
 	if a.focusedPane == messages.PaneCenter {
 		a.center.SendToTerminal("\x01")
-	} else if a.focusedPane == messages.PaneSidebarTerminal {
+	} else if a.focusedPane == messages.PaneTerminal {
 		a.sidebarTerminal.SendToTerminal("\x01")
 	}
 }
@@ -298,59 +298,62 @@ func (a *App) updateLayout() {
 	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
 
 	centerWidth := a.layout.CenterWidth()
+	centerHeight := a.layout.CenterContentHeight() // Height minus terminal
 	if a.monitorMode && a.layout.ShowCenter() {
 		centerWidth += a.layout.SidebarWidth()
+		centerHeight = a.layout.Height() // In monitor mode, center gets full height
 	}
-	a.center.SetSize(centerWidth, a.layout.Height())
+	a.center.SetSize(centerWidth, centerHeight)
 	leftGutter := a.layout.LeftGutter()
 	topGutter := a.layout.TopGutter()
 	gapX := 0
 	if a.layout.ShowCenter() {
 		gapX = a.layout.GapX()
 	}
-	a.center.SetOffset(leftGutter + a.layout.DashboardWidth() + gapX) // Set X offset for mouse coordinate conversion
+	centerX := leftGutter + a.layout.DashboardWidth() + gapX
+	a.center.SetOffset(centerX) // Set X offset for mouse coordinate conversion
 	a.center.SetCanFocusRight(a.layout.ShowSidebar())
 	a.dashboard.SetCanFocusRight(a.layout.ShowCenter())
 
-	// New two-pane sidebar structure: each pane has its own border
+	// Sidebar is now a single full-height pane (git changes only)
 	sidebarWidth := a.layout.SidebarWidth()
 	sidebarHeight := a.layout.Height()
 
-	// Each pane gets half the height (borders touch)
-	topPaneHeight, bottomPaneHeight := sidebarPaneHeights(sidebarHeight)
-
-	// Content dimensions inside each pane (subtract border + padding)
+	// Content dimensions inside pane (subtract border + padding)
 	// Border: 2 (top + bottom), Padding: 2 (left + right from Pane style)
-	contentWidth := sidebarWidth - 2 - 2 // border + padding
-	if contentWidth < 1 {
-		contentWidth = 1
+	sidebarContentWidth := sidebarWidth - 2 - 2 // border + padding
+	if sidebarContentWidth < 1 {
+		sidebarContentWidth = 1
 	}
-	topContentHeight := topPaneHeight - 2 // border only (no vertical padding in Pane style)
-	if topContentHeight < 1 {
-		topContentHeight = 1
-	}
-	bottomContentHeight := bottomPaneHeight - 2
-	if bottomContentHeight < 1 {
-		bottomContentHeight = 1
+	sidebarContentHeight := sidebarHeight - 2 // border only (no vertical padding in Pane style)
+	if sidebarContentHeight < 1 {
+		sidebarContentHeight = 1
 	}
 
-	a.sidebar.SetSize(contentWidth, topContentHeight)
-	a.sidebarTerminal.SetSize(contentWidth, bottomContentHeight)
+	a.sidebar.SetSize(sidebarContentWidth, sidebarContentHeight)
 
-	// Calculate and set offsets for sidebar mouse handling
-	// X: Dashboard + Center + Border(1) + Padding(1)
-	sidebarX := leftGutter + a.layout.DashboardWidth()
-	if a.layout.ShowCenter() {
-		sidebarX += a.layout.GapX() + a.layout.CenterWidth()
-	}
-	if a.layout.ShowSidebar() {
-		sidebarX += a.layout.GapX()
-	}
-	sidebarContentOffsetX := sidebarX + 2 // +2 for border and padding
+	// Terminal pane is now below center, spanning center's width
+	terminalWidth := a.layout.CenterWidth()
+	terminalHeight := a.layout.TerminalHeight()
 
-	// Y: Top pane height (including its border) + Bottom pane border(1)
-	termOffsetY := topGutter + topPaneHeight + 1
-	a.sidebarTerminal.SetOffset(sidebarContentOffsetX, termOffsetY)
+	// Content dimensions inside terminal pane
+	terminalContentWidth := terminalWidth - 2 - 2 // border + padding
+	if terminalContentWidth < 1 {
+		terminalContentWidth = 1
+	}
+	terminalContentHeight := terminalHeight - 2
+	if terminalContentHeight < 1 {
+		terminalContentHeight = 1
+	}
+
+	a.sidebarTerminal.SetSize(terminalContentWidth, terminalContentHeight)
+
+	// Terminal position: below center pane
+	terminalX := centerX
+	terminalY := topGutter + a.layout.CenterContentHeight()
+	terminalContentOffsetX := terminalX + 2 // +2 for border and padding
+	terminalContentOffsetY := terminalY + 1 // +1 for top border
+	a.sidebarTerminal.SetOffset(terminalContentOffsetX, terminalContentOffsetY)
 
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
@@ -385,41 +388,3 @@ func (a *App) setKeymapHintsEnabled(enabled bool) {
 	}
 }
 
-func sidebarPaneHeights(total int) (int, int) {
-	if total <= 0 {
-		return 0, 0
-	}
-	top := total / 2
-	bottom := total - top
-
-	// Prefer keeping both panes visible when there's room.
-	if total >= 6 {
-		if top < 3 {
-			top = 3
-			bottom = total - top
-		}
-		if bottom < 3 {
-			bottom = 3
-			top = total - bottom
-		}
-		return top, bottom
-	}
-
-	// In tight spaces, keep the terminal visible by shrinking the top pane first.
-	if total >= 3 && bottom < 3 {
-		bottom = 3
-		top = total - bottom
-		if top < 0 {
-			top = 0
-		}
-		return top, bottom
-	}
-
-	if top > total {
-		top = total
-	}
-	if bottom < 0 {
-		bottom = 0
-	}
-	return top, bottom
-}

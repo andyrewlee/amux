@@ -744,7 +744,8 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		a.config.UI.HideSidebar = msg.HideSidebar
 		a.layout.SetSidebarHidden(msg.HideSidebar)
 		// If sidebar is now hidden and focus is on it, move focus to center
-		if msg.HideSidebar && (a.focusedPane == messages.PaneSidebar || a.focusedPane == messages.PaneSidebarTerminal) {
+		// Note: Terminal is now below center pane, so hiding sidebar doesn't affect it
+		if msg.HideSidebar && a.focusedPane == messages.PaneSidebar {
 			a.focusPane(messages.PaneCenter)
 		}
 		a.layout.Resize(a.width, a.height)

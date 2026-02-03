@@ -24,31 +24,39 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		sidebarStart = centerEnd + gapX
 		sidebarEnd = sidebarStart + a.layout.SidebarWidth()
 	}
+
+	// Terminal pane is below center, spanning center's width
+	terminalStart := centerStart
+	terminalEnd := centerEnd
+	terminalTopY := topGutter + a.layout.CenterContentHeight()
+	terminalBottomY := terminalTopY + a.layout.TerminalHeight()
+
 	inSidebarX := a.layout.ShowSidebar() && msg.X >= sidebarStart && msg.X < sidebarEnd
-	localY := msg.Y - topGutter
+	inTerminalArea := a.layout.ShowTerminal() && msg.X >= terminalStart && msg.X < terminalEnd && msg.Y >= terminalTopY && msg.Y < terminalBottomY
+	inCenterArea := a.layout.ShowCenter() && msg.X >= centerStart && msg.X < centerEnd && msg.Y >= topGutter && msg.Y < terminalTopY
 
 	// Focus pane on left-click press
 	var focusCmd tea.Cmd
 	if msg.Button == tea.MouseLeft {
+		// Check for terminal toggle button click
+		if inTerminalArea && msg.X == a.terminalToggleX && msg.Y == a.terminalToggleY {
+			return func() tea.Msg { return messages.ToggleTerminalCollapse{} }
+		}
+
 		if msg.X < leftGutter {
 			a.focusPane(messages.PaneDashboard)
 		} else if msg.X < leftGutter+dashWidth {
 			// Clicked on dashboard (left bar)
 			a.focusPane(messages.PaneDashboard)
-		} else if msg.X < centerEnd {
+		} else if inTerminalArea {
+			// Clicked on terminal pane (below center)
+			focusCmd = a.focusPane(messages.PaneTerminal)
+		} else if inCenterArea {
 			// Clicked on center pane
 			a.focusPane(messages.PaneCenter)
 		} else if inSidebarX {
-			// Clicked on sidebar - determine top (changes) or bottom (terminal)
-			sidebarHeight := a.layout.Height()
-			topPaneHeight, _ := sidebarPaneHeights(sidebarHeight)
-
-			// Split point is after top pane
-			if localY >= topPaneHeight {
-				focusCmd = a.focusPane(messages.PaneSidebarTerminal)
-			} else {
-				a.focusPane(messages.PaneSidebar)
-			}
+			// Clicked on sidebar (git changes)
+			a.focusPane(messages.PaneSidebar)
 		}
 	}
 
@@ -76,9 +84,9 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
 		return cmd
-	case messages.PaneSidebarTerminal:
-		// Ignore clicks in the gap/right gutter so they don't trigger sidebar actions.
-		if inSidebarX {
+	case messages.PaneTerminal:
+		// Forward clicks to terminal pane
+		if inTerminalArea {
 			newTerm, cmd := a.sidebarTerminal.Update(msg)
 			a.sidebarTerminal = newTerm
 			// If the click returned a command (e.g., CreateNewTab from "+ New" button),
@@ -123,7 +131,7 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
 		return cmd
-	case messages.PaneSidebarTerminal:
+	case messages.PaneTerminal:
 		newTerm, cmd := a.sidebarTerminal.Update(msg)
 		a.sidebarTerminal = newTerm
 		return cmd
@@ -159,7 +167,7 @@ func (a *App) routeMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
 		return cmd
-	case messages.PaneSidebarTerminal:
+	case messages.PaneTerminal:
 		newTerm, cmd := a.sidebarTerminal.Update(msg)
 		a.sidebarTerminal = newTerm
 		return cmd
@@ -195,7 +203,7 @@ func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
 		return cmd
-	case messages.PaneSidebarTerminal:
+	case messages.PaneTerminal:
 		newTerm, cmd := a.sidebarTerminal.Update(msg)
 		a.sidebarTerminal = newTerm
 		return cmd

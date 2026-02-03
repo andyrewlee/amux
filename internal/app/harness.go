@@ -254,7 +254,7 @@ func newSidebarHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 		height:          opts.Height,
 		helpOverlay:     common.NewHelpOverlay(),
 		toast:           common.NewToastModel(),
-		focusedPane:     messages.PaneSidebarTerminal,
+		focusedPane:     messages.PaneTerminal,
 		dashboardChrome: &compositor.ChromeCache{},
 		centerChrome:    &compositor.ChromeCache{},
 		sidebarChrome:   &compositor.ChromeCache{},

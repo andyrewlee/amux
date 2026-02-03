@@ -25,6 +25,7 @@ type Manager struct {
 	dashboardWidth  int
 	centerWidth     int
 	sidebarWidth    int
+	terminalHeight  int  // Height of terminal pane below center (when expanded)
 	gapX            int
 	baseOuterGutter int
 	// Some terminals effectively reserve the rightmost column (cursor/scrollbar),
@@ -44,6 +45,9 @@ type Manager struct {
 
 	// sidebarHidden forces two-pane mode (no sidebar) regardless of terminal width.
 	sidebarHidden bool
+
+	// terminalCollapsed controls whether terminal pane is collapsed to just a header.
+	terminalCollapsed bool
 }
 
 // NewManager creates a new layout manager
@@ -63,6 +67,7 @@ func NewManager() *Manager {
 		rightGutter:       outerGutter,
 		topGutter:         0,
 		bottomGutter:      0,
+		terminalCollapsed: true, // Default to collapsed
 	}
 }
 
@@ -94,6 +99,19 @@ func (m *Manager) Resize(width, height int) {
 		usableHeight = 0
 	}
 	m.totalHeight = usableHeight
+
+	// Calculate terminal height (~25% of total, min 5, max 12 lines)
+	m.terminalHeight = usableHeight * 25 / 100
+	if m.terminalHeight < 5 {
+		m.terminalHeight = 5
+	}
+	if m.terminalHeight > 12 {
+		m.terminalHeight = 12
+	}
+	// Ensure we don't allocate more than available
+	if m.terminalHeight > usableHeight {
+		m.terminalHeight = usableHeight
+	}
 
 	minThree := m.minDashboardWidth + m.minChatWidth + m.minSidebarWidth + (m.gapX * 2)
 	minTwo := m.minDashboardWidth + m.minChatWidth + m.gapX
@@ -234,4 +252,44 @@ func (m *Manager) ShowSidebar() bool {
 // ShowCenter returns whether the center pane should be shown
 func (m *Manager) ShowCenter() bool {
 	return m.mode != LayoutOnePane
+}
+
+// CollapsedTerminalHeight is the height of terminal pane when collapsed (just header bar)
+const CollapsedTerminalHeight = 3
+
+// TerminalHeight returns the terminal pane height
+func (m *Manager) TerminalHeight() int {
+	if m.terminalCollapsed {
+		return CollapsedTerminalHeight
+	}
+	return m.terminalHeight
+}
+
+// ShowTerminal returns whether the terminal pane should be shown
+// Terminal is visible when center is shown (not in one-pane/monitor mode)
+func (m *Manager) ShowTerminal() bool {
+	return m.mode != LayoutOnePane
+}
+
+// TerminalCollapsed returns whether the terminal is collapsed
+func (m *Manager) TerminalCollapsed() bool {
+	return m.terminalCollapsed
+}
+
+// SetTerminalCollapsed sets the terminal collapsed state
+func (m *Manager) SetTerminalCollapsed(collapsed bool) {
+	m.terminalCollapsed = collapsed
+}
+
+// ToggleTerminalCollapsed toggles the terminal collapsed state
+func (m *Manager) ToggleTerminalCollapsed() {
+	m.terminalCollapsed = !m.terminalCollapsed
+}
+
+// CenterContentHeight returns the center pane height minus terminal height
+func (m *Manager) CenterContentHeight() int {
+	if !m.ShowTerminal() {
+		return m.totalHeight
+	}
+	return m.totalHeight - m.TerminalHeight()
 }

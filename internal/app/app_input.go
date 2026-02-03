@@ -270,7 +270,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-		case messages.PaneSidebarTerminal:
+		case messages.PaneTerminal:
 			newTerm, cmd := a.sidebarTerminal.Update(msg)
 			a.sidebarTerminal = newTerm
 			if cmd != nil {
@@ -314,6 +314,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := a.config.SaveUISettings(); err != nil {
 			cmds = append(cmds, a.toast.ShowWarning("Failed to save keymap setting"))
 		}
+
+	case messages.ToggleTerminalCollapse:
+		a.layout.ToggleTerminalCollapsed()
+		a.updateLayout()
 
 	case messages.ShowQuitDialog:
 		a.showQuitDialog()

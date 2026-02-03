@@ -10,7 +10,7 @@ func TestHarnessResizeRestoresScrollback(t *testing.T) {
 		Mode:    HarnessCenter,
 		Tabs:    1,
 		Width:   120,
-		Height:  40,
+		Height:  60, // Increased to accommodate terminal pane below center
 		HotTabs: 0,
 	}
 	h, err := NewHarness(opts)
@@ -35,7 +35,7 @@ func TestHarnessResizeRestoresScrollback(t *testing.T) {
 		t.Fatalf("expected terminal height > 0, got %d", baseHeight)
 	}
 
-	resizeHarness(t, h, 120, 20)
+	resizeHarness(t, h, 120, 30)
 	shrinkScrollback := len(tab.Terminal.Scrollback)
 	shrinkHeight := tab.Terminal.Height
 	if shrinkHeight >= baseHeight {
@@ -45,7 +45,7 @@ func TestHarnessResizeRestoresScrollback(t *testing.T) {
 		t.Fatalf("expected scrollback after shrink, got 0")
 	}
 
-	resizeHarness(t, h, 120, 40)
+	resizeHarness(t, h, 120, 60)
 	growScrollback := len(tab.Terminal.Scrollback)
 	growHeight := tab.Terminal.Height
 	if growHeight != baseHeight {

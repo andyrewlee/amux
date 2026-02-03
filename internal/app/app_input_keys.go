@@ -171,7 +171,7 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		newSidebar, cmd := a.sidebar.Update(msg)
 		a.sidebar = newSidebar
 		return cmd
-	case messages.PaneSidebarTerminal:
+	case messages.PaneTerminal:
 		newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
 		a.sidebarTerminal = newSidebarTerminal
 		return cmd

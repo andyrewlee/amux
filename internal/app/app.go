@@ -174,14 +174,15 @@ type App struct {
 	sidebarChrome        *compositor.ChromeCache
 	dashboardContent     drawableCache
 	dashboardBorders     borderCache
-	sidebarTopTabBar     drawableCache
-	sidebarTopContent    drawableCache
-	sidebarBottomContent drawableCache
-	sidebarBottomTabBar  drawableCache
-	sidebarBottomStatus  drawableCache
-	sidebarBottomHelp    drawableCache
-	sidebarTopBorders    borderCache
-	sidebarBottomBorders borderCache
+	sidebarTabBar        drawableCache
+	sidebarContent       drawableCache
+	sidebarBorders       borderCache
+	terminalTabBar       drawableCache
+	terminalStatus       drawableCache
+	terminalHelp         drawableCache
+	terminalBorders      borderCache
+	terminalToggleX      int // X position of terminal collapse/expand toggle button
+	terminalToggleY      int // Y position of terminal collapse/expand toggle button
 	centerTabBar         drawableCache
 	centerStatus         drawableCache
 	centerActionBar      drawableCache
