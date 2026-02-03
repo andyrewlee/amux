@@ -16,6 +16,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Bold(true).
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
+			if m.activeRoot == "" {
+				style = style.Foreground(common.ColorPrimary)
+			}
 		} else if m.activeRoot == "" {
 			style = style.Bold(true).Foreground(common.ColorPrimary)
 		}
@@ -46,6 +49,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Bold(true).
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
+			if m.isProjectActive(row.Project) {
+				style = style.Foreground(common.ColorPrimary)
+			}
 		} else if m.isProjectActive(row.Project) {
 			style = m.styles.ActiveWorkspace.PaddingLeft(0)
 		}
@@ -109,6 +115,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		style := m.styles.WorkspaceRow
 		if selected {
 			style = m.styles.SelectedRow
+			if working {
+				style = style.Foreground(common.ColorPrimary)
+			}
 		} else if working {
 			style = m.styles.ActiveWorkspace
 		}
