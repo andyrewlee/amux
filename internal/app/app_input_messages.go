@@ -71,6 +71,20 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 		}
 	}
 
+	// Eagerly restore agent tabs for all workspaces on startup.
+	// This loads agents for workspaces that have running or detached tabs,
+	// without requiring the user to click on each workspace first.
+	for i := range a.projects {
+		for j := range a.projects[i].Workspaces {
+			ws := &a.projects[i].Workspaces[j]
+			if workspaceHasLiveTabs(ws) {
+				if restoreCmd := a.center.RestoreTabsFromWorkspace(ws); restoreCmd != nil {
+					cmds = append(cmds, restoreCmd)
+				}
+			}
+		}
+	}
+
 	// Start watching workspace permissions if enabled
 	if a.config.UI.GlobalPermissions && a.permissionWatcher != nil {
 		for i := range a.projects {
