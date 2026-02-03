@@ -205,14 +205,20 @@ func (m *Model) renderTabBar() string {
 }
 
 func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
-	// Tab bar is at screen Y=1: Y=0 is pane border, Y=1 is tab content (compact, no tab border)
+	// Tab bar is below the info bar (if present).
+	// Layout: border (Y=0) → info bar (Y=1..infoBarHeight) → tab bar
 	// Account for border (1) and padding (1) on the left side when converting X coordinates
 	const (
 		borderTop   = 1
 		borderLeft  = 1
 		paddingLeft = 1
 	)
-	if msg.Y != borderTop {
+
+	// Tab bar Y position depends on info bar height
+	infoBarHeight := m.infoBarHeight()
+	tabBarY := borderTop + infoBarHeight
+
+	if msg.Y != tabBarY {
 		return nil
 	}
 	// Convert screen X to content X (subtract pane offset, border, and padding)
@@ -220,8 +226,8 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 	if localX < 0 {
 		return nil
 	}
-	// Convert screen Y to local Y within tab bar content (all tab hits are at Y=0)
-	localY := msg.Y - borderTop
+	// All tab hits are at Y=0 relative to the tab bar
+	localY := 0
 	// Check close buttons first (they overlap with tab regions)
 	for _, hit := range m.tabHits {
 		if hit.kind == tabHitClose && hit.region.Contains(localX, localY) {

@@ -23,12 +23,27 @@ func (m *Model) View() string {
 	defer perf.Time("center_view")()
 	var b strings.Builder
 
-	// Tab bar
+	contentWidth := m.contentWidth()
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	tabs := m.getTabs()
+
+	// Info bar at the very top (only if we have tabs)
+	infoBarHeight := m.infoBarHeight()
+	if infoBarHeight > 0 {
+		b.WriteString(m.renderInfoBar(contentWidth))
+		b.WriteString("\n")
+		// Track info bar Y position for mouse hit testing (line 0 = top of content)
+		m.actionBarY = 0
+	}
+
+	// Tab bar (below info bar)
 	b.WriteString(m.renderTabBar())
 	b.WriteString("\n")
 
 	// Content
-	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 	if len(tabs) == 0 {
 		b.WriteString(m.renderEmpty())
@@ -53,14 +68,11 @@ func (m *Model) View() string {
 	}
 
 	// Help bar with styled keys (prefix mode)
-	contentWidth := m.contentWidth()
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
 	helpLines := m.helpLines(contentWidth)
 	if !m.showKeymapHints {
 		helpLines = nil
 	}
+
 	// Pad to the inner pane height (border excluded), reserving the help lines.
 	// buildBorderedPane will use contentHeight = height - 2, so we target that.
 	innerHeight := m.height - 2
@@ -183,15 +195,24 @@ func (m *Model) ViewChromeOnly() string {
 	defer perf.Time("center_view_chrome")()
 	var b strings.Builder
 
-	// Tab bar
-	b.WriteString(m.renderTabBar())
-	b.WriteString("\n")
-
 	// Calculate content dimensions to match View() exactly
 	contentWidth := m.contentWidth()
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
+
+	// Info bar at the very top (only if we have tabs)
+	infoBarHeight := m.infoBarHeight()
+	if infoBarHeight > 0 {
+		b.WriteString(m.renderInfoBar(contentWidth))
+		b.WriteString("\n")
+		// Track info bar Y position for mouse hit testing (line 0 = top of content)
+		m.actionBarY = 0
+	}
+
+	// Tab bar (below info bar)
+	b.WriteString(m.renderTabBar())
+	b.WriteString("\n")
 
 	helpLines := m.helpLines(contentWidth)
 	if !m.showKeymapHints {
@@ -212,8 +233,8 @@ func (m *Model) ViewChromeOnly() string {
 		targetContentLines = 0
 	}
 
-	// We already have 1 line (tab bar), so we need targetContentLines - 1 more lines
-	emptyLinesNeeded := targetContentLines - 1
+	// We already have infoBarHeight + 1 (tab bar), so we need targetContentLines - 1 - infoBarHeight more lines
+	emptyLinesNeeded := targetContentLines - 1 - infoBarHeight
 	statusLineVisible := statusLine != ""
 	if statusLineVisible {
 		if emptyLinesNeeded > 0 {

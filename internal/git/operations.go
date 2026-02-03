@@ -151,3 +151,83 @@ func RunGitRaw(dir string, args ...string) ([]byte, error) {
 
 	return stdout.Bytes(), nil
 }
+
+// CreateCommit stages all changes and creates a commit with the given message.
+// Returns the commit hash on success.
+func CreateCommit(repoPath, message string) (string, error) {
+	// Stage all changes
+	if _, err := RunGit(repoPath, "add", "-A"); err != nil {
+		return "", err
+	}
+
+	// Create commit
+	if _, err := RunGit(repoPath, "commit", "-m", message); err != nil {
+		return "", err
+	}
+
+	// Get the commit hash
+	hash, err := RunGit(repoPath, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "", err
+	}
+
+	return hash, nil
+}
+
+// MergeBranchToMain merges the given branch into the current branch (expected to be main/master).
+// This should be run in the main repo directory.
+func MergeBranchToMain(mainRepoPath, branch string) error {
+	_, err := RunGit(mainRepoPath, "merge", branch)
+	return err
+}
+
+// GetPRURL constructs a URL for creating a pull/merge request.
+// Supports GitHub and GitLab.
+func GetPRURL(repoPath, branch string) (string, error) {
+	remoteURL, err := GetRemoteURL(repoPath, "origin")
+	if err != nil {
+		return "", err
+	}
+
+	// Normalize the URL to extract host and repo path
+	url := normalizeGitURL(remoteURL)
+	if url == "" {
+		return "", &GitError{
+			Command: "get PR URL",
+			Stderr:  "unsupported remote URL format: " + remoteURL,
+		}
+	}
+
+	// Determine if GitHub or GitLab based on URL
+	if strings.Contains(url, "github.com") {
+		// GitHub: https://github.com/owner/repo/compare/branch?expand=1
+		return url + "/compare/" + branch + "?expand=1", nil
+	} else if strings.Contains(url, "gitlab") {
+		// GitLab: https://gitlab.com/owner/repo/-/merge_requests/new?merge_request[source_branch]=branch
+		return url + "/-/merge_requests/new?merge_request[source_branch]=" + branch, nil
+	}
+
+	// Default to GitHub-style for unknown hosts
+	return url + "/compare/" + branch + "?expand=1", nil
+}
+
+// normalizeGitURL converts git@ or https:// URLs to a web URL format.
+func normalizeGitURL(remoteURL string) string {
+	// Handle SSH URLs: git@github.com:owner/repo.git
+	if strings.HasPrefix(remoteURL, "git@") {
+		// Remove git@ prefix and .git suffix
+		url := strings.TrimPrefix(remoteURL, "git@")
+		url = strings.TrimSuffix(url, ".git")
+		// Replace : with /
+		url = strings.Replace(url, ":", "/", 1)
+		return "https://" + url
+	}
+
+	// Handle HTTPS URLs: https://github.com/owner/repo.git
+	if strings.HasPrefix(remoteURL, "https://") || strings.HasPrefix(remoteURL, "http://") {
+		url := strings.TrimSuffix(remoteURL, ".git")
+		return url
+	}
+
+	return ""
+}

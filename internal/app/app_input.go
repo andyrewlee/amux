@@ -607,6 +607,37 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.err = msg.Err
 		logging.Error("Error in %s: %v", msg.Context, msg.Err)
 
+	case messages.ActionBarCopyDir:
+		if cmd := a.handleActionBarCopyDir(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ActionBarOpenIDE:
+		if cmd := a.handleActionBarOpenIDE(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ActionBarMergeToMain:
+		cmds = append(cmds, a.handleActionBarMergeToMain(msg))
+
+	case messages.ActionBarCommitResult:
+		if cmd := a.handleActionBarCommitResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ActionBarMergeResult:
+		if cmd := a.handleActionBarMergeResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ActionBarOpenMR:
+		if cmd := a.handleActionBarOpenMR(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ShowCommitDialog:
+		a.handleShowCommitDialog(msg)
+
 	default:
 		// Forward unknown messages to center pane (e.g., commit viewer internal messages)
 		newCenter, cmd := a.center.Update(msg)

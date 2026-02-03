@@ -21,6 +21,7 @@ type UISettings struct {
 	TmuxConfigPath     string
 	TmuxSyncInterval   string
 	TmuxPersistence    bool
+	IDE                string // CLI command for IDE (e.g., "code", "cursor", "pycharm")
 }
 
 func defaultUISettings() UISettings {

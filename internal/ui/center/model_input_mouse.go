@@ -17,6 +17,10 @@ func (m *Model) updateMouseClick(msg tea.MouseClickMsg) (*Model, tea.Cmd) {
 		if cmd := m.handleTabBarClick(msg); cmd != nil {
 			return m, cmd
 		}
+		// Handle action bar clicks
+		if cmd := m.handleActionBarClickFromMsg(msg); cmd != nil {
+			return m, cmd
+		}
 	}
 
 	// Handle mouse events for text selection
@@ -290,4 +294,23 @@ func (m *Model) dispatchDiffInput(tab *Tab, msg tea.Msg) (bool, tea.Cmd) {
 	tab.DiffViewer = newDV
 	tab.mu.Unlock()
 	return true, cmd
+}
+
+// handleActionBarClickFromMsg converts screen coordinates and checks for action bar clicks.
+func (m *Model) handleActionBarClickFromMsg(msg tea.MouseClickMsg) tea.Cmd {
+	// Convert screen coordinates to content coordinates
+	const (
+		borderTop   = 1
+		borderLeft  = 1
+		paddingLeft = 1
+	)
+
+	contentX := msg.X - m.offsetX - borderLeft - paddingLeft
+	contentY := msg.Y - borderTop
+
+	if contentX < 0 || contentY < 0 {
+		return nil
+	}
+
+	return m.handleActionBarClick(contentX, contentY)
 }

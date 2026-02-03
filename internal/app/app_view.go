@@ -162,9 +162,24 @@ func (a *App) viewLayerBased() tea.View {
 				contentWidth = 1
 			}
 
-			// Tab bar (top of content area).
-			tabBar := clampLines(a.center.TabBarView(), contentWidth, termOffsetY-1)
-			if tabBarDrawable := a.centerTabBar.get(tabBar, termX, topGutter+1); tabBarDrawable != nil {
+			// Info bar at the very top (line 0 inside border).
+			infoBarHeight := a.center.InfoBarHeight()
+			infoBarY := topGutter + 1
+			if infoBarHeight > 0 {
+				infoBarContent := clampLines(a.center.InfoBarView(contentWidth), contentWidth, infoBarHeight)
+				if infoBarContent != "" {
+					if infoBarDrawable := a.centerActionBar.get(infoBarContent, termX, infoBarY); infoBarDrawable != nil {
+						canvas.Compose(infoBarDrawable)
+					}
+					// Set content-relative Y for mouse hit testing (line 0 = top of content)
+					a.center.SetInfoBarY(0)
+				}
+			}
+
+			// Tab bar (below info bar).
+			tabBarY := infoBarY + infoBarHeight
+			tabBar := clampLines(a.center.TabBarView(), contentWidth, 1)
+			if tabBarDrawable := a.centerTabBar.get(tabBar, termX, tabBarY); tabBarDrawable != nil {
 				canvas.Compose(tabBarDrawable)
 			}
 
@@ -176,9 +191,11 @@ func (a *App) viewLayerBased() tea.View {
 			}
 
 			// Help lines at bottom of pane.
-			if helpLines := a.center.HelpLines(contentWidth); len(helpLines) > 0 {
-				helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
-				helpY := topGutter + centerHeight - 1 - len(helpLines)
+			helpLines := a.center.HelpLines(contentWidth)
+			helpLineCount := len(helpLines)
+			if helpLineCount > 0 {
+				helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, helpLineCount)
+				helpY := topGutter + centerHeight - 1 - helpLineCount
 				if helpY > termY {
 					if helpDrawable := a.centerHelp.get(helpContent, termX, helpY); helpDrawable != nil {
 						canvas.Compose(helpDrawable)

@@ -151,6 +151,12 @@ type Model struct {
 	styles     common.Styles
 	tabHits    []tabHit
 	tmuxConfig tmuxConfig
+
+	// Action bar state
+	actionBarHits    []actionBarButton
+	actionBarY       int  // Y position of action bar within content
+	actionBarFocused bool // Whether action bar has focus
+	actionBarIndex   int  // Currently selected button index
 }
 
 // tmuxConfig holds tmux-related configuration
@@ -186,6 +192,23 @@ const (
 	tabHitPrev
 	tabHitNext
 )
+
+// actionBarButtonKind identifies which action bar button was clicked
+type actionBarButtonKind int
+
+const (
+	actionBarCopyDir actionBarButtonKind = iota
+	actionBarOpenIDE
+	actionBarMergeToMain
+	actionBarCommit
+)
+
+// actionBarButton stores hit region info for an action bar button
+type actionBarButton struct {
+	kind   actionBarButtonKind
+	label  string
+	region common.HitRegion
+}
 
 type tabHit struct {
 	kind   tabHitKind
@@ -227,7 +250,7 @@ type TerminalMetrics struct {
 }
 
 // terminalMetrics computes the terminal content area geometry.
-// It preserves the original layout constants while accounting for dynamic help lines.
+// It preserves the original layout constants while accounting for dynamic help lines and info bar.
 func (m *Model) terminalMetrics() TerminalMetrics {
 	// These values match the original working implementation
 	const (
@@ -249,14 +272,19 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 	if m.showKeymapHints {
 		helpLineCount = len(m.helpLines(width))
 	}
-	height := m.height - baseOverhead - helpLineCount
+	infoBarHeight := m.infoBarHeight()
+	height := m.height - baseOverhead - helpLineCount - infoBarHeight
 	if height < 5 {
 		height = 24
 	}
 
+	// Terminal starts after: border + info bar + tab bar
+	// Order is: info bar (at top) → tab bar → terminal
+	contentStartY := borderTop + infoBarHeight + tabBarHeight
+
 	return TerminalMetrics{
 		ContentStartX: borderLeft + paddingLeft,
-		ContentStartY: borderTop + tabBarHeight,
+		ContentStartY: contentStartY,
 		Width:         width,
 		Height:        height,
 	}

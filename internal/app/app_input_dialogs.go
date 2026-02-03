@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -18,10 +19,12 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	project := a.dialogProject
 	workspace := a.dialogWorkspace
 	defaultName := a.dialogDefaultName
+	workspaceRoot := a.dialogWorkspaceRoot
 	a.dialog = nil
 	a.dialogProject = nil
 	a.dialogWorkspace = nil
 	a.dialogDefaultName = ""
+	a.dialogWorkspaceRoot = ""
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
@@ -174,6 +177,20 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 
 	case DialogCleanupTmux:
 		return func() tea.Msg { return messages.CleanupTmuxSessions{} }
+
+	case DialogCommit:
+		if workspaceRoot != "" && result.Value != "" {
+			message := validation.SanitizeInput(result.Value)
+			root := workspaceRoot
+			return func() tea.Msg {
+				hash, err := git.CreateCommit(root, message)
+				return messages.ActionBarCommitResult{
+					Success:    err == nil,
+					CommitHash: hash,
+					Err:        err,
+				}
+			}
+		}
 	}
 
 	return nil
