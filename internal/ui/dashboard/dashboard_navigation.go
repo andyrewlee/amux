@@ -243,6 +243,19 @@ func (m *Model) handleSetProfile() tea.Cmd {
 		return nil
 	}
 
+	// Check if any workspace for this project has an active session
+	for i := range project.Workspaces {
+		ws := &project.Workspaces[i]
+		if m.activeWorkspaceIDs[string(ws.ID())] {
+			return func() tea.Msg {
+				return messages.Toast{
+					Message: "Cannot change profile while workspaces have active sessions",
+					Level:   messages.ToastError,
+				}
+			}
+		}
+	}
+
 	return func() tea.Msg {
 		return messages.ShowSetProfileDialog{Project: project}
 	}
