@@ -6,7 +6,7 @@ import (
 )
 
 func TestSettingsRenderUpdateAvailable(t *testing.T) {
-	dialog := NewSettingsDialog(ThemeAyuDark, true, false, "", "", "")
+	dialog := NewSettingsDialog(ThemeAyuDark, true, "", "", "")
 	dialog.SetUpdateInfo("v0.0.10", "v0.0.11", true)
 
 	lines := dialog.renderLines()
@@ -17,7 +17,7 @@ func TestSettingsRenderUpdateAvailable(t *testing.T) {
 }
 
 func TestSettingsRenderUpdateHiddenWhenUnavailable(t *testing.T) {
-	dialog := NewSettingsDialog(ThemeAyuDark, true, false, "", "", "")
+	dialog := NewSettingsDialog(ThemeAyuDark, true, "", "", "")
 	dialog.SetUpdateInfo("v0.0.10", "", false)
 
 	lines := dialog.renderLines()
@@ -28,7 +28,7 @@ func TestSettingsRenderUpdateHiddenWhenUnavailable(t *testing.T) {
 }
 
 func TestSettingsRenderHomebrewHint(t *testing.T) {
-	dialog := NewSettingsDialog(ThemeAyuDark, true, false, "", "", "")
+	dialog := NewSettingsDialog(ThemeAyuDark, true, "", "", "")
 	dialog.SetUpdateInfo("v0.0.10", "", false)
 	dialog.SetUpdateHint("Installed via Homebrew - update with brew upgrade amux")
 
