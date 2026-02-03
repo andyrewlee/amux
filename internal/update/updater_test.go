@@ -20,6 +20,21 @@ func TestUpdaterCheckDevBuild(t *testing.T) {
 	}
 }
 
+func TestUpdaterCheckHomebrewBuild(t *testing.T) {
+	original := homebrewBuild
+	t.Cleanup(func() { homebrewBuild = original })
+	homebrewBuild = "true"
+
+	updater := NewUpdater("v0.0.1", "none", "unknown")
+	result, err := updater.Check()
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if result.UpdateAvailable {
+		t.Errorf("Homebrew build should not have updates available")
+	}
+}
+
 func TestGetPlatformAssetName(t *testing.T) {
 	// This tests the naming convention matches GoReleaser
 	name := GetPlatformAssetName("v1.2.3")
