@@ -168,5 +168,10 @@ func (t *Terminal) IsClosed() bool {
 
 // File returns the underlying PTY file
 func (t *Terminal) File() *os.File {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return nil
+	}
 	return t.ptyFile
 }
