@@ -223,6 +223,18 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		}
 	}
 
+	// Focus center pane when workspace has active tabs (keyboard activation parity with click)
+	if msg.Workspace != nil {
+		wsID := string(msg.Workspace.ID())
+		if a.center.HasTabsForWorkspace(wsID) || workspaceHasLiveTabs(msg.Workspace) {
+			if a.monitorMode {
+				a.focusPane(messages.PaneMonitor)
+			} else {
+				a.focusPane(messages.PaneCenter)
+			}
+		}
+	}
+
 	return cmds
 }
 
