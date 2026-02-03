@@ -79,16 +79,9 @@ Create `.amux/workspaces.json` in your project to run setup commands for new wor
   "setup-workspace": [
     "npm install",
     "cp $ROOT_WORKSPACE_PATH/.env.local .env.local"
-  ],
-  "setup-timeout-seconds": 120,
-  "run-timeout-seconds": 0,
-  "archive-timeout-seconds": 120
+  ]
 }
 ```
-
-Timeout notes:
-- `setup-timeout-seconds` and `archive-timeout-seconds` default to 120 seconds.
-- `run-timeout-seconds` defaults to unlimited (use a positive value to enforce a timeout).
 
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`.
 
