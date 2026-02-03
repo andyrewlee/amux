@@ -103,7 +103,7 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Global allow/deny list"))
 	s.addHit(settingsItemGlobalPerms, -1, y)
-	lines = append(lines, muted.Render("  Manage permissions used across all sessions"))
+	lines = append(lines, muted.Render("  Share permissions across sessions"))
 
 	if s.globalPerms {
 		style = muted

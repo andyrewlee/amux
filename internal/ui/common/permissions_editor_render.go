@@ -124,10 +124,10 @@ func (e *PermissionsEditor) renderLines() []string {
 	}
 
 	// Help text explaining permission syntax
-	lines = append(lines, muted.Render("Permission syntax (space before * matters):"))
+	lines = append(lines, muted.Render("Permission syntax:"))
 	lines = append(lines, muted.Render("  Bash                - All bash commands"))
-	lines = append(lines, muted.Render("  Bash(npm *)         - Commands starting with 'npm '"))
-	lines = append(lines, muted.Render("  Bash(npm run *)     - Commands starting with 'npm run '"))
+	lines = append(lines, muted.Render("  Bash(npm:*)         - Commands starting with 'npm'"))
+	lines = append(lines, muted.Render("  Bash(git:*)         - Commands starting with 'git'"))
 	lines = append(lines, muted.Render("  Read(~/.ssh/**)     - Read files in ~/.ssh recursively"))
 	lines = append(lines, muted.Render("  Edit(/src/**)       - Edit files in project src/ dir"))
 	lines = append(lines, "")
