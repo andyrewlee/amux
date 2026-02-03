@@ -74,9 +74,6 @@ func (a *App) handlePermissionWatcherEvent(msg messages.PermissionWatcherEvent) 
 		return cmds
 	}
 
-	// Normalize the project's settings files to convert legacy formats
-	_ = config.NormalizeProjectPermissions(msg.Root)
-
 	// Filter out permissions already in global list
 	global, err := config.LoadGlobalPermissions(a.config.Paths.GlobalPermissionsPath)
 	if err != nil {
@@ -137,9 +134,6 @@ func (a *App) handlePermissionDetected(msg messages.PermissionDetected) tea.Cmd 
 		}
 		_ = config.InjectIntoAllProfiles(a.config.Paths.ProfilesRoot, global)
 
-		// Normalize the workspace that triggered this to remove legacy formats
-		_ = config.NormalizeProjectPermissions(msg.WorkspaceRoot)
-
 		if added == 1 {
 			return a.toast.ShowSuccess(fmt.Sprintf("Permission '%s' added to global allow list", msg.NewAllow[0]))
 		}
@@ -187,9 +181,6 @@ func (a *App) handlePermissionsDialogResult(msg messages.PermissionsDialogResult
 	}
 	_ = config.InjectIntoAllProfiles(a.config.Paths.ProfilesRoot, global)
 
-	// Normalize all workspace project settings to remove legacy formats
-	a.normalizeAllWorkspaceSettings()
-
 	// Remove processed items from pending
 	var remaining []common.PendingPermission
 	for _, p := range a.pendingPermissions {
@@ -219,17 +210,5 @@ func (a *App) handlePermissionsEditorResult(msg messages.PermissionsEditorResult
 	}
 	_ = config.InjectIntoAllProfiles(a.config.Paths.ProfilesRoot, global)
 
-	// Normalize all workspace project settings to remove legacy formats
-	a.normalizeAllWorkspaceSettings()
-
 	return a.toast.ShowSuccess("Global permissions saved")
-}
-
-// normalizeAllWorkspaceSettings normalizes permission formats in all workspace settings.
-func (a *App) normalizeAllWorkspaceSettings() {
-	for i := range a.projects {
-		for j := range a.projects[i].Workspaces {
-			_ = config.NormalizeProjectPermissions(a.projects[i].Workspaces[j].Root)
-		}
-	}
 }

@@ -28,12 +28,12 @@ type PermissionsEditor struct {
 
 // NewPermissionsEditor creates a new permissions editor.
 func NewPermissionsEditor(allow, deny []string) *PermissionsEditor {
-	// Normalize and deduplicate the lists
-	allowCopy := normalizeAndDedupe(allow)
-	denyCopy := normalizeAndDedupe(deny)
+	// Deduplicate the lists
+	allowCopy := dedupeStrings(allow)
+	denyCopy := dedupeStrings(deny)
 
 	input := textinput.New()
-	input.Placeholder = "Bash(npm *)"
+	input.Placeholder = "Bash(npm:*)"
 	input.SetWidth(30)
 	input.SetVirtualCursor(true)
 
@@ -44,37 +44,21 @@ func NewPermissionsEditor(allow, deny []string) *PermissionsEditor {
 	}
 }
 
-// normalizeAndDedupe normalizes permission formats and removes duplicates.
-func normalizeAndDedupe(perms []string) []string {
+// dedupeStrings removes duplicates from a string slice while preserving order.
+func dedupeStrings(perms []string) []string {
 	if perms == nil {
 		return []string{}
 	}
 	seen := make(map[string]bool)
 	result := make([]string, 0, len(perms))
 	for _, p := range perms {
-		normalized := normalizePermission(p)
-		if !seen[normalized] {
-			seen[normalized] = true
-			result = append(result, normalized)
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" && !seen[trimmed] {
+			seen[trimmed] = true
+			result = append(result, trimmed)
 		}
 	}
 	return result
-}
-
-// normalizePermission converts legacy permission format to new format.
-// Legacy: "Bash(ls:*)" -> New: "Bash(ls *)"
-func normalizePermission(perm string) string {
-	perm = strings.TrimSpace(perm)
-	// Match legacy format: Tool(specifier:*)
-	if idx := strings.LastIndex(perm, ":*)"); idx > 0 {
-		// Find the opening paren
-		if parenIdx := strings.Index(perm, "("); parenIdx > 0 && parenIdx < idx {
-			tool := perm[:parenIdx]
-			specifier := perm[parenIdx+1 : idx]
-			return tool + "(" + specifier + " *)"
-		}
-	}
-	return perm
 }
 
 func (e *PermissionsEditor) Show()            { e.visible = true }

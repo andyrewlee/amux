@@ -6,47 +6,6 @@ import (
 	"testing"
 )
 
-func TestNormalizePermission(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		// Legacy format should be converted
-		{"Bash(ls:*)", "Bash(ls *)"},
-		{"Bash(npm run:*)", "Bash(npm run *)"},
-		{"Read(~/.ssh:*)", "Read(~/.ssh *)"},
-		{"Edit(/src:*)", "Edit(/src *)"},
-		{"WebFetch(domain:*)", "WebFetch(domain *)"},
-
-		// New format should remain unchanged
-		{"Bash(ls *)", "Bash(ls *)"},
-		{"Bash(npm run *)", "Bash(npm run *)"},
-		{"Read(~/.ssh/*)", "Read(~/.ssh/*)"},
-		{"Read(~/.ssh/**)", "Read(~/.ssh/**)"},
-
-		// Simple tool names should remain unchanged
-		{"Bash", "Bash"},
-		{"Read", "Read"},
-		{"Edit", "Edit"},
-
-		// Exact commands should remain unchanged
-		{"Bash(npm run build)", "Bash(npm run build)"},
-		{"Read(./.env)", "Read(./.env)"},
-
-		// Edge cases
-		{"  Bash(ls:*)  ", "Bash(ls *)"},  // whitespace trimmed
-		{"Bash(git * main)", "Bash(git * main)"}, // middle wildcard unchanged
-		{"Bash(*)", "Bash(*)"},            // just wildcard unchanged
-	}
-
-	for _, tc := range tests {
-		result := NormalizePermission(tc.input)
-		if result != tc.expected {
-			t.Errorf("NormalizePermission(%q) = %q, want %q", tc.input, result, tc.expected)
-		}
-	}
-}
-
 func TestDedupe(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -65,23 +24,18 @@ func TestDedupe(t *testing.T) {
 		},
 		{
 			name:     "no duplicates",
-			input:    []string{"Bash(ls *)", "Bash(npm *)"},
-			expected: []string{"Bash(ls *)", "Bash(npm *)"},
+			input:    []string{"Bash(ls:*)", "Bash(npm:*)"},
+			expected: []string{"Bash(ls:*)", "Bash(npm:*)"},
 		},
 		{
 			name:     "exact duplicates",
-			input:    []string{"Bash(ls *)", "Bash(ls *)", "Bash(npm *)"},
-			expected: []string{"Bash(ls *)", "Bash(npm *)"},
+			input:    []string{"Bash(ls:*)", "Bash(ls:*)", "Bash(npm:*)"},
+			expected: []string{"Bash(ls:*)", "Bash(npm:*)"},
 		},
 		{
-			name:     "legacy and new format duplicates",
-			input:    []string{"Bash(ls:*)", "Bash(ls *)"},
-			expected: []string{"Bash(ls *)"},
-		},
-		{
-			name:     "normalizes legacy format",
-			input:    []string{"Bash(npm:*)", "Read(~/.ssh:*)"},
-			expected: []string{"Bash(npm *)", "Read(~/.ssh *)"},
+			name:     "whitespace handling",
+			input:    []string{"  Bash(ls:*)  ", "Bash(ls:*)"},
+			expected: []string{"Bash(ls:*)"},
 		},
 	}
 
@@ -111,21 +65,21 @@ func TestDiffPermissions(t *testing.T) {
 	}{
 		{
 			name:     "new permission",
-			existing: []string{"Bash(ls *)"},
-			incoming: []string{"Bash(ls *)", "Bash(npm *)"},
-			expected: []string{"Bash(npm *)"},
-		},
-		{
-			name:     "legacy format treated as same",
-			existing: []string{"Bash(ls *)"},
+			existing: []string{"Bash(ls:*)"},
 			incoming: []string{"Bash(ls:*)", "Bash(npm:*)"},
-			expected: []string{"Bash(npm *)"},
+			expected: []string{"Bash(npm:*)"},
 		},
 		{
 			name:     "no new permissions",
-			existing: []string{"Bash(ls *)", "Bash(npm *)"},
+			existing: []string{"Bash(ls:*)", "Bash(npm:*)"},
 			incoming: []string{"Bash(ls:*)", "Bash(npm:*)"},
 			expected: nil,
+		},
+		{
+			name:     "whitespace handling",
+			existing: []string{"Bash(ls:*)"},
+			incoming: []string{"  Bash(ls:*)  ", "Bash(npm:*)"},
+			expected: []string{"Bash(npm:*)"},
 		},
 	}
 
@@ -153,12 +107,12 @@ func TestGlobalPermissions_AddAllow(t *testing.T) {
 	if !p.AddAllow("Bash(ls:*)") {
 		t.Error("AddAllow should return true for new permission")
 	}
-	if len(p.Allow) != 1 || p.Allow[0] != "Bash(ls *)" {
-		t.Errorf("Allow list = %v, want [Bash(ls *)]", p.Allow)
+	if len(p.Allow) != 1 || p.Allow[0] != "Bash(ls:*)" {
+		t.Errorf("Allow list = %v, want [Bash(ls:*)]", p.Allow)
 	}
 
-	// Try to add same permission in new format (should be rejected as duplicate)
-	if p.AddAllow("Bash(ls *)") {
+	// Try to add same permission (should be rejected as duplicate)
+	if p.AddAllow("Bash(ls:*)") {
 		t.Error("AddAllow should return false for duplicate permission")
 	}
 	if len(p.Allow) != 1 {
@@ -168,40 +122,40 @@ func TestGlobalPermissions_AddAllow(t *testing.T) {
 
 func TestGlobalPermissions_RemoveAllow(t *testing.T) {
 	p := &GlobalPermissions{
-		Allow: []string{"Bash(ls *)"},
+		Allow: []string{"Bash(ls:*)"},
 	}
 
-	// Remove using legacy format
+	// Remove the permission
 	if !p.RemoveAllow("Bash(ls:*)") {
-		t.Error("RemoveAllow should return true when removing via legacy format")
+		t.Error("RemoveAllow should return true when removing")
 	}
 	if len(p.Allow) != 0 {
 		t.Errorf("Allow list should be empty, got %v", p.Allow)
 	}
 }
 
-func TestLoadGlobalPermissions_NormalizesOnLoad(t *testing.T) {
-	// Create a temp file with legacy format and duplicates
+func TestLoadGlobalPermissions_DeduplicatesOnLoad(t *testing.T) {
+	// Create a temp file with duplicates
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "global_permissions.json")
 
-	// Write file with legacy formats and duplicates
+	// Write file with duplicates
 	data := `{
-  "allow": ["Bash(ls:*)", "Bash(ls *)", "Bash(npm:*)"],
-  "deny": ["Read(~/.ssh:*)", "Read(~/.ssh *)"]
+  "allow": ["Bash(ls:*)", "Bash(ls:*)", "Bash(npm:*)"],
+  "deny": ["Read(~/.ssh:*)", "Read(~/.ssh:*)"]
 }`
 	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	// Load and verify normalization + deduplication
+	// Load and verify deduplication
 	perms, err := LoadGlobalPermissions(path)
 	if err != nil {
 		t.Fatalf("LoadGlobalPermissions failed: %v", err)
 	}
 
-	// Should have deduplicated: "Bash(ls:*)" and "Bash(ls *)" are the same
-	expectedAllow := []string{"Bash(ls *)", "Bash(npm *)"}
+	// Should have deduplicated
+	expectedAllow := []string{"Bash(ls:*)", "Bash(npm:*)"}
 	if len(perms.Allow) != len(expectedAllow) {
 		t.Errorf("Allow = %v, want %v", perms.Allow, expectedAllow)
 	}
@@ -212,7 +166,7 @@ func TestLoadGlobalPermissions_NormalizesOnLoad(t *testing.T) {
 	}
 
 	// Same for deny
-	expectedDeny := []string{"Read(~/.ssh *)"}
+	expectedDeny := []string{"Read(~/.ssh:*)"}
 	if len(perms.Deny) != len(expectedDeny) {
 		t.Errorf("Deny = %v, want %v", perms.Deny, expectedDeny)
 	}

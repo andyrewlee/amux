@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // InjectGlobalPermissions merges global permissions into a profile's settings.json.
@@ -29,7 +30,6 @@ func InjectGlobalPermissions(profileDir string, global *GlobalPermissions) error
 	}
 
 	// Merge allow list using set-based deduplication
-	// This handles both existing duplicates and prevents new ones
 	perms["allow"] = mergeUnique(toStringSlice(perms["allow"]), global.Allow)
 
 	// Merge deny list using set-based deduplication
@@ -87,131 +87,27 @@ func toStringSlice(v any) []string {
 	return result
 }
 
-// NormalizeProjectPermissions normalizes permission formats in a project's .claude directory.
-// This updates settings.local.json and settings.json to use the new format.
-func NormalizeProjectPermissions(workspaceRoot string) error {
-	claudeDir := filepath.Join(workspaceRoot, ".claude")
-
-	// Normalize settings.local.json (where Claude Code writes per-project permissions)
-	localPath := filepath.Join(claudeDir, "settings.local.json")
-	if err := normalizeSettingsFile(localPath); err != nil {
-		return err
-	}
-
-	// Also normalize settings.json if it exists
-	sharedPath := filepath.Join(claudeDir, "settings.json")
-	if err := normalizeSettingsFile(sharedPath); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// normalizeSettingsFile normalizes permission formats in a Claude settings file.
-func normalizeSettingsFile(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // File doesn't exist, nothing to normalize
-		}
-		return err
-	}
-
-	var settings map[string]any
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return nil // Invalid JSON, skip
-	}
-
-	perms, ok := settings["permissions"].(map[string]any)
-	if !ok || perms == nil {
-		return nil // No permissions section
-	}
-
-	modified := false
-
-	// Normalize allow list
-	if allow := toStringSlice(perms["allow"]); allow != nil {
-		normalized := normalizeAndDedupeSlice(allow)
-		if !slicesEqual(allow, normalized) {
-			perms["allow"] = normalized
-			modified = true
-		}
-	}
-
-	// Normalize deny list
-	if deny := toStringSlice(perms["deny"]); deny != nil {
-		normalized := normalizeAndDedupeSlice(deny)
-		if !slicesEqual(deny, normalized) {
-			perms["deny"] = normalized
-			modified = true
-		}
-	}
-
-	if !modified {
-		return nil
-	}
-
-	settings["permissions"] = perms
-	newData, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, newData, 0644)
-}
-
-// normalizeAndDedupeSlice normalizes and deduplicates a slice of permissions.
-func normalizeAndDedupeSlice(perms []string) []string {
-	seen := make(map[string]bool)
-	result := make([]string, 0, len(perms))
-	for _, p := range perms {
-		normalized := NormalizePermission(p)
-		if !seen[normalized] {
-			seen[normalized] = true
-			result = append(result, normalized)
-		}
-	}
-	if len(result) == 0 {
-		return []string{}
-	}
-	return result
-}
-
-// slicesEqual checks if two string slices are equal.
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // mergeUnique merges two string slices, returning a deduplicated result.
 // Preserves order: existing entries first, then new entries not in existing.
-// Permissions are normalized to convert legacy formats (e.g., "Bash(ls:*)" -> "Bash(ls *)").
 func mergeUnique(existing, additions []string) []string {
 	seen := make(map[string]bool)
 	result := make([]string, 0, len(existing)+len(additions))
 
-	// Add existing entries (deduplicated and normalized)
+	// Add existing entries (deduplicated)
 	for _, s := range existing {
-		normalized := NormalizePermission(s)
-		if !seen[normalized] {
-			seen[normalized] = true
-			result = append(result, normalized)
+		trimmed := strings.TrimSpace(s)
+		if trimmed != "" && !seen[trimmed] {
+			seen[trimmed] = true
+			result = append(result, trimmed)
 		}
 	}
 
-	// Add new entries not already present (normalized)
+	// Add new entries not already present
 	for _, s := range additions {
-		normalized := NormalizePermission(s)
-		if !seen[normalized] {
-			seen[normalized] = true
-			result = append(result, normalized)
+		trimmed := strings.TrimSpace(s)
+		if trimmed != "" && !seen[trimmed] {
+			seen[trimmed] = true
+			result = append(result, trimmed)
 		}
 	}
 

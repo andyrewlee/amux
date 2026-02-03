@@ -5,25 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
-
-// legacyPermPattern matches legacy permission syntax like "Bash(cmd:*)"
-var legacyPermPattern = regexp.MustCompile(`^([A-Za-z_]+)\((.+):\*\)$`)
-
-// normalizePermission converts legacy permission format to new format.
-func normalizePermission(perm string) string {
-	perm = strings.TrimSpace(perm)
-	if matches := legacyPermPattern.FindStringSubmatch(perm); matches != nil {
-		return matches[1] + "(" + matches[2] + " *)"
-	}
-	return perm
-}
 
 // PermissionWatcher watches workspace .claude/settings.local.json files for permission changes.
 type PermissionWatcher struct {
@@ -188,11 +175,10 @@ func (pw *PermissionWatcher) processChange(root string) {
 
 	var newEntries []string
 	for _, perm := range currentAllow {
-		// Normalize to handle legacy formats consistently
-		normalized := normalizePermission(perm)
-		if !known[normalized] {
-			newEntries = append(newEntries, normalized)
-			known[normalized] = true
+		trimmed := strings.TrimSpace(perm)
+		if trimmed != "" && !known[trimmed] {
+			newEntries = append(newEntries, trimmed)
+			known[trimmed] = true
 		}
 	}
 	pw.knownAllow[root] = known
@@ -208,8 +194,10 @@ func (pw *PermissionWatcher) cacheAllowState(root string) {
 	currentAllow := ReadAllowList(settingsPath)
 	known := make(map[string]bool, len(currentAllow))
 	for _, perm := range currentAllow {
-		// Normalize to handle legacy formats consistently
-		known[normalizePermission(perm)] = true
+		trimmed := strings.TrimSpace(perm)
+		if trimmed != "" {
+			known[trimmed] = true
+		}
 	}
 	pw.knownAllow[root] = known
 }
