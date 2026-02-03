@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,21 @@ func TestUpdaterCheckHomebrewBuild(t *testing.T) {
 	}
 	if result.UpdateAvailable {
 		t.Errorf("Homebrew build should not have updates available")
+	}
+}
+
+func TestUpdaterUpgradeHomebrewBuild(t *testing.T) {
+	original := homebrewBuild
+	t.Cleanup(func() { homebrewBuild = original })
+	homebrewBuild = "true"
+
+	updater := NewUpdater("v0.0.10", "none", "unknown")
+	err := updater.Upgrade(&Release{TagName: "v0.0.11"})
+	if err == nil {
+		t.Fatal("expected error for Homebrew build upgrade")
+	}
+	if !strings.Contains(err.Error(), "brew upgrade amux") {
+		t.Fatalf("expected Homebrew upgrade hint, got: %v", err)
 	}
 }
 
