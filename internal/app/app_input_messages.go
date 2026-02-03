@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +15,8 @@ import (
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/ide"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -821,4 +825,130 @@ func workspaceHasLiveTabs(ws *data.Workspace) bool {
 		return true
 	}
 	return false
+}
+
+// handleActionBarCopyDir copies the workspace directory to clipboard.
+func (a *App) handleActionBarCopyDir(msg messages.ActionBarCopyDir) tea.Cmd {
+	if msg.WorkspaceRoot == "" {
+		return nil
+	}
+	if err := common.CopyToClipboard(msg.WorkspaceRoot); err != nil {
+		logging.Error("Failed to copy to clipboard: %v", err)
+		return a.toast.ShowError("Failed to copy to clipboard")
+	}
+	return a.toast.ShowSuccess("Copied directory to clipboard")
+}
+
+// handleActionBarOpenIDE opens the workspace folder in the user's IDE.
+func (a *App) handleActionBarOpenIDE(msg messages.ActionBarOpenIDE) tea.Cmd {
+	if msg.WorkspaceRoot == "" {
+		return nil
+	}
+
+	// Get configured IDE or auto-detect
+	ideCLI := ide.GetOrDetect(a.config.UI.IDE)
+	if ideCLI == "" {
+		return a.toast.ShowError("No IDE found. Install VS Code, Cursor, or configure 'ide' in settings.")
+	}
+
+	if err := ide.Open(ideCLI, msg.WorkspaceRoot); err != nil {
+		logging.Error("Failed to open IDE: %v", err)
+		return a.toast.ShowError("Failed to open " + ideCLI)
+	}
+	return a.toast.ShowSuccess("Opening in " + ideCLI)
+}
+
+// handleActionBarMergeToMain runs the merge operation asynchronously.
+func (a *App) handleActionBarMergeToMain(msg messages.ActionBarMergeToMain) tea.Cmd {
+	if msg.RepoPath == "" || msg.BranchName == "" {
+		return nil
+	}
+	repoPath := msg.RepoPath
+	branch := msg.BranchName
+	return func() tea.Msg {
+		err := git.MergeBranchToMain(repoPath, branch)
+		return messages.ActionBarMergeResult{
+			Success: err == nil,
+			Err:     err,
+		}
+	}
+}
+
+// handleActionBarCommitResult handles the result of a commit operation.
+func (a *App) handleActionBarCommitResult(msg messages.ActionBarCommitResult) tea.Cmd {
+	if !msg.Success {
+		errMsg := "Commit failed"
+		if msg.Err != nil {
+			errMsg = "Commit failed: " + msg.Err.Error()
+		}
+		return a.toast.ShowError(errMsg)
+	}
+	return a.toast.ShowSuccess(fmt.Sprintf("Committed: %s", msg.CommitHash))
+}
+
+// handleActionBarMergeResult handles the result of a merge operation.
+func (a *App) handleActionBarMergeResult(msg messages.ActionBarMergeResult) tea.Cmd {
+	if !msg.Success {
+		errMsg := "Merge failed"
+		if msg.Err != nil {
+			errMsg = "Merge failed: " + msg.Err.Error()
+		}
+		return a.toast.ShowError(errMsg)
+	}
+	return a.toast.ShowSuccess("Merged to main")
+}
+
+// handleActionBarOpenMR opens the browser to create a merge/pull request.
+func (a *App) handleActionBarOpenMR(msg messages.ActionBarOpenMR) tea.Cmd {
+	if msg.WorkspaceRoot == "" || msg.BranchName == "" {
+		return nil
+	}
+	root := msg.WorkspaceRoot
+	branch := msg.BranchName
+	return func() tea.Msg {
+		url, err := git.GetPRURL(root, branch)
+		if err != nil {
+			logging.Error("Failed to get PR URL: %v", err)
+			return messages.Toast{
+				Message: "Failed to get PR URL: " + err.Error(),
+				Level:   messages.ToastError,
+			}
+		}
+		if err := openBrowser(url); err != nil {
+			logging.Error("Failed to open browser: %v", err)
+			return messages.Toast{
+				Message: "Failed to open browser",
+				Level:   messages.ToastError,
+			}
+		}
+		return messages.Toast{
+			Message: "Opened PR page in browser",
+			Level:   messages.ToastSuccess,
+		}
+	}
+}
+
+// handleShowCommitDialog shows the commit message dialog.
+func (a *App) handleShowCommitDialog(msg messages.ShowCommitDialog) {
+	a.dialogWorkspaceRoot = msg.WorkspaceRoot
+	a.dialog = common.NewInputDialog(DialogCommit, "Commit Message", "")
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
+// openBrowser opens a URL in the default browser.
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
+	return cmd.Start()
 }

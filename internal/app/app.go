@@ -37,8 +37,9 @@ const (
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
 	DialogCleanupTmux     = "cleanup_tmux"
-	DialogSetProfile        = "set_profile"
-	DialogRenameWorkspace   = "rename_workspace"
+	DialogSetProfile      = "set_profile"
+	DialogRenameWorkspace = "rename_workspace"
+	DialogCommit          = "commit"
 )
 
 // Prefix mode constants
@@ -95,9 +96,10 @@ type App struct {
 	toast       *common.ToastModel
 
 	// Dialog context
-	dialogProject     *data.Project
-	dialogWorkspace   *data.Workspace
-	dialogDefaultName string
+	dialogProject       *data.Project
+	dialogWorkspace     *data.Workspace
+	dialogDefaultName   string
+	dialogWorkspaceRoot string // For commit dialog
 
 	// Process management
 	scripts *process.ScriptRunner
@@ -181,6 +183,7 @@ type App struct {
 	sidebarBottomBorders borderCache
 	centerTabBar         drawableCache
 	centerStatus         drawableCache
+	centerActionBar      drawableCache
 	centerHelp           drawableCache
 	centerBorders        borderCache
 
