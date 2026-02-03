@@ -142,7 +142,7 @@ func CapturePaneTail(sessionName string, lines int, opts Options) (string, bool)
 		return "", false
 	}
 	startLine := -lines
-	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", sessionName, "-S", strconv.Itoa(startLine))
+	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", exactTarget(sessionName), "-S", strconv.Itoa(startLine))
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {

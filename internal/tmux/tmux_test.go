@@ -143,11 +143,11 @@ func TestClientCommandWithOptions(t *testing.T) {
 		t.Error("Command should use atomic new-session -Ads")
 	}
 
-	// Should disable prefix per-session (not globally)
-	if !strings.Contains(cmd, "set-option -t 'test-session' prefix None") {
+	// Should disable prefix per-session (not globally) with exact-match target
+	if !strings.Contains(cmd, "set-option -t '=test-session' prefix None") {
 		t.Error("Command should disable prefix for session")
 	}
-	if !strings.Contains(cmd, "set-option -t 'test-session' prefix2 None") {
+	if !strings.Contains(cmd, "set-option -t '=test-session' prefix2 None") {
 		t.Error("Command should disable prefix2 for session")
 	}
 
