@@ -254,6 +254,15 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		a.helpOverlay.Toggle()
 		return true, nil
 
+	case key.Matches(msg, a.keymap.GlobalPerms):
+		if !a.config.UI.GlobalPermissions {
+			return true, a.toast.ShowInfo("Global permissions is disabled")
+		}
+		if len(a.pendingPermissions) == 0 {
+			return true, a.toast.ShowInfo("No pending permissions to review")
+		}
+		return true, func() tea.Msg { return messages.ShowPermissionsDialog{} }
+
 	case key.Matches(msg, a.keymap.Quit):
 		a.showQuitDialog()
 		return true, nil
@@ -351,6 +360,12 @@ func (a *App) updateLayout() {
 	}
 	if a.settingsDialog != nil {
 		a.settingsDialog.SetSize(a.width, a.height)
+	}
+	if a.permissionsDialog != nil {
+		a.permissionsDialog.SetSize(a.width, a.height)
+	}
+	if a.permissionsEditor != nil {
+		a.permissionsEditor.SetSize(a.width, a.height)
 	}
 }
 

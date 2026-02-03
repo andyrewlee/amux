@@ -24,6 +24,7 @@ type KeyMap struct {
 	NewTerminalTab key.Binding
 	Help           key.Binding
 	Monitor        key.Binding
+	GlobalPerms    key.Binding
 
 	// Dashboard
 	Enter        key.Binding
@@ -115,6 +116,10 @@ func DefaultKeyMap() KeyMap {
 		Monitor: key.NewBinding(
 			key.WithKeys("m"),
 			key.WithHelp("m", "monitor"),
+		),
+		GlobalPerms: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g", "global permissions"),
 		),
 
 		// Dashboard

@@ -19,11 +19,16 @@ type SettingsResult struct {
 	HideSidebar        bool
 	AutoStartAgent     bool
 	SyncProfilePlugins bool
+	GlobalPermissions  bool
+	AutoAddPermissions bool
 	TmuxPersistence    bool
 	TmuxServer         string
 	TmuxConfigPath     string
 	TmuxSyncInterval   string
 }
+
+// ShowPermissionsEditor is sent when the user clicks "Edit Global Allow/Deny List".
+type ShowPermissionsEditor struct{}
 
 // ThemePreview is sent when user navigates through themes for live preview.
 type ThemePreview struct {
@@ -38,6 +43,9 @@ const (
 	settingsItemHideSidebar
 	settingsItemAutoStart
 	settingsItemSyncPlugins
+	settingsItemGlobalPerms
+	settingsItemAutoAddPerms
+	settingsItemEditPermissions
 	settingsItemTmuxPersistence
 	settingsItemTmuxServer
 	settingsItemTmuxConfig
@@ -59,6 +67,8 @@ type SettingsDialog struct {
 	hideSidebar        bool
 	autoStartAgent     bool
 	syncProfilePlugins bool
+	globalPerms        bool
+	autoAddPerms       bool
 	originalTheme      ThemeID
 	tmuxPersistence bool
 	tmuxServer      textinput.Model
@@ -88,7 +98,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoStartAgent, syncProfilePlugins, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	themes := AvailableThemes()
 	themeCursor := 0
 	for i, t := range themes {
@@ -123,6 +133,8 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoS
 		hideSidebar:        hideSidebar,
 		autoStartAgent:     autoStartAgent,
 		syncProfilePlugins: syncProfilePlugins,
+		globalPerms:        globalPerms,
+		autoAddPerms:       autoAddPerms,
 		tmuxPersistence:    tmuxPersistence,
 		tmuxServer:      serverInput,
 		tmuxConfig:      configInput,
@@ -255,6 +267,23 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.syncProfilePlugins = !s.syncProfilePlugins
 		return s, nil
 
+	case settingsItemGlobalPerms:
+		s.globalPerms = !s.globalPerms
+		return s, nil
+
+	case settingsItemAutoAddPerms:
+		if s.globalPerms {
+			s.autoAddPerms = !s.autoAddPerms
+		}
+		return s, nil
+
+	case settingsItemEditPermissions:
+		if s.globalPerms {
+			s.visible = false
+			return s, func() tea.Msg { return ShowPermissionsEditor{} }
+		}
+		return s, nil
+
 	case settingsItemTmuxPersistence:
 		s.tmuxPersistence = !s.tmuxPersistence
 		return s, nil
@@ -282,6 +311,8 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 				HideSidebar:        s.hideSidebar,
 				AutoStartAgent:     s.autoStartAgent,
 				SyncProfilePlugins: s.syncProfilePlugins,
+				GlobalPermissions:  s.globalPerms,
+				AutoAddPermissions: s.autoAddPerms,
 				TmuxPersistence:    s.tmuxPersistence,
 				TmuxServer:         strings.TrimSpace(s.tmuxServer.Value()),
 				TmuxConfigPath:     strings.TrimSpace(s.tmuxConfig.Value()),
@@ -305,10 +336,7 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 // handleNextSection moves focus to the next section (Tab key).
 func (s *SettingsDialog) handleNextSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem++
-	// Skip update item if no update available
-	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemSave
-	}
+	s.skipDisabledForward()
 	if s.focusedItem > settingsItemClose {
 		s.focusedItem = settingsItemTheme
 	}
@@ -318,14 +346,33 @@ func (s *SettingsDialog) handleNextSection() (*SettingsDialog, tea.Cmd) {
 // handlePrevSection moves focus to the previous section (Shift+Tab key).
 func (s *SettingsDialog) handlePrevSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem--
-	// Skip update item if no update available
-	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemTmuxSync
-	}
+	s.skipDisabledBackward()
 	if s.focusedItem < 0 {
 		s.focusedItem = settingsItemClose
 	}
 	return s, nil
+}
+
+func (s *SettingsDialog) skipDisabledForward() {
+	// Skip auto-add and edit permissions when global perms is off
+	if !s.globalPerms && (s.focusedItem == settingsItemAutoAddPerms || s.focusedItem == settingsItemEditPermissions) {
+		s.focusedItem = settingsItemTmuxPersistence
+	}
+	// Skip update item if no update available
+	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
+		s.focusedItem = settingsItemSave
+	}
+}
+
+func (s *SettingsDialog) skipDisabledBackward() {
+	// Skip update item if no update available
+	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
+		s.focusedItem = settingsItemTmuxSync
+	}
+	// Skip auto-add and edit permissions when global perms is off
+	if !s.globalPerms && (s.focusedItem == settingsItemEditPermissions || s.focusedItem == settingsItemAutoAddPerms) {
+		s.focusedItem = settingsItemGlobalPerms
+	}
 }
 
 // handleNext cycles within the current section (down/j keys).

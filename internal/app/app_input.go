@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
@@ -143,6 +144,36 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Don't process other input while settings dialog is open
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+	}
+
+	// Handle permissions dialog if visible
+	if a.permissionsDialog != nil && a.permissionsDialog.Visible() {
+		newDialog, cmd := a.permissionsDialog.Update(msg)
+		a.permissionsDialog = newDialog
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+	}
+
+	// Handle permissions editor if visible
+	if a.permissionsEditor != nil && a.permissionsEditor.Visible() {
+		newEditor, cmd := a.permissionsEditor.Update(msg)
+		a.permissionsEditor = newEditor
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		if _, ok := msg.(tea.KeyPressMsg); ok {
 			return a, a.safeBatch(cmds...)
 		}
@@ -360,6 +391,12 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.addProject(msg.Path))
 
 	case messages.RemoveProject:
+		// Unwatch permissions for all workspaces of this project
+		if a.permissionWatcher != nil && msg.Project != nil {
+			for _, ws := range msg.Project.Workspaces {
+				a.permissionWatcher.Unwatch(ws.Root)
+			}
+		}
 		cmds = append(cmds, a.removeProject(msg.Project))
 
 	case messages.OpenDiff:
@@ -475,6 +512,41 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tmuxTabsDiscoverResult:
 		cmds = append(cmds, a.handleTmuxTabsDiscoverResult(msg)...)
+
+	case messages.PermissionWatcherEvent:
+		cmds = append(cmds, a.handlePermissionWatcherEvent(msg)...)
+
+	case messages.PermissionDetected:
+		if cmd := a.handlePermissionDetected(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ShowPermissionsDialog:
+		if len(a.pendingPermissions) > 0 {
+			a.permissionsDialog = common.NewPermissionsDialog(a.pendingPermissions)
+			a.permissionsDialog.SetSize(a.width, a.height)
+			a.permissionsDialog.Show()
+		}
+
+	case common.ShowPermissionsEditor:
+		global, err := config.LoadGlobalPermissions(a.config.Paths.GlobalPermissionsPath)
+		if err != nil {
+			cmds = append(cmds, a.toast.ShowError("Failed to load global permissions"))
+		} else {
+			a.permissionsEditor = common.NewPermissionsEditor(global.Allow, global.Deny)
+			a.permissionsEditor.SetSize(a.width, a.height)
+			a.permissionsEditor.Show()
+		}
+
+	case messages.PermissionsDialogResult:
+		if cmd := a.handlePermissionsDialogResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.PermissionsEditorResult:
+		if cmd := a.handlePermissionsEditorResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)

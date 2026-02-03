@@ -71,6 +71,15 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 		}
 	}
 
+	// Start watching workspace permissions if enabled
+	if a.config.UI.GlobalPermissions && a.permissionWatcher != nil {
+		for i := range a.projects {
+			for j := range a.projects[i].Workspaces {
+				_ = a.permissionWatcher.Watch(a.projects[i].Workspaces[j].Root)
+			}
+		}
+	}
+
 	// Auto-activate a newly created workspace for auto-launch.
 	// Only clear pendingAutoLaunch when the workspace is found; a stale
 	// ProjectsLoaded from a concurrent loadProjects() call may arrive
@@ -156,6 +165,10 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		if a.fileWatcher != nil {
 			_ = a.fileWatcher.Watch(msg.Workspace.Root)
 		}
+	}
+	// Watch workspace permissions if enabled
+	if msg.Workspace != nil && a.config.UI.GlobalPermissions && a.permissionWatcher != nil {
+		_ = a.permissionWatcher.Watch(msg.Workspace.Root)
 	}
 	// Ensure spinner starts if needed after sync
 	if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
@@ -568,6 +581,8 @@ func (a *App) handleShowSettingsDialog() {
 		a.config.UI.HideSidebar,
 		a.config.UI.AutoStartAgent,
 		a.config.UI.SyncProfilePlugins,
+		a.config.UI.GlobalPermissions,
+		a.config.UI.AutoAddPermissions,
 		a.config.UI.TmuxPersistence,
 		a.config.UI.TmuxServer,
 		a.config.UI.TmuxConfigPath,
@@ -641,6 +656,11 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 			_ = config.UnsyncAllProfiles(a.config.Paths.ProfilesRoot)
 		}
 
+		// Apply global permissions settings
+		oldGlobalPerms := a.config.UI.GlobalPermissions
+		a.config.UI.GlobalPermissions = msg.GlobalPermissions
+		a.config.UI.AutoAddPermissions = msg.AutoAddPermissions
+
 		// Apply sidebar hidden setting
 		wasHidden := a.config.UI.HideSidebar
 		a.config.UI.HideSidebar = msg.HideSidebar
@@ -684,6 +704,23 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		a.tmuxOptions = tmux.DefaultOptions() // Refresh cached options
 		a.center.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
 		_ = tmux.SetStatusOff(a.tmuxOptions)
+
+		// Handle global permissions toggle
+		if msg.GlobalPermissions && !oldGlobalPerms {
+			// Toggled ON: start permission watcher, inject into all profiles
+			if a.permissionWatcher == nil {
+				a.initPermissionWatcher()
+			}
+			sidebarCmds = append(sidebarCmds, a.startPermissionWatcher())
+			a.watchAllWorkspacePermissions()
+			global, err := config.LoadGlobalPermissions(a.config.Paths.GlobalPermissionsPath)
+			if err == nil {
+				_ = config.InjectIntoAllProfiles(a.config.Paths.ProfilesRoot, global)
+			}
+		} else if !msg.GlobalPermissions && oldGlobalPerms {
+			// Toggled OFF: stop permission watcher
+			a.unwatchAllWorkspacePermissions()
+		}
 
 		// Save settings
 		if err := a.config.SaveUISettings(); err != nil {

@@ -12,6 +12,8 @@ type UISettings struct {
 	HideSidebar        bool
 	AutoStartAgent     bool
 	SyncProfilePlugins bool
+	GlobalPermissions  bool
+	AutoAddPermissions bool
 	DefaultAgent       string
 	LastProfile        string // Most recently selected profile name
 	Theme              string // Theme ID, defaults to "gruvbox"
@@ -26,6 +28,8 @@ func defaultUISettings() UISettings {
 		ShowKeymapHints:    false,
 		AutoStartAgent:     true,
 		SyncProfilePlugins: true,
+		GlobalPermissions:  true,
+		AutoAddPermissions: false,
 		Theme:              "gruvbox",
 		TmuxServer:         "",
 		TmuxConfigPath:     "",
@@ -47,6 +51,8 @@ func loadUISettings(path string) UISettings {
 			HideSidebar        *bool   `json:"hide_sidebar"`
 			AutoStartAgent     *bool   `json:"auto_start_agent"`
 			SyncProfilePlugins *bool   `json:"sync_profile_plugins"`
+			GlobalPermissions  *bool   `json:"global_permissions"`
+			AutoAddPermissions *bool   `json:"auto_add_permissions"`
 			DefaultAgent       *string `json:"default_agent"`
 			LastProfile        *string `json:"last_profile"`
 			Theme              *string `json:"theme"`
@@ -70,6 +76,12 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.SyncProfilePlugins != nil {
 		settings.SyncProfilePlugins = *raw.UI.SyncProfilePlugins
+	}
+	if raw.UI.GlobalPermissions != nil {
+		settings.GlobalPermissions = *raw.UI.GlobalPermissions
+	}
+	if raw.UI.AutoAddPermissions != nil {
+		settings.AutoAddPermissions = *raw.UI.AutoAddPermissions
 	}
 	if raw.UI.DefaultAgent != nil {
 		settings.DefaultAgent = *raw.UI.DefaultAgent
@@ -113,6 +125,8 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["hide_sidebar"] = settings.HideSidebar
 	ui["auto_start_agent"] = settings.AutoStartAgent
 	ui["sync_profile_plugins"] = settings.SyncProfilePlugins
+	ui["global_permissions"] = settings.GlobalPermissions
+	ui["auto_add_permissions"] = settings.AutoAddPermissions
 	ui["default_agent"] = settings.DefaultAgent
 	ui["last_profile"] = settings.LastProfile
 	ui["theme"] = settings.Theme

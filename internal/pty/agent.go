@@ -86,6 +86,13 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		if m.config.UI.SyncProfilePlugins {
 			_ = config.SyncProfileSharedDirs(m.config.Paths.ProfilesRoot, ws.Profile)
 		}
+		// Inject global permissions into the profile if enabled
+		if m.config.UI.GlobalPermissions {
+			global, err := config.LoadGlobalPermissions(m.config.Paths.GlobalPermissionsPath)
+			if err == nil && (len(global.Allow) > 0 || len(global.Deny) > 0) {
+				_ = config.InjectGlobalPermissions(profileDir, global)
+			}
+		}
 		agentCommand = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s %s", shellQuote(profileDir), agentCommand)
 	}
 

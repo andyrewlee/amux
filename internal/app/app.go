@@ -15,6 +15,7 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/permissions"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/supervisor"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -106,6 +107,13 @@ type App struct {
 	fileWatcher    *git.FileWatcher
 	fileWatcherCh  chan messages.FileWatcherEvent
 	fileWatcherErr error
+
+	// Permission watcher
+	permissionWatcher    *permissions.PermissionWatcher
+	permWatcherCh        chan messages.PermissionWatcherEvent
+	pendingPermissions   []common.PendingPermission
+	permissionsDialog    *common.PermissionsDialog
+	permissionsEditor    *common.PermissionsEditor
 
 	// Layout
 	width, height int
@@ -275,6 +283,9 @@ func New(version, commit, date string) (*App, error) {
 		fileWatcher = nil
 	}
 
+	// Create permission watcher event channel
+	permWatcherCh := make(chan messages.PermissionWatcherEvent, 10)
+
 	ctx := context.Background()
 	app := &App{
 		config:                 cfg,
@@ -285,6 +296,7 @@ func New(version, commit, date string) (*App, error) {
 		fileWatcher:            fileWatcher,
 		fileWatcherCh:          fileWatcherCh,
 		fileWatcherErr:         fileWatcherErr,
+		permWatcherCh:          permWatcherCh,
 		layout:                 layout.NewManager(),
 		dashboard:              dashboard.New(),
 		center:                 center.New(cfg),
@@ -335,6 +347,12 @@ func New(version, commit, date string) (*App, error) {
 	if fileWatcher != nil {
 		app.supervisor.Start("git.file_watcher", fileWatcher.Run, supervisor.WithBackoff(500*time.Millisecond))
 	}
+
+	// Create permission watcher if global permissions is enabled
+	if cfg.UI.GlobalPermissions {
+		app.initPermissionWatcher()
+	}
+
 	return app, nil
 }
 
@@ -353,6 +371,7 @@ func (a *App) Init() tea.Cmd {
 		a.startTmuxSyncTicker(),
 		a.checkTmuxAvailable(),
 		a.startFileWatcher(),
+		a.startPermissionWatcher(),
 		a.checkForUpdates(),
 	}
 	if a.fileWatcherErr != nil {
@@ -369,6 +388,9 @@ func (a *App) Shutdown() {
 		}
 		if a.fileWatcher != nil {
 			_ = a.fileWatcher.Close()
+		}
+		if a.permissionWatcher != nil {
+			_ = a.permissionWatcher.Close()
 		}
 		if a.center != nil {
 			a.center.Close()

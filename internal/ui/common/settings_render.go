@@ -117,6 +117,48 @@ func (s *SettingsDialog) renderLines() []string {
 	lines = append(lines, muted.Render("  (makes plugins and skills available in all profiles)"))
 	lines = append(lines, "")
 
+	// Global permissions section
+	checkbox = "[ ]"
+	if s.globalPerms {
+		checkbox = "[" + Icons.Clean + "]"
+	}
+	style = lipgloss.NewStyle().Foreground(ColorForeground)
+	if s.focusedItem == settingsItemGlobalPerms {
+		style = style.Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render(checkbox+" Global allow/deny list"))
+	s.addHit(settingsItemGlobalPerms, -1, y)
+
+	if s.globalPerms {
+		checkbox = "[ ]"
+		if s.autoAddPerms {
+			checkbox = "[" + Icons.Clean + "]"
+		}
+		style = lipgloss.NewStyle().Foreground(ColorForeground)
+		if s.focusedItem == settingsItemAutoAddPerms {
+			style = style.Foreground(ColorPrimary)
+		}
+		y = len(lines)
+		lines = append(lines, style.Render(checkbox+" Auto-add new permissions to allow list"))
+		s.addHit(settingsItemAutoAddPerms, -1, y)
+		lines = append(lines, muted.Render("  (automatically promotes permissions granted to any agent)"))
+
+		style = muted
+		if s.focusedItem == settingsItemEditPermissions {
+			style = lipgloss.NewStyle().Foreground(ColorPrimary)
+		}
+		y = len(lines)
+		lines = append(lines, style.Render("  [Edit Global Allow/Deny List]"))
+		s.addHit(settingsItemEditPermissions, -1, y)
+	} else {
+		disabledStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+		lines = append(lines, disabledStyle.Render("[ ] Auto-add new permissions to allow list"))
+		lines = append(lines, disabledStyle.Render("  (automatically promotes permissions granted to any agent)"))
+		lines = append(lines, disabledStyle.Render("  [Edit Global Allow/Deny List]"))
+	}
+	lines = append(lines, "")
+
 	lines = append(lines, label.Render("Tmux (Advanced)"))
 	checkbox = "[ ]"
 	if s.tmuxPersistence {
