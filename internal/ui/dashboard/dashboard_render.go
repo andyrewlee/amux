@@ -6,6 +6,15 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+// applyDirtyForeground sets the dirty color (ColorSecondary) on a row style
+// when the row is dirty but not active and not selected.
+func applyDirtyForeground(style lipgloss.Style, dirty, active, selected bool) lipgloss.Style {
+	if dirty && !active && !selected {
+		return style.Foreground(common.ColorSecondary)
+	}
+	return style
+}
+
 // renderRow renders a single dashboard row
 func (m *Model) renderRow(row Row, selected bool) string {
 	switch row.Type {
@@ -16,6 +25,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Bold(true).
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
+			if m.activeRoot == "" {
+				style = style.Foreground(common.ColorPrimary)
+			}
 		} else if m.activeRoot == "" {
 			style = style.Bold(true).Foreground(common.ColorPrimary)
 		}
@@ -46,13 +58,13 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Bold(true).
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
+			if m.isProjectActive(row.Project) {
+				style = style.Foreground(common.ColorPrimary)
+			}
 		} else if m.isProjectActive(row.Project) {
 			style = m.styles.ActiveWorkspace.PaddingLeft(0)
 		}
-		// Dirty color takes priority for project headers.
-		if dirty && !m.isProjectActive(row.Project) {
-			style = style.Foreground(common.ColorSecondary)
-		}
+		style = applyDirtyForeground(style, dirty, m.isProjectActive(row.Project), selected)
 
 		// Reserve space for delete icon to keep status aligned
 		deleteSlot := "   "
@@ -109,13 +121,13 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		style := m.styles.WorkspaceRow
 		if selected {
 			style = m.styles.SelectedRow
+			if working {
+				style = style.Foreground(common.ColorPrimary)
+			}
 		} else if working {
 			style = m.styles.ActiveWorkspace
 		}
-		// Dirty color takes priority for inactive workspaces.
-		if !working && !selected && dirty {
-			style = style.Foreground(common.ColorSecondary)
-		}
+		style = applyDirtyForeground(style, dirty, working, selected)
 		// Reserve space for delete icon to keep status aligned
 		deleteSlot := "   "
 		deleteSlotWidth := 3
