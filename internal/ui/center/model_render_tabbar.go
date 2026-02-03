@@ -184,7 +184,7 @@ func (m *Model) renderTabBar() string {
 	x += btnWidth
 
 	// Add "+ New (Select Agent)" button to allow overriding the default agent
-	selectBtn := m.styles.TabPlus.Render("New (Select Agent)")
+	selectBtn := m.styles.TabPlus.Render("+ New (Select Agent)")
 	selectBtnWidth := lipgloss.Width(selectBtn)
 	if selectBtnWidth > 0 {
 		m.tabHits = append(m.tabHits, tabHit{
