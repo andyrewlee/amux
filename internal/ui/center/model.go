@@ -47,8 +47,9 @@ type Tab struct {
 	Assistant    string
 	Workspace    *data.Workspace
 	Agent        *appPty.Agent
-	SessionName  string
-	Detached     bool
+	SessionName     string
+	ClaudeSessionID string
+	Detached        bool
 	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
 	DiffViewer   *diff.Model  // Native diff viewer (replaces PTY-based viewer)
 	mu           sync.Mutex   // Protects Terminal
@@ -75,10 +76,11 @@ type Tab struct {
 	ptyTraceFile      *os.File
 	ptyTraceBytes     int
 	ptyTraceClosed    bool
-	ptyRestartBackoff time.Duration
-	ptyHeartbeat      int64
-	ptyRestartCount   int
-	ptyRestartSince   time.Time
+	ptyRestartBackoff  time.Duration
+	ptyHeartbeat       int64
+	ptyRestartCount    int
+	ptyRestartSince    time.Time
+	autoRestartAttempt int // tracks auto-restart attempts after session death
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
 	cachedSnap       *compositor.VTermSnapshot

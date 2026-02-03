@@ -380,6 +380,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		cmd := m.updatePTYRestart(msg)
 		cmds = append(cmds, cmd)
 
+	case tabAutoRestart:
+		return m.updateTabAutoRestart(msg)
+
+	case tabAutoRestartFailed:
+		return m.updateTabAutoRestartFailed(msg)
+
 	case selectionScrollTick:
 		cmd := m.updateSelectionScrollTick(msg)
 		cmds = append(cmds, cmd)

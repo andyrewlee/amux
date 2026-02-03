@@ -30,10 +30,11 @@ func NormalizeRuntime(runtime string) string {
 
 // TabInfo stores information about an open tab
 type TabInfo struct {
-	Assistant   string `json:"assistant"`
-	Name        string `json:"name"`
-	SessionName string `json:"session_name,omitempty"`
-	Status      string `json:"status,omitempty"`
+	Assistant       string `json:"assistant"`
+	Name            string `json:"name"`
+	SessionName     string `json:"session_name,omitempty"`
+	Status          string `json:"status,omitempty"`
+	ClaudeSessionID string `json:"claude_session_id,omitempty"`
 }
 
 // ScriptsConfig holds the setup/run/archive script commands

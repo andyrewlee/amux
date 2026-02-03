@@ -37,6 +37,12 @@ const (
 	ptyRestartMax              = 5
 	ptyRestartWindow           = time.Minute
 
+	// Auto-restart: when a tmux session dies, automatically attempt to restart
+	// the agent tab. After exhausting attempts, show a manual-restart hint.
+	tabAutoRestartMax     = 3
+	tabAutoRestartInitial = 2 * time.Second
+	tabAutoRestartMaxWait = 10 * time.Second
+
 	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
 	// When pending output exceeds this, we throttle rendering frequency
 	ptyBackpressureMultiplier = 8 // threshold = multiplier * width * height
@@ -110,6 +116,21 @@ type PTYStopped struct {
 type PTYRestart struct {
 	WorkspaceID string
 	TabID       TabID
+}
+
+// tabAutoRestart requests an automatic restart attempt for a stopped tab.
+type tabAutoRestart struct {
+	WorkspaceID string
+	TabID       TabID
+	Attempt     int
+}
+
+// tabAutoRestartFailed is returned when an auto-restart attempt fails.
+type tabAutoRestartFailed struct {
+	WorkspaceID string
+	TabID       TabID
+	Attempt     int
+	Err         error
 }
 
 type selectionScrollTick struct {

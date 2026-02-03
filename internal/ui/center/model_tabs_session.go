@@ -132,6 +132,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	tab.mu.Lock()
 	detached := tab.Detached
 	sessionName := tab.SessionName
+	claudeSessionID := tab.ClaudeSessionID
 	tab.mu.Unlock()
 	if !detached {
 		return nil
@@ -171,7 +172,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			Type:        "agent",
 			Assistant:   assistant,
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags, appPty.AgentOptions{})
 		if err != nil {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
@@ -189,6 +190,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			Rows:              termHeight,
 			Cols:              termWidth,
 			ScrollbackCapture: scrollback,
+			ClaudeSessionID:   claudeSessionID,
 		}
 	}
 }
@@ -216,6 +218,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	if sessionName == "" && tab.Agent != nil {
 		sessionName = tab.Agent.Session
 	}
+	claudeSessionID := tab.ClaudeSessionID
 	tab.mu.Unlock()
 	if running {
 		return func() tea.Msg {
@@ -235,6 +238,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	tab.mu.Lock()
 	existingAgent = tab.Agent
 	tab.Agent = nil
+	tab.autoRestartAttempt = 0
 	tab.mu.Unlock()
 	if existingAgent != nil {
 		_ = m.agentManager.CloseAgent(existingAgent)
@@ -255,6 +259,12 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		// safety net in the unlikely event of cleanup lag.
 		_ = tmux.KillSession(sessionName, tmuxOpts)
 
+		// Build agent options: resume the Claude conversation if we have a session ID.
+		agentOpts := appPty.AgentOptions{}
+		if claudeSessionID != "" {
+			agentOpts = appPty.AgentOptions{ClaudeSessionID: claudeSessionID, Resume: true}
+		}
+
 		tags := tmux.SessionTags{
 			WorkspaceID: string(ws.ID()),
 			TabID:       string(tabID),
@@ -262,7 +272,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 			Assistant:   assistant,
 			CreatedAt:   time.Now().Unix(),
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags, agentOpts)
 		if err != nil {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
@@ -281,6 +291,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 			Rows:              termHeight,
 			Cols:              termWidth,
 			ScrollbackCapture: scrollback,
+			ClaudeSessionID:   claudeSessionID,
 		}
 	}
 }
@@ -324,11 +335,13 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 			continue
 		}
 		status := strings.ToLower(strings.TrimSpace(tab.Status))
-		if status == "stopped" {
-			continue
-		}
 		if i <= activeIdx {
 			lastBeforeActive = restoreCount
+		}
+		if status == "stopped" {
+			m.addStoppedTab(ws, tab)
+			restoreCount++
+			continue
 		}
 		if status == "detached" {
 			m.addDetachedTab(ws, tab)
@@ -336,7 +349,7 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 			continue
 		}
 		restoreCount++
-		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, tab.SessionName, tab.Name, false))
+		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, tab.SessionName, tab.Name, false, tab.ClaudeSessionID))
 	}
 	if restoreCount > 0 {
 		desired := lastBeforeActive
@@ -391,15 +404,53 @@ func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) te
 		}
 		status := strings.ToLower(strings.TrimSpace(tab.Status))
 		if status == "stopped" {
+			m.addStoppedTab(ws, tab)
 			continue
 		}
 		if status == "detached" {
 			m.addDetachedTab(ws, tab)
 			continue
 		}
-		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, sessionName, tab.Name, false))
+		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, sessionName, tab.Name, false, tab.ClaudeSessionID))
 	}
 	return safeBatch(cmds...)
+}
+
+// addStoppedTab adds a stopped tab placeholder so it remains visible in the UI
+// and can be restarted with Ctrl+A S. Unlike detached tabs, the tmux session is
+// dead — restarting will create a fresh session (with --resume for Claude).
+func (m *Model) addStoppedTab(ws *data.Workspace, info data.TabInfo) {
+	tm := m.terminalMetrics()
+	termWidth := tm.Width
+	termHeight := tm.Height
+	if termWidth < 1 {
+		termWidth = 80
+	}
+	if termHeight < 1 {
+		termHeight = 24
+	}
+	displayName := strings.TrimSpace(info.Name)
+	if displayName == "" {
+		displayName = strings.TrimSpace(info.Assistant)
+	}
+	if displayName == "" {
+		displayName = "Terminal"
+	}
+	term := vterm.New(termWidth, termHeight)
+	term.AllowAltScreenScrollback = true
+	tab := &Tab{
+		ID:              generateTabID(),
+		Name:            displayName,
+		Assistant:       info.Assistant,
+		Workspace:       ws,
+		SessionName:     info.SessionName,
+		ClaudeSessionID: info.ClaudeSessionID,
+		Detached:        false,
+		Running:         false,
+		Terminal:        term,
+	}
+	wsID := string(ws.ID())
+	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
 }
 
 func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
@@ -422,14 +473,15 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 	term := vterm.New(termWidth, termHeight)
 	term.AllowAltScreenScrollback = true
 	tab := &Tab{
-		ID:          generateTabID(),
-		Name:        displayName,
-		Assistant:   info.Assistant,
-		Workspace:   ws,
-		SessionName: info.SessionName,
-		Detached:    true,
-		Running:     false,
-		Terminal:    term,
+		ID:              generateTabID(),
+		Name:            displayName,
+		Assistant:       info.Assistant,
+		Workspace:       ws,
+		SessionName:     info.SessionName,
+		ClaudeSessionID: info.ClaudeSessionID,
+		Detached:        true,
+		Running:         false,
+		Terminal:        term,
 	}
 	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
