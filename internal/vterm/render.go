@@ -76,6 +76,77 @@ func (v *VTerm) VisibleScreen() [][]Cell {
 	return lines
 }
 
+// VisibleScreenInto returns the currently visible screen buffer, reusing dst when possible.
+// dst is resized as needed and its lines are reused to reduce allocations.
+func (v *VTerm) VisibleScreenInto(dst [][]Cell) [][]Cell {
+	screen, scrollbackLen := v.RenderBuffers()
+	width := v.Width
+	height := v.Height
+	if width <= 0 || height <= 0 {
+		return nil
+	}
+	if dst == nil || len(dst) != height {
+		dst = make([][]Cell, height)
+	}
+
+	defaultCell := DefaultCell()
+	resetLine := func(line []Cell) {
+		for i := range line {
+			line[i] = defaultCell
+		}
+	}
+	copyLine := func(line []Cell, row []Cell) []Cell {
+		if line == nil || len(line) != width {
+			line = MakeBlankLine(width)
+		}
+		if len(row) == 0 {
+			resetLine(line)
+			return line
+		}
+		copy(line, row)
+		if len(row) < width {
+			for i := len(row); i < width; i++ {
+				line[i] = defaultCell
+			}
+		}
+		return line
+	}
+
+	// If scrolled, pull from scrollback + screen.
+	if v.ViewOffset > 0 {
+		if scrollbackLen > len(v.Scrollback) {
+			scrollbackLen = len(v.Scrollback)
+		}
+		screenLen := len(screen)
+		startLine := scrollbackLen + screenLen - height - v.ViewOffset
+		if startLine < 0 {
+			startLine = 0
+		}
+
+		for i := 0; i < height; i++ {
+			lineIdx := startLine + i
+			var row []Cell
+			if lineIdx < scrollbackLen {
+				row = v.Scrollback[lineIdx]
+			} else if lineIdx-scrollbackLen < screenLen {
+				row = screen[lineIdx-scrollbackLen]
+			}
+			dst[i] = copyLine(dst[i], row)
+		}
+		return dst
+	}
+
+	// Live screen.
+	for y := 0; y < height; y++ {
+		var row []Cell
+		if y < len(screen) {
+			row = screen[y]
+		}
+		dst[y] = copyLine(dst[y], row)
+	}
+	return dst
+}
+
 // VisibleScreenWithSelection returns the visible screen with selection highlighting applied.
 func (v *VTerm) VisibleScreenWithSelection() [][]Cell {
 	lines := v.VisibleScreen()

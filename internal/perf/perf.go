@@ -1,6 +1,7 @@
 package perf
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"sort"
@@ -182,6 +183,31 @@ func maybeLog() {
 	}
 	for _, c := range counters {
 		logging.Info("PERF %s count=%d", c.name, c.value)
+	}
+}
+
+// Flush logs a summary of current stats/counters immediately.
+// If reason is provided, it is included in the log prefix.
+func Flush(reason string) {
+	if !enabled {
+		return
+	}
+	stats, counters := snapshotAndReset()
+	if len(stats) == 0 && len(counters) == 0 {
+		return
+	}
+	prefix := "PERF SUMMARY"
+	if strings.TrimSpace(reason) != "" {
+		prefix = fmt.Sprintf("PERF SUMMARY %s", reason)
+	}
+	for _, s := range stats {
+		logging.Info(
+			"%s %s count=%d avg=%s p95=%s min=%s max=%s",
+			prefix, s.name, s.count, s.avg, s.p95, s.min, s.max,
+		)
+	}
+	for _, c := range counters {
+		logging.Info("%s %s count=%d", prefix, c.name, c.value)
 	}
 }
 

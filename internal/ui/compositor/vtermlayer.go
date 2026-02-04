@@ -5,10 +5,10 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 
+	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
-// asciiStrings avoids allocations when converting ASCII runes to strings.
 var asciiStrings [128]string
 
 func init() {
@@ -17,7 +17,6 @@ func init() {
 	}
 }
 
-// runeToString converts a rune to a string with minimal allocations.
 func runeToString(r rune) string {
 	if r >= 0 && r < 128 {
 		return asciiStrings[r]
@@ -25,8 +24,6 @@ func runeToString(r rune) string {
 	return string(r)
 }
 
-// ansiPalette is the standard ANSI color palette (0-15).
-// Colors 0-7 are standard, 8-15 are bright variants.
 var ansiPalette = []color.RGBA{
 	{0, 0, 0, 255},       // 0: Black
 	{205, 49, 49, 255},   // 1: Red
@@ -46,9 +43,6 @@ var ansiPalette = []color.RGBA{
 	{255, 255, 255, 255}, // 15: Bright White
 }
 
-// VTermSnapshot captures the state needed to render a VTerm.
-// This is created while holding Tab.mu and can be safely used for rendering
-// without holding any locks, avoiding data races with PTY output.
 type VTermSnapshot struct {
 	Screen       [][]vterm.Cell
 	DirtyLines   []bool
@@ -79,6 +73,7 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 	if term == nil {
 		return nil
 	}
+	defer perf.Time("vterm_snapshot")()
 
 	width := term.Width
 	height := term.Height
@@ -90,7 +85,11 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 	dirtyLines, allDirty := term.DirtyLines()
 	var dirtyLinesCopy []bool
 	if dirtyLines != nil {
-		dirtyLinesCopy = make([]bool, len(dirtyLines))
+		if prev != nil && len(prev.DirtyLines) == len(dirtyLines) {
+			dirtyLinesCopy = prev.DirtyLines[:len(dirtyLines)]
+		} else {
+			dirtyLinesCopy = make([]bool, len(dirtyLines))
+		}
 		copy(dirtyLinesCopy, dirtyLines)
 	}
 
@@ -162,7 +161,12 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 		}
 	} else {
 		// Full snapshot when dirty tracking isn't usable.
-		screen = term.VisibleScreen()
+		reuseScreen := prev != nil && prev.Width == width && prev.Height == height && len(prev.Screen) == height
+		if reuseScreen {
+			screen = term.VisibleScreenInto(prev.Screen)
+		} else {
+			screen = term.VisibleScreen()
+		}
 		if len(screen) == 0 {
 			return nil
 		}
@@ -474,20 +478,16 @@ func (c ansiColor) RGBA() (r, g, b, a uint32) {
 		return rLevel * 257, gLevel * 257, bLevel * 257, 65535
 	}
 
-	// Grayscale (indices 232-255)
 	gray := uint32(8 + (idx-232)*10)
 	return gray * 257, gray * 257, gray * 257, 65535
 }
 
-// PositionedVTermLayer wraps a VTermLayer with explicit positioning.
-// This allows the layer to be positioned within a larger canvas.
 type PositionedVTermLayer struct {
 	*VTermLayer
 	PosX, PosY    int
 	Width, Height int
 }
 
-// Ensure PositionedVTermLayer implements uv.Drawable
 var _ uv.Drawable = (*PositionedVTermLayer)(nil)
 
 // Draw renders the VTerm snapshot at the specified position within the canvas.

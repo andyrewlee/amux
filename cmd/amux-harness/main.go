@@ -5,11 +5,16 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/app"
+	"github.com/andyrewlee/amux/internal/perf"
 )
 
 type stats struct {
@@ -22,6 +27,8 @@ type stats struct {
 }
 
 func main() {
+	startPprof()
+
 	mode := flag.String("mode", app.HarnessCenter, "render mode: center, sidebar, or monitor")
 	tabs := flag.Int("tabs", 16, "number of tabs/agents")
 	width := flag.Int("width", 160, "screen width in columns")
@@ -76,6 +83,7 @@ func main() {
 		*mode, *tabs, *frames, *warmup, *width, *height, *hotTabs, *payloadBytes, *newlineEvery)
 	fmt.Printf("total=%s avg=%s p50=%s p95=%s p99=%s min=%s max=%s fps=%.2f\n",
 		total, s.avg, s.p50, s.p95, s.p99, s.min, s.max, fps(durations))
+	perf.Flush("harness")
 }
 
 func summarize(durations []time.Duration) stats {
@@ -129,4 +137,29 @@ func fps(durations []time.Duration) float64 {
 		return 0
 	}
 	return float64(len(durations)) / total.Seconds()
+}
+
+func startPprof() {
+	raw := strings.TrimSpace(os.Getenv("AMUX_PPROF"))
+	if raw == "" {
+		return
+	}
+	switch strings.ToLower(raw) {
+	case "0", "false", "no":
+		return
+	}
+
+	addr := raw
+	if raw == "1" || strings.ToLower(raw) == "true" {
+		addr = "127.0.0.1:6060"
+	} else if _, err := strconv.Atoi(raw); err == nil {
+		addr = "127.0.0.1:" + raw
+	}
+
+	go func() {
+		fmt.Fprintf(os.Stderr, "pprof listening on %s\n", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			fmt.Fprintf(os.Stderr, "pprof server stopped: %v\n", err)
+		}
+	}()
 }
