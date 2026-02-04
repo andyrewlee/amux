@@ -51,6 +51,7 @@ type Styles struct {
 	AgentOpencode lipgloss.Style
 	AgentDroid    lipgloss.Style
 	AgentCursor   lipgloss.Style
+	AgentPi       lipgloss.Style
 	AgentTerm     lipgloss.Style
 
 	// Sidebar
@@ -211,6 +212,9 @@ func DefaultStyles() Styles {
 
 		AgentCursor: lipgloss.NewStyle().
 			Foreground(ColorCursor),
+
+		AgentPi: lipgloss.NewStyle().
+			Foreground(ColorPi),
 
 		AgentTerm: lipgloss.NewStyle().
 			Foreground(ColorForeground),
