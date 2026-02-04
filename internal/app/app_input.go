@@ -56,13 +56,13 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if a.handleDialogInput(msg, &cmds) {
-		return a, a.safeBatch(cmds...)
+		return a, common.SafeBatch(cmds...)
 	}
 	if a.handleFilePickerInput(msg, &cmds) {
-		return a, a.safeBatch(cmds...)
+		return a, common.SafeBatch(cmds...)
 	}
 	if a.handleSettingsDialogInput(msg, &cmds) {
-		return a, a.safeBatch(cmds...)
+		return a, common.SafeBatch(cmds...)
 	}
 
 	switch msg := msg.(type) {
@@ -342,5 +342,5 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return a, a.safeBatch(cmds...)
+	return a, common.SafeBatch(cmds...)
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // handleDeleteWorkspace handles the DeleteWorkspace message.
@@ -70,7 +71,7 @@ func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) te
 			return cmd
 		}
 	}
-	return a.reportError("creating workspace", msg.Err, "")
+	return common.ReportError(errorContext(errorServiceWorkspace, "creating workspace"), msg.Err, "")
 }
 
 // handleWorkspaceDeleted handles the WorkspaceDeleted message.
@@ -108,5 +109,5 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 			return cmd
 		}
 	}
-	return a.reportError("removing workspace", msg.Err, "")
+	return common.ReportError(errorContext(errorServiceWorkspace, "removing workspace"), msg.Err, "")
 }

@@ -395,11 +395,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	case SidebarTerminalCreateFailed:
 		// Clear pending flag so user can retry
 		delete(m.pendingCreation, msg.WorkspaceID)
-		logging.Error("Failed to create sidebar terminal: %v", msg.Err)
-		// Surface error to user via app-level error handling
-		cmds = append(cmds, func() tea.Msg {
-			return messages.Error{Err: msg.Err, Context: "creating sidebar terminal"}
-		})
+		cmds = append(cmds, common.ReportError("creating sidebar terminal", msg.Err, ""))
 
 	case messages.WorkspaceDeleted:
 		if msg.Workspace != nil {

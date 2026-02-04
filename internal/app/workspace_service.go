@@ -45,7 +45,7 @@ func (s *workspaceService) LoadProjects() tea.Cmd {
 		}
 		paths, err := s.registry.Projects()
 		if err != nil {
-			return messages.Error{Err: err, Context: "loading projects"}
+			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "loading projects")}
 		}
 
 		var projects []data.Project
@@ -128,7 +128,7 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 		}
 		paths, err := s.registry.Projects()
 		if err != nil {
-			return messages.Error{Err: err, Context: "rescanning workspaces"}
+			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "rescanning workspaces")}
 		}
 
 		for _, path := range paths {
@@ -205,18 +205,18 @@ func (s *workspaceService) AddProject(path string) tea.Cmd {
 			logging.Warn("Path is not a git repository: %s", path)
 			return messages.Error{
 				Err:     fmt.Errorf("not a git repository: %s", path),
-				Context: "adding project",
+				Context: errorContext(errorServiceWorkspace, "adding project"),
 			}
 		}
 
 		if s == nil || s.registry == nil {
-			return messages.Error{Err: fmt.Errorf("registry unavailable"), Context: "adding project"}
+			return messages.Error{Err: fmt.Errorf("registry unavailable"), Context: errorContext(errorServiceWorkspace, "adding project")}
 		}
 
 		// Add to registry
 		if err := s.registry.AddProject(path); err != nil {
 			logging.Error("Failed to add project to registry: %v", err)
-			return messages.Error{Err: err, Context: "adding project"}
+			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "adding project")}
 		}
 
 		logging.Info("Project added successfully: %s", path)
@@ -345,16 +345,16 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 func (s *workspaceService) RemoveProject(project *data.Project) tea.Cmd {
 	if project == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("missing project"), Context: "removing project"}
+			return messages.Error{Err: fmt.Errorf("missing project"), Context: errorContext(errorServiceWorkspace, "removing project")}
 		}
 	}
 
 	return func() tea.Msg {
 		if s == nil || s.registry == nil {
-			return messages.Error{Err: fmt.Errorf("registry unavailable"), Context: "removing project"}
+			return messages.Error{Err: fmt.Errorf("registry unavailable"), Context: errorContext(errorServiceWorkspace, "removing project")}
 		}
 		if err := s.registry.RemoveProject(project.Path); err != nil {
-			return messages.Error{Err: err, Context: "removing project"}
+			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "removing project")}
 		}
 		return messages.ProjectRemoved{Path: project.Path}
 	}

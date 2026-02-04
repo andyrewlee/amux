@@ -21,12 +21,12 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 	logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 	switch result.ID {
 	case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
-		return true, a.safeCmd(a.handleDialogResult(result))
+		return true, common.SafeCmd(a.handleDialogResult(result))
 	}
 	// If not an App-level dialog, let it fall through to components.
 	newCenter, cmd := a.center.Update(msg)
 	a.center = newCenter
-	return true, a.safeCmd(cmd)
+	return true, common.SafeCmd(cmd)
 }
 
 func (a *App) handleHelpOverlayInput(msg tea.Msg) (bool, tea.Cmd) {
@@ -37,7 +37,7 @@ func (a *App) handleHelpOverlayInput(msg tea.Msg) (bool, tea.Cmd) {
 	case tea.KeyPressMsg:
 		var cmd tea.Cmd
 		a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
-		return true, a.safeCmd(cmd)
+		return true, common.SafeCmd(cmd)
 	case tea.MouseWheelMsg:
 		a.helpOverlay, _, _ = a.helpOverlay.Update(msg)
 		return true, nil
@@ -47,7 +47,7 @@ func (a *App) handleHelpOverlayInput(msg tea.Msg) (bool, tea.Cmd) {
 			var cmd tea.Cmd
 			a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
 			if cmd != nil {
-				return true, a.safeCmd(cmd)
+				return true, common.SafeCmd(cmd)
 			}
 			// Close if clicking outside the dialog
 			if !a.helpOverlay.ContainsClick(msg.X, msg.Y) {
@@ -144,7 +144,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			if err := validation.ValidateProjectPath(path); err != nil {
 				logging.Warn("Project path validation failed: %v", err)
 				return func() tea.Msg {
-					return messages.Error{Err: err, Context: "validating project path"}
+					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating project path")}
 				}
 			}
 			return func() tea.Msg {
@@ -157,7 +157,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			name := validation.SanitizeInput(result.Value)
 			if err := validation.ValidateWorkspaceName(name); err != nil {
 				return func() tea.Msg {
-					return messages.Error{Err: err, Context: "validating workspace name"}
+					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating workspace name")}
 				}
 			}
 			return func() tea.Msg {
@@ -195,7 +195,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			assistant := result.Value
 			if err := validation.ValidateAssistant(assistant); err != nil {
 				return func() tea.Msg {
-					return messages.Error{Err: err, Context: "validating assistant"}
+					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating assistant")}
 				}
 			}
 			ws := a.activeWorkspace
