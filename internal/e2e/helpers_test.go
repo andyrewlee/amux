@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func waitForAgentSessions(t *testing.T, opts tmux.Options, timeout time.Duration
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("timeout waiting for agent sessions")
+	t.Fatalf("timeout waiting for agent sessions\n%s", tmuxSessionDebug(opts))
 	return nil
 }
 
@@ -158,6 +159,35 @@ func waitForAssistantSessions(t *testing.T, opts tmux.Options, want map[string]b
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("timeout waiting for assistant sessions: %v", want)
+	t.Fatalf("timeout waiting for assistant sessions: %v\n%s", want, tmuxSessionDebug(opts))
 	return nil
+}
+
+func tmuxSessionDebug(opts tmux.Options) string {
+	rows, err := tmux.SessionsWithTags(map[string]string{}, []string{
+		"@amux",
+		"@amux_type",
+		"@amux_assistant",
+		"@amux_workspace",
+		"@amux_tab",
+	}, opts)
+	if err != nil {
+		return fmt.Sprintf("tmux sessions: error=%v", err)
+	}
+	if len(rows) == 0 {
+		return "tmux sessions: none"
+	}
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		lines = append(lines, fmt.Sprintf(
+			"%s amux=%q type=%q assistant=%q workspace=%q tab=%q",
+			row.Name,
+			row.Tags["@amux"],
+			row.Tags["@amux_type"],
+			row.Tags["@amux_assistant"],
+			row.Tags["@amux_workspace"],
+			row.Tags["@amux_tab"],
+		))
+	}
+	return "tmux sessions:\n" + strings.Join(lines, "\n")
 }
