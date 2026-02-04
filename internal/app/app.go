@@ -358,6 +358,9 @@ func New(version, commit, date string) (*App, error) {
 		app.initPermissionWatcher()
 	}
 
+	// Initialize focus state on all components (dashboard is the default focus)
+	app.focusPane(messages.PaneDashboard)
+
 	return app, nil
 }
 

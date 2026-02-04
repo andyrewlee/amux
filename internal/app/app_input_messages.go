@@ -875,10 +875,15 @@ func (a *App) handleLaunchAgent(msg messages.LaunchAgent) tea.Cmd {
 func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 	logging.Info("Tab created: %s", msg.Name)
 	cmd := a.center.StartPTYReaders()
-	if a.monitorMode {
-		a.focusPane(messages.PaneMonitor)
-	} else {
-		a.focusPane(messages.PaneCenter)
+	// Only auto-focus center pane if a workspace is already active.
+	// During startup, tabs are restored but we want to keep focus on dashboard
+	// so users can browse their projects first.
+	if a.activeWorkspace != nil {
+		if a.monitorMode {
+			a.focusPane(messages.PaneMonitor)
+		} else {
+			a.focusPane(messages.PaneCenter)
+		}
 	}
 	return cmd
 }

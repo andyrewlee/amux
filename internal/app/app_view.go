@@ -103,7 +103,7 @@ func (a *App) viewLayerBased() tea.View {
 	topGutter := a.layout.TopGutter()
 	dashWidth := a.layout.DashboardWidth()
 	dashHeight := a.layout.Height()
-	dashFocused := a.dashboard.Focused()
+	dashFocused := a.focusedPane == messages.PaneDashboard
 	dashContentWidth := dashWidth - 3
 	dashContentHeight := dashHeight - 2
 	if dashContentWidth < 1 {
