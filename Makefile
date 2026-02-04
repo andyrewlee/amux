@@ -2,13 +2,18 @@ BINARY_NAME := amux
 MAIN_PACKAGE := ./cmd/amux
 .DEFAULT_GOAL := build
 
-.PHONY: build test bench lint fmt fmt-check vet clean run dev help release-check release-tag release-push release
+.PHONY: build test bench lint fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
 
 test:
 	go test -v ./...
+
+devcheck:
+	go vet ./...
+	go test ./...
+	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run; else echo "golangci-lint not installed; skipping"; fi
 
 bench:
 	go test -bench=. -benchmem ./internal/ui/compositor/ -run=^$$

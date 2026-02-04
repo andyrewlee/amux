@@ -161,6 +161,7 @@ type SwitchTab struct {
 type Error struct {
 	Err     error
 	Context string
+	Logged  bool
 }
 
 func (e Error) Error() string {

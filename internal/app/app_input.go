@@ -38,53 +38,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Handle dialog result first (arrives after dialog is hidden)
-	if result, ok := msg.(common.DialogResult); ok {
-		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
-		switch result.ID {
-		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
-			return a, a.safeCmd(a.handleDialogResult(result))
-		}
-		// If not an App-level dialog, let it fall through to components
-		// Currently only Center uses custom dialogs
-		newCenter, cmd := a.center.Update(msg)
-		a.center = newCenter
-		return a, a.safeCmd(cmd)
+	if handled, cmd := a.handleDialogResultMsg(msg); handled {
+		return a, cmd
 	}
-
-	// Handle help overlay input (highest priority when visible)
-	if a.helpOverlay.Visible() {
-		switch msg := msg.(type) {
-		case tea.KeyPressMsg:
-			var cmd tea.Cmd
-			a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
-			return a, a.safeCmd(cmd)
-		case tea.MouseWheelMsg:
-			a.helpOverlay, _, _ = a.helpOverlay.Update(msg)
-			return a, nil
-		case tea.MouseClickMsg:
-			if msg.Button == tea.MouseLeft {
-				// First check if clicking on a link inside the dialog
-				var cmd tea.Cmd
-				a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
-				if cmd != nil {
-					return a, a.safeCmd(cmd)
-				}
-				// Close if clicking outside the dialog
-				if !a.helpOverlay.ContainsClick(msg.X, msg.Y) {
-					a.helpOverlay.Hide()
-				}
-				return a, nil
-			}
-		}
+	if handled, cmd := a.handleHelpOverlayInput(msg); handled {
+		return a, cmd
 	}
-
-	// Allow clicking to dismiss error overlays
-	if mouseMsg, ok := msg.(tea.MouseClickMsg); ok && mouseMsg.Button == tea.MouseLeft {
-		if a.err != nil {
-			a.err = nil
-			return a, nil
-		}
+	if a.handleErrorOverlayDismiss(msg) {
+		return a, nil
 	}
 
 	// Handle toast updates
@@ -94,119 +55,35 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
-	// Handle dialog input if visible
-	if a.dialog != nil && a.dialog.Visible() {
-		newDialog, cmd := a.dialog.Update(msg)
-		a.dialog = newDialog
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-		// Don't process other input while dialog is open
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, a.safeBatch(cmds...)
-		}
-		if _, ok := msg.(tea.PasteMsg); ok {
-			return a, a.safeBatch(cmds...)
-		}
-		if _, ok := msg.(tea.MouseClickMsg); ok {
-			return a, a.safeBatch(cmds...)
-		}
+	if a.handleDialogInput(msg, &cmds) {
+		return a, a.safeBatch(cmds...)
 	}
-
-	// Handle file picker if visible
-	if a.filePicker != nil && a.filePicker.Visible() {
-		newPicker, cmd := a.filePicker.Update(msg)
-		a.filePicker = newPicker
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-		// Don't process other input while file picker is open
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, a.safeBatch(cmds...)
-		}
-		if _, ok := msg.(tea.PasteMsg); ok {
-			return a, a.safeBatch(cmds...)
-		}
-		if _, ok := msg.(tea.MouseClickMsg); ok {
-			return a, a.safeBatch(cmds...)
-		}
+	if a.handleFilePickerInput(msg, &cmds) {
+		return a, a.safeBatch(cmds...)
 	}
-
-	// Handle settings dialog if visible
-	if a.settingsDialog != nil && a.settingsDialog.Visible() {
-		newSettings, cmd := a.settingsDialog.Update(msg)
-		a.settingsDialog = newSettings
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-		// Don't process other input while settings dialog is open
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, a.safeBatch(cmds...)
-		}
-		if _, ok := msg.(tea.MouseClickMsg); ok {
-			return a, a.safeBatch(cmds...)
-		}
+	if a.handleSettingsDialogInput(msg, &cmds) {
+		return a, a.safeBatch(cmds...)
 	}
 
 	switch msg := msg.(type) {
 	case tea.KeyboardEnhancementsMsg:
-		a.keyboardEnhancements = msg
-		logging.Info("Keyboard enhancements: disambiguation=%t event_types=%t", msg.SupportsKeyDisambiguation(), msg.SupportsEventTypes())
+		a.handleKeyboardEnhancements(msg)
 
 	case tea.WindowSizeMsg:
-		a.width = msg.Width
-		a.height = msg.Height
-		a.ready = true
-		a.layout.Resize(msg.Width, msg.Height)
-		a.updateLayout()
-		// Update help overlay size for accurate hit-testing after resize
-		if a.helpOverlay.Visible() {
-			a.helpOverlay.SetSize(a.width, a.height)
-		}
+		a.handleWindowSize(msg)
 
-	case tea.MouseClickMsg:
-		if cmd := a.routeMouseClick(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case tea.MouseWheelMsg:
-		if cmd := a.routeMouseWheel(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case tea.MouseMotionMsg:
-		if cmd := a.routeMouseMotion(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case tea.MouseReleaseMsg:
-		if cmd := a.routeMouseRelease(msg); cmd != nil {
+	case tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		if cmd := a.handleMouseMsg(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
 	case tea.PasteMsg:
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			newCenter, cmd := a.center.Update(msg)
-			a.center = newCenter
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		case messages.PaneSidebarTerminal:
-			newTerm, cmd := a.sidebarTerminal.Update(msg)
-			a.sidebarTerminal = newTerm
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+		if cmd := a.handlePaste(msg); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case prefixTimeoutMsg:
-		if msg.token == a.prefixToken && a.prefixActive {
-			a.exitPrefix()
-		}
+		a.handlePrefixTimeout(msg)
 
 	case tea.KeyPressMsg:
 		if cmd := a.handleKeyPress(msg); cmd != nil {
@@ -452,8 +329,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.Error:
-		a.err = msg.Err
-		logging.Error("Error in %s: %v", msg.Context, msg.Err)
+		if cmd := a.handleErrorMessage(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	default:
 		// Forward unknown messages to center pane (e.g., commit viewer internal messages)

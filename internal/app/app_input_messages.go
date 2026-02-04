@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/update"
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
@@ -100,13 +98,18 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	tabsSnapshot := make([]data.TabInfo, len(ws.OpenTabs))
 	copy(tabsSnapshot, ws.OpenTabs)
 	opts := a.tmuxOptions
+	svc := a.tmuxService
 	return func() tea.Msg {
+		if svc == nil {
+			return tmuxTabsSyncResult{WorkspaceID: wsID}
+		}
+
 		var updates []tmuxTabStatusUpdate
 		for _, tab := range tabsSnapshot {
 			if tab.SessionName == "" {
 				continue
 			}
-			state, err := tmux.SessionStateFor(tab.SessionName, opts)
+			state, err := svc.SessionStateFor(tab.SessionName, opts)
 			if err != nil {
 				// Tolerate transient errors; next tick reconciles. tmuxAvailable gates full outages.
 				continue
@@ -164,8 +167,8 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	// Sync active workspaces to dashboard (fixes spinner race condition)
 	a.syncActiveWorkspacesToDashboard()
-	if msg.Workspace != nil && a.statusManager != nil {
-		if cached := a.statusManager.GetCached(msg.Workspace.Root); cached != nil {
+	if msg.Workspace != nil && a.gitStatus != nil {
+		if cached := a.gitStatus.GetCached(msg.Workspace.Root); cached != nil {
 			a.sidebar.SetGitStatus(cached)
 		} else {
 			a.sidebar.SetGitStatus(nil)
@@ -301,7 +304,7 @@ func (a *App) handleShowSettingsDialog() {
 	} else {
 		a.settingsDialog.SetUpdateInfo(a.version, "", false)
 	}
-	if update.IsHomebrewBuild() {
+	if a.updateService != nil && a.updateService.IsHomebrewBuild() {
 		a.settingsDialog.SetUpdateHint("Installed via Homebrew - update with brew upgrade amux")
 	}
 
@@ -356,25 +359,35 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		a.tmuxOptions = tmux.DefaultOptions() // Refresh cached options
 		a.center.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
 		a.sidebarTerminal.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
-		_ = tmux.SetStatusOff(a.tmuxOptions)
 
 		// Save settings
 		if err := a.config.SaveUISettings(); err != nil {
 			return a.toast.ShowWarning("Failed to save settings")
 		}
 		cmds := []tea.Cmd{a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved")}
-		// Clean up sessions on the old server if the server name changed
-		if oldServerName != a.tmuxOptions.ServerName {
-			oldOpts := tmux.Options{ServerName: oldServerName, CommandTimeout: 2 * time.Second}
+		if a.tmuxService != nil {
 			cmds = append(cmds, func() tea.Msg {
-				_, _ = tmux.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, oldOpts)
-				_ = tmux.KillSessionsWithPrefix("amux-", oldOpts)
+				_ = a.tmuxService.SetStatusOff(a.tmuxOptions)
 				return nil
 			})
+		}
+		// Clean up sessions on the old server if the server name changed
+		if oldServerName != a.tmuxOptions.ServerName {
+			oldOpts := tmux.Options{ServerName: oldServerName, CommandTimeout: tmuxCommandTimeout}
+			if a.tmuxService != nil {
+				cmds = append(cmds, func() tea.Msg {
+					_, _ = a.tmuxService.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, oldOpts)
+					_ = a.tmuxService.KillSessionsWithPrefix("amux-", oldOpts)
+					return nil
+				})
+				cmds = append(cmds, func() tea.Msg {
+					_ = a.tmuxService.SetMonitorActivityOn(a.tmuxOptions)
+					_ = a.tmuxService.SetStatusOff(a.tmuxOptions)
+					return nil
+				})
+			}
 			cmds = append(cmds, a.toast.ShowInfo(fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))
 			cmds = append(cmds, a.resetAllTabStatuses()...)
-			_ = tmux.SetMonitorActivityOn(a.tmuxOptions)
-			_ = tmux.SetStatusOff(a.tmuxOptions)
 		}
 		return a.safeBatch(cmds...)
 	}

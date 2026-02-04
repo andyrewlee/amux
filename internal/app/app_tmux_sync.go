@@ -83,7 +83,7 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 	if changed {
 		wsSnapshot := snapshotWorkspaceForSave(ws)
 		cmds = append(cmds, func() tea.Msg {
-			if err := a.workspaces.Save(wsSnapshot); err != nil {
+			if err := a.workspaceService.Save(wsSnapshot); err != nil {
 				logging.Warn("Failed to sync workspace tabs: %v", err)
 			}
 			return nil

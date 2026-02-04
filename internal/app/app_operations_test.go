@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -50,9 +49,9 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 		t.Fatalf("Save stored workspace: %v", err)
 	}
 
+	workspaceService := newWorkspaceService(registry, store, nil, "")
 	app := &App{
-		registry:   registry,
-		workspaces: store,
+		workspaceService: workspaceService,
 	}
 	msg := app.loadProjects()()
 	loaded, ok := msg.(messages.ProjectsLoaded)
@@ -123,9 +122,9 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 	}
 
 	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+	workspaceService := newWorkspaceService(registry, store, nil, "")
 	app := &App{
-		registry:   registry,
-		workspaces: store,
+		workspaceService: workspaceService,
 	}
 
 	msg := app.loadProjects()()
@@ -243,9 +242,9 @@ func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
 		t.Fatalf("Save ghost workspace: %v", err)
 	}
 
+	workspaceService := newWorkspaceService(registry, store, nil, "")
 	app := &App{
-		registry:   registry,
-		workspaces: store,
+		workspaceService: workspaceService,
 	}
 
 	rescanMsg := app.rescanWorkspaces()()
@@ -273,13 +272,9 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 	metadataRoot := filepath.Join(tmp, "workspaces-metadata")
 
 	store := data.NewWorkspaceStore(metadataRoot)
+	workspaceService := newWorkspaceService(nil, store, nil, workspacesRoot)
 	app := &App{
-		config: &config.Config{
-			Paths: &config.Paths{
-				WorkspacesRoot: workspacesRoot,
-			},
-		},
-		workspaces: store,
+		workspaceService: workspaceService,
 	}
 
 	project := data.NewProject(repo)

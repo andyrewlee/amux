@@ -8,6 +8,17 @@ cd amux
 make run
 ```
 
+Run the local checks that mirror CI:
+
+```bash
+make devcheck
+```
+
+Architecture references:
+
+- `internal/app/ARCHITECTURE.md`
+- `internal/app/MESSAGE_FLOW.md`
+
 ## Release
 
 The release workflow is tag-driven. Pushing a tag like `v0.0.5` triggers the GitHub Actions release job.

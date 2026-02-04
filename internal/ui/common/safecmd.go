@@ -20,7 +20,7 @@ func SafeCmd(cmd tea.Cmd) tea.Cmd {
 		defer func() {
 			if r := recover(); r != nil {
 				logging.Error("panic in command: %v\n%s", r, debug.Stack())
-				msg = messages.Error{Err: fmt.Errorf("command panic: %v", r), Context: "command"}
+				msg = messages.Error{Err: fmt.Errorf("command panic: %v", r), Context: "command", Logged: true}
 			}
 		}()
 		return cmd()
@@ -54,7 +54,7 @@ func SafeTick(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
 		defer func() {
 			if r := recover(); r != nil {
 				logging.Error("panic in tick: %v\n%s", r, debug.Stack())
-				msg = messages.Error{Err: fmt.Errorf("tick panic: %v", r), Context: "tick"}
+				msg = messages.Error{Err: fmt.Errorf("tick panic: %v", r), Context: "tick", Logged: true}
 			}
 		}()
 		return fn(t)
