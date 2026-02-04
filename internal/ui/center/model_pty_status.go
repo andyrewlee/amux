@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
@@ -194,6 +195,7 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 		tab.cachedVersion == version &&
 		tab.cachedShowCursor == showCursor {
 		// Reuse cached snapshot
+		perf.Count("vterm_snapshot_cache_hit", 1)
 		return compositor.NewVTermLayer(tab.cachedSnap)
 	}
 
@@ -202,6 +204,7 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	if snap == nil {
 		return nil
 	}
+	perf.Count("vterm_snapshot_cache_miss", 1)
 
 	// Cache the snapshot
 	tab.cachedSnap = snap

@@ -5,6 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
@@ -154,6 +155,7 @@ func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
 	version := ts.VTerm.Version()
 	showCursor := m.focused
 	if ts.cachedSnap != nil && ts.cachedVersion == version && ts.cachedShowCursor == showCursor {
+		perf.Count("vterm_snapshot_cache_hit", 1)
 		return compositor.NewVTermLayer(ts.cachedSnap)
 	}
 
@@ -161,6 +163,7 @@ func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
 	if snap == nil {
 		return nil
 	}
+	perf.Count("vterm_snapshot_cache_miss", 1)
 
 	ts.cachedSnap = snap
 	ts.cachedVersion = version

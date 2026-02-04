@@ -1,9 +1,13 @@
 package git
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestIsGitRepository(t *testing.T) {
@@ -205,4 +209,24 @@ func TestGetStatus(t *testing.T) {
 			t.Fatalf("GetStatus() should fail for non-repo")
 		}
 	})
+}
+
+func TestRunGitCtxTimeoutError(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := initRepo(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(2 * time.Millisecond)
+
+	_, err := RunGitCtx(ctx, repo, "status")
+	if err == nil {
+		t.Fatalf("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "git status") {
+		t.Fatalf("expected error to include command context, got %v", err)
+	}
 }

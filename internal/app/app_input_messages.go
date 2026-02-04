@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -74,7 +76,13 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		cmds = append(cmds, a.requestGitStatus(msg.Workspace.Root))
 		// Set up file watching for this workspace
 		if a.fileWatcher != nil {
-			_ = a.fileWatcher.Watch(msg.Workspace.Root)
+			if err := a.fileWatcher.Watch(msg.Workspace.Root); err != nil {
+				logging.Warn("File watcher error: %v", err)
+				if errors.Is(err, git.ErrWatchLimit) && a.fileWatcherErr == nil {
+					a.fileWatcherErr = err
+					cmds = append(cmds, a.toast.ShowWarning("File watching disabled (watch limit reached); git status may be stale"))
+				}
+			}
 		}
 	}
 	// Ensure spinner starts if needed after sync

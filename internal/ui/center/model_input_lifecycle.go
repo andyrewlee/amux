@@ -242,6 +242,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		if len(tab.pendingOutput) > ptyMaxBufferedBytes {
 			overflow := len(tab.pendingOutput) - ptyMaxBufferedBytes
 			perf.Count("pty_output_drop_bytes", int64(overflow))
+			perf.Count("pty_output_drop", 1)
 			tab.pendingOutput = append([]byte(nil), tab.pendingOutput[overflow:]...)
 		}
 		perf.Count("pty_output_bytes", int64(len(msg.Data)))
@@ -336,7 +337,12 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 				tab.flushScheduled = true
 				tab.flushPendingSince = time.Now()
 				tabID := msg.TabID
-				cmds = append(cmds, common.SafeTick(time.Millisecond, func(t time.Time) tea.Msg {
+				quietNext, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
+				delay := quietNext
+				if delay < time.Millisecond {
+					delay = time.Millisecond
+				}
+				cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
 					return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
 				}))
 			}

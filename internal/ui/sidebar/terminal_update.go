@@ -26,8 +26,6 @@ func (m *TerminalModel) flushTiming() (time.Duration, time.Duration) {
 	defer ts.mu.Unlock()
 
 	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs).
-	// SyncActive (DEC 2026) already handles partial updates via screen snapshots,
-	// so we don't need slower flush timing - it just makes streaming text feel laggy.
 	if ts.VTerm != nil && ts.VTerm.AltScreen {
 		return ptyFlushQuietAlt, ptyFlushMaxAlt
 	}
@@ -39,25 +37,20 @@ func (m *TerminalModel) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles messages
 func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
 		return m.handleMouseClick(msg)
-
 	case tea.MouseMotionMsg:
 		return m.handleMouseMotion(msg)
-
 	case tea.MouseReleaseMsg:
 		return m.handleMouseRelease(msg)
-
 	case SidebarSelectionScrollTick:
 		if cmd := m.handleSelectionScrollTick(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-
 	case tea.MouseWheelMsg:
 		if !m.focused {
 			return m, nil
@@ -75,12 +68,10 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		}
 		ts.mu.Unlock()
 		return m, nil
-
 	case tea.PasteMsg:
 		if !m.focused {
 			return m, nil
 		}
-
 		ts := m.getTerminal()
 		if ts == nil || ts.Terminal == nil {
 			return m, nil
@@ -95,7 +86,6 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		}
 		logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
 		return m, nil
-
 	case tea.KeyPressMsg:
 		if !m.focused {
 			return m, nil
@@ -175,6 +165,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			if len(ts.pendingOutput) > ptyMaxBufferedBytes {
 				overflow := len(ts.pendingOutput) - ptyMaxBufferedBytes
 				perf.Count("sidebar_pty_drop_bytes", int64(overflow))
+				perf.Count("sidebar_pty_drop", 1)
 				ts.pendingOutput = append([]byte(nil), ts.pendingOutput[overflow:]...)
 			}
 			ts.lastOutputAt = time.Now()
@@ -216,8 +207,10 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts.flushScheduled = false
 			ts.flushPendingSince = time.Time{}
 			if len(ts.pendingOutput) > 0 {
+				var wrote bool
 				ts.mu.Lock()
 				if ts.VTerm != nil {
+					flushDone := perf.Time("pty_flush")
 					chunkSize := len(ts.pendingOutput)
 					if chunkSize > ptyFlushChunkSize {
 						chunkSize = ptyFlushChunkSize
@@ -226,14 +219,24 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					copy(ts.pendingOutput, ts.pendingOutput[chunkSize:])
 					ts.pendingOutput = ts.pendingOutput[:len(ts.pendingOutput)-chunkSize]
 					ts.VTerm.Write(chunk)
+					flushDone()
+					perf.Count("pty_flush_bytes", int64(len(chunk)))
+					wrote = true
 				}
 				ts.mu.Unlock()
+				if !wrote {
+					break
+				}
 				if len(ts.pendingOutput) == 0 {
 					ts.pendingOutput = ts.pendingOutput[:0]
 				} else {
 					ts.flushScheduled = true
 					ts.flushPendingSince = time.Now()
-					cmds = append(cmds, common.SafeTick(time.Millisecond, func(t time.Time) tea.Msg {
+					delay, _ := m.flushTiming()
+					if delay < time.Millisecond {
+						delay = time.Millisecond
+					}
+					cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
 						return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 					}))
 				}
@@ -426,14 +429,12 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 // View renders the terminal section
 func (m *TerminalModel) View() string {
 	var b strings.Builder
-
 	// Always render tab bar (shows "New terminal" when no tabs exist)
 	tabBar := m.renderTabBar()
 	if tabBar != "" {
 		b.WriteString(tabBar)
 		b.WriteString("\n")
 	}
-
 	ts := m.getTerminal()
 	if ts == nil || ts.VTerm == nil {
 		// Show placeholder when no terminal

@@ -2,7 +2,13 @@ BINARY_NAME := amux
 MAIN_PACKAGE := ./cmd/amux
 .DEFAULT_GOAL := build
 
-.PHONY: build test bench lint fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release
+HARNESS_FRAMES ?= 300
+HARNESS_WARMUP ?= 30
+HARNESS_WIDTH ?= 160
+HARNESS_HEIGHT ?= 48
+HARNESS_SCROLLBACK_FRAMES ?= 600
+
+.PHONY: build test bench lint fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -17,6 +23,17 @@ devcheck:
 
 bench:
 	go test -bench=. -benchmem ./internal/ui/compositor/ -run=^$$
+
+harness-center:
+	go run ./cmd/amux-harness -mode center -tabs 16 -hot-tabs 2 -payload-bytes 64 -frames $(HARNESS_FRAMES) -warmup $(HARNESS_WARMUP) -width $(HARNESS_WIDTH) -height $(HARNESS_HEIGHT)
+
+harness-monitor:
+	go run ./cmd/amux-harness -mode monitor -tabs 16 -hot-tabs 4 -payload-bytes 64 -frames $(HARNESS_FRAMES) -warmup $(HARNESS_WARMUP) -width $(HARNESS_WIDTH) -height $(HARNESS_HEIGHT)
+
+harness-sidebar:
+	go run ./cmd/amux-harness -mode sidebar -tabs 16 -hot-tabs 1 -payload-bytes 64 -newline-every 1 -frames $(HARNESS_SCROLLBACK_FRAMES) -warmup $(HARNESS_WARMUP) -width $(HARNESS_WIDTH) -height $(HARNESS_HEIGHT)
+
+harness-presets: harness-center harness-sidebar harness-monitor
 
 lint: test
 	golangci-lint run
@@ -54,6 +71,10 @@ help:
 	@echo "  run        - Build and run"
 	@echo "  dev        - Run with hot reload (requires air)"
 	@echo "  bench      - Run rendering benchmarks"
+	@echo "  harness-center  - Run center harness preset"
+	@echo "  harness-sidebar - Run sidebar harness preset (deep scrollback)"
+	@echo "  harness-monitor - Run monitor harness preset"
+	@echo "  harness-presets - Run all harness presets"
 	@echo "  release-check - Run tests and harness smoke checks"
 	@echo "  release-tag   - Create an annotated tag (VERSION=vX.Y.Z)"
 	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"

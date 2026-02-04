@@ -1,0 +1,30 @@
+name: Perf
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+
+env:
+  TERM: xterm-256color
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run harness presets + compare baselines
+        run: scripts/perf_compare.sh
+        env:
+          PERF_TOLERANCE: '0.10'
+          HARNESS_FRAMES: '300'
+          HARNESS_WARMUP: '30'
+          HARNESS_SCROLLBACK_FRAMES: '600'

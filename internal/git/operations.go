@@ -8,7 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+const defaultGitTimeout = 5 * time.Second
 
 // RunGit executes a git command in the specified directory.
 func RunGit(dir string, args ...string) (string, error) {
@@ -165,7 +168,10 @@ func ensureGitTimeout(ctx context.Context) (context.Context, context.CancelFunc)
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return ctx, func() {}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, defaultGitTimeout)
 }
 
 func filteredGitEnv() []string {

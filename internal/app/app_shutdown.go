@@ -1,5 +1,7 @@
 package app
 
+import "github.com/andyrewlee/amux/internal/perf"
+
 // Shutdown releases resources that may outlive the Bubble Tea program.
 func (a *App) Shutdown() {
 	a.shutdownOnce.Do(func() {
@@ -21,5 +23,6 @@ func (a *App) Shutdown() {
 		if a.workspaceService != nil {
 			a.workspaceService.StopAll()
 		}
+		perf.Flush("shutdown")
 	})
 }
