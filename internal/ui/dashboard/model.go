@@ -85,6 +85,9 @@ type Model struct {
 	activeWorkspaceIDs   map[string]bool // Workspace IDs with active agents (synced from center)
 	workspaceAgentStates map[string]int  // Workspace ID → agent state (0=idle, 1=running, 2=active)
 
+	// Unread state - workspaces with output since last viewed
+	unreadWorkspaces map[string]bool
+
 	// Styles
 	styles common.Styles
 }
@@ -92,16 +95,17 @@ type Model struct {
 // New creates a new dashboard model
 func New() *Model {
 	return &Model{
-		projects:           []data.Project{},
-		rows:               []Row{},
-		statusCache:        make(map[string]*git.StatusResult),
-		creatingWorkspaces: make(map[string]*data.Workspace),
-		deletingWorkspaces: make(map[string]bool),
+		projects:             []data.Project{},
+		rows:                 []Row{},
+		statusCache:          make(map[string]*git.StatusResult),
+		creatingWorkspaces:   make(map[string]*data.Workspace),
+		deletingWorkspaces:   make(map[string]bool),
 		activeWorkspaceIDs:   make(map[string]bool),
 		workspaceAgentStates: make(map[string]int),
-		cursor:             0,
-		focused:            true,
-		styles:             common.DefaultStyles(),
+		unreadWorkspaces:     make(map[string]bool),
+		cursor:               0,
+		focused:              true,
+		styles:               common.DefaultStyles(),
 	}
 }
 
@@ -117,6 +121,15 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 func (m *Model) SetWorkspaceAgentStates(states map[string]int) tea.Cmd {
 	m.workspaceAgentStates = states
 	return m.startSpinnerIfNeeded()
+}
+
+// SetWorkspaceUnread marks a workspace as having unread output.
+func (m *Model) SetWorkspaceUnread(wsID string, unread bool) {
+	if unread {
+		m.unreadWorkspaces[wsID] = true
+	} else {
+		delete(m.unreadWorkspaces, wsID)
+	}
 }
 
 // InvalidateStatus removes a workspace's cached status.
