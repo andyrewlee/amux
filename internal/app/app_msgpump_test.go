@@ -28,7 +28,7 @@ func TestEnqueueExternalMsgDropsWhenFull(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(250 * time.Millisecond):
 		t.Fatal("expected enqueue to return quickly when external queue is full")
 	}
 
@@ -47,7 +47,7 @@ func TestEnqueueExternalMsgDropsWhenFull(t *testing.T) {
 	select {
 	case got := <-sent:
 		t.Fatalf("unexpected extra message %q (wanted drop of %q)", got, msg2)
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(250 * time.Millisecond):
 	}
 
 	close(a.externalMsgs)

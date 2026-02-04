@@ -12,7 +12,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,16 +27,54 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./...
+        run: |
+          set -euo pipefail
+          pkgs=$(go list ./... | grep -v '/internal/e2e$' | grep -v '/internal/tmux$')
+          if [ -z "$pkgs" ]; then
+            echo "no packages selected for unit tests"
+            exit 1
+          fi
+          go test $pkgs
 
       - name: Test (race)
-        run: go test -race ./...
+        run: |
+          set -euo pipefail
+          pkgs=$(go list ./... | grep -v '/internal/e2e$' | grep -v '/internal/tmux$')
+          if [ -z "$pkgs" ]; then
+            echo "no packages selected for race tests"
+            exit 1
+          fi
+          go test -race $pkgs
 
       - name: Harness (center)
-        run: go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
+        run: go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4
 
       - name: Harness (sidebar)
-        run: go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
+        run: go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4
 
       - name: Harness (monitor)
-        run: go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1
+        run: go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4
+
+  tmux-e2e:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: tmux version
+        run: tmux -V
+
+      - name: Test (tmux)
+        run: go test ./internal/tmux -count=1
+
+      - name: Test (e2e)
+        run: go test ./internal/e2e -count=1

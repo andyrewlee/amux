@@ -1,0 +1,48 @@
+name: Nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * *'
+
+env:
+  TERM: xterm-256color
+
+jobs:
+  race:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: tmux version
+        run: tmux -V
+
+      - name: Test (race)
+        run: go test -race ./... -timeout 30m
+
+  soak:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Soak (harness PTY)
+        run: go test -tags=soak ./internal/app -run TestSoakHarnessPTY -count=1 -timeout 20m
+        env:
+          AMUX_SOAK_DURATION: 5m

@@ -32,7 +32,7 @@ amux is a terminal UI for running multiple coding agents in parallel with a work
 
 ## Prerequisites
 
-amux requires [tmux](https://github.com/tmux/tmux). Each agent runs in its own tmux session for terminal isolation and persistence.
+amux requires [tmux](https://github.com/tmux/tmux) (minimum 3.2). Each agent runs in its own tmux session for terminal isolation and persistence.
 
 ## Quick start
 
