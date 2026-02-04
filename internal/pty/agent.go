@@ -120,6 +120,10 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 				_ = config.InjectGlobalPermissions(profileDir, global)
 			}
 		}
+		// Inject Edit permission if workspace has AllowEdits enabled
+		if ws.AllowEdits {
+			_ = config.InjectAllowEdits(ws.Root)
+		}
 		agentCommand = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s %s", shellQuote(profileDir), agentCommand)
 	}
 

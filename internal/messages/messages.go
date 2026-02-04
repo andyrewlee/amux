@@ -246,9 +246,10 @@ type ShowRemoveProjectDialog struct {
 
 // CreateWorkspace requests creating a new workspace
 type CreateWorkspace struct {
-	Project *data.Project
-	Name    string
-	Base    string
+	Project    *data.Project
+	Name       string
+	Base       string
+	AllowEdits bool // Pre-grant Edit permission when true
 }
 
 // DeleteWorkspace requests deleting a workspace

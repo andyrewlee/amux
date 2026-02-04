@@ -253,7 +253,7 @@ func (a *App) addProject(path string) tea.Cmd {
 }
 
 // createWorkspace creates a new workspace
-func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd {
+func (a *App) createWorkspace(project *data.Project, name, base string, allowEdits bool) tea.Cmd {
 	return func() (msg tea.Msg) {
 		var ws *data.Workspace
 		defer func() {
@@ -280,6 +280,7 @@ func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd 
 
 		branch := name
 		ws = data.NewWorkspace(name, branch, base, project.Path, workspacePath)
+		ws.AllowEdits = allowEdits
 
 		if err := git.CreateWorkspace(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{

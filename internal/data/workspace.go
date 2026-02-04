@@ -78,6 +78,9 @@ type Workspace struct {
 	// Lifecycle
 	Archived   bool      `json:"archived"`
 	ArchivedAt time.Time `json:"archived_at,omitempty"`
+
+	// Permissions
+	AllowEdits bool `json:"allow_edits,omitempty"` // Pre-grant Edit permission when true
 }
 
 // WorkspaceID is a unique identifier based on repo+root hash

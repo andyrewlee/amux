@@ -176,10 +176,16 @@ func (pw *PermissionWatcher) processChange(root string) {
 	var newEntries []string
 	for _, perm := range currentAllow {
 		trimmed := strings.TrimSpace(perm)
-		if trimmed != "" && !known[trimmed] {
-			newEntries = append(newEntries, trimmed)
-			known[trimmed] = true
+		if trimmed == "" || known[trimmed] {
+			continue
 		}
+		// Skip Edit(**) - this is auto-injected by "allow edits" feature
+		if trimmed == "Edit(**)" {
+			known[trimmed] = true
+			continue
+		}
+		newEntries = append(newEntries, trimmed)
+		known[trimmed] = true
 	}
 	pw.knownAllow[root] = known
 	pw.mu.Unlock()
