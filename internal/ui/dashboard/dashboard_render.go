@@ -92,13 +92,13 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		status := ""
 		statusText := ""
 		dirty := false
+		wsID := string(row.Workspace.ID())
 
 		// Agent state indicator (spinner=active, ●=running, ○=idle)
 		indicatorWidth := 2 // icon + space
 		agentState := 0
 		indicator := common.Icons.Idle + " "
 		if row.Workspace != nil {
-			wsID := string(row.Workspace.ID())
 			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
 				agentState = state
 				switch {
@@ -124,10 +124,16 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			status = " " + statusText
 		}
 
-		// Determine row style based on selection and dirty state
+		// Check if workspace has unread output
+		unread := m.unreadWorkspaces[wsID]
+
+		// Determine row style based on selection, unread, and dirty state
 		style := m.styles.WorkspaceRow
 		if selected {
 			style = m.styles.SelectedRow
+		} else if unread {
+			// Bright foreground color for unread workspaces
+			style = style.Foreground(common.ColorPrimary).Bold(true)
 		} else if dirty {
 			style = style.Foreground(common.ColorSecondary)
 		}

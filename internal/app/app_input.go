@@ -297,6 +297,13 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.WorkspacePreviewed:
 		cmds = append(cmds, a.handleWorkspacePreviewed(msg)...)
 
+	case messages.MarkWorkspaceReadTick:
+		// Only mark as read if this workspace is still the pending one
+		// (user hasn't navigated away during the delay)
+		if msg.WorkspaceID == a.pendingMarkReadWsID {
+			a.dashboard.SetWorkspaceUnread(msg.WorkspaceID, false)
+		}
+
 	case messages.ShowWelcome:
 		a.goHome()
 

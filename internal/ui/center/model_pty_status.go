@@ -58,11 +58,24 @@ func (m *Model) IsTabActive(tab *Tab) bool {
 	if tab.Detached || !tab.Running {
 		return false
 	}
-	// Check buffered output or recent output timestamp
+	// IMPORTANT: Check for recent user input FIRST to suppress activity during typing.
+	// Terminal echo from user input creates pending output, so we must check this
+	// before the buffered output check to avoid flickering.
+	if !tab.lastInputAt.IsZero() && time.Since(tab.lastInputAt) < 1*time.Second {
+		return false
+	}
+	// Check buffered output - this is a strong signal of active processing,
+	// but only after we've ruled out terminal echo from user typing.
 	if tab.flushScheduled || len(tab.pendingOutput) > 0 {
 		return true
 	}
-	return !tab.lastOutputAt.IsZero() && time.Since(tab.lastOutputAt) < 2*time.Second
+	// For timestamp-based detection, use a shorter window (500ms) to reduce
+	// false positives from brief status updates or periodic terminal refreshes.
+	// The spinner will still show during sustained output due to the buffered check above.
+	if tab.lastOutputAt.IsZero() || time.Since(tab.lastOutputAt) >= 500*time.Millisecond {
+		return false
+	}
+	return true
 }
 
 // HasActiveAgentsInWorkspace returns whether any tab in a workspace is actively outputting.
