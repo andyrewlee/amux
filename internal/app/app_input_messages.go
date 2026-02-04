@@ -527,6 +527,7 @@ func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDi
 		}
 		return ""
 	})
+	a.dialog.SetCheckbox("Immediately allow edits", a.config.UI.LastAllowEdits)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
@@ -841,7 +842,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base))
+	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base, msg.AllowEdits))
 	return cmds
 }
 

@@ -22,10 +22,11 @@ const (
 
 // DialogResult is sent when a dialog is completed
 type DialogResult struct {
-	ID        string
-	Confirmed bool
-	Value     string
-	Index     int
+	ID            string
+	Confirmed     bool
+	Value         string
+	Index         int
+	CheckboxValue bool // Value of checkbox if dialog had one
 }
 
 // InputTransformFunc transforms input text before it's added to the input field
@@ -66,6 +67,12 @@ type Dialog struct {
 	optionHits     []dialogOptionHit
 	// Display settings
 	showKeymapHints bool
+
+	// Checkbox (for DialogInput)
+	checkboxLabel   string    // Label shown next to checkbox (empty = no checkbox)
+	checkboxValue   bool      // Current checkbox state
+	checkboxHit     HitRegion // Click region for checkbox
+	checkboxFocused bool      // True when checkbox is focused (vs input)
 }
 
 type dialogOptionHit struct {
@@ -159,6 +166,19 @@ func (d *Dialog) SetInputValidate(fn InputValidateFunc) *Dialog {
 	return d
 }
 
+// SetCheckbox adds a checkbox to the dialog (only for DialogInput).
+// The label is shown next to the checkbox, and defaultValue sets the initial state.
+func (d *Dialog) SetCheckbox(label string, defaultValue bool) *Dialog {
+	d.checkboxLabel = label
+	d.checkboxValue = defaultValue
+	return d
+}
+
+// CheckboxValue returns the current checkbox state.
+func (d *Dialog) CheckboxValue() bool {
+	return d.checkboxValue
+}
+
 // transformInputMsg applies the input transform to key press and paste messages
 func (d *Dialog) transformInputMsg(msg tea.Msg) tea.Msg {
 	switch m := msg.(type) {
@@ -186,6 +206,7 @@ func (d *Dialog) Show() {
 	d.confirmed = false
 	d.validationErr = ""
 	d.cursor = 0
+	d.checkboxFocused = false
 	if d.dtype == DialogInput {
 		d.input.SetValue("")
 		d.input.Focus()
@@ -249,7 +270,20 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				return DialogResult{ID: d.id, Confirmed: false}
 			}
 
+		case msg.Text == " ":
+			// Toggle checkbox when focused
+			if d.dtype == DialogInput && d.checkboxLabel != "" && d.checkboxFocused {
+				d.checkboxValue = !d.checkboxValue
+				return d, nil
+			}
+			// Otherwise let space pass through to text input
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+			// Toggle checkbox when focused instead of submitting
+			if d.dtype == DialogInput && d.checkboxLabel != "" && d.checkboxFocused {
+				d.checkboxValue = !d.checkboxValue
+				return d, nil
+			}
 			logging.Info("Dialog Enter pressed: id=%s value=%s", d.id, d.input.Value())
 			switch d.dtype {
 			case DialogInput:
@@ -260,12 +294,14 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				d.visible = false
 				value := d.input.Value()
 				id := d.id
-				logging.Info("Dialog returning InputResult: id=%s value=%s", id, value)
+				checkboxVal := d.checkboxValue
+				logging.Info("Dialog returning InputResult: id=%s value=%s checkbox=%v", id, value, checkboxVal)
 				return d, func() tea.Msg {
 					return DialogResult{
-						ID:        id,
-						Confirmed: true,
-						Value:     value,
+						ID:            id,
+						Confirmed:     true,
+						Value:         value,
+						CheckboxValue: checkboxVal,
 					}
 				}
 			case DialogConfirm:
@@ -305,6 +341,17 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down"))):
+			// Handle navigation in DialogInput with checkbox
+			if d.dtype == DialogInput && d.checkboxLabel != "" {
+				if !d.checkboxFocused {
+					d.checkboxFocused = true
+					d.input.Blur()
+				} else {
+					d.checkboxFocused = false
+					d.input.Focus()
+				}
+				return d, nil
+			}
 			if d.dtype != DialogInput {
 				maxLen := len(d.options)
 				if d.filterEnabled {
@@ -316,6 +363,17 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "up"))):
+			// Handle navigation in DialogInput with checkbox
+			if d.dtype == DialogInput && d.checkboxLabel != "" {
+				if d.checkboxFocused {
+					d.checkboxFocused = false
+					d.input.Focus()
+				} else {
+					d.checkboxFocused = true
+					d.input.Blur()
+				}
+				return d, nil
+			}
 			if d.dtype != DialogInput {
 				maxLen := len(d.options)
 				if d.filterEnabled {
@@ -341,8 +399,8 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 		}
 	}
 
-	// Update text input if applicable
-	if d.dtype == DialogInput {
+	// Update text input if applicable (skip when checkbox is focused)
+	if d.dtype == DialogInput && !d.checkboxFocused {
 		// Transform incoming text if transform function is set
 		if d.inputTransform != nil {
 			msg = d.transformInputMsg(msg)
@@ -403,6 +461,12 @@ func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 	localX := msg.X - dialogX - contentOffsetX
 	localY := msg.Y - dialogY - contentOffsetY
 	if localX < 0 || localY < 0 {
+		return nil
+	}
+
+	// Check for checkbox click
+	if d.dtype == DialogInput && d.checkboxLabel != "" && d.checkboxHit.Contains(localX, localY) {
+		d.checkboxValue = !d.checkboxValue
 		return nil
 	}
 

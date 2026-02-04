@@ -71,11 +71,16 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 					return messages.Error{Err: err, Context: "validating workspace name"}
 				}
 			}
+			// Remember checkbox state for next workspace creation
+			allowEdits := result.CheckboxValue
+			a.config.UI.LastAllowEdits = allowEdits
+			_ = a.config.SaveUISettings()
 			return func() tea.Msg {
 				return messages.CreateWorkspace{
-					Project: project,
-					Name:    name,
-					Base:    "HEAD",
+					Project:    project,
+					Name:       name,
+					Base:       "HEAD",
+					AllowEdits: allowEdits,
 				}
 			}
 		}

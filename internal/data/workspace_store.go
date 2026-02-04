@@ -83,6 +83,7 @@ func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
 		ActiveTabIndex: raw.ActiveTabIndex,
 		Archived:       raw.Archived,
 		ArchivedAt:     parseCreated(raw.ArchivedAt),
+		AllowEdits:     raw.AllowEdits,
 	}
 	ws.storeID = id
 
@@ -277,6 +278,7 @@ type workspaceJSON struct {
 	Env            map[string]string `json:"env"`
 	OpenTabs       []TabInfo         `json:"open_tabs,omitempty"`
 	ActiveTabIndex int               `json:"active_tab_index"`
+	AllowEdits     bool              `json:"allow_edits,omitempty"`
 }
 
 // parseCreated parses a created timestamp from either time.Time format or string format
