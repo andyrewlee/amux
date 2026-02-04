@@ -20,15 +20,15 @@ func resetPerfState() {
 
 func withPerfConfig(t *testing.T, enabledValue bool, interval time.Duration) {
 	t.Helper()
-	prevEnabled := enabled
-	prevInterval := logInterval
-	enabled = enabledValue
-	logInterval = interval
+	prevEnabled := enabled.Load()
+	prevInterval := logInterval.Load()
+	enabled.Store(enabledValue)
+	logInterval.Store(int64(interval))
 	resetPerfState()
 
 	t.Cleanup(func() {
-		enabled = prevEnabled
-		logInterval = prevInterval
+		enabled.Store(prevEnabled)
+		logInterval.Store(prevInterval)
 		resetPerfState()
 	})
 }

@@ -60,8 +60,8 @@ type counterEntry struct {
 }
 
 var (
-	enabled     bool
-	logInterval time.Duration
+	enabled     atomic.Bool
+	logInterval atomic.Int64
 	lastLog     atomic.Int64
 
 	statsMu  sync.Mutex
@@ -74,19 +74,19 @@ var (
 
 func init() {
 	initOnce.Do(func() {
-		enabled = isEnabled()
-		logInterval = defaultLogInterval()
+		enabled.Store(isEnabled())
+		logInterval.Store(int64(defaultLogInterval()))
 	})
 }
 
 // Enabled reports whether profiling is enabled.
 func Enabled() bool {
-	return enabled
+	return enabled.Load()
 }
 
 // Time returns a function that records elapsed time when invoked.
 func Time(name string) func() {
-	if !enabled {
+	if !enabled.Load() {
 		return func() {}
 	}
 	start := time.Now()
@@ -97,7 +97,7 @@ func Time(name string) func() {
 
 // Record captures a duration sample for the given name.
 func Record(name string, d time.Duration) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	s := getStat(name)
@@ -126,7 +126,7 @@ func Record(name string, d time.Duration) {
 
 // Count increments a named counter by delta.
 func Count(name string, delta int64) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	c := getCounter(name)
@@ -160,12 +160,16 @@ func getCounter(name string) *counter {
 }
 
 func maybeLog() {
-	if !enabled || logInterval <= 0 {
+	if !enabled.Load() {
+		return
+	}
+	interval := time.Duration(logInterval.Load())
+	if interval <= 0 {
 		return
 	}
 	now := time.Now().UnixNano()
 	last := lastLog.Load()
-	if last != 0 && time.Duration(now-last) < logInterval {
+	if last != 0 && time.Duration(now-last) < interval {
 		return
 	}
 	if !lastLog.CompareAndSwap(last, now) {
@@ -189,7 +193,7 @@ func maybeLog() {
 // Flush logs a summary of current stats/counters immediately.
 // If reason is provided, it is included in the log prefix.
 func Flush(reason string) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	stats, counters := snapshotAndReset()

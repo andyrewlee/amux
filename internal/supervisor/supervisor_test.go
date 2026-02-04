@@ -114,9 +114,9 @@ func TestSupervisor_RestartNever(t *testing.T) {
 	s.Start("test", func(ctx context.Context) error {
 		atomic.AddInt32(&callCount, 1)
 		return errors.New("fail")
-	}, WithRestartPolicy(RestartNever))
+	}, WithRestartPolicy(RestartNever), WithSleep(func(time.Duration) {}))
 
-	time.Sleep(100 * time.Millisecond)
+	waitForCount(t, &callCount, 1, time.Second)
 
 	if count := atomic.LoadInt32(&callCount); count != 1 {
 		t.Errorf("expected 1 call, got %d", count)
@@ -137,9 +137,9 @@ func TestSupervisor_RestartOnError(t *testing.T) {
 		}
 		// Stop after 3 calls
 		return nil
-	}, WithRestartPolicy(RestartOnError), WithBackoff(10*time.Millisecond), WithMaxBackoff(20*time.Millisecond))
+	}, WithRestartPolicy(RestartOnError), WithBackoff(10*time.Millisecond), WithMaxBackoff(20*time.Millisecond), WithSleep(func(time.Duration) {}))
 
-	time.Sleep(200 * time.Millisecond)
+	waitForCount(t, &callCount, 3, time.Second)
 
 	if count := atomic.LoadInt32(&callCount); count != 3 {
 		t.Errorf("expected 3 calls, got %d", count)
@@ -160,7 +160,7 @@ func TestSupervisor_RestartAlways(t *testing.T) {
 			<-ctx.Done()
 		}
 		return nil // Returns nil but should still restart
-	}, WithRestartPolicy(RestartAlways), WithBackoff(10*time.Millisecond))
+	}, WithRestartPolicy(RestartAlways), WithBackoff(10*time.Millisecond), WithSleep(func(time.Duration) {}))
 
 	select {
 	case <-ready:
@@ -186,9 +186,9 @@ func TestSupervisor_MaxRestarts(t *testing.T) {
 	s.Start("test", func(ctx context.Context) error {
 		atomic.AddInt32(&callCount, 1)
 		return errors.New("fail")
-	}, WithRestartPolicy(RestartOnError), WithMaxRestarts(2), WithBackoff(10*time.Millisecond))
+	}, WithRestartPolicy(RestartOnError), WithMaxRestarts(2), WithBackoff(10*time.Millisecond), WithSleep(func(time.Duration) {}))
 
-	time.Sleep(200 * time.Millisecond)
+	waitForCount(t, &callCount, 3, time.Second)
 
 	// Should be 3 calls: initial + 2 restarts
 	if count := atomic.LoadInt32(&callCount); count != 3 {
@@ -202,9 +202,11 @@ func TestSupervisor_ErrorHandler(t *testing.T) {
 	defer s.Stop()
 
 	var (
+		once          sync.Once
 		mu            sync.Mutex
 		errorName     string
 		errorReceived error
+		errCh         = make(chan struct{})
 	)
 
 	s.SetErrorHandler(func(name string, err error) {
@@ -212,14 +214,19 @@ func TestSupervisor_ErrorHandler(t *testing.T) {
 		errorName = name
 		errorReceived = err
 		mu.Unlock()
+		once.Do(func() { close(errCh) })
 	})
 
 	expectedErr := errors.New("worker error")
 	s.Start("my-worker", func(ctx context.Context) error {
 		return expectedErr
-	}, WithRestartPolicy(RestartNever))
+	}, WithRestartPolicy(RestartNever), WithSleep(func(time.Duration) {}))
 
-	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-errCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for error handler")
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -237,8 +244,13 @@ func TestSupervisor_ErrorHandlerNotCalledOnCancel(t *testing.T) {
 	s := New(ctx)
 
 	var errorCalled int32
+	errCh := make(chan struct{}, 1)
 	s.SetErrorHandler(func(name string, err error) {
 		atomic.StoreInt32(&errorCalled, 1)
+		select {
+		case errCh <- struct{}{}:
+		default:
+		}
 	})
 
 	started := make(chan struct{})
@@ -246,12 +258,16 @@ func TestSupervisor_ErrorHandlerNotCalledOnCancel(t *testing.T) {
 		close(started)
 		<-ctx.Done()
 		return ctx.Err()
-	}, WithRestartPolicy(RestartOnError))
+	}, WithRestartPolicy(RestartOnError), WithSleep(func(time.Duration) {}))
 
 	<-started
 	s.Stop()
 
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-errCh:
+		t.Fatal("error handler should not be called for context.Canceled")
+	case <-time.After(200 * time.Millisecond):
+	}
 
 	if atomic.LoadInt32(&errorCalled) != 0 {
 		t.Error("error handler should not be called for context.Canceled")
@@ -271,9 +287,9 @@ func TestSupervisor_PanicRecovery(t *testing.T) {
 			panic("worker panic")
 		}
 		return nil
-	}, WithRestartPolicy(RestartOnError), WithBackoff(10*time.Millisecond))
+	}, WithRestartPolicy(RestartOnError), WithBackoff(10*time.Millisecond), WithSleep(func(time.Duration) {}))
 
-	time.Sleep(100 * time.Millisecond)
+	waitForCount(t, &callCount, 2, time.Second)
 
 	if count := atomic.LoadInt32(&callCount); count < 2 {
 		t.Errorf("expected at least 2 calls (panic should trigger restart), got %d", count)
@@ -285,33 +301,35 @@ func TestSupervisor_BackoffDoubles(t *testing.T) {
 	s := New(ctx)
 	defer s.Stop()
 
-	var timestamps []time.Time
+	var sleeps []time.Duration
 	var mu sync.Mutex
+	var callCount int32
 
 	s.Start("test", func(ctx context.Context) error {
-		mu.Lock()
-		timestamps = append(timestamps, time.Now())
-		count := len(timestamps)
-		mu.Unlock()
+		count := atomic.AddInt32(&callCount, 1)
 		if count >= 4 {
 			return nil
 		}
 		return errors.New("fail")
-	}, WithRestartPolicy(RestartOnError), WithBackoff(20*time.Millisecond), WithMaxBackoff(100*time.Millisecond))
+	}, WithRestartPolicy(RestartOnError), WithBackoff(20*time.Millisecond), WithMaxBackoff(100*time.Millisecond), WithSleep(func(d time.Duration) {
+		mu.Lock()
+		sleeps = append(sleeps, d)
+		mu.Unlock()
+	}))
 
-	time.Sleep(500 * time.Millisecond)
+	waitForCount(t, &callCount, 4, time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	if len(timestamps) < 4 {
-		t.Fatalf("expected at least 4 timestamps, got %d", len(timestamps))
+	if len(sleeps) < 3 {
+		t.Fatalf("expected at least 3 backoff samples, got %d", len(sleeps))
 	}
 
 	// Check that delays roughly double (with some tolerance)
-	for i := 1; i < len(timestamps)-1; i++ {
-		delay := timestamps[i+1].Sub(timestamps[i])
-		prevDelay := timestamps[i].Sub(timestamps[i-1])
+	for i := 1; i < len(sleeps); i++ {
+		delay := sleeps[i]
+		prevDelay := sleeps[i-1]
 		// Allow some tolerance for timing
 		if i < 3 && delay < prevDelay {
 			t.Logf("delay %d (%v) not greater than delay %d (%v)", i, delay, i-1, prevDelay)
@@ -332,6 +350,7 @@ func TestWithOptions(t *testing.T) {
 		WithMaxRestarts(5),
 		WithBackoff(time.Second),
 		WithMaxBackoff(10 * time.Second),
+		WithSleep(func(time.Duration) {}),
 	}
 
 	cfg := &options{}
@@ -369,14 +388,28 @@ func TestSupervisor_ConcurrentStart(t *testing.T) {
 				atomic.AddInt32(&startedCount, 1)
 				<-ctx.Done()
 				return nil
-			}, WithRestartPolicy(RestartNever))
+			}, WithRestartPolicy(RestartNever), WithSleep(func(time.Duration) {}))
 		}(i)
 	}
 
 	wg.Wait()
-	time.Sleep(50 * time.Millisecond)
+	waitForCount(t, &startedCount, 10, time.Second)
 
 	if count := atomic.LoadInt32(&startedCount); count != 10 {
 		t.Errorf("expected 10 workers started, got %d", count)
+	}
+}
+
+func waitForCount(t *testing.T, val *int32, want int32, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(val) >= want {
+			return
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	if got := atomic.LoadInt32(val); got < want {
+		t.Fatalf("timed out waiting for count %d (got %d)", want, got)
 	}
 }

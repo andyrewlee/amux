@@ -25,6 +25,7 @@ type options struct {
 	backoff     time.Duration
 	maxBackoff  time.Duration
 	onError     func(name string, err error)
+	sleep       func(time.Duration)
 }
 
 // Option configures supervisor worker behavior.
@@ -55,6 +56,13 @@ func WithBackoff(d time.Duration) Option {
 func WithMaxBackoff(d time.Duration) Option {
 	return func(o *options) {
 		o.maxBackoff = d
+	}
+}
+
+// WithSleep overrides the backoff sleep function (useful for deterministic tests).
+func WithSleep(fn func(time.Duration)) Option {
+	return func(o *options) {
+		o.sleep = fn
 	}
 }
 
@@ -103,6 +111,7 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 		policy:     RestartOnError,
 		backoff:    200 * time.Millisecond,
 		maxBackoff: 3 * time.Second,
+		sleep:      time.Sleep,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -139,7 +148,9 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 				return
 			}
 			if backoff > 0 {
-				time.Sleep(backoff)
+				if cfg.sleep != nil {
+					cfg.sleep(backoff)
+				}
 				if backoff < cfg.maxBackoff {
 					backoff *= 2
 					if backoff > cfg.maxBackoff {
