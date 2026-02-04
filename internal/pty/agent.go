@@ -21,6 +21,7 @@ const (
 	AgentAmp      AgentType = "amp"
 	AgentOpencode AgentType = "opencode"
 	AgentDroid    AgentType = "droid"
+	AgentCline    AgentType = "cline"
 	AgentCursor   AgentType = "cursor"
 	AgentPi       AgentType = "pi"
 )
