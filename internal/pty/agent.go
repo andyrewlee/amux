@@ -22,6 +22,7 @@ const (
 	AgentOpencode AgentType = "opencode"
 	AgentDroid    AgentType = "droid"
 	AgentCursor   AgentType = "cursor"
+	AgentPi       AgentType = "pi"
 )
 
 // Agent represents a running AI agent instance

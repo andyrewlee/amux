@@ -47,6 +47,7 @@ var (
 	ColorOpencode = lipgloss.Color("#000000")
 	ColorDroid    = lipgloss.Color("#EE6018")
 	ColorCursor   = lipgloss.Color("#1B1812")
+	ColorPi       = lipgloss.Color("#0e0e11")
 )
 
 // GetCurrentTheme returns the currently active theme.
@@ -101,6 +102,8 @@ func AgentColor(agent string) color.Color {
 		return ColorDroid
 	case "cursor":
 		return ColorCursor
+	case "pi":
+		return ColorPi
 	default:
 		return ColorPrimary
 	}
