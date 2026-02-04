@@ -383,6 +383,66 @@ func (a *App) handleShowSetProfileDialog(msg messages.ShowSetProfileDialog) {
 	a.dialog.Show()
 }
 
+// profileHasActiveWorkspaces checks if any project using the given profile
+// has workspaces with active sessions (running or detached agents).
+func (a *App) profileHasActiveWorkspaces(profile string) bool {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return false
+	}
+
+	// Build a set of workspace roots that have running agents from the center model
+	runningRoots := make(map[string]bool)
+	for _, root := range a.center.GetRunningWorkspaceRoots() {
+		runningRoots[root] = true
+	}
+
+	logging.Debug("profileHasActiveWorkspaces: checking profile=%q, runningRoots=%v", profile, runningRoots)
+
+	for i := range a.projects {
+		projectProfile := strings.TrimSpace(a.projects[i].Profile)
+		if projectProfile != profile {
+			continue
+		}
+		logging.Debug("profileHasActiveWorkspaces: found project %s with matching profile", a.projects[i].Name)
+
+		for j := range a.projects[i].Workspaces {
+			ws := &a.projects[i].Workspaces[j]
+			wsID := string(ws.ID())
+
+			logging.Debug("profileHasActiveWorkspaces: checking workspace %s (root=%s, wsID=%s)", ws.Name, ws.Root, wsID)
+
+			// Check if workspace has running tabs in center (most reliable for current session)
+			if runningRoots[ws.Root] {
+				logging.Debug("profileHasActiveWorkspaces: workspace %s has running root", ws.Name)
+				return true
+			}
+
+			// Check if center model has any tabs for this workspace
+			hasTabs := a.center.HasTabsForWorkspace(wsID)
+			logging.Debug("profileHasActiveWorkspaces: workspace %s hasTabs=%v", ws.Name, hasTabs)
+			if hasTabs {
+				// Further check if any of those tabs are running/not-stopped
+				hasRunning := a.center.HasRunningTabsInWorkspace(wsID)
+				logging.Debug("profileHasActiveWorkspaces: workspace %s hasRunning=%v", ws.Name, hasRunning)
+				if hasRunning {
+					return true
+				}
+			}
+
+			// Check if workspace has live tabs (running/detached) via persisted state
+			// This catches detached tmux sessions that aren't in the center model
+			hasLive := workspaceHasLiveTabs(ws)
+			logging.Debug("profileHasActiveWorkspaces: workspace %s hasLiveTabs=%v (OpenTabs=%d)", ws.Name, hasLive, len(ws.OpenTabs))
+			if hasLive {
+				return true
+			}
+		}
+	}
+	logging.Debug("profileHasActiveWorkspaces: no active workspaces found for profile %q", profile)
+	return false
+}
+
 // listProfiles returns the names of existing profile directories,
 // sorted alphabetically with the most recently used profile first.
 func (a *App) listProfiles() []string {
@@ -411,6 +471,211 @@ func (a *App) listProfiles() []string {
 		}
 	}
 	return names
+}
+
+// handleShowRenameProfileDialog shows the rename profile input dialog.
+func (a *App) handleShowRenameProfileDialog(msg messages.ShowRenameProfileDialog) {
+	a.dialogProfile = msg.Profile
+	a.dialog = common.NewInputDialog(DialogRenameProfile, "Rename Profile", msg.Profile)
+	a.dialog.SetMessage("Enter a new name for the profile.")
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return ""
+		}
+		if err := validation.ValidateProfileName(s); err != nil {
+			return err.Error()
+		}
+		return ""
+	})
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+	a.dialog.SetValue(msg.Profile)
+}
+
+// handleRenameProfile renames a profile directory and updates all projects using it.
+func (a *App) handleRenameProfile(msg messages.RenameProfile) tea.Cmd {
+	oldName := strings.TrimSpace(msg.OldName)
+	newName := strings.TrimSpace(msg.NewName)
+
+	if oldName == "" || newName == "" || oldName == newName {
+		return nil
+	}
+
+	// Check if any project using this profile has active workspaces
+	if a.profileHasActiveWorkspaces(oldName) {
+		return a.toast.ShowError("Cannot rename profile while workspaces have active sessions")
+	}
+
+	oldDir := filepath.Join(a.config.Paths.ProfilesRoot, oldName)
+	newDir := filepath.Join(a.config.Paths.ProfilesRoot, newName)
+
+	// Check if old profile exists
+	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
+		return a.toast.ShowError("Profile not found: " + oldName)
+	}
+
+	// Check if new name already exists
+	if _, err := os.Stat(newDir); err == nil {
+		return a.toast.ShowError("Profile already exists: " + newName)
+	}
+
+	// Rename the profile directory
+	if err := os.Rename(oldDir, newDir); err != nil {
+		logging.Error("Failed to rename profile directory: %v", err)
+		return a.toast.ShowError("Failed to rename profile: " + err.Error())
+	}
+
+	// Update all projects using this profile
+	if err := a.registry.RenameProfile(oldName, newName); err != nil {
+		logging.Error("Failed to update projects with renamed profile: %v", err)
+		// Try to revert the directory rename
+		_ = os.Rename(newDir, oldDir)
+		return a.toast.ShowError("Failed to update projects: " + err.Error())
+	}
+
+	// Update last profile if it was the renamed one
+	if a.config.UI.LastProfile == oldName {
+		a.config.UI.LastProfile = newName
+		_ = a.config.SaveUISettings()
+	}
+
+	// Update in-memory state
+	for i := range a.projects {
+		if a.projects[i].Profile == oldName {
+			a.projects[i].Profile = newName
+			for j := range a.projects[i].Workspaces {
+				a.projects[i].Workspaces[j].Profile = newName
+			}
+		}
+	}
+
+	var cmds []tea.Cmd
+	cmds = append(cmds, a.toast.ShowSuccess(fmt.Sprintf("Profile renamed to '%s'", newName)))
+	cmds = append(cmds, a.loadProjects())
+	// Re-show profile manager with updated list
+	cmds = append(cmds, func() tea.Msg { return common.ShowProfileManager{} })
+	return a.safeBatch(cmds...)
+}
+
+// handleShowCreateProfileDialog shows the create profile input dialog.
+func (a *App) handleShowCreateProfileDialog() {
+	a.dialog = common.NewInputDialog(DialogCreateProfile, "Create Profile", "")
+	a.dialog.SetMessage("Enter a name for the new profile.")
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return ""
+		}
+		if err := validation.ValidateProfileName(s); err != nil {
+			return err.Error()
+		}
+		// Check if profile already exists
+		profileDir := filepath.Join(a.config.Paths.ProfilesRoot, s)
+		if _, err := os.Stat(profileDir); err == nil {
+			return "profile already exists"
+		}
+		return ""
+	})
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
+// handleCreateProfile creates a new profile directory.
+func (a *App) handleCreateProfile(msg messages.CreateProfile) tea.Cmd {
+	name := strings.TrimSpace(msg.Name)
+	if name == "" {
+		return func() tea.Msg { return common.ShowProfileManager{} }
+	}
+
+	profileDir := filepath.Join(a.config.Paths.ProfilesRoot, name)
+
+	// Check if profile already exists
+	if _, err := os.Stat(profileDir); err == nil {
+		return a.toast.ShowError("Profile already exists: " + name)
+	}
+
+	// Create the profile directory
+	if err := os.MkdirAll(profileDir, 0755); err != nil {
+		logging.Error("Failed to create profile directory: %v", err)
+		return a.toast.ShowError("Failed to create profile: " + err.Error())
+	}
+
+	var cmds []tea.Cmd
+	cmds = append(cmds, a.toast.ShowSuccess(fmt.Sprintf("Profile '%s' created", name)))
+	// Re-show profile manager with updated list
+	cmds = append(cmds, func() tea.Msg { return common.ShowProfileManager{} })
+	return a.safeBatch(cmds...)
+}
+
+// handleShowDeleteProfileDialog shows the delete profile confirmation dialog.
+func (a *App) handleShowDeleteProfileDialog(msg messages.ShowDeleteProfileDialog) {
+	a.dialogProfile = msg.Profile
+	a.dialog = common.NewConfirmDialog(
+		DialogDeleteProfile,
+		"Delete Profile",
+		fmt.Sprintf("Delete profile '%s'? Projects using this profile will have their profile cleared.", msg.Profile),
+	)
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
+// handleDeleteProfile deletes a profile directory and clears it from all projects.
+func (a *App) handleDeleteProfile(msg messages.DeleteProfile) tea.Cmd {
+	profile := strings.TrimSpace(msg.Profile)
+	if profile == "" {
+		return nil
+	}
+
+	// Check if any project using this profile has active workspaces
+	if a.profileHasActiveWorkspaces(profile) {
+		return a.toast.ShowError("Cannot delete profile while workspaces have active sessions")
+	}
+
+	profileDir := filepath.Join(a.config.Paths.ProfilesRoot, profile)
+
+	// Check if profile exists
+	if _, err := os.Stat(profileDir); os.IsNotExist(err) {
+		return a.toast.ShowError("Profile not found: " + profile)
+	}
+
+	// Clear the profile from all projects first
+	if err := a.registry.ClearProfile(profile); err != nil {
+		logging.Error("Failed to clear profile from projects: %v", err)
+		return a.toast.ShowError("Failed to update projects: " + err.Error())
+	}
+
+	// Delete the profile directory
+	if err := os.RemoveAll(profileDir); err != nil {
+		logging.Error("Failed to delete profile directory: %v", err)
+		return a.toast.ShowError("Failed to delete profile: " + err.Error())
+	}
+
+	// Clear last profile if it was the deleted one
+	if a.config.UI.LastProfile == profile {
+		a.config.UI.LastProfile = ""
+		_ = a.config.SaveUISettings()
+	}
+
+	// Update in-memory state
+	for i := range a.projects {
+		if a.projects[i].Profile == profile {
+			a.projects[i].Profile = ""
+			for j := range a.projects[i].Workspaces {
+				a.projects[i].Workspaces[j].Profile = ""
+			}
+		}
+	}
+
+	var cmds []tea.Cmd
+	cmds = append(cmds, a.toast.ShowSuccess(fmt.Sprintf("Profile '%s' deleted", profile)))
+	cmds = append(cmds, a.loadProjects())
+	// Re-show profile manager with updated list
+	cmds = append(cmds, func() tea.Msg { return common.ShowProfileManager{} })
+	return a.safeBatch(cmds...)
 }
 
 // handleSetProfile persists a profile for a project and reloads.

@@ -168,25 +168,16 @@ func (s *SettingsDialog) renderLines() []string {
 	s.addHit(settingsItemTmuxSync, -1, len(lines)-1)
 	lines = append(lines, "")
 
-	lines = append(lines, label.Render("Version"))
-	if s.currentVersion == "" || s.currentVersion == "dev" {
-		lines = append(lines, muted.Render("  Development build"))
-	} else {
-		lines = append(lines, muted.Render("  "+s.currentVersion))
+	// Manage Profiles link
+	style = muted
+	if s.focusedItem == settingsItemManageProfiles {
+		style = lipgloss.NewStyle().Foreground(ColorPrimary)
 	}
+	y = len(lines)
+	lines = append(lines, style.Render("[Manage Profiles]"))
+	s.addHit(settingsItemManageProfiles, -1, y)
 
-	if s.updateAvailable {
-		style := lipgloss.NewStyle().Foreground(ColorSuccess)
-		if s.focusedItem == settingsItemUpdate {
-			style = style.Bold(true)
-		}
-		y = len(lines)
-		lines = append(lines, style.Render("  [Update to "+s.latestVersion+"]"))
-		s.addHit(settingsItemUpdate, -1, y)
-	}
-	lines = append(lines, "")
-
-	// Theme link - shows current theme name (moved to bottom)
+	// Theme link - shows current theme name
 	currentTheme := GetTheme(s.theme)
 	themeStyle := muted
 	if s.focusedItem == settingsItemEditTheme {

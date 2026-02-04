@@ -68,6 +68,15 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		canvas.Compose(editorDrawable)
 	}
 
+	// Profile manager overlay
+	if a.profileManager != nil && a.profileManager.Visible() {
+		managerView := a.profileManager.View()
+		managerWidth, managerHeight := viewDimensions(managerView)
+		x, y := a.centeredPosition(managerWidth, managerHeight)
+		managerDrawable := compositor.NewStringDrawable(managerView, x, y)
+		canvas.Compose(managerDrawable)
+	}
+
 	// Help overlay (centered like settings dialog)
 	if a.helpOverlay.Visible() {
 		helpView := a.helpOverlay.View()

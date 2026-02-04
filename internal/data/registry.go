@@ -234,3 +234,45 @@ func (r *Registry) SetProfile(projectPath, profile string) error {
 
 	return fmt.Errorf("project not found: %s", projectPath)
 }
+
+// RenameProfile updates all projects using oldProfile to use newProfile.
+func (r *Registry) RenameProfile(oldProfile, newProfile string) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	for i := range projects {
+		if projects[i].Profile == oldProfile {
+			projects[i].Profile = newProfile
+			changed = true
+		}
+	}
+
+	if changed {
+		return r.saveFull(projects)
+	}
+	return nil
+}
+
+// ClearProfile clears the profile from all projects using the specified profile.
+func (r *Registry) ClearProfile(profile string) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	for i := range projects {
+		if projects[i].Profile == profile {
+			projects[i].Profile = ""
+			changed = true
+		}
+	}
+
+	if changed {
+		return r.saveFull(projects)
+	}
+	return nil
+}

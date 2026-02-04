@@ -43,7 +43,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
-		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile, DialogRenameWorkspace:
+		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile, DialogRenameWorkspace, DialogRenameProfile, DialogCreateProfile, DialogDeleteProfile:
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -188,6 +188,21 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.permissionsEditor != nil && a.permissionsEditor.Visible() {
 		newEditor, cmd := a.permissionsEditor.Update(msg)
 		a.permissionsEditor = newEditor
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+	}
+
+	// Handle profile manager if visible
+	if a.profileManager != nil && a.profileManager.Visible() {
+		newManager, cmd := a.profileManager.Update(msg)
+		a.profileManager = newManager
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -374,6 +389,30 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.SetProfile:
 		if cmd := a.handleSetProfile(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ShowRenameProfileDialog:
+		a.handleShowRenameProfileDialog(msg)
+
+	case messages.RenameProfile:
+		if cmd := a.handleRenameProfile(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ShowCreateProfileDialog:
+		a.handleShowCreateProfileDialog()
+
+	case messages.CreateProfile:
+		if cmd := a.handleCreateProfile(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ShowDeleteProfileDialog:
+		a.handleShowDeleteProfileDialog(msg)
+
+	case messages.DeleteProfile:
+		if cmd := a.handleDeleteProfile(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
@@ -566,6 +605,18 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.permissionsEditor.SetSize(a.width, a.height)
 			a.permissionsEditor.Show()
 		}
+
+	case common.ShowProfileManager:
+		profiles := a.listProfiles()
+		a.profileManager = common.NewProfileManager(profiles)
+		a.profileManager.SetSize(a.width, a.height)
+		a.profileManager.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+		a.profileManager.Show()
+
+	case common.ProfileManagerResult:
+		a.profileManager = nil
+		// Re-show settings dialog after closing profile manager
+		a.handleShowSettingsDialog()
 
 	case messages.PermissionsDialogResult:
 		if cmd := a.handlePermissionsDialogResult(msg); cmd != nil {

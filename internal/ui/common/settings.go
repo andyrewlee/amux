@@ -7,8 +7,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
-	"github.com/andyrewlee/medusa/internal/messages"
 )
 
 // SettingsResult is sent when the settings dialog is closed.
@@ -49,8 +47,8 @@ const (
 	settingsItemTmuxServer
 	settingsItemTmuxConfig
 	settingsItemTmuxSync
-	settingsItemUpdate    // only shown when update available
-	settingsItemEditTheme // theme selection moved to bottom
+	settingsItemManageProfiles // manage profiles (after tmux section)
+	settingsItemEditTheme      // theme selection
 	settingsItemSave
 	settingsItemClose
 )
@@ -245,6 +243,10 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.syncProfilePlugins = !s.syncProfilePlugins
 		return s, nil
 
+	case settingsItemManageProfiles:
+		s.visible = false
+		return s, func() tea.Msg { return ShowProfileManager{} }
+
 	case settingsItemGlobalPerms:
 		s.globalPerms = !s.globalPerms
 		return s, nil
@@ -268,12 +270,6 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 
 	case settingsItemTmuxServer, settingsItemTmuxConfig, settingsItemTmuxSync:
 		return s, nil
-
-	case settingsItemUpdate:
-		if s.updateAvailable {
-			s.visible = false
-			return s, func() tea.Msg { return messages.TriggerUpgrade{} }
-		}
 
 	case settingsItemSave:
 		s.validationErr = s.validate()
@@ -330,17 +326,9 @@ func (s *SettingsDialog) skipDisabledForward() {
 	if !s.globalPerms && (s.focusedItem == settingsItemEditPermissions || s.focusedItem == settingsItemAutoAddPerms) {
 		s.focusedItem = settingsItemAutoStart
 	}
-	// Skip update item if no update available
-	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemEditTheme
-	}
 }
 
 func (s *SettingsDialog) skipDisabledBackward() {
-	// Skip update item if no update available
-	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemTmuxSync
-	}
 	// Skip auto-add and edit permissions when global perms is off
 	if !s.globalPerms && (s.focusedItem == settingsItemAutoAddPerms || s.focusedItem == settingsItemEditPermissions) {
 		s.focusedItem = settingsItemGlobalPerms

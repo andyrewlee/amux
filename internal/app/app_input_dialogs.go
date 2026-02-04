@@ -20,11 +20,13 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	workspace := a.dialogWorkspace
 	defaultName := a.dialogDefaultName
 	workspaceRoot := a.dialogWorkspaceRoot
+	profile := a.dialogProfile
 	a.dialog = nil
 	a.dialogProject = nil
 	a.dialogWorkspace = nil
 	a.dialogDefaultName = ""
 	a.dialogWorkspaceRoot = ""
+	a.dialogProfile = ""
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
@@ -40,6 +42,10 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				a.removeProjectByPath(path),
 			}
 			return a.safeBatch(cmds...)
+		}
+		// Return to profile manager if we were creating/renaming/deleting a profile
+		if result.ID == DialogCreateProfile || result.ID == DialogRenameProfile || result.ID == DialogDeleteProfile {
+			return func() tea.Msg { return common.ShowProfileManager{} }
 		}
 		return nil
 	}
@@ -158,16 +164,55 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				a.dialog.Show()
 				return nil
 			}
-			profile := result.Value
-			if profile == "" {
-				profile = defaultName
+			selectedProfile := result.Value
+			if selectedProfile == "" {
+				selectedProfile = defaultName
 			}
 			proj := project
 			return func() tea.Msg {
 				return messages.SetProfile{
 					Project: proj,
-					Profile: profile,
+					Profile: selectedProfile,
 				}
+			}
+		}
+
+	case DialogRenameProfile:
+		if profile != "" {
+			newName := validation.SanitizeInput(result.Value)
+			if newName == "" || newName == profile {
+				return nil // No change
+			}
+			if err := validation.ValidateProfileName(newName); err != nil {
+				return func() tea.Msg {
+					return messages.Error{Err: err, Context: "validating profile name"}
+				}
+			}
+			oldName := profile
+			return func() tea.Msg {
+				return messages.RenameProfile{OldName: oldName, NewName: newName}
+			}
+		}
+
+	case DialogCreateProfile:
+		name := validation.SanitizeInput(result.Value)
+		if name == "" {
+			return func() tea.Msg { return common.ShowProfileManager{} }
+		}
+		if err := validation.ValidateProfileName(name); err != nil {
+			return func() tea.Msg {
+				return messages.Error{Err: err, Context: "validating profile name"}
+			}
+		}
+		return func() tea.Msg {
+			return messages.CreateProfile{Name: name}
+		}
+
+	case DialogDeleteProfile:
+		if profile != "" {
+			p := profile
+			return func() tea.Msg {
+				return messages.DeleteProfile{Profile: p}
 			}
 		}
 

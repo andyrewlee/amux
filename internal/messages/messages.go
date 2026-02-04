@@ -279,6 +279,35 @@ type SetProfile struct {
 	Profile string
 }
 
+// ShowRenameProfileDialog requests showing the rename profile dialog
+type ShowRenameProfileDialog struct {
+	Profile string
+}
+
+// RenameProfile requests renaming a profile
+type RenameProfile struct {
+	OldName string
+	NewName string
+}
+
+// ShowCreateProfileDialog requests showing the create profile dialog
+type ShowCreateProfileDialog struct{}
+
+// CreateProfile requests creating a new profile
+type CreateProfile struct {
+	Name string
+}
+
+// ShowDeleteProfileDialog requests showing the delete profile confirmation
+type ShowDeleteProfileDialog struct {
+	Profile string
+}
+
+// DeleteProfile requests deleting a profile
+type DeleteProfile struct {
+	Profile string
+}
+
 // ShowSelectAssistantDialog requests showing the assistant selection dialog.
 // When ForceDialog is true, the picker is always shown regardless of any
 // saved default agent preference.

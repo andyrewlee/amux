@@ -7,6 +7,8 @@ const NewProfileOption = "New profile..."
 // NewProfilePicker creates a select dialog listing existing profiles
 // with a "New profile..." option at the end. If currentProfile matches
 // one of the profiles, the cursor starts on that entry.
+//
+// Profile management (rename/delete) is available via Settings > Manage Profiles.
 func NewProfilePicker(id string, profiles []string, currentProfile string) *Dialog {
 	options := make([]string, 0, len(profiles)+1)
 	options = append(options, profiles...)

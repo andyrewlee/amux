@@ -75,6 +75,22 @@ func (m *Model) HasActiveAgentsInWorkspace(wsID string) bool {
 	return false
 }
 
+// HasRunningTabsInWorkspace returns whether any tab in a workspace is running or detached.
+// This is used to check if it's safe to modify the workspace's profile.
+func (m *Model) HasRunningTabsInWorkspace(wsID string) bool {
+	for _, tab := range m.tabsByWorkspace[wsID] {
+		if tab == nil || tab.isClosed() {
+			continue
+		}
+		// Any tab that is running OR detached means there's an active session
+		// (detached tabs have a tmux session that's still alive)
+		if tab.Running || tab.Detached {
+			return true
+		}
+	}
+	return false
+}
+
 // GetActiveWorkspaceRoots returns all workspace root paths with active agents.
 func (m *Model) GetActiveWorkspaceRoots() []string {
 	var active []string

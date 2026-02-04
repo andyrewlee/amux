@@ -39,6 +39,9 @@ const (
 	DialogCleanupTmux     = "cleanup_tmux"
 	DialogSetProfile      = "set_profile"
 	DialogRenameWorkspace = "rename_workspace"
+	DialogRenameProfile   = "rename_profile"
+	DialogCreateProfile   = "create_profile"
+	DialogDeleteProfile   = "delete_profile"
 	DialogCommit          = "commit"
 )
 
@@ -93,14 +96,16 @@ type App struct {
 	themeDialog     *common.ThemeDialog
 
 	// Overlays
-	helpOverlay *common.HelpOverlay
-	toast       *common.ToastModel
+	helpOverlay    *common.HelpOverlay
+	toast          *common.ToastModel
+	profileManager *common.ProfileManager
 
 	// Dialog context
 	dialogProject       *data.Project
 	dialogWorkspace     *data.Workspace
 	dialogDefaultName   string
 	dialogWorkspaceRoot string // For commit dialog
+	dialogProfile       string // For rename/delete profile dialogs
 
 	// Process management
 	scripts *process.ScriptRunner

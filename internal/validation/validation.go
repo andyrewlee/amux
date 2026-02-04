@@ -159,3 +159,35 @@ func SanitizeInput(input string) string {
 
 	return strings.TrimSpace(input)
 }
+
+// profileNameRegex matches valid profile names (directory-safe names)
+var profileNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+// ValidateProfileName validates a profile name
+func ValidateProfileName(name string) error {
+	name = strings.TrimSpace(name)
+
+	if name == "" {
+		return &ValidationError{Field: "name", Message: "name cannot be empty"}
+	}
+
+	if len(name) > 100 {
+		return &ValidationError{Field: "name", Message: "name too long (max 100 characters)"}
+	}
+
+	if !profileNameRegex.MatchString(name) {
+		return &ValidationError{Field: "name", Message: "name must start with letter/number and contain only letters, numbers, dots, dashes, or underscores"}
+	}
+
+	// Disallow "shared" as it's reserved for shared plugins/skills
+	if strings.EqualFold(name, "shared") {
+		return &ValidationError{Field: "name", Message: "'shared' is a reserved name"}
+	}
+
+	// Disallow consecutive dots (..)
+	if strings.Contains(name, "..") {
+		return &ValidationError{Field: "name", Message: "name cannot contain consecutive dots"}
+	}
+
+	return nil
+}

@@ -198,6 +198,8 @@ func (a *App) handlePermissionsEditorResult(msg messages.PermissionsEditorResult
 	a.permissionsEditor = nil
 
 	if !msg.Confirmed {
+		// Return to settings dialog on cancel
+		a.handleShowSettingsDialog()
 		return nil
 	}
 
@@ -206,9 +208,13 @@ func (a *App) handlePermissionsEditorResult(msg messages.PermissionsEditorResult
 		Deny:  msg.Deny,
 	}
 	if err := config.SaveGlobalPermissions(a.config.Paths.GlobalPermissionsPath, global); err != nil {
+		// Return to settings even on error
+		a.handleShowSettingsDialog()
 		return a.toast.ShowError("Failed to save global permissions")
 	}
 	_ = config.InjectIntoAllProfiles(a.config.Paths.ProfilesRoot, global)
 
+	// Return to settings dialog after save
+	a.handleShowSettingsDialog()
 	return a.toast.ShowSuccess("Global permissions saved")
 }
