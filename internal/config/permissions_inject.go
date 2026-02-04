@@ -81,6 +81,68 @@ func InjectAllowEdits(workspaceRoot string) error {
 	return os.WriteFile(settingsPath, data, 0644)
 }
 
+// InjectTrustedDirectory adds a directory to Claude's trusted projects.
+// If configDir is empty, uses ~/.claude.json. Otherwise uses configDir/.claude.json.
+// This prevents the "do you want to trust this directory" prompt when Claude starts.
+func InjectTrustedDirectory(workspaceRoot string, configDir string) error {
+	var claudeConfigPath string
+	if configDir != "" {
+		claudeConfigPath = filepath.Join(configDir, ".claude.json")
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		claudeConfigPath = filepath.Join(home, ".claude.json")
+	}
+
+	var config map[string]any
+	if existing, err := os.ReadFile(claudeConfigPath); err == nil {
+		_ = json.Unmarshal(existing, &config)
+	}
+	if config == nil {
+		config = make(map[string]any)
+	}
+
+	// Get or create the projects map
+	projects, _ := config["projects"].(map[string]any)
+	if projects == nil {
+		projects = make(map[string]any)
+	}
+
+	// Get or create the project entry for this workspace
+	projectEntry, _ := projects[workspaceRoot].(map[string]any)
+	if projectEntry == nil {
+		projectEntry = map[string]any{
+			"allowedTools":            []any{},
+			"mcpContextUris":          []any{},
+			"mcpServers":              map[string]any{},
+			"enabledMcpjsonServers":   []any{},
+			"disabledMcpjsonServers":  []any{},
+			"hasTrustDialogAccepted":  true,
+		}
+	} else {
+		// Update existing entry to mark as trusted
+		projectEntry["hasTrustDialogAccepted"] = true
+	}
+
+	projects[workspaceRoot] = projectEntry
+	config["projects"] = projects
+
+	// Ensure config directory exists
+	if configDir != "" {
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			return err
+		}
+	}
+
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(claudeConfigPath, data, 0600)
+}
+
 // InjectIntoAllProfiles iterates all profile directories and merges global
 // permissions into each one's settings.json.
 func InjectIntoAllProfiles(profilesRoot string, global *GlobalPermissions) error {

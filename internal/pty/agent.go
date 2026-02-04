@@ -107,8 +107,9 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	// Set CLAUDE_CONFIG_DIR for Claude agents with a named profile.
 	// Prefix the agent command directly so it propagates into the tmux session.
 	agentCommand := assistantCfg.Command
+	var profileDir string
 	if agentType == AgentClaude && ws.Profile != "" {
-		profileDir := filepath.Join(m.config.Paths.ProfilesRoot, ws.Profile)
+		profileDir = filepath.Join(m.config.Paths.ProfilesRoot, ws.Profile)
 		_ = os.MkdirAll(profileDir, 0755)
 		if m.config.UI.SyncProfilePlugins {
 			_ = config.SyncProfileSharedDirs(m.config.Paths.ProfilesRoot, ws.Profile)
@@ -125,6 +126,12 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 			_ = config.InjectAllowEdits(ws.Root)
 		}
 		agentCommand = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s %s", shellQuote(profileDir), agentCommand)
+	}
+
+	// Pre-trust the workspace directory so Claude doesn't prompt
+	// Use profile config dir if set, otherwise default ~/.claude.json
+	if agentType == AgentClaude {
+		_ = config.InjectTrustedDirectory(ws.Root, profileDir)
 	}
 
 	// Append Claude session flags for conversation resumption.
