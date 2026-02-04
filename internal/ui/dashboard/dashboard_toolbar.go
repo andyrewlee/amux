@@ -17,9 +17,9 @@ type toolbarItem struct {
 
 func (m *Model) toolbarItems() []toolbarItem {
 	return []toolbarItem{
-		{kind: toolbarHelp, label: "?H"},
-		{kind: toolbarMonitor, label: "◆M"},
-		{kind: toolbarSettings, label: "⚙S"},
+		{kind: toolbarHelp, label: "?"},
+		{kind: toolbarMonitor, label: "M"},
+		{kind: toolbarSettings, label: "S"},
 	}
 }
 
@@ -92,7 +92,13 @@ func (m *Model) renderToolbar() string {
 		rows = append(rows, row.String())
 	}
 
-	return strings.Join(rows, "\n")
+	// Center the toolbar within the pane width
+	rowContent := strings.Join(rows, "\n")
+	contentWidth := m.width - 3 // Account for border and padding
+	if contentWidth > 0 {
+		return lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(rowContent)
+	}
+	return rowContent
 }
 
 func (m *Model) toolbarVisibleItems(items []toolbarItem) []toolbarItem {

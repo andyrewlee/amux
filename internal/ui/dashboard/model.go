@@ -217,11 +217,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 				return m, m.previewCurrentRow()
 			case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
-				m.toolbarFocused = false
-				if last := m.findSelectableRow(len(m.rows)-1, -1); last != -1 {
-					m.cursor = last
-				}
-				return m, m.previewCurrentRow()
+				// Do nothing - already at bottom of dashboard
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				return m, m.toolbarCommand(toolbarItems[m.toolbarIndex].kind)
 			}
@@ -234,6 +230,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if last != -1 && m.cursor == last && len(toolbarItems) > 0 {
 				m.toolbarFocused = true
 				m.toolbarIndex = 0
+				return m, m.previewCurrentRow()
 			} else {
 				m.moveCursor(1)
 				return m, m.previewCurrentRow()
@@ -349,7 +346,7 @@ func (m *Model) View() string {
 		if i >= m.scrollOffset+visibleHeight {
 			break
 		}
-		line := m.renderRow(row, i == m.cursor)
+		line := m.renderRow(row, i == m.cursor && !m.toolbarFocused)
 		b.WriteString(line)
 		b.WriteString("\n")
 	}

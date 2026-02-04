@@ -136,11 +136,13 @@ func (a *App) welcomeContent() string {
 
 func (a *App) welcomeLogo() (string, lipgloss.Style) {
 	logo := `
- 8888b.  88888b.d88b.  888  888 888  888
-    "88b 888 "888 "88b 888  888  Y8bd8P
-.d888888 888  888  888 888  888   X88K
-888  888 888  888  888 Y88b 888 .d8""8b.
-"Y888888 888  888  888  "Y88888 888  888`
+                            888
+                            888
+88888b.d88b.   .d88b.     .d888 888  888 .d8888b   8888b.
+888 "888 "88b d8P  Y8b d88" 888 888  888 88K          "88b
+888  888  888 88888888 888  888 888  888 "Y8888b. .d888888
+888  888  888 Y8b.     Y88b 888 Y88b 888      X88 888  888
+888  888  888  "Y8888   "Y88888  "Y88888  88888P' "Y888888`
 
 	logoStyle := lipgloss.NewStyle().
 		Foreground(common.ColorPrimary).

@@ -109,8 +109,12 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 
 // previewCurrentRow returns a command to preview the currently selected row.
 // This is called automatically on cursor movement for instant content switching.
-// Returns nil for rows that shouldn't auto-preview (like RowCreate which opens a dialog).
 func (m *Model) previewCurrentRow() tea.Cmd {
+	// If toolbar is focused, show welcome screen
+	if m.toolbarFocused {
+		return func() tea.Msg { return messages.ShowWelcome{} }
+	}
+
 	if m.cursor >= len(m.rows) {
 		return nil
 	}
@@ -119,7 +123,7 @@ func (m *Model) previewCurrentRow() tea.Cmd {
 	switch row.Type {
 	case RowHome:
 		return func() tea.Msg { return messages.ShowWelcome{} }
-	case RowProject:
+	case RowProject, RowCreate:
 		// Find and activate the main/primary workspace for this project
 		var mainWS *data.Workspace
 		for i := range row.Project.Workspaces {
@@ -147,7 +151,7 @@ func (m *Model) previewCurrentRow() tea.Cmd {
 		}
 	}
 
-	// RowCreate, RowAddProject, RowSpacer - no auto-preview
+	// RowAddProject, RowSpacer - no auto-preview
 	return nil
 }
 
