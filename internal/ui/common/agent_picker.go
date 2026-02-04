@@ -22,6 +22,7 @@ func DefaultAgentOptions() []AgentOption {
 		{ID: "amp", Name: "amp"},
 		{ID: "opencode", Name: "opencode"},
 		{ID: "droid", Name: "droid"},
+		{ID: "cline", Name: "cline"},
 		{ID: "cursor", Name: "cursor"},
 		{ID: "pi", Name: "pi"},
 	}
@@ -97,6 +98,8 @@ func (d *Dialog) renderAgentPickerOptions(baseLine int) []string {
 			colorStyle = lipgloss.NewStyle().Foreground(ColorOpencode)
 		case "droid":
 			colorStyle = lipgloss.NewStyle().Foreground(ColorDroid)
+		case "cline":
+			colorStyle = lipgloss.NewStyle().Foreground(ColorCline)
 		case "cursor":
 			colorStyle = lipgloss.NewStyle().Foreground(ColorCursor)
 		case "pi":

@@ -15,7 +15,7 @@ func TestDefaultConfig(t *testing.T) {
 	}
 
 	// Verify assistant configs referenced in README exist.
-	for _, name := range []string{"claude", "codex", "gemini", "amp", "opencode"} {
+	for _, name := range []string{"claude", "codex", "gemini", "amp", "opencode", "cline"} {
 		if _, ok := cfg.Assistants[name]; !ok {
 			t.Fatalf("DefaultConfig() missing assistant config for %s", name)
 		}

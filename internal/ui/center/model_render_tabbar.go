@@ -74,6 +74,8 @@ func (m *Model) renderTabBar() string {
 			agentStyle = m.styles.AgentOpencode
 		case "droid":
 			agentStyle = m.styles.AgentDroid
+		case "cline":
+			agentStyle = m.styles.AgentCline
 		case "cursor":
 			agentStyle = m.styles.AgentCursor
 		case "pi":

@@ -46,6 +46,7 @@ var (
 	ColorAmp      = lipgloss.Color("#ED4C3D")
 	ColorOpencode = lipgloss.Color("#000000")
 	ColorDroid    = lipgloss.Color("#EE6018")
+	ColorCline    = lipgloss.Color("#101827")
 	ColorCursor   = lipgloss.Color("#1B1812")
 	ColorPi       = lipgloss.Color("#0e0e11")
 )
@@ -100,6 +101,8 @@ func AgentColor(agent string) color.Color {
 		return ColorOpencode
 	case "droid":
 		return ColorDroid
+	case "cline":
+		return ColorCline
 	case "cursor":
 		return ColorCursor
 	case "pi":

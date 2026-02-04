@@ -50,6 +50,7 @@ type Styles struct {
 	AgentAmp      lipgloss.Style
 	AgentOpencode lipgloss.Style
 	AgentDroid    lipgloss.Style
+	AgentCline    lipgloss.Style
 	AgentCursor   lipgloss.Style
 	AgentPi       lipgloss.Style
 	AgentTerm     lipgloss.Style
@@ -209,6 +210,9 @@ func DefaultStyles() Styles {
 
 		AgentDroid: lipgloss.NewStyle().
 			Foreground(ColorDroid),
+
+		AgentCline: lipgloss.NewStyle().
+			Foreground(ColorCline),
 
 		AgentCursor: lipgloss.NewStyle().
 			Foreground(ColorCursor),
