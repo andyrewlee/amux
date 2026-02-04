@@ -394,13 +394,6 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 	var cmds []tea.Cmd
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab != nil && !tab.isClosed() {
-		// Debug: log all PTY output to understand activity patterns
-		// Show first 50 bytes as hex to identify what kind of output this is
-		preview := msg.Data
-		if len(preview) > 50 {
-			preview = preview[:50]
-		}
-		logging.Info("PTYOutput: workspace=%s tab=%s bytes=%d preview=%q", msg.WorkspaceID, msg.TabID, len(msg.Data), string(preview))
 		m.tracePTYOutput(tab, msg.Data)
 		tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
 		if len(tab.pendingOutput) > ptyMaxBufferedBytes {

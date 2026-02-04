@@ -33,12 +33,6 @@ type WorkspacePreviewed struct {
 	Workspace *data.Workspace
 }
 
-// MarkWorkspaceReadTick is sent after a delay to mark a workspace as read.
-// The WorkspaceID is checked against the pending state to avoid stale marks.
-type MarkWorkspaceReadTick struct {
-	WorkspaceID string
-}
-
 // WorkspaceCreated is sent when a new workspace is created
 type WorkspaceCreated struct {
 	Workspace *data.Workspace
@@ -493,9 +487,4 @@ type ActionBarOpenMR struct {
 // ShowCommitDialog requests showing the commit message dialog
 type ShowCommitDialog struct {
 	WorkspaceRoot string
-}
-
-// WorkspaceMarkUnread is sent when a workspace receives output while not active
-type WorkspaceMarkUnread struct {
-	WorkspaceID string
 }

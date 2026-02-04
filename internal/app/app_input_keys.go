@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"runtime/debug"
-	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -44,18 +43,8 @@ func (a *App) safeBatch(cmds ...tea.Cmd) tea.Cmd {
 	return tea.Batch(safe...)
 }
 
-// unreadGracePeriod is the duration after tab creation during which we don't
-// mark workspaces as unread or show spurious spinners. This prevents false positives
-// from output that can occur on all terminals when a new tmux session is created.
-const unreadGracePeriod = 3 * time.Second
-
-// markReadDelay is the delay before marking a workspace as read when navigating.
-// This prevents immediately clearing unread state when quickly cycling through workspaces.
-const markReadDelay = 400 * time.Millisecond
-
 // syncActiveWorkspacesToDashboard syncs the active workspace state from center to dashboard.
 // This ensures the dashboard has current data for spinner state decisions.
-// Also detects when agents complete (state 2→1 or 2→0) and marks non-active workspaces as unread.
 // Returns a command to start the spinner if any agent is running.
 func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 	activeWorkspaces := make(map[string]bool)
@@ -66,53 +55,7 @@ func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
-
-	// Get current agent states and detect completion transitions
-	newStates := a.center.GetWorkspaceAgentStates()
-
-	// Check for agents that finished (went from state 2 to state ≤1)
-	// Only detect transitions for workspaces we were already tracking
-	// to avoid false positives when workspaces are created/reloaded
-	//
-	// Also skip marking unread during the grace period after tab creation,
-	// because creating a new tmux session can cause spurious output on all terminals.
-	inGracePeriod := !a.lastTabCreatedAt.IsZero() && time.Since(a.lastTabCreatedAt) < unreadGracePeriod
-
-	activeWsID := ""
-	if a.activeWorkspace != nil {
-		activeWsID = string(a.activeWorkspace.ID())
-	}
-
-	if !inGracePeriod {
-		for wsID, newState := range newStates {
-			prevState, wasTracked := a.prevAgentStates[wsID]
-			// Agent finished: was actively processing (2), now idle/waiting (≤1)
-			// Only trigger if we were already tracking this workspace
-			if wasTracked && prevState >= 2 && newState < 2 {
-				// Only mark as unread if this isn't the workspace we're viewing
-				if wsID != activeWsID {
-					a.dashboard.SetWorkspaceUnread(wsID, true)
-				}
-			}
-		}
-	} else {
-		// During grace period, suppress "active" state (spinner) for non-current workspaces
-		// to avoid showing spinners on all workspaces due to spurious output
-		for wsID, state := range newStates {
-			if wsID != activeWsID && state >= 2 {
-				// Downgrade from "active" (2) to "running" (1) for non-current workspaces
-				newStates[wsID] = 1
-			}
-		}
-	}
-
-	// Update previous states for next comparison
-	a.prevAgentStates = make(map[string]int)
-	for wsID, state := range newStates {
-		a.prevAgentStates[wsID] = state
-	}
-
-	return a.dashboard.SetWorkspaceAgentStates(newStates)
+	return a.dashboard.SetWorkspaceAgentStates(a.center.GetWorkspaceAgentStates())
 }
 
 // handleKeyPress handles keyboard input
@@ -260,14 +203,4 @@ func (a *App) activateCenterButton() tea.Cmd {
 		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 	}
 	return nil
-}
-
-// scheduleMarkAsRead returns a command that will send a MarkWorkspaceReadTick
-// after the markReadDelay. The tick includes the workspace ID so we can verify
-// the user hasn't navigated away before actually marking as read.
-func (a *App) scheduleMarkAsRead(wsID string) tea.Cmd {
-	return func() tea.Msg {
-		time.Sleep(markReadDelay)
-		return messages.MarkWorkspaceReadTick{WorkspaceID: wsID}
-	}
 }

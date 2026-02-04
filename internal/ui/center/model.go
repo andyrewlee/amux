@@ -62,7 +62,6 @@ type Tab struct {
 	pendingOutput     []byte
 	flushScheduled    bool
 	lastOutputAt      time.Time
-	lastInputAt       time.Time // When user last sent input (to detect echo vs agent output)
 	flushPendingSince time.Time
 	ptyRows           int
 	ptyCols           int

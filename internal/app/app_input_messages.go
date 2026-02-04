@@ -63,12 +63,6 @@ func generateWorkspaceName(project *data.Project) string {
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.projects = msg.Projects
 	a.dashboard.SetProjects(a.projects)
-
-	// Reset agent state tracking to avoid false positive transitions during
-	// workspace creation/reload. The state tracking will be rebuilt on the
-	// next sync cycle, preventing spurious unread notifications.
-	a.prevAgentStates = make(map[string]int)
-
 	var cmds []tea.Cmd
 	cmds = append(cmds, a.scanTmuxActivityNow())
 	// Request git status for all workspaces (skip when sidebar is hidden)
@@ -157,18 +151,6 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.showWelcome = false
 	a.centerBtnFocused = false
 	a.centerBtnIndex = 0
-
-	// Schedule delayed mark-as-read when workspace becomes active.
-	// This prevents immediately clearing unread state when quickly cycling.
-	if msg.Workspace != nil {
-		wsID := string(msg.Workspace.ID())
-		a.pendingMarkReadWsID = wsID
-		cmds = append(cmds, a.scheduleMarkAsRead(wsID))
-	} else {
-		// Clear pending so navigating away cancels any in-flight tick
-		a.pendingMarkReadWsID = ""
-	}
-
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
 	// Discover shared tmux tabs first; restore/sync happens below.
@@ -332,18 +314,6 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 	a.showWelcome = false
 	a.centerBtnFocused = false
 	a.centerBtnIndex = 0
-
-	// Schedule delayed mark-as-read when workspace is previewed (cursor navigation).
-	// This prevents immediately clearing unread state when quickly cycling.
-	if msg.Workspace != nil {
-		wsID := string(msg.Workspace.ID())
-		a.pendingMarkReadWsID = wsID
-		cmds = append(cmds, a.scheduleMarkAsRead(wsID))
-	} else {
-		// Clear pending so navigating away cancels any in-flight tick
-		a.pendingMarkReadWsID = ""
-	}
-
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
@@ -905,16 +875,6 @@ func (a *App) handleLaunchAgent(msg messages.LaunchAgent) tea.Cmd {
 // handleTabCreated handles the TabCreated message.
 func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 	logging.Info("Tab created: %s", msg.Name)
-
-	// Reset agent state tracking to avoid false positive transitions during
-	// tab creation. Similar to handleWorkspaceCreated, this prevents existing
-	// workspaces from being marked as unread due to timing-based state fluctuations.
-	a.prevAgentStates = make(map[string]int)
-
-	// Set grace period timestamp - during this time, we won't mark workspaces as unread
-	// because tmux/agent startup can cause spurious output on all terminals
-	a.lastTabCreatedAt = time.Now()
-
 	cmd := a.center.StartPTYReaders()
 	// Only auto-focus center pane if a workspace is already active.
 	// During startup, tabs are restored but we want to keep focus on dashboard

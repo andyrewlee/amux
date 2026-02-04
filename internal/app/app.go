@@ -143,17 +143,6 @@ type App struct {
 	tmuxActiveWorkspaceIDs map[string]bool
 	sessionActivityStates  map[string]*sessionActivityState // Per-session hysteresis state
 
-	// Previous agent states for detecting completion transitions
-	prevAgentStates map[string]int
-
-	// Grace period after tab creation - during this time, don't mark workspaces as unread
-	// to avoid false positives from output that occurs during agent startup
-	lastTabCreatedAt time.Time
-
-	// Delayed mark-as-read: when cycling through workspaces quickly, we delay
-	// marking them as read to avoid immediately clearing unread state.
-	pendingMarkReadWsID string
-
 	// Auto-start agent: stores workspace root for post-creation auto-launch.
 	// pendingAutoLaunch is set in handleWorkspaceCreated and consumed by
 	// handleProjectsLoaded once the workspace appears in the loaded projects.
@@ -336,7 +325,6 @@ func New(version, commit, date string) (*App, error) {
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
 		sessionActivityStates:  make(map[string]*sessionActivityState),
 		dirtyWorkspaces:        make(map[string]bool),
-		prevAgentStates:        make(map[string]int),
 	}
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()

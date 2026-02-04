@@ -86,12 +86,6 @@ func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWit
 // handleWorkspaceCreated handles the WorkspaceCreated message.
 func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 	var cmds []tea.Cmd
-
-	// Reset agent state tracking immediately to avoid false positive transitions
-	// during workspace creation. This prevents existing workspaces from being
-	// marked as unread due to timing-based state fluctuations.
-	a.prevAgentStates = make(map[string]int)
-
 	if msg.Workspace != nil {
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)

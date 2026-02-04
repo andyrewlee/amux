@@ -1,8 +1,6 @@
 package center
 
 import (
-	"time"
-
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
@@ -281,7 +279,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				input := common.KeyToBytes(msg)
 				if len(input) > 0 {
 					logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
-					tab.lastInputAt = time.Now() // Track input time to distinguish echo from agent output
 					if m.isTabActorReady() {
 						if !m.sendTabEvent(tabEvent{
 							tab:         tab,
