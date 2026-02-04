@@ -13,6 +13,115 @@ import (
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
+func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
+	result, ok := msg.(common.DialogResult)
+	if !ok {
+		return false, nil
+	}
+	logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
+	switch result.ID {
+	case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
+		return true, a.safeCmd(a.handleDialogResult(result))
+	}
+	// If not an App-level dialog, let it fall through to components.
+	newCenter, cmd := a.center.Update(msg)
+	a.center = newCenter
+	return true, a.safeCmd(cmd)
+}
+
+func (a *App) handleHelpOverlayInput(msg tea.Msg) (bool, tea.Cmd) {
+	if !a.helpOverlay.Visible() {
+		return false, nil
+	}
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		var cmd tea.Cmd
+		a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
+		return true, a.safeCmd(cmd)
+	case tea.MouseWheelMsg:
+		a.helpOverlay, _, _ = a.helpOverlay.Update(msg)
+		return true, nil
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
+			// First check if clicking on a link inside the dialog
+			var cmd tea.Cmd
+			a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
+			if cmd != nil {
+				return true, a.safeCmd(cmd)
+			}
+			// Close if clicking outside the dialog
+			if !a.helpOverlay.ContainsClick(msg.X, msg.Y) {
+				a.helpOverlay.Hide()
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (a *App) handleErrorOverlayDismiss(msg tea.Msg) bool {
+	mouseMsg, ok := msg.(tea.MouseClickMsg)
+	if !ok || mouseMsg.Button != tea.MouseLeft {
+		return false
+	}
+	if a.err == nil {
+		return false
+	}
+	a.err = nil
+	return true
+}
+
+func (a *App) handleDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
+	if a.dialog == nil || !a.dialog.Visible() {
+		return false
+	}
+	newDialog, cmd := a.dialog.Update(msg)
+	a.dialog = newDialog
+	if cmd != nil {
+		*cmds = append(*cmds, cmd)
+	}
+	// Don't process other input while dialog is open.
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.PasteMsg, tea.MouseClickMsg:
+		return true
+	}
+	return false
+}
+
+func (a *App) handleFilePickerInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
+	if a.filePicker == nil || !a.filePicker.Visible() {
+		return false
+	}
+	newPicker, cmd := a.filePicker.Update(msg)
+	a.filePicker = newPicker
+	if cmd != nil {
+		*cmds = append(*cmds, cmd)
+	}
+	// Don't process other input while file picker is open.
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.PasteMsg, tea.MouseClickMsg:
+		return true
+	}
+	return false
+}
+
+func (a *App) handleSettingsDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
+	if a.settingsDialog == nil || !a.settingsDialog.Visible() {
+		return false
+	}
+	newSettings, cmd := a.settingsDialog.Update(msg)
+	a.settingsDialog = newSettings
+	if cmd != nil {
+		*cmds = append(*cmds, cmd)
+	}
+	// Don't process other input while settings dialog is open.
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.MouseClickMsg:
+		return true
+	}
+	return false
+}
+
 // handleDialogResult handles dialog completion
 func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	project := a.dialogProject
@@ -159,10 +268,13 @@ func (a *App) handleTriggerUpgrade() tea.Cmd {
 		return nil
 	}
 	a.upgradeRunning = true
+	svc := a.updateService
 	return func() tea.Msg {
-		updater := update.NewUpdater(a.version, a.commit, a.buildDate)
+		if svc == nil {
+			return messages.UpgradeComplete{Err: fmt.Errorf("update service unavailable")}
+		}
 		// Get the latest release
-		result, err := updater.Check()
+		result, err := svc.Check()
 		if err != nil {
 			return messages.UpgradeComplete{Err: err}
 		}
@@ -170,7 +282,7 @@ func (a *App) handleTriggerUpgrade() tea.Cmd {
 			return messages.UpgradeComplete{Err: fmt.Errorf("no release found")}
 		}
 		// Perform the upgrade
-		if err := updater.Upgrade(result.Release); err != nil {
+		if err := svc.Upgrade(result.Release); err != nil {
 			return messages.UpgradeComplete{Err: err}
 		}
 		return messages.UpgradeComplete{NewVersion: result.Release.TagName}

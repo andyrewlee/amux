@@ -23,21 +23,13 @@ type tmuxActivityResult struct {
 }
 
 const (
-	// tmuxActivityPrefilter is a longer window used to filter sessions before
-	// doing the more expensive screen-delta check. Sessions with no activity
-	// in this window are definitely not active.
-	tmuxActivityPrefilter = 120 * time.Second
-	tmuxActivityInterval  = 2 * time.Second
-
 	// Hysteresis thresholds for screen-delta activity detection.
 	// Requires sustained changes to become active, prevents flicker from
 	// periodic terminal refreshes (e.g., sponsor messages every ~30s).
 	// With increment=2 and threshold=3, at least 2 consecutive changes are
 	// needed to reach active state (first change: 2, second change: 4 >= 3).
-	activityScoreThreshold = 3               // Score needed to be considered active
-	activityScoreMax       = 6               // Maximum score (prevents runaway accumulation)
-	activityHoldDuration   = 6 * time.Second // Hold active state after last change
-	activityCaptureTail    = 50              // Lines to capture for delta detection
+	activityScoreThreshold = 3 // Score needed to be considered active
+	activityScoreMax       = 6 // Maximum score (prevents runaway accumulation)
 )
 
 // sessionActivityState tracks per-session activity using screen-delta hysteresis.
@@ -85,15 +77,19 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 	infoBySession := a.tabSessionInfoByName()
 	statesSnapshot := a.snapshotActivityStates()
 	opts := a.tmuxOptions
-	if opts.CommandTimeout <= 0 || opts.CommandTimeout > 2*time.Second {
-		opts.CommandTimeout = 2 * time.Second
+	if opts.CommandTimeout <= 0 || opts.CommandTimeout > tmuxCommandTimeout {
+		opts.CommandTimeout = tmuxCommandTimeout
 	}
+	svc := a.tmuxService
 	return func() tea.Msg {
-		sessions, err := tmux.ActiveAgentSessionsByActivity(tmuxActivityPrefilter, opts)
+		if svc == nil {
+			return tmuxActivityResult{Token: scanToken, Err: errTmuxUnavailable}
+		}
+		sessions, err := svc.ActiveAgentSessionsByActivity(tmuxActivityPrefilter, opts)
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
-		active, updatedStates := activeWorkspaceIDsWithHysteresis(infoBySession, sessions, statesSnapshot, opts)
+		active, updatedStates := activeWorkspaceIDsWithHysteresis(infoBySession, sessions, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates}
 	}
 }
@@ -112,15 +108,19 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 	sessionInfo := a.tabSessionInfoByName()
 	statesSnapshot := a.snapshotActivityStates()
 	opts := a.tmuxOptions
-	if opts.CommandTimeout <= 0 || opts.CommandTimeout > 2*time.Second {
-		opts.CommandTimeout = 2 * time.Second
+	if opts.CommandTimeout <= 0 || opts.CommandTimeout > tmuxCommandTimeout {
+		opts.CommandTimeout = tmuxCommandTimeout
 	}
+	svc := a.tmuxService
 	cmds := []tea.Cmd{a.scheduleTmuxActivityTick(), func() tea.Msg {
-		sessions, err := tmux.ActiveAgentSessionsByActivity(tmuxActivityPrefilter, opts)
+		if svc == nil {
+			return tmuxActivityResult{Token: scanToken, Err: errTmuxUnavailable}
+		}
+		sessions, err := svc.ActiveAgentSessionsByActivity(tmuxActivityPrefilter, opts)
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
-		active, updatedStates := activeWorkspaceIDsWithHysteresis(sessionInfo, sessions, statesSnapshot, opts)
+		active, updatedStates := activeWorkspaceIDsWithHysteresis(sessionInfo, sessions, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates}
 	}}
 	return cmds
@@ -204,6 +204,8 @@ func activeWorkspaceIDsWithHysteresis(
 	sessions []tmux.SessionActivity,
 	states map[string]*sessionActivityState,
 	opts tmux.Options,
+	captureFn func(sessionName string, lines int, opts tmux.Options) (string, bool),
+	hashFn func(content string) [16]byte,
 ) (map[string]bool, map[string]*sessionActivityState) {
 	active := make(map[string]bool)
 	updatedStates := make(map[string]*sessionActivityState)
@@ -226,9 +228,9 @@ func activeWorkspaceIDsWithHysteresis(
 		}
 
 		// Capture pane content and compute hash
-		content, captureOK := tmux.CapturePaneTail(session.Name, activityCaptureTail, opts)
+		content, captureOK := captureFn(session.Name, activityCaptureTail, opts)
 		if captureOK {
-			hash := tmux.ContentHash(content)
+			hash := hashFn(content)
 
 			// Update hysteresis score based on content change
 			if !state.initialized {
@@ -346,9 +348,15 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 	if !msg.available {
 		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
 	}
-	_ = tmux.SetMonitorActivityOn(a.tmuxOptions)
-	_ = tmux.SetStatusOff(a.tmuxOptions)
-	return []tea.Cmd{a.scanTmuxActivityNow()}
+	cmds := []tea.Cmd{a.scanTmuxActivityNow()}
+	if a.tmuxService != nil {
+		cmds = append(cmds, func() tea.Msg {
+			_ = a.tmuxService.SetMonitorActivityOn(a.tmuxOptions)
+			_ = a.tmuxService.SetStatusOff(a.tmuxOptions)
+			return nil
+		})
+	}
+	return cmds
 }
 
 // resetAllTabStatuses marks all non-stopped tabs as stopped and schedules

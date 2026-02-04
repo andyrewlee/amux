@@ -43,7 +43,11 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 	}
 	knownIDs := a.collectKnownWorkspaceIDs()
 	opts := a.tmuxOptions
+	svc := a.tmuxService
 	return func() tea.Msg {
+		if svc == nil {
+			return orphanGCResult{Err: errTmuxUnavailable}
+		}
 		byWorkspace, err := a.amuxSessionsByWorkspace(opts)
 		if err != nil {
 			return orphanGCResult{Err: err}
@@ -54,7 +58,7 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 				continue
 			}
 			for _, name := range sessions {
-				if err := tmux.KillSession(name, opts); err != nil {
+				if err := svc.KillSession(name, opts); err != nil {
 					logging.Warn("orphan GC: failed to kill session %s: %v", name, err)
 				} else {
 					killed++
@@ -71,11 +75,14 @@ func (a *App) gcStaleTerminalSessions() tea.Cmd {
 }
 
 func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]string, error) {
+	if a.tmuxService == nil {
+		return nil, errTmuxUnavailable
+	}
 	match := map[string]string{"@amux": "1"}
 	if a.instanceID != "" {
 		match["@amux_instance"] = a.instanceID
 	}
-	rows, err := tmux.SessionsWithTags(match, []string{"@amux_workspace"}, opts)
+	rows, err := a.tmuxService.SessionsWithTags(match, []string{"@amux_workspace"}, opts)
 	if err != nil {
 		return nil, err
 	}

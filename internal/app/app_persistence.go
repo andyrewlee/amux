@@ -10,13 +10,10 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// persistDebounce is the delay before writing workspace state to disk.
-const persistDebounce = 500 * time.Millisecond
-
 // persistAllWorkspacesNow saves all workspace tab state synchronously.
 // Called before shutdown to ensure tabs are persisted before they are closed.
 func (a *App) persistAllWorkspacesNow() {
-	if a.workspaces == nil || a.center == nil {
+	if a.workspaceService == nil || a.center == nil {
 		return
 	}
 	for _, project := range a.projects {
@@ -30,7 +27,7 @@ func (a *App) persistAllWorkspacesNow() {
 			ws.OpenTabs = tabs
 			ws.ActiveTabIndex = activeIdx
 			snap := snapshotWorkspaceForSave(ws)
-			if err := a.workspaces.Save(snap); err != nil {
+			if err := a.workspaceService.Save(snap); err != nil {
 				logging.Warn("Failed to persist workspace on shutdown: %v", err)
 			}
 		}
@@ -97,10 +94,10 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	if len(snapshots) == 0 {
 		return nil
 	}
-	store := a.workspaces
+	service := a.workspaceService
 	return func() tea.Msg {
 		for _, snap := range snapshots {
-			if err := store.Save(snap); err != nil {
+			if err := service.Save(snap); err != nil {
 				logging.Warn("Failed to save workspace tabs: %v", err)
 			}
 		}

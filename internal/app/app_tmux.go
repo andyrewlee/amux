@@ -17,19 +17,23 @@ func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
 	}
 	wsID := string(ws.ID())
 	opts := a.tmuxOptions
+	svc := a.tmuxService
 	return func() tea.Msg {
+		if svc == nil {
+			return nil
+		}
 		tags := map[string]string{
 			"@amux":           "1",
 			"@amux_workspace": wsID,
 		}
-		cleaned, err := tmux.KillSessionsMatchingTags(tags, opts)
+		cleaned, err := svc.KillSessionsMatchingTags(tags, opts)
 		if err != nil {
 			logging.Warn("Failed to cleanup tmux sessions for workspace %s: %v", ws.Name, err)
 		}
 		if cleaned {
 			logging.Info("Cleaned up @amux tmux sessions for workspace %s", ws.Name)
 		}
-		if err := tmux.KillWorkspaceSessions(wsID, opts); err != nil {
+		if err := svc.KillWorkspaceSessions(wsID, opts); err != nil {
 			logging.Warn("Failed to cleanup tmux sessions for workspace %s: %v", ws.Name, err)
 		}
 		return nil
@@ -38,15 +42,19 @@ func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
 
 func (a *App) cleanupAllTmuxSessions() tea.Cmd {
 	opts := a.tmuxOptions
+	svc := a.tmuxService
 	return func() tea.Msg {
-		cleanedTagged, err := tmux.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
+		if svc == nil {
+			return messages.Toast{Message: "tmux cleanup unavailable", Level: messages.ToastWarning}
+		}
+		cleanedTagged, err := svc.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
 		if err != nil {
 			logging.Warn("Failed to cleanup tmux sessions by tag: %v", err)
 		} else if cleanedTagged {
 			logging.Info("Cleaned up @amux tmux sessions")
 		}
 		prefix := tmux.SessionName("amux") + "-"
-		if err := tmux.KillSessionsWithPrefix(prefix, opts); err != nil {
+		if err := svc.KillSessionsWithPrefix(prefix, opts); err != nil {
 			return messages.Toast{Message: fmt.Sprintf("tmux cleanup failed: %v", err), Level: messages.ToastWarning}
 		}
 		if cleanedTagged {

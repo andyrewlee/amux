@@ -103,6 +103,21 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	return focusCmd
 }
 
+func (a *App) handleMouseMsg(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		return a.routeMouseClick(msg)
+	case tea.MouseWheelMsg:
+		return a.routeMouseWheel(msg)
+	case tea.MouseMotionMsg:
+		return a.routeMouseMotion(msg)
+	case tea.MouseReleaseMsg:
+		return a.routeMouseRelease(msg)
+	default:
+		return nil
+	}
+}
+
 // routeMouseWheel routes mouse wheel events to the appropriate pane.
 func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 	switch a.focusedPane {

@@ -9,8 +9,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-const stateWatcherDebounce = 200 * time.Millisecond
-
 type stateWatcher struct {
 	watcher *fsnotify.Watcher
 

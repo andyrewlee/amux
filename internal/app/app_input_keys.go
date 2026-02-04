@@ -19,7 +19,7 @@ func (a *App) safeCmd(cmd tea.Cmd) tea.Cmd {
 		defer func() {
 			if r := recover(); r != nil {
 				logging.Error("panic in command: %v\n%s", r, debug.Stack())
-				msg = messages.Error{Err: fmt.Errorf("command panic: %v", r), Context: "command"}
+				msg = messages.Error{Err: fmt.Errorf("command panic: %v", r), Context: "command", Logged: true}
 			}
 		}()
 		return cmd()
@@ -150,6 +150,43 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 	return nil
+}
+
+func (a *App) handleKeyboardEnhancements(msg tea.KeyboardEnhancementsMsg) {
+	a.keyboardEnhancements = msg
+	logging.Info("Keyboard enhancements: disambiguation=%t event_types=%t", msg.SupportsKeyDisambiguation(), msg.SupportsEventTypes())
+}
+
+func (a *App) handleWindowSize(msg tea.WindowSizeMsg) {
+	a.width = msg.Width
+	a.height = msg.Height
+	a.ready = true
+	a.layout.Resize(msg.Width, msg.Height)
+	a.updateLayout()
+	// Update help overlay size for accurate hit-testing after resize
+	if a.helpOverlay.Visible() {
+		a.helpOverlay.SetSize(a.width, a.height)
+	}
+}
+
+func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {
+	switch a.focusedPane {
+	case messages.PaneCenter:
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		return cmd
+	case messages.PaneSidebarTerminal:
+		newTerm, cmd := a.sidebarTerminal.Update(msg)
+		a.sidebarTerminal = newTerm
+		return cmd
+	}
+	return nil
+}
+
+func (a *App) handlePrefixTimeout(msg prefixTimeoutMsg) {
+	if msg.token == a.prefixToken && a.prefixActive {
+		a.exitPrefix()
+	}
 }
 
 // centerButtonCount returns the number of buttons shown on the current center screen

@@ -9,7 +9,6 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
@@ -48,13 +47,17 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 		existing[tab.SessionName] = struct{}{}
 	}
 	opts := a.tmuxOptions
+	svc := a.tmuxService
 	return func() tea.Msg {
+		if svc == nil {
+			return nil
+		}
 		match := map[string]string{
 			"@amux":           "1",
 			"@amux_workspace": wsID,
 			"@amux_type":      "agent",
 		}
-		rows, err := tmux.SessionsWithTags(match, []string{"@amux_assistant", "@amux_created_at"}, opts)
+		rows, err := svc.SessionsWithTags(match, []string{"@amux_assistant", "@amux_created_at"}, opts)
 		if err != nil {
 			logging.Warn("tmux session discovery failed: %v", err)
 			return nil
@@ -80,7 +83,7 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 				createdAt, _ = strconv.ParseInt(raw, 10, 64)
 			}
 			if createdAt == 0 {
-				if fallback, err := tmux.SessionCreatedAt(row.Name, opts); err == nil {
+				if fallback, err := svc.SessionCreatedAt(row.Name, opts); err == nil {
 					createdAt = fallback
 				}
 			}
@@ -127,13 +130,17 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 	}
 	opts := a.tmuxOptions
 	instanceID := a.instanceID
+	svc := a.tmuxService
 	return func() tea.Msg {
+		if svc == nil {
+			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
+		}
 		match := map[string]string{
 			"@amux":           "1",
 			"@amux_workspace": wsID,
 			"@amux_type":      "terminal",
 		}
-		rows, err := tmux.SessionsWithTags(match, []string{"@amux_instance", "@amux_created_at"}, opts)
+		rows, err := svc.SessionsWithTags(match, []string{"@amux_instance", "@amux_created_at"}, opts)
 		if err != nil {
 			logging.Warn("tmux sidebar discovery failed: %v", err)
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
@@ -143,13 +150,13 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			if row.Name == "" {
 				continue
 			}
-			state, err := tmux.SessionStateFor(row.Name, opts)
+			state, err := svc.SessionStateFor(row.Name, opts)
 			if err != nil || !state.Exists || !state.HasLivePane {
 				continue
 			}
 			// Assume clients exist on error to avoid detaching other sessions.
 			attached := true
-			if value, err := tmux.SessionHasClients(row.Name, opts); err == nil {
+			if value, err := svc.SessionHasClients(row.Name, opts); err == nil {
 				attached = value
 			}
 			rowInstanceID := strings.TrimSpace(row.Tags["@amux_instance"])
@@ -158,7 +165,7 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 				createdAt, _ = strconv.ParseInt(raw, 10, 64)
 			}
 			if createdAt == 0 {
-				if fallback, err := tmux.SessionCreatedAt(row.Name, opts); err == nil {
+				if fallback, err := svc.SessionCreatedAt(row.Name, opts); err == nil {
 					createdAt = fallback
 				}
 			}

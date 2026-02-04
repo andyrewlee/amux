@@ -36,7 +36,9 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 
 // handleFileWatcherEvent handles the FileWatcherEvent message.
 func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
-	a.statusManager.Invalidate(msg.Root)
+	if a.gitStatus != nil {
+		a.gitStatus.Invalidate(msg.Root)
+	}
 	a.dashboard.InvalidateStatus(msg.Root)
 	return []tea.Cmd{
 		a.requestGitStatus(msg.Root),

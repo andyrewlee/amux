@@ -4,11 +4,9 @@ import (
 	"context"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -24,159 +22,9 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
-	"github.com/andyrewlee/amux/internal/update"
 )
 
-// DialogID constants
-const (
-	DialogAddProject      = "add_project"
-	DialogCreateWorkspace = "create_workspace"
-	DialogDeleteWorkspace = "delete_workspace"
-	DialogRemoveProject   = "remove_project"
-	DialogSelectAssistant = "select_assistant"
-	DialogQuit            = "quit"
-	DialogCleanupTmux     = "cleanup_tmux"
-)
-
-// Prefix mode constants
-const (
-	prefixTimeout = 700 * time.Millisecond
-)
-
-// prefixTimeoutMsg is sent when the prefix mode timer expires
-type prefixTimeoutMsg struct {
-	token int
-}
-
-// App is the root Bubbletea model
-type App struct {
-	// Configuration
-	config     *config.Config
-	registry   *data.Registry
-	workspaces *data.WorkspaceStore
-
-	// State
-	projects        []data.Project
-	activeWorkspace *data.Workspace
-	activeProject   *data.Project
-	focusedPane     messages.PaneType
-	showWelcome     bool
-
-	// Update state
-	updateAvailable *update.CheckResult // nil if no update or dismissed
-	version         string
-	commit          string
-	buildDate       string
-	upgradeRunning  bool
-
-	// Button focus state for welcome/workspace info screens
-	centerBtnFocused bool
-	centerBtnIndex   int
-
-	// UI Components
-	layout          *layout.Manager
-	dashboard       *dashboard.Model
-	center          *center.Model
-	sidebar         *sidebar.TabbedSidebar
-	sidebarTerminal *sidebar.TerminalModel
-	dialog          *common.Dialog
-	filePicker      *common.FilePicker
-	settingsDialog  *common.SettingsDialog
-
-	// Overlays
-	helpOverlay *common.HelpOverlay
-	toast       *common.ToastModel
-
-	// Dialog context
-	dialogProject   *data.Project
-	dialogWorkspace *data.Workspace
-
-	// Process management
-	scripts *process.ScriptRunner
-
-	// Git status management
-	statusManager   *git.StatusManager
-	fileWatcher     *git.FileWatcher
-	fileWatcherCh   chan messages.FileWatcherEvent
-	fileWatcherErr  error
-	stateWatcher    *stateWatcher
-	stateWatcherCh  chan messages.StateWatcherEvent
-	stateWatcherErr error
-
-	// Layout
-	width, height int
-	keymap        KeyMap
-	styles        common.Styles
-	canvas        *lipgloss.Canvas
-	// Lifecycle
-	ready        bool
-	quitting     bool
-	err          error
-	shutdownOnce sync.Once
-	ctx          context.Context
-	supervisor   *supervisor.Supervisor
-	// Prefix mode (leader key)
-	prefixActive bool
-	prefixToken  int
-
-	tmuxSyncToken          int
-	tmuxActivityToken      int
-	tmuxOptions            tmux.Options
-	tmuxAvailable          bool
-	tmuxCheckDone          bool
-	projectsLoaded         bool
-	tmuxInstallHint        string
-	tmuxActiveWorkspaceIDs map[string]bool
-	sessionActivityStates  map[string]*sessionActivityState // Per-session hysteresis state
-	instanceID             string
-	lastTerminalGCRun      time.Time
-
-	// Workspace persistence debounce
-	dirtyWorkspaces map[string]bool
-	persistToken    int
-
-	// Workspaces in creation flow (not yet loaded into projects list)
-	creatingWorkspaceIDs map[string]bool
-
-	// Terminal capabilities
-	keyboardEnhancements tea.KeyboardEnhancementsMsg
-
-	// Perf tracking
-	lastInputAt         time.Time
-	pendingInputLatency bool
-
-	// Chrome caches for layer-based rendering
-	dashboardChrome      *compositor.ChromeCache
-	centerChrome         *compositor.ChromeCache
-	sidebarChrome        *compositor.ChromeCache
-	dashboardContent     drawableCache
-	dashboardBorders     borderCache
-	sidebarTopTabBar     drawableCache
-	sidebarTopContent    drawableCache
-	sidebarBottomContent drawableCache
-	sidebarBottomTabBar  drawableCache
-	sidebarBottomStatus  drawableCache
-	sidebarBottomHelp    drawableCache
-	sidebarTopBorders    borderCache
-	sidebarBottomBorders borderCache
-	centerTabBar         drawableCache
-	centerStatus         drawableCache
-	centerHelp           drawableCache
-	centerBorders        borderCache
-
-	// External message pump (for PTY readers)
-	externalMsgs     chan tea.Msg
-	externalCritical chan tea.Msg
-	externalSender   func(tea.Msg)
-	externalOnce     sync.Once
-}
-
-func (a *App) markInput() {
-	a.lastInputAt = time.Now()
-	a.pendingInputLatency = true
-}
-
-// New creates a new App instance
+// New creates a new App instance.
 func New(version, commit, date string) (*App, error) {
 	cfg, err := config.DefaultConfig()
 	if err != nil {
@@ -193,9 +41,14 @@ func New(version, commit, date string) (*App, error) {
 	registry := data.NewRegistry(cfg.Paths.RegistryPath)
 	workspaces := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
+	workspaceService := newWorkspaceService(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot)
 
 	// Create status manager (callback will be nil, we use it for caching only)
 	statusManager := git.NewStatusManager(nil)
+	gitStatus := newGitStatusService(statusManager)
+
+	tmuxSvc := newTmuxService(nil)
+	updateSvc := newUpdateService(version, commit, date)
 
 	// Create file watcher event channel
 	fileWatcherCh := make(chan messages.FileWatcherEvent, 10)
@@ -232,10 +85,10 @@ func New(version, commit, date string) (*App, error) {
 	ctx := context.Background()
 	app := &App{
 		config:                 cfg,
-		registry:               registry,
-		workspaces:             workspaces,
-		scripts:                scripts,
-		statusManager:          statusManager,
+		workspaceService:       workspaceService,
+		gitStatus:              gitStatus,
+		tmuxService:            tmuxSvc,
+		updateService:          updateSvc,
 		fileWatcher:            fileWatcher,
 		fileWatcherCh:          fileWatcherCh,
 		fileWatcherErr:         fileWatcherErr,
@@ -258,8 +111,8 @@ func New(version, commit, date string) (*App, error) {
 		version:                version,
 		commit:                 commit,
 		buildDate:              date,
-		externalMsgs:           make(chan tea.Msg, 4096),
-		externalCritical:       make(chan tea.Msg, 512),
+		externalMsgs:           make(chan tea.Msg, externalMsgBuffer),
+		externalCritical:       make(chan tea.Msg, externalCriticalBuffer),
 		ctx:                    ctx,
 		tmuxOptions:            tmuxOpts,
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
@@ -290,19 +143,19 @@ func New(version, commit, date string) (*App, error) {
 	app.center.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)
 	app.sidebarTerminal.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)
 	app.supervisor.Start("center.tab_actor", app.center.RunTabActor, supervisor.WithRestartPolicy(supervisor.RestartAlways))
-	if app.statusManager != nil {
-		app.supervisor.Start("git.status_manager", app.statusManager.Run)
+	if app.gitStatus != nil {
+		app.supervisor.Start("git.status_manager", app.gitStatus.Run)
 	}
 	if fileWatcher != nil {
-		app.supervisor.Start("git.file_watcher", fileWatcher.Run, supervisor.WithBackoff(500*time.Millisecond))
+		app.supervisor.Start("git.file_watcher", fileWatcher.Run, supervisor.WithBackoff(supervisorBackoff))
 	}
 	if stateWatcher != nil {
-		app.supervisor.Start("app.state_watcher", stateWatcher.Run, supervisor.WithBackoff(500*time.Millisecond))
+		app.supervisor.Start("app.state_watcher", stateWatcher.Run, supervisor.WithBackoff(supervisorBackoff))
 	}
 	return app, nil
 }
 
-// Init initializes the application
+// Init initializes the application.
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		a.loadProjects(),
@@ -329,35 +182,13 @@ func (a *App) Init() tea.Cmd {
 	return a.safeBatch(cmds...)
 }
 
-// Shutdown releases resources that may outlive the Bubble Tea program.
-func (a *App) Shutdown() {
-	a.shutdownOnce.Do(func() {
-		if a.supervisor != nil {
-			a.supervisor.Stop()
-		}
-		if a.fileWatcher != nil {
-			_ = a.fileWatcher.Close()
-		}
-		if a.stateWatcher != nil {
-			_ = a.stateWatcher.Close()
-		}
-		if a.center != nil {
-			a.center.Close()
-		}
-		if a.sidebarTerminal != nil {
-			a.sidebarTerminal.CloseAll()
-		}
-		if a.scripts != nil {
-			a.scripts.StopAll()
-		}
-	})
-}
-
 // checkForUpdates starts a background check for updates.
 func (a *App) checkForUpdates() tea.Cmd {
 	return func() tea.Msg {
-		updater := update.NewUpdater(a.version, a.commit, a.buildDate)
-		result, err := updater.Check()
+		if a.updateService == nil {
+			return messages.UpdateCheckComplete{}
+		}
+		result, err := a.updateService.Check()
 		if err != nil {
 			logging.Warn("Update check failed: %v", err)
 			return messages.UpdateCheckComplete{Err: err}
@@ -372,7 +203,7 @@ func (a *App) checkForUpdates() tea.Cmd {
 	}
 }
 
-// tmuxAvailableResult is sent after checking tmux availability
+// tmuxAvailableResult is sent after checking tmux availability.
 type tmuxAvailableResult struct {
 	available   bool
 	installHint string
@@ -380,28 +211,26 @@ type tmuxAvailableResult struct {
 
 func (a *App) checkTmuxAvailable() tea.Cmd {
 	return func() tea.Msg {
-		if err := tmux.EnsureAvailable(); err != nil {
-			return tmuxAvailableResult{available: false, installHint: tmux.InstallHint()}
+		if a.tmuxService == nil {
+			return tmuxAvailableResult{available: false, installHint: "tmux service unavailable"}
+		}
+		if err := a.tmuxService.EnsureAvailable(); err != nil {
+			return tmuxAvailableResult{available: false, installHint: a.tmuxService.InstallHint()}
 		}
 		return tmuxAvailableResult{available: true}
 	}
 }
 
-// IsTmuxAvailable returns whether tmux is installed and available.
-func (a *App) IsTmuxAvailable() bool {
-	return a.tmuxAvailable
-}
-
-// startGitStatusTicker returns a command that ticks every 3 seconds for git status refresh
+// startGitStatusTicker returns a command that ticks every 3 seconds for git status refresh.
 func (a *App) startGitStatusTicker() tea.Cmd {
-	return common.SafeTick(3*time.Second, func(t time.Time) tea.Msg {
+	return common.SafeTick(gitStatusTickInterval, func(t time.Time) tea.Msg {
 		return messages.GitStatusTick{}
 	})
 }
 
 // startPTYWatchdog ticks periodically to ensure PTY readers are running.
 func (a *App) startPTYWatchdog() tea.Cmd {
-	return common.SafeTick(5*time.Second, func(time.Time) tea.Msg {
+	return common.SafeTick(ptyWatchdogInterval, func(time.Time) tea.Msg {
 		return messages.PTYWatchdogTick{}
 	})
 }
@@ -416,15 +245,14 @@ func (a *App) startTmuxSyncTicker() tea.Cmd {
 }
 
 func (a *App) tmuxSyncInterval() time.Duration {
-	const defaultInterval = 7 * time.Second
 	value := strings.TrimSpace(os.Getenv("AMUX_TMUX_SYNC_INTERVAL"))
 	if value == "" {
-		return defaultInterval
+		return tmuxSyncDefaultInterval
 	}
 	interval, err := time.ParseDuration(value)
 	if err != nil || interval <= 0 {
-		logging.Warn("Invalid AMUX_TMUX_SYNC_INTERVAL=%q; using %s", value, defaultInterval)
-		return defaultInterval
+		logging.Warn("Invalid AMUX_TMUX_SYNC_INTERVAL=%q; using %s", value, tmuxSyncDefaultInterval)
+		return tmuxSyncDefaultInterval
 	}
 	return interval
 }
@@ -444,14 +272,7 @@ func applyTmuxEnvFromConfig(cfg *config.Config, force bool) {
 	setEnvIfNonEmpty("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
 }
 
-func (a *App) tmuxSyncWorkspaces() []*data.Workspace {
-	if a.activeWorkspace != nil {
-		return []*data.Workspace{a.activeWorkspace}
-	}
-	return nil
-}
-
-// startFileWatcher starts watching for file changes and returns events
+// startFileWatcher starts watching for file changes and returns events.
 func (a *App) startFileWatcher() tea.Cmd {
 	if a.fileWatcher == nil || a.fileWatcherCh == nil {
 		return nil

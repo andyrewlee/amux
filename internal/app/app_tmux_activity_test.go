@@ -63,7 +63,10 @@ func TestHysteresisWorkspaceExtraction(t *testing.T) {
 		"sess-cold":          {score: 0, initialized: true},
 	}
 
-	active, updated := activeWorkspaceIDsWithHysteresis(infoBySession, sessions, states, tmux.Options{})
+	captureFn := func(string, int, tmux.Options) (string, bool) { return "", false }
+	hashFn := func(string) [16]byte { return [16]byte{} }
+
+	active, updated := activeWorkspaceIDsWithHysteresis(infoBySession, sessions, states, tmux.Options{}, captureFn, hashFn)
 
 	// Workspace ID from session.WorkspaceID
 	if !active["ws-direct"] {

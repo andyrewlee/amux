@@ -253,53 +253,6 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 	}
 }
 
-// New creates a new center pane model
-func New(cfg *config.Config) *Model {
-	return &Model{
-		tabsByWorkspace:      make(map[string][]*Tab),
-		activeTabByWorkspace: make(map[string]int),
-		config:               cfg,
-		agentManager:         appPty.NewAgentManager(cfg),
-		styles:               common.DefaultStyles(),
-		tabEvents:            make(chan tabEvent, 4096),
-	}
-}
-
-// SetCanFocusRight controls whether focus-right hints should be shown.
-func (m *Model) SetCanFocusRight(can bool) {
-	m.canFocusRight = can
-}
-
-// SetShowKeymapHints controls whether helper text is rendered.
-func (m *Model) SetShowKeymapHints(show bool) {
-	m.showKeymapHints = show
-}
-
-// SetStyles updates the component's styles (for theme changes).
-func (m *Model) SetStyles(styles common.Styles) {
-	m.styles = styles
-	// Propagate to all viewers in tabs
-	for _, tabs := range m.tabsByWorkspace {
-		for _, tab := range tabs {
-			if tab != nil {
-				if tab.DiffViewer != nil {
-					tab.DiffViewer.SetStyles(styles)
-				}
-			}
-		}
-	}
-}
-
-// SetMsgSink sets a callback for PTY messages.
-func (m *Model) SetMsgSink(sink func(tea.Msg)) {
-	m.msgSink = sink
-}
-
-// TabEvents returns a channel for actor-style tab mutations.
-func (m *Model) TabEvents() chan tabEvent {
-	return m.tabEvents
-}
-
 func (m *Model) isTabActorReady() bool {
 	return atomic.LoadUint32(&m.tabActorReady) == 1
 }
@@ -428,34 +381,4 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 	if m.agentManager != nil {
 		m.agentManager.CloseWorkspaceAgents(ws)
 	}
-}
-
-// Init initializes the center pane
-func (m *Model) Init() tea.Cmd {
-	return nil
-}
-
-// Focus sets the focus state
-func (m *Model) Focus() {
-	m.focused = true
-}
-
-// Blur removes focus
-func (m *Model) Blur() {
-	m.focused = false
-}
-
-// Focused returns whether the center pane is focused
-func (m *Model) Focused() bool {
-	return m.focused
-}
-
-// SetWorkspace sets the active workspace
-func (m *Model) SetWorkspace(ws *data.Workspace) {
-	m.workspace = ws
-}
-
-// HasTabs returns whether there are any tabs for the current workspace
-func (m *Model) HasTabs() bool {
-	return len(m.getTabs()) > 0
 }

@@ -59,6 +59,10 @@ Then run `amux` to open the dashboard.
 
 Each workspace tracks a repo checkout and its metadata. For local workflows, workspaces are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done.
 
+## Architecture quick tour
+
+Start with `internal/app/ARCHITECTURE.md` for lifecycle, PTY flow, tmux tagging, and persistence invariants. Message boundaries and command discipline are documented in `internal/app/MESSAGE_FLOW.md`.
+
 ## Features
 
 - **Parallel agents**: Launch multiple agents within main repo and within workspaces

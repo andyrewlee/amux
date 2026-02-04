@@ -70,9 +70,7 @@ func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) te
 			return cmd
 		}
 	}
-	a.err = msg.Err
-	logging.Error("Error in creating workspace: %v", msg.Err)
-	return nil
+	return a.reportError("creating workspace", msg.Err, "")
 }
 
 // handleWorkspaceDeleted handles the WorkspaceDeleted message.
@@ -85,8 +83,8 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		if a.statusManager != nil {
-			a.statusManager.Invalidate(msg.Workspace.Root)
+		if a.gitStatus != nil {
+			a.gitStatus.Invalidate(msg.Workspace.Root)
 		}
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
@@ -110,7 +108,5 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 			return cmd
 		}
 	}
-	a.err = msg.Err
-	logging.Error("Error in removing workspace: %v", msg.Err)
-	return nil
+	return a.reportError("removing workspace", msg.Err, "")
 }
