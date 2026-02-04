@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// ExtractBinary extracts the amux binary from a tar.gz archive.
+// ExtractBinary extracts the medusa binary from a tar.gz archive.
 // Returns the path to the extracted binary.
 func ExtractBinary(archivePath string, destDir string) (string, error) {
 	f, err := os.Open(archivePath)
@@ -37,9 +37,9 @@ func ExtractBinary(archivePath string, destDir string) (string, error) {
 			return "", fmt.Errorf("reading tar: %w", err)
 		}
 
-		// Only extract the amux binary
+		// Only extract the medusa binary
 		name := filepath.Base(header.Name)
-		if name != "amux" {
+		if name != "medusa" {
 			continue
 		}
 
@@ -47,7 +47,7 @@ func ExtractBinary(archivePath string, destDir string) (string, error) {
 			continue
 		}
 
-		binaryPath = filepath.Join(destDir, "amux")
+		binaryPath = filepath.Join(destDir, "medusa")
 		outFile, err := os.OpenFile(binaryPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 		if err != nil {
 			return "", fmt.Errorf("creating output file: %w", err)
@@ -62,7 +62,7 @@ func ExtractBinary(archivePath string, destDir string) (string, error) {
 	}
 
 	if binaryPath == "" {
-		return "", fmt.Errorf("amux binary not found in archive")
+		return "", fmt.Errorf("medusa binary not found in archive")
 	}
 
 	return binaryPath, nil
@@ -86,7 +86,7 @@ func InstallBinary(newBinaryPath string, currentBinaryPath string) error {
 	// Stage the new binary in the same directory as the target to avoid
 	// cross-filesystem rename failures (EXDEV)
 	targetDir := filepath.Dir(currentBinaryPath)
-	stagedPath := filepath.Join(targetDir, ".amux-upgrade-new")
+	stagedPath := filepath.Join(targetDir, ".medusa-upgrade-new")
 
 	if err := copyFile(newBinaryPath, stagedPath); err != nil {
 		return fmt.Errorf("staging new binary: %w", err)
@@ -178,7 +178,7 @@ func CanWrite(path string) bool {
 
 	// Check if parent directory is writable (for rename operation)
 	dir := filepath.Dir(path)
-	testFile := filepath.Join(dir, ".amux-write-test")
+	testFile := filepath.Join(dir, ".medusa-write-test")
 	f, err = os.Create(testFile)
 	if err != nil {
 		return false

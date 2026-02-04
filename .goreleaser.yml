@@ -5,9 +5,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: amux
-    main: ./cmd/amux
-    binary: amux
+  - id: medusa
+    main: ./cmd/medusa
+    binary: medusa
     env:
       - CGO_ENABLED=0
     goos:
@@ -45,7 +45,7 @@ changelog:
 release:
   github:
     owner: andyrewlee
-    name: amux
+    name: medusa
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"

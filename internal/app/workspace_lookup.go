@@ -1,6 +1,6 @@
 package app
 
-import "github.com/andyrewlee/amux/internal/data"
+import "github.com/andyrewlee/medusa/internal/data"
 
 func (a *App) findWorkspaceByID(id string) *data.Workspace {
 	if id == "" {

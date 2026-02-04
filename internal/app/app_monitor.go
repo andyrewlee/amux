@@ -6,11 +6,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/ui/center"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
-	"github.com/andyrewlee/amux/internal/vterm"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/ui/center"
+	"github.com/andyrewlee/medusa/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/ui/compositor"
+	"github.com/andyrewlee/medusa/internal/vterm"
 )
 
 // viewMonitorMode renders monitor mode using layer-based compositing.

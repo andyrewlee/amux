@@ -1,4 +1,4 @@
-module github.com/andyrewlee/amux
+module github.com/andyrewlee/medusa
 
 go 1.24.2
 

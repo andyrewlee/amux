@@ -8,8 +8,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/andyrewlee/amux/internal/perf"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
+	"github.com/andyrewlee/medusa/internal/perf"
+	"github.com/andyrewlee/medusa/internal/ui/compositor"
 )
 
 // composeOverlays adds overlay layers (dialogs, toasts, help, etc.) to the canvas.

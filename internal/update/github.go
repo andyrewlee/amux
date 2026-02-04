@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	// GitHubOwner is the GitHub owner for amux.
+	// GitHubOwner is the GitHub owner for medusa.
 	GitHubOwner = "andyrewlee"
-	// GitHubRepo is the GitHub repo for amux.
-	GitHubRepo = "amux"
+	// GitHubRepo is the GitHub repo for medusa.
+	GitHubRepo = "medusa"
 	// GitHubAPIBase is the base URL for GitHub API.
 	GitHubAPIBase = "https://api.github.com"
 )
@@ -65,7 +65,7 @@ func (c *GitHubClient) FetchLatestRelease() (*Release, error) {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "amux-updater")
+	req.Header.Set("User-Agent", "medusa-updater")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -95,7 +95,7 @@ func (c *GitHubClient) DownloadAsset(url string, w io.Writer) error {
 		return fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Accept", "application/octet-stream")
-	req.Header.Set("User-Agent", "amux-updater")
+	req.Header.Set("User-Agent", "medusa-updater")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -132,7 +132,7 @@ func (c *GitHubClient) FetchChecksums(release *Release) (map[string]string, erro
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	req.Header.Set("User-Agent", "amux-updater")
+	req.Header.Set("User-Agent", "medusa-updater")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -178,7 +178,7 @@ func GetPlatformAssetName(version string) string {
 	// Remove "v" prefix if present for GoReleaser naming
 	v := strings.TrimPrefix(version, "v")
 
-	return fmt.Sprintf("amux_%s_%s_%s.tar.gz", v, os, arch)
+	return fmt.Sprintf("medusa_%s_%s_%s.tar.gz", v, os, arch)
 }
 
 // FindPlatformAsset finds the appropriate asset for the current platform.

@@ -6,14 +6,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/config"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/perf"
-	"github.com/andyrewlee/amux/internal/ui/center"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/dashboard"
-	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/medusa/internal/config"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/perf"
+	"github.com/andyrewlee/medusa/internal/ui/center"
+	"github.com/andyrewlee/medusa/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/ui/dashboard"
+	"github.com/andyrewlee/medusa/internal/ui/sidebar"
 )
 
 // Update handles all messages with panic recovery.

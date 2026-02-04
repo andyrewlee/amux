@@ -8,18 +8,18 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/config"
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/vterm"
+	"github.com/andyrewlee/medusa/internal/config"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/vterm"
 )
 
 func TestPerfScenario(t *testing.T) {
-	if os.Getenv("AMUX_PERF_TEST") != "1" {
-		t.Skip("set AMUX_PERF_TEST=1 to run perf scenario")
+	if os.Getenv("MEDUSA_PERF_TEST") != "1" {
+		t.Skip("set MEDUSA_PERF_TEST=1 to run perf scenario")
 	}
 
-	logDir := os.Getenv("AMUX_PERF_LOG_DIR")
+	logDir := os.Getenv("MEDUSA_PERF_LOG_DIR")
 	if logDir == "" {
 		logDir = t.TempDir()
 	}

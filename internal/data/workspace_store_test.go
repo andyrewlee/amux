@@ -16,7 +16,7 @@ func TestWorkspaceStore_SaveLoadDelete(t *testing.T) {
 		Branch:     "test-branch",
 		Base:       "origin/main",
 		Repo:       "/home/user/repo",
-		Root:       "/home/user/.amux/workspaces/test-workspace",
+		Root:       "/home/user/.medusa/workspaces/test-workspace",
 		Created:    time.Now(),
 		Runtime:    RuntimeLocalWorktree,
 		Assistant:  "claude",
@@ -83,12 +83,12 @@ func TestWorkspaceStore_List(t *testing.T) {
 	ws1 := &Workspace{
 		Name: "ws1",
 		Repo: "/home/user/repo",
-		Root: "/home/user/.amux/workspaces/ws1",
+		Root: "/home/user/.medusa/workspaces/ws1",
 	}
 	ws2 := &Workspace{
 		Name: "ws2",
 		Repo: "/home/user/repo",
-		Root: "/home/user/.amux/workspaces/ws2",
+		Root: "/home/user/.medusa/workspaces/ws2",
 	}
 
 	if err := store.Save(ws1); err != nil {
@@ -417,11 +417,11 @@ func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
 		t.Skipf("symlinks not supported: %v", err)
 	}
 
-	rootReal := filepath.Join(repoReal, ".amux", "workspaces", "feature")
+	rootReal := filepath.Join(repoReal, ".medusa", "workspaces", "feature")
 	if err := os.MkdirAll(rootReal, 0755); err != nil {
 		t.Fatalf("MkdirAll(rootReal) error = %v", err)
 	}
-	rootLink := filepath.Join(repoLink, ".amux", "workspaces", "feature")
+	rootLink := filepath.Join(repoLink, ".medusa", "workspaces", "feature")
 
 	wsReal := &Workspace{Name: "feature", Repo: repoReal, Root: rootReal}
 	wsLink := &Workspace{Name: "feature", Repo: repoLink, Root: rootLink}

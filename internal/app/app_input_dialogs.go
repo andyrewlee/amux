@@ -5,13 +5,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/git"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/sidebar"
-	"github.com/andyrewlee/amux/internal/update"
-	"github.com/andyrewlee/amux/internal/validation"
+	"github.com/andyrewlee/medusa/internal/git"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/ui/sidebar"
+	"github.com/andyrewlee/medusa/internal/update"
+	"github.com/andyrewlee/medusa/internal/validation"
 )
 
 // handleDialogResult handles dialog completion
@@ -207,7 +207,7 @@ func (a *App) showQuitDialog() {
 	}
 	a.dialog = common.NewConfirmDialog(
 		DialogQuit,
-		"Quit AMUX",
+		"Quit MEDUSA",
 		"Are you sure you want to quit?",
 	)
 	a.dialog.SetSize(a.width, a.height)
@@ -277,7 +277,7 @@ func (a *App) handleUpgradeComplete(msg messages.UpgradeComplete) tea.Cmd {
 		a.settingsDialog.SetUpdateInfo(msg.NewVersion, "", false)
 	}
 	logging.Info("Upgrade complete: %s", msg.NewVersion)
-	return a.toast.ShowSuccess("Upgraded to " + msg.NewVersion + " - restart amux to use new version")
+	return a.toast.ShowSuccess("Upgraded to " + msg.NewVersion + " - restart medusa to use new version")
 }
 
 // handleOpenFileInEditor handles the OpenFileInEditor message from the project tree.

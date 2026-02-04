@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/medusa/internal/logging"
 )
 
 // CheckResult contains the result of an update check.
@@ -82,7 +82,7 @@ func (u *Updater) Upgrade(release *Release) error {
 
 	// Check if go install user
 	if IsGoInstall() {
-		return fmt.Errorf("installed via 'go install'; run: go install github.com/andyrewlee/amux/cmd/amux@latest")
+		return fmt.Errorf("installed via 'go install'; run: go install github.com/andyrewlee/medusa/cmd/medusa@latest")
 	}
 
 	// Find the platform asset
@@ -114,7 +114,7 @@ func (u *Updater) Upgrade(release *Release) error {
 	}
 
 	// Create temp directory for download
-	tmpDir, err := os.MkdirTemp("", "amux-update-*")
+	tmpDir, err := os.MkdirTemp("", "medusa-update-*")
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)
 	}

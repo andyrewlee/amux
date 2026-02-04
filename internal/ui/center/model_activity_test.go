@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/config"
-	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/medusa/internal/config"
+	"github.com/andyrewlee/medusa/internal/data"
 )
 
 func newTestModel() *Model {

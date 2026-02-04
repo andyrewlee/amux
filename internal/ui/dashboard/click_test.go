@@ -5,8 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/messages"
 )
 
 // setupClickTestModel creates a model with known dimensions and content for click testing.
@@ -26,7 +26,7 @@ func setupClickTestModel() *Model {
 		Path: "/testproj",
 		Workspaces: []data.Workspace{
 			{Name: "testproj", Branch: "main", Repo: "/testproj", Root: "/testproj"},
-			{Name: "feature", Branch: "feature", Repo: "/testproj", Root: "/testproj/.amux/workspaces/feature"},
+			{Name: "feature", Branch: "feature", Repo: "/testproj", Root: "/testproj/.medusa/workspaces/feature"},
 		},
 	}
 	m.SetProjects([]data.Project{project})
@@ -45,7 +45,7 @@ func TestRowIndexAt(t *testing.T) {
 	// Content Y starts at screenY = 1 (border)
 
 	// Row layout (0-indexed content Y):
-	// 0: [amux] (Home)
+	// 0: [medusa] (Home)
 	// 1: (Spacer)
 	// 2: testproj (Project)
 	// 3: feature (Workspace)

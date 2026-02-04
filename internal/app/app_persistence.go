@@ -5,9 +5,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/ui/common"
 )
 
 // persistDebounce is the delay before writing workspace state to disk.

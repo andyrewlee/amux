@@ -7,7 +7,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/andyrewlee/amux/internal/vterm"
+	"github.com/andyrewlee/medusa/internal/vterm"
 )
 
 const (

@@ -1,5 +1,5 @@
-BINARY_NAME := amux
-MAIN_PACKAGE := ./cmd/amux
+BINARY_NAME := medusa
+MAIN_PACKAGE := ./cmd/medusa
 .DEFAULT_GOAL := build
 
 .PHONY: build test bench lint fmt fmt-check vet clean run dev help release-check release-tag release-push release
@@ -55,9 +55,9 @@ help:
 	@echo "  release       - release-check + release-tag + release-push"
 
 release-check: test
-	go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1
-	go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
-	go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
+	go run ./cmd/medusa-harness -mode monitor -frames 5 -warmup 1
+	go run ./cmd/medusa-harness -mode center -frames 5 -warmup 1
+	go run ./cmd/medusa-harness -mode sidebar -frames 5 -warmup 1
 
 release-tag:
 	@test -n "$(VERSION)" || (echo "VERSION is required (e.g. VERSION=v0.0.5)" && exit 1)

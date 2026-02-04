@@ -9,14 +9,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/config"
-	"github.com/andyrewlee/amux/internal/data"
-	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
-	"github.com/andyrewlee/amux/internal/ui/diff"
-	"github.com/andyrewlee/amux/internal/vterm"
+	"github.com/andyrewlee/medusa/internal/config"
+	"github.com/andyrewlee/medusa/internal/data"
+	appPty "github.com/andyrewlee/medusa/internal/pty"
+	"github.com/andyrewlee/medusa/internal/tmux"
+	"github.com/andyrewlee/medusa/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/ui/compositor"
+	"github.com/andyrewlee/medusa/internal/ui/diff"
+	"github.com/andyrewlee/medusa/internal/vterm"
 )
 
 // TabID is a unique identifier for a tab that survives slice reordering

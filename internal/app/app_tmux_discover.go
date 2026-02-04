@@ -5,9 +5,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/tmux"
 )
 
 type tmuxTabsDiscoverResult struct {
@@ -35,11 +35,11 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	opts := a.tmuxOptions
 	return func() tea.Msg {
 		match := map[string]string{
-			"@amux":           "1",
-			"@amux_workspace": wsID,
-			"@amux_type":      "agent",
+			"@medusa":           "1",
+			"@medusa_workspace": wsID,
+			"@medusa_type":      "agent",
 		}
-		rows, err := tmux.SessionsWithTags(match, []string{"@amux_assistant"}, opts)
+		rows, err := tmux.SessionsWithTags(match, []string{"@medusa_assistant"}, opts)
 		if err != nil {
 			logging.Warn("tmux session discovery failed: %v", err)
 			return nil
@@ -52,7 +52,7 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 			if _, ok := existing[row.Name]; ok {
 				continue
 			}
-			assistantName := strings.TrimSpace(row.Tags["@amux_assistant"])
+			assistantName := strings.TrimSpace(row.Tags["@medusa_assistant"])
 			if assistantName == "" {
 				assistantName = assistant
 			}

@@ -6,8 +6,8 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/ui/common"
 )
 
 // focusPane changes focus to the specified pane

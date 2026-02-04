@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const docsURL = "https://amux.mintlify.app"
+const docsURL = "https://medusa.mintlify.app"
 
 // HelpSection represents a group of keybindings
 type HelpSection struct {

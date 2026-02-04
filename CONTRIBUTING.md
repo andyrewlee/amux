@@ -1,10 +1,10 @@
-# Contributing to amux
+# Contributing to Medusa
 
 ## Development
 
 ```bash
-git clone https://github.com/andyrewlee/amux.git
-cd amux
+git clone https://github.com/andyrewlee/medusa.git
+cd medusa
 make run
 ```
 

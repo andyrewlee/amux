@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/medusa/internal/logging"
 )
 
 const workspaceFilename = "workspace.json"
 
 // WorkspaceStore manages workspace persistence
 type WorkspaceStore struct {
-	root string // ~/.amux/workspaces
+	root string // ~/.medusa/workspaces
 }
 
 // NewWorkspaceStore creates a new workspace store

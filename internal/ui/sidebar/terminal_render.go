@@ -5,8 +5,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
+	"github.com/andyrewlee/medusa/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/ui/compositor"
 )
 
 // renderTabBar renders the terminal tab bar (compact single-line, no borders)

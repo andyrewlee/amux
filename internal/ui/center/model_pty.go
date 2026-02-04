@@ -12,9 +12,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/logging"
-	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/medusa/internal/logging"
+	appPty "github.com/andyrewlee/medusa/internal/pty"
+	"github.com/andyrewlee/medusa/internal/safego"
 )
 
 // PTY constants
@@ -52,7 +52,7 @@ const (
 const ptyTraceLimit = 256 * 1024
 
 func ptyTraceAllowed(assistant string) bool {
-	value := strings.TrimSpace(os.Getenv("AMUX_PTY_TRACE"))
+	value := strings.TrimSpace(os.Getenv("MEDUSA_PTY_TRACE"))
 	if value == "" {
 		return false
 	}
@@ -371,7 +371,7 @@ func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
 
 	if tab.ptyTraceFile == nil {
 		dir := ptyTraceDir()
-		name := fmt.Sprintf("amux-pty-claude-%s-%s.log", tab.ID, time.Now().Format("20060102-150405"))
+		name := fmt.Sprintf("medusa-pty-claude-%s-%s.log", tab.ID, time.Now().Format("20060102-150405"))
 		path := filepath.Join(dir, name)
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {

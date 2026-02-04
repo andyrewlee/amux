@@ -33,4 +33,4 @@ jobs:
         run: go test -v -race ./...
 
       - name: Build
-        run: go build -o amux ./cmd/amux
+        run: go build -o medusa ./cmd/medusa

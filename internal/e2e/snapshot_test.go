@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andyrewlee/amux/internal/app"
+	"github.com/andyrewlee/medusa/internal/app"
 )
 
 const (
@@ -59,7 +59,7 @@ func TestCenterSnapshot(t *testing.T) {
 func assertSnapshot(t *testing.T, name, got string) {
 	t.Helper()
 	path := filepath.Join("testdata", name)
-	if os.Getenv("AMUX_UPDATE_SNAPSHOTS") != "" {
+	if os.Getenv("MEDUSA_UPDATE_SNAPSHOTS") != "" {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -73,6 +73,6 @@ func assertSnapshot(t *testing.T, name, got string) {
 		t.Fatalf("read snapshot: %v", err)
 	}
 	if strings.TrimRight(string(want), "\n") != strings.TrimRight(got, "\n") {
-		t.Fatalf("snapshot mismatch for %s (set AMUX_UPDATE_SNAPSHOTS=1 to update)", name)
+		t.Fatalf("snapshot mismatch for %s (set MEDUSA_UPDATE_SNAPSHOTS=1 to update)", name)
 	}
 }

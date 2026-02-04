@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/medusa/internal/data"
 )
 
 // CreateWorkspace creates a new workspace backed by a git worktree

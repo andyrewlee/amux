@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/tmux"
 )
 
 const (
@@ -27,7 +27,7 @@ func TestTmuxPersistenceKeepsSessions(t *testing.T) {
 	writeRegistry(t, home, repo)
 	writeConfig(t, home, true)
 	binDir := writeStubAssistant(t, home, "claude")
-	server := fmt.Sprintf("amux-e2e-%d", time.Now().UnixNano())
+	server := fmt.Sprintf("medusa-e2e-%d", time.Now().UnixNano())
 	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
 	defer killTmuxServer(t, server)
 
@@ -83,7 +83,7 @@ func TestTmuxPersistenceCleansOnExit(t *testing.T) {
 	writeRegistry(t, home, repo)
 	writeConfig(t, home, false)
 	binDir := writeStubAssistant(t, home, "claude")
-	server := fmt.Sprintf("amux-e2e-%d", time.Now().UnixNano())
+	server := fmt.Sprintf("medusa-e2e-%d", time.Now().UnixNano())
 	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
 	defer killTmuxServer(t, server)
 
@@ -134,7 +134,7 @@ func createAgentTab(t *testing.T, session *PTYSession) {
 func quitApp(t *testing.T, session *PTYSession) {
 	t.Helper()
 	sendPrefixCommand(t, session, "q")
-	waitForUIContains(t, session, "Quit AMUX", persistenceTimeout)
+	waitForUIContains(t, session, "Quit MEDUSA", persistenceTimeout)
 	if err := session.SendString("\r"); err != nil {
 		t.Fatalf("confirm quit: %v", err)
 	}
@@ -154,9 +154,9 @@ func sendPrefixCommand(t *testing.T, session *PTYSession, cmd string) {
 func waitForSessionTypes(t *testing.T, opts tmux.Options, want map[string]bool, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
-	prefix := tmux.SessionName("amux") + "-"
+	prefix := tmux.SessionName("medusa") + "-"
 	for time.Now().Before(deadline) {
-		sessions, err := tmux.ListSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
+		sessions, err := tmux.ListSessionsMatchingTags(map[string]string{"@medusa": "1"}, opts)
 		if err != nil {
 			if hasSessionsWithPrefix(t, opts, prefix, len(want)) {
 				return
@@ -170,7 +170,7 @@ func waitForSessionTypes(t *testing.T, opts tmux.Options, want map[string]bool, 
 		}
 		types := map[string]bool{}
 		for _, session := range sessions {
-			value, err := tmux.SessionTagValue(session, "@amux_type", opts)
+			value, err := tmux.SessionTagValue(session, "@medusa_type", opts)
 			if err != nil {
 				continue
 			}
@@ -194,9 +194,9 @@ func waitForSessionTypes(t *testing.T, opts tmux.Options, want map[string]bool, 
 func waitForNoSessions(t *testing.T, opts tmux.Options, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
-	prefix := tmux.SessionName("amux") + "-"
+	prefix := tmux.SessionName("medusa") + "-"
 	for time.Now().Before(deadline) {
-		sessions, err := tmux.ListSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
+		sessions, err := tmux.ListSessionsMatchingTags(map[string]string{"@medusa": "1"}, opts)
 		if err != nil {
 			if !hasSessionsWithPrefix(t, opts, prefix, 1) {
 				return
@@ -236,7 +236,7 @@ func hasSessionsWithPrefix(t *testing.T, opts tmux.Options, prefix string, minCo
 
 func writeRegistry(t *testing.T, home, repo string) {
 	t.Helper()
-	registryPath := filepath.Join(home, ".amux", "projects.json")
+	registryPath := filepath.Join(home, ".medusa", "projects.json")
 	registry := data.NewRegistry(registryPath)
 	if err := registry.AddProject(repo); err != nil {
 		t.Fatalf("add project: %v", err)
@@ -245,7 +245,7 @@ func writeRegistry(t *testing.T, home, repo string) {
 
 func writeConfig(t *testing.T, home string, persistence bool) {
 	t.Helper()
-	configPath := filepath.Join(home, ".amux", "config.json")
+	configPath := filepath.Join(home, ".medusa", "config.json")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config: %v", err)
 	}
@@ -284,8 +284,8 @@ func sessionEnv(binDir, server string) []string {
 	}
 	return []string{
 		"PATH=" + binDir + string(os.PathListSeparator) + path,
-		"AMUX_TMUX_SERVER=" + server,
-		"AMUX_TMUX_CONFIG=/dev/null",
+		"MEDUSA_TMUX_SERVER=" + server,
+		"MEDUSA_TMUX_CONFIG=/dev/null",
 		"SHELL=/bin/sh",
 	}
 }
@@ -294,8 +294,8 @@ func initRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
 	runGit(t, repo, "init", "-b", "main")
-	runGit(t, repo, "config", "user.email", "amux@example.com")
-	runGit(t, repo, "config", "user.name", "amux")
+	runGit(t, repo, "config", "user.email", "medusa@example.com")
+	runGit(t, repo, "config", "user.name", "medusa")
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
 		t.Fatalf("write readme: %v", err)
 	}

@@ -7,8 +7,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/ui/common"
 )
 
 func (a *App) handleCenterPaneClick(msg tea.MouseClickMsg) tea.Cmd {

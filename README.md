@@ -5,11 +5,11 @@
 <p align="center">TUI for easily running parallel coding agents</p>
 
 <p align="center">
-  <a href="https://github.com/andyrewlee/amux/releases">
-    <img src="https://img.shields.io/github/v/release/andyrewlee/amux?style=flat-square" alt="Latest release" />
+  <a href="https://github.com/andyrewlee/medusa/releases">
+    <img src="https://img.shields.io/github/v/release/andyrewlee/medusa?style=flat-square" alt="Latest release" />
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/andyrewlee/amux?style=flat-square" alt="License" />
+    <img src="https://img.shields.io/github/license/andyrewlee/medusa?style=flat-square" alt="License" />
   </a>
   <img src="https://img.shields.io/badge/Go-1.24.2-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go version" />
   <a href="https://discord.gg/Dswc7KFPxs">
@@ -24,29 +24,29 @@
   <a href="#configuration">Configuration</a>
 </p>
 
-![amux TUI preview](https://github.com/user-attachments/assets/f5c4647e-a6ee-4d62-b548-0fdd73714c90)
+![Medusa TUI preview](https://github.com/user-attachments/assets/f5c4647e-a6ee-4d62-b548-0fdd73714c90)
 
-## What is amux?
+## What is Medusa?
 
-amux is a terminal UI for running multiple coding agents in parallel with a workspace-first model that can import git worktrees.
+Medusa is a terminal UI for running multiple coding agents in parallel with a workspace-first model that can import git worktrees.
 
 ## Prerequisites
 
-amux requires [tmux](https://github.com/tmux/tmux). Each agent runs in its own tmux session for terminal isolation and persistence.
+Medusa requires [tmux](https://github.com/tmux/tmux). Each agent runs in its own tmux session for terminal isolation and persistence.
 
 ## Quick start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/andyrewlee/amux/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/andyrewlee/medusa/main/install.sh | sh
 ```
 
 Or with Go:
 
 ```bash
-go install github.com/andyrewlee/amux/cmd/amux@latest
+go install github.com/andyrewlee/medusa/cmd/medusa@latest
 ```
 
-Then run `amux` to open the dashboard.
+Then run `medusa` to open the dashboard.
 
 ## How it works
 
@@ -61,7 +61,7 @@ Each workspace tracks a repo checkout and its metadata. For local workflows, wor
 
 ## Configuration
 
-Create `.amux/workspaces.json` in your project to run setup commands for new workspaces:
+Create `.medusa/workspaces.json` in your project to run setup commands for new workspaces:
 
 ```json
 {
@@ -72,12 +72,12 @@ Create `.amux/workspaces.json` in your project to run setup commands for new wor
 }
 ```
 
-Workspace metadata is stored in `~/.amux/workspaces/<workspace-id>/workspace.json` and local worktree directories live under `<repo>/.amux/workspaces/`.
+Workspace metadata is stored in `~/.medusa/workspaces/<workspace-id>/workspace.json` and local worktree directories live under `<repo>/.medusa/workspaces/`.
 
 ## Development
 
 ```bash
-git clone https://github.com/andyrewlee/amux.git
-cd amux
+git clone https://github.com/andyrewlee/medusa.git
+cd medusa
 make run
 ```

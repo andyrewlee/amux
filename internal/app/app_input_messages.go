@@ -13,15 +13,15 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/config"
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/git"
-	"github.com/andyrewlee/amux/internal/ide"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/validation"
+	"github.com/andyrewlee/medusa/internal/config"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/git"
+	"github.com/andyrewlee/medusa/internal/ide"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/tmux"
+	"github.com/andyrewlee/medusa/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/validation"
 )
 
 var randomAnimals = []string{
@@ -587,7 +587,7 @@ func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog
 	a.dialog = common.NewConfirmDialog(
 		DialogRemoveProject,
 		"Remove Project",
-		fmt.Sprintf("Remove project '%s' from AMUX? This won't delete any files.", projectName),
+		fmt.Sprintf("Remove project '%s' from MEDUSA? This won't delete any files.", projectName),
 	)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -627,7 +627,7 @@ func (a *App) handleShowCleanupTmuxDialog() {
 	a.dialog = common.NewConfirmDialog(
 		DialogCleanupTmux,
 		"Cleanup tmux sessions",
-		fmt.Sprintf("Kill all amux-* tmux sessions on server %q?", a.tmuxOptions.ServerName),
+		fmt.Sprintf("Kill all medusa-* tmux sessions on server %q?", a.tmuxOptions.ServerName),
 	)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -838,14 +838,14 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		}
 		cmds := append(sidebarCmds, a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved"))
 		if tmuxPersistenceChanged {
-			cmds = append(cmds, a.toast.ShowInfo("Restart amux to apply tmux persistence change"))
+			cmds = append(cmds, a.toast.ShowInfo("Restart Medusa to apply tmux persistence change"))
 		}
 		// Clean up sessions on the old server if the server name changed
 		if oldServerName != a.tmuxOptions.ServerName {
 			oldOpts := tmux.Options{ServerName: oldServerName, CommandTimeout: 2 * time.Second}
 			cmds = append(cmds, func() tea.Msg {
-				_, _ = tmux.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, oldOpts)
-				_ = tmux.KillSessionsWithPrefix("amux-", oldOpts)
+				_, _ = tmux.KillSessionsMatchingTags(map[string]string{"@medusa": "1"}, oldOpts)
+				_ = tmux.KillSessionsWithPrefix("medusa-", oldOpts)
 				return nil
 			})
 			cmds = append(cmds, a.toast.ShowInfo(fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))

@@ -11,8 +11,8 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/andyrewlee/amux/internal/process"
-	"github.com/andyrewlee/amux/internal/vterm"
+	"github.com/andyrewlee/medusa/internal/process"
+	"github.com/andyrewlee/medusa/internal/vterm"
 )
 
 // pollInterval is the fallback polling interval for WaitFor* methods.
@@ -49,7 +49,7 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 		opts.Height = 30
 	}
 
-	bin, cleanupBin, err := buildAmuxBinary()
+	bin, cleanupBin, err := buildMedusaBinary()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -64,7 +64,7 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 	ownHome := false
 	if home == "" {
 		var err error
-		home, err = os.MkdirTemp("", "amux-e2e-home-*")
+		home, err = os.MkdirTemp("", "medusa-e2e-home-*")
 		if err != nil {
 			cleanupBin()
 			return nil, nil, err
@@ -88,8 +88,8 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 	cmd.Env = append(stripGitEnv(os.Environ()),
 		"HOME="+home,
 		"TERM=xterm-256color",
-		"AMUX_PROFILE=0",
-		"AMUX_PROFILE_INTERVAL_MS=0",
+		"MEDUSA_PROFILE=0",
+		"MEDUSA_PROFILE_INTERVAL_MS=0",
 	)
 	if len(opts.Env) > 0 {
 		cmd.Env = append(cmd.Env, opts.Env...)
@@ -244,24 +244,24 @@ func (s *PTYSession) WaitForExit(timeout time.Duration) error {
 	}
 }
 
-func buildAmuxBinary() (string, func(), error) {
-	if path := os.Getenv("AMUX_E2E_BIN"); path != "" {
+func buildMedusaBinary() (string, func(), error) {
+	if path := os.Getenv("MEDUSA_E2E_BIN"); path != "" {
 		return path, func() {}, nil
 	}
 
 	buildOnce.Do(func() {
-		tmp, err := os.MkdirTemp("", "amux-e2e-bin-*")
+		tmp, err := os.MkdirTemp("", "medusa-e2e-bin-*")
 		if err != nil {
 			buildErr = err
 			return
 		}
-		out := filepath.Join(tmp, "amux")
+		out := filepath.Join(tmp, "medusa")
 		root, err := repoRoot()
 		if err != nil {
 			buildErr = err
 			return
 		}
-		cmd := exec.Command("go", "build", "-o", out, "./cmd/amux")
+		cmd := exec.Command("go", "build", "-o", out, "./cmd/medusa")
 		cmd.Dir = root
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -280,7 +280,7 @@ func buildAmuxBinary() (string, func(), error) {
 		if buildPath == "" {
 			return
 		}
-		if os.Getenv("AMUX_E2E_CLEANUP_BIN") == "" {
+		if os.Getenv("MEDUSA_E2E_CLEANUP_BIN") == "" {
 			return
 		}
 		_ = os.RemoveAll(filepath.Dir(buildPath))

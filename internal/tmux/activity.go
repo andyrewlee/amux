@@ -17,7 +17,7 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 		return nil, err
 	}
 	applyWindow := window > 0
-	format := "#{session_name}\t#{window_activity}\t#{@amux}\t#{@amux_workspace}\t#{@amux_tab}\t#{@amux_type}"
+	format := "#{session_name}\t#{window_activity}\t#{@medusa}\t#{@medusa_workspace}\t#{@medusa_tab}\t#{@medusa_type}"
 	cmd, cancel := tmuxCommand(opts, "list-windows", "-a", "-F", format)
 	defer cancel()
 	output, err := cmd.Output()
@@ -42,10 +42,10 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 			continue
 		}
 		sessionName := strings.TrimSpace(parts[0])
-		amux := strings.TrimSpace(parts[2])
-		tagged := amux != "" && amux != "0"
+		medusa := strings.TrimSpace(parts[2])
+		tagged := medusa != "" && medusa != "0"
 		if !tagged {
-			if !strings.HasPrefix(sessionName, "amux-") {
+			if !strings.HasPrefix(sessionName, "medusa-") {
 				continue
 			}
 		}

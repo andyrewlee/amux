@@ -35,11 +35,11 @@ type SessionTags struct {
 const tmuxCommandTimeout = 5 * time.Second
 
 func DefaultOptions() Options {
-	server := strings.TrimSpace(os.Getenv("AMUX_TMUX_SERVER"))
+	server := strings.TrimSpace(os.Getenv("MEDUSA_TMUX_SERVER"))
 	if server == "" {
-		server = "amux"
+		server = "medusa"
 	}
-	config := strings.TrimSpace(os.Getenv("AMUX_TMUX_CONFIG"))
+	config := strings.TrimSpace(os.Getenv("MEDUSA_TMUX_CONFIG"))
 	if config == "" {
 		config = "/dev/null"
 	}
@@ -83,27 +83,27 @@ func SessionName(parts ...string) string {
 		}
 	}
 	if len(cleaned) == 0 {
-		return "amux"
+		return "medusa"
 	}
 	return strings.Join(cleaned, "-")
 }
 
 // NextUniqueSessionName returns the first available session name in the format
-// amux-{workspaceName}-{N} where N starts at 1 and increments until no existing
+// medusa-{workspaceName}-{N} where N starts at 1 and increments until no existing
 // session uses that name.
 func NextUniqueSessionName(workspaceName string, opts Options) (string, error) {
 	sessions, err := ListSessions(opts)
 	if err != nil {
 		// On error, fall back to -1 suffix
-		return SessionName("amux", workspaceName) + "-1", nil
+		return SessionName("medusa", workspaceName) + "-1", nil
 	}
 	return nextUniqueSessionNameFromList(workspaceName, sessions), nil
 }
 
-// nextUniqueSessionNameFromList finds the first available amux-{name}-{N} not
+// nextUniqueSessionNameFromList finds the first available medusa-{name}-{N} not
 // present in the given session list.
 func nextUniqueSessionNameFromList(workspaceName string, sessions []string) string {
-	prefix := SessionName("amux", workspaceName)
+	prefix := SessionName("medusa", workspaceName)
 	existing := make(map[string]struct{}, len(sessions))
 	for _, s := range sessions {
 		existing[s] = struct{}{}
@@ -165,21 +165,21 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Assistant == "" && tags.CreatedAt == 0 {
 		return
 	}
-	settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux 1 2>/dev/null; ", base, session))
+	settings.WriteString(fmt.Sprintf("%s set-option -t %s @medusa 1 2>/dev/null; ", base, session))
 	if tags.WorkspaceID != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_workspace %s 2>/dev/null; ", base, session, shellQuote(tags.WorkspaceID)))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @medusa_workspace %s 2>/dev/null; ", base, session, shellQuote(tags.WorkspaceID)))
 	}
 	if tags.TabID != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_tab %s 2>/dev/null; ", base, session, shellQuote(tags.TabID)))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @medusa_tab %s 2>/dev/null; ", base, session, shellQuote(tags.TabID)))
 	}
 	if tags.Type != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_type %s 2>/dev/null; ", base, session, shellQuote(tags.Type)))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @medusa_type %s 2>/dev/null; ", base, session, shellQuote(tags.Type)))
 	}
 	if tags.Assistant != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_assistant %s 2>/dev/null; ", base, session, shellQuote(tags.Assistant)))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @medusa_assistant %s 2>/dev/null; ", base, session, shellQuote(tags.Assistant)))
 	}
 	if tags.CreatedAt != 0 {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_created_at %s 2>/dev/null; ", base, session, shellQuote(fmt.Sprintf("%d", tags.CreatedAt))))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @medusa_created_at %s 2>/dev/null; ", base, session, shellQuote(fmt.Sprintf("%d", tags.CreatedAt))))
 	}
 }
 
@@ -407,7 +407,7 @@ func KillWorkspaceSessions(workspaceName string, opts Options) error {
 	if workspaceName == "" {
 		return nil
 	}
-	prefix := SessionName("amux", workspaceName) + "-"
+	prefix := SessionName("medusa", workspaceName) + "-"
 	return KillSessionsWithPrefix(prefix, opts)
 }
 

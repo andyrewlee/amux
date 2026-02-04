@@ -10,22 +10,22 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/config"
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/git"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/permissions"
-	"github.com/andyrewlee/amux/internal/process"
-	"github.com/andyrewlee/amux/internal/supervisor"
-	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/ui/center"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
-	"github.com/andyrewlee/amux/internal/ui/dashboard"
-	"github.com/andyrewlee/amux/internal/ui/layout"
-	"github.com/andyrewlee/amux/internal/ui/sidebar"
-	"github.com/andyrewlee/amux/internal/update"
+	"github.com/andyrewlee/medusa/internal/config"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/git"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/permissions"
+	"github.com/andyrewlee/medusa/internal/process"
+	"github.com/andyrewlee/medusa/internal/supervisor"
+	"github.com/andyrewlee/medusa/internal/tmux"
+	"github.com/andyrewlee/medusa/internal/ui/center"
+	"github.com/andyrewlee/medusa/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/ui/compositor"
+	"github.com/andyrewlee/medusa/internal/ui/dashboard"
+	"github.com/andyrewlee/medusa/internal/ui/layout"
+	"github.com/andyrewlee/medusa/internal/ui/sidebar"
+	"github.com/andyrewlee/medusa/internal/update"
 )
 
 // DialogID constants
@@ -488,13 +488,13 @@ func (a *App) startTmuxSyncTicker() tea.Cmd {
 
 func (a *App) tmuxSyncInterval() time.Duration {
 	const defaultInterval = 7 * time.Second
-	value := strings.TrimSpace(os.Getenv("AMUX_TMUX_SYNC_INTERVAL"))
+	value := strings.TrimSpace(os.Getenv("MEDUSA_TMUX_SYNC_INTERVAL"))
 	if value == "" {
 		return defaultInterval
 	}
 	interval, err := time.ParseDuration(value)
 	if err != nil || interval <= 0 {
-		logging.Warn("Invalid AMUX_TMUX_SYNC_INTERVAL=%q; using %s", value, defaultInterval)
+		logging.Warn("Invalid MEDUSA_TMUX_SYNC_INTERVAL=%q; using %s", value, defaultInterval)
 		return defaultInterval
 	}
 	return interval
@@ -505,14 +505,14 @@ func applyTmuxEnvFromConfig(cfg *config.Config, force bool) {
 		return
 	}
 	if force {
-		setEnvOrUnset("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
-		setEnvOrUnset("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
-		setEnvOrUnset("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
+		setEnvOrUnset("MEDUSA_TMUX_SERVER", cfg.UI.TmuxServer)
+		setEnvOrUnset("MEDUSA_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
+		setEnvOrUnset("MEDUSA_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
 		return
 	}
-	setEnvIfNonEmpty("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
-	setEnvIfNonEmpty("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
-	setEnvIfNonEmpty("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
+	setEnvIfNonEmpty("MEDUSA_TMUX_SERVER", cfg.UI.TmuxServer)
+	setEnvIfNonEmpty("MEDUSA_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
+	setEnvIfNonEmpty("MEDUSA_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
 }
 
 func (a *App) tmuxSyncWorkspaces() []*data.Workspace {

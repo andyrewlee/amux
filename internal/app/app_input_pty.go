@@ -3,9 +3,9 @@ package app
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/ui/center"
-	"github.com/andyrewlee/amux/internal/ui/dashboard"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/ui/center"
+	"github.com/andyrewlee/medusa/internal/ui/dashboard"
 )
 
 // handlePTYMessages handles PTY-related messages for center pane.

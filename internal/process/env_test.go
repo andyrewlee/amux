@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/medusa/internal/data"
 )
 
 func TestEnvBuilder_BuildEnv(t *testing.T) {
@@ -15,7 +15,7 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   "/home/user/repo",
-		Root:   "/home/user/.amux/workspaces/feature-1",
+		Root:   "/home/user/.medusa/workspaces/feature-1",
 		Env: map[string]string{
 			"CUSTOM_VAR": "custom_value",
 		},
@@ -25,9 +25,9 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 
 	// Check required variables are present
 	checks := map[string]string{
-		"AMUX_WORKSPACE_NAME":   "feature-1",
-		"AMUX_WORKSPACE_ROOT":   "/home/user/.amux/workspaces/feature-1",
-		"AMUX_WORKSPACE_BRANCH": "feature-1",
+		"MEDUSA_WORKSPACE_NAME":   "feature-1",
+		"MEDUSA_WORKSPACE_ROOT":   "/home/user/.medusa/workspaces/feature-1",
+		"MEDUSA_WORKSPACE_BRANCH": "feature-1",
 		"ROOT_WORKSPACE_PATH":   "/home/user/repo",
 		"CUSTOM_VAR":            "custom_value",
 	}
@@ -52,13 +52,13 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 	// Check port variables
 	portFound := false
 	for _, e := range env {
-		if strings.HasPrefix(e, "AMUX_PORT=") {
+		if strings.HasPrefix(e, "MEDUSA_PORT=") {
 			portFound = true
 			break
 		}
 	}
 	if !portFound {
-		t.Error("Missing AMUX_PORT env var")
+		t.Error("Missing MEDUSA_PORT env var")
 	}
 }
 
@@ -70,16 +70,16 @@ func TestEnvBuilder_BuildEnvMap(t *testing.T) {
 		Name:   "feature-1",
 		Branch: "feature-1",
 		Repo:   "/home/user/repo",
-		Root:   "/home/user/.amux/workspaces/feature-1",
+		Root:   "/home/user/.medusa/workspaces/feature-1",
 	}
 
 	envMap := builder.BuildEnvMap(wt)
 
-	if envMap["AMUX_WORKSPACE_NAME"] != "feature-1" {
-		t.Errorf("AMUX_WORKSPACE_NAME = %v, want feature-1", envMap["AMUX_WORKSPACE_NAME"])
+	if envMap["MEDUSA_WORKSPACE_NAME"] != "feature-1" {
+		t.Errorf("MEDUSA_WORKSPACE_NAME = %v, want feature-1", envMap["MEDUSA_WORKSPACE_NAME"])
 	}
-	if envMap["AMUX_PORT"] != "6200" {
-		t.Errorf("AMUX_PORT = %v, want 6200", envMap["AMUX_PORT"])
+	if envMap["MEDUSA_PORT"] != "6200" {
+		t.Errorf("MEDUSA_PORT = %v, want 6200", envMap["MEDUSA_PORT"])
 	}
 }
 
@@ -96,8 +96,8 @@ func TestEnvBuilder_NilPortAllocator(t *testing.T) {
 	// Should not crash with nil port allocator
 	// And should not have port vars
 	for _, e := range env {
-		if strings.HasPrefix(e, "AMUX_PORT=") {
-			t.Error("Should not have AMUX_PORT with nil allocator")
+		if strings.HasPrefix(e, "MEDUSA_PORT=") {
+			t.Error("Should not have MEDUSA_PORT with nil allocator")
 		}
 	}
 }

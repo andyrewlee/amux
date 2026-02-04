@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/medusa/internal/data"
 )
 
 func writeWorkspaceConfig(t *testing.T, repoPath, content string) {
-	configDir := filepath.Join(repoPath, ".amux")
+	configDir := filepath.Join(repoPath, ".medusa")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
-		t.Fatalf("mkdir .amux: %v", err)
+		t.Fatalf("mkdir .medusa: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(configDir, "workspaces.json"), []byte(content), 0644); err != nil {
 		t.Fatalf("write workspaces.json: %v", err)
@@ -70,9 +70,9 @@ func TestScriptRunnerLoadConfigValidJSON(t *testing.T) {
 
 func TestScriptRunnerLoadConfigPermissionError(t *testing.T) {
 	repo := t.TempDir()
-	configDir := filepath.Join(repo, ".amux")
+	configDir := filepath.Join(repo, ".medusa")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
-		t.Fatalf("mkdir .amux: %v", err)
+		t.Fatalf("mkdir .medusa: %v", err)
 	}
 	configPath := filepath.Join(configDir, "workspaces.json")
 	if err := os.WriteFile(configPath, []byte(`{"run":"test"}`), 0644); err != nil {
@@ -101,7 +101,7 @@ func TestScriptRunnerRunSetupAndEnv(t *testing.T) {
 	wsRoot := t.TempDir()
 
 	writeWorkspaceConfig(t, repo, `{
-  "setup-workspace": ["printf \"$AMUX_WORKSPACE_NAME-$CUSTOM_VAR\" > setup.txt"]
+  "setup-workspace": ["printf \"$MEDUSA_WORKSPACE_NAME-$CUSTOM_VAR\" > setup.txt"]
 }`)
 
 	runner := NewScriptRunner(6200, 10)

@@ -4,20 +4,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/medusa/internal/tmux"
 )
 
-func TestIsChatSession_NonAmuxPrefix(t *testing.T) {
-	// Sessions without "amux-" prefix should not match the name heuristic
+func TestIsChatSession_NonMedusaPrefix(t *testing.T) {
+	// Sessions without "medusa-" prefix should not match the name heuristic
 	session := tmux.SessionActivity{Name: "other-app-tab-99", Type: ""}
 	if isChatSession(session, tabSessionInfo{}, false) {
-		t.Fatal("session without amux- prefix should not be classified as chat")
+		t.Fatal("session without medusa- prefix should not be classified as chat")
 	}
 
-	// Sessions with "amux-" prefix and -tab- should match
-	session2 := tmux.SessionActivity{Name: "amux-ws1-tab-1", Type: "", Tagged: true}
+	// Sessions with "medusa-" prefix and -tab- should match
+	session2 := tmux.SessionActivity{Name: "medusa-ws1-tab-1", Type: "", Tagged: true}
 	if !isChatSession(session2, tabSessionInfo{}, false) {
-		t.Fatal("tagged amux session with -tab- should be classified as chat")
+		t.Fatal("tagged medusa session with -tab- should be classified as chat")
 	}
 
 	// Sessions with explicit type should use type regardless of name
@@ -49,7 +49,7 @@ func TestHysteresisWorkspaceExtraction(t *testing.T) {
 		// Source 2: workspace ID falls back to tab info
 		{Name: "sess-info-fallback", WorkspaceID: "", Type: "agent"},
 		// Source 3: workspace ID falls back to session name
-		{Name: "amux-ws99-tab-1", WorkspaceID: "", Type: "agent"},
+		{Name: "medusa-ws99-tab-1", WorkspaceID: "", Type: "agent"},
 		// Excluded: non-chat session (type="" and IsChat=false)
 		{Name: "sess-viewer", WorkspaceID: "ws-viewer", Type: "", Tagged: true},
 		// Excluded: below threshold
@@ -58,7 +58,7 @@ func TestHysteresisWorkspaceExtraction(t *testing.T) {
 	states := map[string]*sessionActivityState{
 		"sess-direct":        warmState(),
 		"sess-info-fallback": warmState(),
-		"amux-ws99-tab-1":    warmState(),
+		"medusa-ws99-tab-1":    warmState(),
 		"sess-viewer":        warmState(),
 		"sess-cold":          {score: 0, initialized: true},
 	}
@@ -86,7 +86,7 @@ func TestHysteresisWorkspaceExtraction(t *testing.T) {
 		t.Error("session below threshold should not be active")
 	}
 	// Updated states returned for all processed sessions
-	for _, name := range []string{"sess-direct", "sess-info-fallback", "amux-ws99-tab-1", "sess-cold"} {
+	for _, name := range []string{"sess-direct", "sess-info-fallback", "medusa-ws99-tab-1", "sess-cold"} {
 		if _, ok := updated[name]; !ok {
 			t.Errorf("expected updated state for %s", name)
 		}

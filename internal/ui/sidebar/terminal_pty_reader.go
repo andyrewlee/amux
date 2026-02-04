@@ -7,9 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/pty"
+	"github.com/andyrewlee/medusa/internal/safego"
 )
 
 func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wsID string, tabID string, heartbeat *int64) {

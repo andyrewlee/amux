@@ -6,8 +6,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/perf"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/perf"
+	"github.com/andyrewlee/medusa/internal/ui/common"
 )
 
 // formatScrollPos formats the scroll position for display

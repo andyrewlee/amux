@@ -3,7 +3,7 @@ package dashboard
 import (
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/ui/common"
 )
 
 // renderRow renders a single dashboard row
@@ -19,7 +19,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if m.activeRoot == "" {
 			style = style.Bold(true).Foreground(common.ColorPrimary)
 		}
-		return style.Render("[amux]")
+		return style.Render("[medusa]")
 
 	case RowProject:
 		prefix := " "

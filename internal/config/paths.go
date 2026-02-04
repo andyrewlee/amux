@@ -7,14 +7,14 @@ import (
 
 // Paths holds all the file system paths used by the application
 type Paths struct {
-	Home                  string // ~/.amux
-	WorkspacesRoot        string // ~/.amux/workspaces
-	RegistryPath          string // ~/.amux/projects.json
-	MetadataRoot          string // ~/.amux/workspaces-metadata
-	ConfigPath            string // ~/.amux/config.json
-	ProfilesRoot          string // ~/.amux/profiles
-	SharedProfileRoot     string // ~/.amux/profiles/shared
-	GlobalPermissionsPath string // ~/.amux/global_permissions.json
+	Home                  string // ~/.medusa
+	WorkspacesRoot        string // ~/.medusa/workspaces
+	RegistryPath          string // ~/.medusa/projects.json
+	MetadataRoot          string // ~/.medusa/workspaces-metadata
+	ConfigPath            string // ~/.medusa/config.json
+	ProfilesRoot          string // ~/.medusa/profiles
+	SharedProfileRoot     string // ~/.medusa/profiles/shared
+	GlobalPermissionsPath string // ~/.medusa/global_permissions.json
 }
 
 // DefaultPaths returns the default paths configuration
@@ -24,18 +24,18 @@ func DefaultPaths() (*Paths, error) {
 		return nil, err
 	}
 
-	amuxHome := filepath.Join(home, ".amux")
+	medusaHome := filepath.Join(home, ".medusa")
 
-	profilesRoot := filepath.Join(amuxHome, "profiles")
+	profilesRoot := filepath.Join(medusaHome, "profiles")
 	return &Paths{
-		Home:                  amuxHome,
-		WorkspacesRoot:        filepath.Join(amuxHome, "workspaces"),
-		RegistryPath:          filepath.Join(amuxHome, "projects.json"),
-		MetadataRoot:          filepath.Join(amuxHome, "workspaces-metadata"),
-		ConfigPath:            filepath.Join(amuxHome, "config.json"),
+		Home:                  medusaHome,
+		WorkspacesRoot:        filepath.Join(medusaHome, "workspaces"),
+		RegistryPath:          filepath.Join(medusaHome, "projects.json"),
+		MetadataRoot:          filepath.Join(medusaHome, "workspaces-metadata"),
+		ConfigPath:            filepath.Join(medusaHome, "config.json"),
 		ProfilesRoot:          profilesRoot,
 		SharedProfileRoot:     filepath.Join(profilesRoot, "shared"),
-		GlobalPermissionsPath: filepath.Join(amuxHome, "global_permissions.json"),
+		GlobalPermissionsPath: filepath.Join(medusaHome, "global_permissions.json"),
 	}, nil
 }
 

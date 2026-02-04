@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/safego"
 )
 
 // ScriptType identifies the type of script
@@ -51,7 +51,7 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 
 // LoadConfig loads the workspace configuration from the repo
 func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
-	configPath := filepath.Join(repoPath, ".amux", configFilename)
+	configPath := filepath.Join(repoPath, ".medusa", configFilename)
 
 	fileData, err := os.ReadFile(configPath)
 	if os.IsNotExist(err) {

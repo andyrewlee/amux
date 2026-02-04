@@ -1,8 +1,8 @@
 package messages
 
 import (
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/git"
 )
 
 // PaneType identifies the focused pane
@@ -316,7 +316,7 @@ type CloseTab struct{}
 // ShowCleanupTmuxDialog requests confirmation before cleaning tmux sessions.
 type ShowCleanupTmuxDialog struct{}
 
-// CleanupTmuxSessions requests cleanup of amux tmux sessions.
+// CleanupTmuxSessions requests cleanup of medusa tmux sessions.
 type CleanupTmuxSessions struct{}
 
 // WorkspaceCreatedWithWarning indicates workspace was created but setup had issues

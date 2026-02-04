@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/medusa/internal/data"
 )
 
 func TestDashboardCreatingWorkspaceRow(t *testing.T) {
@@ -12,7 +12,7 @@ func TestDashboardCreatingWorkspaceRow(t *testing.T) {
 	project := makeProject()
 	m.SetProjects([]data.Project{project})
 
-	wt := data.NewWorkspace("creating", "creating", "HEAD", project.Path, project.Path+"/.amux/workspaces/creating")
+	wt := data.NewWorkspace("creating", "creating", "HEAD", project.Path, project.Path+"/.medusa/workspaces/creating")
 	m.SetWorkspaceCreating(wt, true)
 
 	found := false
@@ -34,8 +34,8 @@ func TestDashboardWorkspaceOrderByCreatedAsc(t *testing.T) {
 		Path: "/repo",
 		Workspaces: []data.Workspace{
 			{Name: "repo", Branch: "main", Repo: "/repo", Root: "/repo", Created: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
-			{Name: "older", Branch: "older", Repo: "/repo", Root: "/repo/.amux/workspaces/older", Created: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)},
-			{Name: "newer", Branch: "newer", Repo: "/repo", Root: "/repo/.amux/workspaces/newer", Created: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{Name: "older", Branch: "older", Repo: "/repo", Root: "/repo/.medusa/workspaces/older", Created: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)},
+			{Name: "newer", Branch: "newer", Repo: "/repo", Root: "/repo/.medusa/workspaces/newer", Created: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
 		},
 	}
 
@@ -66,12 +66,12 @@ func TestDashboardCreatingWorkspaceOrder(t *testing.T) {
 		Path: "/repo",
 		Workspaces: []data.Workspace{
 			{Name: "repo", Branch: "main", Repo: "/repo", Root: "/repo", Created: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
-			{Name: "older", Branch: "older", Repo: "/repo", Root: "/repo/.amux/workspaces/older", Created: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)},
+			{Name: "older", Branch: "older", Repo: "/repo", Root: "/repo/.medusa/workspaces/older", Created: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)},
 		},
 	}
 	m.SetProjects([]data.Project{project})
 
-	wt := data.NewWorkspace("creating", "creating", "HEAD", project.Path, project.Path+"/.amux/workspaces/creating")
+	wt := data.NewWorkspace("creating", "creating", "HEAD", project.Path, project.Path+"/.medusa/workspaces/creating")
 	wt.Created = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	m.SetWorkspaceCreating(wt, true)
 
@@ -95,9 +95,9 @@ func TestDashboardWorkspaceOrderStableWhenCreatedEqual(t *testing.T) {
 		Path: "/repo",
 		Workspaces: []data.Workspace{
 			{Name: "repo", Branch: "main", Repo: "/repo", Root: "/repo", Created: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
-			{Name: "b", Branch: "b", Repo: "/repo", Root: "/repo/.amux/workspaces/b", Created: created},
-			{Name: "a", Branch: "a", Repo: "/repo", Root: "/repo/.amux/workspaces/a", Created: created},
-			{Name: "a", Branch: "a2", Repo: "/repo", Root: "/repo/.amux/workspaces/a2", Created: created},
+			{Name: "b", Branch: "b", Repo: "/repo", Root: "/repo/.medusa/workspaces/b", Created: created},
+			{Name: "a", Branch: "a", Repo: "/repo", Root: "/repo/.medusa/workspaces/a", Created: created},
+			{Name: "a", Branch: "a2", Repo: "/repo", Root: "/repo/.medusa/workspaces/a2", Created: created},
 		},
 	}
 
@@ -111,9 +111,9 @@ func TestDashboardWorkspaceOrderStableWhenCreatedEqual(t *testing.T) {
 	}
 
 	want := []string{
-		"/repo/.amux/workspaces/a",
-		"/repo/.amux/workspaces/a2",
-		"/repo/.amux/workspaces/b",
+		"/repo/.medusa/workspaces/a",
+		"/repo/.medusa/workspaces/a2",
+		"/repo/.medusa/workspaces/b",
 	}
 
 	if len(got) < len(want) {

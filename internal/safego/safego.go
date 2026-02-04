@@ -4,7 +4,7 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/medusa/internal/logging"
 )
 
 // PanicHandler receives panic details from recovered goroutines.

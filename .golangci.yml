@@ -14,6 +14,6 @@ linters:
 
 linters-settings:
   goimports:
-    local-prefixes: github.com/andyrewlee/amux
+    local-prefixes: github.com/andyrewlee/medusa
   errcheck:
     check-type-assertions: true

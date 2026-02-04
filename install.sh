@@ -1,11 +1,11 @@
 #!/bin/sh
 set -e
 
-# amux installer script
-# Usage: curl -fsSL https://raw.githubusercontent.com/andyrewlee/amux/main/install.sh | sh
+# medusa installer script
+# Usage: curl -fsSL https://raw.githubusercontent.com/andyrewlee/medusa/main/install.sh | sh
 
-REPO="andyrewlee/amux"
-BINARY="amux"
+REPO="andyrewlee/medusa"
+BINARY="medusa"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Detect OS
@@ -32,8 +32,8 @@ esac
 
 # Get latest version from GitHub API
 get_latest_version() {
-  curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | 
-    grep '"tag_name":' | 
+  curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" |
+    grep '"tag_name":' |
     sed -E 's/.*"([^"]+)".*/\1/'
 }
 

@@ -3,8 +3,8 @@ package app
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/messages"
 )
 
 // handleTmuxSyncTick syncs tab status for all workspaces on each tick.

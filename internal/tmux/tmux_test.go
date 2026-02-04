@@ -14,37 +14,37 @@ func TestSessionName(t *testing.T) {
 		{
 			name:     "empty parts",
 			parts:    []string{},
-			expected: "amux",
+			expected: "medusa",
 		},
 		{
 			name:     "single part",
-			parts:    []string{"amux"},
-			expected: "amux",
+			parts:    []string{"medusa"},
+			expected: "medusa",
 		},
 		{
 			name:     "multiple parts",
-			parts:    []string{"amux", "ws-123", "tab-456"},
-			expected: "amux-ws-123-tab-456",
+			parts:    []string{"medusa", "ws-123", "tab-456"},
+			expected: "medusa-ws-123-tab-456",
 		},
 		{
 			name:     "parts with spaces are trimmed",
-			parts:    []string{"  amux  ", "  ws  "},
-			expected: "amux-ws",
+			parts:    []string{"  medusa  ", "  ws  "},
+			expected: "medusa-ws",
 		},
 		{
 			name:     "empty parts are skipped",
-			parts:    []string{"amux", "", "ws"},
-			expected: "amux-ws",
+			parts:    []string{"medusa", "", "ws"},
+			expected: "medusa-ws",
 		},
 		{
 			name:     "special characters are sanitized",
-			parts:    []string{"amux", "my/workspace", "tab:1"},
-			expected: "amux-my-workspace-tab-1",
+			parts:    []string{"medusa", "my/workspace", "tab:1"},
+			expected: "medusa-my-workspace-tab-1",
 		},
 		{
 			name:     "uppercase is lowercased",
-			parts:    []string{"AMUX", "WS"},
-			expected: "amux-ws",
+			parts:    []string{"MEDUSA", "WS"},
+			expected: "medusa-ws",
 		},
 	}
 
@@ -69,43 +69,43 @@ func TestNextUniqueSessionNameFromList(t *testing.T) {
 			name:          "no existing sessions",
 			workspaceName: "my-project",
 			sessions:      nil,
-			expected:      "amux-my-project-1",
+			expected:      "medusa-my-project-1",
 		},
 		{
 			name:          "first slot taken",
 			workspaceName: "my-project",
-			sessions:      []string{"amux-my-project-1"},
-			expected:      "amux-my-project-2",
+			sessions:      []string{"medusa-my-project-1"},
+			expected:      "medusa-my-project-2",
 		},
 		{
 			name:          "multiple slots taken",
 			workspaceName: "my-project",
-			sessions:      []string{"amux-my-project-1", "amux-my-project-2", "amux-my-project-3"},
-			expected:      "amux-my-project-4",
+			sessions:      []string{"medusa-my-project-1", "medusa-my-project-2", "medusa-my-project-3"},
+			expected:      "medusa-my-project-4",
 		},
 		{
 			name:          "gap in numbering picks first available",
 			workspaceName: "my-project",
-			sessions:      []string{"amux-my-project-1", "amux-my-project-3"},
-			expected:      "amux-my-project-2",
+			sessions:      []string{"medusa-my-project-1", "medusa-my-project-3"},
+			expected:      "medusa-my-project-2",
 		},
 		{
 			name:          "unrelated sessions ignored",
 			workspaceName: "my-project",
-			sessions:      []string{"amux-other-project-1", "amux-other-project-2"},
-			expected:      "amux-my-project-1",
+			sessions:      []string{"medusa-other-project-1", "medusa-other-project-2"},
+			expected:      "medusa-my-project-1",
 		},
 		{
 			name:          "workspace name with special chars",
 			workspaceName: "My Project/Main",
-			sessions:      []string{"amux-my-project-main-1"},
-			expected:      "amux-my-project-main-2",
+			sessions:      []string{"medusa-my-project-main-1"},
+			expected:      "medusa-my-project-main-2",
 		},
 		{
 			name:          "workspace name with uppercase",
 			workspaceName: "MyProject",
-			sessions:      []string{"amux-myproject-1"},
-			expected:      "amux-myproject-2",
+			sessions:      []string{"medusa-myproject-1"},
+			expected:      "medusa-myproject-2",
 		},
 	}
 
@@ -247,23 +247,23 @@ func TestClientCommandWithTags(t *testing.T) {
 
 	cmd := ClientCommandWithTags("test-session", "/tmp/work", "echo hello", opts, tags)
 
-	if !strings.Contains(cmd, "@amux 1") {
-		t.Error("Command should set @amux tag")
+	if !strings.Contains(cmd, "@medusa 1") {
+		t.Error("Command should set @medusa tag")
 	}
-	if !strings.Contains(cmd, "@amux_workspace 'ws-1'") {
-		t.Error("Command should set @amux_workspace tag")
+	if !strings.Contains(cmd, "@medusa_workspace 'ws-1'") {
+		t.Error("Command should set @medusa_workspace tag")
 	}
-	if !strings.Contains(cmd, "@amux_tab 'tab-2'") {
-		t.Error("Command should set @amux_tab tag")
+	if !strings.Contains(cmd, "@medusa_tab 'tab-2'") {
+		t.Error("Command should set @medusa_tab tag")
 	}
-	if !strings.Contains(cmd, "@amux_type 'agent'") {
-		t.Error("Command should set @amux_type tag")
+	if !strings.Contains(cmd, "@medusa_type 'agent'") {
+		t.Error("Command should set @medusa_type tag")
 	}
-	if !strings.Contains(cmd, "@amux_assistant 'claude'") {
-		t.Error("Command should set @amux_assistant tag")
+	if !strings.Contains(cmd, "@medusa_assistant 'claude'") {
+		t.Error("Command should set @medusa_assistant tag")
 	}
-	if !strings.Contains(cmd, "@amux_created_at '123'") {
-		t.Error("Command should set @amux_created_at tag")
+	if !strings.Contains(cmd, "@medusa_created_at '123'") {
+		t.Error("Command should set @medusa_created_at tag")
 	}
 }
 
@@ -352,7 +352,7 @@ func TestCapturePaneEmptySession(t *testing.T) {
 
 func TestCapturePaneNonexistentSession(t *testing.T) {
 	opts := Options{
-		ServerName:     "amux-test-nonexistent",
+		ServerName:     "medusa-test-nonexistent",
 		ConfigPath:     "/dev/null",
 		CommandTimeout: 5_000_000_000, // 5s
 	}

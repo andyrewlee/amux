@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/config"
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/medusa/internal/config"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/tmux"
 )
 
 // AgentOptions holds optional flags for agent creation.

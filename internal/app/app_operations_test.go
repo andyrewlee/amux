@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/messages"
 )
 
 func TestLoadProjects_StoreFirstMerge(t *testing.T) {
@@ -236,7 +236,7 @@ func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
 	ghost := &data.Workspace{
 		Name: "ghost",
 		Repo: repo,
-		Root: filepath.Join(repo, ".amux", "workspaces", "ghost"),
+		Root: filepath.Join(repo, ".medusa", "workspaces", "ghost"),
 	}
 	if err := store.Save(ghost); err != nil {
 		t.Fatalf("Save ghost workspace: %v", err)

@@ -16,7 +16,7 @@ func TestWorkspaceStore_LoadMetadataFor(t *testing.T) {
 		Name:   "feature-branch",
 		Branch: "feature-branch",
 		Repo:   "/home/user/myrepo",
-		Root:   "/home/user/.amux/workspaces/myrepo/feature-branch",
+		Root:   "/home/user/.medusa/workspaces/myrepo/feature-branch",
 	}
 
 	// Simulate legacy metadata file (no Root/Repo, just metadata fields)
@@ -58,8 +58,8 @@ func TestWorkspaceStore_LoadMetadataFor(t *testing.T) {
 	if discovered.Repo != "/home/user/myrepo" {
 		t.Errorf("Repo = %v, want '/home/user/myrepo'", discovered.Repo)
 	}
-	if discovered.Root != "/home/user/.amux/workspaces/myrepo/feature-branch" {
-		t.Errorf("Root = %v, want '/home/user/.amux/workspaces/myrepo/feature-branch'", discovered.Root)
+	if discovered.Root != "/home/user/.medusa/workspaces/myrepo/feature-branch" {
+		t.Errorf("Root = %v, want '/home/user/.medusa/workspaces/myrepo/feature-branch'", discovered.Root)
 	}
 
 	// Verify metadata was merged from legacy file
@@ -92,7 +92,7 @@ func TestWorkspaceStore_LoadMetadataFor_NotFound(t *testing.T) {
 		Name:   "new-workspace",
 		Branch: "new-branch",
 		Repo:   "/home/user/repo",
-		Root:   "/home/user/.amux/workspaces/repo/new-workspace",
+		Root:   "/home/user/.medusa/workspaces/repo/new-workspace",
 	}
 
 	found, err := store.LoadMetadataFor(ws)

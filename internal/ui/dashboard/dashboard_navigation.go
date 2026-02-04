@@ -3,8 +3,8 @@ package dashboard
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/messages"
 )
 
 // isSelectable returns whether a row type can be selected

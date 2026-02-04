@@ -7,11 +7,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/perf"
-	"github.com/andyrewlee/amux/internal/safego"
-	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/perf"
+	"github.com/andyrewlee/medusa/internal/safego"
+	"github.com/andyrewlee/medusa/internal/ui/center"
 )
 
 func (a *App) SetMsgSender(send func(tea.Msg)) {

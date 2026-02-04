@@ -3,7 +3,7 @@ package app
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/medusa/internal/messages"
 )
 
 // routeMouseClick routes mouse click events to the appropriate pane.

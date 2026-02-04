@@ -71,7 +71,7 @@ func TestWorkspace_IsPrimaryCheckout(t *testing.T) {
 		{
 			name:    "workspace",
 			repo:    "/home/user/repo",
-			root:    "/home/user/.amux/workspaces/feature",
+			root:    "/home/user/.medusa/workspaces/feature",
 			primary: false,
 		},
 	}

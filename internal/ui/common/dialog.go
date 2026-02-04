@@ -7,7 +7,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/medusa/internal/logging"
 )
 
 // DialogType identifies the type of dialog

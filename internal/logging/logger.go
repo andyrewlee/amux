@@ -51,7 +51,7 @@ func Initialize(logDir string, level Level) error {
 		return err
 	}
 
-	logPath := filepath.Join(logDir, fmt.Sprintf("amux-%s.log", time.Now().Format("2006-01-02")))
+	logPath := filepath.Join(logDir, fmt.Sprintf("medusa-%s.log", time.Now().Format("2006-01-02")))
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return err

@@ -3,8 +3,8 @@ package dashboard
 import (
 	"testing"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/messages"
 )
 
 func TestDashboardIsProjectActive(t *testing.T) {

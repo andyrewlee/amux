@@ -3,9 +3,9 @@ package dashboard
 import (
 	"testing"
 
-	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/git"
-	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/git"
+	"github.com/andyrewlee/medusa/internal/messages"
 )
 
 func makeProject() data.Project {
@@ -14,7 +14,7 @@ func makeProject() data.Project {
 		Path: "/repo",
 		Workspaces: []data.Workspace{
 			{Name: "repo", Branch: "main", Repo: "/repo", Root: "/repo"},
-			{Name: "feature", Branch: "feature", Repo: "/repo", Root: "/repo/.amux/workspaces/feature"},
+			{Name: "feature", Branch: "feature", Repo: "/repo", Root: "/repo/.medusa/workspaces/feature"},
 		},
 	}
 }
@@ -261,7 +261,7 @@ func TestSpinnerOnlyForCreateDelete(t *testing.T) {
 			Name:   "new-ws",
 			Branch: "feature",
 			Repo:   "/repo",
-			Root:   "/repo/.amux/workspaces/new-ws",
+			Root:   "/repo/.medusa/workspaces/new-ws",
 		}
 		cmd := m.SetWorkspaceCreating(ws, true)
 		if cmd == nil {
@@ -280,7 +280,7 @@ func TestSpinnerOnlyForCreateDelete(t *testing.T) {
 			Name:   "new-ws",
 			Branch: "feature",
 			Repo:   "/repo",
-			Root:   "/repo/.amux/workspaces/new-ws",
+			Root:   "/repo/.medusa/workspaces/new-ws",
 		}
 		m.SetWorkspaceCreating(ws, false)
 		if len(m.creatingWorkspaces) != 0 {

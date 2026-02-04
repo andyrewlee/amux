@@ -3,7 +3,7 @@ package center
 import (
 	"testing"
 
-	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/medusa/internal/data"
 )
 
 func TestNextAssistantName(t *testing.T) {

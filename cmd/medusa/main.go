@@ -16,9 +16,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/app"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/medusa/internal/app"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/safego"
 )
 
 // Version info set by GoReleaser via ldflags
@@ -31,19 +31,19 @@ var (
 func main() {
 	// Handle --version flag
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("amux %s (commit: %s, built: %s)\n", version, commit, date)
+		fmt.Printf("medusa %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
 	}
 	// Initialize logging
 	home, _ := os.UserHomeDir()
-	logDir := filepath.Join(home, ".amux", "logs")
+	logDir := filepath.Join(home, ".medusa", "logs")
 	if err := logging.Initialize(logDir, logging.LevelDebug); err != nil {
 		// Logging is optional, continue without it
 		fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)
 	}
 	defer logging.Close()
 
-	logging.Info("Starting amux")
+	logging.Info("Starting medusa")
 
 	startSignalDebug()
 
@@ -71,7 +71,7 @@ func main() {
 	a.CleanupTmuxOnExit()
 	a.Shutdown()
 
-	logging.Info("amux shutdown complete")
+	logging.Info("medusa shutdown complete")
 }
 
 var lastMouseMotionEvent time.Time
@@ -105,7 +105,7 @@ func mouseEventFilter(m tea.Model, msg tea.Msg) tea.Msg {
 }
 
 func startPprof() {
-	raw := strings.TrimSpace(os.Getenv("AMUX_PPROF"))
+	raw := strings.TrimSpace(os.Getenv("MEDUSA_PPROF"))
 	if raw == "" {
 		return
 	}
@@ -131,9 +131,9 @@ func startPprof() {
 
 // startSignalDebug registers a SIGUSR1 handler for debug goroutine dumps.
 // The goroutine and signal handler intentionally live for the process lifetime
-// since this is only active in dev builds or when AMUX_DEBUG_SIGNALS is set.
+// since this is only active in dev builds or when MEDUSA_DEBUG_SIGNALS is set.
 func startSignalDebug() {
-	if version != "dev" && strings.TrimSpace(os.Getenv("AMUX_DEBUG_SIGNALS")) == "" {
+	if version != "dev" && strings.TrimSpace(os.Getenv("MEDUSA_DEBUG_SIGNALS")) == "" {
 		return
 	}
 	ch := make(chan os.Signal, 1)

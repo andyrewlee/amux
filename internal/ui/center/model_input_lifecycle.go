@@ -6,14 +6,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/git"
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/perf"
-	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/vterm"
+	"github.com/andyrewlee/medusa/internal/git"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/messages"
+	"github.com/andyrewlee/medusa/internal/perf"
+	appPty "github.com/andyrewlee/medusa/internal/pty"
+	"github.com/andyrewlee/medusa/internal/tmux"
+	"github.com/andyrewlee/medusa/internal/ui/common"
+	"github.com/andyrewlee/medusa/internal/vterm"
 )
 
 // updateLaunchAgent handles messages.LaunchAgent.
@@ -202,7 +202,7 @@ func (m *Model) updateTabAutoRestart(msg tabAutoRestart) (*Model, tea.Cmd) {
 	}
 	tabID := tab.ID
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", ws.Name, "1")
+		sessionName = tmux.SessionName("medusa", ws.Name, "1")
 	}
 
 	// Clean up any leftover agent.
