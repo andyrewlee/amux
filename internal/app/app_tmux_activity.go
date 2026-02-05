@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -30,6 +29,13 @@ const (
 	// decays below threshold naturally.
 	activityScoreThreshold = 3 // Score needed to be considered active
 	activityScoreMax       = 6 // Maximum score (prevents runaway accumulation)
+
+	// activityOutputWindow is how recently output must have occurred to be "active".
+	activityOutputWindow = 2 * time.Second
+	// activityInputEchoWindow treats output immediately after input as likely local echo.
+	activityInputEchoWindow = 400 * time.Millisecond
+	// activityInputSuppressWindow suppresses fallback capture right after user input.
+	activityInputSuppressWindow = 2 * time.Second
 )
 
 // sessionActivityState tracks per-session activity using screen-delta hysteresis.
@@ -72,6 +78,12 @@ func (a *App) triggerTmuxActivityScan() tea.Cmd {
 }
 
 func (a *App) scanTmuxActivityNow() tea.Cmd {
+	if a.tmuxActivityScanInFlight {
+		a.tmuxActivityRescanPending = true
+		return nil
+	}
+	a.tmuxActivityScanInFlight = true
+	a.tmuxActivityRescanPending = false
 	a.tmuxActivityToken++
 	scanToken := a.tmuxActivityToken
 	infoBySession := a.tabSessionInfoByName()
@@ -85,11 +97,16 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 		if svc == nil {
 			return tmuxActivityResult{Token: scanToken, Err: errTmuxUnavailable}
 		}
-		sessions, err := svc.ActiveAgentSessionsByActivity(tmuxActivityPrefilter, opts)
+		sessions, err := fetchTaggedSessions(svc, infoBySession, opts)
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
-		active, updatedStates := activeWorkspaceIDsWithHysteresis(infoBySession, sessions, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
+		recentActivityBySession, err := fetchRecentlyActiveAgentSessionsByWindow(svc, opts)
+		if err != nil {
+			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
+			recentActivityBySession = nil
+		}
+		active, updatedStates := activeWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates}
 	}
 }
@@ -101,6 +118,12 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 	if !a.tmuxAvailable {
 		return []tea.Cmd{a.scheduleTmuxActivityTick()}
 	}
+	if a.tmuxActivityScanInFlight {
+		a.tmuxActivityRescanPending = true
+		return []tea.Cmd{a.scheduleTmuxActivityTick()}
+	}
+	a.tmuxActivityScanInFlight = true
+	a.tmuxActivityRescanPending = false
 	// Increment token for this scan so out-of-order results are rejected.
 	// Each scan gets a unique token; only the most recent result is applied.
 	a.tmuxActivityToken++
@@ -116,11 +139,16 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 		if svc == nil {
 			return tmuxActivityResult{Token: scanToken, Err: errTmuxUnavailable}
 		}
-		sessions, err := svc.ActiveAgentSessionsByActivity(tmuxActivityPrefilter, opts)
+		sessions, err := fetchTaggedSessions(svc, sessionInfo, opts)
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
-		active, updatedStates := activeWorkspaceIDsWithHysteresis(sessionInfo, sessions, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
+		recentActivityBySession, err := fetchRecentlyActiveAgentSessionsByWindow(svc, opts)
+		if err != nil {
+			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
+			recentActivityBySession = nil
+		}
+		active, updatedStates := activeWorkspaceIDsFromTags(sessionInfo, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates}
 	}}
 	return cmds
@@ -131,216 +159,31 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 		// Stale result from an older scan; ignore to avoid overwriting newer state
 		return nil
 	}
+	a.tmuxActivityScanInFlight = false
 	var cmds []tea.Cmd
 	if msg.Err != nil {
 		logging.Warn("tmux activity scan failed: %v", msg.Err)
-		return cmds
+	} else {
+		if msg.ActiveWorkspaceIDs == nil {
+			msg.ActiveWorkspaceIDs = make(map[string]bool)
+		}
+		// Merge updated hysteresis states back into the main map (on main thread)
+		for name, state := range msg.UpdatedStates {
+			a.sessionActivityStates[name] = state
+		}
+		a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
+		a.syncActiveWorkspacesToDashboard()
+		if cmd := a.dashboard.StartSpinnerIfNeeded(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
-	if msg.ActiveWorkspaceIDs == nil {
-		msg.ActiveWorkspaceIDs = make(map[string]bool)
-	}
-	// Merge updated hysteresis states back into the main map (on main thread)
-	for name, state := range msg.UpdatedStates {
-		a.sessionActivityStates[name] = state
-	}
-	a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
-	a.syncActiveWorkspacesToDashboard()
-	if cmd := a.dashboard.StartSpinnerIfNeeded(); cmd != nil {
-		cmds = append(cmds, cmd)
+	if a.tmuxActivityRescanPending && a.tmuxAvailable {
+		a.tmuxActivityRescanPending = false
+		if scanCmd := a.scanTmuxActivityNow(); scanCmd != nil {
+			cmds = append(cmds, scanCmd)
+		}
 	}
 	return cmds
-}
-
-type tabSessionInfo struct {
-	Status      string
-	WorkspaceID string
-	Assistant   string
-	IsChat      bool
-}
-
-// Concurrency safety: builds the map synchronously in the Update loop.
-// Goroutine closures capture only the returned map, never accessing
-// a.projects or ws.OpenTabs directly.
-func (a *App) tabSessionInfoByName() map[string]tabSessionInfo {
-	infoBySession := make(map[string]tabSessionInfo)
-	assistants := map[string]struct{}{}
-	if a.config != nil {
-		for name := range a.config.Assistants {
-			assistants[name] = struct{}{}
-		}
-	}
-	for _, project := range a.projects {
-		for i := range project.Workspaces {
-			ws := &project.Workspaces[i]
-			for _, tab := range ws.OpenTabs {
-				name := strings.TrimSpace(tab.SessionName)
-				if name == "" {
-					continue
-				}
-				status := strings.ToLower(strings.TrimSpace(tab.Status))
-				if status == "" {
-					status = "running"
-				}
-				assistant := strings.TrimSpace(tab.Assistant)
-				_, isChat := assistants[assistant]
-				infoBySession[name] = tabSessionInfo{
-					Status:      status,
-					WorkspaceID: string(ws.ID()),
-					Assistant:   assistant,
-					IsChat:      isChat,
-				}
-			}
-		}
-	}
-	return infoBySession
-}
-
-// activeWorkspaceIDsWithHysteresis uses screen-delta detection with hysteresis
-// to determine which workspaces have actively working agents. This prevents
-// false positives from periodic terminal refreshes (like sponsor messages).
-// Returns both the active workspace IDs and the updated session states.
-func activeWorkspaceIDsWithHysteresis(
-	infoBySession map[string]tabSessionInfo,
-	sessions []tmux.SessionActivity,
-	states map[string]*sessionActivityState,
-	opts tmux.Options,
-	captureFn func(sessionName string, lines int, opts tmux.Options) (string, bool),
-	hashFn func(content string) [16]byte,
-) (map[string]bool, map[string]*sessionActivityState) {
-	active := make(map[string]bool)
-	updatedStates := make(map[string]*sessionActivityState)
-	now := time.Now()
-
-	// Track which sessions we see in this scan
-	seenSessions := make(map[string]bool, len(sessions))
-
-	for _, session := range sessions {
-		seenSessions[session.Name] = true
-		info, ok := infoBySession[session.Name]
-		if !isChatSession(session, info, ok) {
-			continue
-		}
-
-		// Get or create state for this session
-		state := states[session.Name]
-		if state == nil {
-			state = &sessionActivityState{}
-		}
-
-		// Capture pane content and compute hash
-		content, captureOK := captureFn(session.Name, activityCaptureTail, opts)
-		if captureOK {
-			hash := hashFn(content)
-
-			// Update hysteresis score based on content change
-			if !state.initialized {
-				// First time seeing this session — treat as active immediately.
-				// If it stops generating output, hysteresis decay will clear it.
-				state.lastHash = hash
-				state.initialized = true
-				state.score = activityScoreThreshold
-				state.lastActiveAt = now
-			} else if hash != state.lastHash {
-				// Content changed - bump score
-				state.score += 2
-				if state.score > activityScoreMax {
-					state.score = activityScoreMax
-				}
-				state.lastHash = hash
-				// Only update lastActiveAt when crossing the active threshold,
-				// so hold duration doesn't apply to single changes below threshold
-				if state.score >= activityScoreThreshold {
-					state.lastActiveAt = now
-				}
-			} else {
-				// No change - decay score
-				state.score--
-				if state.score < 0 {
-					state.score = 0
-				}
-			}
-		} else {
-			// Capture failed - decay score to prevent stale "active" states
-			// from persisting when capture keeps failing
-			state.score--
-			if state.score < 0 {
-				state.score = 0
-			}
-		}
-
-		// Track updated state for merging back on main thread
-		updatedStates[session.Name] = state
-
-		// Determine if session is active based on score and hold duration
-		isActive := state.score >= activityScoreThreshold
-		if !isActive && !state.lastActiveAt.IsZero() {
-			// Check hold duration - stay active for a bit after last change
-			if now.Sub(state.lastActiveAt) < activityHoldDuration {
-				isActive = true
-			}
-		}
-
-		if isActive {
-			workspaceID := strings.TrimSpace(session.WorkspaceID)
-			if workspaceID == "" && ok {
-				workspaceID = strings.TrimSpace(info.WorkspaceID)
-			}
-			if workspaceID == "" {
-				workspaceID = workspaceIDFromSessionName(session.Name)
-			}
-			if workspaceID != "" {
-				active[workspaceID] = true
-			}
-		}
-	}
-
-	// Decay/reset states for sessions not seen in this scan.
-	// This prevents stale scores from persisting when a session falls out of
-	// the prefilter window (>120s idle) and then reappears with a single refresh.
-	for name, state := range states {
-		if seenSessions[name] {
-			continue // Already processed above
-		}
-		// Reset score and baseline so stale hashes/hold timers don't trigger
-		// false positives when a session re-enters the prefilter window.
-		state.score = 0
-		state.lastActiveAt = time.Time{}
-		state.initialized = false
-		state.lastHash = [16]byte{}
-		updatedStates[name] = state
-	}
-
-	return active, updatedStates
-}
-
-// isChatSession determines whether a tmux session represents an active AI agent.
-//
-// Detection priority:
-//  1. Session tag (@amux_type == "agent") — authoritative, set at creation time.
-//  2. Stored tab metadata (info.IsChat) — from assistant config lookup.
-//  3. Name heuristic (legacy fallback) — matches "amux-*-tab-*" sessions,
-//     excluding terminal tabs ("term-tab-"). Only used for sessions tagged
-//     with @amux but missing @amux_type (older versions), to avoid false
-//     positives from unrelated tmux sessions.
-func isChatSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bool) bool {
-	if session.Type != "" {
-		return session.Type == "agent"
-	}
-	if hasInfo {
-		return info.IsChat
-	}
-	if !session.Tagged {
-		return false
-	}
-	// Legacy fallback for untagged sessions (pre-tagging era).
-	name := session.Name
-	if !strings.HasPrefix(name, "amux-") {
-		return false
-	}
-	if strings.Contains(name, "term-tab-") {
-		return false
-	}
-	return strings.Contains(name, "-tab-")
 }
 
 func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {

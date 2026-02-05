@@ -10,9 +10,36 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
+
+const activityTagThrottle = 1 * time.Second
+
+func (m *Model) userInputActivityTagCmd(tab *Tab) tea.Cmd {
+	if tab == nil || tab.isClosed() || !m.isChatTab(tab) {
+		return nil
+	}
+	sessionName := tab.SessionName
+	if sessionName == "" && tab.Agent != nil {
+		sessionName = tab.Agent.Session
+	}
+	if sessionName == "" {
+		return nil
+	}
+	now := time.Now()
+	if now.Sub(tab.lastInputTagAt) < activityTagThrottle {
+		return nil
+	}
+	tab.lastInputTagAt = now
+	opts := m.getTmuxOptions()
+	timestamp := now.UnixMilli()
+	return func() tea.Msg {
+		_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastInputAt, fmt.Sprintf("%d", timestamp), opts)
+		return nil
+	}
+}
 
 // updateLaunchAgent handles messages.LaunchAgent.
 func (m *Model) updateLaunchAgent(msg messages.LaunchAgent) (*Model, tea.Cmd) {
@@ -247,6 +274,21 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		}
 		perf.Count("pty_output_bytes", int64(len(msg.Data)))
 		tab.lastOutputAt = time.Now()
+		if m.isChatTab(tab) {
+			sessionName := tab.SessionName
+			if sessionName == "" && tab.Agent != nil {
+				sessionName = tab.Agent.Session
+			}
+			if sessionName != "" && tab.lastOutputAt.Sub(tab.lastActivityTagAt) >= activityTagThrottle {
+				tab.lastActivityTagAt = tab.lastOutputAt
+				opts := m.getTmuxOptions()
+				timestamp := tab.lastOutputAt.UnixMilli()
+				cmds = append(cmds, func() tea.Msg {
+					_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, fmt.Sprintf("%d", timestamp), opts)
+					return nil
+				})
+			}
+		}
 		if !tab.flushScheduled {
 			tab.flushScheduled = true
 			tab.flushPendingSince = tab.lastOutputAt

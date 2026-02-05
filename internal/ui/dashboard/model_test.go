@@ -203,20 +203,29 @@ func TestDashboardRefresh(t *testing.T) {
 
 func TestDashboardInvalidateStatus(t *testing.T) {
 	m := New()
-	root := "/test/workspace"
 
-	t.Run("invalidates cached status", func(t *testing.T) {
-		// Pre-populate the cache with a dirty status
+	t.Run("keeps dirty status sticky", func(t *testing.T) {
+		root := "/test/workspace-dirty"
 		m.statusCache[root] = &git.StatusResult{
 			Unstaged: []git.Change{{Path: "test.go", Kind: git.ChangeModified}},
+			Clean:    false,
 		}
 
-		// Invalidate
 		m.InvalidateStatus(root)
 
-		// Verify cache is cleared
+		if _, ok := m.statusCache[root]; !ok {
+			t.Fatal("expected dirty status to remain cached")
+		}
+	})
+
+	t.Run("invalidates cached clean status", func(t *testing.T) {
+		root := "/test/workspace-clean"
+		m.statusCache[root] = &git.StatusResult{Clean: true}
+
+		m.InvalidateStatus(root)
+
 		if _, ok := m.statusCache[root]; ok {
-			t.Fatal("expected statusCache entry to be deleted")
+			t.Fatal("expected clean statusCache entry to be deleted")
 		}
 	})
 
