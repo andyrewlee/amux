@@ -96,19 +96,53 @@ func TestHysteresisWorkspaceExtraction(t *testing.T) {
 	}
 }
 
+func TestHysteresisNewSessionImmediatelyActive(t *testing.T) {
+	// A newly discovered session with a successful capture should be
+	// immediately active (score starts at threshold) without needing
+	// multiple scan cycles.
+	infoBySession := map[string]tabSessionInfo{
+		"amux-abc-tab-1": {WorkspaceID: "ws-abc", IsChat: true},
+	}
+	sessions := []tmux.SessionActivity{
+		{Name: "amux-abc-tab-1", WorkspaceID: "ws-abc", Type: "agent"},
+	}
+	// Empty states map — session has never been seen before
+	states := map[string]*sessionActivityState{}
+
+	captureFn := func(string, int, tmux.Options) (string, bool) { return "some output", true }
+	hashFn := func(content string) [16]byte { return [16]byte{1} }
+
+	active, updated := activeWorkspaceIDsWithHysteresis(infoBySession, sessions, states, tmux.Options{}, captureFn, hashFn)
+
+	if !active["ws-abc"] {
+		t.Fatal("newly discovered session with successful capture should be immediately active")
+	}
+	st := updated["amux-abc-tab-1"]
+	if st == nil {
+		t.Fatal("expected updated state for session")
+	}
+	if st.score < activityScoreThreshold {
+		t.Fatalf("initial score should be >= threshold, got %d", st.score)
+	}
+	if !st.initialized {
+		t.Fatal("state should be initialized after first capture")
+	}
+}
+
 func TestSessionActivityHysteresis(t *testing.T) {
 	state := &sessionActivityState{}
 
-	// Test 1: First hash initializes but doesn't set active
+	// Test 1: First observation sets score at threshold (immediately active)
 	hash1 := [16]byte{1, 2, 3}
 	state.lastHash = hash1
 	state.initialized = true
-	state.score = 0
-	if state.score >= activityScoreThreshold {
-		t.Fatal("newly initialized session should not be active")
+	state.score = activityScoreThreshold
+	if state.score < activityScoreThreshold {
+		t.Fatal("newly initialized session should be active at threshold")
 	}
 
-	// Test 2: Single change bumps score but should NOT reach threshold (threshold=3)
+	// Test 2: Single change from zero should NOT reach threshold (threshold=3)
+	state.score = 0
 	hash2 := [16]byte{4, 5, 6}
 	state.score += 2 // first change: score=2
 	state.lastHash = hash2
