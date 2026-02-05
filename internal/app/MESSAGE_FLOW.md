@@ -44,5 +44,5 @@ Rules:
 
 ## Error Reporting
 
-- Use the central error helper in `App` to log + toast + emit `messages.Error`.
-- `messages.Error` is handled in one place to keep error UX consistent.
+- Use `common.ReportError(...)` (or a thin wrapper) to log + toast + emit `messages.Error`.
+- `messages.Error` is handled in one place (`App.handleErrorMessage`) to keep error UX consistent.

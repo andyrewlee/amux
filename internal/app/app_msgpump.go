@@ -25,7 +25,7 @@ func (a *App) SetMsgSender(send func(tea.Msg)) {
 				return
 			}
 			err := fmt.Errorf("background panic in %s: %v", name, recovered)
-			a.enqueueExternalMsg(messages.Error{Err: err, Context: "background"})
+			a.enqueueExternalMsg(messages.Error{Err: err, Context: errorContext(errorServiceApp, "background")})
 		})
 		a.installSupervisorErrorHandler()
 		if a.supervisor != nil {
@@ -126,7 +126,7 @@ func (a *App) installSupervisorErrorHandler() {
 		}
 		a.enqueueExternalMsg(messages.Error{
 			Err:     fmt.Errorf("worker %s: %w", name, err),
-			Context: "worker",
+			Context: errorContext(errorServiceSupervisor, "worker"),
 		})
 	})
 }

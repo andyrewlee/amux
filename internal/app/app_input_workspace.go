@@ -7,6 +7,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // handleDeleteWorkspace handles the DeleteWorkspace message.
@@ -64,13 +65,17 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 
 // handleWorkspaceCreateFailed handles the WorkspaceCreateFailed message.
 func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) tea.Cmd {
+	var cmds []tea.Cmd
 	if msg.Workspace != nil {
 		delete(a.creatingWorkspaceIDs, string(msg.Workspace.ID()))
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
-			return cmd
+			cmds = append(cmds, cmd)
 		}
 	}
-	return a.reportError("creating workspace", msg.Err, "")
+	if errCmd := common.ReportError(errorContext(errorServiceWorkspace, "creating workspace"), msg.Err, ""); errCmd != nil {
+		cmds = append(cmds, errCmd)
+	}
+	return common.SafeBatch(cmds...)
 }
 
 // handleWorkspaceDeleted handles the WorkspaceDeleted message.
@@ -103,10 +108,14 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 
 // handleWorkspaceDeleteFailed handles the WorkspaceDeleteFailed message.
 func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) tea.Cmd {
+	var cmds []tea.Cmd
 	if msg.Workspace != nil {
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
-			return cmd
+			cmds = append(cmds, cmd)
 		}
 	}
-	return a.reportError("removing workspace", msg.Err, "")
+	if errCmd := common.ReportError(errorContext(errorServiceWorkspace, "removing workspace"), msg.Err, ""); errCmd != nil {
+		cmds = append(cmds, errCmd)
+	}
+	return common.SafeBatch(cmds...)
 }

@@ -155,7 +155,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		switch a.focusedPane {
 		case messages.PaneCenter:
 			cmd := a.center.DetachActiveTab()
-			return true, a.safeBatch(cmd, a.persistActiveWorkspaceTabs())
+			return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 		case messages.PaneSidebarTerminal:
 			if cmd := a.sidebarTerminal.DetachActiveTab(); cmd != nil {
 				return true, cmd

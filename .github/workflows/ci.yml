@@ -9,6 +9,7 @@ on:
 
 env:
   TERM: xterm-256color
+  GOVULNCHECK_VERSION: v1.1.4
 
 jobs:
   test:
@@ -45,6 +46,9 @@ jobs:
             exit 1
           fi
           go test -race $pkgs
+
+      - name: Govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
 
       - name: Harness (center)
         run: go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4

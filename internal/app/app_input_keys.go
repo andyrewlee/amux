@@ -1,47 +1,12 @@
 package app
 
 import (
-	"fmt"
-	"runtime/debug"
-
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 )
-
-func (a *App) safeCmd(cmd tea.Cmd) tea.Cmd {
-	if cmd == nil {
-		return nil
-	}
-	return func() (msg tea.Msg) {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.Error("panic in command: %v\n%s", r, debug.Stack())
-				msg = messages.Error{Err: fmt.Errorf("command panic: %v", r), Context: "command", Logged: true}
-			}
-		}()
-		return cmd()
-	}
-}
-
-func (a *App) safeBatch(cmds ...tea.Cmd) tea.Cmd {
-	if len(cmds) == 0 {
-		return nil
-	}
-	safe := make([]tea.Cmd, 0, len(cmds))
-	for _, cmd := range cmds {
-		if cmd == nil {
-			continue
-		}
-		safe = append(safe, a.safeCmd(cmd))
-	}
-	if len(safe) == 0 {
-		return nil
-	}
-	return tea.Batch(safe...)
-}
 
 // syncActiveWorkspacesToDashboard syncs the active workspace state from center to dashboard.
 // This ensures the dashboard has current data for spinner state decisions.

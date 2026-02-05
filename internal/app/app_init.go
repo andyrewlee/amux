@@ -179,7 +179,7 @@ func (a *App) Init() tea.Cmd {
 	if a.stateWatcherErr != nil {
 		cmds = append(cmds, a.toast.ShowWarning("Workspace sync disabled; other instances may be stale"))
 	}
-	return a.safeBatch(cmds...)
+	return common.SafeBatch(cmds...)
 }
 
 // checkForUpdates starts a background check for updates.

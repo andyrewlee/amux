@@ -21,7 +21,7 @@ Architecture references:
 
 ## Release
 
-The release workflow is tag-driven. Pushing a tag like `v0.0.5` triggers the GitHub Actions release job.
+Versioning follows SemVer and tags are `vX.Y.Z`. Pushing a tag triggers the GitHub Actions release job.
 
 Fast path:
 
@@ -37,6 +37,11 @@ make release-check
 git tag -a v0.0.5 -m "v0.0.5"
 git push origin v0.0.5
 ```
+
+Notes:
+
+- `make release` runs `release-check`, creates an annotated tag, and pushes it. The worktree must be clean.
+- Release builds use the commit timestamp for `main.date`, which keeps the timestamp deterministic for a given commit. If you need strict bit-for-bit reproducibility, consider adding `-trimpath` and a stable build ID to the build flags.
 
 ### Homebrew tap
 
