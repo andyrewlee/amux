@@ -107,10 +107,10 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	return -1, false
 }
 
-// previewCurrentRow returns a command to preview the currently selected row.
+// activateCurrentRow returns a command to activate the currently selected row.
 // This is called automatically on cursor movement for instant content switching.
-// Returns nil for rows that shouldn't auto-preview (like RowCreate which opens a dialog).
-func (m *Model) previewCurrentRow() tea.Cmd {
+// Returns nil for rows that shouldn't auto-activate (like RowCreate which opens a dialog).
+func (m *Model) activateCurrentRow() tea.Cmd {
 	if m.cursor >= len(m.rows) {
 		return nil
 	}
@@ -131,7 +131,7 @@ func (m *Model) previewCurrentRow() tea.Cmd {
 		}
 		if mainWS != nil {
 			return func() tea.Msg {
-				return messages.WorkspacePreviewed{
+				return messages.WorkspaceActivated{
 					Project:   row.Project,
 					Workspace: mainWS,
 				}
@@ -140,7 +140,7 @@ func (m *Model) previewCurrentRow() tea.Cmd {
 		return nil
 	case RowWorkspace:
 		return func() tea.Msg {
-			return messages.WorkspacePreviewed{
+			return messages.WorkspaceActivated{
 				Project:   row.Project,
 				Workspace: row.Workspace,
 			}

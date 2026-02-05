@@ -96,9 +96,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.WorkspaceActivated:
 		cmds = append(cmds, a.handleWorkspaceActivated(msg)...)
 
-	case messages.WorkspacePreviewed:
-		cmds = append(cmds, a.handleWorkspacePreviewed(msg)...)
-
 	case messages.ShowWelcome:
 		a.goHome()
 
