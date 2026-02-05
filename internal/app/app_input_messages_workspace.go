@@ -86,44 +86,6 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	return cmds
 }
 
-// handleWorkspacePreviewed processes the WorkspacePreviewed message.
-func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cmd {
-	var cmds []tea.Cmd
-	a.activeProject = msg.Project
-	a.activeWorkspace = msg.Workspace
-	a.showWelcome = false
-	a.centerBtnFocused = false
-	a.centerBtnIndex = 0
-	a.center.SetWorkspace(msg.Workspace)
-	a.sidebar.SetWorkspace(msg.Workspace)
-	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
-	// Sync active workspaces to dashboard (fixes spinner race condition)
-	a.syncActiveWorkspacesToDashboard()
-	if msg.Workspace != nil && a.gitStatus != nil {
-		if cached := a.gitStatus.GetCached(msg.Workspace.Root); cached != nil {
-			a.sidebar.SetGitStatus(cached)
-		} else {
-			a.sidebar.SetGitStatus(nil)
-			a.dashboard.InvalidateStatus(msg.Workspace.Root)
-		}
-	} else {
-		a.sidebar.SetGitStatus(nil)
-	}
-
-	newDashboard, cmd := a.dashboard.Update(msg)
-	a.dashboard = newDashboard
-	if cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-
-	// Ensure spinner starts if needed after sync
-	if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
-		cmds = append(cmds, startCmd)
-	}
-
-	return cmds
-}
-
 // handleCreateWorkspace handles the CreateWorkspace message.
 func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd

@@ -146,11 +146,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 10) // ~10% of visible
 		if msg.Button == tea.MouseWheelUp {
 			m.moveCursor(-delta)
-			return m, m.previewCurrentRow()
+			return m, m.activateCurrentRow()
 		}
 		if msg.Button == tea.MouseWheelDown {
 			m.moveCursor(delta)
-			return m, m.previewCurrentRow()
+			return m, m.activateCurrentRow()
 		}
 
 	case tea.MouseClickMsg:
@@ -217,13 +217,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				if last := m.findSelectableRow(len(m.rows)-1, -1); last != -1 {
 					m.cursor = last
 				}
-				return m, m.previewCurrentRow()
+				return m, m.activateCurrentRow()
 			case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
 				m.toolbarFocused = false
 				if last := m.findSelectableRow(len(m.rows)-1, -1); last != -1 {
 					m.cursor = last
 				}
-				return m, m.previewCurrentRow()
+				return m, m.activateCurrentRow()
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				return m, m.toolbarCommand(toolbarItems[m.toolbarIndex].kind)
 			}
@@ -238,11 +238,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				m.toolbarIndex = 0
 			} else {
 				m.moveCursor(1)
-				return m, m.previewCurrentRow()
+				return m, m.activateCurrentRow()
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.moveCursor(-1)
-			return m, m.previewCurrentRow()
+			return m, m.activateCurrentRow()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("pgdown", "ctrl+d"))):
 			// Half-page scroll to maintain context overlap
 			delta := m.visibleHeight() / 2
@@ -250,7 +250,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				delta = 1
 			}
 			m.moveCursor(delta)
-			return m, m.previewCurrentRow()
+			return m, m.activateCurrentRow()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("pgup", "ctrl+u"))):
 			// Half-page scroll to maintain context overlap
 			delta := m.visibleHeight() / 2
@@ -258,7 +258,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				delta = 1
 			}
 			m.moveCursor(-delta)
-			return m, m.previewCurrentRow()
+			return m, m.activateCurrentRow()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			return m, m.handleEnter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
@@ -269,13 +269,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			// Jump to last selectable row
 			if idx := m.findSelectableRow(len(m.rows)-1, -1); idx != -1 {
 				m.cursor = idx
-				return m, m.previewCurrentRow()
+				return m, m.activateCurrentRow()
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
 			// Jump to first selectable row
 			if idx := m.findSelectableRow(0, 1); idx != -1 {
 				m.cursor = idx
-				return m, m.previewCurrentRow()
+				return m, m.activateCurrentRow()
 			}
 		}
 
@@ -297,11 +297,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 
 	case messages.WorkspaceActivated:
-		if msg.Workspace != nil {
-			m.activeRoot = msg.Workspace.Root
-		}
-
-	case messages.WorkspacePreviewed:
 		if msg.Workspace != nil {
 			m.activeRoot = msg.Workspace.Root
 		}

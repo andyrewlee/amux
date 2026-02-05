@@ -26,12 +26,6 @@ type WorkspaceActivated struct {
 	Workspace *data.Workspace
 }
 
-// WorkspacePreviewed is sent when a workspace is previewed (cursor movement)
-type WorkspacePreviewed struct {
-	Project   *data.Project
-	Workspace *data.Workspace
-}
-
 // WorkspaceCreated is sent when a new workspace is created
 type WorkspaceCreated struct {
 	Workspace *data.Workspace
