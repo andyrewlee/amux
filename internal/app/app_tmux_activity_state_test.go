@@ -223,6 +223,53 @@ func TestActiveWorkspaceIDsFromTags_DoesNotResetFreshTagState(t *testing.T) {
 	}
 }
 
+func TestActiveWorkspaceIDsFromTags_FreshTagSeedsFallbackBaseline(t *testing.T) {
+	now := time.Now()
+	const sessionName = "sess-fresh-seed"
+	hashValue := [16]byte{7}
+	infoBySession := map[string]tabSessionInfo{
+		sessionName: {WorkspaceID: "ws-fresh-seed", IsChat: true},
+	}
+	states := map[string]*sessionActivityState{}
+	captureFn := func(string, int, tmux.Options) (string, bool) { return "same", true }
+	hashFn := func(string) [16]byte { return hashValue }
+
+	// Scan 1: fresh tag path marks active and should seed fallback baseline state.
+	freshSessions := []taggedSessionActivity{{
+		session:       tmux.SessionActivity{Name: sessionName, WorkspaceID: "ws-fresh-seed", Type: "agent"},
+		lastOutputAt:  now.Add(-500 * time.Millisecond),
+		hasLastOutput: true,
+	}}
+	active, updated := activeWorkspaceIDsFromTags(infoBySession, freshSessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
+	if !active["ws-fresh-seed"] {
+		t.Fatal("expected workspace to be active from fresh tag")
+	}
+	state := updated[sessionName]
+	if state == nil {
+		t.Fatal("expected fresh-tag path to seed hysteresis state")
+	}
+	if !state.initialized {
+		t.Fatal("expected seeded state to be initialized")
+	}
+	if state.score != 0 {
+		t.Fatalf("expected seeded state score to start at 0, got %d", state.score)
+	}
+	for name, seeded := range updated {
+		states[name] = seeded
+	}
+
+	// Scan 2: stale tag + unchanged pane must remain inactive (no fresh-session blip).
+	staleSessions := []taggedSessionActivity{{
+		session:       tmux.SessionActivity{Name: sessionName, WorkspaceID: "ws-fresh-seed", Type: "agent"},
+		lastOutputAt:  now.Add(-10 * time.Second),
+		hasLastOutput: true,
+	}}
+	active, _ = activeWorkspaceIDsFromTags(infoBySession, staleSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
+	if active["ws-fresh-seed"] {
+		t.Fatal("expected stale fallback with unchanged content to stay inactive after fresh-tag seeding")
+	}
+}
+
 func TestActiveWorkspaceIDsFromTags_StaleTagWithoutRecentActivitySkipsFallback(t *testing.T) {
 	now := time.Now()
 	const sessionName = "sess-stale-no-recent"

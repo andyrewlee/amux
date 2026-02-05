@@ -187,6 +187,7 @@ func activeWorkspaceIDsFromTags(
 	active := make(map[string]bool)
 	var fallback []tmux.SessionActivity
 	suppressedByInput := make(map[string]bool)
+	preseededStates := make(map[string]*sessionActivityState)
 	seenChatSessions := make(map[string]bool, len(sessions))
 	now := time.Now()
 
@@ -205,6 +206,7 @@ func activeWorkspaceIDsFromTags(
 					fallback = append(fallback, snapshot.session)
 					continue
 				}
+				seedFreshTagFallbackBaseline(snapshot.session.Name, states, preseededStates, opts, captureFn, hashFn)
 				seenChatSessions[snapshot.session.Name] = true
 				if workspaceID := workspaceIDForSession(snapshot.session, info, ok); workspaceID != "" {
 					active[workspaceID] = true
@@ -265,6 +267,9 @@ func activeWorkspaceIDsFromTags(
 		}
 	}
 	fallbackActive, updated := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, fallback, states, seenChatSessions, opts, captureWithSuppression, hashFn)
+	for name, state := range preseededStates {
+		updated[name] = state
+	}
 	for workspaceID := range fallbackActive {
 		active[workspaceID] = true
 	}
