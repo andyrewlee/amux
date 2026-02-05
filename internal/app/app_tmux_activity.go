@@ -24,10 +24,10 @@ type tmuxActivityResult struct {
 
 const (
 	// Hysteresis thresholds for screen-delta activity detection.
-	// Requires sustained changes to become active, prevents flicker from
-	// periodic terminal refreshes (e.g., sponsor messages every ~30s).
-	// With increment=2 and threshold=3, at least 2 consecutive changes are
-	// needed to reach active state (first change: 2, second change: 4 >= 3).
+	// Prevents flicker from periodic terminal refreshes (e.g., sponsor
+	// messages every ~30s). Newly discovered sessions start at the
+	// threshold so they appear active immediately; if idle, the score
+	// decays below threshold naturally.
 	activityScoreThreshold = 3 // Score needed to be considered active
 	activityScoreMax       = 6 // Maximum score (prevents runaway accumulation)
 )
@@ -234,10 +234,12 @@ func activeWorkspaceIDsWithHysteresis(
 
 			// Update hysteresis score based on content change
 			if !state.initialized {
-				// First time seeing this session, just record baseline
+				// First time seeing this session — treat as active immediately.
+				// If it stops generating output, hysteresis decay will clear it.
 				state.lastHash = hash
 				state.initialized = true
-				state.score = 0
+				state.score = activityScoreThreshold
+				state.lastActiveAt = now
 			} else if hash != state.lastHash {
 				// Content changed - bump score
 				state.score += 2
