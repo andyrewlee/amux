@@ -10,6 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // detachTab is the core implementation for detaching a tab (closes PTY, keeps tmux session).
@@ -371,7 +372,7 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 		}
 		m.activeTabByWorkspace[wsID] = desired
 	}
-	return safeBatch(cmds...)
+	return common.SafeBatch(cmds...)
 }
 
 // AddTabsFromWorkspace adds new tabs without resetting existing UI state.
@@ -423,5 +424,5 @@ func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) te
 		tabID, sn := m.addPlaceholderTab(ws, tab)
 		cmds = append(cmds, m.reattachToSession(ws, tabID, tab.Assistant, sn))
 	}
-	return safeBatch(cmds...)
+	return common.SafeBatch(cmds...)
 }

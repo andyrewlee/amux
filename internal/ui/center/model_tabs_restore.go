@@ -152,20 +152,3 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant str
 		}
 	}
 }
-
-// safeBatch wraps commands in a batch, handling nil commands gracefully.
-func safeBatch(cmds ...tea.Cmd) tea.Cmd {
-	var valid []tea.Cmd
-	for _, cmd := range cmds {
-		if cmd != nil {
-			valid = append(valid, cmd)
-		}
-	}
-	if len(valid) == 0 {
-		return nil
-	}
-	if len(valid) == 1 {
-		return valid[0]
-	}
-	return tea.Batch(valid...)
-}
