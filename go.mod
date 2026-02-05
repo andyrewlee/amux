@@ -1,6 +1,6 @@
 module github.com/andyrewlee/amux
 
-go 1.24.2
+go 1.24.12
 
 require (
 	charm.land/bubbles/v2 v2.0.0-rc.1.0.20260109112849-ae99f46cec66
