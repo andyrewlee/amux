@@ -87,6 +87,40 @@ func addWindow(t *testing.T, opts Options, session, command string) {
 }
 
 // ---------------------------------------------------------------------------
+// Session tag write tests
+// ---------------------------------------------------------------------------
+
+func TestSetSessionTagValue_SetsSessionOption(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "tag-write", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	want := "1700000000000"
+	if err := SetSessionTagValue("tag-write", TagLastOutputAt, want, opts); err != nil {
+		t.Fatalf("SetSessionTagValue: %v", err)
+	}
+
+	got, err := SessionTagValue("tag-write", TagLastOutputAt, opts)
+	if err != nil {
+		t.Fatalf("SessionTagValue: %v", err)
+	}
+	if got != want {
+		t.Fatalf("expected %s=%q, got %q", TagLastOutputAt, want, got)
+	}
+}
+
+func TestSetSessionTagValue_MissingSessionNoError(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	if err := SetSessionTagValue("no-such-session", TagLastOutputAt, "1", opts); err != nil {
+		t.Fatalf("expected no error for missing session, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // PanePIDs tests
 // ---------------------------------------------------------------------------
 

@@ -107,10 +107,13 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 	m.activeWorkspaceIDs = active
 }
 
-// InvalidateStatus removes a workspace's cached status.
-// This should be called when git status is invalidated externally (e.g., file watcher events)
-// to keep the dashboard cache in sync with the StatusManager cache.
+// InvalidateStatus marks a workspace's cached status stale.
+// Keep dirty status sticky until a fresh clean result arrives to avoid
+// temporary clean flicker between invalidation and refresh.
 func (m *Model) InvalidateStatus(root string) {
+	if status := m.statusCache[root]; status != nil && !status.Clean {
+		return
+	}
 	delete(m.statusCache, root)
 }
 

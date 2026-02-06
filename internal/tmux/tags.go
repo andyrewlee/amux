@@ -18,7 +18,11 @@ type SessionTagValues struct {
 	Tags map[string]string
 }
 
-const tagFieldSeparator = "|"
+const (
+	tagFieldSeparator = "|"
+	TagLastOutputAt   = "@amux_last_output_at"
+	TagLastInputAt    = "@amux_last_input_at"
+)
 
 // SessionsWithTags returns sessions matching the provided tags, plus values for requested tag keys.
 func SessionsWithTags(match map[string]string, keys []string, opts Options) ([]SessionTagValues, error) {
@@ -118,4 +122,26 @@ func matchesTags(row sessionTagRow, tags map[string]string, orderedKeys []string
 		}
 	}
 	return true
+}
+
+// SetSessionTagValue sets a tmux session option for the given session.
+// Returns nil if the session no longer exists.
+func SetSessionTagValue(sessionName, key, value string, opts Options) error {
+	if sessionName == "" || key == "" {
+		return nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	cmd, cancel := tmuxCommand(opts, "set-option", "-t", exactTarget(sessionName), key, value)
+	defer cancel()
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
 }

@@ -108,17 +108,19 @@ type App struct {
 	prefixActive bool
 	prefixToken  int
 
-	tmuxSyncToken          int
-	tmuxActivityToken      int
-	tmuxOptions            tmux.Options
-	tmuxAvailable          bool
-	tmuxCheckDone          bool
-	projectsLoaded         bool
-	tmuxInstallHint        string
-	tmuxActiveWorkspaceIDs map[string]bool
-	sessionActivityStates  map[string]*sessionActivityState // Per-session hysteresis state
-	instanceID             string
-	lastTerminalGCRun      time.Time
+	tmuxSyncToken             int
+	tmuxActivityToken         int
+	tmuxActivityScanInFlight  bool
+	tmuxActivityRescanPending bool
+	tmuxOptions               tmux.Options
+	tmuxAvailable             bool
+	tmuxCheckDone             bool
+	projectsLoaded            bool
+	tmuxInstallHint           string
+	tmuxActiveWorkspaceIDs    map[string]bool
+	sessionActivityStates     map[string]*sessionActivityState // Per-session hysteresis state
+	instanceID                string
+	lastTerminalGCRun         time.Time
 
 	// Workspace persistence debounce
 	dirtyWorkspaces map[string]bool

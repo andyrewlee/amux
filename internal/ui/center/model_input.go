@@ -59,7 +59,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					}
 				}
 				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
-				return m, nil
+				return m, m.userInputActivityTagCmd(tab)
 			}
 			if tab.Agent != nil && tab.Agent.Terminal != nil {
 				bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
@@ -74,7 +74,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					}
 				}
 				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
-				return m, nil
+				return m, m.userInputActivityTagCmd(tab)
 			}
 		}
 		return m, nil
@@ -211,7 +211,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 							return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
 						}
 					}
-					return m, nil
+					return m, m.userInputActivityTagCmd(tab)
 				}
 
 				// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
@@ -310,6 +310,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 							}
 						}
 					}
+					return m, m.userInputActivityTagCmd(tab)
 				} else {
 					logging.Debug("keyToBytes returned empty for: %s", msg.String())
 				}
