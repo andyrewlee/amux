@@ -2,6 +2,7 @@ package update
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -74,7 +75,7 @@ func (c *GitHubClient) FetchLatestRelease() (*Release, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("no releases found")
+		return nil, errors.New("no releases found")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
@@ -125,7 +126,7 @@ func (c *GitHubClient) FetchChecksums(release *Release) (map[string]string, erro
 		}
 	}
 	if checksumURL == "" {
-		return nil, fmt.Errorf("checksums.txt not found in release")
+		return nil, errors.New("checksums.txt not found in release")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, checksumURL, nil)

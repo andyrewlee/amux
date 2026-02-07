@@ -1,6 +1,7 @@
 package update
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,22 +85,22 @@ func (u *Updater) Check() (*CheckResult, error) {
 // Upgrade downloads and installs the latest version.
 func (u *Updater) Upgrade(release *Release) error {
 	if release == nil {
-		return fmt.Errorf("no release to upgrade to")
+		return errors.New("no release to upgrade to")
 	}
 
 	if IsHomebrewBuild() {
-		return fmt.Errorf("installed via Homebrew; run: brew upgrade amux")
+		return errors.New("installed via Homebrew; run: brew upgrade amux")
 	}
 
 	// Check if go install user
 	if IsGoInstall() {
-		return fmt.Errorf("installed via 'go install'; run: go install github.com/andyrewlee/amux/cmd/amux@latest")
+		return errors.New("installed via 'go install'; run: go install github.com/andyrewlee/amux/cmd/amux@latest")
 	}
 
 	// Find the platform asset
 	asset := FindPlatformAsset(release)
 	if asset == nil {
-		return fmt.Errorf("no binary available for this platform")
+		return errors.New("no binary available for this platform")
 	}
 
 	// Get current binary path

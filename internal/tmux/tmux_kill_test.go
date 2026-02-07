@@ -49,7 +49,6 @@ func TestKillSession_KillsProcessTree(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("process group %d still alive after KillSession", pgid)
-			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -102,7 +101,6 @@ func TestKillSession_ProcessTreeAcrossWindows(t *testing.T) {
 			}
 			if time.Now().After(deadline) {
 				t.Fatalf("process group %d still alive after KillSession", pgid)
-				break
 			}
 			time.Sleep(10 * time.Millisecond)
 		}

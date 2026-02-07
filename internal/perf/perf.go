@@ -1,7 +1,6 @@
 package perf
 
 import (
-	"fmt"
 	"math"
 	"os"
 	"sort"
@@ -202,7 +201,7 @@ func Flush(reason string) {
 	}
 	prefix := "PERF SUMMARY"
 	if strings.TrimSpace(reason) != "" {
-		prefix = fmt.Sprintf("PERF SUMMARY %s", reason)
+		prefix = "PERF SUMMARY " + reason
 	}
 	for _, s := range stats {
 		logging.Info(
@@ -237,8 +236,8 @@ func snapshotAndReset() ([]statSnapshot, []counterSnapshot) {
 		if count > 0 {
 			avg = time.Duration(int64(s.total) / count)
 		}
-		min := s.min
-		max := s.max
+		minDuration := s.min
+		maxDuration := s.max
 		p95 := computeP95(s.samples, s.idx, s.full)
 
 		s.count = 0
@@ -253,8 +252,8 @@ func snapshotAndReset() ([]statSnapshot, []counterSnapshot) {
 			name:  name,
 			count: count,
 			avg:   avg,
-			min:   min,
-			max:   max,
+			min:   minDuration,
+			max:   maxDuration,
 			p95:   p95,
 		})
 	}

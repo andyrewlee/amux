@@ -1,6 +1,7 @@
 package pty
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -70,8 +71,8 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 
 	// Build environment
 	env := []string{
-		fmt.Sprintf("WORKSPACE_ROOT=%s", ws.Root),
-		fmt.Sprintf("WORKSPACE_NAME=%s", ws.Name),
+		"WORKSPACE_ROOT=" + ws.Root,
+		"WORKSPACE_NAME=" + ws.Name,
 		"LINES=",   // Unset to force ioctl usage
 		"COLUMNS=", // Unset to force ioctl usage
 		"COLORTERM=truecolor",
@@ -110,14 +111,14 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 }
 
 // CreateViewer creates a new agent (viewer) for the given workspace and command.
-func (m *AgentManager) CreateViewer(ws *data.Workspace, command string, sessionName string, rows, cols uint16) (*Agent, error) {
+func (m *AgentManager) CreateViewer(ws *data.Workspace, command, sessionName string, rows, cols uint16) (*Agent, error) {
 	return m.CreateViewerWithTags(ws, command, sessionName, rows, cols, tmux.SessionTags{})
 }
 
 // CreateViewerWithTags creates a new viewer for the given workspace with tmux tags.
-func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command string, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*Agent, error) {
+func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*Agent, error) {
 	if ws == nil {
-		return nil, fmt.Errorf("workspace is required")
+		return nil, errors.New("workspace is required")
 	}
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), "viewer")
@@ -127,8 +128,8 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command string, 
 	}
 	// Build environment
 	env := []string{
-		fmt.Sprintf("WORKSPACE_ROOT=%s", ws.Root),
-		fmt.Sprintf("WORKSPACE_NAME=%s", ws.Name),
+		"WORKSPACE_ROOT=" + ws.Root,
+		"WORKSPACE_NAME=" + ws.Name,
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 	}

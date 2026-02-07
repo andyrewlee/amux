@@ -148,10 +148,10 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 	if w <= 0 || h <= 0 {
 		return
 	}
-	maxY := min(h, len(screen))
+	maxY := minInt(h, len(screen))
 	for row := 0; row < maxY; row++ {
 		line := screen[row]
-		maxX := min(w, len(line))
+		maxX := minInt(w, len(line))
 		for col := 0; col < maxX; col++ {
 			cell := line[col]
 			if cell.Width == 2 && col+1 >= w {
@@ -364,7 +364,7 @@ func HexColor(hex string) vterm.Color {
 	return vterm.Color{Type: vterm.ColorRGB, Value: uint32(value)}
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

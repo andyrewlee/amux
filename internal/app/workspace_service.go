@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -210,7 +211,7 @@ func (s *workspaceService) AddProject(path string) tea.Cmd {
 		}
 
 		if s == nil || s.registry == nil {
-			return messages.Error{Err: fmt.Errorf("registry unavailable"), Context: errorContext(errorServiceWorkspace, "adding project")}
+			return messages.Error{Err: errors.New("registry unavailable"), Context: errorContext(errorServiceWorkspace, "adding project")}
 		}
 
 		// Add to registry
@@ -240,7 +241,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 
 		if project == nil || name == "" {
 			return messages.WorkspaceCreateFailed{
-				Err: fmt.Errorf("missing project or workspace name"),
+				Err: errors.New("missing project or workspace name"),
 			}
 		}
 
@@ -307,7 +308,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return messages.WorkspaceDeleteFailed{
 				Project:   project,
 				Workspace: ws,
-				Err:       fmt.Errorf("missing project or workspace"),
+				Err:       errors.New("missing project or workspace"),
 			}
 		}
 	}
@@ -317,7 +318,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return messages.WorkspaceDeleteFailed{
 				Project:   project,
 				Workspace: ws,
-				Err:       fmt.Errorf("cannot delete primary checkout"),
+				Err:       errors.New("cannot delete primary checkout"),
 			}
 		}
 
@@ -345,13 +346,13 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 func (s *workspaceService) RemoveProject(project *data.Project) tea.Cmd {
 	if project == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("missing project"), Context: errorContext(errorServiceWorkspace, "removing project")}
+			return messages.Error{Err: errors.New("missing project"), Context: errorContext(errorServiceWorkspace, "removing project")}
 		}
 	}
 
 	return func() tea.Msg {
 		if s == nil || s.registry == nil {
-			return messages.Error{Err: fmt.Errorf("registry unavailable"), Context: errorContext(errorServiceWorkspace, "removing project")}
+			return messages.Error{Err: errors.New("registry unavailable"), Context: errorContext(errorServiceWorkspace, "removing project")}
 		}
 		if err := s.registry.RemoveProject(project.Path); err != nil {
 			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "removing project")}

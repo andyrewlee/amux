@@ -39,9 +39,9 @@ func WithRestartPolicy(policy RestartPolicy) Option {
 }
 
 // WithMaxRestarts limits the number of restarts (0 = unlimited).
-func WithMaxRestarts(max int) Option {
+func WithMaxRestarts(maxRestarts int) Option {
 	return func(o *options) {
-		o.maxRestarts = max
+		o.maxRestarts = maxRestarts
 	}
 }
 
@@ -132,7 +132,7 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 			if s.ctx.Err() != nil {
 				return
 			}
-			err := runSafe(name, fn, s.ctx)
+			err := runSafe(s.ctx, name, fn)
 			if s.ctx.Err() != nil {
 				return
 			}
@@ -173,7 +173,7 @@ func shouldRestart(err error, policy RestartPolicy) bool {
 	}
 }
 
-func runSafe(name string, fn func(context.Context) error, ctx context.Context) (err error) {
+func runSafe(ctx context.Context, name string, fn func(context.Context) error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in %s: %v", name, r)

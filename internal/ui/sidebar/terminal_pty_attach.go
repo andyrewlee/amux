@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -159,7 +160,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 				return SidebarTerminalReattachFailed{
 					WorkspaceID: wsID,
 					TabID:       tabID,
-					Err:         fmt.Errorf("tmux session ended"),
+					Err:         errors.New("tmux session ended"),
 					Stopped:     true,
 					Action:      action,
 				}

@@ -130,7 +130,7 @@ func SetEnabled(enabled bool) {
 }
 
 // log writes a log entry
-func log(level Level, format string, args ...interface{}) {
+func log(level Level, format string, args ...any) {
 	if defaultLogger == nil {
 		return
 	}
@@ -150,22 +150,22 @@ func log(level Level, format string, args ...interface{}) {
 }
 
 // Debug logs a debug message
-func Debug(format string, args ...interface{}) {
+func Debug(format string, args ...any) {
 	log(LevelDebug, format, args...)
 }
 
 // Info logs an info message
-func Info(format string, args ...interface{}) {
+func Info(format string, args ...any) {
 	log(LevelInfo, format, args...)
 }
 
 // Warn logs a warning message
-func Warn(format string, args ...interface{}) {
+func Warn(format string, args ...any) {
 	log(LevelWarn, format, args...)
 }
 
 // Error logs an error message
-func Error(format string, args ...interface{}) {
+func Error(format string, args ...any) {
 	log(LevelError, format, args...)
 }
 

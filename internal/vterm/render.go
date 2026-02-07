@@ -95,7 +95,7 @@ func (v *VTerm) VisibleScreenInto(dst [][]Cell) [][]Cell {
 			line[i] = defaultCell
 		}
 	}
-	copyLine := func(line []Cell, row []Cell) []Cell {
+	copyLine := func(line, row []Cell) []Cell {
 		if line == nil || len(line) != width {
 			line = MakeBlankLine(width)
 		}

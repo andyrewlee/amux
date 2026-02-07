@@ -1,7 +1,7 @@
 package center
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 	"time"
 
@@ -101,7 +101,7 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 // reattachToSession returns a tea.Cmd that asynchronously connects a placeholder
 // tab to its tmux session. On success it produces ptyTabReattachResult which
 // updates the tab in-place (by TabID). On failure it produces ptyTabReattachFailed.
-func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant string, sessionName string) tea.Cmd {
+func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, sessionName string) tea.Cmd {
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
 	termHeight := tm.Height
@@ -120,7 +120,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant str
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
-				Err:         fmt.Errorf("tmux session ended"),
+				Err:         errors.New("tmux session ended"),
 				Stopped:     true,
 				Action:      "reattach",
 			}

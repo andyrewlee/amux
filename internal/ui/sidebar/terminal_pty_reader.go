@@ -12,7 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/safego"
 )
 
-func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wsID string, tabID string, heartbeat *int64) {
+func runPTYReader(term *pty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wsID, tabID string, heartbeat *int64) {
 	defer func() {
 		defer func() { _ = recover() }()
 		close(msgCh)

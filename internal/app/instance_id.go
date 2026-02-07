@@ -3,7 +3,7 @@ package app
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -13,5 +13,5 @@ func newInstanceID() string {
 		return hex.EncodeToString(buf)
 	}
 	// Fallback to time-based value if crypto/rand fails.
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	return strconv.FormatInt(time.Now().UnixNano(), 10)
 }

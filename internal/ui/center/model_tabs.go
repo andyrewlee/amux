@@ -1,6 +1,7 @@
 package center
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -86,10 +87,10 @@ func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
 	return m.createAgentTabWithSession(assistant, ws, "", "", true)
 }
 
-func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, sessionName string, displayName string, activate bool) tea.Cmd {
+func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, sessionName, displayName string, activate bool) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating agent"}
+			return messages.Error{Err: errors.New("no workspace selected"), Context: "creating agent"}
 		}
 	}
 
@@ -142,7 +143,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	if msg.Workspace == nil || msg.Agent == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("missing workspace or agent"), Context: "creating terminal tab"}
+			return messages.Error{Err: errors.New("missing workspace or agent"), Context: "creating terminal tab"}
 		}
 	}
 

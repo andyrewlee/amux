@@ -1,6 +1,7 @@
 package center
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ import (
 func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating vim viewer"}
+			return messages.Error{Err: errors.New("no workspace selected"), Context: "creating vim viewer"}
 		}
 	}
 
@@ -34,7 +35,7 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 		logging.Info("Creating vim tab: file=%s workspace=%s", filePath, ws.Name)
 
 		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
-		cmd := fmt.Sprintf("vim -- %s", escapedFile)
+		cmd := "vim -- " + escapedFile
 
 		tags := tmux.SessionTags{
 			WorkspaceID: string(ws.ID()),
@@ -75,7 +76,7 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Workspace) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating diff viewer"}
+			return messages.Error{Err: errors.New("no workspace selected"), Context: "creating diff viewer"}
 		}
 	}
 
@@ -89,7 +90,7 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 	dv.SetFocused(true)
 
 	wsID := string(ws.ID())
-	displayName := fmt.Sprintf("Diff: %s", change.Path)
+	displayName := "Diff: " + change.Path
 	if len(displayName) > 20 {
 		displayName = "..." + displayName[len(displayName)-17:]
 	}
@@ -115,10 +116,10 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 // createViewerTabLegacy creates a PTY-based viewer tab (for backwards compatibility)
 //
 //nolint:unused // Kept for backwards-compatible viewer tab flow while diff viewer migration remains incomplete.
-func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.Workspace) tea.Cmd {
+func (m *Model) createViewerTabLegacy(file, statusCode string, ws *data.Workspace) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("no workspace selected"), Context: "creating viewer"}
+			return messages.Error{Err: errors.New("no workspace selected"), Context: "creating viewer"}
 		}
 	}
 
@@ -158,7 +159,7 @@ func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.W
 
 		logging.Info("Viewer created, Terminal=%v", agent.Terminal != nil)
 
-		displayName := truncateDisplayName(fmt.Sprintf("Diff: %s", file))
+		displayName := truncateDisplayName("Diff: " + file)
 
 		return ptyTabCreateResult{
 			Workspace:   ws,

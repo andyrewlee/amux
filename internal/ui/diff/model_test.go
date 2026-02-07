@@ -6,7 +6,7 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 )
 
-func newModelWithDiff(height int, lines int, hunks []git.Hunk) *Model {
+func newModelWithDiff(height, lines int, hunks []git.Hunk) *Model {
 	m := &Model{height: height}
 	m.diff = &git.DiffResult{
 		Lines: make([]git.DiffLine, lines),

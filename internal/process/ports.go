@@ -59,7 +59,7 @@ func (p *PortAllocator) ReleasePort(workspaceRoot string) {
 }
 
 // PortRange returns the port and range size for a workspace
-func (p *PortAllocator) PortRange(workspaceRoot string) (port int, rangeEnd int) {
+func (p *PortAllocator) PortRange(workspaceRoot string) (port, rangeEnd int) {
 	port = p.AllocatePort(workspaceRoot)
 	return port, port + p.rangeSize - 1
 }
