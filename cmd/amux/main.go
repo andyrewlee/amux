@@ -76,9 +76,11 @@ func main() {
 	logging.Info("amux shutdown complete")
 }
 
-var lastMouseMotionEvent time.Time
-var lastMouseWheelEvent time.Time
-var lastMouseX, lastMouseY int
+var (
+	lastMouseMotionEvent   time.Time
+	lastMouseWheelEvent    time.Time
+	lastMouseX, lastMouseY int
+)
 
 func mouseEventFilter(m tea.Model, msg tea.Msg) tea.Msg {
 	switch msg := msg.(type) {

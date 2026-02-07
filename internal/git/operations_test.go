@@ -61,7 +61,7 @@ func TestGetRepoRoot(t *testing.T) {
 	t.Run("subdirectory of repo", func(t *testing.T) {
 		repo := initRepo(t)
 		subdir := filepath.Join(repo, "subdir")
-		if err := os.MkdirAll(subdir, 0755); err != nil {
+		if err := os.MkdirAll(subdir, 0o755); err != nil {
 			t.Fatalf("mkdir subdir: %v", err)
 		}
 
@@ -171,7 +171,7 @@ func TestGetStatus(t *testing.T) {
 
 	t.Run("dirty repo with untracked file", func(t *testing.T) {
 		repo := initRepo(t)
-		if err := os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("x"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("x"), 0o644); err != nil {
 			t.Fatalf("write file: %v", err)
 		}
 
@@ -189,7 +189,7 @@ func TestGetStatus(t *testing.T) {
 
 	t.Run("dirty repo with modified file", func(t *testing.T) {
 		repo := initRepo(t)
-		if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("modified"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("modified"), 0o644); err != nil {
 			t.Fatalf("write file: %v", err)
 		}
 

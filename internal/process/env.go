@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/andyrewlee/amux/internal/data"
 )
@@ -25,10 +26,10 @@ func (b *EnvBuilder) BuildEnv(ws *data.Workspace) []string {
 
 	// Add workspace-specific variables
 	env = append(env,
-		fmt.Sprintf("AMUX_WORKSPACE_NAME=%s", ws.Name),
-		fmt.Sprintf("AMUX_WORKSPACE_ROOT=%s", ws.Root),
-		fmt.Sprintf("AMUX_WORKSPACE_BRANCH=%s", ws.Branch),
-		fmt.Sprintf("ROOT_WORKSPACE_PATH=%s", ws.Repo),
+		"AMUX_WORKSPACE_NAME="+ws.Name,
+		"AMUX_WORKSPACE_ROOT="+ws.Root,
+		"AMUX_WORKSPACE_BRANCH="+ws.Branch,
+		"ROOT_WORKSPACE_PATH="+ws.Repo,
 	)
 
 	// Add port allocation
@@ -59,7 +60,7 @@ func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace) map[string]string {
 
 	if b.portAllocator != nil {
 		port, rangeEnd := b.portAllocator.PortRange(ws.Root)
-		envMap["AMUX_PORT"] = fmt.Sprintf("%d", port)
+		envMap["AMUX_PORT"] = strconv.Itoa(port)
 		envMap["AMUX_PORT_RANGE"] = fmt.Sprintf("%d-%d", port, rangeEnd)
 	}
 

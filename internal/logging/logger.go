@@ -57,7 +57,7 @@ const (
 
 // Initialize sets up the default logger
 func Initialize(logDir string, level Level) error {
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return err
 	}
 
@@ -67,7 +67,7 @@ func Initialize(logDir string, level Level) error {
 	}
 
 	logPath := filepath.Join(logDir, fmt.Sprintf("%s%s%s", logPrefix, time.Now().Format(logDateLayout), logSuffix))
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func SetEnabled(enabled bool) {
 }
 
 // log writes a log entry
-func log(level Level, format string, args ...interface{}) {
+func log(level Level, format string, args ...any) {
 	if defaultLogger == nil {
 		return
 	}
@@ -150,22 +150,22 @@ func log(level Level, format string, args ...interface{}) {
 }
 
 // Debug logs a debug message
-func Debug(format string, args ...interface{}) {
+func Debug(format string, args ...any) {
 	log(LevelDebug, format, args...)
 }
 
 // Info logs an info message
-func Info(format string, args ...interface{}) {
+func Info(format string, args ...any) {
 	log(LevelInfo, format, args...)
 }
 
 // Warn logs a warning message
-func Warn(format string, args ...interface{}) {
+func Warn(format string, args ...any) {
 	log(LevelWarn, format, args...)
 }
 
 // Error logs an error message
-func Error(format string, args ...interface{}) {
+func Error(format string, args ...any) {
 	log(LevelError, format, args...)
 }
 

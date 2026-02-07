@@ -12,7 +12,7 @@ func TestVerifyChecksum(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "test.txt")
 
 	content := []byte("hello world\n")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
+	if err := os.WriteFile(testFile, content, 0o644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -43,7 +43,7 @@ func TestComputeChecksum(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "test.txt")
 
 	// Empty file
-	if err := os.WriteFile(testFile, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte{}, 0o644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 

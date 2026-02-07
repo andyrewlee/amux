@@ -64,7 +64,7 @@ func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
 		dir := ptyTraceDir()
 		name := fmt.Sprintf("amux-pty-claude-%s-%s.log", tab.ID, time.Now().Format("20060102-150405"))
 		path := filepath.Join(dir, name)
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if err != nil {
 			logging.Warn("PTY trace open failed: %v", err)
 			tab.ptyTraceClosed = true

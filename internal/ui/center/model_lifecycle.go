@@ -81,11 +81,6 @@ func (m *Model) SetMsgSink(sink func(tea.Msg)) {
 	m.msgSink = sink
 }
 
-// TabEvents returns a channel for actor-style tab mutations.
-func (m *Model) TabEvents() chan tabEvent {
-	return m.tabEvents
-}
-
 // SetSize sets the center pane size.
 func (m *Model) SetSize(width, height int) {
 	m.width = width
@@ -172,5 +167,5 @@ func (m *Model) screenToTerminal(screenX, screenY int) (termX, termY int, inBoun
 
 	// Check bounds
 	inBounds = termX >= 0 && termX < tm.Width && termY >= 0 && termY < tm.Height
-	return
+	return termX, termY, inBounds
 }

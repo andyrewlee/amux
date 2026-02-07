@@ -1,7 +1,7 @@
 package app
 
 import (
-	"fmt"
+	"errors"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -132,7 +132,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
-		logging.Debug("Dialog cancelled")
+		logging.Debug("Dialog canceled")
 		return nil
 	}
 
@@ -271,7 +271,7 @@ func (a *App) handleTriggerUpgrade() tea.Cmd {
 	svc := a.updateService
 	return func() tea.Msg {
 		if svc == nil {
-			return messages.UpgradeComplete{Err: fmt.Errorf("update service unavailable")}
+			return messages.UpgradeComplete{Err: errors.New("update service unavailable")}
 		}
 		// Get the latest release
 		result, err := svc.Check()
@@ -279,7 +279,7 @@ func (a *App) handleTriggerUpgrade() tea.Cmd {
 			return messages.UpgradeComplete{Err: err}
 		}
 		if result.Release == nil {
-			return messages.UpgradeComplete{Err: fmt.Errorf("no release found")}
+			return messages.UpgradeComplete{Err: errors.New("no release found")}
 		}
 		// Perform the upgrade
 		if err := svc.Upgrade(result.Release); err != nil {

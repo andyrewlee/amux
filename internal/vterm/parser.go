@@ -88,11 +88,10 @@ func (p *Parser) parseGround(b byte) {
 				p.utf8Pos = 0
 			}
 			return
-		} else {
-			// Invalid continuation - reset and process this byte normally
-			p.utf8Len = 0
-			p.utf8Pos = 0
 		}
+		// Invalid continuation - reset and process this byte normally
+		p.utf8Len = 0
+		p.utf8Pos = 0
 	}
 
 	switch {

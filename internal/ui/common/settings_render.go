@@ -25,7 +25,7 @@ func (s *SettingsDialog) dialogBounds(contentHeight int) (x, y, w, h int) {
 	if y < 0 {
 		y = 0
 	}
-	return
+	return x, y, w, h
 }
 
 func (s *SettingsDialog) addHit(item settingsItem, index, y int) {

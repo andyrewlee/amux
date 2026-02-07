@@ -89,7 +89,7 @@ func (v *VTerm) VisibleLineRange() (start, end, total int) {
 	if end > total {
 		end = total
 	}
-	return
+	return start, end, total
 }
 
 // TotalLines returns the total number of lines in scrollback+screen.

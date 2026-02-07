@@ -1,0 +1,120 @@
+run:
+  timeout: 10m
+  modules-download-mode: readonly
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - copyloopvar
+    - depguard
+    - errcheck
+    - errorlint
+    - forbidigo
+    - gofmt
+    - gofumpt
+    - govet
+    - gosimple
+    - goimports
+    - ineffassign
+    - misspell
+    - nolintlint
+    - perfsprint
+    - revive
+    - staticcheck
+    - thelper
+    - unconvert
+    - unused
+    - usestdlibvars
+    - whitespace
+
+linters-settings:
+  depguard:
+    rules:
+      main:
+        list-mode: lax
+        deny:
+          - pkg: github.com/pkg/errors
+            desc: Use standard library errors/fmt wrapping instead.
+          - pkg: io/ioutil
+            desc: Use os or io packages instead of io/ioutil.
+  errcheck:
+    check-type-assertions: true
+  errorlint:
+    asserts: false
+    comparison: false
+    errorf: true
+  forbidigo:
+    analyze-types: true
+    exclude-godoc-examples: true
+    forbid:
+      - p: ^print(ln)?$
+        msg: Avoid direct stdout/stderr prints in production code.
+      - p: ^fmt\.Print.*$
+        msg: Use internal/logging for internal packages; stdout/stderr output is reserved for CLI entrypoints.
+      - p: ^log\.(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$
+        msg: Use internal/logging and explicit error returns instead of stdlib log side effects.
+  gofumpt:
+    extra-rules: true
+  goimports:
+    local-prefixes: github.com/andyrewlee/amux
+  govet:
+    enable:
+      - nilness
+      - reflectvaluecompare
+      - sortslice
+      - unusedwrite
+  misspell:
+    locale: US
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+  perfsprint:
+    int-conversion: true
+    err-error: true
+    errorf: true
+    sprintf1: true
+    strconcat: true
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-naming
+      - name: error-return
+      - name: error-strings
+      - name: errorf
+      - name: indent-error-flow
+      - name: range
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: superfluous-else
+        arguments:
+          - preserveScope
+      - name: time-naming
+      - name: unexported-return
+      - name: unreachable-code
+      - name: use-any
+      - name: var-declaration
+      - name: var-naming
+  thelper:
+    test:
+      begin: false
+    benchmark:
+      begin: false
+    tb:
+      begin: false
+    fuzz:
+      begin: false
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    - linters:
+        - forbidigo
+      path: ^cmd/
+    - linters:
+        - forbidigo
+      path: _test\.go

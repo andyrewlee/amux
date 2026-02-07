@@ -24,7 +24,7 @@ const (
 	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
 	// When pending output exceeds this, we throttle rendering frequency
 	ptyBackpressureMultiplier = 8 // threshold = multiplier * width * height
-	ptyBackpressureFlushMin   = 32 * time.Millisecond
+	ptyBackpressureFlushFloor = 32 * time.Millisecond
 )
 
 // PTYOutput is a message containing PTY output data

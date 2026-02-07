@@ -139,7 +139,7 @@ func TestExtractBinary(t *testing.T) {
 	// Add the amux binary to the archive
 	hdr := &tar.Header{
 		Name: "amux",
-		Mode: 0755,
+		Mode: 0o755,
 		Size: int64(len(binaryContent)),
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
@@ -155,7 +155,7 @@ func TestExtractBinary(t *testing.T) {
 
 	// Extract the binary
 	destDir := filepath.Join(tmpDir, "extracted")
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		t.Fatalf("Failed to create dest dir: %v", err)
 	}
 
@@ -195,7 +195,7 @@ func TestExtractBinaryMissing(t *testing.T) {
 	// Add a different file
 	hdr := &tar.Header{
 		Name: "other-file",
-		Mode: 0644,
+		Mode: 0o644,
 		Size: 5,
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
@@ -210,7 +210,7 @@ func TestExtractBinaryMissing(t *testing.T) {
 	f.Close()
 
 	destDir := filepath.Join(tmpDir, "extracted")
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		t.Fatalf("Failed to create dest dir: %v", err)
 	}
 
@@ -225,13 +225,13 @@ func TestInstallBinary(t *testing.T) {
 
 	// Create source binary
 	srcPath := filepath.Join(tmpDir, "new-amux")
-	if err := os.WriteFile(srcPath, []byte("new binary"), 0755); err != nil {
+	if err := os.WriteFile(srcPath, []byte("new binary"), 0o755); err != nil {
 		t.Fatalf("Failed to create source: %v", err)
 	}
 
 	// Create destination binary
 	destPath := filepath.Join(tmpDir, "amux")
-	if err := os.WriteFile(destPath, []byte("old binary"), 0755); err != nil {
+	if err := os.WriteFile(destPath, []byte("old binary"), 0o755); err != nil {
 		t.Fatalf("Failed to create dest: %v", err)
 	}
 
@@ -267,12 +267,12 @@ func TestInstallBinaryCrossDir(t *testing.T) {
 	destDir := t.TempDir()
 
 	srcPath := filepath.Join(srcDir, "new-amux")
-	if err := os.WriteFile(srcPath, []byte("new binary content"), 0755); err != nil {
+	if err := os.WriteFile(srcPath, []byte("new binary content"), 0o755); err != nil {
 		t.Fatalf("Failed to create source: %v", err)
 	}
 
 	destPath := filepath.Join(destDir, "amux")
-	if err := os.WriteFile(destPath, []byte("old binary content"), 0755); err != nil {
+	if err := os.WriteFile(destPath, []byte("old binary content"), 0o755); err != nil {
 		t.Fatalf("Failed to create dest: %v", err)
 	}
 

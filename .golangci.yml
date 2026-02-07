@@ -1,19 +1,87 @@
 run:
-  timeout: 5m
+  timeout: 10m
   modules-download-mode: readonly
+  tests: true
 
 linters:
+  disable-all: true
   enable:
+    - copyloopvar
+    - depguard
     - errcheck
-    - govet
-    - staticcheck
-    - unused
-    - gosimple
+    - errorlint
+    - forbidigo
     - gofmt
+    - gofumpt
+    - govet
+    - gosimple
     - goimports
+    - ineffassign
+    - misspell
+    - nolintlint
+    - staticcheck
+    - thelper
+    - unconvert
+    - unused
+    - usestdlibvars
+    - whitespace
 
 linters-settings:
+  depguard:
+    rules:
+      main:
+        list-mode: lax
+        deny:
+          - pkg: github.com/pkg/errors
+            desc: Use standard library errors/fmt wrapping instead.
+          - pkg: io/ioutil
+            desc: Use os or io packages instead of io/ioutil.
   goimports:
     local-prefixes: github.com/andyrewlee/amux
   errcheck:
     check-type-assertions: true
+  errorlint:
+    asserts: false
+    comparison: false
+    errorf: true
+  govet:
+    enable:
+      - nilness
+      - reflectvaluecompare
+      - sortslice
+      - unusedwrite
+  misspell:
+    locale: US
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+  forbidigo:
+    analyze-types: true
+    exclude-godoc-examples: true
+    forbid:
+      - p: ^print(ln)?$
+        msg: Avoid direct stdout/stderr prints in production code.
+      - p: ^fmt\.Print.*$
+        msg: Use internal/logging for internal packages; stdout/stderr output is reserved for CLI entrypoints.
+      - p: ^log\.(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$
+        msg: Use internal/logging and explicit error returns instead of stdlib log side effects.
+  thelper:
+    test:
+      begin: false
+    benchmark:
+      begin: false
+    tb:
+      begin: false
+    fuzz:
+      begin: false
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    - linters:
+        - forbidigo
+      path: ^cmd/
+    - linters:
+        - forbidigo
+      path: _test\.go

@@ -311,9 +311,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 						}
 					}
 					return m, m.userInputActivityTagCmd(tab)
-				} else {
-					logging.Debug("keyToBytes returned empty for: %s", msg.String())
 				}
+				logging.Debug("keyToBytes returned empty for: %s", msg.String())
 				return m, nil
 			}
 		}

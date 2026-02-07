@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -240,7 +241,7 @@ func (s *PTYSession) WaitForExit(timeout time.Duration) error {
 	case <-s.done:
 		return nil
 	case <-timer.C:
-		return fmt.Errorf("timeout waiting for session exit")
+		return errors.New("timeout waiting for session exit")
 	}
 }
 

@@ -363,10 +363,3 @@ func HexColor(hex string) vterm.Color {
 	}
 	return vterm.Color{Type: vterm.ColorRGB, Value: uint32(value)}
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

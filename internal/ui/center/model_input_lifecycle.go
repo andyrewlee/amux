@@ -2,6 +2,7 @@ package center
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -36,7 +37,7 @@ func (m *Model) userInputActivityTagCmd(tab *Tab) tea.Cmd {
 	opts := m.getTmuxOptions()
 	timestamp := now.UnixMilli()
 	return func() tea.Msg {
-		_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastInputAt, fmt.Sprintf("%d", timestamp), opts)
+		_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastInputAt, strconv.FormatInt(timestamp, 10), opts)
 		return nil
 	}
 }
@@ -284,7 +285,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				opts := m.getTmuxOptions()
 				timestamp := tab.lastOutputAt.UnixMilli()
 				cmds = append(cmds, func() tea.Msg {
-					_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, fmt.Sprintf("%d", timestamp), opts)
+					_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, strconv.FormatInt(timestamp, 10), opts)
 					return nil
 				})
 			}

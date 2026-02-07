@@ -249,7 +249,7 @@ func TestWorkspaceStore_LoadLegacyCreatedFormat(t *testing.T) {
 
 	// Manually write old-format JSON with Created as string
 	dir := filepath.Join(root, string(id))
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
@@ -259,7 +259,7 @@ func TestWorkspaceStore_LoadLegacyCreatedFormat(t *testing.T) {
 		"root": "/root",
 		"created": "2024-01-15T10:30:00Z"
 	}`
-	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(oldFormat), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(oldFormat), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -289,7 +289,7 @@ func TestWorkspaceStore_LoadAppliesDefaults(t *testing.T) {
 	id := ws.ID()
 
 	dir := filepath.Join(root, string(id))
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
@@ -299,7 +299,7 @@ func TestWorkspaceStore_LoadAppliesDefaults(t *testing.T) {
 		"root": "/root",
 		"branch": "main"
 	}`
-	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(minimalJSON), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(minimalJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -330,7 +330,7 @@ func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
 
 	base := t.TempDir()
 	repoReal := filepath.Join(base, "repo")
-	if err := os.MkdirAll(repoReal, 0755); err != nil {
+	if err := os.MkdirAll(repoReal, 0o755); err != nil {
 		t.Fatalf("MkdirAll(repo) error = %v", err)
 	}
 	repoLink := filepath.Join(base, "repo-link")
@@ -339,7 +339,7 @@ func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
 	}
 
 	rootReal := filepath.Join(repoReal, ".amux", "workspaces", "feature")
-	if err := os.MkdirAll(rootReal, 0755); err != nil {
+	if err := os.MkdirAll(rootReal, 0o755); err != nil {
 		t.Fatalf("MkdirAll(rootReal) error = %v", err)
 	}
 	rootLink := filepath.Join(repoLink, ".amux", "workspaces", "feature")

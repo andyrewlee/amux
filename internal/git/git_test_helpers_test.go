@@ -45,7 +45,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 func initRepo(t *testing.T) string {
 	root := t.TempDir()
 	runGit(t, root, "init", "-b", "main")
-	if err := os.WriteFile(root+"/README.md", []byte("init"), 0644); err != nil {
+	if err := os.WriteFile(root+"/README.md", []byte("init"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	runGit(t, root, "add", "README.md")

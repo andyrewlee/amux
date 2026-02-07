@@ -87,7 +87,7 @@ func (r *Registry) loadUnlocked() ([]string, error) {
 
 func (r *Registry) saveUnlocked(paths []string) error {
 	dir := filepath.Dir(r.path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
@@ -109,7 +109,7 @@ func (r *Registry) saveUnlocked(paths []string) error {
 	}
 
 	tempPath := r.path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
 		return err
 	}
 	if err := replaceFile(tempPath, r.path); err != nil {

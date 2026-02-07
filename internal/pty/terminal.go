@@ -22,12 +22,12 @@ type Terminal struct {
 }
 
 // New creates a new terminal with the given command.
-func New(command string, dir string, env []string) (*Terminal, error) {
+func New(command, dir string, env []string) (*Terminal, error) {
 	return NewWithSize(command, dir, env, 0, 0)
 }
 
 // NewWithSize creates a new terminal with an initial size, if provided.
-func NewWithSize(command string, dir string, env []string, rows, cols uint16) (*Terminal, error) {
+func NewWithSize(command, dir string, env []string, rows, cols uint16) (*Terminal, error) {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)

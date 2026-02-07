@@ -3,6 +3,7 @@ package update
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,7 @@ import (
 
 // ExtractBinary extracts the amux binary from a tar.gz archive.
 // Returns the path to the extracted binary.
-func ExtractBinary(archivePath string, destDir string) (string, error) {
+func ExtractBinary(archivePath, destDir string) (string, error) {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("opening archive: %w", err)
@@ -48,7 +49,7 @@ func ExtractBinary(archivePath string, destDir string) (string, error) {
 		}
 
 		binaryPath = filepath.Join(destDir, "amux")
-		outFile, err := os.OpenFile(binaryPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		outFile, err := os.OpenFile(binaryPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 		if err != nil {
 			return "", fmt.Errorf("creating output file: %w", err)
 		}
@@ -62,7 +63,7 @@ func ExtractBinary(archivePath string, destDir string) (string, error) {
 	}
 
 	if binaryPath == "" {
-		return "", fmt.Errorf("amux binary not found in archive")
+		return "", errors.New("amux binary not found in archive")
 	}
 
 	return binaryPath, nil
@@ -71,14 +72,14 @@ func ExtractBinary(archivePath string, destDir string) (string, error) {
 // InstallBinary performs an atomic replacement of the current binary.
 // It stages the new binary in the same directory as the target to avoid
 // cross-filesystem rename issues, then uses rename to atomically swap.
-func InstallBinary(newBinaryPath string, currentBinaryPath string) error {
+func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 	// Ensure the new binary exists and is executable
 	info, err := os.Stat(newBinaryPath)
 	if err != nil {
 		return fmt.Errorf("checking new binary: %w", err)
 	}
-	if info.Mode()&0111 == 0 {
-		if err := os.Chmod(newBinaryPath, 0755); err != nil {
+	if info.Mode()&0o111 == 0 {
+		if err := os.Chmod(newBinaryPath, 0o755); err != nil {
 			return fmt.Errorf("setting executable permission: %w", err)
 		}
 	}
@@ -120,7 +121,7 @@ func copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}

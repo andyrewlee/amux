@@ -1,7 +1,7 @@
 package app
 
 import (
-	"fmt"
+	"errors"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -90,7 +90,7 @@ func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd
 func (a *App) removeProject(project *data.Project) tea.Cmd {
 	if project == nil {
 		return func() tea.Msg {
-			return messages.Error{Err: fmt.Errorf("missing project"), Context: errorContext(errorServiceWorkspace, "removing project")}
+			return messages.Error{Err: errors.New("missing project"), Context: errorContext(errorServiceWorkspace, "removing project")}
 		}
 	}
 	if a.activeWorkspace != nil && a.activeWorkspace.Repo == project.Path {

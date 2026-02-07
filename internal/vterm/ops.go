@@ -61,7 +61,6 @@ func (v *VTerm) putChar(r rune) {
 	// Place the character
 	if v.CursorY >= 0 && v.CursorY < len(v.Screen) &&
 		v.CursorX >= 0 && v.CursorX < len(v.Screen[v.CursorY]) {
-
 		// Before placing the character, handle overwriting wide chars
 		currentCell := v.Screen[v.CursorY][v.CursorX]
 

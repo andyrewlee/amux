@@ -30,11 +30,11 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 		threshold := ptyBackpressureMultiplier * tab.Terminal.Width * tab.Terminal.Height
 		if len(tab.pendingOutput) > threshold {
 			// Under backpressure: use minimum flush interval
-			if quiet < ptyBackpressureFlushMin {
-				quiet = ptyBackpressureFlushMin
+			if quiet < ptyBackpressureFlushFloor {
+				quiet = ptyBackpressureFlushFloor
 			}
-			if maxInterval < ptyBackpressureFlushMin {
-				maxInterval = ptyBackpressureFlushMin
+			if maxInterval < ptyBackpressureFlushFloor {
+				maxInterval = ptyBackpressureFlushFloor
 			}
 		}
 	}

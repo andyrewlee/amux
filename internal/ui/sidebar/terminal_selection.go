@@ -330,5 +330,5 @@ func (m *TerminalModel) screenToTerminal(screenX, screenY int) (termX, termY int
 		width, height, _ := m.terminalViewportSize()
 		inBounds = termX >= 0 && termX < width && termY >= 0 && termY < height
 	}
-	return
+	return termX, termY, inBounds
 }

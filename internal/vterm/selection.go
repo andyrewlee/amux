@@ -56,7 +56,7 @@ func (v *VTerm) IsInSelection(x, screenY int) bool {
 
 // SetSelection stores selection coordinates for rendering with highlight.
 // startLine and endLine are absolute line numbers (0 = first scrollback line).
-func (v *VTerm) SetSelection(startX, startLine, endX, endLine int, active bool, rect bool) {
+func (v *VTerm) SetSelection(startX, startLine, endX, endLine int, active, rect bool) {
 	changed := v.selStartX != startX ||
 		v.selStartLine != startLine ||
 		v.selEndX != endX ||

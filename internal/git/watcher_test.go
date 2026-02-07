@@ -13,11 +13,11 @@ func TestFileWatcher(t *testing.T) {
 	t.Run("watch and unwatch", func(t *testing.T) {
 		root := t.TempDir()
 		gitDir := filepath.Join(root, ".git")
-		if err := os.MkdirAll(gitDir, 0755); err != nil {
+		if err := os.MkdirAll(gitDir, 0o755); err != nil {
 			t.Fatalf("mkdir .git: %v", err)
 		}
 		indexPath := filepath.Join(gitDir, "index")
-		if err := os.WriteFile(indexPath, []byte(""), 0644); err != nil {
+		if err := os.WriteFile(indexPath, []byte(""), 0o644); err != nil {
 			t.Fatalf("write index: %v", err)
 		}
 
@@ -45,11 +45,11 @@ func TestFileWatcher(t *testing.T) {
 	t.Run("findRoot", func(t *testing.T) {
 		root := t.TempDir()
 		gitDir := filepath.Join(root, ".git")
-		if err := os.MkdirAll(gitDir, 0755); err != nil {
+		if err := os.MkdirAll(gitDir, 0o755); err != nil {
 			t.Fatalf("mkdir .git: %v", err)
 		}
 		indexPath := filepath.Join(gitDir, "index")
-		if err := os.WriteFile(indexPath, []byte(""), 0644); err != nil {
+		if err := os.WriteFile(indexPath, []byte(""), 0o644); err != nil {
 			t.Fatalf("write index: %v", err)
 		}
 
@@ -73,16 +73,16 @@ func TestFileWatcher(t *testing.T) {
 	t.Run("workspace gitdir file", func(t *testing.T) {
 		root := t.TempDir()
 		gitDir := filepath.Join(t.TempDir(), "gitdir")
-		if err := os.MkdirAll(gitDir, 0755); err != nil {
+		if err := os.MkdirAll(gitDir, 0o755); err != nil {
 			t.Fatalf("mkdir gitdir: %v", err)
 		}
 		indexPath := filepath.Join(gitDir, "index")
-		if err := os.WriteFile(indexPath, []byte(""), 0644); err != nil {
+		if err := os.WriteFile(indexPath, []byte(""), 0o644); err != nil {
 			t.Fatalf("write index: %v", err)
 		}
 
 		gitFile := filepath.Join(root, ".git")
-		if err := os.WriteFile(gitFile, []byte("gitdir: "+gitDir), 0644); err != nil {
+		if err := os.WriteFile(gitFile, []byte("gitdir: "+gitDir), 0o644); err != nil {
 			t.Fatalf("write .git file: %v", err)
 		}
 
@@ -137,7 +137,7 @@ func TestFileWatcher(t *testing.T) {
 	t.Run("double watch same path", func(t *testing.T) {
 		root := t.TempDir()
 		gitDir := filepath.Join(root, ".git")
-		if err := os.MkdirAll(gitDir, 0755); err != nil {
+		if err := os.MkdirAll(gitDir, 0o755); err != nil {
 			t.Fatalf("mkdir .git: %v", err)
 		}
 
@@ -170,11 +170,11 @@ func TestFileWatcher(t *testing.T) {
 		// The watcher should still detect changes after this replacement.
 		root := t.TempDir()
 		gitDir := filepath.Join(root, ".git")
-		if err := os.MkdirAll(gitDir, 0755); err != nil {
+		if err := os.MkdirAll(gitDir, 0o755); err != nil {
 			t.Fatalf("mkdir .git: %v", err)
 		}
 		indexPath := filepath.Join(gitDir, "index")
-		if err := os.WriteFile(indexPath, []byte("initial"), 0644); err != nil {
+		if err := os.WriteFile(indexPath, []byte("initial"), 0o644); err != nil {
 			t.Fatalf("write index: %v", err)
 		}
 
@@ -210,7 +210,7 @@ func TestFileWatcher(t *testing.T) {
 
 		// Simulate atomic file replacement (like git commit does)
 		tempPath := filepath.Join(gitDir, "index.lock")
-		if err := os.WriteFile(tempPath, []byte("after commit"), 0644); err != nil {
+		if err := os.WriteFile(tempPath, []byte("after commit"), 0o644); err != nil {
 			t.Fatalf("write temp: %v", err)
 		}
 		if err := os.Rename(tempPath, indexPath); err != nil {
@@ -230,7 +230,7 @@ func TestFileWatcher(t *testing.T) {
 
 		// Make another change - this verifies the watch is still active
 		tempPath2 := filepath.Join(gitDir, "index.lock")
-		if err := os.WriteFile(tempPath2, []byte("second commit"), 0644); err != nil {
+		if err := os.WriteFile(tempPath2, []byte("second commit"), 0o644); err != nil {
 			t.Fatalf("write temp2: %v", err)
 		}
 		if err := os.Rename(tempPath2, indexPath); err != nil {

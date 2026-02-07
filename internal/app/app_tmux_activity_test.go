@@ -18,6 +18,7 @@ func (f fetchTaggedSessionsOps) InstallHint() string    { return "" }
 func (f fetchTaggedSessionsOps) ActiveAgentSessionsByActivity(time.Duration, tmux.Options) ([]tmux.SessionActivity, error) {
 	return nil, nil
 }
+
 func (f fetchTaggedSessionsOps) SessionsWithTags(match map[string]string, keys []string, _ tmux.Options) ([]tmux.SessionTagValues, error) {
 	if len(match) != 0 {
 		return nil, errors.New("expected unfiltered SessionsWithTags call")
@@ -30,9 +31,11 @@ func (f fetchTaggedSessionsOps) SessionsWithTags(match map[string]string, keys [
 	}
 	return f.rows, nil
 }
+
 func (f fetchTaggedSessionsOps) SessionStateFor(string, tmux.Options) (tmux.SessionState, error) {
 	return tmux.SessionState{}, nil
 }
+
 func (f fetchTaggedSessionsOps) SessionHasClients(string, tmux.Options) (bool, error) {
 	return false, nil
 }
@@ -283,7 +286,6 @@ func TestSessionActivityHysteresis(t *testing.T) {
 	// Test 1: First observation sets score at threshold (immediately active)
 	hash1 := [16]byte{1, 2, 3}
 	state.lastHash = hash1
-	state.initialized = true
 	state.score = activityScoreThreshold
 	if state.score < activityScoreThreshold {
 		t.Fatal("newly initialized session should be active at threshold")

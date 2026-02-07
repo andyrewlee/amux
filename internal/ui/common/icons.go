@@ -86,7 +86,7 @@ func SpinnerFrame(frame int) string {
 }
 
 // FileStatusIcon returns an icon and description for git file status
-func FileStatusIcon(status string) (icon string, desc string) {
+func FileStatusIcon(status string) (icon, desc string) {
 	switch status {
 	case "M":
 		return "M", "modified"

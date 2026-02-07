@@ -9,7 +9,7 @@ import (
 )
 
 // VerifyChecksum verifies a file's SHA256 checksum.
-func VerifyChecksum(filepath string, expectedChecksum string) error {
+func VerifyChecksum(filepath, expectedChecksum string) error {
 	f, err := os.Open(filepath)
 	if err != nil {
 		return fmt.Errorf("opening file: %w", err)
