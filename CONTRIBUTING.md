@@ -5,6 +5,7 @@
 ```bash
 git clone https://github.com/andyrewlee/amux.git
 cd amux
+./scripts/install-hooks.sh
 make run
 ```
 
@@ -12,6 +13,35 @@ Run the local checks that mirror CI:
 
 ```bash
 make devcheck
+```
+
+`make devcheck` is the required pre-PR gate: it runs vet, tests, and lint (including file-length checks).
+
+`golangci-lint` is required locally. Install instructions: https://golangci-lint.run/welcome/install/
+
+For style-only cleanup, run:
+
+```bash
+make fmt
+```
+
+Before opening larger PRs, also run strict ratcheted lint on changed code:
+
+```bash
+make lint-strict-new
+```
+
+Pull requests are checklist-gated. Complete `.github/pull_request_template.md` with required items:
+
+- always: `devcheck`, `lint_strict_new`
+- if touching `internal/ui/`, `internal/vterm/`, or `cmd/amux-harness/`: `harness_presets`
+- if touching `internal/tmux/`, `internal/e2e/`, or `internal/pty/`: `tmux_e2e`
+- if changing lint policy/gates (`.golangci*.yml`, `LINTING.md`, `Makefile`, `.github/workflows/ci.yml`): `lint_policy_review`
+
+You can validate a checklist body locally:
+
+```bash
+make pr-checklist BASE=origin/main HEAD=HEAD BODY=/tmp/pr-body.md
 ```
 
 Architecture references:

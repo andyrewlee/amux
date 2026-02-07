@@ -10,6 +10,7 @@ on:
 env:
   TERM: xterm-256color
   GOVULNCHECK_VERSION: v1.1.4
+  GOLANGCI_LINT_VERSION: v1.64.8
 
 jobs:
   test:
@@ -23,6 +24,17 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --timeout=10m
+
+      - name: File length guard (max 500 lines)
+        run: |
+          set -euo pipefail
+          find . -name '*.go' -exec wc -l {} + | awk '!/total$/ && $1 > 500 { print "ERROR: " $2 " has " $1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
 
       - name: Vet
         run: go vet ./...
@@ -82,3 +94,44 @@ jobs:
 
       - name: Test (e2e)
         run: go test ./internal/e2e -count=1
+
+  pr-checklist:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR checklist
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          body_file="$(mktemp)"
+          printf '%s\n' "${PR_BODY}" > "${body_file}"
+          ./scripts/ci/verify_pr_checklist.sh "${BASE_SHA}" "${HEAD_SHA}" "${body_file}"
+
+  lint-strict-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Strict lint (changed code only)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --config=.golangci.strict.yml --new-from-rev=${{ github.event.pull_request.base.sha }} --timeout=10m
