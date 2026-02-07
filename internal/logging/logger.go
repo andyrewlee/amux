@@ -57,7 +57,7 @@ const (
 
 // Initialize sets up the default logger
 func Initialize(logDir string, level Level) error {
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return err
 	}
 
@@ -67,7 +67,7 @@ func Initialize(logDir string, level Level) error {
 	}
 
 	logPath := filepath.Join(logDir, fmt.Sprintf("%s%s%s", logPrefix, time.Now().Format(logDateLayout), logSuffix))
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}

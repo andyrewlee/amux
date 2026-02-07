@@ -42,7 +42,7 @@ func TestValidateProjectPath(t *testing.T) {
 	// Create a temp git repo
 	tmpDir := t.TempDir()
 	gitDir := filepath.Join(tmpDir, ".git")
-	_ = os.Mkdir(gitDir, 0755)
+	_ = os.Mkdir(gitDir, 0o755)
 
 	tests := []struct {
 		name    string

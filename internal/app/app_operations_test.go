@@ -16,7 +16,7 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 
 	repo := t.TempDir()
 	runGit(t, repo, "init", "-b", "main")
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
 	runGit(t, repo, "add", "README.md")
@@ -105,7 +105,7 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 
 	repo := t.TempDir()
 	runGit(t, repo, "init", "-b", "main")
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
 	runGit(t, repo, "add", "README.md")
@@ -144,9 +144,7 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 		t.Fatalf("expected project %s to be loaded", repo)
 	}
 
-	var (
-		found bool
-	)
+	var found bool
 	expectedRoot := normalizePath(worktreePath)
 	for i := range project.Workspaces {
 		ws := &project.Workspaces[i]
@@ -180,9 +178,7 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 		t.Fatalf("expected project %s to be loaded after rescan", repo)
 	}
 
-	var (
-		count int
-	)
+	var count int
 	for i := range project.Workspaces {
 		ws := &project.Workspaces[i]
 		if normalizePath(ws.Root) == expectedRoot {
@@ -220,7 +216,7 @@ func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
 
 	repo := t.TempDir()
 	runGit(t, repo, "init", "-b", "main")
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
 	runGit(t, repo, "add", "README.md")
@@ -291,7 +287,7 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 	})
 
 	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		return os.MkdirAll(workspacePath, 0755)
+		return os.MkdirAll(workspacePath, 0o755)
 	}
 
 	var removeCalled bool

@@ -132,7 +132,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
-		logging.Debug("Dialog cancelled")
+		logging.Debug("Dialog canceled")
 		return nil
 	}
 

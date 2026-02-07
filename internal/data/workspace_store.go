@@ -98,7 +98,7 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 	path := s.workspacePath(id)
 	dir := filepath.Dir(path)
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
@@ -109,7 +109,7 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 
 	// Write to temp file first, then rename for atomic operation
 	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {

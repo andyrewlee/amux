@@ -75,7 +75,6 @@ func (m *Model) rebuildRows() {
 		})
 
 		for _, ws := range m.sortedWorkspaces(project) {
-
 			// Hide main branch - users access via project row
 			if ws.IsMainBranch() || ws.IsPrimaryCheckout() {
 				continue

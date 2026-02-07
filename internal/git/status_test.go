@@ -312,7 +312,7 @@ func TestCountUntrackedLines(t *testing.T) {
 
 	// Helper to create a file and return the Change entry
 	writeFile := func(name, content string) Change {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		return Change{Path: name, Kind: ChangeUntracked}
@@ -398,7 +398,7 @@ func TestCountUntrackedLines(t *testing.T) {
 
 	t.Run("directory skipped", func(t *testing.T) {
 		subdir := filepath.Join(dir, "subdir")
-		if err := os.Mkdir(subdir, 0755); err != nil {
+		if err := os.Mkdir(subdir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		c := Change{Path: "subdir", Kind: ChangeUntracked}

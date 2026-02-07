@@ -23,7 +23,7 @@ func TestWorkspaceStore_LoadMetadataFor(t *testing.T) {
 	// The ID is computed from Repo+Root, so we use discovered's ID
 	id := discovered.ID()
 	dir := filepath.Join(root, string(id))
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
@@ -35,7 +35,7 @@ func TestWorkspaceStore_LoadMetadataFor(t *testing.T) {
 		"env": {"API_KEY": "secret123"},
 		"scripts": {"setup": "npm install"}
 	}`
-	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(legacyMetadata), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(legacyMetadata), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -118,7 +118,7 @@ func TestWorkspaceStore_LoadMetadataFor_AppliesDefaults(t *testing.T) {
 	// Store metadata with empty/missing fields
 	id := discovered.ID()
 	dir := filepath.Join(root, string(id))
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestWorkspaceStore_LoadMetadataFor_AppliesDefaults(t *testing.T) {
 	emptyMetadata := `{
 		"created": "2024-01-01T00:00:00Z"
 	}`
-	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(emptyMetadata), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(emptyMetadata), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -167,13 +167,13 @@ func TestWorkspaceStore_LoadMetadataFor_CorruptedFile(t *testing.T) {
 	// Create corrupted metadata file
 	id := ws.ID()
 	dir := filepath.Join(root, string(id))
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
 	// Write invalid JSON
 	corruptedData := `{invalid json content`
-	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(corruptedData), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(corruptedData), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 

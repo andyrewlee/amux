@@ -12,10 +12,10 @@ import (
 
 func writeWorkspaceConfig(t *testing.T, repoPath, content string) {
 	configDir := filepath.Join(repoPath, ".amux")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("mkdir .amux: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "workspaces.json"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "workspaces.json"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write workspaces.json: %v", err)
 	}
 }
@@ -71,19 +71,19 @@ func TestScriptRunnerLoadConfigValidJSON(t *testing.T) {
 func TestScriptRunnerLoadConfigPermissionError(t *testing.T) {
 	repo := t.TempDir()
 	configDir := filepath.Join(repo, ".amux")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("mkdir .amux: %v", err)
 	}
 	configPath := filepath.Join(configDir, "workspaces.json")
-	if err := os.WriteFile(configPath, []byte(`{"run":"test"}`), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"run":"test"}`), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	// Make file unreadable
-	if err := os.Chmod(configPath, 0000); err != nil {
+	if err := os.Chmod(configPath, 0o000); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chmod(configPath, 0644)
+		_ = os.Chmod(configPath, 0o644)
 	})
 
 	runner := NewScriptRunner(6200, 10)

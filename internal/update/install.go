@@ -48,7 +48,7 @@ func ExtractBinary(archivePath string, destDir string) (string, error) {
 		}
 
 		binaryPath = filepath.Join(destDir, "amux")
-		outFile, err := os.OpenFile(binaryPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		outFile, err := os.OpenFile(binaryPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 		if err != nil {
 			return "", fmt.Errorf("creating output file: %w", err)
 		}
@@ -77,8 +77,8 @@ func InstallBinary(newBinaryPath string, currentBinaryPath string) error {
 	if err != nil {
 		return fmt.Errorf("checking new binary: %w", err)
 	}
-	if info.Mode()&0111 == 0 {
-		if err := os.Chmod(newBinaryPath, 0755); err != nil {
+	if info.Mode()&0o111 == 0 {
+		if err := os.Chmod(newBinaryPath, 0o755); err != nil {
 			return fmt.Errorf("setting executable permission: %w", err)
 		}
 	}
@@ -120,7 +120,7 @@ func copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}

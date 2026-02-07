@@ -98,7 +98,7 @@ func TestRegistry_LoadLegacyFormat(t *testing.T) {
 	// Write legacy format (plain array)
 	legacyData := []string{"/path/to/project1", "/path/to/project2"}
 	data, _ := json.Marshal(legacyData)
-	_ = os.WriteFile(registryPath, data, 0644)
+	_ = os.WriteFile(registryPath, data, 0o644)
 
 	r := NewRegistry(registryPath)
 	paths, err := r.Load()
@@ -116,7 +116,7 @@ func TestRegistry_LoadStringArrayFormat(t *testing.T) {
 
 	// Write string array format
 	data := `{"projects": ["/path/to/project1", "/path/to/project2"]}`
-	_ = os.WriteFile(registryPath, []byte(data), 0644)
+	_ = os.WriteFile(registryPath, []byte(data), 0o644)
 
 	r := NewRegistry(registryPath)
 	paths, err := r.Load()

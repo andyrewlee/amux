@@ -255,21 +255,21 @@ func (c ansiColor) RGBA() (r, g, b, a uint32) {
 		// Each component is 0, 95, 135, 175, 215, or 255
 		rLevel := uint32(0)
 		if rVal > 0 {
-			rLevel = uint32(55 + rVal*40)
+			rLevel = 55 + rVal*40
 		}
 		gLevel := uint32(0)
 		if gVal > 0 {
-			gLevel = uint32(55 + gVal*40)
+			gLevel = 55 + gVal*40
 		}
 		bLevel := uint32(0)
 		if bVal > 0 {
-			bLevel = uint32(55 + bVal*40)
+			bLevel = 55 + bVal*40
 		}
 
 		return rLevel * 257, gLevel * 257, bLevel * 257, 65535
 	}
 
-	gray := uint32(8 + (idx-232)*10)
+	gray := 8 + (idx-232)*10
 	return gray * 257, gray * 257, gray * 257, 65535
 }
 

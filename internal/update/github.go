@@ -60,7 +60,7 @@ func NewGitHubClient() *GitHubClient {
 func (c *GitHubClient) FetchLatestRelease() (*Release, error) {
 	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", GitHubAPIBase, c.owner, c.repo)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -90,7 +90,7 @@ func (c *GitHubClient) FetchLatestRelease() (*Release, error) {
 
 // DownloadAsset downloads an asset to the specified writer.
 func (c *GitHubClient) DownloadAsset(url string, w io.Writer) error {
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
@@ -128,7 +128,7 @@ func (c *GitHubClient) FetchChecksums(release *Release) (map[string]string, erro
 		return nil, fmt.Errorf("checksums.txt not found in release")
 	}
 
-	req, err := http.NewRequest("GET", checksumURL, nil)
+	req, err := http.NewRequest(http.MethodGet, checksumURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}

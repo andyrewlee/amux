@@ -245,7 +245,7 @@ func (fw *FileWatcher) addWatchPath(path string) (watchTarget, error) {
 		if isWatchLimitError(err) {
 			if !fw.disabled {
 				fw.disabled = true
-				fw.disabledErr = fmt.Errorf("%w: %v", ErrWatchLimit, err)
+				fw.disabledErr = fmt.Errorf("%w: %w", ErrWatchLimit, err)
 				perf.Count("git_watcher_watch_limit", 1)
 				logging.Warn("File watcher limit reached; disabling watcher: %v", err)
 			}

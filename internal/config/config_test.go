@@ -20,5 +20,4 @@ func TestDefaultConfig(t *testing.T) {
 			t.Fatalf("DefaultConfig() missing assistant config for %s", name)
 		}
 	}
-
 }

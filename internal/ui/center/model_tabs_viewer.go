@@ -114,7 +114,7 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 
 // createViewerTabLegacy creates a PTY-based viewer tab (for backwards compatibility)
 //
-//nolint:unused
+//nolint:unused // Kept for backwards-compatible viewer tab flow while diff viewer migration remains incomplete.
 func (m *Model) createViewerTabLegacy(file string, statusCode string, ws *data.Workspace) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
