@@ -8,7 +8,6 @@
 - Lint-driven workflow: run `make devcheck` for all non-trivial changes.
 - Formatting baseline includes `gofumpt`; use `make fmt` for style-only cleanup.
 - Phase 2 strict lint: run `make lint-strict-new` for changed-code ratcheting before finalizing substantial edits.
-- Phase 3 PR gate: ensure PR checklist IDs are checked in `.github/pull_request_template.md` (`devcheck`, `lint_strict_new`, and path-conditional items like `harness_presets`, `tmux_e2e`, `lint_policy_review`).
-- Local checklist validation: `make pr-checklist BASE=origin/main HEAD=HEAD BODY=/tmp/pr-body.md`.
+- Phase 3 CI gate is automated (no PR-body parsing). For local confidence, run path-relevant checks (`make harness-presets`, `go test ./internal/tmux ./internal/e2e`) when touching those areas.
 - Lint policy source of truth: `LINTING.md`.
 - Release: use `make release VERSION=vX.Y.Z` (runs tests + harness, tags, pushes). Tag push triggers GitHub Actions release.

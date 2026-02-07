@@ -9,7 +9,7 @@ HARNESS_HEIGHT ?= 48
 HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 
-.PHONY: build test bench lint lint-strict lint-strict-new pr-checklist check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
+.PHONY: build test bench lint lint-strict lint-strict-new check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -55,24 +55,16 @@ lint-strict-new:
 		golangci-lint run -c .golangci.strict.yml --new; \
 	fi
 
-pr-checklist:
-	@test -n "$(BASE)" || (echo "BASE is required (e.g. BASE=origin/main)"; exit 1)
-	@test -n "$(HEAD)" || (echo "HEAD is required (e.g. HEAD=HEAD)"; exit 1)
-	@test -n "$(BODY)" || (echo "BODY is required and should point to a markdown file"; exit 1)
-	./scripts/ci/verify_pr_checklist.sh "$(BASE)" "$(HEAD)" "$(BODY)"
-
 check-file-length:
 	@echo "Checking file lengths (max 500 lines)..."
 	@find . -name '*.go' -exec wc -l {} + | awk '!/total$$/ && $$1 > 500 { print "ERROR: " $$2 " has " $$1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
 
 fmt:
 	$(GOFUMPT) -w .
-	gofmt -w .
 	goimports -w .
 
 fmt-check:
 	@test -z "$$($(GOFUMPT) -l .)" || ($(GOFUMPT) -l .; exit 1)
-	@test -z "$$(gofmt -l .)" || (gofmt -l .; exit 1)
 
 vet:
 	go vet ./...
@@ -93,10 +85,9 @@ help:
 	@echo "  lint       - Run golangci-lint and file length checks (max 500 lines)"
 	@echo "  lint-strict - Run stricter lint profile across the whole repo"
 	@echo "  lint-strict-new - Run stricter lint profile only on changed code (optionally BASE=<git-rev>)"
-	@echo "  pr-checklist - Validate PR checklist markdown (requires BASE, HEAD, BODY)"
 	@echo "  check-file-length - Check Go file lengths only (max 500 lines)"
-	@echo "  fmt        - Format code with gofumpt, gofmt, and goimports"
-	@echo "  fmt-check  - Check gofumpt/gofmt formatting (for CI)"
+	@echo "  fmt        - Format code with gofumpt and goimports"
+	@echo "  fmt-check  - Check gofumpt formatting (for CI)"
 	@echo "  vet        - Run go vet"
 	@echo "  clean      - Remove build artifacts"
 	@echo "  run        - Build and run"

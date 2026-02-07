@@ -31,18 +31,11 @@ Before opening larger PRs, also run strict ratcheted lint on changed code:
 make lint-strict-new
 ```
 
-Pull requests are checklist-gated. Complete `.github/pull_request_template.md` with required items:
+Pull requests are CI-gated (automated). For local confidence before opening a PR:
 
-- always: `devcheck`, `lint_strict_new`
-- if touching `internal/ui/`, `internal/vterm/`, or `cmd/amux-harness/`: `harness_presets`
-- if touching `internal/tmux/`, `internal/e2e/`, or `internal/pty/`: `tmux_e2e`
-- if changing lint policy/gates (`.golangci*.yml`, `LINTING.md`, `Makefile`, `.github/workflows/ci.yml`): `lint_policy_review`
-
-You can validate a checklist body locally:
-
-```bash
-make pr-checklist BASE=origin/main HEAD=HEAD BODY=/tmp/pr-body.md
-```
+- always: `make devcheck`, `make lint-strict-new`
+- if touching `internal/ui/`, `internal/vterm/`, or `cmd/amux-harness/`: `make harness-presets`
+- if touching `internal/tmux/`, `internal/e2e/`, or `internal/pty/`: `go test ./internal/tmux ./internal/e2e`
 
 Architecture references:
 

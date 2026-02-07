@@ -48,11 +48,10 @@ Phase 3 promotes additional low-noise rules into baseline `.golangci.yml`:
 - `whitespace` (no unnecessary leading/trailing blank lines)
 - `gofumpt` (stricter canonical formatting)
 
-Phase 3 also adds a PR checklist gate in CI:
+Phase 3 keeps CI fully automated (no PR-body parsing). The gate is enforced by required CI jobs:
 
-- `.github/pull_request_template.md` defines checklist items.
-- `.github/workflows/ci.yml` runs `scripts/ci/verify_pr_checklist.sh` on pull requests.
-- Checklist enforcement is path-aware (see ownership/escalation below).
+- baseline lint/test/harness checks in `.github/workflows/ci.yml`
+- strict changed-code lint in `lint-strict-pr`
 
 ## Baseline Lint Rules
 
@@ -84,22 +83,14 @@ The strict profile is where new rules should be introduced first (ratcheted on c
 
 ## Ownership And Escalation Rules
 
-Escalation is based on changed paths and enforced by PR checklist validation:
+Escalation is path-based and automated by CI jobs. For local confidence, use:
 
 - `internal/ui/`, `internal/vterm/`, `cmd/amux-harness/`:
-  - required checklist item: `harness_presets`
-  - expected validation: `make harness-center`, `make harness-sidebar`, `make harness-monitor`
+  - run `make harness-presets`
 - `internal/tmux/`, `internal/e2e/`, `internal/pty/`:
-  - required checklist item: `tmux_e2e`
-  - expected validation: `go test ./internal/tmux ./internal/e2e`
-- `.golangci.yml`, `.golangci.strict.yml`, `LINTING.md`, `Makefile`, `.github/workflows/ci.yml`:
-  - required checklist item: `lint_policy_review`
-  - treat as policy changes and document intent in the PR summary.
-
-Always required for pull requests:
-
-- `devcheck`
-- `lint_strict_new`
+  - run `go test ./internal/tmux ./internal/e2e`
+- lint policy files (`.golangci.yml`, `.golangci.strict.yml`, `LINTING.md`, `Makefile`, `.github/workflows/ci.yml`):
+  - call out intent in PR summary
 
 ## Agent Workflow
 
@@ -115,10 +106,4 @@ For formatting-only maintenance or before large refactors:
 make fmt
 ```
 
-For pull requests, agents should also complete checklist items in `.github/pull_request_template.md`.
-
-To validate a PR body locally:
-
-```bash
-make pr-checklist BASE=origin/main HEAD=HEAD BODY=/tmp/pr-body.md
-```
+For pull requests, agents should include validation commands run in the PR summary.

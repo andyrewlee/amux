@@ -95,26 +95,6 @@ jobs:
       - name: Test (e2e)
         run: go test ./internal/e2e -count=1
 
-  pr-checklist:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Validate PR checklist
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          set -euo pipefail
-          body_file="$(mktemp)"
-          printf '%s\n' "${PR_BODY}" > "${body_file}"
-          ./scripts/ci/verify_pr_checklist.sh "${BASE_SHA}" "${HEAD_SHA}" "${body_file}"
-
   lint-strict-pr:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
