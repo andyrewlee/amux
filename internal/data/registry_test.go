@@ -110,9 +110,24 @@ func TestRegistry_LoadLegacyFormat(t *testing.T) {
 	}
 }
 
-func TestRegistry_LoadPreservesLegacyRelativePathRepresentation(t *testing.T) {
+func TestRegistry_LoadCanonicalizesAndRepairsLegacyRelativePath(t *testing.T) {
 	tmpDir := t.TempDir()
 	registryPath := filepath.Join(tmpDir, "projects.json")
+	repoPath := filepath.Join(tmpDir, "repo")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	prevWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir(%s) error = %v", tmpDir, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(prevWD)
+	})
 
 	legacyData := []string{"./repo"}
 	data, _ := json.Marshal(legacyData)
@@ -128,11 +143,26 @@ func TestRegistry_LoadPreservesLegacyRelativePathRepresentation(t *testing.T) {
 	if len(paths) != 1 {
 		t.Fatalf("expected 1 path, got %d", len(paths))
 	}
-	if filepath.IsAbs(paths[0]) {
-		t.Fatalf("expected legacy relative path to remain relative, got %q", paths[0])
+	if !filepath.IsAbs(paths[0]) {
+		t.Fatalf("expected canonical absolute path, got %q", paths[0])
 	}
-	if paths[0] != filepath.Clean("./repo") {
-		t.Fatalf("path = %q, want %q", paths[0], filepath.Clean("./repo"))
+	if canonicalProjectPath(paths[0]) != canonicalProjectPath(repoPath) {
+		t.Fatalf("path = %q, want canonical %q", paths[0], repoPath)
+	}
+
+	raw, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read repaired registry: %v", err)
+	}
+	stored, err := parseRegistryData(raw, registryPath)
+	if err != nil {
+		t.Fatalf("parse repaired registry: %v", err)
+	}
+	if len(stored) != 1 {
+		t.Fatalf("expected repaired registry to contain 1 path, got %d", len(stored))
+	}
+	if canonicalProjectPath(stored[0]) != canonicalProjectPath(repoPath) {
+		t.Fatalf("stored path = %q, want canonical %q", stored[0], repoPath)
 	}
 }
 

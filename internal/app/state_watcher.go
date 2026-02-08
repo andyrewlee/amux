@@ -220,8 +220,10 @@ func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 		return true
 	}
 
-	// Changes to files under workspace directories (e.g. workspace.json writes).
-	return filepath.Dir(filepath.Dir(name)) == sw.metadataRoot
+	// Ignore nested metadata file writes (e.g. workspace.json saves). These are
+	// frequent during normal local tab persistence and should not trigger a full
+	// project reload cycle.
+	return false
 }
 
 func (sw *stateWatcher) scheduleNotify(reason string) {

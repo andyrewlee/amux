@@ -55,11 +55,12 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 	knownIDs := a.collectKnownWorkspaceIDs()
 	opts := a.tmuxOptions
 	svc := a.tmuxService
+	instanceID := a.instanceID
 	return func() tea.Msg {
 		if svc == nil {
 			return orphanGCResult{Err: errTmuxUnavailable}
 		}
-		byWorkspace, err := a.amuxSessionsByWorkspace(opts, a.instanceID)
+		byWorkspace, err := a.amuxSessionsByWorkspace(opts, instanceID)
 		if err != nil {
 			return orphanGCResult{Err: err}
 		}

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestStateWatcher_NotifiesOnWorkspaceMetadataWrite(t *testing.T) {
+func TestStateWatcher_IgnoresWorkspaceMetadataWrite(t *testing.T) {
 	metadataRoot := filepath.Join(t.TempDir(), "workspaces-metadata")
 	if err := os.MkdirAll(metadataRoot, 0o755); err != nil {
 		t.Fatalf("mkdir metadata root: %v", err)
@@ -30,11 +30,13 @@ func TestStateWatcher_NotifiesOnWorkspaceMetadataWrite(t *testing.T) {
 
 	reasons := make(chan string, 16)
 	sw := startStateWatcherForTest(t, registryPath, metadataRoot, reasons)
+	time.Sleep(60 * time.Millisecond)
+	drainStateWatcherReasons(reasons)
 
 	if err := os.WriteFile(workspaceFile, []byte(`{"name":"b"}`), 0o644); err != nil {
 		t.Fatalf("update workspace file: %v", err)
 	}
-	waitForStateWatcherReason(t, reasons, "workspaces", 2*time.Second)
+	ensureNoStateWatcherReason(t, reasons, 250*time.Millisecond)
 	_ = sw
 }
 
@@ -56,17 +58,19 @@ func TestStateWatcher_WatchesNewWorkspaceDirectory(t *testing.T) {
 		t.Fatalf("mkdir workspace dir: %v", err)
 	}
 	waitForStateWatcherReason(t, reasons, "workspaces", 2*time.Second)
+	time.Sleep(60 * time.Millisecond)
+	drainStateWatcherReasons(reasons)
 
 	workspaceFile := filepath.Join(workspaceDir, "workspace.json")
 	if err := os.WriteFile(workspaceFile, []byte(`{"name":"x"}`), 0o644); err != nil {
 		t.Fatalf("write workspace file: %v", err)
 	}
-	waitForStateWatcherReason(t, reasons, "workspaces", 2*time.Second)
+	ensureNoStateWatcherReason(t, reasons, 250*time.Millisecond)
 
 	if err := os.WriteFile(workspaceFile, []byte(`{"name":"y"}`), 0o644); err != nil {
 		t.Fatalf("rewrite workspace file: %v", err)
 	}
-	waitForStateWatcherReason(t, reasons, "workspaces", 2*time.Second)
+	ensureNoStateWatcherReason(t, reasons, 250*time.Millisecond)
 	_ = sw
 }
 
@@ -121,6 +125,16 @@ func TestStateWatcher_IgnoresChildWatchFailure(t *testing.T) {
 
 	reasons := make(chan string, 16)
 	sw := startStateWatcherForTest(t, registryPath, metadataRoot, reasons)
+	sw.mu.Lock()
+	_, hasGoodWatch := sw.metadataDirs[filepath.Clean(goodDir)]
+	_, hasBadWatch := sw.metadataDirs[filepath.Clean(badDir)]
+	sw.mu.Unlock()
+	if !hasGoodWatch {
+		t.Fatalf("expected watcher to include %s", goodDir)
+	}
+	if hasBadWatch {
+		t.Fatalf("expected watcher to skip %s after watch failure", badDir)
+	}
 
 	// Ensure watcher still runs by receiving registry updates.
 	if err := os.WriteFile(registryPath, []byte(`{"projects":["/tmp/repo"]}`), 0o644); err != nil {
@@ -128,10 +142,10 @@ func TestStateWatcher_IgnoresChildWatchFailure(t *testing.T) {
 	}
 	waitForStateWatcherReason(t, reasons, "registry", 2*time.Second)
 
-	// Ensure good workspace directory is still watched.
-	workspaceFile := filepath.Join(goodDir, "workspace.json")
-	if err := os.WriteFile(workspaceFile, []byte(`{"name":"ok"}`), 0o644); err != nil {
-		t.Fatalf("write workspace file: %v", err)
+	// Ensure metadata-root workspace events still flow.
+	newDir := filepath.Join(metadataRoot, "ws-new")
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace dir: %v", err)
 	}
 	waitForStateWatcherReason(t, reasons, "workspaces", 2*time.Second)
 	_ = sw
@@ -184,6 +198,29 @@ func waitForStateWatcherReason(t *testing.T, reasons <-chan string, want string,
 			}
 		case <-timer.C:
 			t.Fatalf("timed out waiting for reason %q", want)
+		}
+	}
+}
+
+func ensureNoStateWatcherReason(t *testing.T, reasons <-chan string, timeout time.Duration) {
+	t.Helper()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case got := <-reasons:
+		t.Fatalf("unexpected state watcher reason %q", got)
+	case <-timer.C:
+	}
+}
+
+func drainStateWatcherReasons(reasons <-chan string) {
+	for {
+		select {
+		case <-reasons:
+		default:
+			return
 		}
 	}
 }

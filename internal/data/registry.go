@@ -41,16 +41,25 @@ func NewRegistry(path string) *Registry {
 
 // Load reads the project paths from the registry file
 func (r *Registry) Load() ([]string, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	lockFile, err := lockRegistryFile(r.lockPath(), true)
+	lockFile, err := lockRegistryFile(r.lockPath(), false)
 	if err != nil {
 		return nil, err
 	}
 	defer unlockRegistryFile(lockFile)
 
-	return r.loadUnlocked()
+	paths, needsRepair, err := r.loadUnlockedWithRecovery()
+	if err != nil {
+		return nil, err
+	}
+	if needsRepair {
+		if err := r.saveUnlocked(paths); err != nil {
+			return nil, err
+		}
+	}
+	return paths, nil
 }
 
 // Save writes the project paths to the registry file
@@ -65,11 +74,6 @@ func (r *Registry) Save(paths []string) error {
 	defer unlockRegistryFile(lockFile)
 
 	return r.saveUnlocked(paths)
-}
-
-func (r *Registry) loadUnlocked() ([]string, error) {
-	paths, _, err := r.loadUnlockedWithRecovery()
-	return paths, err
 }
 
 func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
@@ -87,7 +91,8 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 		if parseErr != nil {
 			return nil, false, parseErr
 		}
-		return normalizeAndDedupeProjectPaths(paths), true, nil
+		normalized, _ := normalizeAndDedupeProjectPaths(paths)
+		return normalized, true, nil
 	}
 	if err != nil {
 		return nil, false, err
@@ -95,7 +100,8 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 
 	paths, parseErr := parseRegistryData(data, r.path)
 	if parseErr == nil {
-		return normalizeAndDedupeProjectPaths(paths), false, nil
+		normalized, changed := normalizeAndDedupeProjectPaths(paths)
+		return normalized, changed, nil
 	}
 
 	// If the primary file is corrupted, fall back to a valid backup when available.
@@ -108,11 +114,12 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 	if backupParseErr != nil {
 		return nil, false, parseErr
 	}
-	return normalizeAndDedupeProjectPaths(backupPaths), true, nil
+	normalized, _ := normalizeAndDedupeProjectPaths(backupPaths)
+	return normalized, true, nil
 }
 
 func (r *Registry) saveUnlocked(paths []string) error {
-	paths = normalizeAndDedupeProjectPaths(paths)
+	paths, _ = normalizeAndDedupeProjectPaths(paths)
 	dir := filepath.Dir(r.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -268,25 +275,35 @@ func canonicalProjectPath(path string) string {
 	return filepath.Clean(cleaned)
 }
 
-func normalizeAndDedupeProjectPaths(paths []string) []string {
+func normalizeAndDedupeProjectPaths(paths []string) ([]string, bool) {
 	out := make([]string, 0, len(paths))
 	seen := make(map[string]struct{}, len(paths))
+	changed := false
 	for _, path := range paths {
 		raw := strings.TrimSpace(path)
 		if raw == "" {
+			if strings.TrimSpace(path) != "" || path != "" {
+				changed = true
+			}
 			continue
 		}
 		canonical := canonicalProjectPath(raw)
 		if canonical == "" {
+			changed = true
 			continue
 		}
 		if _, ok := seen[canonical]; ok {
+			changed = true
 			continue
 		}
 		seen[canonical] = struct{}{}
-		// Keep the caller's path representation (including legacy relative paths)
-		// so existing workspace metadata keyed by repo path remains discoverable.
-		out = append(out, filepath.Clean(raw))
+		if filepath.Clean(raw) != canonical {
+			changed = true
+		}
+		out = append(out, canonical)
 	}
-	return out
+	if len(out) != len(paths) {
+		changed = true
+	}
+	return out, changed
 }
