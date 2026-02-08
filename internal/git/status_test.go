@@ -118,7 +118,7 @@ func TestParseStatusPorcelain(t *testing.T) {
 		},
 		{
 			name:          "renamed file",
-			input:         []byte("R  old.txt\x00new.txt\x00"),
+			input:         []byte("R  new.txt\x00old.txt\x00"),
 			wantClean:     false,
 			wantStaged:    1,
 			wantUnstaged:  0,

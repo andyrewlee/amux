@@ -1,7 +1,9 @@
 package process
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -221,6 +223,119 @@ func TestScriptRunnerStop(t *testing.T) {
 	}
 }
 
+func TestScriptRunnerRunScriptNonconcurrentStopFailure(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+
+	writeWorkspaceConfig(t, repo, `{
+  "run": "printf should-not-run > should-not-run.txt"
+}`)
+
+	runner := NewScriptRunner(6200, 10)
+	wt := &data.Workspace{
+		Repo:       repo,
+		Root:       wsRoot,
+		ScriptMode: "nonconcurrent",
+	}
+	origKillProcessGroupFn := killProcessGroupFn
+	t.Cleanup(func() {
+		killProcessGroupFn = origKillProcessGroupFn
+	})
+	killProcessGroupFn = func(pid int, opts KillOptions) error {
+		return errors.New("kill failed")
+	}
+
+	runner.mu.Lock()
+	runner.running[scriptWorkspaceKey(wt)] = &runningScript{
+		cmd: &exec.Cmd{
+			Process: &os.Process{Pid: 42},
+		},
+	}
+	runner.mu.Unlock()
+
+	if _, err := runner.RunScript(wt, ScriptRun); err == nil {
+		t.Fatalf("expected RunScript() to fail when Stop() fails in nonconcurrent mode")
+	}
+	if _, err := os.Stat(filepath.Join(wsRoot, "should-not-run.txt")); !os.IsNotExist(err) {
+		t.Fatalf("script should not have started after stop failure")
+	}
+}
+
+func TestScriptRunnerRunScriptNonconcurrentIgnoresBenignStopRace(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+
+	writeWorkspaceConfig(t, repo, `{
+  "run": "printf rerun-ok > rerun-ok.txt"
+}`)
+
+	runner := NewScriptRunner(6200, 10)
+	wt := &data.Workspace{
+		Repo:       repo,
+		Root:       wsRoot,
+		ScriptMode: "nonconcurrent",
+	}
+	origKillProcessGroupFn := killProcessGroupFn
+	t.Cleanup(func() {
+		killProcessGroupFn = origKillProcessGroupFn
+	})
+	killProcessGroupFn = func(pid int, opts KillOptions) error {
+		return os.ErrProcessDone
+	}
+
+	runner.mu.Lock()
+	runner.running[scriptWorkspaceKey(wt)] = &runningScript{
+		cmd: &exec.Cmd{
+			Process: &os.Process{Pid: 42},
+		},
+	}
+	runner.mu.Unlock()
+
+	if _, err := runner.RunScript(wt, ScriptRun); err != nil {
+		t.Fatalf("expected benign stop race to be ignored, got %v", err)
+	}
+	if err := waitForFile(filepath.Join(wsRoot, "rerun-ok.txt"), 2*time.Second); err != nil {
+		t.Fatalf("expected rerun script to execute: %v", err)
+	}
+}
+
+func TestScriptRunnerUsesNormalizedWorkspaceKey(t *testing.T) {
+	repo := t.TempDir()
+	wsReal := t.TempDir()
+	wsLink := filepath.Join(t.TempDir(), "ws-link")
+	if err := os.Symlink(wsReal, wsLink); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	writeWorkspaceConfig(t, repo, `{
+  "run": "sleep 5"
+}`)
+
+	runner := NewScriptRunner(6200, 10)
+	wsCanonical := &data.Workspace{Repo: repo, Root: wsReal}
+	if _, err := runner.RunScript(wsCanonical, ScriptRun); err != nil {
+		t.Fatalf("RunScript() error = %v", err)
+	}
+
+	wsViaSymlink := &data.Workspace{Repo: repo, Root: wsLink}
+	if !runner.IsRunning(wsViaSymlink) {
+		t.Fatalf("expected script to be running for symlink-equivalent workspace root")
+	}
+	if err := runner.Stop(wsViaSymlink); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for runner.IsRunning(wsCanonical) {
+		select {
+		case <-deadline:
+			t.Fatalf("script did not stop in time")
+		default:
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}
+
 func waitForFile(path string, timeout time.Duration) error {
 	deadline := time.After(timeout)
 	for {
@@ -233,5 +348,31 @@ func waitForFile(path string, timeout time.Duration) error {
 		default:
 			time.Sleep(20 * time.Millisecond)
 		}
+	}
+}
+
+func TestScriptRunnerWorkspaceValidation(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+
+	if err := runner.RunSetup(nil); err == nil {
+		t.Fatalf("expected RunSetup(nil) to fail")
+	}
+	if _, err := runner.RunScript(nil, ScriptRun); err == nil {
+		t.Fatalf("expected RunScript(nil, ScriptRun) to fail")
+	}
+	if err := runner.Stop(nil); err == nil {
+		t.Fatalf("expected Stop(nil) to fail")
+	}
+	if runner.IsRunning(nil) {
+		t.Fatalf("expected IsRunning(nil) to return false")
+	}
+
+	wsMissingRepo := &data.Workspace{Root: "/tmp/ws"}
+	if err := runner.RunSetup(wsMissingRepo); err == nil {
+		t.Fatalf("expected RunSetup() to fail when repo is missing")
+	}
+	wsMissingRoot := &data.Workspace{Repo: "/tmp/repo"}
+	if _, err := runner.RunScript(wsMissingRoot, ScriptRun); err == nil {
+		t.Fatalf("expected RunScript() to fail when root is missing")
 	}
 }

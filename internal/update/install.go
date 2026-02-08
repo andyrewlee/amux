@@ -160,12 +160,20 @@ func IsGoInstall() bool {
 	// Typical go install path: $GOPATH/bin or $HOME/go/bin
 	home, _ := os.UserHomeDir()
 	goPath := os.Getenv("GOPATH")
+	return isGoInstallPath(binPath, goPath, home)
+}
+
+func isGoInstallPath(binPath, goPath, home string) bool {
 	if goPath == "" {
 		goPath = filepath.Join(home, "go")
 	}
-
-	goBin := filepath.Join(goPath, "bin")
-	return strings.HasPrefix(binPath, goBin)
+	goBin := filepath.Clean(filepath.Join(goPath, "bin"))
+	bin := filepath.Clean(binPath)
+	rel, err := filepath.Rel(goBin, bin)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // CanWrite checks if we have write permission to the binary path.

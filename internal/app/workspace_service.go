@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,12 +15,14 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 var (
-	createWorkspaceFn = git.CreateWorkspace
-	removeWorkspaceFn = git.RemoveWorkspace
-	deleteBranchFn    = git.DeleteBranch
+	createWorkspaceFn    = git.CreateWorkspace
+	removeWorkspaceFn    = git.RemoveWorkspace
+	deleteBranchFn       = git.DeleteBranch
+	discoverWorkspacesFn = git.DiscoverWorkspaces
 )
 
 type workspaceService struct {
@@ -191,35 +194,46 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 func (s *workspaceService) AddProject(path string) tea.Cmd {
 	return func() tea.Msg {
 		logging.Info("Adding project: %s", path)
-
-		// Expand path
-		if len(path) > 0 && path[0] == '~' {
+		// Expand "~/..." to the current user's home directory.
+		if strings.HasPrefix(path, "~") {
 			home, err := os.UserHomeDir()
 			if err == nil {
-				path = filepath.Join(home, path[1:])
-				logging.Debug("Expanded path to: %s", path)
+				switch {
+				case path == "~":
+					path = home
+				case strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\"):
+					path = filepath.Join(home, path[2:])
+				}
+				logging.Debug("Expanded project path to: %s", path)
 			}
 		}
-
 		// Verify it's a git repo
-		if !git.IsGitRepository(path) {
+		if err := validation.ValidateProjectPath(path); err != nil {
 			logging.Warn("Path is not a git repository: %s", path)
 			return messages.Error{
-				Err:     fmt.Errorf("not a git repository: %s", path),
+				Err:     err,
 				Context: errorContext(errorServiceWorkspace, "adding project"),
 			}
 		}
-
+		// ValidateProjectPath checks path shape/.git presence; verify with git too.
+		if !git.IsGitRepository(path) {
+			logging.Warn("Path failed git repository validation: %s", path)
+			return messages.Error{
+				Err: &validation.ValidationError{
+					Field:   "path",
+					Message: "path is not a git repository",
+				},
+				Context: errorContext(errorServiceWorkspace, "adding project"),
+			}
+		}
 		if s == nil || s.registry == nil {
 			return messages.Error{Err: errors.New("registry unavailable"), Context: errorContext(errorServiceWorkspace, "adding project")}
 		}
-
 		// Add to registry
 		if err := s.registry.AddProject(path); err != nil {
 			logging.Error("Failed to add project to registry: %v", err)
 			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "adding project")}
 		}
-
 		logging.Info("Project added successfully: %s", path)
 		return messages.RefreshDashboard{}
 	}
@@ -239,20 +253,57 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 			}
 		}()
 
-		if project == nil || name == "" {
+		if project == nil {
 			return messages.WorkspaceCreateFailed{
 				Err: errors.New("missing project or workspace name"),
 			}
 		}
 
-		workspacePath := filepath.Join(
-			s.workspacesRoot,
-			project.Name,
-			name,
-		)
-
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return messages.WorkspaceCreateFailed{
+				Err: errors.New("missing project or workspace name"),
+			}
+		}
+		ws, validScope := s.pendingWorkspace(project, name, base)
+		if ws == nil {
+			return messages.WorkspaceCreateFailed{
+				Err: errors.New("missing project or workspace name"),
+			}
+		}
+		name = ws.Name
+		base = ws.Base
+		workspacePath := ws.Root
+		if err := validation.ValidateWorkspaceName(name); err != nil {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
+			}
+		}
+		if err := validation.ValidateBaseRef(base); err != nil {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
+			}
+		}
+		if !validScope {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       fmt.Errorf("invalid project scope for %s", project.Path),
+			}
+		}
 		branch := name
-		ws = data.NewWorkspace(name, branch, base, project.Path, workspacePath)
+		managedProjectRoot := filepath.Dir(workspacePath)
+		if !s.isManagedWorkspacePathForProject(project, workspacePath) {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err: fmt.Errorf(
+					"workspace path %s is outside managed project root %s",
+					workspacePath,
+					managedProjectRoot,
+				),
+			}
+		}
 
 		if err := createWorkspaceFn(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{
@@ -321,8 +372,55 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 				Err:       errors.New("cannot delete primary checkout"),
 			}
 		}
+		projectPath := data.NormalizePath(strings.TrimSpace(project.Path))
+		workspaceRepo := data.NormalizePath(strings.TrimSpace(ws.Repo))
+		if projectPath == "" {
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       errors.New("project path is required for workspace deletion"),
+			}
+		}
+		if workspaceRepo == "" {
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       errors.New("workspace repo is required for workspace deletion"),
+			}
+		}
+		if projectPath != workspaceRepo {
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err: fmt.Errorf(
+					"workspace repo %s does not match project path %s",
+					ws.Repo,
+					project.Path,
+				),
+			}
+		}
+		managedProjectRoot := s.primaryManagedProjectRoot(project)
+		if managedProjectRoot == "" && data.NormalizePath(strings.TrimSpace(s.workspacesRoot)) == "" {
+			managedProjectRoot = filepath.Join(s.workspacesRoot, project.Name)
+		}
+		if !s.isManagedWorkspacePathForProject(project, ws.Root) {
+			if s.isLegacyManagedWorkspaceDeletePath(project, ws) {
+				// Allow deleting legacy alias roots when they still map to a
+				// discoverable worktree for this repo.
+			} else {
+				return messages.WorkspaceDeleteFailed{
+					Project:   project,
+					Workspace: ws,
+					Err: fmt.Errorf(
+						"workspace path %s is outside managed project root %s",
+						ws.Root,
+						managedProjectRoot,
+					),
+				}
+			}
+		}
 
-		if err := git.RemoveWorkspace(project.Path, ws.Root); err != nil {
+		if err := removeWorkspaceFn(project.Path, ws.Root); err != nil {
 			return messages.WorkspaceDeleteFailed{
 				Project:   project,
 				Workspace: ws,
@@ -330,9 +428,13 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			}
 		}
 
-		_ = git.DeleteBranch(project.Path, ws.Branch)
+		if err := deleteBranchFn(project.Path, ws.Branch); err != nil {
+			logging.Warn("Failed to delete branch %s for workspace %s: %v", ws.Branch, ws.Name, err)
+		}
 		if s.store != nil {
-			_ = s.store.Delete(ws.ID())
+			if err := s.store.Delete(ws.ID()); err != nil {
+				logging.Warn("Failed to delete workspace metadata %s: %v", ws.ID(), err)
+			}
 		}
 
 		return messages.WorkspaceDeleted{
@@ -365,6 +467,9 @@ func (s *workspaceService) Save(workspace *data.Workspace) error {
 	if s == nil || s.store == nil {
 		return nil
 	}
+	if workspace == nil {
+		return errors.New("workspace is required")
+	}
 	return s.store.Save(workspace)
 }
 
@@ -373,28 +478,4 @@ func (s *workspaceService) StopAll() {
 		return
 	}
 	s.scripts.StopAll()
-}
-
-func waitForGitPath(path string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return nil
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("failed to stat %s: %w", path, err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("missing git metadata at %s after %s", path, timeout)
-		}
-		time.Sleep(gitPathWaitInterval)
-	}
-}
-
-func rollbackWorkspaceCreation(repoPath, workspacePath, branch string) {
-	if err := removeWorkspaceFn(repoPath, workspacePath); err != nil {
-		logging.Warn("Failed to roll back workspace %s: %v", workspacePath, err)
-	}
-	if err := deleteBranchFn(repoPath, branch); err != nil {
-		logging.Warn("Failed to roll back branch %s: %v", branch, err)
-	}
 }

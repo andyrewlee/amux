@@ -202,9 +202,10 @@ func selectSidebarInstance(sessions []sidebarSessionInfo, currentInstance string
 		}
 	}
 	type instanceStats struct {
-		count     int
-		createdAt int64
-		isEmpty   bool
+		count         int
+		attachedCount int
+		createdAt     int64
+		isEmpty       bool
 	}
 	stats := make(map[string]*instanceStats)
 	for _, session := range sessions {
@@ -214,6 +215,9 @@ func selectSidebarInstance(sessions []sidebarSessionInfo, currentInstance string
 			stats[session.instanceID] = stat
 		}
 		stat.count++
+		if session.hasClients {
+			stat.attachedCount++
+		}
 		if session.createdAt > stat.createdAt {
 			stat.createdAt = session.createdAt
 		}
@@ -228,6 +232,14 @@ func selectSidebarInstance(sessions []sidebarSessionInfo, currentInstance string
 			hasChoice = true
 			continue
 		}
+		if stat.attachedCount > chosen.attachedCount {
+			chosenID = id
+			chosen = *stat
+			continue
+		}
+		if stat.attachedCount < chosen.attachedCount {
+			continue
+		}
 		if stat.count > chosen.count {
 			chosenID = id
 			chosen = *stat
@@ -240,6 +252,11 @@ func selectSidebarInstance(sessions []sidebarSessionInfo, currentInstance string
 				continue
 			}
 			if stat.createdAt == chosen.createdAt && chosen.isEmpty && !stat.isEmpty {
+				chosenID = id
+				chosen = *stat
+				continue
+			}
+			if stat.createdAt == chosen.createdAt && stat.isEmpty == chosen.isEmpty && id < chosenID {
 				chosenID = id
 				chosen = *stat
 			}

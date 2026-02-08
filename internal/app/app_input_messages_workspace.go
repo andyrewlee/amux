@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -16,7 +17,10 @@ import (
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.projects = msg.Projects
 	a.projectsLoaded = true
-	a.dashboard.SetProjects(a.projects)
+	if a.dashboard != nil {
+		a.dashboard.SetProjects(a.projects)
+	}
+	a.rebindActiveSelection()
 	// Request git status for all workspaces
 	var cmds []tea.Cmd
 	cmds = append(cmds, a.scanTmuxActivityNow())
@@ -33,6 +37,62 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 		}
 	}
 	return cmds
+}
+
+func (a *App) rebindActiveSelection() {
+	if a.activeWorkspace != nil {
+		wsID := string(a.activeWorkspace.ID())
+		ws, project := a.findWorkspaceAndProjectByID(wsID)
+		if ws == nil {
+			a.goHome()
+			a.activeProject = nil
+			return
+		}
+		a.activeWorkspace = ws
+		a.activeProject = project
+		if a.center != nil {
+			a.center.SetWorkspace(ws)
+		}
+		if a.sidebar != nil {
+			a.sidebar.SetWorkspace(ws)
+		}
+		if a.sidebarTerminal != nil {
+			a.sidebarTerminal.SetWorkspacePreview(ws)
+		}
+		return
+	}
+	if a.activeProject != nil {
+		a.activeProject = a.findProjectByPath(a.activeProject.Path)
+	}
+}
+
+func (a *App) findWorkspaceAndProjectByID(id string) (*data.Workspace, *data.Project) {
+	if id == "" {
+		return nil, nil
+	}
+	for i := range a.projects {
+		project := &a.projects[i]
+		for j := range project.Workspaces {
+			ws := &project.Workspaces[j]
+			if string(ws.ID()) == id {
+				return ws, project
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (a *App) findProjectByPath(path string) *data.Project {
+	if path == "" {
+		return nil
+	}
+	for i := range a.projects {
+		project := &a.projects[i]
+		if project.Path == path {
+			return project
+		}
+	}
+	return nil
 }
 
 // handleWorkspaceActivated processes the WorkspaceActivated message.
@@ -89,13 +149,17 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 // handleCreateWorkspace handles the CreateWorkspace message.
 func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
-	if msg.Project != nil && msg.Name != "" {
-		workspacePath := filepath.Join(
-			a.config.Paths.WorkspacesRoot,
-			msg.Project.Name,
-			msg.Name,
-		)
-		pending := data.NewWorkspace(msg.Name, msg.Name, msg.Base, msg.Project.Path, workspacePath)
+	name := strings.TrimSpace(msg.Name)
+	if msg.Project != nil && name != "" {
+		var pending *data.Workspace
+		if a.workspaceService != nil {
+			pending, _ = a.workspaceService.pendingWorkspace(msg.Project, name, msg.Base)
+		}
+		if pending == nil {
+			projectRoot := filepath.Join(a.config.Paths.WorkspacesRoot, msg.Project.Name)
+			workspacePath := filepath.Join(projectRoot, name)
+			pending = data.NewWorkspace(name, name, msg.Base, msg.Project.Path, workspacePath)
+		}
 		if pending != nil {
 			a.creatingWorkspaceIDs[string(pending.ID())] = true
 		}
@@ -103,7 +167,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base))
+	cmds = append(cmds, a.createWorkspace(msg.Project, name, msg.Base))
 	return cmds
 }
 

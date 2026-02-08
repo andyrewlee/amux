@@ -60,8 +60,9 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 	}
 
 	var project *data.Project
+	expectedRepo := normalizePath(repo)
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == expectedRepo {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -134,8 +135,9 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 	}
 
 	var project *data.Project
+	expectedRepo := normalizePath(repo)
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == expectedRepo {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -169,7 +171,7 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 
 	project = nil
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == expectedRepo {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -324,6 +326,39 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 	}
 	if len(ids) != 0 {
 		t.Fatalf("expected no persisted workspaces, got %d", len(ids))
+	}
+}
+
+func TestDeleteWorkspaceRejectsPathOutsideManagedRoot(t *testing.T) {
+	repo := t.TempDir()
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+
+	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+	workspaceService := newWorkspaceService(nil, store, nil, workspacesRoot)
+	project := data.NewProject(repo)
+	workspace := data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(tmp, "outside", "feature"))
+
+	origRemove := removeWorkspaceFn
+	t.Cleanup(func() {
+		removeWorkspaceFn = origRemove
+	})
+	removeCalled := false
+	removeWorkspaceFn = func(repoPath, workspacePath string) error {
+		removeCalled = true
+		return nil
+	}
+
+	msg := workspaceService.DeleteWorkspace(project, workspace)()
+	failed, ok := msg.(messages.WorkspaceDeleteFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if failed.Err == nil {
+		t.Fatalf("expected error for unmanaged workspace path")
+	}
+	if removeCalled {
+		t.Fatalf("expected removeWorkspaceFn not to be called for unmanaged path")
 	}
 }
 

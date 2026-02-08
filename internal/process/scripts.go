@@ -3,10 +3,12 @@ package process
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -23,6 +25,8 @@ const (
 )
 
 const configFilename = "workspaces.json"
+
+var killProcessGroupFn = KillProcessGroup
 
 // WorkspaceConfig holds per-project workspace configuration
 type WorkspaceConfig struct {
@@ -41,6 +45,14 @@ type ScriptRunner struct {
 
 type runningScript struct {
 	cmd *exec.Cmd
+}
+
+func scriptWorkspaceKey(ws *data.Workspace) string {
+	key := data.NormalizePath(strings.TrimSpace(ws.Root))
+	if key == "" {
+		key = strings.TrimSpace(ws.Root)
+	}
+	return key
 }
 
 // NewScriptRunner creates a new script runner
@@ -74,6 +86,9 @@ func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
 
 // RunSetup runs the setup scripts for a workspace
 func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
+	if err := validateScriptWorkspace(ws); err != nil {
+		return err
+	}
 	config, err := r.LoadConfig(ws.Repo)
 	if err != nil {
 		return err
@@ -101,6 +116,9 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 
 // RunScript runs a script for a workspace
 func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*exec.Cmd, error) {
+	if err := validateScriptWorkspace(ws); err != nil {
+		return nil, err
+	}
 	config, err := r.LoadConfig(ws.Repo)
 	if err != nil {
 		return nil, err
@@ -126,7 +144,9 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 
 	// Check for existing process in non-concurrent mode
 	if ws.ScriptMode == "nonconcurrent" {
-		_ = r.Stop(ws)
+		if err := r.Stop(ws); err != nil {
+			return nil, fmt.Errorf("stopping existing script: %w", err)
+		}
 	}
 
 	env := r.envBuilder.BuildEnv(ws)
@@ -141,7 +161,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	}
 
 	running := &runningScript{cmd: cmd}
-	root := ws.Root
+	root := scriptWorkspaceKey(ws)
 	r.mu.Lock()
 	r.running[root] = running
 	r.mu.Unlock()
@@ -161,26 +181,42 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 
 // Stop stops the running script for a workspace
 func (r *ScriptRunner) Stop(ws *data.Workspace) error {
+	if err := validateScriptWorkspace(ws); err != nil {
+		return err
+	}
+	key := scriptWorkspaceKey(ws)
 	r.mu.Lock()
-	running, ok := r.running[ws.Root]
+	running, ok := r.running[key]
 	r.mu.Unlock()
 
 	if !ok {
 		return nil
 	}
 
-	if running.cmd != nil && running.cmd.Process != nil {
-		return KillProcessGroup(running.cmd.Process.Pid, KillOptions{})
+	if running.cmd == nil || running.cmd.Process == nil {
+		r.clearRunningEntry(key, running)
+		return nil
 	}
 
+	if err := killProcessGroupFn(running.cmd.Process.Pid, KillOptions{}); err != nil {
+		if isBenignStopError(err) {
+			r.clearRunningEntry(key, running)
+			return nil
+		}
+		return err
+	}
 	return nil
 }
 
 // IsRunning checks if a script is running for a workspace
 func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
+	if err := validateScriptWorkspace(ws); err != nil {
+		return false
+	}
+	key := scriptWorkspaceKey(ws)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.running[ws.Root]
+	_, ok := r.running[key]
 	return ok
 }
 
@@ -199,4 +235,38 @@ func (r *ScriptRunner) StopAll() {
 			_ = KillProcessGroup(entry.cmd.Process.Pid, KillOptions{})
 		}
 	}
+}
+
+func (r *ScriptRunner) clearRunningEntry(key string, expected *runningScript) {
+	r.mu.Lock()
+	if current, ok := r.running[key]; ok && current == expected {
+		delete(r.running, key)
+	}
+	r.mu.Unlock()
+}
+
+func isBenignStopError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrProcessDone) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "process already finished") ||
+		strings.Contains(lower, "already exited") ||
+		strings.Contains(lower, "no such process")
+}
+
+func validateScriptWorkspace(ws *data.Workspace) error {
+	if ws == nil {
+		return errors.New("workspace is required")
+	}
+	if strings.TrimSpace(ws.Repo) == "" {
+		return errors.New("workspace repo is required")
+	}
+	if strings.TrimSpace(ws.Root) == "" {
+		return errors.New("workspace root is required")
+	}
+	return nil
 }

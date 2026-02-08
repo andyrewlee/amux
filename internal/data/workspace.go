@@ -89,7 +89,12 @@ func (w Workspace) ID() WorkspaceID {
 
 // IsPrimaryCheckout returns true if this is the primary checkout
 func (w Workspace) IsPrimaryCheckout() bool {
-	return w.Root == w.Repo
+	repo := NormalizePath(w.Repo)
+	root := NormalizePath(w.Root)
+	if repo == "" || root == "" {
+		return false
+	}
+	return root == repo
 }
 
 // IsMainBranch returns true if this workspace is on main or master branch

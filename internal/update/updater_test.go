@@ -121,6 +121,43 @@ func TestCanWrite(t *testing.T) {
 	}
 }
 
+func TestIsGoInstallPath(t *testing.T) {
+	goPath := filepath.Join("/tmp", "gopath")
+	tests := []struct {
+		name    string
+		binPath string
+		want    bool
+	}{
+		{
+			name:    "exact go bin path",
+			binPath: filepath.Join(goPath, "bin", "amux"),
+			want:    true,
+		},
+		{
+			name:    "nested under go bin",
+			binPath: filepath.Join(goPath, "bin", "subdir", "amux"),
+			want:    true,
+		},
+		{
+			name:    "prefix collision outside go bin",
+			binPath: filepath.Join(goPath, "bin-alt", "amux"),
+			want:    false,
+		},
+		{
+			name:    "different root",
+			binPath: filepath.Join("/opt", "bin", "amux"),
+			want:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isGoInstallPath(tt.binPath, goPath, ""); got != tt.want {
+				t.Fatalf("isGoInstallPath(%q) = %v, want %v", tt.binPath, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractBinary(t *testing.T) {
 	tmpDir := t.TempDir()
 

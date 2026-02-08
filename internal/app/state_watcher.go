@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ type stateWatcher struct {
 	registryPath string
 	registryDir  string
 	metadataRoot string
+	metadataDirs map[string]struct{}
 
 	onChanged func(reason string)
 	debounce  time.Duration
@@ -26,6 +28,10 @@ type stateWatcher struct {
 	closeOnce     sync.Once
 }
 
+var watchMetadataDirFn = func(sw *stateWatcher, dir string) error {
+	return sw.watchMetadataDir(dir)
+}
+
 func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason string)) (*stateWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -33,9 +39,10 @@ func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason st
 	}
 
 	sw := &stateWatcher{
-		watcher:   watcher,
-		onChanged: onChanged,
-		debounce:  stateWatcherDebounce,
+		watcher:      watcher,
+		onChanged:    onChanged,
+		debounce:     stateWatcherDebounce,
+		metadataDirs: make(map[string]struct{}),
 	}
 
 	if registryPath != "" {
@@ -49,7 +56,7 @@ func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason st
 
 	if metadataRoot != "" {
 		sw.metadataRoot = filepath.Clean(metadataRoot)
-		if err := watcher.Add(sw.metadataRoot); err != nil {
+		if err := sw.watchMetadataRoot(); err != nil {
 			_ = watcher.Close()
 			return nil, err
 		}
@@ -70,7 +77,7 @@ func (sw *stateWatcher) Run(ctx context.Context) error {
 			switch {
 			case sw.isRegistryEvent(event):
 				sw.scheduleNotify("registry")
-			case sw.isWorkspaceDirEvent(event):
+			case sw.handleMetadataEvent(event):
 				sw.scheduleNotify("workspaces")
 			}
 		case _, ok := <-sw.watcher.Errors:
@@ -109,7 +116,84 @@ func (sw *stateWatcher) isRegistryEvent(event fsnotify.Event) bool {
 	return event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
 }
 
-func (sw *stateWatcher) isWorkspaceDirEvent(event fsnotify.Event) bool {
+func (sw *stateWatcher) watchMetadataRoot() error {
+	if sw.metadataRoot == "" {
+		return nil
+	}
+	if err := watchMetadataDirFn(sw, sw.metadataRoot); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(sw.metadataRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(sw.metadataRoot, entry.Name())
+		if err := watchMetadataDirFn(sw, dir); err != nil && !os.IsNotExist(err) {
+			// Degrade gracefully when one metadata child cannot be watched.
+			continue
+		}
+	}
+	return nil
+}
+
+func (sw *stateWatcher) watchMetadataDir(dir string) error {
+	if sw.watcher == nil {
+		return nil
+	}
+	clean := filepath.Clean(dir)
+	if clean == "" {
+		return nil
+	}
+	sw.mu.Lock()
+	if sw.closed {
+		sw.mu.Unlock()
+		return nil
+	}
+	if _, ok := sw.metadataDirs[clean]; ok {
+		sw.mu.Unlock()
+		return nil
+	}
+	sw.mu.Unlock()
+	if err := sw.watcher.Add(clean); err != nil {
+		return err
+	}
+	sw.mu.Lock()
+	if sw.closed {
+		sw.mu.Unlock()
+		_ = sw.watcher.Remove(clean)
+		return nil
+	}
+	sw.metadataDirs[clean] = struct{}{}
+	sw.mu.Unlock()
+	return nil
+}
+
+func (sw *stateWatcher) unwatchMetadataDir(dir string) {
+	if sw.watcher == nil {
+		return
+	}
+	clean := filepath.Clean(dir)
+	if clean == "" {
+		return
+	}
+	sw.mu.Lock()
+	if _, ok := sw.metadataDirs[clean]; !ok {
+		sw.mu.Unlock()
+		return
+	}
+	delete(sw.metadataDirs, clean)
+	sw.mu.Unlock()
+	_ = sw.watcher.Remove(clean)
+}
+
+func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 	if sw.metadataRoot == "" {
 		return false
 	}
@@ -117,10 +201,27 @@ func (sw *stateWatcher) isWorkspaceDirEvent(event fsnotify.Event) bool {
 	if name == sw.metadataRoot {
 		return false
 	}
-	if filepath.Dir(name) != sw.metadataRoot {
+	op := event.Op & (fsnotify.Write | fsnotify.Create | fsnotify.Remove | fsnotify.Rename)
+	if op == 0 {
 		return false
 	}
-	return event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
+
+	// Immediate children are workspace metadata directories. Watch/unwatch as
+	// they appear/disappear to catch nested workspace.json writes.
+	if filepath.Dir(name) == sw.metadataRoot {
+		if op&(fsnotify.Create|fsnotify.Rename) != 0 {
+			if info, err := os.Stat(name); err == nil && info.IsDir() {
+				_ = sw.watchMetadataDir(name)
+			}
+		}
+		if op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+			sw.unwatchMetadataDir(name)
+		}
+		return true
+	}
+
+	// Changes to files under workspace directories (e.g. workspace.json writes).
+	return filepath.Dir(filepath.Dir(name)) == sw.metadataRoot
 }
 
 func (sw *stateWatcher) scheduleNotify(reason string) {

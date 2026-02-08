@@ -2,9 +2,11 @@ package data
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -66,26 +68,51 @@ func (r *Registry) Save(paths []string) error {
 }
 
 func (r *Registry) loadUnlocked() ([]string, error) {
+	paths, _, err := r.loadUnlockedWithRecovery()
+	return paths, err
+}
+
+func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 	data, err := os.ReadFile(r.path)
 	if os.IsNotExist(err) {
 		backupPath := r.backupPath()
 		backupData, backupErr := os.ReadFile(backupPath)
 		if os.IsNotExist(backupErr) {
-			return []string{}, nil
+			return []string{}, false, nil
 		}
 		if backupErr != nil {
-			return nil, backupErr
+			return nil, false, backupErr
 		}
-		return parseRegistryData(backupData, backupPath)
+		paths, parseErr := parseRegistryData(backupData, backupPath)
+		if parseErr != nil {
+			return nil, false, parseErr
+		}
+		return normalizeAndDedupeProjectPaths(paths), true, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return parseRegistryData(data, r.path)
+	paths, parseErr := parseRegistryData(data, r.path)
+	if parseErr == nil {
+		return normalizeAndDedupeProjectPaths(paths), false, nil
+	}
+
+	// If the primary file is corrupted, fall back to a valid backup when available.
+	backupPath := r.backupPath()
+	backupData, backupErr := os.ReadFile(backupPath)
+	if backupErr != nil {
+		return nil, false, parseErr
+	}
+	backupPaths, backupParseErr := parseRegistryData(backupData, backupPath)
+	if backupParseErr != nil {
+		return nil, false, parseErr
+	}
+	return normalizeAndDedupeProjectPaths(backupPaths), true, nil
 }
 
 func (r *Registry) saveUnlocked(paths []string) error {
+	paths = normalizeAndDedupeProjectPaths(paths)
 	dir := filepath.Dir(r.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -123,6 +150,10 @@ func (r *Registry) saveUnlocked(paths []string) error {
 func (r *Registry) AddProject(path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	path = canonicalProjectPath(path)
+	if path == "" {
+		return errors.New("project path is required")
+	}
 
 	lockFile, err := lockRegistryFile(r.lockPath(), false)
 	if err != nil {
@@ -130,14 +161,17 @@ func (r *Registry) AddProject(path string) error {
 	}
 	defer unlockRegistryFile(lockFile)
 
-	paths, err := r.loadUnlocked()
+	paths, recoveredFromBackup, err := r.loadUnlockedWithRecovery()
 	if err != nil {
 		return err
 	}
 
 	// Check if already exists
 	for _, p := range paths {
-		if p == path {
+		if canonicalProjectPath(p) == path {
+			if recoveredFromBackup {
+				return r.saveUnlocked(paths)
+			}
 			return nil // Already registered
 		}
 	}
@@ -150,6 +184,10 @@ func (r *Registry) AddProject(path string) error {
 func (r *Registry) RemoveProject(path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	path = canonicalProjectPath(path)
+	if path == "" {
+		return errors.New("project path is required")
+	}
 
 	lockFile, err := lockRegistryFile(r.lockPath(), false)
 	if err != nil {
@@ -157,7 +195,7 @@ func (r *Registry) RemoveProject(path string) error {
 	}
 	defer unlockRegistryFile(lockFile)
 
-	paths, err := r.loadUnlocked()
+	paths, recoveredFromBackup, err := r.loadUnlockedWithRecovery()
 	if err != nil {
 		return err
 	}
@@ -165,9 +203,12 @@ func (r *Registry) RemoveProject(path string) error {
 	// Filter out the path
 	var newPaths []string
 	for _, p := range paths {
-		if p != path {
+		if canonicalProjectPath(p) != path {
 			newPaths = append(newPaths, p)
 		}
+	}
+	if len(newPaths) == len(paths) && recoveredFromBackup {
+		return r.saveUnlocked(paths)
 	}
 
 	return r.saveUnlocked(newPaths)
@@ -210,4 +251,42 @@ func parseRegistryData(data []byte, path string) ([]string, error) {
 	}
 
 	return paths, nil
+}
+
+func canonicalProjectPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(path)
+	if abs, err := filepath.Abs(cleaned); err == nil {
+		cleaned = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		cleaned = resolved
+	}
+	return filepath.Clean(cleaned)
+}
+
+func normalizeAndDedupeProjectPaths(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		raw := strings.TrimSpace(path)
+		if raw == "" {
+			continue
+		}
+		canonical := canonicalProjectPath(raw)
+		if canonical == "" {
+			continue
+		}
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		// Keep the caller's path representation (including legacy relative paths)
+		// so existing workspace metadata keyed by repo path remains discoverable.
+		out = append(out, filepath.Clean(raw))
+	}
+	return out
 }

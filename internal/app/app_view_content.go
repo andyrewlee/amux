@@ -57,11 +57,19 @@ func (a *App) centerPaneContentOrigin() (x, y int) {
 func (a *App) goHome() {
 	a.showWelcome = true
 	a.activeWorkspace = nil
-	a.center.SetWorkspace(nil)
-	a.sidebar.SetWorkspace(nil)
-	a.sidebar.SetGitStatus(nil)
-	_ = a.sidebarTerminal.SetWorkspace(nil)
-	a.dashboard.ClearActiveRoot()
+	if a.center != nil {
+		a.center.SetWorkspace(nil)
+	}
+	if a.sidebar != nil {
+		a.sidebar.SetWorkspace(nil)
+		a.sidebar.SetGitStatus(nil)
+	}
+	if a.sidebarTerminal != nil {
+		_ = a.sidebarTerminal.SetWorkspace(nil)
+	}
+	if a.dashboard != nil {
+		a.dashboard.ClearActiveRoot()
+	}
 	a.centerBtnFocused = false
 	a.centerBtnIndex = 0
 }

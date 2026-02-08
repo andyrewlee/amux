@@ -54,6 +54,29 @@ func TestSelectSidebarInstanceUsesCountOverRecency(t *testing.T) {
 	}
 }
 
+func TestSelectSidebarInstancePrefersAttachedSessionsOverCount(t *testing.T) {
+	sessions := []sidebarSessionInfo{
+		{name: "a1", instanceID: "a", createdAt: 100, hasClients: true},
+		{name: "b1", instanceID: "b", createdAt: 300, hasClients: false},
+		{name: "b2", instanceID: "b", createdAt: 301, hasClients: false},
+	}
+	out := selectSidebarInstance(sessions, "")
+	if !out.OK || out.ID != "a" {
+		t.Fatalf("expected instance a by attached sessions, got %#v", out)
+	}
+}
+
+func TestSelectSidebarInstanceIsDeterministicOnExactTie(t *testing.T) {
+	sessions := []sidebarSessionInfo{
+		{name: "b1", instanceID: "b", createdAt: 200, hasClients: false},
+		{name: "a1", instanceID: "a", createdAt: 200, hasClients: false},
+	}
+	out := selectSidebarInstance(sessions, "")
+	if !out.OK || out.ID != "a" {
+		t.Fatalf("expected deterministic lexical tie-break to instance a, got %#v", out)
+	}
+}
+
 func TestHandleTmuxSidebarDiscoverResultCreatesTerminalWhenEmpty(t *testing.T) {
 	app := &App{}
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")

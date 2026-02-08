@@ -21,7 +21,7 @@ func (a *App) persistAllWorkspacesNow() {
 			ws := &project.Workspaces[i]
 			wsID := string(ws.ID())
 			tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)
-			if len(tabs) == 0 {
+			if len(tabs) == 0 && !a.center.HasWorkspaceState(wsID) {
 				continue
 			}
 			ws.OpenTabs = tabs
@@ -48,6 +48,9 @@ func (a *App) persistWorkspaceTabs(wsID string) tea.Cmd {
 	if wsID == "" {
 		return nil
 	}
+	if a.dirtyWorkspaces == nil {
+		a.dirtyWorkspaces = make(map[string]bool)
+	}
 	a.dirtyWorkspaces[wsID] = true
 	a.persistToken++
 	token := a.persistToken
@@ -65,6 +68,9 @@ func (a *App) persistActiveWorkspaceTabs() tea.Cmd {
 }
 
 func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
+	if a.center == nil || a.workspaceService == nil {
+		return nil
+	}
 	// Ignore stale tokens (newer persist request superseded this one)
 	if msg.token != a.persistToken {
 		return nil

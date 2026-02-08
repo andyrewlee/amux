@@ -301,3 +301,42 @@ func TestGcOrphanedTmuxSessions_NoSessions(t *testing.T) {
 		t.Fatalf("expected 0 killed, got %d", result.Killed)
 	}
 }
+
+func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := gcTestServer(t)
+
+	gcCreateSession(t, opts, "orphan-other-instance", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	gcSetTag(t, opts, "orphan-other-instance", "@amux", "1")
+	gcSetTag(t, opts, "orphan-other-instance", "@amux_workspace", "dead-ws-cross-instance")
+	gcSetTag(t, opts, "orphan-other-instance", "@amux_instance", "instance-b")
+
+	app := &App{
+		tmuxAvailable:  true,
+		projectsLoaded: true,
+		tmuxOptions:    opts,
+		instanceID:     "instance-a",
+	}
+
+	cmd := app.gcOrphanedTmuxSessions()
+	if cmd == nil {
+		t.Fatal("expected non-nil Cmd")
+	}
+
+	msg := cmd()
+	result, ok := msg.(orphanGCResult)
+	if !ok {
+		t.Fatalf("expected orphanGCResult, got %T", msg)
+	}
+	if result.Err != nil {
+		t.Fatalf("GC error: %v", result.Err)
+	}
+	if result.Killed != 0 {
+		t.Fatalf("expected 0 killed for other-instance orphan, got %d", result.Killed)
+	}
+	if !gcHasSession(t, opts, "orphan-other-instance") {
+		t.Fatal("other-instance orphan should not be killed by this instance")
+	}
+}

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,9 +24,14 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 
 // RemoveWorkspace removes a workspace backed by a git worktree
 func RemoveWorkspace(repoPath, workspacePath string) error {
+	registered, err := isRegisteredWorktree(repoPath, workspacePath)
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
-	_, err := RunGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
+	_, err = RunGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
 	if err != nil {
 		// git worktree remove --force unregisters the workspace (removes .git file)
 		// but fails to delete the directory if it contains untracked files.
@@ -33,6 +39,18 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 		// and we can safely remove the remaining directory ourselves.
 		gitFile := filepath.Join(workspacePath, ".git")
 		if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
+			if !registered {
+				// Idempotency: if the worktree was already removed externally
+				// (e.g. via git worktree remove), treat this as success so app-level
+				// metadata cleanup can proceed.
+				if _, wsErr := os.Stat(workspacePath); os.IsNotExist(wsErr) {
+					return nil
+				}
+				return fmt.Errorf("refusing fallback cleanup for unmanaged workspace path %s: %w", workspacePath, err)
+			}
+			if !isSafeWorkspaceCleanupPath(workspacePath) {
+				return fmt.Errorf("refusing fallback cleanup for unsafe workspace path %s", workspacePath)
+			}
 			// Workspace was unregistered, clean up leftover directory
 			if removeErr := os.RemoveAll(workspacePath); removeErr != nil {
 				return removeErr
@@ -42,6 +60,39 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 		return err
 	}
 	return nil
+}
+
+func isRegisteredWorktree(repoPath, workspacePath string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	output, err := RunGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	target := data.NormalizePath(workspacePath)
+	for _, ws := range parseWorktreeList(output, repoPath) {
+		if data.NormalizePath(ws.Root) == target {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func isSafeWorkspaceCleanupPath(path string) bool {
+	cleaned := data.NormalizePath(path)
+	if cleaned == "" || cleaned == "." {
+		return false
+	}
+	volume := filepath.VolumeName(cleaned)
+	root := filepath.Clean(volume + string(filepath.Separator))
+	if cleaned == root {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && data.NormalizePath(home) == cleaned {
+		return false
+	}
+	return true
 }
 
 // DeleteBranch deletes a git branch

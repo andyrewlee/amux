@@ -1,16 +1,23 @@
 package data
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
 const workspaceFilename = "workspace.json"
+
+var repoFieldHintPattern = regexp.MustCompile(`"repo"\s*:\s*"([^"]*)"`)
 
 // WorkspaceStore manages workspace persistence
 type WorkspaceStore struct {
@@ -27,6 +34,10 @@ func NewWorkspaceStore(root string) *WorkspaceStore {
 // workspacePath returns the path to the workspace file for a workspace ID
 func (s *WorkspaceStore) workspacePath(id WorkspaceID) string {
 	return filepath.Join(s.root, string(id), workspaceFilename)
+}
+
+func (s *WorkspaceStore) workspaceLockPath(id WorkspaceID) string {
+	return filepath.Join(s.root, string(id)+".lock")
 }
 
 // List returns all workspace IDs stored in the store
@@ -55,6 +66,9 @@ func (s *WorkspaceStore) List() ([]WorkspaceID, error) {
 
 // Load loads a workspace by its ID
 func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
+	if err := validateWorkspaceID(id); err != nil {
+		return nil, err
+	}
 	path := s.workspacePath(id)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -94,6 +108,9 @@ func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
 
 // Save saves a workspace to the store using atomic write
 func (s *WorkspaceStore) Save(ws *Workspace) error {
+	if err := validateWorkspaceForSave(ws); err != nil {
+		return err
+	}
 	id := ws.ID()
 	path := s.workspacePath(id)
 	dir := filepath.Dir(path)
@@ -101,6 +118,11 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	lockFile, err := lockRegistryFile(s.workspaceLockPath(id), false)
+	if err != nil {
+		return err
+	}
+	defer unlockRegistryFile(lockFile)
 
 	data, err := json.MarshalIndent(ws, "", "  ")
 	if err != nil {
@@ -112,7 +134,7 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
 		return err
 	}
-	if err := os.Rename(tempPath, path); err != nil {
+	if err := replaceFile(tempPath, path); err != nil {
 		os.Remove(tempPath) // Clean up temp file on rename failure
 		return err
 	}
@@ -127,6 +149,14 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 
 // Delete removes a workspace from the store
 func (s *WorkspaceStore) Delete(id WorkspaceID) error {
+	if err := validateWorkspaceID(id); err != nil {
+		return err
+	}
+	lockFile, err := lockRegistryFile(s.workspaceLockPath(id), false)
+	if err != nil {
+		return err
+	}
+	defer unlockRegistryFile(lockFile)
 	dir := filepath.Join(s.root, string(id))
 	return os.RemoveAll(dir)
 }
@@ -142,6 +172,9 @@ func (s *WorkspaceStore) ListByRepo(repoPath string) ([]*Workspace, error) {
 // Returns (false, nil) if no metadata file exists (safe to apply defaults).
 // Returns (false, err) if metadata exists but couldn't be read (don't overwrite).
 func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
+	if ws == nil {
+		return false, errors.New("workspace is required")
+	}
 	stored, _, err := s.findStoredWorkspace(ws.Repo, ws.Root)
 	if err != nil {
 		return false, err
@@ -332,11 +365,15 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 	var workspaces []*Workspace
 	seen := make(map[string]int)
 	var loadErrors int
+	var targetLoadErrors int
 	for _, id := range ids {
 		ws, err := s.Load(id)
 		if err != nil {
 			logging.Warn("Failed to load workspace %s: %v", id, err)
 			loadErrors++
+			if hintRepo, hintOK := s.repoHintForWorkspaceID(id); hintOK && NormalizePath(hintRepo) == targetRepo {
+				targetLoadErrors++
+			}
 			continue
 		}
 		if ws.Root == "" {
@@ -360,11 +397,62 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		workspaces = append(workspaces, ws)
 	}
 
+	if targetLoadErrors > 0 && len(workspaces) == 0 {
+		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s", targetLoadErrors, repoPath)
+	}
 	// If we had workspace IDs but couldn't load any, surface the error
 	// so callers can distinguish between "no workspaces" and "data corruption"
-	if loadErrors > 0 && len(workspaces) == 0 && len(ids) > 0 {
+	if loadErrors > 0 && len(workspaces) == 0 && loadErrors == len(ids) {
 		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s", loadErrors, repoPath)
 	}
 
 	return workspaces, nil
+}
+
+func validateWorkspaceID(id WorkspaceID) error {
+	value := strings.TrimSpace(string(id))
+	if value == "" {
+		return errors.New("workspace id is required")
+	}
+	if strings.Contains(value, "..") || strings.ContainsAny(value, `/\`) {
+		return fmt.Errorf("invalid workspace id %q", id)
+	}
+	return nil
+}
+
+func validateWorkspaceForSave(ws *Workspace) error {
+	if ws == nil {
+		return errors.New("workspace is required")
+	}
+	repo := NormalizePath(strings.TrimSpace(ws.Repo))
+	if repo == "" {
+		return errors.New("workspace repo is required")
+	}
+	root := NormalizePath(strings.TrimSpace(ws.Root))
+	if root == "" {
+		return errors.New("workspace root is required")
+	}
+	return nil
+}
+
+func (s *WorkspaceStore) repoHintForWorkspaceID(id WorkspaceID) (string, bool) {
+	data, err := os.ReadFile(s.workspacePath(id))
+	if err != nil {
+		return "", false
+	}
+	var ws workspaceJSON
+	if err := json.Unmarshal(data, &ws); err == nil && strings.TrimSpace(ws.Repo) != "" {
+		return ws.Repo, true
+	}
+	match := repoFieldHintPattern.FindSubmatch(data)
+	if len(match) < 2 {
+		return "", false
+	}
+	raw := append([]byte{'"'}, match[1]...)
+	raw = append(raw, '"')
+	repo, err := strconv.Unquote(string(raw))
+	if err != nil {
+		return string(bytes.TrimSpace(match[1])), true
+	}
+	return repo, true
 }
