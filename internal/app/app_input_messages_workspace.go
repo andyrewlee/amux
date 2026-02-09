@@ -2,7 +2,6 @@ package app
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -150,21 +149,13 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
 	name := strings.TrimSpace(msg.Name)
-	if msg.Project != nil && name != "" {
-		var pending *data.Workspace
-		if a.workspaceService != nil {
-			pending, _ = a.workspaceService.pendingWorkspace(msg.Project, name, msg.Base)
-		}
-		if pending == nil {
-			projectRoot := filepath.Join(a.config.Paths.WorkspacesRoot, msg.Project.Name)
-			workspacePath := filepath.Join(projectRoot, name)
-			pending = data.NewWorkspace(name, name, msg.Base, msg.Project.Path, workspacePath)
-		}
+	if msg.Project != nil && name != "" && a.workspaceService != nil {
+		pending, _ := a.workspaceService.pendingWorkspace(msg.Project, name, msg.Base)
 		if pending != nil {
 			a.creatingWorkspaceIDs[string(pending.ID())] = true
-		}
-		if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
-			cmds = append(cmds, cmd)
+			if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 	cmds = append(cmds, a.createWorkspace(msg.Project, name, msg.Base))

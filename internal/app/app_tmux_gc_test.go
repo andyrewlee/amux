@@ -71,6 +71,43 @@ func TestCollectKnownWorkspaceIDs_IncludesCreating(t *testing.T) {
 	}
 }
 
+func TestAmuxSessionsByWorkspace_UsesProvidedService(t *testing.T) {
+	app := &App{}
+	ops := &gcOrphanOps{
+		rows: []tmux.SessionTagValues{
+			{
+				Name: "orphan-sess",
+				Tags: map[string]string{
+					"@amux_workspace":  "dead-ws",
+					"@amux_created_at": "42",
+				},
+			},
+		},
+	}
+
+	out, err := app.amuxSessionsByWorkspace(newTmuxService(ops), tmux.Options{}, "")
+	if err != nil {
+		t.Fatalf("amuxSessionsByWorkspace() error = %v", err)
+	}
+	sessions, ok := out["dead-ws"]
+	if !ok || len(sessions) != 1 {
+		t.Fatalf("expected one dead-ws session, got %v", out)
+	}
+	if sessions[0].Name != "orphan-sess" {
+		t.Fatalf("session name = %q, want %q", sessions[0].Name, "orphan-sess")
+	}
+	if sessions[0].CreatedAt != 42 {
+		t.Fatalf("session createdAt = %d, want 42", sessions[0].CreatedAt)
+	}
+}
+
+func TestAmuxSessionsByWorkspace_NilService(t *testing.T) {
+	app := &App{}
+	if _, err := app.amuxSessionsByWorkspace(nil, tmux.Options{}, ""); !errors.Is(err, errTmuxUnavailable) {
+		t.Fatalf("expected errTmuxUnavailable, got %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // gcOrphanedTmuxSessions gating — pure unit tests (no tmux)
 // ---------------------------------------------------------------------------

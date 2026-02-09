@@ -60,7 +60,7 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 		if svc == nil {
 			return orphanGCResult{Err: errTmuxUnavailable}
 		}
-		byWorkspace, err := a.amuxSessionsByWorkspace(opts, instanceID)
+		byWorkspace, err := a.amuxSessionsByWorkspace(svc, opts, instanceID)
 		if err != nil {
 			return orphanGCResult{Err: err}
 		}
@@ -108,15 +108,15 @@ func (a *App) gcStaleTerminalSessions() tea.Cmd {
 	return nil
 }
 
-func (a *App) amuxSessionsByWorkspace(opts tmux.Options, instanceID string) (map[string][]workspaceSession, error) {
-	if a.tmuxService == nil {
+func (a *App) amuxSessionsByWorkspace(svc *tmuxService, opts tmux.Options, instanceID string) (map[string][]workspaceSession, error) {
+	if svc == nil {
 		return nil, errTmuxUnavailable
 	}
 	match := map[string]string{"@amux": "1"}
 	if strings.TrimSpace(instanceID) != "" {
 		match["@amux_instance"] = strings.TrimSpace(instanceID)
 	}
-	rows, err := a.tmuxService.SessionsWithTags(match, []string{"@amux_workspace", "@amux_created_at"}, opts)
+	rows, err := svc.SessionsWithTags(match, []string{"@amux_workspace", "@amux_created_at"}, opts)
 	if err != nil {
 		return nil, err
 	}
