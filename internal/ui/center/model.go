@@ -80,6 +80,7 @@ type Tab struct {
 	ptyHeartbeat      int64
 	ptyRestartCount   int
 	ptyRestartSince   time.Time
+	lastFocusedAt     time.Time
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
 	cachedSnap       *compositor.VTermSnapshot
@@ -124,6 +125,8 @@ type Model struct {
 	tabEvents            chan tabEvent
 	tabActorReady        uint32
 	tabActorHeartbeat    int64
+	flushLoadSampleAt    time.Time
+	cachedBusyTabCount   int
 
 	// Layout
 	width           int
@@ -319,7 +322,29 @@ func (m *Model) getActiveTabIdx() int {
 
 // setActiveTabIdx sets the active tab index for the current workspace
 func (m *Model) setActiveTabIdx(idx int) {
-	m.activeTabByWorkspace[m.workspaceID()] = idx
+	m.setActiveTabIdxForWorkspace(m.workspaceID(), idx)
+}
+
+func (m *Model) setActiveTabIdxForWorkspace(wsID string, idx int) {
+	if wsID == "" {
+		return
+	}
+	m.activeTabByWorkspace[wsID] = idx
+	m.markTabFocused(wsID, idx)
+}
+
+func (m *Model) markTabFocused(wsID string, idx int) {
+	tabs := m.tabsByWorkspace[wsID]
+	if idx < 0 || idx >= len(tabs) {
+		return
+	}
+	tab := tabs[idx]
+	if tab == nil || tab.isClosed() {
+		return
+	}
+	tab.mu.Lock()
+	tab.lastFocusedAt = time.Now()
+	tab.mu.Unlock()
 }
 
 func (m *Model) noteTabsChanged() {

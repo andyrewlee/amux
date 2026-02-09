@@ -93,3 +93,16 @@ func TestVTermSnapshotRespectsViewOffsetChange(t *testing.T) {
 		t.Fatalf("expected live cell after ViewOffset reset, got %q", snap2.Screen[0][0].Rune)
 	}
 }
+
+func TestVTermSnapshotIgnoresCursorHideOutsideAltScreen(t *testing.T) {
+	term := vterm.New(2, 1)
+	term.Write([]byte("\x1b[?25l"))
+
+	snap := NewVTermSnapshot(term, true)
+	if snap == nil {
+		t.Fatalf("expected snapshot, got nil")
+	}
+	if snap.CursorHidden {
+		t.Fatalf("expected cursor to remain visible outside alt screen")
+	}
+}

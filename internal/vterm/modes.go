@@ -44,8 +44,11 @@ func (p *Parser) executeMode(set bool) {
 		case 25: // DECTCEM - cursor visible
 			hidden := !set
 			if p.vt.CursorHidden != hidden {
+				prevHidden := p.vt.CursorHiddenForRender()
 				p.vt.CursorHidden = hidden
-				p.vt.bumpVersion()
+				if prevHidden != p.vt.CursorHiddenForRender() {
+					p.vt.bumpVersion()
+				}
 			}
 		case 47, 1047, 1049: // Alternate screen buffer
 			if set {

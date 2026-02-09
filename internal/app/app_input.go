@@ -203,6 +203,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handleTabCreated(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -218,6 +219,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.persistActiveWorkspaceTabs())
 
 	case messages.TabReattached:
+		cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
 
 	case messages.TabStateChanged:

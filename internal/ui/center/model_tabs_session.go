@@ -371,7 +371,7 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 		if desired >= restoreCount {
 			desired = restoreCount - 1
 		}
-		m.activeTabByWorkspace[wsID] = desired
+		m.setActiveTabIdxForWorkspace(wsID, desired)
 	}
 	return common.SafeBatch(cmds...)
 }

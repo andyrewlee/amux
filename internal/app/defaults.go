@@ -47,6 +47,10 @@ const (
 
 	// externalCriticalBuffer is the size of the critical external message channel.
 	externalCriticalBuffer = 512
+
+	// defaultMaxAttachedAgentTabs limits concurrently attached chat PTYs to keep
+	// UI responsiveness predictable under heavy multi-agent workloads.
+	defaultMaxAttachedAgentTabs = 6
 )
 
 // gitPathWaitTimeout controls the max wait for .git to appear after worktree creation.

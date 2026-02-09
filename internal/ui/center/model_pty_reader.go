@@ -15,20 +15,34 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	quiet := ptyFlushQuiet
 	maxInterval := ptyFlushMaxInterval
 
+	pendingLen := 0
+	termWidth := 0
+	termHeight := 0
+	altScreen := false
+
 	tab.mu.Lock()
 	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs).
 	// SyncActive (DEC 2026) already handles partial updates via screen snapshots,
 	// so we don't need slower flush timing - it just makes streaming text feel laggy.
-	if tab.Terminal != nil && tab.Terminal.AltScreen {
+	if tab.Terminal != nil {
+		altScreen = tab.Terminal.AltScreen
+		termWidth = tab.Terminal.Width
+		termHeight = tab.Terminal.Height
+	}
+	pendingLen = len(tab.pendingOutput)
+
+	// Apply backpressure when pending output exceeds threshold
+	// This prevents renderer thrashing during heavy output (like builds)
+	tab.mu.Unlock()
+
+	if altScreen {
 		quiet = ptyFlushQuietAlt
 		maxInterval = ptyFlushMaxAlt
 	}
 
-	// Apply backpressure when pending output exceeds threshold
-	// This prevents renderer thrashing during heavy output (like builds)
-	if tab.Terminal != nil && len(tab.pendingOutput) > 0 {
-		threshold := ptyBackpressureMultiplier * tab.Terminal.Width * tab.Terminal.Height
-		if len(tab.pendingOutput) > threshold {
+	if pendingLen > 0 && termWidth > 0 && termHeight > 0 {
+		threshold := ptyBackpressureMultiplier * termWidth * termHeight
+		if pendingLen > threshold {
 			// Under backpressure: use minimum flush interval
 			if quiet < ptyBackpressureFlushFloor {
 				quiet = ptyBackpressureFlushFloor
@@ -38,17 +52,54 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 			}
 		}
 	}
-	tab.mu.Unlock()
 
 	if !active {
-		quiet *= ptyFlushInactiveMultiplier
-		maxInterval *= ptyFlushInactiveMultiplier
+		multiplier := ptyFlushInactiveMultiplier
+		switch busyTabs := m.busyPTYTabCount(time.Now()); {
+		case busyTabs >= ptyVeryHeavyLoadTabThreshold:
+			multiplier = ptyFlushInactiveVeryHeavyMultiplier
+		case busyTabs >= ptyHeavyLoadTabThreshold:
+			multiplier = ptyFlushInactiveHeavyMultiplier
+		}
+
+		quiet *= time.Duration(multiplier)
+		maxInterval *= time.Duration(multiplier)
+		if maxInterval > ptyFlushInactiveMaxIntervalCap {
+			maxInterval = ptyFlushInactiveMaxIntervalCap
+		}
 		if maxInterval < quiet {
 			maxInterval = quiet
 		}
 	}
 
 	return quiet, maxInterval
+}
+
+func (m *Model) busyPTYTabCount(now time.Time) int {
+	if !m.flushLoadSampleAt.IsZero() && now.Sub(m.flushLoadSampleAt) < ptyLoadSampleInterval {
+		return m.cachedBusyTabCount
+	}
+
+	count := 0
+	for _, tabs := range m.tabsByWorkspace {
+		for _, tab := range tabs {
+			if tab == nil || tab.isClosed() {
+				continue
+			}
+
+			tab.mu.Lock()
+			busy := tab.readerActive || len(tab.pendingOutput) > 0
+			tab.mu.Unlock()
+
+			if busy {
+				count++
+			}
+		}
+	}
+
+	m.flushLoadSampleAt = now
+	m.cachedBusyTabCount = count
+	return count
 }
 
 func (m *Model) forwardPTYMsgs(msgCh <-chan tea.Msg) {

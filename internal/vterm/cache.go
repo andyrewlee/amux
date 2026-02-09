@@ -78,7 +78,7 @@ func (v *VTerm) ClearDirtyWithCursor(showCursor bool) {
 	}
 	// Track cursor state for next frame's dirty detection
 	v.lastShowCursor = showCursor
-	v.lastCursorHidden = v.CursorHidden
+	v.lastCursorHidden = v.CursorHiddenForRender()
 	v.lastCursorX = v.CursorX
 	v.lastCursorY = v.CursorY
 }

@@ -107,6 +107,15 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
+func TestTargets(t *testing.T) {
+	if got := exactTarget("amux-ws-tab-1"); got != "=amux-ws-tab-1" {
+		t.Errorf("exactTarget() = %q, want %q", got, "=amux-ws-tab-1")
+	}
+	if got := sessionTarget("amux-ws-tab-1"); got != "amux-ws-tab-1" {
+		t.Errorf("sessionTarget() = %q, want %q", got, "amux-ws-tab-1")
+	}
+}
+
 func TestDefaultOptions(t *testing.T) {
 	opts := DefaultOptions()
 
@@ -143,17 +152,20 @@ func TestClientCommandWithOptions(t *testing.T) {
 		t.Error("Command should use atomic new-session -Ads")
 	}
 
-	// Should disable prefix per-session (not globally) with exact-match target
-	if !strings.Contains(cmd, "set-option -t '=test-session' prefix None") {
+	// Should disable prefix per-session (not globally) on the created session.
+	if !strings.Contains(cmd, "set-option -t 'test-session' prefix None") {
 		t.Error("Command should disable prefix for session")
 	}
-	if !strings.Contains(cmd, "set-option -t '=test-session' prefix2 None") {
+	if !strings.Contains(cmd, "set-option -t 'test-session' prefix2 None") {
 		t.Error("Command should disable prefix2 for session")
 	}
 
 	// Should use attach -d (detach other clients)
 	if !strings.Contains(cmd, "attach -dt") {
 		t.Error("Command should use attach -dt to detach other clients")
+	}
+	if !strings.Contains(cmd, "attach -dt '=test-session'") {
+		t.Error("Command should attach using exact session target")
 	}
 	// Should use new-session -Ad when detaching
 	if !strings.Contains(cmd, "new-session -Ads") {
@@ -249,6 +261,9 @@ func TestClientCommandWithTagsAttachShared(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "attach -t") {
 		t.Error("Command should attach without detaching other clients")
+	}
+	if !strings.Contains(cmd, "attach -t '=test-session'") {
+		t.Error("Command should attach using exact session target")
 	}
 	if strings.Contains(cmd, "new-session -Ads") {
 		t.Error("Command should not detach on new-session when detachExisting=false")

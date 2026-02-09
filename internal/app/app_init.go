@@ -119,6 +119,7 @@ func New(version, commit, date string) (*App, error) {
 		sessionActivityStates:  make(map[string]*sessionActivityState),
 		dirtyWorkspaces:        make(map[string]bool),
 		creatingWorkspaceIDs:   make(map[string]bool),
+		maxAttachedAgentTabs:   maxAttachedAgentTabsFromEnv(),
 	}
 	app.instanceID = newInstanceID()
 	app.supervisor = supervisor.New(ctx)

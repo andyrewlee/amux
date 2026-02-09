@@ -59,6 +59,7 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	if restoreCmd := a.center.RestoreTabsFromWorkspace(msg.Workspace); restoreCmd != nil {
 		cmds = append(cmds, restoreCmd)
 	}
+	cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 	// Sync active workspaces to dashboard (fixes spinner race condition)
 	a.syncActiveWorkspacesToDashboard()
 	newDashboard, cmd := a.dashboard.Update(msg)

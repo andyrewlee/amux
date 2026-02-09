@@ -121,6 +121,7 @@ type App struct {
 	sessionActivityStates     map[string]*sessionActivityState // Per-session hysteresis state
 	instanceID                string
 	lastTerminalGCRun         time.Time
+	maxAttachedAgentTabs      int
 
 	// Workspace persistence debounce
 	dirtyWorkspaces map[string]bool

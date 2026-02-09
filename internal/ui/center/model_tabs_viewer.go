@@ -96,15 +96,16 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 	}
 
 	tab := &Tab{
-		ID:         generateTabID(),
-		Name:       displayName,
-		Assistant:  "diff",
-		Workspace:  ws,
-		DiffViewer: dv,
+		ID:            generateTabID(),
+		Name:          displayName,
+		Assistant:     "diff",
+		Workspace:     ws,
+		DiffViewer:    dv,
+		lastFocusedAt: time.Now(),
 	}
 
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
+	m.setActiveTabIdxForWorkspace(wsID, len(m.tabsByWorkspace[wsID])-1)
 	m.noteTabsChanged()
 
 	return common.SafeBatch(

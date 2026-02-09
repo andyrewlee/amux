@@ -71,7 +71,8 @@ type VTerm struct {
 	lastCursorY    int
 
 	// CursorHidden tracks if terminal app hid cursor via DECTCEM (mode 25)
-	CursorHidden     bool
+	CursorHidden bool
+	// lastCursorHidden stores the last effective render-hidden state.
 	lastCursorHidden bool
 
 	// Synchronized output (DEC mode 2026)

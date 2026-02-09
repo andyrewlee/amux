@@ -11,7 +11,11 @@ func SessionHasClients(sessionName string, opts Options) (bool, error) {
 	if sessionName == "" {
 		return false, nil
 	}
-	cmd, cancel := tmuxCommand(opts, "list-clients", "-t", exactTarget(sessionName), "-F", "#{client_name}")
+	exists, err := hasSession(sessionName, opts)
+	if err != nil || !exists {
+		return false, err
+	}
+	cmd, cancel := tmuxCommand(opts, "list-clients", "-t", sessionTarget(sessionName), "-F", "#{client_session}\t#{client_name}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -22,15 +26,34 @@ func SessionHasClients(sessionName string, opts Options) (bool, error) {
 		}
 		return false, err
 	}
-	return strings.TrimSpace(string(output)) != "", nil
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if strings.TrimSpace(parts[0]) == sessionName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // SessionCreatedAt returns the tmux session creation timestamp (unix seconds).
+// Returns (0, nil) if the session does not exist.
 func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
 	if sessionName == "" {
 		return 0, nil
 	}
-	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", exactTarget(sessionName), "#{session_created}")
+	exists, err := hasSession(sessionName, opts)
+	if err != nil || !exists {
+		return 0, err
+	}
+	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", sessionTarget(sessionName),
+		"#{session_name}\t#{session_created}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -40,5 +63,13 @@ func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
 	if raw == "" {
 		return 0, nil
 	}
-	return strconv.ParseInt(raw, 10, 64)
+	parts := strings.SplitN(raw, "\t", 2)
+	if len(parts) != 2 {
+		return 0, nil
+	}
+	// Post-validate: reject prefix-match collisions.
+	if strings.TrimSpace(parts[0]) != sessionName {
+		return 0, nil
+	}
+	return strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
 }

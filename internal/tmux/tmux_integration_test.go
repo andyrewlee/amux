@@ -120,6 +120,71 @@ func TestSetSessionTagValue_MissingSessionNoError(t *testing.T) {
 	}
 }
 
+func TestSetSessionTagValue_MissingSessionWithPrefixCollisionNoRetarget(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "amux-ws-tab-10", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	const original = "1700000000000"
+	setTag(t, opts, "amux-ws-tab-10", TagLastOutputAt, original)
+
+	if err := SetSessionTagValue("amux-ws-tab-1", TagLastOutputAt, "999", opts); err != nil {
+		t.Fatalf("expected no error for missing exact session, got %v", err)
+	}
+
+	got, err := SessionTagValue("amux-ws-tab-10", TagLastOutputAt, opts)
+	if err != nil {
+		t.Fatalf("SessionTagValue: %v", err)
+	}
+	if got != original {
+		t.Fatalf("prefix-collision session was mutated: got %q, want %q", got, original)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SessionHasClients prefix-collision tests
+// ---------------------------------------------------------------------------
+
+func TestSessionHasClients_NonexistentSessionWithPrefixCollision(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "amux-ws-tab-10", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	has, err := SessionHasClients("amux-ws-tab-1", opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if has {
+		t.Fatal("expected false for missing exact session, got true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SessionTagValue prefix-collision tests
+// ---------------------------------------------------------------------------
+
+func TestSessionTagValue_NonexistentSessionWithPrefixCollision(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "amux-ws-tab-10", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	setTag(t, opts, "amux-ws-tab-10", "@amux", "1")
+
+	val, err := SessionTagValue("amux-ws-tab-1", "@amux", opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if val != "" {
+		t.Fatalf("expected empty string for missing exact session, got %q", val)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // PanePIDs tests
 // ---------------------------------------------------------------------------
@@ -134,6 +199,22 @@ func TestPanePIDs_NonexistentSession(t *testing.T) {
 	}
 	if pids != nil {
 		t.Fatalf("expected nil pids, got %v", pids)
+	}
+}
+
+func TestPanePIDs_NonexistentSessionWithPrefixCollision(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "amux-ws-tab-10", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	pids, err := PanePIDs("amux-ws-tab-1", opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if pids != nil {
+		t.Fatalf("expected nil pids for missing exact session, got %v", pids)
 	}
 }
 
@@ -202,6 +283,26 @@ func TestKillSession_NonexistentSession(t *testing.T) {
 	err := KillSession("no-such-session", opts)
 	if err != nil {
 		t.Fatalf("expected nil for nonexistent session, got %v", err)
+	}
+}
+
+func TestKillSession_NonexistentSessionWithPrefixCollision(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "amux-ws-tab-10", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	if err := KillSession("amux-ws-tab-1", opts); err != nil {
+		t.Fatalf("expected nil for nonexistent exact session, got %v", err)
+	}
+
+	exists, err := hasSession("amux-ws-tab-10", opts)
+	if err != nil {
+		t.Fatalf("hasSession: %v", err)
+	}
+	if !exists {
+		t.Fatal("prefix-collision session should remain after kill of missing exact session")
 	}
 }
 
@@ -298,6 +399,26 @@ func TestAmuxSessionsByWorkspace_IgnoresNonAmux(t *testing.T) {
 	}
 	if len(m["ws-x"]) != 1 {
 		t.Fatalf("ws-x: expected 1 session, got %v", m["ws-x"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SessionCreatedAt prefix-collision tests
+// ---------------------------------------------------------------------------
+
+func TestSessionCreatedAt_NonexistentSessionWithPrefixCollision(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "amux-ws-tab-10", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	ts, err := SessionCreatedAt("amux-ws-tab-1", opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if ts != 0 {
+		t.Fatalf("expected 0 timestamp for missing exact session, got %d", ts)
 	}
 }
 
