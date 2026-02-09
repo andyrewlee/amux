@@ -129,7 +129,6 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 		}
 	}
 	opts := a.tmuxOptions
-	instanceID := a.instanceID
 	svc := a.tmuxService
 	return func() tea.Msg {
 		if svc == nil {
@@ -179,20 +178,13 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 		if len(sessions) == 0 {
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
-		out := buildSidebarSessionAttachInfos(sessions, instanceID)
+		out := buildSidebarSessionAttachInfos(sessions)
 		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
 	}
 }
 
-func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo, instanceID string) []sidebar.SessionAttachInfo {
-	targetInstance := strings.TrimSpace(instanceID)
-	chosenSessions := make([]sidebarSessionInfo, 0, len(sessions))
-	for _, session := range sessions {
-		if strings.TrimSpace(session.instanceID) != targetInstance {
-			continue
-		}
-		chosenSessions = append(chosenSessions, session)
-	}
+func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo) []sidebar.SessionAttachInfo {
+	chosenSessions := append([]sidebarSessionInfo(nil), sessions...)
 	sort.SliceStable(chosenSessions, func(i, j int) bool {
 		ci, cj := chosenSessions[i].createdAt, chosenSessions[j].createdAt
 		if ci != 0 || cj != 0 {

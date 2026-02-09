@@ -421,11 +421,14 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 		}
 
 		if err := removeWorkspaceFn(project.Path, ws.Root); err != nil {
-			return messages.WorkspaceDeleteFailed{
-				Project:   project,
-				Workspace: ws,
-				Err:       err,
+			if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
+				return messages.WorkspaceDeleteFailed{
+					Project:   project,
+					Workspace: ws,
+					Err:       fmt.Errorf("remove workspace failed: %w", errors.Join(err, cleanupErr)),
+				}
 			}
+			logging.Warn("Workspace remove failed but stale path cleanup succeeded for %s: %v", ws.Root, err)
 		}
 
 		if err := deleteBranchFn(project.Path, ws.Branch); err != nil {
