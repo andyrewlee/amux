@@ -240,7 +240,7 @@ func TestDeleteWorkspaceRejectsUnsafeProjectNameSegment(t *testing.T) {
 	}
 }
 
-func TestCreateWorkspaceUsesProjectScopedHashedRoot(t *testing.T) {
+func TestCreateWorkspaceUsesLegacyProjectRoot(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repo")
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "workspaces")
@@ -381,39 +381,36 @@ func TestDeleteWorkspaceRejectsLegacyRootWhenRepoMismatchesProject(t *testing.T)
 	}
 }
 
-func TestDeleteWorkspaceAllowsLegacyShortHashProjectRoot(t *testing.T) {
+func TestDeleteWorkspaceRejectsShortHashProjectRoot(t *testing.T) {
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "workspaces")
 	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
 	workspaceService := newWorkspaceService(nil, store, nil, workspacesRoot)
 	project := &data.Project{Name: "repo", Path: "/repos/a/repo"}
 
-	legacyShortRoot := filepath.Join(
-		workspacesRoot,
-		project.Name+"-"+legacyShortProjectPathHash(project.Path),
-		"feature",
-	)
-	workspace := data.NewWorkspace("feature", "feature", "main", project.Path, legacyShortRoot)
+	shortHashRoot := filepath.Join(workspacesRoot, project.Name+"-deadbeef", "feature")
+	workspace := data.NewWorkspace("feature", "feature", "main", project.Path, shortHashRoot)
 
 	origRemove := removeWorkspaceFn
-	origDeleteBranch := deleteBranchFn
 	t.Cleanup(func() {
 		removeWorkspaceFn = origRemove
-		deleteBranchFn = origDeleteBranch
 	})
 	removeCalled := false
 	removeWorkspaceFn = func(repoPath, workspacePath string) error {
 		removeCalled = true
 		return nil
 	}
-	deleteBranchFn = func(repoPath, branch string) error { return nil }
 
 	msg := workspaceService.DeleteWorkspace(project, workspace)()
-	if _, ok := msg.(messages.WorkspaceDeleted); !ok {
-		t.Fatalf("expected WorkspaceDeleted, got %T", msg)
+	failed, ok := msg.(messages.WorkspaceDeleteFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
 	}
-	if !removeCalled {
-		t.Fatalf("expected legacy short-hash workspace to be deletable")
+	if failed.Err == nil {
+		t.Fatalf("expected validation error for short-hash root")
+	}
+	if removeCalled {
+		t.Fatalf("expected removeWorkspaceFn not to run for short-hash root")
 	}
 }
 

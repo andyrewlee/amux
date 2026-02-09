@@ -122,8 +122,9 @@ func TestRegistry_LoadCanonicalizesAndRepairsLegacyRelativePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Getwd() error = %v", err)
 	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("Chdir(%s) error = %v", tmpDir, err)
+	otherWD := t.TempDir()
+	if err := os.Chdir(otherWD); err != nil {
+		t.Fatalf("Chdir(%s) error = %v", otherWD, err)
 	}
 	t.Cleanup(func() {
 		_ = os.Chdir(prevWD)

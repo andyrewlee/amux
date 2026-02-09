@@ -77,6 +77,7 @@ func (r *Registry) Save(paths []string) error {
 }
 
 func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
+	registryDir := filepath.Dir(r.path)
 	data, err := os.ReadFile(r.path)
 	if os.IsNotExist(err) {
 		backupPath := r.backupPath()
@@ -91,7 +92,7 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 		if parseErr != nil {
 			return nil, false, parseErr
 		}
-		normalized, _ := normalizeAndDedupeProjectPaths(paths)
+		normalized, _ := normalizeAndDedupeProjectPaths(paths, filepath.Dir(backupPath))
 		return normalized, true, nil
 	}
 	if err != nil {
@@ -100,7 +101,7 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 
 	paths, parseErr := parseRegistryData(data, r.path)
 	if parseErr == nil {
-		normalized, changed := normalizeAndDedupeProjectPaths(paths)
+		normalized, changed := normalizeAndDedupeProjectPaths(paths, registryDir)
 		return normalized, changed, nil
 	}
 
@@ -114,12 +115,12 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 	if backupParseErr != nil {
 		return nil, false, parseErr
 	}
-	normalized, _ := normalizeAndDedupeProjectPaths(backupPaths)
+	normalized, _ := normalizeAndDedupeProjectPaths(backupPaths, filepath.Dir(backupPath))
 	return normalized, true, nil
 }
 
 func (r *Registry) saveUnlocked(paths []string) error {
-	paths, _ = normalizeAndDedupeProjectPaths(paths)
+	paths, _ = normalizeAndDedupeProjectPaths(paths, filepath.Dir(r.path))
 	dir := filepath.Dir(r.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -261,11 +262,27 @@ func parseRegistryData(data []byte, path string) ([]string, error) {
 }
 
 func canonicalProjectPath(path string) string {
+	return canonicalProjectPathFromBase(path, "")
+}
+
+func canonicalProjectPathFromBase(path, baseDir string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""
 	}
 	cleaned := filepath.Clean(path)
+	if !filepath.IsAbs(cleaned) {
+		base := strings.TrimSpace(baseDir)
+		if base != "" {
+			base = filepath.Clean(base)
+			if !filepath.IsAbs(base) {
+				if absBase, err := filepath.Abs(base); err == nil {
+					base = absBase
+				}
+			}
+			cleaned = filepath.Join(base, cleaned)
+		}
+	}
 	if abs, err := filepath.Abs(cleaned); err == nil {
 		cleaned = abs
 	}
@@ -275,7 +292,7 @@ func canonicalProjectPath(path string) string {
 	return filepath.Clean(cleaned)
 }
 
-func normalizeAndDedupeProjectPaths(paths []string) ([]string, bool) {
+func normalizeAndDedupeProjectPaths(paths []string, baseDir string) ([]string, bool) {
 	out := make([]string, 0, len(paths))
 	seen := make(map[string]struct{}, len(paths))
 	changed := false
@@ -287,7 +304,7 @@ func normalizeAndDedupeProjectPaths(paths []string) ([]string, bool) {
 			}
 			continue
 		}
-		canonical := canonicalProjectPath(raw)
+		canonical := canonicalProjectPathFromBase(raw, baseDir)
 		if canonical == "" {
 			changed = true
 			continue

@@ -1,8 +1,6 @@
 package app
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,7 +51,7 @@ func (s *workspaceService) primaryManagedProjectRoot(project *data.Project) stri
 	if !ok {
 		return ""
 	}
-	return data.NormalizePath(filepath.Join(root, projectName+"-"+projectPathHash(project.Path)))
+	return data.NormalizePath(filepath.Join(root, projectName))
 }
 
 func (s *workspaceService) pendingWorkspace(project *data.Project, name, base string) (*data.Workspace, bool) {
@@ -86,25 +84,11 @@ func (s *workspaceService) pendingProjectRoot(project *data.Project) (string, bo
 }
 
 func (s *workspaceService) managedProjectRoots(project *data.Project) []string {
-	root := data.NormalizePath(strings.TrimSpace(s.workspacesRoot))
-	if root == "" {
+	primary := s.primaryManagedProjectRoot(project)
+	if primary == "" {
 		return nil
 	}
-	projectName, ok := projectNameSegment(project)
-	if !ok {
-		return nil
-	}
-	primary := data.NormalizePath(filepath.Join(root, projectName+"-"+projectPathHash(project.Path)))
-	legacyShortHash := data.NormalizePath(filepath.Join(root, projectName+"-"+legacyShortProjectPathHash(project.Path)))
-	legacy := data.NormalizePath(filepath.Join(root, projectName))
-	roots := []string{primary}
-	if legacyShortHash != primary {
-		roots = append(roots, legacyShortHash)
-	}
-	if legacy != primary && legacy != legacyShortHash {
-		roots = append(roots, legacy)
-	}
-	return roots
+	return []string{primary}
 }
 
 func (s *workspaceService) isLegacyManagedWorkspaceDeletePath(project *data.Project, ws *data.Workspace) bool {
@@ -152,24 +136,6 @@ func projectNameSegment(project *data.Project) (string, bool) {
 		return "", false
 	}
 	return name, true
-}
-
-func projectPathHash(path string) string {
-	value := data.NormalizePath(strings.TrimSpace(path))
-	if value == "" {
-		value = strings.TrimSpace(path)
-	}
-	sum := sha1.Sum([]byte(value))
-	return hex.EncodeToString(sum[:8])
-}
-
-func legacyShortProjectPathHash(path string) string {
-	value := data.NormalizePath(strings.TrimSpace(path))
-	if value == "" {
-		value = strings.TrimSpace(path)
-	}
-	sum := sha1.Sum([]byte(value))
-	return hex.EncodeToString(sum[:4])
 }
 
 func isPathWithin(root, candidate string) bool {
