@@ -50,6 +50,8 @@ func (r *Registry) Load() ([]string, error) {
 	}
 	defer unlockRegistryFile(lockFile)
 
+	// Recovery flag is intentionally ignored here; Load is read-only (RLock).
+	// The next mutation (AddProject/RemoveProject) will repair the primary file.
 	paths, _, err := r.loadUnlockedWithRecovery()
 	return paths, err
 }
@@ -170,6 +172,7 @@ func (r *Registry) AddProject(path string) error {
 	for _, p := range paths {
 		if canonicalProjectPath(p) == path {
 			if recoveredFromBackup {
+				// Primary file was restored from backup; persist to complete the repair.
 				return r.saveUnlocked(paths)
 			}
 			return nil // Already registered
@@ -294,7 +297,7 @@ func normalizeAndDedupeProjectPaths(paths []string, baseDir string) ([]string, b
 	for _, path := range paths {
 		raw := strings.TrimSpace(path)
 		if raw == "" {
-			if strings.TrimSpace(path) != "" || path != "" {
+			if path != "" {
 				changed = true
 			}
 			continue

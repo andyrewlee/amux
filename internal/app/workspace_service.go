@@ -373,7 +373,8 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			}
 		}
 		projectPath := data.NormalizePath(strings.TrimSpace(project.Path))
-		workspaceRepo := data.NormalizePath(strings.TrimSpace(ws.Repo))
+		workspaceRepoRaw := strings.TrimSpace(ws.Repo)
+		workspaceRepo := data.NormalizePath(workspaceRepoRaw)
 		if projectPath == "" {
 			return messages.WorkspaceDeleteFailed{
 				Project:   project,
@@ -386,6 +387,18 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 				Project:   project,
 				Workspace: ws,
 				Err:       errors.New("workspace repo is required for workspace deletion"),
+			}
+		}
+		legacyRepoScopeMatch := false
+		if projectPath != workspaceRepo &&
+			workspaceRepoRaw != "" &&
+			!filepath.IsAbs(filepath.Clean(workspaceRepoRaw)) {
+			// Legacy metadata may store repo paths as relative strings. Only allow
+			// this mismatch when the workspace root is still discoverable for the
+			// current project.
+			legacyRepoScopeMatch = s.isLegacyManagedWorkspaceDeletePath(project, ws)
+			if legacyRepoScopeMatch {
+				workspaceRepo = projectPath
 			}
 		}
 		if projectPath != workspaceRepo {
@@ -404,7 +417,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			managedProjectRoot = filepath.Join(s.workspacesRoot, project.Name)
 		}
 		if !s.isManagedWorkspacePathForProject(project, ws.Root) {
-			if s.isLegacyManagedWorkspaceDeletePath(project, ws) {
+			if legacyRepoScopeMatch || s.isLegacyManagedWorkspaceDeletePath(project, ws) {
 				// Allow deleting legacy alias roots when they still map to a
 				// discoverable worktree for this repo.
 			} else {

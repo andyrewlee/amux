@@ -138,6 +138,9 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 		os.Remove(tempPath) // Clean up temp file on rename failure
 		return err
 	}
+	// Clean up the old metadata directory when the workspace ID changed (e.g.,
+	// after a repo/root path change). This acquires a second lock for the old ID,
+	// which is safe: the two IDs are distinct and no reverse lock ordering exists.
 	if ws.storeID != "" && ws.storeID != id {
 		if err := s.Delete(ws.storeID); err != nil {
 			logging.Warn("Failed to remove old workspace metadata %s: %v", ws.storeID, err)
@@ -353,6 +356,9 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 	if targetRepo == "" || targetRoot == "" {
 		return nil, "", nil
 	}
+	// Fallback: scan all workspaces to find a match by resolved repo+root paths.
+	// This is O(n) but only triggers when the canonical ID lookup above misses
+	// (e.g., after a symlink change or path rename).
 	ids, err := s.List()
 	if err != nil {
 		return nil, "", err
