@@ -103,11 +103,11 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 	backupPath := r.backupPath()
 	backupData, backupErr := os.ReadFile(backupPath)
 	if backupErr != nil {
-		return nil, false, parseErr
+		return nil, false, errors.Join(parseErr, fmt.Errorf("read backup %s: %w", backupPath, backupErr))
 	}
 	backupPaths, backupParseErr := parseRegistryData(backupData, backupPath)
 	if backupParseErr != nil {
-		return nil, false, parseErr
+		return nil, false, errors.Join(parseErr, fmt.Errorf("parse backup %s: %w", backupPath, backupParseErr))
 	}
 	normalized, _ := normalizeAndDedupeProjectPaths(backupPaths, filepath.Dir(backupPath))
 	return normalized, true, nil

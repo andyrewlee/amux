@@ -114,6 +114,9 @@ func (a *App) amuxSessionsByWorkspace(svc *tmuxService, opts tmux.Options, insta
 	}
 	match := map[string]string{"@amux": "1"}
 	if strings.TrimSpace(instanceID) != "" {
+		// Discovery intentionally shows shared sessions across instances for the
+		// same workspace, but orphan GC stays instance-scoped to avoid killing
+		// another running instance's sessions when local state is stale.
 		match["@amux_instance"] = strings.TrimSpace(instanceID)
 	}
 	rows, err := svc.SessionsWithTags(match, []string{"@amux_workspace", "@amux_created_at"}, opts)

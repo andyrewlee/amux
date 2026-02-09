@@ -160,6 +160,9 @@ func (sw *stateWatcher) watchMetadataDir(dir string) error {
 		sw.mu.Unlock()
 		return nil
 	}
+	// Intentionally release the lock around fsnotify.Add to avoid blocking other
+	// watcher operations on potentially slow OS watcher calls. Close() safety is
+	// handled by the second closed-check below plus Remove(clean) rollback.
 	sw.mu.Unlock()
 	if err := sw.watcher.Add(clean); err != nil {
 		return err

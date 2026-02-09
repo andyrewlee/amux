@@ -252,6 +252,10 @@ func isBenignStopError(err error) bool {
 	if errors.Is(err, os.ErrProcessDone) {
 		return true
 	}
+	if isTypedProcessGoneError(err) {
+		return true
+	}
+	// Fallback for wrapped platform-specific process errors surfaced as strings.
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "process already finished") ||
 		strings.Contains(lower, "already exited") ||
