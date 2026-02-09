@@ -23,6 +23,7 @@ type attachedTabCandidate struct {
 //
 // The currently focused tab in the active workspace is never auto-detached.
 func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) []DetachedTabInfo {
+	// 0 means disabled (unlimited attached chat tabs).
 	if maxAttached <= 0 {
 		return nil
 	}

@@ -24,7 +24,8 @@ func ClientCommandWithTagsAttach(sessionName, workDir, command string, opts Opti
 
 func clientCommand(sessionName, workDir, command string, opts Options, tags SessionTags, detachExisting bool) string {
 	base := tmuxBase(opts)
-	sessionTarget := shellQuote(sessionName)
+	createTarget := shellQuote(sessionName)
+	settingsTarget := shellQuote(exactTarget(sessionName))
 	attachTarget := shellQuote(exactTarget(sessionName))
 	dir := shellQuote(workDir)
 	cmd := shellQuote(command)
@@ -35,24 +36,24 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 		detachFlag = "d"
 	}
 	create := fmt.Sprintf("%s new-session -A%ss %s -c %s sh -lc %s",
-		base, detachFlag, sessionTarget, dir, cmd)
+		base, detachFlag, createTarget, dir, cmd)
 
 	var settings strings.Builder
 	// Disable tmux prefix for this session only (not global) to make it transparent
-	settings.WriteString(fmt.Sprintf("%s set-option -t %s prefix None 2>/dev/null; ", base, sessionTarget))
-	settings.WriteString(fmt.Sprintf("%s set-option -t %s prefix2 None 2>/dev/null; ", base, sessionTarget))
+	settings.WriteString(fmt.Sprintf("%s set-option -t %s prefix None 2>/dev/null; ", base, settingsTarget))
+	settings.WriteString(fmt.Sprintf("%s set-option -t %s prefix2 None 2>/dev/null; ", base, settingsTarget))
 	if opts.HideStatus {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s status off 2>/dev/null; ", base, sessionTarget))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s status off 2>/dev/null; ", base, settingsTarget))
 	}
 	if opts.DisableMouse {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s mouse off 2>/dev/null; ", base, sessionTarget))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s mouse off 2>/dev/null; ", base, settingsTarget))
 	}
 	if opts.DefaultTerminal != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s default-terminal %s 2>/dev/null; ", base, sessionTarget, shellQuote(opts.DefaultTerminal)))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s default-terminal %s 2>/dev/null; ", base, settingsTarget, shellQuote(opts.DefaultTerminal)))
 	}
 	// Ensure activity timestamps update for window_activity-based tracking.
-	settings.WriteString(fmt.Sprintf("%s set-option -t %s -w monitor-activity on 2>/dev/null; ", base, sessionTarget))
-	appendSessionTags(&settings, base, sessionTarget, tags)
+	settings.WriteString(fmt.Sprintf("%s set-option -t %s -w monitor-activity on 2>/dev/null; ", base, settingsTarget))
+	appendSessionTags(&settings, base, settingsTarget, tags)
 
 	// Attach to the session, optionally detaching other clients.
 	attachFlag := "-t"

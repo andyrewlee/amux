@@ -153,10 +153,10 @@ func TestClientCommandWithOptions(t *testing.T) {
 	}
 
 	// Should disable prefix per-session (not globally) on the created session.
-	if !strings.Contains(cmd, "set-option -t 'test-session' prefix None") {
+	if !strings.Contains(cmd, "set-option -t '=test-session' prefix None") {
 		t.Error("Command should disable prefix for session")
 	}
-	if !strings.Contains(cmd, "set-option -t 'test-session' prefix2 None") {
+	if !strings.Contains(cmd, "set-option -t '=test-session' prefix2 None") {
 		t.Error("Command should disable prefix2 for session")
 	}
 
@@ -202,6 +202,9 @@ func TestClientCommandWithTags(t *testing.T) {
 
 	cmd := ClientCommandWithTags("test-session", "/tmp/work", "echo hello", opts, tags)
 
+	if !strings.Contains(cmd, "set-option -t '=test-session' @amux 1") {
+		t.Error("Command should set tags using exact session target")
+	}
 	if !strings.Contains(cmd, "@amux 1") {
 		t.Error("Command should set @amux tag")
 	}

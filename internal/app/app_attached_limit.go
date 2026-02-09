@@ -10,6 +10,9 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
+// maxAttachedAgentTabsFromEnv parses AMUX_MAX_ATTACHED_AGENT_TABS.
+// Empty or invalid values fall back to defaultMaxAttachedAgentTabs.
+// A value of 0 explicitly disables auto-detach enforcement.
 func maxAttachedAgentTabsFromEnv() int {
 	raw := strings.TrimSpace(os.Getenv("AMUX_MAX_ATTACHED_AGENT_TABS"))
 	if raw == "" {
@@ -24,10 +27,14 @@ func maxAttachedAgentTabsFromEnv() int {
 		logging.Warn("Invalid AMUX_MAX_ATTACHED_AGENT_TABS=%q; must be >= 0; using default %d", raw, defaultMaxAttachedAgentTabs)
 		return defaultMaxAttachedAgentTabs
 	}
+	if value == 0 {
+		logging.Info("AMUX_MAX_ATTACHED_AGENT_TABS=0; auto-detach limit disabled")
+	}
 	return value
 }
 
 func (a *App) enforceAttachedAgentTabLimit() []tea.Cmd {
+	// 0 means disabled (unlimited attached chat tabs).
 	if a == nil || a.center == nil || a.maxAttachedAgentTabs <= 0 {
 		return nil
 	}
