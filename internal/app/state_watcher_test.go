@@ -179,6 +179,56 @@ func TestStateWatcher_IgnoresChildWatchFailure(t *testing.T) {
 	_ = sw
 }
 
+func TestStateWatcher_NotifiesOnUnwatchedChildRemoval(t *testing.T) {
+	metadataRoot := filepath.Join(t.TempDir(), "workspaces-metadata")
+	if err := os.MkdirAll(metadataRoot, 0o755); err != nil {
+		t.Fatalf("mkdir metadata root: %v", err)
+	}
+	childDir := filepath.Join(metadataRoot, "abcdef1234567890")
+	if err := os.MkdirAll(childDir, 0o755); err != nil {
+		t.Fatalf("mkdir child dir: %v", err)
+	}
+
+	registryPath := filepath.Join(t.TempDir(), "projects.json")
+	if err := os.WriteFile(registryPath, []byte(`{"projects":[]}`), 0o644); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+
+	// Make watchMetadataDirFn fail for the child so it is never registered.
+	origWatchMetadataDirFn := watchMetadataDirFn
+	watchMetadataDirFn = func(sw *stateWatcher, dir string) error {
+		if filepath.Clean(dir) == filepath.Clean(childDir) {
+			return errors.New("simulated watch failure")
+		}
+		return origWatchMetadataDirFn(sw, dir)
+	}
+	t.Cleanup(func() {
+		watchMetadataDirFn = origWatchMetadataDirFn
+	})
+
+	reasons := make(chan string, 16)
+	sw := startStateWatcherForTest(t, registryPath, metadataRoot, reasons)
+
+	// Confirm the child is NOT in metadataDirs.
+	sw.mu.Lock()
+	_, hasChild := sw.metadataDirs[filepath.Clean(childDir)]
+	sw.mu.Unlock()
+	if hasChild {
+		t.Fatalf("expected child dir to NOT be watched")
+	}
+
+	time.Sleep(60 * time.Millisecond)
+	drainStateWatcherReasons(reasons)
+
+	// Remove the unwatched child directory.
+	if err := os.RemoveAll(childDir); err != nil {
+		t.Fatalf("remove child dir: %v", err)
+	}
+
+	// The removal should still trigger a "workspaces" notification.
+	waitForStateWatcherReason(t, reasons, "workspaces", 2*time.Second)
+}
+
 func startStateWatcherForTest(t *testing.T, registryPath, metadataRoot string, reasons chan<- string) *stateWatcher {
 	t.Helper()
 

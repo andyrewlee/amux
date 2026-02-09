@@ -196,17 +196,6 @@ func (sw *stateWatcher) unwatchMetadataDir(dir string) {
 	_ = sw.watcher.Remove(clean)
 }
 
-func (sw *stateWatcher) isWatchedMetadataDir(dir string) bool {
-	clean := filepath.Clean(dir)
-	if clean == "" {
-		return false
-	}
-	sw.mu.Lock()
-	_, ok := sw.metadataDirs[clean]
-	sw.mu.Unlock()
-	return ok
-}
-
 func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 	if sw.metadataRoot == "" {
 		return false
@@ -227,8 +216,12 @@ func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 		if info, err := os.Stat(name); err == nil {
 			isWorkspaceDir = info.IsDir()
 		} else if os.IsNotExist(err) && op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-			// Removal/rename can race with stat; trust watcher state when present.
-			isWorkspaceDir = sw.isWatchedMetadataDir(name)
+			// Removal/rename can race with stat. Use an extension-based heuristic
+			// rather than isWatchedMetadataDir so that dirs whose watch registration
+			// failed (e.g. watch-limit) are still recognized and trigger a reload.
+			// Workspace dir names are extensionless hex hashes; ancillary files
+			// (e.g. .lock) always have an extension.
+			isWorkspaceDir = filepath.Ext(filepath.Base(name)) == ""
 		}
 		if !isWorkspaceDir {
 			return false

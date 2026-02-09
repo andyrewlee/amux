@@ -1,21 +1,8 @@
 package data
 
-import (
-	"path/filepath"
-	"strings"
-)
-
-func canonicalLookupPath(path string) string {
-	value := strings.TrimSpace(path)
-	if value == "" {
-		return ""
-	}
-	cleaned := filepath.Clean(value)
-	if abs, err := filepath.Abs(cleaned); err == nil {
-		cleaned = abs
-	}
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = resolved
-	}
-	return filepath.Clean(cleaned)
+// canonicalLookupPath resolves path to an absolute, symlink-evaluated form.
+// Relative paths are resolved against the store's metadata root rather than
+// the process CWD, so lookups remain stable regardless of launch directory.
+func (s *WorkspaceStore) canonicalLookupPath(path string) string {
+	return canonicalProjectPathFromBase(path, s.root)
 }

@@ -351,8 +351,8 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 	if !os.IsNotExist(err) {
 		return nil, "", err
 	}
-	targetRepo := canonicalLookupPath(repo)
-	targetRoot := canonicalLookupPath(root)
+	targetRepo := s.canonicalLookupPath(repo)
+	targetRoot := s.canonicalLookupPath(root)
 	if targetRepo == "" || targetRoot == "" {
 		return nil, "", nil
 	}
@@ -372,10 +372,10 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 			logging.Warn("Skipping unreadable workspace metadata %s during fallback lookup: %v", id, err)
 			continue
 		}
-		if canonicalLookupPath(candidate.Repo) != targetRepo {
+		if s.canonicalLookupPath(candidate.Repo) != targetRepo {
 			continue
 		}
-		if canonicalLookupPath(candidate.Root) != targetRoot {
+		if s.canonicalLookupPath(candidate.Root) != targetRoot {
 			continue
 		}
 		return candidate, id, nil
@@ -393,7 +393,7 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		return nil, err
 	}
 
-	targetRepo := canonicalLookupPath(repoPath)
+	targetRepo := s.canonicalLookupPath(repoPath)
 	var workspaces []*Workspace
 	seen := make(map[string]int)
 	var loadErrors int
@@ -403,7 +403,7 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		if err != nil {
 			logging.Warn("Failed to load workspace %s: %v", id, err)
 			loadErrors++
-			if hintRepo, hintOK := s.repoHintForWorkspaceID(id); hintOK && canonicalLookupPath(hintRepo) == targetRepo {
+			if hintRepo, hintOK := s.repoHintForWorkspaceID(id); hintOK && s.canonicalLookupPath(hintRepo) == targetRepo {
 				targetLoadErrors++
 			}
 			continue
@@ -415,11 +415,11 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		if !includeArchived && ws.Archived {
 			continue
 		}
-		if canonicalLookupPath(ws.Repo) != targetRepo {
+		if s.canonicalLookupPath(ws.Repo) != targetRepo {
 			continue
 		}
-		repoKey := canonicalLookupPath(ws.Repo)
-		rootKey := canonicalLookupPath(ws.Root)
+		repoKey := s.canonicalLookupPath(ws.Repo)
+		rootKey := s.canonicalLookupPath(ws.Root)
 		key := workspaceIdentity(ws.Repo, ws.Root)
 		if repoKey != "" && rootKey != "" {
 			key = repoKey + "\n" + rootKey
