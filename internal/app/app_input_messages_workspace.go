@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -85,13 +86,35 @@ func (a *App) findProjectByPath(path string) *data.Project {
 	if path == "" {
 		return nil
 	}
+	targetCanonical := canonicalProjectPathForMatch(path)
 	for i := range a.projects {
 		project := &a.projects[i]
 		if project.Path == path {
 			return project
 		}
+		if targetCanonical == "" {
+			continue
+		}
+		if canonicalProjectPathForMatch(project.Path) == targetCanonical {
+			return project
+		}
 	}
 	return nil
+}
+
+func canonicalProjectPathForMatch(path string) string {
+	value := strings.TrimSpace(path)
+	if value == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(value)
+	if abs, err := filepath.Abs(cleaned); err == nil {
+		cleaned = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		cleaned = resolved
+	}
+	return filepath.Clean(cleaned)
 }
 
 // handleWorkspaceActivated processes the WorkspaceActivated message.

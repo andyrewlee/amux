@@ -348,6 +348,31 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 	if !os.IsNotExist(err) {
 		return nil, "", err
 	}
+	targetRepo := canonicalLookupPath(repo)
+	targetRoot := canonicalLookupPath(root)
+	if targetRepo == "" || targetRoot == "" {
+		return nil, "", nil
+	}
+	ids, err := s.List()
+	if err != nil {
+		return nil, "", err
+	}
+	for _, id := range ids {
+		candidate, err := s.Load(id)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, "", err
+		}
+		if canonicalLookupPath(candidate.Repo) != targetRepo {
+			continue
+		}
+		if canonicalLookupPath(candidate.Root) != targetRoot {
+			continue
+		}
+		return candidate, id, nil
+	}
 	return nil, "", nil
 }
 
@@ -361,7 +386,7 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		return nil, err
 	}
 
-	targetRepo := NormalizePath(repoPath)
+	targetRepo := canonicalLookupPath(repoPath)
 	var workspaces []*Workspace
 	seen := make(map[string]int)
 	var loadErrors int
@@ -371,7 +396,7 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		if err != nil {
 			logging.Warn("Failed to load workspace %s: %v", id, err)
 			loadErrors++
-			if hintRepo, hintOK := s.repoHintForWorkspaceID(id); hintOK && NormalizePath(hintRepo) == targetRepo {
+			if hintRepo, hintOK := s.repoHintForWorkspaceID(id); hintOK && canonicalLookupPath(hintRepo) == targetRepo {
 				targetLoadErrors++
 			}
 			continue
@@ -383,10 +408,15 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		if !includeArchived && ws.Archived {
 			continue
 		}
-		if NormalizePath(ws.Repo) != targetRepo {
+		if canonicalLookupPath(ws.Repo) != targetRepo {
 			continue
 		}
+		repoKey := canonicalLookupPath(ws.Repo)
+		rootKey := canonicalLookupPath(ws.Root)
 		key := workspaceIdentity(ws.Repo, ws.Root)
+		if repoKey != "" && rootKey != "" {
+			key = repoKey + "\n" + rootKey
+		}
 		if idx, ok := seen[key]; ok {
 			if shouldPreferWorkspace(ws, workspaces[idx]) {
 				workspaces[idx] = ws

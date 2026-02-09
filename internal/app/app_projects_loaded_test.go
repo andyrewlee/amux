@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -69,5 +71,42 @@ func TestHandleProjectsLoadedClearsMissingActiveWorkspace(t *testing.T) {
 	}
 	if !app.showWelcome {
 		t.Fatalf("expected app to return to home view")
+	}
+}
+
+func TestHandleProjectsLoadedRebindsActiveProjectByCanonicalPath(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repo) error = %v", err)
+	}
+
+	prevWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(base); err != nil {
+		t.Fatalf("Chdir(%s) error = %v", base, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(prevWD)
+	})
+
+	relativeProject := &data.Project{Name: "repo", Path: "./repo"}
+	reloadedProject := data.NewProject(repo)
+
+	app := &App{
+		dashboard:     dashboard.New(),
+		activeProject: relativeProject,
+		showWelcome:   true,
+	}
+
+	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*reloadedProject}})
+
+	if app.activeProject == nil {
+		t.Fatalf("expected active project to remain selected")
+	}
+	if app.activeProject.Path != reloadedProject.Path {
+		t.Fatalf("active project path = %q, want %q", app.activeProject.Path, reloadedProject.Path)
 	}
 }

@@ -433,3 +433,66 @@ func TestRegistry_RemoveProjectNoopRepairsPrimaryFromBackup(t *testing.T) {
 		t.Fatalf("unexpected repaired primary data: %v", paths)
 	}
 }
+
+func TestRegistry_AddProjectDuplicate_NoRewriteOnNormalizationOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	repoPath := filepath.Join(tmpDir, "repo")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	legacyPath := repoPath + string(filepath.Separator) + "."
+	registryJSON := `{"projects":[{"name":"repo","path":"` + legacyPath + `"}]}`
+	if err := os.WriteFile(registryPath, []byte(registryJSON), 0o644); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+	before, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(repoPath); err != nil {
+		t.Fatalf("AddProject() error = %v", err)
+	}
+	after, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("expected duplicate add without backup recovery to avoid rewrite")
+	}
+}
+
+func TestRegistry_RemoveProjectNoop_NoRewriteOnNormalizationOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	repoPath := filepath.Join(tmpDir, "repo")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	legacyPath := repoPath + string(filepath.Separator) + "."
+	registryJSON := `{"projects":[{"name":"repo","path":"` + legacyPath + `"}]}`
+	if err := os.WriteFile(registryPath, []byte(registryJSON), 0o644); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+	before, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	missingPath := filepath.Join(tmpDir, "missing")
+	if err := r.RemoveProject(missingPath); err != nil {
+		t.Fatalf("RemoveProject() error = %v", err)
+	}
+	after, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("expected noop remove without backup recovery to avoid rewrite")
+	}
+}

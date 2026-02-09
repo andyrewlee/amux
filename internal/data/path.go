@@ -8,6 +8,10 @@ func NormalizePath(path string) string {
 		return ""
 	}
 	cleaned := filepath.Clean(path)
+	if !filepath.IsAbs(cleaned) {
+		// Keep relative paths relative so identity hashes do not depend on CWD.
+		return cleaned
+	}
 	if abs, err := filepath.Abs(cleaned); err == nil {
 		cleaned = abs
 	}

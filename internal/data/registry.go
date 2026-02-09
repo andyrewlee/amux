@@ -93,8 +93,8 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 
 	paths, parseErr := parseRegistryData(data, r.path)
 	if parseErr == nil {
-		normalized, changed := normalizeAndDedupeProjectPaths(paths, registryDir)
-		return normalized, changed, nil
+		normalized, _ := normalizeAndDedupeProjectPaths(paths, registryDir)
+		return normalized, false, nil
 	}
 
 	// If the primary file is corrupted, fall back to a valid backup when available.
@@ -207,8 +207,11 @@ func (r *Registry) RemoveProject(path string) error {
 			newPaths = append(newPaths, p)
 		}
 	}
-	if len(newPaths) == len(paths) && recoveredFromBackup {
-		return r.saveUnlocked(paths)
+	if len(newPaths) == len(paths) {
+		if recoveredFromBackup {
+			return r.saveUnlocked(paths)
+		}
+		return nil
 	}
 
 	return r.saveUnlocked(newPaths)

@@ -193,6 +193,17 @@ func (sw *stateWatcher) unwatchMetadataDir(dir string) {
 	_ = sw.watcher.Remove(clean)
 }
 
+func (sw *stateWatcher) isWatchedMetadataDir(dir string) bool {
+	clean := filepath.Clean(dir)
+	if clean == "" {
+		return false
+	}
+	sw.mu.Lock()
+	_, ok := sw.metadataDirs[clean]
+	sw.mu.Unlock()
+	return ok
+}
+
 func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 	if sw.metadataRoot == "" {
 		return false
@@ -209,10 +220,18 @@ func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 	// Immediate children are workspace metadata directories. Watch/unwatch as
 	// they appear/disappear to catch nested workspace.json writes.
 	if filepath.Dir(name) == sw.metadataRoot {
+		isWorkspaceDir := false
+		if info, err := os.Stat(name); err == nil {
+			isWorkspaceDir = info.IsDir()
+		} else if os.IsNotExist(err) && op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+			// Removal/rename can race with stat; trust watcher state when present.
+			isWorkspaceDir = sw.isWatchedMetadataDir(name)
+		}
+		if !isWorkspaceDir {
+			return false
+		}
 		if op&(fsnotify.Create|fsnotify.Rename) != 0 {
-			if info, err := os.Stat(name); err == nil && info.IsDir() {
-				_ = sw.watchMetadataDir(name)
-			}
+			_ = sw.watchMetadataDir(name)
 		}
 		if op&(fsnotify.Remove|fsnotify.Rename) != 0 {
 			sw.unwatchMetadataDir(name)

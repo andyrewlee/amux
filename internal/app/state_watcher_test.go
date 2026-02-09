@@ -94,6 +94,34 @@ func TestStateWatcher_NotifiesOnRegistryWrite(t *testing.T) {
 	_ = sw
 }
 
+func TestStateWatcher_IgnoresMetadataRootLockfileEvents(t *testing.T) {
+	metadataRoot := filepath.Join(t.TempDir(), "workspaces-metadata")
+	if err := os.MkdirAll(metadataRoot, 0o755); err != nil {
+		t.Fatalf("mkdir metadata root: %v", err)
+	}
+	registryPath := filepath.Join(t.TempDir(), "projects.json")
+	if err := os.WriteFile(registryPath, []byte(`{"projects":[]}`), 0o644); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+
+	reasons := make(chan string, 16)
+	sw := startStateWatcherForTest(t, registryPath, metadataRoot, reasons)
+	time.Sleep(60 * time.Millisecond)
+	drainStateWatcherReasons(reasons)
+
+	lockPath := filepath.Join(metadataRoot, "ws-1.lock")
+	if err := os.WriteFile(lockPath, []byte("lock"), 0o644); err != nil {
+		t.Fatalf("write lock file: %v", err)
+	}
+	ensureNoStateWatcherReason(t, reasons, 250*time.Millisecond)
+
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatalf("remove lock file: %v", err)
+	}
+	ensureNoStateWatcherReason(t, reasons, 250*time.Millisecond)
+	_ = sw
+}
+
 func TestStateWatcher_IgnoresChildWatchFailure(t *testing.T) {
 	metadataRoot := filepath.Join(t.TempDir(), "workspaces-metadata")
 	if err := os.MkdirAll(metadataRoot, 0o755); err != nil {
