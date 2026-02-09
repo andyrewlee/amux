@@ -110,7 +110,7 @@ func TestRegistry_LoadLegacyFormat(t *testing.T) {
 	}
 }
 
-func TestRegistry_LoadCanonicalizesAndRepairsLegacyRelativePath(t *testing.T) {
+func TestRegistry_LoadCanonicalizesLegacyRelativePathWithoutMutatingFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	registryPath := filepath.Join(tmpDir, "projects.json")
 	repoPath := filepath.Join(tmpDir, "repo")
@@ -153,17 +153,17 @@ func TestRegistry_LoadCanonicalizesAndRepairsLegacyRelativePath(t *testing.T) {
 
 	raw, err := os.ReadFile(registryPath)
 	if err != nil {
-		t.Fatalf("read repaired registry: %v", err)
+		t.Fatalf("read registry: %v", err)
 	}
 	stored, err := parseRegistryData(raw, registryPath)
 	if err != nil {
-		t.Fatalf("parse repaired registry: %v", err)
+		t.Fatalf("parse registry: %v", err)
 	}
 	if len(stored) != 1 {
-		t.Fatalf("expected repaired registry to contain 1 path, got %d", len(stored))
+		t.Fatalf("expected registry to contain 1 path, got %d", len(stored))
 	}
-	if canonicalProjectPath(stored[0]) != canonicalProjectPath(repoPath) {
-		t.Fatalf("stored path = %q, want canonical %q", stored[0], repoPath)
+	if stored[0] != "./repo" {
+		t.Fatalf("expected load to keep on-disk legacy relative path, got %q", stored[0])
 	}
 }
 

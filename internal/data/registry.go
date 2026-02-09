@@ -41,25 +41,17 @@ func NewRegistry(path string) *Registry {
 
 // Load reads the project paths from the registry file
 func (r *Registry) Load() ([]string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	lockFile, err := lockRegistryFile(r.lockPath(), false)
+	lockFile, err := lockRegistryFile(r.lockPath(), true)
 	if err != nil {
 		return nil, err
 	}
 	defer unlockRegistryFile(lockFile)
 
-	paths, needsRepair, err := r.loadUnlockedWithRecovery()
-	if err != nil {
-		return nil, err
-	}
-	if needsRepair {
-		if err := r.saveUnlocked(paths); err != nil {
-			return nil, err
-		}
-	}
-	return paths, nil
+	paths, _, err := r.loadUnlockedWithRecovery()
+	return paths, err
 }
 
 // Save writes the project paths to the registry file
