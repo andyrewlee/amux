@@ -35,6 +35,13 @@ func TestWorkspaceStore_LoadMetadataForFallsBackToPathMatch(t *testing.T) {
 	if err := store.Save(stored); err != nil {
 		t.Fatalf("Save(stored) error = %v", err)
 	}
+	corruptDir := filepath.Join(root, "deadbeefcafebabe")
+	if err := os.MkdirAll(corruptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(corruptDir) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(corruptDir, workspaceFilename), []byte("{invalid"), 0o644); err != nil {
+		t.Fatalf("WriteFile(corrupt metadata) error = %v", err)
+	}
 
 	prevWD, err := os.Getwd()
 	if err != nil {

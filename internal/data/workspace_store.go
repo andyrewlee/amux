@@ -369,7 +369,8 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 			if os.IsNotExist(err) {
 				continue
 			}
-			return nil, "", err
+			logging.Warn("Skipping unreadable workspace metadata %s during fallback lookup: %v", id, err)
+			continue
 		}
 		if canonicalLookupPath(candidate.Repo) != targetRepo {
 			continue
