@@ -104,3 +104,4 @@ make run
 - pprof: set `AMUX_PPROF=1` (or a port like `6061`) to expose `net/http/pprof` on `127.0.0.1`.
 - Debug signals: set `AMUX_DEBUG_SIGNALS=1` and send `SIGUSR1` to dump goroutines into the log.
 - PTY tracing: set `AMUX_PTY_TRACE=1` or a comma-separated assistant list; traces write to the log dir (or OS temp dir if logging is disabled).
+- Attached chat tab auto-detach limit: set `AMUX_MAX_ATTACHED_AGENT_TABS` (default `6`); set `0` to disable enforcement.

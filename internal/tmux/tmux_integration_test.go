@@ -111,6 +111,35 @@ func TestSetSessionTagValue_SetsSessionOption(t *testing.T) {
 	}
 }
 
+func TestSessionTagValue_PreservesWhitespaceAndEmptyValue(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "tag-whitespace", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	const key = "@amux_note"
+	const spaced = "  value with spaces  "
+	setTag(t, opts, "tag-whitespace", key, spaced)
+
+	got, err := SessionTagValue("tag-whitespace", key, opts)
+	if err != nil {
+		t.Fatalf("SessionTagValue (spaced): %v", err)
+	}
+	if got != spaced {
+		t.Fatalf("expected %s=%q, got %q", key, spaced, got)
+	}
+
+	setTag(t, opts, "tag-whitespace", key, "")
+	got, err = SessionTagValue("tag-whitespace", key, opts)
+	if err != nil {
+		t.Fatalf("SessionTagValue (empty): %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected empty %s, got %q", key, got)
+	}
+}
+
 func TestSetSessionTagValue_MissingSessionNoError(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)

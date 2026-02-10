@@ -270,30 +270,22 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 	if err := EnsureAvailable(); err != nil {
 		return "", err
 	}
-	exists, err := hasSession(sessionName, opts)
-	if err != nil || !exists {
-		return "", err
-	}
-	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", sessionTarget(sessionName),
-		fmt.Sprintf("#{session_name}\t#{%s}", key))
+	cmd, cancel := tmuxCommand(opts, "show-options", "-v", "-t", exactSessionOptionTarget(sessionName), key)
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				errOut := strings.ToLower(strings.TrimSpace(string(exitErr.Stderr)))
+				// Missing sessions/tags are expected races; treat as empty.
+				if strings.Contains(errOut, "no such session") || strings.Contains(errOut, "invalid option") {
+					return "", nil
+				}
+			}
+		}
 		return "", err
 	}
-	raw := strings.TrimRight(string(output), "\r\n")
-	if raw == "" {
-		return "", nil
-	}
-	parts := strings.SplitN(raw, "\t", 2)
-	if len(parts) != 2 {
-		return "", nil
-	}
-	// Post-validate: reject prefix-match collisions.
-	if strings.TrimSpace(parts[0]) != sessionName {
-		return "", nil
-	}
-	return strings.TrimSpace(parts[1]), nil
+	return strings.TrimRight(string(output), "\r\n"), nil
 }
 
 // ListSessionsMatchingTags returns sessions matching all provided tags.
@@ -435,6 +427,10 @@ func sanitize(value string) string {
 // exactTarget returns a tmux target string that forces exact session-name
 // matching. Without the "=" prefix tmux falls back to prefix matching.
 func exactTarget(name string) string { return "=" + name }
+
+// exactSessionOptionTarget returns an exact session target for option commands.
+// set/show-option require a trailing ":" to resolve the session exactly.
+func exactSessionOptionTarget(name string) string { return exactTarget(name) + ":" }
 
 // sessionTarget returns a plain session target for commands that do not support
 // "="-prefixed exact targets in tmux 3.6+. It exists as a separate function

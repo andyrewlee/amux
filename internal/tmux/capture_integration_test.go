@@ -49,6 +49,22 @@ func TestCapturePane_NonexistentSessionWithPrefixCollision(t *testing.T) {
 	}
 }
 
+func TestCapturePaneTail_NonexistentSessionWithPrefixCollision(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "amux-ws-tab-10", "printf 'TEN\\n'; sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	tail, ok := CapturePaneTail("amux-ws-tab-1", 20, opts)
+	if ok {
+		t.Fatalf("expected capture to fail for missing exact session, got tail=%q", tail)
+	}
+	if tail != "" {
+		t.Fatalf("expected empty tail for missing exact session, got %q", tail)
+	}
+}
+
 func TestCapturePaneTail_UsesActivePaneInSplitSession(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)

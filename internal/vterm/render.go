@@ -234,7 +234,7 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 	var lastReverse bool
 
 	// Determine if cursor is on this row and should be shown
-	// Don't show cursor if terminal app hid it via DECTCEM in alt-screen mode.
+	// Don't show cursor if terminal app hid it via DECTCEM.
 	cursorOnRow := v.ShowCursor && !v.CursorHiddenForRender() && y == v.CursorY && v.ViewOffset == 0
 
 	for x := 0; x < v.Width; x++ {

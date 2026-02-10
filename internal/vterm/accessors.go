@@ -18,16 +18,13 @@ func (v *VTerm) LastShowCursor() bool {
 }
 
 // LastCursorHidden returns the last effective cursor hidden state used by rendering.
-// Non-alt-screen sessions intentionally ignore DECTCEM cursor hide/show toggles to
-// avoid flicker churn from chat-style CLIs that frequently emit ?25l/?25h.
 func (v *VTerm) LastCursorHidden() bool {
 	return v.lastCursorHidden
 }
 
 // CursorHiddenForRender returns whether the cursor should currently be hidden.
-// We only honor DECTCEM cursor hide/show while in alt-screen mode.
 func (v *VTerm) CursorHiddenForRender() bool {
-	return v.CursorHidden && v.AltScreen
+	return v.CursorHidden
 }
 
 // SelActive reports whether a selection is active.

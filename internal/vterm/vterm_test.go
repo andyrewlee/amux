@@ -206,13 +206,13 @@ func TestVersionBumpsOnCursorMoveAndAltScreenCursorHide(t *testing.T) {
 	}
 }
 
-func TestCursorHideOutsideAltScreenDoesNotBumpVersion(t *testing.T) {
+func TestCursorHideOutsideAltScreenBumpsVersion(t *testing.T) {
 	vt := New(10, 5)
 	v0 := vt.Version()
 
-	vt.Write([]byte("\x1b[?25l")) // hide cursor (ignored for rendering outside alt screen)
-	if vt.Version() != v0 {
-		t.Fatalf("expected version to remain unchanged outside alt screen")
+	vt.Write([]byte("\x1b[?25l")) // hide cursor
+	if vt.Version() == v0 {
+		t.Fatalf("expected version to bump on cursor hide outside alt screen")
 	}
 }
 

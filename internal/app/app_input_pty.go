@@ -98,7 +98,6 @@ func (a *App) handlePTYWatchdogTick() []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	}
-	cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 	// Keep dashboard "working" state accurate even when agents go idle.
 	a.syncActiveWorkspacesToDashboard()
 	cmds = append(cmds, a.startPTYWatchdog())

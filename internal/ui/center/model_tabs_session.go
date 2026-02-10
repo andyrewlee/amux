@@ -26,15 +26,7 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 			}
 		}
 	}
-	if m.config == nil || m.config.Assistants == nil {
-		return func() tea.Msg {
-			return messages.Toast{
-				Message: "Tab cannot be detached",
-				Level:   messages.ToastInfo,
-			}
-		}
-	}
-	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+	if !m.isChatTab(tab) {
 		return func() tea.Msg {
 			return messages.Toast{
 				Message: "Only assistant tabs can be detached",

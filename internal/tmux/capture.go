@@ -11,6 +11,13 @@ import (
 // preventing prefix-match collisions (e.g. "amux-ws-tab-1" resolving to
 // "amux-ws-tab-10"). Returns an error if no matching pane is found.
 func sessionPaneID(sessionName string, opts Options) (string, error) {
+	exists, err := hasSession(sessionName, opts)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf("session not found: %s", sessionName)
+	}
 	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{session_name}\t#{pane_id}\t#{pane_active}")
 	defer cancel()
 	output, err := cmd.Output()

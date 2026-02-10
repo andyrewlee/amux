@@ -23,6 +23,7 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 	if tab.readerActive {
 		if tab.ptyMsgCh == nil || tab.readerCancel == nil {
 			tab.readerActive = false
+			atomic.StoreUint32(&tab.readerActiveState, 0)
 		} else {
 			tab.mu.Unlock()
 			return nil
@@ -30,10 +31,12 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 	}
 	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
 		tab.readerActive = false
+		atomic.StoreUint32(&tab.readerActiveState, 0)
 		tab.mu.Unlock()
 		return nil
 	}
 	tab.readerActive = true
+	atomic.StoreUint32(&tab.readerActiveState, 1)
 	tab.ptyRestartBackoff = 0
 	atomic.StoreInt64(&tab.ptyHeartbeat, time.Now().UnixNano())
 
@@ -91,6 +94,7 @@ func (m *Model) stopPTYReader(tab *Tab) {
 		tab.readerCancel = nil
 	}
 	tab.readerActive = false
+	atomic.StoreUint32(&tab.readerActiveState, 0)
 	tab.ptyMsgCh = nil
 	tab.mu.Unlock()
 	atomic.StoreInt64(&tab.ptyHeartbeat, 0)
@@ -102,6 +106,7 @@ func (m *Model) markPTYReaderStopped(tab *Tab) {
 	}
 	tab.mu.Lock()
 	tab.readerActive = false
+	atomic.StoreUint32(&tab.readerActiveState, 0)
 	tab.ptyMsgCh = nil
 	tab.mu.Unlock()
 	atomic.StoreInt64(&tab.ptyHeartbeat, 0)

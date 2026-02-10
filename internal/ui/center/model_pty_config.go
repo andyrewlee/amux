@@ -20,7 +20,7 @@ const (
 	ptyFlushChunkSize     = 32 * 1024
 	ptyReadBufferSize     = 32 * 1024
 	ptyReadQueueSize      = 64
-	ptyFrameInterval      = time.Second / 30
+	ptyFrameInterval      = time.Second / 60
 	ptyMaxPendingBytes    = 512 * 1024
 	ptyMaxBufferedBytes   = 8 * 1024 * 1024
 	ptyReaderStallTimeout = 10 * time.Second

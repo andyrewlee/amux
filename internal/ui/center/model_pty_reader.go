@@ -64,6 +64,9 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 
 		quiet *= time.Duration(multiplier)
 		maxInterval *= time.Duration(multiplier)
+		if quiet > ptyFlushInactiveMaxIntervalCap {
+			quiet = ptyFlushInactiveMaxIntervalCap
+		}
 		if maxInterval > ptyFlushInactiveMaxIntervalCap {
 			maxInterval = ptyFlushInactiveMaxIntervalCap
 		}
@@ -86,11 +89,7 @@ func (m *Model) busyPTYTabCount(now time.Time) int {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
-
-			tab.mu.Lock()
-			busy := tab.readerActive || len(tab.pendingOutput) > 0
-			tab.mu.Unlock()
-
+			busy := atomic.LoadUint32(&tab.readerActiveState) == 1 || len(tab.pendingOutput) > 0
 			if busy {
 				count++
 			}

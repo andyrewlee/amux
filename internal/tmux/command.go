@@ -24,8 +24,10 @@ func ClientCommandWithTagsAttach(sessionName, workDir, command string, opts Opti
 
 func clientCommand(sessionName, workDir, command string, opts Options, tags SessionTags, detachExisting bool) string {
 	base := tmuxBase(opts)
+	// new-session -s takes a literal name, not a target expression.
+	// Using "=name" would create a session literally named "=name".
 	createTarget := shellQuote(sessionName)
-	settingsTarget := shellQuote(exactTarget(sessionName))
+	settingsTarget := shellQuote(exactSessionOptionTarget(sessionName))
 	attachTarget := shellQuote(exactTarget(sessionName))
 	dir := shellQuote(workDir)
 	cmd := shellQuote(command)

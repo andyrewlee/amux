@@ -109,3 +109,81 @@ func TestEnforceAttachedAgentTabLimit_UsesCreatedAtWhenFocusIsUnknown(t *testing
 		t.Fatalf("expected newer tab to remain attached")
 	}
 }
+
+func TestEnforceAttachedAgentTabLimit_ZeroDisablesEnforcement(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	now := time.Now()
+
+	tabA := &Tab{
+		ID:            TabID("tab-a"),
+		Assistant:     "claude",
+		Workspace:     ws,
+		Running:       true,
+		lastFocusedAt: now.Add(-time.Hour),
+		createdAt:     now.Add(-time.Hour).Unix(),
+	}
+	tabB := &Tab{
+		ID:            TabID("tab-b"),
+		Assistant:     "claude",
+		Workspace:     ws,
+		Running:       true,
+		lastFocusedAt: now.Add(-30 * time.Minute),
+		createdAt:     now.Add(-30 * time.Minute).Unix(),
+	}
+
+	m.tabsByWorkspace[wsID] = []*Tab{tabA, tabB}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	detached, cmds := m.EnforceAttachedAgentTabLimit(0)
+	if len(detached) != 0 {
+		t.Fatalf("expected no detached tabs when disabled, got %d", len(detached))
+	}
+	if len(cmds) != 0 {
+		t.Fatalf("expected no detach commands when disabled, got %d", len(cmds))
+	}
+	if tabA.Detached || tabB.Detached {
+		t.Fatalf("expected tabs to remain attached when disabled")
+	}
+}
+
+func TestEnforceAttachedAgentTabLimit_DetachesWhenConfigIsNilFallback(t *testing.T) {
+	m := New(nil)
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	now := time.Now()
+
+	first := &Tab{
+		ID:            TabID("tab-first"),
+		Assistant:     "claude",
+		Workspace:     ws,
+		Running:       true,
+		lastFocusedAt: now.Add(-2 * time.Hour),
+		createdAt:     now.Add(-2 * time.Hour).Unix(),
+	}
+	second := &Tab{
+		ID:            TabID("tab-second"),
+		Assistant:     "claude",
+		Workspace:     ws,
+		Running:       true,
+		lastFocusedAt: now.Add(-30 * time.Minute),
+		createdAt:     now.Add(-30 * time.Minute).Unix(),
+	}
+
+	m.tabsByWorkspace[wsID] = []*Tab{first, second}
+	m.activeTabByWorkspace[wsID] = 1
+	m.workspace = ws
+
+	detached, _ := m.EnforceAttachedAgentTabLimit(1)
+	if len(detached) != 1 {
+		t.Fatalf("expected 1 detached tab, got %d", len(detached))
+	}
+	if detached[0].TabID != first.ID {
+		t.Fatalf("expected first tab to detach, got %s", detached[0].TabID)
+	}
+	if !first.Detached || first.Running {
+		t.Fatalf("expected first tab detached/stopped, detached=%v running=%v", first.Detached, first.Running)
+	}
+}

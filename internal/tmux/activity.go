@@ -141,13 +141,11 @@ func CapturePaneTail(sessionName string, lines int, opts Options) (string, bool)
 	if sessionName == "" || lines <= 0 {
 		return "", false
 	}
-	paneID, err := sessionPaneID(sessionName, opts)
-	if err != nil {
-		return "", false
-	}
 	startLine := -lines
-	// Use resolved pane ID (e.g. %0) which is immune to prefix matching.
-	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", paneID, "-S", strconv.Itoa(startLine))
+	// capture-pane does not accept "=session" directly as a pane target, but
+	// "=session:" enforces exact session matching while targeting its active pane.
+	target := exactTarget(sessionName) + ":"
+	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", target, "-S", strconv.Itoa(startLine))
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
