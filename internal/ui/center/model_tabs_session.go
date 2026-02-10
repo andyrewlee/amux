@@ -104,7 +104,24 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	if tab == nil || tab.Workspace == nil {
 		return nil
 	}
+	tab.mu.Lock()
+	detached := tab.Detached
+	reattachInFlight := tab.reattachInFlight
+	sessionName := tab.SessionName
+	if detached && !reattachInFlight {
+		tab.reattachInFlight = true
+	}
+	tab.mu.Unlock()
+	if !detached {
+		return nil
+	}
+	if reattachInFlight {
+		return nil
+	}
 	if m.config == nil || m.config.Assistants == nil {
+		tab.mu.Lock()
+		tab.reattachInFlight = false
+		tab.mu.Unlock()
 		return func() tea.Msg {
 			return messages.Toast{
 				Message: "Tab cannot be reattached",
@@ -113,19 +130,15 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 		}
 	}
 	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+		tab.mu.Lock()
+		tab.reattachInFlight = false
+		tab.mu.Unlock()
 		return func() tea.Msg {
 			return messages.Toast{
 				Message: "Only assistant tabs can be reattached",
 				Level:   messages.ToastInfo,
 			}
 		}
-	}
-	tab.mu.Lock()
-	detached := tab.Detached
-	sessionName := tab.SessionName
-	tab.mu.Unlock()
-	if !detached {
-		return nil
 	}
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
@@ -301,17 +314,40 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	}
 }
 
-func (m *Model) tabSelectionChangedCmd() tea.Cmd {
+func (m *Model) tabSelectionChangedCmd(changed bool) tea.Cmd {
+	if !changed {
+		return nil
+	}
 	wsID := m.workspaceID()
 	if wsID == "" {
 		return nil
 	}
-	return func() tea.Msg {
+	selectionMsg := func() tea.Msg {
 		return messages.TabSelectionChanged{
 			WorkspaceID: wsID,
 			ActiveIndex: m.getActiveTabIdx(),
 		}
 	}
+	return common.SafeBatch(selectionMsg, m.autoReattachActiveTabOnSelection())
+}
+
+func (m *Model) autoReattachActiveTabOnSelection() tea.Cmd {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx < 0 || activeIdx >= len(tabs) {
+		return nil
+	}
+	tab := tabs[activeIdx]
+	if tab == nil {
+		return nil
+	}
+	tab.mu.Lock()
+	detached := tab.Detached
+	tab.mu.Unlock()
+	if !detached {
+		return nil
+	}
+	return m.ReattachActiveTab()
 }
 
 // RestoreTabsFromWorkspace recreates tabs from persisted workspace metadata.

@@ -108,8 +108,13 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneSidebar:
 			a.sidebar.NextTab()
 		default:
+			_, activeIdxBefore := a.center.GetTabsInfo()
 			a.center.NextTab()
-			return true, a.persistActiveWorkspaceTabs()
+			_, activeIdxAfter := a.center.GetTabsInfo()
+			if activeIdxAfter == activeIdxBefore {
+				return true, nil
+			}
+			return true, common.SafeBatch(a.center.ReattachActiveTab(), a.persistActiveWorkspaceTabs())
 		}
 		return true, nil
 
@@ -120,8 +125,13 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneSidebar:
 			a.sidebar.PrevTab()
 		default:
+			_, activeIdxBefore := a.center.GetTabsInfo()
 			a.center.PrevTab()
-			return true, a.persistActiveWorkspaceTabs()
+			_, activeIdxAfter := a.center.GetTabsInfo()
+			if activeIdxAfter == activeIdxBefore {
+				return true, nil
+			}
+			return true, common.SafeBatch(a.center.ReattachActiveTab(), a.persistActiveWorkspaceTabs())
 		}
 		return true, nil
 
@@ -209,8 +219,12 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		r := runes[0]
 		if r >= '1' && r <= '9' {
 			index := int(r - '1')
+			tabs, activeIdx := a.center.GetTabsInfo()
+			if index < 0 || index >= len(tabs) || index == activeIdx {
+				return true, nil
+			}
 			a.center.SelectTab(index)
-			return true, a.persistActiveWorkspaceTabs()
+			return true, common.SafeBatch(a.center.ReattachActiveTab(), a.persistActiveWorkspaceTabs())
 		}
 	}
 

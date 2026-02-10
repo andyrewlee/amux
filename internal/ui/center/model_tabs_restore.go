@@ -84,16 +84,18 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 		ca = time.Now().Unix()
 	}
 	tab := &Tab{
-		ID:            tabID,
-		Name:          displayName,
-		Assistant:     info.Assistant,
-		Workspace:     ws,
-		SessionName:   sessionName,
-		Detached:      true,
-		Running:       false,
-		Terminal:      term,
-		createdAt:     ca,
-		lastFocusedAt: time.Unix(ca, 0),
+		ID:          tabID,
+		Name:        displayName,
+		Assistant:   info.Assistant,
+		Workspace:   ws,
+		SessionName: sessionName,
+		Detached:    true,
+		Running:     false,
+		// Placeholder tabs are immediately queued for async reattach.
+		reattachInFlight: true,
+		Terminal:         term,
+		createdAt:        ca,
+		lastFocusedAt:    time.Unix(ca, 0),
 	}
 	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)

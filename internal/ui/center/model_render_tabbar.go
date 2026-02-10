@@ -221,8 +221,9 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 			case tabHitPlus:
 				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 			case tabHitTab:
+				before := m.getActiveTabIdx()
 				m.setActiveTabIdx(hit.index)
-				return m.tabSelectionChangedCmd()
+				return m.tabSelectionChangedCmd(hit.index != before)
 			}
 		}
 	}

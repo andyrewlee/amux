@@ -58,6 +58,8 @@ type Tab struct {
 	readerActive bool // Guard to ensure only one PTY read loop per tab
 	// readerActiveState mirrors readerActive for lock-free status checks.
 	readerActiveState uint32
+	// reattachInFlight prevents duplicate concurrent reattach attempts.
+	reattachInFlight bool
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
