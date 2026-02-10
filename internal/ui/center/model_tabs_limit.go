@@ -3,6 +3,8 @@ package center
 import (
 	"sort"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // DetachedTabInfo identifies a tab detached by automatic limit enforcement.
@@ -22,10 +24,10 @@ type attachedTabCandidate struct {
 // the number of attached/running chat tabs exceeds maxAttached.
 //
 // The currently focused tab in the active workspace is never auto-detached.
-func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) []DetachedTabInfo {
+func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) ([]DetachedTabInfo, []tea.Cmd) {
 	// 0 means disabled (unlimited attached chat tabs).
 	if maxAttached <= 0 {
-		return nil
+		return nil, nil
 	}
 
 	activeWorkspaceID := m.workspaceID()
@@ -65,7 +67,7 @@ func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) []DetachedTabInfo 
 
 	excess := attachedCount - maxAttached
 	if excess <= 0 || len(candidates) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -91,16 +93,19 @@ func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) []DetachedTabInfo 
 	}
 
 	detached := make([]DetachedTabInfo, 0, excess)
+	var cmds []tea.Cmd
 	for _, candidate := range candidates[:excess] {
 		tab := m.getTabByID(candidate.workspaceID, candidate.tabID)
 		if tab == nil {
 			continue
 		}
-		_ = m.detachTab(tab, candidate.index)
+		if cmd := m.detachTab(tab, candidate.index); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		detached = append(detached, DetachedTabInfo{
 			WorkspaceID: candidate.workspaceID,
 			TabID:       candidate.tabID,
 		})
 	}
-	return detached
+	return detached, cmds
 }

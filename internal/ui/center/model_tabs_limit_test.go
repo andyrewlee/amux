@@ -44,7 +44,7 @@ func TestEnforceAttachedAgentTabLimit_DetachesLeastRecentlyFocused(t *testing.T)
 	m.activeTabByWorkspace[ws1ID] = 1
 	m.workspace = ws1
 
-	detached := m.EnforceAttachedAgentTabLimit(2)
+	detached, _ := m.EnforceAttachedAgentTabLimit(2)
 	if len(detached) != 1 {
 		t.Fatalf("expected 1 detached tab, got %d", len(detached))
 	}
@@ -95,7 +95,7 @@ func TestEnforceAttachedAgentTabLimit_UsesCreatedAtWhenFocusIsUnknown(t *testing
 	m.activeTabByWorkspace[wsID] = 2
 	m.workspace = ws
 
-	detached := m.EnforceAttachedAgentTabLimit(2)
+	detached, _ := m.EnforceAttachedAgentTabLimit(2)
 	if len(detached) != 1 {
 		t.Fatalf("expected 1 detached tab, got %d", len(detached))
 	}

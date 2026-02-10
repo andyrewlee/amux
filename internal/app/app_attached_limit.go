@@ -38,13 +38,14 @@ func (a *App) enforceAttachedAgentTabLimit() []tea.Cmd {
 	if a == nil || a.center == nil || a.maxAttachedAgentTabs <= 0 {
 		return nil
 	}
-	detached := a.center.EnforceAttachedAgentTabLimit(a.maxAttachedAgentTabs)
+	detached, detachCmds := a.center.EnforceAttachedAgentTabLimit(a.maxAttachedAgentTabs)
 	if len(detached) == 0 {
 		return nil
 	}
 	logging.Info("Auto-detached %d chat tabs to enforce attached limit=%d", len(detached), a.maxAttachedAgentTabs)
 	seen := make(map[string]struct{}, len(detached))
-	cmds := make([]tea.Cmd, 0, len(detached))
+	cmds := make([]tea.Cmd, 0, len(detachCmds)+len(detached))
+	cmds = append(cmds, detachCmds...)
 	for _, tab := range detached {
 		wsID := strings.TrimSpace(tab.WorkspaceID)
 		if wsID == "" {

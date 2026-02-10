@@ -281,7 +281,7 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	raw := strings.TrimSpace(string(output))
+	raw := strings.TrimRight(string(output), "\r\n")
 	if raw == "" {
 		return "", nil
 	}

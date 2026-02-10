@@ -59,7 +59,7 @@ func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	raw := strings.TrimSpace(string(output))
+	raw := strings.TrimRight(string(output), "\r\n")
 	if raw == "" {
 		return 0, nil
 	}
