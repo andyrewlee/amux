@@ -8,7 +8,6 @@ func NormalizePath(path string) string {
 		return ""
 	}
 	cleaned := filepath.Clean(path)
-
 	resolved, err := filepath.EvalSymlinks(cleaned)
 	if err != nil {
 		return cleaned

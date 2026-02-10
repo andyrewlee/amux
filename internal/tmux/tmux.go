@@ -437,7 +437,9 @@ func sanitize(value string) string {
 func exactTarget(name string) string { return "=" + name }
 
 // sessionTarget returns a plain session target for commands that do not support
-// "="-prefixed exact targets in tmux 3.6+.
+// "="-prefixed exact targets in tmux 3.6+. It exists as a separate function
+// (rather than using the name directly) to make targeting intent grep-able and
+// symmetric with exactTarget.
 func sessionTarget(name string) string { return name }
 
 func shellQuote(value string) string {

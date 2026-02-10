@@ -39,7 +39,7 @@ func (a *App) enforceAttachedAgentTabLimit() []tea.Cmd {
 		return nil
 	}
 	detached, detachCmds := a.center.EnforceAttachedAgentTabLimit(a.maxAttachedAgentTabs)
-	if len(detached) == 0 {
+	if len(detached) == 0 && len(detachCmds) == 0 {
 		return nil
 	}
 	logging.Info("Auto-detached %d chat tabs to enforce attached limit=%d", len(detached), a.maxAttachedAgentTabs)
