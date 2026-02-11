@@ -168,6 +168,70 @@ func TestWorkspaceStore_FallbackPrefersActiveOverArchived(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_FallbackPrefersNewestCreated(t *testing.T) {
+	storeRoot := t.TempDir()
+	store := NewWorkspaceStore(storeRoot)
+
+	base := t.TempDir()
+	repoDir := filepath.Join(base, "repo")
+	rootDir := filepath.Join(repoDir, ".amux", "workspaces", "feature")
+	if err := os.MkdirAll(rootDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(rootDir) error = %v", err)
+	}
+
+	oldID := WorkspaceID("aaa-old-stale")
+	oldDir := filepath.Join(storeRoot, string(oldID))
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(oldDir) error = %v", err)
+	}
+	oldJSON := `{
+		"name": "feature",
+		"repo": "` + repoDir + `",
+		"root": "` + rootDir + `",
+		"created": "2024-01-01T00:00:00Z",
+		"assistant": "old-assistant"
+	}`
+	if err := os.WriteFile(filepath.Join(oldDir, "workspace.json"), []byte(oldJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(old) error = %v", err)
+	}
+
+	newID := WorkspaceID("zzz-new-stale")
+	newDir := filepath.Join(storeRoot, string(newID))
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(newDir) error = %v", err)
+	}
+	newJSON := `{
+		"name": "feature",
+		"repo": "` + repoDir + `",
+		"root": "` + rootDir + `",
+		"created": "2024-06-01T00:00:00Z",
+		"assistant": "new-assistant"
+	}`
+	if err := os.WriteFile(filepath.Join(newDir, "workspace.json"), []byte(newJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(new) error = %v", err)
+	}
+
+	discovered := &Workspace{
+		Name: "feature",
+		Repo: repoDir,
+		Root: rootDir,
+	}
+	found, err := store.LoadMetadataFor(discovered)
+	if err != nil {
+		t.Fatalf("LoadMetadataFor() error = %v", err)
+	}
+	if !found {
+		t.Fatal("LoadMetadataFor() should have found stored metadata via fallback")
+	}
+	if discovered.Assistant != "new-assistant" {
+		t.Errorf("Assistant = %v, want 'new-assistant'", discovered.Assistant)
+	}
+	expected := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	if !discovered.Created.Equal(expected) {
+		t.Errorf("Created = %v, want %v", discovered.Created, expected)
+	}
+}
+
 func TestWorkspaceStore_ListByRepoCWDIndependent(t *testing.T) {
 	storeRoot := t.TempDir()
 	store := NewWorkspaceStore(storeRoot)
