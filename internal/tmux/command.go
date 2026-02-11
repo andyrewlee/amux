@@ -27,6 +27,9 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 	session := shellQuote(sessionName)
 	exactSession := shellQuote("=" + sessionName)
 	dir := shellQuote(workDir)
+	// Strip tmux-specific vars inside managed panes so a bare `tmux` command
+	// in user shells does not accidentally target the AMUX control server.
+	command = "unset TMUX TMUX_PANE; " + command
 	cmd := shellQuote(command)
 
 	// Use atomic new-session -A to create/attach. Only pass -d when detaching others.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/process"
 )
 
@@ -181,7 +182,10 @@ func KillSession(sessionName string, opts Options) error {
 	if sessionName == "" {
 		return nil
 	}
+	origin := killAuditSource()
+	logging.Info("AUDIT tmux kill-session requested: session=%q server=%q source=%s", sessionName, opts.ServerName, origin)
 	if err := EnsureAvailable(); err != nil {
+		logging.Warn("AUDIT tmux kill-session unavailable: session=%q server=%q source=%s err=%v", sessionName, opts.ServerName, origin, err)
 		return err
 	}
 	// Kill process trees in each pane before killing the session.
@@ -191,17 +195,22 @@ func KillSession(sessionName string, opts Options) error {
 		for _, pid := range pids {
 			_ = process.KillProcessGroup(pid, process.KillOptions{})
 		}
+	} else {
+		logging.Warn("AUDIT tmux kill-session pane PID enumeration failed: session=%q server=%q source=%s err=%v", sessionName, opts.ServerName, origin, err)
 	}
 	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", exactTarget(sessionName))
 	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() == 1 {
+				logging.Info("AUDIT tmux kill-session no-op (already absent): session=%q server=%q source=%s", sessionName, opts.ServerName, origin)
 				return nil
 			}
 		}
+		logging.Warn("AUDIT tmux kill-session failed: session=%q server=%q source=%s err=%v", sessionName, opts.ServerName, origin, err)
 		return err
 	}
+	logging.Info("AUDIT tmux kill-session complete: session=%q server=%q source=%s", sessionName, opts.ServerName, origin)
 	return nil
 }
 
@@ -278,18 +287,27 @@ func ListSessionsMatchingTags(tags map[string]string, opts Options) ([]string, e
 
 // KillSessionsMatchingTags kills sessions that match all provided tags.
 func KillSessionsMatchingTags(tags map[string]string, opts Options) (bool, error) {
+	origin := killAuditSource()
 	sessions, err := ListSessionsMatchingTags(tags, opts)
 	if err != nil {
+		logging.Warn("AUDIT tmux bulk-kill by tags failed to enumerate: tags=%s server=%q source=%s err=%v", formatTags(tags), opts.ServerName, origin, err)
 		return false, err
 	}
 	if len(sessions) == 0 {
+		logging.Info("AUDIT tmux bulk-kill by tags no-op: tags=%s server=%q source=%s", formatTags(tags), opts.ServerName, origin)
 		return false, nil
 	}
+	logging.Info("AUDIT tmux bulk-kill by tags requested: tags=%s matched=%d server=%q source=%s", formatTags(tags), len(sessions), opts.ServerName, origin)
 	var firstErr error
 	for _, name := range sessions {
 		if err := KillSession(name, opts); err != nil && firstErr == nil {
 			firstErr = err
 		}
+	}
+	if firstErr != nil {
+		logging.Warn("AUDIT tmux bulk-kill by tags completed with errors: tags=%s matched=%d server=%q source=%s err=%v", formatTags(tags), len(sessions), opts.ServerName, origin, firstErr)
+	} else {
+		logging.Info("AUDIT tmux bulk-kill by tags complete: tags=%s matched=%d server=%q source=%s", formatTags(tags), len(sessions), opts.ServerName, origin)
 	}
 	return true, firstErr
 }
@@ -327,17 +345,33 @@ func KillSessionsWithPrefix(prefix string, opts Options) error {
 	if prefix == "" {
 		return nil
 	}
+	origin := killAuditSource()
 	sessions, err := ListSessions(opts)
 	if err != nil {
+		logging.Warn("AUDIT tmux bulk-kill by prefix failed to enumerate: prefix=%q server=%q source=%s err=%v", prefix, opts.ServerName, origin, err)
 		return err
 	}
-	var firstErr error
+	var matched []string
 	for _, name := range sessions {
 		if strings.HasPrefix(name, prefix) {
-			if err := KillSession(name, opts); err != nil && firstErr == nil {
-				firstErr = err
-			}
+			matched = append(matched, name)
 		}
+	}
+	if len(matched) == 0 {
+		logging.Info("AUDIT tmux bulk-kill by prefix no-op: prefix=%q server=%q source=%s", prefix, opts.ServerName, origin)
+		return nil
+	}
+	logging.Info("AUDIT tmux bulk-kill by prefix requested: prefix=%q matched=%d server=%q source=%s", prefix, len(matched), opts.ServerName, origin)
+	var firstErr error
+	for _, name := range matched {
+		if err := KillSession(name, opts); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr != nil {
+		logging.Warn("AUDIT tmux bulk-kill by prefix completed with errors: prefix=%q matched=%d server=%q source=%s err=%v", prefix, len(matched), opts.ServerName, origin, firstErr)
+	} else {
+		logging.Info("AUDIT tmux bulk-kill by prefix complete: prefix=%q matched=%d server=%q source=%s", prefix, len(matched), opts.ServerName, origin)
 	}
 	return firstErr
 }

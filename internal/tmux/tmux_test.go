@@ -169,6 +169,11 @@ func TestClientCommandWithOptions(t *testing.T) {
 	if !strings.Contains(cmd, "-L 'test-server'") {
 		t.Error("Command should include server name")
 	}
+	// Should clear TMUX vars in pane commands so bare tmux CLI calls do not
+	// control the AMUX server by accident.
+	if !strings.Contains(cmd, "sh -lc 'unset TMUX TMUX_PANE; echo hello'") {
+		t.Error("Command should unset TMUX variables before running pane command")
+	}
 }
 
 func TestClientCommandWithTags(t *testing.T) {
@@ -351,5 +356,24 @@ func TestCapturePaneNonexistentSession(t *testing.T) {
 	// Should return an error (session doesn't exist)
 	if err == nil {
 		t.Error("CapturePane with nonexistent session should return an error")
+	}
+}
+
+func TestFormatTagsStableOrder(t *testing.T) {
+	got := formatTags(map[string]string{
+		"@amux_workspace": "ws-1",
+		"@amux":           "1",
+		"@amux_tab":       "tab-2",
+	})
+	want := `{@amux="1", @amux_tab="tab-2", @amux_workspace="ws-1"}`
+	if got != want {
+		t.Errorf("formatTags() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatTagsEmpty(t *testing.T) {
+	got := formatTags(nil)
+	if got != "{}" {
+		t.Errorf(`formatTags(nil) = %q, want "{}"`, got)
 	}
 }
