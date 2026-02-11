@@ -2,9 +2,11 @@ package data
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -86,6 +88,7 @@ func (r *Registry) loadUnlocked() ([]string, error) {
 }
 
 func (r *Registry) saveUnlocked(paths []string) error {
+	paths = normalizeAndDedupeProjectPaths(paths)
 	dir := filepath.Dir(r.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -123,6 +126,10 @@ func (r *Registry) saveUnlocked(paths []string) error {
 func (r *Registry) AddProject(path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	path = canonicalProjectPath(path)
+	if path == "" {
+		return errors.New("project path is required")
+	}
 
 	lockFile, err := lockRegistryFile(r.lockPath(), false)
 	if err != nil {
@@ -137,7 +144,7 @@ func (r *Registry) AddProject(path string) error {
 
 	// Check if already exists
 	for _, p := range paths {
-		if p == path {
+		if canonicalProjectPath(p) == path {
 			return nil // Already registered
 		}
 	}
@@ -150,6 +157,10 @@ func (r *Registry) AddProject(path string) error {
 func (r *Registry) RemoveProject(path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	path = canonicalProjectPath(path)
+	if path == "" {
+		return errors.New("project path is required")
+	}
 
 	lockFile, err := lockRegistryFile(r.lockPath(), false)
 	if err != nil {
@@ -165,7 +176,7 @@ func (r *Registry) RemoveProject(path string) error {
 	// Filter out the path
 	var newPaths []string
 	for _, p := range paths {
-		if p != path {
+		if canonicalProjectPath(p) != path {
 			newPaths = append(newPaths, p)
 		}
 	}
@@ -210,4 +221,35 @@ func parseRegistryData(data []byte, path string) ([]string, error) {
 	}
 
 	return paths, nil
+}
+
+func canonicalProjectPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(path)
+	if abs, err := filepath.Abs(cleaned); err == nil {
+		cleaned = abs
+	}
+	return filepath.Clean(cleaned)
+}
+
+func normalizeAndDedupeProjectPaths(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+
+	for _, path := range paths {
+		canonical := canonicalProjectPath(path)
+		if canonical == "" {
+			continue
+		}
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		out = append(out, canonical)
+	}
+
+	return out
 }

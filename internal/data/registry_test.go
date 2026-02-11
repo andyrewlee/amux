@@ -91,6 +91,112 @@ func TestRegistry_RemoveProject(t *testing.T) {
 	}
 }
 
+func TestRegistry_SaveNormalizesAndDedupesPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	repoReal := filepath.Join(tmpDir, "repo")
+	if err := os.MkdirAll(repoReal, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoReal) error = %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	if err := r.Save([]string{repoReal, filepath.Join(repoReal, "."), "   "}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	paths, err := r.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 normalized path, got %d (%v)", len(paths), paths)
+	}
+	if canonicalProjectPath(paths[0]) != canonicalProjectPath(repoReal) {
+		t.Fatalf("path = %q, want canonical %q", paths[0], repoReal)
+	}
+}
+
+func TestRegistry_AddProjectUsesCanonicalIdentity(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	repoReal := filepath.Join(tmpDir, "repo")
+	if err := os.MkdirAll(repoReal, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoReal) error = %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(repoReal); err != nil {
+		t.Fatalf("AddProject(repoReal) error = %v", err)
+	}
+	if err := r.AddProject(filepath.Join(repoReal, ".")); err != nil {
+		t.Fatalf("AddProject(normalized duplicate) error = %v", err)
+	}
+
+	paths, err := r.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 canonical project after duplicate add, got %d (%v)", len(paths), paths)
+	}
+}
+
+func TestRegistry_RemoveProjectUsesCanonicalIdentity(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	repoReal := filepath.Join(tmpDir, "repo")
+	if err := os.MkdirAll(repoReal, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoReal) error = %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(repoReal); err != nil {
+		t.Fatalf("AddProject(repoReal) error = %v", err)
+	}
+	if err := r.RemoveProject(filepath.Join(repoReal, ".")); err != nil {
+		t.Fatalf("RemoveProject(normalized path) error = %v", err)
+	}
+
+	paths, err := r.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("expected registry to be empty after canonical remove, got %v", paths)
+	}
+}
+
+func TestRegistry_AddProjectRejectsEmptyPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	r := NewRegistry(registryPath)
+
+	if err := r.AddProject("   "); err == nil {
+		t.Fatalf("expected AddProject to reject empty path")
+	}
+}
+
+func TestRegistry_RemoveProjectRejectsEmptyPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	r := NewRegistry(registryPath)
+	if err := r.Save([]string{"/path/to/project"}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	if err := r.RemoveProject(" "); err == nil {
+		t.Fatalf("expected RemoveProject to reject empty path")
+	}
+
+	paths, err := r.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected registry unchanged after rejected remove, got %v", paths)
+	}
+}
+
 func TestRegistry_LoadLegacyFormat(t *testing.T) {
 	tmpDir := t.TempDir()
 	registryPath := filepath.Join(tmpDir, "projects.json")
