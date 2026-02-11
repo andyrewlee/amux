@@ -75,6 +75,9 @@ func (a *App) handleSpinnerTick(msg dashboard.SpinnerTickMsg) []tea.Cmd {
 		cmds = append(cmds, startCmd)
 	}
 	a.center.TickSpinner()
+	if a.creationOverlay != nil && a.creationOverlay.Visible() {
+		a.creationOverlay.TickSpinner()
+	}
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
 	if cmd != nil {

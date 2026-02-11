@@ -321,6 +321,23 @@ func (a *App) addProject(path string) tea.Cmd {
 	}
 }
 
+// fetchRemoteBase fetches the remote base branch asynchronously and returns a WorkspaceFetchDone message.
+func (a *App) fetchRemoteBase(project *data.Project, name string, allowEdits bool) tea.Cmd {
+	proj := project
+	return func() tea.Msg {
+		base, err := git.GetFreshRemoteBase(proj.Path)
+		if err != nil {
+			base = "HEAD"
+		}
+		return messages.WorkspaceFetchDone{
+			Project:    proj,
+			Name:       name,
+			Base:       base,
+			AllowEdits: allowEdits,
+		}
+	}
+}
+
 // createWorkspace creates a new workspace
 func (a *App) createWorkspace(project *data.Project, name, base string, allowEdits bool) tea.Cmd {
 	return func() (msg tea.Msg) {

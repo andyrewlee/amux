@@ -2,13 +2,38 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/medusa/internal/data"
 	"github.com/andyrewlee/medusa/internal/logging"
 	"github.com/andyrewlee/medusa/internal/messages"
 	"github.com/andyrewlee/medusa/internal/tmux"
 )
+
+// handleWorkspaceFetchDone handles the WorkspaceFetchDone message (step 1 of creation).
+func (a *App) handleWorkspaceFetchDone(msg messages.WorkspaceFetchDone) []tea.Cmd {
+	var cmds []tea.Cmd
+	// Advance overlay to step 1 ("Creating worktree")
+	if a.creationOverlay != nil {
+		a.creationOverlay.AdvanceStep()
+	}
+	// Show the "creating" indicator in the dashboard
+	if msg.Project != nil && msg.Name != "" {
+		workspacePath := filepath.Join(
+			a.config.Paths.WorkspacesRoot,
+			msg.Project.Name,
+			msg.Name,
+		)
+		pending := data.NewWorkspace(msg.Name, msg.Name, msg.Base, msg.Project.Path, workspacePath)
+		if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base, msg.AllowEdits))
+	return cmds
+}
 
 // handleRenameWorkspace handles the RenameWorkspace message.
 func (a *App) handleRenameWorkspace(msg messages.RenameWorkspace) tea.Cmd {
@@ -201,6 +226,7 @@ func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWit
 
 // handleWorkspaceCreated handles the WorkspaceCreated message.
 func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
+	a.creationOverlay = nil
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
@@ -226,6 +252,7 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 
 // handleWorkspaceCreateFailed handles the WorkspaceCreateFailed message.
 func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) tea.Cmd {
+	a.creationOverlay = nil
 	if msg.Workspace != nil {
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			return cmd

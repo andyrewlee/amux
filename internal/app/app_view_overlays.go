@@ -68,6 +68,15 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		canvas.Compose(editorDrawable)
 	}
 
+	// Creation progress overlay
+	if a.creationOverlay != nil && a.creationOverlay.Visible() {
+		overlayView := a.creationOverlay.View()
+		overlayWidth, overlayHeight := viewDimensions(overlayView)
+		x, y := a.centeredPosition(overlayWidth, overlayHeight)
+		overlayDrawable := compositor.NewStringDrawable(overlayView, x, y)
+		canvas.Compose(overlayDrawable)
+	}
+
 	// Profile manager overlay
 	if a.profileManager != nil && a.profileManager.Visible() {
 		managerView := a.profileManager.View()

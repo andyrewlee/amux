@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -134,14 +135,14 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			allowEdits := result.CheckboxValue
 			a.config.UI.LastAllowEdits = allowEdits
 			_ = a.config.SaveUISettings()
-			return func() tea.Msg {
-				return messages.CreateWorkspace{
-					Project:    project,
-					Name:       name,
-					Base:       "HEAD",
-					AllowEdits: allowEdits,
-				}
-			}
+			// Show progress overlay and start async fetch
+			a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
+				"Fetching latest changes",
+				"Creating worktree",
+			})
+			a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
+			a.creationOverlay.SetSize(a.width, a.height)
+			return a.fetchRemoteBase(project, name, allowEdits)
 		}
 
 	case DialogDeleteWorkspace:

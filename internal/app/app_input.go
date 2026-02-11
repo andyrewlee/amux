@@ -98,6 +98,16 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
+	// Block input while creation overlay is visible
+	if a.creationOverlay != nil && a.creationOverlay.Visible() {
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+	}
+
 	// Handle dialog input if visible
 	if a.dialog != nil && a.dialog.Visible() {
 		newDialog, cmd := a.dialog.Update(msg)
@@ -231,6 +241,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update help overlay size for accurate hit-testing after resize
 		if a.helpOverlay.Visible() {
 			a.helpOverlay.SetSize(a.width, a.height)
+		}
+		if a.creationOverlay != nil {
+			a.creationOverlay.SetSize(a.width, a.height)
 		}
 
 	case tea.MouseClickMsg:
@@ -450,6 +463,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handleSettingsResult(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+
+	case messages.WorkspaceFetchDone:
+		cmds = append(cmds, a.handleWorkspaceFetchDone(msg)...)
 
 	case messages.CreateWorkspace:
 		cmds = append(cmds, a.handleCreateWorkspace(msg)...)
@@ -830,10 +846,26 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if group != nil {
-			cmds = append(cmds, a.createGroupWorkspace(group, msg.Name, msg.AllowEdits, msg.LoadClaudeMD))
+			a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
+				"Fetching latest changes",
+				"Creating worktrees",
+			})
+			if len(group.Repos) > 0 {
+				a.creationOverlay.SetStepDetail(group.Repos[0].Name)
+			}
+			a.creationOverlay.SetSize(a.width, a.height)
+			if cmd := a.dashboard.SetForceSpinner(true); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			cmds = append(cmds, a.fetchFirstGroupBase(group, msg.Name, msg.AllowEdits, msg.LoadClaudeMD))
 		}
 
+	case messages.GroupRepoFetchDone:
+		cmds = append(cmds, a.handleGroupRepoFetchDone(msg)...)
+
 	case messages.GroupWorkspaceCreated:
+		a.creationOverlay = nil
+		a.dashboard.SetForceSpinner(false)
 		cmds = append(cmds, a.toast.ShowSuccess("Group workspace created"))
 		if msg.Workspace != nil {
 			a.pendingGroupAutoLaunch = msg.Workspace.Name
@@ -841,6 +873,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.loadGroups())
 
 	case messages.GroupWorkspaceCreateFailed:
+		a.creationOverlay = nil
+		a.dashboard.SetForceSpinner(false)
 		errMsg := "Failed to create group workspace"
 		if msg.Err != nil {
 			errMsg += ": " + msg.Err.Error()

@@ -2,10 +2,50 @@ package git
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/andyrewlee/medusa/internal/logging"
 )
+
+// FetchStalenessThreshold is how old FETCH_HEAD can be before we re-fetch.
+const FetchStalenessThreshold = 10 * time.Minute
+
+// getGitDir returns the absolute path to the .git directory for a repo or worktree.
+func getGitDir(repoPath string) string {
+	out, err := RunGit(repoPath, "rev-parse", "--git-dir")
+	if err != nil {
+		return ""
+	}
+	if filepath.IsAbs(out) {
+		return out
+	}
+	return filepath.Join(repoPath, out)
+}
+
+// isFetchStale returns true if FETCH_HEAD is missing or older than FetchStalenessThreshold.
+func isFetchStale(repoPath string) bool {
+	gitDir := getGitDir(repoPath)
+	if gitDir == "" {
+		return true
+	}
+	info, err := os.Stat(filepath.Join(gitDir, "FETCH_HEAD"))
+	if err != nil {
+		return true
+	}
+	return time.Since(info.ModTime()) > FetchStalenessThreshold
+}
+
+// FetchIfStale runs "git fetch origin" if FETCH_HEAD is missing or stale.
+func FetchIfStale(repoPath string) error {
+	if !isFetchStale(repoPath) {
+		return nil
+	}
+	_, err := RunGit(repoPath, "fetch", "origin")
+	return err
+}
 
 // RepoSpec describes how to create a worktree for one repo within a group.
 type RepoSpec struct {

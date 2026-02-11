@@ -22,11 +22,20 @@ func (m *Model) startSpinnerIfNeeded() tea.Cmd {
 	if m.spinnerActive {
 		return nil
 	}
-	if len(m.creatingWorkspaces) == 0 && len(m.deletingWorkspaces) == 0 && !m.hasActiveAgents() {
+	if len(m.creatingWorkspaces) == 0 && len(m.deletingWorkspaces) == 0 && !m.hasActiveAgents() && !m.forceSpinner {
 		return nil
 	}
 	m.spinnerActive = true
 	return m.tickSpinner()
+}
+
+// SetForceSpinner forces the spinner to stay active regardless of other state.
+func (m *Model) SetForceSpinner(force bool) tea.Cmd {
+	m.forceSpinner = force
+	if force {
+		return m.startSpinnerIfNeeded()
+	}
+	return nil
 }
 
 // hasActiveAgents returns true if any workspace has an actively processing agent.
