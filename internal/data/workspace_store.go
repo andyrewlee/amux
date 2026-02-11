@@ -2,9 +2,12 @@ package data
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -27,6 +30,10 @@ func NewWorkspaceStore(root string) *WorkspaceStore {
 // workspacePath returns the path to the workspace file for a workspace ID
 func (s *WorkspaceStore) workspacePath(id WorkspaceID) string {
 	return filepath.Join(s.root, string(id), workspaceFilename)
+}
+
+func (s *WorkspaceStore) workspaceLockPath(id WorkspaceID) string {
+	return filepath.Join(s.root, string(id)+".lock")
 }
 
 // List returns all workspace IDs stored in the store
@@ -55,6 +62,9 @@ func (s *WorkspaceStore) List() ([]WorkspaceID, error) {
 
 // Load loads a workspace by its ID
 func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
+	if err := validateWorkspaceID(id); err != nil {
+		return nil, err
+	}
 	path := s.workspacePath(id)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -94,9 +104,28 @@ func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
 
 // Save saves a workspace to the store using atomic write
 func (s *WorkspaceStore) Save(ws *Workspace) error {
+	if err := validateWorkspaceForSave(ws); err != nil {
+		return err
+	}
 	id := ws.ID()
+	oldID := ws.storeID
+	if oldID == id {
+		oldID = ""
+	}
+	if oldID != "" {
+		if err := validateWorkspaceID(oldID); err != nil {
+			logging.Warn("Skipping cleanup for invalid old workspace metadata id %q: %v", oldID, err)
+			oldID = ""
+		}
+	}
 	path := s.workspacePath(id)
 	dir := filepath.Dir(path)
+
+	lockFiles, err := s.lockWorkspaceIDs(id, oldID)
+	if err != nil {
+		return err
+	}
+	defer unlockRegistryFiles(lockFiles)
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -116,9 +145,9 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 		os.Remove(tempPath) // Clean up temp file on rename failure
 		return err
 	}
-	if ws.storeID != "" && ws.storeID != id {
-		if err := s.Delete(ws.storeID); err != nil {
-			logging.Warn("Failed to remove old workspace metadata %s: %v", ws.storeID, err)
+	if oldID != "" {
+		if err := s.deleteWorkspaceDir(oldID); err != nil {
+			logging.Warn("Failed to remove old workspace metadata %s: %v", oldID, err)
 		}
 	}
 	ws.storeID = id
@@ -127,8 +156,15 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 
 // Delete removes a workspace from the store
 func (s *WorkspaceStore) Delete(id WorkspaceID) error {
-	dir := filepath.Join(s.root, string(id))
-	return os.RemoveAll(dir)
+	if err := validateWorkspaceID(id); err != nil {
+		return err
+	}
+	lockFiles, err := s.lockWorkspaceIDs(id)
+	if err != nil {
+		return err
+	}
+	defer unlockRegistryFiles(lockFiles)
+	return s.deleteWorkspaceDir(id)
 }
 
 // ListByRepo returns all workspaces for a given repository path
@@ -142,6 +178,9 @@ func (s *WorkspaceStore) ListByRepo(repoPath string) ([]*Workspace, error) {
 // Returns (false, nil) if no metadata file exists (safe to apply defaults).
 // Returns (false, err) if metadata exists but couldn't be read (don't overwrite).
 func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
+	if ws == nil {
+		return false, errors.New("workspace is required")
+	}
 	stored, _, err := s.findStoredWorkspace(ws.Repo, ws.Root)
 	if err != nil {
 		return false, err
@@ -367,4 +406,74 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 	}
 
 	return workspaces, nil
+}
+
+func (s *WorkspaceStore) lockWorkspaceIDs(ids ...WorkspaceID) ([]*os.File, error) {
+	unique := make(map[WorkspaceID]struct{}, len(ids))
+	ordered := make([]WorkspaceID, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if err := validateWorkspaceID(id); err != nil {
+			return nil, err
+		}
+		if _, ok := unique[id]; ok {
+			continue
+		}
+		unique[id] = struct{}{}
+		ordered = append(ordered, id)
+	}
+
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i] < ordered[j]
+	})
+
+	locks := make([]*os.File, 0, len(ordered))
+	for _, id := range ordered {
+		lockFile, err := lockRegistryFile(s.workspaceLockPath(id), false)
+		if err != nil {
+			unlockRegistryFiles(locks)
+			return nil, err
+		}
+		locks = append(locks, lockFile)
+	}
+	return locks, nil
+}
+
+func unlockRegistryFiles(files []*os.File) {
+	for _, file := range files {
+		unlockRegistryFile(file)
+	}
+}
+
+func (s *WorkspaceStore) deleteWorkspaceDir(id WorkspaceID) error {
+	dir := filepath.Join(s.root, string(id))
+	return os.RemoveAll(dir)
+}
+
+func validateWorkspaceID(id WorkspaceID) error {
+	value := strings.TrimSpace(string(id))
+	if value == "" {
+		return errors.New("workspace id is required")
+	}
+	if strings.Contains(value, "..") || strings.ContainsAny(value, `/\`) {
+		return fmt.Errorf("invalid workspace id %q", id)
+	}
+	return nil
+}
+
+func validateWorkspaceForSave(ws *Workspace) error {
+	if ws == nil {
+		return errors.New("workspace is required")
+	}
+	repo := NormalizePath(strings.TrimSpace(ws.Repo))
+	if repo == "" {
+		return errors.New("workspace repo is required")
+	}
+	root := NormalizePath(strings.TrimSpace(ws.Root))
+	if root == "" {
+		return errors.New("workspace root is required")
+	}
+	return nil
 }

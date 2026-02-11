@@ -3,6 +3,7 @@ package data
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -360,5 +361,86 @@ func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
 	}
 	if len(workspaces) != 1 {
 		t.Fatalf("expected 1 workspace after symlink normalization, got %d", len(workspaces))
+	}
+}
+
+func TestWorkspaceStore_LoadRejectsInvalidWorkspaceID(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	if _, err := store.Load(""); err == nil {
+		t.Fatalf("expected Load to reject empty workspace id")
+	}
+	if _, err := store.Load(WorkspaceID("../escape")); err == nil {
+		t.Fatalf("expected Load to reject traversal workspace id")
+	}
+}
+
+func TestWorkspaceStore_DeleteWaitsForWorkspaceLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows lock implementation is best-effort")
+	}
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	ws := &Workspace{
+		Name: "locked-delete",
+		Repo: "/home/user/repo",
+		Root: "/home/user/.amux/workspaces/locked-delete",
+	}
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	id := ws.ID()
+	lockFile, err := lockRegistryFile(store.workspaceLockPath(id), false)
+	if err != nil {
+		t.Fatalf("lockRegistryFile() error = %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- store.Delete(id)
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("Delete() should block on held lock, got %v", err)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: delete blocks until lock is released.
+	}
+
+	unlockRegistryFile(lockFile)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Delete() did not complete after lock release")
+	}
+
+	if _, err := os.Stat(filepath.Join(root, string(id))); !os.IsNotExist(err) {
+		t.Fatalf("expected workspace directory removed, stat err=%v", err)
+	}
+}
+
+func TestWorkspaceStore_DeleteRejectsInvalidWorkspaceID(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+	marker := filepath.Join(root, "marker.txt")
+	if err := os.WriteFile(marker, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if err := store.Delete(""); err == nil {
+		t.Fatalf("expected Delete to reject empty workspace id")
+	}
+	if err := store.Delete(WorkspaceID("../escape")); err == nil {
+		t.Fatalf("expected Delete to reject traversal workspace id")
+	}
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("expected metadata root to remain intact, stat err=%v", err)
 	}
 }
