@@ -55,7 +55,7 @@ const (
 
 // Prefix mode constants
 const (
-	prefixTimeout = 700 * time.Millisecond
+	prefixTimeout = 1500 * time.Millisecond
 )
 
 // prefixTimeoutMsg is sent when the prefix mode timer expires
