@@ -233,7 +233,6 @@ func TestCmdAgentSendProcessJobPreservesFIFOOrder(t *testing.T) {
 			"test-v1",
 		)
 	}()
-	time.Sleep(25 * time.Millisecond)
 	go func() {
 		defer wg.Done()
 		var out, errOut bytes.Buffer
@@ -276,10 +275,13 @@ func normalizeJobCreatedAt(store *sendJobStore, firstID, secondID string) error 
 	first := state.Jobs[firstID]
 	second := state.Jobs[secondID]
 	now := time.Now().Unix()
-	first.CreatedAt = now - 1
-	first.UpdatedAt = now - 1
+	first.Sequence = 1
+	first.CreatedAt = now
+	first.UpdatedAt = now
+	second.Sequence = 2
 	second.CreatedAt = now
 	second.UpdatedAt = now
+	state.NextSequence = 2
 	state.Jobs[firstID] = first
 	state.Jobs[secondID] = second
 	return store.saveState(state)

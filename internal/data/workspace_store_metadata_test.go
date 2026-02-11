@@ -191,6 +191,48 @@ func TestWorkspaceStore_LoadMetadataFor_PreservesExistingAssistantWhenStoredEmpt
 	}
 }
 
+func TestWorkspaceStore_LoadMetadataFor_FallbackLookupPreservesExistingAssistantWhenStoredEmpty(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+	store.SetDefaultAssistant("claude")
+
+	discovered := &Workspace{
+		Name:      "test-ws",
+		Branch:    "test",
+		Repo:      "/repo",
+		Root:      "/root",
+		Assistant: "openclaw",
+	}
+
+	legacyID := WorkspaceID("legacy_test_ws_id")
+	dir := filepath.Join(root, string(legacyID))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	legacyMetadata := `{
+		"name": "test-ws",
+		"branch": "test",
+		"repo": "/repo",
+		"root": "/root",
+		"assistant": ""
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(legacyMetadata), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	found, err := store.LoadMetadataFor(discovered)
+	if err != nil {
+		t.Fatalf("LoadMetadataFor() error = %v", err)
+	}
+	if !found {
+		t.Fatal("LoadMetadataFor() should have found metadata via fallback lookup")
+	}
+	if discovered.Assistant != "openclaw" {
+		t.Errorf("Assistant = %v, want 'openclaw'", discovered.Assistant)
+	}
+}
+
 func TestWorkspaceStore_UpsertFromDiscovery_PreservesDiscoveredAssistantWhenStoredEmpty(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

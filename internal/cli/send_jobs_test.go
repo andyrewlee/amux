@@ -235,6 +235,62 @@ func TestWaitForSessionQueueTurnForJobReturnsWhenCanceledBehindQueue(t *testing.
 	}
 }
 
+func TestSendJobStoreNextQueuedJobUsesSequenceWhenCreatedAtMatches(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	store, err := newSendJobStore()
+	if err != nil {
+		t.Fatalf("newSendJobStore() error = %v", err)
+	}
+	first, err := store.create("session-a", "")
+	if err != nil {
+		t.Fatalf("store.create(first) error = %v", err)
+	}
+	second, err := store.create("session-a", "")
+	if err != nil {
+		t.Fatalf("store.create(second) error = %v", err)
+	}
+
+	lockFile, err := lockIdempotencyFile(store.lockPath(), false)
+	if err != nil {
+		t.Fatalf("lockIdempotencyFile() error = %v", err)
+	}
+	state, err := store.loadState()
+	if err != nil {
+		unlockIdempotencyFile(lockFile)
+		t.Fatalf("store.loadState() error = %v", err)
+	}
+
+	now := time.Now().Unix()
+	firstJob := state.Jobs[first.ID]
+	secondJob := state.Jobs[second.ID]
+	firstJob.CreatedAt = now
+	firstJob.UpdatedAt = now
+	firstJob.Sequence = 20
+	secondJob.CreatedAt = now
+	secondJob.UpdatedAt = now
+	secondJob.Sequence = 10
+	state.NextSequence = 20
+	state.Jobs[first.ID] = firstJob
+	state.Jobs[second.ID] = secondJob
+	if err := store.saveState(state); err != nil {
+		unlockIdempotencyFile(lockFile)
+		t.Fatalf("store.saveState() error = %v", err)
+	}
+	unlockIdempotencyFile(lockFile)
+
+	head, ok, err := store.nextQueuedJobForSession("session-a")
+	if err != nil {
+		t.Fatalf("store.nextQueuedJobForSession() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected queued job head")
+	}
+	if head.ID != second.ID {
+		t.Fatalf("head job = %s, want %s (lower sequence first)", head.ID, second.ID)
+	}
+}
+
 func makeJobStale(store *sendJobStore, jobID string, status sendJobStatus) error {
 	lockFile, err := lockIdempotencyFile(store.lockPath(), false)
 	if err != nil {

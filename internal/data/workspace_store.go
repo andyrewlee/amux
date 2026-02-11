@@ -377,7 +377,7 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 	var bestWS *Workspace
 	var bestID WorkspaceID
 	for _, id := range ids {
-		candidate, err := s.Load(id)
+		candidate, err := s.load(id, false)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				logging.Warn("Skipping unreadable workspace metadata %s during fallback lookup: %v", id, err)

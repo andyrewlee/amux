@@ -243,7 +243,7 @@ func writeJSONEnvelopeWithIdempotency(
 
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return ExitOK
+		return exitCode
 	}
 	if !gf.JSON {
 		return exitCode

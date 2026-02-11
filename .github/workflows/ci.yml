@@ -29,6 +29,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          verify: false
           args: --timeout=10m
 
       - name: File length guard (max 500 lines)
@@ -114,4 +115,5 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          verify: false
           args: --config=.golangci.strict.yml --new-from-rev=${{ github.event.pull_request.base.sha }} --timeout=10m

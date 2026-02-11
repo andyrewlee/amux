@@ -40,14 +40,16 @@ type sendJob struct {
 	AgentID     string        `json:"agent_id,omitempty"`
 	Status      sendJobStatus `json:"status"`
 	Error       string        `json:"error,omitempty"`
+	Sequence    int64         `json:"sequence,omitempty"`
 	CreatedAt   int64         `json:"created_at"`
 	UpdatedAt   int64         `json:"updated_at"`
 	CompletedAt int64         `json:"completed_at,omitempty"`
 }
 
 type sendJobState struct {
-	Version int                `json:"version"`
-	Jobs    map[string]sendJob `json:"jobs"`
+	Version      int                `json:"version"`
+	NextSequence int64              `json:"next_sequence,omitempty"`
+	Jobs         map[string]sendJob `json:"jobs"`
 }
 
 type sendJobStore struct {
@@ -120,6 +122,7 @@ func (s *sendJobStore) create(sessionName, agentID string) (sendJob, error) {
 		SessionName: sessionName,
 		AgentID:     agentID,
 		Status:      sendJobPending,
+		Sequence:    nextSendJobSequence(state),
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -460,6 +463,9 @@ func sendJobComesBefore(candidate, existing sendJob) bool {
 	}
 	if candidate.CreatedAt > existing.CreatedAt {
 		return false
+	}
+	if candidate.Sequence > 0 && existing.Sequence > 0 && candidate.Sequence != existing.Sequence {
+		return candidate.Sequence < existing.Sequence
 	}
 	return candidate.ID < existing.ID
 }

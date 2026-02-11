@@ -162,3 +162,29 @@ func TestIdempotencyReplaySkipsExpiredEntries(t *testing.T) {
 		t.Fatalf("expected no stderr output, got %q", errOut.String())
 	}
 }
+
+func TestWriteJSONEnvelopeWithIdempotencyNoKeyPreservesExitCode(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := writeJSONEnvelopeWithIdempotency(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		"test-v1",
+		"agent.send",
+		"",
+		ExitInternalError,
+		errorEnvelope("send_failed", "send failed", nil, "test-v1"),
+	)
+	if code != ExitInternalError {
+		t.Fatalf("code = %d, want %d", code, ExitInternalError)
+	}
+	if out.Len() == 0 {
+		t.Fatalf("expected envelope output")
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", errOut.String())
+	}
+}
