@@ -11,7 +11,7 @@ import (
 // View renders the project tree
 func (m *ProjectTree) View() string {
 	if m.workspace == nil {
-		return m.renderWithHelp(m.styles.Muted.Render("No workspace selected"))
+		return m.renderWithHelp(m.styles.Muted.Render("No worktree selected"))
 	}
 
 	if len(m.flatNodes) == 0 {

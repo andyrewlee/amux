@@ -390,7 +390,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowSetProfileDialog:
 		if a.projectHasActiveSessions(msg.Project) {
-			cmds = append(cmds, a.toast.ShowError("Cannot change profile while workspaces have active sessions"))
+			cmds = append(cmds, a.toast.ShowError("Cannot change profile while worktrees have active sessions"))
 			break
 		}
 		a.handleShowSetProfileDialog(msg)
@@ -677,7 +677,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.handleWorkspaceDeleted(msg)...)
 
 	case messages.ProjectRemoved:
-		cmds = append(cmds, a.toast.ShowSuccess("Project removed"))
+		cmds = append(cmds, a.toast.ShowSuccess("Workspace removed"))
 		cmds = append(cmds, a.loadProjects())
 
 	case messages.WorkspaceDeleteFailed:
@@ -779,7 +779,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.createGroup(msg.Name, msg.RepoPaths, msg.Profile))
 
 	case messages.GroupCreated:
-		cmds = append(cmds, a.toast.ShowSuccess("Group '"+msg.Name+"' created"))
+		cmds = append(cmds, a.toast.ShowSuccess("Workspace '"+msg.Name+"' created"))
 		cmds = append(cmds, a.loadGroups())
 		cmds = append(cmds, a.loadProjects())
 
@@ -815,7 +815,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.removeGroup(msg.Name))
 
 	case messages.GroupRemoved:
-		cmds = append(cmds, a.toast.ShowSuccess("Group removed"))
+		cmds = append(cmds, a.toast.ShowSuccess("Workspace removed"))
 		cmds = append(cmds, a.loadGroups())
 
 	case messages.ShowCreateGroupWorkspaceDialog:
@@ -834,14 +834,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.GroupWorkspaceCreated:
-		cmds = append(cmds, a.toast.ShowSuccess("Group workspace created"))
+		cmds = append(cmds, a.toast.ShowSuccess("Worktree created"))
 		if msg.Workspace != nil {
 			a.pendingGroupAutoLaunch = msg.Workspace.Name
 		}
 		cmds = append(cmds, a.loadGroups())
 
 	case messages.GroupWorkspaceCreateFailed:
-		errMsg := "Failed to create group workspace"
+		errMsg := "Failed to create worktree"
 		if msg.Err != nil {
 			logging.Error("group workspace creation failed: %v", msg.Err)
 			errMsg += ": " + msg.Err.Error()
@@ -894,11 +894,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Clean up the persisted tab state for the Primary workspace
 			_ = a.workspaces.Delete(msg.Workspace.Primary.ID())
 		}
-		cmds = append(cmds, a.toast.ShowSuccess("Group workspace deleted"))
+		cmds = append(cmds, a.toast.ShowSuccess("Worktree deleted"))
 		cmds = append(cmds, a.loadGroups())
 
 	case messages.GroupWorkspaceDeleteFailed:
-		errMsg := "Failed to delete group workspace"
+		errMsg := "Failed to delete worktree"
 		if msg.Err != nil {
 			errMsg += ": " + msg.Err.Error()
 		}
@@ -912,7 +912,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowSetGroupProfileDialog:
 		if a.groupHasActiveSessions(msg.Group) {
-			cmds = append(cmds, a.toast.ShowError("Cannot change profile while workspaces have active sessions"))
+			cmds = append(cmds, a.toast.ShowError("Cannot change profile while worktrees have active sessions"))
 			break
 		}
 		a.handleShowSetGroupProfileDialog(msg)
@@ -932,7 +932,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowEditGroupReposDialog:
 		if a.groupHasActiveSessions(msg.Group) {
-			cmds = append(cmds, a.toast.ShowError("Cannot edit repos while workspaces have active sessions"))
+			cmds = append(cmds, a.toast.ShowError("Cannot edit repos while worktrees have active sessions"))
 			break
 		}
 		a.handleShowEditGroupReposDialog(msg.Group)
@@ -943,7 +943,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.GroupReposUpdated:
-		cmds = append(cmds, a.toast.ShowSuccess("Group repos updated"))
+		cmds = append(cmds, a.toast.ShowSuccess("Workspace repos updated"))
 		cmds = append(cmds, a.loadGroups())
 
 	default:
