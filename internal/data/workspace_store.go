@@ -369,15 +369,24 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		return nil, err
 	}
 
-	targetRepo := NormalizePath(repoPath)
+	targetRepo := canonicalLookupPath(repoPath)
 	var workspaces []*Workspace
 	seen := make(map[string]int)
 	var loadErrors int
+	var targetLoadErrors int
+	var unknownLoadErrors int
 	for _, id := range ids {
 		ws, err := s.Load(id)
 		if err != nil {
 			logging.Warn("Failed to load workspace %s: %v", id, err)
 			loadErrors++
+			if repo, ok := s.repoHintForWorkspaceID(id); ok {
+				if canonicalLookupPath(repo) == targetRepo {
+					targetLoadErrors++
+				}
+			} else {
+				unknownLoadErrors++
+			}
 			continue
 		}
 		if ws.Root == "" {
@@ -387,10 +396,15 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		if !includeArchived && ws.Archived {
 			continue
 		}
-		if NormalizePath(ws.Repo) != targetRepo {
+		if canonicalLookupPath(ws.Repo) != targetRepo {
 			continue
 		}
+		repoKey := canonicalLookupPath(ws.Repo)
+		rootKey := canonicalLookupPath(ws.Root)
 		key := workspaceIdentity(ws.Repo, ws.Root)
+		if repoKey != "" && rootKey != "" {
+			key = repoKey + "\n" + rootKey
+		}
 		if idx, ok := seen[key]; ok {
 			if shouldPreferWorkspace(ws, workspaces[idx]) {
 				workspaces[idx] = ws
@@ -401,9 +415,13 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 		workspaces = append(workspaces, ws)
 	}
 
-	// If we had workspace IDs but couldn't load any, surface the error
-	// so callers can distinguish between "no workspaces" and "data corruption"
-	if loadErrors > 0 && len(workspaces) == 0 && len(ids) > 0 {
+	if targetLoadErrors > 0 && len(workspaces) == 0 {
+		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s", targetLoadErrors, repoPath)
+	}
+	if unknownLoadErrors > 0 && len(workspaces) == 0 {
+		return nil, fmt.Errorf("failed to load %d workspace(s) with unreadable repo for %s", unknownLoadErrors, repoPath)
+	}
+	if loadErrors > 0 && len(workspaces) == 0 && loadErrors == len(ids) {
 		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s", loadErrors, repoPath)
 	}
 

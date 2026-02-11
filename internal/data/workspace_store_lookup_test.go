@@ -258,6 +258,7 @@ func TestWorkspaceStore_ListByRepoCWDIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Getwd() error = %v", err)
 	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
 
 	// Call ListByRepo from the repo directory.
 	if err := os.Chdir(repoDir); err != nil {
@@ -276,11 +277,6 @@ func TestWorkspaceStore_ListByRepoCWDIndependent(t *testing.T) {
 	list2, err := store.ListByRepo(repoDir)
 	if err != nil {
 		t.Fatalf("ListByRepo() from otherDir error = %v", err)
-	}
-
-	// Restore original working directory.
-	if err := os.Chdir(origDir); err != nil {
-		t.Fatalf("Chdir(origDir) error = %v", err)
 	}
 
 	if len(list1) != len(list2) {

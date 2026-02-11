@@ -1,8 +1,70 @@
 package data
 
 import (
+	"encoding/json"
+	"os"
+	"regexp"
 	"strings"
 )
+
+var repoFieldHintPattern = regexp.MustCompile(`"repo"\s*:\s*`)
+
+func (s *WorkspaceStore) repoHintForWorkspaceID(id WorkspaceID) (string, bool) {
+	data, err := os.ReadFile(s.workspacePath(id))
+	if err != nil {
+		return "", false
+	}
+	var ws workspaceJSON
+	if err := json.Unmarshal(data, &ws); err == nil && strings.TrimSpace(ws.Repo) != "" {
+		return ws.Repo, true
+	}
+	return repoHintFromRawJSON(data)
+}
+
+func repoHintFromRawJSON(data []byte) (string, bool) {
+	offset := 0
+	for {
+		match := repoFieldHintPattern.FindIndex(data[offset:])
+		if match == nil {
+			return "", false
+		}
+		start := offset + match[1]
+		value := strings.TrimLeft(string(data[start:]), " \t\r\n")
+		if value == "" || value[0] != '"' {
+			offset = start
+			continue
+		}
+		repo, ok := parseJSONStringPrefix(value)
+		if !ok {
+			offset = start
+			continue
+		}
+		repo = strings.TrimSpace(repo)
+		if repo == "" {
+			return "", false
+		}
+		return repo, true
+	}
+}
+
+func parseJSONStringPrefix(value string) (string, bool) {
+	for i := 1; i < len(value); i++ {
+		switch value[i] {
+		case '\\':
+			i++
+			if i >= len(value) {
+				return "", false
+			}
+		case '"':
+			var decoded string
+			if err := json.Unmarshal([]byte(value[:i+1]), &decoded); err != nil {
+				return "", false
+			}
+			return decoded, true
+		}
+	}
+	return "", false
+}
 
 // canonicalLookupPath mirrors NormalizePath semantics for lookup comparisons:
 // relative paths stay relative (CWD-independent), absolute paths are cleaned
