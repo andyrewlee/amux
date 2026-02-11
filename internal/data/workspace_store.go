@@ -320,31 +320,6 @@ func applyWorkspaceDefaults(ws *Workspace) {
 	}
 }
 
-func shouldPreferWorkspace(candidate, existing *Workspace) bool {
-	if existing == nil {
-		return true
-	}
-	if candidate == nil {
-		return false
-	}
-	if existing.Archived && !candidate.Archived {
-		return true
-	}
-	if !existing.Archived && candidate.Archived {
-		return false
-	}
-	if existing.Created.IsZero() && !candidate.Created.IsZero() {
-		return true
-	}
-	if !existing.Created.IsZero() && candidate.Created.IsZero() {
-		return false
-	}
-	if existing.Name == "" && candidate.Name != "" {
-		return true
-	}
-	return false
-}
-
 func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, WorkspaceID, error) {
 	canonicalID := Workspace{Repo: repo, Root: root}.ID()
 	ws, err := s.Load(canonicalID)
@@ -354,7 +329,34 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 	if !os.IsNotExist(err) {
 		return nil, "", err
 	}
-	return nil, "", nil
+	targetRepo, targetRoot := canonicalLookupPath(repo), canonicalLookupPath(root)
+	if targetRepo == "" || targetRoot == "" {
+		return nil, "", nil
+	}
+	// Fallback: scan all workspaces for a resolved repo+root match (O(n), rare).
+	ids, err := s.List()
+	if err != nil {
+		return nil, "", err
+	}
+	var bestWS *Workspace
+	var bestID WorkspaceID
+	for _, id := range ids {
+		candidate, err := s.Load(id)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				logging.Warn("Skipping unreadable workspace metadata %s during fallback lookup: %v", id, err)
+			}
+			continue
+		}
+		if canonicalLookupPath(candidate.Repo) != targetRepo || canonicalLookupPath(candidate.Root) != targetRoot {
+			continue
+		}
+		if shouldPreferWorkspace(candidate, bestWS) {
+			bestWS = candidate
+			bestID = id
+		}
+	}
+	return bestWS, bestID, nil
 }
 
 func (s *WorkspaceStore) ListByRepoIncludingArchived(repoPath string) ([]*Workspace, error) {
