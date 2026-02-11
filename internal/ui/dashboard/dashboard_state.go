@@ -76,7 +76,7 @@ func (m *Model) SetWorkspaceDeleting(root string, deleting bool) tea.Cmd {
 	return nil
 }
 
-// rebuildRows rebuilds the row list from projects
+// rebuildRows rebuilds the row list from projects and groups
 func (m *Model) rebuildRows() {
 	m.rows = []Row{
 		{Type: RowHome},
@@ -112,6 +112,38 @@ func (m *Model) rebuildRows() {
 
 		m.rows = append(m.rows, Row{Type: RowSpacer})
 	}
+
+	// Group rows
+	for i := range m.groups {
+		group := &m.groups[i]
+
+		m.rows = append(m.rows, Row{
+			Type:  RowGroupHeader,
+			Group: group,
+		})
+
+		for j := range group.Workspaces {
+			gw := &group.Workspaces[j]
+			if gw.Archived {
+				continue
+			}
+			m.rows = append(m.rows, Row{
+				Type:           RowGroupWorkspace,
+				Group:          group,
+				GroupWorkspace: gw,
+			})
+		}
+
+		m.rows = append(m.rows, Row{
+			Type:  RowGroupCreate,
+			Group: group,
+		})
+
+		m.rows = append(m.rows, Row{Type: RowSpacer})
+	}
+
+	// Unified "+ Add Project" button at the bottom
+	m.rows = append(m.rows, Row{Type: RowAddGroup})
 
 	// Clamp cursor
 	if m.cursor >= len(m.rows) {

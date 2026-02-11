@@ -48,6 +48,48 @@ func InjectGlobalPermissions(profileDir string, global *GlobalPermissions) error
 	return os.WriteFile(settingsPath, data, 0644)
 }
 
+// InjectAdditionalDirectories writes additionalDirectories into
+// {primaryRoot}/.claude/settings.local.json → permissions.additionalDirectories.
+func InjectAdditionalDirectories(primaryRoot string, additionalRoots []string) error {
+	if len(additionalRoots) == 0 {
+		return nil
+	}
+
+	claudeDir := filepath.Join(primaryRoot, ".claude")
+	settingsPath := filepath.Join(claudeDir, "settings.local.json")
+
+	var settings map[string]any
+	if existing, err := os.ReadFile(settingsPath); err == nil {
+		_ = json.Unmarshal(existing, &settings)
+	}
+	if settings == nil {
+		settings = make(map[string]any)
+	}
+
+	perms, _ := settings["permissions"].(map[string]any)
+	if perms == nil {
+		perms = make(map[string]any)
+	}
+
+	// Replace entirely to avoid stale entries
+	dirs := make([]any, len(additionalRoots))
+	for i, root := range additionalRoots {
+		dirs[i] = root
+	}
+	perms["additionalDirectories"] = dirs
+	settings["permissions"] = perms
+
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(settingsPath, data, 0644)
+}
+
 // InjectAllowEdits adds Edit(**) to a workspace's .claude/settings.local.json.
 // This pre-grants the Edit permission for this specific workspace only.
 func InjectAllowEdits(workspaceRoot string) error {

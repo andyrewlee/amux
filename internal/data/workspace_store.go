@@ -11,6 +11,7 @@ import (
 )
 
 const workspaceFilename = "workspace.json"
+const groupWorkspaceFilename = "group_workspace.json"
 
 // WorkspaceStore manages workspace persistence
 type WorkspaceStore struct {
@@ -393,6 +394,117 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 
 func (s *WorkspaceStore) ListByRepoIncludingArchived(repoPath string) ([]*Workspace, error) {
 	return s.listByRepo(repoPath, true)
+}
+
+// groupWorkspacePath returns the path to the group workspace metadata file.
+func (s *WorkspaceStore) groupWorkspacePath(id WorkspaceID) string {
+	return filepath.Join(s.root, string(id), groupWorkspaceFilename)
+}
+
+// SaveGroupWorkspace saves a group workspace to the store using atomic write.
+func (s *WorkspaceStore) SaveGroupWorkspace(gw *GroupWorkspace) error {
+	id := gw.ID()
+	path := s.groupWorkspacePath(id)
+	dir := filepath.Dir(path)
+
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(gw, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	tempPath := path + ".tmp"
+	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		os.Remove(tempPath)
+		return err
+	}
+	return nil
+}
+
+// LoadGroupWorkspace loads a group workspace by its ID.
+func (s *WorkspaceStore) LoadGroupWorkspace(id WorkspaceID) (*GroupWorkspace, error) {
+	path := s.groupWorkspacePath(id)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var gw GroupWorkspace
+	if err := json.Unmarshal(raw, &gw); err != nil {
+		return nil, err
+	}
+
+	applyGroupWorkspaceDefaults(&gw)
+	return &gw, nil
+}
+
+// DeleteGroupWorkspace removes a group workspace's metadata from the store.
+func (s *WorkspaceStore) DeleteGroupWorkspace(id WorkspaceID) error {
+	dir := filepath.Join(s.root, string(id))
+	return os.RemoveAll(dir)
+}
+
+// ListGroupWorkspacesByGroup returns all group workspaces for a given group name.
+func (s *WorkspaceStore) ListGroupWorkspacesByGroup(groupName string) ([]*GroupWorkspace, error) {
+	ids, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+
+	// Also check for directories that contain group_workspace.json
+	entries, err := os.ReadDir(s.root)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	idSet := make(map[WorkspaceID]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var workspaces []*GroupWorkspace
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		gwPath := filepath.Join(s.root, entry.Name(), groupWorkspaceFilename)
+		if _, err := os.Stat(gwPath); err != nil {
+			continue
+		}
+
+		id := WorkspaceID(entry.Name())
+		gw, err := s.LoadGroupWorkspace(id)
+		if err != nil {
+			logging.Warn("Failed to load group workspace %s: %v", id, err)
+			continue
+		}
+		if gw.GroupName == groupName {
+			workspaces = append(workspaces, gw)
+		}
+	}
+
+	return workspaces, nil
+}
+
+func applyGroupWorkspaceDefaults(gw *GroupWorkspace) {
+	if gw.Assistant == "" {
+		gw.Assistant = "claude"
+	}
+	if gw.ScriptMode == "" {
+		gw.ScriptMode = "nonconcurrent"
+	}
+	if gw.Env == nil {
+		gw.Env = make(map[string]string)
+	}
 }
 
 func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*Workspace, error) {

@@ -42,7 +42,13 @@ const (
 	DialogRenameProfile   = "rename_profile"
 	DialogCreateProfile   = "create_profile"
 	DialogDeleteProfile   = "delete_profile"
-	DialogCommit          = "commit"
+	DialogCommit                = "commit"
+	DialogCreateGroup           = "create_group"
+	DialogAddGroupRepo          = "add_group_repo"
+	DialogCreateGroupWorkspace  = "create_group_workspace"
+	DialogDeleteGroup           = "delete_group"
+	DialogDeleteGroupWorkspace  = "delete_group_workspace"
+	DialogSetGroupProfile       = "set_group_profile"
 )
 
 // Prefix mode constants
@@ -64,8 +70,11 @@ type App struct {
 
 	// State
 	projects         []data.Project
+	groups           []data.ProjectGroup
 	activeWorkspace  *data.Workspace
 	activeProject    *data.Project
+	activeGroup      *data.ProjectGroup
+	activeGroupWs    *data.GroupWorkspace
 	focusedPane      messages.PaneType
 	showWelcome      bool
 	monitorMode      bool
@@ -106,6 +115,10 @@ type App struct {
 	dialogDefaultName   string
 	dialogWorkspaceRoot string // For commit dialog
 	dialogProfile       string // For rename/delete profile dialogs
+	dialogGroupName     string   // For group creation wizard
+	dialogGroupRepos    []string // For group creation wizard (between file picker and profile picker)
+	dialogGroup         *data.ProjectGroup
+	dialogGroupWs       *data.GroupWorkspace
 
 	// Process management
 	scripts *process.ScriptRunner
@@ -156,6 +169,9 @@ type App struct {
 	pendingAutoLaunch     string
 	pendingAgentLaunch    string
 	pendingNewProjectPath string // path of newly added project awaiting profile selection
+
+	// Group workspace auto-start: stores the group workspace name for post-creation auto-launch.
+	pendingGroupAutoLaunch string // group workspace name awaiting activation
 
 	// Profile gate: stores a pending agent launch while the profile dialog
 	// is shown. Consumed by handleSetProfile after the user sets a profile.
@@ -373,6 +389,7 @@ func New(version, commit, date string) (*App, error) {
 func (a *App) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		a.loadProjects(),
+		a.loadGroups(),
 		a.dashboard.Init(),
 		a.center.Init(),
 		a.sidebar.Init(),

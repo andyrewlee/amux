@@ -35,6 +35,23 @@ func (a *App) persistAllWorkspacesNow() {
 			}
 		}
 	}
+	// Also persist group workspace tabs
+	for _, group := range a.groups {
+		for i := range group.Workspaces {
+			ws := &group.Workspaces[i].Primary
+			wsID := string(ws.ID())
+			tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)
+			if len(tabs) == 0 {
+				continue
+			}
+			ws.OpenTabs = tabs
+			ws.ActiveTabIndex = activeIdx
+			snap := snapshotWorkspaceForSave(ws)
+			if err := a.workspaces.Save(snap); err != nil {
+				logging.Warn("Failed to persist group workspace on shutdown: %v", err)
+			}
+		}
+	}
 	// Clear dirty set since we just saved everything
 	for k := range a.dirtyWorkspaces {
 		delete(a.dirtyWorkspaces, k)

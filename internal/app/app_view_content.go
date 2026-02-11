@@ -39,6 +39,11 @@ func (a *App) renderCenterPaneContent() string {
 		return a.renderWorkspaceInfo()
 	}
 
+	// Show group info when a group header is highlighted
+	if a.activeGroup != nil && a.activeGroupWs == nil {
+		return a.renderGroupInfo()
+	}
+
 	return "Select a workspace from the dashboard"
 }
 
@@ -57,6 +62,8 @@ func (a *App) centerPaneContentOrigin() (x, y int) {
 func (a *App) goHome() {
 	a.showWelcome = true
 	a.activeWorkspace = nil
+	a.activeGroup = nil
+	a.activeGroupWs = nil
 	a.center.SetWorkspace(nil)
 	a.sidebar.SetWorkspace(nil)
 	a.sidebar.SetGitStatus(nil)
@@ -66,17 +73,81 @@ func (a *App) goHome() {
 	a.centerBtnIndex = 0
 }
 
+// renderGroupInfo renders information about the active group (when group header is highlighted)
+func (a *App) renderGroupInfo() string {
+	group := a.activeGroup
+	title := a.styles.Title.Render(group.Name)
+	content := title + "\n\n"
+
+	if group.Profile != "" {
+		content += fmt.Sprintf("Profile: %s\n", group.Profile)
+	}
+
+	repoLabel := lipgloss.NewStyle().Foreground(common.ColorMuted).Render("Repos:")
+	content += "\n" + repoLabel + "\n"
+	for _, repo := range group.Repos {
+		content += "    " + repo.Path + "\n"
+	}
+
+	if len(group.Workspaces) > 0 {
+		wsLabel := lipgloss.NewStyle().Foreground(common.ColorMuted).Render("Workspaces:")
+		content += "\n" + wsLabel + "\n"
+		for _, ws := range group.Workspaces {
+			content += "    " + ws.Name + "\n"
+		}
+	}
+
+	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
+	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
+
+	// Edit repos button
+	editStyle := inactiveStyle
+	if a.centerBtnFocused && a.centerBtnIndex == 0 {
+		editStyle = activeStyle
+	}
+	editBtn := editStyle.Render("[Edit repos]")
+
+	// New workspace button
+	newWsStyle := inactiveStyle
+	if a.centerBtnFocused && a.centerBtnIndex == 1 {
+		newWsStyle = activeStyle
+	}
+	newWsBtn := newWsStyle.Render("[New workspace]")
+
+	content += "\n" + lipgloss.JoinHorizontal(lipgloss.Left, editBtn, "  ", newWsBtn)
+
+	return content
+}
+
 // renderWorkspaceInfo renders information about the active workspace
 func (a *App) renderWorkspaceInfo() string {
 	ws := a.activeWorkspace
 
 	title := a.styles.Title.Render(ws.Name)
 	content := title + "\n\n"
-	content += fmt.Sprintf("Branch: %s\n", ws.Branch)
-	content += fmt.Sprintf("Path: %s\n", ws.Root)
 
-	if a.activeProject != nil {
-		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
+	// For group workspaces, show group details
+	if a.activeGroupWs != nil {
+		content += fmt.Sprintf("Group: %s\n", a.activeGroupWs.GroupName)
+		content += fmt.Sprintf("Branch: %s\n", ws.Branch)
+		content += fmt.Sprintf("Path: %s\n", ws.Root)
+
+		repoLabel := lipgloss.NewStyle().Foreground(common.ColorMuted).Render("Repos:")
+		content += "\n" + repoLabel + "\n"
+		for _, sec := range a.activeGroupWs.Secondary {
+			content += "    " + sec.Root + "\n"
+		}
+
+		if a.activeGroupWs.Profile != "" {
+			content += fmt.Sprintf("\nProfile: %s\n", a.activeGroupWs.Profile)
+		}
+	} else {
+		content += fmt.Sprintf("Branch: %s\n", ws.Branch)
+		content += fmt.Sprintf("Path: %s\n", ws.Root)
+
+		if a.activeProject != nil {
+			content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
+		}
 	}
 
 	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
@@ -124,7 +195,7 @@ func (a *App) welcomeContent() string {
 			settingsStyle = activeStyle
 		}
 	}
-	addProject := addProjectStyle.Render("[Add project]")
+	addProject := addProjectStyle.Render("[+ Add Project]")
 	settingsBtn := settingsStyle.Render("[Settings]")
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, addProject, "  ", settingsBtn))
 	b.WriteString("\n")

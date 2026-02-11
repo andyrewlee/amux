@@ -21,12 +21,26 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	defaultName := a.dialogDefaultName
 	workspaceRoot := a.dialogWorkspaceRoot
 	profile := a.dialogProfile
+	groupName := a.dialogGroupName
+	groupRepos := a.dialogGroupRepos
+	group := a.dialogGroup
+	groupWs := a.dialogGroupWs
 	a.dialog = nil
 	a.dialogProject = nil
 	a.dialogWorkspace = nil
 	a.dialogDefaultName = ""
 	a.dialogWorkspaceRoot = ""
 	a.dialogProfile = ""
+	// Only clear group state for terminal group dialogs
+	switch result.ID {
+	case DialogAddProject, DialogCreateGroup, DialogAddGroupRepo:
+		// Don't clear yet — wizard may continue (unified flow)
+	default:
+		a.dialogGroupName = ""
+		a.dialogGroupRepos = nil
+		a.dialogGroup = nil
+		a.dialogGroupWs = nil
+	}
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
@@ -47,12 +61,51 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		if result.ID == DialogCreateProfile || result.ID == DialogRenameProfile || result.ID == DialogDeleteProfile {
 			return func() tea.Msg { return common.ShowProfileManager{} }
 		}
+		// Cancelled a group wizard step — clean up group state
+		if a.dialogGroupName != "" {
+			a.dialogGroupName = ""
+		}
 		return nil
 	}
 
 	switch result.ID {
 	case DialogAddProject:
-		if result.Value != "" {
+		// Unified flow: multi-select picker returns Values
+		if len(result.Values) == 1 {
+			// Single repo → add as project
+			path := validation.SanitizeInput(result.Values[0])
+			logging.Info("Adding single project from unified dialog: %s", path)
+			if err := validation.ValidateProjectPath(path); err != nil {
+				logging.Warn("Project path validation failed: %v", err)
+				return func() tea.Msg {
+					return messages.Error{Err: err, Context: "validating project path"}
+				}
+			}
+			return func() tea.Msg {
+				return messages.AddProject{Path: path}
+			}
+		} else if len(result.Values) >= 2 {
+			// Multiple repos → create group (show name dialog first)
+			logging.Info("Creating group from unified dialog with %d repos", len(result.Values))
+			a.dialogGroupRepos = result.Values
+			a.dialog = common.NewInputDialog(DialogCreateGroup, "Name Your Group", "")
+			a.dialog.SetMessage("Enter a name for the project group.")
+			a.dialog.SetInputValidate(func(s string) string {
+				s = validation.SanitizeInput(s)
+				if s == "" {
+					return ""
+				}
+				if err := validation.ValidateWorkspaceName(s); err != nil {
+					return err.Error()
+				}
+				return ""
+			})
+			a.dialog.SetSize(a.width, a.height)
+			a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+			a.dialog.Show()
+			return nil
+		} else if result.Value != "" {
+			// Legacy: non-multi-select fallback
 			path := validation.SanitizeInput(result.Value)
 			logging.Info("Adding project from dialog: %s", path)
 			if err := validation.ValidateProjectPath(path); err != nil {
@@ -213,6 +266,129 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			p := profile
 			return func() tea.Msg {
 				return messages.DeleteProfile{Profile: p}
+			}
+		}
+
+	// --- Group dialog results ---
+
+	case DialogCreateGroup:
+		name := validation.SanitizeInput(result.Value)
+		if name == "" {
+			return nil
+		}
+		// Group name entered — repos are already in dialogGroupRepos (from unified flow or edit)
+		repos := groupRepos
+		if len(repos) < 2 {
+			a.dialogGroupName = ""
+			a.dialogGroupRepos = nil
+			return a.toast.ShowError("A group needs at least 2 repos")
+		}
+		a.dialogGroupName = name
+
+		// Show profile picker
+		profiles := a.listProfiles()
+		if len(profiles) > 0 {
+			a.dialogGroupRepos = repos
+			a.dialog = common.NewProfilePicker(DialogSetGroupProfile, profiles, "")
+			a.dialog.SetSize(a.width, a.height)
+			a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+			a.dialog.Show()
+			return nil
+		}
+		// No profiles exist — create with default
+		a.dialogGroupName = ""
+		a.dialogGroupRepos = nil
+		return func() tea.Msg {
+			return messages.CreateGroup{Name: name, RepoPaths: repos, Profile: "Default"}
+		}
+
+	case DialogAddGroupRepo:
+		// Used for editing group repos (add/remove flow)
+		repos := result.Values
+		if len(repos) < 2 {
+			return a.toast.ShowError("A group needs at least 2 repos")
+		}
+		if group != nil {
+			grp := group
+			return func() tea.Msg {
+				return messages.UpdateGroupRepos{Group: grp, RepoPaths: repos}
+			}
+		}
+		return nil
+
+	case DialogCreateGroupWorkspace:
+		if group != nil {
+			name := validation.SanitizeInput(result.Value)
+			if name == "" {
+				name = defaultName
+			}
+			if err := validation.ValidateWorkspaceName(name); err != nil {
+				return func() tea.Msg {
+					return messages.Error{Err: err, Context: "validating group workspace name"}
+				}
+			}
+			allowEdits := result.CheckboxValue
+			a.config.UI.LastAllowEdits = allowEdits
+			_ = a.config.SaveUISettings()
+			grpName := group.Name
+			return func() tea.Msg {
+				return messages.CreateGroupWorkspace{
+					GroupName:    grpName,
+					Name:         name,
+					AllowEdits:   allowEdits,
+					LoadClaudeMD: false,
+				}
+			}
+		}
+
+	case DialogDeleteGroup:
+		if groupName != "" {
+			name := groupName
+			return func() tea.Msg {
+				return messages.RemoveGroup{Name: name}
+			}
+		}
+
+	case DialogDeleteGroupWorkspace:
+		if group != nil && groupWs != nil {
+			g := group
+			gw := groupWs
+			return func() tea.Msg {
+				return messages.DeleteGroupWorkspace{Group: g, Workspace: gw}
+			}
+		}
+
+	case DialogSetGroupProfile:
+		selectedProfile := result.Value
+		if selectedProfile == common.NewProfileOption {
+			// User chose "New profile..." — show input dialog
+			a.dialog = common.NewInputDialog(DialogSetGroupProfile, "Set Profile", "Default")
+			a.dialog.SetMessage("Profile isolates Claude settings for this group.")
+			a.dialog.SetSize(a.width, a.height)
+			a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+			a.dialog.Show()
+			return nil
+		}
+		if selectedProfile == "" {
+			selectedProfile = "Default"
+		}
+
+		// Check if this was from the group creation wizard
+		if groupName != "" && len(groupRepos) > 0 {
+			name := groupName
+			repos := groupRepos
+			a.dialogGroupName = ""
+			a.dialogGroupRepos = nil
+			return func() tea.Msg {
+				return messages.CreateGroup{Name: name, RepoPaths: repos, Profile: selectedProfile}
+			}
+		}
+
+		// Normal group profile update
+		if group != nil {
+			grpName := group.Name
+			return func() tea.Msg {
+				return messages.SetGroupProfile{GroupName: grpName, Profile: selectedProfile}
 			}
 		}
 

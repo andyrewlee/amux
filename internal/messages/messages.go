@@ -517,3 +517,146 @@ type ActionBarOpenMR struct {
 type ShowCommitDialog struct {
 	WorkspaceRoot string
 }
+
+// --- Project Group messages ---
+
+// GroupsLoaded is sent when groups have been loaded
+type GroupsLoaded struct {
+	Groups []data.ProjectGroup
+}
+
+// CreateGroup requests creating a new project group
+type CreateGroup struct {
+	Name      string
+	RepoPaths []string
+	Profile   string
+}
+
+// GroupCreated is sent when a project group was created
+type GroupCreated struct {
+	Name string
+}
+
+// RemoveGroup requests removing a project group
+type RemoveGroup struct {
+	Name string
+}
+
+// GroupRemoved is sent when a project group was removed
+type GroupRemoved struct {
+	Name string
+}
+
+// ShowCreateGroupDialog requests showing the group creation wizard
+type ShowCreateGroupDialog struct{}
+
+// ShowAddRepoToGroupDialog requests showing the file picker for adding a repo
+type ShowAddRepoToGroupDialog struct {
+	GroupName    string
+	CurrentRepos []string
+}
+
+// ShowCreateGroupWorkspaceDialog requests showing the group workspace creation dialog
+type ShowCreateGroupWorkspaceDialog struct {
+	Group *data.ProjectGroup
+}
+
+// ShowDeleteGroupDialog requests showing the group delete confirmation
+type ShowDeleteGroupDialog struct {
+	GroupName string
+}
+
+// ShowDeleteGroupWorkspaceDialog requests showing the group workspace delete confirmation
+type ShowDeleteGroupWorkspaceDialog struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+}
+
+// ShowSetGroupProfileDialog requests showing the group profile dialog
+type ShowSetGroupProfileDialog struct {
+	Group *data.ProjectGroup
+}
+
+// CreateGroupWorkspace requests creating a workspace within a group
+type CreateGroupWorkspace struct {
+	GroupName    string
+	Name         string
+	AllowEdits   bool
+	LoadClaudeMD bool
+}
+
+// GroupWorkspaceCreated is sent when a group workspace was created
+type GroupWorkspaceCreated struct {
+	Workspace *data.GroupWorkspace
+}
+
+// GroupWorkspaceCreateFailed is sent when a group workspace creation failed
+type GroupWorkspaceCreateFailed struct {
+	Workspace *data.GroupWorkspace
+	Err       error
+}
+
+// DeleteGroupWorkspace requests deleting a group workspace
+type DeleteGroupWorkspace struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+}
+
+// GroupWorkspaceDeleted is sent when a group workspace was deleted
+type GroupWorkspaceDeleted struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+}
+
+// GroupWorkspaceDeleteFailed is sent when a group workspace deletion failed
+type GroupWorkspaceDeleteFailed struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+	Err       error
+}
+
+// GroupWorkspaceActivated is sent when a group workspace is selected
+type GroupWorkspaceActivated struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+}
+
+// GroupWorkspacePreviewed is sent when a group workspace is previewed
+type GroupWorkspacePreviewed struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+}
+
+// LaunchGroupAgent requests launching an agent for a group workspace
+type LaunchGroupAgent struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+	Assistant string
+}
+
+// SetGroupProfile requests setting a profile on a group
+type SetGroupProfile struct {
+	GroupName string
+	Profile   string
+}
+
+// UpdateGroupRepos requests updating repos in a group
+type UpdateGroupRepos struct {
+	Group     *data.ProjectGroup
+	RepoPaths []string
+}
+
+// GroupReposUpdated is sent when group repos have been updated
+type GroupReposUpdated struct {
+	GroupName string
+}
+
+// ShowEditGroupReposDialog requests showing the edit group repos dialog
+type ShowEditGroupReposDialog struct {
+	Group *data.ProjectGroup
+}
+
+// GroupPreviewed is sent when a group header is previewed
+type GroupPreviewed struct {
+	Group *data.ProjectGroup
+}

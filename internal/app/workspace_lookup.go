@@ -17,5 +17,14 @@ func (a *App) findWorkspaceByID(id string) *data.Workspace {
 			}
 		}
 	}
+	// Also search group workspace primary workspaces
+	for i := range a.groups {
+		for j := range a.groups[i].Workspaces {
+			ws := &a.groups[i].Workspaces[j].Primary
+			if string(ws.ID()) == id {
+				return ws
+			}
+		}
+	}
 	return nil
 }

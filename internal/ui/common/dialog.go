@@ -25,6 +25,7 @@ type DialogResult struct {
 	ID            string
 	Confirmed     bool
 	Value         string
+	Values        []string // Multi-select results (e.g. file picker multi-select)
 	Index         int
 	CheckboxValue bool // Value of checkbox if dialog had one
 }

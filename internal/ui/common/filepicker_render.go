@@ -79,14 +79,12 @@ func (fp *FilePicker) renderLines() []string {
 	appendLines(titleStyle.Render(fp.title))
 	appendBlank(2)
 
-	// Current path - truncate if too long
-	pathStyle := lipgloss.NewStyle().
-		Foreground(ColorSecondary)
-	displayPath := truncateToWidth(fp.currentPath, contentWidth)
-	appendLines(pathStyle.Render(displayPath))
-	appendBlank(2)
+	// Multi-select: selected repos list
+	if fp.multiSelect {
+		fp.renderSelectedList(&lines, contentWidth)
+	}
 
-	// Input
+	// Input (shows current path with trailing separator)
 	appendLines(fp.input.View())
 	appendBlank(2)
 
@@ -154,6 +152,40 @@ func (fp *FilePicker) renderLines() []string {
 	return lines
 }
 
+// renderSelectedList renders the selected repos list and status message for multi-select mode.
+func (fp *FilePicker) renderSelectedList(lines *[]string, contentWidth int) {
+	headerStyle := lipgloss.NewStyle().Foreground(ColorSecondary)
+	*lines = append(*lines, headerStyle.Render("Selected repos:"))
+
+	if len(fp.selectedPaths) == 0 {
+		mutedStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+		*lines = append(*lines, mutedStyle.Render("  (no repos selected)"))
+	} else {
+		checkStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
+		removeStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+		prefixWidth := len(Icons.Clean) + 3 // "  ✓ "
+		suffixWidth := 4                    // " [x]"
+		maxPathWidth := contentWidth - prefixWidth - suffixWidth
+		for i, p := range fp.selectedPaths {
+			lineIndex := len(*lines)
+			display := truncateToWidth(p, maxPathWidth)
+			line := checkStyle.Render("  "+Icons.Clean+" "+display) + removeStyle.Render(" "+Icons.Close)
+			// Add hit region for the remove button on this line
+			fp.addButtonHit(fmt.Sprintf("remove-%d", i), lineIndex, 0, contentWidth)
+			*lines = append(*lines, line)
+		}
+	}
+
+	// Status message (validation error)
+	if fp.statusMessage != "" {
+		warnStyle := lipgloss.NewStyle().Foreground(ColorWarning)
+		*lines = append(*lines, "")
+		*lines = append(*lines, warnStyle.Render("  "+fp.statusMessage))
+	}
+
+	*lines = append(*lines, "")
+}
+
 // truncateToWidth truncates a string to fit within the given width,
 // adding "..." suffix if truncated. Uses lipgloss.Width for accurate
 // measurement that accounts for ANSI escape sequences.
@@ -184,12 +216,32 @@ func (fp *FilePicker) renderButtonsLine(baseLine int) string {
 		Background(ColorSelection).
 		Padding(0, 1)
 
-	buttons := []struct {
+	type buttonDef struct {
 		id    string
 		label string
-	}{
-		{id: "open", label: buttonStyle.Render(fp.primaryActionLabel())},
-		{id: "cancel", label: buttonStyle.Render("Cancel")},
+	}
+
+	var buttons []buttonDef
+	if fp.multiSelect {
+		// Done button: show count and use muted style when no repos selected
+		doneLabel := fmt.Sprintf("Done (%d)", len(fp.selectedPaths))
+		doneStyle := buttonStyle
+		if len(fp.selectedPaths) < 1 {
+			doneStyle = lipgloss.NewStyle().
+				Foreground(ColorMuted).
+				Background(ColorSelection).
+				Padding(0, 1)
+		}
+		buttons = []buttonDef{
+			{id: "open", label: buttonStyle.Render(fp.primaryActionLabel())},
+			{id: "done", label: doneStyle.Render(doneLabel)},
+			{id: "cancel", label: buttonStyle.Render("Cancel")},
+		}
+	} else {
+		buttons = []buttonDef{
+			{id: "open", label: buttonStyle.Render(fp.primaryActionLabel())},
+			{id: "cancel", label: buttonStyle.Render("Cancel")},
+		}
 	}
 
 	var parts []string
@@ -280,21 +332,27 @@ func (fp *FilePicker) primaryActionLabel() string {
 }
 
 func (fp *FilePicker) inputOffset() int {
-	contentWidth := filePickerContentWidth - 4 // Padding(1, 2) = 2 chars each side
-
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
 		MarginBottom(1)
-	pathStyle := lipgloss.NewStyle().
-		Foreground(ColorSecondary)
-
-	// Use truncated path to match renderLines() behavior
-	displayPath := truncateToWidth(fp.currentPath, contentWidth)
 
 	offset := lipgloss.Height(titleStyle.Render(fp.title))
 	offset += 2 // blank lines after title
-	offset += lipgloss.Height(pathStyle.Render(displayPath))
-	offset += 2 // blank lines after path
+
+	// Account for multi-select selected list
+	if fp.multiSelect {
+		offset++ // "Selected repos:" header
+		if len(fp.selectedPaths) == 0 {
+			offset++ // "(no repos selected)"
+		} else {
+			offset += len(fp.selectedPaths)
+		}
+		if fp.statusMessage != "" {
+			offset += 2 // blank + status message
+		}
+		offset++ // trailing blank after selected list
+	}
+
 	return offset
 }

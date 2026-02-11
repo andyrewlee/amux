@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"fmt"
+
 	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/medusa/internal/ui/common"
@@ -177,6 +179,121 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 		return unstyledPrefix + style.Render(styledPrefix+common.Icons.Add+" New ")
 
+	case RowGroupHeader:
+		prefix := " "
+		style := m.styles.ProjectHeader.MarginTop(0)
+		if selected {
+			style = style.
+				Bold(true).
+				Foreground(common.ColorForeground).
+				Background(common.ColorSelection)
+		}
+
+		name := row.Group.Name
+		reposBadge := fmt.Sprintf(" [%d repos]", len(row.Group.Repos))
+		profileTag := ""
+		if row.Group.Profile != "" {
+			profileTag = " [" + row.Group.Profile + "]"
+		}
+
+		// Reserve space for delete icon
+		deleteSlot := "   "
+		deleteSlotWidth := 3
+		if selected {
+			deleteSlot = " " + common.Icons.Close + " "
+		}
+
+		maxNameWidth := m.width - 3 - deleteSlotWidth - lipgloss.Width(prefix) - lipgloss.Width(reposBadge) - lipgloss.Width(profileTag) - 1
+		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
+			runes := []rune(name)
+			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
+				runes = runes[:len(runes)-1]
+			}
+			name = string(runes) + "…"
+		}
+
+		if selected {
+			m.deleteIconX = lipgloss.Width(style.Render(prefix + name + reposBadge + profileTag))
+		}
+
+		return style.Render(prefix + name + reposBadge + profileTag + deleteSlot)
+
+	case RowGroupWorkspace:
+		unstyledPrefix := " "
+		styledPrefix := " "
+		name := row.GroupWorkspace.Name
+		style := m.styles.WorkspaceRow
+		if selected {
+			style = m.styles.SelectedRow
+		}
+
+		// Reserve space for delete icon
+		deleteSlot := "   "
+		deleteSlotWidth := 3
+		if selected {
+			deleteSlot = " " + common.Icons.Close + " "
+		}
+
+		// Agent state indicator (spinner=active, ●=running, ○=idle)
+		indicatorWidth := 2
+		agentState := 0
+		indicator := common.Icons.Idle + " "
+		if row.GroupWorkspace != nil {
+			wsID := string(row.GroupWorkspace.Primary.ID())
+			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
+				agentState = state
+				switch {
+				case state >= 2: // actively processing
+					indicator = common.SpinnerFrame(m.spinnerFrame) + " "
+				case state >= 1: // running but idle
+					indicator = common.Icons.Running + " "
+				}
+			}
+		}
+
+		// Style indicator separately: primary for running/active, muted for idle
+		iconFg := common.ColorMuted
+		if agentState >= 1 {
+			iconFg = common.ColorPrimary
+		}
+		iconStyle := lipgloss.NewStyle().Foreground(iconFg)
+		if selected {
+			iconStyle = iconStyle.Bold(true).Background(common.ColorSelection)
+		}
+		indicatorStyled := iconStyle.Render(indicator)
+
+		prefixWidth := lipgloss.Width(unstyledPrefix) + lipgloss.Width(styledPrefix) + indicatorWidth
+		maxNameWidth := m.width - 3 - deleteSlotWidth - prefixWidth - 1
+		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
+			runes := []rune(name)
+			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
+				runes = runes[:len(runes)-1]
+			}
+			name = string(runes) + "…"
+		}
+
+		if selected {
+			m.deleteIconX = lipgloss.Width(unstyledPrefix+styledPrefix) + indicatorWidth + lipgloss.Width(style.Render(name))
+		}
+
+		return unstyledPrefix + style.Render(styledPrefix) + indicatorStyled + style.Render(name+deleteSlot)
+
+	case RowGroupCreate:
+		unstyledPrefix := " "
+		styledPrefix := " "
+		style := m.styles.CreateButton
+		if selected {
+			style = m.styles.SelectedRow
+		}
+		return unstyledPrefix + style.Render(styledPrefix+common.Icons.Add+" New ")
+
+	case RowAddGroup:
+		style := m.styles.CreateButton
+		if selected {
+			style = m.styles.SelectedRow
+		}
+		return style.Render(" " + common.Icons.Add + " Add Project ")
+
 	case RowSpacer:
 		return ""
 	}
@@ -218,6 +335,14 @@ func (m *Model) helpLines(contentWidth int) []string {
 			items = append(items, m.helpItem("P", "profile"))
 		case RowProject:
 			items = append(items, m.helpItem("D", "remove"))
+			items = append(items, m.helpItem("P", "profile"))
+		case RowGroupHeader:
+			items = append(items, m.helpItem("e", "edit repos"))
+			items = append(items, m.helpItem("D", "remove"))
+			items = append(items, m.helpItem("P", "profile"))
+		case RowGroupWorkspace:
+			onWorkspace = true
+			items = append(items, m.helpItem("D", "delete"))
 			items = append(items, m.helpItem("P", "profile"))
 		}
 	}

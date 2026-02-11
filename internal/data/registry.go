@@ -18,6 +18,13 @@ type Registry struct {
 // Supports both legacy format (plain array) and new format (object with projects)
 type registryFile struct {
 	Projects []registryProject `json:"projects"`
+	Groups   []registryGroup   `json:"groups,omitempty"`
+}
+
+type registryGroup struct {
+	Name    string      `json:"name"`
+	Repos   []GroupRepo `json:"repos"`
+	Profile string      `json:"profile,omitempty"`
 }
 
 // registryFileStrings is an alternate format where projects is just string paths
@@ -275,4 +282,208 @@ func (r *Registry) ClearProfile(profile string) error {
 		return r.saveFull(projects)
 	}
 	return nil
+}
+
+// LoadGroups reads all project groups from the registry file.
+func (r *Registry) LoadGroups() ([]ProjectGroup, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	raw, err := os.ReadFile(r.path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var registry registryFile
+	if err := json.Unmarshal(raw, &registry); err != nil {
+		return nil, nil // Old format without groups
+	}
+
+	groups := make([]ProjectGroup, len(registry.Groups))
+	for i, rg := range registry.Groups {
+		groups[i] = ProjectGroup{
+			Name:    rg.Name,
+			Repos:   rg.Repos,
+			Profile: rg.Profile,
+		}
+	}
+	return groups, nil
+}
+
+// AddGroup adds a project group to the registry.
+func (r *Registry) AddGroup(name string, repos []GroupRepo, profile string) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+	groups, err := r.LoadGroups()
+	if err != nil {
+		groups = nil
+	}
+
+	// Check for duplicate name
+	for _, g := range groups {
+		if g.Name == name {
+			return fmt.Errorf("group already exists: %s", name)
+		}
+	}
+
+	groups = append(groups, ProjectGroup{
+		Name:    name,
+		Repos:   repos,
+		Profile: profile,
+	})
+
+	return r.saveFullWithGroups(projects, groups)
+}
+
+// RemoveGroup removes a project group from the registry.
+func (r *Registry) RemoveGroup(name string) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+	groups, err := r.LoadGroups()
+	if err != nil {
+		return err
+	}
+
+	var filtered []ProjectGroup
+	for _, g := range groups {
+		if g.Name != name {
+			filtered = append(filtered, g)
+		}
+	}
+
+	return r.saveFullWithGroups(projects, filtered)
+}
+
+// SetGroupProfile sets the profile for a group.
+func (r *Registry) SetGroupProfile(groupName, profile string) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+	groups, err := r.LoadGroups()
+	if err != nil {
+		return err
+	}
+
+	for i := range groups {
+		if groups[i].Name == groupName {
+			groups[i].Profile = profile
+			return r.saveFullWithGroups(projects, groups)
+		}
+	}
+
+	return fmt.Errorf("group not found: %s", groupName)
+}
+
+// RenameGroupProfile updates all groups using oldProfile to use newProfile.
+func (r *Registry) RenameGroupProfile(oldProfile, newProfile string) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+	groups, err := r.LoadGroups()
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	for i := range groups {
+		if groups[i].Profile == oldProfile {
+			groups[i].Profile = newProfile
+			changed = true
+		}
+	}
+
+	if changed {
+		return r.saveFullWithGroups(projects, groups)
+	}
+	return nil
+}
+
+// ClearGroupProfile clears the profile from all groups using the specified profile.
+func (r *Registry) ClearGroupProfile(profile string) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+	groups, err := r.LoadGroups()
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	for i := range groups {
+		if groups[i].Profile == profile {
+			groups[i].Profile = ""
+			changed = true
+		}
+	}
+
+	if changed {
+		return r.saveFullWithGroups(projects, groups)
+	}
+	return nil
+}
+
+// UpdateGroupRepos updates the repos list for a group.
+func (r *Registry) UpdateGroupRepos(groupName string, repos []GroupRepo) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+	groups, err := r.LoadGroups()
+	if err != nil {
+		return err
+	}
+
+	for i := range groups {
+		if groups[i].Name == groupName {
+			groups[i].Repos = repos
+			return r.saveFullWithGroups(projects, groups)
+		}
+	}
+
+	return fmt.Errorf("group not found: %s", groupName)
+}
+
+// saveFullWithGroups writes both projects and groups to the registry file.
+func (r *Registry) saveFullWithGroups(projects []registryProject, groups []ProjectGroup) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	dir := filepath.Dir(r.path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	if projects == nil {
+		projects = []registryProject{}
+	}
+
+	var regGroups []registryGroup
+	for _, g := range groups {
+		regGroups = append(regGroups, registryGroup{
+			Name:    g.Name,
+			Repos:   g.Repos,
+			Profile: g.Profile,
+		})
+	}
+
+	registry := registryFile{
+		Projects: projects,
+		Groups:   regGroups,
+	}
+	raw, err := json.MarshalIndent(registry, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(r.path, raw, 0644)
 }

@@ -29,13 +29,19 @@ const (
 	RowWorkspace
 	RowCreate
 	RowSpacer
+	RowGroupHeader    // Group header (like RowProject)
+	RowGroupWorkspace // Workspace within a group
+	RowGroupCreate    // "+ New" button for group workspace
+	RowAddGroup       // "Add Group" button
 )
 
 // Row represents a single row in the dashboard
 type Row struct {
-	Type      RowType
-	Project   *data.Project
-	Workspace *data.Workspace
+	Type           RowType
+	Project        *data.Project
+	Workspace      *data.Workspace
+	Group          *data.ProjectGroup
+	GroupWorkspace *data.GroupWorkspace
 }
 
 // toolbarButtonKind identifies toolbar buttons
@@ -57,6 +63,7 @@ type toolbarButton struct {
 type Model struct {
 	// Data
 	projects    []data.Project
+	groups      []data.ProjectGroup
 	rows        []Row
 	activeRoot  string // Currently active workspace root
 	statusCache map[string]*git.StatusResult
@@ -176,7 +183,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			// Check if click is on the delete "x" icon for the currently selected row
 			if idx == m.cursor {
 				rowType := m.rows[idx].Type
-				if rowType == RowProject || rowType == RowWorkspace {
+				if rowType == RowProject || rowType == RowWorkspace || rowType == RowGroupHeader || rowType == RowGroupWorkspace {
 					// Convert screen X to content X
 					borderLeft := 1
 					paddingLeft := 0
@@ -260,6 +267,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, m.handleDelete()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("P"))):
 			return m, m.handleSetProfile()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("e"))):
+			return m, m.handleEditGroupRepos()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 			if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorkspace {
 				return m, m.handleRename()
@@ -414,6 +423,18 @@ func (m *Model) SetProjects(projects []data.Project) {
 	prevCursor := m.cursor
 	prevOffset := m.scrollOffset
 	m.projects = projects
+	m.rebuildRows()
+	if m.cursor == prevCursor {
+		m.scrollOffset = prevOffset
+		m.clampScrollOffset()
+	}
+}
+
+// SetGroups sets the project groups list
+func (m *Model) SetGroups(groups []data.ProjectGroup) {
+	prevCursor := m.cursor
+	prevOffset := m.scrollOffset
+	m.groups = groups
 	m.rebuildRows()
 	if m.cursor == prevCursor {
 		m.scrollOffset = prevOffset

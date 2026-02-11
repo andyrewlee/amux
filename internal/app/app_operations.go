@@ -168,6 +168,38 @@ func (a *App) rescanWorkspaces() tea.Cmd {
 			}
 		}
 
+		// Also rescan group workspaces
+		groups, grpErr := a.registry.LoadGroups()
+		if grpErr == nil {
+			for _, group := range groups {
+				groupWSList, err := a.workspaces.ListGroupWorkspacesByGroup(group.Name)
+				if err != nil {
+					logging.Warn("Failed to load group workspaces for %s: %v", group.Name, err)
+					continue
+				}
+				for _, gw := range groupWSList {
+					if gw.Archived {
+						continue
+					}
+					// Check that all worktree directories still exist
+					allExist := true
+					for _, root := range gw.AllRoots() {
+						if _, err := os.Stat(root); os.IsNotExist(err) {
+							allExist = false
+							break
+						}
+					}
+					if !allExist {
+						gw.Archived = true
+						gw.ArchivedAt = time.Now()
+						if err := a.workspaces.SaveGroupWorkspace(gw); err != nil {
+							logging.Warn("Failed to archive group workspace %s: %v", gw.Name, err)
+						}
+					}
+				}
+			}
+		}
+
 		return messages.RefreshDashboard{}
 	}
 }
@@ -386,10 +418,13 @@ func (a *App) findProjectForWorkspace(ws *data.Workspace) *data.Project {
 // Unlike removeProject, this does not require a *data.Project pointer, which
 // is useful when the dialog state has already been cleared (e.g. on cancel).
 func (a *App) removeProjectByPath(path string) tea.Cmd {
+	workspacesRoot := a.config.Paths.WorkspacesRoot
 	return func() tea.Msg {
 		if err := a.registry.RemoveProject(path); err != nil {
 			return messages.Error{Err: err, Context: "removing project"}
 		}
+		// Clean up empty project workspace directory
+		_ = os.Remove(filepath.Join(workspacesRoot, filepath.Base(path)))
 		return messages.ProjectRemoved{Path: path}
 	}
 }
@@ -406,10 +441,14 @@ func (a *App) removeProject(project *data.Project) tea.Cmd {
 		a.goHome()
 	}
 
+	workspacesRoot := a.config.Paths.WorkspacesRoot
+	projectName := project.Name
 	return func() tea.Msg {
 		if err := a.registry.RemoveProject(project.Path); err != nil {
 			return messages.Error{Err: err, Context: "removing project"}
 		}
+		// Clean up empty project workspace directory
+		_ = os.Remove(filepath.Join(workspacesRoot, projectName))
 		return messages.ProjectRemoved{Path: project.Path}
 	}
 }

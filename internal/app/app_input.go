@@ -2,11 +2,13 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime/debug"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/medusa/internal/config"
+	"github.com/andyrewlee/medusa/internal/data"
 	"github.com/andyrewlee/medusa/internal/logging"
 	"github.com/andyrewlee/medusa/internal/messages"
 	"github.com/andyrewlee/medusa/internal/perf"
@@ -43,7 +45,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if result, ok := msg.(common.DialogResult); ok {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
-		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile, DialogRenameWorkspace, DialogRenameProfile, DialogCreateProfile, DialogDeleteProfile:
+		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile, DialogRenameWorkspace, DialogRenameProfile, DialogCreateProfile, DialogDeleteProfile,
+			DialogCreateGroup, DialogAddGroupRepo, DialogCreateGroupWorkspace, DialogDeleteGroup, DialogDeleteGroupWorkspace, DialogSetGroupProfile, DialogCommit:
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -339,6 +342,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.RefreshDashboard:
 		cmds = append(cmds, a.loadProjects())
+		cmds = append(cmds, a.loadGroups())
 
 	case messages.RescanWorkspaces:
 		cmds = append(cmds, a.rescanWorkspaces())
@@ -459,10 +463,30 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.addProject(msg.Path))
 
 	case messages.RemoveProject:
-		// Unwatch permissions for all workspaces of this project
-		if a.permissionWatcher != nil && msg.Project != nil {
-			for _, ws := range msg.Project.Workspaces {
-				a.permissionWatcher.Unwatch(ws.Root)
+		if msg.Project != nil {
+			// Clean up tmux sessions, center tabs, and sidebar terminal
+			// for all workspaces in the project before removing it.
+			for i := range msg.Project.Workspaces {
+				ws := &msg.Project.Workspaces[i]
+				if cleanup := a.cleanupWorkspaceTmuxSessions(ws); cleanup != nil {
+					cmds = append(cmds, cleanup)
+				}
+				newCenter, cmd := a.center.Update(messages.WorkspaceDeleted{Workspace: ws})
+				a.center = newCenter
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				newTerminal, cmd := a.sidebarTerminal.Update(messages.WorkspaceDeleted{Workspace: ws})
+				a.sidebarTerminal = newTerminal
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+			// Unwatch permissions for all workspaces of this project
+			if a.permissionWatcher != nil {
+				for _, ws := range msg.Project.Workspaces {
+					a.permissionWatcher.Unwatch(ws.Root)
+				}
 			}
 		}
 		cmds = append(cmds, a.removeProject(msg.Project))
@@ -483,8 +507,22 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			project := a.findProjectForWorkspace(msg.Workspace)
 			if project != nil {
 				a.handleShowSetProfileDialog(messages.ShowSetProfileDialog{Project: project})
+			} else if a.activeGroupWs != nil {
+				// Group workspace — show group profile dialog
+				a.handleShowSetGroupProfileDialog(messages.ShowSetGroupProfileDialog{Group: a.activeGroup})
 			}
 			break
+		}
+		// For group workspaces, trust the group root (parent of all repo worktrees)
+		if a.activeGroupWs != nil && msg.Workspace != nil {
+			profileDir := ""
+			if msg.Workspace.Profile != "" {
+				profileDir = filepath.Join(a.config.Paths.ProfilesRoot, msg.Workspace.Profile)
+			}
+			_ = config.InjectTrustedDirectory(a.activeGroupWs.Primary.Root, profileDir)
+			if a.activeGroupWs.AllowEdits {
+				_ = config.InjectAllowEdits(a.activeGroupWs.Primary.Root)
+			}
 		}
 		if cmd := a.handleLaunchAgent(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -692,6 +730,196 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.ShowCommitDialog:
 		a.handleShowCommitDialog(msg)
+
+	// --- Group messages ---
+	case messages.GroupsLoaded:
+		a.groups = msg.Groups
+		a.dashboard.SetGroups(a.groups)
+		// Eagerly restore agent tabs for all group workspaces on startup.
+		for i := range a.groups {
+			for j := range a.groups[i].Workspaces {
+				ws := &a.groups[i].Workspaces[j].Primary
+				if workspaceHasLiveTabs(ws) {
+					if restoreCmd := a.center.RestoreTabsFromWorkspace(ws); restoreCmd != nil {
+						cmds = append(cmds, restoreCmd)
+					}
+				}
+			}
+		}
+		// Auto-activate a newly created group workspace for auto-launch.
+		if a.pendingGroupAutoLaunch != "" {
+			wsName := a.pendingGroupAutoLaunch
+			for i := range a.groups {
+				for j := range a.groups[i].Workspaces {
+					gw := &a.groups[i].Workspaces[j]
+					if gw.Name == wsName {
+						a.pendingGroupAutoLaunch = ""
+						group := &a.groups[i]
+						cmds = append(cmds, func() tea.Msg {
+							return messages.GroupWorkspaceActivated{
+								Group:     group,
+								Workspace: gw,
+							}
+						})
+						goto groupPendingFound
+					}
+				}
+			}
+		groupPendingFound:
+		}
+
+	case messages.ShowCreateGroupDialog:
+		a.handleShowCreateGroupDialog()
+
+	case messages.CreateGroup:
+		cmds = append(cmds, a.createGroup(msg.Name, msg.RepoPaths, msg.Profile))
+
+	case messages.GroupCreated:
+		cmds = append(cmds, a.toast.ShowSuccess("Group '"+msg.Name+"' created"))
+		cmds = append(cmds, a.loadGroups())
+		cmds = append(cmds, a.loadProjects())
+
+	case messages.ShowDeleteGroupDialog:
+		a.handleShowDeleteGroupDialog(msg)
+
+	case messages.RemoveGroup:
+		// Clean up tmux sessions, center tabs, sidebar terminal, and persisted
+		// tab state for all workspaces in the group before removing it.
+		for i := range a.groups {
+			if a.groups[i].Name != msg.Name {
+				continue
+			}
+			for j := range a.groups[i].Workspaces {
+				gw := &a.groups[i].Workspaces[j]
+				if cleanup := a.cleanupWorkspaceTmuxSessions(&gw.Primary); cleanup != nil {
+					cmds = append(cmds, cleanup)
+				}
+				newCenter, cmd := a.center.Update(messages.WorkspaceDeleted{Workspace: &gw.Primary})
+				a.center = newCenter
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				newTerminal, cmd := a.sidebarTerminal.Update(messages.WorkspaceDeleted{Workspace: &gw.Primary})
+				a.sidebarTerminal = newTerminal
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				_ = a.workspaces.Delete(gw.Primary.ID())
+			}
+			break
+		}
+		cmds = append(cmds, a.removeGroup(msg.Name))
+
+	case messages.GroupRemoved:
+		cmds = append(cmds, a.toast.ShowSuccess("Group removed"))
+		cmds = append(cmds, a.loadGroups())
+
+	case messages.ShowCreateGroupWorkspaceDialog:
+		a.handleShowCreateGroupWorkspaceDialog(msg)
+
+	case messages.CreateGroupWorkspace:
+		var group *data.ProjectGroup
+		for i := range a.groups {
+			if a.groups[i].Name == msg.GroupName {
+				group = &a.groups[i]
+				break
+			}
+		}
+		if group != nil {
+			cmds = append(cmds, a.createGroupWorkspace(group, msg.Name, msg.AllowEdits, msg.LoadClaudeMD))
+		}
+
+	case messages.GroupWorkspaceCreated:
+		cmds = append(cmds, a.toast.ShowSuccess("Group workspace created"))
+		if msg.Workspace != nil {
+			a.pendingGroupAutoLaunch = msg.Workspace.Name
+		}
+		cmds = append(cmds, a.loadGroups())
+
+	case messages.GroupWorkspaceCreateFailed:
+		errMsg := "Failed to create group workspace"
+		if msg.Err != nil {
+			errMsg += ": " + msg.Err.Error()
+		}
+		cmds = append(cmds, a.toast.ShowError(errMsg))
+
+	case messages.ShowDeleteGroupWorkspaceDialog:
+		a.handleShowDeleteGroupWorkspaceDialog(msg)
+
+	case messages.DeleteGroupWorkspace:
+		if msg.Workspace != nil {
+			if cleanup := a.cleanupWorkspaceTmuxSessions(&msg.Workspace.Primary); cleanup != nil {
+				cmds = append(cmds, cleanup)
+			}
+		}
+		cmds = append(cmds, a.deleteGroupWorkspace(msg.Group, msg.Workspace))
+
+	case messages.GroupWorkspaceDeleted:
+		if msg.Workspace != nil {
+			if cleanup := a.cleanupWorkspaceTmuxSessions(&msg.Workspace.Primary); cleanup != nil {
+				cmds = append(cmds, cleanup)
+			}
+			// Close center tabs and sidebar terminal for this workspace
+			newCenter, cmd := a.center.Update(messages.WorkspaceDeleted{Workspace: &msg.Workspace.Primary})
+			a.center = newCenter
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			newTerminal, cmd := a.sidebarTerminal.Update(messages.WorkspaceDeleted{Workspace: &msg.Workspace.Primary})
+			a.sidebarTerminal = newTerminal
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			// Clean up the persisted tab state for the Primary workspace
+			_ = a.workspaces.Delete(msg.Workspace.Primary.ID())
+		}
+		cmds = append(cmds, a.toast.ShowSuccess("Group workspace deleted"))
+		cmds = append(cmds, a.loadGroups())
+
+	case messages.GroupWorkspaceDeleteFailed:
+		errMsg := "Failed to delete group workspace"
+		if msg.Err != nil {
+			errMsg += ": " + msg.Err.Error()
+		}
+		cmds = append(cmds, a.toast.ShowError(errMsg))
+
+	case messages.GroupWorkspaceActivated:
+		cmds = append(cmds, a.handleGroupWorkspaceActivated(msg)...)
+
+	case messages.GroupWorkspacePreviewed:
+		cmds = append(cmds, a.handleGroupWorkspacePreviewed(msg)...)
+
+	case messages.ShowSetGroupProfileDialog:
+		a.handleShowSetGroupProfileDialog(msg)
+
+	case messages.SetGroupProfile:
+		if cmd := a.handleSetGroupProfile(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.LaunchGroupAgent:
+		if cmd := a.handleLaunchGroupAgent(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.GroupPreviewed:
+		cmds = append(cmds, a.handleGroupPreviewed(msg)...)
+
+	case messages.ShowEditGroupReposDialog:
+		if a.groupHasActiveSessions(msg.Group) {
+			cmds = append(cmds, a.toast.ShowError("Cannot edit repos while workspaces have active sessions"))
+			break
+		}
+		a.handleShowEditGroupReposDialog(msg.Group)
+
+	case messages.UpdateGroupRepos:
+		if cmd := a.handleUpdateGroupRepos(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.GroupReposUpdated:
+		cmds = append(cmds, a.toast.ShowSuccess("Group repos updated"))
+		cmds = append(cmds, a.loadGroups())
 
 	default:
 		// Forward unknown messages to center pane (e.g., commit viewer internal messages)

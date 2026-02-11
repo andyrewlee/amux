@@ -3,6 +3,7 @@ package common
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -32,6 +33,12 @@ type FilePicker struct {
 	showKeymapHints   bool
 	primaryAction     string
 	lastContentHeight int // Cached from View() for click handling
+
+	// Multi-select mode
+	selectedPaths []string                                    // Accumulated selected paths
+	multiSelect   bool                                        // Whether multi-select is active
+	statusMessage string                                      // Transient status/error message
+	validatePath  func(path string, existing []string) string // Returns error or ""
 }
 
 type filePickerRowHit struct {
@@ -96,6 +103,36 @@ func (fp *FilePicker) SetPrimaryActionLabel(label string) {
 		return
 	}
 	fp.primaryAction = label
+}
+
+// SetMultiSelect enables or disables multi-select mode.
+func (fp *FilePicker) SetMultiSelect(enabled bool) {
+	fp.multiSelect = enabled
+}
+
+// SetValidatePath sets a validation function for multi-select mode.
+// The function receives the candidate path and the list of already-selected
+// paths. It should return an error string or "" if valid.
+func (fp *FilePicker) SetValidatePath(fn func(path string, existing []string) string) {
+	fp.validatePath = fn
+}
+
+// SelectedPaths returns the accumulated selected paths (multi-select mode).
+func (fp *FilePicker) SelectedPaths() []string {
+	return fp.selectedPaths
+}
+
+// AddSelectedPath appends a path to the selected paths list (for pre-populating).
+func (fp *FilePicker) AddSelectedPath(path string) {
+	fp.selectedPaths = append(fp.selectedPaths, path)
+}
+
+// RemoveSelectedPath removes a path from the selected paths list by index.
+func (fp *FilePicker) RemoveSelectedPath(index int) {
+	if index < 0 || index >= len(fp.selectedPaths) {
+		return
+	}
+	fp.selectedPaths = append(fp.selectedPaths[:index], fp.selectedPaths[index+1:]...)
 }
 
 // Show makes the picker visible
@@ -167,10 +204,13 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 
 			for _, hit := range fp.buttonHits {
 				if hit.Contains(localX, localY) {
-					switch hit.ID {
-					case "open":
+					if hit.ID == "done" {
+						if fp.multiSelect {
+							return fp.multiSelectDone()
+						}
+					} else if hit.ID == "open" {
 						return fp.confirmCurrentDirectory()
-					case "up":
+					} else if hit.ID == "up" {
 						parent := filepath.Dir(fp.currentPath)
 						if parent != fp.currentPath {
 							fp.currentPath = parent
@@ -179,13 +219,19 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 							fp.loadDirectory()
 						}
 						return fp, nil
-					case "hidden":
+					} else if hit.ID == "hidden" {
 						fp.showHidden = !fp.showHidden
 						fp.loadDirectory()
 						return fp, nil
-					case "cancel":
+					} else if hit.ID == "cancel" {
 						fp.visible = false
 						return fp, func() tea.Msg { return DialogResult{ID: fp.id, Confirmed: false} }
+					} else if strings.HasPrefix(hit.ID, "remove-") {
+						idxStr := strings.TrimPrefix(hit.ID, "remove-")
+						if idx, err := strconv.Atoi(idxStr); err == nil {
+							fp.RemoveSelectedPath(idx)
+						}
+						return fp, nil
 					}
 				}
 			}
@@ -239,6 +285,13 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 			fp.showHidden = !fp.showHidden
 			fp.loadDirectory()
 			return fp, nil
+		}
+	}
+
+	// Clear status message on any navigation/input change
+	if fp.multiSelect {
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			fp.statusMessage = ""
 		}
 	}
 
@@ -296,7 +349,15 @@ func (fp *FilePicker) displayCount() int {
 func (fp *FilePicker) SetSize(width, height int) {
 	fp.width = width
 	fp.height = height
-	fp.maxVisible = min(10, (height-15)/2)
+	extra := 0
+	if fp.multiSelect {
+		// Account for selected list: header + items (or placeholder) + trailing blank
+		extra = 2 + max(1, len(fp.selectedPaths))
+		if fp.statusMessage != "" {
+			extra += 2
+		}
+	}
+	fp.maxVisible = min(10, (height-15-extra)/2)
 	if fp.maxVisible < 3 {
 		fp.maxVisible = 3
 	}

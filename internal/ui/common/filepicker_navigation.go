@@ -105,12 +105,46 @@ func (fp *FilePicker) handlePathInput(input string) {
 }
 
 func (fp *FilePicker) confirmCurrentDirectory() (*FilePicker, tea.Cmd) {
+	if fp.multiSelect {
+		return fp.multiSelectAdd(fp.currentPath)
+	}
 	fp.visible = false
 	return fp, func() tea.Msg {
 		return DialogResult{
 			ID:        fp.id,
 			Confirmed: true,
 			Value:     fp.currentPath,
+		}
+	}
+}
+
+// multiSelectAdd validates and adds a path in multi-select mode.
+func (fp *FilePicker) multiSelectAdd(path string) (*FilePicker, tea.Cmd) {
+	fp.statusMessage = ""
+	if fp.validatePath != nil {
+		if errMsg := fp.validatePath(path, fp.selectedPaths); errMsg != "" {
+			fp.statusMessage = errMsg
+			return fp, nil
+		}
+	}
+	fp.selectedPaths = append(fp.selectedPaths, path)
+	return fp, nil
+}
+
+// multiSelectDone closes the picker and returns all selected paths.
+func (fp *FilePicker) multiSelectDone() (*FilePicker, tea.Cmd) {
+	if len(fp.selectedPaths) < 1 {
+		fp.statusMessage = "Select at least 1 repo"
+		return fp, nil
+	}
+	fp.visible = false
+	paths := make([]string, len(fp.selectedPaths))
+	copy(paths, fp.selectedPaths)
+	return fp, func() tea.Msg {
+		return DialogResult{
+			ID:        fp.id,
+			Confirmed: true,
+			Values:    paths,
 		}
 	}
 }
@@ -235,6 +269,9 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 		if info, err := os.Stat(path); err == nil {
 			if info.IsDir() {
 				if fp.directoriesOnly {
+					if fp.multiSelect {
+						return fp.multiSelectAdd(path)
+					}
 					fp.visible = false
 					return fp, func() tea.Msg {
 						return DialogResult{

@@ -9,6 +9,7 @@ import (
 type Paths struct {
 	Home                  string // ~/.medusa
 	WorkspacesRoot        string // ~/.medusa/workspaces
+	GroupsWorkspacesRoot  string // ~/.medusa/workspaces/groups
 	RegistryPath          string // ~/.medusa/projects.json
 	MetadataRoot          string // ~/.medusa/workspaces-metadata
 	ConfigPath            string // ~/.medusa/config.json
@@ -27,9 +28,11 @@ func DefaultPaths() (*Paths, error) {
 	medusaHome := filepath.Join(home, ".medusa")
 
 	profilesRoot := filepath.Join(medusaHome, "profiles")
+	workspacesRoot := filepath.Join(medusaHome, "workspaces")
 	return &Paths{
 		Home:                  medusaHome,
-		WorkspacesRoot:        filepath.Join(medusaHome, "workspaces"),
+		WorkspacesRoot:        workspacesRoot,
+		GroupsWorkspacesRoot:  filepath.Join(workspacesRoot, "groups"),
 		RegistryPath:          filepath.Join(medusaHome, "projects.json"),
 		MetadataRoot:          filepath.Join(medusaHome, "workspaces-metadata"),
 		ConfigPath:            filepath.Join(medusaHome, "config.json"),
@@ -44,6 +47,7 @@ func (p *Paths) EnsureDirectories() error {
 	dirs := []string{
 		p.Home,
 		p.WorkspacesRoot,
+		p.GroupsWorkspacesRoot,
 		p.MetadataRoot,
 		p.ProfilesRoot,
 		filepath.Join(p.SharedProfileRoot, "skills"),

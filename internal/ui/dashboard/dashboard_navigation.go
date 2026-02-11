@@ -9,7 +9,12 @@ import (
 
 // isSelectable returns whether a row type can be selected
 func isSelectable(rt RowType) bool {
-	return rt != RowSpacer
+	switch rt {
+	case RowSpacer:
+		return false
+	default:
+		return true
+	}
 }
 
 // findSelectableRow finds a selectable row starting from 'from' in direction 'dir'.
@@ -149,9 +154,25 @@ func (m *Model) previewCurrentRow() tea.Cmd {
 				Workspace: row.Workspace,
 			}
 		}
+	case RowGroupWorkspace:
+		return func() tea.Msg {
+			return messages.GroupWorkspacePreviewed{
+				Group:     row.Group,
+				Workspace: row.GroupWorkspace,
+			}
+		}
+	case RowGroupHeader:
+		return func() tea.Msg {
+			return messages.GroupPreviewed{Group: row.Group}
+		}
+	case RowGroupCreate:
+		// Preview the group header when on the "New" button
+		return func() tea.Msg {
+			return messages.GroupPreviewed{Group: row.Group}
+		}
 	}
 
-	// RowAddProject, RowSpacer - no auto-preview
+	// RowAddProject, RowAddGroup, RowSpacer - no auto-preview
 	return nil
 }
 
@@ -195,6 +216,33 @@ func (m *Model) handleEnter() tea.Cmd {
 		return func() tea.Msg {
 			return messages.ShowCreateWorkspaceDialog{Project: row.Project}
 		}
+	case RowGroupHeader:
+		// Activate first workspace if one exists
+		if len(row.Group.Workspaces) > 0 {
+			gw := &row.Group.Workspaces[0]
+			return func() tea.Msg {
+				return messages.GroupWorkspaceActivated{
+					Group:     row.Group,
+					Workspace: gw,
+				}
+			}
+		}
+		return nil
+	case RowGroupWorkspace:
+		return func() tea.Msg {
+			return messages.GroupWorkspaceActivated{
+				Group:     row.Group,
+				Workspace: row.GroupWorkspace,
+			}
+		}
+	case RowGroupCreate:
+		return func() tea.Msg {
+			return messages.ShowCreateGroupWorkspaceDialog{Group: row.Group}
+		}
+	case RowAddGroup:
+		return func() tea.Msg {
+			return messages.ShowAddProjectDialog{}
+		}
 	}
 
 	return nil
@@ -222,6 +270,19 @@ func (m *Model) handleDelete() tea.Cmd {
 			}
 		}
 	}
+	if row.Type == RowGroupHeader && row.Group != nil {
+		return func() tea.Msg {
+			return messages.ShowDeleteGroupDialog{GroupName: row.Group.Name}
+		}
+	}
+	if row.Type == RowGroupWorkspace && row.GroupWorkspace != nil {
+		return func() tea.Msg {
+			return messages.ShowDeleteGroupWorkspaceDialog{
+				Group:     row.Group,
+				Workspace: row.GroupWorkspace,
+			}
+		}
+	}
 
 	return nil
 }
@@ -233,35 +294,37 @@ func (m *Model) handleSetProfile() tea.Cmd {
 	}
 
 	row := m.rows[m.cursor]
-	var project *data.Project
 	switch row.Type {
-	case RowProject:
-		project = row.Project
-	case RowWorkspace:
-		project = row.Project
-	default:
-		return nil
-	}
-
-	if project == nil {
-		return nil
-	}
-
-	// Check if any workspace for this project has an active session
-	for i := range project.Workspaces {
-		ws := &project.Workspaces[i]
-		if m.activeWorkspaceIDs[string(ws.ID())] {
-			return func() tea.Msg {
-				return messages.Toast{
-					Message: "Cannot change profile while workspaces have active sessions",
-					Level:   messages.ToastError,
+	case RowProject, RowWorkspace:
+		project := row.Project
+		if project == nil {
+			return nil
+		}
+		// Check if any workspace for this project has an active session
+		for i := range project.Workspaces {
+			ws := &project.Workspaces[i]
+			if m.activeWorkspaceIDs[string(ws.ID())] {
+				return func() tea.Msg {
+					return messages.Toast{
+						Message: "Cannot change profile while workspaces have active sessions",
+						Level:   messages.ToastError,
+					}
 				}
 			}
 		}
-	}
-
-	return func() tea.Msg {
-		return messages.ShowSetProfileDialog{Project: project}
+		return func() tea.Msg {
+			return messages.ShowSetProfileDialog{Project: project}
+		}
+	case RowGroupHeader, RowGroupWorkspace:
+		group := row.Group
+		if group == nil {
+			return nil
+		}
+		return func() tea.Msg {
+			return messages.ShowSetGroupProfileDialog{Group: group}
+		}
+	default:
+		return nil
 	}
 }
 
@@ -277,6 +340,33 @@ func (m *Model) handleRename() tea.Cmd {
 				Project:   row.Project,
 				Workspace: row.Workspace,
 			}
+		}
+	}
+	return nil
+}
+
+// handleEditGroupRepos opens the edit repos dialog for the current group.
+func (m *Model) handleEditGroupRepos() tea.Cmd {
+	if m.cursor >= len(m.rows) {
+		return nil
+	}
+	row := m.rows[m.cursor]
+	if (row.Type == RowGroupHeader || row.Type == RowGroupWorkspace) && row.Group != nil {
+		group := row.Group
+		// Block editing if any workspace in the group has an active session
+		for i := range group.Workspaces {
+			gw := &group.Workspaces[i]
+			if m.activeWorkspaceIDs[string(gw.ID())] {
+				return func() tea.Msg {
+					return messages.Toast{
+						Message: "Cannot edit repos while workspaces have active sessions",
+						Level:   messages.ToastError,
+					}
+				}
+			}
+		}
+		return func() tea.Msg {
+			return messages.ShowEditGroupReposDialog{Group: group}
 		}
 	}
 	return nil

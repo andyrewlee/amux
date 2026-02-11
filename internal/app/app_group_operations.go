@@ -1,0 +1,271 @@
+package app
+
+import (
+	"fmt"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/git"
+	"github.com/andyrewlee/medusa/internal/logging"
+	"github.com/andyrewlee/medusa/internal/messages"
+)
+
+// loadGroups loads all project groups and their workspaces from the store.
+func (a *App) loadGroups() tea.Cmd {
+	return func() tea.Msg {
+		groups, err := a.registry.LoadGroups()
+		if err != nil {
+			logging.Warn("Failed to load groups: %v", err)
+			return messages.GroupsLoaded{Groups: nil}
+		}
+
+		for i := range groups {
+			ws, err := a.workspaces.ListGroupWorkspacesByGroup(groups[i].Name)
+			if err != nil {
+				logging.Warn("Failed to load group workspaces for %s: %v", groups[i].Name, err)
+				continue
+			}
+			for _, gw := range ws {
+				gw.Profile = groups[i].Profile
+				// Propagate profile to inner workspaces so agent launch doesn't re-prompt
+				gw.Primary.Profile = groups[i].Profile
+				for j := range gw.Secondary {
+					gw.Secondary[j].Profile = groups[i].Profile
+				}
+				// Merge persisted tab state from the Primary workspace's store entry.
+				// Tab persistence writes to workspace.json keyed by Primary.ID(),
+				// which is a different path than group_workspace.json keyed by GroupWorkspace.ID().
+				if stored, err := a.workspaces.Load(gw.Primary.ID()); err == nil && stored != nil {
+					gw.Primary.OpenTabs = stored.OpenTabs
+					gw.Primary.ActiveTabIndex = stored.ActiveTabIndex
+				}
+				groups[i].Workspaces = append(groups[i].Workspaces, *gw)
+			}
+		}
+
+		return messages.GroupsLoaded{Groups: groups}
+	}
+}
+
+// createGroup registers repos and adds a group to the registry.
+func (a *App) createGroup(name string, repoPaths []string, profile string) tea.Cmd {
+	return func() tea.Msg {
+		repos := make([]data.GroupRepo, len(repoPaths))
+		for i, p := range repoPaths {
+			repos[i] = data.GroupRepo{
+				Path: p,
+				Name: filepath.Base(p),
+			}
+		}
+
+		if err := a.registry.AddGroup(name, repos, profile); err != nil {
+			logging.Error("Failed to create group: %v", err)
+			return messages.Error{Err: err, Context: "creating group"}
+		}
+
+		return messages.GroupCreated{Name: name}
+	}
+}
+
+// removeGroup deletes all group workspaces and removes the group from registry.
+func (a *App) removeGroup(name string) tea.Cmd {
+	groupsRoot := a.config.Paths.GroupsWorkspacesRoot
+	return func() tea.Msg {
+		// Find the group
+		var group *data.ProjectGroup
+		for i := range a.groups {
+			if a.groups[i].Name == name {
+				group = &a.groups[i]
+				break
+			}
+		}
+
+		if group != nil {
+			// Delete all group workspaces first
+			for i := range group.Workspaces {
+				gw := &group.Workspaces[i]
+				deleteGroupWorkspaceSync(a, group, gw)
+			}
+		}
+
+		if err := a.registry.RemoveGroup(name); err != nil {
+			logging.Error("Failed to remove group: %v", err)
+			return messages.Error{Err: err, Context: "removing group"}
+		}
+
+		// Clean up empty group workspace directory
+		_ = os.Remove(filepath.Join(groupsRoot, name))
+
+		return messages.GroupRemoved{Name: name}
+	}
+}
+
+// createGroupWorkspace creates worktrees across all repos in a group.
+func (a *App) createGroupWorkspace(group *data.ProjectGroup, name string, allowEdits, loadClaudeMD bool) tea.Cmd {
+	return func() (msg tea.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				logging.Error("panic in createGroupWorkspace: %v", r)
+				msg = messages.GroupWorkspaceCreateFailed{
+					Err: fmt.Errorf("create group workspace panicked: %v", r),
+				}
+			}
+		}()
+
+		if group == nil || name == "" {
+			return messages.GroupWorkspaceCreateFailed{
+				Err: fmt.Errorf("missing group or workspace name"),
+			}
+		}
+
+		// Validate branch doesn't exist in any repo
+		if err := git.ValidateBranchAcrossRepos(name, group.RepoPaths()); err != nil {
+			return messages.GroupWorkspaceCreateFailed{Err: err}
+		}
+
+		// Build specs for each repo
+		specs := make([]git.RepoSpec, len(group.Repos))
+		for i, repo := range group.Repos {
+			base, err := git.GetDefaultBase(repo.Path)
+			if err != nil {
+				return messages.GroupWorkspaceCreateFailed{
+					Err: fmt.Errorf("failed to get base for %s: %w", repo.Name, err),
+				}
+			}
+
+			wsPath := filepath.Join(
+				a.config.Paths.GroupsWorkspacesRoot,
+				group.Name,
+				name,
+				repo.Name,
+			)
+
+			specs[i] = git.RepoSpec{
+				RepoPath:      repo.Path,
+				RepoName:      repo.Name,
+				WorkspacePath: wsPath,
+				Branch:        name,
+				Base:          base,
+			}
+		}
+
+		// Create all worktrees
+		if err := git.CreateGroupWorkspace(specs); err != nil {
+			return messages.GroupWorkspaceCreateFailed{Err: err}
+		}
+
+		// Build group workspace — Primary.Root is the group workspace directory
+		// (parent of all repo worktrees), all repos go into Secondary.
+		groupRoot := filepath.Join(
+			a.config.Paths.GroupsWorkspacesRoot,
+			group.Name,
+			name,
+		)
+		primary := data.NewWorkspace(name, name, specs[0].Base, group.Repos[0].Path, groupRoot)
+		primary.AllowEdits = allowEdits
+
+		var secondary []data.Workspace
+		for i := 0; i < len(specs); i++ {
+			ws := data.NewWorkspace(name, name, specs[i].Base, group.Repos[i].Path, specs[i].WorkspacePath)
+			ws.AllowEdits = allowEdits
+			secondary = append(secondary, *ws)
+		}
+
+		gw := &data.GroupWorkspace{
+			Name:         name,
+			Created:      time.Now(),
+			GroupName:    group.Name,
+			Primary:      *primary,
+			Secondary:    secondary,
+			AllowEdits:   allowEdits,
+			LoadClaudeMD: loadClaudeMD,
+			Assistant:    "claude",
+			Profile:      group.Profile,
+			ScriptMode:   "nonconcurrent",
+			Env:          make(map[string]string),
+		}
+
+		// Save metadata
+		if err := a.workspaces.SaveGroupWorkspace(gw); err != nil {
+			// Rollback worktrees
+			git.RemoveGroupWorkspace(specs)
+			return messages.GroupWorkspaceCreateFailed{Workspace: gw, Err: err}
+		}
+
+		return messages.GroupWorkspaceCreated{Workspace: gw}
+	}
+}
+
+// deleteGroupWorkspace deletes a group workspace's worktrees and metadata.
+func (a *App) deleteGroupWorkspace(group *data.ProjectGroup, gw *data.GroupWorkspace) tea.Cmd {
+	if group == nil || gw == nil {
+		return func() tea.Msg {
+			return messages.GroupWorkspaceDeleteFailed{
+				Group:     group,
+				Workspace: gw,
+				Err:       fmt.Errorf("missing group or workspace"),
+			}
+		}
+	}
+
+	// Clear UI if deleting the active group workspace
+	if a.activeGroupWs != nil && a.activeGroupWs.ID() == gw.ID() {
+		a.goHome()
+	}
+
+	return func() tea.Msg {
+		deleteGroupWorkspaceSync(a, group, gw)
+		return messages.GroupWorkspaceDeleted{
+			Group:     group,
+			Workspace: gw,
+		}
+	}
+}
+
+// deleteGroupWorkspaceSync performs the actual deletion synchronously.
+func deleteGroupWorkspaceSync(a *App, group *data.ProjectGroup, gw *data.GroupWorkspace) {
+	specs := buildSpecsFromGroupWorkspace(group, gw)
+	git.RemoveGroupWorkspace(specs)
+	// Clean up the group workspace directory (Primary.Root) if empty
+	_ = os.Remove(gw.Primary.Root)
+	_ = a.workspaces.DeleteGroupWorkspace(gw.ID())
+}
+
+func buildSpecsFromGroupWorkspace(group *data.ProjectGroup, gw *data.GroupWorkspace) []git.RepoSpec {
+	var specs []git.RepoSpec
+	for _, ws := range gw.Secondary {
+		specs = append(specs, git.RepoSpec{
+			RepoPath:      ws.Repo,
+			RepoName:      filepath.Base(ws.Repo),
+			WorkspacePath: ws.Root,
+			Branch:        gw.Name,
+		})
+	}
+	return specs
+}
+
+// generateGroupWorkspaceName generates a unique name for a group workspace.
+func generateGroupWorkspaceName(group *data.ProjectGroup) string {
+	const maxAttempts = 50
+	for range maxAttempts {
+		name := fmt.Sprintf("%s-%s-%s",
+			group.Name,
+			randomAnimals[rand.IntN(len(randomAnimals))],
+			randomColors[rand.IntN(len(randomColors))],
+		)
+		if group.FindWorkspaceByName(name) == nil {
+			return name
+		}
+	}
+	return fmt.Sprintf("%s-%s-%s-%d",
+		group.Name,
+		randomAnimals[rand.IntN(len(randomAnimals))],
+		randomColors[rand.IntN(len(randomColors))],
+		rand.IntN(1000),
+	)
+}

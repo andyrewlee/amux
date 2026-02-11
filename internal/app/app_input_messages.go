@@ -346,16 +346,35 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 	return cmds
 }
 
-// handleShowAddProjectDialog shows the add project file picker.
+// handleShowAddProjectDialog shows the unified add project / create group file picker.
+// If the user selects 1 repo, it's added as a project. If 2+, a group is created.
 func (a *App) handleShowAddProjectDialog() {
-	logging.Info("Showing Add Project file picker")
+	logging.Info("Showing Add Project file picker (unified)")
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "/"
 	}
 	a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
 	a.filePicker.SetTitle("Add Project")
-	a.filePicker.SetPrimaryActionLabel("Add as project")
+	a.filePicker.SetPrimaryActionLabel("Add repo")
+	a.filePicker.SetMultiSelect(true)
+	a.filePicker.SetValidatePath(func(path string, existing []string) string {
+		if !git.IsGitRepository(path) {
+			return "Not a git repository"
+		}
+		for _, p := range existing {
+			if p == path {
+				return "Already added"
+			}
+			if strings.HasPrefix(path, p+"/") {
+				return "Nested inside " + filepath.Base(p)
+			}
+			if strings.HasPrefix(p, path+"/") {
+				return "Contains already-added " + filepath.Base(p)
+			}
+		}
+		return ""
+	})
 	a.filePicker.SetSize(a.width, a.height)
 	a.filePicker.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.filePicker.Show()
@@ -1281,6 +1300,329 @@ func (a *App) handleShowCommitDialog(msg messages.ShowCommitDialog) {
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
+}
+
+// handleShowCreateGroupDialog redirects to the unified add project flow.
+func (a *App) handleShowCreateGroupDialog() {
+	a.handleShowAddProjectDialog()
+}
+
+// groupHasActiveSessions checks if any workspace in the group has an active agent session.
+func (a *App) groupHasActiveSessions(group *data.ProjectGroup) bool {
+	activeIDs := make(map[string]bool)
+	for _, wsID := range a.center.GetActiveWorkspaceIDs() {
+		activeIDs[wsID] = true
+	}
+	for wsID := range a.tmuxActiveWorkspaceIDs {
+		activeIDs[wsID] = true
+	}
+	for i := range group.Workspaces {
+		gw := &group.Workspaces[i]
+		if activeIDs[string(gw.ID())] {
+			return true
+		}
+		if workspaceHasLiveTabs(&gw.Primary) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleShowEditGroupReposDialog shows the multi-select file picker for editing repos in a group.
+// Pre-populates with existing repo paths.
+func (a *App) handleShowEditGroupReposDialog(group *data.ProjectGroup) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/"
+	}
+	a.dialogGroup = group
+	a.filePicker = common.NewFilePicker(DialogAddGroupRepo, home, true)
+	a.filePicker.SetTitle("Edit Group Repos")
+	a.filePicker.SetPrimaryActionLabel("Add repo")
+	a.filePicker.SetMultiSelect(true)
+	// Pre-populate with existing repos
+	for _, repo := range group.Repos {
+		a.filePicker.AddSelectedPath(repo.Path)
+	}
+	a.filePicker.SetValidatePath(func(path string, existing []string) string {
+		if !git.IsGitRepository(path) {
+			return "Not a git repository"
+		}
+		for _, p := range existing {
+			if p == path {
+				return "Already added"
+			}
+			if strings.HasPrefix(path, p+"/") {
+				return "Nested inside " + filepath.Base(p)
+			}
+			if strings.HasPrefix(p, path+"/") {
+				return "Contains already-added " + filepath.Base(p)
+			}
+		}
+		return ""
+	})
+	a.filePicker.SetSize(a.width, a.height)
+	a.filePicker.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.filePicker.Show()
+}
+
+// handleShowCreateGroupWorkspaceDialog shows the group workspace creation dialog.
+func (a *App) handleShowCreateGroupWorkspaceDialog(msg messages.ShowCreateGroupWorkspaceDialog) {
+	a.dialogGroup = msg.Group
+	a.dialogDefaultName = generateGroupWorkspaceName(msg.Group)
+	a.dialog = common.NewInputDialog(DialogCreateGroupWorkspace, "Create Group Workspace", a.dialogDefaultName)
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return ""
+		}
+		if err := validation.ValidateWorkspaceName(s); err != nil {
+			return err.Error()
+		}
+		return ""
+	})
+	a.dialog.SetCheckbox("Immediately allow edits", a.config.UI.LastAllowEdits)
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
+// handleShowDeleteGroupDialog shows the group delete confirmation.
+func (a *App) handleShowDeleteGroupDialog(msg messages.ShowDeleteGroupDialog) {
+	a.dialogGroupName = msg.GroupName
+	a.dialog = common.NewConfirmDialog(
+		DialogDeleteGroup,
+		"Delete Group",
+		fmt.Sprintf("Delete group '%s' and all its workspaces?", msg.GroupName),
+	)
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
+// handleShowDeleteGroupWorkspaceDialog shows the group workspace delete confirmation.
+func (a *App) handleShowDeleteGroupWorkspaceDialog(msg messages.ShowDeleteGroupWorkspaceDialog) {
+	a.dialogGroup = msg.Group
+	a.dialogGroupWs = msg.Workspace
+	a.dialog = common.NewConfirmDialog(
+		DialogDeleteGroupWorkspace,
+		"Delete Group Workspace",
+		fmt.Sprintf("Delete group workspace '%s' and its branches?", msg.Workspace.Name),
+	)
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
+// handleShowSetGroupProfileDialog shows the group profile picker.
+func (a *App) handleShowSetGroupProfileDialog(msg messages.ShowSetGroupProfileDialog) {
+	a.dialogGroup = msg.Group
+	currentProfile := ""
+	if msg.Group != nil {
+		currentProfile = msg.Group.Profile
+	}
+
+	profiles := a.listProfiles()
+	if len(profiles) > 0 {
+		a.dialog = common.NewProfilePicker(DialogSetGroupProfile, profiles, currentProfile)
+	} else {
+		a.dialogDefaultName = "Default"
+		a.dialog = common.NewInputDialog(DialogSetGroupProfile, "Set Profile", "Default")
+		a.dialog.SetMessage("Profile isolates Claude settings for this group.")
+	}
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
+// handleGroupWorkspaceActivated processes the GroupWorkspaceActivated message.
+func (a *App) handleGroupWorkspaceActivated(msg messages.GroupWorkspaceActivated) []tea.Cmd {
+	var cmds []tea.Cmd
+	a.activeGroup = msg.Group
+	a.activeGroupWs = msg.Workspace
+	a.activeProject = nil
+	a.showWelcome = false
+	a.centerBtnFocused = false
+	a.centerBtnIndex = 0
+
+	// Ensure profile is propagated to inner workspace
+	if msg.Workspace.Primary.Profile == "" && msg.Workspace.Profile != "" {
+		msg.Workspace.Primary.Profile = msg.Workspace.Profile
+	}
+
+	// Pass primary workspace to center and sidebar
+	a.activeWorkspace = &msg.Workspace.Primary
+	a.center.SetWorkspace(&msg.Workspace.Primary)
+	a.sidebar.SetWorkspace(&msg.Workspace.Primary)
+
+	// Set up file watching and git status for each repo worktree
+	if !a.layout.SidebarHidden() {
+		for _, root := range msg.Workspace.AllRoots() {
+			if a.fileWatcher != nil {
+				_ = a.fileWatcher.Watch(root)
+			}
+			cmds = append(cmds, a.requestGitStatus(root))
+		}
+	}
+
+	// Restore tabs
+	if restoreCmd := a.center.RestoreTabsFromWorkspace(&msg.Workspace.Primary); restoreCmd != nil {
+		cmds = append(cmds, restoreCmd)
+	}
+
+	// Set up sidebar terminal
+	if !a.layout.SidebarHidden() {
+		if termCmd := a.sidebarTerminal.SetWorkspace(&msg.Workspace.Primary); termCmd != nil {
+			cmds = append(cmds, termCmd)
+		}
+	}
+
+	// Auto-start agent for newly created group workspaces
+	ws := &msg.Workspace.Primary
+	wsID := string(ws.ID())
+	if !a.center.HasTabsForWorkspace(wsID) && !workspaceHasLiveTabs(ws) {
+		if a.config.UI.DefaultAgent != "" {
+			agent := a.config.UI.DefaultAgent
+			cmds = append(cmds, func() tea.Msg {
+				return messages.LaunchAgent{Assistant: agent, Workspace: ws}
+			})
+		} else {
+			cmds = append(cmds, func() tea.Msg {
+				return messages.ShowSelectAssistantDialog{}
+			})
+		}
+	}
+
+	// Focus center pane when workspace has active tabs
+	if a.center.HasTabsForWorkspace(wsID) || workspaceHasLiveTabs(ws) {
+		a.focusPane(messages.PaneCenter)
+	}
+
+	return cmds
+}
+
+// handleGroupWorkspacePreviewed processes the GroupWorkspacePreviewed message.
+func (a *App) handleGroupWorkspacePreviewed(msg messages.GroupWorkspacePreviewed) []tea.Cmd {
+	var cmds []tea.Cmd
+	a.activeGroup = msg.Group
+	a.activeGroupWs = msg.Workspace
+	a.activeProject = nil
+	a.showWelcome = false
+	a.centerBtnFocused = false
+	a.centerBtnIndex = 0
+
+	// Ensure profile is propagated to inner workspace
+	if msg.Workspace.Primary.Profile == "" && msg.Workspace.Profile != "" {
+		msg.Workspace.Primary.Profile = msg.Workspace.Profile
+	}
+
+	a.activeWorkspace = &msg.Workspace.Primary
+	a.center.SetWorkspace(&msg.Workspace.Primary)
+	a.sidebar.SetWorkspace(&msg.Workspace.Primary)
+	a.sidebarTerminal.SetWorkspacePreview(&msg.Workspace.Primary)
+
+	if msg.Workspace.Primary.Root != "" && a.statusManager != nil {
+		if cached := a.statusManager.GetCached(msg.Workspace.Primary.Root); cached != nil {
+			a.sidebar.SetGitStatus(cached)
+		} else {
+			a.sidebar.SetGitStatus(nil)
+		}
+	} else {
+		a.sidebar.SetGitStatus(nil)
+	}
+
+	return cmds
+}
+
+// handleSetGroupProfile persists a profile for a group and reloads.
+func (a *App) handleSetGroupProfile(msg messages.SetGroupProfile) tea.Cmd {
+	profile := strings.TrimSpace(msg.Profile)
+
+	if err := a.registry.SetGroupProfile(msg.GroupName, profile); err != nil {
+		logging.Error("Failed to set group profile: %v", err)
+		return a.toast.ShowError("Failed to set profile: " + err.Error())
+	}
+
+	if profile != "" {
+		profileDir := filepath.Join(a.config.Paths.ProfilesRoot, profile)
+		if err := os.MkdirAll(profileDir, 0755); err != nil {
+			logging.Warn("Failed to create profile directory: %v", err)
+		}
+		a.config.UI.LastProfile = profile
+		_ = a.config.SaveUISettings()
+	}
+
+	// Update in-memory state
+	for i := range a.groups {
+		if a.groups[i].Name == msg.GroupName {
+			a.groups[i].Profile = profile
+			for j := range a.groups[i].Workspaces {
+				a.groups[i].Workspaces[j].Profile = profile
+			}
+			break
+		}
+	}
+
+	var cmds []tea.Cmd
+	if profile != "" {
+		cmds = append(cmds, a.toast.ShowSuccess(fmt.Sprintf("Group profile set to '%s'", profile)))
+	} else {
+		cmds = append(cmds, a.toast.ShowSuccess("Group profile cleared"))
+	}
+	cmds = append(cmds, a.loadGroups())
+	return a.safeBatch(cmds...)
+}
+
+// handleGroupPreviewed processes the GroupPreviewed message.
+// Shows group info in the center pane when the group header is highlighted.
+func (a *App) handleGroupPreviewed(msg messages.GroupPreviewed) []tea.Cmd {
+	a.activeGroup = msg.Group
+	a.activeGroupWs = nil
+	a.activeProject = nil
+	a.activeWorkspace = nil
+	a.showWelcome = false
+	a.centerBtnFocused = false
+	a.centerBtnIndex = 0
+	a.center.SetWorkspace(nil)
+	a.sidebar.SetWorkspace(nil)
+	a.sidebar.SetGitStatus(nil)
+	return nil
+}
+
+// handleUpdateGroupRepos handles the UpdateGroupRepos message.
+func (a *App) handleUpdateGroupRepos(msg messages.UpdateGroupRepos) tea.Cmd {
+	if msg.Group == nil || len(msg.RepoPaths) < 2 {
+		return a.toast.ShowError("A group needs at least 2 repos")
+	}
+	repos := make([]data.GroupRepo, len(msg.RepoPaths))
+	for i, p := range msg.RepoPaths {
+		repos[i] = data.GroupRepo{
+			Path: p,
+			Name: filepath.Base(p),
+		}
+	}
+	groupName := msg.Group.Name
+	return func() tea.Msg {
+		if err := a.registry.UpdateGroupRepos(groupName, repos); err != nil {
+			return messages.Error{Err: err, Context: "updating group repos"}
+		}
+		return messages.GroupReposUpdated{GroupName: groupName}
+	}
+}
+
+// handleLaunchGroupAgent launches an agent for a group workspace.
+func (a *App) handleLaunchGroupAgent(msg messages.LaunchGroupAgent) tea.Cmd {
+	if msg.Workspace == nil {
+		return nil
+	}
+	// Pass as regular LaunchAgent using the primary workspace
+	ws := &msg.Workspace.Primary
+	newCenter, cmd := a.center.Update(messages.LaunchAgent{
+		Assistant: msg.Assistant,
+		Workspace: ws,
+	})
+	a.center = newCenter
+	return cmd
 }
 
 // openBrowser opens a URL in the default browser.
