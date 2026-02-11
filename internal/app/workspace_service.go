@@ -276,20 +276,27 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 			}
 		}()
 
-		if project == nil || name == "" {
+		if project == nil {
 			return messages.WorkspaceCreateFailed{
 				Err: errors.New("missing project or workspace name"),
 			}
 		}
-
-		workspacePath := filepath.Join(
-			s.workspacesRoot,
-			project.Name,
-			name,
-		)
-
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return messages.WorkspaceCreateFailed{
+				Err: errors.New("missing project or workspace name"),
+			}
+		}
+		ws = s.pendingWorkspace(project, name, base)
+		if ws == nil {
+			return messages.WorkspaceCreateFailed{
+				Err: errors.New("missing project or workspace name"),
+			}
+		}
+		name = ws.Name
+		base = ws.Base
+		workspacePath := ws.Root
 		branch := name
-		ws = data.NewWorkspace(name, branch, base, project.Path, workspacePath)
 
 		if err := createWorkspaceFn(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{

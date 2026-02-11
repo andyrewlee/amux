@@ -2,11 +2,10 @@ package app
 
 import (
 	"errors"
-	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -89,18 +88,14 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 // handleCreateWorkspace handles the CreateWorkspace message.
 func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
-	if msg.Project != nil && msg.Name != "" {
-		workspacePath := filepath.Join(
-			a.config.Paths.WorkspacesRoot,
-			msg.Project.Name,
-			msg.Name,
-		)
-		pending := data.NewWorkspace(msg.Name, msg.Name, msg.Base, msg.Project.Path, workspacePath)
+	name := strings.TrimSpace(msg.Name)
+	if msg.Project != nil && name != "" && a.workspaceService != nil {
+		pending := a.workspaceService.pendingWorkspace(msg.Project, name, msg.Base)
 		if pending != nil {
 			a.creatingWorkspaceIDs[string(pending.ID())] = true
-		}
-		if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
-			cmds = append(cmds, cmd)
+			if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base))

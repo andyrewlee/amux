@@ -33,6 +33,40 @@ func (s *workspaceService) managedProjectRoot() string {
 	return lexicalWorkspacePath(base)
 }
 
+func (s *workspaceService) pendingProjectRoot(project *data.Project) string {
+	base := strings.TrimSpace(s.workspacesRoot)
+	if base == "" {
+		return ""
+	}
+	projectName := strings.TrimSpace(project.Name)
+	if projectName == "" {
+		projectName = filepath.Base(strings.TrimSpace(project.Path))
+	}
+	if projectName == "" {
+		return ""
+	}
+	return filepath.Join(base, projectName)
+}
+
+func (s *workspaceService) pendingWorkspace(project *data.Project, name, base string) *data.Workspace {
+	if project == nil {
+		return nil
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "HEAD"
+	}
+	projectRoot := s.pendingProjectRoot(project)
+	if projectRoot == "" {
+		return nil
+	}
+	return data.NewWorkspace(name, name, base, project.Path, filepath.Join(projectRoot, name))
+}
+
 func lexicalWorkspacePath(path string) string {
 	value := strings.TrimSpace(path)
 	if value == "" {
