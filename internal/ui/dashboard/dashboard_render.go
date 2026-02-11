@@ -292,7 +292,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = m.styles.SelectedRow
 		}
-		return style.Render(" " + common.Icons.Add + " Add Project ")
+		return style.Render(" " + common.Icons.Add + " Add Workspace ")
 
 	case RowSpacer:
 		return ""
@@ -345,7 +345,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 			items = append(items, m.helpItem("P", "profile"))
 		}
 	}
-	items = append(items, m.helpItem("R", "rescan"))
+	items = append(items, m.helpItem("R", "refresh"))
 	items = append(items,
 		m.helpItem("g", "top"),
 		m.helpItem("G", "bottom"),

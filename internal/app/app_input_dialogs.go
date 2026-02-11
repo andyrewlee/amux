@@ -89,8 +89,8 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			// Multiple repos → create group (show name dialog first)
 			logging.Info("Creating group from unified dialog with %d repos", len(result.Values))
 			a.dialogGroupRepos = result.Values
-			a.dialog = common.NewInputDialog(DialogCreateGroup, "Name Your Group", "")
-			a.dialog.SetMessage("Enter a name for the project group.")
+			a.dialog = common.NewInputDialog(DialogCreateGroup, "Name Your Workspace", "")
+			a.dialog.SetMessage("Enter a name for the workspace.")
 			a.dialog.SetInputValidate(func(s string) string {
 				s = validation.SanitizeInput(s)
 				if s == "" {

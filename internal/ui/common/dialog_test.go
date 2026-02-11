@@ -203,7 +203,7 @@ func TestDialogConfirmClickNo(t *testing.T) {
 }
 
 func TestDialogInputClickCancel(t *testing.T) {
-	d := NewInputDialog("create_workspace", "Create Workspace", "Enter workspace name...")
+	d := NewInputDialog("create_workspace", "Create Worktree", "Enter worktree name...")
 	d.SetSize(80, 24)
 	d.Show()
 	d.input.SetValue("feature-1")

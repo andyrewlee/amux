@@ -79,7 +79,7 @@ func (a *App) handleWelcomeClick(localX, localY int) tea.Cmd {
 			}
 		}
 
-		addProjectText := "[Add project]"
+		addProjectText := "[Add workspace]"
 		if idx := strings.Index(strippedLine, addProjectText); idx >= 0 {
 			region := common.HitRegion{
 				X:      idx + lineOffsetX,
@@ -120,7 +120,7 @@ func (a *App) handleGroupInfoClick(localX, localY int) tea.Cmd {
 			}
 		}
 
-		newWsText := "[New workspace]"
+		newWsText := "[New worktree]"
 		if idx := strings.Index(strippedLine, newWsText); idx >= 0 {
 			region := common.HitRegion{
 				X:      idx,

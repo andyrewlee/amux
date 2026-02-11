@@ -144,7 +144,7 @@ func (s *SettingsDialog) renderLines() []string {
 		style = style.Foreground(ColorPrimary)
 	}
 	y = len(lines)
-	lines = append(lines, style.Render(checkbox+" Auto start agent in new workspaces"))
+	lines = append(lines, style.Render(checkbox+" Auto start agent in new worktrees"))
 	s.addHit(settingsItemAutoStart, -1, y)
 
 	checkbox = "[ ]"

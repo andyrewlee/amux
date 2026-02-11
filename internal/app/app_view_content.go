@@ -44,7 +44,7 @@ func (a *App) renderCenterPaneContent() string {
 		return a.renderGroupInfo()
 	}
 
-	return "Select a workspace from the dashboard"
+	return "Select a worktree from the dashboard"
 }
 
 func (a *App) centerPaneContentOrigin() (x, y int) {
@@ -95,12 +95,12 @@ func (a *App) renderGroupInfo() string {
 	}
 	editBtn := editStyle.Render("[Edit repos]")
 
-	// New workspace button
+	// New worktree button
 	newWsStyle := inactiveStyle
 	if a.centerBtnFocused && a.centerBtnIndex == 1 {
 		newWsStyle = activeStyle
 	}
-	newWsBtn := newWsStyle.Render("[New workspace]")
+	newWsBtn := newWsStyle.Render("[New worktree]")
 
 	content += "\n" + lipgloss.JoinHorizontal(lipgloss.Left, editBtn, "  ", newWsBtn)
 
@@ -179,7 +179,7 @@ func (a *App) welcomeContent() string {
 			settingsStyle = activeStyle
 		}
 	}
-	addProject := addProjectStyle.Render("[+ Add Project]")
+	addProject := addProjectStyle.Render("[+ Add Workspace]")
 	settingsBtn := settingsStyle.Render("[Settings]")
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, addProject, "  ", settingsBtn))
 	b.WriteString("\n")

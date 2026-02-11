@@ -1,5 +1,13 @@
 package app
 
+// TODO: Rename internal code to match new user-facing terminology:
+//   - Struct/type: Workspace → Worktree, Project/ProjectGroup → Workspace, GroupWorkspace → Worktree
+//   - Variables/functions: e.g. activeWorkspace → activeWorktree, handleCreateWorkspace → handleCreateWorktree
+//   - Dialog IDs: DialogCreateWorkspace → DialogCreateWorktree, DialogRemoveProject → DialogRemoveWorkspace, etc.
+//   - Message types: messages.CreateWorkspace → messages.CreateWorktree, messages.RemoveProject → messages.RemoveWorkspace, etc.
+//   - File paths & JSON keys (breaking change, needs migration): workspaces.json, workspace.json, setup-workspace, etc.
+// This was deferred to avoid breaking changes in the initial terminology fix.
+
 import (
 	"fmt"
 	"math/rand/v2"
@@ -355,7 +363,7 @@ func (a *App) handleShowAddProjectDialog() {
 		home = "/"
 	}
 	a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
-	a.filePicker.SetTitle("Add Project")
+	a.filePicker.SetTitle("Add Workspace")
 	a.filePicker.SetPrimaryActionLabel("Add repo")
 	a.filePicker.SetMultiSelect(true)
 	a.filePicker.SetValidatePath(func(path string, existing []string) string {
@@ -779,7 +787,7 @@ func (a *App) handleSetProfile(msg messages.SetProfile) tea.Cmd {
 func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDialog) {
 	a.dialogProject = msg.Project
 	a.dialogWorkspace = msg.Workspace
-	a.dialog = common.NewInputDialog(DialogRenameWorkspace, "Rename Session", msg.Workspace.Name)
+	a.dialog = common.NewInputDialog(DialogRenameWorkspace, "Rename Worktree", msg.Workspace.Name)
 	a.dialog.SetInputValidate(func(s string) string {
 		s = validation.SanitizeInput(s)
 		if s == "" {
@@ -800,7 +808,7 @@ func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDi
 func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDialog) {
 	a.dialogProject = msg.Project
 	a.dialogDefaultName = generateWorkspaceName(msg.Project)
-	a.dialog = common.NewInputDialog(DialogCreateWorkspace, "Create Session", a.dialogDefaultName)
+	a.dialog = common.NewInputDialog(DialogCreateWorkspace, "Create Worktree", a.dialogDefaultName)
 	a.dialog.SetInputValidate(func(s string) string {
 		s = validation.SanitizeInput(s)
 		if s == "" {
@@ -823,8 +831,8 @@ func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDi
 	a.dialogWorkspace = msg.Workspace
 	a.dialog = common.NewConfirmDialog(
 		DialogDeleteWorkspace,
-		"Delete Workspace",
-		fmt.Sprintf("Delete workspace '%s' and its branch?", msg.Workspace.Name),
+		"Delete Worktree",
+		fmt.Sprintf("Delete worktree '%s' and its branch?", msg.Workspace.Name),
 	)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -840,8 +848,8 @@ func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog
 	}
 	a.dialog = common.NewConfirmDialog(
 		DialogRemoveProject,
-		"Remove Project",
-		fmt.Sprintf("Remove project '%s' from MEDUSA? This won't delete any files.", projectName),
+		"Remove Workspace",
+		fmt.Sprintf("Remove workspace '%s' from MEDUSA? This won't delete any files.", projectName),
 	)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -1364,7 +1372,7 @@ func (a *App) handleShowEditGroupReposDialog(group *data.ProjectGroup) {
 	}
 	a.dialogGroup = group
 	a.filePicker = common.NewFilePicker(DialogAddGroupRepo, home, true)
-	a.filePicker.SetTitle("Edit Group Repos")
+	a.filePicker.SetTitle("Edit Workspace Repos")
 	a.filePicker.SetPrimaryActionLabel("Add repo")
 	a.filePicker.SetMultiSelect(true)
 	// Pre-populate with existing repos
@@ -1397,7 +1405,7 @@ func (a *App) handleShowEditGroupReposDialog(group *data.ProjectGroup) {
 func (a *App) handleShowCreateGroupWorkspaceDialog(msg messages.ShowCreateGroupWorkspaceDialog) {
 	a.dialogGroup = msg.Group
 	a.dialogDefaultName = generateGroupWorkspaceName(msg.Group)
-	a.dialog = common.NewInputDialog(DialogCreateGroupWorkspace, "Create Group Workspace", a.dialogDefaultName)
+	a.dialog = common.NewInputDialog(DialogCreateGroupWorkspace, "Create Worktree", a.dialogDefaultName)
 	a.dialog.SetInputValidate(func(s string) string {
 		s = validation.SanitizeInput(s)
 		if s == "" {
@@ -1419,8 +1427,8 @@ func (a *App) handleShowDeleteGroupDialog(msg messages.ShowDeleteGroupDialog) {
 	a.dialogGroupName = msg.GroupName
 	a.dialog = common.NewConfirmDialog(
 		DialogDeleteGroup,
-		"Delete Group",
-		fmt.Sprintf("Delete group '%s' and all its workspaces?", msg.GroupName),
+		"Delete Workspace",
+		fmt.Sprintf("Delete workspace '%s' and all its worktrees?", msg.GroupName),
 	)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -1430,7 +1438,7 @@ func (a *App) handleShowDeleteGroupDialog(msg messages.ShowDeleteGroupDialog) {
 // handleShowRenameGroupDialog shows the rename dialog for a project group.
 func (a *App) handleShowRenameGroupDialog(msg messages.ShowRenameGroupDialog) {
 	a.dialogGroup = msg.Group
-	a.dialog = common.NewInputDialog(DialogRenameGroup, "Rename Group", msg.Group.Name)
+	a.dialog = common.NewInputDialog(DialogRenameGroup, "Rename Workspace", msg.Group.Name)
 	a.dialog.SetInputValidate(func(s string) string {
 		s = validation.SanitizeInput(s)
 		if s == "" {
@@ -1451,7 +1459,7 @@ func (a *App) handleShowRenameGroupDialog(msg messages.ShowRenameGroupDialog) {
 func (a *App) handleShowRenameGroupWorkspaceDialog(msg messages.ShowRenameGroupWorkspaceDialog) {
 	a.dialogGroup = msg.Group
 	a.dialogGroupWs = msg.Workspace
-	a.dialog = common.NewInputDialog(DialogRenameGroupWorkspace, "Rename Workspace", msg.Workspace.Name)
+	a.dialog = common.NewInputDialog(DialogRenameGroupWorkspace, "Rename Worktree", msg.Workspace.Name)
 	a.dialog.SetInputValidate(func(s string) string {
 		s = validation.SanitizeInput(s)
 		if s == "" {
@@ -1474,8 +1482,8 @@ func (a *App) handleShowDeleteGroupWorkspaceDialog(msg messages.ShowDeleteGroupW
 	a.dialogGroupWs = msg.Workspace
 	a.dialog = common.NewConfirmDialog(
 		DialogDeleteGroupWorkspace,
-		"Delete Group Workspace",
-		fmt.Sprintf("Delete group workspace '%s' and its branches?", msg.Workspace.Name),
+		"Delete Worktree",
+		fmt.Sprintf("Delete worktree '%s' and its branches?", msg.Workspace.Name),
 	)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)

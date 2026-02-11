@@ -28,7 +28,7 @@
 
 ## What is Medusa?
 
-Medusa is a terminal UI for running multiple coding agents in parallel with a workspace-first model that can import git worktrees.
+Medusa is a terminal UI for running multiple coding agents in parallel with a worktree-first model that can import git worktrees.
 
 ## Prerequisites
 
@@ -50,11 +50,11 @@ Then run `medusa` to open the dashboard.
 
 ## How it works
 
-Each workspace tracks a repo checkout and its metadata. For local workflows, workspaces are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done.
+Each worktree tracks a repo checkout and its metadata. For local workflows, worktrees are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done.
 
 ## Features
 
-- **Parallel agents**: Launch multiple agents within main repo and within workspaces
+- **Parallel agents**: Launch multiple agents within main repo and within worktrees
 - **No wrappers**: Works with Claude Code, Codex, Gemini, Amp, OpenCode, and Droid
 - **Keyboard + mouse**: Can be operated with just the keyboard or with a mouse
 - **All-in-one tool**: Run agents, view diffs, and access terminal
@@ -72,7 +72,7 @@ Create `.medusa/workspaces.json` in your project to run setup commands for new w
 }
 ```
 
-Workspace metadata is stored in `~/.medusa/workspaces/<workspace-id>/workspace.json` and local worktree directories live under `<repo>/.medusa/workspaces/`.
+Worktree metadata is stored in `~/.medusa/workspaces/<workspace-id>/workspace.json` and local worktree directories live under `<repo>/.medusa/workspaces/`.
 
 ## Development
 

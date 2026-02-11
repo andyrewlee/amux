@@ -306,7 +306,7 @@ func (m *Model) handleSetProfile() tea.Cmd {
 			if m.activeWorkspaceIDs[string(ws.ID())] {
 				return func() tea.Msg {
 					return messages.Toast{
-						Message: "Cannot change profile while workspaces have active sessions",
+						Message: "Cannot change profile while worktrees have active sessions",
 						Level:   messages.ToastError,
 					}
 				}
@@ -326,7 +326,7 @@ func (m *Model) handleSetProfile() tea.Cmd {
 			if m.activeWorkspaceIDs[string(gw.ID())] {
 				return func() tea.Msg {
 					return messages.Toast{
-						Message: "Cannot change profile while workspaces have active sessions",
+						Message: "Cannot change profile while worktrees have active sessions",
 						Level:   messages.ToastError,
 					}
 				}
@@ -386,7 +386,7 @@ func (m *Model) handleEditGroupRepos() tea.Cmd {
 			if m.activeWorkspaceIDs[string(gw.ID())] {
 				return func() tea.Msg {
 					return messages.Toast{
-						Message: "Cannot edit repos while workspaces have active sessions",
+						Message: "Cannot edit repos while worktrees have active sessions",
 						Level:   messages.ToastError,
 					}
 				}
