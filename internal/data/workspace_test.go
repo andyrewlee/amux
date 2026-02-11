@@ -74,6 +74,18 @@ func TestWorkspace_IsPrimaryCheckout(t *testing.T) {
 			root:    "/home/user/.amux/workspaces/feature",
 			primary: false,
 		},
+		{
+			name:    "normalized path equivalence",
+			repo:    "/home/user/repo",
+			root:    "/home/user/../user/repo/.",
+			primary: true,
+		},
+		{
+			name:    "empty paths are never primary",
+			repo:    "",
+			root:    "",
+			primary: false,
+		},
 	}
 
 	for _, tt := range tests {
