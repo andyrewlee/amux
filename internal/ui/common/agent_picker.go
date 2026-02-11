@@ -7,34 +7,14 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// AgentOption represents an agent option
-type AgentOption struct {
-	ID   string
-	Name string
-}
-
-// DefaultAgentOptions returns the default agent options
-func DefaultAgentOptions() []AgentOption {
-	return []AgentOption{
-		{ID: "claude", Name: "claude"},
-		{ID: "codex", Name: "codex"},
-		{ID: "gemini", Name: "gemini"},
-		{ID: "amp", Name: "amp"},
-		{ID: "opencode", Name: "opencode"},
-		{ID: "droid", Name: "droid"},
-		{ID: "cline", Name: "cline"},
-		{ID: "cursor", Name: "cursor"},
-		{ID: "pi", Name: "pi"},
-	}
-}
-
 // NewAgentPicker creates a new agent selection dialog with fuzzy filtering
-func NewAgentPicker() *Dialog {
-	options := DefaultAgentOptions()
-	optionNames := make([]string, len(options))
-	allIndices := make([]int, len(options))
-	for i, opt := range options {
-		optionNames[i] = opt.ID
+func NewAgentPicker(options []string) *Dialog {
+	optionNames := normalizeAssistantOptions(options)
+	if len(optionNames) == 0 {
+		optionNames = []string{"claude"}
+	}
+	allIndices := make([]int, len(optionNames))
+	for i := range optionNames {
 		allIndices[i] = i
 	}
 
@@ -76,44 +56,19 @@ func (d *Dialog) renderAgentPickerOptions(baseLine int) []string {
 		return lines
 	}
 
-	agentOptions := DefaultAgentOptions()
 	for cursorIdx, originalIdx := range d.filteredIndices {
-		opt := agentOptions[originalIdx]
+		opt := d.options[originalIdx]
 		cursor := Icons.CursorEmpty + " "
 		if cursorIdx == d.cursor {
 			cursor = Icons.Cursor + " "
 		}
 
-		var colorStyle lipgloss.Style
-		switch opt.ID {
-		case "claude":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorClaude)
-		case "codex":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorCodex)
-		case "gemini":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorGemini)
-		case "amp":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorAmp)
-		case "opencode":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorOpencode)
-		case "droid":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorDroid)
-		case "cline":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorCline)
-		case "cursor":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorCursor)
-		case "pi":
-			colorStyle = lipgloss.NewStyle().Foreground(ColorPi)
-		default:
-			colorStyle = lipgloss.NewStyle().Foreground(ColorForeground)
-		}
-
-		indicator := colorStyle.Render(Icons.Running)
+		indicator := lipgloss.NewStyle().Foreground(AgentColor(opt)).Render(Icons.Running)
 		nameStyle := lipgloss.NewStyle().Foreground(ColorForeground)
 		if cursorIdx == d.cursor {
 			nameStyle = nameStyle.Bold(true)
 		}
-		name := nameStyle.Render("[" + opt.Name + "]")
+		name := nameStyle.Render("[" + opt + "]")
 		line := cursor + indicator + " " + name
 
 		// Use full dialog content width for easier clicking
@@ -123,4 +78,21 @@ func (d *Dialog) renderAgentPickerOptions(baseLine int) []string {
 		lineIndex++
 	}
 	return lines
+}
+
+func normalizeAssistantOptions(options []string) []string {
+	seen := make(map[string]struct{}, len(options))
+	out := make([]string, 0, len(options))
+	for _, option := range options {
+		name := strings.TrimSpace(option)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }

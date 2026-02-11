@@ -325,6 +325,43 @@ func TestWorkspaceStore_LoadAppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_LoadAppliesConfiguredDefaultAssistant(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+	store.SetDefaultAssistant("openclaw")
+
+	ws := &Workspace{
+		Name: "configured-default-test",
+		Repo: "/repo",
+		Root: "/root",
+	}
+	id := ws.ID()
+
+	dir := filepath.Join(root, string(id))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	legacyJSON := `{
+		"name": "configured-default-test",
+		"repo": "/repo",
+		"root": "/root",
+		"branch": "main",
+		"assistant": ""
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(legacyJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	loaded, err := store.Load(id)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Assistant != "openclaw" {
+		t.Errorf("Assistant = %v, want %v", loaded.Assistant, "openclaw")
+	}
+}
+
 func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

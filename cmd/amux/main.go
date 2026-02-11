@@ -17,8 +17,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/andyrewlee/amux/internal/app"
+	"github.com/andyrewlee/amux/internal/cli"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/safego"
 )
@@ -30,17 +32,95 @@ var (
 	date    = "unknown"
 )
 
+// CLI subcommands that route to the headless CLI.
+var cliCommands = map[string]bool{
+	"status": true, "doctor": true, "logs": true,
+	"workspace": true, "agent": true,
+	"capabilities": true,
+	"version":      true, "help": true,
+}
+
 func main() {
 	// Handle --version flag
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
 		fmt.Printf("amux %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
 	}
+
+	sub, parseErr := classifyInvocation(os.Args[1:])
+	if parseErr != nil {
+		// Let the headless CLI render the canonical parse error response.
+		code := cli.Run(os.Args[1:], version, commit, date)
+		os.Exit(code)
+	}
+
+	// Route to CLI if a known subcommand is given (even with leading global flags).
+	if sub != "" {
+		if cliCommands[sub] {
+			code := cli.Run(os.Args[1:], version, commit, date)
+			os.Exit(code)
+		}
+		if sub == "tui" {
+			// Launch TUI unconditionally.
+			runTUI()
+			return
+		}
+	}
+
+	// No subcommand: TTY → TUI, non-TTY → delegate to headless CLI.
+	if sub == "" {
+		launchTUI := shouldLaunchTUI(
+			term.IsTerminal(os.Stdin.Fd()),
+			term.IsTerminal(os.Stdout.Fd()),
+			term.IsTerminal(os.Stderr.Fd()),
+		)
+		if handled, code := handleNoSubcommand(os.Args[1:], launchTUI); handled {
+			os.Exit(code)
+		}
+		runTUI()
+		return
+	}
+
+	// Unknown argument: route through CLI for JSON-aware error handling
+	code := cli.Run(os.Args[1:], version, commit, date)
+	os.Exit(code)
+}
+
+func firstCLIArg(args []string) string {
+	sub, _ := classifyInvocation(args)
+	return sub
+}
+
+func classifyInvocation(args []string) (string, error) {
+	_, rest, err := cli.ParseGlobalFlags(args)
+	if err != nil {
+		return "", err
+	}
+	if len(rest) == 0 {
+		return "", nil
+	}
+	return rest[0], nil
+}
+
+func shouldLaunchTUI(stdinIsTTY, stdoutIsTTY, stderrIsTTY bool) bool {
+	return stdinIsTTY && stdoutIsTTY && stderrIsTTY
+}
+
+func handleNoSubcommand(args []string, launchTUI bool) (bool, int) {
+	if len(args) > 0 {
+		return true, cli.Run(args, version, commit, date)
+	}
+	if launchTUI {
+		return false, 0
+	}
+	return true, cli.Run(args, version, commit, date)
+}
+
+func runTUI() {
 	// Initialize logging
 	home, _ := os.UserHomeDir()
 	logDir := filepath.Join(home, ".amux", "logs")
 	if err := logging.Initialize(logDir, logging.LevelDebug); err != nil {
-		// Logging is optional, continue without it
 		fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)
 	}
 	defer logging.Close()

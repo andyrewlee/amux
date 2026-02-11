@@ -134,7 +134,7 @@ func (m *Model) isChatTab(tab *Tab) bool {
 		return ok
 	}
 	switch tab.Assistant {
-	case "claude", "codex", "gemini", "amp", "opencode", "droid", "cursor":
+	case "claude", "codex", "gemini", "amp", "opencode", "droid", "cline", "cursor", "pi", "openclaw":
 		return true
 	default:
 		return false

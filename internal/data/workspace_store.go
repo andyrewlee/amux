@@ -17,14 +17,40 @@ const workspaceFilename = "workspace.json"
 
 // WorkspaceStore manages workspace persistence
 type WorkspaceStore struct {
-	root string // ~/.amux/workspaces-metadata
+	root             string // ~/.amux/workspaces-metadata
+	defaultAssistant string
 }
 
 // NewWorkspaceStore creates a new workspace store
 func NewWorkspaceStore(root string) *WorkspaceStore {
 	return &WorkspaceStore{
-		root: root,
+		root:             root,
+		defaultAssistant: DefaultAssistant,
 	}
+}
+
+// SetDefaultAssistant updates the assistant used when applying defaults while loading metadata.
+func (s *WorkspaceStore) SetDefaultAssistant(name string) {
+	if s == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		s.defaultAssistant = DefaultAssistant
+		return
+	}
+	s.defaultAssistant = trimmed
+}
+
+func (s *WorkspaceStore) resolvedDefaultAssistant() string {
+	if s == nil {
+		return DefaultAssistant
+	}
+	name := strings.TrimSpace(s.defaultAssistant)
+	if name == "" {
+		return DefaultAssistant
+	}
+	return name
 }
 
 // workspacePath returns the path to the workspace file for a workspace ID
@@ -62,6 +88,10 @@ func (s *WorkspaceStore) List() ([]WorkspaceID, error) {
 
 // Load loads a workspace by its ID
 func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
+	return s.load(id, true)
+}
+
+func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, error) {
 	if err := validateWorkspaceID(id); err != nil {
 		return nil, err
 	}
@@ -96,8 +126,10 @@ func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
 	}
 	ws.storeID = id
 
-	// Apply defaults for missing fields
-	applyWorkspaceDefaults(ws)
+	if applyDefaults {
+		// Apply defaults for missing fields.
+		s.applyWorkspaceDefaults(ws)
+	}
 
 	return ws, nil
 }
@@ -197,7 +229,9 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 	ws.Created = stored.Created
 	ws.Base = stored.Base
 	ws.Runtime = stored.Runtime
-	ws.Assistant = stored.Assistant
+	if stored.Assistant != "" {
+		ws.Assistant = stored.Assistant
+	}
 	ws.Scripts = stored.Scripts
 	ws.ScriptMode = stored.ScriptMode
 	ws.Env = stored.Env
@@ -208,7 +242,7 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 	ws.storeID = stored.storeID
 
 	// Apply defaults if stored metadata had empty values
-	applyWorkspaceDefaults(ws)
+	s.applyWorkspaceDefaults(ws)
 
 	return true, nil
 }
@@ -230,7 +264,7 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 		if discovered.Created.IsZero() {
 			discovered.Created = time.Now()
 		}
-		applyWorkspaceDefaults(discovered)
+		s.applyWorkspaceDefaults(discovered)
 		return s.Save(discovered)
 	}
 
@@ -241,12 +275,15 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 	if merged.Name == "" {
 		merged.Name = discovered.Name
 	}
+	if merged.Assistant == "" {
+		merged.Assistant = discovered.Assistant
+	}
 	if merged.Created.IsZero() && !discovered.Created.IsZero() {
 		merged.Created = discovered.Created
 	}
 	merged.Archived = false
 	merged.ArchivedAt = time.Time{}
-	applyWorkspaceDefaults(&merged)
+	s.applyWorkspaceDefaults(&merged)
 
 	newID := merged.ID()
 	if err := s.Save(&merged); err != nil {
@@ -305,9 +342,9 @@ func parseCreated(raw json.RawMessage) time.Time {
 	return time.Time{}
 }
 
-func applyWorkspaceDefaults(ws *Workspace) {
+func (s *WorkspaceStore) applyWorkspaceDefaults(ws *Workspace) {
 	if ws.Assistant == "" {
-		ws.Assistant = "claude"
+		ws.Assistant = s.resolvedDefaultAssistant()
 	}
 	if ws.ScriptMode == "" {
 		ws.ScriptMode = "nonconcurrent"
@@ -322,7 +359,7 @@ func applyWorkspaceDefaults(ws *Workspace) {
 
 func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, WorkspaceID, error) {
 	canonicalID := Workspace{Repo: repo, Root: root}.ID()
-	ws, err := s.Load(canonicalID)
+	ws, err := s.load(canonicalID, false)
 	if err == nil {
 		return ws, canonicalID, nil
 	}

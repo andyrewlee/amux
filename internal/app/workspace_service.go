@@ -25,19 +25,33 @@ var (
 )
 
 type workspaceService struct {
-	registry       ProjectRegistry
-	store          WorkspaceStore
-	scripts        *process.ScriptRunner
-	workspacesRoot string
+	registry         ProjectRegistry
+	store            WorkspaceStore
+	scripts          *process.ScriptRunner
+	workspacesRoot   string
+	defaultAssistant string
 }
 
-func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string) *workspaceService {
-	return &workspaceService{
-		registry:       registry,
-		store:          store,
-		scripts:        scripts,
-		workspacesRoot: workspacesRoot,
+func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string, defaultAssistant ...string) *workspaceService {
+	configuredDefaultAssistant := ""
+	if len(defaultAssistant) > 0 {
+		configuredDefaultAssistant = defaultAssistant[0]
 	}
+	return &workspaceService{
+		registry:         registry,
+		store:            store,
+		scripts:          scripts,
+		workspacesRoot:   workspacesRoot,
+		defaultAssistant: strings.TrimSpace(configuredDefaultAssistant),
+	}
+}
+
+func (s *workspaceService) resolvedDefaultAssistant() string {
+	name := strings.TrimSpace(s.defaultAssistant)
+	if name == "" {
+		return data.DefaultAssistant
+	}
+	return name
 }
 
 // LoadProjects loads all registered projects and their workspaces.
@@ -102,6 +116,7 @@ func (s *workspaceService) LoadProjects() tea.Cmd {
 						path,                // repo
 						path,                // root (same as repo for primary)
 					)
+					primaryWs.Assistant = s.resolvedDefaultAssistant()
 					// Load any persisted UI state (OpenTabs, etc.) for the primary checkout
 					if s.store != nil {
 						found, loadErr := s.store.LoadMetadataFor(primaryWs)
@@ -154,6 +169,9 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 				ws := &discoveredWorkspaces[i]
 				if !s.shouldSurfaceWorkspace(path, ws) {
 					continue
+				}
+				if strings.TrimSpace(ws.Assistant) == "" {
+					ws.Assistant = s.resolvedDefaultAssistant()
 				}
 				discoveredSet[string(ws.ID())] = true
 				if s.store != nil {
@@ -312,6 +330,9 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 
 		workspacePath := ws.Root
 		branch := name
+		if strings.TrimSpace(ws.Assistant) == "" {
+			ws.Assistant = s.resolvedDefaultAssistant()
+		}
 
 		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, workspacePath) {
 			return messages.WorkspaceCreateFailed{

@@ -81,7 +81,7 @@ func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog
 // handleShowSelectAssistantDialog shows the select assistant dialog.
 func (a *App) handleShowSelectAssistantDialog() {
 	if a.activeWorkspace != nil {
-		a.dialog = common.NewAgentPicker()
+		a.dialog = common.NewAgentPicker(a.assistantNames())
 		a.dialog.SetSize(a.width, a.height)
 		a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 		a.dialog.Show()

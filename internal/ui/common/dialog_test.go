@@ -46,7 +46,7 @@ func TestDialogCursorPositionInput(t *testing.T) {
 }
 
 func TestDialogCursorPositionFilter(t *testing.T) {
-	d := NewAgentPicker()
+	d := NewAgentPicker([]string{"claude", "codex"})
 	d.Show()
 	d.filterInput.SetValue("c")
 	d.filterInput.SetCursor(1)

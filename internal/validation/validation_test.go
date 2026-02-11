@@ -114,9 +114,11 @@ func TestValidateAssistant(t *testing.T) {
 		{"claude", "claude", false},
 		{"codex", "codex", false},
 		{"gemini", "gemini", false},
-		{"term", "term", false},
+		{"openclaw", "openclaw", false},
+		{"custom assistant", "my-agent", false},
 		{"cursor", "cursor", false},
-		{"unknown", "gpt4", true},
+		{"alphanumeric unknown is valid", "gpt4", false},
+		{"invalid chars", "bad assistant!", true},
 		{"empty", "", true},
 	}
 

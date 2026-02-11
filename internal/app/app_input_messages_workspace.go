@@ -277,6 +277,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	if msg.Project != nil && name != "" && a.workspaceService != nil {
 		pending := a.workspaceService.pendingWorkspace(msg.Project, name, base)
 		if pending != nil {
+			pending.Assistant = a.defaultAssistantName()
 			a.creatingWorkspaceIDs[string(pending.ID())] = true
 			if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
 				cmds = append(cmds, cmd)

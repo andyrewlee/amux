@@ -153,6 +153,79 @@ func TestWorkspaceStore_LoadMetadataFor_AppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_LoadMetadataFor_PreservesExistingAssistantWhenStoredEmpty(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	discovered := &Workspace{
+		Name:      "test-ws",
+		Branch:    "test",
+		Repo:      "/repo",
+		Root:      "/root",
+		Assistant: "openclaw",
+	}
+
+	id := discovered.ID()
+	dir := filepath.Join(root, string(id))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	emptyMetadata := `{
+		"created": "2024-01-01T00:00:00Z",
+		"assistant": ""
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(emptyMetadata), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	found, err := store.LoadMetadataFor(discovered)
+	if err != nil {
+		t.Fatalf("LoadMetadataFor() error = %v", err)
+	}
+	if !found {
+		t.Fatal("LoadMetadataFor() should have found metadata")
+	}
+	if discovered.Assistant != "openclaw" {
+		t.Errorf("Assistant = %v, want 'openclaw'", discovered.Assistant)
+	}
+}
+
+func TestWorkspaceStore_UpsertFromDiscovery_PreservesDiscoveredAssistantWhenStoredEmpty(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	stored := &Workspace{
+		Name:      "test-ws",
+		Branch:    "test",
+		Repo:      "/repo",
+		Root:      "/root",
+		Assistant: "",
+	}
+	if err := store.Save(stored); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	discovered := &Workspace{
+		Name:      "test-ws",
+		Branch:    "test",
+		Repo:      "/repo",
+		Root:      "/root",
+		Assistant: "openclaw",
+	}
+	if err := store.UpsertFromDiscovery(discovered); err != nil {
+		t.Fatalf("UpsertFromDiscovery() error = %v", err)
+	}
+
+	loaded, err := store.Load(stored.ID())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Assistant != "openclaw" {
+		t.Errorf("Assistant = %v, want 'openclaw'", loaded.Assistant)
+	}
+}
+
 func TestWorkspaceStore_LoadMetadataFor_CorruptedFile(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

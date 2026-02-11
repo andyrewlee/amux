@@ -198,6 +198,11 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating assistant")}
 				}
 			}
+			if !a.isKnownAssistant(assistant) {
+				return func() tea.Msg {
+					return messages.Error{Err: errors.New("unknown assistant: " + assistant), Context: errorContext(errorServiceDialog, "validating assistant")}
+				}
+			}
 			ws := a.activeWorkspace
 			return func() tea.Msg {
 				return messages.LaunchAgent{
