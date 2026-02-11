@@ -77,7 +77,12 @@ func ValidateProjectPath(path string) error {
 		if err != nil {
 			return &ValidationError{Field: "path", Message: "cannot resolve home directory"}
 		}
-		path = filepath.Join(home, path[1:])
+		switch {
+		case path == "~":
+			path = home
+		case strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\"):
+			path = filepath.Join(home, path[2:])
+		}
 	}
 
 	// Check if path exists

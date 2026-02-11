@@ -65,6 +65,19 @@ func TestValidateProjectPath(t *testing.T) {
 	}
 }
 
+func TestValidateProjectPathExpandsTildeHome(t *testing.T) {
+	home := t.TempDir()
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.git): %v", err)
+	}
+	t.Setenv("HOME", home)
+
+	if err := ValidateProjectPath("~/repo"); err != nil {
+		t.Fatalf("ValidateProjectPath(\"~/repo\") error = %v", err)
+	}
+}
+
 func TestValidateBaseRef(t *testing.T) {
 	tests := []struct {
 		name    string

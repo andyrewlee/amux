@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,6 +15,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 var (
@@ -193,19 +195,36 @@ func (s *workspaceService) AddProject(path string) tea.Cmd {
 		logging.Info("Adding project: %s", path)
 
 		// Expand path
-		if len(path) > 0 && path[0] == '~' {
+		if strings.HasPrefix(path, "~") {
 			home, err := os.UserHomeDir()
 			if err == nil {
-				path = filepath.Join(home, path[1:])
-				logging.Debug("Expanded path to: %s", path)
+				switch {
+				case path == "~":
+					path = home
+				case strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\"):
+					path = filepath.Join(home, path[2:])
+				}
+				logging.Debug("Expanded project path to: %s", path)
 			}
 		}
 
-		// Verify it's a git repo
-		if !git.IsGitRepository(path) {
+		// Validate path exists and has .git
+		if err := validation.ValidateProjectPath(path); err != nil {
 			logging.Warn("Path is not a git repository: %s", path)
 			return messages.Error{
-				Err:     fmt.Errorf("not a git repository: %s", path),
+				Err:     err,
+				Context: errorContext(errorServiceWorkspace, "adding project"),
+			}
+		}
+
+		// Verify it's a real git repo (not just a .git directory)
+		if !git.IsGitRepository(path) {
+			logging.Warn("Path failed git repository validation: %s", path)
+			return messages.Error{
+				Err: &validation.ValidationError{
+					Field:   "path",
+					Message: "path is not a git repository",
+				},
 				Context: errorContext(errorServiceWorkspace, "adding project"),
 			}
 		}
