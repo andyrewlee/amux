@@ -22,11 +22,11 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 	runGit(t, repo, "add", "README.md")
 	runGit(t, repo, "commit", "-m", "init")
 
-	worktreeDir := normalizePath(t.TempDir())
-	worktreePath := filepath.Join(worktreeDir, "feature")
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	worktreePath := filepath.Join(workspacesRoot, filepath.Base(repo), "feature")
 	runGit(t, repo, "worktree", "add", "-b", "feature", worktreePath, "main")
 
-	tmp := t.TempDir()
 	registry := data.NewRegistry(filepath.Join(tmp, "projects.json"))
 	if err := registry.AddProject(repo); err != nil {
 		t.Fatalf("AddProject: %v", err)
@@ -49,7 +49,7 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 		t.Fatalf("Save stored workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, "")
+	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
 	app := &App{
 		workspaceService: workspaceService,
 	}
@@ -111,18 +111,18 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 	runGit(t, repo, "add", "README.md")
 	runGit(t, repo, "commit", "-m", "init")
 
-	worktreeDir := normalizePath(t.TempDir())
-	worktreePath := filepath.Join(worktreeDir, "feature")
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	worktreePath := filepath.Join(workspacesRoot, filepath.Base(repo), "feature")
 	runGit(t, repo, "worktree", "add", "-b", "feature", worktreePath, "main")
 
-	tmp := t.TempDir()
 	registry := data.NewRegistry(filepath.Join(tmp, "projects.json"))
 	if err := registry.AddProject(repo); err != nil {
 		t.Fatalf("AddProject: %v", err)
 	}
 
 	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
-	workspaceService := newWorkspaceService(registry, store, nil, "")
+	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
 	app := &App{
 		workspaceService: workspaceService,
 	}
@@ -229,16 +229,17 @@ func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
 	}
 
 	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+	workspacesRoot := filepath.Join(tmp, "workspaces")
 	ghost := &data.Workspace{
 		Name: "ghost",
 		Repo: repo,
-		Root: filepath.Join(repo, ".amux", "workspaces", "ghost"),
+		Root: filepath.Join(workspacesRoot, filepath.Base(repo), "ghost"),
 	}
 	if err := store.Save(ghost); err != nil {
 		t.Fatalf("Save ghost workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, "")
+	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
 	app := &App{
 		workspaceService: workspaceService,
 	}
@@ -257,6 +258,75 @@ func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
 	}
 	if loaded.ArchivedAt.IsZero() {
 		t.Fatalf("expected archived workspace to set ArchivedAt")
+	}
+}
+
+func TestRescanWorkspaces_IgnoresExternalWorktrees(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	externalRoot := filepath.Join(normalizePath(t.TempDir()), "external-feature")
+	runGit(t, repo, "worktree", "add", "-b", "feature", externalRoot, "main")
+
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	registry := data.NewRegistry(filepath.Join(tmp, "projects.json"))
+	if err := registry.AddProject(repo); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+
+	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
+	app := &App{workspaceService: workspaceService}
+
+	rescanMsg := app.rescanWorkspaces()()
+	if _, ok := rescanMsg.(messages.RefreshDashboard); !ok {
+		t.Fatalf("expected RefreshDashboard from rescan, got %T", rescanMsg)
+	}
+
+	msg := app.loadProjects()()
+	loaded, ok := msg.(messages.ProjectsLoaded)
+	if !ok {
+		t.Fatalf("expected ProjectsLoaded, got %T", msg)
+	}
+
+	var project *data.Project
+	for i := range loaded.Projects {
+		if loaded.Projects[i].Path == repo {
+			project = &loaded.Projects[i]
+			break
+		}
+	}
+	if project == nil {
+		t.Fatalf("expected project %s to be loaded", repo)
+	}
+
+	external := normalizePath(externalRoot)
+	for i := range project.Workspaces {
+		ws := &project.Workspaces[i]
+		if normalizePath(ws.Root) == external {
+			t.Fatalf("did not expect external worktree %s in project workspaces", externalRoot)
+		}
+	}
+
+	discovered := &data.Workspace{
+		Name: filepath.Base(externalRoot),
+		Repo: repo,
+		Root: externalRoot,
+	}
+	found, err := store.LoadMetadataFor(discovered)
+	if err != nil {
+		t.Fatalf("LoadMetadataFor(external) error = %v", err)
+	}
+	if found {
+		t.Fatalf("did not expect external worktree metadata to be imported")
 	}
 }
 

@@ -70,6 +70,9 @@ func (s *workspaceService) LoadProjects() tea.Cmd {
 
 			var workspaces []data.Workspace
 			for _, ws := range storedWorkspaces {
+				if !s.shouldSurfaceWorkspace(path, ws) {
+					continue
+				}
 				workspaces = append(workspaces, *ws)
 			}
 
@@ -149,6 +152,9 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 			discoveredSet := make(map[string]bool, len(discoveredWorkspaces))
 			for i := range discoveredWorkspaces {
 				ws := &discoveredWorkspaces[i]
+				if !s.shouldSurfaceWorkspace(path, ws) {
+					continue
+				}
 				discoveredSet[string(ws.ID())] = true
 				if s.store != nil {
 					if err := s.store.UpsertFromDiscovery(ws); err != nil {
@@ -168,6 +174,18 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 
 			for _, ws := range storedWorkspaces {
 				if ws == nil {
+					continue
+				}
+				if !s.shouldSurfaceWorkspace(path, ws) {
+					if !ws.Archived {
+						ws.Archived = true
+						ws.ArchivedAt = time.Now()
+						if s.store != nil {
+							if err := s.store.Save(ws); err != nil {
+								logging.Warn("Failed to archive unmanaged workspace %s: %v", ws.Name, err)
+							}
+						}
+					}
 					continue
 				}
 				if discoveredSet[string(ws.ID())] {
