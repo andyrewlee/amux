@@ -1,6 +1,7 @@
 package common
 
 import (
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -91,8 +92,9 @@ func (m *ToastModel) Update(msg tea.Msg) (*ToastModel, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the toast notification
-func (m *ToastModel) View() string {
+// View renders the toast notification constrained to the given max width.
+// If maxWidth is 0, no width constraint is applied.
+func (m *ToastModel) View(maxWidth int) string {
 	if m.current == nil {
 		return ""
 	}
@@ -121,7 +123,18 @@ func (m *ToastModel) View() string {
 		icon = "i "
 	}
 
-	return style.Render(icon + m.current.Message)
+	content := icon + m.current.Message
+
+	// Wrap text manually if it would overflow the terminal width.
+	// The toast style uses Padding(0, 1), so 2 chars of horizontal padding.
+	if maxWidth > 0 {
+		contentWidth := maxWidth - 2
+		if contentWidth > 0 && len(content) > contentWidth {
+			content = wrapText(content, contentWidth)
+		}
+	}
+
+	return style.Render(content)
 }
 
 // Visible returns whether the toast is currently visible
@@ -132,4 +145,41 @@ func (m *ToastModel) Visible() bool {
 // Dismiss immediately hides the toast
 func (m *ToastModel) Dismiss() {
 	m.current = nil
+}
+
+// wrapText hard-wraps text to fit within the given width, breaking at word
+// boundaries when possible and mid-word when a single word exceeds the width.
+func wrapText(text string, width int) string {
+	words := strings.Fields(text)
+	if len(words) == 0 || width <= 0 {
+		return text
+	}
+
+	var lines []string
+	var line string
+
+	appendWord := func(word string) {
+		if line == "" {
+			line = word
+		} else if len(line)+1+len(word) <= width {
+			line += " " + word
+		} else {
+			lines = append(lines, line)
+			line = word
+		}
+		// Break the current line if it exceeds width (long word with no spaces)
+		for len(line) > width {
+			lines = append(lines, line[:width])
+			line = line[width:]
+		}
+	}
+
+	for _, word := range words {
+		appendWord(word)
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+
+	return strings.Join(lines, "\n")
 }

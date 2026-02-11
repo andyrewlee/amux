@@ -139,6 +139,13 @@ func (a *App) createGroupWorkspace(group *data.ProjectGroup, name string, allowE
 				}
 			}
 
+			// Verify the base ref resolves to a commit (catches empty repos)
+			if err := git.ValidateRef(repo.Path, base); err != nil {
+				return messages.GroupWorkspaceCreateFailed{
+					Err: fmt.Errorf("%s: repo has no commits on %q", repo.Name, base),
+				}
+			}
+
 			wsPath := filepath.Join(
 				a.config.Paths.GroupsWorkspacesRoot,
 				group.Name,

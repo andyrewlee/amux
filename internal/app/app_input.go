@@ -843,6 +843,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.GroupWorkspaceCreateFailed:
 		errMsg := "Failed to create group workspace"
 		if msg.Err != nil {
+			logging.Error("group workspace creation failed: %v", msg.Err)
 			errMsg += ": " + msg.Err.Error()
 		}
 		cmds = append(cmds, a.toast.ShowError(errMsg))

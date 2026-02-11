@@ -31,6 +31,12 @@ func GetBaseBranch(repoPath string) (string, error) {
 	return "main", nil
 }
 
+// ValidateRef checks that a ref resolves to a valid commit.
+func ValidateRef(repoPath, ref string) error {
+	_, err := RunGit(repoPath, "rev-parse", "--verify", ref+"^{commit}")
+	return err
+}
+
 // GetBranchFileDiff returns the full diff for a single file on the branch
 func GetBranchFileDiff(repoPath, path string) (*DiffResult, error) {
 	base, err := GetBaseBranch(repoPath)

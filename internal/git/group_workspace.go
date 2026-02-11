@@ -2,6 +2,8 @@ package git
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/andyrewlee/medusa/internal/logging"
@@ -58,6 +60,12 @@ func CreateGroupWorkspace(specs []RepoSpec) error {
 					logging.Warn("Rollback: failed to delete branch %s in %s: %v", s.Branch, s.RepoPath, brErr)
 				}
 			}
+			// Clean up the shared parent directory (e.g. groups/<group>/<workspace>/)
+			// which may be left empty after rollback.
+			if len(specs) > 0 {
+				parentDir := filepath.Dir(specs[0].WorkspacePath)
+				_ = removeEmptyDir(parentDir)
+			}
 			return fmt.Errorf("failed to create worktree for %s: %w", spec.RepoName, err)
 		}
 		created = append(created, i)
@@ -81,4 +89,16 @@ func RemoveGroupWorkspace(specs []RepoSpec) []error {
 		}
 	}
 	return errs
+}
+
+// removeEmptyDir removes a directory only if it is empty.
+func removeEmptyDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return os.Remove(dir)
+	}
+	return nil
 }
