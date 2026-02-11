@@ -233,3 +233,105 @@ func TestRegistry_LoadStringArrayFormat(t *testing.T) {
 		t.Errorf("Expected 2 paths, got %d", len(paths))
 	}
 }
+
+func TestRegistry_LoadFallsBackToBackupWhenPrimaryCorruptWithoutMutatingPrimary(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	backupPath := registryPath + ".bak"
+	brokenPrimary := []byte("{invalid json")
+
+	if err := os.WriteFile(registryPath, brokenPrimary, 0o644); err != nil {
+		t.Fatalf("write primary: %v", err)
+	}
+	backupJSON := `{"projects":[{"name":"repo","path":"/path/to/repo"}]}`
+	if err := os.WriteFile(backupPath, []byte(backupJSON), 0o644); err != nil {
+		t.Fatalf("write backup: %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	paths, err := r.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(paths) != 1 || paths[0] != "/path/to/repo" {
+		t.Fatalf("unexpected backup load result: %v", paths)
+	}
+
+	primaryAfter, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read primary after load: %v", err)
+	}
+	if string(primaryAfter) != string(brokenPrimary) {
+		t.Fatalf("expected Load() fallback to avoid mutating primary file")
+	}
+}
+
+func TestRegistry_AddProjectDuplicateRepairsPrimaryFromBackup(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	backupPath := registryPath + ".bak"
+	repoPath := filepath.Join(tmpDir, "repo")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	if err := os.WriteFile(registryPath, []byte("{broken"), 0o644); err != nil {
+		t.Fatalf("write primary: %v", err)
+	}
+	backupJSON := `{"projects":[{"name":"repo","path":"` + repoPath + `"}]}`
+	if err := os.WriteFile(backupPath, []byte(backupJSON), 0o644); err != nil {
+		t.Fatalf("write backup: %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(repoPath); err != nil {
+		t.Fatalf("AddProject() error = %v", err)
+	}
+
+	primaryData, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read repaired primary: %v", err)
+	}
+	paths, err := parseRegistryData(primaryData, registryPath)
+	if err != nil {
+		t.Fatalf("expected repaired primary to be parseable, got %v", err)
+	}
+	if len(paths) != 1 || canonicalProjectPath(paths[0]) != canonicalProjectPath(repoPath) {
+		t.Fatalf("unexpected repaired primary data: %v", paths)
+	}
+}
+
+func TestRegistry_RemoveProjectNoopRepairsPrimaryFromBackup(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	backupPath := registryPath + ".bak"
+	repoPath := filepath.Join(tmpDir, "repo")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	if err := os.WriteFile(registryPath, []byte("{broken"), 0o644); err != nil {
+		t.Fatalf("write primary: %v", err)
+	}
+	backupJSON := `{"projects":[{"name":"repo","path":"` + repoPath + `"}]}`
+	if err := os.WriteFile(backupPath, []byte(backupJSON), 0o644); err != nil {
+		t.Fatalf("write backup: %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	if err := r.RemoveProject(filepath.Join(tmpDir, "missing")); err != nil {
+		t.Fatalf("RemoveProject() error = %v", err)
+	}
+
+	primaryData, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read repaired primary: %v", err)
+	}
+	paths, err := parseRegistryData(primaryData, registryPath)
+	if err != nil {
+		t.Fatalf("expected repaired primary to be parseable, got %v", err)
+	}
+	if len(paths) != 1 || canonicalProjectPath(paths[0]) != canonicalProjectPath(repoPath) {
+		t.Fatalf("unexpected repaired primary data: %v", paths)
+	}
+}

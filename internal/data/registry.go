@@ -50,7 +50,9 @@ func (r *Registry) Load() ([]string, error) {
 	}
 	defer unlockRegistryFile(lockFile)
 
-	return r.loadUnlocked()
+	// Load is read-only and should not repair the primary file directly.
+	paths, _, err := r.loadUnlockedWithRecovery()
+	return paths, err
 }
 
 // Save writes the project paths to the registry file
@@ -67,24 +69,42 @@ func (r *Registry) Save(paths []string) error {
 	return r.saveUnlocked(paths)
 }
 
-func (r *Registry) loadUnlocked() ([]string, error) {
+func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 	data, err := os.ReadFile(r.path)
 	if os.IsNotExist(err) {
 		backupPath := r.backupPath()
 		backupData, backupErr := os.ReadFile(backupPath)
 		if os.IsNotExist(backupErr) {
-			return []string{}, nil
+			return []string{}, false, nil
 		}
 		if backupErr != nil {
-			return nil, backupErr
+			return nil, false, backupErr
 		}
-		return parseRegistryData(backupData, backupPath)
+		paths, parseErr := parseRegistryData(backupData, backupPath)
+		if parseErr != nil {
+			return nil, false, parseErr
+		}
+		return paths, true, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return parseRegistryData(data, r.path)
+	paths, parseErr := parseRegistryData(data, r.path)
+	if parseErr == nil {
+		return paths, false, nil
+	}
+
+	backupPath := r.backupPath()
+	backupData, backupErr := os.ReadFile(backupPath)
+	if backupErr != nil {
+		return nil, false, errors.Join(parseErr, fmt.Errorf("read backup %s: %w", backupPath, backupErr))
+	}
+	backupPaths, backupParseErr := parseRegistryData(backupData, backupPath)
+	if backupParseErr != nil {
+		return nil, false, errors.Join(parseErr, fmt.Errorf("parse backup %s: %w", backupPath, backupParseErr))
+	}
+	return backupPaths, true, nil
 }
 
 func (r *Registry) saveUnlocked(paths []string) error {
@@ -137,7 +157,7 @@ func (r *Registry) AddProject(path string) error {
 	}
 	defer unlockRegistryFile(lockFile)
 
-	paths, err := r.loadUnlocked()
+	paths, recoveredFromBackup, err := r.loadUnlockedWithRecovery()
 	if err != nil {
 		return err
 	}
@@ -145,6 +165,9 @@ func (r *Registry) AddProject(path string) error {
 	// Check if already exists
 	for _, p := range paths {
 		if canonicalProjectPath(p) == path {
+			if recoveredFromBackup {
+				return r.saveUnlocked(paths)
+			}
 			return nil // Already registered
 		}
 	}
@@ -168,7 +191,7 @@ func (r *Registry) RemoveProject(path string) error {
 	}
 	defer unlockRegistryFile(lockFile)
 
-	paths, err := r.loadUnlocked()
+	paths, recoveredFromBackup, err := r.loadUnlockedWithRecovery()
 	if err != nil {
 		return err
 	}
@@ -179,6 +202,12 @@ func (r *Registry) RemoveProject(path string) error {
 		if canonicalProjectPath(p) != path {
 			newPaths = append(newPaths, p)
 		}
+	}
+	if len(newPaths) == len(paths) {
+		if recoveredFromBackup {
+			return r.saveUnlocked(paths)
+		}
+		return nil
 	}
 
 	return r.saveUnlocked(newPaths)
