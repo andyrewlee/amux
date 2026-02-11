@@ -87,6 +87,7 @@ type Model struct {
 	deletingWorkspaces map[string]bool            // Workspaces currently being deleted
 	spinnerFrame       int                        // Current spinner animation frame
 	spinnerActive      bool                       // Whether spinner ticks are active
+	forceSpinner       bool                       // Force spinner to stay active (e.g. during group creation)
 
 	// Agent activity state
 	activeWorkspaceIDs   map[string]bool // Workspace IDs with active agents (synced from center)
@@ -294,7 +295,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case SpinnerTickMsg:
 		// Advance spinner frame if we have loading items or running agents
-		if len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 || m.hasActiveAgents() {
+		if len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 || m.hasActiveAgents() || m.forceSpinner {
 			m.spinnerFrame++
 			cmds = append(cmds, m.tickSpinner())
 		} else {

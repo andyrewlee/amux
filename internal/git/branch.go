@@ -37,6 +37,24 @@ func ValidateRef(repoPath, ref string) error {
 	return err
 }
 
+// GetFreshRemoteBase fetches if stale, then returns "origin/<base>" if it
+// exists, falling back to the local base branch name.
+func GetFreshRemoteBase(repoPath string) (string, error) {
+	// Best-effort fetch; ignore errors (e.g. no network).
+	_ = FetchIfStale(repoPath)
+
+	base, err := GetBaseBranch(repoPath)
+	if err != nil {
+		return base, err
+	}
+
+	remote := "origin/" + base
+	if _, err := RunGit(repoPath, "rev-parse", "--verify", remote); err == nil {
+		return remote, nil
+	}
+	return base, nil
+}
+
 // GetBranchFileDiff returns the full diff for a single file on the branch
 func GetBranchFileDiff(repoPath, path string) (*DiffResult, error) {
 	base, err := GetBaseBranch(repoPath)

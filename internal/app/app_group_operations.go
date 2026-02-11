@@ -106,18 +106,13 @@ func (a *App) removeGroup(name string) tea.Cmd {
 	}
 }
 
-// createGroupWorkspace creates worktrees across all repos in a group.
-func (a *App) createGroupWorkspace(group *data.ProjectGroup, name string, allowEdits, loadClaudeMD bool) tea.Cmd {
-	return func() (msg tea.Msg) {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.Error("panic in createGroupWorkspace: %v", r)
-				msg = messages.GroupWorkspaceCreateFailed{
-					Err: fmt.Errorf("create group workspace panicked: %v", r),
-				}
-			}
-		}()
-
+// fetchFirstGroupBase validates the branch and fetches the first repo's remote base.
+// Subsequent repos are fetched one at a time via fetchNextGroupBase.
+func (a *App) fetchFirstGroupBase(group *data.ProjectGroup, name string, allowEdits, loadClaudeMD bool) tea.Cmd {
+	groupsRoot := a.config.Paths.GroupsWorkspacesRoot
+	repos := make([]data.GroupRepo, len(group.Repos))
+	copy(repos, group.Repos)
+	return func() tea.Msg {
 		if group == nil || name == "" {
 			return messages.GroupWorkspaceCreateFailed{
 				Err: fmt.Errorf("missing group or workspace name"),
@@ -129,38 +124,113 @@ func (a *App) createGroupWorkspace(group *data.ProjectGroup, name string, allowE
 			return messages.GroupWorkspaceCreateFailed{Err: err}
 		}
 
-		// Build specs for each repo
-		specs := make([]git.RepoSpec, len(group.Repos))
-		for i, repo := range group.Repos {
-			base, err := git.GetDefaultBase(repo.Path)
-			if err != nil {
-				return messages.GroupWorkspaceCreateFailed{
-					Err: fmt.Errorf("failed to get base for %s: %w", repo.Name, err),
-				}
-			}
-
-			// Verify the base ref resolves to a commit (catches empty repos)
-			if err := git.ValidateRef(repo.Path, base); err != nil {
-				return messages.GroupWorkspaceCreateFailed{
-					Err: fmt.Errorf("%s: repo has no commits on %q", repo.Name, base),
-				}
-			}
-
-			wsPath := filepath.Join(
-				a.config.Paths.GroupsWorkspacesRoot,
-				group.Name,
-				name,
-				repo.Name,
-			)
-
-			specs[i] = git.RepoSpec{
-				RepoPath:      repo.Path,
-				RepoName:      repo.Name,
-				WorkspacePath: wsPath,
-				Branch:        name,
-				Base:          base,
+		// Fetch first repo
+		repo := repos[0]
+		base, err := git.GetFreshRemoteBase(repo.Path)
+		if err != nil {
+			return messages.GroupWorkspaceCreateFailed{
+				Err: fmt.Errorf("failed to get base for %s: %w", repo.Name, err),
 			}
 		}
+
+		// Verify the base ref resolves to a commit (catches empty repos)
+		if err := git.ValidateRef(repo.Path, base); err != nil {
+			return messages.GroupWorkspaceCreateFailed{
+				Err: fmt.Errorf("%s: repo has no commits on %q", repo.Name, base),
+			}
+		}
+
+		wsPath := filepath.Join(groupsRoot, group.Name, name, repo.Name)
+		spec := git.RepoSpec{
+			RepoPath:      repo.Path,
+			RepoName:      repo.Name,
+			WorkspacePath: wsPath,
+			Branch:        name,
+			Base:          base,
+		}
+
+		return messages.GroupRepoFetchDone{
+			Group:          group,
+			Name:           name,
+			FetchedSpecs:   []git.RepoSpec{spec},
+			RemainingRepos: repos[1:],
+			AllowEdits:     allowEdits,
+			LoadClaudeMD:   loadClaudeMD,
+		}
+	}
+}
+
+// fetchNextGroupBase fetches the remote base for the next repo in the chain.
+func (a *App) fetchNextGroupBase(group *data.ProjectGroup, name string, specs []git.RepoSpec, remaining []data.GroupRepo, allowEdits, loadClaudeMD bool) tea.Cmd {
+	groupsRoot := a.config.Paths.GroupsWorkspacesRoot
+	repo := remaining[0]
+	rest := make([]data.GroupRepo, len(remaining)-1)
+	copy(rest, remaining[1:])
+	return func() tea.Msg {
+		base, err := git.GetFreshRemoteBase(repo.Path)
+		if err != nil {
+			return messages.GroupWorkspaceCreateFailed{
+				Err: fmt.Errorf("failed to get base for %s: %w", repo.Name, err),
+			}
+		}
+
+		// Verify the base ref resolves to a commit (catches empty repos)
+		if err := git.ValidateRef(repo.Path, base); err != nil {
+			return messages.GroupWorkspaceCreateFailed{
+				Err: fmt.Errorf("%s: repo has no commits on %q", repo.Name, base),
+			}
+		}
+
+		wsPath := filepath.Join(groupsRoot, group.Name, name, repo.Name)
+		newSpecs := append(specs, git.RepoSpec{
+			RepoPath:      repo.Path,
+			RepoName:      repo.Name,
+			WorkspacePath: wsPath,
+			Branch:        name,
+			Base:          base,
+		})
+
+		return messages.GroupRepoFetchDone{
+			Group:          group,
+			Name:           name,
+			FetchedSpecs:   newSpecs,
+			RemainingRepos: rest,
+			AllowEdits:     allowEdits,
+			LoadClaudeMD:   loadClaudeMD,
+		}
+	}
+}
+
+// handleGroupRepoFetchDone handles per-repo fetch completion during group workspace creation.
+func (a *App) handleGroupRepoFetchDone(msg messages.GroupRepoFetchDone) []tea.Cmd {
+	var cmds []tea.Cmd
+	if len(msg.RemainingRepos) > 0 {
+		// Update detail to next repo being fetched
+		if a.creationOverlay != nil {
+			a.creationOverlay.SetStepDetail(msg.RemainingRepos[0].Name)
+		}
+		cmds = append(cmds, a.fetchNextGroupBase(msg.Group, msg.Name, msg.FetchedSpecs, msg.RemainingRepos, msg.AllowEdits, msg.LoadClaudeMD))
+	} else {
+		// All fetched — advance to "Creating worktrees"
+		if a.creationOverlay != nil {
+			a.creationOverlay.AdvanceStep()
+		}
+		cmds = append(cmds, a.createGroupWorkspaceFromSpecs(msg.Group, msg.Name, msg.FetchedSpecs, msg.AllowEdits, msg.LoadClaudeMD))
+	}
+	return cmds
+}
+
+// createGroupWorkspaceFromSpecs creates worktrees from pre-built specs (step 2 of group creation).
+func (a *App) createGroupWorkspaceFromSpecs(group *data.ProjectGroup, name string, specs []git.RepoSpec, allowEdits, loadClaudeMD bool) tea.Cmd {
+	return func() (msg tea.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				logging.Error("panic in createGroupWorkspaceFromSpecs: %v", r)
+				msg = messages.GroupWorkspaceCreateFailed{
+					Err: fmt.Errorf("create group workspace panicked: %v", r),
+				}
+			}
+		}()
 
 		// Create all worktrees
 		if err := git.CreateGroupWorkspace(specs); err != nil {

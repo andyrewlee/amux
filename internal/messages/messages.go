@@ -684,3 +684,22 @@ type ShowEditGroupReposDialog struct {
 type GroupPreviewed struct {
 	Group *data.ProjectGroup
 }
+
+// WorkspaceFetchDone is sent after the remote base has been fetched for a single-project workspace.
+type WorkspaceFetchDone struct {
+	Project    *data.Project
+	Name       string
+	Base       string
+	AllowEdits bool
+}
+
+// GroupRepoFetchDone is sent after a single repo's remote base has been fetched
+// during group workspace creation. Carries accumulated specs and remaining repos.
+type GroupRepoFetchDone struct {
+	Group          *data.ProjectGroup
+	Name           string
+	FetchedSpecs   []git.RepoSpec
+	RemainingRepos []data.GroupRepo
+	AllowEdits     bool
+	LoadClaudeMD   bool
+}

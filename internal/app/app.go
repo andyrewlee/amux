@@ -107,9 +107,10 @@ type App struct {
 	themeDialog     *common.ThemeDialog
 
 	// Overlays
-	helpOverlay    *common.HelpOverlay
-	toast          *common.ToastModel
-	profileManager *common.ProfileManager
+	helpOverlay     *common.HelpOverlay
+	toast           *common.ToastModel
+	profileManager  *common.ProfileManager
+	creationOverlay *common.ProgressOverlay
 
 	// Dialog context
 	dialogProject       *data.Project
