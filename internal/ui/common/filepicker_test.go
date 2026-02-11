@@ -168,10 +168,7 @@ func TestFilePickerAddButtonConfirmsCurrentDirectory(t *testing.T) {
 		t.Fatalf("expected open button hit region")
 	}
 
-	dialogX, dialogY, _, _ := fp.dialogBounds(fp.lastContentHeight)
-	_, _, contentOffsetX, contentOffsetY := fp.dialogFrame()
-	clickX := dialogX + contentOffsetX + hit.X + 1
-	clickY := dialogY + contentOffsetY + hit.Y
+	clickX, clickY := testFilePickerScreenCoords(fp, hit)
 
 	newPicker, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
 	if cmd == nil {
@@ -255,10 +252,7 @@ func TestFilePickerMouseClickOpensDirectory(t *testing.T) {
 	}
 
 	hit := fp.rowHits[0].region
-	dialogX, dialogY, _, _ := fp.dialogBounds(fp.lastContentHeight)
-	_, _, contentOffsetX, contentOffsetY := fp.dialogFrame()
-	clickX := dialogX + contentOffsetX + hit.X + 1
-	clickY := dialogY + contentOffsetY + hit.Y
+	clickX, clickY := testFilePickerScreenCoords(fp, hit)
 
 	newPicker, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
 	if cmd != nil {

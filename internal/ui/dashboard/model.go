@@ -270,9 +270,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("e"))):
 			return m, m.handleEditGroupRepos()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
-			if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].Type == RowWorkspace {
-				return m, m.handleRename()
+			if m.cursor >= 0 && m.cursor < len(m.rows) {
+				rt := m.rows[m.cursor].Type
+				if rt == RowWorkspace || rt == RowGroupWorkspace || rt == RowGroupHeader {
+					return m, m.handleRename()
+				}
 			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("R"))):
 			return m, m.refresh()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):
 			// Jump to last selectable row

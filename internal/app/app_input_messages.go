@@ -1328,6 +1328,33 @@ func (a *App) groupHasActiveSessions(group *data.ProjectGroup) bool {
 	return false
 }
 
+// projectHasActiveSessions checks if any workspace in the project has an active agent session.
+func (a *App) projectHasActiveSessions(project *data.Project) bool {
+	if project == nil {
+		return false
+	}
+	activeIDs := make(map[string]bool)
+	for _, wsID := range a.center.GetActiveWorkspaceIDs() {
+		activeIDs[wsID] = true
+	}
+	for wsID := range a.tmuxActiveWorkspaceIDs {
+		activeIDs[wsID] = true
+	}
+	for i := range project.Workspaces {
+		ws := &project.Workspaces[i]
+		if activeIDs[string(ws.ID())] {
+			return true
+		}
+		if a.center.HasRunningTabsInWorkspace(string(ws.ID())) {
+			return true
+		}
+		if workspaceHasLiveTabs(ws) {
+			return true
+		}
+	}
+	return false
+}
+
 // handleShowEditGroupReposDialog shows the multi-select file picker for editing repos in a group.
 // Pre-populates with existing repo paths.
 func (a *App) handleShowEditGroupReposDialog(group *data.ProjectGroup) {
@@ -1398,6 +1425,47 @@ func (a *App) handleShowDeleteGroupDialog(msg messages.ShowDeleteGroupDialog) {
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
+}
+
+// handleShowRenameGroupDialog shows the rename dialog for a project group.
+func (a *App) handleShowRenameGroupDialog(msg messages.ShowRenameGroupDialog) {
+	a.dialogGroup = msg.Group
+	a.dialog = common.NewInputDialog(DialogRenameGroup, "Rename Group", msg.Group.Name)
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return ""
+		}
+		if err := validation.ValidateWorkspaceName(s); err != nil {
+			return err.Error()
+		}
+		return ""
+	})
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+	a.dialog.SetValue(msg.Group.Name)
+}
+
+// handleShowRenameGroupWorkspaceDialog shows the rename dialog for a group workspace.
+func (a *App) handleShowRenameGroupWorkspaceDialog(msg messages.ShowRenameGroupWorkspaceDialog) {
+	a.dialogGroup = msg.Group
+	a.dialogGroupWs = msg.Workspace
+	a.dialog = common.NewInputDialog(DialogRenameGroupWorkspace, "Rename Workspace", msg.Workspace.Name)
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return ""
+		}
+		if err := validation.ValidateWorkspaceName(s); err != nil {
+			return err.Error()
+		}
+		return ""
+	})
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+	a.dialog.SetValue(msg.Workspace.Name)
 }
 
 // handleShowDeleteGroupWorkspaceDialog shows the group workspace delete confirmation.

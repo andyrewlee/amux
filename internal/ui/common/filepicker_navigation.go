@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -47,7 +46,9 @@ func (fp *FilePicker) loadDirectory() {
 	fp.applyFilter()
 }
 
-// applyFilter updates filteredIdx based on input
+// applyFilter updates filteredIdx based on input.
+// filteredIdx == nil means no filter is active (no suggestions shown).
+// filteredIdx == []int{} (non-nil, empty) means filter is active but nothing matched.
 func (fp *FilePicker) applyFilter() {
 	rawQuery := strings.TrimSpace(fp.input.Value())
 	query := rawQuery
@@ -69,23 +70,21 @@ func (fp *FilePicker) applyFilter() {
 		}
 	}
 
-	// If input looks like an absolute or relative path outside the current directory, don't filter.
-	if rawQuery != "" && (strings.HasPrefix(rawQuery, "/") || strings.HasPrefix(rawQuery, "~") || strings.HasPrefix(rawQuery, ".")) && !withinCurrent {
-		fp.filteredIdx = make([]int, len(fp.entries))
-		for i := range fp.entries {
-			fp.filteredIdx[i] = i
-		}
+	// Only show suggestions when user has typed a filter within the current directory.
+	if !withinCurrent || query == "" {
+		fp.filteredIdx = nil
 		return
 	}
 
-	fp.filteredIdx = nil
 	if strings.Contains(query, "/") {
 		parts := strings.Split(query, "/")
 		query = parts[len(parts)-1]
 	}
 	query = strings.ToLower(query)
+	fp.filteredIdx = []int{} // non-nil empty: filter active
 	for i, e := range fp.entries {
-		if fuzzyMatch(query, e.Name()) {
+		nameLower := strings.ToLower(e.Name())
+		if strings.HasPrefix(nameLower, query) {
 			fp.filteredIdx = append(fp.filteredIdx, i)
 		}
 	}
@@ -98,9 +97,24 @@ func (fp *FilePicker) applyFilter() {
 	}
 }
 
-// handlePathInput checks if the input is a navigable path
+// handlePathInput checks if the input has crossed a directory boundary and
+// reloads entries when needed, then reapplies the filter.
 func (fp *FilePicker) handlePathInput(input string) {
-	_ = input
+	trimmed := strings.TrimSpace(input)
+	if trimmed != "" && filepath.IsAbs(trimmed) {
+		dir := trimmed
+		if !strings.HasSuffix(trimmed, string(os.PathSeparator)) {
+			dir = filepath.Dir(trimmed)
+		}
+		dir = filepath.Clean(dir)
+		if dir != filepath.Clean(fp.currentPath) {
+			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+				fp.currentPath = dir
+				fp.loadDirectory() // loadDirectory calls applyFilter
+				return
+			}
+		}
+	}
 	fp.applyFilter()
 }
 
@@ -166,43 +180,7 @@ func (fp *FilePicker) isBaseInput(input string) bool {
 }
 
 func (fp *FilePicker) handleBackspace() bool {
-	if fp.input.Value() == "" {
-		parent := filepath.Dir(fp.currentPath)
-		if parent != fp.currentPath {
-			fp.currentPath = parent
-			fp.input.SetValue(fp.inputBasePath())
-			fp.input.CursorEnd()
-			fp.loadDirectory()
-			return true
-		}
-		return false
-	}
-
-	if fp.input.Position() != utf8.RuneCountInString(fp.input.Value()) {
-		return false
-	}
-
-	path, ok := fp.resolveInputPath(fp.input.Value())
-	if !ok {
-		return false
-	}
-	if filepath.Clean(path) != filepath.Clean(fp.currentPath) {
-		return false
-	}
-	if info, err := os.Stat(path); err != nil || !info.IsDir() {
-		return false
-	}
-
-	parent := filepath.Dir(path)
-	if parent == path {
-		return false
-	}
-
-	fp.currentPath = parent
-	fp.input.SetValue(fp.inputBasePath())
-	fp.input.CursorEnd()
-	fp.loadDirectory()
-	return true
+	return false // Let textinput handle it normally
 }
 
 func (fp *FilePicker) resolveInputPath(input string) (string, bool) {

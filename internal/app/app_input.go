@@ -46,7 +46,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
 		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile, DialogRenameWorkspace, DialogRenameProfile, DialogCreateProfile, DialogDeleteProfile,
-			DialogCreateGroup, DialogAddGroupRepo, DialogCreateGroupWorkspace, DialogDeleteGroup, DialogDeleteGroupWorkspace, DialogSetGroupProfile, DialogCommit:
+			DialogCreateGroup, DialogAddGroupRepo, DialogCreateGroupWorkspace, DialogDeleteGroup, DialogDeleteGroupWorkspace, DialogSetGroupProfile, DialogRenameGroupWorkspace, DialogRenameGroup, DialogCommit:
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -389,6 +389,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleShowRemoveProjectDialog(msg)
 
 	case messages.ShowSetProfileDialog:
+		if a.projectHasActiveSessions(msg.Project) {
+			cmds = append(cmds, a.toast.ShowError("Cannot change profile while workspaces have active sessions"))
+			break
+		}
 		a.handleShowSetProfileDialog(msg)
 
 	case messages.SetProfile:
@@ -843,6 +847,22 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, a.toast.ShowError(errMsg))
 
+	case messages.ShowRenameGroupDialog:
+		a.handleShowRenameGroupDialog(msg)
+
+	case messages.RenameGroup:
+		if cmd := a.handleRenameGroup(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.ShowRenameGroupWorkspaceDialog:
+		a.handleShowRenameGroupWorkspaceDialog(msg)
+
+	case messages.RenameGroupWorkspace:
+		if cmd := a.handleRenameGroupWorkspace(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.ShowDeleteGroupWorkspaceDialog:
 		a.handleShowDeleteGroupWorkspaceDialog(msg)
 
@@ -890,6 +910,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.handleGroupWorkspacePreviewed(msg)...)
 
 	case messages.ShowSetGroupProfileDialog:
+		if a.groupHasActiveSessions(msg.Group) {
+			cmds = append(cmds, a.toast.ShowError("Cannot change profile while workspaces have active sessions"))
+			break
+		}
 		a.handleShowSetGroupProfileDialog(msg)
 
 	case messages.SetGroupProfile:

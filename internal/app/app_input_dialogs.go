@@ -349,6 +349,41 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 		}
 
+	case DialogRenameGroup:
+		if group != nil {
+			name := validation.SanitizeInput(result.Value)
+			if name == "" || name == group.Name {
+				return nil
+			}
+			if err := validation.ValidateWorkspaceName(name); err != nil {
+				return func() tea.Msg {
+					return messages.Error{Err: err, Context: "validating group name"}
+				}
+			}
+			g := group
+			return func() tea.Msg {
+				return messages.RenameGroup{Group: g, NewName: name}
+			}
+		}
+
+	case DialogRenameGroupWorkspace:
+		if group != nil && groupWs != nil {
+			name := validation.SanitizeInput(result.Value)
+			if name == "" || name == groupWs.Name {
+				return nil
+			}
+			if err := validation.ValidateWorkspaceName(name); err != nil {
+				return func() tea.Msg {
+					return messages.Error{Err: err, Context: "validating workspace name"}
+				}
+			}
+			g := group
+			gw := groupWs
+			return func() tea.Msg {
+				return messages.RenameGroupWorkspace{Group: g, Workspace: gw, NewName: name}
+			}
+		}
+
 	case DialogDeleteGroupWorkspace:
 		if group != nil && groupWs != nil {
 			g := group

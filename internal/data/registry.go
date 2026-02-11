@@ -432,6 +432,38 @@ func (r *Registry) ClearGroupProfile(profile string) error {
 	return nil
 }
 
+// RenameGroup renames a project group in the registry.
+func (r *Registry) RenameGroup(oldName, newName string) error {
+	projects, err := r.LoadFull()
+	if err != nil {
+		return err
+	}
+	groups, err := r.LoadGroups()
+	if err != nil {
+		return err
+	}
+
+	for i := range groups {
+		if groups[i].Name == newName {
+			return fmt.Errorf("group already exists: %s", newName)
+		}
+	}
+
+	found := false
+	for i := range groups {
+		if groups[i].Name == oldName {
+			groups[i].Name = newName
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("group not found: %s", oldName)
+	}
+
+	return r.saveFullWithGroups(projects, groups)
+}
+
 // UpdateGroupRepos updates the repos list for a group.
 func (r *Registry) UpdateGroupRepos(groupName string, repos []GroupRepo) error {
 	projects, err := r.LoadFull()

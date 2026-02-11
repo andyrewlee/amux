@@ -58,11 +58,14 @@ func (m *Model) renderToolbar() string {
 	inactiveStyle := lipgloss.NewStyle().
 		Foreground(common.ColorMuted)
 
+	contentWidth := m.width - 3 // Account for border and padding
+
 	var rows []string
 	for rowStart := 0; rowStart < len(visibleItems); rowStart += columns {
 		var row strings.Builder
 		rowX := 0
 		rowIndex := rowStart / columns
+		hitStart := len(m.toolbarHits)
 		for col := 0; col < columns && rowStart+col < len(visibleItems); col++ {
 			if col > 0 {
 				row.WriteString(strings.Repeat(" ", gap))
@@ -90,11 +93,18 @@ func (m *Model) renderToolbar() string {
 			rowX += width
 		}
 		rows = append(rows, row.String())
+
+		// Adjust hit region X for centering offset
+		if contentWidth > 0 && rowX < contentWidth {
+			centerOffset := (contentWidth - rowX) / 2
+			for i := hitStart; i < len(m.toolbarHits); i++ {
+				m.toolbarHits[i].region.X += centerOffset
+			}
+		}
 	}
 
 	// Center the toolbar within the pane width
 	rowContent := strings.Join(rows, "\n")
-	contentWidth := m.width - 3 // Account for border and padding
 	if contentWidth > 0 {
 		return lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(rowContent)
 	}

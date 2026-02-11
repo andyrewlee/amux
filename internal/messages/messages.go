@@ -556,6 +556,17 @@ type ShowAddRepoToGroupDialog struct {
 	CurrentRepos []string
 }
 
+// ShowRenameGroupDialog requests showing the rename dialog for a project group
+type ShowRenameGroupDialog struct {
+	Group *data.ProjectGroup
+}
+
+// RenameGroup requests renaming a project group
+type RenameGroup struct {
+	Group   *data.ProjectGroup
+	NewName string
+}
+
 // ShowCreateGroupWorkspaceDialog requests showing the group workspace creation dialog
 type ShowCreateGroupWorkspaceDialog struct {
 	Group *data.ProjectGroup
@@ -613,6 +624,19 @@ type GroupWorkspaceDeleteFailed struct {
 	Group     *data.ProjectGroup
 	Workspace *data.GroupWorkspace
 	Err       error
+}
+
+// ShowRenameGroupWorkspaceDialog requests showing the rename dialog for a group workspace
+type ShowRenameGroupWorkspaceDialog struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+}
+
+// RenameGroupWorkspace requests renaming a group workspace
+type RenameGroupWorkspace struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+	NewName   string
 }
 
 // GroupWorkspaceActivated is sent when a group workspace is selected

@@ -14,6 +14,27 @@ import (
 	"github.com/andyrewlee/medusa/internal/messages"
 )
 
+// groupOwnedRoots returns a set of all worktree root paths owned by group workspaces.
+func (a *App) groupOwnedRoots() map[string]bool {
+	roots := make(map[string]bool)
+	groups, err := a.registry.LoadGroups()
+	if err != nil {
+		return roots
+	}
+	for _, group := range groups {
+		gwList, err := a.workspaces.ListGroupWorkspacesByGroup(group.Name)
+		if err != nil {
+			continue
+		}
+		for _, gw := range gwList {
+			for _, root := range gw.AllRoots() {
+				roots[data.NormalizePath(root)] = true
+			}
+		}
+	}
+	return roots
+}
+
 // loadProjects loads all registered projects and their workspaces
 func (a *App) loadProjects() tea.Cmd {
 	return func() tea.Msg {
@@ -21,6 +42,8 @@ func (a *App) loadProjects() tea.Cmd {
 		if err != nil {
 			return messages.Error{Err: err, Context: "loading projects"}
 		}
+
+		groupRoots := a.groupOwnedRoots()
 
 		var projects []data.Project
 		for _, rp := range regProjects {
@@ -48,6 +71,9 @@ func (a *App) loadProjects() tea.Cmd {
 				} else {
 					for i := range discoveredWorkspaces {
 						ws := &discoveredWorkspaces[i]
+						if groupRoots[data.NormalizePath(ws.Root)] {
+							continue // Skip worktrees owned by group workspaces
+						}
 						if err := a.workspaces.UpsertFromDiscoveryPreserveArchived(ws); err != nil {
 							logging.Warn("Failed to import workspace %s: %v", ws.Name, err)
 						}
@@ -61,6 +87,9 @@ func (a *App) loadProjects() tea.Cmd {
 
 			var workspaces []data.Workspace
 			for _, ws := range storedWorkspaces {
+				if groupRoots[data.NormalizePath(ws.Root)] {
+					continue // Skip worktrees owned by group workspaces
+				}
 				workspaces = append(workspaces, *ws)
 			}
 
@@ -124,6 +153,8 @@ func (a *App) rescanWorkspaces() tea.Cmd {
 			return messages.Error{Err: err, Context: "rescanning workspaces"}
 		}
 
+		groupRoots := a.groupOwnedRoots()
+
 		for _, path := range paths {
 			if !git.IsGitRepository(path) {
 				continue
@@ -139,6 +170,9 @@ func (a *App) rescanWorkspaces() tea.Cmd {
 			discoveredSet := make(map[string]bool, len(discoveredWorkspaces))
 			for i := range discoveredWorkspaces {
 				ws := &discoveredWorkspaces[i]
+				if groupRoots[data.NormalizePath(ws.Root)] {
+					continue // Skip worktrees owned by group workspaces
+				}
 				discoveredSet[string(ws.ID())] = true
 				if err := a.workspaces.UpsertFromDiscovery(ws); err != nil {
 					logging.Warn("Failed to import workspace %s: %v", ws.Name, err)
@@ -154,6 +188,9 @@ func (a *App) rescanWorkspaces() tea.Cmd {
 			for _, ws := range storedWorkspaces {
 				if ws == nil || ws.Root == "" {
 					continue
+				}
+				if groupRoots[data.NormalizePath(ws.Root)] {
+					continue // Skip worktrees owned by group workspaces
 				}
 				if discoveredSet[string(ws.ID())] {
 					continue

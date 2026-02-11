@@ -320,6 +320,18 @@ func (m *Model) handleSetProfile() tea.Cmd {
 		if group == nil {
 			return nil
 		}
+		// Check if any workspace in the group has an active session
+		for i := range group.Workspaces {
+			gw := &group.Workspaces[i]
+			if m.activeWorkspaceIDs[string(gw.ID())] {
+				return func() tea.Msg {
+					return messages.Toast{
+						Message: "Cannot change profile while workspaces have active sessions",
+						Level:   messages.ToastError,
+					}
+				}
+			}
+		}
 		return func() tea.Msg {
 			return messages.ShowSetGroupProfileDialog{Group: group}
 		}
@@ -339,6 +351,21 @@ func (m *Model) handleRename() tea.Cmd {
 			return messages.ShowRenameWorkspaceDialog{
 				Project:   row.Project,
 				Workspace: row.Workspace,
+			}
+		}
+	}
+	if row.Type == RowGroupWorkspace && row.GroupWorkspace != nil && row.Group != nil {
+		return func() tea.Msg {
+			return messages.ShowRenameGroupWorkspaceDialog{
+				Group:     row.Group,
+				Workspace: row.GroupWorkspace,
+			}
+		}
+	}
+	if row.Type == RowGroupHeader && row.Group != nil {
+		return func() tea.Msg {
+			return messages.ShowRenameGroupDialog{
+				Group: row.Group,
 			}
 		}
 	}

@@ -77,7 +77,7 @@ func (fp *FilePicker) renderLines() []string {
 		Foreground(ColorPrimary).
 		MarginBottom(1)
 	appendLines(titleStyle.Render(fp.title))
-	appendBlank(2)
+	appendBlank(1)
 
 	// Multi-select: selected repos list
 	if fp.multiSelect {
@@ -86,55 +86,38 @@ func (fp *FilePicker) renderLines() []string {
 
 	// Input (shows current path with trailing separator)
 	appendLines(fp.input.View())
-	appendBlank(2)
+	appendBlank(1)
 
-	// Entries - truncate names to prevent wrapping
-	totalRows := fp.displayCount()
-	end := min(fp.scrollOffset+fp.maxVisible, totalRows)
-	cursorWidth := 2 // "> " or "  "
-	maxNameWidth := contentWidth - cursorWidth
+	// Entries - render as muted vertical list (only when filter is active)
+	if fp.filteredIdx != nil {
+		totalRows := fp.displayCount()
+		if totalRows == 0 {
+			message := "No matches"
+			if fp.directoriesOnly {
+				message = "No subdirectories"
+			}
+			lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted).Render(message))
+		} else {
+			mutedStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+			cursorStyle := lipgloss.NewStyle().Foreground(ColorSecondary).Bold(true)
 
-	for i := fp.scrollOffset; i < end; i++ {
-		cursor := "  "
-		if i == fp.cursor {
-			cursor = "> "
+			end := min(fp.scrollOffset+fp.maxVisible, totalRows)
+			for i := fp.scrollOffset; i < end; i++ {
+				idx := fp.filteredIdx[i]
+				entry := fp.entries[idx]
+
+				name := entry.Name()
+				if entry.IsDir() {
+					name += "/"
+				}
+
+				style := mutedStyle
+				if i == fp.cursor {
+					style = cursorStyle
+				}
+				lines = append(lines, "  "+style.Render(name))
+			}
 		}
-
-		lineIndex := len(lines)
-		idx := fp.filteredIdx[i]
-		entry := fp.entries[idx]
-
-		name := entry.Name()
-		if entry.IsDir() {
-			name += "/"
-		}
-		// Truncate name to fit on one line
-		name = truncateToWidth(name, maxNameWidth)
-
-		style := lipgloss.NewStyle().Foreground(ColorForeground)
-		if entry.IsDir() {
-			style = lipgloss.NewStyle().Foreground(ColorSecondary).Bold(i == fp.cursor)
-		}
-		if i == fp.cursor {
-			style = style.Background(ColorSelection)
-		}
-
-		line := cursor + style.Render(name)
-		fp.addRowHit(i, lineIndex, line)
-		lines = append(lines, line)
-	}
-
-	if len(fp.filteredIdx) == 0 {
-		message := "No matches"
-		if fp.directoriesOnly {
-			message = "No subdirectories"
-		}
-		lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted).Render(message))
-	} else if totalRows > fp.maxVisible {
-		indicator := lipgloss.NewStyle().Foreground(ColorMuted).Render(
-			fmt.Sprintf("  (%d-%d of %d)", fp.scrollOffset+1, end, totalRows),
-		)
-		lines = append(lines, indicator)
 	}
 
 	// Action buttons
@@ -315,12 +298,16 @@ func (fp *FilePicker) helpItem(key, desc string) string {
 func (fp *FilePicker) helpLines(width int) []string {
 	items := []string{
 		fp.helpItem("enter", "open/select"),
-		fp.helpItem("esc", "cancel"),
-		fp.helpItem("↑/↓", "move"),
-		fp.helpItem("tab", "enter folder"),
-		fp.helpItem("backspace", "parent"),
-		fp.helpItem("ctrl+h", "hidden"),
 	}
+	if fp.multiSelect {
+		items = append(items, fp.helpItem("shift+enter", "add repo"))
+	}
+	items = append(items,
+		fp.helpItem("tab", "complete"),
+		fp.helpItem("esc", "cancel"),
+		fp.helpItem("↑/↓", "cycle"),
+		fp.helpItem("ctrl+h", "hidden"),
+	)
 	return WrapHelpItems(items, width)
 }
 
@@ -338,7 +325,7 @@ func (fp *FilePicker) inputOffset() int {
 		MarginBottom(1)
 
 	offset := lipgloss.Height(titleStyle.Render(fp.title))
-	offset += 2 // blank lines after title
+	offset += 1 // blank line after title
 
 	// Account for multi-select selected list
 	if fp.multiSelect {

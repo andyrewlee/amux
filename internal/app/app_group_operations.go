@@ -98,8 +98,9 @@ func (a *App) removeGroup(name string) tea.Cmd {
 			return messages.Error{Err: err, Context: "removing group"}
 		}
 
-		// Clean up empty group workspace directory
-		_ = os.Remove(filepath.Join(groupsRoot, name))
+		// Clean up group workspace directory (and any leftover subdirs)
+		groupDir := filepath.Join(groupsRoot, name)
+		_ = os.RemoveAll(groupDir)
 
 		return messages.GroupRemoved{Name: name}
 	}

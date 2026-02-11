@@ -10,53 +10,42 @@ import (
 func TestToolbarClick(t *testing.T) {
 	m := setupClickTestModel()
 
-	// Force View to calculate toolbarY
+	// Force View to calculate toolbarY and hit regions
 	_ = m.View()
 
-	// The toolbar should be at the bottom of the content area
-	// With showKeymapHints=false, toolbar is rendered without help lines below
-	// Toolbar buttons are: [Help] [Monitor] [Settings] on a single row
-
-	// Get toolbar Y position (set during View())
-	// We need to add border offset (1) to get screen Y
-	toolbarScreenY := m.toolbarY + 1 // +1 for top border
+	// Use recorded hit regions to derive screen coordinates.
+	// Screen X = borderLeft + hit.region.X + 1 (center of button)
+	// Screen Y = borderTop + toolbarY + hit.region.Y
+	borderLeft := 1
+	borderTop := 1
 
 	tests := []struct {
 		name        string
-		screenX     int
-		screenY     int
+		hitIndex    int
 		wantMsgType string
 	}{
-		{
-			name:        "click Help button",
-			screenX:     3, // [?H] starts near the left
-			screenY:     toolbarScreenY,
-			wantMsgType: "ToggleHelp",
-		},
-		{
-			name:        "click Monitor button",
-			screenX:     8, // [◆M] is after [?H] with gap
-			screenY:     toolbarScreenY,
-			wantMsgType: "ToggleMonitor",
-		},
-		{
-			name:        "click Settings button",
-			screenX:     13, // [⚙S] is after [▤M] with gap
-			screenY:     toolbarScreenY,
-			wantMsgType: "ShowSettingsDialog",
-		},
+		{name: "click Help button", hitIndex: 0, wantMsgType: "ToggleHelp"},
+		{name: "click Monitor button", hitIndex: 1, wantMsgType: "ToggleMonitor"},
+		{name: "click Settings button", hitIndex: 2, wantMsgType: "ShowSettingsDialog"},
+	}
+
+	if len(m.toolbarHits) < 3 {
+		t.Fatalf("expected at least 3 toolbar hits, got %d", len(m.toolbarHits))
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset state
 			m.toolbarFocused = false
 			m.toolbarIndex = 0
 
-			cmd := m.handleToolbarClick(tt.screenX, tt.screenY)
+			hit := m.toolbarHits[tt.hitIndex]
+			screenX := borderLeft + hit.region.X + 1 // +1 to be inside the button
+			screenY := borderTop + m.toolbarY + hit.region.Y
+
+			cmd := m.handleToolbarClick(screenX, screenY)
 			if cmd == nil {
-				t.Fatalf("expected command from toolbar click at (%d, %d), got nil (toolbarY=%d)",
-					tt.screenX, tt.screenY, m.toolbarY)
+				t.Fatalf("expected command from toolbar click at (%d, %d), got nil (toolbarY=%d, hitX=%d, hitY=%d)",
+					screenX, screenY, m.toolbarY, hit.region.X, hit.region.Y)
 			}
 
 			msg := cmd()

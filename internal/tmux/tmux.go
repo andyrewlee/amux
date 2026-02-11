@@ -318,6 +318,19 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// SetSessionOption sets a tmux session option (e.g. a tag value).
+func SetSessionOption(sessionName, key, value string, opts Options) error {
+	if sessionName == "" || key == "" {
+		return nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	cmd, cancel := tmuxCommand(opts, "set-option", "-t", sessionName, key, value)
+	defer cancel()
+	return cmd.Run()
+}
+
 // ListSessionsMatchingTags returns sessions matching all provided tags.
 func ListSessionsMatchingTags(tags map[string]string, opts Options) ([]string, error) {
 	if len(tags) == 0 {

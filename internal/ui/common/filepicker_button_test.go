@@ -3,10 +3,24 @@ package common
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 )
+
+// testFilePickerScreenCoords computes screen coordinates for clicking a hit region,
+// using the same positioning logic as the click handler (measure actual rendered output).
+func testFilePickerScreenCoords(fp *FilePicker, hit HitRegion) (clickX, clickY int) {
+	lines := fp.renderLines()
+	content := strings.Join(lines, "\n")
+	dialogView := fp.dialogStyle().Render(content)
+	dialogW, dialogH := viewDimensions(dialogView)
+	dialogX := max(0, (fp.width-dialogW)/2)
+	dialogY := max(0, (fp.height-dialogH)/2)
+	_, _, contentOffsetX, contentOffsetY := fp.dialogFrame()
+	return dialogX + contentOffsetX + hit.X + 1, dialogY + contentOffsetY + hit.Y
+}
 
 func TestFilePickerButtonClickWithLongPath(t *testing.T) {
 	// Create a deeply nested path that would exceed content width
@@ -38,10 +52,7 @@ func TestFilePickerButtonClickWithLongPath(t *testing.T) {
 		t.Fatalf("expected open button hit region")
 	}
 
-	dialogX, dialogY, _, _ := fp.dialogBounds(fp.lastContentHeight)
-	_, _, contentOffsetX, contentOffsetY := fp.dialogFrame()
-	clickX := dialogX + contentOffsetX + hit.X + 1
-	clickY := dialogY + contentOffsetY + hit.Y
+	clickX, clickY := testFilePickerScreenCoords(fp, hit)
 
 	_, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
 	if cmd == nil {
@@ -80,10 +91,7 @@ func TestFilePickerButtonClickWithLongDirectoryName(t *testing.T) {
 		t.Fatalf("expected open button hit region")
 	}
 
-	dialogX, dialogY, _, _ := fp.dialogBounds(fp.lastContentHeight)
-	_, _, contentOffsetX, contentOffsetY := fp.dialogFrame()
-	clickX := dialogX + contentOffsetX + hit.X + 1
-	clickY := dialogY + contentOffsetY + hit.Y
+	clickX, clickY := testFilePickerScreenCoords(fp, hit)
 
 	_, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
 	if cmd == nil {
@@ -128,10 +136,7 @@ func TestFilePickerButtonClickNoSubdirectories(t *testing.T) {
 		t.Fatalf("expected open button hit region")
 	}
 
-	dialogX, dialogY, _, _ := fp.dialogBounds(fp.lastContentHeight)
-	_, _, contentOffsetX, contentOffsetY := fp.dialogFrame()
-	clickX := dialogX + contentOffsetX + hit.X + 1
-	clickY := dialogY + contentOffsetY + hit.Y
+	clickX, clickY := testFilePickerScreenCoords(fp, hit)
 
 	_, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
 	if cmd == nil {
@@ -169,10 +174,7 @@ func TestFilePickerCancelButtonClick(t *testing.T) {
 		t.Fatalf("expected cancel button hit region")
 	}
 
-	dialogX, dialogY, _, _ := fp.dialogBounds(fp.lastContentHeight)
-	_, _, contentOffsetX, contentOffsetY := fp.dialogFrame()
-	clickX := dialogX + contentOffsetX + hit.X + 1
-	clickY := dialogY + contentOffsetY + hit.Y
+	clickX, clickY := testFilePickerScreenCoords(fp, hit)
 
 	newPicker, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
 	if cmd == nil {
@@ -227,13 +229,109 @@ func TestFilePickerMultipleLongDirectories(t *testing.T) {
 		}
 	}
 
-	dialogX, dialogY, _, _ := fp.dialogBounds(fp.lastContentHeight)
-	_, _, contentOffsetX, contentOffsetY := fp.dialogFrame()
-	clickX := dialogX + contentOffsetX + hit.X + 1
-	clickY := dialogY + contentOffsetY + hit.Y
+	clickX, clickY := testFilePickerScreenCoords(fp, hit)
 
 	_, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
 	if cmd == nil {
 		t.Fatalf("expected command from button click with multiple long directories")
 	}
+}
+
+func TestFilePickerMultiSelectButtonClicks(t *testing.T) {
+	// Simulates the edit repos overlay with multiple selected repos
+	tmp := t.TempDir()
+	fp := NewFilePicker("edit-repos", tmp, true)
+	fp.SetMultiSelect(true)
+	fp.SetPrimaryActionLabel("Add repo")
+	fp.SetSize(120, 40)
+	fp.Show()
+
+	// Pre-populate with selected repos (simulating edit repos overlay)
+	fp.AddSelectedPath("/Users/test/projects/frontend")
+	fp.AddSelectedPath("/Users/test/projects/backend")
+	fp.AddSelectedPath("/Users/test/projects/shared-libs")
+
+	fp.renderLines()
+
+	// Test Done button click
+	t.Run("done button", func(t *testing.T) {
+		var hit HitRegion
+		found := false
+		for _, btn := range fp.buttonHits {
+			if btn.ID == "done" {
+				hit = btn
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected done button hit region")
+		}
+
+		clickX, clickY := testFilePickerScreenCoords(fp, hit)
+		_, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
+		if cmd == nil {
+			t.Fatalf("expected command from done button click with %d selected repos", len(fp.selectedPaths))
+		}
+	})
+
+	// Re-show for cancel test
+	fp.Show()
+	fp.AddSelectedPath("/Users/test/projects/frontend")
+	fp.AddSelectedPath("/Users/test/projects/backend")
+	fp.AddSelectedPath("/Users/test/projects/shared-libs")
+	fp.renderLines()
+
+	t.Run("cancel button", func(t *testing.T) {
+		var hit HitRegion
+		found := false
+		for _, btn := range fp.buttonHits {
+			if btn.ID == "cancel" {
+				hit = btn
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected cancel button hit region")
+		}
+
+		clickX, clickY := testFilePickerScreenCoords(fp, hit)
+		_, cmd := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
+		if cmd == nil {
+			t.Fatalf("expected command from cancel button click with %d selected repos", len(fp.selectedPaths))
+		}
+	})
+
+	// Re-show for add repo test
+	fp.Show()
+	fp.AddSelectedPath("/Users/test/projects/frontend")
+	fp.AddSelectedPath("/Users/test/projects/backend")
+	fp.AddSelectedPath("/Users/test/projects/shared-libs")
+	fp.renderLines()
+
+	t.Run("add repo button", func(t *testing.T) {
+		var hit HitRegion
+		found := false
+		for _, btn := range fp.buttonHits {
+			if btn.ID == "open" {
+				hit = btn
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected open button hit region")
+		}
+
+		countBefore := len(fp.selectedPaths)
+		clickX, clickY := testFilePickerScreenCoords(fp, hit)
+		newFp, _ := fp.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})
+		fp = newFp
+		// In multi-select, "Add repo" adds current path to selected list (no command returned)
+		if len(fp.selectedPaths) != countBefore+1 {
+			t.Fatalf("expected selectedPaths to grow from %d to %d, got %d",
+				countBefore, countBefore+1, len(fp.selectedPaths))
+		}
+	})
 }

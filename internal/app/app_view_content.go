@@ -79,22 +79,10 @@ func (a *App) renderGroupInfo() string {
 	title := a.styles.Title.Render(group.Name)
 	content := title + "\n\n"
 
-	if group.Profile != "" {
-		content += fmt.Sprintf("Profile: %s\n", group.Profile)
-	}
-
 	repoLabel := lipgloss.NewStyle().Foreground(common.ColorMuted).Render("Repos:")
-	content += "\n" + repoLabel + "\n"
+	content += repoLabel + "\n"
 	for _, repo := range group.Repos {
 		content += "    " + repo.Path + "\n"
-	}
-
-	if len(group.Workspaces) > 0 {
-		wsLabel := lipgloss.NewStyle().Foreground(common.ColorMuted).Render("Workspaces:")
-		content += "\n" + wsLabel + "\n"
-		for _, ws := range group.Workspaces {
-			content += "    " + ws.Name + "\n"
-		}
 	}
 
 	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
@@ -136,10 +124,6 @@ func (a *App) renderWorkspaceInfo() string {
 		content += "\n" + repoLabel + "\n"
 		for _, sec := range a.activeGroupWs.Secondary {
 			content += "    " + sec.Root + "\n"
-		}
-
-		if a.activeGroupWs.Profile != "" {
-			content += fmt.Sprintf("\nProfile: %s\n", a.activeGroupWs.Profile)
 		}
 	} else {
 		content += fmt.Sprintf("Branch: %s\n", ws.Branch)

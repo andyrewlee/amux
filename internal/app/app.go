@@ -49,6 +49,8 @@ const (
 	DialogDeleteGroup           = "delete_group"
 	DialogDeleteGroupWorkspace  = "delete_group_workspace"
 	DialogSetGroupProfile       = "set_group_profile"
+	DialogRenameGroupWorkspace  = "rename_group_workspace"
+	DialogRenameGroup           = "rename_group"
 )
 
 // Prefix mode constants

@@ -185,12 +185,25 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
-			// Use cached content height from last View() render
-			if fp.lastContentHeight == 0 {
+			// Re-render to get fresh hit regions and measure actual dialog size
+			// (mirrors Dialog.handleClick approach for accurate positioning)
+			lines := fp.renderLines()
+			if len(lines) == 0 {
 				return fp, nil
 			}
 
-			dialogX, dialogY, dialogW, dialogH := fp.dialogBounds(fp.lastContentHeight)
+			content := strings.Join(lines, "\n")
+			dialogView := fp.dialogStyle().Render(content)
+			dialogW, dialogH := viewDimensions(dialogView)
+			dialogX := (fp.width - dialogW) / 2
+			dialogY := (fp.height - dialogH) / 2
+			if dialogX < 0 {
+				dialogX = 0
+			}
+			if dialogY < 0 {
+				dialogY = 0
+			}
+
 			if msg.X < dialogX || msg.X >= dialogX+dialogW || msg.Y < dialogY || msg.Y >= dialogY+dialogH {
 				return fp, nil
 			}
@@ -253,7 +266,10 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 				return DialogResult{ID: fp.id, Confirmed: false}
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "shift+enter"))):
+			if fp.multiSelect && msg.Key().Mod&tea.ModShift != 0 {
+				return fp.confirmCurrentDirectory()
+			}
 			return fp.handleEnter()
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
