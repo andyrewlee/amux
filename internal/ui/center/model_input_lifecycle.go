@@ -524,7 +524,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			if tab.ptyRestartCount > ptyRestartMax {
 				shouldRestart = false
 				tab.Running = false
-				// Mark as detached (tmux session may still be alive)
+				// Mark as detached (tmux session may still be alive) and auto-reattach
 				tab.Detached = true
 				tab.ptyRestartBackoff = 0
 			} else {
@@ -548,24 +548,32 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 				}))
 				logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
 			} else {
-				logging.Warn("PTY stopped for tab %s; restart limit reached, marking detached: %v", msg.TabID, msg.Err)
+				logging.Warn("PTY stopped for tab %s; restart limit reached, auto-reattaching: %v", msg.TabID, msg.Err)
 				cmds = append(cmds, func() tea.Msg {
 					return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
 				})
+				// Auto-reattach the detached tab
+				if cmd := m.ReattachTabByID(msg.WorkspaceID, msg.TabID); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 		} else {
 			tab.mu.Lock()
 			tab.Running = false
-			// Mark as detached - tmux session may still be alive, sync will confirm
+			// Mark as detached - tmux session may still be alive, auto-reattach
 			tab.Detached = true
 			tab.ptyRestartBackoff = 0
 			tab.ptyRestartCount = 0
 			tab.ptyRestartSince = time.Time{}
 			tab.mu.Unlock()
-			logging.Info("PTY stopped for tab %s, marking detached: %v", msg.TabID, msg.Err)
+			logging.Info("PTY stopped for tab %s, auto-reattaching: %v", msg.TabID, msg.Err)
 			cmds = append(cmds, func() tea.Msg {
 				return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
 			})
+			// Auto-reattach the detached tab
+			if cmd := m.ReattachTabByID(msg.WorkspaceID, msg.TabID); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 	return common.SafeBatch(cmds...)

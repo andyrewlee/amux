@@ -146,8 +146,6 @@ func (m *Model) helpLines(contentWidth int) []string {
 	if hasTabs {
 		items = append(items,
 			m.helpItem("C-Spc x", "close"),
-			m.helpItem("C-Spc D", "detach"),
-			m.helpItem("C-Spc R", "reattach"),
 			m.helpItem("C-Spc S", "restart"),
 			m.helpItem("C-Spc p", "prev"),
 			m.helpItem("C-Spc n", "next"),

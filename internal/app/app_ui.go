@@ -214,22 +214,6 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		cmd := a.center.CloseActiveTab()
 		return true, cmd
 
-	case key.Matches(msg, a.keymap.DetachTab):
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			cmd := a.center.DetachActiveTab()
-			return true, a.safeBatch(cmd, a.persistActiveWorkspaceTabs())
-		}
-		return true, nil
-
-	case key.Matches(msg, a.keymap.ReattachTab):
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			cmd := a.center.ReattachActiveTab()
-			return true, cmd
-		}
-		return true, nil
-
 	case key.Matches(msg, a.keymap.RestartTab):
 		switch a.focusedPane {
 		case messages.PaneCenter:

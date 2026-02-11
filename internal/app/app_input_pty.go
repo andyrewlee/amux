@@ -57,6 +57,10 @@ func (a *App) handleTabInputFailed(msg center.TabInputFailed) []tea.Cmd {
 		if cmd := a.center.DetachTabByID(msg.WorkspaceID, msg.TabID); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		// Auto-reattach: immediately try to reconnect the detached tab
+		if cmd := a.center.ReattachTabByID(msg.WorkspaceID, msg.TabID); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
 		cmds = append(cmds, cmd)

@@ -92,42 +92,17 @@ func (m *Model) DetachTabByID(wsID string, tabID TabID) tea.Cmd {
 	return nil
 }
 
-// DetachActiveTab closes the PTY client but keeps the tmux session alive.
-func (m *Model) DetachActiveTab() tea.Cmd {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return nil
-	}
-	return m.detachTabAt(activeIdx)
-}
-
-// ReattachActiveTab reattaches to a detached tmux session.
-func (m *Model) ReattachActiveTab() tea.Cmd {
-	tabs := m.getTabs()
-	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return nil
-	}
-	tab := tabs[activeIdx]
+// ReattachTabByID reattaches to a detached tmux session by workspace ID and tab ID.
+func (m *Model) ReattachTabByID(wsID string, tabID TabID) tea.Cmd {
+	tab := m.getTabByID(wsID, tabID)
 	if tab == nil || tab.Workspace == nil {
 		return nil
 	}
 	if m.config == nil || m.config.Assistants == nil {
-		return func() tea.Msg {
-			return messages.Toast{
-				Message: "Tab cannot be reattached",
-				Level:   messages.ToastInfo,
-			}
-		}
+		return nil
 	}
 	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
-		return func() tea.Msg {
-			return messages.Toast{
-				Message: "Only assistant tabs can be reattached",
-				Level:   messages.ToastInfo,
-			}
-		}
+		return nil
 	}
 	tab.mu.Lock()
 	detached := tab.Detached
@@ -145,7 +120,6 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	}
 	assistant := tab.Assistant
 	ws := tab.Workspace
-	tabID := tab.ID
 	opts := m.getTmuxOptions()
 	return func() tea.Msg {
 		state, err := tmux.SessionStateFor(sessionName, opts)
@@ -346,6 +320,12 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 		if status == "detached" {
 			m.addDetachedTab(ws, tab)
 			restoreCount++
+			// Auto-reattach: find the tab we just added and trigger reattach
+			tabs := m.tabsByWorkspace[wsID]
+			if len(tabs) > 0 {
+				lastTab := tabs[len(tabs)-1]
+				cmds = append(cmds, m.ReattachTabByID(wsID, lastTab.ID))
+			}
 			continue
 		}
 		restoreCount++
@@ -409,6 +389,12 @@ func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) te
 		}
 		if status == "detached" {
 			m.addDetachedTab(ws, tab)
+			// Auto-reattach: find the tab we just added and trigger reattach
+			wsTabs := m.tabsByWorkspace[wsID]
+			if len(wsTabs) > 0 {
+				lastTab := wsTabs[len(wsTabs)-1]
+				cmds = append(cmds, m.ReattachTabByID(wsID, lastTab.ID))
+			}
 			continue
 		}
 		cmds = append(cmds, m.createAgentTabWithSession(tab.Assistant, ws, sessionName, tab.Name, false, tab.ClaudeSessionID))
