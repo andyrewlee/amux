@@ -2,12 +2,16 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+// watchMetadataDirFn is a test hook for injecting errors into fsnotify.Add.
+var watchMetadataDirFn func(w *fsnotify.Watcher, dir string) error
 
 type stateWatcher struct {
 	watcher *fsnotify.Watcher
@@ -24,6 +28,7 @@ type stateWatcher struct {
 	pendingReason string
 	closed        bool
 	closeOnce     sync.Once
+	metadataDirs  map[string]struct{}
 }
 
 func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason string)) (*stateWatcher, error) {
@@ -49,7 +54,8 @@ func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason st
 
 	if metadataRoot != "" {
 		sw.metadataRoot = filepath.Clean(metadataRoot)
-		if err := watcher.Add(sw.metadataRoot); err != nil {
+		sw.metadataDirs = make(map[string]struct{})
+		if err := sw.watchMetadataRoot(); err != nil {
 			_ = watcher.Close()
 			return nil, err
 		}
@@ -70,7 +76,7 @@ func (sw *stateWatcher) Run(ctx context.Context) error {
 			switch {
 			case sw.isRegistryEvent(event):
 				sw.scheduleNotify("registry")
-			case sw.isWorkspaceDirEvent(event):
+			case sw.handleMetadataEvent(event):
 				sw.scheduleNotify("workspaces")
 			}
 		case _, ok := <-sw.watcher.Errors:
@@ -109,18 +115,107 @@ func (sw *stateWatcher) isRegistryEvent(event fsnotify.Event) bool {
 	return event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
 }
 
-func (sw *stateWatcher) isWorkspaceDirEvent(event fsnotify.Event) bool {
+// addWatch delegates to the test hook or the real watcher.
+func (sw *stateWatcher) addWatch(path string) error {
+	if watchMetadataDirFn != nil {
+		return watchMetadataDirFn(sw.watcher, path)
+	}
+	return sw.watcher.Add(path)
+}
+
+// watchMetadataRoot watches the root directory and any existing children.
+func (sw *stateWatcher) watchMetadataRoot() error {
+	if err := sw.addWatch(sw.metadataRoot); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(sw.metadataRoot)
+	if err != nil {
+		// Root may not exist yet; that's fine.
+		return nil
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		child := filepath.Join(sw.metadataRoot, entry.Name())
+		_ = sw.watchMetadataDir(child) // best-effort
+	}
+	return nil
+}
+
+// watchMetadataDir registers a child directory for watching.
+func (sw *stateWatcher) watchMetadataDir(dir string) error {
+	sw.mu.Lock()
+	if _, ok := sw.metadataDirs[dir]; ok {
+		sw.mu.Unlock()
+		return nil
+	}
+	sw.mu.Unlock()
+
+	// Release lock around slow fsnotify.Add
+	if err := sw.addWatch(dir); err != nil {
+		return err
+	}
+
+	sw.mu.Lock()
+	sw.metadataDirs[dir] = struct{}{}
+	sw.mu.Unlock()
+	return nil
+}
+
+// unwatchMetadataDir removes a child directory from watching.
+func (sw *stateWatcher) unwatchMetadataDir(dir string) {
+	sw.mu.Lock()
+	delete(sw.metadataDirs, dir)
+	sw.mu.Unlock()
+	if sw.watcher != nil {
+		_ = sw.watcher.Remove(dir)
+	}
+}
+
+// handleMetadataEvent classifies a metadata filesystem event.
+// Returns true if the event represents a workspace directory change (create/remove).
+func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 	if sw.metadataRoot == "" {
 		return false
 	}
 	name := filepath.Clean(event.Name)
+
+	// Ignore events on the root itself (e.g. lockfiles).
 	if name == sw.metadataRoot {
 		return false
 	}
-	if filepath.Dir(name) != sw.metadataRoot {
+
+	parent := filepath.Dir(name)
+
+	// Direct child of metadata root = workspace directory event.
+	if parent == sw.metadataRoot {
+		if event.Op&(fsnotify.Create|fsnotify.Rename) != 0 {
+			if sw.looksLikeDir(name) {
+				_ = sw.watchMetadataDir(name) // best-effort
+			}
+			return true
+		}
+		if event.Op&fsnotify.Remove != 0 {
+			sw.unwatchMetadataDir(name)
+			return true
+		}
 		return false
 	}
-	return event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
+
+	// Deeper nesting (e.g. workspace.json writes) — ignore.
+	return false
+}
+
+// looksLikeDir returns true if the path is likely a directory.
+// Falls back to checking for an extensionless basename when stat fails
+// (e.g. the path was already removed).
+func (sw *stateWatcher) looksLikeDir(path string) bool {
+	info, err := os.Stat(path)
+	if err == nil {
+		return info.IsDir()
+	}
+	return filepath.Ext(filepath.Base(path)) == ""
 }
 
 func (sw *stateWatcher) scheduleNotify(reason string) {
