@@ -318,3 +318,108 @@ func TestAmuxSessionsByWorkspace_SkipsNoWorkspace(t *testing.T) {
 		t.Fatalf("expected empty map (no workspace tag), got %v", m)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Pre-check hardening tests (prefix-collision safety)
+// ---------------------------------------------------------------------------
+
+func TestSessionHasClients_NonexistentSession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	has, err := SessionHasClients("no-such-session", opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if has {
+		t.Fatal("expected false for nonexistent session")
+	}
+}
+
+func TestSessionCreatedAt_NonexistentSession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	ts, err := SessionCreatedAt("no-such-session", opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if ts != 0 {
+		t.Fatalf("expected 0 for nonexistent session, got %d", ts)
+	}
+}
+
+func TestSessionCreatedAt_ReturnsTimestamp(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "ts-test", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	ts, err := SessionCreatedAt("ts-test", opts)
+	if err != nil {
+		t.Fatalf("SessionCreatedAt: %v", err)
+	}
+	if ts <= 0 {
+		t.Fatalf("expected positive timestamp, got %d", ts)
+	}
+}
+
+func TestSessionHasClients_NoClients(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "detached", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	has, err := SessionHasClients("detached", opts)
+	if err != nil {
+		t.Fatalf("SessionHasClients: %v", err)
+	}
+	if has {
+		t.Fatal("expected false for detached session with no clients")
+	}
+}
+
+func TestPanePIDs_PrefixCollisionSafety(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "sess-1", "sleep 300")
+	createSession(t, opts, "sess-10", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	pids, err := PanePIDs("sess-1", opts)
+	if err != nil {
+		t.Fatalf("PanePIDs: %v", err)
+	}
+	if len(pids) != 1 {
+		t.Fatalf("expected exactly 1 PID for sess-1 (not sess-10), got %d: %v", len(pids), pids)
+	}
+}
+
+func TestSessionTagValue_NonexistentSession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	val, err := SessionTagValue("no-such-session", "@amux", opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if val != "" {
+		t.Fatalf("expected empty string for nonexistent session, got %q", val)
+	}
+}
+
+func TestHasLivePane_NonexistentSession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	live, err := hasLivePane("no-such-session", opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if live {
+		t.Fatal("expected false for nonexistent session")
+	}
+}
