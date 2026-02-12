@@ -134,28 +134,6 @@ func SetStatusOff(opts Options) error {
 	return nil
 }
 
-// CapturePaneTail captures the last N lines of a session's active pane.
-// Returns the content and a success flag. Returns ("", false) on error
-// (e.g., session doesn't exist or capture times out).
-func CapturePaneTail(sessionName string, lines int, opts Options) (string, bool) {
-	if sessionName == "" || lines <= 0 {
-		return "", false
-	}
-	startLine := -lines
-	// Use plain session name instead of exactTarget because capture-pane
-	// expects a pane target, and the "=" prefix for exact session matching
-	// is not recognized in pane-target context (tmux 3.6+).
-	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", sessionName, "-S", strconv.Itoa(startLine))
-	defer cancel()
-	output, err := cmd.Output()
-	if err != nil {
-		return "", false
-	}
-	// Normalize: trim trailing whitespace from each line and trailing empty lines
-	text := strings.TrimRight(string(output), " \t\n\r")
-	return text, true
-}
-
 // ContentHash returns a fast hash of the content for change detection.
 func ContentHash(content string) [16]byte {
 	return md5.Sum([]byte(content))
