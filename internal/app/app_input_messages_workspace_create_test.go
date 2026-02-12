@@ -115,3 +115,47 @@ func TestHandleCreateWorkspaceTracksAndClearsPendingIDOnFailure(t *testing.T) {
 	}
 	t.Fatal("expected at least one cmd to produce WorkspaceCreateFailed")
 }
+
+func TestHandleCreateWorkspaceClearsPendingIDOnValidationFailure(t *testing.T) {
+	workspacesRoot := "/tmp/workspaces"
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := newWorkspaceService(nil, store, nil, workspacesRoot)
+
+	app := &App{
+		dashboard:            dashboard.New(),
+		creatingWorkspaceIDs: make(map[string]bool),
+		workspaceService:     svc,
+	}
+
+	project := data.NewProject("/tmp/repo")
+	msg := messages.CreateWorkspace{
+		Project: project,
+		Name:    "bad/name",
+		Base:    "main",
+	}
+
+	cmds := app.handleCreateWorkspace(msg)
+	if len(app.creatingWorkspaceIDs) != 1 {
+		t.Fatalf("expected 1 pending ID after handleCreateWorkspace, got %d", len(app.creatingWorkspaceIDs))
+	}
+
+	for _, cmd := range cmds {
+		if cmd == nil {
+			continue
+		}
+		result := cmd()
+		failed, ok := result.(messages.WorkspaceCreateFailed)
+		if !ok {
+			continue
+		}
+		if failed.Workspace == nil {
+			t.Fatal("expected workspace in validation failure")
+		}
+		app.handleWorkspaceCreateFailed(failed)
+		if len(app.creatingWorkspaceIDs) != 0 {
+			t.Fatalf("expected 0 pending IDs after validation failure, got %d", len(app.creatingWorkspaceIDs))
+		}
+		return
+	}
+	t.Fatal("expected at least one cmd to produce WorkspaceCreateFailed")
+}

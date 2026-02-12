@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -87,5 +88,94 @@ func TestAddProjectExpandsTildePath(t *testing.T) {
 	}
 	if normalizePath(paths[0]) != normalizePath(repo) {
 		t.Fatalf("registered path = %s, want %s", paths[0], repo)
+	}
+}
+
+func TestCreateWorkspaceRejectsInvalidName(t *testing.T) {
+	origCreate := createWorkspaceFn
+	t.Cleanup(func() { createWorkspaceFn = origCreate })
+
+	var createCalled bool
+	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
+		createCalled = true
+		return nil
+	}
+
+	project := data.NewProject("/tmp/repo")
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	msg := svc.CreateWorkspace(project, "bad/name", "main")()
+
+	failed, ok := msg.(messages.WorkspaceCreateFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+	}
+	if failed.Workspace == nil {
+		t.Fatal("expected pending workspace in validation failure")
+	}
+	if failed.Err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if createCalled {
+		t.Fatal("createWorkspaceFn should not have been called")
+	}
+}
+
+func TestCreateWorkspaceRejectsInvalidBaseRef(t *testing.T) {
+	origCreate := createWorkspaceFn
+	t.Cleanup(func() { createWorkspaceFn = origCreate })
+
+	var createCalled bool
+	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
+		createCalled = true
+		return nil
+	}
+
+	project := data.NewProject("/tmp/repo")
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	msg := svc.CreateWorkspace(project, "feature", "bad ref")()
+
+	failed, ok := msg.(messages.WorkspaceCreateFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+	}
+	if failed.Workspace == nil {
+		t.Fatal("expected pending workspace in validation failure")
+	}
+	if failed.Err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if createCalled {
+		t.Fatal("createWorkspaceFn should not have been called")
+	}
+}
+
+func TestCreateWorkspaceRejectsPathOutsideManagedRoot(t *testing.T) {
+	origCreate := createWorkspaceFn
+	t.Cleanup(func() { createWorkspaceFn = origCreate })
+
+	var createCalled bool
+	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
+		createCalled = true
+		return nil
+	}
+
+	// Use a project name with ".." to try to escape the managed root.
+	// projectNameSegment rejects ".." in the name, so isManagedWorkspacePathForProject fails.
+	project := &data.Project{Name: "../escape", Path: "/tmp/repo"}
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	msg := svc.CreateWorkspace(project, "feature", "main")()
+
+	failed, ok := msg.(messages.WorkspaceCreateFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+	}
+	if failed.Err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(failed.Err.Error(), "outside managed project root") {
+		t.Fatalf("expected 'outside managed project root' error, got: %v", failed.Err)
+	}
+	if createCalled {
+		t.Fatal("createWorkspaceFn should not have been called")
 	}
 }

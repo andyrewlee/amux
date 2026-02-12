@@ -287,6 +287,10 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 				Err: errors.New("missing project or workspace name"),
 			}
 		}
+		base = strings.TrimSpace(base)
+		if base == "" {
+			base = "HEAD"
+		}
 		ws = s.pendingWorkspace(project, name, base)
 		if ws == nil {
 			return messages.WorkspaceCreateFailed{
@@ -295,8 +299,29 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		}
 		name = ws.Name
 		base = ws.Base
+
+		if err := validation.ValidateWorkspaceName(name); err != nil {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
+			}
+		}
+		if err := validation.ValidateBaseRef(base); err != nil {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
+			}
+		}
+
 		workspacePath := ws.Root
 		branch := name
+
+		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, workspacePath) {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       fmt.Errorf("workspace path %s is outside managed project root", workspacePath),
+			}
+		}
 
 		if err := createWorkspaceFn(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{
@@ -366,7 +391,45 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			}
 		}
 
-		if err := git.RemoveWorkspace(project.Path, ws.Root); err != nil {
+		projectPath := data.NormalizePath(project.Path)
+		if projectPath == "" {
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       errors.New("project path is empty"),
+			}
+		}
+
+		workspaceRepo := data.NormalizePath(ws.Repo)
+		if workspaceRepo == "" {
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       errors.New("workspace repo is empty"),
+			}
+		}
+
+		if projectPath != workspaceRepo {
+			if !isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
+				return messages.WorkspaceDeleteFailed{
+					Project:   project,
+					Workspace: ws,
+					Err:       fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path),
+				}
+			}
+		}
+
+		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, ws.Root) {
+			if !isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
+				return messages.WorkspaceDeleteFailed{
+					Project:   project,
+					Workspace: ws,
+					Err:       fmt.Errorf("workspace root %s is outside managed project root", ws.Root),
+				}
+			}
+		}
+
+		if err := removeWorkspaceFn(project.Path, ws.Root); err != nil {
 			return messages.WorkspaceDeleteFailed{
 				Project:   project,
 				Workspace: ws,
@@ -374,7 +437,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			}
 		}
 
-		_ = git.DeleteBranch(project.Path, ws.Branch)
+		_ = deleteBranchFn(project.Path, ws.Branch)
 		if s.store != nil {
 			_ = s.store.Delete(ws.ID())
 		}
@@ -417,28 +480,4 @@ func (s *workspaceService) StopAll() {
 		return
 	}
 	s.scripts.StopAll()
-}
-
-func waitForGitPath(path string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return nil
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("failed to stat %s: %w", path, err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("missing git metadata at %s after %s", path, timeout)
-		}
-		time.Sleep(gitPathWaitInterval)
-	}
-}
-
-func rollbackWorkspaceCreation(repoPath, workspacePath, branch string) {
-	if err := removeWorkspaceFn(repoPath, workspacePath); err != nil {
-		logging.Warn("Failed to roll back workspace %s: %v", workspacePath, err)
-	}
-	if err := deleteBranchFn(repoPath, branch); err != nil {
-		logging.Warn("Failed to roll back branch %s: %v", branch, err)
-	}
 }
