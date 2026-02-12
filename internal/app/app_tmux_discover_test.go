@@ -7,53 +7,6 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
-func TestSelectSidebarInstancePrefersCurrentInstance(t *testing.T) {
-	sessions := []sidebarSessionInfo{
-		{name: "a1", instanceID: "a", createdAt: 100},
-		{name: "a2", instanceID: "a", createdAt: 101},
-		{name: "b1", instanceID: "b", createdAt: 200},
-	}
-	out := selectSidebarInstance(sessions, "a")
-	if !out.OK || out.ID != "a" {
-		t.Fatalf("expected instance a, got %#v", out)
-	}
-}
-
-func TestSelectSidebarInstanceFallsBackToLargestInstance(t *testing.T) {
-	sessions := []sidebarSessionInfo{
-		{name: "a1", instanceID: "a", createdAt: 300},
-		{name: "b1", instanceID: "b", createdAt: 200},
-		{name: "b2", instanceID: "b", createdAt: 201},
-	}
-	out := selectSidebarInstance(sessions, "c")
-	if !out.OK || out.ID != "b" {
-		t.Fatalf("expected instance b by count, got %#v", out)
-	}
-}
-
-func TestSelectSidebarInstanceNoInstanceTags(t *testing.T) {
-	sessions := []sidebarSessionInfo{
-		{name: "x1", instanceID: "", createdAt: 0},
-		{name: "x2", instanceID: "", createdAt: 0},
-	}
-	out := selectSidebarInstance(sessions, "a")
-	if !out.OK || out.ID != "" {
-		t.Fatalf("expected empty instance selection, got %#v", out)
-	}
-}
-
-func TestSelectSidebarInstanceUsesCountOverRecency(t *testing.T) {
-	sessions := []sidebarSessionInfo{
-		{name: "a1", instanceID: "a", createdAt: 300},
-		{name: "b1", instanceID: "b", createdAt: 200},
-		{name: "b2", instanceID: "b", createdAt: 201},
-	}
-	out := selectSidebarInstance(sessions, "")
-	if !out.OK || out.ID != "b" {
-		t.Fatalf("expected instance b by count, got %#v", out)
-	}
-}
-
 func TestHandleTmuxSidebarDiscoverResultCreatesTerminalWhenEmpty(t *testing.T) {
 	app := &App{}
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
@@ -70,41 +23,80 @@ func TestHandleTmuxSidebarDiscoverResultCreatesTerminalWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestDiscoverSidebarSessionsOrdersByCreatedAt(t *testing.T) {
+func TestBuildSidebarSessionAttachInfosIncludesSessionsAcrossInstances(t *testing.T) {
 	sessions := []sidebarSessionInfo{
-		{name: "s2", instanceID: "a", createdAt: 200},
-		{name: "s1", instanceID: "a", createdAt: 100},
+		{name: "a1", instanceID: "inst-a", createdAt: 100},
+		{name: "b1", instanceID: "inst-b", createdAt: 200},
+		{name: "c1", instanceID: "inst-c", createdAt: 300},
 	}
-	chosen := selectSidebarInstance(sessions, "a")
-	if !chosen.OK || chosen.ID != "a" {
-		t.Fatalf("expected instance a, got %#v", chosen)
+	out := buildSidebarSessionAttachInfos(sessions)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 sessions across all instances, got %d", len(out))
 	}
-	out := buildSidebarSessionAttachInfos(sessions, chosen)
-	if len(out) != 2 || out[0].Name != "s1" || out[1].Name != "s2" {
-		t.Fatalf("expected created-at ordering, got %v", []string{out[0].Name, out[1].Name})
+	names := make(map[string]bool)
+	for _, s := range out {
+		names[s.Name] = true
+	}
+	for _, expected := range []string{"a1", "b1", "c1"} {
+		if !names[expected] {
+			t.Fatalf("expected session %s in output", expected)
+		}
+	}
+}
+
+func TestBuildSidebarSessionAttachInfosHandlesEmpty(t *testing.T) {
+	out := buildSidebarSessionAttachInfos(nil)
+	if len(out) != 0 {
+		t.Fatalf("expected empty output for nil input, got %d", len(out))
+	}
+
+	out = buildSidebarSessionAttachInfos([]sidebarSessionInfo{})
+	if len(out) != 0 {
+		t.Fatalf("expected empty output for empty input, got %d", len(out))
+	}
+}
+
+func TestBuildSidebarSessionAttachInfosOrdersByCreatedAt(t *testing.T) {
+	sessions := []sidebarSessionInfo{
+		{name: "s3", instanceID: "a", createdAt: 300},
+		{name: "s1", instanceID: "b", createdAt: 100},
+		{name: "s2", instanceID: "c", createdAt: 200},
+	}
+	out := buildSidebarSessionAttachInfos(sessions)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(out))
+	}
+	expected := []string{"s1", "s2", "s3"}
+	for i, name := range expected {
+		if out[i].Name != name {
+			t.Fatalf("position %d: expected %s, got %s", i, name, out[i].Name)
+		}
 	}
 }
 
 func TestDiscoverSidebarAttachFlags(t *testing.T) {
 	sessions := []sidebarSessionInfo{
 		{name: "a1", instanceID: "a", createdAt: 100, hasClients: true},
-		{name: "a2", instanceID: "a", createdAt: 101, hasClients: false},
-		{name: "b1", instanceID: "b", createdAt: 200, hasClients: false},
+		{name: "a2", instanceID: "b", createdAt: 101, hasClients: false},
+		{name: "b1", instanceID: "c", createdAt: 200, hasClients: false},
 	}
-	chosen := selectSidebarInstance(sessions, "a")
-	out := buildSidebarSessionAttachInfos(sessions, chosen)
-	if len(out) != 2 {
-		t.Fatalf("expected 2 sessions for instance a, got %d", len(out))
+	out := buildSidebarSessionAttachInfos(sessions)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(out))
 	}
 	for _, sess := range out {
-		if sess.Name == "a1" && sess.DetachExisting {
-			t.Fatalf("expected a1 to attach without detaching")
-		}
-		if sess.Name == "a2" && !sess.DetachExisting {
-			t.Fatalf("expected a2 to attach with detach")
-		}
 		if !sess.Attach {
-			t.Fatalf("expected %s to attach", sess.Name)
+			t.Fatalf("expected %s to have Attach=true", sess.Name)
+		}
+		switch sess.Name {
+		case "a1":
+			if sess.DetachExisting {
+				t.Fatal("expected a1 to attach without detaching (has clients)")
+			}
+		case "a2", "b1":
+			if !sess.DetachExisting {
+				t.Fatalf("expected %s to attach with detach (no clients)", sess.Name)
+			}
 		}
 	}
 }

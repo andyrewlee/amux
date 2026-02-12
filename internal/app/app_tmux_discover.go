@@ -129,7 +129,6 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 		}
 	}
 	opts := a.tmuxOptions
-	instanceID := a.instanceID
 	svc := a.tmuxService
 	return func() tea.Msg {
 		if svc == nil {
@@ -179,88 +178,16 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 		if len(sessions) == 0 {
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
-		chosen := selectSidebarInstance(sessions, instanceID)
-		out := buildSidebarSessionAttachInfos(sessions, chosen)
+		out := buildSidebarSessionAttachInfos(sessions)
 		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
 	}
 }
 
-type sidebarInstanceSelection struct {
-	ID string
-	OK bool
-}
-
-func selectSidebarInstance(sessions []sidebarSessionInfo, currentInstance string) sidebarInstanceSelection {
-	if len(sessions) == 0 {
-		return sidebarInstanceSelection{}
-	}
-	if currentInstance != "" {
-		for _, session := range sessions {
-			if session.instanceID == currentInstance {
-				return sidebarInstanceSelection{ID: currentInstance, OK: true}
-			}
-		}
-	}
-	type instanceStats struct {
-		count     int
-		createdAt int64
-		isEmpty   bool
-	}
-	stats := make(map[string]*instanceStats)
-	for _, session := range sessions {
-		stat := stats[session.instanceID]
-		if stat == nil {
-			stat = &instanceStats{isEmpty: session.instanceID == ""}
-			stats[session.instanceID] = stat
-		}
-		stat.count++
-		if session.createdAt > stat.createdAt {
-			stat.createdAt = session.createdAt
-		}
-	}
-	var chosenID string
-	var chosen instanceStats
-	hasChoice := false
-	for id, stat := range stats {
-		if !hasChoice {
-			chosenID = id
-			chosen = *stat
-			hasChoice = true
-			continue
-		}
-		if stat.count > chosen.count {
-			chosenID = id
-			chosen = *stat
-			continue
-		}
-		if stat.count == chosen.count {
-			if stat.createdAt > chosen.createdAt {
-				chosenID = id
-				chosen = *stat
-				continue
-			}
-			if stat.createdAt == chosen.createdAt && chosen.isEmpty && !stat.isEmpty {
-				chosenID = id
-				chosen = *stat
-			}
-		}
-	}
-	if !hasChoice {
-		return sidebarInstanceSelection{}
-	}
-	return sidebarInstanceSelection{ID: chosenID, OK: true}
-}
-
-func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo, chosen sidebarInstanceSelection) []sidebar.SessionAttachInfo {
-	chosenSessions := make([]sidebarSessionInfo, 0, len(sessions))
-	for _, session := range sessions {
-		if chosen.OK && session.instanceID != chosen.ID {
-			continue
-		}
-		chosenSessions = append(chosenSessions, session)
-	}
-	sort.SliceStable(chosenSessions, func(i, j int) bool {
-		ci, cj := chosenSessions[i].createdAt, chosenSessions[j].createdAt
+func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo) []sidebar.SessionAttachInfo {
+	sorted := make([]sidebarSessionInfo, len(sessions))
+	copy(sorted, sessions)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		ci, cj := sorted[i].createdAt, sorted[j].createdAt
 		if ci != 0 || cj != 0 {
 			if ci == 0 {
 				return false
@@ -272,10 +199,10 @@ func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo, chosen sideba
 				return ci < cj
 			}
 		}
-		return chosenSessions[i].name < chosenSessions[j].name
+		return sorted[i].name < sorted[j].name
 	})
-	out := make([]sidebar.SessionAttachInfo, 0, len(chosenSessions))
-	for _, session := range chosenSessions {
+	out := make([]sidebar.SessionAttachInfo, 0, len(sorted))
+	for _, session := range sorted {
 		out = append(out, sidebar.SessionAttachInfo{
 			Name:           session.name,
 			Attach:         true,
