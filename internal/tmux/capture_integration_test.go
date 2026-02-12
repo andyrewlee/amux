@@ -36,6 +36,22 @@ func TestCapturePaneTail_ResolvesActivePaneID(t *testing.T) {
 	}
 }
 
+func TestSessionPaneID_ResolvesForDetachedSession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "pane-id-detached", "sleep 300")
+	time.Sleep(100 * time.Millisecond)
+
+	paneID, err := sessionPaneID("pane-id-detached", opts)
+	if err != nil {
+		t.Fatalf("sessionPaneID: %v", err)
+	}
+	if paneID == "" || paneID[0] != '%' {
+		t.Fatalf("expected pane ID with %% prefix, got %q", paneID)
+	}
+}
+
 func TestCapturePane_PrefixCollisionSafety(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)

@@ -15,17 +15,39 @@ func sessionPaneID(sessionName string, opts Options) (string, error) {
 	if !exists {
 		return "", nil
 	}
-	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", sessionTarget(sessionName), "#{pane_id}")
+	// Use list-panes instead of display-message. display-message may return an
+	// empty pane_id for detached sessions on some tmux versions.
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{pane_id}\t#{pane_active}\t#{pane_dead}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
-	paneID := strings.TrimSpace(string(output))
-	if paneID == "" || paneID[0] != '%' {
-		return "", nil
+
+	var firstAlive string
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+		paneID := strings.TrimSpace(parts[0])
+		paneActive := strings.TrimSpace(parts[1]) == "1"
+		paneDead := strings.TrimSpace(parts[2]) == "1"
+		if paneID == "" || paneID[0] != '%' || paneDead {
+			continue
+		}
+		if paneActive {
+			return paneID, nil
+		}
+		if firstAlive == "" {
+			firstAlive = paneID
+		}
 	}
-	return paneID, nil
+	return firstAlive, nil
 }
 
 // CapturePane captures the scrollback history of a tmux pane (excluding the
