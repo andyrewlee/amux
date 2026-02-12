@@ -22,6 +22,11 @@ func (v *VTerm) LastCursorHidden() bool {
 	return v.lastCursorHidden
 }
 
+// CursorHiddenForRender returns the effective cursor-hidden state for rendering.
+func (v *VTerm) CursorHiddenForRender() bool {
+	return v.CursorHidden
+}
+
 // SelActive reports whether a selection is active.
 func (v *VTerm) SelActive() bool {
 	return v.selActive

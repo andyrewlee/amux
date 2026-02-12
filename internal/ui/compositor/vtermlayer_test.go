@@ -65,6 +65,19 @@ func TestVTermLayerClearsContinuationCells(t *testing.T) {
 	}
 }
 
+func TestVTermSnapshotHonorsCursorHideOutsideAltScreen(t *testing.T) {
+	term := vterm.New(10, 3)
+	term.Write([]byte("\x1b[?25l")) // hide cursor outside alt screen
+
+	snap := NewVTermSnapshot(term, true)
+	if snap == nil {
+		t.Fatal("expected snapshot, got nil")
+	}
+	if !snap.CursorHidden {
+		t.Fatal("expected CursorHidden = true after \\x1b[?25l outside alt screen")
+	}
+}
+
 func TestVTermSnapshotRespectsViewOffsetChange(t *testing.T) {
 	term := vterm.New(2, 1)
 	live := vterm.MakeBlankLine(2)

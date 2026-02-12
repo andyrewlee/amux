@@ -190,13 +190,16 @@ func TestCSISemicolonParameterParsing(t *testing.T) {
 	}
 }
 
-func TestVersionBumpsOnCursorMoveAndHide(t *testing.T) {
+func TestVersionBumpsOnCursorMoveAndAltScreenCursorHide(t *testing.T) {
 	vt := New(10, 5)
 	v0 := vt.Version()
 	vt.Write([]byte("\x1b[C")) // CUF - cursor forward
 	if vt.Version() == v0 {
 		t.Fatalf("expected version to bump on cursor move")
 	}
+
+	// Enter alt screen before testing cursor hide
+	vt.Write([]byte("\x1b[?1049h"))
 
 	v1 := vt.Version()
 	vt.Write([]byte("\x1b[?25l")) // hide cursor

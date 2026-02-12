@@ -65,7 +65,7 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 		lastCursorHidden := term.LastCursorHidden()
 
 		cursorChanged := showCursor != lastShowCursor ||
-			term.CursorHidden != lastCursorHidden ||
+			term.CursorHiddenForRender() != lastCursorHidden ||
 			term.CursorX != lastCursorX ||
 			term.CursorY != lastCursorY
 
@@ -145,7 +145,7 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 	snap.CursorX = term.CursorX
 	snap.CursorY = term.CursorY
 	snap.ViewOffset = term.ViewOffset
-	snap.CursorHidden = term.CursorHidden
+	snap.CursorHidden = term.CursorHiddenForRender()
 	snap.ShowCursor = showCursor
 	snap.Width = width
 	snap.Height = height
