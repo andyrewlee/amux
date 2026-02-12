@@ -409,8 +409,13 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			}
 		}
 
+		legacyRepoScopeMatch := false
 		if projectPath != workspaceRepo {
-			if !isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
+			if !filepath.IsAbs(ws.Repo) && isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
+				legacyRepoScopeMatch = true
+			} else if isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
+				legacyRepoScopeMatch = true
+			} else {
 				return messages.WorkspaceDeleteFailed{
 					Project:   project,
 					Workspace: ws,
@@ -420,7 +425,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 		}
 
 		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, ws.Root) {
-			if !isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
+			if !legacyRepoScopeMatch && !isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
 				return messages.WorkspaceDeleteFailed{
 					Project:   project,
 					Workspace: ws,
@@ -429,17 +434,24 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			}
 		}
 
-		if err := removeWorkspaceFn(project.Path, ws.Root); err != nil {
-			return messages.WorkspaceDeleteFailed{
-				Project:   project,
-				Workspace: ws,
-				Err:       err,
+		if err := removeWorkspaceFn(projectPath, ws.Root); err != nil {
+			if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
+				return messages.WorkspaceDeleteFailed{
+					Project:   project,
+					Workspace: ws,
+					Err:       errors.Join(err, cleanupErr),
+				}
 			}
+			logging.Warn("git remove failed for %s but stale cleanup succeeded: %v", ws.Root, err)
 		}
 
-		_ = deleteBranchFn(project.Path, ws.Branch)
+		if err := deleteBranchFn(projectPath, ws.Branch); err != nil {
+			logging.Warn("failed to delete branch %s: %v", ws.Branch, err)
+		}
 		if s.store != nil {
-			_ = s.store.Delete(ws.ID())
+			if err := s.store.Delete(ws.ID()); err != nil {
+				logging.Warn("failed to delete workspace store entry %s: %v", ws.ID(), err)
+			}
 		}
 
 		return messages.WorkspaceDeleted{

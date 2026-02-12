@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -228,18 +230,24 @@ func TestDeleteWorkspaceAllowsLegacyProjectRoot(t *testing.T) {
 	}
 	deleteBranchFn = noopDelete
 
-	wsRoot := "/tmp/workspaces/repo/feature"
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	wsRoot := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(wsRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
 	discoverWorkspacesFn = func(project *data.Project) ([]data.Workspace, error) {
 		return []data.Workspace{
 			{Name: "feature", Root: wsRoot, Repo: project.Path},
 		}, nil
 	}
 
-	project := data.NewProject("/tmp/repo")
+	project := data.NewProject(filepath.Join(tmp, "repo"))
 	// Relative/stale ws.Repo that doesn't match project.Path after normalization.
 	ws := data.NewWorkspace("feature", "feature", "main", "repo", wsRoot)
 
-	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
 	msg := svc.DeleteWorkspace(project, ws)()
 
 	if _, ok := msg.(messages.WorkspaceDeleted); !ok {

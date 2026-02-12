@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -17,12 +18,17 @@ func projectNameSegment(project *data.Project) (string, bool) {
 		return "", false
 	}
 	name := strings.TrimSpace(project.Name)
+	if strings.ContainsAny(name, "/\\") {
+		return "", false
+	}
 	if name == "" {
 		name = filepath.Base(strings.TrimSpace(project.Path))
 	}
+	name = filepath.Clean(name)
 	if name == "" || name == "." || name == ".." {
 		return "", false
 	}
+	// Re-check separators after fallback/clean to reject values like "/".
 	if strings.ContainsAny(name, "/\\") {
 		return "", false
 	}
@@ -104,6 +110,9 @@ func isPathWithin(root, candidate string) bool {
 // 2. ws.Root is discoverable via git worktree list for this project
 func isLegacyManagedWorkspaceDeletePath(workspacesRoot string, project *data.Project, ws *data.Workspace) bool {
 	if project == nil || ws == nil {
+		return false
+	}
+	if _, err := os.Stat(ws.Root); err != nil {
 		return false
 	}
 	if !isManagedWorkspacePath(workspacesRoot, ws.Root) {

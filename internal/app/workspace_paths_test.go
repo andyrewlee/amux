@@ -19,7 +19,10 @@ func TestProjectNameSegment(t *testing.T) {
 		{name: "dot", project: &data.Project{Name: ".", Path: ""}, want: "", wantOK: false},
 		{name: "dotdot", project: &data.Project{Name: "..", Path: ""}, want: "", wantOK: false},
 		{name: "slash", project: &data.Project{Name: "bad/name", Path: ""}, want: "", wantOK: false},
+		{name: "slash bypass cleaned dot", project: &data.Project{Name: "repo/.", Path: ""}, want: "", wantOK: false},
+		{name: "slash bypass cleaned parent", project: &data.Project{Name: "foo/../bar", Path: ""}, want: "", wantOK: false},
 		{name: "backslash", project: &data.Project{Name: "bad\\name", Path: ""}, want: "", wantOK: false},
+		{name: "empty name root path", project: &data.Project{Name: "", Path: "/"}, want: "", wantOK: false},
 		{name: "empty name empty path", project: &data.Project{Name: "", Path: ""}, want: "", wantOK: false},
 	}
 	for _, tt := range tests {
