@@ -285,14 +285,15 @@ func TestHandleProjectsLoadedCanonicalRebindMigratesDirtyWorkspaceID(t *testing.
 	}
 
 	app := &App{
-		dashboard:       dashboard.New(),
-		center:          center.New(nil),
-		sidebar:         sidebar.NewTabbedSidebar(),
-		sidebarTerminal: sidebar.NewTerminalModel(),
-		projects:        []data.Project{*oldProject},
-		activeWorkspace: activeOld,
-		activeProject:   oldProject,
-		showWelcome:     false,
+		dashboard:        dashboard.New(),
+		center:           center.New(nil),
+		sidebar:          sidebar.NewTabbedSidebar(),
+		sidebarTerminal:  sidebar.NewTerminalModel(),
+		workspaceService: newWorkspaceService(nil, nil, nil, ""),
+		projects:         []data.Project{*oldProject},
+		activeWorkspace:  activeOld,
+		activeProject:    oldProject,
+		showWelcome:      false,
 		dirtyWorkspaces: map[string]bool{
 			oldID: true,
 		},

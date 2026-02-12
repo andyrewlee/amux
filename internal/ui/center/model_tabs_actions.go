@@ -232,6 +232,13 @@ func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 	return result, m.activeTabByWorkspace[wsID]
 }
 
+// HasWorkspaceState reports whether the model has tab state for a workspace.
+// True means tabs were explicitly managed (even if currently empty).
+func (m *Model) HasWorkspaceState(wsID string) bool {
+	_, ok := m.tabsByWorkspace[wsID]
+	return ok
+}
+
 // HasDiffViewer returns true if the active tab has a diff viewer.
 func (m *Model) HasDiffViewer() bool {
 	tabs := m.getTabs()
