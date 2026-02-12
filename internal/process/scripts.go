@@ -3,15 +3,19 @@ package process
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/safego"
 )
+
+var killProcessGroupFn = KillProcessGroup
 
 // ScriptType identifies the type of script
 type ScriptType string
@@ -23,6 +27,44 @@ const (
 )
 
 const configFilename = "workspaces.json"
+
+func scriptWorkspaceKey(ws *data.Workspace) string {
+	return data.NormalizePath(ws.Root)
+}
+
+func validateScriptWorkspace(ws *data.Workspace) error {
+	if ws == nil {
+		return errors.New("workspace is required")
+	}
+	if strings.TrimSpace(ws.Repo) == "" {
+		return errors.New("workspace repo is required")
+	}
+	if strings.TrimSpace(ws.Root) == "" {
+		return errors.New("workspace root is required")
+	}
+	return nil
+}
+
+func isBenignStopError(err error) bool {
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, os.ErrProcessDone) {
+		return true
+	}
+	if isTypedProcessGoneError(err) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "process already finished") ||
+		strings.Contains(msg, "no such process")
+}
+
+func (r *ScriptRunner) clearRunningEntry(key string) {
+	r.mu.Lock()
+	delete(r.running, key)
+	r.mu.Unlock()
+}
 
 // WorkspaceConfig holds per-project workspace configuration
 type WorkspaceConfig struct {
@@ -74,6 +116,9 @@ func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
 
 // RunSetup runs the setup scripts for a workspace
 func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
+	if err := validateScriptWorkspace(ws); err != nil {
+		return err
+	}
 	config, err := r.LoadConfig(ws.Repo)
 	if err != nil {
 		return err
@@ -101,6 +146,10 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 
 // RunScript runs a script for a workspace
 func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*exec.Cmd, error) {
+	if err := validateScriptWorkspace(ws); err != nil {
+		return nil, err
+	}
+
 	config, err := r.LoadConfig(ws.Repo)
 	if err != nil {
 		return nil, err
@@ -126,7 +175,9 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 
 	// Check for existing process in non-concurrent mode
 	if ws.ScriptMode == "nonconcurrent" {
-		_ = r.Stop(ws)
+		if err := r.Stop(ws); !isBenignStopError(err) {
+			return nil, err
+		}
 	}
 
 	env := r.envBuilder.BuildEnv(ws)
@@ -141,17 +192,17 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	}
 
 	running := &runningScript{cmd: cmd}
-	root := ws.Root
+	key := scriptWorkspaceKey(ws)
 	r.mu.Lock()
-	r.running[root] = running
+	r.running[key] = running
 	r.mu.Unlock()
 
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
 		_ = cmd.Wait()
 		r.mu.Lock()
-		if current, ok := r.running[root]; ok && current == running {
-			delete(r.running, root)
+		if current, ok := r.running[key]; ok && current == running {
+			delete(r.running, key)
 		}
 		r.mu.Unlock()
 	})
@@ -161,8 +212,13 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 
 // Stop stops the running script for a workspace
 func (r *ScriptRunner) Stop(ws *data.Workspace) error {
+	if err := validateScriptWorkspace(ws); err != nil {
+		return err
+	}
+
+	key := scriptWorkspaceKey(ws)
 	r.mu.Lock()
-	running, ok := r.running[ws.Root]
+	running, ok := r.running[key]
 	r.mu.Unlock()
 
 	if !ok {
@@ -170,7 +226,12 @@ func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	}
 
 	if running.cmd != nil && running.cmd.Process != nil {
-		return KillProcessGroup(running.cmd.Process.Pid, KillOptions{})
+		err := killProcessGroupFn(running.cmd.Process.Pid, KillOptions{})
+		if isBenignStopError(err) {
+			r.clearRunningEntry(key)
+			return nil
+		}
+		return err
 	}
 
 	return nil
@@ -178,9 +239,13 @@ func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 
 // IsRunning checks if a script is running for a workspace
 func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
+	if validateScriptWorkspace(ws) != nil {
+		return false
+	}
+	key := scriptWorkspaceKey(ws)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.running[ws.Root]
+	_, ok := r.running[key]
 	return ok
 }
 

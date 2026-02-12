@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,6 +220,132 @@ func TestScriptRunnerStop(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
+}
+
+func TestScriptRunnerWorkspaceValidation(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+
+	// nil workspace
+	if err := runner.RunSetup(nil); err == nil {
+		t.Fatal("expected error for nil workspace")
+	}
+	if _, err := runner.RunScript(nil, ScriptRun); err == nil {
+		t.Fatal("expected error for nil workspace")
+	}
+	if err := runner.Stop(nil); err == nil {
+		t.Fatal("expected error for nil workspace")
+	}
+	if runner.IsRunning(nil) {
+		t.Fatal("expected false for nil workspace")
+	}
+
+	// empty repo
+	ws := &data.Workspace{Repo: "", Root: "/some/root"}
+	if err := runner.RunSetup(ws); err == nil {
+		t.Fatal("expected error for empty repo")
+	}
+
+	// empty root
+	ws = &data.Workspace{Repo: "/some/repo", Root: ""}
+	if err := runner.RunSetup(ws); err == nil {
+		t.Fatal("expected error for empty root")
+	}
+}
+
+func TestScriptRunnerUsesNormalizedWorkspaceKey(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+
+	writeWorkspaceConfig(t, repo, `{"run": "sleep 5"}`)
+
+	runner := NewScriptRunner(6200, 10)
+	ws1 := &data.Workspace{Repo: repo, Root: wsRoot}
+
+	if _, err := runner.RunScript(ws1, ScriptRun); err != nil {
+		t.Fatalf("RunScript() error = %v", err)
+	}
+
+	// Check via a workspace with an equivalent but non-identical path
+	// (trailing slash variation, which filepath.Clean normalizes)
+	ws2 := &data.Workspace{Repo: repo, Root: wsRoot + "/"}
+	if !runner.IsRunning(ws2) {
+		t.Fatal("expected script to be running via normalized key")
+	}
+
+	// Clean up
+	_ = runner.Stop(ws1)
+}
+
+func TestScriptRunnerRunScriptNonconcurrentStopFailure(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+
+	writeWorkspaceConfig(t, repo, `{"run": "sleep 5"}`)
+
+	runner := NewScriptRunner(6200, 10)
+	ws := &data.Workspace{Repo: repo, Root: wsRoot, ScriptMode: "nonconcurrent"}
+
+	// Start a script first
+	if _, err := runner.RunScript(ws, ScriptRun); err != nil {
+		t.Fatalf("RunScript() error = %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Inject a non-benign stop error
+	origKill := killProcessGroupFn
+	t.Cleanup(func() { killProcessGroupFn = origKill })
+	killProcessGroupFn = func(pid int, opts KillOptions) error {
+		return errors.New("permission denied")
+	}
+
+	// Second run in nonconcurrent mode should fail because stop fails
+	_, err := runner.RunScript(ws, ScriptRun)
+	if err == nil {
+		t.Fatal("expected error from non-benign stop failure")
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("expected permission denied error, got: %v", err)
+	}
+
+	// Clean up with original kill
+	killProcessGroupFn = origKill
+	_ = runner.Stop(ws)
+}
+
+func TestScriptRunnerRunScriptNonconcurrentIgnoresBenignStopRace(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+
+	writeWorkspaceConfig(t, repo, `{"run": "sleep 5"}`)
+
+	runner := NewScriptRunner(6200, 10)
+	ws := &data.Workspace{Repo: repo, Root: wsRoot, ScriptMode: "nonconcurrent"}
+
+	// Start a script first
+	if _, err := runner.RunScript(ws, ScriptRun); err != nil {
+		t.Fatalf("RunScript() error = %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Inject a benign "process already finished" error
+	origKill := killProcessGroupFn
+	t.Cleanup(func() { killProcessGroupFn = origKill })
+	killProcessGroupFn = func(pid int, opts KillOptions) error {
+		return errors.New("process already finished")
+	}
+
+	// Second run should succeed because benign stop errors are ignored
+	cmd, err := runner.RunScript(ws, ScriptRun)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd")
+	}
+
+	// Clean up
+	killProcessGroupFn = origKill
+	_ = runner.Stop(ws)
 }
 
 func waitForFile(path string, timeout time.Duration) error {
