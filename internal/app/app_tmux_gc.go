@@ -1,11 +1,17 @@
 package app
 
 import (
+	"strconv"
+	"strings"
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
+
+const orphanSessionGracePeriod = 30 * time.Second
 
 // orphanGCResult is returned after attempting to clean up orphaned tmux sessions.
 type orphanGCResult struct {
@@ -52,14 +58,31 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 		if err != nil {
 			return orphanGCResult{Err: err}
 		}
+		now := time.Now()
 		killed := 0
 		for wsID, sessions := range byWorkspace {
 			if knownIDs[wsID] {
 				continue
 			}
-			for _, name := range sessions {
-				if err := svc.KillSession(name, opts); err != nil {
-					logging.Warn("orphan GC: failed to kill session %s: %v", name, err)
+			for _, ws := range sessions {
+				createdAt := ws.CreatedAt
+				if createdAt == 0 {
+					if ts, err := svc.SessionCreatedAt(ws.Name, opts); err == nil {
+						createdAt = ts
+					}
+				}
+				if isRecentOrphanSession(createdAt, now) {
+					continue
+				}
+				hasClients, err := svc.SessionHasClients(ws.Name, opts)
+				if err != nil {
+					logging.Warn("orphan GC: failed to check clients for %s: %v", ws.Name, err)
+				}
+				if hasClients {
+					continue
+				}
+				if err := svc.KillSession(ws.Name, opts); err != nil {
+					logging.Warn("orphan GC: failed to kill session %s: %v", ws.Name, err)
 				} else {
 					killed++
 				}
@@ -74,7 +97,12 @@ func (a *App) gcStaleTerminalSessions() tea.Cmd {
 	return nil
 }
 
-func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]string, error) {
+type workspaceSession struct {
+	Name      string
+	CreatedAt int64
+}
+
+func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]workspaceSession, error) {
 	if a.tmuxService == nil {
 		return nil, errTmuxUnavailable
 	}
@@ -82,19 +110,34 @@ func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]string, e
 	if a.instanceID != "" {
 		match["@amux_instance"] = a.instanceID
 	}
-	rows, err := a.tmuxService.SessionsWithTags(match, []string{"@amux_workspace"}, opts)
+	rows, err := a.tmuxService.SessionsWithTags(match, []string{"@amux_workspace", "@amux_created_at"}, opts)
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string][]string)
+	out := make(map[string][]workspaceSession)
 	for _, row := range rows {
-		wsID := row.Tags["@amux_workspace"]
+		wsID := strings.TrimSpace(row.Tags["@amux_workspace"])
 		if wsID == "" {
 			continue
 		}
-		out[wsID] = append(out[wsID], row.Name)
+		var createdAt int64
+		if raw := strings.TrimSpace(row.Tags["@amux_created_at"]); raw != "" {
+			createdAt, _ = strconv.ParseInt(raw, 10, 64)
+		}
+		out[wsID] = append(out[wsID], workspaceSession{Name: row.Name, CreatedAt: createdAt})
 	}
 	return out, nil
+}
+
+func isRecentOrphanSession(createdAt int64, now time.Time) bool {
+	if createdAt <= 0 {
+		return false
+	}
+	created := time.Unix(createdAt, 0)
+	if created.After(now) {
+		return true // clock skew protection
+	}
+	return now.Sub(created) < orphanSessionGracePeriod
 }
 
 // handleOrphanGCResult logs the outcome of an orphan GC pass.

@@ -226,11 +226,15 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 	gcSetTag(t, opts, "known-sess", "@amux", "1")
 	gcSetTag(t, opts, "known-sess", "@amux_workspace", knownID)
 
+	staleCreatedAt := fmt.Sprintf("%d", time.Now().Add(-2*time.Minute).Unix())
+
 	gcSetTag(t, opts, "orphan1", "@amux", "1")
 	gcSetTag(t, opts, "orphan1", "@amux_workspace", "dead-ws-1")
+	gcSetTag(t, opts, "orphan1", "@amux_created_at", staleCreatedAt)
 
 	gcSetTag(t, opts, "orphan2", "@amux", "1")
 	gcSetTag(t, opts, "orphan2", "@amux_workspace", "dead-ws-2")
+	gcSetTag(t, opts, "orphan2", "@amux_created_at", staleCreatedAt)
 
 	app := &App{
 		tmuxAvailable:  true,
@@ -271,6 +275,51 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 	}
 	if gcHasSession(t, opts, "orphan2") {
 		t.Fatal("orphan2 should have been killed")
+	}
+}
+
+func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := gcTestServer(t)
+
+	staleCreatedAt := fmt.Sprintf("%d", time.Now().Add(-2*time.Minute).Unix())
+
+	// Create an orphan tagged for a different instance.
+	gcCreateSession(t, opts, "other-orphan", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	gcSetTag(t, opts, "other-orphan", "@amux", "1")
+	gcSetTag(t, opts, "other-orphan", "@amux_workspace", "dead-ws-other")
+	gcSetTag(t, opts, "other-orphan", "@amux_instance", "other-instance")
+	gcSetTag(t, opts, "other-orphan", "@amux_created_at", staleCreatedAt)
+
+	app := &App{
+		tmuxAvailable:  true,
+		projectsLoaded: true,
+		tmuxOptions:    opts,
+		instanceID:     "my-instance",
+	}
+
+	cmd := app.gcOrphanedTmuxSessions()
+	if cmd == nil {
+		t.Fatal("expected non-nil Cmd")
+	}
+
+	msg := cmd()
+	result, ok := msg.(orphanGCResult)
+	if !ok {
+		t.Fatalf("expected orphanGCResult, got %T", msg)
+	}
+	if result.Err != nil {
+		t.Fatalf("GC error: %v", result.Err)
+	}
+	if result.Killed != 0 {
+		t.Fatalf("expected 0 killed (other instance), got %d", result.Killed)
+	}
+
+	// Session from other instance must survive.
+	if !gcHasSession(t, opts, "other-orphan") {
+		t.Fatal("other-instance session should not have been killed")
 	}
 }
 
