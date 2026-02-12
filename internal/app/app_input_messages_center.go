@@ -5,6 +5,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // handleOpenDiff handles the OpenDiff message.
@@ -28,5 +29,5 @@ func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 	logging.Info("Tab created: %s", msg.Name)
 	cmd := a.center.StartPTYReaders()
 	a.focusPane(messages.PaneCenter)
-	return cmd
+	return common.SafeBatch(cmd, a.enforceAttachedTabLimit())
 }

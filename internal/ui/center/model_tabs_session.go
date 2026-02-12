@@ -63,8 +63,25 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	if agent != nil {
 		_ = m.agentManager.CloseAgent(agent)
 	}
+	workspaceID := ""
+	if tab.Workspace != nil {
+		workspaceID = string(tab.Workspace.ID())
+	}
+	if workspaceID == "" {
+		for wsID, tabs := range m.tabsByWorkspace {
+			for _, candidate := range tabs {
+				if candidate == tab {
+					workspaceID = wsID
+					break
+				}
+			}
+			if workspaceID != "" {
+				break
+			}
+		}
+	}
 	return func() tea.Msg {
-		return messages.TabDetached{Index: index}
+		return messages.TabDetached{WorkspaceID: workspaceID, Index: index}
 	}
 }
 

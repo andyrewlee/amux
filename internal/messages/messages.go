@@ -102,7 +102,8 @@ type TabClosed struct {
 
 // TabDetached is sent when a tab is detached (tmux session remains).
 type TabDetached struct {
-	Index int
+	WorkspaceID string
+	Index       int
 }
 
 // TabReattached is sent when a detached tab is reattached.

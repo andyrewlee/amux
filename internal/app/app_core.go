@@ -48,6 +48,9 @@ type App struct {
 	tmuxService      *tmuxService
 	updateService    UpdateService
 
+	// Limits
+	maxAttachedAgentTabs int
+
 	// State
 	projects        []data.Project
 	activeWorkspace *data.Workspace

@@ -3,6 +3,7 @@ package center
 import (
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -383,4 +384,85 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 	if m.agentManager != nil {
 		m.agentManager.CloseWorkspaceAgents(ws)
 	}
+}
+
+// EnforceAttachedAgentTabLimit is called after tab mutations to enforce the limit.
+// It detaches the oldest attached chat-agent tabs until the limit is met.
+func (m *Model) EnforceAttachedAgentTabLimit(limit int) tea.Cmd {
+	if m == nil || limit <= 0 {
+		return nil
+	}
+
+	type candidate struct {
+		workspaceID string
+		index       int
+		createdAt   int64
+		tab         *Tab
+	}
+
+	attached := make([]candidate, 0)
+
+	wsIDs := make([]string, 0, len(m.tabsByWorkspace))
+	for wsID := range m.tabsByWorkspace {
+		wsIDs = append(wsIDs, wsID)
+	}
+	sort.Strings(wsIDs)
+
+	for _, wsID := range wsIDs {
+		tabs := m.tabsByWorkspace[wsID]
+		for idx, tab := range tabs {
+			if tab == nil || tab.isClosed() {
+				continue
+			}
+			if !m.isChatTab(tab) {
+				continue
+			}
+
+			tab.mu.Lock()
+			running := tab.Running
+			detached := tab.Detached
+			diffViewer := tab.DiffViewer != nil
+			createdAt := tab.createdAt
+			tab.mu.Unlock()
+
+			if diffViewer || !running || detached {
+				continue
+			}
+
+			attached = append(attached, candidate{
+				workspaceID: wsID,
+				index:       idx,
+				createdAt:   createdAt,
+				tab:         tab,
+			})
+		}
+	}
+
+	if len(attached) <= limit {
+		return nil
+	}
+
+	sort.Slice(attached, func(i, j int) bool {
+		if attached[i].createdAt != attached[j].createdAt {
+			return attached[i].createdAt < attached[j].createdAt
+		}
+		if attached[i].workspaceID != attached[j].workspaceID {
+			return attached[i].workspaceID < attached[j].workspaceID
+		}
+		return attached[i].index < attached[j].index
+	})
+
+	overLimit := len(attached) - limit
+	cmds := make([]tea.Cmd, 0, overLimit)
+	for i := 0; i < overLimit; i++ {
+		cmd := m.detachTab(attached[i].tab, attached[i].index)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }

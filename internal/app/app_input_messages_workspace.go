@@ -263,6 +263,7 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
 		cmds = append(cmds, startCmd)
 	}
+	cmds = append(cmds, a.enforceAttachedTabLimit())
 	return cmds
 }
 
