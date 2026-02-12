@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,6 +22,11 @@ const (
 	sendJobsStateVersion = 1
 	sendJobsRetention    = 7 * 24 * time.Hour
 	sendJobsStaleAfter   = 15 * time.Minute
+)
+
+var (
+	sendJobQueuePollInterval = 20 * time.Millisecond
+	sendJobQueueMaxWait      = 2 * sendJobsStaleAfter
 )
 
 type sendJobStatus string
@@ -349,6 +355,7 @@ func canTransitionSendJobStatus(from, to sendJobStatus) bool {
 
 func waitForSessionQueueTurnForJob(store *sendJobStore, sessionName, jobID string) (*os.File, error) {
 	jobID = strings.TrimSpace(jobID)
+	start := time.Now()
 	for {
 		lockFile, err := lockIdempotencyFile(store.queueLockPath(sessionName), false)
 		if err != nil {
@@ -377,7 +384,12 @@ func waitForSessionQueueTurnForJob(store *sendJobStore, sessionName, jobID strin
 		}
 
 		unlockIdempotencyFile(lockFile)
-		time.Sleep(20 * time.Millisecond)
+		// Polling keeps the cross-process queue lock simple and portable.
+		// A bounded max wait prevents orphaned processors from spinning forever.
+		if sendJobQueueMaxWait > 0 && time.Since(start) >= sendJobQueueMaxWait {
+			return nil, fmt.Errorf("timed out waiting for send queue turn for job %s", jobID)
+		}
+		time.Sleep(sendJobQueuePollInterval)
 	}
 }
 

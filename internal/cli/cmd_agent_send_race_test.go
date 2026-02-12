@@ -52,6 +52,77 @@ func TestCmdAgentSendSessionLookupErrorReturnsInternalError(t *testing.T) {
 	}
 }
 
+func TestCmdAgentSendSessionNotFoundMarksNewJobFailed(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	store, err := newSendJobStore()
+	if err != nil {
+		t.Fatalf("newSendJobStore() error = %v", err)
+	}
+
+	origStateFor := tmuxSessionStateFor
+	defer func() {
+		tmuxSessionStateFor = origStateFor
+	}()
+	tmuxSessionStateFor = func(_ string, _ tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{Exists: false}, nil
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := cmdAgentSend(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"session-a", "--text", "hello"},
+		"test-v1",
+	)
+	if code != ExitNotFound {
+		t.Fatalf("cmdAgentSend() code = %d, want %d", code, ExitNotFound)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "not_found" {
+		t.Fatalf("expected not_found, got %#v", env.Error)
+	}
+
+	lockFile, err := lockIdempotencyFile(store.lockPath(), false)
+	if err != nil {
+		t.Fatalf("lockIdempotencyFile() error = %v", err)
+	}
+	state, err := store.loadState()
+	unlockIdempotencyFile(lockFile)
+	if err != nil {
+		t.Fatalf("store.loadState() error = %v", err)
+	}
+	if len(state.Jobs) != 1 {
+		t.Fatalf("jobs count = %d, want 1", len(state.Jobs))
+	}
+	var created sendJob
+	for _, job := range state.Jobs {
+		created = job
+		break
+	}
+	if created.Status != sendJobFailed {
+		t.Fatalf("status = %q, want %q", created.Status, sendJobFailed)
+	}
+	if !strings.Contains(created.Error, "session not found") {
+		t.Fatalf("error = %q, want session not found message", created.Error)
+	}
+	if isQueuedSendJobStatus(created.Status) {
+		t.Fatalf("expected terminal failed status, got queued status %q", created.Status)
+	}
+}
+
 func TestCmdAgentSendProcessJobLookupFailureMarksJobFailed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -176,6 +247,75 @@ func TestCmdAgentSendProcessJobCompletedDoesNotSendAgain(t *testing.T) {
 	}
 	if got, _ := data["sent"].(bool); !got {
 		t.Fatalf("sent = %v, want true", got)
+	}
+}
+
+func TestCmdAgentSendProcessJobValidatesStoredSessionName(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	store, err := newSendJobStore()
+	if err != nil {
+		t.Fatalf("newSendJobStore() error = %v", err)
+	}
+	job, err := store.create("session-missing", "")
+	if err != nil {
+		t.Fatalf("store.create() error = %v", err)
+	}
+
+	origStateFor := tmuxSessionStateFor
+	origSend := tmuxSendKeys
+	defer func() {
+		tmuxSessionStateFor = origStateFor
+		tmuxSendKeys = origSend
+	}()
+	tmuxSessionStateFor = func(name string, _ tmux.Options) (tmux.SessionState, error) {
+		if name == "session-positional" {
+			return tmux.SessionState{Exists: true}, nil
+		}
+		return tmux.SessionState{Exists: false}, nil
+	}
+	sendCalls := 0
+	tmuxSendKeys = func(_, _ string, _ bool, _ tmux.Options) error {
+		sendCalls++
+		return nil
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := cmdAgentSend(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{
+			"session-positional",
+			"--text", "hello",
+			"--process-job",
+			"--job-id", job.ID,
+		},
+		"test-v1",
+	)
+	if code != ExitNotFound {
+		t.Fatalf("cmdAgentSend() code = %d, want %d", code, ExitNotFound)
+	}
+	if sendCalls != 0 {
+		t.Fatalf("tmuxSendKeys calls = %d, want 0", sendCalls)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "not_found" {
+		t.Fatalf("expected not_found, got %#v", env.Error)
+	}
+	if env.Error == nil || !strings.Contains(env.Error.Message, "session session-missing not found") {
+		t.Fatalf("unexpected error message: %#v", env.Error)
 	}
 }
 

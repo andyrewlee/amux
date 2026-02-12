@@ -291,6 +291,47 @@ func TestSendJobStoreNextQueuedJobUsesSequenceWhenCreatedAtMatches(t *testing.T)
 	}
 }
 
+func TestWaitForSessionQueueTurnForJobTimesOutWhenHeadNeverAdvances(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	origPoll := sendJobQueuePollInterval
+	origMaxWait := sendJobQueueMaxWait
+	sendJobQueuePollInterval = 5 * time.Millisecond
+	sendJobQueueMaxWait = 40 * time.Millisecond
+	defer func() {
+		sendJobQueuePollInterval = origPoll
+		sendJobQueueMaxWait = origMaxWait
+	}()
+
+	store, err := newSendJobStore()
+	if err != nil {
+		t.Fatalf("newSendJobStore() error = %v", err)
+	}
+	head, err := store.create("session-a", "")
+	if err != nil {
+		t.Fatalf("store.create(head) error = %v", err)
+	}
+	if _, err := store.setStatus(head.ID, sendJobRunning, ""); err != nil {
+		t.Fatalf("store.setStatus(head) error = %v", err)
+	}
+	follower, err := store.create("session-a", "")
+	if err != nil {
+		t.Fatalf("store.create(follower) error = %v", err)
+	}
+
+	lock, waitErr := waitForSessionQueueTurnForJob(store, "session-a", follower.ID)
+	if lock != nil {
+		releaseSessionQueueTurn(lock)
+		t.Fatalf("expected no lock on timeout")
+	}
+	if waitErr == nil {
+		t.Fatalf("expected timeout waiting for queue turn")
+	}
+	if !strings.Contains(waitErr.Error(), "timed out waiting for send queue turn") {
+		t.Fatalf("unexpected wait error: %v", waitErr)
+	}
+}
+
 func makeJobStale(store *sendJobStore, jobID string, status sendJobStatus) error {
 	lockFile, err := lockIdempotencyFile(store.lockPath(), false)
 	if err != nil {

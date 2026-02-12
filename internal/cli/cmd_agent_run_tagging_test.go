@@ -130,13 +130,13 @@ func TestCmdAgentRunMetadataSaveFailureReturnsInternalErrorAndCleansSession(t *t
 	origTagSetter := tmuxSetSessionTag
 	origKillSession := tmuxKillSession
 	origStateFor := tmuxSessionStateFor
-	origSaveMeta := saveWorkspaceMeta
+	origAppendTabMeta := appendWorkspaceOpenTabMeta
 	defer func() {
 		tmuxStartSession = origStartSession
 		tmuxSetSessionTag = origTagSetter
 		tmuxKillSession = origKillSession
 		tmuxSessionStateFor = origStateFor
-		saveWorkspaceMeta = origSaveMeta
+		appendWorkspaceOpenTabMeta = origAppendTabMeta
 	}()
 
 	tmuxStartSession = func(_ tmux.Options, _ ...string) (*exec.Cmd, context.CancelFunc) {
@@ -146,7 +146,7 @@ func TestCmdAgentRunMetadataSaveFailureReturnsInternalErrorAndCleansSession(t *t
 	tmuxSessionStateFor = func(_ string, _ tmux.Options) (tmux.SessionState, error) {
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
-	saveWorkspaceMeta = func(_ *data.WorkspaceStore, _ *data.Workspace) error {
+	appendWorkspaceOpenTabMeta = func(_ *data.WorkspaceStore, _ data.WorkspaceID, _ data.TabInfo) error {
 		return errors.New("metadata write failed")
 	}
 

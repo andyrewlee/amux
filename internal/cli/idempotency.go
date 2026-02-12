@@ -233,31 +233,31 @@ func writeJSONEnvelopeWithIdempotency(
 	exitCode int,
 	env Envelope,
 ) int {
+	_ = wErr
 	encoded, err := encodeEnvelope(env)
 	if err != nil {
 		ReturnError(w, "encode_failed", "failed to encode response", nil, version)
 		return ExitInternalError
 	}
 	encoded = append(encoded, '\n')
-	_, _ = w.Write(encoded)
 
 	key = strings.TrimSpace(key)
-	if key == "" {
-		return exitCode
-	}
-	if !gf.JSON {
-		return exitCode
-	}
-	store, err := newIdempotencyStore()
-	if err != nil {
+	if key != "" {
 		if !gf.JSON {
-			Errorf(wErr, "warning: failed to initialize idempotency store: %v", err)
+			_, _ = w.Write(encoded)
+			return exitCode
 		}
-		return exitCode
+		store, storeErr := newIdempotencyStore()
+		if storeErr != nil {
+			ReturnError(w, "idempotency_failed", storeErr.Error(), nil, version)
+			return ExitInternalError
+		}
+		if storeErr := store.store(command, key, exitCode, encoded); storeErr != nil {
+			ReturnError(w, "idempotency_failed", storeErr.Error(), nil, version)
+			return ExitInternalError
+		}
 	}
-	if err := store.store(command, key, exitCode, encoded); err != nil && !gf.JSON {
-		Errorf(wErr, "warning: failed to persist idempotency key: %v", err)
-	}
+	_, _ = w.Write(encoded)
 	return exitCode
 }
 

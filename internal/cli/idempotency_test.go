@@ -2,6 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -186,5 +189,45 @@ func TestWriteJSONEnvelopeWithIdempotencyNoKeyPreservesExitCode(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("expected no stderr output, got %q", errOut.String())
+	}
+}
+
+func TestWriteJSONEnvelopeWithIdempotencyReportsStoreFailureInJSONMode(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Force idempotency store writes to fail by blocking ~/.amux with a file.
+	if err := os.WriteFile(filepath.Join(home, ".amux"), []byte("not-a-dir"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := writeJSONEnvelopeWithIdempotency(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		"test-v1",
+		"agent.run",
+		"idem-store-fail",
+		ExitOK,
+		successEnvelope(map[string]any{"session_name": "s1"}, "test-v1"),
+	)
+	if code != ExitInternalError {
+		t.Fatalf("code = %d, want %d", code, ExitInternalError)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, out.String())
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "idempotency_failed" {
+		t.Fatalf("expected idempotency_failed, got %#v", env.Error)
 	}
 }

@@ -12,15 +12,15 @@ import (
 )
 
 var (
-	tmuxSessionStateFor = tmux.SessionStateFor
-	tmuxKillSession     = tmux.KillSession
-	tmuxSendKeys        = tmux.SendKeys
-	tmuxSendInterrupt   = tmux.SendInterrupt
-	tmuxSetSessionTag   = tmux.SetSessionTagValue
-	tmuxStartSession    = tmuxNewSession
-	startSendJobProcess = launchSendJobProcessor
-	saveWorkspaceMeta   = func(store *data.WorkspaceStore, ws *data.Workspace) error {
-		return store.Save(ws)
+	tmuxSessionStateFor        = tmux.SessionStateFor
+	tmuxKillSession            = tmux.KillSession
+	tmuxSendKeys               = tmux.SendKeys
+	tmuxSendInterrupt          = tmux.SendInterrupt
+	tmuxSetSessionTag          = tmux.SetSessionTagValue
+	tmuxStartSession           = tmuxNewSession
+	startSendJobProcess        = launchSendJobProcessor
+	appendWorkspaceOpenTabMeta = func(store *data.WorkspaceStore, wsID data.WorkspaceID, tab data.TabInfo) error {
+		return store.AppendOpenTab(wsID, tab)
 	}
 )
 
@@ -164,19 +164,20 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 		return code
 	}
 
-	// Update workspace metadata
+	// Persist the tab append atomically to avoid lost updates when multiple
+	// agent runs complete concurrently for the same workspace.
 	tabName := agentAssistant
 	if *name != "" {
 		tabName = *name
 	}
-	ws.OpenTabs = append(ws.OpenTabs, data.TabInfo{
+	tab := data.TabInfo{
 		Assistant:   agentAssistant,
 		Name:        tabName,
 		SessionName: sessionName,
 		Status:      "running",
 		CreatedAt:   time.Now().Unix(),
-	})
-	if err := saveWorkspaceMeta(svc.Store, ws); err != nil {
+	}
+	if err := appendWorkspaceOpenTabMeta(svc.Store, wsID, tab); err != nil {
 		_ = tmuxKillSession(sessionName, svc.TmuxOpts)
 		if gf.JSON {
 			return returnJSONErrorMaybeIdempotent(
@@ -261,35 +262,6 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 		sessionName = resolved
 	}
 
-	// Validate session exists.
-	state, err := tmuxSessionStateFor(sessionName, svc.TmuxOpts)
-	if err != nil {
-		requestedJobID := strings.TrimSpace(*jobIDFlag)
-		markSendJobFailedIfPresent(requestedJobID, "session lookup failed: "+err.Error())
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.send", *idempotencyKey,
-				ExitInternalError, "session_lookup_failed", err.Error(), map[string]any{
-					"session_name": sessionName,
-				},
-			)
-		}
-		Errorf(wErr, "failed to check session %s: %v", sessionName, err)
-		return ExitInternalError
-	}
-	if !state.Exists {
-		requestedJobID := strings.TrimSpace(*jobIDFlag)
-		markSendJobFailedIfPresent(requestedJobID, "session not found")
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.send", *idempotencyKey,
-				ExitNotFound, "not_found", fmt.Sprintf("session %s not found", sessionName), nil,
-			)
-		}
-		Errorf(wErr, "session %s not found", sessionName)
-		return ExitNotFound
-	}
-
 	jobStore, err := newSendJobStore()
 	if err != nil {
 		if gf.JSON {
@@ -327,7 +299,19 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 			return ExitNotFound
 		}
 		job = existing
+		// For process-job retries, job metadata is the source of truth.
 		sessionName = job.SessionName
+		if sessionName == "" {
+			_, _ = jobStore.setStatus(job.ID, sendJobFailed, "stored send job is missing session name")
+			if gf.JSON {
+				return returnJSONErrorMaybeIdempotent(
+					w, wErr, gf, version, "agent.send", *idempotencyKey,
+					ExitInternalError, "job_status_failed", "stored send job is missing session name", map[string]any{"job_id": job.ID},
+				)
+			}
+			Errorf(wErr, "stored send job %s is missing session name", job.ID)
+			return ExitInternalError
+		}
 	} else {
 		job, err = jobStore.create(sessionName, *agentID)
 		if err != nil {
@@ -340,6 +324,12 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 			Errorf(wErr, "failed to create send job: %v", err)
 			return ExitInternalError
 		}
+	}
+
+	if code := validateAgentSendSession(
+		w, wErr, gf, version, *idempotencyKey, sessionName, job.ID, svc.TmuxOpts,
+	); code != ExitOK {
+		return code
 	}
 
 	if *async && !*processJob {

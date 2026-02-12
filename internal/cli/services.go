@@ -30,7 +30,9 @@ func NewServices(version string) (*Services, error) {
 		return nil, err
 	}
 
-	// Mirror the env-var setup from internal/app/app_init.go without importing app.
+	// CLI commands execute in their own process, so these env assignments are
+	// intentionally process-scoped defaults for tmux integration.
+	// They do not leak across independent CLI invocations.
 	setEnvIfNonEmpty("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
 	setEnvIfNonEmpty("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
 
