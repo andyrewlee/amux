@@ -2,10 +2,12 @@ package app
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -15,9 +17,12 @@ import (
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	a.projects = msg.Projects
 	a.projectsLoaded = true
-	a.dashboard.SetProjects(a.projects)
-	// Request git status for all workspaces
 	var cmds []tea.Cmd
+	if a.dashboard != nil {
+		a.dashboard.SetProjects(a.projects)
+	}
+	cmds = append(cmds, a.rebindActiveSelection()...)
+	// Request git status for all workspaces
 	cmds = append(cmds, a.scanTmuxActivityNow())
 	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
 		cmds = append(cmds, gcCmd)
@@ -32,6 +37,182 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 		}
 	}
 	return cmds
+}
+
+func (a *App) rebindActiveSelection() []tea.Cmd {
+	var cmds []tea.Cmd
+	if a.activeWorkspace != nil {
+		previous := a.activeWorkspace
+		wsID := string(a.activeWorkspace.ID())
+		ws, project := a.findWorkspaceAndProjectByID(wsID)
+		if ws == nil {
+			ws, project = a.findWorkspaceAndProjectByCanonicalPaths(previous.Repo, previous.Root)
+		}
+		if ws == nil {
+			a.goHome()
+			a.activeProject = nil
+			return cmds
+		}
+		oldID := string(previous.ID())
+		newID := string(ws.ID())
+		if oldID != newID {
+			a.migrateDirtyWorkspaceID(oldID, newID)
+			cmds = append(cmds, a.rebindActiveWorkspaceWatch(previous.Root, ws.Root)...)
+			if a.center != nil {
+				if cmd := a.center.RebindWorkspaceID(previous, ws); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+			if a.sidebarTerminal != nil {
+				if cmd := a.sidebarTerminal.RebindWorkspaceID(previous, ws); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
+		a.activeWorkspace = ws
+		a.activeProject = project
+		if a.center != nil {
+			a.center.SetWorkspace(ws)
+		}
+		if a.sidebar != nil {
+			a.sidebar.SetWorkspace(ws)
+		}
+		if a.sidebarTerminal != nil {
+			a.sidebarTerminal.SetWorkspacePreview(ws)
+		}
+		return cmds
+	}
+	if a.activeProject != nil {
+		a.activeProject = a.findProjectByPath(a.activeProject.Path)
+	}
+	return cmds
+}
+
+func (a *App) rebindActiveWorkspaceWatch(previousRoot, currentRoot string) []tea.Cmd {
+	var cmds []tea.Cmd
+	oldRoot := strings.TrimSpace(previousRoot)
+	newRoot := strings.TrimSpace(currentRoot)
+	if oldRoot == "" || newRoot == "" || oldRoot == newRoot {
+		return cmds
+	}
+
+	if a.fileWatcher != nil {
+		a.fileWatcher.Unwatch(oldRoot)
+		if err := a.fileWatcher.Watch(newRoot); err != nil {
+			logging.Warn("File watcher error: %v", err)
+			if errors.Is(err, git.ErrWatchLimit) && a.fileWatcherErr == nil {
+				a.fileWatcherErr = err
+				if a.toast != nil {
+					cmds = append(cmds, a.toast.ShowWarning("File watching disabled (watch limit reached); git status may be stale"))
+				}
+			}
+		}
+	}
+
+	if a.gitStatus != nil {
+		a.gitStatus.Invalidate(oldRoot)
+		a.gitStatus.Invalidate(newRoot)
+	}
+	if a.dashboard != nil {
+		a.dashboard.InvalidateStatus(oldRoot)
+		a.dashboard.InvalidateStatus(newRoot)
+	}
+
+	return cmds
+}
+
+func rootsReferToSameWorkspace(left, right string) bool {
+	leftTrimmed := strings.TrimSpace(left)
+	rightTrimmed := strings.TrimSpace(right)
+	if leftTrimmed == "" || rightTrimmed == "" {
+		return false
+	}
+	if leftTrimmed == rightTrimmed {
+		return true
+	}
+	return canonicalPathForMatch(leftTrimmed) == canonicalPathForMatch(rightTrimmed)
+}
+
+func (a *App) findWorkspaceAndProjectByID(id string) (*data.Workspace, *data.Project) {
+	if id == "" {
+		return nil, nil
+	}
+	for i := range a.projects {
+		project := &a.projects[i]
+		for j := range project.Workspaces {
+			ws := &project.Workspaces[j]
+			if string(ws.ID()) == id {
+				return ws, project
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (a *App) findWorkspaceAndProjectByCanonicalPaths(repoPath, rootPath string) (*data.Workspace, *data.Project) {
+	targetRepo := canonicalPathForMatch(repoPath)
+	targetRoot := canonicalPathForMatch(rootPath)
+	if targetRepo == "" && targetRoot == "" {
+		return nil, nil
+	}
+	for i := range a.projects {
+		project := &a.projects[i]
+		for j := range project.Workspaces {
+			ws := &project.Workspaces[j]
+			repoCanonical := canonicalPathForMatch(ws.Repo)
+			rootCanonical := canonicalPathForMatch(ws.Root)
+			if targetRoot != "" && rootCanonical != targetRoot {
+				continue
+			}
+			if targetRepo != "" && repoCanonical != targetRepo {
+				continue
+			}
+			if targetRoot == "" && targetRepo != "" && repoCanonical != targetRepo {
+				continue
+			}
+			return ws, project
+		}
+	}
+	return nil, nil
+}
+
+func (a *App) findProjectByPath(path string) *data.Project {
+	if path == "" {
+		return nil
+	}
+	targetCanonical := canonicalProjectPathForMatch(path)
+	for i := range a.projects {
+		project := &a.projects[i]
+		if project.Path == path {
+			return project
+		}
+		if targetCanonical == "" {
+			continue
+		}
+		if canonicalProjectPathForMatch(project.Path) == targetCanonical {
+			return project
+		}
+	}
+	return nil
+}
+
+func canonicalProjectPathForMatch(path string) string {
+	return canonicalPathForMatch(path)
+}
+
+func canonicalPathForMatch(path string) string {
+	value := strings.TrimSpace(path)
+	if value == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(value)
+	if abs, err := filepath.Abs(cleaned); err == nil {
+		cleaned = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		cleaned = resolved
+	}
+	return filepath.Clean(cleaned)
 }
 
 // handleWorkspaceActivated processes the WorkspaceActivated message.
@@ -106,7 +287,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 func (a *App) handleGitStatusResult(msg messages.GitStatusResult) tea.Cmd {
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
-	if a.activeWorkspace != nil && msg.Root == a.activeWorkspace.Root {
+	if a.activeWorkspace != nil && rootsReferToSameWorkspace(msg.Root, a.activeWorkspace.Root) {
 		a.sidebar.SetGitStatus(msg.Status)
 	}
 	return cmd

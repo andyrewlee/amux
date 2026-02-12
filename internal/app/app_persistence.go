@@ -56,6 +56,17 @@ func (a *App) persistWorkspaceTabs(wsID string) tea.Cmd {
 	})
 }
 
+func (a *App) migrateDirtyWorkspaceID(oldID, newID string) {
+	if oldID == "" || newID == "" || oldID == newID {
+		return
+	}
+	if a.dirtyWorkspaces == nil || !a.dirtyWorkspaces[oldID] {
+		return
+	}
+	a.dirtyWorkspaces[newID] = true
+	delete(a.dirtyWorkspaces, oldID)
+}
+
 // persistActiveWorkspaceTabs is a convenience that persists the active workspace's tabs.
 func (a *App) persistActiveWorkspaceTabs() tea.Cmd {
 	if a.activeWorkspace == nil {

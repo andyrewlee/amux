@@ -51,6 +51,11 @@ func (m *Model) Focused() bool {
 
 // SetWorkspace sets the active workspace.
 func (m *Model) SetWorkspace(ws *data.Workspace) {
+	if sameWorkspaceByCanonicalPaths(m.workspace, ws) {
+		// Rebind pointer for metadata freshness without resetting UI state.
+		m.workspace = ws
+		return
+	}
 	m.workspace = ws
 	m.cursor = 0
 	m.scrollOffset = 0
