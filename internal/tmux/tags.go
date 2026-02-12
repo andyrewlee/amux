@@ -133,7 +133,7 @@ func SetSessionTagValue(sessionName, key, value string, opts Options) error {
 	if err := EnsureAvailable(); err != nil {
 		return err
 	}
-	cmd, cancel := tmuxCommand(opts, "set-option", "-t", exactTarget(sessionName), key, value)
+	cmd, cancel := tmuxCommand(opts, "set-option", "-t", exactSessionOptionTarget(sessionName), key, value)
 	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

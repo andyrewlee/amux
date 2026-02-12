@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/process"
 )
 
@@ -142,7 +141,7 @@ func tmuxCommand(opts Options, args ...string) (*exec.Cmd, context.CancelFunc) {
 }
 
 func hasSession(sessionName string, opts Options) (bool, error) {
-	cmd, cancel := tmuxCommand(opts, "has-session", "-t", exactTarget(sessionName))
+	cmd, cancel := tmuxCommand(opts, "has-session", "-t", sessionTarget(sessionName))
 	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -156,7 +155,14 @@ func hasSession(sessionName string, opts Options) (bool, error) {
 }
 
 func hasLivePane(sessionName string, opts Options) (bool, error) {
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", exactTarget(sessionName), "-F", "#{pane_dead}")
+	exists, err := hasSession(sessionName, opts)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{pane_dead}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -182,10 +188,7 @@ func KillSession(sessionName string, opts Options) error {
 	if sessionName == "" {
 		return nil
 	}
-	origin := killAuditSource()
-	logging.Info("AUDIT tmux kill-session requested: session=%q server=%q source=%s", sessionName, opts.ServerName, origin)
 	if err := EnsureAvailable(); err != nil {
-		logging.Warn("AUDIT tmux kill-session unavailable: session=%q server=%q source=%s err=%v", sessionName, opts.ServerName, origin, err)
 		return err
 	}
 	// Kill process trees in each pane before killing the session.
@@ -195,29 +198,31 @@ func KillSession(sessionName string, opts Options) error {
 		for _, pid := range pids {
 			_ = process.KillProcessGroup(pid, process.KillOptions{})
 		}
-	} else {
-		logging.Warn("AUDIT tmux kill-session pane PID enumeration failed: session=%q server=%q source=%s err=%v", sessionName, opts.ServerName, origin, err)
 	}
-	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", exactTarget(sessionName))
+	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", sessionTarget(sessionName))
 	defer cancel()
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() == 1 {
-				logging.Info("AUDIT tmux kill-session no-op (already absent): session=%q server=%q source=%s", sessionName, opts.ServerName, origin)
 				return nil
 			}
 		}
-		logging.Warn("AUDIT tmux kill-session failed: session=%q server=%q source=%s err=%v", sessionName, opts.ServerName, origin, err)
 		return err
 	}
-	logging.Info("AUDIT tmux kill-session complete: session=%q server=%q source=%s", sessionName, opts.ServerName, origin)
 	return nil
 }
 
 // PanePIDs returns the PID of each pane's initial process in the given session.
 // The -s flag lists panes across all windows in the session, not just the active one.
 func PanePIDs(sessionName string, opts Options) ([]int, error) {
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-s", "-t", exactTarget(sessionName), "-F", "#{pane_pid}")
+	exists, err := hasSession(sessionName, opts)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, nil
+	}
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-s", "-t", sessionTarget(sessionName), "-F", "#{pane_pid}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -250,10 +255,14 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 	if sessionName == "" || key == "" {
 		return "", nil
 	}
-	if err := EnsureAvailable(); err != nil {
+	exists, err := hasSession(sessionName, opts)
+	if err != nil {
 		return "", err
 	}
-	cmd, cancel := tmuxCommand(opts, "show-options", "-t", exactTarget(sessionName), "-v", key)
+	if !exists {
+		return "", nil
+	}
+	cmd, cancel := tmuxCommand(opts, "show-options", "-t", exactSessionOptionTarget(sessionName), "-v", key)
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
@@ -287,27 +296,18 @@ func ListSessionsMatchingTags(tags map[string]string, opts Options) ([]string, e
 
 // KillSessionsMatchingTags kills sessions that match all provided tags.
 func KillSessionsMatchingTags(tags map[string]string, opts Options) (bool, error) {
-	origin := killAuditSource()
 	sessions, err := ListSessionsMatchingTags(tags, opts)
 	if err != nil {
-		logging.Warn("AUDIT tmux bulk-kill by tags failed to enumerate: tags=%s server=%q source=%s err=%v", formatTags(tags), opts.ServerName, origin, err)
 		return false, err
 	}
 	if len(sessions) == 0 {
-		logging.Info("AUDIT tmux bulk-kill by tags no-op: tags=%s server=%q source=%s", formatTags(tags), opts.ServerName, origin)
 		return false, nil
 	}
-	logging.Info("AUDIT tmux bulk-kill by tags requested: tags=%s matched=%d server=%q source=%s", formatTags(tags), len(sessions), opts.ServerName, origin)
 	var firstErr error
 	for _, name := range sessions {
 		if err := KillSession(name, opts); err != nil && firstErr == nil {
 			firstErr = err
 		}
-	}
-	if firstErr != nil {
-		logging.Warn("AUDIT tmux bulk-kill by tags completed with errors: tags=%s matched=%d server=%q source=%s err=%v", formatTags(tags), len(sessions), opts.ServerName, origin, firstErr)
-	} else {
-		logging.Info("AUDIT tmux bulk-kill by tags complete: tags=%s matched=%d server=%q source=%s", formatTags(tags), len(sessions), opts.ServerName, origin)
 	}
 	return true, firstErr
 }
@@ -345,10 +345,8 @@ func KillSessionsWithPrefix(prefix string, opts Options) error {
 	if prefix == "" {
 		return nil
 	}
-	origin := killAuditSource()
 	sessions, err := ListSessions(opts)
 	if err != nil {
-		logging.Warn("AUDIT tmux bulk-kill by prefix failed to enumerate: prefix=%q server=%q source=%s err=%v", prefix, opts.ServerName, origin, err)
 		return err
 	}
 	var matched []string
@@ -358,20 +356,13 @@ func KillSessionsWithPrefix(prefix string, opts Options) error {
 		}
 	}
 	if len(matched) == 0 {
-		logging.Info("AUDIT tmux bulk-kill by prefix no-op: prefix=%q server=%q source=%s", prefix, opts.ServerName, origin)
 		return nil
 	}
-	logging.Info("AUDIT tmux bulk-kill by prefix requested: prefix=%q matched=%d server=%q source=%s", prefix, len(matched), opts.ServerName, origin)
 	var firstErr error
 	for _, name := range matched {
 		if err := KillSession(name, opts); err != nil && firstErr == nil {
 			firstErr = err
 		}
-	}
-	if firstErr != nil {
-		logging.Warn("AUDIT tmux bulk-kill by prefix completed with errors: prefix=%q matched=%d server=%q source=%s err=%v", prefix, len(matched), opts.ServerName, origin, firstErr)
-	} else {
-		logging.Info("AUDIT tmux bulk-kill by prefix complete: prefix=%q matched=%d server=%q source=%s", prefix, len(matched), opts.ServerName, origin)
 	}
 	return firstErr
 }
@@ -383,30 +374,6 @@ func KillWorkspaceSessions(wsID string, opts Options) error {
 	}
 	prefix := SessionName("amux", wsID) + "-"
 	return KillSessionsWithPrefix(prefix, opts)
-}
-
-// CapturePane captures the scrollback history of a tmux pane (excluding the
-// visible screen area) with ANSI escape codes preserved. Returns nil if the
-// session has no scrollback or does not exist.
-func CapturePane(sessionName string, opts Options) ([]byte, error) {
-	if sessionName == "" {
-		return nil, nil
-	}
-	// -p: output to stdout
-	// -e: include escape sequences (ANSI styling)
-	// -S -: start from beginning of history
-	// -E -1: end at last scrollback line (excludes visible screen)
-	// -t: target session
-	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-e", "-S", "-", "-E", "-1", "-t", exactTarget(sessionName))
-	defer cancel()
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	if len(output) == 0 {
-		return nil, nil
-	}
-	return output, nil
 }
 
 // AmuxSessionsByWorkspace returns all @amux=1 sessions grouped by their
@@ -456,6 +423,14 @@ func sanitize(value string) string {
 // matching.  Without the "=" prefix tmux falls back to prefix matching,
 // which can cause commands aimed at "amux-ws-tab-1" to hit "amux-ws-tab-10".
 func exactTarget(name string) string { return "=" + name }
+
+// sessionTarget returns a tmux target for session-level commands.
+// Uses "=" prefix for exact session matching.
+func sessionTarget(name string) string { return "=" + name }
+
+// exactSessionOptionTarget returns a tmux target for session-scoped options.
+// Uses "=" prefix for exact session matching in set-option/show-options.
+func exactSessionOptionTarget(name string) string { return "=" + name }
 
 func shellQuote(value string) string {
 	if value == "" {
