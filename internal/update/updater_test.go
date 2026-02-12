@@ -113,6 +113,34 @@ func TestIsGoInstall(t *testing.T) {
 	_ = IsGoInstall()
 }
 
+func TestIsGoInstallPath(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	goPath := os.Getenv("GOPATH")
+	if goPath == "" {
+		goPath = filepath.Join(home, "go")
+	}
+	goBin := filepath.Join(goPath, "bin")
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"exact match", filepath.Join(goBin, "amux"), true},
+		{"nested binary", filepath.Join(goBin, "tools", "amux"), true},
+		{"prefix collision", goBin + "-extra/amux", false},
+		{"different root", "/usr/local/bin/amux", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isGoInstallPath(tt.path); got != tt.want {
+				t.Errorf("isGoInstallPath(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCanWrite(t *testing.T) {
 	// Test with a path we definitely can't write to
 	canWrite := CanWrite("/this/path/definitely/does/not/exist/binary")

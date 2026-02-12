@@ -3,6 +3,7 @@ package git
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -61,5 +62,40 @@ func TestRemoveWorkspaceWithUntrackedFiles(t *testing.T) {
 	// Directory should be fully removed
 	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
 		t.Fatalf("expected workspace path to be removed, err=%v", err)
+	}
+}
+
+func TestRemoveWorkspaceRefusesUnmanagedFallbackCleanup(t *testing.T) {
+	skipIfNoGit(t)
+	repo := initRepo(t)
+
+	// Create a directory with a .git file that is NOT a registered worktree.
+	unmanaged := filepath.Join(t.TempDir(), "unmanaged-ws")
+	if err := os.MkdirAll(unmanaged, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unmanaged, ".git"), []byte("gitdir: /nonexistent"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := RemoveWorkspace(repo, unmanaged)
+	if err == nil {
+		t.Fatal("expected error for unmanaged worktree with .git file")
+	}
+	if !strings.Contains(err.Error(), "not a registered worktree") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRemoveWorkspaceAlreadyRemovedExternallyIsIdempotent(t *testing.T) {
+	skipIfNoGit(t)
+	repo := initRepo(t)
+
+	// Path that does not exist and is not a registered worktree.
+	nonexistent := filepath.Join(t.TempDir(), "already-gone")
+
+	err := RemoveWorkspace(repo, nonexistent)
+	if err != nil {
+		t.Fatalf("expected idempotent nil, got: %v", err)
 	}
 }

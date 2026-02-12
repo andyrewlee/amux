@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,15 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 
 // RemoveWorkspace removes a workspace backed by a git worktree
 func RemoveWorkspace(repoPath, workspacePath string) error {
+	if !isRegisteredWorktree(repoPath, workspacePath) {
+		gitFile := filepath.Join(workspacePath, ".git")
+		if _, statErr := os.Stat(gitFile); statErr == nil {
+			return fmt.Errorf("workspace %s has a .git file but is not a registered worktree", workspacePath)
+		}
+		// Already removed externally — idempotent success.
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
 	_, err := RunGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
@@ -33,6 +43,9 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 		// and we can safely remove the remaining directory ourselves.
 		gitFile := filepath.Join(workspacePath, ".git")
 		if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
+			if !isSafeWorkspaceCleanupPath(workspacePath) {
+				return fmt.Errorf("refusing to remove unsafe path: %s", workspacePath)
+			}
 			// Workspace was unregistered, clean up leftover directory
 			if removeErr := os.RemoveAll(workspacePath); removeErr != nil {
 				return removeErr
@@ -42,6 +55,42 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 		return err
 	}
 	return nil
+}
+
+func isRegisteredWorktree(repoPath, workspacePath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	output, _ := RunGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
+	// Resolve the workspace path to handle symlinks (e.g. macOS /var -> /private/var).
+	normalized := workspacePath
+	if resolved, err := filepath.EvalSymlinks(filepath.Dir(workspacePath)); err == nil {
+		normalized = filepath.Join(resolved, filepath.Base(workspacePath))
+	}
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "worktree ") {
+			wtPath := strings.TrimPrefix(trimmed, "worktree ")
+			if wtPath == workspacePath || wtPath == normalized {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isSafeWorkspaceCleanupPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	cleaned := filepath.Clean(path)
+	if cleaned == "/" || cleaned == "." {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && cleaned == filepath.Clean(home) {
+		return false
+	}
+	return true
 }
 
 // DeleteBranch deletes a git branch

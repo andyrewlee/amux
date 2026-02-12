@@ -157,7 +157,7 @@ func countUntrackedLines(repoPath string, untracked []Change) int {
 }
 
 // parseStatusPorcelain parses git status --porcelain=v1 -z output
-// Format: XY PATH\0 or XY OLDPATH\0NEWPATH\0 (for renames/copies)
+// Format: XY PATH\0 or XY NEWPATH\0OLDPATH\0 (for renames/copies)
 // Where X is index status, Y is work tree status
 func parseStatusPorcelain(output []byte) *StatusResult {
 	result := &StatusResult{
@@ -193,11 +193,11 @@ func parseStatusPorcelain(output []byte) *StatusResult {
 		// Handle renames and copies which have two paths
 		var oldPath string
 		if indexStatus == 'R' || indexStatus == 'C' {
-			// Next entry contains the new path
-			oldPath = path
+			// In porcelain -z, the entry path is the new name,
+			// and the next NUL-delimited token is the old name.
 			i++
 			if i < len(entries) {
-				path = string(entries[i])
+				oldPath = string(entries[i])
 			}
 		}
 
