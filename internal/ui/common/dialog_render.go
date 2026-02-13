@@ -102,6 +102,17 @@ func (d *Dialog) dialogFrame() (frameX, frameY, offsetX, offsetY int) {
 	return frameX, frameY, offsetX, offsetY
 }
 
+// renderedLineCount returns the number of content-area lines after the dialog
+// style wraps the raw lines. This accounts for word-wrapping that the style's
+// fixed width may introduce, ensuring hit regions match rendered positions.
+func (d *Dialog) renderedLineCount(rawLines []string) int {
+	content := strings.Join(rawLines, "\n")
+	rendered := d.dialogStyle().Render(content)
+	renderedH := len(strings.Split(rendered, "\n"))
+	_, frameY, _, _ := d.dialogFrame()
+	return renderedH - frameY
+}
+
 func (d *Dialog) renderLines() []string {
 	d.optionHits = d.optionHits[:0]
 	lines := []string{}
@@ -134,18 +145,21 @@ func (d *Dialog) renderLines() []string {
 			appendLines(errStyle.Render(d.validationErr))
 		}
 		appendBlank(1)
-		line := d.renderInputButtonsLine(len(lines))
+		baseLine := d.renderedLineCount(lines)
+		line := d.renderInputButtonsLine(baseLine)
 		lines = append(lines, line)
 	case DialogConfirm:
 		appendLines(d.message)
 		appendBlank(1)
-		lines = append(lines, d.renderOptionsLines(len(lines))...)
+		baseLine := d.renderedLineCount(lines)
+		lines = append(lines, d.renderOptionsLines(baseLine)...)
 	case DialogSelect:
 		if d.message != "" {
 			appendLines(d.message)
 			appendBlank(1)
 		}
-		lines = append(lines, d.renderOptionsLines(len(lines))...)
+		baseLine := d.renderedLineCount(lines)
+		lines = append(lines, d.renderOptionsLines(baseLine)...)
 	}
 
 	if d.showKeymapHints {
