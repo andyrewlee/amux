@@ -194,6 +194,17 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
 	}
 	cmds := []tea.Cmd{a.scanTmuxActivityNow()}
+	if a.activeWorkspace != nil {
+		if discoverCmd := a.discoverWorkspaceTabsFromTmux(a.activeWorkspace); discoverCmd != nil {
+			cmds = append(cmds, discoverCmd)
+		}
+		if discoverTermCmd := a.discoverSidebarTerminalsFromTmux(a.activeWorkspace); discoverTermCmd != nil {
+			cmds = append(cmds, discoverTermCmd)
+		}
+		if syncCmd := a.syncWorkspaceTabsFromTmux(a.activeWorkspace); syncCmd != nil {
+			cmds = append(cmds, syncCmd)
+		}
+	}
 	if a.tmuxService != nil {
 		cmds = append(cmds, func() tea.Msg {
 			_ = a.tmuxService.SetMonitorActivityOn(a.tmuxOptions)

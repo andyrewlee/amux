@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -51,6 +52,10 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		command := tmux.ClientCommandWithTagsAttach(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags, true)
 		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
+			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
+		}
+		if err := verifyTerminalSessionTags(sessionName, tags, opts); err != nil {
+			_ = term.Close()
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
 
@@ -186,6 +191,15 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 				Action:      action,
 			}
 		}
+		if err := verifyTerminalSessionTags(sessionName, tags, opts); err != nil {
+			_ = term.Close()
+			return SidebarTerminalReattachFailed{
+				WorkspaceID: wsID,
+				TabID:       tabID,
+				Err:         err,
+				Action:      action,
+			}
+		}
 		scrollback, _ := tmux.CapturePane(sessionName, opts)
 		return SidebarTerminalReattachResult{
 			WorkspaceID: wsID,
@@ -195,4 +209,82 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			Scrollback:  scrollback,
 		}
 	}
+}
+
+func verifyTerminalSessionTags(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
+	const (
+		verifyTimeout  = 2 * time.Second
+		verifyInterval = 40 * time.Millisecond
+	)
+	deadline := time.Now().Add(verifyTimeout)
+	var lastErr error
+	for {
+		lastErr = verifyTerminalSessionTagsOnce(sessionName, tags, opts)
+		if lastErr == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return lastErr
+		}
+		time.Sleep(verifyInterval)
+	}
+}
+
+func verifyTerminalSessionTagsOnce(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
+	if strings.TrimSpace(sessionName) == "" {
+		return errors.New("missing tmux session name")
+	}
+	checks := []struct {
+		key  string
+		want string
+	}{
+		{key: "@amux", want: "1"},
+	}
+	if strings.TrimSpace(tags.WorkspaceID) != "" {
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: "@amux_workspace", want: strings.TrimSpace(tags.WorkspaceID)})
+	}
+	if strings.TrimSpace(tags.TabID) != "" {
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: "@amux_tab", want: strings.TrimSpace(tags.TabID)})
+	}
+	if strings.TrimSpace(tags.Type) != "" {
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: "@amux_type", want: strings.TrimSpace(tags.Type)})
+	}
+	if strings.TrimSpace(tags.Assistant) != "" {
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: "@amux_assistant", want: strings.TrimSpace(tags.Assistant)})
+	}
+	if tags.CreatedAt > 0 {
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: "@amux_created_at", want: fmt.Sprintf("%d", tags.CreatedAt)})
+	}
+	if strings.TrimSpace(tags.InstanceID) != "" {
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: "@amux_instance", want: strings.TrimSpace(tags.InstanceID)})
+	}
+	for _, check := range checks {
+		got, err := tmux.SessionTagValue(sessionName, check.key, opts)
+		if err != nil {
+			return fmt.Errorf("failed to verify tmux tag %s: %w", check.key, err)
+		}
+		got = strings.TrimSpace(got)
+		if got != check.want {
+			return fmt.Errorf("tmux tag mismatch for %s: expected %q, got %q", check.key, check.want, got)
+		}
+	}
+	return nil
 }
