@@ -38,17 +38,33 @@ type Agent struct {
 
 // AgentManager manages agent instances
 type AgentManager struct {
-	config *config.Config
-	mu     sync.Mutex
-	agents map[data.WorkspaceID][]*Agent
+	config      *config.Config
+	mu          sync.Mutex
+	agents      map[data.WorkspaceID][]*Agent
+	tmuxOptions tmux.Options
 }
 
 // NewAgentManager creates a new agent manager
 func NewAgentManager(cfg *config.Config) *AgentManager {
 	return &AgentManager{
-		config: cfg,
-		agents: make(map[data.WorkspaceID][]*Agent),
+		config:      cfg,
+		agents:      make(map[data.WorkspaceID][]*Agent),
+		tmuxOptions: tmux.DefaultOptions(),
 	}
+}
+
+// SetTmuxOptions updates tmux options for future agent/viewer command construction.
+func (m *AgentManager) SetTmuxOptions(opts tmux.Options) {
+	m.mu.Lock()
+	m.tmuxOptions = opts
+	m.mu.Unlock()
+}
+
+func (m *AgentManager) getTmuxOptions() tmux.Options {
+	m.mu.Lock()
+	opts := m.tmuxOptions
+	m.mu.Unlock()
+	return opts
 }
 
 // CreateAgent creates a new agent for the given workspace.
@@ -89,7 +105,7 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", assistantCfg.Command, shell)
 
-	termCommand := tmux.ClientCommandWithTags(sessionName, ws.Root, fullCommand, tmux.DefaultOptions(), tags)
+	termCommand := tmux.ClientCommandWithTags(sessionName, ws.Root, fullCommand, m.getTmuxOptions(), tags)
 	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
@@ -134,7 +150,7 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 		"COLORTERM=truecolor",
 	}
 
-	termCommand := tmux.ClientCommandWithTags(sessionName, ws.Root, command, tmux.DefaultOptions(), tags)
+	termCommand := tmux.ClientCommandWithTags(sessionName, ws.Root, command, m.getTmuxOptions(), tags)
 	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)

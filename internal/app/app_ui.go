@@ -24,6 +24,8 @@ func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 		a.center.Focus()
 		a.sidebar.Blur()
 		a.sidebarTerminal.Blur()
+		// Seamless UX: when center regains focus, attempt reattach for detached active tab.
+		return a.center.ReattachActiveTabIfDetached()
 	case messages.PaneSidebar:
 		a.dashboard.Blur()
 		a.center.Blur()
@@ -68,30 +70,33 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 	switch {
 	// Pane focus
 	case key.Matches(msg, a.keymap.MoveLeft):
+		var cmd tea.Cmd
 		switch a.focusedPane {
 		case messages.PaneCenter:
-			a.focusPane(messages.PaneDashboard)
+			cmd = a.focusPane(messages.PaneDashboard)
 		case messages.PaneSidebar, messages.PaneSidebarTerminal:
-			a.focusPane(messages.PaneCenter)
+			cmd = a.focusPane(messages.PaneCenter)
 		}
-		return true, nil
+		return true, cmd
 
 	case key.Matches(msg, a.keymap.MoveRight):
+		var cmd tea.Cmd
 		switch a.focusedPane {
 		case messages.PaneDashboard:
-			a.focusPane(messages.PaneCenter)
+			cmd = a.focusPane(messages.PaneCenter)
 		case messages.PaneCenter:
 			if a.layout.ShowSidebar() {
-				a.focusPane(messages.PaneSidebar)
+				cmd = a.focusPane(messages.PaneSidebar)
 			}
 		}
-		return true, nil
+		return true, cmd
 
 	case key.Matches(msg, a.keymap.MoveUp):
+		var cmd tea.Cmd
 		if a.focusedPane == messages.PaneSidebarTerminal {
-			a.focusPane(messages.PaneSidebar)
+			cmd = a.focusPane(messages.PaneSidebar)
 		}
-		return true, nil
+		return true, cmd
 
 	case key.Matches(msg, a.keymap.MoveDown):
 		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
@@ -108,7 +113,9 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneSidebar:
 			a.sidebar.NextTab()
 		default:
-			a.center.NextTab()
+			if cmd := a.center.NextTab(); cmd != nil {
+				return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			}
 			return true, a.persistActiveWorkspaceTabs()
 		}
 		return true, nil
@@ -120,7 +127,9 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneSidebar:
 			a.sidebar.PrevTab()
 		default:
-			a.center.PrevTab()
+			if cmd := a.center.PrevTab(); cmd != nil {
+				return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			}
 			return true, a.persistActiveWorkspaceTabs()
 		}
 		return true, nil
@@ -209,7 +218,9 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		r := runes[0]
 		if r >= '1' && r <= '9' {
 			index := int(r - '1')
-			a.center.SelectTab(index)
+			if cmd := a.center.SelectTab(index); cmd != nil {
+				return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			}
 			return true, a.persistActiveWorkspaceTabs()
 		}
 	}

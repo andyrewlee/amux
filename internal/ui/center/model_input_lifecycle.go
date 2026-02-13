@@ -85,6 +85,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	tab.Agent = msg.Agent
 	tab.SessionName = msg.Agent.Session
 	tab.Detached = false
+	tab.reattachInFlight = false
 	tab.Running = true
 	tab.mu.Unlock()
 
@@ -119,17 +120,20 @@ func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, te
 	if tab == nil {
 		return m, nil
 	}
-	tab.mu.Lock()
-	tab.Running = false
-	if msg.Stopped {
-		tab.Detached = false
-	}
-	tab.mu.Unlock()
-	logging.Warn("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
 	action := msg.Action
 	if action == "" {
 		action = "reattach"
 	}
+	tab.mu.Lock()
+	tab.Running = false
+	tab.reattachInFlight = false
+	// Keep tabs detached after reattach failures so selecting the tab can retry.
+	// Restart failures still mark the tab as stopped.
+	if msg.Stopped && action == "restart" {
+		tab.Detached = false
+	}
+	tab.mu.Unlock()
+	logging.Warn("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
 	label := "Reattach"
 	switch action {
 	case "restart":

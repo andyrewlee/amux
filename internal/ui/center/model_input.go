@@ -166,11 +166,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				// Handle ctrl+n/p for tab switching
 				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))) {
 					m.nextTab()
-					return m, m.tabSelectionChangedCmd()
+					return m, m.tabSelectionCommand()
 				}
 				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))) {
 					m.prevTab()
-					return m, m.tabSelectionChangedCmd()
+					return m, m.tabSelectionCommand()
 				}
 				// Forward all other keys to diff viewer
 				if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
@@ -184,11 +184,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
 					m.nextTab()
-					return m, m.tabSelectionChangedCmd()
+					return m, m.tabSelectionCommand()
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))):
 					m.prevTab()
-					return m, m.tabSelectionChangedCmd()
+					return m, m.tabSelectionCommand()
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
 					// Close tab
@@ -197,7 +197,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+]"))):
 					// Switch to next tab (escape hatch that won't conflict)
 					m.nextTab()
-					return m, m.tabSelectionChangedCmd()
+					return m, m.tabSelectionCommand()
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
 					// This is Escape - let it go to terminal

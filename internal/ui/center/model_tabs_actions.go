@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // closeCurrentTab closes the current tab
@@ -116,16 +117,67 @@ func (m *Model) prevTab() {
 	}
 }
 
+func (m *Model) reattachActiveTabIfDetached() tea.Cmd {
+	activeIdx := m.getActiveTabIdx()
+	tabs := m.getTabs()
+	if len(tabs) == 0 || activeIdx < 0 || activeIdx >= len(tabs) {
+		return nil
+	}
+	tab := tabs[activeIdx]
+	if tab == nil || tab.isClosed() {
+		return nil
+	}
+
+	tab.mu.Lock()
+	detached := tab.Detached
+	reattachInFlight := tab.reattachInFlight
+	hasDiffViewer := tab.DiffViewer != nil
+	assistant := tab.Assistant
+	tab.mu.Unlock()
+	if !detached || reattachInFlight || hasDiffViewer {
+		return nil
+	}
+
+	isChatAssistant := false
+	if m != nil && m.config != nil && len(m.config.Assistants) > 0 {
+		_, isChatAssistant = m.config.Assistants[assistant]
+	} else {
+		switch assistant {
+		case "claude", "codex", "gemini", "amp", "opencode", "droid", "cursor":
+			isChatAssistant = true
+		}
+	}
+	if !isChatAssistant {
+		return nil
+	}
+	return m.ReattachActiveTab()
+}
+
+// ReattachActiveTabIfDetached attempts reattach only when the active tab is a
+// detached assistant/chat tab. It is safe to call from automatic UI flows.
+func (m *Model) ReattachActiveTabIfDetached() tea.Cmd {
+	return m.reattachActiveTabIfDetached()
+}
+
+func (m *Model) tabSelectionCommand() tea.Cmd {
+	return common.SafeBatch(
+		m.tabSelectionChangedCmd(),
+		m.reattachActiveTabIfDetached(),
+	)
+}
+
 // Public wrappers for prefix mode commands
 
 // NextTab switches to the next tab (public wrapper)
-func (m *Model) NextTab() {
+func (m *Model) NextTab() tea.Cmd {
 	m.nextTab()
+	return m.tabSelectionCommand()
 }
 
 // PrevTab switches to the previous tab (public wrapper)
-func (m *Model) PrevTab() {
+func (m *Model) PrevTab() tea.Cmd {
 	m.prevTab()
+	return m.tabSelectionCommand()
 }
 
 // CloseActiveTab closes the current tab (public wrapper)
@@ -134,11 +186,13 @@ func (m *Model) CloseActiveTab() tea.Cmd {
 }
 
 // SelectTab switches to a specific tab by index (0-indexed)
-func (m *Model) SelectTab(index int) {
+func (m *Model) SelectTab(index int) tea.Cmd {
 	tabs := m.getTabs()
 	if index >= 0 && index < len(tabs) {
 		m.setActiveTabIdx(index)
+		return m.tabSelectionCommand()
 	}
+	return nil
 }
 
 // SendToTerminal sends a string directly to the active terminal

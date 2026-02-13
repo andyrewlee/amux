@@ -263,6 +263,8 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
 		cmds = append(cmds, startCmd)
 	}
+	// Seamless UX: if restored active tab is detached, auto-reattach on workspace activation.
+	cmds = append(cmds, a.center.ReattachActiveTabIfDetached())
 	cmds = append(cmds, a.enforceAttachedTabLimit())
 	return cmds
 }

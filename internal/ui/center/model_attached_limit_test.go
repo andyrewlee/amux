@@ -126,3 +126,33 @@ func TestEnforceAttachedAgentTabLimitIsGlobalAcrossWorkspaces(t *testing.T) {
 		t.Fatalf("expected newest global tab to remain attached")
 	}
 }
+
+func TestEnforceAttachedAgentTabLimitPreservesActiveTabWhenPossible(t *testing.T) {
+	cfg, err := config.DefaultConfig()
+	if err != nil {
+		t.Fatalf("default config: %v", err)
+	}
+	m := New(cfg)
+	ws := &data.Workspace{Name: "ws", Repo: "/tmp/ws-active", Root: "/tmp/ws-active"}
+	wsID := string(ws.ID())
+
+	m.SetWorkspace(ws)
+	m.tabsByWorkspace[wsID] = []*Tab{
+		newLimitTab(ws, "tab-old-active", "claude", 1),
+		newLimitTab(ws, "tab-new", "claude", 2),
+	}
+	m.activeTabByWorkspace[wsID] = 0
+
+	cmd := m.EnforceAttachedAgentTabLimit(1)
+	if cmd == nil {
+		t.Fatal("expected enforcement command, got nil")
+	}
+	_ = cmd()
+
+	if m.tabsByWorkspace[wsID][0].Detached {
+		t.Fatalf("expected active tab to stay attached")
+	}
+	if !m.tabsByWorkspace[wsID][1].Detached {
+		t.Fatalf("expected non-active tab to detach first")
+	}
+}

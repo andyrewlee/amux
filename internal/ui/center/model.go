@@ -43,20 +43,22 @@ type SelectionState struct {
 
 // Tab represents a single tab in the center pane
 type Tab struct {
-	ID           TabID // Unique identifier that survives slice reordering
-	Name         string
-	Assistant    string
-	Workspace    *data.Workspace
-	Agent        *appPty.Agent
-	SessionName  string
-	Detached     bool
-	Terminal     *vterm.VTerm // Virtual terminal emulator with scrollback
-	DiffViewer   *diff.Model  // Native diff viewer (replaces PTY-based viewer)
-	mu           sync.Mutex   // Protects Terminal
-	closed       uint32
-	closing      uint32
-	Running      bool // Whether the agent is actively running
-	readerActive bool // Guard to ensure only one PTY read loop per tab
+	ID          TabID // Unique identifier that survives slice reordering
+	Name        string
+	Assistant   string
+	Workspace   *data.Workspace
+	Agent       *appPty.Agent
+	SessionName string
+	Detached    bool
+	// reattachInFlight prevents overlapping reattach attempts for the same tab.
+	reattachInFlight bool
+	Terminal         *vterm.VTerm // Virtual terminal emulator with scrollback
+	DiffViewer       *diff.Model  // Native diff viewer (replaces PTY-based viewer)
+	mu               sync.Mutex   // Protects Terminal
+	closed           uint32
+	closing          uint32
+	Running          bool // Whether the agent is actively running
+	readerActive     bool // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
@@ -169,6 +171,9 @@ func (m *Model) SetInstanceID(id string) {
 func (m *Model) SetTmuxConfig(serverName, configPath string) {
 	m.tmuxConfig.ServerName = serverName
 	m.tmuxConfig.ConfigPath = configPath
+	if m.agentManager != nil {
+		m.agentManager.SetTmuxOptions(m.getTmuxOptions())
+	}
 }
 
 type tabHitKind int
@@ -397,6 +402,7 @@ func (m *Model) EnforceAttachedAgentTabLimit(limit int) tea.Cmd {
 		workspaceID string
 		index       int
 		createdAt   int64
+		isActive    bool
 		tab         *Tab
 	}
 
@@ -408,8 +414,10 @@ func (m *Model) EnforceAttachedAgentTabLimit(limit int) tea.Cmd {
 	}
 	sort.Strings(wsIDs)
 
+	activeWSID := m.workspaceID()
 	for _, wsID := range wsIDs {
 		tabs := m.tabsByWorkspace[wsID]
+		activeIdx := m.activeTabByWorkspace[wsID]
 		for idx, tab := range tabs {
 			if tab == nil || tab.isClosed() {
 				continue
@@ -433,6 +441,7 @@ func (m *Model) EnforceAttachedAgentTabLimit(limit int) tea.Cmd {
 				workspaceID: wsID,
 				index:       idx,
 				createdAt:   createdAt,
+				isActive:    wsID == activeWSID && idx == activeIdx,
 				tab:         tab,
 			})
 		}
@@ -443,6 +452,10 @@ func (m *Model) EnforceAttachedAgentTabLimit(limit int) tea.Cmd {
 	}
 
 	sort.Slice(attached, func(i, j int) bool {
+		if attached[i].isActive != attached[j].isActive {
+			// Keep the currently active tab as a last-resort detachment candidate.
+			return !attached[i].isActive
+		}
 		if attached[i].createdAt != attached[j].createdAt {
 			return attached[i].createdAt < attached[j].createdAt
 		}

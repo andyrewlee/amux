@@ -53,6 +53,7 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	tab.mu.Lock()
 	tab.Running = false
 	tab.Detached = true
+	tab.reattachInFlight = false
 	tab.pendingOutput = nil
 	if tab.Agent != nil && tab.SessionName == "" {
 		tab.SessionName = tab.Agent.Session
@@ -147,9 +148,13 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	}
 	tab.mu.Lock()
 	detached := tab.Detached
+	reattachInFlight := tab.reattachInFlight
 	sessionName := tab.SessionName
+	if detached && !reattachInFlight {
+		tab.reattachInFlight = true
+	}
 	tab.mu.Unlock()
-	if !detached {
+	if !detached || reattachInFlight {
 		return nil
 	}
 	tm := m.terminalMetrics()

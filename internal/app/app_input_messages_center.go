@@ -28,6 +28,6 @@ func (a *App) handleLaunchAgent(msg messages.LaunchAgent) tea.Cmd {
 func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 	logging.Info("Tab created: %s", msg.Name)
 	cmd := a.center.StartPTYReaders()
-	a.focusPane(messages.PaneCenter)
-	return common.SafeBatch(cmd, a.enforceAttachedTabLimit())
+	focusCmd := a.focusPane(messages.PaneCenter)
+	return common.SafeBatch(focusCmd, cmd, a.enforceAttachedTabLimit())
 }

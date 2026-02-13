@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // routeMouseClick routes mouse click events to the appropriate pane.
@@ -31,13 +32,13 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	var focusCmd tea.Cmd
 	if msg.Button == tea.MouseLeft {
 		if msg.X < leftGutter {
-			a.focusPane(messages.PaneDashboard)
+			focusCmd = a.focusPane(messages.PaneDashboard)
 		} else if msg.X < leftGutter+dashWidth {
 			// Clicked on dashboard (left bar)
-			a.focusPane(messages.PaneDashboard)
+			focusCmd = a.focusPane(messages.PaneDashboard)
 		} else if msg.X < centerEnd {
 			// Clicked on center pane
-			a.focusPane(messages.PaneCenter)
+			focusCmd = a.focusPane(messages.PaneCenter)
 		} else if inSidebarX {
 			// Clicked on sidebar - determine top (changes) or bottom (terminal)
 			sidebarHeight := a.layout.Height()
@@ -47,13 +48,13 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 			if localY >= topPaneHeight {
 				focusCmd = a.focusPane(messages.PaneSidebarTerminal)
 			} else {
-				a.focusPane(messages.PaneSidebar)
+				focusCmd = a.focusPane(messages.PaneSidebar)
 			}
 		}
 	}
 
 	if cmd := a.handleCenterPaneClick(msg); cmd != nil {
-		return cmd
+		return common.SafeBatch(focusCmd, cmd)
 	}
 
 	// Forward mouse events to the focused pane
@@ -67,7 +68,7 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		}
 		newDashboard, cmd := a.dashboard.Update(adjusted)
 		a.dashboard = newDashboard
-		return cmd
+		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneCenter:
 		adjusted := msg
 		if a.layout != nil {
@@ -75,7 +76,7 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		}
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
-		return cmd
+		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneSidebarTerminal:
 		// Ignore clicks in the gap/right gutter so they don't trigger sidebar actions.
 		if inSidebarX {
@@ -97,7 +98,7 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		if inSidebarX {
 			newSidebar, cmd := a.sidebar.Update(adjusted)
 			a.sidebar = newSidebar
-			return cmd
+			return common.SafeBatch(focusCmd, cmd)
 		}
 	}
 	return focusCmd
