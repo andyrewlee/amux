@@ -38,7 +38,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		status := ""
 		statusText := ""
 		dirty := false
-		main := m.getMainWorkspace(row.Project)
+		active := row.ActivityWorkspaceID != "" && m.activeWorkspaceIDs[row.ActivityWorkspaceID]
+		main := row.MainWorkspace
 		if main != nil {
 			if m.deletingWorkspaces[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
@@ -58,13 +59,13 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				Bold(true).
 				Foreground(common.ColorForeground).
 				Background(common.ColorSelection)
-			if m.isProjectActive(row.Project) {
+			if active {
 				style = style.Foreground(common.ColorPrimary)
 			}
-		} else if m.isProjectActive(row.Project) {
+		} else if active {
 			style = m.styles.ActiveWorkspace.PaddingLeft(0)
 		}
-		style = applyDirtyForeground(style, dirty, m.isProjectActive(row.Project), selected)
+		style = applyDirtyForeground(style, dirty, active, selected)
 
 		// Reserve space for delete icon to keep status aligned
 		deleteSlot := "   "
@@ -107,7 +108,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if _, ok := m.creatingWorkspaces[row.Workspace.Root]; ok {
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame + " creating")
-		} else if row.Workspace != nil && m.activeWorkspaceIDs[string(row.Workspace.ID())] {
+		} else if row.ActivityWorkspaceID != "" && m.activeWorkspaceIDs[row.ActivityWorkspaceID] {
 			// Active agents - color change only, no spinner
 			working = true
 		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {

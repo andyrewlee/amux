@@ -50,14 +50,15 @@ type Tab struct {
 	SessionName string
 	Detached    bool
 	// reattachInFlight prevents overlapping reattach attempts for the same tab.
-	reattachInFlight bool
-	Terminal         *vterm.VTerm // Virtual terminal emulator with scrollback
-	DiffViewer       *diff.Model  // Native diff viewer (replaces PTY-based viewer)
-	mu               sync.Mutex   // Protects Terminal
-	closed           uint32
-	closing          uint32
-	Running          bool // Whether the agent is actively running
-	readerActive     bool // Guard to ensure only one PTY read loop per tab
+	reattachInFlight  bool
+	Terminal          *vterm.VTerm // Virtual terminal emulator with scrollback
+	DiffViewer        *diff.Model  // Native diff viewer (replaces PTY-based viewer)
+	mu                sync.Mutex   // Protects Terminal
+	closed            uint32
+	closing           uint32
+	Running           bool   // Whether the agent is actively running
+	readerActive      bool   // Guard to ensure only one PTY read loop per tab
+	readerActiveState uint32 // Mirrors readerActive for lock-free atomic reads
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput     []byte
@@ -117,6 +118,9 @@ func (t *Tab) markClosed() {
 type Model struct {
 	// State
 	workspace            *data.Workspace
+	workspaceIDCached    string
+	workspaceIDRepo      string
+	workspaceIDRoot      string
 	tabsByWorkspace      map[string][]*Tab // tabs per workspace ID
 	activeTabByWorkspace map[string]int    // active tab index per workspace
 	focused              bool
@@ -127,6 +131,8 @@ type Model struct {
 	tabEvents            chan tabEvent
 	tabActorReady        uint32
 	tabActorHeartbeat    int64
+	flushLoadSampleAt    time.Time
+	cachedBusyTabCount   int
 
 	// Layout
 	width           int
@@ -276,12 +282,35 @@ func (m *Model) noteTabActorHeartbeat() {
 	}
 }
 
+func (m *Model) setWorkspace(ws *data.Workspace) {
+	m.workspace = ws
+	m.workspaceIDCached = ""
+	m.workspaceIDRepo = ""
+	m.workspaceIDRoot = ""
+	if ws == nil {
+		return
+	}
+	m.workspaceIDRepo = ws.Repo
+	m.workspaceIDRoot = ws.Root
+	m.workspaceIDCached = string(ws.ID())
+}
+
 // workspaceID returns the ID of the current workspace, or empty string
 func (m *Model) workspaceID() string {
 	if m.workspace == nil {
+		m.workspaceIDCached = ""
+		m.workspaceIDRepo = ""
+		m.workspaceIDRoot = ""
 		return ""
 	}
-	return string(m.workspace.ID())
+	if m.workspaceIDCached == "" ||
+		m.workspaceIDRepo != m.workspace.Repo ||
+		m.workspaceIDRoot != m.workspace.Root {
+		m.workspaceIDRepo = m.workspace.Repo
+		m.workspaceIDRoot = m.workspace.Root
+		m.workspaceIDCached = string(m.workspace.ID())
+	}
+	return m.workspaceIDCached
 }
 
 // getTabs returns the tabs for the current workspace

@@ -9,17 +9,23 @@ const (
 	ptyFlushQuietAlt    = 8 * time.Millisecond
 	ptyFlushMaxAlt      = 32 * time.Millisecond
 	// Inactive tabs still need to advance their terminal state, but can flush less frequently.
-	ptyFlushInactiveMultiplier = 4
-	ptyFlushChunkSize          = 32 * 1024
-	ptyReadBufferSize          = 32 * 1024
-	ptyReadQueueSize           = 64
-	ptyFrameInterval           = time.Second / 60
-	ptyMaxPendingBytes         = 512 * 1024
-	ptyMaxBufferedBytes        = 8 * 1024 * 1024
-	ptyReaderStallTimeout      = 10 * time.Second
-	tabActorStallTimeout       = 10 * time.Second
-	ptyRestartMax              = 5
-	ptyRestartWindow           = time.Minute
+	ptyFlushInactiveMultiplier          = 4
+	ptyFlushInactiveHeavyMultiplier     = 8
+	ptyFlushInactiveVeryHeavyMultiplier = 12
+	ptyFlushInactiveMaxIntervalCap      = 250 * time.Millisecond
+	ptyHeavyLoadTabThreshold            = 4
+	ptyVeryHeavyLoadTabThreshold        = 8
+	ptyLoadSampleInterval               = 100 * time.Millisecond
+	ptyFlushChunkSize                   = 32 * 1024
+	ptyReadBufferSize                   = 32 * 1024
+	ptyReadQueueSize                    = 64
+	ptyFrameInterval                    = time.Second / 60
+	ptyMaxPendingBytes                  = 512 * 1024
+	ptyMaxBufferedBytes                 = 8 * 1024 * 1024
+	ptyReaderStallTimeout               = 10 * time.Second
+	tabActorStallTimeout                = 10 * time.Second
+	ptyRestartMax                       = 5
+	ptyRestartWindow                    = time.Minute
 
 	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
 	// When pending output exceeds this, we throttle rendering frequency

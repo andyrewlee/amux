@@ -68,10 +68,17 @@ func (m *Model) rebuildRows() {
 
 	for i := range m.projects {
 		project := &m.projects[i]
+		mainWS := m.getMainWorkspace(project)
+		mainWSID := ""
+		if mainWS != nil {
+			mainWSID = string(mainWS.ID())
+		}
 
 		m.rows = append(m.rows, Row{
-			Type:    RowProject,
-			Project: project,
+			Type:                RowProject,
+			Project:             project,
+			ActivityWorkspaceID: mainWSID,
+			MainWorkspace:       mainWS,
 		})
 
 		for _, ws := range m.sortedWorkspaces(project) {
@@ -81,9 +88,10 @@ func (m *Model) rebuildRows() {
 			}
 
 			m.rows = append(m.rows, Row{
-				Type:      RowWorkspace,
-				Project:   project,
-				Workspace: ws,
+				Type:                RowWorkspace,
+				Project:             project,
+				Workspace:           ws,
+				ActivityWorkspaceID: string(ws.ID()),
 			})
 		}
 

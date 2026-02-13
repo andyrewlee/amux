@@ -43,7 +43,7 @@ func (m *Model) Focused() bool {
 
 // SetWorkspace sets the active workspace.
 func (m *Model) SetWorkspace(ws *data.Workspace) {
-	m.workspace = ws
+	m.setWorkspace(ws)
 	if ws == nil {
 		return
 	}
