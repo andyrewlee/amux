@@ -12,16 +12,36 @@ type SessionAttachInfo struct {
 	DetachExisting bool
 }
 
-func (m *TerminalModel) hasSession(wsID, sessionName string) bool {
+func (m *TerminalModel) tabBySession(wsID, sessionName string) *TerminalTab {
 	if sessionName == "" {
-		return false
+		return nil
 	}
 	for _, tab := range m.tabsByWorkspace[wsID] {
 		if tab.State != nil && tab.State.SessionName == sessionName {
-			return true
+			return tab
 		}
 	}
-	return false
+	return nil
+}
+
+func shouldAttachExistingTerminalTab(tab *TerminalTab) bool {
+	if tab == nil || tab.State == nil {
+		return false
+	}
+	ts := tab.State
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.reattachInFlight {
+		return false
+	}
+	if ts.UserDetached {
+		return false
+	}
+	if ts.Running && ts.Terminal != nil && ts.VTerm != nil && !ts.Detached {
+		return false
+	}
+	ts.reattachInFlight = true
+	return true
 }
 
 // AddTabsFromSessions ensures tabs exist for the provided tmux session names.
@@ -32,7 +52,11 @@ func (m *TerminalModel) AddTabsFromSessions(ws *data.Workspace, sessions []strin
 	wsID := string(ws.ID())
 	var cmds []tea.Cmd
 	for _, sessionName := range sessions {
-		if m.hasSession(wsID, sessionName) {
+		existing := m.tabBySession(wsID, sessionName)
+		if existing != nil {
+			if shouldAttachExistingTerminalTab(existing) {
+				cmds = append(cmds, m.attachToSession(ws, existing.ID, sessionName, true, "reattach"))
+			}
 			continue
 		}
 		tabID := generateTerminalTabID()
@@ -40,9 +64,10 @@ func (m *TerminalModel) AddTabsFromSessions(ws *data.Workspace, sessions []strin
 			ID:   tabID,
 			Name: nextTerminalName(m.tabsByWorkspace[wsID]),
 			State: &TerminalState{
-				SessionName: sessionName,
-				Running:     false,
-				Detached:    true,
+				SessionName:      sessionName,
+				Running:          false,
+				Detached:         true,
+				reattachInFlight: true,
 			},
 		}
 		m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
@@ -66,7 +91,11 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 		if session.Name == "" {
 			continue
 		}
-		if m.hasSession(wsID, session.Name) {
+		existing := m.tabBySession(wsID, session.Name)
+		if existing != nil {
+			if session.Attach && shouldAttachExistingTerminalTab(existing) {
+				cmds = append(cmds, m.attachToSession(ws, existing.ID, session.Name, session.DetachExisting, "reattach"))
+			}
 			continue
 		}
 		tabID := generateTerminalTabID()
@@ -84,6 +113,11 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 			m.activeTabByWorkspace[wsID] = 0
 		}
 		if session.Attach {
+			if tab.State != nil {
+				tab.State.mu.Lock()
+				tab.State.reattachInFlight = true
+				tab.State.mu.Unlock()
+			}
 			cmds = append(cmds, m.attachToSession(ws, tabID, session.Name, session.DetachExisting, "reattach"))
 		}
 	}

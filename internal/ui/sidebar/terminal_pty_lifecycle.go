@@ -192,7 +192,7 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
 }
 
-func (m *TerminalModel) detachState(ts *TerminalState) {
+func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	if ts == nil {
 		return
 	}
@@ -202,6 +202,7 @@ func (m *TerminalModel) detachState(ts *TerminalState) {
 	ts.Terminal = nil
 	ts.Running = false
 	ts.Detached = true
+	ts.UserDetached = userInitiated
 	ts.pendingOutput = nil
 	ts.mu.Unlock()
 	if term != nil {
@@ -229,6 +230,7 @@ func (m *TerminalModel) SendToTerminal(s string) {
 			ts.mu.Lock()
 			ts.Running = false
 			ts.Detached = true
+			ts.UserDetached = false
 			ts.mu.Unlock()
 		}
 	}

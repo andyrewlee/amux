@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -55,8 +56,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
 		if err := verifyTerminalSessionTags(sessionName, tags, opts); err != nil {
-			_ = term.Close()
-			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
+			logging.Warn("sidebar terminal create: session tag verification failed for %s: %v", sessionName, err)
 		}
 
 		return SidebarTerminalCreated{
@@ -75,7 +75,7 @@ func (m *TerminalModel) DetachActiveTab() tea.Cmd {
 	if tab == nil || tab.State == nil {
 		return nil
 	}
-	m.detachState(tab.State)
+	m.detachState(tab.State, true)
 	return nil
 }
 
@@ -122,7 +122,7 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
-	m.detachState(ts)
+	m.detachState(ts, false)
 	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
 	return m.attachToSession(ws, tab.ID, sessionName, true, "restart")
 }
@@ -192,13 +192,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			}
 		}
 		if err := verifyTerminalSessionTags(sessionName, tags, opts); err != nil {
-			_ = term.Close()
-			return SidebarTerminalReattachFailed{
-				WorkspaceID: wsID,
-				TabID:       tabID,
-				Err:         err,
-				Action:      action,
-			}
+			logging.Warn("sidebar terminal %s: session tag verification failed for %s: %v", action, sessionName, err)
 		}
 		scrollback, _ := tmux.CapturePane(sessionName, opts)
 		return SidebarTerminalReattachResult{
@@ -224,16 +218,51 @@ func verifyTerminalSessionTags(sessionName string, tags tmux.SessionTags, opts t
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return lastErr
+			break
 		}
 		time.Sleep(verifyInterval)
 	}
+	if err := applyTerminalSessionTags(sessionName, tags, opts); err != nil {
+		return fmt.Errorf("tmux tag verification failed (%w), retag failed: %w", lastErr, err)
+	}
+	if err := verifyTerminalSessionTagsOnce(sessionName, tags, opts); err != nil {
+		return fmt.Errorf("tmux tag verification failed after retag: %w", err)
+	}
+	return nil
 }
 
 func verifyTerminalSessionTagsOnce(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
 	if strings.TrimSpace(sessionName) == "" {
 		return errors.New("missing tmux session name")
 	}
+	checks := terminalTagChecks(tags)
+	for _, check := range checks {
+		got, err := tmux.SessionTagValue(sessionName, check.key, opts)
+		if err != nil {
+			return fmt.Errorf("failed to verify tmux tag %s: %w", check.key, err)
+		}
+		got = strings.TrimSpace(got)
+		if got != check.want {
+			return fmt.Errorf("tmux tag mismatch for %s: expected %q, got %q", check.key, check.want, got)
+		}
+	}
+	return nil
+}
+
+func applyTerminalSessionTags(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
+	checks := terminalTagChecks(tags)
+	for _, check := range checks {
+		if err := tmux.SetSessionTagValue(sessionName, check.key, check.want, opts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func terminalTagChecks(tags tmux.SessionTags) []struct {
+	key  string
+	want string
+} {
 	checks := []struct {
 		key  string
 		want string
@@ -276,15 +305,5 @@ func verifyTerminalSessionTagsOnce(sessionName string, tags tmux.SessionTags, op
 			want string
 		}{key: "@amux_instance", want: strings.TrimSpace(tags.InstanceID)})
 	}
-	for _, check := range checks {
-		got, err := tmux.SessionTagValue(sessionName, check.key, opts)
-		if err != nil {
-			return fmt.Errorf("failed to verify tmux tag %s: %w", check.key, err)
-		}
-		got = strings.TrimSpace(got)
-		if got != check.want {
-			return fmt.Errorf("tmux tag mismatch for %s: expected %q, got %q", check.key, check.want, got)
-		}
-	}
-	return nil
+	return checks
 }

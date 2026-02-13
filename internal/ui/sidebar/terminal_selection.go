@@ -60,11 +60,14 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 
 	wtID := m.workspaceID()
 	tab := tabs[idx]
+	sessionName := ""
+	opts := m.getTmuxOptions()
 
 	// Close PTY and cleanup
 	if tab.State != nil {
 		m.stopPTYReader(tab.State)
 		tab.State.mu.Lock()
+		sessionName = tab.State.SessionName
 		if tab.State.Terminal != nil {
 			tab.State.Terminal.Close()
 		}
@@ -88,7 +91,10 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 	}
 
 	m.refreshTerminalSize()
-	return m, nil
+	if sessionName == "" {
+		return m, nil
+	}
+	return m, closeSessionIfUnattached(sessionName, opts)
 }
 
 // handleMouseClick handles mouse click events for selection

@@ -46,12 +46,14 @@ type TerminalTab struct {
 
 // TerminalState holds the terminal state for a workspace
 type TerminalState struct {
-	Terminal    *pty.Terminal
-	VTerm       *vterm.VTerm
-	Running     bool
-	Detached    bool
-	SessionName string
-	mu          sync.Mutex
+	Terminal         *pty.Terminal
+	VTerm            *vterm.VTerm
+	Running          bool
+	Detached         bool
+	UserDetached     bool
+	reattachInFlight bool
+	SessionName      string
+	mu               sync.Mutex
 
 	// Track last size to avoid unnecessary resizes
 	lastWidth  int
@@ -416,11 +418,14 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 	}
 
 	tab := tabs[idx]
+	sessionName := ""
+	opts := m.getTmuxOptions()
 
 	// Close PTY and cleanup
 	if tab.State != nil {
 		m.stopPTYReader(tab.State)
 		tab.State.mu.Lock()
+		sessionName = tab.State.SessionName
 		if tab.State.Terminal != nil {
 			tab.State.Terminal.Close()
 		}
@@ -441,5 +446,32 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 	}
 
 	m.refreshTerminalSize()
-	return nil
+	if sessionName == "" {
+		return nil
+	}
+	return closeSessionIfUnattached(sessionName, opts)
+}
+
+func closeSessionIfUnattached(sessionName string, opts tmux.Options) tea.Cmd {
+	return func() tea.Msg {
+		if sessionName == "" {
+			return nil
+		}
+		deadline := time.Now().Add(1200 * time.Millisecond)
+		for {
+			hasClients, err := tmux.SessionHasClients(sessionName, opts)
+			if err != nil {
+				return nil
+			}
+			if !hasClients {
+				_ = tmux.KillSession(sessionName, opts)
+				return nil
+			}
+			if time.Now().After(deadline) {
+				// Shared or still-attached session; keep it alive.
+				return nil
+			}
+			time.Sleep(75 * time.Millisecond)
+		}
+	}
 }

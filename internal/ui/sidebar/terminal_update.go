@@ -82,7 +82,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		bracketedText := "\x1b[200~" + text + "\x1b[201~"
 		if err := ts.Terminal.SendString(bracketedText); err != nil {
 			logging.Warn("Sidebar paste failed: %v", err)
-			m.detachState(ts)
+			m.detachState(ts, false)
 		}
 		logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
 		return m, nil
@@ -151,7 +151,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		if len(input) > 0 {
 			if err := ts.Terminal.SendString(string(input)); err != nil {
 				logging.Warn("Sidebar input failed: %v", err)
-				m.detachState(ts)
+				m.detachState(ts, false)
 			}
 		}
 
@@ -265,6 +265,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 					ts.Running = false
 					// Mark as detached (tmux session may still be alive)
 					ts.Detached = true
+					ts.UserDetached = false
 					ts.ptyRestartBackoff = 0
 				} else {
 					backoff = ts.ptyRestartBackoff
@@ -294,6 +295,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 				ts.Running = false
 				// Mark as detached - tmux session may still be alive
 				ts.Detached = true
+				ts.UserDetached = false
 				ts.ptyRestartBackoff = 0
 				ts.ptyRestartCount = 0
 				ts.ptyRestartSince = time.Time{}
@@ -353,6 +355,8 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		ts.Terminal = msg.Terminal
 		ts.Running = true
 		ts.Detached = false
+		ts.UserDetached = false
+		ts.reattachInFlight = false
 		ts.SessionName = msg.SessionName
 		ts.pendingOutput = nil
 		ts.mu.Unlock()
@@ -375,6 +379,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			ts := tab.State
 			ts.mu.Lock()
 			ts.Running = false
+			ts.reattachInFlight = false
 			if msg.Stopped {
 				ts.Detached = false
 			}
@@ -482,7 +487,6 @@ func (m *TerminalModel) View() string {
 		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
 	}
 	b.WriteString(strings.Join(helpLines, "\n"))
-
 	// Ensure output doesn't exceed m.height lines
 	result := b.String()
 	if m.height > 0 {
