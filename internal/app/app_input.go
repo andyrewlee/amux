@@ -216,10 +216,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.TabDetached:
 		logging.Info("Tab detached: %d", msg.Index)
-		if msg.WorkspaceID != "" {
-			cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
-		} else {
-			cmds = append(cmds, a.persistActiveWorkspaceTabs())
+		if cmd := a.handleTabDetached(msg); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case messages.TabReattached:
@@ -346,4 +344,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return a, common.SafeBatch(cmds...)
+}
+
+func (a *App) handleTabDetached(msg messages.TabDetached) tea.Cmd {
+	if msg.WorkspaceID != "" {
+		return a.persistWorkspaceTabs(msg.WorkspaceID)
+	}
+	return a.persistActiveWorkspaceTabs()
 }

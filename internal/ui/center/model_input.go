@@ -165,12 +165,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 				// Handle ctrl+n/p for tab switching
 				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))) {
+					before := m.getActiveTabIdx()
 					m.nextTab()
-					return m, m.tabSelectionCommand()
+					return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
 				}
 				if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))) {
+					before := m.getActiveTabIdx()
 					m.prevTab()
-					return m, m.tabSelectionCommand()
+					return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
 				}
 				// Forward all other keys to diff viewer
 				if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
@@ -183,12 +185,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				// Only intercept these specific keys - everything else goes to terminal
 				switch {
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
+					before := m.getActiveTabIdx()
 					m.nextTab()
-					return m, m.tabSelectionCommand()
+					return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))):
+					before := m.getActiveTabIdx()
 					m.prevTab()
-					return m, m.tabSelectionCommand()
+					return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
 					// Close tab
@@ -196,8 +200,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+]"))):
 					// Switch to next tab (escape hatch that won't conflict)
+					before := m.getActiveTabIdx()
 					m.nextTab()
-					return m, m.tabSelectionCommand()
+					return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
 					// This is Escape - let it go to terminal

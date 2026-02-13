@@ -60,19 +60,6 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	if tab.Workspace != nil {
 		workspaceID = string(tab.Workspace.ID())
 	}
-	if workspaceID == "" {
-		for wsID, tabs := range m.tabsByWorkspace {
-			for _, candidate := range tabs {
-				if candidate == tab {
-					workspaceID = wsID
-					break
-				}
-			}
-			if workspaceID != "" {
-				break
-			}
-		}
-	}
 	return func() tea.Msg {
 		return messages.TabDetached{WorkspaceID: workspaceID, Index: index}
 	}
@@ -122,22 +109,6 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	if tab == nil || tab.Workspace == nil {
 		return nil
 	}
-	if m.config == nil || m.config.Assistants == nil {
-		return func() tea.Msg {
-			return messages.Toast{
-				Message: "Tab cannot be reattached",
-				Level:   messages.ToastInfo,
-			}
-		}
-	}
-	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
-		return func() tea.Msg {
-			return messages.Toast{
-				Message: "Only assistant tabs can be reattached",
-				Level:   messages.ToastInfo,
-			}
-		}
-	}
 	tab.mu.Lock()
 	detached := tab.Detached
 	reattachInFlight := tab.reattachInFlight
@@ -146,8 +117,33 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 		tab.reattachInFlight = true
 	}
 	tab.mu.Unlock()
-	if !detached || reattachInFlight {
+	if !detached {
 		return nil
+	}
+	if reattachInFlight {
+		return nil
+	}
+	if m.config == nil || m.config.Assistants == nil {
+		tab.mu.Lock()
+		tab.reattachInFlight = false
+		tab.mu.Unlock()
+		return func() tea.Msg {
+			return messages.Toast{
+				Message: "Tab cannot be reattached",
+				Level:   messages.ToastInfo,
+			}
+		}
+	}
+	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+		tab.mu.Lock()
+		tab.reattachInFlight = false
+		tab.mu.Unlock()
+		return func() tea.Msg {
+			return messages.Toast{
+				Message: "Only assistant tabs can be reattached",
+				Level:   messages.ToastInfo,
+			}
+		}
 	}
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
@@ -323,17 +319,63 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	}
 }
 
-func (m *Model) tabSelectionChangedCmd() tea.Cmd {
+func (m *Model) tabSelectionChangedCmd(changed bool) tea.Cmd {
+	if !changed {
+		return nil
+	}
 	wsID := m.workspaceID()
 	if wsID == "" {
 		return nil
 	}
-	return func() tea.Msg {
-		return messages.TabSelectionChanged{
-			WorkspaceID: wsID,
-			ActiveIndex: m.getActiveTabIdx(),
-		}
+	return common.SafeBatch(
+		func() tea.Msg {
+			return messages.TabSelectionChanged{
+				WorkspaceID: wsID,
+				ActiveIndex: m.getActiveTabIdx(),
+			}
+		},
+		m.flushActiveTabBacklogCmd(),
+		m.autoReattachActiveTabOnSelection(),
+	)
+}
+
+func (m *Model) flushActiveTabBacklogCmd() tea.Cmd {
+	wsID := m.workspaceID()
+	if wsID == "" {
+		return nil
 	}
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return nil
+	}
+	tab := tabs[activeIdx]
+	if tab == nil || tab.isClosed() || len(tab.pendingOutput) == 0 {
+		return nil
+	}
+	tabID := tab.ID
+	return func() tea.Msg {
+		return PTYFlush{WorkspaceID: wsID, TabID: tabID}
+	}
+}
+
+func (m *Model) autoReattachActiveTabOnSelection() tea.Cmd {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx < 0 || activeIdx >= len(tabs) {
+		return nil
+	}
+	tab := tabs[activeIdx]
+	if tab == nil {
+		return nil
+	}
+	tab.mu.Lock()
+	detached := tab.Detached
+	tab.mu.Unlock()
+	if !detached {
+		return nil
+	}
+	return m.ReattachActiveTab()
 }
 
 // RestoreTabsFromWorkspace recreates tabs from persisted workspace metadata.
@@ -385,7 +427,7 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 		if desired >= restoreCount {
 			desired = restoreCount - 1
 		}
-		m.activeTabByWorkspace[wsID] = desired
+		m.setActiveTabIdxForWorkspace(wsID, desired)
 	}
 	return common.SafeBatch(cmds...)
 }

@@ -120,20 +120,19 @@ func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, te
 	if tab == nil {
 		return m, nil
 	}
-	action := msg.Action
-	if action == "" {
-		action = "reattach"
-	}
 	tab.mu.Lock()
 	tab.Running = false
 	tab.reattachInFlight = false
-	// Keep tabs detached after reattach failures so selecting the tab can retry.
-	// Restart failures still mark the tab as stopped.
-	if msg.Stopped && action == "restart" {
+	// Any stopped reattach clears Detached so the tab shows as stopped.
+	if msg.Stopped {
 		tab.Detached = false
 	}
 	tab.mu.Unlock()
 	logging.Warn("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
+	action := msg.Action
+	if action == "" {
+		action = "reattach"
+	}
 	label := "Reattach"
 	switch action {
 	case "restart":
@@ -337,11 +336,16 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 		if len(tab.pendingOutput) > 0 {
 			var chunk []byte
 			writeOutput := false
+			isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
 			tab.mu.Lock()
 			if tab.Terminal != nil {
 				chunkSize := len(tab.pendingOutput)
-				if chunkSize > ptyFlushChunkSize {
-					chunkSize = ptyFlushChunkSize
+				maxChunk := ptyFlushChunkSize
+				if isActive {
+					maxChunk = ptyFlushChunkSizeActive
+				}
+				if chunkSize > maxChunk {
+					chunkSize = maxChunk
 				}
 				chunk = append(chunk, tab.pendingOutput[:chunkSize]...)
 				copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
