@@ -134,18 +134,14 @@ func skipIfNoTmux(t *testing.T) {
 
 func ensureTmuxServer(t *testing.T, opts tmux.Options) {
 	t.Helper()
-	args := gcTmuxArgs(opts, "start-server")
+	// Create a detached keepalive session to ensure the server stays alive.
+	// Bare "start-server" exits immediately on some tmux versions when no
+	// sessions exist, causing a race with subsequent commands.
+	args := gcTmuxArgs(opts, "new-session", "-d", "-s", "_keepalive", "sleep", "300")
 	cmd := exec.Command("tmux", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Skipf("tmux server socket unavailable: %v\n%s", err, out)
-	}
-	// Verify the server is reachable.
-	args = gcTmuxArgs(opts, "show-options", "-g")
-	cmd = exec.Command("tmux", args...)
-	out, err = cmd.CombinedOutput()
-	if err != nil {
-		t.Skipf("tmux server socket unreachable: %v\n%s", err, out)
 	}
 }
 
@@ -240,6 +236,7 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 		tmuxAvailable:  true,
 		projectsLoaded: true,
 		tmuxOptions:    opts,
+		tmuxService:    newTmuxService(nil),
 		projects: []data.Project{
 			{
 				Path:       "/test/repo",
@@ -297,6 +294,7 @@ func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.
 		tmuxAvailable:  true,
 		projectsLoaded: true,
 		tmuxOptions:    opts,
+		tmuxService:    newTmuxService(nil),
 		instanceID:     "my-instance",
 	}
 
@@ -331,6 +329,7 @@ func TestGcOrphanedTmuxSessions_NoSessions(t *testing.T) {
 		tmuxAvailable:  true,
 		projectsLoaded: true,
 		tmuxOptions:    opts,
+		tmuxService:    newTmuxService(nil),
 	}
 
 	cmd := app.gcOrphanedTmuxSessions()
