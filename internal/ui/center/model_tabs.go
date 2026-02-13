@@ -146,6 +146,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			return messages.Error{Err: errors.New("missing workspace or agent"), Context: "creating terminal tab"}
 		}
 	}
+	now := time.Now()
 
 	rows := msg.Rows
 	cols := msg.Cols
@@ -224,7 +225,10 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.Detached = false
 		tab.Running = true
 		if tab.createdAt == 0 {
-			tab.createdAt = time.Now().Unix()
+			tab.createdAt = now.Unix()
+		}
+		if tab.lastFocusedAt.IsZero() {
+			tab.lastFocusedAt = now
 		}
 		tab.cachedSnap = nil
 		tab.cachedVersion = 0
@@ -276,7 +280,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		_ = m.startPTYReader(wsID, tab)
 
 		if msg.Activate && existingIdx >= 0 {
-			m.activeTabByWorkspace[wsID] = existingIdx
+			m.setActiveTabIdxForWorkspace(wsID, existingIdx)
 		}
 		m.noteTabsChanged()
 
@@ -303,15 +307,16 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tabID = generateTabID()
 	}
 	tab := &Tab{
-		ID:          tabID,
-		Name:        displayName,
-		Assistant:   msg.Assistant,
-		Workspace:   msg.Workspace,
-		Agent:       msg.Agent,
-		SessionName: msg.Agent.Session,
-		Terminal:    term,
-		Running:     true, // Agent/viewer starts running
-		createdAt:   time.Now().Unix(),
+		ID:            tabID,
+		Name:          displayName,
+		Assistant:     msg.Assistant,
+		Workspace:     msg.Workspace,
+		Agent:         msg.Agent,
+		SessionName:   msg.Agent.Session,
+		Terminal:      term,
+		Running:       true, // Agent/viewer starts running
+		createdAt:     now.Unix(),
+		lastFocusedAt: now,
 	}
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)
@@ -358,7 +363,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
 	createdIdx := len(m.tabsByWorkspace[wsID]) - 1
 	if msg.Activate {
-		m.activeTabByWorkspace[wsID] = createdIdx
+		m.setActiveTabIdxForWorkspace(wsID, createdIdx)
 	}
 	m.noteTabsChanged()
 

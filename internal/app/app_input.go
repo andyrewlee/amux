@@ -203,6 +203,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handleTabCreated(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -217,13 +218,13 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Info("Tab detached: %d", msg.Index)
 		if msg.WorkspaceID != "" {
 			cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
-		} else if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
-			cmds = append(cmds, cmd)
+		} else {
+			cmds = append(cmds, a.persistActiveWorkspaceTabs())
 		}
 
 	case messages.TabReattached:
+		cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
-		cmds = append(cmds, a.enforceAttachedTabLimit())
 
 	case messages.TabStateChanged:
 		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))

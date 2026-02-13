@@ -3,7 +3,6 @@ package center
 import (
 	"fmt"
 	"os"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,6 +82,7 @@ type Tab struct {
 	ptyHeartbeat      int64
 	ptyRestartCount   int
 	ptyRestartSince   time.Time
+	lastFocusedAt     time.Time
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
 	cachedSnap       *compositor.VTermSnapshot
@@ -325,7 +325,29 @@ func (m *Model) getActiveTabIdx() int {
 
 // setActiveTabIdx sets the active tab index for the current workspace
 func (m *Model) setActiveTabIdx(idx int) {
-	m.activeTabByWorkspace[m.workspaceID()] = idx
+	m.setActiveTabIdxForWorkspace(m.workspaceID(), idx)
+}
+
+func (m *Model) setActiveTabIdxForWorkspace(wsID string, idx int) {
+	if wsID == "" {
+		return
+	}
+	m.activeTabByWorkspace[wsID] = idx
+	m.markTabFocused(wsID, idx)
+}
+
+func (m *Model) markTabFocused(wsID string, idx int) {
+	tabs := m.tabsByWorkspace[wsID]
+	if idx < 0 || idx >= len(tabs) {
+		return
+	}
+	tab := tabs[idx]
+	if tab == nil || tab.isClosed() {
+		return
+	}
+	tab.mu.Lock()
+	tab.lastFocusedAt = time.Now()
+	tab.mu.Unlock()
 }
 
 func (m *Model) noteTabsChanged() {
@@ -389,93 +411,4 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 	if m.agentManager != nil {
 		m.agentManager.CloseWorkspaceAgents(ws)
 	}
-}
-
-// EnforceAttachedAgentTabLimit is called after tab mutations to enforce the limit.
-// It detaches the oldest attached chat-agent tabs until the limit is met.
-func (m *Model) EnforceAttachedAgentTabLimit(limit int) tea.Cmd {
-	if m == nil || limit <= 0 {
-		return nil
-	}
-
-	type candidate struct {
-		workspaceID string
-		index       int
-		createdAt   int64
-		isActive    bool
-		tab         *Tab
-	}
-
-	attached := make([]candidate, 0)
-
-	wsIDs := make([]string, 0, len(m.tabsByWorkspace))
-	for wsID := range m.tabsByWorkspace {
-		wsIDs = append(wsIDs, wsID)
-	}
-	sort.Strings(wsIDs)
-
-	activeWSID := m.workspaceID()
-	for _, wsID := range wsIDs {
-		tabs := m.tabsByWorkspace[wsID]
-		activeIdx := m.activeTabByWorkspace[wsID]
-		for idx, tab := range tabs {
-			if tab == nil || tab.isClosed() {
-				continue
-			}
-			if !m.isChatTab(tab) {
-				continue
-			}
-
-			tab.mu.Lock()
-			running := tab.Running
-			detached := tab.Detached
-			diffViewer := tab.DiffViewer != nil
-			createdAt := tab.createdAt
-			tab.mu.Unlock()
-
-			if diffViewer || !running || detached {
-				continue
-			}
-
-			attached = append(attached, candidate{
-				workspaceID: wsID,
-				index:       idx,
-				createdAt:   createdAt,
-				isActive:    wsID == activeWSID && idx == activeIdx,
-				tab:         tab,
-			})
-		}
-	}
-
-	if len(attached) <= limit {
-		return nil
-	}
-
-	sort.Slice(attached, func(i, j int) bool {
-		if attached[i].isActive != attached[j].isActive {
-			// Keep the currently active tab as a last-resort detachment candidate.
-			return !attached[i].isActive
-		}
-		if attached[i].createdAt != attached[j].createdAt {
-			return attached[i].createdAt < attached[j].createdAt
-		}
-		if attached[i].workspaceID != attached[j].workspaceID {
-			return attached[i].workspaceID < attached[j].workspaceID
-		}
-		return attached[i].index < attached[j].index
-	})
-
-	overLimit := len(attached) - limit
-	cmds := make([]tea.Cmd, 0, overLimit)
-	for i := 0; i < overLimit; i++ {
-		cmd := m.detachTab(attached[i].tab, attached[i].index)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-
-	if len(cmds) == 0 {
-		return nil
-	}
-	return tea.Batch(cmds...)
 }

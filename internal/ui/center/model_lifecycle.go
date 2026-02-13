@@ -44,6 +44,10 @@ func (m *Model) Focused() bool {
 // SetWorkspace sets the active workspace.
 func (m *Model) SetWorkspace(ws *data.Workspace) {
 	m.workspace = ws
+	if ws == nil {
+		return
+	}
+	m.markTabFocused(m.workspaceID(), m.getActiveTabIdx())
 }
 
 // HasTabs returns whether there are any tabs for the current workspace.

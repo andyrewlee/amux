@@ -265,7 +265,7 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	}
 	// Seamless UX: if restored active tab is detached, auto-reattach on workspace activation.
 	cmds = append(cmds, a.center.ReattachActiveTabIfDetached())
-	cmds = append(cmds, a.enforceAttachedTabLimit())
+	cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 	return cmds
 }
 

@@ -159,10 +159,29 @@ func (m *Model) ReattachActiveTabIfDetached() tea.Cmd {
 	return m.reattachActiveTabIfDetached()
 }
 
+func (m *Model) autoReattachActiveTabOnSelection() tea.Cmd {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx < 0 || activeIdx >= len(tabs) {
+		return nil
+	}
+	tab := tabs[activeIdx]
+	if tab == nil {
+		return nil
+	}
+	tab.mu.Lock()
+	detached := tab.Detached
+	tab.mu.Unlock()
+	if !detached {
+		return nil
+	}
+	return m.ReattachActiveTab()
+}
+
 func (m *Model) tabSelectionCommand() tea.Cmd {
 	return common.SafeBatch(
 		m.tabSelectionChangedCmd(),
-		m.reattachActiveTabIfDetached(),
+		m.autoReattachActiveTabOnSelection(),
 	)
 }
 
