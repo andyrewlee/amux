@@ -6,59 +6,85 @@ import (
 	"testing"
 )
 
-func TestNormalizePath_KeepsRelativePathStable(t *testing.T) {
+func TestNormalizePath_ReResolvesAfterPathCreated(t *testing.T) {
 	base := t.TempDir()
-	prevWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
+	realRoot := filepath.Join(base, "real")
+	if err := os.MkdirAll(realRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(realRoot) error = %v", err)
 	}
-	if err := os.Chdir(base); err != nil {
-		t.Fatalf("Chdir(%s) error = %v", base, err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(prevWD)
-	})
 
-	if got := NormalizePath("./repo/../repo"); got != "repo" {
-		t.Fatalf("NormalizePath(relative) = %q, want %q", got, "repo")
+	linkRoot := filepath.Join(base, "link")
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	missingViaLink := filepath.Join(linkRoot, "new-workspace")
+
+	first := NormalizePath(missingViaLink)
+	if first != filepath.Clean(missingViaLink) {
+		t.Fatalf("first normalization = %q, want %q", first, filepath.Clean(missingViaLink))
+	}
+
+	realPath := filepath.Join(realRoot, "new-workspace")
+	if err := os.MkdirAll(realPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(realPath) error = %v", err)
+	}
+
+	second := NormalizePath(missingViaLink)
+	resolvedReal, err := filepath.EvalSymlinks(realPath)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(realPath) error = %v", err)
+	}
+	want := filepath.Clean(resolvedReal)
+	if second != want {
+		t.Fatalf("second normalization = %q, want %q", second, want)
 	}
 }
 
-func TestWorkspaceID_RelativePathsIndependentOfCWD(t *testing.T) {
+func TestNormalizePath_ReResolvesAfterSymlinkRetarget(t *testing.T) {
 	base := t.TempDir()
-	firstWD := filepath.Join(base, "first")
-	secondWD := filepath.Join(base, "second")
-	if err := os.MkdirAll(firstWD, 0o755); err != nil {
-		t.Fatalf("MkdirAll(firstWD) error = %v", err)
+
+	realA := filepath.Join(base, "real-a")
+	realB := filepath.Join(base, "real-b")
+	workspaceA := filepath.Join(realA, "workspace")
+	workspaceB := filepath.Join(realB, "workspace")
+	if err := os.MkdirAll(workspaceA, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspaceA) error = %v", err)
 	}
-	if err := os.MkdirAll(secondWD, 0o755); err != nil {
-		t.Fatalf("MkdirAll(secondWD) error = %v", err)
+	if err := os.MkdirAll(workspaceB, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspaceB) error = %v", err)
 	}
 
-	prevWD, err := os.Getwd()
+	linkRoot := filepath.Join(base, "link-root")
+	if err := os.Symlink(realA, linkRoot); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	pathViaLink := filepath.Join(linkRoot, "workspace")
+	first := NormalizePath(pathViaLink)
+	resolvedA, err := filepath.EvalSymlinks(workspaceA)
 	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
+		t.Fatalf("EvalSymlinks(workspaceA) error = %v", err)
 	}
-	t.Cleanup(func() {
-		_ = os.Chdir(prevWD)
-	})
-
-	ws := Workspace{
-		Repo: "./repo",
-		Root: "./repo/.amux/workspaces/feature",
+	wantFirst := filepath.Clean(resolvedA)
+	if first != wantFirst {
+		t.Fatalf("first normalization = %q, want %q", first, wantFirst)
 	}
 
-	if err := os.Chdir(firstWD); err != nil {
-		t.Fatalf("Chdir(firstWD) error = %v", err)
+	if err := os.Remove(linkRoot); err != nil {
+		t.Fatalf("Remove(linkRoot) error = %v", err)
 	}
-	idFromFirstWD := ws.ID()
-
-	if err := os.Chdir(secondWD); err != nil {
-		t.Fatalf("Chdir(secondWD) error = %v", err)
+	if err := os.Symlink(realB, linkRoot); err != nil {
+		t.Fatalf("Symlink(realB) error = %v", err)
 	}
-	idFromSecondWD := ws.ID()
 
-	if idFromFirstWD != idFromSecondWD {
-		t.Fatalf("workspace IDs should be stable across CWD changes: %q vs %q", idFromFirstWD, idFromSecondWD)
+	second := NormalizePath(pathViaLink)
+	resolvedB, err := filepath.EvalSymlinks(workspaceB)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(workspaceB) error = %v", err)
+	}
+	wantSecond := filepath.Clean(resolvedB)
+	if second != wantSecond {
+		t.Fatalf("second normalization = %q, want %q", second, wantSecond)
 	}
 }

@@ -113,10 +113,13 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneSidebar:
 			a.sidebar.NextTab()
 		default:
-			if cmd := a.center.NextTab(); cmd != nil {
-				return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			_, activeIdxBefore := a.center.GetTabsInfo()
+			cmd := a.center.NextTab()
+			_, activeIdxAfter := a.center.GetTabsInfo()
+			if activeIdxAfter == activeIdxBefore {
+				return true, nil
 			}
-			return true, a.persistActiveWorkspaceTabs()
+			return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 		}
 		return true, nil
 
@@ -127,10 +130,13 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		case messages.PaneSidebar:
 			a.sidebar.PrevTab()
 		default:
-			if cmd := a.center.PrevTab(); cmd != nil {
-				return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			_, activeIdxBefore := a.center.GetTabsInfo()
+			cmd := a.center.PrevTab()
+			_, activeIdxAfter := a.center.GetTabsInfo()
+			if activeIdxAfter == activeIdxBefore {
+				return true, nil
 			}
-			return true, a.persistActiveWorkspaceTabs()
+			return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 		}
 		return true, nil
 
@@ -218,10 +224,12 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		r := runes[0]
 		if r >= '1' && r <= '9' {
 			index := int(r - '1')
-			if cmd := a.center.SelectTab(index); cmd != nil {
-				return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			tabs, activeIdx := a.center.GetTabsInfo()
+			if index < 0 || index >= len(tabs) || index == activeIdx {
+				return true, nil
 			}
-			return true, a.persistActiveWorkspaceTabs()
+			cmd := a.center.SelectTab(index)
+			return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 		}
 	}
 

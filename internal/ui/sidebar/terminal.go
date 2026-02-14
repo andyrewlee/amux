@@ -195,8 +195,8 @@ func (m *TerminalModel) AddTerminalForHarness(ws *data.Workspace) {
 	if ws == nil {
 		return
 	}
-	m.workspace = ws
-	wsID := string(ws.ID())
+	m.setWorkspace(ws)
+	wsID := m.workspaceID()
 	if len(m.tabsByWorkspace[wsID]) > 0 {
 		return
 	}
@@ -237,6 +237,11 @@ func (m *TerminalModel) workspaceID() string {
 		return ""
 	}
 	return string(m.workspace.ID())
+}
+
+// setWorkspace sets the current workspace reference.
+func (m *TerminalModel) setWorkspace(ws *data.Workspace) {
+	m.workspace = ws
 }
 
 // getTabs returns the tabs for the current workspace
@@ -352,13 +357,13 @@ func (m *TerminalModel) Focused() bool {
 
 // SetWorkspace sets the active workspace and creates terminal tab if needed
 func (m *TerminalModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
-	m.workspace = ws
+	m.setWorkspace(ws)
 	if ws == nil {
 		m.refreshTerminalSize()
 		return nil
 	}
 
-	wsID := string(ws.ID())
+	wsID := m.workspaceID()
 	if len(m.tabsByWorkspace[wsID]) > 0 {
 		// Tabs already exist for this workspace
 		m.refreshTerminalSize()
@@ -376,7 +381,7 @@ func (m *TerminalModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
 
 // SetWorkspacePreview sets the active workspace without creating tabs.
 func (m *TerminalModel) SetWorkspacePreview(ws *data.Workspace) {
-	m.workspace = ws
+	m.setWorkspace(ws)
 }
 
 // EnsureTerminalTab creates a terminal tab if none exists for the current workspace.
