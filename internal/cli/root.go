@@ -159,9 +159,9 @@ func routeWorkspace(w, wErr io.Writer, gf GlobalFlags, args []string, version st
 func routeAgent(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
 	if len(args) == 0 {
 		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux agent <list|capture|run|send|stop|job> [flags]", nil, version)
+			ReturnError(w, "usage_error", "Usage: amux agent <list|capture|run|send|stop|watch|job> [flags]", nil, version)
 		} else {
-			fmt.Fprintln(wErr, "Usage: amux agent <list|capture|run|send|stop|job> [flags]")
+			fmt.Fprintln(wErr, "Usage: amux agent <list|capture|run|send|stop|watch|job> [flags]")
 		}
 		return ExitUsage
 	}
@@ -178,6 +178,8 @@ func routeAgent(w, wErr io.Writer, gf GlobalFlags, args []string, version string
 		return cmdAgentSend(w, wErr, gf, subArgs, version)
 	case "stop":
 		return cmdAgentStop(w, wErr, gf, subArgs, version)
+	case "watch":
+		return cmdAgentWatch(w, wErr, gf, subArgs, version)
 	case "job":
 		return routeAgentJob(w, wErr, gf, subArgs, version)
 	default:
@@ -211,6 +213,7 @@ Commands:
   agent run           Start an agent
   agent send          Send text to an agent
   agent stop          Stop an agent
+  agent watch         Watch agent output (NDJSON stream)
   agent job status    Get queued send job status
   agent job cancel    Cancel queued send job (pending only)
   agent job wait      Wait for queued send job completion

@@ -44,6 +44,7 @@ func cmdCapabilities(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 			"agent run",
 			"agent send",
 			"agent stop",
+			"agent watch",
 			"agent job status",
 			"agent job cancel",
 			"agent job wait",
