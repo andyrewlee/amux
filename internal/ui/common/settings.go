@@ -19,6 +19,7 @@ type SettingsResult struct {
 	SyncProfilePlugins bool
 	GlobalPermissions  bool
 	AutoAddPermissions bool
+	BellOnReady        bool
 	TmuxPersistence    bool
 	TmuxServer         string
 	TmuxConfigPath     string
@@ -39,6 +40,7 @@ const (
 	settingsItemKeymap settingsItem = iota
 	settingsItemHideSidebar
 	settingsItemSyncPlugins
+	settingsItemBellOnReady
 	settingsItemGlobalPerms
 	settingsItemEditPermissions
 	settingsItemAutoAddPerms
@@ -67,6 +69,7 @@ type SettingsDialog struct {
 	syncProfilePlugins bool
 	globalPerms        bool
 	autoAddPerms       bool
+	bellOnReady        bool
 	tmuxPersistence    bool
 	tmuxServer         textinput.Model
 	tmuxConfig         textinput.Model
@@ -93,7 +96,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms, bellOnReady, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	serverInput := textinput.New()
 	serverInput.Placeholder = "default"
 	serverInput.SetWidth(24)
@@ -120,6 +123,7 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoS
 		syncProfilePlugins: syncProfilePlugins,
 		globalPerms:        globalPerms,
 		autoAddPerms:       autoAddPerms,
+		bellOnReady:        bellOnReady,
 		tmuxPersistence:    tmuxPersistence,
 		tmuxServer:         serverInput,
 		tmuxConfig:         configInput,
@@ -235,6 +239,10 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.hideSidebar = !s.hideSidebar
 		return s, nil
 
+	case settingsItemBellOnReady:
+		s.bellOnReady = !s.bellOnReady
+		return s, nil
+
 	case settingsItemAutoStart:
 		s.autoStartAgent = !s.autoStartAgent
 		return s, nil
@@ -287,6 +295,7 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 				SyncProfilePlugins: s.syncProfilePlugins,
 				GlobalPermissions:  s.globalPerms,
 				AutoAddPermissions: s.autoAddPerms,
+				BellOnReady:        s.bellOnReady,
 				TmuxPersistence:    s.tmuxPersistence,
 				TmuxServer:         strings.TrimSpace(s.tmuxServer.Value()),
 				TmuxConfigPath:     strings.TrimSpace(s.tmuxConfig.Value()),

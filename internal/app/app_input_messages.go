@@ -161,6 +161,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.centerBtnIndex = 0
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
+	if msg.Workspace != nil {
+		a.dashboard.ClearReady(string(msg.Workspace.ID()))
+	}
 	// Discover shared tmux tabs first; restore/sync happens below.
 	if discoverCmd := a.discoverWorkspaceTabsFromTmux(msg.Workspace); discoverCmd != nil {
 		cmds = append(cmds, discoverCmd)
@@ -325,6 +328,9 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
+	if msg.Workspace != nil {
+		a.dashboard.ClearReady(string(msg.Workspace.ID()))
+	}
 	// Sync active workspaces to dashboard (fixes spinner race condition)
 	if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
 		cmds = append(cmds, startCmd)
@@ -906,6 +912,7 @@ func (a *App) handleShowSettingsDialog() {
 		a.config.UI.SyncProfilePlugins,
 		a.config.UI.GlobalPermissions,
 		a.config.UI.AutoAddPermissions,
+		a.config.UI.BellOnReady,
 		a.config.UI.TmuxPersistence,
 		a.config.UI.TmuxServer,
 		a.config.UI.TmuxConfigPath,
@@ -1026,6 +1033,9 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		} else if !msg.SyncProfilePlugins && oldSync {
 			_ = config.UnsyncAllProfiles(a.config.Paths.ProfilesRoot)
 		}
+
+		// Apply bell on ready setting
+		a.config.UI.BellOnReady = msg.BellOnReady
 
 		// Apply global permissions settings
 		oldGlobalPerms := a.config.UI.GlobalPermissions
@@ -1530,6 +1540,7 @@ func (a *App) handleGroupWorkspaceActivated(msg messages.GroupWorkspaceActivated
 	a.activeWorkspace = &msg.Workspace.Primary
 	a.center.SetWorkspace(&msg.Workspace.Primary)
 	a.sidebar.SetWorkspace(&msg.Workspace.Primary)
+	a.dashboard.ClearReady(string(msg.Workspace.Primary.ID()))
 
 	// Set up file watching and git status for each repo worktree
 	if !a.layout.SidebarHidden() {
@@ -1596,6 +1607,7 @@ func (a *App) handleGroupWorkspacePreviewed(msg messages.GroupWorkspacePreviewed
 	a.center.SetWorkspace(&msg.Workspace.Primary)
 	a.sidebar.SetWorkspace(&msg.Workspace.Primary)
 	a.sidebarTerminal.SetWorkspacePreview(&msg.Workspace.Primary)
+	a.dashboard.ClearReady(string(msg.Workspace.Primary.ID()))
 
 	if msg.Workspace.Primary.Root != "" && a.statusManager != nil {
 		if cached := a.statusManager.GetCached(msg.Workspace.Primary.Root); cached != nil {
