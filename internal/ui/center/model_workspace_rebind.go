@@ -21,10 +21,27 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 	}
 
 	oldTabs, ok := m.tabsByWorkspace[oldID]
-	if !ok || len(oldTabs) == 0 {
+	if !ok {
 		if m.workspace != nil && m.workspaceID() == oldID {
 			m.setWorkspace(current)
 		}
+		return nil
+	}
+	if len(oldTabs) == 0 {
+		if _, exists := m.tabsByWorkspace[newID]; !exists {
+			m.tabsByWorkspace[newID] = []*Tab{}
+		}
+		if activeIdx, hasOldActive := m.activeTabByWorkspace[oldID]; hasOldActive {
+			if _, hasNewActive := m.activeTabByWorkspace[newID]; !hasNewActive {
+				m.activeTabByWorkspace[newID] = activeIdx
+			}
+			delete(m.activeTabByWorkspace, oldID)
+		}
+		delete(m.tabsByWorkspace, oldID)
+		if m.workspace != nil && m.workspaceID() == oldID {
+			m.setWorkspace(current)
+		}
+		m.noteTabsChanged()
 		return nil
 	}
 

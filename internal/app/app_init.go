@@ -71,9 +71,9 @@ func New(version, commit, date string) (*App, error) {
 	stateWatcherCh := make(chan messages.StateWatcherEvent, 10)
 
 	// Create state watcher with callback that sends to channel
-	stateWatcher, stateWatcherErr := newStateWatcher(cfg.Paths.RegistryPath, cfg.Paths.MetadataRoot, func(reason string) {
+	stateWatcher, stateWatcherErr := newStateWatcher(cfg.Paths.RegistryPath, cfg.Paths.MetadataRoot, func(reason string, paths []string) {
 		select {
-		case stateWatcherCh <- messages.StateWatcherEvent{Reason: reason}:
+		case stateWatcherCh <- messages.StateWatcherEvent{Reason: reason, Paths: paths}:
 		default:
 			// Channel full, drop event (will catch on next change)
 		}
@@ -119,6 +119,7 @@ func New(version, commit, date string) (*App, error) {
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
 		sessionActivityStates:  make(map[string]*sessionActivityState),
 		dirtyWorkspaces:        make(map[string]bool),
+		localWorkspaceSavesAt:  make(map[string]localWorkspaceSaveMarker),
 		creatingWorkspaceIDs:   make(map[string]bool),
 		maxAttachedAgentTabs:   maxAttachedAgentTabsFromEnv(),
 	}

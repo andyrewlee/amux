@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,18 +22,19 @@ type stateWatcher struct {
 	registryDir  string
 	metadataRoot string
 
-	onChanged func(reason string)
+	onChanged func(reason string, paths []string)
 	debounce  time.Duration
 
 	mu            sync.Mutex
 	timer         *time.Timer
 	pendingReason string
+	pendingPaths  map[string]struct{}
 	closed        bool
 	closeOnce     sync.Once
 	metadataDirs  map[string]struct{}
 }
 
-func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason string)) (*stateWatcher, error) {
+func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason string, paths []string)) (*stateWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -75,9 +78,9 @@ func (sw *stateWatcher) Run(ctx context.Context) error {
 			}
 			switch {
 			case sw.isRegistryEvent(event):
-				sw.scheduleNotify("registry")
+				sw.scheduleNotify("registry", filepath.Clean(event.Name))
 			case sw.handleMetadataEvent(event):
-				sw.scheduleNotify("workspaces")
+				sw.scheduleNotify("workspaces", filepath.Clean(event.Name))
 			}
 		case _, ok := <-sw.watcher.Errors:
 			if !ok {
@@ -186,6 +189,12 @@ func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 		return false
 	}
 
+	// Workspace metadata writes (e.g. workspace.json) should trigger a refresh so
+	// live TUI instances pick up externally created/removed tabs.
+	if sw.isWorkspaceMetadataEvent(name, event.Op) {
+		return true
+	}
+
 	parent := filepath.Dir(name)
 
 	// Direct child of metadata root = workspace directory event.
@@ -207,6 +216,23 @@ func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 	return false
 }
 
+func (sw *stateWatcher) isWorkspaceMetadataEvent(path string, op fsnotify.Op) bool {
+	if sw.metadataRoot == "" {
+		return false
+	}
+	if op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
+		return false
+	}
+	if filepath.Base(path) != "workspace.json" {
+		return false
+	}
+	parent := filepath.Dir(path)
+	if parent == sw.metadataRoot {
+		return false
+	}
+	return filepath.Dir(parent) == sw.metadataRoot
+}
+
 // looksLikeDir returns true if the path is likely a directory.
 // Falls back to checking for an extensionless basename when stat fails
 // (e.g. the path was already removed).
@@ -218,7 +244,7 @@ func (sw *stateWatcher) looksLikeDir(path string) bool {
 	return filepath.Ext(filepath.Base(path)) == ""
 }
 
-func (sw *stateWatcher) scheduleNotify(reason string) {
+func (sw *stateWatcher) scheduleNotify(reason, path string) {
 	if sw.onChanged == nil {
 		return
 	}
@@ -228,6 +254,12 @@ func (sw *stateWatcher) scheduleNotify(reason string) {
 		return
 	}
 	sw.pendingReason = reason
+	if path = strings.TrimSpace(path); path != "" {
+		if sw.pendingPaths == nil {
+			sw.pendingPaths = make(map[string]struct{})
+		}
+		sw.pendingPaths[path] = struct{}{}
+	}
 	if sw.timer == nil {
 		sw.timer = time.AfterFunc(sw.debounce, sw.fire)
 	} else {
@@ -244,10 +276,20 @@ func (sw *stateWatcher) fire() {
 	}
 	reason := sw.pendingReason
 	sw.pendingReason = ""
+	pathsMap := sw.pendingPaths
+	sw.pendingPaths = nil
 	sw.timer = nil
 	sw.mu.Unlock()
 
 	if sw.onChanged != nil {
-		sw.onChanged(reason)
+		var paths []string
+		if len(pathsMap) > 0 {
+			paths = make([]string, 0, len(pathsMap))
+			for path := range pathsMap {
+				paths = append(paths, path)
+			}
+			sort.Strings(paths)
+		}
+		sw.onChanged(reason, paths)
 	}
 }

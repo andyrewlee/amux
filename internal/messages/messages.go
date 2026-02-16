@@ -302,6 +302,7 @@ type FileWatcherEvent struct {
 // StateWatcherEvent is sent when amux state files change on disk.
 type StateWatcherEvent struct {
 	Reason string
+	Paths  []string
 }
 
 // SidebarPTYOutput contains PTY output for sidebar terminal
