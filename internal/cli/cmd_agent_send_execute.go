@@ -169,10 +169,10 @@ func executeAgentSendJob(
 		if gf.JSON {
 			return returnJSONErrorMaybeIdempotent(
 				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_not_found", "send job not found", map[string]any{"job_id": job.ID},
+				ExitInternalError, "job_not_found", "send job not found", map[string]any{"job_id": jobID},
 			)
 		}
-		Errorf(wErr, "send job %s not found", job.ID)
+		Errorf(wErr, "send job %s not found", jobID)
 		return ExitInternalError
 	}
 

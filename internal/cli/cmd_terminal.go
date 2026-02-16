@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -282,14 +283,14 @@ func cmdTerminalLogs(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		return returnUsageError(w, wErr, gf, usage, version, nil)
 	}
 	if *lines <= 0 {
-		return returnUsageError(w, wErr, gf, usage, version, fmt.Errorf("--lines must be > 0"))
+		return returnUsageError(w, wErr, gf, usage, version, errors.New("--lines must be > 0"))
 	}
 	if *follow {
 		if *interval <= 0 {
-			return returnUsageError(w, wErr, gf, usage, version, fmt.Errorf("--interval must be > 0"))
+			return returnUsageError(w, wErr, gf, usage, version, errors.New("--interval must be > 0"))
 		}
 		if *idleThreshold <= 0 {
-			return returnUsageError(w, wErr, gf, usage, version, fmt.Errorf("--idle-threshold must be > 0"))
+			return returnUsageError(w, wErr, gf, usage, version, errors.New("--idle-threshold must be > 0"))
 		}
 	}
 
@@ -406,11 +407,11 @@ func resolveTerminalSessionForWorkspace(wsID data.WorkspaceID, opts tmux.Options
 
 func createWorkspaceTerminalSession(ws *data.Workspace, wsID data.WorkspaceID, opts tmux.Options) (string, error) {
 	if ws == nil {
-		return "", fmt.Errorf("workspace is required")
+		return "", errors.New("workspace is required")
 	}
 	root := strings.TrimSpace(ws.Root)
 	if root == "" {
-		return "", fmt.Errorf("workspace root is empty")
+		return "", errors.New("workspace root is empty")
 	}
 
 	tabID := "term-tab-" + strconv.FormatInt(time.Now().UnixNano(), 36)

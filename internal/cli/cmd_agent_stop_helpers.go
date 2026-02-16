@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -61,4 +61,4 @@ func removeTabFromStore(svc *Services, sessionName string) {
 
 // errNoChange is a sentinel used by removeTabFromStore to signal that the
 // workspace did not contain the target tab and should not be re-saved.
-var errNoChange = fmt.Errorf("no change")
+var errNoChange = errors.New("no change")

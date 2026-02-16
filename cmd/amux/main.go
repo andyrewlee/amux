@@ -36,6 +36,7 @@ var (
 var cliCommands = map[string]bool{
 	"status": true, "doctor": true, "logs": true,
 	"workspace": true, "agent": true, "session": true, "project": true,
+	"terminal":     true,
 	"capabilities": true,
 	"version":      true, "help": true,
 }

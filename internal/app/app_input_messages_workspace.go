@@ -299,7 +299,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	assistant := strings.TrimSpace(msg.Assistant)
 	if assistant == "" {
 		cmds = append(cmds, func() tea.Msg {
-			return messages.WorkspaceCreateFailed{Err: fmt.Errorf("assistant is required")}
+			return messages.WorkspaceCreateFailed{Err: errors.New("assistant is required")}
 		})
 		return cmds
 	}
