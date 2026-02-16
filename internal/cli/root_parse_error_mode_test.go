@@ -48,3 +48,19 @@ func TestRunParseErrorUsesJSONWhenTrailingGlobalJSONFollowsMalformedGlobal(t *te
 		t.Fatalf("unexpected parse error message: %#v", env.Error)
 	}
 }
+
+func TestRunParseErrorTerminalTextValueJSONTokenDoesNotForceJSON(t *testing.T) {
+	code, stdout, stderr := runWithCapturedStdIO(
+		t,
+		[]string{"terminal", "run", "--workspace", "0123456789abcdef", "--text", "--json", "--cwd"},
+	)
+	if code != ExitUsage {
+		t.Fatalf("Run() code = %d, want %d", code, ExitUsage)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("expected empty stdout in human parse-error mode, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "flag provided but not defined: -cwd") {
+		t.Fatalf("expected parse error on stderr, got %q", stderr)
+	}
+}

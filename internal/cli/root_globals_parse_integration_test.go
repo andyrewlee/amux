@@ -132,6 +132,30 @@ func TestParseGlobalFlags(t *testing.T) {
 			wantGF:   GlobalFlags{JSON: true},
 			wantRest: []string{"session", "prune", "--older-than", "30m"},
 		},
+		{
+			name:     "terminal run local text value that looks global is preserved",
+			args:     []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text", "--json"},
+			wantGF:   GlobalFlags{},
+			wantRest: []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text", "--json"},
+		},
+		{
+			name:     "terminal run global between command and subcommand extracted",
+			args:     []string{"terminal", "--json", "run", "--workspace", "0123456789abcdef", "--text", "npm run dev"},
+			wantGF:   GlobalFlags{JSON: true},
+			wantRest: []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text", "npm run dev"},
+		},
+		{
+			name:     "terminal run preserves unquoted command tail that looks global",
+			args:     []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text", "npm", "--quiet"},
+			wantGF:   GlobalFlags{},
+			wantRest: []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text", "npm", "--quiet"},
+		},
+		{
+			name:     "terminal run preserves command tail after text equals form",
+			args:     []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text=npm", "--cwd"},
+			wantGF:   GlobalFlags{},
+			wantRest: []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text=npm", "--cwd"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -105,6 +105,52 @@ func TestRouteAgentJSON(t *testing.T) {
 	}
 }
 
+func TestRouteTerminalJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantCode string
+		wantMsg  string
+	}{
+		{
+			name:     "empty args",
+			args:     nil,
+			wantCode: "usage_error",
+			wantMsg:  "Usage: amux terminal",
+		},
+		{
+			name:     "unknown subcommand",
+			args:     []string{"bogus"},
+			wantCode: "unknown_command",
+			wantMsg:  "Unknown terminal subcommand: bogus",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var w bytes.Buffer
+			var wErr bytes.Buffer
+			gf := GlobalFlags{JSON: true}
+			code := routeTerminal(&w, &wErr, gf, tt.args, "test")
+			if code != ExitUsage {
+				t.Fatalf("exit code = %d, want %d", code, ExitUsage)
+			}
+			var env Envelope
+			if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+				t.Fatalf("failed to parse JSON output: %v\nraw: %s", err, w.String())
+			}
+			if env.OK {
+				t.Fatalf("expected ok=false")
+			}
+			if env.Error.Code != tt.wantCode {
+				t.Errorf("error code = %q, want %q", env.Error.Code, tt.wantCode)
+			}
+			if !strings.Contains(env.Error.Message, tt.wantMsg) {
+				t.Errorf("error message = %q, want to contain %q", env.Error.Message, tt.wantMsg)
+			}
+		})
+	}
+}
+
 func TestCommandFromArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -117,6 +163,7 @@ func TestCommandFromArgs(t *testing.T) {
 		{name: "agent job status", args: []string{"agent", "job", "status", "id"}, want: "agent job status"},
 		{name: "agent job wait", args: []string{"agent", "job", "wait", "id"}, want: "agent job wait"},
 		{name: "workspace list", args: []string{"workspace", "list"}, want: "workspace list"},
+		{name: "terminal logs", args: []string{"terminal", "logs", "--workspace", "abc"}, want: "terminal logs"},
 	}
 
 	for _, tt := range tests {

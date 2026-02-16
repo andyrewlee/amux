@@ -114,21 +114,25 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 	// Initial capture → snapshot
 	content, ok := capture(cfg.SessionName, cfg.Lines, opts)
 	if !ok {
-		emitEvent(enc, watchEvent{
+		if !emitEvent(enc, watchEvent{
 			Type:      "exited",
 			Timestamp: now(),
-		})
+		}) {
+			return ExitOK
+		}
 		return ExitOK
 	}
 
 	lastHash = tmux.ContentHash(content)
 	lastLines = strings.Split(content, "\n")
-	emitEvent(enc, watchEvent{
+	if !emitEvent(enc, watchEvent{
 		Type:      "snapshot",
 		Content:   content,
 		Hash:      hashStr(lastHash),
 		Timestamp: now(),
-	})
+	}) {
+		return ExitOK
+	}
 
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
@@ -142,10 +146,12 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 
 		content, ok = capture(cfg.SessionName, cfg.Lines, opts)
 		if !ok {
-			emitEvent(enc, watchEvent{
+			if !emitEvent(enc, watchEvent{
 				Type:      "exited",
 				Timestamp: now(),
-			})
+			}) {
+				return ExitOK
+			}
 			return ExitOK
 		}
 
@@ -154,12 +160,14 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 			// No change — check idle threshold
 			elapsed := time.Since(lastChangeTime)
 			if elapsed >= cfg.IdleThreshold && !emittedIdle {
-				emitEvent(enc, watchEvent{
+				if !emitEvent(enc, watchEvent{
 					Type:        "idle",
 					IdleSeconds: elapsed.Seconds(),
 					Hash:        hashStr(hash),
 					Timestamp:   now(),
-				})
+				}) {
+					return ExitOK
+				}
 				emittedIdle = true
 			}
 			continue
@@ -176,12 +184,14 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 			continue
 		}
 
-		emitEvent(enc, watchEvent{
+		if !emitEvent(enc, watchEvent{
 			Type:      "delta",
 			NewLines:  newLines,
 			Hash:      hashStr(hash),
 			Timestamp: now(),
-		})
+		}) {
+			return ExitOK
+		}
 
 		lastHash = hash
 		lastLines = currentLines
@@ -238,8 +248,8 @@ func verifyOverlap(previous, current []string, endIdx int) bool {
 	return true
 }
 
-func emitEvent(enc *json.Encoder, event watchEvent) {
-	_ = enc.Encode(event)
+func emitEvent(enc *json.Encoder, event watchEvent) bool {
+	return enc.Encode(event) == nil
 }
 
 func hashStr(h [16]byte) string {

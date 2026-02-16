@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -311,6 +312,39 @@ func TestWatchExitsOnContextCancel(t *testing.T) {
 	}
 	if events[0].Type != "snapshot" {
 		t.Errorf("events[0].Type = %q, want snapshot", events[0].Type)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write(_ []byte) (int, error) {
+	return 0, errors.New("broken pipe")
+}
+
+func TestWatchExitsWhenOutputWriterFails(t *testing.T) {
+	capture := fakeCaptureFunc(func(_ int) (string, bool) {
+		return "hello", true
+	})
+
+	cfg := watchConfig{
+		SessionName:   "test-session",
+		Lines:         100,
+		Interval:      1 * time.Millisecond,
+		IdleThreshold: 1 * time.Nanosecond,
+	}
+
+	done := make(chan int, 1)
+	go func() {
+		done <- runWatchLoopWith(context.Background(), failingWriter{}, cfg, tmux.Options{}, capture)
+	}()
+
+	select {
+	case code := <-done:
+		if code != ExitOK {
+			t.Fatalf("exit code = %d, want %d", code, ExitOK)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("watch loop did not exit after writer failure")
 	}
 }
 

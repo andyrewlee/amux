@@ -33,7 +33,7 @@ func ParseGlobalFlags(args []string) (GlobalFlags, []string, error) {
 		return gf, nil, nil
 	}
 
-	pathTokenIndexes, localValueFlags, err := commandPathParseRules(rest)
+	pathTokenIndexes, localValueFlags, pathKey, err := commandPathParseRules(rest)
 	if err != nil {
 		return gf, nil, err
 	}
@@ -56,6 +56,12 @@ func ParseGlobalFlags(args []string) (GlobalFlags, []string, error) {
 
 		if localFlagRequiresValue(localValueFlags, arg) {
 			filtered = append(filtered, arg)
+			if localFlagConsumesRemainder(pathKey, arg) {
+				if j+1 < len(rest) {
+					filtered = append(filtered, rest[j+1:]...)
+				}
+				break
+			}
 			if !strings.Contains(arg, "=") {
 				expectLocalValue = true
 			}
@@ -164,12 +170,12 @@ func parseGlobalFlagAt(args []string, i int, gf *GlobalFlags) (bool, int, error)
 	return false, i + 1, nil
 }
 
-func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}, error) {
+func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}, string, error) {
 	if len(args) == 0 {
-		return nil, nil, nil
+		return nil, nil, "", nil
 	}
 	if strings.HasPrefix(args[0], "-") {
-		return nil, nil, nil
+		return nil, nil, "", nil
 	}
 
 	pathTokens := []string{args[0]}
@@ -177,10 +183,10 @@ func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}
 
 	next := 1
 	switch args[0] {
-	case "workspace", "logs", "agent", "session", "project":
+	case "workspace", "logs", "agent", "session", "project", "terminal":
 		token, idx, following, ok, err := nextCommandToken(args, next)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, "", err
 		}
 		if ok {
 			pathTokens = append(pathTokens, token)
@@ -192,7 +198,7 @@ func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}
 	if len(pathTokens) >= 2 && args[0] == "agent" && pathTokens[1] == "job" {
 		token, idx, _, ok, err := nextCommandToken(args, next)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, "", err
 		}
 		if ok {
 			pathTokens = append(pathTokens, token)
@@ -206,7 +212,7 @@ func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}
 	}
 
 	pathKey := strings.Join(pathTokens, " ")
-	return tokenIndexSet, localFlagsRequiringValue(pathKey), nil
+	return tokenIndexSet, localFlagsRequiringValue(pathKey), pathKey, nil
 }
 
 func nextCommandToken(args []string, start int) (token string, tokenIndex, next int, ok bool, err error) {
@@ -275,6 +281,20 @@ func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 		return map[string]struct{}{
 			"--idempotency-key": {},
 		}
+	case "terminal list":
+		return map[string]struct{}{"--workspace": {}}
+	case "terminal run":
+		return map[string]struct{}{
+			"--workspace": {},
+			"--text":      {},
+		}
+	case "terminal logs":
+		return map[string]struct{}{
+			"--workspace":      {},
+			"--lines":          {},
+			"--interval":       {},
+			"--idle-threshold": {},
+		}
 	case "logs tail":
 		return map[string]struct{}{"--lines": {}}
 	case "session prune":
@@ -295,4 +315,11 @@ func localFlagRequiresValue(localValueFlags map[string]struct{}, arg string) boo
 	}
 	_, ok := localValueFlags[name]
 	return ok
+}
+
+func localFlagConsumesRemainder(pathKey, arg string) bool {
+	if pathKey != "terminal run" {
+		return false
+	}
+	return arg == "--text" || strings.HasPrefix(arg, "--text=")
 }

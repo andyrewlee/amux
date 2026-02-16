@@ -71,6 +71,8 @@ func Run(args []string, version, commit, date string) int {
 		return routeAgent(w, wErr, gf, cmdArgs, version)
 	case "session":
 		return routeSession(w, wErr, gf, cmdArgs, version)
+	case "terminal":
+		return routeTerminal(w, wErr, gf, cmdArgs, version)
 	case "project":
 		return routeProject(w, wErr, gf, cmdArgs, version)
 	case "version":
@@ -221,6 +223,9 @@ Commands:
   agent job status    Get queued send job status
   agent job cancel    Cancel queued send job (pending only)
   agent job wait      Wait for queued send job completion
+  terminal list       List terminal sessions
+  terminal run        Send command to workspace terminal (auto-create if missing)
+  terminal logs       Capture/watch workspace terminal output
   project list        List registered projects
   project add         Register a project
   project remove      Unregister a project
@@ -254,7 +259,7 @@ func commandFromArgs(args []string) string {
 			return cmd + " " + args[1] + " " + args[2]
 		}
 		return cmd + " " + args[1]
-	case "workspace", "logs", "session", "project":
+	case "workspace", "logs", "session", "project", "terminal":
 		return cmd + " " + args[1]
 	default:
 		return cmd
