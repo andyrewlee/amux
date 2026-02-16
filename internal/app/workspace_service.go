@@ -290,7 +290,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		base = strings.TrimSpace(base)
 		if base == "" {
 			resolved, err := git.GetBaseBranch(project.Path)
-			if err != nil || !git.BranchExists(project.Path, resolved) {
+			if err != nil {
 				base = "HEAD"
 			} else {
 				base = resolved

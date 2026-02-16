@@ -82,8 +82,8 @@ func TestCreateWorkspaceEmptyBaseDefaultsToDefaultBranch(t *testing.T) {
 		return errors.New("stop")
 	}
 
-	// /tmp/repo is not a real git repo, so GetBaseBranch returns "main"
-	// but BranchExists fails, causing fallback to "HEAD".
+	// /tmp/repo is not a real git repo, so GetBaseBranch returns an error
+	// and the fallback to "HEAD" is used.
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
 	cmd := svc.CreateWorkspace(project, "feature", "")

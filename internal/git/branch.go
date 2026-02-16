@@ -2,19 +2,21 @@ package git
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 )
 
 const branchDiffTimeout = 15 * time.Second
 
-// GetBaseBranch returns the base branch (main, master, or the default branch)
+// GetBaseBranch returns the base branch (main, master, or the default branch).
+// All returned branches are verified to exist locally. Returns an error if no
+// default branch can be determined.
 func GetBaseBranch(repoPath string) (string, error) {
 	// Try common base branch names in order of preference
 	candidates := []string{"main", "master", "develop", "dev"}
 
 	for _, branch := range candidates {
-		// Check if branch exists
 		_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
 		if err == nil {
 			return branch, nil
@@ -27,18 +29,16 @@ func GetBaseBranch(repoPath string) (string, error) {
 		// Output is like "refs/remotes/origin/main"
 		parts := strings.Split(output, "/")
 		if len(parts) > 0 {
-			return parts[len(parts)-1], nil
+			branch := parts[len(parts)-1]
+			// Verify the remote default branch exists locally
+			_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
+			if err == nil {
+				return branch, nil
+			}
 		}
 	}
 
-	// Fall back to "main" if nothing else works
-	return "main", nil
-}
-
-// BranchExists returns true if the given branch ref exists in the repo.
-func BranchExists(repoPath, branch string) bool {
-	_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
-	return err == nil
+	return "", errors.New("unable to determine default branch")
 }
 
 // GetBranchFileDiff returns the full diff for a single file on the branch

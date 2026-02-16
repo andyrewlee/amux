@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 )
 
 // shouldSurfaceWorkspace returns true for workspaces managed by amux for this
@@ -58,7 +59,12 @@ func (s *workspaceService) pendingWorkspace(project *data.Project, name, base st
 	}
 	base = strings.TrimSpace(base)
 	if base == "" {
-		base = "HEAD"
+		resolved, err := git.GetBaseBranch(project.Path)
+		if err != nil {
+			base = "HEAD"
+		} else {
+			base = resolved
+		}
 	}
 	projectRoot := s.pendingProjectRoot(project)
 	if projectRoot == "" {
