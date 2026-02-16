@@ -28,13 +28,11 @@ func GetBaseBranch(repoPath string) (string, error) {
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
 		parts := strings.Split(output, "/")
-		if len(parts) > 0 {
-			branch := parts[len(parts)-1]
-			// Verify the remote default branch exists locally
-			_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
-			if err == nil {
-				return branch, nil
-			}
+		branch := parts[len(parts)-1]
+		// Verify the remote default branch exists locally
+		_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
+		if err == nil {
+			return branch, nil
 		}
 	}
 

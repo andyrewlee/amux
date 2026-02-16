@@ -49,6 +49,21 @@ func (s *workspaceService) pendingProjectRoot(project *data.Project) string {
 	return filepath.Join(base, projectName)
 }
 
+// resolveBase returns the base branch to use for a new workspace. If base is
+// non-empty (after trimming) it is returned as-is; otherwise GetBaseBranch is
+// consulted, falling back to "HEAD" on error.
+func resolveBase(projectPath, base string) string {
+	base = strings.TrimSpace(base)
+	if base != "" {
+		return base
+	}
+	resolved, err := git.GetBaseBranch(projectPath)
+	if err != nil {
+		return "HEAD"
+	}
+	return resolved
+}
+
 func (s *workspaceService) pendingWorkspace(project *data.Project, name, base string) *data.Workspace {
 	if project == nil {
 		return nil
@@ -57,15 +72,7 @@ func (s *workspaceService) pendingWorkspace(project *data.Project, name, base st
 	if name == "" {
 		return nil
 	}
-	base = strings.TrimSpace(base)
-	if base == "" {
-		resolved, err := git.GetBaseBranch(project.Path)
-		if err != nil {
-			base = "HEAD"
-		} else {
-			base = resolved
-		}
-	}
+	base = resolveBase(project.Path, base)
 	projectRoot := s.pendingProjectRoot(project)
 	if projectRoot == "" {
 		return nil

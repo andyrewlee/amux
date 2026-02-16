@@ -287,15 +287,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 				Err: errors.New("missing project or workspace name"),
 			}
 		}
-		base = strings.TrimSpace(base)
-		if base == "" {
-			resolved, err := git.GetBaseBranch(project.Path)
-			if err != nil {
-				base = "HEAD"
-			} else {
-				base = resolved
-			}
-		}
+		base = resolveBase(project.Path, base)
 		ws = s.pendingWorkspace(project, name, base)
 		if ws == nil {
 			return messages.WorkspaceCreateFailed{
