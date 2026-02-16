@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"runtime/debug"
 
 	"charm.land/bubbles/v2/key"
@@ -45,7 +46,8 @@ func (a *App) safeBatch(cmds ...tea.Cmd) tea.Cmd {
 
 // syncActiveWorkspacesToDashboard syncs the active workspace state from center to dashboard.
 // This ensures the dashboard has current data for spinner state decisions.
-// Returns a command to start the spinner if any agent is running.
+// Returns a command to start the spinner if any agent is running, and rings
+// the terminal bell if any workspace just became ready for review.
 func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 	activeWorkspaces := make(map[string]bool)
 	for _, wsID := range a.center.GetActiveWorkspaceIDs() {
@@ -55,7 +57,23 @@ func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
-	return a.dashboard.SetWorkspaceAgentStates(a.center.GetWorkspaceAgentStates())
+	// Pass tmux-confirmed active set so ready detection is gated by content-hash
+	// verification, filtering out noise from tmux server-level redraws.
+	a.dashboard.SetTmuxConfirmedActive(a.tmuxActiveWorkspaceIDs)
+	spinnerCmd, newReady := a.dashboard.SetWorkspaceAgentStates(a.center.GetWorkspaceAgentStates())
+	if newReady && a.config.UI.BellOnReady {
+		return tea.Batch(spinnerCmd, ringBell())
+	}
+	return spinnerCmd
+}
+
+// ringBell sends a BEL character to stderr to produce an audible terminal bell.
+// Writing to stderr avoids interfering with Bubble Tea's alternate screen on stdout.
+func ringBell() tea.Cmd {
+	return func() tea.Msg {
+		_, _ = os.Stderr.WriteString("\a")
+		return nil
+	}
 }
 
 // handleKeyPress handles keyboard input

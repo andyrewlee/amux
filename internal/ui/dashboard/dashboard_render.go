@@ -96,6 +96,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		dirty := false
 
 		// Agent state indicator (spinner=active, ●=running, ○=idle)
+		// Spinner gated on tmux content-hash confirmation to prevent false
+		// spinners from tmux server-level redraws.
 		indicatorWidth := 2 // icon + space
 		agentState := 0
 		indicator := common.Icons.Idle + " "
@@ -104,9 +106,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
 				agentState = state
 				switch {
-				case state >= 2: // actively processing
+				case state >= 2 && m.tmuxConfirmedActive[wsID]: // genuinely active
 					indicator = common.SpinnerFrame(m.spinnerFrame) + " "
-				case state >= 1: // running but idle
+				case state >= 1: // running but idle (or unconfirmed active)
 					indicator = common.Icons.Running + " "
 				}
 			}
@@ -135,9 +137,15 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 
 		// Style indicator separately: primary for running/active, muted for idle
+		// Use warning color (yellow/orange) when workspace is ready for review
+		readyForReview := row.Workspace != nil && m.readyWorkspaces[string(row.Workspace.ID())]
 		iconFg := common.ColorMuted
 		if agentState >= 1 {
-			iconFg = common.ColorPrimary
+			if readyForReview {
+				iconFg = common.ColorWarning
+			} else {
+				iconFg = common.ColorPrimary
+			}
 		}
 		iconStyle := lipgloss.NewStyle().Foreground(iconFg)
 		if selected {
@@ -235,6 +243,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 
 		// Agent state indicator (spinner=active, ●=running, ○=idle)
+		// Spinner gated on tmux content-hash confirmation to prevent false
+		// spinners from tmux server-level redraws.
 		indicatorWidth := 2
 		agentState := 0
 		indicator := common.Icons.Idle + " "
@@ -243,18 +253,24 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
 				agentState = state
 				switch {
-				case state >= 2: // actively processing
+				case state >= 2 && m.tmuxConfirmedActive[wsID]: // genuinely active
 					indicator = common.SpinnerFrame(m.spinnerFrame) + " "
-				case state >= 1: // running but idle
+				case state >= 1: // running but idle (or unconfirmed active)
 					indicator = common.Icons.Running + " "
 				}
 			}
 		}
 
 		// Style indicator separately: primary for running/active, muted for idle
+		// Use warning color (yellow/orange) when workspace is ready for review
+		readyForReview := row.GroupWorkspace != nil && m.readyWorkspaces[string(row.GroupWorkspace.Primary.ID())]
 		iconFg := common.ColorMuted
 		if agentState >= 1 {
-			iconFg = common.ColorPrimary
+			if readyForReview {
+				iconFg = common.ColorWarning
+			} else {
+				iconFg = common.ColorPrimary
+			}
 		}
 		iconStyle := lipgloss.NewStyle().Foreground(iconFg)
 		if selected {

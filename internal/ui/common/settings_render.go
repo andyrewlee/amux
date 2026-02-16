@@ -89,6 +89,18 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Sync plugins & skills across profiles"))
 	s.addHit(settingsItemSyncPlugins, -1, y)
+
+	checkbox = "[ ]"
+	if s.bellOnReady {
+		checkbox = "[" + Icons.Clean + "]"
+	}
+	style = lipgloss.NewStyle().Foreground(ColorForeground)
+	if s.focusedItem == settingsItemBellOnReady {
+		style = style.Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render(checkbox+" Bell when agent finishes"))
+	s.addHit(settingsItemBellOnReady, -1, y)
 	lines = append(lines, "")
 
 	// Global permissions section

@@ -64,6 +64,103 @@ func TestDashboardGetMainWorkspace(t *testing.T) {
 	}
 }
 
+func TestReadyWorkspaceTransitions(t *testing.T) {
+	wsID := "ws-1"
+
+	t.Run("active to running marks ready when tmux confirmed", func(t *testing.T) {
+		m := New()
+		m.workspaceAgentStates = map[string]int{wsID: 2}
+		m.tmuxConfirmedActive = map[string]bool{wsID: true}
+
+		// Transition to running (state 1) — should mark as ready because tmux confirms activity
+		_, newReady := m.SetWorkspaceAgentStates(map[string]int{wsID: 1})
+		if !newReady {
+			t.Error("expected newReady=true when transitioning from active(2) to running(1) with tmux confirmation")
+		}
+		if !m.readyWorkspaces[wsID] {
+			t.Error("expected readyWorkspaces to contain wsID after active→running transition")
+		}
+	})
+
+	t.Run("active to idle marks ready when tmux confirmed", func(t *testing.T) {
+		m := New()
+		m.workspaceAgentStates = map[string]int{wsID: 2}
+		m.tmuxConfirmedActive = map[string]bool{wsID: true}
+
+		_, newReady := m.SetWorkspaceAgentStates(map[string]int{wsID: 0})
+		if !newReady {
+			t.Error("expected newReady=true when transitioning from active(2) to idle(0) with tmux confirmation")
+		}
+		if !m.readyWorkspaces[wsID] {
+			t.Error("expected readyWorkspaces to contain wsID after active→idle transition")
+		}
+	})
+
+	t.Run("active to running without tmux confirmation does NOT mark ready", func(t *testing.T) {
+		m := New()
+		m.workspaceAgentStates = map[string]int{wsID: 2}
+		// tmuxConfirmedActive is empty — this is a noise event (tmux redraw)
+
+		_, newReady := m.SetWorkspaceAgentStates(map[string]int{wsID: 1})
+		if newReady {
+			t.Error("expected newReady=false when tmux does not confirm activity (noise event)")
+		}
+		if m.readyWorkspaces[wsID] {
+			t.Error("expected readyWorkspaces to NOT contain wsID without tmux confirmation")
+		}
+	})
+
+	t.Run("running to idle does not mark ready", func(t *testing.T) {
+		m := New()
+		m.workspaceAgentStates = map[string]int{wsID: 1}
+		m.tmuxConfirmedActive = map[string]bool{wsID: true}
+
+		_, newReady := m.SetWorkspaceAgentStates(map[string]int{wsID: 0})
+		if newReady {
+			t.Error("expected newReady=false when transitioning from running(1) to idle(0)")
+		}
+		if m.readyWorkspaces[wsID] {
+			t.Error("expected readyWorkspaces to NOT contain wsID after running→idle transition")
+		}
+	})
+
+	t.Run("staying active does not trigger ready", func(t *testing.T) {
+		m := New()
+		m.workspaceAgentStates = map[string]int{wsID: 2}
+		m.tmuxConfirmedActive = map[string]bool{wsID: true}
+
+		_, newReady := m.SetWorkspaceAgentStates(map[string]int{wsID: 2})
+		if newReady {
+			t.Error("expected newReady=false when state stays at active(2)")
+		}
+		if m.readyWorkspaces[wsID] {
+			t.Error("expected readyWorkspaces to NOT contain wsID when state stays active")
+		}
+	})
+
+	t.Run("already ready does not trigger again", func(t *testing.T) {
+		m := New()
+		m.workspaceAgentStates = map[string]int{wsID: 2}
+		m.tmuxConfirmedActive = map[string]bool{wsID: true}
+		m.readyWorkspaces[wsID] = true // already marked ready
+
+		_, newReady := m.SetWorkspaceAgentStates(map[string]int{wsID: 1})
+		if newReady {
+			t.Error("expected newReady=false when workspace is already marked ready (no double alert)")
+		}
+	})
+
+	t.Run("ClearReady removes the flag", func(t *testing.T) {
+		m := New()
+		m.readyWorkspaces[wsID] = true
+
+		m.ClearReady(wsID)
+		if m.readyWorkspaces[wsID] {
+			t.Error("expected readyWorkspaces to NOT contain wsID after ClearReady")
+		}
+	})
+}
+
 func TestDashboardHomeActive(t *testing.T) {
 	m := New()
 

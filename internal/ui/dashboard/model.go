@@ -92,6 +92,8 @@ type Model struct {
 	// Agent activity state
 	activeWorkspaceIDs   map[string]bool // Workspace IDs with active agents (synced from center)
 	workspaceAgentStates map[string]int  // Workspace ID → agent state (0=idle, 1=running, 2=active)
+	readyWorkspaces      map[string]bool // Workspace IDs that just transitioned from active→idle (ready for review)
+	tmuxConfirmedActive  map[string]bool // Workspace IDs confirmed active by tmux content-hash system
 
 	// Styles
 	styles common.Styles
@@ -107,6 +109,8 @@ func New() *Model {
 		deletingWorkspaces: make(map[string]bool),
 		activeWorkspaceIDs:   make(map[string]bool),
 		workspaceAgentStates: make(map[string]int),
+		readyWorkspaces:      make(map[string]bool),
+		tmuxConfirmedActive:  make(map[string]bool),
 		cursor:             0,
 		focused:            true,
 		styles:             common.DefaultStyles(),
@@ -118,13 +122,45 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 	m.activeWorkspaceIDs = active
 }
 
+// SetTmuxConfirmedActive updates the set of workspace IDs confirmed as genuinely
+// active by the tmux content-hash activity system. This is used to gate ready
+// transitions: only workspaces whose activity was confirmed via tmux screen-delta
+// detection (not just raw PTY byte timing) can trigger "ready" alerts.
+// This prevents false alerts from tmux server-level redraws that cause brief
+// PTY output on all tabs simultaneously without actual content changes.
+func (m *Model) SetTmuxConfirmedActive(active map[string]bool) {
+	m.tmuxConfirmedActive = active
+}
+
 // SetWorkspaceAgentStates updates the agent state map for workspaces.
 // Keys present indicate a workspace has agent tabs.
 // Values: 0=idle, 1=running but waiting, 2=actively processing.
-// Returns a command to start the spinner if any agent is actively processing.
-func (m *Model) SetWorkspaceAgentStates(states map[string]int) tea.Cmd {
+// Returns a command to start the spinner if any agent is actively processing,
+// and a bool indicating whether any workspace just became ready (active→idle transition).
+// A workspace is only marked ready if the tmux content-hash system confirms it was
+// genuinely active (not just a noise event from tmux redraws).
+func (m *Model) SetWorkspaceAgentStates(states map[string]int) (tea.Cmd, bool) {
+	newReady := false
+	for wsID, newState := range states {
+		oldState, existed := m.workspaceAgentStates[wsID]
+		if newState < 2 && existed && oldState >= 2 {
+			// Workspace dropped from active to non-active.
+			// Only mark as ready if the tmux content-hash system confirms
+			// this workspace was genuinely active (real agent output, not
+			// a noise redraw from tmux server events).
+			if m.tmuxConfirmedActive[wsID] && !m.readyWorkspaces[wsID] {
+				m.readyWorkspaces[wsID] = true
+				newReady = true
+			}
+		}
+	}
 	m.workspaceAgentStates = states
-	return m.startSpinnerIfNeeded()
+	return m.startSpinnerIfNeeded(), newReady
+}
+
+// ClearReady removes the ready-for-review flag for a workspace.
+func (m *Model) ClearReady(wsID string) {
+	delete(m.readyWorkspaces, wsID)
 }
 
 // InvalidateStatus removes a workspace's cached status.
@@ -313,11 +349,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.WorkspaceActivated:
 		if msg.Workspace != nil {
 			m.activeRoot = msg.Workspace.Root
+			m.ClearReady(string(msg.Workspace.ID()))
 		}
 
 	case messages.WorkspacePreviewed:
 		if msg.Workspace != nil {
 			m.activeRoot = msg.Workspace.Root
+			m.ClearReady(string(msg.Workspace.ID()))
 		}
 
 	case messages.ShowWelcome:
