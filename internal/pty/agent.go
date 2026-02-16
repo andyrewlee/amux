@@ -25,7 +25,6 @@ const (
 	AgentCline    AgentType = "cline"
 	AgentCursor   AgentType = "cursor"
 	AgentPi       AgentType = "pi"
-	AgentOpenclaw AgentType = "openclaw"
 )
 
 // Agent represents a running AI agent instance

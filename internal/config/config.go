@@ -45,7 +45,6 @@ var preferredAssistantOrder = []string{
 	"cline",
 	"cursor",
 	"pi",
-	"openclaw",
 }
 
 // DefaultConfig returns the default configuration
@@ -139,11 +138,6 @@ func defaultAssistants() map[string]AssistantConfig {
 		},
 		"pi": {
 			Command:          "pi",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
-		"openclaw": {
-			Command:          "openclaw",
 			InterruptCount:   1,
 			InterruptDelayMs: 0,
 		},

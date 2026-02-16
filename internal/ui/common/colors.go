@@ -49,7 +49,6 @@ var (
 	ColorCline    = lipgloss.Color("#101827")
 	ColorCursor   = lipgloss.Color("#1B1812")
 	ColorPi       = lipgloss.Color("#0e0e11")
-	ColorOpenclaw = lipgloss.Color("#14b8a6")
 )
 
 // GetCurrentTheme returns the currently active theme.
@@ -108,8 +107,6 @@ func AgentColor(agent string) color.Color {
 		return ColorCursor
 	case "pi":
 		return ColorPi
-	case "openclaw":
-		return ColorOpenclaw
 	default:
 		return ColorPrimary
 	}
