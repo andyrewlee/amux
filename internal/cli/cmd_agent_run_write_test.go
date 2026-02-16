@@ -35,7 +35,7 @@ func TestCmdAgentRunRejectsInvalidWorkspaceID(t *testing.T) {
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"--workspace", "../../../tmp/evil"},
+		[]string{"--workspace", "../../../tmp/evil", "--assistant", "claude"},
 		"test-v1",
 	)
 	if code != ExitUsage {
@@ -66,7 +66,7 @@ func TestCmdAgentRunRejectsUnexpectedPositionalArguments(t *testing.T) {
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"--workspace", "0123456789abcdef", "stray-token"},
+		[]string{"--workspace", "0123456789abcdef", "--assistant", "claude", "stray-token"},
 		"test-v1",
 	)
 	if code != ExitUsage {

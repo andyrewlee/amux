@@ -13,7 +13,7 @@ func TestCmdWorkspaceCreateParsesTrailingProjectFlag(t *testing.T) {
 		&w,
 		&wErr,
 		GlobalFlags{},
-		[]string{"feature-x", "--project", nonRepo},
+		[]string{"feature-x", "--project", nonRepo, "--assistant", "claude"},
 		"test-v1",
 	)
 

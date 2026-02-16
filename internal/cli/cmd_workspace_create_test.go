@@ -94,7 +94,7 @@ func TestCmdWorkspaceCreateRelativeProjectRemoveFromDifferentDir(t *testing.T) {
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"rel-ws", "--project", "."},
+		[]string{"rel-ws", "--project", ".", "--assistant", "claude"},
 		"test-v1",
 	)
 	if createCode != ExitOK {
@@ -176,7 +176,7 @@ func TestCmdWorkspaceCreateWithoutBaseFallsBackToHead(t *testing.T) {
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"head-fallback-ws", "--project", repoRoot},
+		[]string{"head-fallback-ws", "--project", repoRoot, "--assistant", "claude"},
 		"test-v1",
 	)
 	if createCode != ExitOK {
@@ -206,7 +206,7 @@ func TestCmdWorkspaceCreateRejectsInvalidWorkspaceName(t *testing.T) {
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"feature branch", "--project", t.TempDir()},
+		[]string{"feature branch", "--project", t.TempDir(), "--assistant", "claude"},
 		"test-v1",
 	)
 	if code != ExitUsage {
@@ -267,7 +267,7 @@ func TestCmdWorkspaceCreateRejectsUnregisteredProject(t *testing.T) {
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"feat-ws", "--project", repoRoot},
+		[]string{"feat-ws", "--project", repoRoot, "--assistant", "claude"},
 		"test-v1",
 	)
 	if code != ExitUsage {

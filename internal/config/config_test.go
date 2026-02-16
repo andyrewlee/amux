@@ -41,7 +41,6 @@ func TestDefaultConfigLoadsAssistantOverrides(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	content := `{
-  "default_assistant": "openclaw",
   "assistants": {
     "openclaw": {
       "command": "openclaw --fast"
@@ -62,8 +61,8 @@ func TestDefaultConfigLoadsAssistantOverrides(t *testing.T) {
 		t.Fatalf("DefaultConfig() error = %v", err)
 	}
 
-	if got := cfg.ResolvedDefaultAssistant(); got != "openclaw" {
-		t.Fatalf("ResolvedDefaultAssistant() = %q, want %q", got, "openclaw")
+	if got := cfg.ResolvedDefaultAssistant(); got != "claude" {
+		t.Fatalf("ResolvedDefaultAssistant() = %q, want %q", got, "claude")
 	}
 	oc, ok := cfg.Assistants["openclaw"]
 	if !ok {
@@ -88,7 +87,7 @@ func TestDefaultConfigLoadsAssistantOverrides(t *testing.T) {
 	}
 }
 
-func TestDefaultConfigInvalidDefaultAssistantFallsBack(t *testing.T) {
+func TestDefaultConfigIgnoresDefaultAssistantSetting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -120,7 +119,6 @@ func TestDefaultConfigSkipsInvalidAssistantOverrideIDs(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	content := `{
-  "default_assistant": "my agent",
   "assistants": {
     "my agent": {
       "command": "bad-assistant"

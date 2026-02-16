@@ -15,9 +15,7 @@ type Config struct {
 	PortStart     int
 	PortRangeSize int
 	Assistants    map[string]AssistantConfig
-	// DefaultAssistant is used for new workspace creation when no assistant is set.
-	DefaultAssistant string
-	UI               UISettings
+	UI            UISettings
 }
 
 // AssistantConfig defines how to launch an AI assistant
@@ -55,16 +53,14 @@ func DefaultConfig() (*Config, error) {
 	}
 
 	assistants := defaultAssistants()
-	defaultAssistant := fallbackDefaultAssistant
-	loadAssistantOverrides(paths.ConfigPath, assistants, &defaultAssistant)
+	loadAssistantOverrides(paths.ConfigPath, assistants)
 
 	cfg := &Config{
-		Paths:            paths,
-		PortStart:        6200,
-		PortRangeSize:    10,
-		UI:               loadUISettings(paths.ConfigPath),
-		Assistants:       assistants,
-		DefaultAssistant: canonicalDefaultAssistant(defaultAssistant, assistants),
+		Paths:         paths,
+		PortStart:     6200,
+		PortRangeSize: 10,
+		UI:            loadUISettings(paths.ConfigPath),
+		Assistants:    assistants,
 	}
 	return cfg, nil
 }
@@ -91,7 +87,7 @@ func (c *Config) ResolvedDefaultAssistant() string {
 	if c == nil {
 		return fallbackDefaultAssistant
 	}
-	return canonicalDefaultAssistant(c.DefaultAssistant, c.Assistants)
+	return canonicalDefaultAssistant(fallbackDefaultAssistant, c.Assistants)
 }
 
 func defaultAssistants() map[string]AssistantConfig {
@@ -144,15 +140,14 @@ func defaultAssistants() map[string]AssistantConfig {
 	}
 }
 
-func loadAssistantOverrides(path string, assistants map[string]AssistantConfig, defaultAssistant *string) {
+func loadAssistantOverrides(path string, assistants map[string]AssistantConfig) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
 
 	var raw struct {
-		DefaultAssistant string                        `json:"default_assistant"`
-		Assistants       map[string]assistantConfigRaw `json:"assistants"`
+		Assistants map[string]assistantConfigRaw `json:"assistants"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return
@@ -189,12 +184,6 @@ func loadAssistantOverrides(path string, assistants map[string]AssistantConfig, 
 		}
 
 		assistants[normalized] = cfg
-	}
-
-	if defaultAssistant != nil {
-		if name := normalizeAssistantName(raw.DefaultAssistant); name != "" {
-			*defaultAssistant = name
-		}
 	}
 }
 

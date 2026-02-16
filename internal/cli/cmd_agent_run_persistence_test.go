@@ -73,7 +73,7 @@ func TestCmdAgentRunMetadataSaveFailureReturnsInternalErrorAndCleansSession(t *t
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"--workspace", string(ws.ID())},
+		[]string{"--workspace", string(ws.ID()), "--assistant", ws.Assistant},
 		"test-v1",
 	)
 	if code != ExitInternalError {
@@ -167,7 +167,7 @@ func TestCmdAgentRunPromptSendFailureReturnsInternalErrorAndDoesNotPersistTab(t 
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"--workspace", string(ws.ID()), "--prompt", "hello"},
+		[]string{"--workspace", string(ws.ID()), "--assistant", ws.Assistant, "--prompt", "hello"},
 		"test-v1",
 	)
 	if code != ExitInternalError {

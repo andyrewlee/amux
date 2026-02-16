@@ -38,7 +38,6 @@ func NewServices(version string) (*Services, error) {
 
 	registry := data.NewRegistry(cfg.Paths.RegistryPath)
 	store := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
-	store.SetDefaultAssistant(cfg.ResolvedDefaultAssistant())
 	opts := tmux.DefaultOptions()
 	if timeout := currentCLITmuxTimeoutOverride(); timeout > 0 {
 		opts.CommandTimeout = timeout

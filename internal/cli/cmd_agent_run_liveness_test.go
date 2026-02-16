@@ -68,7 +68,7 @@ func TestCmdAgentRunSessionExitsBeforeStartupReturnsInternalErrorAndDoesNotPersi
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"--workspace", string(ws.ID())},
+		[]string{"--workspace", string(ws.ID()), "--assistant", ws.Assistant},
 		"test-v1",
 	)
 	if code != ExitInternalError {
@@ -157,7 +157,7 @@ func TestCmdAgentRunSessionLookupFailureReturnsInternalErrorAndCleansSession(t *
 		&out,
 		&errOut,
 		GlobalFlags{JSON: true},
-		[]string{"--workspace", string(ws.ID())},
+		[]string{"--workspace", string(ws.ID()), "--assistant", ws.Assistant},
 		"test-v1",
 	)
 	if code != ExitInternalError {

@@ -60,11 +60,11 @@ func (a *App) addProject(path string) tea.Cmd {
 }
 
 // createWorkspace creates a new workspace.
-func (a *App) createWorkspace(project *data.Project, name, base string) tea.Cmd {
+func (a *App) createWorkspace(project *data.Project, name, base, assistant string) tea.Cmd {
 	if a.workspaceService == nil {
 		return nil
 	}
-	return a.workspaceService.CreateWorkspace(project, name, base)
+	return a.workspaceService.CreateWorkspace(project, name, base, assistant)
 }
 
 // runSetupAsync runs setup scripts asynchronously and returns a WorkspaceSetupComplete message.

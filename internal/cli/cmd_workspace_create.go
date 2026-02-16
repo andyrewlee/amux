@@ -21,17 +21,29 @@ const (
 )
 
 func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux workspace create <name> --project <path> [--base <branch>] [--idempotency-key <key>] [--json]"
+	const usage = "Usage: amux workspace create <name> --project <path> --assistant <name> [--base <branch>] [--idempotency-key <key>] [--json]"
 	fs := newFlagSet("workspace create")
 	project := fs.String("project", "", "project repo path (required)")
+	assistant := fs.String("assistant", "", "assistant name (required)")
 	base := fs.String("base", "", "base branch (auto-detected if omitted)")
 	idempotencyKey := fs.String("idempotency-key", "", "idempotency key for safe retries")
 	name, err := parseSinglePositionalWithFlags(fs, args)
 	if err != nil {
 		return returnUsageError(w, wErr, gf, usage, version, err)
 	}
-	if name == "" || *project == "" {
+	assistantName := strings.ToLower(strings.TrimSpace(*assistant))
+	if name == "" || *project == "" || assistantName == "" {
 		return returnUsageError(w, wErr, gf, usage, version, nil)
+	}
+	if err := validation.ValidateAssistant(assistantName); err != nil {
+		return returnUsageError(
+			w,
+			wErr,
+			gf,
+			usage,
+			version,
+			fmt.Errorf("invalid --assistant: %w", err),
+		)
 	}
 	if err := validation.ValidateWorkspaceName(name); err != nil {
 		return returnUsageError(
@@ -94,6 +106,16 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		}
 		Errorf(wErr, "failed to initialize: %v", err)
 		return ExitInternalError
+	}
+	if !svc.Config.IsAssistantKnown(assistantName) {
+		if gf.JSON {
+			return returnJSONErrorMaybeIdempotent(
+				w, wErr, gf, version, "workspace.create", *idempotencyKey,
+				ExitUsage, "unknown_assistant", "unknown assistant: "+assistantName, nil,
+			)
+		}
+		Errorf(wErr, "unknown assistant: %s", assistantName)
+		return ExitUsage
 	}
 
 	// Require project to be registered before creating a workspace.
@@ -171,7 +193,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	// Save metadata
 	ws := data.NewWorkspace(name, name, baseBranch, projectPath, wsPath)
-	ws.Assistant = svc.Config.ResolvedDefaultAssistant()
+	ws.Assistant = assistantName
 	if err := svc.Store.Save(ws); err != nil {
 		cleanupErr := rollbackWorkspaceCreate(projectPath, wsPath, name)
 		msg := err.Error()

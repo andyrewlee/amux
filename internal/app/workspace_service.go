@@ -14,7 +14,6 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
@@ -23,36 +22,6 @@ var (
 	removeWorkspaceFn = git.RemoveWorkspace
 	deleteBranchFn    = git.DeleteBranch
 )
-
-type workspaceService struct {
-	registry         ProjectRegistry
-	store            WorkspaceStore
-	scripts          *process.ScriptRunner
-	workspacesRoot   string
-	defaultAssistant string
-}
-
-func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string, defaultAssistant ...string) *workspaceService {
-	configuredDefaultAssistant := ""
-	if len(defaultAssistant) > 0 {
-		configuredDefaultAssistant = defaultAssistant[0]
-	}
-	return &workspaceService{
-		registry:         registry,
-		store:            store,
-		scripts:          scripts,
-		workspacesRoot:   workspacesRoot,
-		defaultAssistant: strings.TrimSpace(configuredDefaultAssistant),
-	}
-}
-
-func (s *workspaceService) resolvedDefaultAssistant() string {
-	name := strings.TrimSpace(s.defaultAssistant)
-	if name == "" {
-		return data.DefaultAssistant
-	}
-	return name
-}
 
 // LoadProjects loads all registered projects and their workspaces.
 func (s *workspaceService) LoadProjects() tea.Cmd {
@@ -281,7 +250,7 @@ func (s *workspaceService) AddProject(path string) tea.Cmd {
 }
 
 // CreateWorkspace creates a new workspace.
-func (s *workspaceService) CreateWorkspace(project *data.Project, name, base string) tea.Cmd {
+func (s *workspaceService) CreateWorkspace(project *data.Project, name, base string, assistant ...string) tea.Cmd {
 	return func() (msg tea.Msg) {
 		var ws *data.Workspace
 		defer func() {
@@ -330,9 +299,23 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 
 		workspacePath := ws.Root
 		branch := name
-		if strings.TrimSpace(ws.Assistant) == "" {
-			ws.Assistant = s.resolvedDefaultAssistant()
+		selectedAssistant := strings.TrimSpace(ws.Assistant)
+		if len(assistant) > 0 {
+			selectedAssistant = strings.TrimSpace(assistant[0])
 		}
+		if selectedAssistant == "" {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       errors.New("assistant is required"),
+			}
+		}
+		if err := validation.ValidateAssistant(selectedAssistant); err != nil {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
+			}
+		}
+		ws.Assistant = selectedAssistant
 
 		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, workspacePath) {
 			return messages.WorkspaceCreateFailed{

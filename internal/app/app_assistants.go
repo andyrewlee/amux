@@ -7,9 +7,6 @@ import (
 )
 
 func (a *App) defaultAssistantName() string {
-	if a != nil && a.config != nil {
-		return a.config.ResolvedDefaultAssistant()
-	}
 	return data.DefaultAssistant
 }
 

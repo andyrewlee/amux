@@ -9,13 +9,14 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux agent run --workspace <id> [--assistant <name>] [--prompt <text>] [--idempotency-key <key>] [--json]"
+	const usage = "Usage: amux agent run --workspace <id> --assistant <name> [--prompt <text>] [--idempotency-key <key>] [--json]"
 	fs := newFlagSet("agent run")
 	wsFlag := fs.String("workspace", "", "workspace ID (required)")
-	assistant := fs.String("assistant", "", "assistant name (default: workspace assistant)")
+	assistant := fs.String("assistant", "", "assistant name (required)")
 	name := fs.String("name", "", "tab name")
 	prompt := fs.String("prompt", "", "initial prompt to send")
 	idempotencyKey := fs.String("idempotency-key", "", "idempotency key for safe retries")
@@ -28,8 +29,19 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 			fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " ")),
 		)
 	}
-	if *wsFlag == "" {
+	assistantName := strings.ToLower(strings.TrimSpace(*assistant))
+	if *wsFlag == "" || assistantName == "" {
 		return returnUsageError(w, wErr, gf, usage, version, nil)
+	}
+	if err := validation.ValidateAssistant(assistantName); err != nil {
+		return returnUsageError(
+			w,
+			wErr,
+			gf,
+			usage,
+			version,
+			fmt.Errorf("invalid --assistant: %w", err),
+		)
 	}
 	wsID, err := parseWorkspaceIDFlag(*wsFlag)
 	if err != nil {
@@ -72,11 +84,7 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 		return ExitNotFound
 	}
 
-	// Determine assistant
-	agentAssistant := ws.Assistant
-	if *assistant != "" {
-		agentAssistant = *assistant
-	}
+	agentAssistant := assistantName
 	ac, ok := svc.Config.Assistants[agentAssistant]
 	if !ok {
 		if gf.JSON {

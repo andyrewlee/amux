@@ -40,9 +40,8 @@ func New(version, commit, date string) (*App, error) {
 
 	registry := data.NewRegistry(cfg.Paths.RegistryPath)
 	workspaces := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
-	workspaces.SetDefaultAssistant(cfg.ResolvedDefaultAssistant())
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
-	workspaceService := newWorkspaceService(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot, cfg.ResolvedDefaultAssistant())
+	workspaceService := newWorkspaceService(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot)
 
 	// Create status manager (callback will be nil, we use it for caching only)
 	statusManager := git.NewStatusManager(nil)

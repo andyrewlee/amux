@@ -235,6 +235,7 @@ func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 	case "workspace create":
 		return map[string]struct{}{
 			"--project":         {},
+			"--assistant":       {},
 			"--base":            {},
 			"--idempotency-key": {},
 		}

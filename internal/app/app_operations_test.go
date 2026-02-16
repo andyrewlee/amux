@@ -211,7 +211,7 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 	}
 }
 
-func TestLoadProjects_PrimaryLegacyMetadataUsesConfiguredDefaultAssistant(t *testing.T) {
+func TestLoadProjects_PrimaryLegacyMetadataUsesDefaultAssistant(t *testing.T) {
 	skipIfNoGit(t)
 
 	repo := t.TempDir()
@@ -246,7 +246,7 @@ func TestLoadProjects_PrimaryLegacyMetadataUsesConfiguredDefaultAssistant(t *tes
 		t.Fatalf("WriteFile legacy metadata: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, "", "openclaw")
+	workspaceService := newWorkspaceService(registry, store, nil, "")
 	app := &App{workspaceService: workspaceService}
 
 	msg := app.loadProjects()()
@@ -278,8 +278,8 @@ func TestLoadProjects_PrimaryLegacyMetadataUsesConfiguredDefaultAssistant(t *tes
 	if primary == nil {
 		t.Fatalf("expected primary workspace for %s", repo)
 	}
-	if primary.Assistant != "openclaw" {
-		t.Fatalf("assistant = %q, want %q", primary.Assistant, "openclaw")
+	if primary.Assistant != "claude" {
+		t.Fatalf("assistant = %q, want %q", primary.Assistant, "claude")
 	}
 }
 
@@ -445,7 +445,7 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 
 	gitPathWaitTimeout = 50 * time.Millisecond
 
-	msg := app.createWorkspace(project, "feature", "main")()
+	msg := app.createWorkspace(project, "feature", "main", "claude")()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
 		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
