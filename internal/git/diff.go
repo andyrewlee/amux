@@ -67,7 +67,10 @@ func GetFileDiff(repoPath, path string, mode DiffMode) (*DiffResult, error) {
 		args = []string{"diff", "--no-color", "--no-ext-diff", "-U3", "--", path}
 	case DiffModeBranch:
 		// For branch mode, caller should use GetBranchFileDiff instead
-		base, _ := GetBaseBranch(repoPath)
+		base, err := GetBaseBranch(repoPath)
+		if err != nil {
+			return &DiffResult{Path: path, Error: err.Error()}, nil
+		}
 		args = []string{"diff", base + "...HEAD", "--no-color", "--no-ext-diff", "-U3", "--", path}
 	default:
 		args = []string{"diff", "--no-color", "--no-ext-diff", "-U3", "--", path}
