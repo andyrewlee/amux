@@ -94,12 +94,11 @@ func (m *Model) renderTabBar() string {
 				indicatorFg = common.ColorMuted
 			}
 			indicatorPart := lipgloss.NewStyle().Foreground(indicatorFg).Background(bg).Render(indicator)
-			// Use primary color and bold when actively working, muted when disconnected
+			// Active tab: no special color since the user is already looking at it.
+			// Muted when disconnected, normal foreground otherwise.
 			nameStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Background(bg)
 			if tabDisconnected {
 				nameStyle = nameStyle.Foreground(common.ColorMuted)
-			} else if tabActive {
-				nameStyle = nameStyle.Foreground(common.ColorPrimary).Bold(true)
 			}
 			namePart := nameStyle.Render(name)
 			space := lipgloss.NewStyle().Background(bg).Render(" ")
