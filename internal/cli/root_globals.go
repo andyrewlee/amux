@@ -177,7 +177,7 @@ func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}
 
 	next := 1
 	switch args[0] {
-	case "workspace", "logs", "agent":
+	case "workspace", "logs", "agent", "session":
 		token, idx, following, ok, err := nextCommandToken(args, next)
 		if err != nil {
 			return nil, nil, err
@@ -276,6 +276,8 @@ func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 		}
 	case "logs tail":
 		return map[string]struct{}{"--lines": {}}
+	case "session prune":
+		return map[string]struct{}{"--older-than": {}}
 	default:
 		return nil
 	}

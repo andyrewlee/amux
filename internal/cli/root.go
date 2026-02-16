@@ -69,6 +69,8 @@ func Run(args []string, version, commit, date string) int {
 		return routeWorkspace(w, wErr, gf, cmdArgs, version)
 	case "agent":
 		return routeAgent(w, wErr, gf, cmdArgs, version)
+	case "session":
+		return routeSession(w, wErr, gf, cmdArgs, version)
 	case "version":
 		if gf.JSON {
 			PrintJSON(w, map[string]string{
@@ -217,6 +219,8 @@ Commands:
   agent job status    Get queued send job status
   agent job cancel    Cancel queued send job (pending only)
   agent job wait      Wait for queued send job completion
+  session list        List all tmux sessions
+  session prune       Clean up stale sessions
   version             Print version info
   help                Show this help
   tui                 Launch TUI (default when TTY)
@@ -245,7 +249,7 @@ func commandFromArgs(args []string) string {
 			return cmd + " " + args[1] + " " + args[2]
 		}
 		return cmd + " " + args[1]
-	case "workspace", "logs":
+	case "workspace", "logs", "session":
 		return cmd + " " + args[1]
 	default:
 		return cmd

@@ -48,6 +48,8 @@ func cmdCapabilities(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 			"agent job status",
 			"agent job cancel",
 			"agent job wait",
+			"session list",
+			"session prune",
 			"version",
 			"help",
 		},
@@ -58,6 +60,7 @@ func cmdCapabilities(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 			"agent send",
 			"agent stop",
 			"agent job cancel",
+			"session prune",
 		},
 		GlobalFlags: []string{
 			"--json",

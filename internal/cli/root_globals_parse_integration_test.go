@@ -120,6 +120,18 @@ func TestParseGlobalFlags(t *testing.T) {
 			args:    []string{"--timeout"},
 			wantErr: true,
 		},
+		{
+			name:     "session prune older-than preserved",
+			args:     []string{"session", "prune", "--older-than", "1h", "--json"},
+			wantGF:   GlobalFlags{JSON: true},
+			wantRest: []string{"session", "prune", "--older-than", "1h"},
+		},
+		{
+			name:     "session prune global between command and subcommand",
+			args:     []string{"session", "--json", "prune", "--older-than", "30m"},
+			wantGF:   GlobalFlags{JSON: true},
+			wantRest: []string{"session", "prune", "--older-than", "30m"},
+		},
 	}
 
 	for _, tt := range tests {
