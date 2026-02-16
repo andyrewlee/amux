@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 )
 
 // shouldSurfaceWorkspace returns true for workspaces managed by amux for this
@@ -46,6 +47,21 @@ func (s *workspaceService) pendingProjectRoot(project *data.Project) string {
 		return ""
 	}
 	return filepath.Join(base, projectName)
+}
+
+// resolveBase returns the base branch to use for a new workspace. If base is
+// non-empty (after trimming) it is returned as-is; otherwise GetBaseBranch is
+// consulted, falling back to "HEAD" on error.
+func resolveBase(projectPath, base string) string {
+	base = strings.TrimSpace(base)
+	if base != "" {
+		return base
+	}
+	resolved, err := git.GetBaseBranch(projectPath)
+	if err != nil {
+		return "HEAD"
+	}
+	return resolved
 }
 
 func (s *workspaceService) pendingWorkspace(project *data.Project, name, base string) *data.Workspace {

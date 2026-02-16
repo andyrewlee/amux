@@ -164,7 +164,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				return messages.CreateWorkspace{
 					Project: project,
 					Name:    name,
-					Base:    "HEAD",
+					Base:    "",
 				}
 			}
 		}

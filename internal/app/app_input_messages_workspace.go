@@ -273,8 +273,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
 	name := strings.TrimSpace(msg.Name)
+	base := msg.Base
 	if msg.Project != nil && name != "" && a.workspaceService != nil {
-		pending := a.workspaceService.pendingWorkspace(msg.Project, name, msg.Base)
+		pending := a.workspaceService.pendingWorkspace(msg.Project, name, base)
 		if pending != nil {
 			a.creatingWorkspaceIDs[string(pending.ID())] = true
 			if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
@@ -282,7 +283,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 			}
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base))
+	cmds = append(cmds, a.createWorkspace(msg.Project, name, base))
 	return cmds
 }
 

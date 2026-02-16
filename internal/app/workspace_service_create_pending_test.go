@@ -74,7 +74,7 @@ func TestCreateWorkspaceGitFailureIncludesPendingWorkspace(t *testing.T) {
 	}
 }
 
-func TestCreateWorkspaceEmptyBaseDefaultsToHEAD(t *testing.T) {
+func TestCreateWorkspaceEmptyBaseDefaultsToDefaultBranch(t *testing.T) {
 	origCreate := createWorkspaceFn
 	t.Cleanup(func() { createWorkspaceFn = origCreate })
 
@@ -82,6 +82,8 @@ func TestCreateWorkspaceEmptyBaseDefaultsToHEAD(t *testing.T) {
 		return errors.New("stop")
 	}
 
+	// /tmp/repo is not a real git repo, so GetBaseBranch returns an error
+	// and the fallback to "HEAD" is used.
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
 	cmd := svc.CreateWorkspace(project, "feature", "")
