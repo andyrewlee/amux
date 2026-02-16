@@ -72,7 +72,10 @@ func (s *workspaceService) pendingWorkspace(project *data.Project, name, base st
 	if name == "" {
 		return nil
 	}
-	base = resolveBase(project.Path, base)
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "HEAD"
+	}
 	projectRoot := s.pendingProjectRoot(project)
 	if projectRoot == "" {
 		return nil

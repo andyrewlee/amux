@@ -274,9 +274,6 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
 	name := strings.TrimSpace(msg.Name)
 	base := msg.Base
-	if msg.Project != nil {
-		base = resolveBase(msg.Project.Path, base)
-	}
 	if msg.Project != nil && name != "" && a.workspaceService != nil {
 		pending := a.workspaceService.pendingWorkspace(msg.Project, name, base)
 		if pending != nil {
@@ -286,7 +283,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 			}
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, base))
+	cmds = append(cmds, a.createWorkspace(msg.Project, name, base))
 	return cmds
 }
 

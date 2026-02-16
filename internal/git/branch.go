@@ -23,16 +23,30 @@ func GetBaseBranch(repoPath string) (string, error) {
 		}
 	}
 
+	// Try remote tracking branches for common candidates
+	for _, branch := range candidates {
+		remote := "origin/" + branch
+		_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", remote)
+		if err == nil {
+			return remote, nil
+		}
+	}
+
 	// Try to get the default branch from remote
 	output, err := RunGitCtx(context.Background(), repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
-		// Output is like "refs/remotes/origin/main"
-		parts := strings.Split(output, "/")
-		branch := parts[len(parts)-1]
-		// Verify the remote default branch exists locally
+		// Output is like "refs/remotes/origin/main" or "refs/remotes/origin/feature/foo"
+		branch := strings.TrimPrefix(output, "refs/remotes/origin/")
+		// Verify the branch exists locally
 		_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
 		if err == nil {
 			return branch, nil
+		}
+		// Try remote tracking branch for symbolic-ref result
+		remote := "origin/" + branch
+		_, err = RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", remote)
+		if err == nil {
+			return remote, nil
 		}
 	}
 
