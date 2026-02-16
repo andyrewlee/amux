@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,13 +26,15 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 		// and we can safely remove the remaining directory ourselves.
 		gitFile := filepath.Join(workspacePath, ".git")
 		if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
-			// Workspace was unregistered, clean up leftover directory
-			if removeErr := os.RemoveAll(workspacePath); removeErr != nil {
-				return removeErr
-			}
-			return nil
+			return os.RemoveAll(workspacePath)
 		}
 		return err
+	}
+	// git worktree remove --force may leave the directory behind if it
+	// contains untracked files (e.g. .claude/settings.local.json).
+	// Clean up any leftover directory.
+	if _, statErr := os.Stat(workspacePath); statErr == nil {
+		return os.RemoveAll(workspacePath)
 	}
 	return nil
 }
@@ -40,6 +43,66 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 func DeleteBranch(repoPath, branch string) error {
 	_, err := RunGit(repoPath, "branch", "-D", branch)
 	return err
+}
+
+// ResolveWorktreeRepo resolves a worktree (or plain clone) directory back to
+// the path of the main repository that owns it.
+// It first tries git directly, then falls back to parsing the .git file
+// for cases where the worktree link is broken (e.g. worktree was moved/copied).
+func ResolveWorktreeRepo(worktreePath string) (string, error) {
+	// Try git first — works for healthy worktrees and normal clones
+	commonDir, err := RunGit(worktreePath, "rev-parse", "--git-common-dir")
+	if err == nil {
+		commonDir = strings.TrimSpace(commonDir)
+		if !filepath.IsAbs(commonDir) {
+			commonDir = filepath.Join(worktreePath, commonDir)
+		}
+		repoRoot := filepath.Dir(filepath.Clean(commonDir))
+		if IsGitRepository(repoRoot) {
+			return repoRoot, nil
+		}
+	}
+
+	// Fallback: parse .git file directly for broken worktree links.
+	// A worktree's .git file contains "gitdir: /path/to/repo/.git/worktrees/<name>".
+	// We walk up from the gitdir to find the repo root.
+	gitPath := filepath.Join(worktreePath, ".git")
+	info, statErr := os.Stat(gitPath)
+	if statErr != nil {
+		return "", fmt.Errorf("resolve worktree repo %s: %w", worktreePath, err)
+	}
+	if info.IsDir() {
+		// .git is a directory — this is a normal clone, not a worktree.
+		// git already failed above, so this repo is broken.
+		return "", fmt.Errorf("resolve worktree repo %s: %w", worktreePath, err)
+	}
+
+	raw, readErr := os.ReadFile(gitPath)
+	if readErr != nil {
+		return "", fmt.Errorf("read .git file %s: %w", gitPath, readErr)
+	}
+	line := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(line, "gitdir:") {
+		return "", fmt.Errorf("invalid .git file in %s", worktreePath)
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+
+	// gitDir is like /path/to/repo/.git/worktrees/<name>
+	// Walk up to find the .git dir, then its parent is the repo root.
+	dir := gitDir
+	for dir != "/" && dir != "." {
+		base := filepath.Base(dir)
+		dir = filepath.Dir(dir)
+		if base == ".git" {
+			// dir is now the repo root
+			if IsGitRepository(dir) {
+				return dir, nil
+			}
+			break
+		}
+	}
+
+	return "", fmt.Errorf("could not resolve repo for worktree %s", worktreePath)
 }
 
 // DiscoverWorkspaces discovers git worktrees for a project.

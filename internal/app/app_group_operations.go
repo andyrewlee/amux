@@ -15,9 +15,114 @@ import (
 	"github.com/andyrewlee/medusa/internal/messages"
 )
 
+// adoptOrphanedGroupWorkspaces scans the groups workspace directory for directories
+// not associated with any registered group. For each orphan, it resolves the
+// repos from worktree subdirectories and auto-registers a group.
+func (a *App) adoptOrphanedGroupWorkspaces() {
+	if a.config == nil || a.config.Paths == nil || a.config.Paths.GroupsWorkspacesRoot == "" {
+		return
+	}
+
+	groups, err := a.registry.LoadGroups()
+	if err != nil {
+		logging.Warn("Failed to load groups for orphan scan: %v", err)
+		return
+	}
+
+	registeredGroupNames := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		registeredGroupNames[g.Name] = true
+	}
+
+	entries, err := os.ReadDir(a.config.Paths.GroupsWorkspacesRoot)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logging.Warn("Failed to read groups root for orphan scan: %v", err)
+		}
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if registeredGroupNames[entry.Name()] {
+			continue
+		}
+
+		groupDir := filepath.Join(a.config.Paths.GroupsWorkspacesRoot, entry.Name())
+		repos := resolveOrphanedGroupRepos(groupDir)
+		if len(repos) == 0 {
+			logging.Warn("Orphaned group dir %s: no valid repos found, skipping", entry.Name())
+			continue
+		}
+
+		logging.Info("Auto-adopting orphaned group dir %s with %d repos", entry.Name(), len(repos))
+		if err := a.registry.AddGroup(entry.Name(), repos, ""); err != nil {
+			logging.Warn("Failed to auto-register orphaned group %s: %v", entry.Name(), err)
+		} else {
+			registeredGroupNames[entry.Name()] = true
+		}
+	}
+}
+
+// resolveOrphanedGroupRepos scans a group directory for workspace subdirectories
+// containing repo worktrees, and resolves them back to original repo paths.
+// Expected layout: groups/<group-name>/<workspace-name>/<repo-name>/
+func resolveOrphanedGroupRepos(groupDir string) []data.GroupRepo {
+	wsEntries, err := os.ReadDir(groupDir)
+	if err != nil {
+		return nil
+	}
+
+	repoPathSet := make(map[string]bool)
+	var repos []data.GroupRepo
+
+	for _, wsEntry := range wsEntries {
+		if !wsEntry.IsDir() {
+			continue
+		}
+		wsDir := filepath.Join(groupDir, wsEntry.Name())
+
+		repoEntries, err := os.ReadDir(wsDir)
+		if err != nil {
+			continue
+		}
+
+		for _, repoEntry := range repoEntries {
+			if !repoEntry.IsDir() {
+				continue
+			}
+			worktreePath := filepath.Join(wsDir, repoEntry.Name())
+			resolved, err := git.ResolveWorktreeRepo(worktreePath)
+			if err != nil || !git.IsGitRepository(resolved) {
+				continue
+			}
+			normalized := data.NormalizePath(resolved)
+			if !repoPathSet[normalized] {
+				repoPathSet[normalized] = true
+				repos = append(repos, data.GroupRepo{
+					Path: resolved,
+					Name: filepath.Base(resolved),
+				})
+			}
+		}
+
+		// Once we've found repos from one workspace, that's enough —
+		// all workspaces in a group reference the same repos.
+		if len(repos) > 0 {
+			break
+		}
+	}
+
+	return repos
+}
+
 // loadGroups loads all project groups and their workspaces from the store.
 func (a *App) loadGroups() tea.Cmd {
 	return func() tea.Msg {
+		a.adoptOrphanedGroupWorkspaces()
+
 		groups, err := a.registry.LoadGroups()
 		if err != nil {
 			logging.Warn("Failed to load groups: %v", err)
@@ -309,8 +414,9 @@ func (a *App) deleteGroupWorkspace(group *data.ProjectGroup, gw *data.GroupWorks
 func deleteGroupWorkspaceSync(a *App, group *data.ProjectGroup, gw *data.GroupWorkspace) {
 	specs := buildSpecsFromGroupWorkspace(group, gw)
 	git.RemoveGroupWorkspace(specs)
-	// Clean up the group workspace directory (Primary.Root) if empty
-	_ = os.Remove(gw.Primary.Root)
+	// Clean up the group workspace directory (Primary.Root) and any leftover
+	// untracked files (e.g. .claude/settings.local.json).
+	_ = os.RemoveAll(gw.Primary.Root)
 	_ = a.workspaces.DeleteGroupWorkspace(gw.ID())
 }
 

@@ -35,9 +35,90 @@ func (a *App) groupOwnedRoots() map[string]bool {
 	return roots
 }
 
+// adoptOrphanedWorkspaces scans the workspaces directory for directories not
+// associated with any registered project. For each orphan, it traces the git
+// worktree back to the original repo and auto-registers it in projects.json.
+func (a *App) adoptOrphanedWorkspaces() {
+	if a.config == nil || a.config.Paths == nil || a.config.Paths.WorkspacesRoot == "" {
+		return
+	}
+
+	regProjects, err := a.registry.LoadFull()
+	if err != nil {
+		logging.Warn("Failed to load registry for orphan scan: %v", err)
+		return
+	}
+
+	registeredNames := make(map[string]bool, len(regProjects))
+	registeredPaths := make(map[string]bool, len(regProjects))
+	for _, rp := range regProjects {
+		registeredNames[filepath.Base(rp.Path)] = true
+		registeredPaths[data.NormalizePath(rp.Path)] = true
+	}
+
+	entries, err := os.ReadDir(a.config.Paths.WorkspacesRoot)
+	if err != nil {
+		logging.Warn("Failed to read workspaces root for orphan scan: %v", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == "groups" {
+			continue
+		}
+		if registeredNames[entry.Name()] {
+			continue
+		}
+
+		projectDir := filepath.Join(a.config.Paths.WorkspacesRoot, entry.Name())
+		repoPath := resolveOrphanedRepo(projectDir)
+		if repoPath == "" {
+			continue
+		}
+		if registeredPaths[data.NormalizePath(repoPath)] {
+			continue
+		}
+
+		logging.Info("Auto-adopting orphaned workspace dir %s -> repo %s", entry.Name(), repoPath)
+		if err := a.registry.AddProject(repoPath); err != nil {
+			logging.Warn("Failed to auto-register orphaned project %s: %v", repoPath, err)
+		} else {
+			registeredNames[filepath.Base(repoPath)] = true
+			registeredPaths[data.NormalizePath(repoPath)] = true
+		}
+	}
+}
+
+// resolveOrphanedRepo scans subdirectories of an orphaned project directory
+// for git worktrees and resolves the first one back to its parent repo.
+func resolveOrphanedRepo(projectDir string) string {
+	subEntries, err := os.ReadDir(projectDir)
+	if err != nil {
+		logging.Warn("Failed to read orphaned dir %s: %v", projectDir, err)
+		return ""
+	}
+
+	for _, sub := range subEntries {
+		if !sub.IsDir() {
+			continue
+		}
+		worktreePath := filepath.Join(projectDir, sub.Name())
+		resolved, err := git.ResolveWorktreeRepo(worktreePath)
+		if err != nil {
+			continue
+		}
+		if git.IsGitRepository(resolved) {
+			return resolved
+		}
+	}
+	return ""
+}
+
 // loadProjects loads all registered projects and their workspaces
 func (a *App) loadProjects() tea.Cmd {
 	return func() tea.Msg {
+		a.adoptOrphanedWorkspaces()
+
 		regProjects, err := a.registry.LoadFull()
 		if err != nil {
 			return messages.Error{Err: err, Context: "loading projects"}
