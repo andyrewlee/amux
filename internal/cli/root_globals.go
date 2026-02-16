@@ -177,7 +177,7 @@ func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}
 
 	next := 1
 	switch args[0] {
-	case "workspace", "logs", "agent", "session":
+	case "workspace", "logs", "agent", "session", "project":
 		token, idx, following, ok, err := nextCommandToken(args, next)
 		if err != nil {
 			return nil, nil, err

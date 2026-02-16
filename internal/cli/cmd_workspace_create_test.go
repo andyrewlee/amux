@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/data"
 )
 
 func TestCanonicalizeProjectPathRelative(t *testing.T) {
@@ -75,6 +77,8 @@ func TestCmdWorkspaceCreateRelativeProjectRemoveFromDifferentDir(t *testing.T) {
 	}
 	runGit(t, repoRoot, "add", "README.md")
 	runGit(t, repoRoot, "commit", "-m", "init")
+
+	registerProject(t, home, repoRoot)
 
 	originalWD, err := os.Getwd()
 	if err != nil {
@@ -165,6 +169,8 @@ func TestCmdWorkspaceCreateWithoutBaseFallsBackToHead(t *testing.T) {
 		runGit(t, repoRoot, "branch", "-m", "trunk")
 	}
 
+	registerProject(t, home, repoRoot)
+
 	var out, errOut bytes.Buffer
 	createCode := cmdWorkspaceCreate(
 		&out,
@@ -234,7 +240,7 @@ func TestWorkspaceCreateReadinessWaitConfig(t *testing.T) {
 	}
 }
 
-func TestCmdWorkspaceCreateRegistersProject(t *testing.T) {
+func TestCmdWorkspaceCreateRejectsUnregisteredProject(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -242,7 +248,7 @@ func TestCmdWorkspaceCreateRegistersProject(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	repoRoot := filepath.Join(t.TempDir(), "newproject")
+	repoRoot := filepath.Join(t.TempDir(), "unregistered")
 	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(repoRoot) error = %v", err)
 	}
@@ -255,12 +261,7 @@ func TestCmdWorkspaceCreateRegistersProject(t *testing.T) {
 	runGit(t, repoRoot, "add", "README.md")
 	runGit(t, repoRoot, "commit", "-m", "init")
 
-	// Verify project is NOT in the registry before create.
-	registryPath := filepath.Join(home, ".amux", "projects.json")
-	if _, err := os.Stat(registryPath); err == nil {
-		t.Fatalf("registry should not exist before workspace create")
-	}
-
+	// Do NOT register the project — workspace create should fail.
 	var out, errOut bytes.Buffer
 	code := cmdWorkspaceCreate(
 		&out,
@@ -269,44 +270,31 @@ func TestCmdWorkspaceCreateRegistersProject(t *testing.T) {
 		[]string{"feat-ws", "--project", repoRoot},
 		"test-v1",
 	)
-	if code != ExitOK {
-		t.Fatalf("cmdWorkspaceCreate() code = %d; stderr: %s; stdout: %s", code, errOut.String(), out.String())
+	if code != ExitUsage {
+		t.Fatalf("cmdWorkspaceCreate() code = %d, want %d; stderr: %s; stdout: %s", code, ExitUsage, errOut.String(), out.String())
 	}
 
 	var env Envelope
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, out.String())
 	}
-	if !env.OK {
-		t.Fatalf("expected ok=true; raw=%s", out.String())
+	if env.OK {
+		t.Fatalf("expected ok=false")
 	}
+	if env.Error == nil || env.Error.Code != "project_not_registered" {
+		t.Fatalf("expected project_not_registered error, got %#v", env.Error)
+	}
+	if !strings.Contains(env.Error.Message, "amux project add") {
+		t.Fatalf("expected error message to mention 'amux project add', got %q", env.Error.Message)
+	}
+}
 
-	// Verify project IS now in the registry by parsing the JSON.
-	registryData, err := os.ReadFile(registryPath)
-	if err != nil {
-		t.Fatalf("ReadFile(registry) error = %v", err)
-	}
-	var reg struct {
-		Projects []struct {
-			Path string `json:"path"`
-		} `json:"projects"`
-	}
-	if err := json.Unmarshal(registryData, &reg); err != nil {
-		t.Fatalf("json.Unmarshal(registry) error = %v; contents: %s", err, registryData)
-	}
-	canonicalRepo, err := filepath.EvalSymlinks(repoRoot)
-	if err != nil {
-		t.Fatalf("EvalSymlinks(repoRoot) error = %v", err)
-	}
-	found := false
-	for _, p := range reg.Projects {
-		if p.Path == canonicalRepo {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("registry does not contain project path %q; contents: %s", canonicalRepo, registryData)
+func registerProject(t *testing.T, home, repoRoot string) {
+	t.Helper()
+	registryPath := filepath.Join(home, ".amux", "projects.json")
+	reg := data.NewRegistry(registryPath)
+	if err := reg.AddProject(repoRoot); err != nil {
+		t.Fatalf("AddProject(%q) error = %v", repoRoot, err)
 	}
 }
 

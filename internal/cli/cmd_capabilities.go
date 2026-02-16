@@ -48,6 +48,9 @@ func cmdCapabilities(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 			"agent job status",
 			"agent job cancel",
 			"agent job wait",
+			"project list",
+			"project add",
+			"project remove",
 			"session list",
 			"session prune",
 			"version",
@@ -60,6 +63,8 @@ func cmdCapabilities(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 			"agent send",
 			"agent stop",
 			"agent job cancel",
+			"project add",
+			"project remove",
 			"session prune",
 		},
 		GlobalFlags: []string{

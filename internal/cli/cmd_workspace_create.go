@@ -96,6 +96,30 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		return ExitInternalError
 	}
 
+	// Require project to be registered before creating a workspace.
+	registered, err := svc.Registry.Projects()
+	if err != nil {
+		if gf.JSON {
+			return returnJSONErrorMaybeIdempotent(
+				w, wErr, gf, version, "workspace.create", *idempotencyKey,
+				ExitInternalError, "registry_read_failed", err.Error(), nil,
+			)
+		}
+		Errorf(wErr, "failed to read project registry: %v", err)
+		return ExitInternalError
+	}
+	if !isProjectRegistered(registered, projectPath) {
+		msg := fmt.Sprintf("project %s is not registered; run `amux project add %s` first", projectPath, projectPath)
+		if gf.JSON {
+			return returnJSONErrorMaybeIdempotent(
+				w, wErr, gf, version, "workspace.create", *idempotencyKey,
+				ExitUsage, "project_not_registered", msg, map[string]any{"project": projectPath},
+			)
+		}
+		Errorf(wErr, "%s", msg)
+		return ExitUsage
+	}
+
 	// Determine base branch
 	baseBranch := *base
 	if baseBranch == "" {
@@ -174,11 +198,6 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		return ExitInternalError
 	}
 
-	// Ensure project is in the registry so the TUI can discover it.
-	// Best-effort: workspace creation succeeded, so don't fail the command
-	// if registry update fails.
-	_ = svc.Registry.AddProject(projectPath)
-
 	info := workspaceToInfo(ws)
 
 	if gf.JSON {
@@ -256,6 +275,19 @@ func resolveWorkspaceBaseFallback(projectPath, detected string, detectedErr erro
 		return remoteBase
 	}
 	return "HEAD"
+}
+
+func isProjectRegistered(registered []string, projectPath string) bool {
+	for _, p := range registered {
+		canon, err := canonicalizeProjectPath(p)
+		if err != nil {
+			continue
+		}
+		if canon == projectPath {
+			return true
+		}
+	}
+	return false
 }
 
 func gitRefExists(repoPath, ref string) bool {
