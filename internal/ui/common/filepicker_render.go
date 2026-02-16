@@ -125,10 +125,8 @@ func (fp *FilePicker) renderLines() []string {
 	lines = append(lines, fp.renderButtonsLine(len(lines)))
 
 	if fp.showKeymapHints {
-		appendBlank(1)
-		helpWidth := 51
-		helpLines := fp.helpLines(helpWidth)
-		lines = append(lines, helpLines...)
+		muted := lipgloss.NewStyle().Foreground(ColorMuted)
+		lines = append(lines, "", muted.Render(fp.helpHint()))
 	}
 
 	fp.lastContentHeight = len(lines)
@@ -194,9 +192,14 @@ func truncateToWidth(s string, maxWidth int) string {
 }
 
 func (fp *FilePicker) renderButtonsLine(baseLine int) string {
-	buttonStyle := lipgloss.NewStyle().
+	normalStyle := lipgloss.NewStyle().
 		Foreground(ColorForeground).
 		Background(ColorSelection).
+		Padding(0, 1)
+
+	focusedStyle := lipgloss.NewStyle().
+		Foreground(ColorForeground).
+		Background(ColorPrimary).
 		Padding(0, 1)
 
 	type buttonDef struct {
@@ -204,26 +207,34 @@ func (fp *FilePicker) renderButtonsLine(baseLine int) string {
 		label string
 	}
 
+	// Helper to pick the right style for a button at the given index
+	styleFor := func(idx int, base lipgloss.Style) lipgloss.Style {
+		if fp.buttonFocused && fp.buttonCursor == idx {
+			return focusedStyle
+		}
+		return base
+	}
+
 	var buttons []buttonDef
 	if fp.multiSelect {
 		// Done button: show count and use muted style when no repos selected
 		doneLabel := fmt.Sprintf("Done (%d)", len(fp.selectedPaths))
-		doneStyle := buttonStyle
+		doneBase := normalStyle
 		if len(fp.selectedPaths) < 1 {
-			doneStyle = lipgloss.NewStyle().
+			doneBase = lipgloss.NewStyle().
 				Foreground(ColorMuted).
 				Background(ColorSelection).
 				Padding(0, 1)
 		}
 		buttons = []buttonDef{
-			{id: "open", label: buttonStyle.Render(fp.primaryActionLabel())},
-			{id: "done", label: doneStyle.Render(doneLabel)},
-			{id: "cancel", label: buttonStyle.Render("Cancel")},
+			{id: "open", label: styleFor(0, normalStyle).Render(fp.primaryActionLabel())},
+			{id: "done", label: styleFor(1, doneBase).Render(doneLabel)},
+			{id: "cancel", label: styleFor(2, normalStyle).Render("Cancel")},
 		}
 	} else {
 		buttons = []buttonDef{
-			{id: "open", label: buttonStyle.Render(fp.primaryActionLabel())},
-			{id: "cancel", label: buttonStyle.Render("Cancel")},
+			{id: "open", label: styleFor(0, normalStyle).Render(fp.primaryActionLabel())},
+			{id: "cancel", label: styleFor(1, normalStyle).Render("Cancel")},
 		}
 	}
 
@@ -273,7 +284,7 @@ func (fp *FilePicker) addButtonHit(id string, lineIndex, x, width int) {
 
 // Cursor returns the cursor position relative to the file picker view.
 func (fp *FilePicker) Cursor() *tea.Cursor {
-	if !fp.visible || fp.input.VirtualCursor() || !fp.input.Focused() {
+	if !fp.visible || fp.buttonFocused || fp.input.VirtualCursor() || !fp.input.Focused() {
 		return nil
 	}
 
@@ -291,24 +302,13 @@ func (fp *FilePicker) Cursor() *tea.Cursor {
 	return c
 }
 
-func (fp *FilePicker) helpItem(key, desc string) string {
-	return RenderHelpItem(fp.styles, key, desc)
-}
-
-func (fp *FilePicker) helpLines(width int) []string {
-	items := []string{
-		fp.helpItem("enter", "open/select"),
-	}
+func (fp *FilePicker) helpHint() string {
+	parts := []string{"Enter open"}
 	if fp.multiSelect {
-		items = append(items, fp.helpItem("shift+enter", "add repo"))
+		parts = append(parts, "Shift+Enter add repo")
 	}
-	items = append(items,
-		fp.helpItem("tab", "complete"),
-		fp.helpItem("esc", "cancel"),
-		fp.helpItem("↑/↓", "cycle"),
-		fp.helpItem("ctrl+h", "hidden"),
-	)
-	return WrapHelpItems(items, width)
+	parts = append(parts, "Tab complete", "Shift+Tab buttons", "↑/↓ navigate", "Esc cancel")
+	return strings.Join(parts, " • ")
 }
 
 func (fp *FilePicker) primaryActionLabel() string {

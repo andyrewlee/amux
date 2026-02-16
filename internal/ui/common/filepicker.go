@@ -39,6 +39,10 @@ type FilePicker struct {
 	multiSelect   bool                                        // Whether multi-select is active
 	statusMessage string                                      // Transient status/error message
 	validatePath  func(path string, existing []string) string // Returns error or ""
+
+	// Button focus mode (activated by shift+tab)
+	buttonFocused bool // Whether focus is on the button bar
+	buttonCursor  int  // Index of the focused button
 }
 
 type filePickerRowHit struct {
@@ -138,6 +142,8 @@ func (fp *FilePicker) RemoveSelectedPath(index int) {
 // Show makes the picker visible
 func (fp *FilePicker) Show() {
 	fp.visible = true
+	fp.buttonFocused = false
+	fp.buttonCursor = 0
 	fp.input.SetValue(fp.inputBasePath())
 	fp.input.CursorEnd()
 	fp.input.Focus()
@@ -259,6 +265,45 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 		}
 
 	case tea.KeyPressMsg:
+		// Handle button-focused mode
+		if fp.buttonFocused {
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+				// Esc always cancels, even when buttons are focused
+				fp.buttonFocused = false
+				fp.visible = false
+				return fp, func() tea.Msg {
+					return DialogResult{ID: fp.id, Confirmed: false}
+				}
+
+			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				return fp.activateButton()
+
+			case key.Matches(msg, key.NewBinding(key.WithKeys("left", "shift+tab"))):
+				fp.buttonCursor--
+				if fp.buttonCursor < 0 {
+					fp.buttonCursor = fp.buttonCount() - 1
+				}
+				return fp, nil
+
+			case key.Matches(msg, key.NewBinding(key.WithKeys("right", "tab"))):
+				fp.buttonCursor = (fp.buttonCursor + 1) % fp.buttonCount()
+				return fp, nil
+
+			case key.Matches(msg, key.NewBinding(key.WithKeys("up", "down"))):
+				// Return focus to input
+				fp.buttonFocused = false
+				fp.input.Focus()
+				return fp, nil
+
+			default:
+				// Any other key (typing) returns focus to input
+				fp.buttonFocused = false
+				fp.input.Focus()
+				// Fall through to normal handling so the keypress is processed
+			}
+		}
+
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			fp.visible = false
@@ -271,6 +316,13 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 				return fp.confirmCurrentDirectory()
 			}
 			return fp.handleEnter()
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))):
+			// Move focus to button bar
+			fp.buttonFocused = true
+			fp.buttonCursor = 0
+			fp.input.Blur()
+			return fp, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 			// Tab = autocomplete or select first match
@@ -377,4 +429,39 @@ func (fp *FilePicker) SetSize(width, height int) {
 	if fp.maxVisible < 3 {
 		fp.maxVisible = 3
 	}
+}
+
+// buttonCount returns the number of action buttons (3 for multi-select, 2 for single).
+func (fp *FilePicker) buttonCount() int {
+	if fp.multiSelect {
+		return 3 // open/add, done, cancel
+	}
+	return 2 // open, cancel
+}
+
+// activateButton dispatches the action for the currently focused button.
+func (fp *FilePicker) activateButton() (*FilePicker, tea.Cmd) {
+	fp.buttonFocused = false
+	fp.input.Focus()
+
+	if fp.multiSelect {
+		switch fp.buttonCursor {
+		case 0: // open/add repo
+			return fp.confirmCurrentDirectory()
+		case 1: // done
+			return fp.multiSelectDone()
+		case 2: // cancel
+			fp.visible = false
+			return fp, func() tea.Msg { return DialogResult{ID: fp.id, Confirmed: false} }
+		}
+	} else {
+		switch fp.buttonCursor {
+		case 0: // open
+			return fp.confirmCurrentDirectory()
+		case 1: // cancel
+			fp.visible = false
+			return fp, func() tea.Msg { return DialogResult{ID: fp.id, Confirmed: false} }
+		}
+	}
+	return fp, nil
 }
