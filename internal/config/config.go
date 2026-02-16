@@ -52,6 +52,9 @@ func DefaultConfig() (*Config, error) {
 		return nil, err
 	}
 
+	// loadAssistantOverrides and loadUISettings each read the config file
+	// independently. This is intentional: each loader fails independently and
+	// returns safe defaults, keeping the two subsystems decoupled.
 	assistants := defaultAssistants()
 	loadAssistantOverrides(paths.ConfigPath, assistants)
 

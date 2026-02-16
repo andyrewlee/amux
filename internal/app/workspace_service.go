@@ -139,6 +139,10 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 				if !s.shouldSurfaceWorkspace(path, ws) {
 					continue
 				}
+				// Set the default assistant for newly discovered workspaces. Note:
+				// UpsertFromDiscovery below merges with stored metadata, where stored
+				// metadata takes precedence if non-empty. This is intentional — stored
+				// metadata is authoritative over the discovery default.
 				if strings.TrimSpace(ws.Assistant) == "" {
 					ws.Assistant = s.resolvedDefaultAssistant()
 				}

@@ -27,6 +27,9 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 		}
 		return nil
 	}
+	// An explicit empty slice (len==0) means the workspace was seen but has no
+	// tabs, which is distinct from the !ok case above (workspace never seen).
+	// Migrate this "seen but empty" state to preserve the semantic difference.
 	if len(oldTabs) == 0 {
 		if _, exists := m.tabsByWorkspace[newID]; !exists {
 			m.tabsByWorkspace[newID] = []*Tab{}

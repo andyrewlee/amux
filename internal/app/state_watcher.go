@@ -253,6 +253,9 @@ func (sw *stateWatcher) scheduleNotify(reason, path string) {
 		sw.mu.Unlock()
 		return
 	}
+	if sw.pendingReason != "" && sw.pendingReason != reason {
+		sw.pendingPaths = nil
+	}
 	sw.pendingReason = reason
 	if path = strings.TrimSpace(path); path != "" {
 		if sw.pendingPaths == nil {

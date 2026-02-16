@@ -12,8 +12,7 @@ type workspaceService struct {
 	workspacesRoot string
 }
 
-func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string, defaultAssistant ...string) *workspaceService {
-	_ = defaultAssistant
+func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string) *workspaceService {
 	return &workspaceService{
 		registry:       registry,
 		store:          store,
@@ -23,5 +22,8 @@ func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts
 }
 
 func (s *workspaceService) resolvedDefaultAssistant() string {
+	if s != nil && s.store != nil {
+		return s.store.ResolvedDefaultAssistant()
+	}
 	return data.DefaultAssistant
 }

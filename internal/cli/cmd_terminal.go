@@ -334,7 +334,9 @@ func cmdTerminalLogs(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 			Interval:      *interval,
 			IdleThreshold: *idleThreshold,
 		}
-		return runWatchLoop(contextWithSignal(), w, cfg, svc.TmuxOpts)
+		ctx, cancel := contextWithSignal()
+		defer cancel()
+		return runWatchLoop(ctx, w, cfg, svc.TmuxOpts)
 	}
 
 	content, ok := tmux.CapturePaneTail(sessionName, *lines, svc.TmuxOpts)

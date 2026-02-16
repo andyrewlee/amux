@@ -41,7 +41,9 @@ func (s *WorkspaceStore) SetDefaultAssistant(name string) {
 	s.defaultAssistant = trimmed
 }
 
-func (s *WorkspaceStore) resolvedDefaultAssistant() string {
+// ResolvedDefaultAssistant returns the configured default assistant,
+// falling back to DefaultAssistant if none is set.
+func (s *WorkspaceStore) ResolvedDefaultAssistant() string {
 	if s == nil {
 		return DefaultAssistant
 	}
@@ -222,6 +224,11 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 
 	// Merge stored metadata into workspace. Store owns metadata/UI state;
 	// discovery only updates Root/Repo/Branch (and Name if stored is empty).
+	//
+	// Merge hierarchy: stored non-empty values win → caller's pre-set values
+	// are preserved for empty stored fields → applyWorkspaceDefaults fills
+	// any remaining gaps. The conditional "if stored.X != ''" guards below
+	// implement the first two tiers of this hierarchy.
 	if stored.Name != "" {
 		ws.Name = stored.Name
 	}
@@ -343,7 +350,7 @@ func parseCreated(raw json.RawMessage) time.Time {
 
 func (s *WorkspaceStore) applyWorkspaceDefaults(ws *Workspace) {
 	if ws.Assistant == "" {
-		ws.Assistant = s.resolvedDefaultAssistant()
+		ws.Assistant = s.ResolvedDefaultAssistant()
 	}
 	if ws.ScriptMode == "" {
 		ws.ScriptMode = "nonconcurrent"
@@ -358,6 +365,8 @@ func (s *WorkspaceStore) applyWorkspaceDefaults(ws *Workspace) {
 
 func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, WorkspaceID, error) {
 	canonicalID := Workspace{Repo: repo, Root: root}.ID()
+	// load with applyDefaults=false so raw stored values are visible for merge
+	// logic — empty fields indicate "not set" and influence precedence decisions.
 	ws, err := s.load(canonicalID, false)
 	if err == nil {
 		return ws, canonicalID, nil
@@ -377,6 +386,7 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 	var bestWS *Workspace
 	var bestID WorkspaceID
 	for _, id := range ids {
+		// applyDefaults=false: see comment on first load call above.
 		candidate, err := s.load(id, false)
 		if err != nil {
 			if !os.IsNotExist(err) {
@@ -464,6 +474,9 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 	return workspaces, nil
 }
 
+// validateWorkspaceID rejects IDs containing "..", "/", or "\" to prevent path
+// traversal attacks — workspace IDs are used to construct filesystem paths.
+// This is intentionally stricter than the WorkspaceID type itself.
 func validateWorkspaceID(id WorkspaceID) error {
 	value := strings.TrimSpace(string(id))
 	if value == "" {

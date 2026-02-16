@@ -5,6 +5,8 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
+// Test-seam variables: tests that mutate these must NOT use t.Parallel(),
+// because they share this package-level mutable state.
 var (
 	tmuxSessionStateFor        = tmux.SessionStateFor
 	tmuxKillSession            = tmux.KillSession

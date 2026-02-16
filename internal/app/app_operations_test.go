@@ -410,7 +410,7 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 	metadataRoot := filepath.Join(tmp, "workspaces-metadata")
 
 	store := data.NewWorkspaceStore(metadataRoot)
-	workspaceService := newWorkspaceService(nil, store, nil, workspacesRoot, "claude")
+	workspaceService := newWorkspaceService(nil, store, nil, workspacesRoot)
 	app := &App{
 		workspaceService: workspaceService,
 	}

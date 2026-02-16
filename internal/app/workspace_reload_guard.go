@@ -68,16 +68,26 @@ func (a *App) shouldSuppressWorkspaceReload(paths []string, now time.Time) bool 
 	if a == nil || len(paths) == 0 {
 		return false
 	}
+
+	// Collect markers under the lock, then release before doing filesystem I/O
+	// so that os.Stat/os.ReadFile calls in workspaceMetadataFingerprint don't
+	// hold localWorkspaceSaveMu.
+	type pathMarker struct {
+		path   string
+		marker localWorkspaceSaveMarker
+	}
+	var toCheck []pathMarker
+
 	a.localWorkspaceSaveMu.Lock()
-	defer a.localWorkspaceSaveMu.Unlock()
 	if len(a.localWorkspaceSavesAt) == 0 {
+		a.localWorkspaceSaveMu.Unlock()
 		return false
 	}
 	pruneOldLocalWorkspaceSavesLocked(a.localWorkspaceSavesAt, now)
 	if len(a.localWorkspaceSavesAt) == 0 {
+		a.localWorkspaceSaveMu.Unlock()
 		return false
 	}
-	matched := 0
 	for _, raw := range paths {
 		path := filepath.Clean(strings.TrimSpace(raw))
 		if path == "" {
@@ -85,22 +95,29 @@ func (a *App) shouldSuppressWorkspaceReload(paths []string, now time.Time) bool 
 		}
 		marker, ok := a.localWorkspaceSavesAt[path]
 		if !ok {
+			a.localWorkspaceSaveMu.Unlock()
 			return false
 		}
 		delta := now.Sub(marker.at)
 		if delta < 0 || delta > localWorkspaceReloadSuppressWindow {
+			a.localWorkspaceSaveMu.Unlock()
 			return false
 		}
-		fingerprint, ok := workspaceMetadataFingerprint(path)
+		toCheck = append(toCheck, pathMarker{path: path, marker: marker})
+	}
+	a.localWorkspaceSaveMu.Unlock()
+
+	// Perform filesystem I/O outside the critical section.
+	for _, pm := range toCheck {
+		fingerprint, ok := workspaceMetadataFingerprint(pm.path)
 		if !ok {
 			return false
 		}
-		if fingerprint != marker.fingerprint {
+		if fingerprint != pm.marker.fingerprint {
 			return false
 		}
-		matched++
 	}
-	return matched > 0
+	return len(toCheck) > 0
 }
 
 func pruneOldLocalWorkspaceSavesLocked(saves map[string]localWorkspaceSaveMarker, now time.Time) {
@@ -111,6 +128,11 @@ func pruneOldLocalWorkspaceSavesLocked(saves map[string]localWorkspaceSaveMarker
 	}
 }
 
+// workspaceMetadataFingerprint returns a fingerprint for the file at path.
+// Note: there is a TOCTOU gap between Stat and ReadFile — if the file changes
+// between the two calls the fingerprint won't match the stored one, causing
+// shouldSuppressWorkspaceReload to return false (not suppress). This is the
+// safe/conservative direction so the race is benign.
 func workspaceMetadataFingerprint(path string) (workspaceFileFingerprint, bool) {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {

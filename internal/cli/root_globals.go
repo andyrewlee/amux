@@ -272,6 +272,16 @@ func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 			"--grace-period":    {},
 			"--idempotency-key": {},
 		}
+	case "agent watch":
+		return map[string]struct{}{
+			"--lines":          {},
+			"--interval":       {},
+			"--idle-threshold": {},
+		}
+	// --timeout intentionally shadows the global --timeout flag;
+	// local flags are checked before global parsing, so the value
+	// is preserved for the subcommand. The global --timeout can
+	// still be set via prefix position (before "agent").
 	case "agent job wait":
 		return map[string]struct{}{
 			"--timeout":  {},
@@ -317,6 +327,10 @@ func localFlagRequiresValue(localValueFlags map[string]struct{}, arg string) boo
 	return ok
 }
 
+// localFlagConsumesRemainder returns true when the flag captures all remaining
+// arguments as its value. This exists for "terminal run --text", where the
+// payload is an arbitrary shell command that may contain flag-like tokens
+// (e.g., "ls -la") that must not be parsed as global flags.
 func localFlagConsumesRemainder(pathKey, arg string) bool {
 	if pathKey != "terminal run" {
 		return false
