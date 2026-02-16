@@ -462,10 +462,28 @@ func TestComputeNewLinesShrunkNoAdditions(t *testing.T) {
 	}
 }
 
+func TestComputeNewLinesShrunkTrailingBlankLine(t *testing.T) {
+	prev := strings.Split("line1\n\n", "\n")
+	curr := strings.Split("line1\n", "\n")
+	got := computeNewLines(prev, curr)
+	if len(got) != 0 {
+		t.Fatalf("got %v, want 0 new lines", got)
+	}
+}
+
 func TestComputeNewLinesEmptyPrevious(t *testing.T) {
 	curr := []string{"a", "b"}
 	got := computeNewLines(nil, curr)
 	if len(got) != 2 {
 		t.Fatalf("got %v, want %v", got, curr)
+	}
+}
+
+func TestComputeNewLinesTrailingBlankLineAdded(t *testing.T) {
+	prev := strings.Split("line1\n", "\n")
+	curr := strings.Split("line1\n\n", "\n")
+	got := computeNewLines(prev, curr)
+	if len(got) != 1 || got[0] != "" {
+		t.Fatalf("got %v, want [\"\"]", got)
 	}
 }

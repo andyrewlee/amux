@@ -89,7 +89,8 @@ func cmdAgentWatch(w, wErr io.Writer, gf GlobalFlags, args []string, version str
 		IdleThreshold: *idleThreshold,
 	}
 
-	ctx := contextWithSignal()
+	ctx, cancel := contextWithSignal()
+	defer cancel()
 	return runWatchLoop(ctx, w, cfg, svc.TmuxOpts)
 }
 
@@ -202,7 +203,28 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 
 // computeNewLines returns lines in current that are new compared to previous.
 // It finds the longest suffix of current that doesn't overlap with previous.
+//
+// Limitation: this heuristic matches the last line of previous in current and
+// assumes sequential appending. Interleaved or rewritten output may cause
+// missed or duplicated lines. For the terminal-capture use case this is an
+// acceptable tradeoff; verifyOverlap provides additional correctness.
+// trimTrailingEmpty removes a single trailing empty string produced by
+// strings.Split when content ends with "\n". Keep additional empty lines
+// so blank-line deltas can be observed.
+func trimTrailingEmpty(lines []string) []string {
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
 func computeNewLines(previous, current []string) []string {
+	// strings.Split produces a trailing "" when content ends with "\n";
+	// strip one trailing empty element to avoid anchoring overlap on the
+	// synthetic terminator while preserving intentional blank-line output.
+	previous = trimTrailingEmpty(previous)
+	current = trimTrailingEmpty(current)
+
 	if len(previous) == 0 {
 		return current
 	}
@@ -224,6 +246,9 @@ func computeNewLines(previous, current []string) []string {
 	if matchIdx < 0 || matchIdx+1 >= len(current) {
 		// No overlap found or no new lines after overlap — no new lines.
 		if matchIdx < 0 {
+			if isPrefix(previous, current) {
+				return nil
+			}
 			return current
 		}
 		return nil
@@ -248,6 +273,18 @@ func verifyOverlap(previous, current []string, endIdx int) bool {
 	return true
 }
 
+func isPrefix(previous, current []string) bool {
+	if len(current) > len(previous) {
+		return false
+	}
+	for i := range current {
+		if previous[i] != current[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func emitEvent(enc *json.Encoder, event watchEvent) bool {
 	return enc.Encode(event) == nil
 }
@@ -261,7 +298,9 @@ func now() string {
 }
 
 // contextWithSignal returns a context canceled on SIGINT or SIGTERM.
-func contextWithSignal() context.Context {
+// The caller must invoke the returned cancel function to avoid leaking the
+// signal-forwarding goroutine.
+func contextWithSignal() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -273,5 +312,5 @@ func contextWithSignal() context.Context {
 		}
 		signal.Stop(ch)
 	}()
-	return ctx
+	return ctx, cancel
 }

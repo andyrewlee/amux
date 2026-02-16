@@ -30,7 +30,7 @@ func TestSendJobStoreGetReconcilesStalePendingJob(t *testing.T) {
 		t.Fatalf("expected job to exist")
 	}
 	if got.Status != sendJobFailed {
-		t.Fatalf("status = %q, want %q", got.Status, sendJobFailed)
+		t.Fatalf("status = %q, want %q after read-path reconciliation", got.Status, sendJobFailed)
 	}
 	if !strings.Contains(got.Error, "stale pending timeout") {
 		t.Fatalf("error = %q, want stale pending timeout message", got.Error)
@@ -67,10 +67,13 @@ func TestSendJobStoreGetReconcilesStaleRunningJob(t *testing.T) {
 		t.Fatalf("expected job to exist")
 	}
 	if got.Status != sendJobFailed {
-		t.Fatalf("status = %q, want %q", got.Status, sendJobFailed)
+		t.Fatalf("status = %q, want %q after read-path reconciliation", got.Status, sendJobFailed)
 	}
 	if !strings.Contains(got.Error, "stale running timeout") {
 		t.Fatalf("error = %q, want stale running timeout message", got.Error)
+	}
+	if got.CompletedAt == 0 {
+		t.Fatalf("expected completed_at to be set for reconciled stale job")
 	}
 }
 
