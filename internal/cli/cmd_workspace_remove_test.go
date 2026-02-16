@@ -62,6 +62,36 @@ func TestCmdWorkspaceRemoveRejectsInvalidWorkspaceID(t *testing.T) {
 	}
 }
 
+func TestCmdWorkspaceRemoveNotFoundReturnsNotFound(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var out, errOut bytes.Buffer
+	code := cmdWorkspaceRemove(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"0000000000000000", "--yes"},
+		"test-v1",
+	)
+	if code != ExitNotFound {
+		t.Fatalf("cmdWorkspaceRemove() code = %d, want %d", code, ExitNotFound)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, out.String())
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "not_found" {
+		t.Fatalf("expected not_found, got %#v", env.Error)
+	}
+}
+
 func TestCmdWorkspaceRemoveCorruptedMetadataReturnsInternalError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

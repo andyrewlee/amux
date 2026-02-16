@@ -234,6 +234,82 @@ func TestWorkspaceCreateReadinessWaitConfig(t *testing.T) {
 	}
 }
 
+func TestCmdWorkspaceCreateRegistersProject(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoRoot := filepath.Join(t.TempDir(), "newproject")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoRoot) error = %v", err)
+	}
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "amux-test")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "init")
+
+	// Verify project is NOT in the registry before create.
+	registryPath := filepath.Join(home, ".amux", "projects.json")
+	if _, err := os.Stat(registryPath); err == nil {
+		t.Fatalf("registry should not exist before workspace create")
+	}
+
+	var out, errOut bytes.Buffer
+	code := cmdWorkspaceCreate(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"feat-ws", "--project", repoRoot},
+		"test-v1",
+	)
+	if code != ExitOK {
+		t.Fatalf("cmdWorkspaceCreate() code = %d; stderr: %s; stdout: %s", code, errOut.String(), out.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true; raw=%s", out.String())
+	}
+
+	// Verify project IS now in the registry by parsing the JSON.
+	registryData, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("ReadFile(registry) error = %v", err)
+	}
+	var reg struct {
+		Projects []struct {
+			Path string `json:"path"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(registryData, &reg); err != nil {
+		t.Fatalf("json.Unmarshal(registry) error = %v; contents: %s", err, registryData)
+	}
+	canonicalRepo, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(repoRoot) error = %v", err)
+	}
+	found := false
+	for _, p := range reg.Projects {
+		if p.Path == canonicalRepo {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("registry does not contain project path %q; contents: %s", canonicalRepo, registryData)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)

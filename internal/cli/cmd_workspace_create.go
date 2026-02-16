@@ -174,6 +174,11 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		return ExitInternalError
 	}
 
+	// Ensure project is in the registry so the TUI can discover it.
+	// Best-effort: workspace creation succeeded, so don't fail the command
+	// if registry update fails.
+	_ = svc.Registry.AddProject(projectPath)
+
 	info := workspaceToInfo(ws)
 
 	if gf.JSON {
