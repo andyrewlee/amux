@@ -49,7 +49,7 @@ func cmdAgentList(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 		return ExitInternalError
 	}
 
-	var agents []agentInfo
+	agents := []agentInfo{}
 	for _, s := range sessions {
 		if *workspace != "" && s.WorkspaceID != *workspace {
 			continue

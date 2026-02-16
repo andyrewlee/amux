@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	sendJobQueuePollInterval = 20 * time.Millisecond
-	sendJobQueueMaxWait      = 2 * sendJobsStaleAfter
+	sendJobQueuePollInterval    = 20 * time.Millisecond
+	sendJobQueueMaxPollInterval = 1 * time.Second
+	sendJobQueueMaxWait         = 2 * sendJobsStaleAfter
 )
 
 func (s *sendJobStore) queueLockPath(sessionName string) string {
@@ -23,6 +24,7 @@ func (s *sendJobStore) queueLockPath(sessionName string) string {
 func waitForSessionQueueTurnForJob(store *sendJobStore, sessionName, jobID string) (*os.File, error) {
 	jobID = strings.TrimSpace(jobID)
 	start := time.Now()
+	delay := sendJobQueuePollInterval
 	for {
 		lockFile, err := lockIdempotencyFile(store.queueLockPath(sessionName), false)
 		if err != nil {
@@ -56,7 +58,12 @@ func waitForSessionQueueTurnForJob(store *sendJobStore, sessionName, jobID strin
 		if sendJobQueueMaxWait > 0 && time.Since(start) >= sendJobQueueMaxWait {
 			return nil, fmt.Errorf("timed out waiting for send queue turn for job %s", jobID)
 		}
-		time.Sleep(sendJobQueuePollInterval)
+		time.Sleep(delay)
+		// Exponential backoff: double the delay each iteration, capped at 1s.
+		delay *= 2
+		if delay > sendJobQueueMaxPollInterval {
+			delay = sendJobQueueMaxPollInterval
+		}
 	}
 }
 

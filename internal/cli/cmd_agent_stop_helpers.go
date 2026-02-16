@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -34,23 +35,30 @@ func removeTabFromStore(svc *Services, sessionName string) {
 		return
 	}
 	for _, id := range ids {
-		ws, err := svc.Store.Load(id)
-		if err != nil {
-			continue
-		}
-		changed := false
-		var tabs []data.TabInfo
-		for _, tab := range ws.OpenTabs {
-			if tab.SessionName == sessionName {
-				changed = true
-				continue
+		// Use Update to hold the workspace lock across Load+filter+Save,
+		// preventing lost-update races between concurrent agent stop calls.
+		err := svc.Store.Update(id, func(ws *data.Workspace) error {
+			var tabs []data.TabInfo
+			changed := false
+			for _, tab := range ws.OpenTabs {
+				if tab.SessionName == sessionName {
+					changed = true
+					continue
+				}
+				tabs = append(tabs, tab)
 			}
-			tabs = append(tabs, tab)
-		}
-		if changed {
+			if !changed {
+				return errNoChange
+			}
 			ws.OpenTabs = tabs
-			_ = svc.Store.Save(ws)
+			return nil
+		})
+		if err == nil {
 			return
 		}
 	}
 }
+
+// errNoChange is a sentinel used by removeTabFromStore to signal that the
+// workspace did not contain the target tab and should not be re-saved.
+var errNoChange = fmt.Errorf("no change")

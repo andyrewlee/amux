@@ -8,6 +8,33 @@ import (
 	"strings"
 )
 
+// Update atomically loads a workspace, passes it to fn for modification, and
+// saves it back. The workspace flock is held across the entire Load+fn+Save
+// sequence, preventing lost-update races between concurrent CLI processes.
+func (s *WorkspaceStore) Update(id WorkspaceID, fn func(ws *Workspace) error) error {
+	if err := validateWorkspaceID(id); err != nil {
+		return err
+	}
+
+	lockFiles, err := s.lockWorkspaceIDs(id)
+	if err != nil {
+		return err
+	}
+	defer unlockRegistryFiles(lockFiles)
+
+	ws, err := s.load(id, true)
+	if err != nil {
+		return err
+	}
+	ws.storeID = id
+
+	if err := fn(ws); err != nil {
+		return err
+	}
+
+	return s.saveWorkspaceLocked(id, ws)
+}
+
 // AppendOpenTab atomically appends a tab to workspace metadata.
 // It acquires the workspace lock, reloads current metadata, and writes once to
 // avoid lost-tab updates when multiple agent runs complete concurrently.

@@ -152,13 +152,14 @@ func executeAgentSendJob(
 	}
 	defer releaseSessionQueueTurn(queueLock)
 
-	job, ok, err := jobStore.get(job.ID)
+	jobID := job.ID
+	job, ok, err := jobStore.get(jobID)
 	if err != nil {
-		_, _ = jobStore.setStatus(job.ID, sendJobFailed, err.Error())
+		_, _ = jobStore.setStatus(jobID, sendJobFailed, err.Error())
 		if gf.JSON {
 			return returnJSONErrorMaybeIdempotent(
 				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": job.ID},
+				ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": jobID},
 			)
 		}
 		Errorf(wErr, "failed to load send job status: %v", err)

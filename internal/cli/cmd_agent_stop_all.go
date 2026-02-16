@@ -37,8 +37,8 @@ func stopAllAgents(
 		return ExitInternalError
 	}
 
-	var stopped []string
-	var stoppedAgentIDs []string
+	stopped := []string{}
+	stoppedAgentIDs := []string{}
 	var failed []map[string]string
 	for _, s := range sessions {
 		if err := stopAgentSession(s.Name, svc, graceful, gracePeriod); err != nil {
