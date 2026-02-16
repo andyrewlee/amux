@@ -384,6 +384,9 @@ func (a *App) createWorkspace(project *data.Project, name, base string, allowEdi
 			time.Sleep(100 * time.Millisecond)
 		}
 
+		// Copy .env* files from the project directory (one level deep)
+		copyEnvFiles(project.Path, workspacePath)
+
 		// Save unified workspace
 		if err := a.workspaces.Save(ws); err != nil {
 			_ = git.RemoveWorkspace(project.Path, workspacePath)
