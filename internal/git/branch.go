@@ -35,6 +35,12 @@ func GetBaseBranch(repoPath string) (string, error) {
 	return "main", nil
 }
 
+// BranchExists returns true if the given branch ref exists in the repo.
+func BranchExists(repoPath, branch string) bool {
+	_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
+	return err == nil
+}
+
 // GetBranchFileDiff returns the full diff for a single file on the branch
 func GetBranchFileDiff(repoPath, path string) (*DiffResult, error) {
 	base, err := GetBaseBranch(repoPath)
