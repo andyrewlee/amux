@@ -342,6 +342,11 @@ func (a *App) createGroupWorkspaceFromSpecs(group *data.ProjectGroup, name strin
 			return messages.GroupWorkspaceCreateFailed{Err: err}
 		}
 
+		// Copy .env* files from each repo's project directory (one level deep)
+		for _, spec := range specs {
+			copyEnvFiles(spec.RepoPath, spec.WorkspacePath)
+		}
+
 		// Build group workspace — Primary.Root is the group workspace directory
 		// (parent of all repo worktrees), all repos go into Secondary.
 		groupRoot := filepath.Join(
