@@ -388,10 +388,20 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleShowCreateWorkspaceDialog(msg)
 
 	case messages.ShowRenameWorkspaceDialog:
-		a.handleShowRenameWorkspaceDialog(msg)
+		if cmd := a.handleShowRenameWorkspaceDialog(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.RenameWorkspace:
 		if cmd := a.handleRenameWorkspace(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.WorkspaceRenamed:
+		cmds = append(cmds, a.handleWorkspaceRenamed(msg)...)
+
+	case messages.WorkspaceRenameFailed:
+		if cmd := a.handleWorkspaceRenameFailed(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 

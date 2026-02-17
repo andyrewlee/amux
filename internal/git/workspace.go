@@ -45,6 +45,27 @@ func DeleteBranch(repoPath, branch string) error {
 	return err
 }
 
+// MoveWorkspace moves a git worktree from oldPath to newPath.
+func MoveWorkspace(repoPath, oldPath, newPath string) error {
+	_, err := RunGit(repoPath, "worktree", "move", oldPath, newPath)
+	return err
+}
+
+// RenameBranch renames a git branch from oldBranch to newBranch.
+func RenameBranch(repoPath, oldBranch, newBranch string) error {
+	_, err := RunGit(repoPath, "branch", "-m", oldBranch, newBranch)
+	return err
+}
+
+// BranchExists returns true if the given branch exists in the repository.
+func BranchExists(repoPath, branch string) bool {
+	output, err := RunGit(repoPath, "branch", "--list", branch)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(output) != ""
+}
+
 // ResolveWorktreeRepo resolves a worktree (or plain clone) directory back to
 // the path of the main repository that owns it.
 // It first tries git directly, then falls back to parsing the .git file

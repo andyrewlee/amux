@@ -288,6 +288,28 @@ func KillSession(sessionName string, opts Options) error {
 	return nil
 }
 
+// RenameSession renames a tmux session. If the session doesn't exist (exit code 1),
+// the error is silently ignored (same pattern as KillSession).
+func RenameSession(oldName, newName string, opts Options) error {
+	if oldName == "" || newName == "" {
+		return nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	cmd, cancel := tmuxCommand(opts, "rename-session", "-t", oldName, newName)
+	defer cancel()
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}
+
 type SessionActivity struct {
 	Name        string
 	WorkspaceID string

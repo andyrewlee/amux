@@ -2,11 +2,14 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/git"
 	"github.com/andyrewlee/medusa/internal/logging"
 	"github.com/andyrewlee/medusa/internal/messages"
 	"github.com/andyrewlee/medusa/internal/tmux"
@@ -36,47 +39,209 @@ func (a *App) handleWorkspaceFetchDone(msg messages.WorkspaceFetchDone) []tea.Cm
 }
 
 // handleRenameWorkspace handles the RenameWorkspace message.
+// Phase A: dispatches a background command that renames the git branch,
+// moves the worktree directory, updates the store, and migrates tmux tags.
+// On completion it returns WorkspaceRenamed or WorkspaceRenameFailed.
 func (a *App) handleRenameWorkspace(msg messages.RenameWorkspace) tea.Cmd {
 	if msg.Project == nil || msg.Workspace == nil {
 		return nil
 	}
 
-	wsID := msg.Workspace.ID()
+	ws := msg.Workspace
+	project := msg.Project
+	newName := msg.NewName
+	oldBranch := ws.Branch
+	newBranch := newName
+	oldRoot := ws.Root
+	newRoot := filepath.Join(filepath.Dir(oldRoot), newName)
+	repoPath := ws.Repo
+	opts := a.tmuxOptions
 
-	// 1. Load from store and update name
-	stored, err := a.workspaces.Load(wsID)
-	if err != nil {
-		logging.Error("Failed to load workspace for rename: %v", err)
-		return a.toast.ShowError("Failed to rename: " + err.Error())
-	}
-	stored.Name = msg.NewName
-	if err := a.workspaces.Save(stored); err != nil {
-		logging.Error("Failed to save renamed workspace: %v", err)
-		return a.toast.ShowError("Failed to save rename: " + err.Error())
+	// Capture a snapshot of the old workspace for the UI migration phase.
+	oldWs := &data.Workspace{
+		Name:   ws.Name,
+		Branch: ws.Branch,
+		Repo:   ws.Repo,
+		Root:   ws.Root,
 	}
 
-	// 2. Update activeWorkspace in-place
-	if a.activeWorkspace != nil && a.activeWorkspace.ID() == wsID {
-		a.activeWorkspace.Name = msg.NewName
+	return func() tea.Msg {
+		// 1. Validate: branch and target directory must not already exist.
+		if git.BranchExists(repoPath, newBranch) {
+			return messages.WorkspaceRenameFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("branch '%s' already exists", newBranch),
+			}
+		}
+		if _, err := os.Stat(newRoot); err == nil {
+			return messages.WorkspaceRenameFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("directory '%s' already exists", filepath.Base(newRoot)),
+			}
+		}
+
+		// 2. Rename branch: git branch -m oldBranch newBranch
+		if err := git.RenameBranch(repoPath, oldBranch, newBranch); err != nil {
+			return messages.WorkspaceRenameFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("rename branch: %w", err),
+			}
+		}
+
+		// 3. Move worktree: git worktree move oldRoot newRoot
+		if err := git.MoveWorkspace(repoPath, oldRoot, newRoot); err != nil {
+			// Rollback branch rename
+			_ = git.RenameBranch(repoPath, newBranch, oldBranch)
+			return messages.WorkspaceRenameFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("move worktree: %w", err),
+			}
+		}
+
+		// 4. Update store: load, set new fields, Save() auto-migrates the ID.
+		stored, err := a.workspaces.Load(ws.ID())
+		if err != nil {
+			// Rollback both git operations
+			_ = git.MoveWorkspace(repoPath, newRoot, oldRoot)
+			_ = git.RenameBranch(repoPath, newBranch, oldBranch)
+			return messages.WorkspaceRenameFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("load workspace: %w", err),
+			}
+		}
+		stored.Name = newName
+		stored.Branch = newBranch
+		stored.Root = newRoot
+		if err := a.workspaces.Save(stored); err != nil {
+			// Rollback both git operations
+			_ = git.MoveWorkspace(repoPath, newRoot, oldRoot)
+			_ = git.RenameBranch(repoPath, newBranch, oldBranch)
+			return messages.WorkspaceRenameFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("save workspace: %w", err),
+			}
+		}
+
+		// 5. Update tmux session tags from old workspace ID to new ID (best-effort).
+		oldID := oldWs.ID()
+		newID := stored.ID()
+		sessions, _ := tmux.ListSessionsMatchingTags(map[string]string{
+			"@medusa":           "1",
+			"@medusa_workspace": string(oldID),
+		}, opts)
+		for _, sess := range sessions {
+			_ = tmux.SetSessionOption(sess, "@medusa_workspace", string(newID), opts)
+		}
+
+		// 6. Rename tmux sessions: medusa-{oldName}-N → medusa-{newName}-N (cosmetic, best-effort).
+		oldPrefix := tmux.SessionName("medusa", ws.Name) + "-"
+		newPrefix := tmux.SessionName("medusa", newName) + "-"
+		allSessions, _ := tmux.ListSessions(opts)
+		for _, sess := range allSessions {
+			if strings.HasPrefix(sess, oldPrefix) {
+				suffix := strings.TrimPrefix(sess, oldPrefix)
+				_ = tmux.RenameSession(sess, newPrefix+suffix, opts)
+			}
+		}
+
+		return messages.WorkspaceRenamed{
+			Project:      project,
+			OldWorkspace: oldWs,
+			NewWorkspace: stored,
+		}
+	}
+}
+
+// handleWorkspaceRenamed handles Phase B of the rename: synchronous UI state migration.
+func (a *App) handleWorkspaceRenamed(msg messages.WorkspaceRenamed) []tea.Cmd {
+	var cmds []tea.Cmd
+	oldID := string(msg.OldWorkspace.ID())
+	newID := string(msg.NewWorkspace.ID())
+	oldName := msg.OldWorkspace.Name
+	newName := msg.NewWorkspace.Name
+	newWs := msg.NewWorkspace
+
+	// 1. Update activeWorkspace pointer if it matches old ID.
+	if a.activeWorkspace != nil && string(a.activeWorkspace.ID()) == oldID {
+		a.activeWorkspace = newWs
 	}
 
-	// 3. Update projects array in-place
+	// 2. Update projects array in-place, including OpenTabs session names.
+	oldPrefix := tmux.SessionName("medusa", oldName) + "-"
+	newPrefix := tmux.SessionName("medusa", newName) + "-"
 	for i := range a.projects {
 		for j := range a.projects[i].Workspaces {
-			if a.projects[i].Workspaces[j].ID() == wsID {
-				a.projects[i].Workspaces[j].Name = msg.NewName
+			ws := &a.projects[i].Workspaces[j]
+			if string(ws.ID()) == oldID {
+				ws.Name = newWs.Name
+				ws.Branch = newWs.Branch
+				ws.Root = newWs.Root
+				// Update session names in persisted OpenTabs so tmux sync
+				// checks the correct (renamed) sessions.
+				for k := range ws.OpenTabs {
+					if strings.HasPrefix(ws.OpenTabs[k].SessionName, oldPrefix) {
+						ws.OpenTabs[k].SessionName = newPrefix + strings.TrimPrefix(ws.OpenTabs[k].SessionName, oldPrefix)
+					}
+				}
 			}
 		}
 	}
 
-	// 4. Update center pane tab references
-	a.center.UpdateWorkspaceName(string(wsID), msg.NewName)
+	// 3. Migrate center pane tabs (also updates tmux session names on each tab).
+	a.center.MigrateWorkspaceTabs(oldID, newID, newWs, oldName, newName)
 
-	// 5. Reload projects + toast
-	return a.safeBatch(
-		a.toast.ShowSuccess(fmt.Sprintf("Renamed to '%s'", msg.NewName)),
+	// 4. Migrate sidebar terminal tabs.
+	a.sidebarTerminal.MigrateWorkspaceTabs(oldID, newID, newWs)
+
+	// 5. Migrate agent manager (also updates tmux session names on each agent).
+	a.center.AgentManager().MigrateWorkspaceAgents(
+		data.WorkspaceID(oldID),
+		data.WorkspaceID(newID),
+		newWs,
+		oldName, newName,
+	)
+
+	// 6. Migrate dirtyWorkspaces tracking.
+	if a.dirtyWorkspaces[oldID] {
+		delete(a.dirtyWorkspaces, oldID)
+		a.dirtyWorkspaces[newID] = true
+	}
+
+	// 7. Update file watcher: unwatch old root, watch new root.
+	if a.fileWatcher != nil {
+		a.fileWatcher.Unwatch(msg.OldWorkspace.Root)
+		_ = a.fileWatcher.Watch(newWs.Root)
+	}
+
+	// 8. Invalidate git status cache for old root.
+	if a.statusManager != nil {
+		a.statusManager.Invalidate(msg.OldWorkspace.Root)
+	}
+
+	// 9. Persist updated tab state (new session names) so tmux sync uses correct names.
+	if cmd := a.persistWorkspaceTabs(newID); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	// 10. Show success toast + reload projects.
+	cmds = append(cmds,
+		a.toast.ShowSuccess(fmt.Sprintf("Renamed to '%s'", newWs.Name)),
 		a.loadProjects(),
 	)
+
+	return cmds
+}
+
+// handleWorkspaceRenameFailed handles a failed workspace rename.
+func (a *App) handleWorkspaceRenameFailed(msg messages.WorkspaceRenameFailed) tea.Cmd {
+	logging.Error("Failed to rename workspace %s: %v", msg.Workspace.Name, msg.Err)
+	return a.toast.ShowError("Rename failed: " + msg.Err.Error())
 }
 
 // handleRenameGroup handles renaming a project group.
