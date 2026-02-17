@@ -239,13 +239,6 @@ type RenameWorkspace struct {
 	NewName   string
 }
 
-// WorkspaceRenamed is sent when a workspace rename (branch + directory + store) succeeds.
-type WorkspaceRenamed struct {
-	Project      *data.Project
-	OldWorkspace *data.Workspace // snapshot before rename (old ID, old Root, old Branch)
-	NewWorkspace *data.Workspace // updated workspace (new ID, new Root, new Branch)
-}
-
 // WorkspaceRenameFailed is sent when a workspace rename fails.
 type WorkspaceRenameFailed struct {
 	Project   *data.Project
@@ -651,13 +644,6 @@ type RenameGroupWorkspace struct {
 	Group     *data.ProjectGroup
 	Workspace *data.GroupWorkspace
 	NewName   string
-}
-
-// GroupWorkspaceRenamed is sent when a group workspace rename succeeds.
-type GroupWorkspaceRenamed struct {
-	Group        *data.ProjectGroup
-	OldWorkspace *data.GroupWorkspace // snapshot before rename
-	NewWorkspace *data.GroupWorkspace // updated workspace
 }
 
 // GroupWorkspaceRenameFailed is sent when a group workspace rename fails.
