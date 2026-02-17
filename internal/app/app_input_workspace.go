@@ -314,49 +314,266 @@ func (a *App) handleRenameGroup(msg messages.RenameGroup) tea.Cmd {
 }
 
 // handleRenameGroupWorkspace handles renaming a group workspace.
-// Only the display name changes — the workspace ID (based on group+repo+root)
-// stays the same, so tmux sessions tagged with the ID remain valid.
+// Phase A: dispatches a background command that renames git branches in all repos,
+// moves all worktrees, renames the group root directory, updates the store,
+// and migrates tmux tags/names. Returns GroupWorkspaceRenamed or GroupWorkspaceRenameFailed.
 func (a *App) handleRenameGroupWorkspace(msg messages.RenameGroupWorkspace) tea.Cmd {
 	if msg.Group == nil || msg.Workspace == nil {
 		return nil
 	}
 
-	wsID := msg.Workspace.ID()
+	gw := msg.Workspace
+	group := msg.Group
+	newName := msg.NewName
+	oldName := gw.Name
+	opts := a.tmuxOptions
 
-	// 1. Load from store and update name
-	stored, err := a.workspaces.LoadGroupWorkspace(wsID)
-	if err != nil {
-		logging.Error("Failed to load group workspace for rename: %v", err)
-		return a.toast.ShowError("Failed to rename: " + err.Error())
+	// Snapshot the old workspace for UI migration.
+	oldGw := &data.GroupWorkspace{
+		Name:      gw.Name,
+		GroupName: gw.GroupName,
+		Primary:   gw.Primary,
 	}
-	stored.Name = msg.NewName
-	if err := a.workspaces.SaveGroupWorkspace(stored); err != nil {
-		logging.Error("Failed to save renamed group workspace: %v", err)
-		return a.toast.ShowError("Failed to save rename: " + err.Error())
+	oldGw.Secondary = make([]data.Workspace, len(gw.Secondary))
+	copy(oldGw.Secondary, gw.Secondary)
+
+	return func() tea.Msg {
+		// 1. Validate: check that the new branch doesn't exist in any repo
+		//    and that no target directories exist.
+		newGroupRoot := filepath.Join(filepath.Dir(gw.Primary.Root), newName)
+		if _, err := os.Stat(newGroupRoot); err == nil {
+			return messages.GroupWorkspaceRenameFailed{
+				Group: group, Workspace: gw,
+				Err: fmt.Errorf("directory '%s' already exists", filepath.Base(newGroupRoot)),
+			}
+		}
+		for _, ws := range gw.Secondary {
+			if git.BranchExists(ws.Repo, newName) {
+				return messages.GroupWorkspaceRenameFailed{
+					Group: group, Workspace: gw,
+					Err: fmt.Errorf("branch '%s' already exists in %s", newName, filepath.Base(ws.Repo)),
+				}
+			}
+		}
+
+		// 2. Rename branches in all secondary repos.
+		var renamedBranches []int
+		for i, ws := range gw.Secondary {
+			if err := git.RenameBranch(ws.Repo, oldName, newName); err != nil {
+				// Rollback already-renamed branches.
+				for j := len(renamedBranches) - 1; j >= 0; j-- {
+					idx := renamedBranches[j]
+					_ = git.RenameBranch(gw.Secondary[idx].Repo, newName, oldName)
+				}
+				return messages.GroupWorkspaceRenameFailed{
+					Group: group, Workspace: gw,
+					Err: fmt.Errorf("rename branch in %s: %w", filepath.Base(ws.Repo), err),
+				}
+			}
+			renamedBranches = append(renamedBranches, i)
+		}
+
+		// 3. Move all secondary worktrees.
+		var movedWorktrees []int
+		for i, ws := range gw.Secondary {
+			newRoot := filepath.Join(newGroupRoot, filepath.Base(ws.Root))
+			if err := git.MoveWorkspace(ws.Repo, ws.Root, newRoot); err != nil {
+				// Rollback already-moved worktrees.
+				for j := len(movedWorktrees) - 1; j >= 0; j-- {
+					idx := movedWorktrees[j]
+					oldWsRoot := gw.Secondary[idx].Root
+					newWsRoot := filepath.Join(newGroupRoot, filepath.Base(oldWsRoot))
+					_ = git.MoveWorkspace(gw.Secondary[idx].Repo, newWsRoot, oldWsRoot)
+				}
+				// Rollback all branch renames.
+				for _, idx := range renamedBranches {
+					_ = git.RenameBranch(gw.Secondary[idx].Repo, newName, oldName)
+				}
+				return messages.GroupWorkspaceRenameFailed{
+					Group: group, Workspace: gw,
+					Err: fmt.Errorf("move worktree for %s: %w", filepath.Base(ws.Repo), err),
+				}
+			}
+			movedWorktrees = append(movedWorktrees, i)
+		}
+
+		// Helper to rollback all git operations.
+		rollbackAll := func() {
+			for j := len(movedWorktrees) - 1; j >= 0; j-- {
+				idx := movedWorktrees[j]
+				oldWsRoot := gw.Secondary[idx].Root
+				newWsRoot := filepath.Join(newGroupRoot, filepath.Base(oldWsRoot))
+				_ = git.MoveWorkspace(gw.Secondary[idx].Repo, newWsRoot, oldWsRoot)
+			}
+			for _, idx := range renamedBranches {
+				_ = git.RenameBranch(gw.Secondary[idx].Repo, newName, oldName)
+			}
+		}
+
+		// 4. Rename the group root directory (Primary.Root).
+		if err := os.Rename(gw.Primary.Root, newGroupRoot); err != nil {
+			rollbackAll()
+			return messages.GroupWorkspaceRenameFailed{
+				Group: group, Workspace: gw,
+				Err: fmt.Errorf("rename group directory: %w", err),
+			}
+		}
+
+		// 5. Update store: load, update fields, save under new ID, delete old ID.
+		oldGwID := gw.ID()
+		stored, err := a.workspaces.LoadGroupWorkspace(oldGwID)
+		if err != nil {
+			// Rollback directory rename + git ops.
+			_ = os.Rename(newGroupRoot, gw.Primary.Root)
+			rollbackAll()
+			return messages.GroupWorkspaceRenameFailed{
+				Group: group, Workspace: gw,
+				Err: fmt.Errorf("load group workspace: %w", err),
+			}
+		}
+		stored.Name = newName
+		stored.Primary.Name = newName
+		stored.Primary.Branch = newName
+		stored.Primary.Root = newGroupRoot
+		for i := range stored.Secondary {
+			stored.Secondary[i].Name = newName
+			stored.Secondary[i].Branch = newName
+			stored.Secondary[i].Root = filepath.Join(newGroupRoot, filepath.Base(stored.Secondary[i].Root))
+		}
+		if err := a.workspaces.SaveGroupWorkspace(stored); err != nil {
+			_ = os.Rename(newGroupRoot, gw.Primary.Root)
+			rollbackAll()
+			return messages.GroupWorkspaceRenameFailed{
+				Group: group, Workspace: gw,
+				Err: fmt.Errorf("save group workspace: %w", err),
+			}
+		}
+		// Delete old ID entry since SaveGroupWorkspace doesn't auto-migrate.
+		if stored.ID() != oldGwID {
+			_ = a.workspaces.DeleteGroupWorkspace(oldGwID)
+		}
+
+		// 6. Update tmux session tags (best-effort).
+		oldPrimaryID := oldGw.Primary.ID()
+		newPrimaryID := stored.Primary.ID()
+		sessions, _ := tmux.ListSessionsMatchingTags(map[string]string{
+			"@medusa":           "1",
+			"@medusa_workspace": string(oldPrimaryID),
+		}, opts)
+		for _, sess := range sessions {
+			_ = tmux.SetSessionOption(sess, "@medusa_workspace", string(newPrimaryID), opts)
+		}
+
+		// 7. Rename tmux sessions (cosmetic, best-effort).
+		oldPrefix := tmux.SessionName("medusa", oldName) + "-"
+		newPrefix := tmux.SessionName("medusa", newName) + "-"
+		allSessions, _ := tmux.ListSessions(opts)
+		for _, sess := range allSessions {
+			if strings.HasPrefix(sess, oldPrefix) {
+				suffix := strings.TrimPrefix(sess, oldPrefix)
+				_ = tmux.RenameSession(sess, newPrefix+suffix, opts)
+			}
+		}
+
+		return messages.GroupWorkspaceRenamed{
+			Group:        group,
+			OldWorkspace: oldGw,
+			NewWorkspace: stored,
+		}
+	}
+}
+
+// handleGroupWorkspaceRenamed handles Phase B: synchronous UI state migration after group rename.
+func (a *App) handleGroupWorkspaceRenamed(msg messages.GroupWorkspaceRenamed) []tea.Cmd {
+	var cmds []tea.Cmd
+	oldPrimaryID := string(msg.OldWorkspace.Primary.ID())
+	newPrimaryID := string(msg.NewWorkspace.Primary.ID())
+	oldName := msg.OldWorkspace.Name
+	newName := msg.NewWorkspace.Name
+	newPrimary := &msg.NewWorkspace.Primary
+
+	// 1. Update activeWorkspace / activeGroupWs if it matches.
+	if a.activeWorkspace != nil && string(a.activeWorkspace.ID()) == oldPrimaryID {
+		a.activeWorkspace = newPrimary
+	}
+	if a.activeGroupWs != nil && a.activeGroupWs.ID() == msg.OldWorkspace.ID() {
+		a.activeGroupWs = msg.NewWorkspace
 	}
 
-	// 2. Update activeGroupWs in-place
-	if a.activeGroupWs != nil && a.activeGroupWs.ID() == wsID {
-		a.activeGroupWs.Name = msg.NewName
-	}
-
-	// 3. Update groups array in-place
+	// 2. Update groups array in-place, including OpenTabs session names.
+	oldPrefix := tmux.SessionName("medusa", oldName) + "-"
+	newPrefix := tmux.SessionName("medusa", newName) + "-"
 	for i := range a.groups {
 		for j := range a.groups[i].Workspaces {
-			if a.groups[i].Workspaces[j].ID() == wsID {
-				a.groups[i].Workspaces[j].Name = msg.NewName
+			gw := &a.groups[i].Workspaces[j]
+			if gw.ID() == msg.OldWorkspace.ID() {
+				gw.Name = newName
+				gw.Primary = msg.NewWorkspace.Primary
+				gw.Secondary = msg.NewWorkspace.Secondary
+				for k := range gw.OpenTabs {
+					if strings.HasPrefix(gw.OpenTabs[k].SessionName, oldPrefix) {
+						gw.OpenTabs[k].SessionName = newPrefix + strings.TrimPrefix(gw.OpenTabs[k].SessionName, oldPrefix)
+					}
+				}
 			}
 		}
 	}
 
-	// 4. Update center pane tab references
-	a.center.UpdateWorkspaceName(string(wsID), msg.NewName)
+	// 3. Migrate center pane tabs.
+	a.center.MigrateWorkspaceTabs(oldPrimaryID, newPrimaryID, newPrimary, oldName, newName)
 
-	// 5. Reload groups + toast
-	return a.safeBatch(
-		a.toast.ShowSuccess(fmt.Sprintf("Renamed to '%s'", msg.NewName)),
+	// 4. Migrate sidebar terminal tabs.
+	a.sidebarTerminal.MigrateWorkspaceTabs(oldPrimaryID, newPrimaryID, newPrimary)
+
+	// 5. Migrate agent manager.
+	a.center.AgentManager().MigrateWorkspaceAgents(
+		data.WorkspaceID(oldPrimaryID),
+		data.WorkspaceID(newPrimaryID),
+		newPrimary,
+		oldName, newName,
+	)
+
+	// 6. Migrate dirtyWorkspaces tracking.
+	if a.dirtyWorkspaces[oldPrimaryID] {
+		delete(a.dirtyWorkspaces, oldPrimaryID)
+		a.dirtyWorkspaces[newPrimaryID] = true
+	}
+
+	// 7. Update file watcher for all roots.
+	if a.fileWatcher != nil {
+		for _, ws := range msg.OldWorkspace.Secondary {
+			a.fileWatcher.Unwatch(ws.Root)
+		}
+		for _, ws := range msg.NewWorkspace.Secondary {
+			_ = a.fileWatcher.Watch(ws.Root)
+		}
+	}
+
+	// 8. Invalidate git status cache for old roots.
+	if a.statusManager != nil {
+		for _, ws := range msg.OldWorkspace.Secondary {
+			a.statusManager.Invalidate(ws.Root)
+		}
+	}
+
+	// 9. Persist updated tab state.
+	if cmd := a.persistWorkspaceTabs(newPrimaryID); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	// 10. Toast + reload groups.
+	cmds = append(cmds,
+		a.toast.ShowSuccess(fmt.Sprintf("Renamed to '%s'", newName)),
 		a.loadGroups(),
 	)
+
+	return cmds
+}
+
+// handleGroupWorkspaceRenameFailed handles a failed group workspace rename.
+func (a *App) handleGroupWorkspaceRenameFailed(msg messages.GroupWorkspaceRenameFailed) tea.Cmd {
+	logging.Error("Failed to rename group workspace %s: %v", msg.Workspace.Name, msg.Err)
+	return a.toast.ShowError("Rename failed: " + msg.Err.Error())
 }
 
 // handleDeleteWorkspace handles the DeleteWorkspace message.

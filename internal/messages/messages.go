@@ -653,6 +653,20 @@ type RenameGroupWorkspace struct {
 	NewName   string
 }
 
+// GroupWorkspaceRenamed is sent when a group workspace rename succeeds.
+type GroupWorkspaceRenamed struct {
+	Group        *data.ProjectGroup
+	OldWorkspace *data.GroupWorkspace // snapshot before rename
+	NewWorkspace *data.GroupWorkspace // updated workspace
+}
+
+// GroupWorkspaceRenameFailed is sent when a group workspace rename fails.
+type GroupWorkspaceRenameFailed struct {
+	Group     *data.ProjectGroup
+	Workspace *data.GroupWorkspace
+	Err       error
+}
+
 // GroupWorkspaceActivated is sent when a group workspace is selected
 type GroupWorkspaceActivated struct {
 	Group     *data.ProjectGroup
