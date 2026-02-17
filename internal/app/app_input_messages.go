@@ -810,6 +810,18 @@ func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDi
 		}
 		return ""
 	})
+	// Check for running agent tabs and warn the user.
+	tabsInfo, _ := a.center.GetTabsInfoForWorkspace(string(msg.Workspace.ID()))
+	hasAgentTabs := false
+	for _, t := range tabsInfo {
+		if t.Assistant != "" && t.Status != "stopped" {
+			hasAgentTabs = true
+			break
+		}
+	}
+	if hasAgentTabs {
+		a.dialog.SetMessage("Running agent sessions will be restarted.")
+	}
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
@@ -1487,6 +1499,18 @@ func (a *App) handleShowRenameGroupWorkspaceDialog(msg messages.ShowRenameGroupW
 		}
 		return ""
 	})
+	// Check for running agent tabs and warn the user.
+	tabsInfo, _ := a.center.GetTabsInfoForWorkspace(string(msg.Workspace.Primary.ID()))
+	hasAgentTabs := false
+	for _, t := range tabsInfo {
+		if t.Assistant != "" && t.Status != "stopped" {
+			hasAgentTabs = true
+			break
+		}
+	}
+	if hasAgentTabs {
+		a.dialog.SetMessage("Running agent sessions will be restarted.")
+	}
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()

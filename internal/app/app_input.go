@@ -393,12 +393,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.RenameWorkspace:
-		if cmd := a.handleRenameWorkspace(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.WorkspaceRenamed:
-		cmds = append(cmds, a.handleWorkspaceRenamed(msg)...)
+		cmds = append(cmds, a.handleRenameWorkspace(msg)...)
 
 	case messages.WorkspaceRenameFailed:
 		if cmd := a.handleWorkspaceRenameFailed(msg); cmd != nil {
@@ -904,12 +899,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleShowRenameGroupWorkspaceDialog(msg)
 
 	case messages.RenameGroupWorkspace:
-		if cmd := a.handleRenameGroupWorkspace(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.GroupWorkspaceRenamed:
-		cmds = append(cmds, a.handleGroupWorkspaceRenamed(msg)...)
+		cmds = append(cmds, a.handleRenameGroupWorkspace(msg)...)
 
 	case messages.GroupWorkspaceRenameFailed:
 		if cmd := a.handleGroupWorkspaceRenameFailed(msg); cmd != nil {
