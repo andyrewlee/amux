@@ -70,9 +70,12 @@ func (fp *FilePicker) applyFilter() {
 		}
 	}
 
-	// Only show suggestions when user has typed a filter within the current directory.
+	// Show all entries when no filter query or input is outside current directory.
 	if !withinCurrent || query == "" {
-		fp.filteredIdx = nil
+		fp.filteredIdx = make([]int, len(fp.entries))
+		for i := range fp.entries {
+			fp.filteredIdx[i] = i
+		}
 		return
 	}
 
@@ -97,24 +100,9 @@ func (fp *FilePicker) applyFilter() {
 	}
 }
 
-// handlePathInput checks if the input has crossed a directory boundary and
-// reloads entries when needed, then reapplies the filter.
+// handlePathInput reapplies the filter when the input changes.
+// Navigation only happens on explicit actions (Enter, Backspace, Tab).
 func (fp *FilePicker) handlePathInput(input string) {
-	trimmed := strings.TrimSpace(input)
-	if trimmed != "" && filepath.IsAbs(trimmed) {
-		dir := trimmed
-		if !strings.HasSuffix(trimmed, string(os.PathSeparator)) {
-			dir = filepath.Dir(trimmed)
-		}
-		dir = filepath.Clean(dir)
-		if dir != filepath.Clean(fp.currentPath) {
-			if info, err := os.Stat(dir); err == nil && info.IsDir() {
-				fp.currentPath = dir
-				fp.loadDirectory() // loadDirectory calls applyFilter
-				return
-			}
-		}
-	}
 	fp.applyFilter()
 }
 
@@ -180,7 +168,19 @@ func (fp *FilePicker) isBaseInput(input string) bool {
 }
 
 func (fp *FilePicker) handleBackspace() bool {
-	return false // Let textinput handle it normally
+	input := strings.TrimSpace(fp.input.Value())
+	if !fp.isBaseInput(input) {
+		return false // Let textinput handle it normally
+	}
+	parent := filepath.Dir(fp.currentPath)
+	if parent == fp.currentPath {
+		return false // Already at root
+	}
+	fp.currentPath = parent
+	fp.input.SetValue(fp.inputBasePath())
+	fp.input.CursorEnd()
+	fp.loadDirectory()
+	return true
 }
 
 func (fp *FilePicker) resolveInputPath(input string) (string, bool) {

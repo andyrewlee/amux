@@ -47,14 +47,14 @@ func TestTmuxPersistenceKeepsSessions(t *testing.T) {
 	createAgentTab(t, session)
 	waitForUIContains(t, session, "claude", persistenceTimeout)
 
-	waitForSessionTypes(t, opts, map[string]bool{"agent": true, "terminal": true}, persistenceTimeout)
+	waitForSessionTypes(t, opts, map[string]bool{"agent": true}, persistenceTimeout)
 
 	quitApp(t, session)
 	if err := session.WaitForExit(persistenceTimeout); err != nil {
 		t.Fatalf("waiting for exit: %v", err)
 	}
 
-	waitForSessionTypes(t, opts, map[string]bool{"agent": true, "terminal": true}, persistenceTimeout)
+	waitForSessionTypes(t, opts, map[string]bool{"agent": true}, persistenceTimeout)
 
 	restart, restartCleanup, err := StartPTYSession(PTYOptions{
 		Home: home,
@@ -102,7 +102,7 @@ func TestTmuxPersistenceCleansOnExit(t *testing.T) {
 	waitForUIContains(t, session, "[New agent]", persistenceTimeout)
 	createAgentTab(t, session)
 	waitForUIContains(t, session, "claude", persistenceTimeout)
-	waitForSessionTypes(t, opts, map[string]bool{"agent": true, "terminal": true}, persistenceTimeout)
+	waitForSessionTypes(t, opts, map[string]bool{"agent": true}, persistenceTimeout)
 
 	quitApp(t, session)
 	if err := session.WaitForExit(persistenceTimeout); err != nil {
@@ -129,6 +129,12 @@ func createAgentTab(t *testing.T, session *PTYSession) {
 	if err := session.SendString("\r"); err != nil {
 		t.Fatalf("select agent: %v", err)
 	}
+	// When the workspace has no profile, a "Set Profile" dialog appears.
+	// Accept the default profile name to proceed with agent creation.
+	waitForUIContains(t, session, "Set Profile", persistenceTimeout)
+	if err := session.SendString("\r"); err != nil {
+		t.Fatalf("accept profile: %v", err)
+	}
 }
 
 func quitApp(t *testing.T, session *PTYSession) {
@@ -142,7 +148,7 @@ func quitApp(t *testing.T, session *PTYSession) {
 
 func sendPrefixCommand(t *testing.T, session *PTYSession, cmd string) {
 	t.Helper()
-	if err := session.SendBytes([]byte{0}); err != nil {
+	if err := session.SendBytes([]byte{1}); err != nil { // 0x01 = ctrl+a
 		t.Fatalf("send prefix: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)

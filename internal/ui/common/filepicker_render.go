@@ -115,7 +115,10 @@ func (fp *FilePicker) renderLines() []string {
 				if i == fp.cursor {
 					style = cursorStyle
 				}
-				lines = append(lines, "  "+style.Render(name))
+				lineIndex := len(lines)
+				line := "  " + style.Render(name)
+				lines = append(lines, line)
+				fp.addRowHit(i, lineIndex, line)
 			}
 		}
 	}
