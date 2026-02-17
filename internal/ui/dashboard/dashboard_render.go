@@ -96,8 +96,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		dirty := false
 
 		// Agent state indicator (spinner=active, ●=running, ○=idle)
-		// Spinner gated on tmux content-hash confirmation to prevent false
-		// spinners from tmux server-level redraws.
+		// Spinner driven solely by tmux "esc to interrupt" detection.
 		indicatorWidth := 2 // icon + space
 		agentState := 0
 		indicator := common.Icons.Idle + " "
@@ -106,9 +105,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
 				agentState = state
 				switch {
-				case state >= 2 && m.tmuxConfirmedActive[wsID]: // genuinely active
+				case m.tmuxConfirmedActive[wsID]: // agent busy ("esc to interrupt" visible)
 					indicator = common.SpinnerFrame(m.spinnerFrame) + " "
-				case state >= 1: // running but idle (or unconfirmed active)
+				case state >= 1: // running but idle
 					indicator = common.Icons.Running + " "
 				}
 			}
@@ -136,12 +135,14 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			style = style.Foreground(common.ColorSecondary)
 		}
 
-		// Style indicator separately: primary for running/active, muted for idle
-		// Use warning color (yellow/orange) when workspace is ready for review
-		readyForReview := row.Workspace != nil && m.readyWorkspaces[string(row.Workspace.ID())]
+		// Style indicator separately: primary for running/active, muted for idle.
+		// Use warning color (yellow/orange) when workspace is unread,
+		// but not for the workspace the user is currently viewing.
+		isCurrentWorkspace := row.Workspace != nil && row.Workspace.Root == m.activeRoot
+		hasUnread := row.Workspace != nil && m.unreadWorkspaces[string(row.Workspace.ID())]
 		iconFg := common.ColorMuted
 		if agentState >= 1 {
-			if readyForReview {
+			if hasUnread && !isCurrentWorkspace {
 				iconFg = common.ColorWarning
 			} else {
 				iconFg = common.ColorPrimary
@@ -243,8 +244,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 
 		// Agent state indicator (spinner=active, ●=running, ○=idle)
-		// Spinner gated on tmux content-hash confirmation to prevent false
-		// spinners from tmux server-level redraws.
+		// Spinner driven solely by tmux "esc to interrupt" detection.
 		indicatorWidth := 2
 		agentState := 0
 		indicator := common.Icons.Idle + " "
@@ -253,20 +253,22 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
 				agentState = state
 				switch {
-				case state >= 2 && m.tmuxConfirmedActive[wsID]: // genuinely active
+				case m.tmuxConfirmedActive[wsID]: // agent busy ("esc to interrupt" visible)
 					indicator = common.SpinnerFrame(m.spinnerFrame) + " "
-				case state >= 1: // running but idle (or unconfirmed active)
+				case state >= 1: // running but idle
 					indicator = common.Icons.Running + " "
 				}
 			}
 		}
 
-		// Style indicator separately: primary for running/active, muted for idle
-		// Use warning color (yellow/orange) when workspace is ready for review
-		readyForReview := row.GroupWorkspace != nil && m.readyWorkspaces[string(row.GroupWorkspace.Primary.ID())]
+		// Style indicator separately: primary for running/active, muted for idle.
+		// Use warning color (yellow/orange) when workspace is unread,
+		// but not for the workspace the user is currently viewing.
+		isCurrentWorkspace := row.GroupWorkspace != nil && row.GroupWorkspace.Primary.Root == m.activeRoot
+		hasUnread := row.GroupWorkspace != nil && m.unreadWorkspaces[string(row.GroupWorkspace.Primary.ID())]
 		iconFg := common.ColorMuted
 		if agentState >= 1 {
-			if readyForReview {
+			if hasUnread && !isCurrentWorkspace {
 				iconFg = common.ColorWarning
 			} else {
 				iconFg = common.ColorPrimary
