@@ -168,15 +168,16 @@ func TestTabBarClickPlusButton(t *testing.T) {
 	}
 
 	// Calculate screen coordinates for clicking the plus button
-	// The tab bar is at Y=1 (Y=0 is pane border, Y=1 is tab content - compact, no tab border)
+	// The tab bar is at Y = borderTop + infoBarHeight (info bar is 2 lines when workspace has tabs)
 	// Content X = offsetX + borderLeft(1) + paddingLeft(1) + localX
 	const (
 		borderTop   = 1
 		borderLeft  = 1
 		paddingLeft = 1
 	)
+	infoBarHeight := m.InfoBarHeight()
 	screenX := m.offsetX + borderLeft + paddingLeft + plusHit.region.X + 1 // +1 to be inside the button
-	screenY := borderTop
+	screenY := borderTop + infoBarHeight
 	t.Logf("Clicking plus button at screen (%d,%d), local (%d,%d)", screenX, screenY, plusHit.region.X, plusHit.region.Y)
 
 	click := tea.MouseClickMsg{X: screenX, Y: screenY, Button: tea.MouseLeft}

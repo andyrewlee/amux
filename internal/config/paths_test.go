@@ -9,12 +9,14 @@ import (
 func TestPathsEnsureDirectories(t *testing.T) {
 	tmp := t.TempDir()
 	paths := &Paths{
-		Home:           filepath.Join(tmp, "medusa"),
-		WorkspacesRoot: filepath.Join(tmp, "medusa", "workspaces"),
-		RegistryPath:   filepath.Join(tmp, "medusa", "projects.json"),
-		MetadataRoot:   filepath.Join(tmp, "medusa", "workspaces-metadata"),
-		ConfigPath:     filepath.Join(tmp, "medusa", "config.json"),
-		ProfilesRoot:   filepath.Join(tmp, "medusa", "profiles"),
+		Home:                filepath.Join(tmp, "medusa"),
+		WorkspacesRoot:      filepath.Join(tmp, "medusa", "workspaces"),
+		GroupsWorkspacesRoot: filepath.Join(tmp, "medusa", "workspaces", "groups"),
+		RegistryPath:        filepath.Join(tmp, "medusa", "projects.json"),
+		MetadataRoot:        filepath.Join(tmp, "medusa", "workspaces-metadata"),
+		ConfigPath:          filepath.Join(tmp, "medusa", "config.json"),
+		ProfilesRoot:        filepath.Join(tmp, "medusa", "profiles"),
+		SharedProfileRoot:   filepath.Join(tmp, "medusa", "profiles", "shared"),
 	}
 
 	if err := paths.EnsureDirectories(); err != nil {
