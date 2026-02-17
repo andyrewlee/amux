@@ -350,6 +350,26 @@ func (m *AgentManager) CloseAll() {
 	}
 }
 
+// MigrateWorkspaceAgents moves agent state from oldID to newID after a workspace rename.
+// It updates the workspace pointer and tmux session names on each agent without closing terminals.
+// oldName/newName are workspace display names used to compute tmux session name prefixes.
+func (m *AgentManager) MigrateWorkspaceAgents(oldID, newID data.WorkspaceID, ws *data.Workspace, oldName, newName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	oldPrefix := tmux.SessionName("medusa", oldName) + "-"
+	newPrefix := tmux.SessionName("medusa", newName) + "-"
+	if agents, ok := m.agents[oldID]; ok {
+		for _, agent := range agents {
+			agent.Workspace = ws
+			if strings.HasPrefix(agent.Session, oldPrefix) {
+				agent.Session = newPrefix + strings.TrimPrefix(agent.Session, oldPrefix)
+			}
+		}
+		m.agents[newID] = agents
+		delete(m.agents, oldID)
+	}
+}
+
 // CloseWorkspaceAgents closes and removes all agents for a specific workspace
 func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace) {
 	if ws == nil {

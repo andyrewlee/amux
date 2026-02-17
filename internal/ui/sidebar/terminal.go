@@ -294,6 +294,25 @@ func (m *TerminalModel) HasMultipleTabs() bool {
 	return len(m.getTabs()) > 1
 }
 
+// MigrateWorkspaceTabs moves terminal tab state from oldID to newID after a workspace rename.
+func (m *TerminalModel) MigrateWorkspaceTabs(oldID, newID string, ws *data.Workspace) {
+	if tabs, ok := m.tabsByWorkspace[oldID]; ok {
+		m.tabsByWorkspace[newID] = tabs
+		delete(m.tabsByWorkspace, oldID)
+	}
+	if idx, ok := m.activeTabByWorkspace[oldID]; ok {
+		m.activeTabByWorkspace[newID] = idx
+		delete(m.activeTabByWorkspace, oldID)
+	}
+	if _, ok := m.pendingCreation[oldID]; ok {
+		m.pendingCreation[newID] = true
+		delete(m.pendingCreation, oldID)
+	}
+	if m.workspace != nil && string(m.workspace.ID()) == oldID {
+		m.workspace = ws
+	}
+}
+
 // Focus sets focus state
 func (m *TerminalModel) Focus() {
 	m.focused = true

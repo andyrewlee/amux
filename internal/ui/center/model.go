@@ -3,6 +3,7 @@ package center
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -118,6 +119,7 @@ type Model struct {
 	workspace            *data.Workspace
 	tabsByWorkspace      map[string][]*Tab // tabs per workspace ID
 	activeTabByWorkspace map[string]int    // active tab index per workspace
+	wsIDRedirects        map[string]string // old workspace ID → new workspace ID (after rename)
 	focused              bool
 	canFocusRight        bool
 	monitorMode          bool
@@ -295,6 +297,7 @@ func New(cfg *config.Config) *Model {
 	return &Model{
 		tabsByWorkspace:      make(map[string][]*Tab),
 		activeTabByWorkspace: make(map[string]int),
+		wsIDRedirects:        make(map[string]string),
 		config:               cfg,
 		agentManager:         appPty.NewAgentManager(cfg),
 		styles:               common.DefaultStyles(),
@@ -377,8 +380,19 @@ func (m *Model) getTabs() []*Tab {
 	return m.tabsByWorkspace[m.workspaceID()]
 }
 
+// resolveWSID follows the redirect map for renamed workspaces.
+// PTY reader goroutines capture the workspace ID at start and embed it in
+// every message; after a rename the old ID must resolve to the new one.
+func (m *Model) resolveWSID(wsID string) string {
+	if redirect, ok := m.wsIDRedirects[wsID]; ok {
+		return redirect
+	}
+	return wsID
+}
+
 // getTabByID returns the tab with the given ID, or nil if not found
 func (m *Model) getTabByID(wsID string, tabID TabID) *Tab {
+	wsID = m.resolveWSID(wsID)
 	for _, tab := range m.tabsByWorkspace[wsID] {
 		if tab.ID == tabID && !tab.isClosed() {
 			return tab
@@ -392,6 +406,7 @@ func (m *Model) getTabBySession(wsID, sessionName string) *Tab {
 	if sessionName == "" {
 		return nil
 	}
+	wsID = m.resolveWSID(wsID)
 	for _, tab := range m.tabsByWorkspace[wsID] {
 		if tab == nil || tab.isClosed() {
 			continue
@@ -421,7 +436,7 @@ func (m *Model) noteTabsChanged() {
 }
 
 func (m *Model) isActiveTab(wsID string, tabID TabID) bool {
-	if m.workspace == nil || wsID != m.workspaceID() {
+	if m.workspace == nil || m.resolveWSID(wsID) != m.workspaceID() {
 		return false
 	}
 	tabs := m.getTabs()
@@ -471,6 +486,12 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 
 	delete(m.tabsByWorkspace, wsID)
 	delete(m.activeTabByWorkspace, wsID)
+	// Clean up any rename redirects pointing to this workspace.
+	for oldID, newID := range m.wsIDRedirects {
+		if newID == wsID {
+			delete(m.wsIDRedirects, oldID)
+		}
+	}
 	m.noteTabsChanged()
 
 	// Also cleanup agents for this workspace
@@ -521,4 +542,57 @@ func (m *Model) UpdateWorkspaceName(wsID string, newName string) {
 // HasTabsForWorkspace returns whether there are any tabs for a given workspace ID
 func (m *Model) HasTabsForWorkspace(wsID string) bool {
 	return len(m.tabsByWorkspace[wsID]) > 0
+}
+
+// AgentManager returns the agent manager instance.
+func (m *Model) AgentManager() *appPty.AgentManager {
+	return m.agentManager
+}
+
+// MigrateWorkspaceTabs moves tab state from oldID to newID after a workspace rename.
+// It updates the workspace pointer, tmux session names, and adjusts the current workspace if needed.
+// oldName/newName are the workspace display names used to compute tmux session name prefixes.
+//
+// Running PTY readers are NOT restarted — they continue emitting messages with the old
+// workspace ID. The wsIDRedirects map ensures those messages are routed to the migrated
+// tabs. Restarting readers would race with the still-blocked inner read goroutine and
+// corrupt output.
+func (m *Model) MigrateWorkspaceTabs(oldID, newID string, ws *data.Workspace, oldName, newName string) {
+	oldPrefix := tmux.SessionName("medusa", oldName) + "-"
+	newPrefix := tmux.SessionName("medusa", newName) + "-"
+
+	if tabs, ok := m.tabsByWorkspace[oldID]; ok {
+		for _, tab := range tabs {
+			if tab != nil {
+				tab.Workspace = ws
+				// Update tmux session name to match the renamed session.
+				if strings.HasPrefix(tab.SessionName, oldPrefix) {
+					tab.SessionName = newPrefix + strings.TrimPrefix(tab.SessionName, oldPrefix)
+				}
+				if tab.Agent != nil {
+					if strings.HasPrefix(tab.Agent.Session, oldPrefix) {
+						tab.Agent.Session = newPrefix + strings.TrimPrefix(tab.Agent.Session, oldPrefix)
+					}
+				}
+			}
+		}
+		m.tabsByWorkspace[newID] = tabs
+		delete(m.tabsByWorkspace, oldID)
+	}
+	if idx, ok := m.activeTabByWorkspace[oldID]; ok {
+		m.activeTabByWorkspace[newID] = idx
+		delete(m.activeTabByWorkspace, oldID)
+	}
+	// Redirect old workspace ID → new so PTY reader messages are routed correctly.
+	// Also update any existing redirects that pointed to oldID (handles chained renames).
+	for k, v := range m.wsIDRedirects {
+		if v == oldID {
+			m.wsIDRedirects[k] = newID
+		}
+	}
+	m.wsIDRedirects[oldID] = newID
+	if m.workspace != nil && string(m.workspace.ID()) == oldID {
+		m.workspace = ws
+	}
+	m.noteTabsChanged()
 }

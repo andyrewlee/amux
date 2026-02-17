@@ -790,7 +790,13 @@ func (a *App) handleSetProfile(msg messages.SetProfile) tea.Cmd {
 }
 
 // handleShowRenameWorkspaceDialog shows the rename workspace dialog.
-func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDialog) {
+func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDialog) tea.Cmd {
+	if msg.Workspace.IsPrimaryCheckout() {
+		return a.toast.ShowError("Cannot rename the primary checkout")
+	}
+	if msg.Workspace.IsMainBranch() {
+		return a.toast.ShowError("Cannot rename main/master branch")
+	}
 	a.dialogProject = msg.Project
 	a.dialogWorkspace = msg.Workspace
 	a.dialog = common.NewInputDialog(DialogRenameWorkspace, "Rename Worktree", msg.Workspace.Name)
@@ -808,6 +814,7 @@ func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDi
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
 	a.dialog.SetValue(msg.Workspace.Name)
+	return nil
 }
 
 // handleShowCreateWorkspaceDialog shows the create workspace dialog.
