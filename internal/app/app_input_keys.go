@@ -57,11 +57,9 @@ func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
-	// Pass tmux-confirmed active set so ready detection is gated by content-hash
-	// verification, filtering out noise from tmux server-level redraws.
-	a.dashboard.SetTmuxConfirmedActive(a.tmuxActiveWorkspaceIDs)
-	spinnerCmd, newReady := a.dashboard.SetWorkspaceAgentStates(a.center.GetWorkspaceAgentStates())
-	if newReady && a.config.UI.BellOnReady {
+	newUnread := a.dashboard.SetTmuxConfirmedActive(a.tmuxActiveWorkspaceIDs)
+	spinnerCmd := a.dashboard.SetWorkspaceAgentStates(a.center.GetWorkspaceAgentStates())
+	if newUnread && a.config.UI.BellOnReady {
 		return tea.Batch(spinnerCmd, ringBell())
 	}
 	return spinnerCmd

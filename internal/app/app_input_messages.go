@@ -162,7 +162,7 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.center.SetWorkspace(msg.Workspace)
 	a.sidebar.SetWorkspace(msg.Workspace)
 	if msg.Workspace != nil {
-		a.dashboard.ClearReady(string(msg.Workspace.ID()))
+		a.dashboard.MarkRead(string(msg.Workspace.ID()))
 	}
 	// Discover shared tmux tabs first; restore/sync happens below.
 	if discoverCmd := a.discoverWorkspaceTabsFromTmux(msg.Workspace); discoverCmd != nil {
@@ -329,7 +329,7 @@ func (a *App) handleWorkspacePreviewed(msg messages.WorkspacePreviewed) []tea.Cm
 	a.sidebar.SetWorkspace(msg.Workspace)
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	if msg.Workspace != nil {
-		a.dashboard.ClearReady(string(msg.Workspace.ID()))
+		a.dashboard.MarkRead(string(msg.Workspace.ID()))
 	}
 	// Sync active workspaces to dashboard (fixes spinner race condition)
 	if startCmd := a.syncActiveWorkspacesToDashboard(); startCmd != nil {
@@ -1540,7 +1540,7 @@ func (a *App) handleGroupWorkspaceActivated(msg messages.GroupWorkspaceActivated
 	a.activeWorkspace = &msg.Workspace.Primary
 	a.center.SetWorkspace(&msg.Workspace.Primary)
 	a.sidebar.SetWorkspace(&msg.Workspace.Primary)
-	a.dashboard.ClearReady(string(msg.Workspace.Primary.ID()))
+	a.dashboard.MarkRead(string(msg.Workspace.Primary.ID()))
 
 	// Set up file watching and git status for each repo worktree
 	if !a.layout.SidebarHidden() {
@@ -1607,7 +1607,7 @@ func (a *App) handleGroupWorkspacePreviewed(msg messages.GroupWorkspacePreviewed
 	a.center.SetWorkspace(&msg.Workspace.Primary)
 	a.sidebar.SetWorkspace(&msg.Workspace.Primary)
 	a.sidebarTerminal.SetWorkspacePreview(&msg.Workspace.Primary)
-	a.dashboard.ClearReady(string(msg.Workspace.Primary.ID()))
+	a.dashboard.MarkRead(string(msg.Workspace.Primary.ID()))
 
 	if msg.Workspace.Primary.Root != "" && a.statusManager != nil {
 		if cached := a.statusManager.GetCached(msg.Workspace.Primary.Root); cached != nil {

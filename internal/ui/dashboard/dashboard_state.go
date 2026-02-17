@@ -38,10 +38,11 @@ func (m *Model) SetForceSpinner(force bool) tea.Cmd {
 	return nil
 }
 
-// hasActiveAgents returns true if any workspace has an actively processing agent.
+// hasActiveAgents returns true if any workspace has an actively processing agent,
+// as confirmed by the tmux "esc to interrupt" check.
 func (m *Model) hasActiveAgents() bool {
-	for _, state := range m.workspaceAgentStates {
-		if state >= 2 {
+	for _, active := range m.tmuxConfirmedActive {
+		if active {
 			return true
 		}
 	}

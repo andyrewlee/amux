@@ -36,7 +36,7 @@ const (
 	// needed to reach active state (first change: 2, second change: 4 >= 3).
 	activityScoreThreshold = 3               // Score needed to be considered active
 	activityScoreMax       = 6               // Maximum score (prevents runaway accumulation)
-	activityHoldDuration   = 6 * time.Second // Hold active state after last change
+	activityHoldDuration   = 3 * time.Second // Brief hold to bridge between scan intervals
 	activityCaptureTail    = 50              // Lines to capture for delta detection
 )
 
@@ -224,56 +224,49 @@ func activeWorkspaceIDsWithHysteresis(
 			state = &sessionActivityState{}
 		}
 
-		// Capture pane content and compute hash
+		// Capture pane content and check the bottom few lines for the agent's
+		// interrupt prompt. When an agent is actively processing, it shows
+		// "esc to interrupt" at the bottom of the terminal. We only check
+		// the tail of the capture (not the full 50 lines) to avoid false
+		// positives from scrollback history of previous agent runs.
 		content, captureOK := tmux.CapturePaneTail(session.Name, activityCaptureTail, opts)
+		agentBusy := false
 		if captureOK {
-			hash := tmux.ContentHash(content)
-
-			// Update hysteresis score based on content change
-			if !state.initialized {
-				// First time seeing this session, just record baseline
-				state.lastHash = hash
-				state.initialized = true
-				state.score = 0
-			} else if hash != state.lastHash {
-				// Content changed - bump score
-				state.score += 2
-				if state.score > activityScoreMax {
-					state.score = activityScoreMax
-				}
-				state.lastHash = hash
-				// Only update lastActiveAt when crossing the active threshold,
-				// so hold duration doesn't apply to single changes below threshold
-				if state.score >= activityScoreThreshold {
-					state.lastActiveAt = now
-				}
-			} else {
-				// No change - decay score
-				state.score--
-				if state.score < 0 {
-					state.score = 0
-				}
+			lines := strings.Split(content, "\n")
+			// Only check the last 5 lines where the status text would be visible
+			tailStart := len(lines) - 5
+			if tailStart < 0 {
+				tailStart = 0
 			}
+			tail := strings.ToLower(strings.Join(lines[tailStart:], "\n"))
+			agentBusy = strings.Contains(tail, "esc to interrupt")
+		}
+
+		if agentBusy {
+			state.score = activityScoreMax
+			state.lastActiveAt = now
+		} else if captureOK {
+			// Capture succeeded but "esc to interrupt" not visible — agent
+			// is not busy. Reset score immediately so spinner stops on the
+			// next render cycle.
+			state.score = 0
 		} else {
-			// Capture failed - decay score to prevent stale "active" states
-			// from persisting when capture keeps failing
+			// Capture failed — decay gradually so pre-existing state isn't
+			// wiped by a transient tmux error.
 			state.score--
 			if state.score < 0 {
 				state.score = 0
 			}
 		}
+		if captureOK {
+			state.lastHash = tmux.ContentHash(content)
+			state.initialized = true
+		}
 
 		// Track updated state for merging back on main thread
 		updatedStates[session.Name] = state
 
-		// Determine if session is active based on score and hold duration
 		isActive := state.score >= activityScoreThreshold
-		if !isActive && !state.lastActiveAt.IsZero() {
-			// Check hold duration - stay active for a bit after last change
-			if now.Sub(state.lastActiveAt) < activityHoldDuration {
-				isActive = true
-			}
-		}
 
 		if isActive {
 			workspaceID := strings.TrimSpace(session.WorkspaceID)
