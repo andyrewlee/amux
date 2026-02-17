@@ -6,12 +6,17 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/process"
 )
+
+// terminalCloseTimeout is how long Close waits for cmd.Wait after SIGTERM/SIGKILL
+// before escalating to a direct SIGKILL.
+const terminalCloseTimeout = 5 * time.Second
 
 // Terminal wraps a PTY with an associated command
 type Terminal struct {
@@ -139,8 +144,22 @@ func (t *Terminal) Close() error {
 		if proc != nil {
 			leaderPID := proc.Pid
 			_ = process.KillProcessGroup(leaderPID, process.KillOptions{})
+			// Wait with timeout, escalate to SIGKILL if needed.
+			done := make(chan struct{})
+			go func() {
+				_ = cmd.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+				// Process exited cleanly.
+			case <-time.After(terminalCloseTimeout):
+				_ = process.ForceKillProcess(leaderPID)
+				<-done
+			}
+		} else {
+			_ = cmd.Wait()
 		}
-		_ = cmd.Wait()
 	}
 
 	return nil

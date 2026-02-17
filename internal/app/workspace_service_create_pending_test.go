@@ -99,17 +99,12 @@ func TestCreateWorkspaceEmptyBaseDefaultsToDefaultBranch(t *testing.T) {
 }
 
 func TestCreateWorkspacePendingMatchesAppSidePath(t *testing.T) {
-	origTimeout := gitPathWaitTimeout
-	t.Cleanup(func() {
-		gitPathWaitTimeout = origTimeout
-	})
-
 	gitErr := errors.New("git worktree add failed")
-	gitPathWaitTimeout = 50 * time.Millisecond
 
 	workspacesRoot := "/tmp/workspaces"
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitPathWaitTimeout = 50 * time.Millisecond
 	svc.gitOps = &mockGitOps{
 		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
 			return gitErr

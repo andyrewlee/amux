@@ -65,6 +65,11 @@ func KillProcessGroup(leaderPID int, opts KillOptions) error {
 	return nil
 }
 
+// ForceKillProcess sends SIGKILL to the process group led by pid.
+func ForceKillProcess(pid int) error {
+	return syscall.Kill(-pid, syscall.SIGKILL)
+}
+
 // SetProcessGroup configures a command to run in its own process group.
 func SetProcessGroup(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {

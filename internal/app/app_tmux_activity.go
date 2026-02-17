@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -17,39 +18,14 @@ type tmuxActivityTick struct {
 type tmuxActivityResult struct {
 	Token              int
 	ActiveWorkspaceIDs map[string]bool
-	UpdatedStates      map[string]*sessionActivityState // Updated hysteresis states to merge
+	UpdatedStates      map[string]*activity.SessionState // Updated hysteresis states to merge
 	Err                error
-}
-
-const (
-	// Hysteresis thresholds for screen-delta activity detection.
-	// Prevents flicker from periodic terminal refreshes (e.g., sponsor
-	// messages every ~30s). Newly discovered sessions start at the
-	// threshold so they appear active immediately; if idle, the score
-	// decays below threshold naturally.
-	activityScoreThreshold = 3 // Score needed to be considered active
-	activityScoreMax       = 6 // Maximum score (prevents runaway accumulation)
-
-	// activityOutputWindow is how recently output must have occurred to be "active".
-	activityOutputWindow = 2 * time.Second
-	// activityInputEchoWindow treats output immediately after input as likely local echo.
-	activityInputEchoWindow = 400 * time.Millisecond
-	// activityInputSuppressWindow suppresses fallback capture right after user input.
-	activityInputSuppressWindow = 2 * time.Second
-)
-
-// sessionActivityState tracks per-session activity using screen-delta hysteresis.
-type sessionActivityState struct {
-	lastHash     [16]byte  // Hash of last captured pane content
-	score        int       // Activity score (0 to activityScoreMax)
-	lastActiveAt time.Time // Last time this session was considered active
-	initialized  bool      // Whether we have a baseline hash
 }
 
 // snapshotActivityStates creates a deep copy of session activity states for use in a goroutine.
 // This avoids concurrent map access between the Update loop and Cmd goroutines.
-func (a *App) snapshotActivityStates() map[string]*sessionActivityState {
-	snapshot := make(map[string]*sessionActivityState, len(a.sessionActivityStates))
+func (a *App) snapshotActivityStates() map[string]*activity.SessionState {
+	snapshot := make(map[string]*activity.SessionState, len(a.sessionActivityStates))
 	for name, state := range a.sessionActivityStates {
 		// Copy the struct to avoid sharing pointers
 		stateCopy := *state
@@ -95,18 +71,18 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 	svc := a.tmuxService
 	return func() tea.Msg {
 		if svc == nil {
-			return tmuxActivityResult{Token: scanToken, Err: errTmuxUnavailable}
+			return tmuxActivityResult{Token: scanToken, Err: activity.ErrTmuxUnavailable}
 		}
-		sessions, err := fetchTaggedSessions(svc, infoBySession, opts)
+		sessions, err := activity.FetchTaggedSessions(svc, infoBySession, opts)
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
-		recentActivityBySession, err := fetchRecentlyActiveAgentSessionsByWindow(svc, opts)
+		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
 			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
 			recentActivityBySession = nil
 		}
-		active, updatedStates := activeWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
+		active, updatedStates := activity.ActiveWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates}
 	}
 }
@@ -137,18 +113,18 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 	svc := a.tmuxService
 	cmds := []tea.Cmd{a.scheduleTmuxActivityTick(), func() tea.Msg {
 		if svc == nil {
-			return tmuxActivityResult{Token: scanToken, Err: errTmuxUnavailable}
+			return tmuxActivityResult{Token: scanToken, Err: activity.ErrTmuxUnavailable}
 		}
-		sessions, err := fetchTaggedSessions(svc, sessionInfo, opts)
+		sessions, err := activity.FetchTaggedSessions(svc, sessionInfo, opts)
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
-		recentActivityBySession, err := fetchRecentlyActiveAgentSessionsByWindow(svc, opts)
+		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
 			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
 			recentActivityBySession = nil
 		}
-		active, updatedStates := activeWorkspaceIDsFromTags(sessionInfo, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
+		active, updatedStates := activity.ActiveWorkspaceIDsFromTags(sessionInfo, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates}
 	}}
 	return cmds
@@ -238,15 +214,38 @@ func (a *App) resetAllTabStatuses() []tea.Cmd {
 	return cmds
 }
 
-func workspaceIDFromSessionName(name string) string {
-	const prefix = "amux-"
-	if !strings.HasPrefix(name, prefix) {
-		return ""
+// tabSessionInfoByName builds an activity.SessionInfo map from the current projects.
+// Concurrency safety: built synchronously in the Update loop.
+func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
+	infoBySession := make(map[string]activity.SessionInfo)
+	assistants := map[string]struct{}{}
+	if a.config != nil {
+		for name := range a.config.Assistants {
+			assistants[name] = struct{}{}
+		}
 	}
-	trimmed := strings.TrimPrefix(name, prefix)
-	parts := strings.Split(trimmed, "-")
-	if len(parts) < 1 {
-		return ""
+	for _, project := range a.projects {
+		for i := range project.Workspaces {
+			ws := &project.Workspaces[i]
+			for _, tab := range ws.OpenTabs {
+				name := strings.TrimSpace(tab.SessionName)
+				if name == "" {
+					continue
+				}
+				status := strings.ToLower(strings.TrimSpace(tab.Status))
+				if status == "" {
+					status = "running"
+				}
+				assistant := strings.TrimSpace(tab.Assistant)
+				_, isChat := assistants[assistant]
+				infoBySession[name] = activity.SessionInfo{
+					Status:      status,
+					WorkspaceID: string(ws.ID()),
+					Assistant:   assistant,
+					IsChat:      isChat,
+				}
+			}
+		}
 	}
-	return parts[0]
+	return infoBySession
 }

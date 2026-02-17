@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/safego"
@@ -26,6 +27,11 @@ const (
 )
 
 const configFilename = "workspaces.json"
+
+// scriptStopTimeout is how long Stop waits for the background cmd.Wait monitor
+// to observe process exit before escalating to a direct SIGKILL.
+// Kept as a var so tests can shorten it.
+var scriptStopTimeout = 5 * time.Second
 
 func scriptWorkspaceKey(ws *data.Workspace) string {
 	return data.NormalizePath(ws.Root)
@@ -82,7 +88,8 @@ type ScriptRunner struct {
 }
 
 type runningScript struct {
-	cmd *exec.Cmd
+	cmd  *exec.Cmd
+	done chan struct{}
 }
 
 // NewScriptRunner creates a new script runner
@@ -192,7 +199,10 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		return nil, err
 	}
 
-	running := &runningScript{cmd: cmd}
+	running := &runningScript{
+		cmd:  cmd,
+		done: make(chan struct{}),
+	}
 	key := scriptWorkspaceKey(ws)
 	r.mu.Lock()
 	r.running[key] = running
@@ -200,6 +210,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
+		defer close(running.done)
 		if err := cmd.Wait(); err != nil {
 			slog.Debug("script process exited with error", "error", err)
 		}
@@ -229,12 +240,28 @@ func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	}
 
 	if running.cmd != nil && running.cmd.Process != nil {
-		err := r.killProcessGroup(running.cmd.Process.Pid, KillOptions{})
+		pid := running.cmd.Process.Pid
+		err := r.killProcessGroup(pid, KillOptions{})
 		if isBenignStopError(err) {
 			r.clearRunningEntry(key)
 			return nil
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		if running.done == nil {
+			r.clearRunningEntry(key)
+			return nil
+		}
+		// Wait briefly for the background cmd.Wait monitor to observe exit,
+		// then escalate to SIGKILL if needed.
+		select {
+		case <-running.done:
+			r.clearRunningEntry(key)
+		case <-time.After(scriptStopTimeout):
+			_ = ForceKillProcess(pid)
+			r.clearRunningEntry(key)
+		}
 	}
 
 	return nil

@@ -65,18 +65,16 @@ func TestStateWatcher_WatchesNewWorkspaceDirectory(t *testing.T) {
 
 	var watched []string
 	var mu sync.Mutex
-	old := watchMetadataDirFn
-	watchMetadataDirFn = func(w *fsnotify.Watcher, dir string) error {
-		mu.Lock()
-		watched = append(watched, dir)
-		mu.Unlock()
-		return nil
-	}
-	defer func() { watchMetadataDirFn = old }()
 
 	sw := &stateWatcher{
 		metadataRoot: root,
 		metadataDirs: make(map[string]struct{}),
+		addWatchFn: func(w *fsnotify.Watcher, dir string) error {
+			mu.Lock()
+			watched = append(watched, dir)
+			mu.Unlock()
+			return nil
+		},
 	}
 
 	event := fsnotify.Event{
@@ -175,18 +173,15 @@ func TestStateWatcher_IgnoresChildWatchFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	old := watchMetadataDirFn
-	watchMetadataDirFn = func(w *fsnotify.Watcher, dir string) error {
-		if dir == newDir {
-			return fmt.Errorf("injected watch error")
-		}
-		return nil
-	}
-	defer func() { watchMetadataDirFn = old }()
-
 	sw := &stateWatcher{
 		metadataRoot: root,
 		metadataDirs: make(map[string]struct{}),
+		addWatchFn: func(w *fsnotify.Watcher, dir string) error {
+			if dir == newDir {
+				return fmt.Errorf("injected watch error")
+			}
+			return nil
+		},
 	}
 
 	// Create event should still return true (workspace dir appeared) even if watch fails

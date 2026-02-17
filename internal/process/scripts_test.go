@@ -3,6 +3,7 @@ package process
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -344,6 +345,43 @@ func TestScriptRunnerRunScriptNonconcurrentIgnoresBenignStopRace(t *testing.T) {
 	// Clean up
 	runner.killProcessGroup = origKill
 	_ = runner.Stop(ws)
+}
+
+func TestScriptRunnerStop_TimeoutDoesNotBlockAfterForceKill(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	ws := &data.Workspace{Repo: repo, Root: wsRoot}
+
+	runner := NewScriptRunner(6200, 10)
+	runner.killProcessGroup = func(int, KillOptions) error { return nil }
+
+	key := scriptWorkspaceKey(ws)
+	runner.running[key] = &runningScript{
+		cmd:  &exec.Cmd{Process: &os.Process{Pid: 99_999_999}},
+		done: make(chan struct{}), // Never closes: simulates waiter that can't observe exit.
+	}
+
+	prevTimeout := scriptStopTimeout
+	scriptStopTimeout = 20 * time.Millisecond
+	defer func() { scriptStopTimeout = prevTimeout }()
+
+	stopped := make(chan error, 1)
+	go func() {
+		stopped <- runner.Stop(ws)
+	}()
+
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("Stop() error = %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Stop() blocked after force-kill timeout")
+	}
+
+	if runner.IsRunning(ws) {
+		t.Fatal("expected runner entry to be cleared after timeout path")
+	}
 }
 
 func waitForFile(path string, timeout time.Duration) error {

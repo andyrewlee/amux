@@ -34,12 +34,6 @@ const (
 	// tmuxActivityInterval controls how often we scan tmux sessions for activity.
 	tmuxActivityInterval = 2 * time.Second
 
-	// activityHoldDuration holds an active session state after the last observed change.
-	activityHoldDuration = 6 * time.Second
-
-	// activityCaptureTail is the number of terminal lines captured for activity checks.
-	activityCaptureTail = 50
-
 	// tmuxCommandTimeout caps tmux command duration for activity scans.
 	tmuxCommandTimeout = 2 * time.Second
 
@@ -57,7 +51,3 @@ const (
 	// AMUX_MAX_ATTACHED_AGENT_TABS=0 disables the limit.
 	defaultMaxAttachedAgentTabs = 6
 )
-
-// gitPathWaitTimeout controls the max wait for .git to appear after worktree creation.
-// Tests override this to speed up failures.
-var gitPathWaitTimeout = 3 * time.Second

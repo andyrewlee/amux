@@ -360,57 +360,13 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			m.msgSink(tabDiffCmd{cmd: cmd})
 		}
 	case tabEventSendInput:
-		if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
-			return
-		}
-		if len(ev.input) == 0 {
-			return
-		}
-		if err := tab.Agent.Terminal.SendString(string(ev.input)); err != nil {
-			logging.Warn("Input failed for tab %s: %v", tab.ID, err)
-			tab.mu.Lock()
-			tab.Running = false
-			tab.Detached = true
-			tab.mu.Unlock()
-			if m.msgSink != nil {
-				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})
-			}
-		}
+		m.sendToTerminal(tab, string(ev.input), ev.tabID, ev.workspaceID, "Input")
 	case tabEventPaste:
-		if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
-			return
-		}
-		if ev.pasteText == "" {
-			return
-		}
-		bracketedText := "\x1b[200~" + ev.pasteText + "\x1b[201~"
-		if err := tab.Agent.Terminal.SendString(bracketedText); err != nil {
-			logging.Warn("Paste failed for tab %s: %v", tab.ID, err)
-			tab.mu.Lock()
-			tab.Running = false
-			tab.Detached = true
-			tab.mu.Unlock()
-			if m.msgSink != nil {
-				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})
-			}
+		if ev.pasteText != "" {
+			m.sendToTerminal(tab, "\x1b[200~"+ev.pasteText+"\x1b[201~", ev.tabID, ev.workspaceID, "Paste")
 		}
 	case tabEventSendResponse:
-		if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
-			return
-		}
-		if len(ev.response) == 0 {
-			return
-		}
-		if err := tab.Agent.Terminal.SendString(string(ev.response)); err != nil {
-			logging.Warn("Response send failed for tab %s: %v", tab.ID, err)
-			tab.mu.Lock()
-			tab.Running = false
-			tab.Detached = true
-			tab.mu.Unlock()
-			if m.msgSink != nil {
-				m.msgSink(TabInputFailed{TabID: ev.tabID, WorkspaceID: ev.workspaceID, Err: err})
-			}
-		}
+		m.sendToTerminal(tab, string(ev.response), ev.tabID, ev.workspaceID, "Response send")
 	case tabEventWriteOutput:
 		if len(ev.output) == 0 {
 			return
@@ -425,5 +381,25 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.mu.Unlock()
 	default:
 		logging.Debug("unknown tab event: %v", ev.kind)
+	}
+}
+
+// sendToTerminal sends data to the tab's terminal and handles errors.
+func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID string, label string) {
+	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
+		return
+	}
+	if data == "" {
+		return
+	}
+	if err := tab.Agent.Terminal.SendString(data); err != nil {
+		logging.Warn("%s failed for tab %s: %v", label, tab.ID, err)
+		tab.mu.Lock()
+		tab.Running = false
+		tab.Detached = true
+		tab.mu.Unlock()
+		if m.msgSink != nil {
+			m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
+		}
 	}
 }

@@ -41,6 +41,15 @@ func KillProcessGroup(leaderPID int, opts KillOptions) error {
 	return proc.Kill()
 }
 
+// ForceKillProcess terminates the process by PID on Windows.
+func ForceKillProcess(pid int) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return proc.Kill()
+}
+
 // SetProcessGroup is a no-op on Windows.
 func SetProcessGroup(cmd *exec.Cmd) {
 	_ = cmd

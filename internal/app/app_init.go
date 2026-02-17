@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -116,7 +117,7 @@ func New(version, commit, date string) (*App, error) {
 		ctx:                    ctx,
 		tmuxOptions:            tmuxOpts,
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
-		sessionActivityStates:  make(map[string]*sessionActivityState),
+		sessionActivityStates:  make(map[string]*activity.SessionState),
 		dirtyWorkspaces:        make(map[string]bool),
 		localWorkspaceSavesAt:  make(map[string]localWorkspaceSaveMarker),
 		creatingWorkspaceIDs:   make(map[string]bool),

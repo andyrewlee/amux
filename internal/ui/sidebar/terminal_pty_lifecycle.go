@@ -48,11 +48,15 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 	// callback synchronously.
 	vt.SetResponseWriter(func(data []byte) {
 		if term != nil {
-			_, _ = term.Write(data)
+			if _, err := term.Write(data); err != nil {
+				logging.Debug("VTerm response write failed: %v", err)
+			}
 		}
 	})
 	ts.VTerm = vt
-	_ = term.SetSize(uint16(termHeight), uint16(termWidth))
+	if err := term.SetSize(uint16(termHeight), uint16(termWidth)); err != nil {
+		logging.Debug("Initial terminal resize failed: %v", err)
+	}
 
 	// ts already initialized above, just need tabs lookup
 	tabs := m.tabsByWorkspace[wsID]

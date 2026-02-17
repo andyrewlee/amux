@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/process"
@@ -33,20 +35,22 @@ func (defaultGitOps) DiscoverWorkspaces(project *data.Project) ([]data.Workspace
 }
 
 type workspaceService struct {
-	registry       ProjectRegistry
-	store          WorkspaceStore
-	scripts        *process.ScriptRunner
-	workspacesRoot string
-	gitOps         GitOperations
+	registry           ProjectRegistry
+	store              WorkspaceStore
+	scripts            *process.ScriptRunner
+	workspacesRoot     string
+	gitOps             GitOperations
+	gitPathWaitTimeout time.Duration
 }
 
 func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string) *workspaceService {
 	return &workspaceService{
-		registry:       registry,
-		store:          store,
-		scripts:        scripts,
-		workspacesRoot: workspacesRoot,
-		gitOps:         defaultGitOps{},
+		registry:           registry,
+		store:              store,
+		scripts:            scripts,
+		workspacesRoot:     workspacesRoot,
+		gitOps:             defaultGitOps{},
+		gitPathWaitTimeout: 3 * time.Second,
 	}
 }
 

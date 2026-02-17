@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"reflect"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -71,55 +72,57 @@ func (a *App) handleErrorOverlayDismiss(msg tea.Msg) bool {
 	return true
 }
 
-func (a *App) handleDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
-	if a.dialog == nil || !a.dialog.Visible() {
-		return false
+// handleOverlayInput updates a modal overlay and reports whether the message was consumed.
+// When consumePaste is true, tea.PasteMsg is treated as consumed input.
+func handleOverlayInput[T interface {
+	Visible() bool
+	Update(tea.Msg) (T, tea.Cmd)
+}](overlay T, msg tea.Msg, cmds *[]tea.Cmd, consumePaste bool) (T, bool) {
+	if isNilOverlay(overlay) || !overlay.Visible() {
+		return overlay, false
 	}
-	newDialog, cmd := a.dialog.Update(msg)
-	a.dialog = newDialog
+	updated, cmd := overlay.Update(msg)
 	if cmd != nil {
 		*cmds = append(*cmds, cmd)
 	}
-	// Don't process other input while dialog is open.
 	switch msg.(type) {
-	case tea.KeyPressMsg, tea.PasteMsg, tea.MouseClickMsg:
+	case tea.KeyPressMsg, tea.MouseClickMsg:
+		return updated, true
+	case tea.PasteMsg:
+		return updated, consumePaste
+	}
+	return updated, false
+}
+
+func isNilOverlay[T any](overlay T) bool {
+	v := reflect.ValueOf(overlay)
+	if !v.IsValid() {
 		return true
 	}
-	return false
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+func (a *App) handleDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
+	var consumed bool
+	a.dialog, consumed = handleOverlayInput(a.dialog, msg, cmds, true)
+	return consumed
 }
 
 func (a *App) handleFilePickerInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
-	if a.filePicker == nil || !a.filePicker.Visible() {
-		return false
-	}
-	newPicker, cmd := a.filePicker.Update(msg)
-	a.filePicker = newPicker
-	if cmd != nil {
-		*cmds = append(*cmds, cmd)
-	}
-	// Don't process other input while file picker is open.
-	switch msg.(type) {
-	case tea.KeyPressMsg, tea.PasteMsg, tea.MouseClickMsg:
-		return true
-	}
-	return false
+	var consumed bool
+	a.filePicker, consumed = handleOverlayInput(a.filePicker, msg, cmds, true)
+	return consumed
 }
 
 func (a *App) handleSettingsDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
-	if a.settingsDialog == nil || !a.settingsDialog.Visible() {
-		return false
-	}
-	newSettings, cmd := a.settingsDialog.Update(msg)
-	a.settingsDialog = newSettings
-	if cmd != nil {
-		*cmds = append(*cmds, cmd)
-	}
-	// Don't process other input while settings dialog is open.
-	switch msg.(type) {
-	case tea.KeyPressMsg, tea.MouseClickMsg:
-		return true
-	}
-	return false
+	var consumed bool
+	a.settingsDialog, consumed = handleOverlayInput(a.settingsDialog, msg, cmds, false)
+	return consumed
 }
 
 // handleDialogResult handles dialog completion

@@ -3,6 +3,7 @@ package logging
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -63,7 +64,9 @@ func Initialize(logDir string, level Level) error {
 
 	retentionDays := logRetentionDays()
 	if retentionDays > 0 {
-		_ = pruneOldLogs(logDir, retentionDays)
+		if err := pruneOldLogs(logDir, retentionDays); err != nil {
+			slog.Debug("log pruning failed", "error", err)
+		}
 	}
 
 	logPath := filepath.Join(logDir, fmt.Sprintf("%s%s%s", logPrefix, time.Now().Format(logDateLayout), logSuffix))

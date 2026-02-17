@@ -155,7 +155,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 
 		// Wait for .git file to exist (race condition from workspace creation)
 		gitPath := filepath.Join(workspacePath, ".git")
-		if err := waitForGitPath(gitPath, gitPathWaitTimeout); err != nil {
+		if err := waitForGitPath(gitPath, s.gitPathWaitTimeout); err != nil {
 			rollbackWorkspaceCreation(s.gitOps, project.Path, workspacePath, branch)
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,9 +12,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 )
-
-// watchMetadataDirFn is a test hook for injecting errors into fsnotify.Add.
-var watchMetadataDirFn func(w *fsnotify.Watcher, dir string) error
 
 type stateWatcher struct {
 	watcher *fsnotify.Watcher
@@ -32,6 +30,8 @@ type stateWatcher struct {
 	closed        bool
 	closeOnce     sync.Once
 	metadataDirs  map[string]struct{}
+
+	addWatchFn func(w *fsnotify.Watcher, dir string) error // test hook; nil = use watcher.Add
 }
 
 func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason string, paths []string)) (*stateWatcher, error) {
@@ -120,8 +120,8 @@ func (sw *stateWatcher) isRegistryEvent(event fsnotify.Event) bool {
 
 // addWatch delegates to the test hook or the real watcher.
 func (sw *stateWatcher) addWatch(path string) error {
-	if watchMetadataDirFn != nil {
-		return watchMetadataDirFn(sw.watcher, path)
+	if sw.addWatchFn != nil {
+		return sw.addWatchFn(sw.watcher, path)
 	}
 	return sw.watcher.Add(path)
 }
@@ -141,7 +141,9 @@ func (sw *stateWatcher) watchMetadataRoot() error {
 			continue
 		}
 		child := filepath.Join(sw.metadataRoot, entry.Name())
-		_ = sw.watchMetadataDir(child) // best-effort
+		if err := sw.watchMetadataDir(child); err != nil {
+			slog.Debug("best-effort watch failed", "path", child, "error", err)
+		}
 	}
 	return nil
 }
@@ -201,7 +203,9 @@ func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 	if parent == sw.metadataRoot {
 		if event.Op&(fsnotify.Create|fsnotify.Rename) != 0 {
 			if sw.looksLikeDir(name) {
-				_ = sw.watchMetadataDir(name) // best-effort
+				if err := sw.watchMetadataDir(name); err != nil {
+					slog.Debug("best-effort watch failed", "path", name, "error", err)
+				}
 			}
 			return true
 		}

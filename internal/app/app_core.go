@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -125,7 +126,7 @@ type App struct {
 	projectsLoaded            bool
 	tmuxInstallHint           string
 	tmuxActiveWorkspaceIDs    map[string]bool
-	sessionActivityStates     map[string]*sessionActivityState // Per-session hysteresis state
+	sessionActivityStates     map[string]*activity.SessionState // Per-session hysteresis state
 	instanceID                string
 	lastTerminalGCRun         time.Time
 

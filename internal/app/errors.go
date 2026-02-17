@@ -1,5 +1,7 @@
 package app
 
-import "errors"
+import "github.com/andyrewlee/amux/internal/app/activity"
 
-var errTmuxUnavailable = errors.New("tmux service unavailable")
+// errTmuxUnavailable is an alias for activity.ErrTmuxUnavailable, kept for
+// backward compatibility with code outside the activity package (e.g., GC).
+var errTmuxUnavailable = activity.ErrTmuxUnavailable

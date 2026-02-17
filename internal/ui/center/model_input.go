@@ -10,6 +10,26 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+// directSendToTerminal sends data directly to the terminal, handling errors.
+// Returns whether data was actually sent and an optional command for failures.
+func (m *Model) directSendToTerminal(tab *Tab, data string, label string) (*Model, bool, tea.Cmd) {
+	if tab.Agent == nil || tab.Agent.Terminal == nil {
+		return m, false, nil
+	}
+	if err := tab.Agent.Terminal.SendString(data); err != nil {
+		logging.Warn("%s failed for tab %s: %v", label, tab.ID, err)
+		tab.mu.Lock()
+		tab.Running = false
+		tab.Detached = true
+		tab.mu.Unlock()
+		wsID := m.workspaceID()
+		return m, false, func() tea.Msg {
+			return TabInputFailed{TabID: tab.ID, WorkspaceID: wsID, Err: err}
+		}
+	}
+	return m, true, nil
+}
+
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	defer perf.Time("center_update")()
@@ -44,38 +64,22 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					kind:        tabEventPaste,
 					pasteText:   msg.Content,
 				}) {
-					if tab.Agent != nil && tab.Agent.Terminal != nil {
-						bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
-						if err := tab.Agent.Terminal.SendString(bracketedText); err != nil {
-							logging.Warn("Direct paste failed for tab %s: %v", tab.ID, err)
-							tab.mu.Lock()
-							tab.Running = false
-							tab.Detached = true
-							tab.mu.Unlock()
-							return m, func() tea.Msg {
-								return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
-							}
-						}
+					if _, sent, cmd := m.directSendToTerminal(tab, "\x1b[200~"+msg.Content+"\x1b[201~", "Direct paste"); cmd != nil {
+						return m, cmd
+					} else if !sent {
+						return m, nil
 					}
 				}
 				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
 				return m, m.userInputActivityTagCmd(tab)
 			}
-			if tab.Agent != nil && tab.Agent.Terminal != nil {
-				bracketedText := "\x1b[200~" + msg.Content + "\x1b[201~"
-				if err := tab.Agent.Terminal.SendString(bracketedText); err != nil {
-					logging.Warn("Direct paste failed for tab %s: %v", tab.ID, err)
-					tab.mu.Lock()
-					tab.Running = false
-					tab.Detached = true
-					tab.mu.Unlock()
-					return m, func() tea.Msg {
-						return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
-					}
-				}
-				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
-				return m, m.userInputActivityTagCmd(tab)
+			if _, sent, cmd := m.directSendToTerminal(tab, "\x1b[200~"+msg.Content+"\x1b[201~", "Direct paste"); cmd != nil {
+				return m, cmd
+			} else if !sent {
+				return m, nil
 			}
+			logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
+			return m, m.userInputActivityTagCmd(tab)
 		}
 		return m, nil
 
@@ -206,15 +210,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 				case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
 					// This is Escape - let it go to terminal
-					if err := tab.Agent.Terminal.SendString("\x1b"); err != nil {
-						logging.Warn("Escape key failed for tab %s: %v", tab.ID, err)
-						tab.mu.Lock()
-						tab.Running = false
-						tab.Detached = true
-						tab.mu.Unlock()
-						return m, func() tea.Msg {
-							return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
-						}
+					if _, sent, cmd := m.directSendToTerminal(tab, "\x1b", "Escape key"); cmd != nil {
+						return m, cmd
+					} else if !sent {
+						return m, nil
 					}
 					return m, m.userInputActivityTagCmd(tab)
 				}
@@ -290,29 +289,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 							kind:        tabEventSendInput,
 							input:       input,
 						}) {
-							if tab.Agent != nil && tab.Agent.Terminal != nil {
-								if err := tab.Agent.Terminal.SendString(string(input)); err != nil {
-									logging.Warn("Direct input failed for tab %s: %v", tab.ID, err)
-									tab.mu.Lock()
-									tab.Running = false
-									tab.Detached = true
-									tab.mu.Unlock()
-									return m, func() tea.Msg {
-										return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
-									}
-								}
+							if _, sent, cmd := m.directSendToTerminal(tab, string(input), "Direct input"); cmd != nil {
+								return m, cmd
+							} else if !sent {
+								return m, nil
 							}
 						}
 					} else {
-						if err := tab.Agent.Terminal.SendString(string(input)); err != nil {
-							logging.Warn("Direct input failed for tab %s: %v", tab.ID, err)
-							tab.mu.Lock()
-							tab.Running = false
-							tab.Detached = true
-							tab.mu.Unlock()
-							return m, func() tea.Msg {
-								return TabInputFailed{TabID: tab.ID, WorkspaceID: m.workspaceID(), Err: err}
-							}
+						if _, sent, cmd := m.directSendToTerminal(tab, string(input), "Direct input"); cmd != nil {
+							return m, cmd
+						} else if !sent {
+							return m, nil
 						}
 					}
 					return m, m.userInputActivityTagCmd(tab)
