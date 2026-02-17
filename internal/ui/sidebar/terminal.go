@@ -16,15 +16,6 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
-// SelectionState tracks mouse selection state
-type SelectionState struct {
-	Active    bool
-	StartX    int
-	StartLine int // Absolute line number (0 = first scrollback line)
-	EndX      int
-	EndLine   int // Absolute line number
-}
-
 // TerminalTabID is a unique identifier for a terminal tab
 type TerminalTabID string
 
@@ -66,7 +57,7 @@ type TerminalState struct {
 	flushPendingSince time.Time
 
 	// Selection state
-	Selection          SelectionState
+	Selection          common.SelectionState
 	selectionScroll    common.SelectionScrollState
 	selectionLastTermX int
 

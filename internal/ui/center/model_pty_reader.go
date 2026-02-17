@@ -1,14 +1,12 @@
 package center
 
 import (
-	"io"
 	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
-	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration) {
@@ -100,172 +98,23 @@ func (m *Model) busyPTYTabCount(now time.Time) int {
 }
 
 func (m *Model) forwardPTYMsgs(msgCh <-chan tea.Msg) {
-	for msg := range msgCh {
-		if msg == nil {
-			continue
-		}
-		out, ok := msg.(PTYOutput)
-		if !ok {
-			if m.msgSink != nil {
-				m.msgSink(msg)
+	common.ForwardPTYMsgs(msgCh, m.msgSink, common.OutputMerger{
+		ExtractData: func(msg tea.Msg) ([]byte, bool) {
+			if out, ok := msg.(PTYOutput); ok {
+				return out.Data, true
 			}
-			continue
-		}
-
-		merged := out
-		for {
-			select {
-			case next, ok := <-msgCh:
-				if !ok {
-					if m.msgSink != nil && len(merged.Data) > 0 {
-						m.msgSink(merged)
-					}
-					return
-				}
-				if next == nil {
-					continue
-				}
-				if nextOut, ok := next.(PTYOutput); ok &&
-					nextOut.WorkspaceID == merged.WorkspaceID &&
-					nextOut.TabID == merged.TabID {
-					merged.Data = append(merged.Data, nextOut.Data...)
-					if len(merged.Data) >= ptyMaxPendingBytes {
-						if m.msgSink != nil && len(merged.Data) > 0 {
-							m.msgSink(merged)
-						}
-						merged.Data = nil
-					}
-					continue
-				}
-				if m.msgSink != nil && len(merged.Data) > 0 {
-					m.msgSink(merged)
-				}
-				if m.msgSink != nil {
-					m.msgSink(next)
-				}
-				goto nextMsg
-			default:
-				if m.msgSink != nil && len(merged.Data) > 0 {
-					m.msgSink(merged)
-				}
-				goto nextMsg
-			}
-		}
-	nextMsg:
-	}
-}
-
-func runPTYReader(term *appPty.Terminal, msgCh chan tea.Msg, cancel <-chan struct{}, wtID string, tabID TabID, heartbeat *int64) {
-	// Ensure msgCh is always closed even if we panic, so forwardPTYMsgs doesn't block forever.
-	// The inner recover() catches double-close panics from existing close(msgCh) calls.
-	defer func() {
-		defer func() { _ = recover() }()
-		close(msgCh)
-	}()
-
-	if term == nil {
-		return
-	}
-	beat := func() {
-		if heartbeat != nil {
-			atomic.StoreInt64(heartbeat, time.Now().UnixNano())
-		}
-	}
-	beat()
-
-	dataCh := make(chan []byte, ptyReadQueueSize)
-	errCh := make(chan error, 1)
-
-	safego.Go("center.pty_read_loop", func() {
-		buf := make([]byte, ptyReadBufferSize)
-		for {
-			n, err := term.Read(buf)
-			if err != nil {
-				select {
-				case errCh <- err:
-				default:
-				}
-				close(dataCh)
-				return
-			}
-			if n == 0 {
-				continue
-			}
-			beat()
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			select {
-			case dataCh <- chunk:
-			case <-cancel:
-				return
-			}
-		}
+			return nil, false
+		},
+		CanMerge: func(cur, next tea.Msg) bool {
+			c, _ := cur.(PTYOutput)
+			n, _ := next.(PTYOutput)
+			return c.WorkspaceID == n.WorkspaceID && c.TabID == n.TabID
+		},
+		Build: func(first tea.Msg, data []byte) tea.Msg {
+			out, _ := first.(PTYOutput)
+			out.Data = data
+			return out
+		},
+		MaxPending: ptyMaxPendingBytes,
 	})
-
-	ticker := time.NewTicker(ptyFrameInterval)
-	defer ticker.Stop()
-
-	var pending []byte
-	var stoppedErr error
-
-	for {
-		select {
-		case <-cancel:
-			close(msgCh)
-			return
-		case err := <-errCh:
-			beat()
-			stoppedErr = err
-		case data, ok := <-dataCh:
-			beat()
-			if !ok {
-				if len(pending) > 0 {
-					if !sendPTYMsg(msgCh, cancel, PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: pending}) {
-						close(msgCh)
-						return
-					}
-				}
-				if stoppedErr == nil {
-					stoppedErr = io.EOF
-				}
-				sendPTYMsg(msgCh, cancel, PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: stoppedErr})
-				close(msgCh)
-				return
-			}
-			pending = append(pending, data...)
-			if len(pending) >= ptyMaxPendingBytes {
-				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: pending}) {
-					close(msgCh)
-					return
-				}
-				pending = nil
-			}
-		case <-ticker.C:
-			beat()
-			if len(pending) > 0 {
-				if !sendPTYMsg(msgCh, cancel, PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: pending}) {
-					close(msgCh)
-					return
-				}
-				pending = nil
-			}
-			if stoppedErr != nil {
-				sendPTYMsg(msgCh, cancel, PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: stoppedErr})
-				close(msgCh)
-				return
-			}
-		}
-	}
-}
-
-func sendPTYMsg(msgCh chan tea.Msg, cancel <-chan struct{}, msg tea.Msg) bool {
-	if msgCh == nil {
-		return false
-	}
-	select {
-	case <-cancel:
-		return false
-	case msgCh <- msg:
-		return true
-	}
 }

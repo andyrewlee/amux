@@ -8,6 +8,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 type tabEventKind int
@@ -160,7 +161,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		if tab.Terminal != nil {
 			tab.Terminal.ClearSelection()
 		}
-		tab.Selection = SelectionState{}
+		tab.Selection = common.SelectionState{}
 		tab.selectionScroll.Reset()
 		tab.mu.Unlock()
 	case tabEventSelectionClearAndNotify:
@@ -175,7 +176,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		if tab.Terminal != nil {
 			tab.Terminal.ClearSelection()
 		}
-		tab.Selection = SelectionState{}
+		tab.Selection = common.SelectionState{}
 		tab.selectionScroll.Reset()
 		tab.mu.Unlock()
 		if ev.notifyCopy && text != "" && m.msgSink != nil {
@@ -199,11 +200,11 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		if tab.Terminal != nil {
 			tab.Terminal.ClearSelection()
 		}
-		tab.Selection = SelectionState{}
+		tab.Selection = common.SelectionState{}
 		tab.selectionScroll.Reset()
 		if ev.inBounds && tab.Terminal != nil {
 			absLine := tab.Terminal.ScreenYToAbsoluteLine(ev.termY)
-			tab.Selection = SelectionState{
+			tab.Selection = common.SelectionState{
 				Active:    true,
 				StartX:    ev.termX,
 				StartLine: absLine,

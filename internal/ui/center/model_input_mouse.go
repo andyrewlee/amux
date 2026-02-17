@@ -60,11 +60,11 @@ func (m *Model) updateMouseClick(msg tea.MouseClickMsg) (*Model, tea.Cmd) {
 	if tab.Terminal != nil {
 		tab.Terminal.ClearSelection()
 	}
-	tab.Selection = SelectionState{}
+	tab.Selection = common.SelectionState{}
 	tab.selectionScroll.Reset()
 	if inBounds && tab.Terminal != nil {
 		absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
-		tab.Selection = SelectionState{
+		tab.Selection = common.SelectionState{
 			Active:    true,
 			StartX:    termX,
 			StartLine: absLine,

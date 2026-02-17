@@ -128,7 +128,7 @@ func (m *TerminalModel) handleMouseClick(msg tea.MouseClickMsg) (*TerminalModel,
 		if inBounds && ts.VTerm != nil {
 			// Convert screen Y to absolute line number
 			absLine := ts.VTerm.ScreenYToAbsoluteLine(termY)
-			ts.Selection = SelectionState{
+			ts.Selection = common.SelectionState{
 				Active:    true,
 				StartX:    termX,
 				StartLine: absLine,
@@ -137,7 +137,7 @@ func (m *TerminalModel) handleMouseClick(msg tea.MouseClickMsg) (*TerminalModel,
 			}
 			ts.VTerm.SetSelection(termX, absLine, termX, absLine, true, false)
 		} else {
-			ts.Selection = SelectionState{}
+			ts.Selection = common.SelectionState{}
 		}
 		ts.mu.Unlock()
 	}

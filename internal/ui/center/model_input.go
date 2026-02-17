@@ -138,7 +138,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				if tab.Terminal != nil {
 					tab.Terminal.ClearSelection()
 				}
-				tab.Selection = SelectionState{}
+				tab.Selection = common.SelectionState{}
 				tab.selectionScroll.Reset()
 				tab.mu.Unlock()
 			}

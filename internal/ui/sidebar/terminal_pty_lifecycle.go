@@ -7,8 +7,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -94,7 +96,7 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 	}
 
 	if ts.readerCancel != nil {
-		safeClose(ts.readerCancel)
+		common.SafeClose(ts.readerCancel)
 	}
 	ts.readerCancel = make(chan struct{})
 	ts.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
@@ -109,7 +111,20 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 
 	safego.Go("sidebar.pty_reader", func() {
 		defer m.markPTYReaderStopped(ts)
-		runPTYReader(term, msgCh, cancel, wsID, string(tabID), &ts.ptyHeartbeat)
+		common.RunPTYReader(term, msgCh, cancel, &ts.ptyHeartbeat, common.PTYReaderConfig{
+			Label:           "sidebar.pty_read_loop",
+			ReadBufferSize:  ptyReadBufferSize,
+			ReadQueueSize:   ptyReadQueueSize,
+			FrameInterval:   ptyFrameInterval,
+			MaxPendingBytes: ptyMaxPendingBytes,
+		}, common.PTYMsgFactory{
+			Output: func(data []byte) tea.Msg {
+				return messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Data: data}
+			},
+			Stopped: func(err error) tea.Msg {
+				return messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID), Err: err}
+			},
+		})
 	})
 	safego.Go("sidebar.pty_forward", func() {
 		m.forwardPTYMsgs(msgCh)
@@ -170,20 +185,13 @@ func (m *TerminalModel) CloseAll() {
 	}
 }
 
-func safeClose(ch chan struct{}) {
-	defer func() {
-		_ = recover()
-	}()
-	close(ch)
-}
-
 func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	if ts == nil {
 		return
 	}
 	ts.mu.Lock()
 	if ts.readerCancel != nil {
-		safeClose(ts.readerCancel)
+		common.SafeClose(ts.readerCancel)
 		ts.readerCancel = nil
 	}
 	ts.readerActive = false

@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
@@ -41,7 +42,7 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 	atomic.StoreInt64(&tab.ptyHeartbeat, time.Now().UnixNano())
 
 	if tab.readerCancel != nil {
-		safeClose(tab.readerCancel)
+		common.SafeClose(tab.readerCancel)
 	}
 	tab.readerCancel = make(chan struct{})
 	tab.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
@@ -54,19 +55,21 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 
 	safego.Go("center.pty_reader", func() {
 		defer m.markPTYReaderStopped(tab)
-		runPTYReader(term, msgCh, cancel, wtID, tabID, &tab.ptyHeartbeat)
+		common.RunPTYReader(term, msgCh, cancel, &tab.ptyHeartbeat, common.PTYReaderConfig{
+			Label:           "center.pty_read_loop",
+			ReadBufferSize:  ptyReadBufferSize,
+			ReadQueueSize:   ptyReadQueueSize,
+			FrameInterval:   ptyFrameInterval,
+			MaxPendingBytes: ptyMaxPendingBytes,
+		}, common.PTYMsgFactory{
+			Output:  func(data []byte) tea.Msg { return PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: data} },
+			Stopped: func(err error) tea.Msg { return PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: err} },
+		})
 	})
 	safego.Go("center.pty_forward", func() {
 		m.forwardPTYMsgs(msgCh)
 	})
 	return nil
-}
-
-func safeClose(ch chan struct{}) {
-	defer func() {
-		_ = recover()
-	}()
-	close(ch)
 }
 
 func (m *Model) resizePTY(tab *Tab, rows, cols int) {
@@ -90,7 +93,7 @@ func (m *Model) stopPTYReader(tab *Tab) {
 	}
 	tab.mu.Lock()
 	if tab.readerCancel != nil {
-		safeClose(tab.readerCancel)
+		common.SafeClose(tab.readerCancel)
 		tab.readerCancel = nil
 	}
 	tab.readerActive = false

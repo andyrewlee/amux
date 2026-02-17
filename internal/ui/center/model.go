@@ -31,15 +31,6 @@ func generateTabID() TabID {
 	return TabID(fmt.Sprintf("tab-%d", id))
 }
 
-// SelectionState tracks mouse selection state for copy/paste
-type SelectionState struct {
-	Active    bool // Selection in progress (mouse button down)?
-	StartX    int  // Start column (terminal coordinates)
-	StartLine int  // Start row (absolute line number, 0 = first scrollback line)
-	EndX      int  // End column
-	EndLine   int  // End row (absolute line number)
-}
-
 // Tab represents a single tab in the center pane
 type Tab struct {
 	ID          TabID // Unique identifier that survives slice reordering
@@ -72,7 +63,7 @@ type Tab struct {
 	ptyMsgCh          chan tea.Msg
 	readerCancel      chan struct{}
 	// Mouse selection state
-	Selection          SelectionState
+	Selection          common.SelectionState
 	selectionScroll    common.SelectionScrollState
 	selectionLastTermX int
 
