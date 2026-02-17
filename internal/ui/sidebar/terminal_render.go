@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -288,6 +289,78 @@ func (m *TerminalModel) refreshTerminalSize() {
 		return
 	}
 	m.SetSize(m.width, m.height)
+}
+
+// View renders the terminal section
+func (m *TerminalModel) View() string {
+	var b strings.Builder
+	// Always render tab bar (shows "New terminal" when no tabs exist)
+	tabBar := m.renderTabBar()
+	if tabBar != "" {
+		b.WriteString(tabBar)
+		b.WriteString("\n")
+	}
+	ts := m.getTerminal()
+	if ts == nil || ts.VTerm == nil {
+		// Show placeholder when no terminal
+		if len(m.getTabs()) == 0 {
+			// Empty state - tab bar already shows "New terminal" button
+		} else {
+			placeholder := m.styles.Muted.Render("No terminal")
+			b.WriteString(placeholder)
+		}
+	} else {
+		ts.mu.Lock()
+		ts.VTerm.ShowCursor = m.focused
+		// Use VTerm.Render() directly - it uses dirty line caching and delta styles
+		content := ts.VTerm.Render()
+		isScrolled := ts.VTerm.IsScrolled()
+		var scrollInfo string
+		if isScrolled {
+			offset, total := ts.VTerm.GetScrollInfo()
+			scrollInfo = formatScrollPos(offset, total)
+		}
+		ts.mu.Unlock()
+
+		b.WriteString(content)
+
+		if isScrolled {
+			b.WriteString("\n")
+			scrollStyle := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(common.ColorBackground).
+				Background(common.ColorInfo)
+			b.WriteString(scrollStyle.Render(" SCROLL: " + scrollInfo + " "))
+		}
+	}
+
+	// Help bar
+	contentWidth := m.width
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	helpLines := m.helpLinesForLayout(contentWidth)
+
+	// Pad to fill height
+	contentHeight := strings.Count(b.String(), "\n") + 1
+	targetHeight := m.height - len(helpLines) // Account for help
+	if targetHeight < 0 {
+		targetHeight = 0
+	}
+	if targetHeight > contentHeight {
+		b.WriteString(strings.Repeat("\n", targetHeight-contentHeight))
+	}
+	b.WriteString(strings.Join(helpLines, "\n"))
+	// Ensure output doesn't exceed m.height lines
+	result := b.String()
+	if m.height > 0 {
+		lines := strings.Split(result, "\n")
+		if len(lines) > m.height {
+			lines = lines[:m.height]
+			result = strings.Join(lines, "\n")
+		}
+	}
+	return result
 }
 
 // TerminalOrigin returns the absolute origin for terminal rendering.
