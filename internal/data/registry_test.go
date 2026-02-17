@@ -1,7 +1,6 @@
 package data
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -194,43 +193,6 @@ func TestRegistry_RemoveProjectRejectsEmptyPath(t *testing.T) {
 	}
 	if len(paths) != 1 {
 		t.Fatalf("expected registry unchanged after rejected remove, got %v", paths)
-	}
-}
-
-func TestRegistry_LoadLegacyFormat(t *testing.T) {
-	tmpDir := t.TempDir()
-	registryPath := filepath.Join(tmpDir, "projects.json")
-
-	// Write legacy format (plain array)
-	legacyData := []string{"/path/to/project1", "/path/to/project2"}
-	data, _ := json.Marshal(legacyData)
-	_ = os.WriteFile(registryPath, data, 0o644)
-
-	r := NewRegistry(registryPath)
-	paths, err := r.Load()
-	if err != nil {
-		t.Fatalf("Load() legacy format error = %v", err)
-	}
-	if len(paths) != 2 {
-		t.Errorf("Expected 2 paths from legacy format, got %d", len(paths))
-	}
-}
-
-func TestRegistry_LoadStringArrayFormat(t *testing.T) {
-	tmpDir := t.TempDir()
-	registryPath := filepath.Join(tmpDir, "projects.json")
-
-	// Write string array format
-	data := `{"projects": ["/path/to/project1", "/path/to/project2"]}`
-	_ = os.WriteFile(registryPath, []byte(data), 0o644)
-
-	r := NewRegistry(registryPath)
-	paths, err := r.Load()
-	if err != nil {
-		t.Fatalf("Load() string array format error = %v", err)
-	}
-	if len(paths) != 2 {
-		t.Errorf("Expected 2 paths, got %d", len(paths))
 	}
 }
 

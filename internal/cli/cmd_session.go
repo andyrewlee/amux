@@ -19,22 +19,29 @@ type sessionListEntry struct {
 }
 
 func cmdSessionList(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
+	return cmdSessionListWith(w, wErr, gf, args, version, nil)
+}
+
+func cmdSessionListWith(w, wErr io.Writer, gf GlobalFlags, args []string, version string, svc *Services) int {
 	const usage = "Usage: amux session list [--json]"
 	if len(args) > 0 {
 		return returnUsageError(w, wErr, gf, usage, version, fmt.Errorf("unexpected arguments: %s", strings.Join(args, " ")))
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
+	if svc == nil {
+		var err error
+		svc, err = NewServices(version)
+		if err != nil {
+			if gf.JSON {
+				ReturnError(w, "init_failed", err.Error(), nil, version)
+			} else {
+				Errorf(wErr, "failed to initialize: %v", err)
+			}
+			return ExitInternalError
 		}
-		return ExitInternalError
 	}
 
-	rows, err := sessionQueryRows(svc.TmuxOpts)
+	rows, err := svc.QuerySessionRows(svc.TmuxOpts)
 	if err != nil {
 		if gf.JSON {
 			ReturnError(w, "list_failed", err.Error(), nil, version)
@@ -85,6 +92,10 @@ type pruneResult struct {
 }
 
 func cmdSessionPrune(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
+	return cmdSessionPruneWith(w, wErr, gf, args, version, nil)
+}
+
+func cmdSessionPruneWith(w, wErr io.Writer, gf GlobalFlags, args []string, version string, svc *Services) int {
 	const usage = "Usage: amux session prune [--yes] [--older-than <dur>] [--json]"
 	fs := newFlagSet("session prune")
 	yes := fs.Bool("yes", false, "confirm prune (required)")
@@ -121,17 +132,20 @@ func cmdSessionPrune(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		minAge = d
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
+	if svc == nil {
+		var err error
+		svc, err = NewServices(version)
+		if err != nil {
+			if gf.JSON {
+				ReturnError(w, "init_failed", err.Error(), nil, version)
+			} else {
+				Errorf(wErr, "failed to initialize: %v", err)
+			}
+			return ExitInternalError
 		}
-		return ExitInternalError
 	}
 
-	rows, err := sessionQueryRows(svc.TmuxOpts)
+	rows, err := svc.QuerySessionRows(svc.TmuxOpts)
 	if err != nil {
 		if gf.JSON {
 			ReturnError(w, "prune_failed", err.Error(), nil, version)

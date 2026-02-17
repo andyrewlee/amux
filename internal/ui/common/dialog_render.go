@@ -41,7 +41,7 @@ func (d *Dialog) Cursor() *tea.Cursor {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorPrimary).
+		Foreground(ColorPrimary()).
 		MarginBottom(1)
 	prefix.WriteString(titleStyle.Render(d.title))
 	prefix.WriteString("\n\n")
@@ -90,7 +90,7 @@ func (d *Dialog) dialogContentWidth() int {
 func (d *Dialog) dialogStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorPrimary).
+		BorderForeground(ColorPrimary()).
 		Padding(1, 2).
 		Width(d.dialogContentWidth())
 }
@@ -131,7 +131,7 @@ func (d *Dialog) renderLines() []string {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorPrimary).
+		Foreground(ColorPrimary()).
 		MarginBottom(1)
 	appendLines(titleStyle.Render(d.title))
 	appendBlank(1)
@@ -141,7 +141,7 @@ func (d *Dialog) renderLines() []string {
 		appendLines(d.input.View())
 		// Show validation error if present
 		if d.validationErr != "" {
-			errStyle := lipgloss.NewStyle().Foreground(ColorError)
+			errStyle := lipgloss.NewStyle().Foreground(ColorError())
 			appendLines(errStyle.Render(d.validationErr))
 		}
 		appendBlank(1)
@@ -164,7 +164,7 @@ func (d *Dialog) renderLines() []string {
 
 	if d.showKeymapHints {
 		helpStyle := lipgloss.NewStyle().
-			Foreground(ColorMuted).
+			Foreground(ColorMuted()).
 			MarginTop(1)
 		appendBlank(1)
 		appendLines(helpStyle.Render(d.helpText()))
@@ -182,12 +182,12 @@ func (d *Dialog) renderOptionsLines(baseLine int) []string {
 
 func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {
 	selectedStyle := lipgloss.NewStyle().
-		Foreground(ColorForeground).
-		Background(ColorPrimary).
+		Foreground(ColorForeground()).
+		Background(ColorPrimary()).
 		Padding(0, 1)
 
 	normalStyle := lipgloss.NewStyle().
-		Foreground(ColorMuted).
+		Foreground(ColorMuted()).
 		Padding(0, 1)
 
 	const gap = 2 // gap between buttons
@@ -219,12 +219,12 @@ func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {
 
 func (d *Dialog) renderInputButtonsLine(baseLine int) string {
 	selectedStyle := lipgloss.NewStyle().
-		Foreground(ColorForeground).
-		Background(ColorPrimary).
+		Foreground(ColorForeground()).
+		Background(ColorPrimary()).
 		Padding(0, 1)
 
 	normalStyle := lipgloss.NewStyle().
-		Foreground(ColorMuted).
+		Foreground(ColorMuted()).
 		Padding(0, 1)
 
 	ok := selectedStyle.Render("OK")

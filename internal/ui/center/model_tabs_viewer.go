@@ -2,7 +2,6 @@ package center
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -112,65 +111,4 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 		dv.Init(),
 		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorkspace[wsID], Name: displayName} },
 	)
-}
-
-// createViewerTabLegacy creates a PTY-based viewer tab (for backwards compatibility)
-//
-//nolint:unused // Kept for backwards-compatible viewer tab flow while diff viewer migration remains incomplete.
-func (m *Model) createViewerTabLegacy(file, statusCode string, ws *data.Workspace) tea.Cmd {
-	if ws == nil {
-		return func() tea.Msg {
-			return messages.Error{Err: errors.New("no workspace selected"), Context: "creating viewer"}
-		}
-	}
-
-	tm := m.terminalMetrics()
-	termWidth := tm.Width
-	termHeight := tm.Height
-	tabID := generateTabID()
-	sessionName := tmux.SessionName("amux", string(ws.ID()), string(tabID))
-
-	return func() tea.Msg {
-		logging.Info("Creating viewer tab: file=%s statusCode=%s workspace=%s", file, statusCode, ws.Name)
-
-		escapedFile := "'" + strings.ReplaceAll(file, "'", "'\\''") + "'"
-
-		var cmd string
-		if statusCode == "??" {
-			cmd = fmt.Sprintf("awk '{print \"\\033[32m+ \" $0 \"\\033[0m\"}' %s | less -R", escapedFile)
-		} else if len(statusCode) >= 1 && statusCode[0] != ' ' {
-			cmd = fmt.Sprintf("git diff --cached --color=always -- %s | less -R", escapedFile)
-		} else {
-			cmd = fmt.Sprintf("git diff --color=always -- %s | less -R", escapedFile)
-		}
-
-		tags := tmux.SessionTags{
-			WorkspaceID: string(ws.ID()),
-			TabID:       string(tabID),
-			Type:        "viewer",
-			Assistant:   "viewer",
-			CreatedAt:   time.Now().Unix(),
-			InstanceID:  m.instanceID,
-		}
-		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)
-		if err != nil {
-			logging.Error("Failed to create viewer: %v", err)
-			return messages.Error{Err: err, Context: "creating viewer"}
-		}
-
-		logging.Info("Viewer created, Terminal=%v", agent.Terminal != nil)
-
-		displayName := truncateDisplayName("Diff: " + file)
-
-		return ptyTabCreateResult{
-			Workspace:   ws,
-			Assistant:   "viewer",
-			DisplayName: displayName,
-			Agent:       agent,
-			TabID:       tabID,
-			Activate:    true,
-			Rows:        termHeight,
-			Cols:        termWidth,
-		}
-	}
 }

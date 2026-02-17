@@ -3,40 +3,41 @@ package common
 import (
 	"fmt"
 	"image/color"
+	"sync/atomic"
 
 	"charm.land/lipgloss/v2"
 )
 
-// currentTheme holds the active color theme.
-var currentTheme = GruvboxTheme()
+// themePtr holds the active color theme, protected by atomic access.
+var themePtr atomic.Pointer[Theme]
 
-// Theme-dependent colors (updated by SetCurrentTheme)
-var (
-	// Base palette
-	ColorBackground    = currentTheme.Colors.Background
-	ColorForeground    = currentTheme.Colors.Foreground
-	ColorMuted         = currentTheme.Colors.Muted
-	ColorBorder        = currentTheme.Colors.Border
-	ColorBorderFocused = currentTheme.Colors.BorderFocused
+func init() {
+	t := GruvboxTheme()
+	themePtr.Store(&t)
+}
 
-	// Semantic colors
-	ColorPrimary   = currentTheme.Colors.Primary
-	ColorSecondary = currentTheme.Colors.Secondary
-	ColorSuccess   = currentTheme.Colors.Success
-	ColorWarning   = currentTheme.Colors.Warning
-	ColorError     = currentTheme.Colors.Error
-	ColorInfo      = currentTheme.Colors.Info
+// Theme-dependent color accessors (read from the current theme atomically).
 
-	// Surface colors for layering
-	ColorSurface0 = currentTheme.Colors.Surface0
-	ColorSurface1 = currentTheme.Colors.Surface1
-	ColorSurface2 = currentTheme.Colors.Surface2
-	ColorSurface3 = currentTheme.Colors.Surface3
+func ColorBackground() color.Color    { return themePtr.Load().Colors.Background }
+func ColorForeground() color.Color    { return themePtr.Load().Colors.Foreground }
+func ColorMuted() color.Color         { return themePtr.Load().Colors.Muted }
+func ColorBorder() color.Color        { return themePtr.Load().Colors.Border }
+func ColorBorderFocused() color.Color { return themePtr.Load().Colors.BorderFocused }
 
-	// Selection/highlight
-	ColorSelection = currentTheme.Colors.Selection
-	ColorHighlight = currentTheme.Colors.Highlight
-)
+func ColorPrimary() color.Color   { return themePtr.Load().Colors.Primary }
+func ColorSecondary() color.Color { return themePtr.Load().Colors.Secondary }
+func ColorSuccess() color.Color   { return themePtr.Load().Colors.Success }
+func ColorWarning() color.Color   { return themePtr.Load().Colors.Warning }
+func ColorError() color.Color     { return themePtr.Load().Colors.Error }
+func ColorInfo() color.Color      { return themePtr.Load().Colors.Info }
+
+func ColorSurface0() color.Color { return themePtr.Load().Colors.Surface0 }
+func ColorSurface1() color.Color { return themePtr.Load().Colors.Surface1 }
+func ColorSurface2() color.Color { return themePtr.Load().Colors.Surface2 }
+func ColorSurface3() color.Color { return themePtr.Load().Colors.Surface3 }
+
+func ColorSelection() color.Color { return themePtr.Load().Colors.Selection }
+func ColorHighlight() color.Color { return themePtr.Load().Colors.Highlight }
 
 // Agent colors remain constant across themes for brand recognition.
 var (
@@ -53,37 +54,13 @@ var (
 
 // GetCurrentTheme returns the currently active theme.
 func GetCurrentTheme() Theme {
-	return currentTheme
+	return *themePtr.Load()
 }
 
-// SetCurrentTheme applies a new theme and updates all color variables.
+// SetCurrentTheme atomically applies a new theme.
 func SetCurrentTheme(id ThemeID) {
-	currentTheme = GetTheme(id)
-	applyThemeColors()
-}
-
-// applyThemeColors updates all color variables from the current theme.
-func applyThemeColors() {
-	ColorBackground = currentTheme.Colors.Background
-	ColorForeground = currentTheme.Colors.Foreground
-	ColorMuted = currentTheme.Colors.Muted
-	ColorBorder = currentTheme.Colors.Border
-	ColorBorderFocused = currentTheme.Colors.BorderFocused
-
-	ColorPrimary = currentTheme.Colors.Primary
-	ColorSecondary = currentTheme.Colors.Secondary
-	ColorSuccess = currentTheme.Colors.Success
-	ColorWarning = currentTheme.Colors.Warning
-	ColorError = currentTheme.Colors.Error
-	ColorInfo = currentTheme.Colors.Info
-
-	ColorSurface0 = currentTheme.Colors.Surface0
-	ColorSurface1 = currentTheme.Colors.Surface1
-	ColorSurface2 = currentTheme.Colors.Surface2
-	ColorSurface3 = currentTheme.Colors.Surface3
-
-	ColorSelection = currentTheme.Colors.Selection
-	ColorHighlight = currentTheme.Colors.Highlight
+	t := GetTheme(id)
+	themePtr.Store(&t)
 }
 
 // AgentColor returns the color for a given agent type
@@ -108,7 +85,7 @@ func AgentColor(agent string) color.Color {
 	case "pi":
 		return ColorPi
 	default:
-		return ColorPrimary
+		return ColorPrimary()
 	}
 }
 

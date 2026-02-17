@@ -66,10 +66,10 @@ func (m *TerminalModel) renderTabBar() string {
 			// Active tab - single unified style for clean background
 			tabStyle := lipgloss.NewStyle().
 				Padding(0, 1).
-				Foreground(common.ColorForeground).
-				Background(common.ColorSurface2)
+				Foreground(common.ColorForeground()).
+				Background(common.ColorSurface2())
 			if disconnected {
-				tabStyle = tabStyle.Foreground(common.ColorMuted)
+				tabStyle = tabStyle.Foreground(common.ColorMuted())
 			}
 			content := name + " ×"
 			rendered = tabStyle.Render(content)
@@ -184,22 +184,22 @@ func (m *TerminalModel) StatusLine() string {
 		offset, total := ts.VTerm.GetScrollInfo()
 		scrollStyle := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(common.ColorBackground).
-			Background(common.ColorInfo)
+			Foreground(common.ColorBackground()).
+			Background(common.ColorInfo())
 		return scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
 	}
 	if ts.Detached {
 		statusStyle := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(common.ColorBackground).
-			Background(common.ColorWarning)
+			Foreground(common.ColorBackground()).
+			Background(common.ColorWarning())
 		return statusStyle.Render(" DETACHED ")
 	}
 	if !ts.Running {
 		statusStyle := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(common.ColorBackground).
-			Background(common.ColorError)
+			Foreground(common.ColorBackground()).
+			Background(common.ColorError())
 		return statusStyle.Render(" STOPPED ")
 	}
 	return ""
@@ -328,8 +328,8 @@ func (m *TerminalModel) View() string {
 			b.WriteString("\n")
 			scrollStyle := lipgloss.NewStyle().
 				Bold(true).
-				Foreground(common.ColorBackground).
-				Background(common.ColorInfo)
+				Foreground(common.ColorBackground()).
+				Background(common.ColorInfo())
 			b.WriteString(scrollStyle.Render(" SCROLL: " + scrollInfo + " "))
 		}
 	}

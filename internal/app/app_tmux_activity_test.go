@@ -53,7 +53,7 @@ func (f fetchTaggedSessionsOps) CapturePaneTail(string, int, tmux.Options) (stri
 }
 func (f fetchTaggedSessionsOps) ContentHash(string) [16]byte { return [16]byte{} }
 
-func TestFetchTaggedSessions_IncludesKnownAndLegacySessionsWithoutAmuxTag(t *testing.T) {
+func TestFetchTaggedSessions_IncludesKnownAndTaggedSessions(t *testing.T) {
 	rows := []tmux.SessionTagValues{
 		{
 			Name: "amux-legacyws-tab-1",
@@ -63,12 +63,6 @@ func TestFetchTaggedSessions_IncludesKnownAndLegacySessionsWithoutAmuxTag(t *tes
 		},
 		{
 			Name: "known-custom",
-			Tags: map[string]string{
-				"@amux": "",
-			},
-		},
-		{
-			Name: "amux-legacyws-term-tab-1",
 			Tags: map[string]string{
 				"@amux": "",
 			},
@@ -105,17 +99,15 @@ func TestFetchTaggedSessions_IncludesKnownAndLegacySessionsWithoutAmuxTag(t *tes
 		byName[session.session.Name] = session
 	}
 
-	if _, ok := byName["amux-legacyws-tab-1"]; !ok {
-		t.Fatal("expected legacy amux tab session without @amux tag to be included")
+	// Untagged sessions not in infoBySession are excluded (legacy heuristic removed).
+	if _, ok := byName["amux-legacyws-tab-1"]; ok {
+		t.Fatal("expected untagged session not in infoBySession to be excluded")
 	}
 	if _, ok := byName["known-custom"]; !ok {
 		t.Fatal("expected known session without @amux tag to be included")
 	}
 	if _, ok := byName["tagged-session"]; !ok {
 		t.Fatal("expected tagged session to be included")
-	}
-	if _, ok := byName["amux-legacyws-term-tab-1"]; ok {
-		t.Fatal("expected legacy term-tab session without @amux tag to be excluded")
 	}
 	if _, ok := byName["other-random"]; ok {
 		t.Fatal("expected unrelated untagged session to be excluded")
@@ -124,8 +116,8 @@ func TestFetchTaggedSessions_IncludesKnownAndLegacySessionsWithoutAmuxTag(t *tes
 	if byName["tagged-session"].session.Tagged != true {
 		t.Fatal("expected tagged session to preserve Tagged=true")
 	}
-	if byName["amux-legacyws-tab-1"].session.Tagged {
-		t.Fatal("expected legacy untagged session to preserve Tagged=false")
+	if byName["known-custom"].session.Tagged {
+		t.Fatal("expected known untagged session to preserve Tagged=false")
 	}
 	if !byName["tagged-session"].hasLastOutput {
 		t.Fatal("expected tagged session with timestamp tag to parse last output time")
@@ -135,20 +127,21 @@ func TestFetchTaggedSessions_IncludesKnownAndLegacySessionsWithoutAmuxTag(t *tes
 	}
 }
 
-func TestIsChatSession_NonAmuxPrefix(t *testing.T) {
-	// Sessions without "amux-" prefix should not match the name heuristic
+func TestIsChatSession(t *testing.T) {
+	// Sessions without type or info should not be classified as chat.
 	session := tmux.SessionActivity{Name: "other-app-tab-99", Type: ""}
 	if isChatSession(session, tabSessionInfo{}, false) {
-		t.Fatal("session without amux- prefix should not be classified as chat")
+		t.Fatal("session without type or info should not be classified as chat")
 	}
 
-	// Sessions with "amux-" prefix and -tab- should match
+	// Sessions without type but with amux naming should also not match
+	// (legacy name heuristic removed).
 	session2 := tmux.SessionActivity{Name: "amux-ws1-tab-1", Type: "", Tagged: true}
-	if !isChatSession(session2, tabSessionInfo{}, false) {
-		t.Fatal("tagged amux session with -tab- should be classified as chat")
+	if isChatSession(session2, tabSessionInfo{}, false) {
+		t.Fatal("session without type should not be classified as chat even with amux name pattern")
 	}
 
-	// Sessions with explicit type should use type regardless of name
+	// Sessions with explicit type should use type regardless of name.
 	session3 := tmux.SessionActivity{Name: "random-name", Type: "agent"}
 	if !isChatSession(session3, tabSessionInfo{}, false) {
 		t.Fatal("session with type=agent should be classified as chat")

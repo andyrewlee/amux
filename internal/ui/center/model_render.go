@@ -160,7 +160,7 @@ func (m *Model) renderEmpty() string {
 
 	// Help text
 	b.WriteString("\n\n")
-	helpStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
+	helpStyle := lipgloss.NewStyle().Foreground(common.ColorMuted())
 	b.WriteString(helpStyle.Render("C-Spc a:new agent"))
 
 	return b.String()
@@ -259,8 +259,8 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 		offset, total := tab.Terminal.GetScrollInfo()
 		scrollStyle := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(common.ColorBackground).
-			Background(common.ColorInfo)
+			Foreground(common.ColorBackground()).
+			Background(common.ColorInfo())
 		return scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
 	}
 	if tab.Running && !tab.Detached {
@@ -274,12 +274,12 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 	}
 	statusStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(common.ColorBackground).
-		Background(common.ColorInfo)
+		Foreground(common.ColorBackground()).
+		Background(common.ColorInfo())
 	if tab.Detached {
-		statusStyle = statusStyle.Background(common.ColorWarning)
+		statusStyle = statusStyle.Background(common.ColorWarning())
 	} else if !tab.Running {
-		statusStyle = statusStyle.Background(common.ColorError)
+		statusStyle = statusStyle.Background(common.ColorError())
 	}
 	return statusStyle.Render(status)
 }

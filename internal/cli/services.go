@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"log/slog"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -14,11 +15,12 @@ import (
 // Services is a lightweight service container for CLI commands.
 // Unlike app.New(), it starts no goroutines, watchers, or UI.
 type Services struct {
-	Config   *config.Config
-	Registry *data.Registry
-	Store    *data.WorkspaceStore
-	TmuxOpts tmux.Options
-	Version  string
+	Config           *config.Config
+	Registry         *data.Registry
+	Store            *data.WorkspaceStore
+	TmuxOpts         tmux.Options
+	Version          string
+	QuerySessionRows func(opts tmux.Options) ([]sessionRow, error)
 }
 
 var cliTmuxTimeoutOverrideNanos atomic.Int64
@@ -44,11 +46,12 @@ func NewServices(version string) (*Services, error) {
 	}
 
 	return &Services{
-		Config:   cfg,
-		Registry: registry,
-		Store:    store,
-		TmuxOpts: opts,
-		Version:  version,
+		Config:           cfg,
+		Registry:         registry,
+		Store:            store,
+		TmuxOpts:         opts,
+		Version:          version,
+		QuerySessionRows: defaultQuerySessionRows,
 	}, nil
 }
 
@@ -57,7 +60,9 @@ func setEnvIfNonEmpty(key, value string) {
 	if value == "" {
 		return
 	}
-	_ = os.Setenv(key, value)
+	if err := os.Setenv(key, value); err != nil {
+		slog.Debug("failed to set environment variable", "key", key, "error", err)
+	}
 }
 
 func setCLITmuxTimeoutOverride(timeout time.Duration) time.Duration {

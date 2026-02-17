@@ -67,24 +67,24 @@ func (m *Model) renderTabBar() string {
 		var style lipgloss.Style
 		if i == activeIdx {
 			// Active tab - each part styled with same background
-			bg := common.ColorSurface2
+			bg := common.ColorSurface2()
 			pad := lipgloss.NewStyle().Background(bg).Render(" ")
 			// Use muted color for disconnected tabs
 			indicatorFg := agentStyle.GetForeground()
 			if tabDisconnected {
-				indicatorFg = common.ColorMuted
+				indicatorFg = common.ColorMuted()
 			}
 			indicatorPart := lipgloss.NewStyle().Foreground(indicatorFg).Background(bg).Render(indicator)
 			// Use primary color and bold when actively working, muted when disconnected
-			nameStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Background(bg)
+			nameStyle := lipgloss.NewStyle().Foreground(common.ColorForeground()).Background(bg)
 			if tabDisconnected {
-				nameStyle = nameStyle.Foreground(common.ColorMuted)
+				nameStyle = nameStyle.Foreground(common.ColorMuted())
 			} else if tabActive {
-				nameStyle = nameStyle.Foreground(common.ColorPrimary).Bold(true)
+				nameStyle = nameStyle.Foreground(common.ColorPrimary()).Bold(true)
 			}
 			namePart := nameStyle.Render(name)
 			space := lipgloss.NewStyle().Background(bg).Render(" ")
-			closePart := lipgloss.NewStyle().Foreground(common.ColorMuted).Background(bg).Render("×")
+			closePart := lipgloss.NewStyle().Foreground(common.ColorMuted()).Background(bg).Render("×")
 			rendered = pad + indicatorPart + namePart + space + closePart + pad
 			style = m.styles.ActiveTab
 		} else {
@@ -93,7 +93,7 @@ func (m *Model) renderTabBar() string {
 			if tabDisconnected {
 				nameStyled = m.styles.Muted.Render(name)
 			} else if tabActive {
-				nameStyled = lipgloss.NewStyle().Foreground(common.ColorPrimary).Bold(true).Render(name)
+				nameStyled = lipgloss.NewStyle().Foreground(common.ColorPrimary()).Bold(true).Render(name)
 			} else {
 				nameStyled = m.styles.Muted.Render(name)
 			}

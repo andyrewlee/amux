@@ -48,7 +48,7 @@ func (m *Model) renderLoading() string {
 	b.WriteString("\n\n")
 
 	loadingStyle := lipgloss.NewStyle().
-		Foreground(common.ColorMuted).
+		Foreground(common.ColorMuted()).
 		Italic(true)
 	b.WriteString(loadingStyle.Render("  Loading diff..."))
 
@@ -63,7 +63,7 @@ func (m *Model) renderError() string {
 	b.WriteString("\n\n")
 
 	errorStyle := lipgloss.NewStyle().
-		Foreground(common.ColorError)
+		Foreground(common.ColorError())
 	b.WriteString(errorStyle.Render("  Error: " + m.err.Error()))
 
 	return b.String()
@@ -77,7 +77,7 @@ func (m *Model) renderEmpty() string {
 	b.WriteString("\n\n")
 
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(common.ColorMuted)
+		Foreground(common.ColorMuted())
 	b.WriteString(emptyStyle.Render("  No file selected"))
 
 	return b.String()
@@ -91,7 +91,7 @@ func (m *Model) renderBinary() string {
 	b.WriteString("\n\n")
 
 	warningStyle := lipgloss.NewStyle().
-		Foreground(common.ColorWarning).
+		Foreground(common.ColorWarning()).
 		Bold(true)
 	b.WriteString(warningStyle.Render("  ⚠ Binary file - cannot display diff"))
 
@@ -106,7 +106,7 @@ func (m *Model) renderLarge() string {
 	b.WriteString("\n\n")
 
 	warningStyle := lipgloss.NewStyle().
-		Foreground(common.ColorWarning).
+		Foreground(common.ColorWarning()).
 		Bold(true)
 	b.WriteString(warningStyle.Render("  ⚠ File too large to display (> 2MB)"))
 
@@ -121,7 +121,7 @@ func (m *Model) renderNoChanges() string {
 	b.WriteString("\n\n")
 
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(common.ColorMuted)
+		Foreground(common.ColorMuted())
 	b.WriteString(emptyStyle.Render("  No changes to display"))
 
 	return b.String()
@@ -136,7 +136,7 @@ func (m *Model) renderHeader() string {
 
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(common.ColorPrimary)
+		Foreground(common.ColorPrimary())
 
 	modeStr := ""
 	switch m.mode {
@@ -163,10 +163,10 @@ func (m *Model) renderDiff() string {
 	if m.diff != nil {
 		added := m.diff.AddedLines()
 		deleted := m.diff.DeletedLines()
-		statsStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
+		statsStyle := lipgloss.NewStyle().Foreground(common.ColorMuted())
 
-		addStyle := lipgloss.NewStyle().Foreground(common.ColorSuccess)
-		delStyle := lipgloss.NewStyle().Foreground(common.ColorError)
+		addStyle := lipgloss.NewStyle().Foreground(common.ColorSuccess())
+		delStyle := lipgloss.NewStyle().Foreground(common.ColorError())
 
 		stats := addStyle.Render("+"+strconv.Itoa(added)) + " " +
 			delStyle.Render("-"+strconv.Itoa(deleted))
@@ -234,7 +234,7 @@ func (m *Model) renderDiff() string {
 func (m *Model) renderLine(lineNum int, line git.DiffLine, numWidth, contentWidth int) string {
 	// Line number gutter
 	gutterStyle := lipgloss.NewStyle().
-		Foreground(common.ColorMuted).
+		Foreground(common.ColorMuted()).
 		Width(numWidth).
 		Align(lipgloss.Right)
 
@@ -247,17 +247,17 @@ func (m *Model) renderLine(lineNum int, line git.DiffLine, numWidth, contentWidt
 	switch line.Kind {
 	case git.DiffLineAdd:
 		contentStyle = lipgloss.NewStyle().
-			Foreground(common.ColorSuccess)
+			Foreground(common.ColorSuccess())
 	case git.DiffLineDelete:
 		contentStyle = lipgloss.NewStyle().
-			Foreground(common.ColorError)
+			Foreground(common.ColorError())
 	case git.DiffLineHeader:
 		contentStyle = lipgloss.NewStyle().
-			Foreground(common.ColorInfo).
+			Foreground(common.ColorInfo()).
 			Bold(true)
 	default:
 		contentStyle = lipgloss.NewStyle().
-			Foreground(common.ColorForeground)
+			Foreground(common.ColorForeground())
 	}
 
 	// Handle line wrapping
@@ -296,7 +296,7 @@ func (m *Model) wrapLine(content string, width int) string {
 // renderFooter renders the footer with keybindings and scroll info
 func (m *Model) renderFooter() string {
 	footerStyle := lipgloss.NewStyle().
-		Foreground(common.ColorMuted)
+		Foreground(common.ColorMuted())
 
 	var parts []string
 
@@ -321,7 +321,7 @@ func (m *Model) renderFooter() string {
 	}
 
 	// Keybindings
-	keyStyle := lipgloss.NewStyle().Foreground(common.ColorPrimary)
+	keyStyle := lipgloss.NewStyle().Foreground(common.ColorPrimary())
 	helpItems := []string{
 		keyStyle.Render("j/k") + ":scroll",
 		keyStyle.Render("n/p") + ":hunk",

@@ -31,7 +31,7 @@ func (h *HelpOverlay) View() string {
 	// Title
 	title := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorPrimary).
+		Foreground(ColorPrimary()).
 		Render("Help")
 	lines = append(lines, title)
 	lines = append(lines, "")
@@ -55,7 +55,7 @@ func (h *HelpOverlay) View() string {
 	// Scroll indicator at top if not at beginning
 	if startIdx > 0 {
 		scrollUp := lipgloss.NewStyle().
-			Foreground(ColorMuted).
+			Foreground(ColorMuted()).
 			Render("  ↑ more above")
 		lines = append(lines, scrollUp)
 	}
@@ -68,10 +68,10 @@ func (h *HelpOverlay) View() string {
 
 		// Section header with selection indicator
 		var prefix string
-		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorMuted)
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorMuted())
 		if isSelected {
 			prefix = Icons.Cursor + " "
-			headerStyle = headerStyle.Foreground(ColorPrimary)
+			headerStyle = headerStyle.Foreground(ColorPrimary())
 		} else {
 			prefix = "  "
 		}
@@ -85,10 +85,10 @@ func (h *HelpOverlay) View() string {
 		keyWidth := 18 // wider for longer key combos
 		for _, binding := range section.Bindings {
 			keyStyle := lipgloss.NewStyle().
-				Foreground(ColorPrimary).
+				Foreground(ColorPrimary()).
 				Width(keyWidth)
 			descStyle := lipgloss.NewStyle().
-				Foreground(ColorForeground)
+				Foreground(ColorForeground())
 
 			lines = append(lines, "  "+keyStyle.Render(binding.Key)+descStyle.Render(binding.Desc))
 		}
@@ -98,14 +98,14 @@ func (h *HelpOverlay) View() string {
 	// Scroll indicator at bottom if not at end
 	if endIdx < len(h.sections) {
 		scrollDown := lipgloss.NewStyle().
-			Foreground(ColorMuted).
+			Foreground(ColorMuted()).
 			Render("  ↓ more below")
 		lines = append(lines, scrollDown)
 	}
 
 	// Divider
 	divider := lipgloss.NewStyle().
-		Foreground(ColorBorder).
+		Foreground(ColorBorder()).
 		Render(strings.Repeat("─", boxWidth-6))
 	lines = append(lines, divider)
 
@@ -114,22 +114,22 @@ func (h *HelpOverlay) View() string {
 	if h.searchMode {
 		// Search input mode
 		searchPrompt := lipgloss.NewStyle().
-			Foreground(ColorPrimary).
+			Foreground(ColorPrimary()).
 			Render("/")
 		searchText := lipgloss.NewStyle().
-			Foreground(ColorForeground).
+			Foreground(ColorForeground()).
 			Render(h.searchQuery + "█")
 		footerLine = searchPrompt + searchText
 	} else {
 		// Navigation hints on left, clickable doc link on right
 		navHints := lipgloss.NewStyle().
-			Foreground(ColorMuted).
+			Foreground(ColorMuted()).
 			Render("j/k:section  /:search  Esc:close")
 
 		// Create styled doc link
 		docText := "Documentation"
 		docLink := lipgloss.NewStyle().
-			Foreground(ColorPrimary).
+			Foreground(ColorPrimary()).
 			Underline(true).
 			Render(docText)
 
@@ -156,7 +156,7 @@ func (h *HelpOverlay) View() string {
 	// Create the overlay box (no lipgloss.Place - centering done by app_view.go)
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorderFocused).
+		BorderForeground(ColorBorderFocused()).
 		Padding(1, 2).
 		Width(boxWidth).
 		Render(content)

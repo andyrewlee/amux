@@ -127,7 +127,7 @@ func TestDefaultOptions(t *testing.T) {
 	}
 }
 
-func TestClientCommandWithOptions(t *testing.T) {
+func TestNewClientCommand(t *testing.T) {
 	opts := Options{
 		ServerName:      "test-server",
 		ConfigPath:      "/dev/null",
@@ -136,7 +136,12 @@ func TestClientCommandWithOptions(t *testing.T) {
 		DefaultTerminal: "xterm-256color",
 	}
 
-	cmd := ClientCommandWithOptions("test-session", "/tmp/work", "echo hello", opts)
+	cmd := NewClientCommand("test-session", ClientCommandParams{
+		WorkDir:        "/tmp/work",
+		Command:        "echo hello",
+		Options:        opts,
+		DetachExisting: true,
+	})
 
 	// Should use atomic new-session -Ad
 	if !strings.Contains(cmd, "new-session -Ads") {
@@ -175,7 +180,7 @@ func TestClientCommandWithOptions(t *testing.T) {
 	}
 }
 
-func TestClientCommandWithTags(t *testing.T) {
+func TestNewClientCommandWithTags(t *testing.T) {
 	opts := Options{
 		ServerName:      "test-server",
 		ConfigPath:      "/dev/null",
@@ -192,7 +197,13 @@ func TestClientCommandWithTags(t *testing.T) {
 		InstanceID:  "inst-9",
 	}
 
-	cmd := ClientCommandWithTags("test-session", "/tmp/work", "echo hello", opts, tags)
+	cmd := NewClientCommand("test-session", ClientCommandParams{
+		WorkDir:        "/tmp/work",
+		Command:        "echo hello",
+		Options:        opts,
+		Tags:           tags,
+		DetachExisting: true,
+	})
 
 	if !strings.Contains(cmd, "@amux 1") {
 		t.Error("Command should set @amux tag")
@@ -217,7 +228,7 @@ func TestClientCommandWithTags(t *testing.T) {
 	}
 }
 
-func TestClientCommandWithInstanceIDOnly(t *testing.T) {
+func TestNewClientCommandWithInstanceIDOnly(t *testing.T) {
 	opts := Options{
 		ServerName:      "test-server",
 		ConfigPath:      "/dev/null",
@@ -225,11 +236,14 @@ func TestClientCommandWithInstanceIDOnly(t *testing.T) {
 		DisableMouse:    true,
 		DefaultTerminal: "xterm-256color",
 	}
-	tags := SessionTags{
-		InstanceID: "inst-only",
-	}
 
-	cmd := ClientCommandWithTags("test-session", "/tmp/work", "echo hello", opts, tags)
+	cmd := NewClientCommand("test-session", ClientCommandParams{
+		WorkDir:        "/tmp/work",
+		Command:        "echo hello",
+		Options:        opts,
+		Tags:           SessionTags{InstanceID: "inst-only"},
+		DetachExisting: true,
+	})
 
 	if !strings.Contains(cmd, "@amux 1") {
 		t.Error("Command should set @amux tag when only InstanceID is provided")
@@ -239,7 +253,7 @@ func TestClientCommandWithInstanceIDOnly(t *testing.T) {
 	}
 }
 
-func TestClientCommandWithTagsAttachShared(t *testing.T) {
+func TestNewClientCommandSharedAttach(t *testing.T) {
 	opts := Options{
 		ServerName:      "test-server",
 		ConfigPath:      "/dev/null",
@@ -247,7 +261,12 @@ func TestClientCommandWithTagsAttachShared(t *testing.T) {
 		DisableMouse:    true,
 		DefaultTerminal: "xterm-256color",
 	}
-	cmd := ClientCommandWithTagsAttach("test-session", "/tmp/work", "echo hello", opts, SessionTags{}, false)
+	cmd := NewClientCommand("test-session", ClientCommandParams{
+		WorkDir:        "/tmp/work",
+		Command:        "echo hello",
+		Options:        opts,
+		DetachExisting: false,
+	})
 	if strings.Contains(cmd, "attach -dt") {
 		t.Error("Command should not detach other clients when detachExisting=false")
 	}

@@ -50,7 +50,13 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			CreatedAt:   time.Now().Unix(),
 			InstanceID:  instanceID,
 		}
-		command := tmux.ClientCommandWithTagsAttach(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags, true)
+		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
+			WorkDir:        root,
+			Command:        fmt.Sprintf("exec %s -l", shell),
+			Options:        opts,
+			Tags:           tags,
+			DetachExisting: true,
+		})
 		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
@@ -181,7 +187,13 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		if action == "restart" {
 			tags.CreatedAt = time.Now().Unix()
 		}
-		command := tmux.ClientCommandWithTagsAttach(sessionName, root, fmt.Sprintf("exec %s -l", shell), opts, tags, detachExisting)
+		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
+			WorkDir:        root,
+			Command:        fmt.Sprintf("exec %s -l", shell),
+			Options:        opts,
+			Tags:           tags,
+			DetachExisting: detachExisting,
+		})
 		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
 			return SidebarTerminalReattachFailed{

@@ -44,16 +44,15 @@ func TestCreateWorkspaceEmptyNameReturnsFailed(t *testing.T) {
 }
 
 func TestCreateWorkspaceGitFailureIncludesPendingWorkspace(t *testing.T) {
-	origCreate := createWorkspaceFn
-	t.Cleanup(func() { createWorkspaceFn = origCreate })
-
 	gitErr := errors.New("git worktree add failed")
-	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		return gitErr
-	}
 
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	svc.gitOps = &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			return gitErr
+		},
+	}
 	cmd := svc.CreateWorkspace(project, "feature", "main")
 	msg := cmd()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
@@ -75,17 +74,16 @@ func TestCreateWorkspaceGitFailureIncludesPendingWorkspace(t *testing.T) {
 }
 
 func TestCreateWorkspaceEmptyBaseDefaultsToDefaultBranch(t *testing.T) {
-	origCreate := createWorkspaceFn
-	t.Cleanup(func() { createWorkspaceFn = origCreate })
-
-	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		return errors.New("stop")
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	svc.gitOps = &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			return errors.New("stop")
+		},
 	}
 
 	// /tmp/repo is not a real git repo, so GetBaseBranch returns an error
 	// and the fallback to "HEAD" is used.
 	project := data.NewProject("/tmp/repo")
-	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
 	cmd := svc.CreateWorkspace(project, "feature", "")
 	msg := cmd()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
@@ -101,22 +99,22 @@ func TestCreateWorkspaceEmptyBaseDefaultsToDefaultBranch(t *testing.T) {
 }
 
 func TestCreateWorkspacePendingMatchesAppSidePath(t *testing.T) {
-	origCreate := createWorkspaceFn
 	origTimeout := gitPathWaitTimeout
 	t.Cleanup(func() {
-		createWorkspaceFn = origCreate
 		gitPathWaitTimeout = origTimeout
 	})
 
 	gitErr := errors.New("git worktree add failed")
-	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		return gitErr
-	}
 	gitPathWaitTimeout = 50 * time.Millisecond
 
 	workspacesRoot := "/tmp/workspaces"
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			return gitErr
+		},
+	}
 
 	// Get the pending workspace the app side would use
 	pending := svc.pendingWorkspace(project, "feature", "main")

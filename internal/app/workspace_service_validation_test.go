@@ -92,17 +92,17 @@ func TestAddProjectExpandsTildePath(t *testing.T) {
 }
 
 func TestCreateWorkspaceRejectsInvalidName(t *testing.T) {
-	origCreate := createWorkspaceFn
-	t.Cleanup(func() { createWorkspaceFn = origCreate })
-
 	var createCalled bool
-	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		createCalled = true
-		return nil
+	mock := &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			createCalled = true
+			return nil
+		},
 	}
 
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	svc.gitOps = mock
 	msg := svc.CreateWorkspace(project, "bad/name", "main")()
 
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
@@ -116,22 +116,22 @@ func TestCreateWorkspaceRejectsInvalidName(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	if createCalled {
-		t.Fatal("createWorkspaceFn should not have been called")
+		t.Fatal("CreateWorkspace should not have been called")
 	}
 }
 
 func TestCreateWorkspaceRejectsInvalidBaseRef(t *testing.T) {
-	origCreate := createWorkspaceFn
-	t.Cleanup(func() { createWorkspaceFn = origCreate })
-
 	var createCalled bool
-	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		createCalled = true
-		return nil
+	mock := &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			createCalled = true
+			return nil
+		},
 	}
 
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	svc.gitOps = mock
 	msg := svc.CreateWorkspace(project, "feature", "bad ref")()
 
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
@@ -145,24 +145,24 @@ func TestCreateWorkspaceRejectsInvalidBaseRef(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	if createCalled {
-		t.Fatal("createWorkspaceFn should not have been called")
+		t.Fatal("CreateWorkspace should not have been called")
 	}
 }
 
 func TestCreateWorkspaceRejectsPathOutsideManagedRoot(t *testing.T) {
-	origCreate := createWorkspaceFn
-	t.Cleanup(func() { createWorkspaceFn = origCreate })
-
 	var createCalled bool
-	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		createCalled = true
-		return nil
+	mock := &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			createCalled = true
+			return nil
+		},
 	}
 
 	// Use a project name with ".." to try to escape the managed root.
 	// projectNameSegment rejects ".." in the name, so isManagedWorkspacePathForProject fails.
 	project := &data.Project{Name: "../escape", Path: "/tmp/repo"}
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	svc.gitOps = mock
 	msg := svc.CreateWorkspace(project, "feature", "main")()
 
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
@@ -176,6 +176,6 @@ func TestCreateWorkspaceRejectsPathOutsideManagedRoot(t *testing.T) {
 		t.Fatalf("expected 'outside managed project root' error, got: %v", failed.Err)
 	}
 	if createCalled {
-		t.Fatal("createWorkspaceFn should not have been called")
+		t.Fatal("CreateWorkspace should not have been called")
 	}
 }

@@ -70,7 +70,7 @@ func fetchTaggedSessions(svc *tmuxService, infoBySession map[string]tabSessionIn
 		_, knownSession := infoBySession[name]
 		amuxTag := strings.TrimSpace(row.Tags["@amux"])
 		tagged := amuxTag != "" && amuxTag != "0"
-		if !tagged && !knownSession && !looksLikeLegacyAmuxSession(name) {
+		if !tagged && !knownSession {
 			continue
 		}
 		session := tmux.SessionActivity{
@@ -131,17 +131,6 @@ func parseLastOutputAtTag(raw string) (time.Time, bool) {
 	}
 }
 
-func looksLikeLegacyAmuxSession(name string) bool {
-	name = strings.TrimSpace(name)
-	if !strings.HasPrefix(name, "amux-") {
-		return false
-	}
-	if strings.Contains(name, "term-tab-") {
-		return false
-	}
-	return strings.Contains(name, "-tab-")
-}
-
 func workspaceIDForSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bool) string {
 	workspaceID := ""
 	if hasInfo {
@@ -162,7 +151,6 @@ func workspaceIDForSession(session tmux.SessionActivity, info tabSessionInfo, ha
 //  1. Known-tab metadata marks chat sessions active even if tmux type is stale.
 //  2. Session tag (@amux_type == "agent") is authoritative for agent sessions.
 //  3. For known sessions with no explicit type, fall back to tab metadata.
-//  4. Name heuristic (legacy fallback) for pre-tag sessions.
 func isChatSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bool) bool {
 	if hasInfo && info.IsChat {
 		return true
@@ -173,15 +161,7 @@ func isChatSession(session tmux.SessionActivity, info tabSessionInfo, hasInfo bo
 	if hasInfo {
 		return info.IsChat
 	}
-	// Legacy fallback for pre-tag sessions.
-	name := session.Name
-	if !strings.HasPrefix(name, "amux-") {
-		return false
-	}
-	if strings.Contains(name, "term-tab-") {
-		return false
-	}
-	return strings.Contains(name, "-tab-")
+	return false
 }
 
 func isLikelyUserEcho(snapshot taggedSessionActivity) bool {

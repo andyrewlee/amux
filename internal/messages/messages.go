@@ -255,13 +255,8 @@ type LaunchAgent struct {
 
 // OpenDiff requests opening a diff viewer for a file
 type OpenDiff struct {
-	// Legacy fields (for backwards compatibility with sidebar)
-	File       string
-	StatusCode string // Git status code (e.g., "M ", "??", "A ")
-
-	// New fields
-	Change    *git.Change  // Change object with full info
-	Mode      git.DiffMode // Which diff mode to use
+	Change    *git.Change
+	Mode      git.DiffMode
 	Workspace *data.Workspace
 }
 

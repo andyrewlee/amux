@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -259,7 +260,9 @@ func (s *sendJobStore) saveState(state *sendJobState) error {
 		return err
 	}
 	if err := os.Rename(tmpPath, s.path); err != nil {
-		_ = os.Remove(tmpPath)
+		if removeErr := os.Remove(tmpPath); removeErr != nil {
+			slog.Debug("failed to remove temp file after rename failure", "path", tmpPath, "error", removeErr)
+		}
 		return err
 	}
 	return nil

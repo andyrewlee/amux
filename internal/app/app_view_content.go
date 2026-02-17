@@ -18,13 +18,13 @@ func (a *App) centerPaneStyle() lipgloss.Style {
 		Width(width-2).
 		Height(height-2).
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(common.ColorBorder).
+		BorderForeground(common.ColorBorder()).
 		Padding(0, 1)
 
 	if a.focusedPane == messages.PaneCenter {
 		style = style.
 			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(common.ColorBorderFocused)
+			BorderForeground(common.ColorBorderFocused())
 	}
 	return style
 }
@@ -87,8 +87,8 @@ func (a *App) renderWorkspaceInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
-	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
+	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground()).Bold(true)
+	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted())
 
 	btnStyle := inactiveStyle
 	if a.centerBtnFocused && a.centerBtnIndex == 0 {
@@ -120,8 +120,8 @@ func (a *App) welcomeContent() string {
 	b.WriteString(logoStyle.Render(logo))
 	b.WriteString("\n\n")
 
-	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
-	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
+	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground()).Bold(true)
+	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted())
 
 	addProjectStyle := inactiveStyle
 	settingsStyle := inactiveStyle
@@ -151,7 +151,7 @@ func (a *App) welcomeLogo() (string, lipgloss.Style) {
 "Y888888 888  888  888  "Y88888 888  888`
 
 	logoStyle := lipgloss.NewStyle().
-		Foreground(common.ColorPrimary).
+		Foreground(common.ColorPrimary()).
 		Bold(true)
 	return logo, logoStyle
 }

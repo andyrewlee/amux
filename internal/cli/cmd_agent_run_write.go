@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -132,7 +133,9 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 	}
 	for _, tag := range tags {
 		if err := tmuxSetSessionTag(sessionName, tag.Key, tag.Value, svc.TmuxOpts); err != nil {
-			_ = tmuxKillSession(sessionName, svc.TmuxOpts)
+			if killErr := tmuxKillSession(sessionName, svc.TmuxOpts); killErr != nil {
+				slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
+			}
 			if gf.JSON {
 				return returnJSONErrorMaybeIdempotent(
 					w, wErr, gf, version, "agent.run", *idempotencyKey,
@@ -173,7 +176,9 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 		CreatedAt:   time.Now().Unix(),
 	}
 	if err := appendWorkspaceOpenTabMeta(svc.Store, wsID, tab); err != nil {
-		_ = tmuxKillSession(sessionName, svc.TmuxOpts)
+		if killErr := tmuxKillSession(sessionName, svc.TmuxOpts); killErr != nil {
+			slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
+		}
 		if gf.JSON {
 			return returnJSONErrorMaybeIdempotent(
 				w, wErr, gf, version, "agent.run", *idempotencyKey,

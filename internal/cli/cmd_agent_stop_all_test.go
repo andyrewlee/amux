@@ -133,7 +133,7 @@ func TestCmdAgentStopAllPartialFailureReturnsError(t *testing.T) {
 	}
 }
 
-func TestCmdAgentStopAllIncludesPartiallyTaggedSessionsFromTagQuery(t *testing.T) {
+func TestCmdAgentStopAllExcludesPartiallyTaggedSessionsWithoutType(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	origSessionsByActivity := tmuxActiveAgentSessionsByActivity
@@ -155,7 +155,8 @@ func TestCmdAgentStopAllIncludesPartiallyTaggedSessionsFromTagQuery(t *testing.T
 				Tags: map[string]string{
 					"@amux_workspace": "ws-a",
 					"@amux_tab":       "tab-a",
-					// @amux_type intentionally missing to model partial tag writes.
+					// @amux_type intentionally missing — sessions without
+					// explicit type "agent" are no longer included.
 				},
 			},
 		}, nil
@@ -177,29 +178,7 @@ func TestCmdAgentStopAllIncludesPartiallyTaggedSessionsFromTagQuery(t *testing.T
 	if code != ExitOK {
 		t.Fatalf("cmdAgentStop() code = %d, want %d", code, ExitOK)
 	}
-	if errOut.Len() != 0 {
-		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
-	}
-	if got := killed["session-partial"]; got != 1 {
-		t.Fatalf("session-partial kill calls = %d, want 1", got)
-	}
-
-	var env Envelope
-	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	if !env.OK {
-		t.Fatalf("expected ok=true, got error=%#v", env.Error)
-	}
-	data, ok := env.Data.(map[string]any)
-	if !ok {
-		t.Fatalf("expected data object, got %T", env.Data)
-	}
-	stopped, ok := data["stopped"].([]any)
-	if !ok || len(stopped) != 1 {
-		t.Fatalf("expected one stopped session, got %#v", data["stopped"])
-	}
-	if got, _ := stopped[0].(string); got != "session-partial" {
-		t.Fatalf("stopped[0] = %q, want %q", got, "session-partial")
+	if got := killed["session-partial"]; got != 0 {
+		t.Fatalf("session-partial kill calls = %d, want 0 (should be excluded without @amux_type=agent)", got)
 	}
 }

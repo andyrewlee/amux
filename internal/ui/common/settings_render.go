@@ -39,9 +39,9 @@ func (s *SettingsDialog) renderLines() []string {
 	s.hitRegions = s.hitRegions[:0]
 	var lines []string
 
-	title := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
-	label := lipgloss.NewStyle().Foreground(ColorMuted)
-	muted := lipgloss.NewStyle().Foreground(ColorMuted)
+	title := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary())
+	label := lipgloss.NewStyle().Foreground(ColorMuted())
+	muted := lipgloss.NewStyle().Foreground(ColorMuted())
 
 	lines = append(lines, title.Render("Settings"), "")
 
@@ -58,7 +58,7 @@ func (s *SettingsDialog) renderLines() []string {
 	for i, t := range s.themes {
 		style, prefix := muted, "  "
 		if i == s.themeCursor {
-			style = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+			style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
 			prefix = Icons.Cursor + " "
 		}
 		y := len(lines)
@@ -71,9 +71,9 @@ func (s *SettingsDialog) renderLines() []string {
 	if s.showKeymapHints {
 		checkbox = "[" + Icons.Clean + "]"
 	}
-	style := lipgloss.NewStyle().Foreground(ColorForeground)
+	style := lipgloss.NewStyle().Foreground(ColorForeground())
 	if s.focusedItem == settingsItemKeymap {
-		style = style.Foreground(ColorPrimary)
+		style = style.Foreground(ColorPrimary())
 	}
 	y := len(lines)
 	lines = append(lines, style.Render(checkbox+" Show keymap hints"))
@@ -100,7 +100,7 @@ func (s *SettingsDialog) renderLines() []string {
 	}
 
 	if s.updateAvailable {
-		style := lipgloss.NewStyle().Foreground(ColorSuccess)
+		style := lipgloss.NewStyle().Foreground(ColorSuccess())
 		if s.focusedItem == settingsItemUpdate {
 			style = style.Bold(true)
 		}
@@ -112,7 +112,7 @@ func (s *SettingsDialog) renderLines() []string {
 
 	style = muted
 	if s.focusedItem == settingsItemSave {
-		style = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+		style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
 	}
 	y = len(lines)
 	lines = append(lines, style.Render("[Save settings]"))
@@ -121,7 +121,7 @@ func (s *SettingsDialog) renderLines() []string {
 
 	style = muted
 	if s.focusedItem == settingsItemClose {
-		style = lipgloss.NewStyle().Foreground(ColorPrimary)
+		style = lipgloss.NewStyle().Foreground(ColorPrimary())
 	}
 	y = len(lines)
 	lines = append(lines, style.Render("[Esc] Close"))
@@ -129,7 +129,7 @@ func (s *SettingsDialog) renderLines() []string {
 
 	if s.showKeymapHintsUI {
 		if s.validationErr != "" {
-			errStyle := lipgloss.NewStyle().Foreground(ColorError)
+			errStyle := lipgloss.NewStyle().Foreground(ColorError())
 			lines = append(lines, "", errStyle.Render("! "+s.validationErr))
 		} else {
 			lines = append(lines, "", muted.Render("↑/↓ navigate • Enter select/save"))
@@ -140,9 +140,9 @@ func (s *SettingsDialog) renderLines() []string {
 }
 
 func (s *SettingsDialog) renderInputLine(labelText string, input textinput.Model, focused bool) string {
-	labelStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+	labelStyle := lipgloss.NewStyle().Foreground(ColorMuted())
 	if focused {
-		labelStyle = labelStyle.Foreground(ColorPrimary)
+		labelStyle = labelStyle.Foreground(ColorPrimary())
 	}
 	return labelStyle.Render("  "+labelText+": ") + input.View()
 }

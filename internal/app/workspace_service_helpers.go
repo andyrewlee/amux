@@ -43,11 +43,11 @@ func cleanupStaleWorkspacePath(workspacePath string) error {
 	return os.RemoveAll(workspacePath)
 }
 
-func rollbackWorkspaceCreation(repoPath, workspacePath, branch string) {
-	if err := removeWorkspaceFn(repoPath, workspacePath); err != nil {
+func rollbackWorkspaceCreation(gitOps GitOperations, repoPath, workspacePath, branch string) {
+	if err := gitOps.RemoveWorkspace(repoPath, workspacePath); err != nil {
 		logging.Warn("Failed to roll back workspace %s: %v", workspacePath, err)
 	}
-	if err := deleteBranchFn(repoPath, branch); err != nil {
+	if err := gitOps.DeleteBranch(repoPath, branch); err != nil {
 		logging.Warn("Failed to roll back branch %s: %v", branch, err)
 	}
 }

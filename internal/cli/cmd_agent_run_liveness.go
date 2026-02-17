@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -16,7 +17,9 @@ func verifyStartedAgentSession(
 ) int {
 	state, err := tmuxSessionStateFor(sessionName, tmuxOpts)
 	if err != nil {
-		_ = tmuxKillSession(sessionName, tmuxOpts)
+		if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
+			slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
+		}
 		if gf.JSON {
 			return returnJSONErrorMaybeIdempotent(
 				w, wErr, gf, version, "agent.run", idempotencyKey,
@@ -32,7 +35,9 @@ func verifyStartedAgentSession(
 		return ExitOK
 	}
 
-	_ = tmuxKillSession(sessionName, tmuxOpts)
+	if err := tmuxKillSession(sessionName, tmuxOpts); err != nil {
+		slog.Debug("best-effort session kill failed", "session", sessionName, "error", err)
+	}
 	msg := fmt.Sprintf("assistant session %s exited before startup completed", sessionName)
 	if gf.JSON {
 		return returnJSONErrorMaybeIdempotent(
@@ -58,7 +63,9 @@ func sendAgentRunPromptIfRequested(
 
 	time.Sleep(200 * time.Millisecond)
 	if err := tmuxSendKeys(sessionName, prompt, true, tmuxOpts); err != nil {
-		_ = tmuxKillSession(sessionName, tmuxOpts)
+		if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
+			slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
+		}
 		if gf.JSON {
 			return returnJSONErrorMaybeIdempotent(
 				w, wErr, gf, version, "agent.run", idempotencyKey,

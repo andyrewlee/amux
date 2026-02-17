@@ -6,20 +6,22 @@ import (
 	"strings"
 )
 
-func ClientCommand(sessionName, workDir, command string) string {
-	return ClientCommandWithOptions(sessionName, workDir, command, DefaultOptions())
+// ClientCommandParams holds the parameters for building a tmux client command.
+type ClientCommandParams struct {
+	WorkDir        string
+	Command        string
+	Options        Options
+	Tags           SessionTags
+	DetachExisting bool // Detach other clients attached to this session.
 }
 
-func ClientCommandWithOptions(sessionName, workDir, command string, opts Options) string {
-	return clientCommand(sessionName, workDir, command, opts, SessionTags{}, true)
-}
-
-func ClientCommandWithTags(sessionName, workDir, command string, opts Options, tags SessionTags) string {
-	return clientCommand(sessionName, workDir, command, opts, tags, true)
-}
-
-func ClientCommandWithTagsAttach(sessionName, workDir, command string, opts Options, tags SessionTags, detachExisting bool) string {
-	return clientCommand(sessionName, workDir, command, opts, tags, detachExisting)
+// NewClientCommand builds the shell command string that creates (or reattaches to)
+// a tmux session with the given name and parameters.
+func NewClientCommand(sessionName string, p ClientCommandParams) string {
+	if p.Options == (Options{}) {
+		p.Options = DefaultOptions()
+	}
+	return clientCommand(sessionName, p.WorkDir, p.Command, p.Options, p.Tags, p.DetachExisting)
 }
 
 func clientCommand(sessionName, workDir, command string, opts Options, tags SessionTags, detachExisting bool) string {

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -128,7 +129,9 @@ func applyRunGlobals(gf GlobalFlags) (func(), error) {
 	restore := func() {
 		setCLITmuxTimeoutOverride(prevTimeout)
 		if wdChanged {
-			_ = os.Chdir(prevWD)
+			if err := os.Chdir(prevWD); err != nil {
+				slog.Debug("failed to restore working directory", "path", prevWD, "error", err)
+			}
 		}
 	}
 	return restore, nil

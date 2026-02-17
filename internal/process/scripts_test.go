@@ -291,10 +291,9 @@ func TestScriptRunnerRunScriptNonconcurrentStopFailure(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	// Inject a non-benign stop error
-	origKill := killProcessGroupFn
-	t.Cleanup(func() { killProcessGroupFn = origKill })
-	killProcessGroupFn = func(pid int, opts KillOptions) error {
+	// Inject a non-benign stop error via the struct field
+	origKill := runner.killProcessGroup
+	runner.killProcessGroup = func(pid int, opts KillOptions) error {
 		return errors.New("permission denied")
 	}
 
@@ -308,7 +307,7 @@ func TestScriptRunnerRunScriptNonconcurrentStopFailure(t *testing.T) {
 	}
 
 	// Clean up with original kill
-	killProcessGroupFn = origKill
+	runner.killProcessGroup = origKill
 	_ = runner.Stop(ws)
 }
 
@@ -327,10 +326,9 @@ func TestScriptRunnerRunScriptNonconcurrentIgnoresBenignStopRace(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	// Inject a benign "process already finished" error
-	origKill := killProcessGroupFn
-	t.Cleanup(func() { killProcessGroupFn = origKill })
-	killProcessGroupFn = func(pid int, opts KillOptions) error {
+	// Inject a benign "process already finished" error via the struct field
+	origKill := runner.killProcessGroup
+	runner.killProcessGroup = func(pid int, opts KillOptions) error {
 		return errors.New("process already finished")
 	}
 
@@ -344,7 +342,7 @@ func TestScriptRunnerRunScriptNonconcurrentIgnoresBenignStopRace(t *testing.T) {
 	}
 
 	// Clean up
-	killProcessGroupFn = origKill
+	runner.killProcessGroup = origKill
 	_ = runner.Stop(ws)
 }
 

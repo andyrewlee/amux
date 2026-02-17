@@ -33,7 +33,7 @@ func TestDialogCursorPositionInput(t *testing.T) {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorPrimary).
+		Foreground(ColorPrimary()).
 		MarginBottom(1)
 	prefix := titleStyle.Render(d.title) + "\n\n"
 
@@ -63,7 +63,7 @@ func TestDialogCursorPositionFilter(t *testing.T) {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorPrimary).
+		Foreground(ColorPrimary()).
 		MarginBottom(1)
 	prefix := titleStyle.Render(d.title) + "\n\n"
 	if d.message != "" {

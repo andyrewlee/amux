@@ -143,8 +143,21 @@ func (c *Canvas) DrawBorder(x, y, w, h int, style vterm.Style, focused bool) {
 	}
 }
 
+// CursorState holds cursor position and visibility for DrawScreen.
+type CursorState struct {
+	X, Y    int
+	Visible bool
+}
+
+// SelectionRegion holds selection bounds for DrawScreen.
+type SelectionRegion struct {
+	Active         bool
+	StartX, StartY int
+	EndX, EndY     int
+}
+
 // DrawScreen draws a vterm screen into the canvas with clipping.
-func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, cursorY int, showCursor bool, viewOffset int, selActive bool, selStartX, selStartY, selEndX, selEndY int) {
+func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursor CursorState, viewOffset int, selection SelectionRegion) {
 	if w <= 0 || h <= 0 {
 		return
 	}
@@ -157,7 +170,7 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 			if cell.Width == 2 && col+1 >= w {
 				cell = vterm.DefaultCell()
 			}
-			if inSelection(selActive, selStartX, selStartY, selEndX, selEndY, col, row) {
+			if inSelection(selection, col, row) {
 				cell.Style.Reverse = !cell.Style.Reverse
 			}
 			targetX := x + col
@@ -169,10 +182,10 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 		}
 	}
 
-	if showCursor && viewOffset == 0 {
-		if cursorX >= 0 && cursorY >= 0 && cursorX < w && cursorY < h {
-			targetX := x + cursorX
-			targetY := y + cursorY
+	if cursor.Visible && viewOffset == 0 {
+		if cursor.X >= 0 && cursor.Y >= 0 && cursor.X < w && cursor.Y < h {
+			targetX := x + cursor.X
+			targetY := y + cursor.Y
 			if targetX >= 0 && targetX < c.Width && targetY >= 0 && targetY < c.Height {
 				cell := c.Cells[targetY][targetX]
 				cell.Style.Reverse = !cell.Style.Reverse
@@ -182,10 +195,13 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursorX, curs
 	}
 }
 
-func inSelection(active bool, startX, startY, endX, endY, x, y int) bool {
-	if !active {
+func inSelection(sel SelectionRegion, x, y int) bool {
+	if !sel.Active {
 		return false
 	}
+
+	startX, startY := sel.StartX, sel.StartY
+	endX, endY := sel.EndX, sel.EndY
 
 	if startY > endY || (startY == endY && startX > endX) {
 		startX, endX = endX, startX
@@ -338,15 +354,9 @@ func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height i
 		width,
 		height,
 		screen,
-		term.CursorX,
-		term.CursorY,
-		showCursor,
+		CursorState{X: term.CursorX, Y: term.CursorY, Visible: showCursor},
 		term.ViewOffset,
-		selActive,
-		selStartX,
-		selStartY,
-		selEndX,
-		selEndY,
+		SelectionRegion{Active: selActive, StartX: selStartX, StartY: selStartY, EndX: selEndX, EndY: selEndY},
 	)
 	return canvas.Render()
 }

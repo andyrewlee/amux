@@ -1,15 +1,11 @@
 package app
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/git"
 )
-
-var discoverWorkspacesFn = git.DiscoverWorkspaces
 
 // projectNameSegment extracts a filesystem-safe name from a project.
 // Returns ("", false) for nil project, empty name, ".", "..", or names with "/" or "\".
@@ -58,19 +54,6 @@ func managedProjectRoots(workspacesRoot string, project *data.Project) []string 
 	return workspacePathAliases(primary)
 }
 
-// isManagedWorkspacePath returns true if workspacesRoot is empty (legacy/test)
-// OR path is within workspacesRoot.
-func isManagedWorkspacePath(workspacesRoot, path string) bool {
-	root := strings.TrimSpace(workspacesRoot)
-	if root == "" {
-		return true
-	}
-	if strings.TrimSpace(path) == "" {
-		return false
-	}
-	return pathWithinAliases(workspacePathAliases(root), workspacePathAliases(path))
-}
-
 // isManagedWorkspacePathForProject returns true if workspacesRoot is empty (legacy)
 // OR path is within managedProjectRoots.
 func isManagedWorkspacePathForProject(workspacesRoot string, project *data.Project, path string) bool {
@@ -103,30 +86,4 @@ func isPathWithin(root, candidate string) bool {
 		return false
 	}
 	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-// isLegacyManagedWorkspaceDeletePath returns true only if:
-// 1. ws.Root is within the broad workspacesRoot
-// 2. ws.Root is discoverable via git worktree list for this project
-func isLegacyManagedWorkspaceDeletePath(workspacesRoot string, project *data.Project, ws *data.Workspace) bool {
-	if project == nil || ws == nil {
-		return false
-	}
-	if _, err := os.Stat(ws.Root); err != nil {
-		return false
-	}
-	if !isManagedWorkspacePath(workspacesRoot, ws.Root) {
-		return false
-	}
-	discovered, err := discoverWorkspacesFn(project)
-	if err != nil {
-		return false
-	}
-	wsRoot := data.NormalizePath(ws.Root)
-	for _, d := range discovered {
-		if data.NormalizePath(d.Root) == wsRoot {
-			return true
-		}
-	}
-	return false
 }

@@ -105,7 +105,13 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", assistantCfg.Command, shell)
 
-	termCommand := tmux.ClientCommandWithTags(sessionName, ws.Root, fullCommand, m.getTmuxOptions(), tags)
+	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
+		WorkDir:        ws.Root,
+		Command:        fullCommand,
+		Options:        m.getTmuxOptions(),
+		Tags:           tags,
+		DetachExisting: true,
+	})
 	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
@@ -150,7 +156,13 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 		"COLORTERM=truecolor",
 	}
 
-	termCommand := tmux.ClientCommandWithTags(sessionName, ws.Root, command, m.getTmuxOptions(), tags)
+	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
+		WorkDir:        ws.Root,
+		Command:        command,
+		Options:        m.getTmuxOptions(),
+		Tags:           tags,
+		DetachExisting: true,
+	})
 	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)

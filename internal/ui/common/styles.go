@@ -94,103 +94,103 @@ func DefaultStyles() Styles {
 		// Layout - Pane borders
 		Pane: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorBorder).
+			BorderForeground(ColorBorder()).
 			Padding(0, 1),
 
 		FocusedPane: lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder()).
-			BorderForeground(ColorBorderFocused).
+			BorderForeground(ColorBorderFocused()).
 			Padding(0, 1),
 
 		// Text hierarchy
 		Title: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(ColorPrimary),
+			Foreground(ColorPrimary()),
 
 		Subtitle: lipgloss.NewStyle().
-			Foreground(ColorForeground),
+			Foreground(ColorForeground()),
 
 		Body: lipgloss.NewStyle().
-			Foreground(ColorForeground),
+			Foreground(ColorForeground()),
 
 		Muted: lipgloss.NewStyle().
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		Bold: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(ColorForeground),
+			Foreground(ColorForeground()),
 
 		// Dashboard - Project tree
 		ProjectHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(ColorMuted).
+			Foreground(ColorMuted()).
 			MarginTop(1),
 
 		WorkspaceRow: lipgloss.NewStyle().
-			Foreground(ColorForeground),
+			Foreground(ColorForeground()),
 
 		ActiveWorkspace: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(ColorPrimary),
+			Foreground(ColorPrimary()),
 
 		SelectedRow: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(ColorForeground).
-			Background(ColorSelection),
+			Foreground(ColorForeground()).
+			Background(ColorSelection()),
 
 		CreateButton: lipgloss.NewStyle().
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		HomeRow: lipgloss.NewStyle().
-			Foreground(ColorSecondary),
+			Foreground(ColorSecondary()),
 
 		AddProjectRow: lipgloss.NewStyle().
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		// Status badges
 		StatusClean: lipgloss.NewStyle().
-			Foreground(ColorSuccess),
+			Foreground(ColorSuccess()),
 
 		StatusDirty: lipgloss.NewStyle().
-			Foreground(ColorError),
+			Foreground(ColorError()),
 
 		StatusPending: lipgloss.NewStyle().
-			Foreground(ColorWarning),
+			Foreground(ColorWarning()),
 
 		StatusRunning: lipgloss.NewStyle().
-			Foreground(ColorSecondary),
+			Foreground(ColorSecondary()),
 
 		// Git status file indicators
 		StatusModified: lipgloss.NewStyle().
-			Foreground(ColorWarning),
+			Foreground(ColorWarning()),
 
 		StatusAdded: lipgloss.NewStyle().
-			Foreground(ColorSuccess),
+			Foreground(ColorSuccess()),
 
 		StatusDeleted: lipgloss.NewStyle().
-			Foreground(ColorError),
+			Foreground(ColorError()),
 
 		StatusRenamed: lipgloss.NewStyle().
-			Foreground(ColorInfo),
+			Foreground(ColorInfo()),
 
 		StatusUntracked: lipgloss.NewStyle().
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		// Center pane - Tabs (compact, minimal)
 		Tab: lipgloss.NewStyle().
 			Padding(0, 1).
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		ActiveTab: lipgloss.NewStyle().
 			Padding(0, 1).
-			Foreground(ColorForeground).
-			Background(ColorSurface1),
+			Foreground(ColorForeground()).
+			Background(ColorSurface1()),
 
 		TabBar: lipgloss.NewStyle(),
 
 		TabPlus: lipgloss.NewStyle().
 			Padding(0, 1).
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		// Center pane - Agent indicators
 		AgentClaude: lipgloss.NewStyle().
@@ -221,97 +221,97 @@ func DefaultStyles() Styles {
 			Foreground(ColorPi),
 
 		AgentTerm: lipgloss.NewStyle().
-			Foreground(ColorForeground),
+			Foreground(ColorForeground()),
 
 		// Sidebar
 		SidebarHeader: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		SidebarRow: lipgloss.NewStyle().
-			Foreground(ColorForeground),
+			Foreground(ColorForeground()),
 
 		BranchName: lipgloss.NewStyle().
-			Foreground(ColorSecondary),
+			Foreground(ColorSecondary()),
 
 		FilePath: lipgloss.NewStyle().
-			Foreground(ColorForeground),
+			Foreground(ColorForeground()),
 
 		DirName: lipgloss.NewStyle().
-			Foreground(ColorSecondary).
+			Foreground(ColorSecondary()).
 			Bold(true),
 
 		// Help bar
 		Help: lipgloss.NewStyle().
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		HelpKey: lipgloss.NewStyle().
-			Foreground(ColorPrimary),
+			Foreground(ColorPrimary()),
 
 		HelpDesc: lipgloss.NewStyle().
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		HelpSeparator: lipgloss.NewStyle().
-			Foreground(ColorBorder),
+			Foreground(ColorBorder()),
 
 		// Dialogs
 		DialogBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorPrimary).
+			BorderForeground(ColorPrimary()).
 			Padding(1, 2).
 			Width(50),
 
 		DialogTitle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(ColorPrimary).
+			Foreground(ColorPrimary()).
 			MarginBottom(1),
 
 		DialogMessage: lipgloss.NewStyle().
-			Foreground(ColorForeground),
+			Foreground(ColorForeground()),
 
 		DialogOption: lipgloss.NewStyle().
 			Padding(0, 1).
-			Foreground(ColorMuted),
+			Foreground(ColorMuted()),
 
 		DialogActive: lipgloss.NewStyle().
 			Padding(0, 1).
 			Bold(true).
-			Foreground(ColorForeground).
-			Background(ColorPrimary),
+			Foreground(ColorForeground()).
+			Background(ColorPrimary()),
 
 		// Feedback
 		Error: lipgloss.NewStyle().
-			Foreground(ColorError),
+			Foreground(ColorError()),
 
 		Success: lipgloss.NewStyle().
-			Foreground(ColorSuccess),
+			Foreground(ColorSuccess()),
 
 		Warning: lipgloss.NewStyle().
-			Foreground(ColorWarning),
+			Foreground(ColorWarning()),
 
 		Info: lipgloss.NewStyle().
-			Foreground(ColorInfo),
+			Foreground(ColorInfo()),
 
 		// Toast notifications
 		ToastSuccess: lipgloss.NewStyle().
 			Padding(0, 1).
-			Background(ColorSuccess).
-			Foreground(ColorBackground),
+			Background(ColorSuccess()).
+			Foreground(ColorBackground()),
 
 		ToastError: lipgloss.NewStyle().
 			Padding(0, 1).
-			Background(ColorError).
-			Foreground(ColorBackground),
+			Background(ColorError()).
+			Foreground(ColorBackground()),
 
 		ToastWarning: lipgloss.NewStyle().
 			Padding(0, 1).
-			Background(ColorWarning).
-			Foreground(ColorBackground),
+			Background(ColorWarning()).
+			Foreground(ColorBackground()),
 
 		ToastInfo: lipgloss.NewStyle().
 			Padding(0, 1).
-			Background(ColorInfo).
-			Foreground(ColorBackground),
+			Background(ColorInfo()).
+			Foreground(ColorBackground()),
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 // when the row is dirty but not active and not selected.
 func applyDirtyForeground(style lipgloss.Style, dirty, active, selected bool) lipgloss.Style {
 	if dirty && !active && !selected {
-		return style.Foreground(common.ColorSecondary)
+		return style.Foreground(common.ColorSecondary())
 	}
 	return style
 }
@@ -23,13 +23,13 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = m.styles.HomeRow.
 				Bold(true).
-				Foreground(common.ColorForeground).
-				Background(common.ColorSelection)
+				Foreground(common.ColorForeground()).
+				Background(common.ColorSelection())
 			if m.activeRoot == "" {
-				style = style.Foreground(common.ColorPrimary)
+				style = style.Foreground(common.ColorPrimary())
 			}
 		} else if m.activeRoot == "" {
-			style = style.Bold(true).Foreground(common.ColorPrimary)
+			style = style.Bold(true).Foreground(common.ColorPrimary())
 		}
 		return style.Render("[amux]")
 
@@ -57,10 +57,10 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = style.
 				Bold(true).
-				Foreground(common.ColorForeground).
-				Background(common.ColorSelection)
+				Foreground(common.ColorForeground()).
+				Background(common.ColorSelection())
 			if active {
-				style = style.Foreground(common.ColorPrimary)
+				style = style.Foreground(common.ColorPrimary())
 			}
 		} else if active {
 			style = m.styles.ActiveWorkspace.PaddingLeft(0)
@@ -123,7 +123,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		if selected {
 			style = m.styles.SelectedRow
 			if working {
-				style = style.Foreground(common.ColorPrimary)
+				style = style.Foreground(common.ColorPrimary())
 			}
 		} else if working {
 			style = m.styles.ActiveWorkspace

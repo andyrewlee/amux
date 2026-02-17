@@ -16,12 +16,6 @@ import (
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
-var (
-	createWorkspaceFn = git.CreateWorkspace
-	removeWorkspaceFn = git.RemoveWorkspace
-	deleteBranchFn    = git.DeleteBranch
-)
-
 // AddProject adds a new project to the registry.
 func (s *workspaceService) AddProject(path string) tea.Cmd {
 	return func() tea.Msg {
@@ -152,7 +146,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 			}
 		}
 
-		if err := createWorkspaceFn(project.Path, workspacePath, branch, base); err != nil {
+		if err := s.gitOps.CreateWorkspace(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -162,7 +156,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		// Wait for .git file to exist (race condition from workspace creation)
 		gitPath := filepath.Join(workspacePath, ".git")
 		if err := waitForGitPath(gitPath, gitPathWaitTimeout); err != nil {
-			rollbackWorkspaceCreation(project.Path, workspacePath, branch)
+			rollbackWorkspaceCreation(s.gitOps, project.Path, workspacePath, branch)
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -172,7 +166,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		// Save unified workspace
 		if s.store != nil {
 			if err := s.store.Save(ws); err != nil {
-				rollbackWorkspaceCreation(project.Path, workspacePath, branch)
+				rollbackWorkspaceCreation(s.gitOps, project.Path, workspacePath, branch)
 				return messages.WorkspaceCreateFailed{
 					Workspace: ws,
 					Err:       err,
@@ -238,32 +232,23 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			}
 		}
 
-		legacyRepoScopeMatch := false
 		if projectPath != workspaceRepo {
-			if !filepath.IsAbs(ws.Repo) && isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
-				legacyRepoScopeMatch = true
-			} else if isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
-				legacyRepoScopeMatch = true
-			} else {
-				return messages.WorkspaceDeleteFailed{
-					Project:   project,
-					Workspace: ws,
-					Err:       fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path),
-				}
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path),
 			}
 		}
 
 		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, ws.Root) {
-			if !legacyRepoScopeMatch && !isLegacyManagedWorkspaceDeletePath(s.workspacesRoot, project, ws) {
-				return messages.WorkspaceDeleteFailed{
-					Project:   project,
-					Workspace: ws,
-					Err:       fmt.Errorf("workspace root %s is outside managed project root", ws.Root),
-				}
+			return messages.WorkspaceDeleteFailed{
+				Project:   project,
+				Workspace: ws,
+				Err:       fmt.Errorf("workspace root %s is outside managed project root", ws.Root),
 			}
 		}
 
-		if err := removeWorkspaceFn(projectPath, ws.Root); err != nil {
+		if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
 			if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
 				return messages.WorkspaceDeleteFailed{
 					Project:   project,
@@ -274,7 +259,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			logging.Warn("git remove failed for %s but stale cleanup succeeded: %v", ws.Root, err)
 		}
 
-		if err := deleteBranchFn(projectPath, ws.Branch); err != nil {
+		if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
 			logging.Warn("failed to delete branch %s: %v", ws.Branch, err)
 		}
 		if s.store != nil {

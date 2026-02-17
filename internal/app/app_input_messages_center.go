@@ -9,7 +9,7 @@ import (
 
 // handleOpenDiff handles the OpenDiff message.
 func (a *App) handleOpenDiff(msg messages.OpenDiff) tea.Cmd {
-	logging.Info("Opening diff: %s", msg.File)
+	logging.Info("Opening diff: change=%v", msg.Change)
 	newCenter, cmd := a.center.Update(msg)
 	a.center = newCenter
 	return cmd

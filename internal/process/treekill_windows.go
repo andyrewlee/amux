@@ -3,6 +3,7 @@
 package process
 
 import (
+	"log/slog"
 	"os"
 	"os/exec"
 	"time"
@@ -30,7 +31,9 @@ func KillProcessGroup(leaderPID int, opts KillOptions) error {
 		return err
 	}
 
-	_ = proc.Signal(os.Interrupt)
+	if err := proc.Signal(os.Interrupt); err != nil {
+		slog.Debug("best-effort interrupt signal failed", "pid", leaderPID, "error", err)
+	}
 	if opts.GracePeriod > 0 {
 		time.Sleep(opts.GracePeriod)
 	}

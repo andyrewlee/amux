@@ -199,8 +199,8 @@ func (m *TabbedSidebar) renderTabBar() string {
 	inactiveStyle := m.styles.Tab
 	activeTabStyle := lipgloss.NewStyle().
 		Padding(0, 1).
-		Foreground(common.ColorForeground).
-		Background(common.ColorSurface2)
+		Foreground(common.ColorForeground()).
+		Background(common.ColorSurface2())
 
 	var tabs []string
 	x := 0

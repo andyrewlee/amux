@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,8 +15,6 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/safego"
 )
-
-var killProcessGroupFn = KillProcessGroup
 
 // ScriptType identifies the type of script
 type ScriptType string
@@ -75,10 +74,11 @@ type WorkspaceConfig struct {
 
 // ScriptRunner manages script execution for workspaces
 type ScriptRunner struct {
-	mu            sync.Mutex
-	portAllocator *PortAllocator
-	envBuilder    *EnvBuilder
-	running       map[string]*runningScript // workspace root -> running process
+	mu               sync.Mutex
+	portAllocator    *PortAllocator
+	envBuilder       *EnvBuilder
+	running          map[string]*runningScript // workspace root -> running process
+	killProcessGroup func(pid int, opts KillOptions) error
 }
 
 type runningScript struct {
@@ -89,9 +89,10 @@ type runningScript struct {
 func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 	ports := NewPortAllocator(portStart, portRange)
 	return &ScriptRunner{
-		portAllocator: ports,
-		envBuilder:    NewEnvBuilder(ports),
-		running:       make(map[string]*runningScript),
+		portAllocator:    ports,
+		envBuilder:       NewEnvBuilder(ports),
+		running:          make(map[string]*runningScript),
+		killProcessGroup: KillProcessGroup,
 	}
 }
 
@@ -199,7 +200,9 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
-		_ = cmd.Wait()
+		if err := cmd.Wait(); err != nil {
+			slog.Debug("script process exited with error", "error", err)
+		}
 		r.mu.Lock()
 		if current, ok := r.running[key]; ok && current == running {
 			delete(r.running, key)
@@ -226,7 +229,7 @@ func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	}
 
 	if running.cmd != nil && running.cmd.Process != nil {
-		err := killProcessGroupFn(running.cmd.Process.Pid, KillOptions{})
+		err := r.killProcessGroup(running.cmd.Process.Pid, KillOptions{})
 		if isBenignStopError(err) {
 			r.clearRunningEntry(key)
 			return nil
@@ -261,7 +264,9 @@ func (r *ScriptRunner) StopAll() {
 
 	for _, entry := range running {
 		if entry.cmd != nil && entry.cmd.Process != nil {
-			_ = KillProcessGroup(entry.cmd.Process.Pid, KillOptions{})
+			if err := KillProcessGroup(entry.cmd.Process.Pid, KillOptions{}); err != nil {
+				slog.Debug("best-effort process group kill failed", "pid", entry.cmd.Process.Pid, "error", err)
+			}
 		}
 	}
 }

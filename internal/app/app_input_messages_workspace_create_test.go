@@ -36,22 +36,22 @@ func TestHandleCreateWorkspaceSkipsPendingTrackingWithoutService(t *testing.T) {
 }
 
 func TestHandleCreateWorkspaceTracksAndClearsPendingIDOnFailure(t *testing.T) {
-	origCreate := createWorkspaceFn
 	origTimeout := gitPathWaitTimeout
 	t.Cleanup(func() {
-		createWorkspaceFn = origCreate
 		gitPathWaitTimeout = origTimeout
 	})
 
 	gitErr := errors.New("git worktree add failed")
-	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		return gitErr
-	}
 	gitPathWaitTimeout = 50 * time.Millisecond
 
 	workspacesRoot := "/tmp/workspaces"
 	store := data.NewWorkspaceStore(t.TempDir())
 	svc := newWorkspaceService(nil, store, nil, workspacesRoot)
+	svc.gitOps = &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			return gitErr
+		},
+	}
 
 	app := &App{
 		dashboard:            dashboard.New(),

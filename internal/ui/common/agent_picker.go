@@ -52,7 +52,7 @@ func (d *Dialog) renderAgentPickerOptions(baseLine int) []string {
 	}
 
 	if d.filterEnabled && len(d.filteredIndices) == 0 {
-		lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted).Render("No matches"))
+		lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted()).Render("No matches"))
 		return lines
 	}
 
@@ -64,7 +64,7 @@ func (d *Dialog) renderAgentPickerOptions(baseLine int) []string {
 		}
 
 		indicator := lipgloss.NewStyle().Foreground(AgentColor(opt)).Render(Icons.Running)
-		nameStyle := lipgloss.NewStyle().Foreground(ColorForeground)
+		nameStyle := lipgloss.NewStyle().Foreground(ColorForeground())
 		if cursorIdx == d.cursor {
 			nameStyle = nameStyle.Bold(true)
 		}

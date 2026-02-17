@@ -6,8 +6,19 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
+
+func testSessionServices(t *testing.T, queryFn func(tmux.Options) ([]sessionRow, error)) *Services {
+	t.Helper()
+	return &Services{
+		Store:            data.NewWorkspaceStore(t.TempDir()),
+		TmuxOpts:         tmux.Options{},
+		Version:          "test-v1",
+		QuerySessionRows: queryFn,
+	}
+}
 
 // --- routeSession tests ---
 
@@ -60,12 +71,7 @@ func TestRouteSessionUnknownSubcommandJSON(t *testing.T) {
 // --- cmdSessionList tests ---
 
 func TestCmdSessionListJSON(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	orig := sessionQueryRows
-	defer func() { sessionQueryRows = orig }()
-
-	sessionQueryRows = func(_ tmux.Options) ([]sessionRow, error) {
+	svc := testSessionServices(t, func(_ tmux.Options) ([]sessionRow, error) {
 		return []sessionRow{
 			{
 				name:      "amux-ws1-tab-1",
@@ -74,10 +80,10 @@ func TestCmdSessionListJSON(t *testing.T) {
 				createdAt: 1000,
 			},
 		}, nil
-	}
+	})
 
 	var out, errOut bytes.Buffer
-	code := cmdSessionList(&out, &errOut, GlobalFlags{JSON: true}, nil, "test-v1")
+	code := cmdSessionListWith(&out, &errOut, GlobalFlags{JSON: true}, nil, "test-v1", svc)
 	if code != ExitOK {
 		t.Fatalf("code = %d, want %d; stderr: %s", code, ExitOK, errOut.String())
 	}
@@ -92,10 +98,8 @@ func TestCmdSessionListJSON(t *testing.T) {
 }
 
 func TestCmdSessionListRejectsArgs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
 	var out, errOut bytes.Buffer
-	code := cmdSessionList(&out, &errOut, GlobalFlags{JSON: true}, []string{"extra"}, "test-v1")
+	code := cmdSessionListWith(&out, &errOut, GlobalFlags{JSON: true}, []string{"extra"}, "test-v1", nil)
 	if code != ExitUsage {
 		t.Fatalf("code = %d, want %d", code, ExitUsage)
 	}
@@ -104,12 +108,7 @@ func TestCmdSessionListRejectsArgs(t *testing.T) {
 // --- cmdSessionPrune tests ---
 
 func TestCmdSessionPruneDryRunJSON(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	orig := sessionQueryRows
-	defer func() { sessionQueryRows = orig }()
-
-	sessionQueryRows = func(_ tmux.Options) ([]sessionRow, error) {
+	svc := testSessionServices(t, func(_ tmux.Options) ([]sessionRow, error) {
 		return []sessionRow{
 			{
 				name:      "amux-gone-tab-1",
@@ -117,10 +116,10 @@ func TestCmdSessionPruneDryRunJSON(t *testing.T) {
 				createdAt: 100,
 			},
 		}, nil
-	}
+	})
 
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{JSON: true}, nil, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{JSON: true}, nil, "test-v1", svc)
 	if code != ExitOK {
 		t.Fatalf("code = %d, want %d; stderr: %s", code, ExitOK, errOut.String())
 	}
@@ -147,16 +146,7 @@ func TestCmdSessionPruneDryRunJSON(t *testing.T) {
 }
 
 func TestCmdSessionPruneYesJSON(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	origQuery := sessionQueryRows
-	origKill := tmuxKillSession
-	defer func() {
-		sessionQueryRows = origQuery
-		tmuxKillSession = origKill
-	}()
-
-	sessionQueryRows = func(_ tmux.Options) ([]sessionRow, error) {
+	svc := testSessionServices(t, func(_ tmux.Options) ([]sessionRow, error) {
 		return []sessionRow{
 			{
 				name:      "amux-gone-tab-1",
@@ -164,16 +154,18 @@ func TestCmdSessionPruneYesJSON(t *testing.T) {
 				createdAt: 100,
 			},
 		}, nil
-	}
+	})
 
 	killed := []string{}
+	origKill := tmuxKillSession
+	defer func() { tmuxKillSession = origKill }()
 	tmuxKillSession = func(name string, _ tmux.Options) error {
 		killed = append(killed, name)
 		return nil
 	}
 
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{JSON: true}, []string{"--yes"}, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{JSON: true}, []string{"--yes"}, "test-v1", svc)
 	if code != ExitOK {
 		t.Fatalf("code = %d, want %d; stderr: %s", code, ExitOK, errOut.String())
 	}
@@ -192,42 +184,31 @@ func TestCmdSessionPruneYesJSON(t *testing.T) {
 }
 
 func TestCmdSessionPruneOlderThanInvalid(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{JSON: true}, []string{"--older-than", "abc"}, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{JSON: true}, []string{"--older-than", "abc"}, "test-v1", nil)
 	if code != ExitUsage {
 		t.Fatalf("code = %d, want %d", code, ExitUsage)
 	}
 }
 
 func TestCmdSessionPruneOlderThanNonPositive(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{JSON: true}, []string{"--older-than", "-5m"}, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{JSON: true}, []string{"--older-than", "-5m"}, "test-v1", nil)
 	if code != ExitUsage {
 		t.Fatalf("code = %d, want %d", code, ExitUsage)
 	}
 }
 
 func TestCmdSessionPruneRejectsExtraArgs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{JSON: true}, []string{"extra"}, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{JSON: true}, []string{"extra"}, "test-v1", nil)
 	if code != ExitUsage {
 		t.Fatalf("code = %d, want %d", code, ExitUsage)
 	}
 }
 
 func TestCmdSessionPruneDryRunHuman(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	orig := sessionQueryRows
-	defer func() { sessionQueryRows = orig }()
-
-	sessionQueryRows = func(_ tmux.Options) ([]sessionRow, error) {
+	svc := testSessionServices(t, func(_ tmux.Options) ([]sessionRow, error) {
 		return []sessionRow{
 			{
 				name:      "amux-ws-a-term-tab-1",
@@ -235,10 +216,10 @@ func TestCmdSessionPruneDryRunHuman(t *testing.T) {
 				createdAt: 100,
 			},
 		}, nil
-	}
+	})
 
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{}, nil, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{}, nil, "test-v1", svc)
 	if code != ExitOK {
 		t.Fatalf("code = %d, want %d; stderr: %s", code, ExitOK, errOut.String())
 	}
@@ -250,17 +231,12 @@ func TestCmdSessionPruneDryRunHuman(t *testing.T) {
 }
 
 func TestCmdSessionPruneNothingToPrune(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	orig := sessionQueryRows
-	defer func() { sessionQueryRows = orig }()
-
-	sessionQueryRows = func(_ tmux.Options) ([]sessionRow, error) {
+	svc := testSessionServices(t, func(_ tmux.Options) ([]sessionRow, error) {
 		return nil, nil
-	}
+	})
 
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{JSON: true}, []string{"--yes"}, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{JSON: true}, []string{"--yes"}, "test-v1", svc)
 	if code != ExitOK {
 		t.Fatalf("code = %d, want %d", code, ExitOK)
 	}
@@ -275,16 +251,7 @@ func TestCmdSessionPruneNothingToPrune(t *testing.T) {
 }
 
 func TestCmdSessionPrunePartialFailureReturnsError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	origQuery := sessionQueryRows
-	origKill := tmuxKillSession
-	defer func() {
-		sessionQueryRows = origQuery
-		tmuxKillSession = origKill
-	}()
-
-	sessionQueryRows = func(_ tmux.Options) ([]sessionRow, error) {
+	svc := testSessionServices(t, func(_ tmux.Options) ([]sessionRow, error) {
 		return []sessionRow{
 			{
 				name:      "amux-gone-tab-1",
@@ -297,8 +264,10 @@ func TestCmdSessionPrunePartialFailureReturnsError(t *testing.T) {
 				createdAt: 100,
 			},
 		}, nil
-	}
+	})
 
+	origKill := tmuxKillSession
+	defer func() { tmuxKillSession = origKill }()
 	tmuxKillSession = func(name string, _ tmux.Options) error {
 		if name == "amux-gone-tab-2" {
 			return errors.New("kill failed")
@@ -307,7 +276,7 @@ func TestCmdSessionPrunePartialFailureReturnsError(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{JSON: true}, []string{"--yes"}, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{JSON: true}, []string{"--yes"}, "test-v1", svc)
 	if code != ExitInternalError {
 		t.Fatalf("code = %d, want %d", code, ExitInternalError)
 	}
@@ -325,16 +294,7 @@ func TestCmdSessionPrunePartialFailureReturnsError(t *testing.T) {
 }
 
 func TestCmdSessionPruneFullSuccessReturnsOK(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	origQuery := sessionQueryRows
-	origKill := tmuxKillSession
-	defer func() {
-		sessionQueryRows = origQuery
-		tmuxKillSession = origKill
-	}()
-
-	sessionQueryRows = func(_ tmux.Options) ([]sessionRow, error) {
+	svc := testSessionServices(t, func(_ tmux.Options) ([]sessionRow, error) {
 		return []sessionRow{
 			{
 				name:      "amux-gone-tab-1",
@@ -342,14 +302,16 @@ func TestCmdSessionPruneFullSuccessReturnsOK(t *testing.T) {
 				createdAt: 100,
 			},
 		}, nil
-	}
+	})
 
+	origKill := tmuxKillSession
+	defer func() { tmuxKillSession = origKill }()
 	tmuxKillSession = func(_ string, _ tmux.Options) error {
 		return nil
 	}
 
 	var out, errOut bytes.Buffer
-	code := cmdSessionPrune(&out, &errOut, GlobalFlags{JSON: true}, []string{"--yes"}, "test-v1")
+	code := cmdSessionPruneWith(&out, &errOut, GlobalFlags{JSON: true}, []string{"--yes"}, "test-v1", svc)
 	if code != ExitOK {
 		t.Fatalf("code = %d, want %d", code, ExitOK)
 	}
@@ -364,17 +326,12 @@ func TestCmdSessionPruneFullSuccessReturnsOK(t *testing.T) {
 }
 
 func TestCmdSessionListHumanEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	orig := sessionQueryRows
-	defer func() { sessionQueryRows = orig }()
-
-	sessionQueryRows = func(_ tmux.Options) ([]sessionRow, error) {
+	svc := testSessionServices(t, func(_ tmux.Options) ([]sessionRow, error) {
 		return nil, nil
-	}
+	})
 
 	var out, errOut bytes.Buffer
-	code := cmdSessionList(&out, &errOut, GlobalFlags{}, nil, "test-v1")
+	code := cmdSessionListWith(&out, &errOut, GlobalFlags{}, nil, "test-v1", svc)
 	if code != ExitOK {
 		t.Fatalf("code = %d, want %d", code, ExitOK)
 	}

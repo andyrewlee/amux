@@ -16,12 +16,12 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 		return ""
 	}
 
-	borderColor := common.ColorBorder
+	borderColor := common.ColorBorder()
 	// Border characters - use thick borders for focused panes
 	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
 	horizontal, vertical := "─", "│"
 	if focused {
-		borderColor = common.ColorBorderFocused
+		borderColor = common.ColorBorderFocused()
 		// Use thick border characters for focused pane
 		topLeft, topRight, bottomLeft, bottomRight = "┏", "┓", "┗", "┛"
 		horizontal, vertical = "━", "┃"
@@ -88,11 +88,11 @@ func borderDrawables(x, y, width, height int, focused bool) []*compositor.String
 		return nil
 	}
 
-	borderColor := common.ColorBorder
+	borderColor := common.ColorBorder()
 	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
 	horizontal, vertical := "─", "│"
 	if focused {
-		borderColor = common.ColorBorderFocused
+		borderColor = common.ColorBorderFocused()
 		topLeft, topRight, bottomLeft, bottomRight = "┏", "┓", "┗", "┛"
 		horizontal, vertical = "━", "┃"
 	}

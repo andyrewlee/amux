@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -94,7 +95,9 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	}
 
 	// Kill tmux sessions for this workspace
-	_ = tmux.KillWorkspaceSessions(string(wsID), svc.TmuxOpts)
+	if err := tmux.KillWorkspaceSessions(string(wsID), svc.TmuxOpts); err != nil {
+		slog.Debug("best-effort workspace session kill failed", "workspace", string(wsID), "error", err)
+	}
 
 	// Remove worktree
 	if err := git.RemoveWorkspace(ws.Repo, ws.Root); err != nil {
@@ -109,7 +112,9 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	}
 
 	// Delete branch (best-effort)
-	_ = git.DeleteBranch(ws.Repo, ws.Branch)
+	if err := git.DeleteBranch(ws.Repo, ws.Branch); err != nil {
+		slog.Debug("best-effort branch delete failed", "repo", ws.Repo, "branch", ws.Branch, "error", err)
+	}
 
 	// Delete metadata
 	if err := svc.Store.Delete(wsID); err != nil {

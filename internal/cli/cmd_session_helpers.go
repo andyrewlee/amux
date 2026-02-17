@@ -10,9 +10,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// sessionQueryRows is a test-overridable hook for querying tmux session metadata.
-var sessionQueryRows = defaultQuerySessionRows
-
 type sessionRow struct {
 	name      string
 	tags      map[string]string

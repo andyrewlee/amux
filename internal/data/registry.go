@@ -17,14 +17,8 @@ type Registry struct {
 }
 
 // registryFile represents the JSON structure of projects.json
-// Supports both legacy format (plain array) and new format (object with projects)
 type registryFile struct {
 	Projects []registryProject `json:"projects"`
-}
-
-// registryFileStrings is an alternate format where projects is just string paths
-type registryFileStrings struct {
-	Projects []string `json:"projects"`
 }
 
 type registryProject struct {
@@ -227,28 +221,14 @@ func (r *Registry) backupPath() string {
 }
 
 func parseRegistryData(data []byte, path string) ([]string, error) {
-	// Try new format first: {"projects": [{name, path}, ...]}
 	var registry registryFile
-	if err := json.Unmarshal(data, &registry); err == nil {
-		paths := make([]string, len(registry.Projects))
-		for i, p := range registry.Projects {
-			paths[i] = p.Path
-		}
-		return paths, nil
-	}
-
-	// Try alternate format: {"projects": ["path1", "path2"]}
-	var registryStrings registryFileStrings
-	if err := json.Unmarshal(data, &registryStrings); err == nil {
-		return registryStrings.Projects, nil
-	}
-
-	// Fall back to legacy format: ["path1", "path2"]
-	var paths []string
-	if err := json.Unmarshal(data, &paths); err != nil {
+	if err := json.Unmarshal(data, &registry); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-
+	paths := make([]string, len(registry.Projects))
+	for i, p := range registry.Projects {
+		paths[i] = p.Path
+	}
 	return paths, nil
 }
 

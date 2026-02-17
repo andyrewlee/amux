@@ -11,8 +11,6 @@ import (
 )
 
 func TestDeleteWorkspaceStaleCleanupOnRemoveFailure(t *testing.T) {
-	saveAndRestoreDeleteStubs(t)
-
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "workspaces")
 	projectPath := filepath.Join(tmp, "repo")
@@ -22,20 +20,17 @@ func TestDeleteWorkspaceStaleCleanupOnRemoveFailure(t *testing.T) {
 	}
 	// No .git file — workspace is stale.
 
-	removeWorkspaceFn = func(repoPath, workspacePath string) error {
-		return errors.New("worktree not registered")
-	}
-	deleteBranchFn = noopDelete
-	discoverWorkspacesFn = func(project *data.Project) ([]data.Workspace, error) {
-		return []data.Workspace{
-			{Name: "feature", Root: wsRoot, Repo: project.Path},
-		}, nil
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			return errors.New("worktree not registered")
+		},
 	}
 
 	project := data.NewProject(projectPath)
 	ws := data.NewWorkspace("feature", "feature", "main", projectPath, wsRoot)
 
 	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
 	msg := svc.DeleteWorkspace(project, ws)()
 
 	if _, ok := msg.(messages.WorkspaceDeleted); !ok {
@@ -47,8 +42,6 @@ func TestDeleteWorkspaceStaleCleanupOnRemoveFailure(t *testing.T) {
 }
 
 func TestDeleteWorkspaceStaleCleanupRefusesWhenGitExists(t *testing.T) {
-	saveAndRestoreDeleteStubs(t)
-
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "workspaces")
 	projectPath := filepath.Join(tmp, "repo")
@@ -62,20 +55,17 @@ func TestDeleteWorkspaceStaleCleanupRefusesWhenGitExists(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	removeWorkspaceFn = func(repoPath, workspacePath string) error {
-		return errors.New("worktree remove failed")
-	}
-	deleteBranchFn = noopDelete
-	discoverWorkspacesFn = func(project *data.Project) ([]data.Workspace, error) {
-		return []data.Workspace{
-			{Name: "feature", Root: wsRoot, Repo: project.Path},
-		}, nil
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			return errors.New("worktree remove failed")
+		},
 	}
 
 	project := data.NewProject(projectPath)
 	ws := data.NewWorkspace("feature", "feature", "main", projectPath, wsRoot)
 
 	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
 	msg := svc.DeleteWorkspace(project, ws)()
 
 	failed, ok := msg.(messages.WorkspaceDeleteFailed)

@@ -43,8 +43,8 @@ func (a *App) view() tea.View {
 		var view tea.View
 		view.AltScreen = true
 		view.MouseMode = tea.MouseModeCellMotion
-		view.BackgroundColor = common.ColorBackground
-		view.ForegroundColor = common.ColorForeground
+		view.BackgroundColor = common.ColorBackground()
+		view.ForegroundColor = common.ColorForeground()
 		view.KeyboardEnhancements.ReportEventTypes = true
 		return view
 	}
@@ -82,8 +82,8 @@ func (a *App) canvasFor(width, height int) *lipgloss.Canvas {
 func (a *App) fallbackView() tea.View {
 	view := tea.View{
 		AltScreen:       true,
-		BackgroundColor: common.ColorBackground,
-		ForegroundColor: common.ColorForeground,
+		BackgroundColor: common.ColorBackground(),
+		ForegroundColor: common.ColorForeground(),
 	}
 	msg := "A rendering error occurred."
 	if a.err != nil {
@@ -99,8 +99,8 @@ func (a *App) viewLayerBased() tea.View {
 	view := tea.View{
 		AltScreen:            true,
 		MouseMode:            tea.MouseModeCellMotion,
-		BackgroundColor:      common.ColorBackground,
-		ForegroundColor:      common.ColorForeground,
+		BackgroundColor:      common.ColorBackground(),
+		ForegroundColor:      common.ColorForeground(),
 		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
 	}
 

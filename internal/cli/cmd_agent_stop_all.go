@@ -109,9 +109,7 @@ func listAgentSessionsForStopAll(opts tmux.Options) ([]tmux.SessionActivity, err
 	}
 	for _, row := range tagged {
 		sessionType := strings.TrimSpace(row.Tags["@amux_type"])
-		// Preserve compatibility with legacy/partially tagged sessions that may
-		// not have @amux_type yet.
-		if sessionType != "" && sessionType != "agent" {
+		if sessionType != "agent" {
 			continue
 		}
 		session := byName[row.Name]

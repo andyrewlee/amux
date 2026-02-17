@@ -24,7 +24,7 @@ const filePickerContentWidth = 55
 func (fp *FilePicker) dialogStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorPrimary).
+		BorderForeground(ColorPrimary()).
 		Padding(1, 2).
 		Width(filePickerContentWidth)
 }
@@ -74,14 +74,14 @@ func (fp *FilePicker) renderLines() []string {
 	// Title
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorPrimary).
+		Foreground(ColorPrimary()).
 		MarginBottom(1)
 	appendLines(titleStyle.Render(fp.title))
 	appendBlank(2)
 
 	// Current path - truncate if too long
 	pathStyle := lipgloss.NewStyle().
-		Foreground(ColorSecondary)
+		Foreground(ColorSecondary())
 	displayPath := truncateToWidth(fp.currentPath, contentWidth)
 	appendLines(pathStyle.Render(displayPath))
 	appendBlank(2)
@@ -113,12 +113,12 @@ func (fp *FilePicker) renderLines() []string {
 		// Truncate name to fit on one line
 		name = truncateToWidth(name, maxNameWidth)
 
-		style := lipgloss.NewStyle().Foreground(ColorForeground)
+		style := lipgloss.NewStyle().Foreground(ColorForeground())
 		if entry.IsDir() {
-			style = lipgloss.NewStyle().Foreground(ColorSecondary).Bold(i == fp.cursor)
+			style = lipgloss.NewStyle().Foreground(ColorSecondary()).Bold(i == fp.cursor)
 		}
 		if i == fp.cursor {
-			style = style.Background(ColorSelection)
+			style = style.Background(ColorSelection())
 		}
 
 		line := cursor + style.Render(name)
@@ -131,9 +131,9 @@ func (fp *FilePicker) renderLines() []string {
 		if fp.directoriesOnly {
 			message = "No subdirectories"
 		}
-		lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted).Render(message))
+		lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted()).Render(message))
 	} else if totalRows > fp.maxVisible {
-		indicator := lipgloss.NewStyle().Foreground(ColorMuted).Render(
+		indicator := lipgloss.NewStyle().Foreground(ColorMuted()).Render(
 			fmt.Sprintf("  (%d-%d of %d)", fp.scrollOffset+1, end, totalRows),
 		)
 		lines = append(lines, indicator)
@@ -180,8 +180,8 @@ func truncateToWidth(s string, maxWidth int) string {
 
 func (fp *FilePicker) renderButtonsLine(baseLine int) string {
 	buttonStyle := lipgloss.NewStyle().
-		Foreground(ColorForeground).
-		Background(ColorSelection).
+		Foreground(ColorForeground()).
+		Background(ColorSelection()).
 		Padding(0, 1)
 
 	buttons := []struct {
@@ -284,10 +284,10 @@ func (fp *FilePicker) inputOffset() int {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorPrimary).
+		Foreground(ColorPrimary()).
 		MarginBottom(1)
 	pathStyle := lipgloss.NewStyle().
-		Foreground(ColorSecondary)
+		Foreground(ColorSecondary())
 
 	// Use truncated path to match renderLines() behavior
 	displayPath := truncateToWidth(fp.currentPath, contentWidth)

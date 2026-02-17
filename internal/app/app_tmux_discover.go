@@ -9,7 +9,6 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
@@ -145,13 +144,11 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			logging.Warn("tmux sidebar discovery failed: %v", err)
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
-		seen := make(map[string]struct{}, len(rows))
 		sessions := make([]sidebarSessionInfo, 0, len(rows))
 		for _, row := range rows {
 			if row.Name == "" {
 				continue
 			}
-			seen[row.Name] = struct{}{}
 			state, err := svc.SessionStateFor(row.Name, opts)
 			if err != nil || !state.Exists || !state.HasLivePane {
 				continue
@@ -178,100 +175,12 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 				hasClients: attached,
 			})
 		}
-		if fallback := a.discoverLegacySidebarSessions(wsID, opts, svc, seen); len(fallback) > 0 {
-			sessions = append(sessions, fallback...)
-		}
 		if len(sessions) == 0 {
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
 		out := buildSidebarSessionAttachInfos(sessions)
 		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
 	}
-}
-
-// discoverLegacySidebarSessions finds likely terminal sessions created by older
-// builds that are missing @amux tags and retags them.
-func (a *App) discoverLegacySidebarSessions(wsID string, opts tmux.Options, svc *tmuxService, seen map[string]struct{}) []sidebarSessionInfo {
-	if wsID == "" || svc == nil {
-		return nil
-	}
-	names, err := tmux.ListSessions(opts)
-	if err != nil {
-		logging.Warn("tmux sidebar fallback discovery failed: %v", err)
-		return nil
-	}
-	sessionPrefix := tmux.SessionName("amux", wsID) + "-"
-	out := make([]sidebarSessionInfo, 0, len(names))
-	for _, raw := range names {
-		name := strings.TrimSpace(raw)
-		if name == "" {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		if !strings.HasPrefix(name, sessionPrefix) {
-			continue
-		}
-		tabID := strings.TrimPrefix(name, sessionPrefix)
-		if !strings.HasPrefix(tabID, "term-tab-") {
-			continue
-		}
-		state, err := svc.SessionStateFor(name, opts)
-		if err != nil || !state.Exists || !state.HasLivePane {
-			continue
-		}
-		// Assume clients exist on error to avoid detaching other sessions.
-		attached := true
-		if value, err := svc.SessionHasClients(name, opts); err == nil {
-			attached = value
-		}
-		createdAt, _ := svc.SessionCreatedAt(name, opts)
-		if err := a.retagSidebarTerminalSession(name, wsID, tabID, createdAt, opts); err != nil {
-			logging.Warn("tmux sidebar fallback retag failed for %s: %v", name, err)
-		}
-		out = append(out, sidebarSessionInfo{
-			name:       name,
-			instanceID: a.instanceID,
-			createdAt:  createdAt,
-			hasClients: attached,
-		})
-	}
-	return out
-}
-
-func (a *App) retagSidebarTerminalSession(sessionName, wsID, tabID string, createdAt int64, opts tmux.Options) error {
-	values := []struct {
-		key string
-		val string
-	}{
-		{key: "@amux", val: "1"},
-		{key: "@amux_workspace", val: wsID},
-		{key: "@amux_tab", val: tabID},
-		{key: "@amux_type", val: "terminal"},
-		{key: "@amux_assistant", val: "terminal"},
-	}
-	if createdAt > 0 {
-		values = append(values, struct {
-			key string
-			val string
-		}{key: "@amux_created_at", val: strconv.FormatInt(createdAt, 10)})
-	}
-	if strings.TrimSpace(a.instanceID) != "" {
-		values = append(values, struct {
-			key string
-			val string
-		}{key: "@amux_instance", val: strings.TrimSpace(a.instanceID)})
-	}
-	for _, item := range values {
-		if strings.TrimSpace(item.val) == "" {
-			continue
-		}
-		if err := tmux.SetSessionTagValue(sessionName, item.key, item.val, opts); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo) []sidebar.SessionAttachInfo {

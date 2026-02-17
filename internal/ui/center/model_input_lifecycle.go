@@ -7,7 +7,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -190,45 +189,10 @@ func (m *Model) updateTabActorHeartbeat(_ tabActorHeartbeat) (*Model, tea.Cmd) {
 
 // updateOpenDiff handles messages.OpenDiff.
 func (m *Model) updateOpenDiff(msg messages.OpenDiff) (*Model, tea.Cmd) {
-	// Check if new-style Change is provided, otherwise convert from legacy fields
-	if msg.Change != nil {
-		return m, m.createDiffTab(msg.Change, msg.Mode, msg.Workspace)
+	if msg.Change == nil {
+		return m, nil
 	}
-	// Legacy path: convert File/StatusCode to Change
-	change := &git.Change{
-		Path: msg.File,
-	}
-	mode := git.DiffModeUnstaged
-	if msg.StatusCode == "??" {
-		change.Kind = git.ChangeUntracked
-	} else if len(msg.StatusCode) >= 1 && msg.StatusCode[0] != ' ' {
-		// Staged change
-		mode = git.DiffModeStaged
-		switch msg.StatusCode[0] {
-		case 'A':
-			change.Kind = git.ChangeAdded
-		case 'D':
-			change.Kind = git.ChangeDeleted
-		case 'M':
-			change.Kind = git.ChangeModified
-		case 'R':
-			change.Kind = git.ChangeRenamed
-		}
-		change.Staged = true
-	} else {
-		// Unstaged change
-		if len(msg.StatusCode) >= 2 {
-			switch msg.StatusCode[1] {
-			case 'A':
-				change.Kind = git.ChangeAdded
-			case 'D':
-				change.Kind = git.ChangeDeleted
-			case 'M':
-				change.Kind = git.ChangeModified
-			}
-		}
-	}
-	return m, m.createDiffTab(change, mode, msg.Workspace)
+	return m, m.createDiffTab(msg.Change, msg.Mode, msg.Workspace)
 }
 
 // updateWorkspaceDeleted handles messages.WorkspaceDeleted.

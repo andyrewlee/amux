@@ -50,10 +50,10 @@ func (m *Model) renderToolbar() string {
 	}
 
 	activeStyle := lipgloss.NewStyle().
-		Foreground(common.ColorForeground).
+		Foreground(common.ColorForeground()).
 		Bold(true)
 	inactiveStyle := lipgloss.NewStyle().
-		Foreground(common.ColorMuted)
+		Foreground(common.ColorMuted())
 
 	var rows []string
 	for rowStart := 0; rowStart < len(visibleItems); rowStart += columns {

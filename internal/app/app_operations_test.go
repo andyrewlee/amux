@@ -417,30 +417,25 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 
 	project := data.NewProject(repo)
 
-	origCreate := createWorkspaceFn
-	origRemove := removeWorkspaceFn
-	origDelete := deleteBranchFn
 	origTimeout := gitPathWaitTimeout
 	t.Cleanup(func() {
-		createWorkspaceFn = origCreate
-		removeWorkspaceFn = origRemove
-		deleteBranchFn = origDelete
 		gitPathWaitTimeout = origTimeout
 	})
 
-	createWorkspaceFn = func(repoPath, workspacePath, branch, base string) error {
-		return os.MkdirAll(workspacePath, 0o755)
-	}
-
 	var removeCalled bool
 	var deleteCalled bool
-	removeWorkspaceFn = func(repoPath, workspacePath string) error {
-		removeCalled = true
-		return nil
-	}
-	deleteBranchFn = func(repoPath, branch string) error {
-		deleteCalled = true
-		return nil
+	workspaceService.gitOps = &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			return os.MkdirAll(workspacePath, 0o755)
+		},
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			removeCalled = true
+			return nil
+		},
+		deleteBranch: func(repoPath, branch string) error {
+			deleteCalled = true
+			return nil
+		},
 	}
 
 	gitPathWaitTimeout = 50 * time.Millisecond
