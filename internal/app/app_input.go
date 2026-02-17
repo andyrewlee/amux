@@ -908,6 +908,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case messages.GroupWorkspaceRenamed:
+		cmds = append(cmds, a.handleGroupWorkspaceRenamed(msg)...)
+
+	case messages.GroupWorkspaceRenameFailed:
+		if cmd := a.handleGroupWorkspaceRenameFailed(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.ShowDeleteGroupWorkspaceDialog:
 		a.handleShowDeleteGroupWorkspaceDialog(msg)
 
