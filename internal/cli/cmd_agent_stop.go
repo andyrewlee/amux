@@ -36,12 +36,8 @@ func cmdAgentStop(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	if *all {
 		if !*yes {
 			if gf.JSON {
-				// Do not pass idempotency key: storing this error would block
-				// a subsequent retry that includes --yes.
-				return returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, "agent.stop.all", "",
-					ExitUnsafeBlocked, "confirmation_required", "pass --yes to confirm stopping all agents", nil,
-				)
+				ReturnError(w, "confirmation_required", "pass --yes to confirm stopping all agents", nil, version)
+				return ExitUnsafeBlocked
 			}
 			Errorf(wErr, "pass --yes to confirm stopping all agents")
 			return ExitUnsafeBlocked

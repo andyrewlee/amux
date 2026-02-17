@@ -25,10 +25,8 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	}
 	if !*yes {
 		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.remove", *idempotencyKey,
-				ExitUnsafeBlocked, "confirmation_required", "pass --yes to confirm removal", nil,
-			)
+			ReturnError(w, "confirmation_required", "pass --yes to confirm removal", nil, version)
+			return ExitUnsafeBlocked
 		}
 		Errorf(wErr, "pass --yes to confirm removal")
 		return ExitUnsafeBlocked
