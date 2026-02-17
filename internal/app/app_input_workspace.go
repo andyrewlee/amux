@@ -201,6 +201,9 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		logging.Warn("DeleteWorkspace received with nil project or workspace")
 		return nil
 	}
+	// Clean up tabs first so that killing tmux sessions doesn't trigger
+	// auto-reattach logic in the now-removed PTY readers.
+	a.center.CleanupWorkspace(msg.Workspace)
 	if cleanup := a.cleanupWorkspaceTmuxSessions(msg.Workspace); cleanup != nil {
 		cmds = append(cmds, cleanup)
 	}
