@@ -89,6 +89,60 @@ Create `.amux/workspaces.json` in your project to run setup commands for new wor
 
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`.
 
+Assistant profiles can be configured in `~/.amux/config.json`:
+
+```json
+{
+  "assistants": {
+    "openclaw": {
+      "command": "openclaw",
+      "interrupt_count": 1,
+      "interrupt_delay_ms": 0
+    }
+  }
+}
+```
+
+## Headless CLI for Skills
+
+For automation and skill-driven control (for example an agent orchestrator), prefer the headless CLI with `--json`.
+
+Discovery and contract:
+
+```bash
+amux --json capabilities
+```
+
+Recommended mutation pattern:
+
+1. Use `--idempotency-key <stable-key>` on mutating commands.
+2. Retry safely on transport/process failures with the same key.
+3. Treat JSON envelope fields (`ok`, `error.code`, `data`) as the API contract.
+
+Async send pattern:
+
+```bash
+# enqueue prompt
+amux --json agent send <session_or_agent> --text "..." --enter --async
+
+# poll status
+amux --json agent job status <job_id>
+
+# or wait until terminal state
+amux --json agent job wait <job_id> --timeout 30s --interval 200ms
+
+# optional cancellation (pending jobs only)
+amux --json agent job cancel <job_id>
+```
+
+Graceful stop pattern:
+
+```bash
+amux --json agent stop <session_or_agent> --graceful --grace-period 1200ms
+```
+
+This sends `Ctrl-C` first, then force-kills if the session is still running after the grace period.
+
 ## Development
 
 ```bash

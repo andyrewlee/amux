@@ -134,21 +134,18 @@ func ValidateBaseRef(ref string) error {
 
 // ValidateAssistant validates an assistant name
 func ValidateAssistant(assistant string) error {
-	valid := map[string]bool{
-		"claude":   true,
-		"codex":    true,
-		"gemini":   true,
-		"amp":      true,
-		"opencode": true,
-		"droid":    true,
-		"cline":    true,
-		"cursor":   true,
-		"pi":       true,
-		"term":     true,
+	assistant = strings.TrimSpace(assistant)
+
+	if assistant == "" {
+		return &ValidationError{Field: "assistant", Message: "assistant cannot be empty"}
 	}
 
-	if !valid[assistant] {
-		return &ValidationError{Field: "assistant", Message: fmt.Sprintf("unknown assistant '%s'", assistant)}
+	if len(assistant) > 100 {
+		return &ValidationError{Field: "assistant", Message: "assistant too long (max 100 characters)"}
+	}
+
+	if !workspaceNameRegex.MatchString(assistant) {
+		return &ValidationError{Field: "assistant", Message: "assistant must start with letter/number and contain only letters, numbers, dots, dashes, or underscores"}
 	}
 
 	return nil

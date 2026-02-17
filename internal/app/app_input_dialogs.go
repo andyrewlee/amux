@@ -132,6 +132,11 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
+		if result.ID == DialogSelectAssistant || result.ID == "agent-picker" {
+			a.pendingWorkspaceProject = nil
+			a.pendingWorkspaceName = ""
+			a.pendingWorkspaceBase = ""
+		}
 		logging.Debug("Dialog canceled")
 		return nil
 	}
@@ -160,12 +165,11 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating workspace name")}
 				}
 			}
+			a.pendingWorkspaceProject = project
+			a.pendingWorkspaceName = name
+			a.pendingWorkspaceBase = "HEAD"
 			return func() tea.Msg {
-				return messages.CreateWorkspace{
-					Project: project,
-					Name:    name,
-					Base:    "",
-				}
+				return messages.ShowSelectAssistantDialog{}
 			}
 		}
 
@@ -191,13 +195,34 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 
 	case DialogSelectAssistant, "agent-picker":
-		if a.activeWorkspace != nil {
-			assistant := result.Value
-			if err := validation.ValidateAssistant(assistant); err != nil {
-				return func() tea.Msg {
-					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating assistant")}
+		assistant := result.Value
+		if err := validation.ValidateAssistant(assistant); err != nil {
+			return func() tea.Msg {
+				return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating assistant")}
+			}
+		}
+		if !a.isKnownAssistant(assistant) {
+			return func() tea.Msg {
+				return messages.Error{Err: errors.New("unknown assistant: " + assistant), Context: errorContext(errorServiceDialog, "validating assistant")}
+			}
+		}
+		if a.pendingWorkspaceProject != nil && a.pendingWorkspaceName != "" {
+			pendingProject := a.pendingWorkspaceProject
+			pendingName := a.pendingWorkspaceName
+			pendingBase := a.pendingWorkspaceBase
+			a.pendingWorkspaceProject = nil
+			a.pendingWorkspaceName = ""
+			a.pendingWorkspaceBase = ""
+			return func() tea.Msg {
+				return messages.CreateWorkspace{
+					Project:   pendingProject,
+					Name:      pendingName,
+					Base:      pendingBase,
+					Assistant: assistant,
 				}
 			}
+		}
+		if a.activeWorkspace != nil {
 			ws := a.activeWorkspace
 			return func() tea.Msg {
 				return messages.LaunchAgent{

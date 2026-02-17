@@ -29,6 +29,8 @@ func (a *App) persistAllWorkspacesNow() {
 			snap := snapshotWorkspaceForSave(ws)
 			if err := a.workspaceService.Save(snap); err != nil {
 				logging.Warn("Failed to persist workspace on shutdown: %v", err)
+			} else {
+				a.markLocalWorkspaceSaveForID(string(snap.ID()))
 			}
 		}
 	}
@@ -116,6 +118,8 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 		for _, snap := range snapshots {
 			if err := service.Save(snap); err != nil {
 				logging.Warn("Failed to save workspace tabs: %v", err)
+			} else {
+				a.markLocalWorkspaceSaveForID(string(snap.ID()))
 			}
 		}
 		return nil

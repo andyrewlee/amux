@@ -20,9 +20,10 @@ func TestHandleCreateWorkspaceSkipsPendingTrackingWithoutService(t *testing.T) {
 
 	project := data.NewProject("/tmp/repo")
 	msg := messages.CreateWorkspace{
-		Project: project,
-		Name:    "feature",
-		Base:    "main",
+		Project:   project,
+		Name:      "feature",
+		Base:      "main",
+		Assistant: "claude",
 	}
 
 	cmds := app.handleCreateWorkspace(msg)
@@ -60,9 +61,10 @@ func TestHandleCreateWorkspaceTracksAndClearsPendingIDOnFailure(t *testing.T) {
 
 	project := data.NewProject("/tmp/repo")
 	msg := messages.CreateWorkspace{
-		Project: project,
-		Name:    "feature",
-		Base:    "main",
+		Project:   project,
+		Name:      "feature",
+		Base:      "main",
+		Assistant: "claude",
 	}
 
 	// Step 1: handleCreateWorkspace should track the pending ID
@@ -129,9 +131,10 @@ func TestHandleCreateWorkspaceClearsPendingIDOnValidationFailure(t *testing.T) {
 
 	project := data.NewProject("/tmp/repo")
 	msg := messages.CreateWorkspace{
-		Project: project,
-		Name:    "bad/name",
-		Base:    "main",
+		Project:   project,
+		Name:      "bad/name",
+		Base:      "main",
+		Assistant: "claude",
 	}
 
 	cmds := app.handleCreateWorkspace(msg)

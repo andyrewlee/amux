@@ -131,22 +131,12 @@ func (m *Model) reattachActiveTabIfDetached() tea.Cmd {
 	detached := tab.Detached
 	reattachInFlight := tab.reattachInFlight
 	hasDiffViewer := tab.DiffViewer != nil
-	assistant := tab.Assistant
 	tab.mu.Unlock()
 	if !detached || reattachInFlight || hasDiffViewer {
 		return nil
 	}
 
-	isChatAssistant := false
-	if m != nil && m.config != nil && len(m.config.Assistants) > 0 {
-		_, isChatAssistant = m.config.Assistants[assistant]
-	} else {
-		switch assistant {
-		case "claude", "codex", "gemini", "amp", "opencode", "droid", "cursor":
-			isChatAssistant = true
-		}
-	}
-	if !isChatAssistant {
+	if !m.isChatTab(tab) {
 		return nil
 	}
 	return m.ReattachActiveTab()

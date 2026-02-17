@@ -222,9 +222,10 @@ type ShowRemoveProjectDialog struct {
 
 // CreateWorkspace requests creating a new workspace
 type CreateWorkspace struct {
-	Project *data.Project
-	Name    string
-	Base    string
+	Project   *data.Project
+	Name      string
+	Base      string
+	Assistant string
 }
 
 // DeleteWorkspace requests deleting a workspace
@@ -302,6 +303,7 @@ type FileWatcherEvent struct {
 // StateWatcherEvent is sent when amux state files change on disk.
 type StateWatcherEvent struct {
 	Reason string
+	Paths  []string
 }
 
 // SidebarPTYOutput contains PTY output for sidebar terminal

@@ -38,7 +38,7 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 	wsID := string(ws.ID())
 	assistant := strings.TrimSpace(ws.Assistant)
 	if assistant == "" {
-		assistant = "claude"
+		assistant = a.defaultAssistantName()
 	}
 	existing := make(map[string]struct{}, len(ws.OpenTabs))
 	for _, tab := range ws.OpenTabs {

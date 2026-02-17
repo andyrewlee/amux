@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -313,6 +314,92 @@ func TestHandleProjectsLoadedCanonicalRebindMigratesDirtyWorkspaceID(t *testing.
 	cmd := app.handlePersistDebounce(persistDebounceMsg{token: app.persistToken})
 	if cmd == nil {
 		t.Fatal("expected persist debounce command for migrated dirty workspace")
+	}
+}
+
+func TestRebindActiveSelection_DoesNotRehydratePersistedTabsOnCanonicalIDMigrationWithEmptyState(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+
+	base := t.TempDir()
+	absRepo := filepath.Join(base, "repo")
+	absRoot := filepath.Join(base, "workspaces", "repo", "feature")
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", absRoot, err)
+	}
+
+	relRepo, err := filepath.Rel(wd, absRepo)
+	if err != nil {
+		t.Fatalf("Rel(repo): %v", err)
+	}
+	relRoot, err := filepath.Rel(wd, absRoot)
+	if err != nil {
+		t.Fatalf("Rel(root): %v", err)
+	}
+
+	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
+	oldProject := data.NewProject(relRepo)
+	oldProject.AddWorkspace(*oldWS)
+
+	reloadedWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
+	reloadedWS.OpenTabs = []data.TabInfo{
+		{
+			Assistant:   "codex",
+			Name:        "stale",
+			SessionName: "amux-stale-session",
+			Status:      "running",
+		},
+	}
+	reloadedProject := data.NewProject(absRepo)
+	reloadedProject.AddWorkspace(*reloadedWS)
+
+	centerModel := center.New(&config.Config{
+		Assistants: map[string]config.AssistantConfig{
+			"codex": {Command: "codex"},
+		},
+	})
+	centerModel.SetWorkspace(oldWS)
+	centerModel.AddTab(&center.Tab{
+		ID:        center.TabID("existing"),
+		Name:      "existing",
+		Assistant: "codex",
+		Workspace: oldWS,
+	})
+	_ = centerModel.CloseActiveTab()
+	if centerModel.HasTabs() {
+		t.Fatal("expected no active tabs after closing placeholder tab")
+	}
+	if !centerModel.HasWorkspaceState(string(oldWS.ID())) {
+		t.Fatal("expected old workspace to keep explicit empty tab state")
+	}
+
+	app := &App{
+		dashboard:       dashboard.New(),
+		center:          centerModel,
+		sidebar:         sidebar.NewTabbedSidebar(),
+		sidebarTerminal: sidebar.NewTerminalModel(),
+		projects:        []data.Project{*oldProject},
+		activeWorkspace: oldWS,
+		activeProject:   oldProject,
+		showWelcome:     false,
+	}
+
+	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*reloadedProject}})
+
+	if app.center.HasTabs() {
+		t.Fatal("expected stale persisted tabs to remain hidden after canonical workspace ID migration")
+	}
+	if !app.center.HasWorkspaceState(string(reloadedWS.ID())) {
+		t.Fatal("expected new canonical workspace ID to keep explicit empty tab state")
+	}
+
+	// A subsequent reload should still preserve explicit empty state and avoid
+	// stale persisted tab rehydration.
+	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*reloadedProject}})
+	if app.center.HasTabs() {
+		t.Fatal("expected stale persisted tabs to remain hidden on subsequent reloads")
 	}
 }
 

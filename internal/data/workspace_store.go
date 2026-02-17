@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -17,14 +16,42 @@ const workspaceFilename = "workspace.json"
 
 // WorkspaceStore manages workspace persistence
 type WorkspaceStore struct {
-	root string // ~/.amux/workspaces-metadata
+	root             string // ~/.amux/workspaces-metadata
+	defaultAssistant string
 }
 
 // NewWorkspaceStore creates a new workspace store
 func NewWorkspaceStore(root string) *WorkspaceStore {
 	return &WorkspaceStore{
-		root: root,
+		root:             root,
+		defaultAssistant: DefaultAssistant,
 	}
+}
+
+// SetDefaultAssistant updates the assistant used when applying defaults while loading metadata.
+func (s *WorkspaceStore) SetDefaultAssistant(name string) {
+	if s == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		s.defaultAssistant = DefaultAssistant
+		return
+	}
+	s.defaultAssistant = trimmed
+}
+
+// ResolvedDefaultAssistant returns the configured default assistant,
+// falling back to DefaultAssistant if none is set.
+func (s *WorkspaceStore) ResolvedDefaultAssistant() string {
+	if s == nil {
+		return DefaultAssistant
+	}
+	name := strings.TrimSpace(s.defaultAssistant)
+	if name == "" {
+		return DefaultAssistant
+	}
+	return name
 }
 
 // workspacePath returns the path to the workspace file for a workspace ID
@@ -62,6 +89,10 @@ func (s *WorkspaceStore) List() ([]WorkspaceID, error) {
 
 // Load loads a workspace by its ID
 func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
+	return s.load(id, true)
+}
+
+func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, error) {
 	if err := validateWorkspaceID(id); err != nil {
 		return nil, err
 	}
@@ -96,8 +127,10 @@ func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
 	}
 	ws.storeID = id
 
-	// Apply defaults for missing fields
-	applyWorkspaceDefaults(ws)
+	if applyDefaults {
+		// Apply defaults for missing fields.
+		s.applyWorkspaceDefaults(ws)
+	}
 
 	return ws, nil
 }
@@ -191,13 +224,20 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 
 	// Merge stored metadata into workspace. Store owns metadata/UI state;
 	// discovery only updates Root/Repo/Branch (and Name if stored is empty).
+	//
+	// Merge hierarchy: stored non-empty values win → caller's pre-set values
+	// are preserved for empty stored fields → applyWorkspaceDefaults fills
+	// any remaining gaps. The conditional "if stored.X != ''" guards below
+	// implement the first two tiers of this hierarchy.
 	if stored.Name != "" {
 		ws.Name = stored.Name
 	}
 	ws.Created = stored.Created
 	ws.Base = stored.Base
 	ws.Runtime = stored.Runtime
-	ws.Assistant = stored.Assistant
+	if stored.Assistant != "" {
+		ws.Assistant = stored.Assistant
+	}
 	ws.Scripts = stored.Scripts
 	ws.ScriptMode = stored.ScriptMode
 	ws.Env = stored.Env
@@ -208,7 +248,7 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 	ws.storeID = stored.storeID
 
 	// Apply defaults if stored metadata had empty values
-	applyWorkspaceDefaults(ws)
+	s.applyWorkspaceDefaults(ws)
 
 	return true, nil
 }
@@ -230,7 +270,7 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 		if discovered.Created.IsZero() {
 			discovered.Created = time.Now()
 		}
-		applyWorkspaceDefaults(discovered)
+		s.applyWorkspaceDefaults(discovered)
 		return s.Save(discovered)
 	}
 
@@ -241,12 +281,15 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 	if merged.Name == "" {
 		merged.Name = discovered.Name
 	}
+	if merged.Assistant == "" {
+		merged.Assistant = discovered.Assistant
+	}
 	if merged.Created.IsZero() && !discovered.Created.IsZero() {
 		merged.Created = discovered.Created
 	}
 	merged.Archived = false
 	merged.ArchivedAt = time.Time{}
-	applyWorkspaceDefaults(&merged)
+	s.applyWorkspaceDefaults(&merged)
 
 	newID := merged.ID()
 	if err := s.Save(&merged); err != nil {
@@ -260,54 +303,9 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 	return nil
 }
 
-// workspaceJSON is used for loading old-format metadata files during migration
-type workspaceJSON struct {
-	Name           string            `json:"name"`
-	Branch         string            `json:"branch"`
-	Repo           string            `json:"repo"`
-	Base           string            `json:"base"`
-	Root           string            `json:"root"`
-	Created        json.RawMessage   `json:"created"` // Can be time.Time or string
-	Archived       bool              `json:"archived"`
-	ArchivedAt     json.RawMessage   `json:"archived_at,omitempty"`
-	Assistant      string            `json:"assistant"`
-	Runtime        string            `json:"runtime"`
-	Scripts        ScriptsConfig     `json:"scripts"`
-	ScriptMode     string            `json:"script_mode"`
-	Env            map[string]string `json:"env"`
-	OpenTabs       []TabInfo         `json:"open_tabs,omitempty"`
-	ActiveTabIndex int               `json:"active_tab_index"`
-}
-
-// parseCreated parses a created timestamp from either time.Time format or string format
-func parseCreated(raw json.RawMessage) time.Time {
-	if len(raw) == 0 {
-		return time.Time{}
-	}
-
-	// Try parsing as time.Time first (JSON format)
-	var t time.Time
-	if err := json.Unmarshal(raw, &t); err == nil && !t.IsZero() {
-		return t
-	}
-
-	// Try parsing as string (RFC3339 format from old metadata)
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil && s != "" {
-		if parsed, err := time.Parse(time.RFC3339, s); err == nil {
-			return parsed
-		}
-		if parsed, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			return parsed
-		}
-	}
-
-	return time.Time{}
-}
-
-func applyWorkspaceDefaults(ws *Workspace) {
+func (s *WorkspaceStore) applyWorkspaceDefaults(ws *Workspace) {
 	if ws.Assistant == "" {
-		ws.Assistant = "claude"
+		ws.Assistant = s.ResolvedDefaultAssistant()
 	}
 	if ws.ScriptMode == "" {
 		ws.ScriptMode = "nonconcurrent"
@@ -322,7 +320,9 @@ func applyWorkspaceDefaults(ws *Workspace) {
 
 func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, WorkspaceID, error) {
 	canonicalID := Workspace{Repo: repo, Root: root}.ID()
-	ws, err := s.Load(canonicalID)
+	// load with applyDefaults=false so raw stored values are visible for merge
+	// logic — empty fields indicate "not set" and influence precedence decisions.
+	ws, err := s.load(canonicalID, false)
 	if err == nil {
 		return ws, canonicalID, nil
 	}
@@ -341,7 +341,8 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 	var bestWS *Workspace
 	var bestID WorkspaceID
 	for _, id := range ids {
-		candidate, err := s.Load(id)
+		// applyDefaults=false: see comment on first load call above.
+		candidate, err := s.load(id, false)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				logging.Warn("Skipping unreadable workspace metadata %s during fallback lookup: %v", id, err)
@@ -426,74 +427,4 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 	}
 
 	return workspaces, nil
-}
-
-func (s *WorkspaceStore) lockWorkspaceIDs(ids ...WorkspaceID) ([]*os.File, error) {
-	unique := make(map[WorkspaceID]struct{}, len(ids))
-	ordered := make([]WorkspaceID, 0, len(ids))
-	for _, id := range ids {
-		if id == "" {
-			continue
-		}
-		if err := validateWorkspaceID(id); err != nil {
-			return nil, err
-		}
-		if _, ok := unique[id]; ok {
-			continue
-		}
-		unique[id] = struct{}{}
-		ordered = append(ordered, id)
-	}
-
-	sort.Slice(ordered, func(i, j int) bool {
-		return ordered[i] < ordered[j]
-	})
-
-	locks := make([]*os.File, 0, len(ordered))
-	for _, id := range ordered {
-		lockFile, err := lockRegistryFile(s.workspaceLockPath(id), false)
-		if err != nil {
-			unlockRegistryFiles(locks)
-			return nil, err
-		}
-		locks = append(locks, lockFile)
-	}
-	return locks, nil
-}
-
-func unlockRegistryFiles(files []*os.File) {
-	for _, file := range files {
-		unlockRegistryFile(file)
-	}
-}
-
-func (s *WorkspaceStore) deleteWorkspaceDir(id WorkspaceID) error {
-	dir := filepath.Join(s.root, string(id))
-	return os.RemoveAll(dir)
-}
-
-func validateWorkspaceID(id WorkspaceID) error {
-	value := strings.TrimSpace(string(id))
-	if value == "" {
-		return errors.New("workspace id is required")
-	}
-	if strings.Contains(value, "..") || strings.ContainsAny(value, `/\`) {
-		return fmt.Errorf("invalid workspace id %q", id)
-	}
-	return nil
-}
-
-func validateWorkspaceForSave(ws *Workspace) error {
-	if ws == nil {
-		return errors.New("workspace is required")
-	}
-	repo := NormalizePath(strings.TrimSpace(ws.Repo))
-	if repo == "" {
-		return errors.New("workspace repo is required")
-	}
-	root := NormalizePath(strings.TrimSpace(ws.Root))
-	if root == "" {
-		return errors.New("workspace root is required")
-	}
-	return nil
 }

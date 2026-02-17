@@ -66,3 +66,59 @@ func TestRebindWorkspaceIDMigratesTabState(t *testing.T) {
 		t.Fatalf("expected old active-tab key %q to be removed", oldID)
 	}
 }
+
+func TestRebindWorkspaceIDMigratesExplicitEmptyState(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	base := t.TempDir()
+	absRepo := filepath.Join(base, "repo")
+	absRoot := filepath.Join(base, "workspaces", "repo", "feature")
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", absRoot, err)
+	}
+	relRepo, err := filepath.Rel(wd, absRepo)
+	if err != nil {
+		t.Fatalf("Rel(repo): %v", err)
+	}
+	relRoot, err := filepath.Rel(wd, absRoot)
+	if err != nil {
+		t.Fatalf("Rel(root): %v", err)
+	}
+
+	oldWS := data.NewWorkspace("feature", "feature", "main", relRepo, relRoot)
+	newWS := data.NewWorkspace("feature", "feature", "main", absRepo, absRoot)
+	if oldWS.ID() == newWS.ID() {
+		t.Fatalf("expected workspace IDs to differ: old=%q new=%q", oldWS.ID(), newWS.ID())
+	}
+
+	m := New(nil)
+	m.workspace = oldWS
+	oldID := string(oldWS.ID())
+	newID := string(newWS.ID())
+	m.tabsByWorkspace[oldID] = []*Tab{}
+	m.activeTabByWorkspace[oldID] = 0
+
+	cmd := m.RebindWorkspaceID(oldWS, newWS)
+	if cmd != nil {
+		t.Fatal("expected no PTY restart cmd for empty workspace state")
+	}
+	if m.workspace != newWS {
+		t.Fatal("expected active workspace pointer to be rebound")
+	}
+	if _, ok := m.tabsByWorkspace[oldID]; ok {
+		t.Fatalf("expected old workspace key %q to be removed", oldID)
+	}
+	if tabs, ok := m.tabsByWorkspace[newID]; !ok {
+		t.Fatalf("expected migrated empty state under new workspace key %q", newID)
+	} else if len(tabs) != 0 {
+		t.Fatalf("expected migrated state to remain empty, got %d tabs", len(tabs))
+	}
+	if got := m.activeTabByWorkspace[newID]; got != 0 {
+		t.Fatalf("expected active tab index 0, got %d", got)
+	}
+	if _, ok := m.activeTabByWorkspace[oldID]; ok {
+		t.Fatalf("expected old active-tab key %q to be removed", oldID)
+	}
+}

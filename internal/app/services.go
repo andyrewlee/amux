@@ -25,6 +25,7 @@ type WorkspaceStore interface {
 	UpsertFromDiscovery(workspace *data.Workspace) error
 	Save(workspace *data.Workspace) error
 	Delete(id data.WorkspaceID) error
+	ResolvedDefaultAssistant() string
 }
 
 // GitStatusService provides cached status reads and fresh refreshes.

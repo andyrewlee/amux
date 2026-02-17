@@ -11,7 +11,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-func TestStateWatcher_IgnoresWorkspaceMetadataWrite(t *testing.T) {
+func TestStateWatcher_NotifiesOnWorkspaceMetadataWrite(t *testing.T) {
 	root := t.TempDir()
 	hash := "abc123"
 	child := filepath.Join(root, hash)
@@ -24,13 +24,35 @@ func TestStateWatcher_IgnoresWorkspaceMetadataWrite(t *testing.T) {
 		metadataDirs: map[string]struct{}{child: {}},
 	}
 
-	// Write event on workspace.json inside a child — should be ignored.
+	// Write event on workspace.json inside a child should trigger refresh.
 	event := fsnotify.Event{
 		Name: filepath.Join(child, "workspace.json"),
 		Op:   fsnotify.Write,
 	}
+	if !sw.handleMetadataEvent(event) {
+		t.Fatal("expected handleMetadataEvent to return true for workspace.json write")
+	}
+}
+
+func TestStateWatcher_IgnoresNonWorkspaceMetadataNestedWrite(t *testing.T) {
+	root := t.TempDir()
+	hash := "abc123"
+	child := filepath.Join(root, hash)
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	sw := &stateWatcher{
+		metadataRoot: root,
+		metadataDirs: map[string]struct{}{child: {}},
+	}
+
+	event := fsnotify.Event{
+		Name: filepath.Join(child, "scratch.tmp"),
+		Op:   fsnotify.Write,
+	}
 	if sw.handleMetadataEvent(event) {
-		t.Fatal("expected handleMetadataEvent to return false for workspace.json write")
+		t.Fatal("expected handleMetadataEvent to ignore non-workspace metadata file writes")
 	}
 }
 
@@ -90,7 +112,7 @@ func TestStateWatcher_NotifiesOnRegistryWrite(t *testing.T) {
 	var mu sync.Mutex
 	done := make(chan struct{})
 
-	sw, err := newStateWatcher(registryPath, "", func(reason string) {
+	sw, err := newStateWatcher(registryPath, "", func(reason string, paths []string) {
 		mu.Lock()
 		notified = reason
 		mu.Unlock()
@@ -202,5 +224,46 @@ func TestStateWatcher_NotifiesOnUnwatchedChildRemoval(t *testing.T) {
 	}
 	if !sw.handleMetadataEvent(event) {
 		t.Fatal("expected handleMetadataEvent to return true for removal of unwatched child")
+	}
+}
+
+func TestStateWatcher_ReasonChangeResetsPendingPaths(t *testing.T) {
+	var mu sync.Mutex
+	var gotReason string
+	var gotPaths []string
+
+	sw := &stateWatcher{
+		debounce: 50 * time.Millisecond,
+		onChanged: func(reason string, paths []string) {
+			mu.Lock()
+			gotReason = reason
+			gotPaths = paths
+			mu.Unlock()
+		},
+	}
+
+	// Schedule a "registry" event with a path.
+	sw.scheduleNotify("registry", "/path/to/registry.json")
+
+	// Before the timer fires, schedule a "workspaces" event with a different path.
+	sw.scheduleNotify("workspaces", "/path/to/workspace.json")
+
+	// Wait for the debounce to fire.
+	time.Sleep(150 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if gotReason != "workspaces" {
+		t.Fatalf("reason = %q, want %q", gotReason, "workspaces")
+	}
+	// The registry path should have been discarded when the reason changed.
+	for _, p := range gotPaths {
+		if p == "/path/to/registry.json" {
+			t.Fatal("expected registry path to be discarded when reason changed to workspaces")
+		}
+	}
+	if len(gotPaths) != 1 || gotPaths[0] != "/path/to/workspace.json" {
+		t.Fatalf("paths = %v, want [/path/to/workspace.json]", gotPaths)
 	}
 }

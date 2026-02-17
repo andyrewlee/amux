@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
@@ -56,6 +58,11 @@ func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
 
 // handleStateWatcherEvent handles changes to amux state files (projects/workspaces).
 func (a *App) handleStateWatcherEvent(msg messages.StateWatcherEvent) []tea.Cmd {
+	if msg.Reason == "workspaces" && a.shouldSuppressWorkspaceReload(msg.Paths, time.Now()) {
+		return []tea.Cmd{
+			a.startStateWatcher(),
+		}
+	}
 	return []tea.Cmd{
 		a.loadProjects(),
 		a.startStateWatcher(),

@@ -211,6 +211,78 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 	}
 }
 
+func TestLoadProjects_PrimaryLegacyMetadataUsesDefaultAssistant(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	tmp := t.TempDir()
+	registry := data.NewRegistry(filepath.Join(tmp, "projects.json"))
+	if err := registry.AddProject(repo); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+
+	storeRoot := filepath.Join(tmp, "workspaces-metadata")
+	store := data.NewWorkspaceStore(storeRoot)
+
+	primaryID := (&data.Workspace{Repo: repo, Root: repo}).ID()
+	legacyDir := filepath.Join(storeRoot, string(primaryID))
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	legacy := `{
+  "name": "primary",
+  "branch": "main",
+  "assistant": ""
+}`
+	if err := os.WriteFile(filepath.Join(legacyDir, "workspace.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("WriteFile legacy metadata: %v", err)
+	}
+
+	workspaceService := newWorkspaceService(registry, store, nil, "")
+	app := &App{workspaceService: workspaceService}
+
+	msg := app.loadProjects()()
+	loaded, ok := msg.(messages.ProjectsLoaded)
+	if !ok {
+		t.Fatalf("expected ProjectsLoaded, got %T", msg)
+	}
+
+	var project *data.Project
+	for i := range loaded.Projects {
+		if loaded.Projects[i].Path == repo {
+			project = &loaded.Projects[i]
+			break
+		}
+	}
+	if project == nil {
+		t.Fatalf("expected project %s to be loaded", repo)
+	}
+
+	expectedRoot := normalizePath(repo)
+	var primary *data.Workspace
+	for i := range project.Workspaces {
+		ws := &project.Workspaces[i]
+		if normalizePath(ws.Root) == expectedRoot {
+			primary = ws
+			break
+		}
+	}
+	if primary == nil {
+		t.Fatalf("expected primary workspace for %s", repo)
+	}
+	if primary.Assistant != "claude" {
+		t.Fatalf("assistant = %q, want %q", primary.Assistant, "claude")
+	}
+}
+
 func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
 	skipIfNoGit(t)
 
@@ -373,7 +445,7 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 
 	gitPathWaitTimeout = 50 * time.Millisecond
 
-	msg := app.createWorkspace(project, "feature", "main")()
+	msg := app.createWorkspace(project, "feature", "main", "claude")()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
 		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)

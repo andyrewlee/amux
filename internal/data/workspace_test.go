@@ -119,3 +119,24 @@ func TestWorkspace_IsMainBranch(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValidWorkspaceID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   WorkspaceID
+		want bool
+	}{
+		{name: "valid hex id", id: WorkspaceID("0123456789abcdef"), want: true},
+		{name: "too short", id: WorkspaceID("abc123"), want: false},
+		{name: "uppercase", id: WorkspaceID("0123456789ABCDEF"), want: false},
+		{name: "path traversal", id: WorkspaceID("../../../tmp"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsValidWorkspaceID(tt.id); got != tt.want {
+				t.Fatalf("IsValidWorkspaceID(%q) = %v, want %v", tt.id, got, tt.want)
+			}
+		})
+	}
+}

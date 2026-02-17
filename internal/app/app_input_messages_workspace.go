@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 // handleProjectsLoaded processes the ProjectsLoaded message.
@@ -55,6 +57,10 @@ func (a *App) rebindActiveSelection() []tea.Cmd {
 		}
 		oldID := string(previous.ID())
 		newID := string(ws.ID())
+		hadPreviousWorkspaceState := false
+		if a.center != nil {
+			hadPreviousWorkspaceState = a.center.HasWorkspaceState(oldID)
+		}
 		if oldID != newID {
 			a.migrateDirtyWorkspaceID(oldID, newID)
 			cmds = append(cmds, a.rebindActiveWorkspaceWatch(previous.Root, ws.Root)...)
@@ -73,6 +79,22 @@ func (a *App) rebindActiveSelection() []tea.Cmd {
 		a.activeProject = project
 		if a.center != nil {
 			a.center.SetWorkspace(ws)
+			wsIDCurrent := string(ws.ID())
+			hasWorkspaceState := a.center.HasWorkspaceState(wsIDCurrent)
+			existingTabs, _ := a.center.GetTabsInfoForWorkspace(wsIDCurrent)
+			hasLiveWorkspaceTabs := len(existingTabs) > 0
+			shouldHydrateTabs := !hasWorkspaceState || hasLiveWorkspaceTabs
+			if shouldHydrateTabs && oldID != newID && hadPreviousWorkspaceState {
+				shouldHydrateTabs = false
+			}
+			if shouldHydrateTabs && a.dirtyWorkspaces != nil && a.dirtyWorkspaces[wsIDCurrent] {
+				shouldHydrateTabs = false
+			}
+			if shouldHydrateTabs {
+				if cmd := a.center.AddTabsFromWorkspace(ws, ws.OpenTabs); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
 		}
 		if a.sidebar != nil {
 			a.sidebar.SetWorkspace(ws)
@@ -274,16 +296,36 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	var cmds []tea.Cmd
 	name := strings.TrimSpace(msg.Name)
 	base := msg.Base
+	assistant := strings.TrimSpace(msg.Assistant)
+	if assistant == "" {
+		cmds = append(cmds, func() tea.Msg {
+			return messages.WorkspaceCreateFailed{Err: errors.New("assistant is required")}
+		})
+		return cmds
+	}
+	if err := validation.ValidateAssistant(assistant); err != nil {
+		cmds = append(cmds, func() tea.Msg {
+			return messages.WorkspaceCreateFailed{Err: err}
+		})
+		return cmds
+	}
+	if !a.isKnownAssistant(assistant) {
+		cmds = append(cmds, func() tea.Msg {
+			return messages.WorkspaceCreateFailed{Err: fmt.Errorf("unknown assistant: %s", assistant)}
+		})
+		return cmds
+	}
 	if msg.Project != nil && name != "" && a.workspaceService != nil {
 		pending := a.workspaceService.pendingWorkspace(msg.Project, name, base)
 		if pending != nil {
+			pending.Assistant = assistant
 			a.creatingWorkspaceIDs[string(pending.ID())] = true
 			if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, name, base))
+	cmds = append(cmds, a.createWorkspace(msg.Project, name, base, assistant))
 	return cmds
 }
 

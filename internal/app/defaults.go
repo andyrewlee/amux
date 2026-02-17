@@ -24,6 +24,10 @@ const (
 	// stateWatcherDebounce controls filesystem event coalescing for registry/workspace updates.
 	stateWatcherDebounce = 200 * time.Millisecond
 
+	// localWorkspaceReloadSuppressWindow suppresses watcher-driven workspace reloads
+	// immediately after this process saves workspace metadata.
+	localWorkspaceReloadSuppressWindow = 800 * time.Millisecond
+
 	// tmuxActivityPrefilter controls the activity scan window for tmux sessions.
 	tmuxActivityPrefilter = 120 * time.Second
 

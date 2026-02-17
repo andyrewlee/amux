@@ -86,6 +86,10 @@ type App struct {
 	// Dialog context
 	dialogProject   *data.Project
 	dialogWorkspace *data.Workspace
+	// Pending workspace creation context while selecting assistant.
+	pendingWorkspaceProject *data.Project
+	pendingWorkspaceName    string
+	pendingWorkspaceBase    string
 
 	// Git status management
 	fileWatcher     *git.FileWatcher
@@ -126,8 +130,10 @@ type App struct {
 	lastTerminalGCRun         time.Time
 
 	// Workspace persistence debounce
-	dirtyWorkspaces map[string]bool
-	persistToken    int
+	dirtyWorkspaces       map[string]bool
+	persistToken          int
+	localWorkspaceSaveMu  sync.Mutex
+	localWorkspaceSavesAt map[string]localWorkspaceSaveMarker
 
 	// Workspaces in creation flow (not yet loaded into projects list)
 	creatingWorkspaceIDs map[string]bool

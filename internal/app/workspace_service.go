@@ -14,7 +14,6 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
@@ -23,22 +22,6 @@ var (
 	removeWorkspaceFn = git.RemoveWorkspace
 	deleteBranchFn    = git.DeleteBranch
 )
-
-type workspaceService struct {
-	registry       ProjectRegistry
-	store          WorkspaceStore
-	scripts        *process.ScriptRunner
-	workspacesRoot string
-}
-
-func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string) *workspaceService {
-	return &workspaceService{
-		registry:       registry,
-		store:          store,
-		scripts:        scripts,
-		workspacesRoot: workspacesRoot,
-	}
-}
 
 // LoadProjects loads all registered projects and their workspaces.
 func (s *workspaceService) LoadProjects() tea.Cmd {
@@ -102,6 +85,7 @@ func (s *workspaceService) LoadProjects() tea.Cmd {
 						path,                // repo
 						path,                // root (same as repo for primary)
 					)
+					primaryWs.Assistant = s.resolvedDefaultAssistant()
 					// Load any persisted UI state (OpenTabs, etc.) for the primary checkout
 					if s.store != nil {
 						found, loadErr := s.store.LoadMetadataFor(primaryWs)
@@ -154,6 +138,13 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 				ws := &discoveredWorkspaces[i]
 				if !s.shouldSurfaceWorkspace(path, ws) {
 					continue
+				}
+				// Set the default assistant for newly discovered workspaces. Note:
+				// UpsertFromDiscovery below merges with stored metadata, where stored
+				// metadata takes precedence if non-empty. This is intentional — stored
+				// metadata is authoritative over the discovery default.
+				if strings.TrimSpace(ws.Assistant) == "" {
+					ws.Assistant = s.resolvedDefaultAssistant()
 				}
 				discoveredSet[string(ws.ID())] = true
 				if s.store != nil {
@@ -263,7 +254,7 @@ func (s *workspaceService) AddProject(path string) tea.Cmd {
 }
 
 // CreateWorkspace creates a new workspace.
-func (s *workspaceService) CreateWorkspace(project *data.Project, name, base string) tea.Cmd {
+func (s *workspaceService) CreateWorkspace(project *data.Project, name, base string, assistant ...string) tea.Cmd {
 	return func() (msg tea.Msg) {
 		var ws *data.Workspace
 		defer func() {
@@ -312,6 +303,23 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 
 		workspacePath := ws.Root
 		branch := name
+		selectedAssistant := strings.TrimSpace(ws.Assistant)
+		if len(assistant) > 0 {
+			selectedAssistant = strings.TrimSpace(assistant[0])
+		}
+		if selectedAssistant == "" {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       errors.New("assistant is required"),
+			}
+		}
+		if err := validation.ValidateAssistant(selectedAssistant); err != nil {
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       err,
+			}
+		}
+		ws.Assistant = selectedAssistant
 
 		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, workspacePath) {
 			return messages.WorkspaceCreateFailed{
