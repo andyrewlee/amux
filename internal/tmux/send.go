@@ -1,5 +1,13 @@
 package tmux
 
+import "time"
+
+// sendKeysEnterDelay is the pause between delivering text and pressing Enter.
+// Some coding agents (e.g. Codex, Cline) drop an Enter keystroke that arrives
+// in the same event-loop tick as a burst of text input. A short delay ensures
+// the agent has processed the text before Enter arrives.
+const sendKeysEnterDelay = 50 * time.Millisecond
+
 // SendKeys sends text to a tmux session via send-keys.
 // If enter is true, an Enter key is sent after the text.
 // Uses plain session name (not exactTarget) because send-keys expects a
@@ -20,6 +28,7 @@ func SendKeys(sessionName, text string, enter bool, opts Options) error {
 	}
 
 	if enter {
+		time.Sleep(sendKeysEnterDelay)
 		enterCmd, enterCancel := tmuxCommand(opts, "send-keys", "-t", sessionName, "Enter")
 		defer enterCancel()
 		return enterCmd.Run()
