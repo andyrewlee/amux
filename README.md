@@ -89,11 +89,10 @@ Create `.amux/workspaces.json` in your project to run setup commands for new wor
 
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`.
 
-Assistant profiles and the default assistant can be configured in `~/.amux/config.json`:
+Assistant profiles can be configured in `~/.amux/config.json`:
 
 ```json
 {
-  "default_assistant": "openclaw",
   "assistants": {
     "openclaw": {
       "command": "openclaw",

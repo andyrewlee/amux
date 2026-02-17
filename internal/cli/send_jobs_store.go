@@ -128,6 +128,7 @@ func (s *sendJobStore) create(sessionName, agentID string) (sendJob, error) {
 }
 
 func (s *sendJobStore) get(jobID string) (sendJob, bool, error) {
+	// Exclusive lock: reconcileStale below may write back cleaned-up state.
 	lockFile, err := lockIdempotencyFile(s.lockPath(), false)
 	if err != nil {
 		return sendJob{}, false, err
