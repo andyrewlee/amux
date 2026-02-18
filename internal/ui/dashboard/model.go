@@ -140,6 +140,10 @@ func (m *Model) SetTmuxConfirmedActive(active map[string]bool) {
 // A workspace is only marked ready if the tmux content-hash system confirms it was
 // genuinely active (not just a noise event from tmux redraws).
 func (m *Model) SetWorkspaceAgentStates(states map[string]int) (tea.Cmd, bool) {
+	// Determine the workspace ID currently shown in the center pane so we
+	// don't mark it as "ready for review" while the user is already viewing it.
+	viewedWSID := m.selectedWorkspaceID()
+
 	newReady := false
 	for wsID, newState := range states {
 		oldState, existed := m.workspaceAgentStates[wsID]
@@ -148,7 +152,8 @@ func (m *Model) SetWorkspaceAgentStates(states map[string]int) (tea.Cmd, bool) {
 			// Only mark as ready if the tmux content-hash system confirms
 			// this workspace was genuinely active (real agent output, not
 			// a noise redraw from tmux server events).
-			if m.tmuxConfirmedActive[wsID] && !m.readyWorkspaces[wsID] {
+			// Skip if this is the workspace the user is currently viewing.
+			if m.tmuxConfirmedActive[wsID] && !m.readyWorkspaces[wsID] && wsID != viewedWSID {
 				m.readyWorkspaces[wsID] = true
 				newReady = true
 			}
@@ -156,6 +161,31 @@ func (m *Model) SetWorkspaceAgentStates(states map[string]int) (tea.Cmd, bool) {
 	}
 	m.workspaceAgentStates = states
 	return m.startSpinnerIfNeeded(), newReady
+}
+
+// selectedWorkspaceID returns the workspace ID of the currently selected
+// dashboard row, or "" if no workspace row is selected.
+func (m *Model) selectedWorkspaceID() string {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return ""
+	}
+	row := m.rows[m.cursor]
+	switch row.Type {
+	case RowWorkspace:
+		if row.Workspace != nil {
+			return string(row.Workspace.ID())
+		}
+	case RowProject:
+		// A project row previews/activates its main workspace.
+		if main := m.getMainWorkspace(row.Project); main != nil {
+			return string(main.ID())
+		}
+	case RowGroupWorkspace:
+		if row.GroupWorkspace != nil {
+			return string(row.GroupWorkspace.Primary.ID())
+		}
+	}
+	return ""
 }
 
 // ClearReady removes the ready-for-review flag for a workspace.

@@ -150,6 +150,40 @@ func TestReadyWorkspaceTransitions(t *testing.T) {
 		}
 	})
 
+	t.Run("active to idle does not mark ready when workspace is currently viewed", func(t *testing.T) {
+		m := New()
+		ws := data.Workspace{Name: "feature", Branch: "feature", Repo: "/repo", Root: "/repo/feature"}
+		project := data.Project{
+			Name: "test",
+			Path: "/repo",
+			Workspaces: []data.Workspace{
+				{Name: "main", Branch: "main", Repo: "/repo", Root: "/repo"},
+				ws,
+			},
+		}
+		m.SetProjects([]data.Project{project})
+
+		// Move cursor to the workspace row
+		for i, row := range m.rows {
+			if row.Type == RowWorkspace && row.Workspace != nil && row.Workspace.Name == "feature" {
+				m.cursor = i
+				break
+			}
+		}
+
+		viewedID := string(ws.ID())
+		m.workspaceAgentStates = map[string]int{viewedID: 2}
+		m.tmuxConfirmedActive = map[string]bool{viewedID: true}
+
+		_, newReady := m.SetWorkspaceAgentStates(map[string]int{viewedID: 0})
+		if newReady {
+			t.Error("expected newReady=false when workspace is currently viewed")
+		}
+		if m.readyWorkspaces[viewedID] {
+			t.Error("expected readyWorkspaces to NOT contain viewed workspace")
+		}
+	})
+
 	t.Run("ClearReady removes the flag", func(t *testing.T) {
 		m := New()
 		m.readyWorkspaces[wsID] = true
