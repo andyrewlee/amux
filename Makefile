@@ -9,10 +9,13 @@ HARNESS_HEIGHT ?= 48
 HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 
-.PHONY: build test bench lint lint-strict lint-strict-new check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
+.PHONY: build install test bench lint lint-strict lint-strict-new check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
+
+install: build
+	cp $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 
 test:
 	go test -v ./...
