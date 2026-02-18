@@ -114,6 +114,39 @@ func TestUnreadWorkspaceTransitions(t *testing.T) {
 		}
 	})
 
+	t.Run("does not mark unread when workspace is currently viewed", func(t *testing.T) {
+		m := New()
+		ws := data.Workspace{Name: "feature", Branch: "feature", Repo: "/repo", Root: "/repo/feature"}
+		project := data.Project{
+			Name: "test",
+			Path: "/repo",
+			Workspaces: []data.Workspace{
+				{Name: "main", Branch: "main", Repo: "/repo", Root: "/repo"},
+				ws,
+			},
+		}
+		m.SetProjects([]data.Project{project})
+
+		// Move cursor to the workspace row
+		for i, row := range m.rows {
+			if row.Type == RowWorkspace && row.Workspace != nil && row.Workspace.Name == "feature" {
+				m.cursor = i
+				break
+			}
+		}
+
+		viewedID := string(ws.ID())
+		m.tmuxConfirmedActive = map[string]bool{viewedID: true}
+
+		newUnread := m.SetTmuxConfirmedActive(map[string]bool{})
+		if newUnread {
+			t.Error("expected newUnread=false when workspace is currently viewed")
+		}
+		if m.unreadWorkspaces[viewedID] {
+			t.Error("expected unreadWorkspaces to NOT contain viewed workspace")
+		}
+	})
+
 	t.Run("MarkRead removes the flag", func(t *testing.T) {
 		m := New()
 		m.unreadWorkspaces[wsID] = true

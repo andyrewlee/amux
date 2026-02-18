@@ -127,9 +127,12 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 // transitions to mark workspaces as ready for review.
 // Returns true if any workspace just became ready.
 func (m *Model) SetTmuxConfirmedActive(active map[string]bool) bool {
+	// Don't mark the currently viewed workspace as unread.
+	viewedWSID := m.selectedWorkspaceID()
+
 	newUnread := false
 	for wsID := range m.tmuxConfirmedActive {
-		if !active[wsID] && !m.unreadWorkspaces[wsID] {
+		if !active[wsID] && !m.unreadWorkspaces[wsID] && wsID != viewedWSID {
 			m.unreadWorkspaces[wsID] = true
 			newUnread = true
 		}
@@ -144,6 +147,31 @@ func (m *Model) SetTmuxConfirmedActive(active map[string]bool) bool {
 func (m *Model) SetWorkspaceAgentStates(states map[string]int) tea.Cmd {
 	m.workspaceAgentStates = states
 	return m.startSpinnerIfNeeded()
+}
+
+// selectedWorkspaceID returns the workspace ID of the currently selected
+// dashboard row, or "" if no workspace row is selected.
+func (m *Model) selectedWorkspaceID() string {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return ""
+	}
+	row := m.rows[m.cursor]
+	switch row.Type {
+	case RowWorkspace:
+		if row.Workspace != nil {
+			return string(row.Workspace.ID())
+		}
+	case RowProject:
+		// A project row previews/activates its main workspace.
+		if main := m.getMainWorkspace(row.Project); main != nil {
+			return string(main.ID())
+		}
+	case RowGroupWorkspace:
+		if row.GroupWorkspace != nil {
+			return string(row.GroupWorkspace.Primary.ID())
+		}
+	}
+	return ""
 }
 
 // MarkRead clears the unread flag for a workspace (user has viewed it).
