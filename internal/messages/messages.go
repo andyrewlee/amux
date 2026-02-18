@@ -601,6 +601,8 @@ type CreateGroupWorkspace struct {
 	Name         string
 	AllowEdits   bool
 	LoadClaudeMD bool
+	BranchMode   git.BranchMode
+	CustomBranch string
 }
 
 // GroupWorkspaceCreated is sent when a group workspace was created
@@ -716,4 +718,6 @@ type GroupRepoFetchDone struct {
 	RemainingRepos []data.GroupRepo
 	AllowEdits     bool
 	LoadClaudeMD   bool
+	BranchMode     git.BranchMode
+	CustomBranch   string
 }

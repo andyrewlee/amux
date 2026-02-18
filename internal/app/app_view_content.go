@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -123,7 +124,14 @@ func (a *App) renderWorkspaceInfo() string {
 		repoLabel := lipgloss.NewStyle().Foreground(common.ColorMuted).Render("Repos:")
 		content += "\n" + repoLabel + "\n"
 		for _, sec := range a.activeGroupWs.Secondary {
-			content += "    " + sec.Root + "\n"
+			repoName := filepath.Base(sec.Repo)
+			baseInfo := ""
+			if sec.Base != "" {
+				baseInfo = lipgloss.NewStyle().Foreground(common.ColorMuted).Render(
+					fmt.Sprintf(" [%s]", sec.Base),
+				)
+			}
+			content += fmt.Sprintf("    %s%s\n", repoName, baseInfo)
 		}
 	} else {
 		content += fmt.Sprintf("Branch: %s\n", ws.Branch)

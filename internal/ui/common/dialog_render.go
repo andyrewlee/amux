@@ -231,22 +231,19 @@ func (d *Dialog) renderVerticalOptionsLines(baseLine int) []string {
 }
 
 func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(ColorForeground).
-		Background(ColorPrimary).
-		Padding(0, 1)
-
-	normalStyle := lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Padding(0, 1)
+	bracketStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
+	selectedTextStyle := lipgloss.NewStyle().Foreground(ColorForeground)
+	normalStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 
 	const gap = 2 // gap between buttons
 	var b strings.Builder
 	x := 0
 	for i, opt := range d.options {
-		rendered := normalStyle.Render(opt)
+		var rendered string
 		if i == d.cursor {
-			rendered = selectedStyle.Render(opt)
+			rendered = bracketStyle.Render("[") + selectedTextStyle.Render(" "+opt+" ") + bracketStyle.Render("]")
+		} else {
+			rendered = normalStyle.Render("[ " + opt + " ]")
 		}
 		width := min(lipgloss.Width(rendered), d.dialogContentWidth()-x)
 		// Extend hit region to include gap (for easier clicking)
@@ -268,17 +265,12 @@ func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {
 }
 
 func (d *Dialog) renderInputButtonsLine(baseLine int) string {
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(ColorForeground).
-		Background(ColorPrimary).
-		Padding(0, 1)
+	bracketStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
+	textStyle := lipgloss.NewStyle().Foreground(ColorForeground)
+	normalStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 
-	normalStyle := lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Padding(0, 1)
-
-	ok := selectedStyle.Render("OK")
-	cancel := normalStyle.Render("Cancel")
+	ok := bracketStyle.Render("[") + textStyle.Render(" OK ") + bracketStyle.Render("]")
+	cancel := normalStyle.Render("[ Cancel ]")
 
 	const gap = 2
 	okWidth := lipgloss.Width(ok)
@@ -316,12 +308,15 @@ func (d *Dialog) helpText() string {
 		}
 		return "enter: confirm • esc: cancel • click OK/Cancel"
 	case DialogConfirm:
-		return "h/l or tab: choose • enter: confirm • esc: cancel"
+		return "←/→ or tab: choose • enter: confirm • esc: cancel"
 	case DialogSelect:
 		if d.filterEnabled {
 			return "type to filter • ↑/↓ or tab: move • enter: select • esc: cancel"
 		}
-		return "↑/↓ or tab: move • enter: select • esc: cancel"
+		if d.verticalLayout {
+			return "↑/↓ or tab: move • enter: select • esc: cancel"
+		}
+		return "←/→ or tab: move • enter: select • esc: cancel"
 	default:
 		return "enter: confirm • esc: cancel"
 	}

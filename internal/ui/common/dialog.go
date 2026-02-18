@@ -389,13 +389,22 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("h", "left"))):
-			if d.dtype == DialogConfirm {
-				d.cursor = 0
+			if d.dtype == DialogConfirm || (d.dtype == DialogSelect && !d.filterEnabled && !d.verticalLayout) {
+				maxLen := len(d.options)
+				if maxLen > 0 {
+					d.cursor--
+					if d.cursor < 0 {
+						d.cursor = maxLen - 1
+					}
+				}
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("l", "right"))):
-			if d.dtype == DialogConfirm {
-				d.cursor = 1
+			if d.dtype == DialogConfirm || (d.dtype == DialogSelect && !d.filterEnabled && !d.verticalLayout) {
+				maxLen := len(d.options)
+				if maxLen > 0 {
+					d.cursor = (d.cursor + 1) % maxLen
+				}
 			}
 		}
 	}

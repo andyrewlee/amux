@@ -211,9 +211,22 @@ func (a *App) removeGroup(name string) tea.Cmd {
 	}
 }
 
-// fetchFirstGroupBase validates the branch and fetches the first repo's remote base.
+// resolveGroupRepoBase resolves the base branch for a single repo based on the branch mode.
+func resolveGroupRepoBase(repoPath string, mode git.BranchMode, customBranch string) (string, error) {
+	switch mode {
+	case git.BranchModeCheckedOut:
+		return git.GetCheckedOutBase(repoPath)
+	case git.BranchModeCustom:
+		base, _, err := git.ResolveCustomBranchWithFallback(repoPath, customBranch)
+		return base, err
+	default: // BranchModeRemoteMain
+		return git.GetFreshRemoteBase(repoPath)
+	}
+}
+
+// fetchFirstGroupBase validates the branch and fetches the first repo's base.
 // Subsequent repos are fetched one at a time via fetchNextGroupBase.
-func (a *App) fetchFirstGroupBase(group *data.ProjectGroup, name string, allowEdits, loadClaudeMD bool) tea.Cmd {
+func (a *App) fetchFirstGroupBase(group *data.ProjectGroup, name string, allowEdits, loadClaudeMD bool, branchMode git.BranchMode, customBranch string) tea.Cmd {
 	groupsRoot := a.config.Paths.GroupsWorkspacesRoot
 	repos := make([]data.GroupRepo, len(group.Repos))
 	copy(repos, group.Repos)
@@ -231,7 +244,7 @@ func (a *App) fetchFirstGroupBase(group *data.ProjectGroup, name string, allowEd
 
 		// Fetch first repo
 		repo := repos[0]
-		base, err := git.GetFreshRemoteBase(repo.Path)
+		base, err := resolveGroupRepoBase(repo.Path, branchMode, customBranch)
 		if err != nil {
 			return messages.GroupWorkspaceCreateFailed{
 				Err: fmt.Errorf("failed to get base for %s: %w", repo.Name, err),
@@ -261,18 +274,20 @@ func (a *App) fetchFirstGroupBase(group *data.ProjectGroup, name string, allowEd
 			RemainingRepos: repos[1:],
 			AllowEdits:     allowEdits,
 			LoadClaudeMD:   loadClaudeMD,
+			BranchMode:     branchMode,
+			CustomBranch:   customBranch,
 		}
 	}
 }
 
-// fetchNextGroupBase fetches the remote base for the next repo in the chain.
-func (a *App) fetchNextGroupBase(group *data.ProjectGroup, name string, specs []git.RepoSpec, remaining []data.GroupRepo, allowEdits, loadClaudeMD bool) tea.Cmd {
+// fetchNextGroupBase fetches the base for the next repo in the chain.
+func (a *App) fetchNextGroupBase(group *data.ProjectGroup, name string, specs []git.RepoSpec, remaining []data.GroupRepo, allowEdits, loadClaudeMD bool, branchMode git.BranchMode, customBranch string) tea.Cmd {
 	groupsRoot := a.config.Paths.GroupsWorkspacesRoot
 	repo := remaining[0]
 	rest := make([]data.GroupRepo, len(remaining)-1)
 	copy(rest, remaining[1:])
 	return func() tea.Msg {
-		base, err := git.GetFreshRemoteBase(repo.Path)
+		base, err := resolveGroupRepoBase(repo.Path, branchMode, customBranch)
 		if err != nil {
 			return messages.GroupWorkspaceCreateFailed{
 				Err: fmt.Errorf("failed to get base for %s: %w", repo.Name, err),
@@ -302,6 +317,8 @@ func (a *App) fetchNextGroupBase(group *data.ProjectGroup, name string, specs []
 			RemainingRepos: rest,
 			AllowEdits:     allowEdits,
 			LoadClaudeMD:   loadClaudeMD,
+			BranchMode:     branchMode,
+			CustomBranch:   customBranch,
 		}
 	}
 }
@@ -314,7 +331,7 @@ func (a *App) handleGroupRepoFetchDone(msg messages.GroupRepoFetchDone) []tea.Cm
 		if a.creationOverlay != nil {
 			a.creationOverlay.SetStepDetail(msg.RemainingRepos[0].Name)
 		}
-		cmds = append(cmds, a.fetchNextGroupBase(msg.Group, msg.Name, msg.FetchedSpecs, msg.RemainingRepos, msg.AllowEdits, msg.LoadClaudeMD))
+		cmds = append(cmds, a.fetchNextGroupBase(msg.Group, msg.Name, msg.FetchedSpecs, msg.RemainingRepos, msg.AllowEdits, msg.LoadClaudeMD, msg.BranchMode, msg.CustomBranch))
 	} else {
 		// All fetched — advance to "Creating worktrees"
 		if a.creationOverlay != nil {

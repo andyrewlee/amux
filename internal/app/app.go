@@ -51,6 +51,8 @@ const (
 	DialogSetGroupProfile       = "set_group_profile"
 	DialogRenameGroupWorkspace  = "rename_group_workspace"
 	DialogRenameGroup           = "rename_group"
+	DialogSelectBranchMode      = "select_branch_mode"
+	DialogCustomBranch          = "custom_branch"
 )
 
 // Prefix mode constants

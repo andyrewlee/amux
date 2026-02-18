@@ -55,6 +55,22 @@ func (m *Model) getDefaultBranch() string {
 	return "main"
 }
 
+// getBaseBranchDisplay returns the base branch string for info bar display.
+// Shows origin/main for remote refs, or "branch (local)" for local branches.
+func (m *Model) getBaseBranchDisplay() string {
+	if m.workspace == nil {
+		return "main"
+	}
+	if m.workspace.Base != "" && m.workspace.Base != "HEAD" {
+		base := m.workspace.Base
+		if strings.HasPrefix(base, "origin/") {
+			return base
+		}
+		return base + " (local)"
+	}
+	return "main"
+}
+
 // renderInfoBar renders the info bar with workspace details and action buttons.
 // Layout: [branch info] │ [path] [Copy] ... [action buttons]
 // Also renders a subtle separator line below.
@@ -75,13 +91,13 @@ func (m *Model) renderInfoBar(width int) string {
 	buttonStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
 	disabledButtonStyle := lipgloss.NewStyle().Foreground(common.ColorSurface2)
 
-	// Build branch info: "main ← feature-branch" or just "main" if on main
-	defaultBranch := m.getDefaultBranch()
+	// Build branch info: "origin/main ← feature-branch" or just "main" if on main
+	baseBranchDisplay := m.getBaseBranchDisplay()
 	var branchInfo string
 	if ws.IsMainBranch() {
 		branchInfo = branchStyle.Render(ws.Branch)
 	} else {
-		branchInfo = mutedStyle.Render(defaultBranch) + mutedStyle.Render(" ← ") + branchStyle.Render(ws.Branch)
+		branchInfo = mutedStyle.Render(baseBranchDisplay) + mutedStyle.Render(" ← ") + branchStyle.Render(ws.Branch)
 	}
 
 	// Build action buttons (right side)

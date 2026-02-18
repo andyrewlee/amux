@@ -419,6 +419,43 @@ func (a *App) fetchRemoteBase(project *data.Project, name string, allowEdits boo
 	}
 }
 
+// fetchCheckedOutBase resolves the currently checked-out branch as the base (no fetch).
+func (a *App) fetchCheckedOutBase(project *data.Project, name string, allowEdits bool) tea.Cmd {
+	proj := project
+	return func() tea.Msg {
+		base, err := git.GetCheckedOutBase(proj.Path)
+		if err != nil {
+			base = "HEAD"
+		}
+		return messages.WorkspaceFetchDone{
+			Project:    proj,
+			Name:       name,
+			Base:       base,
+			AllowEdits: allowEdits,
+		}
+	}
+}
+
+// fetchCustomBase fetches if stale, then resolves a custom branch name locally or on remote.
+func (a *App) fetchCustomBase(project *data.Project, name, customBranch string, allowEdits bool) tea.Cmd {
+	proj := project
+	return func() tea.Msg {
+		_ = git.FetchIfStale(proj.Path)
+		base, err := git.ResolveCustomBranch(proj.Path, customBranch)
+		if err != nil {
+			return messages.WorkspaceCreateFailed{
+				Err: fmt.Errorf("custom branch: %w", err),
+			}
+		}
+		return messages.WorkspaceFetchDone{
+			Project:    proj,
+			Name:       name,
+			Base:       base,
+			AllowEdits: allowEdits,
+		}
+	}
+}
+
 // createWorkspace creates a new workspace
 func (a *App) createWorkspace(project *data.Project, name, base string, allowEdits bool) tea.Cmd {
 	return func() (msg tea.Msg) {

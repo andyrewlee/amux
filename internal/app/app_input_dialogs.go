@@ -34,8 +34,9 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	a.dialogProfile = ""
 	// Only clear group state for terminal group dialogs
 	switch result.ID {
-	case DialogAddProject, DialogCreateGroup, DialogAddGroupRepo:
-		// Don't clear yet — wizard may continue (unified flow)
+	case DialogAddProject, DialogCreateGroup, DialogAddGroupRepo,
+		DialogCreateWorkspace, DialogSelectBranchMode, DialogCreateGroupWorkspace:
+		// Don't clear yet — wizard may continue (chained dialogs)
 	default:
 		a.dialogGroupName = ""
 		a.dialogGroupRepos = nil
@@ -135,14 +136,19 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			allowEdits := result.CheckboxValue
 			a.config.UI.LastAllowEdits = allowEdits
 			_ = a.config.SaveUISettings()
-			// Show progress overlay and start async fetch
-			a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
-				"Fetching latest changes",
-				"Creating worktree",
-			})
-			a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
-			a.creationOverlay.SetSize(a.width, a.height)
-			return a.fetchRemoteBase(project, name, allowEdits)
+			// Re-set dialog state for chaining and show branch mode picker
+			a.dialogProject = project
+			a.dialogDefaultName = name
+			a.dialog = common.NewSelectDialog(
+				DialogSelectBranchMode,
+				"Base Branch",
+				"Which branch should this worktree be based on?",
+				[]string{"Latest remote main", "Checked out branch", "Custom branch"},
+			)
+			a.dialog.SetSize(a.width, a.height)
+			a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+			a.dialog.Show()
+			return nil
 		}
 
 	case DialogDeleteWorkspace:
@@ -331,6 +337,109 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			allowEdits := result.CheckboxValue
 			a.config.UI.LastAllowEdits = allowEdits
 			_ = a.config.SaveUISettings()
+			// Re-set dialog state for chaining and show branch mode picker
+			a.dialogGroup = group
+			a.dialogDefaultName = name
+			a.dialog = common.NewSelectDialog(
+				DialogSelectBranchMode,
+				"Base Branch",
+				"Which branch should worktrees be based on?",
+				[]string{"Latest remote main", "Checked out branch", "Custom branch"},
+			)
+			a.dialog.SetSize(a.width, a.height)
+			a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+			a.dialog.Show()
+			return nil
+		}
+
+	case DialogSelectBranchMode:
+		allowEdits := a.config.UI.LastAllowEdits
+		if project != nil {
+			// Single workspace
+			name := defaultName
+			switch result.Index {
+			case 0: // Latest remote main
+				a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
+					"Fetching latest changes",
+					"Creating worktree",
+				})
+				a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
+				a.creationOverlay.SetSize(a.width, a.height)
+				return a.fetchRemoteBase(project, name, allowEdits)
+			case 1: // Checked out branch
+				a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
+					"Resolving checked out branch",
+					"Creating worktree",
+				})
+				a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
+				a.creationOverlay.SetSize(a.width, a.height)
+				return a.fetchCheckedOutBase(project, name, allowEdits)
+			case 2: // Custom branch
+				a.dialogProject = project
+				a.dialogDefaultName = name
+				a.dialog = common.NewInputDialog(DialogCustomBranch, "Custom Branch", "")
+				a.dialog.SetMessage("Branch will be looked up locally first, then on remote.")
+				a.dialog.SetSize(a.width, a.height)
+				a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+				a.dialog.Show()
+				return nil
+			}
+		} else if group != nil {
+			// Grouped workspace
+			name := defaultName
+			grpName := group.Name
+			switch result.Index {
+			case 0: // Latest remote main
+				return func() tea.Msg {
+					return messages.CreateGroupWorkspace{
+						GroupName:    grpName,
+						Name:         name,
+						AllowEdits:   allowEdits,
+						LoadClaudeMD: false,
+						BranchMode:   git.BranchModeRemoteMain,
+					}
+				}
+			case 1: // Checked out branch
+				return func() tea.Msg {
+					return messages.CreateGroupWorkspace{
+						GroupName:    grpName,
+						Name:         name,
+						AllowEdits:   allowEdits,
+						LoadClaudeMD: false,
+						BranchMode:   git.BranchModeCheckedOut,
+					}
+				}
+			case 2: // Custom branch
+				a.dialogGroup = group
+				a.dialogDefaultName = name
+				a.dialog = common.NewInputDialog(DialogCustomBranch, "Custom Branch", "")
+				a.dialog.SetMessage("Each repo will try this branch locally then remotely.\nFalls back to remote main if not found.")
+				a.dialog.SetSize(a.width, a.height)
+				a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+				a.dialog.Show()
+				return nil
+			}
+		}
+
+	case DialogCustomBranch:
+		customBranch := validation.SanitizeInput(result.Value)
+		if customBranch == "" {
+			return nil
+		}
+		allowEdits := a.config.UI.LastAllowEdits
+		if project != nil {
+			// Single workspace
+			name := defaultName
+			a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
+				"Resolving custom branch",
+				"Creating worktree",
+			})
+			a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
+			a.creationOverlay.SetSize(a.width, a.height)
+			return a.fetchCustomBase(project, name, customBranch, allowEdits)
+		} else if group != nil {
+			// Grouped workspace
+			name := defaultName
 			grpName := group.Name
 			return func() tea.Msg {
 				return messages.CreateGroupWorkspace{
@@ -338,6 +447,8 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 					Name:         name,
 					AllowEdits:   allowEdits,
 					LoadClaudeMD: false,
+					BranchMode:   git.BranchModeCustom,
+					CustomBranch: customBranch,
 				}
 			}
 		}

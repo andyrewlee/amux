@@ -9,6 +9,7 @@ import (
 
 	"github.com/andyrewlee/medusa/internal/config"
 	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/git"
 	"github.com/andyrewlee/medusa/internal/logging"
 	"github.com/andyrewlee/medusa/internal/messages"
 	"github.com/andyrewlee/medusa/internal/perf"
@@ -46,7 +47,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 		switch result.ID {
 		case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux, DialogSetProfile, DialogRenameWorkspace, DialogRenameProfile, DialogCreateProfile, DialogDeleteProfile,
-			DialogCreateGroup, DialogAddGroupRepo, DialogCreateGroupWorkspace, DialogDeleteGroup, DialogDeleteGroupWorkspace, DialogSetGroupProfile, DialogRenameGroupWorkspace, DialogRenameGroup, DialogCommit:
+			DialogCreateGroup, DialogAddGroupRepo, DialogCreateGroupWorkspace, DialogDeleteGroup, DialogDeleteGroupWorkspace, DialogSetGroupProfile, DialogRenameGroupWorkspace, DialogRenameGroup, DialogCommit,
+			DialogSelectBranchMode, DialogCustomBranch:
 			return a, a.safeCmd(a.handleDialogResult(result))
 		}
 		// If not an App-level dialog, let it fall through to components
@@ -851,8 +853,15 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if group != nil {
+			stepLabel := "Fetching latest changes"
+			switch msg.BranchMode {
+			case git.BranchModeCheckedOut:
+				stepLabel = "Resolving checked out branches"
+			case git.BranchModeCustom:
+				stepLabel = "Resolving custom branch"
+			}
 			a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
-				"Fetching latest changes",
+				stepLabel,
 				"Creating worktrees",
 			})
 			if len(group.Repos) > 0 {
@@ -862,7 +871,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd := a.dashboard.SetForceSpinner(true); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-			cmds = append(cmds, a.fetchFirstGroupBase(group, msg.Name, msg.AllowEdits, msg.LoadClaudeMD))
+			cmds = append(cmds, a.fetchFirstGroupBase(group, msg.Name, msg.AllowEdits, msg.LoadClaudeMD, msg.BranchMode, msg.CustomBranch))
 		}
 
 	case messages.GroupRepoFetchDone:
