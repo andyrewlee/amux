@@ -80,7 +80,7 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
-		stoppedTabs := a.syncActivitySessionStates(infoBySession, sessions, svc, opts)
+		stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
 			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
@@ -123,7 +123,7 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
-		stoppedTabs := a.syncActivitySessionStates(sessionInfo, sessions, svc, opts)
+		stoppedTabs := syncActivitySessionStates(sessionInfo, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
 			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
@@ -264,7 +264,7 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 	return infoBySession
 }
 
-func (a *App) syncActivitySessionStates(
+func syncActivitySessionStates(
 	infoBySession map[string]activity.SessionInfo,
 	sessions []activity.TaggedSession,
 	svc *tmuxService,
@@ -274,6 +274,14 @@ func (a *App) syncActivitySessionStates(
 	if svc == nil || len(infoBySession) == 0 {
 		return stoppedTabs
 	}
+
+	// Batch: single tmux call gets existence + live-pane status for all sessions.
+	allStates, err := svc.AllSessionStates(opts)
+	if err != nil {
+		logging.Warn("AllSessionStates failed, skipping session state sync: %v", err)
+		return stoppedTabs
+	}
+
 	checked := make(map[string]struct{}, len(sessions))
 	for _, snapshot := range sessions {
 		sessionName := strings.TrimSpace(snapshot.Session.Name)
@@ -292,10 +300,7 @@ func (a *App) syncActivitySessionStates(
 		prevStatus := strings.TrimSpace(strings.ToLower(info.Status))
 		isRunningLikeStatus := prevStatus == "" || prevStatus == "running" || prevStatus == "detached"
 
-		state, err := svc.SessionStateFor(sessionName, opts)
-		if err != nil {
-			continue
-		}
+		state := allStates[sessionName] // zero value if missing (Exists=false)
 
 		if !state.Exists || !state.HasLivePane {
 			info.Status = "stopped"

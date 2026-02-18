@@ -34,6 +34,10 @@ func (s *tmuxService) SessionsWithTags(match map[string]string, keys []string, o
 	return s.ops.SessionsWithTags(match, keys, opts)
 }
 
+func (s *tmuxService) AllSessionStates(opts tmux.Options) (map[string]tmux.SessionState, error) {
+	return s.ops.AllSessionStates(opts)
+}
+
 func (s *tmuxService) SessionStateFor(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
 	return s.ops.SessionStateFor(sessionName, opts)
 }
@@ -95,6 +99,10 @@ func (tmuxOps) ActiveAgentSessionsByActivity(window time.Duration, opts tmux.Opt
 
 func (tmuxOps) SessionsWithTags(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
 	return tmux.SessionsWithTags(match, keys, opts)
+}
+
+func (tmuxOps) AllSessionStates(opts tmux.Options) (map[string]tmux.SessionState, error) {
+	return tmux.AllSessionStates(opts)
 }
 
 func (tmuxOps) SessionStateFor(sessionName string, opts tmux.Options) (tmux.SessionState, error) {

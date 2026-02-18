@@ -43,6 +43,7 @@ type TmuxOps interface {
 	InstallHint() string
 	ActiveAgentSessionsByActivity(window time.Duration, opts tmux.Options) ([]tmux.SessionActivity, error)
 	SessionsWithTags(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error)
+	AllSessionStates(opts tmux.Options) (map[string]tmux.SessionState, error)
 	SessionStateFor(sessionName string, opts tmux.Options) (tmux.SessionState, error)
 	SessionHasClients(sessionName string, opts tmux.Options) (bool, error)
 	SessionCreatedAt(sessionName string, opts tmux.Options) (int64, error)
