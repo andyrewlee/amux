@@ -307,8 +307,11 @@ func exactTarget(name string) string { return "=" + name }
 func sessionTarget(name string) string { return "=" + name }
 
 // exactSessionOptionTarget returns a tmux target for session-scoped options.
-// Uses "=" prefix for exact session matching in set-option/show-options.
-func exactSessionOptionTarget(name string) string { return "=" + name }
+// Unlike has-session and send-keys, tmux set-option and show-options do not
+// support the "=" exact-match prefix (tmux 3.6a returns "no such session").
+// Bare names are safe here because amux session names include workspace ID +
+// tab ID, making prefix collisions practically impossible.
+func exactSessionOptionTarget(name string) string { return name }
 
 func shellQuote(value string) string {
 	if value == "" {

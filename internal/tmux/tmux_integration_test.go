@@ -120,6 +120,49 @@ func TestSetSessionTagValue_MissingSessionNoError(t *testing.T) {
 	}
 }
 
+func TestSetSessionTagValue_AgentIDResolutionRoundtrip(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	sessionName := "amux-ws123-tab456"
+	createSession(t, opts, sessionName, "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	// Simulate what cmd_agent_run_write does: set all tags.
+	tags := []struct{ key, value string }{
+		{"@amux", "1"},
+		{"@amux_workspace", "ws123"},
+		{"@amux_tab", "tab456"},
+		{"@amux_type", "agent"},
+		{"@amux_assistant", "test-assistant"},
+	}
+	for _, tag := range tags {
+		if err := SetSessionTagValue(sessionName, tag.key, tag.value, opts); err != nil {
+			t.Fatalf("SetSessionTagValue(%s, %s): %v", tag.key, tag.value, err)
+		}
+	}
+
+	// Simulate what resolveSessionNameForAgentID does: query by tags.
+	rows, err := SessionsWithTags(
+		map[string]string{
+			"@amux":           "1",
+			"@amux_workspace": "ws123",
+			"@amux_tab":       "tab456",
+		},
+		nil,
+		opts,
+	)
+	if err != nil {
+		t.Fatalf("SessionsWithTags: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 matching session, got %d", len(rows))
+	}
+	if rows[0].Name != sessionName {
+		t.Fatalf("expected session %q, got %q", sessionName, rows[0].Name)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // PanePIDs tests
 // ---------------------------------------------------------------------------

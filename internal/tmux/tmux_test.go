@@ -149,10 +149,10 @@ func TestNewClientCommand(t *testing.T) {
 	}
 
 	// Should disable prefix per-session (not globally) with exact-match target
-	if !strings.Contains(cmd, "set-option -t '=test-session' prefix None") {
+	if !strings.Contains(cmd, "set-option -t 'test-session' prefix None") {
 		t.Error("Command should disable prefix for session")
 	}
-	if !strings.Contains(cmd, "set-option -t '=test-session' prefix2 None") {
+	if !strings.Contains(cmd, "set-option -t 'test-session' prefix2 None") {
 		t.Error("Command should disable prefix2 for session")
 	}
 
@@ -388,7 +388,7 @@ func TestTargetHelpers(t *testing.T) {
 	if got := sessionTarget(name); got != "=my-session" {
 		t.Errorf("sessionTarget(%q) = %q, want %q", name, got, "=my-session")
 	}
-	if got := exactSessionOptionTarget(name); got != "=my-session" {
-		t.Errorf("exactSessionOptionTarget(%q) = %q, want %q", name, got, "=my-session")
+	if got := exactSessionOptionTarget(name); got != "my-session" {
+		t.Errorf("exactSessionOptionTarget(%q) = %q, want %q", name, got, "my-session")
 	}
 }
