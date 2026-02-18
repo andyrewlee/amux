@@ -8,6 +8,8 @@ import (
 
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -19,6 +21,7 @@ type tmuxActivityResult struct {
 	Token              int
 	ActiveWorkspaceIDs map[string]bool
 	UpdatedStates      map[string]*activity.SessionState // Updated hysteresis states to merge
+	StoppedTabs        []messages.TabSessionStatus
 	Err                error
 }
 
@@ -77,13 +80,14 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
+		stoppedTabs := a.syncActivitySessionStates(infoBySession, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
 			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
 			recentActivityBySession = nil
 		}
 		active, updatedStates := activity.ActiveWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
-		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates}
+		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates, StoppedTabs: stoppedTabs}
 	}
 }
 
@@ -119,13 +123,14 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
+		stoppedTabs := a.syncActivitySessionStates(sessionInfo, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
 			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
 			recentActivityBySession = nil
 		}
 		active, updatedStates := activity.ActiveWorkspaceIDsFromTags(sessionInfo, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
-		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates}
+		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates, StoppedTabs: stoppedTabs}
 	}}
 	return cmds
 }
@@ -146,6 +151,15 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 		// Merge updated hysteresis states back into the main map (on main thread)
 		for name, state := range msg.UpdatedStates {
 			a.sessionActivityStates[name] = state
+		}
+		if len(msg.StoppedTabs) > 0 {
+			stoppedTabCmds := make([]tea.Cmd, 0, len(msg.StoppedTabs))
+			for _, update := range msg.StoppedTabs {
+				stoppedTabCmds = append(stoppedTabCmds, func() tea.Msg { return update })
+			}
+			if len(stoppedTabCmds) > 0 {
+				cmds = append(cmds, common.SafeBatch(stoppedTabCmds...))
+			}
 		}
 		a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
 		a.syncActiveWorkspacesToDashboard()
@@ -248,4 +262,78 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 		}
 	}
 	return infoBySession
+}
+
+func (a *App) syncActivitySessionStates(
+	infoBySession map[string]activity.SessionInfo,
+	sessions []activity.TaggedSession,
+	svc *tmuxService,
+	opts tmux.Options,
+) []messages.TabSessionStatus {
+	stoppedTabs := make([]messages.TabSessionStatus, 0)
+	if svc == nil || len(infoBySession) == 0 {
+		return stoppedTabs
+	}
+	checked := make(map[string]struct{}, len(sessions))
+	for _, snapshot := range sessions {
+		sessionName := strings.TrimSpace(snapshot.Session.Name)
+		if sessionName == "" {
+			continue
+		}
+		if _, ok := checked[sessionName]; ok {
+			continue
+		}
+		checked[sessionName] = struct{}{}
+
+		info, ok := infoBySession[sessionName]
+		if !ok {
+			continue
+		}
+		prevStatus := strings.TrimSpace(strings.ToLower(info.Status))
+		isRunningLikeStatus := prevStatus == "" || prevStatus == "running" || prevStatus == "detached"
+
+		state, err := svc.SessionStateFor(sessionName, opts)
+		if err != nil {
+			continue
+		}
+
+		if !state.Exists || !state.HasLivePane {
+			info.Status = "stopped"
+			if isRunningLikeStatus {
+				if wsID := strings.TrimSpace(info.WorkspaceID); wsID != "" {
+					stoppedTabs = append(stoppedTabs, messages.TabSessionStatus{
+						WorkspaceID: wsID,
+						SessionName: sessionName,
+						Status:      "stopped",
+					})
+				}
+			}
+		} else if strings.EqualFold(info.Status, "stopped") {
+			info.Status = "running"
+		}
+		infoBySession[sessionName] = info
+	}
+
+	// Sessions that no longer appear in list-sessions are no longer running.
+	for sessionName, info := range infoBySession {
+		if _, ok := checked[sessionName]; ok {
+			continue
+		}
+		prevStatus := strings.TrimSpace(strings.ToLower(info.Status))
+		isRunningLikeStatus := prevStatus == "" || prevStatus == "running" || prevStatus == "detached"
+		if isRunningLikeStatus {
+			info.Status = "stopped"
+			infoBySession[sessionName] = info
+			wsID := strings.TrimSpace(info.WorkspaceID)
+			if wsID != "" {
+				stoppedTabs = append(stoppedTabs, messages.TabSessionStatus{
+					WorkspaceID: wsID,
+					SessionName: sessionName,
+					Status:      "stopped",
+				})
+			}
+		}
+	}
+
+	return stoppedTabs
 }
