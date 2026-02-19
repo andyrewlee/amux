@@ -131,6 +131,10 @@ func (a *App) viewLayerBased() tea.View {
 
 	// Center pane
 	centerX := leftGutter + dashWidth + a.layout.GapX()
+	// Update info content for the Info tab
+	if a.activeWorkspace != nil {
+		a.center.SetInfoContent(a.renderWorkspaceInfo())
+	}
 	if a.layout.ShowCenter() {
 		centerWidth := a.layout.CenterWidth()
 		centerHeight := a.layout.CenterContentHeight() // Height minus terminal
@@ -177,9 +181,9 @@ func (a *App) viewLayerBased() tea.View {
 				}
 			}
 
-			// Tab bar (below info bar).
+			// Tab bar (below info bar) — includes separator line.
 			tabBarY := infoBarY + infoBarHeight
-			tabBar := clampLines(a.center.TabBarView(), contentWidth, 1)
+			tabBar := clampLines(a.center.TabBarView(), contentWidth, 2)
 			if tabBarDrawable := a.centerTabBar.get(tabBar, termX, tabBarY); tabBarDrawable != nil {
 				canvas.Compose(tabBarDrawable)
 			}
@@ -207,7 +211,7 @@ func (a *App) viewLayerBased() tea.View {
 			// Fallback to string-based rendering with borders (no caching - content changes)
 			a.centerChrome.Invalidate()
 			var centerContent string
-			if a.center.HasTabs() {
+			if a.center.HasTabs() || a.center.IsInfoTabActive() {
 				centerContent = a.center.View()
 			} else {
 				centerContent = a.renderCenterPaneContent()

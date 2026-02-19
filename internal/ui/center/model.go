@@ -139,6 +139,10 @@ type Model struct {
 	tabActorReady        uint32
 	tabActorHeartbeat    int64
 
+	// Info tab (virtual tab for workspace info)
+	infoTabActive bool
+	infoContent   string
+
 	// Layout
 	width           int
 	height          int
@@ -191,6 +195,7 @@ const (
 	tabHitClose
 	tabHitPlus
 	tabHitPlusSelect
+	tabHitInfo
 	tabHitPrev
 	tabHitNext
 )
@@ -259,8 +264,8 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 		borderLeft   = 1
 		paddingLeft  = 1
 		borderTop    = 1
-		tabBarHeight = 1 // compact tabs (no borders, single line)
-		baseOverhead = 4 // borders (2) + tab bar (1) + status line reserve (1)
+		tabBarHeight = 2 // tab line + separator line
+		baseOverhead = 5 // borders (2) + tab bar (2) + status line reserve (1)
 	)
 
 	width := m.contentWidth()
@@ -523,6 +528,24 @@ func (m *Model) Focused() bool {
 // SetWorkspace sets the active workspace
 func (m *Model) SetWorkspace(ws *data.Workspace) {
 	m.workspace = ws
+	if ws == nil {
+		m.infoTabActive = false
+	}
+}
+
+// SetInfoContent sets the content displayed when the Info tab is active.
+func (m *Model) SetInfoContent(content string) {
+	m.infoContent = content
+}
+
+// IsInfoTabActive returns whether the Info tab is currently selected.
+func (m *Model) IsInfoTabActive() bool {
+	return m.infoTabActive
+}
+
+// SelectInfoTab activates the Info tab.
+func (m *Model) SelectInfoTab() {
+	m.infoTabActive = true
 }
 
 // HasTabs returns whether there are any tabs for the current workspace

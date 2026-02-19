@@ -1,6 +1,8 @@
 package center
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -14,26 +16,40 @@ func (m *Model) renderTabBar() string {
 	currentTabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 
-	if len(currentTabs) == 0 {
-		empty := m.styles.TabPlus.Render("New agent")
-		emptyWidth := lipgloss.Width(empty)
-		if emptyWidth > 0 {
+	var renderedTabs []string
+	x := 0
+
+	// Info tab (virtual, always first)
+	{
+		infoLabel := "Info"
+		infoIndicator := common.Icons.Running + " "
+		var infoRendered string
+		if m.infoTabActive {
+			bg := common.ColorSurface2
+			pad := lipgloss.NewStyle().Background(bg).Render(" ")
+			indicatorPart := lipgloss.NewStyle().Foreground(common.ColorInfo).Background(bg).Render(infoIndicator)
+			namePart := lipgloss.NewStyle().Foreground(common.ColorForeground).Background(bg).Render(infoLabel)
+			infoRendered = pad + indicatorPart + namePart + pad
+		} else {
+			indicatorStyled := lipgloss.NewStyle().Foreground(common.ColorInfo).Render(infoIndicator)
+			infoRendered = m.styles.Tab.Render(indicatorStyled + m.styles.Muted.Render(infoLabel))
+		}
+		infoWidth := lipgloss.Width(infoRendered)
+		if infoWidth > 0 {
 			m.tabHits = append(m.tabHits, tabHit{
-				kind:  tabHitPlus,
+				kind:  tabHitInfo,
 				index: -1,
 				region: common.HitRegion{
-					X:      0,
+					X:      x,
 					Y:      0,
-					Width:  emptyWidth,
+					Width:  infoWidth,
 					Height: 1,
 				},
 			})
 		}
-		return empty
+		renderedTabs = append(renderedTabs, infoRendered)
+		x += infoWidth
 	}
-
-	var renderedTabs []string
-	x := 0
 
 	for i, tab := range currentTabs {
 		name := tab.Name
@@ -84,7 +100,7 @@ func (m *Model) renderTabBar() string {
 		closeLabel := m.styles.Muted.Render("×")
 		var rendered string
 		var style lipgloss.Style
-		if i == activeIdx {
+		if i == activeIdx && !m.infoTabActive {
 			// Active tab - each part styled with same background
 			bg := common.ColorSurface2
 			pad := lipgloss.NewStyle().Background(bg).Render(" ")
@@ -200,7 +216,13 @@ func (m *Model) renderTabBar() string {
 	renderedTabs = append(renderedTabs, selectBtn)
 
 	// Join tabs horizontally at the bottom so borders align
-	return lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
+	tabLine := lipgloss.JoinHorizontal(lipgloss.Bottom, renderedTabs...)
+
+	// Add a subtle separator line below the tabs
+	separatorStyle := lipgloss.NewStyle().Foreground(common.ColorSurface2)
+	separatorLine := separatorStyle.Render(strings.Repeat("─", m.contentWidth()))
+
+	return tabLine + "\n" + separatorLine
 }
 
 func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
@@ -241,7 +263,11 @@ func (m *Model) handleTabBarClick(msg tea.MouseClickMsg) tea.Cmd {
 				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 			case tabHitPlusSelect:
 				return func() tea.Msg { return messages.ShowSelectAssistantDialog{ForceDialog: true} }
+			case tabHitInfo:
+				m.infoTabActive = true
+				return nil
 			case tabHitTab:
+				m.infoTabActive = false
 				m.setActiveTabIdx(hit.index)
 				return m.tabSelectionChangedCmd()
 			}

@@ -222,6 +222,9 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 // so the returned layer can be safely used for rendering without locks.
 // Uses snapshot caching to avoid recreating when terminal state unchanged.
 func (m *Model) TerminalLayer() *compositor.VTermLayer {
+	if m.infoTabActive {
+		return nil
+	}
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 	if len(tabs) == 0 || activeIdx >= len(tabs) {
