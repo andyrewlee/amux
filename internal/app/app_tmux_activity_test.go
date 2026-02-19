@@ -319,6 +319,9 @@ func (s *scriptedActivityTmuxOps) ActiveAgentSessionsByActivity(time.Duration, t
 	}}, nil
 }
 
+// SessionsWithTags increments scanIndex so CapturePaneTail can serve the
+// matching content. This mirrors the real call order: sessions are fetched
+// before pane content is captured.
 func (s *scriptedActivityTmuxOps) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
 	s.scanIndex++
 	nowMillis := strconv.FormatInt(time.Now().UnixMilli(), 10)

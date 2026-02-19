@@ -52,6 +52,8 @@ func ActiveWorkspaceIDsFromTags(
 				// these through hysteresis fallback instead of immediate active.
 				if !HasRecentWindowActivity(snapshot.Session.Name, recentActivityBySession) {
 					PrepareStaleTagFallbackState(snapshot.Session.Name, states)
+					// Seeds baseline hash (calls capture-pane for uninitialized
+					// states); hysteresis will capture again — acceptable cost.
 					SeedFreshTagFallbackBaseline(snapshot.Session.Name, states, preseededStates, opts, captureFn, hashFn)
 					seenChatSessions[snapshot.Session.Name] = true
 					fallback = append(fallback, snapshot.Session)
@@ -60,16 +62,24 @@ func ActiveWorkspaceIDsFromTags(
 				// Known tabs are evaluated via pane-delta hysteresis even when
 				// tags are fresh, which avoids persistent "active" false positives
 				// from non-meaningful tag churn.
+				//
+				// Behavioral note: unlike stale-tag fallback (which clears the
+				// hold timer via PrepareStaleTagFallbackState), this path
+				// preserves it. A session recently above threshold stays active
+				// for HoldDuration even if the next hysteresis capture fails or
+				// shows unchanged content, preventing a single transient failure
+				// from immediately deactivating a known active tab.
 				if ok {
-					// Cap score for known sessions with fresh tags, but preserve the
-					// existing hold timer. Unlike stale-tag fallback, fresh tags
-					// evidence recent output, so a transient capture failure in
-					// hysteresis should not immediately deactivate the session.
+					// Cap score only; SeedFreshTagFallbackBaseline resets score
+					// for uninitialized states anyway, so capping is a no-op there.
 					if state := states[snapshot.Session.Name]; state != nil {
 						if state.Score > ScoreThreshold {
 							state.Score = ScoreThreshold
 						}
 					}
+					// Note: for uninitialized states this calls capture-pane to
+					// seed a baseline hash; hysteresis will call it again. The
+					// double capture is a minor cost limited to first observation.
 					SeedFreshTagFallbackBaseline(snapshot.Session.Name, states, preseededStates, opts, captureFn, hashFn)
 					seenChatSessions[snapshot.Session.Name] = true
 					fallback = append(fallback, snapshot.Session)

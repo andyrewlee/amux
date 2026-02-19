@@ -59,6 +59,8 @@ func FreshTagVisibleActivity(
 	state := states[sessionName]
 	if state == nil || !state.Initialized {
 		// First observation: trust fresh tag and seed fallback baseline.
+		// This causes a one-scan active blip, but is intentional — we have
+		// no baseline hash to compare against yet.
 		SeedFreshTagFallbackBaseline(sessionName, states, updated, opts, captureFn, hashFn)
 		return true
 	}
@@ -66,6 +68,8 @@ func FreshTagVisibleActivity(
 	content, ok := captureFn(sessionName, CaptureTail, opts)
 	if !ok {
 		// Capture is best-effort; keep fresh-tag behavior when unavailable.
+		// Persist state so the initialized hash survives to the next scan.
+		updated[sessionName] = state
 		return true
 	}
 

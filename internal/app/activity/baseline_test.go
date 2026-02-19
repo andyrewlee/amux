@@ -68,8 +68,8 @@ func TestFreshTagVisibleActivity_InitializedCaptureFailurePassesThrough(t *testi
 	if state.LastHash != originalHash {
 		t.Fatalf("expected hash unchanged, got %v", state.LastHash)
 	}
-	if updated[sessionName] != nil {
-		t.Fatal("did not expect updated state entry on capture failure pass-through")
+	if updated[sessionName] != state {
+		t.Fatal("expected state to be persisted in updated map on capture failure")
 	}
 }
 
