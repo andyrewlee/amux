@@ -109,6 +109,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		Errorf(wErr, "failed to initialize: %v", err)
 		return ExitInternalError
 	}
+	assistantExplicit := assistantName != ""
 	if assistantName == "" {
 		assistantName = svc.Config.ResolvedDefaultAssistant()
 	}
@@ -160,7 +161,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	branchExistedBefore := gitLocalBranchExists(projectPath, name)
 
 	// Idempotent path: if the target worktree already exists for this repo, reuse it.
-	existingWS, found, err := loadExistingWorkspaceAtPath(svc, projectPath, wsPath, name, baseBranch, assistantName)
+	existingWS, found, err := loadExistingWorkspaceAtPath(svc, projectPath, wsPath, name, baseBranch, assistantName, assistantExplicit)
 	if err != nil {
 		if gf.JSON {
 			return returnJSONErrorMaybeIdempotent(
@@ -286,6 +287,7 @@ func rollbackWorkspaceCreate(repoPath, workspacePath, branch string, deleteBranc
 func loadExistingWorkspaceAtPath(
 	svc *Services,
 	projectPath, wsPath, name, baseBranch, assistantName string,
+	assistantExplicit bool,
 ) (*data.Workspace, bool, error) {
 	gitFile := filepath.Join(wsPath, ".git")
 	if _, err := os.Stat(gitFile); err != nil {
@@ -347,7 +349,7 @@ func loadExistingWorkspaceAtPath(
 	}
 	if strings.TrimSpace(stored.Assistant) == "" {
 		stored.Assistant = assistantName
-	} else if assistantName != "" && !strings.EqualFold(stored.Assistant, assistantName) {
+	} else if assistantExplicit && !strings.EqualFold(stored.Assistant, assistantName) {
 		return nil, false, fmt.Errorf(
 			"existing workspace %q uses assistant %q, but %q was requested; "+
 				"use a different workspace name or omit --assistant",

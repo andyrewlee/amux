@@ -287,7 +287,7 @@ printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"
 	}
 	args := strings.TrimSpace(string(argsRaw))
 	if !strings.Contains(args, "terminal run --workspace ws-1") ||
-		!strings.Contains(args, "NEXT_TELEMETRY_DISABLED=1; pnpm dev -- --port 3100 --hostname 127.0.0.1") ||
+		!strings.Contains(args, `NEXT_TELEMETRY_DISABLED=1; pnpm dev -- --port "3100" --hostname "127.0.0.1"`) ||
 		!strings.Contains(args, "--enter=true") {
 		t.Fatalf("terminal args = %q, expected workspace/pnpm/port/host/enter", args)
 	}

@@ -74,6 +74,8 @@ redact_secrets_text() {
     -e 's/(ghp_[A-Za-z0-9]{5})[A-Za-z0-9]*/\1***/g' \
     -e 's/(gho_[A-Za-z0-9]{5})[A-Za-z0-9]*/\1***/g' \
     -e 's/(github_pat_[A-Za-z0-9_]{5})[A-Za-z0-9_]*/\1***/g' \
+    -e 's/(ghs_[A-Za-z0-9]{5})[A-Za-z0-9]*/\1***/g' \
+    -e 's/(glpat-[A-Za-z0-9_-]{5})[A-Za-z0-9_-]*/\1***/g' \
     -e 's/(xoxb-[A-Za-z0-9]{5})[A-Za-z0-9-]*/\1***/g' \
     -e 's/(AKIA[0-9A-Z]{4})[0-9A-Z]{12}/\1************/g' \
     -e 's/(Bearer )[A-Za-z0-9+/_=.-]{8,}/\1***/g' \
@@ -3429,19 +3431,19 @@ cmd_terminal_preset() {
     nextjs)
       case "$manager" in
         auto)
-          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then pnpm dev -- --port $port --hostname $host; elif [ -f yarn.lock ] && command -v yarn >/dev/null 2>&1; then yarn dev --port $port --hostname $host; elif { [ -f bun.lockb ] || [ -f bun.lock ]; } && command -v bun >/dev/null 2>&1; then bun run dev -- --port $port --hostname $host; else npm run dev -- --port $port --hostname $host; fi"
+          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then pnpm dev -- --port \"$port\" --hostname \"$host\"; elif [ -f yarn.lock ] && command -v yarn >/dev/null 2>&1; then yarn dev --port \"$port\" --hostname \"$host\"; elif { [ -f bun.lockb ] || [ -f bun.lock ]; } && command -v bun >/dev/null 2>&1; then bun run dev -- --port \"$port\" --hostname \"$host\"; else npm run dev -- --port \"$port\" --hostname \"$host\"; fi"
           ;;
         pnpm)
-          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; pnpm dev -- --port $port --hostname $host"
+          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; pnpm dev -- --port \"$port\" --hostname \"$host\""
           ;;
         yarn)
-          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; yarn dev --port $port --hostname $host"
+          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; yarn dev --port \"$port\" --hostname \"$host\""
           ;;
         bun)
-          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; bun run dev -- --port $port --hostname $host"
+          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; bun run dev -- --port \"$port\" --hostname \"$host\""
           ;;
         npm)
-          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; npm run dev -- --port $port --hostname $host"
+          launch_cmd="export NEXT_TELEMETRY_DISABLED=1; npm run dev -- --port \"$port\" --hostname \"$host\""
           ;;
         *)
           emit_error "terminal.preset" "command_error" "--manager must be auto|npm|pnpm|yarn|bun"

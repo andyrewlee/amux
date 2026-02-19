@@ -31,16 +31,19 @@ func TestActiveWorkspaceIDsFromTags_StaleTagFallbackClearsHoldAndDecaysQuickly(t
 	captureFn := func(string, int, tmux.Options) (string, bool) { return "same", true }
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
-	active, updated := ActiveWorkspaceIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
+	active, _ := ActiveWorkspaceIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
 	if active["ws-stale-hold"] {
 		t.Fatal("expected stale-tag unchanged session to stop being active without hold carryover")
 	}
-	state := updated[sessionName]
+	// With no recent activity the session takes the skip-fallback path:
+	// PrepareStaleTagFallbackState clamps score and clears hold in-place,
+	// but the session is NOT added to fallback so capture never runs.
+	state := states[sessionName]
 	if state == nil {
-		t.Fatal("expected updated state for stale-tag session")
+		t.Fatal("expected in-place state for stale-tag session")
 	}
-	if state.Score != ScoreThreshold-1 {
-		t.Fatalf("expected score to decay to %d after stale fallback clamp, got %d", ScoreThreshold-1, state.Score)
+	if state.Score != ScoreThreshold {
+		t.Fatalf("expected score clamped to %d (no capture decay), got %d", ScoreThreshold, state.Score)
 	}
 	if !state.LastActiveAt.IsZero() {
 		t.Fatal("expected stale fallback to clear hold timer")

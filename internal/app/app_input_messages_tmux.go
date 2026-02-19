@@ -6,7 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 // Concurrency safety: takes a snapshot of ws.OpenTabs in the Update loop before
@@ -30,10 +29,9 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 		}
 		allStates, err := svc.AllSessionStates(opts)
 		if err != nil {
-			// Degrade gracefully when the bulk tmux query fails.
-			// Per-tab reconciliation will treat unknown sessions as stopped
-			// for this tick and recover on the next successful scan.
-			allStates = map[string]tmux.SessionState{}
+			// Skip reconciliation entirely when tmux is unresponsive.
+			// Preserves current tab states; next tick recovers normally.
+			return tmuxTabsSyncResult{WorkspaceID: wsID}
 		}
 
 		var updates []tmuxTabStatusUpdate

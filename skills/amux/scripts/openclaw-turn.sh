@@ -79,6 +79,8 @@ redact_secrets_text() {
     -e 's/(ghp_[A-Za-z0-9]{5})[A-Za-z0-9]*/\1***/g' \
     -e 's/(gho_[A-Za-z0-9]{5})[A-Za-z0-9]*/\1***/g' \
     -e 's/(github_pat_[A-Za-z0-9_]{5})[A-Za-z0-9_]*/\1***/g' \
+    -e 's/(ghs_[A-Za-z0-9]{5})[A-Za-z0-9]*/\1***/g' \
+    -e 's/(glpat-[A-Za-z0-9_-]{5})[A-Za-z0-9_-]*/\1***/g' \
     -e 's/(xoxb-[A-Za-z0-9]{5})[A-Za-z0-9-]*/\1***/g' \
     -e 's/(AKIA[0-9A-Z]{4})[0-9A-Z]{12}/\1************/g' \
     -e 's/(Bearer )[A-Za-z0-9+/_=.-]{8,}/\1***/g' \
