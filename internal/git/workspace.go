@@ -12,7 +12,7 @@ import (
 // CreateWorkspace creates a new workspace backed by a git worktree
 func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 	// Create branch from base and checkout into workspace path
-	_, err := RunGit(repoPath, "worktree", "add", "-b", branch, workspacePath, base)
+	_, err := RunGit(repoPath, "worktree", "add", "--no-track", "-b", branch, workspacePath, base)
 	return err
 }
 
