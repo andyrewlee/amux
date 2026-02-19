@@ -380,18 +380,6 @@ func (m *Model) handleEditGroupRepos() tea.Cmd {
 	row := m.rows[m.cursor]
 	if (row.Type == RowGroupHeader || row.Type == RowGroupWorkspace) && row.Group != nil {
 		group := row.Group
-		// Block editing if any workspace in the group has an active session
-		for i := range group.Workspaces {
-			gw := &group.Workspaces[i]
-			if m.activeWorkspaceIDs[string(gw.ID())] {
-				return func() tea.Msg {
-					return messages.Toast{
-						Message: "Cannot edit repos while worktrees have active sessions",
-						Level:   messages.ToastError,
-					}
-				}
-			}
-		}
 		return func() tea.Msg {
 			return messages.ShowEditGroupReposDialog{Group: group}
 		}

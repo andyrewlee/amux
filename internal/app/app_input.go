@@ -982,10 +982,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.handleGroupPreviewed(msg)...)
 
 	case messages.ShowEditGroupReposDialog:
-		if a.groupHasActiveSessions(msg.Group) {
-			cmds = append(cmds, a.toast.ShowError("Cannot edit repos while worktrees have active sessions"))
-			break
-		}
 		a.handleShowEditGroupReposDialog(msg.Group)
 
 	case messages.UpdateGroupRepos:
