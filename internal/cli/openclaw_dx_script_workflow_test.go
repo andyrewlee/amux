@@ -189,7 +189,7 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	}
 }
 
-func TestOpenClawDXWorkflowDual_NeedsInputSkipsReviewAndSuggestsCodexFallback(t *testing.T) {
+func TestOpenClawDXWorkflowDual_NeedsInputAutoFallbackRunsReview(t *testing.T) {
 	requireBinary(t, "jq")
 	requireBinary(t, "bash")
 
@@ -235,26 +235,32 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 		"--review-assistant", "codex",
 	)
 
-	if got, _ := payload["status"].(string); got != "needs_input" {
-		t.Fatalf("status = %q, want %q", got, "needs_input")
+	if got, _ := payload["status"].(string); got != "ok" {
+		t.Fatalf("status = %q, want %q", got, "ok")
 	}
 	suggested, _ := payload["suggested_command"].(string)
-	if !strings.Contains(suggested, "--assistant codex") {
-		t.Fatalf("suggested_command = %q, want codex fallback", suggested)
+	if !strings.Contains(suggested, "git ship --workspace ws-1") {
+		t.Fatalf("suggested_command = %q, want ship command", suggested)
 	}
 	data, ok := payload["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("data missing or wrong type: %T", payload["data"])
 	}
-	if got, _ := data["review_skipped_reason"].(string); got != "implementation_not_ready" {
-		t.Fatalf("review_skipped_reason = %q, want %q", got, "implementation_not_ready")
+	if got, _ := data["implement_assistant"].(string); got != "codex" {
+		t.Fatalf("implement_assistant = %q, want %q after fallback", got, "codex")
+	}
+	if got, _ := data["review_assistant"].(string); got != "codex" {
+		t.Fatalf("review_assistant = %q, want %q", got, "codex")
+	}
+	if got, _ := data["review_skipped_reason"].(string); got != "" {
+		t.Fatalf("review_skipped_reason = %q, want empty", got)
 	}
 
 	quickActions, ok := payload["quick_actions"].([]any)
 	if !ok || len(quickActions) == 0 {
 		t.Fatalf("quick_actions missing or empty: %#v", payload["quick_actions"])
 	}
-	var sawSwitch bool
+	var sawShip bool
 	var sawRunReview bool
 	for _, raw := range quickActions {
 		action, ok := raw.(map[string]any)
@@ -262,17 +268,17 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 			continue
 		}
 		id, _ := action["id"].(string)
-		if id == "switch_codex" {
-			sawSwitch = true
+		if id == "ship" {
+			sawShip = true
 		}
 		if id == "run_review" {
 			sawRunReview = true
 		}
 	}
-	if !sawSwitch {
-		t.Fatalf("expected switch_codex quick action, got %#v", quickActions)
+	if !sawShip {
+		t.Fatalf("expected ship quick action, got %#v", quickActions)
 	}
 	if sawRunReview {
-		t.Fatalf("did not expect run_review quick action when implementation is blocked: %#v", quickActions)
+		t.Fatalf("did not expect run_review quick action when review already ran: %#v", quickActions)
 	}
 }

@@ -127,6 +127,9 @@ run_with_deadline() {
   wait_status=$?
   set -e
   kill "$watchdog_pid" >/dev/null 2>&1 || true
+  set +e
+  wait "$watchdog_pid" >/dev/null 2>&1
+  set -e
 
   RAW_OUTPUT="$(cat "$out_file" 2>/dev/null || true)"
   recorded_exit=""
@@ -180,7 +183,7 @@ trim_line() {
 is_chrome_line() {
   local line="$1"
   case "$line" in
-    ""|"|"|✻|"╭"*|"╰"*|"│"*|"─"*|"└ "*|"⎿ "*|"↳ Interacted with "*|"› "*|"❯ "*|"? for shortcuts"*|"✶ "*|"✻ "*|"▟"*|"▐"*|"▝"*|"▘"*|"Tip:"*|"model:"*|"directory:"*|"cwd:"*|"workspace:"*|"• Explored"|"• Exploring"|"• Working ("*|"Working ("*|"Thinking "*)
+    ""|"|"|✻|"╭"*|"╰"*|"│"*|"─"*|"└ "*|"⎿ "*|"↳ Interacted with "*|"› "*|"❯ "*|"? for shortcuts"*|"✶ "*|"✻ "*|"▟"*|"▐"*|"▝"*|"▘"*|"Tip:"*|"model:"*|"directory:"*|"cwd:"*|"workspace:"*|"• Explored"|"• Exploring"|"• Working ("*|"Working ("*|"Thinking "*|*" no sandbox "*|*"/model "*|"~/.amux/"*|*"sandbox   "*|*"sandbox "*")"|"shift+tab to accept edits"*|"/ commands · @ files · ! shell"*|*"? for help"*|*"▄▄▄▄"*|*"███"*|*"▀▀▀"*|">   Type your message or @path/to/file"*)
       return 0
       ;;
     *)
@@ -492,8 +495,12 @@ if [[ -n "$IDEMPOTENCY_KEY" ]]; then
 fi
 
 WAIT_TIMEOUT_SECONDS="$(duration_to_seconds "$WAIT_TIMEOUT" 60)"
-# Allow extra headroom for agent startup/prompt readiness before the wait window.
-HARD_TIMEOUT_SECONDS=$((WAIT_TIMEOUT_SECONDS + 90))
+# Allow bounded extra headroom for agent startup/prompt readiness.
+HARD_TIMEOUT_BUFFER_SECONDS="$(duration_to_seconds "${OPENCLAW_STEP_HARD_TIMEOUT_BUFFER:-25}" 25)"
+if ! [[ "$HARD_TIMEOUT_BUFFER_SECONDS" =~ ^[0-9]+$ ]] || [[ "$HARD_TIMEOUT_BUFFER_SECONDS" -lt 0 ]]; then
+  HARD_TIMEOUT_BUFFER_SECONDS=25
+fi
+HARD_TIMEOUT_SECONDS=$((WAIT_TIMEOUT_SECONDS + HARD_TIMEOUT_BUFFER_SECONDS))
 HARD_TIMEOUT_CAP_SECONDS="$(duration_to_seconds "${OPENCLAW_STEP_HARD_TIMEOUT_CAP:-240}" 240)"
 if [[ "$HARD_TIMEOUT_CAP_SECONDS" -gt 0 && "$HARD_TIMEOUT_SECONDS" -gt "$HARD_TIMEOUT_CAP_SECONDS" ]]; then
   HARD_TIMEOUT_SECONDS="$HARD_TIMEOUT_CAP_SECONDS"
@@ -589,6 +596,28 @@ fi
 SUBSTANTIVE_OUTPUT=false
 if [[ -n "${SUMMARY// }" || -n "${LATEST_LINE// }" || -n "${DELTA_COMPACT// }" ]]; then
   SUBSTANTIVE_OUTPUT=true
+fi
+
+# Some assistants report needs_input after producing a substantive answer, with no
+# actionable input hint (or a generic conversational re-prompt). For mobile DX,
+# treat these as completed step output instead of blocked state.
+if [[ "$STATUS" == "needs_input" && "$NEEDS_INPUT" == "true" ]]; then
+  INPUT_HINT_TRIMMED="$(trim_line "$INPUT_HINT")"
+  INPUT_HINT_LOWER="$(printf '%s' "$INPUT_HINT_TRIMMED" | tr '[:upper:]' '[:lower:]')"
+  NEEDS_INPUT_IS_GENERIC=false
+  if [[ "$SUBSTANTIVE_OUTPUT" == "true" && -z "${INPUT_HINT_TRIMMED// }" ]]; then
+    NEEDS_INPUT_IS_GENERIC=true
+  fi
+  case "$INPUT_HINT_LOWER" in
+    "what can i do for you?"*|"anything else?"*|"how would you like to proceed?"*)
+      NEEDS_INPUT_IS_GENERIC=true
+      ;;
+  esac
+  if [[ "$NEEDS_INPUT_IS_GENERIC" == "true" ]]; then
+    STATUS="idle"
+    NEEDS_INPUT=false
+    INPUT_HINT=""
+  fi
 fi
 
 RECOVERED_FROM_CAPTURE=false
@@ -880,7 +909,7 @@ case "$STATUS" in
     ;;
 esac
 
-jq -n \
+OPENCLAW_PAYLOAD="$(jq -n \
   --arg mode "$MODE" \
   --arg status "$STATUS" \
   --arg summary "$SUMMARY" \
@@ -1084,11 +1113,12 @@ jq -n \
             )
           }
       )
-    }' \
-| {
-  if [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
-    "$OPENCLAW_PRESENT_SCRIPT"
-  else
-    cat
-  fi
-}
+    }')"
+
+if [[ "${OPENCLAW_STEP_SKIP_PRESENT:-false}" == "true" ]]; then
+  printf '%s\n' "$OPENCLAW_PAYLOAD"
+elif [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
+  "$OPENCLAW_PRESENT_SCRIPT" <<<"$OPENCLAW_PAYLOAD"
+else
+  printf '%s\n' "$OPENCLAW_PAYLOAD"
+fi

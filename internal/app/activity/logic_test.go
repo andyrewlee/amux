@@ -276,7 +276,7 @@ func TestActiveWorkspaceIDsFromTags_StaleTagFallsBackWhenPrefilterUnavailable(t 
 	}
 }
 
-func TestActiveWorkspaceIDsFromTags_KnownStaleTagFallsBackWithoutRecentActivity(t *testing.T) {
+func TestActiveWorkspaceIDsFromTags_KnownStaleTagSkipsFallbackWithoutRecentActivity(t *testing.T) {
 	now := time.Now()
 	const sessionName = "sess-known-stale"
 	sessions := []TaggedSession{
@@ -290,13 +290,20 @@ func TestActiveWorkspaceIDsFromTags_KnownStaleTagFallsBackWithoutRecentActivity(
 		sessionName: {WorkspaceID: "ws-known", IsChat: true},
 	}
 	states := map[string]*SessionState{}
-	captureFn := func(string, int, tmux.Options) (string, bool) { return "output", true }
+	captureCalls := 0
+	captureFn := func(string, int, tmux.Options) (string, bool) {
+		captureCalls++
+		return "output", true
+	}
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
-	// Empty prefilter set should not block known-session stale fallback.
+	// Empty prefilter set should skip stale fallback to avoid idle capture churn.
 	active, _ := ActiveWorkspaceIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
-	if !active["ws-known"] {
-		t.Fatal("expected known stale-tag session to remain eligible for fallback without recent prefilter activity")
+	if captureCalls != 0 {
+		t.Fatalf("expected no fallback capture without recent activity, got %d calls", captureCalls)
+	}
+	if active["ws-known"] {
+		t.Fatal("expected known stale-tag session to stay inactive without recent prefilter activity")
 	}
 	if active["ws-stale-tag"] {
 		t.Fatal("expected known metadata workspace ID to override stale tag workspace ID")

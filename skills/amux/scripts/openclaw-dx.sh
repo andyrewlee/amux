@@ -239,7 +239,8 @@ emit_result() {
     end
   ')"
 
-  jq -n \
+  local result_payload
+  result_payload="$(jq -n \
     --argjson ok "$RESULT_OK" \
     --arg command "$RESULT_COMMAND" \
     --arg status "$RESULT_STATUS" \
@@ -402,14 +403,13 @@ emit_result() {
             )
           }
         }
-    ' \
-| {
+    ')"
+
   if [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
-    "$OPENCLAW_PRESENT_SCRIPT"
+    "$OPENCLAW_PRESENT_SCRIPT" <<<"$result_payload"
   else
-    cat
+    printf '%s\n' "$result_payload"
   fi
-}
 }
 
 emit_error() {
@@ -498,7 +498,97 @@ agent_for_workspace() {
     printf ''
     return 0
   fi
-  jq -r '.data // [] | .[0].agent_id // ""' <<<"$agents_out"
+  local agents_json agent_count first_agent
+  agents_json="$(jq -c '.data // []' <<<"$agents_out")"
+  agent_count="$(jq -r 'length' <<<"$agents_json")"
+  first_agent="$(jq -r '.[0].agent_id // ""' <<<"$agents_json")"
+
+  if [[ -z "$first_agent" ]]; then
+    printf ''
+    return 0
+  fi
+  if [[ ! "$agent_count" =~ ^[0-9]+$ ]] || [[ "$agent_count" -le 1 ]]; then
+    printf '%s' "$first_agent"
+    return 0
+  fi
+
+  local capture_limit
+  capture_limit="${OPENCLAW_DX_AGENT_PICK_CAPTURE_LIMIT:-4}"
+  if [[ ! "$capture_limit" =~ ^[0-9]+$ ]] || [[ "$capture_limit" -le 0 ]]; then
+    capture_limit=4
+  fi
+
+  local best_agent fallback_needs_input_agent
+  best_agent=""
+  fallback_needs_input_agent=""
+  while IFS=$'\t' read -r session_name agent_id; do
+    [[ -z "${agent_id// }" ]] && continue
+    [[ -z "${session_name// }" ]] && continue
+
+    local capture_out capture_status capture_needs_input capture_hint capture_hint_trim
+    if ! capture_out="$(amux_ok_json agent capture "$session_name" --lines 48)"; then
+      continue
+    fi
+    capture_status="$(jq -r '.data.status // "captured"' <<<"$capture_out")"
+    capture_needs_input="$(jq -r '.data.needs_input // false' <<<"$capture_out")"
+    capture_hint="$(jq -r '.data.input_hint // ""' <<<"$capture_out")"
+    capture_hint_trim="$(printf '%s' "$capture_hint" | tr -d '\r')"
+    capture_hint_trim="${capture_hint_trim#"${capture_hint_trim%%[![:space:]]*}"}"
+    capture_hint_trim="${capture_hint_trim%"${capture_hint_trim##*[![:space:]]}"}"
+
+    if [[ "$capture_status" == "session_exited" ]]; then
+      continue
+    fi
+    if [[ "$capture_needs_input" == "true" && "$capture_hint_trim" == "Assistant is waiting for local permission-mode selection." ]]; then
+      continue
+    fi
+    if [[ "$capture_needs_input" == "false" ]]; then
+      best_agent="$agent_id"
+      break
+    fi
+    if [[ -z "$fallback_needs_input_agent" ]]; then
+      fallback_needs_input_agent="$agent_id"
+    fi
+  done < <(jq -r --argjson cap "$capture_limit" '.[:$cap][] | [.session_name // "", .agent_id // ""] | @tsv' <<<"$agents_json")
+
+  if [[ -n "$best_agent" ]]; then
+    printf '%s' "$best_agent"
+    return 0
+  fi
+  if [[ -n "$fallback_needs_input_agent" ]]; then
+    printf '%s' "$fallback_needs_input_agent"
+    return 0
+  fi
+  printf '%s' "$first_agent"
+}
+
+turn_reports_permission_mode_gate() {
+  local turn_json="$1"
+  if ! jq -e . >/dev/null 2>&1 <<<"$turn_json"; then
+    return 1
+  fi
+  jq -e '
+    ((.overall_status // .status // "") == "needs_input")
+    and (
+      ((.events // []) | any(
+        (.response.needs_input // false) == true
+        and ((.response.input_hint // "") == "Assistant is waiting for local permission-mode selection.")
+      ))
+      or ((.next_action // "") | test("permission-mode selection"; "i"))
+      or ((.summary // "") | test("permission-mode selection"; "i"))
+    )
+  ' >/dev/null 2>&1 <<<"$turn_json"
+}
+
+turn_reports_no_workspace_change_claim() {
+  local turn_json="$1"
+  if ! jq -e . >/dev/null 2>&1 <<<"$turn_json"; then
+    return 1
+  fi
+  jq -e '
+    ((.summary // "") | test("Claimed file updates, but no workspace changes were detected\\."; "i"))
+    or ((.events // []) | any((.summary // "") | test("Claimed file updates, but no workspace changes were detected\\."; "i")))
+  ' >/dev/null 2>&1 <<<"$turn_json"
 }
 
 default_assistant_for_workspace() {
@@ -955,6 +1045,7 @@ emit_turn_passthrough() {
         end;
       (scrub_text) as $clean
       | $clean
+      | del(.openclaw, .quick_action_by_id, .quick_action_prompts_by_id)
       | .next_action = (fallback_next_action)
       | .suggested_command = (fallback_suggested_command)
       | . + {command: $command, workflow: $workflow}
@@ -986,14 +1077,11 @@ emit_turn_passthrough() {
     context_set_agent "$agent_id" "$workspace_id" "$assistant"
   fi
 
-  printf '%s\n' "$normalized_json" \
-| {
   if [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
-    "$OPENCLAW_PRESENT_SCRIPT"
+    "$OPENCLAW_PRESENT_SCRIPT" <<<"$normalized_json"
   else
-    cat
+    printf '%s\n' "$normalized_json"
   fi
-}
 }
 
 cmd_project_add() {
@@ -2623,7 +2711,7 @@ cmd_start() {
   fi
 
   local turn_json
-  turn_json="$("$TURN_SCRIPT" run \
+  turn_json="$(OPENCLAW_TURN_SKIP_PRESENT=true "$TURN_SCRIPT" run \
     --workspace "$workspace" \
     --assistant "$assistant" \
     --prompt "$prompt" \
@@ -2631,6 +2719,46 @@ cmd_start() {
     --turn-budget "$turn_budget" \
     --wait-timeout "$wait_timeout" \
     --idle-threshold "$idle_threshold" 2>&1 || true)"
+
+  local permission_retry_enabled permission_fallback_assistant
+  permission_retry_enabled="${OPENCLAW_DX_PERMISSION_RETRY:-true}"
+  permission_fallback_assistant="${OPENCLAW_DX_PERMISSION_FALLBACK_ASSISTANT:-gemini}"
+  if [[ "$permission_retry_enabled" != "false" ]] && turn_reports_permission_mode_gate "$turn_json"; then
+    if [[ -n "${permission_fallback_assistant// }" && "$permission_fallback_assistant" != "$assistant" ]]; then
+      local retry_turn_json
+      retry_turn_json="$(OPENCLAW_TURN_SKIP_PRESENT=true "$TURN_SCRIPT" run \
+        --workspace "$workspace" \
+        --assistant "$permission_fallback_assistant" \
+        --prompt "$prompt" \
+        --max-steps "$max_steps" \
+        --turn-budget "$turn_budget" \
+        --wait-timeout "$wait_timeout" \
+        --idle-threshold "$idle_threshold" 2>&1 || true)"
+      if jq -e . >/dev/null 2>&1 <<<"$retry_turn_json"; then
+        turn_json="$retry_turn_json"
+      fi
+    fi
+  fi
+
+  local nochange_retry_enabled nochange_fallback_assistant
+  nochange_retry_enabled="${OPENCLAW_DX_NOCHANGE_RETRY:-true}"
+  nochange_fallback_assistant="${OPENCLAW_DX_NOCHANGE_FALLBACK_ASSISTANT:-codex}"
+  if [[ "$nochange_retry_enabled" != "false" ]] && turn_reports_no_workspace_change_claim "$turn_json"; then
+    if [[ -n "${nochange_fallback_assistant// }" && "$nochange_fallback_assistant" != "$assistant" ]]; then
+      local nochange_retry_json
+      nochange_retry_json="$(OPENCLAW_TURN_SKIP_PRESENT=true "$TURN_SCRIPT" run \
+        --workspace "$workspace" \
+        --assistant "$nochange_fallback_assistant" \
+        --prompt "$prompt" \
+        --max-steps "$max_steps" \
+        --turn-budget "$turn_budget" \
+        --wait-timeout "$wait_timeout" \
+        --idle-threshold "$idle_threshold" 2>&1 || true)"
+      if jq -e . >/dev/null 2>&1 <<<"$nochange_retry_json"; then
+        turn_json="$nochange_retry_json"
+      fi
+    fi
+  fi
 
   emit_turn_passthrough "start" "coding_turn" "$turn_json"
 }
@@ -2805,7 +2933,7 @@ cmd_continue() {
   fi
 
   local turn_json
-  turn_json="$("${turn_args[@]}" 2>&1 || true)"
+  turn_json="$(OPENCLAW_TURN_SKIP_PRESENT=true "${turn_args[@]}" 2>&1 || true)"
 
   emit_turn_passthrough "continue" "followup_turn" "$turn_json"
 }
@@ -2911,6 +3039,12 @@ cmd_status() {
   fi
   agents_json="$(jq -c '.data // []' <<<"$agents_out")"
   terms_json="$(jq -c '.data // []' <<<"$terms_out")"
+  if [[ -n "$project" && -z "$workspace" ]]; then
+    local scoped_workspace_ids
+    scoped_workspace_ids="$(jq -c 'map(.id)' <<<"$ws_json")"
+    agents_json="$(jq -c --argjson ids "$scoped_workspace_ids" 'map(select((.workspace_id // "") as $wid | ($ids | index($wid)) != null))' <<<"$agents_json")"
+    terms_json="$(jq -c --argjson ids "$scoped_workspace_ids" 'map(select((.workspace_id // "") as $wid | ($ids | index($wid)) != null))' <<<"$terms_json")"
+  fi
 
   local project_count workspace_count agent_count terminal_count session_count prune_total
   project_count="$(jq -r '.data // [] | length' <<<"$projects_out")"
@@ -2918,6 +3052,9 @@ cmd_status() {
   agent_count="$(jq -r 'length' <<<"$agents_json")"
   terminal_count="$(jq -r 'length' <<<"$terms_json")"
   session_count="$(jq -r '.data // [] | length' <<<"$sessions_out")"
+  if [[ -n "$project" && -z "$workspace" ]]; then
+    session_count="$agent_count"
+  fi
   prune_total="$(jq -r '.data.total // 0' <<<"$prune_out")"
 
   local alerts='[]'
@@ -2936,6 +3073,14 @@ cmd_status() {
     capture_summary="$(jq -r '.data.summary // .data.latest_line // ""' <<<"$capture_out")"
     capture_needs_input="$(jq -r '.data.needs_input // false' <<<"$capture_out")"
     capture_hint="$(jq -r '.data.input_hint // ""' <<<"$capture_out")"
+    if [[ "$capture_needs_input" == "true" ]]; then
+      local capture_hint_lc capture_summary_lc
+      capture_hint_lc="$(printf '%s' "$capture_hint" | tr '[:upper:]' '[:lower:]')"
+      capture_summary_lc="$(printf '%s' "$capture_summary" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$capture_hint_lc" == "what can i do for you?"* || "$capture_summary_lc" == *"needs input: what can i do for you?"* ]]; then
+        capture_needs_input=false
+      fi
+    fi
 
     local agent_row agent_row_json agent_id workspace_id
     agent_row="$(jq -c --arg s "$session_name" '.[] | select(.session_name == $s)' <<<"$agents_json" | head -n 1)"
@@ -2963,7 +3108,7 @@ cmd_status() {
     fi
   done < <(jq -r --argjson cap "$capture_agents" '.[:$cap][]?.session_name' <<<"$agents_json")
 
-  if [[ "$include_stale_alerts" == "true" ]] && [[ -z "$workspace" ]] && [[ "$prune_total" =~ ^[0-9]+$ ]] && [[ "$prune_total" -gt 0 ]]; then
+  if [[ "$include_stale_alerts" == "true" ]] && [[ -z "$workspace" ]] && [[ -z "$project" ]] && [[ "$prune_total" =~ ^[0-9]+$ ]] && [[ "$prune_total" -gt 0 ]]; then
     alerts="$(jq -cn --argjson alerts "$alerts" --arg older_than "$older_than" --argjson total "$prune_total" '$alerts + [{type: "stale_sessions", total: $total, older_than: $older_than}]')"
   fi
 
@@ -3425,7 +3570,7 @@ cmd_review() {
   fi
 
   local turn_json
-  turn_json="$("$TURN_SCRIPT" run \
+  turn_json="$(OPENCLAW_TURN_SKIP_PRESENT=true "$TURN_SCRIPT" run \
     --workspace "$workspace" \
     --assistant "$assistant" \
     --prompt "$prompt" \
@@ -3852,10 +3997,28 @@ cmd_workflow_dual() {
   local implement_prompt="${OPENCLAW_DX_IMPLEMENT_PROMPT:-Identify the highest-impact technical-debt item in this workspace, implement the fix, run targeted validation, and summarize changed files plus remaining risks.}"
   local review_assistant="${OPENCLAW_DX_REVIEW_ASSISTANT:-codex}"
   local review_prompt="${OPENCLAW_DX_REVIEW_PROMPT:-Review current uncommitted changes. Return findings first ordered by severity with file references, then residual risks and test gaps.}"
+  local implement_needs_input_retry="${OPENCLAW_DX_IMPLEMENT_NEEDS_INPUT_RETRY:-true}"
+  local implement_needs_input_fallback_assistant="${OPENCLAW_DX_IMPLEMENT_NEEDS_INPUT_FALLBACK_ASSISTANT:-codex}"
+  local review_needs_input_retry="${OPENCLAW_DX_REVIEW_NEEDS_INPUT_RETRY:-true}"
+  local review_needs_input_fallback_assistant="${OPENCLAW_DX_REVIEW_NEEDS_INPUT_FALLBACK_ASSISTANT:-codex}"
   local max_steps="${OPENCLAW_DX_MAX_STEPS:-3}"
   local turn_budget="${OPENCLAW_DX_TURN_BUDGET:-180}"
   local wait_timeout="${OPENCLAW_DX_WAIT_TIMEOUT:-60s}"
   local idle_threshold="${OPENCLAW_DX_IDLE_THRESHOLD:-10s}"
+  local progress_stderr="${OPENCLAW_DX_PROGRESS_STDERR:-true}"
+  local dual_started_at
+  dual_started_at="$(date +%s)"
+
+  dx_dual_progress() {
+    local message="$1"
+    if [[ "$progress_stderr" == "false" ]]; then
+      return
+    fi
+    local now elapsed
+    now="$(date +%s)"
+    elapsed="$((now - dual_started_at))"
+    printf '[openclaw-dx][workflow dual][%ss] %s\n' "$elapsed" "$message" >&2
+  }
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -3915,20 +4078,55 @@ cmd_workflow_dual() {
   )
 
   local implementation_json
+  dx_dual_progress "implementation phase starting (assistant=$implement_assistant workspace=$workspace)"
   if ! implementation_json="$(run_self_json "${implement_args[@]}")"; then
+    dx_dual_progress "implementation phase failed to execute"
     emit_error "workflow.dual" "command_error" "failed to run implementation phase" "${implement_args[*]}"
     return
   fi
 
   local impl_ok impl_status impl_summary impl_next impl_cmd
+  local effective_implement_assistant
+  effective_implement_assistant="$implement_assistant"
   impl_ok="$(jq -r '.ok // false' <<<"$implementation_json")"
   impl_status="$(jq -r '.overall_status // .status // "unknown"' <<<"$implementation_json")"
   impl_summary="$(jq -r '.summary // ""' <<<"$implementation_json")"
   impl_next="$(jq -r '.next_action // ""' <<<"$implementation_json")"
   impl_cmd="$(jq -r '.suggested_command // ""' <<<"$implementation_json")"
+  dx_dual_progress "implementation phase finished (status=$impl_status)"
+
+  if [[ "$implement_needs_input_retry" != "false" ]] \
+    && [[ "$impl_status" == "needs_input" ]] \
+    && [[ -n "${implement_needs_input_fallback_assistant// }" ]] \
+    && [[ "$implement_needs_input_fallback_assistant" != "$effective_implement_assistant" ]]; then
+    dx_dual_progress "implementation needs input; retrying with fallback assistant=$implement_needs_input_fallback_assistant"
+    local impl_retry_args impl_retry_json
+    impl_retry_args=(
+      start
+      --workspace "$workspace"
+      --assistant "$implement_needs_input_fallback_assistant"
+      --prompt "$implement_prompt"
+      --max-steps "$max_steps"
+      --turn-budget "$turn_budget"
+      --wait-timeout "$wait_timeout"
+      --idle-threshold "$idle_threshold"
+    )
+    if impl_retry_json="$(run_self_json "${impl_retry_args[@]}")"; then
+      implementation_json="$impl_retry_json"
+      impl_ok="$(jq -r '.ok // false' <<<"$implementation_json")"
+      impl_status="$(jq -r '.overall_status // .status // "unknown"' <<<"$implementation_json")"
+      impl_summary="$(jq -r '.summary // ""' <<<"$implementation_json")"
+      impl_next="$(jq -r '.next_action // ""' <<<"$implementation_json")"
+      impl_cmd="$(jq -r '.suggested_command // ""' <<<"$implementation_json")"
+      effective_implement_assistant="$implement_needs_input_fallback_assistant"
+      dx_dual_progress "fallback implementation finished (status=$impl_status assistant=$effective_implement_assistant)"
+    fi
+  fi
 
   local review_json='null'
   local review_skipped_reason=""
+  local effective_review_assistant
+  effective_review_assistant="$review_assistant"
   if [[ "$impl_ok" == "true" ]] && [[ "$impl_status" != "needs_input" ]] && [[ "$impl_status" != "session_exited" ]] && [[ "$impl_status" != "command_error" ]] && [[ "$impl_status" != "agent_error" ]]; then
     local review_args=(
       review
@@ -3940,12 +4138,15 @@ cmd_workflow_dual() {
       --wait-timeout "$wait_timeout"
       --idle-threshold "$idle_threshold"
     )
+    dx_dual_progress "review phase starting (assistant=$review_assistant workspace=$workspace)"
     if ! review_json="$(run_self_json "${review_args[@]}")"; then
       review_json='null'
       review_skipped_reason="review_phase_failed"
+      dx_dual_progress "review phase failed to execute"
     fi
   else
     review_skipped_reason="implementation_not_ready"
+    dx_dual_progress "review phase skipped (reason=$review_skipped_reason)"
   fi
 
   local review_ok="false"
@@ -3959,6 +4160,35 @@ cmd_workflow_dual() {
     review_summary="$(jq -r '.summary // ""' <<<"$review_json")"
     review_next="$(jq -r '.next_action // ""' <<<"$review_json")"
     review_cmd="$(jq -r '.suggested_command // ""' <<<"$review_json")"
+    dx_dual_progress "review phase finished (status=$review_status)"
+
+    if [[ "$review_needs_input_retry" != "false" ]] \
+      && [[ "$review_status" == "needs_input" || "$review_status" == "timed_out" || "$review_status" == "partial" || "$review_status" == "partial_budget" ]] \
+      && [[ -n "${review_needs_input_fallback_assistant// }" ]] \
+      && [[ "$review_needs_input_fallback_assistant" != "$effective_review_assistant" ]]; then
+      dx_dual_progress "review returned status=$review_status; retrying with fallback assistant=$review_needs_input_fallback_assistant"
+      local review_retry_args review_retry_json
+      review_retry_args=(
+        review
+        --workspace "$workspace"
+        --assistant "$review_needs_input_fallback_assistant"
+        --prompt "$review_prompt"
+        --max-steps "$max_steps"
+        --turn-budget "$turn_budget"
+        --wait-timeout "$wait_timeout"
+        --idle-threshold "$idle_threshold"
+      )
+      if review_retry_json="$(run_self_json "${review_retry_args[@]}")"; then
+        review_json="$review_retry_json"
+        review_ok="$(jq -r '.ok // false' <<<"$review_json")"
+        review_status="$(jq -r '.overall_status // .status // "unknown"' <<<"$review_json")"
+        review_summary="$(jq -r '.summary // ""' <<<"$review_json")"
+        review_next="$(jq -r '.next_action // ""' <<<"$review_json")"
+        review_cmd="$(jq -r '.suggested_command // ""' <<<"$review_json")"
+        effective_review_assistant="$review_needs_input_fallback_assistant"
+        dx_dual_progress "fallback review finished (status=$review_status assistant=$effective_review_assistant)"
+      fi
+    fi
   fi
 
   RESULT_OK=true
@@ -3999,11 +4229,18 @@ cmd_workflow_dual() {
     if [[ -n "$impl_cmd" ]]; then
       RESULT_SUGGESTED_COMMAND="$impl_cmd"
     fi
+  elif [[ "$impl_status" == "timed_out" || "$impl_status" == "partial" || "$impl_status" == "partial_budget" ]]; then
+    RESULT_STATUS="attention"
+    RESULT_SUMMARY="Implementation returned partial progress (status: $impl_status)."
+    RESULT_NEXT_ACTION="${impl_next:-Continue implementation to completion, then rerun review if needed.}"
+    if [[ -n "$impl_cmd" ]]; then
+      RESULT_SUGGESTED_COMMAND="$impl_cmd"
+    fi
   elif [[ "$review_json" == "null" ]]; then
     RESULT_STATUS="attention"
     RESULT_SUMMARY="Implementation finished, but review phase did not run."
     RESULT_NEXT_ACTION="Run review to validate uncommitted changes."
-    RESULT_SUGGESTED_COMMAND="skills/amux/scripts/openclaw-dx.sh review --workspace $(shell_quote "$workspace") --assistant $(shell_quote "$review_assistant")"
+    RESULT_SUGGESTED_COMMAND="skills/amux/scripts/openclaw-dx.sh review --workspace $(shell_quote "$workspace") --assistant $(shell_quote "$effective_review_assistant")"
   elif [[ "$review_ok" != "true" ]]; then
     RESULT_STATUS="attention"
     RESULT_SUMMARY="Review phase failed."
@@ -4043,7 +4280,7 @@ cmd_workflow_dual() {
     actions="$(append_action "$actions" "switch_codex" "Switch Codex" "$codex_continue_cmd" "danger" "Switch to a non-interactive implementation assistant")"
   fi
   if [[ "$review_json" == "null" && "$review_skipped_reason" != "implementation_not_ready" ]]; then
-    actions="$(append_action "$actions" "run_review" "Run Review" "skills/amux/scripts/openclaw-dx.sh review --workspace $(shell_quote "$workspace") --assistant $(shell_quote "$review_assistant")" "primary" "Run review phase now")"
+    actions="$(append_action "$actions" "run_review" "Run Review" "skills/amux/scripts/openclaw-dx.sh review --workspace $(shell_quote "$workspace") --assistant $(shell_quote "$effective_review_assistant")" "primary" "Run review phase now")"
   elif [[ "$review_status" == "needs_input" && -n "$review_cmd" ]]; then
     actions="$(append_action "$actions" "continue_review" "Continue Review" "$review_cmd" "danger" "Reply to review prompt")"
   elif [[ ("$review_status" == "timed_out" || "$review_status" == "partial" || "$review_status" == "partial_budget") && -n "$review_cmd" ]]; then
@@ -4056,13 +4293,31 @@ cmd_workflow_dual() {
   fi
   RESULT_QUICK_ACTIONS="$actions"
 
+  local implementation_compact review_compact
+  implementation_compact="$(jq -c '{
+      ok, command, workflow, status, overall_status, summary, next_action, suggested_command,
+      agent_id, workspace_id, assistant, steps_used, max_steps, elapsed_seconds, progress_percent,
+      quick_actions
+    }' <<<"$(normalize_json_or_default "$implementation_json" '{}')" 2>/dev/null || printf '{}')"
+  review_compact="$(jq -c '
+      if . == null then
+        null
+      else
+        {
+          ok, command, workflow, status, overall_status, summary, next_action, suggested_command,
+          agent_id, workspace_id, assistant, steps_used, max_steps, elapsed_seconds, progress_percent,
+          quick_actions
+        }
+      end
+    ' <<<"$(normalize_json_or_default "$review_json" 'null')" 2>/dev/null || printf 'null')"
+
   RESULT_DATA="$(jq -cn \
     --arg workspace "$workspace" \
-    --arg implement_assistant "$implement_assistant" \
-    --arg review_assistant "$review_assistant" \
+    --arg implement_assistant "$effective_implement_assistant" \
+    --arg review_assistant "$effective_review_assistant" \
     --arg review_skipped_reason "$review_skipped_reason" \
-    --argjson implementation "$(normalize_json_or_default "$implementation_json" '{}')" \
-    --argjson review "$(normalize_json_or_default "$review_json" 'null')" \
+    --argjson implementation "$implementation_compact" \
+    --argjson review "$review_compact" \
     '{
       workspace: $workspace,
       implement_assistant: $implement_assistant,
@@ -4073,14 +4328,14 @@ cmd_workflow_dual() {
     }')"
 
   RESULT_MESSAGE="✅ Dual-pass workflow completed"$'\n'"Workspace: $workspace"
-  RESULT_MESSAGE+=$'\n'"Implement ($implement_assistant): $impl_status"
+  RESULT_MESSAGE+=$'\n'"Implement ($effective_implement_assistant): $impl_status"
   if [[ -n "${impl_summary// }" ]]; then
     RESULT_MESSAGE+=$'\n'"  $impl_summary"
   fi
   if [[ "$review_json" == "null" ]]; then
-    RESULT_MESSAGE+=$'\n'"Review ($review_assistant): skipped"
+    RESULT_MESSAGE+=$'\n'"Review ($effective_review_assistant): skipped"
   else
-    RESULT_MESSAGE+=$'\n'"Review ($review_assistant): $review_status"
+    RESULT_MESSAGE+=$'\n'"Review ($effective_review_assistant): $review_status"
     if [[ -n "${review_summary// }" ]]; then
       RESULT_MESSAGE+=$'\n'"  $review_summary"
     fi
@@ -4217,7 +4472,7 @@ cmd_assistants() {
       fi
 
       local turn_json turn_ok turn_status turn_overall turn_summary normalized_result
-      turn_json="$("$TURN_SCRIPT" run \
+      turn_json="$(OPENCLAW_TURN_SKIP_PRESENT=true "$TURN_SCRIPT" run \
         --workspace "$workspace" \
         --assistant "$ready_name" \
         --prompt "$probe_prompt" \

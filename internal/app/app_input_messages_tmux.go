@@ -27,17 +27,17 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 		if svc == nil {
 			return tmuxTabsSyncResult{WorkspaceID: wsID}
 		}
+		allStates, err := svc.AllSessionStates(opts)
+		if err != nil {
+			return tmuxTabsSyncResult{WorkspaceID: wsID}
+		}
 
 		var updates []tmuxTabStatusUpdate
 		for _, tab := range tabsSnapshot {
 			if tab.SessionName == "" {
 				continue
 			}
-			state, err := svc.SessionStateFor(tab.SessionName, opts)
-			if err != nil {
-				// Tolerate transient errors; next tick reconciles. tmuxAvailable gates full outages.
-				continue
-			}
+			state := allStates[tab.SessionName]
 			if strings.EqualFold(tab.Status, "detached") {
 				if !(state.Exists && state.HasLivePane) {
 					updates = append(updates, tmuxTabStatusUpdate{

@@ -114,9 +114,8 @@ jq -c --arg target_channel "$TARGET_CHANNEL" '
   | ($chunks_meta | map(.text)) as $chunks
   | (text_payload($message; $chunks; $chunks_meta; $quick_actions)) as $base
   | ((.channel // {}) as $channel
-    | {
-        generic: $base,
-        telegram: (
+    | def build_presentation($channel_id):
+        if $channel_id == "telegram" then
           $channel + {
             message: ($channel.message // $message),
             chunks: ($channel.chunks // $chunks),
@@ -137,8 +136,7 @@ jq -c --arg target_channel "$TARGET_CHANNEL" '
             action_tokens: ($channel.action_tokens // ($quick_actions | map(.callback_data))),
             actions_fallback: ($channel.actions_fallback // action_fallback($quick_actions))
           }
-        ),
-        slack: (
+        elif $channel_id == "slack" then
           $base + {
             blocks: (
               if ($quick_actions | length) == 0 then
@@ -165,8 +163,7 @@ jq -c --arg target_channel "$TARGET_CHANNEL" '
               end
             )
           }
-        ),
-        discord: (
+        elif $channel_id == "discord" then
           $base + {
             components: (
               if ($quick_actions | length) == 0 then
@@ -189,96 +186,83 @@ jq -c --arg target_channel "$TARGET_CHANNEL" '
               end
             )
           }
-        ),
-        msteams: (
+        elif $channel_id == "msteams" then
           $base + {
             suggested_actions: (
               $quick_actions
               | map({type: "imBack", title: (.label[0:80]), value: (.command // "")})
             )
           }
-        ),
-        webchat: (
+        elif $channel_id == "webchat" then
           $base + {
             quick_replies: (
               $quick_actions
               | map({id: .action_id, label: .label, value: .command})
             )
           }
-        ),
-        whatsapp: $base,
-        signal: $base,
-        line: $base,
-        googlechat: $base,
-        mattermost: $base,
-        matrix: $base,
-        irc: $base,
-        feishu: $base,
-        nextcloud_talk: $base,
-        nostr: $base,
-        tlon: $base,
-        twitch: $base,
-        zalo: $base,
-        zalouser: $base,
-        bluebubbles: $base,
-        imessage: $base
-      }
-    ) as $channels
-  | (normalize_target_channel($target_channel)) as $preferred
-  | .quick_actions = $quick_actions
-  | .quick_action_by_id = ($quick_actions | map({key: .action_id, value: .command}) | from_entries)
-  | .quick_action_prompts_by_id = (
-      $quick_actions
-      | map({key: .action_id, value: .prompt})
-      | from_entries
-    )
-  | .openclaw = {
-      schema_version: "amux.openclaw.channel-ux.v1",
-      supported_channels: [
-        "generic",
-        "telegram",
-        "slack",
-        "discord",
-        "msteams",
-        "webchat",
-        "whatsapp",
-        "signal",
-        "line",
-        "googlechat",
-        "mattermost",
-        "matrix",
-        "irc",
-        "feishu",
-        "nextcloud_talk",
-        "nostr",
-        "tlon",
-        "twitch",
-        "zalo",
-        "zalouser",
-        "bluebubbles",
-        "imessage"
-      ],
-      target_channel: $preferred,
-      selected_channel: (
-        if ($preferred | length) > 0 and ($channels[$preferred] != null) then
+        else
+          $base
+        end;
+    [
+      "generic",
+      "telegram",
+      "slack",
+      "discord",
+      "msteams",
+      "webchat",
+      "whatsapp",
+      "signal",
+      "line",
+      "googlechat",
+      "mattermost",
+      "matrix",
+      "irc",
+      "feishu",
+      "nextcloud_talk",
+      "nostr",
+      "tlon",
+      "twitch",
+      "zalo",
+      "zalouser",
+      "bluebubbles",
+      "imessage"
+    ] as $supported_channels
+    | (normalize_target_channel($target_channel)) as $preferred
+    | (
+        if ($preferred | length) > 0 and (($supported_channels | index($preferred)) != null) then
           $preferred
         else
           "generic"
         end
-      ),
-      channels: $channels,
-      presentation: (
-        if ($preferred | length) > 0 and ($channels[$preferred] != null) then
-          $channels[$preferred]
+      ) as $selected_channel
+    | (build_presentation($selected_channel)) as $selected_presentation
+    | (
+        if $selected_channel == "generic" then
+          {generic: $base}
         else
-          $channels.generic
+          {generic: $base, ($selected_channel): $selected_presentation}
         end
-      ),
-      actions: {
-        list: $quick_actions,
-        map: ($quick_actions | map({key: .action_id, value: .command}) | from_entries),
-        prompts: ($quick_actions | map({key: .action_id, value: .prompt}) | from_entries),
-        fallback: action_fallback($quick_actions)
+      ) as $channels
+    | .quick_actions = $quick_actions
+    | .quick_action_by_id = ($quick_actions | map({key: .action_id, value: .command}) | from_entries)
+    | .quick_action_prompts_by_id = (
+        $quick_actions
+        | map({key: .action_id, value: .prompt})
+        | from_entries
+      )
+    | .openclaw = {
+        schema_version: "amux.openclaw.channel-ux.v1",
+        supported_channels: $supported_channels,
+        target_channel: $preferred,
+        selected_channel: $selected_channel,
+        channels: $channels,
+        presentation: $selected_presentation,
+        actions: {
+          list: $quick_actions,
+          map: ($quick_actions | map({key: .action_id, value: .command}) | from_entries),
+          prompts: ($quick_actions | map({key: .action_id, value: .prompt}) | from_entries),
+          fallback: action_fallback($quick_actions)
+        }
       }
-    }
+  )
 ' <<<"$INPUT_JSON"

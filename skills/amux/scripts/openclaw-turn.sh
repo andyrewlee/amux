@@ -97,6 +97,26 @@ line_has_file_signal() {
   esac
 }
 
+workspace_root_for_turn() {
+  local workspace_id="$1"
+  if [[ -z "$workspace_id" ]]; then
+    printf ''
+    return 0
+  fi
+  if ! command -v amux >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf ''
+    return 0
+  fi
+  local ws_json root
+  ws_json="$(amux --json workspace list --archived 2>/dev/null || true)"
+  if ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$ws_json"; then
+    printf ''
+    return 0
+  fi
+  root="$(jq -r --arg id "$workspace_id" '.data // [] | map(select(.id == $id)) | .[0].root // ""' <<<"$ws_json")"
+  printf '%s' "$root"
+}
+
 if [[ $# -lt 1 ]]; then
   usage
   exit 2
@@ -250,12 +270,14 @@ LAST_WORKSPACE_ID="$WORKSPACE"
 LAST_ASSISTANT_OUT="$ASSISTANT"
 LAST_SUBSTANTIVE_OUTPUT=false
 LAST_NEEDS_INPUT=false
+STEP_EVENT_JSON='{}'
 
 while [[ "$STEPS_USED" -lt "$MAX_STEPS" ]]; do
   NOW_TS="$(date +%s)"
   ELAPSED="$((NOW_TS - START_TS))"
   REMAINING="$((TURN_BUDGET_SECONDS - ELAPSED))"
-  if [[ "$REMAINING" -le "$FINAL_RESERVE_SECONDS" ]]; then
+  # Always allow at least one step even on tight budgets.
+  if [[ "$REMAINING" -le "$FINAL_RESERVE_SECONDS" && "$STEPS_USED" -gt 0 ]]; then
     BUDGET_EXHAUSTED=true
     break
   fi
@@ -264,7 +286,7 @@ while [[ "$STEPS_USED" -lt "$MAX_STEPS" ]]; do
   STEP_IDEMPOTENCY_KEY="${TURN_ID}-step-${STEP_INDEX}"
 
   if [[ "$CURRENT_MODE" == "run" ]]; then
-    STEP_JSON="$("$STEP_SCRIPT" run \
+    STEP_JSON="$(OPENCLAW_STEP_SKIP_PRESENT=true "$STEP_SCRIPT" run \
       --workspace "$CURRENT_WORKSPACE" \
       --assistant "$CURRENT_ASSISTANT" \
       --prompt "$CURRENT_PROMPT" \
@@ -283,7 +305,7 @@ while [[ "$STEPS_USED" -lt "$MAX_STEPS" ]]; do
     if [[ "$CURRENT_ENTER" == "true" ]]; then
       STEP_ARGS+=(--enter)
     fi
-    STEP_JSON="$("${STEP_ARGS[@]}")"
+    STEP_JSON="$(OPENCLAW_STEP_SKIP_PRESENT=true "${STEP_ARGS[@]}")"
   fi
 
   if ! jq -e . >/dev/null 2>&1 <<<"$STEP_JSON"; then
@@ -294,9 +316,28 @@ while [[ "$STEPS_USED" -lt "$MAX_STEPS" ]]; do
     }')"
   fi
 
+  STEP_EVENT_JSON="$(jq -c '{
+    ok: (.ok // false),
+    mode: (.mode // ""),
+    status: (.status // "unknown"),
+    summary: (.summary // ""),
+    next_action: (.next_action // ""),
+    suggested_command: (.suggested_command // ""),
+    agent_id: (.agent_id // ""),
+    workspace_id: (.workspace_id // ""),
+    assistant: (.assistant // ""),
+    response: {
+      substantive_output: (.response.substantive_output // false),
+      needs_input: (.response.needs_input // false),
+      timed_out: (.response.timed_out // false),
+      session_exited: (.response.session_exited // false),
+      changed: (.response.changed // false)
+    }
+  }' <<<"$STEP_JSON")"
+
   STEPS_USED="$STEP_INDEX"
   LAST_STEP_JSON="$STEP_JSON"
-  EVENTS_JSON="$(jq -cn --argjson events "$EVENTS_JSON" --argjson step "$STEP_JSON" '$events + [$step]')"
+  EVENTS_JSON="$(jq -cn --argjson events "$EVENTS_JSON" --argjson step "$STEP_EVENT_JSON" '$events + [$step]')"
 
   LAST_STATUS="$(jq -r '.status // "unknown"' <<<"$STEP_JSON")"
   LAST_SUMMARY="$(jq -r '.summary // ""' <<<"$STEP_JSON")"
@@ -388,6 +429,22 @@ if [[ "$OVERALL_STATUS" == "completed" ]]; then
   FINAL_SUMMARY="Completed in $STEPS_USED step(s). $FINAL_SUMMARY"
 else
   FINAL_SUMMARY="Partial after $STEPS_USED step(s). $FINAL_SUMMARY"
+fi
+if [[ "$OVERALL_STATUS" == "completed" && -n "$LAST_WORKSPACE_ID" ]] && line_has_file_signal "$LAST_SUMMARY"; then
+  WORKSPACE_ROOT_CANDIDATE="$(workspace_root_for_turn "$LAST_WORKSPACE_ID")"
+  if [[ -n "$WORKSPACE_ROOT_CANDIDATE" && -d "$WORKSPACE_ROOT_CANDIDATE" ]]; then
+    if git -C "$WORKSPACE_ROOT_CANDIDATE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      PORCELAIN_STATUS="$(git -C "$WORKSPACE_ROOT_CANDIDATE" status --porcelain --untracked-files=all 2>/dev/null || true)"
+      if [[ -z "${PORCELAIN_STATUS// }" ]]; then
+        OVERALL_STATUS="partial"
+        FINAL_SUMMARY="Partial after $STEPS_USED step(s). Claimed file updates, but no workspace changes were detected."
+        LAST_NEXT_ACTION="Ask for exact changed files and apply the requested edits."
+        if [[ -n "$LAST_AGENT_ID" ]]; then
+          LAST_SUGGESTED_COMMAND="$TURN_SCRIPT_CMD send --agent $(shell_quote "$LAST_AGENT_ID") --text \"List exact files changed and apply the missing edits now.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
+        fi
+      fi
+    fi
+  fi
 fi
 FINAL_SUMMARY="$(redact_secrets_text "$FINAL_SUMMARY")"
 LAST_NEXT_ACTION="$(redact_secrets_text "$LAST_NEXT_ACTION")"
@@ -489,7 +546,7 @@ case "$OVERALL_STATUS" in
     ;;
 esac
 
-jq -n \
+OPENCLAW_PAYLOAD="$(jq -n \
   --arg mode "$MODE" \
   --arg status "$LAST_STATUS" \
   --arg overall_status "$OVERALL_STATUS" \
@@ -746,11 +803,12 @@ jq -n \
           }
       )
     }
-  ' \
-| {
-  if [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
-    "$OPENCLAW_PRESENT_SCRIPT"
-  else
-    cat
-  fi
-}
+  ')"
+
+if [[ "${OPENCLAW_TURN_SKIP_PRESENT:-false}" == "true" ]]; then
+  printf '%s\n' "$OPENCLAW_PAYLOAD"
+elif [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
+  "$OPENCLAW_PRESENT_SCRIPT" <<<"$OPENCLAW_PAYLOAD"
+else
+  printf '%s\n' "$OPENCLAW_PAYLOAD"
+fi
