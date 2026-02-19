@@ -46,6 +46,7 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
 	env = withEnv(env, "OPENCLAW_DX_TURN_SCRIPT", fakeTurnPath)
 	env = withEnv(env, "OPENCLAW_DX_SELF_SCRIPT", scriptPath)
+	env = withEnv(env, "OPENCLAW_PRESENT_SCRIPT", "/nonexistent")
 
 	payload := runScriptJSON(t, scriptPath, env,
 		"workflow", "kickoff",
@@ -130,6 +131,7 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
 	env = withEnv(env, "OPENCLAW_DX_TURN_SCRIPT", fakeTurnPath)
 	env = withEnv(env, "OPENCLAW_DX_SELF_SCRIPT", scriptPath)
+	env = withEnv(env, "OPENCLAW_PRESENT_SCRIPT", "/nonexistent")
 
 	payload := runScriptJSON(t, scriptPath, env,
 		"workflow", "dual",
@@ -224,6 +226,7 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
 	env = withEnv(env, "OPENCLAW_DX_TURN_SCRIPT", fakeTurnPath)
 	env = withEnv(env, "OPENCLAW_DX_SELF_SCRIPT", scriptPath)
+	env = withEnv(env, "OPENCLAW_PRESENT_SCRIPT", "/nonexistent")
 
 	payload := runScriptJSON(t, scriptPath, env,
 		"workflow", "dual",
