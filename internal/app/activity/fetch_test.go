@@ -41,6 +41,22 @@ func (*panicFetcher) ActiveAgentSessionsByActivity(time.Duration, tmux.Options) 
 	panic("typed-nil fetcher should not be called")
 }
 
+type activeFetcher struct {
+	sessions []tmux.SessionActivity
+	err      error
+}
+
+func (f activeFetcher) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+	return nil, nil
+}
+
+func (f activeFetcher) ActiveAgentSessionsByActivity(time.Duration, tmux.Options) ([]tmux.SessionActivity, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.sessions, nil
+}
+
 func TestFetchTaggedSessions_IncludesKnownAndTaggedSessions(t *testing.T) {
 	rows := []tmux.SessionTagValues{
 		{
@@ -184,5 +200,36 @@ func TestFetchRecentlyActiveByWindow_TypedNilFetcherReturnsUnavailable(t *testin
 	_, err := FetchRecentlyActiveByWindow(svc, time.Second, tmux.Options{})
 	if !errors.Is(err, ErrTmuxUnavailable) {
 		t.Fatalf("expected ErrTmuxUnavailable, got %v", err)
+	}
+}
+
+func TestFetchRecentlyActiveByWindow_BuildsNameMap(t *testing.T) {
+	svc := activeFetcher{
+		sessions: []tmux.SessionActivity{
+			{Name: "sess-a"},
+			{Name: "   "},
+			{Name: "sess-b"},
+		},
+	}
+
+	got, err := FetchRecentlyActiveByWindow(svc, 5*time.Second, tmux.Options{})
+	if err != nil {
+		t.Fatalf("FetchRecentlyActiveByWindow: %v", err)
+	}
+	if !got["sess-a"] || !got["sess-b"] {
+		t.Fatalf("expected active map to include sess-a and sess-b, got %v", got)
+	}
+	if got[""] {
+		t.Fatalf("did not expect empty session key in active map: %v", got)
+	}
+}
+
+func TestFetchRecentlyActiveByWindow_PropagatesFetcherError(t *testing.T) {
+	wantErr := errors.New("activity failed")
+	svc := activeFetcher{err: wantErr}
+
+	_, err := FetchRecentlyActiveByWindow(svc, time.Second, tmux.Options{})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
 	}
 }

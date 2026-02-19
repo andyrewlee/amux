@@ -199,7 +199,7 @@ func TestActiveWorkspaceIDsFromTags_UsesTagWindowAndFallback(t *testing.T) {
 		},
 	}
 	infoBySession := map[string]SessionInfo{
-		"sess-tag":      {WorkspaceID: "ws-tag", IsChat: true},
+		// Keep sess-tag absent so the unknown-session fresh-tag path is exercised.
 		"sess-old":      {WorkspaceID: "ws-old", IsChat: true},
 		"sess-fallback": {WorkspaceID: "ws-fallback", IsChat: true},
 	}
@@ -214,6 +214,7 @@ func TestActiveWorkspaceIDsFromTags_UsesTagWindowAndFallback(t *testing.T) {
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
 	recentActivity := map[string]bool{
+		"sess-tag": true,
 		"sess-old": true,
 	}
 	active, _ := ActiveWorkspaceIDsFromTags(infoBySession, sessions, recentActivity, states, tmux.Options{}, captureFn, hashFn)
@@ -226,6 +227,151 @@ func TestActiveWorkspaceIDsFromTags_UsesTagWindowAndFallback(t *testing.T) {
 	}
 	if !active["ws-fallback"] {
 		t.Fatal("expected ws-fallback to be active via hysteresis fallback")
+	}
+}
+
+func TestActiveWorkspaceIDsFromTags_FreshTagWithoutRecentWindowActivityFallsBack(t *testing.T) {
+	now := time.Now()
+	const sessionName = "sess-fresh-no-window"
+	hashValue := [16]byte{9}
+	sessions := []TaggedSession{
+		{
+			Session:       tmux.SessionActivity{Name: sessionName, WorkspaceID: "ws-fresh", Type: "agent"},
+			LastOutputAt:  now.Add(-500 * time.Millisecond),
+			HasLastOutput: true,
+		},
+	}
+	infoBySession := map[string]SessionInfo{
+		sessionName: {WorkspaceID: "ws-fresh", IsChat: true},
+	}
+	states := map[string]*SessionState{
+		sessionName: {
+			LastHash:     hashValue,
+			Score:        ScoreMax,
+			LastActiveAt: now,
+			Initialized:  true,
+		},
+	}
+	captureFn := func(string, int, tmux.Options) (string, bool) { return "same", true }
+	hashFn := func(string) [16]byte { return hashValue }
+
+	active, updated := ActiveWorkspaceIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
+	if active["ws-fresh"] {
+		t.Fatal("expected fresh tag without recent window activity to fall back and remain inactive on unchanged content")
+	}
+	state := updated[sessionName]
+	if state == nil {
+		t.Fatal("expected fallback-updated state for fresh tag without recent window activity")
+	}
+	if state.Score != ScoreThreshold-1 {
+		t.Fatalf("expected score to decay to %d, got %d", ScoreThreshold-1, state.Score)
+	}
+	if !state.LastActiveAt.IsZero() {
+		t.Fatal("expected hold timer to be cleared when fresh tag falls back")
+	}
+}
+
+func TestActiveWorkspaceIDsFromTags_FreshTagWithoutRecentWindowActivity_DoesNotBlipWhenStateUninitialized(t *testing.T) {
+	now := time.Now()
+	const sessionName = "sess-fresh-no-window-uninitialized"
+	const workspaceID = "ws-fresh-no-window-uninitialized"
+	hashValue := [16]byte{4}
+	sessions := []TaggedSession{
+		{
+			Session:       tmux.SessionActivity{Name: sessionName, WorkspaceID: workspaceID, Type: "agent"},
+			LastOutputAt:  now.Add(-500 * time.Millisecond),
+			HasLastOutput: true,
+		},
+	}
+	infoBySession := map[string]SessionInfo{
+		sessionName: {WorkspaceID: workspaceID, IsChat: true},
+	}
+	states := map[string]*SessionState{}
+	captureFn := func(string, int, tmux.Options) (string, bool) { return "same", true }
+	hashFn := func(string) [16]byte { return hashValue }
+
+	active, updated := ActiveWorkspaceIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
+	if active[workspaceID] {
+		t.Fatal("expected no first-scan active blip for fresh tag without recent window activity when state is uninitialized")
+	}
+	state := updated[sessionName]
+	if state == nil {
+		t.Fatal("expected seeded fallback state for uninitialized fresh-tag session")
+	}
+	if !state.Initialized {
+		t.Fatal("expected fallback state to be initialized")
+	}
+	if state.Score != 0 {
+		t.Fatalf("expected seeded score to remain at 0 on unchanged fallback capture, got %d", state.Score)
+	}
+}
+
+func TestActiveWorkspaceIDsFromTags_FreshTagActiveWhenPrefilterUnavailable(t *testing.T) {
+	now := time.Now()
+	sessions := []TaggedSession{
+		{
+			Session:       tmux.SessionActivity{Name: "sess-fresh", WorkspaceID: "ws-fresh", Type: "agent"},
+			LastOutputAt:  now.Add(-500 * time.Millisecond),
+			HasLastOutput: true,
+		},
+	}
+	infoBySession := map[string]SessionInfo{}
+	states := map[string]*SessionState{}
+	captureFn := func(string, int, tmux.Options) (string, bool) { return "output", true }
+	hashFn := func(string) [16]byte { return [16]byte{1} }
+
+	active, _ := ActiveWorkspaceIDsFromTags(infoBySession, sessions, nil, states, tmux.Options{}, captureFn, hashFn)
+	if !active["ws-fresh"] {
+		t.Fatal("expected fresh tag to remain active when prefilter is unavailable")
+	}
+}
+
+func TestActiveWorkspaceIDsFromTags_FreshTagWithRecentWindowButNoVisibleDeltaStaysInactive(t *testing.T) {
+	now := time.Now()
+	const sessionName = "sess-fresh-no-delta"
+	hashValue := [16]byte{5}
+	sessions := []TaggedSession{
+		{
+			Session:       tmux.SessionActivity{Name: sessionName, WorkspaceID: "ws-fresh-no-delta", Type: "agent"},
+			LastOutputAt:  now.Add(-400 * time.Millisecond),
+			HasLastOutput: true,
+		},
+	}
+	infoBySession := map[string]SessionInfo{
+		sessionName: {WorkspaceID: "ws-fresh-no-delta", IsChat: true},
+	}
+	states := map[string]*SessionState{
+		sessionName: {
+			LastHash:     hashValue,
+			Score:        ScoreMax,
+			LastActiveAt: now,
+			Initialized:  true,
+		},
+	}
+	captureFn := func(string, int, tmux.Options) (string, bool) { return "same", true }
+	hashFn := func(string) [16]byte { return hashValue }
+
+	active, updated := ActiveWorkspaceIDsFromTags(
+		infoBySession,
+		sessions,
+		map[string]bool{sessionName: true},
+		states,
+		tmux.Options{},
+		captureFn,
+		hashFn,
+	)
+	if active["ws-fresh-no-delta"] {
+		t.Fatal("expected fresh tag with unchanged pane content to remain inactive")
+	}
+	state := updated[sessionName]
+	if state == nil {
+		t.Fatal("expected updated state for no-delta fresh tag")
+	}
+	if state.Score != ScoreThreshold-1 {
+		t.Fatalf("expected score to decay to %d, got %d", ScoreThreshold-1, state.Score)
+	}
+	if !state.LastActiveAt.IsZero() {
+		t.Fatal("expected hold timer to be cleared for no-delta fresh tag")
 	}
 }
 
