@@ -65,13 +65,26 @@ func (e *PermissionsEditor) renderLines() []string {
 	denySep := denyHeader.Render(strings.Repeat("─", 4))
 	lines = append(lines, allowSep+denySep)
 
-	// Build list items
+	// Build list items with scroll clamping
 	maxLen := max(len(e.allowList), len(e.denyList))
 	if maxLen == 0 {
 		maxLen = 1 // At least one row for "(empty)"
 	}
 
-	for i := 0; i < maxLen; i++ {
+	maxRows := e.maxVisibleRows()
+	startIdx := e.scrollOffset
+	endIdx := startIdx + maxRows
+	if endIdx > maxLen {
+		endIdx = maxLen
+	}
+
+	// Scroll indicator: items above
+	if startIdx > 0 {
+		indicator := muted.Render("  ↑ more above")
+		lines = append(lines, padRight(indicator, colWidth)+indicator)
+	}
+
+	for i := startIdx; i < endIdx; i++ {
 		var allowCell, denyCell string
 
 		// Allow column
@@ -107,6 +120,12 @@ func (e *PermissionsEditor) renderLines() []string {
 		}
 
 		lines = append(lines, allowCell+denyCell)
+	}
+
+	// Scroll indicator: items below
+	if endIdx < maxLen {
+		indicator := muted.Render("  ↓ more below")
+		lines = append(lines, padRight(indicator, colWidth)+indicator)
 	}
 	lines = append(lines, "")
 

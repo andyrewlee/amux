@@ -1,6 +1,7 @@
 package common
 
 import (
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -18,9 +19,10 @@ type PermissionsEditor struct {
 	allowList []string
 	denyList  []string
 
-	activeList int // 0=allow, 1=deny
-	cursor     int
-	addingNew  bool
+	activeList   int // 0=allow, 1=deny
+	cursor       int
+	scrollOffset int
+	addingNew    bool
 	editing    bool
 	editIndex  int
 	input      textinput.Model
@@ -28,9 +30,11 @@ type PermissionsEditor struct {
 
 // NewPermissionsEditor creates a new permissions editor.
 func NewPermissionsEditor(allow, deny []string) *PermissionsEditor {
-	// Deduplicate the lists
+	// Deduplicate and sort the lists
 	allowCopy := dedupeStrings(allow)
 	denyCopy := dedupeStrings(deny)
+	sortCaseInsensitive(allowCopy)
+	sortCaseInsensitive(denyCopy)
 
 	input := textinput.New()
 	input.Placeholder = "Bash(npm:*)"
@@ -93,6 +97,60 @@ func (e *PermissionsEditor) setActiveEntry(index int, value string) {
 	}
 }
 
+// sortCaseInsensitive sorts a string slice ignoring case.
+func sortCaseInsensitive(s []string) {
+	sort.Slice(s, func(i, j int) bool {
+		return strings.ToLower(s[i]) < strings.ToLower(s[j])
+	})
+}
+
+// sortAndMoveCursor sorts the active list and moves the cursor to the given value.
+func (e *PermissionsEditor) sortAndMoveCursor(value string) {
+	entries := e.activeEntries()
+	sortCaseInsensitive(entries)
+	e.setActiveEntries(entries)
+	for i, v := range entries {
+		if v == value {
+			e.cursor = i
+			break
+		}
+	}
+}
+
+// maxVisibleRows returns how many list rows can fit given the current height.
+// Fixed chrome: border(2) + padding(2) + title(1) + blank(1) + header(1) +
+// separator(1) + blank(1) + help(6+blank) + controls(1) + blank(1) + save(1) ≈ 18 lines.
+func (e *PermissionsEditor) maxVisibleRows() int {
+	const maxRows = 15
+	const fixedChrome = 18
+	if e.height <= 0 {
+		return maxRows
+	}
+	rows := e.height - fixedChrome
+	if rows < 3 {
+		rows = 3
+	}
+	if rows > maxRows {
+		rows = maxRows
+	}
+	return rows
+}
+
+// ensureVisible adjusts scrollOffset so the cursor stays in the visible window.
+func (e *PermissionsEditor) ensureVisible() {
+	maxLen := max(len(e.allowList), len(e.denyList))
+	if maxLen == 0 {
+		e.scrollOffset = 0
+		return
+	}
+	maxRows := e.maxVisibleRows()
+	if e.cursor < e.scrollOffset {
+		e.scrollOffset = e.cursor
+	} else if e.cursor >= e.scrollOffset+maxRows {
+		e.scrollOffset = e.cursor - maxRows + 1
+	}
+}
+
 // Update handles input for the permissions editor.
 func (e *PermissionsEditor) Update(msg tea.Msg) (*PermissionsEditor, tea.Cmd) {
 	if !e.visible {
@@ -114,10 +172,12 @@ func (e *PermissionsEditor) Update(msg tea.Msg) (*PermissionsEditor, tea.Cmd) {
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "h", "l", "left", "right"))):
 			e.activeList = (e.activeList + 1) % 2
+			e.scrollOffset = 0
 			entries := e.activeEntries()
 			if e.cursor >= len(entries) {
 				e.cursor = max(0, len(entries)-1)
 			}
+			e.ensureVisible()
 			return e, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("j", "down"))):
@@ -125,12 +185,14 @@ func (e *PermissionsEditor) Update(msg tea.Msg) (*PermissionsEditor, tea.Cmd) {
 			if e.cursor < len(entries)-1 {
 				e.cursor++
 			}
+			e.ensureVisible()
 			return e, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			if e.cursor > 0 {
 				e.cursor--
 			}
+			e.ensureVisible()
 			return e, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("a"))):
@@ -161,6 +223,7 @@ func (e *PermissionsEditor) Update(msg tea.Msg) (*PermissionsEditor, tea.Cmd) {
 					e.cursor--
 				}
 			}
+			e.ensureVisible()
 			return e, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("m"))):
@@ -170,16 +233,19 @@ func (e *PermissionsEditor) Update(msg tea.Msg) (*PermissionsEditor, tea.Cmd) {
 				// Remove from current list
 				entries = append(entries[:e.cursor], entries[e.cursor+1:]...)
 				e.setActiveEntries(entries)
-				// Add to other list
+				// Add to other list and re-sort it
 				if e.activeList == 0 {
 					e.denyList = append(e.denyList, perm)
+					sortCaseInsensitive(e.denyList)
 				} else {
 					e.allowList = append(e.allowList, perm)
+					sortCaseInsensitive(e.allowList)
 				}
 				if e.cursor >= len(e.activeEntries()) && e.cursor > 0 {
 					e.cursor--
 				}
 			}
+			e.ensureVisible()
 			return e, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("S"))):
@@ -215,12 +281,13 @@ func (e *PermissionsEditor) handleInputMode(msg tea.KeyPressMsg) (*PermissionsEd
 				entries := e.activeEntries()
 				entries = append(entries, value)
 				e.setActiveEntries(entries)
-				e.cursor = len(e.activeEntries()) - 1
 			}
+			e.sortAndMoveCursor(value)
 		}
 		e.addingNew = false
 		e.editing = false
 		e.input.Blur()
+		e.ensureVisible()
 		return e, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
