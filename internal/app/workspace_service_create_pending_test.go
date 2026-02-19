@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -95,6 +96,74 @@ func TestCreateWorkspaceEmptyBaseDefaultsToDefaultBranch(t *testing.T) {
 	}
 	if failed.Workspace.Base != "HEAD" {
 		t.Fatalf("expected base 'HEAD', got %q", failed.Workspace.Base)
+	}
+}
+
+func TestResolveBaseReturnsExplicitOverride(t *testing.T) {
+	// An explicit base is returned as-is, regardless of the repo.
+	got := resolveBase("/nonexistent", "feature")
+	if got != "feature" {
+		t.Fatalf("expected 'feature', got %q", got)
+	}
+}
+
+func TestResolveBaseFallsBackToHEADForNonRepo(t *testing.T) {
+	// A non-repo path can't determine a default branch; fallback is HEAD.
+	got := resolveBase("/nonexistent", "")
+	if got != "HEAD" {
+		t.Fatalf("expected 'HEAD', got %q", got)
+	}
+}
+
+func TestResolveBaseDetectsMainBranch(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	// With a real repo that has a "main" branch, empty base should resolve
+	// to "main" — not "HEAD".
+	got := resolveBase(repo, "")
+	if got != "main" {
+		t.Fatalf("expected 'main', got %q", got)
+	}
+}
+
+func TestCreateWorkspaceEmptyBaseResolvesToMainBranch(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	// Switch to a feature branch so HEAD != main, simulating the bug
+	// scenario where the user is on a different workspace branch.
+	runGit(t, repo, "checkout", "-b", "openclaw")
+
+	var capturedBase string
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	svc.gitOps = &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			capturedBase = base
+			return errors.New("stop")
+		},
+	}
+
+	project := data.NewProject(repo)
+	cmd := svc.CreateWorkspace(project, "feature", "")
+	cmd()
+
+	if capturedBase != "main" {
+		t.Fatalf("expected gitOps to receive base 'main', got %q", capturedBase)
 	}
 }
 
