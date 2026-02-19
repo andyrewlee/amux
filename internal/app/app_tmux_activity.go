@@ -80,6 +80,7 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
+		// Mutates infoBySession so IsRunningSession sees corrected statuses.
 		stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
@@ -123,6 +124,7 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 		if err != nil {
 			return tmuxActivityResult{Token: scanToken, Err: err}
 		}
+		// Mutates sessionInfo so IsRunningSession sees corrected statuses.
 		stoppedTabs := syncActivitySessionStates(sessionInfo, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
@@ -157,9 +159,7 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 			for _, update := range msg.StoppedTabs {
 				stoppedTabCmds = append(stoppedTabCmds, func() tea.Msg { return update })
 			}
-			if len(stoppedTabCmds) > 0 {
-				cmds = append(cmds, common.SafeBatch(stoppedTabCmds...))
-			}
+			cmds = append(cmds, common.SafeBatch(stoppedTabCmds...))
 		}
 		a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
 		a.syncActiveWorkspacesToDashboard()
@@ -264,6 +264,12 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 	return infoBySession
 }
 
+// syncActivitySessionStates reconciles the in-memory session info map with live
+// tmux state. It mutates infoBySession in place — setting Status to "stopped" for
+// dead/disappeared sessions and "running" for revived ones — so that the subsequent
+// ActiveWorkspaceIDsFromTags call (which filters via IsRunningSession) sees corrected
+// statuses. It returns TabSessionStatus messages for sessions whose status changed
+// from a running-like state to stopped.
 func syncActivitySessionStates(
 	infoBySession map[string]activity.SessionInfo,
 	sessions []activity.TaggedSession,
@@ -297,8 +303,7 @@ func syncActivitySessionStates(
 		if !ok {
 			continue
 		}
-		prevStatus := strings.TrimSpace(strings.ToLower(info.Status))
-		isRunningLikeStatus := prevStatus == "" || prevStatus == "running" || prevStatus == "detached"
+		isRunningLikeStatus := activity.IsRunningSession(info, true)
 
 		state := allStates[sessionName] // zero value if missing (Exists=false)
 
@@ -324,8 +329,7 @@ func syncActivitySessionStates(
 		if _, ok := checked[sessionName]; ok {
 			continue
 		}
-		prevStatus := strings.TrimSpace(strings.ToLower(info.Status))
-		isRunningLikeStatus := prevStatus == "" || prevStatus == "running" || prevStatus == "detached"
+		isRunningLikeStatus := activity.IsRunningSession(info, true)
 		if isRunningLikeStatus {
 			info.Status = "stopped"
 			infoBySession[sessionName] = info
