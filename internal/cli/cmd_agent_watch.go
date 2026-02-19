@@ -14,6 +14,11 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
+// watchInitialCaptureMaxAttempts bounds the initial capture loop so it cannot
+// spin indefinitely if captures alternate between failing and succeeding in
+// state-reset patterns.
+const watchInitialCaptureMaxAttempts = 50
+
 // watchEvent is a single NDJSON line emitted by agent watch.
 type watchEvent struct {
 	Type             string   `json:"type"`
@@ -139,11 +144,22 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 	// Initial capture → snapshot. A transient capture miss should not be
 	// treated as exit if the tmux session still exists.
 	var content string
+	initialAttempts := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return ExitOK
 		default:
+		}
+		initialAttempts++
+		if initialAttempts > watchInitialCaptureMaxAttempts {
+			if !emitEvent(enc, watchEvent{
+				Type:      "exited",
+				Timestamp: now(),
+			}) {
+				return ExitOK
+			}
+			return ExitOK
 		}
 		captured, ok := capture(cfg.SessionName, cfg.Lines, opts)
 		if ok {

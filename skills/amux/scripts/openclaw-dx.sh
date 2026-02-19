@@ -50,6 +50,10 @@ is_positive_int() {
   [[ "${1:-}" =~ ^[0-9]+$ ]] && [[ "$1" -gt 0 ]]
 }
 
+is_valid_hostname() {
+  [[ "${1:-}" =~ ^[-A-Za-z0-9.:]+$ ]]
+}
+
 normalize_inline_buttons_scope() {
   local value="${1:-allowlist}"
   case "$value" in
@@ -3198,6 +3202,9 @@ cmd_terminal_preset() {
   context_set_workspace_with_lookup "$workspace" ""
   if ! is_positive_int "$port"; then
     port=3000
+  fi
+  if ! is_valid_hostname "$host"; then
+    host="0.0.0.0"
   fi
 
   local launch_cmd=""

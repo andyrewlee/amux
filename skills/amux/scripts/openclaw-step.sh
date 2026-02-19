@@ -689,17 +689,17 @@ elif [[ "$STATUS" == "timed_out" ]]; then
     NEXT_ACTION="Agent may still be starting. Run one bounded follow-up send on the same agent to force a short status update."
   fi
   if [[ -n "$AGENT_ID_OUT" ]]; then
-    SUGGESTED_COMMAND="$STEP_SCRIPT_CMD send --agent $AGENT_ID_OUT --text \"Continue from current state and provide a one-line status update.\" --enter --wait-timeout 60s --idle-threshold 10s"
+    SUGGESTED_COMMAND="$STEP_SCRIPT_CMD send --agent $(shell_quote "$AGENT_ID_OUT") --text \"Continue from current state and provide a one-line status update.\" --enter --wait-timeout 60s --idle-threshold 10s"
   fi
 elif [[ "$STATUS" == "session_exited" ]]; then
   NEXT_ACTION="Restart the agent in the same workspace, then continue with a focused follow-up prompt."
   if [[ -n "$WORKSPACE_ID_OUT" && -n "$ASSISTANT_OUT" ]]; then
-    SUGGESTED_COMMAND="$STEP_SCRIPT_CMD run --workspace $WORKSPACE_ID_OUT --assistant $ASSISTANT_OUT --prompt \"Continue from where you left off and provide a concise progress update.\" --wait-timeout 60s --idle-threshold 10s"
+    SUGGESTED_COMMAND="$STEP_SCRIPT_CMD run --workspace $(shell_quote "$WORKSPACE_ID_OUT") --assistant $(shell_quote "$ASSISTANT_OUT") --prompt \"Continue from where you left off and provide a concise progress update.\" --wait-timeout 60s --idle-threshold 10s"
   fi
 elif [[ "$STATUS" == "idle" && "$SUBSTANTIVE_OUTPUT" != "true" ]]; then
   NEXT_ACTION="No substantive output captured yet. Run one bounded follow-up send step on the same agent."
   if [[ -n "$AGENT_ID_OUT" ]]; then
-    SUGGESTED_COMMAND="$STEP_SCRIPT_CMD send --agent $AGENT_ID_OUT --text \"Provide a one-line progress status.\" --enter --wait-timeout 60s --idle-threshold 10s"
+    SUGGESTED_COMMAND="$STEP_SCRIPT_CMD send --agent $(shell_quote "$AGENT_ID_OUT") --text \"Provide a one-line progress status.\" --enter --wait-timeout 60s --idle-threshold 10s"
   fi
 elif [[ "$STATUS" == "needs_input" ]]; then
   NEXT_ACTION="Ask the user to answer the pending prompt, then run one follow-up send step."
@@ -808,27 +808,27 @@ SECURITY_REVIEW_COMMAND=""
 REVIEW_CHANGES_COMMAND=""
 if [[ -n "$AGENT_ID_OUT" ]]; then
   if [[ "$CONTEXT_LOWER" == *"test"* ]] && [[ "$CONTEXT_LOWER" == *"fail"* || "$CONTEXT_LOWER" == *"panic"* || "$CONTEXT_LOWER" == *"error"* ]]; then
-    TEST_REMEDIATION_COMMAND="$STEP_SCRIPT_CMD send --agent $AGENT_ID_OUT --text \"Investigate failing tests, fix root causes, and report changed files plus exact test command/results.\" --enter --wait-timeout 60s --idle-threshold 10s"
+    TEST_REMEDIATION_COMMAND="$STEP_SCRIPT_CMD send --agent $(shell_quote "$AGENT_ID_OUT") --text \"Investigate failing tests, fix root causes, and report changed files plus exact test command/results.\" --enter --wait-timeout 60s --idle-threshold 10s"
   fi
   if [[ "$CONTEXT_LOWER" == *"lint"* || "$CONTEXT_LOWER" == *"format"* || "$CONTEXT_LOWER" == *"gofumpt"* || "$CONTEXT_LOWER" == *"style"* ]]; then
-    LINT_REMEDIATION_COMMAND="$STEP_SCRIPT_CMD send --agent $AGENT_ID_OUT --text \"Resolve lint and formatting issues, then provide a concise summary of fixes.\" --enter --wait-timeout 60s --idle-threshold 10s"
+    LINT_REMEDIATION_COMMAND="$STEP_SCRIPT_CMD send --agent $(shell_quote "$AGENT_ID_OUT") --text \"Resolve lint and formatting issues, then provide a concise summary of fixes.\" --enter --wait-timeout 60s --idle-threshold 10s"
   fi
   if [[ "$CONTEXT_LOWER" == *"secret"* || "$CONTEXT_LOWER" == *"token"* || "$CONTEXT_LOWER" == *"credential"* || "$CONTEXT_LOWER" == *"key leak"* ]]; then
-    SECURITY_REVIEW_COMMAND="$STEP_SCRIPT_CMD send --agent $AGENT_ID_OUT --text \"Run a focused security pass for exposed credentials/secrets and propose concrete remediation.\" --enter --wait-timeout 60s --idle-threshold 10s"
+    SECURITY_REVIEW_COMMAND="$STEP_SCRIPT_CMD send --agent $(shell_quote "$AGENT_ID_OUT") --text \"Run a focused security pass for exposed credentials/secrets and propose concrete remediation.\" --enter --wait-timeout 60s --idle-threshold 10s"
   fi
   if [[ "$CHANGED" == "true" ]] && { line_has_file_signal "$SUMMARY" || line_has_file_signal "$DELTA_COMPACT" || [[ "$CONTEXT_LOWER" == *"changed file"* || "$CONTEXT_LOWER" == *"modified"* || "$CONTEXT_LOWER" == *"refactor"* || "$CONTEXT_LOWER" == *"patched"* ]]; }; then
-    REVIEW_CHANGES_COMMAND="$STEP_SCRIPT_CMD send --agent $AGENT_ID_OUT --text \"Summarize changed files, rationale, and any remaining risks in 5 bullets.\" --enter --wait-timeout 60s --idle-threshold 10s"
+    REVIEW_CHANGES_COMMAND="$STEP_SCRIPT_CMD send --agent $(shell_quote "$AGENT_ID_OUT") --text \"Summarize changed files, rationale, and any remaining risks in 5 bullets.\" --enter --wait-timeout 60s --idle-threshold 10s"
   fi
 fi
 
 STATUS_SEND_COMMAND=""
 if [[ -n "$AGENT_ID_OUT" ]]; then
-  STATUS_SEND_COMMAND="$STEP_SCRIPT_CMD send --agent $AGENT_ID_OUT --text \"Provide a one-line progress status.\" --enter --wait-timeout 60s --idle-threshold 10s"
+  STATUS_SEND_COMMAND="$STEP_SCRIPT_CMD send --agent $(shell_quote "$AGENT_ID_OUT") --text \"Provide a one-line progress status.\" --enter --wait-timeout 60s --idle-threshold 10s"
 fi
 
 RESTART_COMMAND=""
 if [[ "$STATUS" == "session_exited" && -n "$WORKSPACE_ID_OUT" && -n "$ASSISTANT_OUT" ]]; then
-  RESTART_COMMAND="$STEP_SCRIPT_CMD run --workspace $WORKSPACE_ID_OUT --assistant $ASSISTANT_OUT --prompt \"Continue from where you left off and provide a concise progress update.\" --wait-timeout 60s --idle-threshold 10s"
+  RESTART_COMMAND="$STEP_SCRIPT_CMD run --workspace $(shell_quote "$WORKSPACE_ID_OUT") --assistant $(shell_quote "$ASSISTANT_OUT") --prompt \"Continue from where you left off and provide a concise progress update.\" --wait-timeout 60s --idle-threshold 10s"
 fi
 
 DELIVERY_KEY="mode:${MODE}"

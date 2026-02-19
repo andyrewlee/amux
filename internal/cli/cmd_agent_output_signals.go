@@ -224,6 +224,11 @@ func looksLikeExplicitNeedsInputLine(line string) bool {
 	return false
 }
 
+// looksLikeQuestionNeedsInputLine uses broad keyword markers ("what", "where",
+// "how", etc.) that can false-positive on non-question output. This is
+// intentionally conservative: the function only triggers inspection (not
+// harmful action), and the trailing "?" suffix requirement already narrows the
+// match scope significantly.
 func looksLikeQuestionNeedsInputLine(line string) bool {
 	lower := strings.ToLower(strings.TrimSpace(line))
 	if lower == "" {

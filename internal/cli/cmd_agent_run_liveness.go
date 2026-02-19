@@ -95,19 +95,7 @@ func sendAgentRunPromptIfRequested(
 	preSendHash := tmux.ContentHash(preSendContent)
 
 	if err := tmuxSendKeys(sessionName, prompt, true, tmuxOpts); err != nil {
-		if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
-			slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
-		}
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.run", idempotencyKey,
-				ExitInternalError, "prompt_send_failed", err.Error(), map[string]any{
-					"session_name": sessionName,
-				},
-			)
-		}
-		Errorf(wErr, "failed to send initial prompt to %s: %v", sessionName, err)
-		return ExitInternalError
+		return handlePromptSendError(w, wErr, gf, version, idempotencyKey, sessionName, tmuxOpts, err, "send")
 	}
 
 	// Codex startup can still occasionally drop the very first prompt even when
@@ -116,22 +104,33 @@ func sendAgentRunPromptIfRequested(
 		!waitForPromptDelivery(sessionName, preSendHash, tmuxOpts) {
 		waitForPaneOutput(sessionName, assistantName, tmuxOpts)
 		if err := tmuxSendKeys(sessionName, prompt, true, tmuxOpts); err != nil {
-			if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
-				slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
-			}
-			if gf.JSON {
-				return returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, "agent.run", idempotencyKey,
-					ExitInternalError, "prompt_send_failed", err.Error(), map[string]any{
-						"session_name": sessionName,
-					},
-				)
-			}
-			Errorf(wErr, "failed to retry initial prompt to %s: %v", sessionName, err)
-			return ExitInternalError
+			return handlePromptSendError(w, wErr, gf, version, idempotencyKey, sessionName, tmuxOpts, err, "retry")
 		}
 	}
 	return ExitOK
+}
+
+func handlePromptSendError(
+	w, wErr io.Writer,
+	gf GlobalFlags,
+	version, idempotencyKey, sessionName string,
+	tmuxOpts tmux.Options,
+	err error,
+	action string,
+) int {
+	if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
+		slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
+	}
+	if gf.JSON {
+		return returnJSONErrorMaybeIdempotent(
+			w, wErr, gf, version, "agent.run", idempotencyKey,
+			ExitInternalError, "prompt_send_failed", err.Error(), map[string]any{
+				"session_name": sessionName,
+			},
+		)
+	}
+	Errorf(wErr, "failed to %s initial prompt to %s: %v", action, sessionName, err)
+	return ExitInternalError
 }
 
 // waitForPaneOutput polls the tmux pane until the output stabilizes (stops

@@ -286,6 +286,14 @@ while [[ "$STEPS_USED" -lt "$MAX_STEPS" ]]; do
     STEP_JSON="$("${STEP_ARGS[@]}")"
   fi
 
+  if ! jq -e . >/dev/null 2>&1 <<<"$STEP_JSON"; then
+    STEP_JSON="$(jq -cn --arg raw "$STEP_JSON" '{
+      ok: false, status: "command_error",
+      summary: "Step script produced invalid JSON output.",
+      raw_output: ($raw | .[0:2000])
+    }')"
+  fi
+
   STEPS_USED="$STEP_INDEX"
   LAST_STEP_JSON="$STEP_JSON"
   EVENTS_JSON="$(jq -cn --argjson events "$EVENTS_JSON" --argjson step "$STEP_JSON" '$events + [$step]')"
@@ -430,22 +438,22 @@ TURN_SECURITY_REVIEW_COMMAND=""
 TURN_REVIEW_CHANGES_COMMAND=""
 if [[ -n "$LAST_AGENT_ID" ]]; then
   if [[ "$TURN_CONTEXT_LOWER" == *"test"* ]] && [[ "$TURN_CONTEXT_LOWER" == *"fail"* || "$TURN_CONTEXT_LOWER" == *"panic"* || "$TURN_CONTEXT_LOWER" == *"error"* ]]; then
-    TURN_TEST_REMEDIATION_COMMAND="$TURN_SCRIPT_CMD send --agent $LAST_AGENT_ID --text \"Investigate failing tests, fix root causes, and report changed files plus exact test command/results.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
+    TURN_TEST_REMEDIATION_COMMAND="$TURN_SCRIPT_CMD send --agent $(shell_quote "$LAST_AGENT_ID") --text \"Investigate failing tests, fix root causes, and report changed files plus exact test command/results.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
   fi
   if [[ "$TURN_CONTEXT_LOWER" == *"lint"* || "$TURN_CONTEXT_LOWER" == *"format"* || "$TURN_CONTEXT_LOWER" == *"gofumpt"* || "$TURN_CONTEXT_LOWER" == *"style"* ]]; then
-    TURN_LINT_REMEDIATION_COMMAND="$TURN_SCRIPT_CMD send --agent $LAST_AGENT_ID --text \"Resolve lint and formatting issues, then provide a concise summary of fixes.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
+    TURN_LINT_REMEDIATION_COMMAND="$TURN_SCRIPT_CMD send --agent $(shell_quote "$LAST_AGENT_ID") --text \"Resolve lint and formatting issues, then provide a concise summary of fixes.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
   fi
   if [[ "$TURN_CONTEXT_LOWER" == *"secret"* || "$TURN_CONTEXT_LOWER" == *"token"* || "$TURN_CONTEXT_LOWER" == *"credential"* || "$TURN_CONTEXT_LOWER" == *"key leak"* ]]; then
-    TURN_SECURITY_REVIEW_COMMAND="$TURN_SCRIPT_CMD send --agent $LAST_AGENT_ID --text \"Run a focused security pass for exposed credentials/secrets and propose concrete remediation.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
+    TURN_SECURITY_REVIEW_COMMAND="$TURN_SCRIPT_CMD send --agent $(shell_quote "$LAST_AGENT_ID") --text \"Run a focused security pass for exposed credentials/secrets and propose concrete remediation.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
   fi
   if [[ "$OVERALL_STATUS" == "completed" ]] && { line_has_file_signal "$FINAL_SUMMARY" || [[ "$TURN_CONTEXT_LOWER" == *"changed file"* || "$TURN_CONTEXT_LOWER" == *"modified"* || "$TURN_CONTEXT_LOWER" == *"refactor"* || "$TURN_CONTEXT_LOWER" == *"patched"* ]]; }; then
-    TURN_REVIEW_CHANGES_COMMAND="$TURN_SCRIPT_CMD send --agent $LAST_AGENT_ID --text \"Summarize changed files, rationale, and remaining risks in 5 bullets.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
+    TURN_REVIEW_CHANGES_COMMAND="$TURN_SCRIPT_CMD send --agent $(shell_quote "$LAST_AGENT_ID") --text \"Summarize changed files, rationale, and remaining risks in 5 bullets.\" --enter --max-steps 2 --turn-budget 180 --wait-timeout 60s --idle-threshold 10s"
   fi
 fi
 
 STATUS_PING_COMMAND=""
 if [[ -n "$LAST_AGENT_ID" ]]; then
-  STATUS_PING_COMMAND="$STEP_SCRIPT_CMD send --agent $LAST_AGENT_ID --text \"Provide a one-line progress status.\" --enter --wait-timeout 60s --idle-threshold 10s"
+  STATUS_PING_COMMAND="$STEP_SCRIPT_CMD send --agent $(shell_quote "$LAST_AGENT_ID") --text \"Provide a one-line progress status.\" --enter --wait-timeout 60s --idle-threshold 10s"
 fi
 
 DELIVERY_KEY="turn:${TURN_ID}"

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -161,6 +162,52 @@ func TestCmdAgentCaptureJSON_ReturnsCaptureFailedWhenSessionStillExists(t *testi
 		&errOut,
 		GlobalFlags{JSON: true},
 		[]string{"session-y", "--lines", "40"},
+		"test-v1",
+	)
+	if code != ExitNotFound {
+		t.Fatalf("code = %d, want %d", code, ExitNotFound)
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("failed to decode envelope: %v", err)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "capture_failed" {
+		t.Fatalf("error code = %#v, want capture_failed", env.Error)
+	}
+}
+
+func TestCmdAgentCaptureJSON_FallsThroughWhenStateCheckFails(t *testing.T) {
+	origCapture := tmuxCapturePaneTail
+	origState := tmuxSessionStateFor
+	origAttempts := agentCaptureRetryAttempts
+	origDelay := agentCaptureRetryDelay
+	defer func() {
+		tmuxCapturePaneTail = origCapture
+		tmuxSessionStateFor = origState
+		agentCaptureRetryAttempts = origAttempts
+		agentCaptureRetryDelay = origDelay
+	}()
+
+	agentCaptureRetryAttempts = 1
+	agentCaptureRetryDelay = 0
+	tmuxCapturePaneTail = func(_ string, _ int, _ tmux.Options) (string, bool) {
+		return "", false
+	}
+	tmuxSessionStateFor = func(_ string, _ tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{}, fmt.Errorf("tmux not available")
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := cmdAgentCapture(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"session-err", "--lines", "40"},
 		"test-v1",
 	)
 	if code != ExitNotFound {

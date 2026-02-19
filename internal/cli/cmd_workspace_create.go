@@ -157,7 +157,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	// Compute workspace path
 	projectName := filepath.Base(projectPath)
 	wsPath := filepath.Join(svc.Config.Paths.WorkspacesRoot, projectName, name)
-	branchExistedBefore := gitRefExists(projectPath, name)
+	branchExistedBefore := gitLocalBranchExists(projectPath, name)
 
 	// Idempotent path: if the target worktree already exists for this repo, reuse it.
 	existingWS, found, err := loadExistingWorkspaceAtPath(svc, projectPath, wsPath, name, baseBranch, assistantName)
@@ -441,5 +441,14 @@ func gitRefExists(repoPath, ref string) bool {
 		return false
 	}
 	_, err := git.RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", ref)
+	return err == nil
+}
+
+func gitLocalBranchExists(repoPath, branchName string) bool {
+	branchName = strings.TrimSpace(branchName)
+	if branchName == "" {
+		return false
+	}
+	_, err := git.RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", "refs/heads/"+branchName)
 	return err == nil
 }

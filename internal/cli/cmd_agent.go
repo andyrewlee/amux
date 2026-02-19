@@ -133,9 +133,9 @@ func cmdAgentCapture(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 
 	content, ok := captureAgentPaneWithRetry(sessionName, *lines, svc.TmuxOpts)
 	if !ok {
-		if gf.JSON {
-			state, stateErr := tmuxSessionStateFor(sessionName, svc.TmuxOpts)
-			if stateErr == nil && !state.Exists {
+		state, stateErr := tmuxSessionStateFor(sessionName, svc.TmuxOpts)
+		if stateErr == nil && !state.Exists {
+			if gf.JSON {
 				result := captureResult{
 					SessionName:   sessionName,
 					Content:       "",
@@ -147,6 +147,8 @@ func cmdAgentCapture(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 				PrintJSON(w, result, version)
 				return ExitOK
 			}
+			Errorf(wErr, "agent session %s has exited", sessionName)
+			return ExitNotFound
 		}
 		if gf.JSON {
 			ReturnError(w, "capture_failed", "could not capture pane output", nil, version)
