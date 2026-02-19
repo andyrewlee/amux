@@ -92,6 +92,51 @@ func SessionName(parts ...string) string {
 	return strings.Join(cleaned, "-")
 }
 
+// AllSessionStates returns the SessionState for every tmux session on the
+// server in a single subprocess call.  It runs:
+//
+//	tmux list-panes -a -F "#{session_name}\t#{pane_dead}"
+//
+// Sessions that appear in output have Exists=true.  Any session with at
+// least one pane where pane_dead is "0" gets HasLivePane=true.
+// If there are no sessions at all (exit code 1), an empty map is returned.
+func AllSessionStates(opts Options) (map[string]SessionState, error) {
+	if err := EnsureAvailable(); err != nil {
+		return nil, err
+	}
+	cmd, cancel := tmuxCommand(opts, "list-panes", "-a", "-F", "#{session_name}\t#{pane_dead}")
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return map[string]SessionState{}, nil
+			}
+		}
+		return nil, err
+	}
+	states := make(map[string]SessionState)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := parts[0]
+		dead := parts[1]
+		st := states[name]
+		st.Exists = true
+		if dead == "0" {
+			st.HasLivePane = true
+		}
+		states[name] = st
+	}
+	return states, nil
+}
+
 func SessionStateFor(sessionName string, opts Options) (SessionState, error) {
 	if sessionName == "" {
 		return SessionState{}, nil

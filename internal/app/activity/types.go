@@ -4,6 +4,7 @@
 package activity
 
 import (
+	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -56,6 +57,16 @@ type TaggedSession struct {
 type SessionFetcher interface {
 	SessionsWithTags(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error)
 	ActiveAgentSessionsByActivity(window time.Duration, opts tmux.Options) ([]tmux.SessionActivity, error)
+}
+
+// IsRunningSession reports whether a known session should be considered active-capable
+// based on status metadata from app state.
+func IsRunningSession(info SessionInfo, hasInfo bool) bool {
+	if !hasInfo {
+		return true
+	}
+	status := strings.ToLower(strings.TrimSpace(info.Status))
+	return status == "" || status == "running" || status == "detached"
 }
 
 // CaptureFn captures the tail of a tmux pane.

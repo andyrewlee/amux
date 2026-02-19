@@ -31,6 +31,9 @@ func ActiveWorkspaceIDsFromTags(
 		if !IsChatSession(snapshot.Session, info, ok) {
 			continue
 		}
+		if !IsRunningSession(info, ok) {
+			continue
+		}
 		if snapshot.HasLastOutput {
 			age := now.Sub(snapshot.LastOutputAt)
 			if age >= 0 && age <= OutputWindow {
