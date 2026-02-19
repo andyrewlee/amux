@@ -454,12 +454,12 @@ fi
 
 if ! command -v amux >/dev/null 2>&1; then
   print_json_error "$MODE" "command_error" "amux is not installed" "missing binary: amux"
-  exit 0
+  exit 127
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
   print_json_error "$MODE" "command_error" "jq is required" "missing binary: jq"
-  exit 0
+  exit 127
 fi
 
 cmd=(amux --json)
@@ -516,17 +516,17 @@ if [[ "$COMMAND_TIMED_OUT" == "true" ]]; then
     detail="$detail"$'\n'"$RAW_OUTPUT"
   fi
   print_json_error "$MODE" "command_error" "amux command exceeded hard timeout" "$detail"
-  exit 0
+  exit 124
 fi
 
 if [[ $CMD_EXIT -ne 0 ]]; then
   print_json_error "$MODE" "command_error" "amux command failed" "$RAW_OUTPUT"
-  exit 0
+  exit "$CMD_EXIT"
 fi
 
 if ! jq -e . >/dev/null 2>&1 <<<"$RAW_OUTPUT"; then
   print_json_error "$MODE" "command_error" "amux returned non-JSON output" "$RAW_OUTPUT"
-  exit 0
+  exit 65
 fi
 
 OK="$(jq -r '.ok // false' <<<"$RAW_OUTPUT")"
@@ -534,7 +534,7 @@ if [[ "$OK" != "true" ]]; then
   ERR_CODE="$(jq -r '.error.code // "unknown_error"' <<<"$RAW_OUTPUT")"
   ERR_MSG="$(jq -r '.error.message // "agent step failed"' <<<"$RAW_OUTPUT")"
   print_json_error "$MODE" "agent_error" "$ERR_CODE" "$ERR_MSG"
-  exit 0
+  exit 1
 fi
 
 STATUS="$(jq -r '.data.response.status // "unknown"' <<<"$RAW_OUTPUT")"

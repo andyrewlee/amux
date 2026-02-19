@@ -347,6 +347,12 @@ func loadExistingWorkspaceAtPath(
 	}
 	if strings.TrimSpace(stored.Assistant) == "" {
 		stored.Assistant = assistantName
+	} else if assistantName != "" && !strings.EqualFold(stored.Assistant, assistantName) {
+		return nil, false, fmt.Errorf(
+			"existing workspace %q uses assistant %q, but %q was requested; "+
+				"use a different workspace name or omit --assistant",
+			name, stored.Assistant, assistantName,
+		)
 	}
 	if err := svc.Store.Save(stored); err != nil {
 		return nil, false, err

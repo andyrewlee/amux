@@ -224,11 +224,8 @@ func looksLikeExplicitNeedsInputLine(line string) bool {
 	return false
 }
 
-// looksLikeQuestionNeedsInputLine uses broad keyword markers ("what", "where",
-// "how", etc.) that can false-positive on non-question output. This is
-// intentionally conservative: the function only triggers inspection (not
-// harmful action), and the trailing "?" suffix requirement already narrows the
-// match scope significantly.
+// looksLikeQuestionNeedsInputLine detects direct user-facing questions that
+// likely require an operator reply.
 func looksLikeQuestionNeedsInputLine(line string) bool {
 	lower := strings.ToLower(strings.TrimSpace(line))
 	if lower == "" {
@@ -244,18 +241,21 @@ func looksLikeQuestionNeedsInputLine(line string) bool {
 		"should i",
 		"can i",
 		"could you",
-		"which",
-		"what",
-		"where",
-		"when",
-		"how",
+		"can you",
+		"should we",
+		"would you like",
+		"which option",
+		"what should",
+		"where should",
+		"when should",
+		"how should",
 		"choose",
 		"select",
 		"proceed",
 		"continue",
 	}
 	for _, marker := range questionMarkers {
-		if strings.Contains(lower, marker) {
+		if lower == marker || strings.HasPrefix(lower, marker+" ") || strings.HasPrefix(lower, marker+"?") {
 			return true
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -239,7 +240,7 @@ func executeAgentSendJobCore(
 
 	preContent := ""
 	if needWaitBaseline {
-		preContent, _ = tmuxCapturePaneTail(sessionName, 100, svc.TmuxOpts)
+		preContent = captureWaitBaselineWithRetry(sessionName, svc.TmuxOpts)
 	}
 
 	if err := tmuxSendKeys(sessionName, text, enter, svc.TmuxOpts); err != nil {
@@ -372,4 +373,22 @@ func runSendWait(tmuxOpts tmux.Options, sessionName string, waitCfg sendWaitConf
 		PollInterval:  500 * time.Millisecond,
 		IdleThreshold: waitCfg.IdleThreshold,
 	}, tmuxOpts, tmuxCapturePaneTail, preHash, preContent)
+}
+
+func captureWaitBaselineWithRetry(sessionName string, opts tmux.Options) string {
+	const (
+		maxAttempts = 3
+		retryDelay  = 75 * time.Millisecond
+	)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		content, ok := tmuxCapturePaneTail(sessionName, 100, opts)
+		if ok {
+			return content
+		}
+		if attempt < maxAttempts {
+			time.Sleep(retryDelay)
+		}
+	}
+	logging.Warn("wait baseline capture unavailable for session %s after %d attempts; proceeding with empty baseline", sessionName, maxAttempts)
+	return ""
 }

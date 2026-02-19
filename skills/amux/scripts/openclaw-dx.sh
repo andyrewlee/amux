@@ -117,7 +117,12 @@ normalize_json_or_default() {
 }
 
 AMUX_ERROR_OUTPUT=""
-AMUX_ERROR_CAPTURE_FILE="${TMPDIR:-/tmp}/amux-openclaw-dx-error.$$"
+AMUX_ERROR_CAPTURE_FILE=""
+if AMUX_ERROR_CAPTURE_FILE="$(mktemp "${TMPDIR:-/tmp}/amux-openclaw-dx-error.XXXXXX" 2>/dev/null)"; then
+  :
+else
+  AMUX_ERROR_CAPTURE_FILE="${TMPDIR:-/tmp}/amux-openclaw-dx-error.$$"
+fi
 amux_ok_json() {
   local out
   AMUX_ERROR_OUTPUT=""
@@ -4208,7 +4213,7 @@ cmd_workflow_dual() {
     if [[ -n "$impl_cmd" ]]; then
       RESULT_SUGGESTED_COMMAND="$impl_cmd"
     else
-      RESULT_SUGGESTED_COMMAND="skills/amux/scripts/openclaw-dx.sh start --workspace $(shell_quote "$workspace") --assistant $(shell_quote "$implement_assistant") --prompt \"$(printf '%s' "$implement_prompt" | sed 's/"/\\"/g')\""
+      RESULT_SUGGESTED_COMMAND="skills/amux/scripts/openclaw-dx.sh start --workspace $(shell_quote "$workspace") --assistant $(shell_quote "$implement_assistant") --prompt $(shell_quote "$implement_prompt")"
     fi
   elif [[ "$impl_status" == "needs_input" ]]; then
     RESULT_STATUS="needs_input"

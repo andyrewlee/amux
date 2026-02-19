@@ -182,7 +182,7 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 			if *wait && *prompt != "" {
 				// Capture baseline after startup readiness wait but before prompt send.
 				// This avoids both startup-churn false positives and fast-response misses.
-				waitPreContent, _ = tmuxCapturePaneTail(sessionName, 100, svc.TmuxOpts)
+				waitPreContent = captureWaitBaselineWithRetry(sessionName, svc.TmuxOpts)
 			}
 		},
 	); code != ExitOK {

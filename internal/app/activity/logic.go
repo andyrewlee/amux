@@ -73,6 +73,12 @@ func ActiveWorkspaceIDsFromTags(
 				PrepareStaleTagFallbackState(snapshot.Session.Name, states)
 				seenChatSessions[snapshot.Session.Name] = true
 				fallback = append(fallback, snapshot.Session)
+			} else if ok {
+				// Known sessions were observed in this scan but intentionally
+				// skipped for expensive fallback capture. Mark them seen so we
+				// preserve hysteresis state instead of hard-resetting it.
+				PrepareStaleTagFallbackState(snapshot.Session.Name, states)
+				seenChatSessions[snapshot.Session.Name] = true
 			}
 			continue
 		}

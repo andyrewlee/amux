@@ -289,7 +289,9 @@ func TestActiveWorkspaceIDsFromTags_KnownStaleTagSkipsFallbackWithoutRecentActiv
 	infoBySession := map[string]SessionInfo{
 		sessionName: {WorkspaceID: "ws-known", IsChat: true},
 	}
-	states := map[string]*SessionState{}
+	states := map[string]*SessionState{
+		sessionName: {Score: ScoreMax, Initialized: true, LastActiveAt: now},
+	}
 	captureCalls := 0
 	captureFn := func(string, int, tmux.Options) (string, bool) {
 		captureCalls++
@@ -307,5 +309,18 @@ func TestActiveWorkspaceIDsFromTags_KnownStaleTagSkipsFallbackWithoutRecentActiv
 	}
 	if active["ws-stale-tag"] {
 		t.Fatal("expected known metadata workspace ID to override stale tag workspace ID")
+	}
+	state := states[sessionName]
+	if state == nil {
+		t.Fatal("expected known stale-tag state to be preserved")
+	}
+	if state.Initialized != true {
+		t.Fatal("expected known stale-tag baseline to stay initialized")
+	}
+	if state.Score != ScoreThreshold {
+		t.Fatalf("expected known stale-tag score clamp to %d, got %d", ScoreThreshold, state.Score)
+	}
+	if !state.LastActiveAt.IsZero() {
+		t.Fatal("expected known stale-tag hold timer to be cleared")
 	}
 }

@@ -16,6 +16,12 @@ const (
 // waitResponseInitialChangeTimeout bounds how long --wait blocks when pane
 // content never changes after a send/run prompt. This avoids very long hangs
 // when the prompt is dropped or the agent never starts responding.
+//
+// NOTE: This timeout fires independently of the caller's --wait-timeout flag.
+// If --wait-timeout is longer than this value (e.g. 120s), the initial-change
+// timeout will still expire at 90s and return a timed_out response. Both paths
+// produce identical timed_out results via buildTimedOutWaitResponse, so callers
+// cannot distinguish the cause from the response alone.
 var waitResponseInitialChangeTimeout = 90 * time.Second
 
 // waitResponseConfig holds parameters for waiting on an agent response.

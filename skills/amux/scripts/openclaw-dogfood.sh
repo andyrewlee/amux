@@ -79,7 +79,7 @@ fi
 
 TMP_ROOT=""
 if [[ -z "${REPO_PATH// }" ]]; then
-  TMP_ROOT="$(mktemp -d /tmp/amux-openclaw-dogfood-script.XXXXXX)"
+  TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/amux-openclaw-dogfood-script.XXXXXX")"
   REPO_PATH="$TMP_ROOT/repo"
   mkdir -p "$REPO_PATH"
   cat >"$REPO_PATH/main.go" <<'EOF'
@@ -106,7 +106,7 @@ EOF
 fi
 
 if [[ -z "${REPORT_DIR// }" ]]; then
-  REPORT_DIR="$(mktemp -d /tmp/amux-openclaw-dogfood-report.XXXXXX)"
+  REPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/amux-openclaw-dogfood-report.XXXXXX")"
 fi
 mkdir -p "$REPORT_DIR"
 DX_CONTEXT_FILE="$REPORT_DIR/openclaw-dx-context.json"
