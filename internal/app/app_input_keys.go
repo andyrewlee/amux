@@ -120,7 +120,7 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 			a.showQuitDialog()
 			return nil
 		case messages.PaneCenter:
-			if !a.center.HasTabs() {
+			if !a.center.HasTabs() || a.center.IsInfoTabActive() {
 				a.showQuitDialog()
 				return nil
 			}
@@ -137,7 +137,7 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	// Handle button navigation when center pane is focused and showing welcome/workspace info (no tabs)
-	if a.focusedPane == messages.PaneCenter && !a.center.HasTabs() {
+	if a.focusedPane == messages.PaneCenter && !a.center.HasTabs() && !a.center.IsInfoTabActive() {
 		maxIndex := a.centerButtonCount() - 1
 		switch {
 		case key.Matches(msg, a.keymap.Left), key.Matches(msg, a.keymap.Up):
@@ -203,9 +203,6 @@ func (a *App) centerButtonCount() int {
 	if a.activeGroup != nil && a.activeGroupWs == nil && a.activeWorkspace == nil {
 		return 2 // [Edit repos], [New workspace]
 	}
-	if a.activeWorkspace != nil {
-		return 1 // [New agent]
-	}
 	return 0
 }
 
@@ -227,8 +224,6 @@ func (a *App) activateCenterButton() tea.Cmd {
 			group := a.activeGroup
 			return func() tea.Msg { return messages.ShowCreateGroupWorkspaceDialog{Group: group} }
 		}
-	} else if a.activeWorkspace != nil {
-		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 	}
 	return nil
 }

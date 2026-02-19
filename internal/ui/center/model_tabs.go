@@ -248,6 +248,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	createdIdx := len(m.tabsByWorkspace[wsID]) - 1
 	if msg.Activate {
 		m.activeTabByWorkspace[wsID] = createdIdx
+		m.infoTabActive = false
 	}
 	m.noteTabsChanged()
 
@@ -258,6 +259,10 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 
 // closeCurrentTab closes the current tab
 func (m *Model) closeCurrentTab() tea.Cmd {
+	if m.infoTabActive {
+		return nil // Info tab is not closeable
+	}
+
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 
@@ -346,20 +351,44 @@ func (m *Model) hasActiveAgent() bool {
 // nextTab switches to the next tab
 func (m *Model) nextTab() {
 	tabs := m.getTabs()
+	if m.infoTabActive {
+		// From Info tab, go to first agent tab (or stay if none)
+		if len(tabs) > 0 {
+			m.infoTabActive = false
+			m.setActiveTabIdx(0)
+		}
+		return
+	}
 	if len(tabs) > 0 {
-		m.setActiveTabIdx((m.getActiveTabIdx() + 1) % len(tabs))
+		next := m.getActiveTabIdx() + 1
+		if next >= len(tabs) {
+			// Wrap to Info tab
+			m.infoTabActive = true
+		} else {
+			m.setActiveTabIdx(next)
+		}
 	}
 }
 
 // prevTab switches to the previous tab
 func (m *Model) prevTab() {
 	tabs := m.getTabs()
+	if m.infoTabActive {
+		// From Info tab, go to last agent tab (or stay if none)
+		if len(tabs) > 0 {
+			m.infoTabActive = false
+			m.setActiveTabIdx(len(tabs) - 1)
+		}
+		return
+	}
 	if len(tabs) > 0 {
 		idx := m.getActiveTabIdx() - 1
 		if idx < 0 {
-			idx = len(tabs) - 1
+			// Wrap to Info tab
+			m.infoTabActive = true
+		} else {
+			m.setActiveTabIdx(idx)
 		}
-		m.setActiveTabIdx(idx)
 	}
 }
 
@@ -384,6 +413,7 @@ func (m *Model) CloseActiveTab() tea.Cmd {
 func (m *Model) SelectTab(index int) {
 	tabs := m.getTabs()
 	if index >= 0 && index < len(tabs) {
+		m.infoTabActive = false
 		m.setActiveTabIdx(index)
 	}
 }

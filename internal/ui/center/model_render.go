@@ -45,8 +45,12 @@ func (m *Model) View() string {
 
 	// Content
 	activeIdx := m.getActiveTabIdx()
-	if len(tabs) == 0 {
-		b.WriteString(m.renderEmpty())
+	// Auto-select Info tab when there are no agent tabs
+	if len(tabs) == 0 && m.workspace != nil {
+		m.infoTabActive = true
+	}
+	if m.infoTabActive {
+		b.WriteString(m.renderInfoContent())
 	} else if activeIdx < len(tabs) {
 		tab := tabs[activeIdx]
 		tab.mu.Lock()
@@ -176,6 +180,14 @@ func (m *Model) renderEmpty() string {
 	return b.String()
 }
 
+// renderInfoContent renders the content for the Info tab.
+func (m *Model) renderInfoContent() string {
+	if m.infoContent != "" {
+		return "\n" + m.infoContent
+	}
+	return "\nNo workspace information available."
+}
+
 // TerminalViewport returns the terminal content area coordinates relative to the pane.
 // Returns (x, y, width, height) where the terminal content should be rendered.
 // This is for layer-based rendering positioning within the bordered pane.
@@ -231,8 +243,8 @@ func (m *Model) ViewChromeOnly() string {
 		targetContentLines = 0
 	}
 
-	// We already have infoBarHeight + 1 (tab bar), so we need targetContentLines - 1 - infoBarHeight more lines
-	emptyLinesNeeded := targetContentLines - 1 - infoBarHeight
+	// We already have infoBarHeight + 2 (tab bar + separator), so we need targetContentLines - 2 - infoBarHeight more lines
+	emptyLinesNeeded := targetContentLines - 2 - infoBarHeight
 	statusLineVisible := statusLine != ""
 	if statusLineVisible {
 		if emptyLinesNeeded > 0 {

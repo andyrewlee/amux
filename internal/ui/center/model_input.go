@@ -151,6 +151,23 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// When Info tab is active, handle navigation keys and consume the rest
+		if m.infoTabActive && m.focused {
+			switch {
+			case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
+				m.nextTab()
+				return m, m.tabSelectionChangedCmd()
+			case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))):
+				m.prevTab()
+				return m, m.tabSelectionChangedCmd()
+			case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))):
+				// Info tab is not closeable, ignore
+				return m, nil
+			}
+			// Consume all other keys (don't forward to terminal)
+			return m, nil
+		}
+
 		// When we have an active agent, handle keys
 		if m.hasActiveAgent() {
 			tab := tabs[activeIdx]

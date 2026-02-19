@@ -108,12 +108,11 @@ func (a *App) renderGroupInfo() string {
 	return content
 }
 
-// renderWorkspaceInfo renders information about the active workspace
+// renderWorkspaceInfo renders information about the active workspace (for center pane and Info tab)
 func (a *App) renderWorkspaceInfo() string {
 	ws := a.activeWorkspace
 
-	title := a.styles.Title.Render(ws.Name)
-	content := title + "\n\n"
+	var content string
 
 	// For group workspaces, show group details
 	if a.activeGroupWs != nil {
@@ -140,19 +139,6 @@ func (a *App) renderWorkspaceInfo() string {
 		if a.activeProject != nil {
 			content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 		}
-	}
-
-	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground).Bold(true)
-	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted)
-
-	btnStyle := inactiveStyle
-	if a.centerBtnFocused && a.centerBtnIndex == 0 {
-		btnStyle = activeStyle
-	}
-	agentBtn := btnStyle.Render("[New agent]")
-	content += "\n" + agentBtn
-	if a.config.UI.ShowKeymapHints {
-		content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
 	}
 
 	return content

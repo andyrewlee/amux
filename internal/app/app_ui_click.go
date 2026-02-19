@@ -15,7 +15,7 @@ func (a *App) handleCenterPaneClick(msg tea.MouseClickMsg) tea.Cmd {
 	if msg.Button != tea.MouseLeft {
 		return nil
 	}
-	if a.layout == nil || !a.layout.ShowCenter() || a.center.HasTabs() {
+	if a.layout == nil || !a.layout.ShowCenter() || a.center.HasTabs() || a.center.IsInfoTabActive() {
 		return nil
 	}
 	dashWidth := a.layout.DashboardWidth()
@@ -41,9 +41,6 @@ func (a *App) handleCenterPaneClick(msg tea.MouseClickMsg) tea.Cmd {
 	}
 	if a.activeGroup != nil && a.activeGroupWs == nil && a.activeWorkspace == nil {
 		return a.handleGroupInfoClick(localX, localY)
-	}
-	if a.activeWorkspace != nil {
-		return a.handleWorkspaceInfoClick(localX, localY)
 	}
 	return nil
 }
@@ -138,28 +135,3 @@ func (a *App) handleGroupInfoClick(localX, localY int) tea.Cmd {
 	return nil
 }
 
-func (a *App) handleWorkspaceInfoClick(localX, localY int) tea.Cmd {
-	if a.activeWorkspace == nil {
-		return nil
-	}
-	content := a.renderWorkspaceInfo()
-	lines := strings.Split(content, "\n")
-
-	for i, line := range lines {
-		strippedLine := ansi.Strip(line)
-		agentText := "[New agent]"
-		if idx := strings.Index(strippedLine, agentText); idx >= 0 {
-			region := common.HitRegion{
-				X:      idx,
-				Y:      i,
-				Width:  len(agentText),
-				Height: 1,
-			}
-			if region.Contains(localX, localY) {
-				return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-			}
-		}
-	}
-
-	return nil
-}
