@@ -24,12 +24,7 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 	if err == nil {
 		return nil
 	}
-	exists, existsErr := branchExists(repoPath, branch)
-	if existsErr != nil {
-		// Fall back to legacy parsing on branch-existence probe failures.
-		exists = isBranchAlreadyExistsError(err, branch)
-	}
-	if !exists {
+	if !isBranchAlreadyExistsError(err, branch) {
 		return err
 	}
 
@@ -48,23 +43,6 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 		)
 	}
 	return nil
-}
-
-func branchExists(repoPath, branch string) (bool, error) {
-	branch = strings.TrimSpace(branch)
-	if branch == "" {
-		return false, nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
-	defer cancel()
-	_, err := runGitCtx(ctx, repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
-	if err == nil {
-		return true, nil
-	}
-	if strings.Contains(strings.ToLower(err.Error()), "not a git repository") {
-		return false, err
-	}
-	return false, nil
 }
 
 func isBranchAlreadyExistsError(err error, branch string) bool {

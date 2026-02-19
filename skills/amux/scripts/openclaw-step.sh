@@ -954,12 +954,14 @@ OPENCLAW_PAYLOAD="$(jq -n \
   --arg security_review_command "$SECURITY_REVIEW_COMMAND" \
   --arg review_changes_command "$REVIEW_CHANGES_COMMAND" \
   '
+    def rindex_compat($s):
+      indices($s) | if length == 0 then null else .[-1] end;
     def smart_split($txt; $size):
       def next_cut($source):
         ($source[0:$size]) as $head
-        | ($head | rindex("\n\n")) as $double
-        | ($head | rindex("\n")) as $single
-        | ($head | rindex(" ")) as $space
+        | ($head | rindex_compat("\n\n")) as $double
+        | ($head | rindex_compat("\n")) as $single
+        | ($head | rindex_compat(" ")) as $space
         | ($double // $single // $space) as $idx
         | if $idx == null or $idx < ($size / 3) then $size else ($idx + 1) end;
       def split_rec($source):

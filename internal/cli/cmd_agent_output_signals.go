@@ -245,6 +245,7 @@ func looksLikeQuestionNeedsInputLine(line string) bool {
 		"should we",
 		"would you like",
 		"which option",
+		"which do you",
 		"what should",
 		"where should",
 		"when should",
@@ -257,6 +258,15 @@ func looksLikeQuestionNeedsInputLine(line string) bool {
 	for _, marker := range questionMarkers {
 		if lower == marker || strings.HasPrefix(lower, marker+" ") || strings.HasPrefix(lower, marker+"?") {
 			return true
+		}
+	}
+	// Also check the last sentence in multi-sentence lines.
+	if idx := strings.LastIndex(lower, ". "); idx >= 0 {
+		lastSentence := strings.TrimSpace(lower[idx+2:])
+		for _, marker := range questionMarkers {
+			if lastSentence == marker || strings.HasPrefix(lastSentence, marker+" ") || strings.HasPrefix(lastSentence, marker+"?") {
+				return true
+			}
 		}
 	}
 	return false

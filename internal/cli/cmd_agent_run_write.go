@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -40,17 +41,17 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 	}
 	if *wait && *prompt == "" {
 		return returnUsageError(w, wErr, gf, usage, version,
-			fmt.Errorf("--wait requires --prompt"),
+			errors.New("--wait requires --prompt"),
 		)
 	}
 	if *waitTimeout <= 0 {
 		return returnUsageError(w, wErr, gf, usage, version,
-			fmt.Errorf("--wait-timeout must be > 0"),
+			errors.New("--wait-timeout must be > 0"),
 		)
 	}
 	if *idleThreshold <= 0 {
 		return returnUsageError(w, wErr, gf, usage, version,
-			fmt.Errorf("--idle-threshold must be > 0"),
+			errors.New("--idle-threshold must be > 0"),
 		)
 	}
 	if err := validation.ValidateAssistant(assistantName); err != nil {

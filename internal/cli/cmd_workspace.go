@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -56,7 +57,7 @@ func cmdWorkspaceList(w, wErr io.Writer, gf GlobalFlags, args []string, version 
 	if strings.TrimSpace(*repo) != "" && strings.TrimSpace(*project) != "" {
 		return returnUsageError(
 			w, wErr, gf, usage, version,
-			fmt.Errorf("use either --repo or --project, not both"),
+			errors.New("use either --repo or --project, not both"),
 		)
 	}
 

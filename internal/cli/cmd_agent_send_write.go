@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"strings"
 	"time"
@@ -37,17 +37,17 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	}
 	if *wait && *async {
 		return returnUsageError(w, wErr, gf, usage, version,
-			fmt.Errorf("--wait and --async cannot be used together"),
+			errors.New("--wait and --async cannot be used together"),
 		)
 	}
 	if *waitTimeout <= 0 {
 		return returnUsageError(w, wErr, gf, usage, version,
-			fmt.Errorf("--wait-timeout must be > 0"),
+			errors.New("--wait-timeout must be > 0"),
 		)
 	}
 	if *idleThreshold <= 0 {
 		return returnUsageError(w, wErr, gf, usage, version,
-			fmt.Errorf("--idle-threshold must be > 0"),
+			errors.New("--idle-threshold must be > 0"),
 		)
 	}
 	if handled, code := maybeReplayIdempotentResponse(

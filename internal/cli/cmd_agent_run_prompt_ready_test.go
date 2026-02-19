@@ -110,7 +110,7 @@ func TestSendAgentRunPromptIfRequested_CodexRetriesWhenPromptNotDelivered(t *tes
 	}
 
 	sendCalls := 0
-	tmuxSendKeys = func(_ string, _ string, _ bool, _ tmux.Options) error {
+	tmuxSendKeys = func(_, _ string, _ bool, _ tmux.Options) error {
 		sendCalls++
 		return nil
 	}
@@ -157,7 +157,7 @@ func TestSendAgentRunPromptIfRequested_NonCodexDoesNotRetry(t *testing.T) {
 	}
 
 	sendCalls := 0
-	tmuxSendKeys = func(_ string, _ string, _ bool, _ tmux.Options) error {
+	tmuxSendKeys = func(_, _ string, _ bool, _ tmux.Options) error {
 		sendCalls++
 		return nil
 	}
@@ -204,7 +204,7 @@ func TestSendAgentRunPromptIfRequested_BeforeSendHookRunsBeforeSend(t *testing.T
 	}
 
 	hookCalled := false
-	tmuxSendKeys = func(_ string, _ string, _ bool, _ tmux.Options) error {
+	tmuxSendKeys = func(_, _ string, _ bool, _ tmux.Options) error {
 		if !hookCalled {
 			t.Fatalf("expected beforeSend hook to run before tmuxSendKeys")
 		}

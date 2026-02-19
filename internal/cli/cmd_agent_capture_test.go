@@ -3,7 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"testing"
 	"time"
 
@@ -198,7 +198,7 @@ func TestCmdAgentCaptureJSON_FallsThroughWhenStateCheckFails(t *testing.T) {
 		return "", false
 	}
 	tmuxSessionStateFor = func(_ string, _ tmux.Options) (tmux.SessionState, error) {
-		return tmux.SessionState{}, fmt.Errorf("tmux not available")
+		return tmux.SessionState{}, errors.New("tmux not available")
 	}
 
 	var out bytes.Buffer

@@ -10,7 +10,7 @@ usage() {
 Usage:
   openclaw-dx.sh project add [--path <repo> | --cwd] [--workspace <name>] [--assistant <name>] [--base <branch>]
   openclaw-dx.sh project list [--limit <n>] [--page <n>] [--query <text>]
-  openclaw-dx.sh project pick [--index <n> | --name <query>] [--workspace <name>] [--assistant <name>] [--base <branch>]
+  openclaw-dx.sh project pick [--index <n> | --name <query> | --path <repo>] [--workspace <name>] [--assistant <name>] [--base <branch>]
 
   openclaw-dx.sh workspace create --name <name> [--project <repo>] [--from-workspace <id>] [--scope project|nested] [--assistant <name>] [--base <branch>]
   openclaw-dx.sh workspace list [--project <repo>] [--workspace <id>] [--limit <n>] [--page <n>]
@@ -264,12 +264,14 @@ emit_result() {
     --argjson delivery_replace_previous "$RESULT_DELIVERY_REPLACE_PREVIOUS" \
     --argjson delivery_drop_pending "$RESULT_DELIVERY_DROP_PENDING" \
     '
+      def rindex_compat($s):
+        indices($s) | if length == 0 then null else .[-1] end;
       def smart_split($txt; $size):
         def next_cut($source):
           ($source[0:$size]) as $head
-          | ($head | rindex("\n\n")) as $double
-          | ($head | rindex("\n")) as $single
-          | ($head | rindex(" ")) as $space
+          | ($head | rindex_compat("\n\n")) as $double
+          | ($head | rindex_compat("\n")) as $single
+          | ($head | rindex_compat(" ")) as $space
           | ($double // $single // $space) as $idx
           | if $idx == null or $idx < ($size / 3) then $size else ($idx + 1) end;
         def split_rec($source):
@@ -1386,6 +1388,7 @@ cmd_project_list() {
 cmd_project_pick() {
   local index=""
   local name_query=""
+  local path_query=""
   local workspace_name=""
   local assistant=""
   local base=""
@@ -1396,6 +1399,8 @@ cmd_project_pick() {
         index="$2"; shift 2 ;;
       --name)
         name_query="$2"; shift 2 ;;
+      --path)
+        path_query="$2"; shift 2 ;;
       --workspace)
         workspace_name="$2"; shift 2 ;;
       --assistant)
@@ -1409,13 +1414,22 @@ cmd_project_pick() {
     esac
   done
 
-  if [[ -n "$index" && -n "${name_query// }" ]]; then
-    emit_error "project.pick" "command_error" "provide only one selector" "use --index or --name"
+  local selector_count=0
+  [[ -n "$index" ]] && selector_count=$((selector_count + 1))
+  [[ -n "${name_query// }" ]] && selector_count=$((selector_count + 1))
+  [[ -n "${path_query// }" ]] && selector_count=$((selector_count + 1))
+  if [[ "$selector_count" -gt 1 ]]; then
+    emit_error "project.pick" "command_error" "provide only one selector" "use --index, --name, or --path"
     return
   fi
-  if [[ -z "$index" && -z "${name_query// }" ]]; then
-    emit_error "project.pick" "command_error" "missing selector" "provide --index <n> or --name <query>"
+  if [[ -z "$index" && -z "${name_query// }" && -z "${path_query// }" ]]; then
+    emit_error "project.pick" "command_error" "missing selector" "provide --index <n>, --name <query>, or --path <repo>"
     return
+  fi
+  local canonical_query=""
+  if [[ -n "${path_query// }" ]]; then
+    canonical_query="$(canonicalize_path "$path_query")"
+    name_query="$path_query"
   fi
 
   local out sorted count selected selected_name selected_path selected_index resolved_by resolved_input
@@ -1435,14 +1449,16 @@ cmd_project_pick() {
     resolved_by="name"
     resolved_input="$name_query"
     local matches match_count match_lines
-    matches="$(jq -c --arg q "$name_query" '
+    matches="$(jq -c --arg q "$name_query" --arg c "$canonical_query" '
       ($q | ascii_downcase) as $needle
+      | ($c | ascii_downcase) as $canonical_needle
       | (
           to_entries
           | map(
               select(
                 ((.value.name // "") == $q)
                 or ((.value.path // "") == $q)
+                or ($c != "" and (.value.path // "") == $c)
               )
               | (.value + {index: (.key + 1)})
             )
@@ -1456,6 +1472,7 @@ cmd_project_pick() {
                 select(
                   ((.value.name // "" | ascii_downcase) | contains($needle))
                   or ((.value.path // "" | ascii_downcase) | contains($needle))
+                  or ($canonical_needle != "" and ((.value.path // "" | ascii_downcase) | contains($canonical_needle)))
                 )
                 | (.value + {index: (.key + 1)})
               )
@@ -1599,7 +1616,17 @@ cmd_guide() {
       --workspace)
         workspace="$2"; shift 2 ;;
       --task)
-        task="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "guide" "command_error" "missing value for --task"
+          return
+        fi
+        task="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          task+=" $1"
+          shift
+        done
+        ;;
       --assistant)
         assistant="$2"; shift 2 ;;
       *)
@@ -2455,7 +2482,17 @@ cmd_workspace_decide() {
       --from-workspace)
         from_workspace="$2"; shift 2 ;;
       --task)
-        task="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "workspace.decide" "command_error" "missing value for --task"
+          return
+        fi
+        task="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          task+=" $1"
+          shift
+        done
+        ;;
       --assistant)
         assistant="$2"; shift 2 ;;
       --name|--workspace-name)
@@ -2677,7 +2714,17 @@ cmd_start() {
       --assistant)
         assistant="$2"; shift 2 ;;
       --prompt)
-        prompt="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "start" "command_error" "missing value for --prompt"
+          return
+        fi
+        prompt="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          prompt+=" $1"
+          shift
+        done
+        ;;
       --max-steps)
         max_steps="$2"; shift 2 ;;
       --turn-budget)
@@ -2787,7 +2834,17 @@ cmd_continue() {
       --workspace)
         workspace="$2"; shift 2 ;;
       --text)
-        text="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "continue" "command_error" "missing value for --text"
+          return
+        fi
+        text="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          text+=" $1"
+          shift
+        done
+        ;;
       --enter)
         enter=true; shift ;;
       --auto-start)
@@ -3269,7 +3326,17 @@ cmd_terminal_run() {
       --workspace)
         workspace="$2"; shift 2 ;;
       --text)
-        text="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "terminal.run" "command_error" "missing value for --text"
+          return
+        fi
+        text="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          text+=" $1"
+          shift
+        done
+        ;;
       --enter)
         enter=true; shift ;;
       *)
@@ -3546,7 +3613,17 @@ cmd_review() {
       --assistant)
         assistant="$2"; shift 2 ;;
       --prompt)
-        prompt="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "review" "command_error" "missing value for --prompt"
+          return
+        fi
+        prompt="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          prompt+=" $1"
+          shift
+        done
+        ;;
       --max-steps)
         max_steps="$2"; shift 2 ;;
       --turn-budget)
@@ -3854,7 +3931,17 @@ cmd_workflow_kickoff() {
       --assistant)
         assistant="$2"; shift 2 ;;
       --prompt)
-        prompt="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "workflow.kickoff" "command_error" "missing value for --prompt"
+          return
+        fi
+        prompt="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          prompt+=" $1"
+          shift
+        done
+        ;;
       --base)
         base="$2"; shift 2 ;;
       --max-steps)
@@ -4032,11 +4119,31 @@ cmd_workflow_dual() {
       --implement-assistant)
         implement_assistant="$2"; shift 2 ;;
       --implement-prompt)
-        implement_prompt="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "workflow.dual" "command_error" "missing value for --implement-prompt"
+          return
+        fi
+        implement_prompt="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          implement_prompt+=" $1"
+          shift
+        done
+        ;;
       --review-assistant)
         review_assistant="$2"; shift 2 ;;
       --review-prompt)
-        review_prompt="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "workflow.dual" "command_error" "missing value for --review-prompt"
+          return
+        fi
+        review_prompt="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          review_prompt+=" $1"
+          shift
+        done
+        ;;
       --max-steps)
         max_steps="$2"; shift 2 ;;
       --turn-budget)
@@ -4392,7 +4499,17 @@ cmd_assistants() {
       --limit)
         limit="$2"; shift 2 ;;
       --prompt)
-        probe_prompt="$2"; shift 2 ;;
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "assistants" "command_error" "missing value for --prompt"
+          return
+        fi
+        probe_prompt="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          probe_prompt+=" $1"
+          shift
+        done
+        ;;
       --max-steps)
         max_steps="$2"; shift 2 ;;
       --turn-budget)

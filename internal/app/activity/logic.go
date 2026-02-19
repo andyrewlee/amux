@@ -79,6 +79,7 @@ func ActiveWorkspaceIDsFromTags(
 				// preserve hysteresis state instead of hard-resetting it.
 				PrepareStaleTagFallbackState(snapshot.Session.Name, states)
 				seenChatSessions[snapshot.Session.Name] = true
+				fallback = append(fallback, snapshot.Session)
 			}
 			continue
 		}
