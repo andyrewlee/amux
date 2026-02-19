@@ -10,6 +10,9 @@ import (
 // Sessions with missing tags always fall back to screen-delta hysteresis
 // (compatibility mode). Sessions with stale tags fall back when they have
 // recent tmux window activity (or if that prefilter is unavailable).
+// Fresh tags are trusted only when tmux reports recent window activity
+// (or if that prefilter is unavailable), preventing control-sequence noise
+// from holding sessions in an always-active state.
 func ActiveWorkspaceIDsFromTags(
 	infoBySession map[string]SessionInfo,
 	sessions []TaggedSession,
@@ -44,7 +47,51 @@ func ActiveWorkspaceIDsFromTags(
 					fallback = append(fallback, snapshot.Session)
 					continue
 				}
-				SeedFreshTagFallbackBaseline(snapshot.Session.Name, states, preseededStates, opts, captureFn, hashFn)
+				// Fresh output tags without recent tmux window activity are
+				// often control-sequence churn (no visible pane delta). Route
+				// these through hysteresis fallback instead of immediate active.
+				if !HasRecentWindowActivity(snapshot.Session.Name, recentActivityBySession) {
+					PrepareStaleTagFallbackState(snapshot.Session.Name, states)
+					// Seeds baseline hash (calls capture-pane for uninitialized
+					// states); hysteresis will capture again — acceptable cost.
+					SeedFreshTagFallbackBaseline(snapshot.Session.Name, states, preseededStates, opts, captureFn, hashFn)
+					seenChatSessions[snapshot.Session.Name] = true
+					fallback = append(fallback, snapshot.Session)
+					continue
+				}
+				// Known tabs are evaluated via pane-delta hysteresis even when
+				// tags are fresh, which avoids persistent "active" false positives
+				// from non-meaningful tag churn.
+				//
+				// Behavioral note: unlike stale-tag fallback (which clears the
+				// hold timer via PrepareStaleTagFallbackState), this path
+				// preserves it. A session recently above threshold stays active
+				// for HoldDuration even if the next hysteresis capture fails or
+				// shows unchanged content, preventing a single transient failure
+				// from immediately deactivating a known active tab.
+				if ok {
+					// Cap score only; SeedFreshTagFallbackBaseline resets score
+					// for uninitialized states anyway, so capping is a no-op there.
+					if state := states[snapshot.Session.Name]; state != nil {
+						if state.Score > ScoreThreshold {
+							state.Score = ScoreThreshold
+						}
+					}
+					// Note: for uninitialized states this calls capture-pane to
+					// seed a baseline hash; hysteresis will call it again. The
+					// double capture is a minor cost limited to first observation.
+					SeedFreshTagFallbackBaseline(snapshot.Session.Name, states, preseededStates, opts, captureFn, hashFn)
+					seenChatSessions[snapshot.Session.Name] = true
+					fallback = append(fallback, snapshot.Session)
+					continue
+				}
+				// Unknown sessions that fail visible-delta validation are
+				// intentionally skipped from fallback; FreshTagVisibleActivity
+				// already decayed/updated their state.
+				if !FreshTagVisibleActivity(snapshot.Session.Name, states, preseededStates, now, opts, captureFn, hashFn) {
+					seenChatSessions[snapshot.Session.Name] = true
+					continue
+				}
 				seenChatSessions[snapshot.Session.Name] = true
 				if workspaceID := WorkspaceIDForSession(snapshot.Session, info, ok); workspaceID != "" {
 					active[workspaceID] = true
@@ -77,7 +124,7 @@ func ActiveWorkspaceIDsFromTags(
 			}
 			// Stale-tag fallback is gated by recent tmux activity to avoid
 			// capture-pane work on long-idle sessions each scan.
-			if ShouldFallbackForStaleTag(snapshot.Session.Name, recentActivityBySession) {
+			if HasRecentWindowActivity(snapshot.Session.Name, recentActivityBySession) {
 				PrepareStaleTagFallbackState(snapshot.Session.Name, states)
 				seenChatSessions[snapshot.Session.Name] = true
 				fallback = append(fallback, snapshot.Session)
@@ -105,6 +152,9 @@ func ActiveWorkspaceIDsFromTags(
 		}
 	}
 	fallbackActive, updated := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, fallback, states, seenChatSessions, opts, captureWithSuppression, hashFn)
+	// preseededStates entries point at the same *SessionState objects in
+	// states/updated; this assignment preserves updates when fallback skipped
+	// the session in this scan.
 	for name, state := range preseededStates {
 		updated[name] = state
 	}
