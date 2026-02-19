@@ -544,6 +544,9 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	}
+	if msg.BranchWarning != "" {
+		cmds = append(cmds, a.toast.ShowWarning(msg.BranchWarning))
+	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds
 }

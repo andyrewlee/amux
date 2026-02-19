@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -424,22 +425,33 @@ func (a *App) deleteGroupWorkspace(group *data.ProjectGroup, gw *data.GroupWorks
 	}
 
 	return func() tea.Msg {
-		deleteGroupWorkspaceSync(a, group, gw)
+		branchWarning := deleteGroupWorkspaceSync(a, group, gw)
 		return messages.GroupWorkspaceDeleted{
-			Group:     group,
-			Workspace: gw,
+			Group:         group,
+			Workspace:     gw,
+			BranchWarning: branchWarning,
 		}
 	}
 }
 
 // deleteGroupWorkspaceSync performs the actual deletion synchronously.
-func deleteGroupWorkspaceSync(a *App, group *data.ProjectGroup, gw *data.GroupWorkspace) {
+// Returns a non-empty warning string if any branch deletions failed.
+func deleteGroupWorkspaceSync(a *App, group *data.ProjectGroup, gw *data.GroupWorkspace) string {
 	specs := buildSpecsFromGroupWorkspace(group, gw)
-	git.RemoveGroupWorkspace(specs)
+	_, branchErrs := git.RemoveGroupWorkspace(specs)
 	// Clean up the group workspace directory (Primary.Root) and any leftover
 	// untracked files (e.g. .claude/settings.local.json).
 	_ = os.RemoveAll(gw.Primary.Root)
 	_ = a.workspaces.DeleteGroupWorkspace(gw.ID())
+
+	if len(branchErrs) > 0 {
+		msgs := make([]string, len(branchErrs))
+		for i, e := range branchErrs {
+			msgs[i] = e.Error()
+		}
+		return "Failed to delete branches: " + strings.Join(msgs, "; ")
+	}
+	return ""
 }
 
 func buildSpecsFromGroupWorkspace(group *data.ProjectGroup, gw *data.GroupWorkspace) []git.RepoSpec {

@@ -52,8 +52,9 @@ type WorkspaceCreateFailed struct {
 
 // WorkspaceDeleted is sent when a workspace is deleted
 type WorkspaceDeleted struct {
-	Project   *data.Project
-	Workspace *data.Workspace
+	Project       *data.Project
+	Workspace     *data.Workspace
+	BranchWarning string // non-empty if branch cleanup failed
 }
 
 // WorkspaceDeleteFailed is sent when a workspace deletion fails
@@ -624,8 +625,9 @@ type DeleteGroupWorkspace struct {
 
 // GroupWorkspaceDeleted is sent when a group workspace was deleted
 type GroupWorkspaceDeleted struct {
-	Group     *data.ProjectGroup
-	Workspace *data.GroupWorkspace
+	Group         *data.ProjectGroup
+	Workspace     *data.GroupWorkspace
+	BranchWarning string // non-empty if branch cleanup failed
 }
 
 // GroupWorkspaceDeleteFailed is sent when a group workspace deletion failed

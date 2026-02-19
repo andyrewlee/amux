@@ -946,6 +946,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = a.workspaces.Delete(msg.Workspace.Primary.ID())
 		}
 		cmds = append(cmds, a.toast.ShowSuccess("Worktree deleted"))
+		if msg.BranchWarning != "" {
+			cmds = append(cmds, a.toast.ShowWarning(msg.BranchWarning))
+		}
 		cmds = append(cmds, a.loadGroups())
 
 	case messages.GroupWorkspaceDeleteFailed:
