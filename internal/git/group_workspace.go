@@ -114,19 +114,19 @@ func CreateGroupWorkspace(specs []RepoSpec) error {
 
 // RemoveGroupWorkspace removes all worktrees and branches.
 // Tolerates individual failures (logs warnings, continues).
-func RemoveGroupWorkspace(specs []RepoSpec) []error {
-	var errs []error
+// Returns worktree removal errors and branch deletion errors separately.
+func RemoveGroupWorkspace(specs []RepoSpec) (wtErrs []error, branchErrs []error) {
 	for _, spec := range specs {
 		if err := RemoveWorkspace(spec.RepoPath, spec.WorkspacePath); err != nil {
 			logging.Warn("Failed to remove worktree %s: %v", spec.WorkspacePath, err)
-			errs = append(errs, err)
+			wtErrs = append(wtErrs, err)
 		}
 		if err := DeleteBranch(spec.RepoPath, spec.Branch); err != nil {
 			logging.Warn("Failed to delete branch %s in %s: %v", spec.Branch, spec.RepoPath, err)
-			// Don't add branch deletion failures to errs - worktree removal is primary
+			branchErrs = append(branchErrs, fmt.Errorf("branch %s in %s: %w", spec.Branch, spec.RepoName, err))
 		}
 	}
-	return errs
+	return wtErrs, branchErrs
 }
 
 // removeEmptyDir removes a directory only if it is empty.

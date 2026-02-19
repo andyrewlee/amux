@@ -565,12 +565,17 @@ func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd
 			}
 		}
 
-		_ = git.DeleteBranch(project.Path, ws.Branch)
+		var branchWarning string
+		if err := git.DeleteBranch(project.Path, ws.Branch); err != nil {
+			branchWarning = fmt.Sprintf("Failed to delete branch %q: %v", ws.Branch, err)
+			logging.Warn("%s", branchWarning)
+		}
 		_ = a.workspaces.Delete(ws.ID())
 
 		return messages.WorkspaceDeleted{
-			Project:   project,
-			Workspace: ws,
+			Project:       project,
+			Workspace:     ws,
+			BranchWarning: branchWarning,
 		}
 	}
 }
