@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -27,9 +28,11 @@ func LoadGlobalPermissions(path string) (*GlobalPermissions, error) {
 	if err := json.Unmarshal(data, &perms); err != nil {
 		return nil, err
 	}
-	// Deduplicate on load
+	// Deduplicate and sort on load
 	perms.Allow = dedupe(perms.Allow)
 	perms.Deny = dedupe(perms.Deny)
+	sortCaseInsensitive(perms.Allow)
+	sortCaseInsensitive(perms.Deny)
 	return &perms, nil
 }
 
@@ -38,11 +41,13 @@ func SaveGlobalPermissions(path string, perms *GlobalPermissions) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	// Deduplicate and ensure non-nil slices for proper JSON marshaling
+	// Deduplicate, sort, and ensure non-nil slices for proper JSON marshaling
 	toSave := &GlobalPermissions{
 		Allow: dedupe(perms.Allow),
 		Deny:  dedupe(perms.Deny),
 	}
+	sortCaseInsensitive(toSave.Allow)
+	sortCaseInsensitive(toSave.Deny)
 	data, err := json.MarshalIndent(toSave, "", "  ")
 	if err != nil {
 		return err
@@ -142,6 +147,13 @@ func DiffPermissions(existing, incoming []string) []string {
 		}
 	}
 	return diff
+}
+
+// sortCaseInsensitive sorts a string slice ignoring case.
+func sortCaseInsensitive(s []string) {
+	sort.Slice(s, func(i, j int) bool {
+		return strings.ToLower(s[i]) < strings.ToLower(s[j])
+	})
 }
 
 func contains(list []string, item string) bool {
