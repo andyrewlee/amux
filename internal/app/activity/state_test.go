@@ -325,11 +325,13 @@ func TestActiveWorkspaceIDsFromTags_KnownFreshUnchangedAcrossScansRemainInactive
 	infoBySession := map[string]SessionInfo{
 		sessionName: {WorkspaceID: workspaceID, IsChat: true},
 	}
+	// Hold timer is expired so unchanged content goes inactive
+	// immediately rather than being kept alive by the grace period.
 	states := map[string]*SessionState{
 		sessionName: {
 			LastHash:     hashValue,
 			Score:        ScoreMax,
-			LastActiveAt: time.Now(),
+			LastActiveAt: time.Now().Add(-HoldDuration - time.Second),
 			Initialized:  true,
 		},
 	}
@@ -365,9 +367,6 @@ func TestActiveWorkspaceIDsFromTags_KnownFreshUnchangedAcrossScansRemainInactive
 	}
 	if state.Score != 0 {
 		t.Fatalf("expected score to decay to 0 after repeated unchanged scans, got %d", state.Score)
-	}
-	if !state.LastActiveAt.IsZero() {
-		t.Fatal("expected hold timer to be cleared for unchanged known fresh-tag session")
 	}
 }
 

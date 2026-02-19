@@ -166,8 +166,10 @@ func HasRecentUserInput(snapshot TaggedSession, now time.Time) bool {
 	return age >= 0 && age <= InputSuppressWindow
 }
 
-// ShouldFallbackForStaleTag decides whether a stale-tagged session should use pane-delta fallback.
-func ShouldFallbackForStaleTag(sessionName string, recentActivityBySession map[string]bool) bool {
+// HasRecentWindowActivity reports whether a session has recent tmux window
+// activity. When the prefilter map is nil (data unavailable), it returns true
+// to preserve accuracy by allowing the caller to proceed.
+func HasRecentWindowActivity(sessionName string, recentActivityBySession map[string]bool) bool {
 	name := strings.TrimSpace(sessionName)
 	if name == "" {
 		return false

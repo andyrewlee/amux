@@ -84,6 +84,10 @@ func FreshTagVisibleActivity(
 	}
 
 	// Fresh tag without visible pane delta: decay and clear hold.
+	// Note: ScoreThreshold is used as a ceiling here (capping inflated scores)
+	// whereas the hash-changed branch above uses it as a floor (boosting low
+	// scores). This asymmetry is intentional — changed content should be at
+	// least at threshold, while unchanged content should decay from it.
 	if state.Score > ScoreThreshold {
 		state.Score = ScoreThreshold
 	}

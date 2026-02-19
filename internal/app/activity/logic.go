@@ -50,11 +50,7 @@ func ActiveWorkspaceIDsFromTags(
 				// Fresh output tags without recent tmux window activity are
 				// often control-sequence churn (no visible pane delta). Route
 				// these through hysteresis fallback instead of immediate active.
-				//
-				// ShouldFallbackForStaleTag is intentionally reused here as a
-				// generic "has recent window activity (or unavailable prefilter)"
-				// gate for any expensive fallback capture path.
-				if !ShouldFallbackForStaleTag(snapshot.Session.Name, recentActivityBySession) {
+				if !HasRecentWindowActivity(snapshot.Session.Name, recentActivityBySession) {
 					PrepareStaleTagFallbackState(snapshot.Session.Name, states)
 					SeedFreshTagFallbackBaseline(snapshot.Session.Name, states, preseededStates, opts, captureFn, hashFn)
 					seenChatSessions[snapshot.Session.Name] = true
@@ -65,7 +61,15 @@ func ActiveWorkspaceIDsFromTags(
 				// tags are fresh, which avoids persistent "active" false positives
 				// from non-meaningful tag churn.
 				if ok {
-					PrepareStaleTagFallbackState(snapshot.Session.Name, states)
+					// Cap score for known sessions with fresh tags, but preserve the
+					// existing hold timer. Unlike stale-tag fallback, fresh tags
+					// evidence recent output, so a transient capture failure in
+					// hysteresis should not immediately deactivate the session.
+					if state := states[snapshot.Session.Name]; state != nil {
+						if state.Score > ScoreThreshold {
+							state.Score = ScoreThreshold
+						}
+					}
 					SeedFreshTagFallbackBaseline(snapshot.Session.Name, states, preseededStates, opts, captureFn, hashFn)
 					seenChatSessions[snapshot.Session.Name] = true
 					fallback = append(fallback, snapshot.Session)
@@ -110,7 +114,7 @@ func ActiveWorkspaceIDsFromTags(
 			}
 			// Stale-tag fallback is gated by recent tmux activity to avoid
 			// capture-pane work on long-idle sessions each scan.
-			if ShouldFallbackForStaleTag(snapshot.Session.Name, recentActivityBySession) {
+			if HasRecentWindowActivity(snapshot.Session.Name, recentActivityBySession) {
 				PrepareStaleTagFallbackState(snapshot.Session.Name, states)
 				seenChatSessions[snapshot.Session.Name] = true
 				fallback = append(fallback, snapshot.Session)
