@@ -49,6 +49,30 @@ func TestCmdCapabilitiesJSON(t *testing.T) {
 	if got, _ := features["job_wait"].(bool); !got {
 		t.Fatalf("expected job_wait capability")
 	}
+	if got, _ := features["agent_wait"].(bool); !got {
+		t.Fatalf("expected agent_wait capability")
+	}
+	if got, _ := features["wait_response_status"].(bool); !got {
+		t.Fatalf("expected wait_response_status capability")
+	}
+	if got, _ := features["wait_response_delta"].(bool); !got {
+		t.Fatalf("expected wait_response_delta capability")
+	}
+	if got, _ := features["wait_response_early_input"].(bool); !got {
+		t.Fatalf("expected wait_response_early_input capability")
+	}
+	if got, _ := features["wait_response_needs_input"].(bool); !got {
+		t.Fatalf("expected wait_response_needs_input capability")
+	}
+	if got, _ := features["wait_response_summary"].(bool); !got {
+		t.Fatalf("expected wait_response_summary capability")
+	}
+	if got, _ := features["watch_heartbeat"].(bool); !got {
+		t.Fatalf("expected watch_heartbeat capability")
+	}
+	if got, _ := features["watch_needs_input"].(bool); !got {
+		t.Fatalf("expected watch_needs_input capability")
+	}
 
 	commands, ok := payload["commands"].([]any)
 	if !ok {

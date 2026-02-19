@@ -13,6 +13,7 @@ var (
 	tmuxSendKeys               = tmux.SendKeys
 	tmuxSendInterrupt          = tmux.SendInterrupt
 	tmuxSetSessionTag          = tmux.SetSessionTagValue
+	tmuxCapturePaneTail        = tmux.CapturePaneTail
 	tmuxStartSession           = tmuxNewSession
 	startSendJobProcess        = launchSendJobProcessor
 	appendWorkspaceOpenTabMeta = func(store *data.WorkspaceStore, wsID data.WorkspaceID, tab data.TabInfo) error {

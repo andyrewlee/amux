@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/andyrewlee/amux/internal/data"
 )
@@ -44,12 +45,19 @@ func workspaceToInfo(ws *data.Workspace) WorkspaceInfo {
 }
 
 func cmdWorkspaceList(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux workspace list [--repo <path>] [--archived] [--json]"
+	const usage = "Usage: amux workspace list [--repo <path>|--project <path>] [--archived] [--json]"
 	fs := newFlagSet("workspace list")
 	repo := fs.String("repo", "", "filter by repo path")
+	project := fs.String("project", "", "alias for --repo")
 	archived := fs.Bool("archived", false, "include archived workspaces")
 	if err := fs.Parse(args); err != nil {
 		return returnUsageError(w, wErr, gf, usage, version, err)
+	}
+	if strings.TrimSpace(*repo) != "" && strings.TrimSpace(*project) != "" {
+		return returnUsageError(
+			w, wErr, gf, usage, version,
+			fmt.Errorf("use either --repo or --project, not both"),
+		)
 	}
 
 	svc, err := NewServices(version)
@@ -64,8 +72,12 @@ func cmdWorkspaceList(w, wErr io.Writer, gf GlobalFlags, args []string, version 
 
 	var infos []WorkspaceInfo
 
-	if *repo != "" {
-		repoPath := *repo
+	repoFilter := strings.TrimSpace(*repo)
+	if repoFilter == "" {
+		repoFilter = strings.TrimSpace(*project)
+	}
+	if repoFilter != "" {
+		repoPath := repoFilter
 		if canonical, cErr := canonicalizeProjectPath(repoPath); cErr == nil {
 			repoPath = canonical
 		} else if abs, aErr := filepath.Abs(repoPath); aErr == nil {

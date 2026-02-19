@@ -231,6 +231,58 @@ func TestCmdWorkspaceCreateRejectsInvalidWorkspaceName(t *testing.T) {
 	}
 }
 
+func TestCmdWorkspaceCreateDefaultsAssistantWhenOmitted(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoRoot) error = %v", err)
+	}
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "amux-test")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "init")
+
+	registerProject(t, home, repoRoot)
+
+	var out, errOut bytes.Buffer
+	code := cmdWorkspaceCreate(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"default-assistant-ws", "--project", repoRoot},
+		"test-v1",
+	)
+	if code != ExitOK {
+		t.Fatalf("cmdWorkspaceCreate() code = %d; stderr: %s; stdout: %s", code, errOut.String(), out.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal(create output) error = %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("create output expected ok=true; raw=%s", out.String())
+	}
+	dataMap, ok := env.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected create data object, got %T", env.Data)
+	}
+	gotAssistant, _ := dataMap["assistant"].(string)
+	if gotAssistant != data.DefaultAssistant {
+		t.Fatalf("assistant = %q, want %q", gotAssistant, data.DefaultAssistant)
+	}
+}
+
 func TestWorkspaceCreateReadinessWaitConfig(t *testing.T) {
 	if workspaceCreateReadyAttempts != 100 {
 		t.Fatalf("workspaceCreateReadyAttempts = %d, want %d", workspaceCreateReadyAttempts, 100)
@@ -286,6 +338,85 @@ func TestCmdWorkspaceCreateRejectsUnregisteredProject(t *testing.T) {
 	}
 	if !strings.Contains(env.Error.Message, "amux project add") {
 		t.Fatalf("expected error message to mention 'amux project add', got %q", env.Error.Message)
+	}
+}
+
+func TestCmdWorkspaceCreateReusesExistingWorkspacePath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoRoot) error = %v", err)
+	}
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "amux-test")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "init")
+
+	registerProject(t, home, repoRoot)
+
+	var firstOut, firstErr bytes.Buffer
+	firstCode := cmdWorkspaceCreate(
+		&firstOut,
+		&firstErr,
+		GlobalFlags{JSON: true},
+		[]string{"refactor", "--project", repoRoot, "--assistant", "claude"},
+		"test-v1",
+	)
+	if firstCode != ExitOK {
+		t.Fatalf("first create failed: code=%d stderr=%s stdout=%s", firstCode, firstErr.String(), firstOut.String())
+	}
+
+	var firstEnv Envelope
+	if err := json.Unmarshal(firstOut.Bytes(), &firstEnv); err != nil {
+		t.Fatalf("json.Unmarshal(first) error = %v", err)
+	}
+	firstData, ok := firstEnv.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("first create data type = %T, want object", firstEnv.Data)
+	}
+	firstID, _ := firstData["id"].(string)
+	firstRoot, _ := firstData["root"].(string)
+	if firstID == "" || firstRoot == "" {
+		t.Fatalf("first create missing id/root: %v", firstData)
+	}
+
+	var secondOut, secondErr bytes.Buffer
+	secondCode := cmdWorkspaceCreate(
+		&secondOut,
+		&secondErr,
+		GlobalFlags{JSON: true},
+		[]string{"refactor", "--project", repoRoot, "--assistant", "claude"},
+		"test-v1",
+	)
+	if secondCode != ExitOK {
+		t.Fatalf("second create failed: code=%d stderr=%s stdout=%s", secondCode, secondErr.String(), secondOut.String())
+	}
+
+	var secondEnv Envelope
+	if err := json.Unmarshal(secondOut.Bytes(), &secondEnv); err != nil {
+		t.Fatalf("json.Unmarshal(second) error = %v", err)
+	}
+	secondData, ok := secondEnv.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("second create data type = %T, want object", secondEnv.Data)
+	}
+	secondID, _ := secondData["id"].(string)
+	secondRoot, _ := secondData["root"].(string)
+	if secondID != firstID {
+		t.Fatalf("second id = %q, want %q", secondID, firstID)
+	}
+	if secondRoot != firstRoot {
+		t.Fatalf("second root = %q, want %q", secondRoot, firstRoot)
 	}
 }
 

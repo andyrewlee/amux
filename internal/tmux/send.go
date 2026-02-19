@@ -1,5 +1,13 @@
 package tmux
 
+import "time"
+
+// enterDelay is the pause between sending text and sending Enter. TUI agents
+// (notably Codex) process typed characters asynchronously; if the CR byte
+// arrives before the TUI finishes inserting the text, it gets dropped.
+// 50ms is enough for every tested agent while keeping sends snappy.
+const enterDelay = 50 * time.Millisecond
+
 // SendKeys sends text to a tmux session via send-keys.
 // If enter is true, an Enter key is sent after the text.
 func SendKeys(sessionName, text string, enter bool, opts Options) error {
@@ -18,6 +26,10 @@ func SendKeys(sessionName, text string, enter bool, opts Options) error {
 	}
 
 	if enter {
+		// Brief pause so the TUI finishes processing the text insertion
+		// before we deliver the carriage return.
+		time.Sleep(enterDelay)
+
 		// Use -H 0D (hex carriage return) instead of the named "Enter" key.
 		// Some TUI agents (e.g. Cline) use raw terminal mode where the named
 		// Enter key is dropped, but the raw CR byte is always delivered.

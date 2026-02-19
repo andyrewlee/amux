@@ -135,6 +135,92 @@ func TestCmdAgentSendProcessJobCompletedDoesNotSendAgain(t *testing.T) {
 	if got, _ := data["sent"].(bool); !got {
 		t.Fatalf("sent = %v, want true", got)
 	}
+	if got, _ := data["delivered"].(bool); got {
+		t.Fatalf("delivered = %v, want false for already-completed job", got)
+	}
+}
+
+func TestCmdAgentSendProcessJobCompletedWithWaitSkipsWaitPolling(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	store, err := newSendJobStore()
+	if err != nil {
+		t.Fatalf("newSendJobStore() error = %v", err)
+	}
+	job, err := store.create("session-a", "")
+	if err != nil {
+		t.Fatalf("store.create() error = %v", err)
+	}
+	if _, err := store.setStatus(job.ID, sendJobCompleted, ""); err != nil {
+		t.Fatalf("store.setStatus() error = %v", err)
+	}
+
+	origStateFor := tmuxSessionStateFor
+	origSend := tmuxSendKeys
+	origCapture := tmuxCapturePaneTail
+	defer func() {
+		tmuxSessionStateFor = origStateFor
+		tmuxSendKeys = origSend
+		tmuxCapturePaneTail = origCapture
+	}()
+	tmuxSessionStateFor = func(_ string, _ tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{Exists: true}, nil
+	}
+
+	sendCalls := 0
+	tmuxSendKeys = func(_, _ string, _ bool, _ tmux.Options) error {
+		sendCalls++
+		return nil
+	}
+	captureCalls := 0
+	tmuxCapturePaneTail = func(_ string, _ int, _ tmux.Options) (string, bool) {
+		captureCalls++
+		return "should not capture", true
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := cmdAgentSend(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{
+			"session-a",
+			"--text", "hello",
+			"--process-job",
+			"--job-id", job.ID,
+			"--wait",
+			"--wait-timeout", "10ms",
+		},
+		"test-v1",
+	)
+	if code != ExitOK {
+		t.Fatalf("cmdAgentSend() code = %d, want %d", code, ExitOK)
+	}
+	if sendCalls != 0 {
+		t.Fatalf("tmuxSendKeys calls = %d, want 0", sendCalls)
+	}
+	if captureCalls != 0 {
+		t.Fatalf("tmuxCapturePaneTail calls = %d, want 0", captureCalls)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got error=%#v", env.Error)
+	}
+	data, ok := env.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected response data object, got %T", env.Data)
+	}
+	if _, exists := data["response"]; exists {
+		t.Fatalf("expected no response payload for already-completed job, got %#v", data["response"])
+	}
 }
 
 func TestCmdAgentSendProcessJobValidatesStoredSessionName(t *testing.T) {

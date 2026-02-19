@@ -6,13 +6,21 @@ import (
 )
 
 type capabilityFeatures struct {
-	JSONEnvelope   bool `json:"json_envelope"`
-	RequestID      bool `json:"request_id"`
-	AgentID        bool `json:"agent_id"`
-	IdempotencyKey bool `json:"idempotency_key"`
-	SendJobs       bool `json:"send_jobs"`
-	AsyncSend      bool `json:"async_send"`
-	JobWait        bool `json:"job_wait"`
+	JSONEnvelope           bool `json:"json_envelope"`
+	RequestID              bool `json:"request_id"`
+	AgentID                bool `json:"agent_id"`
+	IdempotencyKey         bool `json:"idempotency_key"`
+	SendJobs               bool `json:"send_jobs"`
+	AsyncSend              bool `json:"async_send"`
+	JobWait                bool `json:"job_wait"`
+	AgentWait              bool `json:"agent_wait"`
+	WaitResponseStatus     bool `json:"wait_response_status"`
+	WaitResponseDelta      bool `json:"wait_response_delta"`
+	WaitResponseEarlyInput bool `json:"wait_response_early_input"`
+	WaitResponseNeedsInput bool `json:"wait_response_needs_input"`
+	WaitResponseSummary    bool `json:"wait_response_summary"`
+	WatchHeartbeat         bool `json:"watch_heartbeat"`
+	WatchNeedsInput        bool `json:"watch_needs_input"`
 }
 
 type capabilitiesResult struct {
@@ -80,13 +88,21 @@ func cmdCapabilities(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 			"--no-color",
 		},
 		Features: capabilityFeatures{
-			JSONEnvelope:   true,
-			RequestID:      true,
-			AgentID:        true,
-			IdempotencyKey: true,
-			SendJobs:       true,
-			AsyncSend:      true,
-			JobWait:        true,
+			JSONEnvelope:           true,
+			RequestID:              true,
+			AgentID:                true,
+			IdempotencyKey:         true,
+			SendJobs:               true,
+			AsyncSend:              true,
+			JobWait:                true,
+			AgentWait:              true,
+			WaitResponseStatus:     true,
+			WaitResponseDelta:      true,
+			WaitResponseEarlyInput: true,
+			WaitResponseNeedsInput: true,
+			WaitResponseSummary:    true,
+			WatchHeartbeat:         true,
+			WatchNeedsInput:        true,
 		},
 	}
 

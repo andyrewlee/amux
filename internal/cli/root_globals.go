@@ -237,7 +237,7 @@ func nextCommandToken(args []string, start int) (token string, tokenIndex, next 
 func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 	switch pathKey {
 	case "workspace list", "workspace ls":
-		return map[string]struct{}{"--repo": {}}
+		return map[string]struct{}{"--repo": {}, "--project": {}}
 	case "workspace create":
 		return map[string]struct{}{
 			"--project":         {},
@@ -258,6 +258,8 @@ func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 			"--name":            {},
 			"--prompt":          {},
 			"--idempotency-key": {},
+			"--wait-timeout":    {},
+			"--idle-threshold":  {},
 		}
 	case "agent send":
 		return map[string]struct{}{
@@ -265,6 +267,8 @@ func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 			"--text":            {},
 			"--idempotency-key": {},
 			"--job-id":          {},
+			"--wait-timeout":    {},
+			"--idle-threshold":  {},
 		}
 	case "agent stop":
 		return map[string]struct{}{
@@ -277,6 +281,7 @@ func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 			"--lines":          {},
 			"--interval":       {},
 			"--idle-threshold": {},
+			"--heartbeat":      {},
 		}
 	// --timeout intentionally shadows the global --timeout flag;
 	// local flags are checked before global parsing, so the value

@@ -3,8 +3,14 @@ package cli
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/tmux"
+)
+
+var (
+	agentCaptureRetryAttempts = 5
+	agentCaptureRetryDelay    = 120 * time.Millisecond
 )
 
 type agentInfo struct {
@@ -16,9 +22,15 @@ type agentInfo struct {
 }
 
 type captureResult struct {
-	SessionName string `json:"session_name"`
-	Content     string `json:"content"`
-	Lines       int    `json:"lines"`
+	SessionName   string `json:"session_name"`
+	Content       string `json:"content"`
+	Lines         int    `json:"lines"`
+	Status        string `json:"status,omitempty"`
+	LatestLine    string `json:"latest_line,omitempty"`
+	Summary       string `json:"summary,omitempty"`
+	NeedsInput    bool   `json:"needs_input,omitempty"`
+	InputHint     string `json:"input_hint,omitempty"`
+	SessionExited bool   `json:"session_exited,omitempty"`
 }
 
 func cmdAgentList(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
@@ -119,8 +131,23 @@ func cmdAgentCapture(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		return ExitInternalError
 	}
 
-	content, ok := tmux.CapturePaneTail(sessionName, *lines, svc.TmuxOpts)
+	content, ok := captureAgentPaneWithRetry(sessionName, *lines, svc.TmuxOpts)
 	if !ok {
+		if gf.JSON {
+			state, stateErr := tmuxSessionStateFor(sessionName, svc.TmuxOpts)
+			if stateErr == nil && !state.Exists {
+				result := captureResult{
+					SessionName:   sessionName,
+					Content:       "",
+					Lines:         *lines,
+					Status:        "session_exited",
+					Summary:       "Agent session exited before capture.",
+					SessionExited: true,
+				}
+				PrintJSON(w, result, version)
+				return ExitOK
+			}
+		}
 		if gf.JSON {
 			ReturnError(w, "capture_failed", "could not capture pane output", nil, version)
 		} else {
@@ -129,10 +156,17 @@ func cmdAgentCapture(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		return ExitNotFound
 	}
 
+	latestLine := latestLineForContent(content)
+	needsInput, inputHint := detectNeedsInput(content)
 	result := captureResult{
 		SessionName: sessionName,
 		Content:     content,
 		Lines:       *lines,
+		Status:      "captured",
+		LatestLine:  latestLine,
+		Summary:     summarizeWaitResponse("idle", latestLine, needsInput, inputHint),
+		NeedsInput:  needsInput,
+		InputHint:   inputHint,
 	}
 
 	if gf.JSON {
@@ -147,4 +181,25 @@ func cmdAgentCapture(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		}
 	})
 	return ExitOK
+}
+
+func captureAgentPaneWithRetry(
+	sessionName string,
+	lines int,
+	opts tmux.Options,
+) (string, bool) {
+	attempts := agentCaptureRetryAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	for i := 0; i < attempts; i++ {
+		content, ok := tmuxCapturePaneTail(sessionName, lines, opts)
+		if ok {
+			return content, true
+		}
+		if i < attempts-1 && agentCaptureRetryDelay > 0 {
+			time.Sleep(agentCaptureRetryDelay)
+		}
+	}
+	return "", false
 }

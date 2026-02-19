@@ -51,6 +51,12 @@ func TestParseGlobalFlags(t *testing.T) {
 			wantRest: []string{"workspace", "list"},
 		},
 		{
+			name:     "workspace list project alias value preserved",
+			args:     []string{"workspace", "list", "--project", "/tmp/repo", "--json"},
+			wantGF:   GlobalFlags{JSON: true},
+			wantRest: []string{"workspace", "list", "--project", "/tmp/repo"},
+		},
+		{
 			name:     "global timeout after command extracted",
 			args:     []string{"status", "--timeout", "2s"},
 			wantGF:   GlobalFlags{Timeout: 2 * time.Second},
