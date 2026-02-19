@@ -246,24 +246,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				if len(data) == 0 || agentTerm == nil {
 					return
 				}
-				if m.isTabActorReady() {
-					response := append([]byte(nil), data...)
-					if !m.sendTabEvent(tabEvent{
-						tab:         tab,
-						workspaceID: workspaceID,
-						tabID:       tabID,
-						kind:        tabEventSendResponse,
-						response:    response,
-					}) {
-						if err := agentTerm.SendString(string(response)); err != nil {
-							logging.Warn("Response write failed for tab %s: %v", tabID, err)
-							if m.msgSink != nil {
-								m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
-							}
-						}
-					}
-					return
-				}
 				if err := agentTerm.SendString(string(data)); err != nil {
 					logging.Warn("Response write failed for tab %s: %v", tabID, err)
 					if m.msgSink != nil {
@@ -325,24 +307,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		workspaceID := string(msg.Workspace.ID())
 		term.SetResponseWriter(func(data []byte) {
 			if len(data) == 0 || agentTerm == nil {
-				return
-			}
-			if m.isTabActorReady() {
-				response := append([]byte(nil), data...)
-				if !m.sendTabEvent(tabEvent{
-					tab:         tab,
-					workspaceID: workspaceID,
-					tabID:       tabID,
-					kind:        tabEventSendResponse,
-					response:    response,
-				}) {
-					if err := agentTerm.SendString(string(response)); err != nil {
-						logging.Warn("Response write failed for tab %s: %v", tabID, err)
-						if m.msgSink != nil {
-							m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
-						}
-					}
-				}
 				return
 			}
 			if err := agentTerm.SendString(string(data)); err != nil {
