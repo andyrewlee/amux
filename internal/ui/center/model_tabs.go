@@ -202,8 +202,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
 		oldAgent := tab.Agent
-		tab.mu.Unlock()
-		tab.mu.Lock()
 		createdTerminal := false
 		if tab.Terminal == nil {
 			tab.Terminal = vterm.New(cols, rows)
