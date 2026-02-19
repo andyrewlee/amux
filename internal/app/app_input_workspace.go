@@ -134,6 +134,10 @@ func (a *App) handleRenameWorkspace(msg messages.RenameWorkspace) []tea.Cmd {
 		a.fileWatcher.Unwatch(oldRoot)
 		_ = a.fileWatcher.Watch(newWs.Root)
 	}
+	if a.permissionWatcher != nil {
+		a.permissionWatcher.Unwatch(oldRoot)
+		_ = a.permissionWatcher.Watch(newWs.Root)
+	}
 	if a.statusManager != nil {
 		a.statusManager.Invalidate(oldRoot)
 	}
@@ -402,6 +406,14 @@ func (a *App) handleRenameGroupWorkspace(msg messages.RenameGroupWorkspace) []te
 		}
 		for _, ws := range stored.Secondary {
 			_ = a.fileWatcher.Watch(ws.Root)
+		}
+	}
+	if a.permissionWatcher != nil {
+		for _, root := range oldSecondaryRoots {
+			a.permissionWatcher.Unwatch(root)
+		}
+		for _, ws := range stored.Secondary {
+			_ = a.permissionWatcher.Watch(ws.Root)
 		}
 	}
 
