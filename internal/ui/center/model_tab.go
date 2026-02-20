@@ -54,6 +54,7 @@ type Tab struct {
 	flushScheduled    bool
 	lastOutputAt      time.Time
 	lastActivityTagAt time.Time
+	activityANSIState ansiActivityState
 	lastInputTagAt    time.Time
 	flushPendingSince time.Time
 	ptyRows           int
