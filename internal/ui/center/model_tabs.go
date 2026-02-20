@@ -220,6 +220,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.Workspace = msg.Workspace
 		tab.Agent = msg.Agent
 		tab.SessionName = msg.Agent.Session
+		tab.activityANSIState = ansiActivityText
 		tab.Detached = false
 		tab.Running = true
 		if tab.createdAt == 0 {

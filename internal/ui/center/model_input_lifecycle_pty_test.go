@@ -3,6 +3,8 @@ package center
 import (
 	"testing"
 	"time"
+
+	appPty "github.com/andyrewlee/amux/internal/pty"
 )
 
 func TestHasVisiblePTYOutput(t *testing.T) {
@@ -156,5 +158,101 @@ func TestUpdatePTYOutput_TagsVisibleOutput(t *testing.T) {
 
 	if !tab.lastActivityTagAt.After(before) {
 		t.Fatalf("expected lastActivityTagAt to move forward, before=%v after=%v", before, tab.lastActivityTagAt)
+	}
+}
+
+func TestUpdatePtyTabReattachResult_ResetsActivityANSIState(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-1"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		activityANSIState: ansiActivityString,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach"},
+		Rows:        24,
+		Cols:        80,
+	})
+
+	if tab.activityANSIState != ansiActivityText {
+		t.Fatalf("expected activityANSIState reset to text on reattach, got %v", tab.activityANSIState)
+	}
+}
+
+func TestHandlePtyTabCreated_ExistingResetsActivityANSIState(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-1"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		activityANSIState: ansiActivityOSC,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_ = m.handlePtyTabCreated(ptyTabCreateResult{
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created"},
+		TabID:     tab.ID,
+		Rows:      24,
+		Cols:      80,
+		Activate:  true,
+	})
+
+	if tab.activityANSIState != ansiActivityText {
+		t.Fatalf("expected activityANSIState reset to text on existing tab create path, got %v", tab.activityANSIState)
+	}
+}
+
+func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-1"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		activityANSIState: ansiActivityOSC,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_ = m.updatePTYStopped(PTYStopped{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+	})
+
+	if tab.activityANSIState != ansiActivityText {
+		t.Fatalf("expected activityANSIState reset to text on PTY stop, got %v", tab.activityANSIState)
+	}
+}
+
+func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-1"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		activityANSIState: ansiActivityCSI,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_ = m.updatePTYRestart(PTYRestart{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+	})
+
+	if tab.activityANSIState != ansiActivityText {
+		t.Fatalf("expected activityANSIState reset to text on PTY restart, got %v", tab.activityANSIState)
 	}
 }

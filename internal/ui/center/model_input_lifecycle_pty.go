@@ -278,6 +278,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 				tab.ptyRestartSince = time.Now()
 				tab.ptyRestartCount = 0
 			}
+			tab.activityANSIState = ansiActivityText
 			tab.ptyRestartCount++
 			if tab.ptyRestartCount > ptyRestartMax {
 				shouldRestart = false
@@ -313,6 +314,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			}
 		} else {
 			tab.mu.Lock()
+			tab.activityANSIState = ansiActivityText
 			tab.Running = false
 			// Mark as detached - tmux session may still be alive, sync will confirm
 			tab.Detached = true
@@ -336,6 +338,7 @@ func (m *Model) updatePTYRestart(msg PTYRestart) tea.Cmd {
 	if tab == nil {
 		return nil
 	}
+	tab.activityANSIState = ansiActivityText
 	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
 		tab.mu.Lock()
 		tab.ptyRestartBackoff = 0
