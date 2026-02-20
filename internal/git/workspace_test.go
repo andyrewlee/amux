@@ -1,6 +1,9 @@
 package git
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -128,5 +131,63 @@ branch refs/heads/feature-branch
 	}
 	if workspaces[1].Name != "feature-branch" {
 		t.Errorf("ws[1].Name = %q, want %q", workspaces[1].Name, "feature-branch")
+	}
+}
+
+func TestIsBranchAlreadyExistsError(t *testing.T) {
+	err := errors.New("fatal: a branch named 'feature-a' already exists")
+	if !isBranchAlreadyExistsError(err, "feature-a") {
+		t.Fatalf("expected branch already exists error to match")
+	}
+	if isBranchAlreadyExistsError(err, "feature-b") {
+		t.Fatalf("expected non-matching branch name to return false")
+	}
+	if isBranchAlreadyExistsError(errors.New("fatal: branch lock failed"), "feature-a") {
+		t.Fatalf("expected unrelated branch error to return false")
+	}
+	if isBranchAlreadyExistsError(errors.New("fatal: already exists"), "") {
+		t.Fatalf("expected empty branch name to return false")
+	}
+}
+
+func TestCreateWorkspace_RetryUsesFreshContext(t *testing.T) {
+	origRunGitCtx := runGitCtx
+	defer func() {
+		runGitCtx = origRunGitCtx
+	}()
+
+	var firstCtx context.Context
+	call := 0
+	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
+		call++
+		switch call {
+		case 1:
+			firstCtx = ctx
+			if got, want := strings.Join(args, " "), "worktree add -b feature-ws /tmp/ws HEAD"; got != want {
+				t.Fatalf("first call args = %q, want %q", got, want)
+			}
+			return "", errors.New("fatal: a branch named 'feature-ws' already exists")
+		case 2:
+			if firstCtx == nil {
+				t.Fatalf("expected first context to be captured")
+			}
+			if ctx == firstCtx {
+				t.Fatalf("expected retry to use a fresh context")
+			}
+			if got, want := strings.Join(args, " "), "worktree add /tmp/ws feature-ws"; got != want {
+				t.Fatalf("retry args = %q, want %q", got, want)
+			}
+			return "", nil
+		default:
+			t.Fatalf("unexpected call %d", call)
+			return "", nil
+		}
+	}
+
+	if err := CreateWorkspace("/tmp/repo", "/tmp/ws", "feature-ws", "HEAD"); err != nil {
+		t.Fatalf("CreateWorkspace() error = %v", err)
+	}
+	if call != 2 {
+		t.Fatalf("runGitCtx calls = %d, want 2", call)
 	}
 }

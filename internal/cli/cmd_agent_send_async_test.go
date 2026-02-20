@@ -68,6 +68,9 @@ func TestCmdAgentSendAsyncJSONEnqueuesAndReplaysIdempotently(t *testing.T) {
 	if got, _ := firstData["sent"].(bool); got {
 		t.Fatalf("sent = %v, want false", got)
 	}
+	if got, _ := firstData["delivered"].(bool); got {
+		t.Fatalf("delivered = %v, want false", got)
+	}
 	if got, _ := firstData["job_id"].(string); got == "" {
 		t.Fatalf("expected non-empty job_id")
 	}

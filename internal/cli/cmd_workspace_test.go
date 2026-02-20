@@ -39,6 +39,62 @@ func TestCmdWorkspaceListByRelativeRepo(t *testing.T) {
 	}
 }
 
+func TestCmdWorkspaceListByRelativeProjectAlias(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() { _ = os.Chdir(originalWD) }()
+
+	if err := os.Chdir(originalWD); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	var w, wErr bytes.Buffer
+	gf := GlobalFlags{JSON: true}
+	code := cmdWorkspaceList(&w, &wErr, gf, []string{"--project", "."}, "test-v1")
+	if code != ExitOK {
+		t.Fatalf("expected ExitOK, got %d; stderr: %s", code, wErr.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, w.String())
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true")
+	}
+}
+
+func TestCmdWorkspaceListRejectsRepoAndProjectTogether(t *testing.T) {
+	var w, wErr bytes.Buffer
+	gf := GlobalFlags{JSON: true}
+	code := cmdWorkspaceList(
+		&w,
+		&wErr,
+		gf,
+		[]string{"--repo", "/tmp/repo-a", "--project", "/tmp/repo-b"},
+		"test-v1",
+	)
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage, got %d; stderr: %s", code, wErr.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, w.String())
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "usage_error" {
+		t.Fatalf("expected usage_error, got %#v", env.Error)
+	}
+}
+
 func TestCmdWorkspaceListJSON(t *testing.T) {
 	var w, wErr bytes.Buffer
 	gf := GlobalFlags{JSON: true}

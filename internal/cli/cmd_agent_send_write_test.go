@@ -35,6 +35,93 @@ func TestCmdAgentSendParseErrorJSON(t *testing.T) {
 	}
 }
 
+func TestCmdAgentSendRejectsWaitAndAsyncTogether(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := cmdAgentSend(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"session-a", "--text", "hello", "--wait", "--async"},
+		"test-v1",
+	)
+	if code != ExitUsage {
+		t.Fatalf("cmdAgentSend() code = %d, want %d", code, ExitUsage)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "usage_error" {
+		t.Fatalf("expected usage_error, got %#v", env.Error)
+	}
+	if env.Error == nil || !strings.Contains(env.Error.Message, "--wait and --async cannot be used together") {
+		t.Fatalf("unexpected error message: %#v", env.Error)
+	}
+}
+
+func TestCmdAgentSendRejectsNonPositiveWaitTimeout(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := cmdAgentSend(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"session-a", "--text", "hello", "--wait-timeout", "0s"},
+		"test-v1",
+	)
+	if code != ExitUsage {
+		t.Fatalf("cmdAgentSend() code = %d, want %d", code, ExitUsage)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || !strings.Contains(env.Error.Message, "--wait-timeout must be > 0") {
+		t.Fatalf("unexpected error message: %#v", env.Error)
+	}
+}
+
+func TestCmdAgentSendRejectsNonPositiveIdleThreshold(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := cmdAgentSend(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"session-a", "--text", "hello", "--idle-threshold", "0s"},
+		"test-v1",
+	)
+	if code != ExitUsage {
+		t.Fatalf("cmdAgentSend() code = %d, want %d", code, ExitUsage)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || !strings.Contains(env.Error.Message, "--idle-threshold must be > 0") {
+		t.Fatalf("unexpected error message: %#v", env.Error)
+	}
+}
+
 func TestCmdAgentSendJSONJobResultAndIdempotentReplay(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -89,6 +176,9 @@ func TestCmdAgentSendJSONJobResultAndIdempotentReplay(t *testing.T) {
 	}
 	if got, _ := payload["sent"].(bool); !got {
 		t.Fatalf("sent = %v, want true", got)
+	}
+	if got, _ := payload["delivered"].(bool); !got {
+		t.Fatalf("delivered = %v, want true", got)
 	}
 	jobID, _ := payload["job_id"].(string)
 	if jobID == "" {

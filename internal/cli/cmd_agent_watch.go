@@ -14,14 +14,24 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
+// watchInitialCaptureMaxAttempts bounds the initial capture loop so it cannot
+// spin indefinitely if captures alternate between failing and succeeding in
+// state-reset patterns.
+const watchInitialCaptureMaxAttempts = 50
+
 // watchEvent is a single NDJSON line emitted by agent watch.
 type watchEvent struct {
-	Type        string   `json:"type"`
-	Content     string   `json:"content,omitempty"`
-	NewLines    []string `json:"new_lines,omitempty"`
-	Hash        string   `json:"hash,omitempty"`
-	IdleSeconds float64  `json:"idle_seconds,omitempty"`
-	Timestamp   string   `json:"ts"`
+	Type             string   `json:"type"`
+	Content          string   `json:"content,omitempty"`
+	NewLines         []string `json:"new_lines,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
+	LatestLine       string   `json:"latest_line,omitempty"`
+	NeedsInput       bool     `json:"needs_input,omitempty"`
+	InputHint        string   `json:"input_hint,omitempty"`
+	Hash             string   `json:"hash,omitempty"`
+	IdleSeconds      float64  `json:"idle_seconds,omitempty"`
+	HeartbeatSeconds float64  `json:"heartbeat_seconds,omitempty"`
+	Timestamp        string   `json:"ts"`
 }
 
 // watchConfig holds parsed flags for the watch loop.
@@ -30,14 +40,21 @@ type watchConfig struct {
 	Lines         int
 	Interval      time.Duration
 	IdleThreshold time.Duration
+	Heartbeat     time.Duration
 }
 
+const (
+	watchExitAfterConsecutiveCaptureMisses = 3
+	watchExitAfterMissingSessionChecks     = 3
+)
+
 func cmdAgentWatch(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux agent watch <session_name> [--lines N] [--interval <duration>] [--idle-threshold <duration>]"
+	const usage = "Usage: amux agent watch <session_name> [--lines N] [--interval <duration>] [--idle-threshold <duration>] [--heartbeat <duration>]"
 	fs := newFlagSet("agent watch")
 	lines := fs.Int("lines", 100, "capture buffer depth")
 	interval := fs.Duration("interval", 500*time.Millisecond, "poll interval")
 	idleThreshold := fs.Duration("idle-threshold", 5*time.Second, "time before emitting idle event")
+	heartbeat := fs.Duration("heartbeat", 10*time.Second, "emit heartbeat updates while waiting (0 disables)")
 
 	sessionName, err := parseSinglePositionalWithFlags(fs, args)
 	if err != nil {
@@ -71,6 +88,14 @@ func cmdAgentWatch(w, wErr io.Writer, gf GlobalFlags, args []string, version str
 		}
 		return ExitUsage
 	}
+	if *heartbeat < 0 {
+		if gf.JSON {
+			ReturnError(w, "invalid_heartbeat", "--heartbeat must be >= 0", nil, version)
+		} else {
+			Errorf(wErr, "--heartbeat must be >= 0")
+		}
+		return ExitUsage
+	}
 
 	svc, err := NewServices(version)
 	if err != nil {
@@ -87,6 +112,7 @@ func cmdAgentWatch(w, wErr io.Writer, gf GlobalFlags, args []string, version str
 		Lines:         *lines,
 		Interval:      *interval,
 		IdleThreshold: *idleThreshold,
+		Heartbeat:     *heartbeat,
 	}
 
 	ctx, cancel := contextWithSignal()
@@ -110,26 +136,71 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 	var lastHash [16]byte
 	var lastLines []string
 	lastChangeTime := time.Now()
+	lastHeartbeatTime := time.Now()
 	emittedIdle := false
+	captureMisses := 0
+	missingSessionChecks := 0
 
-	// Initial capture → snapshot
-	content, ok := capture(cfg.SessionName, cfg.Lines, opts)
-	if !ok {
-		if !emitEvent(enc, watchEvent{
-			Type:      "exited",
-			Timestamp: now(),
-		}) {
+	// Initial capture → snapshot. A transient capture miss should not be
+	// treated as exit if the tmux session still exists.
+	var content string
+	initialAttempts := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return ExitOK
+		default:
+		}
+		initialAttempts++
+		if initialAttempts > watchInitialCaptureMaxAttempts {
+			if !emitEvent(enc, watchEvent{
+				Type:      "exited",
+				Timestamp: now(),
+			}) {
+				return ExitOK
+			}
 			return ExitOK
 		}
-		return ExitOK
+		captured, ok := capture(cfg.SessionName, cfg.Lines, opts)
+		if ok {
+			content = captured
+			resetWatchCaptureMissState(&captureMisses, &missingSessionChecks)
+			break
+		}
+		if watchShouldEmitExited(cfg.SessionName, opts, &captureMisses, &missingSessionChecks) {
+			if !emitEvent(enc, watchEvent{
+				Type:      "exited",
+				Timestamp: now(),
+			}) {
+				return ExitOK
+			}
+			return ExitOK
+		}
+		select {
+		case <-ctx.Done():
+			return ExitOK
+		case <-time.After(cfg.Interval):
+		}
 	}
 
 	lastHash = tmux.ContentHash(content)
 	lastLines = strings.Split(content, "\n")
+	snapshotLatest := latestLineForContent(content)
+	snapshotNeedsInput, snapshotInputHint := detectNeedsInput(content)
 	if !emitEvent(enc, watchEvent{
-		Type:      "snapshot",
-		Content:   content,
-		Hash:      hashStr(lastHash),
+		Type:       "snapshot",
+		Content:    content,
+		Hash:       hashStr(lastHash),
+		LatestLine: snapshotLatest,
+		NeedsInput: snapshotNeedsInput,
+		InputHint:  snapshotInputHint,
+		Summary: summarizeWatchEvent(
+			"snapshot",
+			snapshotLatest,
+			snapshotNeedsInput,
+			snapshotInputHint,
+			0,
+		),
 		Timestamp: now(),
 	}) {
 		return ExitOK
@@ -145,8 +216,11 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 		case <-ticker.C:
 		}
 
-		content, ok = capture(cfg.SessionName, cfg.Lines, opts)
+		content, ok := capture(cfg.SessionName, cfg.Lines, opts)
 		if !ok {
+			if !watchShouldEmitExited(cfg.SessionName, opts, &captureMisses, &missingSessionChecks) {
+				continue
+			}
 			if !emitEvent(enc, watchEvent{
 				Type:      "exited",
 				Timestamp: now(),
@@ -155,21 +229,57 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 			}
 			return ExitOK
 		}
+		resetWatchCaptureMissState(&captureMisses, &missingSessionChecks)
 
 		hash := tmux.ContentHash(content)
 		if hash == lastHash {
 			// No change — check idle threshold
 			elapsed := time.Since(lastChangeTime)
 			if elapsed >= cfg.IdleThreshold && !emittedIdle {
+				latestLine := latestLineForContent(content)
+				needsInput, inputHint := detectNeedsInput(content)
 				if !emitEvent(enc, watchEvent{
 					Type:        "idle",
 					IdleSeconds: elapsed.Seconds(),
 					Hash:        hashStr(hash),
-					Timestamp:   now(),
+					LatestLine:  latestLine,
+					NeedsInput:  needsInput,
+					InputHint:   inputHint,
+					Summary: summarizeWatchEvent(
+						"idle",
+						latestLine,
+						needsInput,
+						inputHint,
+						elapsed.Seconds(),
+					),
+					Timestamp: now(),
 				}) {
 					return ExitOK
 				}
 				emittedIdle = true
+			}
+			if cfg.Heartbeat > 0 && time.Since(lastHeartbeatTime) >= cfg.Heartbeat {
+				latestLine := latestLineForContent(content)
+				needsInput, inputHint := detectNeedsInput(content)
+				if !emitEvent(enc, watchEvent{
+					Type:             "heartbeat",
+					HeartbeatSeconds: elapsed.Seconds(),
+					Hash:             hashStr(hash),
+					LatestLine:       latestLine,
+					NeedsInput:       needsInput,
+					InputHint:        inputHint,
+					Summary: summarizeWatchEvent(
+						"heartbeat",
+						latestLine,
+						needsInput,
+						inputHint,
+						elapsed.Seconds(),
+					),
+					Timestamp: now(),
+				}) {
+					return ExitOK
+				}
+				lastHeartbeatTime = time.Now()
 			}
 			continue
 		}
@@ -181,14 +291,42 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 			lastHash = hash
 			lastLines = currentLines
 			lastChangeTime = time.Now()
+			lastHeartbeatTime = time.Now()
 			emittedIdle = false
 			continue
 		}
 
+		deltaText := strings.TrimSpace(strings.Join(newLines, "\n"))
+		compactDelta := compactAgentOutput(deltaText)
+		latestLine := lastNonEmptyLine(compactDelta)
+		if latestLine == "" {
+			latestLine = lastNonEmptyLine(deltaText)
+		}
+		if latestLine == "" {
+			latestLine = latestLineForContent(content)
+		}
+		needsInput, inputHint := detectNeedsInput(compactDelta)
+		if !needsInput {
+			needsInput, inputHint = detectNeedsInput(deltaText)
+		}
+		if !needsInput {
+			needsInput, inputHint = detectNeedsInput(content)
+		}
+
 		if !emitEvent(enc, watchEvent{
-			Type:      "delta",
-			NewLines:  newLines,
-			Hash:      hashStr(hash),
+			Type:       "delta",
+			NewLines:   newLines,
+			Hash:       hashStr(hash),
+			LatestLine: latestLine,
+			NeedsInput: needsInput,
+			InputHint:  inputHint,
+			Summary: summarizeWatchEvent(
+				"delta",
+				latestLine,
+				needsInput,
+				inputHint,
+				0,
+			),
 			Timestamp: now(),
 		}) {
 			return ExitOK
@@ -197,8 +335,42 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 		lastHash = hash
 		lastLines = currentLines
 		lastChangeTime = time.Now()
+		lastHeartbeatTime = time.Now()
 		emittedIdle = false
 	}
+}
+
+func watchShouldEmitExited(
+	sessionName string,
+	opts tmux.Options,
+	captureMisses, missingSessionChecks *int,
+) bool {
+	*captureMisses = *captureMisses + 1
+	if *captureMisses < watchExitAfterConsecutiveCaptureMisses {
+		return false
+	}
+	state, err := tmuxSessionStateFor(sessionName, opts)
+	if err != nil || state.Exists {
+		// Capture can miss transiently while the tmux session is still alive,
+		// and tmux state checks can also fail under load/timeouts.
+		resetWatchCaptureMissState(captureMisses, missingSessionChecks)
+		return false
+	}
+	*missingSessionChecks = *missingSessionChecks + 1
+	return *missingSessionChecks >= watchExitAfterMissingSessionChecks
+}
+
+func resetWatchCaptureMissState(captureMisses, missingSessionChecks *int) {
+	*captureMisses = 0
+	*missingSessionChecks = 0
+}
+
+func latestLineForContent(content string) string {
+	compact := compactAgentOutput(content)
+	if line := lastNonEmptyLine(compact); line != "" {
+		return line
+	}
+	return lastNonEmptyLine(content)
 }
 
 // computeNewLines returns lines in current that are new compared to previous.

@@ -421,57 +421,6 @@ func TestActiveWorkspaceIDsFromTags_StaleTagFallsBackWhenPrefilterUnavailable(t 
 	}
 }
 
-func TestActiveWorkspaceIDsFromTags_KnownFreshTagCaptureFailurePreservesActivity(t *testing.T) {
-	now := time.Now()
-	const sessionName = "sess-known-fresh-fail"
-	hashValue := [16]byte{7}
-	sessions := []TaggedSession{
-		{
-			Session:       tmux.SessionActivity{Name: sessionName, WorkspaceID: "ws-fresh-fail", Type: "agent"},
-			LastOutputAt:  now.Add(-500 * time.Millisecond),
-			HasLastOutput: true,
-		},
-	}
-	infoBySession := map[string]SessionInfo{
-		sessionName: {WorkspaceID: "ws-fresh-fail", IsChat: true},
-	}
-	// Pre-existing hold timer: session should stay active through transient capture failure.
-	states := map[string]*SessionState{
-		sessionName: {
-			LastHash:     hashValue,
-			Score:        ScoreMax,
-			LastActiveAt: now,
-			Initialized:  true,
-		},
-	}
-	captureFn := func(string, int, tmux.Options) (string, bool) { return "", false } // transient failure
-	hashFn := func(string) [16]byte { return hashValue }
-	active, updated := ActiveWorkspaceIDsFromTags(
-		infoBySession,
-		sessions,
-		map[string]bool{sessionName: true},
-		states,
-		tmux.Options{},
-		captureFn,
-		hashFn,
-	)
-	if !active["ws-fresh-fail"] {
-		t.Fatal("expected known session with fresh tag and pre-existing hold timer to stay active through capture failure")
-	}
-	state := updated[sessionName]
-	if state == nil {
-		t.Fatal("expected updated state for known fresh-tag session with capture failure")
-	}
-	// Score should be capped to threshold then decremented by hysteresis capture failure.
-	if state.Score != ScoreThreshold-1 {
-		t.Fatalf("expected score %d (threshold-1 after capture failure), got %d", ScoreThreshold-1, state.Score)
-	}
-	// Hold timer should be preserved (not cleared), keeping the session active.
-	if state.LastActiveAt.IsZero() {
-		t.Fatal("expected hold timer to be preserved for known session with fresh tag")
-	}
-}
-
 func TestActiveWorkspaceIDsFromTags_KnownStaleTagFallsBackWithoutRecentActivity(t *testing.T) {
 	now := time.Now()
 	const sessionName = "sess-known-stale"
@@ -485,16 +434,38 @@ func TestActiveWorkspaceIDsFromTags_KnownStaleTagFallsBackWithoutRecentActivity(
 	infoBySession := map[string]SessionInfo{
 		sessionName: {WorkspaceID: "ws-known", IsChat: true},
 	}
-	states := map[string]*SessionState{}
-	captureFn := func(string, int, tmux.Options) (string, bool) { return "output", true }
+	states := map[string]*SessionState{
+		sessionName: {Score: ScoreMax, Initialized: true, LastActiveAt: now},
+	}
+	captureCalls := 0
+	captureFn := func(string, int, tmux.Options) (string, bool) {
+		captureCalls++
+		return "output", true
+	}
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
-	// Empty prefilter set should not block known-session stale fallback.
+	// Empty prefilter set should skip stale fallback to avoid idle capture churn.
 	active, _ := ActiveWorkspaceIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
-	if !active["ws-known"] {
-		t.Fatal("expected known stale-tag session to remain eligible for fallback without recent prefilter activity")
+	if captureCalls != 0 {
+		t.Fatalf("expected no fallback capture without recent activity, got %d calls", captureCalls)
+	}
+	if active["ws-known"] {
+		t.Fatal("expected known stale-tag session to stay inactive without recent prefilter activity")
 	}
 	if active["ws-stale-tag"] {
 		t.Fatal("expected known metadata workspace ID to override stale tag workspace ID")
+	}
+	state := states[sessionName]
+	if state == nil {
+		t.Fatal("expected known stale-tag state to be preserved")
+	}
+	if state.Initialized != true {
+		t.Fatal("expected known stale-tag baseline to stay initialized")
+	}
+	if state.Score != ScoreThreshold {
+		t.Fatalf("expected known stale-tag score clamp to %d, got %d", ScoreThreshold, state.Score)
+	}
+	if !state.LastActiveAt.IsZero() {
+		t.Fatal("expected known stale-tag hold timer to be cleared")
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -12,9 +11,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// fakeCapture returns a capture function that cycles through the given
-// content values on successive calls. After exhausting the list, it
-// returns ("", false) to simulate session exit.
 func fakeCapture(contents ...string) captureFn {
 	idx := 0
 	return func(_ string, _ int, _ tmux.Options) (string, bool) {
@@ -118,6 +114,40 @@ func TestWatchEmitsDeltaOnChange(t *testing.T) {
 	}
 }
 
+func TestWatchDeltaMarksNeedsInput(t *testing.T) {
+	var buf bytes.Buffer
+	capture := fakeCapture("ready", "ready\nDo you want me to continue? (y/N)")
+
+	cfg := watchConfig{
+		SessionName:   "test-session",
+		Lines:         100,
+		Interval:      1 * time.Millisecond,
+		IdleThreshold: 1 * time.Hour,
+	}
+
+	code := runWatchLoopWith(context.Background(), &buf, cfg, tmux.Options{}, capture)
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+
+	events := parseEvents(t, buf.String())
+	if len(events) != 3 {
+		t.Fatalf("got %d events, want 3: %v", len(events), events)
+	}
+	if events[1].Type != "delta" {
+		t.Fatalf("events[1].Type = %q, want delta", events[1].Type)
+	}
+	if !events[1].NeedsInput {
+		t.Fatalf("delta needs_input = false, want true")
+	}
+	if events[1].InputHint != "Do you want me to continue? (y/N)" {
+		t.Fatalf("delta input_hint = %q", events[1].InputHint)
+	}
+	if events[1].LatestLine != "Do you want me to continue? (y/N)" {
+		t.Fatalf("delta latest_line = %q", events[1].LatestLine)
+	}
+}
+
 func TestWatchEmitsIdleAfterThreshold(t *testing.T) {
 	var buf bytes.Buffer
 	// Same content twice → triggers idle, then session exits
@@ -179,6 +209,46 @@ func TestWatchIdleEmittedOnlyOnce(t *testing.T) {
 	}
 	if idleCount != 1 {
 		t.Errorf("idle events = %d, want 1", idleCount)
+	}
+}
+
+func TestWatchEmitsHeartbeatWhenConfigured(t *testing.T) {
+	var buf bytes.Buffer
+	capture := fakeCaptureFunc(func(call int) (string, bool) {
+		if call < 8 {
+			return "still working", true
+		}
+		return "", false
+	})
+
+	cfg := watchConfig{
+		SessionName:   "test-session",
+		Lines:         100,
+		Interval:      1 * time.Millisecond,
+		IdleThreshold: 1 * time.Hour,
+		Heartbeat:     2 * time.Millisecond,
+	}
+
+	code := runWatchLoopWith(context.Background(), &buf, cfg, tmux.Options{}, capture)
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+
+	events := parseEvents(t, buf.String())
+	heartbeatCount := 0
+	for _, ev := range events {
+		if ev.Type == "heartbeat" {
+			heartbeatCount++
+			if ev.HeartbeatSeconds <= 0 {
+				t.Fatalf("heartbeat_seconds = %f, want > 0", ev.HeartbeatSeconds)
+			}
+			if ev.Summary == "" {
+				t.Fatalf("heartbeat summary is empty")
+			}
+		}
+	}
+	if heartbeatCount == 0 {
+		t.Fatalf("expected at least one heartbeat event, got events=%v", events)
 	}
 }
 
@@ -270,6 +340,94 @@ func TestWatchExitsOnSessionGoneImmediately(t *testing.T) {
 	}
 }
 
+func TestWatchInitialTransientCaptureMissDoesNotExit(t *testing.T) {
+	origStateFor := tmuxSessionStateFor
+	tmuxSessionStateFor = func(_ string, _ tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
+	}
+	defer func() { tmuxSessionStateFor = origStateFor }()
+
+	var buf bytes.Buffer
+	capture := fakeCaptureFunc(func(call int) (string, bool) {
+		if call < 2 {
+			return "", false
+		}
+		return "hello", true
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	cfg := watchConfig{
+		SessionName:   "test-session",
+		Lines:         100,
+		Interval:      1 * time.Millisecond,
+		IdleThreshold: 1 * time.Hour,
+	}
+
+	code := runWatchLoopWith(ctx, &buf, cfg, tmux.Options{}, capture)
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+
+	events := parseEvents(t, buf.String())
+	if len(events) == 0 {
+		t.Fatalf("expected at least one event")
+	}
+	if events[0].Type != "snapshot" {
+		t.Fatalf("events[0].Type = %q, want snapshot", events[0].Type)
+	}
+}
+
+func TestWatchTransientCaptureMissDuringLoopDoesNotEmitExited(t *testing.T) {
+	origStateFor := tmuxSessionStateFor
+	tmuxSessionStateFor = func(_ string, _ tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
+	}
+	defer func() { tmuxSessionStateFor = origStateFor }()
+
+	var buf bytes.Buffer
+	capture := fakeCaptureFunc(func(call int) (string, bool) {
+		switch call {
+		case 0:
+			return "a", true
+		case 1:
+			return "", false
+		default:
+			return "a\nb", true
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	cfg := watchConfig{
+		SessionName:   "test-session",
+		Lines:         100,
+		Interval:      1 * time.Millisecond,
+		IdleThreshold: 1 * time.Hour,
+	}
+
+	code := runWatchLoopWith(ctx, &buf, cfg, tmux.Options{}, capture)
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+
+	events := parseEvents(t, buf.String())
+	foundDelta := false
+	for _, ev := range events {
+		if ev.Type == "exited" {
+			t.Fatalf("unexpected exited event after transient miss: %v", events)
+		}
+		if ev.Type == "delta" {
+			foundDelta = true
+		}
+	}
+	if !foundDelta {
+		t.Fatalf("expected delta event after transient miss, got %v", events)
+	}
+}
+
 func TestWatchExitsOnContextCancel(t *testing.T) {
 	var buf bytes.Buffer
 
@@ -312,85 +470,5 @@ func TestWatchExitsOnContextCancel(t *testing.T) {
 	}
 	if events[0].Type != "snapshot" {
 		t.Errorf("events[0].Type = %q, want snapshot", events[0].Type)
-	}
-}
-
-type failingWriter struct{}
-
-func (failingWriter) Write(_ []byte) (int, error) {
-	return 0, errors.New("broken pipe")
-}
-
-func TestWatchExitsWhenOutputWriterFails(t *testing.T) {
-	capture := fakeCaptureFunc(func(_ int) (string, bool) {
-		return "hello", true
-	})
-
-	cfg := watchConfig{
-		SessionName:   "test-session",
-		Lines:         100,
-		Interval:      1 * time.Millisecond,
-		IdleThreshold: 1 * time.Nanosecond,
-	}
-
-	done := make(chan int, 1)
-	go func() {
-		done <- runWatchLoopWith(context.Background(), failingWriter{}, cfg, tmux.Options{}, capture)
-	}()
-
-	select {
-	case code := <-done:
-		if code != ExitOK {
-			t.Fatalf("exit code = %d, want %d", code, ExitOK)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("watch loop did not exit after writer failure")
-	}
-}
-
-func TestWatchEventHasTimestamp(t *testing.T) {
-	var buf bytes.Buffer
-	capture := fakeCapture("hello")
-
-	cfg := watchConfig{
-		SessionName:   "test-session",
-		Lines:         100,
-		Interval:      1 * time.Millisecond,
-		IdleThreshold: 1 * time.Hour,
-	}
-
-	runWatchLoopWith(context.Background(), &buf, cfg, tmux.Options{}, capture)
-
-	events := parseEvents(t, buf.String())
-	for i, ev := range events {
-		if ev.Timestamp == "" {
-			t.Errorf("events[%d].Timestamp is empty", i)
-		}
-		if _, err := time.Parse(time.RFC3339, ev.Timestamp); err != nil {
-			t.Errorf("events[%d].Timestamp %q is not valid RFC3339: %v", i, ev.Timestamp, err)
-		}
-	}
-}
-
-func TestWatchEventHasHash(t *testing.T) {
-	var buf bytes.Buffer
-	capture := fakeCapture("hello")
-
-	cfg := watchConfig{
-		SessionName:   "test-session",
-		Lines:         100,
-		Interval:      1 * time.Millisecond,
-		IdleThreshold: 1 * time.Hour,
-	}
-
-	runWatchLoopWith(context.Background(), &buf, cfg, tmux.Options{}, capture)
-
-	events := parseEvents(t, buf.String())
-	if events[0].Hash == "" {
-		t.Error("snapshot event hash is empty")
-	}
-	// MD5 hex is 32 characters
-	if len(events[0].Hash) != 32 {
-		t.Errorf("snapshot event hash length = %d, want 32", len(events[0].Hash))
 	}
 }

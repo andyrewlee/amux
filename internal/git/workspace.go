@@ -13,13 +13,60 @@ import (
 
 const worktreeTimeout = 30 * time.Second
 
+var runGitCtx = RunGitCtx
+
 // CreateWorkspace creates a new workspace backed by a git worktree
 func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 	// Create branch from base and checkout into workspace path
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
-	defer cancel()
-	_, err := RunGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, workspacePath, base)
-	return err
+	_, err := runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, workspacePath, base)
+	cancel()
+	if err == nil {
+		return nil
+	}
+	if !isBranchAlreadyExistsError(err, branch) {
+		return err
+	}
+
+	// If the branch already exists, reuse it instead of failing hard.
+	// Retry with a fresh timeout context so a slow first attempt does not
+	// consume the entire budget for the fallback path.
+	retryCtx, retryCancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	_, retryErr := runGitCtx(retryCtx, repoPath, "worktree", "add", workspacePath, branch)
+	retryCancel()
+	if retryErr != nil {
+		firstErrMsg := err.Error()
+		return fmt.Errorf(
+			"worktree add with new branch failed: %s; fallback add existing branch failed: %w",
+			firstErrMsg,
+			retryErr,
+		)
+	}
+	return nil
+}
+
+func isBranchAlreadyExistsError(err error, branch string) bool {
+	if err == nil {
+		return false
+	}
+	branch = strings.ToLower(strings.TrimSpace(branch))
+	if branch == "" {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "a branch named '"+branch+"' already exists") {
+		return true
+	}
+	if strings.Contains(msg, "a branch named `"+branch+"` already exists") {
+		return true
+	}
+	if strings.Contains(msg, "branch '"+branch+"' already exists") {
+		return true
+	}
+	if strings.Contains(msg, "branch `"+branch+"` already exists") {
+		return true
+	}
+	return strings.Contains(msg, "already exists") && strings.Contains(msg, branch)
 }
 
 // RemoveWorkspace removes a workspace backed by a git worktree
@@ -35,7 +82,7 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
-	_, err := RunGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
+	_, err := runGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
 	if err != nil {
 		// git worktree remove --force unregisters the workspace (removes .git file)
 		// but fails to delete the directory if it contains untracked files.
@@ -60,7 +107,7 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 func isRegisteredWorktree(repoPath, workspacePath string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
-	output, _ := RunGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
+	output, _ := runGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
 	// Resolve the workspace path to handle symlinks (e.g. macOS /var -> /private/var).
 	normalized := workspacePath
 	if resolved, err := filepath.EvalSymlinks(filepath.Dir(workspacePath)); err == nil {
@@ -97,7 +144,7 @@ func isSafeWorkspaceCleanupPath(path string) bool {
 func DeleteBranch(repoPath, branch string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
-	_, err := RunGitCtx(ctx, repoPath, "branch", "-D", branch)
+	_, err := runGitCtx(ctx, repoPath, "branch", "-D", branch)
 	return err
 }
 
@@ -107,7 +154,7 @@ func DeleteBranch(repoPath, branch string) error {
 func DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
-	output, err := RunGitCtx(ctx, project.Path, "worktree", "list", "--porcelain")
+	output, err := runGitCtx(ctx, project.Path, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}

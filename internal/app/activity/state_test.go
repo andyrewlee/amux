@@ -31,16 +31,19 @@ func TestActiveWorkspaceIDsFromTags_StaleTagFallbackClearsHoldAndDecaysQuickly(t
 	captureFn := func(string, int, tmux.Options) (string, bool) { return "same", true }
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
-	active, updated := ActiveWorkspaceIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
+	active, _ := ActiveWorkspaceIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
 	if active["ws-stale-hold"] {
 		t.Fatal("expected stale-tag unchanged session to stop being active without hold carryover")
 	}
-	state := updated[sessionName]
+	// With no recent activity the session takes the skip-fallback path:
+	// PrepareStaleTagFallbackState clamps score and clears hold in-place,
+	// but the session is NOT added to fallback so capture never runs.
+	state := states[sessionName]
 	if state == nil {
-		t.Fatal("expected updated state for stale-tag session")
+		t.Fatal("expected in-place state for stale-tag session")
 	}
-	if state.Score != ScoreThreshold-1 {
-		t.Fatalf("expected score to decay to %d after stale fallback clamp, got %d", ScoreThreshold-1, state.Score)
+	if state.Score != ScoreThreshold {
+		t.Fatalf("expected score clamped to %d (no capture decay), got %d", ScoreThreshold, state.Score)
 	}
 	if !state.LastActiveAt.IsZero() {
 		t.Fatal("expected stale fallback to clear hold timer")
@@ -415,5 +418,56 @@ func TestActiveWorkspaceIDsFromTags_KnownFreshConsecutiveDeltasBecomeActive(t *t
 		if i == 1 && !active[workspaceID] {
 			t.Fatal("expected second visible delta to cross active threshold")
 		}
+	}
+}
+
+func TestActiveWorkspaceIDsFromTags_KnownFreshTagCaptureFailurePreservesActivity(t *testing.T) {
+	now := time.Now()
+	const sessionName = "sess-known-fresh-fail"
+	hashValue := [16]byte{7}
+	sessions := []TaggedSession{
+		{
+			Session:       tmux.SessionActivity{Name: sessionName, WorkspaceID: "ws-fresh-fail", Type: "agent"},
+			LastOutputAt:  now.Add(-500 * time.Millisecond),
+			HasLastOutput: true,
+		},
+	}
+	infoBySession := map[string]SessionInfo{
+		sessionName: {WorkspaceID: "ws-fresh-fail", IsChat: true},
+	}
+	// Pre-existing hold timer: session should stay active through transient capture failure.
+	states := map[string]*SessionState{
+		sessionName: {
+			LastHash:     hashValue,
+			Score:        ScoreMax,
+			LastActiveAt: now,
+			Initialized:  true,
+		},
+	}
+	captureFn := func(string, int, tmux.Options) (string, bool) { return "", false } // transient failure
+	hashFn := func(string) [16]byte { return hashValue }
+	active, updated := ActiveWorkspaceIDsFromTags(
+		infoBySession,
+		sessions,
+		map[string]bool{sessionName: true},
+		states,
+		tmux.Options{},
+		captureFn,
+		hashFn,
+	)
+	if !active["ws-fresh-fail"] {
+		t.Fatal("expected known session with fresh tag and pre-existing hold timer to stay active through capture failure")
+	}
+	state := updated[sessionName]
+	if state == nil {
+		t.Fatal("expected updated state for known fresh-tag session with capture failure")
+	}
+	// Score should be capped to threshold then decremented by hysteresis capture failure.
+	if state.Score != ScoreThreshold-1 {
+		t.Fatalf("expected score %d (threshold-1 after capture failure), got %d", ScoreThreshold-1, state.Score)
+	}
+	// Hold timer should be preserved (not cleared), keeping the session active.
+	if state.LastActiveAt.IsZero() {
+		t.Fatal("expected hold timer to be preserved for known session with fresh tag")
 	}
 }

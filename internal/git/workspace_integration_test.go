@@ -34,6 +34,33 @@ func TestCreateAndRemoveWorkspace(t *testing.T) {
 	}
 }
 
+func TestCreateWorkspaceReusesExistingBranch(t *testing.T) {
+	skipIfNoGit(t)
+	repo := initRepo(t)
+
+	originalPath := filepath.Join(t.TempDir(), "existing-branch-a")
+	if err := CreateWorkspace(repo, originalPath, "existing-branch", "HEAD"); err != nil {
+		t.Fatalf("CreateWorkspace(original) error = %v", err)
+	}
+	if err := RemoveWorkspace(repo, originalPath); err != nil {
+		t.Fatalf("RemoveWorkspace(original) error = %v", err)
+	}
+
+	reusedPath := filepath.Join(t.TempDir(), "existing-branch-b")
+	if err := CreateWorkspace(repo, reusedPath, "existing-branch", "HEAD"); err != nil {
+		t.Fatalf("CreateWorkspace(reused) error = %v", err)
+	}
+	defer func() { _ = RemoveWorkspace(repo, reusedPath) }()
+
+	branch, err := RunGit(reusedPath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		t.Fatalf("RunGit(reusedPath) error = %v", err)
+	}
+	if branch != "existing-branch" {
+		t.Fatalf("branch = %q, want %q", branch, "existing-branch")
+	}
+}
+
 func TestRemoveWorkspaceWithUntrackedFiles(t *testing.T) {
 	skipIfNoGit(t)
 	repo := initRepo(t)

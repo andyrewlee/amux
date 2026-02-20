@@ -21,10 +21,10 @@ const (
 )
 
 func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux workspace create <name> --project <path> --assistant <name> [--base <branch>] [--idempotency-key <key>] [--json]"
+	const usage = "Usage: amux workspace create <name> --project <path> [--assistant <name>] [--base <branch>] [--idempotency-key <key>] [--json]"
 	fs := newFlagSet("workspace create")
 	project := fs.String("project", "", "project repo path (required)")
-	assistant := fs.String("assistant", "", "assistant name (required)")
+	assistant := fs.String("assistant", "", "assistant name (defaults to configured default assistant)")
 	base := fs.String("base", "", "base branch (auto-detected if omitted)")
 	idempotencyKey := fs.String("idempotency-key", "", "idempotency key for safe retries")
 	name, err := parseSinglePositionalWithFlags(fs, args)
@@ -32,18 +32,20 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		return returnUsageError(w, wErr, gf, usage, version, err)
 	}
 	assistantName := strings.ToLower(strings.TrimSpace(*assistant))
-	if name == "" || *project == "" || assistantName == "" {
+	if name == "" || *project == "" {
 		return returnUsageError(w, wErr, gf, usage, version, nil)
 	}
-	if err := validation.ValidateAssistant(assistantName); err != nil {
-		return returnUsageError(
-			w,
-			wErr,
-			gf,
-			usage,
-			version,
-			fmt.Errorf("invalid --assistant: %w", err),
-		)
+	if assistantName != "" {
+		if err := validation.ValidateAssistant(assistantName); err != nil {
+			return returnUsageError(
+				w,
+				wErr,
+				gf,
+				usage,
+				version,
+				fmt.Errorf("invalid --assistant: %w", err),
+			)
+		}
 	}
 	if err := validation.ValidateWorkspaceName(name); err != nil {
 		return returnUsageError(
@@ -107,6 +109,10 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		Errorf(wErr, "failed to initialize: %v", err)
 		return ExitInternalError
 	}
+	assistantExplicit := assistantName != ""
+	if assistantName == "" {
+		assistantName = svc.Config.ResolvedDefaultAssistant()
+	}
 	if !svc.Config.IsAssistantKnown(assistantName) {
 		if gf.JSON {
 			return returnJSONErrorMaybeIdempotent(
@@ -152,6 +158,32 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	// Compute workspace path
 	projectName := filepath.Base(projectPath)
 	wsPath := filepath.Join(svc.Config.Paths.WorkspacesRoot, projectName, name)
+	branchExistedBefore := gitLocalBranchExists(projectPath, name)
+
+	// Idempotent path: if the target worktree already exists for this repo, reuse it.
+	existingWS, found, err := loadExistingWorkspaceAtPath(svc, projectPath, wsPath, name, baseBranch, assistantName, assistantExplicit)
+	if err != nil {
+		if gf.JSON {
+			return returnJSONErrorMaybeIdempotent(
+				w, wErr, gf, version, "workspace.create", *idempotencyKey,
+				ExitInternalError, "existing_workspace_check_failed", err.Error(), nil,
+			)
+		}
+		Errorf(wErr, "failed to check existing workspace: %v", err)
+		return ExitInternalError
+	}
+	if found {
+		info := workspaceToInfo(existingWS)
+		if gf.JSON {
+			return returnJSONSuccessWithIdempotency(
+				w, wErr, gf, version, "workspace.create", *idempotencyKey, info,
+			)
+		}
+		PrintHuman(w, func(w io.Writer) {
+			fmt.Fprintf(w, "Using existing workspace %s (%s) at %s\n", info.Name, info.ID, info.Root)
+		})
+		return ExitOK
+	}
 
 	// Create the worktree
 	if err := git.CreateWorkspace(projectPath, wsPath, name, baseBranch); err != nil {
@@ -168,7 +200,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	// Wait for .git file to appear (same pattern as workspace_service.go)
 	gitFile := filepath.Join(wsPath, ".git")
 	if err := waitForPath(gitFile, workspaceCreateReadyAttempts, workspaceCreateReadyDelay); err != nil {
-		cleanupErr := rollbackWorkspaceCreate(projectPath, wsPath, name)
+		cleanupErr := rollbackWorkspaceCreate(projectPath, wsPath, name, !branchExistedBefore)
 		msg := fmt.Sprintf("workspace setup incomplete: %v", err)
 		if cleanupErr != nil {
 			msg = fmt.Sprintf("%s (cleanup failed: %v)", msg, cleanupErr)
@@ -195,7 +227,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	ws := data.NewWorkspace(name, name, baseBranch, projectPath, wsPath)
 	ws.Assistant = assistantName
 	if err := svc.Store.Save(ws); err != nil {
-		cleanupErr := rollbackWorkspaceCreate(projectPath, wsPath, name)
+		cleanupErr := rollbackWorkspaceCreate(projectPath, wsPath, name, !branchExistedBefore)
 		msg := err.Error()
 		if cleanupErr != nil {
 			msg = fmt.Sprintf("%s (cleanup failed: %v)", msg, cleanupErr)
@@ -234,20 +266,119 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	return ExitOK
 }
 
-func rollbackWorkspaceCreate(repoPath, workspacePath, branch string) error {
+func rollbackWorkspaceCreate(repoPath, workspacePath, branch string, deleteBranch bool) error {
 	var errs []string
 
 	if err := git.RemoveWorkspace(repoPath, workspacePath); err != nil {
 		errs = append(errs, fmt.Sprintf("remove worktree: %v", err))
 	}
-	if err := git.DeleteBranch(repoPath, branch); err != nil {
-		errs = append(errs, fmt.Sprintf("delete branch: %v", err))
+	if deleteBranch {
+		if err := git.DeleteBranch(repoPath, branch); err != nil {
+			errs = append(errs, fmt.Sprintf("delete branch: %v", err))
+		}
 	}
 
 	if len(errs) == 0 {
 		return nil
 	}
 	return errors.New(strings.Join(errs, "; "))
+}
+
+func loadExistingWorkspaceAtPath(
+	svc *Services,
+	projectPath, wsPath, name, baseBranch, assistantName string,
+	assistantExplicit bool,
+) (*data.Workspace, bool, error) {
+	gitFile := filepath.Join(wsPath, ".git")
+	if _, err := os.Stat(gitFile); err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	workspaceCommonDir, err := canonicalizeGitCommonDir(wsPath)
+	if err != nil {
+		return nil, false, err
+	}
+	projectCommonDir, err := canonicalizeGitCommonDir(projectPath)
+	if err != nil {
+		return nil, false, err
+	}
+	if workspaceCommonDir != projectCommonDir {
+		return nil, false, nil
+	}
+
+	branch, err := git.GetCurrentBranch(wsPath)
+	if err != nil || strings.TrimSpace(branch) == "" {
+		branch = strings.TrimSpace(baseBranch)
+		if branch == "" {
+			branch = "HEAD"
+		}
+	}
+
+	id := data.Workspace{Repo: projectPath, Root: wsPath}.ID()
+	stored, err := svc.Store.Load(id)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, false, err
+	}
+
+	if os.IsNotExist(err) {
+		ws := data.NewWorkspace(name, branch, baseBranch, projectPath, wsPath)
+		ws.Assistant = assistantName
+		if err := svc.Store.Save(ws); err != nil {
+			return nil, false, err
+		}
+		return ws, true, nil
+	}
+
+	if strings.TrimSpace(stored.Name) == "" {
+		stored.Name = name
+	}
+	if strings.TrimSpace(stored.Branch) == "" {
+		stored.Branch = branch
+	}
+	if strings.TrimSpace(stored.Repo) == "" {
+		stored.Repo = projectPath
+	}
+	if strings.TrimSpace(stored.Root) == "" {
+		stored.Root = wsPath
+	}
+	if strings.TrimSpace(stored.Base) == "" {
+		stored.Base = baseBranch
+	}
+	if strings.TrimSpace(stored.Assistant) == "" {
+		stored.Assistant = assistantName
+	} else if assistantExplicit && !strings.EqualFold(stored.Assistant, assistantName) {
+		return nil, false, fmt.Errorf(
+			"existing workspace %q uses assistant %q, but %q was requested; "+
+				"use a different workspace name or omit --assistant",
+			name, stored.Assistant, assistantName,
+		)
+	}
+	if err := svc.Store.Save(stored); err != nil {
+		return nil, false, err
+	}
+	return stored, true, nil
+}
+
+func canonicalizeGitCommonDir(repoPath string) (string, error) {
+	raw, err := git.RunGitCtx(context.Background(), repoPath, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	commonDir := strings.TrimSpace(raw)
+	if commonDir == "" {
+		return "", fmt.Errorf("empty git common dir for %s", repoPath)
+	}
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(repoPath, commonDir)
+	}
+	resolved, err := filepath.EvalSymlinks(commonDir)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
 }
 
 func canonicalizeProjectPath(projectPath string) (string, error) {
@@ -318,5 +449,14 @@ func gitRefExists(repoPath, ref string) bool {
 		return false
 	}
 	_, err := git.RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", ref)
+	return err == nil
+}
+
+func gitLocalBranchExists(repoPath, branchName string) bool {
+	branchName = strings.TrimSpace(branchName)
+	if branchName == "" {
+		return false
+	}
+	_, err := git.RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", "refs/heads/"+branchName)
 	return err == nil
 }

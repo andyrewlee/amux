@@ -113,21 +113,18 @@ func ActiveWorkspaceIDsFromTags(
 				fallback = append(fallback, snapshot.Session)
 				continue
 			}
-			// For known tabs, always keep pane-delta fallback enabled.
-			// Their metadata is authoritative and detached sessions may
-			// not refresh @amux_last_output_at.
-			if ok {
-				PrepareStaleTagFallbackState(snapshot.Session.Name, states)
-				seenChatSessions[snapshot.Session.Name] = true
-				fallback = append(fallback, snapshot.Session)
-				continue
-			}
 			// Stale-tag fallback is gated by recent tmux activity to avoid
 			// capture-pane work on long-idle sessions each scan.
 			if HasRecentWindowActivity(snapshot.Session.Name, recentActivityBySession) {
 				PrepareStaleTagFallbackState(snapshot.Session.Name, states)
 				seenChatSessions[snapshot.Session.Name] = true
 				fallback = append(fallback, snapshot.Session)
+			} else if ok {
+				// Known sessions were observed in this scan but intentionally
+				// skipped for expensive fallback capture. Mark them seen so we
+				// preserve hysteresis state instead of hard-resetting it.
+				PrepareStaleTagFallbackState(snapshot.Session.Name, states)
+				seenChatSessions[snapshot.Session.Name] = true
 			}
 			continue
 		}
