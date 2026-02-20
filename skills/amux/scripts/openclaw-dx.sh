@@ -497,7 +497,27 @@ workspace_row_by_id() {
   if ! ws_out="$(amux_ok_json workspace list --archived)"; then
     return 1
   fi
-  jq -c --arg id "$workspace_id" '.data // [] | map(select(.id == $id)) | .[0] // empty' <<<"$ws_out"
+  jq -c --arg id "$workspace_id" '
+    (.data // [])
+    | if type == "array" then . else [] end
+    | map(select(.id == $id))
+    | .[0] // empty
+  ' <<<"$ws_out"
+}
+
+workspace_require_exists() {
+  local command_name="$1"
+  local workspace_id="$2"
+  local ws_row
+  if ! ws_row="$(workspace_row_by_id "$workspace_id")"; then
+    emit_amux_error "$command_name"
+    return 1
+  fi
+  if [[ -z "${ws_row// }" ]]; then
+    emit_error "$command_name" "command_error" "workspace not found" "$workspace_id"
+    return 1
+  fi
+  return 0
 }
 
 agent_for_workspace() {
@@ -612,6 +632,28 @@ default_assistant_for_workspace() {
     return 0
   fi
   jq -r '.assistant // ""' <<<"$ws_row"
+}
+
+assistant_require_known() {
+  local command_name="$1"
+  local assistant="$2"
+  local normalized
+  normalized="$(printf '%s' "$assistant" | tr '[:upper:]' '[:lower:]')"
+  normalized="${normalized#"${normalized%%[![:space:]]*}"}"
+  normalized="${normalized%"${normalized##*[![:space:]]}"}"
+  if [[ -z "${normalized// }" ]]; then
+    emit_error "$command_name" "command_error" "invalid assistant" "$assistant"
+    return 1
+  fi
+  if [[ "${#normalized}" -gt 100 ]]; then
+    emit_error "$command_name" "command_error" "invalid assistant" "$assistant"
+    return 1
+  fi
+  if [[ "$normalized" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+    return 0
+  fi
+  emit_error "$command_name" "command_error" "invalid assistant" "$assistant"
+  return 1
 }
 
 canonicalize_path() {
@@ -2885,6 +2927,9 @@ cmd_start() {
     emit_error "start" "command_error" "missing required flags" "start requires --prompt and a workspace (pass --workspace or set active context)"
     return
   fi
+  if ! workspace_require_exists "start" "$workspace"; then
+    return
+  fi
 
   if [[ -z "$assistant" ]]; then
     assistant="$(default_assistant_for_workspace "$workspace")"
@@ -2894,6 +2939,9 @@ cmd_start() {
   fi
   if [[ -z "$assistant" ]]; then
     assistant="codex"
+  fi
+  if ! assistant_require_known "start" "$assistant"; then
+    return
   fi
   context_set_workspace_with_lookup "$workspace" "$assistant"
 
@@ -3008,6 +3056,16 @@ cmd_continue() {
     esac
   done
 
+  if [[ -n "$start_assistant" ]]; then
+    if ! assistant_require_known "continue" "$start_assistant"; then
+      return
+    fi
+    if [[ "$auto_start" != "true" ]]; then
+      emit_error "continue" "command_error" "--assistant requires --auto-start" "pass --auto-start when selecting an assistant for fallback start"
+      return
+    fi
+  fi
+
   workspace="$(context_resolve_workspace "$workspace")"
   wait_timeout="$(normalize_turn_wait_timeout "$wait_timeout")"
   if [[ -z "$agent" && -z "$workspace" ]]; then
@@ -3070,6 +3128,9 @@ cmd_continue() {
   fi
 
   if [[ -z "$agent" && -n "$workspace" ]]; then
+    if ! workspace_require_exists "continue" "$workspace"; then
+      return
+    fi
     context_set_workspace_with_lookup "$workspace" ""
     agent="$(agent_for_workspace "$workspace")"
     if [[ -z "$agent" ]]; then
@@ -3084,6 +3145,9 @@ cmd_continue() {
         fi
         if [[ -z "$resolved_assistant" ]]; then
           resolved_assistant="codex"
+        fi
+        if ! assistant_require_known "continue" "$resolved_assistant"; then
+          return
         fi
 
         local start_json
@@ -3145,6 +3209,11 @@ cmd_continue() {
 }
 
 cmd_status() {
+  local result_command="${OPENCLAW_DX_STATUS_RESULT_COMMAND:-status}"
+  case "$result_command" in
+    status|alerts) ;;
+    *) result_command="status" ;;
+  esac
   local project=""
   local workspace=""
   local limit=12
@@ -3180,7 +3249,7 @@ cmd_status() {
       --include-stale)
         include_stale_alerts=true; shift ;;
       *)
-        emit_error "status" "command_error" "unknown flag" "$1"
+        emit_error "$result_command" "command_error" "unknown flag" "$1"
         return
         ;;
     esac
@@ -3218,7 +3287,7 @@ cmd_status() {
 
   local projects_out ws_out agents_out terms_out sessions_out prune_out
   if ! projects_out="$(amux_ok_json project list)"; then
-    emit_amux_error "status"
+    emit_amux_error "$result_command"
     return
   fi
 
@@ -3227,7 +3296,7 @@ cmd_status() {
     ws_args+=(--repo "$project")
   fi
   if ! ws_out="$(amux_ok_json "${ws_args[@]}")"; then
-    emit_amux_error "status"
+    emit_amux_error "$result_command"
     return
   fi
 
@@ -3236,7 +3305,7 @@ cmd_status() {
     agents_args+=(--workspace "$workspace")
   fi
   if ! agents_out="$(amux_ok_json "${agents_args[@]}")"; then
-    emit_amux_error "status"
+    emit_amux_error "$result_command"
     return
   fi
 
@@ -3245,12 +3314,12 @@ cmd_status() {
     term_args+=(--workspace "$workspace")
   fi
   if ! terms_out="$(amux_ok_json "${term_args[@]}")"; then
-    emit_amux_error "status"
+    emit_amux_error "$result_command"
     return
   fi
 
   if ! sessions_out="$(amux_ok_json session list)"; then
-    emit_amux_error "status"
+    emit_amux_error "$result_command"
     return
   fi
 
@@ -3263,7 +3332,7 @@ cmd_status() {
   if [[ -n "$workspace" ]]; then
     ws_json="$(jq -c --arg id "$workspace" 'map(select(.id == $id))' <<<"$ws_json")"
     if [[ "$(jq -r 'length' <<<"$ws_json")" -eq 0 ]]; then
-      emit_error "status" "command_error" "workspace not found" "$workspace"
+      emit_error "$result_command" "command_error" "workspace not found" "$workspace"
       return
     fi
     context_set_workspace_with_lookup "$workspace" ""
@@ -3374,7 +3443,7 @@ cmd_status() {
   local next_action suggested_command
   next_action="Review active agents and continue where needed."
   local refresh_cmd
-  refresh_cmd="skills/amux/scripts/openclaw-dx.sh status"
+  refresh_cmd="skills/amux/scripts/openclaw-dx.sh $result_command"
   if [[ -n "$project" ]]; then
     refresh_cmd+=" --project $(shell_quote "$project")"
   fi
@@ -3387,7 +3456,7 @@ cmd_status() {
   if [[ -n "$project" && -z "$workspace" && "$recent_workspaces" -gt 0 ]]; then
     refresh_cmd+=" --recent-workspaces $(shell_quote "$recent_workspaces")"
   fi
-  if [[ "$alerts_only" == "true" ]]; then
+  if [[ "$alerts_only" == "true" && "$result_command" != "alerts" ]]; then
     refresh_cmd+=" --alerts-only"
   fi
   suggested_command="$refresh_cmd"
@@ -3465,7 +3534,7 @@ cmd_status() {
   fi
 
   RESULT_OK=true
-  RESULT_COMMAND="status"
+  RESULT_COMMAND="$result_command"
   RESULT_STATUS="$status"
   RESULT_SUMMARY="$summary"
   RESULT_NEXT_ACTION="$next_action"
@@ -3510,7 +3579,7 @@ cmd_status() {
 }
 
 cmd_alerts() {
-  OPENCLAW_DX_FORCE_ALERTS_ONLY=true cmd_status "$@"
+  OPENCLAW_DX_FORCE_ALERTS_ONLY=true OPENCLAW_DX_STATUS_RESULT_COMMAND=alerts cmd_status "$@"
 }
 
 cmd_terminal_run() {
@@ -3887,6 +3956,12 @@ cmd_review() {
     emit_error "review" "command_error" "missing required flag: --workspace (or set active context workspace)"
     return
   fi
+  if ! workspace_require_exists "review" "$workspace"; then
+    return
+  fi
+  if ! assistant_require_known "review" "$assistant"; then
+    return
+  fi
   context_set_workspace_with_lookup "$workspace" "$assistant"
 
   if [[ ! -x "$TURN_SCRIPT" ]]; then
@@ -4206,6 +4281,11 @@ cmd_workflow_kickoff() {
     emit_error "workflow.kickoff" "command_error" "missing required flags" "workflow kickoff requires --name and --prompt"
     return
   fi
+  if [[ -n "$assistant" ]]; then
+    if ! assistant_require_known "workflow.kickoff" "$assistant"; then
+      return
+    fi
+  fi
   if [[ -z "$project" && -z "$from_workspace" ]]; then
     project="$(context_resolve_project "")"
   fi
@@ -4293,37 +4373,68 @@ cmd_workflow_kickoff() {
     --arg workspace_id "$workspace_id" \
     '{project: $project, workspace: $workspace, workspace_id: $workspace_id}')"
 
-  jq -c \
+  local kickoff_json
+  kickoff_json="$(jq -c \
     --arg command "workflow.kickoff" \
     --arg workflow "kickoff" \
     --argjson kickoff "$kickoff_payload" \
     --arg workspace_id "$workspace_id" \
     '
-      . + {
-        command: $command,
-        workflow: $workflow,
-        kickoff: $kickoff,
-        quick_actions: (
-          ((.quick_actions // []) + [
-            {
-              id: "status_ws",
-              label: "Status",
-              command: ("skills/amux/scripts/openclaw-dx.sh status --workspace " + $workspace_id),
-              style: "primary",
-              prompt: "Check workspace status"
-            },
-            {
-              id: "review_ws",
-              label: "Review",
-              command: ("skills/amux/scripts/openclaw-dx.sh review --workspace " + $workspace_id + " --assistant codex"),
-              style: "primary",
-              prompt: "Run review on uncommitted changes"
-            }
-          ])
-          | unique_by(.id)
-        )
-      }
-    ' <<<"$start_json"
+      def turn_snapshot:
+        {
+          mode: (.mode // ""),
+          turn_id: (.turn_id // ""),
+          status: (.status // ""),
+          overall_status: (.overall_status // ""),
+          summary: (.summary // ""),
+          next_action: (.next_action // ""),
+          suggested_command: (.suggested_command // ""),
+          agent_id: (.agent_id // ""),
+          workspace_id: (.workspace_id // ""),
+          assistant: (.assistant // ""),
+          steps_used: (.steps_used // null),
+          max_steps: (.max_steps // null),
+          elapsed_seconds: (.elapsed_seconds // null),
+          milestones: (.milestones // [])
+        };
+      ((.quick_actions // []) + [
+        {
+          id: "status_ws",
+          label: "Status",
+          command: ("skills/amux/scripts/openclaw-dx.sh status --workspace " + $workspace_id),
+          style: "primary",
+          prompt: "Check workspace status"
+        },
+        {
+          id: "review_ws",
+          label: "Review",
+          command: ("skills/amux/scripts/openclaw-dx.sh review --workspace " + $workspace_id + " --assistant codex"),
+          style: "primary",
+          prompt: "Run review on uncommitted changes"
+        }
+      ]) as $actions
+      | .quick_actions = ($actions | unique_by(.id))
+      | .data = ((.data // {}) + {
+          kickoff: $kickoff,
+          project: ($kickoff.project // null),
+          workspace: ($kickoff.workspace // null),
+          workspace_id: $workspace_id,
+          turn: (turn_snapshot)
+        })
+      | . + {
+          command: $command,
+          workflow: $workflow,
+          kickoff: $kickoff,
+          phase: "start"
+        }
+      | del(.openclaw, .quick_action_by_id, .quick_action_prompts_by_id)
+    ' <<<"$start_json")"
+
+  if [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
+    "$OPENCLAW_PRESENT_SCRIPT" <<<"$kickoff_json"
+  else
+    printf '%s\n' "$kickoff_json"
+  fi
 }
 
 cmd_workflow_dual() {
@@ -4439,6 +4550,9 @@ cmd_workflow_dual() {
     emit_error "workflow.dual" "command_error" "missing required flag: --workspace (or set active context workspace)"
     return
   fi
+  if ! workspace_require_exists "workflow.dual" "$workspace"; then
+    return
+  fi
 
   if [[ -z "$implement_assistant" ]]; then
     implement_assistant="$(default_assistant_for_workspace "$workspace")"
@@ -4449,8 +4563,14 @@ cmd_workflow_dual() {
   if [[ -z "$implement_assistant" ]]; then
     implement_assistant="codex"
   fi
+  if ! assistant_require_known "workflow.dual" "$implement_assistant"; then
+    return
+  fi
   if [[ -z "$review_assistant" ]]; then
     review_assistant="codex"
+  fi
+  if ! assistant_require_known "workflow.dual" "$review_assistant"; then
+    return
   fi
 
   local implement_args=(
@@ -4835,6 +4955,11 @@ cmd_assistants() {
   if [[ "$probe" == "true" && -z "$workspace" ]]; then
     emit_error "assistants" "command_error" "--probe requires --workspace (or active context workspace)"
     return
+  fi
+  if [[ "$probe" == "true" ]]; then
+    if ! workspace_require_exists "assistants" "$workspace"; then
+      return
+    fi
   fi
 
   local assistant_cmds

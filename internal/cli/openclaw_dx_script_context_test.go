@@ -186,7 +186,17 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
 	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
 set -euo pipefail
-printf '%s' '{"ok":true,"data":{},"error":null}'
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[{"id":"ws-1","name":"demo","repo":"/tmp/demo"}],"error":null}'
+    ;;
+  *)
+    printf '%s' '{"ok":true,"data":{},"error":null}'
+    ;;
+esac
 `)
 
 	env := os.Environ()
@@ -237,7 +247,7 @@ if [[ "${1:-}" == "--json" ]]; then
 fi
 case "${1:-} ${2:-}" in
   "workspace list")
-    printf '%s' '{"ok":true,"data":[],"error":null}'
+    printf '%s' '{"ok":true,"data":[{"id":"ws-context","name":"demo","repo":"/tmp/demo"}],"error":null}'
     ;;
   *)
     printf '%s' '{"ok":true,"data":{},"error":null}'

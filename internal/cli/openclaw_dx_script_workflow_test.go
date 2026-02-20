@@ -108,7 +108,14 @@ set -euo pipefail
 if [[ "${1:-}" == "--json" ]]; then
   shift
 fi
-printf '%s' '{"ok":true,"data":{},"error":null}'
+case "${1:-} ${2:-}" in
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[{"id":"ws-1","name":"demo","repo":"/tmp/demo"}],"error":null}'
+    ;;
+  *)
+    printf '%s' '{"ok":true,"data":{},"error":null}'
+    ;;
+esac
 `)
 
 	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
@@ -203,7 +210,14 @@ set -euo pipefail
 if [[ "${1:-}" == "--json" ]]; then
   shift
 fi
-printf '%s' '{"ok":true,"data":{},"error":null}'
+case "${1:-} ${2:-}" in
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[{"id":"ws-1","name":"demo","repo":"/tmp/demo"}],"error":null}'
+    ;;
+  *)
+    printf '%s' '{"ok":true,"data":{},"error":null}'
+    ;;
+esac
 `)
 
 	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
