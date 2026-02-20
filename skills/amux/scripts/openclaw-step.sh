@@ -381,10 +381,11 @@ extract_delta_summary_candidate() {
       if [[ -z "$candidate" ]]; then
         candidate="$line"
       fi
-      if [[ -z "$fragment" ]]; then
-        fragment="$line"
-      fi
+      fragment="$line"
       continue
+    fi
+    if [[ -n "$fragment" && "$line" != "- "* && "$line" != "• "* ]]; then
+      fragment=""
     fi
     if [[ -n "$fragment" && ( "$line" == "- "* || "$line" == "• "* ) ]]; then
       line="$(trim_line "$line $fragment")"
@@ -455,7 +456,6 @@ sanitize_summary_text() {
   text="$(printf '%s' "$text" | sed -E \
     -e 's/\\",[[:space:]]*\\\"(ok|mode|status|summary|latest_line|next_action|suggested_command|agent_id|workspace_id|assistant|message|delta|needs_input|input_hint|timed_out|session_exited|changed|response|data|error)\\\"[[:space:]]*:[[:space:]].*$//' \
     -e 's/",[[:space:]]*"(ok|mode|status|summary|latest_line|next_action|suggested_command|agent_id|workspace_id|assistant|message|delta|needs_input|input_hint|timed_out|session_exited|changed|response|data|error)"[[:space:]]*:[[:space:]].*$//' \
-    -e 's/\\"/"/g' \
     -e 's/[[:space:]]+$//')"
   text="$(trim_line "$text")"
   if is_chrome_line "$text"; then
@@ -710,9 +710,6 @@ LATEST_LINE="$(redact_secrets_text "$LATEST_LINE")"
 RESPONSE_SUMMARY="$(redact_secrets_text "$RESPONSE_SUMMARY")"
 DELTA="$(redact_secrets_text "$DELTA")"
 INPUT_HINT="$(redact_secrets_text "$INPUT_HINT")"
-
-LATEST_LINE="$(sanitize_summary_text "$LATEST_LINE")"
-RESPONSE_SUMMARY="$(sanitize_summary_text "$RESPONSE_SUMMARY")"
 
 LATEST_LINE_TRIMMED="$(trim_line "$LATEST_LINE")"
 if is_chrome_line "$LATEST_LINE_TRIMMED"; then

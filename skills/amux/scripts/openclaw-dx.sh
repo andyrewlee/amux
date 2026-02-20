@@ -414,7 +414,7 @@ emit_result() {
         }
     ')"
 
-  if [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
+  if [[ "${OPENCLAW_DX_SKIP_PRESENT:-false}" != "true" && -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
     "$OPENCLAW_PRESENT_SCRIPT" <<<"$result_payload"
   else
     printf '%s\n' "$result_payload"
@@ -649,7 +649,7 @@ assistant_require_known() {
     emit_error "$command_name" "command_error" "invalid assistant" "$assistant"
     return 1
   fi
-  if [[ "$normalized" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+  if [[ "$normalized" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
     return 0
   fi
   emit_error "$command_name" "command_error" "invalid assistant" "$assistant"
@@ -1014,7 +1014,7 @@ run_self_json() {
   if [[ ! -x "$SELF_SCRIPT" ]]; then
     return 1
   fi
-  out="$("$SELF_SCRIPT" "$@" 2>/dev/null || true)"
+  out="$(OPENCLAW_DX_SKIP_PRESENT=true "$SELF_SCRIPT" "$@" 2>/dev/null || true)"
   if ! jq -e . >/dev/null 2>&1 <<<"$out"; then
     return 1
   fi
@@ -1265,7 +1265,7 @@ emit_turn_passthrough() {
     context_set_agent "$agent_id" "$workspace_id" "$assistant"
   fi
 
-  if [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
+  if [[ "${OPENCLAW_DX_SKIP_PRESENT:-false}" != "true" && -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
     "$OPENCLAW_PRESENT_SCRIPT" <<<"$normalized_json"
   else
     printf '%s\n' "$normalized_json"
@@ -3056,14 +3056,9 @@ cmd_continue() {
     esac
   done
 
-  if [[ -n "$start_assistant" ]]; then
-    if ! assistant_require_known "continue" "$start_assistant"; then
-      return
-    fi
-    if [[ "$auto_start" != "true" ]]; then
-      emit_error "continue" "command_error" "--assistant requires --auto-start" "pass --auto-start when selecting an assistant for fallback start"
-      return
-    fi
+  if [[ -n "$start_assistant" && "$auto_start" != "true" ]]; then
+    emit_error "continue" "command_error" "--assistant requires --auto-start" "pass --auto-start when selecting an assistant for fallback start"
+    return
   fi
 
   workspace="$(context_resolve_workspace "$workspace")"
@@ -4430,11 +4425,7 @@ cmd_workflow_kickoff() {
       | del(.openclaw, .quick_action_by_id, .quick_action_prompts_by_id)
     ' <<<"$start_json")"
 
-  if [[ -x "$OPENCLAW_PRESENT_SCRIPT" ]]; then
-    "$OPENCLAW_PRESENT_SCRIPT" <<<"$kickoff_json"
-  else
-    printf '%s\n' "$kickoff_json"
-  fi
+  printf '%s\n' "$kickoff_json"
 }
 
 cmd_workflow_dual() {

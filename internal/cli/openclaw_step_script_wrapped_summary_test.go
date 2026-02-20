@@ -379,3 +379,112 @@ exit 2
 		t.Fatalf("summary = %q, expected trailing brace to be preserved", summary)
 	}
 }
+
+func TestOpenClawStepScriptRun_PreservesEscapedQuoteSequences(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-step.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	if err := os.WriteFile(fakeAmuxPath, []byte(`#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+if [[ "${1:-}" == "agent" && "${2:-}" == "run" ]]; then
+  printf '%s' "${FAKE_AMUX_RUN_JSON:?missing FAKE_AMUX_RUN_JSON}"
+  exit 0
+fi
+echo "unexpected args: $*" >&2
+exit 2
+`), 0o755); err != nil {
+		t.Fatalf("write fake amux: %v", err)
+	}
+
+	runJSON := `{"ok":true,"data":{"session_name":"sess-escaped-quote","agent_id":"agent-escaped-quote","workspace_id":"ws-escaped-quote","assistant":"codex","response":{"status":"idle","latest_line":"Escaped quote sequence: \\\"value\\\"","summary":"Escaped quote sequence: \\\"value\\\"","delta":"Escaped quote sequence: \\\"value\\\"","needs_input":false,"input_hint":"","timed_out":false,"session_exited":false,"changed":true}}}`
+
+	cmd := exec.Command(
+		scriptPath,
+		"run",
+		"--workspace", "ws-escaped-quote",
+		"--assistant", "codex",
+		"--prompt", "test prompt",
+		"--wait-timeout", "1s",
+		"--idle-threshold", "1s",
+	)
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "FAKE_AMUX_RUN_JSON", runJSON)
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("openclaw-step.sh run failed: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("decode json: %v\nraw: %s", err, string(out))
+	}
+
+	summary, _ := payload["summary"].(string)
+	if summary != `Escaped quote sequence: \"value\"` {
+		t.Fatalf("summary = %q, expected escaped quote sequence to be preserved", summary)
+	}
+}
+
+func TestOpenClawStepScriptRun_DoesNotCarryWrappedFragmentAcrossSections(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-step.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	if err := os.WriteFile(fakeAmuxPath, []byte(`#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+if [[ "${1:-}" == "agent" && "${2:-}" == "run" ]]; then
+  printf '%s' "${FAKE_AMUX_RUN_JSON:?missing FAKE_AMUX_RUN_JSON}"
+  exit 0
+fi
+echo "unexpected args: $*" >&2
+exit 2
+`), 0o755); err != nil {
+		t.Fatalf("write fake amux: %v", err)
+	}
+
+	runJSON := `{"ok":true,"data":{"session_name":"sess-fragment-reset","agent_id":"agent-fragment-reset","workspace_id":"ws-fragment-reset","assistant":"codex","response":{"status":"idle","latest_line":"output tracking.","summary":"output tracking.","delta":"- Updated README.md with setup docs.\nNotes:\nlocalhost mapping): NOTES.md","needs_input":false,"input_hint":"","timed_out":false,"session_exited":false,"changed":true}}}`
+
+	cmd := exec.Command(
+		scriptPath,
+		"run",
+		"--workspace", "ws-fragment-reset",
+		"--assistant", "codex",
+		"--prompt", "test prompt",
+		"--wait-timeout", "1s",
+		"--idle-threshold", "1s",
+	)
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "FAKE_AMUX_RUN_JSON", runJSON)
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("openclaw-step.sh run failed: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("decode json: %v\nraw: %s", err, string(out))
+	}
+
+	summary, _ := payload["summary"].(string)
+	if !strings.Contains(summary, "Updated README.md with setup docs.") {
+		t.Fatalf("summary = %q, expected README update detail", summary)
+	}
+	if strings.Contains(summary, "localhost mapping): NOTES.md") {
+		t.Fatalf("summary = %q, expected stale wrapped fragment to be excluded", summary)
+	}
+}
