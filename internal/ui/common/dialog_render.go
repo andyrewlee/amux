@@ -49,7 +49,7 @@ func (d *Dialog) Cursor() *tea.Cursor {
 	switch d.dtype {
 	case DialogInput:
 		if d.message != "" {
-			msgStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+			msgStyle := lipgloss.NewStyle().Foreground(ColorMuted).Width(d.dialogContentWidth())
 			prefix.WriteString(msgStyle.Render(d.message))
 			prefix.WriteString("\n\n")
 		}
@@ -57,7 +57,8 @@ func (d *Dialog) Cursor() *tea.Cursor {
 	case DialogSelect:
 		if d.filterEnabled {
 			if d.message != "" {
-				prefix.WriteString(d.message)
+				wrapped := lipgloss.NewStyle().Width(d.dialogContentWidth()).Render(d.message)
+				prefix.WriteString(wrapped)
 				prefix.WriteString("\n\n")
 			}
 			input = &d.filterInput
