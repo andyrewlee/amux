@@ -94,7 +94,7 @@ func newMonitorHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 }
 
 func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
-	centerModel := center.New(cfg)
+	centerModel := center.New(cfg, nil)
 	centerModel.SetShowKeymapHints(opts.ShowKeymapHints)
 
 	dash := dashboard.New()
@@ -167,7 +167,7 @@ func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 }
 
 func newSidebarHarness(cfg *config.Config, opts HarnessOptions) *Harness {
-	centerModel := center.New(cfg)
+	centerModel := center.New(cfg, nil)
 	centerModel.SetShowKeymapHints(opts.ShowKeymapHints)
 
 	dash := dashboard.New()

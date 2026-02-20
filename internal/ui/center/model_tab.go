@@ -207,6 +207,8 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 		tab.markClosing()
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
+		agent := tab.Agent
+		tab.Agent = nil
 		if tab.ptyTraceFile != nil {
 			_ = tab.ptyTraceFile.Close()
 			tab.ptyTraceFile = nil
@@ -219,15 +221,13 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 		tab.Workspace = nil
 		tab.Running = false
 		tab.mu.Unlock()
+		if agent != nil && m.agentProvider != nil {
+			_ = m.agentProvider.CloseAgent(agent)
+		}
 		tab.markClosed()
 	}
 
 	delete(m.tabsByWorkspace, wsID)
 	delete(m.activeTabByWorkspace, wsID)
 	m.noteTabsChanged()
-
-	// Also cleanup agents for this workspace
-	if m.agentManager != nil {
-		m.agentManager.CloseWorkspaceAgents(ws)
-	}
 }

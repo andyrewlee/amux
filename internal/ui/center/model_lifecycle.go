@@ -10,12 +10,19 @@ import (
 )
 
 // New creates a new center pane model.
-func New(cfg *config.Config) *Model {
+func New(cfg *config.Config, providers ...AgentProvider) *Model {
+	var provider AgentProvider
+	if len(providers) > 0 {
+		provider = providers[0]
+	}
+	if provider == nil {
+		provider = &localAgentProvider{mgr: appPty.NewAgentManager(cfg)}
+	}
 	return &Model{
 		tabsByWorkspace:      make(map[string][]*Tab),
 		activeTabByWorkspace: make(map[string]int),
 		config:               cfg,
-		agentManager:         appPty.NewAgentManager(cfg),
+		agentProvider:        provider,
 		styles:               common.DefaultStyles(),
 		tabEvents:            make(chan tabEvent, 4096),
 	}
@@ -144,8 +151,8 @@ func (m *Model) Close() {
 			tab.markClosed()
 		}
 	}
-	if m.agentManager != nil {
-		m.agentManager.CloseAll()
+	if m.agentProvider != nil {
+		m.agentProvider.CloseAll()
 	}
 }
 

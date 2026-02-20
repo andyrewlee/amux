@@ -55,6 +55,81 @@ type StatusResult struct {
 	TotalDeleted int // Total lines deleted across all changes
 }
 
+// ParseStatus parses git status --short output and returns a StatusResult.
+// This is used for parsing remote git status output (e.g., from sandbox).
+func ParseStatus(output string) *StatusResult {
+	result := &StatusResult{
+		Staged:    []Change{},
+		Unstaged:  []Change{},
+		Untracked: []Change{},
+		Clean:     true,
+	}
+
+	if output == "" {
+		return result
+	}
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if len(line) < 3 {
+			continue
+		}
+		indexStatus := line[0]
+		workTreeStatus := line[1]
+		path := strings.TrimSpace(line[3:])
+
+		if path == "" {
+			continue
+		}
+
+		result.Clean = false
+
+		// Untracked files
+		if indexStatus == '?' && workTreeStatus == '?' {
+			result.Untracked = append(result.Untracked, Change{Path: path, Kind: ChangeUntracked})
+			continue
+		}
+
+		// Staged changes (index has status)
+		if indexStatus != ' ' && indexStatus != '?' {
+			result.Staged = append(result.Staged, Change{
+				Path:   path,
+				Kind:   parseStatusChar(indexStatus),
+				Staged: true,
+			})
+		}
+
+		// Unstaged changes (work tree has status)
+		if workTreeStatus != ' ' && workTreeStatus != '?' {
+			result.Unstaged = append(result.Unstaged, Change{
+				Path:   path,
+				Kind:   parseStatusChar(workTreeStatus),
+				Staged: false,
+			})
+		}
+	}
+
+	return result
+}
+
+// parseStatusChar converts a git status character to a ChangeKind
+func parseStatusChar(c byte) ChangeKind {
+	switch c {
+	case 'M':
+		return ChangeModified
+	case 'A':
+		return ChangeAdded
+	case 'D':
+		return ChangeDeleted
+	case 'R':
+		return ChangeRenamed
+	case 'C':
+		return ChangeCopied
+	default:
+		return ChangeModified
+	}
+}
+
 // GetStatus returns the git status for a repository using porcelain v1 -z format
 // This format handles spaces, unicode, and special characters in paths correctly
 func GetStatus(repoPath string) (*StatusResult, error) {

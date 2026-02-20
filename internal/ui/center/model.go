@@ -25,7 +25,7 @@ type Model struct {
 	focused              bool
 	canFocusRight        bool
 	tabsRevision         uint64
-	agentManager         *appPty.AgentManager
+	agentProvider        AgentProvider
 	msgSink              func(tea.Msg)
 	tabEvents            chan tabEvent
 	tabActorReady        uint32
@@ -76,9 +76,54 @@ func (m *Model) SetInstanceID(id string) {
 func (m *Model) SetTmuxConfig(serverName, configPath string) {
 	m.tmuxConfig.ServerName = serverName
 	m.tmuxConfig.ConfigPath = configPath
-	if m.agentManager != nil {
-		m.agentManager.SetTmuxOptions(m.getTmuxOptions())
+	if m.agentProvider != nil {
+		if configurable, ok := m.agentProvider.(interface{ SetTmuxOptions(tmux.Options) }); ok {
+			configurable.SetTmuxOptions(m.getTmuxOptions())
+		}
 	}
+}
+
+// AgentProvider abstracts agent creation for different runtimes.
+type AgentProvider interface {
+	CreateAgent(ws *data.Workspace, agentType appPty.AgentType, rows, cols uint16) (*appPty.Agent, error)
+	CreateAgentWithTags(ws *data.Workspace, agentType appPty.AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error)
+	CreateViewer(ws *data.Workspace, command string, rows, cols uint16) (*appPty.Agent, error)
+	CreateViewerWithTags(ws *data.Workspace, command, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error)
+	CloseAgent(agent *appPty.Agent) error
+	CloseAll()
+}
+
+// localAgentProvider wraps *pty.AgentManager to satisfy the AgentProvider interface.
+type localAgentProvider struct {
+	mgr *appPty.AgentManager
+}
+
+func (l *localAgentProvider) CreateAgent(ws *data.Workspace, agentType appPty.AgentType, rows, cols uint16) (*appPty.Agent, error) {
+	return l.mgr.CreateAgent(ws, agentType, "", rows, cols)
+}
+
+func (l *localAgentProvider) CreateAgentWithTags(ws *data.Workspace, agentType appPty.AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error) {
+	return l.mgr.CreateAgentWithTags(ws, agentType, sessionName, rows, cols, tags)
+}
+
+func (l *localAgentProvider) CreateViewer(ws *data.Workspace, command string, rows, cols uint16) (*appPty.Agent, error) {
+	return l.mgr.CreateViewer(ws, command, "", rows, cols)
+}
+
+func (l *localAgentProvider) CreateViewerWithTags(ws *data.Workspace, command, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error) {
+	return l.mgr.CreateViewerWithTags(ws, command, sessionName, rows, cols, tags)
+}
+
+func (l *localAgentProvider) CloseAgent(agent *appPty.Agent) error {
+	return l.mgr.CloseAgent(agent)
+}
+
+func (l *localAgentProvider) CloseAll() {
+	l.mgr.CloseAll()
+}
+
+func (l *localAgentProvider) SetTmuxOptions(opts tmux.Options) {
+	l.mgr.SetTmuxOptions(opts)
 }
 
 type tabHitKind int

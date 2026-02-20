@@ -36,7 +36,7 @@ func TestPerfScenario(t *testing.T) {
 		t.Fatalf("default config: %v", err)
 	}
 
-	m := New(cfg)
+	m := New(cfg, nil)
 	wt := &data.Workspace{
 		Name: "perf",
 		Repo: "/tmp/perf-repo",

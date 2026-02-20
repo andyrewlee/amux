@@ -38,7 +38,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 
 	// Close agent
 	if tab.Agent != nil {
-		_ = m.agentManager.CloseAgent(tab.Agent)
+		_ = m.agentProvider.CloseAgent(tab.Agent)
 	}
 
 	tab.mu.Lock()
