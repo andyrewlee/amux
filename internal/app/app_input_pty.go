@@ -39,19 +39,25 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 // handleFileWatcherEvent handles the FileWatcherEvent message.
 func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
 	requestRoot := msg.Root
+	requestFull := false
 	if a.gitStatus != nil {
 		a.gitStatus.Invalidate(msg.Root)
 	}
 	a.dashboard.InvalidateStatus(msg.Root)
 	if a.activeWorkspace != nil && rootsReferToSameWorkspace(msg.Root, a.activeWorkspace.Root) {
 		requestRoot = a.activeWorkspace.Root
+		requestFull = true
 		if a.gitStatus != nil {
 			a.gitStatus.Invalidate(requestRoot)
 		}
 		a.dashboard.InvalidateStatus(requestRoot)
 	}
+	statusCmd := a.requestGitStatus(requestRoot)
+	if requestFull {
+		statusCmd = a.requestGitStatusFull(requestRoot)
+	}
 	return []tea.Cmd{
-		a.requestGitStatus(requestRoot),
+		statusCmd,
 		a.startFileWatcher(),
 	}
 }
