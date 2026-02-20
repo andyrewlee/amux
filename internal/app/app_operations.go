@@ -54,13 +54,18 @@ func (a *App) requestGitStatusFull(root string) tea.Cmd {
 }
 
 // requestGitStatusCached requests git status using cache if available.
-func (a *App) requestGitStatusCached(root string) tea.Cmd {
+// On cache miss, it falls back to full mode when fallbackToFull is true,
+// otherwise fast mode.
+func (a *App) requestGitStatusCached(root string, fallbackToFull bool) tea.Cmd {
 	if a.gitStatus != nil {
 		if cached := a.gitStatus.GetCached(root); cached != nil {
 			return func() tea.Msg {
 				return messages.GitStatusResult{Root: root, Status: cached}
 			}
 		}
+	}
+	if fallbackToFull {
+		return a.requestGitStatusFull(root)
 	}
 	return a.requestGitStatus(root)
 }

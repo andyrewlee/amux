@@ -28,7 +28,7 @@ func (a *App) handleSidebarPTYMessages(msg tea.Msg) tea.Cmd {
 func (a *App) handleGitStatusTick() []tea.Cmd {
 	var cmds []tea.Cmd
 	if a.activeWorkspace != nil {
-		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root))
+		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root, true))
 	}
 	// Refresh active workspace indicators even when no PTY output is flowing.
 	a.syncActiveWorkspacesToDashboard()
