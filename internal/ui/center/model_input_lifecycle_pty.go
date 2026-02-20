@@ -135,17 +135,21 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 			tab.pendingOutput = append([]byte(nil), tab.pendingOutput[overflow:]...)
 		}
 		perf.Count("pty_output_bytes", int64(len(msg.Data)))
-		tab.lastOutputAt = time.Now()
+		now := time.Now()
+		tab.lastOutputAt = now
 		if m.isChatTab(tab) {
 			sessionName := tab.SessionName
 			if sessionName == "" && tab.Agent != nil {
 				sessionName = tab.Agent.Session
 			}
 			hasVisibleOutput := tab.consumeActivityVisibility(msg.Data)
+			if hasVisibleOutput {
+				tab.lastVisibleOutput = now
+			}
 			if sessionName != "" && hasVisibleOutput && tab.lastOutputAt.Sub(tab.lastActivityTagAt) >= activityTagThrottle {
-				tab.lastActivityTagAt = tab.lastOutputAt
+				tab.lastActivityTagAt = now
 				opts := m.getTmuxOptions()
-				timestamp := tab.lastOutputAt.UnixMilli()
+				timestamp := now.UnixMilli()
 				cmds = append(cmds, func() tea.Msg {
 					_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, strconv.FormatInt(timestamp, 10), opts)
 					return nil
