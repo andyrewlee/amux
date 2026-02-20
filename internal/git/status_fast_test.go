@@ -20,6 +20,9 @@ func TestGetStatusFast_CleanRepo(t *testing.T) {
 	if result.TotalAdded != 0 || result.TotalDeleted != 0 {
 		t.Errorf("expected zero line stats, got added=%d deleted=%d", result.TotalAdded, result.TotalDeleted)
 	}
+	if result.HasLineStats {
+		t.Errorf("expected HasLineStats=false for fast mode")
+	}
 }
 
 func TestGetStatusFast_DirtyRepo(t *testing.T) {
@@ -43,6 +46,9 @@ func TestGetStatusFast_DirtyRepo(t *testing.T) {
 	}
 	if result.TotalAdded != 0 || result.TotalDeleted != 0 {
 		t.Errorf("expected zero line stats from fast mode, got added=%d deleted=%d", result.TotalAdded, result.TotalDeleted)
+	}
+	if result.HasLineStats {
+		t.Errorf("expected HasLineStats=false for fast mode")
 	}
 }
 
@@ -91,7 +97,13 @@ func TestGetStatusFast_MatchesFull_ChangeList(t *testing.T) {
 	if fast.TotalAdded != 0 {
 		t.Errorf("fast TotalAdded should be 0, got %d", fast.TotalAdded)
 	}
+	if fast.HasLineStats {
+		t.Errorf("fast HasLineStats should be false")
+	}
 	if full.TotalAdded == 0 {
 		t.Errorf("full TotalAdded should be non-zero for dirty repo")
+	}
+	if !full.HasLineStats {
+		t.Errorf("full HasLineStats should be true")
 	}
 }

@@ -114,4 +114,7 @@ func TestStatusManagerRefreshUsesFastMode(t *testing.T) {
 	if result.TotalAdded != 0 || result.TotalDeleted != 0 {
 		t.Errorf("expected zero line stats from fast mode, got added=%d deleted=%d", result.TotalAdded, result.TotalDeleted)
 	}
+	if result.HasLineStats {
+		t.Errorf("expected HasLineStats=false for fast mode refresh")
+	}
 }
