@@ -38,7 +38,7 @@ REPO_PATH=""
 WORKSPACE_NAME="mobile-dogfood"
 ASSISTANT="codex"
 REPORT_DIR=""
-KEEP_TEMP=true
+KEEP_TEMP=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -170,6 +170,9 @@ cleanup() {
   fi
   if [[ -n "${TMP_ROOT// }" && -d "$TMP_ROOT" ]]; then
     rm -rf "$TMP_ROOT"
+  fi
+  if [[ -n "${REPORT_DIR// }" && -d "$REPORT_DIR" ]]; then
+    rm -rf "$REPORT_DIR"
   fi
 }
 trap cleanup EXIT

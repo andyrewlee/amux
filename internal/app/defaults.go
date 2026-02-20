@@ -50,4 +50,7 @@ const (
 	// UI responsiveness predictable under heavy multi-agent workloads.
 	// AMUX_MAX_ATTACHED_AGENT_TABS=0 disables the limit.
 	defaultMaxAttachedAgentTabs = 6
+
+	// orphanGCInterval controls how often the periodic tmux orphan GC runs.
+	orphanGCInterval = 60 * time.Second
 )

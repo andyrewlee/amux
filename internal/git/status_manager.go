@@ -139,7 +139,7 @@ func (m *StatusManager) popDue(now time.Time) []string {
 }
 
 func (m *StatusManager) refreshNow(root string) {
-	status, err := GetStatus(root)
+	status, err := GetStatusFast(root)
 	m.mu.Lock()
 	if err == nil {
 		m.cache[root] = &StatusCache{

@@ -35,6 +35,7 @@ type GitStatusService interface {
 	UpdateCache(root string, status *git.StatusResult)
 	Invalidate(root string)
 	Refresh(root string) (*git.StatusResult, error)
+	RefreshFast(root string) (*git.StatusResult, error)
 }
 
 // TmuxOps defines tmux operations used by the app.

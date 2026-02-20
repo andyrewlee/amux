@@ -168,6 +168,7 @@ func (a *App) Init() tea.Cmd {
 		a.sidebarTerminal.Init(),
 		a.startGitStatusTicker(),
 		a.startPTYWatchdog(),
+		a.startOrphanGCTicker(),
 		a.startTmuxActivityTicker(),
 		a.triggerTmuxActivityScan(),
 		a.startTmuxSyncTicker(),
@@ -228,6 +229,13 @@ func (a *App) checkTmuxAvailable() tea.Cmd {
 func (a *App) startGitStatusTicker() tea.Cmd {
 	return common.SafeTick(gitStatusTickInterval, func(t time.Time) tea.Msg {
 		return messages.GitStatusTick{}
+	})
+}
+
+// startOrphanGCTicker returns a command that ticks periodically to clean up orphaned tmux sessions.
+func (a *App) startOrphanGCTicker() tea.Cmd {
+	return common.SafeTick(orphanGCInterval, func(time.Time) tea.Msg {
+		return messages.OrphanGCTick{}
 	})
 }
 

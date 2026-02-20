@@ -125,6 +125,12 @@ if AMUX_ERROR_CAPTURE_FILE="$(mktemp "${TMPDIR:-/tmp}/amux-openclaw-dx-error.XXX
 else
   AMUX_ERROR_CAPTURE_FILE="${TMPDIR:-/tmp}/amux-openclaw-dx-error.$$"
 fi
+_openclaw_dx_cleanup() {
+  if [[ -n "${AMUX_ERROR_CAPTURE_FILE:-}" && -f "$AMUX_ERROR_CAPTURE_FILE" ]]; then
+    rm -f "$AMUX_ERROR_CAPTURE_FILE" 2>/dev/null || true
+  fi
+}
+trap _openclaw_dx_cleanup EXIT
 amux_ok_json() {
   local out
   AMUX_ERROR_OUTPUT=""

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -71,5 +72,46 @@ func TestStatusManagerRequestRefreshDebounced(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if got := atomic.LoadInt32(&count); got != 1 {
 		t.Fatalf("expected 1 refresh callback after debouncing, got %d", got)
+	}
+}
+
+func TestStatusManagerRefreshUsesFastMode(t *testing.T) {
+	skipIfNoGit(t)
+	repo := initRepo(t)
+
+	// Create a dirty file so we can verify line stats are zero (fast mode).
+	if err := os.WriteFile(repo+"/dirty.txt", []byte("line1\nline2\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	var result *StatusResult
+	done := make(chan struct{}, 1)
+	m := NewStatusManager(func(root string, status *StatusResult, err error) {
+		result = status
+		done <- struct{}{}
+	})
+	m.SetDebounceDelay(10 * time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = m.Run(ctx)
+	}()
+
+	m.RequestRefresh(repo)
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("timed out waiting for status refresh")
+	}
+
+	if result == nil {
+		t.Fatal("expected non-nil status result")
+	}
+	if result.Clean {
+		t.Error("expected dirty repo")
+	}
+	// Fast mode should leave line stats at zero.
+	if result.TotalAdded != 0 || result.TotalDeleted != 0 {
+		t.Errorf("expected zero line stats from fast mode, got added=%d deleted=%d", result.TotalAdded, result.TotalDeleted)
 	}
 }

@@ -64,8 +64,16 @@ func (m *Model) SetWorkspace(ws *data.Workspace) {
 	m.rebuildDisplayList()
 }
 
-// SetGitStatus sets the git status.
+// SetGitStatus sets the git status. When a fast-mode result arrives (zero line
+// stats) but the sidebar already has full stats, the existing line stats are
+// preserved to avoid flicker.
 func (m *Model) SetGitStatus(status *git.StatusResult) {
+	if status != nil && m.gitStatus != nil &&
+		status.TotalAdded == 0 && status.TotalDeleted == 0 &&
+		(m.gitStatus.TotalAdded > 0 || m.gitStatus.TotalDeleted > 0) {
+		status.TotalAdded = m.gitStatus.TotalAdded
+		status.TotalDeleted = m.gitStatus.TotalDeleted
+	}
 	m.gitStatus = status
 	m.rebuildDisplayList()
 }

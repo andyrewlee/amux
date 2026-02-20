@@ -55,6 +55,18 @@ type StatusResult struct {
 	TotalDeleted int // Total lines deleted across all changes
 }
 
+// GetStatusFast returns the git status for a repository using only porcelain output.
+// It skips expensive diff --numstat and untracked line counting, so TotalAdded and
+// TotalDeleted will be zero. Use this on hot paths where only Clean/change lists matter.
+func GetStatusFast(repoPath string) (*StatusResult, error) {
+	output, err := RunGitRawCtx(context.Background(), repoPath,
+		"--no-optional-locks", "status", "--porcelain=v1", "-z", "-u")
+	if err != nil {
+		return nil, err
+	}
+	return parseStatusPorcelain(output), nil
+}
+
 // GetStatus returns the git status for a repository using porcelain v1 -z format
 // This format handles spaces, unicode, and special characters in paths correctly
 func GetStatus(repoPath string) (*StatusResult, error) {

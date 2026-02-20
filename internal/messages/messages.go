@@ -290,6 +290,9 @@ type ScriptOutput struct {
 // GitStatusTick triggers periodic git status refresh
 type GitStatusTick struct{}
 
+// OrphanGCTick triggers periodic tmux orphan session cleanup.
+type OrphanGCTick struct{}
+
 // FileWatcherEvent is sent when a watched file changes
 type FileWatcherEvent struct {
 	Root string

@@ -151,6 +151,42 @@ func (a *App) handleOrphanGCResult(msg orphanGCResult) {
 	}
 }
 
+// handleOrphanGCTick runs orphan GC and restarts the ticker.
+func (a *App) handleOrphanGCTick() []tea.Cmd {
+	var cmds []tea.Cmd
+	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
+		cmds = append(cmds, gcCmd)
+	}
+	cmds = append(cmds, a.startOrphanGCTicker())
+	return cmds
+}
+
+// sessionCountResult is returned after counting amux tmux sessions.
+type sessionCountResult struct {
+	Count int
+	Err   error
+}
+
+// logSessionCount returns a Cmd that counts @amux=1 sessions and logs the result.
+func (a *App) logSessionCount() tea.Cmd {
+	if !a.tmuxAvailable {
+		return nil
+	}
+	opts := a.tmuxOptions
+	svc := a.tmuxService
+	return func() tea.Msg {
+		if svc == nil {
+			return sessionCountResult{Err: errTmuxUnavailable}
+		}
+		match := map[string]string{"@amux": "1"}
+		rows, err := svc.SessionsWithTags(match, nil, opts)
+		if err != nil {
+			return sessionCountResult{Err: err}
+		}
+		return sessionCountResult{Count: len(rows)}
+	}
+}
+
 func (a *App) handleTerminalGCResult(msg terminalGCResult) {
 	if msg.Err != nil {
 		logging.Warn("terminal GC: %v", msg.Err)
@@ -159,4 +195,12 @@ func (a *App) handleTerminalGCResult(msg terminalGCResult) {
 	if msg.Killed > 0 {
 		logging.Info("terminal GC: killed %d stale terminal session(s)", msg.Killed)
 	}
+}
+
+func (a *App) handleSessionCountResult(msg sessionCountResult) {
+	if msg.Err != nil {
+		logging.Warn("session count: %v", msg.Err)
+		return
+	}
+	logging.Info("tmux session count at startup: %d", msg.Count)
 }
