@@ -286,6 +286,7 @@ while [[ "$STEPS_USED" -lt "$MAX_STEPS" ]]; do
 
   STEP_INDEX="$((STEPS_USED + 1))"
   STEP_IDEMPOTENCY_KEY="${TURN_ID}-step-${STEP_INDEX}"
+  STEP_EXIT=0
 
   if [[ "$CURRENT_MODE" == "run" ]]; then
     STEP_JSON="$(OPENCLAW_STEP_SKIP_PRESENT=true "$STEP_SCRIPT" run \
@@ -294,7 +295,7 @@ while [[ "$STEPS_USED" -lt "$MAX_STEPS" ]]; do
       --prompt "$CURRENT_PROMPT" \
       --wait-timeout "$WAIT_TIMEOUT" \
       --idle-threshold "$IDLE_THRESHOLD" \
-      --idempotency-key "$STEP_IDEMPOTENCY_KEY")"
+      --idempotency-key "$STEP_IDEMPOTENCY_KEY")" || STEP_EXIT=$?
   else
     STEP_ARGS=(
       "$STEP_SCRIPT" send
@@ -307,14 +308,24 @@ while [[ "$STEPS_USED" -lt "$MAX_STEPS" ]]; do
     if [[ "$CURRENT_ENTER" == "true" ]]; then
       STEP_ARGS+=(--enter)
     fi
-    STEP_JSON="$(OPENCLAW_STEP_SKIP_PRESENT=true "${STEP_ARGS[@]}")"
+    STEP_JSON="$(OPENCLAW_STEP_SKIP_PRESENT=true "${STEP_ARGS[@]}")" || STEP_EXIT=$?
+  fi
+
+  if [[ "$STEP_EXIT" -ne 0 && -z "${STEP_JSON// }" ]]; then
+    STEP_JSON="$(jq -cn --argjson step_exit "$STEP_EXIT" '{
+      ok: false,
+      status: "command_error",
+      summary: "Step script exited without JSON output.",
+      step_exit_code: $step_exit
+    }')"
   fi
 
   if ! jq -e . >/dev/null 2>&1 <<<"$STEP_JSON"; then
-    STEP_JSON="$(jq -cn --arg raw "$STEP_JSON" '{
+    STEP_JSON="$(jq -cn --arg raw "$STEP_JSON" --argjson step_exit "$STEP_EXIT" '{
       ok: false, status: "command_error",
       summary: "Step script produced invalid JSON output.",
-      raw_output: ($raw | .[0:2000])
+      raw_output: ($raw | .[0:2000]),
+      step_exit_code: (if $step_exit > 0 then $step_exit else null end)
     }')"
   fi
 

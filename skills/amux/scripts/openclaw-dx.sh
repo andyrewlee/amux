@@ -19,7 +19,7 @@ Usage:
   openclaw-dx.sh start --workspace <id> --prompt <text> [--assistant <name>] [--max-steps <n>] [--turn-budget <sec>] [--wait-timeout <dur>] [--idle-threshold <dur>]
   openclaw-dx.sh continue [--agent <id> | --workspace <id>] [--text <text>] [--enter] [--auto-start] [--assistant <name>] [--max-steps <n>] [--turn-budget <sec>] [--wait-timeout <dur>] [--idle-threshold <dur>]
 
-  openclaw-dx.sh status [--project <repo>] [--workspace <id>] [--limit <n>] [--capture-lines <n>] [--capture-agents <n>] [--older-than <dur>] [--alerts-only] [--include-stale]
+  openclaw-dx.sh status [--project <repo>] [--workspace <id>] [--limit <n>] [--capture-lines <n>] [--capture-agents <n>] [--older-than <dur>] [--alerts-only] [--include-stale] [--recent-workspaces <n>]
   openclaw-dx.sh alerts [same flags as status]
 
   openclaw-dx.sh terminal run --workspace <id> --text <command> [--enter]
@@ -32,7 +32,7 @@ Usage:
   openclaw-dx.sh guide [--project <repo>] [--workspace <id>] [--task <text>] [--assistant <name>]
 
   openclaw-dx.sh workflow kickoff --name <workspace-name> [--project <repo>] [--from-workspace <id>] [--scope project|nested] [--assistant <name>] --prompt <text> [--base <branch>] [--max-steps <n>] [--turn-budget <sec>] [--wait-timeout <dur>] [--idle-threshold <dur>]
-  openclaw-dx.sh workflow dual --workspace <id> [--implement-assistant <name>] [--implement-prompt <text>] [--review-assistant <name>] [--review-prompt <text>] [--max-steps <n>] [--turn-budget <sec>] [--wait-timeout <dur>] [--idle-threshold <dur>]
+  openclaw-dx.sh workflow dual --workspace <id> [--implement-assistant <name>] [--implement-prompt <text>] [--review-assistant <name>] [--review-prompt <text>] [--max-steps <n>] [--turn-budget <sec>] [--wait-timeout <dur>] [--idle-threshold <dur>] [--auto-continue-impl <true|false>] [--auto-continue-impl-prompt <text>]
 
   openclaw-dx.sh assistants [--workspace <id> --probe] [--limit <n>] [--prompt <text>] [--max-steps <n>] [--turn-budget <sec>] [--wait-timeout <dur>] [--idle-threshold <dur>]
 USAGE
@@ -979,6 +979,132 @@ run_self_json() {
   printf '%s' "$out"
 }
 
+turn_needs_timeout_recovery() {
+  local turn_json="$1"
+  jq -e '
+    (
+      ((.overall_status // .status // "") == "timed_out")
+      or ((.status // "") == "timed_out")
+    )
+    and ((.agent_id // "") | length > 0)
+  ' >/dev/null 2>&1 <<<"$turn_json"
+}
+
+recover_timeout_turn_once() {
+  local turn_json="$1"
+  local wait_timeout="$2"
+  local idle_threshold="$3"
+  local step_script="${OPENCLAW_DX_STEP_SCRIPT:-$SCRIPT_DIR/openclaw-step.sh}"
+
+  if [[ "${OPENCLAW_DX_TIMEOUT_RECOVERY:-true}" == "false" ]]; then
+    printf '%s' "$turn_json"
+    return
+  fi
+  if ! turn_needs_timeout_recovery "$turn_json"; then
+    printf '%s' "$turn_json"
+    return
+  fi
+  if [[ ! -x "$step_script" ]]; then
+    printf '%s' "$turn_json"
+    return
+  fi
+
+  local agent_id
+  agent_id="$(jq -r '.agent_id // ""' <<<"$turn_json")"
+  if [[ -z "${agent_id// }" ]]; then
+    printf '%s' "$turn_json"
+    return
+  fi
+
+  local recovery_text recovery_wait recovery_idle
+  recovery_text="${OPENCLAW_DX_TIMEOUT_RECOVERY_TEXT:-Continue from current state and provide a one-line status update plus files changed.}"
+  recovery_wait="${OPENCLAW_DX_TIMEOUT_RECOVERY_WAIT_TIMEOUT:-$wait_timeout}"
+  recovery_idle="${OPENCLAW_DX_TIMEOUT_RECOVERY_IDLE_THRESHOLD:-$idle_threshold}"
+
+  local follow_json
+  follow_json="$(OPENCLAW_STEP_SKIP_PRESENT=true "$step_script" send \
+    --agent "$agent_id" \
+    --text "$recovery_text" \
+    --enter \
+    --wait-timeout "$recovery_wait" \
+    --idle-threshold "$recovery_idle" 2>&1 || true)"
+  if ! jq -e . >/dev/null 2>&1 <<<"$follow_json"; then
+    printf '%s' "$turn_json"
+    return
+  fi
+
+  local recovered
+  recovered="$(jq -r '
+    (
+      (.ok // false)
+      and
+      (
+        (.response.substantive_output // false)
+        or (.response.changed // false)
+        or (
+          (
+            (.response.status // .status // .overall_status // "")
+            | ascii_downcase
+            | test("^(timed_out|command_error|error)$")
+            | not
+          )
+          and ((.summary // "") | length > 0)
+        )
+      )
+    )
+  ' <<<"$follow_json")"
+  if [[ "$recovered" != "true" ]]; then
+    printf '%s' "$turn_json"
+    return
+  fi
+
+  printf '%s' "$follow_json"
+}
+
+wait_timeout_to_seconds_or_zero() {
+  local raw="$1"
+  if [[ "$raw" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$raw"
+    return
+  fi
+  if [[ "$raw" =~ ^([0-9]+)s$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return
+  fi
+  if [[ "$raw" =~ ^([0-9]+)m$ ]]; then
+    printf '%s' "$((BASH_REMATCH[1] * 60))"
+    return
+  fi
+  if [[ "$raw" =~ ^([0-9]+)h$ ]]; then
+    printf '%s' "$((BASH_REMATCH[1] * 3600))"
+    return
+  fi
+  printf '0'
+}
+
+normalize_turn_wait_timeout() {
+  local wait_timeout="$1"
+  local min_seconds="${OPENCLAW_DX_MIN_WAIT_TIMEOUT_SECONDS:-45}"
+  if ! [[ "$min_seconds" =~ ^[0-9]+$ ]]; then
+    min_seconds=45
+  fi
+  if [[ "$min_seconds" -le 0 ]]; then
+    printf '%s' "$wait_timeout"
+    return
+  fi
+  local resolved_seconds
+  resolved_seconds="$(wait_timeout_to_seconds_or_zero "$wait_timeout")"
+  if [[ "$resolved_seconds" -eq 0 ]]; then
+    printf '%s' "$wait_timeout"
+    return
+  fi
+  if [[ "$resolved_seconds" -lt "$min_seconds" ]]; then
+    printf '%ss' "$min_seconds"
+    return
+  fi
+  printf '%s' "$wait_timeout"
+}
+
 append_action() {
   local actions_json="$1"
   local id="$2"
@@ -1002,8 +1128,19 @@ emit_turn_passthrough() {
   local turn_json="$3"
 
   if ! jq -e . >/dev/null 2>&1 <<<"$turn_json"; then
-    emit_error "$command_name" "command_error" "turn script returned non-JSON output" "$turn_json"
-    return
+    local recovered_json
+    recovered_json="$(printf '%s\n' "$turn_json" | sed -n '/^[[:space:]]*{/,$p')"
+    if [[ -n "${recovered_json// }" ]] && jq -e . >/dev/null 2>&1 <<<"$recovered_json"; then
+      turn_json="$recovered_json"
+    else
+      recovered_json="$(printf '%s\n' "$turn_json" | awk '/^[[:space:]]*\\{/{line=$0} END{print line}')"
+      if [[ -n "${recovered_json// }" ]] && jq -e . >/dev/null 2>&1 <<<"$recovered_json"; then
+        turn_json="$recovered_json"
+      else
+        emit_error "$command_name" "command_error" "turn script returned non-JSON output" "$turn_json"
+        return
+      fi
+    fi
   fi
 
   local normalized_json
@@ -2743,6 +2880,7 @@ cmd_start() {
   done
 
   workspace="$(context_resolve_workspace "$workspace")"
+  wait_timeout="$(normalize_turn_wait_timeout "$wait_timeout")"
   if [[ -z "$workspace" || -z "$prompt" ]]; then
     emit_error "start" "command_error" "missing required flags" "start requires --prompt and a workspace (pass --workspace or set active context)"
     return
@@ -2814,6 +2952,8 @@ cmd_start() {
     fi
   fi
 
+  turn_json="$(recover_timeout_turn_once "$turn_json" "$wait_timeout" "$idle_threshold")"
+
   emit_turn_passthrough "start" "coding_turn" "$turn_json"
 }
 
@@ -2869,6 +3009,7 @@ cmd_continue() {
   done
 
   workspace="$(context_resolve_workspace "$workspace")"
+  wait_timeout="$(normalize_turn_wait_timeout "$wait_timeout")"
   if [[ -z "$agent" && -z "$workspace" ]]; then
     agent="$(context_resolve_agent "")"
   fi
@@ -2998,6 +3139,7 @@ cmd_continue() {
 
   local turn_json
   turn_json="$(OPENCLAW_TURN_SKIP_PRESENT=true "${turn_args[@]}" 2>&1 || true)"
+  turn_json="$(recover_timeout_turn_once "$turn_json" "$wait_timeout" "$idle_threshold")"
 
   emit_turn_passthrough "continue" "followup_turn" "$turn_json"
 }
@@ -3007,8 +3149,11 @@ cmd_status() {
   local workspace=""
   local limit=12
   local capture_lines="${OPENCLAW_DX_STATUS_CAPTURE_LINES:-120}"
-  local capture_agents="${OPENCLAW_DX_STATUS_CAPTURE_AGENTS:-6}"
+  local capture_agents_default="${OPENCLAW_DX_STATUS_CAPTURE_AGENTS:-6}"
+  local capture_agents="$capture_agents_default"
+  local capture_agents_explicit=false
   local older_than="${OPENCLAW_DX_STATUS_ALERT_OLDER_THAN:-24h}"
+  local recent_workspaces="${OPENCLAW_DX_STATUS_RECENT_WORKSPACES:-4}"
   local alerts_only=false
   local include_stale_alerts=false
 
@@ -3023,9 +3168,13 @@ cmd_status() {
       --capture-lines)
         capture_lines="$2"; shift 2 ;;
       --capture-agents)
-        capture_agents="$2"; shift 2 ;;
+        capture_agents="$2"
+        capture_agents_explicit=true
+        shift 2 ;;
       --older-than)
         older_than="$2"; shift 2 ;;
+      --recent-workspaces)
+        recent_workspaces="$2"; shift 2 ;;
       --alerts-only)
         alerts_only=true; shift ;;
       --include-stale)
@@ -3050,8 +3199,21 @@ cmd_status() {
   if ! is_positive_int "$capture_lines"; then
     capture_lines=120
   fi
+  if [[ "$capture_agents_explicit" != "true" ]]; then
+    if [[ -n "$workspace" ]]; then
+      capture_agents="${OPENCLAW_DX_STATUS_CAPTURE_AGENTS_WORKSPACE:-1}"
+    elif [[ -n "$project" ]]; then
+      capture_agents="${OPENCLAW_DX_STATUS_CAPTURE_AGENTS_PROJECT:-2}"
+    fi
+  fi
   if ! is_positive_int "$capture_agents"; then
-    capture_agents=6
+    capture_agents="$capture_agents_default"
+    if ! is_positive_int "$capture_agents"; then
+      capture_agents=6
+    fi
+  fi
+  if [[ ! "$recent_workspaces" =~ ^[0-9]+$ ]]; then
+    recent_workspaces=4
   fi
 
   local projects_out ws_out agents_out terms_out sessions_out prune_out
@@ -3096,10 +3258,20 @@ cmd_status() {
     prune_out='{"ok":true,"data":{"dry_run":true,"pruned":[],"total":0,"errors":[]}}'
   fi
 
-  local ws_json agents_json terms_json
+  local ws_json agents_json terms_json workspace_total_count recent_workspaces_applied=false
   ws_json="$(jq -c '.data // []' <<<"$ws_out")"
   if [[ -n "$workspace" ]]; then
     ws_json="$(jq -c --arg id "$workspace" 'map(select(.id == $id))' <<<"$ws_json")"
+    if [[ "$(jq -r 'length' <<<"$ws_json")" -eq 0 ]]; then
+      emit_error "status" "command_error" "workspace not found" "$workspace"
+      return
+    fi
+    context_set_workspace_with_lookup "$workspace" ""
+  fi
+  workspace_total_count="$(jq -r 'length' <<<"$ws_json")"
+  if [[ -n "$project" && -z "$workspace" && "$recent_workspaces" -gt 0 ]]; then
+    ws_json="$(jq -c --argjson n "$recent_workspaces" 'sort_by(.created // "") | reverse | .[:$n]' <<<"$ws_json")"
+    recent_workspaces_applied=true
   fi
   agents_json="$(jq -c '.data // []' <<<"$agents_out")"
   terms_json="$(jq -c '.data // []' <<<"$terms_out")"
@@ -3109,6 +3281,9 @@ cmd_status() {
     agents_json="$(jq -c --argjson ids "$scoped_workspace_ids" 'map(select((.workspace_id // "") as $wid | ($ids | index($wid)) != null))' <<<"$agents_json")"
     terms_json="$(jq -c --argjson ids "$scoped_workspace_ids" 'map(select((.workspace_id // "") as $wid | ($ids | index($wid)) != null))' <<<"$terms_json")"
   fi
+  local workspace_order
+  workspace_order="$(jq -c 'sort_by(.created // "") | reverse | map(.id)' <<<"$ws_json")"
+  agents_json="$(jq -c --argjson order "$workspace_order" 'sort_by(. as $a | (($order | index($a.workspace_id // "")) // 999999), ($a.session_name // ""))' <<<"$agents_json")"
 
   local project_count workspace_count agent_count terminal_count session_count prune_total
   project_count="$(jq -r '.data // [] | length' <<<"$projects_out")"
@@ -3198,7 +3373,24 @@ cmd_status() {
 
   local next_action suggested_command
   next_action="Review active agents and continue where needed."
-  suggested_command="skills/amux/scripts/openclaw-dx.sh status"
+  local refresh_cmd
+  refresh_cmd="skills/amux/scripts/openclaw-dx.sh status"
+  if [[ -n "$project" ]]; then
+    refresh_cmd+=" --project $(shell_quote "$project")"
+  fi
+  if [[ -n "$workspace" ]]; then
+    refresh_cmd+=" --workspace $(shell_quote "$workspace")"
+  fi
+  if [[ "$include_stale_alerts" == "true" ]]; then
+    refresh_cmd+=" --include-stale"
+  fi
+  if [[ -n "$project" && -z "$workspace" && "$recent_workspaces" -gt 0 ]]; then
+    refresh_cmd+=" --recent-workspaces $(shell_quote "$recent_workspaces")"
+  fi
+  if [[ "$alerts_only" == "true" ]]; then
+    refresh_cmd+=" --alerts-only"
+  fi
+  suggested_command="$refresh_cmd"
 
   local first_needs_input_agent first_completed_workspace first_completed_agent
   first_needs_input_agent="$(jq -r '.[] | select(.type == "needs_input") | .agent_id // empty' <<<"$alerts" | head -n 1)"
@@ -3251,7 +3443,7 @@ cmd_status() {
     ) | join("\n")' <<<"$alerts")"
 
   local actions='[]'
-  actions="$(append_action "$actions" "refresh" "Refresh" "skills/amux/scripts/openclaw-dx.sh status" "primary" "Refresh agent/workspace status")"
+  actions="$(append_action "$actions" "refresh" "Refresh" "$refresh_cmd" "primary" "Refresh agent/workspace status")"
   if [[ -n "$first_needs_input_agent" ]]; then
     actions="$(append_action "$actions" "reply" "Reply" "skills/amux/scripts/openclaw-dx.sh continue --agent $(shell_quote "$first_needs_input_agent") --text \"Continue using the safest option and report status and blockers.\" --enter" "danger" "Reply to blocked agent")"
   fi
@@ -3281,7 +3473,7 @@ cmd_status() {
   RESULT_QUICK_ACTIONS="$actions"
 
   RESULT_DATA="$(jq -cn \
-    --argjson counts "$(jq -cn --argjson project_count "$project_count" --argjson workspace_count "$workspace_count" --argjson agent_count "$agent_count" --argjson terminal_count "$terminal_count" --argjson session_count "$session_count" --argjson prune_total "$prune_total" --argjson completed_count "$completed_count" --argjson include_stale_alerts "$include_stale_alerts" '{projects: $project_count, workspaces: $workspace_count, agents: $agent_count, terminals: $terminal_count, sessions: $session_count, prune_candidates: $prune_total, completed_alerts: $completed_count, include_stale_alerts: $include_stale_alerts}')" \
+    --argjson counts "$(jq -cn --argjson project_count "$project_count" --argjson workspace_count "$workspace_count" --argjson workspace_total_count "$workspace_total_count" --argjson agent_count "$agent_count" --argjson terminal_count "$terminal_count" --argjson session_count "$session_count" --argjson prune_total "$prune_total" --argjson completed_count "$completed_count" --argjson include_stale_alerts "$include_stale_alerts" --argjson recent_workspaces "$recent_workspaces" --argjson recent_workspaces_applied "$recent_workspaces_applied" '{projects: $project_count, workspaces: $workspace_count, workspace_total: $workspace_total_count, agents: $agent_count, terminals: $terminal_count, sessions: $session_count, prune_candidates: $prune_total, completed_alerts: $completed_count, include_stale_alerts: $include_stale_alerts, recent_workspaces: $recent_workspaces, recent_workspaces_applied: $recent_workspaces_applied}')" \
     --argjson workspaces "$ws_enriched" \
     --argjson alerts "$alerts" \
     --argjson captures "$captures" \
@@ -3289,6 +3481,9 @@ cmd_status() {
 
   RESULT_MESSAGE="$(printf '%s %s' "$(if [[ "$status" == "ok" ]]; then printf '✅'; elif [[ "$status" == "needs_input" ]]; then printf '❓'; else printf '⚠️'; fi)" "$summary")"
   RESULT_MESSAGE+=$'\n'"Counts: projects=$project_count workspaces=$workspace_count agents=$agent_count terminals=$terminal_count sessions=$session_count"
+  if [[ "$recent_workspaces_applied" == "true" ]]; then
+    RESULT_MESSAGE+=$'\n'"Scope: showing $workspace_count of $workspace_total_count most recent project workspace(s)"
+  fi
   if [[ "$alert_count" -gt 0 ]] && [[ -n "${alert_lines// }" ]]; then
     RESULT_MESSAGE+=$'\n'"Alerts:"$'\n'"$alert_lines"
   fi
@@ -3488,6 +3683,8 @@ cmd_terminal_preset() {
 cmd_terminal_logs() {
   local workspace=""
   local lines=200
+  local retry_attempts="${OPENCLAW_DX_TERMINAL_LOGS_RETRIES:-4}"
+  local retry_delay_seconds="${OPENCLAW_DX_TERMINAL_LOGS_RETRY_DELAY:-1}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -3511,12 +3708,56 @@ cmd_terminal_logs() {
   if ! is_positive_int "$lines"; then
     lines=200
   fi
+  if ! is_positive_int "$retry_attempts"; then
+    retry_attempts=4
+  fi
+  if ! is_positive_int "$retry_delay_seconds"; then
+    retry_delay_seconds=1
+  fi
 
   local out
-  if ! out="$(amux_ok_json terminal logs --workspace "$workspace" --lines "$lines")"; then
+  local attempt=1
+  while true; do
+    if out="$(amux_ok_json terminal logs --workspace "$workspace" --lines "$lines")"; then
+      break
+    fi
+    local err_out err_code err_message
+    err_out="$AMUX_ERROR_OUTPUT"
+    if [[ -z "${err_out// }" ]] && [[ -n "${AMUX_ERROR_CAPTURE_FILE:-}" ]] && [[ -f "$AMUX_ERROR_CAPTURE_FILE" ]]; then
+      err_out="$(cat "$AMUX_ERROR_CAPTURE_FILE" 2>/dev/null || true)"
+    fi
+    err_code=""
+    err_message=""
+    if jq -e . >/dev/null 2>&1 <<<"$err_out"; then
+      err_code="$(jq -r '.error.code // ""' <<<"$err_out")"
+      err_message="$(jq -r '.error.message // ""' <<<"$err_out")"
+    fi
+    if [[ "$err_code" == "capture_failed" && "$attempt" -lt "$retry_attempts" ]]; then
+      sleep "$retry_delay_seconds"
+      attempt=$((attempt + 1))
+      continue
+    fi
+    if { [[ "$err_code" == "not_found" && "$err_message" == *"no terminal session found for workspace"* ]]; } || [[ "$err_out" == *"no terminal session found for workspace"* ]]; then
+      RESULT_OK=false
+      RESULT_COMMAND="terminal.logs"
+      RESULT_STATUS="attention"
+      RESULT_SUMMARY="No terminal session found for workspace $workspace"
+      RESULT_NEXT_ACTION="Start a terminal command or preset first, then fetch logs."
+      RESULT_SUGGESTED_COMMAND="skills/amux/scripts/openclaw-dx.sh terminal run --workspace $(shell_quote "$workspace") --text \"pwd\" --enter"
+      RESULT_DATA="$(jq -cn --arg workspace "$workspace" --argjson error "$(normalize_json_or_default "$err_out" '{}')" '{workspace: $workspace, error: $error, reason: "no_terminal_session"}')"
+
+      local actions='[]'
+      actions="$(append_action "$actions" "term_run" "Run Cmd" "$RESULT_SUGGESTED_COMMAND" "primary" "Start a terminal session with a quick command")"
+      actions="$(append_action "$actions" "preset" "Preset" "skills/amux/scripts/openclaw-dx.sh terminal preset --workspace $(shell_quote "$workspace") --kind nextjs" "success" "Start a Next.js dev terminal preset")"
+      actions="$(append_action "$actions" "status" "Status" "skills/amux/scripts/openclaw-dx.sh status --workspace $(shell_quote "$workspace")" "primary" "Check workspace status")"
+      RESULT_QUICK_ACTIONS="$actions"
+      RESULT_MESSAGE="⚠️ No terminal session found for workspace $workspace"$'\n'"Next: $RESULT_NEXT_ACTION"
+      emit_result
+      return
+    fi
     emit_amux_error "terminal.logs"
     return
-  fi
+  done
 
   local content excerpt
   content="$(jq -r '.data.content // ""' <<<"$out")"
@@ -4091,6 +4332,8 @@ cmd_workflow_dual() {
   local implement_prompt="${OPENCLAW_DX_IMPLEMENT_PROMPT:-Identify the highest-impact technical-debt item in this workspace, implement the fix, run targeted validation, and summarize changed files plus remaining risks.}"
   local review_assistant="${OPENCLAW_DX_REVIEW_ASSISTANT:-codex}"
   local review_prompt="${OPENCLAW_DX_REVIEW_PROMPT:-Review current uncommitted changes. Return findings first ordered by severity with file references, then residual risks and test gaps.}"
+  local auto_continue_impl="${OPENCLAW_DX_DUAL_AUTO_CONTINUE_IMPL:-true}"
+  local auto_continue_impl_prompt="${OPENCLAW_DX_DUAL_AUTO_CONTINUE_PROMPT:-Continue using the safest option and report status plus next action.}"
   local implement_needs_input_retry="${OPENCLAW_DX_IMPLEMENT_NEEDS_INPUT_RETRY:-true}"
   local implement_needs_input_fallback_assistant="${OPENCLAW_DX_IMPLEMENT_NEEDS_INPUT_FALLBACK_ASSISTANT:-codex}"
   local review_needs_input_retry="${OPENCLAW_DX_REVIEW_NEEDS_INPUT_RETRY:-true}"
@@ -4154,12 +4397,42 @@ cmd_workflow_dual() {
         wait_timeout="$2"; shift 2 ;;
       --idle-threshold)
         idle_threshold="$2"; shift 2 ;;
+      --auto-continue-impl)
+        auto_continue_impl="$2"; shift 2 ;;
+      --no-auto-continue-impl)
+        auto_continue_impl="false"; shift ;;
+      --auto-continue-impl-prompt)
+        shift
+        if [[ $# -eq 0 ]]; then
+          emit_error "workflow.dual" "command_error" "missing value for --auto-continue-impl-prompt"
+          return
+        fi
+        auto_continue_impl_prompt="$1"; shift
+        while [[ $# -gt 0 && "$1" != --* ]]; do
+          auto_continue_impl_prompt+=" $1"
+          shift
+        done
+        ;;
       *)
         emit_error "workflow.dual" "command_error" "unknown flag" "$1"
         return
         ;;
     esac
   done
+
+  local auto_continue_impl_lc
+  auto_continue_impl_lc="$(printf '%s' "$auto_continue_impl" | tr '[:upper:]' '[:lower:]')"
+  case "$auto_continue_impl_lc" in
+    true|1|yes|on)
+      auto_continue_impl="true"
+      ;;
+    false|0|no|off)
+      auto_continue_impl="false"
+      ;;
+    *)
+      auto_continue_impl="true"
+      ;;
+  esac
 
   workspace="$(context_resolve_workspace "$workspace")"
   if [[ -z "$workspace" ]]; then
@@ -4234,6 +4507,34 @@ cmd_workflow_dual() {
       impl_cmd="$(jq -r '.suggested_command // ""' <<<"$implementation_json")"
       effective_implement_assistant="$implement_needs_input_fallback_assistant"
       dx_dual_progress "fallback implementation finished (status=$impl_status assistant=$effective_implement_assistant)"
+    fi
+  fi
+
+  if [[ "$auto_continue_impl" == "true" ]] \
+    && [[ "$impl_ok" == "true" ]] \
+    && [[ "$impl_status" == "needs_input" ]]; then
+    local impl_agent_id
+    impl_agent_id="$(jq -r '.agent_id // ""' <<<"$implementation_json")"
+    if [[ -n "${impl_agent_id// }" ]] && [[ -x "$STEP_SCRIPT_PATH" ]]; then
+      dx_dual_progress "implementation needs input; auto-continuing once"
+      local impl_auto_json
+      impl_auto_json="$("$STEP_SCRIPT_PATH" send \
+        --agent "$impl_agent_id" \
+        --text "$auto_continue_impl_prompt" \
+        --enter \
+        --wait-timeout "$wait_timeout" \
+        --idle-threshold "$idle_threshold" 2>&1 || true)"
+      if jq -e . >/dev/null 2>&1 <<<"$impl_auto_json"; then
+        implementation_json="$impl_auto_json"
+        impl_ok="$(jq -r '.ok // false' <<<"$implementation_json")"
+        impl_status="$(jq -r '.overall_status // .status // "unknown"' <<<"$implementation_json")"
+        impl_summary="$(jq -r '.summary // ""' <<<"$implementation_json")"
+        impl_next="$(jq -r '.next_action // ""' <<<"$implementation_json")"
+        impl_cmd="$(jq -r '.suggested_command // ""' <<<"$implementation_json")"
+        dx_dual_progress "auto-continue implementation finished (status=$impl_status)"
+      else
+        dx_dual_progress "auto-continue implementation returned non-json output"
+      fi
     fi
   fi
 
