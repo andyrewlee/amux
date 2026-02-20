@@ -270,6 +270,66 @@ is_agent_progress_line() {
   esac
 }
 
+is_jsonish_fragment() {
+  local line="$1"
+  local trimmed
+  trimmed="$(trim_line "$line")"
+  case "$trimmed" in
+    "- {"*|"{"*)
+      if [[ "$trimmed" == *'":"'* || "$trimmed" == *"{\""* || "$trimmed" == *",\""* ]]; then
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
+is_wrapped_fragment_line() {
+  local line="$1"
+  local trimmed
+  trimmed="$(trim_line "$line")"
+  if [[ -z "$trimmed" ]]; then
+    return 1
+  fi
+  case "$trimmed" in
+    "- "*|"• "*)
+      return 1
+      ;;
+  esac
+  if [[ "$trimmed" =~ ^[a-z0-9] ]] && line_has_file_signal "$trimmed"; then
+    return 0
+  fi
+  if [[ "$trimmed" =~ ^[a-z0-9] ]] && [[ "$trimmed" == *"): "* ]]; then
+    return 0
+  fi
+  return 1
+}
+
+is_file_only_bullet() {
+  local line="$1"
+  local trimmed value
+  trimmed="$(trim_line "$line")"
+  case "$trimmed" in
+    "- "*|"• "*)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  value="${trimmed#- }"
+  value="${value#• }"
+  value="$(trim_line "$value")"
+  if [[ -z "$value" || "$value" == *" "* || "$value" == *":"* ]]; then
+    return 1
+  fi
+  case "$value" in
+    *".go"|*".md"|*".sh"|*".py"|*".ts"|*".tsx"|*".js"|*".jsx"|*".json"|*".yaml"|*".yml"|*".toml"|*"Makefile"|*"/"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 summary_is_weak() {
   local summary="$1"
   local trimmed lower
@@ -303,8 +363,9 @@ line_has_file_signal() {
 
 extract_delta_summary_candidate() {
   local raw="$1"
-  local line candidate
+  local line candidate fragment
   candidate=""
+  fragment=""
   while IFS= read -r line; do
     line="$(trim_line "$line")"
     if [[ -z "$line" ]]; then
@@ -313,8 +374,44 @@ extract_delta_summary_candidate() {
     if is_agent_progress_line "$line"; then
       continue
     fi
+    if is_jsonish_fragment "$line"; then
+      continue
+    fi
+    if is_wrapped_fragment_line "$line"; then
+      if [[ -z "$candidate" ]]; then
+        candidate="$line"
+      fi
+      fragment="$line"
+      continue
+    fi
+    if [[ -n "$fragment" && "$line" != "- "* && "$line" != "• "* ]]; then
+      fragment=""
+    fi
+    if [[ -n "$fragment" && ( "$line" == "- "* || "$line" == "• "* ) ]]; then
+      line="$(trim_line "$line $fragment")"
+      if [[ "$line" == *":" ]]; then
+        if [[ -z "$candidate" ]]; then
+          candidate="$line"
+        fi
+        continue
+      fi
+      printf '%s' "$line"
+      return
+    fi
     if [[ "$line" == "- "* || "$line" == "• "* ]]; then
       if [[ "$line" == *"/"* || "$line" == *".go"* || "$line" == *".md"* || "$line" == *".sh"* || "$line" == *":"* ]]; then
+        if is_file_only_bullet "$line"; then
+          if [[ -z "$candidate" ]]; then
+            candidate="$line"
+          fi
+          continue
+        fi
+        if [[ "$line" == *":" ]]; then
+          if [[ -z "$candidate" ]]; then
+            candidate="$line"
+          fi
+          continue
+        fi
         printf '%s' "$line"
         return
       fi
@@ -327,7 +424,45 @@ extract_delta_summary_candidate() {
       candidate="$line"
     fi
   done < <(printf '%s\n' "$raw" | awk 'NF { lines[++n]=$0 } END { for (i=n; i>=1; i--) print lines[i] }')
+  if [[ -n "$candidate" && "$candidate" == *":" ]]; then
+    candidate="$(trim_line "${candidate%:}")"
+  fi
   printf '%s' "$candidate"
+}
+
+sanitize_summary_text() {
+  local raw="$1"
+  local text lower
+  text="$(trim_line "$(strip_ansi_text "$raw")")"
+  if [[ -z "${text// }" ]]; then
+    printf ''
+    return
+  fi
+
+  # Drop known hosted-UI landing chrome that sometimes leaks into captures.
+  lower="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')"
+  case "$lower" in
+    *"visit https://chatgpt.com/codex"*|*"app-landing-page=true"*|*"continue in your browser"*)
+      printf ''
+      return
+      ;;
+  esac
+  if is_jsonish_fragment "$text"; then
+    printf ''
+    return
+  fi
+
+  # Trim escaped/plain JSON tails that can leak from tool/event payload fragments.
+  text="$(printf '%s' "$text" | sed -E \
+    -e 's/\\",[[:space:]]*\\\"(ok|mode|status|summary|latest_line|next_action|suggested_command|agent_id|workspace_id|assistant|message|delta|needs_input|input_hint|timed_out|session_exited|changed|response|data|error)\\\"[[:space:]]*:[[:space:]].*$//' \
+    -e 's/",[[:space:]]*"(ok|mode|status|summary|latest_line|next_action|suggested_command|agent_id|workspace_id|assistant|message|delta|needs_input|input_hint|timed_out|session_exited|changed|response|data|error)"[[:space:]]*:[[:space:]].*$//' \
+    -e 's/[[:space:]]+$//')"
+  text="$(trim_line "$text")"
+  if is_chrome_line "$text"; then
+    printf ''
+    return
+  fi
+  printf '%s' "$text"
 }
 
 build_delta_excerpt() {
@@ -553,6 +688,15 @@ TIMED_OUT="$(jq -r '.data.response.timed_out // false' <<<"$RAW_OUTPUT")"
 SESSION_EXITED="$(jq -r '.data.response.session_exited // false' <<<"$RAW_OUTPUT")"
 CHANGED="$(jq -r '.data.response.changed // false' <<<"$RAW_OUTPUT")"
 
+# `agent send` responses may omit workspace_id. Derive it from agent id when possible.
+if [[ -z "${WORKSPACE_ID_OUT// }" ]]; then
+  if [[ -n "${AGENT_ID_OUT// }" && "$AGENT_ID_OUT" == *:* ]]; then
+    WORKSPACE_ID_OUT="${AGENT_ID_OUT%%:*}"
+  elif [[ -n "${AGENT_ID// }" && "$AGENT_ID" == *:* ]]; then
+    WORKSPACE_ID_OUT="${AGENT_ID%%:*}"
+  fi
+fi
+
 if [[ "$STATUS" == "timed_out" ]]; then
   if [[ "$LATEST_LINE" == "(no output yet)" ]]; then
     LATEST_LINE=""
@@ -679,6 +823,7 @@ if [[ "$STATUS" == "timed_out" && "$SUBSTANTIVE_OUTPUT" != "true" && -n "$SESSIO
 fi
 
 DELTA_SUMMARY_CANDIDATE="$(extract_delta_summary_candidate "$DELTA_COMPACT")"
+DELTA_SUMMARY_CANDIDATE="$(sanitize_summary_text "$DELTA_SUMMARY_CANDIDATE")"
 if [[ -n "${DELTA_SUMMARY_CANDIDATE// }" ]]; then
   if line_has_file_signal "$DELTA_SUMMARY_CANDIDATE" && ! line_has_file_signal "$SUMMARY"; then
     SUMMARY="$DELTA_SUMMARY_CANDIDATE"
@@ -696,6 +841,10 @@ if [[ -n "${DELTA_SUMMARY_CANDIDATE// }" ]]; then
     LATEST_LINE="$DELTA_SUMMARY_CANDIDATE"
   fi
 fi
+
+SUMMARY="$(sanitize_summary_text "$SUMMARY")"
+RESPONSE_SUMMARY="$(sanitize_summary_text "$RESPONSE_SUMMARY")"
+LATEST_LINE="$(sanitize_summary_text "$LATEST_LINE")"
 
 if [[ -z "${SUMMARY// }" ]]; then
   case "$STATUS" in

@@ -13,14 +13,25 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-INPUT_JSON="$(cat)"
-if [[ -z "${INPUT_JSON// }" ]]; then
-  printf '%s' "$INPUT_JSON"
+TMP_INPUT="$(mktemp "${TMPDIR:-/tmp}/openclaw-present.XXXXXX")"
+cleanup_tmp() {
+  rm -f "$TMP_INPUT" >/dev/null 2>&1 || true
+}
+trap cleanup_tmp EXIT
+
+cat >"$TMP_INPUT"
+if [[ ! -s "$TMP_INPUT" ]]; then
+  cat "$TMP_INPUT"
   exit 0
 fi
 
-if ! jq -e . >/dev/null 2>&1 <<<"$INPUT_JSON"; then
-  printf '%s' "$INPUT_JSON"
+if ! grep -q '[^[:space:]]' "$TMP_INPUT"; then
+  cat "$TMP_INPUT"
+  exit 0
+fi
+
+if ! jq -e . >/dev/null 2>&1 <"$TMP_INPUT"; then
+  cat "$TMP_INPUT"
   exit 0
 fi
 
@@ -265,4 +276,4 @@ jq -c --arg target_channel "$TARGET_CHANNEL" '
         }
       }
   )
-' <<<"$INPUT_JSON"
+' "$TMP_INPUT"

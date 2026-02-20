@@ -394,3 +394,52 @@ esac
 		t.Fatalf("expected review_done and ship_done quick actions, got %#v", quickActions)
 	}
 }
+
+func TestOpenClawDXStatus_InvalidResultCommandEnvFallsBackToStatus(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "project list")
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+  "agent list")
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+  "terminal list")
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+  "session list")
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+  "session prune")
+    printf '%s' '{"ok":true,"data":{"dry_run":true,"pruned":[],"total":0,"errors":[]},"error":null}'
+    ;;
+  *)
+    printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"}}' "$*"
+    ;;
+esac
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "OPENCLAW_DX_STATUS_RESULT_COMMAND", "status;rm -rf /")
+
+	payload := runScriptJSON(t, scriptPath, env, "status")
+
+	if got, _ := payload["command"].(string); got != "status" {
+		t.Fatalf("command = %q, want %q", got, "status")
+	}
+}

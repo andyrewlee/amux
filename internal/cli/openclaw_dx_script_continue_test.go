@@ -170,6 +170,9 @@ case "${1:-} ${2:-}" in
   "agent list")
     printf '%s' '{"ok":true,"data":[{"session_name":"sess-1","agent_id":"agent-1","workspace_id":"ws-1","tab_id":"tab-1","type":"agent"}],"error":null}'
     ;;
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[{"id":"ws-1","name":"mobile","repo":"/tmp/demo","assistant":"codex"}],"error":null}'
+    ;;
   *)
     printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"}}' "$*"
     ;;

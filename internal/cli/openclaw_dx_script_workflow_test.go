@@ -94,6 +94,66 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	}
 }
 
+func TestOpenClawDXWorkflowKickoff_IgnoresPresentScriptAndPrintsJSON(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	fakeTurnPath := filepath.Join(fakeBinDir, "fake-turn.sh")
+	fakePresentPath := filepath.Join(fakeBinDir, "present.sh")
+
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "project list")
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+  "project add")
+    printf '%s' '{"ok":true,"data":{"name":"demo","path":"/tmp/demo"},"error":null}'
+    ;;
+  "workspace create")
+    printf '%s' '{"ok":true,"data":{"id":"ws-mobile","name":"mobile","repo":"/tmp/demo","root":"/tmp/ws-mobile","assistant":"codex"},"error":null}'
+    ;;
+  *)
+    printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"}}' "$*"
+    ;;
+esac
+`)
+
+	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed","summary":"Implemented first debt fix.","agent_id":"agent-1","workspace_id":"ws-mobile","assistant":"codex","next_action":"Run review.","suggested_command":"skills/amux/scripts/openclaw-dx.sh review --workspace ws-mobile --assistant codex","quick_actions":[],"channel":{"message":"done","chunks":["done"],"chunks_meta":[{"index":1,"total":1,"text":"done"}],"inline_buttons":[]}}'
+`)
+
+	writeExecutable(t, fakePresentPath, `#!/usr/bin/env bash
+set -euo pipefail
+echo "PRESENT_SCRIPT_SHOULD_NOT_RUN"
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "OPENCLAW_DX_TURN_SCRIPT", fakeTurnPath)
+	env = withEnv(env, "OPENCLAW_DX_SELF_SCRIPT", scriptPath)
+	env = withEnv(env, "OPENCLAW_PRESENT_SCRIPT", fakePresentPath)
+
+	payload := runScriptJSON(t, scriptPath, env,
+		"workflow", "kickoff",
+		"--project", "/tmp/demo",
+		"--name", "mobile",
+		"--assistant", "codex",
+		"--prompt", "Fix the highest-impact debt item.",
+	)
+
+	if got, _ := payload["command"].(string); got != "workflow.kickoff" {
+		t.Fatalf("command = %q, want %q", got, "workflow.kickoff")
+	}
+}
+
 func TestOpenClawDXWorkflowDual_RunsImplementationThenReview(t *testing.T) {
 	requireBinary(t, "jq")
 	requireBinary(t, "bash")
@@ -108,7 +168,14 @@ set -euo pipefail
 if [[ "${1:-}" == "--json" ]]; then
   shift
 fi
-printf '%s' '{"ok":true,"data":{},"error":null}'
+case "${1:-} ${2:-}" in
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[{"id":"ws-1","name":"demo","repo":"/tmp/demo"}],"error":null}'
+    ;;
+  *)
+    printf '%s' '{"ok":true,"data":{},"error":null}'
+    ;;
+esac
 `)
 
 	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
@@ -203,7 +270,14 @@ set -euo pipefail
 if [[ "${1:-}" == "--json" ]]; then
   shift
 fi
-printf '%s' '{"ok":true,"data":{},"error":null}'
+case "${1:-} ${2:-}" in
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[{"id":"ws-1","name":"demo","repo":"/tmp/demo"}],"error":null}'
+    ;;
+  *)
+    printf '%s' '{"ok":true,"data":{},"error":null}'
+    ;;
+esac
 `)
 
 	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
