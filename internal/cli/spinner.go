@@ -47,7 +47,7 @@ func (s *Spinner) Start() {
 			case <-ticker.C:
 				s.mu.Lock()
 				if s.active {
-					fmt.Printf("\r%s %s", spinnerFrames[frame%len(spinnerFrames)], s.message)
+					fmt.Fprintf(cliStdout, "\r%s %s", spinnerFrames[frame%len(spinnerFrames)], s.message)
 					frame++
 				}
 				s.mu.Unlock()
@@ -80,13 +80,13 @@ func (s *Spinner) doStop(message string) {
 	// Clear line and optionally print message
 	if wasActive {
 		if message != "" {
-			fmt.Printf("\r\033[K%s\n", message)
+			fmt.Fprintf(cliStdout, "\r\033[K%s\n", message)
 		} else {
-			fmt.Printf("\r\033[K")
+			fmt.Fprintf(cliStdout, "\r\033[K")
 		}
 	} else if message != "" {
 		// Spinner wasn't active but we have a message to print
-		fmt.Println(message)
+		fmt.Fprintln(cliStdout, message)
 	}
 }
 

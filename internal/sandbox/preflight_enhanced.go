@@ -104,7 +104,7 @@ func RunEnhancedPreflight(ctx context.Context, verbose bool) (*PreflightReport, 
 		}
 
 		if verbose {
-			fmt.Printf("Checking %s... ", check.Description)
+			fmt.Fprintf(sandboxStdout, "Checking %s... ", check.Description)
 		}
 
 		result := check.Check(ctx)
@@ -112,11 +112,11 @@ func RunEnhancedPreflight(ctx context.Context, verbose bool) (*PreflightReport, 
 
 		if verbose {
 			if result.Passed {
-				fmt.Println("\033[32m✓\033[0m")
+				fmt.Fprintln(sandboxStdout, "\033[32m✓\033[0m")
 			} else if check.Required {
-				fmt.Println("\033[31m✗\033[0m")
+				fmt.Fprintln(sandboxStdout, "\033[31m✗\033[0m")
 			} else {
-				fmt.Println("\033[33m!\033[0m")
+				fmt.Fprintln(sandboxStdout, "\033[33m!\033[0m")
 			}
 		}
 
@@ -207,7 +207,7 @@ func checkNetworkConnectivity(ctx context.Context) PreflightResult {
 
 	// Check HTTP connectivity
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequestWithContext(ctx, "HEAD", "https://api.daytona.io", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodHead, "https://api.daytona.io", nil)
 	resp, err := client.Do(req)
 	if err != nil {
 		result.Passed = false
@@ -480,7 +480,7 @@ func QuickPreflight() error {
 
 	// Quick network check (with short timeout)
 	client := &http.Client{Timeout: 5 * time.Second}
-	req, _ := http.NewRequestWithContext(ctx, "HEAD", "https://api.daytona.io", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodHead, "https://api.daytona.io", nil)
 	if _, err := client.Do(req); err != nil {
 		return NewSandboxError(ErrCodeNetwork, "connectivity", err).
 			WithSuggestion("Check your internet connection")

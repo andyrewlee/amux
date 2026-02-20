@@ -218,7 +218,7 @@ func (s *daytonaSandbox) RunAgentInteractive(cfg AgentConfig) (int, error) {
 		return 1, err
 	}
 
-	fmt.Printf("Starting %s in interactive mode...\n", cfg.Agent)
+	fmt.Fprintf(sandboxStdout, "Starting %s in interactive mode...\n", cfg.Agent)
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return 1, errors.New("interactive mode requires a TTY")
 	}
@@ -265,19 +265,19 @@ func (s *daytonaSandbox) RunAgentInteractive(cfg AgentConfig) (int, error) {
 
 	if spec.DebugEnabled {
 		sshArgs = append([]string{"-vvv"}, sshArgs...)
-		fmt.Printf("SSH target: %s\n", target)
+		fmt.Fprintf(sandboxStdout, "SSH target: %s\n", target)
 		if len(cfg.Env) > 0 {
 			keys := make([]string, 0, len(cfg.Env))
 			for key := range cfg.Env {
 				keys = append(keys, key)
 			}
 			sortStrings(keys)
-			fmt.Printf("SSH env keys: %s\n", strings.Join(keys, ", "))
+			fmt.Fprintf(sandboxStdout, "SSH env keys: %s\n", strings.Join(keys, ", "))
 		}
 		if rawShell || useShellBootstrap {
-			fmt.Printf("SSH command: ssh %s\n", target)
+			fmt.Fprintf(sandboxStdout, "SSH command: ssh %s\n", target)
 		} else {
-			fmt.Printf("SSH command: %s\n", redactExports(remoteCommand))
+			fmt.Fprintf(sandboxStdout, "SSH command: %s\n", redactExports(remoteCommand))
 		}
 	}
 

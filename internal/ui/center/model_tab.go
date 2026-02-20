@@ -230,5 +230,4 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 	delete(m.tabsByWorkspace, wsID)
 	delete(m.activeTabByWorkspace, wsID)
 	m.noteTabsChanged()
-
 }

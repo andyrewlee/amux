@@ -56,7 +56,7 @@ func SyncSettingsToVolume(computer RemoteSandbox, syncCfg SettingsSyncConfig, ve
 
 		if syncErr != nil {
 			if verbose {
-				fmt.Printf("  Warning: could not sync %s settings: %v\n", setting.Agent, syncErr)
+				fmt.Fprintf(sandboxStdout, "  Warning: could not sync %s settings: %v\n", setting.Agent, syncErr)
 			}
 		} else {
 			syncedCount++
@@ -64,7 +64,7 @@ func SyncSettingsToVolume(computer RemoteSandbox, syncCfg SettingsSyncConfig, ve
 	}
 
 	if verbose && syncedCount > 0 {
-		fmt.Printf("  Synced %d settings configuration(s)\n", syncedCount)
+		fmt.Fprintf(sandboxStdout, "  Synced %d settings configuration(s)\n", syncedCount)
 	}
 
 	return nil
@@ -226,7 +226,7 @@ func syncAgentSettings(computer RemoteSandbox, homeDir, computerHome string, age
 	}
 
 	if verbose {
-		fmt.Printf("  Synced %s settings\n", agent)
+		fmt.Fprintf(sandboxStdout, "  Synced %s settings\n", agent)
 	}
 
 	return nil
@@ -258,7 +258,7 @@ func syncGitConfig(computer RemoteSandbox, homeDir, computerHome string, verbose
 	}
 
 	if verbose {
-		fmt.Println("  Synced git config (name, email, aliases)")
+		fmt.Fprintln(sandboxStdout, "  Synced git config (name, email, aliases)")
 	}
 
 	return nil

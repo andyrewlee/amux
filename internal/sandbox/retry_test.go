@@ -98,7 +98,7 @@ func TestRetry(t *testing.T) {
 		if result.Error == nil {
 			t.Error("Expected error due to cancellation")
 		}
-		// Should stop after context is cancelled
+		// Should stop after context is canceled
 		if attempts > 3 {
 			t.Errorf("Expected to stop soon after cancellation, got %d attempts", attempts)
 		}

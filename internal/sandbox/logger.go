@@ -319,7 +319,7 @@ func InitLogger() {
 
 	var output io.Writer = os.Stderr
 	if logFile := os.Getenv("AMUX_LOG_FILE"); logFile != "" {
-		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 			output = io.MultiWriter(os.Stderr, f)
 		}
 	}

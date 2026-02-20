@@ -142,7 +142,7 @@ func runAgentAlias(agentName string, envVars, volumes []string, credentials stri
 		snapshotID = sandbox.ResolveSnapshotID(cfg)
 	}
 	if Verbose && snapshotID != "" {
-		fmt.Printf("Using snapshot: %s\n", snapshotID)
+		fmt.Fprintf(cliStdout, "Using snapshot: %s\n", snapshotID)
 	}
 
 	if previewExplicit && (previewPort < 1 || previewPort > 65535) {
@@ -150,7 +150,7 @@ func runAgentAlias(agentName string, envVars, volumes []string, credentials stri
 	}
 	if previewPort != 0 && !keepExplicit {
 		keep = true
-		fmt.Println("Preview enabled; keeping sandbox after exit. Use --keep=false to override.")
+		fmt.Fprintln(cliStdout, "Preview enabled; keeping sandbox after exit. Use --keep=false to override.")
 	}
 
 	syncEnabled := !noSync

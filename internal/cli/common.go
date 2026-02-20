@@ -14,7 +14,7 @@ import (
 
 func promptInput(label string) (string, error) {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print(label)
+	fmt.Fprint(cliStdout, label)
 	text, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -44,7 +44,7 @@ func ensureDaytonaAPIKey() error {
 	if err := sandbox.SaveConfig(cfg); err != nil {
 		return err
 	}
-	fmt.Println("Saved Daytona API key to ~/.amux/config.json")
+	fmt.Fprintln(cliStdout, "Saved Daytona API key to ~/.amux/config.json")
 	return nil
 }
 

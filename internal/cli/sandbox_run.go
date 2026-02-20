@@ -116,7 +116,7 @@ func buildSandboxRunCommand() *cobra.Command {
 				snapshotID = sandbox.ResolveSnapshotID(cfg)
 			}
 			if Verbose && snapshotID != "" {
-				fmt.Printf("Using snapshot: %s\n", snapshotID)
+				fmt.Fprintf(cliStdout, "Using snapshot: %s\n", snapshotID)
 			}
 
 			previewExplicit := cmd.Flags().Changed("preview")
@@ -126,7 +126,7 @@ func buildSandboxRunCommand() *cobra.Command {
 			keepExplicit := cmd.Flags().Changed("keep")
 			if previewPort != 0 && !keepExplicit {
 				keep = true
-				fmt.Println("Preview enabled; keeping sandbox after exit. Use --keep=false to override.")
+				fmt.Fprintln(cliStdout, "Preview enabled; keeping sandbox after exit. Use --keep=false to override.")
 			}
 
 			// Determine settings sync mode based on flags
@@ -219,7 +219,7 @@ func runAgent(p runAgentParams) error {
 
 	// Step 1: Create sandbox
 	if Verbose {
-		fmt.Printf("Starting %s sandbox...\n", p.agent)
+		fmt.Fprintf(cliStdout, "Starting %s sandbox...\n", p.agent)
 		sb, _, err = sandbox.CreateSandboxSession(provider, p.cwd, sandbox.SandboxConfig{
 			Agent:                 p.agent,
 			EnvVars:               p.envMap,
@@ -254,7 +254,7 @@ func runAgent(p runAgentParams) error {
 	}
 
 	if Verbose {
-		fmt.Println("Sandbox ID: " + sb.ID())
+		fmt.Fprintln(cliStdout, "Sandbox ID: "+sb.ID())
 	}
 
 	cleanup := func() {
@@ -279,7 +279,7 @@ func runAgent(p runAgentParams) error {
 	// Step 2: Sync workspace
 	if p.syncEnabled {
 		if Verbose {
-			fmt.Println("Syncing workspace...")
+			fmt.Fprintln(cliStdout, "Syncing workspace...")
 			if err := sandbox.UploadWorkspace(sb, sandbox.SyncOptions{Cwd: p.cwd, WorktreeID: worktreeID}, Verbose); err != nil {
 				return err
 			}
@@ -305,7 +305,7 @@ func runAgent(p runAgentParams) error {
 	}
 
 	if Verbose {
-		fmt.Println(setupMsg + "...")
+		fmt.Fprintln(cliStdout, setupMsg+"...")
 		if err := sandbox.SetupCredentials(sb, sandbox.CredentialsConfig{Mode: p.credMode, Agent: p.agent, SettingsSyncMode: p.settingsSyncMode}, Verbose); err != nil {
 			return err
 		}
@@ -336,8 +336,8 @@ func runAgent(p runAgentParams) error {
 		} else {
 			timestamp := time.Now().UTC().Format("20060102-150405")
 			recordPath = fmt.Sprintf("%s/%s-%s.log", logDir, timestamp, p.agent)
-			fmt.Printf("Recording session to %s\n", recordPath)
-			fmt.Println("Tip: Use `amux sandbox logs` to view from another terminal.")
+			fmt.Fprintf(cliStdout, "Recording session to %s\n", recordPath)
+			fmt.Fprintln(cliStdout, "Tip: Use `amux sandbox logs` to view from another terminal.")
 		}
 	}
 
@@ -349,15 +349,15 @@ func runAgent(p runAgentParams) error {
 		if url == "" {
 			return fmt.Errorf("unable to construct a preview URL")
 		}
-		fmt.Printf("Preview URL: %s\n", url)
+		fmt.Fprintf(cliStdout, "Preview URL: %s\n", url)
 		if !p.previewNoOpen {
 			if !tryOpenURL(url) {
-				fmt.Println("Open the URL in your browser.")
+				fmt.Fprintln(cliStdout, "Open the URL in your browser.")
 			}
 		}
-		fmt.Printf("Tip: Ensure your app listens on 0.0.0.0:%d inside the sandbox.\n", p.previewPort)
+		fmt.Fprintf(cliStdout, "Tip: Ensure your app listens on 0.0.0.0:%d inside the sandbox.\n", p.previewPort)
 		if !p.keepSandbox {
-			fmt.Println("Tip: Use --keep to leave the sandbox running for preview.")
+			fmt.Fprintln(cliStdout, "Tip: Use --keep to leave the sandbox running for preview.")
 		}
 	}
 
@@ -381,7 +381,7 @@ func runAgent(p runAgentParams) error {
 	}
 
 	// Step 5: Run the agent
-	fmt.Println() // Clean line before agent starts
+	fmt.Fprintln(cliStdout) // Clean line before agent starts
 	exitCode, err = sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
 		Agent:         p.agent,
 		WorkspacePath: workspacePath,

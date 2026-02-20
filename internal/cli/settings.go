@@ -67,7 +67,7 @@ Examples:
 				if err := sandbox.SaveConfig(cfg); err != nil {
 					return err
 				}
-				fmt.Println("Settings sync disabled")
+				fmt.Fprintln(cliStdout, "Settings sync disabled")
 				return nil
 			}
 
@@ -76,20 +76,20 @@ Examples:
 				// Detect existing settings files
 				detected := sandbox.DetectExistingSettings()
 
-				fmt.Println("amux settings sync")
-				fmt.Println(strings.Repeat("─", 50))
-				fmt.Println()
+				fmt.Fprintln(cliStdout, "amux settings sync")
+				fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
+				fmt.Fprintln(cliStdout)
 
 				// Show detected files
 				if len(detected) > 0 {
-					fmt.Println("Detected settings files:")
+					fmt.Fprintln(cliStdout, "Detected settings files:")
 					for _, s := range detected {
-						fmt.Printf("  ~/%s (%s)\n", s.HomePath, s.Description)
+						fmt.Fprintf(cliStdout, "  ~/%s (%s)\n", s.HomePath, s.Description)
 					}
-					fmt.Println()
+					fmt.Fprintln(cliStdout)
 				} else {
-					fmt.Println("No settings files detected locally.")
-					fmt.Println()
+					fmt.Fprintln(cliStdout, "No settings files detected locally.")
+					fmt.Fprintln(cliStdout)
 					return nil
 				}
 
@@ -120,34 +120,34 @@ Examples:
 
 					// If no specific flags given, show help
 					if len(filesToSync) == 0 && !claude && !codex && !git {
-						fmt.Println("Specify which settings to sync:")
-						fmt.Println("  --all      Sync all detected files")
-						fmt.Println("  --claude   Sync Claude settings")
-						fmt.Println("  --codex    Sync Codex settings")
-						fmt.Println("  --git      Sync git config")
-						fmt.Println()
-						fmt.Println("Example: amux settings sync --enable --all")
+						fmt.Fprintln(cliStdout, "Specify which settings to sync:")
+						fmt.Fprintln(cliStdout, "  --all      Sync all detected files")
+						fmt.Fprintln(cliStdout, "  --claude   Sync Claude settings")
+						fmt.Fprintln(cliStdout, "  --codex    Sync Codex settings")
+						fmt.Fprintln(cliStdout, "  --git      Sync git config")
+						fmt.Fprintln(cliStdout)
+						fmt.Fprintln(cliStdout, "Example: amux settings sync --enable --all")
 						return nil
 					}
 				}
 
 				if len(filesToSync) == 0 {
-					fmt.Println("No matching settings files to sync.")
+					fmt.Fprintln(cliStdout, "No matching settings files to sync.")
 					return nil
 				}
 
 				// Show what will be synced
-				fmt.Println("Will sync these files to sandbox:")
+				fmt.Fprintln(cliStdout, "Will sync these files to sandbox:")
 				for _, f := range filesToSync {
 					note := ""
 					if strings.Contains(f, ".gitconfig") {
 						note = " (safe keys only)"
 					}
-					fmt.Printf("  %s%s\n", f, note)
+					fmt.Fprintf(cliStdout, "  %s%s\n", f, note)
 				}
-				fmt.Println()
-				fmt.Println("Note: API keys and tokens are automatically filtered out.")
-				fmt.Println()
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "Note: API keys and tokens are automatically filtered out.")
+				fmt.Fprintln(cliStdout)
 
 				// Save config with explicit file list
 				syncCfg.Enabled = true
@@ -170,10 +170,10 @@ Examples:
 					return err
 				}
 
-				fmt.Println("✓ Settings sync enabled")
-				fmt.Println()
-				fmt.Println("Files will sync on next `amux claude/codex/...` run.")
-				fmt.Println("To disable: amux settings sync --disable")
+				fmt.Fprintln(cliStdout, "✓ Settings sync enabled")
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "Files will sync on next `amux claude/codex/...` run.")
+				fmt.Fprintln(cliStdout, "To disable: amux settings sync --disable")
 				return nil
 			}
 
@@ -202,30 +202,30 @@ func buildSettingsStatusCommand() *cobra.Command {
 				return err
 			}
 
-			fmt.Println("amux settings status")
-			fmt.Println(strings.Repeat("─", 50))
-			fmt.Println()
+			fmt.Fprintln(cliStdout, "amux settings status")
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
+			fmt.Fprintln(cliStdout)
 
 			// Show sync status
 			syncCfg := cfg.SettingsSync
 			if syncCfg.Enabled {
-				fmt.Println("Settings sync: enabled")
+				fmt.Fprintln(cliStdout, "Settings sync: enabled")
 			} else {
-				fmt.Println("Settings sync: disabled")
+				fmt.Fprintln(cliStdout, "Settings sync: disabled")
 			}
-			fmt.Println()
+			fmt.Fprintln(cliStdout)
 
 			// Show configured files if using explicit file list
 			if syncCfg.Enabled && len(syncCfg.Files) > 0 {
-				fmt.Println("Configured to sync:")
+				fmt.Fprintln(cliStdout, "Configured to sync:")
 				for _, f := range syncCfg.Files {
-					fmt.Printf("  %s\n", f)
+					fmt.Fprintf(cliStdout, "  %s\n", f)
 				}
-				fmt.Println()
+				fmt.Fprintln(cliStdout)
 			}
 
 			// Show all detected local settings files
-			fmt.Println("Local files detected:")
+			fmt.Fprintln(cliStdout, "Local files detected:")
 			detected := sandbox.DetectLocalSettings()
 
 			for _, s := range detected {
@@ -235,7 +235,7 @@ func buildSettingsStatusCommand() *cobra.Command {
 					if syncing {
 						status += " (syncing)"
 					}
-					fmt.Printf("  ~/%s (%s)\n", s.HomePath, status)
+					fmt.Fprintf(cliStdout, "  ~/%s (%s)\n", s.HomePath, status)
 				}
 			}
 
@@ -247,18 +247,18 @@ func buildSettingsStatusCommand() *cobra.Command {
 				}
 			}
 			if len(notFound) > 0 {
-				fmt.Println()
-				fmt.Println("Not found:")
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "Not found:")
 				for _, f := range notFound {
-					fmt.Printf("  ~/%s\n", f)
+					fmt.Fprintf(cliStdout, "  ~/%s\n", f)
 				}
 			}
 
-			fmt.Println()
-			fmt.Println(strings.Repeat("─", 50))
+			fmt.Fprintln(cliStdout)
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
 
 			if !syncCfg.Enabled {
-				fmt.Println("Run `amux settings sync --enable --all` to sync settings")
+				fmt.Fprintln(cliStdout, "Run `amux settings sync --enable --all` to sync settings")
 			}
 
 			return nil
@@ -308,48 +308,48 @@ func formatFileSize(size int64) string {
 }
 
 func showSettingsSyncStatus(cfg sandbox.SettingsSyncConfig) error {
-	fmt.Println("amux settings sync status")
-	fmt.Println(strings.Repeat("─", 50))
-	fmt.Println()
+	fmt.Fprintln(cliStdout, "amux settings sync status")
+	fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
+	fmt.Fprintln(cliStdout)
 
 	if cfg.Enabled {
-		fmt.Println("Settings sync: enabled")
-		fmt.Println()
+		fmt.Fprintln(cliStdout, "Settings sync: enabled")
+		fmt.Fprintln(cliStdout)
 
 		// Show explicit file list if available
 		if len(cfg.Files) > 0 {
-			fmt.Println("Configured files:")
+			fmt.Fprintln(cliStdout, "Configured files:")
 			for _, f := range cfg.Files {
 				note := ""
 				if strings.Contains(f, ".gitconfig") {
 					note = " (safe keys only)"
 				}
-				fmt.Printf("  %s%s\n", f, note)
+				fmt.Fprintf(cliStdout, "  %s%s\n", f, note)
 			}
 		} else {
 			// Fall back to legacy display
-			fmt.Println("Syncing:")
+			fmt.Fprintln(cliStdout, "Syncing:")
 			if cfg.Claude {
-				fmt.Println("  ✓ ~/.claude/settings.json")
+				fmt.Fprintln(cliStdout, "  ✓ ~/.claude/settings.json")
 			}
 			if cfg.Codex {
-				fmt.Println("  ✓ ~/.codex/config.toml")
+				fmt.Fprintln(cliStdout, "  ✓ ~/.codex/config.toml")
 			}
 			if cfg.Git {
-				fmt.Println("  ✓ ~/.gitconfig (safe keys)")
+				fmt.Fprintln(cliStdout, "  ✓ ~/.gitconfig (safe keys)")
 			}
 			if !cfg.Claude && !cfg.Codex && !cfg.Git {
-				fmt.Println("  (no settings selected)")
+				fmt.Fprintln(cliStdout, "  (no settings selected)")
 			}
 		}
 	} else {
-		fmt.Println("Settings sync: disabled")
-		fmt.Println()
-		fmt.Println("Enable with: amux settings sync --enable --all")
+		fmt.Fprintln(cliStdout, "Settings sync: disabled")
+		fmt.Fprintln(cliStdout)
+		fmt.Fprintln(cliStdout, "Enable with: amux settings sync --enable --all")
 	}
 
-	fmt.Println()
-	fmt.Println(strings.Repeat("─", 50))
+	fmt.Fprintln(cliStdout)
+	fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
 	return nil
 }
 
@@ -363,15 +363,15 @@ func buildSettingsShowCommand() *cobra.Command {
 				return err
 			}
 
-			fmt.Println("amux settings show")
-			fmt.Println(strings.Repeat("─", 50))
-			fmt.Println()
+			fmt.Fprintln(cliStdout, "amux settings show")
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
+			fmt.Fprintln(cliStdout)
 
 			syncCfg := cfg.SettingsSync
 			if !syncCfg.Enabled {
-				fmt.Println("Settings sync is disabled.")
-				fmt.Println()
-				fmt.Println("Enable with: amux settings sync --enable --all")
+				fmt.Fprintln(cliStdout, "Settings sync is disabled.")
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "Enable with: amux settings sync --enable --all")
 				return nil
 			}
 
@@ -386,23 +386,23 @@ func buildSettingsShowCommand() *cobra.Command {
 			}
 
 			if len(willSync) == 0 {
-				fmt.Println("No settings files would sync.")
-				fmt.Println()
-				fmt.Println("Either no files are configured or they don't exist locally.")
+				fmt.Fprintln(cliStdout, "No settings files would sync.")
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "Either no files are configured or they don't exist locally.")
 				return nil
 			}
 
-			fmt.Println("Would sync to sandbox:")
-			fmt.Println()
+			fmt.Fprintln(cliStdout, "Would sync to sandbox:")
+			fmt.Fprintln(cliStdout)
 			for _, s := range willSync {
 				note := ""
 				if strings.Contains(s.HomePath, ".gitconfig") {
 					note = " (filtered: user.*, core.*, alias.*)"
 				}
-				fmt.Printf("  ~/%s → ~/%s%s\n", s.HomePath, s.HomePath, note)
+				fmt.Fprintf(cliStdout, "  ~/%s → ~/%s%s\n", s.HomePath, s.HomePath, note)
 			}
-			fmt.Println()
-			fmt.Println(strings.Repeat("─", 50))
+			fmt.Fprintln(cliStdout)
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
 
 			return nil
 		},

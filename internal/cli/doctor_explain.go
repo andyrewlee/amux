@@ -252,18 +252,18 @@ Key Components:
 
 	explanation, ok := explanations[strings.ToLower(topic)]
 	if !ok {
-		fmt.Println("Unknown topic:", topic)
-		fmt.Println()
-		fmt.Println("Available topics:")
-		fmt.Println("  credentials   How credentials are stored and persisted")
-		fmt.Println("  sync          How workspace syncing works")
-		fmt.Println("  agents        Supported AI coding agents")
-		fmt.Println("  snapshots     Using snapshots for faster startup")
-		fmt.Println("  settings      Settings sync configuration")
-		fmt.Println("  architecture  Overall system architecture")
+		fmt.Fprintln(cliStdout, "Unknown topic:", topic)
+		fmt.Fprintln(cliStdout)
+		fmt.Fprintln(cliStdout, "Available topics:")
+		fmt.Fprintln(cliStdout, "  credentials   How credentials are stored and persisted")
+		fmt.Fprintln(cliStdout, "  sync          How workspace syncing works")
+		fmt.Fprintln(cliStdout, "  agents        Supported AI coding agents")
+		fmt.Fprintln(cliStdout, "  snapshots     Using snapshots for faster startup")
+		fmt.Fprintln(cliStdout, "  settings      Settings sync configuration")
+		fmt.Fprintln(cliStdout, "  architecture  Overall system architecture")
 		return nil
 	}
 
-	fmt.Print(explanation)
+	fmt.Fprint(cliStdout, explanation)
 	return nil
 }

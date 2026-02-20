@@ -47,14 +47,14 @@ func buildSnapshotCreateCommand() *cobra.Command {
 			if name == "" {
 				name = sandbox.BuildSnapshotName("amux")
 			}
-			fmt.Printf("Creating snapshot \"%s\"...\n", name)
+			fmt.Fprintf(cliStdout, "Creating snapshot \"%s\"...\n", name)
 			snap, err := sandbox.CreateSnapshot(client, name, agentsList, baseImage, func(chunk string) {
-				fmt.Println(chunk)
+				fmt.Fprintln(cliStdout, chunk)
 			})
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Snapshot created: %s\n", snap.Name)
+			fmt.Fprintf(cliStdout, "Snapshot created: %s\n", snap.Name)
 			if setDefault {
 				cfg, err := sandbox.LoadConfig()
 				if err != nil {
@@ -66,8 +66,8 @@ func buildSnapshotCreateCommand() *cobra.Command {
 				if err := sandbox.SaveConfig(cfg); err != nil {
 					return err
 				}
-				fmt.Printf("Saved default snapshot: %s\n", snap.Name)
-				fmt.Println("New sandboxes will use this snapshot.")
+				fmt.Fprintf(cliStdout, "Saved default snapshot: %s\n", snap.Name)
+				fmt.Fprintln(cliStdout, "New sandboxes will use this snapshot.")
 			}
 			return nil
 		},
@@ -138,9 +138,9 @@ func buildSnapshotUpdateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Creating snapshot \"%s\" with agents: %s\n", name, joinAgents(next))
+			fmt.Fprintf(cliStdout, "Creating snapshot \"%s\" with agents: %s\n", name, joinAgents(next))
 			snap, err := sandbox.CreateSnapshot(client, name, next, baseImage, func(chunk string) {
-				fmt.Println(chunk)
+				fmt.Fprintln(cliStdout, chunk)
 			})
 			if err != nil {
 				return err
@@ -152,8 +152,8 @@ func buildSnapshotUpdateCommand() *cobra.Command {
 			if err := sandbox.SaveConfig(cfg); err != nil {
 				return err
 			}
-			fmt.Printf("Updated default snapshot: %s\n", snap.Name)
-			fmt.Println("New sandboxes will use this snapshot.")
+			fmt.Fprintf(cliStdout, "Updated default snapshot: %s\n", snap.Name)
+			fmt.Fprintln(cliStdout, "New sandboxes will use this snapshot.")
 			return nil
 		},
 	}
@@ -217,22 +217,22 @@ func buildSnapshotListCommand() *cobra.Command {
 				return err
 			}
 			if len(snapshots) == 0 {
-				fmt.Println("No snapshots found")
-				fmt.Println("Run `amux setup` or `amux snapshot create` to create one")
+				fmt.Fprintln(cliStdout, "No snapshots found")
+				fmt.Fprintln(cliStdout, "Run `amux setup` or `amux snapshot create` to create one")
 				return nil
 			}
-			fmt.Println("amux snapshots:")
-			fmt.Println(strings.Repeat("─", 60))
+			fmt.Fprintln(cliStdout, "amux snapshots:")
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 60))
 			for _, snap := range snapshots {
 				marker := "  "
 				if snap.Name == defaultSnapshot {
 					marker = "* "
 				}
-				fmt.Printf("%s%s (%s)\n", marker, snap.Name, snap.State)
+				fmt.Fprintf(cliStdout, "%s%s (%s)\n", marker, snap.Name, snap.State)
 			}
-			fmt.Println(strings.Repeat("─", 60))
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 60))
 			if defaultSnapshot != "" {
-				fmt.Printf("* = default snapshot (%s)\n", defaultSnapshot)
+				fmt.Fprintf(cliStdout, "* = default snapshot (%s)\n", defaultSnapshot)
 			}
 			return nil
 		},

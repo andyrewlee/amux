@@ -74,9 +74,9 @@ func buildLogsCommand() *cobra.Command {
 			}
 
 			if resp.Stdout != "" {
-				fmt.Print(resp.Stdout)
+				fmt.Fprint(cliStdout, resp.Stdout)
 			} else {
-				fmt.Println("No logs available")
+				fmt.Fprintln(cliStdout, "No logs available")
 			}
 
 			return nil

@@ -69,14 +69,14 @@ func ensurePersistentHome(sb RemoteSandbox, homeDir string, verbose bool) {
 	}
 	if _, err := execCommand(sb, SafeCommands.MkdirP(persistMountPath), nil); err != nil {
 		if verbose {
-			fmt.Printf("Warning: persistence root unavailable: %v\n", err)
+			fmt.Fprintf(sandboxStdout, "Warning: persistence root unavailable: %v\n", err)
 		}
 		return
 	}
 	persistHome := persistHomeDir()
 	if _, err := execCommand(sb, SafeCommands.MkdirP(persistHome), nil); err != nil {
 		if verbose {
-			fmt.Printf("Warning: persistence home unavailable: %v\n", err)
+			fmt.Fprintf(sandboxStdout, "Warning: persistence home unavailable: %v\n", err)
 		}
 		return
 	}
@@ -95,7 +95,7 @@ func ensurePersistentHome(sb RemoteSandbox, homeDir string, verbose bool) {
 		target := path.Join(homeDir, rel)
 		persist := path.Join(persistHome, rel)
 		if err := ensurePersistentDir(sb, target, persist); err != nil && verbose {
-			fmt.Printf("Warning: persistence setup failed for %s: %v\n", rel, err)
+			fmt.Fprintf(sandboxStdout, "Warning: persistence setup failed for %s: %v\n", rel, err)
 		}
 	}
 
@@ -104,7 +104,7 @@ func ensurePersistentHome(sb RemoteSandbox, homeDir string, verbose bool) {
 		target := path.Join(homeDir, rel)
 		persist := path.Join(persistHome, rel)
 		if err := ensurePersistentFile(sb, target, persist); err != nil && verbose {
-			fmt.Printf("Warning: persistence setup failed for %s: %v\n", rel, err)
+			fmt.Fprintf(sandboxStdout, "Warning: persistence setup failed for %s: %v\n", rel, err)
 		}
 	}
 
@@ -203,15 +203,15 @@ func SetupCredentials(sb RemoteSandbox, cfg CredentialsConfig, verbose bool) err
 	}
 	if mode == "none" {
 		if verbose {
-			fmt.Println("Credentials mode: none")
+			fmt.Fprintln(sandboxStdout, "Credentials mode: none")
 		}
 		return nil
 	}
 	if verbose {
 		if mode == "auto" {
-			fmt.Println("Credentials mode: sandbox (auto)")
+			fmt.Fprintln(sandboxStdout, "Credentials mode: sandbox (auto)")
 		} else {
-			fmt.Printf("Credentials mode: %s\n", mode)
+			fmt.Fprintf(sandboxStdout, "Credentials mode: %s\n", mode)
 		}
 	}
 	homeDir := getSandboxHomeDir(sb)
@@ -243,18 +243,18 @@ func SetupCredentials(sb RemoteSandbox, cfg CredentialsConfig, verbose bool) err
 
 	if shouldSync {
 		if verbose {
-			fmt.Println("Syncing local settings...")
+			fmt.Fprintln(sandboxStdout, "Syncing local settings...")
 		}
 		if err := SyncSettingsToVolume(sb, amuxCfg.SettingsSync, verbose); err != nil {
 			if verbose {
-				fmt.Printf("Warning: settings sync failed: %v\n", err)
+				fmt.Fprintf(sandboxStdout, "Warning: settings sync failed: %v\n", err)
 			}
 			// Don't fail the whole setup for settings sync errors
 		}
 	}
 
 	if verbose {
-		fmt.Println("Credentials ready")
+		fmt.Fprintln(sandboxStdout, "Credentials ready")
 	}
 	return nil
 }

@@ -242,7 +242,7 @@ func createTarball(opts SyncOptions) (string, error) {
 // UploadWorkspace syncs local workspace to a sandbox.
 func UploadWorkspace(computer RemoteSandbox, opts SyncOptions, verbose bool) error {
 	if verbose {
-		fmt.Println("Creating tarball of local workspace...")
+		fmt.Fprintln(sandboxStdout, "Creating tarball of local workspace...")
 	}
 	tarPath, err := createTarball(opts)
 	if err != nil {
@@ -250,13 +250,13 @@ func UploadWorkspace(computer RemoteSandbox, opts SyncOptions, verbose bool) err
 	}
 	defer os.Remove(tarPath)
 	if verbose {
-		fmt.Printf("Uploading to %s in sandbox...\n", uploadTarPath)
+		fmt.Fprintf(sandboxStdout, "Uploading to %s in sandbox...\n", uploadTarPath)
 	}
 	if err := computer.UploadFile(context.Background(), tarPath, uploadTarPath); err != nil {
 		return err
 	}
 	if verbose {
-		fmt.Println("Upload complete")
+		fmt.Fprintln(sandboxStdout, "Upload complete")
 	}
 
 	repoPath := resolveWorkspaceRepoPath(computer, opts.WorktreeID)
@@ -270,7 +270,7 @@ func UploadWorkspace(computer RemoteSandbox, opts SyncOptions, verbose bool) err
 		return err
 	}
 	if verbose {
-		fmt.Printf("Workspace location: %s\n", repoPath)
+		fmt.Fprintf(sandboxStdout, "Workspace location: %s\n", repoPath)
 	}
 	_, _ = execCommand(computer, SafeCommands.RmF(uploadTarPath), nil)
 	return nil
@@ -340,7 +340,7 @@ func extractTarball(tarPath, dest string) error {
 // DownloadWorkspace syncs workspace from sandbox to local.
 func DownloadWorkspace(computer RemoteSandbox, opts SyncOptions, verbose bool) error {
 	if verbose {
-		fmt.Println("Creating tarball in sandbox...")
+		fmt.Fprintln(sandboxStdout, "Creating tarball in sandbox...")
 	}
 	repoPath := resolveWorkspaceRepoPath(computer, opts.WorktreeID)
 	resp, err := execCommand(computer, SafeCommands.TarCreate(downloadTarPath, repoPath), nil)
@@ -352,7 +352,7 @@ func DownloadWorkspace(computer RemoteSandbox, opts SyncOptions, verbose bool) e
 	}
 	remoteSize := getRemoteFileSize(computer, downloadTarPath)
 	if verbose {
-		fmt.Println("Tarball created in sandbox")
+		fmt.Fprintln(sandboxStdout, "Tarball created in sandbox")
 	}
 
 	tmpFile, err := os.CreateTemp("", "amux-download-*.tgz")
@@ -364,13 +364,13 @@ func DownloadWorkspace(computer RemoteSandbox, opts SyncOptions, verbose bool) e
 	defer os.Remove(localPath)
 
 	if verbose {
-		fmt.Printf("Downloading to %s...\n", opts.Cwd)
+		fmt.Fprintf(sandboxStdout, "Downloading to %s...\n", opts.Cwd)
 	}
 	if err := computer.DownloadFile(context.Background(), downloadTarPath, localPath); err != nil {
 		return err
 	}
 	if verbose {
-		fmt.Println("Download complete")
+		fmt.Fprintln(sandboxStdout, "Download complete")
 	}
 
 	if remoteSize > 0 {
@@ -390,7 +390,7 @@ func DownloadWorkspace(computer RemoteSandbox, opts SyncOptions, verbose bool) e
 			return original
 		}
 		if verbose {
-			fmt.Println("Retrying download using buffer...")
+			fmt.Fprintln(sandboxStdout, "Retrying download using buffer...")
 		}
 		data, err := downloadBytes(context.Background(), computer, downloadTarPath)
 		if err != nil {
@@ -410,7 +410,7 @@ func DownloadWorkspace(computer RemoteSandbox, opts SyncOptions, verbose bool) e
 	}
 
 	if verbose {
-		fmt.Println("Extracting tarball locally...")
+		fmt.Fprintln(sandboxStdout, "Extracting tarball locally...")
 	}
 	if err := extractTarball(localPath, opts.Cwd); err != nil {
 		if !isArchiveError(err) {

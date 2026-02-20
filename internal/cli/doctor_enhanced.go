@@ -44,30 +44,30 @@ By default, runs quick local checks. Use --deep for comprehensive sandbox checks
 
 // runQuickDoctor performs quick local checks.
 func runQuickDoctor(ctx context.Context, fix bool) error {
-	fmt.Println("\033[1mRunning diagnostics...\033[0m")
-	fmt.Println()
+	fmt.Fprintln(cliStdout, "\033[1mRunning diagnostics...\033[0m")
+	fmt.Fprintln(cliStdout)
 
 	report, err := sandbox.RunEnhancedPreflight(ctx, true)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println()
+	fmt.Fprintln(cliStdout)
 	if report.Passed {
-		fmt.Println("\033[32m✓ All checks passed\033[0m")
+		fmt.Fprintln(cliStdout, "\033[32m✓ All checks passed\033[0m")
 	} else {
-		fmt.Println("\033[31m✗ Some checks failed\033[0m")
+		fmt.Fprintln(cliStdout, "\033[31m✗ Some checks failed\033[0m")
 
 		if fix {
-			fmt.Println()
-			fmt.Println("Attempting fixes...")
+			fmt.Fprintln(cliStdout)
+			fmt.Fprintln(cliStdout, "Attempting fixes...")
 			// Run fixes for known issues
 			for _, errMsg := range report.Errors {
 				if strings.Contains(errMsg, "api_key") {
-					fmt.Println("  Run `amux setup` to configure your API key")
+					fmt.Fprintln(cliStdout, "  Run `amux setup` to configure your API key")
 				}
 				if strings.Contains(errMsg, "ssh") {
-					fmt.Println("  Install OpenSSH client for your platform")
+					fmt.Fprintln(cliStdout, "  Install OpenSSH client for your platform")
 				}
 			}
 		}
@@ -78,8 +78,8 @@ func runQuickDoctor(ctx context.Context, fix bool) error {
 
 // runDeepDoctor performs comprehensive sandbox health checks.
 func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
-	fmt.Println("\033[1mRunning deep diagnostics...\033[0m")
-	fmt.Println()
+	fmt.Fprintln(cliStdout, "\033[1mRunning deep diagnostics...\033[0m")
+	fmt.Fprintln(cliStdout)
 
 	// First run quick checks
 	report, err := sandbox.RunEnhancedPreflight(ctx, true)
@@ -88,14 +88,14 @@ func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
 	}
 
 	if !report.Passed {
-		fmt.Println()
-		fmt.Println("\033[31m✗ Basic checks failed - fix these first\033[0m")
+		fmt.Fprintln(cliStdout)
+		fmt.Fprintln(cliStdout, "\033[31m✗ Basic checks failed - fix these first\033[0m")
 		return fmt.Errorf("preflight checks failed")
 	}
 
-	fmt.Println()
-	fmt.Println("\033[1mChecking sandbox health...\033[0m")
-	fmt.Println()
+	fmt.Fprintln(cliStdout)
+	fmt.Fprintln(cliStdout, "\033[1mChecking sandbox health...\033[0m")
+	fmt.Fprintln(cliStdout)
 
 	// Create a sandbox for diagnostics
 	cwd, err := os.Getwd()
@@ -123,7 +123,6 @@ func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
 		Ephemeral:             true,
 		PersistenceVolumeName: sandbox.ResolvePersistenceVolumeName(cfg),
 	})
-
 	if err != nil {
 		spinner.StopWithMessage("✗ Could not connect to sandbox")
 		return err
@@ -160,36 +159,36 @@ func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
 	}
 	health.SetVerbose(true)
 
-	fmt.Println()
-	fmt.Println("\033[1mSandbox Health Checks:\033[0m")
-	fmt.Println()
+	fmt.Fprintln(cliStdout)
+	fmt.Fprintln(cliStdout, "\033[1mSandbox Health Checks:\033[0m")
+	fmt.Fprintln(cliStdout)
 
 	healthReport := health.Check(ctx)
-	fmt.Print(sandbox.FormatReport(healthReport))
+	fmt.Fprint(cliStdout, sandbox.FormatReport(healthReport))
 
 	// Attempt repairs if requested
 	if fix && healthReport.Overall != sandbox.HealthStatusHealthy {
-		fmt.Println()
-		fmt.Println("\033[1mAttempting repairs...\033[0m")
+		fmt.Fprintln(cliStdout)
+		fmt.Fprintln(cliStdout, "\033[1mAttempting repairs...\033[0m")
 
 		if err := health.Repair(ctx); err != nil {
-			fmt.Printf("\033[31m✗ Some repairs failed: %v\033[0m\n", err)
+			fmt.Fprintf(cliStdout, "\033[31m✗ Some repairs failed: %v\033[0m\n", err)
 		} else {
-			fmt.Println("\033[32m✓ Repairs completed\033[0m")
+			fmt.Fprintln(cliStdout, "\033[32m✓ Repairs completed\033[0m")
 
 			// Re-check health
-			fmt.Println()
-			fmt.Println("Re-checking health...")
+			fmt.Fprintln(cliStdout)
+			fmt.Fprintln(cliStdout, "Re-checking health...")
 			newReport := health.Check(ctx)
-			fmt.Print(sandbox.FormatReport(newReport))
+			fmt.Fprint(cliStdout, sandbox.FormatReport(newReport))
 		}
 	}
 
-	fmt.Println()
+	fmt.Fprintln(cliStdout)
 
 	// Show credentials status
-	fmt.Println("\033[1mCredential Status:\033[0m")
-	fmt.Println()
+	fmt.Fprintln(cliStdout, "\033[1mCredential Status:\033[0m")
+	fmt.Fprintln(cliStdout)
 
 	credentials := sandbox.CheckAllAgentCredentials(sb)
 	for _, cred := range credentials {
@@ -199,24 +198,24 @@ func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
 			icon = "\033[32m✓\033[0m"
 			status = "configured"
 		}
-		fmt.Printf("  %s %s: %s\n", icon, cred.Agent, status)
+		fmt.Fprintf(cliStdout, "  %s %s: %s\n", icon, cred.Agent, status)
 	}
 
 	// GitHub
 	if sandbox.HasGitHubCredentials(sb) {
-		fmt.Printf("  \033[32m✓\033[0m GitHub CLI: authenticated\n")
+		fmt.Fprintf(cliStdout, "  \033[32m✓\033[0m GitHub CLI: authenticated\n")
 	} else {
-		fmt.Printf("  \033[33m!\033[0m GitHub CLI: not authenticated\n")
+		fmt.Fprintf(cliStdout, "  \033[33m!\033[0m GitHub CLI: not authenticated\n")
 	}
 
-	fmt.Println()
+	fmt.Fprintln(cliStdout)
 
 	// Show tips
 	if healthReport.Overall != sandbox.HealthStatusHealthy {
-		fmt.Println("\033[1mTips:\033[0m")
-		fmt.Println("  - Run `amux doctor --deep --fix` to attempt automatic repairs")
-		fmt.Println("  - Run `amux sandbox rm --project` and try again for a fresh start")
-		fmt.Println()
+		fmt.Fprintln(cliStdout, "\033[1mTips:\033[0m")
+		fmt.Fprintln(cliStdout, "  - Run `amux doctor --deep --fix` to attempt automatic repairs")
+		fmt.Fprintln(cliStdout, "  - Run `amux sandbox rm --project` and try again for a fresh start")
+		fmt.Fprintln(cliStdout)
 	}
 
 	return nil

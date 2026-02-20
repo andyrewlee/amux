@@ -52,11 +52,11 @@ Use --all to update all supported agents.`,
 
 			if all {
 				// Update all agents
-				fmt.Println("Updating all agents...")
+				fmt.Fprintln(cliStdout, "Updating all agents...")
 				if err := sandbox.UpdateAllAgents(sb, true); err != nil {
 					return err
 				}
-				fmt.Println("✓ All agents updated")
+				fmt.Fprintln(cliStdout, "✓ All agents updated")
 			} else {
 				// Update specific agent
 				agentName := "claude"
@@ -108,7 +108,7 @@ func buildSandboxRmCommand() *cobra.Command {
 				if err := sandbox.RemoveSandbox(providerInstance, cwd, ""); err != nil {
 					return err
 				}
-				fmt.Println("Removed sandbox for current project")
+				fmt.Fprintln(cliStdout, "Removed sandbox for current project")
 				return nil
 			}
 			if len(args) == 0 {
@@ -117,7 +117,7 @@ func buildSandboxRmCommand() *cobra.Command {
 			if err := sandbox.RemoveSandbox(providerInstance, cwd, args[0]); err != nil {
 				return err
 			}
-			fmt.Printf("Removed sandbox %s\n", args[0])
+			fmt.Fprintf(cliStdout, "Removed sandbox %s\n", args[0])
 			return nil
 		},
 	}
@@ -152,12 +152,12 @@ sandboxes start clean without requiring manual Daytona cleanup.`,
 			}
 
 			if !yes {
-				fmt.Println("This will switch to a fresh persistence volume.")
-				fmt.Printf("Current volume: %s\n", current)
-				fmt.Printf("New volume:     %s\n", next)
-				fmt.Println("You will need to re-authenticate agents in the new sandbox.")
+				fmt.Fprintln(cliStdout, "This will switch to a fresh persistence volume.")
+				fmt.Fprintf(cliStdout, "Current volume: %s\n", current)
+				fmt.Fprintf(cliStdout, "New volume:     %s\n", next)
+				fmt.Fprintln(cliStdout, "You will need to re-authenticate agents in the new sandbox.")
 				if !confirmChoice("Continue? [y/N]: ") {
-					fmt.Println("Canceled.")
+					fmt.Fprintln(cliStdout, "Canceled.")
 					return nil
 				}
 			}
@@ -179,10 +179,10 @@ sandboxes start clean without requiring manual Daytona cleanup.`,
 				}
 			}
 
-			fmt.Println("Persistence reset complete.")
-			fmt.Printf("New volume: %s\n", next)
-			fmt.Printf("Old volume retained: %s\n", current)
-			fmt.Println("To delete old volumes, use the Daytona UI.")
+			fmt.Fprintln(cliStdout, "Persistence reset complete.")
+			fmt.Fprintf(cliStdout, "New volume: %s\n", next)
+			fmt.Fprintf(cliStdout, "Old volume retained: %s\n", current)
+			fmt.Fprintln(cliStdout, "To delete old volumes, use the Daytona UI.")
 			return nil
 		},
 	}
@@ -197,7 +197,7 @@ func confirmChoice(prompt string) bool {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return false
 	}
-	fmt.Print(prompt)
+	fmt.Fprint(cliStdout, prompt)
 	var resp string
 	if _, err := fmt.Fscanln(os.Stdin, &resp); err != nil {
 		return false

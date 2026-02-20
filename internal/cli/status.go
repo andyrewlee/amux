@@ -57,11 +57,11 @@ func buildStatusCommand() *cobra.Command {
 						PersistenceVolume: sandbox.ResolvePersistenceVolumeName(cfg),
 					}
 					data, _ := json.MarshalIndent(output, "", "  ")
-					fmt.Println(string(data))
+					fmt.Fprintln(cliStdout, string(data))
 					return nil
 				}
-				fmt.Println("No sandbox for this project")
-				fmt.Println("Run `amux sandbox run <agent>` to create one")
+				fmt.Fprintln(cliStdout, "No sandbox for this project")
+				fmt.Fprintln(cliStdout, "Run `amux sandbox run <agent>` to create one")
 				return nil
 			}
 
@@ -76,13 +76,13 @@ func buildStatusCommand() *cobra.Command {
 						PersistenceVolume: sandbox.ResolvePersistenceVolumeName(cfg),
 					}
 					data, _ := json.MarshalIndent(output, "", "  ")
-					fmt.Println(string(data))
+					fmt.Fprintln(cliStdout, string(data))
 					return nil
 				}
-				fmt.Println("Sandbox not found (may have been deleted)")
-				fmt.Printf("  Sandbox ID:   %s\n", meta.SandboxID)
-				fmt.Printf("  Last agent:   %s\n", meta.Agent)
-				fmt.Println("\nRun `amux sandbox run <agent>` to create a new one")
+				fmt.Fprintln(cliStdout, "Sandbox not found (may have been deleted)")
+				fmt.Fprintf(cliStdout, "  Sandbox ID:   %s\n", meta.SandboxID)
+				fmt.Fprintf(cliStdout, "  Last agent:   %s\n", meta.Agent)
+				fmt.Fprintln(cliStdout, "\nRun `amux sandbox run <agent>` to create a new one")
 				return nil
 			}
 
@@ -100,34 +100,34 @@ func buildStatusCommand() *cobra.Command {
 					output.MemoryGB = resources.MemoryGB()
 				}
 				data, _ := json.MarshalIndent(output, "", "  ")
-				fmt.Println(string(data))
+				fmt.Fprintln(cliStdout, string(data))
 				return nil
 			}
 
-			fmt.Println("amux sandbox status")
-			fmt.Println(strings.Repeat("─", 50))
-			fmt.Println()
-			fmt.Printf("  Sandbox ID:   %s\n", sb.ID())
-			fmt.Printf("  State:        %s\n", stateWithColor(string(sb.State())))
-			fmt.Printf("  Agent:        %s\n", meta.Agent)
-			fmt.Printf("  Persistence: %s\n", sandbox.ResolvePersistenceVolumeName(cfg))
+			fmt.Fprintln(cliStdout, "amux sandbox status")
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
+			fmt.Fprintln(cliStdout)
+			fmt.Fprintf(cliStdout, "  Sandbox ID:   %s\n", sb.ID())
+			fmt.Fprintf(cliStdout, "  State:        %s\n", stateWithColor(string(sb.State())))
+			fmt.Fprintf(cliStdout, "  Agent:        %s\n", meta.Agent)
+			fmt.Fprintf(cliStdout, "  Persistence: %s\n", sandbox.ResolvePersistenceVolumeName(cfg))
 			if resources, ok := sb.(sandbox.SandboxResources); ok {
-				fmt.Printf("  Resources:    %.1f CPU, %.1f GiB RAM\n", resources.CPUCores(), resources.MemoryGB())
+				fmt.Fprintf(cliStdout, "  Resources:    %.1f CPU, %.1f GiB RAM\n", resources.CPUCores(), resources.MemoryGB())
 			}
 
 			if sb.State() == sandbox.StateStarted {
-				fmt.Println()
-				fmt.Println("  Ready for:")
-				fmt.Printf("    amux ssh              # raw shell access\n")
-				fmt.Printf("    amux exec <cmd>       # run a command\n")
-				fmt.Printf("    amux sandbox run %s  # interactive session\n", meta.Agent)
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "  Ready for:")
+				fmt.Fprintf(cliStdout, "    amux ssh              # raw shell access\n")
+				fmt.Fprintf(cliStdout, "    amux exec <cmd>       # run a command\n")
+				fmt.Fprintf(cliStdout, "    amux sandbox run %s  # interactive session\n", meta.Agent)
 			} else if sb.State() == sandbox.StateStopped {
-				fmt.Println()
-				fmt.Println("  Sandbox is stopped. Run `amux sandbox run <agent>` to start it.")
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "  Sandbox is stopped. Run `amux sandbox run <agent>` to start it.")
 			}
 
-			fmt.Println()
-			fmt.Println(strings.Repeat("─", 50))
+			fmt.Fprintln(cliStdout)
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
 			return nil
 		},
 	}
@@ -196,7 +196,7 @@ func buildSSHCommand() *cobra.Command {
 			if len(id) > 8 {
 				id = id[:8]
 			}
-			fmt.Printf("Connecting to sandbox %s...\n", id)
+			fmt.Fprintf(cliStdout, "Connecting to sandbox %s...\n", id)
 			exitCode, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
 				Agent:         sandbox.AgentShell,
 				WorkspacePath: workspacePath,
@@ -276,7 +276,7 @@ func buildExecCommand() *cobra.Command {
 
 			// Print output
 			if resp.Stdout != "" {
-				fmt.Print(resp.Stdout)
+				fmt.Fprint(cliStdout, resp.Stdout)
 			}
 
 			if resp.ExitCode != 0 {

@@ -26,7 +26,7 @@ func TestAgentRegistry_GetPlugin(t *testing.T) {
 				return
 			}
 
-			if string(plugin.Name()) != agent {
+			if plugin.Name() != agent {
 				t.Errorf("GetAgentPlugin(%s).Name() = %s, want %s", agent, plugin.Name(), agent)
 			}
 		})

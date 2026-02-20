@@ -49,10 +49,10 @@ func buildAuthCommand() *cobra.Command {
 				if err := sandbox.SaveConfig(cfg); err != nil {
 					return err
 				}
-				fmt.Println("Saved credentials to ~/.amux/config.json")
-				fmt.Println()
-				fmt.Println("Note: Agent authentication (Claude, Codex, etc.) happens inside the sandbox")
-				fmt.Println("via OAuth/browser login on first run - no API keys needed here.")
+				fmt.Fprintln(cliStdout, "Saved credentials to ~/.amux/config.json")
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "Note: Agent authentication (Claude, Codex, etc.) happens inside the sandbox")
+				fmt.Fprintln(cliStdout, "via OAuth/browser login on first run - no API keys needed here.")
 				return nil
 			case "status":
 				cfg, err := sandbox.LoadConfig()
@@ -61,38 +61,38 @@ func buildAuthCommand() *cobra.Command {
 				}
 				showAll := len(args) > 1 && args[1] == "--all"
 
-				fmt.Println("amux auth status")
-				fmt.Println(strings.Repeat("─", 50))
-				fmt.Println()
+				fmt.Fprintln(cliStdout, "amux auth status")
+				fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
+				fmt.Fprintln(cliStdout)
 
 				// Daytona API key
 				if sandbox.ResolveAPIKey(cfg) != "" {
-					fmt.Println("✓ Daytona API key configured")
+					fmt.Fprintln(cliStdout, "✓ Daytona API key configured")
 				} else {
-					fmt.Println("✗ Daytona API key not set")
-					fmt.Println("  Run: amux auth login")
+					fmt.Fprintln(cliStdout, "✗ Daytona API key not set")
+					fmt.Fprintln(cliStdout, "  Run: amux auth login")
 				}
 
 				if showAll {
-					fmt.Println()
-					fmt.Println("Agent authentication (Claude, Codex, Gemini, etc.):")
-					fmt.Println("  Agents authenticate via OAuth/browser login inside the sandbox.")
-					fmt.Println("  Credentials persist across sandboxes for future sessions.")
-					fmt.Println("  Optional: pass API keys via --env flag to skip OAuth.")
+					fmt.Fprintln(cliStdout)
+					fmt.Fprintln(cliStdout, "Agent authentication (Claude, Codex, Gemini, etc.):")
+					fmt.Fprintln(cliStdout, "  Agents authenticate via OAuth/browser login inside the sandbox.")
+					fmt.Fprintln(cliStdout, "  Credentials persist across sandboxes for future sessions.")
+					fmt.Fprintln(cliStdout, "  Optional: pass API keys via --env flag to skip OAuth.")
 				} else {
-					fmt.Println()
-					fmt.Println("Run `amux auth status --all` for more details")
+					fmt.Fprintln(cliStdout)
+					fmt.Fprintln(cliStdout, "Run `amux auth status --all` for more details")
 				}
 
-				fmt.Println()
-				fmt.Println(strings.Repeat("─", 50))
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
 				return nil
 			case "logout":
 				if err := sandbox.ClearConfigKeys(); err != nil {
 					return err
 				}
-				fmt.Println("Removed saved credentials from ~/.amux/config.json")
-				fmt.Println("If you use env vars, unset AMUX_DAYTONA_API_KEY")
+				fmt.Fprintln(cliStdout, "Removed saved credentials from ~/.amux/config.json")
+				fmt.Fprintln(cliStdout, "If you use env vars, unset AMUX_DAYTONA_API_KEY")
 				return nil
 			default:
 				return fmt.Errorf("unknown action: use login, logout, or status")
@@ -162,16 +162,16 @@ func runGhAuthLogin() error {
 
 	status, _ := sb.Exec(context.Background(), `bash -lc "gh auth status -h github.com >/dev/null 2>&1"`, nil)
 	if status != nil && status.ExitCode == 0 {
-		fmt.Println("GitHub is already authenticated on this sandbox")
+		fmt.Fprintln(cliStdout, "GitHub is already authenticated on this sandbox")
 		return nil
 	}
 
-	fmt.Println("\namux GitHub login")
-	fmt.Println("1. A one-time device code will appear below")
-	fmt.Println("2. Open https://github.com/login/device locally")
-	fmt.Println("3. Paste the code, finish the login, then return here")
-	fmt.Println("If prompted, choose GitHub.com + HTTPS")
-	fmt.Println("Tip: if you see \"Press Enter\", just hit Enter")
+	fmt.Fprintln(cliStdout, "\namux GitHub login")
+	fmt.Fprintln(cliStdout, "1. A one-time device code will appear below")
+	fmt.Fprintln(cliStdout, "2. Open https://github.com/login/device locally")
+	fmt.Fprintln(cliStdout, "3. Paste the code, finish the login, then return here")
+	fmt.Fprintln(cliStdout, "If prompted, choose GitHub.com + HTTPS")
+	fmt.Fprintln(cliStdout, "Tip: if you see \"Press Enter\", just hit Enter")
 
 	homeDir := resolveSandboxHome(sb)
 	script := strings.Join([]string{
@@ -213,12 +213,12 @@ func ensureGhCli(sb sandbox.RemoteSandbox) bool {
 	if check != nil && check.ExitCode == 0 {
 		return true
 	}
-	fmt.Println("GitHub CLI not found, attempting install...")
+	fmt.Fprintln(cliStdout, "GitHub CLI not found, attempting install...")
 	installCmd := `bash -lc "if command -v apt-get >/dev/null 2>&1; then (apt-get update -y || sudo apt-get update -y) >/dev/null 2>&1; (apt-get install -y gh || sudo apt-get install -y gh) >/dev/null 2>&1; elif command -v apk >/dev/null 2>&1; then (apk add --no-cache github-cli) >/dev/null 2>&1; elif command -v yum >/dev/null 2>&1; then (yum install -y gh || sudo yum install -y gh) >/dev/null 2>&1; elif command -v dnf >/dev/null 2>&1; then (dnf install -y gh || sudo dnf install -y gh) >/dev/null 2>&1; else exit 1; fi"`
 	resp, _ := sb.Exec(context.Background(), installCmd, nil)
 	if resp != nil && resp.ExitCode == 0 {
 		return true
 	}
-	fmt.Println("Failed to install GitHub CLI - install gh manually and run `gh auth login` inside a sandbox shell")
+	fmt.Fprintln(cliStdout, "Failed to install GitHub CLI - install gh manually and run `gh auth login` inside a sandbox shell")
 	return false
 }

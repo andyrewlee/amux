@@ -370,7 +370,7 @@ func (h *SandboxHealth) repairCheck(ctx context.Context, check HealthCheck) erro
 	case "sandbox_state":
 		// Try to restart the sandbox
 		if h.verbose {
-			fmt.Println("Attempting to restart sandbox...")
+			fmt.Fprintln(sandboxStdout, "Attempting to restart sandbox...")
 		}
 		if err := h.inner.Start(60 * time.Second); err != nil {
 			return err
@@ -380,7 +380,7 @@ func (h *SandboxHealth) repairCheck(ctx context.Context, check HealthCheck) erro
 	case "credential_dirs":
 		// Re-create credential directories
 		if h.verbose {
-			fmt.Println("Re-creating credential directories...")
+			fmt.Fprintln(sandboxStdout, "Re-creating credential directories...")
 		}
 		return SetupCredentials(h.sandboxHandle(), CredentialsConfig{
 			Mode:  "sandbox",
@@ -390,7 +390,7 @@ func (h *SandboxHealth) repairCheck(ctx context.Context, check HealthCheck) erro
 	case "agent_installed":
 		// Re-install the agent
 		if h.verbose {
-			fmt.Printf("Re-installing %s...\n", h.agent)
+			fmt.Fprintf(sandboxStdout, "Re-installing %s...\n", h.agent)
 		}
 		return EnsureAgentInstalled(h.sandboxHandle(), h.agent, h.verbose, true)
 

@@ -41,7 +41,7 @@ func buildSandboxPreviewCommand() *cobra.Command {
 			if !providerInstance.SupportsFeature(sandbox.FeaturePreviewURLs) {
 				return fmt.Errorf("preview URLs are not supported by the selected provider")
 			}
-			fmt.Printf("Preparing preview for port %d...\n", port)
+			fmt.Fprintf(cliStdout, "Preparing preview for port %d...\n", port)
 			sb, _, err := resolveCurrentSandbox(providerInstance, cwd)
 			if err != nil {
 				return err
@@ -53,13 +53,13 @@ func buildSandboxPreviewCommand() *cobra.Command {
 			if url == "" {
 				return fmt.Errorf("unable to construct a preview URL")
 			}
-			fmt.Printf("Preview URL: %s\n", url)
+			fmt.Fprintf(cliStdout, "Preview URL: %s\n", url)
 			if !noOpen {
 				if !tryOpenURL(url) {
-					fmt.Println("Open the URL in your browser.")
+					fmt.Fprintln(cliStdout, "Open the URL in your browser.")
 				}
 			}
-			fmt.Printf("Tip: Ensure your app listens on 0.0.0.0:%d inside the sandbox.\n", port)
+			fmt.Fprintf(cliStdout, "Tip: Ensure your app listens on 0.0.0.0:%d inside the sandbox.\n", port)
 			return nil
 		},
 	}
@@ -156,7 +156,7 @@ func buildSandboxLogsCommand() *cobra.Command {
 					_ = sb.Stop(ctx)
 					_ = providerInstance.DeleteSandbox(ctx, sb.ID())
 				}
-				fmt.Println("Started a short-lived log reader sandbox.")
+				fmt.Fprintln(cliStdout, "Started a short-lived log reader sandbox.")
 				return sb, cleanup, nil
 			}
 
@@ -174,10 +174,10 @@ func buildSandboxLogsCommand() *cobra.Command {
 					return fmt.Errorf("could not list logs: %w", err)
 				}
 				if strings.TrimSpace(resp.Stdout) == "" {
-					fmt.Println("No logs found.")
+					fmt.Fprintln(cliStdout, "No logs found.")
 					return nil
 				}
-				fmt.Print(resp.Stdout)
+				fmt.Fprint(cliStdout, resp.Stdout)
 				return nil
 			}
 
@@ -197,7 +197,7 @@ func buildSandboxLogsCommand() *cobra.Command {
 			}
 
 			if follow {
-				fmt.Printf("Tailing %s (Ctrl+C to stop)\n", logPath)
+				fmt.Fprintf(cliStdout, "Tailing %s (Ctrl+C to stop)\n", logPath)
 				_, err := sb.ExecInteractive(context.Background(),
 					fmt.Sprintf("tail -n %d -f %s", lines, sandbox.ShellQuote(logPath)),
 					os.Stdin, os.Stdout, os.Stderr, nil)
@@ -209,7 +209,7 @@ func buildSandboxLogsCommand() *cobra.Command {
 				return err
 			}
 			if resp.Stdout != "" {
-				fmt.Print(resp.Stdout)
+				fmt.Fprint(cliStdout, resp.Stdout)
 			}
 			return nil
 		},
@@ -250,7 +250,7 @@ func buildSandboxDesktopCommand() *cobra.Command {
 			if !providerInstance.SupportsFeature(sandbox.FeatureDesktop) {
 				return fmt.Errorf("desktop is not supported by the selected provider")
 			}
-			fmt.Println("Checking desktop status...")
+			fmt.Fprintln(cliStdout, "Checking desktop status...")
 			sb, _, err := resolveCurrentSandbox(providerInstance, cwd)
 			if err != nil {
 				return err
@@ -264,7 +264,7 @@ func buildSandboxDesktopCommand() *cobra.Command {
 				return fmt.Errorf("desktop is not available in this sandbox image. Tip: use a desktop-enabled base image and rebuild your snapshot")
 			}
 			if status == nil || status.Status != "active" {
-				fmt.Println("Starting desktop...")
+				fmt.Fprintln(cliStdout, "Starting desktop...")
 				if err := desktop.StartDesktop(context.Background()); err != nil {
 					return fmt.Errorf("failed to start desktop services. Tip: your snapshot may be missing VNC dependencies (xvfb/novnc)")
 				}
@@ -290,13 +290,13 @@ func buildSandboxDesktopCommand() *cobra.Command {
 			if url == "" {
 				return fmt.Errorf("unable to construct the desktop URL")
 			}
-			fmt.Printf("Desktop URL: %s\n", url)
+			fmt.Fprintf(cliStdout, "Desktop URL: %s\n", url)
 			if !noOpen {
 				if !tryOpenURL(url) {
-					fmt.Println("Open the URL in your browser.")
+					fmt.Fprintln(cliStdout, "Open the URL in your browser.")
 				}
 			}
-			fmt.Println("Tip: If the page is blank, wait a few seconds and refresh.")
+			fmt.Fprintln(cliStdout, "Tip: If the page is blank, wait a few seconds and refresh.")
 			return nil
 		},
 	}
@@ -356,16 +356,16 @@ func buildSandboxLsCommand() *cobra.Command {
 					items = append(items, item)
 				}
 				data, _ := json.MarshalIndent(items, "", "  ")
-				fmt.Println(string(data))
+				fmt.Fprintln(cliStdout, string(data))
 				return nil
 			}
 
 			if len(sandboxes) == 0 {
-				fmt.Println("No sandboxes found")
+				fmt.Fprintln(cliStdout, "No sandboxes found")
 				return nil
 			}
-			fmt.Printf("%-12s %-10s %-10s %s\n", "ID", "STATE", "AGENT", "PROJECT")
-			fmt.Println(strings.Repeat("─", 60))
+			fmt.Fprintf(cliStdout, "%-12s %-10s %-10s %s\n", "ID", "STATE", "AGENT", "PROJECT")
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 60))
 			for _, sb := range sandboxes {
 				agent := "unknown"
 				project := "unknown"
@@ -382,7 +382,7 @@ func buildSandboxLsCommand() *cobra.Command {
 				if len(id) > 12 {
 					id = id[:12]
 				}
-				fmt.Printf("%-12s %-10s %-10s %s\n", id, sb.State(), agent, project)
+				fmt.Fprintf(cliStdout, "%-12s %-10s %-10s %s\n", id, sb.State(), agent, project)
 			}
 			return nil
 		},

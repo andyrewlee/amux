@@ -61,7 +61,7 @@ func isAgentInstalled(computer RemoteSandbox, agent string) bool {
 
 func installClaude(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
-		fmt.Println("Installing Claude Code...")
+		fmt.Fprintln(sandboxStdout, "Installing Claude Code...")
 	}
 	// Check for native installation first (~/.local/bin/claude), then fall back to PATH
 	home := getHomeDir(computer)
@@ -75,7 +75,7 @@ func installClaude(computer RemoteSandbox, verbose bool, forceUpdate bool) error
 	alreadyInstalled := nativeInstalled || pathInstalled
 	if alreadyInstalled && !forceUpdate {
 		if verbose {
-			fmt.Println("Claude Code already installed")
+			fmt.Fprintln(sandboxStdout, "Claude Code already installed")
 		}
 	} else {
 		action := "Installing"
@@ -83,7 +83,7 @@ func installClaude(computer RemoteSandbox, verbose bool, forceUpdate bool) error
 			action = "Updating"
 		}
 		if verbose {
-			fmt.Printf("%s Claude Code...\n", action)
+			fmt.Fprintf(sandboxStdout, "%s Claude Code...\n", action)
 		}
 		// Use native installer (recommended by Anthropic)
 		// Installs to ~/.local/bin/claude with binary at ~/.local/share/claude/versions/{version}
@@ -92,7 +92,7 @@ func installClaude(computer RemoteSandbox, verbose bool, forceUpdate bool) error
 			return errors.New("failed to install claude code via native installer")
 		}
 		if verbose {
-			fmt.Println("Claude Code installed")
+			fmt.Fprintln(sandboxStdout, "Claude Code installed")
 		}
 	}
 	touchAgentMarker(computer, "claude")
@@ -101,13 +101,13 @@ func installClaude(computer RemoteSandbox, verbose bool, forceUpdate bool) error
 
 func installCodex(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
-		fmt.Println("Installing Codex CLI...")
+		fmt.Fprintln(sandboxStdout, "Installing Codex CLI...")
 	}
 	resp, _ := execCommand(computer, "which codex", nil)
 	alreadyInstalled := resp != nil && resp.ExitCode == 0
 	if alreadyInstalled && !forceUpdate {
 		if verbose {
-			fmt.Println("Codex CLI already installed")
+			fmt.Fprintln(sandboxStdout, "Codex CLI already installed")
 		}
 	} else {
 		action := "Installing"
@@ -115,14 +115,14 @@ func installCodex(computer RemoteSandbox, verbose bool, forceUpdate bool) error 
 			action = "Updating"
 		}
 		if verbose {
-			fmt.Printf("%s Codex CLI...\n", action)
+			fmt.Fprintf(sandboxStdout, "%s Codex CLI...\n", action)
 		}
 		resp, err := execCommand(computer, "npm install -g @openai/codex@latest", nil)
 		if err != nil || resp.ExitCode != 0 {
 			return errors.New("failed to install codex cli in sandbox")
 		}
 		if verbose {
-			fmt.Println("Codex CLI installed")
+			fmt.Fprintln(sandboxStdout, "Codex CLI installed")
 		}
 	}
 	touchAgentMarker(computer, "codex")
@@ -131,13 +131,13 @@ func installCodex(computer RemoteSandbox, verbose bool, forceUpdate bool) error 
 
 func installOpenCode(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
-		fmt.Println("Installing OpenCode CLI...")
+		fmt.Fprintln(sandboxStdout, "Installing OpenCode CLI...")
 	}
 	resp, _ := execCommand(computer, "which opencode", nil)
 	alreadyInstalled := resp != nil && resp.ExitCode == 0
 	if alreadyInstalled && !forceUpdate {
 		if verbose {
-			fmt.Println("OpenCode CLI already installed")
+			fmt.Fprintln(sandboxStdout, "OpenCode CLI already installed")
 		}
 	} else {
 		action := "Installing"
@@ -145,12 +145,12 @@ func installOpenCode(computer RemoteSandbox, verbose bool, forceUpdate bool) err
 			action = "Updating"
 		}
 		if verbose {
-			fmt.Printf("%s OpenCode CLI...\n", action)
+			fmt.Fprintf(sandboxStdout, "%s OpenCode CLI...\n", action)
 		}
 		resp, err := execCommand(computer, `bash -lc "curl -fsSL https://opencode.ai/install | bash"`, nil)
 		if err != nil || resp.ExitCode != 0 {
 			if verbose {
-				fmt.Println("OpenCode install script failed, trying npm...")
+				fmt.Fprintln(sandboxStdout, "OpenCode install script failed, trying npm...")
 			}
 			resp, err = execCommand(computer, "npm install -g opencode-ai@latest", nil)
 			if err != nil || resp.ExitCode != 0 {
@@ -158,7 +158,7 @@ func installOpenCode(computer RemoteSandbox, verbose bool, forceUpdate bool) err
 			}
 		}
 		if verbose {
-			fmt.Println("OpenCode CLI installed")
+			fmt.Fprintln(sandboxStdout, "OpenCode CLI installed")
 		}
 	}
 	touchAgentMarker(computer, "opencode")
@@ -167,7 +167,7 @@ func installOpenCode(computer RemoteSandbox, verbose bool, forceUpdate bool) err
 
 func installAmp(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
-		fmt.Println("Installing Amp CLI...")
+		fmt.Fprintln(sandboxStdout, "Installing Amp CLI...")
 	}
 	home := getHomeDir(computer)
 	ampBin := fmt.Sprintf("%s/.amp/bin/amp", home)
@@ -175,7 +175,7 @@ func installAmp(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 	alreadyInstalled := resp != nil && resp.ExitCode == 0
 	if alreadyInstalled && !forceUpdate {
 		if verbose {
-			fmt.Println("Amp CLI already installed")
+			fmt.Fprintln(sandboxStdout, "Amp CLI already installed")
 		}
 	} else {
 		action := "Installing"
@@ -183,12 +183,12 @@ func installAmp(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 			action = "Updating"
 		}
 		if verbose {
-			fmt.Printf("%s Amp CLI...\n", action)
+			fmt.Fprintf(sandboxStdout, "%s Amp CLI...\n", action)
 		}
 		resp, err := execCommand(computer, `bash -lc "curl -fsSL https://ampcode.com/install.sh | bash"`, nil)
 		if err != nil || resp.ExitCode != 0 {
 			if verbose {
-				fmt.Println("Amp install script failed, trying npm...")
+				fmt.Fprintln(sandboxStdout, "Amp install script failed, trying npm...")
 			}
 			resp, err = execCommand(computer, "npm install -g @sourcegraph/amp@latest", nil)
 			if err != nil || resp.ExitCode != 0 {
@@ -196,7 +196,7 @@ func installAmp(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 			}
 		}
 		if verbose {
-			fmt.Println("Amp CLI installed")
+			fmt.Fprintln(sandboxStdout, "Amp CLI installed")
 		}
 	}
 	touchAgentMarker(computer, "amp")
@@ -205,13 +205,13 @@ func installAmp(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 
 func installGemini(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
-		fmt.Println("Installing Gemini CLI...")
+		fmt.Fprintln(sandboxStdout, "Installing Gemini CLI...")
 	}
 	resp, _ := execCommand(computer, "which gemini", nil)
 	alreadyInstalled := resp != nil && resp.ExitCode == 0
 	if alreadyInstalled && !forceUpdate {
 		if verbose {
-			fmt.Println("Gemini CLI already installed")
+			fmt.Fprintln(sandboxStdout, "Gemini CLI already installed")
 		}
 	} else {
 		action := "Installing"
@@ -219,14 +219,14 @@ func installGemini(computer RemoteSandbox, verbose bool, forceUpdate bool) error
 			action = "Updating"
 		}
 		if verbose {
-			fmt.Printf("%s Gemini CLI...\n", action)
+			fmt.Fprintf(sandboxStdout, "%s Gemini CLI...\n", action)
 		}
 		resp, err := execCommand(computer, "npm install -g @google/gemini-cli@latest", nil)
 		if err != nil || resp.ExitCode != 0 {
 			return errors.New("failed to install gemini cli in sandbox")
 		}
 		if verbose {
-			fmt.Println("Gemini CLI installed")
+			fmt.Fprintln(sandboxStdout, "Gemini CLI installed")
 		}
 	}
 	touchAgentMarker(computer, "gemini")
@@ -235,13 +235,13 @@ func installGemini(computer RemoteSandbox, verbose bool, forceUpdate bool) error
 
 func installDroid(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 	if verbose {
-		fmt.Println("Installing Droid CLI...")
+		fmt.Fprintln(sandboxStdout, "Installing Droid CLI...")
 	}
 	resp, _ := execCommand(computer, "which droid", nil)
 	alreadyInstalled := resp != nil && resp.ExitCode == 0
 	if alreadyInstalled && !forceUpdate {
 		if verbose {
-			fmt.Println("Droid CLI already installed")
+			fmt.Fprintln(sandboxStdout, "Droid CLI already installed")
 		}
 	} else {
 		action := "Installing"
@@ -249,14 +249,14 @@ func installDroid(computer RemoteSandbox, verbose bool, forceUpdate bool) error 
 			action = "Updating"
 		}
 		if verbose {
-			fmt.Printf("%s Droid CLI...\n", action)
+			fmt.Fprintf(sandboxStdout, "%s Droid CLI...\n", action)
 		}
 		resp, err := execCommand(computer, `bash -lc "curl -fsSL https://app.factory.ai/cli | sh"`, nil)
 		if err != nil || resp.ExitCode != 0 {
 			return errors.New("failed to install droid cli in sandbox")
 		}
 		if verbose {
-			fmt.Println("Droid CLI installed")
+			fmt.Fprintln(sandboxStdout, "Droid CLI installed")
 		}
 	}
 	touchAgentMarker(computer, "droid")
@@ -278,7 +278,7 @@ func EnsureAgentInstalled(computer RemoteSandbox, agent Agent, verbose bool, for
 			// Agent handles its own updates - just check if installed
 			if isAgentInstalled(computer, agent.String()) {
 				if verbose {
-					fmt.Printf("%s already installed (auto-updates itself)\n", agent)
+					fmt.Fprintf(sandboxStdout, "%s already installed (auto-updates itself)\n", agent)
 				}
 				return nil
 			}
@@ -286,7 +286,7 @@ func EnsureAgentInstalled(computer RemoteSandbox, agent Agent, verbose bool, for
 			// Agent doesn't auto-update - use TTL-based checking
 			if isAgentInstallFresh(computer, agent.String()) {
 				if verbose {
-					fmt.Printf("%s already installed (checked within 24h)\n", agent)
+					fmt.Fprintf(sandboxStdout, "%s already installed (checked within 24h)\n", agent)
 				}
 				return nil
 			}
@@ -296,7 +296,7 @@ func EnsureAgentInstalled(computer RemoteSandbox, agent Agent, verbose bool, for
 	// Determine if this is an update (for messaging)
 	needsUpdate := forceUpdate && isAgentInstalled(computer, agent.String())
 	if needsUpdate && verbose {
-		fmt.Printf("Checking for %s updates...\n", agent)
+		fmt.Fprintf(sandboxStdout, "Checking for %s updates...\n", agent)
 	}
 
 	switch agent {
@@ -328,7 +328,7 @@ func UpdateAllAgents(computer RemoteSandbox, verbose bool) error {
 	for _, agent := range agents {
 		if err := UpdateAgent(computer, agent, verbose); err != nil {
 			if verbose {
-				fmt.Printf("Warning: failed to update %s: %v\n", agent, err)
+				fmt.Fprintf(sandboxStdout, "Warning: failed to update %s: %v\n", agent, err)
 			}
 			// Continue with other agents
 		}

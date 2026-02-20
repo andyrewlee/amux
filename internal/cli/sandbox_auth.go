@@ -49,9 +49,9 @@ func checkNeedsLogin(sb sandbox.RemoteSandbox, agent sandbox.Agent, envMap map[s
 
 // handleAgentLogin runs the login flow for agents that need it
 func handleAgentLogin(sb sandbox.RemoteSandbox, agent sandbox.Agent, workspacePath string, envMap map[string]string) (int, error) {
-	fmt.Printf("\n%s requires authentication (first run)\n", agent)
-	fmt.Println("Credentials will persist for future sessions.")
-	fmt.Println()
+	fmt.Fprintf(cliStdout, "\n%s requires authentication (first run)\n", agent)
+	fmt.Fprintln(cliStdout, "Credentials will persist for future sessions.")
+	fmt.Fprintln(cliStdout)
 
 	var loginArgs []string
 	switch agent {
@@ -81,7 +81,7 @@ func handleAgentLogin(sb sandbox.RemoteSandbox, agent sandbox.Agent, workspacePa
 	}
 
 	if exitCode == 0 {
-		fmt.Println("\n✓ Authentication complete")
+		fmt.Fprintln(cliStdout, "\n✓ Authentication complete")
 	}
 
 	return exitCode, nil
@@ -96,18 +96,18 @@ func handleAgentExit(sb sandbox.RemoteSandbox, agent sandbox.Agent, exitCode int
 
 	// Show exit code if non-zero
 	if exitCode != 0 && exitCode != 127 {
-		fmt.Printf("\nExited with code %d\n", exitCode)
+		fmt.Fprintf(cliStdout, "\nExited with code %d\n", exitCode)
 	}
 
 	// Sync workspace back
 	if syncEnabled {
 		worktreeID := sandbox.ComputeWorktreeID(cwd)
 		if Verbose {
-			fmt.Println("\nSyncing changes...")
+			fmt.Fprintln(cliStdout, "\nSyncing changes...")
 			if err := sandbox.DownloadWorkspace(sb, sandbox.SyncOptions{Cwd: cwd, WorktreeID: worktreeID}, Verbose); err != nil {
 				return err
 			}
-			fmt.Println("Done")
+			fmt.Fprintln(cliStdout, "Done")
 		} else {
 			spinner := NewSpinner("Syncing changes")
 			spinner.Start()
@@ -127,25 +127,25 @@ func handleAgentExit(sb sandbox.RemoteSandbox, agent sandbox.Agent, exitCode int
 
 // showAgentTips displays helpful tips when an agent fails to start
 func showAgentTips(agent sandbox.Agent) {
-	fmt.Println()
+	fmt.Fprintln(cliStdout)
 	switch agent {
 	case sandbox.AgentClaude:
-		fmt.Println("Tip: Claude requires authentication. Run `claude` and complete login,")
-		fmt.Println("     or pass --env ANTHROPIC_API_KEY=...")
+		fmt.Fprintln(cliStdout, "Tip: Claude requires authentication. Run `claude` and complete login,")
+		fmt.Fprintln(cliStdout, "     or pass --env ANTHROPIC_API_KEY=...")
 	case sandbox.AgentCodex:
-		fmt.Println("Tip: Codex requires OpenAI credentials. Login will start automatically,")
-		fmt.Println("     or pass --env OPENAI_API_KEY=...")
+		fmt.Fprintln(cliStdout, "Tip: Codex requires OpenAI credentials. Login will start automatically,")
+		fmt.Fprintln(cliStdout, "     or pass --env OPENAI_API_KEY=...")
 	case sandbox.AgentOpenCode:
-		fmt.Println("Tip: OpenCode requires authentication. Login will start automatically,")
-		fmt.Println("     or pass API keys via --env")
+		fmt.Fprintln(cliStdout, "Tip: OpenCode requires authentication. Login will start automatically,")
+		fmt.Fprintln(cliStdout, "     or pass API keys via --env")
 	case sandbox.AgentAmp:
-		fmt.Println("Tip: Amp requires authentication. Login will start automatically,")
-		fmt.Println("     or pass --env AMP_API_KEY=...")
+		fmt.Fprintln(cliStdout, "Tip: Amp requires authentication. Login will start automatically,")
+		fmt.Fprintln(cliStdout, "     or pass --env AMP_API_KEY=...")
 	case sandbox.AgentGemini:
-		fmt.Println("Tip: Gemini requires authentication. Choose a login method in the CLI,")
-		fmt.Println("     or pass --env GEMINI_API_KEY=...")
+		fmt.Fprintln(cliStdout, "Tip: Gemini requires authentication. Choose a login method in the CLI,")
+		fmt.Fprintln(cliStdout, "     or pass --env GEMINI_API_KEY=...")
 	case sandbox.AgentDroid:
-		fmt.Println("Tip: Droid requires authentication. Run `/login` inside Droid,")
-		fmt.Println("     or pass --env FACTORY_API_KEY=...")
+		fmt.Fprintln(cliStdout, "Tip: Droid requires authentication. Run `/login` inside Droid,")
+		fmt.Fprintln(cliStdout, "     or pass --env FACTORY_API_KEY=...")
 	}
 }

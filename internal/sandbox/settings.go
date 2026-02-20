@@ -147,18 +147,18 @@ func DetectExistingSettings() []DetectedSetting {
 // PrintSettingsManifest prints the list of settings files being synced
 func PrintSettingsManifest(settings []DetectedSetting) {
 	if len(settings) == 0 {
-		fmt.Println("Settings sync: no settings files found locally")
+		fmt.Fprintln(sandboxStdout, "Settings sync: no settings files found locally")
 		return
 	}
 
-	fmt.Println("Settings sync:")
+	fmt.Fprintln(sandboxStdout, "Settings sync:")
 	for _, s := range settings {
 		if s.Exists {
 			note := ""
 			if s.Agent == "git" {
 				note = " (safe keys only)"
 			}
-			fmt.Printf("  ~/%s → sandbox%s\n", s.HomePath, note)
+			fmt.Fprintf(sandboxStdout, "  ~/%s → sandbox%s\n", s.HomePath, note)
 		}
 	}
 }

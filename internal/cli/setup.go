@@ -20,14 +20,14 @@ func buildSetupCommand() *cobra.Command {
 		Use:   "setup",
 		Short: "Quick setup: validate credentials (optionally build a snapshot)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("amux setup")
-			fmt.Println(strings.Repeat("─", 50))
-			fmt.Println()
+			fmt.Fprintln(cliStdout, "amux setup")
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
+			fmt.Fprintln(cliStdout)
 
 			if err := ensureDaytonaAPIKey(); err != nil {
 				return err
 			}
-			fmt.Println("✓ Daytona API key configured")
+			fmt.Fprintln(cliStdout, "✓ Daytona API key configured")
 
 			cfg, err := sandbox.LoadConfig()
 			if err != nil {
@@ -51,10 +51,10 @@ func buildSetupCommand() *cobra.Command {
 				if name == "" {
 					name = sandbox.BuildSnapshotName("amux")
 				}
-				fmt.Println("\nBuilding snapshot (this can take a few minutes)...")
-				fmt.Printf("Creating snapshot %q with agents: %s\n", name, joinAgents(parsedAgents))
+				fmt.Fprintln(cliStdout, "\nBuilding snapshot (this can take a few minutes)...")
+				fmt.Fprintf(cliStdout, "Creating snapshot %q with agents: %s\n", name, joinAgents(parsedAgents))
 				snap, err := sandbox.CreateSnapshot(client, name, parsedAgents, baseImage, func(chunk string) {
-					fmt.Println(chunk)
+					fmt.Fprintln(cliStdout, chunk)
 				})
 				if err != nil {
 					return err
@@ -65,7 +65,7 @@ func buildSetupCommand() *cobra.Command {
 				if err := sandbox.SaveConfig(cfg); err != nil {
 					return err
 				}
-				fmt.Printf("✓ Saved default snapshot: %s\n", snap.Name)
+				fmt.Fprintf(cliStdout, "✓ Saved default snapshot: %s\n", snap.Name)
 			}
 
 			if withGh {
@@ -74,17 +74,17 @@ func buildSetupCommand() *cobra.Command {
 				}
 			}
 
-			fmt.Println()
-			fmt.Println(strings.Repeat("─", 50))
-			fmt.Println("Setup complete!")
-			fmt.Println()
-			fmt.Println("Next steps:")
-			fmt.Println("  amux claude              # Run Claude Code")
-			fmt.Println("  amux doctor              # Verify setup")
+			fmt.Fprintln(cliStdout)
+			fmt.Fprintln(cliStdout, strings.Repeat("─", 50))
+			fmt.Fprintln(cliStdout, "Setup complete!")
+			fmt.Fprintln(cliStdout)
+			fmt.Fprintln(cliStdout, "Next steps:")
+			fmt.Fprintln(cliStdout, "  amux claude              # Run Claude Code")
+			fmt.Fprintln(cliStdout, "  amux doctor              # Verify setup")
 			if !createSnapshot {
-				fmt.Println()
-				fmt.Println("Optional:")
-				fmt.Println("  amux setup --create-snapshot --agents claude,codex")
+				fmt.Fprintln(cliStdout)
+				fmt.Fprintln(cliStdout, "Optional:")
+				fmt.Fprintln(cliStdout, "  amux setup --create-snapshot --agents claude,codex")
 			}
 			return nil
 		},

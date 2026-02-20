@@ -313,7 +313,7 @@ func IncrementalSync(computer RemoteSandbox, opts SyncOptions, verbose bool) err
 	diff := ComputeDiff(localManifest, remoteManifest)
 
 	if verbose {
-		fmt.Printf("Sync: %d added, %d modified, %d deleted, %d unchanged\n",
+		fmt.Fprintf(sandboxStdout, "Sync: %d added, %d modified, %d deleted, %d unchanged\n",
 			diff.Stats.FilesAdded, diff.Stats.FilesModified,
 			diff.Stats.FilesDeleted, diff.Stats.FilesUnchanged)
 	}
@@ -330,7 +330,7 @@ func IncrementalSync(computer RemoteSandbox, opts SyncOptions, verbose bool) err
 	// No changes
 	if totalChanges == 0 {
 		if verbose {
-			fmt.Println("Workspace is up to date")
+			fmt.Fprintln(sandboxStdout, "Workspace is up to date")
 		}
 		return nil
 	}
@@ -379,7 +379,7 @@ func IncrementalSync(computer RemoteSandbox, opts SyncOptions, verbose bool) err
 	}
 
 	if verbose {
-		fmt.Printf("Synced %d files (%.2f KB)\n",
+		fmt.Fprintf(sandboxStdout, "Synced %d files (%.2f KB)\n",
 			len(filesToUpload),
 			float64(diff.Stats.BytesToUpload)/1024)
 	}
