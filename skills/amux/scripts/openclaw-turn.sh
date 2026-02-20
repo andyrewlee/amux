@@ -646,10 +646,10 @@ OPENCLAW_PAYLOAD="$(jq -n \
       end;
     def action_tokens_text($actions):
       ($actions | map(.callback_data) | join(" | "));
-    def quick_action($id; $label; $command; $style; $prompt):
+    def quick_action($id; $lbl; $command; $style; $prompt):
       {
         id: $id,
-        label: $label,
+        label: $lbl,
         command: $command,
         style: $style,
         callback_data: ("qa:" + $id),

@@ -1115,11 +1115,11 @@ append_action() {
   jq -cn \
     --argjson actions "$actions_json" \
     --arg id "$id" \
-    --arg label "$label" \
+    --arg lbl "$label" \
     --arg command "$command" \
     --arg style "$style" \
     --arg prompt "$prompt" \
-    '$actions + [{id: $id, label: $label, command: $command, style: $style, prompt: $prompt}]'
+    '$actions + [{id: $id, label: $lbl, command: $command, style: $style, prompt: $prompt}]'
 }
 
 emit_turn_passthrough() {
