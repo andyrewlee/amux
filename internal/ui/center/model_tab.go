@@ -53,6 +53,7 @@ type Tab struct {
 	pendingOutput     []byte
 	flushScheduled    bool
 	lastOutputAt      time.Time
+	lastVisibleOutput time.Time
 	lastActivityTagAt time.Time
 	activityANSIState ansiActivityState
 	lastInputTagAt    time.Time

@@ -132,6 +132,9 @@ func TestUpdatePTYOutput_DoesNotTagControlOnlyOutput(t *testing.T) {
 	if !tab.lastActivityTagAt.IsZero() {
 		t.Fatalf("expected lastActivityTagAt to remain zero for control-only output, got %v", tab.lastActivityTagAt)
 	}
+	if !tab.lastVisibleOutput.IsZero() {
+		t.Fatalf("expected lastVisibleOutput to remain zero for control-only output, got %v", tab.lastVisibleOutput)
+	}
 }
 
 func TestUpdatePTYOutput_TagsVisibleOutput(t *testing.T) {
@@ -156,6 +159,12 @@ func TestUpdatePTYOutput_TagsVisibleOutput(t *testing.T) {
 		Data:        []byte("visible output"),
 	})
 
+	if tab.lastVisibleOutput.IsZero() {
+		t.Fatalf("expected lastVisibleOutput to be set for visible output")
+	}
+	if tab.lastVisibleOutput.Sub(before) <= 0 {
+		t.Fatalf("expected lastVisibleOutput to move forward, before=%v after=%v", before, tab.lastVisibleOutput)
+	}
 	if !tab.lastActivityTagAt.After(before) {
 		t.Fatalf("expected lastActivityTagAt to move forward, before=%v after=%v", before, tab.lastActivityTagAt)
 	}

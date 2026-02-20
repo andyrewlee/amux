@@ -59,11 +59,11 @@ func (m *Model) IsTabActive(tab *Tab) bool {
 	if tab.Detached || !tab.Running {
 		return false
 	}
-	// Check buffered output or recent output timestamp
-	if tab.flushScheduled || len(tab.pendingOutput) > 0 {
+	// Check buffered output or recent visible output.
+	if len(tab.pendingOutput) > 0 {
 		return true
 	}
-	return !tab.lastOutputAt.IsZero() && time.Since(tab.lastOutputAt) < 2*time.Second
+	return !tab.lastVisibleOutput.IsZero() && time.Since(tab.lastVisibleOutput) < 2*time.Second
 }
 
 // HasActiveAgentsInWorkspace returns whether any tab in a workspace is actively outputting.
