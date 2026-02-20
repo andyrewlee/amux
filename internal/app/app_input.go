@@ -274,6 +274,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.GitStatusTick:
 		cmds = append(cmds, a.handleGitStatusTick()...)
 
+	case messages.OrphanGCTick:
+		cmds = append(cmds, a.handleOrphanGCTick()...)
+
 	case messages.PTYWatchdogTick:
 		cmds = append(cmds, a.handlePTYWatchdogTick()...)
 	case tmuxActivityTick:
@@ -295,6 +298,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleOrphanGCResult(msg)
 	case terminalGCResult:
 		a.handleTerminalGCResult(msg)
+	case sessionCountResult:
+		a.handleSessionCountResult(msg)
 
 	case messages.FileWatcherEvent:
 		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)

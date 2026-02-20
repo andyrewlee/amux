@@ -53,6 +53,20 @@ type StatusResult struct {
 	// Aggregate line-level diff stats
 	TotalAdded   int // Total lines added across all changes
 	TotalDeleted int // Total lines deleted across all changes
+	HasLineStats bool
+}
+
+// GetStatusFast returns the git status for a repository using only porcelain output.
+// It skips expensive diff --numstat and untracked line counting, so TotalAdded and
+// TotalDeleted will be zero and HasLineStats will be false. Use this on hot paths
+// where only Clean/change lists matter.
+func GetStatusFast(repoPath string) (*StatusResult, error) {
+	output, err := RunGitRawCtx(context.Background(), repoPath,
+		"--no-optional-locks", "status", "--porcelain=v1", "-z", "-u")
+	if err != nil {
+		return nil, err
+	}
+	return parseStatusPorcelain(output), nil
 }
 
 // GetStatus returns the git status for a repository using porcelain v1 -z format
@@ -66,6 +80,7 @@ func GetStatus(repoPath string) (*StatusResult, error) {
 	result := parseStatusPorcelain(output)
 
 	// Populate aggregate line stats from git diff --numstat
+	result.HasLineStats = true
 	if !result.Clean {
 		unstagedAdd, unstagedDel, _ := getDiffNumstat(repoPath, false)
 		stagedAdd, stagedDel, _ := getDiffNumstat(repoPath, true)

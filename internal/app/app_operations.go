@@ -25,8 +25,22 @@ func (a *App) rescanWorkspaces() tea.Cmd {
 	return a.workspaceService.RescanWorkspaces()
 }
 
-// requestGitStatus requests git status for a workspace (always fetches fresh).
+// requestGitStatus requests git status for a workspace using fast mode (skips line stats).
 func (a *App) requestGitStatus(root string) tea.Cmd {
+	return func() tea.Msg {
+		if a.gitStatus == nil {
+			return messages.GitStatusResult{Root: root}
+		}
+		status, err := a.gitStatus.RefreshFast(root)
+		if err == nil {
+			a.gitStatus.UpdateCache(root, status)
+		}
+		return messages.GitStatusResult{Root: root, Status: status, Err: err}
+	}
+}
+
+// requestGitStatusFull requests git status with full line stats (for sidebar display).
+func (a *App) requestGitStatusFull(root string) tea.Cmd {
 	return func() tea.Msg {
 		if a.gitStatus == nil {
 			return messages.GitStatusResult{Root: root}
@@ -40,13 +54,18 @@ func (a *App) requestGitStatus(root string) tea.Cmd {
 }
 
 // requestGitStatusCached requests git status using cache if available.
-func (a *App) requestGitStatusCached(root string) tea.Cmd {
+// On cache miss, it falls back to full mode when fallbackToFull is true,
+// otherwise fast mode.
+func (a *App) requestGitStatusCached(root string, fallbackToFull bool) tea.Cmd {
 	if a.gitStatus != nil {
 		if cached := a.gitStatus.GetCached(root); cached != nil {
 			return func() tea.Msg {
 				return messages.GitStatusResult{Root: root, Status: cached}
 			}
 		}
+	}
+	if fallbackToFull {
+		return a.requestGitStatusFull(root)
 	}
 	return a.requestGitStatus(root)
 }

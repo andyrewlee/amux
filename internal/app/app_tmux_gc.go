@@ -59,35 +59,7 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 			return orphanGCResult{Err: err}
 		}
 		now := time.Now()
-		killed := 0
-		for wsID, sessions := range byWorkspace {
-			if knownIDs[wsID] {
-				continue
-			}
-			for _, ws := range sessions {
-				createdAt := ws.CreatedAt
-				if createdAt == 0 {
-					if ts, err := svc.SessionCreatedAt(ws.Name, opts); err == nil {
-						createdAt = ts
-					}
-				}
-				if isRecentOrphanSession(createdAt, now) {
-					continue
-				}
-				hasClients, err := svc.SessionHasClients(ws.Name, opts)
-				if err != nil {
-					logging.Warn("orphan GC: failed to check clients for %s: %v", ws.Name, err)
-				}
-				if hasClients {
-					continue
-				}
-				if err := svc.KillSession(ws.Name, opts); err != nil {
-					logging.Warn("orphan GC: failed to kill session %s: %v", ws.Name, err)
-				} else {
-					killed++
-				}
-			}
-		}
+		killed := a.killOrphanedSessions(byWorkspace, knownIDs, now, opts)
 		return orphanGCResult{Killed: killed}
 	}
 }
@@ -129,6 +101,45 @@ func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]workspace
 	return out, nil
 }
 
+func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, knownIDs map[string]bool, now time.Time, opts tmux.Options) int {
+	if a.tmuxService == nil {
+		return 0
+	}
+	killed := 0
+	for wsID, sessions := range byWorkspace {
+		if knownIDs[wsID] {
+			continue
+		}
+		for _, ws := range sessions {
+			if ws.Name == "" {
+				continue
+			}
+			createdAt := ws.CreatedAt
+			if createdAt == 0 {
+				if ts, err := a.tmuxService.SessionCreatedAt(ws.Name, opts); err == nil {
+					createdAt = ts
+				}
+			}
+			if isRecentOrphanSession(createdAt, now) {
+				continue
+			}
+			hasClients, err := a.tmuxService.SessionHasClients(ws.Name, opts)
+			if err != nil {
+				logging.Warn("orphan GC: failed to check clients for %s: %v", ws.Name, err)
+			}
+			if hasClients {
+				continue
+			}
+			if err := a.tmuxService.KillSession(ws.Name, opts); err != nil {
+				logging.Warn("orphan GC: failed to kill session %s: %v", ws.Name, err)
+				continue
+			}
+			killed++
+		}
+	}
+	return killed
+}
+
 func isRecentOrphanSession(createdAt int64, now time.Time) bool {
 	if createdAt <= 0 {
 		return false
@@ -151,6 +162,42 @@ func (a *App) handleOrphanGCResult(msg orphanGCResult) {
 	}
 }
 
+// handleOrphanGCTick runs orphan GC and restarts the ticker.
+func (a *App) handleOrphanGCTick() []tea.Cmd {
+	var cmds []tea.Cmd
+	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
+		cmds = append(cmds, gcCmd)
+	}
+	cmds = append(cmds, a.startOrphanGCTicker())
+	return cmds
+}
+
+// sessionCountResult is returned after counting amux tmux sessions.
+type sessionCountResult struct {
+	Count int
+	Err   error
+}
+
+// logSessionCount returns a Cmd that counts @amux=1 sessions and logs the result.
+func (a *App) logSessionCount() tea.Cmd {
+	if !a.tmuxAvailable {
+		return nil
+	}
+	opts := a.tmuxOptions
+	svc := a.tmuxService
+	return func() tea.Msg {
+		if svc == nil {
+			return sessionCountResult{Err: errTmuxUnavailable}
+		}
+		match := map[string]string{"@amux": "1"}
+		rows, err := svc.SessionsWithTags(match, nil, opts)
+		if err != nil {
+			return sessionCountResult{Err: err}
+		}
+		return sessionCountResult{Count: len(rows)}
+	}
+}
+
 func (a *App) handleTerminalGCResult(msg terminalGCResult) {
 	if msg.Err != nil {
 		logging.Warn("terminal GC: %v", msg.Err)
@@ -159,4 +206,12 @@ func (a *App) handleTerminalGCResult(msg terminalGCResult) {
 	if msg.Killed > 0 {
 		logging.Info("terminal GC: killed %d stale terminal session(s)", msg.Killed)
 	}
+}
+
+func (a *App) handleSessionCountResult(msg sessionCountResult) {
+	if msg.Err != nil {
+		logging.Warn("session count: %v", msg.Err)
+		return
+	}
+	logging.Info("tmux session count at startup: %d", msg.Count)
 }

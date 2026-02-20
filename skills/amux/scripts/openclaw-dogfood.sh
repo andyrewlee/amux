@@ -38,7 +38,8 @@ REPO_PATH=""
 WORKSPACE_NAME="mobile-dogfood"
 ASSISTANT="codex"
 REPORT_DIR=""
-KEEP_TEMP=true
+KEEP_TEMP=false
+REPORT_DIR_CREATED=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -108,6 +109,7 @@ fi
 
 if [[ -z "${REPORT_DIR// }" ]]; then
   REPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/amux-openclaw-dogfood-report.XXXXXX")"
+  REPORT_DIR_CREATED=true
 fi
 mkdir -p "$REPORT_DIR"
 DX_CONTEXT_FILE="$REPORT_DIR/openclaw-dx-context.json"
@@ -170,6 +172,9 @@ cleanup() {
   fi
   if [[ -n "${TMP_ROOT// }" && -d "$TMP_ROOT" ]]; then
     rm -rf "$TMP_ROOT"
+  fi
+  if [[ "$REPORT_DIR_CREATED" == "true" && -n "${REPORT_DIR// }" && -d "$REPORT_DIR" ]]; then
+    rm -rf "$REPORT_DIR"
   fi
 }
 trap cleanup EXIT

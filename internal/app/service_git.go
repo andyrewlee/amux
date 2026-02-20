@@ -45,3 +45,7 @@ func (s *gitStatusService) Invalidate(root string) {
 func (s *gitStatusService) Refresh(root string) (*git.StatusResult, error) {
 	return git.GetStatus(root)
 }
+
+func (s *gitStatusService) RefreshFast(root string) (*git.StatusResult, error) {
+	return git.GetStatusFast(root)
+}

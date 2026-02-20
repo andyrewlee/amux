@@ -32,6 +32,9 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	if gcCmd := a.gcStaleTerminalSessions(); gcCmd != nil {
 		cmds = append(cmds, gcCmd)
 	}
+	if countCmd := a.logSessionCount(); countCmd != nil {
+		cmds = append(cmds, countCmd)
+	}
 	for i := range a.projects {
 		for j := range a.projects[i].Workspaces {
 			ws := &a.projects[i].Workspaces[j]
@@ -267,9 +270,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.dashboard = newDashboard
 	cmds = append(cmds, cmd)
 
-	// Refresh git status for sidebar
+	// Refresh git status for sidebar (full mode for line stats)
 	if msg.Workspace != nil {
-		cmds = append(cmds, a.requestGitStatus(msg.Workspace.Root))
+		cmds = append(cmds, a.requestGitStatusFull(msg.Workspace.Root))
 		// Set up file watching for this workspace
 		if a.fileWatcher != nil {
 			if err := a.fileWatcher.Watch(msg.Workspace.Root); err != nil {
