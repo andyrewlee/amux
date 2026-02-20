@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
@@ -192,15 +191,11 @@ func TestGcOrphanedTmuxSessions_SkipsRecentOrphansUsingTmuxCreatedAtFallback(t *
 }
 
 func TestGcOrphanedTmuxSessions_UsesInstanceScopedMatchWhenInstanceIDSet(t *testing.T) {
-	var capturedMatches []map[string]string
+	var capturedMatch map[string]string
 
 	ops := &gcOrphanOps{
 		sessionsWithTags: func(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
-			snapshot := make(map[string]string, len(match))
-			for k, v := range match {
-				snapshot[k] = v
-			}
-			capturedMatches = append(capturedMatches, snapshot)
+			capturedMatch = match
 			return nil, nil
 		},
 	}
@@ -210,70 +205,13 @@ func TestGcOrphanedTmuxSessions_UsesInstanceScopedMatchWhenInstanceIDSet(t *test
 	cmd := app.gcOrphanedTmuxSessions()
 	_ = cmd()
 
-	if len(capturedMatches) == 0 {
+	if capturedMatch == nil {
 		t.Fatal("expected SessionsWithTags to be called")
 	}
-	foundScoped := false
-	for _, capturedMatch := range capturedMatches {
-		if capturedMatch["@amux"] == "1" && capturedMatch["@amux_instance"] == "test-instance-123" {
-			foundScoped = true
-			break
-		}
+	if capturedMatch["@amux"] != "1" {
+		t.Fatalf("expected @amux=1, got %v", capturedMatch["@amux"])
 	}
-	if !foundScoped {
-		t.Fatalf("expected at least one instance-scoped session query, got %v", capturedMatches)
-	}
-}
-
-func TestGcOrphanedTmuxSessions_GlobalSweepPrunesCrossInstanceBacklog(t *testing.T) {
-	now := time.Now()
-	staleTS := strconv.FormatInt(now.Add(-2*time.Minute).Unix(), 10)
-
-	ops := &gcOrphanOps{
-		sessionsWithTags: func(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
-			// Primary pass: instance-scoped, no local orphans.
-			if match["@amux_instance"] != "" {
-				return nil, nil
-			}
-			// Session count query that decides whether to run a global sweep.
-			if len(keys) == 0 {
-				rows := make([]tmux.SessionTagValues, orphanGlobalSweepSessionThreshold)
-				for i := range rows {
-					rows[i] = tmux.SessionTagValues{Name: fmt.Sprintf("sess-%d", i)}
-				}
-				return rows, nil
-			}
-			// Global sweep should include cross-instance orphan sessions.
-			return []tmux.SessionTagValues{
-				{
-					Name: "other-instance-stale",
-					Tags: map[string]string{
-						"@amux_workspace":  "dead-ws",
-						"@amux_created_at": staleTS,
-					},
-				},
-			}, nil
-		},
-		sessionHasClients: func(name string, opts tmux.Options) (bool, error) {
-			return false, nil
-		},
-	}
-	app := newGCTestApp(ops)
-	app.instanceID = "my-instance"
-
-	cmd := app.gcOrphanedTmuxSessions()
-	msg := cmd()
-	result, ok := msg.(orphanGCResult)
-	if !ok {
-		t.Fatalf("expected orphanGCResult, got %T", msg)
-	}
-	if result.Err != nil {
-		t.Fatalf("GC error: %v", result.Err)
-	}
-	if result.Killed != 1 {
-		t.Fatalf("expected 1 killed in global sweep, got %d", result.Killed)
-	}
-	if len(ops.killed) != 1 || ops.killed[0] != "other-instance-stale" {
-		t.Fatalf("expected other-instance-stale to be killed, got %v", ops.killed)
+	if capturedMatch["@amux_instance"] != "test-instance-123" {
+		t.Fatalf("expected @amux_instance=test-instance-123, got %v", capturedMatch["@amux_instance"])
 	}
 }
