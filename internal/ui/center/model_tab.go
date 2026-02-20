@@ -54,6 +54,7 @@ type Tab struct {
 	flushScheduled    bool
 	lastOutputAt      time.Time
 	lastActivityTagAt time.Time
+	activityANSIState ansiActivityState
 	lastInputTagAt    time.Time
 	flushPendingSince time.Time
 	ptyRows           int
@@ -101,6 +102,26 @@ func (t *Tab) markClosed() {
 	}
 	atomic.StoreUint32(&t.closed, 1)
 	atomic.StoreUint32(&t.closing, 1)
+}
+
+func (t *Tab) consumeActivityVisibility(data []byte) bool {
+	if t == nil || len(data) == 0 {
+		return false
+	}
+	t.mu.Lock()
+	visible, next := hasVisiblePTYOutput(data, t.activityANSIState)
+	t.activityANSIState = next
+	t.mu.Unlock()
+	return visible
+}
+
+func (t *Tab) resetActivityANSIState() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.activityANSIState = ansiActivityText
+	t.mu.Unlock()
 }
 
 // getTabs returns the tabs for the current workspace

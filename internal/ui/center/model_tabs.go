@@ -232,6 +232,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.cachedVersion = 0
 		tab.cachedShowCursor = false
 		tab.mu.Unlock()
+		tab.resetActivityANSIState()
 		if oldAgent != nil && oldAgent != msg.Agent {
 			_ = m.agentManager.CloseAgent(oldAgent)
 		}
