@@ -141,8 +141,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 			if sessionName == "" && tab.Agent != nil {
 				sessionName = tab.Agent.Session
 			}
-			hasVisibleOutput := false
-			hasVisibleOutput, tab.activityANSIState = hasVisiblePTYOutput(msg.Data, tab.activityANSIState)
+			hasVisibleOutput := tab.consumeActivityVisibility(msg.Data)
 			if sessionName != "" && hasVisibleOutput && tab.lastOutputAt.Sub(tab.lastActivityTagAt) >= activityTagThrottle {
 				tab.lastActivityTagAt = tab.lastOutputAt
 				opts := m.getTmuxOptions()
@@ -270,6 +269,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 	if tab != nil {
 		termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 		m.stopPTYReader(tab)
+		tab.resetActivityANSIState()
 		if termAlive {
 			shouldRestart := true
 			var backoff time.Duration
@@ -278,7 +278,6 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 				tab.ptyRestartSince = time.Now()
 				tab.ptyRestartCount = 0
 			}
-			tab.activityANSIState = ansiActivityText
 			tab.ptyRestartCount++
 			if tab.ptyRestartCount > ptyRestartMax {
 				shouldRestart = false
@@ -314,7 +313,6 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			}
 		} else {
 			tab.mu.Lock()
-			tab.activityANSIState = ansiActivityText
 			tab.Running = false
 			// Mark as detached - tmux session may still be alive, sync will confirm
 			tab.Detached = true
@@ -338,7 +336,7 @@ func (m *Model) updatePTYRestart(msg PTYRestart) tea.Cmd {
 	if tab == nil {
 		return nil
 	}
-	tab.activityANSIState = ansiActivityText
+	tab.resetActivityANSIState()
 	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
 		tab.mu.Lock()
 		tab.ptyRestartBackoff = 0

@@ -82,11 +82,11 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	}
 	tab.Agent = msg.Agent
 	tab.SessionName = msg.Agent.Session
-	tab.activityANSIState = ansiActivityText
 	tab.Detached = false
 	tab.reattachInFlight = false
 	tab.Running = true
 	tab.mu.Unlock()
+	tab.resetActivityANSIState()
 
 	if tab.Terminal != nil && msg.Agent.Terminal != nil {
 		agentTerm := msg.Agent.Terminal
@@ -169,8 +169,8 @@ func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, t
 	tab.mu.Lock()
 	tab.Running = false
 	tab.Detached = false
-	tab.activityANSIState = ansiActivityText
 	tab.mu.Unlock()
+	tab.resetActivityANSIState()
 	return m, common.SafeBatch(func() tea.Msg {
 		return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(tab.ID)}
 	})

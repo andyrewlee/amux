@@ -220,7 +220,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.Workspace = msg.Workspace
 		tab.Agent = msg.Agent
 		tab.SessionName = msg.Agent.Session
-		tab.activityANSIState = ansiActivityText
 		tab.Detached = false
 		tab.Running = true
 		if tab.createdAt == 0 {
@@ -233,6 +232,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.cachedVersion = 0
 		tab.cachedShowCursor = false
 		tab.mu.Unlock()
+		tab.resetActivityANSIState()
 		if oldAgent != nil && oldAgent != msg.Agent {
 			_ = m.agentManager.CloseAgent(oldAgent)
 		}
