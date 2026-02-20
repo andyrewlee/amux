@@ -28,7 +28,6 @@ const (
 	tabEventDiffInput
 	tabEventSendInput
 	tabEventPaste
-	tabEventSendResponse
 	tabEventWriteOutput
 )
 
@@ -47,7 +46,6 @@ type tabEvent struct {
 	diffMsg     tea.Msg
 	input       []byte
 	pasteText   string
-	response    []byte
 	output      []byte
 }
 
@@ -365,8 +363,6 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		if ev.pasteText != "" {
 			m.sendToTerminal(tab, "\x1b[200~"+ev.pasteText+"\x1b[201~", ev.tabID, ev.workspaceID, "Paste")
 		}
-	case tabEventSendResponse:
-		m.sendToTerminal(tab, string(ev.response), ev.tabID, ev.workspaceID, "Response send")
 	case tabEventWriteOutput:
 		if len(ev.output) == 0 {
 			return

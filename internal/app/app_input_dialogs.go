@@ -170,7 +170,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 			a.pendingWorkspaceProject = project
 			a.pendingWorkspaceName = name
-			a.pendingWorkspaceBase = "HEAD"
+			a.pendingWorkspaceBase = ""
 			return func() tea.Msg {
 				return messages.ShowSelectAssistantDialog{}
 			}

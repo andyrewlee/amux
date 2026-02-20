@@ -37,3 +37,68 @@ func SeedFreshTagFallbackBaseline(
 	state.LastActiveAt = time.Time{}
 	updated[sessionName] = state
 }
+
+// FreshTagVisibleActivity validates fresh output tags against visible pane
+// changes for initialized sessions. This prevents control-sequence churn from
+// keeping sessions active when captured content is unchanged.
+//
+// Returns true when the fresh tag should count as active.
+func FreshTagVisibleActivity(
+	sessionName string,
+	states map[string]*SessionState,
+	updated map[string]*SessionState,
+	now time.Time,
+	opts tmux.Options,
+	captureFn CaptureFn,
+	hashFn HashFn,
+) bool {
+	if states == nil || updated == nil || strings.TrimSpace(sessionName) == "" {
+		return true
+	}
+
+	state := states[sessionName]
+	if state == nil || !state.Initialized {
+		// First observation: trust fresh tag and seed fallback baseline.
+		// This causes a one-scan active blip, but is intentional — we have
+		// no baseline hash to compare against yet.
+		SeedFreshTagFallbackBaseline(sessionName, states, updated, opts, captureFn, hashFn)
+		return true
+	}
+
+	content, ok := captureFn(sessionName, CaptureTail, opts)
+	if !ok {
+		// Capture is best-effort; keep fresh-tag behavior when unavailable.
+		// Persist state so the initialized hash survives to the next scan.
+		updated[sessionName] = state
+		return true
+	}
+
+	hash := hashFn(content)
+	if hash != state.LastHash {
+		state.LastHash = hash
+		// Returning true already marks this scan active; keep score at/above
+		// threshold so a later known-session hysteresis pass does not restart
+		// from zero.
+		if state.Score < ScoreThreshold {
+			state.Score = ScoreThreshold
+		}
+		state.LastActiveAt = now
+		updated[sessionName] = state
+		return true
+	}
+
+	// Fresh tag without visible pane delta: decay and clear hold.
+	// Note: ScoreThreshold is used as a ceiling here (capping inflated scores)
+	// whereas the hash-changed branch above uses it as a floor (boosting low
+	// scores). This asymmetry is intentional — changed content should be at
+	// least at threshold, while unchanged content should decay from it.
+	if state.Score > ScoreThreshold {
+		state.Score = ScoreThreshold
+	}
+	if state.Score > 0 {
+		state.Score--
+	}
+	state.LastActiveAt = time.Time{}
+	updated[sessionName] = state
+	return false
+}
