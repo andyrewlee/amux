@@ -11,18 +11,18 @@ import (
 func BuildSSHCommand(sb RemoteSandbox, remoteCommand string) (*exec.Cmd, func(), error) {
 	ds, ok := sb.(*daytonaSandbox)
 	if !ok || ds == nil || ds.inner == nil {
-		return nil, nil, errors.New("SSH access is only supported for Daytona sandboxes")
+		return nil, nil, errors.New("ssh access is only supported for Daytona sandboxes")
 	}
 
-	sshAccess, err := ds.inner.CreateSshAccess(60)
+	sshAccess, err := ds.inner.CreateSSHAccess(60)
 	if err != nil {
 		return nil, nil, err
 	}
 	cleanup := func() {
-		_ = ds.inner.RevokeSshAccess(sshAccess.Token)
+		_ = ds.inner.RevokeSSHAccess(sshAccess.Token)
 	}
 
-	runnerDomain, err := waitForSshAccessDaytona(ds.inner, sshAccess.Token)
+	runnerDomain, err := waitForSSHAccessDaytona(ds.inner, sshAccess.Token)
 	if err != nil {
 		cleanup()
 		return nil, nil, err

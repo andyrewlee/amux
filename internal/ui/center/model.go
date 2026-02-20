@@ -88,7 +88,7 @@ type AgentProvider interface {
 	CreateAgent(ws *data.Workspace, agentType appPty.AgentType, rows, cols uint16) (*appPty.Agent, error)
 	CreateAgentWithTags(ws *data.Workspace, agentType appPty.AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error)
 	CreateViewer(ws *data.Workspace, command string, rows, cols uint16) (*appPty.Agent, error)
-	CreateViewerWithTags(ws *data.Workspace, command string, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error)
+	CreateViewerWithTags(ws *data.Workspace, command, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error)
 	CloseAgent(agent *appPty.Agent) error
 	CloseAll()
 }
@@ -110,7 +110,7 @@ func (l *localAgentProvider) CreateViewer(ws *data.Workspace, command string, ro
 	return l.mgr.CreateViewer(ws, command, "", rows, cols)
 }
 
-func (l *localAgentProvider) CreateViewerWithTags(ws *data.Workspace, command string, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error) {
+func (l *localAgentProvider) CreateViewerWithTags(ws *data.Workspace, command, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*appPty.Agent, error) {
 	return l.mgr.CreateViewerWithTags(ws, command, sessionName, rows, cols, tags)
 }
 

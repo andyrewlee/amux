@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -90,7 +91,7 @@ func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
 	if !report.Passed {
 		fmt.Fprintln(cliStdout)
 		fmt.Fprintln(cliStdout, "\033[31m✗ Basic checks failed - fix these first\033[0m")
-		return fmt.Errorf("preflight checks failed")
+		return errors.New("preflight checks failed")
 	}
 
 	fmt.Fprintln(cliStdout)

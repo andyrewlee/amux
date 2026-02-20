@@ -49,7 +49,7 @@ func NewDaytona(cfg *DaytonaConfig) (*Daytona, error) {
 	}
 
 	headers := make(http.Header)
-	headers.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.APIKey))
+	headers.Set("Authorization", "Bearer "+cfg.APIKey)
 	headers.Set("X-Daytona-Source", "amux")
 	client.headers = headers
 
@@ -83,7 +83,7 @@ func (d *Daytona) endpoint(path string) string {
 	return d.apiURL + path
 }
 
-func (d *Daytona) doJSON(ctx context.Context, method, path string, payload any, out any) error {
+func (d *Daytona) doJSON(ctx context.Context, method, path string, payload, out any) error {
 	var body *bytes.Reader
 	if payload != nil {
 		data, err := json.Marshal(payload)
@@ -128,7 +128,7 @@ func (d *Daytona) doJSON(ctx context.Context, method, path string, payload any, 
 	return nil
 }
 
-func (d *Daytona) doRequest(ctx context.Context, method, path string, query url.Values, payload any, out any) error {
+func (d *Daytona) doRequest(ctx context.Context, method, path string, query url.Values, payload, out any) error {
 	full := d.endpoint(path)
 	if len(query) > 0 {
 		full += "?" + query.Encode()

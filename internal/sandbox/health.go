@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ type SandboxHealth struct {
 func NewSandboxHealth(client *daytona.Daytona, sandboxHandle RemoteSandbox, agent Agent) (*SandboxHealth, error) {
 	dc, ok := sandboxHandle.(*daytonaSandbox)
 	if !ok {
-		return nil, fmt.Errorf("sandbox provider does not support Daytona health checks")
+		return nil, errors.New("sandbox provider does not support Daytona health checks")
 	}
 	return &SandboxHealth{
 		inner:  dc.inner,
@@ -177,7 +178,7 @@ func (h *SandboxHealth) checkCredentialDirs(ctx context.Context) HealthCheck {
 		cmd := SafeCommands.Test("-d", dirPath)
 		resp, _ := execCommand(h.sandboxHandle(), cmd, nil)
 		if resp == nil || resp.ExitCode != 0 {
-			issues = append(issues, fmt.Sprintf("%s: directory missing", cred.HomePath))
+			issues = append(issues, cred.HomePath+": directory missing")
 		}
 	}
 
@@ -185,7 +186,7 @@ func (h *SandboxHealth) checkCredentialDirs(ctx context.Context) HealthCheck {
 
 	if len(issues) > 0 {
 		check.Status = HealthStatusDegraded
-		check.Message = fmt.Sprintf("Credential directory issues: %s", strings.Join(issues, "; "))
+		check.Message = "Credential directory issues: " + strings.Join(issues, "; ")
 		check.Recoverable = true
 		return check
 	}
@@ -241,7 +242,7 @@ func (h *SandboxHealth) checkAgentInstalled(ctx context.Context) HealthCheck {
 	}
 
 	check.Status = HealthStatusHealthy
-	check.Message = fmt.Sprintf("%s is installed", plugin.DisplayName())
+	check.Message = plugin.DisplayName() + " is installed"
 	return check
 }
 

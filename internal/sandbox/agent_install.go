@@ -55,11 +55,11 @@ func touchAgentMarker(computer RemoteSandbox, agent string) {
 // Used for agents that auto-update themselves.
 func isAgentInstalled(computer RemoteSandbox, agent string) bool {
 	marker := agentInstallMarker(agent)
-	resp, err := execCommand(computer, fmt.Sprintf("test -f %s", marker), nil)
+	resp, err := execCommand(computer, "test -f "+marker, nil)
 	return err == nil && resp != nil && resp.ExitCode == 0
 }
 
-func installClaude(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
+func installClaude(computer RemoteSandbox, verbose, forceUpdate bool) error {
 	if verbose {
 		fmt.Fprintln(sandboxStdout, "Installing Claude Code...")
 	}
@@ -99,7 +99,7 @@ func installClaude(computer RemoteSandbox, verbose bool, forceUpdate bool) error
 	return nil
 }
 
-func installCodex(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
+func installCodex(computer RemoteSandbox, verbose, forceUpdate bool) error {
 	if verbose {
 		fmt.Fprintln(sandboxStdout, "Installing Codex CLI...")
 	}
@@ -129,7 +129,7 @@ func installCodex(computer RemoteSandbox, verbose bool, forceUpdate bool) error 
 	return nil
 }
 
-func installOpenCode(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
+func installOpenCode(computer RemoteSandbox, verbose, forceUpdate bool) error {
 	if verbose {
 		fmt.Fprintln(sandboxStdout, "Installing OpenCode CLI...")
 	}
@@ -165,12 +165,12 @@ func installOpenCode(computer RemoteSandbox, verbose bool, forceUpdate bool) err
 	return nil
 }
 
-func installAmp(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
+func installAmp(computer RemoteSandbox, verbose, forceUpdate bool) error {
 	if verbose {
 		fmt.Fprintln(sandboxStdout, "Installing Amp CLI...")
 	}
 	home := getHomeDir(computer)
-	ampBin := fmt.Sprintf("%s/.amp/bin/amp", home)
+	ampBin := home + "/.amp/bin/amp"
 	resp, _ := execCommand(computer, fmt.Sprintf("sh -lc \"command -v amp >/dev/null 2>&1 || test -x %s\"", quoteForShell(ampBin)), nil)
 	alreadyInstalled := resp != nil && resp.ExitCode == 0
 	if alreadyInstalled && !forceUpdate {
@@ -203,7 +203,7 @@ func installAmp(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
 	return nil
 }
 
-func installGemini(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
+func installGemini(computer RemoteSandbox, verbose, forceUpdate bool) error {
 	if verbose {
 		fmt.Fprintln(sandboxStdout, "Installing Gemini CLI...")
 	}
@@ -233,7 +233,7 @@ func installGemini(computer RemoteSandbox, verbose bool, forceUpdate bool) error
 	return nil
 }
 
-func installDroid(computer RemoteSandbox, verbose bool, forceUpdate bool) error {
+func installDroid(computer RemoteSandbox, verbose, forceUpdate bool) error {
 	if verbose {
 		fmt.Fprintln(sandboxStdout, "Installing Droid CLI...")
 	}
@@ -267,7 +267,7 @@ func installDroid(computer RemoteSandbox, verbose bool, forceUpdate bool) error 
 // If forceUpdate is true, always reinstalls to get the latest version.
 // For agents that auto-update (Claude, OpenCode, Amp, Gemini, Droid): just check if installed.
 // For agents that don't auto-update (Codex): use TTL-based caching (24h).
-func EnsureAgentInstalled(computer RemoteSandbox, agent Agent, verbose bool, forceUpdate bool) error {
+func EnsureAgentInstalled(computer RemoteSandbox, agent Agent, verbose, forceUpdate bool) error {
 	if agent == AgentShell {
 		return nil
 	}

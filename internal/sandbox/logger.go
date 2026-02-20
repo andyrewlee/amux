@@ -59,7 +59,7 @@ type Logger struct {
 	level    LogLevel
 	output   io.Writer
 	prefix   string
-	fields   map[string]interface{}
+	fields   map[string]any
 	colorize bool
 }
 
@@ -99,7 +99,7 @@ func NewLogger(opts ...LoggerOption) *Logger {
 	l := &Logger{
 		level:    LogLevelInfo,
 		output:   os.Stderr,
-		fields:   make(map[string]interface{}),
+		fields:   make(map[string]any),
 		colorize: true,
 	}
 	for _, opt := range opts {
@@ -109,11 +109,11 @@ func NewLogger(opts ...LoggerOption) *Logger {
 }
 
 // With creates a child logger with additional fields.
-func (l *Logger) With(key string, value interface{}) *Logger {
+func (l *Logger) With(key string, value any) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	newFields := make(map[string]interface{}, len(l.fields)+1)
+	newFields := make(map[string]any, len(l.fields)+1)
 	for k, v := range l.fields {
 		newFields[k] = v
 	}
@@ -129,11 +129,11 @@ func (l *Logger) With(key string, value interface{}) *Logger {
 }
 
 // WithFields creates a child logger with multiple additional fields.
-func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
+func (l *Logger) WithFields(fields map[string]any) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	newFields := make(map[string]interface{}, len(l.fields)+len(fields))
+	newFields := make(map[string]any, len(l.fields)+len(fields))
 	for k, v := range l.fields {
 		newFields[k] = v
 	}
@@ -158,46 +158,46 @@ func (l *Logger) SetLevel(level LogLevel) {
 }
 
 // Debug logs a debug message.
-func (l *Logger) Debug(msg string, args ...interface{}) {
+func (l *Logger) Debug(msg string, args ...any) {
 	l.log(LogLevelDebug, msg, args...)
 }
 
 // Info logs an info message.
-func (l *Logger) Info(msg string, args ...interface{}) {
+func (l *Logger) Info(msg string, args ...any) {
 	l.log(LogLevelInfo, msg, args...)
 }
 
 // Warn logs a warning message.
-func (l *Logger) Warn(msg string, args ...interface{}) {
+func (l *Logger) Warn(msg string, args ...any) {
 	l.log(LogLevelWarn, msg, args...)
 }
 
 // Error logs an error message.
-func (l *Logger) Error(msg string, args ...interface{}) {
+func (l *Logger) Error(msg string, args ...any) {
 	l.log(LogLevelError, msg, args...)
 }
 
 // Debugf logs a formatted debug message.
-func (l *Logger) Debugf(format string, args ...interface{}) {
+func (l *Logger) Debugf(format string, args ...any) {
 	l.log(LogLevelDebug, fmt.Sprintf(format, args...))
 }
 
 // Infof logs a formatted info message.
-func (l *Logger) Infof(format string, args ...interface{}) {
+func (l *Logger) Infof(format string, args ...any) {
 	l.log(LogLevelInfo, fmt.Sprintf(format, args...))
 }
 
 // Warnf logs a formatted warning message.
-func (l *Logger) Warnf(format string, args ...interface{}) {
+func (l *Logger) Warnf(format string, args ...any) {
 	l.log(LogLevelWarn, fmt.Sprintf(format, args...))
 }
 
 // Errorf logs a formatted error message.
-func (l *Logger) Errorf(format string, args ...interface{}) {
+func (l *Logger) Errorf(format string, args ...any) {
 	l.log(LogLevelError, fmt.Sprintf(format, args...))
 }
 
-func (l *Logger) log(level LogLevel, msg string, args ...interface{}) {
+func (l *Logger) log(level LogLevel, msg string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -230,7 +230,7 @@ func (l *Logger) log(level LogLevel, msg string, args ...interface{}) {
 	b.WriteString(msg)
 
 	// Key-value pairs from args (key1, val1, key2, val2, ...)
-	fields := make(map[string]interface{})
+	fields := make(map[string]any)
 	for k, v := range l.fields {
 		fields[k] = v
 	}
@@ -289,19 +289,19 @@ func GetLogger() *Logger {
 
 // Package-level logging functions that use the default logger
 
-func LogDebug(msg string, args ...interface{}) {
+func LogDebug(msg string, args ...any) {
 	defaultLogger.Debug(msg, args...)
 }
 
-func LogInfo(msg string, args ...interface{}) {
+func LogInfo(msg string, args ...any) {
 	defaultLogger.Info(msg, args...)
 }
 
-func LogWarn(msg string, args ...interface{}) {
+func LogWarn(msg string, args ...any) {
 	defaultLogger.Warn(msg, args...)
 }
 
-func LogError(msg string, args ...interface{}) {
+func LogError(msg string, args ...any) {
 	defaultLogger.Error(msg, args...)
 }
 

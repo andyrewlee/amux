@@ -50,7 +50,7 @@ func globalMetaPath() (string, error) {
 }
 
 // LoadSandboxMeta loads sandbox metadata for the current worktree.
-func LoadSandboxMeta(cwd string, provider string) (*SandboxMeta, error) {
+func LoadSandboxMeta(cwd, provider string) (*SandboxMeta, error) {
 	state, err := LoadSandboxStore()
 	if err != nil || state == nil {
 		return nil, err
@@ -67,7 +67,7 @@ func LoadSandboxMeta(cwd string, provider string) (*SandboxMeta, error) {
 }
 
 // SaveSandboxMeta saves sandbox metadata for the current worktree.
-func SaveSandboxMeta(cwd string, provider string, meta SandboxMeta) error {
+func SaveSandboxMeta(cwd, provider string, meta SandboxMeta) error {
 	state, err := LoadSandboxStore()
 	if err != nil {
 		return err
@@ -121,7 +121,7 @@ func LoadSandboxStore() (*SandboxStore, error) {
 }
 
 // RemoveSandboxMeta removes sandbox metadata for the current worktree.
-func RemoveSandboxMeta(cwd string, _ string) error {
+func RemoveSandboxMeta(cwd, _ string) error {
 	state, err := LoadSandboxStore()
 	if err != nil || state == nil {
 		return err

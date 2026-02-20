@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -24,7 +25,7 @@ func buildSandboxPreviewCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			port, err := strconv.Atoi(args[0])
 			if err != nil || port <= 0 || port > 65535 {
-				return fmt.Errorf("port must be a number between 1 and 65535")
+				return errors.New("port must be a number between 1 and 65535")
 			}
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -39,7 +40,7 @@ func buildSandboxPreviewCommand() *cobra.Command {
 				return err
 			}
 			if !providerInstance.SupportsFeature(sandbox.FeaturePreviewURLs) {
-				return fmt.Errorf("preview URLs are not supported by the selected provider")
+				return errors.New("preview URLs are not supported by the selected provider")
 			}
 			fmt.Fprintf(cliStdout, "Preparing preview for port %d...\n", port)
 			sb, _, err := resolveCurrentSandbox(providerInstance, cwd)
@@ -51,7 +52,7 @@ func buildSandboxPreviewCommand() *cobra.Command {
 				return err
 			}
 			if url == "" {
-				return fmt.Errorf("unable to construct a preview URL")
+				return errors.New("unable to construct a preview URL")
 			}
 			fmt.Fprintf(cliStdout, "Preview URL: %s\n", url)
 			if !noOpen {
@@ -92,11 +93,11 @@ func buildSandboxLogsCommand() *cobra.Command {
 				return err
 			}
 			if list && file != "" {
-				return fmt.Errorf("cannot use --list with --file")
+				return errors.New("cannot use --list with --file")
 			}
 
 			worktreeID := sandbox.ComputeWorktreeID(cwd)
-			logDir := fmt.Sprintf("/amux/logs/%s", worktreeID)
+			logDir := "/amux/logs/" + worktreeID
 			resolveSandbox := func() (sandbox.RemoteSandbox, func(), error) {
 				meta, err := sandbox.LoadSandboxMeta(cwd, providerInstance.Name())
 				if err != nil {
@@ -114,14 +115,14 @@ func buildSandboxLogsCommand() *cobra.Command {
 					}
 				}
 				if !spin {
-					return nil, nil, fmt.Errorf("no running sandbox found; re-run with --spin to start a log reader sandbox")
+					return nil, nil, errors.New("no running sandbox found; re-run with --spin to start a log reader sandbox")
 				}
 				if !providerInstance.SupportsFeature(sandbox.FeatureVolumes) {
-					return nil, nil, fmt.Errorf("persistent logs require volume support from the provider")
+					return nil, nil, errors.New("persistent logs require volume support from the provider")
 				}
 				volumeMgr := providerInstance.Volumes()
 				if volumeMgr == nil {
-					return nil, nil, fmt.Errorf("volume manager is not available")
+					return nil, nil, errors.New("volume manager is not available")
 				}
 				volumeName := sandbox.ResolvePersistenceVolumeName(cfg)
 				volume, err := volumeMgr.GetOrCreate(context.Background(), volumeName)
@@ -190,7 +191,7 @@ func buildSandboxLogsCommand() *cobra.Command {
 				}
 				logPath = strings.TrimSpace(resp.Stdout)
 				if logPath == "" {
-					return fmt.Errorf("no recorded logs found for this workspace; run `amux sandbox run <agent> --record`")
+					return errors.New("no recorded logs found for this workspace; run `amux sandbox run <agent> --record`")
 				}
 			} else if !strings.Contains(logPath, "/") {
 				logPath = fmt.Sprintf("%s/%s", logDir, logPath)
@@ -233,7 +234,7 @@ func buildSandboxDesktopCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := strconv.Atoi(port)
 			if err != nil || p <= 0 || p > 65535 {
-				return fmt.Errorf("port must be a number between 1 and 65535")
+				return errors.New("port must be a number between 1 and 65535")
 			}
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -248,7 +249,7 @@ func buildSandboxDesktopCommand() *cobra.Command {
 				return err
 			}
 			if !providerInstance.SupportsFeature(sandbox.FeatureDesktop) {
-				return fmt.Errorf("desktop is not supported by the selected provider")
+				return errors.New("desktop is not supported by the selected provider")
 			}
 			fmt.Fprintln(cliStdout, "Checking desktop status...")
 			sb, _, err := resolveCurrentSandbox(providerInstance, cwd)
@@ -257,16 +258,16 @@ func buildSandboxDesktopCommand() *cobra.Command {
 			}
 			desktop, ok := sb.(sandbox.DesktopAccess)
 			if !ok {
-				return fmt.Errorf("desktop is not available for this provider")
+				return errors.New("desktop is not available for this provider")
 			}
 			status, err := desktop.DesktopStatus(context.Background())
 			if err != nil {
-				return fmt.Errorf("desktop is not available in this sandbox image. Tip: use a desktop-enabled base image and rebuild your snapshot")
+				return errors.New("desktop is not available in this sandbox image. Tip: use a desktop-enabled base image and rebuild your snapshot")
 			}
 			if status == nil || status.Status != "active" {
 				fmt.Fprintln(cliStdout, "Starting desktop...")
 				if err := desktop.StartDesktop(context.Background()); err != nil {
-					return fmt.Errorf("failed to start desktop services. Tip: your snapshot may be missing VNC dependencies (xvfb/novnc)")
+					return errors.New("failed to start desktop services. Tip: your snapshot may be missing VNC dependencies (xvfb/novnc)")
 				}
 				time.Sleep(5 * time.Second)
 				status, err = desktop.DesktopStatus(context.Background())
@@ -288,7 +289,7 @@ func buildSandboxDesktopCommand() *cobra.Command {
 			}
 			url = buildVncURL(url)
 			if url == "" {
-				return fmt.Errorf("unable to construct the desktop URL")
+				return errors.New("unable to construct the desktop URL")
 			}
 			fmt.Fprintf(cliStdout, "Desktop URL: %s\n", url)
 			if !noOpen {

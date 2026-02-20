@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -34,7 +35,7 @@ func buildSandboxRunCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentName := args[0]
 			if !sandbox.IsValidAgent(agentName) {
-				return fmt.Errorf("invalid agent: use claude, codex, opencode, amp, gemini, droid, or shell")
+				return errors.New("invalid agent: use claude, codex, opencode, amp, gemini, droid, or shell")
 			}
 			agent := sandbox.Agent(agentName)
 
@@ -59,7 +60,7 @@ func buildSandboxRunCommand() *cobra.Command {
 					credMode = "auto"
 				}
 			default:
-				return fmt.Errorf("invalid credentials mode: use sandbox, none, or auto")
+				return errors.New("invalid credentials mode: use sandbox, none, or auto")
 			}
 			if credMode == "auto" {
 				if agent == sandbox.AgentShell {
@@ -121,7 +122,7 @@ func buildSandboxRunCommand() *cobra.Command {
 
 			previewExplicit := cmd.Flags().Changed("preview")
 			if previewExplicit && (previewPort < 1 || previewPort > 65535) {
-				return fmt.Errorf("preview port must be between 1 and 65535")
+				return errors.New("preview port must be between 1 and 65535")
 			}
 			keepExplicit := cmd.Flags().Changed("keep")
 			if previewPort != 0 && !keepExplicit {
@@ -214,7 +215,7 @@ func runAgent(p runAgentParams) error {
 		return err
 	}
 	if p.previewPort != 0 && !provider.SupportsFeature(sandbox.FeaturePreviewURLs) {
-		return fmt.Errorf("preview URLs are not supported by the selected provider")
+		return errors.New("preview URLs are not supported by the selected provider")
 	}
 
 	// Step 1: Create sandbox
@@ -273,7 +274,7 @@ func runAgent(p runAgentParams) error {
 
 	worktreeID := sandbox.ComputeWorktreeID(p.cwd)
 	workspacePath := sandbox.GetWorktreeRepoPath(sb, sandbox.SyncOptions{Cwd: p.cwd, WorktreeID: worktreeID})
-	logDir := fmt.Sprintf("/amux/logs/%s", worktreeID)
+	logDir := "/amux/logs/" + worktreeID
 	recordPath := ""
 
 	// Step 2: Sync workspace
@@ -294,7 +295,7 @@ func runAgent(p runAgentParams) error {
 			spinner.StopWithMessage("✓ Workspace synced")
 		}
 	} else {
-		_, _ = sb.Exec(context.Background(), fmt.Sprintf("mkdir -p %s", workspacePath), nil)
+		_, _ = sb.Exec(context.Background(), "mkdir -p "+workspacePath, nil)
 	}
 
 	// Step 3: Setup credentials
@@ -347,7 +348,7 @@ func runAgent(p runAgentParams) error {
 			return err
 		}
 		if url == "" {
-			return fmt.Errorf("unable to construct a preview URL")
+			return errors.New("unable to construct a preview URL")
 		}
 		fmt.Fprintf(cliStdout, "Preview URL: %s\n", url)
 		if !p.previewNoOpen {

@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -31,14 +32,14 @@ func ensureDaytonaAPIKey() error {
 		return nil
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fmt.Errorf("Daytona API key not found. Set AMUX_DAYTONA_API_KEY or run `amux auth login`.")
+		return errors.New("daytona API key not found; set AMUX_DAYTONA_API_KEY or run `amux auth login`")
 	}
 	apiKey, err := promptInput("Daytona API key: ")
 	if err != nil {
 		return err
 	}
 	if apiKey == "" {
-		return fmt.Errorf("no API key provided")
+		return errors.New("no API key provided")
 	}
 	cfg.DaytonaAPIKey = apiKey
 	if err := sandbox.SaveConfig(cfg); err != nil {

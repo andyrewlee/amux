@@ -49,7 +49,7 @@ func (fs *FileSystem) DownloadFile(remotePath string, timeout time.Duration) ([]
 		return nil, err
 	}
 	if len(results) == 0 {
-		return nil, fmt.Errorf("no data received for this file")
+		return nil, errors.New("no data received for this file")
 	}
 	if results[0].err != "" {
 		return nil, errors.New(results[0].err)
@@ -64,7 +64,7 @@ func (fs *FileSystem) DownloadFileTo(remotePath, localPath string, timeout time.
 		return err
 	}
 	if len(results) == 0 {
-		return fmt.Errorf("no data received for this file")
+		return errors.New("no data received for this file")
 	}
 	if results[0].err != "" {
 		return errors.New(results[0].err)
@@ -106,7 +106,7 @@ func (fs *FileSystem) downloadFiles(files []fileDownloadRequest, timeout time.Du
 	}
 	boundary := params["boundary"]
 	if boundary == "" {
-		return nil, fmt.Errorf("missing multipart boundary")
+		return nil, errors.New("missing multipart boundary")
 	}
 
 	reader := multipart.NewReader(resp.Body, boundary)
@@ -195,7 +195,7 @@ func (fs *FileSystem) uploadFiles(files []fileUpload, timeout time.Duration) err
 			reader = file
 			name = filepath.Base(f.destination)
 		default:
-			return fmt.Errorf("unsupported source type")
+			return errors.New("unsupported source type")
 		}
 		fileFields[fmt.Sprintf("files[%d].file", i)] = multipartFile{Name: name, Reader: reader}
 	}

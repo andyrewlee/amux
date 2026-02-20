@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func resolveVolumeMounts(manager VolumeManager, specs []VolumeSpec) ([]VolumeMou
 		return nil, nil
 	}
 	if manager == nil {
-		return nil, fmt.Errorf("volume manager is not available")
+		return nil, errors.New("volume manager is not available")
 	}
 	mounts := make([]VolumeMount, 0, len(specs))
 	for _, spec := range specs {
@@ -45,7 +46,7 @@ func resolveVolumeMounts(manager VolumeManager, specs []VolumeSpec) ([]VolumeMou
 
 func resolvePersistentMount(provider Provider, userSpecs []VolumeSpec, volumeName string) (*VolumeMount, error) {
 	if provider == nil {
-		return nil, fmt.Errorf("provider is required")
+		return nil, errors.New("provider is required")
 	}
 	for _, spec := range userSpecs {
 		if spec.MountPath == persistMountPath || strings.HasPrefix(spec.MountPath, persistMountPath+"/") {
@@ -57,7 +58,7 @@ func resolvePersistentMount(provider Provider, userSpecs []VolumeSpec, volumeNam
 	}
 	manager := provider.Volumes()
 	if manager == nil {
-		return nil, fmt.Errorf("volume manager is not available")
+		return nil, errors.New("volume manager is not available")
 	}
 	if strings.TrimSpace(volumeName) == "" {
 		volumeName = defaultPersistenceVolumeName
@@ -75,7 +76,7 @@ func resolvePersistentMount(provider Provider, userSpecs []VolumeSpec, volumeNam
 // CreateSandboxSession always creates a new sandbox for this run.
 func CreateSandboxSession(provider Provider, cwd string, cfg SandboxConfig) (RemoteSandbox, *SandboxMeta, error) {
 	if provider == nil {
-		return nil, nil, fmt.Errorf("provider is required")
+		return nil, nil, errors.New("provider is required")
 	}
 	providerName := provider.Name()
 	worktreeID := ComputeWorktreeID(cwd)
@@ -166,7 +167,7 @@ func applyEnvVars(handle RemoteSandbox, env map[string]string) {
 // ListAmuxSandboxes returns sandboxes created by amux.
 func ListAmuxSandboxes(provider Provider) ([]RemoteSandbox, error) {
 	if provider == nil {
-		return nil, fmt.Errorf("provider is required")
+		return nil, errors.New("provider is required")
 	}
 	sandboxes, err := provider.ListSandboxes(context.Background())
 	if err != nil {
@@ -185,9 +186,9 @@ func ListAmuxSandboxes(provider Provider) ([]RemoteSandbox, error) {
 }
 
 // RemoveSandbox deletes a sandbox by ID or by current worktree meta.
-func RemoveSandbox(provider Provider, cwd string, sandboxID string) error {
+func RemoveSandbox(provider Provider, cwd, sandboxID string) error {
 	if provider == nil {
-		return fmt.Errorf("provider is required")
+		return errors.New("provider is required")
 	}
 	if sandboxID != "" {
 		if err := provider.DeleteSandbox(context.Background(), sandboxID); err != nil {
@@ -200,7 +201,7 @@ func RemoveSandbox(provider Provider, cwd string, sandboxID string) error {
 		return err
 	}
 	if meta == nil {
-		return fmt.Errorf("no sandbox metadata found for this project")
+		return errors.New("no sandbox metadata found for this project")
 	}
 	if err := provider.DeleteSandbox(context.Background(), meta.SandboxID); err != nil {
 		return err

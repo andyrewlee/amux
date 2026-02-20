@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -40,12 +41,12 @@ func buildLogsCommand() *cobra.Command {
 				return err
 			}
 			if meta == nil {
-				return fmt.Errorf("no sandbox exists for this project - run `amux sandbox run <agent>` first")
+				return errors.New("no sandbox exists for this project - run `amux sandbox run <agent>` first")
 			}
 
 			sb, err := providerInstance.GetSandbox(context.Background(), meta.SandboxID)
 			if err != nil {
-				return fmt.Errorf("sandbox not found - run `amux sandbox run <agent>` to create one")
+				return errors.New("sandbox not found - run `amux sandbox run <agent>` to create one")
 			}
 
 			if sb.State() != sandbox.StateStarted {

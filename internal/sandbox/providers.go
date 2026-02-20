@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -20,7 +21,7 @@ func DefaultProviderRegistry(cfg Config) (*ProviderRegistry, map[string]error) {
 }
 
 // ResolveProvider returns the provider instance and resolved name.
-func ResolveProvider(cfg Config, cwd string, override string) (Provider, string, error) {
+func ResolveProvider(cfg Config, cwd, override string) (Provider, string, error) {
 	name := ResolveProviderName(cfg, override)
 	if name == "" {
 		name = ProviderDaytona
@@ -28,7 +29,7 @@ func ResolveProvider(cfg Config, cwd string, override string) (Provider, string,
 
 	registry, errs := DefaultProviderRegistry(cfg)
 	if registry == nil {
-		return nil, name, fmt.Errorf("no providers registered")
+		return nil, name, errors.New("no providers registered")
 	}
 	provider, ok := registry.Get(name)
 	if !ok {

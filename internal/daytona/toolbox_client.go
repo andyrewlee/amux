@@ -41,7 +41,7 @@ func (c *toolboxClient) urlFor(p string, query url.Values) string {
 	return u.String()
 }
 
-func (c *toolboxClient) doJSON(ctx context.Context, method, p string, query url.Values, body any, out any) error {
+func (c *toolboxClient) doJSON(ctx context.Context, method, p string, query url.Values, body, out any) error {
 	var bodyReader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)

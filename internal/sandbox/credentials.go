@@ -60,7 +60,7 @@ func ensureNpmConfig(sb RemoteSandbox, homeDir string) {
 		ShellQuote("prefix="+prefix),
 		ShellQuote("cache="+cache),
 	)
-	_, _ = execCommand(sb, fmt.Sprintf("bash -lc %s", ShellQuote(script)), nil)
+	_, _ = execCommand(sb, "bash -lc "+ShellQuote(script), nil)
 }
 
 func ensurePersistentHome(sb RemoteSandbox, homeDir string, verbose bool) {
@@ -139,53 +139,53 @@ func ensureCredentialDirs(sb RemoteSandbox) (string, error) {
 }
 
 func prepareClaudeHome(sb RemoteSandbox, homeDir string) {
-	claudeHome := fmt.Sprintf("%s/.claude", homeDir)
+	claudeHome := homeDir + "/.claude"
 	_, _ = execCommand(sb, SafeCommands.MkdirP(claudeHome), nil)
 	// Symlink cache and debug to /tmp for performance (these are ephemeral)
 	_, _ = execCommand(sb, SafeCommands.MkdirP("/tmp/amux-claude-cache"), nil)
 	_, _ = execCommand(sb, SafeCommands.MkdirP("/tmp/amux-claude-debug"), nil)
-	_, _ = execCommand(sb, SafeCommands.LnForce("/tmp/amux-claude-cache", fmt.Sprintf("%s/cache", claudeHome)), nil)
-	_, _ = execCommand(sb, SafeCommands.LnForce("/tmp/amux-claude-debug", fmt.Sprintf("%s/debug", claudeHome)), nil)
+	_, _ = execCommand(sb, SafeCommands.LnForce("/tmp/amux-claude-cache", claudeHome+"/cache"), nil)
+	_, _ = execCommand(sb, SafeCommands.LnForce("/tmp/amux-claude-debug", claudeHome+"/debug"), nil)
 }
 
 func prepareCodexHome(sb RemoteSandbox, homeDir string) {
-	codexHome := fmt.Sprintf("%s/.codex", homeDir)
-	codexConfigHome := fmt.Sprintf("%s/.config/codex", homeDir)
+	codexHome := homeDir + "/.codex"
+	codexConfigHome := homeDir + "/.config/codex"
 	_, _ = execCommand(sb, SafeCommands.MkdirP(codexHome), nil)
 	_, _ = execCommand(sb, SafeCommands.MkdirP(codexConfigHome), nil)
 	// Ensure file-based credential store for codex
 	ensureFileStore := func(path string) string {
 		return fmt.Sprintf(`if [ -f %s ]; then if grep -q '^cli_auth_credentials_store' %s; then sed -i 's/^cli_auth_credentials_store.*/cli_auth_credentials_store = "file"/' %s; else echo 'cli_auth_credentials_store = "file"' >> %s; fi; else mkdir -p $(dirname %s); echo 'cli_auth_credentials_store = "file"' > %s; fi`, path, path, path, path, path, path)
 	}
-	_, _ = execCommand(sb, ensureFileStore(fmt.Sprintf("%s/config.toml", codexConfigHome)), nil)
+	_, _ = execCommand(sb, ensureFileStore(codexConfigHome+"/config.toml"), nil)
 }
 
 func prepareOpenCodeHome(sb RemoteSandbox, homeDir string) {
-	dataDir := fmt.Sprintf("%s/.local/share/opencode", homeDir)
-	configDir := fmt.Sprintf("%s/.config/opencode", homeDir)
+	dataDir := homeDir + "/.local/share/opencode"
+	configDir := homeDir + "/.config/opencode"
 	_, _ = execCommand(sb, SafeCommands.MkdirP(dataDir), nil)
 	_, _ = execCommand(sb, SafeCommands.MkdirP(configDir), nil)
 }
 
 func prepareAmpHome(sb RemoteSandbox, homeDir string) {
-	ampConfig := fmt.Sprintf("%s/.config/amp", homeDir)
-	ampData := fmt.Sprintf("%s/.local/share/amp", homeDir)
+	ampConfig := homeDir + "/.config/amp"
+	ampData := homeDir + "/.local/share/amp"
 	_, _ = execCommand(sb, SafeCommands.MkdirP(ampConfig), nil)
 	_, _ = execCommand(sb, SafeCommands.MkdirP(ampData), nil)
 }
 
 func prepareGeminiHome(sb RemoteSandbox, homeDir string) {
-	geminiHome := fmt.Sprintf("%s/.gemini", homeDir)
+	geminiHome := homeDir + "/.gemini"
 	_, _ = execCommand(sb, SafeCommands.MkdirP(geminiHome), nil)
 }
 
 func prepareFactoryHome(sb RemoteSandbox, homeDir string) {
-	factoryHome := fmt.Sprintf("%s/.factory", homeDir)
+	factoryHome := homeDir + "/.factory"
 	_, _ = execCommand(sb, SafeCommands.MkdirP(factoryHome), nil)
 }
 
 func prepareGhHome(sb RemoteSandbox, homeDir string) {
-	ghConfig := fmt.Sprintf("%s/.config/gh", homeDir)
+	ghConfig := homeDir + "/.config/gh"
 	_, _ = execCommand(sb, SafeCommands.MkdirP(ghConfig), nil)
 }
 

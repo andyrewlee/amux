@@ -178,7 +178,7 @@ type ExecSession struct {
 type ExecSessionManager interface {
 	ListExecSessions(ctx context.Context) ([]ExecSession, error)
 	AttachExecSession(ctx context.Context, id string, stdin io.Reader, stdout, stderr io.Writer, opts *ExecOptions) (int, error)
-	KillExecSession(ctx context.Context, id string, signal string, timeout time.Duration) error
+	KillExecSession(ctx context.Context, id, signal string, timeout time.Duration) error
 }
 
 // CheckpointInfo describes a sandbox checkpoint.
@@ -259,7 +259,7 @@ type VolumeInfo struct {
 // SnapshotManager manages pre-built sandbox images
 type SnapshotManager interface {
 	// Create creates a new snapshot
-	Create(ctx context.Context, name string, baseImage string, onLogs func(string)) (*SnapshotInfo, error)
+	Create(ctx context.Context, name, baseImage string, onLogs func(string)) (*SnapshotInfo, error)
 
 	// Get retrieves a snapshot by name
 	Get(ctx context.Context, name string) (*SnapshotInfo, error)

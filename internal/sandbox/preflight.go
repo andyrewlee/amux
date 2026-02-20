@@ -22,13 +22,13 @@ func RunPreflight() error {
 		return err
 	}
 	if ResolveAPIKey(cfg) == "" {
-		return errors.New("Daytona API key not found. Set AMUX_DAYTONA_API_KEY or run `amux auth login`.")
+		return errors.New("daytona API key not found; set AMUX_DAYTONA_API_KEY or run `amux auth login`")
 	}
 	if _, err := exec.LookPath("ssh"); err != nil {
-		return errors.New("ssh is required for interactive sessions. Install OpenSSH and try again.")
+		return errors.New("ssh is required for interactive sessions; install OpenSSH and try again")
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return errors.New("Interactive mode requires a TTY.")
+		return errors.New("interactive mode requires a TTY")
 	}
 	return nil
 }

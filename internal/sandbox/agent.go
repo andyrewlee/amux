@@ -63,7 +63,7 @@ func getNodeBinDir(computer RemoteSandbox) string {
 	if err == nil && resp.ExitCode == 0 {
 		path := strings.TrimSpace(getStdoutFromResponse(resp))
 		if path != "" {
-			resp, err = execCommand(computer, fmt.Sprintf("dirname %s", quoteForShell(path)), nil)
+			resp, err = execCommand(computer, "dirname "+quoteForShell(path), nil)
 			if err == nil && resp.ExitCode == 0 {
 				dir := strings.TrimSpace(getStdoutFromResponse(resp))
 				if dir != "" {
@@ -92,29 +92,29 @@ func resolveAgentCommandPath(computer RemoteSandbox, command string) string {
 	// Check native installation locations first (before PATH lookup)
 	if command == "claude" {
 		// Native installer puts claude at ~/.local/bin/claude
-		candidate := fmt.Sprintf("%s/.local/bin/claude", home)
-		resp, err := execCommand(computer, fmt.Sprintf("test -x %s", quoteForShell(candidate)), nil)
+		candidate := home + "/.local/bin/claude"
+		resp, err := execCommand(computer, "test -x "+quoteForShell(candidate), nil)
 		if err == nil && resp.ExitCode == 0 {
 			return candidate
 		}
 	}
 	if command == "amp" {
-		candidate := fmt.Sprintf("%s/.amp/bin/amp", home)
-		resp, err := execCommand(computer, fmt.Sprintf("test -x %s", quoteForShell(candidate)), nil)
+		candidate := home + "/.amp/bin/amp"
+		resp, err := execCommand(computer, "test -x "+quoteForShell(candidate), nil)
 		if err == nil && resp.ExitCode == 0 {
 			return candidate
 		}
 	}
 	if command == "droid" {
-		candidate := fmt.Sprintf("%s/.factory/bin/droid", home)
-		resp, err := execCommand(computer, fmt.Sprintf("test -x %s", quoteForShell(candidate)), nil)
+		candidate := home + "/.factory/bin/droid"
+		resp, err := execCommand(computer, "test -x "+quoteForShell(candidate), nil)
 		if err == nil && resp.ExitCode == 0 {
 			return candidate
 		}
 	}
 
 	// Check PATH
-	resp, err := execCommand(computer, fmt.Sprintf("command -v %s", command), nil)
+	resp, err := execCommand(computer, "command -v "+command, nil)
 	if err == nil && resp.ExitCode == 0 {
 		path := strings.TrimSpace(getStdoutFromResponse(resp))
 		if path != "" {
@@ -125,7 +125,7 @@ func resolveAgentCommandPath(computer RemoteSandbox, command string) string {
 	// Check node bin directory (for npm-installed tools)
 	if nodeBin := getNodeBinDir(computer); nodeBin != "" {
 		candidate := fmt.Sprintf("%s/%s", nodeBin, command)
-		resp, err = execCommand(computer, fmt.Sprintf("test -x %s", quoteForShell(candidate)), nil)
+		resp, err = execCommand(computer, "test -x "+quoteForShell(candidate), nil)
 		if err == nil && resp.ExitCode == 0 {
 			return candidate
 		}

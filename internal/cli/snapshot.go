@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -99,7 +100,7 @@ func buildSnapshotUpdateCommand() *cobra.Command {
 			}
 			current := cfg.SnapshotAgents
 			if len(current) == 0 {
-				return fmt.Errorf("no snapshot agents configured. Run `amux snapshot create` first")
+				return errors.New("no snapshot agents configured. Run `amux snapshot create` first")
 			}
 			currentAgents, err := sandbox.ParseAgentList(strings.Join(current, ","))
 			if err != nil {
@@ -124,7 +125,7 @@ func buildSnapshotUpdateCommand() *cobra.Command {
 			next := filterAgents(currentAgents, removeList)
 			next = appendMissingAgents(next, addList)
 			if len(next) == 0 {
-				return fmt.Errorf("snapshot must include at least one agent")
+				return errors.New("snapshot must include at least one agent")
 			}
 			if baseImage == "" {
 				baseImage = cfg.SnapshotBaseImage
@@ -165,7 +166,7 @@ func buildSnapshotUpdateCommand() *cobra.Command {
 	return cmd
 }
 
-func filterAgents(current []sandbox.Agent, remove []sandbox.Agent) []sandbox.Agent {
+func filterAgents(current, remove []sandbox.Agent) []sandbox.Agent {
 	removeSet := map[sandbox.Agent]bool{}
 	for _, agent := range remove {
 		removeSet[agent] = true
@@ -179,7 +180,7 @@ func filterAgents(current []sandbox.Agent, remove []sandbox.Agent) []sandbox.Age
 	return out
 }
 
-func appendMissingAgents(current []sandbox.Agent, add []sandbox.Agent) []sandbox.Agent {
+func appendMissingAgents(current, add []sandbox.Agent) []sandbox.Agent {
 	set := map[sandbox.Agent]bool{}
 	for _, agent := range current {
 		set[agent] = true

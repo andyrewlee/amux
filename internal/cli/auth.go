@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -31,7 +32,7 @@ func buildAuthCommand() *cobra.Command {
 					case "gh", "github":
 						return runGhAuthLogin()
 					default:
-						return fmt.Errorf("unknown provider: use gh")
+						return errors.New("unknown provider: use gh")
 					}
 				}
 				cfg, err := sandbox.LoadConfig()
@@ -43,7 +44,7 @@ func buildAuthCommand() *cobra.Command {
 					return err
 				}
 				if apiKey == "" {
-					return fmt.Errorf("no API key provided")
+					return errors.New("no API key provided")
 				}
 				cfg.DaytonaAPIKey = apiKey
 				if err := sandbox.SaveConfig(cfg); err != nil {
@@ -95,7 +96,7 @@ func buildAuthCommand() *cobra.Command {
 				fmt.Fprintln(cliStdout, "If you use env vars, unset AMUX_DAYTONA_API_KEY")
 				return nil
 			default:
-				return fmt.Errorf("unknown action: use login, logout, or status")
+				return errors.New("unknown action: use login, logout, or status")
 			}
 		},
 	}
@@ -123,12 +124,12 @@ func runGhAuthLogin() error {
 		return err
 	}
 	if meta == nil {
-		return fmt.Errorf("no sandbox exists - run `amux sandbox run <agent>` first to create one")
+		return errors.New("no sandbox exists - run `amux sandbox run <agent>` first to create one")
 	}
 
 	sb, err := providerInstance.GetSandbox(context.Background(), meta.SandboxID)
 	if err != nil {
-		return fmt.Errorf("sandbox not found - run `amux sandbox run <agent>` to create one")
+		return errors.New("sandbox not found - run `amux sandbox run <agent>` to create one")
 	}
 
 	// Ensure sandbox is started
@@ -157,7 +158,7 @@ func runGhAuthLogin() error {
 	}
 
 	if !ensureGhCli(sb) {
-		return fmt.Errorf("GitHub CLI is required for device login")
+		return errors.New("github CLI is required for device login")
 	}
 
 	status, _ := sb.Exec(context.Background(), `bash -lc "gh auth status -h github.com >/dev/null 2>&1"`, nil)
@@ -203,7 +204,7 @@ func runGhAuthLogin() error {
 		return err
 	}
 	if exitCode != 0 {
-		return fmt.Errorf("GitHub auth session exited with code %d", exitCode)
+		return fmt.Errorf("github auth session exited with code %d", exitCode)
 	}
 	return nil
 }

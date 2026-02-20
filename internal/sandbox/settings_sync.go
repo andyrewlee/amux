@@ -185,19 +185,19 @@ func syncAgentSettings(computer RemoteSandbox, homeDir, computerHome string, age
 	switch agent {
 	case AgentClaude:
 		localPath = filepath.Join(homeDir, ".claude", "settings.json")
-		remotePath = fmt.Sprintf("%s/.claude/settings.json", computerHome)
+		remotePath = computerHome + "/.claude/settings.json"
 	case AgentCodex:
 		localPath = filepath.Join(homeDir, ".codex", "config.toml")
-		remotePath = fmt.Sprintf("%s/.config/codex/config.toml", computerHome)
+		remotePath = computerHome + "/.config/codex/config.toml"
 	case AgentOpenCode:
 		localPath = filepath.Join(homeDir, ".config", "opencode", "config.json")
-		remotePath = fmt.Sprintf("%s/.config/opencode/config.json", computerHome)
+		remotePath = computerHome + "/.config/opencode/config.json"
 	case AgentAmp:
 		localPath = filepath.Join(homeDir, ".config", "amp", "config.json")
-		remotePath = fmt.Sprintf("%s/.config/amp/config.json", computerHome)
+		remotePath = computerHome + "/.config/amp/config.json"
 	case AgentGemini:
 		localPath = filepath.Join(homeDir, ".gemini", "settings.json")
-		remotePath = fmt.Sprintf("%s/.gemini/settings.json", computerHome)
+		remotePath = computerHome + "/.gemini/settings.json"
 	default:
 		return nil
 	}
@@ -250,7 +250,7 @@ func syncGitConfig(computer RemoteSandbox, homeDir, computerHome string, verbose
 		return nil
 	}
 
-	remotePath := fmt.Sprintf("%s/.gitconfig", computerHome)
+	remotePath := computerHome + "/.gitconfig"
 	ctx, cancel := context.WithTimeout(context.Background(), settingsUploadTimeout)
 	defer cancel()
 	if err := uploadBytes(ctx, computer, []byte(safeConfig), remotePath); err != nil {
@@ -266,7 +266,7 @@ func syncGitConfig(computer RemoteSandbox, homeDir, computerHome string, verbose
 
 // filterSensitiveJSON removes potentially sensitive keys from JSON config
 func filterSensitiveJSON(data []byte) ([]byte, error) {
-	var obj map[string]interface{}
+	var obj map[string]any
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return data, nil // Not valid JSON, return as-is
 	}
@@ -284,8 +284,8 @@ func filterSensitiveJSON(data []byte) ([]byte, error) {
 }
 
 // filterMapKeys recursively removes sensitive keys from a map
-func filterMapKeys(obj map[string]interface{}, sensitiveKeys []string) map[string]interface{} {
-	result := make(map[string]interface{})
+func filterMapKeys(obj map[string]any, sensitiveKeys []string) map[string]any {
+	result := make(map[string]any)
 
 	for k, v := range obj {
 		// Check if key contains sensitive words
@@ -303,7 +303,7 @@ func filterMapKeys(obj map[string]interface{}, sensitiveKeys []string) map[strin
 		}
 
 		// Recursively filter nested maps
-		if nested, ok := v.(map[string]interface{}); ok {
+		if nested, ok := v.(map[string]any); ok {
 			result[k] = filterMapKeys(nested, sensitiveKeys)
 		} else {
 			result[k] = v

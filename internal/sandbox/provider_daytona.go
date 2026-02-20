@@ -160,13 +160,13 @@ func (s *daytonaSandbox) Exec(ctx context.Context, cmd string, opts *ExecOptions
 }
 
 func (s *daytonaSandbox) ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer, opts *ExecOptions) (int, error) {
-	sshAccess, err := s.inner.CreateSshAccess(60)
+	sshAccess, err := s.inner.CreateSSHAccess(60)
 	if err != nil {
 		return 1, err
 	}
-	defer func() { _ = s.inner.RevokeSshAccess(sshAccess.Token) }()
+	defer func() { _ = s.inner.RevokeSSHAccess(sshAccess.Token) }()
 
-	runnerDomain, err := waitForSshAccessDaytona(s.inner, sshAccess.Token)
+	runnerDomain, err := waitForSSHAccessDaytona(s.inner, sshAccess.Token)
 	if err != nil {
 		return 1, err
 	}
@@ -188,7 +188,7 @@ func (s *daytonaSandbox) ExecInteractive(ctx context.Context, cmd string, stdin 
 			remoteCommand = fmt.Sprintf("cd %s && %s", ShellQuote(opts.Cwd), remoteCommand)
 		}
 	}
-	remoteCommand = fmt.Sprintf("bash -lc %s", ShellQuote(remoteCommand))
+	remoteCommand = "bash -lc " + ShellQuote(remoteCommand)
 
 	sshArgs := []string{
 		"-tt",
@@ -205,7 +205,7 @@ func (s *daytonaSandbox) ExecInteractive(ctx context.Context, cmd string, stdin 
 	cmdExec.Stderr = stderr
 	if err := cmdExec.Start(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return 1, errors.New("ssh is required to run interactive sessions. Install OpenSSH and try again.")
+			return 1, errors.New("ssh is required to run interactive sessions; install OpenSSH and try again")
 		}
 		return 1, err
 	}
@@ -319,11 +319,11 @@ func (v *daytonaVolumeManager) GetOrCreate(ctx context.Context, name string) (*V
 }
 
 func (v *daytonaVolumeManager) Delete(ctx context.Context, name string) error {
-	return fmt.Errorf("volume delete is not supported by the Daytona API")
+	return errors.New("volume delete is not supported by the Daytona API")
 }
 
 func (v *daytonaVolumeManager) List(ctx context.Context) ([]*VolumeInfo, error) {
-	return nil, fmt.Errorf("volume listing is not supported by the Daytona API")
+	return nil, errors.New("volume listing is not supported by the Daytona API")
 }
 
 func (v *daytonaVolumeManager) WaitReady(ctx context.Context, name string, timeout time.Duration) (*VolumeInfo, error) {
@@ -342,7 +342,7 @@ type daytonaSnapshotManager struct {
 	client *daytona.Daytona
 }
 
-func (s *daytonaSnapshotManager) Create(ctx context.Context, name string, baseImage string, onLogs func(string)) (*SnapshotInfo, error) {
+func (s *daytonaSnapshotManager) Create(ctx context.Context, name, baseImage string, onLogs func(string)) (*SnapshotInfo, error) {
 	image := BuildSnapshotImage(DefaultSnapshotAgents, baseImage)
 	snap, err := s.client.Snapshot.Create(daytona.CreateSnapshotParams{
 		Name:  name,
@@ -368,7 +368,7 @@ func (s *daytonaSnapshotManager) Get(ctx context.Context, name string) (*Snapsho
 }
 
 func (s *daytonaSnapshotManager) Delete(ctx context.Context, name string) error {
-	return fmt.Errorf("snapshot delete is not supported by the Daytona API")
+	return errors.New("snapshot delete is not supported by the Daytona API")
 }
 
 func (s *daytonaSnapshotManager) List(ctx context.Context) ([]*SnapshotInfo, error) {

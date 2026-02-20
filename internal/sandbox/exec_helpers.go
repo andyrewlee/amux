@@ -2,7 +2,7 @@ package sandbox
 
 import (
 	"context"
-	"fmt"
+	"errors"
 )
 
 // execCommand executes a command, respecting opts.Timeout if provided.
@@ -10,7 +10,7 @@ import (
 // and the provider is expected to enforce any default timeout.
 func execCommand(computer RemoteSandbox, cmd string, opts *ExecOptions) (*ExecResult, error) {
 	if computer == nil {
-		return nil, fmt.Errorf("sandbox is nil")
+		return nil, errors.New("sandbox is nil")
 	}
 
 	// If opts specifies a timeout, apply it to the context

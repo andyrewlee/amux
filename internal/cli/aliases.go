@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 // buildAgentAliasCommand creates a top-level alias for `amux sandbox run <agent>`.
 // This allows users to simply run `amux claude` instead of `amux sandbox run claude`.
-func buildAgentAliasCommand(agent string, description string) *cobra.Command {
+func buildAgentAliasCommand(agent, description string) *cobra.Command {
 	var envVars []string
 	var volumes []string
 	var credentials string
@@ -72,7 +73,7 @@ func buildAgentAliasCommand(agent string, description string) *cobra.Command {
 	return cmd
 }
 
-func runAgentAlias(agentName string, envVars, volumes []string, credentials string, snapshotID string, noSync bool, autoStop int32, forceUpdate bool, keep bool, keepExplicit bool, syncSettings, noSyncSettings bool, previewPort int, previewExplicit bool, previewNoOpen bool, recordLogs bool, passthroughArgs []string) error {
+func runAgentAlias(agentName string, envVars, volumes []string, credentials, snapshotID string, noSync bool, autoStop int32, forceUpdate, keep, keepExplicit, syncSettings, noSyncSettings bool, previewPort int, previewExplicit, previewNoOpen, recordLogs bool, passthroughArgs []string) error {
 	agent := sandbox.Agent(agentName)
 
 	cwd, err := os.Getwd()
@@ -112,7 +113,7 @@ func runAgentAlias(agentName string, envVars, volumes []string, credentials stri
 			credMode = "auto"
 		}
 	default:
-		return fmt.Errorf("invalid credentials mode: use sandbox, none, or auto")
+		return errors.New("invalid credentials mode: use sandbox, none, or auto")
 	}
 	if credMode == "auto" {
 		if agent == sandbox.AgentShell {
@@ -146,7 +147,7 @@ func runAgentAlias(agentName string, envVars, volumes []string, credentials stri
 	}
 
 	if previewExplicit && (previewPort < 1 || previewPort > 65535) {
-		return fmt.Errorf("preview port must be between 1 and 65535")
+		return errors.New("preview port must be between 1 and 65535")
 	}
 	if previewPort != 0 && !keepExplicit {
 		keep = true

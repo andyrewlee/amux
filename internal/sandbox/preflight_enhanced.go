@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -367,7 +368,7 @@ func checkTerminal(ctx context.Context) PreflightResult {
 	}
 
 	isTerminal := (fi.Mode() & os.ModeCharDevice) != 0
-	result.Details["is_terminal"] = fmt.Sprintf("%v", isTerminal)
+	result.Details["is_terminal"] = strconv.FormatBool(isTerminal)
 
 	if term := os.Getenv("TERM"); term != "" {
 		result.Details["TERM"] = term

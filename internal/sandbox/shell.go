@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -184,13 +185,13 @@ var SafeCommands = struct {
 	Which    func(cmd string) string
 }{
 	MkdirP: func(path string) string {
-		return fmt.Sprintf("mkdir -p %s", ShellQuote(path))
+		return "mkdir -p " + ShellQuote(path)
 	},
 	RmRf: func(path string) string {
-		return fmt.Sprintf("rm -rf %s", ShellQuote(path))
+		return "rm -rf " + ShellQuote(path)
 	},
 	RmF: func(path string) string {
-		return fmt.Sprintf("rm -f %s", ShellQuote(path))
+		return "rm -f " + ShellQuote(path)
 	},
 	Ln: func(target, link string) string {
 		return fmt.Sprintf("ln -s %s %s", ShellQuote(target), ShellQuote(link))
@@ -199,10 +200,10 @@ var SafeCommands = struct {
 		return fmt.Sprintf("ln -sfn %s %s", ShellQuote(target), ShellQuote(link))
 	},
 	Touch: func(path string) string {
-		return fmt.Sprintf("touch %s", ShellQuote(path))
+		return "touch " + ShellQuote(path)
 	},
 	Cat: func(path string) string {
-		return fmt.Sprintf("cat %s", ShellQuote(path))
+		return "cat " + ShellQuote(path)
 	},
 	Test: func(flag, path string) string {
 		if !strings.HasPrefix(flag, "-") || len(flag) != 2 {
@@ -236,10 +237,10 @@ var SafeCommands = struct {
 		return fmt.Sprintf("tar -xzf %s -C %s", ShellQuote(archive), ShellQuote(dir))
 	},
 	CommandV: func(cmd string) string {
-		return fmt.Sprintf("command -v %s", ShellQuote(cmd))
+		return "command -v " + ShellQuote(cmd)
 	},
 	Which: func(cmd string) string {
-		return fmt.Sprintf("which %s", ShellQuote(cmd))
+		return "which " + ShellQuote(cmd)
 	},
 }
 
@@ -276,7 +277,7 @@ func RedactSecrets(s string) string {
 func ValidatePath(path string) error {
 	// Check for null bytes
 	if strings.Contains(path, "\x00") {
-		return fmt.Errorf("path contains null byte")
+		return errors.New("path contains null byte")
 	}
 
 	// Check for path traversal attempts that are suspicious

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -64,7 +65,7 @@ Use --all to update all supported agents.`,
 					agentName = args[0]
 				}
 				if !sandbox.IsValidAgent(agentName) {
-					return fmt.Errorf("invalid agent: use claude, codex, opencode, amp, gemini, or droid")
+					return errors.New("invalid agent: use claude, codex, opencode, amp, gemini, or droid")
 				}
 				agent := sandbox.Agent(agentName)
 
@@ -112,7 +113,7 @@ func buildSandboxRmCommand() *cobra.Command {
 				return nil
 			}
 			if len(args) == 0 {
-				return fmt.Errorf("provide a sandbox ID or use --project to remove the current project sandbox")
+				return errors.New("provide a sandbox ID or use --project to remove the current project sandbox")
 			}
 			if err := sandbox.RemoveSandbox(providerInstance, cwd, args[0]); err != nil {
 				return err
@@ -145,7 +146,7 @@ sandboxes start clean without requiring manual Daytona cleanup.`,
 
 			next := strings.TrimSpace(name)
 			if next == "" {
-				next = fmt.Sprintf("amux-persist-%s", time.Now().UTC().Format("20060102-150405"))
+				next = "amux-persist-" + time.Now().UTC().Format("20060102-150405")
 			}
 			if next == current {
 				return fmt.Errorf("new persistence volume name matches current: %s", current)
@@ -208,7 +209,7 @@ func confirmChoice(prompt string) bool {
 
 func resolveCurrentSandbox(provider sandbox.Provider, cwd string) (sandbox.RemoteSandbox, bool, error) {
 	if provider == nil {
-		return nil, false, fmt.Errorf("provider is required")
+		return nil, false, errors.New("provider is required")
 	}
 	meta, err := sandbox.LoadSandboxMeta(cwd, provider.Name())
 	if err != nil {
@@ -228,7 +229,7 @@ func resolveCurrentSandbox(provider sandbox.Provider, cwd string) (sandbox.Remot
 		}
 		fmt.Fprintln(os.Stderr, "Existing sandbox not found. Run `amux sandbox run <agent>` to create one.")
 	}
-	return nil, false, fmt.Errorf("no sandbox for this project - run `amux sandbox run <agent>` first")
+	return nil, false, errors.New("no sandbox for this project - run `amux sandbox run <agent>` first")
 }
 
 // exitError lets commands return a specific exit code without printing an error.

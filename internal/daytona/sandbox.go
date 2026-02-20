@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -152,21 +153,21 @@ func (s *Sandbox) RefreshData() error {
 	return nil
 }
 
-// CreateSshAccess creates SSH access for the sandbox.
-func (s *Sandbox) CreateSshAccess(expiresInMinutes int32) (*SshAccess, error) {
+// CreateSSHAccess creates SSH access for the sandbox.
+func (s *Sandbox) CreateSSHAccess(expiresInMinutes int32) (*SSHAccess, error) {
 	query := url.Values{}
 	if expiresInMinutes > 0 {
-		query.Set("expiresInMinutes", fmt.Sprintf("%d", expiresInMinutes))
+		query.Set("expiresInMinutes", strconv.Itoa(int(expiresInMinutes)))
 	}
-	var dto SshAccess
+	var dto SSHAccess
 	if err := s.client.doRequest(context.Background(), httpMethodPost, "/sandbox/"+url.PathEscape(s.ID)+"/ssh-access", query, nil, &dto); err != nil {
 		return nil, err
 	}
 	return &dto, nil
 }
 
-// RevokeSshAccess revokes SSH access.
-func (s *Sandbox) RevokeSshAccess(token string) error {
+// RevokeSSHAccess revokes SSH access.
+func (s *Sandbox) RevokeSSHAccess(token string) error {
 	query := url.Values{}
 	if token != "" {
 		query.Set("token", token)
@@ -174,11 +175,11 @@ func (s *Sandbox) RevokeSshAccess(token string) error {
 	return s.client.doRequest(context.Background(), httpMethodDelete, "/sandbox/"+url.PathEscape(s.ID)+"/ssh-access", query, nil, nil)
 }
 
-// ValidateSshAccess validates SSH access token.
-func (s *Sandbox) ValidateSshAccess(token string) (*SshAccessValidation, error) {
+// ValidateSSHAccess validates SSH access token.
+func (s *Sandbox) ValidateSSHAccess(token string) (*SSHAccessValidation, error) {
 	query := url.Values{}
 	query.Set("token", token)
-	var dto SshAccessValidation
+	var dto SSHAccessValidation
 	if err := s.client.doRequest(context.Background(), httpMethodGet, "/sandbox/ssh-access/validate", query, nil, &dto); err != nil {
 		return nil, err
 	}

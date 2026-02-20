@@ -110,12 +110,12 @@ func (e *SandboxError) UserMessage() string {
 
 	// Add suggestion if available
 	if e.Suggestion != "" {
-		b.WriteString(fmt.Sprintf("\n\nSuggestion: %s", e.Suggestion))
+		b.WriteString("\n\nSuggestion: " + e.Suggestion)
 	} else {
 		// Generate default suggestions based on error code
 		suggestion := e.defaultSuggestion()
 		if suggestion != "" {
-			b.WriteString(fmt.Sprintf("\n\nSuggestion: %s", suggestion))
+			b.WriteString("\n\nSuggestion: " + suggestion)
 		}
 	}
 

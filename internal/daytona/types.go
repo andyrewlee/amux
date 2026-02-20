@@ -82,16 +82,16 @@ type Volume struct {
 	ErrorReason string `json:"errorReason"`
 }
 
-// SshAccess represents SSH access data.
-type SshAccess struct {
+// SSHAccess represents SSH access data.
+type SSHAccess struct {
 	ID        string    `json:"id"`
 	SandboxID string    `json:"sandboxId"`
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-// SshAccessValidation represents SSH access validation results.
-type SshAccessValidation struct {
+// SSHAccessValidation represents SSH access validation results.
+type SSHAccessValidation struct {
 	Valid        bool   `json:"valid"`
 	SandboxID    string `json:"sandboxId"`
 	RunnerDomain string `json:"runnerDomain"`
@@ -110,12 +110,12 @@ type ComputerUseStatus struct {
 
 // ComputerUseStartResponse reports start results.
 type ComputerUseStartResponse struct {
-	Message string                 `json:"message"`
-	Status  map[string]interface{} `json:"status"`
+	Message string         `json:"message"`
+	Status  map[string]any `json:"status"`
 }
 
 // ComputerUseStopResponse reports stop results.
 type ComputerUseStopResponse struct {
-	Message string                 `json:"message"`
-	Status  map[string]interface{} `json:"status"`
+	Message string         `json:"message"`
+	Status  map[string]any `json:"status"`
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,17 +42,17 @@ func RunFirstRunWizard() (*WizardConfig, error) {
 		if !confirm("Do you have a Daytona API key ready to configure?") {
 			fmt.Fprintln(cliStdout)
 			fmt.Fprintln(cliStdout, "You can run `amux setup` later to configure your API key.")
-			return nil, fmt.Errorf("setup canceled")
+			return nil, errors.New("setup canceled")
 		}
 
 		apiKey := prompt("Enter your Daytona API key:")
 		if apiKey == "" {
-			return nil, fmt.Errorf("API key is required")
+			return nil, errors.New("api key is required")
 		}
 
 		// Save API key to shell profile
 		if confirm("Save API key to your shell profile?") {
-			if err := appendToShellProfile(fmt.Sprintf("export DAYTONA_API_KEY=%s", apiKey)); err != nil {
+			if err := appendToShellProfile("export DAYTONA_API_KEY=" + apiKey); err != nil {
 				fmt.Fprintf(cliStdout, "\033[33m!\033[0m Could not save to profile: %v\n", err)
 				fmt.Fprintln(cliStdout, "  Add this to your shell profile manually:")
 				fmt.Fprintf(cliStdout, "  export DAYTONA_API_KEY=%s\n", apiKey)

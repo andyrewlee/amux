@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -60,7 +61,7 @@ func (p *ClaudePlugin) VersionCommand() string {
 func (p *ClaudePlugin) Validate(computer RemoteSandbox) error {
 	resp, err := execCommand(computer, "command -v claude", nil)
 	if err != nil || resp.ExitCode != 0 {
-		return fmt.Errorf("claude not found in PATH")
+		return errors.New("claude not found in PATH")
 	}
 	return nil
 }
@@ -117,7 +118,7 @@ func (p *CodexPlugin) VersionCommand() string {
 func (p *CodexPlugin) Validate(computer RemoteSandbox) error {
 	resp, err := execCommand(computer, "command -v codex", nil)
 	if err != nil || resp.ExitCode != 0 {
-		return fmt.Errorf("codex not found in PATH")
+		return errors.New("codex not found in PATH")
 	}
 	return nil
 }
@@ -177,7 +178,7 @@ func (p *OpenCodePlugin) VersionCommand() string {
 func (p *OpenCodePlugin) Validate(computer RemoteSandbox) error {
 	resp, err := execCommand(computer, "command -v opencode", nil)
 	if err != nil || resp.ExitCode != 0 {
-		return fmt.Errorf("opencode not found in PATH")
+		return errors.New("opencode not found in PATH")
 	}
 	return nil
 }
@@ -235,7 +236,7 @@ func (p *AmpPlugin) VersionCommand() string {
 func (p *AmpPlugin) Validate(computer RemoteSandbox) error {
 	resp, err := execCommand(computer, "command -v amp || test -x $HOME/.amp/bin/amp", nil)
 	if err != nil || resp.ExitCode != 0 {
-		return fmt.Errorf("amp not found in PATH")
+		return errors.New("amp not found in PATH")
 	}
 	return nil
 }
@@ -293,7 +294,7 @@ func (p *GeminiPlugin) VersionCommand() string {
 func (p *GeminiPlugin) Validate(computer RemoteSandbox) error {
 	resp, err := execCommand(computer, "command -v gemini", nil)
 	if err != nil || resp.ExitCode != 0 {
-		return fmt.Errorf("gemini not found in PATH")
+		return errors.New("gemini not found in PATH")
 	}
 	return nil
 }
@@ -344,7 +345,7 @@ func (p *DroidPlugin) VersionCommand() string {
 func (p *DroidPlugin) Validate(computer RemoteSandbox) error {
 	resp, err := execCommand(computer, "command -v droid || test -x $HOME/.factory/bin/droid", nil)
 	if err != nil || resp.ExitCode != 0 {
-		return fmt.Errorf("droid not found in PATH")
+		return errors.New("droid not found in PATH")
 	}
 	return nil
 }

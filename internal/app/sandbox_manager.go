@@ -78,7 +78,7 @@ func (m *SandboxManager) storeSession(session *sandboxSession) {
 
 func (m *SandboxManager) attachSession(wt *data.Workspace) (*sandboxSession, error) {
 	if wt == nil {
-		return nil, fmt.Errorf("workspace is required")
+		return nil, errors.New("workspace is required")
 	}
 	worktreeID := sandbox.ComputeWorktreeID(wt.Root)
 	if existing := m.sessionFor(worktreeID); existing != nil {
@@ -134,7 +134,7 @@ func (m *SandboxManager) attachSession(wt *data.Workspace) (*sandboxSession, err
 
 func (m *SandboxManager) ensureSession(wt *data.Workspace, agent sandbox.Agent) (*sandboxSession, error) {
 	if wt == nil {
-		return nil, fmt.Errorf("workspace is required")
+		return nil, errors.New("workspace is required")
 	}
 	worktreeID := sandbox.ComputeWorktreeID(wt.Root)
 	if existing := m.sessionFor(worktreeID); existing != nil {
@@ -332,15 +332,15 @@ func (m *SandboxManager) GitStatus(wt *data.Workspace) (*git.StatusResult, error
 	return git.ParseStatus(resp.Stdout), nil
 }
 
-func buildRemoteCommand(workspacePath string, command string, env map[string]string) string {
+func buildRemoteCommand(workspacePath, command string, env map[string]string) string {
 	parts := make([]string, 0, 3)
 	if len(env) > 0 {
 		parts = append(parts, sandbox.BuildEnvExports(env)...)
 	}
 	if workspacePath != "" {
-		parts = append(parts, fmt.Sprintf("cd %s", sandbox.ShellQuote(workspacePath)))
+		parts = append(parts, "cd "+sandbox.ShellQuote(workspacePath))
 	}
 	parts = append(parts, command)
 	script := strings.Join(parts, "\n")
-	return fmt.Sprintf("bash -lc %s", sandbox.ShellQuote(script))
+	return "bash -lc " + sandbox.ShellQuote(script)
 }

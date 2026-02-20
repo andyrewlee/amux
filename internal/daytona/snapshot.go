@@ -3,6 +3,7 @@ package daytona
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -42,9 +43,9 @@ func (s *SnapshotService) Create(params CreateSnapshotParams, options *SnapshotC
 	case *Image:
 		payload["buildInfo"] = map[string]any{"dockerfileContent": img.Dockerfile()}
 	case nil:
-		return nil, fmt.Errorf("image is required")
+		return nil, errors.New("image is required")
 	default:
-		return nil, fmt.Errorf("image must be a string or *Image")
+		return nil, errors.New("image must be a string or *Image")
 	}
 
 	var created Snapshot
@@ -52,7 +53,7 @@ func (s *SnapshotService) Create(params CreateSnapshotParams, options *SnapshotC
 		return nil, err
 	}
 	if created.ID == "" {
-		return nil, fmt.Errorf("failed to create snapshot")
+		return nil, errors.New("failed to create snapshot")
 	}
 
 	terminal := map[string]bool{

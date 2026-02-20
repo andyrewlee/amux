@@ -205,7 +205,7 @@ func (m *MockRemoteSandbox) SetHomeDir(dir string) {
 }
 
 // SetExecResult sets the result for commands starting with the given prefix.
-func (m *MockRemoteSandbox) SetExecResult(cmdPrefix string, output string, exitCode int) {
+func (m *MockRemoteSandbox) SetExecResult(cmdPrefix, output string, exitCode int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ExecResults[cmdPrefix] = MockExecResult{Output: output, ExitCode: exitCode}

@@ -14,16 +14,16 @@ import (
 	"github.com/andyrewlee/amux/internal/daytona"
 )
 
-func waitForSshAccessDaytona(ds *daytona.Sandbox, token string) (string, error) {
+func waitForSSHAccessDaytona(ds *daytona.Sandbox, token string) (string, error) {
 	deadline := time.Now().Add(sshReadyTimeout)
 	for time.Now().Before(deadline) {
-		validation, err := ds.ValidateSshAccess(token)
+		validation, err := ds.ValidateSSHAccess(token)
 		if err == nil && validation.Valid {
 			return validation.RunnerDomain, nil
 		}
 		time.Sleep(sshReadyInterval)
 	}
-	return "", errors.New("SSH access token not ready. Try again.")
+	return "", errors.New("ssh access token not ready; try again")
 }
 
 type agentCommandSpec struct {
@@ -84,7 +84,7 @@ func buildAgentCommandSpec(s RemoteSandbox, cfg AgentConfig) (agentCommandSpec, 
 		shellInteractiveFlag = " -i"
 	}
 
-	exportHome := fmt.Sprintf("export HOME=%s", quoteForShell(homeDir))
+	exportHome := "export HOME=" + quoteForShell(homeDir)
 	exportTerm := strings.Join([]string{
 		`if [ -z "$TERM" ] || [ "$TERM" = "dumb" ]; then`,
 		`  export TERM=xterm-256color`,
@@ -137,8 +137,8 @@ func buildAgentCommandSpec(s RemoteSandbox, cfg AgentConfig) (agentCommandSpec, 
 		`    if [ -d "$p" ]; then export PATH="$p:$PATH"; fi`,
 		`  done`,
 		`fi`,
-		fmt.Sprintf("cd %s", safeWorkspace),
-		fmt.Sprintf("AMUX_RESOLVED=%s", safeResolved),
+		"cd "+safeWorkspace,
+		"AMUX_RESOLVED="+safeResolved,
 		`NODE_BIN=$(command -v node 2>/dev/null || true)`,
 		`if [ -z "$NODE_BIN" ]; then`,
 		`  for p in /usr/local/share/nvm/versions/node/*/bin/node /usr/local/share/nvm/current/bin/node /usr/local/bin/node /usr/bin/node; do`,
@@ -192,7 +192,7 @@ func buildAgentCommandSpec(s RemoteSandbox, cfg AgentConfig) (agentCommandSpec, 
 	}()))
 
 	commandBlock := strings.Join(append(innerCommand, execLines...), "\n")
-	remoteCommand := fmt.Sprintf("bash -lc %s", quoteForShell(commandBlock))
+	remoteCommand := "bash -lc " + quoteForShell(commandBlock)
 
 	return agentCommandSpec{
 		Command:       command,
@@ -223,15 +223,15 @@ func (s *daytonaSandbox) RunAgentInteractive(cfg AgentConfig) (int, error) {
 		return 1, errors.New("interactive mode requires a TTY")
 	}
 
-	sshAccess, err := s.inner.CreateSshAccess(60)
+	sshAccess, err := s.inner.CreateSSHAccess(60)
 	if err != nil {
 		return 1, err
 	}
 	defer func() {
-		_ = s.inner.RevokeSshAccess(sshAccess.Token)
+		_ = s.inner.RevokeSSHAccess(sshAccess.Token)
 	}()
 
-	runnerDomain, err := waitForSshAccessDaytona(s.inner, sshAccess.Token)
+	runnerDomain, err := waitForSSHAccessDaytona(s.inner, sshAccess.Token)
 	if err != nil {
 		return 1, err
 	}
@@ -314,7 +314,7 @@ func (s *daytonaSandbox) RunAgentInteractive(cfg AgentConfig) (int, error) {
 			_ = pipeReader.Close()
 		}
 		if errors.Is(err, exec.ErrNotFound) {
-			return 1, errors.New("ssh is required to run interactive sessions. Install OpenSSH and try again.")
+			return 1, errors.New("ssh is required to run interactive sessions; install OpenSSH and try again")
 		}
 		return 1, err
 	}

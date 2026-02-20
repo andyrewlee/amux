@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -133,7 +134,7 @@ func ensureGzipFile(localPath string) error {
 	if snippet != "" {
 		return fmt.Errorf("downloaded archive is invalid. First bytes: %s", snippet)
 	}
-	return fmt.Errorf("downloaded archive is invalid")
+	return errors.New("downloaded archive is invalid")
 }
 
 func isArchiveError(err error) bool {

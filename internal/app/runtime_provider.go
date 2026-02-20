@@ -1,7 +1,7 @@
 package app
 
 import (
-	"fmt"
+	"errors"
 	"os"
 
 	"github.com/andyrewlee/amux/internal/config"
@@ -44,7 +44,7 @@ func (p *RuntimeAgentProvider) CreateViewer(wt *data.Workspace, command string, 
 	return p.local.CreateViewer(wt, command, "", rows, cols)
 }
 
-func (p *RuntimeAgentProvider) CreateViewerWithTags(wt *data.Workspace, command string, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*pty.Agent, error) {
+func (p *RuntimeAgentProvider) CreateViewerWithTags(wt *data.Workspace, command, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*pty.Agent, error) {
 	if wt != nil && data.NormalizeRuntime(wt.Runtime) == data.RuntimeCloudSandbox {
 		return p.sandbox.CreateViewer(wt, command, rows, cols)
 	}
@@ -72,7 +72,7 @@ func (p *RuntimeAgentProvider) CloseAll() {
 // CreateTerminalForWorkspace returns a shell terminal based on runtime.
 func (p *RuntimeAgentProvider) CreateTerminalForWorkspace(wt *data.Workspace) (*pty.Terminal, error) {
 	if wt == nil {
-		return nil, fmt.Errorf("workspace is required")
+		return nil, errors.New("workspace is required")
 	}
 	if data.NormalizeRuntime(wt.Runtime) == data.RuntimeCloudSandbox {
 		return p.sandbox.CreateShell(wt)

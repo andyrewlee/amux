@@ -152,7 +152,7 @@ func GetDaytonaClient() (*daytona.Daytona, error) {
 		apiKey = envFirst(envAmuxDaytonaAPIKey, envDaytonaAPIKey)
 	}
 	if apiKey == "" {
-		return nil, errors.New("Daytona API key not found. Set AMUX_DAYTONA_API_KEY or run `amux auth login`.")
+		return nil, errors.New("daytona API key not found; set AMUX_DAYTONA_API_KEY or run `amux auth login`")
 	}
 	apiURL := cfg.DaytonaAPIURL
 	if apiURL == "" {

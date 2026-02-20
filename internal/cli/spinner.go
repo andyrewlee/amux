@@ -106,6 +106,6 @@ func WithSpinner(message string, fn func() error) error {
 		spinner.StopWithMessage(fmt.Sprintf("✗ %s failed", message))
 		return err
 	}
-	spinner.StopWithMessage(fmt.Sprintf("✓ %s", message))
+	spinner.StopWithMessage("✓ " + message)
 	return nil
 }
