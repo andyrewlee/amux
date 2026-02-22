@@ -161,3 +161,42 @@ func TestResolveTmuxActivityScanRole_OwnerResolveDoesNotRenewHeartbeat(t *testin
 		t.Fatalf("expected owner resolve to keep heartbeat at %d, got %d", beforeHeartbeat, afterHeartbeat)
 	}
 }
+
+func TestEncodeDecodeTmuxActivitySnapshot_EncodesWorkspaceIDsSafely(t *testing.T) {
+	now := time.Now()
+	raw := encodeTmuxActivitySnapshot(map[string]bool{
+		"ws-with,comma": true,
+		"ws/with space": true,
+	}, 7, now)
+
+	active, epoch, at, ok := decodeTmuxActivitySnapshot(raw)
+	if !ok {
+		t.Fatalf("expected snapshot to decode, raw=%q", raw)
+	}
+	if epoch != 7 {
+		t.Fatalf("expected epoch 7, got %d", epoch)
+	}
+	if at.UnixMilli() != now.UnixMilli() {
+		t.Fatalf("expected timestamp %d, got %d", now.UnixMilli(), at.UnixMilli())
+	}
+	if !active["ws-with,comma"] || !active["ws/with space"] {
+		t.Fatalf("expected decoded workspace IDs with delimiters, got %v", active)
+	}
+}
+
+func TestDecodeTmuxActivitySnapshot_LegacyUnencodedWorkspaceIDs(t *testing.T) {
+	raw := "3;1700000000000;ws-a,ws-b"
+	active, epoch, at, ok := decodeTmuxActivitySnapshot(raw)
+	if !ok {
+		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
+	}
+	if epoch != 3 {
+		t.Fatalf("expected epoch 3, got %d", epoch)
+	}
+	if at.UnixMilli() != 1700000000000 {
+		t.Fatalf("expected timestamp 1700000000000, got %d", at.UnixMilli())
+	}
+	if !active["ws-a"] || !active["ws-b"] {
+		t.Fatalf("expected legacy workspace IDs to remain readable, got %v", active)
+	}
+}

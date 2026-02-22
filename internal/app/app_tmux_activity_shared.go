@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/base64"
 	"sort"
 	"strconv"
 	"strings"
@@ -152,13 +153,11 @@ func writeTmuxActivityOwnerLease(opts tmux.Options, ownerID string, epoch int64,
 	if epoch < 1 {
 		epoch = 1
 	}
-	if err := tmux.SetGlobalOptionValue(tmuxActivityOwnerOption, strings.TrimSpace(ownerID), opts); err != nil {
-		return err
-	}
-	if err := tmux.SetGlobalOptionValue(tmuxActivityEpochOption, strconv.FormatInt(epoch, 10), opts); err != nil {
-		return err
-	}
-	return renewTmuxActivityOwnerLeaseHeartbeat(opts, now)
+	return tmux.SetGlobalOptionValues([]tmux.OptionValue{
+		{Key: tmuxActivityOwnerOption, Value: strings.TrimSpace(ownerID)},
+		{Key: tmuxActivityEpochOption, Value: strconv.FormatInt(epoch, 10)},
+		{Key: tmuxActivityHeartbeatOption, Value: strconv.FormatInt(now.UnixMilli(), 10)},
+	}, opts)
 }
 
 func renewTmuxActivityOwnerLeaseHeartbeat(opts tmux.Options, now time.Time) error {
@@ -200,7 +199,11 @@ func encodeTmuxActivitySnapshot(active map[string]bool, epoch int64, now time.Ti
 		}
 	}
 	sort.Strings(ids)
-	return strconv.FormatInt(epoch, 10) + ";" + strconv.FormatInt(now.UnixMilli(), 10) + ";" + strings.Join(ids, ",")
+	encodedIDs := make([]string, 0, len(ids))
+	for _, wsID := range ids {
+		encodedIDs = append(encodedIDs, "b:"+base64.RawURLEncoding.EncodeToString([]byte(wsID)))
+	}
+	return strconv.FormatInt(epoch, 10) + ";" + strconv.FormatInt(now.UnixMilli(), 10) + ";" + strings.Join(encodedIDs, ",")
 }
 
 func decodeTmuxActivitySnapshot(raw string) (map[string]bool, int64, time.Time, bool) {
@@ -227,6 +230,15 @@ func decodeTmuxActivitySnapshot(raw string) (map[string]bool, int64, time.Time, 
 	}
 	for _, candidate := range strings.Split(payload, ",") {
 		wsID := strings.TrimSpace(candidate)
+		if wsID == "" {
+			continue
+		}
+		if strings.HasPrefix(wsID, "b:") {
+			decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(wsID, "b:"))
+			if err == nil {
+				wsID = strings.TrimSpace(string(decoded))
+			}
+		}
 		if wsID == "" {
 			continue
 		}

@@ -99,6 +99,7 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 			map[string]string{"@amux": "1", "@amux_type": "agent"},
 			[]string{
 				"@amux_created_at",
+				"session_activity",
 				tmux.TagLastOutputAt,
 				tmux.TagLastInputAt,
 				tmux.TagSessionLeaseAt,
@@ -344,17 +345,16 @@ func activityTagTime(tags map[string]string) time.Time {
 			best = candidate
 		}
 	}
-	if raw := strings.TrimSpace(tags[tmux.TagSessionLeaseAt]); raw != "" {
-		if parsed, ok := activity.ParseLastOutputAtTag(raw); ok {
-			updateBest(parsed)
+	for _, key := range []string{
+		"session_activity",
+		tmux.TagSessionLeaseAt,
+		tmux.TagLastOutputAt,
+		tmux.TagLastInputAt,
+	} {
+		raw := strings.TrimSpace(tags[key])
+		if raw == "" {
+			continue
 		}
-	}
-	if raw := strings.TrimSpace(tags[tmux.TagLastOutputAt]); raw != "" {
-		if parsed, ok := activity.ParseLastOutputAtTag(raw); ok {
-			updateBest(parsed)
-		}
-	}
-	if raw := strings.TrimSpace(tags[tmux.TagLastInputAt]); raw != "" {
 		if parsed, ok := activity.ParseLastOutputAtTag(raw); ok {
 			updateBest(parsed)
 		}

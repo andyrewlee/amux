@@ -356,6 +356,12 @@ func tmuxShowOptionMissingError(stderr string) bool {
 	return strings.Contains(message, "invalid option") || strings.Contains(message, "unknown option")
 }
 
+// OptionValue represents a tmux option key/value pair.
+type OptionValue struct {
+	Key   string
+	Value string
+}
+
 // SetGlobalOptionValue sets a tmux global option value.
 func SetGlobalOptionValue(key, value string, opts Options) error {
 	if strings.TrimSpace(key) == "" {
@@ -375,6 +381,48 @@ func SetGlobalOptionValue(key, value string, opts Options) error {
 					return nil
 				}
 				return fmt.Errorf("set-option -g %s: %s", key, stderr)
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+// SetGlobalOptionValues sets multiple tmux global options in a single tmux command.
+func SetGlobalOptionValues(values []OptionValue, opts Options) error {
+	if len(values) == 0 {
+		return nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	args := make([]string, 0, len(values)*6)
+	added := 0
+	for _, candidate := range values {
+		key := strings.TrimSpace(candidate.Key)
+		if key == "" {
+			continue
+		}
+		if added > 0 {
+			args = append(args, ";")
+		}
+		args = append(args, "set-option", "-g", key, candidate.Value)
+		added++
+	}
+	if added == 0 {
+		return nil
+	}
+	cmd, cancel := tmuxCommand(opts, args...)
+	defer cancel()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				stderr := strings.TrimSpace(string(output))
+				if strings.Contains(stderr, "invalid option") || strings.Contains(stderr, "unknown option") {
+					return nil
+				}
+				return fmt.Errorf("set-option -g (multi): %s", stderr)
 			}
 		}
 		return err

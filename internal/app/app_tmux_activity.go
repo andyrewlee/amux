@@ -222,9 +222,10 @@ func (a *App) runTmuxActivityScan(
 				ScannerEpoch:       epoch,
 				RoleKnown:          true,
 			}
+		} else {
+			sharedRoleKnown = true
+			ownerEpoch = epoch
 		}
-		sharedRoleKnown = true
-		ownerEpoch = epoch
 	}
 
 	sessions, stoppedTabs, err := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
@@ -266,6 +267,7 @@ func (a *App) runTmuxActivityScan(
 			}
 		} else {
 			result.ScannerOwner = false
+			result.SkipApply = true
 			if leaseEpoch > 0 {
 				result.ScannerEpoch = leaseEpoch
 			}

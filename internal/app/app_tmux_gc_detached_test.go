@@ -197,6 +197,46 @@ func TestGcStaleDetachedAgentSessions_SkipsFreshAndAttached(t *testing.T) {
 	}
 }
 
+func TestGcStaleDetachedAgentSessions_UsesSessionActivityFallback(t *testing.T) {
+	now := time.Now()
+	stale := now.Add(-(detachedAgentStaleAfter + time.Hour)).UnixMilli()
+	recentSessionActivity := now.Add(-2 * time.Hour).Unix()
+
+	ops := &detachedGCOps{
+		rows: []tmux.SessionTagValues{
+			{
+				Name: "active-via-session-activity",
+				Tags: map[string]string{
+					tmux.TagSessionLeaseAt: strconv.FormatInt(stale, 10),
+					"session_activity":     strconv.FormatInt(recentSessionActivity, 10),
+				},
+			},
+		},
+		allStates: map[string]tmux.SessionState{
+			"active-via-session-activity": {Exists: true, HasLivePane: false},
+		},
+		clients: map[string]bool{
+			"active-via-session-activity": false,
+		},
+	}
+
+	app := &App{
+		tmuxAvailable: true,
+		tmuxService:   newTmuxService(ops),
+	}
+	msg := app.gcStaleDetachedAgentSessions()()
+	result, ok := msg.(staleDetachedAgentGCResult)
+	if !ok {
+		t.Fatalf("expected staleDetachedAgentGCResult, got %T", msg)
+	}
+	if result.Killed != 0 {
+		t.Fatalf("expected killed=0, got %d", result.Killed)
+	}
+	if result.SkippedFresh != 1 {
+		t.Fatalf("expected skipped_fresh=1, got %d", result.SkippedFresh)
+	}
+}
+
 func TestActivityTagTime_ParsesMixedUnits(t *testing.T) {
 	base := time.Now().Add(-6 * time.Hour).Truncate(time.Second)
 	secondsTS := base.Add(5 * time.Minute)
@@ -226,5 +266,22 @@ func TestActivityTagTime_CreatedAtFallback(t *testing.T) {
 	}
 	if got.Unix() != created.Unix() {
 		t.Fatalf("expected created_at fallback unix %d, got %d", created.Unix(), got.Unix())
+	}
+}
+
+func TestActivityTagTime_UsesSessionActivity(t *testing.T) {
+	now := time.Now()
+	stale := now.Add(-48 * time.Hour).UnixMilli()
+	sessionActivity := now.Add(-90 * time.Minute).Unix()
+
+	got := activityTagTime(map[string]string{
+		tmux.TagSessionLeaseAt: strconv.FormatInt(stale, 10),
+		"session_activity":     strconv.FormatInt(sessionActivity, 10),
+	})
+	if got.IsZero() {
+		t.Fatal("expected non-zero activity time from session_activity")
+	}
+	if got.Unix() != sessionActivity {
+		t.Fatalf("expected session_activity unix %d, got %d", sessionActivity, got.Unix())
 	}
 }

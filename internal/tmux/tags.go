@@ -163,3 +163,61 @@ func SetSessionTagValue(sessionName, key, value string, opts Options) error {
 	}
 	return nil
 }
+
+// SetSessionTagValues sets multiple tmux session options for the given session
+// in a single tmux command invocation. Returns nil if the session no longer
+// exists (killed between create and tag).
+func SetSessionTagValues(sessionName string, tags []OptionValue, opts Options) error {
+	if sessionName == "" || len(tags) == 0 {
+		return nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	// Pre-check with has-session (which supports "=" exact matching) to avoid
+	// set-option prefix-matching a different session if this one was killed.
+	exists, err := hasSession(sessionName, opts)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+
+	args := make([]string, 0, len(tags)*6)
+	added := 0
+	target := exactSessionOptionTarget(sessionName)
+	for _, candidate := range tags {
+		key := strings.TrimSpace(candidate.Key)
+		if key == "" {
+			continue
+		}
+		if added > 0 {
+			args = append(args, ";")
+		}
+		args = append(args, "set-option", "-t", target, key, candidate.Value)
+		added++
+	}
+	if added == 0 {
+		return nil
+	}
+
+	cmd, cancel := tmuxCommand(opts, args...)
+	defer cancel()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				stderr := strings.TrimSpace(string(output))
+				if strings.Contains(stderr, "session not found") ||
+					strings.Contains(stderr, "no such session") ||
+					strings.Contains(stderr, "can't find session") {
+					return nil
+				}
+				return fmt.Errorf("set-option -t %s (multi): %s", sessionName, stderr)
+			}
+		}
+		return err
+	}
+	return nil
+}

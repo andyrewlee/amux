@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -146,6 +147,9 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 	if result.ScannerOwner {
 		t.Fatal("expected scanner to drop owner flag after lease takeover")
 	}
+	if !result.SkipApply {
+		t.Fatal("expected local apply to be skipped after lease takeover")
+	}
 	if result.ScannerEpoch != 3 {
 		t.Fatalf("expected scanner epoch to update to current owner epoch 3, got %d", result.ScannerEpoch)
 	}
@@ -170,6 +174,36 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 	}
 	if !shared["ws-new"] {
 		t.Fatalf("expected takeover snapshot to stay intact, got %v", shared)
+	}
+}
+
+func TestRunTmuxActivityScan_OwnerResolutionErrorLeavesRoleUnknown(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := tmux.Options{
+		ServerName:     fmt.Sprintf("amux-noserver-%d", time.Now().UnixNano()),
+		ConfigPath:     "/dev/null",
+		CommandTimeout: 5 * time.Second,
+	}
+
+	app := &App{
+		instanceID: "owner-a",
+		tmuxService: newTmuxService(sessionsWithTagsStubTmuxOps{
+			stubTmuxOps: stubTmuxOps{
+				allStates: map[string]tmux.SessionState{},
+			},
+			rows: []tmux.SessionTagValues{},
+		}),
+	}
+
+	result := app.runTmuxActivityScan(11, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
+	if result.Err != nil {
+		t.Fatalf("unexpected scan error: %v", result.Err)
+	}
+	if result.RoleKnown {
+		t.Fatal("expected role to remain unknown when ownership resolution fails")
+	}
+	if result.ScannerEpoch != 0 {
+		t.Fatalf("expected unknown-role scan epoch 0, got %d", result.ScannerEpoch)
 	}
 }
 

@@ -35,8 +35,11 @@ func (m *Model) userInputActivityTagCmd(tab *Tab) tea.Cmd {
 	opts := m.getTmuxOptions()
 	timestamp := now.UnixMilli()
 	return func() tea.Msg {
-		_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastInputAt, strconv.FormatInt(timestamp, 10), opts)
-		_ = tmux.SetSessionTagValue(sessionName, tmux.TagSessionLeaseAt, strconv.FormatInt(timestamp, 10), opts)
+		raw := strconv.FormatInt(timestamp, 10)
+		_ = tmux.SetSessionTagValues(sessionName, []tmux.OptionValue{
+			{Key: tmux.TagLastInputAt, Value: raw},
+			{Key: tmux.TagSessionLeaseAt, Value: raw},
+		}, opts)
 		return nil
 	}
 }
