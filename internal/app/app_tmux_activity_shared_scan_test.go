@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -102,5 +103,38 @@ func TestRunTmuxActivityScan_ScanErrorIncludesResolvedOwnerMetadata(t *testing.T
 	}
 	if result.ScannerEpoch < 1 {
 		t.Fatalf("expected owner epoch >= 1, got %d", result.ScannerEpoch)
+	}
+}
+
+func TestHandleTmuxActivityResult_AppliesStoppedTabsWhenSkipApply(t *testing.T) {
+	app := &App{
+		tmuxActivityToken:        7,
+		tmuxActivityScanInFlight: true,
+	}
+
+	expected := messages.TabSessionStatus{
+		WorkspaceID: "ws-local",
+		SessionName: "session-a",
+		Status:      "stopped",
+	}
+	cmds := app.handleTmuxActivityResult(tmuxActivityResult{
+		Token:       7,
+		SkipApply:   true,
+		StoppedTabs: []messages.TabSessionStatus{expected},
+	})
+	if len(cmds) != 1 {
+		t.Fatalf("expected stopped-tab command to be enqueued, got %d cmds", len(cmds))
+	}
+	if app.tmuxActivityScanInFlight {
+		t.Fatal("expected scan in-flight flag to be cleared")
+	}
+
+	msg := cmds[0]()
+	got, ok := msg.(messages.TabSessionStatus)
+	if !ok {
+		t.Fatalf("expected TabSessionStatus command message, got %T", msg)
+	}
+	if got != expected {
+		t.Fatalf("expected stopped-tab message %+v, got %+v", expected, got)
 	}
 }

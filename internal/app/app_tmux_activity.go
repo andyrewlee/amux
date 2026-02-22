@@ -142,31 +142,33 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Err != nil {
 		logging.Warn("tmux activity scan failed: %v", msg.Err)
-	} else if !msg.SkipApply {
-		if msg.ActiveWorkspaceIDs == nil {
-			msg.ActiveWorkspaceIDs = make(map[string]bool)
-		}
-		// Merge updated hysteresis states back into the main map (on main thread)
-		for name, state := range msg.UpdatedStates {
-			a.sessionActivityStates[name] = state
-		}
-		if len(msg.StoppedTabs) > 0 {
-			stoppedTabCmds := make([]tea.Cmd, 0, len(msg.StoppedTabs))
-			for _, update := range msg.StoppedTabs {
-				stoppedTabCmds = append(stoppedTabCmds, func() tea.Msg { return update })
+		} else {
+			if len(msg.StoppedTabs) > 0 {
+				stoppedTabCmds := make([]tea.Cmd, 0, len(msg.StoppedTabs))
+				for _, update := range msg.StoppedTabs {
+					stoppedTabCmds = append(stoppedTabCmds, func() tea.Msg { return update })
+				}
+				cmds = append(cmds, common.SafeBatch(stoppedTabCmds...))
 			}
-			cmds = append(cmds, common.SafeBatch(stoppedTabCmds...))
+			if !msg.SkipApply {
+				if msg.ActiveWorkspaceIDs == nil {
+					msg.ActiveWorkspaceIDs = make(map[string]bool)
+				}
+				// Merge updated hysteresis states back into the main map (on main thread)
+				for name, state := range msg.UpdatedStates {
+					a.sessionActivityStates[name] = state
+				}
+				a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
+				a.tmuxActivitySettledScans++
+				if a.tmuxActivitySettledScans >= tmuxActivitySettleScans {
+					a.tmuxActivitySettled = true
+				}
+				a.syncActiveWorkspacesToDashboard()
+				if cmd := a.dashboard.StartSpinnerIfNeeded(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
 		}
-		a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
-		a.tmuxActivitySettledScans++
-		if a.tmuxActivitySettledScans >= tmuxActivitySettleScans {
-			a.tmuxActivitySettled = true
-		}
-		a.syncActiveWorkspacesToDashboard()
-		if cmd := a.dashboard.StartSpinnerIfNeeded(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
 	if a.tmuxActivityRescanPending && a.tmuxAvailable {
 		a.tmuxActivityRescanPending = false
 		if scanCmd := a.scanTmuxActivityNow(); scanCmd != nil {
