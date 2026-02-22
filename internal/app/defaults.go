@@ -37,6 +37,14 @@ const (
 	// tmuxCommandTimeout caps tmux command duration for activity scans.
 	tmuxCommandTimeout = 2 * time.Second
 
+	// tmuxActivityOwnerLeaseTTL controls how long an activity-scan owner lease
+	// stays valid before another instance can take ownership.
+	tmuxActivityOwnerLeaseTTL = 7 * time.Second
+
+	// tmuxActivitySnapshotStaleAfter controls how long shared activity snapshots
+	// are trusted by follower instances.
+	tmuxActivitySnapshotStaleAfter = 10 * time.Second
+
 	// supervisorBackoff controls restart backoff for file/state watchers.
 	supervisorBackoff = 500 * time.Millisecond
 
@@ -53,4 +61,12 @@ const (
 
 	// orphanGCInterval controls how often the periodic tmux orphan GC runs.
 	orphanGCInterval = 60 * time.Second
+
+	// detachedAgentStaleAfter is the inactivity threshold for detached,
+	// clientless agent sessions before they are considered stale.
+	detachedAgentStaleAfter = 24 * time.Hour
+
+	// detachedAgentLivePaneStaleAfter is a stricter threshold for detached
+	// agent sessions that still have a live pane.
+	detachedAgentLivePaneStaleAfter = 72 * time.Hour
 )

@@ -190,7 +190,9 @@ func createWorkspaceTerminalSession(ws *data.Workspace, wsID data.WorkspaceID, o
 		return "", err
 	}
 
-	now := strconv.FormatInt(time.Now().Unix(), 10)
+	now := time.Now()
+	nowUnix := strconv.FormatInt(now.Unix(), 10)
+	nowMS := strconv.FormatInt(now.UnixMilli(), 10)
 	tags := []struct {
 		Key   string
 		Value string
@@ -200,7 +202,10 @@ func createWorkspaceTerminalSession(ws *data.Workspace, wsID data.WorkspaceID, o
 		{Key: "@amux_tab", Value: tabID},
 		{Key: "@amux_type", Value: "terminal"},
 		{Key: "@amux_assistant", Value: "terminal"},
-		{Key: "@amux_created_at", Value: now},
+		{Key: "@amux_created_at", Value: nowUnix},
+		{Key: "@amux_instance", Value: "cli"},
+		{Key: tmux.TagSessionOwner, Value: "cli"},
+		{Key: tmux.TagSessionLeaseAt, Value: nowMS},
 	}
 	for _, tag := range tags {
 		if err := tmuxSetSessionTag(sessionName, tag.Key, tag.Value, opts); err != nil {

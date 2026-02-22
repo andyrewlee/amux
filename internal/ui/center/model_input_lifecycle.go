@@ -36,6 +36,7 @@ func (m *Model) userInputActivityTagCmd(tab *Tab) tea.Cmd {
 	timestamp := now.UnixMilli()
 	return func() tea.Msg {
 		_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastInputAt, strconv.FormatInt(timestamp, 10), opts)
+		_ = tmux.SetSessionTagValue(sessionName, tmux.TagSessionLeaseAt, strconv.FormatInt(timestamp, 10), opts)
 		return nil
 	}
 }

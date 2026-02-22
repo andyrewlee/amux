@@ -22,6 +22,8 @@ const (
 	tagFieldSeparator = "|"
 	TagLastOutputAt   = "@amux_last_output_at"
 	TagLastInputAt    = "@amux_last_input_at"
+	TagSessionOwner   = "@amux_session_owner"
+	TagSessionLeaseAt = "@amux_session_lease_ms"
 )
 
 // SessionsWithTags returns sessions matching the provided tags, plus values for requested tag keys.

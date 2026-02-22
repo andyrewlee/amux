@@ -140,6 +140,7 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 	}
 
 	// Tag the session.
+	now := time.Now()
 	tags := []struct {
 		Key   string
 		Value string
@@ -149,7 +150,10 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 		{Key: "@amux_tab", Value: tabID},
 		{Key: "@amux_type", Value: "agent"},
 		{Key: "@amux_assistant", Value: agentAssistant},
-		{Key: "@amux_created_at", Value: strconv.FormatInt(time.Now().Unix(), 10)},
+		{Key: "@amux_created_at", Value: strconv.FormatInt(now.Unix(), 10)},
+		{Key: "@amux_instance", Value: "cli"},
+		{Key: tmux.TagSessionOwner, Value: "cli"},
+		{Key: tmux.TagSessionLeaseAt, Value: strconv.FormatInt(now.UnixMilli(), 10)},
 	}
 	for _, tag := range tags {
 		if err := tmuxSetSessionTag(sessionName, tag.Key, tag.Value, svc.TmuxOpts); err != nil {

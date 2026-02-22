@@ -28,12 +28,14 @@ type SessionState struct {
 }
 
 type SessionTags struct {
-	WorkspaceID string
-	TabID       string
-	Type        string
-	Assistant   string
-	CreatedAt   int64 // Unix seconds for fresh create/restart; may be zero for reattach.
-	InstanceID  string
+	WorkspaceID  string
+	TabID        string
+	Type         string
+	Assistant    string
+	CreatedAt    int64 // Unix seconds for fresh create/restart; may be zero for reattach.
+	InstanceID   string
+	SessionOwner string
+	LeaseAtMS    int64
 }
 
 const tmuxCommandTimeout = 5 * time.Second
@@ -319,6 +321,55 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+// GlobalOptionValue returns a tmux global option value for the given key.
+// Missing options return an empty value with nil error.
+func GlobalOptionValue(key string, opts Options) (string, error) {
+	if strings.TrimSpace(key) == "" {
+		return "", nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return "", err
+	}
+	cmd, cancel := tmuxCommand(opts, "show-options", "-g", "-v", key)
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return "", nil
+			}
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// SetGlobalOptionValue sets a tmux global option value.
+func SetGlobalOptionValue(key, value string, opts Options) error {
+	if strings.TrimSpace(key) == "" {
+		return nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	cmd, cancel := tmuxCommand(opts, "set-option", "-g", key, value)
+	defer cancel()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				stderr := strings.TrimSpace(string(output))
+				if strings.Contains(stderr, "invalid option") || strings.Contains(stderr, "unknown option") {
+					return nil
+				}
+				return fmt.Errorf("set-option -g %s: %s", key, stderr)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func sanitize(value string) string {
