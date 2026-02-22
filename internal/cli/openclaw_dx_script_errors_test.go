@@ -354,3 +354,47 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 		t.Fatalf("turn args = %q, want dash-prefixed auto-start prompt value passed through", string(argsRaw))
 	}
 }
+
+func TestOpenClawDXWorkspaceDecide_AllowsDashPrefixedTaskValue(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+  "agent list")
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+  *)
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+esac
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+
+	payload := runScriptJSON(t, scriptPath, env,
+		"workspace", "decide",
+		"--project", "/tmp/demo",
+		"--task", "--investigate flaky e2e",
+	)
+
+	if got, _ := payload["status"].(string); got == "command_error" {
+		t.Fatalf("status = %q, want non-command_error for dash-prefixed task value", got)
+	}
+	suggested, _ := payload["suggested_command"].(string)
+	if !strings.Contains(suggested, "--prompt --investigate") || !strings.Contains(suggested, "flaky") || !strings.Contains(suggested, "e2e") {
+		t.Fatalf("suggested_command = %q, want dash-prefixed task value preserved in prompt", suggested)
+	}
+}

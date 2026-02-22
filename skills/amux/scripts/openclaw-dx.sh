@@ -1325,6 +1325,9 @@ workspace_enrich_scope_json() {
   local ws_json="$1"
   local lineage_json
   lineage_json="$(context_workspace_lineage_map)"
+  # Name-based fallback scope inference only treats dotted names as nested when a same-repo
+  # workspace exists for the dot-prefix parent candidate. This reduces false positives, but
+  # names like v2.0-release can still infer nested if a matching "v2" parent exists.
   jq -cn --argjson ws "$ws_json" --argjson lineage "$lineage_json" '
     def valid_scope($scope):
       ($scope == "project" or $scope == "nested");
@@ -7158,6 +7161,7 @@ require_prereqs() {
 }
 
 flag_requires_value() {
+  # Keep this list in sync with openclaw-step.sh/openclaw-turn.sh preflight validators.
   local flag="$1"
   case "$flag" in
     --path|--workspace|--assistant|--base|--limit|--page|--query|--index|--name|--project|--from-workspace|--scope|--task|--prompt|--agent|--text|--capture-lines|--capture-agents|--older-than|--recent-workspaces|--kind|--port|--host|--manager|--message|--max-steps|--turn-budget|--wait-timeout|--idle-threshold|--implement-assistant|--implement-prompt|--review-assistant|--review-prompt|--auto-continue-impl|--auto-continue-impl-prompt)
@@ -7170,9 +7174,10 @@ flag_requires_value() {
 }
 
 flag_allows_flag_like_value() {
+  # Keep this allowlist in sync with openclaw-step.sh/openclaw-turn.sh preflight validators.
   local flag="$1"
   case "$flag" in
-    --prompt|--text|--message|--implement-prompt|--review-prompt|--auto-continue-impl-prompt)
+    --prompt|--text|--message|--task|--implement-prompt|--review-prompt|--auto-continue-impl-prompt)
       return 0
       ;;
     *)
