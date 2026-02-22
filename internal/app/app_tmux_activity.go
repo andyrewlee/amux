@@ -195,10 +195,15 @@ func (a *App) runTmuxActivityScan(
 		if err != nil {
 			logging.Warn("tmux activity ownership resolution failed; falling back to local scan: %v", err)
 		} else if role == tmuxActivityRoleFollower {
+			_, stoppedTabs, syncErr := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
+			if syncErr != nil {
+				logging.Warn("tmux activity follower session-state sync failed: %v", syncErr)
+			}
 			if !applyShared {
 				return tmuxActivityResult{
 					Token:        scanToken,
 					SkipApply:    true,
+					StoppedTabs:  stoppedTabs,
 					ScannerOwner: false,
 					ScannerEpoch: epoch,
 					RoleKnown:    true,
@@ -210,6 +215,7 @@ func (a *App) runTmuxActivityScan(
 			return tmuxActivityResult{
 				Token:              scanToken,
 				ActiveWorkspaceIDs: sharedActive,
+				StoppedTabs:        stoppedTabs,
 				ScannerOwner:       false,
 				ScannerEpoch:       epoch,
 				RoleKnown:          true,
@@ -219,12 +225,16 @@ func (a *App) runTmuxActivityScan(
 		ownerEpoch = epoch
 	}
 
-	sessions, err := activity.FetchTaggedSessions(svc, infoBySession, opts)
+	sessions, stoppedTabs, err := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
 	if err != nil {
-		return tmuxActivityResult{Token: scanToken, Err: err}
+		return tmuxActivityResult{
+			Token:        scanToken,
+			Err:          err,
+			ScannerOwner: sharedRoleKnown,
+			ScannerEpoch: ownerEpoch,
+			RoleKnown:    sharedRoleKnown,
+		}
 	}
-	// Mutates infoBySession so IsRunningSession sees corrected statuses.
-	stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts)
 	recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 	if err != nil {
 		logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
@@ -249,6 +259,20 @@ func (a *App) runTmuxActivityScan(
 		}
 	}
 	return result
+}
+
+func (a *App) fetchAndSyncActivitySessionStates(
+	infoBySession map[string]activity.SessionInfo,
+	opts tmux.Options,
+	svc *tmuxService,
+) ([]activity.TaggedSession, []messages.TabSessionStatus, error) {
+	sessions, err := activity.FetchTaggedSessions(svc, infoBySession, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Mutates infoBySession so IsRunningSession sees corrected statuses.
+	stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts)
+	return sessions, stoppedTabs, nil
 }
 
 func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
