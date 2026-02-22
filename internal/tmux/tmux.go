@@ -324,7 +324,8 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 }
 
 // GlobalOptionValue returns a tmux global option value for the given key.
-// Missing options return an empty value with nil error.
+// Missing options return an empty value with nil error, while connection
+// failures (for example, no running server) are returned as errors.
 func GlobalOptionValue(key string, opts Options) (string, error) {
 	if strings.TrimSpace(key) == "" {
 		return "", nil
@@ -334,16 +335,25 @@ func GlobalOptionValue(key string, opts Options) (string, error) {
 	}
 	cmd, cancel := tmuxCommand(opts, "show-options", "-g", "-v", key)
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
+			if exitErr.ExitCode() == 1 && tmuxShowOptionMissingError(string(output)) {
 				return "", nil
+			}
+			if exitErr.ExitCode() == 1 {
+				stderr := strings.TrimSpace(string(output))
+				return "", fmt.Errorf("show-options -g %s: %s", key, stderr)
 			}
 		}
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func tmuxShowOptionMissingError(stderr string) bool {
+	message := strings.ToLower(strings.TrimSpace(stderr))
+	return strings.Contains(message, "invalid option") || strings.Contains(message, "unknown option")
 }
 
 // SetGlobalOptionValue sets a tmux global option value.

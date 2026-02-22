@@ -256,8 +256,19 @@ func (a *App) runTmuxActivityScan(
 		if result.ScannerEpoch <= 0 {
 			result.ScannerEpoch = 1
 		}
-		if err := a.publishTmuxActivitySnapshot(opts, active, result.ScannerEpoch, time.Now()); err != nil {
-			logging.Warn("tmux activity snapshot publish failed: %v", err)
+		publishAt := time.Now()
+		canPublish, leaseEpoch, err := a.canPublishTmuxActivitySnapshot(opts, result.ScannerEpoch, publishAt)
+		if err != nil {
+			logging.Warn("tmux activity lease revalidation failed before snapshot publish: %v", err)
+		} else if canPublish {
+			if err := a.publishTmuxActivitySnapshot(opts, active, result.ScannerEpoch, publishAt); err != nil {
+				logging.Warn("tmux activity snapshot publish failed: %v", err)
+			}
+		} else {
+			result.ScannerOwner = false
+			if leaseEpoch > 0 {
+				result.ScannerEpoch = leaseEpoch
+			}
 		}
 	}
 	return result

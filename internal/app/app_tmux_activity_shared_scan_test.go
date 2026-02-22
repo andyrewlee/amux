@@ -12,11 +12,15 @@ import (
 
 type sessionsWithTagsStubTmuxOps struct {
 	stubTmuxOps
-	rows []tmux.SessionTagValues
-	err  error
+	rows           []tmux.SessionTagValues
+	err            error
+	onSessionsCall func()
 }
 
 func (s sessionsWithTagsStubTmuxOps) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+	if s.onSessionsCall != nil {
+		s.onSessionsCall()
+	}
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -103,6 +107,69 @@ func TestRunTmuxActivityScan_ScanErrorIncludesResolvedOwnerMetadata(t *testing.T
 	}
 	if result.ScannerEpoch < 1 {
 		t.Fatalf("expected owner epoch >= 1, got %d", result.ScannerEpoch)
+	}
+}
+
+func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := gcTestServer(t)
+
+	initialNow := time.Now()
+	if err := writeTmuxActivityOwnerLease(opts, "owner-a", 2, initialNow); err != nil {
+		t.Fatalf("write initial owner lease: %v", err)
+	}
+	if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(map[string]bool{"ws-old": true}, 2, initialNow), opts); err != nil {
+		t.Fatalf("write initial snapshot: %v", err)
+	}
+
+	app := &App{
+		instanceID: "owner-a",
+		tmuxService: newTmuxService(sessionsWithTagsStubTmuxOps{
+			stubTmuxOps: stubTmuxOps{
+				allStates: map[string]tmux.SessionState{},
+			},
+			onSessionsCall: func() {
+				if err := writeTmuxActivityOwnerLease(opts, "owner-b", 3, time.Now()); err != nil {
+					t.Fatalf("simulate owner takeover: %v", err)
+				}
+				if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(map[string]bool{"ws-new": true}, 3, time.Now()), opts); err != nil {
+					t.Fatalf("write takeover snapshot: %v", err)
+				}
+			},
+		}),
+	}
+
+	result := app.runTmuxActivityScan(42, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
+	if result.Err != nil {
+		t.Fatalf("unexpected scan error: %v", result.Err)
+	}
+	if result.ScannerOwner {
+		t.Fatal("expected scanner to drop owner flag after lease takeover")
+	}
+	if result.ScannerEpoch != 3 {
+		t.Fatalf("expected scanner epoch to update to current owner epoch 3, got %d", result.ScannerEpoch)
+	}
+
+	lease, err := readTmuxActivityOwnerLease(opts)
+	if err != nil {
+		t.Fatalf("read lease after scan: %v", err)
+	}
+	if lease.ownerID != "owner-b" {
+		t.Fatalf("expected takeover owner to remain owner-b, got %q", lease.ownerID)
+	}
+	if lease.epoch != 3 {
+		t.Fatalf("expected takeover epoch to remain 3, got %d", lease.epoch)
+	}
+
+	shared, ok, err := readTmuxActivitySnapshot(opts, time.Now(), 3)
+	if err != nil {
+		t.Fatalf("read snapshot after scan: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected takeover snapshot to remain readable for epoch 3")
+	}
+	if !shared["ws-new"] {
+		t.Fatalf("expected takeover snapshot to stay intact, got %v", shared)
 	}
 }
 

@@ -163,6 +163,36 @@ func TestSetSessionTagValue_AgentIDResolutionRoundtrip(t *testing.T) {
 	}
 }
 
+func TestGlobalOptionValue_MissingOptionReturnsEmpty(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	got, err := GlobalOptionValue("@amux_missing_option", opts)
+	if err != nil {
+		t.Fatalf("GlobalOptionValue missing option: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected empty value for missing option, got %q", got)
+	}
+}
+
+func TestGlobalOptionValue_NoServerReturnsError(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := Options{
+		ServerName:     fmt.Sprintf("amux-noserver-%d", time.Now().UnixNano()),
+		ConfigPath:     "/dev/null",
+		CommandTimeout: 5 * time.Second,
+	}
+
+	got, err := GlobalOptionValue("@amux_missing_option", opts)
+	if err == nil {
+		t.Fatal("expected no-server lookup to return an error")
+	}
+	if got != "" {
+		t.Fatalf("expected empty value on error, got %q", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // PanePIDs tests
 // ---------------------------------------------------------------------------

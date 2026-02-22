@@ -71,11 +71,28 @@ func (a *App) resolveTmuxActivityScanRole(
 	return tmuxActivityRoleOwner, nil, false, candidateEpoch, nil
 }
 
+func (a *App) canPublishTmuxActivitySnapshot(opts tmux.Options, epoch int64, now time.Time) (bool, int64, error) {
+	if strings.TrimSpace(a.instanceID) == "" {
+		return false, 0, nil
+	}
+	lease, err := readTmuxActivityOwnerLease(opts)
+	if err != nil {
+		return false, 0, err
+	}
+	if !ownerLeaseAlive(lease, now) {
+		return false, lease.epoch, nil
+	}
+	if strings.TrimSpace(lease.ownerID) != a.instanceID || lease.epoch != epoch {
+		return false, lease.epoch, nil
+	}
+	return true, lease.epoch, nil
+}
+
 func (a *App) publishTmuxActivitySnapshot(opts tmux.Options, active map[string]bool, epoch int64, now time.Time) error {
 	if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(active, epoch, now), opts); err != nil {
 		return err
 	}
-	return writeTmuxActivityOwnerLease(opts, a.instanceID, epoch, now)
+	return renewTmuxActivityOwnerLeaseHeartbeat(opts, now)
 }
 
 type tmuxActivityLease struct {
@@ -141,6 +158,10 @@ func writeTmuxActivityOwnerLease(opts tmux.Options, ownerID string, epoch int64,
 	if err := tmux.SetGlobalOptionValue(tmuxActivityEpochOption, strconv.FormatInt(epoch, 10), opts); err != nil {
 		return err
 	}
+	return renewTmuxActivityOwnerLeaseHeartbeat(opts, now)
+}
+
+func renewTmuxActivityOwnerLeaseHeartbeat(opts tmux.Options, now time.Time) error {
 	return tmux.SetGlobalOptionValue(tmuxActivityHeartbeatOption, strconv.FormatInt(now.UnixMilli(), 10), opts)
 }
 
