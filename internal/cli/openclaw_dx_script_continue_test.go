@@ -255,8 +255,69 @@ printf '%s' '{"ok":true,"mode":"send","status":"needs_input","overall_status":"n
 		t.Fatalf("next_action should be auto-filled for needs_input")
 	}
 	suggested, _ := payload["suggested_command"].(string)
-	if !strings.Contains(suggested, "openclaw-step.sh send --agent agent-1") {
-		t.Fatalf("suggested_command = %q, want fallback step command", suggested)
+	if !strings.Contains(suggested, "openclaw-dx.sh continue --agent agent-1") {
+		t.Fatalf("suggested_command = %q, want fallback dx continue command", suggested)
+	}
+}
+
+func TestOpenClawDXContinue_AutoFollowsUpNeedsInputOnce(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	fakeTurnPath := filepath.Join(fakeBinDir, "fake-turn.sh")
+	argsLog := filepath.Join(fakeBinDir, "turn-args.log")
+	countFile := filepath.Join(fakeBinDir, "turn-count.txt")
+
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' '{"ok":true,"data":{},"error":null}'
+`)
+
+	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
+set -euo pipefail
+count=0
+if [[ -f "${TURN_COUNT_FILE:?missing TURN_COUNT_FILE}" ]]; then
+  count="$(cat "${TURN_COUNT_FILE}")"
+fi
+count=$((count + 1))
+printf '%s' "$count" > "${TURN_COUNT_FILE}"
+printf '%s\n' "$*" >> "${TURN_ARGS_LOG:?missing TURN_ARGS_LOG}"
+if [[ "$count" -eq 1 ]]; then
+  printf '%s' '{"ok":true,"mode":"send","status":"needs_input","overall_status":"needs_input","summary":"Need guidance","agent_id":"agent-1","workspace_id":"ws-1","next_action":"","suggested_command":"","quick_actions":[],"channel":{"message":"Need guidance","chunks":["Need guidance"],"chunks_meta":[{"index":1,"total":1,"text":"Need guidance"}]}}'
+else
+  printf '%s' '{"ok":true,"mode":"send","status":"idle","overall_status":"completed","summary":"continued","agent_id":"agent-1","workspace_id":"ws-1","channel":{"message":"done","chunks":["done"],"chunks_meta":[{"index":1,"total":1,"text":"done"}]},"quick_actions":[]}'
+fi
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "OPENCLAW_DX_TURN_SCRIPT", fakeTurnPath)
+	env = withEnv(env, "TURN_ARGS_LOG", argsLog)
+	env = withEnv(env, "TURN_COUNT_FILE", countFile)
+
+	payload := runScriptJSON(t, scriptPath, env,
+		"continue",
+		"--agent", "agent-1",
+		"--text", "continue",
+		"--enter",
+	)
+
+	if got, _ := payload["status"].(string); got != "idle" {
+		t.Fatalf("status = %q, want %q", got, "idle")
+	}
+	argsRaw, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatalf("read turn args: %v", err)
+	}
+	args := string(argsRaw)
+	if strings.Count(strings.TrimSpace(args), "\n")+1 < 2 {
+		t.Fatalf("turn args = %q, want two send invocations", args)
+	}
+	if !strings.Contains(args, "If a choice is required, pick the safest high-impact default, continue, and report status plus next action.") {
+		t.Fatalf("turn args = %q, want auto-followup guidance text", args)
 	}
 }
 
@@ -392,80 +453,5 @@ printf '%s' '{"ok":true,"mode":"send","status":"idle","overall_status":"complete
 	args := string(argsRaw)
 	if !strings.Contains(args, "send") || !strings.Contains(args, "--agent agent-1") {
 		t.Fatalf("turn args = %q, expected send with resolved single agent", args)
-	}
-}
-
-func TestOpenClawDXContinue_NoTargetWithMultipleAgentsPromptsSelection(t *testing.T) {
-	requireBinary(t, "jq")
-	requireBinary(t, "bash")
-
-	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-dx.sh")
-	fakeBinDir := t.TempDir()
-	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
-	contextPath := filepath.Join(t.TempDir(), "context.json")
-
-	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "--json" ]]; then
-  shift
-fi
-case "${1:-} ${2:-}" in
-  "agent list")
-    printf '%s' '{"ok":true,"data":[{"session_name":"sess-a","agent_id":"agent-a","workspace_id":"ws-a"},{"session_name":"sess-b","agent_id":"agent-b","workspace_id":"ws-b"}],"error":null}'
-    ;;
-  *)
-    printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"}}' "$*"
-    ;;
-esac
-`)
-
-	env := os.Environ()
-	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
-	env = withEnv(env, "OPENCLAW_DX_CONTEXT_FILE", contextPath)
-
-	payload := runScriptJSON(t, scriptPath, env,
-		"continue",
-		"--text", "Resume now.",
-		"--enter",
-	)
-
-	if got, _ := payload["status"].(string); got != "attention" {
-		t.Fatalf("status = %q, want %q", got, "attention")
-	}
-	suggested, _ := payload["suggested_command"].(string)
-	if !strings.Contains(suggested, "--agent agent-a") {
-		t.Fatalf("suggested_command = %q, want agent selection command", suggested)
-	}
-
-	data, ok := payload["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("data missing or wrong type: %T", payload["data"])
-	}
-	if got, _ := data["reason"].(string); got != "multiple_active_agents" {
-		t.Fatalf("reason = %q, want %q", got, "multiple_active_agents")
-	}
-
-	quickActions, ok := payload["quick_actions"].([]any)
-	if !ok || len(quickActions) == 0 {
-		t.Fatalf("quick_actions missing or empty: %#v", payload["quick_actions"])
-	}
-	var sawFirst bool
-	var sawSecond bool
-	for _, raw := range quickActions {
-		action, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		id, _ := action["id"].(string)
-		cmd, _ := action["command"].(string)
-		if id == "continue_1" && strings.Contains(cmd, "--agent agent-a") {
-			sawFirst = true
-		}
-		if id == "continue_2" && strings.Contains(cmd, "--agent agent-b") {
-			sawSecond = true
-		}
-	}
-	if !sawFirst || !sawSecond {
-		t.Fatalf("expected continue actions for both agents: %#v", quickActions)
 	}
 }

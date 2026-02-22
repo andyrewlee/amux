@@ -104,6 +104,14 @@ esac
 	if !strings.Contains(summary, "pushed existing commits") {
 		t.Fatalf("summary = %q, want pushed existing commits", summary)
 	}
+	channel, ok := payload["channel"].(map[string]any)
+	if !ok {
+		t.Fatalf("channel missing or wrong type: %T", payload["channel"])
+	}
+	message, _ := channel["message"].(string)
+	if !strings.Contains(message, "ws-1 (demo) [project workspace]") {
+		t.Fatalf("channel.message = %q, want workspace scope label", message)
+	}
 	data, ok := payload["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("data missing or wrong type: %T", payload["data"])
@@ -173,9 +181,20 @@ printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"
 	if got, _ := data["recommendation"].(string); got != "nested" {
 		t.Fatalf("recommendation = %q, want %q", got, "nested")
 	}
+	if got, _ := data["parent_workspace_label"].(string); got != "ws-parent (feature) [project workspace]" {
+		t.Fatalf("parent_workspace_label = %q, want %q", got, "ws-parent (feature) [project workspace]")
+	}
 	suggested, _ := payload["suggested_command"].(string)
 	if !strings.Contains(suggested, "workflow kickoff") || !strings.Contains(suggested, "--scope nested") {
 		t.Fatalf("suggested_command = %q, want nested kickoff", suggested)
+	}
+	channel, ok := payload["channel"].(map[string]any)
+	if !ok {
+		t.Fatalf("channel missing or wrong type: %T", payload["channel"])
+	}
+	message, _ := channel["message"].(string)
+	if !strings.Contains(message, "Parent workspace: ws-parent (feature) [project workspace]") {
+		t.Fatalf("channel.message = %q, want parent workspace label", message)
 	}
 }
 
@@ -247,8 +266,12 @@ set -euo pipefail
 if [[ "${1:-}" == "--json" ]]; then
   shift
 fi
-printf '%s\n' "$*" > "${TERMINAL_ARGS_LOG:?missing TERMINAL_ARGS_LOG}"
+if [[ "${1:-}" == "workspace" && "${2:-}" == "list" ]]; then
+  printf '%s' '{"ok":true,"data":[{"id":"ws-1","name":"main","repo":"/tmp/demo","assistant":"codex"}],"error":null}'
+  exit 0
+fi
 if [[ "${1:-}" == "terminal" && "${2:-}" == "run" ]]; then
+  printf '%s\n' "$*" > "${TERMINAL_ARGS_LOG:?missing TERMINAL_ARGS_LOG}"
   printf '%s' '{"ok":true,"data":{"session_name":"term-1","created":true},"error":null}'
   exit 0
 fi
@@ -290,6 +313,14 @@ printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"
 		!strings.Contains(args, `NEXT_TELEMETRY_DISABLED=1; pnpm dev -- --port "3100" --hostname "127.0.0.1"`) ||
 		!strings.Contains(args, "--enter=true") {
 		t.Fatalf("terminal args = %q, expected workspace/pnpm/port/host/enter", args)
+	}
+	channel, ok := payload["channel"].(map[string]any)
+	if !ok {
+		t.Fatalf("channel missing or wrong type: %T", payload["channel"])
+	}
+	message, _ := channel["message"].(string)
+	if !strings.Contains(message, "Workspace: ws-1 (main) [project workspace]") {
+		t.Fatalf("channel.message = %q, want workspace context label", message)
 	}
 }
 
@@ -370,6 +401,14 @@ esac
 	}
 	if !sawCompleted {
 		t.Fatalf("expected completed alert in %#v", alerts)
+	}
+	channel, ok := payload["channel"].(map[string]any)
+	if !ok {
+		t.Fatalf("channel missing or wrong type: %T", payload["channel"])
+	}
+	message, _ := channel["message"].(string)
+	if !strings.Contains(message, "Workspace: ws-1 (demo) [project workspace]") {
+		t.Fatalf("channel.message = %q, want explicit workspace label", message)
 	}
 	quickActions, ok := payload["quick_actions"].([]any)
 	if !ok {
