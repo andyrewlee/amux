@@ -1,8 +1,11 @@
 package app
 
 import (
+	"strconv"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 func TestResolveTmuxActivityScanRole_OwnerFollowerSnapshotEpoch(t *testing.T) {
@@ -109,5 +112,52 @@ func TestResolveTmuxActivityScanRole_FollowerWithoutSnapshotSkipsApply(t *testin
 	}
 	if epoch != 7 {
 		t.Fatalf("expected follower epoch 7, got %d", epoch)
+	}
+}
+
+func TestResolveTmuxActivityScanRole_OwnerResolveDoesNotRenewHeartbeat(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := gcTestServer(t)
+
+	owner := &App{instanceID: "owner-no-resolve-heartbeat"}
+	now := time.Now()
+	_, _, _, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
+	if err != nil {
+		t.Fatalf("resolve owner role: %v", err)
+	}
+	if err := owner.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, epoch, now); err != nil {
+		t.Fatalf("publish snapshot: %v", err)
+	}
+
+	beforeRaw, err := tmux.GlobalOptionValue(tmuxActivityHeartbeatOption, opts)
+	if err != nil {
+		t.Fatalf("read heartbeat before resolve: %v", err)
+	}
+	beforeHeartbeat, err := strconv.ParseInt(beforeRaw, 10, 64)
+	if err != nil {
+		t.Fatalf("parse heartbeat before resolve: %v", err)
+	}
+
+	role, _, _, renewedEpoch, err := owner.resolveTmuxActivityScanRole(opts, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("resolve owner role again: %v", err)
+	}
+	if role != tmuxActivityRoleOwner {
+		t.Fatalf("expected owner role, got %v", role)
+	}
+	if renewedEpoch != epoch {
+		t.Fatalf("expected owner epoch %d, got %d", epoch, renewedEpoch)
+	}
+
+	afterRaw, err := tmux.GlobalOptionValue(tmuxActivityHeartbeatOption, opts)
+	if err != nil {
+		t.Fatalf("read heartbeat after resolve: %v", err)
+	}
+	afterHeartbeat, err := strconv.ParseInt(afterRaw, 10, 64)
+	if err != nil {
+		t.Fatalf("parse heartbeat after resolve: %v", err)
+	}
+	if afterHeartbeat != beforeHeartbeat {
+		t.Fatalf("expected owner resolve to keep heartbeat at %d, got %d", beforeHeartbeat, afterHeartbeat)
 	}
 }

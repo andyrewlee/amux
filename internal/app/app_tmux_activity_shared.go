@@ -47,9 +47,6 @@ func (a *App) resolveTmuxActivityScanRole(
 		if epoch < 1 {
 			epoch = 1
 		}
-		if err := writeTmuxActivityOwnerLease(opts, a.instanceID, epoch, now); err != nil {
-			return tmuxActivityRoleOwner, nil, false, epoch, err
-		}
 		return tmuxActivityRoleOwner, nil, false, epoch, nil
 	}
 
@@ -75,10 +72,10 @@ func (a *App) resolveTmuxActivityScanRole(
 }
 
 func (a *App) publishTmuxActivitySnapshot(opts tmux.Options, active map[string]bool, epoch int64, now time.Time) error {
-	if err := writeTmuxActivityOwnerLease(opts, a.instanceID, epoch, now); err != nil {
+	if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(active, epoch, now), opts); err != nil {
 		return err
 	}
-	return tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(active, epoch, now), opts)
+	return writeTmuxActivityOwnerLease(opts, a.instanceID, epoch, now)
 }
 
 type tmuxActivityLease struct {
