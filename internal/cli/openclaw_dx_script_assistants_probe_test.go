@@ -137,8 +137,8 @@ printf '%s' '{"ok":true,"status":"idle","overall_status":"completed","summary":"
 	if got, _ := payload["command"].(string); got != "assistants" {
 		t.Fatalf("command = %q, want %q", got, "assistants")
 	}
-	if got, _ := payload["status"].(string); got != "needs_input" {
-		t.Fatalf("status = %q, want %q", got, "needs_input")
+	if got, _ := payload["status"].(string); got == "needs_input" {
+		t.Fatalf("status = %q, want non-blocking status when a probe-passed assistant exists", got)
 	}
 	suggested, _ := payload["suggested_command"].(string)
 	if !strings.Contains(suggested, "--assistant codex") {

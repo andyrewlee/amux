@@ -150,6 +150,9 @@ skills/amux/scripts/openclaw-dx.sh project pick --name api
 skills/amux/scripts/openclaw-dx.sh workflow kickoff --project /abs/repo/path --name refactor --assistant codex --prompt "Fix highest-impact tech debt"
 
 # Project or nested workspace decision
+# Terminology:
+# - project workspace: created directly from a project
+# - nested workspace: created from a parent workspace (`--from-workspace`), still starting from the project's default branch
 skills/amux/scripts/openclaw-dx.sh workspace decide --project /abs/repo/path --task "Refactor checkout state" --assistant codex --name refactor
 skills/amux/scripts/openclaw-dx.sh workspace create --name mobile --project /abs/repo/path --assistant codex
 skills/amux/scripts/openclaw-dx.sh workspace create --name refactor --from-workspace <workspace_id> --scope nested --assistant codex

@@ -132,9 +132,20 @@ esac
 	if got, _ := data["stage"].(string); got != "reply_agent" {
 		t.Fatalf("stage = %q, want %q", got, "reply_agent")
 	}
+	if got, _ := data["selected_workspace_label"].(string); got != "ws-1 (mobile) [project workspace]" {
+		t.Fatalf("selected_workspace_label = %q, want %q", got, "ws-1 (mobile) [project workspace]")
+	}
 	suggested, _ := payload["suggested_command"].(string)
 	if !strings.Contains(suggested, "continue --agent agent-1") {
 		t.Fatalf("suggested_command = %q, want continue command", suggested)
+	}
+	channel, ok := payload["channel"].(map[string]any)
+	if !ok {
+		t.Fatalf("channel missing or wrong type: %T", payload["channel"])
+	}
+	message, _ := channel["message"].(string)
+	if !strings.Contains(message, "Workspace: ws-1 (mobile) [project workspace]") {
+		t.Fatalf("channel.message = %q, want workspace label", message)
 	}
 	quickActions, ok := payload["quick_actions"].([]any)
 	if !ok || len(quickActions) == 0 {

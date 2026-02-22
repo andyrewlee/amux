@@ -21,6 +21,85 @@ Usage:
 EOF
 }
 
+json_escape() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$1" | jq -Rsa .
+    return
+  fi
+  local escaped
+  escaped="$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r/\\r/g')"
+  printf '"%s"' "$escaped"
+}
+
+print_json_error() {
+  local mode="$1"
+  local summary="$2"
+  local detail="$3"
+  printf '{'
+  printf '"ok":false,'
+  printf '"mode":%s,' "$(json_escape "$mode")"
+  printf '"status":"command_error",'
+  printf '"summary":%s,' "$(json_escape "$summary")"
+  printf '"next_action":"Fix the command flags and retry.",'
+  printf '"suggested_command":"",'
+  printf '"error":%s' "$(json_escape "$detail")"
+  printf '}\n'
+}
+
+flag_requires_value() {
+  local flag="$1"
+  case "$flag" in
+    --wait-timeout|--idle-threshold|--max-steps|--turn-budget|--followup-text|--workspace|--assistant|--prompt|--agent|--text)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+flag_allows_flag_like_value() {
+  local flag="$1"
+  case "$flag" in
+    --prompt|--text|--followup-text)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_required_flag_values() {
+  local mode="$1"
+  shift || true
+  local expecting=""
+  local token=""
+
+  while [[ $# -gt 0 ]]; do
+    token="$1"
+    shift
+    if [[ -n "$expecting" ]]; then
+      if [[ "$token" == --* ]] && ! flag_allows_flag_like_value "$expecting"; then
+        print_json_error "$mode" "Missing value for flag" "missing value for $expecting"
+        return 1
+      fi
+      expecting=""
+      continue
+    fi
+    if flag_requires_value "$token"; then
+      expecting="$token"
+    fi
+  done
+
+  if [[ -n "$expecting" ]]; then
+    print_json_error "$mode" "Missing value for flag" "missing value for $expecting"
+    return 1
+  fi
+
+  return 0
+}
+
 shell_quote() {
   printf '%q' "$1"
 }
@@ -126,6 +205,10 @@ fi
 
 MODE="$1"
 shift
+
+if ! validate_required_flag_values "$MODE" "$@"; then
+  exit 2
+fi
 
 WAIT_TIMEOUT="60s"
 IDLE_THRESHOLD="10s"

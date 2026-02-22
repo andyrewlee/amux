@@ -220,6 +220,9 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	if got, _ := data["workspace"].(string); got != "ws-1" {
 		t.Fatalf("workspace = %q, want %q", got, "ws-1")
 	}
+	if got, _ := data["workspace_label"].(string); got != "ws-1 (demo) [project workspace]" {
+		t.Fatalf("workspace_label = %q, want %q", got, "ws-1 (demo) [project workspace]")
+	}
 	implementation, ok := data["implementation"].(map[string]any)
 	if !ok {
 		t.Fatalf("implementation missing or wrong type: %T", data["implementation"])
@@ -233,6 +236,14 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	}
 	if got, _ := review["assistant"].(string); got != "codex" {
 		t.Fatalf("review assistant = %q, want %q", got, "codex")
+	}
+	channel, ok := payload["channel"].(map[string]any)
+	if !ok {
+		t.Fatalf("channel missing or wrong type: %T", payload["channel"])
+	}
+	message, _ := channel["message"].(string)
+	if !strings.Contains(message, "Workspace: ws-1 (demo) [project workspace]") {
+		t.Fatalf("channel.message = %q, want workspace label", message)
 	}
 
 	quickActions, ok := payload["quick_actions"].([]any)
@@ -354,5 +365,74 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed
 	}
 	if sawRunReview {
 		t.Fatalf("did not expect run_review quick action when review already ran: %#v", quickActions)
+	}
+}
+
+func TestOpenClawDXWorkflowDual_ReviewNeedsInputUsesNeedsInputHeader(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	fakeTurnPath := filepath.Join(fakeBinDir, "fake-turn.sh")
+
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[{"id":"ws-1","name":"demo","repo":"/tmp/demo"}],"error":null}'
+    ;;
+  *)
+    printf '%s' '{"ok":true,"data":{},"error":null}'
+    ;;
+esac
+`)
+
+	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
+set -euo pipefail
+assistant=""
+for ((i=1; i<=$#; i++)); do
+  if [[ "${!i}" == "--assistant" ]]; then
+    next=$((i+1))
+    assistant="${!next}"
+  fi
+done
+if [[ "$assistant" == "claude" ]]; then
+  printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed","summary":"Implementation completed.","agent_id":"agent-impl","workspace_id":"ws-1","assistant":"claude","next_action":"Run review.","suggested_command":"skills/amux/scripts/openclaw-dx.sh review --workspace ws-1 --assistant codex","quick_actions":[],"channel":{"message":"impl done","chunks":["impl done"],"chunks_meta":[{"index":1,"total":1,"text":"impl done"}],"inline_buttons":[]}}'
+  exit 0
+fi
+printf '%s' '{"ok":true,"mode":"run","status":"needs_input","overall_status":"needs_input","summary":"Need reviewer confirmation.","agent_id":"agent-review","workspace_id":"ws-1","assistant":"codex","next_action":"Reply to review prompt first.","suggested_command":"skills/amux/scripts/openclaw-dx.sh continue --agent agent-review --text \"Continue\" --enter","quick_actions":[],"channel":{"message":"review needs input","chunks":["review needs input"],"chunks_meta":[{"index":1,"total":1,"text":"review needs input"}],"inline_buttons":[]}}'
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "OPENCLAW_DX_TURN_SCRIPT", fakeTurnPath)
+	env = withEnv(env, "OPENCLAW_DX_SELF_SCRIPT", scriptPath)
+	env = withEnv(env, "OPENCLAW_PRESENT_SCRIPT", "/nonexistent")
+
+	payload := runScriptJSON(t, scriptPath, env,
+		"workflow", "dual",
+		"--workspace", "ws-1",
+		"--implement-assistant", "claude",
+		"--review-assistant", "codex",
+	)
+
+	if got, _ := payload["status"].(string); got != "needs_input" {
+		t.Fatalf("status = %q, want %q", got, "needs_input")
+	}
+	channel, ok := payload["channel"].(map[string]any)
+	if !ok {
+		t.Fatalf("channel missing or wrong type: %T", payload["channel"])
+	}
+	message, _ := channel["message"].(string)
+	if !strings.Contains(message, "❓ Dual-pass workflow needs input") {
+		t.Fatalf("channel.message = %q, want needs_input header", message)
+	}
+	if strings.Contains(message, "✅ Dual-pass workflow completed") {
+		t.Fatalf("channel.message = %q, should not show completed header for needs_input status", message)
 	}
 }

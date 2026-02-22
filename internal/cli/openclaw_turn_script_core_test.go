@@ -172,6 +172,73 @@ esac
 	}
 }
 
+func TestOpenClawTurnScriptParseError_MissingFlagValueReturnsJSON(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-turn.sh")
+	cmd := exec.Command(scriptPath, "run", "--workspace")
+	out, _ := cmd.CombinedOutput()
+
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("decode json: %v\nraw: %s", err, string(out))
+	}
+	if got, _ := payload["status"].(string); got != "command_error" {
+		t.Fatalf("status = %q, want %q", got, "command_error")
+	}
+	summary, _ := payload["summary"].(string)
+	if !strings.Contains(summary, "Missing value for flag") {
+		t.Fatalf("summary = %q, want missing value summary", summary)
+	}
+	detail, _ := payload["error"].(string)
+	if !strings.Contains(detail, "missing value for --workspace") {
+		t.Fatalf("error = %q, want missing flag detail", detail)
+	}
+}
+
+func TestOpenClawTurnScriptSend_AllowsDashPrefixedTextValue(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-turn.sh")
+	fakeStepDir := t.TempDir()
+	fakeStepPath := filepath.Join(fakeStepDir, "fake-step.sh")
+	if err := os.WriteFile(fakeStepPath, []byte(`#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' '{"ok":true,"mode":"send","status":"idle","summary":"done","agent_id":"agent-1","workspace_id":"ws-1","assistant":"codex","response":{"substantive_output":true,"needs_input":false},"next_action":"Review changes.","suggested_command":""}'
+`), 0o755); err != nil {
+		t.Fatalf("write fake step script: %v", err)
+	}
+
+	cmd := exec.Command(
+		scriptPath,
+		"send",
+		"--agent", "agent-1",
+		"--text", "--force then retry",
+		"--enter",
+		"--max-steps", "1",
+		"--turn-budget", "30",
+		"--wait-timeout", "1s",
+		"--idle-threshold", "1s",
+	)
+	env := os.Environ()
+	env = withEnv(env, "OPENCLAW_TURN_STEP_SCRIPT", fakeStepPath)
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("openclaw-turn.sh send failed: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("decode json: %v\nraw: %s", err, string(out))
+	}
+	if got, _ := payload["status"].(string); got == "command_error" {
+		t.Fatalf("status = %q, want non-command_error for dash-prefixed text value", got)
+	}
+}
+
 func TestOpenClawTurnScript_CoalescesDuplicateMilestonesAndStopsOnTimeoutStreak(t *testing.T) {
 	requireBinary(t, "jq")
 	requireBinary(t, "bash")

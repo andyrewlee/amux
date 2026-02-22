@@ -162,6 +162,60 @@ print_json_error() {
   printf '}\n'
 }
 
+flag_requires_value() {
+  local flag="$1"
+  case "$flag" in
+    --wait-timeout|--idle-threshold|--idempotency-key|--workspace|--assistant|--prompt|--agent|--text)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+flag_allows_flag_like_value() {
+  local flag="$1"
+  case "$flag" in
+    --prompt|--text)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_required_flag_values() {
+  local mode="$1"
+  shift || true
+  local expecting=""
+  local token=""
+
+  while [[ $# -gt 0 ]]; do
+    token="$1"
+    shift
+    if [[ -n "$expecting" ]]; then
+      if [[ "$token" == --* ]] && ! flag_allows_flag_like_value "$expecting"; then
+        print_json_error "$mode" "command_error" "Missing value for flag" "missing value for $expecting"
+        return 1
+      fi
+      expecting=""
+      continue
+    fi
+    if flag_requires_value "$token"; then
+      expecting="$token"
+    fi
+  done
+
+  if [[ -n "$expecting" ]]; then
+    print_json_error "$mode" "command_error" "Missing value for flag" "missing value for $expecting"
+    return 1
+  fi
+
+  return 0
+}
+
 strip_ansi_text() {
   local input="$1"
   printf '%s' "$input" | sed \
@@ -190,37 +244,6 @@ is_chrome_line() {
       return 1
       ;;
   esac
-}
-
-extract_latest_useful_line() {
-  local raw="$1"
-  local cleaned line
-  local latest=""
-  cleaned="$(strip_ansi_text "$raw")"
-  while IFS= read -r line; do
-    line="$(trim_line "$line")"
-    if [[ -z "$line" ]]; then
-      continue
-    fi
-    if is_chrome_line "$line"; then
-      continue
-    fi
-    latest="$line"
-  done < <(printf '%s\n' "$cleaned")
-  if [[ -n "${latest:-}" ]]; then
-    printf '%s' "$latest"
-    return
-  fi
-
-  # Fallback to the last non-empty trimmed line, even if chrome.
-  while IFS= read -r line; do
-    line="$(trim_line "$line")"
-    if [[ -z "$line" ]]; then
-      continue
-    fi
-    latest="$line"
-  done < <(printf '%s\n' "$cleaned")
-  printf '%s' "${latest:-}"
 }
 
 compact_agent_text() {
@@ -543,6 +566,10 @@ fi
 MODE="$1"
 shift
 
+if ! validate_required_flag_values "$MODE" "$@"; then
+  exit 2
+fi
+
 WAIT_TIMEOUT="60s"
 IDLE_THRESHOLD="10s"
 IDEMPOTENCY_KEY=""
@@ -657,6 +684,12 @@ if [[ "$COMMAND_TIMED_OUT" == "true" ]]; then
 fi
 
 if [[ $CMD_EXIT -ne 0 ]]; then
+  if jq -e . >/dev/null 2>&1 <<<"$RAW_OUTPUT"; then
+    ERR_CODE="$(jq -r '.error.code // "unknown_error"' <<<"$RAW_OUTPUT")"
+    ERR_MSG="$(jq -r '.error.message // "agent step failed"' <<<"$RAW_OUTPUT")"
+    print_json_error "$MODE" "agent_error" "$ERR_CODE" "$ERR_MSG"
+    exit "$CMD_EXIT"
+  fi
   print_json_error "$MODE" "command_error" "amux command failed" "$RAW_OUTPUT"
   exit "$CMD_EXIT"
 fi

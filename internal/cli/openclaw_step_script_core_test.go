@@ -212,6 +212,31 @@ esac
 	}
 }
 
+func TestOpenClawStepScriptParseError_MissingFlagValueReturnsJSON(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "openclaw-step.sh")
+	cmd := exec.Command(scriptPath, "run", "--workspace")
+	out, _ := cmd.CombinedOutput()
+
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("decode json: %v\nraw: %s", err, string(out))
+	}
+	if got, _ := payload["status"].(string); got != "command_error" {
+		t.Fatalf("status = %q, want %q", got, "command_error")
+	}
+	summary, _ := payload["summary"].(string)
+	if !strings.Contains(summary, "Missing value for flag") {
+		t.Fatalf("summary = %q, want missing value summary", summary)
+	}
+	detail, _ := payload["error"].(string)
+	if !strings.Contains(detail, "missing value for --workspace") {
+		t.Fatalf("error = %q, want missing flag detail", detail)
+	}
+}
+
 func TestOpenClawStepScriptRun_SetsBlockedPermissionMode(t *testing.T) {
 	requireBinary(t, "jq")
 	requireBinary(t, "bash")
