@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -313,7 +314,7 @@ func terminalTagChecks(tags tmux.SessionTags) []struct {
 		checks = append(checks, struct {
 			key  string
 			want string
-		}{key: "@amux_created_at", want: fmt.Sprintf("%d", tags.CreatedAt)})
+		}{key: "@amux_created_at", want: strconv.FormatInt(tags.CreatedAt, 10)})
 	}
 	if strings.TrimSpace(tags.InstanceID) != "" {
 		checks = append(checks, struct {
@@ -331,7 +332,7 @@ func terminalTagChecks(tags tmux.SessionTags) []struct {
 		checks = append(checks, struct {
 			key  string
 			want string
-		}{key: tmux.TagSessionLeaseAt, want: fmt.Sprintf("%d", tags.LeaseAtMS)})
+		}{key: tmux.TagSessionLeaseAt, want: strconv.FormatInt(tags.LeaseAtMS, 10)})
 	}
 	return checks
 }
