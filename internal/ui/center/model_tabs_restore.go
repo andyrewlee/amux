@@ -130,11 +130,13 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			}
 		}
 		tags := tmux.SessionTags{
-			WorkspaceID: string(ws.ID()),
-			TabID:       string(tabID),
-			Type:        "agent",
-			Assistant:   assistant,
-			InstanceID:  m.instanceID,
+			WorkspaceID:  string(ws.ID()),
+			TabID:        string(tabID),
+			Type:         "agent",
+			Assistant:    assistant,
+			InstanceID:   m.instanceID,
+			SessionOwner: m.instanceID,
+			LeaseAtMS:    time.Now().UnixMilli(),
 		}
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {

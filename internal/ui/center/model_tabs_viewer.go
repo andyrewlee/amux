@@ -37,12 +37,14 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 		cmd := "vim -- " + escapedFile
 
 		tags := tmux.SessionTags{
-			WorkspaceID: string(ws.ID()),
-			TabID:       string(tabID),
-			Type:        "viewer",
-			Assistant:   "viewer",
-			CreatedAt:   time.Now().Unix(),
-			InstanceID:  m.instanceID,
+			WorkspaceID:  string(ws.ID()),
+			TabID:        string(tabID),
+			Type:         "viewer",
+			Assistant:    "viewer",
+			CreatedAt:    time.Now().Unix(),
+			InstanceID:   m.instanceID,
+			SessionOwner: m.instanceID,
+			LeaseAtMS:    time.Now().UnixMilli(),
 		}
 		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {

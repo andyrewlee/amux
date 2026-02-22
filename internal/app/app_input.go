@@ -296,6 +296,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.handleTmuxSidebarDiscoverResult(msg)...)
 	case orphanGCResult:
 		a.handleOrphanGCResult(msg)
+	case staleDetachedAgentGCResult:
+		a.handleStaleDetachedAgentGCResult(msg)
 	case terminalGCResult:
 		a.handleTerminalGCResult(msg)
 	case sessionCountResult:

@@ -71,7 +71,7 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 }
 
 func appendSessionTags(settings *strings.Builder, base, session string, tags SessionTags) {
-	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Assistant == "" && tags.CreatedAt == 0 && tags.InstanceID == "" {
+	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Assistant == "" && tags.CreatedAt == 0 && tags.InstanceID == "" && tags.SessionOwner == "" && tags.LeaseAtMS == 0 {
 		return
 	}
 	settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux 1 2>/dev/null; ", base, session))
@@ -92,5 +92,11 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 	}
 	if tags.InstanceID != "" {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_instance %s 2>/dev/null; ", base, session, shellQuote(tags.InstanceID)))
+	}
+	if tags.SessionOwner != "" {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s %s %s 2>/dev/null; ", base, session, TagSessionOwner, shellQuote(tags.SessionOwner)))
+	}
+	if tags.LeaseAtMS > 0 {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s %s %s 2>/dev/null; ", base, session, TagSessionLeaseAt, shellQuote(strconv.FormatInt(tags.LeaseAtMS, 10))))
 	}
 }

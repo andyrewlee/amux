@@ -43,12 +43,14 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			scrollback, _ = tmux.CapturePane(sessionName, opts)
 		}
 		tags := tmux.SessionTags{
-			WorkspaceID: wsID,
-			TabID:       string(tabID),
-			Type:        "terminal",
-			Assistant:   "terminal",
-			CreatedAt:   time.Now().Unix(),
-			InstanceID:  instanceID,
+			WorkspaceID:  wsID,
+			TabID:        string(tabID),
+			Type:         "terminal",
+			Assistant:    "terminal",
+			CreatedAt:    time.Now().Unix(),
+			InstanceID:   instanceID,
+			SessionOwner: instanceID,
+			LeaseAtMS:    time.Now().UnixMilli(),
 		}
 		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
@@ -178,11 +180,13 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			}
 		}
 		tags := tmux.SessionTags{
-			WorkspaceID: wsID,
-			TabID:       string(tabID),
-			Type:        "terminal",
-			Assistant:   "terminal",
-			InstanceID:  instanceID,
+			WorkspaceID:  wsID,
+			TabID:        string(tabID),
+			Type:         "terminal",
+			Assistant:    "terminal",
+			InstanceID:   instanceID,
+			SessionOwner: instanceID,
+			LeaseAtMS:    time.Now().UnixMilli(),
 		}
 		if action == "restart" {
 			tags.CreatedAt = time.Now().Unix()
@@ -316,6 +320,18 @@ func terminalTagChecks(tags tmux.SessionTags) []struct {
 			key  string
 			want string
 		}{key: "@amux_instance", want: strings.TrimSpace(tags.InstanceID)})
+	}
+	if strings.TrimSpace(tags.SessionOwner) != "" {
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: tmux.TagSessionOwner, want: strings.TrimSpace(tags.SessionOwner)})
+	}
+	if tags.LeaseAtMS > 0 {
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: tmux.TagSessionLeaseAt, want: fmt.Sprintf("%d", tags.LeaseAtMS)})
 	}
 	return checks
 }

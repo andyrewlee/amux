@@ -122,6 +122,9 @@ type App struct {
 	tmuxActivityRescanPending bool
 	tmuxActivitySettled       bool
 	tmuxActivitySettledScans  int
+	tmuxActivityScannerOwner  bool
+	tmuxActivityOwnershipSet  bool
+	tmuxActivityOwnerEpoch    int64
 	tmuxOptions               tmux.Options
 	tmuxAvailable             bool
 	tmuxCheckDone             bool
