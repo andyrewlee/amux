@@ -59,6 +59,10 @@ Then run `amux` to open the dashboard.
 
 Each workspace tracks a repo checkout and its metadata. For local workflows, workspaces are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done.
 
+Workspace scope terminology:
+- **Project workspace**: created directly for a project (`amux workspace create <name> --project <repo>`). By default, it starts from the project's default branch.
+- **Nested workspace**: created from an existing workspace context (OpenClaw DX: `workspace create --scope nested --from-workspace <id>`). It remains isolated, and also starts from the project's default branch.
+
 ## Architecture quick tour
 
 Start with `internal/app/ARCHITECTURE.md` for lifecycle, PTY flow, tmux tagging, and persistence invariants. Message boundaries and command discipline are documented in `internal/app/MESSAGE_FLOW.md`.

@@ -34,6 +34,15 @@ shell_quote() {
   printf '%q' "$1"
 }
 
+require_flag_value() {
+  local flag="$1"
+  local value="${2-}"
+  if [[ -z "${value// }" || "$value" == --* ]]; then
+    echo "missing value for $flag" >&2
+    exit 2
+  fi
+}
+
 REPO_PATH=""
 WORKSPACE_NAME="mobile-dogfood"
 ASSISTANT="codex"
@@ -44,12 +53,16 @@ REPORT_DIR_CREATED=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo)
+      require_flag_value "--repo" "${2-}"
       REPO_PATH="$2"; shift 2 ;;
     --workspace)
+      require_flag_value "--workspace" "${2-}"
       WORKSPACE_NAME="$2"; shift 2 ;;
     --assistant)
+      require_flag_value "--assistant" "${2-}"
       ASSISTANT="$2"; shift 2 ;;
     --report-dir)
+      require_flag_value "--report-dir" "${2-}"
       REPORT_DIR="$2"; shift 2 ;;
     --keep-temp)
       KEEP_TEMP=true; shift ;;
