@@ -113,6 +113,10 @@ func (tmuxOps) SessionHasClients(sessionName string, opts tmux.Options) (bool, e
 	return tmux.SessionHasClients(sessionName, opts)
 }
 
+func (tmuxOps) SessionNamesWithClients(opts tmux.Options) (map[string]bool, error) {
+	return tmux.SessionNamesWithClients(opts)
+}
+
 func (tmuxOps) SessionCreatedAt(sessionName string, opts tmux.Options) (int64, error) {
 	return tmux.SessionCreatedAt(sessionName, opts)
 }

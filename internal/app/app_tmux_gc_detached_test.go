@@ -11,14 +11,23 @@ import (
 type detachedGCOps struct {
 	tmuxOps
 
-	rows      []tmux.SessionTagValues
-	allStates map[string]tmux.SessionState
-	clients   map[string]bool
-	createdAt map[string]int64
-	killed    []string
+	rows                   []tmux.SessionTagValues
+	allStates              map[string]tmux.SessionState
+	clients                map[string]bool
+	createdAt              map[string]int64
+	killed                 []string
+	lastMatch              map[string]string
+	sessionHasClientsCalls int
+	bulkClientNames        map[string]bool
+	bulkClientListCalls    int
+	bulkClientListErr      error
 }
 
-func (d *detachedGCOps) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+func (d *detachedGCOps) SessionsWithTags(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
+	d.lastMatch = make(map[string]string, len(match))
+	for key, value := range match {
+		d.lastMatch[key] = value
+	}
 	return d.rows, nil
 }
 
@@ -30,7 +39,25 @@ func (d *detachedGCOps) AllSessionStates(tmux.Options) (map[string]tmux.SessionS
 }
 
 func (d *detachedGCOps) SessionHasClients(sessionName string, opts tmux.Options) (bool, error) {
+	d.sessionHasClientsCalls++
 	return d.clients[sessionName], nil
+}
+
+func (d *detachedGCOps) SessionNamesWithClients(opts tmux.Options) (map[string]bool, error) {
+	d.bulkClientListCalls++
+	if d.bulkClientListErr != nil {
+		return nil, d.bulkClientListErr
+	}
+	if d.bulkClientNames == nil {
+		return nil, nil
+	}
+	out := make(map[string]bool, len(d.bulkClientNames))
+	for name, hasClients := range d.bulkClientNames {
+		if hasClients {
+			out[name] = true
+		}
+	}
+	return out, nil
 }
 
 func (d *detachedGCOps) SessionCreatedAt(sessionName string, opts tmux.Options) (int64, error) {
@@ -51,6 +78,35 @@ func TestGcStaleDetachedAgentSessions_SkipsWhenFollower(t *testing.T) {
 	}
 	if cmd := app.gcStaleDetachedAgentSessions(); cmd != nil {
 		t.Fatal("expected nil cmd for follower instance")
+	}
+}
+
+func TestGcStaleDetachedAgentSessions_FiltersByInstanceID(t *testing.T) {
+	ops := &detachedGCOps{
+		rows:      []tmux.SessionTagValues{},
+		allStates: map[string]tmux.SessionState{},
+	}
+	app := &App{
+		tmuxAvailable: true,
+		instanceID:    "instance-a",
+		tmuxService:   newTmuxService(ops),
+	}
+	msg := app.gcStaleDetachedAgentSessions()()
+	result, ok := msg.(staleDetachedAgentGCResult)
+	if !ok {
+		t.Fatalf("expected staleDetachedAgentGCResult, got %T", msg)
+	}
+	if result.Err != nil {
+		t.Fatalf("unexpected GC error: %v", result.Err)
+	}
+	if ops.lastMatch["@amux"] != "1" {
+		t.Fatalf("expected @amux match, got %v", ops.lastMatch)
+	}
+	if ops.lastMatch["@amux_type"] != "agent" {
+		t.Fatalf("expected @amux_type=agent, got %v", ops.lastMatch)
+	}
+	if ops.lastMatch["@amux_instance"] != "instance-a" {
+		t.Fatalf("expected instance-scoped match, got %v", ops.lastMatch)
 	}
 }
 
@@ -194,6 +250,67 @@ func TestGcStaleDetachedAgentSessions_SkipsFreshAndAttached(t *testing.T) {
 	}
 	if result.SkippedAttached != 1 {
 		t.Fatalf("expected skipped_attached=1, got %d", result.SkippedAttached)
+	}
+}
+
+func TestGcStaleDetachedAgentSessions_UsesBulkClientListWhenAvailable(t *testing.T) {
+	now := time.Now()
+	stale := now.Add(-(detachedAgentStaleAfter + time.Hour)).UnixMilli()
+
+	ops := &detachedGCOps{
+		rows: []tmux.SessionTagValues{
+			{
+				Name: "attached-agent",
+				Tags: map[string]string{
+					tmux.TagSessionLeaseAt: strconv.FormatInt(stale, 10),
+				},
+			},
+			{
+				Name: "stale-agent",
+				Tags: map[string]string{
+					tmux.TagSessionLeaseAt: strconv.FormatInt(stale, 10),
+				},
+			},
+		},
+		allStates: map[string]tmux.SessionState{
+			"attached-agent": {Exists: true, HasLivePane: false},
+			"stale-agent":    {Exists: true, HasLivePane: false},
+		},
+		clients: map[string]bool{
+			"attached-agent": false,
+			"stale-agent":    false,
+		},
+		bulkClientNames: map[string]bool{
+			"attached-agent": true,
+		},
+	}
+
+	app := &App{
+		tmuxAvailable: true,
+		tmuxService:   newTmuxService(ops),
+	}
+	msg := app.gcStaleDetachedAgentSessions()()
+	result, ok := msg.(staleDetachedAgentGCResult)
+	if !ok {
+		t.Fatalf("expected staleDetachedAgentGCResult, got %T", msg)
+	}
+	if result.Err != nil {
+		t.Fatalf("unexpected GC error: %v", result.Err)
+	}
+	if ops.bulkClientListCalls != 1 {
+		t.Fatalf("expected one bulk client-list call, got %d", ops.bulkClientListCalls)
+	}
+	if ops.sessionHasClientsCalls != 0 {
+		t.Fatalf("expected no per-session client checks when bulk list is available, got %d", ops.sessionHasClientsCalls)
+	}
+	if result.SkippedAttached != 1 {
+		t.Fatalf("expected skipped_attached=1, got %d", result.SkippedAttached)
+	}
+	if result.Killed != 1 {
+		t.Fatalf("expected killed=1, got %d", result.Killed)
+	}
+	if len(ops.killed) != 1 || ops.killed[0] != "stale-agent" {
+		t.Fatalf("expected stale-agent to be killed, got %v", ops.killed)
 	}
 }
 

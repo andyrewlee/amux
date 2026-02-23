@@ -64,3 +64,33 @@ func TestSetGlobalOptionValues_SetsGlobalOptions(t *testing.T) {
 		t.Fatalf("expected @amux_batch_opt_b=%q, got %q", "b", gotB)
 	}
 }
+
+func TestGlobalOptionValues_ReadsMultipleOptions(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	if err := SetGlobalOptionValues([]OptionValue{
+		{Key: "@amux_batch_read_a", Value: "read-a"},
+		{Key: "@amux_batch_read_b", Value: "read-b"},
+	}, opts); err != nil {
+		t.Fatalf("SetGlobalOptionValues: %v", err)
+	}
+
+	values, err := GlobalOptionValues([]string{
+		"@amux_batch_read_a",
+		"@amux_batch_read_b",
+		"@amux_batch_read_missing",
+	}, opts)
+	if err != nil {
+		t.Fatalf("GlobalOptionValues: %v", err)
+	}
+	if got := values["@amux_batch_read_a"]; got != "read-a" {
+		t.Fatalf("expected @amux_batch_read_a=%q, got %q", "read-a", got)
+	}
+	if got := values["@amux_batch_read_b"]; got != "read-b" {
+		t.Fatalf("expected @amux_batch_read_b=%q, got %q", "read-b", got)
+	}
+	if got := values["@amux_batch_read_missing"]; got != "" {
+		t.Fatalf("expected missing option to read as empty string, got %q", got)
+	}
+}

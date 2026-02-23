@@ -48,7 +48,7 @@ func FetchTaggedSessions(svc SessionFetcher, infoBySession map[string]SessionInf
 		}
 		lastOutputAt, ok := ParseLastOutputAtTag(row.Tags[tmux.TagLastOutputAt])
 		lastInputAt, hasInput := ParseLastOutputAtTag(row.Tags[tmux.TagLastInputAt])
-		if !ok {
+		if !ok && !hasInput {
 			// Lease is refreshed on both input and output events; treat it as a
 			// compatibility fallback when explicit output tags are absent.
 			if leaseAt, leaseOK := ParseLastOutputAtTag(row.Tags[tmux.TagSessionLeaseAt]); leaseOK {

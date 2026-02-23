@@ -200,3 +200,59 @@ func TestDecodeTmuxActivitySnapshot_LegacyUnencodedWorkspaceIDs(t *testing.T) {
 		t.Fatalf("expected legacy workspace IDs to remain readable, got %v", active)
 	}
 }
+
+func TestDecodeTmuxActivitySnapshot_LegacyBEncodedWorkspaceIDs(t *testing.T) {
+	raw := "3;1700000000000;b:d3MtYQ,b:d3MtYg"
+	active, epoch, at, ok := decodeTmuxActivitySnapshot(raw)
+	if !ok {
+		t.Fatalf("expected legacy b:-encoded snapshot to decode, raw=%q", raw)
+	}
+	if epoch != 3 {
+		t.Fatalf("expected epoch 3, got %d", epoch)
+	}
+	if at.UnixMilli() != 1700000000000 {
+		t.Fatalf("expected timestamp 1700000000000, got %d", at.UnixMilli())
+	}
+	if !active["ws-a"] || !active["ws-b"] {
+		t.Fatalf("expected legacy decoded workspace IDs, got %v", active)
+	}
+}
+
+func TestDecodeTmuxActivitySnapshot_LegacyMixedEncodedAndPlainWorkspaceIDs(t *testing.T) {
+	raw := "3;1700000000000;b:d3MtYQ,ws-b"
+	active, _, _, ok := decodeTmuxActivitySnapshot(raw)
+	if !ok {
+		t.Fatalf("expected mixed legacy snapshot to decode, raw=%q", raw)
+	}
+	if !active["ws-a"] {
+		t.Fatalf("expected legacy b:-encoded id to decode, got %v", active)
+	}
+	if !active["ws-b"] {
+		t.Fatalf("expected legacy plain id to remain literal, got %v", active)
+	}
+}
+
+func TestDecodeTmuxActivitySnapshot_LegacyPlainWorkspaceIDStartingWithJPrefix(t *testing.T) {
+	raw := "3;1700000000000;j:ws-plain,ws-b"
+	active, _, _, ok := decodeTmuxActivitySnapshot(raw)
+	if !ok {
+		t.Fatalf("expected legacy plain snapshot to decode, raw=%q", raw)
+	}
+	if !active["j:ws-plain"] || !active["ws-b"] {
+		t.Fatalf("expected legacy plain IDs to remain readable, got %v", active)
+	}
+}
+
+func TestDecodeTmuxActivitySnapshot_LegacyBPrefixIDsRemainLiteral(t *testing.T) {
+	raw := "3;1700000000000;b:workspace,ws-b"
+	active, _, _, ok := decodeTmuxActivitySnapshot(raw)
+	if !ok {
+		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
+	}
+	if !active["b:workspace"] {
+		t.Fatalf("expected legacy b:-prefixed ID to remain literal, got %v", active)
+	}
+	if !active["ws-b"] {
+		t.Fatalf("expected additional legacy ID to decode, got %v", active)
+	}
+}

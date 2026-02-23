@@ -133,7 +133,9 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 			}
 			logging.Info("tmux activity role=%s epoch=%d instance=%s", role, a.tmuxActivityOwnerEpoch, strings.TrimSpace(a.instanceID))
 		}
-		if previousRoleSet && !previousOwner && msg.ScannerOwner {
+		ownerTransition := msg.ScannerOwner &&
+			(!previousRoleSet || !previousOwner || (msg.ScannerEpoch > 0 && previousEpoch != msg.ScannerEpoch))
+		if ownerTransition {
 			// Reset hysteresis state when transitioning follower->owner so we
 			// don't apply stale per-session carryover from an older owner epoch.
 			a.sessionActivityStates = make(map[string]*activity.SessionState)

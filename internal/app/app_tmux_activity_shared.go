@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,18 +33,19 @@ func (a *App) resolveTmuxActivityScanRole(
 	opts tmux.Options,
 	now time.Time,
 ) (tmuxActivityRole, map[string]bool, bool, int64, error) {
+	instanceID := strings.TrimSpace(a.instanceID)
 	lease, err := readTmuxActivityOwnerLease(opts)
 	if err != nil {
 		return tmuxActivityRoleOwner, nil, false, 0, err
 	}
-	if ownerLeaseAlive(lease, now) && lease.ownerID != a.instanceID {
+	if ownerLeaseAlive(lease, now) && lease.ownerID != instanceID {
 		active, ok, err := readTmuxActivitySnapshot(opts, now, lease.epoch)
 		if err != nil {
 			return tmuxActivityRoleFollower, nil, false, lease.epoch, err
 		}
 		return tmuxActivityRoleFollower, active, ok, lease.epoch, nil
 	}
-	if ownerLeaseAlive(lease, now) && lease.ownerID == a.instanceID {
+	if ownerLeaseAlive(lease, now) && lease.ownerID == instanceID {
 		epoch := lease.epoch
 		if epoch < 1 {
 			epoch = 1
@@ -55,14 +57,14 @@ func (a *App) resolveTmuxActivityScanRole(
 	if candidateEpoch < 1 {
 		candidateEpoch = 1
 	}
-	if err := writeTmuxActivityOwnerLease(opts, a.instanceID, candidateEpoch, now); err != nil {
+	if err := writeTmuxActivityOwnerLease(opts, instanceID, candidateEpoch, now); err != nil {
 		return tmuxActivityRoleOwner, nil, false, candidateEpoch, err
 	}
 	confirmedLease, err := readTmuxActivityOwnerLease(opts)
 	if err != nil {
 		return tmuxActivityRoleOwner, nil, false, candidateEpoch, err
 	}
-	if strings.TrimSpace(confirmedLease.ownerID) != a.instanceID || confirmedLease.epoch != candidateEpoch {
+	if confirmedLease.ownerID != instanceID || confirmedLease.epoch != candidateEpoch {
 		active, ok, err := readTmuxActivitySnapshot(opts, now, confirmedLease.epoch)
 		if err != nil {
 			return tmuxActivityRoleFollower, nil, false, confirmedLease.epoch, err
@@ -73,7 +75,8 @@ func (a *App) resolveTmuxActivityScanRole(
 }
 
 func (a *App) canPublishTmuxActivitySnapshot(opts tmux.Options, epoch int64, now time.Time) (bool, int64, error) {
-	if strings.TrimSpace(a.instanceID) == "" {
+	instanceID := strings.TrimSpace(a.instanceID)
+	if instanceID == "" {
 		return false, 0, nil
 	}
 	lease, err := readTmuxActivityOwnerLease(opts)
@@ -83,7 +86,7 @@ func (a *App) canPublishTmuxActivitySnapshot(opts tmux.Options, epoch int64, now
 	if !ownerLeaseAlive(lease, now) {
 		return false, lease.epoch, nil
 	}
-	if strings.TrimSpace(lease.ownerID) != a.instanceID || lease.epoch != epoch {
+	if lease.ownerID != instanceID || lease.epoch != epoch {
 		return false, lease.epoch, nil
 	}
 	return true, lease.epoch, nil
@@ -92,6 +95,13 @@ func (a *App) canPublishTmuxActivitySnapshot(opts tmux.Options, epoch int64, now
 func (a *App) publishTmuxActivitySnapshot(opts tmux.Options, active map[string]bool, epoch int64, now time.Time) error {
 	if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(active, epoch, now), opts); err != nil {
 		return err
+	}
+	canPublish, _, err := a.canPublishTmuxActivitySnapshot(opts, epoch, time.Now())
+	if err != nil {
+		return err
+	}
+	if !canPublish {
+		return nil
 	}
 	return renewTmuxActivityOwnerLeaseHeartbeat(opts, now)
 }
@@ -117,17 +127,17 @@ func ownerLeaseAlive(lease tmuxActivityLease, now time.Time) bool {
 
 func readTmuxActivityOwnerLease(opts tmux.Options) (tmuxActivityLease, error) {
 	lease := tmuxActivityLease{}
-	ownerID, err := tmux.GlobalOptionValue(tmuxActivityOwnerOption, opts)
+	values, err := tmux.GlobalOptionValues([]string{
+		tmuxActivityOwnerOption,
+		tmuxActivityHeartbeatOption,
+		tmuxActivityEpochOption,
+	}, opts)
 	if err != nil {
 		return lease, err
 	}
-	lease.ownerID = strings.TrimSpace(ownerID)
+	lease.ownerID = strings.TrimSpace(values[tmuxActivityOwnerOption])
 
-	heartbeatRaw, err := tmux.GlobalOptionValue(tmuxActivityHeartbeatOption, opts)
-	if err != nil {
-		return lease, err
-	}
-	heartbeatRaw = strings.TrimSpace(heartbeatRaw)
+	heartbeatRaw := strings.TrimSpace(values[tmuxActivityHeartbeatOption])
 	if heartbeatRaw != "" {
 		heartbeatMS, parseErr := strconv.ParseInt(heartbeatRaw, 10, 64)
 		if parseErr == nil && heartbeatMS > 0 {
@@ -135,11 +145,7 @@ func readTmuxActivityOwnerLease(opts tmux.Options) (tmuxActivityLease, error) {
 		}
 	}
 
-	epochRaw, err := tmux.GlobalOptionValue(tmuxActivityEpochOption, opts)
-	if err != nil {
-		return lease, err
-	}
-	epochRaw = strings.TrimSpace(epochRaw)
+	epochRaw := strings.TrimSpace(values[tmuxActivityEpochOption])
 	if epochRaw != "" {
 		epoch, parseErr := strconv.ParseInt(epochRaw, 10, 64)
 		if parseErr == nil && epoch > 0 {
@@ -199,11 +205,12 @@ func encodeTmuxActivitySnapshot(active map[string]bool, epoch int64, now time.Ti
 		}
 	}
 	sort.Strings(ids)
-	encodedIDs := make([]string, 0, len(ids))
-	for _, wsID := range ids {
-		encodedIDs = append(encodedIDs, "b:"+base64.RawURLEncoding.EncodeToString([]byte(wsID)))
+	encodedPayload, err := json.Marshal(ids)
+	if err != nil {
+		encodedPayload = []byte("[]")
 	}
-	return strconv.FormatInt(epoch, 10) + ";" + strconv.FormatInt(now.UnixMilli(), 10) + ";" + strings.Join(encodedIDs, ",")
+	payload := "j:" + base64.RawURLEncoding.EncodeToString(encodedPayload)
+	return strconv.FormatInt(epoch, 10) + ";" + strconv.FormatInt(now.UnixMilli(), 10) + ";" + payload
 }
 
 func decodeTmuxActivitySnapshot(raw string) (map[string]bool, int64, time.Time, bool) {
@@ -228,18 +235,50 @@ func decodeTmuxActivitySnapshot(raw string) (map[string]bool, int64, time.Time, 
 	if payload == "" {
 		return active, epoch, time.UnixMilli(timestampMS), true
 	}
-	for _, candidate := range strings.Split(payload, ",") {
-		wsID := strings.TrimSpace(candidate)
-		if wsID == "" {
-			continue
-		}
-		if strings.HasPrefix(wsID, "b:") {
-			decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(wsID, "b:"))
-			if err == nil {
-				wsID = strings.TrimSpace(string(decoded))
+	if strings.HasPrefix(payload, "j:") {
+		decodedPayload, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(payload, "j:"))
+		if err == nil {
+			var ids []string
+			if err := json.Unmarshal(decodedPayload, &ids); err == nil {
+				for _, candidate := range ids {
+					wsID := strings.TrimSpace(candidate)
+					if wsID == "" {
+						continue
+					}
+					active[wsID] = true
+				}
+				return active, epoch, time.UnixMilli(timestampMS), true
 			}
 		}
+	}
+
+	legacyCandidates := make([]string, 0)
+	for _, candidate := range strings.Split(payload, ",") {
+		wsID := strings.TrimSpace(candidate)
+		if wsID != "" {
+			legacyCandidates = append(legacyCandidates, wsID)
+		}
+	}
+	if len(legacyCandidates) == 0 {
+		return active, epoch, time.UnixMilli(timestampMS), true
+	}
+
+	// Legacy payloads: comma-delimited plain IDs with optional b:<base64(id)> entries.
+	for _, candidate := range legacyCandidates {
+		if !strings.HasPrefix(candidate, "b:") {
+			active[candidate] = true
+			continue
+		}
+
+		decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(candidate, "b:"))
+		if err != nil {
+			active[candidate] = true
+			continue
+		}
+
+		wsID := strings.TrimSpace(string(decoded))
 		if wsID == "" {
+			active[candidate] = true
 			continue
 		}
 		active[wsID] = true

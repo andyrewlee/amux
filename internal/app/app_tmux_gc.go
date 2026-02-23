@@ -95,8 +95,12 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 			return staleDetachedAgentGCResult{Err: errTmuxUnavailable}
 		}
 
+		match := map[string]string{"@amux": "1", "@amux_type": "agent"}
+		if instanceID := strings.TrimSpace(a.instanceID); instanceID != "" {
+			match["@amux_instance"] = instanceID
+		}
 		rows, err := svc.SessionsWithTags(
-			map[string]string{"@amux": "1", "@amux_type": "agent"},
+			match,
 			[]string{
 				"@amux_created_at",
 				"session_activity",
@@ -108,6 +112,18 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 		)
 		if err != nil {
 			return staleDetachedAgentGCResult{Err: err}
+		}
+		sessionNamesWithClients := map[string]bool(nil)
+		type sessionClientsLister interface {
+			SessionNamesWithClients(opts tmux.Options) (map[string]bool, error)
+		}
+		if lister, ok := svc.ops.(sessionClientsLister); ok {
+			clientNames, clientsErr := lister.SessionNamesWithClients(opts)
+			if clientsErr != nil {
+				logging.Warn("detached agent GC: failed to list attached clients in bulk: %v", clientsErr)
+			} else {
+				sessionNamesWithClients = clientNames
+			}
 		}
 
 		allStates, err := svc.AllSessionStates(opts)
@@ -124,10 +140,16 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 			}
 			result.Considered++
 
-			hasClients, err := svc.SessionHasClients(sessionName, opts)
-			if err != nil {
-				logging.Warn("detached agent GC: failed to check clients for %s: %v", sessionName, err)
-				continue
+			hasClients := false
+			if sessionNamesWithClients != nil {
+				hasClients = sessionNamesWithClients[sessionName]
+			} else {
+				var checkErr error
+				hasClients, checkErr = svc.SessionHasClients(sessionName, opts)
+				if checkErr != nil {
+					logging.Warn("detached agent GC: failed to check clients for %s: %v", sessionName, checkErr)
+					continue
+				}
 			}
 			if hasClients {
 				result.SkippedAttached++
