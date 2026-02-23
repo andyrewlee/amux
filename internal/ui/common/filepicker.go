@@ -40,7 +40,7 @@ type FilePicker struct {
 	statusMessage string                                      // Transient status/error message
 	validatePath  func(path string, existing []string) string // Returns error or ""
 
-	// Button focus mode (activated by shift+tab)
+	// Focus mode
 	buttonFocused bool // Whether focus is on the button bar
 	buttonCursor  int  // Index of the focused button
 }
@@ -163,13 +163,23 @@ func (fp *FilePicker) Visible() bool {
 func (fp *FilePicker) inputBasePath() string {
 	base := filepath.Clean(fp.currentPath)
 	sep := string(os.PathSeparator)
-	if base == sep {
-		return base
+	if home := tildePrefix(); home != "" && strings.HasPrefix(base, home) {
+		base = "~" + strings.TrimPrefix(base, home)
+	}
+	if base == sep || base == "~" {
+		return base + sep
 	}
 	if !strings.HasSuffix(base, sep) {
 		base += sep
 	}
 	return base
+}
+
+func tildePrefix() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return ""
 }
 
 // Update handles messages
@@ -265,11 +275,10 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 		}
 
 	case tea.KeyPressMsg:
-		// Handle button-focused mode
+		// Zone A: Button-focused mode
 		if fp.buttonFocused {
 			switch {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-				// Esc always cancels, even when buttons are focused
 				fp.buttonFocused = false
 				fp.visible = false
 				return fp, func() tea.Msg {
@@ -291,19 +300,18 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 				return fp, nil
 
 			case key.Matches(msg, key.NewBinding(key.WithKeys("up", "down"))):
-				// Return focus to input
 				fp.buttonFocused = false
 				fp.input.Focus()
 				return fp, nil
 
 			default:
-				// Any other key (typing) returns focus to input
 				fp.buttonFocused = false
 				fp.input.Focus()
-				// Fall through to normal handling so the keypress is processed
+				// Fall through to input handling
 			}
 		}
 
+		// Zone C: Input mode (default)
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			fp.visible = false
@@ -311,45 +319,39 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 				return DialogResult{ID: fp.id, Confirmed: false}
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "shift+enter"))):
-			if fp.multiSelect && msg.Key().Mod&tea.ModShift != 0 {
-				return fp.confirmCurrentDirectory()
-			}
-			return fp.handleEnter()
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))):
-			// Move focus to button bar
-			fp.buttonFocused = true
-			fp.buttonCursor = 0
-			fp.input.Blur()
-			return fp, nil
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
-			// Tab = autocomplete or select first match
-			fp.handleAutocomplete()
-
 		case key.Matches(msg, key.NewBinding(key.WithKeys("down", "ctrl+n"))):
-			if fp.displayCount() > 0 {
+			if fp.filteredIdx != nil && len(fp.filteredIdx) > 0 {
 				fp.cursor = (fp.cursor + 1) % fp.displayCount()
 				fp.ensureVisible()
 			}
+			return fp, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "ctrl+p"))):
-			if fp.displayCount() > 0 {
+			if fp.filteredIdx != nil && len(fp.filteredIdx) > 0 {
 				fp.cursor--
 				if fp.cursor < 0 {
 					fp.cursor = fp.displayCount() - 1
 				}
 				fp.ensureVisible()
 			}
+			return fp, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))):
-			if fp.handleBackspace() {
-				return fp, nil
+		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "shift+enter"))):
+			if fp.multiSelect && msg.Key().Mod&tea.ModShift != 0 {
+				return fp.confirmCurrentDirectory()
 			}
+			return fp.handleEnter()
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
+			fp.handleAutocomplete()
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))):
+			fp.buttonFocused = true
+			fp.buttonCursor = 0
+			fp.input.Blur()
+			return fp, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+h"))):
-			// Toggle hidden files
 			fp.showHidden = !fp.showHidden
 			fp.loadDirectory()
 			return fp, nil
