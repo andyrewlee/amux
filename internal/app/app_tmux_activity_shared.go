@@ -33,6 +33,8 @@ func (a *App) resolveTmuxActivityScanRole(
 	opts tmux.Options,
 	now time.Time,
 ) (tmuxActivityRole, map[string]bool, bool, int64, error) {
+	// instanceID is assigned once at init; trim once here so all lease-owner
+	// comparisons use the same normalized representation.
 	instanceID := strings.TrimSpace(a.instanceID)
 	lease, err := readTmuxActivityOwnerLease(opts)
 	if err != nil {
