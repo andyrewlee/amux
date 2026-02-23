@@ -306,11 +306,11 @@ func (fp *FilePicker) Cursor() *tea.Cursor {
 }
 
 func (fp *FilePicker) helpHint() string {
-	parts := []string{"Enter open"}
+	parts := []string{"Enter select"}
 	if fp.multiSelect {
 		parts = append(parts, "Shift+Enter add repo")
 	}
-	parts = append(parts, "Tab complete", "Shift+Tab buttons", "↑/↓ navigate", "Esc cancel")
+	parts = append(parts, "Tab into dir", "↑/↓ navigate", "Shift+Tab buttons", "Esc cancel")
 	return strings.Join(parts, " • ")
 }
 

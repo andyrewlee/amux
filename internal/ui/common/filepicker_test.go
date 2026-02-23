@@ -41,29 +41,7 @@ func TestFilePickerCursorPosition(t *testing.T) {
 	}
 }
 
-func TestFilePickerDoesNotAutoNavigateOnPathInput(t *testing.T) {
-	fp := NewFilePicker("id", t.TempDir(), true)
-	fp.Show()
-
-	start := fp.currentPath
-	fp.input.SetValue("/")
-	fp.handlePathInput("/")
-
-	if fp.currentPath != start {
-		t.Fatalf("expected current path to remain %q, got %q", start, fp.currentPath)
-	}
-
-	parent := filepath.Dir(start)
-	if parent != start {
-		fp.input.SetValue(parent)
-		fp.handlePathInput(parent)
-		if fp.currentPath != start {
-			t.Fatalf("expected current path to remain %q after absolute input, got %q", start, fp.currentPath)
-		}
-	}
-}
-
-func TestFilePickerBackspaceMovesToParent(t *testing.T) {
+func TestFilePickerBackspaceThroughSeparatorNavigatesToParent(t *testing.T) {
 	tmp := t.TempDir()
 	nested := filepath.Join(tmp, "one", "two")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
@@ -73,21 +51,140 @@ func TestFilePickerBackspaceMovesToParent(t *testing.T) {
 	fp := NewFilePicker("id", nested, true)
 	fp.Show()
 
-	if !fp.handleBackspace() {
-		t.Fatalf("expected backspace to be handled")
-	}
-
+	// Simulate user backspacing past a separator: input is now the parent path
 	parent := filepath.Dir(nested)
+	fp.input.SetValue(parent)
+	fp.handlePathInput(parent)
+
 	if fp.currentPath != parent {
 		t.Fatalf("expected current path %q, got %q", parent, fp.currentPath)
 	}
+}
 
-	expectedInput := parent
-	if parent != string(os.PathSeparator) && !strings.HasSuffix(parent, string(os.PathSeparator)) {
-		expectedInput += string(os.PathSeparator)
+func TestFilePickerForwardNavigationUpdatesEntries(t *testing.T) {
+	tmp := t.TempDir()
+	sub := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(filepath.Join(sub, "foo"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
 	}
-	if fp.input.Value() != expectedInput {
-		t.Fatalf("expected input %q, got %q", expectedInput, fp.input.Value())
+	if err := os.Mkdir(filepath.Join(tmp, "other"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	fp := NewFilePicker("id", tmp, true)
+	fp.Show()
+
+	// Simulate typing "src/" manually (with trailing slash)
+	newInput := fp.inputBasePath() + "src/"
+	fp.input.SetValue(newInput)
+	fp.handlePathInput(newInput)
+
+	// currentPath should have navigated into the src subdirectory
+	if fp.currentPath != sub {
+		t.Fatalf("expected currentPath %q, got %q", sub, fp.currentPath)
+	}
+
+	// Now type "f" to filter within src/
+	newInput2 := fp.inputBasePath() + "f"
+	fp.input.SetValue(newInput2)
+	fp.handlePathInput(newInput2)
+
+	if fp.filteredIdx == nil {
+		t.Fatalf("expected suggestions after typing within navigated dir")
+	}
+	if len(fp.filteredIdx) != 1 {
+		t.Fatalf("expected 1 suggestion (foo), got %d", len(fp.filteredIdx))
+	}
+	if fp.entries[fp.filteredIdx[0]].Name() != "foo" {
+		t.Fatalf("expected suggestion 'foo', got %q", fp.entries[fp.filteredIdx[0]].Name())
+	}
+}
+
+func TestFilePickerPathInputOutsideCurrentDoesNotNavigate(t *testing.T) {
+	tmp := t.TempDir()
+	other := t.TempDir()
+
+	fp := NewFilePicker("id", tmp, true)
+	fp.Show()
+
+	// Typing a completely different path should not navigate
+	fp.input.SetValue(other)
+	fp.handlePathInput(other)
+
+	if fp.currentPath != tmp {
+		t.Fatalf("expected current path to remain %q, got %q", tmp, fp.currentPath)
+	}
+}
+
+func TestFilePickerSuggestionsHiddenByDefault(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmp, "alpha"), 0o755); err != nil {
+		t.Fatalf("mkdir alpha: %v", err)
+	}
+
+	fp := NewFilePicker("id", tmp, true)
+	fp.Show()
+
+	if fp.filteredIdx != nil {
+		t.Fatalf("expected filteredIdx to be nil after Show(), got %v", fp.filteredIdx)
+	}
+}
+
+func TestFilePickerSuggestionsAppearOnTyping(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmp, "alpha"), 0o755); err != nil {
+		t.Fatalf("mkdir alpha: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(tmp, "beta"), 0o755); err != nil {
+		t.Fatalf("mkdir beta: %v", err)
+	}
+
+	fp := NewFilePicker("id", tmp, true)
+	fp.Show()
+
+	// Type a character to trigger suggestions
+	fp.input.SetValue(fp.inputBasePath() + "a")
+	fp.handlePathInput(fp.input.Value())
+
+	if fp.filteredIdx == nil {
+		t.Fatalf("expected filteredIdx to be non-nil after typing")
+	}
+	if len(fp.filteredIdx) != 1 {
+		t.Fatalf("expected 1 filtered entry, got %d", len(fp.filteredIdx))
+	}
+}
+
+func TestFilePickerDownArrowMovesCursor(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmp, "alpha"), 0o755); err != nil {
+		t.Fatalf("mkdir alpha: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(tmp, "arrow"), 0o755); err != nil {
+		t.Fatalf("mkdir arrow: %v", err)
+	}
+
+	fp := NewFilePicker("id", tmp, true)
+	fp.SetSize(120, 40)
+	fp.Show()
+
+	// Type to make suggestions visible (both "alpha" and "arrow" match)
+	fp.input.SetValue(fp.inputBasePath() + "a")
+	fp.handlePathInput(fp.input.Value())
+
+	if len(fp.filteredIdx) != 2 {
+		t.Fatalf("expected 2 filtered entries, got %d", len(fp.filteredIdx))
+	}
+
+	// First down arrow moves cursor to 1
+	fp.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if fp.cursor != 1 {
+		t.Fatalf("expected cursor=1 after first down arrow, got %d", fp.cursor)
+	}
+
+	// Second down arrow wraps to 0
+	fp.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if fp.cursor != 0 {
+		t.Fatalf("expected cursor=0 after second down arrow (wrap), got %d", fp.cursor)
 	}
 }
 
@@ -122,25 +219,36 @@ func TestFilePickerDoesNotStripSimilarPrefix(t *testing.T) {
 	fp.input.SetValue("/tmp2")
 	fp.applyFilter()
 
-	if len(fp.filteredIdx) != len(fp.entries) {
-		t.Fatalf("expected full entry list when input is outside current path")
+	// When input is outside current path, filteredIdx should be nil (no suggestions)
+	if fp.filteredIdx != nil {
+		t.Fatalf("expected nil filteredIdx when input is outside current path, got %v", fp.filteredIdx)
 	}
 }
 
-func TestFilePickerBackspaceEditsNonCurrentPath(t *testing.T) {
-	tmp := t.TempDir()
-	other := filepath.Join(tmp, "other")
-	if err := os.MkdirAll(other, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+func TestFilePickerTildePathDisplay(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("cannot get home dir: %v", err)
 	}
 
-	fp := NewFilePicker("id", tmp, true)
+	fp := NewFilePicker("id", home, true)
 	fp.Show()
-	fp.input.SetValue(other)
-	fp.input.CursorEnd()
 
-	if fp.handleBackspace() {
-		t.Fatalf("expected backspace to be treated as edit for non-current path")
+	base := fp.inputBasePath()
+	if !strings.HasPrefix(base, "~/") {
+		t.Fatalf("expected inputBasePath() to start with '~/', got %q", base)
+	}
+	if strings.Contains(base, home) {
+		t.Fatalf("expected inputBasePath() to not contain full home path %q, got %q", home, base)
+	}
+
+	// A subdirectory of home should also use tilde
+	sub := filepath.Join(home, "testsubdir")
+	fp2 := NewFilePicker("id2", sub, true)
+	fp2.currentPath = sub
+	base2 := fp2.inputBasePath()
+	if !strings.HasPrefix(base2, "~/") {
+		t.Fatalf("expected inputBasePath() for subdir to start with '~/', got %q", base2)
 	}
 }
 
@@ -246,9 +354,13 @@ func TestFilePickerMouseClickOpensDirectory(t *testing.T) {
 	fp.SetSize(120, 40)
 	fp.Show()
 
+	// Type a character to make suggestions visible
+	fp.input.SetValue(fp.inputBasePath() + "c")
+	fp.handlePathInput(fp.input.Value())
+
 	fp.renderLines()
 	if len(fp.rowHits) == 0 {
-		t.Fatalf("expected row hits to be populated")
+		t.Fatalf("expected row hits to be populated after typing")
 	}
 
 	hit := fp.rowHits[0].region
@@ -268,24 +380,32 @@ func TestFilePickerMouseClickOpensDirectory(t *testing.T) {
 	}
 }
 
-func TestFilePickerBackspaceBasePathMovesToParent(t *testing.T) {
+func TestFilePickerUpArrowWrapsCursor(t *testing.T) {
 	tmp := t.TempDir()
-	nested := filepath.Join(tmp, "one")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	if err := os.Mkdir(filepath.Join(tmp, "alpha"), 0o755); err != nil {
+		t.Fatalf("mkdir alpha: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(tmp, "arrow"), 0o755); err != nil {
+		t.Fatalf("mkdir arrow: %v", err)
 	}
 
-	fp := NewFilePicker("id", nested, true)
+	fp := NewFilePicker("id", tmp, true)
+	fp.SetSize(120, 40)
 	fp.Show()
-	fp.input.SetValue(fp.inputBasePath())
-	fp.input.CursorEnd()
 
-	if !fp.handleBackspace() {
-		t.Fatalf("expected backspace to navigate to parent")
+	// Type to make suggestions visible
+	fp.input.SetValue(fp.inputBasePath() + "a")
+	fp.handlePathInput(fp.input.Value())
+
+	if len(fp.filteredIdx) != 2 {
+		t.Fatalf("expected 2 filtered entries, got %d", len(fp.filteredIdx))
 	}
 
-	if fp.currentPath != tmp {
-		t.Fatalf("expected current path %q, got %q", tmp, fp.currentPath)
+	// Cursor starts at 0; pressing up should wrap to last entry
+	fp.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if fp.cursor != 1 {
+		t.Fatalf("expected cursor=1 (last entry) after pressing up from 0, got %d", fp.cursor)
 	}
 }
 
