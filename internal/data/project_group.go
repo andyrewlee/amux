@@ -30,6 +30,7 @@ type GroupWorkspace struct {
 	Archived     bool              `json:"archived"`
 	ArchivedAt   time.Time         `json:"archived_at,omitempty"`
 	AllowEdits   bool              `json:"allow_edits,omitempty"`
+	Isolated     bool              `json:"isolated,omitempty"`
 	LoadClaudeMD bool              `json:"load_claude_md,omitempty"`
 	Assistant    string            `json:"assistant"`
 	Profile      string            `json:"-"`

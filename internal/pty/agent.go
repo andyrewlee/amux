@@ -12,6 +12,8 @@ import (
 
 	"github.com/andyrewlee/medusa/internal/config"
 	"github.com/andyrewlee/medusa/internal/data"
+	"github.com/andyrewlee/medusa/internal/git"
+	"github.com/andyrewlee/medusa/internal/sandbox"
 	"github.com/andyrewlee/medusa/internal/tmux"
 )
 
@@ -143,6 +145,14 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		}
 	}
 
+	// Sandbox isolation: append --dangerously-skip-permissions and wrap
+	// the entire command chain (agent + fallback shell) with sandbox-exec.
+	var sbplCleanup func()
+	if ws.Isolated && agentType == AgentClaude {
+		agentCommand += " --dangerously-skip-permissions"
+		_ = config.InjectSkipPermissionPrompt(profileDir)
+	}
+
 	// Create terminal with agent command, falling back to shell on exit
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -154,9 +164,24 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", agentCommand, shell)
 
+	// Wrap the entire command chain in sandbox-exec so the fallback shell
+	// also runs inside the sandbox.
+	if ws.Isolated {
+		gitDir, _ := git.ResolveWorktreeGitDir(ws.Root)
+		sbpl := sandbox.GenerateSBPL(ws.Root, gitDir, profileDir)
+		sbplPath, cleanup, sErr := sandbox.WriteTempProfile(sbpl)
+		if sErr == nil {
+			sbplCleanup = cleanup
+			fullCommand = sandbox.WrapCommand(fullCommand, sbplPath)
+		}
+	}
+
 	termCommand := tmux.ClientCommandWithTags(sessionName, ws.Root, fullCommand, tmux.DefaultOptions(), tags)
 	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
+		if sbplCleanup != nil {
+			sbplCleanup()
+		}
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
 
@@ -240,15 +265,35 @@ func (m *AgentManager) CreateGroupAgentWithTags(
 		}
 	}
 
+	// Sandbox isolation for group workspaces
+	var sbplCleanup func()
+	if gw.Isolated && agentType == AgentClaude {
+		agentCommand += " --dangerously-skip-permissions"
+		_ = config.InjectSkipPermissionPrompt(profileDir)
+	}
+
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
 	}
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", agentCommand, shell)
 
+	if gw.Isolated {
+		gitDir, _ := git.ResolveWorktreeGitDir(gw.Primary.Root)
+		sbpl := sandbox.GenerateSBPL(gw.Primary.Root, gitDir, profileDir)
+		sbplPath, cleanup, sErr := sandbox.WriteTempProfile(sbpl)
+		if sErr == nil {
+			sbplCleanup = cleanup
+			fullCommand = sandbox.WrapCommand(fullCommand, sbplPath)
+		}
+	}
+
 	termCommand := tmux.ClientCommandWithTags(sessionName, gw.Primary.Root, fullCommand, tmux.DefaultOptions(), tags)
 	term, err := NewWithSize(termCommand, gw.Primary.Root, env, rows, cols)
 	if err != nil {
+		if sbplCleanup != nil {
+			sbplCleanup()
+		}
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
 

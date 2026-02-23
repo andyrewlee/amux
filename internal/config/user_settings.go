@@ -17,6 +17,7 @@ type UISettings struct {
 	DefaultAgent       string
 	LastProfile        string // Most recently selected profile name
 	LastAllowEdits     bool   // Last state of "allow edits" checkbox for new workspaces
+	LastIsolated       bool   // Last state of "run isolated" checkbox for new workspaces
 	Theme              string // Theme ID, defaults to "gruvbox"
 	TmuxServer         string
 	TmuxConfigPath     string
@@ -60,6 +61,7 @@ func loadUISettings(path string) UISettings {
 			DefaultAgent       *string `json:"default_agent"`
 			LastProfile        *string `json:"last_profile"`
 			LastAllowEdits     *bool   `json:"last_allow_edits"`
+			LastIsolated       *bool   `json:"last_isolated"`
 			Theme              *string `json:"theme"`
 			TmuxServer         *string `json:"tmux_server"`
 			TmuxConfigPath     *string `json:"tmux_config"`
@@ -97,6 +99,9 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.LastAllowEdits != nil {
 		settings.LastAllowEdits = *raw.UI.LastAllowEdits
+	}
+	if raw.UI.LastIsolated != nil {
+		settings.LastIsolated = *raw.UI.LastIsolated
 	}
 	if raw.UI.Theme != nil {
 		settings.Theme = *raw.UI.Theme
@@ -142,6 +147,7 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["default_agent"] = settings.DefaultAgent
 	ui["last_profile"] = settings.LastProfile
 	ui["last_allow_edits"] = settings.LastAllowEdits
+	ui["last_isolated"] = settings.LastIsolated
 	ui["theme"] = settings.Theme
 	ui["tmux_server"] = settings.TmuxServer
 	ui["tmux_config"] = settings.TmuxConfigPath

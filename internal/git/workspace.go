@@ -126,6 +126,51 @@ func ResolveWorktreeRepo(worktreePath string) (string, error) {
 	return "", fmt.Errorf("could not resolve repo for worktree %s", worktreePath)
 }
 
+// ResolveWorktreeGitDir resolves a worktree directory to the main repository's
+// .git directory path. This is needed for sandbox SBPL profiles that must
+// allowlist the .git dir so git operations work inside the sandbox.
+// For a normal clone (where .git is a directory), it returns worktreePath/.git.
+// For a worktree (where .git is a file), it parses the gitdir pointer and
+// walks up to find the main .git directory.
+func ResolveWorktreeGitDir(worktreePath string) (string, error) {
+	gitPath := filepath.Join(worktreePath, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return "", fmt.Errorf("stat .git in %s: %w", worktreePath, err)
+	}
+
+	// .git is a directory — this is a normal clone
+	if info.IsDir() {
+		return gitPath, nil
+	}
+
+	// .git is a file — this is a worktree, parse the gitdir pointer
+	raw, err := os.ReadFile(gitPath)
+	if err != nil {
+		return "", fmt.Errorf("read .git file %s: %w", gitPath, err)
+	}
+	line := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(line, "gitdir:") {
+		return "", fmt.Errorf("invalid .git file in %s", worktreePath)
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(worktreePath, gitDir)
+	}
+
+	// gitDir is like /path/to/repo/.git/worktrees/<name>
+	// Walk up to find the .git directory itself
+	dir := filepath.Clean(gitDir)
+	for dir != "/" && dir != "." {
+		if filepath.Base(dir) == ".git" {
+			return dir, nil
+		}
+		dir = filepath.Dir(dir)
+	}
+
+	return "", fmt.Errorf("could not resolve .git dir for worktree %s", worktreePath)
+}
+
 // DiscoverWorkspaces discovers git worktrees for a project.
 // Returns workspaces with minimal fields populated (Name, Branch, Repo, Root).
 // The caller should merge with stored metadata to get full workspace data.

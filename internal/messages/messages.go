@@ -258,6 +258,7 @@ type CreateWorkspace struct {
 	Name       string
 	Base       string
 	AllowEdits bool // Pre-grant Edit permission when true
+	Isolated   bool // Run in sandbox-exec isolation
 }
 
 // DeleteWorkspace requests deleting a workspace
@@ -601,6 +602,7 @@ type CreateGroupWorkspace struct {
 	GroupName    string
 	Name         string
 	AllowEdits   bool
+	Isolated     bool
 	LoadClaudeMD bool
 	BranchMode   git.BranchMode
 	CustomBranch string
@@ -709,6 +711,7 @@ type WorkspaceFetchDone struct {
 	Name       string
 	Base       string
 	AllowEdits bool
+	Isolated   bool
 }
 
 // GroupRepoFetchDone is sent after a single repo's remote base has been fetched
@@ -719,6 +722,7 @@ type GroupRepoFetchDone struct {
 	FetchedSpecs   []git.RepoSpec
 	RemainingRepos []data.GroupRepo
 	AllowEdits     bool
+	Isolated       bool
 	LoadClaudeMD   bool
 	BranchMode     git.BranchMode
 	CustomBranch   string

@@ -132,6 +132,10 @@ func (a *App) renderWorkspaceInfo() string {
 			}
 			content += fmt.Sprintf("    %s%s\n", repoName, baseInfo)
 		}
+
+		if a.activeGroupWs.Isolated {
+			content += a.renderIsolationInfo()
+		}
 	} else {
 		content += fmt.Sprintf("Branch: %s\n", ws.Branch)
 		content += fmt.Sprintf("Path: %s\n", ws.Root)
@@ -139,9 +143,27 @@ func (a *App) renderWorkspaceInfo() string {
 		if a.activeProject != nil {
 			content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 		}
+
+		if ws.Isolated {
+			content += a.renderIsolationInfo()
+		}
 	}
 
 	return content
+}
+
+// renderIsolationInfo renders the sandbox isolation details for the info tab.
+func (a *App) renderIsolationInfo() string {
+	sandboxLabel := lipgloss.NewStyle().Foreground(common.ColorError).Bold(true).Render("Sandboxed")
+	detail := lipgloss.NewStyle().Foreground(common.ColorMuted)
+
+	var b strings.Builder
+	b.WriteString("\n" + sandboxLabel + "\n")
+	b.WriteString(detail.Render("  Writes allowed:  workspace, git dir, claude profile config, /tmp") + "\n")
+	b.WriteString(detail.Render("  Writes blocked:  everything else (home, system, etc.)") + "\n")
+	b.WriteString(detail.Render("  Reads blocked:   ~/.ssh, ~/.gnupg, ~/.aws, ~/.docker, ~/.kube") + "\n")
+	b.WriteString(detail.Render("  Permission prompts skipped (--dangerously-skip-permissions)") + "\n")
+	return b.String()
 }
 
 // renderWelcome renders the welcome screen

@@ -81,6 +81,9 @@ type Workspace struct {
 
 	// Permissions
 	AllowEdits bool `json:"allow_edits,omitempty"` // Pre-grant Edit permission when true
+
+	// Isolation
+	Isolated bool `json:"isolated,omitempty"` // Run in sandbox-exec with --dangerously-skip-permissions
 }
 
 // WorkspaceID is a unique identifier based on repo+root hash

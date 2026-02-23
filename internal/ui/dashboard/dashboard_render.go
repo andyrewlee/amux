@@ -99,7 +99,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		// Spinner driven solely by tmux "esc to interrupt" detection.
 		indicatorWidth := 2 // icon + space
 		agentState := 0
+		isolated := row.Workspace != nil && row.Workspace.Isolated
 		indicator := common.Icons.Idle + " "
+		if isolated {
+			indicator = common.Icons.Running + " "
+		}
 		if row.Workspace != nil {
 			wsID := string(row.Workspace.ID())
 			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
@@ -108,7 +112,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				case m.tmuxConfirmedActive[wsID]: // agent busy ("esc to interrupt" visible)
 					indicator = common.SpinnerFrame(m.spinnerFrame) + " "
 				case state >= 1: // running but idle
-					indicator = common.Icons.Running + " "
+					if isolated {
+						indicator = common.Icons.Running + " "
+					} else {
+						indicator = common.Icons.Running + " "
+					}
 				}
 			}
 		}
@@ -138,13 +146,17 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		// Style indicator separately: primary for running/active, muted for idle.
 		// Use warning color (yellow/orange) when workspace is unread,
 		// but not for the workspace the user is currently viewing.
+		// Isolated workspaces use red (error) color for the indicator.
 		isCurrentWorkspace := row.Workspace != nil && row.Workspace.Root == m.activeRoot
 		hasUnread := row.Workspace != nil && m.unreadWorkspaces[string(row.Workspace.ID())]
 		iconFg := common.ColorMuted
+		if isolated {
+			iconFg = common.ColorError
+		}
 		if agentState >= 1 {
 			if hasUnread && !isCurrentWorkspace {
 				iconFg = common.ColorWarning
-			} else {
+			} else if !isolated {
 				iconFg = common.ColorPrimary
 			}
 		}
@@ -247,7 +259,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		// Spinner driven solely by tmux "esc to interrupt" detection.
 		indicatorWidth := 2
 		agentState := 0
+		isolated := row.GroupWorkspace != nil && row.GroupWorkspace.Isolated
 		indicator := common.Icons.Idle + " "
+		if isolated {
+			indicator = common.Icons.Running + " "
+		}
 		if row.GroupWorkspace != nil {
 			wsID := string(row.GroupWorkspace.Primary.ID())
 			if state, hasAgents := m.workspaceAgentStates[wsID]; hasAgents {
@@ -256,7 +272,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				case m.tmuxConfirmedActive[wsID]: // agent busy ("esc to interrupt" visible)
 					indicator = common.SpinnerFrame(m.spinnerFrame) + " "
 				case state >= 1: // running but idle
-					indicator = common.Icons.Running + " "
+					if isolated {
+						indicator = common.Icons.Running + " "
+					} else {
+						indicator = common.Icons.Running + " "
+					}
 				}
 			}
 		}
@@ -264,13 +284,17 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		// Style indicator separately: primary for running/active, muted for idle.
 		// Use warning color (yellow/orange) when workspace is unread,
 		// but not for the workspace the user is currently viewing.
+		// Isolated workspaces use red (error) color for the indicator.
 		isCurrentWorkspace := row.GroupWorkspace != nil && row.GroupWorkspace.Primary.Root == m.activeRoot
 		hasUnread := row.GroupWorkspace != nil && m.unreadWorkspaces[string(row.GroupWorkspace.Primary.ID())]
 		iconFg := common.ColorMuted
+		if isolated {
+			iconFg = common.ColorError
+		}
 		if agentState >= 1 {
 			if hasUnread && !isCurrentWorkspace {
 				iconFg = common.ColorWarning
-			} else {
+			} else if !isolated {
 				iconFg = common.ColorPrimary
 			}
 		}
