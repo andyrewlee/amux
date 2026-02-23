@@ -69,15 +69,37 @@ func (d *detachedGCOps) KillSession(sessionName string, opts tmux.Options) error
 	return nil
 }
 
-func TestGcStaleDetachedAgentSessions_SkipsWhenFollower(t *testing.T) {
+func TestGcStaleDetachedAgentSessions_RunsWhenFollower(t *testing.T) {
+	ops := &detachedGCOps{
+		rows: []tmux.SessionTagValues{},
+	}
 	app := &App{
 		tmuxAvailable:            true,
 		instanceID:               "instance-a",
 		tmuxActivityOwnershipSet: true,
 		tmuxActivityScannerOwner: false,
+		tmuxService:              newTmuxService(ops),
 	}
-	if cmd := app.gcStaleDetachedAgentSessions(); cmd != nil {
-		t.Fatal("expected nil cmd for follower instance")
+	cmd := app.gcStaleDetachedAgentSessions()
+	if cmd == nil {
+		t.Fatal("expected cmd for follower instance")
+	}
+	msg := cmd()
+	result, ok := msg.(staleDetachedAgentGCResult)
+	if !ok {
+		t.Fatalf("expected staleDetachedAgentGCResult, got %T", msg)
+	}
+	if result.Err != nil {
+		t.Fatalf("unexpected GC error: %v", result.Err)
+	}
+	if ops.lastMatch["@amux"] != "1" {
+		t.Fatalf("expected @amux match, got %v", ops.lastMatch)
+	}
+	if ops.lastMatch["@amux_type"] != "agent" {
+		t.Fatalf("expected @amux_type=agent, got %v", ops.lastMatch)
+	}
+	if ops.lastMatch["@amux_instance"] != "instance-a" {
+		t.Fatalf("expected instance-scoped match, got %v", ops.lastMatch)
 	}
 }
 

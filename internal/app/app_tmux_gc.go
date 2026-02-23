@@ -85,9 +85,6 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 	if !a.tmuxAvailable {
 		return nil
 	}
-	if a.sharedTmuxActivityEnabled() && a.tmuxActivityOwnershipSet && !a.tmuxActivityScannerOwner {
-		return nil
-	}
 	opts := a.tmuxOptions
 	svc := a.tmuxService
 	return func() tea.Msg {
