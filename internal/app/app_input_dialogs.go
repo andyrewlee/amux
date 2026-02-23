@@ -132,9 +132,11 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 					return messages.Error{Err: err, Context: "validating workspace name"}
 				}
 			}
-			// Remember checkbox state for next workspace creation
+			// Remember checkbox states for next workspace creation
 			allowEdits := result.CheckboxValue
+			isolated := result.Checkbox2Value
 			a.config.UI.LastAllowEdits = allowEdits
+			a.config.UI.LastIsolated = isolated
 			_ = a.config.SaveUISettings()
 			// Re-set dialog state for chaining and show branch mode picker
 			a.dialogProject = project
@@ -335,7 +337,9 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				}
 			}
 			allowEdits := result.CheckboxValue
+			isolated := result.Checkbox2Value
 			a.config.UI.LastAllowEdits = allowEdits
+			a.config.UI.LastIsolated = isolated
 			_ = a.config.SaveUISettings()
 			// Re-set dialog state for chaining and show branch mode picker
 			a.dialogGroup = group
@@ -354,6 +358,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 
 	case DialogSelectBranchMode:
 		allowEdits := a.config.UI.LastAllowEdits
+		isolated := a.config.UI.LastIsolated
 		if project != nil {
 			// Single workspace
 			name := defaultName
@@ -365,7 +370,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				})
 				a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
 				a.creationOverlay.SetSize(a.width, a.height)
-				return a.fetchRemoteBase(project, name, allowEdits)
+				return a.fetchRemoteBase(project, name, allowEdits, isolated)
 			case 1: // Checked out branch
 				a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
 					"Resolving checked out branch",
@@ -373,7 +378,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				})
 				a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
 				a.creationOverlay.SetSize(a.width, a.height)
-				return a.fetchCheckedOutBase(project, name, allowEdits)
+				return a.fetchCheckedOutBase(project, name, allowEdits, isolated)
 			case 2: // Custom branch
 				a.dialogProject = project
 				a.dialogDefaultName = name
@@ -395,6 +400,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 						GroupName:    grpName,
 						Name:         name,
 						AllowEdits:   allowEdits,
+						Isolated:     isolated,
 						LoadClaudeMD: false,
 						BranchMode:   git.BranchModeRemoteMain,
 					}
@@ -405,6 +411,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 						GroupName:    grpName,
 						Name:         name,
 						AllowEdits:   allowEdits,
+						Isolated:     isolated,
 						LoadClaudeMD: false,
 						BranchMode:   git.BranchModeCheckedOut,
 					}
@@ -427,6 +434,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			return nil
 		}
 		allowEdits := a.config.UI.LastAllowEdits
+		isolated := a.config.UI.LastIsolated
 		if project != nil {
 			// Single workspace
 			name := defaultName
@@ -436,7 +444,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			})
 			a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
 			a.creationOverlay.SetSize(a.width, a.height)
-			return a.fetchCustomBase(project, name, customBranch, allowEdits)
+			return a.fetchCustomBase(project, name, customBranch, allowEdits, isolated)
 		} else if group != nil {
 			// Grouped workspace
 			name := defaultName
@@ -446,6 +454,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 					GroupName:    grpName,
 					Name:         name,
 					AllowEdits:   allowEdits,
+					Isolated:     isolated,
 					LoadClaudeMD: false,
 					BranchMode:   git.BranchModeCustom,
 					CustomBranch: customBranch,

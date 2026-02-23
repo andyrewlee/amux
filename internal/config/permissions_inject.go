@@ -123,6 +123,33 @@ func InjectAllowEdits(workspaceRoot string) error {
 	return os.WriteFile(settingsPath, data, 0644)
 }
 
+// InjectSkipPermissionPrompt sets skipDangerousModePermissionPrompt=true
+// in the profile's settings.json so Claude Code doesn't show the bypass
+// permissions confirmation dialog when --dangerously-skip-permissions is used.
+func InjectSkipPermissionPrompt(profileDir string) error {
+	settingsPath := filepath.Join(profileDir, "settings.json")
+
+	var settings map[string]any
+	if existing, err := os.ReadFile(settingsPath); err == nil {
+		_ = json.Unmarshal(existing, &settings)
+	}
+	if settings == nil {
+		settings = make(map[string]any)
+	}
+
+	settings["skipDangerousModePermissionPrompt"] = true
+
+	if err := os.MkdirAll(profileDir, 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(settingsPath, data, 0644)
+}
+
 // InjectTrustedDirectory adds a directory to Claude's trusted projects.
 // If configDir is empty, uses ~/.claude.json. Otherwise uses configDir/.claude.json.
 // This prevents the "do you want to trust this directory" prompt when Claude starts.

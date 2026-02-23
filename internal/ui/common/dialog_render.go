@@ -164,6 +164,29 @@ func (d *Dialog) renderLines() []string {
 				Height: 1,
 			}
 		}
+		// Render second checkbox if configured
+		if d.checkbox2Label != "" {
+			if d.checkboxLabel == "" {
+				appendBlank(1)
+			}
+			checkbox2 := "[ ]"
+			if d.checkbox2Value {
+				checkbox2 = "[" + Icons.Clean + "]"
+			}
+			checkbox2Style := lipgloss.NewStyle().Foreground(ColorForeground)
+			if d.checkbox2Focused {
+				checkbox2Style = checkbox2Style.Foreground(ColorPrimary)
+			}
+			checkbox2Line := len(lines)
+			checkbox2Text := checkbox2 + " " + d.checkbox2Label
+			appendLines(checkbox2Style.Render(checkbox2Text))
+			d.checkbox2Hit = HitRegion{
+				X:      0,
+				Y:      checkbox2Line,
+				Width:  d.dialogContentWidth(),
+				Height: 1,
+			}
+		}
 		appendBlank(1)
 		line := d.renderInputButtonsLine(len(lines))
 		lines = append(lines, line)
@@ -303,7 +326,7 @@ func (d *Dialog) addOptionHit(cursorIdx, optionIdx, line, x, width int) {
 func (d *Dialog) helpText() string {
 	switch d.dtype {
 	case DialogInput:
-		if d.checkboxLabel != "" {
+		if d.checkboxLabel != "" || d.checkbox2Label != "" {
 			return "↑/↓: navigate • space: toggle • enter: confirm • esc: cancel"
 		}
 		return "enter: confirm • esc: cancel • click OK/Cancel"

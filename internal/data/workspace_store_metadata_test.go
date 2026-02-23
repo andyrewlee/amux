@@ -153,6 +153,47 @@ func TestWorkspaceStore_LoadMetadataFor_AppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_LoadMetadataFor_BooleanFlags(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	// Save a workspace with boolean flags set
+	stored := &Workspace{
+		Name:       "flagged-ws",
+		Branch:     "main",
+		Repo:       "/home/user/repo",
+		Root:       "/home/user/.medusa/workspaces/flagged-ws",
+		AllowEdits: true,
+		Isolated:   true,
+	}
+	if err := store.Save(stored); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	// Simulate a discovered workspace (git worktree discovery only sets git info)
+	discovered := &Workspace{
+		Name:   "flagged-ws",
+		Branch: "main",
+		Repo:   "/home/user/repo",
+		Root:   "/home/user/.medusa/workspaces/flagged-ws",
+	}
+
+	found, err := store.LoadMetadataFor(discovered)
+	if err != nil {
+		t.Fatalf("LoadMetadataFor() error = %v", err)
+	}
+	if !found {
+		t.Fatal("LoadMetadataFor() should have found metadata")
+	}
+
+	if !discovered.AllowEdits {
+		t.Error("AllowEdits should be true after LoadMetadataFor merge")
+	}
+	if !discovered.Isolated {
+		t.Error("Isolated should be true after LoadMetadataFor merge")
+	}
+}
+
 func TestWorkspaceStore_LoadMetadataFor_CorruptedFile(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

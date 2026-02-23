@@ -403,6 +403,35 @@ func TestWorkspaceStore_LoadAppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_SaveLoadRoundTrip_BooleanFlags(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	ws := &Workspace{
+		Name:       "isolated-ws",
+		Repo:       "/home/user/repo",
+		Root:       "/home/user/.medusa/workspaces/isolated-ws",
+		AllowEdits: true,
+		Isolated:   true,
+	}
+
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := store.Load(ws.ID())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !loaded.AllowEdits {
+		t.Error("AllowEdits should be true after save/load round-trip")
+	}
+	if !loaded.Isolated {
+		t.Error("Isolated should be true after save/load round-trip")
+	}
+}
+
 func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)
