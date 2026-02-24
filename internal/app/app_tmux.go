@@ -30,9 +30,6 @@ func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
 		if cleaned {
 			logging.Info("Cleaned up @medusa tmux sessions for workspace %s", ws.Name)
 		}
-		if err := tmux.KillWorkspaceSessions(ws.Name, opts); err != nil {
-			logging.Warn("Failed to cleanup tmux sessions for workspace %s: %v", ws.Name, err)
-		}
 		return nil
 	}
 }
