@@ -145,15 +145,15 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				tab.bootstrapActivity = false
 				tab.bootstrapLastOutputAt = time.Time{}
 			}
+			tab.mu.Unlock()
+			hasVisibleOutput := tab.consumeActivityVisibility(msg.Data)
+			if hasVisibleOutput {
+				tab.mu.Lock()
+				tab.pendingVisibleOutput = true
+				tab.pendingVisibleSeq++
 				tab.mu.Unlock()
-				hasVisibleOutput := tab.consumeActivityVisibility(msg.Data)
-				if hasVisibleOutput {
-					tab.mu.Lock()
-					tab.pendingVisibleOutput = true
-					tab.pendingVisibleSeq++
-					tab.mu.Unlock()
-				}
 			}
+		}
 		if !tab.flushScheduled {
 			tab.flushScheduled = true
 			tab.flushPendingSince = tab.lastOutputAt
