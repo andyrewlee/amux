@@ -934,7 +934,7 @@ func (a *App) handleShowSettingsDialog() {
 		a.config.UI.SyncProfilePlugins,
 		a.config.UI.GlobalPermissions,
 		a.config.UI.AutoAddPermissions,
-		a.config.UI.BellOnReady,
+		a.config.UI.NotificationSound,
 		a.config.UI.TmuxPersistence,
 		a.config.UI.TmuxServer,
 		a.config.UI.TmuxConfigPath,
@@ -1022,6 +1022,41 @@ func (a *App) handleThemePreview(msg common.ThemePreview) {
 	}
 }
 
+// handleShowSoundPicker opens the sound selection dialog.
+func (a *App) handleShowSoundPicker() {
+	a.soundPicker = common.NewSoundPicker(a.config.UI.NotificationSound)
+	a.soundPicker.SetSize(a.width, a.height)
+	a.soundPicker.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.soundPicker.Show()
+}
+
+// handleSoundPickerResult handles sound picker dialog completion.
+func (a *App) handleSoundPickerResult(msg common.SoundPickerResult) tea.Cmd {
+	a.soundPicker = nil
+	if msg.Confirmed && a.settingsDialog != nil {
+		a.settingsDialog.SetNotificationSound(msg.Sound)
+	}
+	// Re-show settings dialog
+	if a.settingsDialog != nil {
+		a.settingsDialog.Show()
+	}
+	return nil
+}
+
+// handleSoundPreview plays a preview of the selected sound.
+func (a *App) handleSoundPreview(msg common.SoundPreview) tea.Cmd {
+	if msg.Sound == "" {
+		return nil
+	}
+	sound := msg.Sound
+	return func() tea.Msg {
+		// Kill any existing afplay to avoid overlap
+		_ = exec.Command("killall", "afplay").Run()
+		_ = exec.Command("afplay", "/System/Library/Sounds/"+sound+".aiff").Start()
+		return nil
+	}
+}
+
 // handleSettingsResult handles settings dialog result.
 func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 	a.settingsDialog = nil
@@ -1056,8 +1091,8 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 			_ = config.UnsyncAllProfiles(a.config.Paths.ProfilesRoot)
 		}
 
-		// Apply bell on ready setting
-		a.config.UI.BellOnReady = msg.BellOnReady
+		// Apply notification sound setting
+		a.config.UI.NotificationSound = msg.NotificationSound
 
 		// Apply global permissions settings
 		oldGlobalPerms := a.config.UI.GlobalPermissions

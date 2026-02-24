@@ -25,7 +25,7 @@ type UISettings struct {
 	TmuxConfigPath     string
 	TmuxSyncInterval   string
 	TmuxPersistence    bool
-	BellOnReady        bool   // Ring terminal bell when agent finishes
+	NotificationSound  string // Sound name from /System/Library/Sounds (empty = none)
 	IDE                string // CLI command for IDE (e.g., "code", "cursor", "pycharm")
 }
 
@@ -42,7 +42,7 @@ func defaultUISettings() UISettings {
 		TmuxConfigPath:     "",
 		TmuxSyncInterval:   "",
 		TmuxPersistence:    true,
-		BellOnReady:        true,
+		NotificationSound:  "",
 	}
 }
 
@@ -72,7 +72,7 @@ func loadUISettings(path string) UISettings {
 			TmuxConfigPath     *string `json:"tmux_config"`
 			TmuxSyncInterval   *string `json:"tmux_sync_interval"`
 			TmuxPersistence    *bool   `json:"tmux_persistence"`
-			BellOnReady        *bool   `json:"bell_on_ready"`
+			NotificationSound  *string `json:"notification_sound"`
 		} `json:"ui"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -129,8 +129,8 @@ func loadUISettings(path string) UISettings {
 	if raw.UI.TmuxPersistence != nil {
 		settings.TmuxPersistence = *raw.UI.TmuxPersistence
 	}
-	if raw.UI.BellOnReady != nil {
-		settings.BellOnReady = *raw.UI.BellOnReady
+	if raw.UI.NotificationSound != nil {
+		settings.NotificationSound = *raw.UI.NotificationSound
 	}
 	return settings
 }
@@ -166,7 +166,7 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["tmux_config"] = settings.TmuxConfigPath
 	ui["tmux_sync_interval"] = settings.TmuxSyncInterval
 	ui["tmux_persistence"] = settings.TmuxPersistence
-	ui["bell_on_ready"] = settings.BellOnReady
+	ui["notification_sound"] = settings.NotificationSound
 	payload["ui"] = ui
 
 	data, err := json.MarshalIndent(payload, "", "  ")

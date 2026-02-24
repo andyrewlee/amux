@@ -101,18 +101,6 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Sync plugins & skills across profiles"))
 	s.addHit(settingsItemSyncPlugins, -1, y)
-
-	checkbox = "[ ]"
-	if s.bellOnReady {
-		checkbox = "[" + Icons.Clean + "]"
-	}
-	style = lipgloss.NewStyle().Foreground(ColorForeground)
-	if s.focusedItem == settingsItemBellOnReady {
-		style = style.Foreground(ColorPrimary)
-	}
-	y = len(lines)
-	lines = append(lines, style.Render(checkbox+" Bell when agent finishes"))
-	s.addHit(settingsItemBellOnReady, -1, y)
 	lines = append(lines, "")
 
 	// Global permissions section
@@ -200,6 +188,19 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render("[Manage Profiles]"))
 	s.addHit(settingsItemManageProfiles, -1, y)
+
+	// Notification sound link
+	soundLabel := "None"
+	if s.notificationSound != "" {
+		soundLabel = s.notificationSound
+	}
+	style = muted
+	if s.focusedItem == settingsItemNotificationSound {
+		style = lipgloss.NewStyle().Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render("[Notification sound: "+soundLabel+"]"))
+	s.addHit(settingsItemNotificationSound, -1, y)
 
 	// Theme link - shows current theme name
 	currentTheme := GetTheme(s.theme)

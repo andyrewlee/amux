@@ -2,7 +2,7 @@ package app
 
 import (
 	"fmt"
-	"os"
+	"os/exec"
 	"runtime/debug"
 
 	"charm.land/bubbles/v2/key"
@@ -59,17 +59,16 @@ func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
 	newUnread := a.dashboard.SetTmuxConfirmedActive(a.tmuxActiveWorkspaceIDs)
 	spinnerCmd := a.dashboard.SetWorkspaceAgentStates(a.center.GetWorkspaceAgentStates())
-	if newUnread && a.config.UI.BellOnReady {
-		return tea.Batch(spinnerCmd, ringBell())
+	if newUnread && a.config.UI.NotificationSound != "" {
+		return tea.Batch(spinnerCmd, playNotificationSound(a.config.UI.NotificationSound))
 	}
 	return spinnerCmd
 }
 
-// ringBell sends a BEL character to stderr to produce an audible terminal bell.
-// Writing to stderr avoids interfering with Bubble Tea's alternate screen on stdout.
-func ringBell() tea.Cmd {
+// playNotificationSound plays the named system sound to notify the user.
+func playNotificationSound(sound string) tea.Cmd {
 	return func() tea.Msg {
-		_, _ = os.Stderr.WriteString("\a")
+		_ = exec.Command("afplay", "/System/Library/Sounds/"+sound+".aiff").Start()
 		return nil
 	}
 }

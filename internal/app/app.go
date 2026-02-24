@@ -107,6 +107,7 @@ type App struct {
 	filePicker      *common.FilePicker
 	settingsDialog  *common.SettingsDialog
 	themeDialog     *common.ThemeDialog
+	soundPicker     *common.SoundPicker
 
 	// Overlays
 	helpOverlay     *common.HelpOverlay

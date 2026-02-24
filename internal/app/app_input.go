@@ -184,6 +184,23 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Handle sound picker if visible
+	if a.soundPicker != nil && a.soundPicker.Visible() {
+		newPicker, cmd := a.soundPicker.Update(msg)
+		a.soundPicker = newPicker
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		// Don't process other input while sound picker is open
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+	}
+
 	// Handle permissions dialog if visible
 	if a.permissionsDialog != nil && a.permissionsDialog.Visible() {
 		newDialog, cmd := a.permissionsDialog.Update(msg)
@@ -463,6 +480,19 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case common.ThemeResult:
 		if cmd := a.handleThemeResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case common.ShowSoundPicker:
+		a.handleShowSoundPicker()
+
+	case common.SoundPreview:
+		if cmd := a.handleSoundPreview(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case common.SoundPickerResult:
+		if cmd := a.handleSoundPickerResult(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
