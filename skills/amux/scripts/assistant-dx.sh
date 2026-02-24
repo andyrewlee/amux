@@ -2355,18 +2355,18 @@ emit_turn_passthrough() {
     else
       (.workspace_context) as $wc
       | (workspace_line($wc)) as $line
-      | (workspace_label($wc)) as $label
+      | (workspace_label($wc)) as $ws_label
       | .channel = (.channel // {})
       | (.summary // "") as $summary
       | .summary = (
-          if ($label | length) == 0 then
+          if ($ws_label | length) == 0 then
             $summary
           elif ($summary | length) == 0 then
-            $label
-          elif ($summary | contains($label)) then
+            $ws_label
+          elif ($summary | contains($ws_label)) then
             $summary
           else
-            $summary + " [" + $label + "]"
+            $summary + " [" + $ws_label + "]"
           end
         )
       | (.channel.message // "") as $msg
