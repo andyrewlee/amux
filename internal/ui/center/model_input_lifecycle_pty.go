@@ -232,43 +232,61 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						visibleSeq:      visibleSeq,
 					}) {
 						processedBytes := len(chunk)
-						filtered := common.FilterKnownPTYNoise(chunk)
-						filteredBytes := processedBytes - len(filtered)
-						perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-						if filteredBytes > 0 {
-							perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-						}
+						filteredLen := 0
+						filterApplied := false
 						tab.mu.Lock()
-						if tab.Terminal != nil && len(filtered) > 0 {
+						if tab.Terminal != nil {
+							filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
+							filteredLen = len(filtered)
+							filterApplied = true
+							if len(filtered) > 0 {
+								flushDone := perf.Time("pty_flush")
+								tab.Terminal.Write(filtered)
+								flushDone()
+								perf.Count("pty_flush_bytes", int64(len(filtered)))
+							}
+							// Activity state intentionally tracks visible terminal mutations only.
+							// Noise-only chunks are filtered above and must not update activity tags.
+							// We still run this to clear pending visible state when no mutation occurred.
+							tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
+						}
+						tab.mu.Unlock()
+						perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+						if filterApplied {
+							filteredBytes := processedBytes - filteredLen
+							if filteredBytes > 0 {
+								perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+							}
+						}
+					}
+				} else {
+					processedBytes := len(chunk)
+					filteredLen := 0
+					filterApplied := false
+					tab.mu.Lock()
+					if tab.Terminal != nil {
+						filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
+						filteredLen = len(filtered)
+						filterApplied = true
+						if len(filtered) > 0 {
 							flushDone := perf.Time("pty_flush")
 							tab.Terminal.Write(filtered)
 							flushDone()
 							perf.Count("pty_flush_bytes", int64(len(filtered)))
-							// Activity state intentionally tracks visible terminal mutations only.
-							// Noise-only chunks are filtered above and must not update activity tags.
-							tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
 						}
-						tab.mu.Unlock()
-					}
-				} else {
-					processedBytes := len(chunk)
-					filtered := common.FilterKnownPTYNoise(chunk)
-					filteredBytes := processedBytes - len(filtered)
-					perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-					if filteredBytes > 0 {
-						perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-					}
-					tab.mu.Lock()
-					if tab.Terminal != nil && len(filtered) > 0 {
-						flushDone := perf.Time("pty_flush")
-						tab.Terminal.Write(filtered)
-						flushDone()
-						perf.Count("pty_flush_bytes", int64(len(filtered)))
 						// Activity state intentionally tracks visible terminal mutations only.
 						// Noise-only chunks are filtered above and must not update activity tags.
+						// We still run this to clear pending visible state when no mutation occurred.
 						tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
 					}
 					tab.mu.Unlock()
+					perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+					if filterApplied {
+						filteredBytes := processedBytes - filteredLen
+						if filteredBytes > 0 {
+							perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+						}
+					}
 				}
 				if tagSessionName != "" {
 					opts := m.getTmuxOptions()
@@ -303,11 +321,33 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 // updatePTYStopped handles PTYStopped.
 func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 	var cmds []tea.Cmd
+	var tagSessionName string
+	var tagTimestamp int64
 	// Terminal closed - mark tab as not running, but keep it visible
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab != nil {
 		termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 		m.stopPTYReader(tab)
+		tab.mu.Lock()
+		if tab.Terminal != nil && len(tab.ptyNoiseTrailing) > 0 {
+			flushDone := perf.Time("pty_flush")
+			trailing := common.DrainKnownPTYNoiseTrailing(&tab.ptyNoiseTrailing)
+			tab.Terminal.Write(trailing)
+			flushDone()
+			perf.Count("pty_flush_bytes", int64(len(trailing)))
+			// Reconcile pending activity state for terminal-visible output.
+			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, false, tab.pendingVisibleSeq)
+		}
+		tab.mu.Unlock()
+		if tagSessionName != "" {
+			opts := m.getTmuxOptions()
+			sessionName := tagSessionName
+			timestamp := strconv.FormatInt(tagTimestamp, 10)
+			cmds = append(cmds, func() tea.Msg {
+				_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
+				return nil
+			})
+		}
 		tab.resetActivityANSIState()
 		if termAlive {
 			shouldRestart := true

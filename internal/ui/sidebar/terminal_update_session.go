@@ -52,6 +52,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.reattachInFlight = false
 	ts.SessionName = msg.SessionName
 	ts.pendingOutput = nil
+	ts.ptyNoiseTrailing = nil
 	ts.mu.Unlock()
 	if msg.Terminal != nil {
 		t := msg.Terminal

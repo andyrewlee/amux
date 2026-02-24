@@ -216,6 +216,7 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	ts.Detached = true
 	ts.UserDetached = userInitiated
 	ts.pendingOutput = nil
+	ts.ptyNoiseTrailing = nil
 	ts.mu.Unlock()
 	if term != nil {
 		term.Close()

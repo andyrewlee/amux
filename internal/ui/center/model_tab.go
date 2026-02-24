@@ -51,6 +51,7 @@ type Tab struct {
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput         []byte
+	ptyNoiseTrailing      []byte
 	flushScheduled        bool
 	lastOutputAt          time.Time
 	lastVisibleOutput     time.Time
@@ -242,6 +243,7 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 			tab.ptyTraceClosed = true
 		}
 		tab.pendingOutput = nil
+		tab.ptyNoiseTrailing = nil
 		tab.DiffViewer = nil
 		tab.Terminal = nil
 		tab.cachedSnap = nil

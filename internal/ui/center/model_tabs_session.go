@@ -44,6 +44,7 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	tab.Detached = true
 	tab.reattachInFlight = false
 	tab.pendingOutput = nil
+	tab.ptyNoiseTrailing = nil
 	if tab.Agent != nil && tab.SessionName == "" {
 		tab.SessionName = tab.Agent.Session
 	}

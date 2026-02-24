@@ -52,6 +52,7 @@ type TerminalState struct {
 
 	// PTY output buffering
 	pendingOutput     []byte
+	ptyNoiseTrailing  []byte
 	flushScheduled    bool
 	lastOutputAt      time.Time
 	flushPendingSince time.Time

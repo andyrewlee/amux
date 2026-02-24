@@ -57,6 +57,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	tab.Workspace = nil
 	tab.Running = false
 	tab.pendingOutput = nil
+	tab.ptyNoiseTrailing = nil
 	tab.mu.Unlock()
 	tab.markClosed()
 

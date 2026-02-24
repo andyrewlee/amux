@@ -135,6 +135,7 @@ func (m *Model) Close() {
 				tab.ptyTraceClosed = true
 			}
 			tab.pendingOutput = nil
+			tab.ptyNoiseTrailing = nil
 			tab.DiffViewer = nil
 			tab.Terminal = nil
 			tab.cachedSnap = nil
