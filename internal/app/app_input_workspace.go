@@ -201,7 +201,6 @@ func (a *App) handleRenameGroup(msg messages.RenameGroup) tea.Cmd {
 			"@medusa":           "1",
 			"@medusa_workspace": string(oldID),
 		}, opts)
-		_ = tmux.KillWorkspaceSessions(gw.Name, opts)
 
 		// Delete old storage directory
 		_ = a.workspaces.DeleteGroupWorkspace(oldID)
@@ -524,9 +523,6 @@ func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) te
 func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
-		if cleanup := a.cleanupWorkspaceTmuxSessions(msg.Workspace); cleanup != nil {
-			cmds = append(cmds, cleanup)
-		}
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
