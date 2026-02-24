@@ -76,6 +76,9 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 	// stale follower markers should not remain visible.
 	a.tmuxActiveWorkspaceIDs = make(map[string]bool)
 	a.syncActiveWorkspacesToDashboard()
+	// Do not reset tmuxActivitySettledScans on role transitions. Settlement tracks
+	// continuity of successfully applied activity payloads, independent of owner
+	// identity, and only increments in applyTmuxActivityPayload.
 }
 
 func isTmuxActivityOwnerTransition(

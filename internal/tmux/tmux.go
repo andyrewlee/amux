@@ -424,6 +424,8 @@ func SetGlobalOptionValues(values []OptionValue, opts Options) error {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() == 1 {
 				stderr := strings.TrimSpace(string(output))
+				// Keep parity with SetGlobalOptionValue: tolerate unknown/invalid
+				// option keys so mixed tmux versions don't fail batch writes.
 				if strings.Contains(stderr, "invalid option") || strings.Contains(stderr, "unknown option") {
 					return nil
 				}
