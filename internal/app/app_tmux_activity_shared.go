@@ -64,6 +64,8 @@ func (a *App) resolveTmuxActivityScanRole(
 	if candidateEpoch < 1 {
 		candidateEpoch = 1
 	}
+	// tmux global options provide no atomic compare-and-swap primitive. Claim by
+	// write-then-confirm-read and rely on epoch checks to prevent split-brain use.
 	if err := writeTmuxActivityOwnerLease(opts, instanceID, candidateEpoch, now); err != nil {
 		return tmuxActivityRoleOwner, nil, false, candidateEpoch, err
 	}
@@ -103,6 +105,8 @@ func (a *App) publishTmuxActivitySnapshot(opts tmux.Options, active map[string]b
 	if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(active, epoch, now), opts); err != nil {
 		return err
 	}
+	// Snapshot write and ownership validation are not atomic; epoch checks on
+	// reads ensure followers ignore snapshots from superseded owners.
 	canPublish, _, err := a.canPublishTmuxActivitySnapshot(opts, epoch, time.Now())
 	if err != nil {
 		return err
@@ -110,6 +114,8 @@ func (a *App) publishTmuxActivitySnapshot(opts tmux.Options, active map[string]b
 	if !canPublish {
 		return errTmuxActivityOwnershipLostAfterPublish
 	}
+	// Heartbeat renewal may race with ownership turnover. Ownership/epoch checks
+	// on readers and subsequent scans handle this by treating mismatches as stale.
 	return renewTmuxActivityOwnerLeaseHeartbeat(opts, now)
 }
 
@@ -273,6 +279,8 @@ func decodeTmuxActivitySnapshot(raw string) (map[string]bool, int64, time.Time, 
 	}
 
 	// Legacy payloads: comma-delimited plain IDs with optional b:<base64(id)> entries.
+	// Note: plain IDs that literally start with "b:" and are valid base64 will be
+	// interpreted as encoded legacy IDs by design for backward compatibility.
 	for _, candidate := range legacyCandidates {
 		if !strings.HasPrefix(candidate, "b:") {
 			active[candidate] = true

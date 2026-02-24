@@ -18,9 +18,12 @@ func TestHandleTmuxActivityResult_OwnerTransitionErrorResetsHysteresis(t *testin
 		sessionActivityStates: map[string]*activity.SessionState{
 			"stale-session": {},
 		},
-		tmuxActiveWorkspaceIDs: map[string]bool{},
-		dashboard:              dashboard.New(),
+		tmuxActivitySettled:      true,
+		tmuxActivitySettledScans: 2,
+		tmuxActiveWorkspaceIDs:   map[string]bool{"ws-stale": true},
+		dashboard:                dashboard.New(),
 	}
+	app.syncActiveWorkspacesToDashboard()
 
 	app.handleTmuxActivityResult(tmuxActivityResult{
 		Token:        5,
@@ -31,6 +34,12 @@ func TestHandleTmuxActivityResult_OwnerTransitionErrorResetsHysteresis(t *testin
 	})
 	if len(app.sessionActivityStates) != 0 {
 		t.Fatalf("expected hysteresis reset on owner transition despite scan error, got %v", app.sessionActivityStates)
+	}
+	if len(app.tmuxActiveWorkspaceIDs) != 0 {
+		t.Fatalf("expected stale active-workspace map cleared on owner transition, got %v", app.tmuxActiveWorkspaceIDs)
+	}
+	if got := dashboardActiveWorkspaceCount(app.dashboard); got != 0 {
+		t.Fatalf("expected dashboard activity cleared on owner transition, got %d", got)
 	}
 
 	app.handleTmuxActivityResult(tmuxActivityResult{

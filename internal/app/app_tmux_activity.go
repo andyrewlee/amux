@@ -140,6 +140,11 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 			// Reset hysteresis state when transitioning follower->owner so we
 			// don't apply stale per-session carryover from an older owner epoch.
 			a.sessionActivityStates = make(map[string]*activity.SessionState)
+			// Clear previously shared/follower activity immediately on ownership
+			// transition so stale workspace activity does not linger if the first
+			// owner scan fails or is skipped.
+			a.tmuxActiveWorkspaceIDs = make(map[string]bool)
+			a.syncActiveWorkspacesToDashboard()
 		}
 	}
 	var cmds []tea.Cmd
@@ -154,6 +159,9 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 			cmds = append(cmds, common.SafeBatch(stoppedTabCmds...))
 		}
 		if !msg.SkipApply {
+			// A scan contributes to settle only when activity was actually applied.
+			// Follower scans without a readable shared snapshot keep SkipApply=true
+			// so we don't settle on unknown activity state.
 			if msg.ActiveWorkspaceIDs == nil {
 				msg.ActiveWorkspaceIDs = make(map[string]bool)
 			}
@@ -236,8 +244,10 @@ func (a *App) runTmuxActivityScan(
 	sessions, stoppedTabs, err := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
 	if err != nil {
 		return tmuxActivityResult{
-			Token:        scanToken,
-			Err:          err,
+			Token: scanToken,
+			Err:   err,
+			// sharedRoleKnown implies ownership was resolved before local scan work;
+			// keep that role metadata on scan errors so the UI can preserve role state.
 			ScannerOwner: sharedRoleKnown,
 			ScannerEpoch: ownerEpoch,
 			RoleKnown:    sharedRoleKnown,
@@ -266,6 +276,10 @@ func (a *App) runTmuxActivityScan(
 		canPublish, leaseEpoch, err := a.canPublishTmuxActivitySnapshot(opts, result.ScannerEpoch, publishAt)
 		if err != nil {
 			logging.Warn("tmux activity lease revalidation failed before snapshot publish: %v", err)
+			// Conservative fallback: if ownership cannot be revalidated, skip
+			// applying local activity to avoid split-brain ownership effects.
+			result.ScannerOwner = false
+			result.SkipApply = true
 		} else if canPublish {
 			if err := a.publishTmuxActivitySnapshot(opts, active, result.ScannerEpoch, publishAt); err != nil {
 				if errors.Is(err, errTmuxActivityOwnershipLostAfterPublish) {

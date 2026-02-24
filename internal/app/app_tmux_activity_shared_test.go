@@ -287,3 +287,17 @@ func TestDecodeTmuxActivitySnapshot_LegacyBPrefixIDsRemainLiteral(t *testing.T) 
 		t.Fatalf("expected additional legacy ID to decode, got %v", active)
 	}
 }
+
+func TestDecodeTmuxActivitySnapshot_LegacyBPrefixValidBase64Decodes(t *testing.T) {
+	raw := "3;1700000000000;b:d3M,ws-b"
+	active, _, _, ok := decodeTmuxActivitySnapshot(raw)
+	if !ok {
+		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
+	}
+	if !active["ws"] {
+		t.Fatalf("expected valid legacy b:-prefixed token to decode, got %v", active)
+	}
+	if active["b:d3M"] {
+		t.Fatalf("expected encoded legacy token not to remain literal, got %v", active)
+	}
+}

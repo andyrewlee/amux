@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -174,6 +175,39 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 	}
 	if !shared["ws-new"] {
 		t.Fatalf("expected takeover snapshot to stay intact, got %v", shared)
+	}
+}
+
+func TestRunTmuxActivityScan_LeaseRevalidationErrorBeforePublishSkipsApply(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := gcTestServer(t)
+	if err := writeTmuxActivityOwnerLease(opts, "owner-a", 4, time.Now()); err != nil {
+		t.Fatalf("write owner lease: %v", err)
+	}
+
+	app := &App{
+		instanceID: "owner-a",
+		tmuxService: newTmuxService(sessionsWithTagsStubTmuxOps{
+			stubTmuxOps: stubTmuxOps{
+				allStates: map[string]tmux.SessionState{},
+			},
+			rows: []tmux.SessionTagValues{},
+			onSessionsCall: func() {
+				cmd := exec.Command("tmux", gcTmuxArgs(opts, "kill-server")...)
+				_ = cmd.Run()
+			},
+		}),
+	}
+
+	result := app.runTmuxActivityScan(99, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
+	if result.Err != nil {
+		t.Fatalf("unexpected scan error: %v", result.Err)
+	}
+	if result.ScannerOwner {
+		t.Fatal("expected scanner owner=false when pre-publish lease revalidation errors")
+	}
+	if !result.SkipApply {
+		t.Fatal("expected SkipApply=true when pre-publish lease revalidation errors")
 	}
 }
 
