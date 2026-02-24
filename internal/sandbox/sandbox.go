@@ -60,6 +60,12 @@ func GenerateSBPL(worktreeRoot, gitDir, claudeConfigDir string) string {
 		b.WriteString(";; File writes — Claude config dir (CLAUDE_CONFIG_DIR)\n")
 		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", claudeConfigDir)
 
+		// Allow writes to the lock directory Claude Code creates as a sibling
+		// of the config dir (e.g. "Work.lock" next to "Work/"). Without this,
+		// Claude Code cannot acquire its config lock and OAuth token refresh fails.
+		b.WriteString(";; File writes — Claude config lock dir (sibling of config dir)\n")
+		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", claudeConfigDir+".lock")
+
 		// Allow writes to the shared plugins/skills directory.
 		// Profile dirs symlink plugins/ and skills/ to ../shared/{plugins,skills}.
 		// macOS Seatbelt resolves symlinks before checking permissions, so we
@@ -68,6 +74,9 @@ func GenerateSBPL(worktreeRoot, gitDir, claudeConfigDir string) string {
 		b.WriteString(";; File writes — shared plugins/skills (symlink target)\n")
 		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", sharedDir)
 	}
+
+	b.WriteString(";; File writes — Claude state dir (version locks)\n")
+	fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", home+"/.local/state/claude")
 
 	b.WriteString(";; File writes — /dev (stdout, stderr, /dev/null)\n")
 	b.WriteString("(allow file-write* (regex #\"^/dev/\"))\n\n")

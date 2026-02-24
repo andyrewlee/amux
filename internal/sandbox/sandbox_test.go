@@ -70,6 +70,20 @@ func TestGenerateSBPL(t *testing.T) {
 		}
 	})
 
+	t.Run("config_lock_dir_write", func(t *testing.T) {
+		expected := `(allow file-write* (subpath "` + configDir + `.lock"))`
+		if !strings.Contains(sbpl, expected) {
+			t.Errorf("profile should allow writes to config lock dir, want:\n  %s", expected)
+		}
+	})
+
+	t.Run("claude_state_dir_write", func(t *testing.T) {
+		expected := `(allow file-write* (subpath "` + home + `/.local/state/claude"))`
+		if !strings.Contains(sbpl, expected) {
+			t.Errorf("profile should allow writes to ~/.local/state/claude, want:\n  %s", expected)
+		}
+	})
+
 	t.Run("dev_write", func(t *testing.T) {
 		if !strings.Contains(sbpl, `(allow file-write* (regex #"^/dev/"))`) {
 			t.Error("profile should allow writes to /dev/")

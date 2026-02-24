@@ -86,6 +86,9 @@ func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, sess
 
 // CreateAgentWithTags creates a new agent for the given workspace with tmux tags.
 func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags, opts AgentOptions) (*Agent, error) {
+	if agentType == AgentClaude && ws.Profile == "" {
+		return nil, fmt.Errorf("cannot start Claude agent without a profile (workspace %q)", ws.Name)
+	}
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
@@ -209,6 +212,9 @@ func (m *AgentManager) CreateGroupAgentWithTags(
 	tags tmux.SessionTags,
 	opts AgentOptions,
 ) (*Agent, error) {
+	if agentType == AgentClaude && gw.Profile == "" {
+		return nil, fmt.Errorf("cannot start Claude agent without a profile (group workspace %q)", gw.Name)
+	}
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
