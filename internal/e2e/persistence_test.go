@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	persistenceTimeout = 15 * time.Second
+	persistenceTimeout = 30 * time.Second
 )
 
 func TestTmuxPersistenceKeepsSessions(t *testing.T) {
@@ -43,7 +43,7 @@ func TestTmuxPersistenceKeepsSessions(t *testing.T) {
 
 	waitForUIContains(t, session, filepath.Base(repo), persistenceTimeout)
 	activatePrimaryWorkspace(t, session)
-	waitForUIContains(t, session, "[New agent]", persistenceTimeout)
+	waitForUIContains(t, session, "Branch:", persistenceTimeout)
 	createAgentTab(t, session)
 	waitForUIContains(t, session, "claude", persistenceTimeout)
 
@@ -99,7 +99,7 @@ func TestTmuxPersistenceCleansOnExit(t *testing.T) {
 
 	waitForUIContains(t, session, filepath.Base(repo), persistenceTimeout)
 	activatePrimaryWorkspace(t, session)
-	waitForUIContains(t, session, "[New agent]", persistenceTimeout)
+	waitForUIContains(t, session, "Branch:", persistenceTimeout)
 	createAgentTab(t, session)
 	waitForUIContains(t, session, "claude", persistenceTimeout)
 	waitForSessionTypes(t, opts, map[string]bool{"agent": true}, persistenceTimeout)

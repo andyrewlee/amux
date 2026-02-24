@@ -197,11 +197,12 @@ func TestFilePickerCancelButtonClick(t *testing.T) {
 
 func TestFilePickerMultipleLongDirectories(t *testing.T) {
 	tmp := t.TempDir()
-	// Create multiple directories with long names
+	// Create multiple directories with long names (all share a common prefix
+	// so a single filter character reveals them all).
 	longNames := []string{
-		"First-Very-Long-Directory-Name-That-Exceeds-Normal-Width",
-		"Second-Long-Directory-Name-Also-Quite-Lengthy-Indeed",
-		"Third-Directory-With-Extended-Name-For-Testing-Purposes",
+		"Long-First-Very-Long-Directory-Name-That-Exceeds-Normal-Width",
+		"Long-Second-Directory-Name-Also-Quite-Lengthy-Indeed",
+		"Long-Third-Directory-With-Extended-Name-For-Testing-Purposes",
 	}
 	for _, name := range longNames {
 		if err := os.MkdirAll(filepath.Join(tmp, name), 0o755); err != nil {
@@ -212,6 +213,10 @@ func TestFilePickerMultipleLongDirectories(t *testing.T) {
 	fp := NewFilePicker("id", tmp, true)
 	fp.SetSize(120, 40)
 	fp.Show()
+
+	// Type a filter character to make suggestions visible
+	fp.input.SetValue(fp.inputBasePath() + "L")
+	fp.handlePathInput(fp.input.Value())
 
 	fp.renderLines()
 

@@ -362,6 +362,18 @@ func (a *App) createGroupWorkspaceFromSpecs(group *data.ProjectGroup, name strin
 			return messages.GroupWorkspaceCreateFailed{Err: err}
 		}
 
+		// Wait for .git files to exist in each worktree (race condition from
+		// workspace creation — mirrors the single-workspace wait in createWorkspace).
+		for _, spec := range specs {
+			gitPath := filepath.Join(spec.WorkspacePath, ".git")
+			for i := 0; i < 10; i++ {
+				if _, err := os.Stat(gitPath); err == nil {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+
 		// Copy .env* files from each repo's project directory (one level deep)
 		for _, spec := range specs {
 			copyEnvFiles(spec.RepoPath, spec.WorkspacePath)
