@@ -871,7 +871,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd := a.dashboard.SetForceSpinner(true); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-			cmds = append(cmds, a.fetchFirstGroupBase(group, msg.Name, msg.AllowEdits, msg.Isolated, msg.LoadClaudeMD, msg.BranchMode, msg.CustomBranch))
+			cmds = append(cmds, a.fetchFirstGroupBase(group, msg.Name, msg.AllowEdits, msg.Isolated, msg.SkipPermissions, msg.LoadClaudeMD, msg.BranchMode, msg.CustomBranch))
 		}
 
 	case messages.GroupRepoFetchDone:

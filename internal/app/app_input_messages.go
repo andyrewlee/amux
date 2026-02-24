@@ -845,7 +845,8 @@ func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDi
 		return ""
 	})
 	a.dialog.SetCheckbox("Immediately allow edits", a.config.UI.LastAllowEdits)
-	a.dialog.SetCheckbox2("Run in sandbox and skip permission checks", a.config.UI.LastIsolated)
+	a.dialog.SetCheckbox2("Run in sandbox", a.config.UI.LastIsolated)
+	a.dialog.SetCheckbox3("Skip permission checks", a.config.UI.LastSkipPermissions)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()
@@ -1174,7 +1175,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base, msg.AllowEdits, msg.Isolated))
+	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base, msg.AllowEdits, msg.Isolated, msg.SkipPermissions))
 	return cmds
 }
 
@@ -1457,7 +1458,8 @@ func (a *App) handleShowCreateGroupWorkspaceDialog(msg messages.ShowCreateGroupW
 		return ""
 	})
 	a.dialog.SetCheckbox("Immediately allow edits", a.config.UI.LastAllowEdits)
-	a.dialog.SetCheckbox2("Run in sandbox and skip permission checks", a.config.UI.LastIsolated)
+	a.dialog.SetCheckbox2("Run in sandbox", a.config.UI.LastIsolated)
+	a.dialog.SetCheckbox3("Skip permission checks", a.config.UI.LastSkipPermissions)
 	a.dialog.SetSize(a.width, a.height)
 	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialog.Show()

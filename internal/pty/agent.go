@@ -145,10 +145,9 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		}
 	}
 
-	// Sandbox isolation: append --dangerously-skip-permissions and wrap
-	// the entire command chain (agent + fallback shell) with sandbox-exec.
+	// Skip permissions: append --dangerously-skip-permissions independently of sandbox.
 	var sbplCleanup func()
-	if ws.Isolated && agentType == AgentClaude {
+	if ws.SkipPermissions && agentType == AgentClaude {
 		agentCommand += " --dangerously-skip-permissions"
 		_ = config.InjectSkipPermissionPrompt(profileDir)
 	}
@@ -265,9 +264,9 @@ func (m *AgentManager) CreateGroupAgentWithTags(
 		}
 	}
 
-	// Sandbox isolation for group workspaces
+	// Skip permissions for group workspaces
 	var sbplCleanup func()
-	if gw.Isolated && agentType == AgentClaude {
+	if gw.SkipPermissions && agentType == AgentClaude {
 		agentCommand += " --dangerously-skip-permissions"
 		_ = config.InjectSkipPermissionPrompt(profileDir)
 	}

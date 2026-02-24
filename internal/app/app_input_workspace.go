@@ -33,7 +33,7 @@ func (a *App) handleWorkspaceFetchDone(msg messages.WorkspaceFetchDone) []tea.Cm
 			cmds = append(cmds, cmd)
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base, msg.AllowEdits, msg.Isolated))
+	cmds = append(cmds, a.createWorkspace(msg.Project, msg.Name, msg.Base, msg.AllowEdits, msg.Isolated, msg.SkipPermissions))
 	return cmds
 }
 

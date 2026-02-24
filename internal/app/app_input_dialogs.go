@@ -135,8 +135,10 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			// Remember checkbox states for next workspace creation
 			allowEdits := result.CheckboxValue
 			isolated := result.Checkbox2Value
+			skipPermissions := result.Checkbox3Value
 			a.config.UI.LastAllowEdits = allowEdits
 			a.config.UI.LastIsolated = isolated
+			a.config.UI.LastSkipPermissions = skipPermissions
 			_ = a.config.SaveUISettings()
 			// Re-set dialog state for chaining and show branch mode picker
 			a.dialogProject = project
@@ -338,8 +340,10 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 			allowEdits := result.CheckboxValue
 			isolated := result.Checkbox2Value
+			skipPermissions := result.Checkbox3Value
 			a.config.UI.LastAllowEdits = allowEdits
 			a.config.UI.LastIsolated = isolated
+			a.config.UI.LastSkipPermissions = skipPermissions
 			_ = a.config.SaveUISettings()
 			// Re-set dialog state for chaining and show branch mode picker
 			a.dialogGroup = group
@@ -359,6 +363,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	case DialogSelectBranchMode:
 		allowEdits := a.config.UI.LastAllowEdits
 		isolated := a.config.UI.LastIsolated
+		skipPermissions := a.config.UI.LastSkipPermissions
 		if project != nil {
 			// Single workspace
 			name := defaultName
@@ -370,7 +375,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				})
 				a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
 				a.creationOverlay.SetSize(a.width, a.height)
-				return a.fetchRemoteBase(project, name, allowEdits, isolated)
+				return a.fetchRemoteBase(project, name, allowEdits, isolated, skipPermissions)
 			case 1: // Checked out branch
 				a.creationOverlay = common.NewProgressOverlay("Creating Workspace", []string{
 					"Resolving checked out branch",
@@ -378,7 +383,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 				})
 				a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
 				a.creationOverlay.SetSize(a.width, a.height)
-				return a.fetchCheckedOutBase(project, name, allowEdits, isolated)
+				return a.fetchCheckedOutBase(project, name, allowEdits, isolated, skipPermissions)
 			case 2: // Custom branch
 				a.dialogProject = project
 				a.dialogDefaultName = name
@@ -397,23 +402,25 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			case 0: // Latest remote main
 				return func() tea.Msg {
 					return messages.CreateGroupWorkspace{
-						GroupName:    grpName,
-						Name:         name,
-						AllowEdits:   allowEdits,
-						Isolated:     isolated,
-						LoadClaudeMD: false,
-						BranchMode:   git.BranchModeRemoteMain,
+						GroupName:       grpName,
+						Name:            name,
+						AllowEdits:      allowEdits,
+						Isolated:        isolated,
+						SkipPermissions: skipPermissions,
+						LoadClaudeMD:    false,
+						BranchMode:      git.BranchModeRemoteMain,
 					}
 				}
 			case 1: // Checked out branch
 				return func() tea.Msg {
 					return messages.CreateGroupWorkspace{
-						GroupName:    grpName,
-						Name:         name,
-						AllowEdits:   allowEdits,
-						Isolated:     isolated,
-						LoadClaudeMD: false,
-						BranchMode:   git.BranchModeCheckedOut,
+						GroupName:       grpName,
+						Name:            name,
+						AllowEdits:      allowEdits,
+						Isolated:        isolated,
+						SkipPermissions: skipPermissions,
+						LoadClaudeMD:    false,
+						BranchMode:      git.BranchModeCheckedOut,
 					}
 				}
 			case 2: // Custom branch
@@ -435,6 +442,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 		}
 		allowEdits := a.config.UI.LastAllowEdits
 		isolated := a.config.UI.LastIsolated
+		skipPermissions := a.config.UI.LastSkipPermissions
 		if project != nil {
 			// Single workspace
 			name := defaultName
@@ -444,20 +452,21 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			})
 			a.creationOverlay.SetStepDetail(filepath.Base(project.Path))
 			a.creationOverlay.SetSize(a.width, a.height)
-			return a.fetchCustomBase(project, name, customBranch, allowEdits, isolated)
+			return a.fetchCustomBase(project, name, customBranch, allowEdits, isolated, skipPermissions)
 		} else if group != nil {
 			// Grouped workspace
 			name := defaultName
 			grpName := group.Name
 			return func() tea.Msg {
 				return messages.CreateGroupWorkspace{
-					GroupName:    grpName,
-					Name:         name,
-					AllowEdits:   allowEdits,
-					Isolated:     isolated,
-					LoadClaudeMD: false,
-					BranchMode:   git.BranchModeCustom,
-					CustomBranch: customBranch,
+					GroupName:       grpName,
+					Name:            name,
+					AllowEdits:      allowEdits,
+					Isolated:        isolated,
+					SkipPermissions: skipPermissions,
+					LoadClaudeMD:    false,
+					BranchMode:      git.BranchModeCustom,
+					CustomBranch:    customBranch,
 				}
 			}
 		}

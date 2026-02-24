@@ -133,8 +133,8 @@ func (a *App) renderWorkspaceInfo() string {
 			content += fmt.Sprintf("    %s%s\n", repoName, baseInfo)
 		}
 
-		if a.activeGroupWs.Isolated {
-			content += a.renderIsolationInfo()
+		if a.activeGroupWs.Isolated || a.activeGroupWs.SkipPermissions {
+			content += a.renderIsolationInfo(a.activeGroupWs.Isolated, a.activeGroupWs.SkipPermissions)
 		}
 	} else {
 		content += fmt.Sprintf("Branch: %s\n", ws.Branch)
@@ -144,25 +144,32 @@ func (a *App) renderWorkspaceInfo() string {
 			content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 		}
 
-		if ws.Isolated {
-			content += a.renderIsolationInfo()
+		if ws.Isolated || ws.SkipPermissions {
+			content += a.renderIsolationInfo(ws.Isolated, ws.SkipPermissions)
 		}
 	}
 
 	return content
 }
 
-// renderIsolationInfo renders the sandbox isolation details for the info tab.
-func (a *App) renderIsolationInfo() string {
-	sandboxLabel := lipgloss.NewStyle().Foreground(common.ColorError).Bold(true).Render("Sandboxed")
+// renderIsolationInfo renders the sandbox/permissions details for the info tab.
+func (a *App) renderIsolationInfo(isolated, skipPermissions bool) string {
 	detail := lipgloss.NewStyle().Foreground(common.ColorMuted)
 
 	var b strings.Builder
-	b.WriteString("\n" + sandboxLabel + "\n")
-	b.WriteString(detail.Render("  Writes allowed:  workspace, git dir, claude profile config, ~/.npm, /tmp") + "\n")
-	b.WriteString(detail.Render("  Writes blocked:  everything else (home, system, etc.)") + "\n")
-	b.WriteString(detail.Render("  Reads blocked:   ~/.ssh, ~/.gnupg, ~/.aws, ~/.docker, ~/.kube") + "\n")
-	b.WriteString(detail.Render("  Permission prompts skipped (--dangerously-skip-permissions)") + "\n")
+	if isolated {
+		sandboxLabel := lipgloss.NewStyle().Foreground(common.ColorError).Bold(true).Render("Sandboxed")
+		b.WriteString("\n" + sandboxLabel + "\n")
+		b.WriteString(detail.Render("  Writes allowed:  workspace, git dir, claude profile config, ~/.npm, /tmp") + "\n")
+		b.WriteString(detail.Render("  Writes blocked:  everything else (home, system, etc.)") + "\n")
+		b.WriteString(detail.Render("  Reads blocked:   ~/.ssh, ~/.gnupg, ~/.aws, ~/.docker, ~/.kube") + "\n")
+	}
+	if skipPermissions {
+		skipLabel := lipgloss.NewStyle().Foreground(common.ColorError).Bold(true).Render("Skip Permissions")
+		b.WriteString("\n" + skipLabel + "\n")
+		b.WriteString(detail.Render("  All tool calls auto-approved (--dangerously-skip-permissions)") + "\n")
+		b.WriteString(detail.Render("  Claude will not prompt before running commands or editing files") + "\n")
+	}
 	return b.String()
 }
 
