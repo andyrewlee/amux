@@ -264,6 +264,61 @@ func (d *Dialog) Visible() bool {
 	return d.visible
 }
 
+// dismiss builds a cancelled DialogResult.
+func (d *Dialog) dismiss() tea.Cmd {
+	d.visible = false
+	id := d.id
+	return func() tea.Msg {
+		return DialogResult{ID: id, Confirmed: false}
+	}
+}
+
+// submitInput builds a DialogResult for an input dialog.
+// Returns nil (no-op) when confirmed is true but validation is failing.
+func (d *Dialog) submitInput(confirmed bool) tea.Cmd {
+	if confirmed && d.validationErr != "" {
+		return nil
+	}
+	d.visible = false
+	id := d.id
+	value := d.input.Value()
+	checkboxVal := d.checkboxValue
+	checkbox2Val := d.checkbox2Value
+	logging.Info("Dialog submit input: id=%s value=%s confirmed=%v checkbox=%v checkbox2=%v", id, value, confirmed, checkboxVal, checkbox2Val)
+	return func() tea.Msg {
+		return DialogResult{
+			ID:             id,
+			Confirmed:      confirmed,
+			Value:          value,
+			CheckboxValue:  checkboxVal,
+			Checkbox2Value: checkbox2Val,
+		}
+	}
+}
+
+// submitConfirm builds a DialogResult for a confirm dialog.
+func (d *Dialog) submitConfirm(confirmed bool) tea.Cmd {
+	d.visible = false
+	id := d.id
+	return func() tea.Msg {
+		return DialogResult{ID: id, Confirmed: confirmed}
+	}
+}
+
+// submitSelect builds a DialogResult for a select dialog.
+func (d *Dialog) submitSelect(index int, value string) tea.Cmd {
+	d.visible = false
+	id := d.id
+	return func() tea.Msg {
+		return DialogResult{
+			ID:        id,
+			Confirmed: true,
+			Index:     index,
+			Value:     value,
+		}
+	}
+}
+
 // SetShowKeymapHints controls whether helper text is rendered.
 func (d *Dialog) SetShowKeymapHints(show bool) {
 	d.showKeymapHints = show
@@ -286,10 +341,7 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-			d.visible = false
-			return d, func() tea.Msg {
-				return DialogResult{ID: d.id, Confirmed: false}
-			}
+			return d, d.dismiss()
 
 		case msg.Text == " ":
 			// Toggle checkbox when focused
@@ -313,39 +365,13 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				d.checkbox2Value = !d.checkbox2Value
 				return d, nil
 			}
-			logging.Info("Dialog Enter pressed: id=%s value=%s", d.id, d.input.Value())
 			switch d.dtype {
 			case DialogInput:
-				// Block Enter if validation fails
-				if d.validationErr != "" {
-					return d, nil
-				}
-				d.visible = false
-				value := d.input.Value()
-				id := d.id
-				checkboxVal := d.checkboxValue
-				checkbox2Val := d.checkbox2Value
-				logging.Info("Dialog returning InputResult: id=%s value=%s checkbox=%v checkbox2=%v", id, value, checkboxVal, checkbox2Val)
-				return d, func() tea.Msg {
-					return DialogResult{
-						ID:             id,
-						Confirmed:      true,
-						Value:          value,
-						CheckboxValue:  checkboxVal,
-						Checkbox2Value: checkbox2Val,
-					}
-				}
+				return d, d.submitInput(true)
 			case DialogConfirm:
-				d.visible = false
-				return d, func() tea.Msg {
-					return DialogResult{
-						ID:        d.id,
-						Confirmed: d.cursor == 0,
-					}
-				}
+				return d, d.submitConfirm(d.cursor == 0)
 			case DialogSelect:
-				d.visible = false
-				// For filtered dialogs, return the original index
+				// For filtered dialogs, resolve the original index
 				var originalIdx int
 				var value string
 				if d.filterEnabled && len(d.filteredIndices) > 0 {
@@ -355,20 +381,9 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 					originalIdx = d.cursor
 					value = d.options[d.cursor]
 				} else {
-					// No valid selection
-					d.visible = false
-					return d, func() tea.Msg {
-						return DialogResult{ID: d.id, Confirmed: false}
-					}
+					return d, d.dismiss()
 				}
-				return d, func() tea.Msg {
-					return DialogResult{
-						ID:        d.id,
-						Confirmed: true,
-						Index:     originalIdx,
-						Value:     value,
-					}
-				}
+				return d, d.submitSelect(originalIdx, value)
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down"))):
@@ -558,34 +573,11 @@ func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 
 			switch d.dtype {
 			case DialogInput:
-				if hit.optionIndex == 0 && d.validationErr != "" {
-					return nil
-				}
-				d.visible = false
-				value := d.input.Value()
-				return func() tea.Msg {
-					return DialogResult{
-						ID:        d.id,
-						Confirmed: hit.optionIndex == 0,
-						Value:     value,
-					}
-				}
+				return d.submitInput(hit.optionIndex == 0)
 			case DialogConfirm:
-				d.visible = false
-				return func() tea.Msg {
-					return DialogResult{ID: d.id, Confirmed: hit.optionIndex == 0}
-				}
+				return d.submitConfirm(hit.optionIndex == 0)
 			case DialogSelect:
-				d.visible = false
-				value := d.options[hit.optionIndex]
-				return func() tea.Msg {
-					return DialogResult{
-						ID:        d.id,
-						Confirmed: true,
-						Index:     hit.optionIndex,
-						Value:     value,
-					}
-				}
+				return d.submitSelect(hit.optionIndex, d.options[hit.optionIndex])
 			}
 		}
 	}
