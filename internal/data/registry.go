@@ -97,15 +97,17 @@ func (r *Registry) Save(paths []string) error {
 	}
 
 	// Build registry structure
-	registry := registryFile{
-		Projects: make([]registryProject, len(paths)),
-	}
+	projects := make([]registryProject, len(paths))
 	for i, path := range paths {
-		name := filepath.Base(path)
-		registry.Projects[i] = registryProject{
-			Name: name,
+		projects[i] = registryProject{
+			Name: filepath.Base(path),
 			Path: path,
 		}
+	}
+	groups := r.readGroupsFromFile()
+	registry := registryFile{
+		Projects: projects,
+		Groups:   groups,
 	}
 
 	data, err := json.MarshalIndent(registry, "", "  ")
@@ -216,13 +218,28 @@ func (r *Registry) saveFull(projects []registryProject) error {
 	if projects == nil {
 		projects = []registryProject{}
 	}
-	registry := registryFile{Projects: projects}
+	groups := r.readGroupsFromFile()
+	registry := registryFile{Projects: projects, Groups: groups}
 	raw, err := json.MarshalIndent(registry, "", "  ")
 	if err != nil {
 		return err
 	}
 
 	return os.WriteFile(r.path, raw, 0644)
+}
+
+// readGroupsFromFile reads groups directly from the JSON file.
+// Caller must already hold r.mu (write lock).
+func (r *Registry) readGroupsFromFile() []registryGroup {
+	raw, err := os.ReadFile(r.path)
+	if err != nil {
+		return nil
+	}
+	var registry registryFile
+	if err := json.Unmarshal(raw, &registry); err != nil {
+		return nil
+	}
+	return registry.Groups
 }
 
 // SetProfile sets the profile for a project identified by its path.

@@ -127,3 +127,100 @@ func TestRegistry_LoadStringArrayFormat(t *testing.T) {
 		t.Errorf("Expected 2 paths, got %d", len(paths))
 	}
 }
+
+func TestUpdateGroupRepos_PersistsWithProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	r := NewRegistry(registryPath)
+
+	// Add a group with a profile
+	repos := []GroupRepo{{Path: "/repo/a", Name: "a"}}
+	if err := r.AddGroup("mygroup", repos, "dev"); err != nil {
+		t.Fatalf("AddGroup() error = %v", err)
+	}
+
+	// Update repos
+	newRepos := []GroupRepo{{Path: "/repo/a", Name: "a"}, {Path: "/repo/b", Name: "b"}}
+	if err := r.UpdateGroupRepos("mygroup", newRepos); err != nil {
+		t.Fatalf("UpdateGroupRepos() error = %v", err)
+	}
+
+	// Verify profile is preserved
+	groups, err := r.LoadGroups()
+	if err != nil {
+		t.Fatalf("LoadGroups() error = %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("Expected 1 group, got %d", len(groups))
+	}
+	if groups[0].Profile != "dev" {
+		t.Errorf("Profile = %q, want %q", groups[0].Profile, "dev")
+	}
+	if len(groups[0].Repos) != 2 {
+		t.Errorf("Repos count = %d, want 2", len(groups[0].Repos))
+	}
+}
+
+func TestAddProject_PreservesGroups(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	r := NewRegistry(registryPath)
+
+	// Add a group with a profile
+	repos := []GroupRepo{{Path: "/repo/a", Name: "a"}}
+	if err := r.AddGroup("mygroup", repos, "staging"); err != nil {
+		t.Fatalf("AddGroup() error = %v", err)
+	}
+
+	// Add a project (uses saveFull which previously wiped groups)
+	if err := r.AddProject("/path/to/project1"); err != nil {
+		t.Fatalf("AddProject() error = %v", err)
+	}
+
+	// Verify groups survived
+	groups, err := r.LoadGroups()
+	if err != nil {
+		t.Fatalf("LoadGroups() error = %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("Expected 1 group, got %d", len(groups))
+	}
+	if groups[0].Name != "mygroup" {
+		t.Errorf("Name = %q, want %q", groups[0].Name, "mygroup")
+	}
+	if groups[0].Profile != "staging" {
+		t.Errorf("Profile = %q, want %q", groups[0].Profile, "staging")
+	}
+}
+
+func TestSave_PreservesGroups(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	r := NewRegistry(registryPath)
+
+	// Add a group with a profile
+	repos := []GroupRepo{{Path: "/repo/a", Name: "a"}}
+	if err := r.AddGroup("mygroup", repos, "prod"); err != nil {
+		t.Fatalf("AddGroup() error = %v", err)
+	}
+
+	// Call Save (path-only save which previously wiped groups)
+	if err := r.Save([]string{"/path/to/project1"}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	// Verify groups survived
+	groups, err := r.LoadGroups()
+	if err != nil {
+		t.Fatalf("LoadGroups() error = %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("Expected 1 group, got %d", len(groups))
+	}
+	if groups[0].Name != "mygroup" {
+		t.Errorf("Name = %q, want %q", groups[0].Name, "mygroup")
+	}
+	if groups[0].Profile != "prod" {
+		t.Errorf("Profile = %q, want %q", groups[0].Profile, "prod")
+	}
+}
