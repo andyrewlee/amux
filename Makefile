@@ -58,48 +58,44 @@ lint-strict-new:
 		golangci-lint run -c .golangci.strict.yml --new --timeout=10m; \
 	fi
 
-lint-ci-parity:
+lint-ci-parity: # CACHE_ROOT defaults to a gitignored local directory (/.cache/).
 	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
 	@BASE_REF="$${BASE_REF:-origin/main}"; \
 	CACHE_ROOT="$${CACHE_ROOT:-$$(pwd)/.cache}"; \
 	GO_CACHE_DIR="$$CACHE_ROOT/go-build"; \
 	GOLANGCI_CACHE_DIR="$$CACHE_ROOT/golangci-lint"; \
 	mkdir -p "$$GO_CACHE_DIR" "$$GOLANGCI_CACHE_DIR"; \
-		if git rev-parse --verify "$$BASE_REF" >/dev/null 2>&1; then \
-			BASE=$$(git merge-base HEAD "$$BASE_REF"); \
-			echo "Running CI-parity strict lint against changes since $$BASE_REF ($$BASE)"; \
-			OUTPUT=$$(mktemp); \
-			if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
+	if git rev-parse --verify "$$BASE_REF" >/dev/null 2>&1; then \
+		BASE=$$(git merge-base HEAD "$$BASE_REF"); \
+		echo "Running CI-parity strict lint against changes since $$BASE_REF ($$BASE)"; \
+		OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
+		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
 				cat "$$OUTPUT"; \
 				if grep -q "no go files to analyze" "$$OUTPUT"; then \
 					echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
 					if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m --tests=false; then \
-						rm -f "$$OUTPUT"; \
 						exit 1; \
 					fi; \
 				else \
-					rm -f "$$OUTPUT"; \
 					exit 1; \
 				fi; \
 			fi; \
-		rm -f "$$OUTPUT"; \
+		trap - EXIT INT TERM; rm -f "$$OUTPUT"; \
 	else \
 		echo "Base ref $$BASE_REF not found; falling back to strict lint on current unstaged/staged changes"; \
-		OUTPUT=$$(mktemp); \
+		OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
 		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new --timeout=10m >"$$OUTPUT" 2>&1; then \
 			cat "$$OUTPUT"; \
 			if grep -q "no go files to analyze" "$$OUTPUT"; then \
 				echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
 				if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new --timeout=10m --tests=false; then \
-					rm -f "$$OUTPUT"; \
 					exit 1; \
 				fi; \
 			else \
-				rm -f "$$OUTPUT"; \
 				exit 1; \
 			fi; \
 		fi; \
-		rm -f "$$OUTPUT"; \
+		trap - EXIT INT TERM; rm -f "$$OUTPUT"; \
 	fi
 
 check-file-length:

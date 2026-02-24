@@ -41,6 +41,8 @@ func (a *App) resolveTmuxActivityScanRole(
 	instanceID := strings.TrimSpace(a.instanceID)
 	lease, err := readTmuxActivityOwnerLease(opts)
 	if err != nil {
+		// Epoch 0 is intentional on unresolved ownership; callers normalize to 1
+		// only when publishing as owner in a known epoch.
 		return tmuxActivityRoleOwner, nil, false, 0, err
 	}
 	if ownerLeaseAlive(lease, now) && lease.ownerID != instanceID {
@@ -125,7 +127,9 @@ func ownerLeaseAlive(lease tmuxActivityLease, now time.Time) bool {
 		return false
 	}
 	if lease.heartbeatAt.After(now) {
-		return true
+		// Small forward skew is tolerated, but large future timestamps should not
+		// keep stale ownership alive indefinitely.
+		return lease.heartbeatAt.Sub(now) <= tmuxActivityOwnerFutureSkewTolerance
 	}
 	return now.Sub(lease.heartbeatAt) <= tmuxActivityOwnerLeaseTTL
 }

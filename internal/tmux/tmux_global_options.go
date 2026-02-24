@@ -1,6 +1,10 @@
 package tmux
 
-import "strings"
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+)
 
 // GlobalOptionValues returns tmux global option values for the given keys in a
 // single tmux command invocation.
@@ -31,6 +35,13 @@ func GlobalOptionValues(keys []string, opts Options) (map[string]string, error) 
 	defer cancel()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			stderr := strings.TrimSpace(string(output))
+			if stderr == "" {
+				return values, err
+			}
+			return values, fmt.Errorf("display-message -p: %s", stderr)
+		}
 		return values, err
 	}
 	trimmed := strings.TrimRight(string(output), "\r\n")

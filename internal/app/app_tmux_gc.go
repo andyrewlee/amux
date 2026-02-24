@@ -110,7 +110,7 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 		if err != nil {
 			return staleDetachedAgentGCResult{Err: err}
 		}
-		sessionNamesWithClients := map[string]bool(nil)
+		var sessionNamesWithClients map[string]bool
 		type sessionClientsLister interface {
 			SessionNamesWithClients(opts tmux.Options) (map[string]bool, error)
 		}
@@ -373,6 +373,10 @@ func activityTagTime(tags map[string]string) time.Time {
 		tmux.TagLastOutputAt,
 		tmux.TagLastInputAt,
 	} {
+		// For GC, lease refreshes represent owner-maintained activity and are
+		// intentionally considered alongside output/input tags.
+		// session_activity stores unix seconds; ParseLastOutputAtTag resolves
+		// units by magnitude (seconds vs millis/nanos).
 		raw := strings.TrimSpace(tags[key])
 		if raw == "" {
 			continue

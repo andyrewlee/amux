@@ -68,6 +68,21 @@ func TestResolveTmuxActivityScanRole_OwnerFollowerSnapshotEpoch(t *testing.T) {
 	}
 }
 
+func TestOwnerLeaseAlive_FutureHeartbeatTolerance(t *testing.T) {
+	now := time.Now()
+	lease := tmuxActivityLease{
+		ownerID: "owner-a",
+	}
+	lease.heartbeatAt = now.Add(tmuxActivityOwnerFutureSkewTolerance - time.Millisecond)
+	if !ownerLeaseAlive(lease, now) {
+		t.Fatal("expected lease to be alive for small forward clock skew")
+	}
+	lease.heartbeatAt = now.Add(tmuxActivityOwnerFutureSkewTolerance + time.Millisecond)
+	if ownerLeaseAlive(lease, now) {
+		t.Fatal("expected lease to be stale for large forward clock skew")
+	}
+}
+
 func TestPublishTmuxActivitySnapshot_ReturnsOwnershipLostAfterPublish(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := gcTestServer(t)

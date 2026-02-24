@@ -198,7 +198,9 @@ func (a *App) runTmuxActivityScan(
 	if a.sharedTmuxActivityEnabled() {
 		role, sharedActive, applyShared, epoch, err := a.resolveTmuxActivityScanRole(opts, now)
 		if err != nil {
-			logging.Warn("tmux activity ownership resolution failed; falling back to local scan: %v", err)
+			if !tmux.IsNoServerError(err) {
+				logging.Warn("tmux activity ownership resolution failed; falling back to local scan: %v", err)
+			}
 		} else if role == tmuxActivityRoleFollower {
 			_, stoppedTabs, syncErr := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
 			if syncErr != nil {

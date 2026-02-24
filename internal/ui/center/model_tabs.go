@@ -105,16 +105,17 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 
 	return func() tea.Msg {
 		logging.Info("Creating agent tab: assistant=%s workspace=%s", assistant, ws.Name)
+		now := time.Now()
 
 		tags := tmux.SessionTags{
 			WorkspaceID:  string(ws.ID()),
 			TabID:        string(tabID),
 			Type:         "agent",
 			Assistant:    assistant,
-			CreatedAt:    time.Now().Unix(),
+			CreatedAt:    now.Unix(),
 			InstanceID:   m.instanceID,
 			SessionOwner: m.instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
+			LeaseAtMS:    now.UnixMilli(),
 		}
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
 		if err != nil {
