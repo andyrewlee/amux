@@ -928,6 +928,7 @@ func (a *App) handleShowSettingsDialog() {
 		common.ThemeID(a.config.UI.Theme),
 		a.config.UI.ShowKeymapHints,
 		a.config.UI.HideSidebar,
+		a.config.UI.HideTerminal,
 		a.config.UI.AutoStartAgent,
 		a.config.UI.SyncProfilePlugins,
 		a.config.UI.GlobalPermissions,
@@ -1071,6 +1072,15 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		if msg.HideSidebar && a.focusedPane == messages.PaneSidebar {
 			a.focusPane(messages.PaneCenter)
 		}
+
+		// Apply terminal hidden setting
+		a.config.UI.HideTerminal = msg.HideTerminal
+		a.layout.SetTerminalHidden(msg.HideTerminal)
+		// If terminal is now hidden and focus is on it, move focus to center
+		if msg.HideTerminal && a.focusedPane == messages.PaneTerminal {
+			a.focusPane(messages.PaneCenter)
+		}
+
 		a.layout.Resize(a.width, a.height)
 		a.updateLayout()
 

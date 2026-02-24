@@ -15,6 +15,7 @@ type SettingsResult struct {
 	Theme              ThemeID
 	ShowKeymapHints    bool
 	HideSidebar        bool
+	HideTerminal       bool
 	AutoStartAgent     bool
 	SyncProfilePlugins bool
 	GlobalPermissions  bool
@@ -39,6 +40,7 @@ type settingsItem int
 const (
 	settingsItemKeymap settingsItem = iota
 	settingsItemHideSidebar
+	settingsItemHideTerminal
 	settingsItemSyncPlugins
 	settingsItemBellOnReady
 	settingsItemGlobalPerms
@@ -65,6 +67,7 @@ type SettingsDialog struct {
 	theme              ThemeID
 	showKeymapHints    bool
 	hideSidebar        bool
+	hideTerminal       bool
 	autoStartAgent     bool
 	syncProfilePlugins bool
 	globalPerms        bool
@@ -96,7 +99,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms, bellOnReady, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, hideTerminal, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms, bellOnReady, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	serverInput := textinput.New()
 	serverInput.Placeholder = "default"
 	serverInput.SetWidth(24)
@@ -119,6 +122,7 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, autoS
 		theme:              currentTheme,
 		showKeymapHints:    showKeymapHints,
 		hideSidebar:        hideSidebar,
+		hideTerminal:       hideTerminal,
 		autoStartAgent:     autoStartAgent,
 		syncProfilePlugins: syncProfilePlugins,
 		globalPerms:        globalPerms,
@@ -239,6 +243,10 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.hideSidebar = !s.hideSidebar
 		return s, nil
 
+	case settingsItemHideTerminal:
+		s.hideTerminal = !s.hideTerminal
+		return s, nil
+
 	case settingsItemBellOnReady:
 		s.bellOnReady = !s.bellOnReady
 		return s, nil
@@ -291,6 +299,7 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 				Theme:              s.theme,
 				ShowKeymapHints:    s.showKeymapHints,
 				HideSidebar:        s.hideSidebar,
+				HideTerminal:       s.hideTerminal,
 				AutoStartAgent:     s.autoStartAgent,
 				SyncProfilePlugins: s.syncProfilePlugins,
 				GlobalPermissions:  s.globalPerms,

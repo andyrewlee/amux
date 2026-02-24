@@ -46,6 +46,9 @@ type Manager struct {
 	// sidebarHidden forces two-pane mode (no sidebar) regardless of terminal width.
 	sidebarHidden bool
 
+	// terminalHidden forces the terminal pane to be completely hidden.
+	terminalHidden bool
+
 	// terminalCollapsed controls whether terminal pane is collapsed to just a header.
 	terminalCollapsed bool
 }
@@ -80,6 +83,17 @@ func (m *Manager) SetSidebarHidden(hidden bool) {
 // SidebarHidden returns whether the sidebar is force-hidden.
 func (m *Manager) SidebarHidden() bool {
 	return m.sidebarHidden
+}
+
+// SetTerminalHidden controls the terminal-hidden override. When true, the terminal
+// pane is completely hidden and center content takes the full height.
+func (m *Manager) SetTerminalHidden(hidden bool) {
+	m.terminalHidden = hidden
+}
+
+// TerminalHidden returns whether the terminal is force-hidden.
+func (m *Manager) TerminalHidden() bool {
+	return m.terminalHidden
 }
 
 // Resize recalculates layout based on new dimensions
@@ -266,9 +280,9 @@ func (m *Manager) TerminalHeight() int {
 }
 
 // ShowTerminal returns whether the terminal pane should be shown
-// Terminal is visible when center is shown (not in one-pane/monitor mode)
+// Terminal is visible when center is shown (not in one-pane/monitor mode) and not force-hidden.
 func (m *Manager) ShowTerminal() bool {
-	return m.mode != LayoutOnePane
+	return m.mode != LayoutOnePane && !m.terminalHidden
 }
 
 // TerminalCollapsed returns whether the terminal is collapsed
