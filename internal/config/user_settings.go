@@ -10,6 +10,7 @@ import (
 type UISettings struct {
 	ShowKeymapHints    bool
 	HideSidebar        bool
+	HideTerminal       bool
 	AutoStartAgent     bool
 	SyncProfilePlugins bool
 	GlobalPermissions  bool
@@ -30,6 +31,7 @@ type UISettings struct {
 func defaultUISettings() UISettings {
 	return UISettings{
 		ShowKeymapHints:    false,
+		HideTerminal:       true,
 		AutoStartAgent:     true,
 		SyncProfilePlugins: true,
 		GlobalPermissions:  true,
@@ -54,6 +56,7 @@ func loadUISettings(path string) UISettings {
 		UI struct {
 			ShowKeymapHints    *bool   `json:"show_keymap_hints"`
 			HideSidebar        *bool   `json:"hide_sidebar"`
+			HideTerminal       *bool   `json:"hide_terminal"`
 			AutoStartAgent     *bool   `json:"auto_start_agent"`
 			SyncProfilePlugins *bool   `json:"sync_profile_plugins"`
 			GlobalPermissions  *bool   `json:"global_permissions"`
@@ -78,6 +81,9 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.HideSidebar != nil {
 		settings.HideSidebar = *raw.UI.HideSidebar
+	}
+	if raw.UI.HideTerminal != nil {
+		settings.HideTerminal = *raw.UI.HideTerminal
 	}
 	if raw.UI.AutoStartAgent != nil {
 		settings.AutoStartAgent = *raw.UI.AutoStartAgent
@@ -140,6 +146,7 @@ func saveUISettings(path string, settings UISettings) error {
 	}
 	ui["show_keymap_hints"] = settings.ShowKeymapHints
 	ui["hide_sidebar"] = settings.HideSidebar
+	ui["hide_terminal"] = settings.HideTerminal
 	ui["auto_start_agent"] = settings.AutoStartAgent
 	ui["sync_profile_plugins"] = settings.SyncProfilePlugins
 	ui["global_permissions"] = settings.GlobalPermissions

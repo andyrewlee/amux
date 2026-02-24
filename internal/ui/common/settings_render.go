@@ -79,6 +79,18 @@ func (s *SettingsDialog) renderLines() []string {
 	s.addHit(settingsItemHideSidebar, -1, y)
 
 	checkbox = "[ ]"
+	if s.hideTerminal {
+		checkbox = "[" + Icons.Clean + "]"
+	}
+	style = lipgloss.NewStyle().Foreground(ColorForeground)
+	if s.focusedItem == settingsItemHideTerminal {
+		style = style.Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render(checkbox+" Hide terminal"))
+	s.addHit(settingsItemHideTerminal, -1, y)
+
+	checkbox = "[ ]"
 	if s.syncProfilePlugins {
 		checkbox = "[" + Icons.Clean + "]"
 	}
