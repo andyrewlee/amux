@@ -159,7 +159,7 @@ func (a *App) renderIsolationInfo() string {
 
 	var b strings.Builder
 	b.WriteString("\n" + sandboxLabel + "\n")
-	b.WriteString(detail.Render("  Writes allowed:  workspace, git dir, claude profile config, /tmp") + "\n")
+	b.WriteString(detail.Render("  Writes allowed:  workspace, git dir, claude profile config, ~/.npm, /tmp") + "\n")
 	b.WriteString(detail.Render("  Writes blocked:  everything else (home, system, etc.)") + "\n")
 	b.WriteString(detail.Render("  Reads blocked:   ~/.ssh, ~/.gnupg, ~/.aws, ~/.docker, ~/.kube") + "\n")
 	b.WriteString(detail.Render("  Permission prompts skipped (--dangerously-skip-permissions)") + "\n")
