@@ -143,9 +143,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				!tab.bootstrapLastOutputAt.IsZero() &&
 				now.Sub(tab.bootstrapLastOutputAt) >= bootstrapQuietGap {
 				tab.bootstrapActivity = false
-			}
-			if tab.bootstrapActivity {
-				tab.bootstrapLastOutputAt = now
+				tab.bootstrapLastOutputAt = time.Time{}
 			}
 			tab.mu.Unlock()
 			hasVisibleOutput := tab.consumeActivityVisibility(msg.Data)

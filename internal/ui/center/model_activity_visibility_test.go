@@ -87,10 +87,12 @@ func TestNoteVisibleActivityLocked_SuppressesBootstrapOutputAfterReattach(t *tes
 	}
 
 	term.Write([]byte("bootstrap\n"))
+	expectedDigest := visibleScreenDigest(term)
 	tab.mu.Lock()
 	_, _, tagged := m.noteVisibleActivityLocked(tab, false, 1)
 	last := tab.lastVisibleOutput
 	pending := tab.pendingVisibleOutput
+	digest := tab.activityDigest
 	tab.mu.Unlock()
 
 	if tagged {
@@ -101,6 +103,9 @@ func TestNoteVisibleActivityLocked_SuppressesBootstrapOutputAfterReattach(t *tes
 	}
 	if pending {
 		t.Fatal("expected pendingVisibleOutput to clear after suppressed bootstrap flush")
+	}
+	if digest != expectedDigest {
+		t.Fatal("expected activityDigest to update during bootstrap suppression")
 	}
 }
 

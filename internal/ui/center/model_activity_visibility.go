@@ -14,7 +14,7 @@ const (
 )
 
 func (m *Model) noteVisibleActivityLocked(tab *Tab, hasMoreBuffered bool, visibleSeq uint64) (string, int64, bool) {
-	if tab == nil || tab.Terminal == nil || !m.isChatTab(tab) {
+	if tab == nil || tab.Terminal == nil || tab.DiffViewer != nil {
 		if tab != nil {
 			tab.pendingVisibleOutput = false
 		}
@@ -44,8 +44,8 @@ func (m *Model) noteVisibleActivityLocked(tab *Tab, hasMoreBuffered bool, visibl
 		return "", 0, false
 	}
 	if !tab.lastUserInputAt.IsZero() && now.Sub(tab.lastUserInputAt) <= localInputEchoSuppressWindow {
-		// Suppressed local-echo candidate: keep prior digest baseline so a later
-		// re-observation of this rendered delta can still count as activity.
+		// Suppress local-echo candidates and keep pending so the next flush
+		// cycle can re-evaluate once the echo window has passed.
 		tab.pendingVisibleOutput = true
 		return "", 0, false
 	}

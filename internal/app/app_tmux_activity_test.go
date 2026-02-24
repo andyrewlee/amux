@@ -305,12 +305,17 @@ type scriptedActivityTmuxOps struct {
 	workspaceID   string
 	contentByScan []string
 	scanIndex     int
+	prefilterErr  error
+	lastOutputAge time.Duration
 }
 
 func (s *scriptedActivityTmuxOps) EnsureAvailable() error { return nil }
 func (s *scriptedActivityTmuxOps) InstallHint() string    { return "" }
 
 func (s *scriptedActivityTmuxOps) ActiveAgentSessionsByActivity(time.Duration, tmux.Options) ([]tmux.SessionActivity, error) {
+	if s.prefilterErr != nil {
+		return nil, s.prefilterErr
+	}
 	return []tmux.SessionActivity{{
 		Name:        s.sessionName,
 		WorkspaceID: s.workspaceID,
@@ -324,7 +329,11 @@ func (s *scriptedActivityTmuxOps) ActiveAgentSessionsByActivity(time.Duration, t
 // before pane content is captured.
 func (s *scriptedActivityTmuxOps) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
 	s.scanIndex++
-	nowMillis := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	tagTime := time.Now()
+	if s.lastOutputAge > 0 {
+		tagTime = tagTime.Add(-s.lastOutputAge)
+	}
+	nowMillis := strconv.FormatInt(tagTime.UnixMilli(), 10)
 	return []tmux.SessionTagValues{{
 		Name: s.sessionName,
 		Tags: map[string]string{

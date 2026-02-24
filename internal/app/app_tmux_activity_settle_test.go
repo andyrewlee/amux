@@ -1,12 +1,20 @@
 package app
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
+
+func dashboardActiveWorkspaceCount(m *dashboard.Model) int {
+	if m == nil {
+		return 0
+	}
+	return reflect.ValueOf(m).Elem().FieldByName("activeWorkspaceIDs").Len()
+}
 
 func TestHandleTmuxActivityResult_SettlesAfterTwoSuccessfulScans(t *testing.T) {
 	app := &App{
@@ -45,11 +53,14 @@ func TestHandleTmuxActivityResult_SettlesAfterTwoSuccessfulScans(t *testing.T) {
 }
 
 func TestHandleTmuxAvailableResult_ResetsActivitySettlement(t *testing.T) {
+	dash := dashboard.New()
+	dash.SetActiveWorkspaces(map[string]bool{"ws-old": true})
 	app := &App{
 		tmuxAvailable:            true,
 		tmuxActivitySettled:      true,
 		tmuxActivitySettledScans: 5,
 		tmuxActiveWorkspaceIDs:   map[string]bool{"ws-old": true},
+		dashboard:                dash,
 		toast:                    common.NewToastModel(),
 	}
 
@@ -62,5 +73,8 @@ func TestHandleTmuxAvailableResult_ResetsActivitySettlement(t *testing.T) {
 	}
 	if len(app.tmuxActiveWorkspaceIDs) != 0 {
 		t.Fatalf("expected active workspace map reset, got %v", app.tmuxActiveWorkspaceIDs)
+	}
+	if got := dashboardActiveWorkspaceCount(dash); got != 0 {
+		t.Fatalf("expected dashboard active workspace state reset, got %d", got)
 	}
 }

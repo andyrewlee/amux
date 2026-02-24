@@ -84,8 +84,8 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 		stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
-			logging.Warn("tmux activity prefilter failed; treating as no recent window activity: %v", err)
-			recentActivityBySession = make(map[string]bool)
+			logging.Warn("tmux activity prefilter failed; treating prefilter as unavailable for this scan: %v", err)
+			recentActivityBySession = nil
 		}
 		active, updatedStates := activity.ActiveWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates, StoppedTabs: stoppedTabs}
@@ -128,8 +128,8 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 		stoppedTabs := syncActivitySessionStates(sessionInfo, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
-			logging.Warn("tmux activity prefilter failed; treating as no recent window activity: %v", err)
-			recentActivityBySession = make(map[string]bool)
+			logging.Warn("tmux activity prefilter failed; treating prefilter as unavailable for this scan: %v", err)
+			recentActivityBySession = nil
 		}
 		active, updatedStates := activity.ActiveWorkspaceIDsFromTags(sessionInfo, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates, StoppedTabs: stoppedTabs}
@@ -187,6 +187,7 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 	a.tmuxActivitySettled = false
 	a.tmuxActivitySettledScans = 0
 	a.tmuxActiveWorkspaceIDs = make(map[string]bool)
+	a.syncActiveWorkspacesToDashboard()
 	if !msg.available {
 		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
 	}
