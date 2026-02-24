@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -56,6 +57,14 @@ func GenerateSBPL(worktreeRoot, gitDir, claudeConfigDir string) string {
 	if claudeConfigDir != "" {
 		b.WriteString(";; File writes — Claude config dir (CLAUDE_CONFIG_DIR)\n")
 		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", claudeConfigDir)
+
+		// Allow writes to the shared plugins/skills directory.
+		// Profile dirs symlink plugins/ and skills/ to ../shared/{plugins,skills}.
+		// macOS Seatbelt resolves symlinks before checking permissions, so we
+		// must explicitly allow the resolved shared path.
+		sharedDir := filepath.Join(filepath.Dir(claudeConfigDir), "shared")
+		b.WriteString(";; File writes — shared plugins/skills (symlink target)\n")
+		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", sharedDir)
 	}
 
 	b.WriteString(";; File writes — /dev (stdout, stderr, /dev/null)\n")
