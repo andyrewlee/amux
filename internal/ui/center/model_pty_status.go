@@ -11,6 +11,8 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
+const tabActiveWindow = 2 * time.Second
+
 // HasRunningAgents returns whether any tab has an active agent across workspaces.
 func (m *Model) HasRunningAgents() bool {
 	for _, tabs := range m.tabsByWorkspace {
@@ -54,16 +56,16 @@ func (m *Model) IsTabActive(tab *Tab) bool {
 	if !m.isChatTab(tab) {
 		return false
 	}
-	// Check Running state and output state together to avoid race condition
-	// Note: These fields are accessed from the main update goroutine
-	if tab.Detached || !tab.Running {
+	tab.mu.Lock()
+	detached := tab.Detached
+	running := tab.Running
+	lastVisibleOutput := tab.lastVisibleOutput
+	tab.mu.Unlock()
+	if detached || !running {
 		return false
 	}
-	// Check buffered output or recent visible output.
-	if len(tab.pendingOutput) > 0 {
-		return true
-	}
-	return !tab.lastVisibleOutput.IsZero() && time.Since(tab.lastVisibleOutput) < 2*time.Second
+	// Only count visible screen changes as activity.
+	return !lastVisibleOutput.IsZero() && time.Since(lastVisibleOutput) < tabActiveWindow
 }
 
 // HasActiveAgentsInWorkspace returns whether any tab in a workspace is actively outputting.

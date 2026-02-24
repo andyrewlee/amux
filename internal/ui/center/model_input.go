@@ -1,6 +1,8 @@
 package center
 
 import (
+	"time"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
@@ -27,6 +29,7 @@ func (m *Model) directSendToTerminal(tab *Tab, data string, label string) (*Mode
 			return TabInputFailed{TabID: tab.ID, WorkspaceID: wsID, Err: err}
 		}
 	}
+	recordLocalInputEchoWindow(tab, data, time.Now())
 	return m, true, nil
 }
 

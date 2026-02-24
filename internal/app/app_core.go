@@ -120,6 +120,8 @@ type App struct {
 	tmuxActivityToken         int
 	tmuxActivityScanInFlight  bool
 	tmuxActivityRescanPending bool
+	tmuxActivitySettled       bool
+	tmuxActivitySettledScans  int
 	tmuxOptions               tmux.Options
 	tmuxAvailable             bool
 	tmuxCheckDone             bool

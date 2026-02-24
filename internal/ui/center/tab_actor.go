@@ -2,12 +2,14 @@ package center
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -32,21 +34,23 @@ const (
 )
 
 type tabEvent struct {
-	tab         *Tab
-	workspaceID string
-	tabID       TabID
-	kind        tabEventKind
-	termX       int
-	termY       int
-	inBounds    bool
-	delta       int
-	gen         uint64
-	notifyCopy  bool
-	scrollPage  int
-	diffMsg     tea.Msg
-	input       []byte
-	pasteText   string
-	output      []byte
+	tab             *Tab
+	workspaceID     string
+	tabID           TabID
+	kind            tabEventKind
+	termX           int
+	termY           int
+	inBounds        bool
+	delta           int
+	gen             uint64
+	notifyCopy      bool
+	scrollPage      int
+	diffMsg         tea.Msg
+	input           []byte
+	pasteText       string
+	output          []byte
+	hasMoreBuffered bool
+	visibleSeq      uint64
 }
 
 type tabSelectionResult struct {
@@ -367,14 +371,25 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		if len(ev.output) == 0 {
 			return
 		}
+		tagSessionName := ""
+		var tagTimestamp int64
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			flushDone := perf.Time("pty_flush")
 			tab.Terminal.Write(ev.output)
 			flushDone()
 			perf.Count("pty_flush_bytes", int64(len(ev.output)))
+			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, ev.hasMoreBuffered, ev.visibleSeq)
 		}
 		tab.mu.Unlock()
+		if tagSessionName != "" {
+			opts := m.getTmuxOptions()
+			sessionName := tagSessionName
+			timestamp := strconv.FormatInt(tagTimestamp, 10)
+			go func() {
+				_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
+			}()
+		}
 	default:
 		logging.Debug("unknown tab event: %v", ev.kind)
 	}
@@ -397,5 +412,7 @@ func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID s
 		if m.msgSink != nil {
 			m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
 		}
+		return
 	}
+	recordLocalInputEchoWindow(tab, data, time.Now())
 }

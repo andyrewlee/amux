@@ -11,7 +11,14 @@ import (
 // syncActiveWorkspacesToDashboard syncs the active workspace state from center to dashboard.
 // This ensures the dashboard has current data for spinner state decisions.
 func (a *App) syncActiveWorkspacesToDashboard() {
+	if a.dashboard == nil {
+		return
+	}
 	activeWorkspaces := make(map[string]bool)
+	if !a.tmuxActivitySettled {
+		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
+		return
+	}
 	for wsID := range a.tmuxActiveWorkspaceIDs {
 		activeWorkspaces[wsID] = true
 	}
