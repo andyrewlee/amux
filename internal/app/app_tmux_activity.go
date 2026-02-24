@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -265,7 +266,18 @@ func (a *App) runTmuxActivityScan(
 			logging.Warn("tmux activity lease revalidation failed before snapshot publish: %v", err)
 		} else if canPublish {
 			if err := a.publishTmuxActivitySnapshot(opts, active, result.ScannerEpoch, publishAt); err != nil {
-				logging.Warn("tmux activity snapshot publish failed: %v", err)
+				if errors.Is(err, errTmuxActivityOwnershipLostAfterPublish) {
+					result.ScannerOwner = false
+					result.SkipApply = true
+					_, leaseEpoch, checkErr := a.canPublishTmuxActivitySnapshot(opts, result.ScannerEpoch, time.Now())
+					if checkErr != nil {
+						logging.Warn("tmux activity lease revalidation failed after ownership loss: %v", checkErr)
+					} else if leaseEpoch > 0 {
+						result.ScannerEpoch = leaseEpoch
+					}
+				} else {
+					logging.Warn("tmux activity snapshot publish failed: %v", err)
+				}
 			}
 		} else {
 			result.ScannerOwner = false

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -64,6 +65,21 @@ func TestResolveTmuxActivityScanRole_OwnerFollowerSnapshotEpoch(t *testing.T) {
 	}
 	if renewedEpoch != epoch {
 		t.Fatalf("expected owner renew to keep epoch %d, got %d", epoch, renewedEpoch)
+	}
+}
+
+func TestPublishTmuxActivitySnapshot_ReturnsOwnershipLostAfterPublish(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := gcTestServer(t)
+
+	now := time.Now()
+	app := &App{instanceID: "owner-a"}
+	if err := writeTmuxActivityOwnerLease(opts, "owner-b", 9, now); err != nil {
+		t.Fatalf("write owner lease: %v", err)
+	}
+	err := app.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, 9, now)
+	if !errors.Is(err, errTmuxActivityOwnershipLostAfterPublish) {
+		t.Fatalf("expected ownership-loss error, got %v", err)
 	}
 }
 

@@ -65,20 +65,23 @@ lint-ci-parity:
 	GO_CACHE_DIR="$$CACHE_ROOT/go-build"; \
 	GOLANGCI_CACHE_DIR="$$CACHE_ROOT/golangci-lint"; \
 	mkdir -p "$$GO_CACHE_DIR" "$$GOLANGCI_CACHE_DIR"; \
-	if git rev-parse --verify "$$BASE_REF" >/dev/null 2>&1; then \
-		BASE=$$(git merge-base HEAD "$$BASE_REF"); \
-		echo "Running CI-parity strict lint against changes since $$BASE_REF ($$BASE)"; \
-		OUTPUT=$$(mktemp); \
-		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
-			cat "$$OUTPUT"; \
-			if grep -q "no go files to analyze" "$$OUTPUT"; then \
-				echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
-				GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m --tests=false; \
-			else \
-				rm -f "$$OUTPUT"; \
-				exit 1; \
+		if git rev-parse --verify "$$BASE_REF" >/dev/null 2>&1; then \
+			BASE=$$(git merge-base HEAD "$$BASE_REF"); \
+			echo "Running CI-parity strict lint against changes since $$BASE_REF ($$BASE)"; \
+			OUTPUT=$$(mktemp); \
+			if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
+				cat "$$OUTPUT"; \
+				if grep -q "no go files to analyze" "$$OUTPUT"; then \
+					echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
+					if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m --tests=false; then \
+						rm -f "$$OUTPUT"; \
+						exit 1; \
+					fi; \
+				else \
+					rm -f "$$OUTPUT"; \
+					exit 1; \
+				fi; \
 			fi; \
-		fi; \
 		rm -f "$$OUTPUT"; \
 	else \
 		echo "Base ref $$BASE_REF not found; falling back to strict lint on current unstaged/staged changes"; \
@@ -87,7 +90,10 @@ lint-ci-parity:
 			cat "$$OUTPUT"; \
 			if grep -q "no go files to analyze" "$$OUTPUT"; then \
 				echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
-				GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new --timeout=10m --tests=false; \
+				if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new --timeout=10m --tests=false; then \
+					rm -f "$$OUTPUT"; \
+					exit 1; \
+				fi; \
 			else \
 				rm -f "$$OUTPUT"; \
 				exit 1; \

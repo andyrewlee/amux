@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ const (
 	tmuxActivityEpochOption     = "@amux_activity_owner_epoch"
 	tmuxActivitySnapshotOption  = "@amux_activity_active_workspaces"
 )
+
+var errTmuxActivityOwnershipLostAfterPublish = errors.New("tmux activity ownership lost after snapshot publish")
 
 type tmuxActivityRole int
 
@@ -103,7 +106,7 @@ func (a *App) publishTmuxActivitySnapshot(opts tmux.Options, active map[string]b
 		return err
 	}
 	if !canPublish {
-		return nil
+		return errTmuxActivityOwnershipLostAfterPublish
 	}
 	return renewTmuxActivityOwnerLeaseHeartbeat(opts, now)
 }
