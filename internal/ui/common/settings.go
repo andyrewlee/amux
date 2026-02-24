@@ -20,7 +20,7 @@ type SettingsResult struct {
 	SyncProfilePlugins bool
 	GlobalPermissions  bool
 	AutoAddPermissions bool
-	BellOnReady        bool
+	NotificationSound  string
 	TmuxPersistence    bool
 	TmuxServer         string
 	TmuxConfigPath     string
@@ -42,7 +42,6 @@ const (
 	settingsItemHideSidebar
 	settingsItemHideTerminal
 	settingsItemSyncPlugins
-	settingsItemBellOnReady
 	settingsItemGlobalPerms
 	settingsItemEditPermissions
 	settingsItemAutoAddPerms
@@ -51,8 +50,9 @@ const (
 	settingsItemTmuxServer
 	settingsItemTmuxConfig
 	settingsItemTmuxSync
-	settingsItemManageProfiles // manage profiles (after tmux section)
-	settingsItemEditTheme      // theme selection
+	settingsItemManageProfiles    // manage profiles (after tmux section)
+	settingsItemNotificationSound // notification sound picker
+	settingsItemEditTheme         // theme selection
 	settingsItemSave
 	settingsItemClose
 )
@@ -72,7 +72,7 @@ type SettingsDialog struct {
 	syncProfilePlugins bool
 	globalPerms        bool
 	autoAddPerms       bool
-	bellOnReady        bool
+	notificationSound  string
 	tmuxPersistence    bool
 	tmuxServer         textinput.Model
 	tmuxConfig         textinput.Model
@@ -99,7 +99,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, hideTerminal, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms, bellOnReady, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, hideTerminal, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms bool, notificationSound string, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	serverInput := textinput.New()
 	serverInput.Placeholder = "default"
 	serverInput.SetWidth(24)
@@ -127,7 +127,7 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, hideT
 		syncProfilePlugins: syncProfilePlugins,
 		globalPerms:        globalPerms,
 		autoAddPerms:       autoAddPerms,
-		bellOnReady:        bellOnReady,
+		notificationSound:  notificationSound,
 		tmuxPersistence:    tmuxPersistence,
 		tmuxServer:         serverInput,
 		tmuxConfig:         configInput,
@@ -143,6 +143,7 @@ func (s *SettingsDialog) SetSize(w, h int)             { s.width, s.height = w, 
 func (s *SettingsDialog) SetShowKeymapHints(show bool) { s.showKeymapHintsUI = show }
 func (s *SettingsDialog) Cursor() *tea.Cursor          { return nil }
 func (s *SettingsDialog) SetTheme(theme ThemeID)       { s.theme = theme }
+func (s *SettingsDialog) SetNotificationSound(sound string) { s.notificationSound = sound }
 
 // SetUpdateInfo sets version information for the updates section.
 func (s *SettingsDialog) SetUpdateInfo(current, latest string, available bool) {
@@ -247,9 +248,9 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.hideTerminal = !s.hideTerminal
 		return s, nil
 
-	case settingsItemBellOnReady:
-		s.bellOnReady = !s.bellOnReady
-		return s, nil
+	case settingsItemNotificationSound:
+		s.visible = false
+		return s, func() tea.Msg { return ShowSoundPicker{} }
 
 	case settingsItemAutoStart:
 		s.autoStartAgent = !s.autoStartAgent
@@ -304,7 +305,7 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 				SyncProfilePlugins: s.syncProfilePlugins,
 				GlobalPermissions:  s.globalPerms,
 				AutoAddPermissions: s.autoAddPerms,
-				BellOnReady:        s.bellOnReady,
+				NotificationSound:  s.notificationSound,
 				TmuxPersistence:    s.tmuxPersistence,
 				TmuxServer:         strings.TrimSpace(s.tmuxServer.Value()),
 				TmuxConfigPath:     strings.TrimSpace(s.tmuxConfig.Value()),
