@@ -326,6 +326,9 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 // GlobalOptionValue returns a tmux global option value for the given key.
 // Missing options return an empty value with nil error, while connection
 // failures (for example, no running server) are returned as errors.
+// Unlike SetGlobalOptionValue, read paths do not suppress generic command
+// errors because callers rely on these failures for ownership/coordination
+// fallback decisions.
 func GlobalOptionValue(key string, opts Options) (string, error) {
 	if strings.TrimSpace(key) == "" {
 		return "", nil
@@ -377,6 +380,8 @@ func SetGlobalOptionValue(key, value string, opts Options) error {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() == 1 {
 				stderr := strings.TrimSpace(string(output))
+				// Unknown/invalid options are tolerated on writes for compatibility
+				// with older tmux versions that may not recognize newer keys.
 				if strings.Contains(stderr, "invalid option") || strings.Contains(stderr, "unknown option") {
 					return nil
 				}

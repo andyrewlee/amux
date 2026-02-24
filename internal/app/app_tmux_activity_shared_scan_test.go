@@ -273,3 +273,35 @@ func TestHandleTmuxActivityResult_AppliesStoppedTabsWhenSkipApply(t *testing.T) 
 		t.Fatalf("expected stopped-tab message %+v, got %+v", expected, got)
 	}
 }
+
+func TestHandleTmuxActivityResult_AppliesStoppedTabsWhenErrSet(t *testing.T) {
+	app := &App{
+		tmuxActivityToken:        8,
+		tmuxActivityScanInFlight: true,
+	}
+
+	expected := messages.TabSessionStatus{
+		WorkspaceID: "ws-local",
+		SessionName: "session-b",
+		Status:      "stopped",
+	}
+	cmds := app.handleTmuxActivityResult(tmuxActivityResult{
+		Token:       8,
+		Err:         errors.New("scan failed"),
+		StoppedTabs: []messages.TabSessionStatus{expected},
+	})
+	if len(cmds) != 1 {
+		t.Fatalf("expected stopped-tab command to be enqueued despite scan error, got %d cmds", len(cmds))
+	}
+	if app.tmuxActivityScanInFlight {
+		t.Fatal("expected scan in-flight flag to be cleared")
+	}
+	msg := cmds[0]()
+	got, ok := msg.(messages.TabSessionStatus)
+	if !ok {
+		t.Fatalf("expected TabSessionStatus command message, got %T", msg)
+	}
+	if got != expected {
+		t.Fatalf("expected stopped-tab message %+v, got %+v", expected, got)
+	}
+}

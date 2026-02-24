@@ -310,6 +310,8 @@ func terminalTagChecks(tags tmux.SessionTags) []struct {
 			want string
 		}{key: "@amux_assistant", want: strings.TrimSpace(tags.Assistant)})
 	}
+	// CreatedAt is optional for reattach paths; SessionOwner/LeaseAtMS remain the
+	// primary freshness/ownership tags for those sessions.
 	if tags.CreatedAt > 0 {
 		checks = append(checks, struct {
 			key  string

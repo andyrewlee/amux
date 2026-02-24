@@ -94,6 +94,8 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 
 		match := map[string]string{"@amux": "1", "@amux_type": "agent"}
 		if instanceID := strings.TrimSpace(a.instanceID); instanceID != "" {
+			// Detached-agent GC is instance-scoped so multiple amux instances do
+			// not race to kill each other's managed sessions.
 			match["@amux_instance"] = instanceID
 		}
 		rows, err := svc.SessionsWithTags(
@@ -158,6 +160,8 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 
 			lastActiveAt := activityTagTime(row.Tags)
 			if lastActiveAt.IsZero() {
+				// SessionCreatedAt is a tmux-native fallback for sessions whose
+				// @amux_created_at tag is absent from list output.
 				if createdAt, err := svc.SessionCreatedAt(sessionName, opts); err == nil && createdAt > 0 {
 					lastActiveAt = time.Unix(createdAt, 0)
 				}
