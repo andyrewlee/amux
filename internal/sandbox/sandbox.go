@@ -61,6 +61,9 @@ func GenerateSBPL(worktreeRoot, gitDir, claudeConfigDir string) string {
 	b.WriteString(";; File writes — /dev (stdout, stderr, /dev/null)\n")
 	b.WriteString("(allow file-write* (regex #\"^/dev/\"))\n\n")
 
+	b.WriteString(";; File writes — npm cache (needed by MCP servers)\n")
+	fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", home+"/.npm")
+
 	b.WriteString(";; File writes — temp directories\n")
 	b.WriteString("(allow file-write* (subpath \"/private/tmp\"))\n")
 	b.WriteString("(allow file-write* (subpath \"/private/var/folders\"))\n\n")
