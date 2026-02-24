@@ -2532,19 +2532,19 @@ cmd_project_add() {
             fi
           fi
         fi
-        if jq -e '.ok == true' >/dev/null 2>&1 <<<"$ws_create_out"; then
+        if [[ -n "${ws_create_out// }" ]] && jq -e '.ok == true' >/dev/null 2>&1 <<<"$ws_create_out"; then
           :
         else
           emit_project_add_workspace_conflict_guidance "$project_path" "$workspace_name" "$assistant" "$base" "$err_message"
           return
         fi
       fi
-      if ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$ws_create_out"; then
+      if [[ -z "${ws_create_out// }" ]] || ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$ws_create_out"; then
         emit_amux_error "project.add" "$err_payload"
         return
       fi
     fi
-    workspace_data="$(jq -c '.data' <<<"$ws_create_out")"
+    workspace_data="$(jq -c '.data // null' <<<"$ws_create_out" 2>/dev/null || printf 'null')"
     workspace_id="$(jq -r '.data.id // ""' <<<"$ws_create_out")"
   fi
 
@@ -2591,7 +2591,10 @@ cmd_project_add() {
   actions="$(append_action "$actions" "status" "Status" "skills/amux/scripts/assistant-dx.sh status" "primary" "Show global coding status")"
   RESULT_QUICK_ACTIONS="$actions"
 
-  RESULT_DATA="$(jq -cn --argjson project "$(jq -c '.data' <<<"$add_out")" --argjson workspace "$workspace_data" --arg workspace_label "$workspace_label" '{project: $project, workspace: $workspace, workspace_label: $workspace_label}')"
+  local project_data_json
+  project_data_json="$(jq -c '.data // {}' <<<"$add_out" 2>/dev/null || printf '{}')"
+  workspace_data="$(normalize_json_or_default "$workspace_data" 'null')"
+  RESULT_DATA="$(jq -cn --argjson project "$project_data_json" --argjson workspace "$workspace_data" --arg workspace_label "$workspace_label" '{project: $project, workspace: $workspace, workspace_label: $workspace_label}')"
   if [[ "$inferred_from_cwd" == "true" ]]; then
     RESULT_DATA="$(jq -c '. + {path_source: "cwd_or_git_root"}' <<<"$RESULT_DATA")"
   fi
@@ -3954,7 +3957,7 @@ cmd_workspace_create() {
         fi
       fi
 
-      if ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$out"; then
+      if [[ -z "${out// }" ]] || ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$out"; then
         register_cmd="skills/amux/scripts/assistant-dx.sh project add --path $(shell_quote "$missing_project")"
         retry_cmd="skills/amux/scripts/assistant-dx.sh workspace create --name $(shell_quote "$name") --project $(shell_quote "$missing_project") --scope $(shell_quote "$scope") --assistant $(shell_quote "${assistant:-codex}")"
         if [[ -n "$from_workspace" ]]; then
@@ -3980,7 +3983,7 @@ cmd_workspace_create() {
         return
       fi
     fi
-    if ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$out"; then
+    if [[ -z "${out// }" ]] || ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$out"; then
       if [[ "$err_code" == "create_failed" ]] && [[ "$err_message" == *"already exists"* || "$err_message" == *"already used by worktree"* ]]; then
         if workspace_create_emit_existing_recovery "$project" "$final_name" "$scope" "$assistant" "$err_message"; then
           return
@@ -4045,6 +4048,8 @@ cmd_workspace_create() {
   actions="$(append_action "$actions" "status" "Status" "skills/amux/scripts/assistant-dx.sh status --workspace $(shell_quote "$ws_id")" "primary" "Show workspace status")"
   RESULT_QUICK_ACTIONS="$actions"
 
+  local workspace_data_json
+  workspace_data_json="$(jq -c '.data // {}' <<<"$out" 2>/dev/null || printf '{}')"
   RESULT_DATA="$(jq -cn \
     --arg scope "$scope" \
     --arg scope_label "$scope_label" \
@@ -4055,7 +4060,7 @@ cmd_workspace_create() {
     --arg parent_name "$parent_name" \
     --arg base "$ws_base" \
     --arg workspace_label "$workspace_label" \
-    --argjson workspace "$(jq -c '.data' <<<"$out")" \
+    --argjson workspace "$workspace_data_json" \
     '{
       scope: $scope,
       scope_label: $scope_label,
