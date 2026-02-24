@@ -36,6 +36,8 @@ func GenerateSBPL(worktreeRoot, gitDir, claudeConfigDir string) string {
 	} {
 		fmt.Fprintf(&b, "(deny file-read* (subpath %q))\n", p)
 	}
+	// Allow reading SSH known_hosts so tools can verify host keys.
+	fmt.Fprintf(&b, "(allow file-read* (literal %q))\n", home+"/.ssh/known_hosts")
 	b.WriteString("\n")
 
 	// ── Dynamic library loading ─────────────────────────────────

@@ -36,6 +36,13 @@ func TestGenerateSBPL(t *testing.T) {
 		}
 	})
 
+	t.Run("ssh_known_hosts_readable", func(t *testing.T) {
+		expected := `(allow file-read* (literal "` + home + `/.ssh/known_hosts"))`
+		if !strings.Contains(sbpl, expected) {
+			t.Errorf("profile should allow reads to known_hosts, want:\n  %s", expected)
+		}
+	})
+
 	t.Run("dyld_file_map_executable", func(t *testing.T) {
 		if !strings.Contains(sbpl, "(allow file-map-executable)") {
 			t.Error("profile should allow file-map-executable for dyld")
