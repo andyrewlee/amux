@@ -403,7 +403,7 @@ func (a *App) addProject(path string) tea.Cmd {
 }
 
 // fetchRemoteBase fetches the remote base branch asynchronously and returns a WorkspaceFetchDone message.
-func (a *App) fetchRemoteBase(project *data.Project, name string, allowEdits, isolated bool) tea.Cmd {
+func (a *App) fetchRemoteBase(project *data.Project, name string, allowEdits, isolated, skipPermissions bool) tea.Cmd {
 	proj := project
 	return func() tea.Msg {
 		base, err := git.GetFreshRemoteBase(proj.Path)
@@ -411,17 +411,18 @@ func (a *App) fetchRemoteBase(project *data.Project, name string, allowEdits, is
 			base = "HEAD"
 		}
 		return messages.WorkspaceFetchDone{
-			Project:    proj,
-			Name:       name,
-			Base:       base,
-			AllowEdits: allowEdits,
-			Isolated:   isolated,
+			Project:         proj,
+			Name:            name,
+			Base:            base,
+			AllowEdits:      allowEdits,
+			Isolated:        isolated,
+			SkipPermissions: skipPermissions,
 		}
 	}
 }
 
 // fetchCheckedOutBase resolves the currently checked-out branch as the base (no fetch).
-func (a *App) fetchCheckedOutBase(project *data.Project, name string, allowEdits, isolated bool) tea.Cmd {
+func (a *App) fetchCheckedOutBase(project *data.Project, name string, allowEdits, isolated, skipPermissions bool) tea.Cmd {
 	proj := project
 	return func() tea.Msg {
 		base, err := git.GetCheckedOutBase(proj.Path)
@@ -429,17 +430,18 @@ func (a *App) fetchCheckedOutBase(project *data.Project, name string, allowEdits
 			base = "HEAD"
 		}
 		return messages.WorkspaceFetchDone{
-			Project:    proj,
-			Name:       name,
-			Base:       base,
-			AllowEdits: allowEdits,
-			Isolated:   isolated,
+			Project:         proj,
+			Name:            name,
+			Base:            base,
+			AllowEdits:      allowEdits,
+			Isolated:        isolated,
+			SkipPermissions: skipPermissions,
 		}
 	}
 }
 
 // fetchCustomBase fetches if stale, then resolves a custom branch name locally or on remote.
-func (a *App) fetchCustomBase(project *data.Project, name, customBranch string, allowEdits, isolated bool) tea.Cmd {
+func (a *App) fetchCustomBase(project *data.Project, name, customBranch string, allowEdits, isolated, skipPermissions bool) tea.Cmd {
 	proj := project
 	return func() tea.Msg {
 		_ = git.FetchIfStale(proj.Path)
@@ -450,17 +452,18 @@ func (a *App) fetchCustomBase(project *data.Project, name, customBranch string, 
 			}
 		}
 		return messages.WorkspaceFetchDone{
-			Project:    proj,
-			Name:       name,
-			Base:       base,
-			AllowEdits: allowEdits,
-			Isolated:   isolated,
+			Project:         proj,
+			Name:            name,
+			Base:            base,
+			AllowEdits:      allowEdits,
+			Isolated:        isolated,
+			SkipPermissions: skipPermissions,
 		}
 	}
 }
 
 // createWorkspace creates a new workspace
-func (a *App) createWorkspace(project *data.Project, name, base string, allowEdits, isolated bool) tea.Cmd {
+func (a *App) createWorkspace(project *data.Project, name, base string, allowEdits, isolated, skipPermissions bool) tea.Cmd {
 	return func() (msg tea.Msg) {
 		var ws *data.Workspace
 		defer func() {
@@ -489,6 +492,7 @@ func (a *App) createWorkspace(project *data.Project, name, base string, allowEdi
 		ws = data.NewWorkspace(name, branch, base, project.Path, workspacePath)
 		ws.AllowEdits = allowEdits
 		ws.Isolated = isolated
+		ws.SkipPermissions = skipPermissions
 
 		if err := git.CreateWorkspace(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{

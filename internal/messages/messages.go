@@ -254,11 +254,12 @@ type ShowRemoveProjectDialog struct {
 
 // CreateWorkspace requests creating a new workspace
 type CreateWorkspace struct {
-	Project    *data.Project
-	Name       string
-	Base       string
-	AllowEdits bool // Pre-grant Edit permission when true
-	Isolated   bool // Run in sandbox-exec isolation
+	Project         *data.Project
+	Name            string
+	Base            string
+	AllowEdits      bool // Pre-grant Edit permission when true
+	Isolated        bool // Run in sandbox-exec isolation
+	SkipPermissions bool // Run with --dangerously-skip-permissions
 }
 
 // DeleteWorkspace requests deleting a workspace
@@ -599,13 +600,14 @@ type ShowSetGroupProfileDialog struct {
 
 // CreateGroupWorkspace requests creating a workspace within a group
 type CreateGroupWorkspace struct {
-	GroupName    string
-	Name         string
-	AllowEdits   bool
-	Isolated     bool
-	LoadClaudeMD bool
-	BranchMode   git.BranchMode
-	CustomBranch string
+	GroupName       string
+	Name            string
+	AllowEdits      bool
+	Isolated        bool
+	SkipPermissions bool
+	LoadClaudeMD    bool
+	BranchMode      git.BranchMode
+	CustomBranch    string
 }
 
 // GroupWorkspaceCreated is sent when a group workspace was created
@@ -707,23 +709,25 @@ type GroupPreviewed struct {
 
 // WorkspaceFetchDone is sent after the remote base has been fetched for a single-project workspace.
 type WorkspaceFetchDone struct {
-	Project    *data.Project
-	Name       string
-	Base       string
-	AllowEdits bool
-	Isolated   bool
+	Project         *data.Project
+	Name            string
+	Base            string
+	AllowEdits      bool
+	Isolated        bool
+	SkipPermissions bool
 }
 
 // GroupRepoFetchDone is sent after a single repo's remote base has been fetched
 // during group workspace creation. Carries accumulated specs and remaining repos.
 type GroupRepoFetchDone struct {
-	Group          *data.ProjectGroup
-	Name           string
-	FetchedSpecs   []git.RepoSpec
-	RemainingRepos []data.GroupRepo
-	AllowEdits     bool
-	Isolated       bool
-	LoadClaudeMD   bool
-	BranchMode     git.BranchMode
-	CustomBranch   string
+	Group           *data.ProjectGroup
+	Name            string
+	FetchedSpecs    []git.RepoSpec
+	RemainingRepos  []data.GroupRepo
+	AllowEdits      bool
+	Isolated        bool
+	SkipPermissions bool
+	LoadClaudeMD    bool
+	BranchMode      git.BranchMode
+	CustomBranch    string
 }

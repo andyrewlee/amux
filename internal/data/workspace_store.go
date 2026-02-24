@@ -84,8 +84,9 @@ func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
 		ActiveTabIndex: raw.ActiveTabIndex,
 		Archived:       raw.Archived,
 		ArchivedAt:     parseCreated(raw.ArchivedAt),
-		AllowEdits:     raw.AllowEdits,
-		Isolated:       raw.Isolated,
+		AllowEdits:      raw.AllowEdits,
+		Isolated:        raw.Isolated,
+		SkipPermissions: raw.SkipPermissions,
 	}
 	ws.storeID = id
 
@@ -198,6 +199,7 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 	ws.ArchivedAt = stored.ArchivedAt
 	ws.AllowEdits = stored.AllowEdits
 	ws.Isolated = stored.Isolated
+	ws.SkipPermissions = stored.SkipPermissions
 	ws.storeID = stored.storeID
 
 	// Apply defaults if stored metadata had empty values (legacy files)
@@ -282,8 +284,9 @@ type workspaceJSON struct {
 	Env            map[string]string `json:"env"`
 	OpenTabs       []TabInfo         `json:"open_tabs,omitempty"`
 	ActiveTabIndex int               `json:"active_tab_index"`
-	AllowEdits     bool              `json:"allow_edits,omitempty"`
-	Isolated       bool              `json:"isolated,omitempty"`
+	AllowEdits      bool              `json:"allow_edits,omitempty"`
+	Isolated        bool              `json:"isolated,omitempty"`
+	SkipPermissions bool              `json:"skip_permissions,omitempty"`
 }
 
 // parseCreated parses a created timestamp from either time.Time format or string format

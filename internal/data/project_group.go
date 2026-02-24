@@ -29,8 +29,9 @@ type GroupWorkspace struct {
 	Secondary    []Workspace       `json:"secondary"`            // additional repos
 	Archived     bool              `json:"archived"`
 	ArchivedAt   time.Time         `json:"archived_at,omitempty"`
-	AllowEdits   bool              `json:"allow_edits,omitempty"`
-	Isolated     bool              `json:"isolated,omitempty"`
+	AllowEdits      bool              `json:"allow_edits,omitempty"`
+	Isolated        bool              `json:"isolated,omitempty"`
+	SkipPermissions bool              `json:"skip_permissions,omitempty"`
 	LoadClaudeMD bool              `json:"load_claude_md,omitempty"`
 	Assistant    string            `json:"assistant"`
 	Profile      string            `json:"-"`

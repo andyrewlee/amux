@@ -227,7 +227,7 @@ func resolveGroupRepoBase(repoPath string, mode git.BranchMode, customBranch str
 
 // fetchFirstGroupBase validates the branch and fetches the first repo's base.
 // Subsequent repos are fetched one at a time via fetchNextGroupBase.
-func (a *App) fetchFirstGroupBase(group *data.ProjectGroup, name string, allowEdits, isolated, loadClaudeMD bool, branchMode git.BranchMode, customBranch string) tea.Cmd {
+func (a *App) fetchFirstGroupBase(group *data.ProjectGroup, name string, allowEdits, isolated, skipPermissions, loadClaudeMD bool, branchMode git.BranchMode, customBranch string) tea.Cmd {
 	groupsRoot := a.config.Paths.GroupsWorkspacesRoot
 	repos := make([]data.GroupRepo, len(group.Repos))
 	copy(repos, group.Repos)
@@ -269,21 +269,22 @@ func (a *App) fetchFirstGroupBase(group *data.ProjectGroup, name string, allowEd
 		}
 
 		return messages.GroupRepoFetchDone{
-			Group:          group,
-			Name:           name,
-			FetchedSpecs:   []git.RepoSpec{spec},
-			RemainingRepos: repos[1:],
-			AllowEdits:     allowEdits,
-			Isolated:       isolated,
-			LoadClaudeMD:   loadClaudeMD,
-			BranchMode:     branchMode,
-			CustomBranch:   customBranch,
+			Group:           group,
+			Name:            name,
+			FetchedSpecs:    []git.RepoSpec{spec},
+			RemainingRepos:  repos[1:],
+			AllowEdits:      allowEdits,
+			Isolated:        isolated,
+			SkipPermissions: skipPermissions,
+			LoadClaudeMD:    loadClaudeMD,
+			BranchMode:      branchMode,
+			CustomBranch:    customBranch,
 		}
 	}
 }
 
 // fetchNextGroupBase fetches the base for the next repo in the chain.
-func (a *App) fetchNextGroupBase(group *data.ProjectGroup, name string, specs []git.RepoSpec, remaining []data.GroupRepo, allowEdits, isolated, loadClaudeMD bool, branchMode git.BranchMode, customBranch string) tea.Cmd {
+func (a *App) fetchNextGroupBase(group *data.ProjectGroup, name string, specs []git.RepoSpec, remaining []data.GroupRepo, allowEdits, isolated, skipPermissions, loadClaudeMD bool, branchMode git.BranchMode, customBranch string) tea.Cmd {
 	groupsRoot := a.config.Paths.GroupsWorkspacesRoot
 	repo := remaining[0]
 	rest := make([]data.GroupRepo, len(remaining)-1)
@@ -313,15 +314,16 @@ func (a *App) fetchNextGroupBase(group *data.ProjectGroup, name string, specs []
 		})
 
 		return messages.GroupRepoFetchDone{
-			Group:          group,
-			Name:           name,
-			FetchedSpecs:   newSpecs,
-			RemainingRepos: rest,
-			AllowEdits:     allowEdits,
-			Isolated:       isolated,
-			LoadClaudeMD:   loadClaudeMD,
-			BranchMode:     branchMode,
-			CustomBranch:   customBranch,
+			Group:           group,
+			Name:            name,
+			FetchedSpecs:    newSpecs,
+			RemainingRepos:  rest,
+			AllowEdits:      allowEdits,
+			Isolated:        isolated,
+			SkipPermissions: skipPermissions,
+			LoadClaudeMD:    loadClaudeMD,
+			BranchMode:      branchMode,
+			CustomBranch:    customBranch,
 		}
 	}
 }
@@ -334,19 +336,19 @@ func (a *App) handleGroupRepoFetchDone(msg messages.GroupRepoFetchDone) []tea.Cm
 		if a.creationOverlay != nil {
 			a.creationOverlay.SetStepDetail(msg.RemainingRepos[0].Name)
 		}
-		cmds = append(cmds, a.fetchNextGroupBase(msg.Group, msg.Name, msg.FetchedSpecs, msg.RemainingRepos, msg.AllowEdits, msg.Isolated, msg.LoadClaudeMD, msg.BranchMode, msg.CustomBranch))
+		cmds = append(cmds, a.fetchNextGroupBase(msg.Group, msg.Name, msg.FetchedSpecs, msg.RemainingRepos, msg.AllowEdits, msg.Isolated, msg.SkipPermissions, msg.LoadClaudeMD, msg.BranchMode, msg.CustomBranch))
 	} else {
 		// All fetched — advance to "Creating worktrees"
 		if a.creationOverlay != nil {
 			a.creationOverlay.AdvanceStep()
 		}
-		cmds = append(cmds, a.createGroupWorkspaceFromSpecs(msg.Group, msg.Name, msg.FetchedSpecs, msg.AllowEdits, msg.Isolated, msg.LoadClaudeMD))
+		cmds = append(cmds, a.createGroupWorkspaceFromSpecs(msg.Group, msg.Name, msg.FetchedSpecs, msg.AllowEdits, msg.Isolated, msg.SkipPermissions, msg.LoadClaudeMD))
 	}
 	return cmds
 }
 
 // createGroupWorkspaceFromSpecs creates worktrees from pre-built specs (step 2 of group creation).
-func (a *App) createGroupWorkspaceFromSpecs(group *data.ProjectGroup, name string, specs []git.RepoSpec, allowEdits, isolated, loadClaudeMD bool) tea.Cmd {
+func (a *App) createGroupWorkspaceFromSpecs(group *data.ProjectGroup, name string, specs []git.RepoSpec, allowEdits, isolated, skipPermissions, loadClaudeMD bool) tea.Cmd {
 	return func() (msg tea.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -389,24 +391,27 @@ func (a *App) createGroupWorkspaceFromSpecs(group *data.ProjectGroup, name strin
 		primary := data.NewWorkspace(name, name, specs[0].Base, group.Repos[0].Path, groupRoot)
 		primary.AllowEdits = allowEdits
 		primary.Isolated = isolated
+		primary.SkipPermissions = skipPermissions
 
 		var secondary []data.Workspace
 		for i := 0; i < len(specs); i++ {
 			ws := data.NewWorkspace(name, name, specs[i].Base, group.Repos[i].Path, specs[i].WorkspacePath)
 			ws.AllowEdits = allowEdits
 			ws.Isolated = isolated
+			ws.SkipPermissions = skipPermissions
 			secondary = append(secondary, *ws)
 		}
 
 		gw := &data.GroupWorkspace{
-			Name:         name,
-			Created:      time.Now(),
-			GroupName:    group.Name,
-			Primary:      *primary,
-			Secondary:    secondary,
-			AllowEdits:   allowEdits,
-			Isolated:     isolated,
-			LoadClaudeMD: loadClaudeMD,
+			Name:            name,
+			Created:         time.Now(),
+			GroupName:       group.Name,
+			Primary:         *primary,
+			Secondary:       secondary,
+			AllowEdits:      allowEdits,
+			Isolated:        isolated,
+			SkipPermissions: skipPermissions,
+			LoadClaudeMD:    loadClaudeMD,
 			Assistant:    "claude",
 			Profile:      group.Profile,
 			ScriptMode:   "nonconcurrent",

@@ -19,6 +19,7 @@ type UISettings struct {
 	LastProfile        string // Most recently selected profile name
 	LastAllowEdits     bool   // Last state of "allow edits" checkbox for new workspaces
 	LastIsolated       bool   // Last state of "run isolated" checkbox for new workspaces
+	LastSkipPermissions bool  // Last state of "skip permissions" checkbox for new workspaces
 	Theme              string // Theme ID, defaults to "gruvbox"
 	TmuxServer         string
 	TmuxConfigPath     string
@@ -63,8 +64,9 @@ func loadUISettings(path string) UISettings {
 			AutoAddPermissions *bool   `json:"auto_add_permissions"`
 			DefaultAgent       *string `json:"default_agent"`
 			LastProfile        *string `json:"last_profile"`
-			LastAllowEdits     *bool   `json:"last_allow_edits"`
-			LastIsolated       *bool   `json:"last_isolated"`
+			LastAllowEdits      *bool   `json:"last_allow_edits"`
+			LastIsolated        *bool   `json:"last_isolated"`
+			LastSkipPermissions *bool   `json:"last_skip_permissions"`
 			Theme              *string `json:"theme"`
 			TmuxServer         *string `json:"tmux_server"`
 			TmuxConfigPath     *string `json:"tmux_config"`
@@ -108,6 +110,9 @@ func loadUISettings(path string) UISettings {
 	}
 	if raw.UI.LastIsolated != nil {
 		settings.LastIsolated = *raw.UI.LastIsolated
+	}
+	if raw.UI.LastSkipPermissions != nil {
+		settings.LastSkipPermissions = *raw.UI.LastSkipPermissions
 	}
 	if raw.UI.Theme != nil {
 		settings.Theme = *raw.UI.Theme
@@ -155,6 +160,7 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["last_profile"] = settings.LastProfile
 	ui["last_allow_edits"] = settings.LastAllowEdits
 	ui["last_isolated"] = settings.LastIsolated
+	ui["last_skip_permissions"] = settings.LastSkipPermissions
 	ui["theme"] = settings.Theme
 	ui["tmux_server"] = settings.TmuxServer
 	ui["tmux_config"] = settings.TmuxConfigPath
