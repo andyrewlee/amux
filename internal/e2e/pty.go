@@ -20,12 +20,15 @@ import (
 const pollInterval = 50 * time.Millisecond
 
 type PTYSession struct {
-	cmd     *exec.Cmd
-	pty     *os.File
-	term    *vterm.VTerm
-	updates chan struct{}
-	done    chan struct{}
-	mu      sync.Mutex
+	cmd      *exec.Cmd
+	pty      *os.File
+	term     *vterm.VTerm
+	updates  chan struct{}
+	done     chan struct{}
+	procDone chan struct{}
+	mu       sync.Mutex
+	waitMu   sync.Mutex
+	waitErr  error
 }
 
 type PTYOptions struct {
@@ -109,14 +112,16 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 	}
 
 	session := &PTYSession{
-		cmd:     cmd,
-		pty:     ptmx,
-		term:    vterm.New(opts.Width, opts.Height),
-		updates: make(chan struct{}, 1),
-		done:    make(chan struct{}),
+		cmd:      cmd,
+		pty:      ptmx,
+		term:     vterm.New(opts.Width, opts.Height),
+		updates:  make(chan struct{}, 1),
+		done:     make(chan struct{}),
+		procDone: make(chan struct{}),
 	}
 
 	go session.readLoop()
+	go session.waitLoop()
 
 	cleanup := func() {
 		_ = ptmx.Close()
@@ -125,7 +130,10 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 			leaderPID := proc.Pid
 			_ = process.KillProcessGroup(leaderPID, process.KillOptions{GracePeriod: 50 * time.Millisecond})
 		}
-		_, _ = cmd.Process.Wait()
+		select {
+		case <-session.procDone:
+		case <-time.After(250 * time.Millisecond):
+		}
 		if ownHome {
 			_ = os.RemoveAll(home)
 		}
@@ -153,6 +161,15 @@ func (s *PTYSession) readLoop() {
 			return
 		}
 	}
+}
+
+func (s *PTYSession) waitLoop() {
+	defer close(s.procDone)
+	_, err := s.cmd.Process.Wait()
+	s.waitMu.Lock()
+	s.waitErr = err
+	s.waitMu.Unlock()
+	_ = s.pty.Close()
 }
 
 func (s *PTYSession) SendBytes(data []byte) error {
@@ -238,7 +255,12 @@ func (s *PTYSession) WaitForExit(timeout time.Duration) error {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-s.done:
+	case <-s.procDone:
+		s.waitMu.Lock()
+		defer s.waitMu.Unlock()
+		if s.waitErr != nil {
+			return fmt.Errorf("wait for session process: %w", s.waitErr)
+		}
 		return nil
 	case <-timer.C:
 		return errors.New("timeout waiting for session exit")
