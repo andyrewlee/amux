@@ -51,6 +51,14 @@ func TestCompactAgentOutput_DropsDroidChromeNoise(t *testing.T) {
 	}
 }
 
+func TestCompactAgentOutput_PreservesQuotedLines(t *testing.T) {
+	raw := "Plan recap:\n> The user asked to fix the login bug\n> npm run build\nDone."
+	got := compactAgentOutput(raw)
+	if got != raw {
+		t.Fatalf("compactAgentOutput() = %q, want %q", got, raw)
+	}
+}
+
 func TestCompactAgentOutput_DropsANSIWrappedPromptChrome(t *testing.T) {
 	raw := "\x1b[38;5;39m❯\u00a0Try \"fix lint errors\"\x1b[0m\n• useful line"
 	got := compactAgentOutput(raw)
@@ -78,6 +86,17 @@ func TestDetectNeedsInput_QuestionFallback(t *testing.T) {
 	}
 	if hint != "I can continue with either option A or B. Which do you prefer?" {
 		t.Fatalf("hint = %q", hint)
+	}
+}
+
+func TestDetectNeedsInput_QuotedQuestionFallback(t *testing.T) {
+	content := "> Do you want me to proceed?"
+	ok, hint := detectNeedsInput(content)
+	if !ok {
+		t.Fatalf("detectNeedsInput() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
 	}
 }
 
@@ -279,5 +298,12 @@ func TestSummarizeWaitResponse_StatusFallbacks(t *testing.T) {
 	}
 	if got := summarizeWaitResponse("session_exited", "", false, ""); got != "Agent session exited while waiting." {
 		t.Fatalf("session_exited summary = %q", got)
+	}
+}
+
+func TestLastNonEmptyLine_PreservesQuotedLine(t *testing.T) {
+	content := "summary line\n> quoted conclusion"
+	if got := lastNonEmptyLine(content); got != "> quoted conclusion" {
+		t.Fatalf("lastNonEmptyLine() = %q, want %q", got, "> quoted conclusion")
 	}
 }

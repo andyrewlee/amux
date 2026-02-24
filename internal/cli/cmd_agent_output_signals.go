@@ -96,6 +96,11 @@ func shouldDropAgentChromeLine(line string) bool {
 	if isAgentProgressNoiseLine(clean) {
 		return true
 	}
+	// Keep generic "> " lines (Markdown quotes, shell echoes, diff snippets).
+	// Only drop known inline prompt chrome patterns.
+	if isInlinePromptChromeLine(clean) {
+		return true
+	}
 	switch {
 	case strings.HasPrefix(clean, "╭"),
 		strings.HasPrefix(clean, "╰"),
@@ -103,7 +108,6 @@ func shouldDropAgentChromeLine(line string) bool {
 		strings.HasPrefix(clean, "─"),
 		strings.HasPrefix(clean, "────────────────"),
 		strings.HasPrefix(clean, "└ "),
-		strings.HasPrefix(clean, "> "),
 		strings.HasPrefix(clean, "⎿ "),
 		strings.HasPrefix(clean, "↳ Interacted with "),
 		strings.HasPrefix(clean, "› "),
@@ -142,6 +146,18 @@ func shouldDropAgentChromeLine(line string) bool {
 	default:
 		return false
 	}
+}
+
+func isInlinePromptChromeLine(line string) bool {
+	if !strings.HasPrefix(line, "> ") {
+		return false
+	}
+	prompt := strings.TrimSpace(strings.TrimPrefix(line, "> "))
+	if prompt == "" {
+		return true
+	}
+	lower := strings.ToLower(prompt)
+	return strings.HasPrefix(lower, "reply exactly ") && strings.HasSuffix(lower, " in one line.")
 }
 
 func isAgentProgressNoiseLine(line string) bool {
