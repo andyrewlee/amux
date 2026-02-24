@@ -5,6 +5,7 @@ import (
 	"time"
 
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 func TestHasVisiblePTYOutput(t *testing.T) {
@@ -135,6 +136,9 @@ func TestUpdatePTYOutput_DoesNotTagControlOnlyOutput(t *testing.T) {
 	if !tab.lastVisibleOutput.IsZero() {
 		t.Fatalf("expected lastVisibleOutput to remain zero for control-only output, got %v", tab.lastVisibleOutput)
 	}
+	if tab.pendingVisibleOutput {
+		t.Fatalf("expected pendingVisibleOutput to remain false for control-only output")
+	}
 }
 
 func TestUpdatePTYOutput_TagsVisibleOutput(t *testing.T) {
@@ -159,14 +163,202 @@ func TestUpdatePTYOutput_TagsVisibleOutput(t *testing.T) {
 		Data:        []byte("visible output"),
 	})
 
-	if tab.lastVisibleOutput.IsZero() {
-		t.Fatalf("expected lastVisibleOutput to be set for visible output")
+	if !tab.lastVisibleOutput.IsZero() {
+		t.Fatalf("expected lastVisibleOutput to remain zero until flush, got %v", tab.lastVisibleOutput)
 	}
-	if tab.lastVisibleOutput.Sub(before) <= 0 {
-		t.Fatalf("expected lastVisibleOutput to move forward, before=%v after=%v", before, tab.lastVisibleOutput)
+	if !tab.lastActivityTagAt.Equal(before) {
+		t.Fatalf("expected lastActivityTagAt unchanged before flush, before=%v after=%v", before, tab.lastActivityTagAt)
+	}
+	if !tab.pendingVisibleOutput {
+		t.Fatalf("expected pendingVisibleOutput to be set for visible output")
+	}
+}
+
+func TestUpdatePTYOutput_EndsBootstrapAfterQuietGap(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                    TabID("tab-1"),
+		Assistant:             "codex",
+		Workspace:             ws,
+		SessionName:           "amux-test-session",
+		Terminal:              vterm.New(80, 24),
+		Running:               true,
+		bootstrapActivity:     true,
+		bootstrapLastOutputAt: time.Now().Add(-(bootstrapQuietGap + 200*time.Millisecond)),
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("real output after quiet"),
+	})
+
+	tab.mu.Lock()
+	bootstrap := tab.bootstrapActivity
+	tab.mu.Unlock()
+	if bootstrap {
+		t.Fatal("expected bootstrapActivity to end after quiet gap before new output")
+	}
+
+	tab.lastOutputAt = time.Now().Add(-time.Second)
+	tab.flushPendingSince = tab.lastOutputAt
+	m.tabEvents = nil
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+	if tab.lastVisibleOutput.IsZero() {
+		t.Fatal("expected output after bootstrap quiet gap to mark visible activity")
+	}
+}
+
+func TestUpdatePTYFlush_TagsVisibleScreenDelta(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	before := time.Now().Add(-2 * activityTagThrottle)
+	tab := &Tab{
+		ID:                TabID("tab-1"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		SessionName:       "amux-test-session",
+		Terminal:          vterm.New(80, 24),
+		Running:           true,
+		lastActivityTagAt: before,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("visible output"),
+	})
+	tab.lastOutputAt = time.Now().Add(-time.Second)
+	tab.flushPendingSince = tab.lastOutputAt
+	m.tabEvents = nil
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+
+	if tab.lastVisibleOutput.IsZero() {
+		t.Fatalf("expected first visible delta flush to set lastVisibleOutput")
 	}
 	if !tab.lastActivityTagAt.After(before) {
-		t.Fatalf("expected lastActivityTagAt to move forward, before=%v after=%v", before, tab.lastActivityTagAt)
+		t.Fatalf("expected first visible delta flush to move lastActivityTagAt, before=%v after=%v", before, tab.lastActivityTagAt)
+	}
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("\nmore visible output"),
+	})
+	tab.lastOutputAt = time.Now().Add(-time.Second)
+	tab.flushPendingSince = tab.lastOutputAt
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+	if tab.lastVisibleOutput.IsZero() {
+		t.Fatalf("expected second visible delta flush to set lastVisibleOutput")
+	}
+	if !tab.lastActivityTagAt.After(before) {
+		t.Fatalf("expected second visible delta flush to move lastActivityTagAt, before=%v after=%v", before, tab.lastActivityTagAt)
+	}
+	if tab.pendingVisibleOutput {
+		t.Fatalf("expected pendingVisibleOutput cleared after flush")
+	}
+}
+
+func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:          TabID("tab-1"),
+		Assistant:   "codex",
+		Workspace:   ws,
+		SessionName: "amux-test-session",
+		Terminal:    vterm.New(80, 24),
+		Running:     true,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("stable"),
+	})
+	tab.lastOutputAt = time.Now().Add(-time.Second)
+	tab.flushPendingSince = tab.lastOutputAt
+	m.tabEvents = nil
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+	firstVisible := tab.lastVisibleOutput
+	firstTag := tab.lastActivityTagAt
+	if firstVisible.IsZero() {
+		t.Fatalf("expected initial visible output to set activity timestamp")
+	}
+	if firstTag.IsZero() {
+		t.Fatalf("expected initial visible output to set activity tag timestamp")
+	}
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("\rstable"),
+	})
+	tab.lastOutputAt = time.Now().Add(-time.Second)
+	tab.flushPendingSince = tab.lastOutputAt
+	m.tabEvents = nil
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+
+	if !tab.lastVisibleOutput.Equal(firstVisible) {
+		t.Fatalf("expected unchanged rendered content not to refresh lastVisibleOutput: before=%v after=%v", firstVisible, tab.lastVisibleOutput)
+	}
+	if !tab.lastActivityTagAt.Equal(firstTag) {
+		t.Fatalf("expected unchanged rendered content not to refresh lastActivityTagAt: before=%v after=%v", firstTag, tab.lastActivityTagAt)
+	}
+}
+
+func TestUpdatePTYFlush_SuppressesImmediateUserInputEcho(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:              TabID("tab-1"),
+		Assistant:       "codex",
+		Workspace:       ws,
+		SessionName:     "amux-test-session",
+		Terminal:        vterm.New(80, 24),
+		Running:         true,
+		lastUserInputAt: time.Now(),
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("echoed input"),
+	})
+	tab.lastOutputAt = time.Now().Add(-time.Second)
+	tab.flushPendingSince = tab.lastOutputAt
+	m.tabEvents = nil
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("still echoed input"),
+	})
+	tab.lastOutputAt = time.Now().Add(-time.Second)
+	tab.flushPendingSince = tab.lastOutputAt
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+
+	if !tab.lastVisibleOutput.IsZero() {
+		t.Fatalf("expected user-input echo not to set lastVisibleOutput, got %v", tab.lastVisibleOutput)
+	}
+	if !tab.lastActivityTagAt.IsZero() {
+		t.Fatalf("expected user-input echo not to set lastActivityTagAt, got %v", tab.lastActivityTagAt)
 	}
 }
 
@@ -192,6 +384,16 @@ func TestUpdatePtyTabReattachResult_ResetsActivityANSIState(t *testing.T) {
 
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on reattach, got %v", tab.activityANSIState)
+	}
+	tab.mu.Lock()
+	bootstrap := tab.bootstrapActivity
+	bootstrapAt := tab.bootstrapLastOutputAt
+	tab.mu.Unlock()
+	if !bootstrap {
+		t.Fatal("expected bootstrapActivity=true on reattach")
+	}
+	if bootstrapAt.IsZero() {
+		t.Fatal("expected bootstrapLastOutputAt to be set on reattach")
 	}
 }
 

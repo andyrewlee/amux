@@ -34,6 +34,11 @@ const (
 	// tmuxActivityInterval controls how often we scan tmux sessions for activity.
 	tmuxActivityInterval = 2 * time.Second
 
+	// tmuxActivitySettleScans is how many successful activity scans are required
+	// before dashboard "active workspace" indicators are shown.
+	// This suppresses startup blips from initial hysteresis/state warmup.
+	tmuxActivitySettleScans = 2
+
 	// tmuxCommandTimeout caps tmux command duration for activity scans.
 	tmuxCommandTimeout = 2 * time.Second
 

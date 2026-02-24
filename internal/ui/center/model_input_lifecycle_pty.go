@@ -138,22 +138,22 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		now := time.Now()
 		tab.lastOutputAt = now
 		if m.isChatTab(tab) {
-			sessionName := tab.SessionName
-			if sessionName == "" && tab.Agent != nil {
-				sessionName = tab.Agent.Session
+			tab.mu.Lock()
+			if tab.bootstrapActivity &&
+				!tab.bootstrapLastOutputAt.IsZero() &&
+				now.Sub(tab.bootstrapLastOutputAt) >= bootstrapQuietGap {
+				tab.bootstrapActivity = false
 			}
+			if tab.bootstrapActivity {
+				tab.bootstrapLastOutputAt = now
+			}
+			tab.mu.Unlock()
 			hasVisibleOutput := tab.consumeActivityVisibility(msg.Data)
 			if hasVisibleOutput {
-				tab.lastVisibleOutput = now
-			}
-			if sessionName != "" && hasVisibleOutput && tab.lastOutputAt.Sub(tab.lastActivityTagAt) >= activityTagThrottle {
-				tab.lastActivityTagAt = now
-				opts := m.getTmuxOptions()
-				timestamp := now.UnixMilli()
-				cmds = append(cmds, func() tea.Msg {
-					_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, strconv.FormatInt(timestamp, 10), opts)
-					return nil
-				})
+				tab.mu.Lock()
+				tab.pendingVisibleOutput = true
+				tab.pendingVisibleSeq++
+				tab.mu.Unlock()
 			}
 		}
 		if !tab.flushScheduled {
@@ -199,6 +199,10 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 		if len(tab.pendingOutput) > 0 {
 			var chunk []byte
 			writeOutput := false
+			hasMoreBuffered := false
+			visibleSeq := uint64(0)
+			tagSessionName := ""
+			var tagTimestamp int64
 			isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
 			tab.mu.Lock()
 			if tab.Terminal != nil {
@@ -213,17 +217,21 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 				chunk = append(chunk, tab.pendingOutput[:chunkSize]...)
 				copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
 				tab.pendingOutput = tab.pendingOutput[:len(tab.pendingOutput)-chunkSize]
+				hasMoreBuffered = len(tab.pendingOutput) > 0
+				visibleSeq = tab.pendingVisibleSeq
 				writeOutput = true
 			}
 			tab.mu.Unlock()
 			if writeOutput && len(chunk) > 0 {
 				if m.isTabActorReady() {
 					if !m.sendTabEvent(tabEvent{
-						tab:         tab,
-						workspaceID: msg.WorkspaceID,
-						tabID:       msg.TabID,
-						kind:        tabEventWriteOutput,
-						output:      chunk,
+						tab:             tab,
+						workspaceID:     msg.WorkspaceID,
+						tabID:           msg.TabID,
+						kind:            tabEventWriteOutput,
+						output:          chunk,
+						hasMoreBuffered: hasMoreBuffered,
+						visibleSeq:      visibleSeq,
 					}) {
 						tab.mu.Lock()
 						if tab.Terminal != nil {
@@ -231,6 +239,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 							tab.Terminal.Write(chunk)
 							flushDone()
 							perf.Count("pty_flush_bytes", int64(len(chunk)))
+							tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
 						}
 						tab.mu.Unlock()
 					}
@@ -241,8 +250,18 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						tab.Terminal.Write(chunk)
 						flushDone()
 						perf.Count("pty_flush_bytes", int64(len(chunk)))
+						tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
 					}
 					tab.mu.Unlock()
+				}
+				if tagSessionName != "" {
+					opts := m.getTmuxOptions()
+					sessionName := tagSessionName
+					timestamp := strconv.FormatInt(tagTimestamp, 10)
+					cmds = append(cmds, func() tea.Msg {
+						_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
+						return nil
+					})
 				}
 			}
 			if len(tab.pendingOutput) == 0 {

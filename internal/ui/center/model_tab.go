@@ -50,18 +50,25 @@ type Tab struct {
 	readerActiveState uint32 // Mirrors readerActive for lock-free atomic reads
 	// Buffer PTY output to avoid rendering partial screen updates.
 
-	pendingOutput     []byte
-	flushScheduled    bool
-	lastOutputAt      time.Time
-	lastVisibleOutput time.Time
-	lastActivityTagAt time.Time
-	activityANSIState ansiActivityState
-	lastInputTagAt    time.Time
-	flushPendingSince time.Time
-	ptyRows           int
-	ptyCols           int
-	ptyMsgCh          chan tea.Msg
-	readerCancel      chan struct{}
+	pendingOutput         []byte
+	flushScheduled        bool
+	lastOutputAt          time.Time
+	lastVisibleOutput     time.Time
+	pendingVisibleOutput  bool
+	pendingVisibleSeq     uint64
+	activityDigest        [16]byte
+	activityDigestInit    bool
+	lastActivityTagAt     time.Time
+	activityANSIState     ansiActivityState
+	lastInputTagAt        time.Time
+	lastUserInputAt       time.Time
+	bootstrapActivity     bool
+	bootstrapLastOutputAt time.Time
+	flushPendingSince     time.Time
+	ptyRows               int
+	ptyCols               int
+	ptyMsgCh              chan tea.Msg
+	readerCancel          chan struct{}
 	// Mouse selection state
 	Selection          common.SelectionState
 	selectionScroll    common.SelectionScrollState

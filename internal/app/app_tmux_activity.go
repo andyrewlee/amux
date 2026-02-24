@@ -84,8 +84,8 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 		stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
-			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
-			recentActivityBySession = nil
+			logging.Warn("tmux activity prefilter failed; treating as no recent window activity: %v", err)
+			recentActivityBySession = make(map[string]bool)
 		}
 		active, updatedStates := activity.ActiveWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates, StoppedTabs: stoppedTabs}
@@ -128,8 +128,8 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 		stoppedTabs := syncActivitySessionStates(sessionInfo, sessions, svc, opts)
 		recentActivityBySession, err := activity.FetchRecentlyActiveByWindow(svc, tmuxActivityPrefilter, opts)
 		if err != nil {
-			logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
-			recentActivityBySession = nil
+			logging.Warn("tmux activity prefilter failed; treating as no recent window activity: %v", err)
+			recentActivityBySession = make(map[string]bool)
 		}
 		active, updatedStates := activity.ActiveWorkspaceIDsFromTags(sessionInfo, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 		return tmuxActivityResult{Token: scanToken, ActiveWorkspaceIDs: active, UpdatedStates: updatedStates, StoppedTabs: stoppedTabs}
@@ -162,6 +162,10 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 			cmds = append(cmds, common.SafeBatch(stoppedTabCmds...))
 		}
 		a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
+		a.tmuxActivitySettledScans++
+		if a.tmuxActivitySettledScans >= tmuxActivitySettleScans {
+			a.tmuxActivitySettled = true
+		}
 		a.syncActiveWorkspacesToDashboard()
 		if cmd := a.dashboard.StartSpinnerIfNeeded(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -180,6 +184,9 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 	a.tmuxCheckDone = true
 	a.tmuxAvailable = msg.available
 	a.tmuxInstallHint = msg.installHint
+	a.tmuxActivitySettled = false
+	a.tmuxActivitySettledScans = 0
+	a.tmuxActiveWorkspaceIDs = make(map[string]bool)
 	if !msg.available {
 		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
 	}

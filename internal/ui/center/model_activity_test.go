@@ -132,3 +132,18 @@ func TestIsTabActiveUsesVisibleOutputOnly(t *testing.T) {
 		t.Fatal("expected tab with no visible output timestamp to be inactive")
 	}
 }
+
+func TestIsTabActiveIgnoresBufferedOutputWithoutVisibleDelta(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	tab := &Tab{
+		Assistant:         "claude",
+		Workspace:         ws,
+		Running:           true,
+		pendingOutput:     []byte("buffered"),
+		lastVisibleOutput: time.Time{},
+	}
+	if m.IsTabActive(tab) {
+		t.Fatal("expected buffered output without visible delta timestamp to be inactive")
+	}
+}
