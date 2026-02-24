@@ -32,14 +32,45 @@ var (
 	date    = "unknown"
 )
 
-// CLI subcommands that route to the headless CLI.
-var cliCommands = map[string]bool{
+// legacyCLICommands route to the JSON-capable headless CLI.
+var legacyCLICommands = map[string]bool{
 	"status": true, "doctor": true, "logs": true,
 	"workspace": true, "agent": true, "session": true, "project": true,
 	"terminal":     true,
 	"capabilities": true,
 	"version":      true, "help": true,
 }
+
+// cobraCLICommands route to the sandbox-oriented Cobra command tree.
+var cobraCLICommands = map[string]bool{
+	"auth":       true,
+	"sandbox":    true,
+	"setup":      true,
+	"snapshot":   true,
+	"settings":   true,
+	"ssh":        true,
+	"exec":       true,
+	"completion": true,
+	"explain":    true,
+	"claude":     true,
+	"codex":      true,
+	"opencode":   true,
+	"amp":        true,
+	"gemini":     true,
+	"droid":      true,
+	"shell":      true,
+	"ls":         true,
+	"rm":         true,
+}
+
+type dispatchTarget int
+
+const (
+	dispatchTargetLegacy dispatchTarget = iota
+	dispatchTargetCobra
+	dispatchTargetTUI
+	dispatchTargetUnknown
+)
 
 func main() {
 	// Handle --version flag
@@ -55,13 +86,17 @@ func main() {
 		os.Exit(code)
 	}
 
-	// Route to CLI if a known subcommand is given (even with leading global flags).
+	// Route to the appropriate command surface if a known subcommand is given
+	// (even with leading global flags).
 	if sub != "" {
-		if cliCommands[sub] {
+		switch classifyDispatch(sub) {
+		case dispatchTargetLegacy:
 			code := cli.Run(os.Args[1:], version, commit, date)
 			os.Exit(code)
-		}
-		if sub == "tui" {
+		case dispatchTargetCobra:
+			code := cli.RunCobra(os.Args[1:])
+			os.Exit(code)
+		case dispatchTargetTUI:
 			// Launch TUI unconditionally.
 			runTUI()
 			return
@@ -85,6 +120,19 @@ func main() {
 	// Unknown argument: route through CLI for JSON-aware error handling
 	code := cli.Run(os.Args[1:], version, commit, date)
 	os.Exit(code)
+}
+
+func classifyDispatch(sub string) dispatchTarget {
+	if legacyCLICommands[sub] {
+		return dispatchTargetLegacy
+	}
+	if cobraCLICommands[sub] {
+		return dispatchTargetCobra
+	}
+	if sub == "tui" {
+		return dispatchTargetTUI
+	}
+	return dispatchTargetUnknown
 }
 
 func firstCLIArg(args []string) string {

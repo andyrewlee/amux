@@ -136,6 +136,30 @@ func TestClassifyInvocation(t *testing.T) {
 	}
 }
 
+func TestClassifyDispatch(t *testing.T) {
+	tests := []struct {
+		name string
+		sub  string
+		want dispatchTarget
+	}{
+		{name: "legacy status", sub: "status", want: dispatchTargetLegacy},
+		{name: "legacy workspace", sub: "workspace", want: dispatchTargetLegacy},
+		{name: "cobra sandbox", sub: "sandbox", want: dispatchTargetCobra},
+		{name: "cobra auth", sub: "auth", want: dispatchTargetCobra},
+		{name: "cobra alias", sub: "claude", want: dispatchTargetCobra},
+		{name: "tui command", sub: "tui", want: dispatchTargetTUI},
+		{name: "unknown", sub: "does-not-exist", want: dispatchTargetUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyDispatch(tt.sub); got != tt.want {
+				t.Fatalf("classifyDispatch(%q) = %v, want %v", tt.sub, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHandleNoSubcommandNonTTYRoutesThroughCLIJSON(t *testing.T) {
 	code, stdout, stderr := runHandleNoSubcommandCaptured(t, []string{"--json"}, false)
 	if code != 2 {

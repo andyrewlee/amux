@@ -25,6 +25,28 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	opts := m.getTmuxOptions()
 	instanceID := m.instanceID
 	root := ws.Root
+	factory := m.terminalFactory
+
+	// Cloud-runtime workspaces run sidebar terminals via the injected runtime
+	// factory so commands execute inside the sandbox instead of local tmux.
+	if factory != nil && data.NormalizeRuntime(ws.Runtime) == data.RuntimeCloudSandbox {
+		return func() tea.Msg {
+			term, err := factory(ws)
+			if err != nil {
+				return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
+			}
+			if term != nil {
+				if err := term.SetSize(uint16(termHeight), uint16(termWidth)); err != nil {
+					logging.Debug("Initial sandbox terminal resize failed: %v", err)
+				}
+			}
+			return SidebarTerminalCreated{
+				WorkspaceID: wsID,
+				TabID:       tabID,
+				Terminal:    term,
+			}
+		}
+	}
 
 	return func() tea.Msg {
 		shell := os.Getenv("SHELL")
