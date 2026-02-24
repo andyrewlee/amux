@@ -132,6 +132,13 @@ func (m *Model) rebuildRows() {
 			Group: group,
 		})
 
+		sort.SliceStable(group.Workspaces, func(a, b int) bool {
+			if group.Workspaces[a].Created.Equal(group.Workspaces[b].Created) {
+				return group.Workspaces[a].Name < group.Workspaces[b].Name
+			}
+			return group.Workspaces[a].Created.Before(group.Workspaces[b].Created)
+		})
+
 		for j := range group.Workspaces {
 			gw := &group.Workspaces[j]
 			if gw.Archived {
