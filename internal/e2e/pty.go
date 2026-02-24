@@ -165,7 +165,7 @@ func (s *PTYSession) readLoop() {
 
 func (s *PTYSession) waitLoop() {
 	defer close(s.procDone)
-	_, err := s.cmd.Process.Wait()
+	err := s.cmd.Wait()
 	s.waitMu.Lock()
 	s.waitErr = err
 	s.waitMu.Unlock()
@@ -252,6 +252,7 @@ func (s *PTYSession) WaitForAbsent(substr string, timeout time.Duration) error {
 }
 
 func (s *PTYSession) WaitForExit(timeout time.Duration) error {
+	// WaitForExit reports process termination. PTY drain/EOF may lag behind.
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
