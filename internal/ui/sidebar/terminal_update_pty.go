@@ -69,7 +69,7 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 	ts.flushScheduled = false
 	ts.flushPendingSince = time.Time{}
 	if len(ts.pendingOutput) > 0 {
-		var wrote bool
+		var consumed bool
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			flushDone := perf.Time("pty_flush")
@@ -80,13 +80,22 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 			chunk := append([]byte(nil), ts.pendingOutput[:chunkSize]...)
 			copy(ts.pendingOutput, ts.pendingOutput[chunkSize:])
 			ts.pendingOutput = ts.pendingOutput[:len(ts.pendingOutput)-chunkSize]
-			ts.VTerm.Write(chunk)
+			processedBytes := len(chunk)
+			filtered := common.FilterKnownPTYNoise(chunk)
+			filteredBytes := processedBytes - len(filtered)
+			perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+			if filteredBytes > 0 {
+				perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+			}
+			if len(filtered) > 0 {
+				ts.VTerm.Write(filtered)
+				perf.Count("pty_flush_bytes", int64(len(filtered)))
+			}
 			flushDone()
-			perf.Count("pty_flush_bytes", int64(len(chunk)))
-			wrote = true
+			consumed = true
 		}
 		ts.mu.Unlock()
-		if !wrote {
+		if !consumed {
 			return nil
 		}
 		if len(ts.pendingOutput) == 0 {

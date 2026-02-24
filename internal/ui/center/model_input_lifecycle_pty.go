@@ -231,23 +231,41 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						hasMoreBuffered: hasMoreBuffered,
 						visibleSeq:      visibleSeq,
 					}) {
+						processedBytes := len(chunk)
+						filtered := common.FilterKnownPTYNoise(chunk)
+						filteredBytes := processedBytes - len(filtered)
+						perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+						if filteredBytes > 0 {
+							perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+						}
 						tab.mu.Lock()
-						if tab.Terminal != nil {
+						if tab.Terminal != nil && len(filtered) > 0 {
 							flushDone := perf.Time("pty_flush")
-							tab.Terminal.Write(chunk)
+							tab.Terminal.Write(filtered)
 							flushDone()
-							perf.Count("pty_flush_bytes", int64(len(chunk)))
+							perf.Count("pty_flush_bytes", int64(len(filtered)))
+							// Activity state intentionally tracks visible terminal mutations only.
+							// Noise-only chunks are filtered above and must not update activity tags.
 							tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
 						}
 						tab.mu.Unlock()
 					}
 				} else {
+					processedBytes := len(chunk)
+					filtered := common.FilterKnownPTYNoise(chunk)
+					filteredBytes := processedBytes - len(filtered)
+					perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+					if filteredBytes > 0 {
+						perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+					}
 					tab.mu.Lock()
-					if tab.Terminal != nil {
+					if tab.Terminal != nil && len(filtered) > 0 {
 						flushDone := perf.Time("pty_flush")
-						tab.Terminal.Write(chunk)
+						tab.Terminal.Write(filtered)
 						flushDone()
-						perf.Count("pty_flush_bytes", int64(len(chunk)))
+						perf.Count("pty_flush_bytes", int64(len(filtered)))
+						// Activity state intentionally tracks visible terminal mutations only.
+						// Noise-only chunks are filtered above and must not update activity tags.
 						tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
 					}
 					tab.mu.Unlock()

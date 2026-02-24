@@ -368,7 +368,14 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			m.sendToTerminal(tab, "\x1b[200~"+ev.pasteText+"\x1b[201~", ev.tabID, ev.workspaceID, "Paste")
 		}
 	case tabEventWriteOutput:
-		if len(ev.output) == 0 {
+		processedBytes := len(ev.output)
+		output := common.FilterKnownPTYNoise(ev.output)
+		filteredBytes := processedBytes - len(output)
+		perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+		if filteredBytes > 0 {
+			perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+		}
+		if len(output) == 0 {
 			return
 		}
 		tagSessionName := ""
@@ -376,9 +383,11 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			flushDone := perf.Time("pty_flush")
-			tab.Terminal.Write(ev.output)
+			tab.Terminal.Write(output)
 			flushDone()
-			perf.Count("pty_flush_bytes", int64(len(ev.output)))
+			perf.Count("pty_flush_bytes", int64(len(output)))
+			// Activity state intentionally tracks visible terminal mutations only.
+			// Noise-only chunks are filtered above and must not update activity tags.
 			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, ev.hasMoreBuffered, ev.visibleSeq)
 		}
 		tab.mu.Unlock()
