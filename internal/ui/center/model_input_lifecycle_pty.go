@@ -330,8 +330,8 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
 		if tab.Terminal != nil && len(tab.ptyNoiseTrailing) > 0 {
-			flushDone := perf.Time("pty_flush")
 			trailing := common.DrainKnownPTYNoiseTrailing(&tab.ptyNoiseTrailing)
+			flushDone := perf.Time("pty_flush")
 			tab.Terminal.Write(trailing)
 			flushDone()
 			perf.Count("pty_flush_bytes", int64(len(trailing)))

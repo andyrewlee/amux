@@ -194,6 +194,9 @@ func isMacOSMallocDiagnosticLine(line []byte) bool {
 }
 
 func isProcessToken(token []byte) bool {
+	if len(token) == 0 {
+		return false
+	}
 	for _, b := range token {
 		switch {
 		case b >= 'a' && b <= 'z':

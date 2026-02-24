@@ -127,8 +127,8 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	termAlive := ts.Terminal != nil && !ts.Terminal.IsClosed()
 	ts.mu.Lock()
 	if ts.VTerm != nil && len(ts.ptyNoiseTrailing) > 0 {
-		flushDone := perf.Time("pty_flush")
 		trailing := common.DrainKnownPTYNoiseTrailing(&ts.ptyNoiseTrailing)
+		flushDone := perf.Time("pty_flush")
 		ts.VTerm.Write(trailing)
 		flushDone()
 		perf.Count("pty_flush_bytes", int64(len(trailing)))

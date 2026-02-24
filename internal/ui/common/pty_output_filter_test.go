@@ -132,3 +132,12 @@ func TestDrainKnownPTYNoiseTrailing(t *testing.T) {
 		t.Fatalf("expected trailing buffer to be cleared, got %q", string(trailing))
 	}
 }
+
+func TestIsProcessToken_RejectsEmpty(t *testing.T) {
+	if isProcessToken(nil) {
+		t.Fatal("expected empty token to be rejected")
+	}
+	if isProcessToken([]byte{}) {
+		t.Fatal("expected empty token slice to be rejected")
+	}
+}
