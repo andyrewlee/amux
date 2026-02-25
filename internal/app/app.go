@@ -141,6 +141,7 @@ type App struct {
 	pendingPermissions   []common.PendingPermission
 	permissionsDialog    *common.PermissionsDialog
 	permissionsEditor    *common.PermissionsEditor
+	sandboxRulesEditor   *common.SandboxRulesEditor
 
 	// Layout
 	width, height int

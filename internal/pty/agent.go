@@ -178,7 +178,11 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 				gitDirs = append(gitDirs, gd)
 			}
 		}
-		sbpl := sandbox.GenerateSBPL(ws.Root, gitDirs, profileDir)
+		rules, rulesErr := config.LoadSandboxRules(m.config.Paths.SandboxRulesPath)
+		if rulesErr != nil {
+			rules = config.DefaultSandboxRules()
+		}
+		sbpl := sandbox.GenerateSBPL(ws.Root, gitDirs, profileDir, rules.Rules)
 		sbplPath, cleanup, sErr := sandbox.WriteTempProfile(sbpl)
 		if sErr == nil {
 			sbplCleanup = cleanup

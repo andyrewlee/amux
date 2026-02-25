@@ -22,6 +22,9 @@ var Icons = struct {
 	ArrowRight  string
 	ArrowDown   string
 
+	// Misc
+	Lock string
+
 	// Objects
 	Project   string
 	Workspace string
@@ -59,6 +62,9 @@ var Icons = struct {
 	CursorEmpty: " ",
 	ArrowRight:  "→",
 	ArrowDown:   "↓",
+
+	// Misc
+	Lock: "⊘",
 
 	// Objects
 	Project:   "□",

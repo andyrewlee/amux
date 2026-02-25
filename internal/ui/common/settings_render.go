@@ -1,11 +1,6 @@
 package common
 
 import (
-	"os"
-	"strings"
-	"time"
-
-	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 )
 
@@ -45,15 +40,7 @@ func (s *SettingsDialog) renderLines() []string {
 
 	lines = append(lines, title.Render("Settings"), "")
 
-	contentWidth := s.dialogContentWidth()
-	inputWidth := contentWidth - 14
-	if inputWidth < 10 {
-		inputWidth = 10
-	}
-	s.tmuxServer.SetWidth(inputWidth)
-	s.tmuxConfig.SetWidth(inputWidth)
-	s.tmuxSync.SetWidth(min(12, inputWidth))
-
+	// ── General ──────────────────────────────────────────────
 	checkbox := "[ ]"
 	if s.showKeymapHints {
 		checkbox = "[" + Icons.Clean + "]"
@@ -89,6 +76,10 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Hide terminal"))
 	s.addHit(settingsItemHideTerminal, -1, y)
+	lines = append(lines, "")
+
+	// ── Shared Config ────────────────────────────────────────
+	lines = append(lines, label.Render("Shared Config"))
 
 	checkbox = "[ ]"
 	if s.syncProfilePlugins {
@@ -101,9 +92,7 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Sync plugins & skills across profiles"))
 	s.addHit(settingsItemSyncPlugins, -1, y)
-	lines = append(lines, "")
 
-	// Global permissions section
 	checkbox = "[ ]"
 	if s.globalPerms {
 		checkbox = "[" + Icons.Clean + "]"
@@ -125,28 +114,41 @@ func (s *SettingsDialog) renderLines() []string {
 		y = len(lines)
 		lines = append(lines, style.Render("  [Edit Global Allow/Deny List]"))
 		s.addHit(settingsItemEditPermissions, -1, y)
-
-		checkbox = "[ ]"
-		if s.autoAddPerms {
-			checkbox = "[" + Icons.Clean + "]"
-		}
-		style = lipgloss.NewStyle().Foreground(ColorForeground)
-		if s.focusedItem == settingsItemAutoAddPerms {
-			style = style.Foreground(ColorPrimary)
-		}
-		y = len(lines)
-		lines = append(lines, style.Render(checkbox+" Auto-add new permissions to allow list"))
-		s.addHit(settingsItemAutoAddPerms, -1, y)
-		lines = append(lines, muted.Render("  Auto-promotes granted permissions"))
 	} else {
 		disabledStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 		lines = append(lines, disabledStyle.Render("  [Edit Global Allow/Deny List]"))
-		lines = append(lines, disabledStyle.Render("[ ] Auto-add new permissions to allow list"))
-		lines = append(lines, disabledStyle.Render("  Auto-promotes granted permissions"))
 	}
 	lines = append(lines, "")
 
-	lines = append(lines, label.Render("Tmux (Advanced)"))
+	// ── Agents ───────────────────────────────────────────────
+	lines = append(lines, label.Render("Agents"))
+
+	// Notification sound link
+	soundLabel := "None"
+	if s.notificationSound != "" {
+		soundLabel = s.notificationSound
+	}
+	style = muted
+	if s.focusedItem == settingsItemNotificationSound {
+		style = lipgloss.NewStyle().Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render("[Notification sound: "+soundLabel+"]"))
+	s.addHit(settingsItemNotificationSound, -1, y)
+
+	// Sandbox rules link
+	style = muted
+	if s.focusedItem == settingsItemEditSandboxRules {
+		style = lipgloss.NewStyle().Foreground(ColorPrimary)
+	}
+	y = len(lines)
+	lines = append(lines, style.Render("[Edit Sandbox Path Rules]"))
+	s.addHit(settingsItemEditSandboxRules, -1, y)
+	lines = append(lines, "")
+
+	// ── Tmux ─────────────────────────────────────────────────
+	lines = append(lines, label.Render("Tmux"))
+
 	checkbox = "[ ]"
 	if s.autoStartAgent {
 		checkbox = "[" + Icons.Clean + "]"
@@ -170,15 +172,9 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render(checkbox+" Keep sessions alive across restarts"))
 	s.addHit(settingsItemTmuxPersistence, -1, y)
-	lines = append(lines, muted.Render("  Restart required to apply"))
-
-	lines = append(lines, s.renderInputLine("Server", s.tmuxServer, s.focusedItem == settingsItemTmuxServer))
-	s.addHit(settingsItemTmuxServer, -1, len(lines)-1)
-	lines = append(lines, s.renderInputLine("Config", s.tmuxConfig, s.focusedItem == settingsItemTmuxConfig))
-	s.addHit(settingsItemTmuxConfig, -1, len(lines)-1)
-	lines = append(lines, s.renderInputLine("Sync interval", s.tmuxSync, s.focusedItem == settingsItemTmuxSync))
-	s.addHit(settingsItemTmuxSync, -1, len(lines)-1)
 	lines = append(lines, "")
+
+	// ── Other ────────────────────────────────────────────────
 
 	// Manage Profiles link
 	style = muted
@@ -188,19 +184,6 @@ func (s *SettingsDialog) renderLines() []string {
 	y = len(lines)
 	lines = append(lines, style.Render("[Manage Profiles]"))
 	s.addHit(settingsItemManageProfiles, -1, y)
-
-	// Notification sound link
-	soundLabel := "None"
-	if s.notificationSound != "" {
-		soundLabel = s.notificationSound
-	}
-	style = muted
-	if s.focusedItem == settingsItemNotificationSound {
-		style = lipgloss.NewStyle().Foreground(ColorPrimary)
-	}
-	y = len(lines)
-	lines = append(lines, style.Render("[Notification sound: "+soundLabel+"]"))
-	s.addHit(settingsItemNotificationSound, -1, y)
 
 	// Theme link - shows current theme name
 	currentTheme := GetTheme(s.theme)
@@ -231,40 +214,8 @@ func (s *SettingsDialog) renderLines() []string {
 	s.addHit(settingsItemClose, -1, y)
 
 	if s.showKeymapHintsUI {
-		if s.validationErr != "" {
-			errStyle := lipgloss.NewStyle().Foreground(ColorError)
-			lines = append(lines, "", errStyle.Render("! "+s.validationErr))
-		} else {
-			lines = append(lines, "", muted.Render("↑/↓ navigate • Enter select/save"))
-		}
+		lines = append(lines, "", muted.Render("↑/↓ navigate • Enter select/save"))
 	}
 
 	return lines
-}
-
-func (s *SettingsDialog) renderInputLine(labelText string, input textinput.Model, focused bool) string {
-	labelStyle := lipgloss.NewStyle().Foreground(ColorMuted)
-	if focused {
-		labelStyle = labelStyle.Foreground(ColorPrimary)
-	}
-	return labelStyle.Render("  "+labelText+": ") + input.View()
-}
-
-func (s *SettingsDialog) validate() string {
-	syncValue := strings.TrimSpace(s.tmuxSync.Value())
-	if syncValue != "" {
-		if d, err := time.ParseDuration(syncValue); err != nil || d <= 0 {
-			return "tmux sync interval must be a valid duration (e.g. 7s)"
-		}
-	}
-	configValue := strings.TrimSpace(s.tmuxConfig.Value())
-	if configValue != "" {
-		// Intentional: fail fast on missing config to avoid confusing tmux startup errors.
-		// An empty value bypasses this check, so optional configs are handled by leaving
-		// the field blank.
-		if _, err := os.Stat(configValue); err != nil {
-			return "tmux config path not found"
-		}
-	}
-	return ""
 }

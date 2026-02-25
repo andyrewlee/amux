@@ -354,6 +354,9 @@ func (a *App) updateLayout() {
 	if a.permissionsEditor != nil {
 		a.permissionsEditor.SetSize(a.width, a.height)
 	}
+	if a.sandboxRulesEditor != nil {
+		a.sandboxRulesEditor.SetSize(a.width, a.height)
+	}
 }
 
 func (a *App) setKeymapHintsEnabled(enabled bool) {

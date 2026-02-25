@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andyrewlee/medusa/internal/config"
 )
 
 // skipIfNoSandboxExec skips the test if sandbox-exec is not available.
@@ -56,7 +58,7 @@ func newSandboxEnv(t *testing.T) *sandboxEnv {
 	}
 	t.Cleanup(func() { os.RemoveAll(outsideDir) })
 
-	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir)
+	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir, config.DefaultSandboxRules().Rules)
 	sbplPath, cleanup, sErr := WriteTempProfile(sbpl)
 	if sErr != nil {
 		t.Fatalf("WriteTempProfile: %v", sErr)
@@ -223,7 +225,7 @@ func TestSandbox_GitOperations(t *testing.T) {
 	initGit(t, worktreeRoot)
 
 	gitDir := filepath.Join(worktreeRoot, ".git")
-	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir)
+	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir, config.DefaultSandboxRules().Rules)
 	sbplPath, cleanup, err := WriteTempProfile(sbpl)
 	if err != nil {
 		t.Fatalf("WriteTempProfile: %v", err)
@@ -271,7 +273,7 @@ func TestSandbox_GitCommitWorktree(t *testing.T) {
 	gitDir := filepath.Join(repo, ".git")
 	configDir := t.TempDir()
 
-	sbpl := GenerateSBPL(worktreePath, []string{gitDir}, configDir)
+	sbpl := GenerateSBPL(worktreePath, []string{gitDir}, configDir, config.DefaultSandboxRules().Rules)
 	sbplPath, cleanup, err := WriteTempProfile(sbpl)
 	if err != nil {
 		t.Fatalf("WriteTempProfile: %v", err)
@@ -638,7 +640,7 @@ func TestSandbox_OAuthNoProfile_WriteClaudeHomeFails(t *testing.T) {
 	worktreeRoot := t.TempDir()
 
 	// Simulate no profile: empty claudeConfigDir
-	sbpl := GenerateSBPL(worktreeRoot, nil, "")
+	sbpl := GenerateSBPL(worktreeRoot, nil, "", config.DefaultSandboxRules().Rules)
 	sbplPath, cleanup, err := WriteTempProfile(sbpl)
 	if err != nil {
 		t.Fatalf("WriteTempProfile: %v", err)

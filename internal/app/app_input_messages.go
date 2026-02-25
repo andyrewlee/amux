@@ -17,7 +17,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -933,12 +932,8 @@ func (a *App) handleShowSettingsDialog() {
 		a.config.UI.AutoStartAgent,
 		a.config.UI.SyncProfilePlugins,
 		a.config.UI.GlobalPermissions,
-		a.config.UI.AutoAddPermissions,
 		a.config.UI.NotificationSound,
 		a.config.UI.TmuxPersistence,
-		a.config.UI.TmuxServer,
-		a.config.UI.TmuxConfigPath,
-		a.config.UI.TmuxSyncInterval,
 	)
 	a.settingsDialog.SetSize(a.width, a.height)
 	a.settingsDialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
@@ -1097,7 +1092,6 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		// Apply global permissions settings
 		oldGlobalPerms := a.config.UI.GlobalPermissions
 		a.config.UI.GlobalPermissions = msg.GlobalPermissions
-		a.config.UI.AutoAddPermissions = msg.AutoAddPermissions
 
 		// Apply sidebar hidden setting
 		wasHidden := a.config.UI.HideSidebar
@@ -1141,17 +1135,9 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 			}
 		}
 
-		// Apply tmux settings
-		oldServerName := a.tmuxOptions.ServerName
+		// Apply tmux persistence setting
 		tmuxPersistenceChanged := a.config.UI.TmuxPersistence != msg.TmuxPersistence
-		a.config.UI.TmuxServer = msg.TmuxServer
-		a.config.UI.TmuxConfigPath = msg.TmuxConfigPath
-		a.config.UI.TmuxSyncInterval = msg.TmuxSyncInterval
 		a.config.UI.TmuxPersistence = msg.TmuxPersistence
-		applyTmuxEnvFromConfig(a.config, true)
-		a.tmuxOptions = tmux.DefaultOptions() // Refresh cached options
-		a.center.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
-		_ = tmux.SetStatusOff(a.tmuxOptions)
 
 		// Handle global permissions toggle
 		if msg.GlobalPermissions && !oldGlobalPerms {
@@ -1174,22 +1160,9 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		if err := a.config.SaveUISettings(); err != nil {
 			return a.toast.ShowWarning("Failed to save settings")
 		}
-		cmds := append(sidebarCmds, a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved"))
+		cmds := append(sidebarCmds, a.toast.ShowSuccess("Settings saved"))
 		if tmuxPersistenceChanged {
 			cmds = append(cmds, a.toast.ShowInfo("Restart Medusa to apply tmux persistence change"))
-		}
-		// Clean up sessions on the old server if the server name changed
-		if oldServerName != a.tmuxOptions.ServerName {
-			oldOpts := tmux.Options{ServerName: oldServerName, CommandTimeout: 2 * time.Second}
-			cmds = append(cmds, func() tea.Msg {
-				_, _ = tmux.KillSessionsMatchingTags(map[string]string{"@medusa": "1"}, oldOpts)
-				_ = tmux.KillSessionsWithPrefix("medusa-", oldOpts)
-				return nil
-			})
-			cmds = append(cmds, a.toast.ShowInfo(fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))
-			cmds = append(cmds, a.resetAllTabStatuses()...)
-			_ = tmux.SetMonitorActivityOn(a.tmuxOptions)
-			_ = tmux.SetStatusOff(a.tmuxOptions)
 		}
 		return a.safeBatch(cmds...)
 	}

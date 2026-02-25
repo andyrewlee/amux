@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -19,16 +18,15 @@ type SettingsResult struct {
 	AutoStartAgent     bool
 	SyncProfilePlugins bool
 	GlobalPermissions  bool
-	AutoAddPermissions bool
 	NotificationSound  string
 	TmuxPersistence    bool
-	TmuxServer         string
-	TmuxConfigPath     string
-	TmuxSyncInterval   string
 }
 
 // ShowPermissionsEditor is sent when the user clicks "Edit Global Allow/Deny List".
 type ShowPermissionsEditor struct{}
+
+// ShowSandboxRulesEditor is sent when the user clicks "Edit Sandbox Path Rules".
+type ShowSandboxRulesEditor struct{}
 
 // ThemePreview is sent when user navigates through themes for live preview.
 type ThemePreview struct {
@@ -41,18 +39,15 @@ const (
 	settingsItemKeymap settingsItem = iota
 	settingsItemHideSidebar
 	settingsItemHideTerminal
-	settingsItemSyncPlugins
+	settingsItemSyncPlugins         // Shared Config section
 	settingsItemGlobalPerms
 	settingsItemEditPermissions
-	settingsItemAutoAddPerms
-	settingsItemAutoStart       // first item under Tmux (Advanced)
+	settingsItemNotificationSound   // Agents section
+	settingsItemEditSandboxRules
+	settingsItemAutoStart           // Tmux section
 	settingsItemTmuxPersistence
-	settingsItemTmuxServer
-	settingsItemTmuxConfig
-	settingsItemTmuxSync
-	settingsItemManageProfiles    // manage profiles (after tmux section)
-	settingsItemNotificationSound // notification sound picker
-	settingsItemEditTheme         // theme selection
+	settingsItemManageProfiles
+	settingsItemEditTheme
 	settingsItemSave
 	settingsItemClose
 )
@@ -71,13 +66,8 @@ type SettingsDialog struct {
 	autoStartAgent     bool
 	syncProfilePlugins bool
 	globalPerms        bool
-	autoAddPerms       bool
 	notificationSound  string
 	tmuxPersistence    bool
-	tmuxServer         textinput.Model
-	tmuxConfig         textinput.Model
-	tmuxSync           textinput.Model
-	validationErr      string
 
 	// UI state
 	focusedItem settingsItem
@@ -99,25 +89,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, hideTerminal, autoStartAgent, syncProfilePlugins, globalPerms, autoAddPerms bool, notificationSound string, tmuxPersistence bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
-	serverInput := textinput.New()
-	serverInput.Placeholder = "default"
-	serverInput.SetWidth(24)
-	serverInput.SetVirtualCursor(false)
-	serverInput.SetValue(strings.TrimSpace(tmuxServer))
-
-	configInput := textinput.New()
-	configInput.Placeholder = "default"
-	configInput.SetWidth(24)
-	configInput.SetVirtualCursor(false)
-	configInput.SetValue(strings.TrimSpace(tmuxConfig))
-
-	syncInput := textinput.New()
-	syncInput.Placeholder = "7s"
-	syncInput.SetWidth(12)
-	syncInput.SetVirtualCursor(false)
-	syncInput.SetValue(strings.TrimSpace(tmuxSync))
-
+func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, hideTerminal, autoStartAgent, syncProfilePlugins, globalPerms bool, notificationSound string, tmuxPersistence bool) *SettingsDialog {
 	return &SettingsDialog{
 		theme:              currentTheme,
 		showKeymapHints:    showKeymapHints,
@@ -126,12 +98,8 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints, hideSidebar, hideT
 		autoStartAgent:     autoStartAgent,
 		syncProfilePlugins: syncProfilePlugins,
 		globalPerms:        globalPerms,
-		autoAddPerms:       autoAddPerms,
 		notificationSound:  notificationSound,
 		tmuxPersistence:    tmuxPersistence,
-		tmuxServer:         serverInput,
-		tmuxConfig:         configInput,
-		tmuxSync:           syncInput,
 		focusedItem:        settingsItemKeymap,
 	}
 }
@@ -157,7 +125,6 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 	if !s.visible {
 		return s, nil
 	}
-	defer s.syncInputFocus()
 
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
@@ -186,45 +153,6 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
 			return s.handlePrev()
 		}
-		switch s.focusedItem {
-		case settingsItemTmuxServer:
-			var cmd tea.Cmd
-			s.tmuxServer, cmd = s.tmuxServer.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		case settingsItemTmuxConfig:
-			var cmd tea.Cmd
-			s.tmuxConfig, cmd = s.tmuxConfig.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		case settingsItemTmuxSync:
-			var cmd tea.Cmd
-			s.tmuxSync, cmd = s.tmuxSync.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		}
-	case tea.PasteMsg:
-		switch s.focusedItem {
-		case settingsItemTmuxServer:
-			var cmd tea.Cmd
-			s.tmuxServer, cmd = s.tmuxServer.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		case settingsItemTmuxConfig:
-			var cmd tea.Cmd
-			s.tmuxConfig, cmd = s.tmuxConfig.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		case settingsItemTmuxSync:
-			var cmd tea.Cmd
-			s.tmuxSync, cmd = s.tmuxSync.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		}
-	}
-
-	if s.validationErr != "" {
-		s.validationErr = ""
 	}
 
 	return s, nil
@@ -268,12 +196,6 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		s.globalPerms = !s.globalPerms
 		return s, nil
 
-	case settingsItemAutoAddPerms:
-		if s.globalPerms {
-			s.autoAddPerms = !s.autoAddPerms
-		}
-		return s, nil
-
 	case settingsItemEditPermissions:
 		if s.globalPerms {
 			s.visible = false
@@ -281,18 +203,15 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		}
 		return s, nil
 
+	case settingsItemEditSandboxRules:
+		s.visible = false
+		return s, func() tea.Msg { return ShowSandboxRulesEditor{} }
+
 	case settingsItemTmuxPersistence:
 		s.tmuxPersistence = !s.tmuxPersistence
 		return s, nil
 
-	case settingsItemTmuxServer, settingsItemTmuxConfig, settingsItemTmuxSync:
-		return s, nil
-
 	case settingsItemSave:
-		s.validationErr = s.validate()
-		if s.validationErr != "" {
-			return s, nil
-		}
 		s.visible = false
 		return s, func() tea.Msg {
 			return SettingsResult{
@@ -304,12 +223,8 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 				AutoStartAgent:     s.autoStartAgent,
 				SyncProfilePlugins: s.syncProfilePlugins,
 				GlobalPermissions:  s.globalPerms,
-				AutoAddPermissions: s.autoAddPerms,
 				NotificationSound:  s.notificationSound,
 				TmuxPersistence:    s.tmuxPersistence,
-				TmuxServer:         strings.TrimSpace(s.tmuxServer.Value()),
-				TmuxConfigPath:     strings.TrimSpace(s.tmuxConfig.Value()),
-				TmuxSyncInterval:   strings.TrimSpace(s.tmuxSync.Value()),
 			}
 		}
 
@@ -341,15 +256,15 @@ func (s *SettingsDialog) handlePrevSection() (*SettingsDialog, tea.Cmd) {
 }
 
 func (s *SettingsDialog) skipDisabledForward() {
-	// Skip edit permissions and auto-add when global perms is off
-	if !s.globalPerms && (s.focusedItem == settingsItemEditPermissions || s.focusedItem == settingsItemAutoAddPerms) {
-		s.focusedItem = settingsItemAutoStart
+	// Skip edit permissions when global perms is off
+	if !s.globalPerms && s.focusedItem == settingsItemEditPermissions {
+		s.focusedItem = settingsItemNotificationSound
 	}
 }
 
 func (s *SettingsDialog) skipDisabledBackward() {
-	// Skip auto-add and edit permissions when global perms is off
-	if !s.globalPerms && (s.focusedItem == settingsItemAutoAddPerms || s.focusedItem == settingsItemEditPermissions) {
+	// Skip edit permissions when global perms is off
+	if !s.globalPerms && s.focusedItem == settingsItemEditPermissions {
 		s.focusedItem = settingsItemGlobalPerms
 	}
 	// Wrap around from before first item to last
@@ -366,30 +281,6 @@ func (s *SettingsDialog) handleNext() (*SettingsDialog, tea.Cmd) {
 // handlePrev moves to previous item (up/k keys).
 func (s *SettingsDialog) handlePrev() (*SettingsDialog, tea.Cmd) {
 	return s.handlePrevSection()
-}
-
-func (s *SettingsDialog) syncInputFocus() {
-	if !s.visible {
-		s.tmuxServer.Blur()
-		s.tmuxConfig.Blur()
-		s.tmuxSync.Blur()
-		return
-	}
-	if s.focusedItem == settingsItemTmuxServer {
-		s.tmuxServer.Focus()
-	} else {
-		s.tmuxServer.Blur()
-	}
-	if s.focusedItem == settingsItemTmuxConfig {
-		s.tmuxConfig.Focus()
-	} else {
-		s.tmuxConfig.Blur()
-	}
-	if s.focusedItem == settingsItemTmuxSync {
-		s.tmuxSync.Focus()
-	} else {
-		s.tmuxSync.Blur()
-	}
 }
 
 func (s *SettingsDialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {

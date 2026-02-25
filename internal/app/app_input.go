@@ -231,6 +231,21 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Handle sandbox rules editor if visible
+	if a.sandboxRulesEditor != nil && a.sandboxRulesEditor.Visible() {
+		newEditor, cmd := a.sandboxRulesEditor.Update(msg)
+		a.sandboxRulesEditor = newEditor
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+		if _, ok := msg.(tea.MouseClickMsg); ok {
+			return a, a.safeBatch(cmds...)
+		}
+	}
+
 	// Handle profile manager if visible
 	if a.profileManager != nil && a.profileManager.Visible() {
 		newManager, cmd := a.profileManager.Update(msg)
@@ -699,6 +714,21 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.permissionsEditor = common.NewPermissionsEditor(global.Allow, global.Deny)
 			a.permissionsEditor.SetSize(a.width, a.height)
 			a.permissionsEditor.Show()
+		}
+
+	case common.ShowSandboxRulesEditor:
+		rules, err := config.LoadSandboxRules(a.config.Paths.SandboxRulesPath)
+		if err != nil {
+			cmds = append(cmds, a.toast.ShowError("Failed to load sandbox rules"))
+		} else {
+			a.sandboxRulesEditor = common.NewSandboxRulesEditor(rules.Rules)
+			a.sandboxRulesEditor.SetSize(a.width, a.height)
+			a.sandboxRulesEditor.Show()
+		}
+
+	case messages.SandboxRulesEditorResult:
+		if cmd := a.handleSandboxRulesEditorResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case common.ShowProfileManager:

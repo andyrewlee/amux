@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"github.com/andyrewlee/medusa/internal/config"
 	"github.com/andyrewlee/medusa/internal/data"
 	"github.com/andyrewlee/medusa/internal/git"
 )
@@ -480,6 +481,12 @@ type PermissionsEditorResult struct {
 	Confirmed bool
 	Allow     []string
 	Deny      []string
+}
+
+// SandboxRulesEditorResult contains the updated sandbox rules from the editor
+type SandboxRulesEditorResult struct {
+	Confirmed bool
+	Rules     []config.SandboxRule
 }
 
 // ActionBarCopyDir requests copying the workspace directory to clipboard
