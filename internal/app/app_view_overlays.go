@@ -77,6 +77,15 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		canvas.Compose(editorDrawable)
 	}
 
+	// Sandbox rules editor overlay
+	if a.sandboxRulesEditor != nil && a.sandboxRulesEditor.Visible() {
+		editorView := a.sandboxRulesEditor.View()
+		editorWidth, editorHeight := viewDimensions(editorView)
+		x, y := a.centeredPosition(editorWidth, editorHeight)
+		editorDrawable := compositor.NewStringDrawable(editorView, x, y)
+		canvas.Compose(editorDrawable)
+	}
+
 	// Creation progress overlay
 	if a.creationOverlay != nil && a.creationOverlay.Visible() {
 		overlayView := a.creationOverlay.View()

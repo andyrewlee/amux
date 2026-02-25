@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andyrewlee/medusa/internal/config"
 )
 
 func TestGenerateSBPL(t *testing.T) {
@@ -12,8 +14,9 @@ func TestGenerateSBPL(t *testing.T) {
 	worktreeRoot := "/tmp/test-workspace"
 	gitDir := "/tmp/test-repo/.git"
 	configDir := home + "/.medusa/profiles/Default"
+	rules := config.DefaultSandboxRules().Rules
 
-	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir)
+	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir, rules)
 
 	t.Run("header", func(t *testing.T) {
 		if !strings.HasPrefix(sbpl, "(version 1)\n(deny default)\n") {
@@ -145,7 +148,8 @@ func TestGenerateSBPL(t *testing.T) {
 }
 
 func TestGenerateSBPL_EmptyGitDir(t *testing.T) {
-	sbpl := GenerateSBPL("/tmp/ws", nil, "/tmp/config")
+	rules := config.DefaultSandboxRules().Rules
+	sbpl := GenerateSBPL("/tmp/ws", nil, "/tmp/config", rules)
 
 	if strings.Contains(sbpl, "git internals") {
 		t.Error("profile should omit git dir section when gitDir is empty")
@@ -153,7 +157,8 @@ func TestGenerateSBPL_EmptyGitDir(t *testing.T) {
 }
 
 func TestGenerateSBPL_EmptyConfigDir(t *testing.T) {
-	sbpl := GenerateSBPL("/tmp/ws", []string{"/tmp/.git"}, "")
+	rules := config.DefaultSandboxRules().Rules
+	sbpl := GenerateSBPL("/tmp/ws", []string{"/tmp/.git"}, "", rules)
 
 	if strings.Contains(sbpl, "Claude config dir") {
 		t.Error("profile should omit config dir section when claudeConfigDir is empty")
@@ -162,7 +167,8 @@ func TestGenerateSBPL_EmptyConfigDir(t *testing.T) {
 
 func TestGenerateSBPL_NoClaudeHomePaths(t *testing.T) {
 	home, _ := os.UserHomeDir()
-	sbpl := GenerateSBPL("/tmp/ws", []string{"/tmp/.git"}, "/tmp/config")
+	rules := config.DefaultSandboxRules().Rules
+	sbpl := GenerateSBPL("/tmp/ws", []string{"/tmp/.git"}, "/tmp/config", rules)
 
 	if strings.Contains(sbpl, home+"/.claude") {
 		t.Error("profile should not reference ~/.claude")
@@ -173,14 +179,83 @@ func TestGenerateSBPL_NoClaudeHomePaths(t *testing.T) {
 }
 
 func TestGenerateSBPL_MultipleGitDirs(t *testing.T) {
+	rules := config.DefaultSandboxRules().Rules
 	gitDirs := []string{"/tmp/repo-a/.git", "/tmp/repo-b/.git"}
-	sbpl := GenerateSBPL("/tmp/ws", gitDirs, "/tmp/config")
+	sbpl := GenerateSBPL("/tmp/ws", gitDirs, "/tmp/config", rules)
 
 	for _, gd := range gitDirs {
 		expected := `(allow file-write* (subpath "` + gd + `"))`
 		if !strings.Contains(sbpl, expected) {
 			t.Errorf("profile should allow writes to %s, want:\n  %s", gd, expected)
 		}
+	}
+}
+
+func TestGenerateSBPL_CustomRules(t *testing.T) {
+	home, _ := os.UserHomeDir()
+
+	rules := []config.SandboxRule{
+		{Path: "~/.custom-secret", Action: config.SandboxDenyRead, PathType: config.SandboxSubpath},
+		{Path: "~/.my-tool-cache", Action: config.SandboxAllowWrite, PathType: config.SandboxSubpath},
+		{Path: "/opt/myapp/config.json", Action: config.SandboxAllowRead, PathType: config.SandboxLiteral},
+	}
+	sbpl := GenerateSBPL("/tmp/ws", nil, "", rules)
+
+	expected := `(deny file-read* (subpath "` + home + `/.custom-secret"))`
+	if !strings.Contains(sbpl, expected) {
+		t.Errorf("custom deny-read missing, want:\n  %s", expected)
+	}
+
+	expected = `(allow file-write* (subpath "` + home + `/.my-tool-cache"))`
+	if !strings.Contains(sbpl, expected) {
+		t.Errorf("custom allow-write missing, want:\n  %s", expected)
+	}
+
+	expected = `(allow file-read* (literal "/opt/myapp/config.json"))`
+	if !strings.Contains(sbpl, expected) {
+		t.Errorf("custom allow-read literal missing, want:\n  %s", expected)
+	}
+}
+
+func TestGenerateSBPL_EmptyRules(t *testing.T) {
+	sbpl := GenerateSBPL("/tmp/ws", nil, "", nil)
+
+	// Should still have the core structure
+	if !strings.Contains(sbpl, "(version 1)") {
+		t.Error("profile should have version header")
+	}
+	if !strings.Contains(sbpl, "(allow file-read*)") {
+		t.Error("profile should allow file-read* globally")
+	}
+	if !strings.Contains(sbpl, `(allow file-write* (subpath "/tmp/ws"))`) {
+		t.Error("profile should allow writes to workspace")
+	}
+}
+
+func TestGenerateSBPL_RegexPathType(t *testing.T) {
+	rules := []config.SandboxRule{
+		{Path: `^/dev/`, Action: config.SandboxAllowWrite, PathType: config.SandboxRegex},
+	}
+	sbpl := GenerateSBPL("/tmp/ws", nil, "", rules)
+
+	expected := `(allow file-write* (regex #"^/dev/"))`
+	if !strings.Contains(sbpl, expected) {
+		t.Errorf("regex rule missing, want:\n  %s", expected)
+	}
+}
+
+func TestGenerateSBPL_DenyBeforeAllow(t *testing.T) {
+	rules := []config.SandboxRule{
+		{Path: "~/.ssh/known_hosts", Action: config.SandboxAllowRead, PathType: config.SandboxLiteral},
+		{Path: "~/.ssh", Action: config.SandboxDenyRead, PathType: config.SandboxSubpath},
+	}
+	sbpl := GenerateSBPL("/tmp/ws", nil, "", rules)
+
+	// deny-read should appear before allow-read regardless of input order
+	denyIdx := strings.Index(sbpl, "deny file-read*")
+	allowIdx := strings.Index(sbpl, "allow file-read* (literal")
+	if denyIdx > allowIdx {
+		t.Error("deny-read rules should appear before allow-read rules")
 	}
 }
 

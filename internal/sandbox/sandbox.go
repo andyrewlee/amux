@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/andyrewlee/medusa/internal/config"
 )
 
 // GenerateSBPL produces a macOS Seatbelt (SBPL) profile that restricts
@@ -16,9 +18,11 @@ import (
 //   - Allow file writes ONLY to specific directories (workspace, config, tmp)
 //   - Allow file-map-executable globally (needed by dyld for loading dynamic libraries)
 //   - Allow network (Claude API), process execution, and minimal system operations
-func GenerateSBPL(worktreeRoot string, gitDirs []string, claudeConfigDir string) string {
-	home, _ := os.UserHomeDir()
-
+//
+// The rules parameter supplies configurable path-based deny/allow rules.
+// Dynamic writes (workspace, git dirs, config dir) are still passed as explicit
+// parameters and are not part of the rules config.
+func GenerateSBPL(worktreeRoot string, gitDirs []string, claudeConfigDir string, rules []config.SandboxRule) string {
 	var b strings.Builder
 	b.WriteString("(version 1)\n")
 	b.WriteString("(deny default)\n\n")
@@ -27,17 +31,19 @@ func GenerateSBPL(worktreeRoot string, gitDirs []string, claudeConfigDir string)
 	// Allow reads globally, then deny sensitive paths.
 	b.WriteString(";; File reads — allow globally, deny sensitive paths\n")
 	b.WriteString("(allow file-read*)\n")
-	for _, p := range []string{
-		home + "/.ssh",
-		home + "/.gnupg",
-		home + "/.aws",
-		home + "/.docker",
-		home + "/.kube",
-	} {
-		fmt.Fprintf(&b, "(deny file-read* (subpath %q))\n", p)
+
+	// Emit deny-read rules first (so allow-read exceptions can override)
+	for _, r := range rules {
+		if r.Action == config.SandboxDenyRead {
+			fmt.Fprintf(&b, "(deny file-read* %s)\n", sbplPathFilter(r))
+		}
 	}
-	// Allow reading SSH known_hosts so tools can verify host keys.
-	fmt.Fprintf(&b, "(allow file-read* (literal %q))\n", home+"/.ssh/known_hosts")
+	// Emit allow-read rules second (SBPL last-match-wins for same operation)
+	for _, r := range rules {
+		if r.Action == config.SandboxAllowRead {
+			fmt.Fprintf(&b, "(allow file-read* %s)\n", sbplPathFilter(r))
+		}
+	}
 	b.WriteString("\n")
 
 	// ── Dynamic library loading ─────────────────────────────────
@@ -46,7 +52,7 @@ func GenerateSBPL(worktreeRoot string, gitDirs []string, claudeConfigDir string)
 	b.WriteString(";; Dynamic library loading (dyld)\n")
 	b.WriteString("(allow file-map-executable)\n\n")
 
-	// ── File writes ─────────────────────────────────────────────
+	// ── File writes — dynamic (workspace, git, config) ─────────
 	// Deny-default already blocks all writes. Selectively allow.
 	b.WriteString(";; File writes — workspace\n")
 	fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", worktreeRoot)
@@ -77,18 +83,21 @@ func GenerateSBPL(worktreeRoot string, gitDirs []string, claudeConfigDir string)
 		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", sharedDir)
 	}
 
-	b.WriteString(";; File writes — Claude state dir (version locks)\n")
-	fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", home+"/.local/state/claude")
+	// ── File writes — configurable rules ───────────────────────
+	b.WriteString(";; File writes — configurable rules\n")
+	for _, r := range rules {
+		if r.Action == config.SandboxAllowWrite {
+			if r.Comment != "" {
+				fmt.Fprintf(&b, ";; %s\n", r.Comment)
+			}
+			fmt.Fprintf(&b, "(allow file-write* %s)\n", sbplPathFilter(r))
+		}
+	}
+	b.WriteString("\n")
 
+	// ── File writes — required system paths (not configurable) ─
 	b.WriteString(";; File writes — /dev (stdout, stderr, /dev/null)\n")
 	b.WriteString("(allow file-write* (regex #\"^/dev/\"))\n\n")
-
-	b.WriteString(";; File writes — npm cache (needed by MCP servers)\n")
-	fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", home+"/.npm")
-
-	b.WriteString(";; File writes — tool caches (pip, uv, ruff, etc.)\n")
-	fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n", home+"/.cache")
-	fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", home+"/.ruff_cache")
 
 	b.WriteString(";; File writes — temp directories\n")
 	b.WriteString("(allow file-write* (subpath \"/private/tmp\"))\n")
@@ -117,6 +126,19 @@ func GenerateSBPL(worktreeRoot string, gitDirs []string, claudeConfigDir string)
 	b.WriteString("(allow network*)\n")
 
 	return b.String()
+}
+
+// sbplPathFilter returns the SBPL path filter expression for a rule.
+func sbplPathFilter(rule config.SandboxRule) string {
+	expanded := config.ExpandSandboxPath(rule.Path)
+	switch rule.PathType {
+	case config.SandboxLiteral:
+		return fmt.Sprintf("(literal %q)", expanded)
+	case config.SandboxRegex:
+		return fmt.Sprintf(`(regex #"%s")`, expanded)
+	default: // subpath
+		return fmt.Sprintf("(subpath %q)", expanded)
+	}
 }
 
 // WrapCommand wraps an agent command string with sandbox-exec using the
