@@ -16,7 +16,7 @@ import (
 //   - Allow file writes ONLY to specific directories (workspace, config, tmp)
 //   - Allow file-map-executable globally (needed by dyld for loading dynamic libraries)
 //   - Allow network (Claude API), process execution, and minimal system operations
-func GenerateSBPL(worktreeRoot, gitDir, claudeConfigDir string) string {
+func GenerateSBPL(worktreeRoot string, gitDirs []string, claudeConfigDir string) string {
 	home, _ := os.UserHomeDir()
 
 	var b strings.Builder
@@ -51,9 +51,11 @@ func GenerateSBPL(worktreeRoot, gitDir, claudeConfigDir string) string {
 	b.WriteString(";; File writes — workspace\n")
 	fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", worktreeRoot)
 
-	if gitDir != "" {
-		b.WriteString(";; File writes — git internals (commits, refs, objects)\n")
-		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", gitDir)
+	for _, gitDir := range gitDirs {
+		if gitDir != "" {
+			b.WriteString(";; File writes — git internals (commits, refs, objects)\n")
+			fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n\n", gitDir)
+		}
 	}
 
 	if claudeConfigDir != "" {

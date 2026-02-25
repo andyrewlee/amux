@@ -56,7 +56,7 @@ func newSandboxEnv(t *testing.T) *sandboxEnv {
 	}
 	t.Cleanup(func() { os.RemoveAll(outsideDir) })
 
-	sbpl := GenerateSBPL(worktreeRoot, gitDir, configDir)
+	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir)
 	sbplPath, cleanup, sErr := WriteTempProfile(sbpl)
 	if sErr != nil {
 		t.Fatalf("WriteTempProfile: %v", sErr)
@@ -223,7 +223,7 @@ func TestSandbox_GitOperations(t *testing.T) {
 	initGit(t, worktreeRoot)
 
 	gitDir := filepath.Join(worktreeRoot, ".git")
-	sbpl := GenerateSBPL(worktreeRoot, gitDir, configDir)
+	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir)
 	sbplPath, cleanup, err := WriteTempProfile(sbpl)
 	if err != nil {
 		t.Fatalf("WriteTempProfile: %v", err)
@@ -271,7 +271,7 @@ func TestSandbox_GitCommitWorktree(t *testing.T) {
 	gitDir := filepath.Join(repo, ".git")
 	configDir := t.TempDir()
 
-	sbpl := GenerateSBPL(worktreePath, gitDir, configDir)
+	sbpl := GenerateSBPL(worktreePath, []string{gitDir}, configDir)
 	sbplPath, cleanup, err := WriteTempProfile(sbpl)
 	if err != nil {
 		t.Fatalf("WriteTempProfile: %v", err)
@@ -636,10 +636,9 @@ func TestSandbox_OAuthNoProfile_WriteClaudeHomeFails(t *testing.T) {
 
 	home, _ := os.UserHomeDir()
 	worktreeRoot := t.TempDir()
-	gitDir := ""
 
 	// Simulate no profile: empty claudeConfigDir
-	sbpl := GenerateSBPL(worktreeRoot, gitDir, "")
+	sbpl := GenerateSBPL(worktreeRoot, nil, "")
 	sbplPath, cleanup, err := WriteTempProfile(sbpl)
 	if err != nil {
 		t.Fatalf("WriteTempProfile: %v", err)

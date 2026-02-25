@@ -169,8 +169,11 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	// Wrap the entire command chain in sandbox-exec so the fallback shell
 	// also runs inside the sandbox.
 	if ws.Isolated {
-		gitDir, _ := git.ResolveWorktreeGitDir(ws.Root)
-		sbpl := sandbox.GenerateSBPL(ws.Root, gitDir, profileDir)
+		var gitDirs []string
+		if gd, err := git.ResolveWorktreeGitDir(ws.Root); err == nil {
+			gitDirs = append(gitDirs, gd)
+		}
+		sbpl := sandbox.GenerateSBPL(ws.Root, gitDirs, profileDir)
 		sbplPath, cleanup, sErr := sandbox.WriteTempProfile(sbpl)
 		if sErr == nil {
 			sbplCleanup = cleanup
@@ -284,8 +287,13 @@ func (m *AgentManager) CreateGroupAgentWithTags(
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", agentCommand, shell)
 
 	if gw.Isolated {
-		gitDir, _ := git.ResolveWorktreeGitDir(gw.Primary.Root)
-		sbpl := sandbox.GenerateSBPL(gw.Primary.Root, gitDir, profileDir)
+		var gitDirs []string
+		for _, sec := range gw.Secondary {
+			if gd, err := git.ResolveWorktreeGitDir(sec.Root); err == nil {
+				gitDirs = append(gitDirs, gd)
+			}
+		}
+		sbpl := sandbox.GenerateSBPL(gw.Primary.Root, gitDirs, profileDir)
 		sbplPath, cleanup, sErr := sandbox.WriteTempProfile(sbpl)
 		if sErr == nil {
 			sbplCleanup = cleanup

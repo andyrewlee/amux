@@ -13,7 +13,7 @@ func TestGenerateSBPL(t *testing.T) {
 	gitDir := "/tmp/test-repo/.git"
 	configDir := home + "/.medusa/profiles/Default"
 
-	sbpl := GenerateSBPL(worktreeRoot, gitDir, configDir)
+	sbpl := GenerateSBPL(worktreeRoot, []string{gitDir}, configDir)
 
 	t.Run("header", func(t *testing.T) {
 		if !strings.HasPrefix(sbpl, "(version 1)\n(deny default)\n") {
@@ -136,7 +136,7 @@ func TestGenerateSBPL(t *testing.T) {
 }
 
 func TestGenerateSBPL_EmptyGitDir(t *testing.T) {
-	sbpl := GenerateSBPL("/tmp/ws", "", "/tmp/config")
+	sbpl := GenerateSBPL("/tmp/ws", nil, "/tmp/config")
 
 	if strings.Contains(sbpl, "git internals") {
 		t.Error("profile should omit git dir section when gitDir is empty")
@@ -144,7 +144,7 @@ func TestGenerateSBPL_EmptyGitDir(t *testing.T) {
 }
 
 func TestGenerateSBPL_EmptyConfigDir(t *testing.T) {
-	sbpl := GenerateSBPL("/tmp/ws", "/tmp/.git", "")
+	sbpl := GenerateSBPL("/tmp/ws", []string{"/tmp/.git"}, "")
 
 	if strings.Contains(sbpl, "Claude config dir") {
 		t.Error("profile should omit config dir section when claudeConfigDir is empty")
@@ -153,13 +153,25 @@ func TestGenerateSBPL_EmptyConfigDir(t *testing.T) {
 
 func TestGenerateSBPL_NoClaudeHomePaths(t *testing.T) {
 	home, _ := os.UserHomeDir()
-	sbpl := GenerateSBPL("/tmp/ws", "/tmp/.git", "/tmp/config")
+	sbpl := GenerateSBPL("/tmp/ws", []string{"/tmp/.git"}, "/tmp/config")
 
 	if strings.Contains(sbpl, home+"/.claude") {
 		t.Error("profile should not reference ~/.claude")
 	}
 	if strings.Contains(sbpl, home+"/.claude.json") {
 		t.Error("profile should not reference ~/.claude.json")
+	}
+}
+
+func TestGenerateSBPL_MultipleGitDirs(t *testing.T) {
+	gitDirs := []string{"/tmp/repo-a/.git", "/tmp/repo-b/.git"}
+	sbpl := GenerateSBPL("/tmp/ws", gitDirs, "/tmp/config")
+
+	for _, gd := range gitDirs {
+		expected := `(allow file-write* (subpath "` + gd + `"))`
+		if !strings.Contains(sbpl, expected) {
+			t.Errorf("profile should allow writes to %s, want:\n  %s", gd, expected)
+		}
 	}
 }
 
