@@ -1616,6 +1616,9 @@ func (a *App) handleGroupWorkspaceActivated(msg messages.GroupWorkspaceActivated
 		msg.Workspace.Primary.Profile = msg.Workspace.Profile
 	}
 
+	// Propagate secondary roots for sandbox git-dir whitelisting
+	msg.Workspace.Primary.SecondaryRoots = msg.Workspace.AllRoots()
+
 	// Pass primary workspace to center and sidebar
 	a.activeWorkspace = &msg.Workspace.Primary
 	a.center.SetWorkspace(&msg.Workspace.Primary)
@@ -1783,6 +1786,9 @@ func (a *App) handleLaunchGroupAgent(msg messages.LaunchGroupAgent) tea.Cmd {
 	if msg.Workspace == nil {
 		return nil
 	}
+	// Propagate secondary roots for sandbox git-dir whitelisting
+	msg.Workspace.Primary.SecondaryRoots = msg.Workspace.AllRoots()
+
 	// Pass as regular LaunchAgent using the primary workspace
 	ws := &msg.Workspace.Primary
 	newCenter, cmd := a.center.Update(messages.LaunchAgent{

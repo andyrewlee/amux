@@ -173,6 +173,11 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		if gd, err := git.ResolveWorktreeGitDir(ws.Root); err == nil {
 			gitDirs = append(gitDirs, gd)
 		}
+		for _, root := range ws.SecondaryRoots {
+			if gd, err := git.ResolveWorktreeGitDir(root); err == nil {
+				gitDirs = append(gitDirs, gd)
+			}
+		}
 		sbpl := sandbox.GenerateSBPL(ws.Root, gitDirs, profileDir)
 		sbplPath, cleanup, sErr := sandbox.WriteTempProfile(sbpl)
 		if sErr == nil {
@@ -200,126 +205,6 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 
 	m.mu.Lock()
 	m.agents[ws.ID()] = append(m.agents[ws.ID()], agent)
-	m.mu.Unlock()
-
-	return agent, nil
-}
-
-// CreateGroupAgentWithTags creates a new agent for a group workspace with tmux tags.
-// It injects additionalDirectories, trusts all roots, and sets up allow-edits for all roots.
-func (m *AgentManager) CreateGroupAgentWithTags(
-	gw *data.GroupWorkspace,
-	agentType AgentType,
-	sessionName string,
-	rows, cols uint16,
-	tags tmux.SessionTags,
-	opts AgentOptions,
-) (*Agent, error) {
-	if agentType == AgentClaude && gw.Profile == "" {
-		return nil, fmt.Errorf("cannot start Claude agent without a profile (group workspace %q)", gw.Name)
-	}
-	assistantCfg, ok := m.config.Assistants[string(agentType)]
-	if !ok {
-		return nil, fmt.Errorf("unknown agent type: %s", agentType)
-	}
-	if sessionName == "" {
-		sessionName, _ = tmux.NextUniqueSessionName(gw.Name, tmux.DefaultOptions())
-	}
-	if err := tmux.EnsureAvailable(); err != nil {
-		return nil, err
-	}
-
-	// Build environment — Primary.Root is the group workspace dir (parent of all repos)
-	env := []string{
-		fmt.Sprintf("WORKSPACE_ROOT=%s", gw.Primary.Root),
-		fmt.Sprintf("WORKSPACE_NAME=%s", gw.Name),
-		"LINES=",
-		"COLUMNS=",
-		"COLORTERM=truecolor",
-	}
-
-	agentCommand := assistantCfg.Command
-	var profileDir string
-	if agentType == AgentClaude && gw.Profile != "" {
-		profileDir = filepath.Join(m.config.Paths.ProfilesRoot, gw.Profile)
-		_ = os.MkdirAll(profileDir, 0755)
-		if m.config.UI.SyncProfilePlugins {
-			_ = config.SyncProfileSharedDirs(m.config.Paths.ProfilesRoot, gw.Profile)
-		}
-		if m.config.UI.GlobalPermissions {
-			global, err := config.LoadGlobalPermissions(m.config.Paths.GlobalPermissionsPath)
-			if err == nil && (len(global.Allow) > 0 || len(global.Deny) > 0) {
-				_ = config.InjectGlobalPermissions(profileDir, global)
-			}
-		}
-		agentCommand = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s %s", shellQuote(profileDir), agentCommand)
-	}
-
-	// Trust the group workspace root and inject allow-edits at that level.
-	// All repo worktrees are children of Primary.Root, so trusting the parent suffices.
-	if agentType == AgentClaude {
-		_ = config.InjectTrustedDirectory(gw.Primary.Root, profileDir)
-		if gw.AllowEdits {
-			_ = config.InjectAllowEdits(gw.Primary.Root)
-		}
-	}
-
-	// Append Claude session flags
-	if agentType == AgentClaude && opts.ClaudeSessionID != "" {
-		if opts.Resume {
-			agentCommand += " --resume " + shellQuote(opts.ClaudeSessionID)
-		} else {
-			agentCommand += " --session-id " + shellQuote(opts.ClaudeSessionID)
-		}
-	}
-
-	// Skip permissions for group workspaces
-	var sbplCleanup func()
-	if gw.SkipPermissions && agentType == AgentClaude {
-		agentCommand += " --dangerously-skip-permissions"
-		_ = config.InjectSkipPermissionPrompt(profileDir)
-	}
-
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", agentCommand, shell)
-
-	if gw.Isolated {
-		var gitDirs []string
-		for _, sec := range gw.Secondary {
-			if gd, err := git.ResolveWorktreeGitDir(sec.Root); err == nil {
-				gitDirs = append(gitDirs, gd)
-			}
-		}
-		sbpl := sandbox.GenerateSBPL(gw.Primary.Root, gitDirs, profileDir)
-		sbplPath, cleanup, sErr := sandbox.WriteTempProfile(sbpl)
-		if sErr == nil {
-			sbplCleanup = cleanup
-			fullCommand = sandbox.WrapCommand(fullCommand, sbplPath)
-		}
-	}
-
-	termCommand := tmux.ClientCommandWithTags(sessionName, gw.Primary.Root, fullCommand, tmux.DefaultOptions(), tags)
-	term, err := NewWithSize(termCommand, gw.Primary.Root, env, rows, cols)
-	if err != nil {
-		if sbplCleanup != nil {
-			sbplCleanup()
-		}
-		return nil, fmt.Errorf("failed to create terminal: %w", err)
-	}
-
-	agent := &Agent{
-		Type:      agentType,
-		Terminal:  term,
-		Workspace: &gw.Primary,
-		Config:    assistantCfg,
-		Session:   sessionName,
-	}
-
-	m.mu.Lock()
-	m.agents[gw.ID()] = append(m.agents[gw.ID()], agent)
 	m.mu.Unlock()
 
 	return agent, nil

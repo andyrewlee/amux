@@ -83,8 +83,9 @@ type Workspace struct {
 	AllowEdits bool `json:"allow_edits,omitempty"` // Pre-grant Edit permission when true
 
 	// Isolation
-	Isolated        bool `json:"isolated,omitempty"`         // Run in sandbox-exec
-	SkipPermissions bool `json:"skip_permissions,omitempty"` // Run with --dangerously-skip-permissions
+	Isolated        bool     `json:"isolated,omitempty"`         // Run in sandbox-exec
+	SkipPermissions bool     `json:"skip_permissions,omitempty"` // Run with --dangerously-skip-permissions
+	SecondaryRoots  []string `json:"-"`                          // Transient: extra roots for sandbox git-dir whitelisting (group workspaces)
 }
 
 // WorkspaceID is a unique identifier based on repo+root hash
