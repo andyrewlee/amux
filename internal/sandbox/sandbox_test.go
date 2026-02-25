@@ -97,6 +97,15 @@ func TestGenerateSBPL(t *testing.T) {
 		}
 	})
 
+	t.Run("tool_cache_write", func(t *testing.T) {
+		for _, dir := range []string{".cache", ".ruff_cache"} {
+			expected := `(allow file-write* (subpath "` + home + "/" + dir + `"))`
+			if !strings.Contains(sbpl, expected) {
+				t.Errorf("profile should allow writes to ~/%s, want:\n  %s", dir, expected)
+			}
+		}
+	})
+
 	t.Run("temp_writes", func(t *testing.T) {
 		if !strings.Contains(sbpl, `(allow file-write* (subpath "/private/tmp"))`) {
 			t.Error("profile should allow writes to /private/tmp")
