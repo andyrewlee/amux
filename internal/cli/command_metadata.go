@@ -24,9 +24,11 @@ var commandPathPatterns = []commandPathPattern{
 }
 
 var commandFlagSpecs = map[string]commandFlagSpec{
-	"doctor tmux":      {valueFlags: setOf("--older-than")},
-	"workspace list":   {valueFlags: setOf("--repo", "--project")},
-	"workspace ls":     {valueFlags: setOf("--repo", "--project")},
+	"doctor tmux":    {valueFlags: setOf("--older-than")},
+	"workspace list": {valueFlags: setOf("--repo", "--project")},
+	"workspace ls":   {valueFlags: setOf("--repo", "--project")},
+	// "workspace create" takes the workspace name as a positional token, not
+	// a "--name" flag; keep only actual local flags here.
 	"workspace create": {valueFlags: setOf("--project", "--assistant", "--base", "--idempotency-key")},
 	"workspace remove": {valueFlags: setOf("--idempotency-key")},
 	"workspace rm":     {valueFlags: setOf("--idempotency-key")},

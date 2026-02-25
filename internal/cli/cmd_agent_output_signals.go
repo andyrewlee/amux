@@ -2,8 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+var versionBannerChromeLineRegex = regexp.MustCompile(`^v0\.[0-9]+(?:\.[0-9]+){0,2}$`)
 
 // compactAgentOutput strips known TUI chrome lines and collapses output to
 // concise non-empty lines suitable for chat notifications.
@@ -38,22 +41,51 @@ func stripANSIEscape(line string) string {
 		return line
 	}
 	var b strings.Builder
-	for i := 0; i < len(line); i++ {
+	for i := 0; i < len(line); {
 		if line[i] != 0x1b {
 			b.WriteByte(line[i])
+			i++
 			continue
 		}
-		// Handle CSI escape sequences: ESC [ ... final-byte
-		if i+1 < len(line) && line[i+1] == '[' {
-			i += 2
+		i++ // Skip ESC
+		if i >= len(line) {
+			break
+		}
+		switch line[i] {
+		case '[':
+			// CSI sequence: ESC [ ... final-byte
+			i++
 			for i < len(line) {
 				c := line[i]
+				i++
 				if c >= '@' && c <= '~' {
+					break
+				}
+			}
+		case ']':
+			// OSC sequence: ESC ] ... (BEL | ESC \)
+			i++
+			for i < len(line) {
+				if line[i] == 0x07 {
+					i++
+					break
+				}
+				if line[i] == 0x1b && i+1 < len(line) && line[i+1] == '\\' {
+					i += 2
 					break
 				}
 				i++
 			}
-			continue
+		case '(', ')', '*', '+', '-', '.', '/':
+			// Designate character-set sequence: ESC <prefix> <byte>
+			if i+1 < len(line) {
+				i += 2
+			} else {
+				i++
+			}
+		default:
+			// Two-byte escape sequence: ESC <byte>
+			i++
 		}
 	}
 	return b.String()
@@ -101,6 +133,9 @@ func shouldDropAgentChromeLine(line string) bool {
 	if isInlinePromptChromeLine(clean) {
 		return true
 	}
+	if isVersionBannerChromeLine(clean) {
+		return true
+	}
 	switch {
 	case strings.HasPrefix(clean, "╭"),
 		strings.HasPrefix(clean, "╰"),
@@ -140,12 +175,15 @@ func shouldDropAgentChromeLine(line string) bool {
 		strings.Contains(clean, "ctrl+N to cycle"),
 		(strings.Contains(strings.ToLower(clean), "autonomy") && strings.Contains(strings.ToLower(clean), "models")),
 		(strings.HasPrefix(clean, "[⏱") && strings.Contains(strings.ToLower(clean), "for help")),
-		(strings.HasPrefix(strings.ToLower(clean), "v0.") && len(clean) <= 10),
 		strings.Contains(clean, "chatgpt.com/codex"):
 		return true
 	default:
 		return false
 	}
+}
+
+func isVersionBannerChromeLine(line string) bool {
+	return versionBannerChromeLineRegex.MatchString(strings.ToLower(strings.TrimSpace(line)))
 }
 
 func isInlinePromptChromeLine(line string) bool {

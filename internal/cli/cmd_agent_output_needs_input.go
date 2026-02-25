@@ -7,6 +7,8 @@ import (
 )
 
 var (
+	// Heuristic "reply with ..." patterns. Keep these intentionally conservative;
+	// broader matching can produce false positives for narrative output.
 	replyWithDigitsChoiceRegex  = regexp.MustCompile(`\b\d+\s*(?:/|or)\s*\d+\b|\b\d+\s+to\s+[a-z].*(?:\bor\b|,)\s*\d+\s+to\s+[a-z]`)
 	replyWithLettersChoiceRegex = regexp.MustCompile(`\b[a-z](?:/[a-z])+\b|\b[a-z]\s*(?:,|or)\s*[a-z]\b|\b[a-z]\s+to\s+[a-z].*(?:\bor\b|,)\s*[a-z]\s+to\s+[a-z]`)
 	replyWithPromptCueRegex     = regexp.MustCompile(`\b(choose|pick|select|option|confirm|continue|proceed)\b`)
@@ -147,7 +149,7 @@ func trailingNeedsInputOptionLines(lines []string, start int) string {
 	}
 	options := make([]string, 0, 9)
 	for i := start; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
+		line := strings.TrimSpace(stripANSIEscape(lines[i]))
 		if line == "" {
 			if len(options) > 0 {
 				break

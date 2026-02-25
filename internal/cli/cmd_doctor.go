@@ -23,6 +23,8 @@ type doctorResult struct {
 func cmdDoctor(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
 	const usage = "Usage: amux doctor [tmux] [--json]"
 	if len(args) > 0 {
+		// Keep explicit routing here so "amux doctor" and "amux doctor tmux"
+		// can share one usage surface while still allowing tmux-specific flags.
 		if args[0] == "tmux" {
 			return cmdDoctorTmux(w, wErr, gf, args[1:], version)
 		}

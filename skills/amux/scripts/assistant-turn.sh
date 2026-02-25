@@ -60,6 +60,8 @@ flag_requires_value() {
 
 flag_allows_flag_like_value() {
   local flag="$1"
+  # Intentionally allow dash-prefixed free-form text values.
+  # This avoids false "missing value" errors for content like "--force now".
   case "$flag" in
     --prompt|--text|--followup-text)
       return 0

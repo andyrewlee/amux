@@ -35,6 +35,8 @@ type doctorTmuxResult struct {
 }
 
 var (
+	// Test seam: these function pointers are overridden in cmd_doctor_tmux_test
+	// to keep PTY-capacity checks deterministic without shelling out.
 	doctorReadSysctlInt = readSysctlInt
 	doctorReadPTMXInUse = readPTMXOpenCount
 )
@@ -47,7 +49,7 @@ func cmdDoctorTmuxWith(w, wErr io.Writer, gf GlobalFlags, args []string, version
 	const usage = "Usage: amux doctor tmux [--older-than <dur>] [--prune --yes] [--json]"
 
 	fs := newFlagSet("doctor tmux")
-	prune := fs.Bool("prune", false, "prune detached/orphaned amux sessions")
+	prune := fs.Bool("prune", false, "prune detached/orphaned amux sessions (all ages unless --older-than is set)")
 	yes := fs.Bool("yes", false, "confirm prune (required with --prune)")
 	olderThan := fs.String("older-than", "", "only include sessions older than duration (e.g. 6h, 30m)")
 	if err := fs.Parse(args); err != nil {
@@ -87,7 +89,12 @@ func cmdDoctorTmuxWith(w, wErr io.Writer, gf GlobalFlags, args []string, version
 		}
 	}
 
-	rows, sessionQueryErr := svc.QuerySessionRows(svc.TmuxOpts)
+	querySessionRows := svc.QuerySessionRows
+	if querySessionRows == nil {
+		// Allow tests/callers to provide a partial Services value.
+		querySessionRows = defaultQuerySessionRows
+	}
+	rows, sessionQueryErr := querySessionRows(svc.TmuxOpts)
 	if sessionQueryErr != nil {
 		if *prune {
 			if gf.JSON {
@@ -331,6 +338,8 @@ func readSysctlInt(key string) (int, bool) {
 }
 
 func readPTMXOpenCount() (int, bool) {
+	// Best-effort metric only: lsof can be unavailable/slow or blocked by local
+	// policy, and callers already degrade to a non-fatal warning on failure.
 	out, err := exec.Command("lsof", "/dev/ptmx").Output()
 	if err != nil {
 		return 0, false

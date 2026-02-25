@@ -176,6 +176,8 @@ flag_requires_value() {
 
 flag_allows_flag_like_value() {
   local flag="$1"
+  # Intentionally allow dash-prefixed values for free-form user content flags.
+  # Example: --prompt "--help me debug" should not trip missing-value checks.
   case "$flag" in
     --prompt|--text)
       return 0

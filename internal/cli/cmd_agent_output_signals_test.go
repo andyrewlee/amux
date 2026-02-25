@@ -51,11 +51,27 @@ func TestCompactAgentOutput_DropsDroidChromeNoise(t *testing.T) {
 	}
 }
 
+func TestCompactAgentOutput_PreservesVersionPrefixedContent(t *testing.T) {
+	raw := "v0.6 beta\n• useful line"
+	got := compactAgentOutput(raw)
+	if got != raw {
+		t.Fatalf("compactAgentOutput() = %q, want %q", got, raw)
+	}
+}
+
 func TestCompactAgentOutput_PreservesQuotedLines(t *testing.T) {
 	raw := "Plan recap:\n> The user asked to fix the login bug\n> npm run build\nDone."
 	got := compactAgentOutput(raw)
 	if got != raw {
 		t.Fatalf("compactAgentOutput() = %q, want %q", got, raw)
+	}
+}
+
+func TestStripANSIEscape_StripsOSCAndSingleCharEscapes(t *testing.T) {
+	raw := "\x1b]0;window title\x07hello\x1b= world\x1b(0!"
+	got := stripANSIEscape(raw)
+	if got != "hello world!" {
+		t.Fatalf("stripANSIEscape() = %q, want %q", got, "hello world!")
 	}
 }
 
@@ -118,6 +134,18 @@ func TestDetectNeedsInputPrompt_ExplicitMarkerIncludesTrailingOptions(t *testing
 		t.Fatalf("detectNeedsInputPrompt() = false, want true")
 	}
 	want := "Choose one and reply with the number:\n1. Continue with codex\n2) Continue with claude\n3. Ask me later\n4. Cancel"
+	if hint != want {
+		t.Fatalf("hint = %q, want %q", hint, want)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ExplicitMarkerIncludesTrailingANSIOptions(t *testing.T) {
+	content := "Choose one and reply with the number:\n\x1b[32m1.\x1b[0m Continue with codex\n\x1b[32m2)\x1b[0m Continue with claude"
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	want := "Choose one and reply with the number:\n1. Continue with codex\n2) Continue with claude"
 	if hint != want {
 		t.Fatalf("hint = %q, want %q", hint, want)
 	}

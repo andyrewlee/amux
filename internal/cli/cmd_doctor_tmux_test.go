@@ -37,6 +37,30 @@ func TestCmdDoctorTmuxPruneRequiresYes(t *testing.T) {
 	}
 }
 
+func TestCmdDoctorTmuxNilQuerySessionRowsFallsBackToDefault(t *testing.T) {
+	root := t.TempDir()
+	svc := &Services{
+		Store:    data.NewWorkspaceStore(root),
+		TmuxOpts: tmux.Options{},
+		// Intentionally nil: cmdDoctorTmuxWith should fall back to defaultQuerySessionRows.
+	}
+
+	var w bytes.Buffer
+	var wErr bytes.Buffer
+	code := cmdDoctorTmuxWith(&w, &wErr, GlobalFlags{JSON: true}, nil, "test-v1", svc)
+	if code != ExitOK {
+		t.Fatalf("cmdDoctorTmuxWith() code = %d, want %d", code, ExitOK)
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, w.String())
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got error=%#v", env.Error)
+	}
+}
+
 func TestCmdDoctorTmuxJSONSummary(t *testing.T) {
 	origLimit := doctorReadSysctlInt
 	origInUse := doctorReadPTMXInUse
