@@ -37,6 +37,12 @@ func (m *Model) SetOffset(x int) {
 	m.offsetX = x
 }
 
+// SetBottomPadding sets extra rows to reserve at the bottom of the content area.
+// Used when the terminal pane is hidden so the last line isn't clipped by tmux.
+func (m *Model) SetBottomPadding(rows int) {
+	m.bottomPadding = rows
+}
+
 // Close cleans up all resources
 func (m *Model) Close() {
 	m.StopMonitorSnapshots()

@@ -288,6 +288,8 @@ func (a *App) updateLayout() {
 		centerHeight = a.layout.Height() // In monitor mode, center gets full height
 	}
 	a.center.SetSize(centerWidth, centerHeight)
+	// Reserve rows at the bottom of the center pane so content isn't clipped by tmux.
+	a.center.SetBottomPadding(1)
 	leftGutter := a.layout.LeftGutter()
 	topGutter := a.layout.TopGutter()
 	gapX := 0

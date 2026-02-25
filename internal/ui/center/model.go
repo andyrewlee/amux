@@ -147,6 +147,7 @@ type Model struct {
 	width           int
 	height          int
 	offsetX         int // X offset from screen left (dashboard width)
+	bottomPadding   int // Extra rows to reserve at the bottom (e.g. when terminal pane is hidden)
 	showKeymapHints bool
 
 	// Animation
@@ -280,7 +281,7 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 		helpLineCount = len(m.helpLines(width))
 	}
 	infoBarHeight := m.infoBarHeight()
-	height := m.height - baseOverhead - helpLineCount - infoBarHeight
+	height := m.height - baseOverhead - helpLineCount - infoBarHeight - m.bottomPadding
 	if height < 5 {
 		height = 24
 	}
