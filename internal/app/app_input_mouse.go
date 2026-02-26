@@ -11,7 +11,7 @@ import (
 func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	targetPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
 
-	// Focus pane on left-click press
+	// Left-click updates keyboard focus; other buttons preserve keyboard focus.
 	var focusCmd tea.Cmd
 	if msg.Button == tea.MouseLeft && hasTarget {
 		focusCmd = a.focusPane(targetPane)
@@ -21,7 +21,8 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		return common.SafeBatch(focusCmd, cmd)
 	}
 
-	// Route click to the pane under the pointer to match web-style interaction.
+	// Route click to the pane under the pointer to match web-style interaction,
+	// including right/middle clicks.
 	if !hasTarget {
 		return focusCmd
 	}
@@ -82,9 +83,13 @@ func (a *App) handleMouseMsg(msg tea.Msg) tea.Cmd {
 
 // routeMouseWheel routes mouse wheel events to the appropriate pane.
 func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
-	// Preserve focused-pane wheel behavior so keyboard-selected panes continue
-	// scrolling even when the pointer is elsewhere.
-	targetPane := a.focusedPane
+	// Prefer pointer-position routing for mouse wheel, consistent with click
+	// and non-left motion/release behavior in mouse-first mode.
+	targetPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
+	if !hasTarget {
+		// Fallback keeps wheel usable when terminals emit out-of-pane coordinates.
+		targetPane = a.focusedPane
+	}
 	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg

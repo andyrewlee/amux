@@ -19,6 +19,7 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 	borderColor := common.ColorBorder()
 	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
 	horizontal, vertical := "─", "│"
+	// Focused/unfocused borders are intentionally uniform for the current UX.
 	_ = focused
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 
@@ -85,6 +86,7 @@ func borderDrawables(x, y, width, height int, focused bool) []*compositor.String
 	borderColor := common.ColorBorder()
 	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
 	horizontal, vertical := "─", "│"
+	// Focused/unfocused borders are intentionally uniform for the current UX.
 	_ = focused
 
 	style := lipgloss.NewStyle().Foreground(borderColor)

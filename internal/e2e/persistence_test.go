@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	persistenceTimeout = 15 * time.Second
+	persistenceTimeout  = 15 * time.Second
+	prefixInterKeyDelay = 15 * time.Millisecond
 )
 
 func TestTmuxPersistenceKeepsSessions(t *testing.T) {
@@ -122,6 +123,7 @@ func sendPrefixSequence(t *testing.T, session *PTYSession, keys ...string) {
 		if err := session.SendString(key); err != nil {
 			t.Fatalf("send command key %q: %v", key, err)
 		}
+		time.Sleep(prefixInterKeyDelay)
 	}
 }
 

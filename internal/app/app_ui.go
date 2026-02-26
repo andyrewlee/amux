@@ -123,10 +123,14 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (prefixMatch, tea.Cmd) {
 		if len(a.prefixSequence) > 0 {
 			a.prefixSequence = a.prefixSequence[:len(a.prefixSequence)-1]
 		}
+		// Keep the palette open at root so Backspace remains a harmless undo key.
 		return prefixMatchPartial, nil
 	}
 
 	a.prefixSequence = append(a.prefixSequence, token)
+	// Record the typed token before matching so the palette can render the
+	// narrowed path immediately; unknown sequences still fall through to
+	// prefixMatchNone below and exit prefix mode in handleKeyPress.
 
 	if len(a.prefixSequence) == 1 {
 		if r := []rune(token); len(r) == 1 && r[0] >= '1' && r[0] <= '9' {
@@ -159,6 +163,7 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (prefixMatch, tea.Cmd) {
 func (a *App) prefixInputToken(msg tea.KeyPressMsg) (string, bool) {
 	switch msg.Key().Code {
 	case tea.KeyBackspace, tea.KeyDelete:
+		// Some terminals report Backspace as KeyDelete; treat both as undo.
 		return "backspace", true
 	case tea.KeyLeft:
 		return "h", true

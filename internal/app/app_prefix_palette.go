@@ -89,6 +89,8 @@ type prefixPaletteSection struct {
 	Choices []prefixPaletteChoice
 }
 
+const prefixPaletteColumnGutterWidth = 3 // " │ "
+
 func (a *App) prefixPaletteSections() []prefixPaletteSection {
 	if len(a.prefixSequence) == 0 {
 		return a.rootPrefixPaletteSections()
@@ -142,6 +144,7 @@ func (a *App) rootPrefixPaletteSections() []prefixPaletteSection {
 	for _, key := range order {
 		grouped[groupByKey[key]] = append(grouped[groupByKey[key]], choiceByKey[key])
 	}
+	// Numeric tab jumping is a root-level special case in handlePrefixCommand.
 	grouped["Tabs"] = append(grouped["Tabs"], prefixPaletteChoice{Key: "1-9", Desc: "jump tab"})
 
 	titles := []string{"Navigation", "General", "Tabs"}
@@ -235,7 +238,7 @@ func (a *App) renderChoiceColumns(choices []prefixPaletteChoice, contentWidth in
 		colCount = len(choices)
 	}
 	for colCount > 1 {
-		gutterWidth := (colCount - 1) * 2
+		gutterWidth := (colCount - 1) * prefixPaletteColumnGutterWidth
 		colWidth := (contentWidth - gutterWidth) / colCount
 		if colWidth >= 20 {
 			break
@@ -244,7 +247,7 @@ func (a *App) renderChoiceColumns(choices []prefixPaletteChoice, contentWidth in
 	}
 
 	columnSep := lipgloss.NewStyle().Foreground(common.ColorBorder()).Render("│")
-	gutterWidth := (colCount - 1) * 3
+	gutterWidth := (colCount - 1) * prefixPaletteColumnGutterWidth
 	colWidth := (contentWidth - gutterWidth) / colCount
 	if colWidth < 12 {
 		colWidth = 12

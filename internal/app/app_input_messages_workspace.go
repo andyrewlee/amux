@@ -243,6 +243,7 @@ func canonicalPathForMatch(path string) string {
 // handleWorkspaceActivated processes the WorkspaceActivated message.
 func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cmd {
 	var cmds []tea.Cmd
+	centerFocusQueuedReattach := false
 	a.activeProject = msg.Project
 	a.activeWorkspace = msg.Workspace
 	a.showWelcome = false
@@ -271,6 +272,8 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		centerVisible := a.layout != nil && a.layout.ShowCenter()
 		if centerVisible {
 			hasCenterTabs := false
+			// Existing in-memory tabs are available immediately for workspaces
+			// visited in this process (independent of async tmux discovery cmds).
 			if tabs, _ := a.center.GetTabsInfoForWorkspace(wsID); len(tabs) > 0 {
 				hasCenterTabs = true
 			}
@@ -279,9 +282,12 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 			if !hasCenterTabs && len(msg.Workspace.OpenTabs) > 0 {
 				hasCenterTabs = true
 			}
+			// When no center-tab signal exists, keep the current focus instead of
+			// forcing a dashboard/center jump.
 			if hasCenterTabs {
 				if focusCmd := a.focusPane(messages.PaneCenter); focusCmd != nil {
 					cmds = append(cmds, focusCmd)
+					centerFocusQueuedReattach = true
 				}
 			}
 		}
@@ -317,7 +323,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		cmds = append(cmds, startCmd)
 	}
 	// Seamless UX: if restored active tab is detached, auto-reattach on workspace activation.
-	cmds = append(cmds, a.center.ReattachActiveTabIfDetached())
+	if !centerFocusQueuedReattach {
+		cmds = append(cmds, a.center.ReattachActiveTabIfDetached())
+	}
 	cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 	return cmds
 }

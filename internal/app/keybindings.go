@@ -7,7 +7,8 @@ type KeyMap struct {
 	// Prefix key (leader)
 	Prefix key.Binding
 
-	// Global (active only after prefix)
+	// Global (legacy fields retained for compatibility/documentation; prefix
+	// dispatch is now driven by prefixCommands in app_ui.go).
 	Quit           key.Binding
 	MoveLeft       key.Binding
 	MoveRight      key.Binding
