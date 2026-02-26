@@ -91,17 +91,9 @@ func assertScreenNeverContains(t *testing.T, session *PTYSession, needles []stri
 	}
 }
 
-func focusSidebarTerminal(t *testing.T, session *PTYSession) {
-	t.Helper()
-	sendPrefixCommand(t, session, "l")
-	sendPrefixCommand(t, session, "l")
-	sendPrefixCommand(t, session, "j")
-}
-
 func createSidebarTerminalTab(t *testing.T, session *PTYSession) {
 	t.Helper()
-	focusSidebarTerminal(t, session)
-	sendPrefixCommand(t, session, "t")
+	sendPrefixSequence(t, session, "t", "t")
 	waitForUIContains(t, session, "Terminal 2", 10*time.Second)
 }
 

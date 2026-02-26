@@ -264,6 +264,25 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	if restoreCmd := a.center.RestoreTabsFromWorkspace(msg.Workspace); restoreCmd != nil {
 		cmds = append(cmds, restoreCmd)
 	}
+	// Mouse-first behavior: if this workspace already has center chat tabs,
+	// route keyboard input to the active chat tab immediately.
+	if msg.Workspace != nil {
+		wsID := string(msg.Workspace.ID())
+		centerVisible := a.layout != nil && a.layout.ShowCenter()
+		if centerVisible {
+			if tabs, _ := a.center.GetTabsInfoForWorkspace(wsID); len(tabs) > 0 {
+				if focusCmd := a.focusPane(messages.PaneCenter); focusCmd != nil {
+					cmds = append(cmds, focusCmd)
+				}
+			}
+		}
+		if !centerVisible {
+			// Keep keyboard routing on the visible pane in dashboard-only layouts.
+			if focusCmd := a.focusPane(messages.PaneDashboard); focusCmd != nil {
+				cmds = append(cmds, focusCmd)
+			}
+		}
+	}
 	// Sync active workspaces to dashboard (fixes spinner race condition)
 	a.syncActiveWorkspacesToDashboard()
 	newDashboard, cmd := a.dashboard.Update(msg)

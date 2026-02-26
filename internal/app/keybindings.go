@@ -48,7 +48,7 @@ func DefaultKeyMap() KeyMap {
 		// Ctrl-Space is reported as ctrl+@ or ctrl+space depending on terminal
 		Prefix: key.NewBinding(
 			key.WithKeys("ctrl+@", "ctrl+space"),
-			key.WithHelp("C-Space", "prefix"),
+			key.WithHelp("C-Space", "commands"),
 		),
 
 		// Commands active after prefix

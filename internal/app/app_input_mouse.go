@@ -9,57 +9,24 @@ import (
 
 // routeMouseClick routes mouse click events to the appropriate pane.
 func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
-	leftGutter := a.layout.LeftGutter()
-	topGutter := a.layout.TopGutter()
-	dashWidth := a.layout.DashboardWidth()
-	centerWidth := a.layout.CenterWidth()
-	gapX := 0
-	if a.layout.ShowCenter() {
-		gapX = a.layout.GapX()
-	}
-	centerStart := leftGutter + dashWidth + gapX
-	centerEnd := centerStart + centerWidth
-	sidebarStart := centerEnd
-	sidebarEnd := centerEnd
-	if a.layout.ShowSidebar() {
-		sidebarStart = centerEnd + gapX
-		sidebarEnd = sidebarStart + a.layout.SidebarWidth()
-	}
-	inSidebarX := a.layout.ShowSidebar() && msg.X >= sidebarStart && msg.X < sidebarEnd
-	localY := msg.Y - topGutter
+	targetPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
 
 	// Focus pane on left-click press
 	var focusCmd tea.Cmd
-	if msg.Button == tea.MouseLeft {
-		if msg.X < leftGutter {
-			focusCmd = a.focusPane(messages.PaneDashboard)
-		} else if msg.X < leftGutter+dashWidth {
-			// Clicked on dashboard (left bar)
-			focusCmd = a.focusPane(messages.PaneDashboard)
-		} else if msg.X < centerEnd {
-			// Clicked on center pane
-			focusCmd = a.focusPane(messages.PaneCenter)
-		} else if inSidebarX {
-			// Clicked on sidebar - determine top (changes) or bottom (terminal)
-			sidebarHeight := a.layout.Height()
-			topPaneHeight, _ := sidebarPaneHeights(sidebarHeight)
-
-			// Split point is after top pane
-			if localY >= topPaneHeight {
-				focusCmd = a.focusPane(messages.PaneSidebarTerminal)
-			} else {
-				focusCmd = a.focusPane(messages.PaneSidebar)
-			}
-		}
+	if msg.Button == tea.MouseLeft && hasTarget {
+		focusCmd = a.focusPane(targetPane)
 	}
 
 	if cmd := a.handleCenterPaneClick(msg); cmd != nil {
 		return common.SafeBatch(focusCmd, cmd)
 	}
 
-	// Forward mouse events to the focused pane
-	// This ensures drag events are received even if the mouse leaves the pane bounds
-	switch a.focusedPane {
+	// Route click to the pane under the pointer to match web-style interaction.
+	if !hasTarget {
+		return focusCmd
+	}
+
+	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
 		if a.layout != nil {
@@ -78,28 +45,22 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		a.center = newCenter
 		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneSidebarTerminal:
-		// Ignore clicks in the gap/right gutter so they don't trigger sidebar actions.
-		if inSidebarX {
-			newTerm, cmd := a.sidebarTerminal.Update(msg)
-			a.sidebarTerminal = newTerm
-			// If the click returned a command (e.g., CreateNewTab from "+ New" button),
-			// skip focusCmd to avoid double terminal creation
-			if cmd != nil {
-				return cmd
-			}
-			return focusCmd
+		newTerm, cmd := a.sidebarTerminal.Update(msg)
+		a.sidebarTerminal = newTerm
+		// If the click returned a command (e.g., CreateNewTab from "+ New" button),
+		// skip focusCmd to avoid double terminal creation.
+		if cmd != nil {
+			return cmd
 		}
+		return focusCmd
 	case messages.PaneSidebar:
 		adjusted := msg
 		if a.layout != nil {
 			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
 		}
-		// Ignore clicks in the gap/right gutter so they don't trigger sidebar actions.
-		if inSidebarX {
-			newSidebar, cmd := a.sidebar.Update(adjusted)
-			a.sidebar = newSidebar
-			return common.SafeBatch(focusCmd, cmd)
-		}
+		newSidebar, cmd := a.sidebar.Update(adjusted)
+		a.sidebar = newSidebar
+		return common.SafeBatch(focusCmd, cmd)
 	}
 	return focusCmd
 }
@@ -121,7 +82,10 @@ func (a *App) handleMouseMsg(msg tea.Msg) tea.Cmd {
 
 // routeMouseWheel routes mouse wheel events to the appropriate pane.
 func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
-	switch a.focusedPane {
+	// Preserve focused-pane wheel behavior so keyboard-selected panes continue
+	// scrolling even when the pointer is elsewhere.
+	targetPane := a.focusedPane
+	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
 		if a.layout != nil {
@@ -157,7 +121,17 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 
 // routeMouseMotion routes mouse motion events to the appropriate pane.
 func (a *App) routeMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
-	switch a.focusedPane {
+	// Keep left-button drag motion bound to the pane focused on mouse-down.
+	// Selection/edge-scroll logic depends on receiving out-of-bounds motion.
+	targetPane := a.focusedPane
+	if msg.Button != tea.MouseLeft {
+		var ok bool
+		targetPane, ok = a.paneForPoint(msg.X, msg.Y)
+		if !ok {
+			return nil
+		}
+	}
+	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
 		if a.layout != nil {
@@ -193,7 +167,17 @@ func (a *App) routeMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 
 // routeMouseRelease routes mouse release events to the appropriate pane.
 func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
-	switch a.focusedPane {
+	// Keep left-button release bound to the pane focused on mouse-down so
+	// cross-pane drags still finalize selection state in the source pane.
+	targetPane := a.focusedPane
+	if msg.Button != tea.MouseLeft {
+		var ok bool
+		targetPane, ok = a.paneForPoint(msg.X, msg.Y)
+		if !ok {
+			return nil
+		}
+	}
+	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
 		if a.layout != nil {
@@ -225,4 +209,51 @@ func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 		return cmd
 	}
 	return nil
+}
+
+func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
+	if a.layout == nil {
+		return messages.PaneCenter, false
+	}
+	topGutter := a.layout.TopGutter()
+	height := a.layout.Height()
+	if y < topGutter || y >= topGutter+height {
+		return messages.PaneCenter, false
+	}
+
+	leftGutter := a.layout.LeftGutter()
+	if x < leftGutter {
+		return messages.PaneCenter, false
+	}
+
+	dashWidth := a.layout.DashboardWidth()
+	if x < leftGutter+dashWidth {
+		return messages.PaneDashboard, true
+	}
+
+	centerStart := leftGutter + dashWidth
+	if a.layout.ShowCenter() {
+		centerStart += a.layout.GapX()
+		centerEnd := centerStart + a.layout.CenterWidth()
+		if x >= centerStart && x < centerEnd {
+			return messages.PaneCenter, true
+		}
+		centerStart = centerEnd
+	}
+
+	if !a.layout.ShowSidebar() {
+		return messages.PaneCenter, false
+	}
+	sidebarStart := centerStart + a.layout.GapX()
+	sidebarEnd := sidebarStart + a.layout.SidebarWidth()
+	if x < sidebarStart || x >= sidebarEnd {
+		return messages.PaneCenter, false
+	}
+
+	localY := y - topGutter
+	topPaneHeight, _ := sidebarPaneHeights(height)
+	if localY >= topPaneHeight {
+		return messages.PaneSidebarTerminal, true
+	}
+	return messages.PaneSidebar, true
 }

@@ -9,7 +9,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
@@ -112,7 +111,7 @@ func (a *App) viewLayerBased() tea.View {
 	topGutter := a.layout.TopGutter()
 	dashWidth := a.layout.DashboardWidth()
 	dashHeight := a.layout.Height()
-	dashFocused := a.dashboard.Focused()
+	dashFocused := false
 	dashContentWidth := dashWidth - 3
 	dashContentHeight := dashHeight - 2
 	if dashContentWidth < 1 {
@@ -134,7 +133,7 @@ func (a *App) viewLayerBased() tea.View {
 		centerX := leftGutter + dashWidth + a.layout.GapX()
 		centerWidth := a.layout.CenterWidth()
 		centerHeight := a.layout.Height()
-		centerFocused := a.focusedPane == messages.PaneCenter
+		centerFocused := false
 
 		// Check if we can use VTermLayer for direct cell rendering
 		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasDiffViewer() {
@@ -219,8 +218,8 @@ func (a *App) viewLayerBased() tea.View {
 				contentWidth = 1
 			}
 
-			topFocused := a.focusedPane == messages.PaneSidebar
-			bottomFocused := a.focusedPane == messages.PaneSidebarTerminal
+			topFocused := false
+			bottomFocused := false
 
 			if topPaneHeight > 0 {
 				topContentHeight := topPaneHeight - 2

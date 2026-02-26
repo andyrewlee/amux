@@ -85,7 +85,7 @@ func activatePrimaryWorkspace(t *testing.T, session *PTYSession) {
 
 func createAgentTab(t *testing.T, session *PTYSession) {
 	t.Helper()
-	sendPrefixCommand(t, session, "a")
+	sendPrefixSequence(t, session, "t", "a")
 	waitForUIContains(t, session, "New Agent", persistenceTimeout)
 	if err := session.SendString("\r"); err != nil {
 		t.Fatalf("select agent: %v", err)
@@ -109,6 +109,19 @@ func sendPrefixCommand(t *testing.T, session *PTYSession, cmd string) {
 	time.Sleep(50 * time.Millisecond)
 	if err := session.SendString(cmd); err != nil {
 		t.Fatalf("send command %q: %v", cmd, err)
+	}
+}
+
+func sendPrefixSequence(t *testing.T, session *PTYSession, keys ...string) {
+	t.Helper()
+	if err := session.SendBytes([]byte{0}); err != nil {
+		t.Fatalf("send prefix: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	for _, key := range keys {
+		if err := session.SendString(key); err != nil {
+			t.Fatalf("send command key %q: %v", key, err)
+		}
 	}
 }
 

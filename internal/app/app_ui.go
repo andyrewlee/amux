@@ -42,6 +42,20 @@ func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 	return nil
 }
 
+type prefixMatch int
+
+const (
+	prefixMatchNone prefixMatch = iota
+	prefixMatchPartial
+	prefixMatchComplete
+)
+
+type prefixCommand struct {
+	Sequence []string
+	Desc     string
+	Action   string
+}
+
 // Prefix mode helpers (leader key)
 
 // isPrefixKey returns true if the key is the prefix key
@@ -52,6 +66,11 @@ func (a *App) isPrefixKey(msg tea.KeyPressMsg) bool {
 // enterPrefix enters prefix mode and schedules a timeout
 func (a *App) enterPrefix() tea.Cmd {
 	a.prefixActive = true
+	a.prefixSequence = nil
+	return a.refreshPrefixTimeout()
+}
+
+func (a *App) refreshPrefixTimeout() tea.Cmd {
 	a.prefixToken++
 	token := a.prefixToken
 	return common.SafeTick(prefixTimeout, func(t time.Time) tea.Msg {
@@ -62,51 +81,174 @@ func (a *App) enterPrefix() tea.Cmd {
 // exitPrefix exits prefix mode
 func (a *App) exitPrefix() {
 	a.prefixActive = false
+	a.prefixSequence = nil
 }
 
 // handlePrefixCommand handles a key press while in prefix mode
-// Returns (handled, cmd)
-func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
-	switch {
-	// Pane focus
-	case key.Matches(msg, a.keymap.MoveLeft):
-		var cmd tea.Cmd
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			cmd = a.focusPane(messages.PaneDashboard)
-		case messages.PaneSidebar, messages.PaneSidebarTerminal:
-			cmd = a.focusPane(messages.PaneCenter)
-		}
-		return true, cmd
+// Returns (match state, cmd).
+func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (prefixMatch, tea.Cmd) {
+	token, ok := a.prefixInputToken(msg)
+	if !ok {
+		return prefixMatchNone, nil
+	}
 
-	case key.Matches(msg, a.keymap.MoveRight):
-		var cmd tea.Cmd
-		switch a.focusedPane {
-		case messages.PaneDashboard:
-			cmd = a.focusPane(messages.PaneCenter)
-		case messages.PaneCenter:
-			if a.layout.ShowSidebar() {
-				cmd = a.focusPane(messages.PaneSidebar)
+	if token == "backspace" {
+		if len(a.prefixSequence) > 0 {
+			a.prefixSequence = a.prefixSequence[:len(a.prefixSequence)-1]
+		}
+		return prefixMatchPartial, nil
+	}
+
+	a.prefixSequence = append(a.prefixSequence, token)
+
+	if len(a.prefixSequence) == 1 {
+		if r := []rune(token); len(r) == 1 && r[0] >= '1' && r[0] <= '9' {
+			return prefixMatchComplete, a.prefixSelectTab(int(r[0] - '1'))
+		}
+	}
+
+	matches := a.matchingPrefixCommands(a.prefixSequence)
+	if len(matches) == 0 {
+		return prefixMatchNone, nil
+	}
+
+	var exact *prefixCommand
+	exactCount := 0
+	for i := range matches {
+		if len(matches[i].Sequence) == len(a.prefixSequence) {
+			exactCount++
+			exact = &matches[i]
+		}
+	}
+	if exactCount == 1 && len(matches) == 1 && exact != nil {
+		return prefixMatchComplete, a.runPrefixAction(exact.Action)
+	}
+
+	return prefixMatchPartial, nil
+}
+
+func (a *App) prefixInputToken(msg tea.KeyPressMsg) (string, bool) {
+	switch msg.Key().Code {
+	case tea.KeyBackspace, tea.KeyDelete:
+		return "backspace", true
+	case tea.KeyLeft:
+		return "h", true
+	case tea.KeyDown:
+		return "j", true
+	case tea.KeyUp:
+		return "k", true
+	case tea.KeyRight:
+		return "l", true
+	}
+	text := msg.Key().Text
+	runes := []rune(text)
+	if len(runes) != 1 {
+		return "", false
+	}
+	return text, true
+}
+
+func (a *App) prefixCommands() []prefixCommand {
+	return []prefixCommand{
+		{Sequence: []string{"h"}, Desc: "focus left", Action: "move_left"},
+		{Sequence: []string{"j"}, Desc: "focus down", Action: "move_down"},
+		{Sequence: []string{"k"}, Desc: "focus up", Action: "move_up"},
+		{Sequence: []string{"l"}, Desc: "focus right", Action: "move_right"},
+		{Sequence: []string{"?"}, Desc: "toggle help", Action: "help"},
+		{Sequence: []string{"q"}, Desc: "quit", Action: "quit"},
+		{Sequence: []string{"K"}, Desc: "cleanup tmux", Action: "cleanup_tmux"},
+		{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: "new_agent_tab"},
+		{Sequence: []string{"t", "t"}, Desc: "new terminal tab", Action: "new_terminal_tab"},
+		{Sequence: []string{"t", "n"}, Desc: "next tab", Action: "next_tab"},
+		{Sequence: []string{"t", "p"}, Desc: "prev tab", Action: "prev_tab"},
+		{Sequence: []string{"t", "x"}, Desc: "close tab", Action: "close_tab"},
+		{Sequence: []string{"t", "d"}, Desc: "detach tab", Action: "detach_tab"},
+		{Sequence: []string{"t", "r"}, Desc: "reattach tab", Action: "reattach_tab"},
+		{Sequence: []string{"t", "s"}, Desc: "restart tab", Action: "restart_tab"},
+	}
+}
+
+func (a *App) matchingPrefixCommands(sequence []string) []prefixCommand {
+	commands := a.prefixCommands()
+	if len(sequence) == 0 {
+		return commands
+	}
+
+	matches := make([]prefixCommand, 0, len(commands))
+	for _, cmd := range commands {
+		if len(sequence) > len(cmd.Sequence) {
+			continue
+		}
+		ok := true
+		for i := range sequence {
+			if cmd.Sequence[i] != sequence[i] {
+				ok = false
+				break
 			}
 		}
-		return true, cmd
+		if ok {
+			matches = append(matches, cmd)
+		}
+	}
+	return matches
+}
 
-	case key.Matches(msg, a.keymap.MoveUp):
-		var cmd tea.Cmd
+func (a *App) runPrefixAction(action string) tea.Cmd {
+	switch action {
+	case "move_left":
+		switch a.focusedPane {
+		case messages.PaneCenter:
+			return a.focusPane(messages.PaneDashboard)
+		case messages.PaneSidebar, messages.PaneSidebarTerminal:
+			return a.focusPane(messages.PaneCenter)
+		}
+		return nil
+	case "move_right":
+		switch a.focusedPane {
+		case messages.PaneDashboard:
+			return a.focusPane(messages.PaneCenter)
+		case messages.PaneCenter:
+			if a.layout.ShowSidebar() {
+				return a.focusPane(messages.PaneSidebar)
+			}
+		}
+		return nil
+	case "move_up":
 		if a.focusedPane == messages.PaneSidebarTerminal {
-			cmd = a.focusPane(messages.PaneSidebar)
+			return a.focusPane(messages.PaneSidebar)
 		}
-		return true, cmd
-
-	case key.Matches(msg, a.keymap.MoveDown):
+		return nil
+	case "move_down":
 		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
-			cmd := a.focusPane(messages.PaneSidebarTerminal)
-			return true, cmd
+			return a.focusPane(messages.PaneSidebarTerminal)
 		}
-		return true, nil
-
-	// Tab management - route to appropriate pane
-	case key.Matches(msg, a.keymap.NextTab):
+		return nil
+	case "help":
+		a.helpOverlay.SetSize(a.width, a.height)
+		a.helpOverlay.Toggle()
+		return nil
+	case "quit":
+		a.showQuitDialog()
+		return nil
+	case "cleanup_tmux":
+		return func() tea.Msg { return messages.ShowCleanupTmuxDialog{} }
+	case "new_agent_tab":
+		if a.activeWorkspace != nil {
+			if !a.tmuxAvailable {
+				return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
+			}
+			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+		}
+		return nil
+	case "new_terminal_tab":
+		if a.activeWorkspace != nil {
+			if !a.tmuxAvailable {
+				return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
+			}
+			return a.sidebarTerminal.CreateNewTab()
+		}
+		return nil
+	case "next_tab":
 		switch a.focusedPane {
 		case messages.PaneSidebarTerminal:
 			a.sidebarTerminal.NextTab()
@@ -117,13 +259,12 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			cmd := a.center.NextTab()
 			_, activeIdxAfter := a.center.GetTabsInfo()
 			if activeIdxAfter == activeIdxBefore {
-				return true, nil
+				return nil
 			}
-			return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 		}
-		return true, nil
-
-	case key.Matches(msg, a.keymap.PrevTab):
+		return nil
+	case "prev_tab":
 		switch a.focusedPane {
 		case messages.PaneSidebarTerminal:
 			a.sidebarTerminal.PrevTab()
@@ -134,106 +275,53 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 			cmd := a.center.PrevTab()
 			_, activeIdxAfter := a.center.GetTabsInfo()
 			if activeIdxAfter == activeIdxBefore {
-				return true, nil
+				return nil
 			}
-			return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 		}
-		return true, nil
-
-	// Tab management
-	case key.Matches(msg, a.keymap.NewAgentTab):
-		if a.activeWorkspace != nil {
-			if !a.tmuxAvailable {
-				return true, a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
-			}
-			return true, func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-		}
-		return true, nil
-
-	case key.Matches(msg, a.keymap.NewTerminalTab):
-		if a.focusedPane == messages.PaneSidebarTerminal && a.activeWorkspace != nil {
-			if !a.tmuxAvailable {
-				return true, a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
-			}
-			return true, a.sidebarTerminal.CreateNewTab()
-		}
-		return true, nil
-
-	case key.Matches(msg, a.keymap.CloseTab):
+		return nil
+	case "close_tab":
 		if a.focusedPane == messages.PaneSidebarTerminal {
-			return true, a.sidebarTerminal.CloseActiveTab()
+			return a.sidebarTerminal.CloseActiveTab()
 		}
-		cmd := a.center.CloseActiveTab()
-		return true, cmd
-
-	case key.Matches(msg, a.keymap.DetachTab):
+		return a.center.CloseActiveTab()
+	case "detach_tab":
 		switch a.focusedPane {
 		case messages.PaneCenter:
 			cmd := a.center.DetachActiveTab()
-			return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+			return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 		case messages.PaneSidebarTerminal:
-			if cmd := a.sidebarTerminal.DetachActiveTab(); cmd != nil {
-				return true, cmd
-			}
+			return a.sidebarTerminal.DetachActiveTab()
 		}
-		return true, nil
-
-	case key.Matches(msg, a.keymap.ReattachTab):
+		return nil
+	case "reattach_tab":
 		switch a.focusedPane {
 		case messages.PaneCenter:
-			cmd := a.center.ReattachActiveTab()
-			return true, cmd
+			return a.center.ReattachActiveTab()
 		case messages.PaneSidebarTerminal:
-			if cmd := a.sidebarTerminal.ReattachActiveTab(); cmd != nil {
-				return true, cmd
-			}
+			return a.sidebarTerminal.ReattachActiveTab()
 		}
-		return true, nil
-
-	case key.Matches(msg, a.keymap.RestartTab):
+		return nil
+	case "restart_tab":
 		switch a.focusedPane {
 		case messages.PaneCenter:
-			cmd := a.center.RestartActiveTab()
-			return true, cmd
+			return a.center.RestartActiveTab()
 		case messages.PaneSidebarTerminal:
-			if cmd := a.sidebarTerminal.RestartActiveTab(); cmd != nil {
-				return true, cmd
-			}
+			return a.sidebarTerminal.RestartActiveTab()
 		}
-		return true, nil
-
-	case key.Matches(msg, a.keymap.CleanupTmux):
-		return true, func() tea.Msg { return messages.ShowCleanupTmuxDialog{} }
-
-	// Global commands
-	case key.Matches(msg, a.keymap.Help):
-		a.helpOverlay.SetSize(a.width, a.height)
-		a.helpOverlay.Toggle()
-		return true, nil
-
-	case key.Matches(msg, a.keymap.Quit):
-		a.showQuitDialog()
-		return true, nil
-
-	// Tab numbers 1-9
-	case len(msg.Key().Text) > 0:
-		runes := []rune(msg.Key().Text)
-		if len(runes) != 1 {
-			break
-		}
-		r := runes[0]
-		if r >= '1' && r <= '9' {
-			index := int(r - '1')
-			tabs, activeIdx := a.center.GetTabsInfo()
-			if index < 0 || index >= len(tabs) || index == activeIdx {
-				return true, nil
-			}
-			cmd := a.center.SelectTab(index)
-			return true, common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
-		}
+		return nil
+	default:
+		return nil
 	}
+}
 
-	return false, nil
+func (a *App) prefixSelectTab(index int) tea.Cmd {
+	tabs, activeIdx := a.center.GetTabsInfo()
+	if index < 0 || index >= len(tabs) || index == activeIdx {
+		return nil
+	}
+	cmd := a.center.SelectTab(index)
+	return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 }
 
 // sendPrefixToTerminal sends a literal Ctrl-Space (NUL) to the focused terminal

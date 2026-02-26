@@ -6,7 +6,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -14,19 +13,12 @@ func (a *App) centerPaneStyle() lipgloss.Style {
 	width := a.layout.CenterWidth()
 	height := a.layout.Height()
 
-	style := lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Width(width-2).
 		Height(height-2).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(common.ColorBorder()).
 		Padding(0, 1)
-
-	if a.focusedPane == messages.PaneCenter {
-		style = style.
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(common.ColorBorderFocused())
-	}
-	return style
 }
 
 // renderCenterPaneContent renders the center pane content when no tabs (raw content, no borders)
@@ -97,7 +89,7 @@ func (a *App) renderWorkspaceInfo() string {
 	agentBtn := btnStyle.Render("[New agent]")
 	content += "\n" + agentBtn
 	if a.config.UI.ShowKeymapHints {
-		content += "\n" + a.styles.Help.Render("C-Spc a:new agent")
+		content += "\n" + a.styles.Help.Render("C-Spc t a:new agent")
 	}
 
 	return content

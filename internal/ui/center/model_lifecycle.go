@@ -28,12 +28,20 @@ func (m *Model) Init() tea.Cmd {
 
 // Focus sets the focus state.
 func (m *Model) Focus() {
+	if m.focused {
+		return
+	}
 	m.focused = true
+	m.setActiveTerminalCursorVisibility(true)
 }
 
 // Blur removes focus.
 func (m *Model) Blur() {
+	if !m.focused {
+		return
+	}
 	m.focused = false
+	m.setActiveTerminalCursorVisibility(false)
 }
 
 // Focused returns whether the center pane is focused.
@@ -120,6 +128,27 @@ func (m *Model) SetSize(width, height int) {
 // SetOffset sets the X offset of the pane from screen left (for mouse coordinate conversion).
 func (m *Model) SetOffset(x int) {
 	m.offsetX = x
+}
+
+func (m *Model) setActiveTerminalCursorVisibility(visible bool) {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	if tab == nil || tab.isClosed() {
+		return
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if tab.Terminal != nil {
+		tab.Terminal.ShowCursor = visible
+	}
+	// Invalidate cached snapshot so focus transitions cannot reuse stale
+	// cursor-painted frames.
+	tab.cachedSnap = nil
+	tab.cachedVersion = 0
 }
 
 // Close cleans up all resources.

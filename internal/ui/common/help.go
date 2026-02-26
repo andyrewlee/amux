@@ -67,30 +67,33 @@ func (h *HelpOverlay) SetStyles(styles Styles) {
 func defaultHelpSections() []HelpSection {
 	return []HelpSection{
 		{
-			Title: "Prefix Key (leader key)",
+			Title: "Prefix Palette",
 			Bindings: []HelpBinding{
-				{"C-Space", "Enter prefix mode"},
+				{"C-Space", "Open command palette"},
+				{"Esc", "Cancel palette"},
+				{"Backspace", "Undo sequence key"},
 				{"C-Space C-Space", "Send literal Ctrl+Space"},
 			},
 		},
 		{
-			Title: "After Prefix: Navigation",
+			Title: "After Prefix: General",
 			Bindings: []HelpBinding{
-				{"h/j/k/l", "Focus pane (←↑↓→)"},
-				{"K", "Cleanup tmux"},
-				{"?", "This help"},
+				{"h/j/k/l", "Focus pane (left/down/up/right)"},
+				{"?", "Toggle help"},
 				{"q", "Quit"},
+				{"K", "Cleanup tmux"},
 			},
 		},
 		{
-			Title: "After Prefix: Tabs",
+			Title: "After Prefix: Tabs (t ...)",
 			Bindings: []HelpBinding{
-				{"a", "Create new agent tab"},
-				{"x", "Close current tab"},
-				{"D", "Detach tab"},
-				{"R", "Reattach tab"},
-				{"S", "Restart tab"},
-				{"n/p", "Next/prev tab"},
+				{"t a", "Create new agent tab"},
+				{"t t", "Create new terminal tab"},
+				{"t x", "Close current tab"},
+				{"t d", "Detach tab"},
+				{"t r", "Reattach tab"},
+				{"t s", "Restart tab"},
+				{"t n / t p", "Next/prev tab"},
 				{"1-9", "Jump to tab N"},
 			},
 		},

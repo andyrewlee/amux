@@ -14,6 +14,8 @@ import (
 
 // composeOverlays adds overlay layers (dialogs, toasts, help, etc.) to the canvas.
 func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
+	prefixOverlayHeight := 0
+
 	// Dialog overlay
 	if a.dialog != nil && a.dialog.Visible() {
 		dialogView := a.dialog.View()
@@ -50,24 +52,17 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		canvas.Compose(helpDrawable)
 	}
 
-	// Prefix mode indicator
+	// Prefix command palette
 	if a.prefixActive {
-		indicator := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#1a1b26")).
-			Background(lipgloss.Color("#7aa2f7")).
-			Padding(0, 1).
-			Render("PREFIX")
-		indicatorWidth := lipgloss.Width(indicator)
-		x := a.width - indicatorWidth - 1
-		y := a.height - 3
-		if x < 0 {
-			x = 0
-		}
+		palette := a.renderPrefixPalette()
+		_, paletteHeight := viewDimensions(palette)
+		prefixOverlayHeight = paletteHeight
+		x := 0
+		y := a.height - paletteHeight
 		if y < 0 {
 			y = 0
 		}
-		prefixDrawable := compositor.NewStringDrawable(indicator, x, y)
+		prefixDrawable := compositor.NewStringDrawable(palette, x, y)
 		canvas.Compose(prefixDrawable)
 	}
 
@@ -77,7 +72,7 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		if toastView != "" {
 			toastWidth := lipgloss.Width(toastView)
 			x := (a.width - toastWidth) / 2
-			y := a.height - 2
+			y := a.height - 2 - prefixOverlayHeight
 			if x < 0 {
 				x = 0
 			}

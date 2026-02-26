@@ -293,15 +293,39 @@ func (m *TerminalModel) HasMultipleTabs() bool {
 
 // Focus sets focus state
 func (m *TerminalModel) Focus() {
+	if m.focused {
+		return
+	}
 	m.focused = true
+	m.setActiveTerminalCursorVisibility(true)
 }
 
 // Blur removes focus
 func (m *TerminalModel) Blur() {
+	if !m.focused {
+		return
+	}
 	m.focused = false
+	m.setActiveTerminalCursorVisibility(false)
 }
 
 // Focused returns whether the terminal is focused
 func (m *TerminalModel) Focused() bool {
 	return m.focused
+}
+
+func (m *TerminalModel) setActiveTerminalCursorVisibility(visible bool) {
+	ts := m.getTerminal()
+	if ts == nil {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.VTerm != nil {
+		ts.VTerm.ShowCursor = visible
+	}
+	// Invalidate cached snapshot so focus transitions cannot reuse stale
+	// cursor-painted frames.
+	ts.cachedSnap = nil
+	ts.cachedVersion = 0
 }

@@ -69,7 +69,7 @@ func TestWorkspaceCreateAgentsHaveDistinctSessions(t *testing.T) {
 
 func createAgentTabWithSelection(t *testing.T, session *PTYSession, down int, timeout time.Duration) {
 	t.Helper()
-	sendPrefixCommand(t, session, "a")
+	sendPrefixSequence(t, session, "t", "a")
 	waitForUIContains(t, session, "New Agent", timeout)
 	for i := 0; i < down; i++ {
 		if err := session.SendString("\t"); err != nil {

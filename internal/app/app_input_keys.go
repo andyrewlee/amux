@@ -36,10 +36,15 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 	// 1. Handle prefix key (Ctrl+Space)
 	if a.isPrefixKey(msg) {
 		if a.prefixActive {
-			// Prefix + Prefix = send literal Ctrl+Space to terminal
-			a.sendPrefixToTerminal()
-			a.exitPrefix()
-			return nil
+			if len(a.prefixSequence) == 0 {
+				// Prefix + Prefix = send literal Ctrl+Space to terminal.
+				a.sendPrefixToTerminal()
+				a.exitPrefix()
+				return nil
+			}
+			// Restart narrowing from the root command list.
+			a.prefixSequence = nil
+			return a.refreshPrefixTimeout()
 		}
 		// Enter prefix mode
 		return a.enterPrefix()
@@ -54,10 +59,14 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 
-		handled, cmd := a.handlePrefixCommand(msg)
-		if handled {
+		status, cmd := a.handlePrefixCommand(msg)
+		switch status {
+		case prefixMatchComplete:
 			a.exitPrefix()
 			return cmd
+		case prefixMatchPartial:
+			// Keep prefix mode open while the sequence narrows.
+			return a.refreshPrefixTimeout()
 		}
 		// Unknown key in prefix mode: exit prefix and pass through
 		a.exitPrefix()
