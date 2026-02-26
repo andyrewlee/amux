@@ -68,8 +68,13 @@ type projectEntry struct {
 }
 
 func cmdProjectList(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux project list [--json]"
-	if len(args) > 0 {
+	const usage = "Usage: amux project list [--all] [--json]"
+	fs := newFlagSet("project list")
+	all := fs.Bool("all", false, "include non-git/deleted registered paths")
+	if err := fs.Parse(args); err != nil {
+		return returnUsageError(w, wErr, gf, usage, version, err)
+	}
+	if fs.NArg() > 0 {
 		return returnUsageError(w, wErr, gf, usage, version, errors.New("unexpected arguments"))
 	}
 
@@ -93,12 +98,27 @@ func cmdProjectList(w, wErr io.Writer, gf GlobalFlags, args []string, version st
 		return ExitInternalError
 	}
 
-	entries := make([]projectEntry, len(paths))
-	for i, p := range paths {
-		entries[i] = projectEntry{
+	entries := make([]projectEntry, 0, len(paths))
+	seenVisible := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		// Keep default CLI output aligned with TUI-visible projects.
+		// Use --all for raw registry inspection/cleanup workflows.
+		if !*all && !git.IsGitRepository(p) {
+			continue
+		}
+		if !*all {
+			key := normalizeRepoPathForCompare(p)
+			if key != "" {
+				if _, ok := seenVisible[key]; ok {
+					continue
+				}
+				seenVisible[key] = struct{}{}
+			}
+		}
+		entries = append(entries, projectEntry{
 			Name: filepath.Base(p),
 			Path: p,
-		}
+		})
 	}
 
 	if gf.JSON {

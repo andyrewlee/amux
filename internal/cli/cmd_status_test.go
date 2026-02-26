@@ -3,8 +3,14 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/data"
 )
 
 func TestCmdStatusJSON(t *testing.T) {
@@ -74,5 +80,119 @@ func TestCmdStatusUnexpectedArgsReturnsUsageError(t *testing.T) {
 	}
 	if env.Error == nil || !strings.Contains(env.Error.Message, "unexpected arguments") {
 		t.Fatalf("unexpected usage_error message: %#v", env.Error)
+	}
+}
+
+func TestCmdStatusCountsUseVisibleProjectWorkspaceView(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	validRepo := filepath.Join(t.TempDir(), "valid-repo")
+	if err := os.MkdirAll(validRepo, 0o755); err != nil {
+		t.Fatalf("MkdirAll(validRepo) error = %v", err)
+	}
+	runGit(t, validRepo, "init")
+
+	staleRepo := filepath.Join(t.TempDir(), "stale-repo")
+
+	registry := data.NewRegistry(filepath.Join(home, ".amux", "projects.json"))
+	if err := registry.AddProject(validRepo); err != nil {
+		t.Fatalf("registry.AddProject(validRepo) error = %v", err)
+	}
+	if err := registry.AddProject(staleRepo); err != nil {
+		t.Fatalf("registry.AddProject(staleRepo) error = %v", err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(home, ".amux", "workspaces-metadata"))
+	validWS := data.NewWorkspace("valid", "main", "", validRepo, filepath.Join(home, ".amux", "workspaces", filepath.Base(validRepo), "valid"))
+	if err := store.Save(validWS); err != nil {
+		t.Fatalf("store.Save(validWS) error = %v", err)
+	}
+	staleWS := data.NewWorkspace("stale", "main", "", staleRepo, filepath.Join(staleRepo, ".amux", "workspaces", "stale"))
+	if err := store.Save(staleWS); err != nil {
+		t.Fatalf("store.Save(staleWS) error = %v", err)
+	}
+
+	var w, wErr bytes.Buffer
+	code := cmdStatus(&w, &wErr, GlobalFlags{JSON: true}, nil, "test-v1")
+	if code != ExitOK {
+		t.Fatalf("expected exit 0, got %d; stderr: %s", code, wErr.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("failed to decode JSON: %v\nraw: %s", err, w.String())
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true")
+	}
+
+	dataMap, ok := env.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected data object, got %T", env.Data)
+	}
+
+	if got, _ := dataMap["project_count"].(float64); int(got) != 1 {
+		t.Fatalf("project_count = %v, want 1", dataMap["project_count"])
+	}
+	if got, _ := dataMap["workspace_count"].(float64); int(got) != 1 {
+		t.Fatalf("workspace_count = %v, want 1", dataMap["workspace_count"])
+	}
+}
+
+func TestCmdStatusProjectCountDedupesCanonicalAliasEntries(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink path canonicalization path is unstable on windows in test environment")
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoReal := filepath.Join(t.TempDir(), "repo-real")
+	if err := os.MkdirAll(repoReal, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoReal) error = %v", err)
+	}
+	runGit(t, repoReal, "init")
+	repoLink := filepath.Join(t.TempDir(), "repo-link")
+	if err := os.Symlink(repoReal, repoLink); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	registryPath := filepath.Join(home, ".amux", "projects.json")
+	if err := os.MkdirAll(filepath.Dir(registryPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(registry dir) error = %v", err)
+	}
+	raw := `{"projects":[{"name":"repo","path":"` + repoReal + `"},{"name":"repo","path":"` + repoLink + `"}]}`
+	if err := os.WriteFile(registryPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile(registry) error = %v", err)
+	}
+
+	var w, wErr bytes.Buffer
+	code := cmdStatus(&w, &wErr, GlobalFlags{JSON: true}, nil, "test-v1")
+	if code != ExitOK {
+		t.Fatalf("expected exit 0, got %d; stderr: %s", code, wErr.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("failed to decode JSON: %v\nraw: %s", err, w.String())
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true")
+	}
+
+	dataMap, ok := env.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected data object, got %T", env.Data)
+	}
+	if got, _ := dataMap["project_count"].(float64); int(got) != 1 {
+		t.Fatalf("project_count = %v, want 1", dataMap["project_count"])
 	}
 }

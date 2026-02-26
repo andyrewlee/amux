@@ -245,6 +245,9 @@ exit 2
 	env := os.Environ()
 	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
 	env = withEnv(env, "FAKE_AMUX_RUN_JSON", runJSON)
+	// Keep this test fast: it validates suggested-command formatting only, not
+	// timeout recovery capture behavior.
+	env = withEnv(env, "AMUX_ASSISTANT_STEP_TIMEOUT_RECOVERY_POLLS", "0")
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {

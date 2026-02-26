@@ -3,6 +3,7 @@ package data
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -162,6 +163,75 @@ func TestRegistry_RemoveProjectUsesCanonicalIdentity(t *testing.T) {
 	}
 	if len(paths) != 0 {
 		t.Fatalf("expected registry to be empty after canonical remove, got %v", paths)
+	}
+}
+
+func TestRegistry_AddProjectDedupesSymlinkAliases(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions are unstable on windows test environments")
+	}
+
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	repoReal := filepath.Join(tmpDir, "repo-real")
+	if err := os.MkdirAll(repoReal, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoReal) error = %v", err)
+	}
+	repoLink := filepath.Join(tmpDir, "repo-link")
+	if err := os.Symlink(repoReal, repoLink); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(repoReal); err != nil {
+		t.Fatalf("AddProject(repoReal) error = %v", err)
+	}
+	if err := r.AddProject(repoLink); err != nil {
+		t.Fatalf("AddProject(repoLink) error = %v", err)
+	}
+
+	paths, err := r.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 canonical project after symlink alias add, got %d (%v)", len(paths), paths)
+	}
+}
+
+func TestRegistry_RemoveProjectMatchesSymlinkAliasWhenLeafMissing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions are unstable on windows test environments")
+	}
+
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	repoParentReal := filepath.Join(tmpDir, "real-parent")
+	if err := os.MkdirAll(repoParentReal, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoParentReal) error = %v", err)
+	}
+	repoParentLink := filepath.Join(tmpDir, "link-parent")
+	if err := os.Symlink(repoParentReal, repoParentLink); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	removedLeaf := filepath.Join(repoParentReal, "repo-missing")
+	linkLeaf := filepath.Join(repoParentLink, "repo-missing")
+
+	r := NewRegistry(registryPath)
+	if err := r.Save([]string{linkLeaf}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if err := r.RemoveProject(removedLeaf); err != nil {
+		t.Fatalf("RemoveProject() error = %v", err)
+	}
+
+	paths, err := r.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("expected registry to be empty after alias remove on missing leaf, got %v", paths)
 	}
 }
 

@@ -51,6 +51,16 @@ When running `amux` through Assistant `exec`/`process` tools, avoid monitor dead
 25. Do not run concurrent long agent turns on the same Assistant agent lane/session key; queueing can add large delays and confuse progress reporting.
 26. If you must call `amux --json agent capture`, branch on `data.status`; treat `session_exited` as a terminal state to summarize, not an orchestration crash.
 
+### Binary Pinning (TUI/CLI Consistency)
+
+If multiple `amux` binaries exist on `PATH`, pin wrappers to the exact binary you want:
+
+```bash
+AMUX_BIN=/absolute/path/to/amux skills/amux/scripts/assistant-dx.sh status
+```
+
+`assistant-dx.sh`, `assistant-step.sh`, and `assistant-turn.sh` all honor `AMUX_BIN` (default: `amux`).
+
 ### Assistant one-step wrapper (recommended)
 
 ```bash

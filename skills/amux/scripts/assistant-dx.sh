@@ -8,6 +8,8 @@
 
 set -euo pipefail
 
+AMUX_BIN="${AMUX_BIN:-amux}"
+
 usage() {
   cat >&2 <<'USAGE'
 Usage:
@@ -312,7 +314,7 @@ amux_ok_json() {
   if [[ -n "${AMUX_ERROR_CAPTURE_FILE:-}" ]]; then
     : >"$AMUX_ERROR_CAPTURE_FILE" 2>/dev/null || true
   fi
-  if ! out="$(amux --json "$@" 2>&1)"; then
+  if ! out="$("$AMUX_BIN" --json "$@" 2>&1)"; then
     AMUX_ERROR_OUTPUT="$out"
     if [[ -n "${AMUX_ERROR_CAPTURE_FILE:-}" ]]; then
       printf '%s' "$out" >"$AMUX_ERROR_CAPTURE_FILE" 2>/dev/null || true
@@ -1745,12 +1747,101 @@ project_row_by_path() {
   printf ''
 }
 
+project_selector_looks_path() {
+  local selector="${1:-}"
+  case "$selector" in
+    ""|/*|./*|../*|~/*|*/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+project_row_by_name() {
+  local project_name="$1"
+  local out rows matches count
+  if [[ -z "${project_name// }" ]]; then
+    printf ''
+    return 0
+  fi
+  if ! out="$(amux_ok_json project list)"; then
+    return 1
+  fi
+  rows="$(jq -c '.data // []' <<<"$out")"
+  matches="$(jq -c --arg name "$project_name" '
+    map(select(((.name // "") | ascii_downcase) == ($name | ascii_downcase)))
+  ' <<<"$rows")"
+  count="$(jq -r 'length' <<<"$matches")"
+  if ! is_positive_int "$count" || [[ "$count" -eq 0 ]]; then
+    printf ''
+    return 0
+  fi
+
+  local row row_path row_normalized first_match seen_paths unique_repo_count
+  first_match=""
+  seen_paths=""
+  unique_repo_count=0
+  while IFS= read -r row; do
+    [[ -z "${row// }" ]] && continue
+    [[ -z "${first_match// }" ]] && first_match="$row"
+    row_path="$(jq -r '.path // ""' <<<"$row")"
+    row_normalized="$(normalize_path_for_compare "$row_path")"
+    if [[ -z "${row_normalized// }" ]]; then
+      row_normalized="$row_path"
+    fi
+    if [[ -z "${row_normalized// }" ]]; then
+      continue
+    fi
+    if ! printf '%s\n' "$seen_paths" | grep -Fqx -- "$row_normalized"; then
+      seen_paths+="$row_normalized"$'\n'
+      unique_repo_count=$((unique_repo_count + 1))
+    fi
+  done < <(jq -c '.[]' <<<"$matches")
+
+  if [[ "$unique_repo_count" -le 1 && -n "${first_match// }" ]]; then
+    printf '%s' "$first_match"
+    return 0
+  fi
+
+  AMUX_ERROR_OUTPUT="$(jq -cn --arg selector "$project_name" --argjson matches "$matches" '
+    {
+      ok: false,
+      error: {
+        code: "ambiguous_project_name",
+        message: ("project name \"" + $selector + "\" matches multiple registered projects; use --project <path>"),
+        details: {
+          selector: $selector,
+          matches: $matches
+        }
+      }
+    }
+  ')"
+  if [[ -n "${AMUX_ERROR_CAPTURE_FILE:-}" ]]; then
+    printf '%s' "$AMUX_ERROR_OUTPUT" >"$AMUX_ERROR_CAPTURE_FILE" 2>/dev/null || true
+  fi
+  return 1
+}
+
 ensure_project_registered() {
   local project_path="$1"
   local existing add_out
-  if existing="$(project_row_by_path "$project_path")" && [[ -n "${existing// }" ]]; then
+  if ! existing="$(project_row_by_path "$project_path")"; then
+    return 1
+  fi
+  if [[ -n "${existing// }" ]]; then
     printf '%s' "$existing"
     return 0
+  fi
+  if ! project_selector_looks_path "$project_path"; then
+    if ! existing="$(project_row_by_name "$project_path")"; then
+      return 1
+    fi
+    if [[ -n "${existing// }" ]]; then
+      printf '%s' "$existing"
+      return 0
+    fi
   fi
   if ! add_out="$(amux_ok_json project add "$project_path")"; then
     return 1
@@ -7786,8 +7877,8 @@ require_prereqs() {
     printf '{"ok":false,"command":"unknown","status":"command_error","summary":"jq is required","error":"missing binary: jq"}\n'
     exit 0
   fi
-  if ! command -v amux >/dev/null 2>&1; then
-    printf '{"ok":false,"command":"unknown","status":"command_error","summary":"amux is required","error":"missing binary: amux"}\n'
+  if ! command -v "$AMUX_BIN" >/dev/null 2>&1; then
+    printf '{"ok":false,"command":"unknown","status":"command_error","summary":"amux is required","error":"missing binary: %s"}\n' "$AMUX_BIN"
     exit 0
   fi
 }

@@ -178,3 +178,49 @@ esac
 		t.Fatalf("quick_actions[0].action_id is empty")
 	}
 }
+
+func TestAssistantDXWrapper_UsesAMUXBinOverride(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "assistant-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux-custom")
+	logPath := filepath.Join(fakeBinDir, "amux-call.log")
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' "$*" > "${AMUX_CALL_LOG:?missing AMUX_CALL_LOG}"
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "project list")
+    printf '%s' '{"ok":true,"data":[{"name":"api","path":"/tmp/api"}],"error":null}'
+    ;;
+  *)
+    printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"}}' "$*"
+    ;;
+esac
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "AMUX_BIN", fakeAmuxPath)
+	env = withEnv(env, "AMUX_CALL_LOG", logPath)
+
+	payload := runScriptJSON(t, scriptPath, env,
+		"project", "list",
+		"--query", "api",
+	)
+
+	if got, _ := payload["status"].(string); got == "command_error" {
+		t.Fatalf("status = %q, expected non-command_error", got)
+	}
+
+	rawArgs, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read AMUX_CALL_LOG: %v", err)
+	}
+	if !strings.Contains(string(rawArgs), "project list") {
+		t.Fatalf("amux override was not called with expected args: %q", strings.TrimSpace(string(rawArgs)))
+	}
+}

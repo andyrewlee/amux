@@ -162,6 +162,184 @@ printf '%s' '{"ok":true,"mode":"send","status":"idle","overall_status":"complete
 	}
 }
 
+func TestAssistantDXWorkflowKickoff_ProjectNameUsesExistingRegisteredPath(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "assistant-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	fakeTurnPath := filepath.Join(fakeBinDir, "fake-turn.sh")
+	projectAddLog := filepath.Join(fakeBinDir, "project-add.log")
+	workspaceProjectLog := filepath.Join(fakeBinDir, "workspace-project.log")
+
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "project list")
+    printf '%s' '{"ok":true,"data":[{"name":"checkfu","path":"/Users/andrewlee/founding/checkfu"}],"error":null}'
+    ;;
+  "project add")
+    printf '%s' "${3:-}" > "${PROJECT_ADD_LOG:?missing PROJECT_ADD_LOG}"
+    printf '%s' '{"ok":true,"data":{"name":"checkfu","path":"/Users/andrewlee/checkfu"},"error":null}'
+    ;;
+  "workspace create")
+    project=""
+    while [[ $# -gt 0 ]]; do
+      if [[ "${1:-}" == "--project" && $# -ge 2 ]]; then
+        project="$2"
+        break
+      fi
+      shift
+    done
+    printf '%s' "$project" > "${WORKSPACE_PROJECT_LOG:?missing WORKSPACE_PROJECT_LOG}"
+    printf '%s' '{"ok":true,"data":{"id":"ws-checkfu","name":"checkfu-review","repo":"/Users/andrewlee/founding/checkfu","root":"/tmp/ws-checkfu","assistant":"codex"},"error":null}'
+    ;;
+  "workspace list")
+    printf '%s' '{"ok":true,"data":[{"id":"ws-checkfu","name":"checkfu-review","repo":"/Users/andrewlee/founding/checkfu","root":"/tmp/ws-checkfu","assistant":"codex","created":"2026-02-22T00:00:00Z"}],"error":null}'
+    ;;
+  *)
+    printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"}}' "$*"
+    ;;
+esac
+`)
+
+	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed","summary":"Review complete.","agent_id":"agent-1","workspace_id":"ws-checkfu","assistant":"codex","next_action":"Open PR.","suggested_command":"","quick_actions":[],"channel":{"message":"done","chunks":["done"],"chunks_meta":[{"index":1,"total":1,"text":"done"}],"inline_buttons":[]}}'
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "PROJECT_ADD_LOG", projectAddLog)
+	env = withEnv(env, "WORKSPACE_PROJECT_LOG", workspaceProjectLog)
+	env = withEnv(env, "AMUX_ASSISTANT_DX_TURN_SCRIPT", fakeTurnPath)
+	env = withEnv(env, "AMUX_ASSISTANT_DX_SELF_SCRIPT", scriptPath)
+	env = withEnv(env, "AMUX_ASSISTANT_PRESENT_SCRIPT", "/nonexistent")
+
+	payload := runScriptJSON(t, scriptPath, env,
+		"workflow", "kickoff",
+		"--project", "checkfu",
+		"--name", "checkfu-review",
+		"--assistant", "codex",
+		"--prompt", "Review uncommitted changes.",
+	)
+
+	if got, _ := payload["status"].(string); got == "command_error" {
+		t.Fatalf("status = %q, want non-command_error", got)
+	}
+
+	projectArgRaw, err := os.ReadFile(workspaceProjectLog)
+	if err != nil {
+		t.Fatalf("read workspace project log: %v", err)
+	}
+	if got := strings.TrimSpace(string(projectArgRaw)); got != "/Users/andrewlee/founding/checkfu" {
+		t.Fatalf("workspace create --project = %q, want %q", got, "/Users/andrewlee/founding/checkfu")
+	}
+
+	if _, err := os.Stat(projectAddLog); err == nil {
+		projectAddRaw, readErr := os.ReadFile(projectAddLog)
+		if readErr != nil {
+			t.Fatalf("read project add log: %v", readErr)
+		}
+		if strings.TrimSpace(string(projectAddRaw)) != "" {
+			t.Fatalf("unexpected project add call for bare-name selector: %q", strings.TrimSpace(string(projectAddRaw)))
+		}
+	}
+}
+
+func TestAssistantDXWorkflowKickoff_ProjectNameAmbiguousReturnsCommandError(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "assistant-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	fakeTurnPath := filepath.Join(fakeBinDir, "fake-turn.sh")
+	projectAddLog := filepath.Join(fakeBinDir, "project-add.log")
+	workspaceCreateLog := filepath.Join(fakeBinDir, "workspace-create.log")
+
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "project list")
+    printf '%s' '{"ok":true,"data":[{"name":"checkfu","path":"/Users/andrewlee/founding/checkfu"},{"name":"checkfu","path":"/Users/andrewlee/client/checkfu"}],"error":null}'
+    ;;
+  "project add")
+    printf '%s' "${3:-}" > "${PROJECT_ADD_LOG:?missing PROJECT_ADD_LOG}"
+    printf '%s' '{"ok":true,"data":{"name":"checkfu","path":"/Users/andrewlee/checkfu"},"error":null}'
+    ;;
+  "workspace create")
+    printf '%s' "called" > "${WORKSPACE_CREATE_LOG:?missing WORKSPACE_CREATE_LOG}"
+    printf '%s' '{"ok":true,"data":{"id":"ws-checkfu","name":"checkfu-review","repo":"/Users/andrewlee/founding/checkfu","root":"/tmp/ws-checkfu","assistant":"codex"},"error":null}'
+    ;;
+  *)
+    printf '%s' '{"ok":true,"data":[],"error":null}'
+    ;;
+esac
+`)
+
+	writeExecutable(t, fakeTurnPath, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' '{"ok":true,"mode":"run","status":"idle","overall_status":"completed","summary":"done","agent_id":"agent-1","workspace_id":"ws-checkfu","assistant":"codex","next_action":"","suggested_command":"","quick_actions":[],"channel":{"message":"done","chunks":["done"],"chunks_meta":[{"index":1,"total":1,"text":"done"}],"inline_buttons":[]}}'
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "PROJECT_ADD_LOG", projectAddLog)
+	env = withEnv(env, "WORKSPACE_CREATE_LOG", workspaceCreateLog)
+	env = withEnv(env, "AMUX_ASSISTANT_DX_TURN_SCRIPT", fakeTurnPath)
+	env = withEnv(env, "AMUX_ASSISTANT_DX_SELF_SCRIPT", scriptPath)
+	env = withEnv(env, "AMUX_ASSISTANT_PRESENT_SCRIPT", "/nonexistent")
+
+	payload := runScriptJSON(t, scriptPath, env,
+		"workflow", "kickoff",
+		"--project", "checkfu",
+		"--name", "checkfu-review",
+		"--assistant", "codex",
+		"--prompt", "Review uncommitted changes.",
+	)
+
+	if got, _ := payload["status"].(string); got != "command_error" {
+		t.Fatalf("status = %q, want %q", got, "command_error")
+	}
+	summary, _ := payload["summary"].(string)
+	if !strings.Contains(summary, "matches multiple registered projects") {
+		t.Fatalf("summary = %q, want ambiguity guidance", summary)
+	}
+
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("data = %T, want map[string]any", payload["data"])
+	}
+	errData, ok := data["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("data.error = %T, want map[string]any", data["error"])
+	}
+	if got, _ := errData["code"].(string); got != "ambiguous_project_name" {
+		t.Fatalf("data.error.code = %q, want %q", got, "ambiguous_project_name")
+	}
+
+	if _, err := os.Stat(projectAddLog); err == nil {
+		projectAddRaw, readErr := os.ReadFile(projectAddLog)
+		if readErr != nil {
+			t.Fatalf("read project add log: %v", readErr)
+		}
+		if strings.TrimSpace(string(projectAddRaw)) != "" {
+			t.Fatalf("unexpected project add call for ambiguous selector: %q", strings.TrimSpace(string(projectAddRaw)))
+		}
+	}
+	if _, err := os.Stat(workspaceCreateLog); err == nil {
+		t.Fatalf("workspace create should not be called for ambiguous bare-name selector")
+	}
+}
+
 func TestAssistantDXWorkflowKickoff_DoesNotAutoContinueWhenPromptHasExplicitChoices(t *testing.T) {
 	requireBinary(t, "jq")
 	requireBinary(t, "bash")

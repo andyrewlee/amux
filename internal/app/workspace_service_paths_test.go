@@ -62,7 +62,7 @@ func TestLoadProjects_SymlinkedWorkspacesRootKeepsMissingManagedWorkspace(t *tes
 
 	var project *data.Project
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repo) {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -139,7 +139,7 @@ func TestLoadProjects_SymlinkedWorkspacesRootKeepsMissingResolvedManagedWorkspac
 
 	var project *data.Project
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repo) {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -211,7 +211,7 @@ func TestLoadProjects_BrokenSymlinkedWorkspacesRootKeepsMissingResolvedManagedWo
 
 	var project *data.Project
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repo) {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -288,7 +288,7 @@ func TestWorkspaceVisibilityAcrossRepoAliasBasenameChange(t *testing.T) {
 
 	var project *data.Project
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repoAlias {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repoAlias) {
 			project = &loaded.Projects[i]
 			break
 		}

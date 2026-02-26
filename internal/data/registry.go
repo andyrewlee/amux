@@ -241,6 +241,16 @@ func canonicalProjectPath(path string) string {
 	if abs, err := filepath.Abs(cleaned); err == nil {
 		cleaned = abs
 	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return filepath.Clean(resolved)
+	}
+	// Keep symlink aliases stable even when the leaf no longer exists by
+	// resolving the deepest existing parent directory.
+	dir := filepath.Dir(cleaned)
+	base := filepath.Base(cleaned)
+	if resolvedDir, err := filepath.EvalSymlinks(dir); err == nil {
+		return filepath.Clean(filepath.Join(resolvedDir, base))
+	}
 	return filepath.Clean(cleaned)
 }
 

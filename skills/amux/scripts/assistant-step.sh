@@ -21,6 +21,8 @@
 
 set -euo pipefail
 
+AMUX_BIN="${AMUX_BIN:-amux}"
+
 shell_quote() {
   printf '%q' "$1"
 }
@@ -680,8 +682,8 @@ if [[ -z "$IDEMPOTENCY_KEY" && "$AUTO_IDEMPOTENCY" != "false" ]]; then
   IDEMPOTENCY_KEY="tgstep-${idempotency_hash:0:20}"
 fi
 
-if ! command -v amux >/dev/null 2>&1; then
-  print_json_error "$MODE" "command_error" "amux is not installed" "missing binary: amux"
+if ! command -v "$AMUX_BIN" >/dev/null 2>&1; then
+  print_json_error "$MODE" "command_error" "amux is not installed" "missing binary: $AMUX_BIN"
   exit 127
 fi
 
@@ -690,7 +692,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 127
 fi
 
-cmd=(amux --json)
+cmd=("$AMUX_BIN" --json)
 case "$MODE" in
   run)
     if [[ -z "$WORKSPACE" || -z "$ASSISTANT" || -z "$PROMPT" ]]; then
@@ -890,7 +892,7 @@ if [[ "$STATUS" == "timed_out" && "$SUBSTANTIVE_OUTPUT" != "true" && -n "$SESSIO
     if [[ "$RECOVERY_INTERVAL" -gt 0 ]]; then
       sleep "$RECOVERY_INTERVAL"
     fi
-    capture_json="$(amux --json agent capture "$SESSION_NAME" --lines "$RECOVERY_LINES" 2>/dev/null || true)"
+    capture_json="$("$AMUX_BIN" --json agent capture "$SESSION_NAME" --lines "$RECOVERY_LINES" 2>/dev/null || true)"
     if ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$capture_json"; then
       continue
     fi

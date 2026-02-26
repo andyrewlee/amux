@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -48,16 +49,29 @@ func cmdStatus(w, wErr io.Writer, gf GlobalFlags, args []string, version string)
 	// Home dir
 	result.HomeReadable = isReadable(svc.Config.Paths.Home)
 
-	// Projects
+	// Projects (align with visible dashboard/CLI defaults: registered git repos only)
 	projects, err := svc.Registry.Projects()
 	if err == nil {
-		result.ProjectCount = len(projects)
+		seen := make(map[string]struct{}, len(projects))
+		for _, path := range projects {
+			if !git.IsGitRepository(path) {
+				continue
+			}
+			key := normalizeRepoPathForCompare(path)
+			if key != "" {
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+			}
+			result.ProjectCount++
+		}
 	}
 
-	// Workspaces
-	wsIDs, err := svc.Store.List()
+	// Workspaces (same visibility as `workspace list` default)
+	workspaces, err := listAll(svc, false, false)
 	if err == nil {
-		result.WorkspaceCount = len(wsIDs)
+		result.WorkspaceCount = len(workspaces)
 	}
 
 	// Sessions

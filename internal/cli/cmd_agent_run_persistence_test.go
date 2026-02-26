@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -109,6 +110,19 @@ func TestCmdAgentRunMetadataSaveFailureReturnsInternalErrorAndCleansSession(t *t
 
 func TestCmdAgentRunPromptSendFailureReturnsInternalErrorAndDoesNotPersistTab(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	origTimeout := promptReadyTimeout
+	origPoll := promptPollInterval
+	origStable := promptStableRounds
+	t.Cleanup(func() {
+		promptReadyTimeout = origTimeout
+		promptPollInterval = origPoll
+		promptStableRounds = origStable
+	})
+	// This test exercises prompt send failure handling, not startup readiness.
+	// Keep readiness polling short so a missing prompt marker does not add 30s.
+	promptReadyTimeout = 10 * time.Millisecond
+	promptPollInterval = 1 * time.Millisecond
+	promptStableRounds = 1
 
 	svc, err := NewServices("test-v1")
 	if err != nil {

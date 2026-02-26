@@ -41,9 +41,13 @@ openclaw-sync: install
 test:
 	go test -v ./...
 
+DEVCHECK_TEST_FLAGS ?= -v
+
 devcheck:
 	go vet ./...
-	go test ./...
+	# internal/cli can run for a few minutes; keep per-test output visible so
+	# local runs don't appear hung.
+	go test $(DEVCHECK_TEST_FLAGS) ./...
 	$(MAKE) lint
 
 bench:

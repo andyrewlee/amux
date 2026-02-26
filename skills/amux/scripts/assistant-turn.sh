@@ -13,6 +13,8 @@
 
 set -euo pipefail
 
+AMUX_BIN="${AMUX_BIN:-amux}"
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -186,12 +188,12 @@ workspace_root_for_turn() {
     printf ''
     return 0
   fi
-  if ! command -v amux >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+  if ! command -v "$AMUX_BIN" >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
     printf ''
     return 0
   fi
   local ws_json root
-  ws_json="$(amux --json workspace list --archived 2>/dev/null || true)"
+  ws_json="$("$AMUX_BIN" --json workspace list --archived 2>/dev/null || true)"
   if ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$ws_json"; then
     printf ''
     return 0
