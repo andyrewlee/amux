@@ -311,6 +311,8 @@ func (m *TerminalModel) View() string {
 		}
 	} else {
 		ts.mu.Lock()
+		// Keep cursor state in sync at render time too; Focus/Blur also set
+		// this eagerly to avoid stale frames during fast pane switches.
 		ts.VTerm.ShowCursor = m.focused
 		// Use VTerm.Render() directly - it uses dirty line caching and delta styles
 		content := ts.VTerm.Render()

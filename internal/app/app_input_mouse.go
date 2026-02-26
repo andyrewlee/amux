@@ -223,7 +223,7 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 
 	leftGutter := a.layout.LeftGutter()
 	if x < leftGutter {
-		return messages.PaneCenter, false
+		return messages.PaneDashboard, true
 	}
 
 	dashWidth := a.layout.DashboardWidth()
@@ -231,6 +231,8 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 		return messages.PaneDashboard, true
 	}
 
+	// Keep hit-testing geometry in lockstep with app_view.go layout math:
+	// dashboard, optional center (after gap), optional sidebar (after gap).
 	centerStart := leftGutter + dashWidth
 	if a.layout.ShowCenter() {
 		centerStart += a.layout.GapX()

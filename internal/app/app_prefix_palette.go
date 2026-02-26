@@ -91,55 +91,127 @@ type prefixPaletteSection struct {
 
 func (a *App) prefixPaletteSections() []prefixPaletteSection {
 	if len(a.prefixSequence) == 0 {
+		return a.rootPrefixPaletteSections()
+	}
+
+	choices := a.nextPrefixPaletteChoices()
+	if len(choices) > 0 {
 		return []prefixPaletteSection{
 			{
-				Title: "Navigation",
-				Choices: []prefixPaletteChoice{
-					{Key: "h", Desc: "focus left"},
-					{Key: "j", Desc: "focus down"},
-					{Key: "k", Desc: "focus up"},
-					{Key: "l", Desc: "focus right"},
-				},
-			},
-			{
-				Title: "General",
-				Choices: []prefixPaletteChoice{
-					{Key: "?", Desc: "toggle help"},
-					{Key: "q", Desc: "quit"},
-					{Key: "K", Desc: "cleanup tmux"},
-				},
-			},
-			{
-				Title: "Tabs",
-				Choices: []prefixPaletteChoice{
-					{Key: "t", Desc: "tab commands"},
-					{Key: "1-9", Desc: "jump tab"},
-				},
+				Title:   prefixPaletteGroupTitle(a.prefixSequence[0]),
+				Choices: choices,
 			},
 		}
 	}
-	if len(a.prefixSequence) == 1 && a.prefixSequence[0] == "t" {
-		return []prefixPaletteSection{
-			{
-				Title: "Tabs",
-				Choices: []prefixPaletteChoice{
-					{Key: "a", Desc: "new agent tab"},
-					{Key: "t", Desc: "new terminal tab"},
-					{Key: "n", Desc: "next tab"},
-					{Key: "p", Desc: "prev tab"},
-					{Key: "x", Desc: "close tab"},
-					{Key: "d", Desc: "detach tab"},
-					{Key: "r", Desc: "reattach tab"},
-					{Key: "s", Desc: "restart tab"},
-				},
-			},
-		}
-	}
+
 	return []prefixPaletteSection{
 		{
 			Title:   "No Match",
 			Choices: nil,
 		},
+	}
+}
+
+func (a *App) rootPrefixPaletteSections() []prefixPaletteSection {
+	choiceByKey := map[string]prefixPaletteChoice{}
+	groupByKey := map[string]string{}
+	order := make([]string, 0, len(a.prefixCommands()))
+
+	for _, cmd := range a.prefixCommands() {
+		if len(cmd.Sequence) == 0 {
+			continue
+		}
+		key := cmd.Sequence[0]
+		group := prefixPaletteGroupTitle(key)
+		if _, ok := choiceByKey[key]; !ok {
+			desc := cmd.Desc
+			if len(cmd.Sequence) > 1 {
+				desc = prefixPaletteGroupDesc(key)
+			}
+			choiceByKey[key] = prefixPaletteChoice{Key: key, Desc: desc}
+			groupByKey[key] = group
+			order = append(order, key)
+		}
+		// Prefer concrete single-step descriptions when available.
+		if len(cmd.Sequence) == 1 {
+			choiceByKey[key] = prefixPaletteChoice{Key: key, Desc: cmd.Desc}
+		}
+	}
+
+	grouped := map[string][]prefixPaletteChoice{}
+	for _, key := range order {
+		grouped[groupByKey[key]] = append(grouped[groupByKey[key]], choiceByKey[key])
+	}
+	grouped["Tabs"] = append(grouped["Tabs"], prefixPaletteChoice{Key: "1-9", Desc: "jump tab"})
+
+	titles := []string{"Navigation", "General", "Tabs"}
+	sections := make([]prefixPaletteSection, 0, len(titles))
+	for _, title := range titles {
+		if len(grouped[title]) == 0 {
+			continue
+		}
+		sections = append(sections, prefixPaletteSection{
+			Title:   title,
+			Choices: grouped[title],
+		})
+	}
+	return sections
+}
+
+func (a *App) nextPrefixPaletteChoices() []prefixPaletteChoice {
+	matches := a.matchingPrefixCommands(a.prefixSequence)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seqLen := len(a.prefixSequence)
+	order := make([]string, 0, len(matches))
+	descByKey := map[string]string{}
+	hasLeaf := map[string]bool{}
+
+	for _, cmd := range matches {
+		if len(cmd.Sequence) <= seqLen {
+			continue
+		}
+		key := cmd.Sequence[seqLen]
+		if _, ok := descByKey[key]; !ok {
+			descByKey[key] = prefixPaletteGroupDesc(key)
+			order = append(order, key)
+		}
+		if len(cmd.Sequence) == seqLen+1 {
+			descByKey[key] = cmd.Desc
+			hasLeaf[key] = true
+			continue
+		}
+		if !hasLeaf[key] {
+			descByKey[key] = prefixPaletteGroupDesc(key)
+		}
+	}
+
+	choices := make([]prefixPaletteChoice, 0, len(order))
+	for _, key := range order {
+		choices = append(choices, prefixPaletteChoice{Key: key, Desc: descByKey[key]})
+	}
+	return choices
+}
+
+func prefixPaletteGroupTitle(token string) string {
+	switch token {
+	case "h", "j", "k", "l":
+		return "Navigation"
+	case "t":
+		return "Tabs"
+	default:
+		return "General"
+	}
+}
+
+func prefixPaletteGroupDesc(token string) string {
+	switch token {
+	case "t":
+		return "tab commands"
+	default:
+		return "commands"
 	}
 }
 

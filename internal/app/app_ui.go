@@ -120,6 +120,8 @@ func (a *App) handlePrefixCommand(msg tea.KeyPressMsg) (prefixMatch, tea.Cmd) {
 			exact = &matches[i]
 		}
 	}
+	// Execute only when the sequence resolves to a unique leaf command.
+	// Ambiguous prefixes intentionally stay in narrowing mode.
 	if exactCount == 1 && len(matches) == 1 && exact != nil {
 		return prefixMatchComplete, a.runPrefixAction(exact.Action)
 	}
@@ -245,6 +247,7 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 			if !a.tmuxAvailable {
 				return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
 			}
+			// Intentionally global to the workspace (no sidebar focus required).
 			return a.sidebarTerminal.CreateNewTab()
 		}
 		return nil

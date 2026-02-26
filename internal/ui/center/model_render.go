@@ -41,6 +41,8 @@ func (m *Model) View() string {
 			// Render native diff viewer
 			b.WriteString(tab.DiffViewer.View())
 		} else if tab.Terminal != nil {
+			// Keep cursor state in sync at render time too; Focus/Blur also set
+			// this eagerly to avoid stale frames during fast pane switches.
 			tab.Terminal.ShowCursor = m.focused
 			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
 			b.WriteString(tab.Terminal.Render())

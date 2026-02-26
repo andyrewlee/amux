@@ -270,7 +270,16 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		wsID := string(msg.Workspace.ID())
 		centerVisible := a.layout != nil && a.layout.ShowCenter()
 		if centerVisible {
+			hasCenterTabs := false
 			if tabs, _ := a.center.GetTabsInfoForWorkspace(wsID); len(tabs) > 0 {
+				hasCenterTabs = true
+			}
+			// Also treat persisted tab metadata as a focus signal so this does
+			// not depend on synchronous tab hydration timing.
+			if !hasCenterTabs && len(msg.Workspace.OpenTabs) > 0 {
+				hasCenterTabs = true
+			}
+			if hasCenterTabs {
 				if focusCmd := a.focusPane(messages.PaneCenter); focusCmd != nil {
 					cmds = append(cmds, focusCmd)
 				}
