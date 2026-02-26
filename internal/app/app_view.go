@@ -103,6 +103,10 @@ func (a *App) viewLayerBased() tea.View {
 		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
 	}
 
+	// Ensure focus state cannot drift between panes; this keeps cursor ownership
+	// singular even across complex mouse event sequences.
+	a.syncPaneFocusFlags()
+
 	// Create canvas at screen dimensions
 	canvas := a.canvasFor(a.width, a.height)
 

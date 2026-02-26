@@ -42,6 +42,33 @@ func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 	return nil
 }
 
+// syncPaneFocusFlags keeps child model focus flags consistent with focusedPane.
+// This is a defensive invariant to prevent stale multi-cursor states.
+func (a *App) syncPaneFocusFlags() {
+	switch a.focusedPane {
+	case messages.PaneDashboard:
+		a.dashboard.Focus()
+		a.center.Blur()
+		a.sidebar.Blur()
+		a.sidebarTerminal.Blur()
+	case messages.PaneCenter:
+		a.dashboard.Blur()
+		a.center.Focus()
+		a.sidebar.Blur()
+		a.sidebarTerminal.Blur()
+	case messages.PaneSidebar:
+		a.dashboard.Blur()
+		a.center.Blur()
+		a.sidebar.Focus()
+		a.sidebarTerminal.Blur()
+	case messages.PaneSidebarTerminal:
+		a.dashboard.Blur()
+		a.center.Blur()
+		a.sidebar.Blur()
+		a.sidebarTerminal.Focus()
+	}
+}
+
 type prefixMatch int
 
 const (
