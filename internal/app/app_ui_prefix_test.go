@@ -190,3 +190,176 @@ func TestHandleKeyPress_BackspaceAtRootRefreshesPrefixTimeout(t *testing.T) {
 		t.Fatalf("expected prefix token increment, got %d want %d", app.prefixToken, beforeToken+1)
 	}
 }
+
+func TestIsPrefixKey_DoesNotAcceptPrintableAliases(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+
+	if app.isPrefixKey(tea.KeyPressMsg{Code: '?', Text: "?"}) {
+		t.Fatal("expected '?' not to be treated as global prefix key")
+	}
+	if app.isPrefixKey(tea.KeyPressMsg{Code: 'H', Text: "H"}) {
+		t.Fatal("expected 'H' not to be treated as global prefix key")
+	}
+}
+
+func TestOpenCommandsPalette_EntersPrefixMode(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+
+	cmd := app.openCommandsPalette()
+	if cmd == nil {
+		t.Fatal("expected command palette to open")
+	}
+	if !app.prefixActive {
+		t.Fatal("expected prefix mode to become active")
+	}
+}
+
+func TestOpenCommandsPalette_ResetsActiveSequence(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.prefixActive = true
+	app.prefixSequence = []string{"t"}
+	beforeToken := app.prefixToken
+
+	cmd := app.openCommandsPalette()
+	if cmd == nil {
+		t.Fatal("expected palette reset command")
+	}
+	if !app.prefixActive {
+		t.Fatal("expected prefix mode to remain active")
+	}
+	if len(app.prefixSequence) != 0 {
+		t.Fatalf("expected prefix sequence reset, got %v", app.prefixSequence)
+	}
+	if app.prefixToken != beforeToken+1 {
+		t.Fatalf("expected prefix token increment, got %d want %d", app.prefixToken, beforeToken+1)
+	}
+}
+
+func TestOpenCommandsPalette_AtRootKeepsPrefixActive(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.prefixActive = true
+	app.prefixSequence = nil
+	beforeToken := app.prefixToken
+
+	cmd := app.openCommandsPalette()
+	if cmd == nil {
+		t.Fatal("expected palette refresh command")
+	}
+	if !app.prefixActive {
+		t.Fatal("expected prefix mode to remain active")
+	}
+	if len(app.prefixSequence) != 0 {
+		t.Fatalf("expected prefix sequence to remain empty, got %v", app.prefixSequence)
+	}
+	if app.prefixToken != beforeToken+1 {
+		t.Fatalf("expected prefix token increment, got %d want %d", app.prefixToken, beforeToken+1)
+	}
+}
+
+func TestHandleKeyPress_PrefixKeyResetsWhenActive(t *testing.T) {
+	app, ws, centerModel := newPrefixTestApp(t)
+	centerModel.AddTab(&center.Tab{
+		ID:          center.TabID("tab-1"),
+		Name:        "Claude",
+		Assistant:   "claude",
+		Workspace:   ws,
+		SessionName: "sess-1",
+		Detached:    true,
+	})
+	app.focusedPane = messages.PaneCenter
+	app.prefixActive = true
+	app.prefixSequence = []string{"t"}
+	beforeToken := app.prefixToken
+
+	cmd := app.handleKeyPress(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("expected prefix reset command while palette is open")
+	}
+	if !app.prefixActive {
+		t.Fatal("expected prefix mode to remain active")
+	}
+	if len(app.prefixSequence) != 0 {
+		t.Fatalf("expected prefix sequence reset, got %v", app.prefixSequence)
+	}
+	if app.prefixToken != beforeToken+1 {
+		t.Fatalf("expected prefix token increment, got %d want %d", app.prefixToken, beforeToken+1)
+	}
+}
+
+func TestHandleKeyPress_PrefixKeyAtRootExitsPrefixMode(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.prefixActive = true
+	app.prefixSequence = nil
+
+	cmd := app.handleKeyPress(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	if cmd != nil {
+		t.Fatal("expected no command when sending literal Ctrl+Space")
+	}
+	if app.prefixActive {
+		t.Fatal("expected prefix mode to exit after prefix key at root")
+	}
+}
+
+func TestMatchingPrefixCommands_IncludesUnavailableActionsForExecutionFallback(t *testing.T) {
+	h := newCenterHarness(nil, HarnessOptions{
+		Width:  120,
+		Height: 24,
+		Tabs:   0,
+	})
+	app := h.app
+
+	matches := app.matchingPrefixCommands([]string{"t"})
+	if len(matches) == 0 {
+		t.Fatal("expected raw prefix matcher to keep tab actions available for typed execution")
+	}
+}
+
+func TestRunPrefixAction_AddProject(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+
+	cmd := app.runPrefixAction("add_project")
+	if cmd == nil {
+		t.Fatal("expected add_project to return command")
+	}
+	msg := cmd()
+	if _, ok := msg.(messages.ShowAddProjectDialog); !ok {
+		t.Fatalf("expected ShowAddProjectDialog message, got %T", msg)
+	}
+}
+
+func TestRunPrefixAction_OpenSettings(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+
+	cmd := app.runPrefixAction("open_settings")
+	if cmd == nil {
+		t.Fatal("expected open_settings to return command")
+	}
+	msg := cmd()
+	if _, ok := msg.(messages.ShowSettingsDialog); !ok {
+		t.Fatalf("expected ShowSettingsDialog message, got %T", msg)
+	}
+}
+
+func TestRunPrefixAction_DeleteWorkspaceRequiresSelection(t *testing.T) {
+	app, ws, _ := newPrefixTestApp(t)
+
+	if cmd := app.runPrefixAction("delete_workspace"); cmd != nil {
+		t.Fatal("expected nil command when no workspace/project selection exists")
+	}
+
+	project := &data.Project{Name: "p", Path: "/repo/ws"}
+	app.activeProject = project
+	app.activeWorkspace = ws
+	cmd := app.runPrefixAction("delete_workspace")
+	if cmd == nil {
+		t.Fatal("expected delete_workspace command when selection exists")
+	}
+	result := cmd()
+	msg, ok := result.(messages.ShowDeleteWorkspaceDialog)
+	if !ok {
+		t.Fatalf("expected ShowDeleteWorkspaceDialog message, got %T", result)
+	}
+	if msg.Project != project || msg.Workspace != ws {
+		t.Fatalf("unexpected delete payload: %+v", msg)
+	}
+}

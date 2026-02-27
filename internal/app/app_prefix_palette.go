@@ -46,18 +46,22 @@ func (a *App) renderPrefixPalette() string {
 	header := joinWithRightEdge(headerLeft, headerRight, contentWidth)
 
 	lines := []string{header}
-	for _, section := range sections {
-		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(common.ColorMuted()).Render(section.Title))
-		if len(section.Choices) == 0 {
-			lines = append(lines, lipgloss.NewStyle().Foreground(common.ColorWarning()).Render("No matching command"))
-			continue
+	if len(a.prefixSequence) == 0 {
+		lines = append(lines, a.renderSectionColumns(sections, contentWidth)...)
+	} else {
+		for _, section := range sections {
+			lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(common.ColorMuted()).Render(section.Title))
+			if len(section.Choices) == 0 {
+				lines = append(lines, lipgloss.NewStyle().Foreground(common.ColorWarning()).Render("No matching command"))
+				continue
+			}
+			lines = append(lines, a.renderChoiceColumns(section.Choices, contentWidth)...)
 		}
-		lines = append(lines, a.renderChoiceColumns(section.Choices, contentWidth)...)
 	}
 
 	footer := lipgloss.NewStyle().
 		Foreground(common.ColorMuted()).
-		Render("Esc cancel | Backspace undo | C-Space reset (literal if empty)")
+		Render("Esc cancel | Backspace undo | C-Space reset | C-Space C-Space sends literal")
 
 	maxLines := a.height - 3
 	if maxLines < 2 {
@@ -121,6 +125,9 @@ func (a *App) rootPrefixPaletteSections() []prefixPaletteSection {
 	order := make([]string, 0, len(a.prefixCommands()))
 
 	for _, cmd := range a.prefixCommands() {
+		if !a.prefixActionVisible(cmd.Action) {
+			continue
+		}
 		if len(cmd.Sequence) == 0 {
 			continue
 		}
@@ -156,16 +163,18 @@ func (a *App) rootPrefixPaletteSections() []prefixPaletteSection {
 		grouped[groupByKey[key]] = append(grouped[groupByKey[key]], choiceByKey[key])
 	}
 	// Numeric tab jumping is a root-level special case in handlePrefixCommand.
-	grouped["Tabs"] = append(grouped["Tabs"], prefixPaletteChoice{Key: "1-9", Desc: "jump tab"})
-	hasTabsGroup := false
-	for _, group := range groupOrder {
-		if group == "Tabs" {
-			hasTabsGroup = true
-			break
+	if a.showNumericTabJump() {
+		grouped["Tabs"] = append(grouped["Tabs"], prefixPaletteChoice{Key: "1-9", Desc: "jump tab"})
+		hasTabsGroup := false
+		for _, group := range groupOrder {
+			if group == "Tabs" {
+				hasTabsGroup = true
+				break
+			}
 		}
-	}
-	if !hasTabsGroup {
-		groupOrder = append(groupOrder, "Tabs")
+		if !hasTabsGroup {
+			groupOrder = append(groupOrder, "Tabs")
+		}
 	}
 
 	sections := make([]prefixPaletteSection, 0, len(groupOrder))
@@ -193,6 +202,9 @@ func (a *App) nextPrefixPaletteChoices() []prefixPaletteChoice {
 	hasLeaf := map[string]bool{}
 
 	for _, cmd := range matches {
+		if !a.prefixActionVisible(cmd.Action) {
+			continue
+		}
 		if len(cmd.Sequence) <= seqLen {
 			continue
 		}
@@ -220,8 +232,6 @@ func (a *App) nextPrefixPaletteChoices() []prefixPaletteChoice {
 
 func prefixPaletteGroupTitle(token string) string {
 	switch token {
-	case "h", "j", "k", "l":
-		return "Navigation"
 	case "t":
 		return "Tabs"
 	default:
@@ -232,7 +242,7 @@ func prefixPaletteGroupTitle(token string) string {
 func prefixPaletteGroupDesc(token string) string {
 	switch token {
 	case "t":
-		return "tab commands"
+		return "tab actions"
 	default:
 		return "commands"
 	}
@@ -273,16 +283,7 @@ func (a *App) renderChoiceColumns(choices []prefixPaletteChoice, contentWidth in
 		colWidth = 12
 	}
 
-	keyWidth := 3
-	for _, choice := range choices {
-		w := lipgloss.Width(a.prefixKeyLabel(choice.Key))
-		if w > keyWidth {
-			keyWidth = w
-		}
-	}
-	if keyWidth > 14 {
-		keyWidth = 14
-	}
+	keyWidth := a.choiceKeyWidth(choices)
 
 	rows := (len(choices) + colCount - 1) / colCount
 	lines := make([]string, 0, rows)
@@ -301,6 +302,92 @@ func (a *App) renderChoiceColumns(choices []prefixPaletteChoice, contentWidth in
 	return lines
 }
 
+func (a *App) renderSectionColumns(sections []prefixPaletteSection, contentWidth int) []string {
+	if len(sections) == 0 {
+		return nil
+	}
+
+	colCount := len(sections)
+	const minColWidth = 24
+	for colCount > 1 {
+		gutterWidth := (colCount - 1) * prefixPaletteColumnGutterWidth
+		colWidth := (contentWidth - gutterWidth) / colCount
+		if colWidth >= minColWidth {
+			break
+		}
+		colCount--
+	}
+	if colCount < 1 {
+		colCount = 1
+	}
+
+	lines := make([]string, 0, len(sections)*2)
+	for start := 0; start < len(sections); start += colCount {
+		end := min(start+colCount, len(sections))
+		lines = append(lines, a.renderSectionColumnChunk(sections[start:end], contentWidth)...)
+		if end < len(sections) {
+			lines = append(lines, "")
+		}
+	}
+	return lines
+}
+
+func (a *App) renderSectionColumnChunk(sections []prefixPaletteSection, contentWidth int) []string {
+	colCount := len(sections)
+	if colCount == 0 {
+		return nil
+	}
+
+	columnSep := lipgloss.NewStyle().Foreground(common.ColorBorder()).Render("│")
+	gutterWidth := (colCount - 1) * prefixPaletteColumnGutterWidth
+	colWidth := (contentWidth - gutterWidth) / colCount
+	if colWidth < 12 {
+		colWidth = 12
+	}
+
+	columns := make([][]string, colCount)
+	maxRows := 0
+	for i, section := range sections {
+		title := lipgloss.NewStyle().Bold(true).Foreground(common.ColorMuted()).Render(section.Title)
+		colLines := []string{title}
+		keyWidth := a.choiceKeyWidth(section.Choices)
+		if len(section.Choices) == 0 {
+			colLines = append(colLines, lipgloss.NewStyle().Foreground(common.ColorWarning()).Render("No matching command"))
+		} else {
+			for _, choice := range section.Choices {
+				colLines = append(colLines, a.renderChoiceCell(choice, keyWidth, colWidth))
+			}
+		}
+		for j := range colLines {
+			w := lipgloss.Width(colLines[j])
+			switch {
+			case w < colWidth:
+				colLines[j] += strings.Repeat(" ", colWidth-w)
+			case w > colWidth:
+				colLines[j] = ansi.Truncate(colLines[j], colWidth, "")
+			}
+		}
+		columns[i] = colLines
+		if len(colLines) > maxRows {
+			maxRows = len(colLines)
+		}
+	}
+
+	lines := make([]string, 0, maxRows)
+	for row := 0; row < maxRows; row++ {
+		parts := make([]string, 0, colCount)
+		for col := 0; col < colCount; col++ {
+			if row < len(columns[col]) {
+				parts = append(parts, columns[col][row])
+			} else {
+				parts = append(parts, strings.Repeat(" ", colWidth))
+			}
+		}
+		lines = append(lines, strings.Join(parts, " "+columnSep+" "))
+	}
+	return lines
+}
+
 func (a *App) renderChoiceCell(choice prefixPaletteChoice, keyWidth, colWidth int) string {
 	key := a.renderChoiceKey(choice.Key, keyWidth)
 	sep := lipgloss.NewStyle().Foreground(common.ColorMuted()).Render(" -> ")
@@ -314,6 +401,20 @@ func (a *App) renderChoiceCell(choice prefixPaletteChoice, keyWidth, colWidth in
 		cell += strings.Repeat(" ", colWidth-w)
 	}
 	return cell
+}
+
+func (a *App) choiceKeyWidth(choices []prefixPaletteChoice) int {
+	keyWidth := 3
+	for _, choice := range choices {
+		w := lipgloss.Width(a.prefixKeyLabel(choice.Key))
+		if w > keyWidth {
+			keyWidth = w
+		}
+	}
+	if keyWidth > 14 {
+		keyWidth = 14
+	}
+	return keyWidth
 }
 
 func (a *App) prefixKeyLabel(actionKey string) string {

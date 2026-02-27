@@ -57,11 +57,9 @@ type prefixCommand struct {
 }
 
 var prefixCommandTable = []prefixCommand{
-	{Sequence: []string{"h"}, Desc: "focus left", Action: "move_left"},
-	{Sequence: []string{"j"}, Desc: "focus down", Action: "move_down"},
-	{Sequence: []string{"k"}, Desc: "focus up", Action: "move_up"},
-	{Sequence: []string{"l"}, Desc: "focus right", Action: "move_right"},
-	{Sequence: []string{"?"}, Desc: "toggle help", Action: "help"},
+	{Sequence: []string{"a"}, Desc: "add project", Action: "add_project"},
+	{Sequence: []string{"d"}, Desc: "delete workspace", Action: "delete_workspace"},
+	{Sequence: []string{"S"}, Desc: "Settings", Action: "open_settings"},
 	{Sequence: []string{"q"}, Desc: "quit", Action: "quit"},
 	{Sequence: []string{"K"}, Desc: "cleanup tmux", Action: "cleanup_tmux"},
 	{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: "new_agent_tab"},
@@ -84,6 +82,17 @@ func (a *App) isPrefixKey(msg tea.KeyPressMsg) bool {
 // enterPrefix enters prefix mode and schedules a timeout
 func (a *App) enterPrefix() tea.Cmd {
 	a.prefixActive = true
+	a.prefixSequence = nil
+	return a.refreshPrefixTimeout()
+}
+
+// openCommandsPalette opens (or resets) the bottom command palette.
+// This message-driven path is used by mouse/toolbar interactions and therefore
+// never sends a literal Ctrl-Space (NUL) to terminals.
+func (a *App) openCommandsPalette() tea.Cmd {
+	if !a.prefixActive {
+		return a.enterPrefix()
+	}
 	a.prefixSequence = nil
 	return a.refreshPrefixTimeout()
 }
@@ -156,14 +165,6 @@ func (a *App) prefixInputToken(msg tea.KeyPressMsg) (string, bool) {
 	case tea.KeyBackspace, tea.KeyDelete:
 		// Some terminals report Backspace as KeyDelete; treat both as undo.
 		return "backspace", true
-	case tea.KeyLeft:
-		return "h", true
-	case tea.KeyDown:
-		return "j", true
-	case tea.KeyUp:
-		return "k", true
-	case tea.KeyRight:
-		return "l", true
 	}
 	text := msg.Key().Text
 	runes := []rune(text)
@@ -177,6 +178,9 @@ func (a *App) prefixCommands() []prefixCommand {
 	return prefixCommandTable
 }
 
+// matchingPrefixCommands intentionally does not apply prefixActionVisible.
+// Command execution remains permissive and unavailable actions fail gracefully
+// in runPrefixAction with contextual no-op/toast behavior.
 func (a *App) matchingPrefixCommands(sequence []string) []prefixCommand {
 	commands := a.prefixCommands()
 	if len(sequence) == 0 {
@@ -204,60 +208,42 @@ func (a *App) matchingPrefixCommands(sequence []string) []prefixCommand {
 
 func (a *App) runPrefixAction(action string) tea.Cmd {
 	switch action {
-	case "move_left":
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			return a.focusPane(messages.PaneDashboard)
-		case messages.PaneSidebar, messages.PaneSidebarTerminal:
-			return a.focusPane(messages.PaneCenter)
+	case "add_project":
+		return func() tea.Msg { return messages.ShowAddProjectDialog{} }
+	case "delete_workspace":
+		if a.activeWorkspace == nil || a.activeProject == nil {
+			return a.requireWorkspaceSelection("delete workspace")
 		}
-		return nil
-	case "move_right":
-		switch a.focusedPane {
-		case messages.PaneDashboard:
-			return a.focusPane(messages.PaneCenter)
-		case messages.PaneCenter:
-			if a.layout.ShowSidebar() {
-				return a.focusPane(messages.PaneSidebar)
+		return func() tea.Msg {
+			return messages.ShowDeleteWorkspaceDialog{
+				Project:   a.activeProject,
+				Workspace: a.activeWorkspace,
 			}
 		}
-		return nil
-	case "move_up":
-		if a.focusedPane == messages.PaneSidebarTerminal {
-			return a.focusPane(messages.PaneSidebar)
-		}
-		return nil
-	case "move_down":
-		if a.focusedPane == messages.PaneSidebar && a.layout.ShowSidebar() {
-			return a.focusPane(messages.PaneSidebarTerminal)
-		}
-		return nil
-	case "help":
-		a.helpOverlay.SetSize(a.width, a.height)
-		a.helpOverlay.Toggle()
-		return nil
+	case "open_settings":
+		return func() tea.Msg { return messages.ShowSettingsDialog{} }
 	case "quit":
 		a.showQuitDialog()
 		return nil
 	case "cleanup_tmux":
 		return func() tea.Msg { return messages.ShowCleanupTmuxDialog{} }
 	case "new_agent_tab":
-		if a.activeWorkspace != nil {
-			if !a.tmuxAvailable {
-				return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
-			}
-			return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+		if a.activeWorkspace == nil || a.activeProject == nil {
+			return a.requireWorkspaceSelection("create agent tab")
 		}
-		return nil
+		if !a.tmuxAvailable {
+			return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
+		}
+		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 	case "new_terminal_tab":
-		if a.activeWorkspace != nil {
-			if !a.tmuxAvailable {
-				return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
-			}
-			// Intentionally global to the workspace (no sidebar focus required).
-			return a.sidebarTerminal.CreateNewTab()
+		if a.activeWorkspace == nil || a.activeProject == nil {
+			return a.requireWorkspaceSelection("create terminal tab")
 		}
-		return nil
+		if !a.tmuxAvailable {
+			return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
+		}
+		// Intentionally global to the workspace (no sidebar focus required).
+		return a.sidebarTerminal.CreateNewTab()
 	case "next_tab":
 		switch a.focusedPane {
 		case messages.PaneSidebarTerminal:
@@ -323,6 +309,16 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 	default:
 		return nil
 	}
+}
+
+func (a *App) requireWorkspaceSelection(action string) tea.Cmd {
+	if a.activeWorkspace != nil && a.activeProject != nil {
+		return nil
+	}
+	if a.toast != nil {
+		return a.toast.ShowWarning("Select a workspace before " + action)
+	}
+	return nil
 }
 
 func (a *App) prefixSelectTab(index int) tea.Cmd {

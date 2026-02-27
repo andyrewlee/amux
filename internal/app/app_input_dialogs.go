@@ -30,36 +30,6 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 	return true, common.SafeCmd(cmd)
 }
 
-func (a *App) handleHelpOverlayInput(msg tea.Msg) (bool, tea.Cmd) {
-	if !a.helpOverlay.Visible() {
-		return false, nil
-	}
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		var cmd tea.Cmd
-		a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
-		return true, common.SafeCmd(cmd)
-	case tea.MouseWheelMsg:
-		a.helpOverlay, _, _ = a.helpOverlay.Update(msg)
-		return true, nil
-	case tea.MouseClickMsg:
-		if msg.Button == tea.MouseLeft {
-			// First check if clicking on a link inside the dialog
-			var cmd tea.Cmd
-			a.helpOverlay, _, cmd = a.helpOverlay.Update(msg)
-			if cmd != nil {
-				return true, common.SafeCmd(cmd)
-			}
-			// Close if clicking outside the dialog
-			if !a.helpOverlay.ContainsClick(msg.X, msg.Y) {
-				a.helpOverlay.Hide()
-			}
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func (a *App) handleErrorOverlayDismiss(msg tea.Msg) bool {
 	mouseMsg, ok := msg.(tea.MouseClickMsg)
 	if !ok || mouseMsg.Button != tea.MouseLeft {

@@ -144,10 +144,6 @@ func (a *App) handleWindowSize(msg tea.WindowSizeMsg) {
 	a.ready = true
 	a.layout.Resize(msg.Width, msg.Height)
 	a.updateLayout()
-	// Update help overlay size for accurate hit-testing after resize
-	if a.helpOverlay.Visible() {
-		a.helpOverlay.SetSize(a.width, a.height)
-	}
 }
 
 func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {

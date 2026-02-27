@@ -144,7 +144,6 @@ func (a *App) handleThemePreview(msg common.ThemePreview) {
 	a.sidebarTerminal.SetStyles(a.styles)
 	a.center.SetStyles(a.styles)
 	a.toast.SetStyles(a.styles)
-	a.helpOverlay.SetStyles(a.styles)
 	if a.filePicker != nil {
 		a.filePicker.SetStyles(a.styles)
 	}
@@ -164,7 +163,6 @@ func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
 		a.sidebarTerminal.SetStyles(a.styles)
 		a.center.SetStyles(a.styles)
 		a.toast.SetStyles(a.styles)
-		a.helpOverlay.SetStyles(a.styles)
 		if a.filePicker != nil {
 			a.filePicker.SetStyles(a.styles)
 		}

@@ -43,15 +43,6 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		canvas.Compose(settingsDrawable)
 	}
 
-	// Help overlay (centered like settings dialog)
-	if a.helpOverlay.Visible() {
-		helpView := a.helpOverlay.View()
-		helpWidth, helpHeight := viewDimensions(helpView)
-		x, y := a.centeredPosition(helpWidth, helpHeight)
-		helpDrawable := compositor.NewStringDrawable(helpView, x, y)
-		canvas.Compose(helpDrawable)
-	}
-
 	// Prefix command palette
 	if a.prefixActive {
 		palette := a.renderPrefixPalette()

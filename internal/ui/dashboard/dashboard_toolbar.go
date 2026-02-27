@@ -17,15 +17,15 @@ type toolbarItem struct {
 
 func (m *Model) toolbarItems() []toolbarItem {
 	return []toolbarItem{
-		{kind: toolbarHelp, label: "?H"},
-		{kind: toolbarSettings, label: "⚙S"},
+		{kind: toolbarCommands, label: "Commands"},
+		{kind: toolbarSettings, label: "Settings"},
 	}
 }
 
 func (m *Model) toolbarCommand(kind toolbarButtonKind) tea.Cmd {
 	switch kind {
-	case toolbarHelp:
-		return func() tea.Msg { return messages.ToggleHelp{} }
+	case toolbarCommands:
+		return func() tea.Msg { return messages.ShowCommandsPalette{} }
 	case toolbarSettings:
 		return func() tea.Msg { return messages.ShowSettingsDialog{} }
 	default:
@@ -128,7 +128,9 @@ func (m *Model) handleToolbarClick(screenX, screenY int) tea.Cmd {
 	// Check toolbar button hits
 	for i, hit := range m.toolbarHits {
 		if hit.region.Contains(contentX, localY) {
-			m.toolbarFocused = true
+			// Mouse-triggered actions should not leave persistent toolbar focus
+			// after opening/closing overlays.
+			m.toolbarFocused = false
 			m.toolbarIndex = i
 			return m.toolbarCommand(hit.kind)
 		}

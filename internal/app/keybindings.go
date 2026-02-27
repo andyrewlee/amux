@@ -7,24 +7,6 @@ type KeyMap struct {
 	// Prefix key (leader)
 	Prefix key.Binding
 
-	// Global (legacy fields retained for compatibility/documentation; prefix
-	// dispatch is now driven by prefixCommands in app_ui.go).
-	Quit           key.Binding
-	MoveLeft       key.Binding
-	MoveRight      key.Binding
-	MoveUp         key.Binding
-	MoveDown       key.Binding
-	NextTab        key.Binding
-	PrevTab        key.Binding
-	CloseTab       key.Binding
-	DetachTab      key.Binding
-	ReattachTab    key.Binding
-	RestartTab     key.Binding
-	CleanupTmux    key.Binding
-	NewAgentTab    key.Binding
-	NewTerminalTab key.Binding
-	Help           key.Binding
-
 	// Dashboard
 	Enter        key.Binding
 	Delete       key.Binding
@@ -46,72 +28,10 @@ type KeyMap struct {
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		// Prefix key (leader)
-		// Ctrl-Space is reported as ctrl+@ or ctrl+space depending on terminal
+		// Ctrl-Space is reported as ctrl+@ or ctrl+space depending on terminal.
 		Prefix: key.NewBinding(
 			key.WithKeys("ctrl+@", "ctrl+space"),
-			key.WithHelp("C-Space", "commands"),
-		),
-
-		// Commands active after prefix
-		Quit: key.NewBinding(
-			key.WithKeys("q"),
-			key.WithHelp("q", "quit"),
-		),
-		MoveLeft: key.NewBinding(
-			key.WithKeys("h", "left"),
-			key.WithHelp("h", "focus left"),
-		),
-		MoveRight: key.NewBinding(
-			key.WithKeys("l", "right"),
-			key.WithHelp("l", "focus right"),
-		),
-		MoveUp: key.NewBinding(
-			key.WithKeys("k", "up"),
-			key.WithHelp("k", "focus up"),
-		),
-		MoveDown: key.NewBinding(
-			key.WithKeys("j", "down"),
-			key.WithHelp("j", "focus down"),
-		),
-		NextTab: key.NewBinding(
-			key.WithKeys("n"),
-			key.WithHelp("n", "next tab"),
-		),
-		PrevTab: key.NewBinding(
-			key.WithKeys("p"),
-			key.WithHelp("p", "previous tab"),
-		),
-		CloseTab: key.NewBinding(
-			key.WithKeys("x"),
-			key.WithHelp("x", "close tab"),
-		),
-		DetachTab: key.NewBinding(
-			key.WithKeys("D"),
-			key.WithHelp("D", "detach tab"),
-		),
-		ReattachTab: key.NewBinding(
-			key.WithKeys("R"),
-			key.WithHelp("R", "reattach tab"),
-		),
-		RestartTab: key.NewBinding(
-			key.WithKeys("S"),
-			key.WithHelp("S", "restart tab"),
-		),
-		CleanupTmux: key.NewBinding(
-			key.WithKeys("K"),
-			key.WithHelp("K", "cleanup tmux"),
-		),
-		NewAgentTab: key.NewBinding(
-			key.WithKeys("a"),
-			key.WithHelp("a", "new agent tab"),
-		),
-		NewTerminalTab: key.NewBinding(
-			key.WithKeys("t"),
-			key.WithHelp("t", "new terminal tab"),
-		),
-		Help: key.NewBinding(
-			key.WithKeys("?"),
-			key.WithHelp("?", "toggle help"),
+			key.WithHelp("C-Space", "Commands"),
 		),
 
 		// Dashboard

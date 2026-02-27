@@ -81,8 +81,7 @@ type App struct {
 	settingsDialog  *common.SettingsDialog
 
 	// Overlays
-	helpOverlay *common.HelpOverlay
-	toast       *common.ToastModel
+	toast *common.ToastModel
 
 	// Dialog context
 	dialogProject   *data.Project
