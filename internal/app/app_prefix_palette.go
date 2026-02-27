@@ -117,6 +117,7 @@ func (a *App) prefixPaletteSections() []prefixPaletteSection {
 func (a *App) rootPrefixPaletteSections() []prefixPaletteSection {
 	choiceByKey := map[string]prefixPaletteChoice{}
 	groupByKey := map[string]string{}
+	groupOrder := []string{}
 	order := make([]string, 0, len(a.prefixCommands()))
 
 	for _, cmd := range a.prefixCommands() {
@@ -132,6 +133,16 @@ func (a *App) rootPrefixPaletteSections() []prefixPaletteSection {
 			}
 			choiceByKey[key] = prefixPaletteChoice{Key: key, Desc: desc}
 			groupByKey[key] = group
+			seenGroup := false
+			for _, existing := range groupOrder {
+				if existing == group {
+					seenGroup = true
+					break
+				}
+			}
+			if !seenGroup {
+				groupOrder = append(groupOrder, group)
+			}
 			order = append(order, key)
 		}
 		// Prefer concrete single-step descriptions when available.
@@ -146,10 +157,19 @@ func (a *App) rootPrefixPaletteSections() []prefixPaletteSection {
 	}
 	// Numeric tab jumping is a root-level special case in handlePrefixCommand.
 	grouped["Tabs"] = append(grouped["Tabs"], prefixPaletteChoice{Key: "1-9", Desc: "jump tab"})
+	hasTabsGroup := false
+	for _, group := range groupOrder {
+		if group == "Tabs" {
+			hasTabsGroup = true
+			break
+		}
+	}
+	if !hasTabsGroup {
+		groupOrder = append(groupOrder, "Tabs")
+	}
 
-	titles := []string{"Navigation", "General", "Tabs"}
-	sections := make([]prefixPaletteSection, 0, len(titles))
-	for _, title := range titles {
+	sections := make([]prefixPaletteSection, 0, len(groupOrder))
+	for _, title := range groupOrder {
 		if len(grouped[title]) == 0 {
 			continue
 		}

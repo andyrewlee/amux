@@ -11,6 +11,12 @@ const paneNone messages.PaneType = -1
 
 // routeMouseClick routes mouse click events to the appropriate pane.
 func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
+	if a.prefixPaletteContainsPoint(msg.X, msg.Y) {
+		// Palette clicks are currently non-interactive; consume to prevent
+		// accidental clicks in underlying panes while prefix mode is active.
+		return nil
+	}
+
 	targetPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
 
 	// Left-click updates keyboard focus; other buttons preserve keyboard focus.
@@ -85,15 +91,9 @@ func (a *App) handleMouseMsg(msg tea.Msg) tea.Cmd {
 
 // routeMouseWheel routes mouse wheel events to the appropriate pane.
 func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
+	// Route wheel input by keyboard focus; child models currently ignore wheel
+	// while unfocused.
 	targetPane := a.focusedPane
-	if hoveredPane, hasHovered := a.paneForPoint(msg.X, msg.Y); hasHovered {
-		// Child models currently ignore wheel input while unfocused. Preserve
-		// reliable scrolling by falling back to keyboard-focused routing when the
-		// pointer is over a different pane.
-		if hoveredPane == a.focusedPane {
-			targetPane = hoveredPane
-		}
-	}
 
 	switch targetPane {
 	case messages.PaneDashboard:
@@ -233,7 +233,7 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 
 	leftGutter := a.layout.LeftGutter()
 	if x < leftGutter {
-		return messages.PaneDashboard, true
+		return paneNone, false
 	}
 
 	dashWidth := a.layout.DashboardWidth()
@@ -268,4 +268,23 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 		return messages.PaneSidebarTerminal, true
 	}
 	return messages.PaneSidebar, true
+}
+
+func (a *App) prefixPaletteContainsPoint(x, y int) bool {
+	if !a.prefixActive || a.width <= 0 || a.height <= 0 {
+		return false
+	}
+	palette := a.renderPrefixPalette()
+	if palette == "" {
+		return false
+	}
+	_, paletteHeight := viewDimensions(palette)
+	if paletteHeight <= 0 {
+		return false
+	}
+	paletteY := a.height - paletteHeight
+	if paletteY < 0 {
+		paletteY = 0
+	}
+	return x >= 0 && x < a.width && y >= paletteY && y < a.height
 }
