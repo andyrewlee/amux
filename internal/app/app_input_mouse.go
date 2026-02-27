@@ -29,8 +29,8 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		return common.SafeBatch(focusCmd, cmd)
 	}
 
-	// Route click to the pane under the pointer to match web-style interaction,
-	// including right/middle clicks.
+	// Intentional pointer-target routing (not focused-pane routing): clicks go to
+	// the pane under the pointer, including right/middle buttons.
 	if !hasTarget {
 		return focusCmd
 	}
@@ -233,6 +233,7 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 
 	leftGutter := a.layout.LeftGutter()
 	if x < leftGutter {
+		// Outer gutter is intentionally non-interactive; do not retarget focus.
 		return paneNone, false
 	}
 
@@ -258,6 +259,7 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 	}
 	sidebarStart := centerStart + a.layout.GapX()
 	sidebarEnd := sidebarStart + a.layout.SidebarWidth()
+	// Inter-pane gaps are intentionally non-interactive.
 	if x < sidebarStart || x >= sidebarEnd {
 		return paneNone, false
 	}
