@@ -139,3 +139,54 @@ func TestHandlePrefixPrevTab_SingleTabNoOp(t *testing.T) {
 		t.Fatalf("expected single-tab prev to be a no-op without reattach command")
 	}
 }
+
+func TestHandlePrefixCommand_BackspaceAtRootNoop(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+
+	status, cmd := app.handlePrefixCommand(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if status != prefixMatchPartial {
+		t.Fatalf("expected backspace at root to keep prefix active, got %v", status)
+	}
+	if cmd != nil {
+		t.Fatalf("expected backspace at root to return nil command")
+	}
+	if len(app.prefixSequence) != 0 {
+		t.Fatalf("expected empty prefix sequence after root backspace, got %v", app.prefixSequence)
+	}
+}
+
+func TestHandlePrefixCommand_BackspaceUndoesLastToken(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.prefixSequence = []string{"t", "n"}
+
+	status, cmd := app.handlePrefixCommand(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if status != prefixMatchPartial {
+		t.Fatalf("expected backspace undo to keep prefix active, got %v", status)
+	}
+	if cmd != nil {
+		t.Fatalf("expected backspace undo to return nil command")
+	}
+	if len(app.prefixSequence) != 1 || app.prefixSequence[0] != "t" {
+		t.Fatalf("expected sequence to be reduced to [t], got %v", app.prefixSequence)
+	}
+}
+
+func TestHandleKeyPress_BackspaceAtRootRefreshesPrefixTimeout(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.prefixActive = true
+	beforeToken := app.prefixToken
+
+	cmd := app.handleKeyPress(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if cmd == nil {
+		t.Fatalf("expected timeout refresh command")
+	}
+	if !app.prefixActive {
+		t.Fatalf("expected prefix mode to remain active")
+	}
+	if len(app.prefixSequence) != 0 {
+		t.Fatalf("expected prefix sequence to remain empty, got %v", app.prefixSequence)
+	}
+	if app.prefixToken != beforeToken+1 {
+		t.Fatalf("expected prefix token increment, got %d want %d", app.prefixToken, beforeToken+1)
+	}
+}

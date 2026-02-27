@@ -42,33 +42,6 @@ func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 	return nil
 }
 
-// syncPaneFocusFlags keeps child model focus flags consistent with focusedPane.
-// This is a defensive invariant to prevent stale multi-cursor states.
-func (a *App) syncPaneFocusFlags() {
-	switch a.focusedPane {
-	case messages.PaneDashboard:
-		a.dashboard.Focus()
-		a.center.Blur()
-		a.sidebar.Blur()
-		a.sidebarTerminal.Blur()
-	case messages.PaneCenter:
-		a.dashboard.Blur()
-		a.center.Focus()
-		a.sidebar.Blur()
-		a.sidebarTerminal.Blur()
-	case messages.PaneSidebar:
-		a.dashboard.Blur()
-		a.center.Blur()
-		a.sidebar.Focus()
-		a.sidebarTerminal.Blur()
-	case messages.PaneSidebarTerminal:
-		a.dashboard.Blur()
-		a.center.Blur()
-		a.sidebar.Blur()
-		a.sidebarTerminal.Focus()
-	}
-}
-
 type prefixMatch int
 
 const (
@@ -81,6 +54,24 @@ type prefixCommand struct {
 	Sequence []string
 	Desc     string
 	Action   string
+}
+
+var prefixCommandTable = []prefixCommand{
+	{Sequence: []string{"h"}, Desc: "focus left", Action: "move_left"},
+	{Sequence: []string{"j"}, Desc: "focus down", Action: "move_down"},
+	{Sequence: []string{"k"}, Desc: "focus up", Action: "move_up"},
+	{Sequence: []string{"l"}, Desc: "focus right", Action: "move_right"},
+	{Sequence: []string{"?"}, Desc: "toggle help", Action: "help"},
+	{Sequence: []string{"q"}, Desc: "quit", Action: "quit"},
+	{Sequence: []string{"K"}, Desc: "cleanup tmux", Action: "cleanup_tmux"},
+	{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: "new_agent_tab"},
+	{Sequence: []string{"t", "t"}, Desc: "new terminal tab", Action: "new_terminal_tab"},
+	{Sequence: []string{"t", "n"}, Desc: "next tab", Action: "next_tab"},
+	{Sequence: []string{"t", "p"}, Desc: "prev tab", Action: "prev_tab"},
+	{Sequence: []string{"t", "x"}, Desc: "close tab", Action: "close_tab"},
+	{Sequence: []string{"t", "d"}, Desc: "detach tab", Action: "detach_tab"},
+	{Sequence: []string{"t", "r"}, Desc: "reattach tab", Action: "reattach_tab"},
+	{Sequence: []string{"t", "s"}, Desc: "restart tab", Action: "restart_tab"},
 }
 
 // Prefix mode helpers (leader key)
@@ -183,23 +174,7 @@ func (a *App) prefixInputToken(msg tea.KeyPressMsg) (string, bool) {
 }
 
 func (a *App) prefixCommands() []prefixCommand {
-	return []prefixCommand{
-		{Sequence: []string{"h"}, Desc: "focus left", Action: "move_left"},
-		{Sequence: []string{"j"}, Desc: "focus down", Action: "move_down"},
-		{Sequence: []string{"k"}, Desc: "focus up", Action: "move_up"},
-		{Sequence: []string{"l"}, Desc: "focus right", Action: "move_right"},
-		{Sequence: []string{"?"}, Desc: "toggle help", Action: "help"},
-		{Sequence: []string{"q"}, Desc: "quit", Action: "quit"},
-		{Sequence: []string{"K"}, Desc: "cleanup tmux", Action: "cleanup_tmux"},
-		{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: "new_agent_tab"},
-		{Sequence: []string{"t", "t"}, Desc: "new terminal tab", Action: "new_terminal_tab"},
-		{Sequence: []string{"t", "n"}, Desc: "next tab", Action: "next_tab"},
-		{Sequence: []string{"t", "p"}, Desc: "prev tab", Action: "prev_tab"},
-		{Sequence: []string{"t", "x"}, Desc: "close tab", Action: "close_tab"},
-		{Sequence: []string{"t", "d"}, Desc: "detach tab", Action: "detach_tab"},
-		{Sequence: []string{"t", "r"}, Desc: "reattach tab", Action: "reattach_tab"},
-		{Sequence: []string{"t", "s"}, Desc: "restart tab", Action: "restart_tab"},
-	}
+	return prefixCommandTable
 }
 
 func (a *App) matchingPrefixCommands(sequence []string) []prefixCommand {

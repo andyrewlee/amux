@@ -11,7 +11,7 @@ import (
 )
 
 // buildBorderedPane creates a bordered pane with exact dimensions, manually drawing the border
-func buildBorderedPane(content string, width, height int, focused bool) string {
+func buildBorderedPane(content string, width, height int) string {
 	if width < 3 || height < 3 {
 		return ""
 	}
@@ -19,8 +19,6 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 	borderColor := common.ColorBorder()
 	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
 	horizontal, vertical := "─", "│"
-	// Focused/unfocused borders are intentionally uniform for the current UX.
-	_ = focused
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 
 	// Content area dimensions (inside border and padding)
@@ -78,7 +76,7 @@ func buildBorderedPane(content string, width, height int, focused bool) string {
 	return result.String()
 }
 
-func borderDrawables(x, y, width, height int, focused bool) []*compositor.StringDrawable {
+func borderDrawables(x, y, width, height int) []*compositor.StringDrawable {
 	if width < 3 || height < 3 {
 		return nil
 	}
@@ -86,8 +84,6 @@ func borderDrawables(x, y, width, height int, focused bool) []*compositor.String
 	borderColor := common.ColorBorder()
 	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
 	horizontal, vertical := "─", "│"
-	// Focused/unfocused borders are intentionally uniform for the current UX.
-	_ = focused
 
 	style := lipgloss.NewStyle().Foreground(borderColor)
 	innerWidth := width - 2

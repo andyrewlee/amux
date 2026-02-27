@@ -57,7 +57,7 @@ func (a *App) renderPrefixPalette() string {
 
 	footer := lipgloss.NewStyle().
 		Foreground(common.ColorMuted()).
-		Render("Esc cancel | Backspace undo | C-Space reset | C-Space C-Space literal")
+		Render("Esc cancel | Backspace undo | C-Space reset (literal if empty)")
 
 	maxLines := a.height - 3
 	if maxLines < 2 {

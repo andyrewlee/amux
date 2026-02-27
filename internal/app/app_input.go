@@ -31,6 +31,10 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer perf.Time("update")()
 	var cmds []tea.Cmd
+	// Keep focus flags synchronized in Update (not View) so rendering remains
+	// side-effect free while still enforcing single-pane cursor ownership.
+	a.syncPaneFocusFlags()
+
 	if perf.Enabled() {
 		switch msg.(type) {
 		case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.PasteMsg:

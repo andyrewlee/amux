@@ -7,6 +7,8 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+const paneNone messages.PaneType = -1
+
 // routeMouseClick routes mouse click events to the appropriate pane.
 func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	targetPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
@@ -83,13 +85,16 @@ func (a *App) handleMouseMsg(msg tea.Msg) tea.Cmd {
 
 // routeMouseWheel routes mouse wheel events to the appropriate pane.
 func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
-	// Prefer pointer-position routing for mouse wheel, consistent with click
-	// and non-left motion/release behavior in mouse-first mode.
-	targetPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
-	if !hasTarget {
-		// Fallback keeps wheel usable when terminals emit out-of-pane coordinates.
-		targetPane = a.focusedPane
+	targetPane := a.focusedPane
+	if hoveredPane, hasHovered := a.paneForPoint(msg.X, msg.Y); hasHovered {
+		// Child models currently ignore wheel input while unfocused. Preserve
+		// reliable scrolling by falling back to keyboard-focused routing when the
+		// pointer is over a different pane.
+		if hoveredPane == a.focusedPane {
+			targetPane = hoveredPane
+		}
 	}
+
 	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
@@ -218,12 +223,12 @@ func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 
 func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 	if a.layout == nil {
-		return messages.PaneCenter, false
+		return paneNone, false
 	}
 	topGutter := a.layout.TopGutter()
 	height := a.layout.Height()
 	if y < topGutter || y >= topGutter+height {
-		return messages.PaneCenter, false
+		return paneNone, false
 	}
 
 	leftGutter := a.layout.LeftGutter()
@@ -249,12 +254,12 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 	}
 
 	if !a.layout.ShowSidebar() {
-		return messages.PaneCenter, false
+		return paneNone, false
 	}
 	sidebarStart := centerStart + a.layout.GapX()
 	sidebarEnd := sidebarStart + a.layout.SidebarWidth()
 	if x < sidebarStart || x >= sidebarEnd {
-		return messages.PaneCenter, false
+		return paneNone, false
 	}
 
 	localY := y - topGutter

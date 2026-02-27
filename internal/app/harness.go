@@ -252,6 +252,9 @@ func (h *Harness) Render() tea.View {
 	if h == nil || h.app == nil {
 		return tea.View{}
 	}
+	// Harness rendering bypasses App.Update, so synchronize pane focus flags
+	// before drawing to match runtime focus/cursor behavior.
+	h.app.syncPaneFocusFlags()
 	return h.app.viewLayerBased()
 }
 

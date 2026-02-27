@@ -103,10 +103,6 @@ func (a *App) viewLayerBased() tea.View {
 		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
 	}
 
-	// Ensure focus state cannot drift between panes; this keeps cursor ownership
-	// singular even across complex mouse event sequences.
-	a.syncPaneFocusFlags()
-
 	// Create canvas at screen dimensions
 	canvas := a.canvasFor(a.width, a.height)
 
@@ -115,7 +111,6 @@ func (a *App) viewLayerBased() tea.View {
 	topGutter := a.layout.TopGutter()
 	dashWidth := a.layout.DashboardWidth()
 	dashHeight := a.layout.Height()
-	dashFocused := false
 	dashContentWidth := dashWidth - 3
 	dashContentHeight := dashHeight - 2
 	if dashContentWidth < 1 {
@@ -128,7 +123,7 @@ func (a *App) viewLayerBased() tea.View {
 	if dashDrawable := a.dashboardContent.get(dashContent, leftGutter+1, topGutter+1); dashDrawable != nil {
 		canvas.Compose(dashDrawable)
 	}
-	for _, border := range a.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight, dashFocused) {
+	for _, border := range a.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight) {
 		canvas.Compose(border)
 	}
 
@@ -137,7 +132,6 @@ func (a *App) viewLayerBased() tea.View {
 		centerX := leftGutter + dashWidth + a.layout.GapX()
 		centerWidth := a.layout.CenterWidth()
 		centerHeight := a.layout.Height()
-		centerFocused := false
 
 		// Check if we can use VTermLayer for direct cell rendering
 		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasDiffViewer() {
@@ -157,7 +151,7 @@ func (a *App) viewLayerBased() tea.View {
 			canvas.Compose(positionedTermLayer)
 
 			// Draw borders without touching the content area.
-			for _, border := range a.centerBorders.get(centerX, topGutter, centerWidth, centerHeight, centerFocused) {
+			for _, border := range a.centerBorders.get(centerX, topGutter, centerWidth, centerHeight) {
 				canvas.Compose(border)
 			}
 
@@ -198,7 +192,7 @@ func (a *App) viewLayerBased() tea.View {
 			} else {
 				centerContent = a.renderCenterPaneContent()
 			}
-			centerView := buildBorderedPane(centerContent, centerWidth, centerHeight, centerFocused)
+			centerView := buildBorderedPane(centerContent, centerWidth, centerHeight)
 			centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter)
 			canvas.Compose(centerDrawable)
 		}
@@ -221,9 +215,6 @@ func (a *App) viewLayerBased() tea.View {
 			if contentWidth < 1 {
 				contentWidth = 1
 			}
-
-			topFocused := false
-			bottomFocused := false
 
 			if topPaneHeight > 0 {
 				topContentHeight := topPaneHeight - 2
@@ -252,7 +243,7 @@ func (a *App) viewLayerBased() tea.View {
 				if topDrawable := a.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1+tabBarHeight); topDrawable != nil {
 					canvas.Compose(topDrawable)
 				}
-				for _, border := range a.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight, topFocused) {
+				for _, border := range a.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight) {
 					canvas.Compose(border)
 				}
 			}
@@ -339,7 +330,7 @@ func (a *App) viewLayerBased() tea.View {
 					canvas.Compose(bottomDrawable)
 				}
 			}
-			for _, border := range a.sidebarBottomBorders.get(sidebarX, bottomY, sidebarWidth, bottomPaneHeight, bottomFocused) {
+			for _, border := range a.sidebarBottomBorders.get(sidebarX, bottomY, sidebarWidth, bottomPaneHeight) {
 				canvas.Compose(border)
 			}
 		}
