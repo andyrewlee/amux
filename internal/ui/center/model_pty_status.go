@@ -206,6 +206,12 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	if snap == nil {
 		return nil
 	}
+	// Keep the cursor steady in coding-agent tabs. Some assistants emit
+	// frequent DECTCEM hide/show toggles while streaming output, which causes
+	// visible flicker if we honor terminal-driven cursor hiding.
+	if m.isChatTab(tab) {
+		snap.CursorHidden = false
+	}
 	perf.Count("vterm_snapshot_cache_miss", 1)
 
 	// Cache the snapshot
