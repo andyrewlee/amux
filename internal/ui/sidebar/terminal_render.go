@@ -143,6 +143,12 @@ func (m *TerminalModel) TabBarView() string {
 
 // TerminalLayer returns a VTermLayer for the active workspace terminal.
 func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
+	return m.TerminalLayerWithCursorOwner(true)
+}
+
+// TerminalLayerWithCursorOwner returns a VTermLayer for the active workspace
+// terminal while enforcing whether this pane currently owns cursor rendering.
+func (m *TerminalModel) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTermLayer {
 	ts := m.getTerminal()
 	if ts == nil {
 		return nil
@@ -155,6 +161,9 @@ func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
 
 	version := ts.VTerm.Version()
 	showCursor := m.focused
+	if !cursorOwner {
+		showCursor = false
+	}
 	if ts.cachedSnap != nil && ts.cachedVersion == version && ts.cachedShowCursor == showCursor {
 		perf.Count("vterm_snapshot_cache_hit", 1)
 		return compositor.NewVTermLayer(ts.cachedSnap)

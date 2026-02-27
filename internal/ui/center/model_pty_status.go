@@ -178,6 +178,12 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 // so the returned layer can be safely used for rendering without locks.
 // Uses snapshot caching to avoid recreating when terminal state unchanged.
 func (m *Model) TerminalLayer() *compositor.VTermLayer {
+	return m.TerminalLayerWithCursorOwner(true)
+}
+
+// TerminalLayerWithCursorOwner returns a VTermLayer for the active terminal while
+// enforcing whether this pane currently owns cursor rendering.
+func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTermLayer {
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 	if len(tabs) == 0 || activeIdx >= len(tabs) {
@@ -194,6 +200,9 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	// Check if we can reuse the cached snapshot
 	version := tab.Terminal.Version()
 	showCursor := m.focused
+	if !cursorOwner {
+		showCursor = false
+	}
 	if tab.cachedSnap != nil &&
 		tab.cachedVersion == version &&
 		tab.cachedShowCursor == showCursor {

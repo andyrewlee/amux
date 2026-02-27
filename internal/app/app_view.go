@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
@@ -134,7 +135,8 @@ func (a *App) viewLayerBased() tea.View {
 		centerHeight := a.layout.Height()
 
 		// Check if we can use VTermLayer for direct cell rendering
-		if termLayer := a.center.TerminalLayer(); termLayer != nil && a.center.HasTabs() && !a.center.HasDiffViewer() {
+		centerOwnsCursor := a.focusedPane == messages.PaneCenter
+		if termLayer := a.center.TerminalLayerWithCursorOwner(centerOwnsCursor); termLayer != nil && a.center.HasTabs() && !a.center.HasDiffViewer() {
 			// Get terminal viewport from center model (accounts for borders, tab bar, help lines)
 			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
 			termX := centerX + termOffsetX
@@ -254,7 +256,8 @@ func (a *App) viewLayerBased() tea.View {
 				bottomContentHeight = 1
 			}
 
-			if termLayer := a.sidebarTerminal.TerminalLayer(); termLayer != nil {
+			sidebarOwnsCursor := a.focusedPane == messages.PaneSidebarTerminal
+			if termLayer := a.sidebarTerminal.TerminalLayerWithCursorOwner(sidebarOwnsCursor); termLayer != nil {
 				originX, originY := a.sidebarTerminal.TerminalOrigin()
 				termW, termH := a.sidebarTerminal.TerminalSize()
 				if termW > contentWidth {
