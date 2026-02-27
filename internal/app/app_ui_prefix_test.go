@@ -9,7 +9,6 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
-	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 func newPrefixTestApp(t *testing.T) (*App, *data.Workspace, *center.Model) {
@@ -203,54 +202,40 @@ func TestIsPrefixKey_DoesNotAcceptPrintableAliases(t *testing.T) {
 	}
 }
 
-func TestHandleKeyPress_PrefixAliasOpensPaletteWhenSafe(t *testing.T) {
+func TestOpenCommandsPalette_EntersPrefixMode(t *testing.T) {
 	app, _, _ := newPrefixTestApp(t)
-	app.focusedPane = messages.PaneDashboard
 
-	cmd := app.handleKeyPress(tea.KeyPressMsg{Code: '?', Text: "?"})
+	cmd := app.openCommandsPalette()
 	if cmd == nil {
-		t.Fatal("expected alias leader to enter prefix mode")
+		t.Fatal("expected command palette to open")
 	}
 	if !app.prefixActive {
 		t.Fatal("expected prefix mode to become active")
 	}
 }
 
-func TestHandleKeyPress_PrefixAliasIgnoredInActiveCenterTerminal(t *testing.T) {
-	app, ws, centerModel := newPrefixTestApp(t)
-	centerModel.AddTab(&center.Tab{
-		ID:          center.TabID("tab-1"),
-		Name:        "Claude",
-		Assistant:   "claude",
-		Workspace:   ws,
-		SessionName: "sess-1",
-		Detached:    true,
-	})
-	app.focusedPane = messages.PaneCenter
-
-	_ = app.handleKeyPress(tea.KeyPressMsg{Code: '?', Text: "?"})
-	if app.prefixActive {
-		t.Fatal("expected alias leader not to open palette while center terminal is active")
-	}
-}
-
-func TestHandleKeyPress_PrefixQuestionStillTriggersHelp(t *testing.T) {
+func TestOpenCommandsPalette_ResetsActiveSequence(t *testing.T) {
 	app, _, _ := newPrefixTestApp(t)
 	app.prefixActive = true
-	app.helpOverlay = common.NewHelpOverlay()
-	app.width = 80
-	app.height = 24
+	app.prefixSequence = []string{"t"}
+	beforeToken := app.prefixToken
 
-	_ = app.handleKeyPress(tea.KeyPressMsg{Code: '?', Text: "?"})
-	if app.prefixActive {
-		t.Fatal("expected prefix mode to complete after '?' command")
+	cmd := app.openCommandsPalette()
+	if cmd == nil {
+		t.Fatal("expected palette reset command")
 	}
-	if !app.helpOverlay.Visible() {
-		t.Fatal("expected '?' prefix command to toggle help overlay")
+	if !app.prefixActive {
+		t.Fatal("expected prefix mode to remain active")
+	}
+	if len(app.prefixSequence) != 0 {
+		t.Fatalf("expected prefix sequence reset, got %v", app.prefixSequence)
+	}
+	if app.prefixToken != beforeToken+1 {
+		t.Fatalf("expected prefix token increment, got %d want %d", app.prefixToken, beforeToken+1)
 	}
 }
 
-func TestHandleKeyPress_PrefixHResetsAndDoesNotPassThrough(t *testing.T) {
+func TestHandleKeyPress_PrefixKeyResetsWhenActive(t *testing.T) {
 	app, ws, centerModel := newPrefixTestApp(t)
 	centerModel.AddTab(&center.Tab{
 		ID:          center.TabID("tab-1"),
@@ -265,9 +250,9 @@ func TestHandleKeyPress_PrefixHResetsAndDoesNotPassThrough(t *testing.T) {
 	app.prefixSequence = []string{"t"}
 	beforeToken := app.prefixToken
 
-	cmd := app.handleKeyPress(tea.KeyPressMsg{Code: 'H', Text: "H"})
+	cmd := app.handleKeyPress(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
 	if cmd == nil {
-		t.Fatal("expected prefix reset command for H while palette is open")
+		t.Fatal("expected prefix reset command while palette is open")
 	}
 	if !app.prefixActive {
 		t.Fatal("expected prefix mode to remain active")

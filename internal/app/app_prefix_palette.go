@@ -21,7 +21,7 @@ func (a *App) renderPrefixPalette() string {
 		contentWidth = 1
 	}
 
-	sequence := "?/H"
+	sequence := "C-Space"
 	if len(a.prefixSequence) > 0 {
 		sequence += " " + strings.Join(a.prefixSequence, " ")
 	}
@@ -61,7 +61,7 @@ func (a *App) renderPrefixPalette() string {
 
 	footer := lipgloss.NewStyle().
 		Foreground(common.ColorMuted()).
-		Render("Esc cancel | Backspace undo | H reset (Ctrl-Space sends literal)")
+		Render("Esc cancel | Backspace undo | C-Space reset | C-Space C-Space sends literal")
 
 	maxLines := a.height - 3
 	if maxLines < 2 {

@@ -3,6 +3,8 @@ package dashboard
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -15,7 +17,7 @@ func TestToolbarClick(t *testing.T) {
 
 	// The toolbar should be at the bottom of the content area
 	// With showKeymapHints=false, toolbar is rendered without help lines below
-	// Toolbar buttons are: [Help] [Settings] on a single row
+	// Toolbar buttons are: [Commands] [Settings] on a single row
 
 	// Get toolbar Y position (set during View())
 	// We need to add border offset (1) to get screen Y
@@ -28,14 +30,14 @@ func TestToolbarClick(t *testing.T) {
 		wantMsgType string
 	}{
 		{
-			name:        "click Help button",
-			screenX:     3, // [?H] starts near the left
+			name:        "click Commands button",
+			screenX:     3, // [Commands] starts near the left
 			screenY:     toolbarScreenY,
-			wantMsgType: "ToggleHelp",
+			wantMsgType: "ShowCommandsPalette",
 		},
 		{
 			name:        "click Settings button",
-			screenX:     8, // [⚙S] is after [?H] with gap
+			screenX:     13, // [Settings] is after [Commands] with gap
 			screenY:     toolbarScreenY,
 			wantMsgType: "ShowSettingsDialog",
 		},
@@ -56,8 +58,8 @@ func TestToolbarClick(t *testing.T) {
 			msg := cmd()
 			gotType := ""
 			switch msg.(type) {
-			case messages.ToggleHelp:
-				gotType = "ToggleHelp"
+			case messages.ShowCommandsPalette:
+				gotType = "ShowCommandsPalette"
 			case messages.ShowSettingsDialog:
 				gotType = "ShowSettingsDialog"
 			default:
@@ -67,7 +69,28 @@ func TestToolbarClick(t *testing.T) {
 			if gotType != tt.wantMsgType {
 				t.Errorf("toolbar click message type = %s, want %s", gotType, tt.wantMsgType)
 			}
+			if m.toolbarFocused {
+				t.Errorf("toolbar click should not leave toolbarFocused=true")
+			}
 		})
+	}
+}
+
+func TestToolbarEnterDispatchClearsToolbarFocus(t *testing.T) {
+	m := setupClickTestModel()
+	m.toolbarFocused = true
+	m.toolbarIndex = 0
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected command when pressing enter on focused toolbar item")
+	}
+	if m.toolbarFocused {
+		t.Fatal("expected toolbar focus to clear after dispatching toolbar command")
+	}
+	msg := cmd()
+	if _, ok := msg.(messages.ShowCommandsPalette); !ok {
+		t.Fatalf("expected ShowCommandsPalette message, got %T", msg)
 	}
 }
 
@@ -133,8 +156,8 @@ func TestDeleteButtonClick(t *testing.T) {
 	_ = m.View()
 
 	// Find the Delete button position
-	// Toolbar items when workspace selected: Help, Settings, Delete
-	// [?H] [⚙S] [Delete]
+	// Toolbar items when workspace selected: Commands, Settings, Delete
+	// [Commands] [Settings] [Delete]
 	toolbarScreenY := m.toolbarY + 1
 
 	// Delete should be on same row, after Settings
@@ -168,8 +191,8 @@ func TestRemoveButtonClickOnProject(t *testing.T) {
 	m.cursor = 2 // Project row
 	_ = m.View()
 
-	// Toolbar items when project selected: Help, Settings, Remove
-	// [?H] [⚙S] [Remove]
+	// Toolbar items when project selected: Commands, Settings, Remove
+	// [Commands] [Settings] [Remove]
 	toolbarScreenY := m.toolbarY + 1
 
 	// Try to find Remove button on same row

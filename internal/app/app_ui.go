@@ -60,7 +60,6 @@ var prefixCommandTable = []prefixCommand{
 	{Sequence: []string{"a"}, Desc: "add project", Action: "add_project"},
 	{Sequence: []string{"d"}, Desc: "delete workspace", Action: "delete_workspace"},
 	{Sequence: []string{"S"}, Desc: "Settings", Action: "open_settings"},
-	{Sequence: []string{"?"}, Desc: "toggle help", Action: "help"},
 	{Sequence: []string{"q"}, Desc: "quit", Action: "quit"},
 	{Sequence: []string{"K"}, Desc: "cleanup tmux", Action: "cleanup_tmux"},
 	{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: "new_agent_tab"},
@@ -80,29 +79,18 @@ func (a *App) isPrefixKey(msg tea.KeyPressMsg) bool {
 	return key.Matches(msg, a.keymap.Prefix)
 }
 
-func (a *App) isPrefixAliasOpenKey(msg tea.KeyPressMsg) bool {
-	return key.Matches(msg, key.NewBinding(key.WithKeys("?", "H")))
-}
-
-func (a *App) isPrefixAliasResetKey(msg tea.KeyPressMsg) bool {
-	return key.Matches(msg, key.NewBinding(key.WithKeys("H")))
-}
-
-func (a *App) canUsePrefixAlias() bool {
-	switch a.focusedPane {
-	case messages.PaneSidebarTerminal:
-		return false
-	case messages.PaneCenter:
-		// Keep printable aliases out of active terminals to preserve literal input.
-		return !a.center.HasTabs()
-	default:
-		return true
-	}
-}
-
 // enterPrefix enters prefix mode and schedules a timeout
 func (a *App) enterPrefix() tea.Cmd {
 	a.prefixActive = true
+	a.prefixSequence = nil
+	return a.refreshPrefixTimeout()
+}
+
+// openCommandsPalette opens (or resets) the bottom command palette.
+func (a *App) openCommandsPalette() tea.Cmd {
+	if !a.prefixActive {
+		return a.enterPrefix()
+	}
 	a.prefixSequence = nil
 	return a.refreshPrefixTimeout()
 }
@@ -229,10 +217,6 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 		}
 	case "open_settings":
 		return func() tea.Msg { return messages.ShowSettingsDialog{} }
-	case "help":
-		a.helpOverlay.SetSize(a.width, a.height)
-		a.helpOverlay.Toggle()
-		return nil
 	case "quit":
 		a.showQuitDialog()
 		return nil

@@ -101,7 +101,6 @@ func New(version, commit, date string) (*App, error) {
 		center:                 center.New(cfg),
 		sidebar:                sidebar.NewTabbedSidebar(),
 		sidebarTerminal:        sidebar.NewTerminalModel(),
-		helpOverlay:            common.NewHelpOverlay(),
 		toast:                  common.NewToastModel(),
 		focusedPane:            messages.PaneDashboard,
 		showWelcome:            true,
@@ -140,7 +139,6 @@ func New(version, commit, date string) (*App, error) {
 	app.sidebarTerminal.SetStyles(app.styles)
 	app.center.SetStyles(app.styles)
 	app.toast.SetStyles(app.styles)
-	app.helpOverlay.SetStyles(app.styles)
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	// Propagate tmux config to components
 	app.center.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)

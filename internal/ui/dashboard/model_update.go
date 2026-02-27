@@ -101,6 +101,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 				return m, m.activateCurrentRow()
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+				m.toolbarFocused = false
 				return m, m.toolbarCommand(toolbarItems[m.toolbarIndex].kind)
 			}
 			return m, nil

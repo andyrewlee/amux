@@ -23,7 +23,6 @@ type KeyMap struct {
 	CleanupTmux    key.Binding
 	NewAgentTab    key.Binding
 	NewTerminalTab key.Binding
-	Help           key.Binding
 
 	// Dashboard
 	Enter        key.Binding
@@ -109,11 +108,6 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("t"),
 			key.WithHelp("t", "new terminal tab"),
 		),
-		Help: key.NewBinding(
-			key.WithKeys("?"),
-			key.WithHelp("?", "toggle help"),
-		),
-
 		// Dashboard
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),

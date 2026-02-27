@@ -45,9 +45,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if handled, cmd := a.handleDialogResultMsg(msg); handled {
 		return a, cmd
 	}
-	if handled, cmd := a.handleHelpOverlayInput(msg); handled {
-		return a, cmd
-	}
 	if a.handleErrorOverlayDismiss(msg) {
 		return a, nil
 	}
@@ -103,9 +100,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ShowWelcome:
 		a.goHome()
 
-	case messages.ToggleHelp:
-		a.helpOverlay.SetSize(a.width, a.height)
-		a.helpOverlay.Toggle()
+	case messages.ShowCommandsPalette:
+		if cmd := a.openCommandsPalette(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.ToggleKeymapHints:
 		a.setKeymapHintsEnabled(!a.config.UI.ShowKeymapHints)

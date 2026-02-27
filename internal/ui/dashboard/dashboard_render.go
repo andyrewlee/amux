@@ -208,9 +208,9 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("G", "bottom"),
 	)
 	items = append(items,
-		m.helpItem("?/H", "Commands"),
-		m.helpItem("Leader ?", "help"),
-		m.helpItem("Leader q", "quit"),
+		m.helpItem("C-Space", "Commands"),
+		m.helpItem("C-Space S", "Settings"),
+		m.helpItem("C-Space q", "quit"),
 	)
 	return common.WrapHelpItems(items, contentWidth)
 }

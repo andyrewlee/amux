@@ -169,8 +169,8 @@ func (e Error) Error() string {
 // ShowWelcome requests showing the welcome screen
 type ShowWelcome struct{}
 
-// ToggleHelp requests toggling the help overlay
-type ToggleHelp struct{}
+// ShowCommandsPalette requests opening the bottom command palette.
+type ShowCommandsPalette struct{}
 
 // ShowQuitDialog requests showing the quit confirmation dialog
 type ShowQuitDialog struct{}

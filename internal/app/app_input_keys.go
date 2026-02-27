@@ -33,13 +33,7 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
-	// 1. Handle printable alias leaders where typing semantics are safe.
-	// Never intercept these while terminal panes are active.
-	if !a.prefixActive && a.isPrefixAliasOpenKey(msg) && a.canUsePrefixAlias() {
-		return a.enterPrefix()
-	}
-
-	// 2. Handle prefix key (Ctrl+Space)
+	// 1. Handle prefix key (Ctrl+Space)
 	if a.isPrefixKey(msg) {
 		if a.prefixActive {
 			if len(a.prefixSequence) == 0 {
@@ -56,14 +50,8 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		return a.enterPrefix()
 	}
 
-	// 3. If prefix is active, handle mux commands
+	// 2. If prefix is active, handle mux commands
 	if a.prefixActive {
-		// Alias reset key while palette is open (consume; never forward).
-		if a.isPrefixAliasResetKey(msg) {
-			a.prefixSequence = nil
-			return a.refreshPrefixTimeout()
-		}
-
 		// Esc cancels prefix mode without forwarding
 		code := msg.Key().Code
 		if code == tea.KeyEsc || code == tea.KeyEscape {
@@ -156,10 +144,6 @@ func (a *App) handleWindowSize(msg tea.WindowSizeMsg) {
 	a.ready = true
 	a.layout.Resize(msg.Width, msg.Height)
 	a.updateLayout()
-	// Update help overlay size for accurate hit-testing after resize
-	if a.helpOverlay.Visible() {
-		a.helpOverlay.SetSize(a.width, a.height)
-	}
 }
 
 func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {

@@ -43,7 +43,7 @@ type Row struct {
 type toolbarButtonKind int
 
 const (
-	toolbarHelp toolbarButtonKind = iota
+	toolbarCommands toolbarButtonKind = iota
 	toolbarSettings
 )
 
