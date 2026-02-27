@@ -207,14 +207,10 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("g", "top"),
 		m.helpItem("G", "bottom"),
 	)
-	focusKey := "C-Spc h/j/k"
-	if m.canFocusRight {
-		focusKey = "C-Spc h/j/k/l"
-	}
-	items = append(items, m.helpItem(focusKey, "focus (or ←↑↓→)"))
 	items = append(items,
-		m.helpItem("C-Spc ?", "help"),
-		m.helpItem("C-Spc q", "quit"),
+		m.helpItem("?/H", "Commands"),
+		m.helpItem("Leader ?", "help"),
+		m.helpItem("Leader q", "quit"),
 	)
 	return common.WrapHelpItems(items, contentWidth)
 }

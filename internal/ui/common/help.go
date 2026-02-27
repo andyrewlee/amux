@@ -69,7 +69,7 @@ func defaultHelpSections() []HelpSection {
 		{
 			Title: "Prefix Palette",
 			Bindings: []HelpBinding{
-				{"C-Space", "Open command palette"},
+				{"?/H", "Commands"},
 				{"Esc", "Cancel palette"},
 				{"Backspace", "Undo sequence key"},
 				{"C-Space C-Space", "Send literal Ctrl+Space"},
@@ -78,7 +78,9 @@ func defaultHelpSections() []HelpSection {
 		{
 			Title: "After Prefix: General",
 			Bindings: []HelpBinding{
-				{"h/j/k/l", "Focus pane (left/down/up/right)"},
+				{"a", "Add project"},
+				{"d", "Delete workspace"},
+				{"S", "Settings"},
 				{"?", "Toggle help"},
 				{"q", "Quit"},
 				{"K", "Cleanup tmux"},

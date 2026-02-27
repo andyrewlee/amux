@@ -46,10 +46,10 @@ type KeyMap struct {
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		// Prefix key (leader)
-		// Ctrl-Space is reported as ctrl+@ or ctrl+space depending on terminal
+		// Ctrl-Space is reported as ctrl+@ or ctrl+space depending on terminal.
 		Prefix: key.NewBinding(
 			key.WithKeys("ctrl+@", "ctrl+space"),
-			key.WithHelp("C-Space", "commands"),
+			key.WithHelp("C-Space", "Commands"),
 		),
 
 		// Commands active after prefix
