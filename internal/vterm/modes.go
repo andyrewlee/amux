@@ -42,6 +42,11 @@ func (p *Parser) executeMode(set bool) {
 		case 12: // Blinking cursor
 			// Ignore
 		case 25: // DECTCEM - cursor visible
+			if p.vt.IgnoreCursorVisibilityControls {
+				// Keep cursor visibility fixed for hosts that emit frequent
+				// hide/show toggles during streaming output.
+				continue
+			}
 			hidden := !set
 			prevHidden := p.vt.CursorHiddenForRender()
 			p.vt.CursorHidden = hidden

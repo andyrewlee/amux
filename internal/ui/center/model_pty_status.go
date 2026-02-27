@@ -189,6 +189,7 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	if tab.Terminal == nil {
 		return nil
 	}
+	m.applyTerminalCursorPolicyLocked(tab)
 
 	// Check if we can reuse the cached snapshot
 	version := tab.Terminal.Version()
@@ -211,6 +212,36 @@ func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	// visible flicker if we honor terminal-driven cursor hiding.
 	if m.isChatTab(tab) {
 		snap.CursorHidden = false
+		// Prevent residual flicker from SGR blink attributes in assistant output.
+		for y := range snap.Screen {
+			row := snap.Screen[y]
+			for x := range row {
+				if !row[x].Style.Blink {
+					continue
+				}
+				cell := row[x]
+				cell.Style.Blink = false
+				row[x] = cell
+			}
+		}
+		// Some assistants also paint a synthetic block cursor glyph in the
+		// buffer itself. Normalize the active cursor cell so our own steady
+		// cursor paint is the only cursor indicator.
+		if snap.ShowCursor && snap.ViewOffset == 0 &&
+			snap.CursorY >= 0 && snap.CursorY < len(snap.Screen) {
+			row := snap.Screen[snap.CursorY]
+			if snap.CursorX >= 0 && snap.CursorX < len(row) {
+				cell := row[snap.CursorX]
+				if cell.Rune == '█' {
+					cell.Rune = ' '
+					if cell.Width <= 0 {
+						cell.Width = 1
+					}
+				}
+				cell.Style.Blink = false
+				row[snap.CursorX] = cell
+			}
+		}
 	}
 	perf.Count("vterm_snapshot_cache_miss", 1)
 

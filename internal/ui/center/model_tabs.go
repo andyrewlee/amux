@@ -225,6 +225,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.SessionName = msg.Agent.Session
 		tab.Detached = false
 		tab.Running = true
+		m.applyTerminalCursorPolicyLocked(tab)
 		if tab.createdAt == 0 {
 			tab.createdAt = now.Unix()
 		}
@@ -302,6 +303,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		createdAt:     now.Unix(),
 		lastFocusedAt: now,
 	}
+	term.IgnoreCursorVisibilityControls = m.isChatTab(tab)
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)
 	if msg.Agent.Terminal != nil {

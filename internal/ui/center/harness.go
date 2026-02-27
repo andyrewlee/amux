@@ -12,6 +12,9 @@ func (m *Model) AddTab(tab *Tab) {
 		m.activeTabByWorkspace = make(map[string]int)
 	}
 	wtID := string(tab.Workspace.ID())
+	if tab.Terminal != nil {
+		tab.Terminal.IgnoreCursorVisibilityControls = m.isChatTab(tab)
+	}
 	m.tabsByWorkspace[wtID] = append(m.tabsByWorkspace[wtID], tab)
 	m.noteTabsChanged()
 	if _, ok := m.activeTabByWorkspace[wtID]; !ok {

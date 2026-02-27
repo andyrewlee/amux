@@ -208,6 +208,20 @@ func TestVersionBumpsOnCursorMoveAndAltScreenCursorHide(t *testing.T) {
 	}
 }
 
+func TestMode25IgnoredWhenCursorVisibilityControlsDisabled(t *testing.T) {
+	vt := New(10, 5)
+	vt.IgnoreCursorVisibilityControls = true
+	v0 := vt.Version()
+
+	vt.Write([]byte("\x1b[?25l"))
+	if vt.CursorHidden {
+		t.Fatal("expected cursor hidden state to remain false when mode 25 is ignored")
+	}
+	if vt.Version() != v0 {
+		t.Fatal("expected version to remain unchanged when mode 25 is ignored")
+	}
+}
+
 func TestScrollbackViewOffsetAnchorsOnScrollUp(t *testing.T) {
 	vt := New(5, 3)
 	// Seed scrollback so ViewOffset is meaningful.

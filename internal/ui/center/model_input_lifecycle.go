@@ -89,6 +89,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	tab.Detached = false
 	tab.reattachInFlight = false
 	tab.Running = true
+	m.applyTerminalCursorPolicyLocked(tab)
 	tab.bootstrapActivity = true
 	tab.bootstrapLastOutputAt = time.Now()
 	tab.mu.Unlock()

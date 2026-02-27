@@ -73,6 +73,9 @@ type VTerm struct {
 	// CursorHidden tracks if terminal app hid cursor via DECTCEM (mode 25)
 	CursorHidden     bool
 	lastCursorHidden bool
+	// IgnoreCursorVisibilityControls ignores DECTCEM mode 25 hide/show toggles.
+	// Used by chat-style tabs that render a steady cursor independent of app output.
+	IgnoreCursorVisibilityControls bool
 
 	// Synchronized output (DEC mode 2026)
 	syncActive        bool
