@@ -82,3 +82,18 @@ func TestRenderPrefixPalette_FiltersUnavailableRootCommands(t *testing.T) {
 		t.Fatalf("expected numeric jump to be hidden with <=1 tab, got:\n%s", content)
 	}
 }
+
+func TestNextPrefixPaletteChoices_FiltersUnavailableSubcommands(t *testing.T) {
+	h := newCenterHarness(nil, HarnessOptions{
+		Width:  120,
+		Height: 24,
+		Tabs:   0,
+	})
+	app := h.app
+	app.prefixSequence = []string{"t"}
+
+	choices := app.nextPrefixPaletteChoices()
+	if len(choices) != 0 {
+		t.Fatalf("expected unavailable tab subcommands to be hidden, got %+v", choices)
+	}
+}

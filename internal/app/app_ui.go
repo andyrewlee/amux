@@ -87,6 +87,8 @@ func (a *App) enterPrefix() tea.Cmd {
 }
 
 // openCommandsPalette opens (or resets) the bottom command palette.
+// This message-driven path is used by mouse/toolbar interactions and therefore
+// never sends a literal Ctrl-Space (NUL) to terminals.
 func (a *App) openCommandsPalette() tea.Cmd {
 	if !a.prefixActive {
 		return a.enterPrefix()
@@ -176,6 +178,9 @@ func (a *App) prefixCommands() []prefixCommand {
 	return prefixCommandTable
 }
 
+// matchingPrefixCommands intentionally does not apply prefixActionVisible.
+// Command execution remains permissive and unavailable actions fail gracefully
+// in runPrefixAction with contextual no-op/toast behavior.
 func (a *App) matchingPrefixCommands(sequence []string) []prefixCommand {
 	commands := a.prefixCommands()
 	if len(sequence) == 0 {

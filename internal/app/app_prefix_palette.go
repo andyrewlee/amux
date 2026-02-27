@@ -202,6 +202,9 @@ func (a *App) nextPrefixPaletteChoices() []prefixPaletteChoice {
 	hasLeaf := map[string]bool{}
 
 	for _, cmd := range matches {
+		if !a.prefixActionVisible(cmd.Action) {
+			continue
+		}
 		if len(cmd.Sequence) <= seqLen {
 			continue
 		}

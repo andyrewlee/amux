@@ -235,6 +235,27 @@ func TestOpenCommandsPalette_ResetsActiveSequence(t *testing.T) {
 	}
 }
 
+func TestOpenCommandsPalette_AtRootKeepsPrefixActive(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.prefixActive = true
+	app.prefixSequence = nil
+	beforeToken := app.prefixToken
+
+	cmd := app.openCommandsPalette()
+	if cmd == nil {
+		t.Fatal("expected palette refresh command")
+	}
+	if !app.prefixActive {
+		t.Fatal("expected prefix mode to remain active")
+	}
+	if len(app.prefixSequence) != 0 {
+		t.Fatalf("expected prefix sequence to remain empty, got %v", app.prefixSequence)
+	}
+	if app.prefixToken != beforeToken+1 {
+		t.Fatalf("expected prefix token increment, got %d want %d", app.prefixToken, beforeToken+1)
+	}
+}
+
 func TestHandleKeyPress_PrefixKeyResetsWhenActive(t *testing.T) {
 	app, ws, centerModel := newPrefixTestApp(t)
 	centerModel.AddTab(&center.Tab{
@@ -262,6 +283,34 @@ func TestHandleKeyPress_PrefixKeyResetsWhenActive(t *testing.T) {
 	}
 	if app.prefixToken != beforeToken+1 {
 		t.Fatalf("expected prefix token increment, got %d want %d", app.prefixToken, beforeToken+1)
+	}
+}
+
+func TestHandleKeyPress_PrefixKeyAtRootExitsPrefixMode(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.prefixActive = true
+	app.prefixSequence = nil
+
+	cmd := app.handleKeyPress(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	if cmd != nil {
+		t.Fatal("expected no command when sending literal Ctrl+Space")
+	}
+	if app.prefixActive {
+		t.Fatal("expected prefix mode to exit after prefix key at root")
+	}
+}
+
+func TestMatchingPrefixCommands_IncludesUnavailableActionsForExecutionFallback(t *testing.T) {
+	h := newCenterHarness(nil, HarnessOptions{
+		Width:  120,
+		Height: 24,
+		Tabs:   0,
+	})
+	app := h.app
+
+	matches := app.matchingPrefixCommands([]string{"t"})
+	if len(matches) == 0 {
+		t.Fatal("expected raw prefix matcher to keep tab actions available for typed execution")
 	}
 }
 
