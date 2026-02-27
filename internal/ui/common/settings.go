@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -12,14 +11,7 @@ import (
 )
 
 // SettingsResult is sent when the settings dialog is closed.
-type SettingsResult struct {
-	Confirmed        bool
-	Theme            ThemeID
-	ShowKeymapHints  bool
-	TmuxServer       string
-	TmuxConfigPath   string
-	TmuxSyncInterval string
-}
+type SettingsResult struct{}
 
 // ThemePreview is sent when user navigates through themes for live preview.
 type ThemePreview struct {
@@ -29,13 +21,8 @@ type ThemePreview struct {
 type settingsItem int
 
 const (
-	settingsItemTheme settingsItem = iota
-	settingsItemKeymap
-	settingsItemTmuxServer
-	settingsItemTmuxConfig
-	settingsItemTmuxSync
-	settingsItemUpdate // only shown when update available
-	settingsItemSave
+	settingsItemTheme  settingsItem = iota
+	settingsItemUpdate              // only shown when update available
 	settingsItemClose
 )
 
@@ -46,13 +33,7 @@ type SettingsDialog struct {
 	height  int
 
 	// Settings values
-	theme           ThemeID
-	showKeymapHints bool
-	originalTheme   ThemeID
-	tmuxServer      textinput.Model
-	tmuxConfig      textinput.Model
-	tmuxSync        textinput.Model
-	validationErr   string
+	theme ThemeID
 
 	// UI state
 	focusedItem settingsItem
@@ -60,8 +41,7 @@ type SettingsDialog struct {
 	themes      []Theme
 
 	// For mouse hit detection
-	hitRegions        []settingsHitRegion
-	showKeymapHintsUI bool
+	hitRegions []settingsHitRegion
 
 	// Update state
 	currentVersion  string
@@ -77,7 +57,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID, showKeymapHints bool, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID) *SettingsDialog {
 	themes := AvailableThemes()
 	themeCursor := 0
 	for i, t := range themes {
@@ -87,43 +67,19 @@ func NewSettingsDialog(currentTheme ThemeID, showKeymapHints bool, tmuxServer, t
 		}
 	}
 
-	serverInput := textinput.New()
-	serverInput.Placeholder = "default"
-	serverInput.SetWidth(24)
-	serverInput.SetVirtualCursor(false)
-	serverInput.SetValue(strings.TrimSpace(tmuxServer))
-
-	configInput := textinput.New()
-	configInput.Placeholder = "default"
-	configInput.SetWidth(24)
-	configInput.SetVirtualCursor(false)
-	configInput.SetValue(strings.TrimSpace(tmuxConfig))
-
-	syncInput := textinput.New()
-	syncInput.Placeholder = "7s"
-	syncInput.SetWidth(12)
-	syncInput.SetVirtualCursor(false)
-	syncInput.SetValue(strings.TrimSpace(tmuxSync))
-
 	return &SettingsDialog{
-		theme:           currentTheme,
-		originalTheme:   currentTheme,
-		showKeymapHints: showKeymapHints,
-		tmuxServer:      serverInput,
-		tmuxConfig:      configInput,
-		tmuxSync:        syncInput,
-		themes:          themes,
-		themeCursor:     themeCursor,
-		focusedItem:     settingsItemTheme,
+		theme:       currentTheme,
+		themes:      themes,
+		themeCursor: themeCursor,
+		focusedItem: settingsItemTheme,
 	}
 }
 
-func (s *SettingsDialog) Show()                        { s.visible = true; s.originalTheme = s.theme }
-func (s *SettingsDialog) Hide()                        { s.visible = false }
-func (s *SettingsDialog) Visible() bool                { return s.visible }
-func (s *SettingsDialog) SetSize(w, h int)             { s.width, s.height = w, h }
-func (s *SettingsDialog) SetShowKeymapHints(show bool) { s.showKeymapHintsUI = show }
-func (s *SettingsDialog) Cursor() *tea.Cursor          { return nil }
+func (s *SettingsDialog) Show()               { s.visible = true }
+func (s *SettingsDialog) Hide()               { s.visible = false }
+func (s *SettingsDialog) Visible() bool       { return s.visible }
+func (s *SettingsDialog) SetSize(w, h int)    { s.width, s.height = w, h }
+func (s *SettingsDialog) Cursor() *tea.Cursor { return nil }
 
 // SetUpdateInfo sets version information for the updates section.
 func (s *SettingsDialog) SetUpdateInfo(current, latest string, available bool) {
@@ -142,7 +98,6 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 	if !s.visible {
 		return s, nil
 	}
-	defer s.syncInputFocus()
 
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
@@ -153,14 +108,8 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-			s.theme = s.originalTheme
 			s.visible = false
-			return s, func() tea.Msg {
-				return SafeBatch(
-					func() tea.Msg { return ThemePreview{Theme: s.originalTheme} },
-					func() tea.Msg { return SettingsResult{Confirmed: false} },
-				)()
-			}
+			return s, func() tea.Msg { return SettingsResult{} }
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", " "))):
 			return s.handleSelect()
@@ -177,45 +126,6 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
 			return s.handlePrev()
 		}
-		switch s.focusedItem {
-		case settingsItemTmuxServer:
-			var cmd tea.Cmd
-			s.tmuxServer, cmd = s.tmuxServer.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		case settingsItemTmuxConfig:
-			var cmd tea.Cmd
-			s.tmuxConfig, cmd = s.tmuxConfig.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		case settingsItemTmuxSync:
-			var cmd tea.Cmd
-			s.tmuxSync, cmd = s.tmuxSync.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		}
-	case tea.PasteMsg:
-		switch s.focusedItem {
-		case settingsItemTmuxServer:
-			var cmd tea.Cmd
-			s.tmuxServer, cmd = s.tmuxServer.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		case settingsItemTmuxConfig:
-			var cmd tea.Cmd
-			s.tmuxConfig, cmd = s.tmuxConfig.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		case settingsItemTmuxSync:
-			var cmd tea.Cmd
-			s.tmuxSync, cmd = s.tmuxSync.Update(msg)
-			s.validationErr = ""
-			return s, cmd
-		}
-	}
-
-	if s.validationErr != "" {
-		s.validationErr = ""
 	}
 
 	return s, nil
@@ -229,45 +139,15 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		}
 		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
 
-	case settingsItemKeymap:
-		s.showKeymapHints = !s.showKeymapHints
-		return s, nil
-
-	case settingsItemTmuxServer, settingsItemTmuxConfig, settingsItemTmuxSync:
-		return s, nil
-
 	case settingsItemUpdate:
 		if s.updateAvailable {
 			s.visible = false
 			return s, func() tea.Msg { return messages.TriggerUpgrade{} }
 		}
 
-	case settingsItemSave:
-		s.validationErr = s.validate()
-		if s.validationErr != "" {
-			return s, nil
-		}
-		s.visible = false
-		return s, func() tea.Msg {
-			return SettingsResult{
-				Confirmed:        true,
-				Theme:            s.theme,
-				ShowKeymapHints:  s.showKeymapHints,
-				TmuxServer:       strings.TrimSpace(s.tmuxServer.Value()),
-				TmuxConfigPath:   strings.TrimSpace(s.tmuxConfig.Value()),
-				TmuxSyncInterval: strings.TrimSpace(s.tmuxSync.Value()),
-			}
-		}
-
 	case settingsItemClose:
-		s.theme = s.originalTheme
 		s.visible = false
-		return s, func() tea.Msg {
-			return SafeBatch(
-				func() tea.Msg { return ThemePreview{Theme: s.originalTheme} },
-				func() tea.Msg { return SettingsResult{Confirmed: false} },
-			)()
-		}
+		return s, func() tea.Msg { return SettingsResult{} }
 	}
 	return s, nil
 }
@@ -277,7 +157,7 @@ func (s *SettingsDialog) handleNextSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem++
 	// Skip update item if no update available
 	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemSave
+		s.focusedItem = settingsItemClose
 	}
 	if s.focusedItem > settingsItemClose {
 		s.focusedItem = settingsItemTheme
@@ -290,7 +170,7 @@ func (s *SettingsDialog) handlePrevSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem--
 	// Skip update item if no update available
 	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemTmuxSync
+		s.focusedItem = settingsItemTheme
 	}
 	if s.focusedItem < 0 {
 		s.focusedItem = settingsItemClose
@@ -321,30 +201,6 @@ func (s *SettingsDialog) handlePrev() (*SettingsDialog, tea.Cmd) {
 		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
 	}
 	return s.handlePrevSection()
-}
-
-func (s *SettingsDialog) syncInputFocus() {
-	if !s.visible {
-		s.tmuxServer.Blur()
-		s.tmuxConfig.Blur()
-		s.tmuxSync.Blur()
-		return
-	}
-	if s.focusedItem == settingsItemTmuxServer {
-		s.tmuxServer.Focus()
-	} else {
-		s.tmuxServer.Blur()
-	}
-	if s.focusedItem == settingsItemTmuxConfig {
-		s.tmuxConfig.Focus()
-	} else {
-		s.tmuxConfig.Blur()
-	}
-	if s.focusedItem == settingsItemTmuxSync {
-		s.tmuxSync.Focus()
-	} else {
-		s.tmuxSync.Blur()
-	}
 }
 
 func (s *SettingsDialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
