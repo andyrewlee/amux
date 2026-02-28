@@ -31,27 +31,55 @@ func projectNameSegment(project *data.Project) (string, bool) {
 	return name, true
 }
 
-// primaryManagedProjectRoot returns filepath.Join(workspacesRoot, projectNameSegment).
-// Returns "" if workspacesRoot is empty or projectNameSegment fails.
-func primaryManagedProjectRoot(workspacesRoot string, project *data.Project) string {
-	root := strings.TrimSpace(workspacesRoot)
-	if root == "" {
-		return ""
-	}
-	seg, ok := projectNameSegment(project)
-	if !ok {
-		return ""
-	}
-	return filepath.Join(root, seg)
-}
-
 // managedProjectRoots returns alias-expanded roots via workspacePathAliases.
 func managedProjectRoots(workspacesRoot string, project *data.Project) []string {
-	primary := primaryManagedProjectRoot(workspacesRoot, project)
-	if primary == "" {
+	root := strings.TrimSpace(workspacesRoot)
+	if root == "" || project == nil {
 		return nil
 	}
-	return workspacePathAliases(primary)
+
+	segments := make(map[string]struct{}, 4)
+	if seg, ok := projectNameSegment(project); ok {
+		segments[seg] = struct{}{}
+	}
+	// Also trust the project path basename(s). This handles cases where
+	// project.Name drifts from the canonical repo basename (e.g. symlink aliases)
+	// while keeping checks confined under workspacesRoot.
+	for _, alias := range workspacePathAliases(project.Path) {
+		seg := filepath.Base(alias)
+		if isSafeProjectPathSegment(seg) {
+			segments[seg] = struct{}{}
+		}
+	}
+	if len(segments) == 0 {
+		return nil
+	}
+
+	roots := make(map[string]struct{}, len(segments)*2)
+	for seg := range segments {
+		candidate := filepath.Join(root, seg)
+		for _, alias := range workspacePathAliases(candidate) {
+			roots[alias] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(roots))
+	for value := range roots {
+		result = append(result, value)
+	}
+	return result
+}
+
+func isSafeProjectPathSegment(segment string) bool {
+	segment = strings.TrimSpace(segment)
+	if segment == "" {
+		return false
+	}
+	segment = filepath.Clean(segment)
+	if segment == "" || segment == "." || segment == ".." {
+		return false
+	}
+	return !strings.ContainsAny(segment, "/\\")
 }
 
 // isManagedWorkspacePathForProject returns true if workspacesRoot is empty (legacy)

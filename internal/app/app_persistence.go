@@ -50,6 +50,9 @@ func (a *App) persistWorkspaceTabs(wsID string) tea.Cmd {
 	if wsID == "" {
 		return nil
 	}
+	if a.isWorkspaceDeleteInFlight(wsID) {
+		return nil
+	}
 	if a.dirtyWorkspaces == nil {
 		a.dirtyWorkspaces = make(map[string]bool)
 	}
@@ -94,9 +97,16 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 
 	// Collect snapshots for all dirty workspaces
 	var snapshots []*data.Workspace
+	processed := make(map[string]bool, len(a.dirtyWorkspaces))
 	for wsID := range a.dirtyWorkspaces {
+		if a.isWorkspaceDeleteInFlight(wsID) {
+			// Keep dirty marker while delete is in flight. If delete fails, the
+			// marker must remain so pending workspace state can still be saved.
+			continue
+		}
 		ws := a.findWorkspaceByID(wsID)
 		if ws == nil {
+			processed[wsID] = true
 			continue
 		}
 		// Update in-memory state from center tabs
@@ -104,10 +114,11 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 		ws.OpenTabs = tabs
 		ws.ActiveTabIndex = activeIdx
 		snapshots = append(snapshots, snapshotWorkspaceForSave(ws))
+		processed[wsID] = true
 	}
-	// Clear dirty set
-	for k := range a.dirtyWorkspaces {
-		delete(a.dirtyWorkspaces, k)
+	// Clear only workspaces processed above; keep in-flight delete markers dirty.
+	for wsID := range processed {
+		delete(a.dirtyWorkspaces, wsID)
 	}
 
 	if len(snapshots) == 0 {
@@ -116,10 +127,14 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	service := a.workspaceService
 	return func() tea.Msg {
 		for _, snap := range snapshots {
+			wsID := string(snap.ID())
+			if a.isWorkspaceDeleteInFlight(wsID) {
+				continue
+			}
 			if err := service.Save(snap); err != nil {
 				logging.Warn("Failed to save workspace tabs: %v", err)
 			} else {
-				a.markLocalWorkspaceSaveForID(string(snap.ID()))
+				a.markLocalWorkspaceSaveForID(wsID)
 			}
 		}
 		return nil

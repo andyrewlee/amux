@@ -48,6 +48,9 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 	if msg.WorkspaceID == "" {
 		return nil
 	}
+	if a.isWorkspaceDeleteInFlight(msg.WorkspaceID) {
+		return nil
+	}
 	ws := a.findWorkspaceByID(msg.WorkspaceID)
 	if ws == nil || len(msg.Updates) == 0 {
 		return nil
@@ -83,11 +86,15 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 	}
 	if changed {
 		wsSnapshot := snapshotWorkspaceForSave(ws)
+		wsID := string(wsSnapshot.ID())
 		cmds = append(cmds, func() tea.Msg {
+			if a.isWorkspaceDeleteInFlight(wsID) {
+				return nil
+			}
 			if err := a.workspaceService.Save(wsSnapshot); err != nil {
 				logging.Warn("Failed to sync workspace tabs: %v", err)
 			} else {
-				a.markLocalWorkspaceSaveForID(string(wsSnapshot.ID()))
+				a.markLocalWorkspaceSaveForID(wsID)
 			}
 			return nil
 		})

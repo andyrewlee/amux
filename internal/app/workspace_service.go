@@ -196,6 +196,23 @@ func (s *workspaceService) RunSetupAsync(ws *data.Workspace) tea.Cmd {
 func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd {
 	// Defensive nil checks
 	if project == nil || ws == nil {
+		wsID := ""
+		wsRoot := ""
+		projectPath := ""
+		if ws != nil {
+			wsID = string(ws.ID())
+			wsRoot = ws.Root
+		}
+		if project != nil {
+			projectPath = project.Path
+		}
+		logging.Warn(
+			"workspace delete failed workspace_id=%s stage=validate_nil workspace_root=%s project_path=%s error=%v",
+			wsID,
+			wsRoot,
+			projectPath,
+			errors.New("missing project or workspace"),
+		)
 		return func() tea.Msg {
 			return messages.WorkspaceDeleteFailed{
 				Project:   project,
@@ -206,67 +223,79 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 	}
 
 	return func() tea.Msg {
-		if ws.IsPrimaryCheckout() {
+		wsID := string(ws.ID())
+		logging.Info(
+			"workspace delete start workspace_id=%s workspace_name=%s workspace_root=%s project_path=%s branch=%s",
+			wsID,
+			ws.Name,
+			ws.Root,
+			project.Path,
+			ws.Branch,
+		)
+		fail := func(stage string, err error) tea.Msg {
+			logging.Warn(
+				"workspace delete failed workspace_id=%s stage=%s workspace_name=%s workspace_root=%s project_path=%s error=%v",
+				wsID,
+				stage,
+				ws.Name,
+				ws.Root,
+				project.Path,
+				err,
+			)
 			return messages.WorkspaceDeleteFailed{
 				Project:   project,
 				Workspace: ws,
-				Err:       errors.New("cannot delete primary checkout"),
+				Err:       err,
 			}
+		}
+
+		if ws.IsPrimaryCheckout() {
+			return fail("validate_primary_checkout", errors.New("cannot delete primary checkout"))
 		}
 
 		projectPath := data.NormalizePath(project.Path)
 		if projectPath == "" {
-			return messages.WorkspaceDeleteFailed{
-				Project:   project,
-				Workspace: ws,
-				Err:       errors.New("project path is empty"),
-			}
+			return fail("validate_project_path", errors.New("project path is empty"))
 		}
 
 		workspaceRepo := data.NormalizePath(ws.Repo)
 		if workspaceRepo == "" {
-			return messages.WorkspaceDeleteFailed{
-				Project:   project,
-				Workspace: ws,
-				Err:       errors.New("workspace repo is empty"),
-			}
+			return fail("validate_workspace_repo", errors.New("workspace repo is empty"))
 		}
 
 		if projectPath != workspaceRepo {
-			return messages.WorkspaceDeleteFailed{
-				Project:   project,
-				Workspace: ws,
-				Err:       fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path),
-			}
+			return fail(
+				"validate_repo_match",
+				fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path),
+			)
 		}
 
 		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, ws.Root) {
-			return messages.WorkspaceDeleteFailed{
-				Project:   project,
-				Workspace: ws,
-				Err:       fmt.Errorf("workspace root %s is outside managed project root", ws.Root),
-			}
+			return fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 		}
 
 		if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
 			if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
-				return messages.WorkspaceDeleteFailed{
-					Project:   project,
-					Workspace: ws,
-					Err:       errors.Join(err, cleanupErr),
-				}
+				return fail("remove_worktree", errors.Join(err, cleanupErr))
 			}
-			logging.Warn("git remove failed for %s but stale cleanup succeeded: %v", ws.Root, err)
+			logging.Warn("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
 		}
 
 		if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
-			logging.Warn("failed to delete branch %s: %v", ws.Branch, err)
+			logging.Warn("workspace delete branch cleanup failed workspace_id=%s branch=%s error=%v", wsID, ws.Branch, err)
 		}
 		if s.store != nil {
 			if err := s.store.Delete(ws.ID()); err != nil {
-				logging.Warn("failed to delete workspace store entry %s: %v", ws.ID(), err)
+				logging.Warn("workspace delete metadata cleanup failed workspace_id=%s error=%v", wsID, err)
 			}
 		}
+		logging.Info(
+			"workspace delete succeeded workspace_id=%s workspace_name=%s workspace_root=%s project_path=%s",
+			wsID,
+			ws.Name,
+			ws.Root,
+			project.Path,
+		)
 
 		return messages.WorkspaceDeleted{
 			Project:   project,

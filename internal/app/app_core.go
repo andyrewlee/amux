@@ -141,6 +141,8 @@ type App struct {
 
 	// Workspace persistence debounce
 	dirtyWorkspaces       map[string]bool
+	deletingWorkspaceMu   sync.RWMutex
+	deletingWorkspaceIDs  map[string]bool
 	persistToken          int
 	localWorkspaceSaveMu  sync.Mutex
 	localWorkspaceSavesAt map[string]localWorkspaceSaveMarker

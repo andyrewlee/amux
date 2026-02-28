@@ -17,6 +17,7 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		logging.Warn("DeleteWorkspace received with nil project or workspace")
 		return nil
 	}
+	a.markWorkspaceDeleteInFlight(msg.Workspace, true)
 	if cleanup := a.cleanupWorkspaceTmuxSessions(msg.Workspace); cleanup != nil {
 		cmds = append(cmds, cleanup)
 	}
@@ -82,6 +83,8 @@ func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) te
 func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
+		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
+		delete(a.dirtyWorkspaces, string(msg.Workspace.ID()))
 		if cleanup := a.cleanupWorkspaceTmuxSessions(msg.Workspace); cleanup != nil {
 			cmds = append(cmds, cleanup)
 		}
@@ -110,7 +113,11 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
+		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if cmd := a.persistWorkspaceTabs(string(msg.Workspace.ID())); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}

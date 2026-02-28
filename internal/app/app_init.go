@@ -118,6 +118,7 @@ func New(version, commit, date string) (*App, error) {
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
 		sessionActivityStates:  make(map[string]*activity.SessionState),
 		dirtyWorkspaces:        make(map[string]bool),
+		deletingWorkspaceIDs:   make(map[string]bool),
 		localWorkspaceSavesAt:  make(map[string]localWorkspaceSaveMarker),
 		creatingWorkspaceIDs:   make(map[string]bool),
 		maxAttachedAgentTabs:   maxAttachedAgentTabsFromEnv(),

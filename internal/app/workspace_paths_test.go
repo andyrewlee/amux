@@ -86,6 +86,13 @@ func TestIsManagedWorkspacePathForProject(t *testing.T) {
 			want:           false,
 		},
 		{
+			name:           "within root via project path basename alias",
+			workspacesRoot: "/tmp/workspaces",
+			project:        &data.Project{Name: "repo-link", Path: "/tmp/repo-real"},
+			path:           "/tmp/workspaces/repo-real/feature",
+			want:           true,
+		},
+		{
 			name:           "empty workspacesRoot legacy",
 			workspacesRoot: "",
 			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},

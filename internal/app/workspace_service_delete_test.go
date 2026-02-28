@@ -169,6 +169,30 @@ func TestDeleteWorkspaceRejectsPathOutsideManagedProjectRoot(t *testing.T) {
 	}
 }
 
+func TestDeleteWorkspaceAllowsManagedPathWhenProjectNameDriftsFromRepoBasename(t *testing.T) {
+	var removeCalled bool
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			removeCalled = true
+			return nil
+		},
+	}
+
+	project := &data.Project{Name: "repo-link", Path: "/tmp/repo-real"}
+	ws := data.NewWorkspace("cursor-blink", "cursor-blink", "main", "/tmp/repo-real", "/tmp/workspaces/repo-real/cursor-blink")
+
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+	svc.gitOps = mock
+	msg := svc.DeleteWorkspace(project, ws)()
+
+	if _, ok := msg.(messages.WorkspaceDeleted); !ok {
+		t.Fatalf("expected WorkspaceDeleted, got %T", msg)
+	}
+	if !removeCalled {
+		t.Fatal("removeWorkspace should have been called")
+	}
+}
+
 func TestDeleteWorkspaceRejectsUnsafeProjectNameSegment(t *testing.T) {
 	var removeCalled bool
 	mock := &mockGitOps{
