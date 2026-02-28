@@ -15,7 +15,8 @@ type SettingsResult struct{}
 
 // ThemePreview is sent when user navigates through themes for live preview.
 type ThemePreview struct {
-	Theme ThemeID
+	Theme   ThemeID
+	Session int
 }
 
 type settingsItem int
@@ -39,6 +40,7 @@ type SettingsDialog struct {
 	focusedItem settingsItem
 	themeCursor int
 	themes      []Theme
+	session     int
 
 	// For mouse hit detection
 	hitRegions []settingsHitRegion
@@ -80,6 +82,23 @@ func (s *SettingsDialog) Hide()               { s.visible = false }
 func (s *SettingsDialog) Visible() bool       { return s.visible }
 func (s *SettingsDialog) SetSize(w, h int)    { s.width, s.height = w, h }
 func (s *SettingsDialog) Cursor() *tea.Cursor { return nil }
+func (s *SettingsDialog) SetSession(session int) {
+	s.session = session
+}
+
+func (s *SettingsDialog) SelectedTheme() ThemeID {
+	return s.theme
+}
+
+func (s *SettingsDialog) SetSelectedTheme(theme ThemeID) {
+	s.theme = theme
+	for i, t := range s.themes {
+		if t.ID == theme {
+			s.themeCursor = i
+			return
+		}
+	}
+}
 
 // SetUpdateInfo sets version information for the updates section.
 func (s *SettingsDialog) SetUpdateInfo(current, latest string, available bool) {
@@ -137,7 +156,7 @@ func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
 		if s.themeCursor >= 0 && s.themeCursor < len(s.themes) {
 			s.theme = s.themes[s.themeCursor].ID
 		}
-		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
+		return s, func() tea.Msg { return ThemePreview{Theme: s.theme, Session: s.session} }
 
 	case settingsItemUpdate:
 		if s.updateAvailable {
@@ -184,7 +203,7 @@ func (s *SettingsDialog) handleNext() (*SettingsDialog, tea.Cmd) {
 	if s.focusedItem == settingsItemTheme {
 		s.themeCursor = (s.themeCursor + 1) % len(s.themes)
 		s.theme = s.themes[s.themeCursor].ID
-		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
+		return s, func() tea.Msg { return ThemePreview{Theme: s.theme, Session: s.session} }
 	}
 	return s.handleNextSection()
 }
@@ -198,7 +217,7 @@ func (s *SettingsDialog) handlePrev() (*SettingsDialog, tea.Cmd) {
 			s.themeCursor = len(s.themes) - 1
 		}
 		s.theme = s.themes[s.themeCursor].ID
-		return s, func() tea.Msg { return ThemePreview{Theme: s.theme} }
+		return s, func() tea.Msg { return ThemePreview{Theme: s.theme, Session: s.session} }
 	}
 	return s.handlePrevSection()
 }

@@ -97,3 +97,11 @@ func (c *Config) SaveUISettings() error {
 	}
 	return saveUISettings(c.Paths.ConfigPath, c.UI)
 }
+
+// PersistedUISettings reads UI settings from disk without mutating in-memory config state.
+func (c *Config) PersistedUISettings() UISettings {
+	if c == nil || c.Paths == nil {
+		return defaultUISettings()
+	}
+	return loadUISettings(c.Paths.ConfigPath)
+}
