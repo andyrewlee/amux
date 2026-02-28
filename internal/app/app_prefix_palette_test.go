@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -75,11 +76,29 @@ func TestRenderPrefixPalette_FiltersUnavailableRootCommands(t *testing.T) {
 	app.prefixActive = true
 
 	content := ansi.Strip(app.renderPrefixPalette())
-	if strings.Contains(content, "Pane Focus") || strings.Contains(content, "focus ") {
-		t.Fatalf("expected pane-focus commands to be removed from root palette, got:\n%s", content)
-	}
 	if strings.Contains(content, "1-9") {
 		t.Fatalf("expected numeric jump to be hidden with <=1 tab, got:\n%s", content)
+	}
+	// Pane-focus commands should be present when navigation is possible.
+	// From PaneCenter, "focus left" should be visible (dashboard exists).
+	if !strings.Contains(content, "focus left") {
+		t.Fatalf("expected 'focus left' in palette from PaneCenter, got:\n%s", content)
+	}
+}
+
+func TestRenderPrefixPalette_HidesFocusLeftFromDashboard(t *testing.T) {
+	h := newCenterHarness(nil, HarnessOptions{
+		Width:  120,
+		Height: 24,
+		Tabs:   1,
+	})
+	app := h.app
+	app.prefixActive = true
+	app.focusedPane = messages.PaneDashboard
+
+	content := ansi.Strip(app.renderPrefixPalette())
+	if strings.Contains(content, "focus left") {
+		t.Fatalf("expected 'focus left' hidden from dashboard, got:\n%s", content)
 	}
 }
 

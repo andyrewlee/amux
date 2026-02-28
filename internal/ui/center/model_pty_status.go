@@ -197,7 +197,10 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	}
 	m.applyTerminalCursorPolicyLocked(tab)
 
-	// Check if we can reuse the cached snapshot
+	// Cache key: (version, showCursor). Chat-tab status is deliberately excluded
+	// because isChatTab is stable for the lifetime of a tab, and
+	// applyTerminalCursorPolicyLocked above ensures IgnoreCursorVisibilityControls
+	// is set before the terminal produces version-bumping output.
 	version := tab.Terminal.Version()
 	showCursor := m.focused
 	if !cursorOwner {
@@ -219,6 +222,9 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	// Keep the cursor steady in coding-agent tabs. Some assistants emit
 	// frequent DECTCEM hide/show toggles while streaming output, which causes
 	// visible flicker if we honor terminal-driven cursor hiding.
+	// These mutations are applied before caching (lines below). On subsequent
+	// cache hits the already-normalized snapshot is returned directly, so the
+	// transforms are effectively idempotent.
 	if m.isChatTab(tab) {
 		snap.CursorHidden = false
 		// Prevent residual flicker from SGR blink attributes in assistant output.

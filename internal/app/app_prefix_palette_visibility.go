@@ -9,6 +9,17 @@ func (a *App) prefixActionVisible(action string) bool {
 	}
 
 	switch action {
+	case "focus_left":
+		return a.focusedPane != messages.PaneDashboard
+	case "focus_right":
+		switch a.focusedPane {
+		case messages.PaneSidebar, messages.PaneSidebarTerminal:
+			return false
+		case messages.PaneCenter:
+			return a.layout != nil && a.layout.ShowSidebar()
+		default:
+			return (a.layout != nil && a.layout.ShowCenter()) || (a.layout != nil && a.layout.ShowSidebar())
+		}
 	case "new_agent_tab", "new_terminal_tab":
 		if a.activeWorkspace == nil || a.activeProject == nil {
 			return false

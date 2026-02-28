@@ -9,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/layout"
 )
 
 func newPrefixTestApp(t *testing.T) (*App, *data.Workspace, *center.Model) {
@@ -361,5 +362,42 @@ func TestRunPrefixAction_DeleteWorkspaceRequiresSelection(t *testing.T) {
 	}
 	if msg.Project != project || msg.Workspace != ws {
 		t.Fatalf("unexpected delete payload: %+v", msg)
+	}
+}
+
+func TestRunPrefixAction_FocusLeftPartialApp_NoPanic(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.focusedPane = messages.PaneCenter
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("focus_left should not panic on partial app: %v", r)
+		}
+	}()
+
+	cmd := app.runPrefixAction("focus_left")
+	if cmd != nil {
+		t.Fatalf("expected nil follow-up command, got %v", cmd)
+	}
+	if app.focusedPane != messages.PaneDashboard {
+		t.Fatalf("expected focused pane dashboard, got %v", app.focusedPane)
+	}
+}
+
+func TestRunPrefixAction_FocusRightPartialApp_NoPanic(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.focusedPane = messages.PaneDashboard
+	app.layout = layout.NewManager()
+	app.layout.Resize(140, 40) // Ensures center pane is visible.
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("focus_right should not panic on partial app: %v", r)
+		}
+	}()
+
+	_ = app.runPrefixAction("focus_right")
+	if app.focusedPane != messages.PaneCenter {
+		t.Fatalf("expected focused pane center, got %v", app.focusedPane)
 	}
 }
