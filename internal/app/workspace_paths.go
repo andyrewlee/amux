@@ -32,6 +32,11 @@ func projectNameSegment(project *data.Project) (string, bool) {
 }
 
 // managedProjectRoots returns alias-expanded roots via workspacePathAliases.
+//
+// Security note: this intentionally widens accepted managed roots to include the
+// project path basename aliases in addition to project.Name. Destructive flows
+// must pair this with a repo/path identity check (for example, DeleteWorkspace
+// validates ws.Repo matches project.Path) to avoid cross-project collisions.
 func managedProjectRoots(workspacesRoot string, project *data.Project) []string {
 	root := strings.TrimSpace(workspacesRoot)
 	if root == "" || project == nil {

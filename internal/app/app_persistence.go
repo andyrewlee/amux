@@ -12,6 +12,8 @@ import (
 
 // persistAllWorkspacesNow saves all workspace tab state synchronously.
 // Called before shutdown to ensure tabs are persisted before they are closed.
+// This intentionally includes delete-in-flight workspaces. If a delete fails or
+// races with shutdown, preserving UI tab state is preferred over dropping it.
 func (a *App) persistAllWorkspacesNow() {
 	if a.workspaceService == nil || a.center == nil {
 		return

@@ -1,11 +1,14 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
 
 func TestPersistAllWorkspacesNowSavesExplicitlyEmptyTabs(t *testing.T) {
@@ -186,5 +189,69 @@ func TestHandlePersistDebounceSkipsDeleteInFlightWorkspace(t *testing.T) {
 	}
 	if _, err := store.Load(ws.ID()); !os.IsNotExist(err) {
 		t.Fatalf("expected workspace metadata to remain absent, err=%v", err)
+	}
+}
+
+func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	wsID := string(ws.ID())
+
+	storeRoot := t.TempDir()
+	store := data.NewWorkspaceStore(storeRoot)
+	svc := newWorkspaceService(nil, store, nil, "")
+
+	c := center.New(nil)
+	c.SetWorkspace(ws)
+	c.AddTab(&center.Tab{
+		Name:      "agent",
+		Assistant: "claude",
+		Workspace: ws,
+	})
+
+	app := &App{
+		center:                c,
+		dashboard:             dashboard.New(),
+		workspaceService:      svc,
+		projects:              []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
+		persistToken:          1,
+		dirtyWorkspaces:       map[string]bool{wsID: true},
+		deletingWorkspaceIDs:  map[string]bool{wsID: true},
+		localWorkspaceSavesAt: make(map[string]localWorkspaceSaveMarker),
+	}
+
+	if cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1}); cmd != nil {
+		t.Fatal("expected nil cmd while workspace delete is in-flight")
+	}
+	if !app.dirtyWorkspaces[wsID] {
+		t.Fatal("expected dirty marker to remain while delete is in-flight")
+	}
+
+	if cmd := app.handleWorkspaceDeleteFailed(messages.WorkspaceDeleteFailed{
+		Workspace: ws,
+		Err:       errors.New("delete failed"),
+	}); cmd == nil {
+		t.Fatal("expected non-nil command on delete failure")
+	}
+	if app.isWorkspaceDeleteInFlight(wsID) {
+		t.Fatal("expected delete-in-flight marker to be cleared on delete failure")
+	}
+
+	persistCmd := app.handlePersistDebounce(persistDebounceMsg{token: app.persistToken})
+	if persistCmd == nil {
+		t.Fatal("expected debounced persistence command after delete failure requeue")
+	}
+	if msg := persistCmd(); msg != nil {
+		t.Fatalf("expected nil tea.Msg from persistence command, got %T", msg)
+	}
+
+	loaded, err := store.Load(ws.ID())
+	if err != nil {
+		t.Fatalf("load after persistence: %v", err)
+	}
+	if len(loaded.OpenTabs) == 0 {
+		t.Fatal("expected workspace tabs to be persisted after delete failure requeue")
+	}
+	if app.dirtyWorkspaces[wsID] {
+		t.Fatal("expected workspace to be cleared from dirty set after save")
 	}
 }

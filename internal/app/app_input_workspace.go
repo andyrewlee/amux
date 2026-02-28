@@ -113,6 +113,8 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
+		// Ordering is intentional: clear delete-in-flight first so the
+		// persistence requeue below is not suppressed.
 		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			cmds = append(cmds, cmd)
