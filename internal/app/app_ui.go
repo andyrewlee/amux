@@ -53,11 +53,11 @@ func (a *App) focusPaneRight() tea.Cmd {
 			return a.focusPane(messages.PaneCenter)
 		}
 		if a.layout != nil && a.layout.ShowSidebar() {
-			return a.focusPane(messages.PaneSidebarTerminal)
+			return a.focusPane(messages.PaneSidebar)
 		}
 	case messages.PaneCenter:
 		if a.layout != nil && a.layout.ShowSidebar() {
-			return a.focusPane(messages.PaneSidebarTerminal)
+			return a.focusPane(messages.PaneSidebar)
 		}
 	}
 	return nil

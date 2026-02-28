@@ -242,7 +242,7 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 		// Some assistants also paint a synthetic block cursor glyph in the
 		// buffer itself. Normalize the active cursor cell so our own steady
 		// cursor paint is the only cursor indicator.
-		if snap.ShowCursor && snap.ViewOffset == 0 &&
+		if snap.ViewOffset == 0 &&
 			snap.CursorY >= 0 && snap.CursorY < len(snap.Screen) {
 			row := snap.Screen[snap.CursorY]
 			if snap.CursorX >= 0 && snap.CursorX < len(row) {
