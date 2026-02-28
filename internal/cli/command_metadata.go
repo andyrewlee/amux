@@ -18,6 +18,7 @@ var commandPathPatterns = []commandPathPattern{
 	{Prefix: []string{"logs"}, Depth: 2},
 	{Prefix: []string{"agent"}, Depth: 2},
 	{Prefix: []string{"agent", "job"}, Depth: 3},
+	{Prefix: []string{"task"}, Depth: 2},
 	{Prefix: []string{"session"}, Depth: 2},
 	{Prefix: []string{"project"}, Depth: 2},
 	{Prefix: []string{"terminal"}, Depth: 2},
@@ -69,6 +70,23 @@ var commandFlagSpecs = map[string]commandFlagSpec{
 			"--interval",
 			"--idle-threshold",
 			"--heartbeat",
+		),
+	},
+	"task start": {
+		valueFlags: setOf(
+			"--workspace",
+			"--assistant",
+			"--prompt",
+			"--wait-timeout",
+			"--idle-threshold",
+			"--start-lock-ttl",
+			"--idempotency-key",
+		),
+	},
+	"task status": {
+		valueFlags: setOf(
+			"--workspace",
+			"--assistant",
 		),
 	},
 	// --timeout intentionally shadows the global --timeout flag; local flags

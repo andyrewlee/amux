@@ -77,6 +77,8 @@ func Run(args []string, version, commit, date string) int {
 		return routeTerminal(w, wErr, gf, cmdArgs, version)
 	case "project":
 		return routeProject(w, wErr, gf, cmdArgs, version)
+	case "task":
+		return routeTask(w, wErr, gf, cmdArgs, version)
 	case "version":
 		if gf.JSON {
 			PrintJSON(w, map[string]string{
@@ -192,6 +194,8 @@ Commands:
   agent send          Send text to an agent
   agent stop          Stop an agent
   agent watch         Watch agent output (NDJSON stream)
+  task start          Start a bounded assistant task run
+  task status         Show active assistant task status
   agent job status    Get queued send job status
   agent job cancel    Cancel queued send job (pending only)
   agent job wait      Wait for queued send job completion
