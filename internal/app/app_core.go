@@ -71,14 +71,18 @@ type App struct {
 	centerBtnIndex   int
 
 	// UI Components
-	layout          *layout.Manager
-	dashboard       *dashboard.Model
-	center          *center.Model
-	sidebar         *sidebar.TabbedSidebar
-	sidebarTerminal *sidebar.TerminalModel
-	dialog          *common.Dialog
-	filePicker      *common.FilePicker
-	settingsDialog  *common.SettingsDialog
+	layout                *layout.Manager
+	dashboard             *dashboard.Model
+	center                *center.Model
+	sidebar               *sidebar.TabbedSidebar
+	sidebarTerminal       *sidebar.TerminalModel
+	dialog                *common.Dialog
+	filePicker            *common.FilePicker
+	settingsDialog        *common.SettingsDialog
+	settingsDialogSession int
+	// Theme persistence state for settings dialog exits.
+	settingsThemePersistedTheme common.ThemeID
+	settingsThemeDirty          bool
 
 	// Overlays
 	toast *common.ToastModel

@@ -262,12 +262,18 @@ func (a *App) handleUpdateCheckComplete(msg messages.UpdateCheckComplete) tea.Cm
 
 // handleTriggerUpgrade handles the TriggerUpgrade message.
 func (a *App) handleTriggerUpgrade() tea.Cmd {
+	if a.settingsDialog != nil {
+		a.applyTheme(a.settingsDialog.SelectedTheme())
+		a.settingsDialog = nil
+		a.settingsDialogSession++
+	}
+	persistCmd := a.persistSettingsThemeIfDirty()
 	if a.updateAvailable == nil || a.upgradeRunning {
-		return nil
+		return persistCmd
 	}
 	a.upgradeRunning = true
 	svc := a.updateService
-	return func() tea.Msg {
+	upgradeCmd := func() tea.Msg {
 		if svc == nil {
 			return messages.UpgradeComplete{Err: errors.New("update service unavailable")}
 		}
@@ -285,6 +291,7 @@ func (a *App) handleTriggerUpgrade() tea.Cmd {
 		}
 		return messages.UpgradeComplete{NewVersion: result.Release.TagName}
 	}
+	return common.SafeBatch(persistCmd, upgradeCmd)
 }
 
 // handleUpgradeComplete handles the UpgradeComplete message.

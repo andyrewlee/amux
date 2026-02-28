@@ -8,7 +8,6 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/validation"
 )
@@ -106,15 +105,15 @@ func (a *App) handleShowCleanupTmuxDialog() {
 
 // handleShowSettingsDialog shows the settings dialog.
 func (a *App) handleShowSettingsDialog() {
+	persistedUI := a.config.PersistedUISettings()
+	a.settingsThemePersistedTheme = common.ThemeID(persistedUI.Theme)
+	a.settingsThemeDirty = common.ThemeID(a.config.UI.Theme) != a.settingsThemePersistedTheme
+	a.settingsDialogSession++
 	a.settingsDialog = common.NewSettingsDialog(
 		common.ThemeID(a.config.UI.Theme),
-		a.config.UI.ShowKeymapHints,
-		a.config.UI.TmuxServer,
-		a.config.UI.TmuxConfigPath,
-		a.config.UI.TmuxSyncInterval,
 	)
+	a.settingsDialog.SetSession(a.settingsDialogSession)
 	a.settingsDialog.SetSize(a.width, a.height)
-	a.settingsDialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 
 	// Set update state
 	if a.updateAvailable != nil {
@@ -133,10 +132,10 @@ func (a *App) handleShowSettingsDialog() {
 	a.settingsDialog.Show()
 }
 
-// handleThemePreview handles live theme preview.
-func (a *App) handleThemePreview(msg common.ThemePreview) {
-	// Live preview - apply theme without saving
-	common.SetCurrentTheme(msg.Theme)
+func (a *App) applyTheme(theme common.ThemeID) {
+	common.SetCurrentTheme(theme)
+	a.config.UI.Theme = string(theme)
+	a.settingsThemeDirty = theme != a.settingsThemePersistedTheme
 	a.styles = common.DefaultStyles()
 	// Propagate styles to all components
 	a.dashboard.SetStyles(a.styles)
@@ -149,67 +148,37 @@ func (a *App) handleThemePreview(msg common.ThemePreview) {
 	}
 }
 
-// handleSettingsResult handles settings dialog result.
-func (a *App) handleSettingsResult(msg common.SettingsResult) tea.Cmd {
-	a.settingsDialog = nil
-	if msg.Confirmed {
-		// Apply theme
-		common.SetCurrentTheme(msg.Theme)
-		a.config.UI.Theme = string(msg.Theme)
-		a.styles = common.DefaultStyles()
-		// Propagate styles to all components
-		a.dashboard.SetStyles(a.styles)
-		a.sidebar.SetStyles(a.styles)
-		a.sidebarTerminal.SetStyles(a.styles)
-		a.center.SetStyles(a.styles)
-		a.toast.SetStyles(a.styles)
-		if a.filePicker != nil {
-			a.filePicker.SetStyles(a.styles)
-		}
-
-		// Apply keymap hints
-		a.setKeymapHintsEnabled(msg.ShowKeymapHints)
-
-		// Apply tmux settings
-		oldServerName := a.tmuxOptions.ServerName
-		a.config.UI.TmuxServer = msg.TmuxServer
-		a.config.UI.TmuxConfigPath = msg.TmuxConfigPath
-		a.config.UI.TmuxSyncInterval = msg.TmuxSyncInterval
-		applyTmuxEnvFromConfig(a.config, true)
-		a.tmuxOptions = tmux.DefaultOptions() // Refresh cached options
-		a.center.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
-		a.sidebarTerminal.SetTmuxConfig(a.tmuxOptions.ServerName, a.tmuxOptions.ConfigPath)
-
-		// Save settings
-		if err := a.config.SaveUISettings(); err != nil {
-			return a.toast.ShowWarning("Failed to save settings")
-		}
-		cmds := []tea.Cmd{a.startTmuxSyncTicker(), a.toast.ShowSuccess("Settings saved")}
-		if a.tmuxService != nil {
-			cmds = append(cmds, func() tea.Msg {
-				_ = a.tmuxService.SetStatusOff(a.tmuxOptions)
-				return nil
-			})
-		}
-		// Clean up sessions on the old server if the server name changed
-		if oldServerName != a.tmuxOptions.ServerName {
-			oldOpts := tmux.Options{ServerName: oldServerName, CommandTimeout: tmuxCommandTimeout}
-			if a.tmuxService != nil {
-				cmds = append(cmds, func() tea.Msg {
-					_, _ = a.tmuxService.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, oldOpts)
-					_ = a.tmuxService.KillSessionsWithPrefix("amux-", oldOpts)
-					return nil
-				})
-				cmds = append(cmds, func() tea.Msg {
-					_ = a.tmuxService.SetMonitorActivityOn(a.tmuxOptions)
-					_ = a.tmuxService.SetStatusOff(a.tmuxOptions)
-					return nil
-				})
-			}
-			cmds = append(cmds, a.toast.ShowInfo(fmt.Sprintf("Cleaned up sessions on old server %q", oldServerName)))
-			cmds = append(cmds, a.resetAllTabStatuses()...)
-		}
-		return common.SafeBatch(cmds...)
+// handleThemePreview handles live theme preview.
+func (a *App) handleThemePreview(msg common.ThemePreview) tea.Cmd {
+	if msg.Session != a.settingsDialogSession {
+		return nil
 	}
+	if a.settingsDialog != nil {
+		a.settingsDialog.SetSelectedTheme(msg.Theme)
+	}
+	a.applyTheme(msg.Theme)
 	return nil
+}
+
+func (a *App) persistSettingsThemeIfDirty() tea.Cmd {
+	if !a.settingsThemeDirty {
+		return nil
+	}
+	if err := a.config.SaveUISettings(); err != nil {
+		logging.Warn("Failed to save theme setting: %v", err)
+		return a.toast.ShowWarning("Failed to save theme setting")
+	}
+	a.settingsThemePersistedTheme = common.ThemeID(a.config.UI.Theme)
+	a.settingsThemeDirty = false
+	return nil
+}
+
+// handleSettingsResult handles settings dialog close.
+func (a *App) handleSettingsResult(_ common.SettingsResult) tea.Cmd {
+	if a.settingsDialog != nil {
+		a.applyTheme(a.settingsDialog.SelectedTheme())
+	}
+	a.settingsDialog = nil
+	a.settingsDialogSession++
+	return a.persistSettingsThemeIfDirty()
 }

@@ -163,7 +163,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleShowCleanupTmuxDialog()
 
 	case common.ThemePreview:
-		a.handleThemePreview(msg)
+		if cmd := a.handleThemePreview(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case common.SettingsResult:
 		if cmd := a.handleSettingsResult(msg); cmd != nil {

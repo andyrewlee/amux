@@ -276,29 +276,6 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 	return cmds
 }
 
-// resetAllTabStatuses marks all non-stopped tabs as stopped and schedules
-// persistence for changed workspaces. Used when switching tmux servers so
-// the UI doesn't show stale running/detached status.
-func (a *App) resetAllTabStatuses() []tea.Cmd {
-	var cmds []tea.Cmd
-	for i := range a.projects {
-		for j := range a.projects[i].Workspaces {
-			ws := &a.projects[i].Workspaces[j]
-			changed := false
-			for k := range ws.OpenTabs {
-				if ws.OpenTabs[k].Status != "" && ws.OpenTabs[k].Status != "stopped" {
-					ws.OpenTabs[k].Status = "stopped"
-					changed = true
-				}
-			}
-			if changed {
-				cmds = append(cmds, a.persistWorkspaceTabs(string(ws.ID())))
-			}
-		}
-	}
-	return cmds
-}
-
 // tabSessionInfoByName builds an activity.SessionInfo map from the current projects.
 // Concurrency safety: built synchronously in the Update loop.
 func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
