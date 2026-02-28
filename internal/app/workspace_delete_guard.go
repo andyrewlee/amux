@@ -32,3 +32,20 @@ func (a *App) isWorkspaceDeleteInFlight(wsID string) bool {
 	}
 	return a.deletingWorkspaceIDs[wsID]
 }
+
+// runUnlessWorkspaceDeleteInFlight runs fn while holding a shared delete-state
+// lock only when wsID is not currently marked delete-in-flight. Holding the
+// lock across fn keeps the check and side effect atomic with respect to
+// markWorkspaceDeleteInFlight updates.
+func (a *App) runUnlessWorkspaceDeleteInFlight(wsID string, fn func()) bool {
+	a.deletingWorkspaceMu.RLock()
+	defer a.deletingWorkspaceMu.RUnlock()
+
+	if wsID == "" || a.deletingWorkspaceIDs[wsID] {
+		return false
+	}
+	if fn != nil {
+		fn()
+	}
+	return true
+}

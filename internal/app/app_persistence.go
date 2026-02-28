@@ -130,11 +130,15 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	return func() tea.Msg {
 		for _, snap := range snapshots {
 			wsID := string(snap.ID())
-			if a.isWorkspaceDeleteInFlight(wsID) {
+			var saveErr error
+			saved := a.runUnlessWorkspaceDeleteInFlight(wsID, func() {
+				saveErr = service.Save(snap)
+			})
+			if !saved {
 				continue
 			}
-			if err := service.Save(snap); err != nil {
-				logging.Warn("Failed to save workspace tabs: %v", err)
+			if saveErr != nil {
+				logging.Warn("Failed to save workspace tabs: %v", saveErr)
 			} else {
 				a.markLocalWorkspaceSaveForID(wsID)
 			}
