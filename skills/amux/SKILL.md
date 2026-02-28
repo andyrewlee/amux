@@ -60,8 +60,8 @@ Notes:
 ```bash
 skills/amux/scripts/assistant-dx.sh project list [--query <text>]
 skills/amux/scripts/assistant-dx.sh project add --path <abs_repo_path>
-skills/amux/scripts/assistant-dx.sh workspace list --all
-skills/amux/scripts/assistant-dx.sh workspace create --name <name> --project <abs_repo_path> --assistant <assistant>
+skills/amux/scripts/assistant-dx.sh workspace list [--all] [--project <abs_repo_path>] [--repo <abs_repo_path>] [--archived]
+skills/amux/scripts/assistant-dx.sh workspace create <name> --project <abs_repo_path> [--assistant <assistant>] [--base <ref>]
 skills/amux/scripts/assistant-dx.sh status [--workspace <workspace_id>] [--assistant <assistant>]
 skills/amux/scripts/assistant-dx.sh alerts [--workspace <workspace_id>] [--assistant <assistant>]
 skills/amux/scripts/assistant-dx.sh terminal run --workspace <workspace_id> --text "<cmd>" --enter

@@ -102,8 +102,10 @@ func cmdTaskStart(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 			return taskReturnError(w, wErr, gf, version, ExitInternalError, "agent_lookup_failed", err.Error(), nil)
 		}
 		if candidate != nil {
-			result := buildTaskNeedsConfirmationResult(string(wsID), assistantName, *prompt, *candidate, snap)
-			return emitTaskResult(w, gf, version, result)
+			if !taskStatusLooksComplete(*candidate, snap) {
+				result := buildTaskNeedsConfirmationResult(string(wsID), assistantName, *prompt, *candidate, snap)
+				return emitTaskResult(w, gf, version, result)
+			}
 		}
 	}
 

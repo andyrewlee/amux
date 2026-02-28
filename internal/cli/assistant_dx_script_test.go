@@ -338,3 +338,105 @@ esac
 		t.Fatalf("expected exactly one task status poll, got:\n%s", logText)
 	}
 }
+
+func TestAssistantDXWorkspaceCreate_UsesPositionalName(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "assistant-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	callLog := filepath.Join(fakeBinDir, "calls.log")
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${AMUX_CALL_LOG:?missing AMUX_CALL_LOG}"
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+case "${1:-} ${2:-}" in
+  "workspace create")
+    printf '%s' '{"ok":true,"data":{"id":"ws-new","assistant":"droid"},"error":null}'
+    ;;
+  *)
+    printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"}}' "$*"
+    ;;
+esac
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	env = withEnv(env, "AMUX_CALL_LOG", callLog)
+
+	payload := runScriptJSON(t, scriptPath, env,
+		"workspace", "create", "feat-login",
+		"--project", "/tmp/repo",
+		"--assistant", "droid",
+		"--base", "main",
+	)
+	if got, _ := payload["status"].(string); got != "ok" {
+		t.Fatalf("status = %q, want ok", got)
+	}
+	raw, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatalf("read call log: %v", err)
+	}
+	logText := string(raw)
+	if !strings.Contains(logText, "workspace create feat-login --project /tmp/repo --assistant droid --base main") {
+		t.Fatalf("workspace create call mismatch:\n%s", logText)
+	}
+}
+
+func TestAssistantDXWorkspaceList_RejectsUnsupportedFlags(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "assistant-dx.sh")
+	payload := runScriptJSON(t, scriptPath, os.Environ(), "workspace", "list", "--limit", "10")
+	if got, _ := payload["ok"].(bool); got {
+		t.Fatalf("ok = true, want false")
+	}
+	if got, _ := payload["status"].(string); got != "command_error" {
+		t.Fatalf("status = %q, want command_error", got)
+	}
+}
+
+func TestAssistantDXStatus_DoesNotDependOnSessionStatusField(t *testing.T) {
+	requireBinary(t, "jq")
+	requireBinary(t, "bash")
+
+	scriptPath := filepath.Join("..", "..", "skills", "amux", "scripts", "assistant-dx.sh")
+	fakeBinDir := t.TempDir()
+	fakeAmuxPath := filepath.Join(fakeBinDir, "amux")
+	writeExecutable(t, fakeAmuxPath, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--json" ]]; then
+  shift
+fi
+	case "${1:-} ${2:-}" in
+	  "workspace list")
+	    printf '%s' '{"ok":true,"data":[{"id":"ws-a"},{"id":"ws-b"}],"error":null}'
+	    ;;
+	  "session list")
+	    printf '%s' '{"ok":true,"data":[{"session_name":"s1","workspace_id":"ws-b","type":"agent","attached":false},{"session_name":"s2","workspace_id":"ws-a","type":"terminal","attached":true}],"error":null}'
+	    ;;
+  *)
+    printf '{"ok":false,"error":{"code":"unexpected","message":"unexpected args: %s"}}' "$*"
+    ;;
+esac
+`)
+
+	env := os.Environ()
+	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
+	payload := runScriptJSON(t, scriptPath, env, "status")
+	if got, _ := payload["status"].(string); got != "ok" {
+		t.Fatalf("status = %q, want ok", got)
+	}
+	summary, _ := payload["summary"].(string)
+	if !strings.Contains(summary, "agent session(s)") {
+		t.Fatalf("summary = %q, want agent session summary", summary)
+	}
+	suggested, _ := payload["suggested_command"].(string)
+	if !strings.Contains(suggested, "--workspace ws-b") {
+		t.Fatalf("suggested_command = %q, want active agent workspace ws-b", suggested)
+	}
+}

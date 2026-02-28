@@ -9,11 +9,17 @@ import (
 const taskStatusCompletionIdleWindow = 45 * time.Second
 
 func taskStatusLooksComplete(candidate taskAgentCandidate, snap taskAgentSnapshot) bool {
-	if !candidate.HasLastOutput {
-		return false
-	}
-	if time.Since(candidate.LastOutputAt) < taskStatusCompletionIdleWindow {
-		return false
+	if candidate.HasLastOutput {
+		if time.Since(candidate.LastOutputAt) < taskStatusCompletionIdleWindow {
+			return false
+		}
+	} else {
+		if candidate.CreatedAt <= 0 {
+			return false
+		}
+		if time.Since(time.Unix(candidate.CreatedAt, 0)) < taskStatusCompletionIdleWindow {
+			return false
+		}
 	}
 	if snap.NeedsInput {
 		return false

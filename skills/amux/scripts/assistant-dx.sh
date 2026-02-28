@@ -33,8 +33,8 @@ Usage:
 
   assistant-dx.sh project list [--query <text>]
   assistant-dx.sh project add [--path <repo> | --cwd]
-  assistant-dx.sh workspace list [--project <repo> | --all]
-  assistant-dx.sh workspace create --name <name> [--project <repo>] [--from-workspace <id>] [--scope project|nested] [--assistant <name>] [--base <ref>]
+  assistant-dx.sh workspace list [--project <repo> | --repo <repo> | --all] [--archived]
+  assistant-dx.sh workspace create <name> --project <repo> [--assistant <name>] [--base <ref>]
 
   assistant-dx.sh terminal run --workspace <id> --text <cmd> [--enter]
   assistant-dx.sh terminal logs --workspace <id> [--lines <n>]
@@ -640,13 +640,17 @@ cmd_workspace_list() {
   local args=(workspace list)
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --project|--workspace|--limit|--page)
+      --project|--repo)
         [[ $# -ge 2 ]] || { emit_error "workspace.list" "missing value for $1"; return 0; }
         args+=("$1" "$2")
         shift 2
         ;;
       --all)
         args+=(--all)
+        shift
+        ;;
+      --archived)
+        args+=(--archived)
         shift
         ;;
       *) emit_error "workspace.list" "unknown flag: $1"; return 0 ;;
@@ -669,30 +673,60 @@ cmd_workspace_list() {
 }
 
 cmd_workspace_create() {
-  local args=(workspace create)
-  local saw_name="false"
+  local name=""
+  local project=""
+  local assistant=""
+  local base=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --name|--project|--from-workspace|--scope|--assistant|--base)
+      --project|--assistant|--base)
         [[ $# -ge 2 ]] || { emit_error "workspace.create" "missing value for $1"; return 0; }
-        [[ "$1" == "--name" ]] && saw_name="true"
-        args+=("$1" "$2")
+        case "$1" in
+          --project) project="$2" ;;
+          --assistant) assistant="$2" ;;
+          --base) base="$2" ;;
+        esac
         shift 2
         ;;
-      *) emit_error "workspace.create" "unknown flag: $1"; return 0 ;;
+      --name)
+        emit_error "workspace.create" "--name is no longer supported; use positional name: workspace create <name> --project <repo>"
+        return 0
+        ;;
+      --from-workspace|--scope|--idempotency-key)
+        emit_error "workspace.create" "$1 is not supported by amux workspace create"
+        return 0
+        ;;
+      --*)
+        emit_error "workspace.create" "unknown flag: $1"
+        return 0
+        ;;
+      *)
+        if [[ -n "${name// }" ]]; then
+          emit_error "workspace.create" "unexpected positional argument: $1"
+          return 0
+        fi
+        name="$1"
+        shift
+        ;;
     esac
   done
-  [[ "$saw_name" != "true" ]] && { emit_error "workspace.create" "missing required flag: --name"; return 0; }
 
-  local out data_json ws_id assistant
+  [[ -z "${name// }" ]] && { emit_error "workspace.create" "missing required positional argument: <name>"; return 0; }
+  [[ -z "${project// }" ]] && { emit_error "workspace.create" "missing required flag: --project"; return 0; }
+
+  local args=(workspace create "$name" --project "$project")
+  [[ -n "${assistant// }" ]] && args+=(--assistant "$assistant")
+  [[ -n "${base// }" ]] && args+=(--base "$base")
+
+  local out data_json ws_id ws_assistant
   if ! out="$(amux_ok_json "workspace.create" "${args[@]}")"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
   ws_id="$(jq -r '.id // ""' <<<"$data_json")"
-  assistant="$(jq -r '.assistant // "codex"' <<<"$data_json")"
+  ws_assistant="$(jq -r '.assistant // "codex"' <<<"$data_json")"
   local suggested="$SELF_SCRIPT workspace list --all"
-  [[ -n "${ws_id// }" ]] && suggested="$(build_task_start_cmd "$ws_id" "$assistant" "Continue from current state and report status plus next action.")"
+  [[ -n "${ws_id// }" ]] && suggested="$(build_task_start_cmd "$ws_id" "$ws_assistant" "Continue from current state and report status plus next action.")"
   emit_result "true" "workspace.create" "ok" "Workspace created." "Start a bounded task." "$suggested" "$data_json" "[]" "✅ Workspace created."
 }
 
@@ -751,7 +785,7 @@ cmd_status() {
     return 0
   fi
 
-  local ws_out sess_out ws_rows sess_rows total active first_active first_ws suggested actions summary next_action
+  local ws_out sess_out ws_rows sess_rows total agent_sessions first_ws first_agent_ws suggested actions summary next_action
   if ! ws_out="$(amux_ok_json "status" workspace list --all)"; then
     return 0
   fi
@@ -761,18 +795,25 @@ cmd_status() {
   ws_rows="$(jq -c '.data // []' <<<"$ws_out")"
   sess_rows="$(jq -c '.data // []' <<<"$sess_out")"
   total="$(jq -r 'length' <<<"$ws_rows")"
-  active="$(jq -r '[.[] | select((.type // "") == "agent" and (.status // "") != "stopped") | (.workspace_id // "") | select(length>0)] | unique | length' <<<"$sess_rows")"
-  first_active="$(jq -r '[.[] | select((.type // "") == "agent" and (.status // "") != "stopped") | (.workspace_id // "") | select(length>0)] | unique | .[0] // ""' <<<"$sess_rows")"
+  agent_sessions="$(jq -r '[.[] | select((.type // "") == "agent")] | length' <<<"$sess_rows")"
   first_ws="$(jq -r '.[]?.id // ""' <<<"$ws_rows" | head -n 1)"
+  first_agent_ws="$(jq -r '[.[] | select((.type // "") == "agent") | (.workspace_id // "") | select(length > 0)] | unique | .[0] // ""' <<<"$sess_rows")"
   actions='[]'
 
-  if [[ "$active" -gt 0 ]]; then
-    summary="$active active workspace(s), $total total"
-    next_action="Check active workspace and continue there."
-    suggested="$SELF_SCRIPT status --workspace $(quote_cmd "$first_active") --assistant $(quote_cmd "$assistant")"
-    actions="$(append_action "$actions" "active" "Active Status" "$suggested" "success" "Open active workspace status")"
+  summary="$total workspace(s), $agent_sessions agent session(s)."
+  if [[ "$agent_sessions" -gt 0 ]]; then
+    next_action="Check status on the target workspace."
+    if [[ -n "${first_agent_ws// }" ]]; then
+      suggested="$SELF_SCRIPT status --workspace $(quote_cmd "$first_agent_ws") --assistant $(quote_cmd "$assistant")"
+      actions="$(append_action "$actions" "status" "Status" "$suggested" "primary" "Open active agent workspace status")"
+    elif [[ -n "${first_ws// }" ]]; then
+      suggested="$SELF_SCRIPT status --workspace $(quote_cmd "$first_ws") --assistant $(quote_cmd "$assistant")"
+      actions="$(append_action "$actions" "status" "Status" "$suggested" "primary" "Open workspace status")"
+    else
+      suggested="$SELF_SCRIPT workspace list --all"
+      actions="$(append_action "$actions" "workspaces" "Workspaces" "$suggested" "primary" "List all workspaces")"
+    fi
   else
-    summary="No active workspace tasks. $total workspace(s) available."
     next_action="Start a bounded task."
     if [[ -n "${first_ws// }" ]]; then
       suggested="$(build_task_start_cmd "$first_ws" "$assistant" "Continue from current state and report status plus next action.")"

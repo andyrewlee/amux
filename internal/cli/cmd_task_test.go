@@ -113,6 +113,71 @@ func TestCmdTaskStart_AllowNewRunUsesTaskRunner(t *testing.T) {
 	}
 }
 
+func TestCmdTaskStart_CompletedStaleAgentDoesNotRequireConfirmation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	wsID := createTaskTestWorkspace(t, home)
+
+	origSessionsWithTags := tmuxSessionsWithTags
+	origCapture := tmuxCapturePaneTail
+	origTaskRunAgent := taskRunAgent
+	t.Cleanup(func() {
+		tmuxSessionsWithTags = origSessionsWithTags
+		tmuxCapturePaneTail = origCapture
+		taskRunAgent = origTaskRunAgent
+	})
+
+	oldOutputTS := strconv.FormatInt(time.Now().Add(-2*time.Minute).Unix(), 10)
+	tmuxSessionsWithTags = func(_ map[string]string, _ []string, _ tmux.Options) ([]tmux.SessionTagValues, error) {
+		return []tmux.SessionTagValues{{
+			Name: "amux-" + string(wsID) + "-t_done",
+			Tags: map[string]string{
+				"@amux_tab":          "t_done",
+				"@amux_assistant":    "droid",
+				"@amux_created_at":   strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10),
+				tmux.TagLastOutputAt: oldOutputTS,
+			},
+		}}, nil
+	}
+	tmuxCapturePaneTail = func(_ string, _ int, _ tmux.Options) (string, bool) {
+		return "Review completed with findings.", true
+	}
+	taskRunAgent = func(_ *Services, wsID data.WorkspaceID, assistant, prompt string, waitTimeout, idleThreshold time.Duration, idempotencyKey, version string) (agentRunResult, error) {
+		_ = waitTimeout
+		_ = idleThreshold
+		_ = idempotencyKey
+		_ = version
+		return agentRunResult{
+			SessionName: "sess-next",
+			AgentID:     string(wsID) + ":t_next",
+			WorkspaceID: string(wsID),
+			Assistant:   assistant,
+			TabID:       "t_next",
+			Response: &waitResponseResult{
+				Status:     "idle",
+				Summary:    "Started new run after stale completed tab.",
+				LatestLine: "Started new run after stale completed tab.",
+			},
+		}, nil
+	}
+
+	var out, errOut bytes.Buffer
+	code := cmdTaskStart(&out, &errOut, GlobalFlags{JSON: true}, []string{
+		"--workspace", string(wsID),
+		"--assistant", "droid",
+		"--prompt", "Run a fresh review now",
+	}, "test-v1")
+	if code != ExitOK {
+		t.Fatalf("cmdTaskStart() code = %d, stderr=%q out=%q", code, errOut.String(), out.String())
+	}
+
+	payload := decodeTaskResult(t, out.Bytes())
+	if got := taskString(payload, "status"); got == "needs_input" {
+		t.Fatalf("status = %q, want not needs_input for stale completed tab", got)
+	}
+}
+
 func TestCmdTaskStatus_ReportsNeedsInputFromActiveAgent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
