@@ -157,7 +157,6 @@ func shouldDropAgentChromeLine(line string) bool {
 		strings.HasPrefix(clean, "▝"),
 		strings.HasPrefix(clean, "▘"),
 		strings.HasPrefix(clean, "Tip:"),
-		strings.HasPrefix(clean, "Try \""),
 		strings.HasPrefix(clean, "• Ran "),
 		(strings.Contains(clean, "❯") && strings.Contains(clean, "Try \"")),
 		strings.Contains(clean, "Claude Code v"),

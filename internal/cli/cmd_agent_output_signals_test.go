@@ -83,6 +83,14 @@ func TestCompactAgentOutput_DropsANSIWrappedPromptChrome(t *testing.T) {
 	}
 }
 
+func TestCompactAgentOutput_PreservesAssistantTryQuotedContent(t *testing.T) {
+	raw := "Try \"go test ./internal/cli\" to verify the fix.\nDone."
+	got := compactAgentOutput(raw)
+	if got != raw {
+		t.Fatalf("compactAgentOutput() = %q, want %q", got, raw)
+	}
+}
+
 func TestDetectNeedsInput_ConfirmationPrompt(t *testing.T) {
 	content := "Plan complete\nDo you want me to proceed? (y/N)"
 	ok, hint := detectNeedsInput(content)
