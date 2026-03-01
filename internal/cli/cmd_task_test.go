@@ -269,6 +269,36 @@ func TestCmdTaskStatus_ReportsCompletedWhenOutputIsStable(t *testing.T) {
 	}
 }
 
+func TestCmdTaskStatus_RejectsUnknownAssistant(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	wsID := createTaskTestWorkspace(t, home)
+
+	var out, errOut bytes.Buffer
+	code := cmdTaskStatus(&out, &errOut, GlobalFlags{JSON: true}, []string{
+		"--workspace", string(wsID),
+		"--assistant", "codxe",
+	}, "test-v1")
+	if code != ExitUsage {
+		t.Fatalf("cmdTaskStatus() code = %d, want %d, stderr=%q out=%q", code, ExitUsage, errOut.String(), out.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal envelope: %v\nraw=%s", err, out.String())
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false, raw=%s", out.String())
+	}
+	if env.Error == nil || env.Error.Code != "unknown_assistant" {
+		t.Fatalf("error = %#v, want unknown_assistant", env.Error)
+	}
+	if env.Error == nil || !strings.Contains(env.Error.Message, "unknown assistant: codxe") {
+		t.Fatalf("error message = %#v, want unknown assistant message", env.Error)
+	}
+}
+
 func createTaskTestWorkspace(t *testing.T, home string) data.WorkspaceID {
 	t.Helper()
 

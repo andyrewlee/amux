@@ -169,6 +169,9 @@ func cmdTaskStatus(w, wErr io.Writer, gf GlobalFlags, args []string, version str
 	if _, err := svc.Store.Load(wsID); err != nil {
 		return taskReturnError(w, wErr, gf, version, ExitNotFound, "not_found", fmt.Sprintf("workspace %s not found", wsID), nil)
 	}
+	if _, ok := svc.Config.Assistants[assistantName]; !ok {
+		return taskReturnError(w, wErr, gf, version, ExitUsage, "unknown_assistant", "unknown assistant: "+assistantName, nil)
+	}
 
 	candidate, snap, err := findLatestTaskAgentSnapshot(svc.TmuxOpts, string(wsID), assistantName)
 	if err != nil {
