@@ -143,7 +143,8 @@ func clampLines(content string, width, maxLines int) string {
 func fastASCIIWidth(line string) (int, bool) {
 	for i := 0; i < len(line); i++ {
 		b := line[i]
-		if b == 0x1b || b >= 0x80 {
+		// Fast path only for printable ASCII.
+		if b < 0x20 || b > 0x7e {
 			return 0, false
 		}
 	}

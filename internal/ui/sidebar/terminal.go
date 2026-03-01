@@ -117,6 +117,7 @@ type TerminalModel struct {
 	workspaceIDCached string
 	workspaceIDRepo   string
 	workspaceIDRoot   string
+	workspaceIDPtr    *data.Workspace
 
 	// Layout
 	width           int
@@ -195,13 +196,16 @@ func (m *TerminalModel) workspaceID() string {
 		m.workspaceIDCached = ""
 		m.workspaceIDRepo = ""
 		m.workspaceIDRoot = ""
+		m.workspaceIDPtr = nil
 		return ""
 	}
 	if m.workspaceIDCached == "" ||
 		m.workspaceIDRepo != m.workspace.Repo ||
-		m.workspaceIDRoot != m.workspace.Root {
+		m.workspaceIDRoot != m.workspace.Root ||
+		m.workspaceIDPtr != m.workspace {
 		m.workspaceIDRepo = m.workspace.Repo
 		m.workspaceIDRoot = m.workspace.Root
+		m.workspaceIDPtr = m.workspace
 		m.workspaceIDCached = string(m.workspace.ID())
 	}
 	return m.workspaceIDCached
@@ -213,11 +217,13 @@ func (m *TerminalModel) setWorkspace(ws *data.Workspace) {
 	m.workspaceIDCached = ""
 	m.workspaceIDRepo = ""
 	m.workspaceIDRoot = ""
+	m.workspaceIDPtr = nil
 	if ws == nil {
 		return
 	}
 	m.workspaceIDRepo = ws.Repo
 	m.workspaceIDRoot = ws.Root
+	m.workspaceIDPtr = ws
 	m.workspaceIDCached = string(ws.ID())
 }
 

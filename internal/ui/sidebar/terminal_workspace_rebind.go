@@ -23,7 +23,7 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 	oldTabs, ok := m.tabsByWorkspace[oldID]
 	if !ok || len(oldTabs) == 0 {
 		if m.workspace != nil && string(m.workspace.ID()) == oldID {
-			m.workspace = current
+			m.setWorkspace(current)
 		}
 		if m.pendingCreation[oldID] {
 			m.pendingCreation[newID] = true
@@ -63,7 +63,7 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		delete(m.pendingCreation, oldID)
 	}
 	if m.workspace != nil && string(m.workspace.ID()) == oldID {
-		m.workspace = current
+		m.setWorkspace(current)
 	}
 
 	var cmds []tea.Cmd
