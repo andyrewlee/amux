@@ -14,12 +14,29 @@ import (
 
 var sidebarDirectFlushRetryInterval = ptyFlushMaxInterval
 
+func resetPTYOutputStateLocked(ts *TerminalState) {
+	if ts == nil {
+		return
+	}
+	ts.pendingOutput.Clear()
+	ts.ptyNoiseTrailing = nil
+	ts.flushScheduled = false
+	ts.directFlushRetryArmed = false
+	ts.ptyOutputClosed = true
+	ts.lastOutputAt = time.Time{}
+	ts.flushPendingSince = time.Time{}
+}
+
 func appendSidebarPTYOutput(ts *TerminalState, data []byte, now time.Time) bool {
 	if ts == nil || len(data) == 0 {
 		return false
 	}
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+
+	if ts.ptyOutputClosed {
+		return false
+	}
 
 	ts.pendingOutput.Append(data)
 	if ts.pendingOutput.Len() > ptyMaxBufferedBytes {
@@ -57,9 +74,10 @@ func (m *TerminalModel) emitDirectPTYFlush(wsID string, tab *TerminalTab) {
 		defer ticker.Stop()
 		for range ticker.C {
 			ts.mu.Lock()
+			closed := ts.ptyOutputClosed
 			pending := ts.pendingOutput.Len() > 0
 			scheduled := ts.flushScheduled
-			if !pending || !scheduled {
+			if closed || !pending || !scheduled {
 				ts.directFlushRetryArmed = false
 				ts.mu.Unlock()
 				return

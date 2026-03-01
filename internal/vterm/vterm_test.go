@@ -382,6 +382,29 @@ func TestRecycleScrollbackLine_IgnoresSharedBlankWithDifferentLength(t *testing.
 	}
 }
 
+func TestRecycleScrollbackLine_IgnoresHistoricalBlankAfterWidthGrowth(t *testing.T) {
+	vt := New(3, 2)
+
+	oldShared := vt.sharedBlankLine(3)
+	vt.Scrollback = append(vt.Scrollback, oldShared)
+
+	// Width growth replaces the current shared-blank backing.
+	_ = vt.sharedBlankLine(6)
+
+	vt.recycleScrollbackLine(oldShared)
+	if got := len(vt.scrollbackRecycle); got != 0 {
+		t.Fatalf("expected historical blank line to be excluded from recycle pool, got %d", got)
+	}
+
+	src := MakeBlankLine(3)
+	src[0] = Cell{Rune: 'X', Width: 1}
+	_ = vt.acquireScrollbackCopy(src)
+
+	if got := vt.Scrollback[0][0].Rune; got != ' ' {
+		t.Fatalf("expected historical shared scrollback line to remain blank, got %q", got)
+	}
+}
+
 func TestIncrementalCursorPositionedWrites(t *testing.T) {
 	// Test cursor positioning + partial writes (common in Ink/React TUIs, progress bars, etc.)
 	vt := New(20, 3)

@@ -91,6 +91,7 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 		}
 		tab.State.Running = false
 		tab.State.ptyRestartBackoff = 0
+		resetPTYOutputStateLocked(tab.State)
 		tab.State.mu.Unlock()
 	}
 

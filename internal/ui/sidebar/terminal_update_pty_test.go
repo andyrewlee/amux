@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,6 +101,10 @@ func TestHandleDirectPTYOutputChunk_RetriesFlushAfterDroppedSinkMessage(t *testi
 	if ok := m.handleDirectPTYOutputChunk(wsID, tab, []byte("retry-me")); !ok {
 		t.Fatal("expected direct PTY chunk handler to continue")
 	}
+	ts := tab.State
+	ts.mu.Lock()
+	ts.Running = false
+	ts.mu.Unlock()
 
 	var flush messages.SidebarPTYFlush
 	select {
@@ -115,7 +120,6 @@ func TestHandleDirectPTYOutputChunk_RetriesFlushAfterDroppedSinkMessage(t *testi
 	}
 	mu.Unlock()
 
-	ts := tab.State
 	ts.mu.Lock()
 	ts.lastOutputAt = time.Now().Add(-time.Second)
 	ts.flushPendingSince = ts.lastOutputAt
@@ -127,4 +131,71 @@ func TestHandleDirectPTYOutputChunk_RetriesFlushAfterDroppedSinkMessage(t *testi
 	ts.flushScheduled = false
 	ts.flushPendingSince = time.Time{}
 	ts.mu.Unlock()
+}
+
+func TestHandleDirectPTYOutputChunk_RetryStopsAfterTeardown(t *testing.T) {
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tabID := generateTerminalTabID()
+	tab := &TerminalTab{
+		ID: tabID,
+		State: &TerminalState{
+			VTerm:   vterm.New(80, 24),
+			Running: true,
+		},
+	}
+	m.tabsByWorkspace[wsID] = []*TerminalTab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	oldRetry := sidebarDirectFlushRetryInterval
+	sidebarDirectFlushRetryInterval = 5 * time.Millisecond
+	defer func() {
+		sidebarDirectFlushRetryInterval = oldRetry
+	}()
+
+	var sinkCalls atomic.Int64
+	m.msgSink = func(msg tea.Msg) {
+		if _, ok := msg.(messages.SidebarPTYFlush); ok {
+			sinkCalls.Add(1)
+		}
+	}
+
+	if ok := m.handleDirectPTYOutputChunk(wsID, tab, []byte("keep-busy")); !ok {
+		t.Fatal("expected direct PTY chunk handler to continue")
+	}
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if sinkCalls.Load() >= 2 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if got := sinkCalls.Load(); got < 2 {
+		t.Fatalf("expected retry loop to emit at least twice before teardown, got %d", got)
+	}
+
+	ts := tab.State
+	ts.mu.Lock()
+	resetPTYOutputStateLocked(ts)
+	ts.Running = false
+	ts.mu.Unlock()
+	delete(m.tabsByWorkspace, wsID)
+
+	time.Sleep(30 * time.Millisecond)
+	stableFrom := sinkCalls.Load()
+	time.Sleep(30 * time.Millisecond)
+	stableTo := sinkCalls.Load()
+	if stableTo != stableFrom {
+		t.Fatalf("expected retry loop to stop after teardown, calls grew from %d to %d", stableFrom, stableTo)
+	}
+
+	ts.mu.Lock()
+	retryArmed := ts.directFlushRetryArmed
+	ts.mu.Unlock()
+	if retryArmed {
+		t.Fatal("expected retry loop to disarm after teardown")
+	}
 }

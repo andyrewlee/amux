@@ -31,13 +31,14 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 	termWidth, termHeight := m.terminalContentSize()
 
 	ts := &TerminalState{
-		Terminal:    term,
-		VTerm:       nil, // set below
-		Running:     true,
-		Detached:    false,
-		SessionName: sessionName,
-		lastWidth:   termWidth,
-		lastHeight:  termHeight,
+		Terminal:        term,
+		VTerm:           nil, // set below
+		Running:         true,
+		Detached:        false,
+		ptyOutputClosed: false,
+		SessionName:     sessionName,
+		lastWidth:       termWidth,
+		lastHeight:      termHeight,
 	}
 
 	vt := vterm.New(termWidth, termHeight)
@@ -202,6 +203,7 @@ func (m *TerminalModel) CloseTerminal(wsID string) {
 			}
 			tab.State.Running = false
 			tab.State.ptyRestartBackoff = 0
+			resetPTYOutputStateLocked(tab.State)
 			tab.State.mu.Unlock()
 		}
 	}
@@ -243,8 +245,7 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	ts.Running = false
 	ts.Detached = true
 	ts.UserDetached = userInitiated
-	ts.pendingOutput.Clear()
-	ts.ptyNoiseTrailing = nil
+	resetPTYOutputStateLocked(ts)
 	ts.mu.Unlock()
 	if term != nil {
 		term.Close()

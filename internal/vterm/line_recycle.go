@@ -25,7 +25,12 @@ func (v *VTerm) acquireScrollbackCopy(src []Cell) []Cell {
 }
 
 func (v *VTerm) recycleScrollbackLine(line []Cell) {
-	if line == nil || len(v.scrollbackRecycle) >= scrollbackRecycleMax || v.isSharedBlankLine(line) {
+	if line == nil || len(v.scrollbackRecycle) >= scrollbackRecycleMax {
+		return
+	}
+	// Never recycle blank/default lines. This avoids aliasing corruption for
+	// compressed shared blank rows across width changes.
+	if v.isSharedBlankLine(line) || isCompressibleScrollbackLine(line) {
 		return
 	}
 	v.scrollbackRecycle = append(v.scrollbackRecycle, line[:0])
@@ -65,10 +70,14 @@ func (v *VTerm) sharedBlankLine(width int) []Cell {
 }
 
 func (v *VTerm) isSharedBlankLine(line []Cell) bool {
-	if len(line) == 0 || len(v.scrollbackSharedBlank) == 0 {
+	return sameCellBacking(line, v.scrollbackSharedBlank)
+}
+
+func sameCellBacking(a, b []Cell) bool {
+	if len(a) == 0 || len(b) == 0 {
 		return false
 	}
-	return &line[0] == &v.scrollbackSharedBlank[0]
+	return &a[0] == &b[0]
 }
 
 func blankLineInto(line []Cell, width int) []Cell {

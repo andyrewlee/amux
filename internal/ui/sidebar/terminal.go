@@ -55,6 +55,7 @@ type TerminalState struct {
 	ptyNoiseTrailing      []byte
 	flushScheduled        bool
 	directFlushRetryArmed bool
+	ptyOutputClosed       bool
 	lastOutputAt          time.Time
 	flushPendingSince     time.Time
 
