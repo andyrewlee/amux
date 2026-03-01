@@ -359,6 +359,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		cmd := m.updatePTYFlush(msg)
 		cmds = append(cmds, cmd)
 
+	case PTYCursorRefresh:
+		cmd := m.updatePTYCursorRefresh(msg)
+		cmds = append(cmds, cmd)
+
 	case PTYStopped:
 		cmd := m.updatePTYStopped(msg)
 		cmds = append(cmds, cmd)

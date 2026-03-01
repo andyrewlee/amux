@@ -153,6 +153,21 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				tab.pendingVisibleSeq++
 				tab.mu.Unlock()
 			}
+			refreshDelay := cursorSuppressWindow + 20*time.Millisecond
+			tab.mu.Lock()
+			tab.cursorRefreshDueAt = now.Add(refreshDelay)
+			scheduleCursorRefresh := !tab.cursorRefreshScheduled
+			if scheduleCursorRefresh {
+				tab.cursorRefreshScheduled = true
+			}
+			tab.mu.Unlock()
+			if scheduleCursorRefresh {
+				workspaceID := msg.WorkspaceID
+				tabID := msg.TabID
+				cmds = append(cmds, common.SafeTick(refreshDelay, func(time.Time) tea.Msg {
+					return PTYCursorRefresh{WorkspaceID: workspaceID, TabID: tabID}
+				}))
+			}
 		}
 		if !tab.flushScheduled {
 			tab.flushScheduled = true
@@ -165,6 +180,34 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		}
 	}
 	return common.SafeBatch(cmds...)
+}
+
+func (m *Model) updatePTYCursorRefresh(msg PTYCursorRefresh) tea.Cmd {
+	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	if tab == nil || tab.isClosed() {
+		return nil
+	}
+	tab.mu.Lock()
+	if !tab.cursorRefreshScheduled {
+		tab.mu.Unlock()
+		return nil
+	}
+	remaining := time.Until(tab.cursorRefreshDueAt)
+	if remaining <= 0 {
+		tab.cursorRefreshScheduled = false
+		tab.cursorRefreshDueAt = time.Time{}
+		tab.mu.Unlock()
+		return nil
+	}
+	if remaining < time.Millisecond {
+		remaining = time.Millisecond
+	}
+	workspaceID := msg.WorkspaceID
+	tabID := msg.TabID
+	tab.mu.Unlock()
+	return common.SafeTick(remaining, func(time.Time) tea.Msg {
+		return PTYCursorRefresh{WorkspaceID: workspaceID, TabID: tabID}
+	})
 }
 
 // updatePTYFlush handles PTYFlush.
