@@ -5,6 +5,16 @@
 
 set -euo pipefail
 
+if ! command -v jq >/dev/null 2>&1; then
+  preflight_channel="${AMUX_ASSISTANT_CHANNEL:-telegram}"
+  preflight_channel="${preflight_channel//\\/\\\\}"
+  preflight_channel="${preflight_channel//\"/\\\"}"
+  cat <<JSON
+{"ok":false,"command":"init","status":"command_error","summary":"assistant-dx requires jq in PATH.","next_action":"Install jq and retry.","suggested_command":"brew install jq","data":{"details":"jq_missing"},"quick_actions":[],"quick_action_by_id":{},"channel":{"message":"⚠️ assistant-dx requires jq in PATH.","chunks":["⚠️ assistant-dx requires jq in PATH."],"chunks_meta":[{"index":1,"total":1,"text":"⚠️ assistant-dx requires jq in PATH."}],"inline_buttons":[]},"assistant_ux":{"selected_channel":"${preflight_channel}"}}
+JSON
+  exit 0
+fi
+
 SELF_SCRIPT="skills/amux/scripts/assistant-dx.sh"
 DEFAULT_REVIEW_PROMPT="Review current uncommitted changes. Return findings first ordered by severity with file references, then residual risks and test gaps."
 
@@ -12,6 +22,8 @@ AMUX_BIN_DEFAULT="$(command -v amux 2>/dev/null || true)"
 if [[ -z "${AMUX_BIN_DEFAULT// }" ]]; then
   if [[ -x "/usr/local/bin/amux" ]]; then
     AMUX_BIN_DEFAULT="/usr/local/bin/amux"
+  elif [[ -x "/opt/homebrew/bin/amux" ]]; then
+    AMUX_BIN_DEFAULT="/opt/homebrew/bin/amux"
   else
     AMUX_BIN_DEFAULT="amux"
   fi
@@ -84,8 +96,8 @@ append_action() {
   local command="$4"
   local style="${5:-primary}"
   local prompt="${6:-}"
-  jq -c --arg id "$id" --arg label "$label" --arg command "$command" --arg style "$style" --arg prompt "$prompt" \
-    '. + [{id:$id,label:$label,command:$command,style:$style,prompt:$prompt}]' <<<"$actions_json"
+  jq -c --arg id "$id" --arg action_label "$label" --arg command "$command" --arg style "$style" --arg prompt "$prompt" \
+    '. + [{id:$id,label:$action_label,command:$command,style:$style,prompt:$prompt}]' <<<"$actions_json"
 }
 
 emit_result() {
@@ -148,9 +160,10 @@ emit_error() {
   emit_result "false" "$command" "command_error" "$message" "Check command usage and retry." "" "$(jq -cn --arg details "$details" '{details:$details}')" "[]" "⚠️ $message"
 }
 
-amux_ok_json() {
-  local command_name="$1"
-  shift
+amux_get_ok_json() {
+  local out_ref="$1"
+  local command_name="$2"
+  shift 2
 
   local raw
   if ! raw="$("$AMUX_BIN" --json "$@" 2>&1)"; then
@@ -165,7 +178,7 @@ amux_ok_json() {
     emit_error "$command_name" "$(jq -r '.error.message // "amux command failed"' <<<"$raw")" "$(jq -r '.error.code // "amux_error"' <<<"$raw")"
     return 1
   fi
-  printf '%s' "$raw"
+  printf -v "$out_ref" '%s' "$raw"
 }
 
 map_task_status() {
@@ -233,24 +246,25 @@ task_reached_terminal_state() {
 }
 
 wait_for_task_terminal() {
-  local command_name="$1"
-  local workspace="$2"
-  local assistant="$3"
-  local data_json="$4"
+  local data_ref="$1"
+  local command_name="$2"
+  local workspace="$3"
+  local assistant="$4"
   local monitor_timeout="$5"
   local poll_interval="$6"
+  local current_data="${!data_ref}"
 
   local timeout_s poll_s started elapsed
   timeout_s="$(parse_duration_seconds "$monitor_timeout" || true)"
   poll_s="$(parse_duration_seconds "$poll_interval" || true)"
   [[ -z "${timeout_s// }" ]] && timeout_s=480
   [[ -z "${poll_s// }" ]] && poll_s=15
-  (( timeout_s < 1 )) && { printf '%s' "$data_json"; return; }
+  (( timeout_s < 1 )) && { printf -v "$data_ref" '%s' "$current_data"; return; }
   (( poll_s < 1 )) && poll_s=1
 
   started="$(date +%s)"
   while true; do
-    if task_reached_terminal_state "$data_json"; then
+    if task_reached_terminal_state "$current_data"; then
       break
     fi
     elapsed=$(( $(date +%s) - started ))
@@ -258,14 +272,14 @@ wait_for_task_terminal() {
     sleep "$poll_s"
 
     local status_out next_data
-    if ! status_out="$(amux_ok_json "$command_name" task status --workspace "$workspace" --assistant "$assistant")"; then
-      break
+    if ! amux_get_ok_json status_out "$command_name" task status --workspace "$workspace" --assistant "$assistant"; then
+      return 1
     fi
     next_data="$(jq -c '.data // {}' <<<"$status_out")"
-    data_json="$next_data"
+    current_data="$next_data"
   done
 
-  printf '%s' "$data_json"
+  printf -v "$data_ref" '%s' "$current_data"
 }
 
 emit_task_result() {
@@ -298,42 +312,42 @@ emit_task_result() {
 }
 
 parse_task_start_flags() {
-  local -n workspace_ref=$1
-  local -n assistant_ref=$2
-  local -n prompt_ref=$3
-  local -n wait_timeout_ref=$4
-  local -n idle_threshold_ref=$5
-  local -n start_lock_ttl_ref=$6
-  local -n idempotency_ref=$7
-  local -n allow_new_run_ref=$8
+  local workspace_ref="$1"
+  local assistant_ref="$2"
+  local prompt_ref="$3"
+  local wait_timeout_ref="$4"
+  local idle_threshold_ref="$5"
+  local start_lock_ttl_ref="$6"
+  local idempotency_ref="$7"
+  local allow_new_run_ref="$8"
   shift 8
 
-  workspace_ref=""
-  assistant_ref="codex"
-  prompt_ref=""
-  wait_timeout_ref=""
-  idle_threshold_ref=""
-  start_lock_ttl_ref=""
-  idempotency_ref=""
-  allow_new_run_ref="false"
+  printf -v "$workspace_ref" '%s' ""
+  printf -v "$assistant_ref" '%s' "codex"
+  printf -v "$prompt_ref" '%s' ""
+  printf -v "$wait_timeout_ref" '%s' ""
+  printf -v "$idle_threshold_ref" '%s' ""
+  printf -v "$start_lock_ttl_ref" '%s' ""
+  printf -v "$idempotency_ref" '%s' ""
+  printf -v "$allow_new_run_ref" '%s' "false"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --workspace|--assistant|--prompt|--wait-timeout|--idle-threshold|--start-lock-ttl|--idempotency-key)
         [[ $# -ge 2 ]] || return 1
         case "$1" in
-          --workspace) workspace_ref="$2" ;;
-          --assistant) assistant_ref="$2" ;;
-          --prompt) prompt_ref="$2" ;;
-          --wait-timeout) wait_timeout_ref="$2" ;;
-          --idle-threshold) idle_threshold_ref="$2" ;;
-          --start-lock-ttl) start_lock_ttl_ref="$2" ;;
-          --idempotency-key) idempotency_ref="$2" ;;
+          --workspace) printf -v "$workspace_ref" '%s' "$2" ;;
+          --assistant) printf -v "$assistant_ref" '%s' "$2" ;;
+          --prompt) printf -v "$prompt_ref" '%s' "$2" ;;
+          --wait-timeout) printf -v "$wait_timeout_ref" '%s' "$2" ;;
+          --idle-threshold) printf -v "$idle_threshold_ref" '%s' "$2" ;;
+          --start-lock-ttl) printf -v "$start_lock_ttl_ref" '%s' "$2" ;;
+          --idempotency-key) printf -v "$idempotency_ref" '%s' "$2" ;;
         esac
         shift 2
         ;;
       --allow-new-run)
-        allow_new_run_ref="true"
+        printf -v "$allow_new_run_ref" '%s' "true"
         shift
         ;;
       --max-steps|--turn-budget)
@@ -370,7 +384,7 @@ cmd_task_start_like() {
   [[ "$allow_new_run" == "true" ]] && amux_args+=(--allow-new-run)
 
   local out data_json
-  if ! out="$(amux_ok_json "$command_name" "${amux_args[@]}")"; then
+  if ! amux_get_ok_json out "$command_name" "${amux_args[@]}"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -393,7 +407,7 @@ cmd_task_status() {
   [[ -z "${workspace// }" ]] && { emit_error "task.status" "missing required flag: --workspace"; return 0; }
 
   local out data_json
-  if ! out="$(amux_ok_json "task.status" task status --workspace "$workspace" --assistant "$assistant")"; then
+  if ! amux_get_ok_json out "task.status" task status --workspace "$workspace" --assistant "$assistant"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -460,12 +474,14 @@ cmd_review() {
   [[ "$allow_new_run" == "true" ]] && amux_args+=(--allow-new-run)
 
   local out data_json
-  if ! out="$(amux_ok_json "review" "${amux_args[@]}")"; then
+  if ! amux_get_ok_json out "review" "${amux_args[@]}"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
   if [[ "$monitor" == "true" ]]; then
-    data_json="$(wait_for_task_terminal "review" "$workspace" "$assistant" "$data_json" "$monitor_timeout" "$poll_interval")"
+    if ! wait_for_task_terminal data_json "review" "$workspace" "$assistant" "$monitor_timeout" "$poll_interval"; then
+      return 0
+    fi
   fi
 
   emit_task_result "review" "$workspace" "$assistant" "$prompt" "$data_json"
@@ -509,7 +525,7 @@ cmd_continue() {
   if [[ -z "${agent// }" ]]; then
     [[ -z "${workspace// }" ]] && { emit_error "continue" "missing target: pass --agent or --workspace"; return 0; }
     local status_out status_data
-    if ! status_out="$(amux_ok_json "continue" task status --workspace "$workspace" --assistant "$assistant")"; then
+    if ! amux_get_ok_json status_out "continue" task status --workspace "$workspace" --assistant "$assistant"; then
       return 0
     fi
     status_data="$(jq -c '.data // {}' <<<"$status_out")"
@@ -523,7 +539,7 @@ cmd_continue() {
   send_args+=(--wait --wait-timeout "$wait_timeout" --idle-threshold "$idle_threshold")
 
   local out data_json resp_json raw_status status summary next_action suggested actions message
-  if ! out="$(amux_ok_json "continue" "${send_args[@]}")"; then
+  if ! amux_get_ok_json out "continue" "${send_args[@]}"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -575,7 +591,7 @@ cmd_project_list() {
   done
 
   local out projects_json filtered_json count first_path suggested actions summary
-  if ! out="$(amux_ok_json "project.list" project list)"; then
+  if ! amux_get_ok_json out "project.list" project list; then
     return 0
   fi
   projects_json="$(jq -c '.data // []' <<<"$out")"
@@ -629,7 +645,7 @@ cmd_project_add() {
   [[ -z "${path// }" ]] && { emit_error "project.add" "missing required flag: --path (or --cwd)"; return 0; }
 
   local out data_json
-  if ! out="$(amux_ok_json "project.add" project add --path "$path")"; then
+  if ! amux_get_ok_json out "project.add" project add --path "$path"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -657,7 +673,7 @@ cmd_workspace_list() {
     esac
   done
   local out rows count first_ws suggested actions
-  if ! out="$(amux_ok_json "workspace.list" "${args[@]}")"; then
+  if ! amux_get_ok_json out "workspace.list" "${args[@]}"; then
     return 0
   fi
   rows="$(jq -c '.data // []' <<<"$out")"
@@ -719,7 +735,7 @@ cmd_workspace_create() {
   [[ -n "${base// }" ]] && args+=(--base "$base")
 
   local out data_json ws_id ws_assistant
-  if ! out="$(amux_ok_json "workspace.create" "${args[@]}")"; then
+  if ! amux_get_ok_json out "workspace.create" "${args[@]}"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -759,7 +775,7 @@ cmd_status() {
 
   if [[ -n "${workspace// }" ]]; then
     local out data_json task_status overall status summary next_action suggested actions msg
-    if ! out="$(amux_ok_json "status" task status --workspace "$workspace" --assistant "$assistant")"; then
+    if ! amux_get_ok_json out "status" task status --workspace "$workspace" --assistant "$assistant"; then
       return 0
     fi
     data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -786,10 +802,10 @@ cmd_status() {
   fi
 
   local ws_out sess_out ws_rows sess_rows total agent_sessions first_ws first_agent_ws suggested actions summary next_action
-  if ! ws_out="$(amux_ok_json "status" workspace list --all)"; then
+  if ! amux_get_ok_json ws_out "status" workspace list --all; then
     return 0
   fi
-  if ! sess_out="$(amux_ok_json "status" session list)"; then
+  if ! amux_get_ok_json sess_out "status" session list; then
     return 0
   fi
   ws_rows="$(jq -c '.data // []' <<<"$ws_out")"
@@ -921,7 +937,7 @@ cmd_terminal_run() {
   local args=(terminal run --workspace "$workspace" --text "$text")
   [[ "$enter" == "true" ]] && args+=(--enter)
   local out data_json
-  if ! out="$(amux_ok_json "terminal.run" "${args[@]}")"; then
+  if ! amux_get_ok_json out "terminal.run" "${args[@]}"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -944,7 +960,7 @@ cmd_terminal_logs() {
   [[ -z "${workspace// }" ]] && { emit_error "terminal.logs" "missing required flag: --workspace"; return 0; }
 
   local out data_json
-  if ! out="$(amux_ok_json "terminal.logs" terminal logs --workspace "$workspace" --lines "$lines")"; then
+  if ! amux_get_ok_json out "terminal.logs" terminal logs --workspace "$workspace" --lines "$lines"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -982,7 +998,7 @@ cmd_cleanup() {
   local args=(session prune --older-than "$older_than")
   [[ "$yes" == "true" ]] && args+=(--yes)
   local out data_json
-  if ! out="$(amux_ok_json "cleanup" "${args[@]}")"; then
+  if ! amux_get_ok_json out "cleanup" "${args[@]}"; then
     return 0
   fi
   data_json="$(jq -c '.data // {}' <<<"$out")"
@@ -990,12 +1006,15 @@ cmd_cleanup() {
 }
 
 cmd_workspace_root() {
-  local workspace="$1"
+  local root_ref="$1"
+  local workspace="$2"
   local out
-  if ! out="$(amux_ok_json "git.ship" workspace list --all)"; then
+  if ! amux_get_ok_json out "git.ship" workspace list --all; then
     return 1
   fi
-  jq -r --arg workspace "$workspace" '(.data // []) | map(select(.id == $workspace)) | .[0].root // ""' <<<"$out"
+  local root
+  root="$(jq -r --arg workspace "$workspace" '(.data // []) | map(select(.id == $workspace)) | .[0].root // ""' <<<"$out")"
+  printf -v "$root_ref" '%s' "$root"
 }
 
 cmd_git_ship() {
@@ -1019,7 +1038,7 @@ cmd_git_ship() {
   [[ -z "${workspace// }" ]] && { emit_error "git.ship" "missing required flag: --workspace"; return 0; }
 
   local root
-  if ! root="$(cmd_workspace_root "$workspace")"; then
+  if ! cmd_workspace_root root "$workspace"; then
     return 0
   fi
   if [[ -z "${root// }" || ! -d "$root" ]]; then
