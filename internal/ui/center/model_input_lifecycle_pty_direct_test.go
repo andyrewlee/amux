@@ -2,6 +2,7 @@ package center
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,6 +117,74 @@ func TestHandleDirectPTYOutputChunk_RetriesFlushAfterDroppedSinkMessage(t *testi
 	tab.flushPendingSince = tab.lastOutputAt
 	tab.mu.Unlock()
 	_ = m.updatePTYFlush(flush)
+
+	tab.mu.Lock()
+	tab.pendingOutput.Clear()
+	tab.flushScheduled = false
+	tab.flushPendingSince = time.Time{}
+	tab.mu.Unlock()
+}
+
+func TestHandleDirectPTYOutputChunk_RetryUsesReboundWorkspaceID(t *testing.T) {
+	m := newTestModel()
+	oldWS := newTestWorkspace("old", "/repo/old")
+	newWS := newTestWorkspace("new", "/repo/new")
+	oldID := string(oldWS.ID())
+	newID := string(newWS.ID())
+	if oldID == newID {
+		t.Fatalf("expected different workspace IDs, got %q", oldID)
+	}
+
+	tab := &Tab{
+		ID:        TabID("tab-direct-rebind"),
+		Assistant: "codex",
+		Workspace: oldWS,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+	}
+	m.tabsByWorkspace[oldID] = []*Tab{tab}
+	m.activeTabByWorkspace[oldID] = 0
+	m.workspace = oldWS
+
+	oldRetry := ptyDirectFlushRetryInterval
+	ptyDirectFlushRetryInterval = 20 * time.Millisecond
+	defer func() {
+		ptyDirectFlushRetryInterval = oldRetry
+	}()
+
+	var sinkCalls atomic.Int64
+	flushCh := make(chan PTYFlush, 2)
+	m.msgSink = func(msg tea.Msg) {
+		flush, ok := msg.(PTYFlush)
+		if !ok {
+			return
+		}
+		if sinkCalls.Add(1) == 1 {
+			return // Drop initial direct flush so assertion targets retry message.
+		}
+		select {
+		case flushCh <- flush:
+		default:
+		}
+	}
+
+	if ok := m.handleDirectPTYOutputChunk(oldID, tab, []byte("rebind-retry")); !ok {
+		t.Fatal("expected direct PTY chunk handler to continue")
+	}
+
+	_ = m.RebindWorkspaceID(oldWS, newWS)
+
+	select {
+	case flush := <-flushCh:
+		if flush.WorkspaceID != newID {
+			t.Fatalf("expected retry flush workspace %q after rebind, got %q", newID, flush.WorkspaceID)
+		}
+		if flush.TabID != tab.ID {
+			t.Fatalf("expected retry flush tab %q, got %q", tab.ID, flush.TabID)
+		}
+	case <-time.After(400 * time.Millisecond):
+		t.Fatal("expected retry flush after workspace rebind")
+	}
 
 	tab.mu.Lock()
 	tab.pendingOutput.Clear()

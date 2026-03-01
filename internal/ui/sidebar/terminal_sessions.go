@@ -67,6 +67,7 @@ func (m *TerminalModel) AddTabsFromSessions(ws *data.Workspace, sessions []strin
 				SessionName:      sessionName,
 				Running:          false,
 				Detached:         true,
+				workspaceID:      wsID,
 				reattachInFlight: true,
 			},
 		}
@@ -106,6 +107,7 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 				SessionName: session.Name,
 				Running:     false,
 				Detached:    true,
+				workspaceID: wsID,
 			},
 		}
 		m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)

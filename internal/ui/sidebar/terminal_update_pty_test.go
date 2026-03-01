@@ -199,3 +199,73 @@ func TestHandleDirectPTYOutputChunk_RetryStopsAfterTeardown(t *testing.T) {
 		t.Fatal("expected retry loop to disarm after teardown")
 	}
 }
+
+func TestHandleDirectPTYOutputChunk_RetryUsesReboundWorkspaceID(t *testing.T) {
+	m := NewTerminalModel()
+	oldWS := data.NewWorkspace("old", "old", "main", "/repo/old", "/repo/old")
+	newWS := data.NewWorkspace("new", "new", "main", "/repo/new", "/repo/new")
+	oldID := string(oldWS.ID())
+	newID := string(newWS.ID())
+	if oldID == newID {
+		t.Fatalf("expected different workspace IDs, got %q", oldID)
+	}
+	tabID := generateTerminalTabID()
+	tab := &TerminalTab{
+		ID: tabID,
+		State: &TerminalState{
+			VTerm:       vterm.New(80, 24),
+			Running:     true,
+			workspaceID: oldID,
+		},
+	}
+	m.tabsByWorkspace[oldID] = []*TerminalTab{tab}
+	m.activeTabByWorkspace[oldID] = 0
+	m.workspace = oldWS
+
+	oldRetry := sidebarDirectFlushRetryInterval
+	sidebarDirectFlushRetryInterval = 20 * time.Millisecond
+	defer func() {
+		sidebarDirectFlushRetryInterval = oldRetry
+	}()
+
+	var sinkCalls atomic.Int64
+	flushCh := make(chan messages.SidebarPTYFlush, 2)
+	m.msgSink = func(msg tea.Msg) {
+		flush, ok := msg.(messages.SidebarPTYFlush)
+		if !ok {
+			return
+		}
+		if sinkCalls.Add(1) == 1 {
+			return // Drop initial direct flush so assertion targets retry message.
+		}
+		select {
+		case flushCh <- flush:
+		default:
+		}
+	}
+
+	if ok := m.handleDirectPTYOutputChunk(oldID, tab, []byte("rebind-retry")); !ok {
+		t.Fatal("expected direct PTY chunk handler to continue")
+	}
+
+	_ = m.RebindWorkspaceID(oldWS, newWS)
+
+	select {
+	case flush := <-flushCh:
+		if flush.WorkspaceID != newID {
+			t.Fatalf("expected retry flush workspace %q after rebind, got %q", newID, flush.WorkspaceID)
+		}
+		if flush.TabID != string(tabID) {
+			t.Fatalf("expected retry flush tab %q, got %q", tabID, flush.TabID)
+		}
+	case <-time.After(400 * time.Millisecond):
+		t.Fatal("expected retry flush after workspace rebind")
+	}
+
+	ts := tab.State
+	ts.mu.Lock()
+	ts.pendingOutput.Clear()
+	ts.flushScheduled = false
+	ts.flushPendingSince = time.Time{}
+	ts.mu.Unlock()
+}

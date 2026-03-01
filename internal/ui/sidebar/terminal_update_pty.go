@@ -14,6 +14,13 @@ import (
 
 var sidebarDirectFlushRetryInterval = ptyFlushMaxInterval
 
+func workspaceIDForTerminalStateLocked(ts *TerminalState, fallback string) string {
+	if ts == nil || ts.workspaceID == "" {
+		return fallback
+	}
+	return ts.workspaceID
+}
+
 func resetPTYOutputStateLocked(ts *TerminalState) {
 	if ts == nil {
 		return
@@ -58,9 +65,12 @@ func (m *TerminalModel) emitDirectPTYFlush(wsID string, tab *TerminalTab) {
 	if tab == nil || tab.State == nil || m.msgSink == nil {
 		return
 	}
-	m.msgSink(messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: string(tab.ID)})
-
 	ts := tab.State
+	ts.mu.Lock()
+	initialWSID := workspaceIDForTerminalStateLocked(ts, wsID)
+	ts.mu.Unlock()
+	m.msgSink(messages.SidebarPTYFlush{WorkspaceID: initialWSID, TabID: string(tab.ID)})
+
 	ts.mu.Lock()
 	if ts.directFlushRetryArmed {
 		ts.mu.Unlock()
@@ -77,6 +87,7 @@ func (m *TerminalModel) emitDirectPTYFlush(wsID string, tab *TerminalTab) {
 			closed := ts.ptyOutputClosed
 			pending := ts.pendingOutput.Len() > 0
 			scheduled := ts.flushScheduled
+			retryWSID := workspaceIDForTerminalStateLocked(ts, wsID)
 			if closed || !pending || !scheduled {
 				ts.directFlushRetryArmed = false
 				ts.mu.Unlock()
@@ -86,7 +97,7 @@ func (m *TerminalModel) emitDirectPTYFlush(wsID string, tab *TerminalTab) {
 			ts.mu.Unlock()
 
 			if m.msgSink != nil {
-				m.msgSink(messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: string(tabID)})
+				m.msgSink(messages.SidebarPTYFlush{WorkspaceID: retryWSID, TabID: string(tabID)})
 			}
 		}
 	})

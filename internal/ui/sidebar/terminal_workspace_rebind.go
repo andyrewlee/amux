@@ -73,6 +73,7 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		}
 		ts := tab.State
 		ts.mu.Lock()
+		ts.workspaceID = newID
 		shouldRestart := ts.Running && ts.Terminal != nil
 		ts.mu.Unlock()
 

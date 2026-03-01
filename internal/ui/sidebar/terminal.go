@@ -56,6 +56,7 @@ type TerminalState struct {
 	flushScheduled        bool
 	directFlushRetryArmed bool
 	ptyOutputClosed       bool
+	workspaceID           string
 	lastOutputAt          time.Time
 	flushPendingSince     time.Time
 

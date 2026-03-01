@@ -8,11 +8,25 @@ import (
 
 var ptyDirectFlushRetryInterval = ptyFlushMaxInterval
 
+func workspaceIDForTabLocked(tab *Tab, fallback string) string {
+	if tab == nil || tab.Workspace == nil {
+		return fallback
+	}
+	wsID := string(tab.Workspace.ID())
+	if wsID == "" {
+		return fallback
+	}
+	return wsID
+}
+
 func (m *Model) emitDirectPTYFlush(workspaceID string, tab *Tab) {
 	if tab == nil || m.msgSink == nil {
 		return
 	}
-	m.msgSink(PTYFlush{WorkspaceID: workspaceID, TabID: tab.ID})
+	tab.mu.Lock()
+	currentWSID := workspaceIDForTabLocked(tab, workspaceID)
+	tab.mu.Unlock()
+	m.msgSink(PTYFlush{WorkspaceID: currentWSID, TabID: tab.ID})
 
 	tab.mu.Lock()
 	if tab.directFlushRetryArmed {
@@ -37,6 +51,7 @@ func (m *Model) emitDirectPTYFlush(workspaceID string, tab *Tab) {
 			pending := tab.pendingOutput.Len() > 0
 			scheduled := tab.flushScheduled
 			tabID := tab.ID
+			retryWSID := workspaceIDForTabLocked(tab, workspaceID)
 			if !pending || !scheduled {
 				tab.directFlushRetryArmed = false
 				tab.mu.Unlock()
@@ -45,7 +60,7 @@ func (m *Model) emitDirectPTYFlush(workspaceID string, tab *Tab) {
 			tab.mu.Unlock()
 
 			if m.msgSink != nil {
-				m.msgSink(PTYFlush{WorkspaceID: workspaceID, TabID: tabID})
+				m.msgSink(PTYFlush{WorkspaceID: retryWSID, TabID: tabID})
 			}
 		}
 	})

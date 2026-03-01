@@ -51,6 +51,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.UserDetached = false
 	ts.reattachInFlight = false
 	ts.SessionName = msg.SessionName
+	ts.workspaceID = msg.WorkspaceID
 	resetPTYOutputStateLocked(ts)
 	ts.ptyOutputClosed = false
 	ts.mu.Unlock()
