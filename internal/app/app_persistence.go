@@ -140,6 +140,8 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 			if saveErr != nil {
 				logging.Warn("Failed to save workspace tabs: %v", saveErr)
 			} else {
+				// Marker bookkeeping is intentionally outside delete-state guard.
+				// Delete safety is enforced by the guarded Save above.
 				a.markLocalWorkspaceSaveForID(wsID)
 			}
 		}
