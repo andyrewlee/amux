@@ -2,6 +2,7 @@ package center
 
 import (
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -65,6 +66,104 @@ func TestTerminalLayerPreservesCursorHiddenForNonChatTabs(t *testing.T) {
 	}
 	if term.IgnoreCursorVisibilityControls {
 		t.Fatal("expected non-chat tabs to honor terminal cursor visibility controls")
+	}
+}
+
+func TestIsChatTabFallsBackToBuiltinsWhenConfigMissingEntry(t *testing.T) {
+	m := newTestModel()
+	tab := &Tab{Assistant: "cursor"}
+
+	if !m.isChatTab(tab) {
+		t.Fatal("expected builtin assistant name to be treated as chat even when missing from config map")
+	}
+}
+
+func TestTerminalLayerHidesCursorWhileChatTabStreaming(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(10, 3)
+
+	m.tabsByWorkspace[wsID] = []*Tab{
+		{
+			ID:           TabID("tab-chat-streaming"),
+			Assistant:    "codex",
+			Workspace:    ws,
+			Terminal:     term,
+			Running:      true,
+			lastOutputAt: time.Now(),
+		},
+	}
+	m.activeTabByWorkspace[wsID] = 0
+	m.SetWorkspace(ws)
+	m.Focus()
+
+	layer := m.TerminalLayer()
+	if layer == nil || layer.Snap == nil {
+		t.Fatal("expected terminal layer snapshot")
+	}
+	if layer.Snap.ShowCursor {
+		t.Fatal("expected cursor to be hidden while chat tab is actively streaming")
+	}
+}
+
+func TestTerminalLayerHidesCursorDuringChatBootstrap(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(10, 3)
+
+	m.tabsByWorkspace[wsID] = []*Tab{
+		{
+			ID:                    TabID("tab-chat-bootstrap"),
+			Assistant:             "codex",
+			Workspace:             ws,
+			Terminal:              term,
+			Running:               true,
+			bootstrapActivity:     true,
+			bootstrapLastOutputAt: time.Now(),
+		},
+	}
+	m.activeTabByWorkspace[wsID] = 0
+	m.SetWorkspace(ws)
+	m.Focus()
+
+	layer := m.TerminalLayer()
+	if layer == nil || layer.Snap == nil {
+		t.Fatal("expected terminal layer snapshot")
+	}
+	if layer.Snap.ShowCursor {
+		t.Fatal("expected cursor to be hidden during chat bootstrap activity")
+	}
+}
+
+func TestTerminalLayerShowsCursorForStaleBootstrapChatTab(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(10, 3)
+
+	m.tabsByWorkspace[wsID] = []*Tab{
+		{
+			ID:                    TabID("tab-chat-bootstrap-stale"),
+			Assistant:             "codex",
+			Workspace:             ws,
+			Terminal:              term,
+			Running:               true,
+			bootstrapActivity:     true,
+			bootstrapLastOutputAt: time.Now().Add(-(tabActiveWindow + 100*time.Millisecond)),
+		},
+	}
+	m.activeTabByWorkspace[wsID] = 0
+	m.SetWorkspace(ws)
+	m.Focus()
+
+	layer := m.TerminalLayer()
+	if layer == nil || layer.Snap == nil {
+		t.Fatal("expected terminal layer snapshot")
+	}
+	if !layer.Snap.ShowCursor {
+		t.Fatal("expected cursor to be visible when bootstrap suppression window has elapsed")
 	}
 }
 

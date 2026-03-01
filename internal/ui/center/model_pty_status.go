@@ -132,8 +132,9 @@ func (m *Model) isChatTab(tab *Tab) bool {
 		return false
 	}
 	if m != nil && m.config != nil && len(m.config.Assistants) > 0 {
-		_, ok := m.config.Assistants[tab.Assistant]
-		return ok
+		if _, ok := m.config.Assistants[tab.Assistant]; ok {
+			return true
+		}
 	}
 	switch tab.Assistant {
 	case "claude", "codex", "gemini", "amp", "opencode", "droid", "cline", "cursor", "pi":
@@ -205,6 +206,23 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	showCursor := m.focused
 	if !cursorOwner {
 		showCursor = false
+	}
+	// For chat tabs, suppress cursor paint during bootstrap and while output is
+	// recently active. Some assistants emit frequent cursor-control sequences
+	// during initialization/streaming that cause visible cursor jumping.
+	if showCursor && m.isChatTab(tab) && tab.Running && !tab.Detached {
+		suppress := tab.bootstrapActivity &&
+			!tab.bootstrapLastOutputAt.IsZero() &&
+			time.Since(tab.bootstrapLastOutputAt) < tabActiveWindow
+		if !suppress && !tab.lastOutputAt.IsZero() && time.Since(tab.lastOutputAt) < tabActiveWindow {
+			suppress = true
+		}
+		if !suppress && !tab.lastVisibleOutput.IsZero() && time.Since(tab.lastVisibleOutput) < tabActiveWindow {
+			suppress = true
+		}
+		if suppress {
+			showCursor = false
+		}
 	}
 	if tab.cachedSnap != nil &&
 		tab.cachedVersion == version &&
