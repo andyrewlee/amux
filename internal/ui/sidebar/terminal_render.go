@@ -169,7 +169,10 @@ func (m *TerminalModel) TerminalLayerWithCursorOwner(cursorOwner bool) *composit
 		return compositor.NewVTermLayer(ts.cachedSnap)
 	}
 
-	snap := compositor.NewVTermSnapshotWithCache(ts.VTerm, showCursor, ts.cachedSnap)
+	// Do not pass the previous snapshot for reuse: NewVTermSnapshotWithCache
+	// mutates the provided snapshot/rows in-place, which can mutate a snapshot
+	// already handed to a previously returned layer.
+	snap := compositor.NewVTermSnapshot(ts.VTerm, showCursor)
 	if snap == nil {
 		return nil
 	}

@@ -54,3 +54,41 @@ func TestTerminalLayerWithCursorOwner_ShowsCursorWhenOwner(t *testing.T) {
 		t.Fatal("expected cursor visible when sidebar pane owns cursor")
 	}
 }
+
+func TestTerminalLayerWithCursorOwner_DoesNotMutatePriorSnapshotOnCacheMiss(t *testing.T) {
+	m := setupTerminalOwnerModel(t)
+	ts := m.getTerminal()
+	if ts == nil || ts.VTerm == nil {
+		t.Fatal("expected terminal state")
+	}
+
+	ts.mu.Lock()
+	ts.VTerm.Write([]byte("a"))
+	ts.mu.Unlock()
+
+	layer1 := m.TerminalLayerWithCursorOwner(true)
+	if layer1 == nil || layer1.Snap == nil {
+		t.Fatal("expected initial terminal layer snapshot")
+	}
+	if got := layer1.Snap.Screen[0][0].Rune; got != 'a' {
+		t.Fatalf("expected initial snapshot rune 'a', got %q", got)
+	}
+
+	ts.mu.Lock()
+	ts.VTerm.Write([]byte("\rb"))
+	ts.mu.Unlock()
+
+	layer2 := m.TerminalLayerWithCursorOwner(true)
+	if layer2 == nil || layer2.Snap == nil {
+		t.Fatal("expected second terminal layer snapshot")
+	}
+	if got := layer2.Snap.Screen[0][0].Rune; got != 'b' {
+		t.Fatalf("expected second snapshot rune 'b', got %q", got)
+	}
+	if got := layer1.Snap.Screen[0][0].Rune; got != 'a' {
+		t.Fatalf("expected first snapshot to remain unchanged, got %q", got)
+	}
+	if layer1.Snap == layer2.Snap {
+		t.Fatal("expected distinct snapshot objects across cache misses")
+	}
+}
