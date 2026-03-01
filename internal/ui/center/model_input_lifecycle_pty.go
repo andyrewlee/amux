@@ -156,6 +156,8 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 			refreshDelay := cursorSuppressWindow + 20*time.Millisecond
 			tab.mu.Lock()
 			tab.cursorRefreshDueAt = now.Add(refreshDelay)
+			// Bubble Tea processes Update messages serially; this flag-gated
+			// scheduling assumes a single writer for this tab state.
 			scheduleCursorRefresh := !tab.cursorRefreshScheduled
 			if scheduleCursorRefresh {
 				tab.cursorRefreshScheduled = true
