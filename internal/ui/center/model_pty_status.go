@@ -11,7 +11,10 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
-const tabActiveWindow = 2 * time.Second
+const (
+	tabActiveWindow      = 2 * time.Second
+	cursorSuppressWindow = 450 * time.Millisecond
+)
 
 // HasRunningAgents returns whether any tab has an active agent across workspaces.
 func (m *Model) HasRunningAgents() bool {
@@ -132,9 +135,8 @@ func (m *Model) isChatTab(tab *Tab) bool {
 		return false
 	}
 	if m != nil && m.config != nil && len(m.config.Assistants) > 0 {
-		if _, ok := m.config.Assistants[tab.Assistant]; ok {
-			return true
-		}
+		_, ok := m.config.Assistants[tab.Assistant]
+		return ok
 	}
 	switch tab.Assistant {
 	case "claude", "codex", "gemini", "amp", "opencode", "droid", "cline", "cursor", "pi":
@@ -207,22 +209,16 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	if !cursorOwner {
 		showCursor = false
 	}
-	// For chat tabs, suppress cursor paint during bootstrap and while output is
-	// recently active. Some assistants emit frequent cursor-control sequences
-	// during initialization/streaming that cause visible cursor jumping.
-	if showCursor && m.isChatTab(tab) && tab.Running && !tab.Detached {
-		suppress := tab.bootstrapActivity &&
-			!tab.bootstrapLastOutputAt.IsZero() &&
-			time.Since(tab.bootstrapLastOutputAt) < tabActiveWindow
-		if !suppress && !tab.lastOutputAt.IsZero() && time.Since(tab.lastOutputAt) < tabActiveWindow {
-			suppress = true
-		}
-		if !suppress && !tab.lastVisibleOutput.IsZero() && time.Since(tab.lastVisibleOutput) < tabActiveWindow {
-			suppress = true
-		}
-		if suppress {
-			showCursor = false
-		}
+	// Suppress chat cursor paint only for a short window after raw PTY output.
+	// This reduces visible cursor-jumping during streaming without hiding the
+	// cursor broadly when a tab is idle.
+	if showCursor &&
+		m.isChatTab(tab) &&
+		tab.Running &&
+		!tab.Detached &&
+		!tab.lastOutputAt.IsZero() &&
+		time.Since(tab.lastOutputAt) < cursorSuppressWindow {
+		showCursor = false
 	}
 	if tab.cachedSnap != nil &&
 		tab.cachedVersion == version &&
@@ -232,8 +228,11 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 		return compositor.NewVTermLayer(tab.cachedSnap)
 	}
 
-	// Create new snapshot while holding the lock, reusing cached lines when possible.
-	snap := compositor.NewVTermSnapshotWithCache(tab.Terminal, showCursor, tab.cachedSnap)
+	// Create new snapshot while holding the lock.
+	// Do not pass the previous snapshot for reuse: NewVTermSnapshotWithCache
+	// mutates the provided snapshot/rows in-place, which can mutate a snapshot
+	// already handed to a previously returned layer.
+	snap := compositor.NewVTermSnapshot(tab.Terminal, showCursor)
 	if snap == nil {
 		return nil
 	}

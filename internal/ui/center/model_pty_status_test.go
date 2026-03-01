@@ -69,12 +69,12 @@ func TestTerminalLayerPreservesCursorHiddenForNonChatTabs(t *testing.T) {
 	}
 }
 
-func TestIsChatTabFallsBackToBuiltinsWhenConfigMissingEntry(t *testing.T) {
+func TestIsChatTabUsesConfigMapWhenPresent(t *testing.T) {
 	m := newTestModel()
 	tab := &Tab{Assistant: "cursor"}
 
-	if !m.isChatTab(tab) {
-		t.Fatal("expected builtin assistant name to be treated as chat even when missing from config map")
+	if m.isChatTab(tab) {
+		t.Fatal("expected assistant missing from config map to be treated as non-chat when config is present")
 	}
 }
 
@@ -107,7 +107,7 @@ func TestTerminalLayerHidesCursorWhileChatTabStreaming(t *testing.T) {
 	}
 }
 
-func TestTerminalLayerHidesCursorDuringChatBootstrap(t *testing.T) {
+func TestTerminalLayerShowsCursorForIdleBootstrapChatTab(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
@@ -132,12 +132,12 @@ func TestTerminalLayerHidesCursorDuringChatBootstrap(t *testing.T) {
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
 	}
-	if layer.Snap.ShowCursor {
-		t.Fatal("expected cursor to be hidden during chat bootstrap activity")
+	if !layer.Snap.ShowCursor {
+		t.Fatal("expected cursor to remain visible for idle bootstrap tab without recent output")
 	}
 }
 
-func TestTerminalLayerShowsCursorForStaleBootstrapChatTab(t *testing.T) {
+func TestTerminalLayerShowsCursorAfterSuppressWindow(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
@@ -145,13 +145,12 @@ func TestTerminalLayerShowsCursorForStaleBootstrapChatTab(t *testing.T) {
 
 	m.tabsByWorkspace[wsID] = []*Tab{
 		{
-			ID:                    TabID("tab-chat-bootstrap-stale"),
-			Assistant:             "codex",
-			Workspace:             ws,
-			Terminal:              term,
-			Running:               true,
-			bootstrapActivity:     true,
-			bootstrapLastOutputAt: time.Now().Add(-(tabActiveWindow + 100*time.Millisecond)),
+			ID:           TabID("tab-chat-suppress-expired"),
+			Assistant:    "codex",
+			Workspace:    ws,
+			Terminal:     term,
+			Running:      true,
+			lastOutputAt: time.Now().Add(-(cursorSuppressWindow + 100*time.Millisecond)),
 		},
 	}
 	m.activeTabByWorkspace[wsID] = 0
@@ -163,7 +162,7 @@ func TestTerminalLayerShowsCursorForStaleBootstrapChatTab(t *testing.T) {
 		t.Fatal("expected terminal layer snapshot")
 	}
 	if !layer.Snap.ShowCursor {
-		t.Fatal("expected cursor to be visible when bootstrap suppression window has elapsed")
+		t.Fatal("expected cursor to be visible when suppression window has elapsed")
 	}
 }
 
