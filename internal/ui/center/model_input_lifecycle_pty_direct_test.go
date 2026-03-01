@@ -192,3 +192,86 @@ func TestHandleDirectPTYOutputChunk_RetryUsesReboundWorkspaceID(t *testing.T) {
 	tab.flushPendingSince = time.Time{}
 	tab.mu.Unlock()
 }
+
+func TestHandleDirectPTYOutputChunk_RetryClearsStaleScheduledStateWhenPendingCleared(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:        TabID("tab-direct-stale-scheduled"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	oldRetry := ptyDirectFlushRetryInterval
+	ptyDirectFlushRetryInterval = 5 * time.Millisecond
+	defer func() {
+		ptyDirectFlushRetryInterval = oldRetry
+	}()
+
+	var sinkCalls atomic.Int64
+	m.msgSink = func(msg tea.Msg) {
+		if _, ok := msg.(PTYFlush); ok {
+			sinkCalls.Add(1)
+		}
+	}
+
+	if ok := m.handleDirectPTYOutputChunk(wsID, tab, []byte("first")); !ok {
+		t.Fatal("expected direct PTY chunk handler to continue")
+	}
+
+	// Simulate external teardown/reset path that clears buffered output but
+	// leaves flushScheduled stale.
+	tab.mu.Lock()
+	tab.pendingOutput.Clear()
+	tab.mu.Unlock()
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		tab.mu.Lock()
+		armed := tab.directFlushRetryArmed
+		scheduled := tab.flushScheduled
+		tab.mu.Unlock()
+		if !armed {
+			if scheduled {
+				t.Fatal("expected retry loop to clear stale flushScheduled when pending becomes empty")
+			}
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	tab.mu.Lock()
+	scheduledAfter := tab.flushScheduled
+	tab.mu.Unlock()
+	if scheduledAfter {
+		t.Fatal("expected flushScheduled=false after retry exits on empty pending output")
+	}
+
+	before := sinkCalls.Load()
+	if ok := m.handleDirectPTYOutputChunk(wsID, tab, []byte("second")); !ok {
+		t.Fatal("expected direct PTY chunk handler to continue")
+	}
+
+	deadline = time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if sinkCalls.Load() > before {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if sinkCalls.Load() <= before {
+		t.Fatal("expected subsequent chunk to emit PTYFlush after stale scheduling state is cleared")
+	}
+
+	tab.mu.Lock()
+	tab.pendingOutput.Clear()
+	tab.flushScheduled = false
+	tab.flushPendingSince = time.Time{}
+	tab.mu.Unlock()
+}

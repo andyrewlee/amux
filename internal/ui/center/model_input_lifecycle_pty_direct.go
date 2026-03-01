@@ -53,6 +53,12 @@ func (m *Model) emitDirectPTYFlush(workspaceID string, tab *Tab) {
 			tabID := tab.ID
 			retryWSID := workspaceIDForTabLocked(tab, workspaceID)
 			if !pending || !scheduled {
+				// If pending output was cleared outside updatePTYFlush, clear stale
+				// scheduling state so future chunks can schedule a fresh flush.
+				if !pending {
+					tab.flushScheduled = false
+					tab.flushPendingSince = time.Time{}
+				}
 				tab.directFlushRetryArmed = false
 				tab.mu.Unlock()
 				return
