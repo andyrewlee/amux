@@ -21,7 +21,7 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	if tab.Terminal != nil {
 		termWidth = tab.Terminal.Width
 		termHeight = tab.Terminal.Height
-		pendingLen = len(tab.pendingOutput)
+		pendingLen = tab.pendingOutput.Len()
 	}
 	tab.mu.Unlock()
 
@@ -86,7 +86,10 @@ func (m *Model) busyPTYTabCount(now time.Time) int {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
-			busy := atomic.LoadUint32(&tab.readerActiveState) == 1 || len(tab.pendingOutput) > 0
+			tab.mu.Lock()
+			hasPending := tab.pendingOutput.Len() > 0
+			tab.mu.Unlock()
+			busy := atomic.LoadUint32(&tab.readerActiveState) == 1 || hasPending
 			if busy {
 				count++
 			}
@@ -115,6 +118,7 @@ func (m *Model) forwardPTYMsgs(msgCh <-chan tea.Msg) {
 			out.Data = data
 			return out
 		},
-		MaxPending: ptyMaxPendingBytes,
+		MaxPending:  ptyMaxPendingBytes,
+		DrainWindow: ptyMergeDrainWindow,
 	})
 }

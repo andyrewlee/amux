@@ -208,6 +208,33 @@ func TestVersionBumpsOnCursorMoveAndAltScreenCursorHide(t *testing.T) {
 	}
 }
 
+func TestContentAndCursorVersions(t *testing.T) {
+	vt := New(10, 5)
+	v0 := vt.Version()
+	cv0 := vt.ContentVersion()
+	cur0 := vt.CursorVersion()
+
+	vt.Write([]byte("\x1b[C")) // Cursor move only
+	if vt.Version() == v0 {
+		t.Fatal("expected version to bump on cursor move")
+	}
+	if vt.ContentVersion() != cv0 {
+		t.Fatalf("expected content version unchanged on cursor move, got %d want %d", vt.ContentVersion(), cv0)
+	}
+	if vt.CursorVersion() <= cur0 {
+		t.Fatalf("expected cursor version bump on cursor move, got %d <= %d", vt.CursorVersion(), cur0)
+	}
+
+	cur1 := vt.CursorVersion()
+	vt.Write([]byte("x")) // Content mutation
+	if vt.ContentVersion() <= cv0 {
+		t.Fatalf("expected content version bump on text write, got %d <= %d", vt.ContentVersion(), cv0)
+	}
+	if vt.CursorVersion() != cur1 {
+		t.Fatalf("expected cursor version unchanged on text write, got %d want %d", vt.CursorVersion(), cur1)
+	}
+}
+
 func TestMode25IgnoredWhenCursorVisibilityControlsDisabled(t *testing.T) {
 	vt := New(10, 5)
 	vt.IgnoreCursorVisibilityControls = true
@@ -290,6 +317,68 @@ func TestResizeRestoresScrollbackOnGrow(t *testing.T) {
 	}
 	if vt.CursorY != 4 {
 		t.Fatalf("expected cursor to shift to 4, got %d", vt.CursorY)
+	}
+}
+
+func TestScrollUpCopiesScrollbackBeforeLineReuse(t *testing.T) {
+	vt := New(3, 2)
+	vt.ScrollTop = 0
+	vt.ScrollBottom = 2
+	vt.Screen[0][0] = Cell{Rune: 'A', Width: 1}
+	vt.Screen[1][0] = Cell{Rune: 'B', Width: 1}
+
+	vt.scrollUp(1)
+	if len(vt.Scrollback) != 1 {
+		t.Fatalf("expected one scrollback line, got %d", len(vt.Scrollback))
+	}
+	if got := vt.Scrollback[0][0].Rune; got != 'A' {
+		t.Fatalf("expected scrollback rune A, got %q", got)
+	}
+
+	// Mutate the reused bottom row and ensure scrollback snapshot remains unchanged.
+	vt.Screen[1][0] = Cell{Rune: 'Z', Width: 1}
+	if got := vt.Scrollback[0][0].Rune; got != 'A' {
+		t.Fatalf("expected scrollback rune to remain A after screen mutation, got %q", got)
+	}
+}
+
+func TestResizeGrowClonesCompressedScrollbackLines(t *testing.T) {
+	vt := New(3, 2)
+	vt.ScrollTop = 0
+	vt.ScrollBottom = 2
+
+	// Generate two blank scrollback lines; compression may share backing storage.
+	vt.scrollUp(1)
+	vt.scrollUp(1)
+	if got := len(vt.Scrollback); got != 2 {
+		t.Fatalf("expected 2 scrollback lines, got %d", got)
+	}
+
+	// Grow by one row to restore one scrollback line into screen.
+	vt.Resize(3, 3)
+	if got := len(vt.Scrollback); got != 1 {
+		t.Fatalf("expected 1 scrollback line after restore, got %d", got)
+	}
+
+	// Mutating the restored screen row must not mutate remaining scrollback.
+	vt.Screen[0][0] = Cell{Rune: 'Z', Width: 1}
+	if got := vt.Scrollback[0][0].Rune; got != ' ' {
+		t.Fatalf("expected remaining scrollback line to stay blank, got %q", got)
+	}
+}
+
+func TestRecycleScrollbackLine_IgnoresSharedBlankWithDifferentLength(t *testing.T) {
+	vt := New(5, 2)
+	shared := vt.sharedBlankLine(5)
+	short := shared[:3]
+
+	if !vt.isSharedBlankLine(short) {
+		t.Fatal("expected shorter slice of shared blank backing to be detected as shared")
+	}
+
+	vt.recycleScrollbackLine(short)
+	if got := len(vt.scrollbackRecycle); got != 0 {
+		t.Fatalf("expected shared blank line to be excluded from recycle pool, got %d", got)
 	}
 }
 

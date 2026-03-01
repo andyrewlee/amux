@@ -18,11 +18,14 @@ func TestVTermLayerSelectionCursorOverlap(t *testing.T) {
 	if snap == nil {
 		t.Fatalf("expected snapshot, got nil")
 	}
+	layer := NewVTermLayer(snap)
+	screen := &bufferScreen{Buffer: uv.NewBuffer(3, 1)}
+	layer.Draw(screen, screen.Bounds())
 
-	cell := snap.Screen[0][0]
-	uvCell := cellToUVSnapshot(cell, snap, 0, 0)
-	defer putCell(uvCell)
-
+	uvCell := screen.CellAt(0, 0)
+	if uvCell == nil {
+		t.Fatalf("expected rendered cell at cursor/selection location")
+	}
 	if uvCell.Style.Attrs&uv.AttrReverse == 0 {
 		t.Fatalf("expected reverse attribute for selection+cursor overlap")
 	}

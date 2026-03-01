@@ -65,20 +65,39 @@ func (v *VTerm) SelEndY() int {
 }
 
 // Version returns the current version counter.
-// This increments whenever visible content changes.
+// This increments on any visible mutation (content or cursor state).
 func (v *VTerm) Version() uint64 {
 	return v.version
+}
+
+// ContentVersion returns the content-only version counter.
+// This increments on visible screen/view/selection mutations.
+func (v *VTerm) ContentVersion() uint64 {
+	return v.contentVersion
+}
+
+// CursorVersion returns the cursor-only version counter.
+// This increments on cursor position/visibility mutations.
+func (v *VTerm) CursorVersion() uint64 {
+	return v.cursorVersion
 }
 
 // bumpVersion increments the version counter.
 // Called internally when content changes.
 func (v *VTerm) bumpVersion() {
 	v.version++
+	v.contentVersion++
+}
+
+// bumpCursorVersion increments version counters for cursor-only changes.
+func (v *VTerm) bumpCursorVersion() {
+	v.version++
+	v.cursorVersion++
 }
 
 // bumpVersionIfCursorMoved bumps version if cursor position changed.
 func (v *VTerm) bumpVersionIfCursorMoved(prevX, prevY int) {
 	if v.CursorX != prevX || v.CursorY != prevY {
-		v.bumpVersion()
+		v.bumpCursorVersion()
 	}
 }

@@ -1,8 +1,6 @@
 package center
 
 import (
-	"crypto/md5"
-	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -24,20 +22,28 @@ func (m *Model) noteVisibleActivityLocked(tab *Tab, hasMoreBuffered bool, visibl
 		return "", 0, false
 	}
 
+	now := time.Now()
+	nextPending := hasMoreBuffered || tab.pendingVisibleSeq != visibleSeq
+	contentVersion := tab.Terminal.ContentVersion()
+	if tab.activityDigestInit && contentVersion == tab.activityContentVersion {
+		tab.pendingVisibleOutput = nextPending
+		return "", 0, false
+	}
+
 	digest := visibleScreenDigest(tab.Terminal)
 	changed := !tab.activityDigestInit || digest != tab.activityDigest
-	nextPending := hasMoreBuffered || tab.pendingVisibleSeq != visibleSeq
 	if !changed {
+		tab.activityContentVersion = contentVersion
 		tab.activityDigest = digest
 		tab.activityDigestInit = true
 		tab.pendingVisibleOutput = nextPending
 		return "", 0, false
 	}
 
-	now := time.Now()
 	if tab.bootstrapActivity {
 		// Explicit bootstrap phase: terminal replay/prompt redraw is visible output
 		// but must not be treated as active work.
+		tab.activityContentVersion = contentVersion
 		tab.activityDigest = digest
 		tab.activityDigestInit = true
 		tab.pendingVisibleOutput = nextPending
@@ -49,6 +55,7 @@ func (m *Model) noteVisibleActivityLocked(tab *Tab, hasMoreBuffered bool, visibl
 		tab.pendingVisibleOutput = true
 		return "", 0, false
 	}
+	tab.activityContentVersion = contentVersion
 	tab.activityDigest = digest
 	tab.activityDigestInit = true
 	tab.pendingVisibleOutput = nextPending
@@ -68,15 +75,19 @@ func (m *Model) noteVisibleActivityLocked(tab *Tab, hasMoreBuffered bool, visibl
 	return sessionName, now.UnixMilli(), true
 }
 
-func visibleScreenDigest(term *vterm.VTerm) [16]byte {
+func visibleScreenDigest(term *vterm.VTerm) uint64 {
+	const (
+		fnvOffset64 = 14695981039346656037
+		fnvPrime64  = 1099511628211
+	)
 	if term == nil {
-		return md5.Sum(nil)
+		return fnvOffset64
 	}
 
 	// Use the live screen buffer, not the current viewport. If user scrolls
 	// back, viewport content can stay static while live output continues.
 	screen, _ := term.RenderBuffers()
-	var b strings.Builder
+	h := uint64(fnvOffset64)
 	for _, row := range screen {
 		last := len(row) - 1
 		for last >= 0 {
@@ -101,9 +112,18 @@ func visibleScreenDigest(term *vterm.VTerm) [16]byte {
 			if r == 0 {
 				r = ' '
 			}
-			b.WriteRune(r)
+			ru := uint32(r)
+			h ^= uint64(ru & 0xFF)
+			h *= fnvPrime64
+			h ^= uint64((ru >> 8) & 0xFF)
+			h *= fnvPrime64
+			h ^= uint64((ru >> 16) & 0xFF)
+			h *= fnvPrime64
+			h ^= uint64((ru >> 24) & 0xFF)
+			h *= fnvPrime64
 		}
-		b.WriteByte('\n')
+		h ^= uint64('\n')
+		h *= fnvPrime64
 	}
-	return md5.Sum([]byte(b.String()))
+	return h
 }

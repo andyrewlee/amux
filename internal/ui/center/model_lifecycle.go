@@ -148,6 +148,7 @@ func (m *Model) setActiveTerminalCursorVisibility(visible bool) {
 	// Invalidate cached snapshot so focus transitions cannot reuse stale
 	// cursor-painted frames.
 	tab.cachedSnap = nil
+	tab.cachedSnapAtomic.Store(nil)
 	tab.cachedVersion = 0
 }
 
@@ -163,11 +164,12 @@ func (m *Model) Close() {
 				tab.ptyTraceFile = nil
 				tab.ptyTraceClosed = true
 			}
-			tab.pendingOutput = nil
+			tab.pendingOutput.Clear()
 			tab.ptyNoiseTrailing = nil
 			tab.DiffViewer = nil
 			tab.Terminal = nil
 			tab.cachedSnap = nil
+			tab.cachedSnapAtomic.Store(nil)
 			tab.Workspace = nil
 			tab.Running = false
 			tab.mu.Unlock()

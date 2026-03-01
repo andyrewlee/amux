@@ -33,3 +33,17 @@ func TestTrimScrollbackClearsFullyTrimmedSelection(t *testing.T) {
 		t.Fatalf("expected selection to be cleared when fully trimmed")
 	}
 }
+
+func TestTrimScrollbackCompactsOversizedCapacity(t *testing.T) {
+	vt := New(2, 1)
+	vt.Scrollback = make([][]Cell, MaxScrollback+8, MaxScrollback*4)
+
+	vt.trimScrollback()
+
+	if got := len(vt.Scrollback); got != MaxScrollback {
+		t.Fatalf("expected trimmed len=%d, got %d", MaxScrollback, got)
+	}
+	if got := cap(vt.Scrollback); got > MaxScrollback*2 {
+		t.Fatalf("expected compacted cap <= %d, got %d", MaxScrollback*2, got)
+	}
+}

@@ -51,11 +51,12 @@ type TerminalState struct {
 	lastHeight int
 
 	// PTY output buffering
-	pendingOutput     []byte
-	ptyNoiseTrailing  []byte
-	flushScheduled    bool
-	lastOutputAt      time.Time
-	flushPendingSince time.Time
+	pendingOutput         common.ByteChunkQueue
+	ptyNoiseTrailing      []byte
+	flushScheduled        bool
+	directFlushRetryArmed bool
+	lastOutputAt          time.Time
+	flushPendingSince     time.Time
 
 	// Selection state
 	Selection          common.SelectionState
@@ -64,6 +65,7 @@ type TerminalState struct {
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
 	cachedSnap       *compositor.VTermSnapshot
+	cachedSnapAtomic atomic.Pointer[compositor.VTermSnapshot]
 	cachedVersion    uint64
 	cachedShowCursor bool
 
@@ -109,7 +111,10 @@ type TerminalModel struct {
 	pendingCreation      map[string]bool  // tracks workspaces with tab creation in progress
 
 	// Current workspace
-	workspace *data.Workspace
+	workspace         *data.Workspace
+	workspaceIDCached string
+	workspaceIDRepo   string
+	workspaceIDRoot   string
 
 	// Layout
 	width           int
@@ -185,14 +190,33 @@ func (m *TerminalModel) SetMsgSink(sink func(tea.Msg)) {
 // workspaceID returns the ID of the current workspace
 func (m *TerminalModel) workspaceID() string {
 	if m.workspace == nil {
+		m.workspaceIDCached = ""
+		m.workspaceIDRepo = ""
+		m.workspaceIDRoot = ""
 		return ""
 	}
-	return string(m.workspace.ID())
+	if m.workspaceIDCached == "" ||
+		m.workspaceIDRepo != m.workspace.Repo ||
+		m.workspaceIDRoot != m.workspace.Root {
+		m.workspaceIDRepo = m.workspace.Repo
+		m.workspaceIDRoot = m.workspace.Root
+		m.workspaceIDCached = string(m.workspace.ID())
+	}
+	return m.workspaceIDCached
 }
 
 // setWorkspace sets the current workspace reference.
 func (m *TerminalModel) setWorkspace(ws *data.Workspace) {
 	m.workspace = ws
+	m.workspaceIDCached = ""
+	m.workspaceIDRepo = ""
+	m.workspaceIDRoot = ""
+	if ws == nil {
+		return
+	}
+	m.workspaceIDRepo = ws.Repo
+	m.workspaceIDRoot = ws.Root
+	m.workspaceIDCached = string(ws.ID())
 }
 
 // getTabs returns the tabs for the current workspace
@@ -327,5 +351,6 @@ func (m *TerminalModel) setActiveTerminalCursorVisibility(visible bool) {
 	// Invalidate cached snapshot so focus transitions cannot reuse stale
 	// cursor-painted frames.
 	ts.cachedSnap = nil
+	ts.cachedSnapAtomic.Store(nil)
 	ts.cachedVersion = 0
 }

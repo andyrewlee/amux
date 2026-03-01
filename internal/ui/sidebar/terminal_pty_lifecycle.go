@@ -86,7 +86,8 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 	ts := tab.State
 	ts.mu.Lock()
 	if ts.readerActive {
-		if ts.ptyMsgCh == nil || ts.readerCancel == nil {
+		invalidState := ts.readerCancel == nil || (!ptyDirectOutputPath && ts.ptyMsgCh == nil)
+		if invalidState {
 			ts.readerActive = false
 		} else {
 			ts.mu.Unlock()
@@ -103,7 +104,11 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 		common.SafeClose(ts.readerCancel)
 	}
 	ts.readerCancel = make(chan struct{})
-	ts.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
+	if ptyDirectOutputPath {
+		ts.ptyMsgCh = nil
+	} else {
+		ts.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
+	}
 	ts.readerActive = true
 	ts.ptyRestartBackoff = 0
 	atomic.StoreInt64(&ts.ptyHeartbeat, time.Now().UnixNano())
@@ -115,6 +120,26 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 
 	safego.Go("sidebar.pty_reader", func() {
 		defer m.markPTYReaderStopped(ts)
+		if ptyDirectOutputPath {
+			common.RunPTYReaderToSink(term, cancel, &ts.ptyHeartbeat, common.PTYReaderConfig{
+				Label:           "sidebar.pty_read_loop",
+				ReadBufferSize:  ptyReadBufferSize,
+				ReadQueueSize:   ptyReadQueueSize,
+				FrameInterval:   ptyFrameInterval,
+				MaxPendingBytes: ptyMaxPendingBytes,
+			}, common.PTYDataSink{
+				Output: func(data []byte) bool {
+					return m.handleDirectPTYOutputChunk(wsID, tab, data)
+				},
+				Stopped: func(err error) bool {
+					if m.msgSink != nil {
+						m.msgSink(messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID), Err: err})
+					}
+					return true
+				},
+			})
+			return
+		}
 		common.RunPTYReader(term, msgCh, cancel, &ts.ptyHeartbeat, common.PTYReaderConfig{
 			Label:           "sidebar.pty_read_loop",
 			ReadBufferSize:  ptyReadBufferSize,
@@ -130,6 +155,9 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 			},
 		})
 	})
+	if ptyDirectOutputPath {
+		return nil
+	}
 	safego.Go("sidebar.pty_forward", func() {
 		m.forwardPTYMsgs(msgCh)
 	})
@@ -215,7 +243,7 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	ts.Running = false
 	ts.Detached = true
 	ts.UserDetached = userInitiated
-	ts.pendingOutput = nil
+	ts.pendingOutput.Clear()
 	ts.ptyNoiseTrailing = nil
 	ts.mu.Unlock()
 	if term != nil {

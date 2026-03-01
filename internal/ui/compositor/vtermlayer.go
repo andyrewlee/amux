@@ -2,6 +2,7 @@ package compositor
 
 import (
 	"image/color"
+	"sync"
 
 	uv "github.com/charmbracelet/ultraviolet"
 
@@ -42,12 +43,21 @@ var ansiPalette = []color.RGBA{
 	{255, 255, 255, 255}, // 15: Bright White
 }
 
+const uvStyleCacheMax = 4096
+
+var (
+	uvStyleCacheMu sync.RWMutex
+	uvStyleCache   = make(map[vterm.Style]uv.Style, 256)
+)
+
 // VTermLayer implements tea.Layer for direct cell-based rendering of a VTerm snapshot.
 // This uses a snapshot to avoid data races - the snapshot is created while holding
 // the VTerm lock, and rendering happens without any locks.
 type VTermLayer struct {
 	Snap *VTermSnapshot
 }
+
+var continuationCell = uv.Cell{Content: "", Width: 0}
 
 // Ensure VTermLayer implements uv.Drawable (which is compatible with tea.Layer)
 var _ uv.Drawable = (*VTermLayer)(nil)
@@ -80,6 +90,16 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 		height = snap.Height
 	}
 
+	selActive := snap.SelActive
+	selStartX, selStartY := snap.SelStartX, snap.SelStartY
+	selEndX, selEndY := snap.SelEndX, snap.SelEndY
+	if selActive && (selStartY > selEndY || (selStartY == selEndY && selStartX > selEndX)) {
+		selStartX, selEndX = selEndX, selStartX
+		selStartY, selEndY = selEndY, selStartY
+	}
+	cursorVisible := snap.ShowCursor && !snap.CursorHidden && snap.ViewOffset == 0
+	cursorX, cursorY := snap.CursorX, snap.CursorY
+
 	// When compositing layers, we must draw ALL cells every frame.
 	// The dirty line optimization only works for single-layer rendering.
 	// Ultraviolet's cell-level diffing handles the actual screen updates.
@@ -88,94 +108,94 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 		if row == nil {
 			continue
 		}
+		rowWidth := width
+		if rowWidth > len(row) {
+			rowWidth = len(row)
+		}
 
-		for x := 0; x < width && x < len(row); x++ {
+		rowSelActive := false
+		rowSelStart, rowSelEnd := 0, -1
+		if selActive && y >= selStartY && y <= selEndY {
+			rowSelActive = true
+			switch {
+			case y == selStartY && y == selEndY:
+				rowSelStart, rowSelEnd = selStartX, selEndX
+			case y == selStartY:
+				rowSelStart, rowSelEnd = selStartX, rowWidth-1
+			case y == selEndY:
+				rowSelStart, rowSelEnd = 0, selEndX
+			default:
+				rowSelStart, rowSelEnd = 0, rowWidth-1
+			}
+			if rowSelStart < 0 {
+				rowSelStart = 0
+			}
+			if rowSelEnd >= rowWidth {
+				rowSelEnd = rowWidth - 1
+			}
+			if rowSelEnd < rowSelStart {
+				rowSelActive = false
+			}
+		}
+
+		rowHasCursor := cursorVisible && y == cursorY
+		var lastStyle vterm.Style
+		var lastUVStyle uv.Style
+		haveStyle := false
+
+		for x := 0; x < rowWidth; x++ {
 			cell := row[x]
 
 			// For continuation cells (part of wide character), write an empty cell
 			// to clear any stale content at that position from previous renders.
 			if cell.Width == 0 {
-				uvCell := getCell()
-				uvCell.Content = ""
-				uvCell.Width = 0
-				s.SetCell(posX+x, posY+y, uvCell)
-				putCell(uvCell)
+				s.SetCell(posX+x, posY+y, &continuationCell)
 				continue
 			}
 
-			// Build the ultraviolet cell from pool
-			uvCell := cellToUVSnapshot(cell, snap, x, y)
+			style := cell.Style
+			inSel := rowSelActive && x >= rowSelStart && x <= rowSelEnd
+			cursorHere := rowHasCursor && x == cursorX
+			if inSel || cursorHere {
+				style.Reverse = !style.Reverse
+			}
+
+			r := cell.Rune
+			if r == 0 {
+				r = ' '
+			}
+			// Suppress underline on blank cells (prevents visual scanlines).
+			if style.Underline && r == ' ' {
+				style.Underline = false
+			}
+
+			if !haveStyle || style != lastStyle {
+				lastStyle = style
+				lastUVStyle = vtermStyleToUV(style)
+				haveStyle = true
+			}
+
+			uvCell := uv.Cell{
+				Content: runeToString(r),
+				Style:   lastUVStyle,
+				Width:   cell.Width,
+			}
 
 			// Set cell at screen position (ultraviolet copies the value)
-			s.SetCell(posX+x, posY+y, uvCell)
-
-			// Return cell to pool for reuse
-			putCell(uvCell)
+			s.SetCell(posX+x, posY+y, &uvCell)
 		}
 	}
 }
 
-// cellToUVSnapshot converts a vterm.Cell to a pooled uv.Cell.
-// Caller must call putCell() after passing to SetCell.
-func cellToUVSnapshot(cell vterm.Cell, snap *VTermSnapshot, x, y int) *uv.Cell {
-	style := cell.Style
-
-	// Apply selection and cursor reverse (selection has precedence over cursor)
-	inSel := inSelectionSnapshot(snap, x, y)
-	cursorHere := snap.ShowCursor && !snap.CursorHidden &&
-		y == snap.CursorY && x == snap.CursorX && snap.ViewOffset == 0
-	if inSel || cursorHere {
-		style.Reverse = !style.Reverse
-	}
-
-	// Suppress underline on blank cells (prevents visual scanlines)
-	if style.Underline && (cell.Rune == 0 || cell.Rune == ' ') {
-		style.Underline = false
-	}
-
-	r := cell.Rune
-	if r == 0 {
-		r = ' '
-	}
-
-	uvCell := getCell()
-	uvCell.Content = runeToString(r)
-	uvCell.Style = vtermStyleToUV(style)
-	uvCell.Width = cell.Width
-	return uvCell
-}
-
-// inSelectionSnapshot checks if a coordinate is within the snapshot's selection.
-func inSelectionSnapshot(snap *VTermSnapshot, x, y int) bool {
-	if snap == nil || !snap.SelActive {
-		return false
-	}
-
-	startX, startY := snap.SelStartX, snap.SelStartY
-	endX, endY := snap.SelEndX, snap.SelEndY
-
-	if startY > endY || (startY == endY && startX > endX) {
-		startX, endX = endX, startX
-		startY, endY = endY, startY
-	}
-
-	if y < startY || y > endY {
-		return false
-	}
-	if y == startY && y == endY {
-		return x >= startX && x <= endX
-	}
-	if y == startY {
-		return x >= startX
-	}
-	if y == endY {
-		return x <= endX
-	}
-	return true
-}
-
 // vtermStyleToUV converts a vterm.Style to ultraviolet's Style.
 func vtermStyleToUV(s vterm.Style) uv.Style {
+	uvStyleCacheMu.RLock()
+	cached, ok := uvStyleCache[s]
+	uvStyleCacheMu.RUnlock()
+	if ok {
+		return cached
+	}
+
 	var uvStyle uv.Style
 
 	// Convert colors
@@ -211,6 +231,13 @@ func vtermStyleToUV(s vterm.Style) uv.Style {
 	if s.Underline {
 		uvStyle.Underline = uv.UnderlineSingle
 	}
+
+	uvStyleCacheMu.Lock()
+	if len(uvStyleCache) >= uvStyleCacheMax {
+		clear(uvStyleCache)
+	}
+	uvStyleCache[s] = uvStyle
+	uvStyleCacheMu.Unlock()
 
 	return uvStyle
 }

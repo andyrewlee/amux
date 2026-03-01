@@ -121,38 +121,75 @@ func isVisibleByte(b byte) bool {
 	return b >= 0x20 && b != 0x7f
 }
 
+func (m *Model) appendPTYOutput(tab *Tab, data []byte, now time.Time) bool {
+	if tab == nil || len(data) == 0 {
+		return false
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+
+	tab.pendingOutput.Append(data)
+	if tab.pendingOutput.Len() > ptyMaxBufferedBytes {
+		overflow := tab.pendingOutput.Len() - ptyMaxBufferedBytes
+		dropped := tab.pendingOutput.DropOldest(overflow)
+		perf.Count("pty_output_drop_bytes", int64(dropped))
+		perf.Count("pty_output_drop", 1)
+	}
+	tab.lastOutputAt = now
+	if m.isChatTab(tab) {
+		if tab.bootstrapActivity &&
+			!tab.bootstrapLastOutputAt.IsZero() &&
+			now.Sub(tab.bootstrapLastOutputAt) >= bootstrapQuietGap {
+			tab.bootstrapActivity = false
+			tab.bootstrapLastOutputAt = time.Time{}
+		}
+		hasVisibleOutput, next := hasVisiblePTYOutput(data, tab.activityANSIState)
+		tab.activityANSIState = next
+		if hasVisibleOutput {
+			tab.pendingVisibleOutput = true
+			tab.pendingVisibleSeq++
+		}
+	}
+	if tab.flushScheduled {
+		return false
+	}
+	tab.flushScheduled = true
+	tab.flushPendingSince = now
+	return true
+}
+
+func (m *Model) handleDirectPTYOutputChunk(workspaceID string, tab *Tab, data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	if tab == nil || tab.isClosed() {
+		return true
+	}
+	m.tracePTYOutput(tab, data)
+	perf.Count("pty_output_bytes", int64(len(data)))
+	if !m.appendPTYOutput(tab, data, time.Now()) {
+		return true
+	}
+	m.emitDirectPTYFlush(workspaceID, tab)
+	return true
+}
+
 // updatePTYOutput handles PTYOutput.
 func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 	var cmds []tea.Cmd
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab != nil && !tab.isClosed() {
 		m.tracePTYOutput(tab, msg.Data)
-		tab.pendingOutput = append(tab.pendingOutput, msg.Data...)
-		if len(tab.pendingOutput) > ptyMaxBufferedBytes {
-			overflow := len(tab.pendingOutput) - ptyMaxBufferedBytes
-			perf.Count("pty_output_drop_bytes", int64(overflow))
-			perf.Count("pty_output_drop", 1)
-			tab.pendingOutput = append([]byte(nil), tab.pendingOutput[overflow:]...)
-		}
 		perf.Count("pty_output_bytes", int64(len(msg.Data)))
 		now := time.Now()
-		tab.lastOutputAt = now
+		if m.appendPTYOutput(tab, msg.Data, now) {
+			quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
+			tabID := msg.TabID // Capture for closure
+			cmds = append(cmds, common.SafeTick(quiet, func(t time.Time) tea.Msg {
+				return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
+			}))
+		}
 		if m.isChatTab(tab) {
-			tab.mu.Lock()
-			if tab.bootstrapActivity &&
-				!tab.bootstrapLastOutputAt.IsZero() &&
-				now.Sub(tab.bootstrapLastOutputAt) >= bootstrapQuietGap {
-				tab.bootstrapActivity = false
-				tab.bootstrapLastOutputAt = time.Time{}
-			}
-			tab.mu.Unlock()
-			hasVisibleOutput := tab.consumeActivityVisibility(msg.Data)
-			if hasVisibleOutput {
-				tab.mu.Lock()
-				tab.pendingVisibleOutput = true
-				tab.pendingVisibleSeq++
-				tab.mu.Unlock()
-			}
 			refreshDelay := cursorSuppressWindow + 20*time.Millisecond
 			tab.mu.Lock()
 			tab.cursorRefreshDueAt = now.Add(refreshDelay)
@@ -170,15 +207,6 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 					return PTYCursorRefresh{WorkspaceID: workspaceID, TabID: tabID}
 				}))
 			}
-		}
-		if !tab.flushScheduled {
-			tab.flushScheduled = true
-			tab.flushPendingSince = tab.lastOutputAt
-			quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
-			tabID := msg.TabID // Capture for closure
-			cmds = append(cmds, common.SafeTick(quiet, func(t time.Time) tea.Msg {
-				return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
-			}))
 		}
 	}
 	return common.SafeBatch(cmds...)
@@ -218,10 +246,14 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab != nil && !tab.isClosed() {
 		now := time.Now()
-		quietFor := now.Sub(tab.lastOutputAt)
+		tab.mu.Lock()
+		lastOutputAt := tab.lastOutputAt
+		flushPendingSince := tab.flushPendingSince
+		tab.mu.Unlock()
+		quietFor := now.Sub(lastOutputAt)
 		pendingFor := time.Duration(0)
-		if !tab.flushPendingSince.IsZero() {
-			pendingFor = now.Sub(tab.flushPendingSince)
+		if !flushPendingSince.IsZero() {
+			pendingFor = now.Sub(flushPendingSince)
 		}
 		quiet, maxInterval := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
 		if quietFor < quiet && pendingFor < maxInterval {
@@ -230,81 +262,51 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 				delay = time.Millisecond
 			}
 			tabID := msg.TabID
+			tab.mu.Lock()
 			tab.flushScheduled = true
+			tab.mu.Unlock()
 			cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
 				return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
 			}))
 			return common.SafeBatch(cmds...)
 		}
 
+		var chunk []byte
+		writeOutput := false
+		hasMoreBuffered := false
+		visibleSeq := uint64(0)
+		tagSessionName := ""
+		var tagTimestamp int64
+		isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
+		tab.mu.Lock()
 		tab.flushScheduled = false
 		tab.flushPendingSince = time.Time{}
-		if len(tab.pendingOutput) > 0 {
-			var chunk []byte
-			writeOutput := false
-			hasMoreBuffered := false
-			visibleSeq := uint64(0)
-			tagSessionName := ""
-			var tagTimestamp int64
-			isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
-			tab.mu.Lock()
-			if tab.Terminal != nil {
-				chunkSize := len(tab.pendingOutput)
-				maxChunk := ptyFlushChunkSize
-				if isActive {
-					maxChunk = ptyFlushChunkSizeActive
-				}
-				if chunkSize > maxChunk {
-					chunkSize = maxChunk
-				}
-				chunk = append(chunk, tab.pendingOutput[:chunkSize]...)
-				copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
-				tab.pendingOutput = tab.pendingOutput[:len(tab.pendingOutput)-chunkSize]
-				hasMoreBuffered = len(tab.pendingOutput) > 0
-				visibleSeq = tab.pendingVisibleSeq
-				writeOutput = true
+		if tab.Terminal != nil && tab.pendingOutput.Len() > 0 {
+			chunkSize := tab.pendingOutput.Len()
+			maxChunk := ptyFlushChunkSize
+			if isActive {
+				maxChunk = ptyFlushChunkSizeActive
 			}
-			tab.mu.Unlock()
-			if writeOutput && len(chunk) > 0 {
-				if m.isTabActorReady() {
-					if !m.sendTabEvent(tabEvent{
-						tab:             tab,
-						workspaceID:     msg.WorkspaceID,
-						tabID:           msg.TabID,
-						kind:            tabEventWriteOutput,
-						output:          chunk,
-						hasMoreBuffered: hasMoreBuffered,
-						visibleSeq:      visibleSeq,
-					}) {
-						processedBytes := len(chunk)
-						filteredLen := 0
-						filterApplied := false
-						tab.mu.Lock()
-						if tab.Terminal != nil {
-							filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
-							filteredLen = len(filtered)
-							filterApplied = true
-							if len(filtered) > 0 {
-								flushDone := perf.Time("pty_flush")
-								tab.Terminal.Write(filtered)
-								flushDone()
-								perf.Count("pty_flush_bytes", int64(len(filtered)))
-							}
-							// Activity state intentionally tracks visible terminal mutations only.
-							// Noise-only chunks are filtered above and must not update activity tags.
-							// We still run this to clear pending visible state when no mutation occurred.
-							tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
-						}
-						tab.mu.Unlock()
-						perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-						if filterApplied {
-							filteredBytes := processedBytes - filteredLen
-							if filteredBytes > 0 {
-								perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-							}
-						}
-					}
-				} else {
+			if chunkSize > maxChunk {
+				chunkSize = maxChunk
+			}
+			chunk = tab.pendingOutput.Pop(chunkSize)
+			hasMoreBuffered = tab.pendingOutput.Len() > 0
+			visibleSeq = tab.pendingVisibleSeq
+			writeOutput = true
+		}
+		tab.mu.Unlock()
+		if writeOutput && len(chunk) > 0 {
+			if m.isTabActorReady() {
+				if !m.sendTabEvent(tabEvent{
+					tab:             tab,
+					workspaceID:     msg.WorkspaceID,
+					tabID:           msg.TabID,
+					kind:            tabEventWriteOutput,
+					output:          chunk,
+					hasMoreBuffered: hasMoreBuffered,
+					visibleSeq:      visibleSeq,
+				}) {
 					processedBytes := len(chunk)
 					filteredLen := 0
 					filterApplied := false
@@ -318,6 +320,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 							tab.Terminal.Write(filtered)
 							flushDone()
 							perf.Count("pty_flush_bytes", int64(len(filtered)))
+							m.refreshTabSnapshotLocked(tab)
 						}
 						// Activity state intentionally tracks visible terminal mutations only.
 						// Noise-only chunks are filtered above and must not update activity tags.
@@ -333,31 +336,65 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						}
 					}
 				}
-				if tagSessionName != "" {
-					opts := m.getTmuxOptions()
-					sessionName := tagSessionName
-					timestamp := strconv.FormatInt(tagTimestamp, 10)
-					cmds = append(cmds, func() tea.Msg {
-						_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
-						return nil
-					})
-				}
-			}
-			if len(tab.pendingOutput) == 0 {
-				tab.pendingOutput = tab.pendingOutput[:0]
 			} else {
-				tab.flushScheduled = true
-				tab.flushPendingSince = time.Now()
-				tabID := msg.TabID
-				quietNext, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
-				delay := quietNext
-				if delay < time.Millisecond {
-					delay = time.Millisecond
+				processedBytes := len(chunk)
+				filteredLen := 0
+				filterApplied := false
+				tab.mu.Lock()
+				if tab.Terminal != nil {
+					filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
+					filteredLen = len(filtered)
+					filterApplied = true
+					if len(filtered) > 0 {
+						flushDone := perf.Time("pty_flush")
+						tab.Terminal.Write(filtered)
+						flushDone()
+						perf.Count("pty_flush_bytes", int64(len(filtered)))
+						m.refreshTabSnapshotLocked(tab)
+					}
+					// Activity state intentionally tracks visible terminal mutations only.
+					// Noise-only chunks are filtered above and must not update activity tags.
+					// We still run this to clear pending visible state when no mutation occurred.
+					tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
 				}
-				cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
-					return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
-				}))
+				tab.mu.Unlock()
+				perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+				if filterApplied {
+					filteredBytes := processedBytes - filteredLen
+					if filteredBytes > 0 {
+						perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+					}
+				}
 			}
+			if tagSessionName != "" {
+				opts := m.getTmuxOptions()
+				sessionName := tagSessionName
+				timestamp := strconv.FormatInt(tagTimestamp, 10)
+				cmds = append(cmds, func() tea.Msg {
+					_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
+					return nil
+				})
+			}
+		}
+		tab.mu.Lock()
+		remaining := tab.pendingOutput.Len()
+		if remaining == 0 {
+			tab.pendingOutput.Clear()
+		} else {
+			tab.flushScheduled = true
+			tab.flushPendingSince = time.Now()
+		}
+		tab.mu.Unlock()
+		if remaining > 0 {
+			tabID := msg.TabID
+			quietNext, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
+			delay := quietNext
+			if delay < time.Millisecond {
+				delay = time.Millisecond
+			}
+			cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
+				return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
+			}))
 		}
 	}
 	return common.SafeBatch(cmds...)
@@ -380,6 +417,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			tab.Terminal.Write(trailing)
 			flushDone()
 			perf.Count("pty_flush_bytes", int64(len(trailing)))
+			m.refreshTabSnapshotLocked(tab)
 			// Reconcile pending activity state for terminal-visible output.
 			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, false, tab.pendingVisibleSeq)
 		}

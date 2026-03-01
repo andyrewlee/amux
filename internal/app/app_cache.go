@@ -1,6 +1,8 @@
 package app
 
 import (
+	uv "github.com/charmbracelet/ultraviolet"
+
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
@@ -32,10 +34,10 @@ type borderCache struct {
 	width     int
 	height    int
 	themeID   common.ThemeID
-	drawables []*compositor.StringDrawable
+	drawables []uv.Drawable
 }
 
-func (c *borderCache) get(x, y, width, height int) []*compositor.StringDrawable {
+func (c *borderCache) get(x, y, width, height int) []uv.Drawable {
 	themeID := common.GetCurrentTheme().ID
 	if c.drawables != nil &&
 		c.x == x && c.y == y &&
@@ -50,4 +52,22 @@ func (c *borderCache) get(x, y, width, height int) []*compositor.StringDrawable 
 	c.themeID = themeID
 	c.drawables = borderDrawables(x, y, width, height)
 	return c.drawables
+}
+
+type clampCache struct {
+	content  string
+	width    int
+	maxLines int
+	clamped  string
+}
+
+func (c *clampCache) get(content string, width, maxLines int) string {
+	if c.content == content && c.width == width && c.maxLines == maxLines {
+		return c.clamped
+	}
+	c.content = content
+	c.width = width
+	c.maxLines = maxLines
+	c.clamped = clampLines(content, width, maxLines)
+	return c.clamped
 }

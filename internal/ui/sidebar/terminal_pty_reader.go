@@ -25,6 +25,7 @@ func (m *TerminalModel) forwardPTYMsgs(msgCh <-chan tea.Msg) {
 			out.Data = data
 			return out
 		},
-		MaxPending: ptyMaxPendingBytes,
+		MaxPending:  ptyMaxPendingBytes,
+		DrainWindow: ptyMergeDrainWindow,
 	})
 }

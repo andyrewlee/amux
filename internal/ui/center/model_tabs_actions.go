@@ -54,9 +54,10 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	tab.DiffViewer = nil
 	tab.Terminal = nil
 	tab.cachedSnap = nil
+	tab.cachedSnapAtomic.Store(nil)
 	tab.Workspace = nil
 	tab.Running = false
-	tab.pendingOutput = nil
+	tab.pendingOutput.Clear()
 	tab.ptyNoiseTrailing = nil
 	tab.mu.Unlock()
 	tab.markClosed()

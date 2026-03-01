@@ -23,6 +23,8 @@ const (
 	ptyReadQueueSize        = 64
 	ptyFrameInterval        = time.Second / 60
 	ptyMaxPendingBytes      = 512 * 1024
+	ptyDirectOutputPath     = true
+	ptyMergeDrainWindow     = 0 * time.Millisecond
 	ptyMaxBufferedBytes     = 8 * 1024 * 1024
 	ptyReaderStallTimeout   = 10 * time.Second
 	tabActorStallTimeout    = 10 * time.Second

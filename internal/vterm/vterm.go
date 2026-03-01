@@ -1,6 +1,9 @@
 package vterm
 
-const MaxScrollback = 10000
+const (
+	MaxScrollback        = 10000
+	scrollbackRecycleMax = 2048
+)
 
 // ResponseWriter is called when the terminal needs to send a response back to the PTY
 type ResponseWriter func([]byte)
@@ -18,6 +21,9 @@ type VTerm struct {
 
 	// Scrollback buffer (oldest at index 0)
 	Scrollback [][]Cell
+	// ScrollbackMax allows per-terminal policy tuning.
+	// If <=0, MaxScrollback is used.
+	ScrollbackMax int
 
 	// Cursor position (0-indexed)
 	CursorX, CursorY int
@@ -88,18 +94,27 @@ type VTerm struct {
 	renderDirty    []bool
 	renderDirtyAll bool
 
-	// Version counter for snapshot caching - increments on visible content/cursor changes.
-	// UI-driven cursor visibility (ShowCursor) is handled by the snapshot cache key.
-	version uint64
+	// Version counters for snapshot/activity caching.
+	// version increments on any visible mutation (content or cursor state).
+	// contentVersion increments only when visible screen content/view changes.
+	// cursorVersion increments for cursor position/visibility-only churn.
+	version        uint64
+	contentVersion uint64
+	cursorVersion  uint64
+
+	// Recycled lines from trimmed scrollback for copy reuse.
+	scrollbackRecycle     [][]Cell
+	scrollbackSharedBlank []Cell
 }
 
 // New creates a new VTerm with the given dimensions
 func New(width, height int) *VTerm {
 	v := &VTerm{
-		Width:        width,
-		Height:       height,
-		ScrollTop:    0,
-		ScrollBottom: height,
+		Width:         width,
+		Height:        height,
+		ScrollTop:     0,
+		ScrollBottom:  height,
+		ScrollbackMax: MaxScrollback,
 	}
 	v.Screen = v.makeScreen(width, height)
 	v.Scrollback = make([][]Cell, 0, MaxScrollback)
@@ -145,7 +160,14 @@ func (v *VTerm) Resize(width, height int) {
 			added := 0
 			for i := 0; i < overflow; i++ {
 				if len(v.Screen) > 0 {
-					v.Scrollback = append(v.Scrollback, v.Screen[0])
+					line := v.Screen[0]
+					if shared := v.compressScrollbackLine(line); shared != nil {
+						v.recycleScrollbackLine(line)
+						line = shared
+					} else if len(line) > 0 {
+						line = line[:len(line):len(line)]
+					}
+					v.Scrollback = append(v.Scrollback, line)
 					v.Screen = v.Screen[1:]
 					added++
 				}
@@ -170,7 +192,12 @@ func (v *VTerm) Resize(width, height int) {
 		}
 		if restore > 0 {
 			start := len(v.Scrollback) - restore
-			restored := v.Scrollback[start:]
+			restored := make([][]Cell, restore)
+			for i := 0; i < restore; i++ {
+				src := v.Scrollback[start+i]
+				restored[i] = copyLineInto(nil, src)
+				v.recycleScrollbackLine(src)
+			}
 			v.Scrollback = v.Scrollback[:start]
 			v.Screen = append(restored, v.Screen...)
 			v.CursorY += restore
@@ -277,17 +304,44 @@ func (v *VTerm) respond(data []byte) {
 
 // trimScrollback keeps scrollback under MaxScrollback
 func (v *VTerm) trimScrollback() {
-	if len(v.Scrollback) > MaxScrollback {
+	maxScrollback := v.maxScrollback()
+	if len(v.Scrollback) > maxScrollback {
 		if v.syncActive {
 			v.syncDeferTrim = true
 			return
 		}
-		trimmed := len(v.Scrollback) - MaxScrollback
-		v.Scrollback = v.Scrollback[len(v.Scrollback)-MaxScrollback:]
+		trimmed := len(v.Scrollback) - maxScrollback
+		for i := 0; i < trimmed; i++ {
+			v.recycleScrollbackLine(v.Scrollback[i])
+		}
+		v.Scrollback = v.Scrollback[len(v.Scrollback)-maxScrollback:]
+		// Periodically compact overly large backing arrays to keep steady-state
+		// memory bounded after long high-volume sessions.
+		if cap(v.Scrollback) >= maxScrollback*2 {
+			compacted := make([][]Cell, len(v.Scrollback))
+			copy(compacted, v.Scrollback)
+			v.Scrollback = compacted
+		}
 		v.shiftSelectionAfterTrim(trimmed)
 	}
 	// Clamp ViewOffset after trim to prevent stale offsets
 	if v.ViewOffset > len(v.Scrollback) {
 		v.ViewOffset = len(v.Scrollback)
 	}
+}
+
+func (v *VTerm) maxScrollback() int {
+	if v == nil || v.ScrollbackMax <= 0 {
+		return MaxScrollback
+	}
+	return v.ScrollbackMax
+}
+
+// SetScrollbackMax sets an instance-level scrollback cap and trims immediately.
+func (v *VTerm) SetScrollbackMax(limit int) {
+	if v == nil {
+		return
+	}
+	v.ScrollbackMax = limit
+	v.trimScrollback()
 }

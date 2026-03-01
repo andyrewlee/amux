@@ -158,23 +158,34 @@ type App struct {
 	pendingInputLatency bool
 
 	// Chrome caches for layer-based rendering
-	dashboardChrome      *compositor.ChromeCache
-	centerChrome         *compositor.ChromeCache
-	sidebarChrome        *compositor.ChromeCache
-	dashboardContent     drawableCache
-	dashboardBorders     borderCache
-	sidebarTopTabBar     drawableCache
-	sidebarTopContent    drawableCache
-	sidebarBottomContent drawableCache
-	sidebarBottomTabBar  drawableCache
-	sidebarBottomStatus  drawableCache
-	sidebarBottomHelp    drawableCache
-	sidebarTopBorders    borderCache
-	sidebarBottomBorders borderCache
-	centerTabBar         drawableCache
-	centerStatus         drawableCache
-	centerHelp           drawableCache
-	centerBorders        borderCache
+	dashboardChrome          *compositor.ChromeCache
+	centerChrome             *compositor.ChromeCache
+	sidebarChrome            *compositor.ChromeCache
+	dashboardContent         drawableCache
+	dashboardBorders         borderCache
+	sidebarTopTabBar         drawableCache
+	sidebarTopContent        drawableCache
+	sidebarBottomContent     drawableCache
+	sidebarBottomTabBar      drawableCache
+	sidebarBottomStatus      drawableCache
+	sidebarBottomHelp        drawableCache
+	sidebarTopBorders        borderCache
+	sidebarBottomBorders     borderCache
+	centerTabBar             drawableCache
+	centerStatus             drawableCache
+	centerHelp               drawableCache
+	centerBorders            borderCache
+	dashboardClamp           clampCache
+	centerTabBarClamp        clampCache
+	centerStatusClamp        clampCache
+	centerHelpClamp          clampCache
+	sidebarTopTabClamp       clampCache
+	sidebarTopClamp          clampCache
+	sidebarBottomTabClamp    clampCache
+	sidebarBottomStatusClamp clampCache
+	sidebarBottomHelpClamp   clampCache
+	sidebarBottomClamp       clampCache
+	frameLineRenderer        FrameLineCacheRenderer
 
 	// External message pump (for PTY readers)
 	externalMsgs     chan tea.Msg

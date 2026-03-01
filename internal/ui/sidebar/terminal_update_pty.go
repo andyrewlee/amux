@@ -8,8 +8,85 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
+
+var sidebarDirectFlushRetryInterval = ptyFlushMaxInterval
+
+func appendSidebarPTYOutput(ts *TerminalState, data []byte, now time.Time) bool {
+	if ts == nil || len(data) == 0 {
+		return false
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	ts.pendingOutput.Append(data)
+	if ts.pendingOutput.Len() > ptyMaxBufferedBytes {
+		overflow := ts.pendingOutput.Len() - ptyMaxBufferedBytes
+		dropped := ts.pendingOutput.DropOldest(overflow)
+		perf.Count("sidebar_pty_drop_bytes", int64(dropped))
+		perf.Count("sidebar_pty_drop", 1)
+	}
+	ts.lastOutputAt = now
+	if ts.flushScheduled {
+		return false
+	}
+	ts.flushScheduled = true
+	ts.flushPendingSince = now
+	return true
+}
+
+func (m *TerminalModel) emitDirectPTYFlush(wsID string, tab *TerminalTab) {
+	if tab == nil || tab.State == nil || m.msgSink == nil {
+		return
+	}
+	m.msgSink(messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: string(tab.ID)})
+
+	ts := tab.State
+	ts.mu.Lock()
+	if ts.directFlushRetryArmed {
+		ts.mu.Unlock()
+		return
+	}
+	ts.directFlushRetryArmed = true
+	ts.mu.Unlock()
+
+	safego.Go("sidebar.pty_direct_flush_retry", func() {
+		ticker := time.NewTicker(sidebarDirectFlushRetryInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			ts.mu.Lock()
+			pending := ts.pendingOutput.Len() > 0
+			scheduled := ts.flushScheduled
+			if !pending || !scheduled {
+				ts.directFlushRetryArmed = false
+				ts.mu.Unlock()
+				return
+			}
+			tabID := tab.ID
+			ts.mu.Unlock()
+
+			if m.msgSink != nil {
+				m.msgSink(messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: string(tabID)})
+			}
+		}
+	})
+}
+
+func (m *TerminalModel) handleDirectPTYOutputChunk(wsID string, tab *TerminalTab, data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	if tab == nil || tab.State == nil {
+		return true
+	}
+	if !appendSidebarPTYOutput(tab.State, data, time.Now()) {
+		return true
+	}
+	m.emitDirectPTYFlush(wsID, tab)
+	return true
+}
 
 // handlePTYOutput buffers incoming PTY data and schedules a flush.
 func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
@@ -20,17 +97,7 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 		return nil
 	}
 	ts := tab.State
-	ts.pendingOutput = append(ts.pendingOutput, msg.Data...)
-	if len(ts.pendingOutput) > ptyMaxBufferedBytes {
-		overflow := len(ts.pendingOutput) - ptyMaxBufferedBytes
-		perf.Count("sidebar_pty_drop_bytes", int64(overflow))
-		perf.Count("sidebar_pty_drop", 1)
-		ts.pendingOutput = append([]byte(nil), ts.pendingOutput[overflow:]...)
-	}
-	ts.lastOutputAt = time.Now()
-	if !ts.flushScheduled {
-		ts.flushScheduled = true
-		ts.flushPendingSince = ts.lastOutputAt
+	if appendSidebarPTYOutput(ts, msg.Data, time.Now()) {
 		quiet, _ := m.flushTiming()
 		return common.SafeTick(quiet, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
@@ -49,10 +116,14 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 	}
 	ts := tab.State
 	now := time.Now()
-	quietFor := now.Sub(ts.lastOutputAt)
+	ts.mu.Lock()
+	lastOutputAt := ts.lastOutputAt
+	flushPendingSince := ts.flushPendingSince
+	ts.mu.Unlock()
+	quietFor := now.Sub(lastOutputAt)
 	pendingFor := time.Duration(0)
-	if !ts.flushPendingSince.IsZero() {
-		pendingFor = now.Sub(ts.flushPendingSince)
+	if !flushPendingSince.IsZero() {
+		pendingFor = now.Sub(flushPendingSince)
 	}
 	quiet, maxInterval := m.flushTiming()
 	if quietFor < quiet && pendingFor < maxInterval {
@@ -60,57 +131,59 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		if delay < time.Millisecond {
 			delay = time.Millisecond
 		}
+		ts.mu.Lock()
 		ts.flushScheduled = true
+		ts.mu.Unlock()
 		return common.SafeTick(delay, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 		})
 	}
 
+	var consumed bool
+	ts.mu.Lock()
 	ts.flushScheduled = false
 	ts.flushPendingSince = time.Time{}
-	if len(ts.pendingOutput) > 0 {
-		var consumed bool
-		ts.mu.Lock()
-		if ts.VTerm != nil {
-			chunkSize := len(ts.pendingOutput)
-			if chunkSize > ptyFlushChunkSize {
-				chunkSize = ptyFlushChunkSize
-			}
-			chunk := append([]byte(nil), ts.pendingOutput[:chunkSize]...)
-			copy(ts.pendingOutput, ts.pendingOutput[chunkSize:])
-			ts.pendingOutput = ts.pendingOutput[:len(ts.pendingOutput)-chunkSize]
-			processedBytes := len(chunk)
-			filtered := common.FilterKnownPTYNoiseStream(chunk, &ts.ptyNoiseTrailing)
-			filteredBytes := processedBytes - len(filtered)
-			perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-			if filteredBytes > 0 {
-				perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-			}
-			if len(filtered) > 0 {
-				flushDone := perf.Time("pty_flush")
-				ts.VTerm.Write(filtered)
-				flushDone()
-				perf.Count("pty_flush_bytes", int64(len(filtered)))
-			}
-			consumed = true
+	if ts.VTerm != nil && ts.pendingOutput.Len() > 0 {
+		chunkSize := ts.pendingOutput.Len()
+		if chunkSize > ptyFlushChunkSize {
+			chunkSize = ptyFlushChunkSize
 		}
-		ts.mu.Unlock()
-		if !consumed {
-			return nil
+		chunk := ts.pendingOutput.Pop(chunkSize)
+		processedBytes := len(chunk)
+		filtered := common.FilterKnownPTYNoiseStream(chunk, &ts.ptyNoiseTrailing)
+		filteredBytes := processedBytes - len(filtered)
+		perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+		if filteredBytes > 0 {
+			perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
 		}
-		if len(ts.pendingOutput) == 0 {
-			ts.pendingOutput = ts.pendingOutput[:0]
-		} else {
-			ts.flushScheduled = true
-			ts.flushPendingSince = time.Now()
-			delay, _ := m.flushTiming()
-			if delay < time.Millisecond {
-				delay = time.Millisecond
-			}
-			return common.SafeTick(delay, func(t time.Time) tea.Msg {
-				return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
-			})
+		if len(filtered) > 0 {
+			flushDone := perf.Time("pty_flush")
+			ts.VTerm.Write(filtered)
+			flushDone()
+			perf.Count("pty_flush_bytes", int64(len(filtered)))
+			refreshSidebarSnapshotLocked(ts)
 		}
+		consumed = true
+	}
+	remaining := ts.pendingOutput.Len()
+	if remaining == 0 {
+		ts.pendingOutput.Clear()
+	} else {
+		ts.flushScheduled = true
+		ts.flushPendingSince = time.Now()
+	}
+	ts.mu.Unlock()
+	if !consumed {
+		return nil
+	}
+	if remaining > 0 {
+		delay, _ := m.flushTiming()
+		if delay < time.Millisecond {
+			delay = time.Millisecond
+		}
+		return common.SafeTick(delay, func(t time.Time) tea.Msg {
+			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
+		})
 	}
 	return nil
 }
@@ -132,6 +205,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 		ts.VTerm.Write(trailing)
 		flushDone()
 		perf.Count("pty_flush_bytes", int64(len(trailing)))
+		refreshSidebarSnapshotLocked(ts)
 	}
 	ts.mu.Unlock()
 	m.stopPTYReader(ts)

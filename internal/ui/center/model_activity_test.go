@@ -140,9 +140,9 @@ func TestIsTabActiveIgnoresBufferedOutputWithoutVisibleDelta(t *testing.T) {
 		Assistant:         "claude",
 		Workspace:         ws,
 		Running:           true,
-		pendingOutput:     []byte("buffered"),
 		lastVisibleOutput: time.Time{},
 	}
+	tab.pendingOutput.Append([]byte("buffered"))
 	if m.IsTabActive(tab) {
 		t.Fatal("expected buffered output without visible delta timestamp to be inactive")
 	}

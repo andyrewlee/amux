@@ -16,6 +16,8 @@ const (
 	ptyReadQueueSize      = 32
 	ptyFrameInterval      = time.Second / 60
 	ptyMaxPendingBytes    = 256 * 1024
+	ptyDirectOutputPath   = true
+	ptyMergeDrainWindow   = 0 * time.Millisecond
 	ptyReaderStallTimeout = 10 * time.Second
 	ptyMaxBufferedBytes   = 4 * 1024 * 1024
 	ptyRestartMax         = 5

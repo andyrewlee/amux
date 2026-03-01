@@ -233,6 +233,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			tab.lastFocusedAt = now
 		}
 		tab.cachedSnap = nil
+		tab.cachedSnapAtomic.Store(nil)
 		tab.cachedVersion = 0
 		tab.cachedShowCursor = false
 		tab.mu.Unlock()
