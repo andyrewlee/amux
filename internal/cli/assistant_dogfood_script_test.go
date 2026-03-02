@@ -74,6 +74,7 @@ esac
 	fakeDX := filepath.Join(fakeBinDir, "assistant-dx.sh")
 	writeExecutable(t, fakeDX, `#!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >> "${AMUX_DX_CALL_LOG:?missing AMUX_DX_CALL_LOG}"
 cmd="${1:-}"
 sub="${2:-}"
 case "$cmd $sub" in
@@ -87,6 +88,12 @@ case "$cmd $sub" in
       ws_id="ws-secondary"
     fi
     jq -cn --arg ws "$ws_id" '{ok:true,command:"workspace.create",status:"ok",summary:"Workspace created.",next_action:"",suggested_command:"",data:{id:$ws,assistant:"codex"},quick_actions:[]}'
+    ;;
+  "status --workspace")
+    jq -cn '{ok:true,command:"status",status:"attention",summary:"Implement pass reached bounded terminal state.",next_action:"Proceed to review.",suggested_command:"",data:{task:{overall_status:"partial"}},quick_actions:[]}'
+    ;;
+  "review --workspace")
+    jq -cn '{ok:true,command:"review",status:"ok",summary:"Review completed.",next_action:"Continue.",suggested_command:"",data:{},quick_actions:[]}'
     ;;
   *)
     jq -cn '{ok:true,command:"noop",status:"ok",summary:"ok",next_action:"",suggested_command:"",data:{},quick_actions:[]}'
@@ -106,9 +113,12 @@ esac
 	env := os.Environ()
 	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
 	env = withEnv(env, "AMUX_ASSISTANT_DOGFOOD_DX_SCRIPT", fakeDX)
+	env = withEnv(env, "AMUX_DX_CALL_LOG", filepath.Join(fakeBinDir, "dx-calls.log"))
 	env = withEnv(env, "AMUX_ASSISTANT_DOGFOOD_CHANNEL_EPHEMERAL_AGENT", "false")
 	env = withEnv(env, "AMUX_ASSISTANT_DOGFOOD_CHANNEL_REQUIRE_PROOF", "false")
 	env = withEnv(env, "AMUX_ASSISTANT_DOGFOOD_REQUIRE_CHANNEL_EXECUTION", "false")
+	env = withEnv(env, "AMUX_ASSISTANT_DOGFOOD_REVIEW_GATE_TIMEOUT_SECONDS", "1")
+	env = withEnv(env, "AMUX_ASSISTANT_DOGFOOD_REVIEW_GATE_POLL_SECONDS", "0")
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -126,5 +136,28 @@ esac
 	}
 	if strings.Contains(string(out), "failed to resolve ws1 id from project_add") {
 		t.Fatalf("script still relied on project_add workspace id:\n%s", string(out))
+	}
+
+	callLogRaw, err := os.ReadFile(filepath.Join(fakeBinDir, "dx-calls.log"))
+	if err != nil {
+		t.Fatalf("read dx call log: %v", err)
+	}
+	callLog := string(callLogRaw)
+	if strings.Contains(callLog, "workflow dual") {
+		t.Fatalf("dogfood should not invoke removed workflow command, got:\n%s", callLog)
+	}
+	if !strings.Contains(callLog, "start --workspace ws-primary") || !strings.Contains(callLog, "--allow-new-run") {
+		t.Fatalf("dogfood should run implement step with --allow-new-run, got:\n%s", callLog)
+	}
+	if !strings.Contains(callLog, "status --workspace ws-primary --assistant codex") {
+		t.Fatalf("dogfood should gate review on workspace status checks, got:\n%s", callLog)
+	}
+	if !strings.Contains(callLog, "review --workspace ws-primary") {
+		t.Fatalf("dogfood should run review step for primary workspace, got:\n%s", callLog)
+	}
+	for _, line := range strings.Split(callLog, "\n") {
+		if strings.Contains(line, "review --workspace ws-primary") && strings.Contains(line, "--no-monitor") {
+			t.Fatalf("dogfood review step should monitor to terminal status, got:\n%s", callLog)
+		}
 	}
 }

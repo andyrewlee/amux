@@ -17,7 +17,7 @@ Runs a real Assistant/amux dogfood flow end-to-end:
   - continue coding
   - create second workspace + start
   - terminal run + logs
-  - workflow dual
+  - bounded implement + review pass
   - git ship
   - status
 EOF
@@ -217,6 +217,38 @@ run_dx() {
     printf 'command_error|non-json terminal output|latency=%ss' "$elapsed" >"$status_file"
   fi
   printf '%s\t%s\n' "$slug" "$(cat "$status_file")"
+}
+
+wait_for_workspace_ready_for_review() {
+  local workspace="$1"
+  local assistant="$2"
+  local timeout_s="${AMUX_ASSISTANT_DOGFOOD_REVIEW_GATE_TIMEOUT_SECONDS:-240}"
+  local poll_s="${AMUX_ASSISTANT_DOGFOOD_REVIEW_GATE_POLL_SECONDS:-5}"
+  local start_ts elapsed attempt status overall json_file
+  start_ts="$(date +%s)"
+  attempt=0
+
+  while true; do
+    attempt=$((attempt + 1))
+    run_dx "dual_gate_status_${attempt}" status --workspace "$workspace" --assistant "$assistant"
+    json_file="$REPORT_DIR/dual_gate_status_${attempt}.json"
+    status="$(jq -r '.status // ""' <"$json_file" 2>/dev/null || true)"
+    overall="$(jq -r '.data.task.overall_status // ""' <"$json_file" 2>/dev/null || true)"
+
+    if [[ "$status" == "ok" || "$overall" == "completed" || "$overall" == "session_exited" || "$overall" == "partial" || "$overall" == "partial_budget" || "$overall" == "timed_out" ]]; then
+      return 0
+    fi
+    if [[ "$status" == "needs_input" ]]; then
+      run_dx "dual_gate_continue_${attempt}" continue --workspace "$workspace" --assistant "$assistant" --text "Continue from current state and finish this run with a concise completion summary." --enter --wait-timeout 70s --idle-threshold 10s
+    fi
+
+    elapsed="$(( $(date +%s) - start_ts ))"
+    if (( elapsed >= timeout_s )); then
+      echo "timed out waiting for workspace $workspace implement run to reach terminal state before review (status=$status overall=$overall)" >&2
+      return 1
+    fi
+    sleep "$poll_s"
+  done
 }
 
 run_assistant_local_ping() {
@@ -439,7 +471,11 @@ run_dx terminal_run_ws1 terminal run --workspace "$WS1_ID" --text "go run main.g
 sleep 1
 run_dx terminal_logs_ws1 terminal logs --workspace "$WS1_ID" --lines 40
 
-run_dx workflow_dual_ws1 workflow dual --workspace "$WS1_ID" --implement-assistant "$ASSISTANT" --implement-prompt "Append one concise mobile-coding tip to README.md and proceed even if there are unrelated uncommitted changes." --review-assistant "$ASSISTANT" --review-prompt "Review for clarity and correctness." --max-steps 1 --turn-budget 100 --wait-timeout 70s --idle-threshold 10s --auto-continue-impl true
+run_dx dual_impl_ws1 start --workspace "$WS1_ID" --assistant "$ASSISTANT" --prompt "Append one concise mobile-coding tip to README.md and proceed even if there are unrelated uncommitted changes." --max-steps 1 --turn-budget 100 --wait-timeout 70s --idle-threshold 10s --allow-new-run
+if ! wait_for_workspace_ready_for_review "$WS1_ID" "$ASSISTANT"; then
+  exit 1
+fi
+run_dx dual_review_ws1 review --workspace "$WS1_ID" --assistant "$ASSISTANT" --prompt "Review for clarity and correctness." --max-steps 1 --turn-budget 100 --wait-timeout 70s --idle-threshold 10s
 
 run_dx git_ship_ws1 git ship --workspace "$WS1_ID" --message "dogfood: scripted assistant pass"
 run_dx status_ws1 status --workspace "$WS1_ID" --capture-agents 8 --capture-lines 80
