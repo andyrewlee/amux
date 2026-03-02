@@ -1,0 +1,25 @@
+[Unit]
+Description=Medusa Agent Server
+Documentation=https://github.com/andyrewlee/medusa
+After=network.target
+
+[Service]
+Type=simple
+User=developer
+Group=developer
+ExecStart=/usr/local/bin/medusa-server --port 8420
+Restart=always
+RestartSec=5
+
+# Environment
+Environment=ANTHROPIC_API_KEY=
+EnvironmentFile=-/etc/medusa/env
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/developer/.medusa /home/developer/repos
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

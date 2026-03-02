@@ -1,0 +1,16 @@
+services:
+  medusa-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "8420:8420"
+    volumes:
+      - medusa-data:/home/medusa/.medusa
+      - /path/to/repos:/repos:rw
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    restart: unless-stopped
+
+volumes:
+  medusa-data:

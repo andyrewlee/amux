@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/andyrewlee/medusa/internal/logging"
 	"github.com/andyrewlee/medusa/internal/server"
 	"github.com/andyrewlee/medusa/internal/service"
+	"github.com/andyrewlee/medusa/web"
 )
 
 func main() {
@@ -48,13 +50,20 @@ func main() {
 	// Determine token directory
 	tokenDir := filepath.Dir(cfg.Paths.RegistryPath)
 
+	// Load embedded web assets
+	var webAssets fs.FS
+	if sub, err := fs.Sub(web.Assets, "dist"); err == nil {
+		webAssets = sub
+	}
+
 	// Create and start server
 	srv, err := server.New(server.Config{
-		Port:     *port,
-		Bind:     *bind,
-		TLSCert:  *tlsCert,
-		TLSKey:   *tlsKey,
-		TokenDir: tokenDir,
+		Port:      *port,
+		Bind:      *bind,
+		TLSCert:   *tlsCert,
+		TLSKey:    *tlsKey,
+		TokenDir:  tokenDir,
+		WebAssets: webAssets,
 	}, svc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create server: %v\n", err)

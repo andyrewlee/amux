@@ -1,0 +1,37 @@
+.PHONY: build-web build-server build clean
+
+# Build web UI
+build-web:
+	cd web && npm install && npm run build
+
+# Build Go server binary (includes embedded web UI)
+build-server: build-web
+	go build -o medusa-server ./cmd/medusa-server/
+
+# Build everything
+build: build-server
+
+# Build server without web UI (for development)
+build-server-only:
+	go build -o medusa-server ./cmd/medusa-server/
+
+# Run server in development mode (web served by Vite dev server)
+dev-server:
+	go run ./cmd/medusa-server/ --port 8420
+
+# Run web dev server (proxies API to Go server)
+dev-web:
+	cd web && npm run dev
+
+# Clean build artifacts
+clean:
+	rm -f medusa-server
+	rm -rf web/dist web/node_modules
+
+# Docker build
+docker:
+	docker build -f Dockerfile.server -t medusa-server .
+
+# Docker run
+docker-run:
+	docker run -p 8420:8420 -e ANTHROPIC_API_KEY=$${ANTHROPIC_API_KEY} medusa-server

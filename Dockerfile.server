@@ -1,0 +1,38 @@
+# Build web UI
+FROM node:22-alpine AS web-builder
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# Build Go binary
+FROM golang:1.24-alpine AS go-builder
+RUN apk add --no-cache git
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=web-builder /app/web/dist ./web/dist
+RUN CGO_ENABLED=0 GOOS=linux go build -o medusa-server ./cmd/medusa-server/
+
+# Runtime image
+FROM alpine:3.20
+RUN apk add --no-cache git tmux ca-certificates
+
+# Install Claude Code CLI (requires Node.js)
+RUN apk add --no-cache nodejs npm && \
+    npm install -g @anthropic-ai/claude-code && \
+    apk del npm
+
+COPY --from=go-builder /app/medusa-server /usr/local/bin/medusa-server
+
+# Create non-root user
+RUN adduser -D -h /home/medusa medusa
+USER medusa
+WORKDIR /home/medusa
+
+EXPOSE 8420
+
+ENTRYPOINT ["medusa-server"]
+CMD ["--port", "8420", "--bind", "0.0.0.0"]

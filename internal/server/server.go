@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -26,6 +27,7 @@ type Config struct {
 	TLSCert  string
 	TLSKey   string
 	TokenDir string // directory to store server_token file
+	WebAssets fs.FS  // embedded web UI assets (optional)
 }
 
 // Server is the Medusa HTTP server.
@@ -168,20 +170,39 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Wrap API routes with auth
 	mux.Handle("/api/", auth.Wrap(api))
 
-	// Static file serving for web UI (will be added in Phase 3)
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			http.NotFound(w, r)
-			return
-		}
-		// Placeholder until web UI is embedded
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<!DOCTYPE html><html><body>
-			<h1>Medusa Server</h1>
-			<p>Web UI will be available here once built.</p>
-			<p>API: <a href="/api/v1/health">/api/v1/health</a></p>
-		</body></html>`)
-	})
+	// Static file serving for web UI
+	if s.config.WebAssets != nil {
+		fileServer := http.FileServer(http.FS(s.config.WebAssets))
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.NotFound(w, r)
+				return
+			}
+			// Try to serve the file; fall back to index.html for SPA routing
+			path := strings.TrimPrefix(r.URL.Path, "/")
+			if path == "" {
+				path = "index.html"
+			}
+			if _, err := fs.Stat(s.config.WebAssets, path); err != nil {
+				// SPA fallback: serve index.html for unknown paths
+				r.URL.Path = "/"
+			}
+			fileServer.ServeHTTP(w, r)
+		})
+	} else {
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<!DOCTYPE html><html><body>
+				<h1>Medusa Server</h1>
+				<p>Web UI not embedded. Build with: cd web && npm run build</p>
+				<p>API: <a href="/api/v1/health">/api/v1/health</a></p>
+			</body></html>`)
+		})
+	}
 }
 
 // loadOrCreateToken reads the auth token from disk, generating one if needed.
