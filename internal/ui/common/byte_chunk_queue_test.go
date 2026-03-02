@@ -5,25 +5,39 @@ import (
 	"testing"
 )
 
-func TestByteChunkQueuePopStopsAtChunkBoundary(t *testing.T) {
+func TestByteChunkQueuePopCoalescesAcrossChunksWhenLimitPositive(t *testing.T) {
 	var q ByteChunkQueue
 	q.Append([]byte("abc"))
 	q.Append([]byte("def"))
 
 	got := q.Pop(5)
+	if string(got) != "abcde" {
+		t.Fatalf("pop = %q, want %q", got, "abcde")
+	}
+	if q.Len() != 1 {
+		t.Fatalf("len = %d, want 1", q.Len())
+	}
+
+	rest := q.Pop(0)
+	if string(rest) != "f" {
+		t.Fatalf("rest = %q, want %q", rest, "f")
+	}
+	if q.Len() != 0 {
+		t.Fatalf("len = %d, want 0", q.Len())
+	}
+}
+
+func TestByteChunkQueuePopLimitZeroPopsSingleHeadChunk(t *testing.T) {
+	var q ByteChunkQueue
+	q.Append([]byte("abc"))
+	q.Append([]byte("def"))
+
+	got := q.Pop(0)
 	if string(got) != "abc" {
 		t.Fatalf("pop = %q, want %q", got, "abc")
 	}
 	if q.Len() != 3 {
 		t.Fatalf("len = %d, want 3", q.Len())
-	}
-
-	rest := q.Pop(0)
-	if string(rest) != "def" {
-		t.Fatalf("rest = %q, want %q", rest, "def")
-	}
-	if q.Len() != 0 {
-		t.Fatalf("len = %d, want 0", q.Len())
 	}
 }
 

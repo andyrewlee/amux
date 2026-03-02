@@ -54,23 +54,55 @@ func (q *ByteChunkQueue) DropOldest(n int) int {
 	return dropped
 }
 
-// Pop dequeues up to limit bytes from the queue head chunk.
-// It never coalesces across multiple chunks.
+// Pop dequeues bytes from the queue head.
+// For limit <= 0 it pops a single head chunk.
+// For limit > 0 it pops up to limit bytes and may coalesce multiple chunks.
 func (q *ByteChunkQueue) Pop(limit int) []byte {
 	if q.bytes == 0 || len(q.chunks) == 0 {
 		return nil
 	}
+
 	head := q.chunks[0]
-	if limit <= 0 || limit > len(head) {
+	if limit <= 0 {
 		limit = len(head)
+	} else if limit > q.bytes {
+		limit = q.bytes
 	}
-	out := head[:limit]
-	if len(head) == limit {
-		q.chunks = q.chunks[1:]
-	} else {
-		q.chunks[0] = head[limit:]
+
+	// Fast path: requested window fits in the first chunk.
+	if len(head) >= limit {
+		out := head[:limit]
+		if len(head) == limit {
+			q.chunks = q.chunks[1:]
+		} else {
+			q.chunks[0] = head[limit:]
+		}
+		q.bytes -= limit
+		if q.bytes == 0 {
+			q.chunks = nil
+		}
+		return out
 	}
-	q.bytes -= limit
+
+	// Coalesce across chunks up to the requested window.
+	remaining := limit
+	out := make([]byte, 0, limit)
+	for remaining > 0 && len(q.chunks) > 0 {
+		head = q.chunks[0]
+		take := len(head)
+		if take > remaining {
+			take = remaining
+		}
+		out = append(out, head[:take]...)
+		if take == len(head) {
+			q.chunks = q.chunks[1:]
+		} else {
+			q.chunks[0] = head[take:]
+		}
+		remaining -= take
+	}
+
+	q.bytes -= len(out)
 	if q.bytes == 0 {
 		q.chunks = nil
 	}
