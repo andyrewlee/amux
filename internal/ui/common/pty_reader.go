@@ -187,22 +187,6 @@ func RunPTYReaderToSink(
 		}
 	})
 
-	emitOutput := func(data []byte) bool {
-		if len(data) == 0 {
-			return true
-		}
-		if sink.Output == nil {
-			return true
-		}
-		return sink.Output(data[:len(data):len(data)])
-	}
-	emitStopped := func(err error) bool {
-		if sink.Stopped == nil {
-			return true
-		}
-		return sink.Stopped(err)
-	}
-
 	ticker := time.NewTicker(cfg.FrameInterval)
 	defer ticker.Stop()
 
@@ -220,19 +204,19 @@ func RunPTYReaderToSink(
 			beat()
 			if !ok {
 				if len(pending) > 0 {
-					if !emitOutput(pending) {
+					if !SendPTYSinkOutput(cancel, sink, pending) {
 						return
 					}
 				}
 				if stoppedErr == nil {
 					stoppedErr = io.EOF
 				}
-				_ = emitStopped(stoppedErr)
+				_ = SendPTYSinkStopped(cancel, sink, stoppedErr)
 				return
 			}
 			pending = append(pending, data...)
 			if len(pending) >= cfg.MaxPendingBytes {
-				if !emitOutput(pending) {
+				if !SendPTYSinkOutput(cancel, sink, pending) {
 					return
 				}
 				pending = nil
@@ -240,13 +224,13 @@ func RunPTYReaderToSink(
 		case <-ticker.C:
 			beat()
 			if len(pending) > 0 {
-				if !emitOutput(pending) {
+				if !SendPTYSinkOutput(cancel, sink, pending) {
 					return
 				}
 				pending = nil
 			}
 			if stoppedErr != nil {
-				_ = emitStopped(stoppedErr)
+				_ = SendPTYSinkStopped(cancel, sink, stoppedErr)
 				return
 			}
 		}
@@ -264,6 +248,32 @@ func SendPTYMsg(msgCh chan tea.Msg, cancel <-chan struct{}, msg tea.Msg) bool {
 	case msgCh <- msg:
 		return true
 	}
+}
+
+// SendPTYSinkOutput invokes sink.Output unless cancel has fired first.
+func SendPTYSinkOutput(cancel <-chan struct{}, sink PTYDataSink, data []byte) bool {
+	if len(data) == 0 || sink.Output == nil {
+		return true
+	}
+	select {
+	case <-cancel:
+		return false
+	default:
+	}
+	return sink.Output(data[:len(data):len(data)])
+}
+
+// SendPTYSinkStopped invokes sink.Stopped unless cancel has fired first.
+func SendPTYSinkStopped(cancel <-chan struct{}, sink PTYDataSink, err error) bool {
+	if sink.Stopped == nil {
+		return true
+	}
+	select {
+	case <-cancel:
+		return false
+	default:
+	}
+	return sink.Stopped(err)
 }
 
 // OutputMerger configures how ForwardPTYMsgs merges consecutive output messages.

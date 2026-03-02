@@ -2,6 +2,7 @@ package common
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -155,5 +156,45 @@ func TestRunPTYReaderToSink_ForwardsOutputAndStopped(t *testing.T) {
 	}
 	if stoppedErr == nil {
 		t.Fatal("expected stopped callback error, got nil")
+	}
+}
+
+func TestSendPTYSinkOutput_SuppressedWhenCanceled(t *testing.T) {
+	cancel := make(chan struct{})
+	close(cancel)
+
+	called := false
+	ok := SendPTYSinkOutput(cancel, PTYDataSink{
+		Output: func(data []byte) bool {
+			called = true
+			return true
+		},
+	}, []byte("late"))
+
+	if ok {
+		t.Fatal("expected canceled sink output send to return false")
+	}
+	if called {
+		t.Fatal("expected sink output callback to be suppressed after cancel")
+	}
+}
+
+func TestSendPTYSinkStopped_SuppressedWhenCanceled(t *testing.T) {
+	cancel := make(chan struct{})
+	close(cancel)
+
+	called := false
+	ok := SendPTYSinkStopped(cancel, PTYDataSink{
+		Stopped: func(err error) bool {
+			called = true
+			return true
+		},
+	}, errors.New("late stop"))
+
+	if ok {
+		t.Fatal("expected canceled sink stopped send to return false")
+	}
+	if called {
+		t.Fatal("expected sink stopped callback to be suppressed after cancel")
 	}
 }
