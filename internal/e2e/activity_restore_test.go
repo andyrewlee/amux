@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 func TestWorkspaceFirstActivation_DoesNotFlashTabActive(t *testing.T) {
@@ -22,7 +24,9 @@ func TestWorkspaceFirstActivation_DoesNotFlashTabActive(t *testing.T) {
 	// existing content but no current work.
 	binDir := writeStubAssistantScript(t, home, "claude", "#!/bin/sh\necho booted\nsleep 1000\n")
 	server := "amux-e2e-first-activation"
+	killTmuxServer(t, server)
 	defer killTmuxServer(t, server)
+	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
 
 	env := sessionEnv(binDir, server)
 	first, firstCleanup, err := StartPTYSession(PTYOptions{
@@ -43,10 +47,12 @@ func TestWorkspaceFirstActivation_DoesNotFlashTabActive(t *testing.T) {
 	waitForUIContains(t, first, "[New agent]", workspaceAgentTimeout)
 	createAgentTab(t, first)
 	waitForUIContains(t, first, "claude", workspaceAgentTimeout)
+	waitForSessionTypes(t, opts, map[string]bool{"agent": true, "terminal": true}, persistenceTimeout)
 	quitApp(t, first)
 	if err := first.WaitForExit(persistenceTimeout); err != nil {
 		t.Fatalf("waiting first exit: %v", err)
 	}
+	waitForSessionTypes(t, opts, map[string]bool{"agent": true, "terminal": true}, persistenceTimeout)
 	firstCleanup()
 
 	second, secondCleanup, err := StartPTYSession(PTYOptions{

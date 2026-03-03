@@ -154,34 +154,61 @@ func (m *TerminalModel) TerminalLayerWithCursorOwner(cursorOwner bool) *composit
 		return nil
 	}
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
 	if ts.VTerm == nil {
+		ts.mu.Unlock()
 		return nil
 	}
 
-	version := ts.VTerm.Version()
+	version := ts.VTerm.ContentVersion()
 	showCursor := m.focused
 	if !cursorOwner {
 		showCursor = false
 	}
-	if ts.cachedSnap != nil && ts.cachedVersion == version && ts.cachedShowCursor == showCursor {
-		perf.Count("vterm_snapshot_cache_hit", 1)
-		return compositor.NewVTermLayer(ts.cachedSnap)
-	}
+	cursorX := ts.VTerm.CursorX
+	cursorY := ts.VTerm.CursorY
+	viewOffset := ts.VTerm.ViewOffset
+	cursorHidden := ts.VTerm.CursorHiddenForRender()
 
-	// Do not pass the previous snapshot for reuse: NewVTermSnapshotWithCache
-	// mutates the provided snapshot/rows in-place, which can mutate a snapshot
-	// already handed to a previously returned layer.
-	snap := compositor.NewVTermSnapshot(ts.VTerm, showCursor)
-	if snap == nil {
+	base := ts.cachedSnapAtomic.Load()
+	if base == nil || ts.cachedVersion != version {
+		if !refreshSidebarSnapshotLocked(ts) {
+			ts.mu.Unlock()
+			return nil
+		}
+		base = ts.cachedSnapAtomic.Load()
+		perf.Count("vterm_snapshot_cache_miss", 1)
+	} else {
+		perf.Count("vterm_snapshot_cache_hit", 1)
+	}
+	ts.mu.Unlock()
+
+	if base == nil {
 		return nil
 	}
-	perf.Count("vterm_snapshot_cache_miss", 1)
+	snap := *base
+	snap.CursorX = cursorX
+	snap.CursorY = cursorY
+	snap.ViewOffset = viewOffset
+	snap.CursorHidden = cursorHidden
+	snap.ShowCursor = showCursor
+	return compositor.NewVTermLayer(&snap)
+}
 
+func refreshSidebarSnapshotLocked(ts *TerminalState) bool {
+	if ts == nil || ts.VTerm == nil {
+		return false
+	}
+	// Do not reuse ts.cachedSnap on writer-triggered refreshes; this avoids
+	// in-place mutations on snapshots that may still be referenced for rendering.
+	snap := compositor.NewVTermSnapshotWithCache(ts.VTerm, false, nil)
+	if snap == nil {
+		return false
+	}
 	ts.cachedSnap = snap
-	ts.cachedVersion = version
-	ts.cachedShowCursor = showCursor
-	return compositor.NewVTermLayer(snap)
+	ts.cachedSnapAtomic.Store(snap)
+	ts.cachedVersion = ts.VTerm.ContentVersion()
+	ts.cachedShowCursor = false
+	return true
 }
 
 // StatusLine returns the status line for the active terminal.

@@ -113,11 +113,21 @@ func (v *VTerm) PrependScrollback(data []byte) {
 	// Collect lines: scrollback first, then screen lines (trim trailing unused rows).
 	var lines [][]Cell
 	for _, line := range tmp.Scrollback {
-		lines = append(lines, CopyLine(line))
+		copied := CopyLine(line)
+		if shared := v.compressScrollbackLine(copied); shared != nil {
+			v.recycleScrollbackLine(copied)
+			copied = shared
+		}
+		lines = append(lines, copied)
 	}
 	screenLines := make([][]Cell, 0, len(tmp.Screen))
 	for _, line := range tmp.Screen {
-		screenLines = append(screenLines, CopyLine(line))
+		copied := CopyLine(line)
+		if shared := v.compressScrollbackLine(copied); shared != nil {
+			v.recycleScrollbackLine(copied)
+			copied = shared
+		}
+		screenLines = append(screenLines, copied)
 	}
 	lastNonBlank := len(screenLines) - 1
 	for lastNonBlank >= 0 && isBlankLine(screenLines[lastNonBlank]) {

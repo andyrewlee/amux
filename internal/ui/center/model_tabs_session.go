@@ -43,7 +43,7 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	tab.Running = false
 	tab.Detached = true
 	tab.reattachInFlight = false
-	tab.pendingOutput = nil
+	tab.pendingOutput.Clear()
 	tab.ptyNoiseTrailing = nil
 	if tab.Agent != nil && tab.SessionName == "" {
 		tab.SessionName = tab.Agent.Session
@@ -127,7 +127,13 @@ func (m *Model) flushActiveTabBacklogCmd() tea.Cmd {
 		return nil
 	}
 	tab := tabs[activeIdx]
-	if tab == nil || tab.isClosed() || len(tab.pendingOutput) == 0 {
+	if tab == nil || tab.isClosed() {
+		return nil
+	}
+	tab.mu.Lock()
+	hasPending := tab.pendingOutput.Len() > 0
+	tab.mu.Unlock()
+	if !hasPending {
 		return nil
 	}
 	tabID := tab.ID

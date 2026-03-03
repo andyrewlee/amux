@@ -158,3 +158,6 @@ make run
 - pprof: set `AMUX_PPROF=1` (or a port like `6061`) to expose `net/http/pprof` on `127.0.0.1`.
 - Debug signals: set `AMUX_DEBUG_SIGNALS=1` and send `SIGUSR1` to dump goroutines into the log.
 - PTY tracing: set `AMUX_PTY_TRACE=1` or a comma-separated assistant list; traces write to the log dir (or OS temp dir if logging is disabled).
+- Under heavy multi-agent CPU load, cap attached tabs with `AMUX_MAX_ATTACHED_AGENT_TABS` (default `4`; `0` disables auto-detach).
+- Lower agent process priority with `AMUX_AGENT_NICE` (for example `AMUX_AGENT_NICE=10 amux`) so the UI keeps CPU headroom.
+- Run perf regression checks with `make perf-compare`; add CPU contention with `make perf-compare-contention PERF_CPU_HOGS=<N>`.

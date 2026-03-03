@@ -3,6 +3,7 @@ set -euo pipefail
 
 BASELINE_FILE="${PERF_BASELINE_FILE:-scripts/perf_baselines.env}"
 TOLERANCE="${PERF_TOLERANCE:-0.10}"
+CPU_HOGS="${PERF_CPU_HOGS:-0}"
 
 if [[ ! -f "$BASELINE_FILE" ]]; then
   echo "Baseline file not found: $BASELINE_FILE" >&2
@@ -17,6 +18,22 @@ arch=$(go env GOARCH | tr '[:lower:]' '[:upper:]')
 prefix="${os}_${arch}"
 
 failures=0
+hog_pids=()
+
+cleanup_hogs() {
+  for pid in "${hog_pids[@]-}"; do
+    kill "$pid" >/dev/null 2>&1 || true
+  done
+}
+trap cleanup_hogs EXIT INT TERM
+
+if [[ "$CPU_HOGS" =~ ^[0-9]+$ ]] && [[ "$CPU_HOGS" -gt 0 ]]; then
+  echo "Starting ${CPU_HOGS} CPU hog process(es) for contention testing..."
+  for ((i = 0; i < CPU_HOGS; i++)); do
+    yes >/dev/null &
+    hog_pids+=("$!")
+  done
+fi
 
 run_preset() {
   local name="$1"

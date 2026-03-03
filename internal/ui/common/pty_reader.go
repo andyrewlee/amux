@@ -26,6 +26,13 @@ type PTYMsgFactory struct {
 	Stopped func(err error) tea.Msg
 }
 
+// PTYDataSink receives coalesced PTY output directly without tea.Msg wrapping.
+// Return false from a callback to stop the reader loop.
+type PTYDataSink struct {
+	Output  func(data []byte) bool
+	Stopped func(err error) bool
+}
+
 // RunPTYReader reads from r, buffers bytes, sends Output messages via msgCh
 // on ticker ticks or when MaxPendingBytes is hit. Sends Stopped on error.
 // Closes msgCh on exit.
@@ -135,6 +142,101 @@ func RunPTYReader(
 	}
 }
 
+// RunPTYReaderToSink reads from r, coalesces bytes, and forwards output directly to sink.
+// It avoids creating PTY output tea.Msg payloads on the hot path.
+func RunPTYReaderToSink(
+	r io.Reader, cancel <-chan struct{},
+	heartbeat *int64, cfg PTYReaderConfig, sink PTYDataSink,
+) {
+	if r == nil {
+		return
+	}
+	beat := func() {
+		if heartbeat != nil {
+			atomic.StoreInt64(heartbeat, time.Now().UnixNano())
+		}
+	}
+	beat()
+
+	dataCh := make(chan []byte, cfg.ReadQueueSize)
+	errCh := make(chan error, 1)
+
+	safego.Go(cfg.Label, func() {
+		buf := make([]byte, cfg.ReadBufferSize)
+		for {
+			n, err := r.Read(buf)
+			if err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				close(dataCh)
+				return
+			}
+			if n == 0 {
+				continue
+			}
+			beat()
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			select {
+			case dataCh <- chunk:
+			case <-cancel:
+				return
+			}
+		}
+	})
+
+	ticker := time.NewTicker(cfg.FrameInterval)
+	defer ticker.Stop()
+
+	var pending []byte
+	var stoppedErr error
+
+	for {
+		select {
+		case <-cancel:
+			return
+		case err := <-errCh:
+			beat()
+			stoppedErr = err
+		case data, ok := <-dataCh:
+			beat()
+			if !ok {
+				if len(pending) > 0 {
+					if !SendPTYSinkOutput(cancel, sink, pending) {
+						return
+					}
+				}
+				if stoppedErr == nil {
+					stoppedErr = io.EOF
+				}
+				_ = SendPTYSinkStopped(cancel, sink, stoppedErr)
+				return
+			}
+			pending = append(pending, data...)
+			if len(pending) >= cfg.MaxPendingBytes {
+				if !SendPTYSinkOutput(cancel, sink, pending) {
+					return
+				}
+				pending = nil
+			}
+		case <-ticker.C:
+			beat()
+			if len(pending) > 0 {
+				if !SendPTYSinkOutput(cancel, sink, pending) {
+					return
+				}
+				pending = nil
+			}
+			if stoppedErr != nil {
+				_ = SendPTYSinkStopped(cancel, sink, stoppedErr)
+				return
+			}
+		}
+	}
+}
+
 // SendPTYMsg sends msg on msgCh, returning false if cancel fires first.
 func SendPTYMsg(msgCh chan tea.Msg, cancel <-chan struct{}, msg tea.Msg) bool {
 	if msgCh == nil {
@@ -148,12 +250,39 @@ func SendPTYMsg(msgCh chan tea.Msg, cancel <-chan struct{}, msg tea.Msg) bool {
 	}
 }
 
+// SendPTYSinkOutput invokes sink.Output unless cancel has fired first.
+func SendPTYSinkOutput(cancel <-chan struct{}, sink PTYDataSink, data []byte) bool {
+	if len(data) == 0 || sink.Output == nil {
+		return true
+	}
+	select {
+	case <-cancel:
+		return false
+	default:
+	}
+	return sink.Output(data[:len(data):len(data)])
+}
+
+// SendPTYSinkStopped invokes sink.Stopped unless cancel has fired first.
+func SendPTYSinkStopped(cancel <-chan struct{}, sink PTYDataSink, err error) bool {
+	if sink.Stopped == nil {
+		return true
+	}
+	select {
+	case <-cancel:
+		return false
+	default:
+	}
+	return sink.Stopped(err)
+}
+
 // OutputMerger configures how ForwardPTYMsgs merges consecutive output messages.
 type OutputMerger struct {
 	ExtractData func(msg tea.Msg) ([]byte, bool)         // type-assert + return Data
 	CanMerge    func(current, next tea.Msg) bool         // same workspace+tab?
 	Build       func(first tea.Msg, data []byte) tea.Msg // clone with merged data
 	MaxPending  int
+	DrainWindow time.Duration // optional max wait to gather additional output before forwarding
 }
 
 // ForwardPTYMsgs reads from msgCh, merges consecutive output messages, forwards via sink.
@@ -170,16 +299,66 @@ func ForwardPTYMsgs(msgCh <-chan tea.Msg, sink func(tea.Msg), merger OutputMerge
 			continue
 		}
 
-		merged := make([]byte, len(data))
-		copy(merged, data)
+		merged := data
+		if len(merged) > 0 {
+			if merger.MaxPending > 0 && cap(merged) > merger.MaxPending {
+				trimmed := make([]byte, len(merged))
+				copy(trimmed, merged)
+				merged = trimmed
+			} else {
+				// Avoid mutating shared backing arrays while still taking the zero-copy fast path.
+				merged = merged[:len(merged):len(merged)]
+			}
+		}
 		first := msg
-		for {
+
+		flushMerged := func() {
+			if sink != nil && len(merged) > 0 {
+				sink(merger.Build(first, merged))
+			}
+		}
+
+		if merger.DrainWindow <= 0 {
+			done := false
+			for !done {
+				select {
+				case next, ok := <-msgCh:
+					if !ok {
+						flushMerged()
+						return
+					}
+					if next == nil {
+						continue
+					}
+					if nextData, ok := merger.ExtractData(next); ok && merger.CanMerge(first, next) {
+						merged = append(merged, nextData...)
+						if len(merged) >= merger.MaxPending {
+							flushMerged()
+							merged = nil
+						}
+						continue
+					}
+					flushMerged()
+					if sink != nil {
+						sink(next)
+					}
+					done = true
+				default:
+					flushMerged()
+					done = true
+				}
+			}
+			continue
+		}
+
+		timer := time.NewTimer(merger.DrainWindow)
+		done := false
+		for !done {
 			select {
 			case next, ok := <-msgCh:
 				if !ok {
-					if sink != nil && len(merged) > 0 {
-						sink(merger.Build(first, merged))
-					}
+					stopTimerDrain(timer)
+					flushMerged()
 					return
 				}
 				if next == nil {
@@ -188,28 +367,34 @@ func ForwardPTYMsgs(msgCh <-chan tea.Msg, sink func(tea.Msg), merger OutputMerge
 				if nextData, ok := merger.ExtractData(next); ok && merger.CanMerge(first, next) {
 					merged = append(merged, nextData...)
 					if len(merged) >= merger.MaxPending {
-						if sink != nil && len(merged) > 0 {
-							sink(merger.Build(first, merged))
-						}
+						flushMerged()
 						merged = nil
 					}
 					continue
 				}
-				if sink != nil && len(merged) > 0 {
-					sink(merger.Build(first, merged))
-				}
+				stopTimerDrain(timer)
+				flushMerged()
 				if sink != nil {
 					sink(next)
 				}
-				goto nextMsg
-			default:
-				if sink != nil && len(merged) > 0 {
-					sink(merger.Build(first, merged))
-				}
-				goto nextMsg
+				done = true
+			case <-timer.C:
+				flushMerged()
+				done = true
 			}
 		}
-	nextMsg:
+	}
+}
+
+func stopTimerDrain(timer *time.Timer) {
+	if timer == nil {
+		return
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
 	}
 }
 

@@ -51,8 +51,9 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.UserDetached = false
 	ts.reattachInFlight = false
 	ts.SessionName = msg.SessionName
-	ts.pendingOutput = nil
-	ts.ptyNoiseTrailing = nil
+	ts.workspaceID = msg.WorkspaceID
+	resetPTYOutputStateLocked(ts)
+	ts.ptyOutputClosed = false
 	ts.mu.Unlock()
 	if msg.Terminal != nil {
 		t := msg.Terminal
@@ -114,6 +115,7 @@ func (m *TerminalModel) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) te
 			}
 			tab.State.Running = false
 			tab.State.ptyRestartBackoff = 0
+			resetPTYOutputStateLocked(tab.State)
 			tab.State.mu.Unlock()
 		}
 	}

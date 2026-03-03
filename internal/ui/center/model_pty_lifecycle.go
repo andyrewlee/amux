@@ -22,7 +22,8 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 	}
 	tab.mu.Lock()
 	if tab.readerActive {
-		if tab.ptyMsgCh == nil || tab.readerCancel == nil {
+		invalidState := tab.readerCancel == nil || (!ptyDirectOutputPath && tab.ptyMsgCh == nil)
+		if invalidState {
 			tab.readerActive = false
 			atomic.StoreUint32(&tab.readerActiveState, 0)
 		} else {
@@ -45,7 +46,11 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 		common.SafeClose(tab.readerCancel)
 	}
 	tab.readerCancel = make(chan struct{})
-	tab.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
+	if ptyDirectOutputPath {
+		tab.ptyMsgCh = nil
+	} else {
+		tab.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
+	}
 
 	term := tab.Agent.Terminal
 	tabID := tab.ID
@@ -55,6 +60,26 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 
 	safego.Go("center.pty_reader", func() {
 		defer m.markPTYReaderStopped(tab)
+		if ptyDirectOutputPath {
+			common.RunPTYReaderToSink(term, cancel, &tab.ptyHeartbeat, common.PTYReaderConfig{
+				Label:           "center.pty_read_loop",
+				ReadBufferSize:  ptyReadBufferSize,
+				ReadQueueSize:   ptyReadQueueSize,
+				FrameInterval:   ptyFrameInterval,
+				MaxPendingBytes: ptyMaxPendingBytes,
+			}, common.PTYDataSink{
+				Output: func(data []byte) bool {
+					return m.handleDirectPTYOutputChunk(wtID, tab, data)
+				},
+				Stopped: func(err error) bool {
+					if m.msgSink != nil {
+						m.msgSink(PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: err})
+					}
+					return true
+				},
+			})
+			return
+		}
 		common.RunPTYReader(term, msgCh, cancel, &tab.ptyHeartbeat, common.PTYReaderConfig{
 			Label:           "center.pty_read_loop",
 			ReadBufferSize:  ptyReadBufferSize,
@@ -66,6 +91,9 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 			Stopped: func(err error) tea.Msg { return PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: err} },
 		})
 	})
+	if ptyDirectOutputPath {
+		return nil
+	}
 	safego.Go("center.pty_forward", func() {
 		m.forwardPTYMsgs(msgCh)
 	})

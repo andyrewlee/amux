@@ -50,16 +50,18 @@ type Tab struct {
 	readerActiveState uint32 // Mirrors readerActive for lock-free atomic reads
 	// Buffer PTY output to avoid rendering partial screen updates.
 
-	pendingOutput          []byte
+	pendingOutput          common.ByteChunkQueue
 	ptyNoiseTrailing       []byte
 	flushScheduled         bool
+	directFlushRetryArmed  bool
 	lastOutputAt           time.Time
 	cursorRefreshScheduled bool
 	cursorRefreshDueAt     time.Time
 	lastVisibleOutput      time.Time
 	pendingVisibleOutput   bool
 	pendingVisibleSeq      uint64
-	activityDigest         [16]byte
+	activityContentVersion uint64
+	activityDigest         uint64
 	activityDigestInit     bool
 	lastActivityTagAt      time.Time
 	activityANSIState      ansiActivityState
@@ -88,6 +90,7 @@ type Tab struct {
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
 	cachedSnap       *compositor.VTermSnapshot
+	cachedSnapAtomic atomic.Pointer[compositor.VTermSnapshot]
 	cachedVersion    uint64
 	cachedShowCursor bool
 	createdAt        int64 // Unix timestamp for ordering; persisted in workspace.json
@@ -113,17 +116,6 @@ func (t *Tab) markClosed() {
 	}
 	atomic.StoreUint32(&t.closed, 1)
 	atomic.StoreUint32(&t.closing, 1)
-}
-
-func (t *Tab) consumeActivityVisibility(data []byte) bool {
-	if t == nil || len(data) == 0 {
-		return false
-	}
-	t.mu.Lock()
-	visible, next := hasVisiblePTYOutput(data, t.activityANSIState)
-	t.activityANSIState = next
-	t.mu.Unlock()
-	return visible
 }
 
 func (t *Tab) resetActivityANSIState() {
@@ -244,11 +236,12 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 			tab.ptyTraceFile = nil
 			tab.ptyTraceClosed = true
 		}
-		tab.pendingOutput = nil
+		tab.pendingOutput.Clear()
 		tab.ptyNoiseTrailing = nil
 		tab.DiffViewer = nil
 		tab.Terminal = nil
 		tab.cachedSnap = nil
+		tab.cachedSnapAtomic.Store(nil)
 		tab.Workspace = nil
 		tab.Running = false
 		tab.mu.Unlock()

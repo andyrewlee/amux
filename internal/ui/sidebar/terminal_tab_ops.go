@@ -91,6 +91,7 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 		}
 		tab.State.Running = false
 		tab.State.ptyRestartBackoff = 0
+		resetPTYOutputStateLocked(tab.State)
 		tab.State.mu.Unlock()
 	}
 
@@ -153,10 +154,11 @@ func (m *TerminalModel) AddTerminalForHarness(ws *data.Workspace) {
 		ID:   generateTerminalTabID(),
 		Name: "Terminal 1",
 		State: &TerminalState{
-			VTerm:      vt,
-			Running:    true,
-			lastWidth:  termWidth,
-			lastHeight: termHeight,
+			VTerm:       vt,
+			Running:     true,
+			workspaceID: wsID,
+			lastWidth:   termWidth,
+			lastHeight:  termHeight,
 		},
 	}
 	m.tabsByWorkspace[wsID] = []*TerminalTab{tab}

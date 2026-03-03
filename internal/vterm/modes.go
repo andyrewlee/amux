@@ -51,7 +51,7 @@ func (p *Parser) executeMode(set bool) {
 			prevHidden := p.vt.CursorHiddenForRender()
 			p.vt.CursorHidden = hidden
 			if prevHidden != p.vt.CursorHiddenForRender() {
-				p.vt.bumpVersion()
+				p.vt.bumpCursorVersion()
 			}
 		case 47, 1047, 1049: // Alternate screen buffer
 			if set {

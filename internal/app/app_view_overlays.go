@@ -127,11 +127,28 @@ func clampLines(content string, width, maxLines int) string {
 		lines = lines[:maxLines]
 	}
 	for i, line := range lines {
+		if w, ok := fastASCIIWidth(line); ok {
+			if w > width {
+				lines[i] = line[:width]
+			}
+			continue
+		}
 		if w := ansi.StringWidth(line); w > width {
 			lines[i] = ansi.Truncate(line, width, "")
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func fastASCIIWidth(line string) (int, bool) {
+	for i := 0; i < len(line); i++ {
+		b := line[i]
+		// Fast path only for printable ASCII.
+		if b < 0x20 || b > 0x7e {
+			return 0, false
+		}
+	}
+	return len(line), true
 }
 
 func viewDimensions(view string) (width, height int) {

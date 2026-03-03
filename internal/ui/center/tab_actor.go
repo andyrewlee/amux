@@ -383,6 +383,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 				tab.Terminal.Write(output)
 				flushDone()
 				perf.Count("pty_flush_bytes", int64(len(output)))
+				m.refreshTabSnapshotLocked(tab)
 			}
 			// Activity state intentionally tracks visible terminal mutations only.
 			// Noise-only chunks are filtered above and must not update activity tags.

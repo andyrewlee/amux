@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -76,33 +77,23 @@ func buildBorderedPane(content string, width, height int) string {
 	return result.String()
 }
 
-func borderDrawables(x, y, width, height int) []*compositor.StringDrawable {
+func borderDrawables(x, y, width, height int) []uv.Drawable {
 	if width < 3 || height < 3 {
 		return nil
 	}
 
 	borderColor := common.ColorBorder()
-	topLeft, topRight, bottomLeft, bottomRight := "╭", "╮", "╰", "╯"
-	horizontal, vertical := "─", "│"
+	style := uv.Style{Fg: borderColor}
 
-	style := lipgloss.NewStyle().Foreground(borderColor)
-	innerWidth := width - 2
-
-	top := style.Render(topLeft + strings.Repeat(horizontal, innerWidth) + topRight)
-	bottom := style.Render(bottomLeft + strings.Repeat(horizontal, innerWidth) + bottomRight)
-
-	vertLines := make([]string, height-2)
-	for i := range vertLines {
-		vertLines[i] = vertical
-	}
-	vertContent := style.Render(strings.Join(vertLines, "\n"))
-
-	return []*compositor.StringDrawable{
-		compositor.NewStringDrawable(top, x, y),
-		compositor.NewStringDrawable(bottom, x, y+height-1),
-		compositor.NewStringDrawable(vertContent, x, y+1),
-		compositor.NewStringDrawable(vertContent, x+width-1, y+1),
-	}
+	border := compositor.NewBorderDrawable(x, y, width, height, style, compositor.BorderRunes{
+		TopLeft:     '╭',
+		TopRight:    '╮',
+		BottomLeft:  '╰',
+		BottomRight: '╯',
+		Horizontal:  '─',
+		Vertical:    '│',
+	})
+	return []uv.Drawable{border}
 }
 
 func centerOffset(container, content int) int {
