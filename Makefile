@@ -7,9 +7,10 @@ HARNESS_WARMUP ?= 30
 HARNESS_WIDTH ?= 160
 HARNESS_HEIGHT ?= 48
 HARNESS_SCROLLBACK_FRAMES ?= 600
+PERF_CPU_HOGS ?= 0
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 
-.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
+.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets perf-compare perf-compare-contention
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -38,6 +39,12 @@ harness-sidebar:
 	go run ./cmd/amux-harness -mode sidebar -tabs 16 -hot-tabs 1 -payload-bytes 64 -newline-every 1 -frames $(HARNESS_SCROLLBACK_FRAMES) -warmup $(HARNESS_WARMUP) -width $(HARNESS_WIDTH) -height $(HARNESS_HEIGHT)
 
 harness-presets: harness-center harness-sidebar harness-monitor
+
+perf-compare:
+	./scripts/perf_compare.sh
+
+perf-compare-contention:
+	PERF_CPU_HOGS=$(PERF_CPU_HOGS) ./scripts/perf_compare.sh
 
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
@@ -141,6 +148,8 @@ help:
 	@echo "  harness-sidebar - Run sidebar harness preset (deep scrollback)"
 	@echo "  harness-monitor - Run monitor harness preset"
 	@echo "  harness-presets - Run all harness presets"
+	@echo "  perf-compare - Compare harness p95 against baselines"
+	@echo "  perf-compare-contention - Compare harness p95 under CPU contention (PERF_CPU_HOGS=N)"
 	@echo "  release-check - Run tests and harness smoke checks"
 	@echo "  release-tag   - Create an annotated tag (VERSION=vX.Y.Z)"
 	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"

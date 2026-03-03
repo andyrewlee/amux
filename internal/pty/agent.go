@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,7 +105,8 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	// Execute agent, then reset terminal state and drop to shell
 	// Reset sequence: stty sane (terminal modes), exit alt screen, show cursor, reset attrs, RIS
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
-	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", assistantCfg.Command, shell)
+	agentCommand := maybeApplyAgentNice(assistantCfg.Command)
+	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", agentCommand, shell)
 
 	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 		WorkDir:        ws.Root,
@@ -256,4 +259,29 @@ func (m *AgentManager) SendInterrupt(agent *Agent) error {
 	}
 
 	return nil
+}
+
+func maybeApplyAgentNice(command string) string {
+	raw := strings.TrimSpace(os.Getenv("AMUX_AGENT_NICE"))
+	if raw == "" {
+		return command
+	}
+	level, err := strconv.Atoi(raw)
+	if err != nil || level == 0 {
+		return command
+	}
+	if level < -20 {
+		level = -20
+	}
+	if level > 19 {
+		level = 19
+	}
+	return fmt.Sprintf("nice -n %d sh -lc %s", level, shQuote(command))
+}
+
+func shQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

@@ -271,101 +271,32 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 			return common.SafeBatch(cmds...)
 		}
 
-		var chunk []byte
-		writeOutput := false
-		hasMoreBuffered := false
-		visibleSeq := uint64(0)
-		tagSessionName := ""
-		var tagTimestamp int64
 		isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
+		flushBudget := ptyFlushProcessBudgetInactive
+		if isActive {
+			flushBudget = ptyFlushProcessBudgetActive
+		}
+		flushStart := time.Now()
+		budgetExhausted := false
+
 		tab.mu.Lock()
 		tab.flushScheduled = false
 		tab.flushPendingSince = time.Time{}
-		if tab.Terminal != nil && tab.pendingOutput.Len() > 0 {
-			chunkSize := tab.pendingOutput.Len()
-			maxChunk := ptyFlushChunkSize
-			if isActive {
-				maxChunk = ptyFlushChunkSizeActive
-			}
-			if chunkSize > maxChunk {
-				chunkSize = maxChunk
-			}
-			chunk = tab.pendingOutput.Pop(chunkSize)
-			hasMoreBuffered = tab.pendingOutput.Len() > 0
-			visibleSeq = tab.pendingVisibleSeq
-			writeOutput = true
-		}
 		tab.mu.Unlock()
-		if writeOutput && len(chunk) > 0 {
-			if m.isTabActorReady() {
-				if !m.sendTabEvent(tabEvent{
-					tab:             tab,
-					workspaceID:     msg.WorkspaceID,
-					tabID:           msg.TabID,
-					kind:            tabEventWriteOutput,
-					output:          chunk,
-					hasMoreBuffered: hasMoreBuffered,
-					visibleSeq:      visibleSeq,
-				}) {
-					processedBytes := len(chunk)
-					filteredLen := 0
-					filterApplied := false
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
-						filteredLen = len(filtered)
-						filterApplied = true
-						if len(filtered) > 0 {
-							flushDone := perf.Time("pty_flush")
-							tab.Terminal.Write(filtered)
-							flushDone()
-							perf.Count("pty_flush_bytes", int64(len(filtered)))
-							m.refreshTabSnapshotLocked(tab)
-						}
-						// Activity state intentionally tracks visible terminal mutations only.
-						// Noise-only chunks are filtered above and must not update activity tags.
-						// We still run this to clear pending visible state when no mutation occurred.
-						tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
-					}
-					tab.mu.Unlock()
-					perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-					if filterApplied {
-						filteredBytes := processedBytes - filteredLen
-						if filteredBytes > 0 {
-							perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-						}
-					}
-				}
-			} else {
-				processedBytes := len(chunk)
-				filteredLen := 0
-				filterApplied := false
-				tab.mu.Lock()
-				if tab.Terminal != nil {
-					filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
-					filteredLen = len(filtered)
-					filterApplied = true
-					if len(filtered) > 0 {
-						flushDone := perf.Time("pty_flush")
-						tab.Terminal.Write(filtered)
-						flushDone()
-						perf.Count("pty_flush_bytes", int64(len(filtered)))
-						m.refreshTabSnapshotLocked(tab)
-					}
-					// Activity state intentionally tracks visible terminal mutations only.
-					// Noise-only chunks are filtered above and must not update activity tags.
-					// We still run this to clear pending visible state when no mutation occurred.
-					tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, hasMoreBuffered, visibleSeq)
-				}
-				tab.mu.Unlock()
-				perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-				if filterApplied {
-					filteredBytes := processedBytes - filteredLen
-					if filteredBytes > 0 {
-						perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-					}
-				}
+
+		for {
+			chunk, hasMoreBuffered, visibleSeq := m.popPTYFlushChunk(tab, isActive)
+			if len(chunk) == 0 {
+				break
 			}
+			tagSessionName, tagTimestamp := m.writePTYFlushChunk(
+				tab,
+				msg.WorkspaceID,
+				msg.TabID,
+				chunk,
+				hasMoreBuffered,
+				visibleSeq,
+			)
 			if tagSessionName != "" {
 				opts := m.getTmuxOptions()
 				sessionName := tagSessionName
@@ -375,11 +306,24 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					return nil
 				})
 			}
+			if !hasMoreBuffered {
+				break
+			}
+			if time.Since(flushStart) >= flushBudget {
+				budgetExhausted = true
+				break
+			}
 		}
+
 		tab.mu.Lock()
 		remaining := tab.pendingOutput.Len()
 		if remaining == 0 {
 			tab.pendingOutput.Clear()
+			// A concurrent append may have briefly re-armed flushScheduled while
+			// this flush was draining. If we've drained to empty, force-clear
+			// scheduling state so subsequent output can schedule a fresh flush.
+			tab.flushScheduled = false
+			tab.flushPendingSince = time.Time{}
 		} else {
 			tab.flushScheduled = true
 			tab.flushPendingSince = time.Now()
@@ -387,10 +331,13 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 		tab.mu.Unlock()
 		if remaining > 0 {
 			tabID := msg.TabID
-			quietNext, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
-			delay := quietNext
-			if delay < time.Millisecond {
-				delay = time.Millisecond
+			delay := ptyFlushResumeDelay
+			if !budgetExhausted {
+				quietNext, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
+				delay = quietNext
+				if delay < time.Millisecond {
+					delay = time.Millisecond
+				}
 			}
 			cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
 				return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}

@@ -135,6 +135,22 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 	return nil
 }
 
+func popSidebarFlushChunk(ts *TerminalState) (chunk []byte, hasMoreBuffered bool) {
+	if ts == nil {
+		return nil, false
+	}
+	if ts.VTerm == nil || ts.pendingOutput.Len() == 0 {
+		return nil, false
+	}
+	chunkSize := ts.pendingOutput.Len()
+	if chunkSize > ptyFlushChunkSize {
+		chunkSize = ptyFlushChunkSize
+	}
+	chunk = ts.pendingOutput.Pop(chunkSize)
+	hasMoreBuffered = ts.pendingOutput.Len() > 0
+	return chunk, hasMoreBuffered
+}
+
 // handlePTYFlush writes buffered PTY data to the vterm when the quiet period expires.
 func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 	wsID := msg.WorkspaceID
@@ -168,16 +184,22 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		})
 	}
 
-	var consumed bool
+	flushStart := time.Now()
+	budgetExhausted := false
+	consumed := false
+
 	ts.mu.Lock()
 	ts.flushScheduled = false
 	ts.flushPendingSince = time.Time{}
-	if ts.VTerm != nil && ts.pendingOutput.Len() > 0 {
-		chunkSize := ts.pendingOutput.Len()
-		if chunkSize > ptyFlushChunkSize {
-			chunkSize = ptyFlushChunkSize
+	ts.mu.Unlock()
+
+	for {
+		ts.mu.Lock()
+		chunk, hasMoreBuffered := popSidebarFlushChunk(ts)
+		if len(chunk) == 0 {
+			ts.mu.Unlock()
+			break
 		}
-		chunk := ts.pendingOutput.Pop(chunkSize)
 		processedBytes := len(chunk)
 		filtered := common.FilterKnownPTYNoiseStream(chunk, &ts.ptyNoiseTrailing)
 		filteredBytes := processedBytes - len(filtered)
@@ -192,11 +214,26 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 			perf.Count("pty_flush_bytes", int64(len(filtered)))
 			refreshSidebarSnapshotLocked(ts)
 		}
+		ts.mu.Unlock()
 		consumed = true
+		if !hasMoreBuffered {
+			break
+		}
+		if time.Since(flushStart) >= ptyFlushProcessBudget {
+			budgetExhausted = true
+			break
+		}
 	}
+
+	ts.mu.Lock()
 	remaining := ts.pendingOutput.Len()
 	if remaining == 0 {
 		ts.pendingOutput.Clear()
+		// A concurrent append may have briefly re-armed flushScheduled while this
+		// flush was draining. If we've drained to empty, force-clear scheduling
+		// state so subsequent output can schedule a fresh flush.
+		ts.flushScheduled = false
+		ts.flushPendingSince = time.Time{}
 	} else {
 		ts.flushScheduled = true
 		ts.flushPendingSince = time.Now()
@@ -206,9 +243,12 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		return nil
 	}
 	if remaining > 0 {
-		delay, _ := m.flushTiming()
-		if delay < time.Millisecond {
-			delay = time.Millisecond
+		delay := ptyFlushResumeDelay
+		if !budgetExhausted {
+			delay, _ = m.flushTiming()
+			if delay < time.Millisecond {
+				delay = time.Millisecond
+			}
 		}
 		return common.SafeTick(delay, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}

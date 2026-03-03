@@ -20,6 +20,10 @@ const (
 	ptyMergeDrainWindow   = 0 * time.Millisecond
 	ptyReaderStallTimeout = 10 * time.Second
 	ptyMaxBufferedBytes   = 4 * 1024 * 1024
+	// Per-flush processing budget to keep sidebar frame latency stable when
+	// output backlog is high.
+	ptyFlushProcessBudget = 2 * time.Millisecond
+	ptyFlushResumeDelay   = 1 * time.Millisecond
 	ptyRestartMax         = 5
 	ptyRestartWindow      = time.Minute
 )
