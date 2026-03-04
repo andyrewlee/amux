@@ -249,27 +249,13 @@ func cmdSessionPruneWith(w, wErr io.Writer, gf GlobalFlags, args []string, versi
 // --- routing ---
 
 func routeSession(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux session <list|prune> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux session <list|prune> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdSessionList(w, wErr, gf, subArgs, version)
-	case "prune":
-		return cmdSessionPrune(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown session subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown session subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, subcommandRouter{
+		scope: "session",
+		usage: "Usage: amux session <list|prune> [flags]",
+		handlers: map[string]commandHandler{
+			"list":  cmdSessionList,
+			"ls":    cmdSessionList,
+			"prune": cmdSessionPrune,
+		},
+	})
 }

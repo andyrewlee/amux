@@ -9,19 +9,15 @@ import (
 )
 
 const (
-	waitResponseExitAfterConsecutiveCaptureMisses = 3
-	waitResponseExitAfterMissingSessionChecks     = 3
+	waitResponseExitAfterConsecutiveCaptureMisses = defaultExitAfterConsecutiveCaptureMisses
+	waitResponseExitAfterMissingSessionChecks     = defaultExitAfterMissingSessionChecks
 )
 
 // waitResponseInitialChangeTimeout bounds how long --wait blocks when pane
 // content never changes after a send/run prompt. This avoids very long hangs
 // when the prompt is dropped or the agent never starts responding.
 //
-// NOTE: This timeout fires independently of the caller's --wait-timeout flag.
-// If --wait-timeout is longer than this value (e.g. 120s), the initial-change
-// timeout will still expire at 90s and return a timed_out response. Both paths
-// produce identical timed_out results via buildTimedOutWaitResponse, so callers
-// cannot distinguish the cause from the response alone.
+// NOTE: Callers may override this via waitResponseConfig.InitialChangeTimeout.
 var waitResponseInitialChangeTimeout = 90 * time.Second
 
 // waitResponseConfig holds parameters for waiting on an agent response.
@@ -30,6 +26,9 @@ type waitResponseConfig struct {
 	CaptureLines  int
 	PollInterval  time.Duration
 	IdleThreshold time.Duration
+	// InitialChangeTimeout bounds how long we wait for first visible output.
+	// When <= 0, waitResponseInitialChangeTimeout is used.
+	InitialChangeTimeout time.Duration
 }
 
 // waitResponseResult holds the outcome of waiting for an agent response.
@@ -65,12 +64,19 @@ func waitForAgentResponse(
 	var lastContent string
 	var lastNonEmptyContent string
 	var lastDifferentFromPre string
-	contentChanged := false
+	stableContentChanged := false
+	rawContentChanged := false
 	var lastChangeTime time.Time
-	captureMisses := 0
-	missingSessionChecks := 0
 	waitStartedAt := time.Now()
 	preStableHash := waitResponseContentHash(preContent)
+	initialChangeTimeout := cfg.InitialChangeTimeout
+	if initialChangeTimeout <= 0 {
+		initialChangeTimeout = waitResponseInitialChangeTimeout
+	}
+	exitDetector := newSessionExitDetector(
+		waitResponseExitAfterConsecutiveCaptureMisses,
+		waitResponseExitAfterMissingSessionChecks,
+	)
 
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
@@ -86,38 +92,25 @@ func waitForAgentResponse(
 				lastContent,
 				lastNonEmptyContent,
 				lastDifferentFromPre,
-				contentChanged,
+				stableContentChanged || rawContentChanged,
 			)
 		case <-ticker.C:
 		}
 
 		content, ok := capture(cfg.SessionName, cfg.CaptureLines, opts)
 		if !ok {
-			captureMisses++
-			if captureMisses < waitResponseExitAfterConsecutiveCaptureMisses {
+			if !exitDetector.CaptureMissIndicatesExit(cfg.SessionName, opts) {
 				continue
 			}
-			state, err := tmuxSessionStateFor(cfg.SessionName, opts)
-			if err != nil || state.Exists {
-				// Capture can miss transiently while the tmux session is still alive,
-				// and tmux state checks can also fail under load/timeouts.
-				// Reset misses and continue waiting rather than reporting a false exit.
-				captureMisses = 0
-				missingSessionChecks = 0
-				continue
-			}
-			missingSessionChecks++
-			if missingSessionChecks < waitResponseExitAfterMissingSessionChecks {
-				continue
-			}
+
 			fallback := preferredWaitContent(
 				lastContent,
 				lastNonEmptyContent,
 				lastDifferentFromPre,
 				preContent,
-				contentChanged,
+				stableContentChanged || rawContentChanged,
 			)
-			delta, latestLine := buildWaitResponseView(preContent, fallback, contentChanged)
+			delta, latestLine := buildWaitResponseView(preContent, fallback, stableContentChanged || rawContentChanged)
 			if strings.TrimSpace(latestLine) == "" {
 				latestLine = "(no output yet)"
 			}
@@ -140,11 +133,10 @@ func waitForAgentResponse(
 				NeedsInput:    needsInput,
 				InputHint:     inputHint,
 				SessionExited: true,
-				Changed:       contentChanged,
+				Changed:       stableContentChanged || rawContentChanged,
 			}
 		}
-		captureMisses = 0
-		missingSessionChecks = 0
+		exitDetector.Reset()
 
 		hash := waitResponseContentHash(content)
 		rawHash := tmux.ContentHash(content)
@@ -153,6 +145,7 @@ func waitForAgentResponse(
 			lastNonEmptyContent = content
 		}
 		if rawHash != preHash && strings.TrimSpace(content) != "" {
+			rawContentChanged = true
 			lastDifferentFromPre = content
 		}
 
@@ -202,13 +195,13 @@ func waitForAgentResponse(
 			}
 		}
 
-		if !contentChanged {
+		if !stableContentChanged {
 			if hash != preStableHash {
-				contentChanged = true
+				stableContentChanged = true
 				lastHash = hash
 				lastChangeTime = time.Now()
-			} else if waitResponseInitialChangeTimeout > 0 &&
-				time.Since(waitStartedAt) >= waitResponseInitialChangeTimeout {
+			} else if initialChangeTimeout > 0 &&
+				time.Since(waitStartedAt) >= initialChangeTimeout {
 				return buildTimedOutWaitResponse(
 					cfg,
 					opts,
@@ -217,7 +210,7 @@ func waitForAgentResponse(
 					lastContent,
 					lastNonEmptyContent,
 					lastDifferentFromPre,
-					contentChanged,
+					stableContentChanged || rawContentChanged,
 				)
 			}
 			continue

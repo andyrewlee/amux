@@ -162,6 +162,18 @@ func TestParseGlobalFlags(t *testing.T) {
 			wantGF:   GlobalFlags{},
 			wantRest: []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text=npm", "--cwd"},
 		},
+		{
+			name:     "doctor tmux older-than preserved",
+			args:     []string{"doctor", "tmux", "--older-than", "15m", "--json"},
+			wantGF:   GlobalFlags{JSON: true},
+			wantRest: []string{"doctor", "tmux", "--older-than", "15m"},
+		},
+		{
+			name:     "doctor tmux global between command and subcommand",
+			args:     []string{"doctor", "--json", "tmux", "--older-than", "15m"},
+			wantGF:   GlobalFlags{JSON: true},
+			wantRest: []string{"doctor", "tmux", "--older-than", "15m"},
+		},
 	}
 
 	for _, tt := range tests {

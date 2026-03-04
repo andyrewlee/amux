@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 
 	var project *data.Project
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repo) {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -135,7 +136,7 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 
 	var project *data.Project
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repo) {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -169,7 +170,7 @@ func TestRescanWorkspaces_ImportsDiscoveredWorkspaces(t *testing.T) {
 
 	project = nil
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repo) {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -257,7 +258,7 @@ func TestLoadProjects_PrimaryLegacyMetadataUsesDefaultAssistant(t *testing.T) {
 
 	var project *data.Project
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repo) {
 			project = &loaded.Projects[i]
 			break
 		}
@@ -280,6 +281,45 @@ func TestLoadProjects_PrimaryLegacyMetadataUsesDefaultAssistant(t *testing.T) {
 	}
 	if primary.Assistant != "claude" {
 		t.Fatalf("assistant = %q, want %q", primary.Assistant, "claude")
+	}
+}
+
+func TestLoadProjects_DedupesCanonicalProjectAliases(t *testing.T) {
+	skipIfNoGit(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink path canonicalization path is unstable on windows in test environment")
+	}
+
+	repoReal := filepath.Join(t.TempDir(), "repo-real")
+	if err := os.MkdirAll(repoReal, 0o755); err != nil {
+		t.Fatalf("MkdirAll(repoReal) error = %v", err)
+	}
+	runGit(t, repoReal, "init", "-b", "main")
+
+	repoLink := filepath.Join(t.TempDir(), "repo-link")
+	if err := os.Symlink(repoReal, repoLink); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	tmp := t.TempDir()
+	registryPath := filepath.Join(tmp, "projects.json")
+	raw := `{"projects":[{"name":"repo","path":"` + repoReal + `"},{"name":"repo","path":"` + repoLink + `"}]}`
+	if err := os.WriteFile(registryPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile(registry) error = %v", err)
+	}
+
+	registry := data.NewRegistry(registryPath)
+	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+	workspaceService := newWorkspaceService(registry, store, nil, filepath.Join(tmp, "workspaces"))
+	app := &App{workspaceService: workspaceService}
+
+	msg := app.loadProjects()()
+	loaded, ok := msg.(messages.ProjectsLoaded)
+	if !ok {
+		t.Fatalf("expected ProjectsLoaded, got %T", msg)
+	}
+	if len(loaded.Projects) != 1 {
+		t.Fatalf("expected 1 project after canonical alias dedupe, got %d", len(loaded.Projects))
 	}
 }
 

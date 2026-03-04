@@ -16,34 +16,50 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
+func displayNameOrFallback(tab *Tab) string {
+	if tab == nil {
+		return ""
+	}
+	name := strings.TrimSpace(tab.Name)
+	if name != "" {
+		return name
+	}
+	assistant := strings.TrimSpace(tab.Assistant)
+	if assistant != "" {
+		return assistant
+	}
+	return "Terminal"
+}
+
+func uniqueTabDisplayName(baseName string, tabs []*Tab, skip *Tab) string {
+	base := strings.TrimSpace(baseName)
+	if base == "" {
+		base = "Terminal"
+	}
+	used := make(map[string]struct{}, len(tabs))
+	for _, tab := range tabs {
+		if tab == nil || tab == skip || tab.isClosed() {
+			continue
+		}
+		used[displayNameOrFallback(tab)] = struct{}{}
+	}
+	if _, exists := used[base]; !exists {
+		return base
+	}
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("%s %d", base, i)
+		if _, exists := used[candidate]; !exists {
+			return candidate
+		}
+	}
+}
+
 func nextAssistantName(assistant string, tabs []*Tab) string {
 	assistant = strings.TrimSpace(assistant)
 	if assistant == "" {
 		return ""
 	}
-
-	used := make(map[string]struct{})
-	for _, tab := range tabs {
-		if tab == nil || tab.Assistant != assistant {
-			continue
-		}
-		name := strings.TrimSpace(tab.Name)
-		if name == "" {
-			name = assistant
-		}
-		used[name] = struct{}{}
-	}
-
-	if _, ok := used[assistant]; !ok {
-		return assistant
-	}
-
-	for i := 1; ; i++ {
-		candidate := fmt.Sprintf("%s %d", assistant, i)
-		if _, ok := used[candidate]; !ok {
-			return candidate
-		}
-	}
+	return uniqueTabDisplayName(assistant, tabs, nil)
 }
 
 type ptyTabCreateResult struct {
@@ -200,6 +216,9 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				displayName = "Terminal"
 			}
 		}
+		if existing.Name == "" {
+			displayName = uniqueTabDisplayName(displayName, tabs, existing)
+		}
 		tabID := existing.ID
 		tab := existing
 		m.stopPTYReader(tab)
@@ -277,9 +296,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	if displayName == "" {
 		displayName = nextAssistantName(msg.Assistant, tabs)
 	}
-	if displayName == "" {
-		displayName = "Terminal"
-	}
+	displayName = uniqueTabDisplayName(displayName, tabs, nil)
 
 	// Create virtual terminal emulator with scrollback
 	term := vterm.New(cols, rows)

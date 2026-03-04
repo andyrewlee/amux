@@ -47,31 +47,17 @@ func lenientCanonicalizePath(path string) string {
 // --- project routing ---
 
 func routeProject(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux project <list|add|remove> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux project <list|add|remove> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdProjectList(w, wErr, gf, subArgs, version)
-	case "add":
-		return cmdProjectAdd(w, wErr, gf, subArgs, version)
-	case "remove", "rm":
-		return cmdProjectRemove(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown project subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown project subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, subcommandRouter{
+		scope: "project",
+		usage: "Usage: amux project <list|add|remove> [flags]",
+		handlers: map[string]commandHandler{
+			"list":   cmdProjectList,
+			"ls":     cmdProjectList,
+			"add":    cmdProjectAdd,
+			"remove": cmdProjectRemove,
+			"rm":     cmdProjectRemove,
+		},
+	})
 }
 
 // --- project list ---
@@ -82,8 +68,13 @@ type projectEntry struct {
 }
 
 func cmdProjectList(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux project list [--json]"
-	if len(args) > 0 {
+	const usage = "Usage: amux project list [--all] [--json]"
+	fs := newFlagSet("project list")
+	all := fs.Bool("all", false, "include non-git/deleted registered paths")
+	if err := fs.Parse(args); err != nil {
+		return returnUsageError(w, wErr, gf, usage, version, err)
+	}
+	if fs.NArg() > 0 {
 		return returnUsageError(w, wErr, gf, usage, version, errors.New("unexpected arguments"))
 	}
 
@@ -107,12 +98,27 @@ func cmdProjectList(w, wErr io.Writer, gf GlobalFlags, args []string, version st
 		return ExitInternalError
 	}
 
-	entries := make([]projectEntry, len(paths))
-	for i, p := range paths {
-		entries[i] = projectEntry{
+	entries := make([]projectEntry, 0, len(paths))
+	seenVisible := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		// Keep default CLI output aligned with TUI-visible projects.
+		// Use --all for raw registry inspection/cleanup workflows.
+		if !*all && !git.IsGitRepository(p) {
+			continue
+		}
+		if !*all {
+			key := normalizeRepoPathForCompare(p)
+			if key != "" {
+				if _, ok := seenVisible[key]; ok {
+					continue
+				}
+				seenVisible[key] = struct{}{}
+			}
+		}
+		entries = append(entries, projectEntry{
 			Name: filepath.Base(p),
 			Path: p,
-		}
+		})
 	}
 
 	if gf.JSON {

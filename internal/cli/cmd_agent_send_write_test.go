@@ -122,6 +122,90 @@ func TestCmdAgentSendRejectsNonPositiveIdleThreshold(t *testing.T) {
 	}
 }
 
+func TestCmdAgentSendRequiresTextOrEnter(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := cmdAgentSend(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"session-a"},
+		"test-v1",
+	)
+	if code != ExitUsage {
+		t.Fatalf("cmdAgentSend() code = %d, want %d", code, ExitUsage)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", errOut.String())
+	}
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "usage_error" {
+		t.Fatalf("expected usage_error, got %#v", env.Error)
+	}
+}
+
+func TestCmdAgentSendAllowsEnterWithoutText(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	origStateFor := tmuxSessionStateFor
+	origSend := tmuxSendKeys
+	defer func() {
+		tmuxSessionStateFor = origStateFor
+		tmuxSendKeys = origSend
+	}()
+
+	stateCalls := 0
+	sendCalls := 0
+	tmuxSessionStateFor = func(name string, _ tmux.Options) (tmux.SessionState, error) {
+		stateCalls++
+		if name != "session-a" {
+			return tmux.SessionState{}, fmt.Errorf("unexpected session %s", name)
+		}
+		return tmux.SessionState{Exists: true}, nil
+	}
+	tmuxSendKeys = func(name, text string, enter bool, _ tmux.Options) error {
+		sendCalls++
+		if name != "session-a" || text != "" || !enter {
+			return fmt.Errorf("unexpected send args name=%s text=%q enter=%v", name, text, enter)
+		}
+		return nil
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := cmdAgentSend(
+		&out,
+		&errOut,
+		GlobalFlags{JSON: true},
+		[]string{"session-a", "--enter"},
+		"test-v1",
+	)
+	if code != ExitOK {
+		t.Fatalf("cmdAgentSend() code = %d, want %d", code, ExitOK)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("expected empty stderr in JSON mode, got %q", errOut.String())
+	}
+	var env Envelope
+	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true, got error=%#v", env.Error)
+	}
+	if sendCalls != 1 {
+		t.Fatalf("send calls = %d, want 1", sendCalls)
+	}
+	if stateCalls != 1 {
+		t.Fatalf("state checks = %d, want 1", stateCalls)
+	}
+}
+
 func TestCmdAgentSendJSONJobResultAndIdempotentReplay(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

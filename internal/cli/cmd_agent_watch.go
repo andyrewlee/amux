@@ -44,8 +44,8 @@ type watchConfig struct {
 }
 
 const (
-	watchExitAfterConsecutiveCaptureMisses = 3
-	watchExitAfterMissingSessionChecks     = 3
+	watchExitAfterConsecutiveCaptureMisses = defaultExitAfterConsecutiveCaptureMisses
+	watchExitAfterMissingSessionChecks     = defaultExitAfterMissingSessionChecks
 )
 
 func cmdAgentWatch(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
@@ -138,8 +138,10 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 	lastChangeTime := time.Now()
 	lastHeartbeatTime := time.Now()
 	emittedIdle := false
-	captureMisses := 0
-	missingSessionChecks := 0
+	exitDetector := newSessionExitDetector(
+		watchExitAfterConsecutiveCaptureMisses,
+		watchExitAfterMissingSessionChecks,
+	)
 
 	// Initial capture → snapshot. A transient capture miss should not be
 	// treated as exit if the tmux session still exists.
@@ -164,10 +166,10 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 		captured, ok := capture(cfg.SessionName, cfg.Lines, opts)
 		if ok {
 			content = captured
-			resetWatchCaptureMissState(&captureMisses, &missingSessionChecks)
+			exitDetector.Reset()
 			break
 		}
-		if watchShouldEmitExited(cfg.SessionName, opts, &captureMisses, &missingSessionChecks) {
+		if exitDetector.CaptureMissIndicatesExit(cfg.SessionName, opts) {
 			if !emitEvent(enc, watchEvent{
 				Type:      "exited",
 				Timestamp: now(),
@@ -218,7 +220,7 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 
 		content, ok := capture(cfg.SessionName, cfg.Lines, opts)
 		if !ok {
-			if !watchShouldEmitExited(cfg.SessionName, opts, &captureMisses, &missingSessionChecks) {
+			if !exitDetector.CaptureMissIndicatesExit(cfg.SessionName, opts) {
 				continue
 			}
 			if !emitEvent(enc, watchEvent{
@@ -229,7 +231,7 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 			}
 			return ExitOK
 		}
-		resetWatchCaptureMissState(&captureMisses, &missingSessionChecks)
+		exitDetector.Reset()
 
 		hash := tmux.ContentHash(content)
 		if hash == lastHash {
@@ -338,31 +340,6 @@ func runWatchLoopWith(ctx context.Context, w io.Writer, cfg watchConfig, opts tm
 		lastHeartbeatTime = time.Now()
 		emittedIdle = false
 	}
-}
-
-func watchShouldEmitExited(
-	sessionName string,
-	opts tmux.Options,
-	captureMisses, missingSessionChecks *int,
-) bool {
-	*captureMisses = *captureMisses + 1
-	if *captureMisses < watchExitAfterConsecutiveCaptureMisses {
-		return false
-	}
-	state, err := tmuxSessionStateFor(sessionName, opts)
-	if err != nil || state.Exists {
-		// Capture can miss transiently while the tmux session is still alive,
-		// and tmux state checks can also fail under load/timeouts.
-		resetWatchCaptureMissState(captureMisses, missingSessionChecks)
-		return false
-	}
-	*missingSessionChecks = *missingSessionChecks + 1
-	return *missingSessionChecks >= watchExitAfterMissingSessionChecks
-}
-
-func resetWatchCaptureMissState(captureMisses, missingSessionChecks *int) {
-	*captureMisses = 0
-	*missingSessionChecks = 0
 }
 
 func latestLineForContent(content string) string {

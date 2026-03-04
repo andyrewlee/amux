@@ -42,6 +42,55 @@ func TestCompactAgentOutput_DropsPromptWrappedContinuation(t *testing.T) {
 	}
 }
 
+func TestCompactAgentOutput_DropsDroidChromeNoise(t *testing.T) {
+	raw := "v0.60.0\nYou are standing in an open terminal. An AI awaits your commands.\nENTER to send • \\ + ENTER for a new line • @ to mention files\nCurrent folder: /tmp/repo\n> Reply exactly READY in one line.\n⛬ READY\n⛬ Status: Fresh repo, no pending changes.\nAuto (High) - allow all commands             GLM-5 [Z.AI Coding Plan] [custom]\nshift+tab to cycle modes (auto/spec), ctrl+L for        ctrl+N to cycle\nautonomy                                                models\n[⏱ 1m 18s]? for help                                                     IDE ◌"
+	got := compactAgentOutput(raw)
+	want := "⛬ READY\n⛬ Status: Fresh repo, no pending changes."
+	if got != want {
+		t.Fatalf("compactAgentOutput() = %q, want %q", got, want)
+	}
+}
+
+func TestCompactAgentOutput_PreservesVersionPrefixedContent(t *testing.T) {
+	raw := "v0.6 beta\n• useful line"
+	got := compactAgentOutput(raw)
+	if got != raw {
+		t.Fatalf("compactAgentOutput() = %q, want %q", got, raw)
+	}
+}
+
+func TestCompactAgentOutput_PreservesQuotedLines(t *testing.T) {
+	raw := "Plan recap:\n> The user asked to fix the login bug\n> npm run build\nDone."
+	got := compactAgentOutput(raw)
+	if got != raw {
+		t.Fatalf("compactAgentOutput() = %q, want %q", got, raw)
+	}
+}
+
+func TestStripANSIEscape_StripsOSCAndSingleCharEscapes(t *testing.T) {
+	raw := "\x1b]0;window title\x07hello\x1b= world\x1b(0!"
+	got := stripANSIEscape(raw)
+	if got != "hello world!" {
+		t.Fatalf("stripANSIEscape() = %q, want %q", got, "hello world!")
+	}
+}
+
+func TestCompactAgentOutput_DropsANSIWrappedPromptChrome(t *testing.T) {
+	raw := "\x1b[38;5;39m❯\u00a0Try \"fix lint errors\"\x1b[0m\n• useful line"
+	got := compactAgentOutput(raw)
+	if got != "• useful line" {
+		t.Fatalf("compactAgentOutput() = %q, want %q", got, "• useful line")
+	}
+}
+
+func TestCompactAgentOutput_PreservesAssistantTryQuotedContent(t *testing.T) {
+	raw := "Try \"go test ./internal/cli\" to verify the fix.\nDone."
+	got := compactAgentOutput(raw)
+	if got != raw {
+		t.Fatalf("compactAgentOutput() = %q, want %q", got, raw)
+	}
+}
+
 func TestDetectNeedsInput_ConfirmationPrompt(t *testing.T) {
 	content := "Plan complete\nDo you want me to proceed? (y/N)"
 	ok, hint := detectNeedsInput(content)
@@ -64,6 +113,17 @@ func TestDetectNeedsInput_QuestionFallback(t *testing.T) {
 	}
 }
 
+func TestDetectNeedsInput_QuotedQuestionFallback(t *testing.T) {
+	content := "> Do you want me to proceed?"
+	ok, hint := detectNeedsInput(content)
+	if !ok {
+		t.Fatalf("detectNeedsInput() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
+	}
+}
+
 func TestDetectNeedsInputPrompt_ExplicitMarker(t *testing.T) {
 	content := "Plan complete\nDo you want me to proceed? (y/N)"
 	ok, hint := detectNeedsInputPrompt(content)
@@ -75,11 +135,156 @@ func TestDetectNeedsInputPrompt_ExplicitMarker(t *testing.T) {
 	}
 }
 
+func TestDetectNeedsInputPrompt_ExplicitMarkerIncludesTrailingOptions(t *testing.T) {
+	content := "Choose one and reply with the number:\n1. Continue with codex\n2) Continue with claude\n3. Ask me later\n4. Cancel"
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	want := "Choose one and reply with the number:\n1. Continue with codex\n2) Continue with claude\n3. Ask me later\n4. Cancel"
+	if hint != want {
+		t.Fatalf("hint = %q, want %q", hint, want)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ExplicitMarkerIncludesTrailingANSIOptions(t *testing.T) {
+	content := "Choose one and reply with the number:\n\x1b[32m1.\x1b[0m Continue with codex\n\x1b[32m2)\x1b[0m Continue with claude"
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	want := "Choose one and reply with the number:\n1. Continue with codex\n2) Continue with claude"
+	if hint != want {
+		t.Fatalf("hint = %q, want %q", hint, want)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ExplicitMarkerIncludesLetterOptions(t *testing.T) {
+	content := "Reply with one letter:\nA. Keep current assistant\nB) Switch assistant"
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	want := "Reply with one letter:\nA. Keep current assistant\nB) Switch assistant"
+	if hint != want {
+		t.Fatalf("hint = %q, want %q", hint, want)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ReplyWithNumericChoices(t *testing.T) {
+	content := "Reply with 1 to continue, 2 to cancel."
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ReplyWithNumericChoicesMidSentence(t *testing.T) {
+	content := "To continue, reply with 1 to approve or 2 to cancel."
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ReplyWithSlashLetterChoices(t *testing.T) {
+	content := "Reply with A/B/C"
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ReplyWithYesConfirmation(t *testing.T) {
+	content := "Reply with yes to continue."
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ReplyWithShortYesConfirmation(t *testing.T) {
+	content := "Reply with y to continue."
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ExplicitMarkerIncludesExtendedNumericOptions(t *testing.T) {
+	content := "Pick one:\n1. One\n2. Two\n3. Three\n4. Four\n5. Five"
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
+	}
+}
+
+func TestDetectNeedsInputPrompt_ExplicitMarkerIncludesExtendedLetterOptions(t *testing.T) {
+	content := "Reply with one letter:\nA. First\nB. Second\nC. Third\nD. Fourth\nE. Fifth"
+	ok, hint := detectNeedsInputPrompt(content)
+	if !ok {
+		t.Fatalf("detectNeedsInputPrompt() = false, want true")
+	}
+	if hint != content {
+		t.Fatalf("hint = %q, want %q", hint, content)
+	}
+}
+
 func TestDetectNeedsInputPrompt_DoesNotMatchQuestionFallbackOnly(t *testing.T) {
 	content := "I can continue with either option A or B. Which do you prefer?"
 	ok, _ := detectNeedsInputPrompt(content)
 	if ok {
 		t.Fatalf("detectNeedsInputPrompt() = true, want false")
+	}
+}
+
+func TestDetectNeedsInputPrompt_DoesNotMatchGenericReplyWithText(t *testing.T) {
+	content := "I'll reply with a patch summary once tests finish."
+	ok, hint := detectNeedsInputPrompt(content)
+	if ok {
+		t.Fatalf("detectNeedsInputPrompt() = true, want false (hint=%q)", hint)
+	}
+}
+
+func TestDetectNeedsInputPrompt_DoesNotMatchFirstPersonReplyWithNumbers(t *testing.T) {
+	content := "I'll reply with 1 summary and 2 follow-ups after tests."
+	ok, hint := detectNeedsInputPrompt(content)
+	if ok {
+		t.Fatalf("detectNeedsInputPrompt() = true, want false (hint=%q)", hint)
+	}
+}
+
+func TestDetectNeedsInputPrompt_DoesNotMatchNonChoiceReplyWithNumbers(t *testing.T) {
+	content := "For release notes, reply with 2025 roadmap and 2026 patch notes."
+	ok, hint := detectNeedsInputPrompt(content)
+	if ok {
+		t.Fatalf("detectNeedsInputPrompt() = true, want false (hint=%q)", hint)
+	}
+}
+
+func TestDetectNeedsInput_DoesNotMatchGenericReplyWithText(t *testing.T) {
+	content := "I'll reply with a patch summary once tests finish."
+	ok, hint := detectNeedsInput(content)
+	if ok {
+		t.Fatalf("detectNeedsInput() = true, want false (hint=%q)", hint)
 	}
 }
 
@@ -129,5 +334,12 @@ func TestSummarizeWaitResponse_StatusFallbacks(t *testing.T) {
 	}
 	if got := summarizeWaitResponse("session_exited", "", false, ""); got != "Agent session exited while waiting." {
 		t.Fatalf("session_exited summary = %q", got)
+	}
+}
+
+func TestLastNonEmptyLine_PreservesQuotedLine(t *testing.T) {
+	content := "summary line\n> quoted conclusion"
+	if got := lastNonEmptyLine(content); got != "> quoted conclusion" {
+		t.Fatalf("lastNonEmptyLine() = %q, want %q", got, "> quoted conclusion")
 	}
 }

@@ -78,24 +78,38 @@ func TestCmdCapabilitiesJSON(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected commands list")
 	}
-	foundAgentJobStatus := false
-	for _, raw := range commands {
-		if cmd, _ := raw.(string); cmd == "agent job status" {
-			foundAgentJobStatus = true
-			break
+	containsCommand := func(values []any, want string) bool {
+		for _, raw := range values {
+			if got, _ := raw.(string); got == want {
+				return true
+			}
 		}
+		return false
 	}
-	if !foundAgentJobStatus {
+	if !containsCommand(commands, "agent job status") {
 		t.Fatalf("expected agent job status command in capabilities")
 	}
-	foundAgentJobWait := false
-	for _, raw := range commands {
-		if cmd, _ := raw.(string); cmd == "agent job wait" {
-			foundAgentJobWait = true
-			break
-		}
-	}
-	if !foundAgentJobWait {
+	if !containsCommand(commands, "agent job wait") {
 		t.Fatalf("expected agent job wait command in capabilities")
+	}
+	if !containsCommand(commands, "doctor tmux") {
+		t.Fatalf("expected doctor tmux command in capabilities")
+	}
+	if !containsCommand(commands, "task start") {
+		t.Fatalf("expected task start command in capabilities")
+	}
+	if !containsCommand(commands, "task status") {
+		t.Fatalf("expected task status command in capabilities")
+	}
+
+	mutating, ok := payload["mutating_commands"].([]any)
+	if !ok {
+		t.Fatalf("expected mutating commands list")
+	}
+	if !containsCommand(mutating, "task start") {
+		t.Fatalf("expected task start command in mutating capabilities")
+	}
+	if containsCommand(mutating, "task status") {
+		t.Fatalf("did not expect task status command in mutating capabilities")
 	}
 }

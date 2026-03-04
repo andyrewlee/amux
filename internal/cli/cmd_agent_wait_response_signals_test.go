@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -300,6 +301,42 @@ func TestWaitForAgentResponse_DetectsNeedsInput(t *testing.T) {
 	}
 	if result.LatestLine != "Do you want me to proceed? (y/N)" {
 		t.Fatalf("latest_line = %q, want %q", result.LatestLine, "Do you want me to proceed? (y/N)")
+	}
+}
+
+func TestWaitForAgentResponse_DetectsNeedsInputWithEnumeratedOptions(t *testing.T) {
+	calls := 0
+	capture := func(_ string, _ int, _ tmux.Options) (string, bool) {
+		calls++
+		switch {
+		case calls <= 2:
+			return "before send", true
+		default:
+			return "before send\nPick one:\n1. Continue with codex\n2. Continue with claude\n3. Cancel", true
+		}
+	}
+
+	pre := "before send"
+	preHash := tmux.ContentHash(pre)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result := waitForAgentResponse(ctx, waitResponseConfig{
+		SessionName:   "test-session",
+		CaptureLines:  100,
+		PollInterval:  1 * time.Millisecond,
+		IdleThreshold: 5 * time.Millisecond,
+	}, tmux.Options{}, capture, preHash, pre)
+
+	if !result.NeedsInput {
+		t.Fatalf("needs_input = false, want true")
+	}
+	wantHint := "Pick one:\n1. Continue with codex\n2. Continue with claude\n3. Cancel"
+	if result.InputHint != wantHint {
+		t.Fatalf("input_hint = %q, want %q", result.InputHint, wantHint)
+	}
+	if !strings.Contains(result.Summary, "Pick one:") || !strings.Contains(result.Summary, "1. Continue with codex") {
+		t.Fatalf("summary = %q, want prompt + options", result.Summary)
 	}
 }
 

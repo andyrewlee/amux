@@ -19,8 +19,25 @@ fi
 
 center_args=(${AMUX_HARNESS_CENTER_ARGS:---mode=center --tabs=8 --frames=200 --warmup=20 --hot-tabs=1 --payload-bytes=128})
 
-echo "amux pre-push: running headless UI harness (center)..."
-go run ./cmd/amux-harness "${center_args[@]}"
+# Git hooks run with repository-scoped env vars (e.g. GIT_DIR/GIT_WORK_TREE).
+# Clear them so tests that spawn git commands operate in their own temp repos.
+run_without_git_env() {
+  env \
+    -u GIT_DIR \
+    -u GIT_WORK_TREE \
+    -u GIT_INDEX_FILE \
+    -u GIT_OBJECT_DIRECTORY \
+    -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    -u GIT_COMMON_DIR \
+    -u GIT_PREFIX \
+    "$@"
+}
 
-echo "amux pre-push: running tests..."
-go test ./internal/e2e
+echo "amux pre-push: running headless UI harness (center)..."
+run_without_git_env go run ./cmd/amux-harness "${center_args[@]}"
+
+echo "amux pre-push: running CLI tests..."
+run_without_git_env go test ./internal/cli
+
+echo "amux pre-push: running E2E tests..."
+run_without_git_env go test ./internal/e2e

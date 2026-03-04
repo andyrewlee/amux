@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -98,10 +99,13 @@ func sendAgentRunPromptIfRequested(
 		return handlePromptSendError(w, wErr, gf, version, idempotencyKey, sessionName, tmuxOpts, err, "send")
 	}
 
-	// Codex startup can still occasionally drop the very first prompt even when
-	// a cursor is visible. If pane output does not change after send, retry once.
-	if strings.EqualFold(strings.TrimSpace(assistantName), "codex") &&
-		!waitForPromptDelivery(sessionName, preSendHash, tmuxOpts) {
+	// Keep startup retries opt-in. The default is disabled to avoid duplicate
+	// prompt injection in real-world slow-start scenarios where the first send
+	// is accepted but output remains quiet for several seconds.
+	retryEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("AMUX_AGENT_RUN_PROMPT_RETRY")), "true")
+	if retryEnabled &&
+		strings.EqualFold(strings.TrimSpace(assistantName), "codex") &&
+		!waitForPromptDelivery(sessionName, preSendHash, prompt, tmuxOpts) {
 		waitForPaneOutput(sessionName, assistantName, tmuxOpts)
 		if err := tmuxSendKeys(sessionName, prompt, true, tmuxOpts); err != nil {
 			return handlePromptSendError(w, wErr, gf, version, idempotencyKey, sessionName, tmuxOpts, err, "retry")
@@ -188,16 +192,20 @@ func waitForPaneOutput(sessionName, assistantName string, opts tmux.Options) {
 	)
 }
 
-func waitForPromptDelivery(sessionName string, baselineHash [16]byte, opts tmux.Options) bool {
+func waitForPromptDelivery(sessionName string, baselineHash [16]byte, prompt string, opts tmux.Options) bool {
 	deadline := time.Now().Add(promptDeliveryWait)
+	lastCapture := ""
 	for time.Now().Before(deadline) {
 		content, ok := tmuxCapturePaneTail(sessionName, 80, opts)
-		if ok && tmux.ContentHash(content) != baselineHash {
-			return true
+		if ok {
+			lastCapture = content
+			if tmux.ContentHash(content) != baselineHash {
+				return true
+			}
 		}
 		time.Sleep(promptDeliveryPollInterval)
 	}
-	return false
+	return promptLikelyAlreadyQueued(lastCapture, prompt)
 }
 
 func paneReadyForPrompt(content, assistantName string) bool {
@@ -223,4 +231,32 @@ func hasPromptLine(lines []string, marker string) bool {
 		}
 	}
 	return false
+}
+
+func promptLikelyAlreadyQueued(capture, prompt string) bool {
+	target := normalizePromptEchoText(prompt)
+	if target == "" {
+		return false
+	}
+	normCapture := normalizePromptEchoText(capture)
+	if normCapture == "" {
+		return false
+	}
+
+	maxTail := len(target)*4 + 256
+	if maxTail < 512 {
+		maxTail = 512
+	}
+	if len(normCapture) > maxTail {
+		normCapture = normCapture[len(normCapture)-maxTail:]
+	}
+	return strings.Contains(normCapture, target)
+}
+
+func normalizePromptEchoText(s string) string {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(trimmed), " ")
 }

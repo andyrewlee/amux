@@ -241,7 +241,49 @@ func canonicalProjectPath(path string) string {
 	if abs, err := filepath.Abs(cleaned); err == nil {
 		cleaned = abs
 	}
-	return filepath.Clean(cleaned)
+	candidate := cleaned
+	// Keep canonicalization stable for direct symlink aliases even when the
+	// target path later disappears by following the link target lexically first.
+	if info, err := os.Lstat(cleaned); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if target, err := os.Readlink(cleaned); err == nil {
+			if !filepath.IsAbs(target) {
+				parentDir := filepath.Dir(cleaned)
+				// Relative symlink targets are interpreted from the symlink's real
+				// containing directory, not from a lexical alias path that may itself
+				// include symlinks.
+				if resolvedParent, err := filepath.EvalSymlinks(parentDir); err == nil {
+					parentDir = resolvedParent
+				}
+				target = filepath.Join(parentDir, target)
+			}
+			candidate = filepath.Clean(target)
+		}
+	}
+
+	if resolved, err := filepath.EvalSymlinks(candidate); err == nil {
+		return filepath.Clean(resolved)
+	}
+
+	// Keep symlink aliases stable when a leaf and/or intermediate parents no
+	// longer exist by resolving the deepest evaluable parent and rejoining the
+	// missing suffix.
+	suffixParts := make([]string, 0, 8)
+	probe := candidate
+	for {
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return filepath.Clean(candidate)
+		}
+		suffixParts = append(suffixParts, filepath.Base(probe))
+		probe = parent
+		if resolvedParent, err := filepath.EvalSymlinks(probe); err == nil {
+			resolved := resolvedParent
+			for i := len(suffixParts) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffixParts[i])
+			}
+			return filepath.Clean(resolved)
+		}
+	}
 }
 
 func normalizeAndDedupeProjectPaths(paths []string) []string {

@@ -30,31 +30,16 @@ type terminalLogsResult struct {
 }
 
 func routeTerminal(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux terminal <list|run|logs> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux terminal <list|run|logs> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdTerminalList(w, wErr, gf, subArgs, version)
-	case "run":
-		return cmdTerminalRun(w, wErr, gf, subArgs, version)
-	case "logs":
-		return cmdTerminalLogs(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown terminal subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown terminal subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, subcommandRouter{
+		scope: "terminal",
+		usage: "Usage: amux terminal <list|run|logs> [flags]",
+		handlers: map[string]commandHandler{
+			"list": cmdTerminalList,
+			"ls":   cmdTerminalList,
+			"run":  cmdTerminalRun,
+			"logs": cmdTerminalLogs,
+		},
+	})
 }
 
 func cmdTerminalList(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {

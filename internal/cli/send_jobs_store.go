@@ -4,13 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/config"
@@ -54,6 +52,10 @@ type sendJobState struct {
 
 type sendJobStore struct {
 	path string
+}
+
+func (s *sendJobStore) domain() sendJobDomain {
+	return newSendJobDomain()
 }
 
 type agentJobResult struct {
@@ -107,20 +109,11 @@ func (s *sendJobStore) create(sessionName, agentID string) (sendJob, error) {
 	if err != nil {
 		return sendJob{}, err
 	}
-	s.reconcileStale(state)
-	s.prune(state)
+	domain := s.domain()
+	domain.reconcileStale(state)
+	domain.prune(state)
 
-	now := time.Now().Unix()
-	job := sendJob{
-		ID:          newSendJobID(),
-		Command:     "agent.send",
-		SessionName: sessionName,
-		AgentID:     agentID,
-		Status:      sendJobPending,
-		Sequence:    nextSendJobSequence(state),
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
+	job := domain.newJob(state, sessionName, agentID)
 	state.Jobs[job.ID] = job
 	if err := s.saveState(state); err != nil {
 		return sendJob{}, err
@@ -160,22 +153,19 @@ func (s *sendJobStore) cancel(jobID string) (sendJob, bool, bool, error) {
 	if err != nil {
 		return sendJob{}, false, false, err
 	}
-	if s.reconcileStale(state) {
+	domain := s.domain()
+	if domain.reconcileStale(state) {
 		if err := s.saveState(state); err != nil {
 			return sendJob{}, false, false, err
 		}
 	}
-	job, ok := state.Jobs[jobID]
-	if !ok {
+	job, found, canceled := domain.cancel(state, jobID)
+	if !found {
 		return sendJob{}, false, false, nil
 	}
-	if job.Status != sendJobPending {
+	if !canceled {
 		return job, true, false, nil
 	}
-	job.Status = sendJobCanceled
-	job.UpdatedAt = time.Now().Unix()
-	job.CompletedAt = job.UpdatedAt
-	state.Jobs[jobID] = job
 	if err := s.saveState(state); err != nil {
 		return sendJob{}, false, false, err
 	}
@@ -193,25 +183,16 @@ func (s *sendJobStore) setStatus(jobID string, status sendJobStatus, errText str
 	if err != nil {
 		return sendJob{}, err
 	}
-	if s.reconcileStale(state) {
+	domain := s.domain()
+	if domain.reconcileStale(state) {
 		if err := s.saveState(state); err != nil {
 			return sendJob{}, err
 		}
 	}
-	job, ok := state.Jobs[jobID]
-	if !ok {
-		return sendJob{}, errors.New("job not found")
+	job, err := domain.setStatus(state, jobID, status, errText)
+	if err != nil {
+		return sendJob{}, err
 	}
-	if !canTransitionSendJobStatus(job.Status, status) {
-		return job, nil
-	}
-	job.Status = status
-	job.Error = strings.TrimSpace(errText)
-	job.UpdatedAt = time.Now().Unix()
-	if status == sendJobCompleted || status == sendJobFailed || status == sendJobCanceled {
-		job.CompletedAt = job.UpdatedAt
-	}
-	state.Jobs[jobID] = job
 	if err := s.saveState(state); err != nil {
 		return sendJob{}, err
 	}
@@ -268,53 +249,8 @@ func (s *sendJobStore) saveState(state *sendJobState) error {
 	return nil
 }
 
-func (s *sendJobStore) prune(state *sendJobState) {
-	if state == nil || len(state.Jobs) == 0 {
-		return
-	}
-	cutoff := time.Now().Add(-sendJobsRetention).Unix()
-	for id, job := range state.Jobs {
-		if job.Status == sendJobPending || job.Status == sendJobRunning {
-			continue
-		}
-		if job.UpdatedAt <= cutoff {
-			delete(state.Jobs, id)
-		}
-	}
-}
-
 func (s *sendJobStore) reconcileStale(state *sendJobState) bool {
-	if state == nil || len(state.Jobs) == 0 {
-		return false
-	}
-	now := time.Now().Unix()
-	staleCutoff := now - int64(sendJobsStaleAfter/time.Second)
-	changed := false
-	for id, job := range state.Jobs {
-		if job.Status != sendJobPending && job.Status != sendJobRunning {
-			continue
-		}
-		if job.UpdatedAt > staleCutoff {
-			continue
-		}
-		original := job.Status
-		job.Status = sendJobFailed
-		if job.Error == "" {
-			job.Error = staleJobReason(original)
-		}
-		job.UpdatedAt = now
-		job.CompletedAt = now
-		state.Jobs[id] = job
-		changed = true
-	}
-	return changed
-}
-
-func staleJobReason(original sendJobStatus) string {
-	if original == sendJobRunning {
-		return "job marked failed after stale running timeout; processor may have exited"
-	}
-	return "job marked failed after stale pending timeout; processor may have exited"
+	return s.domain().reconcileStale(state)
 }
 
 func newSendJobID() string {
@@ -323,26 +259,6 @@ func newSendJobID() string {
 		return "sj_" + strconv.FormatInt(time.Now().UnixNano(), 36) + "_" + hex.EncodeToString(b[:])
 	}
 	return "sj_" + strconv.FormatInt(time.Now().UnixNano(), 36)
-}
-
-func isTerminalSendJobStatus(status sendJobStatus) bool {
-	return status == sendJobCompleted || status == sendJobFailed || status == sendJobCanceled
-}
-
-func canTransitionSendJobStatus(from, to sendJobStatus) bool {
-	if from == to {
-		return true
-	}
-	switch from {
-	case sendJobPending:
-		return to == sendJobRunning || to == sendJobCompleted || to == sendJobFailed || to == sendJobCanceled
-	case sendJobRunning:
-		return to == sendJobCompleted || to == sendJobFailed
-	case sendJobCompleted, sendJobFailed, sendJobCanceled:
-		return false
-	default:
-		return false
-	}
 }
 
 func writeJobStatusResult(w io.Writer, gf GlobalFlags, version string, job sendJob) {

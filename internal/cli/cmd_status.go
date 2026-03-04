@@ -3,10 +3,14 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
+
+var statusNormalizeRepoPathForCompare = normalizeRepoPathForCompare
 
 type statusResult struct {
 	Version        string `json:"version"`
@@ -48,16 +52,32 @@ func cmdStatus(w, wErr io.Writer, gf GlobalFlags, args []string, version string)
 	// Home dir
 	result.HomeReadable = isReadable(svc.Config.Paths.Home)
 
-	// Projects
+	// Projects (align with visible dashboard/CLI defaults: registered git repos only)
 	projects, err := svc.Registry.Projects()
 	if err == nil {
-		result.ProjectCount = len(projects)
+		seen := make(map[string]struct{}, len(projects))
+		for _, path := range projects {
+			if !git.IsGitRepository(path) {
+				continue
+			}
+			key := statusProjectDedupKey(path)
+			if key == "" {
+				result.ProjectCount++
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			result.ProjectCount++
+		}
 	}
 
-	// Workspaces
-	wsIDs, err := svc.Store.List()
+	// Workspaces: keep `status` lightweight by counting stored metadata entries.
+	// Use `workspace list` for visibility-filtered workspace counts/details.
+	workspaces, err := svc.Store.List()
 	if err == nil {
-		result.WorkspaceCount = len(wsIDs)
+		result.WorkspaceCount = len(workspaces)
 	}
 
 	// Sessions
@@ -89,4 +109,15 @@ func boolStatus(ok bool) string {
 		return "ok"
 	}
 	return "unavailable"
+}
+
+func statusProjectDedupKey(path string) string {
+	if key := statusNormalizeRepoPathForCompare(path); key != "" {
+		return key
+	}
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	return filepath.Clean(trimmed)
 }

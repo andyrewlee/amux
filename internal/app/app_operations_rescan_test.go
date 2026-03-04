@@ -98,7 +98,7 @@ func TestRescanWorkspaces_IgnoresExternalWorktrees(t *testing.T) {
 
 	var project *data.Project
 	for i := range loaded.Projects {
-		if loaded.Projects[i].Path == repo {
+		if normalizePath(loaded.Projects[i].Path) == normalizePath(repo) {
 			project = &loaded.Projects[i]
 			break
 		}

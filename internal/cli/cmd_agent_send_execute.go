@@ -1,14 +1,10 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"strings"
 	"time"
-
-	"github.com/andyrewlee/amux/internal/logging"
-	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 func resolveSendJobForExecution(
@@ -316,7 +312,13 @@ func executeAgentSendJob(
 	}
 
 	if waitCfg.Wait && result.Delivered {
-		resp := runSendWait(svc.TmuxOpts, sessionName, waitCfg, preContent)
+		resp := runAgentWaitForResponse(
+			svc.TmuxOpts,
+			sessionName,
+			waitCfg.WaitTimeout,
+			waitCfg.IdleThreshold,
+			preContent,
+		)
 		result.Response = &resp
 	}
 
@@ -340,55 +342,7 @@ func executeAgentSendJob(
 				fmt.Fprintf(w, "Send job %s is %s and was not delivered\n", result.JobID, result.Status)
 			}
 		}
-		if result.Response != nil {
-			if result.Response.NeedsInput {
-				if strings.TrimSpace(result.Response.InputHint) != "" {
-					fmt.Fprintf(w, "Agent needs input: %s\n", strings.TrimSpace(result.Response.InputHint))
-				} else {
-					fmt.Fprintf(w, "Agent needs input\n")
-				}
-			} else if result.Response.TimedOut {
-				fmt.Fprintf(w, "Timed out waiting for response\n")
-			} else if result.Response.SessionExited {
-				fmt.Fprintf(w, "Session exited while waiting\n")
-			} else {
-				fmt.Fprintf(w, "Agent idle after %.1fs\n", result.Response.IdleSeconds)
-			}
-		}
+		writeHumanWaitOutcome(w, result.Response)
 	})
 	return ExitOK
-}
-
-func runSendWait(tmuxOpts tmux.Options, sessionName string, waitCfg sendWaitConfig, preContent string) waitResponseResult {
-	preHash := tmux.ContentHash(preContent)
-
-	ctx, cancel := contextWithSignal()
-	defer cancel()
-	ctx, timeoutCancel := context.WithTimeout(ctx, waitCfg.WaitTimeout)
-	defer timeoutCancel()
-
-	return waitForAgentResponse(ctx, waitResponseConfig{
-		SessionName:   sessionName,
-		CaptureLines:  100,
-		PollInterval:  500 * time.Millisecond,
-		IdleThreshold: waitCfg.IdleThreshold,
-	}, tmuxOpts, tmuxCapturePaneTail, preHash, preContent)
-}
-
-func captureWaitBaselineWithRetry(sessionName string, opts tmux.Options) string {
-	const (
-		maxAttempts = 3
-		retryDelay  = 75 * time.Millisecond
-	)
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		content, ok := tmuxCapturePaneTail(sessionName, 100, opts)
-		if ok {
-			return content
-		}
-		if attempt < maxAttempts {
-			time.Sleep(retryDelay)
-		}
-	}
-	logging.Warn("wait baseline capture unavailable for session %s after %d attempts; proceeding with empty baseline", sessionName, maxAttempts)
-	return ""
 }

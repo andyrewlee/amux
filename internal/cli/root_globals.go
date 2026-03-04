@@ -171,39 +171,12 @@ func parseGlobalFlagAt(args []string, i int, gf *GlobalFlags) (bool, int, error)
 }
 
 func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}, string, error) {
-	if len(args) == 0 {
+	pathTokens, pathIndexes, err := parseCommandPathTokens(args)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if len(pathTokens) == 0 {
 		return nil, nil, "", nil
-	}
-	if strings.HasPrefix(args[0], "-") {
-		return nil, nil, "", nil
-	}
-
-	pathTokens := []string{args[0]}
-	pathIndexes := []int{0}
-
-	next := 1
-	switch args[0] {
-	case "workspace", "logs", "agent", "session", "project", "terminal":
-		token, idx, following, ok, err := nextCommandToken(args, next)
-		if err != nil {
-			return nil, nil, "", err
-		}
-		if ok {
-			pathTokens = append(pathTokens, token)
-			pathIndexes = append(pathIndexes, idx)
-			next = following
-		}
-	}
-
-	if len(pathTokens) >= 2 && args[0] == "agent" && pathTokens[1] == "job" {
-		token, idx, _, ok, err := nextCommandToken(args, next)
-		if err != nil {
-			return nil, nil, "", err
-		}
-		if ok {
-			pathTokens = append(pathTokens, token)
-			pathIndexes = append(pathIndexes, idx)
-		}
 	}
 
 	tokenIndexSet := make(map[int]struct{}, len(pathIndexes))
@@ -235,88 +208,8 @@ func nextCommandToken(args []string, start int) (token string, tokenIndex, next 
 }
 
 func localFlagsRequiringValue(pathKey string) map[string]struct{} {
-	switch pathKey {
-	case "workspace list", "workspace ls":
-		return map[string]struct{}{"--repo": {}, "--project": {}}
-	case "workspace create":
-		return map[string]struct{}{
-			"--project":         {},
-			"--assistant":       {},
-			"--base":            {},
-			"--idempotency-key": {},
-		}
-	case "workspace remove", "workspace rm":
-		return map[string]struct{}{"--idempotency-key": {}}
-	case "agent list", "agent ls":
-		return map[string]struct{}{"--workspace": {}}
-	case "agent capture":
-		return map[string]struct{}{"--lines": {}}
-	case "agent run":
-		return map[string]struct{}{
-			"--workspace":       {},
-			"--assistant":       {},
-			"--name":            {},
-			"--prompt":          {},
-			"--idempotency-key": {},
-			"--wait-timeout":    {},
-			"--idle-threshold":  {},
-		}
-	case "agent send":
-		return map[string]struct{}{
-			"--agent":           {},
-			"--text":            {},
-			"--idempotency-key": {},
-			"--job-id":          {},
-			"--wait-timeout":    {},
-			"--idle-threshold":  {},
-		}
-	case "agent stop":
-		return map[string]struct{}{
-			"--agent":           {},
-			"--grace-period":    {},
-			"--idempotency-key": {},
-		}
-	case "agent watch":
-		return map[string]struct{}{
-			"--lines":          {},
-			"--interval":       {},
-			"--idle-threshold": {},
-			"--heartbeat":      {},
-		}
-	// --timeout intentionally shadows the global --timeout flag;
-	// local flags are checked before global parsing, so the value
-	// is preserved for the subcommand. The global --timeout can
-	// still be set via prefix position (before "agent").
-	case "agent job wait":
-		return map[string]struct{}{
-			"--timeout":  {},
-			"--interval": {},
-		}
-	case "agent job cancel":
-		return map[string]struct{}{
-			"--idempotency-key": {},
-		}
-	case "terminal list":
-		return map[string]struct{}{"--workspace": {}}
-	case "terminal run":
-		return map[string]struct{}{
-			"--workspace": {},
-			"--text":      {},
-		}
-	case "terminal logs":
-		return map[string]struct{}{
-			"--workspace":      {},
-			"--lines":          {},
-			"--interval":       {},
-			"--idle-threshold": {},
-		}
-	case "logs tail":
-		return map[string]struct{}{"--lines": {}}
-	case "session prune":
-		return map[string]struct{}{"--older-than": {}}
-	default:
-		return nil
-	}
+	spec := commandFlagSpecForPath(pathKey)
+	return spec.valueFlags
 }
 
 func localFlagRequiresValue(localValueFlags map[string]struct{}, arg string) bool {
@@ -337,8 +230,14 @@ func localFlagRequiresValue(localValueFlags map[string]struct{}, arg string) boo
 // payload is an arbitrary shell command that may contain flag-like tokens
 // (e.g., "ls -la") that must not be parsed as global flags.
 func localFlagConsumesRemainder(pathKey, arg string) bool {
-	if pathKey != "terminal run" {
+	spec := commandFlagSpecForPath(pathKey)
+	if len(spec.remainderFlags) == 0 {
 		return false
 	}
-	return arg == "--text" || strings.HasPrefix(arg, "--text=")
+	name := arg
+	if idx := strings.Index(name, "="); idx >= 0 {
+		name = name[:idx]
+	}
+	_, ok := spec.remainderFlags[name]
+	return ok
 }

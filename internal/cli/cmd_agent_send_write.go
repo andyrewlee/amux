@@ -10,10 +10,10 @@ import (
 const agentSendCommandName = "agent.send"
 
 func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux agent send (<session_name>|--agent <agent_id>) --text <message> [--enter] [--async] [--wait] [--wait-timeout <duration>] [--idle-threshold <duration>] [--idempotency-key <key>] [--json]"
+	const usage = "Usage: amux agent send (<session_name>|--agent <agent_id>) [--text <message>] [--enter] [--async] [--wait] [--wait-timeout <duration>] [--idle-threshold <duration>] [--idempotency-key <key>] [--json]"
 	fs := newFlagSet("agent send")
 	agentID := fs.String("agent", "", "agent ID (workspace_id:tab_id)")
-	text := fs.String("text", "", "text to send (required)")
+	text := fs.String("text", "", "text to send (required unless --enter)")
 	enter := fs.Bool("enter", false, "send Enter key after text")
 	async := fs.Bool("async", false, "enqueue send and return immediately")
 	wait := fs.Bool("wait", false, "wait for agent to respond and go idle")
@@ -26,7 +26,7 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	if err != nil {
 		return returnUsageError(w, wErr, gf, usage, version, err)
 	}
-	if *text == "" {
+	if strings.TrimSpace(*text) == "" && !*enter {
 		return returnUsageError(w, wErr, gf, usage, version, nil)
 	}
 	if sessionName == "" && *agentID == "" {

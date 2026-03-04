@@ -162,7 +162,7 @@ func TestWorkspaceStore_LoadMetadataFor_PreservesExistingAssistantWhenStoredEmpt
 		Branch:    "test",
 		Repo:      "/repo",
 		Root:      "/root",
-		Assistant: "openclaw",
+		Assistant: "assistant",
 	}
 
 	id := discovered.ID()
@@ -186,8 +186,8 @@ func TestWorkspaceStore_LoadMetadataFor_PreservesExistingAssistantWhenStoredEmpt
 	if !found {
 		t.Fatal("LoadMetadataFor() should have found metadata")
 	}
-	if discovered.Assistant != "openclaw" {
-		t.Errorf("Assistant = %v, want 'openclaw'", discovered.Assistant)
+	if discovered.Assistant != "assistant" {
+		t.Errorf("Assistant = %v, want 'assistant'", discovered.Assistant)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestWorkspaceStore_LoadMetadataFor_FallbackLookupPreservesExistingAssistant
 		Branch:    "test",
 		Repo:      "/repo",
 		Root:      "/root",
-		Assistant: "openclaw",
+		Assistant: "assistant",
 	}
 
 	legacyID := WorkspaceID("legacy_test_ws_id")
@@ -228,8 +228,8 @@ func TestWorkspaceStore_LoadMetadataFor_FallbackLookupPreservesExistingAssistant
 	if !found {
 		t.Fatal("LoadMetadataFor() should have found metadata via fallback lookup")
 	}
-	if discovered.Assistant != "openclaw" {
-		t.Errorf("Assistant = %v, want 'openclaw'", discovered.Assistant)
+	if discovered.Assistant != "assistant" {
+		t.Errorf("Assistant = %v, want 'assistant'", discovered.Assistant)
 	}
 }
 
@@ -253,7 +253,7 @@ func TestWorkspaceStore_UpsertFromDiscovery_PreservesDiscoveredAssistantWhenStor
 		Branch:    "test",
 		Repo:      "/repo",
 		Root:      "/root",
-		Assistant: "openclaw",
+		Assistant: "assistant",
 	}
 	if err := store.UpsertFromDiscovery(discovered); err != nil {
 		t.Fatalf("UpsertFromDiscovery() error = %v", err)
@@ -263,8 +263,8 @@ func TestWorkspaceStore_UpsertFromDiscovery_PreservesDiscoveredAssistantWhenStor
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if loaded.Assistant != "openclaw" {
-		t.Errorf("Assistant = %v, want 'openclaw'", loaded.Assistant)
+	if loaded.Assistant != "assistant" {
+		t.Errorf("Assistant = %v, want 'assistant'", loaded.Assistant)
 	}
 }
 

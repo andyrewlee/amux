@@ -14,6 +14,8 @@ import (
 )
 
 func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
+	wsID := string(ws.ID())
+	tabs := m.tabsByWorkspace[wsID]
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
 	termHeight := tm.Height
@@ -30,6 +32,7 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 	if displayName == "" {
 		displayName = "Terminal"
 	}
+	displayName = uniqueTabDisplayName(displayName, tabs, nil)
 	term := vterm.New(termWidth, termHeight)
 	term.AllowAltScreenScrollback = true
 	ca := info.CreatedAt
@@ -49,7 +52,6 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 		lastFocusedAt: time.Unix(ca, 0),
 	}
 	term.IgnoreCursorVisibilityControls = m.isChatTab(tab)
-	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
 }
 
@@ -57,6 +59,8 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 // position. The tab starts detached and non-running; an async reattach upgrades
 // it in-place (by TabID) without changing slice order.
 func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID, string) {
+	wsID := string(ws.ID())
+	tabs := m.tabsByWorkspace[wsID]
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
 	termHeight := tm.Height
@@ -73,6 +77,7 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 	if displayName == "" {
 		displayName = "Terminal"
 	}
+	displayName = uniqueTabDisplayName(displayName, tabs, nil)
 	term := vterm.New(termWidth, termHeight)
 	term.AllowAltScreenScrollback = true
 	tabID := generateTabID()
@@ -99,7 +104,6 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 		lastFocusedAt:    time.Unix(ca, 0),
 	}
 	term.IgnoreCursorVisibilityControls = m.isChatTab(tab)
-	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
 	return tabID, sessionName
 }

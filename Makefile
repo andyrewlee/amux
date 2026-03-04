@@ -8,8 +8,11 @@ HARNESS_WIDTH ?= 160
 HARNESS_HEIGHT ?= 48
 HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
+OPENCLAW_DEFAULT_WORKSPACE ?= $(HOME)/.openclaw/workspace
+OPENCLAW_DEV_WORKSPACE ?= $(HOME)/.openclaw/workspace-dev
+OPENCLAW_AMUX_SKILL_SRC ?= $(CURDIR)/skills/amux
 
-.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
+.PHONY: build install openclaw-sync test bench lint lint-strict lint-strict-new lint-ci-parity check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets tmux-doctor tmux-prune
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -17,12 +20,34 @@ build:
 install: build
 	cp $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 
+openclaw-sync: install
+	@command -v openclaw >/dev/null 2>&1 || (echo "openclaw CLI is required"; exit 1)
+	@set -e; \
+	skill_src="$(OPENCLAW_AMUX_SKILL_SRC)"; \
+	main_ws="$$(openclaw config get agents.defaults.workspace 2>/dev/null || true)"; \
+	dev_ws="$$(openclaw --dev config get agents.defaults.workspace 2>/dev/null || true)"; \
+	[ -n "$$main_ws" ] || main_ws="$(OPENCLAW_DEFAULT_WORKSPACE)"; \
+	[ -n "$$dev_ws" ] || dev_ws="$(OPENCLAW_DEV_WORKSPACE)"; \
+	for ws in "$$main_ws" "$$dev_ws"; do \
+		mkdir -p "$$ws/skills"; \
+		rm -rf "$$ws/skills/amux"; \
+		ln -s "$$skill_src" "$$ws/skills/amux"; \
+		echo "Linked $$ws/skills/amux -> $$skill_src"; \
+	done
+	@openclaw skills info amux
+	@openclaw --dev skills info amux
+	@echo "OpenClaw amux binary installed and skill synced."
+
 test:
 	go test -v ./...
 
+DEVCHECK_TEST_FLAGS ?= -v
+
 devcheck:
 	go vet ./...
-	go test ./...
+	# internal/cli can run for a few minutes; keep per-test output visible so
+	# local runs don't appear hung.
+	go test $(DEVCHECK_TEST_FLAGS) ./...
 	$(MAKE) lint
 
 bench:
@@ -124,6 +149,8 @@ dev:
 help:
 	@echo "Available targets:"
 	@echo "  build      - Build the binary"
+	@echo "  install    - Build and install amux to /usr/local/bin"
+	@echo "  openclaw-sync - Build+install amux, relink OpenClaw amux skill, and verify"
 	@echo "  test       - Run all tests"
 	@echo "  lint       - Run golangci-lint and file length checks (max 500 lines)"
 	@echo "  lint-strict - Run stricter lint profile across the whole repo"
@@ -141,6 +168,8 @@ help:
 	@echo "  harness-sidebar - Run sidebar harness preset (deep scrollback)"
 	@echo "  harness-monitor - Run monitor harness preset"
 	@echo "  harness-presets - Run all harness presets"
+	@echo "  tmux-doctor - Diagnose tmux/PTY pressure and stale sessions"
+	@echo "  tmux-prune - Prune detached/orphaned amux tmux sessions"
 	@echo "  release-check - Run tests and harness smoke checks"
 	@echo "  release-tag   - Create an annotated tag (VERSION=vX.Y.Z)"
 	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"
@@ -162,3 +191,9 @@ release-push:
 	@git push origin "$(VERSION)"
 
 release: release-check release-tag release-push
+
+tmux-doctor:
+	go run ./cmd/amux doctor tmux
+
+tmux-prune:
+	go run ./cmd/amux doctor tmux --prune --yes --older-than 6h

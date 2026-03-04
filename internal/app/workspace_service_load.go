@@ -25,11 +25,7 @@ func (s *workspaceService) LoadProjects() tea.Cmd {
 		}
 
 		var projects []data.Project
-		for _, path := range paths {
-			if !git.IsGitRepository(path) {
-				continue
-			}
-
+		for _, path := range uniqueRegisteredGitRepos(paths) {
 			project := data.NewProject(path)
 
 			// Start from stored workspaces so metadata is authoritative.
@@ -111,11 +107,7 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "rescanning workspaces")}
 		}
 
-		for _, path := range paths {
-			if !git.IsGitRepository(path) {
-				continue
-			}
-
+		for _, path := range uniqueRegisteredGitRepos(paths) {
 			project := data.NewProject(path)
 			discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
 			if err != nil {
@@ -186,4 +178,24 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 
 		return messages.RefreshDashboard{}
 	}
+}
+
+func uniqueRegisteredGitRepos(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if !git.IsGitRepository(path) {
+			continue
+		}
+		key := data.NormalizePath(path)
+		if key == "" {
+			key = filepath.Clean(path)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, path)
+	}
+	return out
 }

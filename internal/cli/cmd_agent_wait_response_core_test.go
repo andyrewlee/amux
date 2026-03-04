@@ -170,6 +170,36 @@ func TestWaitForAgentResponse_EmptyTimeoutUsesNoOutputLatestLine(t *testing.T) {
 	}
 }
 
+func TestWaitForAgentResponse_TimeoutWithVolatileRawOutputMarksChanged(t *testing.T) {
+	calls := 0
+	capture := func(_ string, _ int, _ tmux.Options) (string, bool) {
+		calls++
+		return "before send\nWorking (" + string(rune('0'+(calls%10))) + "s • esc to interrupt)", true
+	}
+
+	pre := "before send"
+	preHash := tmux.ContentHash(pre)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	result := waitForAgentResponse(ctx, waitResponseConfig{
+		SessionName:   "test-session",
+		CaptureLines:  100,
+		PollInterval:  1 * time.Millisecond,
+		IdleThreshold: 10 * time.Second,
+	}, tmux.Options{}, capture, preHash, pre)
+
+	if !result.TimedOut {
+		t.Fatal("expected timed_out = true")
+	}
+	if !result.Changed {
+		t.Fatal("changed = false, want true when raw pane output changed")
+	}
+	if result.Content == "" {
+		t.Fatal("content is empty, want captured volatile output")
+	}
+}
+
 func TestWaitForAgentResponse_SessionExits(t *testing.T) {
 	calls := 0
 	capture := func(_ string, _ int, _ tmux.Options) (string, bool) {

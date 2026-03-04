@@ -63,7 +63,7 @@ type Workspace struct {
 	Runtime string `json:"runtime"` // local-worktree, local-checkout, cloud-sandbox
 
 	// Agent config
-	Assistant string `json:"assistant"` // Assistant profile ID (e.g. claude, codex, openclaw)
+	Assistant string `json:"assistant"` // Assistant profile ID (e.g. claude, codex, assistant)
 
 	// Scripts
 	Scripts    ScriptsConfig `json:"scripts"`

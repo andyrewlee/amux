@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -76,6 +77,8 @@ func Run(args []string, version, commit, date string) int {
 		return routeTerminal(w, wErr, gf, cmdArgs, version)
 	case "project":
 		return routeProject(w, wErr, gf, cmdArgs, version)
+	case "task":
+		return routeTask(w, wErr, gf, cmdArgs, version)
 	case "version":
 		if gf.JSON {
 			PrintJSON(w, map[string]string{
@@ -138,67 +141,34 @@ func applyRunGlobals(gf GlobalFlags) (func(), error) {
 }
 
 func routeWorkspace(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux workspace <list|create|remove> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux workspace <list|create|remove> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdWorkspaceList(w, wErr, gf, subArgs, version)
-	case "create":
-		return cmdWorkspaceCreate(w, wErr, gf, subArgs, version)
-	case "remove", "rm":
-		return cmdWorkspaceRemove(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown workspace subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown workspace subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, subcommandRouter{
+		scope: "workspace",
+		usage: "Usage: amux workspace <list|create|remove> [flags]",
+		handlers: map[string]commandHandler{
+			"list":   cmdWorkspaceList,
+			"ls":     cmdWorkspaceList,
+			"create": cmdWorkspaceCreate,
+			"remove": cmdWorkspaceRemove,
+			"rm":     cmdWorkspaceRemove,
+		},
+	})
 }
 
 func routeAgent(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux agent <list|capture|run|send|stop|watch|job> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux agent <list|capture|run|send|stop|watch|job> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdAgentList(w, wErr, gf, subArgs, version)
-	case "capture":
-		return cmdAgentCapture(w, wErr, gf, subArgs, version)
-	case "run":
-		return cmdAgentRun(w, wErr, gf, subArgs, version)
-	case "send":
-		return cmdAgentSend(w, wErr, gf, subArgs, version)
-	case "stop":
-		return cmdAgentStop(w, wErr, gf, subArgs, version)
-	case "watch":
-		return cmdAgentWatch(w, wErr, gf, subArgs, version)
-	case "job":
-		return routeAgentJob(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown agent subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown agent subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, subcommandRouter{
+		scope: "agent",
+		usage: "Usage: amux agent <list|capture|run|send|stop|watch|job> [flags]",
+		handlers: map[string]commandHandler{
+			"list":    cmdAgentList,
+			"ls":      cmdAgentList,
+			"capture": cmdAgentCapture,
+			"run":     cmdAgentRun,
+			"send":    cmdAgentSend,
+			"stop":    cmdAgentStop,
+			"watch":   cmdAgentWatch,
+			"job":     routeAgentJob,
+		},
+	})
 }
 
 // PrintUsage writes CLI help text.
@@ -212,6 +182,7 @@ func usageText() string {
 Commands:
   status              Health check and summary
   doctor              Diagnostics check list
+  doctor tmux         tmux/PTY diagnostics and prune guidance
   capabilities        Machine-readable CLI capabilities
   logs tail           Tail the amux log file
   workspace list      List workspaces
@@ -223,6 +194,8 @@ Commands:
   agent send          Send text to an agent
   agent stop          Stop an agent
   agent watch         Watch agent output (NDJSON stream)
+  task start          Start a bounded assistant task run
+  task status         Show active assistant task status
   agent job status    Get queued send job status
   agent job cancel    Cancel queued send job (pending only)
   agent job wait      Wait for queued send job completion
@@ -249,22 +222,12 @@ Global Flags:
 }
 
 func commandFromArgs(args []string) string {
-	if len(args) == 0 {
-		return ""
-	}
-	cmd := args[0]
-	if len(args) < 2 {
-		return cmd
-	}
-	switch cmd {
-	case "agent":
-		if len(args) >= 3 && args[1] == "job" {
-			return cmd + " " + args[1] + " " + args[2]
+	tokens, _, err := parseCommandPathTokens(args)
+	if err != nil || len(tokens) == 0 {
+		if len(args) == 0 {
+			return ""
 		}
-		return cmd + " " + args[1]
-	case "workspace", "logs", "session", "project", "terminal":
-		return cmd + " " + args[1]
-	default:
-		return cmd
+		return args[0]
 	}
+	return strings.Join(tokens, " ")
 }

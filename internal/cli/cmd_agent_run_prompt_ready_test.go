@@ -80,7 +80,9 @@ func TestWaitForPaneOutput_NonCodexFallsBackToStableOutput(t *testing.T) {
 	}
 }
 
-func TestSendAgentRunPromptIfRequested_CodexRetriesWhenPromptNotDelivered(t *testing.T) {
+func TestSendAgentRunPromptIfRequested_CodexRetriesWhenPromptNotDelivered_OptIn(t *testing.T) {
+	t.Setenv("AMUX_AGENT_RUN_PROMPT_RETRY", "true")
+
 	origCapture := tmuxCapturePaneTail
 	origSend := tmuxSendKeys
 	origTimeout := promptReadyTimeout
@@ -134,6 +136,119 @@ func TestSendAgentRunPromptIfRequested_CodexRetriesWhenPromptNotDelivered(t *tes
 	}
 }
 
+func TestSendAgentRunPromptIfRequested_CodexNoRetryWhenPromptAlreadyEchoed(t *testing.T) {
+	t.Setenv("AMUX_AGENT_RUN_PROMPT_RETRY", "true")
+
+	origCapture := tmuxCapturePaneTail
+	origSend := tmuxSendKeys
+	origTimeout := promptReadyTimeout
+	origPoll := promptPollInterval
+	origStable := promptStableRounds
+	origDeliveryWait := promptDeliveryWait
+	origDeliveryPoll := promptDeliveryPollInterval
+	defer func() {
+		tmuxCapturePaneTail = origCapture
+		tmuxSendKeys = origSend
+		promptReadyTimeout = origTimeout
+		promptPollInterval = origPoll
+		promptStableRounds = origStable
+		promptDeliveryWait = origDeliveryWait
+		promptDeliveryPollInterval = origDeliveryPoll
+	}()
+
+	prompt := "/review uncommitted changes"
+	capture := "OpenAI Codex\n› /review uncommitted changes"
+
+	promptReadyTimeout = 40 * time.Millisecond
+	promptPollInterval = 1 * time.Millisecond
+	promptStableRounds = 1
+	promptDeliveryWait = 5 * time.Millisecond
+	promptDeliveryPollInterval = 1 * time.Millisecond
+
+	tmuxCapturePaneTail = func(_ string, _ int, _ tmux.Options) (string, bool) {
+		// Keep capture unchanged to emulate quiet startup where hash-based
+		// delivery checks alone would false-negative.
+		return capture, true
+	}
+
+	sendCalls := 0
+	tmuxSendKeys = func(_, _ string, _ bool, _ tmux.Options) error {
+		sendCalls++
+		return nil
+	}
+
+	code := sendAgentRunPromptIfRequested(
+		nil, nil,
+		GlobalFlags{JSON: true},
+		"test-v1",
+		"",
+		"session-a",
+		"codex",
+		prompt,
+		tmux.Options{},
+		nil,
+	)
+	if code != ExitOK {
+		t.Fatalf("sendAgentRunPromptIfRequested() code = %d, want %d", code, ExitOK)
+	}
+	if sendCalls != 1 {
+		t.Fatalf("tmuxSendKeys calls = %d, want 1", sendCalls)
+	}
+}
+
+func TestSendAgentRunPromptIfRequested_CodexDefaultDoesNotRetry(t *testing.T) {
+	origCapture := tmuxCapturePaneTail
+	origSend := tmuxSendKeys
+	origTimeout := promptReadyTimeout
+	origPoll := promptPollInterval
+	origStable := promptStableRounds
+	origDeliveryWait := promptDeliveryWait
+	origDeliveryPoll := promptDeliveryPollInterval
+	defer func() {
+		tmuxCapturePaneTail = origCapture
+		tmuxSendKeys = origSend
+		promptReadyTimeout = origTimeout
+		promptPollInterval = origPoll
+		promptStableRounds = origStable
+		promptDeliveryWait = origDeliveryWait
+		promptDeliveryPollInterval = origDeliveryPoll
+	}()
+
+	promptReadyTimeout = 40 * time.Millisecond
+	promptPollInterval = 1 * time.Millisecond
+	promptStableRounds = 1
+	promptDeliveryWait = 5 * time.Millisecond
+	promptDeliveryPollInterval = 1 * time.Millisecond
+
+	tmuxCapturePaneTail = func(_ string, _ int, _ tmux.Options) (string, bool) {
+		return "› /review uncommitted changes", true
+	}
+
+	sendCalls := 0
+	tmuxSendKeys = func(_, _ string, _ bool, _ tmux.Options) error {
+		sendCalls++
+		return nil
+	}
+
+	code := sendAgentRunPromptIfRequested(
+		nil, nil,
+		GlobalFlags{JSON: true},
+		"test-v1",
+		"",
+		"session-a",
+		"codex",
+		"/review uncommitted changes",
+		tmux.Options{},
+		nil,
+	)
+	if code != ExitOK {
+		t.Fatalf("sendAgentRunPromptIfRequested() code = %d, want %d", code, ExitOK)
+	}
+	if sendCalls != 1 {
+		t.Fatalf("tmuxSendKeys calls = %d, want 1", sendCalls)
+	}
+}
+
 func TestSendAgentRunPromptIfRequested_NonCodexDoesNotRetry(t *testing.T) {
 	origCapture := tmuxCapturePaneTail
 	origSend := tmuxSendKeys
@@ -178,6 +293,15 @@ func TestSendAgentRunPromptIfRequested_NonCodexDoesNotRetry(t *testing.T) {
 	}
 	if sendCalls != 1 {
 		t.Fatalf("tmuxSendKeys calls = %d, want 1", sendCalls)
+	}
+}
+
+func TestPromptLikelyAlreadyQueued(t *testing.T) {
+	if !promptLikelyAlreadyQueued("OpenAI Codex\n› /review uncommitted changes", "/review uncommitted changes") {
+		t.Fatalf("expected queued prompt match")
+	}
+	if promptLikelyAlreadyQueued("OpenAI Codex\n› ", "/review uncommitted changes") {
+		t.Fatalf("did not expect queued prompt match without prompt text")
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/data"
 )
 
 func TestCmdWorkspaceListByRelativeRepo(t *testing.T) {
@@ -95,6 +97,32 @@ func TestCmdWorkspaceListRejectsRepoAndProjectTogether(t *testing.T) {
 	}
 }
 
+func TestCmdWorkspaceListRejectsAllWithRepoFilter(t *testing.T) {
+	var w, wErr bytes.Buffer
+	gf := GlobalFlags{JSON: true}
+	code := cmdWorkspaceList(
+		&w,
+		&wErr,
+		gf,
+		[]string{"--all", "--repo", "/tmp/repo-a"},
+		"test-v1",
+	)
+	if code != ExitUsage {
+		t.Fatalf("expected ExitUsage, got %d; stderr: %s", code, wErr.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, w.String())
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "usage_error" {
+		t.Fatalf("expected usage_error, got %#v", env.Error)
+	}
+}
+
 func TestCmdWorkspaceListJSON(t *testing.T) {
 	var w, wErr bytes.Buffer
 	gf := GlobalFlags{JSON: true}
@@ -142,7 +170,7 @@ func TestCmdWorkspaceListJSONReturnsInternalErrorOnCorruptMetadata(t *testing.T)
 	}
 
 	var w, wErr bytes.Buffer
-	code := cmdWorkspaceList(&w, &wErr, GlobalFlags{JSON: true}, nil, "test-v1")
+	code := cmdWorkspaceList(&w, &wErr, GlobalFlags{JSON: true}, []string{"--all"}, "test-v1")
 	if code != ExitInternalError {
 		t.Fatalf("expected exit %d, got %d", ExitInternalError, code)
 	}
@@ -159,5 +187,212 @@ func TestCmdWorkspaceListJSONReturnsInternalErrorOnCorruptMetadata(t *testing.T)
 	}
 	if env.Error == nil || env.Error.Code != "list_failed" {
 		t.Fatalf("expected list_failed error, got %#v", env.Error)
+	}
+}
+
+func TestCmdWorkspaceList_DefaultHidesUnregisteredWorkspaceMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoRegistered, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	repoUnregistered := t.TempDir()
+
+	registryPath := filepath.Join(home, ".amux", "projects.json")
+	if err := data.NewRegistry(registryPath).AddProject(repoRegistered); err != nil {
+		t.Fatalf("AddProject() error = %v", err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(home, ".amux", "workspaces-metadata"))
+	if err := store.Save(&data.Workspace{
+		Name:   "registered-main",
+		Branch: "main",
+		Repo:   repoRegistered,
+		Root:   repoRegistered,
+	}); err != nil {
+		t.Fatalf("Save(registered) error = %v", err)
+	}
+	if err := store.Save(&data.Workspace{
+		Name:   "stale-main",
+		Branch: "main",
+		Repo:   repoUnregistered,
+		Root:   repoUnregistered,
+	}); err != nil {
+		t.Fatalf("Save(unregistered) error = %v", err)
+	}
+
+	var w, wErr bytes.Buffer
+	code := cmdWorkspaceList(&w, &wErr, GlobalFlags{JSON: true}, nil, "test-v1")
+	if code != ExitOK {
+		t.Fatalf("expected ExitOK, got %d; stderr: %s", code, wErr.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, w.String())
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true")
+	}
+
+	rows, ok := env.Data.([]any)
+	if !ok {
+		t.Fatalf("expected []any data, got %T", env.Data)
+	}
+	foundRegistered := false
+	foundUnregistered := false
+	for _, row := range rows {
+		m, ok := row.(map[string]any)
+		if !ok {
+			continue
+		}
+		repo, _ := m["repo"].(string)
+		if repo == repoRegistered {
+			foundRegistered = true
+		}
+		if repo == repoUnregistered {
+			foundUnregistered = true
+		}
+	}
+	if !foundRegistered {
+		t.Fatalf("expected registered workspace repo %q in results", repoRegistered)
+	}
+	if foundUnregistered {
+		t.Fatalf("expected unregistered workspace repo %q to be hidden", repoUnregistered)
+	}
+}
+
+func TestCmdWorkspaceList_AllIncludesUnregisteredWorkspaceMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoRegistered, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	repoUnregistered := t.TempDir()
+
+	registryPath := filepath.Join(home, ".amux", "projects.json")
+	if err := data.NewRegistry(registryPath).AddProject(repoRegistered); err != nil {
+		t.Fatalf("AddProject() error = %v", err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(home, ".amux", "workspaces-metadata"))
+	if err := store.Save(&data.Workspace{
+		Name:   "registered-main",
+		Branch: "main",
+		Repo:   repoRegistered,
+		Root:   repoRegistered,
+	}); err != nil {
+		t.Fatalf("Save(registered) error = %v", err)
+	}
+	if err := store.Save(&data.Workspace{
+		Name:   "stale-main",
+		Branch: "main",
+		Repo:   repoUnregistered,
+		Root:   repoUnregistered,
+	}); err != nil {
+		t.Fatalf("Save(unregistered) error = %v", err)
+	}
+
+	var w, wErr bytes.Buffer
+	code := cmdWorkspaceList(&w, &wErr, GlobalFlags{JSON: true}, []string{"--all"}, "test-v1")
+	if code != ExitOK {
+		t.Fatalf("expected ExitOK, got %d; stderr: %s", code, wErr.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, w.String())
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true")
+	}
+
+	rows, ok := env.Data.([]any)
+	if !ok {
+		t.Fatalf("expected []any data, got %T", env.Data)
+	}
+	foundRegistered := false
+	foundUnregistered := false
+	for _, row := range rows {
+		m, ok := row.(map[string]any)
+		if !ok {
+			continue
+		}
+		repo, _ := m["repo"].(string)
+		if repo == repoRegistered {
+			foundRegistered = true
+		}
+		if repo == repoUnregistered {
+			foundUnregistered = true
+		}
+	}
+	if !foundRegistered || !foundUnregistered {
+		t.Fatalf("expected both repos in --all output (registered=%v, unregistered=%v)", foundRegistered, foundUnregistered)
+	}
+}
+
+func TestCmdWorkspaceList_ByRepoHidesUnregisteredProjectMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repoRegistered, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	repoUnregistered := t.TempDir()
+
+	registryPath := filepath.Join(home, ".amux", "projects.json")
+	if err := data.NewRegistry(registryPath).AddProject(repoRegistered); err != nil {
+		t.Fatalf("AddProject() error = %v", err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(home, ".amux", "workspaces-metadata"))
+	if err := store.Save(&data.Workspace{
+		Name:   "registered-main",
+		Branch: "main",
+		Repo:   repoRegistered,
+		Root:   repoRegistered,
+	}); err != nil {
+		t.Fatalf("Save(registered) error = %v", err)
+	}
+	if err := store.Save(&data.Workspace{
+		Name:   "stale-main",
+		Branch: "main",
+		Repo:   repoUnregistered,
+		Root:   repoUnregistered,
+	}); err != nil {
+		t.Fatalf("Save(unregistered) error = %v", err)
+	}
+
+	var w, wErr bytes.Buffer
+	code := cmdWorkspaceList(
+		&w,
+		&wErr,
+		GlobalFlags{JSON: true},
+		[]string{"--repo", repoUnregistered},
+		"test-v1",
+	)
+	if code != ExitOK {
+		t.Fatalf("expected ExitOK, got %d; stderr: %s", code, wErr.String())
+	}
+
+	var env Envelope
+	if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, w.String())
+	}
+	if !env.OK {
+		t.Fatalf("expected ok=true")
+	}
+
+	rows, ok := env.Data.([]any)
+	if !ok {
+		t.Fatalf("expected []any data, got %T", env.Data)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected no rows for unregistered repo filter, got %d", len(rows))
 	}
 }
