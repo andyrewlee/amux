@@ -489,7 +489,7 @@ func taskStartLockPath(home, workspaceID, assistant string) string {
 }
 
 func quoteCommandValue(value string) string {
-	return strconv.Quote(value)
+	return shellQuoteCommandValue(value)
 }
 
 func nonEmpty(value, fallback string) string {
