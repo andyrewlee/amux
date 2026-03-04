@@ -36,6 +36,9 @@ func TestTerminalLayerForcesVisibleCursorForChatTabs(t *testing.T) {
 	if !term.IgnoreCursorVisibilityControls {
 		t.Fatal("expected chat tabs to ignore terminal cursor visibility controls")
 	}
+	if !term.TreatLFAsCRLF {
+		t.Fatal("expected chat tabs to normalize LF as CRLF")
+	}
 }
 
 func TestTerminalLayerPreservesCursorHiddenForNonChatTabs(t *testing.T) {
@@ -66,6 +69,9 @@ func TestTerminalLayerPreservesCursorHiddenForNonChatTabs(t *testing.T) {
 	}
 	if term.IgnoreCursorVisibilityControls {
 		t.Fatal("expected non-chat tabs to honor terminal cursor visibility controls")
+	}
+	if term.TreatLFAsCRLF {
+		t.Fatal("expected non-chat tabs to preserve native LF behavior")
 	}
 }
 

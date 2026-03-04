@@ -8,4 +8,5 @@ func (m *Model) applyTerminalCursorPolicyLocked(tab *Tab) {
 	}
 	isChat := m.isChatTab(tab)
 	tab.Terminal.IgnoreCursorVisibilityControls = isChat
+	tab.Terminal.TreatLFAsCRLF = isChat
 }

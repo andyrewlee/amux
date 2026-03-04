@@ -108,6 +108,7 @@ func (v *VTerm) PrependScrollback(data []byte) {
 
 	// Use a temporary vterm to parse the ANSI content into styled cells.
 	tmp := New(v.Width, v.Height)
+	tmp.TreatLFAsCRLF = v.TreatLFAsCRLF
 	tmp.Write(data)
 
 	// Collect lines: scrollback first, then screen lines (trim trailing unused rows).

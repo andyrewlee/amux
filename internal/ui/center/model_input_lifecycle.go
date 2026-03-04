@@ -80,6 +80,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	}
 	if tab.Terminal != nil {
 		tab.Terminal.AllowAltScreenScrollback = true
+		m.applyTerminalCursorPolicyLocked(tab)
 		if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
 			tab.Terminal.PrependScrollback(msg.ScrollbackCapture)
 		}
@@ -89,7 +90,6 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	tab.Detached = false
 	tab.reattachInFlight = false
 	tab.Running = true
-	m.applyTerminalCursorPolicyLocked(tab)
 	tab.bootstrapActivity = true
 	tab.bootstrapLastOutputAt = time.Now()
 	tab.mu.Unlock()

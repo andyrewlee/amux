@@ -397,6 +397,68 @@ func TestUpdatePtyTabReattachResult_ResetsActivityANSIState(t *testing.T) {
 	}
 }
 
+func TestUpdatePtyTabReattachResult_NormalizesCapturedScrollbackLFForChatTabs(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:        TabID("tab-reattach-lf"),
+		Assistant: "codex",
+		Workspace: ws,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
+		WorkspaceID:       wsID,
+		TabID:             tab.ID,
+		Agent:             &appPty.Agent{Session: "sess-reattach-lf"},
+		Rows:              24,
+		Cols:              80,
+		ScrollbackCapture: []byte("abc\nx"),
+	})
+
+	if tab.Terminal == nil {
+		t.Fatal("expected terminal to be created")
+	}
+	if len(tab.Terminal.Scrollback) < 2 {
+		t.Fatalf("expected at least 2 scrollback lines, got %d", len(tab.Terminal.Scrollback))
+	}
+	if got := tab.Terminal.Scrollback[1][0].Rune; got != 'x' {
+		t.Fatalf("expected captured scrollback LF to reset to col 0, got %q", got)
+	}
+}
+
+func TestHandlePtyTabCreated_NewTabNormalizesCapturedScrollbackLFForChatTabs(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+
+	_ = m.handlePtyTabCreated(ptyTabCreateResult{
+		Workspace:         ws,
+		Assistant:         "codex",
+		Agent:             &appPty.Agent{Session: "sess-created-lf"},
+		Rows:              24,
+		Cols:              80,
+		Activate:          true,
+		ScrollbackCapture: []byte("abc\nx"),
+	})
+
+	tabs := m.tabsByWorkspace[wsID]
+	if len(tabs) != 1 {
+		t.Fatalf("expected 1 tab, got %d", len(tabs))
+	}
+	tab := tabs[0]
+	if tab.Terminal == nil {
+		t.Fatal("expected terminal to be created")
+	}
+	if len(tab.Terminal.Scrollback) < 2 {
+		t.Fatalf("expected at least 2 scrollback lines, got %d", len(tab.Terminal.Scrollback))
+	}
+	if got := tab.Terminal.Scrollback[1][0].Rune; got != 'x' {
+		t.Fatalf("expected captured scrollback LF to reset to col 0, got %q", got)
+	}
+}
+
 func TestHandlePtyTabCreated_ExistingResetsActivityANSIState(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")

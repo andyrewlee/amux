@@ -258,6 +258,25 @@ func TestScrollbackViewOffsetAnchorsOnResize(t *testing.T) {
 	}
 }
 
+func TestLFDoesNotResetColumnByDefault(t *testing.T) {
+	vt := New(10, 3)
+	vt.Write([]byte("abc\nx"))
+
+	if got := vt.Screen[1][3].Rune; got != 'x' {
+		t.Fatalf("expected x at row 1 col 3, got %q", got)
+	}
+}
+
+func TestLFResetsColumnWhenTreatLFAsCRLFEnabled(t *testing.T) {
+	vt := New(10, 3)
+	vt.TreatLFAsCRLF = true
+	vt.Write([]byte("abc\nx"))
+
+	if got := vt.Screen[1][0].Rune; got != 'x' {
+		t.Fatalf("expected x at row 1 col 0, got %q", got)
+	}
+}
+
 func TestResizeRestoresScrollbackOnGrow(t *testing.T) {
 	vt := New(5, 3)
 	// Seed scrollback with two lines.

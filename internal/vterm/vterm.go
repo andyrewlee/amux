@@ -76,6 +76,9 @@ type VTerm struct {
 	// IgnoreCursorVisibilityControls ignores DECTCEM mode 25 hide/show toggles.
 	// Used by chat-style tabs that render a steady cursor independent of app output.
 	IgnoreCursorVisibilityControls bool
+	// TreatLFAsCRLF makes bare LF advance to the next line and return to column 0.
+	// This is useful for some chat agents that emit LF-only streams.
+	TreatLFAsCRLF bool
 
 	// Synchronized output (DEC mode 2026)
 	syncActive        bool

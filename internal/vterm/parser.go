@@ -98,6 +98,9 @@ func (p *Parser) parseGround(b byte) {
 	case b == 0x1b: // ESC
 		p.state = stateEscape
 	case b == '\n': // LF
+		if p.vt.TreatLFAsCRLF {
+			p.vt.carriageReturn()
+		}
 		p.vt.newline()
 	case b == '\r': // CR
 		p.vt.carriageReturn()

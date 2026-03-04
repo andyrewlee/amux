@@ -154,6 +154,19 @@ func TestPrependScrollbackAllBlankContent(t *testing.T) {
 	}
 }
 
+func TestPrependScrollbackRespectsTreatLFAsCRLF(t *testing.T) {
+	vt := New(20, 5)
+	vt.TreatLFAsCRLF = true
+	vt.PrependScrollback([]byte("abc\nx"))
+
+	if len(vt.Scrollback) < 2 {
+		t.Fatalf("expected at least 2 scrollback lines, got %d", len(vt.Scrollback))
+	}
+	if got := vt.Scrollback[1][0].Rune; got != 'x' {
+		t.Fatalf("expected second line to start with x at col 0, got %q", got)
+	}
+}
+
 func TestIsBlankLine(t *testing.T) {
 	blank := MakeBlankLine(10)
 	if !isBlankLine(blank) {

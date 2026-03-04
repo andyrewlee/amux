@@ -27,6 +27,12 @@ func TestAddDetachedTab_SetsLastFocusedFromCreatedAt(t *testing.T) {
 	if tabs[0].lastFocusedAt != time.Unix(createdAt, 0) {
 		t.Fatalf("expected lastFocusedAt=%s, got %s", time.Unix(createdAt, 0), tabs[0].lastFocusedAt)
 	}
+	if tabs[0].Terminal == nil {
+		t.Fatal("expected detached tab terminal")
+	}
+	if !tabs[0].Terminal.TreatLFAsCRLF {
+		t.Fatal("expected chat detached tab to normalize LF as CRLF")
+	}
 }
 
 func TestAddPlaceholderTab_SetsLastFocusedFromCreatedAt(t *testing.T) {
@@ -47,6 +53,12 @@ func TestAddPlaceholderTab_SetsLastFocusedFromCreatedAt(t *testing.T) {
 	}
 	if tabs[0].lastFocusedAt != time.Unix(createdAt, 0) {
 		t.Fatalf("expected lastFocusedAt=%s, got %s", time.Unix(createdAt, 0), tabs[0].lastFocusedAt)
+	}
+	if tabs[0].Terminal == nil {
+		t.Fatal("expected placeholder tab terminal")
+	}
+	if !tabs[0].Terminal.TreatLFAsCRLF {
+		t.Fatal("expected chat placeholder tab to normalize LF as CRLF")
 	}
 }
 

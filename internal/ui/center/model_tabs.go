@@ -210,8 +210,10 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			tab.Terminal = vterm.New(cols, rows)
 			createdTerminal = true
 		}
+		tab.Assistant = msg.Assistant
 		if tab.Terminal != nil {
 			tab.Terminal.AllowAltScreenScrollback = true
+			m.applyTerminalCursorPolicyLocked(tab)
 			if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
 				tab.Terminal.PrependScrollback(msg.ScrollbackCapture)
 			}
@@ -219,7 +221,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		if tab.Name == "" {
 			tab.Name = displayName
 		}
-		tab.Assistant = msg.Assistant
 		tab.Workspace = msg.Workspace
 		tab.Agent = msg.Agent
 		tab.SessionName = msg.Agent.Session
@@ -284,7 +285,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	// Create virtual terminal emulator with scrollback
 	term := vterm.New(cols, rows)
 	term.AllowAltScreenScrollback = true
-	term.PrependScrollback(msg.ScrollbackCapture)
 
 	// Create tab with unique ID (pre-generated if provided)
 	tabID := msg.TabID
@@ -303,7 +303,10 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		createdAt:     now.Unix(),
 		lastFocusedAt: now,
 	}
-	term.IgnoreCursorVisibilityControls = m.isChatTab(tab)
+	isChat := m.isChatTab(tab)
+	term.IgnoreCursorVisibilityControls = isChat
+	term.TreatLFAsCRLF = isChat
+	term.PrependScrollback(msg.ScrollbackCapture)
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)
 	if msg.Agent.Terminal != nil {
