@@ -113,6 +113,116 @@ func TestCmdTaskStart_AllowNewRunUsesTaskRunner(t *testing.T) {
 	}
 }
 
+func TestCmdTaskStart_MapsNeedsInputFlagEvenWhenStatusIdle(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	wsID := createTaskTestWorkspace(t, home)
+
+	origTaskRunAgent := taskRunAgent
+	t.Cleanup(func() {
+		taskRunAgent = origTaskRunAgent
+	})
+	taskRunAgent = func(_ *Services, wsID data.WorkspaceID, assistant, prompt string, waitTimeout, idleThreshold time.Duration, idempotencyKey, version string) (agentRunResult, error) {
+		_ = waitTimeout
+		_ = idleThreshold
+		_ = idempotencyKey
+		_ = version
+		return agentRunResult{
+			SessionName: "sess-needs-input",
+			AgentID:     string(wsID) + ":t_needs_input",
+			WorkspaceID: string(wsID),
+			Assistant:   assistant,
+			TabID:       "t_needs_input",
+			Response: &waitResponseResult{
+				Status:     "idle",
+				Summary:    "Need your choice before I continue.",
+				LatestLine: "Would you like option 1 or option 2?",
+				NeedsInput: true,
+				InputHint:  "Reply with 1 to proceed or 2 to cancel.",
+			},
+		}, nil
+	}
+
+	var out, errOut bytes.Buffer
+	code := cmdTaskStart(&out, &errOut, GlobalFlags{JSON: true}, []string{
+		"--workspace", string(wsID),
+		"--assistant", "codex",
+		"--prompt", "Continue based on your recommendation",
+		"--allow-new-run",
+	}, "test-v1")
+	if code != ExitOK {
+		t.Fatalf("cmdTaskStart() code = %d, stderr=%q out=%q", code, errOut.String(), out.String())
+	}
+
+	payload := decodeTaskResult(t, out.Bytes())
+	if got := taskString(payload, "status"); got != "needs_input" {
+		t.Fatalf("status = %q, want %q", got, "needs_input")
+	}
+	if got := taskString(payload, "overall_status"); got != "needs_input" {
+		t.Fatalf("overall_status = %q, want %q", got, "needs_input")
+	}
+	if suggested := taskString(payload, "suggested_command"); !strings.Contains(suggested, "agent send") {
+		t.Fatalf("suggested_command = %q, want reply command", suggested)
+	}
+}
+
+func TestCmdTaskStart_PreservesSessionExitedOverNeedsInputFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	wsID := createTaskTestWorkspace(t, home)
+
+	origTaskRunAgent := taskRunAgent
+	t.Cleanup(func() {
+		taskRunAgent = origTaskRunAgent
+	})
+	taskRunAgent = func(_ *Services, wsID data.WorkspaceID, assistant, prompt string, waitTimeout, idleThreshold time.Duration, idempotencyKey, version string) (agentRunResult, error) {
+		_ = waitTimeout
+		_ = idleThreshold
+		_ = idempotencyKey
+		_ = version
+		return agentRunResult{
+			SessionName: "sess-exited",
+			AgentID:     string(wsID) + ":t_exited",
+			WorkspaceID: string(wsID),
+			Assistant:   assistant,
+			TabID:       "t_exited",
+			Response: &waitResponseResult{
+				Status:        "session_exited",
+				Summary:       "Session exited after presenting options.",
+				LatestLine:    "Reply with 1 to continue or 2 to cancel.",
+				NeedsInput:    true,
+				InputHint:     "Reply with 1 to continue or 2 to cancel.",
+				SessionExited: true,
+			},
+		}, nil
+	}
+
+	var out, errOut bytes.Buffer
+	code := cmdTaskStart(&out, &errOut, GlobalFlags{JSON: true}, []string{
+		"--workspace", string(wsID),
+		"--assistant", "codex",
+		"--prompt", "Continue with selected option",
+		"--allow-new-run",
+	}, "test-v1")
+	if code != ExitOK {
+		t.Fatalf("cmdTaskStart() code = %d, stderr=%q out=%q", code, errOut.String(), out.String())
+	}
+
+	payload := decodeTaskResult(t, out.Bytes())
+	if got := taskString(payload, "status"); got != "attention" {
+		t.Fatalf("status = %q, want %q", got, "attention")
+	}
+	if got := taskString(payload, "overall_status"); got != "session_exited" {
+		t.Fatalf("overall_status = %q, want %q", got, "session_exited")
+	}
+	suggested := taskString(payload, "suggested_command")
+	if !strings.Contains(suggested, "task start") || strings.Contains(suggested, "agent send") {
+		t.Fatalf("suggested_command = %q, want restart command without agent send", suggested)
+	}
+}
+
 func TestCmdTaskStart_CompletedStaleAgentDoesNotRequireConfirmation(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

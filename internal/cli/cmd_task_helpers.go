@@ -180,7 +180,6 @@ func buildTaskStartResult(workspaceID, assistant, prompt string, run agentRunRes
 		quoteCommandValue(assistant),
 	)
 	result.SuggestedCommand = statusCmd
-
 	if run.Response == nil {
 		result.Status = "attention"
 		result.OverallStatus = "in_progress"
@@ -189,7 +188,6 @@ func buildTaskStartResult(workspaceID, assistant, prompt string, run agentRunRes
 		result.QuickActions = []taskQuickAction{{ID: "status", Label: "Status", Command: statusCmd, Prompt: "Check active task status"}}
 		return result
 	}
-
 	resp := run.Response
 	result.LatestLine = strings.TrimSpace(resp.LatestLine)
 	if result.LatestLine == "" {
@@ -197,8 +195,11 @@ func buildTaskStartResult(workspaceID, assistant, prompt string, run agentRunRes
 	}
 	result.NeedsInput = resp.NeedsInput
 	result.InputHint = strings.TrimSpace(resp.InputHint)
-
-	switch resp.Status {
+	status := strings.TrimSpace(resp.Status)
+	if result.NeedsInput && status != "session_exited" {
+		status = "needs_input"
+	}
+	switch status {
 	case "needs_input":
 		result.Status = "needs_input"
 		result.OverallStatus = "needs_input"
@@ -235,7 +236,6 @@ func buildTaskStartResult(workspaceID, assistant, prompt string, run agentRunRes
 		result.NextAction = "Read output and continue or start a follow-up task."
 		result.QuickActions = []taskQuickAction{{ID: "status", Label: "Status", Command: statusCmd, Prompt: "Check task status"}}
 	}
-
 	return result
 }
 
