@@ -25,6 +25,28 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	opts := m.getTmuxOptions()
 	instanceID := m.instanceID
 	root := ws.Root
+	factory := m.terminalFactory
+
+	// Cloud-runtime workspaces run sidebar terminals via the injected runtime
+	// factory so commands execute inside the sandbox instead of local tmux.
+	if factory != nil && data.NormalizeRuntime(ws.Runtime) == data.RuntimeCloudSandbox {
+		return func() tea.Msg {
+			term, err := factory(ws)
+			if err != nil {
+				return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
+			}
+			if term != nil {
+				if err := term.SetSize(uint16(termHeight), uint16(termWidth)); err != nil {
+					logging.Debug("Initial sandbox terminal resize failed: %v", err)
+				}
+			}
+			return SidebarTerminalCreated{
+				WorkspaceID: wsID,
+				TabID:       tabID,
+				Terminal:    term,
+			}
+		}
+	}
 
 	return func() tea.Msg {
 		shell := os.Getenv("SHELL")
@@ -105,6 +127,9 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 		}
 	}
 	ws := m.workspace
+	if sessionName == "" && m.terminalFactory != nil && data.NormalizeRuntime(ws.Runtime) == data.RuntimeCloudSandbox {
+		return m.attachCloudRuntimeTerminal(ws, tab.ID, "reattach")
+	}
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
@@ -128,12 +153,46 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 		}
 	}
 	ws := m.workspace
+	if sessionName == "" && m.terminalFactory != nil && data.NormalizeRuntime(ws.Runtime) == data.RuntimeCloudSandbox {
+		m.detachState(ts, false)
+		return m.attachCloudRuntimeTerminal(ws, tab.ID, "restart")
+	}
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
 	m.detachState(ts, false)
 	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
 	return m.attachToSession(ws, tab.ID, sessionName, true, "restart")
+}
+
+func (m *TerminalModel) attachCloudRuntimeTerminal(ws *data.Workspace, tabID TerminalTabID, action string) tea.Cmd {
+	if ws == nil || m.terminalFactory == nil {
+		return nil
+	}
+	factory := m.terminalFactory
+	termWidth, termHeight := m.terminalContentSize()
+	wsID := string(ws.ID())
+	return func() tea.Msg {
+		term, err := factory(ws)
+		if err != nil {
+			return SidebarTerminalReattachFailed{
+				WorkspaceID: wsID,
+				TabID:       tabID,
+				Err:         err,
+				Action:      action,
+			}
+		}
+		if term != nil {
+			if err := term.SetSize(uint16(termHeight), uint16(termWidth)); err != nil {
+				logging.Debug("Initial sandbox terminal resize failed: %v", err)
+			}
+		}
+		return SidebarTerminalReattachResult{
+			WorkspaceID: wsID,
+			TabID:       tabID,
+			Terminal:    term,
+		}
+	}
 }
 
 func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName string, detachExisting bool, action string) tea.Cmd {
