@@ -61,6 +61,7 @@ type LazygitModel struct {
 	readerCancel chan struct{}
 	ptyMsgCh     chan tea.Msg
 	ptyHeartbeat int64
+	runGen       uint64
 
 	// Snapshot cache
 	cachedSnap       *compositor.VTermSnapshot
@@ -133,8 +134,10 @@ func (m *LazygitModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.stopLazygit()
 	m.workspace = ws
 	if ws == nil {
+		logging.Info("lazygit: workspace cleared")
 		return nil
 	}
+	logging.Info("lazygit: starting for workspace=%s root=%s size=%dx%d", ws.ID(), ws.Root, m.width, m.height)
 	return m.startLazygit()
 }
 
@@ -178,27 +181,34 @@ func (m *LazygitModel) startLazygit() tea.Cmd {
 	wsID := string(ws.ID())
 	root := ws.Root
 
+	m.runGen++
+	gen := m.runGen
+
 	return func() tea.Msg {
 		env := []string{"COLORTERM=truecolor"}
+		logging.Info("lazygit: launching PTY workspace=%s root=%s size=%dx%d gen=%d", wsID, root, termWidth, termHeight, gen)
 		term, err := pty.NewWithSize("lazygit", root, env, uint16(termHeight), uint16(termWidth))
 		if err != nil {
-			return LazygitStarted{WorkspaceID: wsID, Err: err}
+			logging.Warn("lazygit: PTY launch failed: %v", err)
+			return LazygitStarted{WorkspaceID: wsID, RunGen: gen, Err: err}
 		}
-		return LazygitStarted{WorkspaceID: wsID, Terminal: term}
+		logging.Info("lazygit: PTY launched OK workspace=%s gen=%d", wsID, gen)
+		return LazygitStarted{WorkspaceID: wsID, RunGen: gen, Terminal: term}
 	}
 }
 
 // LazygitStarted is returned when lazygit starts (or fails to start).
 type LazygitStarted struct {
 	WorkspaceID string
+	RunGen      uint64
 	Terminal    *pty.Terminal
 	Err         error
 }
 
 // handleStarted processes a LazygitStarted message.
 func (m *LazygitModel) handleStarted(msg LazygitStarted) tea.Cmd {
-	if m.workspace == nil || string(m.workspace.ID()) != msg.WorkspaceID {
-		// Stale - workspace changed before lazygit started
+	if msg.RunGen != m.runGen {
+		// Stale - workspace or gen changed before lazygit started
 		if msg.Terminal != nil {
 			msg.Terminal.Close()
 		}
@@ -238,7 +248,7 @@ func (m *LazygitModel) handleStarted(msg LazygitStarted) tea.Cmd {
 	m.cachedVersion = 0
 	m.mu.Unlock()
 
-	return m.startPTYReader(msg.WorkspaceID)
+	return m.startPTYReader(msg.WorkspaceID, msg.RunGen)
 }
 
 // stopLazygit stops the running lazygit PTY.
@@ -253,13 +263,16 @@ func (m *LazygitModel) stopLazygit() {
 	m.cachedSnap = nil
 	m.cachedVersion = 0
 	m.mu.Unlock()
+	// Reset flush state so the next workspace's output gets a fresh flush schedule.
+	m.flushScheduled = false
+	m.flushPendingSince = time.Time{}
 	if term != nil {
 		term.Close()
 	}
 }
 
 // startPTYReader starts the goroutine that reads from the lazygit PTY.
-func (m *LazygitModel) startPTYReader(wsID string) tea.Cmd {
+func (m *LazygitModel) startPTYReader(wsID string, gen uint64) tea.Cmd {
 	m.mu.Lock()
 	if m.readerActive {
 		m.mu.Unlock()
@@ -293,10 +306,10 @@ func (m *LazygitModel) startPTYReader(wsID string) tea.Cmd {
 			MaxPendingBytes: lazygitMaxPendingBytes,
 		}, common.PTYMsgFactory{
 			Output: func(data []byte) tea.Msg {
-				return messages.LazygitPTYOutput{WorkspaceID: wsID, Data: data}
+				return messages.LazygitPTYOutput{WorkspaceID: wsID, RunGen: gen, Data: data}
 			},
 			Stopped: func(err error) tea.Msg {
-				return messages.LazygitPTYStopped{WorkspaceID: wsID, Err: err}
+				return messages.LazygitPTYStopped{WorkspaceID: wsID, RunGen: gen, Err: err}
 			},
 		})
 	})
@@ -427,7 +440,7 @@ func (m *LazygitModel) Update(msg tea.Msg) (*LazygitModel, tea.Cmd) {
 }
 
 func (m *LazygitModel) handlePTYOutput(msg messages.LazygitPTYOutput) tea.Cmd {
-	if m.workspace == nil || string(m.workspace.ID()) != msg.WorkspaceID {
+	if msg.RunGen != m.runGen {
 		return nil
 	}
 	m.pendingOutput = append(m.pendingOutput, msg.Data...)
@@ -440,15 +453,16 @@ func (m *LazygitModel) handlePTYOutput(msg messages.LazygitPTYOutput) tea.Cmd {
 		m.flushScheduled = true
 		m.flushPendingSince = m.lastOutputAt
 		wsID := msg.WorkspaceID
+		gen := msg.RunGen
 		return common.SafeTick(lazygitFlushQuiet, func(time.Time) tea.Msg {
-			return messages.LazygitPTYFlush{WorkspaceID: wsID}
+			return messages.LazygitPTYFlush{WorkspaceID: wsID, RunGen: gen}
 		})
 	}
 	return nil
 }
 
 func (m *LazygitModel) handlePTYFlush(msg messages.LazygitPTYFlush) tea.Cmd {
-	if m.workspace == nil || string(m.workspace.ID()) != msg.WorkspaceID {
+	if msg.RunGen != m.runGen {
 		return nil
 	}
 	now := time.Now()
@@ -464,8 +478,9 @@ func (m *LazygitModel) handlePTYFlush(msg messages.LazygitPTYFlush) tea.Cmd {
 		}
 		m.flushScheduled = true
 		wsID := msg.WorkspaceID
+		gen := msg.RunGen
 		return common.SafeTick(delay, func(time.Time) tea.Msg {
-			return messages.LazygitPTYFlush{WorkspaceID: wsID}
+			return messages.LazygitPTYFlush{WorkspaceID: wsID, RunGen: gen}
 		})
 	}
 	m.flushScheduled = false
@@ -494,8 +509,9 @@ func (m *LazygitModel) handlePTYFlush(msg messages.LazygitPTYFlush) tea.Cmd {
 			m.flushScheduled = true
 			m.flushPendingSince = time.Now()
 			wsID := msg.WorkspaceID
+			gen := msg.RunGen
 			return common.SafeTick(lazygitFlushQuiet, func(time.Time) tea.Msg {
-				return messages.LazygitPTYFlush{WorkspaceID: wsID}
+				return messages.LazygitPTYFlush{WorkspaceID: wsID, RunGen: gen}
 			})
 		}
 	}
@@ -503,14 +519,15 @@ func (m *LazygitModel) handlePTYFlush(msg messages.LazygitPTYFlush) tea.Cmd {
 }
 
 func (m *LazygitModel) handlePTYStopped(msg messages.LazygitPTYStopped) {
-	if m.workspace == nil || string(m.workspace.ID()) != msg.WorkspaceID {
+	if msg.RunGen != m.runGen {
+		logging.Info("lazygit: PTY stopped (stale gen=%d current=%d) workspace=%s err=%v", msg.RunGen, m.runGen, msg.WorkspaceID, msg.Err)
 		return
 	}
 	m.stopPTYReader()
 	m.mu.Lock()
 	m.running = false
 	m.mu.Unlock()
-	logging.Info("lazygit PTY stopped for workspace %s: %v", msg.WorkspaceID, msg.Err)
+	logging.Warn("lazygit: PTY stopped workspace=%s err=%v", msg.WorkspaceID, msg.Err)
 }
 
 // TerminalLayer returns a VTermLayer for compositor rendering.

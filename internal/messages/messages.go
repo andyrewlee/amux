@@ -368,16 +368,19 @@ type OpenFileInVim struct {
 // LazygitPTYOutput contains PTY output for the lazygit sidebar pane
 type LazygitPTYOutput struct {
 	WorkspaceID string
+	RunGen      uint64
 	Data        []byte
 }
 
 // LazygitPTYFlush applies buffered PTY output for the lazygit sidebar pane
 type LazygitPTYFlush struct {
 	WorkspaceID string
+	RunGen      uint64
 }
 
 // LazygitPTYStopped signals that the lazygit PTY read loop has stopped
 type LazygitPTYStopped struct {
 	WorkspaceID string
+	RunGen      uint64
 	Err         error
 }
