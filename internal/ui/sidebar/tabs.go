@@ -8,15 +8,16 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
 // SidebarTab represents a tab type in the sidebar
 type SidebarTab int
 
 const (
-	TabChanges SidebarTab = iota
+	TabGit SidebarTab = iota
 	TabProject
 )
 
@@ -24,7 +25,7 @@ const (
 type tabHitKind int
 
 const (
-	tabHitChanges tabHitKind = iota
+	tabHitGit tabHitKind = iota
 	tabHitProject
 )
 
@@ -34,10 +35,10 @@ type tabHit struct {
 	region common.HitRegion
 }
 
-// TabbedSidebar wraps the Changes and Project views with tabs
+// TabbedSidebar wraps the Git (lazygit) and Project views with tabs
 type TabbedSidebar struct {
 	activeTab   SidebarTab
-	changes     *Model
+	lazygit     *LazygitModel
 	projectTree *ProjectTree
 	tabHits     []tabHit
 
@@ -53,8 +54,8 @@ type TabbedSidebar struct {
 // NewTabbedSidebar creates a new tabbed sidebar
 func NewTabbedSidebar() *TabbedSidebar {
 	return &TabbedSidebar{
-		activeTab:   TabChanges,
-		changes:     New(),
+		activeTab:   TabGit,
+		lazygit:     NewLazygitModel(),
 		projectTree: NewProjectTree(),
 		styles:      common.DefaultStyles(),
 	}
@@ -63,21 +64,26 @@ func NewTabbedSidebar() *TabbedSidebar {
 // SetShowKeymapHints controls whether helper text is rendered.
 func (m *TabbedSidebar) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
-	m.changes.SetShowKeymapHints(show)
+	m.lazygit.SetShowKeymapHints(show)
 	m.projectTree.SetShowKeymapHints(show)
 }
 
 // SetStyles updates the component's styles (for theme changes).
 func (m *TabbedSidebar) SetStyles(styles common.Styles) {
 	m.styles = styles
-	m.changes.SetStyles(styles)
+	m.lazygit.SetStyles(styles)
 	m.projectTree.SetStyles(styles)
+}
+
+// SetMsgSink sets the PTY message sink for the lazygit model.
+func (m *TabbedSidebar) SetMsgSink(sink func(tea.Msg)) {
+	m.lazygit.SetMsgSink(sink)
 }
 
 // Init initializes the tabbed sidebar
 func (m *TabbedSidebar) Init() tea.Cmd {
 	return common.SafeBatch(
-		m.changes.Init(),
+		m.lazygit.Init(),
 		m.projectTree.Init(),
 	)
 }
@@ -94,8 +100,8 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			for _, hit := range m.tabHits {
 				if hit.region.Contains(msg.X, msg.Y) {
 					switch hit.kind {
-					case tabHitChanges:
-						m.activeTab = TabChanges
+					case tabHitGit:
+						m.activeTab = TabGit
 						m.updateFocus()
 					case tabHitProject:
 						m.activeTab = TabProject
@@ -113,9 +119,9 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			Y:      msg.Y - 1, // Subtract tab bar height
 		}
 		switch m.activeTab {
-		case TabChanges:
+		case TabGit:
 			var cmd tea.Cmd
-			m.changes, cmd = m.changes.Update(adjustedMsg)
+			m.lazygit, cmd = m.lazygit.Update(adjustedMsg)
 			cmds = append(cmds, cmd)
 		case TabProject:
 			var cmd tea.Cmd
@@ -132,9 +138,9 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			Y:      msg.Y - 1,
 		}
 		switch m.activeTab {
-		case TabChanges:
+		case TabGit:
 			var cmd tea.Cmd
-			m.changes, cmd = m.changes.Update(adjustedMsg)
+			m.lazygit, cmd = m.lazygit.Update(adjustedMsg)
 			cmds = append(cmds, cmd)
 		case TabProject:
 			var cmd tea.Cmd
@@ -148,7 +154,7 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 		if m.focused {
 			switch {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("1"))):
-				m.activeTab = TabChanges
+				m.activeTab = TabGit
 				m.updateFocus()
 				return m, nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("2"))):
@@ -159,11 +165,20 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 		}
 	}
 
+	// Forward lazygit PTY messages to lazygit model regardless of active tab
+	switch msg.(type) {
+	case LazygitStarted, messages.LazygitPTYOutput, messages.LazygitPTYFlush, messages.LazygitPTYStopped:
+		var cmd tea.Cmd
+		m.lazygit, cmd = m.lazygit.Update(msg)
+		cmds = append(cmds, cmd)
+		return m, common.SafeBatch(cmds...)
+	}
+
 	// Forward messages to active tab
 	switch m.activeTab {
-	case TabChanges:
+	case TabGit:
 		var cmd tea.Cmd
-		m.changes, cmd = m.changes.Update(msg)
+		m.lazygit, cmd = m.lazygit.Update(msg)
 		cmds = append(cmds, cmd)
 	case TabProject:
 		var cmd tea.Cmd
@@ -178,15 +193,15 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 func (m *TabbedSidebar) updateFocus() {
 	if m.focused {
 		switch m.activeTab {
-		case TabChanges:
-			m.changes.Focus()
+		case TabGit:
+			m.lazygit.Focus()
 			m.projectTree.Blur()
 		case TabProject:
-			m.changes.Blur()
+			m.lazygit.Blur()
 			m.projectTree.Focus()
 		}
 	} else {
-		m.changes.Blur()
+		m.lazygit.Blur()
 		m.projectTree.Blur()
 	}
 }
@@ -205,26 +220,26 @@ func (m *TabbedSidebar) renderTabBar() string {
 	var tabs []string
 	x := 0
 
-	// Changes tab
-	changesLabel := "Changes"
-	var changesRendered string
-	if m.activeTab == TabChanges {
-		changesRendered = activeTabStyle.Render(changesLabel)
+	// Git tab (lazygit)
+	gitLabel := "Git"
+	var gitRendered string
+	if m.activeTab == TabGit {
+		gitRendered = activeTabStyle.Render(gitLabel)
 	} else {
-		changesRendered = inactiveStyle.Render(m.styles.Muted.Render(changesLabel))
+		gitRendered = inactiveStyle.Render(m.styles.Muted.Render(gitLabel))
 	}
-	changesWidth := lipgloss.Width(changesRendered)
+	gitWidth := lipgloss.Width(gitRendered)
 	m.tabHits = append(m.tabHits, tabHit{
-		kind: tabHitChanges,
+		kind: tabHitGit,
 		region: common.HitRegion{
 			X:      x,
 			Y:      0,
-			Width:  changesWidth,
+			Width:  gitWidth,
 			Height: 1,
 		},
 	})
-	tabs = append(tabs, changesRendered)
-	x += changesWidth
+	tabs = append(tabs, gitRendered)
+	x += gitWidth
 
 	// Project tab
 	projectLabel := "Project"
@@ -269,9 +284,9 @@ func (m *TabbedSidebar) View() string {
 
 	var content string
 	switch m.activeTab {
-	case TabChanges:
-		m.changes.SetSize(m.width, contentHeight)
-		content = m.changes.View()
+	case TabGit:
+		m.lazygit.SetSize(m.width, contentHeight)
+		content = m.lazygit.View()
 	case TabProject:
 		m.projectTree.SetSize(m.width, contentHeight)
 		content = m.projectTree.View()
@@ -294,9 +309,9 @@ func (m *TabbedSidebar) ContentView() string {
 	}
 
 	switch m.activeTab {
-	case TabChanges:
-		m.changes.SetSize(m.width, contentHeight)
-		return m.changes.View()
+	case TabGit:
+		m.lazygit.SetSize(m.width, contentHeight)
+		return m.lazygit.View()
 	case TabProject:
 		m.projectTree.SetSize(m.width, contentHeight)
 		return m.projectTree.View()
@@ -313,7 +328,7 @@ func (m *TabbedSidebar) SetSize(width, height int) {
 	if contentHeight < 0 {
 		contentHeight = 0
 	}
-	m.changes.SetSize(width, contentHeight)
+	m.lazygit.SetSize(width, contentHeight)
 	m.projectTree.SetSize(width, contentHeight)
 }
 
@@ -326,7 +341,7 @@ func (m *TabbedSidebar) Focus() {
 // Blur removes focus
 func (m *TabbedSidebar) Blur() {
 	m.focused = false
-	m.changes.Blur()
+	m.lazygit.Blur()
 	m.projectTree.Blur()
 }
 
@@ -336,15 +351,11 @@ func (m *TabbedSidebar) Focused() bool {
 }
 
 // SetWorkspace sets the active workspace
-func (m *TabbedSidebar) SetWorkspace(ws *data.Workspace) {
+func (m *TabbedSidebar) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.workspace = ws
-	m.changes.SetWorkspace(ws)
+	cmd := m.lazygit.SetWorkspace(ws)
 	m.projectTree.SetWorkspace(ws)
-}
-
-// SetGitStatus sets the git status (forwards to changes view)
-func (m *TabbedSidebar) SetGitStatus(status *git.StatusResult) {
-	m.changes.SetGitStatus(status)
+	return cmd
 }
 
 // ActiveTab returns the currently active tab
@@ -360,30 +371,44 @@ func (m *TabbedSidebar) SetActiveTab(tab SidebarTab) {
 
 // NextTab switches to the next tab (circular)
 func (m *TabbedSidebar) NextTab() {
-	if m.activeTab == TabChanges {
+	if m.activeTab == TabGit {
 		m.activeTab = TabProject
 	} else {
-		m.activeTab = TabChanges
+		m.activeTab = TabGit
 	}
 	m.updateFocus()
 }
 
 // PrevTab switches to the previous tab (circular)
 func (m *TabbedSidebar) PrevTab() {
-	if m.activeTab == TabChanges {
+	if m.activeTab == TabGit {
 		m.activeTab = TabProject
 	} else {
-		m.activeTab = TabChanges
+		m.activeTab = TabGit
 	}
 	m.updateFocus()
 }
 
-// Changes returns the changes model (for direct access if needed)
-func (m *TabbedSidebar) Changes() *Model {
-	return m.changes
+// Lazygit returns the lazygit model (for direct access if needed)
+func (m *TabbedSidebar) Lazygit() *LazygitModel {
+	return m.lazygit
 }
 
 // ProjectTree returns the project tree model (for direct access if needed)
 func (m *TabbedSidebar) ProjectTree() *ProjectTree {
 	return m.projectTree
+}
+
+// TerminalLayerWithCursorOwner returns a VTermLayer for the lazygit pane when
+// the Git tab is active, enforcing cursor ownership.
+func (m *TabbedSidebar) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTermLayer {
+	if m.activeTab != TabGit {
+		return nil
+	}
+	return m.lazygit.TerminalLayerWithCursorOwner(cursorOwner)
+}
+
+// Close shuts down the sidebar (stops lazygit PTY).
+func (m *TabbedSidebar) Close() {
+	m.lazygit.Close()
 }

@@ -17,6 +17,9 @@ func (a *App) Shutdown() {
 		if a.center != nil {
 			a.center.Close()
 		}
+		if a.sidebar != nil {
+			a.sidebar.Close()
+		}
 		if a.sidebarTerminal != nil {
 			a.sidebarTerminal.CloseAll()
 		}

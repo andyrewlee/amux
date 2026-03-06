@@ -249,6 +249,12 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 		centerStart += a.layout.GapX()
 		centerEnd := centerStart + a.layout.CenterWidth()
 		if x >= centerStart && x < centerEnd {
+			// Center column: top = agent, bottom = terminal
+			localY := y - topGutter
+			centerTopHeight, _ := centerPaneHeights(height)
+			if localY >= centerTopHeight {
+				return messages.PaneSidebarTerminal, true
+			}
 			return messages.PaneCenter, true
 		}
 		centerStart = centerEnd
@@ -264,11 +270,6 @@ func (a *App) paneForPoint(x, y int) (messages.PaneType, bool) {
 		return paneNone, false
 	}
 
-	localY := y - topGutter
-	topPaneHeight, _ := sidebarPaneHeights(height)
-	if localY >= topPaneHeight {
-		return messages.PaneSidebarTerminal, true
-	}
 	return messages.PaneSidebar, true
 }
 

@@ -267,6 +267,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case sidebar.LazygitStarted, messages.LazygitPTYOutput, messages.LazygitPTYFlush, messages.LazygitPTYStopped:
+		if cmd := a.handleLazygitMessages(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case sidebar.OpenFileInEditor:
 		if cmd := a.handleOpenFileInEditor(msg); cmd != nil {
 			cmds = append(cmds, cmd)

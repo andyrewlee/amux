@@ -368,59 +368,49 @@ func (a *App) sendPrefixToTerminal() {
 
 // updateLayout updates component sizes based on window size
 func (a *App) updateLayout() {
-	a.dashboard.SetSize(a.layout.DashboardWidth(), a.layout.Height())
-
-	centerWidth := a.layout.CenterWidth()
-	a.center.SetSize(centerWidth, a.layout.Height())
 	leftGutter := a.layout.LeftGutter()
 	topGutter := a.layout.TopGutter()
+
+	// Left column: dashboard full height
+	dashWidth := a.layout.DashboardWidth()
+	a.dashboard.SetSize(dashWidth, a.layout.Height())
+
+	// Center column: agent (top 3/4) + terminal (bottom 1/4)
+	centerWidth := a.layout.CenterWidth()
+	centerTopHeight, centerBottomHeight := centerPaneHeights(a.layout.Height())
+	a.center.SetSize(centerWidth, centerTopHeight)
 	gapX := 0
 	if a.layout.ShowCenter() {
 		gapX = a.layout.GapX()
 	}
-	a.center.SetOffset(leftGutter + a.layout.DashboardWidth() + gapX) // Set X offset for mouse coordinate conversion
+	centerX := leftGutter + dashWidth + gapX
+	a.center.SetOffset(centerX) // Set X offset for mouse coordinate conversion
 	a.center.SetCanFocusRight(a.layout.ShowSidebar())
 	a.dashboard.SetCanFocusRight(a.layout.ShowCenter())
 
-	// New two-pane sidebar structure: each pane has its own border
+	termContentWidth := centerWidth - 4
+	if termContentWidth < 1 {
+		termContentWidth = 1
+	}
+	termContentHeight := centerBottomHeight - 2
+	if termContentHeight < 1 {
+		termContentHeight = 1
+	}
+	a.sidebarTerminal.SetSize(termContentWidth, termContentHeight)
+	// Terminal offset: inside center column border+padding, below agent pane
+	a.sidebarTerminal.SetOffset(centerX+2, topGutter+centerTopHeight+1)
+
+	// Right sidebar: full height (no split)
 	sidebarWidth := a.layout.SidebarWidth()
-	sidebarHeight := a.layout.Height()
-
-	// Each pane gets half the height (borders touch)
-	topPaneHeight, bottomPaneHeight := sidebarPaneHeights(sidebarHeight)
-
-	// Content dimensions inside each pane (subtract border + padding)
-	// Border: 2 (top + bottom), Padding: 2 (left + right from Pane style)
-	contentWidth := sidebarWidth - 2 - 2 // border + padding
-	if contentWidth < 1 {
-		contentWidth = 1
+	sidebarContentWidth := sidebarWidth - 4
+	if sidebarContentWidth < 1 {
+		sidebarContentWidth = 1
 	}
-	topContentHeight := topPaneHeight - 2 // border only (no vertical padding in Pane style)
-	if topContentHeight < 1 {
-		topContentHeight = 1
+	sidebarContentHeight := a.layout.Height() - 2
+	if sidebarContentHeight < 1 {
+		sidebarContentHeight = 1
 	}
-	bottomContentHeight := bottomPaneHeight - 2
-	if bottomContentHeight < 1 {
-		bottomContentHeight = 1
-	}
-
-	a.sidebar.SetSize(contentWidth, topContentHeight)
-	a.sidebarTerminal.SetSize(contentWidth, bottomContentHeight)
-
-	// Calculate and set offsets for sidebar mouse handling
-	// X: Dashboard + Center + Border(1) + Padding(1)
-	sidebarX := leftGutter + a.layout.DashboardWidth()
-	if a.layout.ShowCenter() {
-		sidebarX += a.layout.GapX() + a.layout.CenterWidth()
-	}
-	if a.layout.ShowSidebar() {
-		sidebarX += a.layout.GapX()
-	}
-	sidebarContentOffsetX := sidebarX + 2 // +2 for border and padding
-
-	// Y: Top pane height (including its border) + Bottom pane border(1)
-	termOffsetY := topGutter + topPaneHeight + 1
-	a.sidebarTerminal.SetOffset(sidebarContentOffsetX, termOffsetY)
+	a.sidebar.SetSize(sidebarContentWidth, sidebarContentHeight)
 
 	if a.dialog != nil {
 		a.dialog.SetSize(a.width, a.height)
@@ -484,6 +474,26 @@ func sidebarPaneHeights(total int) (int, int) {
 	}
 	if bottom < 0 {
 		bottom = 0
+	}
+	return top, bottom
+}
+
+// centerPaneHeights splits the center column: ~3/4 for the agent, ~1/4 for the terminal.
+func centerPaneHeights(total int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	bottom := total / 4
+	if bottom < 3 {
+		bottom = 3
+	}
+	top := total - bottom
+	if top < 3 {
+		top = 3
+		bottom = total - top
+		if bottom < 0 {
+			bottom = 0
+		}
 	}
 	return top, bottom
 }

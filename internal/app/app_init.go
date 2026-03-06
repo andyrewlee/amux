@@ -129,6 +129,7 @@ func New(version, commit, date string) (*App, error) {
 	// Route PTY messages through the app-level pump.
 	app.center.SetMsgSink(app.enqueueExternalMsg)
 	app.sidebarTerminal.SetMsgSink(app.enqueueExternalMsg)
+	app.sidebar.SetMsgSink(app.enqueueExternalMsg)
 	app.center.SetInstanceID(app.instanceID)
 	app.sidebarTerminal.SetInstanceID(app.instanceID)
 	// Apply saved theme before creating styles

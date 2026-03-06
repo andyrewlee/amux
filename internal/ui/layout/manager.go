@@ -104,22 +104,27 @@ func (m *Manager) calculateThreePaneWidths() {
 	// Dashboard: fixed width
 	m.dashboardWidth = m.startupLeftWidth
 
-	// Sidebar: fixed width
-	m.sidebarWidth = m.startupRightWidth
-
-	// Center: remaining space
-	m.centerWidth = m.totalWidth - m.dashboardWidth - m.sidebarWidth - (m.gapX * 2)
+	// Split remaining space equally between center and sidebar
+	remaining := m.totalWidth - m.dashboardWidth - (m.gapX * 2)
+	if remaining < 0 {
+		remaining = 0
+	}
+	m.centerWidth = remaining / 2
+	m.sidebarWidth = remaining - m.centerWidth
 
 	// Ensure minimums
 	if m.centerWidth < m.minChatWidth {
-		// Reduce sidebar first
-		deficit := m.minChatWidth - m.centerWidth
-		m.sidebarWidth -= deficit
 		m.centerWidth = m.minChatWidth
-
+		m.sidebarWidth = remaining - m.centerWidth
 		if m.sidebarWidth < m.minSidebarWidth {
 			m.sidebarWidth = m.minSidebarWidth
-			m.centerWidth = m.totalWidth - m.dashboardWidth - m.sidebarWidth - (m.gapX * 2)
+		}
+	}
+	if m.sidebarWidth < m.minSidebarWidth {
+		m.sidebarWidth = m.minSidebarWidth
+		m.centerWidth = remaining - m.sidebarWidth
+		if m.centerWidth < m.minChatWidth {
+			m.centerWidth = m.minChatWidth
 		}
 	}
 }

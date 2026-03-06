@@ -53,8 +53,7 @@ func (a *App) goHome() {
 		a.center.SetWorkspace(nil)
 	}
 	if a.sidebar != nil {
-		a.sidebar.SetWorkspace(nil)
-		a.sidebar.SetGitStatus(nil)
+		_ = a.sidebar.SetWorkspace(nil)
 	}
 	if a.sidebarTerminal != nil {
 		_ = a.sidebarTerminal.SetWorkspace(nil)

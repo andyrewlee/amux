@@ -24,6 +24,13 @@ func (a *App) handleSidebarPTYMessages(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// handleLazygitMessages handles PTY-related messages for the lazygit sidebar pane.
+func (a *App) handleLazygitMessages(msg tea.Msg) tea.Cmd {
+	newSidebar, cmd := a.sidebar.Update(msg)
+	a.sidebar = newSidebar
+	return cmd
+}
+
 // handleGitStatusTick handles the GitStatusTick message.
 func (a *App) handleGitStatusTick() []tea.Cmd {
 	var cmds []tea.Cmd

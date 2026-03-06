@@ -156,6 +156,10 @@ func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {
 		newTerm, cmd := a.sidebarTerminal.Update(msg)
 		a.sidebarTerminal = newTerm
 		return cmd
+	case messages.PaneSidebar:
+		newSidebar, cmd := a.sidebar.Update(msg)
+		a.sidebar = newSidebar
+		return cmd
 	}
 	return nil
 }
