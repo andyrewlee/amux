@@ -25,7 +25,6 @@ linters:
     - unused
     - usestdlibvars
     - whitespace
-
 linters-settings:
   depguard:
     rules:

@@ -29,6 +29,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
           verify: false
           args: --timeout=10m
 
@@ -115,5 +116,6 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
           verify: false
           args: --config=.golangci.strict.yml --new-from-rev=${{ github.event.pull_request.base.sha }} --timeout=10m
