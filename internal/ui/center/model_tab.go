@@ -37,10 +37,14 @@ func newTabIDPrefix() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 36)
 }
 
+func formatTabID(prefix string, id uint64) TabID {
+	return TabID(fmt.Sprintf("tab-%s-%s", prefix, strconv.FormatUint(id, 36)))
+}
+
 // generateTabID creates a new unique tab ID
 func generateTabID() TabID {
 	id := atomic.AddUint64(&tabIDCounter, 1)
-	return TabID(fmt.Sprintf("tab-%s-%s", tabIDPrefix, strconv.FormatUint(id, 36)))
+	return formatTabID(tabIDPrefix, id)
 }
 
 // Tab represents a single tab in the center pane

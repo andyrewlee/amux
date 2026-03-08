@@ -175,21 +175,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			}
 		}
 	}
-	if existing == nil && msg.TabID == "" {
-		sessionName := strings.TrimSpace(msg.Agent.Session)
-		if sessionName != "" {
-			for i, tab := range tabs {
-				if tab == nil || tab.isClosed() {
-					continue
-				}
-				if tab.SessionName == sessionName || (tab.Agent != nil && tab.Agent.Session == sessionName) {
-					existing = tab
-					existingIdx = i
-					break
-				}
-			}
-		}
-	}
 
 	displayName := strings.TrimSpace(msg.DisplayName)
 
