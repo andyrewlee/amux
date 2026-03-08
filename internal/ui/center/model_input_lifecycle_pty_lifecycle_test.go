@@ -3,6 +3,7 @@ package center
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 )
 
@@ -81,6 +82,7 @@ func TestHandlePtyTabCreated_NewTabNormalizesCapturedScrollbackLFForChatTabs(t *
 		Workspace:         ws,
 		Assistant:         "codex",
 		Agent:             &appPty.Agent{Session: "sess-created-lf"},
+		TabID:             TabID("tab-created-lf"),
 		Rows:              24,
 		Cols:              80,
 		Activate:          true,
@@ -127,6 +129,36 @@ func TestHandlePtyTabCreated_ExistingResetsActivityANSIState(t *testing.T) {
 
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on existing tab create path, got %v", tab.activityANSIState)
+	}
+}
+
+func TestHandlePtyTabCreated_RejectsMissingTabID(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+
+	cmd := m.handlePtyTabCreated(ptyTabCreateResult{
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-missing-id"},
+		Rows:      24,
+		Cols:      80,
+		Activate:  true,
+	})
+	if cmd == nil {
+		t.Fatal("expected error command for missing tab id")
+	}
+
+	msg := cmd()
+	errMsg, ok := msg.(messages.Error)
+	if !ok {
+		t.Fatalf("expected messages.Error, got %T", msg)
+	}
+	if errMsg.Err == nil || errMsg.Err.Error() != "missing tab id" {
+		t.Fatalf("expected missing tab id error, got %v", errMsg.Err)
+	}
+	if len(m.tabsByWorkspace[wsID]) != 0 {
+		t.Fatalf("expected no tabs to be created on missing tab id, got %d", len(m.tabsByWorkspace[wsID]))
 	}
 }
 

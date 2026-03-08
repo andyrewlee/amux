@@ -3,7 +3,6 @@ package center
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"os"
 	"strconv"
 	"sync"
@@ -38,7 +37,7 @@ func newTabIDPrefix() string {
 }
 
 func formatTabID(prefix string, id uint64) TabID {
-	return TabID(fmt.Sprintf("tab-%s-%s", prefix, strconv.FormatUint(id, 36)))
+	return TabID("tab-" + prefix + "-" + strconv.FormatUint(id, 36))
 }
 
 // generateTabID creates a new unique tab ID
