@@ -73,8 +73,20 @@ func resolvePersistentMount(provider Provider, userSpecs []VolumeSpec, volumeNam
 	return &VolumeMount{VolumeID: volume.ID, MountPath: persistMountPath}, nil
 }
 
-// CreateSandboxSession always creates a new sandbox for this run.
+// CreateSandboxSession always creates a new sandbox for this run and persists
+// metadata for the current worktree.
 func CreateSandboxSession(provider Provider, cwd string, cfg SandboxConfig) (RemoteSandbox, *SandboxMeta, error) {
+	return createSandboxSession(provider, cwd, cfg, true)
+}
+
+// CreateSandboxSessionNoMeta creates a new sandbox without mutating sandbox metadata.
+// This is useful for temporary diagnostics where the project's active sandbox record
+// should remain untouched.
+func CreateSandboxSessionNoMeta(provider Provider, cwd string, cfg SandboxConfig) (RemoteSandbox, *SandboxMeta, error) {
+	return createSandboxSession(provider, cwd, cfg, false)
+}
+
+func createSandboxSession(provider Provider, cwd string, cfg SandboxConfig, persistMeta bool) (RemoteSandbox, *SandboxMeta, error) {
 	if provider == nil {
 		return nil, nil, errors.New("provider is required")
 	}
@@ -141,8 +153,10 @@ func CreateSandboxSession(provider Provider, cwd string, cfg SandboxConfig) (Rem
 		WorktreeID: worktreeID,
 		Project:    project,
 	}
-	if err := SaveSandboxMeta(cwd, providerName, *meta); err != nil {
-		return nil, nil, err
+	if persistMeta {
+		if err := SaveSandboxMeta(cwd, providerName, *meta); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return sb, meta, nil

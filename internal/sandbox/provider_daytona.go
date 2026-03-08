@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os/exec"
 	"strings"
 	"time"
@@ -14,6 +15,17 @@ import (
 
 type daytonaProvider struct {
 	client *daytona.Daytona
+}
+
+func wrapDaytonaNotFound(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *daytona.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return NewSandboxError(ErrCodeSandboxMissing, op, err)
+	}
+	return err
 }
 
 func newDaytonaProvider(client *daytona.Daytona) Provider {
@@ -54,7 +66,7 @@ func (p *daytonaProvider) CreateSandbox(ctx context.Context, config SandboxCreat
 func (p *daytonaProvider) GetSandbox(ctx context.Context, id string) (RemoteSandbox, error) {
 	sb, err := p.client.Get(id)
 	if err != nil {
-		return nil, err
+		return nil, wrapDaytonaNotFound("sandbox.get", err)
 	}
 	return &daytonaSandbox{inner: sb}, nil
 }
@@ -121,7 +133,7 @@ func (s *daytonaSandbox) Labels() map[string]string { return s.inner.Labels }
 
 func (s *daytonaSandbox) Start(ctx context.Context) error {
 	timeout := timeoutFromContext(ctx, 60*time.Second)
-	return s.inner.Start(timeout)
+	return wrapDaytonaNotFound("sandbox.start", s.inner.Start(timeout))
 }
 
 func (s *daytonaSandbox) Stop(ctx context.Context) error {
@@ -245,7 +257,7 @@ func (s *daytonaSandbox) GetPreviewURL(ctx context.Context, port int) (string, e
 }
 
 func (s *daytonaSandbox) Refresh(ctx context.Context) error {
-	return s.inner.RefreshData()
+	return wrapDaytonaNotFound("sandbox.refresh", s.inner.RefreshData())
 }
 
 // Optional interfaces for richer CLI output.

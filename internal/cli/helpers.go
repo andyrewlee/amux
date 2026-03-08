@@ -87,31 +87,11 @@ func tryOpenURL(url string) bool {
 	return true
 }
 
-func getAgentArgs(argv []string, agent string) []string {
-	agentIndex := -1
-	for i := 0; i < len(argv)-2; i++ {
-		if argv[i] == "sandbox" && argv[i+1] == "run" && argv[i+2] == agent {
-			agentIndex = i + 2
-			break
-		}
-	}
-	if agentIndex == -1 {
+func getAgentArgs(args []string, argsLenAtDash int) []string {
+	if argsLenAtDash < 0 || argsLenAtDash >= len(args) {
 		return nil
 	}
-	passthrough := -1
-	for i := agentIndex + 1; i < len(argv); i++ {
-		if argv[i] == "--" {
-			passthrough = i
-			break
-		}
-	}
-	if passthrough == -1 {
-		return nil
-	}
-	if passthrough+1 >= len(argv) {
-		return nil
-	}
-	return argv[passthrough+1:]
+	return append([]string{}, args[argsLenAtDash:]...)
 }
 
 func getenvFallback(keys ...string) string {

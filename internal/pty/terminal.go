@@ -71,6 +71,9 @@ func NewWithCmd(cmd *exec.Cmd, cleanup func()) (*Terminal, error) {
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
 		return nil, err
 	}
 

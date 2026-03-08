@@ -91,7 +91,7 @@ func buildSandboxRunCommand() *cobra.Command {
 
 			// Parse agent args
 			syncEnabled := !noSync
-			userArgs := getAgentArgs(os.Args, agentName)
+			userArgs := getAgentArgs(args, cmd.Flags().ArgsLenAtDash())
 			agentArgs := append([]string{}, userArgs...)
 			if agent == sandbox.AgentCodex && getenvFallback("AMUX_CODEX_TUI2") != "0" {
 				hasTui2Flag := false

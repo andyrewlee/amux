@@ -211,25 +211,35 @@ func resolveCurrentSandbox(provider sandbox.Provider, cwd string) (sandbox.Remot
 	if provider == nil {
 		return nil, false, errors.New("provider is required")
 	}
+	missingErr := errors.New("no sandbox for this project - run `amux sandbox run <agent>` first")
 	meta, err := sandbox.LoadSandboxMeta(cwd, provider.Name())
 	if err != nil {
 		return nil, false, err
 	}
 	if meta != nil {
 		sb, err := provider.GetSandbox(context.Background(), meta.SandboxID)
-		if err == nil {
-			if err := sb.Start(context.Background()); err == nil {
-				if waitErr := sb.WaitReady(context.Background(), 60*time.Second); waitErr != nil {
-					if Verbose {
-						fmt.Fprintf(os.Stderr, "Warning: sandbox may not be fully ready: %v\n", waitErr)
-					}
-				}
-				return sb, true, nil
+		if err != nil {
+			if sandbox.IsNotFoundError(err) {
+				fmt.Fprintln(os.Stderr, "Existing sandbox not found. Run `amux sandbox run <agent>` to create one.")
+				return nil, false, missingErr
+			}
+			return nil, false, err
+		}
+		if err := sb.Start(context.Background()); err != nil {
+			if sandbox.IsNotFoundError(err) {
+				fmt.Fprintln(os.Stderr, "Existing sandbox not found. Run `amux sandbox run <agent>` to create one.")
+				return nil, false, missingErr
+			}
+			return nil, false, err
+		}
+		if waitErr := sb.WaitReady(context.Background(), 60*time.Second); waitErr != nil {
+			if Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: sandbox may not be fully ready: %v\n", waitErr)
 			}
 		}
-		fmt.Fprintln(os.Stderr, "Existing sandbox not found. Run `amux sandbox run <agent>` to create one.")
+		return sb, true, nil
 	}
-	return nil, false, errors.New("no sandbox for this project - run `amux sandbox run <agent>` first")
+	return nil, false, missingErr
 }
 
 // exitError lets commands return a specific exit code without printing an error.

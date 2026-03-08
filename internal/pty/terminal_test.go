@@ -2,6 +2,7 @@ package pty
 
 import (
 	"io"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -362,6 +363,22 @@ func TestNew_InvalidCommand(t *testing.T) {
 		return
 	}
 	defer term.Close()
+}
+
+func TestNewWithCmd_StartFailureRunsCleanup(t *testing.T) {
+	cleanupCalled := false
+	cmd := exec.Command("amux-command-that-does-not-exist-12345")
+
+	term, err := NewWithCmd(cmd, func() { cleanupCalled = true })
+	if err == nil {
+		if term != nil {
+			_ = term.Close()
+		}
+		t.Fatal("NewWithCmd() error = nil, want non-nil")
+	}
+	if !cleanupCalled {
+		t.Fatal("cleanup callback was not called on PTY startup failure")
+	}
 }
 
 func TestTerminal_ReadEOFAfterProcessExit(t *testing.T) {

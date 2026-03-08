@@ -119,7 +119,7 @@ func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
 	spinner := NewSpinner("Connecting to sandbox")
 	spinner.Start()
 
-	sb, _, err := sandbox.CreateSandboxSession(providerInstance, cwd, sandbox.SandboxConfig{
+	sb, _, err := sandbox.CreateSandboxSessionNoMeta(providerInstance, cwd, sandbox.SandboxConfig{
 		Agent:                 sandbox.Agent(agentName),
 		Snapshot:              snapshotID,
 		Ephemeral:             true,
@@ -136,7 +136,6 @@ func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
 		defer cancel()
 		_ = sb.Stop(ctx)
 		_ = providerInstance.DeleteSandbox(ctx, sb.ID())
-		_ = sandbox.RemoveSandboxMetaByID(sb.ID())
 	}
 	defer cleanup()
 
