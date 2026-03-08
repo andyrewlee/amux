@@ -149,6 +149,11 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			return messages.Error{Err: errors.New("missing workspace or agent"), Context: "creating terminal tab"}
 		}
 	}
+	if msg.TabID == "" {
+		return func() tea.Msg {
+			return messages.Error{Err: errors.New("missing tab id"), Context: "creating terminal tab"}
+		}
+	}
 	now := time.Now()
 
 	rows := msg.Rows
@@ -172,21 +177,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				existing = tab
 				existingIdx = i
 				break
-			}
-		}
-	}
-	if existing == nil {
-		sessionName := strings.TrimSpace(msg.Agent.Session)
-		if sessionName != "" {
-			for i, tab := range tabs {
-				if tab == nil || tab.isClosed() {
-					continue
-				}
-				if tab.SessionName == sessionName || (tab.Agent != nil && tab.Agent.Session == sessionName) {
-					existing = tab
-					existingIdx = i
-					break
-				}
 			}
 		}
 	}
@@ -286,11 +276,9 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	term := vterm.New(cols, rows)
 	term.AllowAltScreenScrollback = true
 
-	// Create tab with unique ID (pre-generated if provided)
+	// Create tab with the caller-provided stable ID so tmux/session reconciliation
+	// cannot silently drift onto a different tab.
 	tabID := msg.TabID
-	if tabID == "" {
-		tabID = generateTabID()
-	}
 	tab := &Tab{
 		ID:            tabID,
 		Name:          displayName,

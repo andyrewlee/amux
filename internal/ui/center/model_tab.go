@@ -1,8 +1,10 @@
 package center
 
 import (
-	"fmt"
+	"crypto/rand"
+	"encoding/hex"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,12 +23,27 @@ import (
 type TabID string
 
 // tabIDCounter is used to generate unique tab IDs
-var tabIDCounter uint64
+var (
+	tabIDCounter uint64
+	tabIDPrefix  = newTabIDPrefix()
+)
+
+func newTabIDPrefix() string {
+	buf := make([]byte, 4)
+	if _, err := rand.Read(buf); err == nil {
+		return hex.EncodeToString(buf)
+	}
+	return strconv.FormatInt(time.Now().UnixNano(), 36)
+}
+
+func formatTabID(prefix string, id uint64) TabID {
+	return TabID("tab-" + prefix + "-" + strconv.FormatUint(id, 36))
+}
 
 // generateTabID creates a new unique tab ID
 func generateTabID() TabID {
 	id := atomic.AddUint64(&tabIDCounter, 1)
-	return TabID(fmt.Sprintf("tab-%d", id))
+	return formatTabID(tabIDPrefix, id)
 }
 
 // Tab represents a single tab in the center pane
