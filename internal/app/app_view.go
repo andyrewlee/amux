@@ -381,7 +381,8 @@ func (a *App) viewLayerBased() tea.View {
 	if cursor == nil &&
 		!blockingOverlayVisible &&
 		(a.focusedPane == messages.PaneCenter || a.focusedPane == messages.PaneSidebarTerminal) &&
-		(terminalCursor == nil || !a.toastCoversPoint(terminalCursor.X, terminalCursor.Y)) {
+		terminalCursor != nil &&
+		!a.toastCoversPoint(terminalCursor.X, terminalCursor.Y) {
 		cursor = terminalCursor
 	}
 	view.SetContent(syncBegin + canvas.Render() + syncEnd)

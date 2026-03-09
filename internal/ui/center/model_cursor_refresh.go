@@ -134,6 +134,9 @@ func (m *Model) updatePTYCursorRefresh(msg PTYCursorRefresh) tea.Cmd {
 	defer tab.mu.Unlock()
 
 	if msg.Gen == 0 {
+		// Gen==0 is an explicit "invalidate now and re-arm from current state"
+		// request used by immediate input/output paths. Timed refresh ticks always
+		// carry a non-zero generation from scheduleChatCursorRefreshLocked.
 		invalidateCursorSnapshotCacheLocked(tab)
 		return m.scheduleChatCursorRefreshLocked(tab, msg.WorkspaceID, time.Now())
 	}
