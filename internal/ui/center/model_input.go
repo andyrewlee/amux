@@ -14,7 +14,7 @@ import (
 
 // directSendToTerminal sends data directly to the terminal, handling errors.
 // Returns whether data was actually sent and an optional command for failures.
-func (m *Model) directSendToTerminal(tab *Tab, data string, label string) (*Model, bool, tea.Cmd) {
+func (m *Model) directSendToTerminal(tab *Tab, data, label string) (*Model, bool, tea.Cmd) {
 	if tab.Agent == nil || tab.Agent.Terminal == nil {
 		return m, false, nil
 	}
@@ -29,8 +29,18 @@ func (m *Model) directSendToTerminal(tab *Tab, data string, label string) (*Mode
 			return TabInputFailed{TabID: tab.ID, WorkspaceID: wsID, Err: err}
 		}
 	}
-	recordLocalInputEchoWindow(tab, data, time.Now())
 	return m, true, nil
+}
+
+// noteLocalInput records local typing/editing activity for activity suppression
+// and chat cursor tracking, and schedules a redraw for timer-driven cursor
+// state changes.
+func (m *Model) noteLocalInput(tab *Tab, workspaceID, data string, now time.Time) tea.Cmd {
+	if tab == nil {
+		return nil
+	}
+	recordLocalInputEchoWindow(tab, data, now)
+	return m.scheduleChatCursorRefresh(tab, workspaceID, now)
 }
 
 // Update handles messages
@@ -60,21 +70,26 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.isTabActorReady() {
-				if !m.sendTabEvent(tabEvent{
+				queued := m.sendTabEvent(tabEvent{
 					tab:         tab,
 					workspaceID: m.workspaceID(),
 					tabID:       tab.ID,
 					kind:        tabEventPaste,
 					pasteText:   msg.Content,
-				}) {
+				})
+				if !queued {
 					if _, sent, cmd := m.directSendToTerminal(tab, "\x1b[200~"+msg.Content+"\x1b[201~", "Direct paste"); cmd != nil {
 						return m, cmd
 					} else if !sent {
 						return m, nil
 					}
+					now := time.Now()
+					payload := "\x1b[200~" + msg.Content + "\x1b[201~"
+					cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), payload, now))
 				}
 				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
-				return m, m.userInputActivityTagCmd(tab)
+				cmds = append(cmds, m.userInputActivityTagCmd(tab))
+				return m, common.SafeBatch(cmds...)
 			}
 			if _, sent, cmd := m.directSendToTerminal(tab, "\x1b[200~"+msg.Content+"\x1b[201~", "Direct paste"); cmd != nil {
 				return m, cmd
@@ -82,7 +97,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				return m, nil
 			}
 			logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
-			return m, m.userInputActivityTagCmd(tab)
+			now := time.Now()
+			payload := "\x1b[200~" + msg.Content + "\x1b[201~"
+			cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), payload, now))
+			cmds = append(cmds, m.userInputActivityTagCmd(tab))
+			return m, common.SafeBatch(cmds...)
 		}
 		return m, nil
 
@@ -218,7 +237,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					} else if !sent {
 						return m, nil
 					}
-					return m, m.userInputActivityTagCmd(tab)
+					now := time.Now()
+					cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), "\x1b", now))
+					cmds = append(cmds, m.userInputActivityTagCmd(tab))
+					return m, common.SafeBatch(cmds...)
 				}
 
 				// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
@@ -284,19 +306,22 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				input := common.KeyToBytes(msg)
 				if len(input) > 0 {
 					logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
+					queued := false
 					if m.isTabActorReady() {
-						if !m.sendTabEvent(tabEvent{
+						queued = m.sendTabEvent(tabEvent{
 							tab:         tab,
 							workspaceID: m.workspaceID(),
 							tabID:       tab.ID,
 							kind:        tabEventSendInput,
 							input:       input,
-						}) {
+						})
+						if !queued {
 							if _, sent, cmd := m.directSendToTerminal(tab, string(input), "Direct input"); cmd != nil {
 								return m, cmd
 							} else if !sent {
 								return m, nil
 							}
+							cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), string(input), time.Now()))
 						}
 					} else {
 						if _, sent, cmd := m.directSendToTerminal(tab, string(input), "Direct input"); cmd != nil {
@@ -304,8 +329,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 						} else if !sent {
 							return m, nil
 						}
+						cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), string(input), time.Now()))
 					}
-					return m, m.userInputActivityTagCmd(tab)
+					cmds = append(cmds, m.userInputActivityTagCmd(tab))
+					return m, common.SafeBatch(cmds...)
 				}
 				logging.Debug("keyToBytes returned empty for: %s", msg.String())
 				return m, nil

@@ -182,9 +182,10 @@ func (a *App) overlayCursor() *tea.Cursor {
 			dialogView := a.dialog.View()
 			dialogWidth, dialogHeight := viewDimensions(dialogView)
 			x, y := a.centeredPosition(dialogWidth, dialogHeight)
-			c.X += x
-			c.Y += y
-			return c
+			cursor := *c
+			cursor.X += x
+			cursor.Y += y
+			return &cursor
 		}
 		return nil
 	}
@@ -194,11 +195,45 @@ func (a *App) overlayCursor() *tea.Cursor {
 			pickerView := a.filePicker.View()
 			pickerWidth, pickerHeight := viewDimensions(pickerView)
 			x, y := a.centeredPosition(pickerWidth, pickerHeight)
-			c.X += x
-			c.Y += y
-			return c
+			cursor := *c
+			cursor.X += x
+			cursor.Y += y
+			return &cursor
 		}
 	}
 
 	return nil
+}
+
+func (a *App) overlayVisible() bool {
+	return (a.dialog != nil && a.dialog.Visible()) ||
+		(a.filePicker != nil && a.filePicker.Visible()) ||
+		(a.settingsDialog != nil && a.settingsDialog.Visible()) ||
+		a.prefixActive ||
+		a.err != nil
+}
+
+func (a *App) toastCoversPoint(x, y int) bool {
+	if a == nil || !a.toast.Visible() {
+		return false
+	}
+	toastView := a.toast.View()
+	if toastView == "" {
+		return false
+	}
+	prefixOverlayHeight := 0
+	if a.prefixActive {
+		_, prefixOverlayHeight = viewDimensions(a.renderPrefixPalette())
+	}
+	toastWidth, toastHeight := viewDimensions(toastView)
+	toastX := (a.width - toastWidth) / 2
+	toastY := a.height - 2 - prefixOverlayHeight
+	if toastX < 0 {
+		toastX = 0
+	}
+	if toastY < 0 {
+		toastY = 0
+	}
+	return x >= toastX && x < toastX+toastWidth &&
+		y >= toastY && y < toastY+toastHeight
 }

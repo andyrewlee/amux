@@ -49,7 +49,7 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 		lastFocusedAt: time.Unix(ca, 0),
 	}
 	isChat := m.isChatTab(tab)
-	term.IgnoreCursorVisibilityControls = isChat
+	term.IgnoreCursorVisibilityControls = false
 	term.TreatLFAsCRLF = isChat
 	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
@@ -101,7 +101,7 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 		lastFocusedAt:    time.Unix(ca, 0),
 	}
 	isChat := m.isChatTab(tab)
-	term.IgnoreCursorVisibilityControls = isChat
+	term.IgnoreCursorVisibilityControls = false
 	term.TreatLFAsCRLF = isChat
 	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)

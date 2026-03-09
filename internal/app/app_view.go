@@ -15,8 +15,6 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
-// Synchronized Output Mode 2026 sequences
-// https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036
 const (
 	syncBegin = "\x1b[?2026h"
 	syncEnd   = "\x1b[?2026l"
@@ -103,6 +101,16 @@ func (a *App) viewLayerBased() tea.View {
 		ForegroundColor:      common.ColorForeground(),
 		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
 	}
+	var terminalCursor *tea.Cursor
+	setTerminalCursor := func(x, y int) {
+		if x < 0 || y < 0 || x >= a.width || y >= a.height {
+			return
+		}
+		cursor := tea.NewCursor(x, y)
+		cursor.Blink = false
+		terminalCursor = cursor
+	}
+	blockingOverlayVisible := a.overlayVisible()
 
 	// Create canvas at screen dimensions
 	canvas := a.canvasFor(a.width, a.height)
@@ -135,12 +143,24 @@ func (a *App) viewLayerBased() tea.View {
 		centerHeight := a.layout.Height()
 
 		// Check if we can use VTermLayer for direct cell rendering
-		centerOwnsCursor := a.focusedPane == messages.PaneCenter
+		centerOwnsCursor := a.focusedPane == messages.PaneCenter && !blockingOverlayVisible
 		if termLayer := a.center.TerminalLayerWithCursorOwner(centerOwnsCursor); termLayer != nil && a.center.HasTabs() && !a.center.HasDiffViewer() {
 			// Get terminal viewport from center model (accounts for borders, tab bar, help lines)
 			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
 			termX := centerX + termOffsetX
 			termY := topGutter + termOffsetY
+			if centerOwnsCursor && termLayer.Snap != nil {
+				snap := termLayer.Snap
+				if snap.ShowCursor && !snap.CursorHidden && snap.ViewOffset == 0 &&
+					snap.CursorX >= 0 && snap.CursorY >= 0 &&
+					snap.CursorX < termW && snap.CursorY < termH {
+					setTerminalCursor(termX+snap.CursorX, termY+snap.CursorY)
+					// Keep exactly one visible cursor by delegating to the hardware cursor.
+					snapCopy := *snap
+					snapCopy.ShowCursor = false
+					termLayer = compositor.NewVTermLayer(&snapCopy)
+				}
+			}
 
 			// Compose terminal layer first; chrome is drawn on top without clearing the content area.
 			positionedTermLayer := &compositor.PositionedVTermLayer{
@@ -256,7 +276,7 @@ func (a *App) viewLayerBased() tea.View {
 				bottomContentHeight = 1
 			}
 
-			sidebarOwnsCursor := a.focusedPane == messages.PaneSidebarTerminal
+			sidebarOwnsCursor := a.focusedPane == messages.PaneSidebarTerminal && !blockingOverlayVisible
 			if termLayer := a.sidebarTerminal.TerminalLayerWithCursorOwner(sidebarOwnsCursor); termLayer != nil {
 				originX, originY := a.sidebarTerminal.TerminalOrigin()
 				termW, termH := a.sidebarTerminal.TerminalSize()
@@ -298,6 +318,18 @@ func (a *App) viewLayerBased() tea.View {
 				}
 				if termH > maxTermHeight {
 					termH = maxTermHeight
+				}
+				if sidebarOwnsCursor && termLayer.Snap != nil {
+					snap := termLayer.Snap
+					if snap.ShowCursor && !snap.CursorHidden && snap.ViewOffset == 0 &&
+						snap.CursorX >= 0 && snap.CursorY >= 0 &&
+						snap.CursorX < termW && snap.CursorY < termH {
+						setTerminalCursor(originX+snap.CursorX, originY+snap.CursorY)
+						// Keep exactly one visible cursor by delegating to the hardware cursor.
+						snapCopy := *snap
+						snapCopy.ShowCursor = false
+						termLayer = compositor.NewVTermLayer(&snapCopy)
+					}
 				}
 
 				positioned := &compositor.PositionedVTermLayer{
@@ -342,7 +374,17 @@ func (a *App) viewLayerBased() tea.View {
 	// Overlay layers (dialogs, toasts, etc.)
 	a.composeOverlays(canvas)
 
+	cursor := a.overlayCursor()
+	if cursor != nil && a.toastCoversPoint(cursor.X, cursor.Y) {
+		cursor = nil
+	}
+	if cursor == nil &&
+		!blockingOverlayVisible &&
+		(a.focusedPane == messages.PaneCenter || a.focusedPane == messages.PaneSidebarTerminal) &&
+		(terminalCursor == nil || !a.toastCoversPoint(terminalCursor.X, terminalCursor.Y)) {
+		cursor = terminalCursor
+	}
 	view.SetContent(syncBegin + canvas.Render() + syncEnd)
-	view.Cursor = a.overlayCursor()
+	view.Cursor = cursor
 	return view
 }

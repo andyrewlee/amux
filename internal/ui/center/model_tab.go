@@ -71,8 +71,6 @@ type Tab struct {
 	ptyNoiseTrailing       []byte
 	flushScheduled         bool
 	lastOutputAt           time.Time
-	cursorRefreshScheduled bool
-	cursorRefreshDueAt     time.Time
 	lastVisibleOutput      time.Time
 	pendingVisibleOutput   bool
 	pendingVisibleSeq      uint64
@@ -82,6 +80,9 @@ type Tab struct {
 	activityANSIState      ansiActivityState
 	lastInputTagAt         time.Time
 	lastUserInputAt        time.Time
+	lastPromptInputAt      time.Time
+	lastPromptSubmitAt     time.Time
+	pendingSubmitPasteEcho string
 	bootstrapActivity      bool
 	bootstrapLastOutputAt  time.Time
 	flushPendingSince      time.Time
@@ -104,10 +105,21 @@ type Tab struct {
 	lastFocusedAt     time.Time
 
 	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
-	cachedSnap       *compositor.VTermSnapshot
-	cachedVersion    uint64
-	cachedShowCursor bool
-	createdAt        int64 // Unix timestamp for ordering; persisted in workspace.json
+	cachedSnap               *compositor.VTermSnapshot
+	cachedVersion            uint64
+	cachedShowCursor         bool
+	cachedRecentLocalInput   bool
+	cachedRestrictCursor     bool
+	cursorRefreshGen         uint64
+	cursorRefreshPending     bool
+	cursorRefreshAt          time.Time
+	stableCursorSet          bool
+	stableCursorX            int
+	stableCursorY            int
+	stableCursorVersion      uint64
+	lastRestrictedVersion    uint64
+	pendingIdleCursorRelearn bool
+	createdAt                int64 // Unix timestamp for ordering; persisted in workspace.json
 }
 
 func (t *Tab) isClosed() bool {

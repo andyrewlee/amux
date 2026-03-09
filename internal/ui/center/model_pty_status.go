@@ -11,10 +11,99 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
-const (
-	tabActiveWindow      = 2 * time.Second
-	cursorSuppressWindow = 450 * time.Millisecond
-)
+const tabActiveWindow = 2 * time.Second
+
+// isChatInputCursorPosition reports whether the cursor is in the visible chat
+// input area, using a stricter bottom-band heuristic during active output.
+func isChatInputCursorPosition(snap *compositor.VTermSnapshot, x, y int, allowFullViewport bool) bool {
+	if snap == nil || snap.ViewOffset != 0 {
+		return false
+	}
+	if y < 0 || y >= len(snap.Screen) {
+		return false
+	}
+	row := snap.Screen[y]
+	if x < 0 || x >= len(row) {
+		return false
+	}
+	if allowFullViewport {
+		return true
+	}
+	height := len(snap.Screen)
+	if height <= 4 {
+		return true
+	}
+	band := height / 4
+	if band < 2 {
+		band = 2
+	}
+	return y >= height-band
+}
+
+// isRenderableChatCursorPosition returns whether a live terminal cursor is
+// sane enough to adopt as the chat input cursor.
+func isRenderableChatCursorPosition(
+	snap *compositor.VTermSnapshot,
+	x, y int,
+	allowFullViewport bool,
+	allowBlankCorner bool,
+) bool {
+	if !isChatInputCursorPosition(snap, x, y, allowFullViewport) {
+		return false
+	}
+	if isSuspiciousBottomEdgeCornerCursor(snap, x, y) && !allowBlankCorner {
+		return false
+	}
+	return true
+}
+
+// isStoredChatCursorPosition returns whether a stored chat cursor still fits in
+// the current terminal viewport and remains inside the input section.
+func isStoredChatCursorPosition(snap *compositor.VTermSnapshot, x, y int, allowFullViewport bool) bool {
+	if snap == nil {
+		return false
+	}
+	if snap.ViewOffset != 0 {
+		return x >= 0 && y >= 0
+	}
+	if y < 0 || y >= len(snap.Screen) {
+		return false
+	}
+	row := snap.Screen[y]
+	if x < 0 || x >= len(row) {
+		return false
+	}
+	return isChatInputCursorPosition(snap, x, y, allowFullViewport)
+}
+
+// isBottomEdgeCornerPosition reports whether (x,y) is either bottom-left or
+// bottom-right corner of the snapshot viewport.
+func isBottomEdgeCornerPosition(snap *compositor.VTermSnapshot, x, y int) bool {
+	if snap == nil || len(snap.Screen) == 0 {
+		return false
+	}
+	lastY := len(snap.Screen) - 1
+	if y != lastY {
+		return false
+	}
+	row := snap.Screen[lastY]
+	if len(row) == 0 {
+		return false
+	}
+	lastX := len(row) - 1
+	return x == 0 || x == lastX
+}
+
+// isSuspiciousBottomEdgeCornerCursor reports a common PTY cursor artifact where
+// cursor state lands on an empty corner cell on the bottom row.
+func isSuspiciousBottomEdgeCornerCursor(snap *compositor.VTermSnapshot, x, y int) bool {
+	if !isBottomEdgeCornerPosition(snap, x, y) {
+		return false
+	}
+	row := snap.Screen[len(snap.Screen)-1]
+	cell := row[x]
+	return cell.Rune == 0 || cell.Rune == ' '
+}
 
 // HasRunningAgents returns whether any tab has an active agent across workspaces.
 func (m *Model) HasRunningAgents() bool {
@@ -60,15 +149,38 @@ func (m *Model) IsTabActive(tab *Tab) bool {
 		return false
 	}
 	tab.mu.Lock()
-	detached := tab.Detached
-	running := tab.Running
-	lastVisibleOutput := tab.lastVisibleOutput
+	active := isTabVisiblyActiveLocked(tab, time.Now())
 	tab.mu.Unlock()
-	if detached || !running {
+	return active
+}
+
+func isTabVisiblyActiveLocked(tab *Tab, now time.Time) bool {
+	if tab == nil || tab.Detached || !tab.Running {
 		return false
 	}
-	// Only count visible screen changes as activity.
-	return !lastVisibleOutput.IsZero() && time.Since(lastVisibleOutput) < tabActiveWindow
+	return !tab.lastVisibleOutput.IsZero() && now.Sub(tab.lastVisibleOutput) < tabActiveWindow
+}
+
+// isTabCursorOutputActiveLocked reports whether recent PTY output should keep
+// chat cursor trust constrained even when that output did not mutate visible
+// screen content (for example cursor-move or DECTCEM-only sequences).
+func isTabCursorOutputActiveLocked(tab *Tab, now time.Time) bool {
+	if tab == nil || tab.Detached || !tab.Running || tab.bootstrapActivity {
+		return false
+	}
+	if tab.lastOutputAt.IsZero() || now.Sub(tab.lastOutputAt) >= tabActiveWindow {
+		return false
+	}
+	// Ignore output that is still attributable to the user's own recent edit.
+	// That prevents wrapped multiline prompts from becoming cursor-restricted
+	// after the short local-input window expires.
+	if !tab.lastUserInputAt.IsZero() &&
+		!tab.lastOutputAt.Before(tab.lastUserInputAt) &&
+		tab.lastOutputAt.Sub(tab.lastUserInputAt) <= localInputEchoSuppressWindow &&
+		(tab.lastVisibleOutput.IsZero() || !tab.lastVisibleOutput.After(tab.lastUserInputAt)) {
+		return false
+	}
+	return true
 }
 
 // HasActiveAgentsInWorkspace returns whether any tab in a workspace is actively outputting.
@@ -177,9 +289,7 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 }
 
 // TerminalLayer returns a VTermLayer for the active terminal, if any.
-// This creates a snapshot of the terminal state while holding the lock,
-// so the returned layer can be safely used for rendering without locks.
-// Uses snapshot caching to avoid recreating when terminal state unchanged.
+// It snapshots terminal state under lock and reuses cached snapshots when valid.
 func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	return m.TerminalLayerWithCursorOwner(true)
 }
@@ -199,30 +309,44 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 		return nil
 	}
 	m.applyTerminalCursorPolicyLocked(tab)
-
-	// Cache key: (version, showCursor). Chat-tab status is deliberately excluded
-	// because isChatTab is stable for the lifetime of a tab, and
-	// applyTerminalCursorPolicyLocked above ensures IgnoreCursorVisibilityControls
-	// is set before the terminal produces version-bumping output.
+	isChat := m.isChatTab(tab)
 	version := tab.Terminal.Version()
 	showCursor := m.focused
 	if !cursorOwner {
 		showCursor = false
 	}
-	// Suppress chat cursor paint only for a short window after raw PTY output.
-	// This reduces visible cursor-jumping during streaming without hiding the
-	// cursor broadly when a tab is idle.
-	if showCursor &&
-		m.isChatTab(tab) &&
-		tab.Running &&
-		!tab.Detached &&
-		!tab.lastOutputAt.IsZero() &&
-		time.Since(tab.lastOutputAt) < cursorSuppressWindow {
-		showCursor = false
+	now := time.Now()
+	recentLocalInput := false
+	restrictCursor := false
+	visibleOutputActive := false
+	cursorOutputActive := false
+	if isChat && showCursor && !tab.Terminal.AltScreen {
+		visibleOutputActive = isTabVisiblyActiveLocked(tab, now)
+		cursorOutputActive = isTabCursorOutputActiveLocked(tab, now)
+		recentLocalInput = isRecentPromptEditInput(tab.lastPromptInputAt, tab.lastPromptSubmitAt, now) ||
+			isRecentSubmitPromptBeforeOutput(tab.lastPromptSubmitAt, tab.lastVisibleOutput, now)
+		if !recentLocalInput &&
+			isRecentLocalChatInput(tab.lastPromptSubmitAt, now) &&
+			(!tab.stableCursorSet ||
+				isNearbySubmitPromptCursor(
+					tab.stableCursorX,
+					tab.stableCursorY,
+					tab.Terminal.CursorX,
+					tab.Terminal.CursorY,
+				)) {
+			recentLocalInput = true
+		}
+		restrictCursor = !recentLocalInput && (visibleOutputActive || cursorOutputActive)
 	}
+	// Cache key: (version, showCursor, recentLocalInput, restrictCursor) for chat
+	// tabs. Both recent local input and recent PTY activity can change cursor
+	// policy without a PTY version bump.
 	if tab.cachedSnap != nil &&
 		tab.cachedVersion == version &&
-		tab.cachedShowCursor == showCursor {
+		tab.cachedShowCursor == showCursor &&
+		(!isChat ||
+			(tab.cachedRecentLocalInput == recentLocalInput &&
+				tab.cachedRestrictCursor == restrictCursor)) {
 		// Reuse cached snapshot
 		perf.Count("vterm_snapshot_cache_hit", 1)
 		return compositor.NewVTermLayer(tab.cachedSnap)
@@ -236,14 +360,102 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	if snap == nil {
 		return nil
 	}
-	// Keep the cursor steady in coding-agent tabs. Some assistants emit
-	// frequent DECTCEM hide/show toggles while streaming output, which causes
-	// visible flicker if we honor terminal-driven cursor hiding.
-	// These mutations are applied before caching (lines below). On subsequent
-	// cache hits the already-normalized snapshot is returned directly, so the
-	// transforms are effectively idempotent.
-	if m.isChatTab(tab) {
-		snap.CursorHidden = false
+
+	if isChat {
+		liveCursorX, liveCursorY := snap.CursorX, snap.CursorY
+		appOwnsCursor := showCursor &&
+			!tab.Terminal.AltScreen &&
+			snap.CursorHidden &&
+			hasChatOwnedCursorGlyph(
+				snap,
+				liveCursorX,
+				liveCursorY,
+				tab.stableCursorSet,
+				tab.stableCursorX,
+				tab.stableCursorY,
+			)
+		if showCursor && !tab.Terminal.AltScreen {
+			if appOwnsCursor {
+				snap.ShowCursor = false
+			} else {
+				snap.CursorHidden = false
+				trustFullViewport := !restrictCursor
+				if restrictCursor {
+					tab.lastRestrictedVersion = version
+					if cursorOutputActive && !visibleOutputActive && tab.stableCursorSet {
+						tab.pendingIdleCursorRelearn = true
+					}
+				}
+				versionChangedFromStable := version != tab.stableCursorVersion
+				idleSameVersionRelearn := trustFullViewport &&
+					tab.stableCursorSet &&
+					!recentLocalInput &&
+					version == tab.lastRestrictedVersion &&
+					(tab.pendingIdleCursorRelearn || tab.stableCursorVersion == 0) &&
+					hasChatCursorContextNearPosition(snap, liveCursorY)
+				plausibleInitialCursor := isPlausibleInitialChatCursor(snap, liveCursorX, liveCursorY)
+				initialFullViewportLearn := !tab.stableCursorSet && plausibleInitialCursor
+				learnFullViewport := trustFullViewport &&
+					(initialFullViewportLearn ||
+						(tab.stableCursorSet && recentLocalInput) ||
+						idleSameVersionRelearn ||
+						(versionChangedFromStable && version != tab.lastRestrictedVersion))
+				liveCursorVisible := isChatInputCursorPosition(snap, liveCursorX, liveCursorY, trustFullViewport)
+				liveCursorDisplayable := liveCursorVisible &&
+					(!restrictCursor || !isSuspiciousBottomEdgeCornerCursor(snap, liveCursorX, liveCursorY)) &&
+					(tab.stableCursorSet || !trustFullViewport || plausibleInitialCursor)
+				liveCursorRenderable := isRenderableChatCursorPosition(
+					snap,
+					liveCursorX,
+					liveCursorY,
+					learnFullViewport,
+					recentLocalInput,
+				)
+				storedCursorInViewport := tab.stableCursorSet &&
+					isStoredChatCursorPosition(snap, tab.stableCursorX, tab.stableCursorY, true)
+				storedCursorVisible := tab.stableCursorSet &&
+					isStoredChatCursorPosition(snap, tab.stableCursorX, tab.stableCursorY, trustFullViewport)
+				if liveCursorRenderable {
+					tab.stableCursorSet = true
+					tab.stableCursorX = liveCursorX
+					tab.stableCursorY = liveCursorY
+					tab.stableCursorVersion = version
+					tab.pendingIdleCursorRelearn = false
+				} else if tab.stableCursorSet &&
+					tab.stableCursorVersion == 0 &&
+					trustFullViewport &&
+					storedCursorVisible {
+					tab.stableCursorVersion = version
+				} else if tab.stableCursorSet &&
+					!storedCursorInViewport {
+					tab.stableCursorSet = false
+					tab.stableCursorVersion = 0
+					tab.pendingIdleCursorRelearn = false
+				}
+
+				switch {
+				case tab.stableCursorSet:
+					snap.CursorX = tab.stableCursorX
+					snap.CursorY = tab.stableCursorY
+				case liveCursorDisplayable:
+					// Leave the live cursor in place until we learn a stable input-band position.
+				default:
+					snap.ShowCursor = false
+				}
+			}
+		}
+
+		// Some assistants paint a synthetic block cursor glyph in the buffer; sanitize it
+		// before global blink cleanup, but skip scrollback/history views.
+		if snap.ViewOffset == 0 && !appOwnsCursor {
+			sanitizeChatCursorCell(snap, liveCursorX, liveCursorY)
+			if snap.ShowCursor &&
+				tab.stableCursorSet &&
+				(tab.stableCursorX != liveCursorX || tab.stableCursorY != liveCursorY) {
+				sanitizeStoredChatCursorCell(snap, tab.stableCursorX, tab.stableCursorY)
+			}
+		}
+
 		// Prevent residual flicker from SGR blink attributes in assistant output.
 		for y := range snap.Screen {
 			row := snap.Screen[y]
@@ -256,24 +468,6 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 				row[x] = cell
 			}
 		}
-		// Some assistants also paint a synthetic block cursor glyph in the
-		// buffer itself. Normalize the active cursor cell so our own steady
-		// cursor paint is the only cursor indicator.
-		if snap.ViewOffset == 0 &&
-			snap.CursorY >= 0 && snap.CursorY < len(snap.Screen) {
-			row := snap.Screen[snap.CursorY]
-			if snap.CursorX >= 0 && snap.CursorX < len(row) {
-				cell := row[snap.CursorX]
-				if cell.Rune == '█' {
-					cell.Rune = ' '
-					if cell.Width <= 0 {
-						cell.Width = 1
-					}
-				}
-				cell.Style.Blink = false
-				row[snap.CursorX] = cell
-			}
-		}
 	}
 	perf.Count("vterm_snapshot_cache_miss", 1)
 
@@ -281,6 +475,8 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	tab.cachedSnap = snap
 	tab.cachedVersion = version
 	tab.cachedShowCursor = showCursor
+	tab.cachedRecentLocalInput = recentLocalInput
+	tab.cachedRestrictCursor = restrictCursor
 
 	return compositor.NewVTermLayer(snap)
 }

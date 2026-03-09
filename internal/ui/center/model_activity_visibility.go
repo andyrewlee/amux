@@ -14,6 +14,122 @@ const (
 )
 
 func (m *Model) noteVisibleActivityLocked(tab *Tab, hasMoreBuffered bool, visibleSeq uint64) (string, int64, bool) {
+	return m.noteVisibleActivityLockedWithOutput(tab, hasMoreBuffered, visibleSeq, nil)
+}
+
+func consumeSubmittedPasteEchoLocked(tab *Tab, output []byte) bool {
+	if tab == nil || tab.pendingSubmitPasteEcho == "" || len(output) == 0 {
+		return false
+	}
+	normalized := normalizeSubmittedPasteEchoOutput(output)
+	if normalized == "" {
+		return false
+	}
+	if strings.HasPrefix(normalized, tab.pendingSubmitPasteEcho) {
+		tail := strings.Trim(normalized[len(tab.pendingSubmitPasteEcho):], "\n")
+		tab.pendingSubmitPasteEcho = ""
+		return tail == ""
+	}
+	if strings.HasPrefix(tab.pendingSubmitPasteEcho, normalized) {
+		tab.pendingSubmitPasteEcho = strings.TrimPrefix(tab.pendingSubmitPasteEcho, normalized)
+		return true
+	}
+	tab.pendingSubmitPasteEcho = ""
+	return false
+}
+
+func normalizeSubmittedPasteEchoOutput(output []byte) string {
+	if len(output) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	state := ansiActivityText
+	for _, ch := range output {
+		switch state {
+		case ansiActivityText:
+			switch ch {
+			case 0x1b:
+				state = ansiActivityEsc
+			default:
+				switch {
+				case ch == '\r' || ch == '\n' || ch == '\t':
+					b.WriteByte(ch)
+				case ch >= 0x20 && ch != 0x7f:
+					b.WriteByte(ch)
+				}
+			}
+
+		case ansiActivityEsc:
+			switch ch {
+			case '[':
+				state = ansiActivityCSI
+			case ']':
+				state = ansiActivityOSC
+			case 'P', 'X', '^', '_':
+				state = ansiActivityString
+			default:
+				switch {
+				case ch >= 0x20 && ch <= 0x2f:
+					state = ansiActivityEscSequence
+				case ch >= 0x30 && ch <= 0x7e:
+					state = ansiActivityText
+				default:
+					state = ansiActivityText
+				}
+			}
+
+		case ansiActivityEscSequence:
+			if ch >= 0x30 && ch <= 0x7e {
+				state = ansiActivityText
+			} else if ch == 0x1b {
+				state = ansiActivityEsc
+			}
+
+		case ansiActivityCSI:
+			if ch >= 0x40 && ch <= 0x7e {
+				state = ansiActivityText
+			} else if ch == 0x1b {
+				state = ansiActivityEsc
+			}
+
+		case ansiActivityOSC:
+			if ch == 0x07 {
+				state = ansiActivityText
+			} else if ch == 0x1b {
+				state = ansiActivityOSCEsc
+			}
+
+		case ansiActivityOSCEsc:
+			if ch == '\\' {
+				state = ansiActivityText
+			} else if ch != 0x1b {
+				state = ansiActivityOSC
+			}
+
+		case ansiActivityString:
+			if ch == 0x1b {
+				state = ansiActivityStringEsc
+			}
+
+		case ansiActivityStringEsc:
+			if ch == '\\' {
+				state = ansiActivityText
+			} else if ch != 0x1b {
+				state = ansiActivityString
+			}
+		}
+	}
+	normalized := strings.ReplaceAll(b.String(), "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "")
+	return normalized
+}
+
+func (m *Model) noteVisibleActivityLockedWithOutput(
+	tab *Tab,
+	hasMoreBuffered bool,
+	visibleSeq uint64,
+	output []byte,
+) (string, int64, bool) {
 	if tab == nil || tab.Terminal == nil || tab.DiffViewer != nil {
 		if tab != nil {
 			tab.pendingVisibleOutput = false
@@ -38,6 +154,12 @@ func (m *Model) noteVisibleActivityLocked(tab *Tab, hasMoreBuffered bool, visibl
 	if tab.bootstrapActivity {
 		// Explicit bootstrap phase: terminal replay/prompt redraw is visible output
 		// but must not be treated as active work.
+		tab.activityDigest = digest
+		tab.activityDigestInit = true
+		tab.pendingVisibleOutput = nextPending
+		return "", 0, false
+	}
+	if consumeSubmittedPasteEchoLocked(tab, output) {
 		tab.activityDigest = digest
 		tab.activityDigestInit = true
 		tab.pendingVisibleOutput = nextPending

@@ -54,10 +54,11 @@ type PTYFlush struct {
 	TabID       TabID
 }
 
-// PTYCursorRefresh triggers a render pass after cursor suppression windows.
+// PTYCursorRefresh re-renders chat cursor policy when time-based windows expire.
 type PTYCursorRefresh struct {
 	WorkspaceID string
 	TabID       TabID
+	Gen         uint64
 }
 
 // PTYStopped signals that the PTY read loop has stopped (terminal closed or error)

@@ -2,9 +2,11 @@ package center
 
 import (
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 func TestUpdatePtyTabReattachResult_ResetsActivityANSIState(t *testing.T) {
@@ -39,6 +41,53 @@ func TestUpdatePtyTabReattachResult_ResetsActivityANSIState(t *testing.T) {
 	}
 	if bootstrapAt.IsZero() {
 		t.Fatal("expected bootstrapLastOutputAt to be set on reattach")
+	}
+}
+
+func TestUpdatePtyTabReattachResult_ResetsStableCursor(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-1"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		Terminal:          vterm.New(80, 24),
+		stableCursorSet:   true,
+		stableCursorX:     7,
+		stableCursorY:     20,
+		lastOutputAt:      time.Now(),
+		lastUserInputAt:   time.Now(),
+		lastPromptInputAt: time.Now(),
+		lastVisibleOutput: time.Now(),
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach"},
+		Rows:        24,
+		Cols:        80,
+	})
+
+	if tab.stableCursorSet {
+		t.Fatal("expected stable cursor to clear on reattach")
+	}
+	if tab.stableCursorX != 0 || tab.stableCursorY != 0 {
+		t.Fatalf("expected cleared stable cursor coordinates, got (%d,%d)", tab.stableCursorX, tab.stableCursorY)
+	}
+	if !tab.lastUserInputAt.IsZero() {
+		t.Fatal("expected recent-input state to clear on reattach")
+	}
+	if !tab.lastPromptInputAt.IsZero() {
+		t.Fatal("expected recent prompt-input state to clear on reattach")
+	}
+	if !tab.lastVisibleOutput.IsZero() {
+		t.Fatal("expected visible-activity state to clear on reattach")
+	}
+	if !tab.lastOutputAt.IsZero() {
+		t.Fatal("expected recent output state to clear on reattach")
 	}
 }
 
@@ -159,6 +208,55 @@ func TestHandlePtyTabCreated_RejectsMissingTabID(t *testing.T) {
 	}
 	if len(m.tabsByWorkspace[wsID]) != 0 {
 		t.Fatalf("expected no tabs to be created on missing tab id, got %d", len(m.tabsByWorkspace[wsID]))
+	}
+}
+
+func TestHandlePtyTabCreated_ExistingResetsStableCursor(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-1"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		Terminal:          vterm.New(80, 24),
+		stableCursorSet:   true,
+		stableCursorX:     7,
+		stableCursorY:     20,
+		lastOutputAt:      time.Now(),
+		lastUserInputAt:   time.Now(),
+		lastPromptInputAt: time.Now(),
+		lastVisibleOutput: time.Now(),
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_ = m.handlePtyTabCreated(ptyTabCreateResult{
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created"},
+		TabID:     tab.ID,
+		Rows:      24,
+		Cols:      80,
+		Activate:  true,
+	})
+
+	if tab.stableCursorSet {
+		t.Fatal("expected stable cursor to clear on existing tab create path")
+	}
+	if tab.stableCursorX != 0 || tab.stableCursorY != 0 {
+		t.Fatalf("expected cleared stable cursor coordinates, got (%d,%d)", tab.stableCursorX, tab.stableCursorY)
+	}
+	if !tab.lastUserInputAt.IsZero() {
+		t.Fatal("expected recent-input state to clear on existing tab create path")
+	}
+	if !tab.lastPromptInputAt.IsZero() {
+		t.Fatal("expected recent prompt-input state to clear on existing tab create path")
+	}
+	if !tab.lastVisibleOutput.IsZero() {
+		t.Fatal("expected visible-activity state to clear on existing tab create path")
+	}
+	if !tab.lastOutputAt.IsZero() {
+		t.Fatal("expected recent output state to clear on existing tab create path")
 	}
 }
 

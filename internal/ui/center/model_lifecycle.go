@@ -149,6 +149,9 @@ func (m *Model) setActiveTerminalCursorVisibility(visible bool) {
 	// cursor-painted frames.
 	tab.cachedSnap = nil
 	tab.cachedVersion = 0
+	tab.cachedShowCursor = false
+	tab.cachedRecentLocalInput = false
+	tab.cachedRestrictCursor = false
 }
 
 // Close cleans up all resources.

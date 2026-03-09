@@ -223,9 +223,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		if tab.lastFocusedAt.IsZero() {
 			tab.lastFocusedAt = now
 		}
-		tab.cachedSnap = nil
-		tab.cachedVersion = 0
-		tab.cachedShowCursor = false
+		resetChatCursorActivityStateLocked(tab)
 		tab.mu.Unlock()
 		tab.resetActivityANSIState()
 		if oldAgent != nil && oldAgent != msg.Agent {
@@ -292,7 +290,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		lastFocusedAt: now,
 	}
 	isChat := m.isChatTab(tab)
-	term.IgnoreCursorVisibilityControls = isChat
+	term.IgnoreCursorVisibilityControls = false
 	term.TreatLFAsCRLF = isChat
 	term.PrependScrollback(msg.ScrollbackCapture)
 

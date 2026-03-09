@@ -13,7 +13,7 @@ func (m *Model) AddTab(tab *Tab) {
 	}
 	wtID := string(tab.Workspace.ID())
 	if tab.Terminal != nil {
-		tab.Terminal.IgnoreCursorVisibilityControls = m.isChatTab(tab)
+		tab.Terminal.IgnoreCursorVisibilityControls = false
 	}
 	m.tabsByWorkspace[wtID] = append(m.tabsByWorkspace[wtID], tab)
 	m.noteTabsChanged()

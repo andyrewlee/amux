@@ -132,3 +132,58 @@ func TestNoteVisibleActivityLocked_RecordsWhenBootstrapInactive(t *testing.T) {
 		t.Fatal("expected visible output timestamp after suppression window")
 	}
 }
+
+func TestNoteVisibleActivityLocked_SubmittedPasteSuppressionDoesNotLeakOnInvisibleFollowup(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	term := vterm.New(20, 4)
+	tab := &Tab{
+		Assistant:            "codex",
+		Workspace:            ws,
+		Terminal:             term,
+		Running:              true,
+		pendingVisibleOutput: true,
+		pendingVisibleSeq:    1,
+	}
+
+	recordLocalInputEchoWindow(tab, "\x1b[200~first\r\nsecond\r\x1b[201~", time.Now())
+	rawEcho := []byte("\r\x1b[Kfirst\r\nsecond")
+	term.Write(rawEcho)
+	expectedDigest := visibleScreenDigest(term)
+
+	tab.mu.Lock()
+	_, _, tagged := m.noteVisibleActivityLockedWithOutput(tab, true, 1, rawEcho)
+	last := tab.lastVisibleOutput
+	pending := tab.pendingVisibleOutput
+	digest := tab.activityDigest
+	tab.mu.Unlock()
+
+	if tagged {
+		t.Fatal("expected submitted paste echo suppression not to emit an activity tag")
+	}
+	if !last.IsZero() {
+		t.Fatalf("expected submitted paste echo suppression not to mark visible output, got %v", last)
+	}
+	if !pending {
+		t.Fatal("expected buffered follow-up work to keep pendingVisibleOutput armed")
+	}
+	if digest != expectedDigest {
+		t.Fatal("expected submitted paste echo suppression to advance the activity digest")
+	}
+
+	tab.mu.Lock()
+	_, _, tagged = m.noteVisibleActivityLockedWithOutput(tab, false, 1, []byte("\x1b[?25l"))
+	last = tab.lastVisibleOutput
+	pending = tab.pendingVisibleOutput
+	tab.mu.Unlock()
+
+	if tagged {
+		t.Fatal("expected invisible control-only follow-up not to emit an activity tag")
+	}
+	if !last.IsZero() {
+		t.Fatalf("expected invisible control-only follow-up not to mark visible output, got %v", last)
+	}
+	if pending {
+		t.Fatal("expected pendingVisibleOutput to clear after the invisible follow-up flush")
+	}
+}

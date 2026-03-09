@@ -386,7 +386,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			}
 			// Activity state intentionally tracks visible terminal mutations only.
 			// Noise-only chunks are filtered above and must not update activity tags.
-			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, ev.hasMoreBuffered, ev.visibleSeq)
+			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, ev.hasMoreBuffered, ev.visibleSeq, output)
 		}
 		tab.mu.Unlock()
 		perf.Count("pty_flush_bytes_processed", int64(processedBytes))
@@ -403,6 +403,9 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			go func() {
 				_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
 			}()
+		}
+		if m.msgSink != nil {
+			m.msgSink(PTYCursorRefresh{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
 		}
 	default:
 		logging.Debug("unknown tab event: %v", ev.kind)
@@ -429,4 +432,7 @@ func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID s
 		return
 	}
 	recordLocalInputEchoWindow(tab, data, time.Now())
+	if m.msgSink != nil && m.isChatTab(tab) {
+		m.msgSink(PTYCursorRefresh{WorkspaceID: workspaceID, TabID: tabID})
+	}
 }
