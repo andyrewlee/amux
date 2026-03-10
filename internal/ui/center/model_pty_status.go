@@ -239,25 +239,6 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 	return running
 }
 
-func (m *Model) isChatTab(tab *Tab) bool {
-	if tab == nil {
-		return false
-	}
-	if tab.DiffViewer != nil {
-		return false
-	}
-	if m != nil && m.config != nil && len(m.config.Assistants) > 0 {
-		_, ok := m.config.Assistants[tab.Assistant]
-		return ok
-	}
-	switch tab.Assistant {
-	case "claude", "codex", "gemini", "amp", "opencode", "droid", "cline", "cursor", "pi":
-		return true
-	default:
-		return false
-	}
-}
-
 // StartPTYReaders starts reading from all PTYs across all workspaces
 func (m *Model) StartPTYReaders() tea.Cmd {
 	if m.isTabActorReady() {
@@ -309,7 +290,7 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 		return nil
 	}
 	m.applyTerminalCursorPolicyLocked(tab)
-	isChat := m.isChatTab(tab)
+	isChat := m.isChatTabLocked(tab)
 	version := tab.Terminal.Version()
 	showCursor := m.focused
 	if !cursorOwner {

@@ -15,7 +15,7 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	if tab == nil {
 		return nil
 	}
-	if tab.DiffViewer != nil {
+	if m.tabHasDiffViewer(tab) {
 		return func() tea.Msg {
 			return messages.Toast{
 				Message: "Diff tabs cannot be detached",

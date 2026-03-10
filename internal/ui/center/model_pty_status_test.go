@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/diff"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -249,6 +250,18 @@ func TestIsChatTabUsesConfigMapWhenPresent(t *testing.T) {
 
 	if m.isChatTab(tab) {
 		t.Fatal("expected assistant missing from config map to be treated as non-chat when config is present")
+	}
+}
+
+func TestIsChatTabFalseWhenDiffViewerPresent(t *testing.T) {
+	m := newTestModel()
+	tab := &Tab{
+		Assistant:  "codex",
+		DiffViewer: &diff.Model{},
+	}
+
+	if m.isChatTab(tab) {
+		t.Fatal("expected diff viewer tabs not to be treated as chat tabs")
 	}
 }
 

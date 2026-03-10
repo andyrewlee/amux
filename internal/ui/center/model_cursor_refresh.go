@@ -83,7 +83,7 @@ func (m *Model) scheduleChatCursorRefreshLocked(tab *Tab, workspaceID string, no
 		return nil
 	}
 
-	if workspaceID == "" || tab.Terminal == nil || tab.Terminal.AltScreen || !m.isChatTab(tab) {
+	if workspaceID == "" || tab.Terminal == nil || tab.Terminal.AltScreen || !m.isChatTabLocked(tab) {
 		return nil
 	}
 

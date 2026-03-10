@@ -187,3 +187,14 @@ func TestNoteVisibleActivityLocked_SubmittedPasteSuppressionDoesNotLeakOnInvisib
 		t.Fatal("expected pendingVisibleOutput to clear after the invisible follow-up flush")
 	}
 }
+
+func TestConsumeSubmittedPasteEchoLocked_ClearsPendingOnVisibleMismatch(t *testing.T) {
+	tab := &Tab{pendingSubmitPasteEcho: "first\nsecond"}
+
+	if consumeSubmittedPasteEchoLocked(tab, []byte("agent: ready\n")) {
+		t.Fatal("expected visible mismatch not to be treated as consumed paste echo")
+	}
+	if tab.pendingSubmitPasteEcho != "" {
+		t.Fatalf("expected visible mismatch to drop stale pending paste echo, still have %q", tab.pendingSubmitPasteEcho)
+	}
+}

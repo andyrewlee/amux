@@ -80,11 +80,14 @@ func (m *Model) SetStyles(styles common.Styles) {
 	// Propagate to all viewers in tabs
 	for _, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
-			if tab != nil {
-				if tab.DiffViewer != nil {
-					tab.DiffViewer.SetStyles(styles)
-				}
+			if tab == nil {
+				continue
 			}
+			tab.mu.Lock()
+			if tab.DiffViewer != nil {
+				tab.DiffViewer.SetStyles(styles)
+			}
+			tab.mu.Unlock()
 		}
 	}
 }
