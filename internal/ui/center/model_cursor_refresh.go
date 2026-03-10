@@ -129,6 +129,12 @@ func (m *Model) updatePTYCursorRefresh(msg PTYCursorRefresh) tea.Cmd {
 	if tab == nil || tab.isClosed() {
 		return nil
 	}
+	if !m.isChatTab(tab) {
+		tab.mu.Lock()
+		invalidateCursorSnapshotCacheLocked(tab)
+		tab.mu.Unlock()
+		return nil
+	}
 
 	tab.mu.Lock()
 	defer tab.mu.Unlock()

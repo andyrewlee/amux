@@ -113,3 +113,25 @@ func TestUpdatePTYCursorRefresh_RequestPreservesPendingTimer(t *testing.T) {
 		t.Fatal("expected refresh request to keep the pending timer armed")
 	}
 }
+
+func TestUpdatePTYCursorRefresh_InvalidatesCachedSnapshotForNonChatTabs(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:         TabID("tab-cursor-refresh-non-chat"),
+		Assistant:  "bash",
+		Workspace:  ws,
+		Terminal:   vterm.New(80, 24),
+		cachedSnap: &compositor.VTermSnapshot{},
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	cmd := m.updatePTYCursorRefresh(PTYCursorRefresh{WorkspaceID: wsID, TabID: tab.ID})
+	if cmd != nil {
+		t.Fatal("expected non-chat cursor refresh not to schedule chat timers")
+	}
+	if tab.cachedSnap != nil {
+		t.Fatal("expected non-chat cursor refresh to invalidate cached snapshot")
+	}
+}

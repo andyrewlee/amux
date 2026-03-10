@@ -80,6 +80,10 @@ type TabInputFailed struct {
 	Err         error
 }
 
+func (m *Model) shouldPostWriteRedraw(tab *Tab) bool {
+	return tab != nil && (m.isChatTab(tab) || tab.postWriteVisible())
+}
+
 func (m *Model) sendTabEvent(ev tabEvent) bool {
 	if m == nil || m.tabEvents == nil {
 		return false
@@ -404,7 +408,12 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 				_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
 			}()
 		}
-		if m.msgSink != nil {
+		if m.msgSink != nil && m.shouldPostWriteRedraw(tab) {
+			// tabEventWriteOutput mutates the terminal on the actor goroutine after
+			// PTYFlush has already returned. Visible tabs need a follow-up message
+			// so Bubble Tea renders the post-write terminal state, and chat tabs
+			// reuse the same message for cursor/activity updates even in the
+			// background. Hidden non-chat tabs intentionally skip this redraw.
 			m.msgSink(PTYCursorRefresh{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
 		}
 	default:

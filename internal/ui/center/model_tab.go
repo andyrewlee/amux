@@ -79,6 +79,7 @@ type Tab struct {
 	lastActivityTagAt      time.Time
 	activityANSIState      ansiActivityState
 	lastInputTagAt         time.Time
+	postWriteVisibleState  uint32
 	lastUserInputAt        time.Time
 	lastPromptInputAt      time.Time
 	lastPromptSubmitAt     time.Time
@@ -164,6 +165,24 @@ func (t *Tab) resetActivityANSIState() {
 	t.mu.Unlock()
 }
 
+func (t *Tab) setPostWriteVisible(visible bool) {
+	if t == nil {
+		return
+	}
+	if visible {
+		atomic.StoreUint32(&t.postWriteVisibleState, 1)
+		return
+	}
+	atomic.StoreUint32(&t.postWriteVisibleState, 0)
+}
+
+func (t *Tab) postWriteVisible() bool {
+	if t == nil {
+		return false
+	}
+	return atomic.LoadUint32(&t.postWriteVisibleState) == 1
+}
+
 // getTabs returns the tabs for the current workspace
 func (m *Model) getTabs() []*Tab {
 	return m.tabsByWorkspace[m.workspaceID()]
@@ -213,6 +232,7 @@ func (m *Model) setActiveTabIdxForWorkspace(wsID string, idx int) {
 		return
 	}
 	m.activeTabByWorkspace[wsID] = idx
+	m.syncPostWriteVisibility()
 	m.markTabFocused(wsID, idx)
 }
 
@@ -232,6 +252,7 @@ func (m *Model) markTabFocused(wsID string, idx int) {
 
 func (m *Model) noteTabsChanged() {
 	m.tabsRevision++
+	m.syncPostWriteVisibility()
 }
 
 func (m *Model) isActiveTab(wsID string, tabID TabID) bool {
@@ -244,6 +265,22 @@ func (m *Model) isActiveTab(wsID string, tabID TabID) bool {
 		return false
 	}
 	return tabs[activeIdx].ID == tabID
+}
+
+func (m *Model) syncPostWriteVisibility() {
+	activeWSID := m.workspaceID()
+	activeIdx := -1
+	if activeWSID != "" {
+		activeIdx = m.activeTabByWorkspace[activeWSID]
+	}
+	for wsID, tabs := range m.tabsByWorkspace {
+		for idx, tab := range tabs {
+			if tab == nil || tab.isClosed() {
+				continue
+			}
+			tab.setPostWriteVisible(wsID == activeWSID && idx == activeIdx)
+		}
+	}
 }
 
 // removeTab removes a tab at index from the current workspace

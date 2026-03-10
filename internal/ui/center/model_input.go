@@ -77,6 +77,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					kind:        tabEventPaste,
 					pasteText:   msg.Content,
 				})
+				// When the actor accepts the event, it will stamp local-input
+				// timing after the PTY write actually happens. Doing it here at
+				// enqueue time would make queue latency look like local echo.
 				if !queued {
 					if _, sent, cmd := m.directSendToTerminal(tab, "\x1b[200~"+msg.Content+"\x1b[201~", "Direct paste"); cmd != nil {
 						return m, cmd

@@ -415,6 +415,10 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 					isStoredChatCursorPosition(snap, tab.stableCursorX, tab.stableCursorY, true)
 				storedCursorVisible := tab.stableCursorSet &&
 					isStoredChatCursorPosition(snap, tab.stableCursorX, tab.stableCursorY, trustFullViewport)
+				// Stable chat cursor learning lives in the render path because it
+				// depends on the fully materialized snapshot and the current cursor
+				// trust policy. The cache key above prevents repeated View passes
+				// from churning this state when those inputs have not changed.
 				if liveCursorRenderable {
 					tab.stableCursorSet = true
 					tab.stableCursorX = liveCursorX

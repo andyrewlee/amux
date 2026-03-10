@@ -34,6 +34,9 @@ func consumeSubmittedPasteEchoLocked(tab *Tab, output []byte) bool {
 		tab.pendingSubmitPasteEcho = strings.TrimPrefix(tab.pendingSubmitPasteEcho, normalized)
 		return true
 	}
+	// A visible mismatch means the redraw no longer looks like the pending paste
+	// echo, so drop suppression immediately instead of risking suppression of
+	// unrelated assistant output.
 	tab.pendingSubmitPasteEcho = ""
 	return false
 }

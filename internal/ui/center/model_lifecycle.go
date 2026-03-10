@@ -52,6 +52,7 @@ func (m *Model) Focused() bool {
 // SetWorkspace sets the active workspace.
 func (m *Model) SetWorkspace(ws *data.Workspace) {
 	m.setWorkspace(ws)
+	m.syncPostWriteVisibility()
 	if ws == nil {
 		return
 	}
