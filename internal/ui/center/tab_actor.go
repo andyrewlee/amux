@@ -49,6 +49,7 @@ type tabEvent struct {
 	input           []byte
 	pasteText       string
 	output          []byte
+	writeEpoch      uint64
 	hasMoreBuffered bool
 	visibleSeq      uint64
 }
@@ -377,8 +378,12 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		var tagTimestamp int64
 		filteredLen := 0
 		filterApplied := false
+		requestFlush := false
+		staleWrite := false
 		tab.mu.Lock()
-		if tab.Terminal != nil {
+		if ev.writeEpoch != tab.actorWriteEpoch {
+			staleWrite = true
+		} else if tab.Terminal != nil {
 			output := common.FilterKnownPTYNoiseStream(ev.output, &tab.ptyNoiseTrailing)
 			filteredLen = len(output)
 			filterApplied = true
@@ -391,8 +396,27 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			// Activity state intentionally tracks visible terminal mutations only.
 			// Noise-only chunks are filtered above and must not update activity tags.
 			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, ev.hasMoreBuffered, ev.visibleSeq, output)
+			if tab.actorWritesPending > 0 {
+				tab.actorWritesPending--
+			}
+			if tab.actorWritesPending == 0 {
+				tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
+				tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
+				if tab.parserResetPending {
+					tab.Terminal.ResetParserState()
+					tab.activityANSIState = ansiActivityText
+					tab.ptyNoiseTrailing = nil
+					tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
+					tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
+					tab.parserResetPending = false
+					requestFlush = true
+				}
+			}
 		}
 		tab.mu.Unlock()
+		if staleWrite {
+			return
+		}
 		perf.Count("pty_flush_bytes_processed", int64(processedBytes))
 		if filterApplied {
 			filteredBytes := processedBytes - filteredLen
@@ -407,6 +431,9 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			go func() {
 				_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
 			}()
+		}
+		if requestFlush && m.msgSink != nil {
+			m.msgSink(PTYFlush{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
 		}
 		if m.msgSink != nil && m.shouldPostWriteRedraw(tab) {
 			// tabEventWriteOutput mutates the terminal on the actor goroutine after

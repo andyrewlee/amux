@@ -216,6 +216,13 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.SessionName = msg.Agent.Session
 		tab.Detached = false
 		tab.Running = true
+		tab.parserResetPending = false
+		tab.actorWritesPending = 0
+		tab.actorWriteEpoch++
+		tab.overflowTrimCarry = vterm.ParserCarryState{}
+		tab.ptyNoiseTrailing = nil
+		tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
+		tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
 		m.applyTerminalCursorPolicyLocked(tab)
 		if tab.createdAt == 0 {
 			tab.createdAt = now.Unix()

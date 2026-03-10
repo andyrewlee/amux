@@ -269,6 +269,7 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 		Assistant:         "codex",
 		Workspace:         ws,
 		activityANSIState: ansiActivityOSC,
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -279,6 +280,18 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on PTY stop, got %v", tab.activityANSIState)
+	}
+	if tab.overflowTrimCarry != (vterm.ParserCarryState{Mode: vterm.ParserCarryCSI}) {
+		t.Fatalf("expected overflowTrimCarry preserved on PTY stop, got %+v", tab.overflowTrimCarry)
+	}
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("31mHello"),
+	})
+	if string(tab.pendingOutput) != "Hello" {
+		t.Fatalf("expected post-stop continuation to trim to visible text, got %q", tab.pendingOutput)
 	}
 }
 
@@ -291,6 +304,7 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 		Assistant:         "codex",
 		Workspace:         ws,
 		activityANSIState: ansiActivityCSI,
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -301,5 +315,17 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on PTY restart, got %v", tab.activityANSIState)
+	}
+	if tab.overflowTrimCarry != (vterm.ParserCarryState{Mode: vterm.ParserCarryCSI}) {
+		t.Fatalf("expected overflowTrimCarry preserved on PTY restart, got %+v", tab.overflowTrimCarry)
+	}
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("31mHello"),
+	})
+	if string(tab.pendingOutput) != "Hello" {
+		t.Fatalf("expected post-restart continuation to trim to visible text, got %q", tab.pendingOutput)
 	}
 }

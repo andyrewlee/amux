@@ -37,6 +37,144 @@ type Parser struct {
 	utf8Pos int // current position
 }
 
+type ParserCarryMode uint8
+
+const (
+	ParserCarryText ParserCarryMode = iota
+	ParserCarryEscape
+	ParserCarryCSI
+	ParserCarryCSIParam
+	ParserCarryOSC
+	ParserCarryDCS
+	ParserCarryCharset
+)
+
+type ParserCarryState struct {
+	Mode          ParserCarryMode
+	UTF8Remaining int
+}
+
+func AdvanceParserCarryState(seed ParserCarryState, data []byte) ParserCarryState {
+	state := seed
+	for i := 0; i < len(data); i++ {
+		b := data[i]
+		if state.UTF8Remaining > 0 {
+			if b >= 0x80 && b <= 0xBF {
+				state.UTF8Remaining--
+				continue
+			}
+			state.UTF8Remaining = 0
+		}
+
+		switch state.Mode {
+		case ParserCarryText:
+			switch {
+			case b == 0x1b:
+				state.Mode = ParserCarryEscape
+			case b >= 0xC0 && b <= 0xDF:
+				state.UTF8Remaining = 1
+			case b >= 0xE0 && b <= 0xEF:
+				state.UTF8Remaining = 2
+			case b >= 0xF0 && b <= 0xF7:
+				state.UTF8Remaining = 3
+			}
+		case ParserCarryEscape:
+			switch b {
+			case '[':
+				state.Mode = ParserCarryCSI
+			case ']':
+				state.Mode = ParserCarryOSC
+			case 'P':
+				state.Mode = ParserCarryDCS
+			case '(', ')':
+				state.Mode = ParserCarryCharset
+			default:
+				state.Mode = ParserCarryText
+			}
+		case ParserCarryCSI:
+			switch {
+			case b >= '0' && b <= '9':
+				state.Mode = ParserCarryCSIParam
+			case b == ';':
+				state.Mode = ParserCarryCSIParam
+			case b == '?', b == '>', b == '!', b == '<':
+				state.Mode = ParserCarryCSIParam
+			case b >= 0x20 && b <= 0x2f:
+				state.Mode = ParserCarryCSIParam
+			case b >= 0x40 && b <= 0x7e:
+				state.Mode = ParserCarryText
+			case b == 0x1b:
+				state.Mode = ParserCarryEscape
+			}
+		case ParserCarryCSIParam:
+			switch {
+			case b >= '0' && b <= '9':
+			case b == ';':
+			case b == ':':
+			case b >= 0x20 && b <= 0x2f:
+			case b >= 0x40 && b <= 0x7e:
+				state.Mode = ParserCarryText
+			case b == 0x1b:
+				state.Mode = ParserCarryEscape
+			default:
+				state.Mode = ParserCarryText
+			}
+		case ParserCarryOSC:
+			switch b {
+			case 0x07:
+				state.Mode = ParserCarryText
+			case 0x1b:
+				state.Mode = ParserCarryEscape
+			}
+		case ParserCarryDCS:
+			if b == 0x1b {
+				state.Mode = ParserCarryEscape
+			}
+		case ParserCarryCharset:
+			state.Mode = ParserCarryText
+		}
+	}
+	return state
+}
+
+func (p *Parser) Reset() {
+	p.state = stateGround
+	p.params = p.params[:0]
+	p.paramBuf.Reset()
+	p.intermediate = 0
+	p.csiIntermediate = 0
+	p.oscBuf.Reset()
+	p.utf8Len = 0
+	p.utf8Pos = 0
+}
+
+func (p *Parser) CarryState() ParserCarryState {
+	mode := ParserCarryText
+	switch p.state {
+	case stateEscape:
+		mode = ParserCarryEscape
+	case stateCSI:
+		mode = ParserCarryCSI
+	case stateCSIParam:
+		mode = ParserCarryCSIParam
+	case stateOSC:
+		mode = ParserCarryOSC
+	case stateDCS:
+		mode = ParserCarryDCS
+	case stateCharset:
+		mode = ParserCarryCharset
+	}
+
+	remaining := 0
+	if p.utf8Len > p.utf8Pos {
+		remaining = p.utf8Len - p.utf8Pos
+	}
+	return ParserCarryState{
+		Mode:          mode,
+		UTF8Remaining: remaining,
+	}
+}
+
 // NewParser creates a new parser for the given VTerm
 func NewParser(vt *VTerm) *Parser {
 	return &Parser{

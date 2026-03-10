@@ -91,6 +91,13 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	tab.reattachInFlight = false
 	tab.Running = true
 	resetChatCursorActivityStateLocked(tab)
+	tab.parserResetPending = false
+	tab.actorWritesPending = 0
+	tab.actorWriteEpoch++
+	tab.overflowTrimCarry = vterm.ParserCarryState{}
+	tab.ptyNoiseTrailing = nil
+	tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
+	tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
 	tab.bootstrapActivity = true
 	tab.bootstrapLastOutputAt = time.Now()
 	tab.mu.Unlock()

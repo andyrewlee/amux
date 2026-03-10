@@ -278,6 +278,23 @@ func (v *VTerm) respond(data []byte) {
 	}
 }
 
+// ParserCarryState reports any in-flight parser state from previously flushed
+// PTY bytes. Callers must provide external synchronization.
+func (v *VTerm) ParserCarryState() ParserCarryState {
+	if v.parser == nil {
+		return ParserCarryState{}
+	}
+	return v.parser.CarryState()
+}
+
+// ResetParserState clears any carried parser state after buffered PTY bytes are
+// forcibly discarded. Callers must provide external synchronization.
+func (v *VTerm) ResetParserState() {
+	if v.parser != nil {
+		v.parser.Reset()
+	}
+}
+
 // trimScrollback keeps scrollback under MaxScrollback
 func (v *VTerm) trimScrollback() {
 	if len(v.Scrollback) > MaxScrollback {

@@ -1,6 +1,7 @@
 package center
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -173,6 +174,41 @@ func TestUpdatePTYOutput_TagsVisibleOutput(t *testing.T) {
 	}
 }
 
+func TestUpdatePTYOutput_ResetsActivityStateAfterOverflowCarryTrim(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-1"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		Running:           true,
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
+		activityANSIState: ansiActivityCSI,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("31mX"),
+	})
+
+	if string(tab.pendingOutput) != "X" {
+		t.Fatalf("expected overflow carry trim to retain visible suffix, got %q", tab.pendingOutput)
+	}
+	if tab.overflowTrimCarry != (vterm.ParserCarryState{}) {
+		t.Fatalf("expected overflow trim carry cleared, got %+v", tab.overflowTrimCarry)
+	}
+	if tab.activityANSIState != ansiActivityText {
+		t.Fatalf("expected activity ANSI state reset to text, got %v", tab.activityANSIState)
+	}
+	if !tab.pendingVisibleOutput {
+		t.Fatal("expected trimmed visible byte to mark pending visible output")
+	}
+}
+
 func TestUpdatePTYOutput_EndsBootstrapAfterQuietGap(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
@@ -315,6 +351,49 @@ func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
 	}
 	if !tab.lastActivityTagAt.Equal(firstTag) {
 		t.Fatalf("expected unchanged rendered content not to refresh lastActivityTagAt: before=%v after=%v", firstTag, tab.lastActivityTagAt)
+	}
+}
+
+func TestUpdatePTYFlush_RestoresQueuedParserStateAfterActorFallback(t *testing.T) {
+	m := newTestModel()
+	m.setTabActorReady()
+	m.tabEvents = make(chan tabEvent, 1)
+	m.tabEvents <- tabEvent{kind: tabEventWriteOutput}
+
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	prevCarry := vterm.ParserCarryState{Mode: vterm.ParserCarryCSIParam}
+	chunk := []byte("1mX\nproc(1) malloc")
+	tab := &Tab{
+		ID:                       TabID("tab-1"),
+		Assistant:                "codex",
+		Workspace:                ws,
+		Terminal:                 vterm.New(80, 24),
+		Running:                  true,
+		pendingOutput:            append([]byte(nil), chunk...),
+		actorWritesPending:       1,
+		actorWriteEpoch:          11,
+		actorQueuedCarry:         prevCarry,
+		actorQueuedNoiseTrailing: []byte("queued-noise"),
+	}
+	prevNoiseTrailing := append([]byte(nil), tab.actorQueuedNoiseTrailing...)
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+
+	if tab.actorWritesPending != 1 {
+		t.Fatalf("expected older queued write to remain pending, got %d", tab.actorWritesPending)
+	}
+	if tab.actorQueuedCarry != prevCarry {
+		t.Fatalf("expected queued carry restored to %+v, got %+v", prevCarry, tab.actorQueuedCarry)
+	}
+	if !bytes.Equal(tab.actorQueuedNoiseTrailing, prevNoiseTrailing) {
+		t.Fatalf("expected queued noise trailing restored to %q, got %q", prevNoiseTrailing, tab.actorQueuedNoiseTrailing)
+	}
+	if !bytes.Equal(tab.ptyNoiseTrailing, []byte("proc(1) malloc")) {
+		t.Fatalf("expected synchronous fallback to update live trailing noise, got %q", tab.ptyNoiseTrailing)
 	}
 }
 
