@@ -263,39 +263,51 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						hasMoreBuffered: hasMoreBuffered,
 						visibleSeq:      visibleSeq,
 					}) {
+						rebuffered := false
 						tab.mu.Lock()
 						if tab.actorWriteEpoch == prevEpoch && tab.actorWritesPending > 0 {
 							tab.actorWritesPending--
-							tab.actorQueuedCarry = prevCarry
-							tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
-						}
-						tab.mu.Unlock()
-						processedBytes := len(chunk)
-						filteredLen := 0
-						filterApplied := false
-						tab.mu.Lock()
-						if tab.Terminal != nil {
-							filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
-							filteredLen = len(filtered)
-							filterApplied = true
-							if len(filtered) > 0 {
-								flushDone := perf.Time("pty_flush")
-								tab.Terminal.Write(filtered)
-								flushDone()
-								perf.Count("pty_flush_bytes", int64(len(filtered)))
+							if tab.actorWritesPending > 0 {
+								rebuffered = true
+								tab.actorQueuedCarry = prevCarry
+								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
+								restored := make([]byte, 0, len(chunk)+len(tab.pendingOutput))
+								restored = append(restored, chunk...)
+								restored = append(restored, tab.pendingOutput...)
+								tab.pendingOutput = restored
 							}
-							// Activity state intentionally tracks visible terminal mutations only.
-							// Noise-only chunks are filtered above and must not update activity tags.
-							// We still run this to clear pending visible state when no mutation occurred.
-							tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, hasMoreBuffered, visibleSeq, filtered)
 						}
 						tab.mu.Unlock()
-						cmds = append(cmds, m.scheduleChatCursorRefresh(tab, msg.WorkspaceID, time.Now()))
-						perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-						if filterApplied {
-							filteredBytes := processedBytes - filteredLen
-							if filteredBytes > 0 {
-								perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+						if !rebuffered {
+							processedBytes := len(chunk)
+							filteredLen := 0
+							filterApplied := false
+							tab.mu.Lock()
+							if tab.Terminal != nil {
+								filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
+								filteredLen = len(filtered)
+								filterApplied = true
+								if len(filtered) > 0 {
+									flushDone := perf.Time("pty_flush")
+									tab.Terminal.Write(filtered)
+									flushDone()
+									perf.Count("pty_flush_bytes", int64(len(filtered)))
+								}
+								// Activity state intentionally tracks visible terminal mutations only.
+								// Noise-only chunks are filtered above and must not update activity tags.
+								// We still run this to clear pending visible state when no mutation occurred.
+								tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, hasMoreBuffered, visibleSeq, filtered)
+								tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
+								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
+							}
+							tab.mu.Unlock()
+							cmds = append(cmds, m.scheduleChatCursorRefresh(tab, msg.WorkspaceID, time.Now()))
+							perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+							if filterApplied {
+								filteredBytes := processedBytes - filteredLen
+								if filteredBytes > 0 {
+									perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+								}
 							}
 						}
 					}

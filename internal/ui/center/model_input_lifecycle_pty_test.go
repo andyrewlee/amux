@@ -354,7 +354,7 @@ func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
 	}
 }
 
-func TestUpdatePTYFlush_RestoresQueuedParserStateAfterActorFallback(t *testing.T) {
+func TestUpdatePTYFlush_RebuffersChunkAfterActorFallbackWithOlderPendingWrites(t *testing.T) {
 	m := newTestModel()
 	m.setTabActorReady()
 	m.tabEvents = make(chan tabEvent, 1)
@@ -392,8 +392,14 @@ func TestUpdatePTYFlush_RestoresQueuedParserStateAfterActorFallback(t *testing.T
 	if !bytes.Equal(tab.actorQueuedNoiseTrailing, prevNoiseTrailing) {
 		t.Fatalf("expected queued noise trailing restored to %q, got %q", prevNoiseTrailing, tab.actorQueuedNoiseTrailing)
 	}
-	if !bytes.Equal(tab.ptyNoiseTrailing, []byte("proc(1) malloc")) {
-		t.Fatalf("expected synchronous fallback to update live trailing noise, got %q", tab.ptyNoiseTrailing)
+	if !bytes.Equal(tab.pendingOutput, chunk) {
+		t.Fatalf("expected chunk to be rebuffered for in-order retry, got %q", tab.pendingOutput)
+	}
+	if len(tab.ptyNoiseTrailing) != 0 {
+		t.Fatalf("expected no synchronous fallback write while older actor writes remain, got trailing %q", tab.ptyNoiseTrailing)
+	}
+	if tab.Terminal.ParserCarryState() != (vterm.ParserCarryState{}) {
+		t.Fatalf("expected terminal parser state unchanged until actor backlog drains, got %+v", tab.Terminal.ParserCarryState())
 	}
 }
 
