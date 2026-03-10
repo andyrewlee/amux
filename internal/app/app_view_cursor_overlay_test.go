@@ -100,6 +100,36 @@ func TestViewHidesTerminalCursorWhenToastCoversIt(t *testing.T) {
 	}
 }
 
+func TestViewHardwareCursorDelegationDoesNotMutateCachedSnapshot(t *testing.T) {
+	h, err := NewHarness(HarnessOptions{
+		Mode:   HarnessCenter,
+		Tabs:   1,
+		Width:  160,
+		Height: 48,
+	})
+	if err != nil {
+		t.Fatalf("expected harness creation to succeed: %v", err)
+	}
+	if len(h.tabs) != 1 || h.tabs[0] == nil || h.tabs[0].Terminal == nil {
+		t.Fatal("expected center harness terminal")
+	}
+	h.tabs[0].Terminal.CursorX = 1
+	h.tabs[0].Terminal.CursorY = h.tabs[0].Terminal.Height - 1
+
+	view := h.Render()
+	if view.Cursor == nil {
+		t.Fatal("expected hardware cursor delegation during render")
+	}
+
+	layer := h.app.center.TerminalLayerWithCursorOwner(true)
+	if layer == nil || layer.Snap == nil {
+		t.Fatal("expected cached terminal layer snapshot after render")
+	}
+	if !layer.Snap.ShowCursor {
+		t.Fatal("expected cached snapshot to retain software cursor visibility after hardware delegation")
+	}
+}
+
 func TestViewHidesOverlayCursorWhenToastCoversIt(t *testing.T) {
 	h, err := NewHarness(HarnessOptions{
 		Mode:   HarnessCenter,

@@ -266,3 +266,32 @@ func TestRecordLocalInputEchoWindow_BracketedPasteWithSubmitSetsPromptWindowOnly
 		t.Fatal("expected submit bracketed paste to set lastPromptSubmitAt")
 	}
 }
+
+func TestRecordLocalInputEchoWindow_SubmittedPasteTracksAndClearsPendingEcho(t *testing.T) {
+	tab := &Tab{}
+	now := time.Now()
+
+	recordLocalInputEchoWindow(tab, "\x1b[200~hello\r\nworld\r\x1b[201~", now)
+	tab.mu.Lock()
+	pending := tab.pendingSubmitPasteEcho
+	tab.mu.Unlock()
+	if pending != "hello\nworld" {
+		t.Fatalf("expected submitted paste echo to be normalized and tracked, got %q", pending)
+	}
+
+	recordLocalInputEchoWindow(tab, "x", now.Add(time.Millisecond))
+	tab.mu.Lock()
+	pending = tab.pendingSubmitPasteEcho
+	echoStamp := tab.lastUserInputAt
+	submitStamp := tab.lastPromptSubmitAt
+	tab.mu.Unlock()
+	if pending != "" {
+		t.Fatalf("expected non-submit input to clear stale pending paste echo, got %q", pending)
+	}
+	if echoStamp.IsZero() {
+		t.Fatal("expected typing input to set lastUserInputAt after clearing stale paste state")
+	}
+	if !submitStamp.IsZero() {
+		t.Fatal("expected non-submit input to clear lastPromptSubmitAt")
+	}
+}

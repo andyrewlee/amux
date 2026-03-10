@@ -156,6 +156,8 @@ func (a *App) viewLayerBased() tea.View {
 					snap.CursorX < termW && snap.CursorY < termH {
 					setTerminalCursor(termX+snap.CursorX, termY+snap.CursorY)
 					// Keep exactly one visible cursor by delegating to the hardware cursor.
+					// This shallow copy is intentional: only ShowCursor changes here, and
+					// the snapshot screen data remains read-only for rendering.
 					snapCopy := *snap
 					snapCopy.ShowCursor = false
 					termLayer = compositor.NewVTermLayer(&snapCopy)
@@ -326,6 +328,8 @@ func (a *App) viewLayerBased() tea.View {
 						snap.CursorX < termW && snap.CursorY < termH {
 						setTerminalCursor(originX+snap.CursorX, originY+snap.CursorY)
 						// Keep exactly one visible cursor by delegating to the hardware cursor.
+						// This shallow copy is intentional: only ShowCursor changes here, and
+						// the snapshot screen data remains read-only for rendering.
 						snapCopy := *snap
 						snapCopy.ShowCursor = false
 						termLayer = compositor.NewVTermLayer(&snapCopy)
