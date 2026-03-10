@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -71,8 +72,8 @@ func TestViewHidesTerminalCursorWhenToastCoversIt(t *testing.T) {
 	h, err := NewHarness(HarnessOptions{
 		Mode:   HarnessCenter,
 		Tabs:   1,
-		Width:  60,
-		Height: 12,
+		Width:  95,
+		Height: 8,
 	})
 	if err != nil {
 		t.Fatalf("expected harness creation to succeed: %v", err)
@@ -81,36 +82,43 @@ func TestViewHidesTerminalCursorWhenToastCoversIt(t *testing.T) {
 		t.Fatal("expected center harness terminal")
 	}
 
-	_ = h.app.toast.ShowInfo("copy complete")
-	covered := false
-	for width := 48; width <= 96 && !covered; width++ {
-		for height := 8; height <= 18 && !covered; height++ {
-			h.app.width = width
-			h.app.height = height
-			h.app.layout.Resize(width, height)
-			h.app.updateLayout()
+	_ = h.app.toast.Show("copy complete", common.ToastInfo, time.Minute)
 
-			termOffsetX, termOffsetY, termW, termH := h.app.center.TerminalViewport()
-			centerX := h.app.layout.LeftGutter() + h.app.layout.DashboardWidth() + h.app.layout.GapX()
-			termX := centerX + termOffsetX
-			termY := h.app.layout.TopGutter() + termOffsetY
+	termOffsetX, termOffsetY, termW, termH := h.app.center.TerminalViewport()
+	centerX := h.app.layout.LeftGutter() + h.app.layout.DashboardWidth() + h.app.layout.GapX()
+	termX := centerX + termOffsetX
+	termY := h.app.layout.TopGutter() + termOffsetY
 
-			for y := 0; y < termH && !covered; y++ {
-				for x := 0; x < termW; x++ {
-					if !h.app.toastCoversPoint(termX+x, termY+y) {
-						continue
-					}
-					h.tabs[0].Terminal.CursorX = x
-					h.tabs[0].Terminal.CursorY = y
-					covered = true
-					break
-				}
-			}
-		}
+	toastView := h.app.toast.View()
+	if toastView == "" {
+		t.Fatal("expected visible toast")
 	}
-	if !covered {
-		t.Fatal("expected a toast-covered point within the terminal viewport in test setup")
+	toastW, toastH := viewDimensions(toastView)
+	toastX := (h.app.width - toastW) / 2
+	toastY := h.app.height - 2
+
+	overlapLeft := termX
+	if toastX > overlapLeft {
+		overlapLeft = toastX
 	}
+	overlapTop := termY
+	if toastY > overlapTop {
+		overlapTop = toastY
+	}
+	overlapRight := termX + termW
+	if toastX+toastW < overlapRight {
+		overlapRight = toastX + toastW
+	}
+	overlapBottom := termY + termH
+	if toastY+toastH < overlapBottom {
+		overlapBottom = toastY + toastH
+	}
+	if overlapLeft >= overlapRight || overlapTop >= overlapBottom {
+		t.Fatal("expected toast and terminal viewport to overlap in test setup")
+	}
+
+	h.tabs[0].Terminal.CursorX = overlapLeft - termX
+	h.tabs[0].Terminal.CursorY = overlapTop - termY
 
 	view := h.Render()
 	if view.Cursor != nil {
