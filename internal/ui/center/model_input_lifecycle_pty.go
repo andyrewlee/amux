@@ -264,10 +264,13 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						visibleSeq:      visibleSeq,
 					}) {
 						rebuffered := false
+						dropWrite := false
 						tab.mu.Lock()
 						if tab.actorWriteEpoch == prevEpoch && tab.actorWritesPending > 0 {
 							tab.actorWritesPending--
-							if tab.actorWritesPending > 0 {
+							if tab.isClosed() {
+								dropWrite = true
+							} else if tab.actorWritesPending > 0 {
 								rebuffered = true
 								tab.actorQueuedCarry = prevCarry
 								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
@@ -276,9 +279,11 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 								restored = append(restored, tab.pendingOutput...)
 								tab.pendingOutput = restored
 							}
+						} else if tab.actorWriteEpoch != prevEpoch || tab.isClosed() {
+							dropWrite = true
 						}
 						tab.mu.Unlock()
-						if !rebuffered {
+						if !rebuffered && !dropWrite {
 							processedBytes := len(chunk)
 							filteredLen := 0
 							filterApplied := false

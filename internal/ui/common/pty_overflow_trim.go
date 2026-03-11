@@ -61,7 +61,7 @@ func isSafePTYOverflowBoundary(state ptyOverflowTrimState, utf8Remaining int, b 
 		return false
 	}
 	switch state {
-	case ptyOverflowTrimCSI, ptyOverflowTrimCSIParam, ptyOverflowTrimOSC, ptyOverflowTrimDCS:
+	case ptyOverflowTrimEsc, ptyOverflowTrimCSI, ptyOverflowTrimCSIParam, ptyOverflowTrimOSC, ptyOverflowTrimDCS:
 		return true
 	default:
 		return false

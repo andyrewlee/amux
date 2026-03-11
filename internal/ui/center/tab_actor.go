@@ -95,7 +95,7 @@ func (m *Model) sendTabEvent(ev tabEvent) bool {
 	}
 	if ev.tab != nil && ev.tab.isClosed() {
 		perf.Count("tab_event_drop_closed", 1)
-		return true
+		return ev.kind != tabEventWriteOutput
 	}
 	if shouldDropTabEvent(m.tabEvents, ev.kind) {
 		perf.Count("tab_event_drop_backpressure", 1)

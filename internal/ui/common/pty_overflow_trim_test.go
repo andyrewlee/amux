@@ -81,11 +81,11 @@ func TestTrimPTYOverflowPrefix_KeepsTextAfterUnsupportedEscapeFamily(t *testing.
 	}
 }
 
-func TestTrimPTYOverflowPrefix_DropsSecondESCAfterTruncatedEscapeCarry(t *testing.T) {
+func TestTrimPTYOverflowPrefix_AllowsFreshEscapeAfterTruncatedEscapeCarry(t *testing.T) {
 	in := []byte("\x1b[31mX")
 	got, _ := TrimPTYOverflowPrefix(in, 0, vterm.ParserCarryState{Mode: vterm.ParserCarryEscape})
-	if string(got) != "[31mX" {
-		t.Fatalf("got %q, want %q", got, "[31mX")
+	if string(got) != "\x1b[31mX" {
+		t.Fatalf("got %q, want %q", got, "\x1b[31mX")
 	}
 }
 
