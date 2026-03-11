@@ -136,6 +136,180 @@ func TestClassifyInvocation(t *testing.T) {
 	}
 }
 
+func TestClassifyDispatch(t *testing.T) {
+	tests := []struct {
+		name string
+		sub  string
+		want dispatchTarget
+	}{
+		{name: "cobra status", sub: "status", want: dispatchTargetCobra},
+		{name: "cobra doctor", sub: "doctor", want: dispatchTargetCobra},
+		{name: "legacy logs", sub: "logs", want: dispatchTargetLegacy},
+		{name: "legacy workspace", sub: "workspace", want: dispatchTargetLegacy},
+		{name: "cobra sandbox", sub: "sandbox", want: dispatchTargetCobra},
+		{name: "cobra auth", sub: "auth", want: dispatchTargetCobra},
+		{name: "cobra alias", sub: "claude", want: dispatchTargetCobra},
+		{name: "tui command", sub: "tui", want: dispatchTargetTUI},
+		{name: "unknown", sub: "does-not-exist", want: dispatchTargetUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyDispatch(tt.sub); got != tt.want {
+				t.Fatalf("classifyDispatch(%q) = %v, want %v", tt.sub, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrepareCobraDispatchArgs(t *testing.T) {
+	tmp := t.TempDir()
+
+	tests := []struct {
+		name         string
+		args         []string
+		sub          string
+		wantCwd      string
+		wantReqID    string
+		wantTimeout  time.Duration
+		wantCobraArg []string
+	}{
+		{
+			name:         "strips leading globals and remaps json for status",
+			args:         []string{"--json", "--cwd", tmp, "status"},
+			sub:          "status",
+			wantCwd:      tmp,
+			wantCobraArg: []string{"status", "--json"},
+		},
+		{
+			name:         "status local json preserved via remap",
+			args:         []string{"status", "--json"},
+			sub:          "status",
+			wantCwd:      "",
+			wantCobraArg: []string{"status", "--json"},
+		},
+		{
+			name:         "doctor remaps leading json so unsupported flag is explicit",
+			args:         []string{"--json", "doctor", "--deep"},
+			sub:          "doctor",
+			wantCwd:      "",
+			wantCobraArg: []string{"doctor", "--json", "--deep"},
+		},
+		{
+			name:         "doctor json remap does not satisfy missing flag value",
+			args:         []string{"--json", "doctor", "--agent"},
+			sub:          "doctor",
+			wantCwd:      "",
+			wantCobraArg: []string{"doctor", "--json", "--agent"},
+		},
+		{
+			name:         "status strips post-command cwd global",
+			args:         []string{"status", "--cwd", tmp},
+			sub:          "status",
+			wantCwd:      tmp,
+			wantCobraArg: []string{"status"},
+		},
+		{
+			name:         "doctor strips post-command timeout global",
+			args:         []string{"doctor", "--timeout", "1s"},
+			sub:          "doctor",
+			wantTimeout:  time.Second,
+			wantCobraArg: []string{"doctor"},
+		},
+		{
+			name:         "doctor strips post-command request-id global",
+			args:         []string{"doctor", "--request-id", "req-123"},
+			sub:          "doctor",
+			wantCwd:      "",
+			wantReqID:    "req-123",
+			wantCobraArg: []string{"doctor"},
+		},
+		{
+			name:         "exec passthrough after double-dash is preserved",
+			args:         []string{"exec", "--", "rg", "--json"},
+			sub:          "exec",
+			wantCwd:      "",
+			wantCobraArg: []string{"exec", "--", "rg", "--json"},
+		},
+		{
+			name:         "alias passthrough is preserved",
+			args:         []string{"claude", "--", "--quiet"},
+			sub:          "claude",
+			wantCwd:      "",
+			wantCobraArg: []string{"claude", "--", "--quiet"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotGF, gotArgs, err := prepareCobraDispatchArgs(tt.args, tt.sub)
+			if err != nil {
+				t.Fatalf("prepareCobraDispatchArgs() error = %v", err)
+			}
+			if gotGF.Cwd != tt.wantCwd {
+				t.Fatalf("cwd = %q, want %q", gotGF.Cwd, tt.wantCwd)
+			}
+			if gotGF.RequestID != tt.wantReqID {
+				t.Fatalf("request-id = %q, want %q", gotGF.RequestID, tt.wantReqID)
+			}
+			if gotGF.Timeout != tt.wantTimeout {
+				t.Fatalf("timeout = %v, want %v", gotGF.Timeout, tt.wantTimeout)
+			}
+			if strings.Join(gotArgs, "\x00") != strings.Join(tt.wantCobraArg, "\x00") {
+				t.Fatalf("cobra args = %v, want %v", gotArgs, tt.wantCobraArg)
+			}
+		})
+	}
+}
+
+func TestShouldRouteLegacyJSONContract(t *testing.T) {
+	tests := []struct {
+		name string
+		sub  string
+		args []string
+		want bool
+	}{
+		{
+			name: "status with leading json",
+			sub:  "status",
+			args: []string{"--json", "status"},
+			want: true,
+		},
+		{
+			name: "status with trailing json",
+			sub:  "status",
+			args: []string{"status", "--json"},
+			want: true,
+		},
+		{
+			name: "doctor with request-id and json",
+			sub:  "doctor",
+			args: []string{"doctor", "--request-id", "req-1", "--json"},
+			want: true,
+		},
+		{
+			name: "doctor without json",
+			sub:  "doctor",
+			args: []string{"doctor", "--deep"},
+			want: false,
+		},
+		{
+			name: "non-compat command with json",
+			sub:  "exec",
+			args: []string{"--json", "exec", "--", "echo", "hi"},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldRouteLegacyJSONContract(tt.sub, tt.args); got != tt.want {
+				t.Fatalf("shouldRouteLegacyJSONContract(%q, %v) = %v, want %v", tt.sub, tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHandleNoSubcommandNonTTYRoutesThroughCLIJSON(t *testing.T) {
 	code, stdout, stderr := runHandleNoSubcommandCaptured(t, []string{"--json"}, false)
 	if code != 2 {

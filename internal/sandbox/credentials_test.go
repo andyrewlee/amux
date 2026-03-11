@@ -1,0 +1,206 @@
+package sandbox
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestSetupCredentials_ModeNone(t *testing.T) {
+	mock := NewMockRemoteSandbox("test-123")
+
+	cfg := CredentialsConfig{
+		Mode:  "none",
+		Agent: AgentClaude,
+	}
+
+	err := SetupCredentials(mock, cfg, false)
+	if err != nil {
+		t.Errorf("SetupCredentials() with mode=none error = %v", err)
+	}
+
+	// Should not have executed any commands
+	history := mock.GetExecHistory()
+	if len(history) > 0 {
+		t.Errorf("SetupCredentials() with mode=none should not execute commands, got %d", len(history))
+	}
+}
+
+func TestSetupCredentials_CreatesDirectories(t *testing.T) {
+	mock := NewMockRemoteSandbox("test-123")
+	mock.SetHomeDir("/home/testuser")
+
+	cfg := CredentialsConfig{
+		Mode:  "sandbox",
+		Agent: AgentClaude,
+	}
+
+	err := SetupCredentials(mock, cfg, false)
+	if err != nil {
+		t.Errorf("SetupCredentials() error = %v", err)
+	}
+
+	// Should have executed mkdir commands
+	history := mock.GetExecHistory()
+	foundMkdir := false
+	for _, cmd := range history {
+		if strings.Contains(cmd, "mkdir") && strings.Contains(cmd, ".claude") {
+			foundMkdir = true
+			break
+		}
+	}
+
+	if !foundMkdir {
+		t.Error("SetupCredentials() should create .claude directory")
+	}
+}
+
+func TestSetupCredentials_AllAgents(t *testing.T) {
+	agents := []Agent{
+		AgentClaude,
+		AgentCodex,
+		AgentOpenCode,
+		AgentAmp,
+		AgentGemini,
+		AgentDroid,
+	}
+
+	for _, agent := range agents {
+		t.Run(string(agent), func(t *testing.T) {
+			mock := NewMockRemoteSandbox("test-123")
+			mock.SetHomeDir("/home/testuser")
+
+			cfg := CredentialsConfig{
+				Mode:  "sandbox",
+				Agent: agent,
+			}
+
+			err := SetupCredentials(mock, cfg, false)
+			if err != nil {
+				t.Errorf("SetupCredentials() for %s error = %v", agent, err)
+			}
+
+			// Should have executed some mkdir commands
+			history := mock.GetExecHistory()
+			if len(history) == 0 {
+				t.Errorf("SetupCredentials() for %s should execute commands", agent)
+			}
+		})
+	}
+}
+
+func TestCheckAgentCredentials(t *testing.T) {
+	tests := []struct {
+		name        string
+		agent       Agent
+		setupExec   map[string]MockExecResult
+		wantHasCred bool
+	}{
+		{
+			name:  "claude with credentials",
+			agent: AgentClaude,
+			setupExec: map[string]MockExecResult{
+				"test -f": {Output: "", ExitCode: 0},
+			},
+			wantHasCred: true,
+		},
+		{
+			name:  "claude without credentials",
+			agent: AgentClaude,
+			setupExec: map[string]MockExecResult{
+				"test -f": {Output: "", ExitCode: 1},
+			},
+			wantHasCred: false,
+		},
+		{
+			name:  "codex with credentials",
+			agent: AgentCodex,
+			setupExec: map[string]MockExecResult{
+				"test -f": {Output: "", ExitCode: 0},
+			},
+			wantHasCred: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := NewMockRemoteSandbox("test-123")
+			mock.SetHomeDir("/home/testuser")
+
+			for prefix, result := range tt.setupExec {
+				mock.SetExecResult(prefix, result.Output, result.ExitCode)
+			}
+
+			status := CheckAgentCredentials(mock, tt.agent)
+
+			if status.HasCredential != tt.wantHasCred {
+				t.Errorf("CheckAgentCredentials() HasCredential = %v, want %v", status.HasCredential, tt.wantHasCred)
+			}
+
+			if status.Agent != tt.agent {
+				t.Errorf("CheckAgentCredentials() Agent = %v, want %v", status.Agent, tt.agent)
+			}
+		})
+	}
+}
+
+func TestHasGitHubCredentials(t *testing.T) {
+	// Test with authenticated user
+	t.Run("gh authenticated", func(t *testing.T) {
+		mock := NewMockRemoteSandbox("test-123")
+		// Default mock returns exit code 0 for all commands
+		got := HasGitHubCredentials(mock)
+		if !got {
+			t.Error("HasGitHubCredentials() should return true when gh auth succeeds")
+		}
+	})
+}
+
+func TestSetupCredentials_ForceSettingsSyncOverridesDisabledGlobalConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{"theme":"dark"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if err := SaveConfig(Config{
+		SettingsSync: SettingsSyncConfig{
+			Enabled: false,
+			Files:   []string{"~/.claude/settings.json"},
+		},
+	}); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	mock := NewMockRemoteSandbox("test-123")
+	mock.SetExecResult("sh -lc", "/home/testuser", 0)
+
+	prevStdout := sandboxStdout
+	sandboxStdout = &bytes.Buffer{}
+	defer func() {
+		sandboxStdout = prevStdout
+	}()
+
+	err := SetupCredentials(mock, CredentialsConfig{
+		Mode:             "sandbox",
+		Agent:            AgentClaude,
+		SettingsSyncMode: "force",
+	}, false)
+	if err != nil {
+		t.Fatalf("SetupCredentials() error = %v", err)
+	}
+
+	uploads := mock.GetUploadHistory()
+	if len(uploads) == 0 {
+		t.Fatal("SetupCredentials() did not upload any synced settings")
+	}
+	if got, want := uploads[0].Dest, "/home/testuser/.claude/settings.json"; got != want {
+		t.Fatalf("synced destination = %q, want %q", got, want)
+	}
+}
