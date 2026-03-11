@@ -108,7 +108,7 @@ func TestStateWatcher_NotifiesOnRegistryWrite(t *testing.T) {
 
 	var notified string
 	var mu sync.Mutex
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 
 	sw, err := newStateWatcher(registryPath, "", func(reason string, paths []string) {
 		mu.Lock()
