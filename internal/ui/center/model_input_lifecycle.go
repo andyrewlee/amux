@@ -79,6 +79,10 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 		createdTerminal = true
 	}
 	if tab.Terminal != nil {
+		// Do not reset parser state when reusing an existing terminal here.
+		// pendingOutput may still contain continuation bytes queued under the
+		// current parser carry, and reconnect must preserve that continuity until
+		// buffered output is explicitly reconciled.
 		tab.Terminal.AllowAltScreenScrollback = true
 		m.applyTerminalCursorPolicyLocked(tab)
 		if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
