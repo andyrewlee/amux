@@ -122,6 +122,44 @@ func TestUpdatePtyTabReattachResult_NormalizesCapturedScrollbackLFForChatTabs(t 
 	}
 }
 
+func TestUpdatePtyTabReattachResult_PreservesParserCarryOnExistingTerminal(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(80, 24)
+	term.Write([]byte{0x1b})
+	tab := &Tab{
+		ID:            TabID("tab-reattach-carry"),
+		Assistant:     "codex",
+		Workspace:     ws,
+		Terminal:      term,
+		pendingOutput: []byte("[31mHello"),
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	if got := tab.Terminal.ParserCarryState(); got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
+		t.Fatalf("expected precondition escape carry, got %+v", got)
+	}
+
+	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-carry"},
+		Rows:        24,
+		Cols:        80,
+	})
+
+	if got := tab.Terminal.ParserCarryState(); got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
+		t.Fatalf("expected escape carry preserved on reattach, got %+v", got)
+	}
+	if got := tab.actorQueuedCarry; got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
+		t.Fatalf("expected actor queued carry to match preserved parser carry, got %+v", got)
+	}
+	if got := string(tab.pendingOutput); got != "[31mHello" {
+		t.Fatalf("expected buffered continuation bytes to survive reattach, got %q", got)
+	}
+}
+
 func TestHandlePtyTabCreated_NewTabNormalizesCapturedScrollbackLFForChatTabs(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
@@ -178,6 +216,46 @@ func TestHandlePtyTabCreated_ExistingResetsActivityANSIState(t *testing.T) {
 
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on existing tab create path, got %v", tab.activityANSIState)
+	}
+}
+
+func TestHandlePtyTabCreated_ExistingPreservesParserCarry(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(80, 24)
+	term.Write([]byte{0x1b})
+	tab := &Tab{
+		ID:            TabID("tab-created-carry"),
+		Assistant:     "codex",
+		Workspace:     ws,
+		Terminal:      term,
+		pendingOutput: []byte("[31mHello"),
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	if got := tab.Terminal.ParserCarryState(); got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
+		t.Fatalf("expected precondition escape carry, got %+v", got)
+	}
+
+	_ = m.handlePtyTabCreated(ptyTabCreateResult{
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created-carry"},
+		TabID:     tab.ID,
+		Rows:      24,
+		Cols:      80,
+		Activate:  true,
+	})
+
+	if got := tab.Terminal.ParserCarryState(); got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
+		t.Fatalf("expected escape carry preserved on existing create path, got %+v", got)
+	}
+	if got := tab.actorQueuedCarry; got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
+		t.Fatalf("expected actor queued carry to match preserved parser carry, got %+v", got)
+	}
+	if got := string(tab.pendingOutput); got != "[31mHello" {
+		t.Fatalf("expected buffered continuation bytes to survive existing create path, got %q", got)
 	}
 }
 
@@ -269,6 +347,7 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 		Assistant:         "codex",
 		Workspace:         ws,
 		activityANSIState: ansiActivityOSC,
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -279,6 +358,18 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on PTY stop, got %v", tab.activityANSIState)
+	}
+	if tab.overflowTrimCarry != (vterm.ParserCarryState{Mode: vterm.ParserCarryCSI}) {
+		t.Fatalf("expected overflowTrimCarry preserved on PTY stop, got %+v", tab.overflowTrimCarry)
+	}
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("31mHello"),
+	})
+	if string(tab.pendingOutput) != "Hello" {
+		t.Fatalf("expected post-stop continuation to trim to visible text, got %q", tab.pendingOutput)
 	}
 }
 
@@ -291,6 +382,7 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 		Assistant:         "codex",
 		Workspace:         ws,
 		activityANSIState: ansiActivityCSI,
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -301,5 +393,17 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on PTY restart, got %v", tab.activityANSIState)
+	}
+	if tab.overflowTrimCarry != (vterm.ParserCarryState{Mode: vterm.ParserCarryCSI}) {
+		t.Fatalf("expected overflowTrimCarry preserved on PTY restart, got %+v", tab.overflowTrimCarry)
+	}
+
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("31mHello"),
+	})
+	if string(tab.pendingOutput) != "Hello" {
+		t.Fatalf("expected post-restart continuation to trim to visible text, got %q", tab.pendingOutput)
 	}
 }

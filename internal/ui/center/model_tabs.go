@@ -202,6 +202,10 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		}
 		tab.Assistant = msg.Assistant
 		if tab.Terminal != nil {
+			// Do not reset parser state when reusing an existing terminal here.
+			// pendingOutput may still contain continuation bytes queued under the
+			// current parser carry, and recreate must preserve that continuity until
+			// buffered output is explicitly reconciled.
 			tab.Terminal.AllowAltScreenScrollback = true
 			m.applyTerminalCursorPolicyLocked(tab)
 			if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
@@ -216,6 +220,13 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.SessionName = msg.Agent.Session
 		tab.Detached = false
 		tab.Running = true
+		tab.parserResetPending = false
+		tab.actorWritesPending = 0
+		tab.actorWriteEpoch++
+		tab.overflowTrimCarry = vterm.ParserCarryState{}
+		tab.ptyNoiseTrailing = nil
+		tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
+		tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
 		m.applyTerminalCursorPolicyLocked(tab)
 		if tab.createdAt == 0 {
 			tab.createdAt = now.Unix()

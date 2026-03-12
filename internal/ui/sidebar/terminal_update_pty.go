@@ -9,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 // handlePTYOutput buffers incoming PTY data and schedules a flush.
@@ -20,12 +21,35 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 		return nil
 	}
 	ts := tab.State
-	ts.pendingOutput = append(ts.pendingOutput, msg.Data...)
+	data := msg.Data
+	ts.mu.Lock()
+	if ts.overflowTrimCarry != (vterm.ParserCarryState{}) {
+		data, ts.overflowTrimCarry = common.TrimPTYOverflowPrefix(data, 0, ts.overflowTrimCarry)
+	}
+	ts.mu.Unlock()
+	prevPendingLen := len(ts.pendingOutput)
+	ts.pendingOutput = append(ts.pendingOutput, data...)
 	if len(ts.pendingOutput) > ptyMaxBufferedBytes {
 		overflow := len(ts.pendingOutput) - ptyMaxBufferedBytes
 		perf.Count("sidebar_pty_drop_bytes", int64(overflow))
 		perf.Count("sidebar_pty_drop", 1)
-		ts.pendingOutput = append([]byte(nil), ts.pendingOutput[overflow:]...)
+		seed := vterm.ParserCarryState{}
+		combinedLen := len(ts.pendingOutput)
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			seed = ts.VTerm.ParserCarryState()
+			ts.VTerm.ResetParserState()
+		}
+		ts.mu.Unlock()
+		retained, overflowCarry := common.TrimPTYOverflowPrefix(ts.pendingOutput, overflow, seed)
+		retainedStart := combinedLen - len(retained)
+		ts.pendingOutput = append([]byte(nil), retained...)
+		ts.mu.Lock()
+		ts.overflowTrimCarry = overflowCarry
+		if retainedStart > prevPendingLen {
+			ts.ptyNoiseTrailing = nil
+		}
+		ts.mu.Unlock()
 	}
 	ts.lastOutputAt = time.Now()
 	if !ts.flushScheduled {

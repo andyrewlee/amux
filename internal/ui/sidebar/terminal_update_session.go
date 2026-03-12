@@ -53,6 +53,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.SessionName = msg.SessionName
 	ts.pendingOutput = nil
 	ts.ptyNoiseTrailing = nil
+	ts.overflowTrimCarry = vterm.ParserCarryState{}
 	ts.mu.Unlock()
 	if msg.Terminal != nil {
 		t := msg.Terminal
