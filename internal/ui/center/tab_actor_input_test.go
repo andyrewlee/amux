@@ -154,6 +154,16 @@ func TestShouldPostTabActorRedraw(t *testing.T) {
 	}
 }
 
+func TestTabActorRedraw_IsNonEvictingCriticalExternalMsg(t *testing.T) {
+	var msg any = tabActorRedraw{}
+	if _, ok := msg.(common.CriticalExternalMsg); !ok {
+		t.Fatal("expected tabActorRedraw to implement CriticalExternalMsg")
+	}
+	if _, ok := msg.(common.NonEvictingCriticalExternalMsg); !ok {
+		t.Fatal("expected tabActorRedraw to implement NonEvictingCriticalExternalMsg")
+	}
+}
+
 func TestHandleTabEvent_SelectionClearEmitsRedrawOnlyWhenSelectionChanged(t *testing.T) {
 	tests := []struct {
 		name       string
