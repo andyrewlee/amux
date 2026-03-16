@@ -208,10 +208,10 @@ func (m *Model) requestTabActorRedraw() {
 	if m == nil {
 		return
 	}
-	if !atomic.CompareAndSwapUint32(&m.tabActorRedrawPending, 0, 1) {
-		return
-	}
 	if m.msgSinkTry != nil {
+		if !atomic.CompareAndSwapUint32(&m.tabActorRedrawPending, 0, 1) {
+			return
+		}
 		if m.msgSinkTry(tabActorRedraw{}) {
 			return
 		}
@@ -220,9 +220,7 @@ func (m *Model) requestTabActorRedraw() {
 	}
 	if m.msgSink != nil {
 		m.msgSink(tabActorRedraw{})
-		return
 	}
-	atomic.StoreUint32(&m.tabActorRedrawPending, 0)
 }
 
 func (m *Model) clearTabActorRedrawPending() {

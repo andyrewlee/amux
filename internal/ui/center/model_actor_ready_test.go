@@ -193,8 +193,12 @@ func TestRunTabActor_EmitsRedrawForActorHandledUIEvent(t *testing.T) {
 func TestRequestTabActorRedraw_CoalescesOutstandingSignals(t *testing.T) {
 	m := newTestModel()
 	sinkMsgs := make(chan tea.Msg, 4)
-	m.msgSink = func(msg tea.Msg) {
+	m.msgSinkTry = func(msg tea.Msg) bool {
 		sinkMsgs <- msg
+		return true
+	}
+	m.msgSink = func(msg tea.Msg) {
+		_ = m.msgSinkTry(msg)
 	}
 
 	m.requestTabActorRedraw()
@@ -225,6 +229,32 @@ func TestRequestTabActorRedraw_CoalescesOutstandingSignals(t *testing.T) {
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected redraw message after clearing pending flag")
+	}
+}
+
+func TestRequestTabActorRedraw_MsgSinkFallbackDoesNotLatchPending(t *testing.T) {
+	m := newTestModel()
+	sinkMsgs := make(chan tea.Msg, 4)
+	m.msgSink = func(msg tea.Msg) {
+		sinkMsgs <- msg
+	}
+
+	m.requestTabActorRedraw()
+	m.requestTabActorRedraw()
+
+	if got := atomic.LoadUint32(&m.tabActorRedrawPending); got != 0 {
+		t.Fatalf("expected msgSink-only redraw path not to latch pending flag, got %d", got)
+	}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case msg := <-sinkMsgs:
+			if _, ok := msg.(tabActorRedraw); !ok {
+				t.Fatalf("expected redraw message, got %T", msg)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("expected redraw message %d from msgSink-only fallback", i+1)
+		}
 	}
 }
 
