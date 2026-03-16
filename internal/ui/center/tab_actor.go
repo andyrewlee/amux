@@ -294,22 +294,24 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		}
 	case tabEventSelectionFinish:
 		tab.mu.Lock()
-		defer tab.mu.Unlock()
 		if !tab.Selection.Active {
+			tab.mu.Unlock()
 			return
 		}
+		text := ""
 		tab.Selection.Active = false
 		tab.selectionScroll.Reset()
 		if tab.Terminal != nil &&
 			(tab.Selection.StartX != tab.Selection.EndX ||
 				tab.Selection.StartLine != tab.Selection.EndLine) {
-			text := tab.Terminal.GetSelectedText(
+			text = tab.Terminal.GetSelectedText(
 				tab.Terminal.SelStartX(), tab.Terminal.SelStartLine(),
 				tab.Terminal.SelEndX(), tab.Terminal.SelEndLine(),
 			)
-			if text != "" && m.msgSink != nil {
-				m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
-			}
+		}
+		tab.mu.Unlock()
+		if text != "" && m.msgSink != nil {
+			m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
 		}
 	case tabEventScrollBy:
 		tab.mu.Lock()
