@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -125,6 +126,82 @@ func TestShouldPostWriteRedraw(t *testing.T) {
 			tab.setPostWriteVisible(tt.visible)
 			if got := m.shouldPostWriteRedraw(tab); got != tt.want {
 				t.Fatalf("expected shouldPostWriteRedraw=%v, got %v", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestShouldPostTabActorRedraw(t *testing.T) {
+	tests := []struct {
+		kind tabEventKind
+		want bool
+	}{
+		{kind: tabEventSelectionClear, want: false},
+		{kind: tabEventSelectionStart, want: true},
+		{kind: tabEventSelectionUpdate, want: true},
+		{kind: tabEventScrollBy, want: true},
+		{kind: tabEventScrollPage, want: true},
+		{kind: tabEventDiffInput, want: true},
+		{kind: tabEventSendInput, want: false},
+		{kind: tabEventPaste, want: false},
+		{kind: tabEventWriteOutput, want: false},
+	}
+
+	for _, tt := range tests {
+		if got := shouldPostTabActorRedraw(tt.kind); got != tt.want {
+			t.Fatalf("kind %v: expected shouldPostTabActorRedraw=%v, got %v", tt.kind, tt.want, got)
+		}
+	}
+}
+
+func TestTabActorRedraw_IsNonEvictingCriticalExternalMsg(t *testing.T) {
+	var msg any = tabActorRedraw{}
+	if _, ok := msg.(common.CriticalExternalMsg); !ok {
+		t.Fatal("expected tabActorRedraw to implement CriticalExternalMsg")
+	}
+	if _, ok := msg.(common.NonEvictingCriticalExternalMsg); !ok {
+		t.Fatal("expected tabActorRedraw to implement NonEvictingCriticalExternalMsg")
+	}
+}
+
+func TestHandleTabEvent_SelectionClearEmitsRedrawOnlyWhenSelectionChanged(t *testing.T) {
+	tests := []struct {
+		name       string
+		prepareTab func(*Tab)
+		wantRedraw bool
+	}{
+		{
+			name: "active selection",
+			prepareTab: func(tab *Tab) {
+				tab.Selection = common.SelectionState{Active: true, StartX: 1, StartLine: 1, EndX: 3, EndLine: 1}
+				tab.Terminal.SetSelection(1, 1, 3, 1, true, false)
+			},
+			wantRedraw: true,
+		},
+		{
+			name:       "no selection",
+			prepareTab: func(tab *Tab) {},
+			wantRedraw: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestModel()
+			tab := &Tab{Terminal: vterm.New(80, 24)}
+			tt.prepareTab(tab)
+
+			redraws := 0
+			m.msgSink = func(msg tea.Msg) {
+				if _, ok := msg.(tabActorRedraw); ok {
+					redraws++
+				}
+			}
+
+			m.handleTabEvent(tabEvent{tab: tab, kind: tabEventSelectionClear})
+
+			if got := redraws > 0; got != tt.wantRedraw {
+				t.Fatalf("expected redraw=%v, got redraws=%d", tt.wantRedraw, redraws)
 			}
 		})
 	}

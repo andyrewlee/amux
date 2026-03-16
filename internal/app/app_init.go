@@ -127,7 +127,7 @@ func New(version, commit, date string) (*App, error) {
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()
 	// Route PTY messages through the app-level pump.
-	app.center.SetMsgSink(app.enqueueExternalMsg)
+	app.center.SetMsgSinkTry(app.tryEnqueueExternalMsg)
 	app.sidebarTerminal.SetMsgSink(app.enqueueExternalMsg)
 	app.center.SetInstanceID(app.instanceID)
 	app.sidebarTerminal.SetInstanceID(app.instanceID)

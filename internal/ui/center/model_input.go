@@ -360,12 +360,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.TabSessionStatus:
 		return m.updateTabSessionStatus(msg)
 
-	case tabActorReady:
-		return m.updateTabActorReady(msg)
-
-	case tabActorHeartbeat:
-		return m.updateTabActorHeartbeat(msg)
-
 	case messages.OpenDiff:
 		return m.updateOpenDiff(msg)
 
@@ -380,6 +374,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case tabDiffCmd:
 		return m.updateTabDiffCmd(msg)
+
+	case tabActorRedraw:
+		m.clearTabActorRedrawPending()
+		return m, nil
 
 	case PTYOutput:
 		cmd := m.updatePTYOutput(msg)

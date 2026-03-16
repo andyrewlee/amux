@@ -195,19 +195,6 @@ func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, t
 	})
 }
 
-// updateTabActorReady handles tabActorReady.
-func (m *Model) updateTabActorReady(_ tabActorReady) (*Model, tea.Cmd) {
-	m.setTabActorReady()
-	m.noteTabActorHeartbeat()
-	return m, nil
-}
-
-// updateTabActorHeartbeat handles tabActorHeartbeat.
-func (m *Model) updateTabActorHeartbeat(_ tabActorHeartbeat) (*Model, tea.Cmd) {
-	m.noteTabActorHeartbeat()
-	return m, nil
-}
-
 // updateOpenDiff handles messages.OpenDiff.
 func (m *Model) updateOpenDiff(msg messages.OpenDiff) (*Model, tea.Cmd) {
 	if msg.Change == nil {

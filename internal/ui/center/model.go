@@ -16,22 +16,24 @@ import (
 // Model is the Bubbletea model for the center pane
 type Model struct {
 	// State
-	workspace            *data.Workspace
-	workspaceIDCached    string
-	workspaceIDRepo      string
-	workspaceIDRoot      string
-	tabsByWorkspace      map[string][]*Tab // tabs per workspace ID
-	activeTabByWorkspace map[string]int    // active tab index per workspace
-	focused              bool
-	canFocusRight        bool
-	tabsRevision         uint64
-	agentManager         *appPty.AgentManager
-	msgSink              func(tea.Msg)
-	tabEvents            chan tabEvent
-	tabActorReady        uint32
-	tabActorHeartbeat    int64
-	flushLoadSampleAt    time.Time
-	cachedBusyTabCount   int
+	workspace             *data.Workspace
+	workspaceIDCached     string
+	workspaceIDRepo       string
+	workspaceIDRoot       string
+	tabsByWorkspace       map[string][]*Tab // tabs per workspace ID
+	activeTabByWorkspace  map[string]int    // active tab index per workspace
+	focused               bool
+	canFocusRight         bool
+	tabsRevision          uint64
+	agentManager          *appPty.AgentManager
+	msgSink               func(tea.Msg)
+	msgSinkTry            func(tea.Msg) bool
+	tabEvents             chan tabEvent
+	tabActorReady         uint32
+	tabActorHeartbeat     int64
+	tabActorRedrawPending uint32
+	flushLoadSampleAt     time.Time
+	cachedBusyTabCount    int
 
 	// Layout
 	width           int
@@ -167,18 +169,65 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 }
 
 func (m *Model) isTabActorReady() bool {
-	return atomic.LoadUint32(&m.tabActorReady) == 1
+	if atomic.LoadUint32(&m.tabActorReady) == 0 {
+		return false
+	}
+	lastBeat := atomic.LoadInt64(&m.tabActorHeartbeat)
+	if lastBeat == 0 {
+		return false
+	}
+	if time.Since(time.Unix(0, lastBeat)) > tabActorStallTimeout {
+		atomic.StoreUint32(&m.tabActorReady, 0)
+		return false
+	}
+	return true
 }
 
 func (m *Model) setTabActorReady() {
+	atomic.StoreInt64(&m.tabActorHeartbeat, time.Now().UnixNano())
 	atomic.StoreUint32(&m.tabActorReady, 1)
 }
 
 func (m *Model) noteTabActorHeartbeat() {
-	atomic.StoreInt64(&m.tabActorHeartbeat, time.Now().UnixNano())
+	observedAt := time.Now().UnixNano()
+	for {
+		prev := atomic.LoadInt64(&m.tabActorHeartbeat)
+		if observedAt <= prev {
+			observedAt = prev + 1
+		}
+		if atomic.CompareAndSwapInt64(&m.tabActorHeartbeat, prev, observedAt) {
+			break
+		}
+	}
 	if atomic.LoadUint32(&m.tabActorReady) == 0 {
 		atomic.StoreUint32(&m.tabActorReady, 1)
 	}
+}
+
+func (m *Model) requestTabActorRedraw() {
+	if m == nil {
+		return
+	}
+	if m.msgSinkTry != nil {
+		if !atomic.CompareAndSwapUint32(&m.tabActorRedrawPending, 0, 1) {
+			return
+		}
+		if m.msgSinkTry(tabActorRedraw{}) {
+			return
+		}
+		atomic.StoreUint32(&m.tabActorRedrawPending, 0)
+		return
+	}
+	if m.msgSink != nil {
+		m.msgSink(tabActorRedraw{})
+	}
+}
+
+func (m *Model) clearTabActorRedrawPending() {
+	if m == nil {
+		return
+	}
+	atomic.StoreUint32(&m.tabActorRedrawPending, 0)
 }
 
 func (m *Model) setWorkspace(ws *data.Workspace) {

@@ -66,9 +66,10 @@ type selectionTickRequest struct {
 	gen         uint64
 }
 
-type tabActorReady struct{}
+type tabActorRedraw struct{}
 
-type tabActorHeartbeat struct{}
+func (tabActorRedraw) MarkCriticalExternalMsg()            {}
+func (tabActorRedraw) MarkNonEvictingCriticalExternalMsg() {}
 
 type tabDiffCmd struct {
 	cmd tea.Cmd
@@ -126,31 +127,43 @@ func shouldDropTabEvent(ch chan tabEvent, kind tabEventKind) bool {
 	return len(ch) >= (capacity*3)/4
 }
 
+func shouldPostTabActorRedraw(kind tabEventKind) bool {
+	switch kind {
+	case tabEventSelectionStart,
+		tabEventSelectionUpdate,
+		tabEventSelectionFinish,
+		tabEventScrollBy,
+		tabEventSelectionClearAndNotify,
+		tabEventSelectionScrollTick,
+		tabEventScrollToBottom,
+		tabEventScrollPage,
+		tabEventScrollToTop,
+		tabEventDiffInput:
+		return true
+	default:
+		return false
+	}
+}
+
 func (m *Model) RunTabActor(ctx context.Context) error {
 	if m == nil || m.tabEvents == nil {
 		return nil
 	}
-	if m.msgSink != nil {
-		m.msgSink(tabActorReady{})
-	}
+	m.setTabActorReady()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	if m.msgSink != nil {
-		m.msgSink(tabActorHeartbeat{})
-	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case ev := <-m.tabEvents:
-			if m.msgSink != nil {
-				m.msgSink(tabActorHeartbeat{})
-			}
+			m.noteTabActorHeartbeat()
 			m.handleTabEvent(ev)
-		case <-ticker.C:
-			if m.msgSink != nil {
-				m.msgSink(tabActorHeartbeat{})
+			if shouldPostTabActorRedraw(ev.kind) {
+				m.requestTabActorRedraw()
 			}
+		case <-ticker.C:
+			m.noteTabActorHeartbeat()
 		}
 	}
 }
@@ -164,13 +177,21 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 
 	switch ev.kind {
 	case tabEventSelectionClear:
+		hadSelection := false
 		tab.mu.Lock()
+		if tab.Selection.Active {
+			hadSelection = true
+		}
 		if tab.Terminal != nil {
+			hadSelection = hadSelection || tab.Terminal.HasSelection()
 			tab.Terminal.ClearSelection()
 		}
 		tab.Selection = common.SelectionState{}
 		tab.selectionScroll.Reset()
 		tab.mu.Unlock()
+		if hadSelection {
+			m.requestTabActorRedraw()
+		}
 	case tabEventSelectionClearAndNotify:
 		tab.mu.Lock()
 		text := ""
@@ -273,22 +294,24 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		}
 	case tabEventSelectionFinish:
 		tab.mu.Lock()
-		defer tab.mu.Unlock()
 		if !tab.Selection.Active {
+			tab.mu.Unlock()
 			return
 		}
+		text := ""
 		tab.Selection.Active = false
 		tab.selectionScroll.Reset()
 		if tab.Terminal != nil &&
 			(tab.Selection.StartX != tab.Selection.EndX ||
 				tab.Selection.StartLine != tab.Selection.EndLine) {
-			text := tab.Terminal.GetSelectedText(
+			text = tab.Terminal.GetSelectedText(
 				tab.Terminal.SelStartX(), tab.Terminal.SelStartLine(),
 				tab.Terminal.SelEndX(), tab.Terminal.SelEndLine(),
 			)
-			if text != "" && m.msgSink != nil {
-				m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
-			}
+		}
+		tab.mu.Unlock()
+		if text != "" && m.msgSink != nil {
+			m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
 		}
 	case tabEventScrollBy:
 		tab.mu.Lock()
