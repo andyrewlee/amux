@@ -174,13 +174,21 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 
 	switch ev.kind {
 	case tabEventSelectionClear:
+		hadSelection := false
 		tab.mu.Lock()
+		if tab.Selection.Active {
+			hadSelection = true
+		}
 		if tab.Terminal != nil {
+			hadSelection = hadSelection || tab.Terminal.HasSelection()
 			tab.Terminal.ClearSelection()
 		}
 		tab.Selection = common.SelectionState{}
 		tab.selectionScroll.Reset()
 		tab.mu.Unlock()
+		if hadSelection {
+			m.requestTabActorRedraw()
+		}
 	case tabEventSelectionClearAndNotify:
 		tab.mu.Lock()
 		text := ""
