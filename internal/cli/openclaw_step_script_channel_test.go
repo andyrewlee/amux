@@ -245,6 +245,9 @@ exit 2
 	env := os.Environ()
 	env = withEnv(env, "PATH", fakeBinDir+":"+os.Getenv("PATH"))
 	env = withEnv(env, "FAKE_AMUX_RUN_JSON", runJSON)
+	env = withEnv(env, "OPENCLAW_STEP_TIMEOUT_RECOVERY_POLLS", "1")
+	env = withEnv(env, "OPENCLAW_STEP_TIMEOUT_RECOVERY_INTERVAL", "0")
+	env = withEnv(env, "OPENCLAW_STEP_TIMEOUT_RECOVERY_LINES", "80")
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {

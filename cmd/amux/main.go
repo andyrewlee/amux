@@ -32,14 +32,47 @@ var (
 	date    = "unknown"
 )
 
-// CLI subcommands that route to the headless CLI.
-var cliCommands = map[string]bool{
-	"status": true, "doctor": true, "logs": true,
+// legacyCLICommands route to the JSON-capable headless CLI.
+var legacyCLICommands = map[string]bool{
 	"workspace": true, "agent": true, "session": true, "project": true,
 	"terminal":     true,
+	"logs":         true,
 	"capabilities": true,
 	"version":      true, "help": true,
 }
+
+// cobraCLICommands route to the sandbox-oriented Cobra command tree.
+var cobraCLICommands = map[string]bool{
+	"auth":       true,
+	"sandbox":    true,
+	"setup":      true,
+	"snapshot":   true,
+	"settings":   true,
+	"ssh":        true,
+	"exec":       true,
+	"status":     true,
+	"doctor":     true,
+	"completion": true,
+	"explain":    true,
+	"claude":     true,
+	"codex":      true,
+	"opencode":   true,
+	"amp":        true,
+	"gemini":     true,
+	"droid":      true,
+	"shell":      true,
+	"ls":         true,
+	"rm":         true,
+}
+
+type dispatchTarget int
+
+const (
+	dispatchTargetLegacy dispatchTarget = iota
+	dispatchTargetCobra
+	dispatchTargetTUI
+	dispatchTargetUnknown
+)
 
 func main() {
 	// Handle --version flag
@@ -55,13 +88,30 @@ func main() {
 		os.Exit(code)
 	}
 
-	// Route to CLI if a known subcommand is given (even with leading global flags).
+	// Route to the appropriate command surface if a known subcommand is given
+	// (even with leading global flags).
 	if sub != "" {
-		if cliCommands[sub] {
+		switch classifyDispatch(sub) {
+		case dispatchTargetLegacy:
 			code := cli.Run(os.Args[1:], version, commit, date)
 			os.Exit(code)
-		}
-		if sub == "tui" {
+		case dispatchTargetCobra:
+			if shouldRouteLegacyJSONContract(sub, os.Args[1:]) {
+				code := cli.Run(os.Args[1:], version, commit, date)
+				os.Exit(code)
+			}
+			gf, cobraArgs, err := prepareCobraDispatchArgs(os.Args[1:], sub)
+			if err != nil {
+				code := cli.Run(os.Args[1:], version, commit, date)
+				os.Exit(code)
+			}
+			if err := applyCobraGlobals(gf, sub); err != nil {
+				code := cli.Run(os.Args[1:], version, commit, date)
+				os.Exit(code)
+			}
+			code := cli.RunCobraWithGlobals(cobraArgs, gf)
+			os.Exit(code)
+		case dispatchTargetTUI:
 			// Launch TUI unconditionally.
 			runTUI()
 			return
@@ -87,6 +137,19 @@ func main() {
 	os.Exit(code)
 }
 
+func classifyDispatch(sub string) dispatchTarget {
+	if legacyCLICommands[sub] {
+		return dispatchTargetLegacy
+	}
+	if cobraCLICommands[sub] {
+		return dispatchTargetCobra
+	}
+	if sub == "tui" {
+		return dispatchTargetTUI
+	}
+	return dispatchTargetUnknown
+}
+
 func firstCLIArg(args []string) string {
 	sub, _ := classifyInvocation(args)
 	return sub
@@ -101,6 +164,75 @@ func classifyInvocation(args []string) (string, error) {
 		return "", nil
 	}
 	return rest[0], nil
+}
+
+func shouldRouteLegacyJSONContract(sub string, args []string) bool {
+	if sub != "status" && sub != "doctor" {
+		return false
+	}
+	gf, _, err := cli.ParseGlobalFlags(args)
+	if err != nil {
+		return false
+	}
+	return gf.JSON
+}
+
+func prepareCobraDispatchArgs(args []string, sub string) (cli.GlobalFlags, []string, error) {
+	// Preserve passthrough semantics for all regular Cobra commands.
+	// Only status/doctor retain compatibility for legacy leading globals.
+	if !requiresCobraCompatPreprocess(sub) {
+		return cli.GlobalFlags{}, append([]string(nil), args...), nil
+	}
+
+	gf, rest, err := cli.ParseGlobalFlags(args)
+	if err != nil {
+		return gf, nil, err
+	}
+	if len(rest) == 0 {
+		return gf, nil, nil
+	}
+
+	cobraArgs := append([]string(nil), rest...)
+	// Preserve legacy automation form: `amux --json status`.
+	// For doctor, remap consumed --json back into argv so Cobra surfaces
+	// a clear unsupported-flag error instead of silently dropping it.
+	if (sub == "status" || sub == "doctor") && gf.JSON && !containsArg(cobraArgs[1:], "--json") {
+		cobraArgs = insertArgAfterCommand(cobraArgs, "--json")
+	}
+	return gf, cobraArgs, nil
+}
+
+func requiresCobraCompatPreprocess(sub string) bool {
+	return sub == "status" || sub == "doctor"
+}
+
+func containsArg(args []string, target string) bool {
+	for _, arg := range args {
+		if arg == target {
+			return true
+		}
+	}
+	return false
+}
+
+func insertArgAfterCommand(args []string, arg string) []string {
+	if len(args) == 0 {
+		return []string{arg}
+	}
+	withArg := make([]string, 0, len(args)+1)
+	withArg = append(withArg, args[0], arg)
+	withArg = append(withArg, args[1:]...)
+	return withArg
+}
+
+func applyCobraGlobals(gf cli.GlobalFlags, sub string) error {
+	if !requiresCobraCompatPreprocess(sub) {
+		return nil
+	}
+	if gf.Cwd == "" {
+		return nil
+	}
+	return os.Chdir(gf.Cwd)
 }
 
 func shouldLaunchTUI(stdinIsTTY, stdoutIsTTY, stderrIsTTY bool) bool {

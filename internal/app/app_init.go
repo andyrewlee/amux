@@ -43,6 +43,8 @@ func New(version, commit, date string) (*App, error) {
 	workspaces := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
 	workspaceService := newWorkspaceService(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot)
+	sandboxManager := NewSandboxManager(cfg)
+	runtimeProvider := NewRuntimeAgentProvider(cfg, sandboxManager)
 
 	// Create status manager (callback will be nil, we use it for caching only)
 	statusManager := git.NewStatusManager(nil)
@@ -90,6 +92,8 @@ func New(version, commit, date string) (*App, error) {
 		gitStatus:              gitStatus,
 		tmuxService:            tmuxSvc,
 		updateService:          updateSvc,
+		sandboxManager:         sandboxManager,
+		runtimeProvider:        runtimeProvider,
 		fileWatcher:            fileWatcher,
 		fileWatcherCh:          fileWatcherCh,
 		fileWatcherErr:         fileWatcherErr,
@@ -98,7 +102,7 @@ func New(version, commit, date string) (*App, error) {
 		stateWatcherErr:        stateWatcherErr,
 		layout:                 layout.NewManager(),
 		dashboard:              dashboard.New(),
-		center:                 center.New(cfg),
+		center:                 center.New(cfg, runtimeProvider),
 		sidebar:                sidebar.NewTabbedSidebar(),
 		sidebarTerminal:        sidebar.NewTerminalModel(),
 		toast:                  common.NewToastModel(),
@@ -140,6 +144,7 @@ func New(version, commit, date string) (*App, error) {
 	app.sidebarTerminal.SetStyles(app.styles)
 	app.center.SetStyles(app.styles)
 	app.toast.SetStyles(app.styles)
+	app.sidebarTerminal.SetTerminalFactory(runtimeProvider.CreateTerminalForWorkspace)
 	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	// Propagate tmux config to components
 	app.center.SetTmuxConfig(tmuxOpts.ServerName, tmuxOpts.ConfigPath)
