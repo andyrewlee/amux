@@ -241,13 +241,6 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 
 // StartPTYReaders starts reading from all PTYs across all workspaces
 func (m *Model) StartPTYReaders() tea.Cmd {
-	if m.isTabActorReady() {
-		lastBeat := atomic.LoadInt64(&m.tabActorHeartbeat)
-		if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > tabActorStallTimeout {
-			logging.Warn("tab actor stalled; clearing readiness for restart")
-			atomic.StoreUint32(&m.tabActorReady, 0)
-		}
-	}
 	for wtID, tabs := range m.tabsByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil || tab.isClosed() {

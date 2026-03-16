@@ -66,6 +66,8 @@ type selectionTickRequest struct {
 	gen         uint64
 }
 
+type tabActorRedraw struct{}
+
 type tabDiffCmd struct {
 	cmd tea.Cmd
 }
@@ -122,6 +124,24 @@ func shouldDropTabEvent(ch chan tabEvent, kind tabEventKind) bool {
 	return len(ch) >= (capacity*3)/4
 }
 
+func shouldPostTabActorRedraw(kind tabEventKind) bool {
+	switch kind {
+	case tabEventSelectionStart,
+		tabEventSelectionUpdate,
+		tabEventSelectionFinish,
+		tabEventScrollBy,
+		tabEventSelectionClearAndNotify,
+		tabEventSelectionScrollTick,
+		tabEventScrollToBottom,
+		tabEventScrollPage,
+		tabEventScrollToTop,
+		tabEventDiffInput:
+		return true
+	default:
+		return false
+	}
+}
+
 func (m *Model) RunTabActor(ctx context.Context) error {
 	if m == nil || m.tabEvents == nil {
 		return nil
@@ -136,6 +156,9 @@ func (m *Model) RunTabActor(ctx context.Context) error {
 		case ev := <-m.tabEvents:
 			m.noteTabActorHeartbeat()
 			m.handleTabEvent(ev)
+			if shouldPostTabActorRedraw(ev.kind) {
+				m.requestTabActorRedraw()
+			}
 		case <-ticker.C:
 			m.noteTabActorHeartbeat()
 		}

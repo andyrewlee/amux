@@ -375,6 +375,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case tabDiffCmd:
 		return m.updateTabDiffCmd(msg)
 
+	case tabActorRedraw:
+		m.clearTabActorRedrawPending()
+		return m, nil
+
 	case PTYOutput:
 		cmd := m.updatePTYOutput(msg)
 		cmds = append(cmds, cmd)

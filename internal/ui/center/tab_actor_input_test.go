@@ -129,3 +129,26 @@ func TestShouldPostWriteRedraw(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldPostTabActorRedraw(t *testing.T) {
+	tests := []struct {
+		kind tabEventKind
+		want bool
+	}{
+		{kind: tabEventSelectionClear, want: false},
+		{kind: tabEventSelectionStart, want: true},
+		{kind: tabEventSelectionUpdate, want: true},
+		{kind: tabEventScrollBy, want: true},
+		{kind: tabEventScrollPage, want: true},
+		{kind: tabEventDiffInput, want: true},
+		{kind: tabEventSendInput, want: false},
+		{kind: tabEventPaste, want: false},
+		{kind: tabEventWriteOutput, want: false},
+	}
+
+	for _, tt := range tests {
+		if got := shouldPostTabActorRedraw(tt.kind); got != tt.want {
+			t.Fatalf("kind %v: expected shouldPostTabActorRedraw=%v, got %v", tt.kind, tt.want, got)
+		}
+	}
+}

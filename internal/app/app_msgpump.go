@@ -40,18 +40,22 @@ func (a *App) SetMsgSender(send func(tea.Msg)) {
 }
 
 func (a *App) enqueueExternalMsg(msg tea.Msg) {
+	_ = a.tryEnqueueExternalMsg(msg)
+}
+
+func (a *App) tryEnqueueExternalMsg(msg tea.Msg) bool {
 	if msg == nil {
-		return
+		return false
 	}
 	if isCriticalExternalMsg(msg) {
 		_, nonEvicting := msg.(common.NonEvictingCriticalExternalMsg)
 		select {
 		case a.externalCritical <- msg:
-			return
+			return true
 		default:
 			if nonEvicting {
 				perf.Count("external_msg_drop_critical", 1)
-				return
+				return false
 			}
 			// Critical channel full - try to drop a non-critical message to make room
 			select {
@@ -61,17 +65,19 @@ func (a *App) enqueueExternalMsg(msg tea.Msg) {
 			}
 			select {
 			case a.externalCritical <- msg:
-				return
+				return true
 			default:
 				perf.Count("external_msg_drop_critical", 1)
-				return
+				return false
 			}
 		}
 	}
 	select {
 	case a.externalMsgs <- msg:
+		return true
 	default:
 		perf.Count("external_msg_drop", 1)
+		return false
 	}
 }
 

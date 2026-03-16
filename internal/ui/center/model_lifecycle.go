@@ -95,6 +95,19 @@ func (m *Model) SetStyles(styles common.Styles) {
 // SetMsgSink sets a callback for PTY messages.
 func (m *Model) SetMsgSink(sink func(tea.Msg)) {
 	m.msgSink = sink
+	m.msgSinkTry = nil
+}
+
+// SetMsgSinkTry sets a callback for PTY messages that reports whether enqueue succeeded.
+func (m *Model) SetMsgSinkTry(sink func(tea.Msg) bool) {
+	m.msgSinkTry = sink
+	if sink == nil {
+		m.msgSink = nil
+		return
+	}
+	m.msgSink = func(msg tea.Msg) {
+		_ = sink(msg)
+	}
 }
 
 // SetSize sets the center pane size.

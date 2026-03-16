@@ -122,7 +122,23 @@ func TestNoteTabActorHeartbeat_RefreshesReadiness(t *testing.T) {
 	}
 }
 
-func TestRunTabActor_DoesNotEmitLivenessMsgsPerEvent(t *testing.T) {
+func TestSetTabActorReady_SeedsHeartbeatBeforeReadiness(t *testing.T) {
+	m := newTestModel()
+
+	m.setTabActorReady()
+
+	if got := atomic.LoadUint32(&m.tabActorReady); got != 1 {
+		t.Fatalf("expected ready flag to be set, got %d", got)
+	}
+	if got := atomic.LoadInt64(&m.tabActorHeartbeat); got == 0 {
+		t.Fatal("expected setTabActorReady to seed heartbeat timestamp")
+	}
+	if !m.isTabActorReady() {
+		t.Fatal("expected actor to be ready immediately after setTabActorReady")
+	}
+}
+
+func TestRunTabActor_EmitsRedrawForActorHandledUIEvent(t *testing.T) {
 	m := newTestModel()
 	m.tabEvents = make(chan tabEvent, 1)
 	sinkMsgs := make(chan tea.Msg, 4)
@@ -146,11 +162,21 @@ func TestRunTabActor_DoesNotEmitLivenessMsgsPerEvent(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	m.tabEvents <- tabEvent{kind: tabEventSelectionClear, tab: &Tab{}}
+	tab := &Tab{Terminal: vterm.New(80, 24)}
+	m.tabEvents <- tabEvent{kind: tabEventSelectionStart, tab: tab}
 	select {
 	case msg := <-sinkMsgs:
-		t.Fatalf("unexpected liveness message %T", msg)
+		if _, ok := msg.(tabActorRedraw); !ok {
+			t.Fatalf("expected redraw message, got %T", msg)
+		}
 	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected actor-handled UI event to emit redraw message")
+	}
+
+	select {
+	case msg := <-sinkMsgs:
+		t.Fatalf("unexpected extra actor message %T", msg)
+	case <-time.After(50 * time.Millisecond):
 	}
 
 	cancel()
@@ -161,6 +187,76 @@ func TestRunTabActor_DoesNotEmitLivenessMsgsPerEvent(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for actor to stop")
+	}
+}
+
+func TestRequestTabActorRedraw_CoalescesOutstandingSignals(t *testing.T) {
+	m := newTestModel()
+	sinkMsgs := make(chan tea.Msg, 4)
+	m.msgSink = func(msg tea.Msg) {
+		sinkMsgs <- msg
+	}
+
+	m.requestTabActorRedraw()
+	m.requestTabActorRedraw()
+
+	select {
+	case msg := <-sinkMsgs:
+		if _, ok := msg.(tabActorRedraw); !ok {
+			t.Fatalf("expected redraw message, got %T", msg)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected coalesced redraw message")
+	}
+
+	select {
+	case msg := <-sinkMsgs:
+		t.Fatalf("unexpected extra redraw message %T", msg)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	_, _ = m.Update(tabActorRedraw{})
+	m.requestTabActorRedraw()
+
+	select {
+	case msg := <-sinkMsgs:
+		if _, ok := msg.(tabActorRedraw); !ok {
+			t.Fatalf("expected redraw message after clear, got %T", msg)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected redraw message after clearing pending flag")
+	}
+}
+
+func TestRequestTabActorRedraw_DropDoesNotLatchPending(t *testing.T) {
+	m := newTestModel()
+	attempts := 0
+	sinkMsgs := make(chan tea.Msg, 2)
+	m.msgSinkTry = func(msg tea.Msg) bool {
+		attempts++
+		if attempts == 1 {
+			return false
+		}
+		sinkMsgs <- msg
+		return true
+	}
+	m.msgSink = func(msg tea.Msg) {
+		_ = m.msgSinkTry(msg)
+	}
+
+	m.requestTabActorRedraw()
+	if got := atomic.LoadUint32(&m.tabActorRedrawPending); got != 0 {
+		t.Fatalf("expected dropped redraw not to latch pending flag, got %d", got)
+	}
+
+	m.requestTabActorRedraw()
+	select {
+	case msg := <-sinkMsgs:
+		if _, ok := msg.(tabActorRedraw); !ok {
+			t.Fatalf("expected redraw message after retry, got %T", msg)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected redraw retry after dropped enqueue")
 	}
 }
 
