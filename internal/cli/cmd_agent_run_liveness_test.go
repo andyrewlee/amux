@@ -12,6 +12,47 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
+func TestHandlePromptSendErrorHumanMessageIncludesAction(t *testing.T) {
+	origKillSession := tmuxKillSession
+	defer func() {
+		tmuxKillSession = origKillSession
+	}()
+
+	tmuxKillSession = func(_ string, _ tmux.Options) error { return nil }
+
+	tests := []struct {
+		action string
+		want   string
+	}{
+		{action: "send", want: "Error: failed to send initial prompt to session-a: send failed\n"},
+		{action: "retry", want: "Error: failed to retry initial prompt to session-a: send failed\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			ctx := &cmdCtx{
+				w:       &out,
+				wErr:    &errOut,
+				gf:      GlobalFlags{},
+				version: "test-v1",
+				cmd:     "agent.run",
+			}
+
+			code := handlePromptSendError(ctx, "session-a", tmux.Options{}, errors.New("send failed"), tt.action)
+			if code != ExitInternalError {
+				t.Fatalf("handlePromptSendError() code = %d, want %d", code, ExitInternalError)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("expected no stdout output in text mode, got %q", out.String())
+			}
+			if got := errOut.String(); got != tt.want {
+				t.Fatalf("stderr = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCmdAgentRunSessionExitsBeforeStartupReturnsInternalErrorAndDoesNotPersistTab(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

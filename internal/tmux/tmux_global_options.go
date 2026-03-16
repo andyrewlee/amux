@@ -2,7 +2,6 @@ package tmux
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -37,7 +36,7 @@ func GlobalOptionValues(keys []string, opts Options) (map[string]string, error) 
 	if err != nil {
 		// Unlike show-options -g -v, display-message does not provide a reliable
 		// "missing option" sentinel. Treat exit 1 as an operational error.
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		if isExitCode1(err) {
 			stderr := strings.TrimSpace(string(output))
 			if stderr == "" {
 				return values, err

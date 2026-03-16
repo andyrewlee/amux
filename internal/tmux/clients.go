@@ -1,7 +1,6 @@
 package tmux
 
 import (
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -17,7 +16,7 @@ func SessionNamesWithClients(opts Options) (map[string]bool, error) {
 	defer cancel()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		if isExitCode1(err) {
 			stderr := strings.ToLower(strings.TrimSpace(string(output)))
 			// No attached clients should not fail detached-session GC.
 			if stderr == "" || strings.Contains(stderr, "no client") || strings.Contains(stderr, "can't find client") {
@@ -26,11 +25,7 @@ func SessionNamesWithClients(opts Options) (map[string]bool, error) {
 		}
 		return attached, err
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
+	for _, name := range parseOutputLines(output) {
 		attached[name] = true
 	}
 	return attached, nil
@@ -52,10 +47,8 @@ func SessionHasClients(sessionName string, opts Options) (bool, error) {
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return false, nil
-			}
+		if isExitCode1(err) {
+			return false, nil
 		}
 		return false, err
 	}

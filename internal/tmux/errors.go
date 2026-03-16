@@ -1,6 +1,17 @@
 package tmux
 
-import "strings"
+import (
+	"errors"
+	"os/exec"
+	"strings"
+)
+
+// isExitCode1 reports whether err is an exec.ExitError with exit code 1.
+// tmux returns exit code 1 for "not found" conditions (no session, no server, etc.).
+func isExitCode1(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1
+}
 
 // IsNoServerError reports whether err indicates that no tmux server is
 // currently running for the selected socket/server name.

@@ -12,11 +12,7 @@ import (
 )
 
 func resolveSendJobForExecution(
-	w io.Writer,
-	wErr io.Writer,
-	gf GlobalFlags,
-	version string,
-	idempotencyKey string,
+	ctx *cmdCtx,
 	jobStore *sendJobStore,
 	requestedJobID string,
 	sessionName string,
@@ -25,62 +21,42 @@ func resolveSendJobForExecution(
 	if requestedJobID != "" {
 		existing, ok, getErr := jobStore.get(requestedJobID)
 		if getErr != nil {
-			if gf.JSON {
-				return sendJob{}, sessionName, returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-					ExitInternalError, "job_status_failed", getErr.Error(), map[string]any{"job_id": requestedJobID},
-				)
-			}
-			Errorf(wErr, "failed to load send job status: %v", getErr)
-			return sendJob{}, sessionName, ExitInternalError
+			return sendJob{}, sessionName, ctx.errResult(
+				ExitInternalError, "job_status_failed", getErr.Error(), map[string]any{"job_id": requestedJobID},
+				fmt.Sprintf("failed to load send job status: %v", getErr),
+			)
 		}
 		if !ok {
-			if gf.JSON {
-				return sendJob{}, sessionName, returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-					ExitNotFound, "not_found", "send job not found", map[string]any{"job_id": requestedJobID},
-				)
-			}
-			Errorf(wErr, "send job %s not found", requestedJobID)
-			return sendJob{}, sessionName, ExitNotFound
+			return sendJob{}, sessionName, ctx.errResult(
+				ExitNotFound, "not_found", "send job not found", map[string]any{"job_id": requestedJobID},
+				fmt.Sprintf("send job %s not found", requestedJobID),
+			)
 		}
 		job := existing
 		// For process-job retries, job metadata is the source of truth.
 		sessionName = job.SessionName
 		if sessionName == "" {
 			_, _ = jobStore.setStatus(job.ID, sendJobFailed, "stored send job is missing session name")
-			if gf.JSON {
-				return sendJob{}, sessionName, returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-					ExitInternalError, "job_status_failed", "stored send job is missing session name", map[string]any{"job_id": job.ID},
-				)
-			}
-			Errorf(wErr, "stored send job %s is missing session name", job.ID)
-			return sendJob{}, sessionName, ExitInternalError
+			return sendJob{}, sessionName, ctx.errResult(
+				ExitInternalError, "job_status_failed", "stored send job is missing session name", map[string]any{"job_id": job.ID},
+				fmt.Sprintf("stored send job %s is missing session name", job.ID),
+			)
 		}
 		return job, sessionName, ExitOK
 	}
 
 	job, err := jobStore.create(sessionName, agentID)
 	if err != nil {
-		if gf.JSON {
-			return sendJob{}, sessionName, returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_create_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to create send job: %v", err)
-		return sendJob{}, sessionName, ExitInternalError
+		return sendJob{}, sessionName, ctx.errResult(
+			ExitInternalError, "job_create_failed", err.Error(), nil,
+			fmt.Sprintf("failed to create send job: %v", err),
+		)
 	}
 	return job, sessionName, ExitOK
 }
 
 func dispatchAsyncAgentSend(
-	w io.Writer,
-	wErr io.Writer,
-	gf GlobalFlags,
-	version string,
-	idempotencyKey string,
+	ctx *cmdCtx,
 	jobStore *sendJobStore,
 	sessionName string,
 	agentID string,
@@ -100,14 +76,10 @@ func dispatchAsyncAgentSend(
 			sendJobFailed,
 			"failed to start async send processor: "+err.Error(),
 		)
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_dispatch_failed", err.Error(), map[string]any{"job_id": job.ID},
-			)
-		}
-		Errorf(wErr, "failed to start async send processor: %v", err)
-		return ExitInternalError
+		return ctx.errResult(
+			ExitInternalError, "job_dispatch_failed", err.Error(), map[string]any{"job_id": job.ID},
+			fmt.Sprintf("failed to start async send processor: %v", err),
+		)
 	}
 
 	result := agentSendResult{
@@ -118,12 +90,10 @@ func dispatchAsyncAgentSend(
 		Sent:        false,
 		Delivered:   false,
 	}
-	if gf.JSON {
-		return returnJSONSuccessWithIdempotency(
-			w, wErr, gf, version, agentSendCommandName, idempotencyKey, result,
-		)
+	if ctx.gf.JSON {
+		return ctx.successResult(result)
 	}
-	PrintHuman(w, func(w io.Writer) {
+	PrintHuman(ctx.w, func(w io.Writer) {
 		fmt.Fprintf(w, "Queued text to %s (job: %s)\n", sessionName, job.ID)
 	})
 	return ExitOK
@@ -133,11 +103,7 @@ func dispatchAsyncAgentSend(
 // writing output. Callers use this to optionally append --wait data before
 // serializing the response.
 func executeAgentSendJobCore(
-	w io.Writer,
-	wErr io.Writer,
-	gf GlobalFlags,
-	version string,
-	idempotencyKey string,
+	ctx *cmdCtx,
 	jobStore *sendJobStore,
 	svc *Services,
 	sessionName string,
@@ -152,14 +118,10 @@ func executeAgentSendJobCore(
 	queueLock, err := waitForSessionQueueTurnForJob(jobStore, sessionName, job.ID)
 	if err != nil {
 		_, _ = jobStore.setStatus(job.ID, sendJobFailed, err.Error())
-		if gf.JSON {
-			return agentSendResult{}, "", returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_queue_failed", err.Error(), map[string]any{"job_id": job.ID},
-			)
-		}
-		Errorf(wErr, "failed to join send queue: %v", err)
-		return agentSendResult{}, "", ExitInternalError
+		return agentSendResult{}, "", ctx.errResult(
+			ExitInternalError, "job_queue_failed", err.Error(), map[string]any{"job_id": job.ID},
+			fmt.Sprintf("failed to join send queue: %v", err),
+		)
 	}
 	defer releaseSessionQueueTurn(queueLock)
 
@@ -167,24 +129,16 @@ func executeAgentSendJobCore(
 	job, ok, err := jobStore.get(jobID)
 	if err != nil {
 		_, _ = jobStore.setStatus(jobID, sendJobFailed, err.Error())
-		if gf.JSON {
-			return agentSendResult{}, "", returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": jobID},
-			)
-		}
-		Errorf(wErr, "failed to load send job status: %v", err)
-		return agentSendResult{}, "", ExitInternalError
+		return agentSendResult{}, "", ctx.errResult(
+			ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": jobID},
+			fmt.Sprintf("failed to load send job status: %v", err),
+		)
 	}
 	if !ok {
-		if gf.JSON {
-			return agentSendResult{}, "", returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_not_found", "send job not found", map[string]any{"job_id": jobID},
-			)
-		}
-		Errorf(wErr, "send job %s not found", jobID)
-		return agentSendResult{}, "", ExitInternalError
+		return agentSendResult{}, "", ctx.errResult(
+			ExitInternalError, "job_not_found", "send job not found", map[string]any{"job_id": jobID},
+			fmt.Sprintf("send job %s not found", jobID),
+		)
 	}
 
 	if job.Status == sendJobCanceled || job.Status == sendJobCompleted {
@@ -200,14 +154,10 @@ func executeAgentSendJobCore(
 
 	job, err = jobStore.setStatus(job.ID, sendJobRunning, "")
 	if err != nil {
-		if gf.JSON {
-			return agentSendResult{}, "", returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": job.ID},
-			)
-		}
-		Errorf(wErr, "failed to update send job status: %v", err)
-		return agentSendResult{}, "", ExitInternalError
+		return agentSendResult{}, "", ctx.errResult(
+			ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": job.ID},
+			fmt.Sprintf("failed to update send job status: %v", err),
+		)
 	}
 	if job.Status != sendJobRunning {
 		if job.Status == sendJobCanceled || job.Status == sendJobCompleted {
@@ -220,22 +170,18 @@ func executeAgentSendJobCore(
 				Delivered:   false,
 			}, "", ExitOK
 		}
-		if gf.JSON {
-			return agentSendResult{}, "", returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "job_status_conflict", "send job is not runnable", map[string]any{
-					"job_id": job.ID,
-					"status": string(job.Status),
-					"error":  job.Error,
-				},
-			)
-		}
+		humanMessage := fmt.Sprintf("send job %s is %s and cannot be executed", job.ID, job.Status)
 		if strings.TrimSpace(job.Error) != "" {
-			Errorf(wErr, "send job %s is %s: %s", job.ID, job.Status, job.Error)
-		} else {
-			Errorf(wErr, "send job %s is %s and cannot be executed", job.ID, job.Status)
+			humanMessage = fmt.Sprintf("send job %s is %s: %s", job.ID, job.Status, job.Error)
 		}
-		return agentSendResult{}, "", ExitInternalError
+		return agentSendResult{}, "", ctx.errResult(
+			ExitInternalError, "job_status_conflict", "send job is not runnable", map[string]any{
+				"job_id": job.ID,
+				"status": string(job.Status),
+				"error":  job.Error,
+			},
+			humanMessage,
+		)
 	}
 
 	preContent := ""
@@ -249,25 +195,21 @@ func executeAgentSendJobCore(
 			failedJob = job
 			failedJob.Status = sendJobFailed
 		}
-		if gf.JSON {
-			return agentSendResult{}, "", returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, idempotencyKey,
-				ExitInternalError, "send_failed", err.Error(), map[string]any{
-					"job_id":   failedJob.ID,
-					"status":   string(failedJob.Status),
-					"agent_id": agentID,
-				},
-			)
-		}
-		Errorf(wErr, "failed to send keys: %v", err)
-		return agentSendResult{}, "", ExitInternalError
+		return agentSendResult{}, "", ctx.errResult(
+			ExitInternalError, "send_failed", err.Error(), map[string]any{
+				"job_id":   failedJob.ID,
+				"status":   string(failedJob.Status),
+				"agent_id": agentID,
+			},
+			fmt.Sprintf("failed to send keys: %v", err),
+		)
 	}
 
 	if completedJob, setErr := jobStore.setStatus(job.ID, sendJobCompleted, ""); setErr == nil {
 		job = completedJob
 	} else {
-		if !gf.JSON {
-			Errorf(wErr, "warning: sent text but failed to persist completion for job %s: %v", job.ID, setErr)
+		if !ctx.gf.JSON {
+			Errorf(ctx.wErr, "warning: sent text but failed to persist completion for job %s: %v", job.ID, setErr)
 		}
 		job.Status = sendJobCompleted
 		job.Error = ""
@@ -293,11 +235,7 @@ type sendWaitConfig struct {
 }
 
 func executeAgentSendJob(
-	w io.Writer,
-	wErr io.Writer,
-	gf GlobalFlags,
-	version string,
-	idempotencyKey string,
+	ctx *cmdCtx,
 	jobStore *sendJobStore,
 	svc *Services,
 	sessionName string,
@@ -308,7 +246,7 @@ func executeAgentSendJob(
 	waitCfg sendWaitConfig,
 ) int {
 	result, preContent, code := executeAgentSendJobCore(
-		w, wErr, gf, version, idempotencyKey,
+		ctx,
 		jobStore, svc, sessionName, agentID, text, enter, job, waitCfg.Wait,
 	)
 	if code != ExitOK {
@@ -320,12 +258,10 @@ func executeAgentSendJob(
 		result.Response = &resp
 	}
 
-	if gf.JSON {
-		return returnJSONSuccessWithIdempotency(
-			w, wErr, gf, version, agentSendCommandName, idempotencyKey, result,
-		)
+	if ctx.gf.JSON {
+		return ctx.successResult(result)
 	}
-	PrintHuman(w, func(w io.Writer) {
+	PrintHuman(ctx.w, func(w io.Writer) {
 		switch {
 		case result.Status == string(sendJobCanceled):
 			fmt.Fprintf(w, "Send job %s canceled before execution\n", result.JobID)

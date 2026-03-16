@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -35,6 +36,28 @@ func TestCmdAgentStopInvalidAgentIDReturnsUsage(t *testing.T) {
 	}
 	if env.Error == nil || env.Error.Code != "invalid_agent_id" {
 		t.Fatalf("expected invalid_agent_id, got %#v", env.Error)
+	}
+}
+
+func TestCmdAgentStopInvalidAgentIDHumanErrorKeepsContext(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var out, errOut bytes.Buffer
+	code := cmdAgentStop(
+		&out,
+		&errOut,
+		GlobalFlags{},
+		[]string{"--agent", "invalid-id"},
+		"test-v1",
+	)
+	if code != ExitUsage {
+		t.Fatalf("cmdAgentStop() code = %d, want %d", code, ExitUsage)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("expected no stdout output in text mode, got %q", out.String())
+	}
+	if got := errOut.String(); !strings.HasPrefix(got, "Error: invalid --agent:") {
+		t.Fatalf("stderr = %q, want prefix %q", got, "Error: invalid --agent:")
 	}
 }
 

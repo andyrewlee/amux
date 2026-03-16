@@ -1,9 +1,6 @@
 package tmux
 
-import (
-	"os/exec"
-	"strings"
-)
+import "strings"
 
 // ListSessions returns all tmux session names for the configured server.
 func ListSessions(opts Options) ([]string, error) {
@@ -14,23 +11,12 @@ func ListSessions(opts Options) ([]string, error) {
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return nil, nil
-			}
+		if isExitCode1(err) {
+			return nil, nil
 		}
 		return nil, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var sessions []string
-	for _, line := range lines {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
-		sessions = append(sessions, name)
-	}
-	return sessions, nil
+	return parseOutputLines(output), nil
 }
 
 // KillSessionsWithPrefix kills all sessions with a matching name prefix.

@@ -382,9 +382,6 @@ func TestCapturePaneNonexistentSession(t *testing.T) {
 
 func TestTargetHelpers(t *testing.T) {
 	name := "my-session"
-	if got := exactTarget(name); got != "=my-session" {
-		t.Errorf("exactTarget(%q) = %q, want %q", name, got, "=my-session")
-	}
 	if got := sessionTarget(name); got != "=my-session" {
 		t.Errorf("sessionTarget(%q) = %q, want %q", name, got, "=my-session")
 	}

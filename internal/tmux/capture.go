@@ -25,11 +25,7 @@ func sessionPaneID(sessionName string, opts Options) (string, error) {
 	}
 
 	var firstAlive string
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+	for _, line := range parseOutputLines(output) {
 		parts := strings.Split(line, "\t")
 		if len(parts) < 3 {
 			continue

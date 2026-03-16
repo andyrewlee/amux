@@ -34,6 +34,7 @@ func cmdAgentStop(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	}
 
 	if *all {
+		ctx := &cmdCtx{w: w, wErr: wErr, gf: gf, version: version, cmd: "agent.stop.all", idemKey: *idempotencyKey}
 		if !*yes {
 			if gf.JSON {
 				ReturnError(w, "confirmation_required", "pass --yes to confirm stopping all agents", nil, version)
@@ -42,24 +43,15 @@ func cmdAgentStop(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 			Errorf(wErr, "pass --yes to confirm stopping all agents")
 			return ExitUnsafeBlocked
 		}
-		if handled, code := maybeReplayIdempotentResponse(
-			w, wErr, gf, version, "agent.stop.all", *idempotencyKey,
-		); handled {
+		if handled, code := ctx.maybeReplay(); handled {
 			return code
 		}
 		svc, err := NewServices(version)
 		if err != nil {
-			if gf.JSON {
-				return returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, "agent.stop.all", *idempotencyKey,
-					ExitInternalError, "init_failed", err.Error(), nil,
-				)
-			}
-			Errorf(wErr, "failed to initialize: %v", err)
-			return ExitInternalError
+			return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, fmt.Sprintf("failed to initialize: %v", err))
 		}
 		return stopAllAgents(
-			w, wErr, gf, svc, version, "agent.stop.all", *idempotencyKey, *graceful, *gracePeriod,
+			ctx, svc, *graceful, *gracePeriod,
 		)
 	}
 	if sessionName == "" && *agentID == "" {
@@ -68,88 +60,40 @@ func cmdAgentStop(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	if sessionName != "" && *agentID != "" {
 		return returnUsageError(w, wErr, gf, usage, version, nil)
 	}
-	if handled, code := maybeReplayIdempotentResponse(
-		w, wErr, gf, version, "agent.stop", *idempotencyKey,
-	); handled {
+
+	ctx := &cmdCtx{w: w, wErr: wErr, gf: gf, version: version, cmd: "agent.stop", idemKey: *idempotencyKey}
+
+	if handled, code := ctx.maybeReplay(); handled {
 		return code
 	}
 	svc, err := NewServices(version)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.stop", *idempotencyKey,
-				ExitInternalError, "init_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to initialize: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, fmt.Sprintf("failed to initialize: %v", err))
 	}
 	if *agentID != "" {
 		resolved, err := resolveSessionNameForAgentID(*agentID, svc.TmuxOpts)
 		if err != nil {
 			if errors.Is(err, errInvalidAgentID) {
-				if gf.JSON {
-					return returnJSONErrorMaybeIdempotent(
-						w, wErr, gf, version, "agent.stop", *idempotencyKey,
-						ExitUsage, "invalid_agent_id", err.Error(), map[string]any{"agent_id": *agentID},
-					)
-				}
-				Errorf(wErr, "invalid --agent: %v", err)
-				return ExitUsage
+				return ctx.errResult(ExitUsage, "invalid_agent_id", err.Error(), map[string]any{"agent_id": *agentID}, fmt.Sprintf("invalid --agent: %v", err))
 			}
 			if errors.Is(err, errAgentNotFound) {
-				if gf.JSON {
-					return returnJSONErrorMaybeIdempotent(
-						w, wErr, gf, version, "agent.stop", *idempotencyKey,
-						ExitNotFound, "not_found", "agent not found", map[string]any{"agent_id": *agentID},
-					)
-				}
-				Errorf(wErr, "agent %s not found", *agentID)
-				return ExitNotFound
+				return ctx.errResult(ExitNotFound, "not_found", "agent not found", map[string]any{"agent_id": *agentID}, fmt.Sprintf("agent %s not found", *agentID))
 			}
-			if gf.JSON {
-				return returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, "agent.stop", *idempotencyKey,
-					ExitInternalError, "stop_failed", err.Error(), map[string]any{"agent_id": *agentID},
-				)
-			}
-			Errorf(wErr, "failed to resolve --agent %s: %v", *agentID, err)
-			return ExitInternalError
+			return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), map[string]any{"agent_id": *agentID}, fmt.Sprintf("failed to resolve --agent %s: %v", *agentID, err))
 		}
 		sessionName = resolved
 	}
 
 	state, err := tmuxSessionStateFor(sessionName, svc.TmuxOpts)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.stop", *idempotencyKey,
-				ExitInternalError, "stop_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to check session: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), nil, fmt.Sprintf("failed to check session: %v", err))
 	}
 	if !state.Exists {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.stop", *idempotencyKey,
-				ExitNotFound, "not_found", fmt.Sprintf("session %s not found", sessionName), nil,
-			)
-		}
-		Errorf(wErr, "session %s not found", sessionName)
-		return ExitNotFound
+		return ctx.errResult(ExitNotFound, "not_found", fmt.Sprintf("session %s not found", sessionName), nil, fmt.Sprintf("session %s not found", sessionName))
 	}
 
 	if err := stopAgentSession(sessionName, svc, *graceful, *gracePeriod); err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.stop", *idempotencyKey,
-				ExitInternalError, "stop_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to stop session: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), nil, fmt.Sprintf("failed to stop session: %v", err))
 	}
 
 	removeTabFromStore(svc, sessionName)
@@ -157,9 +101,7 @@ func cmdAgentStop(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	result := agentStopResult{Stopped: []string{sessionName}, AgentID: *agentID}
 
 	if gf.JSON {
-		return returnJSONSuccessWithIdempotency(
-			w, wErr, gf, version, "agent.stop", *idempotencyKey, result,
-		)
+		return ctx.successResult(result)
 	}
 
 	PrintHuman(w, func(w io.Writer) {

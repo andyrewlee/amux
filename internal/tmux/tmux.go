@@ -110,19 +110,13 @@ func AllSessionStates(opts Options) (map[string]SessionState, error) {
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return map[string]SessionState{}, nil
-			}
+		if isExitCode1(err) {
+			return map[string]SessionState{}, nil
 		}
 		return nil, err
 	}
 	states := make(map[string]SessionState)
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+	for _, line := range parseOutputLines(output) {
 		parts := strings.SplitN(line, "\t", 2)
 		if len(parts) != 2 {
 			continue
@@ -191,10 +185,8 @@ func hasSession(sessionName string, opts Options) (bool, error) {
 	cmd, cancel := tmuxCommand(opts, "has-session", "-t", sessionTarget(sessionName))
 	defer cancel()
 	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return false, nil
-			}
+		if isExitCode1(err) {
+			return false, nil
 		}
 		return false, err
 	}
@@ -213,13 +205,9 @@ func hasLivePane(sessionName string, opts Options) (bool, error) {
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
-		// Treat exit code 1 as "no live pane" (session may have died between checks)
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return false, nil
-			}
+		if isExitCode1(err) {
+			return false, nil
 		}
-		// Return actual error for unexpected failures (callers can decide tolerance)
 		return false, err
 	}
 	lines := strings.Fields(string(output))
@@ -249,10 +237,8 @@ func KillSession(sessionName string, opts Options) error {
 	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", sessionTarget(sessionName))
 	defer cancel()
 	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return nil
-			}
+		if isExitCode1(err) {
+			return nil
 		}
 		return err
 	}
@@ -273,10 +259,8 @@ func PanePIDs(sessionName string, opts Options) ([]int, error) {
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return nil, nil
-			}
+		if isExitCode1(err) {
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -313,10 +297,8 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return "", nil
-			}
+		if isExitCode1(err) {
+			return "", nil
 		}
 		return "", err
 	}
@@ -340,14 +322,12 @@ func GlobalOptionValue(key string, opts Options) (string, error) {
 	defer cancel()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 && tmuxShowOptionMissingError(string(output)) {
+		if isExitCode1(err) {
+			if tmuxShowOptionMissingError(string(output)) {
 				return "", nil
 			}
-			if exitErr.ExitCode() == 1 {
-				stderr := strings.TrimSpace(string(output))
-				return "", fmt.Errorf("show-options -g %s: %s", key, stderr)
-			}
+			stderr := strings.TrimSpace(string(output))
+			return "", fmt.Errorf("show-options -g %s: %s", key, stderr)
 		}
 		return "", err
 	}
@@ -377,30 +357,21 @@ func SetGlobalOptionValue(key, value string, opts Options) error {
 	defer cancel()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				stderr := strings.TrimSpace(string(output))
-				// Unknown/invalid options are tolerated on writes for compatibility
-				// with older tmux versions that may not recognize newer keys.
-				if strings.Contains(stderr, "invalid option") || strings.Contains(stderr, "unknown option") {
-					return nil
-				}
-				return fmt.Errorf("set-option -g %s: %s", key, stderr)
+		if isExitCode1(err) {
+			stderr := strings.TrimSpace(string(output))
+			if strings.Contains(stderr, "invalid option") || strings.Contains(stderr, "unknown option") {
+				return nil
 			}
+			return fmt.Errorf("set-option -g %s: %s", key, stderr)
 		}
 		return err
 	}
 	return nil
 }
 
-// SetGlobalOptionValues sets multiple tmux global options in a single tmux command.
-func SetGlobalOptionValues(values []OptionValue, opts Options) error {
-	if len(values) == 0 {
-		return nil
-	}
-	if err := EnsureAvailable(); err != nil {
-		return err
-	}
+// buildMultiSetOptionArgs builds semicolon-separated tmux set-option arguments.
+// scope provides the targeting flags (e.g. []string{"-g"} or []string{"-t", target}).
+func buildMultiSetOptionArgs(scope []string, values []OptionValue) ([]string, int) {
 	args := make([]string, 0, len(values)*6)
 	added := 0
 	for _, candidate := range values {
@@ -411,9 +382,23 @@ func SetGlobalOptionValues(values []OptionValue, opts Options) error {
 		if added > 0 {
 			args = append(args, ";")
 		}
-		args = append(args, "set-option", "-g", key, candidate.Value)
+		args = append(args, "set-option")
+		args = append(args, scope...)
+		args = append(args, key, candidate.Value)
 		added++
 	}
+	return args, added
+}
+
+// SetGlobalOptionValues sets multiple tmux global options in a single tmux command.
+func SetGlobalOptionValues(values []OptionValue, opts Options) error {
+	if len(values) == 0 {
+		return nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	args, added := buildMultiSetOptionArgs([]string{"-g"}, values)
 	if added == 0 {
 		return nil
 	}
@@ -421,16 +406,12 @@ func SetGlobalOptionValues(values []OptionValue, opts Options) error {
 	defer cancel()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				stderr := strings.TrimSpace(string(output))
-				// Keep parity with SetGlobalOptionValue: tolerate unknown/invalid
-				// option keys so mixed tmux versions don't fail batch writes.
-				if strings.Contains(stderr, "invalid option") || strings.Contains(stderr, "unknown option") {
-					return nil
-				}
-				return fmt.Errorf("set-option -g (multi): %s", stderr)
+		if isExitCode1(err) {
+			stderr := strings.TrimSpace(string(output))
+			if strings.Contains(stderr, "invalid option") || strings.Contains(stderr, "unknown option") {
+				return nil
 			}
+			return fmt.Errorf("set-option -g (multi): %s", stderr)
 		}
 		return err
 	}
@@ -458,13 +439,9 @@ func sanitize(value string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// exactTarget returns a tmux target string that forces exact session-name
-// matching.  Without the "=" prefix tmux falls back to prefix matching,
-// which can cause commands aimed at "amux-ws-tab-1" to hit "amux-ws-tab-10".
-func exactTarget(name string) string { return "=" + name }
-
 // sessionTarget returns a tmux target for session-level commands.
-// Uses "=" prefix for exact session matching.
+// Uses "=" prefix for exact session matching, preventing tmux from
+// prefix-matching "amux-ws-tab-1" to "amux-ws-tab-10".
 func sessionTarget(name string) string { return "=" + name }
 
 // exactSessionOptionTarget returns a tmux target for session-scoped options.
@@ -473,6 +450,23 @@ func sessionTarget(name string) string { return "=" + name }
 // Bare names are safe here because amux session names include workspace ID +
 // tab ID, making prefix collisions practically impossible.
 func exactSessionOptionTarget(name string) string { return name }
+
+// parseOutputLines splits tmux command output into non-empty trimmed lines.
+func parseOutputLines(output []byte) []string {
+	raw := strings.TrimSpace(string(output))
+	if raw == "" {
+		return nil
+	}
+	lines := strings.Split(raw, "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
+}
 
 func shellQuote(value string) string {
 	if value == "" {

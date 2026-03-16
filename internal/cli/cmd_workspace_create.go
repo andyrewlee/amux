@@ -69,83 +69,41 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 			)
 		}
 	}
-	if handled, code := maybeReplayIdempotentResponse(
-		w, wErr, gf, version, "workspace.create", *idempotencyKey,
-	); handled {
+	ctx := &cmdCtx{w: w, wErr: wErr, gf: gf, version: version, cmd: "workspace.create", idemKey: *idempotencyKey}
+
+	if handled, code := ctx.maybeReplay(); handled {
 		return code
 	}
 
 	projectPath, err := canonicalizeProjectPath(*project)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitUsage, "invalid_project_path", err.Error(), map[string]any{"project": *project},
-			)
-		}
-		Errorf(wErr, "invalid --project path: %v", err)
-		return ExitUsage
+		return ctx.errResult(ExitUsage, "invalid_project_path", err.Error(), map[string]any{"project": *project}, fmt.Sprintf("invalid --project path: %v", err))
 	}
 
 	if !git.IsGitRepository(projectPath) {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitUsage, "not_git_repo", projectPath+" is not a git repository", nil,
-			)
-		}
-		Errorf(wErr, "%s is not a git repository", projectPath)
-		return ExitUsage
+		return ctx.errResult(ExitUsage, "not_git_repo", projectPath+" is not a git repository", nil)
 	}
 
 	svc, err := NewServices(version)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitInternalError, "init_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to initialize: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, fmt.Sprintf("failed to initialize: %v", err))
 	}
 	assistantExplicit := assistantName != ""
 	if assistantName == "" {
 		assistantName = svc.Config.ResolvedDefaultAssistant()
 	}
 	if !svc.Config.IsAssistantKnown(assistantName) {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitUsage, "unknown_assistant", "unknown assistant: "+assistantName, nil,
-			)
-		}
-		Errorf(wErr, "unknown assistant: %s", assistantName)
-		return ExitUsage
+		return ctx.errResult(ExitUsage, "unknown_assistant", "unknown assistant: "+assistantName, nil)
 	}
 
 	// Require project to be registered before creating a workspace.
 	registered, err := svc.Registry.Projects()
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitInternalError, "registry_read_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to read project registry: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "registry_read_failed", err.Error(), nil, fmt.Sprintf("failed to read project registry: %v", err))
 	}
 	if !isProjectRegistered(registered, projectPath) {
 		msg := fmt.Sprintf("project %s is not registered; run `amux project add %s` first", projectPath, projectPath)
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitUsage, "project_not_registered", msg, map[string]any{"project": projectPath},
-			)
-		}
-		Errorf(wErr, "%s", msg)
-		return ExitUsage
+		return ctx.errResult(ExitUsage, "project_not_registered", msg, map[string]any{"project": projectPath})
 	}
 
 	// Determine base branch
@@ -163,21 +121,12 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	// Idempotent path: if the target worktree already exists for this repo, reuse it.
 	existingWS, found, err := loadExistingWorkspaceAtPath(svc, projectPath, wsPath, name, baseBranch, assistantName, assistantExplicit)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitInternalError, "existing_workspace_check_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to check existing workspace: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "existing_workspace_check_failed", err.Error(), nil, fmt.Sprintf("failed to check existing workspace: %v", err))
 	}
 	if found {
 		info := workspaceToInfo(existingWS)
 		if gf.JSON {
-			return returnJSONSuccessWithIdempotency(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey, info,
-			)
+			return ctx.successResult(info)
 		}
 		PrintHuman(w, func(w io.Writer) {
 			fmt.Fprintf(w, "Using existing workspace %s (%s) at %s\n", info.Name, info.ID, info.Root)
@@ -187,14 +136,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	// Create the worktree
 	if err := git.CreateWorkspace(projectPath, wsPath, name, baseBranch); err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitInternalError, "create_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to create workspace: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "create_failed", err.Error(), nil, fmt.Sprintf("failed to create workspace: %v", err))
 	}
 
 	// Wait for .git file to appear (same pattern as workspace_service.go)
@@ -205,22 +147,15 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		if cleanupErr != nil {
 			msg = fmt.Sprintf("%s (cleanup failed: %v)", msg, cleanupErr)
 		}
-		if gf.JSON {
-			details := map[string]any{
-				"workspace_root": wsPath,
-				"workspace_id":   name,
-				"git_file":       gitFile,
-			}
-			if cleanupErr != nil {
-				details["cleanup_error"] = cleanupErr.Error()
-			}
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitInternalError, "workspace_not_ready", msg, details,
-			)
+		details := map[string]any{
+			"workspace_root": wsPath,
+			"workspace_id":   name,
+			"git_file":       gitFile,
 		}
-		Errorf(wErr, "%s", msg)
-		return ExitInternalError
+		if cleanupErr != nil {
+			details["cleanup_error"] = cleanupErr.Error()
+		}
+		return ctx.errResult(ExitInternalError, "workspace_not_ready", msg, details)
 	}
 
 	// Save metadata
@@ -232,38 +167,39 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		if cleanupErr != nil {
 			msg = fmt.Sprintf("%s (cleanup failed: %v)", msg, cleanupErr)
 		}
-		if gf.JSON {
-			details := map[string]any{
-				"workspace_root": wsPath,
-				"workspace_id":   name,
-			}
-			if cleanupErr != nil {
-				details["cleanup_error"] = cleanupErr.Error()
-			}
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.create", *idempotencyKey,
-				ExitInternalError, "save_failed", msg, details,
-			)
+		details := map[string]any{
+			"workspace_root": wsPath,
+			"workspace_id":   name,
 		}
-		Errorf(wErr, "failed to save workspace metadata: %v", err)
 		if cleanupErr != nil {
-			Errorf(wErr, "cleanup failed: %v", cleanupErr)
+			details["cleanup_error"] = cleanupErr.Error()
 		}
-		return ExitInternalError
+		return ctx.errResult(
+			ExitInternalError,
+			"save_failed",
+			msg,
+			details,
+			workspaceCreateSaveFailedHumanMessage(err, cleanupErr),
+		)
 	}
 
 	info := workspaceToInfo(ws)
 
 	if gf.JSON {
-		return returnJSONSuccessWithIdempotency(
-			w, wErr, gf, version, "workspace.create", *idempotencyKey, info,
-		)
+		return ctx.successResult(info)
 	}
 
 	PrintHuman(w, func(w io.Writer) {
 		fmt.Fprintf(w, "Created workspace %s (%s) at %s\n", info.Name, info.ID, info.Root)
 	})
 	return ExitOK
+}
+
+func workspaceCreateSaveFailedHumanMessage(saveErr, cleanupErr error) string {
+	if cleanupErr != nil {
+		return fmt.Sprintf("%v (cleanup failed: %v)", saveErr, cleanupErr)
+	}
+	return fmt.Sprintf("failed to save workspace metadata: %v", saveErr)
 }
 
 func rollbackWorkspaceCreate(repoPath, workspacePath, branch string, deleteBranch bool) error {
