@@ -12,6 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 func (a *App) SetMsgSender(send func(tea.Msg)) {
@@ -43,10 +44,15 @@ func (a *App) enqueueExternalMsg(msg tea.Msg) {
 		return
 	}
 	if isCriticalExternalMsg(msg) {
+		_, nonEvicting := msg.(common.NonEvictingCriticalExternalMsg)
 		select {
 		case a.externalCritical <- msg:
 			return
 		default:
+			if nonEvicting {
+				perf.Count("external_msg_drop_critical", 1)
+				return
+			}
 			// Critical channel full - try to drop a non-critical message to make room
 			select {
 			case <-a.externalMsgs:
@@ -132,6 +138,9 @@ func (a *App) installSupervisorErrorHandler() {
 }
 
 func isCriticalExternalMsg(msg tea.Msg) bool {
+	if _, ok := msg.(common.CriticalExternalMsg); ok {
+		return true
+	}
 	switch msg.(type) {
 	case messages.Error, messages.SidebarPTYStopped, center.PTYStopped:
 		return true

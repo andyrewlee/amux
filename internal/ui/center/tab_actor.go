@@ -66,10 +66,6 @@ type selectionTickRequest struct {
 	gen         uint64
 }
 
-type tabActorReady struct{}
-
-type tabActorHeartbeat struct{}
-
 type tabDiffCmd struct {
 	cmd tea.Cmd
 }
@@ -130,27 +126,18 @@ func (m *Model) RunTabActor(ctx context.Context) error {
 	if m == nil || m.tabEvents == nil {
 		return nil
 	}
-	if m.msgSink != nil {
-		m.msgSink(tabActorReady{})
-	}
+	m.setTabActorReady()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	if m.msgSink != nil {
-		m.msgSink(tabActorHeartbeat{})
-	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case ev := <-m.tabEvents:
-			if m.msgSink != nil {
-				m.msgSink(tabActorHeartbeat{})
-			}
+			m.noteTabActorHeartbeat()
 			m.handleTabEvent(ev)
 		case <-ticker.C:
-			if m.msgSink != nil {
-				m.msgSink(tabActorHeartbeat{})
-			}
+			m.noteTabActorHeartbeat()
 		}
 	}
 }

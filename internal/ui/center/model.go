@@ -167,15 +167,36 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 }
 
 func (m *Model) isTabActorReady() bool {
-	return atomic.LoadUint32(&m.tabActorReady) == 1
+	if atomic.LoadUint32(&m.tabActorReady) == 0 {
+		return false
+	}
+	lastBeat := atomic.LoadInt64(&m.tabActorHeartbeat)
+	if lastBeat == 0 {
+		return false
+	}
+	if time.Since(time.Unix(0, lastBeat)) > tabActorStallTimeout {
+		atomic.StoreUint32(&m.tabActorReady, 0)
+		return false
+	}
+	return true
 }
 
 func (m *Model) setTabActorReady() {
 	atomic.StoreUint32(&m.tabActorReady, 1)
+	atomic.StoreInt64(&m.tabActorHeartbeat, time.Now().UnixNano())
 }
 
 func (m *Model) noteTabActorHeartbeat() {
-	atomic.StoreInt64(&m.tabActorHeartbeat, time.Now().UnixNano())
+	observedAt := time.Now().UnixNano()
+	for {
+		prev := atomic.LoadInt64(&m.tabActorHeartbeat)
+		if observedAt <= prev {
+			observedAt = prev + 1
+		}
+		if atomic.CompareAndSwapInt64(&m.tabActorHeartbeat, prev, observedAt) {
+			break
+		}
+	}
 	if atomic.LoadUint32(&m.tabActorReady) == 0 {
 		atomic.StoreUint32(&m.tabActorReady, 1)
 	}
