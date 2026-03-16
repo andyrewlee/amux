@@ -65,7 +65,7 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 
 	svc, err := NewServices(version)
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, "failed to initialize: "+err.Error())
 	}
 	if *agentID != "" {
 		resolved, code, handled := resolveSessionForAgentSend(
@@ -79,7 +79,7 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 
 	jobStore, err := newSendJobStore()
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "job_store_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "job_store_failed", err.Error(), nil, "failed to initialize send job store: "+err.Error())
 	}
 
 	job, resolvedSessionName, code := resolveSendJobForExecution(

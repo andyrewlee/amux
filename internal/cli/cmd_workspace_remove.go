@@ -51,7 +51,7 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	svc, err := NewServices(version)
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, fmt.Sprintf("failed to initialize: %v", err))
 	}
 
 	ws, err := svc.Store.Load(wsID)
@@ -59,7 +59,7 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		if os.IsNotExist(err) {
 			return ctx.errResult(ExitNotFound, "not_found", fmt.Sprintf("workspace %s not found", wsID), nil)
 		}
-		return ctx.errResult(ExitInternalError, "metadata_load_failed", err.Error(), map[string]any{"workspace_id": string(wsID)})
+		return ctx.errResult(ExitInternalError, "metadata_load_failed", err.Error(), map[string]any{"workspace_id": string(wsID)}, fmt.Sprintf("failed to load workspace metadata %s: %v", wsID, err))
 	}
 
 	if ws.IsPrimaryCheckout() {
@@ -73,7 +73,7 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	// Remove worktree
 	if err := git.RemoveWorkspace(ws.Repo, ws.Root); err != nil {
-		return ctx.errResult(ExitInternalError, "remove_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "remove_failed", err.Error(), nil, fmt.Sprintf("failed to remove worktree: %v", err))
 	}
 
 	// Delete branch (best-effort)
@@ -83,7 +83,7 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	// Delete metadata
 	if err := svc.Store.Delete(wsID); err != nil {
-		return ctx.errResult(ExitInternalError, "metadata_delete_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "metadata_delete_failed", err.Error(), nil, fmt.Sprintf("failed to delete metadata: %v", err))
 	}
 
 	info := workspaceToInfo(ws)

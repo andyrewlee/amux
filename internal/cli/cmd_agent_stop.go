@@ -48,7 +48,7 @@ func cmdAgentStop(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 		}
 		svc, err := NewServices(version)
 		if err != nil {
-			return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
+			return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, fmt.Sprintf("failed to initialize: %v", err))
 		}
 		return stopAllAgents(
 			ctx, svc, *graceful, *gracePeriod,
@@ -68,32 +68,32 @@ func cmdAgentStop(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	}
 	svc, err := NewServices(version)
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, fmt.Sprintf("failed to initialize: %v", err))
 	}
 	if *agentID != "" {
 		resolved, err := resolveSessionNameForAgentID(*agentID, svc.TmuxOpts)
 		if err != nil {
 			if errors.Is(err, errInvalidAgentID) {
-				return ctx.errResult(ExitUsage, "invalid_agent_id", err.Error(), map[string]any{"agent_id": *agentID})
+				return ctx.errResult(ExitUsage, "invalid_agent_id", err.Error(), map[string]any{"agent_id": *agentID}, fmt.Sprintf("invalid --agent: %v", err))
 			}
 			if errors.Is(err, errAgentNotFound) {
-				return ctx.errResult(ExitNotFound, "not_found", "agent not found", map[string]any{"agent_id": *agentID})
+				return ctx.errResult(ExitNotFound, "not_found", "agent not found", map[string]any{"agent_id": *agentID}, fmt.Sprintf("agent %s not found", *agentID))
 			}
-			return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), map[string]any{"agent_id": *agentID})
+			return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), map[string]any{"agent_id": *agentID}, fmt.Sprintf("failed to resolve --agent %s: %v", *agentID, err))
 		}
 		sessionName = resolved
 	}
 
 	state, err := tmuxSessionStateFor(sessionName, svc.TmuxOpts)
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), nil, fmt.Sprintf("failed to check session: %v", err))
 	}
 	if !state.Exists {
-		return ctx.errResult(ExitNotFound, "not_found", fmt.Sprintf("session %s not found", sessionName), nil)
+		return ctx.errResult(ExitNotFound, "not_found", fmt.Sprintf("session %s not found", sessionName), nil, fmt.Sprintf("session %s not found", sessionName))
 	}
 
 	if err := stopAgentSession(sessionName, svc, *graceful, *gracePeriod); err != nil {
-		return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "stop_failed", err.Error(), nil, fmt.Sprintf("failed to stop session: %v", err))
 	}
 
 	removeTabFromStore(svc, sessionName)

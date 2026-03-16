@@ -14,15 +14,19 @@ type cmdCtx struct {
 
 // errResult returns a JSON error (when --json is set) or a human-readable
 // error message, and stores an idempotent response when an idempotency key
-// is present.
-func (c *cmdCtx) errResult(exitCode int, errorCode, message string, details any) int {
+// is present. humanMessage optionally overrides the non-JSON stderr text.
+func (c *cmdCtx) errResult(exitCode int, errorCode, message string, details any, humanMessage ...string) int {
 	if c.gf.JSON {
 		return returnJSONErrorMaybeIdempotent(
 			c.w, c.wErr, c.gf, c.version, c.cmd, c.idemKey,
 			exitCode, errorCode, message, details,
 		)
 	}
-	Errorf(c.wErr, "%s", message)
+	text := message
+	if len(humanMessage) > 0 && humanMessage[0] != "" {
+		text = humanMessage[0]
+	}
+	Errorf(c.wErr, "%s", text)
 	return exitCode
 }
 

@@ -17,10 +17,10 @@ func resolveSessionForAgentSend(
 	}
 
 	if errors.Is(err, errInvalidAgentID) {
-		return "", ctx.errResult(ExitUsage, "invalid_agent_id", err.Error(), map[string]any{"agent_id": agentID}), true
+		return "", ctx.errResult(ExitUsage, "invalid_agent_id", err.Error(), map[string]any{"agent_id": agentID}, "invalid --agent: "+err.Error()), true
 	}
 	if errors.Is(err, errAgentNotFound) {
-		return "", ctx.errResult(ExitNotFound, "not_found", "agent not found", map[string]any{"agent_id": agentID}), true
+		return "", ctx.errResult(ExitNotFound, "not_found", "agent not found", map[string]any{"agent_id": agentID}, "agent "+agentID+" not found"), true
 	}
-	return "", ctx.errResult(ExitInternalError, "session_lookup_failed", err.Error(), map[string]any{"agent_id": agentID}), true
+	return "", ctx.errResult(ExitInternalError, "session_lookup_failed", err.Error(), map[string]any{"agent_id": agentID}, "failed to resolve --agent "+agentID+": "+err.Error()), true
 }

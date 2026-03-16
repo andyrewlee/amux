@@ -23,11 +23,13 @@ func resolveSendJobForExecution(
 		if getErr != nil {
 			return sendJob{}, sessionName, ctx.errResult(
 				ExitInternalError, "job_status_failed", getErr.Error(), map[string]any{"job_id": requestedJobID},
+				fmt.Sprintf("failed to load send job status: %v", getErr),
 			)
 		}
 		if !ok {
 			return sendJob{}, sessionName, ctx.errResult(
 				ExitNotFound, "not_found", "send job not found", map[string]any{"job_id": requestedJobID},
+				fmt.Sprintf("send job %s not found", requestedJobID),
 			)
 		}
 		job := existing
@@ -37,6 +39,7 @@ func resolveSendJobForExecution(
 			_, _ = jobStore.setStatus(job.ID, sendJobFailed, "stored send job is missing session name")
 			return sendJob{}, sessionName, ctx.errResult(
 				ExitInternalError, "job_status_failed", "stored send job is missing session name", map[string]any{"job_id": job.ID},
+				fmt.Sprintf("stored send job %s is missing session name", job.ID),
 			)
 		}
 		return job, sessionName, ExitOK
@@ -46,6 +49,7 @@ func resolveSendJobForExecution(
 	if err != nil {
 		return sendJob{}, sessionName, ctx.errResult(
 			ExitInternalError, "job_create_failed", err.Error(), nil,
+			fmt.Sprintf("failed to create send job: %v", err),
 		)
 	}
 	return job, sessionName, ExitOK
@@ -74,6 +78,7 @@ func dispatchAsyncAgentSend(
 		)
 		return ctx.errResult(
 			ExitInternalError, "job_dispatch_failed", err.Error(), map[string]any{"job_id": job.ID},
+			fmt.Sprintf("failed to start async send processor: %v", err),
 		)
 	}
 
@@ -115,6 +120,7 @@ func executeAgentSendJobCore(
 		_, _ = jobStore.setStatus(job.ID, sendJobFailed, err.Error())
 		return agentSendResult{}, "", ctx.errResult(
 			ExitInternalError, "job_queue_failed", err.Error(), map[string]any{"job_id": job.ID},
+			fmt.Sprintf("failed to join send queue: %v", err),
 		)
 	}
 	defer releaseSessionQueueTurn(queueLock)
@@ -125,11 +131,13 @@ func executeAgentSendJobCore(
 		_, _ = jobStore.setStatus(jobID, sendJobFailed, err.Error())
 		return agentSendResult{}, "", ctx.errResult(
 			ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": jobID},
+			fmt.Sprintf("failed to load send job status: %v", err),
 		)
 	}
 	if !ok {
 		return agentSendResult{}, "", ctx.errResult(
 			ExitInternalError, "job_not_found", "send job not found", map[string]any{"job_id": jobID},
+			fmt.Sprintf("send job %s not found", jobID),
 		)
 	}
 
@@ -148,6 +156,7 @@ func executeAgentSendJobCore(
 	if err != nil {
 		return agentSendResult{}, "", ctx.errResult(
 			ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": job.ID},
+			fmt.Sprintf("failed to update send job status: %v", err),
 		)
 	}
 	if job.Status != sendJobRunning {
@@ -161,12 +170,17 @@ func executeAgentSendJobCore(
 				Delivered:   false,
 			}, "", ExitOK
 		}
+		humanMessage := fmt.Sprintf("send job %s is %s and cannot be executed", job.ID, job.Status)
+		if strings.TrimSpace(job.Error) != "" {
+			humanMessage = fmt.Sprintf("send job %s is %s: %s", job.ID, job.Status, job.Error)
+		}
 		return agentSendResult{}, "", ctx.errResult(
 			ExitInternalError, "job_status_conflict", "send job is not runnable", map[string]any{
 				"job_id": job.ID,
 				"status": string(job.Status),
 				"error":  job.Error,
 			},
+			humanMessage,
 		)
 	}
 
@@ -187,6 +201,7 @@ func executeAgentSendJobCore(
 				"status":   string(failedJob.Status),
 				"agent_id": agentID,
 			},
+			fmt.Sprintf("failed to send keys: %v", err),
 		)
 	}
 

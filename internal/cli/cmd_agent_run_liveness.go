@@ -19,9 +19,13 @@ func verifyStartedAgentSession(
 		if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
 			slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
 		}
-		return ctx.errResult(ExitInternalError, "session_lookup_failed", err.Error(), map[string]any{
-			"session_name": sessionName,
-		})
+		return ctx.errResult(
+			ExitInternalError,
+			"session_lookup_failed",
+			err.Error(),
+			map[string]any{"session_name": sessionName},
+			fmt.Sprintf("failed to verify session %s: %v", sessionName, err),
+		)
 	}
 	if state.Exists && state.HasLivePane {
 		return ExitOK
@@ -75,14 +79,14 @@ func sendAgentRunPromptIfRequested(
 	preSendHash := tmux.ContentHash(preSendContent)
 
 	if err := tmuxSendKeys(sessionName, prompt, true, tmuxOpts); err != nil {
-		return handlePromptSendError(ctx, sessionName, tmuxOpts, err)
+		return handlePromptSendError(ctx, sessionName, tmuxOpts, err, "send")
 	}
 
 	if strings.EqualFold(strings.TrimSpace(assistantName), "codex") &&
 		!waitForPromptDelivery(sessionName, preSendHash, tmuxOpts) {
 		waitForPaneOutput(sessionName, assistantName, tmuxOpts)
 		if err := tmuxSendKeys(sessionName, prompt, true, tmuxOpts); err != nil {
-			return handlePromptSendError(ctx, sessionName, tmuxOpts, err)
+			return handlePromptSendError(ctx, sessionName, tmuxOpts, err, "retry")
 		}
 	}
 	return ExitOK
@@ -93,13 +97,18 @@ func handlePromptSendError(
 	sessionName string,
 	tmuxOpts tmux.Options,
 	err error,
+	action string,
 ) int {
 	if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
 		slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
 	}
-	return ctx.errResult(ExitInternalError, "prompt_send_failed", err.Error(), map[string]any{
-		"session_name": sessionName,
-	})
+	return ctx.errResult(
+		ExitInternalError,
+		"prompt_send_failed",
+		err.Error(),
+		map[string]any{"session_name": sessionName},
+		fmt.Sprintf("failed to %s initial prompt to %s: %v", action, sessionName, err),
+	)
 }
 
 // waitForPaneOutput polls the tmux pane until the output stabilizes (stops

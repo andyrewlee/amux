@@ -22,7 +22,7 @@ func stopAllAgents(
 ) int {
 	sessions, err := listAgentSessionsForStopAll(svc.TmuxOpts)
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "list_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "list_failed", err.Error(), nil, fmt.Sprintf("failed to list agents: %v", err))
 	}
 
 	stopped := []string{}

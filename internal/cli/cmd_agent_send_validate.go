@@ -15,13 +15,17 @@ func validateAgentSendSession(
 	state, err := tmuxSessionStateFor(sessionName, opts)
 	if err != nil {
 		markSendJobFailedIfPresent(requestedJobID, "session lookup failed: "+err.Error())
-		return ctx.errResult(ExitInternalError, "session_lookup_failed", err.Error(), map[string]any{
-			"session_name": sessionName,
-		})
+		return ctx.errResult(
+			ExitInternalError,
+			"session_lookup_failed",
+			err.Error(),
+			map[string]any{"session_name": sessionName},
+			fmt.Sprintf("failed to check session %s: %v", sessionName, err),
+		)
 	}
 	if !state.Exists {
 		markSendJobFailedIfPresent(requestedJobID, "session not found")
-		return ctx.errResult(ExitNotFound, "not_found", fmt.Sprintf("session %s not found", sessionName), nil)
+		return ctx.errResult(ExitNotFound, "not_found", fmt.Sprintf("session %s not found", sessionName), nil, fmt.Sprintf("session %s not found", sessionName))
 	}
 	return ExitOK
 }

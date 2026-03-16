@@ -90,7 +90,7 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 
 	svc, err := NewServices(version)
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, fmt.Sprintf("failed to initialize: %v", err))
 	}
 
 	ws, err := svc.Store.Load(wsID)
@@ -115,7 +115,7 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 	cmd, cancel := tmuxStartSession(svc.TmuxOpts, createArgs...)
 	defer cancel()
 	if err := cmd.Run(); err != nil {
-		return ctx.errResult(ExitInternalError, "session_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "session_failed", err.Error(), nil, fmt.Sprintf("failed to create tmux session: %v", err))
 	}
 
 	// Tag the session.
@@ -139,10 +139,16 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 			if killErr := tmuxKillSession(sessionName, svc.TmuxOpts); killErr != nil {
 				slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
 			}
-			return ctx.errResult(ExitInternalError, "session_tag_failed", err.Error(), map[string]any{
-				"session_name": sessionName,
-				"tag":          tag.Key,
-			})
+			return ctx.errResult(
+				ExitInternalError,
+				"session_tag_failed",
+				err.Error(),
+				map[string]any{
+					"session_name": sessionName,
+					"tag":          tag.Key,
+				},
+				fmt.Sprintf("failed to tag session %s (%s): %v", sessionName, tag.Key, err),
+			)
 		}
 	}
 
@@ -183,10 +189,16 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 		if killErr := tmuxKillSession(sessionName, svc.TmuxOpts); killErr != nil {
 			slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
 		}
-		return ctx.errResult(ExitInternalError, "metadata_save_failed", err.Error(), map[string]any{
-			"workspace_id": string(wsID),
-			"session_name": sessionName,
-		})
+		return ctx.errResult(
+			ExitInternalError,
+			"metadata_save_failed",
+			err.Error(),
+			map[string]any{
+				"workspace_id": string(wsID),
+				"session_name": sessionName,
+			},
+			fmt.Sprintf("failed to persist workspace metadata: %v", err),
+		)
 	}
 
 	result := agentRunResult{

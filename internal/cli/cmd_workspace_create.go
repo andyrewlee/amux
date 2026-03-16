@@ -77,7 +77,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	projectPath, err := canonicalizeProjectPath(*project)
 	if err != nil {
-		return ctx.errResult(ExitUsage, "invalid_project_path", err.Error(), map[string]any{"project": *project})
+		return ctx.errResult(ExitUsage, "invalid_project_path", err.Error(), map[string]any{"project": *project}, fmt.Sprintf("invalid --project path: %v", err))
 	}
 
 	if !git.IsGitRepository(projectPath) {
@@ -86,7 +86,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	svc, err := NewServices(version)
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil, fmt.Sprintf("failed to initialize: %v", err))
 	}
 	assistantExplicit := assistantName != ""
 	if assistantName == "" {
@@ -99,7 +99,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	// Require project to be registered before creating a workspace.
 	registered, err := svc.Registry.Projects()
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "registry_read_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "registry_read_failed", err.Error(), nil, fmt.Sprintf("failed to read project registry: %v", err))
 	}
 	if !isProjectRegistered(registered, projectPath) {
 		msg := fmt.Sprintf("project %s is not registered; run `amux project add %s` first", projectPath, projectPath)
@@ -121,7 +121,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	// Idempotent path: if the target worktree already exists for this repo, reuse it.
 	existingWS, found, err := loadExistingWorkspaceAtPath(svc, projectPath, wsPath, name, baseBranch, assistantName, assistantExplicit)
 	if err != nil {
-		return ctx.errResult(ExitInternalError, "existing_workspace_check_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "existing_workspace_check_failed", err.Error(), nil, fmt.Sprintf("failed to check existing workspace: %v", err))
 	}
 	if found {
 		info := workspaceToInfo(existingWS)
@@ -136,7 +136,7 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	// Create the worktree
 	if err := git.CreateWorkspace(projectPath, wsPath, name, baseBranch); err != nil {
-		return ctx.errResult(ExitInternalError, "create_failed", err.Error(), nil)
+		return ctx.errResult(ExitInternalError, "create_failed", err.Error(), nil, fmt.Sprintf("failed to create workspace: %v", err))
 	}
 
 	// Wait for .git file to appear (same pattern as workspace_service.go)
@@ -174,7 +174,13 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		if cleanupErr != nil {
 			details["cleanup_error"] = cleanupErr.Error()
 		}
-		return ctx.errResult(ExitInternalError, "save_failed", msg, details)
+		return ctx.errResult(
+			ExitInternalError,
+			"save_failed",
+			msg,
+			details,
+			workspaceCreateSaveFailedHumanMessage(err, cleanupErr),
+		)
 	}
 
 	info := workspaceToInfo(ws)
@@ -187,6 +193,13 @@ func cmdWorkspaceCreate(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 		fmt.Fprintf(w, "Created workspace %s (%s) at %s\n", info.Name, info.ID, info.Root)
 	})
 	return ExitOK
+}
+
+func workspaceCreateSaveFailedHumanMessage(saveErr, cleanupErr error) string {
+	if cleanupErr != nil {
+		return fmt.Sprintf("%v (cleanup failed: %v)", saveErr, cleanupErr)
+	}
+	return fmt.Sprintf("failed to save workspace metadata: %v", saveErr)
 }
 
 func rollbackWorkspaceCreate(repoPath, workspacePath, branch string, deleteBranch bool) error {
