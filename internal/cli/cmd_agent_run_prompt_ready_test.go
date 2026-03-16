@@ -116,10 +116,7 @@ func TestSendAgentRunPromptIfRequested_CodexRetriesWhenPromptNotDelivered(t *tes
 	}
 
 	code := sendAgentRunPromptIfRequested(
-		nil, nil,
-		GlobalFlags{JSON: true},
-		"test-v1",
-		"",
+		&cmdCtx{gf: GlobalFlags{JSON: true}, version: "test-v1", cmd: "agent.run"},
 		"session-a",
 		"codex",
 		"Reply with READY only.",
@@ -163,10 +160,7 @@ func TestSendAgentRunPromptIfRequested_NonCodexDoesNotRetry(t *testing.T) {
 	}
 
 	code := sendAgentRunPromptIfRequested(
-		nil, nil,
-		GlobalFlags{JSON: true},
-		"test-v1",
-		"",
+		&cmdCtx{gf: GlobalFlags{JSON: true}, version: "test-v1", cmd: "agent.run"},
 		"session-b",
 		"claude",
 		"Reply with READY only.",
@@ -212,10 +206,7 @@ func TestSendAgentRunPromptIfRequested_BeforeSendHookRunsBeforeSend(t *testing.T
 	}
 
 	code := sendAgentRunPromptIfRequested(
-		nil, nil,
-		GlobalFlags{JSON: true},
-		"test-v1",
-		"",
+		&cmdCtx{gf: GlobalFlags{JSON: true}, version: "test-v1", cmd: "agent.run"},
 		"session-c",
 		"claude",
 		"Reply with READY only.",

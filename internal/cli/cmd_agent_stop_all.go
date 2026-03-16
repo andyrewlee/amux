@@ -15,26 +15,14 @@ var (
 )
 
 func stopAllAgents(
-	w io.Writer,
-	wErr io.Writer,
-	gf GlobalFlags,
+	ctx *cmdCtx,
 	svc *Services,
-	version string,
-	command string,
-	idempotencyKey string,
 	graceful bool,
 	gracePeriod time.Duration,
 ) int {
 	sessions, err := listAgentSessionsForStopAll(svc.TmuxOpts)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, command, idempotencyKey,
-				ExitInternalError, "list_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to list agents: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "list_failed", err.Error(), nil)
 	}
 
 	stopped := []string{}
@@ -55,20 +43,17 @@ func stopAllAgents(
 		removeTabFromStore(svc, s.Name)
 	}
 	if len(failed) > 0 {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, command, idempotencyKey,
-				ExitInternalError, "stop_partial_failed", "failed to stop one or more agents", map[string]any{
-					"stopped":           stopped,
-					"stopped_agent_ids": stoppedAgentIDs,
-					"failed":            failed,
-				},
-			)
+		if ctx.gf.JSON {
+			return ctx.errResult(ExitInternalError, "stop_partial_failed", "failed to stop one or more agents", map[string]any{
+				"stopped":           stopped,
+				"stopped_agent_ids": stoppedAgentIDs,
+				"failed":            failed,
+			})
 		}
 		for _, failure := range failed {
-			Errorf(wErr, "failed to stop %s: %s", failure["session"], failure["error"])
+			Errorf(ctx.wErr, "failed to stop %s: %s", failure["session"], failure["error"])
 		}
-		PrintHuman(w, func(w io.Writer) {
+		PrintHuman(ctx.w, func(w io.Writer) {
 			fmt.Fprintf(w, "Stopped %d agent(s); %d failed\n", len(stopped), len(failed))
 		})
 		return ExitInternalError
@@ -76,13 +61,11 @@ func stopAllAgents(
 
 	result := agentStopResult{Stopped: stopped, StoppedAgentIDs: stoppedAgentIDs}
 
-	if gf.JSON {
-		return returnJSONSuccessWithIdempotency(
-			w, wErr, gf, version, command, idempotencyKey, result,
-		)
+	if ctx.gf.JSON {
+		return ctx.successResult(result)
 	}
 
-	PrintHuman(w, func(w io.Writer) {
+	PrintHuman(ctx.w, func(w io.Writer) {
 		fmt.Fprintf(w, "Stopped %d agent(s)\n", len(stopped))
 	})
 	return ExitOK

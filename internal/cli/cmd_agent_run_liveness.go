@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -11,9 +10,8 @@ import (
 )
 
 func verifyStartedAgentSession(
-	w, wErr io.Writer,
-	gf GlobalFlags,
-	version, idempotencyKey, sessionName string,
+	ctx *cmdCtx,
+	sessionName string,
 	tmuxOpts tmux.Options,
 ) int {
 	state, err := tmuxSessionStateFor(sessionName, tmuxOpts)
@@ -21,16 +19,9 @@ func verifyStartedAgentSession(
 		if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
 			slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
 		}
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.run", idempotencyKey,
-				ExitInternalError, "session_lookup_failed", err.Error(), map[string]any{
-					"session_name": sessionName,
-				},
-			)
-		}
-		Errorf(wErr, "failed to verify session %s: %v", sessionName, err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "session_lookup_failed", err.Error(), map[string]any{
+			"session_name": sessionName,
+		})
 	}
 	if state.Exists && state.HasLivePane {
 		return ExitOK
@@ -40,16 +31,9 @@ func verifyStartedAgentSession(
 		slog.Debug("best-effort session kill failed", "session", sessionName, "error", err)
 	}
 	msg := fmt.Sprintf("assistant session %s exited before startup completed", sessionName)
-	if gf.JSON {
-		return returnJSONErrorMaybeIdempotent(
-			w, wErr, gf, version, "agent.run", idempotencyKey,
-			ExitInternalError, "session_exited", msg, map[string]any{
-				"session_name": sessionName,
-			},
-		)
-	}
-	Errorf(wErr, msg)
-	return ExitInternalError
+	return ctx.errResult(ExitInternalError, "session_exited", msg, map[string]any{
+		"session_name": sessionName,
+	})
 }
 
 var (
@@ -73,9 +57,8 @@ var (
 )
 
 func sendAgentRunPromptIfRequested(
-	w, wErr io.Writer,
-	gf GlobalFlags,
-	version, idempotencyKey, sessionName, assistantName, prompt string,
+	ctx *cmdCtx,
+	sessionName, assistantName, prompt string,
 	tmuxOpts tmux.Options,
 	beforeSend func(),
 ) int {
@@ -83,9 +66,6 @@ func sendAgentRunPromptIfRequested(
 		return ExitOK
 	}
 
-	// Wait for the agent TUI to render before sending. Agents like Codex can
-	// take several seconds to initialize; a fixed short sleep causes the Enter
-	// keystroke to arrive before the input handler is ready.
 	waitForPaneOutput(sessionName, assistantName, tmuxOpts)
 	if beforeSend != nil {
 		beforeSend()
@@ -95,42 +75,31 @@ func sendAgentRunPromptIfRequested(
 	preSendHash := tmux.ContentHash(preSendContent)
 
 	if err := tmuxSendKeys(sessionName, prompt, true, tmuxOpts); err != nil {
-		return handlePromptSendError(w, wErr, gf, version, idempotencyKey, sessionName, tmuxOpts, err, "send")
+		return handlePromptSendError(ctx, sessionName, tmuxOpts, err)
 	}
 
-	// Codex startup can still occasionally drop the very first prompt even when
-	// a cursor is visible. If pane output does not change after send, retry once.
 	if strings.EqualFold(strings.TrimSpace(assistantName), "codex") &&
 		!waitForPromptDelivery(sessionName, preSendHash, tmuxOpts) {
 		waitForPaneOutput(sessionName, assistantName, tmuxOpts)
 		if err := tmuxSendKeys(sessionName, prompt, true, tmuxOpts); err != nil {
-			return handlePromptSendError(w, wErr, gf, version, idempotencyKey, sessionName, tmuxOpts, err, "retry")
+			return handlePromptSendError(ctx, sessionName, tmuxOpts, err)
 		}
 	}
 	return ExitOK
 }
 
 func handlePromptSendError(
-	w, wErr io.Writer,
-	gf GlobalFlags,
-	version, idempotencyKey, sessionName string,
+	ctx *cmdCtx,
+	sessionName string,
 	tmuxOpts tmux.Options,
 	err error,
-	action string,
 ) int {
 	if killErr := tmuxKillSession(sessionName, tmuxOpts); killErr != nil {
 		slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
 	}
-	if gf.JSON {
-		return returnJSONErrorMaybeIdempotent(
-			w, wErr, gf, version, "agent.run", idempotencyKey,
-			ExitInternalError, "prompt_send_failed", err.Error(), map[string]any{
-				"session_name": sessionName,
-			},
-		)
-	}
-	Errorf(wErr, "failed to %s initial prompt to %s: %v", action, sessionName, err)
-	return ExitInternalError
+	return ctx.errResult(ExitInternalError, "prompt_send_failed", err.Error(), map[string]any{
+		"session_name": sessionName,
+	})
 }
 
 // waitForPaneOutput polls the tmux pane until the output stabilizes (stops

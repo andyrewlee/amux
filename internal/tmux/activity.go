@@ -2,7 +2,6 @@ package tmux
 
 import (
 	"crypto/md5"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -22,21 +21,14 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return nil, nil
-			}
+		if isExitCode1(err) {
+			return nil, nil
 		}
 		return nil, err
 	}
 	now := time.Now()
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	latest := make(map[string]SessionActivity)
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+	for _, line := range parseOutputLines(output) {
 		parts := strings.Split(line, "\t")
 		if len(parts) < 6 {
 			continue
@@ -109,10 +101,8 @@ func SetMonitorActivityOn(opts Options) error {
 	cmd, cancel := tmuxCommand(opts, "set-option", "-g", "monitor-activity", "on")
 	defer cancel()
 	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return nil
-			}
+		if isExitCode1(err) {
+			return nil
 		}
 		return err
 	}
@@ -124,10 +114,8 @@ func SetStatusOff(opts Options) error {
 	cmd, cancel := tmuxCommand(opts, "set-option", "-g", "status", "off")
 	defer cancel()
 	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return nil
-			}
+		if isExitCode1(err) {
+			return nil
 		}
 		return err
 	}

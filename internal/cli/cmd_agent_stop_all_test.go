@@ -133,6 +133,99 @@ func TestCmdAgentStopAllPartialFailureReturnsError(t *testing.T) {
 	}
 }
 
+func TestCmdAgentStopAllConfirmationRequiredDoesNotCacheIdempotencyError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	origSessionsByActivity := tmuxActiveAgentSessionsByActivity
+	origSessionsWithTags := tmuxSessionsWithTags
+	origKillSession := tmuxKillSession
+	defer func() {
+		tmuxActiveAgentSessionsByActivity = origSessionsByActivity
+		tmuxSessionsWithTags = origSessionsWithTags
+		tmuxKillSession = origKillSession
+	}()
+
+	tmuxActiveAgentSessionsByActivity = func(_ time.Duration, _ tmux.Options) ([]tmux.SessionActivity, error) {
+		return []tmux.SessionActivity{
+			{Name: "session-a", WorkspaceID: "ws-a", TabID: "tab-a"},
+		}, nil
+	}
+	tmuxSessionsWithTags = func(_ map[string]string, _ []string, _ tmux.Options) ([]tmux.SessionTagValues, error) {
+		return nil, nil
+	}
+
+	killCalls := 0
+	tmuxKillSession = func(sessionName string, _ tmux.Options) error {
+		if sessionName != "session-a" {
+			t.Fatalf("tmuxKillSession() session = %q, want session-a", sessionName)
+		}
+		killCalls++
+		return nil
+	}
+
+	args := []string{"--all", "--idempotency-key", "idem-stop-all-confirm"}
+
+	var firstOut, firstErr bytes.Buffer
+	firstCode := cmdAgentStop(&firstOut, &firstErr, GlobalFlags{JSON: true}, args, "test-v1")
+	if firstCode != ExitUnsafeBlocked {
+		t.Fatalf("first cmdAgentStop() code = %d, want %d", firstCode, ExitUnsafeBlocked)
+	}
+	if firstErr.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", firstErr.String())
+	}
+	if killCalls != 0 {
+		t.Fatalf("kill calls after unconfirmed request = %d, want 0", killCalls)
+	}
+
+	var firstEnv Envelope
+	if err := json.Unmarshal(firstOut.Bytes(), &firstEnv); err != nil {
+		t.Fatalf("json.Unmarshal(first) error = %v", err)
+	}
+	if firstEnv.OK {
+		t.Fatalf("expected ok=false for unconfirmed stop-all")
+	}
+	if firstEnv.Error == nil || firstEnv.Error.Code != "confirmation_required" {
+		t.Fatalf("expected confirmation_required, got %#v", firstEnv.Error)
+	}
+
+	confirmedArgs := []string{"--all", "--yes", "--graceful=false", "--idempotency-key", "idem-stop-all-confirm"}
+
+	var secondOut, secondErr bytes.Buffer
+	secondCode := cmdAgentStop(&secondOut, &secondErr, GlobalFlags{JSON: true}, confirmedArgs, "test-v1")
+	if secondCode != ExitOK {
+		t.Fatalf("confirmed cmdAgentStop() code = %d, want %d", secondCode, ExitOK)
+	}
+	if secondErr.Len() != 0 {
+		t.Fatalf("expected no stderr output in JSON mode, got %q", secondErr.String())
+	}
+	if killCalls != 1 {
+		t.Fatalf("kill calls after confirmed retry = %d, want 1", killCalls)
+	}
+
+	var secondEnv Envelope
+	if err := json.Unmarshal(secondOut.Bytes(), &secondEnv); err != nil {
+		t.Fatalf("json.Unmarshal(second) error = %v", err)
+	}
+	if !secondEnv.OK {
+		t.Fatalf("expected ok=true for confirmed stop-all, got %#v", secondEnv.Error)
+	}
+
+	var replayOut, replayErr bytes.Buffer
+	replayCode := cmdAgentStop(&replayOut, &replayErr, GlobalFlags{JSON: true}, confirmedArgs, "test-v1")
+	if replayCode != ExitOK {
+		t.Fatalf("replay cmdAgentStop() code = %d, want %d", replayCode, ExitOK)
+	}
+	if replayErr.Len() != 0 {
+		t.Fatalf("expected no replay stderr output in JSON mode, got %q", replayErr.String())
+	}
+	if replayOut.String() != secondOut.String() {
+		t.Fatalf("replayed output mismatch\nfirst confirmed:\n%s\nreplay:\n%s", secondOut.String(), replayOut.String())
+	}
+	if killCalls != 1 {
+		t.Fatalf("kill calls after replay = %d, want 1", killCalls)
+	}
+}
+
 func TestCmdAgentStopAllExcludesPartiallyTaggedSessionsWithoutType(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

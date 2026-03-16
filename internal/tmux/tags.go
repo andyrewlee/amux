@@ -2,7 +2,6 @@ package tmux
 
 import (
 	"fmt"
-	"os/exec"
 	"sort"
 	"strings"
 )
@@ -76,20 +75,13 @@ func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return nil, keys, nil
-			}
+		if isExitCode1(err) {
+			return nil, keys, nil
 		}
 		return nil, keys, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var rows []sessionTagRow
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+	for _, line := range parseOutputLines(output) {
 		parts := strings.Split(line, tagFieldSeparator)
 		if len(parts) == 0 {
 			continue
@@ -148,16 +140,14 @@ func SetSessionTagValue(sessionName, key, value string, opts Options) error {
 	defer cancel()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				stderr := strings.TrimSpace(string(output))
-				if strings.Contains(stderr, "session not found") ||
-					strings.Contains(stderr, "no such session") ||
-					strings.Contains(stderr, "can't find session") {
-					return nil
-				}
-				return fmt.Errorf("set-option -t %s %s: %s", sessionName, key, stderr)
+		if isExitCode1(err) {
+			stderr := strings.TrimSpace(string(output))
+			if strings.Contains(stderr, "session not found") ||
+				strings.Contains(stderr, "no such session") ||
+				strings.Contains(stderr, "can't find session") {
+				return nil
 			}
+			return fmt.Errorf("set-option -t %s %s: %s", sessionName, key, stderr)
 		}
 		return err
 	}
@@ -184,20 +174,8 @@ func SetSessionTagValues(sessionName string, tags []OptionValue, opts Options) e
 		return nil
 	}
 
-	args := make([]string, 0, len(tags)*6)
-	added := 0
 	target := exactSessionOptionTarget(sessionName)
-	for _, candidate := range tags {
-		key := strings.TrimSpace(candidate.Key)
-		if key == "" {
-			continue
-		}
-		if added > 0 {
-			args = append(args, ";")
-		}
-		args = append(args, "set-option", "-t", target, key, candidate.Value)
-		added++
-	}
+	args, added := buildMultiSetOptionArgs([]string{"-t", target}, tags)
 	if added == 0 {
 		return nil
 	}
@@ -206,16 +184,14 @@ func SetSessionTagValues(sessionName string, tags []OptionValue, opts Options) e
 	defer cancel()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				stderr := strings.TrimSpace(string(output))
-				if strings.Contains(stderr, "session not found") ||
-					strings.Contains(stderr, "no such session") ||
-					strings.Contains(stderr, "can't find session") {
-					return nil
-				}
-				return fmt.Errorf("set-option -t %s (multi): %s", sessionName, stderr)
+		if isExitCode1(err) {
+			stderr := strings.TrimSpace(string(output))
+			if strings.Contains(stderr, "session not found") ||
+				strings.Contains(stderr, "no such session") ||
+				strings.Contains(stderr, "can't find session") {
+				return nil
 			}
+			return fmt.Errorf("set-option -t %s (multi): %s", sessionName, stderr)
 		}
 		return err
 	}

@@ -46,32 +46,19 @@ func cmdAgentJobStatus(w, wErr io.Writer, gf GlobalFlags, args []string, version
 		return returnUsageError(w, wErr, gf, usage, version, nil)
 	}
 
+	ctx := &cmdCtx{w: w, wErr: wErr, gf: gf, version: version, cmd: "agent.job.status"}
+
 	store, err := newSendJobStore()
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "job_store_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize send job store: %v", err)
-		}
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "job_store_failed", err.Error(), nil)
 	}
 
 	job, ok, err := store.get(jobID)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "job_status_failed", err.Error(), map[string]any{"job_id": jobID}, version)
-		} else {
-			Errorf(wErr, "failed to read job %s: %v", jobID, err)
-		}
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "job_status_failed", err.Error(), map[string]any{"job_id": jobID})
 	}
 	if !ok {
-		if gf.JSON {
-			ReturnError(w, "not_found", "job not found", map[string]any{"job_id": jobID}, version)
-		} else {
-			Errorf(wErr, "job %s not found", jobID)
-		}
-		return ExitNotFound
+		return ctx.errResult(ExitNotFound, "not_found", "job not found", map[string]any{"job_id": jobID})
 	}
 
 	writeJobStatusResult(w, gf, version, job)
@@ -89,44 +76,24 @@ func cmdAgentJobCancel(w, wErr io.Writer, gf GlobalFlags, args []string, version
 	if jobID == "" {
 		return returnUsageError(w, wErr, gf, usage, version, nil)
 	}
-	if handled, code := maybeReplayIdempotentResponse(
-		w, wErr, gf, version, "agent.job.cancel", *idempotencyKey,
-	); handled {
+
+	ctx := &cmdCtx{w: w, wErr: wErr, gf: gf, version: version, cmd: "agent.job.cancel", idemKey: *idempotencyKey}
+
+	if handled, code := ctx.maybeReplay(); handled {
 		return code
 	}
 
 	store, err := newSendJobStore()
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.job.cancel", *idempotencyKey,
-				ExitInternalError, "job_store_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to initialize send job store: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "job_store_failed", err.Error(), nil)
 	}
 
 	job, ok, canceled, err := store.cancel(jobID)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.job.cancel", *idempotencyKey,
-				ExitInternalError, "job_cancel_failed", err.Error(), map[string]any{"job_id": jobID},
-			)
-		}
-		Errorf(wErr, "failed to cancel job %s: %v", jobID, err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "job_cancel_failed", err.Error(), map[string]any{"job_id": jobID})
 	}
 	if !ok {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.job.cancel", *idempotencyKey,
-				ExitNotFound, "not_found", "job not found", map[string]any{"job_id": jobID},
-			)
-		}
-		Errorf(wErr, "job %s not found", jobID)
-		return ExitNotFound
+		return ctx.errResult(ExitNotFound, "not_found", "job not found", map[string]any{"job_id": jobID})
 	}
 
 	result := agentJobCancelResult{
@@ -135,9 +102,7 @@ func cmdAgentJobCancel(w, wErr io.Writer, gf GlobalFlags, args []string, version
 		Canceled: canceled,
 	}
 	if gf.JSON {
-		return returnJSONSuccessWithIdempotency(
-			w, wErr, gf, version, "agent.job.cancel", *idempotencyKey, result,
-		)
+		return ctx.successResult(result)
 	}
 
 	PrintHuman(w, func(w io.Writer) {
@@ -166,34 +131,21 @@ func cmdAgentJobWait(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		return returnUsageError(w, wErr, gf, usage, version, nil)
 	}
 
+	ctx := &cmdCtx{w: w, wErr: wErr, gf: gf, version: version, cmd: "agent.job.wait"}
+
 	store, err := newSendJobStore()
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "job_store_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize send job store: %v", err)
-		}
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "job_store_failed", err.Error(), nil)
 	}
 
 	deadline := time.Now().Add(*timeout)
 	for {
 		job, ok, getErr := store.get(jobID)
 		if getErr != nil {
-			if gf.JSON {
-				ReturnError(w, "job_status_failed", getErr.Error(), map[string]any{"job_id": jobID}, version)
-			} else {
-				Errorf(wErr, "failed to read job %s: %v", jobID, getErr)
-			}
-			return ExitInternalError
+			return ctx.errResult(ExitInternalError, "job_status_failed", getErr.Error(), map[string]any{"job_id": jobID})
 		}
 		if !ok {
-			if gf.JSON {
-				ReturnError(w, "not_found", "job not found", map[string]any{"job_id": jobID}, version)
-			} else {
-				Errorf(wErr, "job %s not found", jobID)
-			}
-			return ExitNotFound
+			return ctx.errResult(ExitNotFound, "not_found", "job not found", map[string]any{"job_id": jobID})
 		}
 		if isTerminalSendJobStatus(job.Status) {
 			writeJobStatusResult(w, gf, version, job)
@@ -204,15 +156,10 @@ func cmdAgentJobWait(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		}
 
 		if time.Now().After(deadline) {
-			if gf.JSON {
-				ReturnError(w, "timeout", "timed out waiting for job completion", map[string]any{
-					"job_id": job.ID,
-					"status": string(job.Status),
-				}, version)
-			} else {
-				Errorf(wErr, "timed out waiting for job %s completion (status: %s)", job.ID, job.Status)
-			}
-			return ExitInternalError
+			return ctx.errResult(ExitInternalError, "timeout", "timed out waiting for job completion", map[string]any{
+				"job_id": job.ID,
+				"status": string(job.Status),
+			})
 		}
 		time.Sleep(*interval)
 	}

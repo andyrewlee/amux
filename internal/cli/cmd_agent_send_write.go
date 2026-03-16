@@ -50,26 +50,26 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 			errors.New("--idle-threshold must be > 0"),
 		)
 	}
-	if handled, code := maybeReplayIdempotentResponse(
-		w, wErr, gf, version, agentSendCommandName, *idempotencyKey,
-	); handled {
+	ctx := &cmdCtx{
+		w:       w,
+		wErr:    wErr,
+		gf:      gf,
+		version: version,
+		cmd:     agentSendCommandName,
+		idemKey: *idempotencyKey,
+	}
+
+	if handled, code := ctx.maybeReplay(); handled {
 		return code
 	}
 
 	svc, err := NewServices(version)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, *idempotencyKey,
-				ExitInternalError, "init_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to initialize: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
 	}
 	if *agentID != "" {
 		resolved, code, handled := resolveSessionForAgentSend(
-			w, wErr, gf, version, *idempotencyKey, *agentID, svc.TmuxOpts,
+			ctx, *agentID, svc.TmuxOpts,
 		)
 		if handled {
 			return code
@@ -79,22 +79,11 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 
 	jobStore, err := newSendJobStore()
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, agentSendCommandName, *idempotencyKey,
-				ExitInternalError, "job_store_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to initialize send job store: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "job_store_failed", err.Error(), nil)
 	}
 
 	job, resolvedSessionName, code := resolveSendJobForExecution(
-		w,
-		wErr,
-		gf,
-		version,
-		*idempotencyKey,
+		ctx,
 		jobStore,
 		strings.TrimSpace(*jobIDFlag),
 		sessionName,
@@ -106,7 +95,7 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	sessionName = resolvedSessionName
 
 	if code := validateAgentSendSession(
-		w, wErr, gf, version, *idempotencyKey, sessionName, job.ID, svc.TmuxOpts,
+		ctx, sessionName, job.ID, svc.TmuxOpts,
 	); code != ExitOK {
 		return code
 	}
@@ -114,11 +103,7 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	// Internal process-job retries always execute inline in the child process.
 	if *async && !*processJob {
 		return dispatchAsyncAgentSend(
-			w,
-			wErr,
-			gf,
-			version,
-			*idempotencyKey,
+			ctx,
 			jobStore,
 			sessionName,
 			*agentID,
@@ -129,11 +114,7 @@ func cmdAgentSend(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 	}
 
 	return executeAgentSendJob(
-		w,
-		wErr,
-		gf,
-		version,
-		*idempotencyKey,
+		ctx,
 		jobStore,
 		svc,
 		sessionName,

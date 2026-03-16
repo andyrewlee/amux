@@ -43,55 +43,27 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 			fmt.Errorf("invalid workspace id: %s", wsIDArg),
 		)
 	}
-	if handled, code := maybeReplayIdempotentResponse(
-		w, wErr, gf, version, "workspace.remove", *idempotencyKey,
-	); handled {
+	ctx := &cmdCtx{w: w, wErr: wErr, gf: gf, version: version, cmd: "workspace.remove", idemKey: *idempotencyKey}
+
+	if handled, code := ctx.maybeReplay(); handled {
 		return code
 	}
 
 	svc, err := NewServices(version)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.remove", *idempotencyKey,
-				ExitInternalError, "init_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to initialize: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
 	}
 
 	ws, err := svc.Store.Load(wsID)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if gf.JSON {
-				return returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, "workspace.remove", *idempotencyKey,
-					ExitNotFound, "not_found", fmt.Sprintf("workspace %s not found", wsID), nil,
-				)
-			}
-			Errorf(wErr, "workspace %s not found", wsID)
-			return ExitNotFound
+			return ctx.errResult(ExitNotFound, "not_found", fmt.Sprintf("workspace %s not found", wsID), nil)
 		}
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.remove", *idempotencyKey,
-				ExitInternalError, "metadata_load_failed", err.Error(), map[string]any{"workspace_id": string(wsID)},
-			)
-		}
-		Errorf(wErr, "failed to load workspace metadata %s: %v", wsID, err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "metadata_load_failed", err.Error(), map[string]any{"workspace_id": string(wsID)})
 	}
 
 	if ws.IsPrimaryCheckout() {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.remove", *idempotencyKey,
-				ExitUnsafeBlocked, "primary_checkout", "cannot remove primary checkout", nil,
-			)
-		}
-		Errorf(wErr, "cannot remove primary checkout")
-		return ExitUnsafeBlocked
+		return ctx.errResult(ExitUnsafeBlocked, "primary_checkout", "cannot remove primary checkout", nil)
 	}
 
 	// Kill tmux sessions for this workspace
@@ -101,14 +73,7 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	// Remove worktree
 	if err := git.RemoveWorkspace(ws.Repo, ws.Root); err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.remove", *idempotencyKey,
-				ExitInternalError, "remove_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to remove worktree: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "remove_failed", err.Error(), nil)
 	}
 
 	// Delete branch (best-effort)
@@ -118,28 +83,13 @@ func cmdWorkspaceRemove(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 
 	// Delete metadata
 	if err := svc.Store.Delete(wsID); err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "workspace.remove", *idempotencyKey,
-				ExitInternalError, "metadata_delete_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to delete metadata: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "metadata_delete_failed", err.Error(), nil)
 	}
 
 	info := workspaceToInfo(ws)
 
 	if gf.JSON {
-		return returnJSONSuccessWithIdempotency(
-			w,
-			wErr,
-			gf,
-			version,
-			"workspace.remove",
-			*idempotencyKey,
-			map[string]any{"removed": info},
-		)
+		return ctx.successResult(map[string]any{"removed": info})
 	}
 
 	PrintHuman(w, func(w io.Writer) {

@@ -75,47 +75,33 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 			err,
 		)
 	}
-	if handled, code := maybeReplayIdempotentResponse(
-		w, wErr, gf, version, "agent.run", *idempotencyKey,
-	); handled {
+	ctx := &cmdCtx{
+		w:       w,
+		wErr:    wErr,
+		gf:      gf,
+		version: version,
+		cmd:     "agent.run",
+		idemKey: *idempotencyKey,
+	}
+
+	if handled, code := ctx.maybeReplay(); handled {
 		return code
 	}
 
 	svc, err := NewServices(version)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.run", *idempotencyKey,
-				ExitInternalError, "init_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to initialize: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "init_failed", err.Error(), nil)
 	}
 
 	ws, err := svc.Store.Load(wsID)
 	if err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.run", *idempotencyKey,
-				ExitNotFound, "not_found", fmt.Sprintf("workspace %s not found", wsID), nil,
-			)
-		}
-		Errorf(wErr, "workspace %s not found", wsID)
-		return ExitNotFound
+		return ctx.errResult(ExitNotFound, "not_found", fmt.Sprintf("workspace %s not found", wsID), nil)
 	}
 
 	agentAssistant := assistantName
 	ac, ok := svc.Config.Assistants[agentAssistant]
 	if !ok {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.run", *idempotencyKey,
-				ExitUsage, "unknown_assistant", "unknown assistant: "+agentAssistant, nil,
-			)
-		}
-		Errorf(wErr, "unknown assistant: %s", agentAssistant)
-		return ExitUsage
+		return ctx.errResult(ExitUsage, "unknown_assistant", "unknown assistant: "+agentAssistant, nil)
 	}
 
 	// Generate tab ID and session name.
@@ -129,14 +115,7 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 	cmd, cancel := tmuxStartSession(svc.TmuxOpts, createArgs...)
 	defer cancel()
 	if err := cmd.Run(); err != nil {
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.run", *idempotencyKey,
-				ExitInternalError, "session_failed", err.Error(), nil,
-			)
-		}
-		Errorf(wErr, "failed to create tmux session: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "session_failed", err.Error(), nil)
 	}
 
 	// Tag the session.
@@ -160,29 +139,22 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 			if killErr := tmuxKillSession(sessionName, svc.TmuxOpts); killErr != nil {
 				slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
 			}
-			if gf.JSON {
-				return returnJSONErrorMaybeIdempotent(
-					w, wErr, gf, version, "agent.run", *idempotencyKey,
-					ExitInternalError, "session_tag_failed", err.Error(), map[string]any{
-						"session_name": sessionName,
-						"tag":          tag.Key,
-					},
-				)
-			}
-			Errorf(wErr, "failed to tag session %s (%s): %v", sessionName, tag.Key, err)
-			return ExitInternalError
+			return ctx.errResult(ExitInternalError, "session_tag_failed", err.Error(), map[string]any{
+				"session_name": sessionName,
+				"tag":          tag.Key,
+			})
 		}
 	}
 
 	if code := verifyStartedAgentSession(
-		w, wErr, gf, version, *idempotencyKey, sessionName, svc.TmuxOpts,
+		ctx, sessionName, svc.TmuxOpts,
 	); code != ExitOK {
 		return code
 	}
 
 	waitPreContent := ""
 	if code := sendAgentRunPromptIfRequested(
-		w, wErr, gf, version, *idempotencyKey, sessionName, agentAssistant, *prompt, svc.TmuxOpts,
+		ctx, sessionName, agentAssistant, *prompt, svc.TmuxOpts,
 		func() {
 			if *wait && *prompt != "" {
 				// Capture baseline after startup readiness wait but before prompt send.
@@ -211,17 +183,10 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 		if killErr := tmuxKillSession(sessionName, svc.TmuxOpts); killErr != nil {
 			slog.Debug("best-effort session kill failed", "session", sessionName, "error", killErr)
 		}
-		if gf.JSON {
-			return returnJSONErrorMaybeIdempotent(
-				w, wErr, gf, version, "agent.run", *idempotencyKey,
-				ExitInternalError, "metadata_save_failed", err.Error(), map[string]any{
-					"workspace_id": string(wsID),
-					"session_name": sessionName,
-				},
-			)
-		}
-		Errorf(wErr, "failed to persist workspace metadata: %v", err)
-		return ExitInternalError
+		return ctx.errResult(ExitInternalError, "metadata_save_failed", err.Error(), map[string]any{
+			"workspace_id": string(wsID),
+			"session_name": sessionName,
+		})
 	}
 
 	result := agentRunResult{
@@ -238,9 +203,7 @@ func cmdAgentRun(w, wErr io.Writer, gf GlobalFlags, args []string, version strin
 	}
 
 	if gf.JSON {
-		return returnJSONSuccessWithIdempotency(
-			w, wErr, gf, version, "agent.run", *idempotencyKey, result,
-		)
+		return ctx.successResult(result)
 	}
 
 	PrintHuman(w, func(w io.Writer) {
