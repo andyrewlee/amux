@@ -136,7 +136,11 @@ func (v *VTerm) dropTrackedAltScreenCapture() (int, [][]Cell) {
 		return 0, nil
 	}
 	start := len(v.Scrollback) - v.altScreenCaptureLen
-	removedRows := v.Scrollback[start:]
+	// Copy the removed rows so the returned slice doesn't alias the
+	// Scrollback backing array — a subsequent append could overwrite it.
+	src := v.Scrollback[start:]
+	removedRows := make([][]Cell, len(src))
+	copy(removedRows, src)
 	removed := v.altScreenCaptureLen
 	v.Scrollback = v.Scrollback[:len(v.Scrollback)-removed]
 	v.altScreenCaptureLen = 0
