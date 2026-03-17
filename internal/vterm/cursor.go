@@ -87,6 +87,8 @@ func (v *VTerm) enterAltScreen() {
 		return
 	}
 	v.AltScreen = true
+	v.altScreenCaptureLen = 0
+	v.altScreenCaptureTracked = false
 	v.altCursorX = v.CursorX
 	v.altCursorY = v.CursorY
 	v.altScreenBuf = v.Screen
@@ -102,6 +104,8 @@ func (v *VTerm) exitAltScreen() {
 		return
 	}
 	v.AltScreen = false
+	v.altScreenCaptureLen = 0
+	v.altScreenCaptureTracked = false
 	v.Screen = v.altScreenBuf
 	v.altScreenBuf = nil
 	v.CursorX = v.altCursorX

@@ -176,6 +176,12 @@ func (v *VTerm) eraseDisplay(mode int) {
 		}
 		v.markDirtyRange(0, v.CursorY)
 	case 2, 3: // Entire display (3 also clears scrollback)
+		// Capture non-blank screen lines to scrollback before erasing,
+		// so TUI content (like Claude Code plan mode) is preserved for
+		// amux scroll. Only in alt screen with AllowAltScreenScrollback.
+		if mode == 2 && v.AltScreen && v.AllowAltScreenScrollback {
+			v.captureScreenToScrollback()
+		}
 		for y := 0; y < v.Height; y++ {
 			if y < len(v.Screen) {
 				v.Screen[y] = MakeBlankLine(v.Width)
@@ -183,6 +189,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 		}
 		if mode == 3 {
 			v.Scrollback = v.Scrollback[:0]
+			v.invalidateAltScreenCapture()
 		}
 		v.markDirtyRange(0, v.Height-1)
 	}

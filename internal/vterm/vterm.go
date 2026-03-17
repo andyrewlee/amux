@@ -33,6 +33,8 @@ type VTerm struct {
 	// AllowAltScreenScrollback keeps scrollback active even in alt screen.
 	// Useful for tmux-backed sessions where scrollback should remain available.
 	AllowAltScreenScrollback bool
+	altScreenCaptureLen      int
+	altScreenCaptureTracked  bool
 	altScreenBuf             [][]Cell
 	altCursorX               int
 	altCursorY               int
@@ -153,6 +155,9 @@ func (v *VTerm) Resize(width, height int) {
 					added++
 				}
 			}
+			if added > 0 {
+				v.invalidateAltScreenCapture()
+			}
 			if added > 0 && v.ViewOffset > 0 {
 				v.ViewOffset += added
 				if v.ViewOffset > len(v.Scrollback) {
@@ -168,13 +173,21 @@ func (v *VTerm) Resize(width, height int) {
 	if height > oldHeight && v.scrollbackEnabled() && v.ViewOffset == 0 {
 		added := height - oldHeight
 		restore := added
-		if restore > len(v.Scrollback) {
-			restore = len(v.Scrollback)
+		reserved := v.altScreenCaptureLen
+		if reserved > len(v.Scrollback) {
+			reserved = 0
+			v.altScreenCaptureLen = 0
+			v.altScreenCaptureTracked = false
+		}
+		available := len(v.Scrollback) - reserved
+		if restore > available {
+			restore = available
 		}
 		if restore > 0 {
-			start := len(v.Scrollback) - restore
-			restored := v.Scrollback[start:]
-			v.Scrollback = v.Scrollback[:start]
+			start := available - restore
+			restored := make([][]Cell, restore)
+			copy(restored, v.Scrollback[start:available])
+			v.Scrollback = append(v.Scrollback[:start], v.Scrollback[available:]...)
 			v.Screen = append(restored, v.Screen...)
 			v.CursorY += restore
 		}
