@@ -41,24 +41,16 @@ func cmdAgentList(w, wErr io.Writer, gf GlobalFlags, args []string, version stri
 		return returnUsageError(w, wErr, gf, usage, version, err)
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	sessions, err := tmux.ActiveAgentSessionsByActivity(0, svc.TmuxOpts)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "list_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to list agents: %v", err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "list_failed", err, nil,
+			"failed to list agents: %v", err)
 	}
 
 	agents := []agentInfo{}
@@ -112,23 +104,15 @@ func cmdAgentCapture(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 	}
 
 	if *lines <= 0 {
-		if gf.JSON {
-			ReturnError(w, "invalid_lines", "--lines must be > 0",
-				map[string]any{"lines": *lines}, version)
-		} else {
-			Errorf(wErr, "--lines must be > 0")
-		}
-		return ExitUsage
+		return returnOperationError(w, wErr, gf, version,
+			ExitUsage, "invalid_lines", fmt.Errorf("--lines must be > 0"),
+			map[string]any{"lines": *lines},
+			"--lines must be > 0")
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	content, ok := captureAgentPaneWithRetry(sessionName, *lines, svc.TmuxOpts)
@@ -150,12 +134,9 @@ func cmdAgentCapture(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 			Errorf(wErr, "agent session %s has exited", sessionName)
 			return ExitNotFound
 		}
-		if gf.JSON {
-			ReturnError(w, "capture_failed", "could not capture pane output", nil, version)
-		} else {
-			Errorf(wErr, "could not capture pane output for session %s", sessionName)
-		}
-		return ExitNotFound
+		return returnOperationError(w, wErr, gf, version,
+			ExitNotFound, "capture_failed", fmt.Errorf("could not capture pane output"), nil,
+			"could not capture pane output for session %s", sessionName)
 	}
 
 	latestLine := latestLineForContent(content)

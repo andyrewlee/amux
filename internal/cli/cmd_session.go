@@ -29,26 +29,18 @@ func cmdSessionListWith(w, wErr io.Writer, gf GlobalFlags, args []string, versio
 	}
 
 	if svc == nil {
-		var err error
-		svc, err = NewServices(version)
-		if err != nil {
-			if gf.JSON {
-				ReturnError(w, "init_failed", err.Error(), nil, version)
-			} else {
-				Errorf(wErr, "failed to initialize: %v", err)
-			}
-			return ExitInternalError
+		var code int
+		svc, code = initServicesOrFail(w, wErr, gf, version)
+		if code >= 0 {
+			return code
 		}
 	}
 
 	rows, err := svc.QuerySessionRows(svc.TmuxOpts)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "list_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to list sessions: %v", err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "list_failed", err, nil,
+			"failed to list sessions: %v", err)
 	}
 
 	entries := buildSessionList(rows, time.Now())
@@ -111,58 +103,39 @@ func cmdSessionPruneWith(w, wErr io.Writer, gf GlobalFlags, args []string, versi
 	var minAge time.Duration
 	if *olderThan != "" {
 		d, err := time.ParseDuration(*olderThan)
-		if err != nil {
-			if gf.JSON {
-				ReturnError(w, "invalid_older_than", fmt.Sprintf("invalid --older-than: %v", err),
-					map[string]any{"older_than": *olderThan}, version)
-			} else {
-				Errorf(wErr, "invalid --older-than: %v", err)
+		if err != nil || d <= 0 {
+			msg := "--older-than must be a positive duration"
+			if err != nil {
+				msg = fmt.Sprintf("invalid --older-than: %v", err)
 			}
-			return ExitUsage
-		}
-		if d <= 0 {
-			if gf.JSON {
-				ReturnError(w, "invalid_older_than", "--older-than must be > 0",
-					map[string]any{"older_than": *olderThan}, version)
-			} else {
-				Errorf(wErr, "--older-than must be > 0")
-			}
-			return ExitUsage
+			return returnOperationError(w, wErr, gf, version,
+				ExitUsage, "invalid_older_than", fmt.Errorf("%s", msg),
+				map[string]any{"older_than": *olderThan},
+				"%s", msg)
 		}
 		minAge = d
 	}
 
 	if svc == nil {
-		var err error
-		svc, err = NewServices(version)
-		if err != nil {
-			if gf.JSON {
-				ReturnError(w, "init_failed", err.Error(), nil, version)
-			} else {
-				Errorf(wErr, "failed to initialize: %v", err)
-			}
-			return ExitInternalError
+		var code int
+		svc, code = initServicesOrFail(w, wErr, gf, version)
+		if code >= 0 {
+			return code
 		}
 	}
 
 	rows, err := svc.QuerySessionRows(svc.TmuxOpts)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "prune_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to scan sessions: %v", err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "prune_failed", err, nil,
+			"failed to scan sessions: %v", err)
 	}
 
 	wsIDs, err := svc.Store.List()
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "prune_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to list workspaces: %v", err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "prune_failed", err, nil,
+			"failed to list workspaces: %v", err)
 	}
 
 	candidates := findPruneCandidates(rows, wsIDs, minAge, time.Now())
@@ -249,27 +222,8 @@ func cmdSessionPruneWith(w, wErr io.Writer, gf GlobalFlags, args []string, versi
 // --- routing ---
 
 func routeSession(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux session <list|prune> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux session <list|prune> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdSessionList(w, wErr, gf, subArgs, version)
-	case "prune":
-		return cmdSessionPrune(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown session subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown session subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, "session", []subcommand{
+		{names: []string{"list", "ls"}, handler: cmdSessionList},
+		{names: []string{"prune"}, handler: cmdSessionPrune},
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -64,47 +65,29 @@ func cmdAgentWatch(w, wErr io.Writer, gf GlobalFlags, args []string, version str
 		return returnUsageError(w, wErr, gf, usage, version, nil)
 	}
 	if *lines <= 0 {
-		if gf.JSON {
-			ReturnError(w, "invalid_lines", "--lines must be > 0",
-				map[string]any{"lines": *lines}, version)
-		} else {
-			Errorf(wErr, "--lines must be > 0")
-		}
-		return ExitUsage
+		return returnOperationError(w, wErr, gf, version,
+			ExitUsage, "invalid_lines", fmt.Errorf("--lines must be > 0"),
+			map[string]any{"lines": *lines}, "--lines must be > 0")
 	}
 	if *interval <= 0 {
-		if gf.JSON {
-			ReturnError(w, "invalid_interval", "--interval must be > 0", nil, version)
-		} else {
-			Errorf(wErr, "--interval must be > 0")
-		}
-		return ExitUsage
+		return returnOperationError(w, wErr, gf, version,
+			ExitUsage, "invalid_interval", fmt.Errorf("--interval must be > 0"), nil,
+			"--interval must be > 0")
 	}
 	if *idleThreshold <= 0 {
-		if gf.JSON {
-			ReturnError(w, "invalid_idle_threshold", "--idle-threshold must be > 0", nil, version)
-		} else {
-			Errorf(wErr, "--idle-threshold must be > 0")
-		}
-		return ExitUsage
+		return returnOperationError(w, wErr, gf, version,
+			ExitUsage, "invalid_idle_threshold", fmt.Errorf("--idle-threshold must be > 0"), nil,
+			"--idle-threshold must be > 0")
 	}
 	if *heartbeat < 0 {
-		if gf.JSON {
-			ReturnError(w, "invalid_heartbeat", "--heartbeat must be >= 0", nil, version)
-		} else {
-			Errorf(wErr, "--heartbeat must be >= 0")
-		}
-		return ExitUsage
+		return returnOperationError(w, wErr, gf, version,
+			ExitUsage, "invalid_heartbeat", fmt.Errorf("--heartbeat must be >= 0"), nil,
+			"--heartbeat must be >= 0")
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	cfg := watchConfig{

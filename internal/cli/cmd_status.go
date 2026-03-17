@@ -30,14 +30,9 @@ func cmdStatus(w, wErr io.Writer, gf GlobalFlags, args []string, version string)
 		)
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	result := statusResult{Version: svc.Version}

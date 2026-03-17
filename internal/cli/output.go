@@ -138,3 +138,32 @@ func PrintHuman(w io.Writer, fn func(io.Writer)) {
 func Errorf(w io.Writer, format string, args ...any) {
 	fmt.Fprintf(w, "Error: "+format+"\n", args...)
 }
+
+// returnOperationError handles the JSON/human error branching for simple
+// commands that don't use cmdCtx. It returns exitCode for the caller to
+// propagate directly.
+func returnOperationError(
+	w, wErr io.Writer, gf GlobalFlags, version string,
+	exitCode int, errorCode string, err error, details any,
+	humanFmt string, humanArgs ...any,
+) int {
+	if gf.JSON {
+		ReturnError(w, errorCode, err.Error(), details, version)
+	} else {
+		Errorf(wErr, humanFmt, humanArgs...)
+	}
+	return exitCode
+}
+
+// initServicesOrFail creates Services and handles the error output for simple
+// commands. If the returned exit code is >= 0, the caller should return it
+// immediately (svc will be nil).
+func initServicesOrFail(w, wErr io.Writer, gf GlobalFlags, version string) (*Services, int) {
+	svc, err := NewServices(version)
+	if err != nil {
+		return nil, returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "init_failed", err, nil,
+			"failed to initialize: %v", err)
+	}
+	return svc, -1
+}

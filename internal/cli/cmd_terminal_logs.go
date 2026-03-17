@@ -41,32 +41,22 @@ func cmdTerminalLogs(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		return returnUsageError(w, wErr, gf, usage, version, err)
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	sessionName, found, err := resolveTerminalSessionForWorkspace(wsID, svc.TmuxOpts, svc.QuerySessionRows)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "session_lookup_failed", err.Error(), map[string]any{"workspace_id": string(wsID)}, version)
-		} else {
-			Errorf(wErr, "failed to lookup terminal session for %s: %v", wsID, err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "session_lookup_failed", err, map[string]any{"workspace_id": string(wsID)},
+			"failed to lookup terminal session for %s: %v", wsID, err)
 	}
 	if !found {
-		if gf.JSON {
-			ReturnError(w, "not_found", "no terminal session found for workspace", map[string]any{"workspace_id": string(wsID)}, version)
-		} else {
-			Errorf(wErr, "no terminal session found for workspace %s", wsID)
-		}
-		return ExitNotFound
+		return returnOperationError(w, wErr, gf, version,
+			ExitNotFound, "not_found", fmt.Errorf("no terminal session found for workspace"),
+			map[string]any{"workspace_id": string(wsID)},
+			"no terminal session found for workspace %s", wsID)
 	}
 
 	if *follow {
@@ -83,12 +73,10 @@ func cmdTerminalLogs(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 
 	content, ok := tmux.CapturePaneTail(sessionName, *lines, svc.TmuxOpts)
 	if !ok {
-		if gf.JSON {
-			ReturnError(w, "capture_failed", "could not capture pane output", map[string]any{"session_name": sessionName}, version)
-		} else {
-			Errorf(wErr, "could not capture pane output for session %s", sessionName)
-		}
-		return ExitNotFound
+		return returnOperationError(w, wErr, gf, version,
+			ExitNotFound, "capture_failed", fmt.Errorf("could not capture pane output"),
+			map[string]any{"session_name": sessionName},
+			"could not capture pane output for session %s", sessionName)
 	}
 
 	result := terminalLogsResult{

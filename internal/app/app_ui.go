@@ -272,70 +272,56 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 		// Intentionally global to the workspace (no sidebar focus required).
 		return a.sidebarTerminal.CreateNewTab()
 	case "next_tab":
-		switch a.focusedPane {
-		case messages.PaneSidebarTerminal:
-			a.sidebarTerminal.NextTab()
-		case messages.PaneSidebar:
-			a.sidebar.NextTab()
-		default:
-			_, activeIdxBefore := a.center.GetTabsInfo()
-			cmd := a.center.NextTab()
-			_, activeIdxAfter := a.center.GetTabsInfo()
-			if activeIdxAfter == activeIdxBefore {
-				return nil
-			}
-			return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
-		}
-		return nil
+		return a.cycleTab(a.sidebar.NextTab, a.sidebarTerminal.NextTab, a.center.NextTab)
 	case "prev_tab":
-		switch a.focusedPane {
-		case messages.PaneSidebarTerminal:
-			a.sidebarTerminal.PrevTab()
-		case messages.PaneSidebar:
-			a.sidebar.PrevTab()
-		default:
-			_, activeIdxBefore := a.center.GetTabsInfo()
-			cmd := a.center.PrevTab()
-			_, activeIdxAfter := a.center.GetTabsInfo()
-			if activeIdxAfter == activeIdxBefore {
-				return nil
-			}
-			return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
-		}
-		return nil
+		return a.cycleTab(a.sidebar.PrevTab, a.sidebarTerminal.PrevTab, a.center.PrevTab)
 	case "close_tab":
 		if a.focusedPane == messages.PaneSidebarTerminal {
 			return a.sidebarTerminal.CloseActiveTab()
 		}
 		return a.center.CloseActiveTab()
 	case "detach_tab":
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			cmd := a.center.DetachActiveTab()
-			return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
-		case messages.PaneSidebarTerminal:
-			return a.sidebarTerminal.DetachActiveTab()
-		}
-		return nil
+		return a.dispatchTabAction(
+			func() tea.Cmd { return common.SafeBatch(a.center.DetachActiveTab(), a.persistActiveWorkspaceTabs()) },
+			a.sidebarTerminal.DetachActiveTab,
+		)
 	case "reattach_tab":
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			return a.center.ReattachActiveTab()
-		case messages.PaneSidebarTerminal:
-			return a.sidebarTerminal.ReattachActiveTab()
-		}
-		return nil
+		return a.dispatchTabAction(a.center.ReattachActiveTab, a.sidebarTerminal.ReattachActiveTab)
 	case "restart_tab":
-		switch a.focusedPane {
-		case messages.PaneCenter:
-			return a.center.RestartActiveTab()
-		case messages.PaneSidebarTerminal:
-			return a.sidebarTerminal.RestartActiveTab()
-		}
-		return nil
+		return a.dispatchTabAction(a.center.RestartActiveTab, a.sidebarTerminal.RestartActiveTab)
 	default:
 		return nil
 	}
+}
+
+// cycleTab handles next/prev tab for the focused pane, persisting center tab changes.
+func (a *App) cycleTab(sidebarFn, sidebarTermFn func(), centerFn func() tea.Cmd) tea.Cmd {
+	switch a.focusedPane {
+	case messages.PaneSidebarTerminal:
+		sidebarTermFn()
+	case messages.PaneSidebar:
+		sidebarFn()
+	default:
+		_, before := a.center.GetTabsInfo()
+		cmd := centerFn()
+		_, after := a.center.GetTabsInfo()
+		if after == before {
+			return nil
+		}
+		return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
+	}
+	return nil
+}
+
+// dispatchTabAction dispatches a tab action to center or sidebar terminal.
+func (a *App) dispatchTabAction(centerFn, sidebarTermFn func() tea.Cmd) tea.Cmd {
+	switch a.focusedPane {
+	case messages.PaneCenter:
+		return centerFn()
+	case messages.PaneSidebarTerminal:
+		return sidebarTermFn()
+	}
+	return nil
 }
 
 func (a *App) requireWorkspaceSelection(action string) tea.Cmd {

@@ -61,17 +61,13 @@ func cmdWorkspaceList(w, wErr io.Writer, gf GlobalFlags, args []string, version 
 		)
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	var infos []WorkspaceInfo
+	var err error
 
 	repoFilter := strings.TrimSpace(*repo)
 	if repoFilter == "" {
@@ -89,12 +85,9 @@ func cmdWorkspaceList(w, wErr io.Writer, gf GlobalFlags, args []string, version 
 		infos, err = listAll(svc, *archived)
 	}
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "list_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "%v", err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "list_failed", err, nil,
+			"%v", err)
 	}
 
 	if gf.JSON {

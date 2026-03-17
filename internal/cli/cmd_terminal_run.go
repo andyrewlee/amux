@@ -43,68 +43,49 @@ func cmdTerminalRun(w, wErr io.Writer, gf GlobalFlags, args []string, version st
 		return returnUsageError(w, wErr, gf, usage, version, err)
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	sessionName, found, err := resolveTerminalSessionForWorkspace(wsID, svc.TmuxOpts, svc.QuerySessionRows)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "session_lookup_failed", err.Error(), map[string]any{"workspace_id": string(wsID)}, version)
-		} else {
-			Errorf(wErr, "failed to lookup terminal session for %s: %v", wsID, err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "session_lookup_failed", err, map[string]any{"workspace_id": string(wsID)},
+			"failed to lookup terminal session for %s: %v", wsID, err)
 	}
 
 	created := false
 	if !found {
 		if !*create {
-			if gf.JSON {
-				ReturnError(w, "not_found", "no terminal session found for workspace", map[string]any{"workspace_id": string(wsID)}, version)
-			} else {
-				Errorf(wErr, "no terminal session found for workspace %s", wsID)
-			}
-			return ExitNotFound
+			return returnOperationError(w, wErr, gf, version,
+				ExitNotFound, "not_found", fmt.Errorf("no terminal session found for workspace"),
+				map[string]any{"workspace_id": string(wsID)},
+				"no terminal session found for workspace %s", wsID)
 		}
 		ws, err := svc.Store.Load(wsID)
 		if err != nil {
-			if gf.JSON {
-				ReturnError(w, "not_found", fmt.Sprintf("workspace %s not found", wsID), nil, version)
-			} else {
-				Errorf(wErr, "workspace %s not found", wsID)
-			}
-			return ExitNotFound
+			return returnOperationError(w, wErr, gf, version,
+				ExitNotFound, "not_found", fmt.Errorf("workspace %s not found", wsID), nil,
+				"workspace %s not found", wsID)
 		}
 		sessionName, err = createWorkspaceTerminalSession(ws, wsID, svc.TmuxOpts)
 		if err != nil {
-			if gf.JSON {
-				ReturnError(w, "session_create_failed", err.Error(), map[string]any{"workspace_id": string(wsID)}, version)
-			} else {
-				Errorf(wErr, "failed to create terminal session for %s: %v", wsID, err)
-			}
-			return ExitInternalError
+			return returnOperationError(w, wErr, gf, version,
+				ExitInternalError, "session_create_failed", err, map[string]any{"workspace_id": string(wsID)},
+				"failed to create terminal session for %s: %v", wsID, err)
 		}
 		created = true
 	}
 
 	command := *text
 	if err := tmuxSendKeys(sessionName, command, *enter, svc.TmuxOpts); err != nil {
-		if gf.JSON {
-			ReturnError(w, "send_failed", err.Error(), map[string]any{
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "send_failed", err, map[string]any{
 				"workspace_id": string(wsID),
 				"session_name": sessionName,
-			}, version)
-		} else {
-			Errorf(wErr, "failed to send command to %s: %v", sessionName, err)
-		}
-		return ExitInternalError
+			},
+			"failed to send command to %s: %v", sessionName, err)
 	}
 
 	result := terminalRunResult{

@@ -30,31 +30,11 @@ type terminalLogsResult struct {
 }
 
 func routeTerminal(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux terminal <list|run|logs> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux terminal <list|run|logs> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdTerminalList(w, wErr, gf, subArgs, version)
-	case "run":
-		return cmdTerminalRun(w, wErr, gf, subArgs, version)
-	case "logs":
-		return cmdTerminalLogs(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown terminal subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown terminal subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, "terminal", []subcommand{
+		{names: []string{"list", "ls"}, handler: cmdTerminalList},
+		{names: []string{"run"}, handler: cmdTerminalRun},
+		{names: []string{"logs"}, handler: cmdTerminalLogs},
+	})
 }
 
 func cmdTerminalList(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
@@ -74,24 +54,16 @@ func cmdTerminalList(w, wErr io.Writer, gf GlobalFlags, args []string, version s
 		filterWS = string(wsID)
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	rows, err := svc.QuerySessionRows(svc.TmuxOpts)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "list_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to list terminal sessions: %v", err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "list_failed", err, nil,
+			"failed to list terminal sessions: %v", err)
 	}
 
 	now := time.Now()

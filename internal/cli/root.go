@@ -138,67 +138,23 @@ func applyRunGlobals(gf GlobalFlags) (func(), error) {
 }
 
 func routeWorkspace(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux workspace <list|create|remove> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux workspace <list|create|remove> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdWorkspaceList(w, wErr, gf, subArgs, version)
-	case "create":
-		return cmdWorkspaceCreate(w, wErr, gf, subArgs, version)
-	case "remove", "rm":
-		return cmdWorkspaceRemove(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown workspace subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown workspace subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, "workspace", []subcommand{
+		{names: []string{"list", "ls"}, handler: cmdWorkspaceList},
+		{names: []string{"create"}, handler: cmdWorkspaceCreate},
+		{names: []string{"remove", "rm"}, handler: cmdWorkspaceRemove},
+	})
 }
 
 func routeAgent(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux agent <list|capture|run|send|stop|watch|job> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux agent <list|capture|run|send|stop|watch|job> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdAgentList(w, wErr, gf, subArgs, version)
-	case "capture":
-		return cmdAgentCapture(w, wErr, gf, subArgs, version)
-	case "run":
-		return cmdAgentRun(w, wErr, gf, subArgs, version)
-	case "send":
-		return cmdAgentSend(w, wErr, gf, subArgs, version)
-	case "stop":
-		return cmdAgentStop(w, wErr, gf, subArgs, version)
-	case "watch":
-		return cmdAgentWatch(w, wErr, gf, subArgs, version)
-	case "job":
-		return routeAgentJob(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown agent subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown agent subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, "agent", []subcommand{
+		{names: []string{"list", "ls"}, handler: cmdAgentList},
+		{names: []string{"capture"}, handler: cmdAgentCapture},
+		{names: []string{"run"}, handler: cmdAgentRun},
+		{names: []string{"send"}, handler: cmdAgentSend},
+		{names: []string{"stop"}, handler: cmdAgentStop},
+		{names: []string{"watch"}, handler: cmdAgentWatch},
+		{names: []string{"job"}, handler: routeAgentJob},
+	})
 }
 
 // PrintUsage writes CLI help text.

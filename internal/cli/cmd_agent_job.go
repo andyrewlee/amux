@@ -7,32 +7,11 @@ import (
 )
 
 func routeAgentJob(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux agent job <status|cancel|wait> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux agent job <status|cancel|wait> [flags]")
-		}
-		return ExitUsage
-	}
-
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "status":
-		return cmdAgentJobStatus(w, wErr, gf, subArgs, version)
-	case "cancel":
-		return cmdAgentJobCancel(w, wErr, gf, subArgs, version)
-	case "wait":
-		return cmdAgentJobWait(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown agent job subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown agent job subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, "agent job", []subcommand{
+		{names: []string{"status"}, handler: cmdAgentJobStatus},
+		{names: []string{"cancel"}, handler: cmdAgentJobCancel},
+		{names: []string{"wait"}, handler: cmdAgentJobWait},
+	})
 }
 
 func cmdAgentJobStatus(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {

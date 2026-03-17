@@ -47,31 +47,11 @@ func lenientCanonicalizePath(path string) string {
 // --- project routing ---
 
 func routeProject(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	if len(args) == 0 {
-		if gf.JSON {
-			ReturnError(w, "usage_error", "Usage: amux project <list|add|remove> [flags]", nil, version)
-		} else {
-			fmt.Fprintln(wErr, "Usage: amux project <list|add|remove> [flags]")
-		}
-		return ExitUsage
-	}
-	sub := args[0]
-	subArgs := args[1:]
-	switch sub {
-	case "list", "ls":
-		return cmdProjectList(w, wErr, gf, subArgs, version)
-	case "add":
-		return cmdProjectAdd(w, wErr, gf, subArgs, version)
-	case "remove", "rm":
-		return cmdProjectRemove(w, wErr, gf, subArgs, version)
-	default:
-		if gf.JSON {
-			ReturnError(w, "unknown_command", "Unknown project subcommand: "+sub, nil, version)
-		} else {
-			fmt.Fprintf(wErr, "Unknown project subcommand: %s\n", sub)
-		}
-		return ExitUsage
-	}
+	return routeSubcommand(w, wErr, gf, args, version, "project", []subcommand{
+		{names: []string{"list", "ls"}, handler: cmdProjectList},
+		{names: []string{"add"}, handler: cmdProjectAdd},
+		{names: []string{"remove", "rm"}, handler: cmdProjectRemove},
+	})
 }
 
 // --- project list ---
@@ -87,24 +67,16 @@ func cmdProjectList(w, wErr io.Writer, gf GlobalFlags, args []string, version st
 		return returnUsageError(w, wErr, gf, usage, version, errors.New("unexpected arguments"))
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	paths, err := svc.Registry.Projects()
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "list_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to list projects: %v", err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "list_failed", err, nil,
+			"failed to list projects: %v", err)
 	}
 
 	entries := make([]projectEntry, len(paths))
@@ -147,40 +119,27 @@ func cmdProjectAdd(w, wErr io.Writer, gf GlobalFlags, args []string, version str
 
 	projectPath, err := canonicalizeProjectPath(path)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "invalid_project_path", err.Error(), map[string]any{"path": path}, version)
-		} else {
-			Errorf(wErr, "invalid path: %v", err)
-		}
-		return ExitUsage
+		return returnOperationError(w, wErr, gf, version,
+			ExitUsage, "invalid_project_path", err, map[string]any{"path": path},
+			"invalid path: %v", err)
 	}
 
 	if !git.IsGitRepository(projectPath) {
-		if gf.JSON {
-			ReturnError(w, "not_git_repo", projectPath+" is not a git repository", map[string]any{"path": projectPath}, version)
-		} else {
-			Errorf(wErr, "%s is not a git repository", projectPath)
-		}
-		return ExitUsage
+		return returnOperationError(w, wErr, gf, version,
+			ExitUsage, "not_git_repo", fmt.Errorf("%s is not a git repository", projectPath),
+			map[string]any{"path": projectPath},
+			"%s is not a git repository", projectPath)
 	}
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	if err := svc.Registry.AddProject(projectPath); err != nil {
-		if gf.JSON {
-			ReturnError(w, "add_failed", err.Error(), map[string]any{"path": projectPath}, version)
-		} else {
-			Errorf(wErr, "failed to add project: %v", err)
-		}
-		return ExitInternalError
+		return returnOperationError(w, wErr, gf, version,
+			ExitInternalError, "add_failed", err, map[string]any{"path": projectPath},
+			"failed to add project: %v", err)
 	}
 
 	entry := projectEntry{
@@ -218,14 +177,9 @@ func cmdProjectRemove(w, wErr io.Writer, gf GlobalFlags, args []string, version 
 	projectPath := lenientCanonicalizePath(path)
 	projectPathNoResolve := canonicalizeProjectPathNoSymlinks(path)
 
-	svc, err := NewServices(version)
-	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "init_failed", err.Error(), nil, version)
-		} else {
-			Errorf(wErr, "failed to initialize: %v", err)
-		}
-		return ExitInternalError
+	svc, code := initServicesOrFail(w, wErr, gf, version)
+	if code >= 0 {
+		return code
 	}
 
 	for candidate := range map[string]struct{}{
@@ -236,12 +190,9 @@ func cmdProjectRemove(w, wErr io.Writer, gf GlobalFlags, args []string, version 
 			continue
 		}
 		if err := svc.Registry.RemoveProject(candidate); err != nil {
-			if gf.JSON {
-				ReturnError(w, "remove_failed", err.Error(), map[string]any{"path": candidate}, version)
-			} else {
-				Errorf(wErr, "failed to remove project: %v", err)
-			}
-			return ExitInternalError
+			return returnOperationError(w, wErr, gf, version,
+				ExitInternalError, "remove_failed", err, map[string]any{"path": candidate},
+				"failed to remove project: %v", err)
 		}
 	}
 

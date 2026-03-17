@@ -30,12 +30,10 @@ func cmdLogs(w, wErr io.Writer, gf GlobalFlags, args []string, version string) i
 		return returnUsageError(w, wErr, gf, usage, version, err)
 	}
 	if *lines < 0 {
-		if gf.JSON {
-			ReturnError(w, "invalid_lines", "--lines must be >= 0", map[string]any{"lines": *lines}, version)
-		} else {
-			Errorf(wErr, "--lines must be >= 0")
-		}
-		return ExitUsage
+		return returnOperationError(w, wErr, gf, version,
+			ExitUsage, "invalid_lines", fmt.Errorf("--lines must be >= 0"),
+			map[string]any{"lines": *lines},
+			"--lines must be >= 0")
 	}
 
 	logPath := logging.GetLogPath()
@@ -46,12 +44,9 @@ func cmdLogs(w, wErr io.Writer, gf GlobalFlags, args []string, version string) i
 
 	content, err := os.ReadFile(logPath)
 	if err != nil {
-		if gf.JSON {
-			ReturnError(w, "log_not_found", fmt.Sprintf("cannot read log: %v", err), nil, version)
-		} else {
-			Errorf(wErr, "cannot read log file: %v", err)
-		}
-		return ExitNotFound
+		return returnOperationError(w, wErr, gf, version,
+			ExitNotFound, "log_not_found", fmt.Errorf("cannot read log: %w", err), nil,
+			"cannot read log file: %v", err)
 	}
 
 	var allLines []string
