@@ -1,0 +1,245 @@
+package vterm
+
+import (
+	"fmt"
+	"testing"
+)
+
+func TestAltScreenEraseNoOverlapWhenContentDiffers(t *testing.T) {
+	// Verify that overlap detection does not falsely match when content changes.
+	vt := New(10, 3)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	// Frame 1: overflow with AAA, BBB, CCC, DDD (AAA scrolls off)
+	vt.Write([]byte("AAA\r\nBBB\r\nCCC\r\nDDD"))
+	vt.Write([]byte("\x1b[2J"))
+
+	// Frame 2: completely different content that overflows
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("XXX\r\nYYY\r\nZZZ\r\nWWW"))
+	vt.Write([]byte("\x1b[2J"))
+
+	// All new content should be present — no false dedup
+	found := map[string]bool{}
+	for _, line := range vt.Scrollback {
+		text := lineText(line)
+		if text != "" {
+			found[text] = true
+		}
+	}
+
+	for _, want := range []string{"YYY", "ZZZ", "WWW"} {
+		if !found[want] {
+			t.Errorf("expected %q in scrollback, not found", want)
+			dumpScrollback(t, vt)
+			break
+		}
+	}
+}
+
+func TestAltScreenErasePartialOverlap(t *testing.T) {
+	// Manually set up scrollback to have specific tail lines,
+	// then verify partial overlap detection works.
+	vt := New(10, 3)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	// makeLine creates a []Cell row with given text.
+	makeLine := func(text string) []Cell {
+		line := MakeBlankLine(10)
+		for i, r := range text {
+			if i >= 10 {
+				break
+			}
+			line[i] = Cell{Rune: r, Width: 1}
+		}
+		return line
+	}
+
+	// Pre-populate scrollback with lines that partially overlap
+	// with what the screen capture will produce.
+	vt.Scrollback = append(vt.Scrollback, makeLine("alpha"))
+	vt.Scrollback = append(vt.Scrollback, makeLine("beta"))
+
+	// Put "beta" and "gamma" on screen (beta overlaps with scrollback tail)
+	vt.Screen[0] = makeLine("beta")
+	vt.Screen[1] = makeLine("gamma")
+	// row 2 is blank
+
+	vt.Write([]byte("\x1b[2J"))
+
+	// Should have: alpha, beta, gamma (not alpha, beta, beta, gamma)
+	if len(vt.Scrollback) != 3 {
+		t.Fatalf("expected 3 scrollback lines, got %d", len(vt.Scrollback))
+	}
+
+	expected := []string{"alpha", "beta", "gamma"}
+	for i, want := range expected {
+		got := lineText(vt.Scrollback[i])
+		if got != want {
+			t.Errorf("scrollback[%d] = %q, want %q", i, got, want)
+		}
+	}
+}
+
+func TestAltScreenEraseOverlapAcrossMultipleRedraws(t *testing.T) {
+	// Verify duplication doesn't compound over 5 erase cycles
+	// with content that overflows the terminal.
+	vt := New(10, 3)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	// First draw
+	vt.Write([]byte("line1\r\nline2\r\nline3\r\nline4\r\nline5"))
+	vt.Write([]byte("\x1b[2J"))
+	firstLen := len(vt.Scrollback)
+
+	for cycle := 1; cycle < 5; cycle++ {
+		vt.Write([]byte("\x1b[H"))
+		vt.Write([]byte("line1\r\nline2\r\nline3\r\nline4\r\nline5"))
+		vt.Write([]byte("\x1b[2J"))
+	}
+
+	if len(vt.Scrollback) != firstLen {
+		t.Errorf("scrollback should stay stable: first=%d, after5=%d",
+			firstLen, len(vt.Scrollback))
+		dumpScrollback(t, vt)
+	}
+
+	// Verify no adjacent duplicates
+	for i := 1; i < len(vt.Scrollback); i++ {
+		prev := lineText(vt.Scrollback[i-1])
+		cur := lineText(vt.Scrollback[i])
+		if prev == cur && prev != "" {
+			t.Errorf("adjacent duplicate at index %d: %q", i, cur)
+			dumpScrollback(t, vt)
+			break
+		}
+	}
+}
+
+func TestAltScreenEraseContentChangeAfterOverflow(t *testing.T) {
+	// After overflowing content, changing the content should replace
+	// the old capture properly.
+	vt := New(10, 4)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	// Frame 1: 6 lines overflow 4-row terminal
+	vt.Write([]byte("aaa\r\nbbb\r\nccc\r\nddd\r\neee\r\nfff"))
+	vt.Write([]byte("\x1b[2J"))
+
+	// Frame 2: different 6 lines
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("111\r\n222\r\n333\r\n444\r\n555\r\n666"))
+	vt.Write([]byte("\x1b[2J"))
+
+	// Old capture (ccc-fff) should be replaced, not orphaned
+	found := map[string]int{}
+	for _, line := range vt.Scrollback {
+		text := lineText(line)
+		if text != "" {
+			found[text]++
+		}
+	}
+
+	// New content should be present
+	for _, want := range []string{"111", "222", "333", "444", "555", "666"} {
+		if found[want] == 0 {
+			t.Errorf("expected %q in scrollback, not found", want)
+			dumpScrollback(t, vt)
+			return
+		}
+	}
+
+	// Old scrollUp lines (aaa, bbb) may persist, old capture lines should not
+	for _, old := range []string{"ccc", "ddd", "eee", "fff"} {
+		if found[old] > 0 {
+			t.Errorf("old capture line %q should be removed, found %d times", old, found[old])
+			dumpScrollback(t, vt)
+			return
+		}
+	}
+}
+
+func TestAltScreenScrollbackTailOverlap(t *testing.T) {
+	makeLine := func(text string, width int) []Cell {
+		line := MakeBlankLine(width)
+		for i, r := range text {
+			if i >= width {
+				break
+			}
+			line[i] = Cell{Rune: r, Width: 1}
+		}
+		return line
+	}
+
+	tests := []struct {
+		name     string
+		sb       []string
+		lines    []string
+		expected int
+	}{
+		{"no overlap", []string{"A", "B"}, []string{"C", "D"}, 0},
+		{"full overlap", []string{"A", "B"}, []string{"A", "B"}, 2},
+		{"partial overlap 1", []string{"A", "B", "C"}, []string{"C", "D"}, 1},
+		{"partial overlap 2", []string{"A", "B", "C"}, []string{"B", "C", "D"}, 2},
+		{"empty scrollback", nil, []string{"A"}, 0},
+		{"empty lines", []string{"A"}, nil, 0},
+		{"single match", []string{"X"}, []string{"X", "Y"}, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sb [][]Cell
+			for _, s := range tt.sb {
+				sb = append(sb, makeLine(s, 5))
+			}
+			var lines [][]Cell
+			for _, s := range tt.lines {
+				lines = append(lines, makeLine(s, 5))
+			}
+			got := scrollbackTailOverlap(sb, lines)
+			if got != tt.expected {
+				t.Errorf("scrollbackTailOverlap() = %d, want %d", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestAltScreenEraseManyOverflowCyclesStable(t *testing.T) {
+	// Stress test: 20 redraw cycles of overflowing content.
+	// Scrollback should stabilize and never grow unbounded.
+	vt := New(10, 4)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	// Generate 8 lines of content (overflows 4-row terminal)
+	content := "L01\r\nL02\r\nL03\r\nL04\r\nL05\r\nL06\r\nL07\r\nL08"
+
+	vt.Write([]byte(content))
+	vt.Write([]byte("\x1b[2J"))
+	stableLen := len(vt.Scrollback)
+
+	for i := 0; i < 20; i++ {
+		vt.Write([]byte("\x1b[H"))
+		vt.Write([]byte(content))
+		vt.Write([]byte("\x1b[2J"))
+	}
+
+	if len(vt.Scrollback) != stableLen {
+		t.Errorf("scrollback grew after 20 cycles: expected %d, got %d",
+			stableLen, len(vt.Scrollback))
+		dumpScrollback(t, vt)
+	}
+
+	// Verify content is correct: L01..L08, each once
+	for i, line := range vt.Scrollback {
+		expected := fmt.Sprintf("L%02d", i+1)
+		got := lineText(line)
+		if got != expected {
+			t.Errorf("scrollback[%d] = %q, want %q", i, got, expected)
+		}
+	}
+}

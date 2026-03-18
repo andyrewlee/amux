@@ -1,6 +1,8 @@
 package vterm
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestAltScreenEraseCapturesScrollback(t *testing.T) {
 	vt := New(10, 3)
@@ -183,6 +185,24 @@ func TestAltScreenEraseReplacementPreservesViewOffset(t *testing.T) {
 	}
 }
 
+func TestAltScreenEraseTrackedMatchDedupsViewOffset(t *testing.T) {
+	vt := New(10, 4)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	vt.Write([]byte("line01\r\nline02\r\nline03\r\nline04\r\nline05\r\nline06"))
+	vt.Write([]byte("\x1b[2J"))
+	vt.ViewOffset = 2
+
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("line01\r\nline02\r\nline03\r\nline04\r\nline05\r\nline06"))
+	vt.Write([]byte("\x1b[2J"))
+
+	if vt.ViewOffset != 2 {
+		t.Fatalf("expected ViewOffset to remain anchored at 2 after matched redraw dedup, got %d", vt.ViewOffset)
+	}
+}
+
 func TestAltScreenEraseTrimsLeadingBlankRows(t *testing.T) {
 	vt := New(10, 6)
 	vt.AllowAltScreenScrollback = true
@@ -308,5 +328,80 @@ func TestAltScreenErasePreservesStyledSpaceRows(t *testing.T) {
 	}
 	if got := vt.Scrollback[0][0].Style.Bg; got.Type != ColorIndexed || got.Value != 1 {
 		t.Fatalf("expected captured row to preserve styled background, got %+v", got)
+	}
+}
+
+// lineText extracts a string from a []Cell row, trimming trailing spaces.
+func lineText(line []Cell) string {
+	var s []rune
+	for _, c := range line {
+		if c.Rune == 0 {
+			s = append(s, ' ')
+		} else {
+			s = append(s, c.Rune)
+		}
+	}
+	for len(s) > 0 && s[len(s)-1] == ' ' {
+		s = s[:len(s)-1]
+	}
+	return string(s)
+}
+
+func dumpScrollback(t *testing.T, vt *VTerm) {
+	t.Helper()
+	for i, line := range vt.Scrollback {
+		t.Logf("  scrollback[%d] = %q", i, lineText(line))
+	}
+}
+
+func TestAltScreenEraseDedupsScrollUpOverlap(t *testing.T) {
+	// Simulate content that overflows a 4-row terminal:
+	// 6 lines of content → first 2 scroll off via scrollUp,
+	// last 4 remain on screen. After erase+redraw cycle(s),
+	// scrollback should not accumulate duplicates.
+	vt := New(10, 4)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	// First draw: 6 lines on a 4-row screen
+	vt.Write([]byte("line01\r\nline02\r\nline03\r\nline04\r\nline05\r\nline06"))
+	// scrollUp pushed line01, line02 into scrollback
+	vt.Write([]byte("\x1b[2J")) // erase captures line03-line06
+
+	sbAfterFirst := len(vt.Scrollback)
+
+	// Redraw from cursor home (simulating TUI repaint)
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("line01\r\nline02\r\nline03\r\nline04\r\nline05\r\nline06"))
+	vt.Write([]byte("\x1b[2J"))
+
+	sbAfterSecond := len(vt.Scrollback)
+
+	if sbAfterSecond != sbAfterFirst {
+		t.Errorf("scrollback should stay stable across redraws: first=%d, second=%d",
+			sbAfterFirst, sbAfterSecond)
+		dumpScrollback(t, vt)
+	}
+
+	// Third cycle
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("line01\r\nline02\r\nline03\r\nline04\r\nline05\r\nline06"))
+	vt.Write([]byte("\x1b[2J"))
+
+	if len(vt.Scrollback) != sbAfterFirst {
+		t.Errorf("scrollback should remain stable after 3rd redraw: expected=%d, got=%d",
+			sbAfterFirst, len(vt.Scrollback))
+		dumpScrollback(t, vt)
+	}
+
+	// Verify no adjacent duplicate lines
+	for i := 1; i < len(vt.Scrollback); i++ {
+		prev := lineText(vt.Scrollback[i-1])
+		cur := lineText(vt.Scrollback[i])
+		if prev == cur && prev != "" {
+			t.Errorf("duplicate adjacent scrollback at index %d: %q", i, cur)
+			dumpScrollback(t, vt)
+			break
+		}
 	}
 }

@@ -32,12 +32,13 @@ type VTerm struct {
 	AltScreen bool
 	// AllowAltScreenScrollback keeps scrollback active even in alt screen.
 	// Useful for tmux-backed sessions where scrollback should remain available.
-	AllowAltScreenScrollback bool
-	altScreenCaptureLen      int
-	altScreenCaptureTracked  bool
-	altScreenBuf             [][]Cell
-	altCursorX               int
-	altCursorY               int
+	AllowAltScreenScrollback  bool
+	altScreenCaptureLen       int
+	altScreenCaptureTracked   bool
+	altScreenCaptureEndOffset int
+	altScreenBuf              [][]Cell
+	altCursorX                int
+	altCursorY                int
 
 	// Scrolling region (for DECSTBM)
 	ScrollTop    int
@@ -173,11 +174,12 @@ func (v *VTerm) Resize(width, height int) {
 	if height > oldHeight && v.scrollbackEnabled() && v.ViewOffset == 0 {
 		added := height - oldHeight
 		restore := added
-		reserved := v.altScreenCaptureLen
+		reserved := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
 		if reserved > len(v.Scrollback) {
 			reserved = 0
 			v.altScreenCaptureLen = 0
 			v.altScreenCaptureTracked = false
+			v.altScreenCaptureEndOffset = 0
 		}
 		available := len(v.Scrollback) - reserved
 		if restore > available {
