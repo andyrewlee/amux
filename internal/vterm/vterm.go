@@ -32,8 +32,11 @@ type VTerm struct {
 	AltScreen bool
 	// AllowAltScreenScrollback keeps scrollback active even in alt screen.
 	// Useful for tmux-backed sessions where scrollback should remain available.
-	AllowAltScreenScrollback  bool
-	altScreenCaptureLen       int
+	AllowAltScreenScrollback bool
+	// altScreenCaptureLen tracks the full reserved frame length in scrollback.
+	altScreenCaptureLen int
+	// altScreenCaptureDropLen tracks the removable suffix for the reserved frame.
+	altScreenCaptureDropLen   int
 	altScreenCaptureTracked   bool
 	altScreenCaptureEndOffset int
 	altScreenBuf              [][]Cell

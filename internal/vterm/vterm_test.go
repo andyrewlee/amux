@@ -312,6 +312,47 @@ func TestResizeRestoresScrollbackOnGrow(t *testing.T) {
 	}
 }
 
+func TestTrimScrollbackPreservesTrackedAltScreenCapturePosition(t *testing.T) {
+	vt := New(5, 2)
+
+	makeLine := func(text string) []Cell {
+		line := MakeBlankLine(5)
+		for i, r := range text {
+			if i >= 5 {
+				break
+			}
+			line[i] = Cell{Rune: r, Width: 1}
+		}
+		return line
+	}
+
+	for i := 0; i < MaxScrollback-1; i++ {
+		vt.Scrollback = append(vt.Scrollback, makeLine("old"))
+	}
+	vt.Scrollback = append(vt.Scrollback,
+		makeLine("cap1"),
+		makeLine("cap2"),
+		makeLine("tail"),
+	)
+	vt.altScreenCaptureLen = 2
+	vt.altScreenCaptureDropLen = 2
+	vt.altScreenCaptureTracked = true
+	vt.altScreenCaptureEndOffset = 1
+
+	vt.trimScrollback()
+
+	matched, removed := vt.matchesTrackedAltScreenCapture([][]Cell{
+		makeLine("cap1"),
+		makeLine("cap2"),
+	})
+	if !matched {
+		t.Fatal("expected tracked capture to remain end-relative after trim")
+	}
+	if removed != 0 {
+		t.Fatalf("expected no trailing dedup removal after trim, got %d", removed)
+	}
+}
+
 func TestIncrementalCursorPositionedWrites(t *testing.T) {
 	// Test cursor positioning + partial writes (common in Ink/React TUIs, progress bars, etc.)
 	vt := New(20, 3)

@@ -244,6 +244,49 @@ func TestAltScreenEraseManyOverflowCyclesStable(t *testing.T) {
 	}
 }
 
+func TestAltScreenErasePartialOverlapReservesFullFrameOnResizeGrow(t *testing.T) {
+	vt := New(10, 3)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	makeLine := func(text string) []Cell {
+		line := MakeBlankLine(10)
+		for i, r := range text {
+			if i >= 10 {
+				break
+			}
+			line[i] = Cell{Rune: r, Width: 1}
+		}
+		return line
+	}
+
+	vt.Scrollback = append(vt.Scrollback, makeLine("alpha"))
+	vt.Scrollback = append(vt.Scrollback, makeLine("beta"))
+	vt.Screen[0] = makeLine("beta")
+	vt.Screen[1] = makeLine("gamma")
+
+	vt.Write([]byte("\x1b[2J"))
+
+	if vt.altScreenCaptureLen != 2 {
+		t.Fatalf("captureLen = %d, want 2", vt.altScreenCaptureLen)
+	}
+	if vt.altScreenCaptureDropLen != 1 {
+		t.Fatalf("dropLen = %d, want 1", vt.altScreenCaptureDropLen)
+	}
+	if !vt.altScreenCaptureTracked {
+		t.Fatal("expected partial-overlap capture to stay tracked")
+	}
+
+	vt.Resize(10, 4)
+
+	if got := lineText(vt.Screen[0]); got != "alpha" {
+		t.Fatalf("expected resize grow to restore only pre-frame history, got %q", got)
+	}
+	if got := lineText(vt.Screen[1]); got != "" {
+		t.Fatalf("expected overlapping frame rows to remain reserved, got %q", got)
+	}
+}
+
 func TestAltScreenEndOffsetPreservedOnPartialDedup(t *testing.T) {
 	// Regression: dedupScrollUpTrailing must not zero altScreenCaptureEndOffset
 	// when trailing lines don't overlap with pre-capture content.
@@ -276,6 +319,96 @@ func TestAltScreenEndOffsetPreservedOnPartialDedup(t *testing.T) {
 			t.Errorf("duplicate adjacent scrollback at index %d: %q", i, cur)
 			dumpScrollback(t, vt)
 			return
+		}
+	}
+}
+
+func TestResizeGrowReservesTrackedCaptureEndOffset(t *testing.T) {
+	vt := New(5, 3)
+	vt.AllowAltScreenScrollback = true
+	vt.AltScreen = true
+
+	makeLine := func(text string) []Cell {
+		line := MakeBlankLine(5)
+		for i, r := range text {
+			if i >= 5 {
+				break
+			}
+			line[i] = Cell{Rune: r, Width: 1}
+		}
+		return line
+	}
+
+	vt.Scrollback = append(vt.Scrollback,
+		makeLine("hist1"),
+		makeLine("hist2"),
+		makeLine("cap1"),
+		makeLine("cap2"),
+		makeLine("cap3"),
+		makeLine("tail"),
+	)
+	vt.altScreenCaptureLen = 3
+	vt.altScreenCaptureDropLen = 3
+	vt.altScreenCaptureTracked = true
+	vt.altScreenCaptureEndOffset = 1
+
+	vt.Resize(5, 5)
+
+	if got := lineText(vt.Screen[0]); got != "hist1" {
+		t.Fatalf("screen[0] = %q, want hist1", got)
+	}
+	if got := lineText(vt.Screen[1]); got != "hist2" {
+		t.Fatalf("screen[1] = %q, want hist2", got)
+	}
+	if got := lineText(vt.Screen[2]); got != "" {
+		t.Fatalf("expected reserved capture/tail rows to stay off-screen, got %q", got)
+	}
+}
+
+func TestScrollUpCustomScrollRegionPreservesTrackedAltScreenCaptureReplacement(t *testing.T) {
+	vt := New(10, 4)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	makeLine := func(text string) []Cell {
+		line := MakeBlankLine(10)
+		for i, r := range text {
+			if i >= 10 {
+				break
+			}
+			line[i] = Cell{Rune: r, Width: 1}
+		}
+		return line
+	}
+
+	vt.Screen[0] = makeLine("one")
+	vt.Screen[1] = makeLine("two")
+	vt.captureScreenToScrollback()
+
+	vt.Screen[0] = makeLine("status")
+	vt.Screen[1] = makeLine("one")
+	vt.Screen[2] = makeLine("two")
+	vt.Screen[3] = makeLine("three")
+	vt.ScrollTop = 1
+	vt.ScrollBottom = 4
+	vt.scrollUp(1)
+	vt.Screen[3] = makeLine("four")
+
+	if vt.altScreenCaptureEndOffset != 1 {
+		t.Fatalf("endOffset = %d, want 1 after region scroll", vt.altScreenCaptureEndOffset)
+	}
+
+	vt.captureScreenToScrollback()
+
+	want := []string{"one", "status", "two", "three", "four"}
+	if len(vt.Scrollback) != len(want) {
+		dumpScrollback(t, vt)
+		t.Fatalf("scrollback length = %d, want %d", len(vt.Scrollback), len(want))
+	}
+	for i, w := range want {
+		if got := lineText(vt.Scrollback[i]); got != w {
+			dumpScrollback(t, vt)
+			t.Fatalf("scrollback[%d] = %q, want %q", i, got, w)
 		}
 	}
 }
