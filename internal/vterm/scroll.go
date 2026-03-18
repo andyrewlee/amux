@@ -29,7 +29,12 @@ func (v *VTerm) scrollUp(n int) {
 			}
 		}
 		if added > 0 {
-			v.invalidateAltScreenCapture()
+			if v.altScreenCaptureTracked && v.altScreenCaptureLen > 0 &&
+				v.altScreenCaptureDropLen > 0 {
+				v.altScreenCaptureEndOffset += added
+			} else {
+				v.invalidateAltScreenCapture()
+			}
 		}
 		if added > 0 && v.ViewOffset > 0 {
 			v.ViewOffset += added

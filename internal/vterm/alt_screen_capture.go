@@ -13,7 +13,16 @@ func (v *VTerm) captureScreenToScrollback() {
 	}
 
 	oldViewOffset := v.ViewOffset
-	if v.matchesTrackedAltScreenCapture(lines) {
+	if matched, dedupRemoved := v.matchesTrackedAltScreenCapture(lines); matched {
+		if oldViewOffset > 0 {
+			v.ViewOffset = oldViewOffset - dedupRemoved
+			if v.ViewOffset < 0 {
+				v.ViewOffset = 0
+			}
+			if v.ViewOffset > len(v.Scrollback) {
+				v.ViewOffset = len(v.Scrollback)
+			}
+		}
 		return
 	}
 	removed, dropped := v.dropTrackedAltScreenCapture()
@@ -34,17 +43,25 @@ func (v *VTerm) captureScreenToScrollback() {
 	// Dedup: skip if these lines match the tail of scrollback
 	if matchesScrollbackTail(v.Scrollback, lines) {
 		v.altScreenCaptureLen = len(lines)
+		v.altScreenCaptureDropLen = 0
 		v.altScreenCaptureTracked = len(dropped) > 0 && captureRowsMatch(lines, dropped, v.Width)
+		if v.altScreenCaptureTracked {
+			v.altScreenCaptureDropLen = len(lines)
+		}
 		deductOffset()
 		return
 	}
 
+	// Partial overlap detection — skip lines already in scrollback from scrollUp
+	overlap := scrollbackTailOverlap(v.Scrollback, lines)
+
 	added := 0
-	for _, line := range lines {
+	for _, line := range lines[overlap:] {
 		v.Scrollback = append(v.Scrollback, CopyLine(line))
 		added++
 	}
-	v.altScreenCaptureLen = added
+	v.altScreenCaptureLen = len(lines)
+	v.altScreenCaptureDropLen = added
 	v.altScreenCaptureTracked = true
 	if oldViewOffset > 0 {
 		v.ViewOffset = oldViewOffset - removed + added
@@ -109,48 +126,150 @@ func isVisiblyBlankLine(line []Cell) bool {
 	return true
 }
 
-func (v *VTerm) matchesTrackedAltScreenCapture(lines [][]Cell) bool {
-	if v.altScreenCaptureLen <= 0 || !v.altScreenCaptureTracked || v.altScreenCaptureLen != len(lines) {
-		return false
+// matchesTrackedAltScreenCapture checks if lines match the reserved
+// alt-screen content. Tracked captures may no longer be at the scrollback tail
+// if scrollUp has appended lines after them (tracked by
+// altScreenCaptureEndOffset); untracked captures must still match the tail.
+func (v *VTerm) matchesTrackedAltScreenCapture(lines [][]Cell) (bool, int) {
+	if v.altScreenCaptureLen <= 0 || v.altScreenCaptureLen != len(lines) {
+		return false, 0
 	}
+	if !v.altScreenCaptureTracked {
+		if matchesScrollbackTail(v.Scrollback, lines) {
+			return true, 0
+		}
+		return false, 0
+	}
+	total := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
 	sb := len(v.Scrollback)
-	if sb < v.altScreenCaptureLen {
+	if sb < total {
 		v.altScreenCaptureLen = 0
+		v.altScreenCaptureDropLen = 0
 		v.altScreenCaptureTracked = false
-		return false
+		v.altScreenCaptureEndOffset = 0
+		return false, 0
 	}
-	return matchesScrollbackTail(v.Scrollback, lines)
+	captureStart := sb - total
+	for i := 0; i < v.altScreenCaptureLen; i++ {
+		if !linesEqual(v.Scrollback[captureStart+i], lines[i]) {
+			return false, 0
+		}
+	}
+
+	// Match confirmed — dedup scrollUp trailing lines that duplicate
+	// content already present in the pre-capture scrollback.
+	removed := v.dedupScrollUpTrailing(captureStart)
+	return true, removed
 }
 
+// dropTrackedAltScreenCapture removes the tracked suffix for the previously
+// reserved alt-screen frame from scrollback. With altScreenCaptureEndOffset,
+// the tracked suffix may be in the middle of scrollback (not at the tail), so
+// we remove from its tracked position and preserve any overlap prefix plus
+// trailing scrollUp lines.
 func (v *VTerm) dropTrackedAltScreenCapture() (int, [][]Cell) {
 	if v.altScreenCaptureLen <= 0 || !v.altScreenCaptureTracked {
 		if v.altScreenCaptureLen <= 0 {
+			v.altScreenCaptureDropLen = 0
+			v.altScreenCaptureEndOffset = 0
 			return 0, nil
 		}
 		v.altScreenCaptureLen = 0
+		v.altScreenCaptureDropLen = 0
+		v.altScreenCaptureEndOffset = 0
 		return 0, nil
 	}
-	if len(v.Scrollback) < v.altScreenCaptureLen {
+	if v.altScreenCaptureDropLen <= 0 || v.altScreenCaptureDropLen > v.altScreenCaptureLen {
 		v.altScreenCaptureLen = 0
+		v.altScreenCaptureDropLen = 0
 		v.altScreenCaptureTracked = false
+		v.altScreenCaptureEndOffset = 0
 		return 0, nil
 	}
-	start := len(v.Scrollback) - v.altScreenCaptureLen
+	total := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
+	if len(v.Scrollback) < total {
+		v.altScreenCaptureLen = 0
+		v.altScreenCaptureDropLen = 0
+		v.altScreenCaptureTracked = false
+		v.altScreenCaptureEndOffset = 0
+		return 0, nil
+	}
+	captureStart := len(v.Scrollback) - total
+	captureEnd := captureStart + v.altScreenCaptureLen
+	dropStart := captureEnd - v.altScreenCaptureDropLen
+
 	// Copy the removed rows so the returned slice doesn't alias the
 	// Scrollback backing array — a subsequent append could overwrite it.
-	src := v.Scrollback[start:]
+	src := v.Scrollback[dropStart:captureEnd]
 	removedRows := make([][]Cell, len(src))
 	copy(removedRows, src)
-	removed := v.altScreenCaptureLen
-	v.Scrollback = v.Scrollback[:len(v.Scrollback)-removed]
+	removed := v.altScreenCaptureDropLen
+
+	// Remove the tracked suffix from the frame while preserving any overlapping
+	// prefix that was already in scrollback and any trailing scrollUp lines.
+	v.Scrollback = append(v.Scrollback[:dropStart], v.Scrollback[captureEnd:]...)
 	v.altScreenCaptureLen = 0
+	v.altScreenCaptureDropLen = 0
 	v.altScreenCaptureTracked = false
+
+	// Dedup scrollUp trailing lines against pre-capture scrollback.
+	// After removal, trailing lines are at [dropStart, dropStart+endOffset).
+	dedupRemoved := v.dedupScrollUpTrailing(dropStart)
+	removed += dedupRemoved
+	v.altScreenCaptureEndOffset = 0
+
 	return removed, removedRows
+}
+
+// dedupScrollUpTrailing removes scrollUp lines from the scrollback that
+// duplicate content already present in the pre-capture scrollback region
+// (scrollback[:preCaptureLen]). This prevents duplication when TUI redraws
+// cause the same content to scroll off multiple times across erase cycles.
+//
+// Known limitation: only compares trailing lines against pre-capture content.
+// When above-fold content changes across cycles but below-fold stays the same,
+// trailing lines accumulate without dedup (e.g. [X,Y] -> [X,Y,X,Y] -> ...).
+// This is bounded by MaxScrollback and only affects edge cases where the top
+// portion of a TUI changes while the bottom stays identical. Fixing would
+// require tracking new-vs-old trailing lines to detect internal repetition.
+func (v *VTerm) dedupScrollUpTrailing(preCaptureLen int) int {
+	trailing := v.altScreenCaptureEndOffset
+	if trailing <= 0 {
+		v.altScreenCaptureEndOffset = 0
+		return 0
+	}
+
+	if preCaptureLen <= 0 || preCaptureLen > len(v.Scrollback) {
+		return 0
+	}
+
+	before := v.Scrollback[:preCaptureLen]
+	trailingStart := len(v.Scrollback) - trailing
+	if trailingStart < preCaptureLen {
+		trailingStart = preCaptureLen
+	}
+	if trailingStart >= len(v.Scrollback) {
+		return 0
+	}
+
+	trailingLines := v.Scrollback[trailingStart:]
+
+	overlap := scrollbackTailOverlap(before, trailingLines)
+	if overlap <= 0 {
+		return 0
+	}
+
+	// Remove the overlapping prefix from the trailing lines
+	v.Scrollback = append(v.Scrollback[:trailingStart], v.Scrollback[trailingStart+overlap:]...)
+	v.altScreenCaptureEndOffset = trailing - overlap
+	return overlap
 }
 
 func (v *VTerm) invalidateAltScreenCapture() {
 	v.altScreenCaptureLen = 0
+	v.altScreenCaptureDropLen = 0
 	v.altScreenCaptureTracked = false
+	v.altScreenCaptureEndOffset = 0
 }
 
 // captureRowsMatch compares lines with captured rows using the current terminal width.
@@ -180,6 +299,29 @@ func matchesScrollbackTail(scrollback, lines [][]Cell) bool {
 		}
 	}
 	return true
+}
+
+// scrollbackTailOverlap returns the length of the longest suffix of scrollback
+// that matches a prefix of lines. This detects lines already pushed into
+// scrollback by scrollUp so captureScreenToScrollback can skip them.
+func scrollbackTailOverlap(scrollback, lines [][]Cell) int {
+	maxK := len(lines)
+	if len(scrollback) < maxK {
+		maxK = len(scrollback)
+	}
+	for k := maxK; k > 0; k-- {
+		match := true
+		for i := 0; i < k; i++ {
+			if !linesEqual(scrollback[len(scrollback)-k+i], lines[i]) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return k
+		}
+	}
+	return 0
 }
 
 // linesEqual returns true if two cell slices have identical runes and styles.
