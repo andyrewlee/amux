@@ -313,8 +313,8 @@ func TestAltScreenDropRecaptureResetsEndOffset(t *testing.T) {
 
 	want := []string{"AAA", "BBB", "PPP", "QQQ", "RRR", "SSS", "TTT"}
 	if len(vt.Scrollback) != len(want) {
-		t.Fatalf("scrollback length = %d, want %d", len(vt.Scrollback), len(want))
 		dumpScrollback(t, vt)
+		t.Fatalf("scrollback length = %d, want %d", len(vt.Scrollback), len(want))
 	}
 	for i, w := range want {
 		got := lineText(vt.Scrollback[i])
