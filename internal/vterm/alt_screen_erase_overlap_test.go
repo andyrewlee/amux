@@ -243,3 +243,39 @@ func TestAltScreenEraseManyOverflowCyclesStable(t *testing.T) {
 		}
 	}
 }
+
+func TestAltScreenEndOffsetPreservedOnPartialDedup(t *testing.T) {
+	// Regression: dedupScrollUpTrailing must not zero altScreenCaptureEndOffset
+	// when trailing lines don't overlap with pre-capture content.
+	// Scenario: cycle 1 captures [C,D,E], cycle 2 adds scrollUp lines [X,Y]
+	// that don't match pre-capture [A,B]. endOffset must remain 2 so cycle 3
+	// computes the correct capture position.
+	vt := New(10, 3)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	// Cycle 1: draw A,B,C,D,E on 3-row screen → A,B scroll off, C/D/E on screen
+	vt.Write([]byte("AAA\r\nBBB\r\nCCC\r\nDDD\r\nEEE"))
+	vt.Write([]byte("\x1b[2J"))
+
+	// Cycle 2: different above-fold content, same below-fold
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("XXX\r\nYYY\r\nCCC\r\nDDD\r\nEEE"))
+	vt.Write([]byte("\x1b[2J"))
+
+	// Cycle 3: identical redraw — should dedup cleanly
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("XXX\r\nYYY\r\nCCC\r\nDDD\r\nEEE"))
+	vt.Write([]byte("\x1b[2J"))
+
+	// Verify no adjacent duplicates
+	for i := 1; i < len(vt.Scrollback); i++ {
+		prev := lineText(vt.Scrollback[i-1])
+		cur := lineText(vt.Scrollback[i])
+		if prev == cur && prev != "" {
+			t.Errorf("duplicate adjacent scrollback at index %d: %q", i, cur)
+			dumpScrollback(t, vt)
+			return
+		}
+	}
+}

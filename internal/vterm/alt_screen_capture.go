@@ -199,8 +199,8 @@ func (v *VTerm) dropTrackedAltScreenCapture() (int, [][]Cell) {
 // cause the same content to scroll off multiple times across erase cycles.
 func (v *VTerm) dedupScrollUpTrailing(preCaptureLen int) int {
 	trailing := v.altScreenCaptureEndOffset
-	v.altScreenCaptureEndOffset = 0
 	if trailing <= 0 {
+		v.altScreenCaptureEndOffset = 0
 		return 0
 	}
 
@@ -226,6 +226,7 @@ func (v *VTerm) dedupScrollUpTrailing(preCaptureLen int) int {
 
 	// Remove the overlapping prefix from the trailing lines
 	v.Scrollback = append(v.Scrollback[:trailingStart], v.Scrollback[trailingStart+overlap:]...)
+	v.altScreenCaptureEndOffset = trailing - overlap
 	return overlap
 }
 
