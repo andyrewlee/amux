@@ -189,6 +189,7 @@ func (v *VTerm) dropTrackedAltScreenCapture() (int, [][]Cell) {
 	// After removal, trailing lines are at [captureStart, captureStart+endOffset).
 	dedupRemoved := v.dedupScrollUpTrailing(captureStart)
 	removed += dedupRemoved
+	v.altScreenCaptureEndOffset = 0
 
 	return removed, removedRows
 }
@@ -197,6 +198,13 @@ func (v *VTerm) dropTrackedAltScreenCapture() (int, [][]Cell) {
 // duplicate content already present in the pre-capture scrollback region
 // (scrollback[:preCaptureLen]). This prevents duplication when TUI redraws
 // cause the same content to scroll off multiple times across erase cycles.
+//
+// Known limitation: only compares trailing lines against pre-capture content.
+// When above-fold content changes across cycles but below-fold stays the same,
+// trailing lines accumulate without dedup (e.g. [X,Y] -> [X,Y,X,Y] -> ...).
+// This is bounded by MaxScrollback and only affects edge cases where the top
+// portion of a TUI changes while the bottom stays identical. Fixing would
+// require tracking new-vs-old trailing lines to detect internal repetition.
 func (v *VTerm) dedupScrollUpTrailing(preCaptureLen int) int {
 	trailing := v.altScreenCaptureEndOffset
 	if trailing <= 0 {

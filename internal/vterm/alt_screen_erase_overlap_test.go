@@ -279,3 +279,47 @@ func TestAltScreenEndOffsetPreservedOnPartialDedup(t *testing.T) {
 		}
 	}
 }
+
+func TestAltScreenDropRecaptureResetsEndOffset(t *testing.T) {
+	// Regression: dropTrackedAltScreenCapture must zero altScreenCaptureEndOffset
+	// after dedup so the next capture starts with a clean offset. Without the fix,
+	// stale endOffset from cycle 1 causes captureStart miscalculation in cycle 3.
+	vt := New(10, 3)
+	vt.AllowAltScreenScrollback = true
+	vt.Write([]byte("\x1b[?1049h"))
+
+	// Cycle 1: AAA,BBB scroll off; CCC,DDD,EEE captured
+	vt.Write([]byte("AAA\r\nBBB\r\nCCC\r\nDDD\r\nEEE"))
+	vt.Write([]byte("\x1b[2J"))
+
+	if vt.altScreenCaptureLen != 3 {
+		t.Fatalf("cycle 1: captureLen = %d, want 3", vt.altScreenCaptureLen)
+	}
+
+	// Cycle 2: completely different content — forces drop+recapture
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("PPP\r\nQQQ\r\nRRR\r\nSSS\r\nTTT"))
+	vt.Write([]byte("\x1b[2J"))
+
+	if vt.altScreenCaptureEndOffset != 0 {
+		t.Fatalf("cycle 2: endOffset = %d after drop+recapture, want 0",
+			vt.altScreenCaptureEndOffset)
+	}
+
+	// Cycle 3: same as cycle 2 — should match cleanly
+	vt.Write([]byte("\x1b[H"))
+	vt.Write([]byte("PPP\r\nQQQ\r\nRRR\r\nSSS\r\nTTT"))
+	vt.Write([]byte("\x1b[2J"))
+
+	want := []string{"AAA", "BBB", "PPP", "QQQ", "RRR", "SSS", "TTT"}
+	if len(vt.Scrollback) != len(want) {
+		t.Fatalf("scrollback length = %d, want %d", len(vt.Scrollback), len(want))
+		dumpScrollback(t, vt)
+	}
+	for i, w := range want {
+		got := lineText(vt.Scrollback[i])
+		if got != w {
+			t.Errorf("scrollback[%d] = %q, want %q", i, got, w)
+		}
+	}
+}
