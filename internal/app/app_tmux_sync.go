@@ -1,8 +1,6 @@
 package app
 
 import (
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -32,12 +30,6 @@ func (a *App) handleTmuxSyncTick(msg messages.TmuxSyncTick) []tea.Cmd {
 		}
 		if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
 			cmds = append(cmds, gcCmd)
-		}
-		if a.lastTerminalGCRun.IsZero() || time.Since(a.lastTerminalGCRun) > time.Hour {
-			if gcCmd := a.gcStaleTerminalSessions(); gcCmd != nil {
-				cmds = append(cmds, gcCmd)
-				a.lastTerminalGCRun = time.Now()
-			}
 		}
 	}
 	cmds = append(cmds, a.startTmuxSyncTicker())

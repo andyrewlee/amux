@@ -31,13 +31,6 @@ type staleDetachedAgentGCResult struct {
 	Err             error
 }
 
-// terminalGCResult is returned after attempting to clean up stale terminal sessions.
-// This is now a no-op since sessions are always persisted.
-type terminalGCResult struct {
-	Killed int
-	Err    error
-}
-
 // collectKnownWorkspaceIDs returns the set of workspace IDs currently tracked
 // by the app. Must be called on the Update goroutine.
 func (a *App) collectKnownWorkspaceIDs() map[string]bool {
@@ -74,11 +67,6 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 		killed := a.killOrphanedSessions(byWorkspace, knownIDs, now, opts)
 		return orphanGCResult{Killed: killed}
 	}
-}
-
-// gcStaleTerminalSessions is a no-op since sessions are always persisted.
-func (a *App) gcStaleTerminalSessions() tea.Cmd {
-	return nil
 }
 
 func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
@@ -340,16 +328,6 @@ func (a *App) logSessionCount() tea.Cmd {
 			return sessionCountResult{Err: err}
 		}
 		return sessionCountResult{Count: len(rows)}
-	}
-}
-
-func (a *App) handleTerminalGCResult(msg terminalGCResult) {
-	if msg.Err != nil {
-		logging.Warn("terminal GC: %v", msg.Err)
-		return
-	}
-	if msg.Killed > 0 {
-		logging.Info("terminal GC: killed %d stale terminal session(s)", msg.Killed)
 	}
 }
 

@@ -302,8 +302,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleOrphanGCResult(msg)
 	case staleDetachedAgentGCResult:
 		a.handleStaleDetachedAgentGCResult(msg)
-	case terminalGCResult:
-		a.handleTerminalGCResult(msg)
 	case sessionCountResult:
 		a.handleSessionCountResult(msg)
 

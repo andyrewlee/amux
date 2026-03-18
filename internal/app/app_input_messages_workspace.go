@@ -29,9 +29,6 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
 		cmds = append(cmds, gcCmd)
 	}
-	if gcCmd := a.gcStaleTerminalSessions(); gcCmd != nil {
-		cmds = append(cmds, gcCmd)
-	}
 	if countCmd := a.logSessionCount(); countCmd != nil {
 		cmds = append(cmds, countCmd)
 	}
