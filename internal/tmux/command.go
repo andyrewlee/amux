@@ -75,28 +75,33 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 		return
 	}
 	settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux 1 2>/dev/null; ", base, session))
-	if tags.WorkspaceID != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_workspace %s 2>/dev/null; ", base, session, shellQuote(tags.WorkspaceID)))
+	entries := []struct{ key, value string }{
+		{"@amux_workspace", tags.WorkspaceID},
+		{"@amux_tab", tags.TabID},
+		{"@amux_type", tags.Type},
+		{"@amux_assistant", tags.Assistant},
+		{"@amux_created_at", formatInt64NonZero(tags.CreatedAt)},
+		{"@amux_instance", tags.InstanceID},
+		{TagSessionOwner, tags.SessionOwner},
+		{TagSessionLeaseAt, formatInt64Positive(tags.LeaseAtMS)},
 	}
-	if tags.TabID != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_tab %s 2>/dev/null; ", base, session, shellQuote(tags.TabID)))
+	for _, e := range entries {
+		if e.value != "" {
+			settings.WriteString(fmt.Sprintf("%s set-option -t %s %s %s 2>/dev/null; ", base, session, e.key, shellQuote(e.value)))
+		}
 	}
-	if tags.Type != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_type %s 2>/dev/null; ", base, session, shellQuote(tags.Type)))
+}
+
+func formatInt64NonZero(v int64) string {
+	if v == 0 {
+		return ""
 	}
-	if tags.Assistant != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_assistant %s 2>/dev/null; ", base, session, shellQuote(tags.Assistant)))
+	return strconv.FormatInt(v, 10)
+}
+
+func formatInt64Positive(v int64) string {
+	if v <= 0 {
+		return ""
 	}
-	if tags.CreatedAt != 0 {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_created_at %s 2>/dev/null; ", base, session, shellQuote(strconv.FormatInt(tags.CreatedAt, 10))))
-	}
-	if tags.InstanceID != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_instance %s 2>/dev/null; ", base, session, shellQuote(tags.InstanceID)))
-	}
-	if tags.SessionOwner != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s %s %s 2>/dev/null; ", base, session, TagSessionOwner, shellQuote(tags.SessionOwner)))
-	}
-	if tags.LeaseAtMS > 0 {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s %s %s 2>/dev/null; ", base, session, TagSessionLeaseAt, shellQuote(strconv.FormatInt(tags.LeaseAtMS, 10))))
-	}
+	return strconv.FormatInt(v, 10)
 }

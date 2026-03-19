@@ -46,7 +46,7 @@ type App struct {
 	config           *config.Config
 	workspaceService *workspaceService
 	gitStatus        GitStatusService
-	tmuxService      *tmuxService
+	tmuxService      TmuxOps
 	updateService    UpdateService
 
 	// Limits

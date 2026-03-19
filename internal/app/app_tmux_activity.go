@@ -117,7 +117,7 @@ func (a *App) runTmuxActivityScan(
 	infoBySession map[string]activity.SessionInfo,
 	statesSnapshot map[string]*activity.SessionState,
 	opts tmux.Options,
-	svc *tmuxService,
+	svc TmuxOps,
 ) tmuxActivityResult {
 	if svc == nil {
 		return tmuxActivityResult{Token: scanToken, Err: activity.ErrTmuxUnavailable}
@@ -232,7 +232,7 @@ func (a *App) runTmuxActivityScan(
 func (a *App) fetchAndSyncActivitySessionStates(
 	infoBySession map[string]activity.SessionInfo,
 	opts tmux.Options,
-	svc *tmuxService,
+	svc TmuxOps,
 ) ([]activity.TaggedSession, []messages.TabSessionStatus, error) {
 	sessions, err := activity.FetchTaggedSessions(svc, infoBySession, opts)
 	if err != nil {
@@ -321,7 +321,7 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 func syncActivitySessionStates(
 	infoBySession map[string]activity.SessionInfo,
 	sessions []activity.TaggedSession,
-	svc *tmuxService,
+	svc TmuxOps,
 	opts tmux.Options,
 ) []messages.TabSessionStatus {
 	stoppedTabs := make([]messages.TabSessionStatus, 0)

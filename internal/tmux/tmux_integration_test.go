@@ -194,14 +194,14 @@ func TestGlobalOptionValue_NoServerReturnsError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// PanePIDs tests
+// panePIDs tests
 // ---------------------------------------------------------------------------
 
-func TestPanePIDs_NonexistentSession(t *testing.T) {
+func TestPanePids_NonexistentSession(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)
 
-	pids, err := PanePIDs("no-such-session", opts)
+	pids, err := panePIDs("no-such-session", opts)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -210,16 +210,16 @@ func TestPanePIDs_NonexistentSession(t *testing.T) {
 	}
 }
 
-func TestPanePIDs_SingleWindow(t *testing.T) {
+func TestPanePids_SingleWindow(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)
 
 	createSession(t, opts, "single", "sleep 300")
 	time.Sleep(50 * time.Millisecond)
 
-	pids, err := PanePIDs("single", opts)
+	pids, err := panePIDs("single", opts)
 	if err != nil {
-		t.Fatalf("PanePIDs: %v", err)
+		t.Fatalf("panePIDs: %v", err)
 	}
 	if len(pids) != 1 {
 		t.Fatalf("expected 1 PID, got %d: %v", len(pids), pids)
@@ -229,7 +229,7 @@ func TestPanePIDs_SingleWindow(t *testing.T) {
 	}
 }
 
-func TestPanePIDs_MultipleWindows(t *testing.T) {
+func TestPanePids_MultipleWindows(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)
 
@@ -238,9 +238,9 @@ func TestPanePIDs_MultipleWindows(t *testing.T) {
 	addWindow(t, opts, "multi", "sleep 300")
 	time.Sleep(50 * time.Millisecond)
 
-	pids, err := PanePIDs("multi", opts)
+	pids, err := panePIDs("multi", opts)
 	if err != nil {
-		t.Fatalf("PanePIDs: %v", err)
+		t.Fatalf("panePIDs: %v", err)
 	}
 	if len(pids) != 3 {
 		t.Fatalf("expected 3 PIDs (regression: -s flag), got %d: %v", len(pids), pids)
@@ -454,7 +454,7 @@ func TestSessionHasClients_NoClients(t *testing.T) {
 	}
 }
 
-func TestPanePIDs_PrefixCollisionSafety(t *testing.T) {
+func TestPanePids_PrefixCollisionSafety(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)
 
@@ -462,9 +462,9 @@ func TestPanePIDs_PrefixCollisionSafety(t *testing.T) {
 	createSession(t, opts, "sess-10", "sleep 300")
 	time.Sleep(50 * time.Millisecond)
 
-	pids, err := PanePIDs("sess-1", opts)
+	pids, err := panePIDs("sess-1", opts)
 	if err != nil {
-		t.Fatalf("PanePIDs: %v", err)
+		t.Fatalf("panePIDs: %v", err)
 	}
 	if len(pids) != 1 {
 		t.Fatalf("expected exactly 1 PID for sess-1 (not sess-10), got %d: %v", len(pids), pids)

@@ -236,7 +236,7 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 		tmuxAvailable:  true,
 		projectsLoaded: true,
 		tmuxOptions:    opts,
-		tmuxService:    newTmuxService(nil),
+		tmuxService:    tmuxOps{},
 		projects: []data.Project{
 			{
 				Path:       "/test/repo",
@@ -294,7 +294,7 @@ func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.
 		tmuxAvailable:  true,
 		projectsLoaded: true,
 		tmuxOptions:    opts,
-		tmuxService:    newTmuxService(nil),
+		tmuxService:    tmuxOps{},
 		instanceID:     "my-instance",
 	}
 
@@ -329,7 +329,7 @@ func TestGcOrphanedTmuxSessions_NoSessions(t *testing.T) {
 		tmuxAvailable:  true,
 		projectsLoaded: true,
 		tmuxOptions:    opts,
-		tmuxService:    newTmuxService(nil),
+		tmuxService:    tmuxOps{},
 	}
 
 	cmd := app.gcOrphanedTmuxSessions()

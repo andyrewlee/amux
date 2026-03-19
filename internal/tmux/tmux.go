@@ -229,7 +229,7 @@ func KillSession(sessionName string, opts Options) error {
 	// Kill process trees in each pane before killing the session.
 	// This prevents orphaned processes (e.g. node/turbo/pnpm trees)
 	// that survive SIGHUP from tmux kill-session.
-	if pids, err := PanePIDs(sessionName, opts); err == nil {
+	if pids, err := panePIDs(sessionName, opts); err == nil {
 		for _, pid := range pids {
 			_ = process.KillProcessGroup(pid, process.KillOptions{})
 		}
@@ -245,9 +245,9 @@ func KillSession(sessionName string, opts Options) error {
 	return nil
 }
 
-// PanePIDs returns the PID of each pane's initial process in the given session.
+// panePIDs returns the PID of each pane's initial process in the given session.
 // The -s flag lists panes across all windows in the session, not just the active one.
-func PanePIDs(sessionName string, opts Options) ([]int, error) {
+func panePIDs(sessionName string, opts Options) ([]int, error) {
 	exists, err := hasSession(sessionName, opts)
 	if err != nil {
 		return nil, err

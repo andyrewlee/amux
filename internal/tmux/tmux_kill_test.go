@@ -16,9 +16,9 @@ func TestKillSession_KillsProcessTree(t *testing.T) {
 	createSession(t, opts, "tree", "sleep 300 & sleep 300 & wait")
 	time.Sleep(100 * time.Millisecond)
 
-	pids, err := PanePIDs("tree", opts)
+	pids, err := panePIDs("tree", opts)
 	if err != nil {
-		t.Fatalf("PanePIDs: %v", err)
+		t.Fatalf("panePIDs: %v", err)
 	}
 	if len(pids) != 1 {
 		t.Fatalf("expected 1 pane PID, got %v", pids)
@@ -63,9 +63,9 @@ func TestKillSession_ProcessTreeAcrossWindows(t *testing.T) {
 	addWindow(t, opts, "multi-tree", "sleep 300 & sleep 300 & wait")
 	time.Sleep(100 * time.Millisecond)
 
-	pids, err := PanePIDs("multi-tree", opts)
+	pids, err := panePIDs("multi-tree", opts)
 	if err != nil {
-		t.Fatalf("PanePIDs: %v", err)
+		t.Fatalf("panePIDs: %v", err)
 	}
 	if len(pids) != 2 {
 		t.Fatalf("expected 2 pane PIDs (-s flag regression), got %v", pids)

@@ -107,7 +107,7 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 		// Bulk client listing is an optional fast path on the default tmux ops.
 		// Keep a per-session fallback for stubs/custom ops that only expose
 		// SessionHasClients so detached-session GC remains correct everywhere.
-		if lister, ok := svc.ops.(sessionClientsLister); ok {
+		if lister, ok := svc.(sessionClientsLister); ok {
 			clientNames, clientsErr := lister.SessionNamesWithClients(opts)
 			if clientsErr != nil {
 				logging.Warn("detached agent GC: failed to list attached clients in bulk: %v", clientsErr)

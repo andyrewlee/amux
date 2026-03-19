@@ -10,9 +10,9 @@ import (
 
 func TestTmuxActivityScan_PrefilterErrorStillAllowsStaleFallback(t *testing.T) {
 	app, wsID := newActivityTestAppWithScriptedTmux([]string{"new pane content"})
-	ops, ok := app.tmuxService.ops.(*scriptedActivityTmuxOps)
+	ops, ok := app.tmuxService.(*scriptedActivityTmuxOps)
 	if !ok {
-		t.Fatalf("expected scripted tmux ops, got %T", app.tmuxService.ops)
+		t.Fatalf("expected scripted tmux ops, got %T", app.tmuxService)
 	}
 	ops.prefilterErr = errors.New("prefilter unavailable")
 	ops.lastOutputAge = activity.OutputWindow + time.Second

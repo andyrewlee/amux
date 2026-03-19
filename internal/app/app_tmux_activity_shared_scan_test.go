@@ -43,7 +43,7 @@ func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *
 
 	app := &App{
 		instanceID: "shared-follower",
-		tmuxService: newTmuxService(sessionsWithTagsStubTmuxOps{
+		tmuxService: sessionsWithTagsStubTmuxOps{
 			stubTmuxOps: stubTmuxOps{
 				allStates: map[string]tmux.SessionState{},
 			},
@@ -51,7 +51,7 @@ func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *
 				Name: "session-a",
 				Tags: map[string]string{},
 			}},
-		}),
+		},
 	}
 
 	infoBySession := map[string]activity.SessionInfo{
@@ -92,9 +92,9 @@ func TestRunTmuxActivityScan_ScanErrorIncludesResolvedOwnerMetadata(t *testing.T
 	scanErr := errors.New("fetch tagged sessions failed")
 	app := &App{
 		instanceID: "shared-owner",
-		tmuxService: newTmuxService(sessionsWithTagsStubTmuxOps{
+		tmuxService: sessionsWithTagsStubTmuxOps{
 			err: scanErr,
-		}),
+		},
 	}
 
 	result := app.runTmuxActivityScan(1, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
@@ -126,7 +126,7 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 
 	app := &App{
 		instanceID: "owner-a",
-		tmuxService: newTmuxService(sessionsWithTagsStubTmuxOps{
+		tmuxService: sessionsWithTagsStubTmuxOps{
 			stubTmuxOps: stubTmuxOps{
 				allStates: map[string]tmux.SessionState{},
 			},
@@ -138,7 +138,7 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 					t.Fatalf("write takeover snapshot: %v", err)
 				}
 			},
-		}),
+		},
 	}
 
 	result := app.runTmuxActivityScan(42, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
@@ -187,7 +187,7 @@ func TestRunTmuxActivityScan_LeaseRevalidationErrorBeforePublishSkipsApply(t *te
 
 	app := &App{
 		instanceID: "owner-a",
-		tmuxService: newTmuxService(sessionsWithTagsStubTmuxOps{
+		tmuxService: sessionsWithTagsStubTmuxOps{
 			stubTmuxOps: stubTmuxOps{
 				allStates: map[string]tmux.SessionState{},
 			},
@@ -196,7 +196,7 @@ func TestRunTmuxActivityScan_LeaseRevalidationErrorBeforePublishSkipsApply(t *te
 				cmd := exec.Command("tmux", gcTmuxArgs(opts, "kill-server")...)
 				_ = cmd.Run()
 			},
-		}),
+		},
 	}
 
 	result := app.runTmuxActivityScan(99, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
@@ -221,12 +221,12 @@ func TestRunTmuxActivityScan_OwnerResolutionErrorLeavesRoleUnknown(t *testing.T)
 
 	app := &App{
 		instanceID: "owner-a",
-		tmuxService: newTmuxService(sessionsWithTagsStubTmuxOps{
+		tmuxService: sessionsWithTagsStubTmuxOps{
 			stubTmuxOps: stubTmuxOps{
 				allStates: map[string]tmux.SessionState{},
 			},
 			rows: []tmux.SessionTagValues{},
-		}),
+		},
 	}
 
 	result := app.runTmuxActivityScan(11, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)

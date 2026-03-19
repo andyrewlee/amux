@@ -296,18 +296,24 @@ func executeAgentSendJob(
 }
 
 func runSendWait(tmuxOpts tmux.Options, sessionName string, waitCfg sendWaitConfig, preContent string) waitResponseResult {
+	return runAgentWait(tmuxOpts, sessionName, waitCfg.WaitTimeout, waitCfg.IdleThreshold, preContent)
+}
+
+// runAgentWait waits for an agent to finish responding after input. Shared by
+// both the "agent send --wait" and "agent run --wait" code paths.
+func runAgentWait(tmuxOpts tmux.Options, sessionName string, waitTimeout, idleThreshold time.Duration, preContent string) waitResponseResult {
 	preHash := tmux.ContentHash(preContent)
 
 	ctx, cancel := contextWithSignal()
 	defer cancel()
-	ctx, timeoutCancel := context.WithTimeout(ctx, waitCfg.WaitTimeout)
+	ctx, timeoutCancel := context.WithTimeout(ctx, waitTimeout)
 	defer timeoutCancel()
 
 	return waitForAgentResponse(ctx, waitResponseConfig{
 		SessionName:   sessionName,
 		CaptureLines:  100,
 		PollInterval:  500 * time.Millisecond,
-		IdleThreshold: waitCfg.IdleThreshold,
+		IdleThreshold: idleThreshold,
 	}, tmuxOpts, tmuxCapturePaneTail, preHash, preContent)
 }
 

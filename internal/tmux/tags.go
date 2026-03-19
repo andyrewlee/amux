@@ -121,37 +121,10 @@ func matchesTags(row sessionTagRow, tags map[string]string, orderedKeys []string
 // SetSessionTagValue sets a tmux session option for the given session.
 // Returns nil if the session no longer exists (killed between create and tag).
 func SetSessionTagValue(sessionName, key, value string, opts Options) error {
-	if sessionName == "" || key == "" {
+	if key == "" {
 		return nil
 	}
-	if err := EnsureAvailable(); err != nil {
-		return err
-	}
-	// Pre-check with has-session (which supports "=" exact matching) to avoid
-	// set-option prefix-matching a different session if this one was killed.
-	exists, err := hasSession(sessionName, opts)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return nil
-	}
-	cmd, cancel := tmuxCommand(opts, "set-option", "-t", exactSessionOptionTarget(sessionName), key, value)
-	defer cancel()
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if isExitCode1(err) {
-			stderr := strings.TrimSpace(string(output))
-			if strings.Contains(stderr, "session not found") ||
-				strings.Contains(stderr, "no such session") ||
-				strings.Contains(stderr, "can't find session") {
-				return nil
-			}
-			return fmt.Errorf("set-option -t %s %s: %s", sessionName, key, stderr)
-		}
-		return err
-	}
-	return nil
+	return SetSessionTagValues(sessionName, []OptionValue{{Key: key, Value: value}}, opts)
 }
 
 // SetSessionTagValues sets multiple tmux session options for the given session

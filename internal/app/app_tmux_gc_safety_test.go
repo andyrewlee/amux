@@ -48,7 +48,7 @@ func newGCTestApp(ops *gcOrphanOps) *App {
 	return &App{
 		tmuxAvailable:  true,
 		projectsLoaded: true,
-		tmuxService:    newTmuxService(ops),
+		tmuxService:    ops,
 	}
 }
 

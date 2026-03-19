@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -246,17 +245,5 @@ func runRunWait(
 	idleThreshold time.Duration,
 	preContent string,
 ) waitResponseResult {
-	preHash := tmux.ContentHash(preContent)
-
-	ctx, cancel := contextWithSignal()
-	defer cancel()
-	ctx, timeoutCancel := context.WithTimeout(ctx, waitTimeout)
-	defer timeoutCancel()
-
-	return waitForAgentResponse(ctx, waitResponseConfig{
-		SessionName:   sessionName,
-		CaptureLines:  100,
-		PollInterval:  500 * time.Millisecond,
-		IdleThreshold: idleThreshold,
-	}, tmuxOpts, tmuxCapturePaneTail, preHash, preContent)
+	return runAgentWait(tmuxOpts, sessionName, waitTimeout, idleThreshold, preContent)
 }

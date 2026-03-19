@@ -48,7 +48,7 @@ func New(version, commit, date string) (*App, error) {
 	statusManager := git.NewStatusManager(nil)
 	gitStatus := newGitStatusService(statusManager)
 
-	tmuxSvc := newTmuxService(nil)
+	var tmuxSvc TmuxOps = tmuxOps{}
 	updateSvc := newUpdateService(version, commit, date)
 
 	// Create file watcher event channel

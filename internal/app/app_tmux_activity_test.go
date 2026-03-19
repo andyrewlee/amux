@@ -125,11 +125,11 @@ func TestSyncActivitySessionStates_NilSvc(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_EmptyInfoBySession(t *testing.T) {
-	svc := newTmuxService(stubTmuxOps{
+	var svc TmuxOps = stubTmuxOps{
 		allStates: map[string]tmux.SessionState{
 			"s": {Exists: true, HasLivePane: true},
 		},
-	})
+	}
 	result := syncActivitySessionStates(
 		map[string]activity.SessionInfo{},
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
@@ -142,9 +142,9 @@ func TestSyncActivitySessionStates_EmptyInfoBySession(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_AllSessionStatesError(t *testing.T) {
-	svc := newTmuxService(stubTmuxOps{
+	var svc TmuxOps = stubTmuxOps{
 		allStatesErr: errors.New("tmux failed"),
-	})
+	}
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "running", WorkspaceID: "ws1"},
 	}
@@ -164,11 +164,11 @@ func TestSyncActivitySessionStates_AllSessionStatesError(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_RunningSessionDeadPane(t *testing.T) {
-	svc := newTmuxService(stubTmuxOps{
+	var svc TmuxOps = stubTmuxOps{
 		allStates: map[string]tmux.SessionState{
 			"s": {Exists: true, HasLivePane: false},
 		},
-	})
+	}
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "running", WorkspaceID: "ws1"},
 	}
@@ -191,9 +191,9 @@ func TestSyncActivitySessionStates_RunningSessionDeadPane(t *testing.T) {
 
 func TestSyncActivitySessionStates_RunningSessionDisappeared(t *testing.T) {
 	// Session appears in tagged list but not in AllSessionStates (disappeared).
-	svc := newTmuxService(stubTmuxOps{
+	var svc TmuxOps = stubTmuxOps{
 		allStates: map[string]tmux.SessionState{}, // empty: session gone
-	})
+	}
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "running", WorkspaceID: "ws1"},
 	}
@@ -215,11 +215,11 @@ func TestSyncActivitySessionStates_RunningSessionDisappeared(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_StoppedSessionRevived(t *testing.T) {
-	svc := newTmuxService(stubTmuxOps{
+	var svc TmuxOps = stubTmuxOps{
 		allStates: map[string]tmux.SessionState{
 			"s": {Exists: true, HasLivePane: true},
 		},
-	})
+	}
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "stopped", WorkspaceID: "ws1"},
 	}
@@ -239,9 +239,9 @@ func TestSyncActivitySessionStates_StoppedSessionRevived(t *testing.T) {
 
 func TestSyncActivitySessionStates_AlreadyStoppedDisappeared(t *testing.T) {
 	// A session already marked stopped that also disappeared should not emit a duplicate.
-	svc := newTmuxService(stubTmuxOps{
+	var svc TmuxOps = stubTmuxOps{
 		allStates: map[string]tmux.SessionState{},
-	})
+	}
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "stopped", WorkspaceID: "ws1"},
 	}
@@ -258,11 +258,11 @@ func TestSyncActivitySessionStates_AlreadyStoppedDisappeared(t *testing.T) {
 
 func TestSyncActivitySessionStates_TaggedNotInInfo(t *testing.T) {
 	// Session in tagged list but not in infoBySession should be skipped.
-	svc := newTmuxService(stubTmuxOps{
+	var svc TmuxOps = stubTmuxOps{
 		allStates: map[string]tmux.SessionState{
 			"unknown": {Exists: true, HasLivePane: false},
 		},
-	})
+	}
 	info := map[string]activity.SessionInfo{}
 	result := syncActivitySessionStates(
 		info,
@@ -277,9 +277,9 @@ func TestSyncActivitySessionStates_TaggedNotInInfo(t *testing.T) {
 
 func TestSyncActivitySessionStates_InfoNotInTaggedRunning(t *testing.T) {
 	// Session in infoBySession but not in tagged list, with running status → emits stopped (second loop).
-	svc := newTmuxService(stubTmuxOps{
+	var svc TmuxOps = stubTmuxOps{
 		allStates: map[string]tmux.SessionState{},
-	})
+	}
 	info := map[string]activity.SessionInfo{
 		"orphan": {Status: "running", WorkspaceID: "ws1"},
 	}
@@ -423,7 +423,7 @@ func newActivityTestAppWithScriptedTmux(contentByScan []string) (*App, string) {
 			},
 		},
 		projects:               []data.Project{project},
-		tmuxService:            newTmuxService(tmuxOps),
+		tmuxService:            tmuxOps,
 		tmuxOptions:            tmux.Options{},
 		tmuxAvailable:          true,
 		dashboard:              dashboard.New(),

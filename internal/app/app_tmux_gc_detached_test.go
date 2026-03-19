@@ -78,7 +78,7 @@ func TestGcStaleDetachedAgentSessions_RunsWhenFollower(t *testing.T) {
 		instanceID:               "instance-a",
 		tmuxActivityOwnershipSet: true,
 		tmuxActivityScannerOwner: false,
-		tmuxService:              newTmuxService(ops),
+		tmuxService:              ops,
 	}
 	cmd := app.gcStaleDetachedAgentSessions()
 	if cmd == nil {
@@ -111,7 +111,7 @@ func TestGcStaleDetachedAgentSessions_FiltersByInstanceID(t *testing.T) {
 	app := &App{
 		tmuxAvailable: true,
 		instanceID:    "instance-a",
-		tmuxService:   newTmuxService(ops),
+		tmuxService:   ops,
 	}
 	msg := app.gcStaleDetachedAgentSessions()()
 	result, ok := msg.(staleDetachedAgentGCResult)
@@ -165,7 +165,7 @@ func TestGcStaleDetachedAgentSessions_KillsStaleDetachedNoLivePane(t *testing.T)
 
 	app := &App{
 		tmuxAvailable: true,
-		tmuxService:   newTmuxService(ops),
+		tmuxService:   ops,
 	}
 	cmd := app.gcStaleDetachedAgentSessions()
 	if cmd == nil {
@@ -210,7 +210,7 @@ func TestGcStaleDetachedAgentSessions_RespectsLivePaneThreshold(t *testing.T) {
 
 	app := &App{
 		tmuxAvailable: true,
-		tmuxService:   newTmuxService(ops),
+		tmuxService:   ops,
 	}
 	msg := app.gcStaleDetachedAgentSessions()()
 	result, ok := msg.(staleDetachedAgentGCResult)
@@ -257,7 +257,7 @@ func TestGcStaleDetachedAgentSessions_SkipsFreshAndAttached(t *testing.T) {
 
 	app := &App{
 		tmuxAvailable: true,
-		tmuxService:   newTmuxService(ops),
+		tmuxService:   ops,
 	}
 	msg := app.gcStaleDetachedAgentSessions()()
 	result, ok := msg.(staleDetachedAgentGCResult)
@@ -309,7 +309,7 @@ func TestGcStaleDetachedAgentSessions_UsesBulkClientListWhenAvailable(t *testing
 
 	app := &App{
 		tmuxAvailable: true,
-		tmuxService:   newTmuxService(ops),
+		tmuxService:   ops,
 	}
 	msg := app.gcStaleDetachedAgentSessions()()
 	result, ok := msg.(staleDetachedAgentGCResult)
@@ -361,7 +361,7 @@ func TestGcStaleDetachedAgentSessions_UsesSessionActivityFallback(t *testing.T) 
 
 	app := &App{
 		tmuxAvailable: true,
-		tmuxService:   newTmuxService(ops),
+		tmuxService:   ops,
 	}
 	msg := app.gcStaleDetachedAgentSessions()()
 	result, ok := msg.(staleDetachedAgentGCResult)
