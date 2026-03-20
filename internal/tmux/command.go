@@ -71,7 +71,7 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 }
 
 func appendSessionTags(settings *strings.Builder, base, session string, tags SessionTags) {
-	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Assistant == "" && tags.CreatedAt == 0 && tags.InstanceID == "" && tags.SessionOwner == "" && tags.LeaseAtMS == 0 {
+	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Runtime == "" && tags.Assistant == "" && tags.CreatedAt == 0 && tags.InstanceID == "" && tags.SessionOwner == "" && tags.LeaseAtMS == 0 {
 		return
 	}
 	settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux 1 2>/dev/null; ", base, session))
@@ -83,6 +83,9 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 	}
 	if tags.Type != "" {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_type %s 2>/dev/null; ", base, session, shellQuote(tags.Type)))
+	}
+	if tags.Runtime != "" {
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_runtime %s 2>/dev/null; ", base, session, shellQuote(tags.Runtime)))
 	}
 	if tags.Assistant != "" {
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux_assistant %s 2>/dev/null; ", base, session, shellQuote(tags.Assistant)))

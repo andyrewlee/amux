@@ -145,6 +145,9 @@ type App struct {
 
 	// Workspace persistence debounce
 	dirtyWorkspaces       map[string]bool
+	pendingSandboxSyncs   map[string]pendingSandboxSync
+	pendingTmuxRebinds    map[string]string
+	reboundWorkspaceIDs   map[string]string
 	deletingWorkspaceMu   sync.RWMutex
 	deletingWorkspaceIDs  map[string]bool
 	persistToken          int

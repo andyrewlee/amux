@@ -46,6 +46,11 @@ func TestMouseWheelThrottleIndependent(t *testing.T) {
 	}
 }
 
+func firstCLIArg(args []string) string {
+	sub, _ := classifyInvocation(args)
+	return sub
+}
+
 func TestFirstCLIArgSkipsLeadingGlobalFlags(t *testing.T) {
 	tests := []struct {
 		name string
@@ -225,10 +230,60 @@ func TestPrepareCobraDispatchArgs(t *testing.T) {
 			wantCobraArg: []string{"doctor"},
 		},
 		{
+			name:         "non-compat cobra strips leading cwd global",
+			args:         []string{"--cwd", tmp, "sandbox", "ls"},
+			sub:          "sandbox",
+			wantCwd:      tmp,
+			wantCobraArg: []string{"sandbox", "ls"},
+		},
+		{
+			name:         "non-compat cobra strips post-command globals",
+			args:         []string{"sandbox", "ls", "--cwd", tmp, "--request-id", "req-post", "--timeout", "2s", "--quiet"},
+			sub:          "sandbox",
+			wantCwd:      tmp,
+			wantReqID:    "req-post",
+			wantTimeout:  2 * time.Second,
+			wantCobraArg: []string{"sandbox", "ls"},
+		},
+		{
+			name:         "non-compat cobra consumes documented leading globals before dispatch",
+			args:         []string{"--json", "--quiet", "--request-id", "req-1", "sandbox", "ls"},
+			sub:          "sandbox",
+			wantReqID:    "req-1",
+			wantCobraArg: []string{"sandbox", "ls", "--json"},
+		},
+		{
+			name:         "non-compat cobra remaps leading json to alias leaf command",
+			args:         []string{"--json", "ls"},
+			sub:          "ls",
+			wantCobraArg: []string{"ls", "--json"},
+		},
+		{
+			name:         "non-compat cobra strips leading timeout global",
+			args:         []string{"--timeout=5s", "ssh"},
+			sub:          "ssh",
+			wantTimeout:  5 * time.Second,
+			wantCobraArg: []string{"ssh"},
+		},
+		{
+			name:         "non-compat cobra consumes leading request-id before alias passthrough",
+			args:         []string{"--request-id", "req-1", "claude", "--", "--quiet"},
+			sub:          "claude",
+			wantReqID:    "req-1",
+			wantCobraArg: []string{"claude", "--", "--quiet"},
+		},
+		{
 			name:         "exec passthrough after double-dash is preserved",
 			args:         []string{"exec", "--", "rg", "--json"},
 			sub:          "exec",
 			wantCwd:      "",
+			wantCobraArg: []string{"exec", "--", "rg", "--json"},
+		},
+		{
+			name:         "exec passthrough after double-dash survives leading globals",
+			args:         []string{"--cwd", tmp, "exec", "--", "rg", "--json"},
+			sub:          "exec",
+			wantCwd:      tmp,
 			wantCobraArg: []string{"exec", "--", "rg", "--json"},
 		},
 		{

@@ -122,3 +122,104 @@ func TestRebindWorkspaceIDMigratesExplicitEmptyState(t *testing.T) {
 		t.Fatalf("expected old active-tab key %q to be removed", oldID)
 	}
 }
+
+func TestRebindWorkspaceIDRefreshesTabWorkspaceWhenIDUnchanged(t *testing.T) {
+	oldWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	oldWS.Assistant = "claude"
+	newWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	newWS.Assistant = "codex"
+	if oldWS.ID() != newWS.ID() {
+		t.Fatalf("expected workspace IDs to match: old=%q new=%q", oldWS.ID(), newWS.ID())
+	}
+
+	m := New(nil)
+	m.workspace = oldWS
+	wsID := string(oldWS.ID())
+	tab := &Tab{ID: TabID("tab-1"), Workspace: oldWS}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+
+	cmd := m.RebindWorkspaceID(oldWS, newWS)
+	if cmd != nil {
+		t.Fatal("expected no PTY restart cmd for same-ID workspace refresh")
+	}
+	if m.workspace != newWS {
+		t.Fatal("expected active workspace pointer to refresh when workspace ID is unchanged")
+	}
+	if gotTabs := m.tabsByWorkspace[wsID]; len(gotTabs) != 1 || gotTabs[0] != tab {
+		t.Fatalf("expected existing tab to remain under workspace key %q", wsID)
+	}
+	if tab.Workspace != newWS {
+		t.Fatal("expected tab workspace pointer to refresh when workspace ID is unchanged")
+	}
+}
+
+func TestRebindWorkspaceIDPreservesTabRuntimeWhenIDUnchanged(t *testing.T) {
+	oldWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	oldWS.Runtime = data.RuntimeCloudSandbox
+	newWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	newWS.Runtime = data.RuntimeLocalWorktree
+	if oldWS.ID() != newWS.ID() {
+		t.Fatalf("expected workspace IDs to match: old=%q new=%q", oldWS.ID(), newWS.ID())
+	}
+
+	m := New(nil)
+	m.workspace = oldWS
+	wsID := string(oldWS.ID())
+	tab := &Tab{ID: TabID("tab-1"), Workspace: oldWS}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+
+	cmd := m.RebindWorkspaceID(oldWS, newWS)
+	if cmd != nil {
+		t.Fatal("expected no PTY restart cmd for same-ID workspace refresh")
+	}
+	if m.workspace != newWS {
+		t.Fatal("expected active workspace pointer to refresh when workspace ID is unchanged")
+	}
+	if gotTabs := m.tabsByWorkspace[wsID]; len(gotTabs) != 1 || gotTabs[0] != tab {
+		t.Fatalf("expected existing tab to remain under workspace key %q", wsID)
+	}
+	if tab.Workspace == nil || data.NormalizeRuntime(tab.Workspace.Runtime) != data.RuntimeCloudSandbox {
+		t.Fatal("expected sandbox-backed tab to keep its runtime after same-ID runtime rebind")
+	}
+}
+
+func TestRebindWorkspaceIDPreservesTabRuntimeAcrossIDMigration(t *testing.T) {
+	oldWS := data.NewWorkspace("feature", "feature", "main", "/repo-link", "/repo-link")
+	oldWS.Runtime = data.RuntimeCloudSandbox
+	newWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	newWS.Runtime = data.RuntimeLocalWorktree
+	if oldWS.ID() == newWS.ID() {
+		t.Fatalf("expected workspace IDs to differ: old=%q new=%q", oldWS.ID(), newWS.ID())
+	}
+
+	m := New(nil)
+	m.workspace = oldWS
+	oldID := string(oldWS.ID())
+	newID := string(newWS.ID())
+	tab := &Tab{ID: TabID("tab-1"), Workspace: oldWS}
+	m.tabsByWorkspace[oldID] = []*Tab{tab}
+	m.activeTabByWorkspace[oldID] = 0
+
+	cmd := m.RebindWorkspaceID(oldWS, newWS)
+	if cmd != nil {
+		t.Fatal("expected no PTY restart cmd for non-running tab")
+	}
+	if m.workspace != newWS {
+		t.Fatal("expected active workspace pointer to refresh to the new workspace")
+	}
+	gotTabs := m.tabsByWorkspace[newID]
+	if len(gotTabs) != 1 || gotTabs[0] != tab {
+		t.Fatalf("expected migrated tab under workspace key %q", newID)
+	}
+	if tab.Workspace == nil {
+		t.Fatal("expected migrated tab workspace to be preserved")
+	}
+	if string(tab.Workspace.ID()) != newID {
+		t.Fatalf("migrated tab workspace ID = %q, want %q", tab.Workspace.ID(), newID)
+	}
+	if data.NormalizeRuntime(tab.Workspace.Runtime) != data.RuntimeCloudSandbox {
+		t.Fatalf("migrated tab runtime = %q, want %q", tab.Workspace.Runtime, data.RuntimeCloudSandbox)
+	}
+}

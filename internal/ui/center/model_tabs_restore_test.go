@@ -1,6 +1,7 @@
 package center
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,21 @@ func TestAddPlaceholderTab_SetsLastFocusedFromCreatedAt(t *testing.T) {
 	}
 	if tabs[0].lastFocusedAt != time.Unix(createdAt, 0) {
 		t.Fatalf("expected lastFocusedAt=%s, got %s", time.Unix(createdAt, 0), tabs[0].lastFocusedAt)
+	}
+}
+
+func TestAddPlaceholderTab_UsesSandboxSessionPrefixForCloudRuntime(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	ws.Runtime = data.RuntimeCloudSandbox
+
+	_, sessionName := m.addPlaceholderTab(ws, data.TabInfo{
+		Assistant: "claude",
+		Name:      "Claude",
+	})
+
+	if wantPrefix := "amux-sandbox-"; !strings.HasPrefix(sessionName, wantPrefix) {
+		t.Fatalf("sessionName = %q, want prefix %q", sessionName, wantPrefix)
 	}
 }
 

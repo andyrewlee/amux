@@ -14,6 +14,24 @@ import (
 // settingsUploadTimeout is the timeout for uploading settings files.
 const settingsUploadTimeout = 30 * time.Second
 
+// agentSyncDef maps an agent to its local and remote settings paths.
+// LocalHome is relative to $HOME (used for reading local files).
+// RemoteHome is relative to the remote home (may differ, e.g. Codex).
+type agentSyncDef struct {
+	Agent      Agent
+	LocalHome  string // e.g. ".claude/settings.json"
+	RemoteHome string // e.g. ".claude/settings.json"
+	ConfigFlag func(SettingsSyncConfig) bool
+}
+
+var agentSyncDefs = []agentSyncDef{
+	{AgentClaude, ".claude/settings.json", ".claude/settings.json", func(c SettingsSyncConfig) bool { return c.Claude }},
+	{AgentCodex, ".codex/config.toml", ".config/codex/config.toml", func(c SettingsSyncConfig) bool { return c.Codex }},
+	{AgentOpenCode, ".config/opencode/config.json", ".config/opencode/config.json", nil},
+	{AgentAmp, ".config/amp/config.json", ".config/amp/config.json", nil},
+	{AgentGemini, ".gemini/settings.json", ".gemini/settings.json", nil},
+}
+
 // SyncSettingsToVolume copies enabled local settings to the sandbox home directory.
 // This is called during sandbox setup if settings sync is enabled.
 // It always displays a manifest of files being synced for transparency.
@@ -40,6 +58,7 @@ func SyncSettingsToVolume(computer RemoteSandbox, syncCfg SettingsSyncConfig, ve
 	}
 
 	var syncedCount int
+	explicitFiles := len(syncCfg.Files) > 0
 
 	for _, setting := range settingsToSync {
 		if !setting.Exists {
@@ -47,7 +66,9 @@ func SyncSettingsToVolume(computer RemoteSandbox, syncCfg SettingsSyncConfig, ve
 		}
 
 		var syncErr error
-		if setting.Agent == "git" {
+		if explicitFiles {
+			syncErr = syncExplicitSetting(computer, computerHome, setting, verbose)
+		} else if setting.Agent == "git" {
 			syncErr = syncGitConfig(computer, homeDir, computerHome, verbose)
 		} else {
 			agent := Agent(setting.Agent)
@@ -122,19 +143,12 @@ func getSettingsFromFileList(files []string, homeDir string) []DetectedSetting {
 func getSettingsFromLegacyFlags(syncCfg SettingsSyncConfig, homeDir string) []DetectedSetting {
 	var settings []DetectedSetting
 
-	if syncCfg.Claude {
-		path := filepath.Join(homeDir, ".claude", "settings.json")
-		s := DetectedSetting{Agent: "claude", LocalPath: path, HomePath: ".claude/settings.json"}
-		if info, err := os.Stat(path); err == nil {
-			s.Exists = true
-			s.Size = info.Size()
+	for _, def := range agentSyncDefs {
+		if def.ConfigFlag == nil || !def.ConfigFlag(syncCfg) {
+			continue
 		}
-		settings = append(settings, s)
-	}
-
-	if syncCfg.Codex {
-		path := filepath.Join(homeDir, ".codex", "config.toml")
-		s := DetectedSetting{Agent: "codex", LocalPath: path, HomePath: ".codex/config.toml"}
+		path := filepath.Join(homeDir, def.LocalHome)
+		s := DetectedSetting{Agent: string(def.Agent), LocalPath: path, HomePath: def.LocalHome}
 		if info, err := os.Stat(path); err == nil {
 			s.Exists = true
 			s.Size = info.Size()
@@ -160,13 +174,16 @@ func agentFromPath(path string) string {
 	if strings.Contains(path, ".claude") {
 		return "claude"
 	}
-	if strings.Contains(path, ".codex") || strings.Contains(path, "codex") {
+	if strings.Contains(path, ".codex") {
 		return "codex"
 	}
-	if strings.Contains(path, "opencode") {
+	if pathContainsComponent(path, "codex") {
+		return "codex"
+	}
+	if pathContainsComponent(path, "opencode") {
 		return "opencode"
 	}
-	if strings.Contains(path, "amp") {
+	if pathContainsComponent(path, "amp") {
 		return "amp"
 	}
 	if strings.Contains(path, ".gemini") {
@@ -178,40 +195,102 @@ func agentFromPath(path string) string {
 	return "unknown"
 }
 
-// syncAgentSettings syncs settings for a specific agent
-func syncAgentSettings(computer RemoteSandbox, homeDir, computerHome string, agent Agent, verbose bool) error {
-	var localPath, remotePath string
-
-	switch agent {
-	case AgentClaude:
-		localPath = filepath.Join(homeDir, ".claude", "settings.json")
-		remotePath = computerHome + "/.claude/settings.json"
-	case AgentCodex:
-		localPath = filepath.Join(homeDir, ".codex", "config.toml")
-		remotePath = computerHome + "/.config/codex/config.toml"
-	case AgentOpenCode:
-		localPath = filepath.Join(homeDir, ".config", "opencode", "config.json")
-		remotePath = computerHome + "/.config/opencode/config.json"
-	case AgentAmp:
-		localPath = filepath.Join(homeDir, ".config", "amp", "config.json")
-		remotePath = computerHome + "/.config/amp/config.json"
-	case AgentGemini:
-		localPath = filepath.Join(homeDir, ".gemini", "settings.json")
-		remotePath = computerHome + "/.gemini/settings.json"
-	default:
-		return nil
+func pathContainsComponent(path, component string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(path), "/") {
+		if seg == component || seg == "."+component {
+			return true
+		}
 	}
+	return false
+}
 
-	// Check if local settings file exists
-	data, err := os.ReadFile(localPath)
+func syncExplicitSetting(computer RemoteSandbox, computerHome string, setting DetectedSetting, verbose bool) error {
+	data, err := os.ReadFile(setting.LocalPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil // No local settings, skip
+			return nil
 		}
 		return err
 	}
 
-	// For JSON files, filter out any sensitive keys
+	remotePath := resolveExplicitSettingRemotePath(computerHome, setting)
+	switch {
+	case strings.TrimSpace(setting.Agent) == "git" || filepath.Base(setting.LocalPath) == ".gitconfig":
+		safeConfig := filterGitConfig(string(data))
+		if safeConfig == "" {
+			return nil
+		}
+		data = []byte(safeConfig)
+	case strings.HasSuffix(strings.ToLower(setting.LocalPath), ".json"):
+		data, err = filterSensitiveJSON(data)
+		if err != nil {
+			return err
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), settingsUploadTimeout)
+	defer cancel()
+	if err := uploadBytes(ctx, computer, data, remotePath); err != nil {
+		return fmt.Errorf("failed to upload settings: %w", err)
+	}
+
+	if verbose {
+		fmt.Fprintf(sandboxStdout, "  Synced %s\n", setting.HomePath)
+	}
+	return nil
+}
+
+func resolveExplicitSettingRemotePath(computerHome string, setting DetectedSetting) string {
+	if remotePath, ok := defaultRemotePathForSetting(computerHome, setting); ok {
+		return remotePath
+	}
+
+	trimmed := strings.TrimSpace(setting.HomePath)
+	if trimmed == "" {
+		return computerHome
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return trimmed
+	}
+	return computerHome + "/" + strings.TrimPrefix(trimmed, "/")
+}
+
+func defaultRemotePathForSetting(computerHome string, setting DetectedSetting) (string, bool) {
+	homePath := strings.TrimPrefix(strings.TrimSpace(setting.HomePath), "~/")
+	agent := Agent(strings.TrimSpace(setting.Agent))
+	for _, def := range agentSyncDefs {
+		if agent == def.Agent && homePath == def.LocalHome {
+			return computerHome + "/" + def.RemoteHome, true
+		}
+	}
+	if strings.TrimSpace(setting.Agent) == "git" && homePath == ".gitconfig" {
+		return computerHome + "/.gitconfig", true
+	}
+	return "", false
+}
+
+// syncAgentSettings syncs settings for a specific agent
+func syncAgentSettings(computer RemoteSandbox, homeDir, computerHome string, agent Agent, verbose bool) error {
+	var localPath, remotePath string
+	for _, def := range agentSyncDefs {
+		if def.Agent == agent {
+			localPath = filepath.Join(homeDir, def.LocalHome)
+			remotePath = computerHome + "/" + def.RemoteHome
+			break
+		}
+	}
+	if localPath == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+
 	if strings.HasSuffix(localPath, ".json") {
 		data, err = filterSensitiveJSON(data)
 		if err != nil {
@@ -276,11 +355,22 @@ func filterSensitiveJSON(data []byte) ([]byte, error) {
 		"apiKey", "api_key", "apikey",
 		"token", "auth_token", "authToken",
 		"secret", "password", "credential",
-		"key", "private",
+		"privatekey", "private_key",
+		"accesskey", "access_key",
+		"secretkey", "secret_key",
 	}
 
 	filtered := filterMapKeys(obj, sensitiveKeys)
 	return json.MarshalIndent(filtered, "", "  ")
+}
+
+// exactSensitiveKeys are filtered by exact (case-insensitive) match only.
+// These are too short/common for substring matching (would false-positive on
+// "hotkeyMode", "primaryKey", "keyboard", etc.) but should still be caught
+// when used as bare key names like {"key": "sk-live-..."}.
+var exactSensitiveKeys = map[string]struct{}{
+	"key":     {},
+	"private": {},
 }
 
 // filterMapKeys recursively removes sensitive keys from a map
@@ -288,9 +378,15 @@ func filterMapKeys(obj map[string]any, sensitiveKeys []string) map[string]any {
 	result := make(map[string]any)
 
 	for k, v := range obj {
-		// Check if key contains sensitive words
-		isSensitive := false
 		lowerKey := strings.ToLower(k)
+
+		// Check exact match for short sensitive words
+		if _, exact := exactSensitiveKeys[lowerKey]; exact {
+			continue
+		}
+
+		// Check if key contains sensitive substrings
+		isSensitive := false
 		for _, sensitive := range sensitiveKeys {
 			if strings.Contains(lowerKey, strings.ToLower(sensitive)) {
 				isSensitive = true

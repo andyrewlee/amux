@@ -65,8 +65,41 @@ func KillWorkspaceSessions(wsID string, opts Options) error {
 	if wsID == "" {
 		return nil
 	}
-	prefix := SessionName("amux", wsID) + "-"
-	return KillSessionsWithPrefix(prefix, opts)
+	sessions, err := ListSessions(opts)
+	if err != nil {
+		return err
+	}
+	matched := make(map[string]struct{})
+	prefixes := []string{
+		SessionName("amux", wsID) + "-",
+		SessionName("amux-sandbox", wsID) + "-",
+	}
+	for _, prefix := range prefixes {
+		for _, name := range sessions {
+			if strings.HasPrefix(name, prefix) {
+				matched[name] = struct{}{}
+			}
+		}
+	}
+	tagged, err := ListSessionsMatchingTags(map[string]string{
+		"@amux":           "1",
+		"@amux_workspace": wsID,
+	}, opts)
+	if err != nil {
+		return err
+	}
+	for _, name := range tagged {
+		if strings.TrimSpace(name) != "" {
+			matched[name] = struct{}{}
+		}
+	}
+	var firstErr error
+	for name := range matched {
+		if err := KillSession(name, opts); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // AmuxSessionsByWorkspace returns all @amux=1 sessions grouped by their

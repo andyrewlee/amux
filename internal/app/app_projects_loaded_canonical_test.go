@@ -9,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/sandbox"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
@@ -84,6 +85,76 @@ func TestHandleProjectsLoadedCanonicalRebindMigratesCenterAndSidebarTerminalTabs
 	}
 }
 
+func TestHandleProjectsLoadedCanonicalRebindSyncsSandboxIntoCurrentWorkspaceRoot(t *testing.T) {
+	skipIfNoGit(t)
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+
+	base := t.TempDir()
+	absRepo := filepath.Join(base, "repo")
+	absRoot := filepath.Join(base, "workspaces", "repo", "feature")
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", absRoot, err)
+	}
+
+	relRepo, err := filepath.Rel(wd, absRepo)
+	if err != nil {
+		t.Fatalf("Rel(repo): %v", err)
+	}
+	relRoot, err := filepath.Rel(wd, absRoot)
+	if err != nil {
+		t.Fatalf("Rel(root): %v", err)
+	}
+
+	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
+	oldWS.Runtime = data.RuntimeCloudSandbox
+	oldProject := data.NewProject(relRepo)
+	oldProject.AddWorkspace(*oldWS)
+
+	newWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
+	newWS.Runtime = data.RuntimeLocalWorktree
+	newProject := data.NewProject(absRepo)
+	newProject.AddWorkspace(*newWS)
+
+	manager := NewSandboxManager(nil)
+	manager.storeSession(&sandboxSession{
+		sandbox:       sandbox.NewMockRemoteSandbox("sb-canonical-rebind"),
+		worktreeID:    sandbox.ComputeWorktreeID(relRoot),
+		workspaceRoot: relRoot,
+		workspacePath: "/home/daytona/.amux/workspaces/canonical/repo",
+		needsSyncDown: true,
+	})
+
+	syncedTo := ""
+	manager.downloadWorkspace = func(computer sandbox.RemoteSandbox, opts sandbox.SyncOptions, verbose bool) error {
+		syncedTo = opts.Cwd
+		return nil
+	}
+
+	app := &App{
+		dashboard:       dashboard.New(),
+		projects:        []data.Project{*oldProject},
+		activeWorkspace: &oldProject.Workspaces[0],
+		activeProject:   oldProject,
+		showWelcome:     false,
+		sandboxManager:  manager,
+	}
+
+	cmds := app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*newProject}})
+	for _, cmd := range cmds {
+		if cmd != nil {
+			_ = cmd()
+		}
+	}
+
+	if syncedTo != absRoot {
+		t.Fatalf("sync target = %q, want %q", syncedTo, absRoot)
+	}
+}
+
 func TestHandleProjectsLoadedCanonicalRebindMigratesDirtyWorkspaceID(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -150,6 +221,74 @@ func TestHandleProjectsLoadedCanonicalRebindMigratesDirtyWorkspaceID(t *testing.
 	cmd := app.handlePersistDebounce(persistDebounceMsg{token: app.persistToken})
 	if cmd == nil {
 		t.Fatal("expected persist debounce command for migrated dirty workspace")
+	}
+}
+
+func TestHandleProjectsLoadedCanonicalRebindRemapsStoppedTabSessionStatus(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+
+	base := t.TempDir()
+	absRepo := filepath.Join(base, "repo")
+	absRoot := filepath.Join(base, "workspaces", "repo", "feature")
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", absRoot, err)
+	}
+
+	relRepo, err := filepath.Rel(wd, absRepo)
+	if err != nil {
+		t.Fatalf("Rel(repo): %v", err)
+	}
+	relRoot, err := filepath.Rel(wd, absRoot)
+	if err != nil {
+		t.Fatalf("Rel(root): %v", err)
+	}
+
+	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
+	oldProject := data.NewProject(relRepo)
+	oldProject.AddWorkspace(*oldWS)
+	activeOld := &oldProject.Workspaces[0]
+
+	newWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
+	newProject := data.NewProject(absRepo)
+	newProject.AddWorkspace(*newWS)
+
+	centerModel := center.New(nil)
+	centerModel.SetWorkspace(activeOld)
+	centerModel.AddTab(&center.Tab{
+		ID:          center.TabID("tab-existing"),
+		Name:        "tab-existing",
+		Workspace:   activeOld,
+		SessionName: "amux-sandbox-old-session",
+		Running:     true,
+		Detached:    true,
+	})
+
+	app := &App{
+		center:          centerModel,
+		projects:        []data.Project{*oldProject},
+		activeWorkspace: activeOld,
+		activeProject:   oldProject,
+	}
+
+	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*newProject}})
+	_, cmd := app.update(messages.TabSessionStatus{
+		WorkspaceID: string(oldWS.ID()),
+		SessionName: "amux-sandbox-old-session",
+		Status:      "stopped",
+	})
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	tabs, _ := app.center.GetTabsInfoForWorkspace(string(newWS.ID()))
+	if len(tabs) != 1 {
+		t.Fatalf("tabs for rebound workspace = %d, want 1", len(tabs))
+	}
+	if tabs[0].Status != "stopped" {
+		t.Fatalf("tab status = %q, want %q after remapped stop event", tabs[0].Status, "stopped")
 	}
 }
 

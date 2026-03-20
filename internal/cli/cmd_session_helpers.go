@@ -197,17 +197,28 @@ func parseTagCreatedAt(raw string) int64 {
 
 // inferWorkspaceID extracts workspace ID from a session name like "amux-<wsID>-tab-1".
 func inferWorkspaceID(name string) string {
-	if !strings.HasPrefix(name, "amux-") {
+	sandboxSession := false
+	switch {
+	case strings.HasPrefix(name, "amux-sandbox-"):
+		sandboxSession = true
+		name = strings.TrimPrefix(name, "amux-sandbox-")
+	case strings.HasPrefix(name, "amux-"):
+		name = strings.TrimPrefix(name, "amux-")
+	default:
 		return ""
 	}
-	rest := name[len("amux-"):]
-	if idx := strings.Index(rest, "-term-tab-"); idx > 0 {
-		return rest[:idx]
+	if idx := strings.Index(name, "-term-tab-"); idx > 0 {
+		return name[:idx]
 	}
-	if idx := strings.Index(rest, "-tab-"); idx > 0 {
-		return rest[:idx]
+	if idx := strings.Index(name, "-tab-"); idx > 0 {
+		return name[:idx]
 	}
-	return rest
+	if sandboxSession {
+		if workspaceID, _, ok := strings.Cut(name, "-"); ok {
+			return workspaceID
+		}
+	}
+	return name
 }
 
 // inferSessionType guesses session type from the session name.
@@ -216,6 +227,9 @@ func inferSessionType(name string) string {
 		return "term-tab"
 	}
 	if strings.Contains(name, "-tab-") {
+		return "agent"
+	}
+	if strings.HasPrefix(name, "amux-sandbox-") {
 		return "agent"
 	}
 	return "unknown"

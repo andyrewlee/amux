@@ -15,16 +15,17 @@ import (
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
-// handleProjectsLoaded processes the ProjectsLoaded message.
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
+	previousProjects := append([]data.Project(nil), a.projects...)
 	a.projects = msg.Projects
 	a.projectsLoaded = true
 	var cmds []tea.Cmd
 	if a.dashboard != nil {
 		a.dashboard.SetProjects(a.projects)
 	}
-	cmds = append(cmds, a.rebindActiveSelection()...)
-	// Request git status for all workspaces
+	cmds = append(cmds, a.rebindInactiveSandboxWorkspaces(previousProjects)...)
+	rebindCmds, skipRecoveredSandboxSyncs := a.rebindActiveSelectionWithRecoverySkips()
+	cmds = append(cmds, rebindCmds...)
 	cmds = append(cmds, a.scanTmuxActivityNow())
 	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
 		cmds = append(cmds, gcCmd)
@@ -41,11 +42,13 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 			cmds = append(cmds, a.requestGitStatus(ws.Root))
 		}
 	}
+	cmds = append(cmds, a.recoverPersistedPendingSandboxSyncs(skipRecoveredSandboxSyncs)...)
 	return cmds
 }
 
-func (a *App) rebindActiveSelection() []tea.Cmd {
+func (a *App) rebindActiveSelectionWithRecoverySkips() ([]tea.Cmd, map[string]struct{}) {
 	var cmds []tea.Cmd
+	skipRecoveredSandboxSyncs := make(map[string]struct{})
 	if a.activeWorkspace != nil {
 		previous := a.activeWorkspace
 		wsID := string(a.activeWorkspace.ID())
@@ -56,17 +59,54 @@ func (a *App) rebindActiveSelection() []tea.Cmd {
 		if ws == nil {
 			a.goHome()
 			a.activeProject = nil
-			return cmds
+			return cmds, skipRecoveredSandboxSyncs
+		}
+		if a.shouldSyncFromSandbox(previous, ws) {
+			if a.sandboxManager != nil {
+				if err := a.sandboxManager.PersistPendingSyncTarget(previous, ws); err != nil {
+					logging.Warn("Workspace sandbox sync-down target persistence failed for %s -> %s: %v", previous.Root, ws.Root, err)
+				}
+			}
+			if cmd := a.syncWorkspaceFromSandbox(previous, ws); cmd != nil {
+				cmds = append(cmds, cmd)
+				skipRecoveredSandboxSyncs[string(ws.ID())] = struct{}{}
+			}
 		}
 		oldID := string(previous.ID())
 		newID := string(ws.ID())
+		workspaceBindingChanged := oldID != newID ||
+			previous.Repo != ws.Repo ||
+			previous.Root != ws.Root ||
+			data.NormalizeRuntime(previous.Runtime) != data.NormalizeRuntime(ws.Runtime)
 		hadPreviousWorkspaceState := false
 		if a.center != nil {
 			hadPreviousWorkspaceState = a.center.HasWorkspaceState(oldID)
 		}
 		if oldID != newID {
+			if a.sandboxManager != nil &&
+				data.NormalizeRuntime(previous.Runtime) == data.RuntimeCloudSandbox &&
+				data.NormalizeRuntime(ws.Runtime) == data.RuntimeCloudSandbox {
+				a.sandboxManager.rebindWorkspace(previous, ws)
+			}
+			a.rememberReboundWorkspaceID(oldID, newID)
+			a.retargetPendingSandboxSyncs(oldID, ws)
 			a.migrateDirtyWorkspaceID(oldID, newID)
 			cmds = append(cmds, a.rebindActiveWorkspaceWatch(previous.Root, ws.Root)...)
+			if cmd := a.rebindWorkspaceTmuxSessions(oldID, newID); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			if a.center != nil {
+				if cmd := a.center.RebindWorkspaceID(previous, ws); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+			if a.sidebarTerminal != nil {
+				if cmd := a.sidebarTerminal.RebindWorkspaceID(previous, ws); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
+		if workspaceBindingChanged && oldID == newID {
 			if a.center != nil {
 				if cmd := a.center.RebindWorkspaceID(previous, ws); cmd != nil {
 					cmds = append(cmds, cmd)
@@ -105,12 +145,92 @@ func (a *App) rebindActiveSelection() []tea.Cmd {
 		if a.sidebarTerminal != nil {
 			a.sidebarTerminal.SetWorkspacePreview(ws)
 		}
-		return cmds
+		return cmds, skipRecoveredSandboxSyncs
 	}
 	if a.activeProject != nil {
 		a.activeProject = a.findProjectByPath(a.activeProject.Path)
 	}
-	return cmds
+	return cmds, skipRecoveredSandboxSyncs
+}
+
+func (a *App) shouldSyncFromSandbox(previous, current *data.Workspace) bool {
+	if previous == nil || current == nil || a.sandboxManager == nil {
+		return false
+	}
+	return data.NormalizeRuntime(previous.Runtime) == data.RuntimeCloudSandbox &&
+		data.NormalizeRuntime(current.Runtime) != data.RuntimeCloudSandbox
+}
+
+func (a *App) syncWorkspaceFromSandbox(source, target *data.Workspace) tea.Cmd {
+	return a.syncWorkspaceFromSandboxWithOptions(source, target, true)
+}
+
+type sandboxSyncResultMsg struct {
+	source       data.Workspace
+	target       data.Workspace
+	notifyOnLive bool
+	err          error
+}
+
+func (a *App) syncWorkspaceFromSandboxWithOptions(source, target *data.Workspace, notifyOnLive bool) tea.Cmd {
+	if a.sandboxManager == nil {
+		return nil
+	}
+	if source == nil {
+		source = target
+	}
+	if target == nil {
+		target = source
+	}
+	if source == nil || target == nil {
+		return nil
+	}
+	sourceCopy := *source
+	targetCopy := *target
+	return func() tea.Msg {
+		return sandboxSyncResultMsg{
+			source:       sourceCopy,
+			target:       targetCopy,
+			notifyOnLive: notifyOnLive,
+			err:          a.sandboxManager.SyncToLocalFrom(&sourceCopy, &targetCopy),
+		}
+	}
+}
+
+func (a *App) handleSandboxSyncResult(msg sandboxSyncResultMsg) []tea.Cmd {
+	targetID := string(msg.target.ID())
+	if msg.err == nil {
+		a.clearPendingSandboxSync(targetID)
+		if strings.TrimSpace(msg.target.Root) == "" {
+			return nil
+		}
+		return []tea.Cmd{a.requestGitStatusFull(msg.target.Root)}
+	}
+	if errors.Is(msg.err, errSandboxSyncLive) {
+		a.persistDeferredSandboxSync(&msg.source, &msg.target)
+		logging.Warn("Workspace sandbox sync-down skipped for %s -> %s: %v", msg.source.Root, msg.target.Root, msg.err)
+		if !msg.notifyOnLive {
+			return nil
+		}
+		return []tea.Cmd{emitMsg(messages.Toast{
+			Message: "Sandbox sync-down skipped while sandbox session is still running",
+			Level:   messages.ToastWarning,
+		})}
+	}
+
+	a.clearPendingSandboxSync(targetID)
+	if errors.Is(msg.err, errSandboxSyncConflict) {
+		logging.Warn("Workspace sandbox sync-down skipped for %s -> %s: %v", msg.source.Root, msg.target.Root, msg.err)
+		return []tea.Cmd{emitMsg(messages.Toast{
+			Message: "Sandbox sync-down skipped due to local changes",
+			Level:   messages.ToastWarning,
+		})}
+	}
+	logging.Warn("Workspace sandbox sync-down failed for %s -> %s: %v", msg.source.Root, msg.target.Root, msg.err)
+	return []tea.Cmd{emitMsg(messages.Toast{
+		Message: "Sandbox sync-down failed",
+		Level:   messages.ToastWarning,
+	})}
 }
 
 func (a *App) rebindActiveWorkspaceWatch(previousRoot, currentRoot string) []tea.Cmd {

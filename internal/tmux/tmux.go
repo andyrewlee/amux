@@ -31,6 +31,7 @@ type SessionTags struct {
 	WorkspaceID  string
 	TabID        string
 	Type         string
+	Runtime      string
 	Assistant    string
 	CreatedAt    int64 // Unix seconds for fresh create/restart; may be zero for reattach.
 	InstanceID   string

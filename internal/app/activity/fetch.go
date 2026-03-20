@@ -194,12 +194,15 @@ func HasRecentWindowActivity(sessionName string, recentActivityBySession map[str
 
 // WorkspaceIDFromSessionName extracts a workspace ID from an amux session name pattern.
 func WorkspaceIDFromSessionName(name string) string {
-	const prefix = "amux-"
-	if !strings.HasPrefix(name, prefix) {
+	switch {
+	case strings.HasPrefix(name, "amux-sandbox-"):
+		name = strings.TrimPrefix(name, "amux-sandbox-")
+	case strings.HasPrefix(name, "amux-"):
+		name = strings.TrimPrefix(name, "amux-")
+	default:
 		return ""
 	}
-	trimmed := strings.TrimPrefix(name, prefix)
-	parts := strings.Split(trimmed, "-")
+	parts := strings.Split(name, "-")
 	if len(parts) < 1 {
 		return ""
 	}

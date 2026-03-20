@@ -73,6 +73,20 @@ func TestInferWorkspaceIDTab(t *testing.T) {
 	}
 }
 
+func TestInferWorkspaceIDSandboxPrefix(t *testing.T) {
+	got := inferWorkspaceID("amux-sandbox-abc123-tab-1")
+	if got != "abc123" {
+		t.Fatalf("inferWorkspaceID() = %q, want %q", got, "abc123")
+	}
+}
+
+func TestInferWorkspaceIDSandboxAssistantSuffix(t *testing.T) {
+	got := inferWorkspaceID("amux-sandbox-abc123-codex")
+	if got != "abc123" {
+		t.Fatalf("inferWorkspaceID() = %q, want %q", got, "abc123")
+	}
+}
+
 func TestInferWorkspaceIDNoPrefix(t *testing.T) {
 	got := inferWorkspaceID("other-session")
 	if got != "" {
@@ -98,6 +112,13 @@ func TestInferSessionTypeTermTab(t *testing.T) {
 
 func TestInferSessionTypeAgent(t *testing.T) {
 	got := inferSessionType("amux-abc123-tab-1")
+	if got != "agent" {
+		t.Fatalf("inferSessionType() = %q, want %q", got, "agent")
+	}
+}
+
+func TestInferSessionTypeSandboxAssistantFallback(t *testing.T) {
+	got := inferSessionType("amux-sandbox-abc123-codex")
 	if got != "agent" {
 		t.Fatalf("inferSessionType() = %q, want %q", got, "agent")
 	}
@@ -183,6 +204,48 @@ func TestBuildSessionListFallsBackToInference(t *testing.T) {
 	}
 	if entries[0].Type != "term-tab" {
 		t.Errorf("Type = %q, want %q", entries[0].Type, "term-tab")
+	}
+}
+
+func TestBuildSessionListFallsBackToSandboxInference(t *testing.T) {
+	now := time.Unix(1000, 0)
+	rows := []sessionRow{
+		{
+			name:      "amux-sandbox-abc123-tab-3",
+			tags:      map[string]string{},
+			createdAt: 500,
+		},
+	}
+	entries := buildSessionList(rows, now)
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].WorkspaceID != "abc123" {
+		t.Errorf("WorkspaceID = %q, want %q", entries[0].WorkspaceID, "abc123")
+	}
+	if entries[0].Type != "agent" {
+		t.Errorf("Type = %q, want %q", entries[0].Type, "agent")
+	}
+}
+
+func TestBuildSessionListFallsBackToSandboxAssistantInference(t *testing.T) {
+	now := time.Unix(1000, 0)
+	rows := []sessionRow{
+		{
+			name:      "amux-sandbox-abc123-codex",
+			tags:      map[string]string{},
+			createdAt: 500,
+		},
+	}
+	entries := buildSessionList(rows, now)
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].WorkspaceID != "abc123" {
+		t.Errorf("WorkspaceID = %q, want %q", entries[0].WorkspaceID, "abc123")
+	}
+	if entries[0].Type != "agent" {
+		t.Errorf("Type = %q, want %q", entries[0].Type, "agent")
 	}
 }
 

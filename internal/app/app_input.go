@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"runtime/debug"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -96,6 +97,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.WorkspaceActivated:
 		cmds = append(cmds, a.handleWorkspaceActivated(msg)...)
+
+	case sandboxSyncResultMsg:
+		cmds = append(cmds, a.handleSandboxSyncResult(msg)...)
 
 	case messages.ShowWelcome:
 		a.goHome()
@@ -241,6 +245,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handlePTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		if stopped, ok := msg.(center.PTYStopped); ok {
+			if cmd := a.retryPendingSandboxSync(stopped.WorkspaceID); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 		// Sync active agents state to dashboard (show spinner only when actively outputting)
 		a.syncActiveWorkspacesToDashboard()
 		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
@@ -267,6 +276,24 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case messages.TabSessionStatus:
+		msg.WorkspaceID = a.resolveReboundWorkspaceID(msg.WorkspaceID)
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if strings.EqualFold(msg.Status, "stopped") {
+			if cmd := a.retryPendingSandboxSync(msg.WorkspaceID); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
+	case messages.SandboxShellDetached:
+		if cmd := a.retryPendingSandboxSync(msg.WorkspaceID); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case sidebar.OpenFileInEditor:
 		if cmd := a.handleOpenFileInEditor(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -287,6 +314,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, a.handleTmuxActivityTick(msg)...)
 	case tmuxActivityResult:
 		cmds = append(cmds, a.handleTmuxActivityResult(msg)...)
+	case workspaceTmuxRebindResultMsg:
+		a.handleWorkspaceTmuxRebindResult(msg)
 	case tmuxAvailableResult:
 		cmds = append(cmds, a.handleTmuxAvailableResult(msg)...)
 	case messages.TmuxSyncTick:

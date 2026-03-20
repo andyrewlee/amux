@@ -1,14 +1,65 @@
 package center
 
 import (
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
+
+// newReattachTags builds the common tmux session tags for reattach/restart operations.
+func (m *Model) newReattachTags(ws *data.Workspace, tabID TabID, assistant string, includeCreatedAt bool) tmux.SessionTags {
+	tags := tmux.SessionTags{
+		WorkspaceID:  string(ws.ID()),
+		TabID:        string(tabID),
+		Type:         "agent",
+		Assistant:    assistant,
+		InstanceID:   m.instanceID,
+		SessionOwner: m.instanceID,
+		LeaseAtMS:    time.Now().UnixMilli(),
+	}
+	if includeCreatedAt {
+		tags.CreatedAt = time.Now().Unix()
+	}
+	return tags
+}
+
+// createAgentAndCapture creates an agent with tags, captures scrollback, and returns
+// the appropriate result or failure message.
+func (m *Model) createAgentAndCapture(
+	ws *data.Workspace, tabID TabID, assistant, sessionName string,
+	h, w int, tags tmux.SessionTags, opts tmux.Options,
+	action string, stopped bool,
+) tea.Msg {
+	agent, err := m.agentProvider.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(h), uint16(w), tags)
+	if err != nil {
+		return ptyTabReattachFailed{
+			WorkspaceID: string(ws.ID()),
+			TabID:       tabID,
+			Err:         err,
+			Stopped:     stopped,
+			Action:      action,
+		}
+	}
+	captureSessionName := sessionName
+	if strings.TrimSpace(agent.Session) != "" {
+		captureSessionName = agent.Session
+	}
+	scrollback, _ := tmux.CapturePane(captureSessionName, opts)
+	return ptyTabReattachResult{
+		WorkspaceID:       string(ws.ID()),
+		TabID:             tabID,
+		Agent:             agent,
+		Rows:              h,
+		Cols:              w,
+		ScrollbackCapture: scrollback,
+	}
+}
 
 // ReattachActiveTab reattaches to a detached/stopped tmux session.
 func (m *Model) ReattachActiveTab() tea.Cmd {
@@ -63,7 +114,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	termWidth := tm.Width
 	termHeight := tm.Height
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(tab.Workspace.ID()), string(tab.ID))
+		sessionName = defaultSessionName(tab.Workspace, string(tab.ID))
 	}
 	assistant := tab.Assistant
 	ws := tab.Workspace
@@ -83,64 +134,11 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			if state.Exists && !state.HasLivePane {
 				_ = tmux.KillSession(sessionName, opts)
 			}
-			tags := tmux.SessionTags{
-				WorkspaceID:  string(ws.ID()),
-				TabID:        string(tabID),
-				Type:         "agent",
-				Assistant:    assistant,
-				CreatedAt:    time.Now().Unix(),
-				InstanceID:   m.instanceID,
-				SessionOwner: m.instanceID,
-				LeaseAtMS:    time.Now().UnixMilli(),
-			}
-			agent, err := m.agentProvider.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
-			if err != nil {
-				return ptyTabReattachFailed{
-					WorkspaceID: string(ws.ID()),
-					TabID:       tabID,
-					Err:         err,
-					Stopped:     true,
-					Action:      "reattach",
-				}
-			}
-			scrollback, _ := tmux.CapturePane(sessionName, opts)
-			return ptyTabReattachResult{
-				WorkspaceID:       string(ws.ID()),
-				TabID:             tabID,
-				Agent:             agent,
-				Rows:              termHeight,
-				Cols:              termWidth,
-				ScrollbackCapture: scrollback,
-			}
+			tags := m.newReattachTags(ws, tabID, assistant, true)
+			return m.createAgentAndCapture(ws, tabID, assistant, sessionName, termHeight, termWidth, tags, opts, "reattach", true)
 		}
-		tags := tmux.SessionTags{
-			WorkspaceID:  string(ws.ID()),
-			TabID:        string(tabID),
-			Type:         "agent",
-			Assistant:    assistant,
-			InstanceID:   m.instanceID,
-			SessionOwner: m.instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
-		}
-		agent, err := m.agentProvider.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
-		if err != nil {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Err:         err,
-				Action:      "reattach",
-			}
-		}
-		// Best-effort capture of existing scrollback from the tmux pane.
-		scrollback, _ := tmux.CapturePane(sessionName, opts)
-		return ptyTabReattachResult{
-			WorkspaceID:       string(ws.ID()),
-			TabID:             tabID,
-			Agent:             agent,
-			Rows:              termHeight,
-			Cols:              termWidth,
-			ScrollbackCapture: scrollback,
-		}
+		tags := m.newReattachTags(ws, tabID, assistant, false)
+		return m.createAgentAndCapture(ws, tabID, assistant, sessionName, termHeight, termWidth, tags, opts, "reattach", false)
 	}
 }
 
@@ -179,7 +177,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	ws := tab.Workspace
 	tabID := tab.ID
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tabID))
+		sessionName = defaultSessionName(ws, string(tabID))
 	}
 	m.stopPTYReader(tab)
 	var existingAgent *appPty.Agent
@@ -198,43 +196,8 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	assistant := tab.Assistant
 
 	return func() tea.Msg {
-		// KillSession is synchronous: it calls cmd.Run() which blocks until the
-		// tmux server processes the kill and returns. By the time it completes,
-		// the session is fully removed from tmux's perspective.
-		// The subsequent CreateAgentWithTags uses `new-session -Ads` which is
-		// atomic (attach-if-exists, create-if-not), providing an additional
-		// safety net in the unlikely event of cleanup lag.
 		_ = tmux.KillSession(sessionName, tmuxOpts)
-
-		tags := tmux.SessionTags{
-			WorkspaceID:  string(ws.ID()),
-			TabID:        string(tabID),
-			Type:         "agent",
-			Assistant:    assistant,
-			CreatedAt:    time.Now().Unix(),
-			InstanceID:   m.instanceID,
-			SessionOwner: m.instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
-		}
-		agent, err := m.agentProvider.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
-		if err != nil {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Err:         err,
-				Stopped:     true,
-				Action:      "restart",
-			}
-		}
-		// Best-effort capture of scrollback (empty for fresh sessions, which is fine).
-		scrollback, _ := tmux.CapturePane(sessionName, tmuxOpts)
-		return ptyTabReattachResult{
-			WorkspaceID:       string(ws.ID()),
-			TabID:             tabID,
-			Agent:             agent,
-			Rows:              termHeight,
-			Cols:              termWidth,
-			ScrollbackCapture: scrollback,
-		}
+		tags := m.newReattachTags(ws, tabID, assistant, true)
+		return m.createAgentAndCapture(ws, tabID, assistant, sessionName, termHeight, termWidth, tags, tmuxOpts, "restart", true)
 	}
 }

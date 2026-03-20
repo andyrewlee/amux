@@ -28,7 +28,7 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 	termWidth := tm.Width
 	termHeight := tm.Height
 	tabID := generateTabID()
-	sessionName := tmux.SessionName("amux", string(ws.ID()), string(tabID))
+	sessionName := defaultSessionName(ws, string(tabID))
 
 	return func() tea.Msg {
 		logging.Info("Creating vim tab: file=%s workspace=%s", filePath, ws.Name)

@@ -40,6 +40,7 @@ By default, runs quick local checks. Use --deep for comprehensive sandbox checks
 	cmd.Flags().BoolVar(&deep, "deep", false, "Run comprehensive sandbox health checks")
 	cmd.Flags().BoolVar(&fix, "fix", false, "Attempt to automatically fix issues")
 	cmd.Flags().StringVar(&agent, "agent", "claude", "Agent to check (for --deep)")
+	cmd.AddCommand(buildLogsCommand())
 
 	return cmd
 }

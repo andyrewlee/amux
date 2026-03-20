@@ -30,9 +30,10 @@ func generateTerminalTabID() TerminalTabID {
 
 // TerminalTab represents a single terminal tab
 type TerminalTab struct {
-	ID    TerminalTabID
-	Name  string // "Terminal 1", "Terminal 2", etc.
-	State *TerminalState
+	ID        TerminalTabID
+	Name      string // "Terminal 1", "Terminal 2", etc.
+	Workspace *data.Workspace
+	State     *TerminalState
 }
 
 // TerminalState holds the terminal state for a workspace

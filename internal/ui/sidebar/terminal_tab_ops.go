@@ -150,8 +150,9 @@ func (m *TerminalModel) AddTerminalForHarness(ws *data.Workspace) {
 	vt := vterm.New(termWidth, termHeight)
 	vt.AllowAltScreenScrollback = true
 	tab := &TerminalTab{
-		ID:   generateTerminalTabID(),
-		Name: "Terminal 1",
+		ID:        generateTerminalTabID(),
+		Name:      "Terminal 1",
+		Workspace: ws,
 		State: &TerminalState{
 			VTerm:      vt,
 			Running:    true,

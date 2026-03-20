@@ -105,11 +105,7 @@ func main() {
 				code := cli.Run(os.Args[1:], version, commit, date)
 				os.Exit(code)
 			}
-			if err := applyCobraGlobals(gf, sub); err != nil {
-				code := cli.Run(os.Args[1:], version, commit, date)
-				os.Exit(code)
-			}
-			code := cli.RunCobraWithGlobals(cobraArgs, gf)
+			code := cli.RunCobraWithGlobals(cobraArgs, gf, version)
 			os.Exit(code)
 		case dispatchTargetTUI:
 			// Launch TUI unconditionally.
@@ -150,11 +146,6 @@ func classifyDispatch(sub string) dispatchTarget {
 	return dispatchTargetUnknown
 }
 
-func firstCLIArg(args []string) string {
-	sub, _ := classifyInvocation(args)
-	return sub
-}
-
 func classifyInvocation(args []string) (string, error) {
 	_, rest, err := cli.ParseGlobalFlags(args)
 	if err != nil {
@@ -178,26 +169,24 @@ func shouldRouteLegacyJSONContract(sub string, args []string) bool {
 }
 
 func prepareCobraDispatchArgs(args []string, sub string) (cli.GlobalFlags, []string, error) {
-	// Preserve passthrough semantics for all regular Cobra commands.
-	// Only status/doctor retain compatibility for legacy leading globals.
-	if !requiresCobraCompatPreprocess(sub) {
-		return cli.GlobalFlags{}, append([]string(nil), args...), nil
+	parseGlobals := cli.ParseLeadingRunGlobals
+	if requiresCobraCompatPreprocess(sub) {
+		parseGlobals = cli.ParseGlobalFlags
 	}
 
-	gf, rest, err := cli.ParseGlobalFlags(args)
+	gf, rest, err := parseGlobals(args)
 	if err != nil {
 		return gf, nil, err
 	}
 	if len(rest) == 0 {
-		return gf, nil, nil
+		return gf, []string{}, nil
 	}
 
 	cobraArgs := append([]string(nil), rest...)
-	// Preserve legacy automation form: `amux --json status`.
-	// For doctor, remap consumed --json back into argv so Cobra surfaces
-	// a clear unsupported-flag error instead of silently dropping it.
-	if (sub == "status" || sub == "doctor") && gf.JSON && !containsArg(cobraArgs[1:], "--json") {
-		cobraArgs = insertArgAfterCommand(cobraArgs, "--json")
+	// Preserve the documented leading-global form by remapping a consumed
+	// leading --json into the leaf Cobra command's argv.
+	if gf.JSON && !containsArg(cobraArgs, "--json") {
+		cobraArgs = cli.InsertFlagAfterCobraCommandPath(cobraArgs, "--json")
 	}
 	return gf, cobraArgs, nil
 }
@@ -208,31 +197,14 @@ func requiresCobraCompatPreprocess(sub string) bool {
 
 func containsArg(args []string, target string) bool {
 	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
 		if arg == target {
 			return true
 		}
 	}
 	return false
-}
-
-func insertArgAfterCommand(args []string, arg string) []string {
-	if len(args) == 0 {
-		return []string{arg}
-	}
-	withArg := make([]string, 0, len(args)+1)
-	withArg = append(withArg, args[0], arg)
-	withArg = append(withArg, args[1:]...)
-	return withArg
-}
-
-func applyCobraGlobals(gf cli.GlobalFlags, sub string) error {
-	if !requiresCobraCompatPreprocess(sub) {
-		return nil
-	}
-	if gf.Cwd == "" {
-		return nil
-	}
-	return os.Chdir(gf.Cwd)
 }
 
 func shouldLaunchTUI(stdinIsTTY, stdoutIsTTY, stderrIsTTY bool) bool {

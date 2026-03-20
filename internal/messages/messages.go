@@ -330,6 +330,12 @@ type SidebarPTYStopped struct {
 	Err         error
 }
 
+// SandboxShellDetached signals that sandbox shell cleanup finished and the
+// shell is no longer counted as live by SandboxManager.
+type SandboxShellDetached struct {
+	WorkspaceID string
+}
+
 // SidebarTerminalCreated signals that the sidebar terminal was created
 type SidebarTerminalCreated struct {
 	WorkspaceID string

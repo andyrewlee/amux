@@ -24,8 +24,10 @@ type Terminal struct {
 	ptyFile     *os.File
 	cmd         *exec.Cmd
 	closed      bool
+	exited      bool
 	cleanup     func()
 	cleanupOnce sync.Once
+	waitDone    chan struct{}
 }
 
 // New creates a new terminal with the given command.
@@ -55,10 +57,13 @@ func NewWithSize(command, dir string, env []string, rows, cols uint16) (*Termina
 		return nil, err
 	}
 
-	return &Terminal{
-		ptyFile: ptmx,
-		cmd:     cmd,
-	}, nil
+	term := &Terminal{
+		ptyFile:  ptmx,
+		cmd:      cmd,
+		waitDone: make(chan struct{}),
+	}
+	term.startWaiter()
+	return term, nil
 }
 
 // NewWithCmd creates a new terminal from an exec.Cmd.
@@ -77,11 +82,35 @@ func NewWithCmd(cmd *exec.Cmd, cleanup func()) (*Terminal, error) {
 		return nil, err
 	}
 
-	return &Terminal{
-		ptyFile: ptmx,
-		cmd:     cmd,
-		cleanup: cleanup,
-	}, nil
+	term := &Terminal{
+		ptyFile:  ptmx,
+		cmd:      cmd,
+		cleanup:  cleanup,
+		waitDone: make(chan struct{}),
+	}
+	term.startWaiter()
+	return term, nil
+}
+
+func (t *Terminal) startWaiter() {
+	cmd := t.cmd
+	done := t.waitDone
+	if cmd == nil || done == nil {
+		return
+	}
+	go func() {
+		_ = cmd.Wait()
+		t.mu.Lock()
+		t.exited = true
+		if t.cmd == cmd {
+			t.cmd = nil
+		}
+		t.mu.Unlock()
+		if t.cleanup != nil {
+			t.cleanupOnce.Do(t.cleanup)
+		}
+		close(done)
+	}()
 }
 
 // SetSize sets the terminal size
@@ -156,6 +185,7 @@ func (t *Terminal) Close() error {
 	t.closed = true
 	ptyFile := t.ptyFile
 	cmd := t.cmd
+	waitDone := t.waitDone
 	t.ptyFile = nil
 	t.cmd = nil
 	t.mu.Unlock()
@@ -169,25 +199,26 @@ func (t *Terminal) Close() error {
 		if proc != nil {
 			leaderPID := proc.Pid
 			_ = process.KillProcessGroup(leaderPID, process.KillOptions{})
-			// Wait with timeout, escalate to SIGKILL if needed.
-			done := make(chan struct{})
-			go func() {
-				_ = cmd.Wait()
-				close(done)
-			}()
+			// Wait for the reaper goroutine, escalate to SIGKILL if needed.
 			select {
-			case <-done:
+			case <-waitDone:
 				// Process exited cleanly.
 			case <-time.After(terminalCloseTimeout):
 				_ = process.ForceKillProcess(leaderPID)
-				<-done
+				if waitDone != nil {
+					<-waitDone
+				}
 			}
-		} else {
-			_ = cmd.Wait()
+		} else if waitDone != nil {
+			<-waitDone
 		}
-	}
-	if t.cleanup != nil {
-		t.cleanupOnce.Do(t.cleanup)
+	} else if waitDone != nil {
+		// Process exited naturally and startWaiter already cleared t.cmd.
+		// Wait for the cleanup callback to finish before returning.
+		select {
+		case <-waitDone:
+		case <-time.After(terminalCloseTimeout):
+		}
 	}
 
 	return nil
@@ -198,12 +229,11 @@ func (t *Terminal) Running() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.closed || t.cmd == nil {
+	if t.closed || t.exited || t.cmd == nil {
 		return false
 	}
 
-	// Check if process is still running
-	return t.cmd.ProcessState == nil
+	return true
 }
 
 // IsClosed returns whether the terminal has been closed

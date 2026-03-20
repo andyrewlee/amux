@@ -12,7 +12,7 @@ import (
 
 // handleTerminalCreated wires up a newly created terminal and its scrollback.
 func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cmd {
-	cmd := m.HandleTerminalCreated(msg.WorkspaceID, msg.TabID, msg.Terminal, msg.SessionName)
+	cmd := m.HandleTerminalCreated(msg.WorkspaceID, msg.TabID, msg.Workspace, msg.Terminal, msg.SessionName)
 	if len(msg.Scrollback) > 0 {
 		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 		if tab != nil && tab.State != nil {

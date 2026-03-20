@@ -8,12 +8,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
-	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
-func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
+// buildTabFromInfo creates a Tab with common terminal sizing, name resolution,
+// and vterm setup. Used by both addDetachedTab and addPlaceholderTab.
+func (m *Model) buildTabFromInfo(ws *data.Workspace, info data.TabInfo, tabID TabID, sessionName string) *Tab {
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
 	termHeight := tm.Height
@@ -37,11 +38,11 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 		ca = time.Now().Unix()
 	}
 	tab := &Tab{
-		ID:            generateTabID(),
+		ID:            tabID,
 		Name:          displayName,
 		Assistant:     info.Assistant,
 		Workspace:     ws,
-		SessionName:   info.SessionName,
+		SessionName:   sessionName,
 		Detached:      true,
 		Running:       false,
 		Terminal:      term,
@@ -49,6 +50,11 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 		lastFocusedAt: time.Unix(ca, 0),
 	}
 	term.IgnoreCursorVisibilityControls = m.isChatTab(tab)
+	return tab
+}
+
+func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
+	tab := m.buildTabFromInfo(ws, info, generateTabID(), info.SessionName)
 	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
 }
@@ -57,48 +63,13 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 // position. The tab starts detached and non-running; an async reattach upgrades
 // it in-place (by TabID) without changing slice order.
 func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID, string) {
-	tm := m.terminalMetrics()
-	termWidth := tm.Width
-	termHeight := tm.Height
-	if termWidth < 1 {
-		termWidth = 80
-	}
-	if termHeight < 1 {
-		termHeight = 24
-	}
-	displayName := strings.TrimSpace(info.Name)
-	if displayName == "" {
-		displayName = strings.TrimSpace(info.Assistant)
-	}
-	if displayName == "" {
-		displayName = "Terminal"
-	}
-	term := vterm.New(termWidth, termHeight)
-	term.AllowAltScreenScrollback = true
 	tabID := generateTabID()
 	sessionName := strings.TrimSpace(info.SessionName)
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tabID))
+		sessionName = defaultSessionName(ws, string(tabID))
 	}
-	ca := info.CreatedAt
-	if ca == 0 {
-		ca = time.Now().Unix()
-	}
-	tab := &Tab{
-		ID:          tabID,
-		Name:        displayName,
-		Assistant:   info.Assistant,
-		Workspace:   ws,
-		SessionName: sessionName,
-		Detached:    true,
-		Running:     false,
-		// Placeholder tabs are immediately queued for async reattach.
-		reattachInFlight: true,
-		Terminal:         term,
-		createdAt:        ca,
-		lastFocusedAt:    time.Unix(ca, 0),
-	}
-	term.IgnoreCursorVisibilityControls = m.isChatTab(tab)
+	tab := m.buildTabFromInfo(ws, info, tabID, sessionName)
+	tab.reattachInFlight = true
 	wsID := string(ws.ID())
 	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
 	return tabID, sessionName
@@ -131,32 +102,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 				Action:      "reattach",
 			}
 		}
-		tags := tmux.SessionTags{
-			WorkspaceID:  string(ws.ID()),
-			TabID:        string(tabID),
-			Type:         "agent",
-			Assistant:    assistant,
-			InstanceID:   m.instanceID,
-			SessionOwner: m.instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
-		}
-		agent, err := m.agentProvider.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
-		if err != nil {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Err:         err,
-				Action:      "reattach",
-			}
-		}
-		scrollback, _ := tmux.CapturePane(sessionName, opts)
-		return ptyTabReattachResult{
-			WorkspaceID:       string(ws.ID()),
-			TabID:             tabID,
-			Agent:             agent,
-			Rows:              termHeight,
-			Cols:              termWidth,
-			ScrollbackCapture: scrollback,
-		}
+		tags := m.newReattachTags(ws, tabID, assistant, false)
+		return m.createAgentAndCapture(ws, tabID, assistant, sessionName, termHeight, termWidth, tags, opts, "reattach", false)
 	}
 }

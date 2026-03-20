@@ -3,6 +3,7 @@ package sidebar
 import (
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/pty"
 )
 
@@ -26,6 +27,7 @@ const (
 type SidebarTerminalCreated struct {
 	WorkspaceID string
 	TabID       TerminalTabID
+	Workspace   *data.Workspace
 	Terminal    *pty.Terminal
 	SessionName string
 	Scrollback  []byte

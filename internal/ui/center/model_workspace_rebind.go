@@ -16,7 +16,26 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 
 	oldID := string(previous.ID())
 	newID := string(current.ID())
-	if oldID == "" || newID == "" || oldID == newID {
+	if oldID == "" || newID == "" {
+		return nil
+	}
+	if oldID == newID {
+		runtimeChanged := data.NormalizeRuntime(previous.Runtime) != data.NormalizeRuntime(current.Runtime)
+		if m.workspace != nil && m.workspaceID() == oldID {
+			m.setWorkspace(current)
+		}
+		tabs := m.tabsByWorkspace[oldID]
+		for _, tab := range tabs {
+			if tab == nil {
+				continue
+			}
+			tab.mu.Lock()
+			tab.Workspace = common.RebindWorkspace(current, tab.Workspace, runtimeChanged)
+			tab.mu.Unlock()
+		}
+		if len(tabs) > 0 {
+			m.noteTabsChanged()
+		}
 		return nil
 	}
 
@@ -51,7 +70,10 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 	newTabs := m.tabsByWorkspace[newID]
 	oldActive, oldActiveOK := m.activeTabByWorkspace[oldID]
 	newActive, newActiveOK := m.activeTabByWorkspace[newID]
-	merged, migratedActive := mergeTabsByID(newTabs, oldTabs, oldActive)
+	merged, migratedActive := common.MergeByID(newTabs, oldTabs, oldActive,
+		func(t *Tab) TabID { return t.ID },
+		func(t *Tab) bool { return t == nil },
+	)
 
 	m.tabsByWorkspace[newID] = merged
 	delete(m.tabsByWorkspace, oldID)
@@ -84,7 +106,7 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 			continue
 		}
 		tab.mu.Lock()
-		tab.Workspace = current
+		tab.Workspace = common.RebindWorkspace(current, tab.Workspace, data.NormalizeRuntime(previous.Runtime) != data.NormalizeRuntime(current.Runtime))
 		shouldRestart := tab.Running && tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 		tab.mu.Unlock()
 
@@ -98,40 +120,4 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 
 	m.noteTabsChanged()
 	return common.SafeBatch(cmds...)
-}
-
-func mergeTabsByID(existing, incoming []*Tab, incomingActive int) ([]*Tab, int) {
-	merged := make([]*Tab, 0, len(existing)+len(incoming))
-	indexByID := make(map[TabID]int, len(existing)+len(incoming))
-
-	for _, tab := range existing {
-		if tab == nil {
-			continue
-		}
-		if _, ok := indexByID[tab.ID]; ok {
-			continue
-		}
-		indexByID[tab.ID] = len(merged)
-		merged = append(merged, tab)
-	}
-
-	migratedActive := -1
-	for i, tab := range incoming {
-		if tab == nil {
-			continue
-		}
-		if idx, ok := indexByID[tab.ID]; ok {
-			if i == incomingActive {
-				migratedActive = idx
-			}
-			continue
-		}
-		indexByID[tab.ID] = len(merged)
-		merged = append(merged, tab)
-		if i == incomingActive {
-			migratedActive = len(merged) - 1
-		}
-	}
-
-	return merged, migratedActive
 }

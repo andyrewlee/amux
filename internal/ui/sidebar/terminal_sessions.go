@@ -61,8 +61,9 @@ func (m *TerminalModel) AddTabsFromSessions(ws *data.Workspace, sessions []strin
 		}
 		tabID := generateTerminalTabID()
 		tab := &TerminalTab{
-			ID:   tabID,
-			Name: nextTerminalName(m.tabsByWorkspace[wsID]),
+			ID:        tabID,
+			Name:      nextTerminalName(m.tabsByWorkspace[wsID]),
+			Workspace: ws,
 			State: &TerminalState{
 				SessionName:      sessionName,
 				Running:          false,
@@ -100,8 +101,9 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 		}
 		tabID := generateTerminalTabID()
 		tab := &TerminalTab{
-			ID:   tabID,
-			Name: nextTerminalName(m.tabsByWorkspace[wsID]),
+			ID:        tabID,
+			Name:      nextTerminalName(m.tabsByWorkspace[wsID]),
+			Workspace: ws,
 			State: &TerminalState{
 				SessionName: session.Name,
 				Running:     false,

@@ -122,6 +122,7 @@ func New(version, commit, date string) (*App, error) {
 		tmuxActiveWorkspaceIDs: make(map[string]bool),
 		sessionActivityStates:  make(map[string]*activity.SessionState),
 		dirtyWorkspaces:        make(map[string]bool),
+		pendingTmuxRebinds:     make(map[string]string),
 		deletingWorkspaceIDs:   make(map[string]bool),
 		localWorkspaceSavesAt:  make(map[string]localWorkspaceSaveMarker),
 		creatingWorkspaceIDs:   make(map[string]bool),
@@ -133,6 +134,10 @@ func New(version, commit, date string) (*App, error) {
 	// Route PTY messages through the app-level pump.
 	app.center.SetMsgSink(app.enqueueExternalMsg)
 	app.sidebarTerminal.SetMsgSink(app.enqueueExternalMsg)
+	app.sandboxManager.SetInstanceID(app.instanceID)
+	app.sandboxManager.SetShellDetachedCallback(func(workspaceID string) {
+		app.enqueueExternalMsg(messages.SandboxShellDetached{WorkspaceID: workspaceID})
+	})
 	app.center.SetInstanceID(app.instanceID)
 	app.sidebarTerminal.SetInstanceID(app.instanceID)
 	// Apply saved theme before creating styles

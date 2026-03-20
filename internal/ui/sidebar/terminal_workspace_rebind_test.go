@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/pty"
 )
 
 func TestRebindWorkspaceIDMigratesTerminalState(t *testing.T) {
@@ -39,8 +40,9 @@ func TestRebindWorkspaceIDMigratesTerminalState(t *testing.T) {
 	oldID := string(oldWS.ID())
 	newID := string(newWS.ID())
 	tab := &TerminalTab{
-		ID:   TerminalTabID("term-tab-1"),
-		Name: "Terminal 1",
+		ID:        TerminalTabID("term-tab-1"),
+		Name:      "Terminal 1",
+		Workspace: oldWS,
 		State: &TerminalState{
 			Running: false,
 		},
@@ -74,5 +76,95 @@ func TestRebindWorkspaceIDMigratesTerminalState(t *testing.T) {
 	}
 	if m.pendingCreation[oldID] {
 		t.Fatalf("expected pending creation flag to be removed from %q", oldID)
+	}
+}
+
+func TestRebindWorkspaceIDRefreshesWorkspaceWhenIDUnchanged(t *testing.T) {
+	oldWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	oldWS.Runtime = data.RuntimeCloudSandbox
+	newWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	newWS.Runtime = data.RuntimeLocalWorktree
+	if oldWS.ID() != newWS.ID() {
+		t.Fatalf("expected workspace IDs to match: old=%q new=%q", oldWS.ID(), newWS.ID())
+	}
+
+	m := NewTerminalModel()
+	m.workspace = oldWS
+	wsID := string(oldWS.ID())
+	m.tabsByWorkspace[wsID] = []*TerminalTab{{
+		ID:        TerminalTabID("term-tab-1"),
+		Name:      "Terminal 1",
+		Workspace: oldWS,
+		State: &TerminalState{
+			Running: false,
+		},
+	}}
+
+	cmd := m.RebindWorkspaceID(oldWS, newWS)
+	if cmd != nil {
+		t.Fatal("expected no command for same-ID terminal workspace refresh")
+	}
+	if m.workspace != newWS {
+		t.Fatal("expected active terminal workspace pointer to refresh when workspace ID is unchanged")
+	}
+	if gotTabs := m.tabsByWorkspace[wsID]; len(gotTabs) != 1 {
+		t.Fatalf("expected terminal tabs to remain under workspace key %q", wsID)
+	}
+	if gotTabs := m.tabsByWorkspace[wsID]; gotTabs[0].Workspace == nil || data.NormalizeRuntime(gotTabs[0].Workspace.Runtime) != data.RuntimeCloudSandbox {
+		t.Fatal("expected same-ID rebind to preserve runtime for existing sandbox-backed terminal tabs")
+	}
+}
+
+func TestRebindWorkspaceIDKeepsDetachedSandboxTerminalOnSandboxRuntime(t *testing.T) {
+	oldWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	oldWS.Runtime = data.RuntimeCloudSandbox
+	newWS := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
+	newWS.Runtime = data.RuntimeLocalWorktree
+
+	m := NewTerminalModel()
+	m.workspace = oldWS
+	wsID := string(oldWS.ID())
+	tabID := TerminalTabID("term-tab-1")
+	m.tabsByWorkspace[wsID] = []*TerminalTab{{
+		ID:        tabID,
+		Name:      "Terminal 1",
+		Workspace: oldWS,
+		State: &TerminalState{
+			Running:  false,
+			Detached: true,
+		},
+	}}
+	m.activeTabByWorkspace[wsID] = 0
+
+	cmd := m.RebindWorkspaceID(oldWS, newWS)
+	if cmd != nil {
+		t.Fatal("expected no command for same-ID terminal workspace refresh")
+	}
+
+	called := false
+	m.SetTerminalFactory(func(got *data.Workspace) (*pty.Terminal, error) {
+		called = true
+		if got == nil {
+			t.Fatal("factory workspace is nil")
+		}
+		if data.NormalizeRuntime(got.Runtime) != data.RuntimeCloudSandbox {
+			t.Fatalf("factory runtime = %q, want %q", got.Runtime, data.RuntimeCloudSandbox)
+		}
+		if string(got.ID()) != wsID {
+			t.Fatalf("factory workspace ID = %q, want %q", got.ID(), wsID)
+		}
+		return nil, nil
+	})
+
+	reattach := m.ReattachActiveTab()
+	if reattach == nil {
+		t.Fatal("expected reattach command for detached terminal")
+	}
+	msg := reattach()
+	if _, ok := msg.(SidebarTerminalReattachResult); !ok {
+		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)
+	}
+	if !called {
+		t.Fatal("expected detached sandbox terminal to reattach through the sandbox factory")
 	}
 }

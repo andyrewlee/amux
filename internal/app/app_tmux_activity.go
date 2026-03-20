@@ -14,6 +14,8 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+type tmuxSetupDoneMsg struct{}
+
 type tmuxActivityTick struct {
 	Token int
 }
@@ -254,7 +256,8 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 	if !msg.available {
 		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
 	}
-	cmds := []tea.Cmd{a.scanTmuxActivityNow()}
+	cmds := a.drainPendingWorkspaceTmuxRebinds()
+	cmds = append(cmds, a.scanTmuxActivityNow())
 	if a.activeWorkspace != nil {
 		if discoverCmd := a.discoverWorkspaceTabsFromTmux(a.activeWorkspace); discoverCmd != nil {
 			cmds = append(cmds, discoverCmd)
@@ -270,7 +273,7 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 		cmds = append(cmds, func() tea.Msg {
 			_ = a.tmuxService.SetMonitorActivityOn(a.tmuxOptions)
 			_ = a.tmuxService.SetStatusOff(a.tmuxOptions)
-			return nil
+			return tmuxSetupDoneMsg{}
 		})
 	}
 	return cmds

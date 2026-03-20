@@ -43,6 +43,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			return SidebarTerminalCreated{
 				WorkspaceID: wsID,
 				TabID:       tabID,
+				Workspace:   ws,
 				Terminal:    term,
 			}
 		}
@@ -93,6 +94,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		return SidebarTerminalCreated{
 			WorkspaceID: wsID,
 			TabID:       tabID,
+			Workspace:   ws,
 			Terminal:    term,
 			SessionName: sessionName,
 			Scrollback:  scrollback,
@@ -126,7 +128,7 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
 		}
 	}
-	ws := m.workspace
+	ws := m.workspaceForTab(tab)
 	if sessionName == "" && m.terminalFactory != nil && data.NormalizeRuntime(ws.Runtime) == data.RuntimeCloudSandbox {
 		return m.attachCloudRuntimeTerminal(ws, tab.ID, "reattach")
 	}
@@ -152,7 +154,7 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
 		}
 	}
-	ws := m.workspace
+	ws := m.workspaceForTab(tab)
 	if sessionName == "" && m.terminalFactory != nil && data.NormalizeRuntime(ws.Runtime) == data.RuntimeCloudSandbox {
 		m.detachState(ts, false)
 		return m.attachCloudRuntimeTerminal(ws, tab.ID, "restart")
@@ -163,6 +165,13 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	m.detachState(ts, false)
 	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
 	return m.attachToSession(ws, tab.ID, sessionName, true, "restart")
+}
+
+func (m *TerminalModel) workspaceForTab(tab *TerminalTab) *data.Workspace {
+	if tab != nil && tab.Workspace != nil {
+		return tab.Workspace
+	}
+	return m.workspace
 }
 
 func (m *TerminalModel) attachCloudRuntimeTerminal(ws *data.Workspace, tabID TerminalTabID, action string) tea.Cmd {

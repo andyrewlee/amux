@@ -185,3 +185,93 @@ func TestParseGlobalFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestParseLeadingGlobalFlags(t *testing.T) {
+	gotGF, gotRest, err := ParseLeadingGlobalFlags([]string{"--cwd", "/tmp/repo", "exec", "--", "rg", "--json"})
+	if err != nil {
+		t.Fatalf("ParseLeadingGlobalFlags() error = %v", err)
+	}
+	wantGF := GlobalFlags{Cwd: "/tmp/repo"}
+	wantRest := []string{"exec", "--", "rg", "--json"}
+	if !reflect.DeepEqual(gotGF, wantGF) {
+		t.Fatalf("GlobalFlags = %+v, want %+v", gotGF, wantGF)
+	}
+	if !reflect.DeepEqual(gotRest, wantRest) {
+		t.Fatalf("rest = %v, want %v", gotRest, wantRest)
+	}
+}
+
+func TestParseLeadingRunGlobals(t *testing.T) {
+	gotGF, gotRest, err := ParseLeadingRunGlobals([]string{"--cwd", "/tmp/repo", "--json", "sandbox", "ls"})
+	if err != nil {
+		t.Fatalf("ParseLeadingRunGlobals() error = %v", err)
+	}
+	wantGF := GlobalFlags{Cwd: "/tmp/repo", JSON: true}
+	wantRest := []string{"sandbox", "ls"}
+	if !reflect.DeepEqual(gotGF, wantGF) {
+		t.Fatalf("GlobalFlags = %+v, want %+v", gotGF, wantGF)
+	}
+	if !reflect.DeepEqual(gotRest, wantRest) {
+		t.Fatalf("rest = %v, want %v", gotRest, wantRest)
+	}
+}
+
+func TestParseLeadingRunGlobalsConsumesRunGlobalsAfterPreservedLeadingGlobals(t *testing.T) {
+	gotGF, gotRest, err := ParseLeadingRunGlobals([]string{"--json", "--cwd", "/tmp/repo", "sandbox", "ls"})
+	if err != nil {
+		t.Fatalf("ParseLeadingRunGlobals() error = %v", err)
+	}
+	wantGF := GlobalFlags{Cwd: "/tmp/repo", JSON: true}
+	wantRest := []string{"sandbox", "ls"}
+	if !reflect.DeepEqual(gotGF, wantGF) {
+		t.Fatalf("GlobalFlags = %+v, want %+v", gotGF, wantGF)
+	}
+	if !reflect.DeepEqual(gotRest, wantRest) {
+		t.Fatalf("rest = %v, want %v", gotRest, wantRest)
+	}
+}
+
+func TestParseLeadingRunGlobalsConsumesMixedGlobalsBeforeCobraDispatch(t *testing.T) {
+	gotGF, gotRest, err := ParseLeadingRunGlobals([]string{"--timeout", "5s", "--quiet", "--request-id", "req-1", "ssh"})
+	if err != nil {
+		t.Fatalf("ParseLeadingRunGlobals() error = %v", err)
+	}
+	wantGF := GlobalFlags{Timeout: 5 * time.Second, Quiet: true, RequestID: "req-1"}
+	wantRest := []string{"ssh"}
+	if !reflect.DeepEqual(gotGF, wantGF) {
+		t.Fatalf("GlobalFlags = %+v, want %+v", gotGF, wantGF)
+	}
+	if !reflect.DeepEqual(gotRest, wantRest) {
+		t.Fatalf("rest = %v, want %v", gotRest, wantRest)
+	}
+}
+
+func TestParseLeadingRunGlobalsConsumesPostCommandGlobalsBeforeDoubleDash(t *testing.T) {
+	gotGF, gotRest, err := ParseLeadingRunGlobals([]string{"sandbox", "ls", "--cwd", "/tmp/repo", "--request-id", "req-1", "--", "--quiet"})
+	if err != nil {
+		t.Fatalf("ParseLeadingRunGlobals() error = %v", err)
+	}
+	wantGF := GlobalFlags{Cwd: "/tmp/repo", RequestID: "req-1"}
+	wantRest := []string{"sandbox", "ls", "--", "--quiet"}
+	if !reflect.DeepEqual(gotGF, wantGF) {
+		t.Fatalf("GlobalFlags = %+v, want %+v", gotGF, wantGF)
+	}
+	if !reflect.DeepEqual(gotRest, wantRest) {
+		t.Fatalf("rest = %v, want %v", gotRest, wantRest)
+	}
+}
+
+func TestParseLeadingRunGlobalsPreservesCommandLocalJSONFlag(t *testing.T) {
+	gotGF, gotRest, err := ParseLeadingRunGlobals([]string{"sandbox", "ls", "--json"})
+	if err != nil {
+		t.Fatalf("ParseLeadingRunGlobals() error = %v", err)
+	}
+	wantGF := GlobalFlags{JSON: true}
+	wantRest := []string{"sandbox", "ls"}
+	if !reflect.DeepEqual(gotGF, wantGF) {
+		t.Fatalf("GlobalFlags = %+v, want %+v", gotGF, wantGF)
+	}
+	if !reflect.DeepEqual(gotRest, wantRest) {
+		t.Fatalf("rest = %v, want %v", gotRest, wantRest)
+	}
+}

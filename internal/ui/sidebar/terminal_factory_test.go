@@ -37,6 +37,9 @@ func TestCreateTerminalTabUsesFactoryForCloudRuntime(t *testing.T) {
 	if created.WorkspaceID != string(ws.ID()) {
 		t.Fatalf("WorkspaceID = %q, want %q", created.WorkspaceID, ws.ID())
 	}
+	if created.Workspace != ws {
+		t.Fatalf("Workspace = %p, want %p", created.Workspace, ws)
+	}
 }
 
 func TestCreateTerminalTabFactoryError(t *testing.T) {
@@ -101,6 +104,44 @@ func TestReattachActiveTabUsesFactoryForCloudRuntime(t *testing.T) {
 	}
 	if _, ok := msg.(SidebarTerminalReattachResult); !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)
+	}
+}
+
+func TestHandleTerminalCreatedPreservesOriginalWorkspaceAcrossAsyncSwitch(t *testing.T) {
+	m := NewTerminalModel()
+	sandboxWS := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+	sandboxWS.Runtime = data.RuntimeCloudSandbox
+	localWS := data.NewWorkspace("other", "main", "main", "/repo/other", "/repo/other")
+	wsID := string(sandboxWS.ID())
+
+	m.workspace = sandboxWS
+	m.SetTerminalFactory(func(got *data.Workspace) (*pty.Terminal, error) {
+		if got != sandboxWS {
+			t.Fatalf("factory workspace = %p, want %p", got, sandboxWS)
+		}
+		return &pty.Terminal{}, nil
+	})
+
+	cmd := m.createTerminalTab(sandboxWS)
+	if cmd == nil {
+		t.Fatal("expected createTerminalTab cmd")
+	}
+	msg, ok := cmd().(SidebarTerminalCreated)
+	if !ok {
+		t.Fatalf("expected SidebarTerminalCreated, got %T", cmd())
+	}
+
+	m.workspace = localWS
+	if follow := m.handleTerminalCreated(msg); follow != nil {
+		_ = follow
+	}
+
+	tabs := m.tabsByWorkspace[wsID]
+	if len(tabs) != 1 {
+		t.Fatalf("tabs = %d, want 1", len(tabs))
+	}
+	if tabs[0].Workspace != sandboxWS {
+		t.Fatalf("tab workspace = %p, want original sandbox workspace %p", tabs[0].Workspace, sandboxWS)
 	}
 }
 

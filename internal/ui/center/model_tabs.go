@@ -100,7 +100,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 	termHeight := tm.Height
 	tabID := generateTabID()
 	if sessionName == "" {
-		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tabID))
+		sessionName = defaultSessionName(ws, string(tabID))
 	}
 
 	return func() tea.Msg {
@@ -127,7 +127,11 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 
 		// Best-effort capture of existing scrollback from the tmux pane.
 		// For newly created sessions this returns empty content (harmless no-op).
-		scrollback, _ := tmux.CapturePane(sessionName, m.getTmuxOptions())
+		captureSessionName := sessionName
+		if strings.TrimSpace(agent.Session) != "" {
+			captureSessionName = agent.Session
+		}
+		scrollback, _ := tmux.CapturePane(captureSessionName, m.getTmuxOptions())
 
 		return ptyTabCreateResult{
 			Workspace:         ws,

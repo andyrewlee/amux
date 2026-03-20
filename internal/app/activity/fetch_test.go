@@ -233,3 +233,9 @@ func TestFetchRecentlyActiveByWindow_PropagatesFetcherError(t *testing.T) {
 		t.Fatalf("expected %v, got %v", wantErr, err)
 	}
 }
+
+func TestWorkspaceIDFromSessionNameSupportsSandboxPrefix(t *testing.T) {
+	if got := WorkspaceIDFromSessionName("amux-sandbox-ws123-tab1"); got != "ws123" {
+		t.Fatalf("WorkspaceIDFromSessionName() = %q, want %q", got, "ws123")
+	}
+}

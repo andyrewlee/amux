@@ -133,7 +133,7 @@ func (a *App) installSupervisorErrorHandler() {
 
 func isCriticalExternalMsg(msg tea.Msg) bool {
 	switch msg.(type) {
-	case messages.Error, messages.SidebarPTYStopped, center.PTYStopped:
+	case messages.Error, messages.SidebarPTYStopped, messages.SandboxShellDetached, center.PTYStopped:
 		return true
 	default:
 		return false

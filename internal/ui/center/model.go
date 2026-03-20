@@ -56,6 +56,8 @@ type tmuxConfig struct {
 	ConfigPath string
 }
 
+const sandboxSessionPrefix = "amux-sandbox"
+
 func (m *Model) getTmuxOptions() tmux.Options {
 	opts := tmux.DefaultOptions()
 	if m.tmuxConfig.ServerName != "" {
@@ -65,6 +67,17 @@ func (m *Model) getTmuxOptions() tmux.Options {
 		opts.ConfigPath = m.tmuxConfig.ConfigPath
 	}
 	return opts
+}
+
+func defaultSessionName(ws *data.Workspace, suffix string) string {
+	if ws == nil {
+		return tmux.SessionName("amux", "", suffix)
+	}
+	prefix := "amux"
+	if data.NormalizeRuntime(ws.Runtime) == data.RuntimeCloudSandbox {
+		prefix = sandboxSessionPrefix
+	}
+	return tmux.SessionName(prefix, string(ws.ID()), suffix)
 }
 
 // SetInstanceID sets the tmux instance tag for sessions created by this model.

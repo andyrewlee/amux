@@ -381,6 +381,28 @@ func TestNewWithCmd_StartFailureRunsCleanup(t *testing.T) {
 	}
 }
 
+func TestNewWithCmd_NaturalExitRunsCleanup(t *testing.T) {
+	cleanupDone := make(chan struct{}, 1)
+	cmd := exec.Command("sh", "-c", "exit 0")
+
+	term, err := NewWithCmd(cmd, func() {
+		select {
+		case cleanupDone <- struct{}{}:
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatalf("NewWithCmd() error = %v", err)
+	}
+	defer term.Close()
+
+	select {
+	case <-cleanupDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected cleanup callback after natural process exit")
+	}
+}
+
 func TestTerminal_ReadEOFAfterProcessExit(t *testing.T) {
 	// "true" exits immediately; reading should eventually yield an error
 	term, err := New("true", t.TempDir(), nil)

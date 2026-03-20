@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
@@ -27,7 +28,7 @@ func (m *TerminalModel) terminalContentSize() (int, int) {
 }
 
 // HandleTerminalCreated handles the terminal tab creation message
-func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal, sessionName string) tea.Cmd {
+func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, ws *data.Workspace, term *pty.Terminal, sessionName string) tea.Cmd {
 	termWidth, termHeight := m.terminalContentSize()
 
 	ts := &TerminalState{
@@ -61,9 +62,10 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 	// ts already initialized above, just need tabs lookup
 	tabs := m.tabsByWorkspace[wsID]
 	tab := &TerminalTab{
-		ID:    tabID,
-		Name:  nextTerminalName(tabs),
-		State: ts,
+		ID:        tabID,
+		Name:      nextTerminalName(tabs),
+		Workspace: ws,
+		State:     ts,
 	}
 	m.tabsByWorkspace[wsID] = append(tabs, tab)
 
@@ -237,14 +239,21 @@ func (m *TerminalModel) markPTYReaderStopped(ts *TerminalState) {
 // SendToTerminal sends a string directly to the current terminal
 func (m *TerminalModel) SendToTerminal(s string) {
 	ts := m.getTerminal()
-	if ts != nil && ts.Terminal != nil {
-		if err := ts.Terminal.SendString(s); err != nil {
-			logging.Warn("Sidebar SendToTerminal failed: %v", err)
-			ts.mu.Lock()
-			ts.Running = false
-			ts.Detached = true
-			ts.UserDetached = false
-			ts.mu.Unlock()
-		}
+	if ts == nil {
+		return
+	}
+	ts.mu.Lock()
+	term := ts.Terminal
+	ts.mu.Unlock()
+	if term == nil {
+		return
+	}
+	if err := term.SendString(s); err != nil {
+		logging.Warn("Sidebar SendToTerminal failed: %v", err)
+		ts.mu.Lock()
+		ts.Running = false
+		ts.Detached = true
+		ts.UserDetached = false
+		ts.mu.Unlock()
 	}
 }

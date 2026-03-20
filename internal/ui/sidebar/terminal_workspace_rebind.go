@@ -16,7 +16,20 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 
 	oldID := string(previous.ID())
 	newID := string(current.ID())
-	if oldID == "" || newID == "" || oldID == newID {
+	if oldID == "" || newID == "" {
+		return nil
+	}
+	runtimeChanged := data.NormalizeRuntime(previous.Runtime) != data.NormalizeRuntime(current.Runtime)
+	if oldID == newID {
+		if m.workspace != nil && string(m.workspace.ID()) == oldID {
+			m.workspace = current
+		}
+		for _, tab := range m.tabsByWorkspace[oldID] {
+			if tab == nil {
+				continue
+			}
+			tab.Workspace = common.RebindWorkspace(current, tab.Workspace, runtimeChanged)
+		}
 		return nil
 	}
 
@@ -35,7 +48,10 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 	newTabs := m.tabsByWorkspace[newID]
 	oldActive, oldActiveOK := m.activeTabByWorkspace[oldID]
 	newActive, newActiveOK := m.activeTabByWorkspace[newID]
-	merged, migratedActive := mergeTerminalTabsByID(newTabs, oldTabs, oldActive)
+	merged, migratedActive := common.MergeByID(newTabs, oldTabs, oldActive,
+		func(t *TerminalTab) TerminalTabID { return t.ID },
+		func(t *TerminalTab) bool { return t == nil },
+	)
 
 	m.tabsByWorkspace[newID] = merged
 	delete(m.tabsByWorkspace, oldID)
@@ -68,7 +84,11 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 
 	var cmds []tea.Cmd
 	for _, tab := range merged {
-		if tab == nil || tab.State == nil {
+		if tab == nil {
+			continue
+		}
+		tab.Workspace = common.RebindWorkspace(current, tab.Workspace, runtimeChanged)
+		if tab.State == nil {
 			continue
 		}
 		ts := tab.State
@@ -85,40 +105,4 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 	}
 
 	return common.SafeBatch(cmds...)
-}
-
-func mergeTerminalTabsByID(existing, incoming []*TerminalTab, incomingActive int) ([]*TerminalTab, int) {
-	merged := make([]*TerminalTab, 0, len(existing)+len(incoming))
-	indexByID := make(map[TerminalTabID]int, len(existing)+len(incoming))
-
-	for _, tab := range existing {
-		if tab == nil {
-			continue
-		}
-		if _, ok := indexByID[tab.ID]; ok {
-			continue
-		}
-		indexByID[tab.ID] = len(merged)
-		merged = append(merged, tab)
-	}
-
-	migratedActive := -1
-	for i, tab := range incoming {
-		if tab == nil {
-			continue
-		}
-		if idx, ok := indexByID[tab.ID]; ok {
-			if i == incomingActive {
-				migratedActive = idx
-			}
-			continue
-		}
-		indexByID[tab.ID] = len(merged)
-		merged = append(merged, tab)
-		if i == incomingActive {
-			migratedActive = len(merged) - 1
-		}
-	}
-
-	return merged, migratedActive
 }

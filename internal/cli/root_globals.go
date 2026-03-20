@@ -12,6 +12,10 @@ import (
 // It always consumes global flags in the prefix, then attempts to consume
 // additional global flags after the command path while preserving values of
 // command-local flags that require arguments (for example: `agent send --text`).
+//
+// Note: this function does not handle "--" (double-dash) argument terminators.
+// Callers that need "--" support should strip it before calling, as
+// cobraPreflightArgs (cli.go) already does.
 func ParseGlobalFlags(args []string) (GlobalFlags, []string, error) {
 	var gf GlobalFlags
 
@@ -84,6 +88,39 @@ func ParseGlobalFlags(args []string) (GlobalFlags, []string, error) {
 		return gf, nil, nil
 	}
 	return gf, filtered, nil
+}
+
+// ParseLeadingGlobalFlags extracts only the leading global flags prefix and
+// leaves the remaining argv untouched.
+func ParseLeadingGlobalFlags(args []string) (GlobalFlags, []string, error) {
+	var gf GlobalFlags
+	i := 0
+	for i < len(args) {
+		consumed, next, err := parseGlobalFlagAt(args, i, &gf)
+		if err != nil {
+			return gf, nil, err
+		}
+		if !consumed {
+			break
+		}
+		i = next
+	}
+	return gf, append([]string(nil), args[i:]...), nil
+}
+
+// ParseLeadingRunGlobals extracts amux globals that should be removed before
+// dispatching to Cobra while preserving any passthrough tail after "--".
+func ParseLeadingRunGlobals(args []string) (GlobalFlags, []string, error) {
+	for i, arg := range args {
+		if arg == "--" {
+			gf, rest, err := ParseGlobalFlags(args[:i])
+			if err != nil {
+				return gf, nil, err
+			}
+			return gf, append(rest, args[i:]...), nil
+		}
+	}
+	return ParseGlobalFlags(args)
 }
 
 func parseGlobalFlagAt(args []string, i int, gf *GlobalFlags) (bool, int, error) {

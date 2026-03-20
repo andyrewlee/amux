@@ -11,10 +11,21 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
+type sandboxRuntimeManager interface {
+	CreateAgent(wt *data.Workspace, agentType pty.AgentType, rows, cols uint16) (*pty.Agent, error)
+	CreateAgentWithTags(wt *data.Workspace, agentType pty.AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*pty.Agent, error)
+	CreateViewer(wt *data.Workspace, command string, rows, cols uint16) (*pty.Agent, error)
+	CreateViewerWithTags(wt *data.Workspace, command, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*pty.Agent, error)
+	CreateShell(wt *data.Workspace) (*pty.Terminal, error)
+	SyncToLocal(wt *data.Workspace) error
+	SyncAllToLocal() error
+	SetTmuxOptions(opts tmux.Options)
+}
+
 // RuntimeAgentProvider routes agent creation based on workspace runtime.
 type RuntimeAgentProvider struct {
 	local   *pty.AgentManager
-	sandbox *SandboxManager
+	sandbox sandboxRuntimeManager
 
 	mu            sync.Mutex
 	sandboxAgents map[*pty.Agent]struct{}
@@ -41,7 +52,7 @@ func (p *RuntimeAgentProvider) CreateAgent(wt *data.Workspace, agentType pty.Age
 
 func (p *RuntimeAgentProvider) CreateAgentWithTags(wt *data.Workspace, agentType pty.AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*pty.Agent, error) {
 	if wt != nil && data.NormalizeRuntime(wt.Runtime) == data.RuntimeCloudSandbox {
-		agent, err := p.sandbox.CreateAgent(wt, agentType, rows, cols)
+		agent, err := p.sandbox.CreateAgentWithTags(wt, agentType, sessionName, rows, cols, tags)
 		if err == nil {
 			p.trackSandboxAgent(agent)
 		}
@@ -63,7 +74,7 @@ func (p *RuntimeAgentProvider) CreateViewer(wt *data.Workspace, command string, 
 
 func (p *RuntimeAgentProvider) CreateViewerWithTags(wt *data.Workspace, command, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*pty.Agent, error) {
 	if wt != nil && data.NormalizeRuntime(wt.Runtime) == data.RuntimeCloudSandbox {
-		agent, err := p.sandbox.CreateViewer(wt, command, rows, cols)
+		agent, err := p.sandbox.CreateViewerWithTags(wt, command, sessionName, rows, cols, tags)
 		if err == nil {
 			p.trackSandboxAgent(agent)
 		}
@@ -110,6 +121,15 @@ func (p *RuntimeAgentProvider) CreateTerminalForWorkspace(wt *data.Workspace) (*
 		shell = "/bin/bash"
 	}
 	return pty.New(shell, wt.Root, nil)
+}
+
+func (p *RuntimeAgentProvider) SetTmuxOptions(opts tmux.Options) {
+	if p.local != nil {
+		p.local.SetTmuxOptions(opts)
+	}
+	if p.sandbox != nil {
+		p.sandbox.SetTmuxOptions(opts)
+	}
 }
 
 func (p *RuntimeAgentProvider) trackSandboxAgent(agent *pty.Agent) {

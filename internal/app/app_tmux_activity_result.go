@@ -32,6 +32,9 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 			cmds = append(cmds, spinnerCmd)
 		}
 	}
+	if retryCmds := a.drainPendingWorkspaceTmuxRebinds(); len(retryCmds) > 0 {
+		cmds = append(cmds, retryCmds...)
+	}
 
 	if a.tmuxActivityRescanPending && a.tmuxAvailable {
 		a.tmuxActivityRescanPending = false

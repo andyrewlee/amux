@@ -7,6 +7,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/sandbox"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
 
@@ -171,5 +172,230 @@ func TestHandleProjectsLoadedRebindsActiveWorkspaceByCanonicalPathsOnIDMiss(t *t
 	}
 	if app.showWelcome {
 		t.Fatal("expected showWelcome to remain false after canonical path rebind")
+	}
+}
+
+func TestHandleProjectsLoadedSyncsWhenWorkspaceRebindLeavesSandboxRuntime(t *testing.T) {
+	repo := t.TempDir()
+	root := filepath.Join(repo, "feature")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	oldWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
+	oldWS.Runtime = data.RuntimeCloudSandbox
+	project := data.NewProject(repo)
+	project.AddWorkspace(*oldWS)
+
+	manager := NewSandboxManager(nil)
+	manager.storeSession(&sandboxSession{
+		sandbox:       sandbox.NewMockRemoteSandbox("sb-runtime-flip"),
+		worktreeID:    sandbox.ComputeWorktreeID(root),
+		workspaceRoot: root,
+		workspacePath: "/home/daytona/.amux/workspaces/runtime-flip/repo",
+		needsSyncDown: true,
+	})
+
+	synced := false
+	manager.downloadWorkspace = func(computer sandbox.RemoteSandbox, opts sandbox.SyncOptions, verbose bool) error {
+		synced = true
+		if opts.Cwd != root {
+			t.Fatalf("download Cwd = %q, want %q", opts.Cwd, root)
+		}
+		return nil
+	}
+
+	app := &App{
+		dashboard:       dashboard.New(),
+		projects:        []data.Project{*project},
+		activeWorkspace: &project.Workspaces[0],
+		activeProject:   project,
+		showWelcome:     false,
+		sandboxManager:  manager,
+	}
+
+	newWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
+	newWS.Runtime = data.RuntimeLocalWorktree
+	newProject := data.NewProject(repo)
+	newProject.AddWorkspace(*newWS)
+
+	cmds := app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*newProject}})
+	for _, cmd := range cmds {
+		if cmd != nil {
+			_ = cmd()
+		}
+	}
+
+	if !synced {
+		t.Fatal("expected runtime rebind to sync sandbox edits down to local")
+	}
+}
+
+func TestHandleProjectsLoadedAvoidsDuplicateRecoveredSandboxSyncForActiveRebind(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	repo := t.TempDir()
+	root := filepath.Join(repo, "feature")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	oldWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
+	oldWS.Runtime = data.RuntimeCloudSandbox
+	project := data.NewProject(repo)
+	project.AddWorkspace(*oldWS)
+
+	needsSync := true
+	if err := sandbox.SaveSandboxMeta(root, "fake", sandbox.SandboxMeta{
+		SandboxID:     "sb-runtime-flip-persisted",
+		Agent:         sandbox.AgentShell,
+		Provider:      "fake",
+		WorktreeID:    sandbox.ComputeWorktreeID(root),
+		NeedsSyncDown: &needsSync,
+		WorkspaceIDs:  []string{string(oldWS.ID())},
+	}); err != nil {
+		t.Fatalf("SaveSandboxMeta() error = %v", err)
+	}
+
+	manager := NewSandboxManager(nil)
+	manager.storeSession(&sandboxSession{
+		sandbox:       sandbox.NewMockRemoteSandbox("sb-runtime-flip-persisted"),
+		worktreeID:    sandbox.ComputeWorktreeID(root),
+		workspaceRoot: root,
+		workspacePath: "/home/daytona/.amux/workspaces/runtime-flip/repo",
+		needsSyncDown: true,
+	})
+
+	downloadCalls := 0
+	manager.downloadWorkspace = func(computer sandbox.RemoteSandbox, opts sandbox.SyncOptions, verbose bool) error {
+		downloadCalls++
+		if opts.Cwd != root {
+			t.Fatalf("download Cwd = %q, want %q", opts.Cwd, root)
+		}
+		return nil
+	}
+
+	app := &App{
+		dashboard:       dashboard.New(),
+		projects:        []data.Project{*project},
+		activeWorkspace: &project.Workspaces[0],
+		activeProject:   project,
+		showWelcome:     false,
+		sandboxManager:  manager,
+	}
+
+	newWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
+	newWS.Runtime = data.RuntimeLocalWorktree
+	newProject := data.NewProject(repo)
+	newProject.AddWorkspace(*newWS)
+
+	cmds := app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*newProject}})
+	for _, cmd := range cmds {
+		if cmd == nil {
+			continue
+		}
+		if msg, ok := cmd().(sandboxSyncResultMsg); ok {
+			_ = app.handleSandboxSyncResult(msg)
+		}
+	}
+
+	if downloadCalls != 1 {
+		t.Fatalf("downloadWorkspace() calls = %d, want 1 without duplicate recovered sync", downloadCalls)
+	}
+}
+
+func TestRebindActiveSelectionPersistsSandboxSyncTargetBeforeAsyncRuntimeFlipSync(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	base := t.TempDir()
+	absRepo := filepath.Join(base, "repo")
+	absRoot := filepath.Join(base, "workspaces", "repo", "feature")
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", absRoot, err)
+	}
+	relRepo, err := filepath.Rel(wd, absRepo)
+	if err != nil {
+		t.Fatalf("Rel(repo) error = %v", err)
+	}
+	relRoot, err := filepath.Rel(wd, absRoot)
+	if err != nil {
+		t.Fatalf("Rel(root) error = %v", err)
+	}
+
+	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
+	oldWS.Runtime = data.RuntimeCloudSandbox
+	project := data.NewProject(relRepo)
+	project.AddWorkspace(*oldWS)
+
+	newWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
+	newWS.Runtime = data.RuntimeLocalWorktree
+	newProject := data.NewProject(absRepo)
+	newProject.AddWorkspace(*newWS)
+
+	needsSync := true
+	if err := sandbox.SaveSandboxMeta(oldWS.Root, "fake", sandbox.SandboxMeta{
+		SandboxID:     "sb-runtime-flip-persist-before-queue",
+		Agent:         sandbox.AgentShell,
+		Provider:      "fake",
+		WorktreeID:    sandbox.ComputeWorktreeID(oldWS.Root),
+		NeedsSyncDown: &needsSync,
+		WorkspaceIDs:  []string{string(oldWS.ID())},
+	}); err != nil {
+		t.Fatalf("SaveSandboxMeta() error = %v", err)
+	}
+
+	manager := NewSandboxManager(nil)
+	manager.storeSession(&sandboxSession{
+		sandbox:            sandbox.NewMockRemoteSandbox("sb-runtime-flip-persist-before-queue"),
+		providerName:       "fake",
+		worktreeID:         sandbox.ComputeWorktreeID(oldWS.Root),
+		workspaceID:        oldWS.ID(),
+		workspaceIDAliases: map[string]struct{}{string(oldWS.ID()): {}},
+		workspaceRoot:      oldWS.Root,
+		workspaceRepo:      oldWS.Repo,
+		workspacePath:      "/remote/ws",
+		needsSyncDown:      true,
+	})
+	manager.downloadWorkspace = func(computer sandbox.RemoteSandbox, opts sandbox.SyncOptions, verbose bool) error {
+		t.Fatal("unexpected sync execution during persistence-only regression check")
+		return nil
+	}
+
+	app := &App{
+		dashboard:       dashboard.New(),
+		projects:        []data.Project{*newProject},
+		activeWorkspace: &project.Workspaces[0],
+		activeProject:   project,
+		showWelcome:     false,
+		sandboxManager:  manager,
+	}
+
+	cmds, _ := app.rebindActiveSelectionWithRecoverySkips()
+	if len(cmds) == 0 {
+		t.Fatal("expected runtime flip to queue a sandbox sync command")
+	}
+
+	meta, err := sandbox.LoadSandboxMeta(newWS.Root, "fake")
+	if err != nil {
+		t.Fatalf("LoadSandboxMeta(new) error = %v", err)
+	}
+	if meta == nil || meta.SandboxID != "sb-runtime-flip-persist-before-queue" {
+		t.Fatalf("new metadata = %#v, want persisted sync target metadata", meta)
+	}
+	foundNewID := false
+	for _, id := range meta.WorkspaceIDs {
+		if id == string(newWS.ID()) {
+			foundNewID = true
+			break
+		}
+	}
+	if !foundNewID {
+		t.Fatalf("expected persisted metadata to include rebound workspace ID %q, got %v", newWS.ID(), meta.WorkspaceIDs)
 	}
 }
