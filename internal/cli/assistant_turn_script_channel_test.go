@@ -153,7 +153,7 @@ printf '%s' '{"ok":true,"mode":"run","status":"idle","summary":"Sibling step use
 		t.Fatalf("quick_action_map missing or wrong type: %T", payload["quick_action_map"])
 	}
 	statusCmd, _ := quickActionMap["qa:status"].(string)
-	if !strings.HasPrefix(statusCmd, "skills/amux/scripts/assistant-step.sh send --agent agent-sib") {
+	if !strings.Contains(statusCmd, "assistant-step.sh send --agent agent-sib") {
 		t.Fatalf("status quick action = %q, expected assistant-step command", statusCmd)
 	}
 }

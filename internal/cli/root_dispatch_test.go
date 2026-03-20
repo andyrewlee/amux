@@ -151,6 +151,98 @@ func TestRouteTerminalJSON(t *testing.T) {
 	}
 }
 
+func TestRouteAssistantJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantCode string
+		wantMsg  string
+	}{
+		{
+			name:     "empty args",
+			args:     nil,
+			wantCode: "usage_error",
+			wantMsg:  "Usage: amux assistant",
+		},
+		{
+			name:     "unknown subcommand",
+			args:     []string{"bogus"},
+			wantCode: "unknown_command",
+			wantMsg:  "Unknown assistant subcommand: bogus",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var w bytes.Buffer
+			var wErr bytes.Buffer
+			gf := GlobalFlags{JSON: true}
+			code := routeAssistant(&w, &wErr, gf, tt.args, "test")
+			if code != ExitUsage {
+				t.Fatalf("exit code = %d, want %d", code, ExitUsage)
+			}
+			var env Envelope
+			if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+				t.Fatalf("failed to parse JSON output: %v\nraw: %s", err, w.String())
+			}
+			if env.OK {
+				t.Fatalf("expected ok=false")
+			}
+			if env.Error.Code != tt.wantCode {
+				t.Errorf("error code = %q, want %q", env.Error.Code, tt.wantCode)
+			}
+			if !strings.Contains(env.Error.Message, tt.wantMsg) {
+				t.Errorf("error message = %q, want to contain %q", env.Error.Message, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func TestRouteDevJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantCode string
+		wantMsg  string
+	}{
+		{
+			name:     "empty args",
+			args:     nil,
+			wantCode: "usage_error",
+			wantMsg:  "Usage: amux dev",
+		},
+		{
+			name:     "unknown subcommand",
+			args:     []string{"bogus"},
+			wantCode: "unknown_command",
+			wantMsg:  "Unknown dev subcommand: bogus",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var w bytes.Buffer
+			var wErr bytes.Buffer
+			gf := GlobalFlags{JSON: true}
+			code := routeDev(&w, &wErr, gf, tt.args, "test")
+			if code != ExitUsage {
+				t.Fatalf("exit code = %d, want %d", code, ExitUsage)
+			}
+			var env Envelope
+			if err := json.Unmarshal(w.Bytes(), &env); err != nil {
+				t.Fatalf("failed to parse JSON output: %v\nraw: %s", err, w.String())
+			}
+			if env.OK {
+				t.Fatalf("expected ok=false")
+			}
+			if env.Error.Code != tt.wantCode {
+				t.Errorf("error code = %q, want %q", env.Error.Code, tt.wantCode)
+			}
+			if !strings.Contains(env.Error.Message, tt.wantMsg) {
+				t.Errorf("error message = %q, want to contain %q", env.Error.Message, tt.wantMsg)
+			}
+		})
+	}
+}
+
 func TestCommandFromArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -162,6 +254,16 @@ func TestCommandFromArgs(t *testing.T) {
 		{name: "agent send", args: []string{"agent", "send", "s"}, want: "agent send"},
 		{name: "agent job status", args: []string{"agent", "job", "status", "id"}, want: "agent job status"},
 		{name: "agent job wait", args: []string{"agent", "job", "wait", "id"}, want: "agent job wait"},
+		{name: "assistant step", args: []string{"assistant", "step", "run"}, want: "assistant step"},
+		{name: "assistant turn", args: []string{"assistant", "turn", "run"}, want: "assistant turn"},
+		{name: "assistant dx", args: []string{"assistant", "dx", "status"}, want: "assistant dx"},
+		{name: "assistant present", args: []string{"assistant", "present"}, want: "assistant present"},
+		{name: "assistant dogfood", args: []string{"assistant", "dogfood", "--repo", "/tmp/repo"}, want: "assistant dogfood"},
+		{name: "assistant poll-agent", args: []string{"assistant", "poll-agent", "--session", "sess-1"}, want: "assistant poll-agent"},
+		{name: "assistant wait-for-idle", args: []string{"assistant", "wait-for-idle", "--session", "sess-1"}, want: "assistant wait-for-idle"},
+		{name: "assistant format-capture", args: []string{"assistant", "format-capture", "--trim"}, want: "assistant format-capture"},
+		{name: "dev perf-compare", args: []string{"dev", "perf-compare", "--baseline-file", "x"}, want: "dev perf-compare"},
+		{name: "dev openclaw-sync", args: []string{"dev", "openclaw-sync", "--skill-src", "x"}, want: "dev openclaw-sync"},
 		{name: "workspace list", args: []string{"workspace", "list"}, want: "workspace list"},
 		{name: "terminal logs", args: []string{"terminal", "logs", "--workspace", "abc"}, want: "terminal logs"},
 	}

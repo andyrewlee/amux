@@ -33,7 +33,7 @@ func ParseGlobalFlags(args []string) (GlobalFlags, []string, error) {
 		return gf, nil, nil
 	}
 
-	pathTokenIndexes, localValueFlags, pathKey, err := commandPathParseRules(rest)
+	pathTokenIndexes, localValueFlags, localSwitchFlags, pathKey, err := commandPathParseRules(rest)
 	if err != nil {
 		return gf, nil, err
 	}
@@ -63,8 +63,15 @@ func ParseGlobalFlags(args []string) (GlobalFlags, []string, error) {
 				break
 			}
 			if !strings.Contains(arg, "=") {
+				if localFlagPromotesTrailingJSON(pathKey, arg, rest, j) {
+					continue
+				}
 				expectLocalValue = true
 			}
+			continue
+		}
+		if localFlagHasNoValue(localSwitchFlags, arg) || assistantDXProjectAddLocalCWD(pathKey, rest, j, arg) {
+			filtered = append(filtered, arg)
 			continue
 		}
 
@@ -170,13 +177,13 @@ func parseGlobalFlagAt(args []string, i int, gf *GlobalFlags) (bool, int, error)
 	return false, i + 1, nil
 }
 
-func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}, string, error) {
+func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}, map[string]struct{}, string, error) {
 	pathTokens, pathIndexes, err := parseCommandPathTokens(args)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, nil, "", err
 	}
 	if len(pathTokens) == 0 {
-		return nil, nil, "", nil
+		return nil, nil, nil, "", nil
 	}
 
 	tokenIndexSet := make(map[int]struct{}, len(pathIndexes))
@@ -185,7 +192,7 @@ func commandPathParseRules(args []string) (map[int]struct{}, map[string]struct{}
 	}
 
 	pathKey := strings.Join(pathTokens, " ")
-	return tokenIndexSet, localFlagsRequiringValue(pathKey), pathKey, nil
+	return tokenIndexSet, localFlagsRequiringValue(pathKey), localFlagsWithoutValue(pathKey), pathKey, nil
 }
 
 func nextCommandToken(args []string, start int) (token string, tokenIndex, next int, ok bool, err error) {
@@ -223,6 +230,60 @@ func localFlagRequiresValue(localValueFlags map[string]struct{}, arg string) boo
 	}
 	_, ok := localValueFlags[name]
 	return ok
+}
+
+func localFlagPromotesTrailingJSON(pathKey, arg string, rest []string, index int) bool {
+	if index+1 >= len(rest) || rest[index+1] != "--json" {
+		return false
+	}
+	if localFlagConsumesRemainder(pathKey, arg) {
+		return false
+	}
+	return !localFlagAllowsFlagLikeValue(pathKey, arg)
+}
+
+func localFlagAllowsFlagLikeValue(pathKey, arg string) bool {
+	name := arg
+	if idx := strings.Index(name, "="); idx >= 0 {
+		name = name[:idx]
+	}
+
+	switch pathKey {
+	case "agent send":
+		return name == "--text"
+	case "assistant step", "assistant turn":
+		return name == "--prompt" || name == "--text"
+	case "assistant dx":
+		return name == "--prompt" || name == "--text" || name == "--task" || name == "--message"
+	default:
+		return false
+	}
+}
+
+func localFlagHasNoValue(localSwitchFlags map[string]struct{}, arg string) bool {
+	if len(localSwitchFlags) == 0 || !strings.HasPrefix(arg, "-") {
+		return false
+	}
+	if strings.Contains(arg, "=") {
+		return false
+	}
+	_, ok := localSwitchFlags[arg]
+	return ok
+}
+
+func assistantDXProjectAddLocalCWD(pathKey string, rest []string, index int, arg string) bool {
+	if pathKey != "assistant dx" || arg != "--cwd" {
+		return false
+	}
+	first, _, next, ok, err := nextCommandToken(rest, 2)
+	if err != nil || !ok || first != "project" {
+		return false
+	}
+	second, secondIndex, _, ok, err := nextCommandToken(rest, next)
+	if err != nil || !ok || second != "add" {
+		return false
+	}
+	return index > secondIndex
 }
 
 // localFlagConsumesRemainder returns true when the flag captures all remaining

@@ -2,7 +2,7 @@
 name: amux
 description: Orchestrate AI coding agents via amux with managed workspaces, git worktrees, and async job queues. Use for coding-agent tasks (review, implement, fix, refactor, tests) and when users mention workspace + amux + assistant (codex/claude/droid/etc).
 metadata:
-  { "assistant": { "emoji": "🔀", "os": ["darwin", "linux"], "requires": { "bins": ["amux", "tmux", "jq", "bash", "git"] } } }
+  { "assistant": { "emoji": "🔀", "os": ["darwin", "linux"], "requires": { "bins": ["amux", "tmux", "bash", "git"] } } }
 ---
 
 # amux Skill

@@ -33,6 +33,18 @@ func TestParseGlobalFlags(t *testing.T) {
 			wantRest: []string{"agent", "send", "s", "--text", "--json"},
 		},
 		{
+			name:     "assistant step preserves literal json text payload",
+			args:     []string{"assistant", "step", "send", "--agent", "agent-1", "--text", "--json"},
+			wantGF:   GlobalFlags{},
+			wantRest: []string{"assistant", "step", "send", "--agent", "agent-1", "--text", "--json"},
+		},
+		{
+			name:     "assistant dx guide preserves literal json task payload",
+			args:     []string{"assistant", "dx", "guide", "--task", "--json"},
+			wantGF:   GlobalFlags{},
+			wantRest: []string{"assistant", "dx", "guide", "--task", "--json"},
+		},
+		{
 			name:     "global parsed after local value flag",
 			args:     []string{"agent", "send", "s", "--text", "hello", "--json"},
 			wantGF:   GlobalFlags{JSON: true},
@@ -161,6 +173,24 @@ func TestParseGlobalFlags(t *testing.T) {
 			args:     []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text=npm", "--cwd"},
 			wantGF:   GlobalFlags{},
 			wantRest: []string{"terminal", "run", "--workspace", "0123456789abcdef", "--text=npm", "--cwd"},
+		},
+		{
+			name:     "assistant dx project add preserves local cwd flag",
+			args:     []string{"assistant", "dx", "project", "add", "--cwd", "--json"},
+			wantGF:   GlobalFlags{JSON: true},
+			wantRest: []string{"assistant", "dx", "project", "add", "--cwd"},
+		},
+		{
+			name:     "assistant dx project add preserves local cwd flag with interleaved global",
+			args:     []string{"assistant", "dx", "--json", "project", "add", "--cwd"},
+			wantGF:   GlobalFlags{JSON: true},
+			wantRest: []string{"assistant", "dx", "project", "add", "--cwd"},
+		},
+		{
+			name:     "assistant dx status extracts postfix cwd global",
+			args:     []string{"assistant", "dx", "status", "--cwd", "/tmp/repo", "--json"},
+			wantGF:   GlobalFlags{JSON: true, Cwd: "/tmp/repo"},
+			wantRest: []string{"assistant", "dx", "status"},
 		},
 		{
 			name:     "doctor tmux older-than preserved",

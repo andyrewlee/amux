@@ -14,9 +14,11 @@ func TestShellQuoteCommandValue(t *testing.T) {
 		want string
 	}{
 		{name: "empty", in: "", want: "''"},
-		{name: "plain", in: "codex", want: "'codex'"},
+		{name: "safe_plain", in: "codex", want: "codex"},
+		{name: "safe_path", in: "/usr/local/bin/amux", want: "/usr/local/bin/amux"},
 		{name: "metacharacters", in: "$HOME && $(uname) `id`", want: "'$HOME && $(uname) `id`'"},
 		{name: "single quote", in: "O'Reilly", want: `'O'"'"'Reilly'`},
+		{name: "space", in: "hello world", want: "'hello world'"},
 	}
 
 	for _, tt := range tests {

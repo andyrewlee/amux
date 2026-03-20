@@ -16,7 +16,7 @@ func parseErrorWantsJSON(args []string, gf GlobalFlags) bool {
 		consumed, next, _ := parseGlobalFlagAt(args, i, nil)
 		if !consumed {
 			rest := args[i:]
-			pathTokenIndexes, localValueFlags, pathKey := commandPathParseRulesForParseError(rest)
+			pathTokenIndexes, localValueFlags, localSwitchFlags, pathKey := commandPathParseRulesForParseError(rest)
 			expectLocalValue := false
 			for j := 0; j < len(rest); j++ {
 				restArg := rest[j]
@@ -34,6 +34,9 @@ func parseErrorWantsJSON(args []string, gf GlobalFlags) bool {
 					if !strings.Contains(restArg, "=") {
 						expectLocalValue = true
 					}
+					continue
+				}
+				if localFlagHasNoValue(localSwitchFlags, restArg) {
 					continue
 				}
 				if restArg == "--json" {
@@ -58,12 +61,12 @@ func parseErrorWantsJSON(args []string, gf GlobalFlags) bool {
 	return false
 }
 
-func commandPathParseRulesForParseError(args []string) (map[int]struct{}, map[string]struct{}, string) {
+func commandPathParseRulesForParseError(args []string) (map[int]struct{}, map[string]struct{}, map[string]struct{}, string) {
 	if len(args) == 0 {
-		return nil, nil, ""
+		return nil, nil, nil, ""
 	}
 	if strings.HasPrefix(args[0], "-") {
-		return nil, nil, ""
+		return nil, nil, nil, ""
 	}
 
 	pathTokens := []string{args[0]}
@@ -71,7 +74,7 @@ func commandPathParseRulesForParseError(args []string) (map[int]struct{}, map[st
 
 	next := 1
 	switch args[0] {
-	case "workspace", "logs", "agent", "session", "project", "terminal":
+	case "workspace", "logs", "agent", "session", "project", "terminal", "assistant", "dev":
 		token, idx, following, ok := nextCommandTokenForParseError(args, next)
 		if ok {
 			pathTokens = append(pathTokens, token)
@@ -93,7 +96,7 @@ func commandPathParseRulesForParseError(args []string) (map[int]struct{}, map[st
 		tokenIndexSet[idx] = struct{}{}
 	}
 	pathKey := strings.Join(pathTokens, " ")
-	return tokenIndexSet, localFlagsRequiringValue(pathKey), pathKey
+	return tokenIndexSet, localFlagsRequiringValue(pathKey), localFlagsWithoutValue(pathKey), pathKey
 }
 
 func nextCommandTokenForParseError(args []string, start int) (token string, tokenIndex, next int, ok bool) {

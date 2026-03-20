@@ -79,6 +79,10 @@ func Run(args []string, version, commit, date string) int {
 		return routeProject(w, wErr, gf, cmdArgs, version)
 	case "task":
 		return routeTask(w, wErr, gf, cmdArgs, version)
+	case "dev":
+		return routeDev(w, wErr, gf, cmdArgs, version)
+	case "assistant":
+		return routeAssistant(w, wErr, gf, cmdArgs, version)
 	case "version":
 		if gf.JSON {
 			PrintJSON(w, map[string]string{
@@ -196,6 +200,16 @@ Commands:
   agent watch         Watch agent output (NDJSON stream)
   task start          Start a bounded assistant task run
   task status         Show active assistant task status
+  dev perf-compare    Compare harness p95 against perf baselines
+  dev openclaw-sync   Sync the OpenClaw amux skill into configured workspaces
+  assistant step      Internal assistant-step compatibility command
+  assistant turn      Internal assistant-turn compatibility command
+  assistant dx        Internal assistant-dx compatibility command
+  assistant present   Internal assistant-present compatibility command
+  assistant dogfood   Internal assistant-dogfood compatibility command
+  assistant poll-agent Internal poll-agent compatibility command
+  assistant wait-for-idle Internal wait-for-idle compatibility command
+  assistant format-capture Internal format-capture compatibility command
   agent job status    Get queued send job status
   agent job cancel    Cancel queued send job (pending only)
   agent job wait      Wait for queued send job completion

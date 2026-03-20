@@ -64,3 +64,51 @@ func TestRunParseErrorTerminalTextValueJSONTokenDoesNotForceJSON(t *testing.T) {
 		t.Fatalf("expected parse error on stderr, got %q", stderr)
 	}
 }
+
+func TestRunParseErrorAssistantCommandUsesJSONForTrailingJSONFlag(t *testing.T) {
+	code, stdout, stderr := runWithCapturedStdIO(
+		t,
+		[]string{"assistant", "wait-for-idle", "--session", "sess-1", "--timeout", "--json"},
+	)
+	if code != ExitUsage {
+		t.Fatalf("Run() code = %d, want %d", code, ExitUsage)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected empty stderr in JSON mode, got %q", stderr)
+	}
+
+	var env Envelope
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, stdout)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "usage_error" {
+		t.Fatalf("expected usage_error, got %#v", env.Error)
+	}
+}
+
+func TestRunParseErrorDevCommandUsesJSONForTrailingJSONFlag(t *testing.T) {
+	code, stdout, stderr := runWithCapturedStdIO(
+		t,
+		[]string{"dev", "openclaw-sync", "--skill-src", "--json"},
+	)
+	if code != ExitUsage {
+		t.Fatalf("Run() code = %d, want %d", code, ExitUsage)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected empty stderr in JSON mode, got %q", stderr)
+	}
+
+	var env Envelope
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nraw: %s", err, stdout)
+	}
+	if env.OK {
+		t.Fatalf("expected ok=false")
+	}
+	if env.Error == nil || env.Error.Code != "usage_error" {
+		t.Fatalf("expected usage_error, got %#v", env.Error)
+	}
+}

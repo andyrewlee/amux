@@ -259,7 +259,7 @@ exit 2
 		t.Fatalf("decode json: %v\nraw: %s", err, string(out))
 	}
 	suggested, _ := payload["suggested_command"].(string)
-	if !strings.HasPrefix(suggested, "skills/amux/scripts/assistant-step.sh send --agent agent-abs") {
-		t.Fatalf("suggested_command = %q, want assistant-step command prefix", suggested)
+	if !strings.Contains(suggested, "assistant-step.sh send --agent agent-abs") {
+		t.Fatalf("suggested_command = %q, want assistant-step command", suggested)
 	}
 }

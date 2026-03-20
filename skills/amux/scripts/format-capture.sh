@@ -1,61 +1,48 @@
 #!/usr/bin/env bash
-# format-capture.sh — Strip ANSI escape codes and format terminal output.
-#
-# Usage: format-capture.sh [--strip-ansi] [--last-answer] [--trim]
-#
-# Reads from stdin. Options:
-#   --strip-ansi    Remove ANSI escape sequences (default: on)
-#   --last-answer   Extract only the last answer block (heuristic: text after last prompt)
-#   --trim          Trim leading/trailing blank lines
-#
-# Example:
-#   amux --json agent capture <session> | jq -r '.data.content' | format-capture.sh --strip-ansi --trim
+# format-capture.sh — compatibility wrapper for `amux assistant format-capture`.
 
 set -euo pipefail
 
-STRIP_ANSI=true
-LAST_ANSWER=false
-TRIM=false
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --strip-ansi)   STRIP_ANSI=true; shift ;;
-    --last-answer)  LAST_ANSWER=true; shift ;;
-    --trim)         TRIM=true; shift ;;
-    *)              echo "Unknown flag: $1" >&2; exit 2 ;;
-  esac
-done
-
-input=$(cat)
-
-# Strip ANSI escape codes
-if [[ "$STRIP_ANSI" == "true" ]]; then
-  # Remove all ANSI escape sequences: CSI (ESC[), OSC (ESC]), and simple ESC sequences
-  input=$(echo "$input" | sed \
-    -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' \
-    -e 's/\x1b\][^\x07]*\x07//g' \
-    -e 's/\x1b\][^\x1b]*\x1b\\//g' \
-    -e 's/\x1b[()][0-9A-B]//g' \
-    -e 's/\x1b[=>]//g' \
-    -e 's/\r//g')
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-$0}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" >/dev/null 2>&1 && pwd -P)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." >/dev/null 2>&1 && pwd -P)"
+ORIG_PWD="$(pwd -P)"
+AMUX_BIN_WAS_EXPLICIT=false
+if [[ -n "${AMUX_BIN:-}" ]]; then
+  AMUX_BIN_WAS_EXPLICIT=true
 fi
 
-# Extract last answer block
-if [[ "$LAST_ANSWER" == "true" ]]; then
-  # Heuristic: look for common prompt patterns and take text after the last one
-  # Matches: $, >, >>>, %, #, claude>, and similar prompts
-  last_prompt_line=$(echo "$input" | grep -n '^\([$>%#]\|>>>\|.*[>$#%] \)' | tail -1 | cut -d: -f1 || echo "")
-  if [[ -n "$last_prompt_line" ]]; then
-    total_lines=$(echo "$input" | wc -l)
-    if [[ $last_prompt_line -lt $total_lines ]]; then
-      input=$(echo "$input" | tail -n +"$((last_prompt_line + 1))")
+# shellcheck source=lib/wrapper.sh
+source "$SCRIPT_DIR/lib/wrapper.sh"
+amux_discover_bin
+
+run_native_from_amux() {
+  exec "${AMUX_BIN:-amux}" assistant format-capture "$@"
+}
+
+run_native_from_checkout() {
+  amux_run_from_checkout "$REPO_ROOT" "$ORIG_PWD" "assistant format-capture" \
+    -- "$@"
+}
+
+run_native() {
+  if [[ -n "${AMUX_ASSISTANT_NATIVE_BIN:-}" ]]; then
+    exec "$AMUX_ASSISTANT_NATIVE_BIN" --cwd "$ORIG_PWD" assistant format-capture "$@"
+  fi
+  if [[ "$AMUX_BIN_WAS_EXPLICIT" == "true" ]]; then
+    exec "${AMUX_BIN:-amux}" assistant format-capture "$@"
+  fi
+  if command -v go >/dev/null 2>&1 && [[ -f "$REPO_ROOT/go.mod" && -d "$REPO_ROOT/cmd/amux" ]]; then
+    local status=0
+    run_native_from_checkout "$@" || status=$?
+    if [[ "$status" -eq 0 ]]; then
+      return 0
+    fi
+    if [[ "$status" -ne 97 ]]; then
+      return "$status"
     fi
   fi
-fi
+  run_native_from_amux "$@"
+}
 
-# Trim leading/trailing blank lines
-if [[ "$TRIM" == "true" ]]; then
-  input=$(echo "$input" | sed '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
-fi
-
-echo "$input"
+run_native "$@"

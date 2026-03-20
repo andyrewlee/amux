@@ -9,6 +9,7 @@ type commandPathPattern struct {
 
 type commandFlagSpec struct {
 	valueFlags     map[string]struct{}
+	switchFlags    map[string]struct{}
 	remainderFlags map[string]struct{}
 }
 
@@ -19,6 +20,8 @@ var commandPathPatterns = []commandPathPattern{
 	{Prefix: []string{"agent"}, Depth: 2},
 	{Prefix: []string{"agent", "job"}, Depth: 3},
 	{Prefix: []string{"task"}, Depth: 2},
+	{Prefix: []string{"dev"}, Depth: 2},
+	{Prefix: []string{"assistant"}, Depth: 2},
 	{Prefix: []string{"session"}, Depth: 2},
 	{Prefix: []string{"project"}, Depth: 2},
 	{Prefix: []string{"terminal"}, Depth: 2},
@@ -88,6 +91,102 @@ var commandFlagSpecs = map[string]commandFlagSpec{
 			"--workspace",
 			"--assistant",
 		),
+	},
+	"dev perf-compare": {
+		valueFlags: setOf(
+			"--baseline-file",
+			"--tolerance",
+			"--frames",
+			"--scrollback-frames",
+			"--warmup",
+			"--width",
+			"--height",
+		),
+	},
+	"dev openclaw-sync": {
+		valueFlags: setOf(
+			"--skill-src",
+			"--main-workspace",
+			"--dev-workspace",
+		),
+		switchFlags: setOf("--skip-verify"),
+	},
+	"assistant step": {
+		valueFlags: setOf(
+			"--wait-timeout",
+			"--idle-threshold",
+			"--idempotency-key",
+			"--workspace",
+			"--assistant",
+			"--prompt",
+			"--agent",
+			"--text",
+		),
+	},
+	"assistant turn": {
+		valueFlags: setOf(
+			"--wait-timeout",
+			"--idle-threshold",
+			"--max-steps",
+			"--turn-budget",
+			"--followup-text",
+			"--workspace",
+			"--assistant",
+			"--prompt",
+			"--agent",
+			"--text",
+			"--idempotency-key",
+		),
+	},
+	"assistant dx": {
+		valueFlags: setOf(
+			"--workspace",
+			"--assistant",
+			"--prompt",
+			"--wait-timeout",
+			"--idle-threshold",
+			"--start-lock-ttl",
+			"--idempotency-key",
+			"--max-steps",
+			"--turn-budget",
+			"--monitor-timeout",
+			"--poll-interval",
+			"--agent",
+			"--text",
+			"--task",
+			"--project",
+			"--repo",
+			"--path",
+			"--base",
+			"--lines",
+			"--older-than",
+			"--message",
+		),
+		remainderFlags: setOf("--prompt", "--text", "--task", "--message"),
+	},
+	"assistant present": {
+		valueFlags: nil,
+	},
+	"assistant dogfood": {
+		valueFlags: setOf("--repo", "--workspace", "--assistant", "--report-dir"),
+	},
+	"assistant poll-agent": {
+		valueFlags: setOf(
+			"--session",
+			"--lines",
+			"--interval",
+			"--timeout",
+		),
+	},
+	"assistant wait-for-idle": {
+		valueFlags: setOf(
+			"--session",
+			"--timeout",
+			"--idle-threshold",
+		),
+	},
+	"assistant format-capture": {
+		valueFlags: nil,
 	},
 	// --timeout intentionally shadows the global --timeout flag; local flags
 	// are checked before global parsing, so the value is preserved for this
@@ -179,4 +278,9 @@ func commandFlagSpecForPath(pathKey string) commandFlagSpec {
 		return commandFlagSpec{}
 	}
 	return spec
+}
+
+func localFlagsWithoutValue(pathKey string) map[string]struct{} {
+	spec := commandFlagSpecForPath(pathKey)
+	return spec.switchFlags
 }

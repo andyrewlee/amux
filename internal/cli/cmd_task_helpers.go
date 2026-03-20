@@ -122,19 +122,19 @@ func buildTaskNeedsConfirmationResult(
 	}
 	continueCmd := fmt.Sprintf(
 		"amux --json agent send --agent %s --text %s --enter --wait --wait-timeout 60s --idle-threshold 10s",
-		quoteCommandValue(candidate.AgentID),
-		quoteCommandValue("Provide a one-line status update and next action."),
+		shellQuoteCommandValue(candidate.AgentID),
+		shellQuoteCommandValue("Provide a one-line status update and next action."),
 	)
 	startNewCmd := fmt.Sprintf(
 		"amux --json task start --workspace %s --assistant %s --allow-new-run --prompt %s",
-		quoteCommandValue(workspaceID),
-		quoteCommandValue(assistant),
-		quoteCommandValue(prompt),
+		shellQuoteCommandValue(workspaceID),
+		shellQuoteCommandValue(assistant),
+		shellQuoteCommandValue(prompt),
 	)
 	statusCmd := fmt.Sprintf(
 		"amux --json task status --workspace %s --assistant %s",
-		quoteCommandValue(workspaceID),
-		quoteCommandValue(assistant),
+		shellQuoteCommandValue(workspaceID),
+		shellQuoteCommandValue(assistant),
 	)
 	message := "Task not started automatically because another assistant tab is active."
 	if strings.TrimSpace(candidate.SessionName) != "" {
@@ -175,8 +175,8 @@ func buildTaskStartResult(workspaceID, assistant, prompt string, run agentRunRes
 	}
 	statusCmd := fmt.Sprintf(
 		"amux --json task status --workspace %s --assistant %s",
-		quoteCommandValue(workspaceID),
-		quoteCommandValue(assistant),
+		shellQuoteCommandValue(workspaceID),
+		shellQuoteCommandValue(assistant),
 	)
 	result.SuggestedCommand = statusCmd
 	if run.Response == nil {
@@ -210,8 +210,8 @@ func buildTaskStartResult(workspaceID, assistant, prompt string, run agentRunRes
 		}
 		replyCmd := fmt.Sprintf(
 			"amux --json agent send --agent %s --text %s --enter --wait --wait-timeout 60s --idle-threshold 10s",
-			quoteCommandValue(run.AgentID),
-			quoteCommandValue(followup),
+			shellQuoteCommandValue(run.AgentID),
+			shellQuoteCommandValue(followup),
 		)
 		result.SuggestedCommand = replyCmd
 		result.QuickActions = []taskQuickAction{{ID: "reply", Label: "Reply", Command: replyCmd, Prompt: "Reply to agent prompt"}, {ID: "status", Label: "Status", Command: statusCmd, Prompt: "Check active task status"}}
@@ -226,7 +226,7 @@ func buildTaskStartResult(workspaceID, assistant, prompt string, run agentRunRes
 		result.OverallStatus = "session_exited"
 		result.Summary = nonEmpty(resp.Summary, "Task session exited.")
 		result.NextAction = "Start a fresh task run."
-		result.SuggestedCommand = fmt.Sprintf("amux --json task start --workspace %s --assistant %s --prompt %s", quoteCommandValue(workspaceID), quoteCommandValue(assistant), quoteCommandValue(prompt))
+		result.SuggestedCommand = fmt.Sprintf("amux --json task start --workspace %s --assistant %s --prompt %s", shellQuoteCommandValue(workspaceID), shellQuoteCommandValue(assistant), shellQuoteCommandValue(prompt))
 		result.QuickActions = []taskQuickAction{{ID: "start", Label: "Start", Command: result.SuggestedCommand, Prompt: "Start a fresh task"}}
 	default:
 		result.Status = "idle"
@@ -245,8 +245,8 @@ func buildTaskStatusResult(workspaceID, assistant string, candidate taskAgentCan
 	}
 	statusCmd := fmt.Sprintf(
 		"amux --json task status --workspace %s --assistant %s",
-		quoteCommandValue(workspaceID),
-		quoteCommandValue(assistant),
+		shellQuoteCommandValue(workspaceID),
+		shellQuoteCommandValue(assistant),
 	)
 	result := taskCommandResult{
 		Mode:             "status",
@@ -268,9 +268,9 @@ func buildTaskStatusResult(workspaceID, assistant string, candidate taskAgentCan
 		result.NextAction = "Start a fresh task run."
 		startCmd := fmt.Sprintf(
 			"amux --json task start --workspace %s --assistant %s --prompt %s",
-			quoteCommandValue(workspaceID),
-			quoteCommandValue(assistant),
-			quoteCommandValue("Continue from current state and report status plus next action."),
+			shellQuoteCommandValue(workspaceID),
+			shellQuoteCommandValue(assistant),
+			shellQuoteCommandValue("Continue from current state and report status plus next action."),
 		)
 		result.SuggestedCommand = startCmd
 		result.QuickActions = []taskQuickAction{{ID: "start", Label: "Start", Command: startCmd, Prompt: "Start a fresh task"}}
@@ -285,8 +285,8 @@ func buildTaskStatusResult(workspaceID, assistant string, candidate taskAgentCan
 		result.NextAction = "Reply to the prompt to continue."
 		replyCmd := fmt.Sprintf(
 			"amux --json agent send --agent %s --text %s --enter --wait --wait-timeout 60s --idle-threshold 10s",
-			quoteCommandValue(candidate.AgentID),
-			quoteCommandValue(nonEmpty(strings.TrimSpace(snap.InputHint), "Reply with the exact option needed, then continue and report status plus blockers.")),
+			shellQuoteCommandValue(candidate.AgentID),
+			shellQuoteCommandValue(nonEmpty(strings.TrimSpace(snap.InputHint), "Reply with the exact option needed, then continue and report status plus blockers.")),
 		)
 		result.SuggestedCommand = replyCmd
 		result.QuickActions = []taskQuickAction{{ID: "reply", Label: "Reply", Command: replyCmd, Prompt: "Reply to active prompt"}, {ID: "status", Label: "Status", Command: statusCmd, Prompt: "Check task status"}}
@@ -299,8 +299,8 @@ func buildTaskStatusResult(workspaceID, assistant string, candidate taskAgentCan
 		result.NextAction = "Share results, or continue with a follow-up instruction."
 		continueCmd := fmt.Sprintf(
 			"amux --json agent send --agent %s --text %s --enter --wait --wait-timeout 60s --idle-threshold 10s",
-			quoteCommandValue(candidate.AgentID),
-			quoteCommandValue("Continue from current state and provide status plus next action."),
+			shellQuoteCommandValue(candidate.AgentID),
+			shellQuoteCommandValue("Continue from current state and provide status plus next action."),
 		)
 		result.SuggestedCommand = continueCmd
 		result.QuickActions = []taskQuickAction{
@@ -399,10 +399,6 @@ func taskStartLockPath(home, workspaceID, assistant string) string {
 	sum := sha1.Sum([]byte(workspaceID + "|" + assistant + "|task-start"))
 	token := hex.EncodeToString(sum[:8])
 	return filepath.Join(home, "locks", "task-start-"+token+".lock")
-}
-
-func quoteCommandValue(value string) string {
-	return shellQuoteCommandValue(value)
 }
 
 func nonEmpty(value, fallback string) string {

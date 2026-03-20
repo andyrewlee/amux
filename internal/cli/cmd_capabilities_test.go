@@ -101,6 +101,12 @@ func TestCmdCapabilitiesJSON(t *testing.T) {
 	if !containsCommand(commands, "task status") {
 		t.Fatalf("expected task status command in capabilities")
 	}
+	if !containsCommand(commands, "dev perf-compare") {
+		t.Fatalf("expected dev perf-compare command in capabilities")
+	}
+	if !containsCommand(commands, "dev openclaw-sync") {
+		t.Fatalf("expected dev openclaw-sync command in capabilities")
+	}
 
 	mutating, ok := payload["mutating_commands"].([]any)
 	if !ok {
@@ -111,5 +117,8 @@ func TestCmdCapabilitiesJSON(t *testing.T) {
 	}
 	if containsCommand(mutating, "task status") {
 		t.Fatalf("did not expect task status command in mutating capabilities")
+	}
+	if !containsCommand(mutating, "dev openclaw-sync") {
+		t.Fatalf("expected dev openclaw-sync in mutating capabilities")
 	}
 }

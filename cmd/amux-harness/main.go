@@ -8,23 +8,13 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/andyrewlee/amux/internal/app"
+	"github.com/andyrewlee/amux/internal/harnessbench"
 	"github.com/andyrewlee/amux/internal/perf"
 )
-
-type stats struct {
-	avg time.Duration
-	min time.Duration
-	max time.Duration
-	p50 time.Duration
-	p95 time.Duration
-	p99 time.Duration
-}
 
 func main() {
 	startPprof()
@@ -52,91 +42,28 @@ func main() {
 		ShowKeymapHints: *showKeymapHints,
 	}
 
-	h, err := app.NewHarness(opts)
+	report, err := harnessbench.Run(harnessbench.Config{
+		HarnessOptions: opts,
+		Frames:         *frames,
+		Warmup:         *warmup,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "harness init failed: %v\n", err)
 		os.Exit(1)
 	}
-
-	totalFrames := *warmup + *frames
-	if totalFrames <= 0 {
-		fmt.Fprintln(os.Stderr, "frames + warmup must be > 0")
-		os.Exit(1)
-	}
-
-	durations := make([]time.Duration, 0, *frames)
-	startAll := time.Now()
-
-	for i := 0; i < totalFrames; i++ {
-		h.Step(i)
-		start := time.Now()
-		view := h.Render()
-		_ = view.Content
-		if i >= *warmup {
-			durations = append(durations, time.Since(start))
-		}
-	}
-
-	total := time.Since(startAll)
-	s := summarize(durations)
 	fmt.Printf("mode=%s tabs=%d frames=%d warmup=%d size=%dx%d hot_tabs=%d payload=%dB newline_every=%d\n",
 		*mode, *tabs, *frames, *warmup, *width, *height, *hotTabs, *payloadBytes, *newlineEvery)
 	fmt.Printf("total=%s avg=%s p50=%s p95=%s p99=%s min=%s max=%s fps=%.2f\n",
-		total, s.avg, s.p50, s.p95, s.p99, s.min, s.max, fps(durations))
+		report.Total,
+		report.Stats.Avg,
+		report.Stats.P50,
+		report.Stats.P95,
+		report.Stats.P99,
+		report.Stats.Min,
+		report.Stats.Max,
+		report.FPS,
+	)
 	perf.Flush("harness")
-}
-
-func summarize(durations []time.Duration) stats {
-	if len(durations) == 0 {
-		return stats{}
-	}
-	sorted := make([]time.Duration, len(durations))
-	copy(sorted, durations)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-	var total time.Duration
-	for _, d := range durations {
-		total += d
-	}
-	return stats{
-		avg: total / time.Duration(len(durations)),
-		min: sorted[0],
-		max: sorted[len(sorted)-1],
-		p50: percentile(sorted, 0.50),
-		p95: percentile(sorted, 0.95),
-		p99: percentile(sorted, 0.99),
-	}
-}
-
-func percentile(sorted []time.Duration, p float64) time.Duration {
-	if len(sorted) == 0 {
-		return 0
-	}
-	if p <= 0 {
-		return sorted[0]
-	}
-	if p >= 1 {
-		return sorted[len(sorted)-1]
-	}
-	pos := int(float64(len(sorted)-1) * p)
-	if pos < 0 {
-		pos = 0
-	}
-	if pos >= len(sorted) {
-		pos = len(sorted) - 1
-	}
-	return sorted[pos]
-}
-
-func fps(durations []time.Duration) float64 {
-	var total time.Duration
-	for _, d := range durations {
-		total += d
-	}
-	if total <= 0 {
-		return 0
-	}
-	return float64(len(durations)) / total.Seconds()
 }
 
 func startPprof() {

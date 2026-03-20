@@ -86,7 +86,7 @@ func runScriptJSON(t *testing.T, scriptPath string, env []string, args ...string
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	out := stdout.Bytes()
-	if err != nil {
+	if err != nil && len(out) == 0 {
 		t.Fatalf("%s %v failed: %v\nstdout:\n%s\nstderr:\n%s", scriptPath, args, err, stdout.String(), stderr.String())
 	}
 	var payload map[string]any

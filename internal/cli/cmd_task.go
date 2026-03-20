@@ -186,7 +186,7 @@ func cmdTaskStatus(w, wErr io.Writer, gf GlobalFlags, args []string, version str
 			WorkspaceID:      string(wsID),
 			Assistant:        assistantName,
 			NextAction:       "Start a task when ready.",
-			SuggestedCommand: fmt.Sprintf("amux --json task start --workspace %s --assistant %s --prompt %s", quoteCommandValue(string(wsID)), quoteCommandValue(assistantName), quoteCommandValue("Continue from current state and report status plus next action.")),
+			SuggestedCommand: fmt.Sprintf("amux --json task start --workspace %s --assistant %s --prompt %s", shellQuoteCommandValue(string(wsID)), shellQuoteCommandValue(assistantName), shellQuoteCommandValue("Continue from current state and report status plus next action.")),
 		}
 		return emitTaskResult(w, gf, version, result)
 	}
