@@ -50,6 +50,7 @@ type tabEvent struct {
 	pasteText       string
 	output          []byte
 	writeEpoch      uint64
+	catchUp         bool
 	hasMoreBuffered bool
 	visibleSeq      uint64
 }
@@ -71,11 +72,8 @@ type tabActorRedraw struct{}
 func (tabActorRedraw) MarkCriticalExternalMsg()            {}
 func (tabActorRedraw) MarkNonEvictingCriticalExternalMsg() {}
 
-type tabDiffCmd struct {
-	cmd tea.Cmd
-}
+type tabDiffCmd struct{ cmd tea.Cmd }
 
-// TabInputFailed is sent when input to the PTY fails (e.g., after sleep)
 type TabInputFailed struct {
 	TabID       TabID
 	WorkspaceID string
@@ -403,6 +401,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		filterApplied := false
 		requestFlush := false
 		staleWrite := false
+		suppressRedraw := false
 		tab.mu.Lock()
 		if ev.writeEpoch != tab.actorWriteEpoch {
 			staleWrite = true
@@ -422,6 +421,13 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			if tab.actorWritesPending > 0 {
 				tab.actorWritesPending--
 			}
+			if tab.actorQueuedBytes >= processedBytes {
+				tab.actorQueuedBytes -= processedBytes
+			} else {
+				tab.actorQueuedBytes = 0
+			}
+			catchUpBefore, catchUpAfter := tab.settlePTYBytesLocked(processedBytes)
+			suppressRedraw = catchUpBefore && catchUpAfter
 			if tab.actorWritesPending == 0 {
 				tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
 				tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
@@ -456,14 +462,10 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			}()
 		}
 		if requestFlush && m.msgSink != nil {
-			m.msgSink(PTYFlush{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
+			m.msgSink(PTYFlush{WorkspaceID: ev.workspaceID, TabID: ev.tabID, CatchUp: ev.catchUp})
 		}
-		if m.msgSink != nil && m.shouldPostWriteRedraw(tab) {
-			// tabEventWriteOutput mutates the terminal on the actor goroutine after
-			// PTYFlush has already returned. Visible tabs need a follow-up message
-			// so Bubble Tea renders the post-write terminal state, and chat tabs
-			// reuse the same message for cursor/activity updates even in the
-			// background. Hidden non-chat tabs intentionally skip this redraw.
+		if !suppressRedraw && m.msgSink != nil && m.shouldPostWriteRedraw(tab) {
+			// Visible tabs need one redraw after actor-applied terminal writes.
 			m.msgSink(PTYCursorRefresh{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
 		}
 	default:
@@ -471,7 +473,6 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 	}
 }
 
-// sendToTerminal sends data to the tab's terminal and handles errors.
 func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID string, label string) {
 	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
 		return

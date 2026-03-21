@@ -70,3 +70,30 @@ func TestDetachTab_ClearsReattachInFlight(t *testing.T) {
 		t.Fatal("expected reattachInFlight=false after detach")
 	}
 }
+
+func TestDetachTab_ClearsCatchUpPendingOutput(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	tab := &Tab{
+		ID:                   TabID("tab-3"),
+		Assistant:            "claude",
+		Workspace:            ws,
+		Running:              true,
+		pendingOutput:        []byte("buffered"),
+		catchUpPendingOutput: true,
+		Agent:                &appPty.Agent{Workspace: ws},
+	}
+
+	cmd := m.detachTab(tab, 0)
+	if cmd == nil {
+		t.Fatal("expected non-nil detach cmd")
+	}
+	_ = cmd()
+
+	if tab.catchUpPendingOutput {
+		t.Fatal("expected catch-up latch to clear on detach")
+	}
+	if tab.pendingOutput != nil {
+		t.Fatalf("expected pending output cleared on detach, got %q", tab.pendingOutput)
+	}
+}

@@ -160,6 +160,33 @@ func TestUpdatePtyTabReattachResult_PreservesParserCarryOnExistingTerminal(t *te
 	}
 }
 
+func TestUpdatePtyTabReattachResult_ClearsCatchUpPendingOutput(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                   TabID("tab-reattach-catch-up"),
+		Assistant:            "codex",
+		Workspace:            ws,
+		Terminal:             vterm.New(80, 24),
+		catchUpPendingOutput: true,
+		pendingOutput:        []byte("buffered"),
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-catch-up"},
+		Rows:        24,
+		Cols:        80,
+	})
+
+	if tab.catchUpPendingOutput {
+		t.Fatal("expected catch-up latch to clear on reattach")
+	}
+}
+
 func TestHandlePtyTabCreated_NewTabNormalizesCapturedScrollbackLFForChatTabs(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
@@ -216,6 +243,35 @@ func TestHandlePtyTabCreated_ExistingResetsActivityANSIState(t *testing.T) {
 
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on existing tab create path, got %v", tab.activityANSIState)
+	}
+}
+
+func TestHandlePtyTabCreated_ExistingClearsCatchUpPendingOutput(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                   TabID("tab-created-catch-up"),
+		Assistant:            "codex",
+		Workspace:            ws,
+		Terminal:             vterm.New(80, 24),
+		catchUpPendingOutput: true,
+		pendingOutput:        []byte("buffered"),
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_ = m.handlePtyTabCreated(ptyTabCreateResult{
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created-catch-up"},
+		TabID:     tab.ID,
+		Rows:      24,
+		Cols:      80,
+		Activate:  true,
+	})
+
+	if tab.catchUpPendingOutput {
+		t.Fatal("expected catch-up latch to clear on existing tab create path")
 	}
 }
 

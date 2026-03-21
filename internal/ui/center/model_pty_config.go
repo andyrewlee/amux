@@ -19,15 +19,18 @@ const (
 	ptyFlushChunkSize                   = 32 * 1024
 	// Active tab catch-up should drain backlog quickly to avoid visible replay.
 	ptyFlushChunkSizeActive = 256 * 1024
-	ptyReadBufferSize       = 32 * 1024
-	ptyReadQueueSize        = 64
-	ptyFrameInterval        = time.Second / 24
-	ptyMaxPendingBytes      = 512 * 1024
-	ptyMaxBufferedBytes     = 8 * 1024 * 1024
-	ptyReaderStallTimeout   = 10 * time.Second
-	tabActorStallTimeout    = 10 * time.Second
-	ptyRestartMax           = 5
-	ptyRestartWindow        = time.Minute
+	// Catch-up can exceed the steady-state active cap, but it still needs a
+	// ceiling so a single actor write cannot monopolize input/scroll handling.
+	ptyFlushChunkSizeCatchUp = 1024 * 1024
+	ptyReadBufferSize        = 32 * 1024
+	ptyReadQueueSize         = 64
+	ptyFrameInterval         = time.Second / 24
+	ptyMaxPendingBytes       = 512 * 1024
+	ptyMaxBufferedBytes      = 8 * 1024 * 1024
+	ptyReaderStallTimeout    = 10 * time.Second
+	tabActorStallTimeout     = 10 * time.Second
+	ptyRestartMax            = 5
+	ptyRestartWindow         = time.Minute
 
 	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
 	// When pending output exceeds this, we throttle rendering frequency
@@ -52,6 +55,7 @@ type PTYTick struct {
 type PTYFlush struct {
 	WorkspaceID string
 	TabID       TabID
+	CatchUp     bool
 }
 
 // PTYCursorRefresh re-renders chat cursor policy when time-based windows expire.

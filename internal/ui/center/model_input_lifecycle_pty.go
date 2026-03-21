@@ -30,6 +30,10 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		activityState := ansiActivityText
 		activityStateSet := false
 		tab.pendingOutput = append(tab.pendingOutput, data...)
+		tab.mu.Lock()
+		tab.pendingOutputBytes = len(tab.pendingOutput)
+		tab.ptyBytesReceived += uint64(len(data))
+		tab.mu.Unlock()
 		if len(tab.pendingOutput) > ptyMaxBufferedBytes {
 			overflow := len(tab.pendingOutput) - ptyMaxBufferedBytes
 			perf.Count("pty_output_drop_bytes", int64(overflow))
@@ -59,6 +63,8 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				if tab.Terminal != nil {
 					if tab.actorWritesPending > 0 {
 						seed = tab.Terminal.ParserCarryState()
+						tab.settlePTYBytesLocked(tab.actorQueuedBytes)
+						tab.actorQueuedBytes = 0
 						tab.actorWriteEpoch++
 						tab.actorWritesPending = 0
 						tab.parserResetPending = false
@@ -92,6 +98,8 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 			_, activityState = hasVisiblePTYOutput(retained[:activityPrefixLen], ansiActivityText)
 			activityStateSet = true
 			tab.mu.Lock()
+			tab.pendingOutputBytes = len(tab.pendingOutput)
+			tab.settlePTYBytesLocked(overflow)
 			tab.overflowTrimCarry = overflowCarry
 			if resetNow && retainedStart > chunkStart {
 				tab.ptyNoiseTrailing = nil
@@ -140,13 +148,22 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 	var cmds []tea.Cmd
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab != nil && !tab.isClosed() {
+		isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
+		pendingOutputBytes := len(tab.pendingOutput)
+		tab.mu.Lock()
+		tab.pendingOutputBytes = pendingOutputBytes
+		if !isActive {
+			tab.clearCatchUpLocked()
+		}
+		catchUp := isActive && tab.catchUpActiveLocked()
+		tab.mu.Unlock()
 		now := time.Now()
 		quietFor := now.Sub(tab.lastOutputAt)
 		pendingFor := time.Duration(0)
 		if !tab.flushPendingSince.IsZero() {
 			pendingFor = now.Sub(tab.flushPendingSince)
 		}
-		quiet, maxInterval := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
+		quiet, maxInterval := m.flushTiming(tab, isActive)
 		if quietFor < quiet && pendingFor < maxInterval {
 			delay := quiet - quietFor
 			if delay < time.Millisecond {
@@ -155,7 +172,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 			tabID := msg.TabID
 			tab.flushScheduled = true
 			cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
-				return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
+				return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID, CatchUp: catchUp}
 			}))
 			return common.SafeBatch(cmds...)
 		}
@@ -169,7 +186,6 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 			visibleSeq := uint64(0)
 			tagSessionName := ""
 			var tagTimestamp int64
-			isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
 			parserResetPending := false
 			actorWritesPending := 0
 			tab.mu.Lock()
@@ -181,6 +197,11 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 				if isActive {
 					maxChunk = ptyFlushChunkSizeActive
 				}
+				if catchUp && m.isTabActorReady() {
+					if ptyFlushChunkSizeCatchUp > maxChunk {
+						maxChunk = ptyFlushChunkSizeCatchUp
+					}
+				}
 				if !parserResetPending && chunkSize > maxChunk {
 					chunkSize = maxChunk
 				}
@@ -188,6 +209,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					chunk = append(chunk, tab.pendingOutput[:chunkSize]...)
 					copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
 					tab.pendingOutput = tab.pendingOutput[:len(tab.pendingOutput)-chunkSize]
+					tab.pendingOutputBytes = len(tab.pendingOutput)
 					hasMoreBuffered = len(tab.pendingOutput) > 0
 					visibleSeq = tab.pendingVisibleSeq
 					writeOutput = true
@@ -204,13 +226,15 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					}
 					tabID := msg.TabID
 					cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
-						return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
+						return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID, CatchUp: catchUp}
 					}))
 					return common.SafeBatch(cmds...)
 				}
 				tab.mu.Lock()
 				if tab.Terminal != nil {
 					if actorWritesPending > 0 {
+						tab.settlePTYBytesLocked(tab.actorQueuedBytes)
+						tab.actorQueuedBytes = 0
 						tab.actorWriteEpoch++
 						tab.ptyNoiseTrailing = nil
 					}
@@ -249,6 +273,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						nextCarry = vterm.AdvanceParserCarryState(seedCarry, filteredPreview)
 						nextNoiseTrailing = append(nextNoiseTrailing, previewTrailing...)
 						tab.actorWritesPending = prevPending + 1
+						tab.actorQueuedBytes += len(chunk)
 						tab.actorQueuedCarry = nextCarry
 						tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], nextNoiseTrailing...)
 					}
@@ -260,14 +285,21 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						kind:            tabEventWriteOutput,
 						output:          chunk,
 						writeEpoch:      prevEpoch,
+						catchUp:         catchUp,
 						hasMoreBuffered: hasMoreBuffered,
 						visibleSeq:      visibleSeq,
 					}) {
 						rebuffered := false
 						dropWrite := false
+						syncFallbackChunkSize := 0
 						tab.mu.Lock()
 						if tab.actorWriteEpoch == prevEpoch && tab.actorWritesPending > 0 {
 							tab.actorWritesPending--
+							if tab.actorQueuedBytes >= len(chunk) {
+								tab.actorQueuedBytes -= len(chunk)
+							} else {
+								tab.actorQueuedBytes = 0
+							}
 							if tab.isClosed() {
 								dropWrite = true
 							} else if tab.actorWritesPending > 0 {
@@ -278,15 +310,30 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 								restored = append(restored, chunk...)
 								restored = append(restored, tab.pendingOutput...)
 								tab.pendingOutput = restored
+								tab.pendingOutputBytes = len(tab.pendingOutput)
+							} else if catchUp && len(chunk) > ptyFlushChunkSizeActive {
+								syncFallbackChunkSize = ptyFlushChunkSizeActive
+								tab.actorQueuedCarry = prevCarry
+								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
+								restored := make([]byte, 0, len(chunk)-syncFallbackChunkSize+len(tab.pendingOutput))
+								restored = append(restored, chunk[syncFallbackChunkSize:]...)
+								restored = append(restored, tab.pendingOutput...)
+								tab.pendingOutput = restored
+								tab.pendingOutputBytes = len(tab.pendingOutput)
+								hasMoreBuffered = len(tab.pendingOutput) > 0
 							}
 						} else if tab.actorWriteEpoch != prevEpoch || tab.isClosed() {
 							dropWrite = true
 						}
 						tab.mu.Unlock()
+						if syncFallbackChunkSize > 0 {
+							chunk = append(chunk[:0], chunk[:syncFallbackChunkSize]...)
+						}
 						if !rebuffered && !dropWrite {
 							processedBytes := len(chunk)
 							filteredLen := 0
 							filterApplied := false
+							suppressRedraw := false
 							tab.mu.Lock()
 							if tab.Terminal != nil {
 								filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
@@ -302,11 +349,15 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 								// Noise-only chunks are filtered above and must not update activity tags.
 								// We still run this to clear pending visible state when no mutation occurred.
 								tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, hasMoreBuffered, visibleSeq, filtered)
+								catchUpBefore, catchUpAfter := tab.settlePTYBytesLocked(processedBytes)
+								suppressRedraw = catchUpBefore && catchUpAfter
 								tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
 								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
 							}
 							tab.mu.Unlock()
-							cmds = append(cmds, m.scheduleChatCursorRefresh(tab, msg.WorkspaceID, time.Now()))
+							if !suppressRedraw {
+								cmds = append(cmds, m.scheduleChatCursorRefresh(tab, msg.WorkspaceID, time.Now()))
+							}
 							perf.Count("pty_flush_bytes_processed", int64(processedBytes))
 							if filterApplied {
 								filteredBytes := processedBytes - filteredLen
@@ -320,6 +371,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					processedBytes := len(chunk)
 					filteredLen := 0
 					filterApplied := false
+					suppressRedraw := false
 					tab.mu.Lock()
 					if tab.Terminal != nil {
 						filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
@@ -335,9 +387,13 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						// Noise-only chunks are filtered above and must not update activity tags.
 						// We still run this to clear pending visible state when no mutation occurred.
 						tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, hasMoreBuffered, visibleSeq, filtered)
+						catchUpBefore, catchUpAfter := tab.settlePTYBytesLocked(processedBytes)
+						suppressRedraw = catchUpBefore && catchUpAfter
 					}
 					tab.mu.Unlock()
-					cmds = append(cmds, m.scheduleChatCursorRefresh(tab, msg.WorkspaceID, time.Now()))
+					if !suppressRedraw {
+						cmds = append(cmds, m.scheduleChatCursorRefresh(tab, msg.WorkspaceID, time.Now()))
+					}
 					perf.Count("pty_flush_bytes_processed", int64(processedBytes))
 					if filterApplied {
 						filteredBytes := processedBytes - filteredLen
@@ -356,19 +412,25 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					})
 				}
 			}
+			tab.mu.Lock()
+			catchUpStillActive := tab.catchUpActiveLocked()
+			tab.mu.Unlock()
 			if len(tab.pendingOutput) == 0 {
 				tab.pendingOutput = tab.pendingOutput[:0]
+				tab.mu.Lock()
+				tab.pendingOutputBytes = 0
+				tab.mu.Unlock()
 			} else {
 				tab.flushScheduled = true
 				tab.flushPendingSince = time.Now()
 				tabID := msg.TabID
-				quietNext, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
+				quietNext, _ := m.flushTiming(tab, isActive)
 				delay := quietNext
 				if delay < time.Millisecond {
 					delay = time.Millisecond
 				}
 				cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
-					return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID}
+					return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID, CatchUp: catchUpStillActive}
 				}))
 			}
 		}

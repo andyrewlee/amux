@@ -221,8 +221,12 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.Detached = false
 		tab.Running = true
 		tab.parserResetPending = false
+		tab.settlePTYBytesLocked(tab.actorQueuedBytes)
+		tab.actorQueuedBytes = 0
 		tab.actorWritesPending = 0
 		tab.actorWriteEpoch++
+		tab.clearCatchUpLocked()
+		tab.pendingOutputBytes = len(tab.pendingOutput)
 		tab.overflowTrimCarry = vterm.ParserCarryState{}
 		tab.ptyNoiseTrailing = nil
 		tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]

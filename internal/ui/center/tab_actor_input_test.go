@@ -101,6 +101,98 @@ func TestHandleTabEvent_WriteOutputEmitsPostWriteRedrawForChatAndActiveTabs(t *t
 	}
 }
 
+func TestHandleTabEvent_WriteOutputPreservesCatchUpForParserResetRetry(t *testing.T) {
+	m := newTestModel()
+	tab := &Tab{
+		ID:                 TabID("tab-write-output-catch-up-retry"),
+		Assistant:          "codex",
+		Terminal:           vterm.New(80, 24),
+		actorWriteEpoch:    7,
+		actorWritesPending: 1,
+		parserResetPending: true,
+	}
+
+	var gotFlush PTYFlush
+	flushes := 0
+	m.msgSink = func(msg tea.Msg) {
+		if flush, ok := msg.(PTYFlush); ok {
+			gotFlush = flush
+			flushes++
+		}
+	}
+
+	m.handleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: "ws",
+		tabID:       tab.ID,
+		kind:        tabEventWriteOutput,
+		output:      []byte("x"),
+		writeEpoch:  tab.actorWriteEpoch,
+		catchUp:     true,
+	})
+
+	if flushes != 1 {
+		t.Fatalf("expected 1 PTYFlush retry, got %d", flushes)
+	}
+	if !gotFlush.CatchUp {
+		t.Fatalf("expected parser-reset retry flush to preserve catch-up hint")
+	}
+	if gotFlush.WorkspaceID != "ws" || gotFlush.TabID != tab.ID {
+		t.Fatalf("unexpected retry flush payload: %+v", gotFlush)
+	}
+}
+
+func TestHandleTabEvent_WriteOutputSuppressesRedrawUntilCatchUpTarget(t *testing.T) {
+	m := newTestModel()
+	tab := &Tab{
+		ID:                   TabID("tab-write-output-catch-up-redraw"),
+		Assistant:            "codex",
+		Terminal:             vterm.New(80, 24),
+		actorWritesPending:   2,
+		actorQueuedBytes:     2,
+		catchUpPendingOutput: true,
+		catchUpTargetBytes:   2,
+		ptyBytesReceived:     2,
+	}
+
+	refreshes := 0
+	m.msgSink = func(msg tea.Msg) {
+		if _, ok := msg.(PTYCursorRefresh); ok {
+			refreshes++
+		}
+	}
+
+	m.handleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: "ws",
+		tabID:       tab.ID,
+		kind:        tabEventWriteOutput,
+		output:      []byte("a"),
+	})
+
+	if refreshes != 0 {
+		t.Fatalf("expected catch-up actor write to suppress intermediate redraws, got %d", refreshes)
+	}
+	if !tab.catchUpPendingOutput {
+		t.Fatalf("expected catch-up to remain active before the selected backlog target is settled")
+	}
+
+	m.handleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: "ws",
+		tabID:       tab.ID,
+		kind:        tabEventWriteOutput,
+		output:      []byte("b"),
+	})
+
+	if refreshes != 1 {
+		t.Fatalf("expected final catch-up actor write to emit one redraw, got %d", refreshes)
+	}
+	if tab.catchUpPendingOutput {
+		t.Fatalf("expected catch-up to clear after the selected backlog target is settled")
+	}
+}
+
 func TestShouldPostWriteRedraw(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")

@@ -184,7 +184,12 @@ func (m *Model) Close() {
 				tab.ptyTraceClosed = true
 			}
 			tab.pendingOutput = nil
+			tab.pendingOutputBytes = 0
+			tab.clearCatchUpLocked()
+			tab.ptyBytesReceived = 0
+			tab.ptyBytesSettled = 0
 			tab.ptyNoiseTrailing = nil
+			tab.actorQueuedBytes = 0
 			tab.DiffViewer = nil
 			tab.Terminal = nil
 			tab.cachedSnap = nil

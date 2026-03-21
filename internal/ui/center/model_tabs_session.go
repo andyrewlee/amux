@@ -44,7 +44,12 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	tab.Detached = true
 	tab.reattachInFlight = false
 	tab.pendingOutput = nil
+	tab.pendingOutputBytes = 0
+	tab.clearCatchUpLocked()
+	tab.ptyBytesReceived = 0
+	tab.ptyBytesSettled = 0
 	tab.ptyNoiseTrailing = nil
+	tab.actorQueuedBytes = 0
 	if tab.Agent != nil && tab.SessionName == "" {
 		tab.SessionName = tab.Agent.Session
 	}
@@ -127,12 +132,24 @@ func (m *Model) flushActiveTabBacklogCmd() tea.Cmd {
 		return nil
 	}
 	tab := tabs[activeIdx]
-	if tab == nil || tab.isClosed() || len(tab.pendingOutput) == 0 {
+	if tab == nil || tab.isClosed() {
+		return nil
+	}
+	pendingOutputBytes := len(tab.pendingOutput)
+	tab.mu.Lock()
+	tab.pendingOutputBytes = pendingOutputBytes
+	catchUpReady := tab.latchCatchUpLocked()
+	tab.mu.Unlock()
+	if !catchUpReady {
 		return nil
 	}
 	tabID := tab.ID
 	return func() tea.Msg {
-		return PTYFlush{WorkspaceID: wsID, TabID: tabID}
+		// When the user switches back to a busy tab, request a catch-up flush so
+		// the viewport can jump to the latest frame instead of replaying
+		// intermediate scrollback states. The flush path re-checks active-tab
+		// ownership before honoring this hint.
+		return PTYFlush{WorkspaceID: wsID, TabID: tabID, CatchUp: true}
 	}
 }
 

@@ -68,6 +68,11 @@ type Tab struct {
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput            []byte
+	pendingOutputBytes       int
+	catchUpPendingOutput     bool
+	catchUpTargetBytes       uint64
+	ptyBytesReceived         uint64
+	ptyBytesSettled          uint64
 	ptyNoiseTrailing         []byte
 	flushScheduled           bool
 	lastOutputAt             time.Time
@@ -90,6 +95,7 @@ type Tab struct {
 	overflowTrimCarry        vterm.ParserCarryState
 	parserResetPending       bool
 	actorWritesPending       int
+	actorQueuedBytes         int
 	actorWriteEpoch          uint64
 	actorQueuedCarry         vterm.ParserCarryState
 	actorQueuedNoiseTrailing []byte
@@ -187,6 +193,79 @@ func (t *Tab) postWriteVisible() bool {
 		return false
 	}
 	return atomic.LoadUint32(&t.postWriteVisibleState) == 1
+}
+
+func (t *Tab) normalizePTYAccountingLocked() {
+	if t == nil {
+		return
+	}
+	if t.ptyBytesReceived < t.ptyBytesSettled {
+		t.ptyBytesReceived = t.ptyBytesSettled
+	}
+	outstanding := uint64(t.pendingOutputBytes)
+	if t.actorQueuedBytes > 0 {
+		outstanding += uint64(t.actorQueuedBytes)
+	}
+	minReceived := t.ptyBytesSettled + outstanding
+	if t.ptyBytesReceived < minReceived {
+		t.ptyBytesReceived = minReceived
+	}
+}
+
+func (t *Tab) clearCatchUpLocked() {
+	if t == nil {
+		return
+	}
+	t.catchUpPendingOutput = false
+	t.catchUpTargetBytes = 0
+}
+
+func (t *Tab) catchUpActiveLocked() bool {
+	if t == nil {
+		return false
+	}
+	t.normalizePTYAccountingLocked()
+	if !t.catchUpPendingOutput {
+		return false
+	}
+	if t.ptyBytesSettled >= t.catchUpTargetBytes {
+		t.clearCatchUpLocked()
+		return false
+	}
+	return true
+}
+
+func (t *Tab) latchCatchUpLocked() bool {
+	if t == nil {
+		return false
+	}
+	t.normalizePTYAccountingLocked()
+	if t.ptyBytesSettled >= t.ptyBytesReceived {
+		t.clearCatchUpLocked()
+		return false
+	}
+	t.catchUpPendingOutput = true
+	t.catchUpTargetBytes = t.ptyBytesReceived
+	return true
+}
+
+func (t *Tab) settlePTYBytesLocked(n int) (before, after bool) {
+	if t == nil {
+		return false, false
+	}
+	before = t.catchUpActiveLocked()
+	if n > 0 {
+		t.normalizePTYAccountingLocked()
+		t.ptyBytesSettled += uint64(n)
+		if t.ptyBytesSettled > t.ptyBytesReceived {
+			t.ptyBytesSettled = t.ptyBytesReceived
+		}
+	}
+	if t.catchUpPendingOutput && t.ptyBytesSettled >= t.catchUpTargetBytes {
+		t.clearCatchUpLocked()
+	}
+	after = t.catchUpActiveLocked()
+	return before, after
 }
 
 // getTabs returns the tabs for the current workspace
@@ -317,6 +396,11 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 			tab.ptyTraceClosed = true
 		}
 		tab.pendingOutput = nil
+		tab.pendingOutputBytes = 0
+		tab.clearCatchUpLocked()
+		tab.ptyBytesReceived = 0
+		tab.ptyBytesSettled = 0
+		tab.actorQueuedBytes = 0
 		tab.ptyNoiseTrailing = nil
 		tab.DiffViewer = nil
 		tab.Terminal = nil
