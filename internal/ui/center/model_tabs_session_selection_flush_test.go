@@ -14,11 +14,13 @@ func TestTabSelectionChangedCmd_FlushesBufferedActiveTab(t *testing.T) {
 	wsID := string(ws.ID())
 
 	tab := &Tab{
-		ID:            TabID("tab-1"),
-		Assistant:     "claude",
-		Workspace:     ws,
-		Running:       true,
-		pendingOutput: []byte("buffered"),
+		ID:                 TabID("tab-1"),
+		Assistant:          "claude",
+		Workspace:          ws,
+		Running:            true,
+		pendingOutput:      []byte("buffered"),
+		pendingOutputBytes: len("buffered"),
+		ptyBytesReceived:   uint64(len("buffered")),
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 	m.activeTabByWorkspace[wsID] = 0

@@ -135,9 +135,7 @@ func (m *Model) flushActiveTabBacklogCmd() tea.Cmd {
 	if tab == nil || tab.isClosed() {
 		return nil
 	}
-	pendingOutputBytes := len(tab.pendingOutput)
 	tab.mu.Lock()
-	tab.pendingOutputBytes = pendingOutputBytes
 	catchUpReady := tab.latchCatchUpLocked()
 	tab.mu.Unlock()
 	if !catchUpReady {

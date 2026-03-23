@@ -220,19 +220,21 @@ func (t *Tab) clearCatchUpLocked() {
 	t.catchUpTargetBytes = 0
 }
 
+func (t *Tab) expireCatchUpLocked() {
+	if t == nil {
+		return
+	}
+	if t.catchUpPendingOutput && t.ptyBytesSettled >= t.catchUpTargetBytes {
+		t.clearCatchUpLocked()
+	}
+}
+
 func (t *Tab) catchUpActiveLocked() bool {
 	if t == nil {
 		return false
 	}
 	t.normalizePTYAccountingLocked()
-	if !t.catchUpPendingOutput {
-		return false
-	}
-	if t.ptyBytesSettled >= t.catchUpTargetBytes {
-		t.clearCatchUpLocked()
-		return false
-	}
-	return true
+	return t.catchUpPendingOutput && t.ptyBytesSettled < t.catchUpTargetBytes
 }
 
 func (t *Tab) latchCatchUpLocked() bool {
@@ -240,6 +242,7 @@ func (t *Tab) latchCatchUpLocked() bool {
 		return false
 	}
 	t.normalizePTYAccountingLocked()
+	t.expireCatchUpLocked()
 	if t.ptyBytesSettled >= t.ptyBytesReceived {
 		t.clearCatchUpLocked()
 		return false
@@ -261,9 +264,7 @@ func (t *Tab) settlePTYBytesLocked(n int) (before, after bool) {
 			t.ptyBytesSettled = t.ptyBytesReceived
 		}
 	}
-	if t.catchUpPendingOutput && t.ptyBytesSettled >= t.catchUpTargetBytes {
-		t.clearCatchUpLocked()
-	}
+	t.expireCatchUpLocked()
 	after = t.catchUpActiveLocked()
 	return before, after
 }

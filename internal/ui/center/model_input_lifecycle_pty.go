@@ -149,11 +149,11 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab != nil && !tab.isClosed() {
 		isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
-		pendingOutputBytes := len(tab.pendingOutput)
 		tab.mu.Lock()
-		tab.pendingOutputBytes = pendingOutputBytes
 		if !isActive {
 			tab.clearCatchUpLocked()
+		} else {
+			tab.expireCatchUpLocked()
 		}
 		catchUp := isActive && tab.catchUpActiveLocked()
 		tab.mu.Unlock()
@@ -327,7 +327,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						}
 						tab.mu.Unlock()
 						if syncFallbackChunkSize > 0 {
-							chunk = append(chunk[:0], chunk[:syncFallbackChunkSize]...)
+							chunk = chunk[:syncFallbackChunkSize]
 						}
 						if !rebuffered && !dropWrite {
 							processedBytes := len(chunk)
