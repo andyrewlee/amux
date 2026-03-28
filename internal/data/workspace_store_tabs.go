@@ -10,7 +10,7 @@ import (
 
 // Update atomically loads a workspace, passes it to fn for modification, and
 // saves it back. The workspace flock is held across the entire Load+fn+Save
-// sequence, preventing lost-update races between concurrent CLI processes.
+// sequence, preventing lost-update races between concurrent amux processes.
 func (s *WorkspaceStore) Update(id WorkspaceID, fn func(ws *Workspace) error) error {
 	if err := validateWorkspaceID(id); err != nil {
 		return err

@@ -52,7 +52,7 @@ func TestIsVersionInvocation(t *testing.T) {
 		{name: "long flag", args: []string{"--version"}, want: true},
 		{name: "short flag", args: []string{"-v"}, want: true},
 		{name: "no args", args: nil, want: false},
-		{name: "legacy command", args: []string{"status"}, want: false},
+		{name: "unexpected command", args: []string{"status"}, want: false},
 		{name: "extra args after version", args: []string{"--version", "status"}, want: false},
 	}
 
@@ -71,9 +71,9 @@ func TestUnsupportedInvocationMessage(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "legacy command", args: []string{"status"}, want: `CLI commands or flags like "status"`},
-		{name: "legacy tui subcommand", args: []string{"tui"}, want: "no longer supports the `tui` subcommand"},
-		{name: "empty args fallback", args: nil, want: "no longer supports this invocation"},
+		{name: "unexpected command", args: []string{"status"}, want: `unexpected argument "status"`},
+		{name: "tui subcommand hint", args: []string{"tui"}, want: "run `amux` directly to start the terminal UI"},
+		{name: "empty args fallback", args: nil, want: "usage: amux [--version]"},
 	}
 
 	for _, tt := range tests {

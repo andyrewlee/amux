@@ -66,16 +66,16 @@ func shouldLaunchTUI(stdinIsTTY, stdoutIsTTY, stderrIsTTY bool) bool {
 
 func unsupportedInvocationMessage(args []string) string {
 	if len(args) == 0 {
-		return "amux no longer supports this invocation."
+		return "usage: amux [--version]"
 	}
 	if args[0] == "tui" {
-		return "amux no longer supports the `tui` subcommand; run `amux` directly in an interactive terminal."
+		return "run `amux` directly to start the terminal UI."
 	}
-	return fmt.Sprintf("amux no longer supports CLI commands or flags like %q; run `amux` in an interactive terminal.", args[0])
+	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI or `amux --version`.", args[0])
 }
 
 func nonInteractiveMessage() string {
-	return "amux requires an interactive terminal; headless CLI support has been removed."
+	return "amux starts an interactive terminal UI and requires stdin, stdout, and stderr to be TTYs."
 }
 
 func runTUI() {
