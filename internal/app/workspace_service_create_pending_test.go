@@ -147,7 +147,7 @@ func TestCreateWorkspaceEmptyBaseResolvesToMainBranch(t *testing.T) {
 
 	// Switch to a feature branch so HEAD != main, simulating the bug
 	// scenario where the user is on a different workspace branch.
-	runGit(t, repo, "checkout", "-b", "openclaw")
+	runGit(t, repo, "checkout", "-b", "feature-ui")
 
 	var capturedBase string
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")

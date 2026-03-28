@@ -42,8 +42,8 @@ func TestDefaultConfigLoadsAssistantOverrides(t *testing.T) {
 	}
 	content := `{
   "assistants": {
-    "openclaw": {
-      "command": "openclaw --fast"
+    "my-fast-agent": {
+      "command": "my-fast-agent --fast"
     },
     "myagent": {
       "command": "myagent",
@@ -64,12 +64,12 @@ func TestDefaultConfigLoadsAssistantOverrides(t *testing.T) {
 	if got := cfg.ResolvedDefaultAssistant(); got != "claude" {
 		t.Fatalf("ResolvedDefaultAssistant() = %q, want %q", got, "claude")
 	}
-	oc, ok := cfg.Assistants["openclaw"]
+	customFast, ok := cfg.Assistants["my-fast-agent"]
 	if !ok {
-		t.Fatalf("expected openclaw assistant to exist")
+		t.Fatalf("expected my-fast-agent assistant to exist")
 	}
-	if oc.Command != "openclaw --fast" {
-		t.Fatalf("openclaw command = %q, want %q", oc.Command, "openclaw --fast")
+	if customFast.Command != "my-fast-agent --fast" {
+		t.Fatalf("my-fast-agent command = %q, want %q", customFast.Command, "my-fast-agent --fast")
 	}
 
 	custom, ok := cfg.Assistants["myagent"]

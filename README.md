@@ -29,6 +29,7 @@
 ## What is amux?
 
 amux is a terminal UI for running multiple coding agents in parallel with a workspace-first model that can import git worktrees.
+It is TUI-only; headless CLI and OpenClaw automation are no longer supported.
 
 ## Prerequisites
 
