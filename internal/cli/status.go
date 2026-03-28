@@ -33,21 +33,21 @@ func buildStatusCommand() *cobra.Command {
 		Short: "Show current project sandbox status",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
 
-			cfg, err := sandbox.LoadConfig()
+			cfg, err := loadCLIConfig()
 			if err != nil {
 				return err
 			}
-			providerInstance, providerName, err := sandbox.ResolveProvider(cfg, cwd, "")
+			providerInstance, providerName, err := resolveCLIProvider(cfg, cwd, "")
 			if err != nil {
 				return err
 			}
 
-			meta, err := sandbox.LoadSandboxMeta(cwd, providerInstance.Name())
+			meta, err := loadCLISandboxMeta(cwd, providerInstance.Name())
 			if err != nil {
 				return err
 			}
@@ -69,6 +69,9 @@ func buildStatusCommand() *cobra.Command {
 
 			sb, err := providerInstance.GetSandbox(context.Background(), meta.SandboxID)
 			if err != nil {
+				if !sandbox.IsNotFoundError(err) {
+					return err
+				}
 				if jsonOutput {
 					output := StatusOutput{
 						SandboxID:         meta.SandboxID,
@@ -155,20 +158,20 @@ func buildSSHCommand() *cobra.Command {
 		Use:   "ssh",
 		Short: "Open a raw SSH shell to the current project sandbox",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
 
-			cfg, err := sandbox.LoadConfig()
+			cfg, err := loadCLIConfig()
 			if err != nil {
 				return err
 			}
-			providerInstance, _, err := sandbox.ResolveProvider(cfg, cwd, "")
+			providerInstance, _, err := resolveCLIProvider(cfg, cwd, "")
 			if err != nil {
 				return err
 			}
-			meta, err := sandbox.LoadSandboxMeta(cwd, providerInstance.Name())
+			meta, err := loadCLISandboxMeta(cwd, providerInstance.Name())
 			if err != nil {
 				return err
 			}
@@ -178,6 +181,9 @@ func buildSSHCommand() *cobra.Command {
 
 			sb, err := providerInstance.GetSandbox(context.Background(), meta.SandboxID)
 			if err != nil {
+				if !sandbox.IsNotFoundError(err) {
+					return err
+				}
 				return errors.New("sandbox not found - run `amux sandbox run <agent>` to create one")
 			}
 
@@ -191,15 +197,14 @@ func buildSSHCommand() *cobra.Command {
 				}
 			}
 
-			worktreeID := sandbox.ComputeWorktreeID(cwd)
-			workspacePath := sandbox.GetWorktreeRepoPath(sb, sandbox.SyncOptions{Cwd: cwd, WorktreeID: worktreeID})
+			workspacePath := sandbox.GetWorktreeRepoPath(sb, syncOptionsForMeta(cwd, meta))
 
 			id := sb.ID()
 			if len(id) > 8 {
 				id = id[:8]
 			}
 			fmt.Fprintf(cliStdout, "Connecting to sandbox %s...\n", id)
-			exitCode, err := sandbox.RunAgentInteractive(sb, sandbox.AgentConfig{
+			exitCode, err := runCLIInteractiveCmd(sb, sandbox.AgentConfig{
 				Agent:         sandbox.AgentShell,
 				WorkspacePath: workspacePath,
 				Args:          []string{},
@@ -225,20 +230,20 @@ func buildExecCommand() *cobra.Command {
 		Short: "Execute a command in the current project sandbox",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
 
-			cfg, err := sandbox.LoadConfig()
+			cfg, err := loadCLIConfig()
 			if err != nil {
 				return err
 			}
-			providerInstance, _, err := sandbox.ResolveProvider(cfg, cwd, "")
+			providerInstance, _, err := resolveCLIProvider(cfg, cwd, "")
 			if err != nil {
 				return err
 			}
-			meta, err := sandbox.LoadSandboxMeta(cwd, providerInstance.Name())
+			meta, err := loadCLISandboxMeta(cwd, providerInstance.Name())
 			if err != nil {
 				return err
 			}
@@ -248,6 +253,9 @@ func buildExecCommand() *cobra.Command {
 
 			sb, err := providerInstance.GetSandbox(context.Background(), meta.SandboxID)
 			if err != nil {
+				if !sandbox.IsNotFoundError(err) {
+					return err
+				}
 				return errors.New("sandbox not found - run `amux sandbox run <agent>` to create one")
 			}
 
@@ -263,8 +271,7 @@ func buildExecCommand() *cobra.Command {
 
 			execPath := workdir
 			if execPath == "" {
-				worktreeID := sandbox.ComputeWorktreeID(cwd)
-				execPath = sandbox.GetWorktreeRepoPath(sb, sandbox.SyncOptions{Cwd: cwd, WorktreeID: worktreeID})
+				execPath = sandbox.GetWorktreeRepoPath(sb, syncOptionsForMeta(cwd, meta))
 			}
 
 			fullCmd := buildExecShellCommand(execPath, args)

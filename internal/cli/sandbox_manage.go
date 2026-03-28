@@ -26,7 +26,7 @@ If no agent is specified, updates the default agent (claude).
 Use --all to update all supported agents.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
@@ -93,7 +93,7 @@ func buildSandboxRmCommand() *cobra.Command {
 		Use:   "rm [id]",
 		Short: "Remove a sandbox",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
@@ -169,7 +169,7 @@ sandboxes start clean without requiring manual Daytona cleanup.`,
 			}
 
 			// Best-effort: create the new volume now so first run is fast.
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err == nil {
 				if provider, _, err := sandbox.ResolveProvider(cfg, cwd, ""); err == nil {
 					if provider.SupportsFeature(sandbox.FeatureVolumes) && provider.Volumes() != nil {

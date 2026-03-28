@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -101,7 +100,7 @@ func runDeepDoctor(ctx context.Context, agentName string, fix bool) error {
 	fmt.Fprintln(cliStdout)
 
 	// Create a sandbox for diagnostics
-	cwd, err := os.Getwd()
+	cwd, err := currentCLIWorkingDir()
 	if err != nil {
 		return err
 	}

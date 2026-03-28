@@ -22,21 +22,21 @@ func buildLogsCommand() *cobra.Command {
 		Short: "View sandbox logs and output",
 		Long:  "View logs and output from the current workspace's sandbox.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
 
-			cfg, err := sandbox.LoadConfig()
+			cfg, err := loadCLIConfig()
 			if err != nil {
 				return err
 			}
-			providerInstance, _, err := sandbox.ResolveProvider(cfg, cwd, "")
+			providerInstance, _, err := resolveCLIProvider(cfg, cwd, "")
 			if err != nil {
 				return err
 			}
 
-			meta, err := sandbox.LoadSandboxMeta(cwd, providerInstance.Name())
+			meta, err := loadCLISandboxMeta(cwd, providerInstance.Name())
 			if err != nil {
 				return err
 			}
@@ -46,6 +46,9 @@ func buildLogsCommand() *cobra.Command {
 
 			sb, err := providerInstance.GetSandbox(context.Background(), meta.SandboxID)
 			if err != nil {
+				if !sandbox.IsNotFoundError(err) {
+					return err
+				}
 				return errors.New("sandbox not found - run `amux sandbox run <agent>` to create one")
 			}
 

@@ -109,6 +109,7 @@ func Run(args []string, version, commit, date string) int {
 
 func applyRunGlobals(gf GlobalFlags) (func(), error) {
 	prevTimeout := setCLITmuxTimeoutOverride(gf.Timeout)
+	prevWorkingDirOverride := cliWorkingDirOverride
 
 	wdChanged := false
 	prevWD := ""
@@ -123,11 +124,13 @@ func applyRunGlobals(gf GlobalFlags) (func(), error) {
 			setCLITmuxTimeoutOverride(prevTimeout)
 			return nil, err
 		}
+		setCLIWorkingDirOverride(resolveCLIWorkingDirOverride(prevWD, gf.Cwd))
 		wdChanged = true
 	}
 
 	restore := func() {
 		setCLITmuxTimeoutOverride(prevTimeout)
+		setCLIWorkingDirOverride(prevWorkingDirOverride)
 		if wdChanged {
 			if err := os.Chdir(prevWD); err != nil {
 				slog.Debug("failed to restore working directory", "path", prevWD, "error", err)

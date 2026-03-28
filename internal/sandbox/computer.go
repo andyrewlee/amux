@@ -140,8 +140,17 @@ func createSandboxSession(provider Provider, cwd string, cfg SandboxConfig, pers
 	if err != nil {
 		return nil, nil, err
 	}
+	rollbackCreatedSandbox := func(cause error) (RemoteSandbox, *SandboxMeta, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = sb.Stop(ctx)
+		if cleanupErr := provider.DeleteSandbox(ctx, sb.ID()); cleanupErr != nil {
+			return nil, nil, errors.Join(cause, fmt.Errorf("rollback sandbox %s: %w", sb.ID(), cleanupErr))
+		}
+		return nil, nil, cause
+	}
 	if err := sb.WaitReady(context.Background(), 60*time.Second); err != nil {
-		return nil, nil, err
+		return rollbackCreatedSandbox(err)
 	}
 	applyEnvVars(sb, cfg.EnvVars)
 
@@ -155,7 +164,7 @@ func createSandboxSession(provider Provider, cwd string, cfg SandboxConfig, pers
 	}
 	if persistMeta {
 		if err := SaveSandboxMeta(cwd, providerName, *meta); err != nil {
-			return nil, nil, err
+			return rollbackCreatedSandbox(err)
 		}
 	}
 

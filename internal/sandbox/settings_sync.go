@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -214,18 +213,12 @@ func syncExplicitSetting(computer RemoteSandbox, computerHome string, setting De
 	}
 
 	remotePath := resolveExplicitSettingRemotePath(computerHome, setting)
-	switch {
-	case strings.TrimSpace(setting.Agent) == "git" || filepath.Base(setting.LocalPath) == ".gitconfig":
-		safeConfig := filterGitConfig(string(data))
-		if safeConfig == "" {
-			return nil
-		}
-		data = []byte(safeConfig)
-	case strings.HasSuffix(strings.ToLower(setting.LocalPath), ".json"):
-		data, err = filterSensitiveJSON(data)
-		if err != nil {
-			return err
-		}
+	data, err = sanitizeSettingData(setting, remotePath, data)
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), settingsUploadTimeout)
@@ -291,11 +284,16 @@ func syncAgentSettings(computer RemoteSandbox, homeDir, computerHome string, age
 		return err
 	}
 
-	if strings.HasSuffix(localPath, ".json") {
-		data, err = filterSensitiveJSON(data)
-		if err != nil {
-			return err
-		}
+	data, err = sanitizeSettingData(DetectedSetting{
+		Agent:     string(agent),
+		LocalPath: localPath,
+		HomePath:  strings.TrimPrefix(remotePath, computerHome+"/"),
+	}, remotePath, data)
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), settingsUploadTimeout)
@@ -309,6 +307,28 @@ func syncAgentSettings(computer RemoteSandbox, homeDir, computerHome string, age
 	}
 
 	return nil
+}
+
+func sanitizeSettingData(setting DetectedSetting, remotePath string, data []byte) ([]byte, error) {
+	switch {
+	case strings.TrimSpace(setting.Agent) == "git" || filepath.Base(setting.LocalPath) == ".gitconfig":
+		safeConfig := filterGitConfig(string(data))
+		if safeConfig == "" {
+			return nil, nil
+		}
+		return []byte(safeConfig), nil
+	case strings.HasSuffix(strings.ToLower(setting.LocalPath), ".json"):
+		return filterSensitiveJSON(data)
+	case isCodexConfigPath(remotePath):
+		return ensureCodexFileStoreSetting(data), nil
+	default:
+		return data, nil
+	}
+}
+
+func isCodexConfigPath(path string) bool {
+	normalized := filepath.ToSlash(strings.TrimSpace(path))
+	return strings.HasSuffix(normalized, "/.config/codex/config.toml")
 }
 
 // syncGitConfig syncs safe git configuration (no credentials)
@@ -341,72 +361,6 @@ func syncGitConfig(computer RemoteSandbox, homeDir, computerHome string, verbose
 	}
 
 	return nil
-}
-
-// filterSensitiveJSON removes potentially sensitive keys from JSON config
-func filterSensitiveJSON(data []byte) ([]byte, error) {
-	var obj map[string]any
-	if err := json.Unmarshal(data, &obj); err != nil {
-		return data, nil // Not valid JSON, return as-is
-	}
-
-	// Remove keys that might contain sensitive data
-	sensitiveKeys := []string{
-		"apiKey", "api_key", "apikey",
-		"token", "auth_token", "authToken",
-		"secret", "password", "credential",
-		"privatekey", "private_key",
-		"accesskey", "access_key",
-		"secretkey", "secret_key",
-	}
-
-	filtered := filterMapKeys(obj, sensitiveKeys)
-	return json.MarshalIndent(filtered, "", "  ")
-}
-
-// exactSensitiveKeys are filtered by exact (case-insensitive) match only.
-// These are too short/common for substring matching (would false-positive on
-// "hotkeyMode", "primaryKey", "keyboard", etc.) but should still be caught
-// when used as bare key names like {"key": "sk-live-..."}.
-var exactSensitiveKeys = map[string]struct{}{
-	"key":     {},
-	"private": {},
-}
-
-// filterMapKeys recursively removes sensitive keys from a map
-func filterMapKeys(obj map[string]any, sensitiveKeys []string) map[string]any {
-	result := make(map[string]any)
-
-	for k, v := range obj {
-		lowerKey := strings.ToLower(k)
-
-		// Check exact match for short sensitive words
-		if _, exact := exactSensitiveKeys[lowerKey]; exact {
-			continue
-		}
-
-		// Check if key contains sensitive substrings
-		isSensitive := false
-		for _, sensitive := range sensitiveKeys {
-			if strings.Contains(lowerKey, strings.ToLower(sensitive)) {
-				isSensitive = true
-				break
-			}
-		}
-
-		if isSensitive {
-			continue
-		}
-
-		// Recursively filter nested maps
-		if nested, ok := v.(map[string]any); ok {
-			result[k] = filterMapKeys(nested, sensitiveKeys)
-		} else {
-			result[k] = v
-		}
-	}
-
-	return result
 }
 
 // filterGitConfig extracts only safe configuration from gitconfig

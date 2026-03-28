@@ -90,7 +90,7 @@ func ParseStatus(output string) *StatusResult {
 		}
 		indexStatus := line[0]
 		workTreeStatus := line[1]
-		path := strings.TrimSpace(line[3:])
+		path, oldPath := parseShortStatusPath(strings.TrimSpace(line[3:]), indexStatus, workTreeStatus)
 
 		if path == "" {
 			continue
@@ -107,23 +107,75 @@ func ParseStatus(output string) *StatusResult {
 		// Staged changes (index has status)
 		if indexStatus != ' ' && indexStatus != '?' {
 			result.Staged = append(result.Staged, Change{
-				Path:   path,
-				Kind:   parseStatusChar(indexStatus),
-				Staged: true,
+				Path:    path,
+				OldPath: oldPath,
+				Kind:    parseStatusChar(indexStatus),
+				Staged:  true,
 			})
 		}
 
 		// Unstaged changes (work tree has status)
 		if workTreeStatus != ' ' && workTreeStatus != '?' {
 			result.Unstaged = append(result.Unstaged, Change{
-				Path:   path,
-				Kind:   parseStatusChar(workTreeStatus),
-				Staged: false,
+				Path:    path,
+				OldPath: oldPath,
+				Kind:    parseStatusChar(workTreeStatus),
+				Staged:  false,
 			})
 		}
 	}
 
 	return result
+}
+
+func parseShortStatusPath(raw string, indexStatus, workTreeStatus byte) (string, string) {
+	if raw == "" {
+		return "", ""
+	}
+
+	if indexStatus == 'R' || indexStatus == 'C' || workTreeStatus == 'R' || workTreeStatus == 'C' {
+		if oldRaw, newRaw, ok := splitShortStatusRename(raw); ok {
+			return decodeShortStatusPath(newRaw), decodeShortStatusPath(oldRaw)
+		}
+	}
+
+	return decodeShortStatusPath(raw), ""
+}
+
+func splitShortStatusRename(raw string) (string, string, bool) {
+	inQuotes := false
+	escaped := false
+	for i := 0; i+3 < len(raw); i++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch raw[i] {
+		case '\\':
+			if inQuotes {
+				escaped = true
+			}
+		case '"':
+			inQuotes = !inQuotes
+		}
+		if inQuotes {
+			continue
+		}
+		if raw[i:i+4] == " -> " {
+			return raw[:i], raw[i+4:], true
+		}
+	}
+	return "", "", false
+}
+
+func decodeShortStatusPath(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if len(trimmed) >= 2 && trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"' {
+		if decoded, err := strconv.Unquote(trimmed); err == nil {
+			return decoded
+		}
+	}
+	return trimmed
 }
 
 // parseStatusChar converts a git status character to a ChangeKind

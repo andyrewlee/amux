@@ -188,6 +188,35 @@ func TestParseStatusPorcelain(t *testing.T) {
 	}
 }
 
+func TestParseStatusHandlesQuotedPathsAndRenames(t *testing.T) {
+	t.Run("quoted path", func(t *testing.T) {
+		result := ParseStatus(" M \"file with spaces.txt\"\n")
+		if len(result.Unstaged) != 1 {
+			t.Fatalf("unstaged count = %d, want 1", len(result.Unstaged))
+		}
+		if got, want := result.Unstaged[0].Path, "file with spaces.txt"; got != want {
+			t.Fatalf("unstaged path = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("quoted rename", func(t *testing.T) {
+		result := ParseStatus("R  \"old name.txt\" -> \"new name.txt\"\n")
+		if len(result.Staged) != 1 {
+			t.Fatalf("staged count = %d, want 1", len(result.Staged))
+		}
+		change := result.Staged[0]
+		if got, want := change.Kind, ChangeRenamed; got != want {
+			t.Fatalf("change kind = %v, want %v", got, want)
+		}
+		if got, want := change.OldPath, "old name.txt"; got != want {
+			t.Fatalf("change old path = %q, want %q", got, want)
+		}
+		if got, want := change.Path, "new name.txt"; got != want {
+			t.Fatalf("change path = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestStatusResult_GetStatusSummary(t *testing.T) {
 	tests := []struct {
 		name   string

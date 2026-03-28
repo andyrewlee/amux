@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -92,6 +93,202 @@ func getAgentArgs(args []string, argsLenAtDash int) []string {
 		return nil
 	}
 	return append([]string{}, args[argsLenAtDash:]...)
+}
+
+var cliWorkingDirOverride string
+
+func setCLIWorkingDirOverride(cwd string) string {
+	prev := cliWorkingDirOverride
+	cliWorkingDirOverride = strings.TrimSpace(cwd)
+	return prev
+}
+
+func currentCLIWorkingDir() (string, error) {
+	cwd, err := os.Getwd()
+	if cliWorkingDirOverride != "" {
+		return cliWorkingDirOverride, nil
+	}
+
+	return cliWorkingDirFrom(cwd, err, getenvFallback("PWD"), getenvFallback("INIT_CWD"))
+}
+
+func cliWorkingDirFrom(cwd string, cwdErr error, pwd, initCwd string) (string, error) {
+	pwd = strings.TrimSpace(pwd)
+	initCwd = strings.TrimSpace(initCwd)
+	if initCwd != "" {
+		if cwdErr != nil {
+			return initCwd, nil
+		}
+		if wrapperCwd := currentPackageManagerWrapperDir(cwd, pwd, initCwd); wrapperCwd != "" {
+			return wrapperCwd, nil
+		}
+		if sameCLIPath(pwd, initCwd) {
+			if shellCwd := currentShellWorkingDir(cwd, pwd); shellCwd != "" {
+				return shellCwd, nil
+			}
+			if sameCLIPath(pwd, currentPackageManagerRoot()) {
+				return cwd, nil
+			}
+			if pwd != "" {
+				return pwd, nil
+			}
+			return cwd, nil
+		}
+	}
+
+	if shellCwd := currentShellWorkingDir(cwd, pwd); shellCwd != "" {
+		return shellCwd, nil
+	}
+	if initCwd == "" {
+		return cwd, cwdErr
+	}
+	return cwd, nil
+}
+
+func currentShellWorkingDir(cwd, pwd string) string {
+	pwd = strings.TrimSpace(pwd)
+	if sameCLIPath(pwd, cwd) {
+		return pwd
+	}
+	return ""
+}
+
+func currentPackageManagerWrapperDir(cwd, pwd, initCwd string) string {
+	if !sameCLIPath(cwd, currentPackageManagerRoot()) {
+		return ""
+	}
+	pwd = strings.TrimSpace(pwd)
+	if pwd != "" && !sameCLIPath(pwd, cwd) {
+		return ""
+	}
+	if sameCLIPath(initCwd, cwd) {
+		return ""
+	}
+	return initCwd
+}
+
+func currentPackageManagerRoot() string {
+	if localPrefix := strings.TrimSpace(getenvFallback("npm_config_local_prefix")); localPrefix != "" {
+		return localPrefix
+	}
+	if packageJSON := strings.TrimSpace(getenvFallback("npm_package_json")); packageJSON != "" {
+		return filepath.Dir(packageJSON)
+	}
+	return ""
+}
+
+func resolveCLIWorkingDirOverride(baseCwd, override string) string {
+	override = strings.TrimSpace(override)
+	if override == "" {
+		return ""
+	}
+
+	base := strings.TrimSpace(baseCwd)
+	if resolvedBase, err := cliWorkingDirFrom(baseCwd, nil, getenvFallback("PWD"), getenvFallback("INIT_CWD")); err == nil {
+		base = strings.TrimSpace(resolvedBase)
+	}
+	if resolved, ok := resolveCLIPath(base, override); ok {
+		return resolved
+	}
+	if filepath.IsAbs(override) {
+		return filepath.Clean(override)
+	}
+	if base == "" {
+		return filepath.Clean(override)
+	}
+	return filepath.Clean(filepath.Join(base, override))
+}
+
+func resolveCLIPath(baseCwd, target string) (string, bool) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", false
+	}
+
+	current := strings.TrimSpace(baseCwd)
+	if filepath.IsAbs(target) {
+		volume := filepath.VolumeName(target)
+		current = volume + string(filepath.Separator)
+		target = strings.TrimPrefix(target, current)
+	} else if current == "" {
+		return "", false
+	}
+
+	parts := splitCLIPath(target)
+	if len(parts) == 0 {
+		return filepath.Clean(current), true
+	}
+
+	appendedDepth := 0
+	for _, part := range parts {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if appendedDepth > 0 {
+				if resolved, err := filepath.EvalSymlinks(current); err == nil {
+					current = resolved
+				}
+				appendedDepth--
+			}
+			current = filepath.Dir(current)
+		default:
+			current = filepath.Join(current, part)
+			appendedDepth++
+		}
+	}
+
+	return filepath.Clean(current), true
+}
+
+func splitCLIPath(path string) []string {
+	return strings.FieldsFunc(path, func(r rune) bool {
+		return r == '/' || r == '\\'
+	})
+}
+
+func sameCLIPath(a, b string) bool {
+	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	return canonicalCLIPath(a) == canonicalCLIPath(b)
+}
+
+func canonicalCLIPath(p string) string {
+	if strings.TrimSpace(p) == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(p)
+	if err == nil {
+		p = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		p = resolved
+	}
+	return filepath.Clean(p)
+}
+
+func worktreeIDForMeta(cwd string, meta *sandbox.SandboxMeta) string {
+	if meta != nil {
+		if worktreeID := strings.TrimSpace(meta.WorktreeID); worktreeID != "" {
+			return worktreeID
+		}
+	}
+	return sandbox.ComputeWorktreeID(cwd)
+}
+
+func syncOptionsForMeta(cwd string, meta *sandbox.SandboxMeta) sandbox.SyncOptions {
+	return sandbox.SyncOptions{
+		Cwd:        cwd,
+		WorktreeID: worktreeIDForMeta(cwd, meta),
+	}
+}
+
+func worktreeLogDir(cwd string, meta *sandbox.SandboxMeta) string {
+	return "/amux/logs/" + worktreeIDForMeta(cwd, meta)
 }
 
 func getenvFallback(keys ...string) string {

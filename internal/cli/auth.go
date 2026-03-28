@@ -112,7 +112,7 @@ func buildAuthCommand() *cobra.Command {
 }
 
 func runGhAuthLogin() error {
-	cwd, err := os.Getwd()
+	cwd, err := currentCLIWorkingDir()
 	if err != nil {
 		return err
 	}

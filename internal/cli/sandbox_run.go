@@ -39,15 +39,11 @@ func buildSandboxRunCommand() *cobra.Command {
 			}
 			agent := sandbox.Agent(agentName)
 
-			cwd := os.Getenv("INIT_CWD")
-			if cwd == "" {
-				var err error
-				cwd, err = os.Getwd()
-				if err != nil {
-					return err
-				}
+			cwd, err := currentCLIWorkingDir()
+			if err != nil {
+				return err
 			}
-			cfg, err := sandbox.LoadConfig()
+			cfg, err := loadCLIConfig()
 			if err != nil {
 				return err
 			}
@@ -203,11 +199,11 @@ func runAgent(p runAgentParams) error {
 	var sb sandbox.RemoteSandbox
 	var err error
 
-	cfg, err := sandbox.LoadConfig()
+	cfg, err := loadCLIConfig()
 	if err != nil {
 		return err
 	}
-	provider, _, err := sandbox.ResolveProvider(cfg, p.cwd, "")
+	provider, _, err := resolveCLIProvider(cfg, p.cwd, "")
 	if err != nil {
 		return err
 	}

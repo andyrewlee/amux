@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -76,12 +75,12 @@ func buildAgentAliasCommand(agent, description string) *cobra.Command {
 func runAgentAlias(agentName string, envVars, volumes []string, credentials, snapshotID string, noSync bool, autoStop int32, forceUpdate, keep, keepExplicit, syncSettings, noSyncSettings bool, previewPort int, previewExplicit, previewNoOpen, recordLogs bool, passthroughArgs []string) error {
 	agent := sandbox.Agent(agentName)
 
-	cwd, err := os.Getwd()
+	cwd, err := currentCLIWorkingDir()
 	if err != nil {
 		return err
 	}
 
-	cfg, err := sandbox.LoadConfig()
+	cfg, err := loadCLIConfig()
 	if err != nil {
 		return err
 	}
@@ -165,7 +164,7 @@ func runAgentAlias(agentName string, envVars, volumes []string, credentials, sna
 	}
 
 	// Use the shared runAgent function for consistent behavior
-	return runAgent(runAgentParams{
+	return runAgentAliasRunner(runAgentParams{
 		agent:                 agent,
 		cwd:                   cwd,
 		envMap:                envMap,

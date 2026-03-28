@@ -27,7 +27,7 @@ func buildSandboxPreviewCommand() *cobra.Command {
 			if err != nil || port <= 0 || port > 65535 {
 				return errors.New("port must be a number between 1 and 65535")
 			}
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
@@ -80,15 +80,15 @@ func buildSandboxLogsCommand() *cobra.Command {
 		Short: "View recorded agent logs for this workspace",
 		Long:  "View recorded agent session output stored on the persistent volume.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
-			cfg, err := sandbox.LoadConfig()
+			cfg, err := loadCLIConfig()
 			if err != nil {
 				return err
 			}
-			providerInstance, _, err := sandbox.ResolveProvider(cfg, cwd, "")
+			providerInstance, _, err := resolveCLIProvider(cfg, cwd, "")
 			if err != nil {
 				return err
 			}
@@ -96,17 +96,25 @@ func buildSandboxLogsCommand() *cobra.Command {
 				return errors.New("cannot use --list with --file")
 			}
 
-			worktreeID := sandbox.ComputeWorktreeID(cwd)
-			logDir := "/amux/logs/" + worktreeID
+			meta, err := loadCLISandboxMeta(cwd, providerInstance.Name())
+			if err != nil {
+				return err
+			}
+			worktreeID := worktreeIDForMeta(cwd, meta)
+			logDir := worktreeLogDir(cwd, meta)
 			resolveSandbox := func() (sandbox.RemoteSandbox, func(), error) {
-				meta, err := sandbox.LoadSandboxMeta(cwd, providerInstance.Name())
-				if err != nil {
-					return nil, nil, err
-				}
 				if meta != nil {
 					sb, err := providerInstance.GetSandbox(context.Background(), meta.SandboxID)
-					if err == nil {
-						if err := sb.Start(context.Background()); err == nil {
+					if err != nil {
+						if !sandbox.IsNotFoundError(err) {
+							return nil, nil, err
+						}
+					} else {
+						if err := sb.Start(context.Background()); err != nil {
+							if !sandbox.IsNotFoundError(err) {
+								return nil, nil, err
+							}
+						} else {
 							if err := sb.WaitReady(context.Background(), 60*time.Second); err != nil && Verbose {
 								fmt.Fprintf(os.Stderr, "Warning: sandbox may not be fully ready: %v\n", err)
 							}
@@ -236,7 +244,7 @@ func buildSandboxDesktopCommand() *cobra.Command {
 			if err != nil || p <= 0 || p > 65535 {
 				return errors.New("port must be a number between 1 and 65535")
 			}
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
@@ -320,7 +328,7 @@ func buildSandboxLsCommand() *cobra.Command {
 		Use:   "ls",
 		Short: "List all amux sandboxes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
+			cwd, err := currentCLIWorkingDir()
 			if err != nil {
 				return err
 			}
