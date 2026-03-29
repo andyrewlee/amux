@@ -91,9 +91,35 @@ func (a *App) handleMouseMsg(msg tea.Msg) tea.Cmd {
 
 // routeMouseWheel routes mouse wheel events to the appropriate pane.
 func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
-	// Route wheel input by keyboard focus; child models currently ignore wheel
-	// while unfocused.
+	if a.prefixPaletteContainsPoint(msg.X, msg.Y) {
+		// Palette wheel input is currently non-interactive; consume it so hidden
+		// panes cannot scroll or steal focus while prefix mode is active.
+		return nil
+	}
+
 	targetPane := a.focusedPane
+	// Modal overlays and toast overlays do not consume wheel today, so preserve
+	// focused-pane routing instead of hit-testing obscured panes beneath them.
+	if !a.overlayVisible() && !a.toastCoversPoint(msg.X, msg.Y) {
+		// Route wheel input by pointer target when possible so hovered panes
+		// scroll without requiring a prior click. Fall back to keyboard focus
+		// when the pointer is outside interactive pane geometry.
+		hoverPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
+		if hasTarget {
+			// Dashboard wheel handling activates rows, so do not retarget passive
+			// hover wheel input into it from another pane.
+			if hoverPane != messages.PaneDashboard || a.focusedPane == messages.PaneDashboard {
+				if a.canRetargetWheelToPane(hoverPane) {
+					targetPane = hoverPane
+				}
+			}
+		}
+	}
+
+	var focusCmd tea.Cmd
+	if targetPane != a.focusedPane {
+		focusCmd = a.focusPaneOnWheel(targetPane)
+	}
 
 	switch targetPane {
 	case messages.PaneDashboard:
@@ -104,7 +130,7 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		}
 		newDashboard, cmd := a.dashboard.Update(adjusted)
 		a.dashboard = newDashboard
-		return cmd
+		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneCenter:
 		adjusted := msg
 		if a.layout != nil {
@@ -112,11 +138,11 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		}
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
-		return cmd
+		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneSidebarTerminal:
 		newTerm, cmd := a.sidebarTerminal.Update(msg)
 		a.sidebarTerminal = newTerm
-		return cmd
+		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneSidebar:
 		adjusted := msg
 		if a.layout != nil {
@@ -124,9 +150,22 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		}
 		newSidebar, cmd := a.sidebar.Update(adjusted)
 		a.sidebar = newSidebar
-		return cmd
+		return common.SafeBatch(focusCmd, cmd)
 	}
 	return nil
+}
+
+func (a *App) canRetargetWheelToPane(pane messages.PaneType) bool {
+	switch pane {
+	case messages.PaneCenter:
+		return a.center != nil && a.center.CanConsumeWheel()
+	case messages.PaneSidebar:
+		return a.sidebar != nil && a.sidebar.CanConsumeWheel()
+	case messages.PaneSidebarTerminal:
+		return a.sidebarTerminal != nil && a.sidebarTerminal.CanConsumeWheel()
+	default:
+		return false
+	}
 }
 
 // routeMouseMotion routes mouse motion events to the appropriate pane.

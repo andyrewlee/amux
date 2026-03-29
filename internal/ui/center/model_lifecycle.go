@@ -33,6 +33,7 @@ func (m *Model) Focus() {
 	}
 	m.focused = true
 	m.setActiveTerminalCursorVisibility(true)
+	m.syncActiveDiffViewerFocus(true)
 }
 
 // Blur removes focus.
@@ -42,6 +43,7 @@ func (m *Model) Blur() {
 	}
 	m.focused = false
 	m.setActiveTerminalCursorVisibility(false)
+	m.syncActiveDiffViewerFocus(false)
 }
 
 // Focused returns whether the center pane is focused.
@@ -169,6 +171,23 @@ func (m *Model) setActiveTerminalCursorVisibility(visible bool) {
 	tab.cachedShowCursor = false
 	tab.cachedRecentLocalInput = false
 	tab.cachedRestrictCursor = false
+}
+
+func (m *Model) syncActiveDiffViewerFocus(focused bool) {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	if tab == nil || tab.isClosed() {
+		return
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if tab.DiffViewer != nil {
+		tab.DiffViewer.SetFocused(focused)
+	}
 }
 
 // Close cleans up all resources.

@@ -214,7 +214,7 @@ func (a *App) overlayVisible() bool {
 }
 
 func (a *App) toastCoversPoint(x, y int) bool {
-	if a == nil || !a.toast.Visible() {
+	if a == nil || a.toast == nil || !a.toast.Visible() {
 		return false
 	}
 	toastView := a.toast.View()
