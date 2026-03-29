@@ -153,7 +153,7 @@ func TestWorkspaceStore_LoadAppliesDefaults(t *testing.T) {
 func TestWorkspaceStore_LoadAppliesConfiguredDefaultAssistant(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)
-	store.SetDefaultAssistant("openclaw")
+	store.SetDefaultAssistant("codex")
 
 	ws := &Workspace{
 		Name: "configured-default-test",
@@ -182,8 +182,8 @@ func TestWorkspaceStore_LoadAppliesConfiguredDefaultAssistant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if loaded.Assistant != "openclaw" {
-		t.Errorf("Assistant = %v, want %v", loaded.Assistant, "openclaw")
+	if loaded.Assistant != "codex" {
+		t.Errorf("Assistant = %v, want %v", loaded.Assistant, "codex")
 	}
 }
 
