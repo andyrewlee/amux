@@ -68,17 +68,16 @@ func TestIsVersionInvocation(t *testing.T) {
 func TestUnsupportedInvocationMessage(t *testing.T) {
 	tests := []struct {
 		name string
-		args []string
+		arg  string
 		want string
 	}{
-		{name: "unexpected command", args: []string{"status"}, want: `unexpected argument "status"`},
-		{name: "tui subcommand hint", args: []string{"tui"}, want: "run `amux` directly to start the terminal UI"},
-		{name: "empty args fallback", args: nil, want: "usage: amux [--version]"},
+		{name: "unexpected command", arg: "status", want: `unexpected argument "status"`},
+		{name: "tui subcommand hint", arg: "tui", want: "run `amux` directly to start the terminal UI"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := unsupportedInvocationMessage(tt.args); !strings.Contains(got, tt.want) {
+			if got := unsupportedInvocationMessage(tt.arg); !strings.Contains(got, tt.want) {
 				t.Fatalf("unsupportedInvocationMessage() = %q, want substring %q", got, tt.want)
 			}
 		})

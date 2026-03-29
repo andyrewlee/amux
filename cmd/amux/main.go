@@ -40,7 +40,7 @@ func main() {
 	}
 
 	if len(args) > 0 {
-		fmt.Fprintln(os.Stderr, unsupportedInvocationMessage(args))
+		fmt.Fprintln(os.Stderr, unsupportedInvocationMessage(args[0]))
 		os.Exit(2)
 	}
 
@@ -64,14 +64,11 @@ func shouldLaunchTUI(stdinIsTTY, stdoutIsTTY, stderrIsTTY bool) bool {
 	return stdinIsTTY && stdoutIsTTY && stderrIsTTY
 }
 
-func unsupportedInvocationMessage(args []string) string {
-	if len(args) == 0 {
-		return "usage: amux [--version]"
-	}
-	if args[0] == "tui" {
+func unsupportedInvocationMessage(arg string) string {
+	if arg == "tui" {
 		return "run `amux` directly to start the terminal UI."
 	}
-	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI or `amux --version`.", args[0])
+	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI or `amux --version`.", arg)
 }
 
 func nonInteractiveMessage() string {
