@@ -10,12 +10,17 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// focusPane changes focus to the specified pane
-func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
+// setFocusedPane updates pane focus state without triggering pane-specific side effects.
+func (a *App) setFocusedPane(pane messages.PaneType) {
 	a.focusedPane = pane
 	// Keep focus transitions fail-safe for partially initialized App instances
 	// used in lightweight tests.
 	a.syncPaneFocusFlags()
+}
+
+// focusPane changes focus to the specified pane
+func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
+	a.setFocusedPane(pane)
 	switch pane {
 	case messages.PaneCenter:
 		// Seamless UX: when center regains focus, attempt reattach for detached active tab.
@@ -27,6 +32,17 @@ func (a *App) focusPane(pane messages.PaneType) tea.Cmd {
 		if a.sidebarTerminal != nil {
 			return a.sidebarTerminal.EnsureTerminalTab()
 		}
+	}
+	return nil
+}
+
+// focusPaneOnWheel updates focus for hover-wheel routing and preserves only the
+// center-pane detached-tab reattach behavior. It intentionally skips other
+// focus-time side effects such as lazy sidebar terminal creation.
+func (a *App) focusPaneOnWheel(pane messages.PaneType) tea.Cmd {
+	a.setFocusedPane(pane)
+	if pane == messages.PaneCenter && a.center != nil {
+		return a.center.ReattachActiveTabIfDetached()
 	}
 	return nil
 }
