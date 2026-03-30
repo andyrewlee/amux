@@ -51,3 +51,16 @@ func TestProjectTreeCanConsumeWheelWithShortList(t *testing.T) {
 		t.Fatal("expected short project tree with multiple nodes to consume wheel")
 	}
 }
+
+func TestProjectTreeCannotConsumeWheelWithSingleNode(t *testing.T) {
+	tree := NewProjectTree()
+	tree.SetSize(80, 1)
+	tree.workspace = data.NewWorkspace("feature", "feature", "main", "/tmp/repo", "/tmp/repo/feature")
+	tree.flatNodes = []*ProjectTreeNode{
+		{Name: "root", Path: "/tmp/repo/feature", IsDir: true},
+	}
+
+	if tree.canConsumeWheel() {
+		t.Fatal("expected single-node project tree not to consume wheel")
+	}
+}

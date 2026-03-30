@@ -52,5 +52,5 @@ func (m *ProjectTree) canConsumeWheel() bool {
 	if m == nil || m.workspace == nil || len(m.flatNodes) == 0 {
 		return false
 	}
-	return len(m.flatNodes) > 1 || len(m.flatNodes) > m.visibleHeight()
+	return len(m.flatNodes) > 1
 }

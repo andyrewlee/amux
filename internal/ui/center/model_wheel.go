@@ -18,20 +18,20 @@ func (m *Model) CanConsumeWheel() bool {
 	}
 
 	tab.mu.Lock()
+	defer tab.mu.Unlock()
+
 	detached := tab.Detached
 	reattachInFlight := tab.reattachInFlight
-	terminal := tab.Terminal
-	diffViewer := tab.DiffViewer
-	tab.mu.Unlock()
+	isChat := m.isChatTabLocked(tab)
 
-	if detached && !reattachInFlight && m.isChatTab(tab) {
+	if detached && !reattachInFlight && isChat {
 		return true
 	}
-	if diffViewer != nil {
-		return diffViewer.CanConsumeWheel()
+	if tab.DiffViewer != nil {
+		return tab.DiffViewer.CanConsumeWheel()
 	}
-	if terminal != nil {
-		return terminal.MaxViewOffset() > 0
+	if tab.Terminal != nil {
+		return tab.Terminal.MaxViewOffset() > 0
 	}
 	return false
 }

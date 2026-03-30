@@ -58,7 +58,7 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 	}
 
 	// Toast notification
-	if a.toast.Visible() {
+	if a.toast != nil && a.toast.Visible() {
 		toastView := a.toast.View()
 		if toastView != "" {
 			toastWidth := lipgloss.Width(toastView)
