@@ -212,6 +212,19 @@ func (t *Tab) normalizePTYAccountingLocked() {
 	}
 }
 
+func (t *Tab) resetPTYStateLocked() {
+	if t == nil {
+		return
+	}
+	t.pendingOutput = nil
+	t.pendingOutputBytes = 0
+	t.clearCatchUpLocked()
+	t.ptyBytesReceived = 0
+	t.ptyBytesSettled = 0
+	t.ptyNoiseTrailing = nil
+	t.actorQueuedBytes = 0
+}
+
 func (t *Tab) clearCatchUpLocked() {
 	if t == nil {
 		return
@@ -396,13 +409,7 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 			tab.ptyTraceFile = nil
 			tab.ptyTraceClosed = true
 		}
-		tab.pendingOutput = nil
-		tab.pendingOutputBytes = 0
-		tab.clearCatchUpLocked()
-		tab.ptyBytesReceived = 0
-		tab.ptyBytesSettled = 0
-		tab.actorQueuedBytes = 0
-		tab.ptyNoiseTrailing = nil
+		tab.resetPTYStateLocked()
 		tab.DiffViewer = nil
 		tab.Terminal = nil
 		tab.cachedSnap = nil
