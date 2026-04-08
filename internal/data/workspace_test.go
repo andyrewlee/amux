@@ -30,6 +30,82 @@ func TestNewWorkspace(t *testing.T) {
 	}
 }
 
+func TestComposeChildWorkspaceName(t *testing.T) {
+	tests := []struct {
+		name   string
+		parent string
+		child  string
+		want   string
+	}{
+		{name: "prefixes child", parent: "feature", child: "refactor", want: "feature.refactor"},
+		{name: "keeps dotted prefix", parent: "feature", child: "feature.refactor", want: "feature.refactor"},
+		{name: "keeps dashed prefix", parent: "feature", child: "feature-api", want: "feature-api"},
+		{name: "empty parent", parent: "", child: "refactor", want: "refactor"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ComposeChildWorkspaceName(tt.parent, tt.child); got != tt.want {
+				t.Fatalf("ComposeChildWorkspaceName(%q, %q) = %q, want %q", tt.parent, tt.child, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyStackParent(t *testing.T) {
+	parent := NewWorkspace("feature", "feature", "main", "/repo", "/repo/.amux/workspaces/feature")
+	parent.StackDepth = 1
+	parent.StackRootWorkspaceID = parent.ID()
+
+	child := NewWorkspace("feature.refactor", "feature.refactor", "feature", "/repo", "/repo/.amux/workspaces/feature.refactor")
+	ApplyStackParent(child, parent, "feature")
+
+	if child.ParentWorkspaceID != parent.ID() {
+		t.Fatalf("ParentWorkspaceID = %q, want %q", child.ParentWorkspaceID, parent.ID())
+	}
+	if child.ParentBranch != "feature" {
+		t.Fatalf("ParentBranch = %q, want %q", child.ParentBranch, "feature")
+	}
+	if child.StackRootWorkspaceID != parent.ID() {
+		t.Fatalf("StackRootWorkspaceID = %q, want %q", child.StackRootWorkspaceID, parent.ID())
+	}
+	if child.StackDepth != 2 {
+		t.Fatalf("StackDepth = %d, want %d", child.StackDepth, 2)
+	}
+}
+
+func TestFlattenWorkspaceTree(t *testing.T) {
+	main := NewWorkspace("repo", "main", "main", "/repo", "/repo")
+	main.Created = time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC)
+	feature := NewWorkspace("feature", "feature", "main", "/repo", "/repo/.amux/workspaces/feature")
+	ApplyStackParent(feature, main, "main")
+	child := NewWorkspace("feature.refactor", "feature.refactor", "feature", "/repo", "/repo/.amux/workspaces/feature.refactor")
+	ApplyStackParent(child, feature, "feature")
+	detached := NewWorkspace("lonely", "lonely", "main", "/repo", "/repo/.amux/workspaces/lonely")
+	detached.Created = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	entries := FlattenWorkspaceTree([]*Workspace{feature, child, detached, main}, WorkspaceCreatedDescLess)
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(entries))
+	}
+
+	gotNames := []string{
+		entries[0].Workspace.Name,
+		entries[1].Workspace.Name,
+		entries[2].Workspace.Name,
+		entries[3].Workspace.Name,
+	}
+	wantNames := []string{"repo", "feature", "feature.refactor", "lonely"}
+	for i := range wantNames {
+		if gotNames[i] != wantNames[i] {
+			t.Fatalf("FlattenWorkspaceTree names = %v, want %v", gotNames, wantNames)
+		}
+	}
+	if entries[2].Depth != 2 {
+		t.Fatalf("child depth = %d, want %d", entries[2].Depth, 2)
+	}
+}
+
 func TestWorkspace_ID(t *testing.T) {
 	ws1 := Workspace{Repo: "/repo1", Root: "/workspaces/ws1"}
 	ws2 := Workspace{Repo: "/repo1", Root: "/workspaces/ws2"}

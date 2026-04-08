@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/data"
 )
 
 func TestCmdWorkspaceListByRelativeRepo(t *testing.T) {
@@ -159,5 +162,34 @@ func TestCmdWorkspaceListJSONReturnsInternalErrorOnCorruptMetadata(t *testing.T)
 	}
 	if env.Error == nil || env.Error.Code != "list_failed" {
 		t.Fatalf("expected list_failed error, got %#v", env.Error)
+	}
+}
+
+func TestRenderWorkspaceTree(t *testing.T) {
+	rootWS := &data.Workspace{Name: "repo", Branch: "main", Repo: "/repo", Root: "/repo"}
+	childWS := &data.Workspace{Name: "feature", Branch: "feature", Repo: "/repo", Root: "/repo/.amux/workspaces/feature"}
+	data.ApplyStackParent(childWS, rootWS, "main")
+	grandchildWS := &data.Workspace{Name: "feature.refactor", Branch: "feature.refactor", Repo: "/repo", Root: "/repo/.amux/workspaces/feature.refactor"}
+	data.ApplyStackParent(grandchildWS, childWS, "feature")
+
+	var out bytes.Buffer
+	renderWorkspaceTree(&out, []WorkspaceInfo{
+		workspaceToInfo(rootWS),
+		workspaceToInfo(childWS),
+		workspaceToInfo(grandchildWS),
+	})
+
+	output := out.String()
+	if !strings.Contains(output, "/repo\n") {
+		t.Fatalf("expected repo header in output, got %q", output)
+	}
+	if !strings.Contains(output, "  - repo [main] "+string(rootWS.ID())) {
+		t.Fatalf("expected root workspace line, got %q", output)
+	}
+	if !strings.Contains(output, "  |- feature [feature] "+string(childWS.ID())) {
+		t.Fatalf("expected child workspace line, got %q", output)
+	}
+	if !strings.Contains(output, "    |- feature.refactor [feature.refactor] "+string(grandchildWS.ID())) {
+		t.Fatalf("expected nested child workspace line, got %q", output)
 	}
 }

@@ -10,21 +10,27 @@ import (
 
 // workspaceJSON is used for loading old-format metadata files during migration
 type workspaceJSON struct {
-	Name           string            `json:"name"`
-	Branch         string            `json:"branch"`
-	Repo           string            `json:"repo"`
-	Base           string            `json:"base"`
-	Root           string            `json:"root"`
-	Created        json.RawMessage   `json:"created"` // Can be time.Time or string
-	Archived       bool              `json:"archived"`
-	ArchivedAt     json.RawMessage   `json:"archived_at,omitempty"`
-	Assistant      string            `json:"assistant"`
-	Runtime        string            `json:"runtime"`
-	Scripts        ScriptsConfig     `json:"scripts"`
-	ScriptMode     string            `json:"script_mode"`
-	Env            map[string]string `json:"env"`
-	OpenTabs       []TabInfo         `json:"open_tabs,omitempty"`
-	ActiveTabIndex int               `json:"active_tab_index"`
+	Name                 string            `json:"name"`
+	Branch               string            `json:"branch"`
+	Repo                 string            `json:"repo"`
+	Base                 string            `json:"base"`
+	BaseCommit           string            `json:"base_commit,omitempty"`
+	PendingForcePush     bool              `json:"pending_force_push,omitempty"`
+	Root                 string            `json:"root"`
+	ParentWorkspaceID    WorkspaceID       `json:"parent_workspace_id,omitempty"`
+	ParentBranch         string            `json:"parent_branch,omitempty"`
+	StackRootWorkspaceID WorkspaceID       `json:"stack_root_workspace_id,omitempty"`
+	StackDepth           int               `json:"stack_depth,omitempty"`
+	Created              json.RawMessage   `json:"created"` // Can be time.Time or string
+	Archived             bool              `json:"archived"`
+	ArchivedAt           json.RawMessage   `json:"archived_at,omitempty"`
+	Assistant            string            `json:"assistant"`
+	Runtime              string            `json:"runtime"`
+	Scripts              ScriptsConfig     `json:"scripts"`
+	ScriptMode           string            `json:"script_mode"`
+	Env                  map[string]string `json:"env"`
+	OpenTabs             []TabInfo         `json:"open_tabs,omitempty"`
+	ActiveTabIndex       int               `json:"active_tab_index"`
 }
 
 // parseCreated parses a created timestamp from either time.Time format or string format

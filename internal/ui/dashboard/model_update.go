@@ -138,6 +138,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, m.activateCurrentRow()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 			return m, m.handleEnter()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("n"))):
+			return m, m.handleNewWorkspace()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
 			return m, m.handleDelete()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):

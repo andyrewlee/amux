@@ -9,6 +9,8 @@ import (
 
 const branchDiffTimeout = 15 * time.Second
 
+var ErrDetachedHEAD = errors.New("workspace is in detached HEAD state")
+
 // GetBaseBranch returns the base branch (main, master, or the default branch).
 // All returned branches are verified to exist locally. Returns an error if no
 // default branch can be determined.
@@ -51,6 +53,33 @@ func GetBaseBranch(repoPath string) (string, error) {
 	}
 
 	return "", errors.New("unable to determine default branch")
+}
+
+// ResolveCurrentBranchOrFallback returns the current branch for a workspace,
+// falling back to a stored branch name when the workspace cannot be queried.
+// Detached HEAD is treated as an error rather than silently using the fallback.
+func ResolveCurrentBranchOrFallback(path, fallback string) (string, error) {
+	branch, err := GetCurrentBranch(path)
+	if err == nil {
+		branch = normalizeUsableBranchName(branch)
+		if branch != "" {
+			return branch, nil
+		}
+		return "", ErrDetachedHEAD
+	}
+	fallback = normalizeUsableBranchName(fallback)
+	if fallback != "" {
+		return fallback, nil
+	}
+	return "", err
+}
+
+func normalizeUsableBranchName(branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || branch == "HEAD" {
+		return ""
+	}
+	return branch
 }
 
 // GetBranchFileDiff returns the full diff for a single file on the branch

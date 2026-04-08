@@ -187,6 +187,40 @@ func TestWorkspaceStore_LoadAppliesConfiguredDefaultAssistant(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_SaveLoadPreservesStackFields(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	parent := NewWorkspace("feature", "feature", "main", "/repo", "/repo/.amux/workspaces/feature")
+	child := NewWorkspace("feature.refactor", "feature.refactor", "feature", "/repo", "/repo/.amux/workspaces/feature.refactor")
+	ApplyStackParent(child, parent, "feature")
+	child.BaseCommit = "abc123"
+
+	if err := store.Save(child); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := store.Load(child.ID())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.ParentWorkspaceID != parent.ID() {
+		t.Fatalf("ParentWorkspaceID = %q, want %q", loaded.ParentWorkspaceID, parent.ID())
+	}
+	if loaded.ParentBranch != "feature" {
+		t.Fatalf("ParentBranch = %q, want %q", loaded.ParentBranch, "feature")
+	}
+	if loaded.StackRootWorkspaceID != parent.ID() {
+		t.Fatalf("StackRootWorkspaceID = %q, want %q", loaded.StackRootWorkspaceID, parent.ID())
+	}
+	if loaded.StackDepth != 1 {
+		t.Fatalf("StackDepth = %d, want %d", loaded.StackDepth, 1)
+	}
+	if loaded.BaseCommit != "abc123" {
+		t.Fatalf("BaseCommit = %q, want %q", loaded.BaseCommit, "abc123")
+	}
+}
+
 func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

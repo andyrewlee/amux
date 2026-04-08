@@ -13,7 +13,7 @@ import (
 
 func TestCreateWorkspaceNilProjectReturnsFailed(t *testing.T) {
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
-	cmd := svc.CreateWorkspace(nil, "feature", "main")
+	cmd := svc.CreateWorkspace(nil, "feature", "main", "", nil)
 	msg := cmd()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
@@ -30,7 +30,7 @@ func TestCreateWorkspaceNilProjectReturnsFailed(t *testing.T) {
 func TestCreateWorkspaceEmptyNameReturnsFailed(t *testing.T) {
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
-	cmd := svc.CreateWorkspace(project, "  ", "main")
+	cmd := svc.CreateWorkspace(project, "  ", "main", "", nil)
 	msg := cmd()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
@@ -54,7 +54,7 @@ func TestCreateWorkspaceGitFailureIncludesPendingWorkspace(t *testing.T) {
 			return gitErr
 		},
 	}
-	cmd := svc.CreateWorkspace(project, "feature", "main")
+	cmd := svc.CreateWorkspace(project, "feature", "main", "", nil)
 	msg := cmd()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
@@ -85,7 +85,7 @@ func TestCreateWorkspaceEmptyBaseDefaultsToDefaultBranch(t *testing.T) {
 	// /tmp/repo is not a real git repo, so GetBaseBranch returns an error
 	// and the fallback to "HEAD" is used.
 	project := data.NewProject("/tmp/repo")
-	cmd := svc.CreateWorkspace(project, "feature", "")
+	cmd := svc.CreateWorkspace(project, "feature", "", "", nil)
 	msg := cmd()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
@@ -159,7 +159,7 @@ func TestCreateWorkspaceEmptyBaseResolvesToMainBranch(t *testing.T) {
 	}
 
 	project := data.NewProject(repo)
-	cmd := svc.CreateWorkspace(project, "feature", "")
+	cmd := svc.CreateWorkspace(project, "feature", "", "", nil)
 	cmd()
 
 	if capturedBase != "main" {
@@ -181,13 +181,13 @@ func TestCreateWorkspacePendingMatchesAppSidePath(t *testing.T) {
 	}
 
 	// Get the pending workspace the app side would use
-	pending := svc.pendingWorkspace(project, "feature", "main")
+	pending := svc.pendingWorkspace(project, "feature", "main", nil)
 	if pending == nil {
 		t.Fatal("expected non-nil pending workspace")
 	}
 
 	// Run CreateWorkspace and get the failure message
-	cmd := svc.CreateWorkspace(project, "feature", "main")
+	cmd := svc.CreateWorkspace(project, "feature", "main", "", nil)
 	msg := cmd()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
@@ -209,5 +209,28 @@ func TestCreateWorkspacePendingMatchesAppSidePath(t *testing.T) {
 	}
 	if pending.Root != expectedPath {
 		t.Fatalf("expected pending root %q, got %q", expectedPath, pending.Root)
+	}
+}
+
+func TestPendingWorkspacePrefixesChildNameAndStackMetadata(t *testing.T) {
+	project := data.NewProject("/tmp/repo")
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+
+	parent := data.NewWorkspace("feature", "feature", "main", project.Path, "/tmp/workspaces/repo/feature")
+	pending := svc.pendingWorkspace(project, "refactor", "", parent)
+	if pending == nil {
+		t.Fatal("expected pending workspace")
+	}
+	if pending.Name != "feature.refactor" {
+		t.Fatalf("pending name = %q, want %q", pending.Name, "feature.refactor")
+	}
+	if pending.ParentWorkspaceID != parent.ID() {
+		t.Fatalf("ParentWorkspaceID = %q, want %q", pending.ParentWorkspaceID, parent.ID())
+	}
+	if pending.StackDepth != 1 {
+		t.Fatalf("StackDepth = %d, want %d", pending.StackDepth, 1)
+	}
+	if wantRoot := filepath.Join("/tmp/workspaces", project.Name, "feature.refactor"); pending.Root != wantRoot {
+		t.Fatalf("pending root = %q, want %q", pending.Root, wantRoot)
 	}
 }

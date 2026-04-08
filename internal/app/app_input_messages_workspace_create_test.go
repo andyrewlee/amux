@@ -76,7 +76,7 @@ func TestHandleCreateWorkspaceTracksAndClearsPendingIDOnFailure(t *testing.T) {
 
 	// Verify tracked ID matches expected path
 	expectedPath := filepath.Join(workspacesRoot, project.Name, "feature")
-	pending := svc.pendingWorkspace(project, "feature", "main")
+	pending := svc.pendingWorkspace(project, "feature", "main", nil)
 	if pending == nil {
 		t.Fatal("expected non-nil pending workspace")
 	}
@@ -156,4 +156,37 @@ func TestHandleCreateWorkspaceClearsPendingIDOnValidationFailure(t *testing.T) {
 		return
 	}
 	t.Fatal("expected at least one cmd to produce WorkspaceCreateFailed")
+}
+
+func TestHandleCreateWorkspaceTracksChildWorkspaceByComposedName(t *testing.T) {
+	workspacesRoot := "/tmp/workspaces"
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := newWorkspaceService(nil, store, nil, workspacesRoot)
+
+	app := &App{
+		dashboard:            dashboard.New(),
+		creatingWorkspaceIDs: make(map[string]bool),
+		workspaceService:     svc,
+	}
+
+	project := data.NewProject("/tmp/repo")
+	parent := data.NewWorkspace("feature", "feature", "main", project.Path, filepath.Join(workspacesRoot, project.Name, "feature"))
+	msg := messages.CreateWorkspace{
+		Project:         project,
+		Name:            "refactor",
+		Assistant:       "claude",
+		ParentWorkspace: parent,
+	}
+
+	_ = app.handleCreateWorkspace(msg)
+	if len(app.creatingWorkspaceIDs) != 1 {
+		t.Fatalf("expected 1 pending ID, got %d", len(app.creatingWorkspaceIDs))
+	}
+	pending := svc.pendingWorkspace(project, "refactor", "", parent)
+	if pending == nil {
+		t.Fatal("expected pending workspace")
+	}
+	if !app.creatingWorkspaceIDs[string(pending.ID())] {
+		t.Fatalf("expected pending ID %s to be tracked", pending.ID())
+	}
 }

@@ -103,7 +103,7 @@ func TestCreateWorkspaceRejectsInvalidName(t *testing.T) {
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
 	svc.gitOps = mock
-	msg := svc.CreateWorkspace(project, "bad/name", "main")()
+	msg := svc.CreateWorkspace(project, "bad/name", "main", "", nil)()
 
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
@@ -132,7 +132,7 @@ func TestCreateWorkspaceRejectsInvalidBaseRef(t *testing.T) {
 	project := data.NewProject("/tmp/repo")
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
 	svc.gitOps = mock
-	msg := svc.CreateWorkspace(project, "feature", "bad ref")()
+	msg := svc.CreateWorkspace(project, "feature", "bad ref", "", nil)()
 
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
@@ -163,7 +163,7 @@ func TestCreateWorkspaceRejectsPathOutsideManagedRoot(t *testing.T) {
 	project := &data.Project{Name: "../escape", Path: "/tmp/repo"}
 	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
 	svc.gitOps = mock
-	msg := svc.CreateWorkspace(project, "feature", "main")()
+	msg := svc.CreateWorkspace(project, "feature", "main", "", nil)()
 
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
@@ -177,5 +177,23 @@ func TestCreateWorkspaceRejectsPathOutsideManagedRoot(t *testing.T) {
 	}
 	if createCalled {
 		t.Fatal("CreateWorkspace should not have been called")
+	}
+}
+
+func TestCreateWorkspaceRejectsParentFromDifferentProject(t *testing.T) {
+	project := data.NewProject("/tmp/repo-a")
+	parent := data.NewWorkspace("feature", "feature", "main", "/tmp/repo-b", "/tmp/workspaces/repo-b/feature")
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+
+	msg := svc.CreateWorkspace(project, "refactor", "", "", parent)()
+	failed, ok := msg.(messages.WorkspaceCreateFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+	}
+	if failed.Err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(failed.Err.Error(), "different project") {
+		t.Fatalf("expected different project error, got %v", failed.Err)
 	}
 }

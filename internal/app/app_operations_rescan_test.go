@@ -162,7 +162,7 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 
 	workspaceService.gitPathWaitTimeout = 50 * time.Millisecond
 
-	msg := app.createWorkspace(project, "feature", "main", "claude")()
+	msg := app.createWorkspace(project, "feature", "main", "claude", nil)()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
 	if !ok {
 		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)

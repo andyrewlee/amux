@@ -109,21 +109,27 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 	}
 
 	ws := &Workspace{
-		Name:           raw.Name,
-		Branch:         raw.Branch,
-		Base:           raw.Base,
-		Repo:           raw.Repo,
-		Root:           raw.Root,
-		Created:        parseCreated(raw.Created),
-		Runtime:        NormalizeRuntime(raw.Runtime),
-		Assistant:      raw.Assistant,
-		Scripts:        raw.Scripts,
-		ScriptMode:     raw.ScriptMode,
-		Env:            raw.Env,
-		OpenTabs:       raw.OpenTabs,
-		ActiveTabIndex: raw.ActiveTabIndex,
-		Archived:       raw.Archived,
-		ArchivedAt:     parseCreated(raw.ArchivedAt),
+		Name:                 raw.Name,
+		Branch:               raw.Branch,
+		Base:                 raw.Base,
+		BaseCommit:           raw.BaseCommit,
+		PendingForcePush:     raw.PendingForcePush,
+		Repo:                 raw.Repo,
+		Root:                 raw.Root,
+		ParentWorkspaceID:    raw.ParentWorkspaceID,
+		ParentBranch:         raw.ParentBranch,
+		StackRootWorkspaceID: raw.StackRootWorkspaceID,
+		StackDepth:           raw.StackDepth,
+		Created:              parseCreated(raw.Created),
+		Runtime:              NormalizeRuntime(raw.Runtime),
+		Assistant:            raw.Assistant,
+		Scripts:              raw.Scripts,
+		ScriptMode:           raw.ScriptMode,
+		Env:                  raw.Env,
+		OpenTabs:             raw.OpenTabs,
+		ActiveTabIndex:       raw.ActiveTabIndex,
+		Archived:             raw.Archived,
+		ArchivedAt:           parseCreated(raw.ArchivedAt),
 	}
 	ws.storeID = id
 
@@ -234,6 +240,12 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 	}
 	ws.Created = stored.Created
 	ws.Base = stored.Base
+	ws.BaseCommit = stored.BaseCommit
+	ws.PendingForcePush = stored.PendingForcePush
+	ws.ParentWorkspaceID = stored.ParentWorkspaceID
+	ws.ParentBranch = stored.ParentBranch
+	ws.StackRootWorkspaceID = stored.StackRootWorkspaceID
+	ws.StackDepth = stored.StackDepth
 	ws.Runtime = stored.Runtime
 	if stored.Assistant != "" {
 		ws.Assistant = stored.Assistant
@@ -278,8 +290,29 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 	merged.Repo = discovered.Repo
 	merged.Root = discovered.Root
 	merged.Branch = discovered.Branch
+	if discovered.Base != "" {
+		merged.Base = discovered.Base
+	}
+	if discovered.BaseCommit != "" {
+		merged.BaseCommit = discovered.BaseCommit
+	}
+	if discovered.PendingForcePush {
+		merged.PendingForcePush = true
+	}
 	if merged.Name == "" {
 		merged.Name = discovered.Name
+	}
+	if discovered.ParentWorkspaceID != "" {
+		merged.ParentWorkspaceID = discovered.ParentWorkspaceID
+	}
+	if discovered.ParentBranch != "" {
+		merged.ParentBranch = discovered.ParentBranch
+	}
+	if discovered.StackRootWorkspaceID != "" {
+		merged.StackRootWorkspaceID = discovered.StackRootWorkspaceID
+	}
+	if discovered.StackDepth > 0 {
+		merged.StackDepth = discovered.StackDepth
 	}
 	if merged.Assistant == "" {
 		merged.Assistant = discovered.Assistant

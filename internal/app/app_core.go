@@ -90,10 +90,12 @@ type App struct {
 	// Dialog context
 	dialogProject   *data.Project
 	dialogWorkspace *data.Workspace
+	dialogParentWS  *data.Workspace
 	// Pending workspace creation context while selecting assistant.
 	pendingWorkspaceProject *data.Project
 	pendingWorkspaceName    string
 	pendingWorkspaceBase    string
+	pendingWorkspaceParent  *data.Workspace
 
 	// Git status management
 	fileWatcher     *git.FileWatcher

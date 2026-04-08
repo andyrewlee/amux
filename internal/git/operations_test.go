@@ -155,6 +155,37 @@ func TestGetRemoteURL(t *testing.T) {
 	})
 }
 
+func TestGetRemotePushURL(t *testing.T) {
+	skipIfNoGit(t)
+
+	t.Run("returns explicit push url", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "remote", "add", "origin", "https://example.com/upstream.git")
+		runGit(t, repo, "remote", "set-url", "--push", "origin", "git@example.com:fork/repo.git")
+
+		remote, err := GetRemotePushURL(repo, "origin")
+		if err != nil {
+			t.Fatalf("GetRemotePushURL() error = %v", err)
+		}
+		if remote != "git@example.com:fork/repo.git" {
+			t.Fatalf("GetRemotePushURL() = %s, want git@example.com:fork/repo.git", remote)
+		}
+	})
+
+	t.Run("falls back to fetch url", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "remote", "add", "origin", "https://example.com/repo.git")
+
+		remote, err := GetRemotePushURL(repo, "origin")
+		if err != nil {
+			t.Fatalf("GetRemotePushURL() error = %v", err)
+		}
+		if remote != "https://example.com/repo.git" {
+			t.Fatalf("GetRemotePushURL() = %s, want https://example.com/repo.git", remote)
+		}
+	})
+}
+
 func TestGetStatus(t *testing.T) {
 	skipIfNoGit(t)
 
@@ -209,6 +240,85 @@ func TestGetStatus(t *testing.T) {
 			t.Fatalf("GetStatus() should fail for non-repo")
 		}
 	})
+}
+
+func TestResolveCurrentBranchOrFallback(t *testing.T) {
+	skipIfNoGit(t)
+
+	t.Run("uses current branch when available", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "checkout", "-b", "feature")
+
+		got, err := ResolveCurrentBranchOrFallback(repo, "main")
+		if err != nil {
+			t.Fatalf("ResolveCurrentBranchOrFallback() error = %v", err)
+		}
+		if got != "feature" {
+			t.Fatalf("ResolveCurrentBranchOrFallback() = %q, want %q", got, "feature")
+		}
+	})
+
+	t.Run("falls back when branch lookup fails", func(t *testing.T) {
+		got, err := ResolveCurrentBranchOrFallback(t.TempDir(), "feature")
+		if err != nil {
+			t.Fatalf("ResolveCurrentBranchOrFallback() error = %v", err)
+		}
+		if got != "feature" {
+			t.Fatalf("ResolveCurrentBranchOrFallback() = %q, want %q", got, "feature")
+		}
+	})
+
+	t.Run("detached HEAD errors even with fallback", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "checkout", "-b", "feature")
+		runGit(t, repo, "checkout", "--detach", "HEAD")
+
+		if _, err := ResolveCurrentBranchOrFallback(repo, "feature"); !errors.Is(err, ErrDetachedHEAD) {
+			t.Fatalf("ResolveCurrentBranchOrFallback() error = %v, want %v", err, ErrDetachedHEAD)
+		}
+	})
+
+	t.Run("detached HEAD without usable fallback errors", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "checkout", "--detach", "HEAD")
+
+		if _, err := ResolveCurrentBranchOrFallback(repo, "HEAD"); err == nil {
+			t.Fatal("ResolveCurrentBranchOrFallback() error = nil, want error")
+		}
+	})
+}
+
+func TestGetRemoteURLExpandsInsteadOfRewrite(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := initRepo(t)
+	runGit(t, repo, "config", "url.https://github.com/.insteadOf", "gh:")
+	runGit(t, repo, "remote", "add", "origin", "gh:openai/amux.git")
+
+	remote, err := GetRemoteURL(repo, "origin")
+	if err != nil {
+		t.Fatalf("GetRemoteURL() error = %v", err)
+	}
+	if remote != "https://github.com/openai/amux.git" {
+		t.Fatalf("GetRemoteURL() = %s, want https://github.com/openai/amux.git", remote)
+	}
+}
+
+func TestGetRemotePushURLExpandsPushInsteadOfRewrite(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := initRepo(t)
+	runGit(t, repo, "config", "url.https://github.com/.insteadOf", "gh:")
+	runGit(t, repo, "config", "url.git@github.com:.pushInsteadOf", "gh:")
+	runGit(t, repo, "remote", "add", "origin", "gh:openai/amux.git")
+
+	remote, err := GetRemotePushURL(repo, "origin")
+	if err != nil {
+		t.Fatalf("GetRemotePushURL() error = %v", err)
+	}
+	if remote != "git@github.com:openai/amux.git" {
+		t.Fatalf("GetRemotePushURL() = %s, want git@github.com:openai/amux.git", remote)
+	}
 }
 
 func TestRunGitCtxTimeoutError(t *testing.T) {

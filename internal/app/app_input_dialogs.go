@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -99,9 +100,11 @@ func (a *App) handleSettingsDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	project := a.dialogProject
 	workspace := a.dialogWorkspace
+	parentWorkspace := a.dialogParentWS
 	a.dialog = nil
 	a.dialogProject = nil
 	a.dialogWorkspace = nil
+	a.dialogParentWS = nil
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
@@ -109,6 +112,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			a.pendingWorkspaceProject = nil
 			a.pendingWorkspaceName = ""
 			a.pendingWorkspaceBase = ""
+			a.pendingWorkspaceParent = nil
 		}
 		logging.Debug("Dialog canceled")
 		return nil
@@ -133,7 +137,11 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	case DialogCreateWorkspace:
 		if result.Value != "" && project != nil {
 			name := validation.SanitizeInput(result.Value)
-			if err := validation.ValidateWorkspaceName(name); err != nil {
+			finalName := name
+			if parentWorkspace != nil {
+				finalName = data.ComposeChildWorkspaceName(parentWorkspace.Name, name)
+			}
+			if err := validation.ValidateWorkspaceName(finalName); err != nil {
 				return func() tea.Msg {
 					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating workspace name")}
 				}
@@ -141,6 +149,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			a.pendingWorkspaceProject = project
 			a.pendingWorkspaceName = name
 			a.pendingWorkspaceBase = ""
+			a.pendingWorkspaceParent = parentWorkspace
 			return func() tea.Msg {
 				return messages.ShowSelectAssistantDialog{}
 			}
@@ -183,15 +192,18 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			pendingProject := a.pendingWorkspaceProject
 			pendingName := a.pendingWorkspaceName
 			pendingBase := a.pendingWorkspaceBase
+			pendingParent := a.pendingWorkspaceParent
 			a.pendingWorkspaceProject = nil
 			a.pendingWorkspaceName = ""
 			a.pendingWorkspaceBase = ""
+			a.pendingWorkspaceParent = nil
 			return func() tea.Msg {
 				return messages.CreateWorkspace{
-					Project:   pendingProject,
-					Name:      pendingName,
-					Base:      pendingBase,
-					Assistant: assistant,
+					Project:         pendingProject,
+					Name:            pendingName,
+					Base:            pendingBase,
+					Assistant:       assistant,
+					ParentWorkspace: pendingParent,
 				}
 			}
 		}

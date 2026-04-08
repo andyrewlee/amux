@@ -5,24 +5,31 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 )
 
 // WorkspaceInfo is the JSON-serializable workspace representation.
 type WorkspaceInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Branch    string `json:"branch"`
-	Base      string `json:"base"`
-	Repo      string `json:"repo"`
-	Root      string `json:"root"`
-	Runtime   string `json:"runtime"`
-	Assistant string `json:"assistant"`
-	Archived  bool   `json:"archived"`
-	Created   string `json:"created"`
-	TabCount  int    `json:"tab_count"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Branch               string `json:"branch"`
+	Base                 string `json:"base"`
+	BaseCommit           string `json:"base_commit,omitempty"`
+	Repo                 string `json:"repo"`
+	Root                 string `json:"root"`
+	ParentWorkspaceID    string `json:"parent_workspace_id,omitempty"`
+	ParentBranch         string `json:"parent_branch,omitempty"`
+	StackRootWorkspaceID string `json:"stack_root_workspace_id,omitempty"`
+	StackDepth           int    `json:"stack_depth,omitempty"`
+	Runtime              string `json:"runtime"`
+	Assistant            string `json:"assistant"`
+	Archived             bool   `json:"archived"`
+	Created              string `json:"created"`
+	TabCount             int    `json:"tab_count"`
 }
 
 func workspaceToInfo(ws *data.Workspace) WorkspaceInfo {
@@ -31,26 +38,32 @@ func workspaceToInfo(ws *data.Workspace) WorkspaceInfo {
 		created = ws.Created.UTC().Format("2006-01-02T15:04:05Z")
 	}
 	return WorkspaceInfo{
-		ID:        string(ws.ID()),
-		Name:      ws.Name,
-		Branch:    ws.Branch,
-		Base:      ws.Base,
-		Repo:      ws.Repo,
-		Root:      ws.Root,
-		Runtime:   ws.Runtime,
-		Assistant: ws.Assistant,
-		Archived:  ws.Archived,
-		Created:   created,
-		TabCount:  len(ws.OpenTabs),
+		ID:                   string(ws.ID()),
+		Name:                 ws.Name,
+		Branch:               ws.Branch,
+		Base:                 ws.Base,
+		BaseCommit:           ws.BaseCommit,
+		Repo:                 ws.Repo,
+		Root:                 ws.Root,
+		ParentWorkspaceID:    string(ws.ParentWorkspaceID),
+		ParentBranch:         ws.ParentBranch,
+		StackRootWorkspaceID: string(ws.StackRootWorkspaceID),
+		StackDepth:           ws.StackDepth,
+		Runtime:              ws.Runtime,
+		Assistant:            ws.Assistant,
+		Archived:             ws.Archived,
+		Created:              created,
+		TabCount:             len(ws.OpenTabs),
 	}
 }
 
 func cmdWorkspaceList(w, wErr io.Writer, gf GlobalFlags, args []string, version string) int {
-	const usage = "Usage: amux workspace list [--repo <path>|--project <path>] [--archived] [--json]"
+	const usage = "Usage: amux workspace list [--repo <path>|--project <path>] [--archived] [--tree] [--json]"
 	fs := newFlagSet("workspace list")
 	repo := fs.String("repo", "", "filter by repo path")
 	project := fs.String("project", "", "alias for --repo")
 	archived := fs.Bool("archived", false, "include archived workspaces")
+	tree := fs.Bool("tree", false, "render workspaces as a stack tree")
 	if err := fs.Parse(args); err != nil {
 		return returnUsageError(w, wErr, gf, usage, version, err)
 	}
@@ -100,6 +113,10 @@ func cmdWorkspaceList(w, wErr io.Writer, gf GlobalFlags, args []string, version 
 			fmt.Fprintln(w, "No workspaces found.")
 			return
 		}
+		if *tree {
+			renderWorkspaceTree(w, infos)
+			return
+		}
 		for _, info := range infos {
 			status := ""
 			if info.Archived {
@@ -110,6 +127,61 @@ func cmdWorkspaceList(w, wErr io.Writer, gf GlobalFlags, args []string, version 
 		}
 	})
 	return ExitOK
+}
+
+func renderWorkspaceTree(w io.Writer, infos []WorkspaceInfo) {
+	byRepo := make(map[string][]WorkspaceInfo)
+	repos := make([]string, 0, len(infos))
+	for _, info := range infos {
+		repo := strings.TrimSpace(info.Repo)
+		if _, ok := byRepo[repo]; !ok {
+			repos = append(repos, repo)
+		}
+		byRepo[repo] = append(byRepo[repo], info)
+	}
+	sort.Strings(repos)
+
+	for idx, repo := range repos {
+		if idx > 0 {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w, repo)
+		entries := data.FlattenWorkspaceTree(workspaceInfoSliceToWorkspaces(byRepo[repo]), data.WorkspaceCreatedDescLess)
+		for _, entry := range entries {
+			ws := entry.Workspace
+			if ws == nil {
+				continue
+			}
+			prefix := "  - "
+			if entry.Depth > 0 {
+				prefix = "  " + strings.Repeat("  ", entry.Depth-1) + "|- "
+			}
+			fmt.Fprintf(w, "%s%s [%s] %s\n", prefix, ws.Name, ws.Branch, ws.ID())
+		}
+	}
+}
+
+func workspaceInfoSliceToWorkspaces(infos []WorkspaceInfo) []*data.Workspace {
+	workspaces := make([]*data.Workspace, 0, len(infos))
+	for _, info := range infos {
+		ws := &data.Workspace{
+			Name:                 info.Name,
+			Branch:               info.Branch,
+			Base:                 info.Base,
+			BaseCommit:           info.BaseCommit,
+			Repo:                 info.Repo,
+			Root:                 info.Root,
+			ParentWorkspaceID:    data.WorkspaceID(strings.TrimSpace(info.ParentWorkspaceID)),
+			ParentBranch:         info.ParentBranch,
+			StackRootWorkspaceID: data.WorkspaceID(strings.TrimSpace(info.StackRootWorkspaceID)),
+			StackDepth:           info.StackDepth,
+		}
+		if created, err := time.Parse(time.RFC3339, info.Created); err == nil {
+			ws.Created = created
+		}
+		workspaces = append(workspaces, ws)
+	}
+	return workspaces
 }
 
 func listByRepo(svc *Services, repoPath string, includeArchived bool) ([]WorkspaceInfo, error) {

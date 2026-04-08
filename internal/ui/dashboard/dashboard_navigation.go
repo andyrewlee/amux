@@ -196,6 +196,29 @@ func (m *Model) handleEnter() tea.Cmd {
 	return nil
 }
 
+func (m *Model) handleNewWorkspace() tea.Cmd {
+	if m.cursor >= len(m.rows) {
+		return nil
+	}
+
+	row := m.rows[m.cursor]
+	switch row.Type {
+	case RowProject, RowCreate:
+		return func() tea.Msg {
+			return messages.ShowCreateWorkspaceDialog{Project: row.Project}
+		}
+	case RowWorkspace:
+		return func() tea.Msg {
+			return messages.ShowCreateWorkspaceDialog{
+				Project:         row.Project,
+				ParentWorkspace: row.Workspace,
+			}
+		}
+	}
+
+	return nil
+}
+
 // handleDelete handles the delete key
 func (m *Model) handleDelete() tea.Cmd {
 	if m.cursor >= len(m.rows) {

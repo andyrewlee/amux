@@ -83,7 +83,13 @@ func GetCurrentBranch(path string) (string, error) {
 
 // GetRemoteURL returns the URL of the specified remote
 func GetRemoteURL(path, remote string) (string, error) {
-	return RunGitCtx(context.Background(), path, "remote", "get-url", remote)
+	return RunGitCtx(context.Background(), path, "remote", "get-url", strings.TrimSpace(remote))
+}
+
+// GetRemotePushURL returns the push URL of the specified remote. When no
+// explicit push URL is configured, git returns the fetch URL.
+func GetRemotePushURL(path, remote string) (string, error) {
+	return RunGitCtx(context.Background(), path, "remote", "get-url", "--push", strings.TrimSpace(remote))
 }
 
 // RunGitAllowFailure executes git and returns stdout even if exit code is non-zero.

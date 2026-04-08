@@ -96,6 +96,32 @@ func TestDashboardHandleEnterCreate(t *testing.T) {
 	}
 }
 
+func TestDashboardHandleNewWorkspaceOnWorkspaceRowUsesParent(t *testing.T) {
+	m := New()
+	m.SetProjects([]data.Project{makeProject()})
+
+	for i, row := range m.rows {
+		if row.Type == RowWorkspace {
+			m.cursor = i
+			break
+		}
+	}
+
+	cmd := m.handleNewWorkspace()
+	if cmd == nil {
+		t.Fatalf("expected handleNewWorkspace to return a command")
+	}
+
+	msg := cmd()
+	dialog, ok := msg.(messages.ShowCreateWorkspaceDialog)
+	if !ok {
+		t.Fatalf("expected ShowCreateWorkspaceDialog message, got %T", msg)
+	}
+	if dialog.ParentWorkspace == nil || dialog.ParentWorkspace.Name != "feature" {
+		t.Fatalf("expected parent workspace 'feature', got %+v", dialog.ParentWorkspace)
+	}
+}
+
 func TestDashboardActivateCurrentRowProject(t *testing.T) {
 	m := New()
 	m.SetProjects([]data.Project{makeProject()})
@@ -194,6 +220,33 @@ func TestDashboardArrowKeyActivatesWorkspace(t *testing.T) {
 	result := cmd()
 	if _, ok := result.(messages.WorkspaceActivated); !ok {
 		t.Fatalf("expected arrow key movement to emit WorkspaceActivated, got %T", result)
+	}
+}
+
+func TestDashboardNewKeyOnWorkspaceRowShowsCreateDialog(t *testing.T) {
+	m := New()
+	m.SetProjects([]data.Project{makeProject()})
+	m.Focus()
+	for i, row := range m.rows {
+		if row.Type == RowWorkspace {
+			m.cursor = i
+			break
+		}
+	}
+
+	msg := tea.KeyPressMsg{Code: 'n', Text: "n"}
+	_, cmd := m.Update(msg)
+	if cmd == nil {
+		t.Fatalf("expected command from new key")
+	}
+
+	result := cmd()
+	dialog, ok := result.(messages.ShowCreateWorkspaceDialog)
+	if !ok {
+		t.Fatalf("expected ShowCreateWorkspaceDialog, got %T", result)
+	}
+	if dialog.ParentWorkspace == nil {
+		t.Fatalf("expected parent workspace in dialog message")
 	}
 }
 

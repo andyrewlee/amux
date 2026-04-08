@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -30,13 +31,22 @@ func (a *App) handleShowAddProjectDialog() {
 // handleShowCreateWorkspaceDialog shows the create workspace dialog.
 func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDialog) {
 	a.dialogProject = msg.Project
-	a.dialog = common.NewInputDialog(DialogCreateWorkspace, "Create Workspace", "Enter workspace name...")
+	a.dialogParentWS = msg.ParentWorkspace
+	title := "Create Workspace"
+	if msg.ParentWorkspace != nil {
+		title = fmt.Sprintf("Create Child Workspace (%s)", msg.ParentWorkspace.Name)
+	}
+	a.dialog = common.NewInputDialog(DialogCreateWorkspace, title, "Enter workspace name...")
 	a.dialog.SetInputValidate(func(s string) string {
 		s = validation.SanitizeInput(s)
 		if s == "" {
 			return "" // Don't show error for empty input
 		}
-		if err := validation.ValidateWorkspaceName(s); err != nil {
+		finalName := s
+		if msg.ParentWorkspace != nil {
+			finalName = data.ComposeChildWorkspaceName(msg.ParentWorkspace.Name, s)
+		}
+		if err := validation.ValidateWorkspaceName(finalName); err != nil {
 			return err.Error()
 		}
 		return ""

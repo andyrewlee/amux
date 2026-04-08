@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"strings"
+
 	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -95,6 +97,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 	case RowWorkspace:
 		unstyledPrefix := " "
 		styledPrefix := " "
+		if row.TreeDepth > 0 {
+			styledPrefix = strings.Repeat("  ", row.TreeDepth-1) + "|- "
+		}
 		name := row.Workspace.Name
 		status := ""
 		statusText := ""
@@ -197,9 +202,13 @@ func (m *Model) helpLines(contentWidth int) []string {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		switch m.rows[m.cursor].Type {
 		case RowWorkspace:
+			items = append(items, m.helpItem("n", "child"))
 			items = append(items, m.helpItem("D", "delete"))
 		case RowProject:
+			items = append(items, m.helpItem("n", "new"))
 			items = append(items, m.helpItem("D", "remove"))
+		case RowCreate:
+			items = append(items, m.helpItem("n", "new"))
 		}
 	}
 	items = append(items,

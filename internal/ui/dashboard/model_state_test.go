@@ -125,3 +125,46 @@ func TestDashboardWorkspaceOrderStableWhenCreatedEqual(t *testing.T) {
 		}
 	}
 }
+
+func TestDashboardWorkspaceTreePlacesChildrenAfterParent(t *testing.T) {
+	m := New()
+	project := data.Project{
+		Name: "repo",
+		Path: "/repo",
+		Workspaces: []data.Workspace{
+			*data.NewWorkspace("repo", "main", "main", "/repo", "/repo"),
+			*data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/.amux/workspaces/feature"),
+			*data.NewWorkspace("feature.refactor", "feature.refactor", "feature", "/repo", "/repo/.amux/workspaces/feature.refactor"),
+			*data.NewWorkspace("other", "other", "main", "/repo", "/repo/.amux/workspaces/other"),
+		},
+	}
+	parent := &project.Workspaces[1]
+	child := &project.Workspaces[2]
+	data.ApplyStackParent(parent, &project.Workspaces[0], "main")
+	data.ApplyStackParent(child, parent, "feature")
+
+	m.SetProjects([]data.Project{project})
+
+	var got []string
+	var depths []int
+	for _, row := range m.rows {
+		if row.Type != RowWorkspace || row.Workspace == nil {
+			continue
+		}
+		got = append(got, row.Workspace.Name)
+		depths = append(depths, row.TreeDepth)
+	}
+
+	want := []string{"feature", "feature.refactor", "other"}
+	if len(got) != len(want) {
+		t.Fatalf("workspace rows = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("workspace rows = %v, want %v", got, want)
+		}
+	}
+	if depths[0] != 1 || depths[1] != 2 || depths[2] != 0 {
+		t.Fatalf("tree depths = %v, want [1 2 0]", depths)
+	}
+}

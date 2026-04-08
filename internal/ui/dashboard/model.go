@@ -33,6 +33,7 @@ type Row struct {
 	Type      RowType
 	Project   *data.Project
 	Workspace *data.Workspace
+	TreeDepth int
 	// ActivityWorkspaceID is precomputed to avoid per-frame path normalization.
 	ActivityWorkspaceID string
 	// MainWorkspace points to a project's primary/main workspace for project rows.

@@ -206,7 +206,8 @@ type ShowSettingsDialog struct{}
 
 // ShowCreateWorkspaceDialog requests showing the create workspace dialog
 type ShowCreateWorkspaceDialog struct {
-	Project *data.Project
+	Project         *data.Project
+	ParentWorkspace *data.Workspace
 }
 
 // ShowDeleteWorkspaceDialog requests showing the delete workspace confirmation
@@ -222,10 +223,11 @@ type ShowRemoveProjectDialog struct {
 
 // CreateWorkspace requests creating a new workspace
 type CreateWorkspace struct {
-	Project   *data.Project
-	Name      string
-	Base      string
-	Assistant string
+	Project         *data.Project
+	Name            string
+	Base            string
+	Assistant       string
+	ParentWorkspace *data.Workspace
 }
 
 // DeleteWorkspace requests deleting a workspace

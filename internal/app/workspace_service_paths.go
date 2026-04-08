@@ -64,7 +64,7 @@ func resolveBase(projectPath, base string) string {
 	return resolved
 }
 
-func (s *workspaceService) pendingWorkspace(project *data.Project, name, base string) *data.Workspace {
+func (s *workspaceService) pendingWorkspace(project *data.Project, name, base string, parent *data.Workspace) *data.Workspace {
 	if project == nil {
 		return nil
 	}
@@ -72,15 +72,25 @@ func (s *workspaceService) pendingWorkspace(project *data.Project, name, base st
 	if name == "" {
 		return nil
 	}
-	base = strings.TrimSpace(base)
-	if base == "" {
-		base = "HEAD"
+	finalName := name
+	if parent != nil {
+		finalName = data.ComposeChildWorkspaceName(parent.Name, name)
+		base = strings.TrimSpace(parent.Branch)
+	} else {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			base = "HEAD"
+		}
 	}
 	projectRoot := s.pendingProjectRoot(project)
 	if projectRoot == "" {
 		return nil
 	}
-	return data.NewWorkspace(name, name, base, project.Path, filepath.Join(projectRoot, name))
+	ws := data.NewWorkspace(finalName, finalName, base, project.Path, filepath.Join(projectRoot, finalName))
+	if parent != nil {
+		data.ApplyStackParent(ws, parent, base)
+	}
+	return ws
 }
 
 func lexicalWorkspacePath(path string) string {

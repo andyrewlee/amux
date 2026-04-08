@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"sort"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -83,15 +82,19 @@ func (m *Model) rebuildRows() {
 
 		for _, ws := range m.sortedWorkspaces(project) {
 			// Hide main branch - users access via project row
-			if ws.IsMainBranch() || ws.IsPrimaryCheckout() {
+			if ws.Workspace == nil {
+				continue
+			}
+			if ws.Workspace.IsMainBranch() || ws.Workspace.IsPrimaryCheckout() {
 				continue
 			}
 
 			m.rows = append(m.rows, Row{
 				Type:                RowWorkspace,
 				Project:             project,
-				Workspace:           ws,
-				ActivityWorkspaceID: string(ws.ID()),
+				Workspace:           ws.Workspace,
+				TreeDepth:           ws.Depth,
+				ActivityWorkspaceID: string(ws.Workspace.ID()),
 			})
 		}
 
@@ -136,7 +139,12 @@ func (m *Model) clampScrollOffset() {
 	}
 }
 
-func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
+type workspaceRowEntry struct {
+	Workspace *data.Workspace
+	Depth     int
+}
+
+func (m *Model) sortedWorkspaces(project *data.Project) []workspaceRowEntry {
 	existingRoots := make(map[string]bool, len(project.Workspaces))
 	workspaces := make([]*data.Workspace, 0, len(project.Workspaces)+len(m.creatingWorkspaces))
 
@@ -156,17 +164,23 @@ func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 		workspaces = append(workspaces, ws)
 	}
 
-	sort.SliceStable(workspaces, func(i, j int) bool {
-		if workspaces[i].Created.Equal(workspaces[j].Created) {
-			if workspaces[i].Name == workspaces[j].Name {
-				return workspaces[i].Root < workspaces[j].Root
-			}
-			return workspaces[i].Name < workspaces[j].Name
+	stacked := data.FlattenWorkspaceTree(workspaces, func(left, right *data.Workspace) bool {
+		if left != nil && right != nil && left.IsPrimaryCheckout() != right.IsPrimaryCheckout() {
+			return left.IsPrimaryCheckout()
 		}
-		return workspaces[i].Created.After(workspaces[j].Created)
+		return data.WorkspaceCreatedDescLess(left, right)
 	})
-
-	return workspaces
+	entries := make([]workspaceRowEntry, 0, len(stacked))
+	for _, entry := range stacked {
+		if entry.Workspace == nil {
+			continue
+		}
+		entries = append(entries, workspaceRowEntry{
+			Workspace: entry.Workspace,
+			Depth:     entry.Depth,
+		})
+	}
+	return entries
 }
 
 // isProjectActive returns true if the project's primary workspace is active.

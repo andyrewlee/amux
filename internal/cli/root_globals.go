@@ -243,6 +243,21 @@ func localFlagsRequiringValue(pathKey string) map[string]struct{} {
 			"--project":         {},
 			"--assistant":       {},
 			"--base":            {},
+			"--from-workspace":  {},
+			"--idempotency-key": {},
+		}
+	case "workspace restack":
+		return map[string]struct{}{"--idempotency-key": {}}
+	case "workspace reparent":
+		return map[string]struct{}{
+			"--parent":          {},
+			"--idempotency-key": {},
+		}
+	case "workspace pr":
+		return map[string]struct{}{
+			"--remote":          {},
+			"--title":           {},
+			"--body":            {},
 			"--idempotency-key": {},
 		}
 	case "workspace remove", "workspace rm":

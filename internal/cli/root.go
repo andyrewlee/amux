@@ -141,6 +141,9 @@ func routeWorkspace(w, wErr io.Writer, gf GlobalFlags, args []string, version st
 	return routeSubcommand(w, wErr, gf, args, version, "workspace", []subcommand{
 		{names: []string{"list", "ls"}, handler: cmdWorkspaceList},
 		{names: []string{"create"}, handler: cmdWorkspaceCreate},
+		{names: []string{"restack"}, handler: cmdWorkspaceRestack},
+		{names: []string{"reparent"}, handler: cmdWorkspaceReparent},
+		{names: []string{"pr"}, handler: cmdWorkspacePR},
 		{names: []string{"remove", "rm"}, handler: cmdWorkspaceRemove},
 	})
 }
@@ -172,6 +175,9 @@ Commands:
   logs tail           Tail the amux log file
   workspace list      List workspaces
   workspace create    Create a workspace
+  workspace restack   Rebase a workspace stack onto current parent tips
+  workspace reparent  Move a workspace stack under a different parent
+  workspace pr        Push branches and create or retarget pull requests
   workspace remove    Remove a workspace
   agent list          List running agents
   agent capture       Capture agent pane output

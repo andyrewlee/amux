@@ -72,7 +72,7 @@ func (s *workspaceService) AddProject(path string) tea.Cmd {
 }
 
 // CreateWorkspace creates a new workspace.
-func (s *workspaceService) CreateWorkspace(project *data.Project, name, base string, assistant ...string) tea.Cmd {
+func (s *workspaceService) CreateWorkspace(project *data.Project, name, base, assistant string, parent *data.Workspace) tea.Cmd {
 	return func() (msg tea.Msg) {
 		var ws *data.Workspace
 		defer func() {
@@ -96,8 +96,15 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 				Err: errors.New("missing project or workspace name"),
 			}
 		}
-		base = resolveBase(project.Path, base)
-		ws = s.pendingWorkspace(project, name, base)
+		if parent != nil && data.NormalizePath(parent.Repo) != data.NormalizePath(project.Path) {
+			return messages.WorkspaceCreateFailed{
+				Err: fmt.Errorf("parent workspace %s belongs to a different project", parent.Name),
+			}
+		}
+		if parent == nil {
+			base = resolveBase(project.Path, base)
+		}
+		ws = s.pendingWorkspace(project, name, base, parent)
 		if ws == nil {
 			return messages.WorkspaceCreateFailed{
 				Err: errors.New("missing project or workspace name"),
@@ -106,11 +113,32 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		name = ws.Name
 		base = ws.Base
 
-		if err := validation.ValidateWorkspaceName(name); err != nil {
+		if err := validation.ValidateWorkspaceName(ws.Name); err != nil {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
 			}
+		}
+		if parent == nil {
+			if err := validation.ValidateBaseRef(base); err != nil {
+				return messages.WorkspaceCreateFailed{
+					Workspace: ws,
+					Err:       err,
+				}
+			}
+		}
+
+		if parent != nil {
+			resolvedBase, err := git.ResolveCurrentBranchOrFallback(parent.Root, parent.Branch)
+			if err != nil {
+				return messages.WorkspaceCreateFailed{
+					Workspace: ws,
+					Err:       fmt.Errorf("resolve parent branch: %w", err),
+				}
+			}
+			base = resolvedBase
+			ws.Base = resolvedBase
+			data.ApplyStackParent(ws, parent, resolvedBase)
 		}
 		if err := validation.ValidateBaseRef(base); err != nil {
 			return messages.WorkspaceCreateFailed{
@@ -121,9 +149,9 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 
 		workspacePath := ws.Root
 		branch := name
-		selectedAssistant := strings.TrimSpace(ws.Assistant)
-		if len(assistant) > 0 {
-			selectedAssistant = strings.TrimSpace(assistant[0])
+		selectedAssistant := strings.TrimSpace(assistant)
+		if selectedAssistant == "" {
+			selectedAssistant = strings.TrimSpace(ws.Assistant)
 		}
 		if selectedAssistant == "" {
 			return messages.WorkspaceCreateFailed{
@@ -146,7 +174,11 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 			}
 		}
 
-		if err := s.gitOps.CreateWorkspace(project.Path, workspacePath, branch, base); err != nil {
+		createRepoPath := project.Path
+		if parent != nil {
+			createRepoPath = parent.Root
+		}
+		if err := s.gitOps.CreateWorkspace(createRepoPath, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -162,6 +194,20 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 				Err:       err,
 			}
 		}
+
+		baseCommitPath := project.Path
+		if parent != nil {
+			baseCommitPath = parent.Root
+		}
+		baseCommit, err := git.ResolveRefCommit(baseCommitPath, base)
+		if err != nil {
+			rollbackWorkspaceCreation(s.gitOps, project.Path, workspacePath, branch)
+			return messages.WorkspaceCreateFailed{
+				Workspace: ws,
+				Err:       fmt.Errorf("resolve base commit: %w", err),
+			}
+		}
+		ws.BaseCommit = baseCommit
 
 		// Save unified workspace
 		if s.store != nil {

@@ -337,6 +337,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 	name := strings.TrimSpace(msg.Name)
 	base := msg.Base
 	assistant := strings.TrimSpace(msg.Assistant)
+	parent := msg.ParentWorkspace
 	if assistant == "" {
 		cmds = append(cmds, func() tea.Msg {
 			return messages.WorkspaceCreateFailed{Err: errors.New("assistant is required")}
@@ -356,7 +357,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 		return cmds
 	}
 	if msg.Project != nil && name != "" && a.workspaceService != nil {
-		pending := a.workspaceService.pendingWorkspace(msg.Project, name, base)
+		pending := a.workspaceService.pendingWorkspace(msg.Project, name, base, parent)
 		if pending != nil {
 			pending.Assistant = assistant
 			a.creatingWorkspaceIDs[string(pending.ID())] = true
@@ -365,7 +366,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 			}
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, name, base, assistant))
+	cmds = append(cmds, a.createWorkspace(msg.Project, name, base, assistant, parent))
 	return cmds
 }
 
