@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,13 +13,80 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
+
+// These package-level indirections are test seams for terminal attach/bootstrap
+// paths. Tests that override them must not use t.Parallel within this package.
+var (
+	ensureTmuxAvailableFn       = tmux.EnsureAvailable
+	sessionStateForFn           = tmux.SessionStateFor
+	sessionHasClientsFn         = tmux.SessionHasClients
+	sessionClientCountFn        = tmux.SessionClientCount
+	sessionActiveWithinFn       = tmux.SessionActiveWithin
+	sessionCreatedAtFn          = tmux.SessionCreatedAt
+	sessionPaneIDFn             = tmux.SessionPaneID
+	sessionPaneSnapshotInfoFn   = tmux.SessionPaneSnapshotInfo
+	sessionPaneSizeFn           = tmux.SessionPaneSize
+	newPTYWithSizeFn            = pty.NewWithSize
+	resizePaneToSizeFn          = tmux.ResizePaneToSize
+	capturePaneSnapshotFn       = tmux.CapturePaneSnapshot
+	capturePaneFn               = tmux.CapturePane
+	verifyTerminalSessionTagsFn = verifyTerminalSessionTags
+)
+
+const fullPaneCaptureQuietWindow = 2 * time.Second
+
+type sessionBootstrapCapture = common.SessionBootstrapCapture
+
+func sessionBootstrapFns() common.SessionBootstrapFns {
+	return common.SessionBootstrapFns{
+		SessionHasClients:       sessionHasClientsFn,
+		SessionClientCount:      sessionClientCountFn,
+		SessionActiveWithin:     sessionActiveWithinFn,
+		SessionLatestActivity:   tmux.SessionLatestActivity,
+		SessionCreatedAt:        sessionCreatedAtFn,
+		SessionPaneID:           sessionPaneIDFn,
+		SessionPaneSnapshotInfo: sessionPaneSnapshotInfoFn,
+		SessionPaneSize:         sessionPaneSizeFn,
+		ResizePaneToSize:        resizePaneToSizeFn,
+		CapturePaneSnapshot:     capturePaneSnapshotFn,
+	}
+}
+
+func captureExistingSessionBootstrap(sessionName string, cols, rows int, opts tmux.Options) sessionBootstrapCapture {
+	return common.CaptureExistingSessionBootstrap(sessionName, cols, rows, fullPaneCaptureQuietWindow, opts, sessionBootstrapFns())
+}
+
+func bootstrapSnapshotStillMatchesSession(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) bool {
+	return common.BootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts, sessionBootstrapFns())
+}
+
+func rollbackExistingSessionBootstrap(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) {
+	common.RollbackExistingSessionBootstrap(sessionName, bootstrap, opts, sessionBootstrapFns())
+}
+
+func sessionHistoryCaptureSize(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) (int, int) {
+	return common.SessionHistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns())
+}
+
+func captureSessionHistory(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) ([]byte, int, int) {
+	return common.CaptureSessionHistory(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns(), capturePaneFn)
+}
+
+func (m *TerminalModel) sessionBootstrapViewportSize() (int, int) {
+	if m.width <= 0 || m.height <= 0 {
+		return 0, 0
+	}
+	return m.terminalContentSize()
+}
 
 // createTerminalTab creates a new terminal tab for the workspace
 func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
-	termWidth, termHeight := m.terminalContentSize()
+	termWidth, termHeight := m.sessionBootstrapViewportSize()
+	attachWidth, attachHeight := m.terminalContentSize()
 	opts := m.getTmuxOptions()
 	instanceID := m.instanceID
 	root := ws.Root
@@ -31,17 +96,29 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		if shell == "" {
 			shell = "/bin/bash"
 		}
-		if err := tmux.EnsureAvailable(); err != nil {
+		if err := ensureTmuxAvailableFn(); err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
 
 		var scrollback []byte
+		var postAttachScrollback []byte
+		var snapshot tmux.PaneSnapshot
+		var bootstrap sessionBootstrapCapture
+		captureFullPane := false
+		captureCols := attachWidth
+		captureRows := attachHeight
+		reuseExistingSession := false
 		env := []string{"COLORTERM=truecolor"}
 		sessionName := tmux.SessionName("amux", wsID, string(tabID))
 		// Reuse scrollback if a prior tmux session with the same name exists
 		// (e.g., app restart with persisted tmux session).
-		if state, err := tmux.SessionStateFor(sessionName, opts); err == nil && state.Exists && state.HasLivePane {
-			scrollback, _ = tmux.CapturePane(sessionName, opts)
+		if state, err := sessionStateForFn(sessionName, opts); err == nil && state.Exists && state.HasLivePane {
+			reuseExistingSession = true
+		}
+		if reuseExistingSession {
+			bootstrap = captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
+			snapshot = bootstrap.Snapshot
+			captureFullPane = bootstrap.CaptureFullPane
 		}
 		tags := tmux.SessionTags{
 			WorkspaceID:  wsID,
@@ -60,20 +137,45 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			Tags:           tags,
 			DetachExisting: true,
 		})
-		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
+		term, err := newPTYWithSizeFn(command, root, env, uint16(attachHeight), uint16(attachWidth))
 		if err != nil {
+			if reuseExistingSession {
+				rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
+			}
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
-		if err := verifyTerminalSessionTags(sessionName, tags, opts); err != nil {
+		if reuseExistingSession {
+			if captureFullPane && bootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts) {
+				scrollback = snapshot.Data
+				postAttachScrollback, _ = capturePaneFn(sessionName, opts)
+			} else {
+				if captureFullPane {
+					captureFullPane = false
+					snapshot = tmux.PaneSnapshot{}
+				}
+				scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
+			}
+		}
+		if err := verifyTerminalSessionTagsFn(sessionName, tags, opts); err != nil {
 			logging.Warn("sidebar terminal create: session tag verification failed for %s: %v", sessionName, err)
 		}
 
 		return SidebarTerminalCreated{
-			WorkspaceID: wsID,
-			TabID:       tabID,
-			Terminal:    term,
-			SessionName: sessionName,
-			Scrollback:  scrollback,
+			WorkspaceID:          wsID,
+			TabID:                tabID,
+			Terminal:             term,
+			SessionName:          sessionName,
+			Scrollback:           scrollback,
+			PostAttachScrollback: postAttachScrollback,
+			CaptureCols:          captureCols,
+			CaptureRows:          captureRows,
+			CaptureFullPane:      captureFullPane,
+			SnapshotCols:         snapshot.Cols,
+			SnapshotRows:         snapshot.Rows,
+			SnapshotCursorX:      snapshot.CursorX,
+			SnapshotCursorY:      snapshot.CursorY,
+			SnapshotHasCursor:    snapshot.HasCursor,
+			SnapshotModeState:    snapshot.ModeState,
 		}
 	}
 }
@@ -142,7 +244,8 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	}
 	// Snapshot model-dependent values so the async cmd doesn't race on TerminalModel fields.
 	opts := m.getTmuxOptions()
-	termWidth, termHeight := m.terminalContentSize()
+	termWidth, termHeight := m.sessionBootstrapViewportSize()
+	attachWidth, attachHeight := m.terminalContentSize()
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
@@ -152,7 +255,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	root := ws.Root
 	instanceID := m.instanceID
 	return func() tea.Msg {
-		if err := tmux.EnsureAvailable(); err != nil {
+		if err := ensureTmuxAvailableFn(); err != nil {
 			return SidebarTerminalReattachFailed{
 				WorkspaceID: wsID,
 				TabID:       tabID,
@@ -161,7 +264,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			}
 		}
 		if action == "reattach" {
-			state, err := tmux.SessionStateFor(sessionName, opts)
+			state, err := sessionStateForFn(sessionName, opts)
 			if err != nil {
 				return SidebarTerminalReattachFailed{
 					WorkspaceID: wsID,
@@ -192,6 +295,19 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		if action == "restart" {
 			tags.CreatedAt = time.Now().Unix()
 		}
+		var err error
+		var scrollback []byte
+		var postAttachScrollback []byte
+		captureFullPane := false
+		captureCols := attachWidth
+		captureRows := attachHeight
+		var snapshot tmux.PaneSnapshot
+		var bootstrap sessionBootstrapCapture
+		if action == "reattach" {
+			bootstrap = captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
+			snapshot = bootstrap.Snapshot
+			captureFullPane = bootstrap.CaptureFullPane
+		}
 		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
 			Command:        fmt.Sprintf("exec %s -l", shell),
@@ -199,8 +315,11 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			Tags:           tags,
 			DetachExisting: detachExisting,
 		})
-		term, err := pty.NewWithSize(command, root, env, uint16(termHeight), uint16(termWidth))
+		term, err := newPTYWithSizeFn(command, root, env, uint16(attachHeight), uint16(attachWidth))
 		if err != nil {
+			if action == "reattach" {
+				rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
+			}
 			return SidebarTerminalReattachFailed{
 				WorkspaceID: wsID,
 				TabID:       tabID,
@@ -208,133 +327,41 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 				Action:      action,
 			}
 		}
-		if err := verifyTerminalSessionTags(sessionName, tags, opts); err != nil {
+		if action == "reattach" {
+			if captureFullPane && bootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts) {
+				scrollback = snapshot.Data
+				postAttachScrollback, _ = capturePaneFn(sessionName, opts)
+			} else {
+				if captureFullPane {
+					captureFullPane = false
+					snapshot = tmux.PaneSnapshot{}
+				}
+				scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
+			}
+		}
+		if err := verifyTerminalSessionTagsFn(sessionName, tags, opts); err != nil {
 			logging.Warn("sidebar terminal %s: session tag verification failed for %s: %v", action, sessionName, err)
 		}
-		scrollback, _ := tmux.CapturePane(sessionName, opts)
+		if action != "reattach" {
+			captureCols, captureRows = sessionHistoryCaptureSize(sessionName, attachWidth, attachHeight, opts)
+			scrollback, _ = capturePaneFn(sessionName, opts)
+		}
 		return SidebarTerminalReattachResult{
-			WorkspaceID: wsID,
-			TabID:       tabID,
-			Terminal:    term,
-			SessionName: sessionName,
-			Scrollback:  scrollback,
+			WorkspaceID:          wsID,
+			TabID:                tabID,
+			Terminal:             term,
+			SessionName:          sessionName,
+			Scrollback:           scrollback,
+			PostAttachScrollback: postAttachScrollback,
+			CaptureCols:          captureCols,
+			CaptureRows:          captureRows,
+			CaptureFullPane:      captureFullPane,
+			SnapshotCols:         snapshot.Cols,
+			SnapshotRows:         snapshot.Rows,
+			SnapshotCursorX:      snapshot.CursorX,
+			SnapshotCursorY:      snapshot.CursorY,
+			SnapshotHasCursor:    snapshot.HasCursor,
+			SnapshotModeState:    snapshot.ModeState,
 		}
 	}
-}
-
-func verifyTerminalSessionTags(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
-	const (
-		verifyTimeout  = 2 * time.Second
-		verifyInterval = 40 * time.Millisecond
-	)
-	deadline := time.Now().Add(verifyTimeout)
-	var lastErr error
-	for {
-		lastErr = verifyTerminalSessionTagsOnce(sessionName, tags, opts)
-		if lastErr == nil {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(verifyInterval)
-	}
-	if err := applyTerminalSessionTags(sessionName, tags, opts); err != nil {
-		return fmt.Errorf("tmux tag verification failed (%w), retag failed: %w", lastErr, err)
-	}
-	if err := verifyTerminalSessionTagsOnce(sessionName, tags, opts); err != nil {
-		return fmt.Errorf("tmux tag verification failed after retag: %w", err)
-	}
-	return nil
-}
-
-func verifyTerminalSessionTagsOnce(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
-	if strings.TrimSpace(sessionName) == "" {
-		return errors.New("missing tmux session name")
-	}
-	checks := terminalTagChecks(tags)
-	for _, check := range checks {
-		got, err := tmux.SessionTagValue(sessionName, check.key, opts)
-		if err != nil {
-			return fmt.Errorf("failed to verify tmux tag %s: %w", check.key, err)
-		}
-		got = strings.TrimSpace(got)
-		if got != check.want {
-			return fmt.Errorf("tmux tag mismatch for %s: expected %q, got %q", check.key, check.want, got)
-		}
-	}
-	return nil
-}
-
-func applyTerminalSessionTags(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
-	checks := terminalTagChecks(tags)
-	for _, check := range checks {
-		if err := tmux.SetSessionTagValue(sessionName, check.key, check.want, opts); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func terminalTagChecks(tags tmux.SessionTags) []struct {
-	key  string
-	want string
-} {
-	checks := []struct {
-		key  string
-		want string
-	}{
-		{key: "@amux", want: "1"},
-	}
-	if strings.TrimSpace(tags.WorkspaceID) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_workspace", want: strings.TrimSpace(tags.WorkspaceID)})
-	}
-	if strings.TrimSpace(tags.TabID) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_tab", want: strings.TrimSpace(tags.TabID)})
-	}
-	if strings.TrimSpace(tags.Type) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_type", want: strings.TrimSpace(tags.Type)})
-	}
-	if strings.TrimSpace(tags.Assistant) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_assistant", want: strings.TrimSpace(tags.Assistant)})
-	}
-	// CreatedAt is optional for reattach paths; SessionOwner/LeaseAtMS remain the
-	// primary freshness/ownership tags for those sessions.
-	if tags.CreatedAt > 0 {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_created_at", want: strconv.FormatInt(tags.CreatedAt, 10)})
-	}
-	if strings.TrimSpace(tags.InstanceID) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_instance", want: strings.TrimSpace(tags.InstanceID)})
-	}
-	if strings.TrimSpace(tags.SessionOwner) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: tmux.TagSessionOwner, want: strings.TrimSpace(tags.SessionOwner)})
-	}
-	if tags.LeaseAtMS > 0 {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: tmux.TagSessionLeaseAt, want: strconv.FormatInt(tags.LeaseAtMS, 10)})
-	}
-	return checks
 }

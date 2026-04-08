@@ -13,6 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -47,24 +48,40 @@ func nextAssistantName(assistant string, tabs []*Tab) string {
 }
 
 type ptyTabCreateResult struct {
-	Workspace         *data.Workspace
-	Assistant         string
-	DisplayName       string
-	Agent             *appPty.Agent
-	TabID             TabID
-	Activate          bool
-	Rows              int
-	Cols              int
-	ScrollbackCapture []byte
+	Workspace                   *data.Workspace
+	Assistant                   string
+	DisplayName                 string
+	Agent                       *appPty.Agent
+	TabID                       TabID
+	Activate                    bool
+	Rows                        int
+	Cols                        int
+	ScrollbackCapture           []byte
+	PostAttachScrollbackCapture []byte
+	CaptureFullPane             bool
+	SnapshotCols                int
+	SnapshotRows                int
+	SnapshotCursorX             int
+	SnapshotCursorY             int
+	SnapshotHasCursor           bool
+	SnapshotModeState           tmux.PaneModeState
 }
 
 type ptyTabReattachResult struct {
-	WorkspaceID       string
-	TabID             TabID
-	Agent             *appPty.Agent
-	Rows              int
-	Cols              int
-	ScrollbackCapture []byte
+	WorkspaceID                 string
+	TabID                       TabID
+	Agent                       *appPty.Agent
+	Rows                        int
+	Cols                        int
+	ScrollbackCapture           []byte
+	PostAttachScrollbackCapture []byte
+	CaptureFullPane             bool
+	SnapshotCols                int
+	SnapshotRows                int
+	SnapshotCursorX             int
+	SnapshotCursorY             int
+	SnapshotHasCursor           bool
+	SnapshotModeState           tmux.PaneModeState
 }
 
 type ptyTabReattachFailed struct {
@@ -125,8 +142,10 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 
 		logging.Info("Agent created, Terminal=%v", agent.Terminal != nil)
 
-		// Best-effort capture of existing scrollback from the tmux pane.
-		// For newly created sessions this returns empty content (harmless no-op).
+		// Fresh tabs must only seed history. The attached PTY still has unread
+		// startup bytes queued, so preloading the visible screen would replay the
+		// same banner/prompt a second time when the reader drains.
+		captureCols, captureRows := sessionHistoryCaptureSize(sessionName, termWidth, termHeight, m.getTmuxOptions())
 		scrollback, _ := tmux.CapturePane(sessionName, m.getTmuxOptions())
 
 		return ptyTabCreateResult{
@@ -136,9 +155,12 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			TabID:             tabID,
 			DisplayName:       displayName,
 			Activate:          activate,
-			Rows:              termHeight,
-			Cols:              termWidth,
+			Rows:              captureRows,
+			Cols:              captureCols,
 			ScrollbackCapture: scrollback,
+			CaptureFullPane:   false,
+			SnapshotCols:      termWidth,
+			SnapshotRows:      termHeight,
 		}
 	}
 }
@@ -156,13 +178,10 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	}
 	now := time.Now()
 
-	rows := msg.Rows
-	cols := msg.Cols
-	if rows <= 0 || cols <= 0 {
-		tm := m.terminalMetrics()
-		rows = tm.Height
-		cols = tm.Width
-	}
+	captureRows := msg.Rows
+	captureCols := msg.Cols
+	cols, rows := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureCols, captureRows)
+	initialCols, initialRows := common.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 
 	wsID := string(msg.Workspace.ID())
 	tabs := m.tabsByWorkspace[wsID]
@@ -197,7 +216,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		oldAgent := tab.Agent
 		createdTerminal := false
 		if tab.Terminal == nil {
-			tab.Terminal = vterm.New(cols, rows)
+			tab.Terminal = vterm.New(initialCols, initialRows)
 			createdTerminal = true
 		}
 		tab.Assistant = msg.Assistant
@@ -208,8 +227,27 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			// buffered output is explicitly reconciled.
 			tab.Terminal.AllowAltScreenScrollback = true
 			m.applyTerminalCursorPolicyLocked(tab)
-			if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
-				tab.Terminal.PrependScrollback(msg.ScrollbackCapture)
+			if msg.CaptureFullPane {
+				// A full tmux pane snapshot supersedes any preserved local PTY
+				// backlog for this terminal state.
+				tab.pendingOutput = nil
+				common.RestorePaneCapture(
+					tab.Terminal,
+					msg.ScrollbackCapture,
+					msg.PostAttachScrollbackCapture,
+					msg.SnapshotCursorX,
+					msg.SnapshotCursorY,
+					msg.SnapshotHasCursor,
+					msg.SnapshotModeState,
+					msg.SnapshotCols,
+					msg.SnapshotRows,
+					cols,
+					rows,
+				)
+			} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
+				common.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
+			} else if m.width > 0 && m.height > 0 {
+				common.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
 			}
 		}
 		if tab.Name == "" {
@@ -286,7 +324,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	}
 
 	// Create virtual terminal emulator with scrollback
-	term := vterm.New(cols, rows)
+	term := vterm.New(initialCols, initialRows)
 	term.AllowAltScreenScrollback = true
 
 	// Create tab with the caller-provided stable ID so tmux/session reconciliation
@@ -307,7 +345,23 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	isChat := m.isChatTab(tab)
 	term.IgnoreCursorVisibilityControls = false
 	term.TreatLFAsCRLF = isChat
-	term.PrependScrollback(msg.ScrollbackCapture)
+	if msg.CaptureFullPane {
+		common.RestorePaneCapture(
+			term,
+			msg.ScrollbackCapture,
+			msg.PostAttachScrollbackCapture,
+			msg.SnapshotCursorX,
+			msg.SnapshotCursorY,
+			msg.SnapshotHasCursor,
+			msg.SnapshotModeState,
+			msg.SnapshotCols,
+			msg.SnapshotRows,
+			cols,
+			rows,
+		)
+	} else {
+		common.RestoreScrollbackCapture(term, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
+	}
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)
 	if msg.Agent.Terminal != nil {

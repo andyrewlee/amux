@@ -65,3 +65,47 @@ func TestHandlePTYRestart_PreservesOverflowTrimCarry(t *testing.T) {
 		t.Fatalf("expected post-restart continuation to trim to visible text, got %q", state.pendingOutput)
 	}
 }
+
+func TestHandlePTYStopped_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testing.T) {
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tabID := TerminalTabID("term-tab-da-stop")
+	state := &TerminalState{
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
+	}
+	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+
+	_ = m.handlePTYStopped(messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID)})
+	_ = m.handlePTYOutput(messages.SidebarPTYOutput{
+		WorkspaceID: wsID,
+		TabID:       string(tabID),
+		Data:        []byte("[>1;10;0cvisible"),
+	})
+
+	if string(state.pendingOutput) != "visible" {
+		t.Fatalf("expected secondary DA continuation trimmed after stop, got %q", state.pendingOutput)
+	}
+}
+
+func TestHandlePTYRestart_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testing.T) {
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tabID := TerminalTabID("term-tab-da-restart")
+	state := &TerminalState{
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
+	}
+	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+
+	_ = m.handlePTYRestart(messages.SidebarPTYRestart{WorkspaceID: wsID, TabID: string(tabID)})
+	_ = m.handlePTYOutput(messages.SidebarPTYOutput{
+		WorkspaceID: wsID,
+		TabID:       string(tabID),
+		Data:        []byte("[>1;10;0cvisible"),
+	})
+
+	if string(state.pendingOutput) != "visible" {
+		t.Fatalf("expected secondary DA continuation trimmed after restart, got %q", state.pendingOutput)
+	}
+}

@@ -112,12 +112,13 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 // tab to its tmux session. On success it produces ptyTabReattachResult which
 // updates the tab in-place (by TabID). On failure it produces ptyTabReattachFailed.
 func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, sessionName string) tea.Cmd {
+	termWidth, termHeight := m.sessionBootstrapViewportSize()
 	tm := m.terminalMetrics()
-	termWidth := tm.Width
-	termHeight := tm.Height
+	attachWidth := tm.Width
+	attachHeight := tm.Height
 	opts := m.getTmuxOptions()
 	return func() tea.Msg {
-		state, err := tmux.SessionStateFor(sessionName, opts)
+		state, err := sessionStateForFn(sessionName, opts)
 		if err != nil {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
@@ -144,8 +145,24 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			SessionOwner: m.instanceID,
 			LeaseAtMS:    time.Now().UnixMilli(),
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		bootstrap := captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
+		snapshot := bootstrap.Snapshot
+		captureFullPane := bootstrap.CaptureFullPane
+		var scrollback []byte
+		captureCols := termWidth
+		captureRows := termHeight
+		var postAttachScrollback []byte
+		agent, err := createAgentWithTagsFn(
+			m.agentManager,
+			ws,
+			appPty.AgentType(assistant),
+			sessionName,
+			uint16(attachHeight),
+			uint16(attachWidth),
+			tags,
+		)
 		if err != nil {
+			rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
@@ -153,14 +170,31 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 				Action:      "reattach",
 			}
 		}
-		scrollback, _ := tmux.CapturePane(sessionName, opts)
+		if captureFullPane && bootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts) {
+			scrollback = snapshot.Data
+			postAttachScrollback, _ = capturePaneFn(sessionName, opts)
+		} else {
+			if captureFullPane {
+				captureFullPane = false
+				snapshot = tmux.PaneSnapshot{}
+			}
+			scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
+		}
 		return ptyTabReattachResult{
-			WorkspaceID:       string(ws.ID()),
-			TabID:             tabID,
-			Agent:             agent,
-			Rows:              termHeight,
-			Cols:              termWidth,
-			ScrollbackCapture: scrollback,
+			WorkspaceID:                 string(ws.ID()),
+			TabID:                       tabID,
+			Agent:                       agent,
+			Rows:                        captureRows,
+			Cols:                        captureCols,
+			ScrollbackCapture:           scrollback,
+			PostAttachScrollbackCapture: postAttachScrollback,
+			CaptureFullPane:             captureFullPane,
+			SnapshotCols:                snapshot.Cols,
+			SnapshotRows:                snapshot.Rows,
+			SnapshotCursorX:             snapshot.CursorX,
+			SnapshotCursorY:             snapshot.CursorY,
+			SnapshotHasCursor:           snapshot.HasCursor,
+			SnapshotModeState:           snapshot.ModeState,
 		}
 	}
 }

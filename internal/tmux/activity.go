@@ -7,6 +7,79 @@ import (
 	"time"
 )
 
+func activityWithinWindow(activitySeconds int64, window time.Duration, now time.Time) bool {
+	if activitySeconds <= 0 || window <= 0 {
+		return false
+	}
+	activityTime := time.Unix(activitySeconds, 0)
+	// tmux reports window_activity with whole-second precision. Keep sessions
+	// marked active for the remainder of the reported second so a recent update
+	// near a second boundary is not misclassified as quiet.
+	return now.Sub(activityTime) <= window+time.Second
+}
+
+func sessionLatestActivitySeconds(sessionName string, opts Options) (int64, error) {
+	if sessionName == "" {
+		return 0, nil
+	}
+	if err := EnsureAvailable(); err != nil {
+		return 0, err
+	}
+	cmd, cancel := tmuxCommand(opts, "list-windows", "-t", sessionTarget(sessionName), "-F", "#{window_activity}")
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		if isExitCode1(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	var latest int64
+	for _, line := range parseOutputLines(output) {
+		activityRaw := strings.TrimSpace(line)
+		if activityRaw == "" {
+			continue
+		}
+		activitySeconds, err := strconv.ParseInt(activityRaw, 10, 64)
+		if err != nil || activitySeconds <= 0 {
+			continue
+		}
+		if activitySeconds > latest {
+			latest = activitySeconds
+		}
+	}
+	return latest, nil
+}
+
+// SessionActiveWithin reports whether any window in the session had tmux
+// activity within the provided time window.
+func SessionActiveWithin(sessionName string, window time.Duration, opts Options) (bool, error) {
+	if sessionName == "" || window <= 0 {
+		return false, nil
+	}
+	latest, err := sessionLatestActivitySeconds(sessionName, opts)
+	if err != nil {
+		return false, err
+	}
+	if latest == 0 {
+		return false, nil
+	}
+	return activityWithinWindow(latest, window, time.Now()), nil
+}
+
+// SessionLatestActivity reports the most recent tmux window_activity timestamp
+// for a session without applying any second-resolution slack.
+func SessionLatestActivity(sessionName string, opts Options) (time.Time, bool, error) {
+	latest, err := sessionLatestActivitySeconds(sessionName, opts)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if latest == 0 {
+		return time.Time{}, false, nil
+	}
+	return time.Unix(latest, 0), true, nil
+}
+
 // ActiveAgentSessionsByActivity returns tagged agent sessions with recent tmux activity.
 // Activity is derived from tmux's window_activity timestamp.
 // Note: monitor-activity is set once at startup and per-session at creation

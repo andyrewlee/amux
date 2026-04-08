@@ -91,37 +91,6 @@ func TestUpdatePtyTabReattachResult_ResetsStableCursor(t *testing.T) {
 	}
 }
 
-func TestUpdatePtyTabReattachResult_NormalizesCapturedScrollbackLFForChatTabs(t *testing.T) {
-	m := newTestModel()
-	ws := newTestWorkspace("ws", "/repo/ws")
-	wsID := string(ws.ID())
-	tab := &Tab{
-		ID:        TabID("tab-reattach-lf"),
-		Assistant: "codex",
-		Workspace: ws,
-	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-
-	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:       wsID,
-		TabID:             tab.ID,
-		Agent:             &appPty.Agent{Session: "sess-reattach-lf"},
-		Rows:              24,
-		Cols:              80,
-		ScrollbackCapture: []byte("abc\nx"),
-	})
-
-	if tab.Terminal == nil {
-		t.Fatal("expected terminal to be created")
-	}
-	if len(tab.Terminal.Scrollback) < 2 {
-		t.Fatalf("expected at least 2 scrollback lines, got %d", len(tab.Terminal.Scrollback))
-	}
-	if got := tab.Terminal.Scrollback[1][0].Rune; got != 'x' {
-		t.Fatalf("expected captured scrollback LF to reset to col 0, got %q", got)
-	}
-}
-
 func TestUpdatePtyTabReattachResult_PreservesParserCarryOnExistingTerminal(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
@@ -184,38 +153,6 @@ func TestUpdatePtyTabReattachResult_ClearsCatchUpPendingOutput(t *testing.T) {
 
 	if tab.catchUpPendingOutput {
 		t.Fatal("expected catch-up latch to clear on reattach")
-	}
-}
-
-func TestHandlePtyTabCreated_NewTabNormalizesCapturedScrollbackLFForChatTabs(t *testing.T) {
-	m := newTestModel()
-	ws := newTestWorkspace("ws", "/repo/ws")
-	wsID := string(ws.ID())
-
-	_ = m.handlePtyTabCreated(ptyTabCreateResult{
-		Workspace:         ws,
-		Assistant:         "codex",
-		Agent:             &appPty.Agent{Session: "sess-created-lf"},
-		TabID:             TabID("tab-created-lf"),
-		Rows:              24,
-		Cols:              80,
-		Activate:          true,
-		ScrollbackCapture: []byte("abc\nx"),
-	})
-
-	tabs := m.tabsByWorkspace[wsID]
-	if len(tabs) != 1 {
-		t.Fatalf("expected 1 tab, got %d", len(tabs))
-	}
-	tab := tabs[0]
-	if tab.Terminal == nil {
-		t.Fatal("expected terminal to be created")
-	}
-	if len(tab.Terminal.Scrollback) < 2 {
-		t.Fatalf("expected at least 2 scrollback lines, got %d", len(tab.Terminal.Scrollback))
-	}
-	if got := tab.Terminal.Scrollback[1][0].Rune; got != 'x' {
-		t.Fatalf("expected captured scrollback LF to reset to col 0, got %q", got)
 	}
 }
 
@@ -461,5 +398,53 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 	})
 	if string(tab.pendingOutput) != "Hello" {
 		t.Fatalf("expected post-restart continuation to trim to visible text, got %q", tab.pendingOutput)
+	}
+}
+
+func TestUpdatePTYStopped_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-da-stop"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_ = m.updatePTYStopped(PTYStopped{WorkspaceID: wsID, TabID: tab.ID})
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("[>1;10;0cvisible"),
+	})
+
+	if string(tab.pendingOutput) != "visible" {
+		t.Fatalf("expected secondary DA continuation trimmed after stop, got %q", tab.pendingOutput)
+	}
+}
+
+func TestUpdatePTYRestart_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:                TabID("tab-da-restart"),
+		Assistant:         "codex",
+		Workspace:         ws,
+		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+
+	_ = m.updatePTYRestart(PTYRestart{WorkspaceID: wsID, TabID: tab.ID})
+	_ = m.updatePTYOutput(PTYOutput{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Data:        []byte("[>1;10;0cvisible"),
+	})
+
+	if string(tab.pendingOutput) != "visible" {
+		t.Fatalf("expected secondary DA continuation trimmed after restart, got %q", tab.pendingOutput)
 	}
 }

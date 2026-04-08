@@ -49,6 +49,22 @@ func TestTrimPTYOverflowPrefix_DropsLeadingCSIContinuationAfterParserReset(t *te
 	}
 }
 
+func TestTrimPTYOverflowPrefix_DropsSecondaryDAAfterEscapeCarry(t *testing.T) {
+	in := []byte("[>1;10;0cvisible")
+	got, _ := TrimPTYOverflowPrefix(in, 0, vterm.ParserCarryState{Mode: vterm.ParserCarryEscape})
+	if string(got) != "visible" {
+		t.Fatalf("got %q, want %q", got, "visible")
+	}
+}
+
+func TestTrimPTYOverflowPrefix_DropsSecondaryDAAfterCSIParamCarry(t *testing.T) {
+	in := []byte("1;10;0cvisible")
+	got, _ := TrimPTYOverflowPrefix(in, 0, vterm.ParserCarryState{Mode: vterm.ParserCarryCSIParam})
+	if string(got) != "visible" {
+		t.Fatalf("got %q, want %q", got, "visible")
+	}
+}
+
 func TestTrimPTYOverflowPrefix_AllowsFreshEscapeAfterTruncatedOSC(t *testing.T) {
 	in := []byte("title\x1b[31mred")
 	got, _ := TrimPTYOverflowPrefix(in, 0, vterm.ParserCarryState{Mode: vterm.ParserCarryOSC})
