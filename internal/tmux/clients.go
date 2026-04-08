@@ -33,26 +33,43 @@ func SessionNamesWithClients(opts Options) (map[string]bool, error) {
 
 // SessionHasClients reports whether the tmux session has any attached clients.
 func SessionHasClients(sessionName string, opts Options) (bool, error) {
-	if sessionName == "" {
-		return false, nil
-	}
-	exists, err := hasSession(sessionName, opts)
+	count, err := SessionClientCount(sessionName, opts)
 	if err != nil {
 		return false, err
 	}
+	return count > 0, nil
+}
+
+// SessionClientCount reports how many tmux clients are currently attached to a
+// session.
+func SessionClientCount(sessionName string, opts Options) (int, error) {
+	if sessionName == "" {
+		return 0, nil
+	}
+	exists, err := hasSession(sessionName, opts)
+	if err != nil {
+		return 0, err
+	}
 	if !exists {
-		return false, nil
+		return 0, nil
 	}
 	cmd, cancel := tmuxCommand(opts, "list-clients", "-t", sessionTarget(sessionName), "-F", "#{client_name}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
 		if isExitCode1(err) {
-			return false, nil
+			return 0, nil
 		}
-		return false, err
+		return 0, err
 	}
-	return strings.TrimSpace(string(output)) != "", nil
+	count := 0
+	for _, line := range parseOutputLines(output) {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		count++
+	}
+	return count, nil
 }
 
 // SessionCreatedAt returns the tmux session creation timestamp (unix seconds).

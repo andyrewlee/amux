@@ -410,7 +410,7 @@ func (m *TerminalModel) SetSize(width, height int) {
 				ts.lastHeight = termHeight
 				ts.VTerm.Resize(termWidth, termHeight)
 				if ts.Terminal != nil {
-					_ = ts.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+					_ = setTerminalSizeFn(ts.Terminal, uint16(termHeight), uint16(termWidth))
 				}
 			}
 			ts.mu.Unlock()

@@ -59,23 +59,33 @@ func (m *Model) updatePtyTabCreateResult(msg ptyTabCreateResult) (*Model, tea.Cm
 	return m, m.handlePtyTabCreated(msg)
 }
 
+func (m *Model) sessionRestoreLiveSize(captureFullPane bool, captureRows, captureCols int) (int, int) {
+	if captureFullPane && captureRows > 0 && captureCols > 0 && (m.width <= 0 || m.height <= 0) {
+		return captureRows, captureCols
+	}
+	tm := m.terminalMetrics()
+	rows := tm.Height
+	cols := tm.Width
+	if rows <= 0 || cols <= 0 {
+		return 24, 80
+	}
+	return rows, cols
+}
+
 // updatePtyTabReattachResult handles ptyTabReattachResult.
 func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, tea.Cmd) {
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab == nil || msg.Agent == nil {
 		return m, nil
 	}
-	rows := msg.Rows
-	cols := msg.Cols
-	if rows <= 0 || cols <= 0 {
-		tm := m.terminalMetrics()
-		rows = tm.Height
-		cols = tm.Width
-	}
+	captureRows := msg.Rows
+	captureCols := msg.Cols
+	rows, cols := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureRows, captureCols)
+	initialCols, initialRows := common.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 	tab.mu.Lock()
 	createdTerminal := false
 	if tab.Terminal == nil {
-		tab.Terminal = vterm.New(cols, rows)
+		tab.Terminal = vterm.New(initialCols, initialRows)
 		createdTerminal = true
 	}
 	if tab.Terminal != nil {
@@ -85,8 +95,28 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 		// buffered output is explicitly reconciled.
 		tab.Terminal.AllowAltScreenScrollback = true
 		m.applyTerminalCursorPolicyLocked(tab)
-		if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
-			tab.Terminal.PrependScrollback(msg.ScrollbackCapture)
+		if msg.CaptureFullPane {
+			// The tmux snapshot is now the source of truth for the restored frame.
+			// Any preserved local PTY backlog may already be represented there and
+			// would duplicate on the next flush if we kept it alive.
+			tab.pendingOutput = nil
+			common.RestorePaneCapture(
+				tab.Terminal,
+				msg.ScrollbackCapture,
+				msg.PostAttachScrollbackCapture,
+				msg.SnapshotCursorX,
+				msg.SnapshotCursorY,
+				msg.SnapshotHasCursor,
+				msg.SnapshotModeState,
+				msg.SnapshotCols,
+				msg.SnapshotRows,
+				cols,
+				rows,
+			)
+		} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
+			common.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
+		} else if m.width > 0 && m.height > 0 {
+			common.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
 		}
 	}
 	tab.Agent = msg.Agent

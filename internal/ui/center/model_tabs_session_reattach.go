@@ -5,10 +5,84 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
+
+var (
+	sessionStateForFn         = tmux.SessionStateFor
+	sessionHasClientsFn       = tmux.SessionHasClients
+	sessionClientCountFn      = tmux.SessionClientCount
+	sessionActiveWithinFn     = tmux.SessionActiveWithin
+	sessionCreatedAtFn        = tmux.SessionCreatedAt
+	sessionPaneIDFn           = tmux.SessionPaneID
+	sessionPaneSnapshotInfoFn = tmux.SessionPaneSnapshotInfo
+	sessionPaneSizeFn         = tmux.SessionPaneSize
+	killSessionFn             = tmux.KillSession
+	resizePaneToSizeFn        = tmux.ResizePaneToSize
+	capturePaneSnapshotFn     = tmux.CapturePaneSnapshot
+	capturePaneFn             = tmux.CapturePane
+	createAgentWithTagsFn     = func(
+		manager *appPty.AgentManager,
+		ws *data.Workspace,
+		agentType appPty.AgentType,
+		sessionName string,
+		rows, cols uint16,
+		tags tmux.SessionTags,
+	) (*appPty.Agent, error) {
+		return manager.CreateAgentWithTags(ws, agentType, sessionName, rows, cols, tags)
+	}
+)
+
+const fullPaneCaptureQuietWindow = 2 * time.Second
+
+type sessionBootstrapCapture = common.SessionBootstrapCapture
+
+func sessionBootstrapFns() common.SessionBootstrapFns {
+	return common.SessionBootstrapFns{
+		SessionHasClients:       sessionHasClientsFn,
+		SessionClientCount:      sessionClientCountFn,
+		SessionActiveWithin:     sessionActiveWithinFn,
+		SessionLatestActivity:   tmux.SessionLatestActivity,
+		SessionCreatedAt:        sessionCreatedAtFn,
+		SessionPaneID:           sessionPaneIDFn,
+		SessionPaneSnapshotInfo: sessionPaneSnapshotInfoFn,
+		SessionPaneSize:         sessionPaneSizeFn,
+		ResizePaneToSize:        resizePaneToSizeFn,
+		CapturePaneSnapshot:     capturePaneSnapshotFn,
+	}
+}
+
+func captureExistingSessionBootstrap(sessionName string, cols, rows int, opts tmux.Options) sessionBootstrapCapture {
+	return common.CaptureExistingSessionBootstrap(sessionName, cols, rows, fullPaneCaptureQuietWindow, opts, sessionBootstrapFns())
+}
+
+func bootstrapSnapshotStillMatchesSession(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) bool {
+	return common.BootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts, sessionBootstrapFns())
+}
+
+func rollbackExistingSessionBootstrap(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) {
+	common.RollbackExistingSessionBootstrap(sessionName, bootstrap, opts, sessionBootstrapFns())
+}
+
+func sessionHistoryCaptureSize(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) (int, int) {
+	return common.SessionHistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns())
+}
+
+func captureSessionHistory(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) ([]byte, int, int) {
+	return common.CaptureSessionHistory(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns(), capturePaneFn)
+}
+
+func (m *Model) sessionBootstrapViewportSize() (int, int) {
+	if m.width <= 0 || m.height <= 0 {
+		return 0, 0
+	}
+	tm := m.terminalMetrics()
+	return tm.Width, tm.Height
+}
 
 // ReattachActiveTab reattaches to a detached/stopped tmux session.
 func (m *Model) ReattachActiveTab() tea.Cmd {
@@ -59,9 +133,10 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			}
 		}
 	}
+	termWidth, termHeight := m.sessionBootstrapViewportSize()
 	tm := m.terminalMetrics()
-	termWidth := tm.Width
-	termHeight := tm.Height
+	attachWidth := tm.Width
+	attachHeight := tm.Height
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(tab.Workspace.ID()), string(tab.ID))
 	}
@@ -70,7 +145,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	tabID := tab.ID
 	opts := m.getTmuxOptions()
 	return func() tea.Msg {
-		state, err := tmux.SessionStateFor(sessionName, opts)
+		state, err := sessionStateForFn(sessionName, opts)
 		if err != nil {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
@@ -81,7 +156,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 		}
 		if !state.Exists || !state.HasLivePane {
 			if state.Exists && !state.HasLivePane {
-				_ = tmux.KillSession(sessionName, opts)
+				_ = killSessionFn(sessionName, opts)
 			}
 			tags := tmux.SessionTags{
 				WorkspaceID:  string(ws.ID()),
@@ -93,7 +168,15 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 				SessionOwner: m.instanceID,
 				LeaseAtMS:    time.Now().UnixMilli(),
 			}
-			agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+			agent, err := createAgentWithTagsFn(
+				m.agentManager,
+				ws,
+				appPty.AgentType(assistant),
+				sessionName,
+				uint16(attachHeight),
+				uint16(attachWidth),
+				tags,
+			)
 			if err != nil {
 				return ptyTabReattachFailed{
 					WorkspaceID: string(ws.ID()),
@@ -103,14 +186,18 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 					Action:      "reattach",
 				}
 			}
-			scrollback, _ := tmux.CapturePane(sessionName, opts)
+			captureCols, captureRows := sessionHistoryCaptureSize(sessionName, attachWidth, attachHeight, opts)
+			scrollback, _ := capturePaneFn(sessionName, opts)
 			return ptyTabReattachResult{
 				WorkspaceID:       string(ws.ID()),
 				TabID:             tabID,
 				Agent:             agent,
-				Rows:              termHeight,
-				Cols:              termWidth,
+				Rows:              captureRows,
+				Cols:              captureCols,
 				ScrollbackCapture: scrollback,
+				CaptureFullPane:   false,
+				SnapshotCols:      attachWidth,
+				SnapshotRows:      attachHeight,
 			}
 		}
 		tags := tmux.SessionTags{
@@ -122,8 +209,24 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			SessionOwner: m.instanceID,
 			LeaseAtMS:    time.Now().UnixMilli(),
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		bootstrap := captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
+		snapshot := bootstrap.Snapshot
+		captureFullPane := bootstrap.CaptureFullPane
+		var scrollback []byte
+		captureCols := termWidth
+		captureRows := termHeight
+		var postAttachScrollback []byte
+		agent, err := createAgentWithTagsFn(
+			m.agentManager,
+			ws,
+			appPty.AgentType(assistant),
+			sessionName,
+			uint16(attachHeight),
+			uint16(attachWidth),
+			tags,
+		)
 		if err != nil {
+			rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
@@ -131,15 +234,31 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 				Action:      "reattach",
 			}
 		}
-		// Best-effort capture of existing scrollback from the tmux pane.
-		scrollback, _ := tmux.CapturePane(sessionName, opts)
+		if captureFullPane && bootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts) {
+			scrollback = snapshot.Data
+			postAttachScrollback, _ = capturePaneFn(sessionName, opts)
+		} else {
+			if captureFullPane {
+				captureFullPane = false
+				snapshot = tmux.PaneSnapshot{}
+			}
+			scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
+		}
 		return ptyTabReattachResult{
-			WorkspaceID:       string(ws.ID()),
-			TabID:             tabID,
-			Agent:             agent,
-			Rows:              termHeight,
-			Cols:              termWidth,
-			ScrollbackCapture: scrollback,
+			WorkspaceID:                 string(ws.ID()),
+			TabID:                       tabID,
+			Agent:                       agent,
+			Rows:                        captureRows,
+			Cols:                        captureCols,
+			ScrollbackCapture:           scrollback,
+			PostAttachScrollbackCapture: postAttachScrollback,
+			CaptureFullPane:             captureFullPane,
+			SnapshotCols:                snapshot.Cols,
+			SnapshotRows:                snapshot.Rows,
+			SnapshotCursorX:             snapshot.CursorX,
+			SnapshotCursorY:             snapshot.CursorY,
+			SnapshotHasCursor:           snapshot.HasCursor,
+			SnapshotModeState:           snapshot.ModeState,
 		}
 	}
 }
@@ -204,7 +323,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		// The subsequent CreateAgentWithTags uses `new-session -Ads` which is
 		// atomic (attach-if-exists, create-if-not), providing an additional
 		// safety net in the unlikely event of cleanup lag.
-		_ = tmux.KillSession(sessionName, tmuxOpts)
+		_ = killSessionFn(sessionName, tmuxOpts)
 
 		tags := tmux.SessionTags{
 			WorkspaceID:  string(ws.ID()),
@@ -216,7 +335,15 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 			SessionOwner: m.instanceID,
 			LeaseAtMS:    time.Now().UnixMilli(),
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		agent, err := createAgentWithTagsFn(
+			m.agentManager,
+			ws,
+			appPty.AgentType(assistant),
+			sessionName,
+			uint16(termHeight),
+			uint16(termWidth),
+			tags,
+		)
 		if err != nil {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
@@ -226,15 +353,20 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 				Action:      "restart",
 			}
 		}
-		// Best-effort capture of scrollback (empty for fresh sessions, which is fine).
-		scrollback, _ := tmux.CapturePane(sessionName, tmuxOpts)
+		// Fresh restarts must avoid seeding the visible screen before the PTY
+		// reader drains unread startup bytes from the newly attached client.
+		captureCols, captureRows := sessionHistoryCaptureSize(sessionName, termWidth, termHeight, tmuxOpts)
+		scrollback, _ := capturePaneFn(sessionName, tmuxOpts)
 		return ptyTabReattachResult{
 			WorkspaceID:       string(ws.ID()),
 			TabID:             tabID,
 			Agent:             agent,
-			Rows:              termHeight,
-			Cols:              termWidth,
+			Rows:              captureRows,
+			Cols:              captureCols,
 			ScrollbackCapture: scrollback,
+			CaptureFullPane:   false,
+			SnapshotCols:      termWidth,
+			SnapshotRows:      termHeight,
 		}
 	}
 }

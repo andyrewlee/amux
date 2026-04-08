@@ -10,21 +10,67 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
+func (m *TerminalModel) sessionRestoreLiveSize(captureFullPane bool, snapshotCols, snapshotRows int) (int, int) {
+	if captureFullPane && snapshotCols > 0 && snapshotRows > 0 && (m.width <= 0 || m.height <= 0) {
+		return snapshotCols, snapshotRows
+	}
+	return m.terminalContentSize()
+}
+
 // handleTerminalCreated wires up a newly created terminal and its scrollback.
 func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cmd {
-	cmd := m.HandleTerminalCreated(msg.WorkspaceID, msg.TabID, msg.Terminal, msg.SessionName)
-	if len(msg.Scrollback) > 0 {
-		tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
-		if tab != nil && tab.State != nil {
-			ts := tab.State
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.PrependScrollback(msg.Scrollback)
+	currentWidth, currentHeight := m.sessionRestoreLiveSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows)
+	initialWidth, initialHeight := common.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, currentWidth, currentHeight)
+	ts := m.createTerminalStateForTabWithSizeAndRefresh(
+		msg.WorkspaceID,
+		msg.TabID,
+		msg.Terminal,
+		msg.SessionName,
+		initialWidth,
+		initialHeight,
+		!msg.CaptureFullPane,
+		!msg.CaptureFullPane,
+	)
+	currentWidth, currentHeight = m.sessionRestoreLiveSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows)
+	if ts != nil {
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			if msg.CaptureFullPane {
+				common.RestorePaneCapture(
+					ts.VTerm,
+					msg.Scrollback,
+					msg.PostAttachScrollback,
+					msg.SnapshotCursorX,
+					msg.SnapshotCursorY,
+					msg.SnapshotHasCursor,
+					msg.SnapshotModeState,
+					msg.SnapshotCols,
+					msg.SnapshotRows,
+					currentWidth,
+					currentHeight,
+				)
+				ts.lastWidth = currentWidth
+				ts.lastHeight = currentHeight
+			} else if len(msg.Scrollback) > 0 {
+				common.RestoreScrollbackCapture(
+					ts.VTerm,
+					msg.Scrollback,
+					msg.CaptureCols,
+					msg.CaptureRows,
+					currentWidth,
+					currentHeight,
+				)
 			}
-			ts.mu.Unlock()
 		}
+		ts.mu.Unlock()
 	}
-	return cmd
+	if msg.CaptureFullPane {
+		m.refreshTerminalSize()
+	}
+	if msg.Terminal != nil && (initialWidth != currentWidth || initialHeight != currentHeight) {
+		_ = setTerminalSizeFn(msg.Terminal, uint16(currentHeight), uint16(currentWidth))
+	}
+	return m.startPTYReader(msg.WorkspaceID, msg.TabID)
 }
 
 // handleReattachResult applies the result of a terminal reattach operation.
@@ -34,15 +80,40 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 		return nil
 	}
 	ts := tab.State
-	termWidth, termHeight := m.terminalContentSize()
+	termWidth, termHeight := m.sessionRestoreLiveSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows)
 	ts.mu.Lock()
 	if ts.VTerm == nil {
 		ts.VTerm = vterm.New(termWidth, termHeight)
 	}
 	if ts.VTerm != nil {
 		ts.VTerm.AllowAltScreenScrollback = true
-		if len(msg.Scrollback) > 0 && len(ts.VTerm.Scrollback) == 0 {
-			ts.VTerm.PrependScrollback(msg.Scrollback)
+		if msg.CaptureFullPane {
+			common.RestorePaneCapture(
+				ts.VTerm,
+				msg.Scrollback,
+				msg.PostAttachScrollback,
+				msg.SnapshotCursorX,
+				msg.SnapshotCursorY,
+				msg.SnapshotHasCursor,
+				msg.SnapshotModeState,
+				msg.SnapshotCols,
+				msg.SnapshotRows,
+				termWidth,
+				termHeight,
+			)
+		} else {
+			if len(msg.Scrollback) > 0 && len(ts.VTerm.Scrollback) == 0 {
+				common.RestoreScrollbackCapture(
+					ts.VTerm,
+					msg.Scrollback,
+					msg.CaptureCols,
+					msg.CaptureRows,
+					termWidth,
+					termHeight,
+				)
+			} else if ts.VTerm.Width != termWidth || ts.VTerm.Height != termHeight {
+				ts.VTerm.Resize(termWidth, termHeight)
+			}
 		}
 	}
 	ts.Terminal = msg.Terminal
@@ -54,6 +125,8 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.pendingOutput = nil
 	ts.ptyNoiseTrailing = nil
 	ts.overflowTrimCarry = vterm.ParserCarryState{}
+	ts.lastWidth = termWidth
+	ts.lastHeight = termHeight
 	ts.mu.Unlock()
 	if msg.Terminal != nil {
 		t := msg.Terminal
@@ -62,7 +135,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 				_, _ = t.Write(data)
 			}
 		})
-		_ = msg.Terminal.SetSize(uint16(termHeight), uint16(termWidth))
+		_ = setTerminalSizeFn(msg.Terminal, uint16(termHeight), uint16(termWidth))
 	}
 	return m.startPTYReader(msg.WorkspaceID, tab.ID)
 }

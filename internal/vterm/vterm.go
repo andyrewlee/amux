@@ -39,9 +39,13 @@ type VTerm struct {
 	altScreenCaptureDropLen   int
 	altScreenCaptureTracked   bool
 	altScreenCaptureEndOffset int
-	altScreenBuf              [][]Cell
-	altCursorX                int
-	altCursorY                int
+	// altScreenRestorePending tracks a freshly restored alt-screen frame until
+	// the first attached clear-screen redraw so it is not re-captured as new
+	// scrollback.
+	altScreenRestorePending [][]Cell
+	altScreenBuf            [][]Cell
+	altCursorX              int
+	altCursorY              int
 
 	// Scrolling region (for DECSTBM)
 	ScrollTop    int
@@ -131,10 +135,21 @@ func (v *VTerm) makeScreen(width, height int) [][]Cell {
 	return screen
 }
 
-// Resize handles terminal resize
+// Resize handles terminal resize.
 func (v *VTerm) Resize(width, height int) {
+	v.resize(width, height, true)
+}
+
+// ResizeWithoutHistoryReveal resizes the terminal without pulling rows out of
+// scrollback to fill newly revealed viewport space.
+func (v *VTerm) ResizeWithoutHistoryReveal(width, height int) {
+	v.resize(width, height, false)
+}
+
+func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 	oldWidth := v.Width
 	oldHeight := v.Height
+	hadPendingRestoredAltScreen := len(v.altScreenRestorePending) > 0
 	// Enforce minimum dimensions to prevent negative cursor positions
 	if width < 1 {
 		width = 1
@@ -174,7 +189,7 @@ func (v *VTerm) Resize(width, height int) {
 
 	// If height grows, restore lines from scrollback so the screen fills.
 	// This matches native terminal behavior where expanding reveals history above.
-	if height > oldHeight && v.scrollbackEnabled() && v.ViewOffset == 0 {
+	if height > oldHeight && revealHistoryOnGrow && v.scrollbackEnabled() && v.ViewOffset == 0 {
 		added := height - oldHeight
 		restore := added
 		reserved := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
@@ -256,6 +271,7 @@ func (v *VTerm) Resize(width, height int) {
 		}
 		v.altScreenBuf = newAlt
 	}
+	v.clampAltSavedCursor()
 
 	// Keep synchronized output snapshot aligned with new size - preserve full row content
 	if v.syncScreen != nil {
@@ -273,6 +289,13 @@ func (v *VTerm) Resize(width, height int) {
 			}
 		}
 		v.syncScreen = newSync
+	}
+	if hadPendingRestoredAltScreen {
+		if v.AltScreen {
+			v.trackRestoredAltScreenFrame()
+		} else {
+			v.clearPendingRestoredAltScreenCapture()
+		}
 	}
 	v.invalidateRenderCache()
 	// Re-initialize dirty tracking for new size

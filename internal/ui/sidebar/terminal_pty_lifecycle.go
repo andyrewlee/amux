@@ -26,9 +26,27 @@ func (m *TerminalModel) terminalContentSize() (int, int) {
 	return termWidth, termHeight
 }
 
-// HandleTerminalCreated handles the terminal tab creation message
-func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal, sessionName string) tea.Cmd {
-	termWidth, termHeight := m.terminalContentSize()
+func (m *TerminalModel) createTerminalStateForTab(wsID string, tabID TerminalTabID, term *pty.Terminal, sessionName string) *TerminalState {
+	return m.createTerminalStateForTabWithSizeAndRefresh(wsID, tabID, term, sessionName, 0, 0, true, true)
+}
+
+var setTerminalSizeFn = func(term *pty.Terminal, rows, cols uint16) error {
+	return term.SetSize(rows, cols)
+}
+
+func (m *TerminalModel) createTerminalStateForTabWithSizeAndRefresh(
+	wsID string,
+	tabID TerminalTabID,
+	term *pty.Terminal,
+	sessionName string,
+	termWidth int,
+	termHeight int,
+	refresh bool,
+	resizeTerminal bool,
+) *TerminalState {
+	if termWidth <= 0 || termHeight <= 0 {
+		termWidth, termHeight = m.terminalContentSize()
+	}
 
 	ts := &TerminalState{
 		Terminal:    term,
@@ -46,16 +64,20 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 	// so the captured reference stays valid. Acquiring ts.mu here would
 	// deadlock because VTerm.Write() (called under ts.mu) triggers this
 	// callback synchronously.
-	vt.SetResponseWriter(func(data []byte) {
-		if term != nil {
-			if _, err := term.Write(data); err != nil {
-				logging.Debug("VTerm response write failed: %v", err)
+	if term != nil {
+		vt.SetResponseWriter(func(data []byte) {
+			if term != nil {
+				if _, err := term.Write(data); err != nil {
+					logging.Debug("VTerm response write failed: %v", err)
+				}
 			}
-		}
-	})
+		})
+	}
 	ts.VTerm = vt
-	if err := term.SetSize(uint16(termHeight), uint16(termWidth)); err != nil {
-		logging.Debug("Initial terminal resize failed: %v", err)
+	if term != nil && resizeTerminal {
+		if err := setTerminalSizeFn(term, uint16(termHeight), uint16(termWidth)); err != nil {
+			logging.Debug("Initial terminal resize failed: %v", err)
+		}
 	}
 
 	// ts already initialized above, just need tabs lookup
@@ -73,8 +95,18 @@ func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, 
 	// Set as active tab (switch to new tab)
 	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
 
-	m.refreshTerminalSize()
+	if refresh {
+		m.refreshTerminalSize()
+	}
 
+	return ts
+}
+
+// HandleTerminalCreated handles the terminal tab creation message
+func (m *TerminalModel) HandleTerminalCreated(wsID string, tabID TerminalTabID, term *pty.Terminal, sessionName string) tea.Cmd {
+	if m.createTerminalStateForTab(wsID, tabID, term, sessionName) == nil {
+		return nil
+	}
 	return m.startPTYReader(wsID, tabID)
 }
 

@@ -26,6 +26,24 @@ func (v *VTerm) clampCursor() {
 	}
 }
 
+func (v *VTerm) clampAltSavedCursor() {
+	if v.Width < 1 || v.Height < 1 {
+		return
+	}
+	if v.altCursorX < 0 {
+		v.altCursorX = 0
+	}
+	if v.altCursorX >= v.Width {
+		v.altCursorX = v.Width - 1
+	}
+	if v.altCursorY < 0 {
+		v.altCursorY = 0
+	}
+	if v.altCursorY >= v.Height {
+		v.altCursorY = v.Height - 1
+	}
+}
+
 // setCursorPos sets cursor position (1-indexed input, converts to 0-indexed)
 func (v *VTerm) setCursorPos(row, col int) {
 	prevX, prevY := v.CursorX, v.CursorY
@@ -87,10 +105,7 @@ func (v *VTerm) enterAltScreen() {
 		return
 	}
 	v.AltScreen = true
-	v.altScreenCaptureLen = 0
-	v.altScreenCaptureDropLen = 0
-	v.altScreenCaptureTracked = false
-	v.altScreenCaptureEndOffset = 0
+	v.invalidateAltScreenCapture()
 	v.altCursorX = v.CursorX
 	v.altCursorY = v.CursorY
 	v.altScreenBuf = v.Screen
@@ -106,14 +121,12 @@ func (v *VTerm) exitAltScreen() {
 		return
 	}
 	v.AltScreen = false
-	v.altScreenCaptureLen = 0
-	v.altScreenCaptureDropLen = 0
-	v.altScreenCaptureTracked = false
-	v.altScreenCaptureEndOffset = 0
+	v.invalidateAltScreenCapture()
 	v.Screen = v.altScreenBuf
 	v.altScreenBuf = nil
 	v.CursorX = v.altCursorX
 	v.CursorY = v.altCursorY
+	v.clampCursor()
 	v.invalidateRenderCache()
 }
 
