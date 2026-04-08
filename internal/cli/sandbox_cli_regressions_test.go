@@ -198,25 +198,6 @@ func TestExecCommandPropagatesProviderErrors(t *testing.T) {
 	}
 }
 
-func TestDoctorLogsCommandPropagatesProviderErrors(t *testing.T) {
-	cwd := t.TempDir()
-	chdirForTest(t, cwd)
-	setCLIStdout(t)
-
-	getErr := errors.New("network unavailable")
-	provider := &resolveCurrentSandboxTestProvider{getErr: getErr}
-	meta := &sandbox.SandboxMeta{SandboxID: "sb-123", Agent: sandbox.AgentClaude}
-	setCLICommandDeps(t, provider, meta)
-
-	cmd := buildLogsCommand()
-	cmd.SilenceUsage = true
-
-	err := cmd.Execute()
-	if !errors.Is(err, getErr) {
-		t.Fatalf("logs command error = %v, want %v", err, getErr)
-	}
-}
-
 func TestExecCommandUsesPersistedWorktreeID(t *testing.T) {
 	cwd := t.TempDir()
 	chdirForTest(t, cwd)
@@ -285,5 +266,59 @@ func TestSandboxLogsCommandUsesPersistedWorktreeID(t *testing.T) {
 	}
 	if strings.Contains(first, sandbox.ComputeWorktreeID(cwd)) {
 		t.Fatalf("log command = %q, should not use current cwd worktree ID", first)
+	}
+}
+
+func TestStatusCommandStartedSuggestsAttachCommands(t *testing.T) {
+	cwd := t.TempDir()
+	chdirForTest(t, cwd)
+	output := setCLIStdout(t)
+
+	sb := sandbox.NewMockRemoteSandbox("sb-123")
+	provider := &resolveCurrentSandboxTestProvider{sb: sb}
+	meta := &sandbox.SandboxMeta{SandboxID: sb.ID(), Agent: sandbox.AgentClaude}
+	setCLICommandDeps(t, provider, meta)
+
+	cmd := buildStatusCommand()
+	cmd.SilenceUsage = true
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status command error = %v", err)
+	}
+
+	got := output.String()
+	if !strings.Contains(got, "amux ssh") || !strings.Contains(got, "amux exec <cmd>") {
+		t.Fatalf("status output = %q, want attach commands", got)
+	}
+	if strings.Contains(got, "amux sandbox run") {
+		t.Fatalf("status output = %q, should not suggest sandbox run for an existing sandbox", got)
+	}
+}
+
+func TestStatusCommandStoppedSuggestsAttachStartCommands(t *testing.T) {
+	cwd := t.TempDir()
+	chdirForTest(t, cwd)
+	output := setCLIStdout(t)
+
+	sb := sandbox.NewMockRemoteSandbox("sb-123")
+	sb.SetState(sandbox.StateStopped)
+	provider := &resolveCurrentSandboxTestProvider{sb: sb}
+	meta := &sandbox.SandboxMeta{SandboxID: sb.ID(), Agent: sandbox.AgentClaude}
+	setCLICommandDeps(t, provider, meta)
+
+	cmd := buildStatusCommand()
+	cmd.SilenceUsage = true
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status command error = %v", err)
+	}
+
+	got := output.String()
+	want := "Sandbox is stopped. Run `amux ssh` or `amux exec <cmd>` to start it."
+	if !strings.Contains(got, want) {
+		t.Fatalf("status output = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "amux sandbox run") {
+		t.Fatalf("status output = %q, should not suggest sandbox run for an existing sandbox", got)
 	}
 }

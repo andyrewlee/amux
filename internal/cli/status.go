@@ -125,10 +125,9 @@ func buildStatusCommand() *cobra.Command {
 				fmt.Fprintln(cliStdout, "  Ready for:")
 				fmt.Fprintf(cliStdout, "    amux ssh              # raw shell access\n")
 				fmt.Fprintf(cliStdout, "    amux exec <cmd>       # run a command\n")
-				fmt.Fprintf(cliStdout, "    amux sandbox run %s  # interactive session\n", meta.Agent)
 			} else if sb.State() == sandbox.StateStopped {
 				fmt.Fprintln(cliStdout)
-				fmt.Fprintln(cliStdout, "  Sandbox is stopped. Run `amux sandbox run <agent>` to start it.")
+				fmt.Fprintln(cliStdout, "  Sandbox is stopped. Run `amux ssh` or `amux exec <cmd>` to start it.")
 			}
 
 			fmt.Fprintln(cliStdout)
