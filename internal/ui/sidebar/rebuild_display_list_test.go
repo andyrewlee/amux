@@ -90,3 +90,59 @@ func TestRebuildDisplayListUnstagedOnlyShowsUnstagedSection(t *testing.T) {
 		t.Errorf("expected Unstaged (1) header, got %+v", m.displayItems[0])
 	}
 }
+
+func TestRebuildDisplayListKeepsVisibleSelectionOnScreenAfterHeaderInsert(t *testing.T) {
+	m := New()
+	m.SetSize(80, 10)
+
+	m.SetGitStatus(&git.StatusResult{
+		Clean: false,
+		Staged: []git.Change{
+			{Path: "staged.go", Kind: git.ChangeModified, Staged: true},
+		},
+		Unstaged: []git.Change{
+			{Path: "u1.go", Kind: git.ChangeModified},
+			{Path: "u2.go", Kind: git.ChangeModified},
+			{Path: "u3.go", Kind: git.ChangeModified},
+			{Path: "u4.go", Kind: git.ChangeModified},
+			{Path: "u5.go", Kind: git.ChangeModified},
+			{Path: "u6.go", Kind: git.ChangeModified},
+			{Path: "u7.go", Kind: git.ChangeModified},
+		},
+	})
+	m.cursor = 8
+	m.scrollOffset = 0
+
+	if !m.cursorVisible() {
+		t.Fatalf("expected cursor to start visible, cursor=%d scrollOffset=%d visibleHeight=%d",
+			m.cursor, m.scrollOffset, m.visibleHeight())
+	}
+
+	m.SetGitStatus(&git.StatusResult{
+		Clean: false,
+		Staged: []git.Change{
+			{Path: "staged.go", Kind: git.ChangeModified, Staged: true},
+		},
+		Unstaged: []git.Change{
+			{Path: "u1.go", Kind: git.ChangeModified},
+			{Path: "u2.go", Kind: git.ChangeModified},
+			{Path: "u3.go", Kind: git.ChangeModified},
+			{Path: "u4.go", Kind: git.ChangeModified},
+			{Path: "u5.go", Kind: git.ChangeModified},
+		},
+		Untracked: []git.Change{
+			{Path: "new.go", Kind: git.ChangeUntracked},
+		},
+	})
+
+	if m.cursor != 9 {
+		t.Fatalf("cursor = %d, want 9", m.cursor)
+	}
+	if !m.cursorVisible() {
+		t.Fatalf("expected cursor to remain visible after rebuild, cursor=%d scrollOffset=%d visibleHeight=%d",
+			m.cursor, m.scrollOffset, m.visibleHeight())
+	}
+	if m.scrollOffset != 1 {
+		t.Fatalf("scrollOffset = %d, want 1", m.scrollOffset)
+	}
+}

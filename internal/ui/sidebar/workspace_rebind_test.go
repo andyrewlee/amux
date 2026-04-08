@@ -1,12 +1,14 @@
 package sidebar
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 )
 
 func TestChangesSetWorkspaceSameIDPreservesState(t *testing.T) {
@@ -135,6 +137,49 @@ func TestChangesSetWorkspaceCanonicalMatchDifferentIDPreservesState(t *testing.T
 	}
 	if model.filterInput.Value() != "abc" {
 		t.Fatalf("filterInput = %q, want %q", model.filterInput.Value(), "abc")
+	}
+}
+
+func TestChangesSetWorkspaceSameIDKeepsCursorVisibleWhenHeaderGrows(t *testing.T) {
+	model := New()
+	model.SetSize(80, 10)
+	model.Focus()
+
+	ws1 := data.NewWorkspace("feature", "", "main", "/tmp/repo", "/tmp/workspaces/repo/feature")
+	ws2 := data.NewWorkspace("feature", "updated-branch", "main", "/tmp/repo", "/tmp/workspaces/repo/feature")
+
+	model.SetWorkspace(ws1)
+
+	unstaged := make([]git.Change, 0, 20)
+	for i := 0; i < 20; i++ {
+		unstaged = append(unstaged, git.Change{
+			Path: fmt.Sprintf("file-%02d.txt", i),
+			Kind: git.ChangeModified,
+		})
+	}
+	model.SetGitStatus(&git.StatusResult{
+		Clean:    false,
+		Unstaged: unstaged,
+	})
+	model.cursor = 8
+	model.scrollOffset = 0
+
+	if !changesCursorVisible(model) {
+		t.Fatalf("expected cursor to start visible, cursor=%d scrollOffset=%d visibleHeight=%d",
+			model.cursor, model.scrollOffset, model.visibleHeight())
+	}
+
+	model.SetWorkspace(ws2)
+
+	if model.workspace != ws2 {
+		t.Fatal("expected workspace pointer to be rebound")
+	}
+	if !changesCursorVisible(model) {
+		t.Fatalf("expected cursor to remain visible after header growth, cursor=%d scrollOffset=%d visibleHeight=%d",
+			model.cursor, model.scrollOffset, model.visibleHeight())
+	}
+	if model.scrollOffset != 1 {
+		t.Fatalf("scrollOffset = %d, want 1", model.scrollOffset)
 	}
 }
 
