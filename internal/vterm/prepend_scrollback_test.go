@@ -153,9 +153,9 @@ func TestPrependScrollbackAllBlankContent(t *testing.T) {
 	}
 }
 
-func TestPrependScrollbackRespectsTreatLFAsCRLF(t *testing.T) {
+func TestPrependScrollbackTreatsCaptureLFAsAsRowSeparators(t *testing.T) {
 	vt := New(20, 5)
-	vt.TreatLFAsCRLF = true
+	vt.TreatLFAsCRLF = false
 	vt.PrependScrollback([]byte("abc\nx"))
 
 	if len(vt.Scrollback) < 2 {

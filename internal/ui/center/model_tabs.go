@@ -180,7 +180,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 
 	captureRows := msg.Rows
 	captureCols := msg.Cols
-	rows, cols := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureRows, captureCols)
+	cols, rows := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureCols, captureRows)
 	initialCols, initialRows := common.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 
 	wsID := string(msg.Workspace.ID())

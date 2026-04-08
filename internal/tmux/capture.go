@@ -324,7 +324,8 @@ func CapturePane(sessionName string, opts Options) ([]byte, error) {
 	// -p: output to stdout
 	// -e: include escape sequences (ANSI styling)
 	// -S -: start from beginning of history
-	// -N: preserve trailing spaces in each captured row
+	// -N: preserve trailing spaces in each captured row. History-only callers
+	// also rely on this so post-attach deltas keep padded/status-bar rows intact.
 	// -E -1: end at last scrollback line (excludes visible screen)
 	// -t: target pane by globally unique pane ID
 	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-e", "-N", "-S", "-", "-E", "-1", "-t", paneID)

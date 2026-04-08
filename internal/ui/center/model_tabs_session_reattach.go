@@ -12,6 +12,8 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+// These package-level indirections are test seams for reattach/bootstrap
+// paths. Tests that override them must not use t.Parallel within this package.
 var (
 	sessionStateForFn         = tmux.SessionStateFor
 	sessionHasClientsFn       = tmux.SessionHasClients

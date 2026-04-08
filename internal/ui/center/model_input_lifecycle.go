@@ -59,17 +59,17 @@ func (m *Model) updatePtyTabCreateResult(msg ptyTabCreateResult) (*Model, tea.Cm
 	return m, m.handlePtyTabCreated(msg)
 }
 
-func (m *Model) sessionRestoreLiveSize(captureFullPane bool, captureRows, captureCols int) (int, int) {
-	if captureFullPane && captureRows > 0 && captureCols > 0 && (m.width <= 0 || m.height <= 0) {
-		return captureRows, captureCols
+func (m *Model) sessionRestoreLiveSize(captureFullPane bool, captureCols, captureRows int) (int, int) {
+	if captureFullPane && captureCols > 0 && captureRows > 0 && (m.width <= 0 || m.height <= 0) {
+		return captureCols, captureRows
 	}
 	tm := m.terminalMetrics()
-	rows := tm.Height
 	cols := tm.Width
-	if rows <= 0 || cols <= 0 {
-		return 24, 80
+	rows := tm.Height
+	if cols <= 0 || rows <= 0 {
+		return 80, 24
 	}
-	return rows, cols
+	return cols, rows
 }
 
 // updatePtyTabReattachResult handles ptyTabReattachResult.
@@ -80,7 +80,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	}
 	captureRows := msg.Rows
 	captureCols := msg.Cols
-	rows, cols := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureRows, captureCols)
+	cols, rows := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureCols, captureRows)
 	initialCols, initialRows := common.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 	tab.mu.Lock()
 	createdTerminal := false

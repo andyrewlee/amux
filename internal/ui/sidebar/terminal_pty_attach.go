@@ -16,6 +16,8 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+// These package-level indirections are test seams for terminal attach/bootstrap
+// paths. Tests that override them must not use t.Parallel within this package.
 var (
 	ensureTmuxAvailableFn       = tmux.EnsureAvailable
 	sessionStateForFn           = tmux.SessionStateFor

@@ -60,6 +60,9 @@ func parseCaptureWithSize(data []byte, width, height int) *VTerm {
 		height = 1
 	}
 	tmp := New(width, height)
+	// tmux capture-pane serializes rows with bare LF separators regardless of
+	// the live terminal's newline mode, so history parsing must always treat LF
+	// as a row break that returns to column 0.
 	tmp.TreatLFAsCRLF = true
 	tmp.Write(trimCaptureTrailingNewline(data))
 	return tmp
