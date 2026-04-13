@@ -1,6 +1,8 @@
 package diff
 
 import (
+	"path/filepath"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
@@ -17,6 +19,7 @@ type Model struct {
 	change    *git.Change
 	diff      *git.DiffResult
 	mode      git.DiffMode
+	loadID    uint64
 
 	// State
 	loading bool
@@ -36,8 +39,9 @@ type Model struct {
 
 // diffLoaded is sent when the diff has been loaded
 type diffLoaded struct {
-	diff *git.DiffResult
-	err  error
+	diff   *git.DiffResult
+	err    error
+	loadID uint64
 }
 
 // New creates a new diff viewer model
@@ -58,15 +62,44 @@ func (m *Model) Init() tea.Cmd {
 	return m.loadDiff()
 }
 
+func normalizeSourcePath(path string) string {
+	if path == "" {
+		return ""
+	}
+	return filepath.Clean(path)
+}
+
+// MatchesSource reports whether the viewer is already showing the same diff target.
+func (m *Model) MatchesSource(changePath string, mode git.DiffMode) bool {
+	if m == nil || m.change == nil {
+		return false
+	}
+	return normalizeSourcePath(m.change.Path) == normalizeSourcePath(changePath) && m.mode == mode
+}
+
+// ResetSource updates the diff target before a reload while preserving viewer UI state.
+func (m *Model) ResetSource(ws *data.Workspace, change *git.Change, mode git.DiffMode) {
+	m.workspace = ws
+	m.change = change
+	m.mode = mode
+	m.loading = true
+	m.err = nil
+	m.diff = nil
+	m.scroll = 0
+	m.hunkIdx = 0
+}
+
 // loadDiff returns a command that loads the diff asynchronously
 func (m *Model) loadDiff() tea.Cmd {
 	ws := m.workspace
 	change := m.change
 	mode := m.mode
+	m.loadID++
+	loadID := m.loadID
 
 	return func() tea.Msg {
 		if ws == nil || change == nil {
-			return diffLoaded{err: nil, diff: &git.DiffResult{Empty: true}}
+			return diffLoaded{err: nil, diff: &git.DiffResult{Empty: true}, loadID: loadID}
 		}
 
 		var diff *git.DiffResult
@@ -81,7 +114,7 @@ func (m *Model) loadDiff() tea.Cmd {
 			diff, err = git.GetFileDiff(ws.Root, change.Path, mode)
 		}
 
-		return diffLoaded{diff: diff, err: err}
+		return diffLoaded{diff: diff, err: err, loadID: loadID}
 	}
 }
 
@@ -89,11 +122,15 @@ func (m *Model) loadDiff() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case diffLoaded:
+		if msg.loadID != m.loadID {
+			return m, nil
+		}
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
 			return m, nil
 		}
+		m.err = nil
 		m.diff = msg.diff
 		return m, nil
 

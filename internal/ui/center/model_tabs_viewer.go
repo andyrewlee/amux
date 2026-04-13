@@ -73,12 +73,58 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 	}
 }
 
+func (m *Model) findOpenDiffTab(ws *data.Workspace, changePath string, mode git.DiffMode) (int, *Tab) {
+	if ws == nil {
+		return -1, nil
+	}
+	wsID := string(ws.ID())
+	for idx, tab := range m.tabsByWorkspace[wsID] {
+		if tab == nil || tab.isClosed() {
+			continue
+		}
+		tab.mu.Lock()
+		dv := tab.DiffViewer
+		tab.mu.Unlock()
+		if dv != nil && dv.MatchesSource(changePath, mode) {
+			return idx, tab
+		}
+	}
+	return -1, nil
+}
+
+func (m *Model) reuseDiffTab(ws *data.Workspace, idx int, tab *Tab, change *git.Change, mode git.DiffMode) tea.Cmd {
+	if ws == nil || tab == nil {
+		return nil
+	}
+	wsID := string(ws.ID())
+	activeChanged := m.activeTabByWorkspace[wsID] != idx
+	m.setActiveTabIdxForWorkspace(wsID, idx)
+
+	var cmds []tea.Cmd
+	tab.mu.Lock()
+	dv := tab.DiffViewer
+	tab.mu.Unlock()
+	if dv != nil {
+		dv.ResetSource(ws, change, mode)
+		cmds = append(cmds, dv.Init())
+	}
+	if m.workspaceID() == wsID {
+		cmds = append(cmds, m.tabSelectionChangedCmd(activeChanged))
+	}
+	return common.SafeBatch(cmds...)
+}
+
 // createDiffTab creates a new native diff viewer tab (no PTY)
 func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Workspace) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
 			return messages.Error{Err: errors.New("no workspace selected"), Context: "creating diff viewer"}
 		}
+	}
+
+	if idx, tab := m.findOpenDiffTab(ws, change.Path, mode); tab != nil {
+		logging.Info("Reusing diff tab: path=%s mode=%d workspace=%s", change.Path, mode, ws.Name)
+		return m.reuseDiffTab(ws, idx, tab, change, mode)
 	}
 
 	logging.Info("Creating diff tab: path=%s mode=%d workspace=%s", change.Path, mode, ws.Name)
