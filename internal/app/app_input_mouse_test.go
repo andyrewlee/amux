@@ -181,6 +181,29 @@ func TestRouteMouseWheel_PrefixPaletteConsumesWheel(t *testing.T) {
 	}
 }
 
+func TestRouteMouseWheel_PrefixModeOutsidePaletteStillScrollsFocusedPane(t *testing.T) {
+	app, tab := newScrollableCenterWheelHarness(t)
+	app.prefixActive = true
+
+	l := app.layout
+	x := l.LeftGutter() + l.DashboardWidth() + l.GapX() + 3
+	y := l.TopGutter() + 2
+	if app.prefixPaletteContainsPoint(x, y) {
+		t.Fatal("expected wheel point to be outside prefix palette")
+	}
+
+	before, _ := tab.Terminal.GetScrollInfo()
+	app.routeMouseWheel(tea.MouseWheelMsg{
+		Button: tea.MouseWheelDown,
+		X:      x,
+		Y:      y,
+	})
+	after, _ := tab.Terminal.GetScrollInfo()
+	if after >= before {
+		t.Fatalf("expected prefix mode wheel outside palette to scroll focused center pane, before=%d after=%d", before, after)
+	}
+}
+
 func TestRouteMouseWheel_FocusesHoveredSidebarAndScrollsChanges(t *testing.T) {
 	l := layout.NewManager()
 	l.Resize(140, 40)
@@ -263,6 +286,25 @@ func TestRouteMouseWheel_HoverSidebarTerminalSkipsFocusSideEffects(t *testing.T)
 	}
 }
 
+func TestRouteMouseWheel_HoverSidebarTerminalDoesNotScrollFocusedCenter(t *testing.T) {
+	app, tab := newScrollableCenterWheelHarness(t)
+
+	l := app.layout
+	sidebarStartX := l.LeftGutter() + l.DashboardWidth() + l.GapX() + l.CenterWidth() + l.GapX()
+	topPaneHeight, _ := sidebarPaneHeights(l.Height())
+
+	before, _ := tab.Terminal.GetScrollInfo()
+	app.routeMouseWheel(tea.MouseWheelMsg{
+		Button: tea.MouseWheelDown,
+		X:      sidebarStartX + 3,
+		Y:      l.TopGutter() + topPaneHeight + 2,
+	})
+	after, _ := tab.Terminal.GetScrollInfo()
+	if after != before {
+		t.Fatalf("expected hovered empty sidebar terminal to leave center scroll unchanged, before=%d after=%d", before, after)
+	}
+}
+
 func TestRouteMouseWheel_HoverCenterPreservesDetachedReattach(t *testing.T) {
 	l := layout.NewManager()
 	l.Resize(140, 40)
@@ -310,18 +352,10 @@ func TestRouteMouseWheel_HoverCenterPreservesDetachedReattach(t *testing.T) {
 }
 
 func TestRouteMouseWheel_HoverDashboardDoesNotRetargetFromFocusedPane(t *testing.T) {
-	l := layout.NewManager()
-	l.Resize(140, 40)
+	app, tab := newScrollableCenterWheelHarness(t)
+	l := app.layout
 
-	app := &App{
-		layout:          l,
-		dashboard:       dashboard.New(),
-		center:          center.New(&config.Config{}),
-		sidebar:         sidebar.NewTabbedSidebar(),
-		sidebarTerminal: sidebar.NewTerminalModel(),
-	}
-	app.updateLayout()
-	app.focusPane(messages.PaneCenter)
+	before, _ := tab.Terminal.GetScrollInfo()
 
 	cmd := app.routeMouseWheel(tea.MouseWheelMsg{
 		Button: tea.MouseWheelDown,
@@ -333,6 +367,10 @@ func TestRouteMouseWheel_HoverDashboardDoesNotRetargetFromFocusedPane(t *testing
 	}
 	if app.focusedPane != messages.PaneCenter {
 		t.Fatalf("expected focus to remain center, got %v", app.focusedPane)
+	}
+	after, _ := tab.Terminal.GetScrollInfo()
+	if after != before {
+		t.Fatalf("expected dashboard hover wheel to leave center scroll unchanged, before=%d after=%d", before, after)
 	}
 }
 
@@ -362,66 +400,30 @@ func TestRouteMouseWheel_HoverEmptyCenterDoesNotStealFocus(t *testing.T) {
 }
 
 func TestRouteMouseWheel_DialogOverlayPreventsRetarget(t *testing.T) {
-	l := layout.NewManager()
-	l.Resize(140, 40)
-
-	app := &App{
-		layout:          l,
-		dashboard:       dashboard.New(),
-		center:          center.New(&config.Config{}),
-		sidebar:         sidebar.NewTabbedSidebar(),
-		sidebarTerminal: sidebar.NewTerminalModel(),
-		dialog:          common.NewConfirmDialog("quit", "Quit", "Confirm?"),
-	}
+	app, tab := newScrollableCenterWheelHarness(t)
+	l := app.layout
+	app.dialog = common.NewConfirmDialog("quit", "Quit", "Confirm?")
 	app.dialog.Show()
-	app.updateLayout()
-	app.focusPane(messages.PaneDashboard)
 
 	centerStartX := l.LeftGutter() + l.DashboardWidth() + l.GapX()
+	before, _ := tab.Terminal.GetScrollInfo()
 	_ = app.routeMouseWheel(tea.MouseWheelMsg{
 		Button: tea.MouseWheelDown,
 		X:      centerStartX + 3,
 		Y:      l.TopGutter() + 2,
 	})
-	if app.focusedPane != messages.PaneDashboard {
-		t.Fatalf("expected dialog overlay to preserve dashboard focus, got %v", app.focusedPane)
+	if app.focusedPane != messages.PaneCenter {
+		t.Fatalf("expected dialog overlay to preserve center focus, got %v", app.focusedPane)
+	}
+	after, _ := tab.Terminal.GetScrollInfo()
+	if after != before {
+		t.Fatalf("expected dialog overlay to block background scrolling, before=%d after=%d", before, after)
 	}
 }
 
 func TestRouteMouseWheel_ToastOverlayPreventsRetarget(t *testing.T) {
-	l := layout.NewManager()
-	l.Resize(140, 40)
-
-	cfg := &config.Config{
-		Assistants: map[string]config.AssistantConfig{
-			"codex": {Command: "codex"},
-		},
-	}
-	centerModel := center.New(cfg)
-	app := &App{
-		width:           140,
-		height:          40,
-		layout:          l,
-		dashboard:       dashboard.New(),
-		center:          centerModel,
-		sidebar:         sidebar.NewTabbedSidebar(),
-		sidebarTerminal: sidebar.NewTerminalModel(),
-		toast:           common.NewToastModel(),
-	}
-	app.updateLayout()
-
-	ws := data.NewWorkspace("feature", "feature", "main", "/tmp/repo", "/tmp/repo/feature")
-	ws.OpenTabs = []data.TabInfo{{
-		Assistant:   "codex",
-		Name:        "Codex",
-		SessionName: "amux-test-toast-detached",
-		Status:      "detached",
-	}}
-	centerModel.SetWorkspace(ws)
-	if cmd := centerModel.RestoreTabsFromWorkspace(ws); cmd != nil {
-		t.Fatal("expected detached tab restore to be synchronous")
-	}
-	app.focusPane(messages.PaneDashboard)
+	app, tab := newScrollableCenterWheelHarness(t)
+	l := app.layout
 
 	_ = app.toast.ShowInfo(strings.Repeat("toast ", 12))
 	toastView := app.toast.View()
@@ -452,6 +454,7 @@ func TestRouteMouseWheel_ToastOverlayPreventsRetarget(t *testing.T) {
 		t.Fatal("expected toast height to be positive")
 	}
 
+	before, _ := tab.Terminal.GetScrollInfo()
 	cmd := app.routeMouseWheel(tea.MouseWheelMsg{
 		Button: tea.MouseWheelDown,
 		X:      x,
@@ -460,7 +463,11 @@ func TestRouteMouseWheel_ToastOverlayPreventsRetarget(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected toast-covered wheel input to avoid retarget side effects")
 	}
-	if app.focusedPane != messages.PaneDashboard {
-		t.Fatalf("expected toast overlay to preserve dashboard focus, got %v", app.focusedPane)
+	if app.focusedPane != messages.PaneCenter {
+		t.Fatalf("expected toast overlay to preserve center focus, got %v", app.focusedPane)
+	}
+	after, _ := tab.Terminal.GetScrollInfo()
+	if after != before {
+		t.Fatalf("expected toast overlay to block background scrolling, before=%d after=%d", before, after)
 	}
 }
