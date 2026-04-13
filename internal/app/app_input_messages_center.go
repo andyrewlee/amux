@@ -12,6 +12,7 @@ func (a *App) handleOpenDiff(msg messages.OpenDiff) tea.Cmd {
 	logging.Info("Opening diff: change=%v", msg.Change)
 	newCenter, cmd := a.center.Update(msg)
 	a.center = newCenter
+	a.focusPane(messages.PaneCenter)
 	return cmd
 }
 

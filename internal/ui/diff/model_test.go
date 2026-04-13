@@ -3,6 +3,7 @@ package diff
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 )
 
@@ -84,5 +85,65 @@ func TestHunkNavigation(t *testing.T) {
 	m.prevHunk()
 	if m.scroll != 8 || m.hunkIdx != 2 {
 		t.Fatalf("expected wrap to last hunk at 8, idx 2, got scroll=%d idx=%d", m.scroll, m.hunkIdx)
+	}
+}
+
+func TestResetSource_ResetsScrollState(t *testing.T) {
+	ws := data.NewWorkspace("ws", "ws", "main", "/repo", "/repo")
+	m := &Model{
+		workspace: ws,
+		change:    &git.Change{Path: "before.go", Kind: git.ChangeModified},
+		mode:      git.DiffModeUnstaged,
+		diff:      &git.DiffResult{Lines: make([]git.DiffLine, 20)},
+		loading:   false,
+		scroll:    12,
+		hunkIdx:   3,
+		err:       nil,
+	}
+
+	m.ResetSource(ws, &git.Change{Path: "after.go", Kind: git.ChangeModified}, git.DiffModeStaged)
+
+	if !m.loading {
+		t.Fatal("expected reset source to mark model loading")
+	}
+	if m.scroll != 0 {
+		t.Fatalf("expected scroll reset to 0, got %d", m.scroll)
+	}
+	if m.hunkIdx != 0 {
+		t.Fatalf("expected hunk index reset to 0, got %d", m.hunkIdx)
+	}
+	if m.diff != nil {
+		t.Fatal("expected previous diff content to be cleared")
+	}
+	if m.change == nil || m.change.Path != "after.go" {
+		t.Fatalf("expected source change to update, got %+v", m.change)
+	}
+	if m.mode != git.DiffModeStaged {
+		t.Fatalf("expected mode update to staged, got %v", m.mode)
+	}
+}
+
+func TestDiffLoaded_IgnoresStaleLoadCompletion(t *testing.T) {
+	m := &Model{
+		loadID:  2,
+		loading: true,
+	}
+	staleDiff := &git.DiffResult{Path: "stale.go"}
+	currentDiff := &git.DiffResult{Path: "current.go"}
+
+	updated, _ := m.Update(diffLoaded{loadID: 1, diff: staleDiff})
+	if !updated.loading {
+		t.Fatal("expected stale load to keep current load in progress")
+	}
+	if updated.diff != nil {
+		t.Fatalf("expected stale load to be ignored, got %+v", updated.diff)
+	}
+
+	updated, _ = updated.Update(diffLoaded{loadID: 2, diff: currentDiff})
+	if updated.loading {
+		t.Fatal("expected current load to finish")
+	}
+	if updated.diff != currentDiff {
+		t.Fatalf("expected current diff to win, got %+v", updated.diff)
 	}
 }
