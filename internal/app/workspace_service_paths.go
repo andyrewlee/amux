@@ -125,6 +125,17 @@ func pathWithinAliases(baseAliases, targetAliases []string) bool {
 	return false
 }
 
+func pathWithinAliasesStrict(baseAliases, targetAliases []string) bool {
+	for _, base := range baseAliases {
+		for _, target := range targetAliases {
+			if isPathWithin(base, target) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func workspacePathAliases(path string) []string {
 	canonical := lexicalWorkspacePath(path)
 	if canonical == "" {

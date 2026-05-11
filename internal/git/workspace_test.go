@@ -3,6 +3,8 @@ package git
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -189,5 +191,281 @@ func TestCreateWorkspace_RetryUsesFreshContext(t *testing.T) {
 	}
 	if call != 2 {
 		t.Fatalf("runGitCtx calls = %d, want 2", call)
+	}
+}
+
+func TestCreateWorkspaceClearsOrphanedCleanupMarker(t *testing.T) {
+	origRunGitCtx := runGitCtx
+	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
+	defer func() {
+		runGitCtx = origRunGitCtx
+		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
+	}()
+
+	workspacePath := filepath.Join(t.TempDir(), "pending-cleanup")
+	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{
+		RepoPath:        "/tmp/repo",
+		CleanupPath:     filepath.Join(filepath.Dir(workspacePath), ".pending-cleanup.amux-prune-1"),
+		NeedsUnregister: false,
+	}); err != nil {
+		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
+	}
+	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
+		if got, want := strings.Join(args, " "), "worktree add -b feature-ws "+workspacePath+" HEAD"; got != want {
+			t.Fatalf("worktree add args = %q, want %q", got, want)
+		}
+		return "", nil
+	}
+
+	err := CreateWorkspace("/tmp/repo", workspacePath, "feature-ws", "HEAD")
+	if err != nil {
+		t.Fatalf("expected orphaned cleanup marker to be cleared, got %v", err)
+	}
+	if _, err := os.Stat(prunedWorkspaceRetryMarkerPath(workspacePath)); !os.IsNotExist(err) {
+		t.Fatalf("expected cleanup marker to be cleared, err=%v", err)
+	}
+}
+
+func TestCreateWorkspaceRejectsMarkerWrittenBeforeRenameEvenIfLivePathIsRegistered(t *testing.T) {
+	origUnregisterWorktreeCtx := unregisterWorktreeCtx
+	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
+	defer func() {
+		unregisterWorktreeCtx = origUnregisterWorktreeCtx
+		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
+	}()
+
+	workspaceRoot := t.TempDir()
+	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
+	stagedPath := filepath.Join(workspaceRoot, ".pending-cleanup.amux-prune-1")
+	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspacePath, "nested", "file.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatalf("WriteFile(file.txt) error = %v", err)
+	}
+	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{
+		RepoPath:        "/tmp/repo",
+		CleanupPath:     stagedPath,
+		NeedsUnregister: true,
+	}); err != nil {
+		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
+	}
+
+	unregisterWorktreeCtx = func(context.Context, string, string) error {
+		t.Fatal("expected same-path registered workspace to be rejected before unregister")
+		return nil
+	}
+	removeWorkspacePathCtx = func(context.Context, string) error {
+		t.Fatal("expected same-path registered workspace to be rejected before cleanup delete")
+		return nil
+	}
+
+	err := CreateWorkspace("/tmp/repo", workspacePath, "feature-ws", "HEAD")
+	if err == nil {
+		t.Fatal("expected CreateWorkspace() to reject same-path registered workspace during pending cleanup")
+	}
+	if !strings.Contains(err.Error(), "pending cleanup remains") {
+		t.Fatalf("expected pending cleanup conflict, got %v", err)
+	}
+}
+
+func TestCreateWorkspaceRejectsReusedPathDuringPendingCleanup(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
+	stagedPath := filepath.Join(workspaceRoot, ".pending-cleanup.amux-prune-1")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	if err := os.MkdirAll(stagedPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stagedPath) error = %v", err)
+	}
+	if err := ensurePrunedWorkspaceRetryMarker(workspacePath, stagedPath); err != nil {
+		t.Fatalf("ensurePrunedWorkspaceRetryMarker() error = %v", err)
+	}
+
+	err := CreateWorkspace("/tmp/repo", workspacePath, "feature-ws", "HEAD")
+	if err == nil {
+		t.Fatal("expected CreateWorkspace() to reject reused workspace path during pending cleanup")
+	}
+	if !strings.Contains(err.Error(), "pending cleanup remains") {
+		t.Fatalf("expected reused path error, got %v", err)
+	}
+}
+
+func TestCreateWorkspaceRejectsMarkerWrittenBeforeRenameWhenLivePathNotRegistered(t *testing.T) {
+	origRunGitCtx := runGitCtx
+	defer func() {
+		runGitCtx = origRunGitCtx
+	}()
+
+	workspaceRoot := t.TempDir()
+	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
+	stagedPath := filepath.Join(workspaceRoot, ".pending-cleanup.amux-prune-1")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{
+		RepoPath:        "/tmp/repo",
+		CleanupPath:     stagedPath,
+		NeedsUnregister: false,
+	}); err != nil {
+		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
+	}
+	runGitCtx = func(ctx context.Context, repoPath string, args ...string) (string, error) {
+		if repoPath != "/tmp/repo" {
+			t.Fatalf("repo path = %q, want %q", repoPath, "/tmp/repo")
+		}
+		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
+			t.Fatalf("git args = %q, want %q", got, want)
+		}
+		return "", nil
+	}
+
+	err := CreateWorkspace("/tmp/repo", workspacePath, "feature-ws", "HEAD")
+	if err == nil {
+		t.Fatal("expected CreateWorkspace() to reject unregistered live path for missing cleanup target")
+	}
+	if !strings.Contains(err.Error(), "pending cleanup remains") {
+		t.Fatalf("expected pending cleanup conflict, got %v", err)
+	}
+}
+
+func TestCreateWorkspaceRejectsLegacyUnregisterMarkerWithoutRepoPath(t *testing.T) {
+	origRunGitCtx := runGitCtx
+	origUnregisterWorktreeCtx := unregisterWorktreeCtx
+	defer func() {
+		runGitCtx = origRunGitCtx
+		unregisterWorktreeCtx = origUnregisterWorktreeCtx
+	}()
+
+	workspacePath := filepath.Join(t.TempDir(), "pending-cleanup")
+	if err := os.WriteFile(prunedWorkspaceRetryMarkerPath(workspacePath), []byte("u:/tmp/staged\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(markerPath) error = %v", err)
+	}
+	unregisterWorktreeCtx = func(context.Context, string, string) error {
+		t.Fatal("expected repo-less legacy marker to fail before unregister")
+		return nil
+	}
+	runGitCtx = func(context.Context, string, ...string) (string, error) {
+		t.Fatal("expected CreateWorkspace() to fail before worktree add")
+		return "", nil
+	}
+
+	err := CreateWorkspace("/tmp/repo-b", workspacePath, "feature-ws", "HEAD")
+	if err == nil {
+		t.Fatal("expected CreateWorkspace() to reject repo-less legacy unregister marker")
+	}
+	if !strings.Contains(err.Error(), "missing repo path") {
+		t.Fatalf("expected missing repo path error, got %v", err)
+	}
+}
+
+func TestCreateWorkspaceRejectsLegacyPendingCleanupMarkerWhenPathExists(t *testing.T) {
+	origRunGitCtx := runGitCtx
+	defer func() {
+		runGitCtx = origRunGitCtx
+	}()
+
+	workspacePath := filepath.Join(t.TempDir(), "pending-cleanup")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	if err := os.WriteFile(prunedWorkspaceRetryMarkerPath(workspacePath), []byte("pruned workspace cleanup pending\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(markerPath) error = %v", err)
+	}
+	runGitCtx = func(context.Context, string, ...string) (string, error) {
+		t.Fatal("expected CreateWorkspace() to fail before worktree add")
+		return "", nil
+	}
+
+	err := CreateWorkspace("/tmp/repo", workspacePath, "feature-ws", "HEAD")
+	if err == nil {
+		t.Fatal("expected CreateWorkspace() to reject legacy pending cleanup marker with live path")
+	}
+	if !strings.Contains(err.Error(), "legacy pending cleanup marker") {
+		t.Fatalf("expected legacy cleanup error, got %v", err)
+	}
+}
+
+func TestCreateWorkspaceRejectsReusedPathDuringDeferredUnregisterRecovery(t *testing.T) {
+	origRunGitCtx := runGitCtx
+	origUnregisterWorktreeCtx := unregisterWorktreeCtx
+	defer func() {
+		runGitCtx = origRunGitCtx
+		unregisterWorktreeCtx = origUnregisterWorktreeCtx
+	}()
+
+	workspacePath := filepath.Join(t.TempDir(), "pending-cleanup")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspacePath, ".git"), []byte("gitdir: /tmp/new-admin\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.git) error = %v", err)
+	}
+	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{
+		RepoPath:        "/tmp/repo",
+		CleanupPath:     "",
+		NeedsUnregister: true,
+	}); err != nil {
+		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
+	}
+
+	runGitCtx = func(context.Context, string, ...string) (string, error) {
+		t.Fatal("expected CreateWorkspace() to reject reused live path before git lookup")
+		return "", nil
+	}
+	unregisterWorktreeCtx = func(context.Context, string, string) error {
+		t.Fatal("expected CreateWorkspace() to reject reused live path before unregister")
+		return nil
+	}
+
+	err := CreateWorkspace("/tmp/repo", workspacePath, "feature-ws", "HEAD")
+	if err == nil {
+		t.Fatal("expected CreateWorkspace() to reject reused live path during deferred unregister recovery")
+	}
+	if !strings.Contains(err.Error(), "pending cleanup remains") {
+		t.Fatalf("expected pending cleanup conflict, got %v", err)
+	}
+}
+
+func TestReadWorkspaceCleanupStateRejectsIncompleteMarker(t *testing.T) {
+	workspacePath := filepath.Join(t.TempDir(), "pending-cleanup")
+	markerPath := prunedWorkspaceRetryMarkerPath(workspacePath)
+	if err := os.WriteFile(markerPath, []byte("cleanup_path=/tmp/staged\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(markerPath) error = %v", err)
+	}
+
+	_, marked, err := readWorkspaceCleanupState(workspacePath)
+	if err == nil {
+		t.Fatal("expected incomplete marker to fail parsing")
+	}
+	if marked {
+		t.Fatal("expected incomplete marker to be rejected")
+	}
+	if !strings.Contains(err.Error(), "incomplete workspace cleanup marker") {
+		t.Fatalf("expected incomplete marker error, got %v", err)
+	}
+}
+
+func TestWriteWorkspaceCleanupStateRoundTripsRepoPath(t *testing.T) {
+	workspacePath := filepath.Join(t.TempDir(), "pending-cleanup")
+	want := workspaceCleanupState{
+		RepoPath:        "/tmp/repo-a",
+		CleanupPath:     filepath.Join(filepath.Dir(workspacePath), ".pending-cleanup.amux-prune-1"),
+		NeedsUnregister: true,
+	}
+	if err := writeWorkspaceCleanupState(workspacePath, want); err != nil {
+		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
+	}
+
+	got, marked, err := readWorkspaceCleanupState(workspacePath)
+	if err != nil {
+		t.Fatalf("readWorkspaceCleanupState() error = %v", err)
+	}
+	if !marked {
+		t.Fatal("expected cleanup marker to be present")
+	}
+	if got != want {
+		t.Fatalf("cleanup state = %+v, want %+v", got, want)
 	}
 }

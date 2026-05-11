@@ -1,10 +1,14 @@
 package app
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
@@ -190,6 +194,195 @@ func TestDeleteWorkspaceAllowsManagedPathWhenProjectNameDriftsFromRepoBasename(t
 	}
 	if !removeCalled {
 		t.Fatal("removeWorkspace should have been called")
+	}
+}
+
+func TestDeleteWorkspaceFallsBackToManagedStaleCleanupForCustomRoot(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			return git.ErrUnregisteredWorkspacePath
+		},
+	}
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	msg := svc.DeleteWorkspace(project, ws)()
+
+	if _, ok := msg.(messages.WorkspaceDeleted); !ok {
+		t.Fatalf("expected WorkspaceDeleted, got %T", msg)
+	}
+	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale workspace path to be removed, err=%v", err)
+	}
+}
+
+func TestDeleteWorkspacePropagatesRemoveFailureWhenStaleCleanupFindsGitMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspacePath, ".git"), []byte("gitdir: /tmp/admin\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.git) error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			return git.ErrUnregisteredWorkspacePath
+		},
+	}
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	msg := svc.DeleteWorkspace(project, ws)()
+
+	failed, ok := msg.(messages.WorkspaceDeleteFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if failed.Err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(failed.Err.Error(), git.ErrUnregisteredWorkspacePath.Error()) {
+		t.Fatalf("expected stale remove failure to be preserved, got %v", failed.Err)
+	}
+	if !strings.Contains(failed.Err.Error(), "workspace still has git metadata") {
+		t.Fatalf("expected stale cleanup failure to be preserved, got %v", failed.Err)
+	}
+}
+
+func TestDeleteWorkspaceDoesNotHideGenericRemoveFailureBehindStaleCleanup(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			return errors.New("marker write failed")
+		},
+	}
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	msg := svc.DeleteWorkspace(project, ws)()
+
+	failed, ok := msg.(messages.WorkspaceDeleteFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if failed.Err == nil || !strings.Contains(failed.Err.Error(), "marker write failed") {
+		t.Fatalf("expected remove failure to be preserved, got %v", failed.Err)
+	}
+	if _, err := os.Stat(workspacePath); err != nil {
+		t.Fatalf("expected workspace path to remain for retry recovery, err=%v", err)
+	}
+}
+
+func TestDeleteWorkspaceDoesNotDeleteMetadataOnSignalKilledRemoveFailure(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	metadataRoot := filepath.Join(tmp, "workspaces-metadata")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspacePath, ".git"), []byte("gitdir: /tmp/admin\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.git) error = %v", err)
+	}
+
+	store := data.NewWorkspaceStore(metadataRoot)
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("store.Save() error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			return errors.New("signal: killed")
+		},
+	}
+
+	svc := newWorkspaceService(nil, store, nil, workspacesRoot)
+	svc.gitOps = mock
+	msg := svc.DeleteWorkspace(project, ws)()
+
+	failed, ok := msg.(messages.WorkspaceDeleteFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if failed.Err == nil || !strings.Contains(failed.Err.Error(), "signal: killed") {
+		t.Fatalf("expected signal-killed remove failure to be preserved, got %v", failed.Err)
+	}
+	if strings.Contains(failed.Err.Error(), "workspace still has git metadata") {
+		t.Fatalf("expected stale cleanup to be skipped for signal-killed failure, got %v", failed.Err)
+	}
+	if _, err := os.Stat(workspacePath); err != nil {
+		t.Fatalf("expected workspace path to remain for retry recovery, err=%v", err)
+	}
+	if _, err := store.Load(ws.ID()); err != nil {
+		t.Fatalf("expected workspace metadata to remain after failed delete, err=%v", err)
+	}
+}
+
+func TestDeleteWorkspaceFailsWhenRemoveWorkspaceAlreadyMovedPathAside(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, gotWorkspacePath string) error {
+			if gotWorkspacePath != workspacePath {
+				t.Fatalf("workspace path = %q, want %q", gotWorkspacePath, workspacePath)
+			}
+			if err := os.RemoveAll(gotWorkspacePath); err != nil {
+				t.Fatalf("RemoveAll(workspacePath) error = %v", err)
+			}
+			return errors.New("cleanup pending")
+		},
+	}
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	msg := svc.DeleteWorkspace(project, ws)()
+
+	failed, ok := msg.(messages.WorkspaceDeleteFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if failed.Err == nil || !strings.Contains(failed.Err.Error(), "cleanup pending") {
+		t.Fatalf("expected staged-cleanup failure to be preserved, got %v", failed.Err)
 	}
 }
 
