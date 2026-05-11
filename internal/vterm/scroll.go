@@ -36,12 +36,7 @@ func (v *VTerm) scrollUp(n int) {
 				v.invalidateAltScreenCapture()
 			}
 		}
-		if added > 0 && v.ViewOffset > 0 {
-			v.ViewOffset += added
-			if v.ViewOffset > len(v.Scrollback) {
-				v.ViewOffset = len(v.Scrollback)
-			}
-		}
+		v.anchorViewOffsetForAddedLines(added)
 		v.trimScrollback()
 	}
 

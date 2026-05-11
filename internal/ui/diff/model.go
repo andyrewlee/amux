@@ -159,9 +159,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.scrollUp(1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("pgdown", "ctrl+d"))):
-			m.scrollDown(m.visibleHeight() / 2)
+			m.scrollDown(common.ScrollDeltaForHeight(m.visibleHeight(), 2))
 		case key.Matches(msg, key.NewBinding(key.WithKeys("pgup", "ctrl+u"))):
-			m.scrollUp(m.visibleHeight() / 2)
+			m.scrollUp(common.ScrollDeltaForHeight(m.visibleHeight(), 2))
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g", "home"))):
 			m.scroll = 0
 		case key.Matches(msg, key.NewBinding(key.WithKeys("G", "end"))):

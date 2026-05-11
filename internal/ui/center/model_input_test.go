@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 func TestUpdatePasteWithoutAttachedTerminalDoesNotTagActivity(t *testing.T) {
@@ -105,5 +106,70 @@ func TestUpdateQueuedKeyInputDoesNotStampLocalInputWindow(t *testing.T) {
 	}
 	if !tab.lastPromptInputAt.IsZero() {
 		t.Fatal("expected queued key input not to stamp prompt-input window before PTY write")
+	}
+}
+
+func TestUpdateKeyPgUpScrollsOneLineOnShortTerminal(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(80, 3)
+	for i := 0; i < 10; i++ {
+		term.Write([]byte("line\n"))
+	}
+	tab := &Tab{
+		ID:        TabID("tab-short-page-scroll"),
+		Assistant: "claude",
+		Workspace: ws,
+		Terminal:  term,
+		Agent:     &appPty.Agent{Terminal: &appPty.Terminal{}},
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+	m.focused = true
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+
+	tab.mu.Lock()
+	offset, _ := tab.Terminal.GetScrollInfo()
+	tab.mu.Unlock()
+	if offset != 1 {
+		t.Fatalf("expected PgUp on a short terminal to scroll by 1 line, got %d", offset)
+	}
+}
+
+func TestTabActorScrollPageScrollsOneLineOnShortTerminal(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(80, 3)
+	for i := 0; i < 10; i++ {
+		term.Write([]byte("line\n"))
+	}
+	tab := &Tab{
+		ID:        TabID("tab-short-page-scroll-actor"),
+		Assistant: "claude",
+		Workspace: ws,
+		Terminal:  term,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+	m.focused = true
+
+	m.handleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: wsID,
+		tabID:       tab.ID,
+		kind:        tabEventScrollPage,
+		scrollPage:  1,
+	})
+
+	tab.mu.Lock()
+	offset, _ := tab.Terminal.GetScrollInfo()
+	tab.mu.Unlock()
+	if offset != 1 {
+		t.Fatalf("expected actor page scroll on a short terminal to scroll by 1 line, got %d", offset)
 	}
 }

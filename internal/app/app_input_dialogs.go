@@ -56,7 +56,7 @@ func handleOverlayInput[T interface {
 		*cmds = append(*cmds, cmd)
 	}
 	switch msg.(type) {
-	case tea.KeyPressMsg, tea.MouseClickMsg:
+	case tea.KeyPressMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		return updated, true
 	case tea.PasteMsg:
 		return updated, consumePaste

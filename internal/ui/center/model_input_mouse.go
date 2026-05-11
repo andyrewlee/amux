@@ -63,7 +63,11 @@ func (m *Model) updateMouseClick(msg tea.MouseClickMsg) (*Model, tea.Cmd) {
 	tab.Selection = common.SelectionState{}
 	tab.selectionScroll.Reset()
 	if inBounds && tab.Terminal != nil {
-		absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
+		absLine, ok := m.displayedScreenYToAbsoluteLineLocked(tab, termY)
+		if !ok {
+			tab.mu.Unlock()
+			return m, common.SafeBatch(cmds...)
+		}
 		tab.Selection = common.SelectionState{
 			Active:    true,
 			StartX:    termX,
@@ -127,13 +131,13 @@ func (m *Model) updateMouseMotion(msg tea.MouseMotionMsg) (*Model, tea.Cmd) {
 		tab.selectionScroll.SetDirection(termY, termHeight)
 
 		if termY < 0 {
-			tab.Terminal.ScrollView(1)
+			m.scrollTerminalViewLocked(tab, 1)
 			termY = 0
 		} else if termY >= termHeight {
-			tab.Terminal.ScrollView(-1)
+			m.scrollTerminalViewLocked(tab, -1)
 			termY = termHeight - 1
 		}
-		absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
+		absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, termY)
 		startX := tab.Terminal.SelStartX()
 		startLine := tab.Terminal.SelStartLine()
 		if !tab.Terminal.HasSelection() {
@@ -260,9 +264,9 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 		tab.mu.Lock()
 		if tab.Terminal != nil {
 			if msg.Button == tea.MouseWheelUp {
-				tab.Terminal.ScrollView(delta)
+				m.scrollTerminalViewLocked(tab, delta)
 			} else if msg.Button == tea.MouseWheelDown {
-				tab.Terminal.ScrollView(-delta)
+				m.scrollTerminalViewLocked(tab, -delta)
 			}
 		}
 		tab.mu.Unlock()
@@ -333,14 +337,14 @@ func (m *Model) updateSelectionScrollTick(msg selectionScrollTick) tea.Cmd {
 		tab.mu.Unlock()
 		return nil
 	}
-	tab.Terminal.ScrollView(tab.selectionScroll.ScrollDir)
+	m.scrollTerminalViewLocked(tab, tab.selectionScroll.ScrollDir)
 
 	// Update selection endpoint to viewport edge
 	edgeY := 0
 	if tab.selectionScroll.ScrollDir < 0 {
 		edgeY = tab.Terminal.Height - 1
 	}
-	absLine := tab.Terminal.ScreenYToAbsoluteLine(edgeY)
+	absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, edgeY)
 	endX := tab.selectionLastTermX
 	startX := tab.Terminal.SelStartX()
 	startLine := tab.Terminal.SelStartLine()

@@ -54,15 +54,16 @@ func (v *VTerm) Search(query string) []int {
 
 // ScrollToLine scrolls view to show the given line index (in combined buffer)
 func (v *VTerm) ScrollToLine(lineIdx int) {
-	totalLines := len(v.Scrollback) + len(v.Screen)
+	screen, scrollbackLen := v.RenderBuffers()
+	totalLines := scrollbackLen + len(screen)
 
 	// Calculate ViewOffset to center this line
 	targetOffset := totalLines - lineIdx - v.Height/2
 	if targetOffset < 0 {
 		targetOffset = 0
 	}
-	if targetOffset > len(v.Scrollback) {
-		targetOffset = len(v.Scrollback)
+	if targetOffset > scrollbackLen {
+		targetOffset = scrollbackLen
 	}
 
 	v.ViewOffset = targetOffset

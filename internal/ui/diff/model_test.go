@@ -3,6 +3,8 @@ package diff
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 )
@@ -145,5 +147,20 @@ func TestDiffLoaded_IgnoresStaleLoadCompletion(t *testing.T) {
 	}
 	if updated.diff != currentDiff {
 		t.Fatalf("expected current diff to win, got %+v", updated.diff)
+	}
+}
+
+func TestPageScrollUsesMinimumOneLine(t *testing.T) {
+	m := newModelWithDiff(4, 10, nil)
+	m.focused = true
+
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if m.scroll != 1 {
+		t.Fatalf("expected PgDown on a short diff to scroll by 1 line, got %d", m.scroll)
+	}
+
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+	if m.scroll != 0 {
+		t.Fatalf("expected PgUp on a short diff to scroll back to 0, got %d", m.scroll)
 	}
 }

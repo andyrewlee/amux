@@ -336,6 +336,7 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	}
 
 	if isChat {
+		applyScrolledChatHistoryViewLocked(tab.Terminal, snap)
 		liveCursorX, liveCursorY := snap.CursorX, snap.CursorY
 		appOwnsCursor := showCursor &&
 			!tab.Terminal.AltScreen &&
