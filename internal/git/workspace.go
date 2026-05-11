@@ -2,21 +2,36 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 )
 
-const worktreeTimeout = 30 * time.Second
+var (
+	worktreeTimeout         = 30 * time.Second
+	worktreeRecoveryReserve = 5 * time.Second
+	runGitCtx               = RunGitCtx
+	unregisterWorktreeCtx   = unregisterWorktreeAdminDirWithContext
+	removeWorkspacePathCtx  = removeWorkspacePathWithContext
+	removeWorkspacePathGOOS = runtime.GOOS
+	removeRetryMetadataPath = os.RemoveAll
+	writeRetryMarkerFile    = writeRetryMarkerFileAtomically
+)
 
-var runGitCtx = RunGitCtx
+const prunedWorkspaceCleanupMarkerSuffix = ".amux-pruned-worktree"
 
 // CreateWorkspace creates a new workspace backed by a git worktree
 func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
+	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
+		return err
+	}
+
 	// Create branch from base and checkout into workspace path
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	_, err := runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, workspacePath, base)
@@ -41,6 +56,53 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 			firstErrMsg,
 			retryErr,
 		)
+	}
+	return nil
+}
+
+func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {
+	if retryMetadata, marked, err := readWorkspaceCleanupRetryMetadata(workspacePath); err != nil {
+		return err
+	} else if marked {
+		if err := rejectReusedWorkspacePathForRetryMetadataCleanup(workspacePath, retryMetadata); err != nil {
+			return fmt.Errorf("workspace path %s has pending cleanup: %w", workspacePath, err)
+		}
+		cleanupRepoPath := repoPath
+		if retryMetadata.RepoPath != "" {
+			cleanupRepoPath = retryMetadata.RepoPath
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+		defer cancel()
+		if err := persistAndResumeWorkspaceCleanup(
+			ctx,
+			cleanupRepoPath,
+			workspacePath,
+			retryMetadata.NeedsUnregister,
+		); err != nil {
+			return fmt.Errorf("workspace path %s has pending cleanup: %w", workspacePath, err)
+		}
+	}
+
+	state, marked, err := readWorkspaceCleanupState(workspacePath)
+	if err != nil {
+		return err
+	}
+	if !marked {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	if err := rejectReusedWorkspacePathDuringCleanup(workspacePath, state); err != nil {
+		return err
+	}
+	if err := resumeWorkspaceCleanup(ctx, repoPath, workspacePath, state); err != nil {
+		return fmt.Errorf("workspace path %s has pending cleanup: %w", workspacePath, err)
+	}
+
+	if marked, err := hasPendingWorkspaceCleanup(workspacePath); err != nil {
+		return err
+	} else if marked {
+		return fmt.Errorf("workspace path %s has pending cleanup", workspacePath)
 	}
 	return nil
 }
@@ -71,19 +133,63 @@ func isBranchAlreadyExistsError(err error, branch string) bool {
 
 // RemoveWorkspace removes a workspace backed by a git worktree
 func RemoveWorkspace(repoPath, workspacePath string) error {
-	if !isRegisteredWorktree(repoPath, workspacePath) {
-		gitFile := filepath.Join(workspacePath, ".git")
-		if _, statErr := os.Stat(gitFile); statErr == nil {
-			return fmt.Errorf("workspace %s has a .git file but is not a registered worktree", workspacePath)
-		}
-		// Already removed externally — idempotent success.
-		return nil
+	state, marked, err := readWorkspaceCleanupState(workspacePath)
+	if err != nil {
+		return err
+	}
+	if marked {
+		ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+		defer cancel()
+		return resumeWorkspaceCleanup(ctx, repoPath, workspacePath, state)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	regCtx, regCancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	registered, regErr := isRegisteredWorktreeCtx(regCtx, repoPath, workspacePath)
+	regCancel()
+	if regErr == nil && !registered {
+		return cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath)
+	}
+	if regErr != nil {
+		if _, statErr := os.Stat(workspacePath); os.IsNotExist(statErr) {
+			return nil
+		} else if statErr != nil {
+			return statErr
+		}
+		gitFile := filepath.Join(workspacePath, ".git")
+		if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
+			if _, marked, retryErr := readWorkspaceCleanupRetryMetadata(workspacePath); retryErr != nil {
+				return retryErr
+			} else if marked {
+				return cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath)
+			}
+			if isLegacyManagedWorkspacePathForRepo(repoPath, workspacePath) {
+				recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
+				defer recoveryCancel()
+				if removeErr := persistAndResumeWorkspaceCleanup(recoveryCtx, repoPath, workspacePath, true); removeErr != nil {
+					return errors.Join(regErr, removeErr)
+				}
+				return nil
+			}
+			return cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath)
+		} else if statErr != nil {
+			return statErr
+		}
+		return regErr
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveCommandTimeout())
 	defer cancel()
-	_, err := runGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
+	_, err = runGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
 	if err != nil {
+		if isGitContextError(err) {
+			recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
+			defer recoveryCancel()
+			if removeErr := persistAndResumeWorkspaceCleanup(recoveryCtx, repoPath, workspacePath, true); removeErr != nil {
+				return errors.Join(err, removeErr)
+			}
+			return nil
+		}
+
 		// git worktree remove --force unregisters the workspace (removes .git file)
 		// but fails to delete the directory if it contains untracked files.
 		// If the .git file is gone, the workspace was successfully unregistered
@@ -93,51 +199,175 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 			if !isSafeWorkspaceCleanupPath(workspacePath) {
 				return fmt.Errorf("refusing to remove unsafe path: %s", workspacePath)
 			}
-			// Workspace was unregistered, clean up leftover directory
-			if removeErr := os.RemoveAll(workspacePath); removeErr != nil {
-				return removeErr
-			}
-			return nil
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), worktreeTimeout)
+			defer cleanupCancel()
+			return persistAndResumeWorkspaceCleanup(cleanupCtx, repoPath, workspacePath, false)
 		}
 		return err
 	}
 	return nil
 }
 
-func isRegisteredWorktree(repoPath, workspacePath string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
-	defer cancel()
-	output, _ := runGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
-	// Resolve the workspace path to handle symlinks (e.g. macOS /var -> /private/var).
-	normalized := workspacePath
-	if resolved, err := filepath.EvalSymlinks(filepath.Dir(workspacePath)); err == nil {
-		normalized = filepath.Join(resolved, filepath.Base(workspacePath))
+func rejectReusedWorkspacePathDuringCleanup(workspacePath string, state workspaceCleanupState) error {
+	if state.CleanupPath == "" && !state.LegacyAmbiguous {
+		return nil
 	}
-	for _, line := range strings.Split(output, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "worktree ") {
-			wtPath := strings.TrimPrefix(trimmed, "worktree ")
-			if wtPath == workspacePath || wtPath == normalized {
-				return true
-			}
+	if _, statErr := os.Stat(workspacePath); statErr == nil {
+		if state.LegacyAmbiguous {
+			return fmt.Errorf("workspace path %s has a legacy pending cleanup marker and requires manual cleanup", workspacePath)
 		}
+		return fmt.Errorf("workspace path %s exists while pending cleanup remains at %s", workspacePath, state.CleanupPath)
+	} else if !os.IsNotExist(statErr) {
+		return statErr
 	}
-	return false
+	return nil
 }
 
-func isSafeWorkspaceCleanupPath(path string) bool {
-	if path == "" {
-		return false
+func validateUnregisteredWorkspacePath(workspacePath string) error {
+	gitFile := filepath.Join(workspacePath, ".git")
+	if _, statErr := os.Stat(gitFile); statErr == nil {
+		return fmt.Errorf("workspace %s has a .git file but is not a registered worktree", workspacePath)
+	} else if !os.IsNotExist(statErr) {
+		return statErr
 	}
-	cleaned := filepath.Clean(path)
-	if cleaned == "/" || cleaned == "." {
-		return false
+	if _, statErr := os.Stat(workspacePath); os.IsNotExist(statErr) {
+		return nil
+	} else if statErr != nil {
+		return statErr
 	}
-	home, err := os.UserHomeDir()
-	if err == nil && cleaned == filepath.Clean(home) {
-		return false
+	return newUnregisteredWorkspacePathError(workspacePath)
+}
+
+func resumeWorkspaceCleanup(
+	ctx context.Context,
+	repoPath, workspacePath string,
+	state workspaceCleanupState,
+) error {
+	current := state
+	recoverableLiveWorkspace := false
+	unregisterSatisfied := !current.NeedsUnregister
+	if current.LegacyAmbiguous {
+		if _, statErr := os.Stat(workspacePath); statErr == nil {
+			return fmt.Errorf("workspace path %s has a legacy pending cleanup marker and requires manual cleanup", workspacePath)
+		} else if !os.IsNotExist(statErr) {
+			return statErr
+		}
+		return clearPrunedWorkspaceRetryMarker(workspacePath)
 	}
-	return true
+	if current.CleanupPath != "" {
+		if _, statErr := os.Stat(current.CleanupPath); statErr == nil {
+			if _, workspaceErr := os.Stat(workspacePath); workspaceErr == nil {
+				return fmt.Errorf("workspace path %s exists while pending cleanup remains at %s", workspacePath, current.CleanupPath)
+			} else if !os.IsNotExist(workspaceErr) {
+				return workspaceErr
+			}
+		} else if os.IsNotExist(statErr) {
+			if _, workspaceErr := os.Stat(workspacePath); workspaceErr == nil {
+				canRecover, err := canRecoverPendingCleanupWorkspace(ctx, workspacePath, current)
+				if err != nil {
+					return err
+				}
+				if !canRecover {
+					return fmt.Errorf("workspace path %s exists while pending cleanup remains at %s", workspacePath, current.CleanupPath)
+				}
+				recoverableLiveWorkspace = true
+			} else if !os.IsNotExist(workspaceErr) {
+				return workspaceErr
+			}
+		} else {
+			return statErr
+		}
+	}
+	if current.NeedsUnregister {
+		if current.CleanupPath == "" {
+			if _, statErr := os.Stat(workspacePath); statErr == nil {
+				return fmt.Errorf("workspace path %s exists while pending cleanup remains", workspacePath)
+			} else if !os.IsNotExist(statErr) {
+				return statErr
+			}
+		}
+		unregisterRepoPath, err := repoPathForWorkspaceCleanupUnregister(ctx, repoPath, workspacePath, current)
+		if err != nil {
+			return err
+		}
+		if unregisterRepoPath != "" {
+			current.RepoPath = unregisterRepoPath
+		}
+		if err := unregisterWorktreeCtx(ctx, unregisterRepoPath, workspacePath); err != nil {
+			if !canSkipUnregisterRetry(unregisterRepoPath, err) {
+				return err
+			}
+		} else {
+			unregisterSatisfied = true
+		}
+	}
+
+	if current.CleanupPath == "" {
+		if !unregisterSatisfied {
+			current.NeedsUnregister = true
+			return writePendingWorkspaceCleanupState(workspacePath, current)
+		}
+		current.NeedsUnregister = false
+		return clearPrunedWorkspaceRetryMarker(workspacePath)
+	}
+	if !isReservedWorkspaceCleanupPath(workspacePath, current.CleanupPath) {
+		return fmt.Errorf("refusing unexpected pruned workspace cleanup path for %s: %s", workspacePath, current.CleanupPath)
+	}
+	if !isSafeWorkspaceCleanupPath(current.CleanupPath) {
+		return fmt.Errorf("refusing to remove unsafe pruned workspace cleanup path: %s", current.CleanupPath)
+	}
+	if _, statErr := os.Stat(current.CleanupPath); os.IsNotExist(statErr) {
+		if _, workspaceErr := os.Stat(workspacePath); workspaceErr == nil {
+			if recoverableLiveWorkspace {
+				if err := stageWorkspacePathForCleanupAtPath(workspacePath, current.CleanupPath); err != nil {
+					return err
+				}
+			} else {
+				return fmt.Errorf("workspace path %s exists while pending cleanup remains at %s", workspacePath, current.CleanupPath)
+			}
+		} else if !os.IsNotExist(workspaceErr) {
+			return workspaceErr
+		}
+	}
+	if _, statErr := os.Stat(current.CleanupPath); os.IsNotExist(statErr) {
+		if _, workspaceErr := os.Stat(workspacePath); workspaceErr == nil {
+			return fmt.Errorf("workspace path %s exists while pending cleanup remains at %s", workspacePath, current.CleanupPath)
+		}
+		current.CleanupPath = ""
+		current.NeedsUnregister = !unregisterSatisfied
+		if current.NeedsUnregister {
+			return writePendingWorkspaceCleanupState(workspacePath, current)
+		}
+		return writeWorkspaceCleanupState(workspacePath, current)
+	} else if statErr != nil {
+		return statErr
+	}
+	if err := removeWorkspacePathCtx(ctx, current.CleanupPath); err != nil {
+		return err
+	}
+	current.CleanupPath = ""
+	current.NeedsUnregister = false
+	if !unregisterSatisfied {
+		current.NeedsUnregister = true
+		return writePendingWorkspaceCleanupState(workspacePath, current)
+	}
+	return writeWorkspaceCleanupState(workspacePath, current)
+}
+
+func workspaceGitRefFingerprint(workspacePath string) (gitRef string, modTimeUnixNano int64, ok bool, err error) {
+	gitFile := filepath.Join(workspacePath, ".git")
+	info, statErr := os.Stat(gitFile)
+	if os.IsNotExist(statErr) {
+		return "", 0, false, nil
+	}
+	if statErr != nil {
+		return "", 0, false, statErr
+	}
+	content, readErr := os.ReadFile(gitFile)
+	if readErr != nil {
+		return "", 0, false, readErr
+	}
+	return strings.TrimSpace(string(content)), info.ModTime().UnixNano(), true, nil
 }
 
 // DeleteBranch deletes a git branch

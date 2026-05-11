@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 )
 
+const WorkspacesRootEnvVar = "AMUX_WORKSPACES_ROOT"
+
 // Paths holds all the file system paths used by the application
 type Paths struct {
 	Home           string // ~/.amux

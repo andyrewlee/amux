@@ -156,7 +156,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		// Wait for .git file to exist (race condition from workspace creation)
 		gitPath := filepath.Join(workspacePath, ".git")
 		if err := waitForGitPath(gitPath, s.gitPathWaitTimeout); err != nil {
-			rollbackWorkspaceCreation(s.gitOps, project.Path, workspacePath, branch)
+			rollbackWorkspaceCreation(s.gitOps, s.workspacesRoot, project, project.Path, workspacePath, branch)
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -166,7 +166,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		// Save unified workspace
 		if s.store != nil {
 			if err := s.store.Save(ws); err != nil {
-				rollbackWorkspaceCreation(s.gitOps, project.Path, workspacePath, branch)
+				rollbackWorkspaceCreation(s.gitOps, s.workspacesRoot, project, project.Path, workspacePath, branch)
 				return messages.WorkspaceCreateFailed{
 					Workspace: ws,
 					Err:       err,
@@ -275,6 +275,17 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 		}
 
 		if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
+			if !git.IsUnregisteredWorkspacePathError(err) {
+				return fail("remove_worktree", err)
+			}
+			if _, statErr := os.Stat(ws.Root); os.IsNotExist(statErr) {
+				return fail("remove_worktree", err)
+			} else if statErr != nil {
+				return fail("remove_worktree", errors.Join(err, statErr))
+			}
+			if !isManagedWorkspaceChildPathForProject(s.workspacesRoot, project, ws.Root) {
+				return fail("remove_worktree", err)
+			}
 			if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
 				return fail("remove_worktree", errors.Join(err, cleanupErr))
 			}

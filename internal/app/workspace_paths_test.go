@@ -123,3 +123,50 @@ func TestIsManagedWorkspacePathForProject(t *testing.T) {
 		})
 	}
 }
+
+func TestIsManagedWorkspaceChildPathForProject(t *testing.T) {
+	tests := []struct {
+		name           string
+		workspacesRoot string
+		project        *data.Project
+		path           string
+		want           bool
+	}{
+		{
+			name:           "child workspace path",
+			workspacesRoot: "/tmp/workspaces",
+			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
+			path:           "/tmp/workspaces/repo/feature",
+			want:           true,
+		},
+		{
+			name:           "project managed root itself",
+			workspacesRoot: "/tmp/workspaces",
+			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
+			path:           "/tmp/workspaces/repo",
+			want:           false,
+		},
+		{
+			name:           "legacy root disabled for destructive cleanup",
+			workspacesRoot: "",
+			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
+			path:           "/tmp/workspaces/repo/feature",
+			want:           false,
+		},
+		{
+			name:           "path outside root",
+			workspacesRoot: "/tmp/workspaces",
+			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
+			path:           "/tmp/other/repo/feature",
+			want:           false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isManagedWorkspaceChildPathForProject(tt.workspacesRoot, tt.project, tt.path)
+			if got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

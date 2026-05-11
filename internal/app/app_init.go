@@ -272,11 +272,13 @@ func applyTmuxEnvFromConfig(cfg *config.Config, force bool) {
 		return
 	}
 	if force {
+		setEnvOrUnset(config.WorkspacesRootEnvVar, cfg.Paths.WorkspacesRoot)
 		setEnvOrUnset("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
 		setEnvOrUnset("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
 		setEnvOrUnset("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
 		return
 	}
+	setEnvIfNonEmpty(config.WorkspacesRootEnvVar, cfg.Paths.WorkspacesRoot)
 	setEnvIfNonEmpty("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
 	setEnvIfNonEmpty("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
 	setEnvIfNonEmpty("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)

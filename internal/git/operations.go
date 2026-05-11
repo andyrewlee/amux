@@ -7,11 +7,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
 const defaultGitTimeout = 5 * time.Second
+
+var runGitCommandAfterWaitHook func()
 
 // RunGit executes a git command in the specified directory.
 func RunGit(dir string, args ...string) (string, error) {
@@ -23,7 +27,7 @@ func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) 
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = filteredGitEnv()
 
@@ -31,10 +35,10 @@ func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	killedByContext, err := runGitCommand(ctx, cmd)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		if ctxErr := gitCommandContextErrorWithKill(ctx, err, args, killedByContext); ctxErr != nil {
+			return "", ctxErr
 		}
 		// Include stderr in error for debugging
 		if stderr.Len() > 0 {
@@ -98,7 +102,7 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = filteredGitEnv()
 
@@ -106,10 +110,10 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run() // Ignore exit code - some commands return 1 on success
+	killedByContext, err := runGitCommand(ctx, cmd) // Ignore exit code - some commands return 1 on success
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		if ctxErr := gitAllowFailureCommandContextErrorWithKill(ctx, err, args, stdout.Len(), killedByContext); ctxErr != nil {
+			return "", ctxErr
 		}
 	}
 
@@ -138,7 +142,7 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = filteredGitEnv()
 
@@ -146,10 +150,10 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	killedByContext, err := runGitCommand(ctx, cmd)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		if ctxErr := gitCommandContextErrorWithKill(ctx, err, args, killedByContext); ctxErr != nil {
+			return nil, ctxErr
 		}
 		if stderr.Len() > 0 {
 			return nil, &GitError{
@@ -162,6 +166,146 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 	}
 
 	return stdout.Bytes(), nil
+}
+
+func gitCommandContextError(ctx context.Context, runErr error, args []string) error {
+	return gitCommandContextErrorWithKillForGOOS(ctx, runtime.GOOS, runErr, args, false)
+}
+
+func gitCommandContextErrorWithKill(ctx context.Context, runErr error, args []string, killedByContext bool) error {
+	return gitCommandContextErrorWithKillForGOOS(ctx, runtime.GOOS, runErr, args, killedByContext)
+}
+
+func gitAllowFailureCommandContextErrorWithKill(
+	ctx context.Context,
+	runErr error,
+	args []string,
+	stdoutLen int,
+	killedByContext bool,
+) error {
+	return gitAllowFailureCommandContextErrorWithKillForGOOS(
+		ctx,
+		runtime.GOOS,
+		runErr,
+		args,
+		stdoutLen,
+		killedByContext,
+	)
+}
+
+func gitAllowFailureCommandContextErrorForGOOS(
+	ctx context.Context,
+	goos string,
+	runErr error,
+	args []string,
+	stdoutLen int,
+) error {
+	return gitAllowFailureCommandContextErrorWithKillForGOOS(ctx, goos, runErr, args, stdoutLen, false)
+}
+
+func gitAllowFailureCommandContextErrorWithKillForGOOS(
+	ctx context.Context,
+	goos string,
+	runErr error,
+	args []string,
+	stdoutLen int,
+	killedByContext bool,
+) error {
+	if stdoutLen > 0 && isAmbiguousWindowsAllowFailureCanceledExit(ctx, goos, runErr, killedByContext) {
+		return nil
+	}
+	return gitCommandContextErrorWithKillForGOOS(ctx, goos, runErr, args, killedByContext)
+}
+
+func gitCommandContextErrorForGOOS(ctx context.Context, goos string, runErr error, args []string) error {
+	return gitCommandContextErrorWithKillForGOOS(ctx, goos, runErr, args, false)
+}
+
+func gitCommandContextErrorWithKillForGOOS(
+	ctx context.Context,
+	goos string,
+	runErr error,
+	args []string,
+	killedByContext bool,
+) error {
+	if ctx == nil || runErr == nil {
+		return nil
+	}
+	if errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runErr, context.Canceled) {
+		return fmt.Errorf("git %s: %w", strings.Join(args, " "), runErr)
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(runErr, &exitErr) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+		if killedByContext || isCommandContextTerminationExitCodeForGOOS(goos, exitErr.ExitCode()) {
+			return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		}
+	}
+	return nil
+}
+
+func isCommandContextTerminationExitCode(exitCode int) bool {
+	return isCommandContextTerminationExitCodeForGOOS(runtime.GOOS, exitCode)
+}
+
+func isCommandContextTerminationExitCodeForGOOS(_ string, exitCode int) bool {
+	return exitCode == -1
+}
+
+func isAmbiguousWindowsAllowFailureCanceledExit(
+	ctx context.Context,
+	goos string,
+	runErr error,
+	killedByContext bool,
+) bool {
+	if goos != "windows" || ctx == nil || runErr == nil {
+		return false
+	}
+	if err := ctx.Err(); err == nil || !errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var exitErr *exec.ExitError
+	return !killedByContext && errors.As(runErr, &exitErr) && exitErr.ExitCode() == 1
+}
+
+func runGitCommand(ctx context.Context, cmd *exec.Cmd) (bool, error) {
+	if ctx == nil {
+		return false, cmd.Run()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if err := cmd.Start(); err != nil {
+		return false, err
+	}
+	var killedByContext atomic.Bool
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+	}()
+	select {
+	case err := <-waitCh:
+		if runGitCommandAfterWaitHook != nil {
+			runGitCommandAfterWaitHook()
+		}
+		return killedByContext.Load(), err
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			if err := cmd.Process.Kill(); err == nil {
+				killedByContext.Store(true)
+			}
+		}
+		err := <-waitCh
+		if runGitCommandAfterWaitHook != nil {
+			runGitCommandAfterWaitHook()
+		}
+		if err == nil && killedByContext.Load() {
+			return true, ctx.Err()
+		}
+		return killedByContext.Load(), err
+	}
 }
 
 func ensureGitTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

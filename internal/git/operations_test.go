@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -228,5 +230,266 @@ func TestRunGitCtxTimeoutError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "git status") {
 		t.Fatalf("expected error to include command context, got %v", err)
+	}
+}
+
+func TestRunGitCtxTimeoutErrorFromKilledProcess(t *testing.T) {
+	skipIfNoGit(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("shell sleep alias is unix-specific")
+	}
+
+	repo := initRepo(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := RunGitCtx(ctx, repo, "-c", "alias.sleep=!sleep 1", "sleep")
+	if err == nil {
+		t.Fatalf("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "git -c alias.sleep=!sleep 1 sleep") {
+		t.Fatalf("expected error to include command context, got %v", err)
+	}
+}
+
+func TestGitCommandContextErrorDoesNotMaskExitErrorAfterLateCancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell exit status command is unix-specific")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.Command("sh", "-c", "exit 1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected exit error")
+	}
+
+	cancel()
+
+	if ctxErr := gitCommandContextError(ctx, err, []string{"status"}); ctxErr != nil {
+		t.Fatalf("expected late cancellation to preserve original exit error, got %v", ctxErr)
+	}
+}
+
+func TestGitAllowFailureCommandContextErrorForWindowsPreservesOutputExitOne(t *testing.T) {
+	skipIfNoGit(t)
+
+	tmp := t.TempDir()
+	left := filepath.Join(tmp, "left.txt")
+	right := filepath.Join(tmp, "right.txt")
+	if err := os.WriteFile(left, []byte("left\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(left) error = %v", err)
+	}
+	if err := os.WriteFile(right, []byte("right\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(right) error = %v", err)
+	}
+
+	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", left, right)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected diff exit error")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if ctxErr := gitAllowFailureCommandContextErrorForGOOS(
+		ctx,
+		"windows",
+		err,
+		[]string{"diff", "--no-index", "--no-color", "--", left, right},
+		1,
+	); ctxErr != nil {
+		t.Fatalf("expected allow-failure output to suppress ambiguous windows timeout mapping, got %v", ctxErr)
+	}
+}
+
+func TestGitAllowFailureCommandContextErrorForWindowsWithoutKillDoesNotMapTimeout(t *testing.T) {
+	skipIfNoGit(t)
+
+	tmp := t.TempDir()
+	left := filepath.Join(tmp, "left.txt")
+	right := filepath.Join(tmp, "right.txt")
+	if err := os.WriteFile(left, []byte("left\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(left) error = %v", err)
+	}
+	if err := os.WriteFile(right, []byte("right\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(right) error = %v", err)
+	}
+
+	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", left, right)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected diff exit error")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ctxErr := gitAllowFailureCommandContextErrorForGOOS(
+		ctx,
+		"windows",
+		err,
+		[]string{"diff", "--no-index", "--no-color", "--", left, right},
+		0,
+	)
+	if ctxErr != nil {
+		t.Fatalf("expected ordinary exit error to remain unmapped without kill evidence, got %v", ctxErr)
+	}
+}
+
+func TestGitAllowFailureCommandContextErrorForWindowsMapsTimeoutWhenKilled(t *testing.T) {
+	skipIfNoGit(t)
+
+	tmp := t.TempDir()
+	left := filepath.Join(tmp, "left.txt")
+	right := filepath.Join(tmp, "right.txt")
+	if err := os.WriteFile(left, []byte("left\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(left) error = %v", err)
+	}
+	if err := os.WriteFile(right, []byte("right\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(right) error = %v", err)
+	}
+
+	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", left, right)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected diff exit error")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(2 * time.Millisecond)
+
+	ctxErr := gitAllowFailureCommandContextErrorWithKillForGOOS(
+		ctx,
+		"windows",
+		err,
+		[]string{"diff", "--no-index", "--no-color", "--", left, right},
+		1,
+		true,
+	)
+	if !errors.Is(ctxErr, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded context error, got %v", ctxErr)
+	}
+}
+
+func TestGitAllowFailureCommandContextErrorForWindowsDoesNotMapLateDeadlineWithoutKillWhenOutputCaptured(t *testing.T) {
+	skipIfNoGit(t)
+
+	tmp := t.TempDir()
+	left := filepath.Join(tmp, "left.txt")
+	right := filepath.Join(tmp, "right.txt")
+	if err := os.WriteFile(left, []byte("left\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(left) error = %v", err)
+	}
+	if err := os.WriteFile(right, []byte("right\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(right) error = %v", err)
+	}
+
+	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", left, right)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected diff exit error")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(2 * time.Millisecond)
+
+	ctxErr := gitAllowFailureCommandContextErrorWithKillForGOOS(
+		ctx,
+		"windows",
+		err,
+		[]string{"diff", "--no-index", "--no-color", "--", left, right},
+		1,
+		false,
+	)
+	if ctxErr != nil {
+		t.Fatalf("expected ordinary exit error to remain unmapped without kill evidence, got %v", ctxErr)
+	}
+}
+
+func TestGitCommandContextErrorForWindowsWithoutKillDoesNotMapTimeout(t *testing.T) {
+	skipIfNoGit(t)
+
+	tmp := t.TempDir()
+	left := filepath.Join(tmp, "left.txt")
+	right := filepath.Join(tmp, "right.txt")
+	if err := os.WriteFile(left, []byte("left\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(left) error = %v", err)
+	}
+	if err := os.WriteFile(right, []byte("right\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(right) error = %v", err)
+	}
+
+	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", left, right)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected diff exit error")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(2 * time.Millisecond)
+
+	ctxErr := gitCommandContextErrorForGOOS(
+		ctx,
+		"windows",
+		err,
+		[]string{"diff", "--no-index", "--no-color", "--", left, right},
+	)
+	if ctxErr != nil {
+		t.Fatalf("expected ordinary exit error to remain unmapped without kill evidence, got %v", ctxErr)
+	}
+}
+
+func TestGitCommandContextErrorForWindowsMapsKilledExitOne(t *testing.T) {
+	skipIfNoGit(t)
+
+	tmp := t.TempDir()
+	left := filepath.Join(tmp, "left.txt")
+	right := filepath.Join(tmp, "right.txt")
+	if err := os.WriteFile(left, []byte("left\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(left) error = %v", err)
+	}
+	if err := os.WriteFile(right, []byte("right\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(right) error = %v", err)
+	}
+
+	cmd := exec.Command("git", "diff", "--no-index", "--no-color", "--", left, right)
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected diff exit error")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(2 * time.Millisecond)
+
+	ctxErr := gitCommandContextErrorWithKillForGOOS(
+		ctx,
+		"windows",
+		err,
+		[]string{"diff", "--no-index", "--no-color", "--", left, right},
+		true,
+	)
+	if !errors.Is(ctxErr, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded context error, got %v", ctxErr)
+	}
+}
+
+func TestIsCommandContextTerminationExitCode(t *testing.T) {
+	if !isCommandContextTerminationExitCode(-1) {
+		t.Fatal("expected -1 to be treated as a command-context termination exit code")
+	}
+	if isCommandContextTerminationExitCode(1) {
+		t.Fatal("expected 1 to be preserved as a normal process exit code")
+	}
+	if isCommandContextTerminationExitCode(2) {
+		t.Fatal("expected 2 to be preserved as a normal process exit code")
 	}
 }

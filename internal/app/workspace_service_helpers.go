@@ -1,11 +1,14 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
@@ -43,10 +46,23 @@ func cleanupStaleWorkspacePath(workspacePath string) error {
 	return os.RemoveAll(workspacePath)
 }
 
-func rollbackWorkspaceCreation(gitOps GitOperations, repoPath, workspacePath, branch string) {
+func rollbackWorkspaceCreation(
+	gitOps GitOperations,
+	workspacesRoot string,
+	project *data.Project,
+	repoPath, workspacePath, branch string,
+) {
 	if err := gitOps.RemoveWorkspace(repoPath, workspacePath); err != nil {
+		if git.IsUnregisteredWorkspacePathError(err) && isManagedWorkspacePathForProject(workspacesRoot, project, workspacePath) {
+			cleanupErr := cleanupStaleWorkspacePath(workspacePath)
+			if cleanupErr == nil {
+				goto branchCleanup
+			}
+			err = errors.Join(err, cleanupErr)
+		}
 		logging.Warn("Failed to roll back workspace %s: %v", workspacePath, err)
 	}
+branchCleanup:
 	if err := gitOps.DeleteBranch(repoPath, branch); err != nil {
 		logging.Warn("Failed to roll back branch %s: %v", branch, err)
 	}

@@ -104,6 +104,25 @@ func isManagedWorkspacePathForProject(workspacesRoot string, project *data.Proje
 	return pathWithinAliases(roots, workspacePathAliases(path))
 }
 
+// isManagedWorkspaceChildPathForProject returns true only when path is strictly
+// nested beneath a managed project root. Destructive stale-cleanup flows should
+// prefer this over isManagedWorkspacePathForProject so the project root itself
+// cannot be recursively deleted.
+func isManagedWorkspaceChildPathForProject(workspacesRoot string, project *data.Project, path string) bool {
+	root := strings.TrimSpace(workspacesRoot)
+	if root == "" {
+		return false
+	}
+	roots := managedProjectRoots(workspacesRoot, project)
+	if len(roots) == 0 {
+		return false
+	}
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	return pathWithinAliasesStrict(roots, workspacePathAliases(path))
+}
+
 // isPathWithin returns true if candidate is strictly nested under root (excludes same-path).
 // NOTE: differs from existing pathWithin which includes rel=="." as true.
 func isPathWithin(root, candidate string) bool {
