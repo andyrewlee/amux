@@ -13,6 +13,8 @@ func (v *VTerm) setSynchronizedOutput(active bool) {
 		v.syncActive = true
 		v.syncScreen = copyScreen(v.Screen)
 		v.syncScrollbackLen = len(v.Scrollback)
+		v.syncViewOffsetDelta = 0
+		v.syncPreserveViewport = v.ViewOffset > 0
 		v.invalidateRenderCache()
 		return
 	}
@@ -23,9 +25,16 @@ func (v *VTerm) setSynchronizedOutput(active bool) {
 	v.syncActive = false
 	v.syncScreen = nil
 	v.syncScrollbackLen = 0
+	if v.syncPreserveViewport && v.syncViewOffsetDelta != 0 {
+		v.ViewOffset += v.syncViewOffsetDelta
+	}
+	v.syncViewOffsetDelta = 0
+	v.syncPreserveViewport = false
 	if v.syncDeferTrim {
 		v.syncDeferTrim = false
 		v.trimScrollback()
+	} else {
+		v.clampViewOffsetToCurrentMax()
 	}
 	v.invalidateRenderCache()
 }

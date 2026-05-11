@@ -259,7 +259,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					}
 					tab.mu.Lock()
 					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(tab.Terminal.Height / 4)
+						m.scrollTerminalViewLocked(tab, common.ScrollDeltaForHeight(tab.Terminal.Height, 4))
 					}
 					tab.mu.Unlock()
 					return m, nil
@@ -278,7 +278,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 					}
 					tab.mu.Lock()
 					if tab.Terminal != nil {
-						tab.Terminal.ScrollView(-tab.Terminal.Height / 4)
+						m.scrollTerminalViewLocked(tab, -common.ScrollDeltaForHeight(tab.Terminal.Height, 4))
 					}
 					tab.mu.Unlock()
 					return m, nil
@@ -297,7 +297,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				if !sent {
 					tab.mu.Lock()
 					if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-						tab.Terminal.ScrollViewToBottom()
+						m.scrollTerminalToBottomLocked(tab)
 					}
 					tab.mu.Unlock()
 				}

@@ -8,6 +8,8 @@ import (
 
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/compositor"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 // formatScrollPos formats the scroll position for display
@@ -44,8 +46,22 @@ func (m *Model) View() string {
 			// Keep cursor state in sync at render time too; Focus/Blur also set
 			// this eagerly to avoid stale frames during fast pane switches.
 			tab.Terminal.ShowCursor = m.focused
-			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
-			b.WriteString(tab.Terminal.Render())
+			snap := compositor.NewVTermSnapshot(tab.Terminal, m.focused)
+			if snap != nil {
+				if m.isChatTabLocked(tab) {
+					applyScrolledChatHistoryViewLocked(tab.Terminal, snap)
+				}
+				b.WriteString(compositor.RenderSnapshotWithCanvas(
+					nil,
+					snap,
+					snap.Width,
+					snap.Height,
+					vterm.Color{Type: vterm.ColorDefault},
+					vterm.Color{Type: vterm.ColorDefault},
+				))
+			} else {
+				b.WriteString(tab.Terminal.Render())
+			}
 
 			if status := m.terminalStatusLineLocked(tab); status != "" {
 				b.WriteString("\n" + status)
@@ -258,7 +274,7 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 		return ""
 	}
 	if tab.Terminal.IsScrolled() {
-		offset, total := tab.Terminal.GetScrollInfo()
+		offset, total := m.displayedScrollInfoLocked(tab)
 		scrollStyle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(common.ColorBackground()).

@@ -276,9 +276,18 @@ func RenderTerminal(term *vterm.VTerm, width, height int, showCursor bool, fg, b
 	return RenderTerminalWithCanvas(nil, term, width, height, showCursor, fg, bg)
 }
 
-// RenderTerminalWithCanvas renders a vterm into a reusable canvas.
-func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height int, showCursor bool, fg, bg vterm.Color) string {
-	if term == nil || width <= 0 || height <= 0 {
+// RenderSnapshotWithCanvas renders a vterm snapshot into a reusable canvas.
+func RenderSnapshotWithCanvas(canvas *Canvas, snap *VTermSnapshot, width, height int, fg, bg vterm.Color) string {
+	if snap == nil {
+		return ""
+	}
+	if width <= 0 || width > snap.Width {
+		width = snap.Width
+	}
+	if height <= 0 || height > snap.Height {
+		height = snap.Height
+	}
+	if width <= 0 || height <= 0 {
 		return ""
 	}
 
@@ -288,77 +297,36 @@ func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height i
 		canvas.Resize(width, height)
 	}
 	canvas.Fill(vterm.Style{Fg: fg, Bg: bg})
-	screen := term.VisibleScreen()
-
-	// Get selection state and convert to screen coordinates.
-	selActive := term.SelActive()
-	selStartX := 0
-	selStartY := 0
-	selEndX := 0
-	selEndY := 0
-
-	if selActive {
-		startLine := term.SelStartLine()
-		endLine := term.SelEndLine()
-		startX := term.SelStartX()
-		endX := term.SelEndX()
-
-		// Normalize so start is before end.
-		if startLine > endLine || (startLine == endLine && startX > endX) {
-			startLine, endLine = endLine, startLine
-			startX, endX = endX, startX
-		}
-
-		visibleStartLine := term.ScreenYToAbsoluteLine(0)
-		visibleEndLine := term.ScreenYToAbsoluteLine(height - 1)
-
-		// If selection is entirely outside viewport, disable selection rendering.
-		if endLine < visibleStartLine || startLine > visibleEndLine {
-			selActive = false
-		} else {
-			if startLine < visibleStartLine {
-				selStartY = 0
-				startX = 0
-			} else {
-				selStartY = startLine - visibleStartLine
-			}
-
-			if endLine > visibleEndLine {
-				selEndY = height - 1
-				endX = width - 1
-			} else {
-				selEndY = endLine - visibleStartLine
-			}
-
-			if startX < 0 {
-				startX = 0
-			}
-			if startX >= width {
-				startX = width - 1
-			}
-			if endX < 0 {
-				endX = 0
-			}
-			if endX >= width {
-				endX = width - 1
-			}
-
-			selStartX = startX
-			selEndX = endX
-		}
-	}
-
 	canvas.DrawScreen(
 		0,
 		0,
 		width,
 		height,
-		screen,
-		CursorState{X: term.CursorX, Y: term.CursorY, Visible: showCursor},
-		term.ViewOffset,
-		SelectionRegion{Active: selActive, StartX: selStartX, StartY: selStartY, EndX: selEndX, EndY: selEndY},
+		snap.Screen,
+		CursorState{
+			X:       snap.CursorX,
+			Y:       snap.CursorY,
+			Visible: snap.ShowCursor && !snap.CursorHidden,
+		},
+		snap.ViewOffset,
+		SelectionRegion{
+			Active: snap.SelActive,
+			StartX: snap.SelStartX,
+			StartY: snap.SelStartY,
+			EndX:   snap.SelEndX,
+			EndY:   snap.SelEndY,
+		},
 	)
 	return canvas.Render()
+}
+
+// RenderTerminalWithCanvas renders a vterm into a reusable canvas.
+func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height int, showCursor bool, fg, bg vterm.Color) string {
+	if term == nil || width <= 0 || height <= 0 {
+		return ""
+	}
+	snap := NewVTermSnapshot(term, showCursor)
+	return RenderSnapshotWithCanvas(canvas, snap, width, height, fg, bg)
 }
 
 // HexColor converts a #RRGGBB string to a vterm.Color.

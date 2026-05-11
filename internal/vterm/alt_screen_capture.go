@@ -20,13 +20,7 @@ func (v *VTerm) captureScreenToScrollback() {
 	v.clearPendingRestoredAltScreenCapture()
 	if matched, dedupRemoved := v.matchesTrackedAltScreenCapture(lines); matched {
 		if oldViewOffset > 0 {
-			v.ViewOffset = oldViewOffset + pendingAdded - dedupRemoved
-			if v.ViewOffset < 0 {
-				v.ViewOffset = 0
-			}
-			if v.ViewOffset > len(v.Scrollback) {
-				v.ViewOffset = len(v.Scrollback)
-			}
+			v.adjustAnchoredViewOffset(pendingAdded - dedupRemoved)
 		}
 		v.trimScrollback()
 		return
@@ -40,13 +34,7 @@ func (v *VTerm) captureScreenToScrollback() {
 		if oldViewOffset <= 0 {
 			return
 		}
-		v.ViewOffset = oldViewOffset + pendingAdded - removed
-		if v.ViewOffset < 0 {
-			v.ViewOffset = 0
-		}
-		if v.ViewOffset > len(v.Scrollback) {
-			v.ViewOffset = len(v.Scrollback)
-		}
+		v.adjustAnchoredViewOffset(pendingAdded - removed)
 	}
 
 	// Dedup: skip if these lines match the tail of scrollback
@@ -74,13 +62,7 @@ func (v *VTerm) captureScreenToScrollback() {
 	v.altScreenCaptureDropLen = added
 	v.altScreenCaptureTracked = true
 	if oldViewOffset > 0 {
-		v.ViewOffset = oldViewOffset + pendingAdded - removed + added
-		if v.ViewOffset < 0 {
-			v.ViewOffset = 0
-		}
-		if v.ViewOffset > len(v.Scrollback) {
-			v.ViewOffset = len(v.Scrollback)
-		}
+		v.adjustAnchoredViewOffset(pendingAdded - removed + added)
 	}
 	v.trimScrollback()
 }

@@ -54,17 +54,63 @@ func (v *VTerm) AbsoluteLineToScreenY(absLine int) int {
 	return screenY
 }
 
-// ScrollView scrolls the view by delta lines (positive = up into history)
-func (v *VTerm) ScrollView(delta int) {
-	oldOffset := v.ViewOffset
-	v.ViewOffset += delta
-	maxOffset := len(v.Scrollback)
+func (v *VTerm) currentMaxViewOffset() int {
+	if v == nil {
+		return 0
+	}
+	_, scrollbackLen := v.RenderBuffers()
+	return scrollbackLen
+}
+
+func (v *VTerm) clampViewOffsetToCurrentMax() {
+	if v == nil {
+		return
+	}
+	maxOffset := v.currentMaxViewOffset()
 	if v.ViewOffset > maxOffset {
 		v.ViewOffset = maxOffset
 	}
 	if v.ViewOffset < 0 {
 		v.ViewOffset = 0
 	}
+}
+
+func (v *VTerm) noteSyncViewportInteraction(oldOffset int) {
+	if v == nil || !v.syncActive {
+		return
+	}
+	_ = oldOffset
+	v.syncPreserveViewport = v.ViewOffset > 0
+}
+
+func (v *VTerm) adjustAnchoredViewOffset(delta int) {
+	if v == nil || delta == 0 {
+		return
+	}
+	if v.syncActive {
+		v.syncViewOffsetDelta += delta
+		return
+	}
+	if v.ViewOffset <= 0 {
+		return
+	}
+	v.ViewOffset += delta
+	v.clampViewOffsetToCurrentMax()
+}
+
+func (v *VTerm) anchorViewOffsetForAddedLines(added int) {
+	if v == nil || added <= 0 {
+		return
+	}
+	v.adjustAnchoredViewOffset(added)
+}
+
+// ScrollView scrolls the view by delta lines (positive = up into history)
+func (v *VTerm) ScrollView(delta int) {
+	oldOffset := v.ViewOffset
+	v.ViewOffset += delta
+	v.clampViewOffsetToCurrentMax()
+	v.noteSyncViewportInteraction(oldOffset)
 	if v.ViewOffset != oldOffset {
 		v.bumpVersion()
 	}
@@ -74,13 +120,8 @@ func (v *VTerm) ScrollView(delta int) {
 func (v *VTerm) ScrollViewTo(offset int) {
 	oldOffset := v.ViewOffset
 	v.ViewOffset = offset
-	maxOffset := len(v.Scrollback)
-	if v.ViewOffset > maxOffset {
-		v.ViewOffset = maxOffset
-	}
-	if v.ViewOffset < 0 {
-		v.ViewOffset = 0
-	}
+	v.clampViewOffsetToCurrentMax()
+	v.noteSyncViewportInteraction(oldOffset)
 	if v.ViewOffset != oldOffset {
 		v.bumpVersion()
 	}
@@ -89,7 +130,8 @@ func (v *VTerm) ScrollViewTo(offset int) {
 // ScrollViewToTop scrolls to oldest content
 func (v *VTerm) ScrollViewToTop() {
 	oldOffset := v.ViewOffset
-	v.ViewOffset = len(v.Scrollback)
+	v.ViewOffset = v.currentMaxViewOffset()
+	v.noteSyncViewportInteraction(oldOffset)
 	if v.ViewOffset != oldOffset {
 		v.bumpVersion()
 	}
@@ -99,6 +141,7 @@ func (v *VTerm) ScrollViewToTop() {
 func (v *VTerm) ScrollViewToBottom() {
 	oldOffset := v.ViewOffset
 	v.ViewOffset = 0
+	v.noteSyncViewportInteraction(oldOffset)
 	if v.ViewOffset != oldOffset {
 		v.bumpVersion()
 	}
@@ -111,7 +154,7 @@ func (v *VTerm) IsScrolled() bool {
 
 // GetScrollInfo returns (current offset, max offset)
 func (v *VTerm) GetScrollInfo() (int, int) {
-	return v.ViewOffset, len(v.Scrollback)
+	return v.ViewOffset, v.currentMaxViewOffset()
 }
 
 // PrependScrollback parses captured scrollback content (with ANSI escapes) and
@@ -191,12 +234,7 @@ func (v *VTerm) AppendScrollbackDelta(data []byte) {
 	}
 	if added > 0 {
 		v.invalidateTrackedAltScreenCapture()
-		if v.ViewOffset > 0 {
-			v.ViewOffset += added
-			if v.ViewOffset > len(v.Scrollback) {
-				v.ViewOffset = len(v.Scrollback)
-			}
-		}
+		v.anchorViewOffsetForAddedLines(added)
 	}
 	v.trimScrollback()
 }
@@ -259,12 +297,7 @@ func (v *VTerm) AppendScrollbackDeltaWithSize(data []byte, width, height, visibl
 	}
 	if added > 0 {
 		v.invalidateTrackedAltScreenCapture()
-		if v.ViewOffset > 0 {
-			v.ViewOffset += added
-			if v.ViewOffset > len(v.Scrollback) {
-				v.ViewOffset = len(v.Scrollback)
-			}
-		}
+		v.anchorViewOffsetForAddedLines(added)
 	}
 	v.trimScrollback()
 }

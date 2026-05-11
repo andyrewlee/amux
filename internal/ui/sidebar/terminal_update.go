@@ -117,7 +117,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		case tea.KeyPgUp:
 			ts.mu.Lock()
 			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(ts.VTerm.Height / 2)
+				ts.VTerm.ScrollView(common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
 			}
 			ts.mu.Unlock()
 			return m, nil
@@ -125,7 +125,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		case tea.KeyPgDown:
 			ts.mu.Lock()
 			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(-ts.VTerm.Height / 2)
+				ts.VTerm.ScrollView(-common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
 			}
 			ts.mu.Unlock()
 			return m, nil

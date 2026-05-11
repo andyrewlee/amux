@@ -97,23 +97,31 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		return nil
 	}
 
+	if (a.dialog != nil && a.dialog.Visible()) ||
+		(a.filePicker != nil && a.filePicker.Visible()) ||
+		(a.settingsDialog != nil && a.settingsDialog.Visible()) ||
+		a.err != nil ||
+		a.toastCoversPoint(msg.X, msg.Y) {
+		// Modal, error, and toast overlays should block background scrolling.
+		return nil
+	}
+
 	targetPane := a.focusedPane
-	// Modal overlays and toast overlays do not consume wheel today, so preserve
-	// focused-pane routing instead of hit-testing obscured panes beneath them.
-	if !a.overlayVisible() && !a.toastCoversPoint(msg.X, msg.Y) {
-		// Route wheel input by pointer target when possible so hovered panes
-		// scroll without requiring a prior click. Fall back to keyboard focus
-		// when the pointer is outside interactive pane geometry.
-		hoverPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
-		if hasTarget {
-			// Dashboard wheel handling activates rows, so do not retarget passive
-			// hover wheel input into it from another pane.
-			if hoverPane != messages.PaneDashboard || a.focusedPane == messages.PaneDashboard {
-				if a.canRetargetWheelToPane(hoverPane) {
-					targetPane = hoverPane
-				}
-			}
+	// Route wheel input by pointer target when possible so hovered panes scroll
+	// without requiring a prior click. If the pointer is over another pane that
+	// cannot handle wheel input, consume the event instead of scrolling the
+	// previously focused pane behind it.
+	hoverPane, hasTarget := a.paneForPoint(msg.X, msg.Y)
+	if hasTarget && hoverPane != a.focusedPane {
+		// Dashboard wheel handling activates rows, so do not retarget passive
+		// hover wheel input into it from another pane.
+		if hoverPane == messages.PaneDashboard {
+			return nil
 		}
+		if !a.canRetargetWheelToPane(hoverPane) {
+			return nil
+		}
+		targetPane = hoverPane
 	}
 
 	var focusCmd tea.Cmd

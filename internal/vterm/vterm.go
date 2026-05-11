@@ -95,6 +95,12 @@ type VTerm struct {
 	syncScreen        [][]Cell
 	syncScrollbackLen int
 	syncDeferTrim     bool
+	// syncViewOffsetDelta tracks the net hidden scrollback growth/shrink that
+	// occurred while sync output was freezing the visible viewport.
+	syncViewOffsetDelta int
+	// syncPreserveViewport keeps the frozen viewport anchored when the user was
+	// already scrolled or interacted with scrollback during sync output.
+	syncPreserveViewport bool
 
 	// Render cache for live screen (ViewOffset == 0)
 	renderCache    []string
@@ -177,12 +183,7 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 			if added > 0 {
 				v.invalidateAltScreenCapture()
 			}
-			if added > 0 && v.ViewOffset > 0 {
-				v.ViewOffset += added
-				if v.ViewOffset > len(v.Scrollback) {
-					v.ViewOffset = len(v.Scrollback)
-				}
-			}
+			v.anchorViewOffsetForAddedLines(added)
 			v.trimScrollback()
 		}
 	}
@@ -348,7 +349,5 @@ func (v *VTerm) trimScrollback() {
 		v.shiftSelectionAfterTrim(trimmed)
 	}
 	// Clamp ViewOffset after trim to prevent stale offsets
-	if v.ViewOffset > len(v.Scrollback) {
-		v.ViewOffset = len(v.Scrollback)
-	}
+	v.clampViewOffsetToCurrentMax()
 }

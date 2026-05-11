@@ -223,7 +223,11 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.Selection = common.SelectionState{}
 		tab.selectionScroll.Reset()
 		if ev.inBounds && tab.Terminal != nil {
-			absLine := tab.Terminal.ScreenYToAbsoluteLine(ev.termY)
+			absLine, ok := m.displayedScreenYToAbsoluteLineLocked(tab, ev.termY)
+			if !ok {
+				tab.mu.Unlock()
+				return
+			}
 			tab.Selection = common.SelectionState{
 				Active:    true,
 				StartX:    ev.termX,
@@ -256,14 +260,14 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		tab.selectionScroll.SetDirection(termY, termHeight)
 
 		if termY < 0 {
-			tab.Terminal.ScrollView(1)
+			m.scrollTerminalViewLocked(tab, 1)
 			termY = 0
 		} else if termY >= termHeight {
-			tab.Terminal.ScrollView(-1)
+			m.scrollTerminalViewLocked(tab, -1)
 			termY = termHeight - 1
 		}
 
-		absLine := tab.Terminal.ScreenYToAbsoluteLine(termY)
+		absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, termY)
 		startX := tab.Terminal.SelStartX()
 		startLine := tab.Terminal.SelStartLine()
 		if !tab.Terminal.HasSelection() {
@@ -305,7 +309,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 	case tabEventScrollBy:
 		tab.mu.Lock()
 		if tab.Terminal != nil && ev.delta != 0 {
-			tab.Terminal.ScrollView(ev.delta)
+			m.scrollTerminalViewLocked(tab, ev.delta)
 		}
 		tab.mu.Unlock()
 	case tabEventSelectionScrollTick:
@@ -314,14 +318,14 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			tab.mu.Unlock()
 			return
 		}
-		tab.Terminal.ScrollView(tab.selectionScroll.ScrollDir)
+		m.scrollTerminalViewLocked(tab, tab.selectionScroll.ScrollDir)
 
 		// Update selection endpoint to viewport edge
 		edgeY := 0
 		if tab.selectionScroll.ScrollDir < 0 {
 			edgeY = tab.Terminal.Height - 1
 		}
-		absLine := tab.Terminal.ScreenYToAbsoluteLine(edgeY)
+		absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, edgeY)
 		endX := tab.selectionLastTermX
 		startX := tab.Terminal.SelStartX()
 		startLine := tab.Terminal.SelStartLine()
@@ -346,23 +350,20 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 	case tabEventScrollToBottom:
 		tab.mu.Lock()
 		if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-			tab.Terminal.ScrollViewToBottom()
+			m.scrollTerminalToBottomLocked(tab)
 		}
 		tab.mu.Unlock()
 	case tabEventScrollPage:
 		tab.mu.Lock()
 		if tab.Terminal != nil && ev.scrollPage != 0 {
-			delta := tab.Terminal.Height / 4
-			if delta < 1 {
-				delta = 1
-			}
-			tab.Terminal.ScrollView(delta * ev.scrollPage)
+			delta := common.ScrollDeltaForHeight(tab.Terminal.Height, 4)
+			m.scrollTerminalViewLocked(tab, delta*ev.scrollPage)
 		}
 		tab.mu.Unlock()
 	case tabEventScrollToTop:
 		tab.mu.Lock()
 		if tab.Terminal != nil {
-			tab.Terminal.ScrollViewToTop()
+			m.scrollTerminalToTopLocked(tab)
 		}
 		tab.mu.Unlock()
 	case tabEventDiffInput:
