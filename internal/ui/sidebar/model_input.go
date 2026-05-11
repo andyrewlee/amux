@@ -24,10 +24,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				m.filterInput.SetValue("")
 				m.filterInput.Blur()
 				m.rebuildDisplayList()
+				m.ensureCursorVisible()
 				return m, nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				m.filterMode = false
 				m.filterInput.Blur()
+				m.ensureCursorVisible()
 				return m, nil
 			default:
 				newInput, cmd := m.filterInput.Update(msg)
@@ -44,13 +46,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if !m.focused {
 			return m, nil
 		}
-		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 10) // ~10% of visible
+		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 8)
 		if msg.Button == tea.MouseWheelUp {
-			m.moveCursor(-delta)
+			m.scrollBy(-delta)
 			return m, nil
 		}
 		if msg.Button == tea.MouseWheelDown {
-			m.moveCursor(delta)
+			m.scrollBy(delta)
 			return m, nil
 		}
 
@@ -77,6 +79,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.moveCursor(1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.moveCursor(-1)
+		case msg.Key().Code == tea.KeyPgUp:
+			m.scrollPage(-1)
+		case msg.Key().Code == tea.KeyPgDown:
+			m.scrollPage(1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "space", "o"))):
 			cmds = append(cmds, m.openCurrentItem())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
@@ -85,6 +91,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			// Enter filter mode
 			m.filterMode = true
 			m.filterInput.Focus()
+			m.ensureCursorVisible()
 			return m, m.filterInput.Focus()
 		}
 	}
@@ -94,6 +101,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 // openCurrentItem opens the diff for the currently selected item.
 func (m *Model) openCurrentItem() tea.Cmd {
+	if !m.cursorVisible() {
+		m.reanchorCursorToViewport()
+	}
 	if m.cursor < 0 || m.cursor >= len(m.displayItems) {
 		return nil
 	}
@@ -145,6 +155,13 @@ func (m *Model) moveCursor(delta int) {
 	if len(m.displayItems) == 0 {
 		return
 	}
+	viewportHasSelectableItem := m.viewportHasSelectableItem()
+	if !m.cursorVisible() {
+		m.reanchorCursorToViewport()
+		if !viewportHasSelectableItem {
+			return
+		}
+	}
 
 	newCursor := m.cursor + delta
 
@@ -176,6 +193,7 @@ func (m *Model) moveCursor(delta int) {
 	if newCursor >= 0 && newCursor < len(m.displayItems) {
 		m.cursor = newCursor
 	}
+	m.ensureCursorVisible()
 }
 
 // refreshStatus refreshes the git status.

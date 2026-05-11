@@ -51,7 +51,20 @@ func NewProjectTree() *ProjectTree {
 
 // SetShowKeymapHints controls whether helper text is rendered.
 func (m *ProjectTree) SetShowKeymapHints(show bool) {
+	if m.showKeymapHints == show {
+		return
+	}
+	oldVisibleHeight := m.visibleHeight()
 	m.showKeymapHints = show
+	newVisibleHeight := m.visibleHeight()
+	switch {
+	case newVisibleHeight < oldVisibleHeight:
+		if m.focused {
+			m.ensureCursorVisible()
+		}
+	case newVisibleHeight > oldVisibleHeight:
+		m.clampScrollOffset()
+	}
 }
 
 // SetStyles updates the component's styles (for theme changes).
@@ -72,13 +85,13 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseWheelMsg:
-		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 10)
+		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 8)
 		if msg.Button == tea.MouseWheelUp {
-			m.moveCursor(-delta)
+			m.scrollBy(-delta)
 			return m, nil
 		}
 		if msg.Button == tea.MouseWheelDown {
-			m.moveCursor(delta)
+			m.scrollBy(delta)
 			return m, nil
 		}
 
@@ -98,9 +111,19 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 			m.moveCursor(1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.moveCursor(-1)
+		case msg.Key().Code == tea.KeyPgUp:
+			m.scrollPage(-1)
+		case msg.Key().Code == tea.KeyPgDown:
+			m.scrollPage(1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "o"))):
+			if !m.cursorVisible() {
+				m.reanchorCursorToViewport()
+			}
 			return m, m.handleEnter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("l", "right"))):
+			if !m.cursorVisible() {
+				m.reanchorCursorToViewport()
+			}
 			// Expand directory
 			if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
 				node := m.flatNodes[m.cursor]
@@ -110,6 +133,9 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 				}
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("h", "left"))):
+			if !m.cursorVisible() {
+				m.reanchorCursorToViewport()
+			}
 			// Collapse directory or go to parent
 			if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
 				node := m.flatNodes[m.cursor]
@@ -121,6 +147,7 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 					for i, n := range m.flatNodes {
 						if n == node.Parent {
 							m.cursor = i
+							m.ensureCursorVisible()
 							break
 						}
 					}
@@ -141,6 +168,9 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 
 // handleEnter handles enter/click on a node
 func (m *ProjectTree) handleEnter() tea.Cmd {
+	if !m.cursorVisible() {
+		m.reanchorCursorToViewport()
+	}
 	if m.cursor < 0 || m.cursor >= len(m.flatNodes) {
 		return nil
 	}
@@ -257,6 +287,11 @@ func (m *ProjectTree) rebuildFlatList() {
 
 // reloadTree reloads the entire tree from disk
 func (m *ProjectTree) reloadTree() {
+	wasCursorVisible := m.cursorVisible()
+	anchorPath := ""
+	if m.scrollOffset > 0 || !wasCursorVisible {
+		anchorPath = m.viewportAnchorPath()
+	}
 	if m.workspace == nil {
 		m.root = nil
 		m.flatNodes = nil
@@ -273,6 +308,13 @@ func (m *ProjectTree) reloadTree() {
 
 	m.expandNode(m.root)
 	m.rebuildFlatList()
+	if m.restoreViewportAnchor(anchorPath) {
+		if wasCursorVisible && !m.cursorVisible() {
+			m.ensureCursorVisible()
+		}
+		return
+	}
+	m.clampScrollOffset()
 }
 
 func (m *ProjectTree) visibleHeight() int {
@@ -304,6 +346,9 @@ func (m *ProjectTree) moveCursor(delta int) {
 	if len(m.flatNodes) == 0 {
 		return
 	}
+	if !m.cursorVisible() {
+		m.reanchorCursorToViewport()
+	}
 
 	newCursor := m.cursor + delta
 	if newCursor < 0 {
@@ -313,17 +358,37 @@ func (m *ProjectTree) moveCursor(delta int) {
 		newCursor = len(m.flatNodes) - 1
 	}
 	m.cursor = newCursor
+	m.ensureCursorVisible()
 }
 
 // SetSize sets the project tree size
 func (m *ProjectTree) SetSize(width, height int) {
+	if m.width == width && m.height == height {
+		return
+	}
+	oldVisibleHeight := m.visibleHeight()
 	m.width = width
 	m.height = height
+	newVisibleHeight := m.visibleHeight()
+	switch {
+	case newVisibleHeight < oldVisibleHeight:
+		if m.focused {
+			m.ensureCursorVisible()
+		}
+	case newVisibleHeight > oldVisibleHeight:
+		m.clampScrollOffset()
+	}
 }
 
 // Focus sets the focus state
 func (m *ProjectTree) Focus() {
+	if m.focused {
+		return
+	}
 	m.focused = true
+	if !m.cursorVisible() {
+		m.ensureCursorVisible()
+	}
 }
 
 // Blur removes focus

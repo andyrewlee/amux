@@ -61,9 +61,16 @@ func New() *Model {
 
 // rebuildDisplayList rebuilds the flat display list from grouped status.
 func (m *Model) rebuildDisplayList() {
+	wasCursorVisible := m.cursorVisible()
+	preserveViewport := m.scrollOffset > 0 || !wasCursorVisible
+	anchor := changeViewportAnchor{}
+	if preserveViewport {
+		anchor = m.viewportAnchor()
+	}
 	m.displayItems = nil
 
 	if m.gitStatus == nil || m.gitStatus.Clean {
+		m.scrollOffset = 0
 		return
 	}
 
@@ -158,6 +165,22 @@ func (m *Model) rebuildDisplayList() {
 	if m.cursor >= len(m.displayItems) && len(m.displayItems) > 0 {
 		m.cursor = len(m.displayItems) - 1
 	}
+
+	if preserveViewport && m.restoreViewportAnchor(anchor) {
+		if m.focused && wasCursorVisible && !m.cursorVisible() {
+			m.ensureCursorVisible()
+		}
+		return
+	}
+	if wasCursorVisible && !m.cursorVisible() {
+		if preserveViewport && !m.focused {
+			m.clampScrollOffset()
+			return
+		}
+		m.ensureCursorVisible()
+		return
+	}
+	m.clampScrollOffset()
 }
 
 func (m *Model) listHeaderLines() int {

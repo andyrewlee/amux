@@ -20,14 +20,7 @@ func (m *ProjectTree) View() string {
 
 	var b strings.Builder
 	visibleHeight := m.visibleHeight()
-
-	// Adjust scroll
-	if m.cursor < m.scrollOffset {
-		m.scrollOffset = m.cursor
-	}
-	if m.cursor >= m.scrollOffset+visibleHeight {
-		m.scrollOffset = m.cursor - visibleHeight + 1
-	}
+	m.clampScrollOffset()
 
 	for i, node := range m.flatNodes {
 		if i < m.scrollOffset {
@@ -144,6 +137,8 @@ func (m *ProjectTree) helpLines(contentWidth int) []string {
 	items := []string{
 		m.helpItem("k/↑", "up"),
 		m.helpItem("j/↓", "down"),
+		m.helpItem("PgUp", "half up"),
+		m.helpItem("PgDn", "half down"),
 		m.helpItem("h/←", "collapse"),
 		m.helpItem("l/→", "expand"),
 		m.helpItem(".", "hidden"),
