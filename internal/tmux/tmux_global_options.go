@@ -41,7 +41,7 @@ func GlobalOptionValues(keys []string, opts Options) (map[string]string, error) 
 			if stderr == "" {
 				return values, err
 			}
-			return values, fmt.Errorf("display-message -p: %s", stderr)
+			return values, fmt.Errorf("display-message -p: %s: %w", stderr, err)
 		}
 		return values, err
 	}

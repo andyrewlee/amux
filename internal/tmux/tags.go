@@ -164,7 +164,7 @@ func SetSessionTagValues(sessionName string, tags []OptionValue, opts Options) e
 				strings.Contains(stderr, "can't find session") {
 				return nil
 			}
-			return fmt.Errorf("set-option -t %s (multi): %s", sessionName, stderr)
+			return fmt.Errorf("set-option -t %s (multi): %s: %w", sessionName, stderr, err)
 		}
 		return err
 	}
