@@ -219,9 +219,9 @@ func (c *Canvas) Render() string {
 			if style != lastStyle {
 				// Use full style for first cell (after reset), delta for subsequent
 				if firstCell {
-					b.WriteString(vterm.StyleToANSI(style))
+					b.WriteString(style.ANSI())
 				} else {
-					b.WriteString(vterm.StyleToDeltaANSI(lastStyle, style))
+					b.WriteString(lastStyle.DeltaANSI(style))
 				}
 				lastStyle = style
 			}

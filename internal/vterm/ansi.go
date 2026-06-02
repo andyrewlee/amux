@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-// StyleToANSI converts a Style to ANSI escape codes.
+// ANSI converts a Style to a full ANSI escape sequence, leading with a reset.
 // Optimized to avoid allocations using strings.Builder.
-func StyleToANSI(s Style) string {
+func (s Style) ANSI() string {
 	var b strings.Builder
 	b.Grow(32) // Pre-allocate for typical SGR sequence
 
@@ -48,11 +48,12 @@ func StyleToANSI(s Style) string {
 	return b.String()
 }
 
-// StyleToDeltaANSI returns the minimal SGR escape sequence to transition from prev to next style.
-// This avoids the overhead of always emitting a full reset.
+// DeltaANSI returns the minimal SGR escape sequence to transition from the
+// receiver (the previous style) to next. It avoids the overhead of always
+// emitting a full reset, and returns "" when nothing changed.
 // Optimized to avoid allocations using strings.Builder.
-func StyleToDeltaANSI(prev, next Style) string {
-	if prev == next {
+func (s Style) DeltaANSI(next Style) string {
+	if s == next {
 		return ""
 	}
 
@@ -70,133 +71,14 @@ func StyleToDeltaANSI(prev, next Style) string {
 		b.WriteString(code)
 	}
 
-	// Check if we need to reset (turning OFF attributes that can't be individually disabled)
-	turningOff := 0
-	if prev.Bold && !next.Bold {
-		turningOff++
-	}
-	if prev.Dim && !next.Dim {
-		turningOff++
-	}
-	if prev.Italic && !next.Italic {
-		turningOff++
-	}
-	if prev.Underline && !next.Underline {
-		turningOff++
-	}
-	if prev.Blink && !next.Blink {
-		turningOff++
-	}
-	if prev.Reverse && !next.Reverse {
-		turningOff++
-	}
-	if prev.Hidden && !next.Hidden {
-		turningOff++
-	}
-	if prev.Strike && !next.Strike {
-		turningOff++
-	}
-
-	// If turning off multiple attributes, reset is more efficient
-	if turningOff > 1 {
-		writeCode("0")
-		// After reset, add all active attributes
-		if next.Bold {
-			writeCode("1")
-		}
-		if next.Dim {
-			writeCode("2")
-		}
-		if next.Italic {
-			writeCode("3")
-		}
-		if next.Underline {
-			writeCode("4")
-		}
-		if next.Blink {
-			writeCode("5")
-		}
-		if next.Reverse {
-			writeCode("7")
-		}
-		if next.Hidden {
-			writeCode("8")
-		}
-		if next.Strike {
-			writeCode("9")
-		}
-		// Colors after reset
-		writeColorToBuilderFirst(&b, next.Fg, true, &first)
-		writeColorToBuilderFirst(&b, next.Bg, false, &first)
+	// When turning off more than one attribute, a full reset followed by the
+	// surviving attributes is cheaper than disabling each individually.
+	if s.attrsTurningOff(next) > 1 {
+		next.appendResetThenActive(writeCode, &b, &first)
 	} else {
-		// Emit individual changes only
-
-		// Turn off attributes individually
-		emitted22 := false
-		if (prev.Bold && !next.Bold) || (prev.Dim && !next.Dim) {
-			writeCode("22") // Normal intensity
-			emitted22 = true
-		}
-		if prev.Italic && !next.Italic {
-			writeCode("23")
-		}
-		if prev.Underline && !next.Underline {
-			writeCode("24")
-		}
-		if prev.Blink && !next.Blink {
-			writeCode("25")
-		}
-		if prev.Reverse && !next.Reverse {
-			writeCode("27")
-		}
-		if prev.Hidden && !next.Hidden {
-			writeCode("28")
-		}
-		if prev.Strike && !next.Strike {
-			writeCode("29")
-		}
-
-		// Turn on attributes
-		if (!prev.Bold && next.Bold) || (emitted22 && next.Bold) {
-			writeCode("1")
-		}
-		if (!prev.Dim && next.Dim) || (emitted22 && next.Dim) {
-			writeCode("2")
-		}
-		if !prev.Italic && next.Italic {
-			writeCode("3")
-		}
-		if !prev.Underline && next.Underline {
-			writeCode("4")
-		}
-		if !prev.Blink && next.Blink {
-			writeCode("5")
-		}
-		if !prev.Reverse && next.Reverse {
-			writeCode("7")
-		}
-		if !prev.Hidden && next.Hidden {
-			writeCode("8")
-		}
-		if !prev.Strike && next.Strike {
-			writeCode("9")
-		}
-
-		// Colors only if changed
-		if prev.Fg != next.Fg {
-			if next.Fg.Type == ColorDefault {
-				writeCode("39")
-			} else {
-				writeColorToBuilderFirst(&b, next.Fg, true, &first)
-			}
-		}
-		if prev.Bg != next.Bg {
-			if next.Bg.Type == ColorDefault {
-				writeCode("49")
-			} else {
-				writeColorToBuilderFirst(&b, next.Bg, false, &first)
-			}
-		}
+		emitted22 := s.appendAttrDisables(next, writeCode)
+		s.appendAttrEnables(next, emitted22, writeCode)
+		s.appendColorChanges(next, writeCode, &b, &first)
 	}
 
 	if first {
@@ -205,6 +87,151 @@ func StyleToDeltaANSI(prev, next Style) string {
 
 	b.WriteByte('m')
 	return b.String()
+}
+
+// attrsTurningOff counts boolean attributes set in the receiver (previous style)
+// but cleared in next. These cannot all be disabled with a single SGR code, so
+// the count decides whether a full reset is the more compact transition.
+func (s Style) attrsTurningOff(next Style) int {
+	turningOff := 0
+	if s.Bold && !next.Bold {
+		turningOff++
+	}
+	if s.Dim && !next.Dim {
+		turningOff++
+	}
+	if s.Italic && !next.Italic {
+		turningOff++
+	}
+	if s.Underline && !next.Underline {
+		turningOff++
+	}
+	if s.Blink && !next.Blink {
+		turningOff++
+	}
+	if s.Reverse && !next.Reverse {
+		turningOff++
+	}
+	if s.Hidden && !next.Hidden {
+		turningOff++
+	}
+	if s.Strike && !next.Strike {
+		turningOff++
+	}
+	return turningOff
+}
+
+// appendResetThenActive emits a reset (0) followed by every attribute and color
+// active in the receiver style. Used when disabling attributes individually
+// would be longer than starting from a clean reset.
+func (s Style) appendResetThenActive(writeCode func(string), b *strings.Builder, first *bool) {
+	writeCode("0")
+	if s.Bold {
+		writeCode("1")
+	}
+	if s.Dim {
+		writeCode("2")
+	}
+	if s.Italic {
+		writeCode("3")
+	}
+	if s.Underline {
+		writeCode("4")
+	}
+	if s.Blink {
+		writeCode("5")
+	}
+	if s.Reverse {
+		writeCode("7")
+	}
+	if s.Hidden {
+		writeCode("8")
+	}
+	if s.Strike {
+		writeCode("9")
+	}
+	writeColorToBuilderFirst(b, s.Fg, true, first)
+	writeColorToBuilderFirst(b, s.Bg, false, first)
+}
+
+// appendAttrDisables emits the individual SGR codes (22-29) that turn off
+// attributes set in the receiver (previous style) but cleared in next. It
+// reports whether code 22 (normal intensity) was emitted, since that resets
+// both bold and dim and so the caller must re-enable either if next wants it.
+func (s Style) appendAttrDisables(next Style, writeCode func(string)) (emitted22 bool) {
+	if (s.Bold && !next.Bold) || (s.Dim && !next.Dim) {
+		writeCode("22") // Normal intensity
+		emitted22 = true
+	}
+	if s.Italic && !next.Italic {
+		writeCode("23")
+	}
+	if s.Underline && !next.Underline {
+		writeCode("24")
+	}
+	if s.Blink && !next.Blink {
+		writeCode("25")
+	}
+	if s.Reverse && !next.Reverse {
+		writeCode("27")
+	}
+	if s.Hidden && !next.Hidden {
+		writeCode("28")
+	}
+	if s.Strike && !next.Strike {
+		writeCode("29")
+	}
+	return emitted22
+}
+
+// appendAttrEnables emits the individual SGR codes that turn on attributes set
+// in next but not in the receiver (previous style). When emitted22 is true,
+// bold/dim were just reset by code 22 and must be re-emitted if next wants them.
+func (s Style) appendAttrEnables(next Style, emitted22 bool, writeCode func(string)) {
+	if (!s.Bold && next.Bold) || (emitted22 && next.Bold) {
+		writeCode("1")
+	}
+	if (!s.Dim && next.Dim) || (emitted22 && next.Dim) {
+		writeCode("2")
+	}
+	if !s.Italic && next.Italic {
+		writeCode("3")
+	}
+	if !s.Underline && next.Underline {
+		writeCode("4")
+	}
+	if !s.Blink && next.Blink {
+		writeCode("5")
+	}
+	if !s.Reverse && next.Reverse {
+		writeCode("7")
+	}
+	if !s.Hidden && next.Hidden {
+		writeCode("8")
+	}
+	if !s.Strike && next.Strike {
+		writeCode("9")
+	}
+}
+
+// appendColorChanges emits foreground/background SGR codes only when the color
+// differs between the receiver (previous style) and next, using 39/49 to return
+// to the default color.
+func (s Style) appendColorChanges(next Style, writeCode func(string), b *strings.Builder, first *bool) {
+	if s.Fg != next.Fg {
+		if next.Fg.Type == ColorDefault {
+			writeCode("39")
+		} else {
+			writeColorToBuilderFirst(b, next.Fg, true, first)
+		}
+	}
+	if s.Bg != next.Bg {
+		if next.Bg.Type == ColorDefault {
+			writeCode("49")
+		} else {
+			writeColorToBuilderFirst(b, next.Bg, false, first)
+		}
+	}
 }
 
 // writeColorToBuilder appends color codes to a strings.Builder.

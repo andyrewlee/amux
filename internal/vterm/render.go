@@ -259,9 +259,9 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 		if style != lastStyle || inSel != lastReverse || isCursor {
 			// Use delta encoding after the first style (which has reset)
 			if x == 0 {
-				buf.WriteString(StyleToANSI(style))
+				buf.WriteString(style.ANSI())
 			} else {
-				buf.WriteString(StyleToDeltaANSI(lastStyle, style))
+				buf.WriteString(lastStyle.DeltaANSI(style))
 			}
 			lastStyle = style
 			lastReverse = inSel
@@ -336,7 +336,7 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 			style = suppressBlankUnderline(cell, style)
 
 			if firstCell || style != lastStyle || inSel != lastReverse {
-				buf.WriteString(StyleToANSI(style))
+				buf.WriteString(style.ANSI())
 				lastStyle = style
 				lastReverse = inSel
 				firstCell = false
