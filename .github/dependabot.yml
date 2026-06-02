@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      # The Charm stack moves fast and spans two module prefixes; batch it
+      # into a single PR so updates don't arrive piecemeal.
+      charm:
+        patterns:
+          - "charm.land/*"
+          - "github.com/charmbracelet/*"
+      # Everything else (minor/patch) in one follow-up PR.
+      go-modules:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "charm.land/*"
+          - "github.com/charmbracelet/*"
