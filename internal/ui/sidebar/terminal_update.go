@@ -98,17 +98,12 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		// Handle explicit Cmd+C to copy current selection
 		if isCopyKey {
 			ts.mu.Lock()
+			text := ""
 			if ts.VTerm != nil && ts.VTerm.HasSelection() {
-				text := ts.VTerm.SelectedText()
-				if text != "" {
-					if err := common.CopyToClipboard(text); err != nil {
-						logging.Error("Failed to copy to clipboard: %v", err)
-					} else {
-						logging.Info("Cmd+C copied %d chars from sidebar", len(text))
-					}
-				}
+				text = ts.VTerm.SelectedText()
 			}
 			ts.mu.Unlock()
+			common.CopyToClipboardWithLog(text, "Cmd+C sidebar")
 			return m, nil // Don't forward to terminal, don't clear selection
 		}
 

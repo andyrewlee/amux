@@ -5,7 +5,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/diff"
 )
@@ -195,23 +194,18 @@ func (m *Model) updateMouseRelease(msg tea.MouseReleaseMsg) (*Model, tea.Cmd) {
 		}
 	}
 	tab.mu.Lock()
+	text := ""
 	if tab.Selection.Active {
 		if tab.Terminal != nil &&
 			(tab.Selection.StartX != tab.Selection.EndX ||
 				tab.Selection.StartLine != tab.Selection.EndLine) {
-			text := tab.Terminal.SelectedText()
-			if text != "" {
-				if err := common.CopyToClipboard(text); err != nil {
-					logging.Error("Failed to copy to clipboard: %v", err)
-				} else {
-					logging.Info("Copied %d chars to clipboard", len(text))
-				}
-			}
+			text = tab.Terminal.SelectedText()
 		}
 		tab.Selection.Active = false
 		tab.selectionScroll.Reset()
 	}
 	tab.mu.Unlock()
+	common.CopyToClipboardWithLog(text, "clipboard")
 	return m, common.SafeBatch(cmds...)
 }
 

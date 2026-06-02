@@ -5,7 +5,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -244,25 +243,20 @@ func (m *TerminalModel) handleMouseRelease(msg tea.MouseReleaseMsg) (*TerminalMo
 	}
 
 	ts.mu.Lock()
+	text := ""
 	if ts.Selection.Active {
 		// Only copy if selection spans more than a single point
 		if ts.VTerm != nil &&
 			(ts.Selection.StartX != ts.Selection.EndX ||
 				ts.Selection.StartLine != ts.Selection.EndLine) {
-			text := ts.VTerm.SelectedText()
-			if text != "" {
-				if err := common.CopyToClipboard(text); err != nil {
-					logging.Error("Failed to copy sidebar selection: %v", err)
-				} else {
-					logging.Info("Copied %d chars from sidebar", len(text))
-				}
-			}
+			text = ts.VTerm.SelectedText()
 			// Keep selection visible - don't clear it
 		}
 		ts.Selection.Active = false
 		ts.selectionScroll.Reset()
 	}
 	ts.mu.Unlock()
+	common.CopyToClipboardWithLog(text, "sidebar selection")
 
 	return m, nil
 }
