@@ -25,17 +25,12 @@ func sessionLatestActivitySeconds(sessionName string, opts Options) (int64, erro
 	if err := EnsureAvailable(); err != nil {
 		return 0, err
 	}
-	cmd, cancel := tmuxCommand(opts, "list-windows", "-t", sessionTarget(sessionName), "-F", "#{window_activity}")
-	defer cancel()
-	output, err := cmd.Output()
+	lines, err := listTmux(opts, "list-windows", "-t", sessionTarget(sessionName), "-F", "#{window_activity}")
 	if err != nil {
-		if isExitCode1(err) {
-			return 0, nil
-		}
 		return 0, err
 	}
 	var latest int64
-	for _, line := range parseOutputLines(output) {
+	for _, line := range lines {
 		activityRaw := strings.TrimSpace(line)
 		if activityRaw == "" {
 			continue
@@ -90,18 +85,13 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 	}
 	applyWindow := window > 0
 	format := "#{session_name}\t#{window_activity}\t#{@amux}\t#{@amux_workspace}\t#{@amux_tab}\t#{@amux_type}"
-	cmd, cancel := tmuxCommand(opts, "list-windows", "-a", "-F", format)
-	defer cancel()
-	output, err := cmd.Output()
+	lines, err := listTmux(opts, "list-windows", "-a", "-F", format)
 	if err != nil {
-		if isExitCode1(err) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	now := time.Now()
 	latest := make(map[string]SessionActivity)
-	for _, line := range parseOutputLines(output) {
+	for _, line := range lines {
 		parts := strings.Split(line, "\t")
 		if len(parts) < 6 {
 			continue

@@ -106,17 +106,12 @@ func AllSessionStates(opts Options) (map[string]SessionState, error) {
 	if err := EnsureAvailable(); err != nil {
 		return nil, err
 	}
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-a", "-F", "#{session_name}\t#{pane_dead}")
-	defer cancel()
-	output, err := cmd.Output()
+	lines, err := listTmux(opts, "list-panes", "-a", "-F", "#{session_name}\t#{pane_dead}")
 	if err != nil {
-		if isExitCode1(err) {
-			return map[string]SessionState{}, nil
-		}
 		return nil, err
 	}
 	states := make(map[string]SessionState)
-	for _, line := range parseOutputLines(output) {
+	for _, line := range lines {
 		parts := strings.SplitN(line, "\t", 2)
 		if len(parts) != 2 {
 			continue
@@ -196,6 +191,24 @@ func runTmux(opts Options, args ...string) error {
 	return nil
 }
 
+// listTmux runs a tmux read command and returns its non-empty output lines.
+// tmux's exit code 1 ("not found": no session/server) yields an empty result
+// with no error, encoding the exit-1-means-empty convention (see errors.go)
+// once instead of at every read site. Callers keep their own availability
+// gating (EnsureAvailable / hasSession) and any per-line parsing.
+func listTmux(opts Options, args ...string) ([]string, error) {
+	cmd, cancel := tmuxCommand(opts, args...)
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		if isExitCode1(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseOutputLines(output), nil
+}
+
 func hasSession(sessionName string, opts Options) (bool, error) {
 	cmd, cancel := tmuxCommand(opts, "has-session", "-t", sessionTarget(sessionName))
 	defer cancel()
@@ -216,18 +229,12 @@ func hasLivePane(sessionName string, opts Options) (bool, error) {
 	if !exists {
 		return false, nil
 	}
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{pane_dead}")
-	defer cancel()
-	output, err := cmd.Output()
+	lines, err := listTmux(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{pane_dead}")
 	if err != nil {
-		if isExitCode1(err) {
-			return false, nil
-		}
 		return false, err
 	}
-	lines := strings.Fields(string(output))
 	for _, line := range lines {
-		if strings.TrimSpace(line) == "0" {
+		if line == "0" {
 			return true, nil
 		}
 	}
@@ -262,17 +269,12 @@ func panePIDs(sessionName string, opts Options) ([]int, error) {
 	if !exists {
 		return nil, nil
 	}
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-s", "-t", sessionTarget(sessionName), "-F", "#{pane_pid}")
-	defer cancel()
-	output, err := cmd.Output()
+	lines, err := listTmux(opts, "list-panes", "-s", "-t", sessionTarget(sessionName), "-F", "#{pane_pid}")
 	if err != nil {
-		if isExitCode1(err) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	var pids []int
-	for _, field := range strings.Fields(string(output)) {
+	for _, field := range lines {
 		if pid, err := strconv.Atoi(field); err == nil && pid > 0 {
 			pids = append(pids, pid)
 		}

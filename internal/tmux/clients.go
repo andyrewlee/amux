@@ -53,23 +53,11 @@ func SessionClientCount(sessionName string, opts Options) (int, error) {
 	if !exists {
 		return 0, nil
 	}
-	cmd, cancel := tmuxCommand(opts, "list-clients", "-t", sessionTarget(sessionName), "-F", "#{client_name}")
-	defer cancel()
-	output, err := cmd.Output()
+	lines, err := listTmux(opts, "list-clients", "-t", sessionTarget(sessionName), "-F", "#{client_name}")
 	if err != nil {
-		if isExitCode1(err) {
-			return 0, nil
-		}
 		return 0, err
 	}
-	count := 0
-	for _, line := range parseOutputLines(output) {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		count++
-	}
-	return count, nil
+	return len(lines), nil
 }
 
 // SessionCreatedAt returns the tmux session creation timestamp (unix seconds).
