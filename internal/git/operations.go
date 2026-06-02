@@ -42,7 +42,7 @@ func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) 
 		}
 		// Include stderr in error for debugging
 		if stderr.Len() > 0 {
-			return "", &GitError{
+			return "", &Error{
 				Command: strings.Join(args, " "),
 				Stderr:  stderr.String(),
 				Err:     err,
@@ -54,18 +54,18 @@ func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) 
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// GitError wraps git command errors with additional context
-type GitError struct {
+// Error wraps git command errors with additional context
+type Error struct {
 	Command string
 	Stderr  string
 	Err     error
 }
 
-func (e *GitError) Error() string {
+func (e *Error) Error() string {
 	return "git " + e.Command + ": " + e.Stderr
 }
 
-func (e *GitError) Unwrap() error {
+func (e *Error) Unwrap() error {
 	return e.Err
 }
 
@@ -114,7 +114,7 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	// Only return error if there's actual stderr output indicating a problem
 	// and no stdout (which would indicate the command worked but returned non-zero)
 	if stderr.Len() > 0 && stdout.Len() == 0 {
-		return "", &GitError{
+		return "", &Error{
 			Command: strings.Join(args, " "),
 			Stderr:  stderr.String(),
 			Err:     err,
@@ -144,7 +144,7 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 			return nil, ctxErr
 		}
 		if stderr.Len() > 0 {
-			return nil, &GitError{
+			return nil, &Error{
 				Command: strings.Join(args, " "),
 				Stderr:  stderr.String(),
 				Err:     err,
