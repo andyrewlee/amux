@@ -446,7 +446,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 	}
 }
 
-func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID string, label string) {
+func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID, label string) {
 	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
 		return
 	}

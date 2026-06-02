@@ -111,11 +111,11 @@ check-file-length:
 	@find . -name '*.go' -exec wc -l {} + | awk '!/total$$/ && $$1 > 500 { print "ERROR: " $$2 " has " $$1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
 
 fmt:
-	$(GOFUMPT) -w .
+	$(GOFUMPT) -extra -w .
 	goimports -w .
 
 fmt-check:
-	@test -z "$$($(GOFUMPT) -l .)" || ($(GOFUMPT) -l .; exit 1)
+	@test -z "$$($(GOFUMPT) -extra -l .)" || ($(GOFUMPT) -extra -l .; exit 1)
 
 vet:
 	go vet ./...

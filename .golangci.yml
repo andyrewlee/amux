@@ -36,6 +36,8 @@ linters-settings:
             desc: Use standard library errors/fmt wrapping instead.
           - pkg: io/ioutil
             desc: Use os or io packages instead of io/ioutil.
+  gofumpt:
+    extra-rules: true
   goimports:
     local-prefixes: github.com/andyrewlee/amux
   errcheck:
