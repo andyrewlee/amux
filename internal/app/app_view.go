@@ -149,19 +149,8 @@ func (a *App) viewLayerBased() tea.View {
 			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
 			termX := centerX + termOffsetX
 			termY := topGutter + termOffsetY
-			if centerOwnsCursor && termLayer.Snap != nil {
-				snap := termLayer.Snap
-				if snap.ShowCursor && !snap.CursorHidden && snap.ViewOffset == 0 &&
-					snap.CursorX >= 0 && snap.CursorY >= 0 &&
-					snap.CursorX < termW && snap.CursorY < termH {
-					setTerminalCursor(termX+snap.CursorX, termY+snap.CursorY)
-					// Keep exactly one visible cursor by delegating to the hardware cursor.
-					// This shallow copy is intentional: only ShowCursor changes here, and
-					// the snapshot screen data remains read-only for rendering.
-					snapCopy := *snap
-					snapCopy.ShowCursor = false
-					termLayer = compositor.NewVTermLayer(&snapCopy)
-				}
+			if centerOwnsCursor {
+				termLayer = delegateTerminalCursor(termLayer, termX, termY, termW, termH, setTerminalCursor)
 			}
 
 			// Compose terminal layer first; chrome is drawn on top without clearing the content area.
@@ -321,19 +310,8 @@ func (a *App) viewLayerBased() tea.View {
 				if termH > maxTermHeight {
 					termH = maxTermHeight
 				}
-				if sidebarOwnsCursor && termLayer.Snap != nil {
-					snap := termLayer.Snap
-					if snap.ShowCursor && !snap.CursorHidden && snap.ViewOffset == 0 &&
-						snap.CursorX >= 0 && snap.CursorY >= 0 &&
-						snap.CursorX < termW && snap.CursorY < termH {
-						setTerminalCursor(originX+snap.CursorX, originY+snap.CursorY)
-						// Keep exactly one visible cursor by delegating to the hardware cursor.
-						// This shallow copy is intentional: only ShowCursor changes here, and
-						// the snapshot screen data remains read-only for rendering.
-						snapCopy := *snap
-						snapCopy.ShowCursor = false
-						termLayer = compositor.NewVTermLayer(&snapCopy)
-					}
+				if sidebarOwnsCursor {
+					termLayer = delegateTerminalCursor(termLayer, originX, originY, termW, termH, setTerminalCursor)
 				}
 
 				positioned := &compositor.PositionedVTermLayer{
