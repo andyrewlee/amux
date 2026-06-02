@@ -109,40 +109,6 @@ func (c *Canvas) DrawText(x, y int, text string, style vterm.Style) {
 	}
 }
 
-// DrawBorder draws a single or double line border.
-func (c *Canvas) DrawBorder(x, y, w, h int, style vterm.Style, focused bool) {
-	if w < 2 || h < 2 {
-		return
-	}
-
-	var tl, tr, bl, br, hline, vline rune
-	if focused {
-		tl, tr, bl, br = '╔', '╗', '╚', '╝'
-		hline, vline = '═', '║'
-	} else {
-		tl, tr, bl, br = '┌', '┐', '└', '┘'
-		hline, vline = '─', '│'
-	}
-
-	// Corners
-	c.SetCell(x, y, vterm.Cell{Rune: tl, Width: 1, Style: style})
-	c.SetCell(x+w-1, y, vterm.Cell{Rune: tr, Width: 1, Style: style})
-	c.SetCell(x, y+h-1, vterm.Cell{Rune: bl, Width: 1, Style: style})
-	c.SetCell(x+w-1, y+h-1, vterm.Cell{Rune: br, Width: 1, Style: style})
-
-	// Horizontal lines
-	for cx := x + 1; cx < x+w-1; cx++ {
-		c.SetCell(cx, y, vterm.Cell{Rune: hline, Width: 1, Style: style})
-		c.SetCell(cx, y+h-1, vterm.Cell{Rune: hline, Width: 1, Style: style})
-	}
-
-	// Vertical lines
-	for cy := y + 1; cy < y+h-1; cy++ {
-		c.SetCell(x, cy, vterm.Cell{Rune: vline, Width: 1, Style: style})
-		c.SetCell(x+w-1, cy, vterm.Cell{Rune: vline, Width: 1, Style: style})
-	}
-}
-
 // CursorState holds cursor position and visibility for DrawScreen.
 type CursorState struct {
 	X, Y    int
@@ -271,11 +237,6 @@ func (c *Canvas) Render() string {
 	return b.String()
 }
 
-// RenderTerminal renders a vterm into a canvas and returns the ANSI string.
-func RenderTerminal(term *vterm.VTerm, width, height int, showCursor bool, fg, bg vterm.Color) string {
-	return RenderTerminalWithCanvas(nil, term, width, height, showCursor, fg, bg)
-}
-
 // RenderSnapshotWithCanvas renders a vterm snapshot into a reusable canvas.
 func RenderSnapshotWithCanvas(canvas *Canvas, snap *VTermSnapshot, width, height int, fg, bg vterm.Color) string {
 	if snap == nil {
@@ -318,15 +279,6 @@ func RenderSnapshotWithCanvas(canvas *Canvas, snap *VTermSnapshot, width, height
 		},
 	)
 	return canvas.Render()
-}
-
-// RenderTerminalWithCanvas renders a vterm into a reusable canvas.
-func RenderTerminalWithCanvas(canvas *Canvas, term *vterm.VTerm, width, height int, showCursor bool, fg, bg vterm.Color) string {
-	if term == nil || width <= 0 || height <= 0 {
-		return ""
-	}
-	snap := NewVTermSnapshot(term, showCursor)
-	return RenderSnapshotWithCanvas(canvas, snap, width, height, fg, bg)
 }
 
 // HexColor converts a #RRGGBB string to a vterm.Color.

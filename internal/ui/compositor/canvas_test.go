@@ -43,7 +43,7 @@ func TestCanvasRenderSuppressesUnderlineOnBlankCells(t *testing.T) {
 	}
 }
 
-func TestRenderTerminalWithCanvasClampsOffscreenSelection(t *testing.T) {
+func TestRenderSnapshotWithCanvasClampsOffscreenSelection(t *testing.T) {
 	width, height := 5, 3
 	term := vterm.New(width, height)
 	term.Scrollback = [][]vterm.Cell{
@@ -61,7 +61,7 @@ func TestRenderTerminalWithCanvasClampsOffscreenSelection(t *testing.T) {
 	term.SetSelection(2, 1, 3, 6, true, false)
 
 	canvas := NewCanvas(width, height)
-	RenderTerminalWithCanvas(canvas, term, width, height, false, vterm.Color{Type: vterm.ColorDefault}, vterm.Color{Type: vterm.ColorDefault})
+	RenderSnapshotWithCanvas(canvas, NewVTermSnapshot(term, false), width, height, vterm.Color{Type: vterm.ColorDefault}, vterm.Color{Type: vterm.ColorDefault})
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
@@ -72,7 +72,7 @@ func TestRenderTerminalWithCanvasClampsOffscreenSelection(t *testing.T) {
 	}
 }
 
-func TestRenderTerminalWithCanvasClampsStartAboveViewport(t *testing.T) {
+func TestRenderSnapshotWithCanvasClampsStartAboveViewport(t *testing.T) {
 	width, height := 5, 3
 	term := vterm.New(width, height)
 	term.Scrollback = [][]vterm.Cell{
@@ -90,7 +90,7 @@ func TestRenderTerminalWithCanvasClampsStartAboveViewport(t *testing.T) {
 	term.SetSelection(3, 1, 1, 4, true, false)
 
 	canvas := NewCanvas(width, height)
-	RenderTerminalWithCanvas(canvas, term, width, height, false, vterm.Color{Type: vterm.ColorDefault}, vterm.Color{Type: vterm.ColorDefault})
+	RenderSnapshotWithCanvas(canvas, NewVTermSnapshot(term, false), width, height, vterm.Color{Type: vterm.ColorDefault}, vterm.Color{Type: vterm.ColorDefault})
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
@@ -116,7 +116,7 @@ func TestRenderTerminalWithCanvasClampsStartAboveViewport(t *testing.T) {
 	}
 }
 
-func TestRenderTerminalWithCanvasClampsEndBelowViewport(t *testing.T) {
+func TestRenderSnapshotWithCanvasClampsEndBelowViewport(t *testing.T) {
 	width, height := 5, 3
 	term := vterm.New(width, height)
 	term.Scrollback = [][]vterm.Cell{
@@ -134,7 +134,7 @@ func TestRenderTerminalWithCanvasClampsEndBelowViewport(t *testing.T) {
 	term.SetSelection(2, 3, 1, 6, true, false)
 
 	canvas := NewCanvas(width, height)
-	RenderTerminalWithCanvas(canvas, term, width, height, false, vterm.Color{Type: vterm.ColorDefault}, vterm.Color{Type: vterm.ColorDefault})
+	RenderSnapshotWithCanvas(canvas, NewVTermSnapshot(term, false), width, height, vterm.Color{Type: vterm.ColorDefault}, vterm.Color{Type: vterm.ColorDefault})
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
@@ -156,7 +156,7 @@ func TestRenderTerminalWithCanvasClampsEndBelowViewport(t *testing.T) {
 	}
 }
 
-func TestRenderTerminalWithCanvasReverseSelectionAnchor(t *testing.T) {
+func TestRenderSnapshotWithCanvasReverseSelectionAnchor(t *testing.T) {
 	width, height := 5, 3
 	term := vterm.New(width, height)
 	term.Scrollback = [][]vterm.Cell{
@@ -174,7 +174,7 @@ func TestRenderTerminalWithCanvasReverseSelectionAnchor(t *testing.T) {
 	term.SetSelection(4, 5, 1, 3, true, false)
 
 	canvas := NewCanvas(width, height)
-	RenderTerminalWithCanvas(canvas, term, width, height, false, vterm.Color{Type: vterm.ColorDefault}, vterm.Color{Type: vterm.ColorDefault})
+	RenderSnapshotWithCanvas(canvas, NewVTermSnapshot(term, false), width, height, vterm.Color{Type: vterm.ColorDefault}, vterm.Color{Type: vterm.ColorDefault})
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
