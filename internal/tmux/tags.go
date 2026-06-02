@@ -159,9 +159,7 @@ func SetSessionTagValues(sessionName string, tags []OptionValue, opts Options) e
 	if err != nil {
 		if isExitCode1(err) {
 			stderr := strings.TrimSpace(string(output))
-			if strings.Contains(stderr, "session not found") ||
-				strings.Contains(stderr, "no such session") ||
-				strings.Contains(stderr, "can't find session") {
+			if isSessionNotFoundStderr(stderr) {
 				return nil
 			}
 			return fmt.Errorf("set-option -t %s (multi): %s: %w", sessionName, stderr, err)
