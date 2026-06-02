@@ -181,6 +181,21 @@ func tmuxCommand(opts Options, args ...string) (*exec.Cmd, context.CancelFunc) {
 	return cmd, cancel
 }
 
+// runTmux runs a fire-and-forget tmux command, treating tmux's exit code 1
+// ("not found": no session/server) as success. Use for mutations where a
+// missing target should not surface as an error.
+func runTmux(opts Options, args ...string) error {
+	cmd, cancel := tmuxCommand(opts, args...)
+	defer cancel()
+	if err := cmd.Run(); err != nil {
+		if isExitCode1(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 func hasSession(sessionName string, opts Options) (bool, error) {
 	cmd, cancel := tmuxCommand(opts, "has-session", "-t", sessionTarget(sessionName))
 	defer cancel()
@@ -234,15 +249,7 @@ func KillSession(sessionName string, opts Options) error {
 			_ = process.KillProcessGroup(pid, process.KillOptions{})
 		}
 	}
-	cmd, cancel := tmuxCommand(opts, "kill-session", "-t", sessionTarget(sessionName))
-	defer cancel()
-	if err := cmd.Run(); err != nil {
-		if isExitCode1(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return runTmux(opts, "kill-session", "-t", sessionTarget(sessionName))
 }
 
 // panePIDs returns the PID of each pane's initial process in the given session.

@@ -287,7 +287,7 @@ func ResizePaneToSize(sessionName string, cols, rows int, opts Options) error {
 	if !exists {
 		return nil
 	}
-	cmd, cancel := tmuxCommand(
+	return runTmux(
 		opts,
 		"resize-window",
 		"-t",
@@ -297,14 +297,6 @@ func ResizePaneToSize(sessionName string, cols, rows int, opts Options) error {
 		"-y",
 		strconv.Itoa(rows),
 	)
-	defer cancel()
-	if err := cmd.Run(); err != nil {
-		if isExitCode1(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
 }
 
 // CapturePane captures the scrollback history of a tmux pane (excluding the

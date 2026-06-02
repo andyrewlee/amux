@@ -171,28 +171,12 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 // Called once at startup and when the tmux server name changes,
 // rather than on every activity scan.
 func SetMonitorActivityOn(opts Options) error {
-	cmd, cancel := tmuxCommand(opts, "set-option", "-g", "monitor-activity", "on")
-	defer cancel()
-	if err := cmd.Run(); err != nil {
-		if isExitCode1(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return runTmux(opts, "set-option", "-g", "monitor-activity", "on")
 }
 
 // SetStatusOff disables the tmux status line globally for the server.
 func SetStatusOff(opts Options) error {
-	cmd, cancel := tmuxCommand(opts, "set-option", "-g", "status", "off")
-	defer cancel()
-	if err := cmd.Run(); err != nil {
-		if isExitCode1(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return runTmux(opts, "set-option", "-g", "status", "off")
 }
 
 // ContentHash returns a fast hash of the content for change detection.
