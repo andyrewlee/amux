@@ -10,7 +10,6 @@ on:
 env:
   TERM: xterm-256color
   GOVULNCHECK_VERSION: v1.1.4
-  GOLANGCI_LINT_VERSION: v1.64.8
 
 jobs:
   test:
@@ -25,10 +24,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Resolve golangci-lint version
+        id: golangci_version
+        run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
+
       - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          version: ${{ steps.golangci_version.outputs.version }}
           install-mode: goinstall
           verify: false
           args: --timeout=10m
@@ -118,10 +121,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Resolve golangci-lint version
+        id: golangci_version
+        run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
+
       - name: Strict lint (changed code only)
         uses: golangci/golangci-lint-action@v6
         with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          version: ${{ steps.golangci_version.outputs.version }}
           install-mode: goinstall
           verify: false
           args: --config=.golangci.strict.yml --enable=funlen --enable=gocyclo --enable=nestif --new-from-rev=${{ github.event.pull_request.base.sha }} --timeout=10m
