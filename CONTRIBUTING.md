@@ -43,6 +43,20 @@ Architecture references:
 - `internal/app/ARCHITECTURE.md`
 - `internal/app/MESSAGE_FLOW.md`
 
+### Harness
+
+`cmd/amux-harness` renders the real UI without a TTY for deterministic perf and
+render checks. `make harness-presets` runs the three presets CI runs
+(center/sidebar/monitor); to reproduce a CI failure, run the matching one
+directly, e.g. the center preset:
+
+```bash
+go run ./cmd/amux-harness -mode center -tabs 16 -hot-tabs 2 -payload-bytes 64 -frames 300 -warmup 30 -width 160 -height 48
+```
+
+See `go doc ./cmd/amux-harness` for all `-mode` values, flags, and the
+`AMUX_PPROF` profiling hook.
+
 ## Release
 
 Versioning follows SemVer and tags are `vX.Y.Z`. Pushing a tag triggers the GitHub Actions release job.
