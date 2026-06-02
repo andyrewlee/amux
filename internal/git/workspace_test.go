@@ -141,6 +141,9 @@ func TestIsBranchAlreadyExistsError(t *testing.T) {
 	if !isBranchAlreadyExistsError(err, "feature-a") {
 		t.Fatalf("expected branch already exists error to match")
 	}
+	if !isBranchAlreadyExistsError(errors.New("fatal: a branch named `feature-a` already exists"), "feature-a") {
+		t.Fatalf("expected backtick-quoted branch error to match after normalization")
+	}
 	if isBranchAlreadyExistsError(err, "feature-b") {
 		t.Fatalf("expected non-matching branch name to return false")
 	}
