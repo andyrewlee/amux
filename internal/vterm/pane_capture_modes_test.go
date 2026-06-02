@@ -355,7 +355,7 @@ func TestLoadPaneCaptureWithCursor_PreservesExistingAltScreenStateWhenModesUnkno
 	vt.enterAltScreen()
 	vt.Write([]byte("tui"))
 
-	vt.LoadPaneCaptureWithCursor([]byte("one\ntwo\nthree"), 0, 2, true)
+	vt.LoadPaneCaptureWithCursorAndModes([]byte("one\ntwo\nthree"), 0, 2, true, PaneModeState{PreserveExistingState: true})
 
 	if !vt.AltScreen {
 		t.Fatal("expected capture without pane modes to preserve existing alt-screen state")
