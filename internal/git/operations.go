@@ -90,12 +90,6 @@ func GetRemoteURL(path, remote string) (string, error) {
 	return RunGitCtx(context.Background(), path, "remote", "get-url", remote)
 }
 
-// RunGitAllowFailure executes git and returns stdout even if exit code is non-zero.
-// Use for commands like `git diff --no-index` which return 1 when differences exist.
-func RunGitAllowFailure(dir string, args ...string) (string, error) {
-	return RunGitAllowFailureCtx(context.Background(), dir, args...)
-}
-
 // RunGitAllowFailureCtx executes git and returns stdout even if exit code is non-zero.
 // Use for commands like `git diff --no-index` which return 1 when differences exist.
 func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (string, error) {
@@ -128,12 +122,6 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
-}
-
-// RunGitRaw executes a git command and returns raw bytes without trimming.
-// Use this for commands with -z output that use NUL separators.
-func RunGitRaw(dir string, args ...string) ([]byte, error) {
-	return RunGitRawCtx(context.Background(), dir, args...)
 }
 
 // RunGitRawCtx executes a git command and returns raw bytes without trimming.

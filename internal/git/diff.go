@@ -86,7 +86,7 @@ func GetFileDiff(repoPath, path string, mode DiffMode) (*DiffResult, error) {
 func GetUntrackedFileContent(repoPath, path string) (*DiffResult, error) {
 	fullPath := repoPath + "/" + path
 
-	// Use RunGitAllowFailure since --no-index returns exit code 1 when differences exist
+	// Use RunGitAllowFailureCtx since --no-index returns exit code 1 when differences exist
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
 	defer cancel()
 	output, err := RunGitAllowFailureCtx(ctx, repoPath, "diff", "--no-index", "--no-color", "--", "/dev/null", fullPath)
