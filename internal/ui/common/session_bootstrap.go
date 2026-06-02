@@ -6,6 +6,10 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
+// FullPaneCaptureQuietWindow is how long a session must be free of recent
+// activity before a pre-attach full-pane bootstrap snapshot is taken.
+const FullPaneCaptureQuietWindow = 2 * time.Second
+
 type SessionBootstrapCapture struct {
 	Snapshot         tmux.PaneSnapshot
 	CaptureFullPane  bool

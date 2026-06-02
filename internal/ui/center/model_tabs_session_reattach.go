@@ -39,8 +39,6 @@ var (
 	}
 )
 
-const fullPaneCaptureQuietWindow = 2 * time.Second
-
 type sessionBootstrapCapture = common.SessionBootstrapCapture
 
 func sessionBootstrapFns() common.SessionBootstrapFns {
@@ -59,7 +57,7 @@ func sessionBootstrapFns() common.SessionBootstrapFns {
 }
 
 func captureExistingSessionBootstrap(sessionName string, cols, rows int, opts tmux.Options) sessionBootstrapCapture {
-	return common.CaptureExistingSessionBootstrap(sessionName, cols, rows, fullPaneCaptureQuietWindow, opts, sessionBootstrapFns())
+	return common.CaptureExistingSessionBootstrap(sessionName, cols, rows, common.FullPaneCaptureQuietWindow, opts, sessionBootstrapFns())
 }
 
 func bootstrapSnapshotStillMatchesSession(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) bool {

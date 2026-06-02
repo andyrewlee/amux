@@ -422,3 +422,56 @@ func TestBootstrapSnapshotStillMatchesSession_RejectsPaneSizeChangeAfterCapture(
 		t.Fatalf("expected generation and size recheck, got %v", calls)
 	}
 }
+
+func TestCaptureExistingSessionBootstrap_RechecksExclusivityBeforeResize(t *testing.T) {
+	calls := make([]string, 0, 8)
+	hasClientsCalls := 0
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, FullPaneCaptureQuietWindow, tmux.Options{}, SessionBootstrapFns{
+		SessionHasClients: func(sessionName string, opts tmux.Options) (bool, error) {
+			calls = append(calls, "clients")
+			hasClientsCalls++
+			return hasClientsCalls >= 2, nil
+		},
+		SessionActiveWithin: func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
+			calls = append(calls, "activity")
+			return false, nil
+		},
+		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
+			calls = append(calls, "created")
+			return 123, nil
+		},
+		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
+			calls = append(calls, "pane")
+			return "%1", nil
+		},
+		SessionPaneSnapshotInfo: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
+			calls = append(calls, "info")
+			return 91, 27, true, nil
+		},
+		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
+			calls = append(calls, "resize")
+			return nil
+		},
+		CapturePaneSnapshot: func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
+			calls = append(calls, "snapshot")
+			return tmux.PaneSnapshot{Data: []byte("frame")}, nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected shared-on-recheck session to skip pre-attach full-pane bootstrap")
+	}
+	for _, call := range calls {
+		if call == "resize" || call == "snapshot" {
+			t.Fatalf("expected exclusivity recheck to prevent resize/snapshot, got %v", calls)
+		}
+	}
+	want := []string{"clients", "activity", "created", "pane", "info", "clients", "activity"}
+	if len(calls) != len(want) {
+		t.Fatalf("call order = %v, want %v", calls, want)
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Fatalf("call order = %v, want %v", calls, want)
+		}
+	}
+}
