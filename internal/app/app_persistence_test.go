@@ -2,7 +2,7 @@ package app
 
 import (
 	"errors"
-	"os"
+	"io/fs"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -187,7 +187,7 @@ func TestHandlePersistDebounceSkipsDeleteInFlightWorkspace(t *testing.T) {
 	if !app.dirtyWorkspaces[wsID] {
 		t.Fatal("expected dirty marker to remain while workspace delete is in-flight")
 	}
-	if _, err := store.Load(ws.ID()); !os.IsNotExist(err) {
+	if _, err := store.Load(ws.ID()); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("expected workspace metadata to remain absent, err=%v", err)
 	}
 }

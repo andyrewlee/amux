@@ -1,8 +1,11 @@
 package data
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -149,8 +152,13 @@ func TestWorkspaceStore_LoadNotFound(t *testing.T) {
 	store := NewWorkspaceStore(root)
 
 	_, err := store.Load("nonexistent")
-	if !os.IsNotExist(err) {
+	// Load now wraps the underlying os error with %w, so check via errors.Is
+	// (os.IsNotExist does not unwrap) — the chain still reports not-found.
+	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("expected not found error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Fatalf("expected wrapped error to name the workspace id, got %v", err)
 	}
 }
 
@@ -179,5 +187,32 @@ func TestWorkspaceStore_ListByRepo_SkipsArchived(t *testing.T) {
 	}
 	if workspaces[0].Name != "active" {
 		t.Errorf("expected active workspace, got %s", workspaces[0].Name)
+	}
+}
+
+func TestWorkspaceStore_LoadCorruptNamesID(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	ws := &Workspace{Name: "ws", Repo: "/home/user/repo", Root: "/path/to/ws"}
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	id := ws.ID()
+	path := filepath.Join(root, string(id), "workspace.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("corrupt write error = %v", err)
+	}
+
+	_, err := store.Load(id)
+	if err == nil {
+		t.Fatalf("expected decode error for corrupt workspace.json")
+	}
+	if !strings.Contains(err.Error(), string(id)) {
+		t.Fatalf("expected decode error to name the workspace id %s, got %v", id, err)
+	}
+	// A corrupt (present-but-invalid) file is not a not-found condition.
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("corrupt file should not report as not-found: %v", err)
 	}
 }
