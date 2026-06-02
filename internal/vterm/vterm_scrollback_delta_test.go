@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestAppendScrollbackDeltaWithSize_MatchesRetainedSuffixAfterTrim(t *testing.T) {
+	t.Parallel()
 	vt := New(20, 2)
 	vt.LoadPaneCapture([]byte("zero\none\ntwo\nthree\nscreen one\nscreen two\n"))
 	vt.Scrollback = append([][]Cell(nil), vt.Scrollback[2:]...)
@@ -24,6 +25,7 @@ func TestAppendScrollbackDeltaWithSize_MatchesRetainedSuffixAfterTrim(t *testing
 }
 
 func TestAppendScrollbackDeltaWithSize_PrefersScreenAlignedRepeatedMatch(t *testing.T) {
+	t.Parallel()
 	vt := New(20, 2)
 	vt.LoadPaneCapture([]byte("prompt\ncmd output\nprompt\n"))
 
@@ -44,6 +46,7 @@ func TestAppendScrollbackDeltaWithSize_PrefersScreenAlignedRepeatedMatch(t *test
 }
 
 func TestAppendScrollbackDeltaWithSize_DropsVisibleTailAfterViewportGrowth(t *testing.T) {
+	t.Parallel()
 	vt := New(20, 2)
 	vt.LoadPaneCapture([]byte("history\nscreen one\nscreen two\n"))
 	vt.Resize(20, 3)
@@ -59,6 +62,7 @@ func TestAppendScrollbackDeltaWithSize_DropsVisibleTailAfterViewportGrowth(t *te
 }
 
 func TestAppendScrollbackDeltaWithSize_PrefersLatestRepeatedRetainedSuffix(t *testing.T) {
+	t.Parallel()
 	vt := New(20, 2)
 	vt.LoadPaneCapture([]byte("A\nB\nscreen one\nscreen two\n"))
 	vt.Scrollback = append([][]Cell(nil), vt.Scrollback[:2]...)

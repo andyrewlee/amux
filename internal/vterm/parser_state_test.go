@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestParserStateSnapshot_RestoresContinuationAcrossReset(t *testing.T) {
+	t.Parallel()
 	vt := New(20, 2)
 	vt.Write([]byte("\x1b[>"))
 

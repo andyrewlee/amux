@@ -6,6 +6,7 @@ import (
 )
 
 func TestAltScreenRepeatedAboveFoldChangesDoNotDuplicateIdenticalRedraw(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -39,6 +40,7 @@ func TestAltScreenRepeatedAboveFoldChangesDoNotDuplicateIdenticalRedraw(t *testi
 }
 
 func TestAltScreenShiftRedrawDoesNotDuplicateRowsAlreadyScrolledOffDuringDraw(t *testing.T) {
+	t.Parallel()
 	vt := New(12, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -72,6 +74,7 @@ func TestAltScreenShiftRedrawDoesNotDuplicateRowsAlreadyScrolledOffDuringDraw(t 
 }
 
 func TestAltScreenLongTranscriptShiftDoesNotDuplicateOrDropLines(t *testing.T) {
+	t.Parallel()
 	vt := New(16, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))

@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestLoadPaneCaptureWithCursorAndModes_ClampsAltSavedCursorAfterResize(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.Write([]byte("shell"))
 	vt.enterAltScreen()

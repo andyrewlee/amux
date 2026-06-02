@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestAltScreenScrollbackDisabled(t *testing.T) {
+	t.Parallel()
 	vt := New(3, 2)
 	vt.Write([]byte("\x1b[?1049h"))
 	if !vt.AltScreen {
@@ -16,6 +17,7 @@ func TestAltScreenScrollbackDisabled(t *testing.T) {
 }
 
 func TestAltScreenScrollbackEnabled(t *testing.T) {
+	t.Parallel()
 	vt := New(3, 2)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
