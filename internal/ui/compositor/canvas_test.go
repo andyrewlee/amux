@@ -1,7 +1,6 @@
 package compositor
 
 import (
-	"strconv"
 	"strings"
 	"testing"
 
@@ -38,7 +37,7 @@ func TestCanvasRenderSuppressesUnderlineOnBlankCells(t *testing.T) {
 	}
 
 	out := canvas.Render()
-	if containsSGRParam(out, 4) {
+	if vterm.ContainsSGRParam(out, 4) {
 		t.Fatalf("expected no underline SGR for blank cells, got %q", out)
 	}
 }
@@ -212,28 +211,4 @@ func makeLine(text string, width int) []vterm.Cell {
 		line[i] = vterm.Cell{Rune: r, Width: 1}
 	}
 	return line
-}
-
-func containsSGRParam(s string, target int) bool {
-	targetStr := strconv.Itoa(target)
-	for i := 0; i < len(s); i++ {
-		if s[i] != 0x1b || i+1 >= len(s) || s[i+1] != '[' {
-			continue
-		}
-		j := i + 2
-		for j < len(s) && s[j] != 'm' {
-			j++
-		}
-		if j >= len(s) {
-			break
-		}
-		params := strings.Split(s[i+2:j], ";")
-		for _, param := range params {
-			if param == targetStr {
-				return true
-			}
-		}
-		i = j
-	}
-	return false
 }
