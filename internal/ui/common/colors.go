@@ -34,10 +34,8 @@ func ColorInfo() color.Color      { return themePtr.Load().Colors.Info }
 func ColorSurface0() color.Color { return themePtr.Load().Colors.Surface0 }
 func ColorSurface1() color.Color { return themePtr.Load().Colors.Surface1 }
 func ColorSurface2() color.Color { return themePtr.Load().Colors.Surface2 }
-func ColorSurface3() color.Color { return themePtr.Load().Colors.Surface3 }
 
 func ColorSelection() color.Color { return themePtr.Load().Colors.Selection }
-func ColorHighlight() color.Color { return themePtr.Load().Colors.Highlight }
 
 // Agent colors remain constant across themes for brand recognition.
 var (
