@@ -6,6 +6,7 @@ import (
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -18,6 +19,7 @@ func New(cfg *config.Config) *Model {
 		agentManager:         appPty.NewAgentManager(cfg),
 		styles:               common.DefaultStyles(),
 		tabEvents:            make(chan tabEvent, 4096),
+		tmuxOpts:             tmux.DefaultOptions(),
 	}
 }
 

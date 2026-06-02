@@ -53,25 +53,8 @@ type Model struct {
 	config     *config.Config
 	styles     common.Styles
 	tabHits    []tabHit
-	tmuxConfig tmuxConfig
+	tmuxOpts   tmux.Options
 	instanceID string
-}
-
-// tmuxConfig holds tmux-related configuration
-type tmuxConfig struct {
-	ServerName string
-	ConfigPath string
-}
-
-func (m *Model) getTmuxOptions() tmux.Options {
-	opts := tmux.DefaultOptions()
-	if m.tmuxConfig.ServerName != "" {
-		opts.ServerName = m.tmuxConfig.ServerName
-	}
-	if m.tmuxConfig.ConfigPath != "" {
-		opts.ConfigPath = m.tmuxConfig.ConfigPath
-	}
-	return opts
 }
 
 // SetInstanceID sets the tmux instance tag for sessions created by this model.
@@ -79,12 +62,12 @@ func (m *Model) SetInstanceID(id string) {
 	m.instanceID = id
 }
 
-// SetTmuxConfig updates the tmux configuration.
-func (m *Model) SetTmuxConfig(serverName, configPath string) {
-	m.tmuxConfig.ServerName = serverName
-	m.tmuxConfig.ConfigPath = configPath
+// SetTmuxOptions stores the resolved tmux options and forwards them to the
+// agent manager.
+func (m *Model) SetTmuxOptions(opts tmux.Options) {
+	m.tmuxOpts = opts
 	if m.agentManager != nil {
-		m.agentManager.SetTmuxOptions(m.getTmuxOptions())
+		m.agentManager.SetTmuxOptions(opts)
 	}
 }
 

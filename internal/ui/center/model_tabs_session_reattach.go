@@ -145,7 +145,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	assistant := tab.Assistant
 	ws := tab.Workspace
 	tabID := tab.ID
-	opts := m.getTmuxOptions()
+	opts := m.tmuxOpts
 	return func() tea.Msg {
 		state, err := sessionStateForFn(sessionName, opts)
 		if err != nil {
@@ -311,7 +311,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	if existingAgent != nil {
 		_ = m.agentManager.CloseAgent(existingAgent)
 	}
-	tmuxOpts := m.getTmuxOptions()
+	tmuxOpts := m.tmuxOpts
 
 	tm := m.terminalMetrics()
 	termWidth := tm.Width

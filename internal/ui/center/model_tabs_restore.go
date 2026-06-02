@@ -116,7 +116,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 	tm := m.terminalMetrics()
 	attachWidth := tm.Width
 	attachHeight := tm.Height
-	opts := m.getTmuxOptions()
+	opts := m.tmuxOpts
 	return func() tea.Msg {
 		state, err := sessionStateForFn(sessionName, opts)
 		if err != nil {

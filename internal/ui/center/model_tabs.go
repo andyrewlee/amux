@@ -145,8 +145,8 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 		// Fresh tabs must only seed history. The attached PTY still has unread
 		// startup bytes queued, so preloading the visible screen would replay the
 		// same banner/prompt a second time when the reader drains.
-		captureCols, captureRows := sessionHistoryCaptureSize(sessionName, termWidth, termHeight, m.getTmuxOptions())
-		scrollback, _ := tmux.CapturePane(sessionName, m.getTmuxOptions())
+		captureCols, captureRows := sessionHistoryCaptureSize(sessionName, termWidth, termHeight, m.tmuxOpts)
+		scrollback, _ := tmux.CapturePane(sessionName, m.tmuxOpts)
 
 		return ptyTabCreateResult{
 			Workspace:         ws,

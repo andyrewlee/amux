@@ -32,7 +32,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 
 	// Capture session info before cleanup for async kill
 	sessionName := tab.SessionName
-	tmuxOpts := m.getTmuxOptions()
+	tmuxOpts := m.tmuxOpts
 
 	m.stopPTYReader(tab)
 

@@ -127,9 +127,8 @@ type TerminalModel struct {
 	msgSink func(tea.Msg)
 
 	// tmux config
-	tmuxServerName string
-	tmuxConfigPath string
-	instanceID     string
+	tmuxOpts   tmux.Options
+	instanceID string
 }
 
 // NewTerminalModel creates a new sidebar terminal model
@@ -139,29 +138,18 @@ func NewTerminalModel() *TerminalModel {
 		activeTabByWorkspace: make(map[string]int),
 		pendingCreation:      make(map[string]bool),
 		styles:               common.DefaultStyles(),
+		tmuxOpts:             tmux.DefaultOptions(),
 	}
 }
 
-// SetTmuxConfig updates the tmux configuration.
-func (m *TerminalModel) SetTmuxConfig(serverName, configPath string) {
-	m.tmuxServerName = serverName
-	m.tmuxConfigPath = configPath
+// SetTmuxOptions stores the resolved tmux options for this model.
+func (m *TerminalModel) SetTmuxOptions(opts tmux.Options) {
+	m.tmuxOpts = opts
 }
 
 // SetInstanceID sets the tmux instance tag for sessions created by this model.
 func (m *TerminalModel) SetInstanceID(id string) {
 	m.instanceID = id
-}
-
-func (m *TerminalModel) getTmuxOptions() tmux.Options {
-	opts := tmux.DefaultOptions()
-	if m.tmuxServerName != "" {
-		opts.ServerName = m.tmuxServerName
-	}
-	if m.tmuxConfigPath != "" {
-		opts.ConfigPath = m.tmuxConfigPath
-	}
-	return opts
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.
