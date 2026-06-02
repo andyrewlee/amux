@@ -59,23 +59,20 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 	// Cursor moves or visibility toggles don't always touch renderDirty,
 	// so we force redraw of the previous and current cursor lines when needed.
 	if !allDirty && term.ViewOffset == 0 {
-		lastCursorX := term.LastCursorX()
-		lastCursorY := term.LastCursorY()
-		lastShowCursor := term.LastShowCursor()
-		lastCursorHidden := term.LastCursorHidden()
+		last := term.LastCursorState()
 
-		cursorChanged := showCursor != lastShowCursor ||
-			term.CursorHiddenForRender() != lastCursorHidden ||
-			term.CursorX != lastCursorX ||
-			term.CursorY != lastCursorY
+		cursorChanged := showCursor != last.ShowCursor ||
+			term.CursorHiddenForRender() != last.Hidden ||
+			term.CursorX != last.X ||
+			term.CursorY != last.Y
 
 		if cursorChanged {
 			// Defensive: ensure dirtyLinesCopy matches screen height.
 			if dirtyLinesCopy == nil {
 				dirtyLinesCopy = make([]bool, height)
 			}
-			if lastCursorY >= 0 && lastCursorY < len(dirtyLinesCopy) {
-				dirtyLinesCopy[lastCursorY] = true
+			if last.Y >= 0 && last.Y < len(dirtyLinesCopy) {
+				dirtyLinesCopy[last.Y] = true
 			}
 			if term.CursorY >= 0 && term.CursorY < len(dirtyLinesCopy) {
 				dirtyLinesCopy[term.CursorY] = true
