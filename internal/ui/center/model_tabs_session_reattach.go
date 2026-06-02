@@ -9,7 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // These package-level indirections are test seams for reattach/bootstrap
@@ -39,10 +39,10 @@ var (
 	}
 )
 
-type sessionBootstrapCapture = common.SessionBootstrapCapture
+type sessionBootstrapCapture = ptyio.SessionBootstrapCapture
 
-func sessionBootstrapFns() common.SessionBootstrapFns {
-	return common.SessionBootstrapFns{
+func sessionBootstrapFns() ptyio.SessionBootstrapFns {
+	return ptyio.SessionBootstrapFns{
 		SessionHasClients:       sessionHasClientsFn,
 		SessionClientCount:      sessionClientCountFn,
 		SessionActiveWithin:     sessionActiveWithinFn,
@@ -57,23 +57,23 @@ func sessionBootstrapFns() common.SessionBootstrapFns {
 }
 
 func captureExistingSessionBootstrap(sessionName string, cols, rows int, opts tmux.Options) sessionBootstrapCapture {
-	return common.CaptureExistingSessionBootstrap(sessionName, cols, rows, common.FullPaneCaptureQuietWindow, opts, sessionBootstrapFns())
+	return ptyio.CaptureExistingSessionBootstrap(sessionName, cols, rows, ptyio.FullPaneCaptureQuietWindow, opts, sessionBootstrapFns())
 }
 
 func bootstrapSnapshotStillMatchesSession(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) bool {
-	return common.BootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts, sessionBootstrapFns())
+	return ptyio.BootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts, sessionBootstrapFns())
 }
 
 func rollbackExistingSessionBootstrap(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) {
-	common.RollbackExistingSessionBootstrap(sessionName, bootstrap, opts, sessionBootstrapFns())
+	ptyio.RollbackExistingSessionBootstrap(sessionName, bootstrap, opts, sessionBootstrapFns())
 }
 
 func sessionHistoryCaptureSize(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) (int, int) {
-	return common.SessionHistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns())
+	return ptyio.SessionHistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns())
 }
 
 func captureSessionHistory(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) ([]byte, int, int) {
-	return common.CaptureSessionHistory(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns(), capturePaneFn)
+	return ptyio.CaptureSessionHistory(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns(), capturePaneFn)
 }
 
 func (m *Model) sessionBootstrapViewportSize() (int, int) {

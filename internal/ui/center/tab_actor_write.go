@@ -6,7 +6,7 @@ import (
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func (m *Model) handleWriteOutput(ev tabEvent) {
@@ -60,7 +60,7 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 // byte count, whether the filter ran, whether the redraw should be suppressed,
 // whether a follow-up flush is needed, and the activity tag to publish.
 func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64) {
-	output := common.FilterKnownPTYNoiseStream(ev.output, &tab.ptyNoiseTrailing)
+	output := ptyio.FilterKnownPTYNoiseStream(ev.output, &tab.ptyNoiseTrailing)
 	filteredLen = len(output)
 	filterApplied = true
 	if len(output) > 0 {

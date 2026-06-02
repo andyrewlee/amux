@@ -9,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -21,7 +22,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		data := msg.Data
 		tab.mu.Lock()
 		if tab.overflowTrimCarry != (vterm.ParserCarryState{}) {
-			data, tab.overflowTrimCarry = common.TrimPTYOverflowPrefix(data, 0, tab.overflowTrimCarry)
+			data, tab.overflowTrimCarry = ptyio.TrimPTYOverflowPrefix(data, 0, tab.overflowTrimCarry)
 			tab.activityANSIState = ansiActivityText
 		}
 		tab.mu.Unlock()
@@ -79,7 +80,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				}
 				tab.mu.Unlock()
 			}
-			retained, overflowCarry := common.TrimPTYOverflowPrefix(tab.pendingOutput, overflow, seed)
+			retained, overflowCarry := ptyio.TrimPTYOverflowPrefix(tab.pendingOutput, overflow, seed)
 			retainedStart := combinedLen - len(retained)
 			chunkStart := prevPendingLen
 			if retainedStart > chunkStart {
@@ -269,7 +270,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						if prevPending > 0 {
 							previewTrailing = append(previewTrailing[:0], tab.actorQueuedNoiseTrailing...)
 						}
-						filteredPreview := common.FilterKnownPTYNoiseStream(chunk, &previewTrailing)
+						filteredPreview := ptyio.FilterKnownPTYNoiseStream(chunk, &previewTrailing)
 						nextCarry = vterm.AdvanceParserCarryState(seedCarry, filteredPreview)
 						nextNoiseTrailing = append(nextNoiseTrailing, previewTrailing...)
 						tab.actorWritesPending = prevPending + 1
@@ -418,7 +419,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 // tab.Terminal != nil. It returns the filtered byte count, whether the
 // post-write redraw should be suppressed, and the activity tag to publish.
 func (m *Model) applyPTYChunkLocked(tab *Tab, chunk []byte, hasMoreBuffered bool, visibleSeq uint64) (filteredLen int, suppressRedraw bool, tagSessionName string, tagTimestamp int64) {
-	filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
+	filtered := ptyio.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
 	filteredLen = len(filtered)
 	if len(filtered) > 0 {
 		flushDone := perf.Time("pty_flush")

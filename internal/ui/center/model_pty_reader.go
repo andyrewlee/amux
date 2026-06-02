@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration) {
@@ -99,7 +99,7 @@ func (m *Model) busyPTYTabCount(now time.Time) int {
 }
 
 func (m *Model) forwardPTYMsgs(msgCh <-chan tea.Msg) {
-	common.ForwardPTYMsgs(msgCh, m.msgSink, common.OutputMerger{
+	ptyio.ForwardPTYMsgs(msgCh, m.msgSink, ptyio.OutputMerger{
 		ExtractData: func(msg tea.Msg) ([]byte, bool) {
 			if out, ok := msg.(PTYOutput); ok {
 				return out.Data, true

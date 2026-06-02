@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -254,7 +254,7 @@ func TestRestoreTerminalScrollbackCapture_ScrollsToBottomBeforePrependingHistory
 		t.Fatal("expected seeded terminal to start scrolled into history")
 	}
 
-	common.RestoreScrollbackCapture(term, []byte("ancient\n"), 20, 1, 20, 2)
+	ptyio.RestoreScrollbackCapture(term, []byte("ancient\n"), 20, 1, 20, 2)
 
 	if term.ViewOffset != 0 {
 		t.Fatalf("expected history-only restore to land at live bottom, got view offset %d", term.ViewOffset)

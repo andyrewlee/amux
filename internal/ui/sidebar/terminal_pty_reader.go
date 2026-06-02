@@ -4,11 +4,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func (m *TerminalModel) forwardPTYMsgs(msgCh <-chan tea.Msg) {
-	common.ForwardPTYMsgs(msgCh, m.msgSink, common.OutputMerger{
+	ptyio.ForwardPTYMsgs(msgCh, m.msgSink, ptyio.OutputMerger{
 		ExtractData: func(msg tea.Msg) ([]byte, bool) {
 			if out, ok := msg.(messages.SidebarPTYOutput); ok {
 				return out.Data, true

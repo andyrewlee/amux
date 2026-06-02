@@ -1,4 +1,4 @@
-package common
+package ptyio
 
 import "github.com/andyrewlee/amux/internal/vterm"
 
