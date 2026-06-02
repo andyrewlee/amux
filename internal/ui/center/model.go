@@ -1,3 +1,8 @@
+// Package center implements the center-pane Bubble Tea model: the agent tab
+// strip, per-tab PTY I/O and flushing, the diff viewer, and mouse/keyboard
+// text selection. It is the largest UI subsystem; tab work is serialized
+// through a per-model actor (see tab_actor.go) and output is parsed by
+// internal/vterm.
 package center
 
 import (
