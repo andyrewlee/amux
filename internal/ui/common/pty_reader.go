@@ -243,11 +243,3 @@ func ForwardPTYMsgs(msgCh <-chan tea.Msg, sink func(tea.Msg), merger OutputMerge
 	nextMsg:
 	}
 }
-
-// SafeClose closes ch, recovering from double-close panics.
-func SafeClose(ch chan struct{}) {
-	defer func() {
-		_ = recover()
-	}()
-	close(ch)
-}

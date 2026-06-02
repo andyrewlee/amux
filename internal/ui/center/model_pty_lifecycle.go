@@ -39,7 +39,7 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 	atomic.StoreInt64(&tab.ptyHeartbeat, time.Now().UnixNano())
 
 	if tab.readerCancel != nil {
-		common.SafeClose(tab.readerCancel)
+		close(tab.readerCancel)
 	}
 	tab.readerCancel = make(chan struct{})
 	tab.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
@@ -90,7 +90,7 @@ func (m *Model) stopPTYReader(tab *Tab) {
 	}
 	tab.mu.Lock()
 	if tab.readerCancel != nil {
-		common.SafeClose(tab.readerCancel)
+		close(tab.readerCancel)
 		tab.readerCancel = nil
 	}
 	tab.readerActive = false
