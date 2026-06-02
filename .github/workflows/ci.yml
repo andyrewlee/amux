@@ -135,3 +135,29 @@ jobs:
           install-mode: goinstall
           verify: false
           args: --config=.golangci.strict.yml --enable=funlen --enable=gocyclo --enable=nestif --new-from-rev=${{ github.event.pull_request.base.sha }} --timeout=10m
+
+  macos-build:
+    # Minimal darwin coverage on push to main only (macOS minutes are ~10x
+    # linux). Proves the released darwin binary compiles and exercises the
+    # darwin-only pbcopy path in internal/ui/common. Race/lint/govulncheck/
+    # harness are host-independent and already run on linux.
+    if: github.event_name == 'push'
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: |
+          set -euo pipefail
+          pkgs=$(go list ./... | grep -v '/internal/e2e$' | grep -v '/internal/tmux$')
+          go test $pkgs
