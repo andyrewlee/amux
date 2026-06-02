@@ -217,16 +217,14 @@ func TestFileWatcher(t *testing.T) {
 			t.Fatalf("rename: %v", err)
 		}
 
-		// Wait for notification
-		time.Sleep(100 * time.Millisecond)
+		// Wait for the notification by polling rather than a fixed sleep.
+		waitForNotifyCount(t, &notifyCount, 1, 2*time.Second)
 
-		if notifyCount.Load() == 0 {
-			t.Fatalf("expected notification after atomic file replacement")
-		}
-
-		// Reset counter and wait for debounce
+		// Reset counter and wait out the debounce window before the next change.
+		// This is a debounce wait, not a notification wait — the count is
+		// intentionally 0 here.
 		notifyCount.Store(0)
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(2 * fw.debounce)
 
 		// Make another change - this verifies the watch is still active
 		tempPath2 := filepath.Join(gitDir, "index.lock")
@@ -237,11 +235,22 @@ func TestFileWatcher(t *testing.T) {
 			t.Fatalf("rename2: %v", err)
 		}
 
-		// Wait for notification
-		time.Sleep(100 * time.Millisecond)
-
-		if notifyCount.Load() == 0 {
-			t.Fatalf("expected notification after second atomic file replacement")
-		}
+		// Wait for the second notification.
+		waitForNotifyCount(t, &notifyCount, 1, 2*time.Second)
 	})
+}
+
+// waitForNotifyCount polls c until it reaches at least want or the timeout
+// elapses, failing the test on timeout. Used in place of a fixed sleep plus an
+// immediate Load, which is flaky on slow CI and wastes time on fast machines.
+func waitForNotifyCount(t *testing.T, c *atomic.Int32, want int32, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if c.Load() >= want {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("timed out after %s waiting for notify count >= %d (got %d)", timeout, want, c.Load())
 }
