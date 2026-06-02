@@ -34,10 +34,10 @@ func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *
 	opts := gcTestServer(t)
 
 	now := time.Now()
-	if err := writeTmuxActivityOwnerLease(opts, "shared-owner", 3, now); err != nil {
+	if err := activity.WriteOwnerLease(opts, "shared-owner", 3, now); err != nil {
 		t.Fatalf("write owner lease: %v", err)
 	}
-	if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(map[string]bool{"ws-shared": true}, 3, now), opts); err != nil {
+	if err := tmux.SetGlobalOptionValue(activity.SnapshotOption, activity.EncodeSnapshot(map[string]bool{"ws-shared": true}, 3, now), opts); err != nil {
 		t.Fatalf("set shared snapshot: %v", err)
 	}
 
@@ -117,10 +117,10 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 	opts := gcTestServer(t)
 
 	initialNow := time.Now()
-	if err := writeTmuxActivityOwnerLease(opts, "owner-a", 2, initialNow); err != nil {
+	if err := activity.WriteOwnerLease(opts, "owner-a", 2, initialNow); err != nil {
 		t.Fatalf("write initial owner lease: %v", err)
 	}
-	if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(map[string]bool{"ws-old": true}, 2, initialNow), opts); err != nil {
+	if err := tmux.SetGlobalOptionValue(activity.SnapshotOption, activity.EncodeSnapshot(map[string]bool{"ws-old": true}, 2, initialNow), opts); err != nil {
 		t.Fatalf("write initial snapshot: %v", err)
 	}
 
@@ -131,10 +131,10 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 				allStates: map[string]tmux.SessionState{},
 			},
 			onSessionsCall: func() {
-				if err := writeTmuxActivityOwnerLease(opts, "owner-b", 3, time.Now()); err != nil {
+				if err := activity.WriteOwnerLease(opts, "owner-b", 3, time.Now()); err != nil {
 					t.Fatalf("simulate owner takeover: %v", err)
 				}
-				if err := tmux.SetGlobalOptionValue(tmuxActivitySnapshotOption, encodeTmuxActivitySnapshot(map[string]bool{"ws-new": true}, 3, time.Now()), opts); err != nil {
+				if err := tmux.SetGlobalOptionValue(activity.SnapshotOption, activity.EncodeSnapshot(map[string]bool{"ws-new": true}, 3, time.Now()), opts); err != nil {
 					t.Fatalf("write takeover snapshot: %v", err)
 				}
 			},
@@ -155,18 +155,18 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 		t.Fatalf("expected scanner epoch to update to current owner epoch 3, got %d", result.ScannerEpoch)
 	}
 
-	lease, err := readTmuxActivityOwnerLease(opts)
+	lease, err := activity.ReadOwnerLease(opts)
 	if err != nil {
 		t.Fatalf("read lease after scan: %v", err)
 	}
-	if lease.ownerID != "owner-b" {
-		t.Fatalf("expected takeover owner to remain owner-b, got %q", lease.ownerID)
+	if lease.OwnerID != "owner-b" {
+		t.Fatalf("expected takeover owner to remain owner-b, got %q", lease.OwnerID)
 	}
-	if lease.epoch != 3 {
-		t.Fatalf("expected takeover epoch to remain 3, got %d", lease.epoch)
+	if lease.Epoch != 3 {
+		t.Fatalf("expected takeover epoch to remain 3, got %d", lease.Epoch)
 	}
 
-	shared, ok, err := readTmuxActivitySnapshot(opts, time.Now(), 3)
+	shared, ok, err := activity.ReadSnapshot(opts, time.Now(), 3)
 	if err != nil {
 		t.Fatalf("read snapshot after scan: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 func TestRunTmuxActivityScan_LeaseRevalidationErrorBeforePublishSkipsApply(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := gcTestServer(t)
-	if err := writeTmuxActivityOwnerLease(opts, "owner-a", 4, time.Now()); err != nil {
+	if err := activity.WriteOwnerLease(opts, "owner-a", 4, time.Now()); err != nil {
 		t.Fatalf("write owner lease: %v", err)
 	}
 
