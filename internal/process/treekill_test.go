@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestKillProcessGroup_BasicTermination(t *testing.T) {
@@ -143,18 +145,9 @@ func TestKillProcessGroup_ChildProcessCleanup(t *testing.T) {
 	}
 
 	// Verify the process group is gone (children cleaned up), with retries for slow cleanup.
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for {
-		err = syscall.Kill(-pgid, 0)
-		if err == syscall.ESRCH {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Errorf("process group still running")
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, 500*time.Millisecond, 10*time.Millisecond, func() bool {
+		return syscall.Kill(-pgid, 0) == syscall.ESRCH
+	}, "process group still running")
 }
 
 func TestSetProcessGroup(t *testing.T) {
