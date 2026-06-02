@@ -44,6 +44,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Windows cross-compile
+        run: GOOS=windows GOARCH=amd64 go build ./...
+
       - name: Tidy check
         run: |
           set -euo pipefail
