@@ -11,7 +11,7 @@
   <a href="LICENSE">
     <img src="https://img.shields.io/github/license/andyrewlee/amux?style=flat-square" alt="License" />
   </a>
-  <img src="https://img.shields.io/badge/Go-1.24.12-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go version" />
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go version" />
   <a href="https://discord.gg/Dswc7KFPxs">
     <img src="https://img.shields.io/badge/Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord" />
   </a>
@@ -72,10 +72,6 @@ Start with `internal/app/ARCHITECTURE.md` for lifecycle, PTY flow, tmux tagging,
 
 ## Configuration
 
-## Platform Support
-
-AMUX requires `tmux` and is supported on Linux/macOS. Windows is not supported.
-
 Create `.amux/workspaces.json` in your project to run setup commands for new workspaces:
 
 ```json
@@ -88,6 +84,10 @@ Create `.amux/workspaces.json` in your project to run setup commands for new wor
 ```
 
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`.
+
+## Platform Support
+
+AMUX requires `tmux` and is supported on Linux/macOS. Windows is not supported.
 
 ## Development
 
