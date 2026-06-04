@@ -9,6 +9,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -449,9 +450,9 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			opts := m.getTmuxOptions()
 			sessionName := tagSessionName
 			timestamp := strconv.FormatInt(tagTimestamp, 10)
-			go func() {
+			safego.Go("center.tmux_tag_write", func() {
 				_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
-			}()
+			})
 		}
 		if requestFlush && m.msgSink != nil {
 			m.msgSink(PTYFlush{WorkspaceID: ev.workspaceID, TabID: ev.tabID, CatchUp: ev.catchUp})
