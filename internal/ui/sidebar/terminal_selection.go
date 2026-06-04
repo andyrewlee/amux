@@ -60,7 +60,7 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 	wtID := m.workspaceID()
 	tab := tabs[idx]
 	sessionName := ""
-	opts := m.getTmuxOptions()
+	opts := m.tmuxOpts
 
 	// Close PTY and cleanup
 	if tab.State != nil {

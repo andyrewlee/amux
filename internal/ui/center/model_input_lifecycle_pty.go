@@ -403,7 +403,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					}
 				}
 				if tagSessionName != "" {
-					opts := m.getTmuxOptions()
+					opts := m.tmuxOpts
 					sessionName := tagSessionName
 					timestamp := strconv.FormatInt(tagTimestamp, 10)
 					cmds = append(cmds, func() tea.Msg {

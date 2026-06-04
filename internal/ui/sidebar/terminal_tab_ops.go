@@ -79,7 +79,7 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 
 	tab := tabs[idx]
 	sessionName := ""
-	opts := m.getTmuxOptions()
+	opts := m.tmuxOpts
 
 	// Close PTY and cleanup
 	if tab.State != nil {

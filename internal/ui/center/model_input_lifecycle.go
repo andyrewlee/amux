@@ -32,7 +32,7 @@ func (m *Model) userInputActivityTagCmd(tab *Tab) tea.Cmd {
 		return nil
 	}
 	tab.lastInputTagAt = now
-	opts := m.getTmuxOptions()
+	opts := m.tmuxOpts
 	timestamp := now.UnixMilli()
 	return func() tea.Msg {
 		raw := strconv.FormatInt(timestamp, 10)

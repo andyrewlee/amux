@@ -87,7 +87,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	tabID := generateTerminalTabID()
 	termWidth, termHeight := m.sessionBootstrapViewportSize()
 	attachWidth, attachHeight := m.terminalContentSize()
-	opts := m.getTmuxOptions()
+	opts := m.tmuxOpts
 	instanceID := m.instanceID
 	root := ws.Root
 
@@ -234,7 +234,7 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
 	m.detachState(ts, false)
-	_ = tmux.KillSession(sessionName, m.getTmuxOptions())
+	_ = tmux.KillSession(sessionName, m.tmuxOpts)
 	return m.attachToSession(ws, tab.ID, sessionName, true, "restart")
 }
 
@@ -243,7 +243,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		return nil
 	}
 	// Snapshot model-dependent values so the async cmd doesn't race on TerminalModel fields.
-	opts := m.getTmuxOptions()
+	opts := m.tmuxOpts
 	termWidth, termHeight := m.sessionBootstrapViewportSize()
 	attachWidth, attachHeight := m.terminalContentSize()
 	shell := os.Getenv("SHELL")

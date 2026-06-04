@@ -33,7 +33,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 		}
 		tab.mu.Unlock()
 		if tagSessionName != "" {
-			opts := m.getTmuxOptions()
+			opts := m.tmuxOpts
 			sessionName := tagSessionName
 			timestamp := strconv.FormatInt(tagTimestamp, 10)
 			cmds = append(cmds, func() tea.Msg {

@@ -427,7 +427,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 			}
 		}
 		if tagSessionName != "" {
-			opts := m.getTmuxOptions()
+			opts := m.tmuxOpts
 			sessionName := tagSessionName
 			timestamp := strconv.FormatInt(tagTimestamp, 10)
 			safego.Go("center.tmux_tag_write", func() {
