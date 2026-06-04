@@ -10,7 +10,7 @@ HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 
-.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
+.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -40,17 +40,24 @@ harness-sidebar:
 
 harness-presets: harness-center harness-sidebar harness-monitor
 
-lint:
+check-golangci-version:
 	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
+	@want_raw="$$(cat .golangci-version)"; \
+	want="$${want_raw#v}"; \
+	have_raw="$$(golangci-lint version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+	have="$${have_raw#v}"; \
+	if [ "$$have" != "$$want" ]; then \
+		echo "WARNING: golangci-lint $${have_raw:-unknown} installed but .golangci-version pins $$want_raw (CI uses $$want_raw; diagnostics may differ)"; \
+	fi
+
+lint: check-golangci-version
 	golangci-lint run
 	$(MAKE) check-file-length
 
-lint-strict:
-	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
+lint-strict: check-golangci-version
 	golangci-lint run -c .golangci.strict.yml
 
-lint-strict-new:
-	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
+lint-strict-new: check-golangci-version
 	@if [ -n "$(BASE)" ]; then \
 		echo "Running strict lint against changes since $(BASE)"; \
 		golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$(BASE)" --timeout=10m; \
@@ -59,7 +66,7 @@ lint-strict-new:
 		golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m; \
 	fi
 
-lint-ci-parity: # CACHE_ROOT defaults to a gitignored local directory (/.cache/).
+lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored local directory (/.cache/).
 	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
 	@BASE_REF="$${BASE_REF:-origin/main}"; \
 	CACHE_ROOT="$${CACHE_ROOT:-$$(pwd)/.cache}"; \
