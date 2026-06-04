@@ -41,6 +41,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Tidy check
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
       - name: Test
         run: |
           set -euo pipefail
