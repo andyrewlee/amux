@@ -17,9 +17,9 @@ func SessionNamesWithClients(opts Options) (map[string]bool, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if isExitCode1(err) {
-			stderr := strings.ToLower(strings.TrimSpace(string(output)))
+			stderr := strings.TrimSpace(string(output))
 			// No attached clients should not fail detached-session GC.
-			if stderr == "" || strings.Contains(stderr, "no client") || strings.Contains(stderr, "can't find client") {
+			if stderr == "" || isNoClientStderr(stderr) {
 				return attached, nil
 			}
 		}

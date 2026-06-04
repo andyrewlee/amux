@@ -28,3 +28,26 @@ func IsNoServerError(err error) bool {
 		strings.Contains(msg, "failed to connect to server") ||
 		strings.Contains(msg, "connection refused")
 }
+
+// isSessionNotFoundStderr reports whether tmux stderr indicates the target
+// session does not exist.
+func isSessionNotFoundStderr(stderr string) bool {
+	s := strings.ToLower(strings.TrimSpace(stderr))
+	return strings.Contains(s, "session not found") ||
+		strings.Contains(s, "no such session") ||
+		strings.Contains(s, "can't find session")
+}
+
+// isNoClientStderr reports whether tmux stderr indicates there are no matching
+// clients attached to the session.
+func isNoClientStderr(stderr string) bool {
+	s := strings.ToLower(strings.TrimSpace(stderr))
+	return strings.Contains(s, "no client") || strings.Contains(s, "can't find client")
+}
+
+// isOptionMissingStderr reports whether tmux stderr indicates an unknown or
+// invalid option, the "missing option" signal for show-options/set-option.
+func isOptionMissingStderr(stderr string) bool {
+	s := strings.ToLower(strings.TrimSpace(stderr))
+	return strings.Contains(s, "invalid option") || strings.Contains(s, "unknown option")
+}

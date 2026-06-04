@@ -337,7 +337,7 @@ func GlobalOptionValue(key string, opts Options) (string, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if isExitCode1(err) {
-			if tmuxShowOptionMissingError(string(output)) {
+			if isOptionMissingStderr(string(output)) {
 				return "", nil
 			}
 			stderr := strings.TrimSpace(string(output))
@@ -346,11 +346,6 @@ func GlobalOptionValue(key string, opts Options) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
-}
-
-func tmuxShowOptionMissingError(stderr string) bool {
-	message := strings.ToLower(strings.TrimSpace(stderr))
-	return strings.Contains(message, "invalid option") || strings.Contains(message, "unknown option")
 }
 
 // OptionValue represents a tmux option key/value pair.
@@ -373,7 +368,7 @@ func SetGlobalOptionValue(key, value string, opts Options) error {
 	if err != nil {
 		if isExitCode1(err) {
 			stderr := strings.TrimSpace(string(output))
-			if tmuxShowOptionMissingError(stderr) {
+			if isOptionMissingStderr(stderr) {
 				return nil
 			}
 			return fmt.Errorf("set-option -g %s: %s: %w", key, stderr, err)
@@ -422,7 +417,7 @@ func SetGlobalOptionValues(values []OptionValue, opts Options) error {
 	if err != nil {
 		if isExitCode1(err) {
 			stderr := strings.TrimSpace(string(output))
-			if tmuxShowOptionMissingError(stderr) {
+			if isOptionMissingStderr(stderr) {
 				return nil
 			}
 			return fmt.Errorf("set-option -g (multi): %s: %w", stderr, err)

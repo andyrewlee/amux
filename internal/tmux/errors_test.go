@@ -48,3 +48,37 @@ func wrappedErr(message string) error { return testErr(message) }
 type testErr string
 
 func (e testErr) Error() string { return string(e) }
+
+func TestStderrClassifiers(t *testing.T) {
+	tests := []struct {
+		name       string
+		stderr     string
+		session    bool
+		noClient   bool
+		optMissing bool
+	}{
+		{"session not found", "session not found: amux-x", true, false, false},
+		{"no such session", "no such session: amux-x", true, false, false},
+		{"cant find session", "can't find session amux-x", true, false, false},
+		{"no client", "no client found", false, true, false},
+		{"cant find client", "can't find client", false, true, false},
+		{"invalid option", "invalid option: @amux_x", false, false, true},
+		{"unknown option", "unknown option @amux_x", false, false, true},
+		{"mixed case session", "Session Not Found", true, false, false},
+		{"unrelated", "lost server", false, false, false},
+		{"empty", "", false, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSessionNotFoundStderr(tt.stderr); got != tt.session {
+				t.Errorf("isSessionNotFoundStderr(%q) = %v, want %v", tt.stderr, got, tt.session)
+			}
+			if got := isNoClientStderr(tt.stderr); got != tt.noClient {
+				t.Errorf("isNoClientStderr(%q) = %v, want %v", tt.stderr, got, tt.noClient)
+			}
+			if got := isOptionMissingStderr(tt.stderr); got != tt.optMissing {
+				t.Errorf("isOptionMissingStderr(%q) = %v, want %v", tt.stderr, got, tt.optMissing)
+			}
+		})
+	}
+}
