@@ -192,20 +192,7 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 
 		// Convert to absolute line and update selection
 		absLine := ts.VTerm.ScreenYToAbsoluteLine(termY)
-		startX := ts.VTerm.SelStartX()
-		startLine := ts.VTerm.SelStartLine()
-		if !ts.VTerm.HasSelection() {
-			startX = ts.Selection.StartX
-			startLine = ts.Selection.StartLine
-		}
-		ts.Selection.EndX = termX
-		ts.Selection.EndLine = absLine
-		ts.VTerm.SetSelection(
-			startX, startLine,
-			termX, absLine, true, false,
-		)
-		ts.Selection.StartX = startX
-		ts.Selection.StartLine = startLine
+		common.ExtendSelection(ts.VTerm, &ts.Selection, termX, absLine)
 
 		// Store last X for tick-based endpoint updates
 		ts.selectionLastTermX = termX
@@ -289,17 +276,7 @@ func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick
 	}
 	absLine := ts.VTerm.ScreenYToAbsoluteLine(edgeY)
 	endX := ts.selectionLastTermX
-	startX := ts.VTerm.SelStartX()
-	startLine := ts.VTerm.SelStartLine()
-	if !ts.VTerm.HasSelection() {
-		startX = ts.Selection.StartX
-		startLine = ts.Selection.StartLine
-	}
-	ts.Selection.EndX = endX
-	ts.Selection.EndLine = absLine
-	ts.VTerm.SetSelection(startX, startLine, endX, absLine, true, false)
-	ts.Selection.StartX = startX
-	ts.Selection.StartLine = startLine
+	common.ExtendSelection(ts.VTerm, &ts.Selection, endX, absLine)
 
 	ts.mu.Unlock()
 

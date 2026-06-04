@@ -269,17 +269,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		}
 
 		absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, termY)
-		startX := tab.Terminal.SelStartX()
-		startLine := tab.Terminal.SelStartLine()
-		if !tab.Terminal.HasSelection() {
-			startX = tab.Selection.StartX
-			startLine = tab.Selection.StartLine
-		}
-		tab.Selection.EndX = termX
-		tab.Selection.EndLine = absLine
-		tab.Terminal.SetSelection(startX, startLine, termX, absLine, true, false)
-		tab.Selection.StartX = startX
-		tab.Selection.StartLine = startLine
+		common.ExtendSelection(tab.Terminal, &tab.Selection, termX, absLine)
 
 		tab.selectionLastTermX = termX
 		if needTick, gen := tab.selectionScroll.NeedsTick(); needTick && m.msgSink != nil {
@@ -328,17 +318,7 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		}
 		absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, edgeY)
 		endX := tab.selectionLastTermX
-		startX := tab.Terminal.SelStartX()
-		startLine := tab.Terminal.SelStartLine()
-		if !tab.Terminal.HasSelection() {
-			startX = tab.Selection.StartX
-			startLine = tab.Selection.StartLine
-		}
-		tab.Selection.EndX = endX
-		tab.Selection.EndLine = absLine
-		tab.Terminal.SetSelection(startX, startLine, endX, absLine, true, false)
-		tab.Selection.StartX = startX
-		tab.Selection.StartLine = startLine
+		common.ExtendSelection(tab.Terminal, &tab.Selection, endX, absLine)
 
 		tab.mu.Unlock()
 		if m.msgSink != nil {
