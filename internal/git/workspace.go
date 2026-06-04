@@ -115,17 +115,14 @@ func isBranchAlreadyExistsError(err error, branch string) bool {
 	if branch == "" {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
+	// Normalize backtick quoting to a single straight quote so we match git's
+	// "a branch named '<x>'" and "branch '<x>'" phrasings without enumerating
+	// quote permutations.
+	msg := strings.ReplaceAll(strings.ToLower(err.Error()), "`", "'")
 	if strings.Contains(msg, "a branch named '"+branch+"' already exists") {
 		return true
 	}
-	if strings.Contains(msg, "a branch named `"+branch+"` already exists") {
-		return true
-	}
 	if strings.Contains(msg, "branch '"+branch+"' already exists") {
-		return true
-	}
-	if strings.Contains(msg, "branch `"+branch+"` already exists") {
 		return true
 	}
 	return strings.Contains(msg, "already exists") && strings.Contains(msg, branch)
