@@ -8,6 +8,7 @@ HARNESS_WIDTH ?= 160
 HARNESS_HEIGHT ?= 48
 HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
+STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 
 .PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
 
@@ -52,10 +53,10 @@ lint-strict-new:
 	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
 	@if [ -n "$(BASE)" ]; then \
 		echo "Running strict lint against changes since $(BASE)"; \
-		golangci-lint run -c .golangci.strict.yml --new-from-rev "$(BASE)" --timeout=10m; \
+		golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$(BASE)" --timeout=10m; \
 	else \
 		echo "Running strict lint on current unstaged/staged changes (--new)"; \
-		golangci-lint run -c .golangci.strict.yml --new --timeout=10m; \
+		golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m; \
 	fi
 
 lint-ci-parity: # CACHE_ROOT defaults to a gitignored local directory (/.cache/).
@@ -69,11 +70,11 @@ lint-ci-parity: # CACHE_ROOT defaults to a gitignored local directory (/.cache/)
 		BASE=$$(git merge-base HEAD "$$BASE_REF"); \
 		echo "Running CI-parity strict lint against changes since $$BASE_REF ($$BASE)"; \
 		OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
-		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
+		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
 				cat "$$OUTPUT"; \
 				if grep -q "no go files to analyze" "$$OUTPUT"; then \
 					echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
-					if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new-from-rev "$$BASE" --timeout=10m --tests=false; then \
+					if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$$BASE" --timeout=10m --tests=false; then \
 						exit 1; \
 					fi; \
 				else \
@@ -84,11 +85,11 @@ lint-ci-parity: # CACHE_ROOT defaults to a gitignored local directory (/.cache/)
 	else \
 		echo "Base ref $$BASE_REF not found; falling back to strict lint on current unstaged/staged changes"; \
 		OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
-		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new --timeout=10m >"$$OUTPUT" 2>&1; then \
+		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m >"$$OUTPUT" 2>&1; then \
 			cat "$$OUTPUT"; \
 			if grep -q "no go files to analyze" "$$OUTPUT"; then \
 				echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
-				if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml --new --timeout=10m --tests=false; then \
+				if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m --tests=false; then \
 					exit 1; \
 				fi; \
 			else \

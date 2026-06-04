@@ -11,8 +11,6 @@ linters:
     - errcheck
     - errorlint
     - forbidigo
-    - funlen
-    - gocyclo
     - gofmt
     - gofumpt
     - govet
@@ -20,7 +18,6 @@ linters:
     - goimports
     - ineffassign
     - misspell
-    - nestif
     - nolintlint
     - perfsprint
     - revive

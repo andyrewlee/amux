@@ -39,9 +39,10 @@ CI runs this strict profile for pull requests only, ratcheted to changed code vi
 
 ### Complexity ratchet
 
-The strict profile also gates function-level complexity. The 500-line file
-guard does nothing about oversized or deeply-nested *functions* inside
-sub-500-line files, so the strict profile adds:
+The changed-code strict ratchet also gates function-level complexity. The
+500-line file guard does nothing about oversized or deeply-nested *functions*
+inside sub-500-line files, so `make lint-strict-new` and the PR-only
+`lint-strict-pr` job enable:
 
 - `funlen` — `lines: 120`, `statements: 60` (excluded on `_test.go`, where
   table-driven tests legitimately run long)
@@ -49,10 +50,11 @@ sub-500-line files, so the strict profile adds:
 - `nestif` — `min-complexity: 5` (deeply nested `if` blocks; a different shape
   than `gocyclo` — a linear nested-`if` chain trips `nestif` but not `gocyclo`)
 
-Because the strict profile only runs `--new-from-rev`, every existing offender
-is grandfathered: these linters never fail on legacy code and only prevent
-*new* functions from exceeding the budget (and gently nudge ongoing
-decompositions). They are intentionally absent from baseline `.golangci.yml`.
+Because these complexity linters only run with `--new` or `--new-from-rev`,
+every existing offender is grandfathered: they never fail on legacy code and
+only prevent *new* functions from exceeding the budget (and gently nudge
+ongoing decompositions). They are intentionally absent from baseline
+`.golangci.yml` and from full-tree `make lint-strict`.
 
 ## Phase 3: Baseline Promotion + Escalation
 
