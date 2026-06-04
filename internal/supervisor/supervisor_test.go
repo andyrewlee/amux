@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestNew(t *testing.T) {
@@ -116,7 +118,7 @@ func TestSupervisor_RestartNever(t *testing.T) {
 		return errors.New("fail")
 	}, WithRestartPolicy(RestartNever), WithSleep(func(time.Duration) {}))
 
-	waitForCount(t, &callCount, 1, time.Second)
+	testutil.WaitForAtomic(t, func() int32 { return atomic.LoadInt32(&callCount) }, 1, time.Second)
 
 	if count := atomic.LoadInt32(&callCount); count != 1 {
 		t.Errorf("expected 1 call, got %d", count)
@@ -139,7 +141,7 @@ func TestSupervisor_RestartOnError(t *testing.T) {
 		return nil
 	}, WithRestartPolicy(RestartOnError), WithBackoff(10*time.Millisecond), WithMaxBackoff(20*time.Millisecond), WithSleep(func(time.Duration) {}))
 
-	waitForCount(t, &callCount, 3, time.Second)
+	testutil.WaitForAtomic(t, func() int32 { return atomic.LoadInt32(&callCount) }, 3, time.Second)
 
 	if count := atomic.LoadInt32(&callCount); count != 3 {
 		t.Errorf("expected 3 calls, got %d", count)
@@ -188,7 +190,7 @@ func TestSupervisor_MaxRestarts(t *testing.T) {
 		return errors.New("fail")
 	}, WithRestartPolicy(RestartOnError), WithMaxRestarts(2), WithBackoff(10*time.Millisecond), WithSleep(func(time.Duration) {}))
 
-	waitForCount(t, &callCount, 3, time.Second)
+	testutil.WaitForAtomic(t, func() int32 { return atomic.LoadInt32(&callCount) }, 3, time.Second)
 
 	// Should be 3 calls: initial + 2 restarts
 	if count := atomic.LoadInt32(&callCount); count != 3 {
@@ -289,7 +291,7 @@ func TestSupervisor_PanicRecovery(t *testing.T) {
 		return nil
 	}, WithRestartPolicy(RestartOnError), WithBackoff(10*time.Millisecond), WithSleep(func(time.Duration) {}))
 
-	waitForCount(t, &callCount, 2, time.Second)
+	testutil.WaitForAtomic(t, func() int32 { return atomic.LoadInt32(&callCount) }, 2, time.Second)
 
 	if count := atomic.LoadInt32(&callCount); count < 2 {
 		t.Errorf("expected at least 2 calls (panic should trigger restart), got %d", count)
@@ -317,7 +319,7 @@ func TestSupervisor_BackoffDoubles(t *testing.T) {
 		mu.Unlock()
 	}))
 
-	waitForCount(t, &callCount, 4, time.Second)
+	testutil.WaitForAtomic(t, func() int32 { return atomic.LoadInt32(&callCount) }, 4, time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -393,23 +395,9 @@ func TestSupervisor_ConcurrentStart(t *testing.T) {
 	}
 
 	wg.Wait()
-	waitForCount(t, &startedCount, 10, time.Second)
+	testutil.WaitForAtomic(t, func() int32 { return atomic.LoadInt32(&startedCount) }, 10, time.Second)
 
 	if count := atomic.LoadInt32(&startedCount); count != 10 {
 		t.Errorf("expected 10 workers started, got %d", count)
-	}
-}
-
-func waitForCount(t *testing.T, val *int32, want int32, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if atomic.LoadInt32(val) >= want {
-			return
-		}
-		time.Sleep(1 * time.Millisecond)
-	}
-	if got := atomic.LoadInt32(val); got < want {
-		t.Fatalf("timed out waiting for count %d (got %d)", want, got)
 	}
 }

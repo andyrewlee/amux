@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/testutil"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -79,13 +80,7 @@ func TestRunTabActor_SetsReadyWithoutEmittingLivenessMsgs(t *testing.T) {
 		done <- m.RunTabActor(ctx)
 	}()
 
-	deadline := time.Now().Add(time.Second)
-	for !m.isTabActorReady() {
-		if time.Now().After(deadline) {
-			t.Fatal("expected actor startup to set readiness directly")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, time.Second, 10*time.Millisecond, m.isTabActorReady, "expected actor startup to set readiness directly")
 
 	select {
 	case msg := <-sinkMsgs:
@@ -154,13 +149,7 @@ func TestRunTabActor_EmitsRedrawForActorHandledUIEvent(t *testing.T) {
 		done <- m.RunTabActor(ctx)
 	}()
 
-	deadline := time.Now().Add(time.Second)
-	for !m.isTabActorReady() {
-		if time.Now().After(deadline) {
-			t.Fatal("expected actor startup to set readiness directly")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, time.Second, 10*time.Millisecond, m.isTabActorReady, "expected actor startup to set readiness directly")
 
 	tab := &Tab{Terminal: vterm.New(80, 24)}
 	m.tabEvents <- tabEvent{kind: tabEventSelectionStart, tab: tab}
@@ -302,13 +291,7 @@ func TestRunTabActor_EventProcessingRefreshesHeartbeat(t *testing.T) {
 		done <- m.RunTabActor(ctx)
 	}()
 
-	deadline := time.Now().Add(time.Second)
-	for !m.isTabActorReady() {
-		if time.Now().After(deadline) {
-			t.Fatal("expected actor startup to set readiness directly")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, time.Second, 10*time.Millisecond, m.isTabActorReady, "expected actor startup to set readiness directly")
 
 	stale := time.Now().Add(-(tabActorStallTimeout + time.Second)).UnixNano()
 	atomic.StoreInt64(&m.tabActorHeartbeat, stale)
@@ -318,13 +301,7 @@ func TestRunTabActor_EventProcessingRefreshesHeartbeat(t *testing.T) {
 
 	m.tabEvents <- tabEvent{kind: tabEventSelectionClear, tab: &Tab{}}
 
-	deadline = time.Now().Add(time.Second)
-	for !m.isTabActorReady() {
-		if time.Now().After(deadline) {
-			t.Fatal("expected processed event to refresh actor heartbeat")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, time.Second, 10*time.Millisecond, m.isTabActorReady, "expected processed event to refresh actor heartbeat")
 
 	if got := atomic.LoadInt64(&m.tabActorHeartbeat); got <= stale {
 		t.Fatalf("expected processed event to advance heartbeat, got %d <= %d", got, stale)

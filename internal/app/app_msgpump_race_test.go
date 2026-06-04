@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestExternalMsgPumpConcurrent(t *testing.T) {
@@ -48,18 +49,5 @@ func TestExternalMsgPumpConcurrent(t *testing.T) {
 	close(app.externalMsgs)
 	close(app.externalCritical)
 
-	if !waitForCount(&delivered, 1, 2*time.Second) {
-		t.Fatalf("expected some messages delivered")
-	}
-}
-
-func waitForCount(val *int64, want int64, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if atomic.LoadInt64(val) >= want {
-			return true
-		}
-		time.Sleep(1 * time.Millisecond)
-	}
-	return atomic.LoadInt64(val) >= want
+	testutil.WaitForAtomic(t, func() int64 { return atomic.LoadInt64(&delivered) }, 1, 2*time.Second)
 }
