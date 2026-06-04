@@ -1,25 +1,22 @@
 package vterm
 
-// LastCursorX returns the cursor X position from the previous render frame.
-// Used to detect cursor movement and mark dirty lines.
-func (v *VTerm) LastCursorX() int {
-	return v.lastCursorX
+// CursorRenderState is the cached cursor state from the previous render frame,
+// used to detect cursor-only changes and mark the affected lines dirty.
+type CursorRenderState struct {
+	X, Y       int
+	ShowCursor bool
+	Hidden     bool
 }
 
-// LastCursorY returns the cursor Y position from the previous render frame.
-// Used to detect cursor movement and mark old cursor line dirty.
-func (v *VTerm) LastCursorY() int {
-	return v.lastCursorY
-}
-
-// LastShowCursor returns the cursor visibility from the previous render frame.
-func (v *VTerm) LastShowCursor() bool {
-	return v.lastShowCursor
-}
-
-// LastCursorHidden returns the DECTCEM cursor hidden state from the previous render frame.
-func (v *VTerm) LastCursorHidden() bool {
-	return v.lastCursorHidden
+// LastCursorState returns the cursor position and visibility from the previous
+// render frame.
+func (v *VTerm) LastCursorState() CursorRenderState {
+	return CursorRenderState{
+		X:          v.lastCursorX,
+		Y:          v.lastCursorY,
+		ShowCursor: v.lastShowCursor,
+		Hidden:     v.lastCursorHidden,
+	}
 }
 
 // CursorHiddenForRender returns the effective cursor-hidden state for rendering.
