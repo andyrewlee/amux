@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestAltScreenEraseTranscriptShiftPreservesScrolledOffTop(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))

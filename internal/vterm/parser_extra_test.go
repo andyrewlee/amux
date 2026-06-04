@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestParserLegacyAltScreen47(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 
 	// Enable Alt Screen using CSI ? 47 h
@@ -19,6 +20,7 @@ func TestParserLegacyAltScreen47(t *testing.T) {
 }
 
 func TestParserLegacyAltScreen1047(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 
 	// Enable Alt Screen using CSI ? 1047 h

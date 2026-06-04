@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestSelectionMappingUsesSyncBuffers(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 	vt.Scrollback = [][]Cell{
 		MakeBlankLine(5),
@@ -30,6 +31,7 @@ func TestSelectionMappingUsesSyncBuffers(t *testing.T) {
 }
 
 func TestSyncScrollClampsToFrozenScrollback(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 	vt.Scrollback = [][]Cell{
 		MakeBlankLine(5),
@@ -57,6 +59,7 @@ func TestSyncScrollClampsToFrozenScrollback(t *testing.T) {
 }
 
 func TestSyncScrollbackGrowthDoesNotShiftAnchoredView(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 	vt.Scrollback = [][]Cell{
 		MakeBlankLine(5),
@@ -89,6 +92,7 @@ func TestSyncScrollbackGrowthDoesNotShiftAnchoredView(t *testing.T) {
 }
 
 func TestSyncOutputKeepsLiveBottomWhenViewportNeverScrolled(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 	vt.Scrollback = [][]Cell{
 		MakeBlankLine(5),
@@ -110,6 +114,7 @@ func TestSyncOutputKeepsLiveBottomWhenViewportNeverScrolled(t *testing.T) {
 }
 
 func TestSyncOutputDoesNotRestoreHistoryAfterUserReturnsToBottom(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 	vt.Scrollback = [][]Cell{
 		MakeBlankLine(5),

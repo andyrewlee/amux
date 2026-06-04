@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestCaptureLines_PreservesExplicitBlankTailRows(t *testing.T) {
+	t.Parallel()
 	data := []byte("first\n\n")
 	tmp := parseCaptureWithSize(data, 8, 4)
 	lines := captureLines(data, tmp)
@@ -19,6 +20,7 @@ func TestCaptureLines_PreservesExplicitBlankTailRows(t *testing.T) {
 }
 
 func TestCaptureLines_DropsImplicitUnusedScreenRows(t *testing.T) {
+	t.Parallel()
 	data := []byte("first\nsecond\n")
 	tmp := parseCaptureWithSize(data, 8, 4)
 	lines := captureLines(data, tmp)

@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestTrimScrollbackShiftsSelection(t *testing.T) {
+	t.Parallel()
 	vt := New(2, 1)
 	vt.Scrollback = make([][]Cell, MaxScrollback+2)
 	vt.Screen[0] = MakeBlankLine(2)
@@ -22,6 +23,7 @@ func TestTrimScrollbackShiftsSelection(t *testing.T) {
 }
 
 func TestTrimScrollbackClearsFullyTrimmedSelection(t *testing.T) {
+	t.Parallel()
 	vt := New(2, 1)
 	vt.Scrollback = make([][]Cell, MaxScrollback+2)
 	vt.Screen[0] = MakeBlankLine(2)

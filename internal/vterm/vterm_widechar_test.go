@@ -5,6 +5,7 @@ import (
 )
 
 func TestWideCharacterWidth(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 
 	// Write a wide character (CJK)
@@ -27,6 +28,7 @@ func TestWideCharacterWidth(t *testing.T) {
 }
 
 func TestWideCharacterAtEndOfLine(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 5) // Narrow terminal
 	vt.CursorX = 9   // Last column
 
@@ -47,6 +49,7 @@ func TestWideCharacterAtEndOfLine(t *testing.T) {
 }
 
 func TestRowToStringSkipsContinuationCells(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 1)
 	vt.Write([]byte("你A"))
 
@@ -57,6 +60,7 @@ func TestRowToStringSkipsContinuationCells(t *testing.T) {
 }
 
 func TestSearchSkipsContinuationCells(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 1)
 	vt.Write([]byte("你A"))
 
@@ -67,6 +71,7 @@ func TestSearchSkipsContinuationCells(t *testing.T) {
 }
 
 func TestGetSelectedTextSkipsContinuationCells(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 1)
 	vt.Write([]byte("你A"))
 
@@ -77,6 +82,7 @@ func TestGetSelectedTextSkipsContinuationCells(t *testing.T) {
 }
 
 func TestNormalCharacterWidth(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 
 	// Write a normal ASCII character
@@ -107,6 +113,7 @@ func assertLineNormalized(t *testing.T, line []Cell) {
 }
 
 func TestWideGlyphNormalizationAfterEdits(t *testing.T) {
+	t.Parallel()
 	vt := New(6, 1)
 	vt.Write([]byte("你A"))
 
@@ -127,6 +134,7 @@ func TestWideGlyphNormalizationAfterEdits(t *testing.T) {
 }
 
 func TestOverwriteWideCharWithNarrowChar(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 1)
 
 	// Write a wide character
@@ -163,6 +171,7 @@ func TestOverwriteWideCharWithNarrowChar(t *testing.T) {
 }
 
 func TestOverwriteContinuationCellWithNarrowChar(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 1)
 
 	// Write a wide character
@@ -192,6 +201,7 @@ func TestOverwriteContinuationCellWithNarrowChar(t *testing.T) {
 }
 
 func TestOverwriteNarrowCharsWithWideChar(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 1)
 
 	// Write two narrow characters
@@ -218,6 +228,7 @@ func TestOverwriteNarrowCharsWithWideChar(t *testing.T) {
 }
 
 func TestOverwriteWideCharWithWideChar(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 1)
 
 	// Write first wide character
@@ -244,6 +255,7 @@ func TestOverwriteWideCharWithWideChar(t *testing.T) {
 }
 
 func TestWideCharOverwritesAdjacentWideChar(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 1)
 
 	// Write two adjacent wide characters: "你好" at positions 0-1 and 2-3
@@ -285,6 +297,7 @@ func TestWideCharOverwritesAdjacentWideChar(t *testing.T) {
 }
 
 func TestWideCharIncrementalUpdate(t *testing.T) {
+	t.Parallel()
 	// Test that wide characters in incremental updates don't leave orphans
 	vt := New(20, 1)
 

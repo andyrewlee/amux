@@ -6,6 +6,7 @@ import (
 )
 
 func TestRenderSuppressesUnderlineOnBlankCells(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 1)
 	vt.CurrentStyle.Underline = true
 	vt.Write([]byte("     "))
@@ -17,6 +18,7 @@ func TestRenderSuppressesUnderlineOnBlankCells(t *testing.T) {
 }
 
 func TestStyleToDeltaANSIPreservesBoldWhenTurningOffDim(t *testing.T) {
+	t.Parallel()
 	prev := Style{Bold: true, Dim: true}
 	next := Style{Bold: true}
 	out := StyleToDeltaANSI(prev, next)
@@ -26,6 +28,7 @@ func TestStyleToDeltaANSIPreservesBoldWhenTurningOffDim(t *testing.T) {
 }
 
 func TestRenderKeepsUnderlineForText(t *testing.T) {
+	t.Parallel()
 	vt := New(2, 1)
 	vt.CurrentStyle.Underline = true
 	vt.Write([]byte("A "))

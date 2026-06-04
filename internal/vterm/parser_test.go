@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestResetParserStateClearsCarriedCSI(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 2)
 
 	vt.Write([]byte("\x1b["))

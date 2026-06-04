@@ -3,6 +3,7 @@ package vterm
 import "testing"
 
 func TestLoadPaneCaptureWithCursorAndModes_PreservesActiveAltScreenBuffer(t *testing.T) {
+	t.Parallel()
 	vt := New(6, 3)
 	vt.Write([]byte("shell"))
 	vt.enterAltScreen()
@@ -54,6 +55,7 @@ func TestLoadPaneCaptureWithCursorAndModes_PreservesActiveAltScreenBuffer(t *tes
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_AppliesPaneModesToSubsequentWrites(t *testing.T) {
+	t.Parallel()
 	vt := New(6, 4)
 	vt.LoadPaneCaptureWithCursorAndModes(
 		[]byte("head\nbody\nmid\nfoot"),
@@ -94,6 +96,7 @@ func TestLoadPaneCaptureWithCursorAndModes_AppliesPaneModesToSubsequentWrites(t 
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_ClearsStaleAltScreenState(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 3)
 	vt.Write([]byte("oldhome"))
 	vt.enterAltScreen()
@@ -142,6 +145,7 @@ func TestLoadPaneCaptureWithCursorAndModes_ClearsStaleAltScreenState(t *testing.
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_FreshAltScreenSnapshotKeepsHistoryWithoutInventingMainBuffer(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 2)
 
 	vt.LoadPaneCaptureWithCursorAndModes(
@@ -199,6 +203,7 @@ func TestLoadPaneCaptureWithCursorAndModes_FreshAltScreenSnapshotKeepsHistoryWit
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenRedrawDoesNotDuplicateRestoredFrame(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 2)
 	vt.AllowAltScreenScrollback = true
 
@@ -246,6 +251,7 @@ func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenRedrawDoesNotDuplicateR
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenShiftAfterAttachPreservesScrolledOffTop(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 3)
 	vt.AllowAltScreenScrollback = true
 
@@ -278,6 +284,7 @@ func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenShiftAfterAttachPreserv
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenRedrawAfterResizeDoesNotDuplicateRestoredFrame(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 3)
 	vt.AllowAltScreenScrollback = true
 
@@ -319,6 +326,7 @@ func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenRedrawAfterResizeDoesNo
 }
 
 func TestAppendScrollbackDeltaWithSize_PreservesPendingAltScreenDedupAfterHistoryAppend(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 2)
 	vt.AllowAltScreenScrollback = true
 
@@ -350,6 +358,7 @@ func TestAppendScrollbackDeltaWithSize_PreservesPendingAltScreenDedupAfterHistor
 }
 
 func TestLoadPaneCaptureWithCursor_PreservesExistingAltScreenStateWhenModesUnknown(t *testing.T) {
+	t.Parallel()
 	vt := New(6, 3)
 	vt.Write([]byte("shell"))
 	vt.enterAltScreen()
@@ -372,6 +381,7 @@ func TestLoadPaneCaptureWithCursor_PreservesExistingAltScreenStateWhenModesUnkno
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_DoesNotReplaceExistingMainBufferWithHistoryTail(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 2)
 	vt.Write([]byte("oldhome"))
 	vt.enterAltScreen()
@@ -416,6 +426,7 @@ func TestLoadPaneCaptureWithCursorAndModes_DoesNotReplaceExistingMainBufferWithH
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_PreservesExistingAltSavedCursorWhenOmitted(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 3)
 	vt.Write([]byte("shell"))
 	vt.enterAltScreen()
@@ -451,6 +462,7 @@ func TestLoadPaneCaptureWithCursorAndModes_PreservesExistingAltSavedCursorWhenOm
 }
 
 func TestLoadPaneCaptureWithCursorAndModes_ResetsScrollRegionWhenOmitted(t *testing.T) {
+	t.Parallel()
 	vt := New(6, 4)
 	vt.ScrollTop = 1
 	vt.ScrollBottom = 3

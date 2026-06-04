@@ -5,6 +5,7 @@ import (
 )
 
 func TestAltScreenEraseCapturesScrollback(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h")) // enter alt screen
@@ -28,6 +29,7 @@ func TestAltScreenEraseCapturesScrollback(t *testing.T) {
 }
 
 func TestAltScreenEraseDedup(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -48,6 +50,7 @@ func TestAltScreenEraseDedup(t *testing.T) {
 }
 
 func TestAltScreenEraseDedupedHistoryIsPreserved(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 	vt.AllowAltScreenScrollback = true
 	line := MakeBlankLine(5)
@@ -86,6 +89,7 @@ func TestAltScreenEraseDedupedHistoryIsPreserved(t *testing.T) {
 }
 
 func TestAltScreenEraseBlankNotCaptured(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -98,6 +102,7 @@ func TestAltScreenEraseBlankNotCaptured(t *testing.T) {
 }
 
 func TestAltScreenEraseNoCaptureWithoutFlag(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	// AllowAltScreenScrollback is false (default)
 	vt.Write([]byte("\x1b[?1049h"))
@@ -111,6 +116,7 @@ func TestAltScreenEraseNoCaptureWithoutFlag(t *testing.T) {
 }
 
 func TestNormalScreenEraseNoCapture(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	// NOT in alt screen
@@ -124,6 +130,7 @@ func TestNormalScreenEraseNoCapture(t *testing.T) {
 }
 
 func TestAltScreenEraseRepaintReplacesPriorCapture(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -150,6 +157,7 @@ func TestAltScreenEraseRepaintReplacesPriorCapture(t *testing.T) {
 }
 
 func TestAltScreenEraseAnchorsViewOffset(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	for i := 0; i < 2; i++ {
@@ -169,6 +177,7 @@ func TestAltScreenEraseAnchorsViewOffset(t *testing.T) {
 }
 
 func TestAltScreenEraseReplacementPreservesViewOffset(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -186,6 +195,7 @@ func TestAltScreenEraseReplacementPreservesViewOffset(t *testing.T) {
 }
 
 func TestAltScreenEraseTrackedMatchDedupsViewOffset(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 4)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -204,6 +214,7 @@ func TestAltScreenEraseTrackedMatchDedupsViewOffset(t *testing.T) {
 }
 
 func TestAltScreenEraseTrimsLeadingBlankRows(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 6)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -220,6 +231,7 @@ func TestAltScreenEraseTrimsLeadingBlankRows(t *testing.T) {
 }
 
 func TestAltScreenEraseClipsCapturedRowsToVisibleWidth(t *testing.T) {
+	t.Parallel()
 	vt := New(8, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -245,6 +257,7 @@ func TestAltScreenEraseClipsCapturedRowsToVisibleWidth(t *testing.T) {
 }
 
 func TestAltScreenEraseDedupedFrameRemainsReservedOnResizeGrow(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 	vt.AllowAltScreenScrollback = true
 	line := MakeBlankLine(5)
@@ -273,6 +286,7 @@ func TestAltScreenEraseDedupedFrameRemainsReservedOnResizeGrow(t *testing.T) {
 }
 
 func TestAltScreenEraseCapturedFrameNotRestoredOnResizeGrow(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -290,6 +304,7 @@ func TestAltScreenEraseCapturedFrameNotRestoredOnResizeGrow(t *testing.T) {
 }
 
 func TestAltScreenEraseDropsWideRuneClippedAtEdge(t *testing.T) {
+	t.Parallel()
 	vt := New(4, 2)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -307,6 +322,7 @@ func TestAltScreenEraseDropsWideRuneClippedAtEdge(t *testing.T) {
 }
 
 func TestAltScreenErasePreservesStyledSpaceRows(t *testing.T) {
+	t.Parallel()
 	vt := New(4, 3)
 	vt.AllowAltScreenScrollback = true
 	vt.Write([]byte("\x1b[?1049h"))
@@ -355,6 +371,7 @@ func dumpScrollback(t *testing.T, vt *VTerm) {
 }
 
 func TestAltScreenEraseDedupsScrollUpOverlap(t *testing.T) {
+	t.Parallel()
 	// Simulate content that overflows a 4-row terminal:
 	// 6 lines of content → first 2 scroll off via scrollUp,
 	// last 4 remain on screen. After erase+redraw cycle(s),

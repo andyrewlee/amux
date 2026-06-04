@@ -5,6 +5,7 @@ import (
 )
 
 func TestScrollUpClamping(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 	// Set scroll region to lines 5-15 (10 lines)
 	vt.ScrollTop = 5
@@ -27,6 +28,7 @@ func TestScrollUpClamping(t *testing.T) {
 }
 
 func TestScrollDownClamping(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 	// Set scroll region to lines 5-15 (10 lines)
 	vt.ScrollTop = 5
@@ -49,6 +51,7 @@ func TestScrollDownClamping(t *testing.T) {
 }
 
 func TestInsertLinesClamping(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 	vt.ScrollTop = 0
 	vt.ScrollBottom = 24
@@ -71,6 +74,7 @@ func TestInsertLinesClamping(t *testing.T) {
 }
 
 func TestDeleteLinesClamping(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 	vt.ScrollTop = 0
 	vt.ScrollBottom = 24
@@ -93,6 +97,7 @@ func TestDeleteLinesClamping(t *testing.T) {
 }
 
 func TestResizeMinimumDimensions(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 	vt.CursorX = 10
 	vt.CursorY = 10
@@ -115,6 +120,7 @@ func TestResizeMinimumDimensions(t *testing.T) {
 }
 
 func TestResizeNegativeDimensions(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 
 	// Resize to negative dimensions (should clamp to 1x1)
@@ -129,6 +135,7 @@ func TestResizeNegativeDimensions(t *testing.T) {
 }
 
 func TestViewOffsetClampedAfterTrim(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 
 	// Add scrollback lines
@@ -152,6 +159,7 @@ func TestViewOffsetClampedAfterTrim(t *testing.T) {
 }
 
 func TestCSISubParameterParsing(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 
 	// Test colon-separated 256-color foreground: ESC[38:5:196m
@@ -178,6 +186,7 @@ func TestCSISubParameterParsing(t *testing.T) {
 }
 
 func TestCSISemicolonParameterParsing(t *testing.T) {
+	t.Parallel()
 	vt := New(80, 24)
 
 	// Test semicolon-separated 256-color (existing format, should still work)
@@ -191,6 +200,7 @@ func TestCSISemicolonParameterParsing(t *testing.T) {
 }
 
 func TestVersionBumpsOnCursorMoveAndAltScreenCursorHide(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 5)
 	v0 := vt.Version()
 	vt.Write([]byte("\x1b[C")) // CUF - cursor forward
@@ -209,6 +219,7 @@ func TestVersionBumpsOnCursorMoveAndAltScreenCursorHide(t *testing.T) {
 }
 
 func TestMode25IgnoredWhenCursorVisibilityControlsDisabled(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 5)
 	vt.IgnoreCursorVisibilityControls = true
 	v0 := vt.Version()
@@ -223,6 +234,7 @@ func TestMode25IgnoredWhenCursorVisibilityControlsDisabled(t *testing.T) {
 }
 
 func TestScrollbackViewOffsetAnchorsOnScrollUp(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 3)
 	// Seed scrollback so ViewOffset is meaningful.
 	for i := 0; i < 3; i++ {
@@ -241,6 +253,7 @@ func TestScrollbackViewOffsetAnchorsOnScrollUp(t *testing.T) {
 }
 
 func TestScrollbackViewOffsetAnchorsOnResize(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 3)
 	// Seed scrollback so ViewOffset is meaningful.
 	for i := 0; i < 2; i++ {
@@ -259,6 +272,7 @@ func TestScrollbackViewOffsetAnchorsOnResize(t *testing.T) {
 }
 
 func TestLFDoesNotResetColumnByDefault(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.Write([]byte("abc\nx"))
 
@@ -268,6 +282,7 @@ func TestLFDoesNotResetColumnByDefault(t *testing.T) {
 }
 
 func TestLFResetsColumnWhenTreatLFAsCRLFEnabled(t *testing.T) {
+	t.Parallel()
 	vt := New(10, 3)
 	vt.TreatLFAsCRLF = true
 	vt.Write([]byte("abc\nx"))
@@ -278,6 +293,7 @@ func TestLFResetsColumnWhenTreatLFAsCRLFEnabled(t *testing.T) {
 }
 
 func TestResizeRestoresScrollbackOnGrow(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 3)
 	// Seed scrollback with two lines.
 	for i := 0; i < 2; i++ {
@@ -313,6 +329,7 @@ func TestResizeRestoresScrollbackOnGrow(t *testing.T) {
 }
 
 func TestTrimScrollbackPreservesTrackedAltScreenCapturePosition(t *testing.T) {
+	t.Parallel()
 	vt := New(5, 2)
 
 	makeLine := func(text string) []Cell {
@@ -354,6 +371,7 @@ func TestTrimScrollbackPreservesTrackedAltScreenCapturePosition(t *testing.T) {
 }
 
 func TestIncrementalCursorPositionedWrites(t *testing.T) {
+	t.Parallel()
 	// Test cursor positioning + partial writes (common in Ink/React TUIs, progress bars, etc.)
 	vt := New(20, 3)
 
