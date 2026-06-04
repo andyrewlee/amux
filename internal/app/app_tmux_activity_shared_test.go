@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -70,15 +71,15 @@ func TestResolveTmuxActivityScanRole_OwnerFollowerSnapshotEpoch(t *testing.T) {
 
 func TestOwnerLeaseAlive_FutureHeartbeatTolerance(t *testing.T) {
 	now := time.Now()
-	lease := tmuxActivityLease{
-		ownerID: "owner-a",
+	lease := activity.OwnerLease{
+		OwnerID: "owner-a",
 	}
-	lease.heartbeatAt = now.Add(tmuxActivityOwnerFutureSkewTolerance - time.Millisecond)
-	if !ownerLeaseAlive(lease, now) {
+	lease.HeartbeatAt = now.Add(activity.OwnerFutureSkewTolerance - time.Millisecond)
+	if !activity.OwnerLeaseAlive(lease, now) {
 		t.Fatal("expected lease to be alive for small forward clock skew")
 	}
-	lease.heartbeatAt = now.Add(tmuxActivityOwnerFutureSkewTolerance + time.Millisecond)
-	if ownerLeaseAlive(lease, now) {
+	lease.HeartbeatAt = now.Add(activity.OwnerFutureSkewTolerance + time.Millisecond)
+	if activity.OwnerLeaseAlive(lease, now) {
 		t.Fatal("expected lease to be stale for large forward clock skew")
 	}
 }
@@ -89,7 +90,7 @@ func TestPublishTmuxActivitySnapshot_ReturnsOwnershipLostAfterPublish(t *testing
 
 	now := time.Now()
 	app := &App{instanceID: "owner-a"}
-	if err := writeTmuxActivityOwnerLease(opts, "owner-b", 9, now); err != nil {
+	if err := activity.WriteOwnerLease(opts, "owner-b", 9, now); err != nil {
 		t.Fatalf("write owner lease: %v", err)
 	}
 	err := app.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, 9, now)
@@ -112,7 +113,7 @@ func TestReadTmuxActivitySnapshot_EpochMismatchReturnsNotOK(t *testing.T) {
 		t.Fatalf("publish snapshot: %v", err)
 	}
 
-	shared, ok, err := readTmuxActivitySnapshot(opts, now, epoch+1)
+	shared, ok, err := activity.ReadSnapshot(opts, now, epoch+1)
 	if err != nil {
 		t.Fatalf("read snapshot: %v", err)
 	}
@@ -126,7 +127,7 @@ func TestResolveTmuxActivityScanRole_FollowerWithoutSnapshotSkipsApply(t *testin
 	opts := gcTestServer(t)
 
 	now := time.Now()
-	if err := writeTmuxActivityOwnerLease(opts, "other-owner", 7, now); err != nil {
+	if err := activity.WriteOwnerLease(opts, "other-owner", 7, now); err != nil {
 		t.Fatalf("write owner lease: %v", err)
 	}
 
@@ -160,7 +161,7 @@ func TestResolveTmuxActivityScanRole_OwnerResolveDoesNotRenewHeartbeat(t *testin
 		t.Fatalf("publish snapshot: %v", err)
 	}
 
-	beforeRaw, err := tmux.GlobalOptionValue(tmuxActivityHeartbeatOption, opts)
+	beforeRaw, err := tmux.GlobalOptionValue(activity.HeartbeatOption, opts)
 	if err != nil {
 		t.Fatalf("read heartbeat before resolve: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestResolveTmuxActivityScanRole_OwnerResolveDoesNotRenewHeartbeat(t *testin
 		t.Fatalf("expected owner epoch %d, got %d", epoch, renewedEpoch)
 	}
 
-	afterRaw, err := tmux.GlobalOptionValue(tmuxActivityHeartbeatOption, opts)
+	afterRaw, err := tmux.GlobalOptionValue(activity.HeartbeatOption, opts)
 	if err != nil {
 		t.Fatalf("read heartbeat after resolve: %v", err)
 	}
@@ -195,12 +196,12 @@ func TestResolveTmuxActivityScanRole_OwnerResolveDoesNotRenewHeartbeat(t *testin
 
 func TestEncodeDecodeTmuxActivitySnapshot_EncodesWorkspaceIDsSafely(t *testing.T) {
 	now := time.Now()
-	raw := encodeTmuxActivitySnapshot(map[string]bool{
+	raw := activity.EncodeSnapshot(map[string]bool{
 		"ws-with,comma": true,
 		"ws/with space": true,
 	}, 7, now)
 
-	active, epoch, at, ok := decodeTmuxActivitySnapshot(raw)
+	active, epoch, at, ok := activity.DecodeSnapshot(raw)
 	if !ok {
 		t.Fatalf("expected snapshot to decode, raw=%q", raw)
 	}
@@ -217,7 +218,7 @@ func TestEncodeDecodeTmuxActivitySnapshot_EncodesWorkspaceIDsSafely(t *testing.T
 
 func TestDecodeTmuxActivitySnapshot_LegacyUnencodedWorkspaceIDs(t *testing.T) {
 	raw := "3;1700000000000;ws-a,ws-b"
-	active, epoch, at, ok := decodeTmuxActivitySnapshot(raw)
+	active, epoch, at, ok := activity.DecodeSnapshot(raw)
 	if !ok {
 		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
 	}
@@ -234,7 +235,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyUnencodedWorkspaceIDs(t *testing.T) {
 
 func TestDecodeTmuxActivitySnapshot_LegacyBEncodedWorkspaceIDs(t *testing.T) {
 	raw := "3;1700000000000;b:d3MtYQ,b:d3MtYg"
-	active, epoch, at, ok := decodeTmuxActivitySnapshot(raw)
+	active, epoch, at, ok := activity.DecodeSnapshot(raw)
 	if !ok {
 		t.Fatalf("expected legacy b:-encoded snapshot to decode, raw=%q", raw)
 	}
@@ -251,7 +252,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyBEncodedWorkspaceIDs(t *testing.T) {
 
 func TestDecodeTmuxActivitySnapshot_LegacyMixedEncodedAndPlainWorkspaceIDs(t *testing.T) {
 	raw := "3;1700000000000;b:d3MtYQ,ws-b"
-	active, _, _, ok := decodeTmuxActivitySnapshot(raw)
+	active, _, _, ok := activity.DecodeSnapshot(raw)
 	if !ok {
 		t.Fatalf("expected mixed legacy snapshot to decode, raw=%q", raw)
 	}
@@ -265,7 +266,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyMixedEncodedAndPlainWorkspaceIDs(t *te
 
 func TestDecodeTmuxActivitySnapshot_LegacyPlainWorkspaceIDStartingWithJPrefix(t *testing.T) {
 	raw := "3;1700000000000;j:ws-plain,ws-b"
-	active, _, _, ok := decodeTmuxActivitySnapshot(raw)
+	active, _, _, ok := activity.DecodeSnapshot(raw)
 	if !ok {
 		t.Fatalf("expected legacy plain snapshot to decode, raw=%q", raw)
 	}
@@ -276,7 +277,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyPlainWorkspaceIDStartingWithJPrefix(t 
 
 func TestDecodeTmuxActivitySnapshot_LegacyBPrefixIDsRemainLiteral(t *testing.T) {
 	raw := "3;1700000000000;b:workspace,ws-b"
-	active, _, _, ok := decodeTmuxActivitySnapshot(raw)
+	active, _, _, ok := activity.DecodeSnapshot(raw)
 	if !ok {
 		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
 	}
@@ -290,7 +291,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyBPrefixIDsRemainLiteral(t *testing.T) 
 
 func TestDecodeTmuxActivitySnapshot_LegacyBPrefixValidBase64Decodes(t *testing.T) {
 	raw := "3;1700000000000;b:d3M,ws-b"
-	active, _, _, ok := decodeTmuxActivitySnapshot(raw)
+	active, _, _, ok := activity.DecodeSnapshot(raw)
 	if !ok {
 		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
 	}

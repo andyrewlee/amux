@@ -43,18 +43,6 @@ const (
 	// tmuxCommandTimeout caps tmux command duration for activity scans.
 	tmuxCommandTimeout = 2 * time.Second
 
-	// tmuxActivityOwnerLeaseTTL controls how long an activity-scan owner lease
-	// stays valid before another instance can take ownership.
-	tmuxActivityOwnerLeaseTTL = 7 * time.Second
-
-	// tmuxActivityOwnerFutureSkewTolerance caps how far in the future a lease
-	// heartbeat can be and still be treated as alive (clock-skew protection).
-	tmuxActivityOwnerFutureSkewTolerance = 2 * time.Second
-
-	// tmuxActivitySnapshotStaleAfter controls how long shared activity snapshots
-	// are trusted by follower instances.
-	tmuxActivitySnapshotStaleAfter = 10 * time.Second
-
 	// supervisorBackoff controls restart backoff for file/state watchers.
 	supervisorBackoff = 500 * time.Millisecond
 
