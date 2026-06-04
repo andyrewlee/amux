@@ -2,15 +2,12 @@ package center
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
-	"github.com/andyrewlee/amux/internal/safego"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -172,277 +169,102 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		perf.Count("tab_event_drop_missing", 1)
 		return
 	}
-	tab := ev.tab
-
 	switch ev.kind {
 	case tabEventSelectionClear:
-		hadSelection := false
-		tab.mu.Lock()
-		if tab.Selection.Active {
-			hadSelection = true
-		}
-		if tab.Terminal != nil {
-			hadSelection = hadSelection || tab.Terminal.HasSelection()
-			tab.Terminal.ClearSelection()
-		}
-		tab.Selection = common.SelectionState{}
-		tab.selectionScroll.Reset()
-		tab.mu.Unlock()
-		if hadSelection {
-			m.requestTabActorRedraw()
-		}
+		m.handleSelectionClear(ev)
 	case tabEventSelectionClearAndNotify:
-		tab.mu.Lock()
-		text := ""
-		if ev.notifyCopy && tab.Terminal != nil && tab.Terminal.HasSelection() {
-			text = tab.Terminal.SelectedText()
-		}
-		if tab.Terminal != nil {
-			tab.Terminal.ClearSelection()
-		}
-		tab.Selection = common.SelectionState{}
-		tab.selectionScroll.Reset()
-		tab.mu.Unlock()
-		if ev.notifyCopy && text != "" && m.msgSink != nil {
-			m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
-		}
+		m.handleSelectionClearAndNotify(ev)
 	case tabEventSelectionCopy:
-		tab.mu.Lock()
-		text := ""
-		if ev.notifyCopy && tab.Terminal != nil && tab.Terminal.HasSelection() {
-			text = tab.Terminal.SelectedText()
-		}
-		tab.mu.Unlock()
-		if ev.notifyCopy && text != "" && m.msgSink != nil {
-			m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
-		}
+		m.handleSelectionCopy(ev)
 	case tabEventSelectionStart:
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ClearSelection()
-		}
-		tab.Selection = common.SelectionState{}
-		tab.selectionScroll.Reset()
-		if ev.inBounds && tab.Terminal != nil {
-			absLine, ok := m.displayedScreenYToAbsoluteLineLocked(tab, ev.termY)
-			if !ok {
-				tab.mu.Unlock()
-				return
-			}
-			tab.Selection = common.SelectionState{
-				Active:    true,
-				StartX:    ev.termX,
-				StartLine: absLine,
-				EndX:      ev.termX,
-				EndLine:   absLine,
-			}
-			tab.Terminal.SetSelection(ev.termX, absLine, ev.termX, absLine, true, false)
-		}
-		tab.mu.Unlock()
+		m.handleSelectionStart(ev)
 	case tabEventSelectionUpdate:
-		tab.mu.Lock()
-		defer tab.mu.Unlock()
-		if !tab.Selection.Active || tab.Terminal == nil {
-			return
-		}
-		termWidth := tab.Terminal.Width
-		termHeight := tab.Terminal.Height
-		termX := ev.termX
-		termY := ev.termY
-
-		if termX < 0 {
-			termX = 0
-		}
-		if termX >= termWidth {
-			termX = termWidth - 1
-		}
-
-		// Set scroll direction from unclamped Y before clamping
-		tab.selectionScroll.SetDirection(termY, termHeight)
-
-		if termY < 0 {
-			m.scrollTerminalViewLocked(tab, 1)
-			termY = 0
-		} else if termY >= termHeight {
-			m.scrollTerminalViewLocked(tab, -1)
-			termY = termHeight - 1
-		}
-
-		absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, termY)
-		common.ExtendSelection(tab.Terminal, &tab.Selection, termX, absLine)
-
-		tab.selectionLastTermX = termX
-		if needTick, gen := tab.selectionScroll.NeedsTick(); needTick && m.msgSink != nil {
-			m.msgSink(selectionTickRequest{
-				workspaceID: ev.workspaceID,
-				tabID:       ev.tabID,
-				gen:         gen,
-			})
-		}
+		m.handleSelectionUpdate(ev)
 	case tabEventSelectionFinish:
-		tab.mu.Lock()
-		if !tab.Selection.Active {
-			tab.mu.Unlock()
-			return
-		}
-		text := ""
-		tab.Selection.Active = false
-		tab.selectionScroll.Reset()
-		if tab.Terminal != nil &&
-			(tab.Selection.StartX != tab.Selection.EndX ||
-				tab.Selection.StartLine != tab.Selection.EndLine) {
-			text = tab.Terminal.SelectedText()
-		}
-		tab.mu.Unlock()
-		if text != "" && m.msgSink != nil {
-			m.msgSink(tabSelectionResult{workspaceID: ev.workspaceID, tabID: ev.tabID, clipboard: text})
-		}
+		m.handleSelectionFinish(ev)
 	case tabEventScrollBy:
-		tab.mu.Lock()
-		if tab.Terminal != nil && ev.delta != 0 {
-			m.scrollTerminalViewLocked(tab, ev.delta)
-		}
-		tab.mu.Unlock()
+		m.handleScrollBy(ev)
 	case tabEventSelectionScrollTick:
-		tab.mu.Lock()
-		if !tab.Selection.Active || tab.Terminal == nil || !tab.selectionScroll.HandleTick(ev.gen) {
-			tab.mu.Unlock()
-			return
-		}
-		m.scrollTerminalViewLocked(tab, tab.selectionScroll.ScrollDir)
-
-		// Update selection endpoint to viewport edge
-		edgeY := 0
-		if tab.selectionScroll.ScrollDir < 0 {
-			edgeY = tab.Terminal.Height - 1
-		}
-		absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, edgeY)
-		endX := tab.selectionLastTermX
-		common.ExtendSelection(tab.Terminal, &tab.Selection, endX, absLine)
-
-		tab.mu.Unlock()
-		if m.msgSink != nil {
-			m.msgSink(selectionTickRequest{
-				workspaceID: ev.workspaceID,
-				tabID:       ev.tabID,
-				gen:         ev.gen,
-			})
-		}
+		m.handleSelectionScrollTick(ev)
 	case tabEventScrollToBottom:
-		tab.mu.Lock()
-		if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-			m.scrollTerminalToBottomLocked(tab)
-		}
-		tab.mu.Unlock()
+		m.handleScrollToBottom(ev)
 	case tabEventScrollPage:
-		tab.mu.Lock()
-		if tab.Terminal != nil && ev.scrollPage != 0 {
-			delta := common.ScrollDeltaForHeight(tab.Terminal.Height, 4)
-			m.scrollTerminalViewLocked(tab, delta*ev.scrollPage)
-		}
-		tab.mu.Unlock()
+		m.handleScrollPage(ev)
 	case tabEventScrollToTop:
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			m.scrollTerminalToTopLocked(tab)
-		}
-		tab.mu.Unlock()
+		m.handleScrollToTop(ev)
 	case tabEventDiffInput:
-		tab.mu.Lock()
-		dv := tab.DiffViewer
-		if dv == nil {
-			tab.mu.Unlock()
-			return
-		}
-		newDV, cmd := dv.Update(ev.diffMsg)
-		tab.DiffViewer = newDV
-		tab.mu.Unlock()
-		if cmd != nil && m.msgSink != nil {
-			m.msgSink(tabDiffCmd{cmd: cmd})
-		}
+		m.handleDiffInput(ev)
 	case tabEventSendInput:
-		m.sendToTerminal(tab, string(ev.input), ev.tabID, ev.workspaceID, "Input")
+		m.handleSendInput(ev)
 	case tabEventPaste:
-		if ev.pasteText != "" {
-			m.sendToTerminal(tab, "\x1b[200~"+ev.pasteText+"\x1b[201~", ev.tabID, ev.workspaceID, "Paste")
-		}
+		m.handlePaste(ev)
 	case tabEventWriteOutput:
-		processedBytes := len(ev.output)
-		tagSessionName := ""
-		var tagTimestamp int64
-		filteredLen := 0
-		filterApplied := false
-		requestFlush := false
-		staleWrite := false
-		suppressRedraw := false
-		tab.mu.Lock()
-		if ev.writeEpoch != tab.actorWriteEpoch {
-			staleWrite = true
-		} else if tab.Terminal != nil {
-			output := common.FilterKnownPTYNoiseStream(ev.output, &tab.ptyNoiseTrailing)
-			filteredLen = len(output)
-			filterApplied = true
-			if len(output) > 0 {
-				flushDone := perf.Time("pty_flush")
-				tab.Terminal.Write(output)
-				flushDone()
-				perf.Count("pty_flush_bytes", int64(len(output)))
-			}
-			// Activity state intentionally tracks visible terminal mutations only.
-			// Noise-only chunks are filtered above and must not update activity tags.
-			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, ev.hasMoreBuffered, ev.visibleSeq, output)
-			if tab.actorWritesPending > 0 {
-				tab.actorWritesPending--
-			}
-			if tab.actorQueuedBytes >= processedBytes {
-				tab.actorQueuedBytes -= processedBytes
-			} else {
-				tab.actorQueuedBytes = 0
-			}
-			catchUpBefore, catchUpAfter := tab.settlePTYBytesLocked(processedBytes)
-			suppressRedraw = catchUpBefore && catchUpAfter
-			if tab.actorWritesPending == 0 {
-				tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
-				tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
-				if tab.parserResetPending {
-					tab.Terminal.ResetParserState()
-					tab.activityANSIState = ansiActivityText
-					tab.ptyNoiseTrailing = nil
-					tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
-					tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
-					tab.parserResetPending = false
-					requestFlush = true
-				}
-			}
-		}
-		tab.mu.Unlock()
-		if staleWrite {
-			return
-		}
-		perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-		if filterApplied {
-			filteredBytes := processedBytes - filteredLen
-			if filteredBytes > 0 {
-				perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-			}
-		}
-		if tagSessionName != "" {
-			opts := m.tmuxOpts
-			sessionName := tagSessionName
-			timestamp := strconv.FormatInt(tagTimestamp, 10)
-			safego.Go("center.tmux_tag_write", func() {
-				_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
-			})
-		}
-		if requestFlush && m.msgSink != nil {
-			m.msgSink(PTYFlush{WorkspaceID: ev.workspaceID, TabID: ev.tabID, CatchUp: ev.catchUp})
-		}
-		if !suppressRedraw && m.msgSink != nil && m.shouldPostWriteRedraw(tab) {
-			// Visible tabs need one redraw after actor-applied terminal writes.
-			m.msgSink(PTYCursorRefresh{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
-		}
+		m.handleWriteOutput(ev)
 	default:
 		logging.Debug("unknown tab event: %v", ev.kind)
+	}
+}
+
+func (m *Model) handleScrollBy(ev tabEvent) {
+	tab := ev.tab
+	tab.mu.Lock()
+	if tab.Terminal != nil && ev.delta != 0 {
+		m.scrollTerminalViewLocked(tab, ev.delta)
+	}
+	tab.mu.Unlock()
+}
+
+func (m *Model) handleScrollToBottom(ev tabEvent) {
+	tab := ev.tab
+	tab.mu.Lock()
+	if tab.Terminal != nil && tab.Terminal.IsScrolled() {
+		m.scrollTerminalToBottomLocked(tab)
+	}
+	tab.mu.Unlock()
+}
+
+func (m *Model) handleScrollPage(ev tabEvent) {
+	tab := ev.tab
+	tab.mu.Lock()
+	if tab.Terminal != nil && ev.scrollPage != 0 {
+		delta := common.ScrollDeltaForHeight(tab.Terminal.Height, 4)
+		m.scrollTerminalViewLocked(tab, delta*ev.scrollPage)
+	}
+	tab.mu.Unlock()
+}
+
+func (m *Model) handleScrollToTop(ev tabEvent) {
+	tab := ev.tab
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		m.scrollTerminalToTopLocked(tab)
+	}
+	tab.mu.Unlock()
+}
+
+func (m *Model) handleDiffInput(ev tabEvent) {
+	tab := ev.tab
+	tab.mu.Lock()
+	dv := tab.DiffViewer
+	if dv == nil {
+		tab.mu.Unlock()
+		return
+	}
+	newDV, cmd := dv.Update(ev.diffMsg)
+	tab.DiffViewer = newDV
+	tab.mu.Unlock()
+	if cmd != nil && m.msgSink != nil {
+		m.msgSink(tabDiffCmd{cmd: cmd})
+	}
+}
+
+func (m *Model) handleSendInput(ev tabEvent) {
+	m.sendToTerminal(ev.tab, string(ev.input), ev.tabID, ev.workspaceID, "Input")
+}
+
+func (m *Model) handlePaste(ev tabEvent) {
+	if ev.pasteText != "" {
+		m.sendToTerminal(ev.tab, "\x1b[200~"+ev.pasteText+"\x1b[201~", ev.tabID, ev.workspaceID, "Paste")
 	}
 }
 
