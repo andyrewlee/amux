@@ -61,7 +61,7 @@ Each workspace tracks a repo checkout and its metadata. For local workflows, wor
 
 ## Architecture quick tour
 
-Start with `internal/app/ARCHITECTURE.md` for lifecycle, PTY flow, tmux tagging, and persistence invariants. Message boundaries and command discipline are documented in `internal/app/MESSAGE_FLOW.md`.
+Start with [`ARCHITECTURE.md`](ARCHITECTURE.md) for the repo-level package map and dependency direction. Then `internal/app/ARCHITECTURE.md` covers lifecycle, PTY flow, tmux tagging, and persistence invariants, and `internal/app/MESSAGE_FLOW.md` documents message boundaries and command discipline.
 
 ## Features
 

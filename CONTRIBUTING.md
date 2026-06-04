@@ -39,6 +39,7 @@ Pull requests are CI-gated (automated). For local confidence before opening a PR
 
 Architecture references:
 
+- `ARCHITECTURE.md` (repo-level package map and dependency direction)
 - `internal/app/ARCHITECTURE.md`
 - `internal/app/MESSAGE_FLOW.md`
 
