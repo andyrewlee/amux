@@ -9,7 +9,9 @@
 // (bytes written per hot tab per frame), -newline-every, -frames (measured
 // frames), -warmup (warmup frames to ignore), -width, -height, -keymap-hints.
 //
-// Set AMUX_PPROF=<path> to write a CPU profile of the run. The Makefile
-// `harness-presets` target runs the center/sidebar/monitor presets that CI also
-// runs; reproduce a CI harness failure by running the matching preset locally.
+// Set AMUX_PPROF=1/true, a port, or a listen address to start net/http/pprof
+// (default 127.0.0.1:6060 for 1/true). Fetch CPU profiles from the pprof
+// endpoint while the harness is running, for example /debug/pprof/profile.
+// The Makefile `harness-presets` target runs heavier local confidence presets;
+// CI uses shorter direct harness invocations.
 package main

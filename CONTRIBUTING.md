@@ -46,12 +46,12 @@ Architecture references:
 ### Harness
 
 `cmd/amux-harness` renders the real UI without a TTY for deterministic perf and
-render checks. `make harness-presets` runs the three presets CI runs
-(center/sidebar/monitor); to reproduce a CI failure, run the matching one
-directly, e.g. the center preset:
+render checks. `make harness-presets` runs heavier local confidence presets for
+center/sidebar/monitor. CI uses shorter direct invocations; to reproduce a CI
+failure, run the matching mode with the CI shape, e.g. center:
 
 ```bash
-go run ./cmd/amux-harness -mode center -tabs 16 -hot-tabs 2 -payload-bytes 64 -frames 300 -warmup 30 -width 160 -height 48
+go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4
 ```
 
 See `go doc ./cmd/amux-harness` for all `-mode` values, flags, and the
