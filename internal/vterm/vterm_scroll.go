@@ -309,13 +309,6 @@ func (v *VTerm) LoadPaneCapture(data []byte) {
 	v.LoadPaneCaptureWithCursorAndModes(data, 0, 0, false, PaneModeState{PreserveExistingState: true})
 }
 
-// LoadPaneCaptureWithCursor replaces the terminal screen + scrollback with a
-// full tmux pane capture and applies a separately captured tmux cursor position
-// when one is available.
-func (v *VTerm) LoadPaneCaptureWithCursor(data []byte, cursorX, cursorY int, hasCursor bool) {
-	v.LoadPaneCaptureWithCursorAndModes(data, cursorX, cursorY, hasCursor, PaneModeState{PreserveExistingState: true})
-}
-
 // LoadPaneCaptureWithCursorAndModes replaces the terminal screen + scrollback
 // with a full tmux pane capture and applies the accompanying tmux VT mode state
 // when one is available.

@@ -305,7 +305,7 @@ func TestLoadPaneCapture_RestoresCursorFromCaptureWhenMetadataUnavailable(t *tes
 func TestLoadPaneCaptureWithCursor_RestoresExplicitCursor(t *testing.T) {
 	vt := New(20, 2)
 
-	vt.LoadPaneCaptureWithCursor([]byte("history\nscreen one\nscreen two\n"), 5, 1, true)
+	vt.LoadPaneCaptureWithCursorAndModes([]byte("history\nscreen one\nscreen two\n"), 5, 1, true, PaneModeState{PreserveExistingState: true})
 
 	if vt.CursorX != 5 || vt.CursorY != 1 {
 		t.Fatalf("expected explicit pane cursor to be restored, got (%d,%d)", vt.CursorX, vt.CursorY)
@@ -348,7 +348,7 @@ func TestLoadPaneCapture_EmptyCaptureClearsFrameAndParserState(t *testing.T) {
 	vt.Write([]byte("stale"))
 	vt.Write([]byte("\x1b["))
 
-	vt.LoadPaneCaptureWithCursor(nil, 3, 0, true)
+	vt.LoadPaneCaptureWithCursorAndModes(nil, 3, 0, true, PaneModeState{PreserveExistingState: true})
 
 	if len(vt.Scrollback) != 0 {
 		t.Fatalf("expected empty authoritative snapshot to clear scrollback, got %d lines", len(vt.Scrollback))
@@ -384,7 +384,7 @@ func TestLoadPaneCapture_EmptyCaptureClearsAltScreenScrollback(t *testing.T) {
 	vt.enterAltScreen()
 	vt.Write([]byte("stale"))
 
-	vt.LoadPaneCaptureWithCursor(nil, 0, 0, true)
+	vt.LoadPaneCaptureWithCursorAndModes(nil, 0, 0, true, PaneModeState{PreserveExistingState: true})
 
 	if len(vt.Scrollback) != 0 {
 		t.Fatalf("expected empty authoritative snapshot to clear stale alt-screen scrollback, got %d lines", len(vt.Scrollback))
