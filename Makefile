@@ -42,10 +42,12 @@ harness-presets: harness-center harness-sidebar harness-monitor
 
 check-golangci-version:
 	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
-	@want="$$(cat .golangci-version)"; \
-	have="$$(golangci-lint version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+	@want_raw="$$(cat .golangci-version)"; \
+	want="$${want_raw#v}"; \
+	have_raw="$$(golangci-lint version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+	have="$${have_raw#v}"; \
 	if [ "$$have" != "$$want" ]; then \
-		echo "WARNING: golangci-lint $$have installed but .golangci-version pins $$want (CI uses $$want; diagnostics may differ)"; \
+		echo "WARNING: golangci-lint $${have_raw:-unknown} installed but .golangci-version pins $$want_raw (CI uses $$want_raw; diagnostics may differ)"; \
 	fi
 
 lint: check-golangci-version
