@@ -220,11 +220,11 @@ func TestFileWatcher(t *testing.T) {
 		// Wait for the notification by polling rather than a fixed sleep.
 		waitForNotifyCount(t, &notifyCount, 1, 2*time.Second)
 
-		// Reset counter and wait out the debounce window before the next change.
-		// This is a debounce wait, not a notification wait — the count is
-		// intentionally 0 here.
-		notifyCount.Store(0)
+		// Wait out the debounce window before the next change, then reset the
+		// counter so late events from the first replacement cannot satisfy the
+		// second assertion.
 		time.Sleep(2 * fw.debounce)
+		notifyCount.Store(0)
 
 		// Make another change - this verifies the watch is still active
 		tempPath2 := filepath.Join(gitDir, "index.lock")
