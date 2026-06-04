@@ -101,37 +101,7 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 }
 
 func mergeTabsByID(existing, incoming []*Tab, incomingActive int) ([]*Tab, int) {
-	merged := make([]*Tab, 0, len(existing)+len(incoming))
-	indexByID := make(map[TabID]int, len(existing)+len(incoming))
-
-	for _, tab := range existing {
-		if tab == nil {
-			continue
-		}
-		if _, ok := indexByID[tab.ID]; ok {
-			continue
-		}
-		indexByID[tab.ID] = len(merged)
-		merged = append(merged, tab)
-	}
-
-	migratedActive := -1
-	for i, tab := range incoming {
-		if tab == nil {
-			continue
-		}
-		if idx, ok := indexByID[tab.ID]; ok {
-			if i == incomingActive {
-				migratedActive = idx
-			}
-			continue
-		}
-		indexByID[tab.ID] = len(merged)
-		merged = append(merged, tab)
-		if i == incomingActive {
-			migratedActive = len(merged) - 1
-		}
-	}
-
-	return merged, migratedActive
+	return common.MergeByID(existing, incoming, incomingActive,
+		func(t *Tab) TabID { return t.ID },
+		func(t *Tab) bool { return t == nil })
 }
