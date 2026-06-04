@@ -53,6 +53,11 @@ linters-settings:
         msg: Use internal/logging for internal packages; stdout/stderr output is reserved for CLI entrypoints.
       - p: ^log\.(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$
         msg: Use internal/logging and explicit error returns instead of stdlib log side effects.
+  funlen:
+    lines: 120
+    statements: 60
+  gocyclo:
+    min-complexity: 30
   gofumpt:
     extra-rules: true
   goimports:
@@ -65,6 +70,8 @@ linters-settings:
       - unusedwrite
   misspell:
     locale: US
+  nestif:
+    min-complexity: 5
   nolintlint:
     require-explanation: true
     require-specific: true
@@ -116,4 +123,8 @@ issues:
       path: ^cmd/
     - linters:
         - forbidigo
+      path: _test\.go
+    # Table-driven tests legitimately exceed the function-length budget.
+    - linters:
+        - funlen
       path: _test\.go
