@@ -38,18 +38,13 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.X -= a.layout.LeftGutter()
-			adjusted.Y -= a.layout.TopGutter()
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneDashboard, msg.X, msg.Y)
 		newDashboard, cmd := a.dashboard.Update(adjusted)
 		a.dashboard = newDashboard
 		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneCenter:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.Y -= a.layout.TopGutter()
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneCenter, msg.X, msg.Y)
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
 		return common.SafeBatch(focusCmd, cmd)
@@ -64,9 +59,7 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		return focusCmd
 	case messages.PaneSidebar:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneSidebar, msg.X, msg.Y)
 		newSidebar, cmd := a.sidebar.Update(adjusted)
 		a.sidebar = newSidebar
 		return common.SafeBatch(focusCmd, cmd)
@@ -86,6 +79,25 @@ func (a *App) handleMouseMsg(msg tea.Msg) tea.Cmd {
 		return a.routeMouseRelease(msg)
 	default:
 		return nil
+	}
+}
+
+// adjustMouseXY converts pointer coordinates into the target pane's local
+// coordinate space. It returns the input unchanged when layout is unset or the
+// pane needs no adjustment (e.g. the sidebar terminal).
+func (a *App) adjustMouseXY(pane messages.PaneType, x, y int) (int, int) {
+	if a.layout == nil {
+		return x, y
+	}
+	switch pane {
+	case messages.PaneDashboard:
+		return x - a.layout.LeftGutter(), y - a.layout.TopGutter()
+	case messages.PaneCenter:
+		return x, y - a.layout.TopGutter()
+	case messages.PaneSidebar:
+		return a.adjustSidebarMouseXY(x, y)
+	default:
+		return x, y
 	}
 }
 
@@ -132,18 +144,13 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.X -= a.layout.LeftGutter()
-			adjusted.Y -= a.layout.TopGutter()
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneDashboard, msg.X, msg.Y)
 		newDashboard, cmd := a.dashboard.Update(adjusted)
 		a.dashboard = newDashboard
 		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneCenter:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.Y -= a.layout.TopGutter()
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneCenter, msg.X, msg.Y)
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
 		return common.SafeBatch(focusCmd, cmd)
@@ -153,9 +160,7 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 		return common.SafeBatch(focusCmd, cmd)
 	case messages.PaneSidebar:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneSidebar, msg.X, msg.Y)
 		newSidebar, cmd := a.sidebar.Update(adjusted)
 		a.sidebar = newSidebar
 		return common.SafeBatch(focusCmd, cmd)
@@ -191,18 +196,13 @@ func (a *App) routeMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.X -= a.layout.LeftGutter()
-			adjusted.Y -= a.layout.TopGutter()
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneDashboard, msg.X, msg.Y)
 		newDashboard, cmd := a.dashboard.Update(adjusted)
 		a.dashboard = newDashboard
 		return cmd
 	case messages.PaneCenter:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.Y -= a.layout.TopGutter()
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneCenter, msg.X, msg.Y)
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
 		return cmd
@@ -212,9 +212,7 @@ func (a *App) routeMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 		return cmd
 	case messages.PaneSidebar:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneSidebar, msg.X, msg.Y)
 		newSidebar, cmd := a.sidebar.Update(adjusted)
 		a.sidebar = newSidebar
 		return cmd
@@ -237,18 +235,13 @@ func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 	switch targetPane {
 	case messages.PaneDashboard:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.X -= a.layout.LeftGutter()
-			adjusted.Y -= a.layout.TopGutter()
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneDashboard, msg.X, msg.Y)
 		newDashboard, cmd := a.dashboard.Update(adjusted)
 		a.dashboard = newDashboard
 		return cmd
 	case messages.PaneCenter:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.Y -= a.layout.TopGutter()
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneCenter, msg.X, msg.Y)
 		newCenter, cmd := a.center.Update(adjusted)
 		a.center = newCenter
 		return cmd
@@ -258,9 +251,7 @@ func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 		return cmd
 	case messages.PaneSidebar:
 		adjusted := msg
-		if a.layout != nil {
-			adjusted.X, adjusted.Y = a.adjustSidebarMouseXY(adjusted.X, adjusted.Y)
-		}
+		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneSidebar, msg.X, msg.Y)
 		newSidebar, cmd := a.sidebar.Update(adjusted)
 		a.sidebar = newSidebar
 		return cmd
