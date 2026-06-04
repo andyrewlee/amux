@@ -238,8 +238,8 @@ func BenchmarkStringDrawableCreation(b *testing.B) {
 	}
 }
 
-// BenchmarkStyleToDeltaANSI benchmarks delta style encoding
-func BenchmarkStyleToDeltaANSI(b *testing.B) {
+// BenchmarkStyleDeltaANSI benchmarks delta style encoding
+func BenchmarkStyleDeltaANSI(b *testing.B) {
 	scenarios := []struct {
 		name string
 		prev vterm.Style
@@ -278,14 +278,14 @@ func BenchmarkStyleToDeltaANSI(b *testing.B) {
 		b.Run(s.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_ = vterm.StyleToDeltaANSI(s.prev, s.next)
+				_ = s.prev.DeltaANSI(s.next)
 			}
 		})
 	}
 }
 
-// BenchmarkStyleToANSI benchmarks full style encoding
-func BenchmarkStyleToANSI(b *testing.B) {
+// BenchmarkStyleANSI benchmarks full style encoding
+func BenchmarkStyleANSI(b *testing.B) {
 	scenarios := []struct {
 		name  string
 		style vterm.Style
@@ -313,7 +313,7 @@ func BenchmarkStyleToANSI(b *testing.B) {
 		b.Run(s.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_ = vterm.StyleToANSI(s.style)
+				_ = s.style.ANSI()
 			}
 		})
 	}
