@@ -132,7 +132,7 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 	}
 
 	if ts.readerCancel != nil {
-		common.SafeClose(ts.readerCancel)
+		close(ts.readerCancel)
 	}
 	ts.readerCancel = make(chan struct{})
 	ts.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
@@ -227,7 +227,7 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	}
 	ts.mu.Lock()
 	if ts.readerCancel != nil {
-		common.SafeClose(ts.readerCancel)
+		close(ts.readerCancel)
 		ts.readerCancel = nil
 	}
 	ts.readerActive = false
