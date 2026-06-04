@@ -336,21 +336,8 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 							suppressRedraw := false
 							tab.mu.Lock()
 							if tab.Terminal != nil {
-								filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
-								filteredLen = len(filtered)
+								filteredLen, suppressRedraw, tagSessionName, tagTimestamp = m.applyPTYChunkLocked(tab, chunk, hasMoreBuffered, visibleSeq)
 								filterApplied = true
-								if len(filtered) > 0 {
-									flushDone := perf.Time("pty_flush")
-									tab.Terminal.Write(filtered)
-									flushDone()
-									perf.Count("pty_flush_bytes", int64(len(filtered)))
-								}
-								// Activity state intentionally tracks visible terminal mutations only.
-								// Noise-only chunks are filtered above and must not update activity tags.
-								// We still run this to clear pending visible state when no mutation occurred.
-								tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, hasMoreBuffered, visibleSeq, filtered)
-								catchUpBefore, catchUpAfter := tab.settlePTYBytesLocked(processedBytes)
-								suppressRedraw = catchUpBefore && catchUpAfter
 								tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
 								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
 							}
@@ -374,21 +361,8 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					suppressRedraw := false
 					tab.mu.Lock()
 					if tab.Terminal != nil {
-						filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
-						filteredLen = len(filtered)
+						filteredLen, suppressRedraw, tagSessionName, tagTimestamp = m.applyPTYChunkLocked(tab, chunk, hasMoreBuffered, visibleSeq)
 						filterApplied = true
-						if len(filtered) > 0 {
-							flushDone := perf.Time("pty_flush")
-							tab.Terminal.Write(filtered)
-							flushDone()
-							perf.Count("pty_flush_bytes", int64(len(filtered)))
-						}
-						// Activity state intentionally tracks visible terminal mutations only.
-						// Noise-only chunks are filtered above and must not update activity tags.
-						// We still run this to clear pending visible state when no mutation occurred.
-						tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, hasMoreBuffered, visibleSeq, filtered)
-						catchUpBefore, catchUpAfter := tab.settlePTYBytesLocked(processedBytes)
-						suppressRedraw = catchUpBefore && catchUpAfter
 					}
 					tab.mu.Unlock()
 					if !suppressRedraw {
@@ -436,4 +410,27 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 		}
 	}
 	return common.SafeBatch(cmds...)
+}
+
+// applyPTYChunkLocked filters chunk for known PTY noise, writes it to the
+// terminal, updates visible-activity state and catch-up accounting, and emits
+// the per-flush perf counters. The caller must hold tab.mu and have verified
+// tab.Terminal != nil. It returns the filtered byte count, whether the
+// post-write redraw should be suppressed, and the activity tag to publish.
+func (m *Model) applyPTYChunkLocked(tab *Tab, chunk []byte, hasMoreBuffered bool, visibleSeq uint64) (filteredLen int, suppressRedraw bool, tagSessionName string, tagTimestamp int64) {
+	filtered := common.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
+	filteredLen = len(filtered)
+	if len(filtered) > 0 {
+		flushDone := perf.Time("pty_flush")
+		tab.Terminal.Write(filtered)
+		flushDone()
+		perf.Count("pty_flush_bytes", int64(len(filtered)))
+	}
+	// Activity state intentionally tracks visible terminal mutations only.
+	// Noise-only chunks are filtered above and must not update activity tags.
+	// We still run this to clear pending visible state when no mutation occurred.
+	tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, hasMoreBuffered, visibleSeq, filtered)
+	catchUpBefore, catchUpAfter := tab.settlePTYBytesLocked(len(chunk))
+	suppressRedraw = catchUpBefore && catchUpAfter
+	return filteredLen, suppressRedraw, tagSessionName, tagTimestamp
 }
