@@ -28,7 +28,6 @@ func (a *App) SetMsgSender(send func(tea.Msg)) {
 			err := fmt.Errorf("background panic in %s: %v", name, recovered)
 			a.enqueueExternalMsg(messages.Error{Err: err, Context: errorContext(errorServiceApp, "background")})
 		})
-		a.installSupervisorErrorHandler()
 		if a.supervisor != nil {
 			a.supervisor.Start("app.external_msgs", a.runExternalMsgs)
 			return
