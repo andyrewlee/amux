@@ -30,17 +30,17 @@ type PTYMsgFactory struct {
 
 // RunPTYReader reads from r, buffers bytes, sends Output messages via msgCh
 // on ticker ticks or when MaxPendingBytes is hit. Sends Stopped on error.
-// Closes msgCh on exit.
+// msgCh is closed exactly once, by this goroutine, on every return path
+// (including panic) via the deferred close below, so ForwardPTYMsgs never
+// blocks on a channel that will not close.
 func RunPTYReader(
 	r io.Reader, msgCh chan tea.Msg, cancel <-chan struct{},
 	heartbeat *int64, cfg PTYReaderConfig, factory PTYMsgFactory,
 ) {
-	// Ensure msgCh is always closed even if we panic, so forwardPTYMsgs doesn't block forever.
-	// The inner recover() catches double-close panics from existing close(msgCh) calls.
-	defer func() {
-		defer func() { _ = recover() }()
-		close(msgCh)
-	}()
+	// This goroutine is the sole owner of msgCh, so close it once on return.
+	// A deferred close runs during panic unwinding too, which unblocks
+	// ForwardPTYMsgs before the panic propagates to safego.Run (which logs it).
+	defer close(msgCh)
 
 	if r == nil {
 		return
@@ -112,7 +112,6 @@ func RunPTYReader(
 	for {
 		select {
 		case <-cancel:
-			close(msgCh)
 			return
 		case err := <-errCh:
 			beat()
@@ -122,7 +121,6 @@ func RunPTYReader(
 			if !ok {
 				if len(pending) > 0 {
 					if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
-						close(msgCh)
 						return
 					}
 				}
@@ -130,14 +128,12 @@ func RunPTYReader(
 					stoppedErr = io.EOF
 				}
 				SendPTYMsg(msgCh, cancel, factory.Stopped(stoppedErr))
-				close(msgCh)
 				return
 			}
 			pending = append(pending, data...)
 			startFlushTicker()
 			if len(pending) >= cfg.MaxPendingBytes {
 				if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
-					close(msgCh)
 					return
 				}
 				pending = nil
@@ -147,14 +143,12 @@ func RunPTYReader(
 			}
 			if stoppedErr != nil && len(pending) == 0 {
 				SendPTYMsg(msgCh, cancel, factory.Stopped(stoppedErr))
-				close(msgCh)
 				return
 			}
 		case <-flushTick:
 			beat()
 			if len(pending) > 0 {
 				if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
-					close(msgCh)
 					return
 				}
 				pending = nil
@@ -164,7 +158,6 @@ func RunPTYReader(
 			}
 			if stoppedErr != nil {
 				SendPTYMsg(msgCh, cancel, factory.Stopped(stoppedErr))
-				close(msgCh)
 				return
 			}
 		case <-heartbeatTicker.C:
