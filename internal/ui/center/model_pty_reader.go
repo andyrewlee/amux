@@ -1,7 +1,6 @@
 package center
 
 import (
-	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -86,7 +85,9 @@ func (m *Model) busyPTYTabCount(now time.Time) int {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
-			busy := atomic.LoadUint32(&tab.readerActiveState) == 1 || len(tab.pendingOutput) > 0
+			tab.mu.Lock()
+			busy := tab.readerActive || len(tab.pendingOutput) > 0
+			tab.mu.Unlock()
 			if busy {
 				count++
 			}

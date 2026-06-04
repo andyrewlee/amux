@@ -56,15 +56,14 @@ type Tab struct {
 	SessionName string
 	Detached    bool
 	// reattachInFlight prevents overlapping reattach attempts for the same tab.
-	reattachInFlight  bool
-	Terminal          *vterm.VTerm // Virtual terminal emulator with scrollback
-	DiffViewer        *diff.Model  // Native diff viewer (replaces PTY-based viewer)
-	mu                sync.Mutex   // Protects Terminal
-	closed            uint32
-	closing           uint32
-	Running           bool   // Whether the agent is actively running
-	readerActive      bool   // Guard to ensure only one PTY read loop per tab
-	readerActiveState uint32 // Mirrors readerActive for lock-free atomic reads
+	reattachInFlight bool
+	Terminal         *vterm.VTerm // Virtual terminal emulator with scrollback
+	DiffViewer       *diff.Model  // Native diff viewer (replaces PTY-based viewer)
+	mu               sync.Mutex   // Protects Terminal
+	closed           uint32
+	closing          uint32
+	Running          bool // Whether the agent is actively running
+	readerActive     bool // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 
 	pendingOutput            []byte
