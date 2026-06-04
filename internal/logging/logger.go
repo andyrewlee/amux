@@ -172,13 +172,6 @@ func Error(format string, args ...any) {
 	log(LevelError, format, args...)
 }
 
-// WithError logs an error with context
-func WithError(err error, context string) {
-	if err != nil {
-		log(LevelError, "%s: %v", context, err)
-	}
-}
-
 // Close closes the log file
 func Close() error {
 	if defaultLogger != nil && defaultLogger.writer != nil {

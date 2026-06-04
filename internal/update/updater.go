@@ -168,8 +168,3 @@ func (u *Updater) Upgrade(release *Release) error {
 	logging.Info("Upgrade complete: %s", release.TagName)
 	return nil
 }
-
-// Version returns the current version.
-func (u *Updater) Version() string {
-	return u.version
-}
