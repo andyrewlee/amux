@@ -60,3 +60,64 @@ func TestSendKeysDeliversTextAndEnter(t *testing.T) {
 		t.Fatalf("expected 'ping' at least twice (typed + echo), got %d in:\n%s", count, text)
 	}
 }
+
+func TestSendTextArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		session string
+		text    string
+	}{
+		{"plain", "amux-ws-tab", "hello"},
+		{"leading dash payload", "amux-ws-tab", "-x"},
+		{"empty text", "amux-ws-tab", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := sendTextArgs(tt.session, tt.text)
+			if len(args) == 0 || args[0] != "send-keys" {
+				t.Fatalf("args[0] = %q, want send-keys (%v)", args, args)
+			}
+			if !contains(args, "-l") {
+				t.Fatalf("missing -l (literal) flag: %v", args)
+			}
+			// The user text must be the final element, immediately preceded by --,
+			// so a leading-dash payload is never parsed as a flag.
+			if args[len(args)-1] != tt.text {
+				t.Fatalf("text not last element: %v", args)
+			}
+			if args[len(args)-2] != "--" {
+				t.Fatalf("-- must immediately precede the text: %v", args)
+			}
+			// Raw session name, no sessionTarget '=' prefix.
+			if !contains(args, tt.session) {
+				t.Fatalf("raw session name %q not present: %v", tt.session, args)
+			}
+		})
+	}
+}
+
+func TestSendEnterArgs(t *testing.T) {
+	args := sendEnterArgs("amux-ws-tab")
+	if len(args) == 0 || args[0] != "send-keys" {
+		t.Fatalf("args[0] = %q, want send-keys (%v)", args, args)
+	}
+	if !contains(args, "-H") {
+		t.Fatalf("enter must use hex mode -H: %v", args)
+	}
+	if args[len(args)-1] != "0D" {
+		t.Fatalf("enter payload must be 0D (hex CR), got: %v", args)
+	}
+	// Must not use a named "Enter" key.
+	if contains(args, "Enter") {
+		t.Fatalf("enter must be a raw 0D byte, not the named Enter key: %v", args)
+	}
+}
+
+func contains(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
