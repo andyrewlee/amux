@@ -7,16 +7,7 @@ func ListSessions(opts Options) ([]string, error) {
 	if err := EnsureAvailable(); err != nil {
 		return nil, err
 	}
-	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", "#{session_name}")
-	defer cancel()
-	output, err := cmd.Output()
-	if err != nil {
-		if isExitCode1(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return parseOutputLines(output), nil
+	return listTmux(opts, "list-sessions", "-F", "#{session_name}")
 }
 
 // KillSessionsWithPrefix kills all sessions with a matching name prefix.
