@@ -1,4 +1,4 @@
-package common
+package theme
 
 // Icons used throughout the application
 // Uses Unicode characters with fallbacks for broad terminal support
