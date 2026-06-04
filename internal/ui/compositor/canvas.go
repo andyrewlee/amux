@@ -1,3 +1,7 @@
+// Package compositor composes vterm snapshots and UI layers into a single
+// rendered frame. A Canvas holds the working cell grid and is reused across
+// frames; snapshot rendering (RenderSnapshotWithCanvas) and delta-aware ANSI
+// emission keep redraws cheap on the hot render path.
 package compositor
 
 import (

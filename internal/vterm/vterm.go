@@ -1,3 +1,7 @@
+// Package vterm is a terminal emulator: it parses a stream of ANSI/VT escape
+// sequences into a cell grid plus scrollback and renders that state back to
+// ANSI. It is the source of truth for what a hosted agent's terminal looks
+// like, feeding the compositor and the center/sidebar UI models.
 package vterm
 
 const MaxScrollback = 10000

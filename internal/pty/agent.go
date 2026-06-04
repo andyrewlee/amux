@@ -1,3 +1,6 @@
+// Package pty manages the pseudo-terminals that back hosted agents: it spawns
+// agent processes (Agent) attached to a PTY (Terminal), sizes them, and
+// streams their byte output to the UI for parsing by internal/vterm.
 package pty
 
 import (

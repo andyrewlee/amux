@@ -1,3 +1,8 @@
+// Package tmux is a thin wrapper over the tmux CLI used to host agent
+// sessions: it creates and kills sessions, captures pane contents and
+// scrollback, resizes windows, and reads/writes the @amux_* activity tags
+// that coordinate detection and reattach across amux instances. tmux exit
+// code 1 ("not found") is treated as an empty/absent result, not an error.
 package tmux
 
 import (
