@@ -84,27 +84,3 @@ var Icons = struct {
 func SpinnerFrame(frame int) string {
 	return Icons.Spinner[frame%len(Icons.Spinner)]
 }
-
-// FileStatusIcon returns an icon and description for git file status
-func FileStatusIcon(status string) (icon, desc string) {
-	switch status {
-	case "M":
-		return "M", "modified"
-	case "A":
-		return "A", "added"
-	case "D":
-		return "D", "deleted"
-	case "R":
-		return "R", "renamed"
-	case "C":
-		return "C", "copied"
-	case "U":
-		return "U", "unmerged"
-	case "??":
-		return "A", "new file"
-	case "!!":
-		return "!", "ignored"
-	default:
-		return "?", "unknown"
-	}
-}

@@ -314,16 +314,3 @@ func DefaultStyles() Styles {
 			Foreground(ColorBackground()),
 	}
 }
-
-// RenderHelpBar renders a help bar with the given key-description pairs
-func RenderHelpBar(s Styles, items []struct{ Key, Desc string }, width int) string {
-	var parts []string
-	for _, item := range items {
-		key := s.HelpKey.Render(item.Key)
-		desc := s.HelpDesc.Render(item.Desc)
-		parts = append(parts, key+":"+desc)
-	}
-
-	joined := lipgloss.JoinHorizontal(lipgloss.Center, parts...)
-	return s.Help.Width(width).Render(joined)
-}
