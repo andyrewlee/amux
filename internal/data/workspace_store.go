@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,13 +100,13 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 	path := s.workspacePath(id)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read workspace %s: %w", id, err)
 	}
 
 	// Use workspaceJSON for backward-compatible loading
 	var raw workspaceJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode workspace %s: %w", id, err)
 	}
 
 	ws := &Workspace{
@@ -161,22 +162,22 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 	defer unlockRegistryFiles(lockFiles)
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 
 	data, err := json.MarshalIndent(ws, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 
 	// Write to temp file first, then rename for atomic operation
 	tempPath := path + ".tmp"
 	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
-		return err
+		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 	if err := os.Rename(tempPath, path); err != nil {
 		os.Remove(tempPath) // Clean up temp file on rename failure
-		return err
+		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 	if oldID != "" {
 		if err := s.deleteWorkspaceDir(oldID); err != nil {
@@ -326,7 +327,7 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 	if err == nil {
 		return ws, canonicalID, nil
 	}
-	if !os.IsNotExist(err) {
+	if !errors.Is(err, fs.ErrNotExist) {
 		return nil, "", err
 	}
 	targetRepo, targetRoot := canonicalLookupPath(repo), canonicalLookupPath(root)
@@ -344,7 +345,7 @@ func (s *WorkspaceStore) findStoredWorkspace(repo, root string) (*Workspace, Wor
 		// applyDefaults=false: see comment on first load call above.
 		candidate, err := s.load(id, false)
 		if err != nil {
-			if !os.IsNotExist(err) {
+			if !errors.Is(err, fs.ErrNotExist) {
 				logging.Warn("Skipping unreadable workspace metadata %s during fallback lookup: %v", id, err)
 			}
 			continue
@@ -376,11 +377,13 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 	var loadErrors int
 	var targetLoadErrors int
 	var unknownLoadErrors int
+	var loadErrs []error
 	for _, id := range ids {
 		ws, err := s.Load(id)
 		if err != nil {
 			logging.Warn("Failed to load workspace %s: %v", id, err)
 			loadErrors++
+			loadErrs = append(loadErrs, err)
 			if repo, ok := s.repoHintForWorkspaceID(id); ok {
 				if canonicalLookupPath(repo) == targetRepo {
 					targetLoadErrors++
@@ -417,13 +420,13 @@ func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*W
 	}
 
 	if targetLoadErrors > 0 && len(workspaces) == 0 {
-		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s", targetLoadErrors, repoPath)
+		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s: %w", targetLoadErrors, repoPath, errors.Join(loadErrs...))
 	}
 	if unknownLoadErrors > 0 && len(workspaces) == 0 {
-		return nil, fmt.Errorf("failed to load %d workspace(s) with unreadable repo for %s", unknownLoadErrors, repoPath)
+		return nil, fmt.Errorf("failed to load %d workspace(s) with unreadable repo for %s: %w", unknownLoadErrors, repoPath, errors.Join(loadErrs...))
 	}
 	if loadErrors > 0 && len(workspaces) == 0 && loadErrors == len(ids) {
-		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s", loadErrors, repoPath)
+		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s: %w", loadErrors, repoPath, errors.Join(loadErrs...))
 	}
 
 	return workspaces, nil
