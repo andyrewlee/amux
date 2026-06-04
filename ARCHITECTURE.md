@@ -15,8 +15,13 @@ boundaries and command discipline between the app pump and the panes, see
 
 ## Dependency direction
 
-Dependencies point downward; the UI never reaches the OS directly — it goes
-through the tmux/pty/git/data layers.
+Dependencies point downward. Most UI code reaches OS and process boundaries
+through the tmux/pty/git/data layers. UI packages may still own
+interaction-local adapters when the behavior is part of a widget boundary, such
+as clipboard writes and file-picker filesystem reads in `internal/ui/common`, PTY
+tracing in `internal/ui/center`, and shell plumbing in the sidebar terminal.
+Shared process, persistence, git, tmux, and PTY behavior belongs in the lower
+layers.
 
 ```
             cmd/amux            cmd/amux-harness
