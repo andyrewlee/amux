@@ -341,7 +341,7 @@ func GlobalOptionValue(key string, opts Options) (string, error) {
 				return "", nil
 			}
 			stderr := strings.TrimSpace(string(output))
-			return "", fmt.Errorf("show-options -g %s: %s", key, stderr)
+			return "", fmt.Errorf("show-options -g %s: %s: %w", key, stderr, err)
 		}
 		return "", err
 	}
@@ -376,7 +376,7 @@ func SetGlobalOptionValue(key, value string, opts Options) error {
 			if tmuxShowOptionMissingError(stderr) {
 				return nil
 			}
-			return fmt.Errorf("set-option -g %s: %s", key, stderr)
+			return fmt.Errorf("set-option -g %s: %s: %w", key, stderr, err)
 		}
 		return err
 	}
@@ -425,7 +425,7 @@ func SetGlobalOptionValues(values []OptionValue, opts Options) error {
 			if tmuxShowOptionMissingError(stderr) {
 				return nil
 			}
-			return fmt.Errorf("set-option -g (multi): %s", stderr)
+			return fmt.Errorf("set-option -g (multi): %s: %w", stderr, err)
 		}
 		return err
 	}
