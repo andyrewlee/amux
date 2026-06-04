@@ -133,17 +133,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 			}
 			tab.mu.Lock()
+			text := ""
 			if tab.Terminal != nil && tab.Terminal.HasSelection() {
-				text := tab.Terminal.SelectedText()
-				if text != "" {
-					if err := common.CopyToClipboard(text); err != nil {
-						logging.Error("Failed to copy to clipboard: %v", err)
-					} else {
-						logging.Info("Cmd+C copied %d chars to clipboard", len(text))
-					}
-				}
+				text = tab.Terminal.SelectedText()
 			}
 			tab.mu.Unlock()
+			common.CopyToClipboardWithLog(text, "Cmd+C clipboard")
 			return m, nil // Don't forward to terminal, don't clear selection
 		}
 

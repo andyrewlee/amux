@@ -245,13 +245,7 @@ func (m *Model) updateWorkspaceDeleted(msg messages.WorkspaceDeleted) (*Model, t
 
 // updateTabSelectionResult handles tabSelectionResult.
 func (m *Model) updateTabSelectionResult(msg tabSelectionResult) (*Model, tea.Cmd) {
-	if msg.clipboard != "" {
-		if err := common.CopyToClipboard(msg.clipboard); err != nil {
-			logging.Error("Failed to copy to clipboard: %v", err)
-		} else {
-			logging.Info("Copied %d chars to clipboard", len(msg.clipboard))
-		}
-	}
+	common.CopyToClipboardWithLog(msg.clipboard, "clipboard")
 	return m, nil
 }
 
