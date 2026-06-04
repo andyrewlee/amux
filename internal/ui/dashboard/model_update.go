@@ -76,85 +76,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if !m.focused {
 			return m, nil
 		}
-
 		toolbarItems := m.toolbarVisibleItems(m.toolbarItems())
 		if m.toolbarFocused {
-			if len(toolbarItems) == 0 {
-				m.toolbarFocused = false
-				break
-			}
-			switch {
-			case key.Matches(msg, key.NewBinding(key.WithKeys("left", "h"))):
-				m.toolbarIndex = (m.toolbarIndex - 1 + len(toolbarItems)) % len(toolbarItems)
-			case key.Matches(msg, key.NewBinding(key.WithKeys("right", "l"))):
-				m.toolbarIndex = (m.toolbarIndex + 1) % len(toolbarItems)
-			case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
-				m.toolbarFocused = false
-				if last := m.findSelectableRow(len(m.rows)-1, -1); last != -1 {
-					m.cursor = last
-				}
-				return m, m.activateCurrentRow()
-			case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
-				m.toolbarFocused = false
-				if last := m.findSelectableRow(len(m.rows)-1, -1); last != -1 {
-					m.cursor = last
-				}
-				return m, m.activateCurrentRow()
-			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-				m.toolbarFocused = false
-				return m, m.toolbarCommand(toolbarItems[m.toolbarIndex].kind)
-			}
-			return m, nil
+			return m.handleToolbarKey(msg, toolbarItems)
 		}
-
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("j", "down"))):
-			last := m.findSelectableRow(len(m.rows)-1, -1)
-			if last != -1 && m.cursor == last && len(toolbarItems) > 0 {
-				m.toolbarFocused = true
-				m.toolbarIndex = 0
-			} else {
-				m.moveCursor(1)
-				return m, m.activateCurrentRow()
-			}
-		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
-			m.moveCursor(-1)
-			return m, m.activateCurrentRow()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("pgdown", "ctrl+d"))):
-			// Half-page scroll to maintain context overlap
-			delta := m.visibleHeight() / 2
-			if delta < 1 {
-				delta = 1
-			}
-			m.moveCursor(delta)
-			return m, m.activateCurrentRow()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("pgup", "ctrl+u"))):
-			// Half-page scroll to maintain context overlap
-			delta := m.visibleHeight() / 2
-			if delta < 1 {
-				delta = 1
-			}
-			m.moveCursor(-delta)
-			return m, m.activateCurrentRow()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			return m, m.handleEnter()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
-			return m, m.handleDelete()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
-			return m, m.refresh()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):
-			// Jump to last selectable row
-			if idx := m.findSelectableRow(len(m.rows)-1, -1); idx != -1 {
-				m.cursor = idx
-				return m, m.activateCurrentRow()
-			}
-		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
-			// Jump to first selectable row
-			if idx := m.findSelectableRow(0, 1); idx != -1 {
-				m.cursor = idx
-				return m, m.activateCurrentRow()
-			}
-		}
+		return m.handleNavKey(msg, toolbarItems)
 
 	case SpinnerTickMsg:
 		// Advance spinner frame if we have loading items or active agents
@@ -183,6 +109,84 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	}
 
 	return m, common.SafeBatch(cmds...)
+}
+
+// handleToolbarKey handles key input while the toolbar is focused.
+func (m *Model) handleToolbarKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*Model, tea.Cmd) {
+	if len(toolbarItems) == 0 {
+		m.toolbarFocused = false
+		return m, nil
+	}
+	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys("left", "h"))):
+		m.toolbarIndex = (m.toolbarIndex - 1 + len(toolbarItems)) % len(toolbarItems)
+	case key.Matches(msg, key.NewBinding(key.WithKeys("right", "l"))):
+		m.toolbarIndex = (m.toolbarIndex + 1) % len(toolbarItems)
+	case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k", "down", "j"))):
+		// Up or down leaves the toolbar and jumps to the last selectable row.
+		m.toolbarFocused = false
+		if last := m.findSelectableRow(len(m.rows)-1, -1); last != -1 {
+			m.cursor = last
+		}
+		return m, m.activateCurrentRow()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+		m.toolbarFocused = false
+		return m, m.toolbarCommand(toolbarItems[m.toolbarIndex].kind)
+	}
+	return m, nil
+}
+
+// handleNavKey handles row-navigation key input when the toolbar is not focused.
+func (m *Model) handleNavKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys("j", "down"))):
+		last := m.findSelectableRow(len(m.rows)-1, -1)
+		if last != -1 && m.cursor == last && len(toolbarItems) > 0 {
+			m.toolbarFocused = true
+			m.toolbarIndex = 0
+		} else {
+			m.moveCursor(1)
+			return m, m.activateCurrentRow()
+		}
+	case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
+		m.moveCursor(-1)
+		return m, m.activateCurrentRow()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("pgdown", "ctrl+d"))):
+		// Half-page scroll to maintain context overlap
+		delta := m.visibleHeight() / 2
+		if delta < 1 {
+			delta = 1
+		}
+		m.moveCursor(delta)
+		return m, m.activateCurrentRow()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("pgup", "ctrl+u"))):
+		// Half-page scroll to maintain context overlap
+		delta := m.visibleHeight() / 2
+		if delta < 1 {
+			delta = 1
+		}
+		m.moveCursor(-delta)
+		return m, m.activateCurrentRow()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+		return m, m.handleEnter()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
+		return m, m.handleDelete()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
+		return m, m.refresh()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):
+		// Jump to last selectable row
+		if idx := m.findSelectableRow(len(m.rows)-1, -1); idx != -1 {
+			m.cursor = idx
+			return m, m.activateCurrentRow()
+		}
+	case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
+		// Jump to first selectable row
+		if idx := m.findSelectableRow(0, 1); idx != -1 {
+			m.cursor = idx
+			return m, m.activateCurrentRow()
+		}
+	}
+	return m, nil
 }
 
 // View renders the dashboard
