@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // updatePTYStopped handles PTYStopped.
@@ -24,7 +25,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
 		if tab.Terminal != nil && len(tab.ptyNoiseTrailing) > 0 {
-			trailing := common.DrainKnownPTYNoiseTrailing(&tab.ptyNoiseTrailing)
+			trailing := ptyio.DrainKnownPTYNoiseTrailing(&tab.ptyNoiseTrailing)
 			flushDone := perf.Time("pty_flush")
 			tab.Terminal.Write(trailing)
 			flushDone()

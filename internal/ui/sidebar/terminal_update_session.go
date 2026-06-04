@@ -7,6 +7,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -20,7 +21,7 @@ func (m *TerminalModel) sessionRestoreLiveSize(captureFullPane bool, snapshotCol
 // handleTerminalCreated wires up a newly created terminal and its scrollback.
 func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cmd {
 	currentWidth, currentHeight := m.sessionRestoreLiveSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows)
-	initialWidth, initialHeight := common.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, currentWidth, currentHeight)
+	initialWidth, initialHeight := ptyio.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, currentWidth, currentHeight)
 	ts := m.createTerminalStateForTabWithSizeAndRefresh(
 		msg.WorkspaceID,
 		msg.TabID,
@@ -36,7 +37,7 @@ func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cm
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			if msg.CaptureFullPane {
-				common.RestorePaneCapture(
+				ptyio.RestorePaneCapture(
 					ts.VTerm,
 					msg.Scrollback,
 					msg.PostAttachScrollback,
@@ -52,7 +53,7 @@ func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cm
 				ts.lastWidth = currentWidth
 				ts.lastHeight = currentHeight
 			} else if len(msg.Scrollback) > 0 {
-				common.RestoreScrollbackCapture(
+				ptyio.RestoreScrollbackCapture(
 					ts.VTerm,
 					msg.Scrollback,
 					msg.CaptureCols,
@@ -88,7 +89,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	if ts.VTerm != nil {
 		ts.VTerm.AllowAltScreenScrollback = true
 		if msg.CaptureFullPane {
-			common.RestorePaneCapture(
+			ptyio.RestorePaneCapture(
 				ts.VTerm,
 				msg.Scrollback,
 				msg.PostAttachScrollback,
@@ -103,7 +104,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 			)
 		} else {
 			if len(msg.Scrollback) > 0 && len(ts.VTerm.Scrollback) == 0 {
-				common.RestoreScrollbackCapture(
+				ptyio.RestoreScrollbackCapture(
 					ts.VTerm,
 					msg.Scrollback,
 					msg.CaptureCols,

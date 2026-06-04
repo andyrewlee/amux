@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -81,7 +82,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	captureRows := msg.Rows
 	captureCols := msg.Cols
 	cols, rows := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureCols, captureRows)
-	initialCols, initialRows := common.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
+	initialCols, initialRows := ptyio.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 	tab.mu.Lock()
 	createdTerminal := false
 	if tab.Terminal == nil {
@@ -100,7 +101,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 			// Any preserved local PTY backlog may already be represented there and
 			// would duplicate on the next flush if we kept it alive.
 			tab.pendingOutput = nil
-			common.RestorePaneCapture(
+			ptyio.RestorePaneCapture(
 				tab.Terminal,
 				msg.ScrollbackCapture,
 				msg.PostAttachScrollbackCapture,
@@ -114,9 +115,9 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 				rows,
 			)
 		} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
-			common.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
+			ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 		} else if m.width > 0 && m.height > 0 {
-			common.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
+			ptyio.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
 		}
 	}
 	tab.Agent = msg.Agent

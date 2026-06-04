@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/safego"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
@@ -52,13 +52,13 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 
 	safego.Go("center.pty_reader", func() {
 		defer m.markPTYReaderStopped(tab)
-		common.RunPTYReader(term, msgCh, cancel, &tab.ptyHeartbeat, common.PTYReaderConfig{
+		ptyio.RunPTYReader(term, msgCh, cancel, &tab.ptyHeartbeat, ptyio.PTYReaderConfig{
 			Label:           "center.pty_read_loop",
 			ReadBufferSize:  ptyReadBufferSize,
 			ReadQueueSize:   ptyReadQueueSize,
 			FrameInterval:   ptyFrameInterval,
 			MaxPendingBytes: ptyMaxPendingBytes,
-		}, common.PTYMsgFactory{
+		}, ptyio.PTYMsgFactory{
 			Output:  func(data []byte) tea.Msg { return PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: data} },
 			Stopped: func(err error) tea.Msg { return PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: err} },
 		})

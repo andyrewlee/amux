@@ -13,7 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -181,7 +181,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	captureRows := msg.Rows
 	captureCols := msg.Cols
 	cols, rows := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureCols, captureRows)
-	initialCols, initialRows := common.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
+	initialCols, initialRows := ptyio.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 
 	wsID := string(msg.Workspace.ID())
 	tabs := m.tabsByWorkspace[wsID]
@@ -231,7 +231,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				// A full tmux pane snapshot supersedes any preserved local PTY
 				// backlog for this terminal state.
 				tab.pendingOutput = nil
-				common.RestorePaneCapture(
+				ptyio.RestorePaneCapture(
 					tab.Terminal,
 					msg.ScrollbackCapture,
 					msg.PostAttachScrollbackCapture,
@@ -245,9 +245,9 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 					rows,
 				)
 			} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
-				common.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
+				ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 			} else if m.width > 0 && m.height > 0 {
-				common.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
+				ptyio.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
 			}
 		}
 		if tab.Name == "" {
@@ -346,7 +346,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	term.IgnoreCursorVisibilityControls = false
 	term.TreatLFAsCRLF = isChat
 	if msg.CaptureFullPane {
-		common.RestorePaneCapture(
+		ptyio.RestorePaneCapture(
 			term,
 			msg.ScrollbackCapture,
 			msg.PostAttachScrollbackCapture,
@@ -360,7 +360,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			rows,
 		)
 	} else {
-		common.RestoreScrollbackCapture(term, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
+		ptyio.RestoreScrollbackCapture(term, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 	}
 
 	// Set up response writer for terminal queries (DSR, DA, etc.)

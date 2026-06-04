@@ -9,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -24,7 +25,7 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 	data := msg.Data
 	ts.mu.Lock()
 	if ts.overflowTrimCarry != (vterm.ParserCarryState{}) {
-		data, ts.overflowTrimCarry = common.TrimPTYOverflowPrefix(data, 0, ts.overflowTrimCarry)
+		data, ts.overflowTrimCarry = ptyio.TrimPTYOverflowPrefix(data, 0, ts.overflowTrimCarry)
 	}
 	ts.mu.Unlock()
 	prevPendingLen := len(ts.pendingOutput)
@@ -41,7 +42,7 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 			ts.VTerm.ResetParserState()
 		}
 		ts.mu.Unlock()
-		retained, overflowCarry := common.TrimPTYOverflowPrefix(ts.pendingOutput, overflow, seed)
+		retained, overflowCarry := ptyio.TrimPTYOverflowPrefix(ts.pendingOutput, overflow, seed)
 		retainedStart := combinedLen - len(retained)
 		ts.pendingOutput = append([]byte(nil), retained...)
 		ts.mu.Lock()
@@ -104,7 +105,7 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 			copy(ts.pendingOutput, ts.pendingOutput[chunkSize:])
 			ts.pendingOutput = ts.pendingOutput[:len(ts.pendingOutput)-chunkSize]
 			processedBytes := len(chunk)
-			filtered := common.FilterKnownPTYNoiseStream(chunk, &ts.ptyNoiseTrailing)
+			filtered := ptyio.FilterKnownPTYNoiseStream(chunk, &ts.ptyNoiseTrailing)
 			filteredBytes := processedBytes - len(filtered)
 			perf.Count("pty_flush_bytes_processed", int64(processedBytes))
 			if filteredBytes > 0 {
@@ -151,7 +152,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	termAlive := ts.Terminal != nil && !ts.Terminal.IsClosed()
 	ts.mu.Lock()
 	if ts.VTerm != nil && len(ts.ptyNoiseTrailing) > 0 {
-		trailing := common.DrainKnownPTYNoiseTrailing(&ts.ptyNoiseTrailing)
+		trailing := ptyio.DrainKnownPTYNoiseTrailing(&ts.ptyNoiseTrailing)
 		flushDone := perf.Time("pty_flush")
 		ts.VTerm.Write(trailing)
 		flushDone()

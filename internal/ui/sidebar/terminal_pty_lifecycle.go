@@ -10,7 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/safego"
-	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -147,13 +147,13 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 
 	safego.Go("sidebar.pty_reader", func() {
 		defer m.markPTYReaderStopped(ts)
-		common.RunPTYReader(term, msgCh, cancel, &ts.ptyHeartbeat, common.PTYReaderConfig{
+		ptyio.RunPTYReader(term, msgCh, cancel, &ts.ptyHeartbeat, ptyio.PTYReaderConfig{
 			Label:           "sidebar.pty_read_loop",
 			ReadBufferSize:  ptyReadBufferSize,
 			ReadQueueSize:   ptyReadQueueSize,
 			FrameInterval:   ptyFrameInterval,
 			MaxPendingBytes: ptyMaxPendingBytes,
-		}, common.PTYMsgFactory{
+		}, ptyio.PTYMsgFactory{
 			Output: func(data []byte) tea.Msg {
 				return messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Data: data}
 			},
