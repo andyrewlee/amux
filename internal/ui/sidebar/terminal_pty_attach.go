@@ -24,6 +24,7 @@ var (
 	sessionHasClientsFn         = tmux.SessionHasClients
 	sessionClientCountFn        = tmux.SessionClientCount
 	sessionActiveWithinFn       = tmux.SessionActiveWithin
+	sessionLatestActivityFn     = tmux.SessionLatestActivity
 	sessionCreatedAtFn          = tmux.SessionCreatedAt
 	sessionPaneIDFn             = tmux.SessionPaneID
 	sessionPaneSnapshotInfoFn   = tmux.SessionPaneSnapshotInfo
@@ -42,7 +43,7 @@ func sessionBootstrapFns() ptyio.SessionBootstrapFns {
 		SessionHasClients:       sessionHasClientsFn,
 		SessionClientCount:      sessionClientCountFn,
 		SessionActiveWithin:     sessionActiveWithinFn,
-		SessionLatestActivity:   tmux.SessionLatestActivity,
+		SessionLatestActivity:   sessionLatestActivityFn,
 		SessionCreatedAt:        sessionCreatedAtFn,
 		SessionPaneID:           sessionPaneIDFn,
 		SessionPaneSnapshotInfo: sessionPaneSnapshotInfoFn,
