@@ -12,8 +12,8 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/clipperhouse/displaywidth v0.11.0
 	github.com/creack/pty v1.1.24
-	github.com/fsnotify/fsnotify v1.9.0
-	github.com/mattn/go-runewidth v0.0.23
+	github.com/fsnotify/fsnotify v1.10.1
+	github.com/mattn/go-runewidth v0.0.24
 )
 
 require (
