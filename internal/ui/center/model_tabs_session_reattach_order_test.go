@@ -12,8 +12,10 @@ import (
 func TestReattachActiveTab_CapturesSnapshotBeforeAttach(t *testing.T) {
 	oldSessionStateForFn := sessionStateForFn
 	oldSessionHasClientsFn := sessionHasClientsFn
+	oldSessionClientCountFn := sessionClientCountFn
 	oldSessionPaneSizeFn := sessionPaneSizeFn
 	oldSessionActiveWithinFn := sessionActiveWithinFn
+	oldSessionLatestActivityFn := sessionLatestActivityFn
 	oldSessionCreatedAtFn := sessionCreatedAtFn
 	oldSessionPaneIDFn := sessionPaneIDFn
 	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
@@ -24,8 +26,10 @@ func TestReattachActiveTab_CapturesSnapshotBeforeAttach(t *testing.T) {
 	defer func() {
 		sessionStateForFn = oldSessionStateForFn
 		sessionHasClientsFn = oldSessionHasClientsFn
+		sessionClientCountFn = oldSessionClientCountFn
 		sessionPaneSizeFn = oldSessionPaneSizeFn
 		sessionActiveWithinFn = oldSessionActiveWithinFn
+		sessionLatestActivityFn = oldSessionLatestActivityFn
 		sessionCreatedAtFn = oldSessionCreatedAtFn
 		sessionPaneIDFn = oldSessionPaneIDFn
 		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
@@ -44,9 +48,15 @@ func TestReattachActiveTab_CapturesSnapshotBeforeAttach(t *testing.T) {
 		calls = append(calls, "clients")
 		return false, nil
 	}
+	sessionClientCountFn = func(sessionName string, opts tmux.Options) (int, error) {
+		return 1, nil
+	}
 	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
 		calls = append(calls, "activity")
 		return false, nil
+	}
+	sessionLatestActivityFn = func(sessionName string, opts tmux.Options) (time.Time, bool, error) {
+		return time.Time{}, false, nil
 	}
 	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
 		return 123, nil
@@ -157,8 +167,10 @@ func TestReattachActiveTab_CapturesSnapshotBeforeAttach(t *testing.T) {
 func TestReattachToSession_CapturesSnapshotBeforeAttach(t *testing.T) {
 	oldSessionStateForFn := sessionStateForFn
 	oldSessionHasClientsFn := sessionHasClientsFn
+	oldSessionClientCountFn := sessionClientCountFn
 	oldSessionPaneSizeFn := sessionPaneSizeFn
 	oldSessionActiveWithinFn := sessionActiveWithinFn
+	oldSessionLatestActivityFn := sessionLatestActivityFn
 	oldSessionCreatedAtFn := sessionCreatedAtFn
 	oldSessionPaneIDFn := sessionPaneIDFn
 	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
@@ -169,8 +181,10 @@ func TestReattachToSession_CapturesSnapshotBeforeAttach(t *testing.T) {
 	defer func() {
 		sessionStateForFn = oldSessionStateForFn
 		sessionHasClientsFn = oldSessionHasClientsFn
+		sessionClientCountFn = oldSessionClientCountFn
 		sessionPaneSizeFn = oldSessionPaneSizeFn
 		sessionActiveWithinFn = oldSessionActiveWithinFn
+		sessionLatestActivityFn = oldSessionLatestActivityFn
 		sessionCreatedAtFn = oldSessionCreatedAtFn
 		sessionPaneIDFn = oldSessionPaneIDFn
 		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
@@ -189,9 +203,15 @@ func TestReattachToSession_CapturesSnapshotBeforeAttach(t *testing.T) {
 		calls = append(calls, "clients")
 		return false, nil
 	}
+	sessionClientCountFn = func(sessionName string, opts tmux.Options) (int, error) {
+		return 1, nil
+	}
 	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
 		calls = append(calls, "activity")
 		return false, nil
+	}
+	sessionLatestActivityFn = func(sessionName string, opts tmux.Options) (time.Time, bool, error) {
+		return time.Time{}, false, nil
 	}
 	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
 		return 123, nil
