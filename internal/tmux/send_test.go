@@ -45,19 +45,20 @@ func TestSendKeysDeliversTextAndEnter(t *testing.T) {
 	if err := SendKeys("echo-test", "ping", true, opts); err != nil {
 		t.Fatalf("SendKeys: %v", err)
 	}
-	// cat echoes each character as typed, then on Enter it reads the line
-	// and writes it back. Allow time for the round-trip.
-	time.Sleep(200 * time.Millisecond)
 
-	text, ok := CapturePaneTail("echo-test", 10, opts)
+	// cat echoes each character as typed, then on Enter it reads the line and
+	// writes it back. Poll for the round-trip rather than sleeping a fixed
+	// window: we expect "ping" at least twice (typed input line + cat's echo).
+	var text string
+	ok := eventually(5*time.Second, func() bool {
+		out, captured := CapturePaneTail("echo-test", 10, opts)
+		if captured {
+			text = out
+		}
+		return captured && strings.Count(text, "ping") >= 2
+	})
 	if !ok {
-		t.Fatal("CapturePaneTail failed")
-	}
-
-	// We expect "ping" to appear at least twice in the capture:
-	// once as the typed input line, once as cat's echo output.
-	if count := strings.Count(text, "ping"); count < 2 {
-		t.Fatalf("expected 'ping' at least twice (typed + echo), got %d in:\n%s", count, text)
+		t.Fatalf("expected 'ping' at least twice (typed + echo), got %d in:\n%s", strings.Count(text, "ping"), text)
 	}
 }
 

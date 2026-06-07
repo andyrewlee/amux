@@ -14,11 +14,14 @@ func TestCapturePane_ResolvesActivePaneID(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "cap-resolve", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
-	// CapturePane should succeed (may return nil if no scrollback yet)
-	_, err := CapturePane("cap-resolve", opts)
-	if err != nil {
+	// CapturePane should succeed (may return nil if no scrollback yet). Poll
+	// until it resolves instead of guessing a fixed settle time.
+	var err error
+	if !eventually(5*time.Second, func() bool {
+		_, err = CapturePane("cap-resolve", opts)
+		return err == nil
+	}) {
 		t.Fatalf("CapturePane: %v", err)
 	}
 }
@@ -28,15 +31,17 @@ func TestCapturePaneTail_ResolvesActivePaneID(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "tail-resolve", "echo hello-tail; sleep 300")
-	time.Sleep(200 * time.Millisecond)
 
-	text, ok := CapturePaneTail("tail-resolve", 10, opts)
-	if !ok {
-		t.Fatal("CapturePaneTail should succeed")
-	}
-	// The output should contain the echo output
-	if text == "" {
-		t.Fatal("expected non-empty tail capture")
+	// Poll for the echo output rather than sleeping a fixed window.
+	var text string
+	if !eventually(5*time.Second, func() bool {
+		out, ok := CapturePaneTail("tail-resolve", 10, opts)
+		if ok {
+			text = out
+		}
+		return ok && text != ""
+	}) {
+		t.Fatalf("expected a non-empty tail capture, got %q", text)
 	}
 }
 
@@ -45,9 +50,15 @@ func TestSessionPaneID_ResolvesForDetachedSession(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "pane-id-detached", "sleep 300")
-	time.Sleep(100 * time.Millisecond)
 
-	paneID, err := sessionPaneID("pane-id-detached", opts)
+	var (
+		paneID string
+		err    error
+	)
+	eventually(5*time.Second, func() bool {
+		paneID, err = sessionPaneID("pane-id-detached", opts)
+		return err == nil && paneID != ""
+	})
 	if err != nil {
 		t.Fatalf("sessionPaneID: %v", err)
 	}
@@ -63,15 +74,18 @@ func TestCapturePane_PrefixCollisionSafety(t *testing.T) {
 	// Create two sessions with prefix-colliding names
 	createSession(t, opts, "cap-1", "echo cap-1-content; sleep 300")
 	createSession(t, opts, "cap-10", "echo cap-10-content; sleep 300")
-	time.Sleep(200 * time.Millisecond)
 
-	// Capture from cap-1 should only get cap-1's content, not cap-10's
-	text, ok := CapturePaneTail("cap-1", 10, opts)
-	if !ok {
-		t.Fatal("CapturePaneTail should succeed for cap-1")
-	}
-	if text == "" {
-		t.Fatal("expected non-empty capture for cap-1")
+	// Capture from cap-1 should only get cap-1's content, not cap-10's. Poll for
+	// the capture instead of a fixed settle wait.
+	var text string
+	if !eventually(5*time.Second, func() bool {
+		out, ok := CapturePaneTail("cap-1", 10, opts)
+		if ok {
+			text = out
+		}
+		return ok && text != ""
+	}) {
+		t.Fatalf("expected non-empty capture for cap-1, got %q", text)
 	}
 }
 
