@@ -87,6 +87,15 @@ jobs:
 
   tmux-e2e:
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Bug #1 (tmux 3.6a rejecting '='-prefixed set-option targets) is version
+        # specific, yet CI only ran ubuntu's apt tmux (3.2a-class) — OLDER than the
+        # version that produced the bug, so a 3.6a-only regression passed. Run the
+        # real-tmux suites against both the apt baseline and a from-source 3.6a so
+        # version-specific regressions fail on the leg that can see them.
+        tmux: [apt, "3.6a"]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -97,11 +106,31 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux (${{ matrix.tmux }})
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.tmux }}" = "apt" ]; then
+            sudo apt-get update && sudo apt-get install -y tmux
+          else
+            sudo apt-get update
+            sudo apt-get install -y build-essential libevent-dev libncurses-dev bison pkg-config
+            ver="${{ matrix.tmux }}"
+            curl -fsSL "https://github.com/tmux/tmux/releases/download/${ver}/tmux-${ver}.tar.gz" -o /tmp/tmux.tar.gz
+            tar -xzf /tmp/tmux.tar.gz -C /tmp
+            cd "/tmp/tmux-${ver}"
+            ./configure
+            make -j"$(nproc)"
+            sudo make install
+            sudo ldconfig
+          fi
 
       - name: tmux version
-        run: tmux -V
+        run: |
+          set -euo pipefail
+          tmux -V
+          if [ "${{ matrix.tmux }}" != "apt" ]; then
+            tmux -V | grep -Fq "${{ matrix.tmux }}" || { echo "expected tmux ${{ matrix.tmux }} but got: $(tmux -V)"; exit 1; }
+          fi
 
       - name: Test (tmux)
         run: go test ./internal/tmux -count=1
