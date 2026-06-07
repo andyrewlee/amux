@@ -8,6 +8,13 @@ import "time"
 // 50ms is enough for every tested agent while keeping sends snappy.
 const enterDelay = 50 * time.Millisecond
 
+// enterSleep performs the pause between text and Enter. It is a package var so a
+// test can observe that the delay is applied (and assert its value) without
+// waiting in real time. Without this seam, reducing enterDelay — which would
+// re-introduce the dropped-Enter race against a fast agent — compiles and passes
+// every test silently.
+var enterSleep = time.Sleep
+
 // sendTextArgs builds the send-keys argv that delivers text literally. The -l
 // flag forces literal mode and the -- guard ensures a leading-dash payload is
 // not parsed as a flag. The raw sessionName is passed without a sessionTarget
@@ -42,7 +49,7 @@ func SendKeys(sessionName, text string, enter bool, opts Options) error {
 	if enter {
 		// Brief pause so the TUI finishes processing the text insertion
 		// before we deliver the carriage return.
-		time.Sleep(enterDelay)
+		enterSleep(enterDelay)
 
 		enterCmd, enterCancel := tmuxCommand(opts, sendEnterArgs(sessionName)...)
 		defer enterCancel()
