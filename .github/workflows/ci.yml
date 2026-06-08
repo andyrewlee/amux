@@ -109,6 +109,13 @@ jobs:
       - name: Test (e2e)
         run: go test ./internal/e2e -count=1
 
+      # internal/app has real-tmux integration tests (dead-session GC, activity
+      # leases, shared-attach) that t.Skip in the tmux-less `test` job and were
+      # never run here, so app-layer tmux orchestration only got coverage in the
+      # off-PR nightly run. Run them here, where tmux is installed.
+      - name: Test (app, real tmux)
+        run: go test ./internal/app -count=1
+
   lint-strict-pr:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
