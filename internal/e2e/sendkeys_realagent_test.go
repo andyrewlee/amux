@@ -13,14 +13,13 @@ import (
 
 // TestSendKeysDeliversHexEnterToRawAgent covers the hardened tmux.SendKeys path
 // directly against a real raw-mode agent. SendKeys is the path the `amux agent
-// send` CLI (used to orchestrate agents) relies on, and it carries the bug-2 and
-// bug-3 fixes (literal text via -l, a hex 0D Enter rather than the named key,
-// and the enterDelay between them). Its only existing integration test drives
-// `cat` in cooked mode, which accepts a named Enter and is insensitive to the
-// delay — so it would stay green even if those fixes regressed. This test sends
-// through SendKeys into the fixture and asserts the agent received "hello" plus
-// a literal carriage return (0x0D), which a regression to the named Enter key
-// would not produce.
+// send` CLI (used to orchestrate agents) relies on, and it carries the bug-2
+// fixes: literal text via -l and a hex 0D Enter rather than the named key. Its
+// only existing integration test drives `cat` in cooked mode, which accepts a
+// named Enter and plain text that does not prove literal mode. This test sends
+// through SendKeys into the fixture and asserts the agent received literal
+// "C-a" bytes plus a literal carriage return (0x0D). Without -l, tmux interprets
+// C-a as a key name instead of text.
 func TestSendKeysDeliversHexEnterToRawAgent(t *testing.T) {
 	requireRealTmux(t)
 
@@ -31,7 +30,7 @@ func TestSendKeysDeliversHexEnterToRawAgent(t *testing.T) {
 	defer killTmuxServer(t, server)
 
 	const session = "agent"
-	agentCmd := fmt.Sprintf("FAKEAGENT_LOG=%s exec %s", logPath, bin)
+	agentCmd := fmt.Sprintf("FAKEAGENT_LOG=%s exec %s", shQuote(logPath), shQuote(bin))
 	start := exec.Command("tmux", "-L", server, "new-session", "-d", "-s", session, "sh", "-c", agentCmd)
 	if out, err := start.CombinedOutput(); err != nil {
 		t.Fatalf("start agent session: %v\n%s", err, out)
@@ -43,11 +42,11 @@ func TestSendKeysDeliversHexEnterToRawAgent(t *testing.T) {
 		t.Fatal("fake agent never signaled readiness in its pane")
 	}
 
-	if err := tmux.SendKeys(session, "hello", true, opts); err != nil {
+	if err := tmux.SendKeys(session, "C-a", true, opts); err != nil {
 		t.Fatalf("SendKeys: %v", err)
 	}
 
-	want := []byte{'h', 'e', 'l', 'l', 'o', 0x0d}
+	want := []byte{'C', '-', 'a', 0x0d}
 	got, ok := waitForFileBytes(logPath, want, 10*time.Second)
 	if !ok {
 		t.Fatalf("agent did not receive text + hex 0D via SendKeys\n got: % x\nwant: % x", got, want)
@@ -65,4 +64,8 @@ func waitForPaneContains(server, session, substr string, timeout time.Duration) 
 		time.Sleep(20 * time.Millisecond)
 	}
 	return false
+}
+
+func shQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
