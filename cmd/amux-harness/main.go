@@ -8,14 +8,34 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/andyrewlee/amux/internal/app"
 	"github.com/andyrewlee/amux/internal/perf"
 )
+
+// ansiCSI matches CSI escape sequences so we can count actually-visible glyphs
+// rather than escape codes when checking a frame is non-degenerate.
+var ansiCSI = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+// visibleRuneCount returns the number of non-whitespace, graphic runes left
+// after stripping ANSI control sequences — a proxy for "the frame actually
+// rendered content" rather than blank space or pure escape codes.
+func visibleRuneCount(s string) int {
+	clean := ansiCSI.ReplaceAllString(s, "")
+	n := 0
+	for _, r := range clean {
+		if unicode.IsGraphic(r) && !unicode.IsSpace(r) {
+			n++
+		}
+	}
+	return n
+}
 
 type stats struct {
 	avg time.Duration
@@ -39,6 +59,7 @@ func main() {
 	payloadBytes := flag.Int("payload-bytes", 64, "bytes written per hot tab per frame")
 	newlineEvery := flag.Int("newline-every", 0, "emit newline every N frames (0 disables)")
 	showKeymapHints := flag.Bool("keymap-hints", false, "render keymap hints")
+	minVisible := flag.Int("assert-min-visible", 0, "fail (exit 1) if the final rendered frame has fewer than this many visible glyphs; 0 disables. Guards against renders that produce empty/garbage frames without crashing.")
 	flag.Parse()
 
 	opts := app.HarnessOptions{
@@ -67,14 +88,21 @@ func main() {
 	durations := make([]time.Duration, 0, *frames)
 	startAll := time.Now()
 
+	var lastVisible int
 	for i := 0; i < totalFrames; i++ {
 		h.Step(i)
 		start := time.Now()
 		view := h.Render()
-		_ = view.Content
 		if i >= *warmup {
 			durations = append(durations, time.Since(start))
+			lastVisible = visibleRuneCount(view.Content)
 		}
+	}
+
+	if *minVisible > 0 && lastVisible < *minVisible {
+		fmt.Fprintf(os.Stderr, "harness: final frame has %d visible glyphs, want >= %d (render produced an empty/degenerate frame)\n",
+			lastVisible, *minVisible)
+		os.Exit(1)
 	}
 
 	total := time.Since(startAll)
