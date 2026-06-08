@@ -10,7 +10,7 @@ HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 
-.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
+.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -25,6 +25,24 @@ devcheck:
 	go vet ./...
 	go test ./...
 	$(MAKE) lint
+
+# verify-loop drives a real keystroke through amux's actual input path into a
+# real raw-mode agent and asserts the bytes (including a literal carriage
+# return) arrive intact. This is the gate to run for any change to the
+# send/Enter/tmux/agent input path: unlike `make devcheck` (which passes even
+# when the real-tmux tests skip) and the render-only harness, a green run here
+# means a real agent actually received the input end-to-end. Requires git and
+# tmux, and fails before running tests if either is unavailable.
+verify-loop:
+	@command -v git >/dev/null 2>&1 || { echo "make verify-loop: git is required" >&2; exit 1; }
+	@command -v tmux >/dev/null 2>&1 || { echo "make verify-loop: tmux is required" >&2; exit 1; }
+	@server="amux-verify-loop-check-$$$$"; \
+	if ! tmux -L "$$server" new-session -d -s probe "sleep 5" >/dev/null 2>&1; then \
+		echo "make verify-loop: tmux is installed but unusable" >&2; \
+		exit 1; \
+	fi; \
+	tmux -L "$$server" kill-server >/dev/null 2>&1 || true
+	go test ./internal/e2e -run 'TestCloseLoopKeystrokeDeliveryToRawAgent|TestFakeAgentRecordsRawCarriageReturn' -count=1 -v
 
 bench:
 	go test -bench=. -benchmem ./internal/ui/compositor/ -run=^$$
@@ -144,6 +162,7 @@ help:
 	@echo "  clean      - Remove build artifacts"
 	@echo "  run        - Build and run"
 	@echo "  dev        - Run with hot reload (requires air)"
+	@echo "  verify-loop - Drive a real keystroke through amux into a raw-mode agent (close-the-loop input gate; requires tmux)"
 	@echo "  bench      - Run rendering benchmarks"
 	@echo "  harness-center  - Run center harness preset"
 	@echo "  harness-sidebar - Run sidebar harness preset (deep scrollback)"

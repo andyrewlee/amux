@@ -36,6 +36,7 @@ Pull requests are CI-gated (automated). For local confidence before opening a PR
 - always: `make devcheck`, `make lint-strict-new`
 - if touching `internal/ui/`, `internal/vterm/`, or `cmd/amux-harness/`: `make harness-presets`
 - if touching `internal/tmux/`, `internal/e2e/`, or `internal/pty/`: `go test ./internal/tmux ./internal/e2e`
+- if touching the agent input/send path (`internal/tmux/send.go`, `internal/pty/`, agent keystroke forwarding): `make verify-loop` — proves a real agent receives keystrokes end-to-end (incl. a literal CR); `make devcheck` does not, since the real-tmux tests skip there
 
 Architecture references:
 
