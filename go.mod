@@ -14,6 +14,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/mattn/go-runewidth v0.0.24
+	golang.org/x/term v0.36.0
 )
 
 require (
