@@ -42,6 +42,11 @@ type SessionState struct {
 	Score        int       // Activity score (0 to ScoreMax)
 	LastActiveAt time.Time // Last time this session was considered active
 	Initialized  bool      // Whether we have a baseline hash
+	// UnseenScans counts consecutive scans in which this session was not seen.
+	// Reset to 0 whenever the session is observed; once it exceeds
+	// pruneAfterScans the state is dropped so deleted-workspace sessions do not
+	// accumulate as zombie states that are deep-copied every scan forever.
+	UnseenScans int
 }
 
 // TaggedSession pairs a tmux session with parsed tag timestamps.

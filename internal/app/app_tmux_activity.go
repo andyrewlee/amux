@@ -22,6 +22,7 @@ type tmuxActivityResult struct {
 	Token              int
 	ActiveWorkspaceIDs map[string]bool
 	UpdatedStates      map[string]*activity.SessionState // Updated hysteresis states to merge
+	RemovedStates      []string                          // Session states pruned this scan (delete on merge)
 	StoppedTabs        []messages.TabSessionStatus
 	SkipApply          bool
 	ScannerOwner       bool
@@ -193,11 +194,12 @@ func (a *App) runTmuxActivityScan(
 		logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
 		recentActivityBySession = nil
 	}
-	active, updatedStates := activity.ActiveWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
+	active, updatedStates, removedStates := activity.ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
 	result := tmuxActivityResult{
 		Token:              scanToken,
 		ActiveWorkspaceIDs: active,
 		UpdatedStates:      updatedStates,
+		RemovedStates:      removedStates,
 		StoppedTabs:        stoppedTabs,
 		ScannerOwner:       true,
 		ScannerEpoch:       ownerEpoch,

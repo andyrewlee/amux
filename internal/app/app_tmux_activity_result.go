@@ -124,6 +124,13 @@ func (a *App) applyTmuxActivityPayload(msg tmuxActivityResult) tea.Cmd {
 	for name, state := range msg.UpdatedStates {
 		a.sessionActivityStates[name] = state
 	}
+	// Prune states the scan dropped after they went unseen long enough; this
+	// bounds the otherwise monotonic growth of sessionActivityStates (deleted
+	// workspaces' sessions never reappear in the scan). Delete after the merge so
+	// a same-scan re-add cannot be undone.
+	for _, name := range msg.RemovedStates {
+		delete(a.sessionActivityStates, name)
+	}
 	a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
 	a.tmuxActivitySettledScans++
 	if a.tmuxActivitySettledScans >= tmuxActivitySettleScans {
