@@ -5,40 +5,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
-
-func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
-	if ws == nil {
-		return nil
-	}
-	wsID := string(ws.ID())
-	opts := a.tmuxOptions
-	svc := a.tmuxService
-	return func() tea.Msg {
-		if svc == nil {
-			return nil
-		}
-		tags := map[string]string{
-			"@amux":           "1",
-			"@amux_workspace": wsID,
-		}
-		cleaned, err := svc.KillSessionsMatchingTags(tags, opts)
-		if err != nil {
-			logging.Warn("Failed to cleanup tmux sessions for workspace %s: %v", ws.Name, err)
-		}
-		if cleaned {
-			logging.Info("Cleaned up @amux tmux sessions for workspace %s", ws.Name)
-		}
-		if err := svc.KillWorkspaceSessions(wsID, opts); err != nil {
-			logging.Warn("Failed to cleanup tmux sessions for workspace %s: %v", ws.Name, err)
-		}
-		return nil
-	}
-}
 
 // killWorkspaceSessionsSync synchronously tears down a workspace's tmux sessions
 // by tag. The delete path calls this only after worktree removal succeeds, so a

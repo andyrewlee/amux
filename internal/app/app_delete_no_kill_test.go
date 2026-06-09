@@ -86,3 +86,35 @@ func TestDeleteWorkspace_NavigatesHomeOnlyOnConfirmedDelete(t *testing.T) {
 		t.Fatal("expected goHome (activeWorkspace cleared) once the delete is confirmed")
 	}
 }
+
+// TestHandleWorkspaceDeleted_NoTrailingSessionKill proves the trailing tmux
+// cleanup was removed: the validated delete path already tore the sessions down,
+// and re-killing by tag after the delete-in-flight flag clears would, on a
+// delete-then-recreate at the same project+name (same wsID, same session names),
+// kill the brand-new agent session.
+func TestHandleWorkspaceDeleted_NoTrailingSessionKill(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+
+	ops := &killRecordingTmuxOps{}
+	app := &App{
+		dashboard:            dashboard.New(),
+		center:               center.New(nil),
+		sidebar:              sidebar.NewTabbedSidebar(),
+		sidebarTerminal:      sidebar.NewTerminalModel(),
+		tmuxService:          ops,
+		tmuxOptions:          tmux.Options{},
+		deletingWorkspaceIDs: map[string]bool{string(ws.ID()): true},
+	}
+
+	cmds := app.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: ws})
+	for _, cmd := range cmds {
+		if cmd != nil {
+			_ = cmd()
+		}
+	}
+
+	if ops.killTagsCalls != 0 || ops.killWsCalls != 0 {
+		t.Fatalf("handleWorkspaceDeleted must not re-kill sessions after the trailing cleanup was removed; KillSessionsMatchingTags=%d KillWorkspaceSessions=%d",
+			ops.killTagsCalls, ops.killWsCalls)
+	}
+}
