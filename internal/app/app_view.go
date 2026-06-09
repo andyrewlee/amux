@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"runtime/debug"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -12,7 +11,6 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
 const (
@@ -115,242 +113,16 @@ func (a *App) viewLayerBased() tea.View {
 	// Create canvas at screen dimensions
 	canvas := a.canvasFor(a.width, a.height)
 
-	// Dashboard pane (leftmost)
 	leftGutter := a.layout.LeftGutter()
 	topGutter := a.layout.TopGutter()
 	dashWidth := a.layout.DashboardWidth()
-	dashHeight := a.layout.Height()
-	dashContentWidth := dashWidth - 3
-	dashContentHeight := dashHeight - 2
-	if dashContentWidth < 1 {
-		dashContentWidth = 1
-	}
-	if dashContentHeight < 1 {
-		dashContentHeight = 1
-	}
-	dashContent := clampLines(a.dashboard.View(), dashContentWidth, dashContentHeight)
-	if dashDrawable := a.dashboardContent.get(dashContent, leftGutter+1, topGutter+1); dashDrawable != nil {
-		canvas.Compose(dashDrawable)
-	}
-	for _, border := range a.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight) {
-		canvas.Compose(border)
-	}
 
-	// Center pane
+	a.composeDashboardPane(canvas, leftGutter, topGutter)
 	if a.layout.ShowCenter() {
-		centerX := leftGutter + dashWidth + a.layout.GapX()
-		centerWidth := a.layout.CenterWidth()
-		centerHeight := a.layout.Height()
-
-		// Check if we can use VTermLayer for direct cell rendering
-		centerOwnsCursor := a.focusedPane == messages.PaneCenter && !blockingOverlayVisible
-		if termLayer := a.center.TerminalLayerWithCursorOwner(centerOwnsCursor); termLayer != nil && a.center.HasTabs() && !a.center.HasDiffViewer() {
-			// Get terminal viewport from center model (accounts for borders, tab bar, help lines)
-			termOffsetX, termOffsetY, termW, termH := a.center.TerminalViewport()
-			termX := centerX + termOffsetX
-			termY := topGutter + termOffsetY
-			if centerOwnsCursor {
-				termLayer = delegateTerminalCursor(termLayer, termX, termY, termW, termH, setTerminalCursor)
-			}
-
-			// Compose terminal layer first; chrome is drawn on top without clearing the content area.
-			positionedTermLayer := &compositor.PositionedVTermLayer{
-				VTermLayer: termLayer,
-				PosX:       termX,
-				PosY:       termY,
-				Width:      termW,
-				Height:     termH,
-			}
-			canvas.Compose(positionedTermLayer)
-
-			// Draw borders without touching the content area.
-			for _, border := range a.centerBorders.get(centerX, topGutter, centerWidth, centerHeight) {
-				canvas.Compose(border)
-			}
-
-			contentWidth := a.center.ContentWidth()
-			if contentWidth < 1 {
-				contentWidth = 1
-			}
-
-			// Tab bar (top of content area).
-			tabBar := clampLines(a.center.TabBarView(), contentWidth, termOffsetY-1)
-			if tabBarDrawable := a.centerTabBar.get(tabBar, termX, topGutter+1); tabBarDrawable != nil {
-				canvas.Compose(tabBarDrawable)
-			}
-
-			// Status line (directly below terminal content).
-			if status := clampLines(a.center.ActiveTerminalStatusLine(), contentWidth, 1); status != "" {
-				if statusDrawable := a.centerStatus.get(status, termX, termY+termH); statusDrawable != nil {
-					canvas.Compose(statusDrawable)
-				}
-			}
-
-			// Help lines at bottom of pane.
-			if helpLines := a.center.HelpLines(contentWidth); len(helpLines) > 0 {
-				helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
-				helpY := topGutter + centerHeight - 1 - len(helpLines)
-				if helpY > termY {
-					if helpDrawable := a.centerHelp.get(helpContent, termX, helpY); helpDrawable != nil {
-						canvas.Compose(helpDrawable)
-					}
-				}
-			}
-		} else {
-			// Fallback to string-based rendering with borders (no caching - content changes)
-			a.centerChrome.Invalidate()
-			var centerContent string
-			if a.center.HasTabs() {
-				centerContent = a.center.View()
-			} else {
-				centerContent = a.renderCenterPaneContent()
-			}
-			centerView := buildBorderedPane(centerContent, centerWidth, centerHeight)
-			centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter)
-			canvas.Compose(centerDrawable)
-		}
+		a.composeCenterPane(canvas, leftGutter, topGutter, dashWidth, blockingOverlayVisible, setTerminalCursor)
 	}
-
-	// Sidebar pane (rightmost)
 	if a.layout.ShowSidebar() {
-		sidebarX := leftGutter + a.layout.DashboardWidth()
-		if a.layout.ShowCenter() {
-			sidebarX += a.layout.GapX() + a.layout.CenterWidth()
-		}
-		if a.layout.ShowSidebar() {
-			sidebarX += a.layout.GapX()
-		}
-		sidebarWidth := a.layout.SidebarWidth()
-		sidebarHeight := a.layout.Height()
-		topPaneHeight, bottomPaneHeight := sidebarPaneHeights(sidebarHeight)
-		if bottomPaneHeight > 0 {
-			contentWidth := sidebarWidth - 4
-			if contentWidth < 1 {
-				contentWidth = 1
-			}
-
-			if topPaneHeight > 0 {
-				topContentHeight := topPaneHeight - 2
-				if topContentHeight < 1 {
-					topContentHeight = 1
-				}
-
-				// Sidebar tab bar (Changes/Project tabs)
-				tabBar := a.sidebar.TabBarView()
-				tabBarHeight := 0
-				if tabBar != "" {
-					tabBarHeight = 1
-					tabBarContent := clampLines(tabBar, contentWidth, 1)
-					tabBarY := topGutter + 1 // Inside the border
-					if tabBarDrawable := a.sidebarTopTabBar.get(tabBarContent, sidebarX+2, tabBarY); tabBarDrawable != nil {
-						canvas.Compose(tabBarDrawable)
-					}
-				}
-
-				// Sidebar content (below tab bar)
-				sidebarContentHeight := topContentHeight - tabBarHeight
-				if sidebarContentHeight < 1 {
-					sidebarContentHeight = 1
-				}
-				topContent := clampLines(a.sidebar.ContentView(), contentWidth, sidebarContentHeight)
-				if topDrawable := a.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1+tabBarHeight); topDrawable != nil {
-					canvas.Compose(topDrawable)
-				}
-				for _, border := range a.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight) {
-					canvas.Compose(border)
-				}
-			}
-
-			bottomY := topGutter + topPaneHeight
-			bottomContentHeight := bottomPaneHeight - 2
-			if bottomContentHeight < 1 {
-				bottomContentHeight = 1
-			}
-
-			sidebarOwnsCursor := a.focusedPane == messages.PaneSidebarTerminal && !blockingOverlayVisible
-			if termLayer := a.sidebarTerminal.TerminalLayerWithCursorOwner(sidebarOwnsCursor); termLayer != nil {
-				originX, originY := a.sidebarTerminal.TerminalOrigin()
-				termW, termH := a.sidebarTerminal.TerminalSize()
-				if termW > contentWidth {
-					termW = contentWidth
-				}
-				if termH > bottomContentHeight {
-					termH = bottomContentHeight
-				}
-
-				// Tab bar (above terminal content) - compact single line
-				tabBar := a.sidebarTerminal.TabBarView()
-				tabBarHeight := 0
-				if tabBar != "" {
-					tabBarHeight = 1
-					tabBarContent := clampLines(tabBar, contentWidth, 1)
-					tabBarY := bottomY + 1 // Inside the border
-					if tabBarDrawable := a.sidebarBottomTabBar.get(tabBarContent, originX, tabBarY); tabBarDrawable != nil {
-						canvas.Compose(tabBarDrawable)
-					}
-				}
-
-				status := clampLines(a.sidebarTerminal.StatusLine(), contentWidth, 1)
-				helpLines := a.sidebarTerminal.HelpLines(contentWidth)
-				statusLines := 0
-				if status != "" {
-					statusLines = 1
-				}
-				maxHelpHeight := bottomContentHeight - statusLines - tabBarHeight
-				if maxHelpHeight < 0 {
-					maxHelpHeight = 0
-				}
-				if len(helpLines) > maxHelpHeight {
-					helpLines = helpLines[:maxHelpHeight]
-				}
-				maxTermHeight := bottomContentHeight - statusLines - len(helpLines) - tabBarHeight
-				if maxTermHeight < 0 {
-					maxTermHeight = 0
-				}
-				if termH > maxTermHeight {
-					termH = maxTermHeight
-				}
-				if sidebarOwnsCursor {
-					termLayer = delegateTerminalCursor(termLayer, originX, originY, termW, termH, setTerminalCursor)
-				}
-
-				positioned := &compositor.PositionedVTermLayer{
-					VTermLayer: termLayer,
-					PosX:       originX,
-					PosY:       originY,
-					Width:      termW,
-					Height:     termH,
-				}
-				canvas.Compose(positioned)
-
-				if status != "" {
-					if statusDrawable := a.sidebarBottomStatus.get(status, originX, originY+termH); statusDrawable != nil {
-						canvas.Compose(statusDrawable)
-					}
-				}
-
-				if len(helpLines) > 0 {
-					helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
-					helpY := originY + bottomContentHeight - len(helpLines) - tabBarHeight
-					if helpDrawable := a.sidebarBottomHelp.get(helpContent, originX, helpY); helpDrawable != nil {
-						canvas.Compose(helpDrawable)
-					}
-				} else if status == "" && bottomContentHeight > termH+tabBarHeight {
-					blank := strings.Repeat(" ", contentWidth)
-					if blankDrawable := a.sidebarBottomHelp.get(blank, originX, originY+bottomContentHeight-1-tabBarHeight); blankDrawable != nil {
-						canvas.Compose(blankDrawable)
-					}
-				}
-			} else {
-				bottomContent := clampLines(a.sidebarTerminal.View(), contentWidth, bottomContentHeight)
-				if bottomDrawable := a.sidebarBottomContent.get(bottomContent, sidebarX+2, bottomY+1); bottomDrawable != nil {
-					canvas.Compose(bottomDrawable)
-				}
-			}
-			for _, border := range a.sidebarBottomBorders.get(sidebarX, bottomY, sidebarWidth, bottomPaneHeight) {
-				canvas.Compose(border)
-			}
-		}
+		a.composeSidebarPane(canvas, leftGutter, topGutter, blockingOverlayVisible, setTerminalCursor)
 	}
 
 	// Overlay layers (dialogs, toasts, etc.)
