@@ -132,6 +132,33 @@ func SetEnabled(enabled bool) {
 	}
 }
 
+// ParseLevel maps a level name (debug/info/warn/error, case-insensitive and
+// trimmed) to a Level. The bool is false for unrecognized input so callers can
+// fall back to a default.
+func ParseLevel(name string) (Level, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "debug":
+		return LevelDebug, true
+	case "info":
+		return LevelInfo, true
+	case "warn":
+		return LevelWarn, true
+	case "error":
+		return LevelError, true
+	default:
+		return LevelInfo, false
+	}
+}
+
+// SetLevel updates the minimum severity the default logger emits.
+func SetLevel(level Level) {
+	if defaultLogger != nil {
+		defaultLogger.mu.Lock()
+		defaultLogger.level = level
+		defaultLogger.mu.Unlock()
+	}
+}
+
 // log writes a log entry
 func log(level Level, format string, args ...any) {
 	if defaultLogger == nil {
