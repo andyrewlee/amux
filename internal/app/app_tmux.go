@@ -41,9 +41,9 @@ func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
 }
 
 // killWorkspaceSessionsSync synchronously tears down a workspace's tmux sessions
-// by tag. The delete path calls this after validation passes but before removing
-// the worktree, so the agent process group (CWD = worktree root) is gone before
-// its directory is. No-op when tmux is unavailable.
+// by tag. The delete path calls this only after worktree removal succeeds, so a
+// failed delete does not destroy live agent sessions. No-op when tmux is
+// unavailable.
 func (a *App) killWorkspaceSessionsSync(wsID string) {
 	if a.tmuxService == nil || wsID == "" {
 		return

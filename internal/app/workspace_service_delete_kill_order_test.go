@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,10 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
-// TestDeleteWorkspace_KillsSessionsBeforeWorktreeRemoval proves the delete path
-// tears down the workspace's tmux sessions before removing the worktree, so the
-// agent process group (CWD = worktree root) is gone before its directory is.
-func TestDeleteWorkspace_KillsSessionsBeforeWorktreeRemoval(t *testing.T) {
+func TestDeleteWorkspace_KillsSessionsAfterWorktreeRemoval(t *testing.T) {
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
 	projectPath := filepath.Join(tmp, "repo")
@@ -51,7 +49,74 @@ func TestDeleteWorkspace_KillsSessionsBeforeWorktreeRemoval(t *testing.T) {
 	if removeOrder == -1 {
 		t.Fatal("expected the worktree to be removed during delete")
 	}
-	if killOrder >= removeOrder {
-		t.Fatalf("expected kill (order %d) before worktree removal (order %d)", killOrder, removeOrder)
+	if killOrder <= removeOrder {
+		t.Fatalf("expected kill (order %d) after worktree removal (order %d)", killOrder, removeOrder)
+	}
+}
+
+func TestDeleteWorkspace_DoesNotKillSessionsWhenWorktreeRemovalFails(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			return errors.New("remove failed")
+		},
+	}
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	svc.killWorkspaceSessions = func(wsID string) {
+		t.Fatal("failed delete must not kill workspace tmux sessions")
+	}
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	msg := svc.DeleteWorkspace(project, ws)()
+	if _, ok := msg.(messages.WorkspaceDeleteFailed); !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+}
+
+func TestDeleteWorkspace_KillsSessionsWhenRemovalFailsAfterPathGone(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			if err := os.RemoveAll(workspacePath); err != nil {
+				t.Fatalf("RemoveAll(workspacePath) error = %v", err)
+			}
+			return errors.New("remove failed after path removal")
+		},
+	}
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	killed := false
+	svc.killWorkspaceSessions = func(wsID string) {
+		killed = true
+	}
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	msg := svc.DeleteWorkspace(project, ws)()
+	if _, ok := msg.(messages.WorkspaceDeleteFailed); !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if !killed {
+		t.Fatal("expected sessions killed when removal failed after deleting workspace path")
 	}
 }

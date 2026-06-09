@@ -50,8 +50,8 @@ type workspaceService struct {
 	deleteInFlightGuard func(wsID string, fn func()) bool
 	// killWorkspaceSessions synchronously tears down a workspace's tmux sessions.
 	// Wired in app_init; nil in directly-constructed services (a no-op). Called
-	// after delete validation passes but before the worktree is removed, so the
-	// agent process group (CWD = workspace root) is gone before its dir is.
+	// only after worktree removal succeeds, so failed deletes leave live sessions
+	// intact.
 	killWorkspaceSessions func(wsID string)
 }
 
