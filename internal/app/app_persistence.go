@@ -12,8 +12,8 @@ import (
 
 // persistAllWorkspacesNow saves all workspace tab state synchronously.
 // Called before shutdown to ensure tabs are persisted before they are closed.
-// This intentionally includes delete-in-flight workspaces. If a delete fails or
-// races with shutdown, preserving UI tab state is preferred over dropping it.
+// This intentionally skips delete-in-flight workspaces. Saving during a
+// destructive delete can recreate metadata after the delete removes it.
 func (a *App) persistAllWorkspacesNow() {
 	if a.workspaceService == nil || a.center == nil {
 		return
@@ -22,12 +22,7 @@ func (a *App) persistAllWorkspacesNow() {
 		for i := range project.Workspaces {
 			ws := &project.Workspaces[i]
 			wsID := string(ws.ID())
-			// A workspace whose delete is in flight and whose worktree is already
-			// gone must not be re-saved on shutdown: doing so resurrects dir-less
-			// metadata that the next launch surfaces as a ghost. A delete-in-flight
-			// workspace whose dir still exists IS re-saved to preserve its UI tabs
-			// in case the delete is rejected.
-			if a.isWorkspaceDeleteInFlight(wsID) && !dirExists(ws.Root) {
+			if a.isWorkspaceDeleteInFlight(wsID) {
 				continue
 			}
 			tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)

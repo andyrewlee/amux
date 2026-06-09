@@ -56,8 +56,9 @@ func (s *workspaceService) clearDeleteTombstone(id data.WorkspaceID) {
 // (e.g. the process quit/crashed after the worktree was removed but before the
 // metadata was). It only fires when a tombstone exists AND the worktree is gone,
 // so a tombstone left by a delete that failed before removing the worktree (dir
-// still present) keeps the workspace usable. Returns true when it removed the
-// metadata, signaling the caller to skip surfacing the workspace.
+// still present) keeps the workspace usable. Returns true when the caller should
+// skip surfacing the workspace; a cleanup failure leaves the tombstone in place
+// for a later retry but must not resurrect dir-less metadata in the UI.
 func (s *workspaceService) finishInterruptedDelete(ws *data.Workspace) bool {
 	if s == nil || s.store == nil || ws == nil {
 		return false
@@ -73,7 +74,10 @@ func (s *workspaceService) finishInterruptedDelete(ws *data.Workspace) bool {
 	}
 	if err := s.store.Delete(ws.ID()); err != nil {
 		logging.Warn("startup recovery: failed to finish interrupted delete workspace_id=%s error=%v", ws.ID(), err)
-		return false
+		if markErr := td.MarkDeleting(ws.ID()); markErr != nil {
+			logging.Warn("startup recovery: failed to preserve delete tombstone workspace_id=%s error=%v", ws.ID(), markErr)
+		}
+		return true
 	}
 	logging.Info("startup recovery: finished interrupted delete workspace_id=%s", ws.ID())
 	return true
