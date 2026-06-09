@@ -32,3 +32,49 @@ func TestWorkspaceServiceIsDeleteInFlight(t *testing.T) {
 		t.Fatal("wired predicate should report a non-deleting workspace not in flight")
 	}
 }
+
+func TestWorkspaceServiceRunUnlessDeleteInFlight(t *testing.T) {
+	unwired := &workspaceService{}
+	ran := false
+	if !unwired.runUnlessDeleteInFlight("ws", func() { ran = true }) {
+		t.Fatal("unwired service should run the callback")
+	}
+	if !ran {
+		t.Fatal("unwired service did not run callback")
+	}
+
+	predicateOnly := &workspaceService{
+		deleteInFlight: func(id string) bool { return id == "deleting" },
+	}
+	if predicateOnly.runUnlessDeleteInFlight("deleting", func() {
+		t.Fatal("predicate-only service should not run callback for deleting workspace")
+	}) {
+		t.Fatal("predicate-only service should report skipped callback")
+	}
+
+	guarded := &workspaceService{}
+	var gotID string
+	guarded.deleteInFlightGuard = func(id string, fn func()) bool {
+		gotID = id
+		if id == "blocked" {
+			return false
+		}
+		fn()
+		return true
+	}
+	if guarded.runUnlessDeleteInFlight("blocked", func() {
+		t.Fatal("guard should not run blocked callback")
+	}) {
+		t.Fatal("guard should report skipped callback")
+	}
+	if gotID != "blocked" {
+		t.Fatalf("guard received %q, want \"blocked\"", gotID)
+	}
+	ran = false
+	if !guarded.runUnlessDeleteInFlight("open", func() { ran = true }) {
+		t.Fatal("guard should run open callback")
+	}
+	if !ran {
+		t.Fatal("guard did not run open callback")
+	}
+}
