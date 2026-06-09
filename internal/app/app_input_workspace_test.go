@@ -104,3 +104,47 @@ func TestHandleWorkspaceDeleted_ClearsActiveWorkspace(t *testing.T) {
 		t.Fatal("expected surviving workspace to remain in the active set")
 	}
 }
+
+func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testing.T) {
+	wsDel := data.NewWorkspace("del", "del", "main", "/repo", "/repo/del")
+	wsKeep := data.NewWorkspace("keep", "keep", "main", "/repo", "/repo/keep")
+	project := data.NewProject("/repo")
+	project.Workspaces = []data.Workspace{*wsDel, *wsKeep}
+	wsID := string(wsDel.ID())
+
+	app := &App{
+		projects:             []data.Project{*project},
+		dashboard:            dashboard.New(),
+		center:               center.New(nil),
+		sidebar:              sidebar.NewTabbedSidebar(),
+		sidebarTerminal:      sidebar.NewTerminalModel(),
+		activeWorkspace:      wsDel,
+		dirtyWorkspaces:      map[string]bool{wsID: true},
+		deletingWorkspaceIDs: map[string]bool{wsID: true},
+	}
+	app.dashboard.SetProjects(app.projects)
+
+	cmds := app.handleWorkspaceDeleted(messages.WorkspaceDeleted{
+		Workspace: wsDel,
+		Err:       errors.New("metadata delete failed"),
+	})
+
+	if len(app.projects) != 1 || len(app.projects[0].Workspaces) != 1 {
+		t.Fatalf("expected deleted workspace removed from loaded projects, got %+v", app.projects)
+	}
+	if got := app.projects[0].Workspaces[0].Root; got != wsKeep.Root {
+		t.Fatalf("expected surviving workspace %q, got %q", wsKeep.Root, got)
+	}
+	if app.activeWorkspace != nil {
+		t.Fatal("expected metadata-error delete to still navigate away from deleted workspace")
+	}
+	if app.isWorkspaceDeleteInFlight(wsID) {
+		t.Fatal("expected delete-in-flight marker cleared")
+	}
+	if app.dirtyWorkspaces[wsID] {
+		t.Fatal("expected dirty marker cleared")
+	}
+	if len(cmds) == 0 {
+		t.Fatal("expected metadata error to be reported")
+	}
+}
