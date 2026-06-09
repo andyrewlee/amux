@@ -75,10 +75,16 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 	// Clear follower/shared activity immediately. If the first owner scan fails,
 	// stale follower markers should not remain visible.
 	a.tmuxActiveWorkspaceIDs = make(map[string]bool)
+	// Re-enter the unsettled state so this transient empty set is not published as
+	// authoritative. While !settled, syncActiveWorkspacesToDashboard short-circuits
+	// to an empty publish that the dashboard treats as "not yet known" rather than a
+	// confirmed all-idle set, so working-agent spinners are not blinked off between
+	// the handoff and the new owner's first scans. applyTmuxActivityPayload re-settles
+	// after tmuxActivitySettleScans successful owner scans, repopulating indicators.
+	// Mirrors the tmux-availability reset in scanTmuxActivity.
+	a.tmuxActivitySettled = false
+	a.tmuxActivitySettledScans = 0
 	a.syncActiveWorkspacesToDashboard()
-	// Do not reset tmuxActivitySettledScans on role transitions. Settlement tracks
-	// continuity of successfully applied activity payloads, independent of owner
-	// identity, and only increments in applyTmuxActivityPayload.
 }
 
 func isTmuxActivityOwnerTransition(
