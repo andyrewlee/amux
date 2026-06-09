@@ -70,6 +70,50 @@ func TestSetEnabledDisablesLogging(t *testing.T) {
 	}
 }
 
+func TestParseLevel(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   Level
+		wantOk bool
+	}{
+		{"debug", LevelDebug, true},
+		{"DEBUG", LevelDebug, true},
+		{" Info ", LevelInfo, true},
+		{"warn", LevelWarn, true},
+		{"ERROR", LevelError, true},
+		{"verbose", LevelInfo, false},
+		{"", LevelInfo, false},
+	}
+	for _, c := range cases {
+		got, ok := ParseLevel(c.in)
+		if got != c.want || ok != c.wantOk {
+			t.Errorf("ParseLevel(%q) = (%v, %v), want (%v, %v)", c.in, got, ok, c.want, c.wantOk)
+		}
+	}
+}
+
+func TestSetLevelTogglesDebug(t *testing.T) {
+	logPath, cleanup := setupLogger(t, LevelInfo)
+	defer cleanup()
+
+	Debug("suppressed at info")
+	SetLevel(LevelDebug)
+	Debug("visible after setlevel")
+	cleanup()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, "suppressed at info") {
+		t.Fatalf("debug line should be suppressed at INFO level: %q", content)
+	}
+	if !strings.Contains(content, "DEBUG: visible after setlevel") {
+		t.Fatalf("expected debug line after SetLevel(LevelDebug), got: %q", content)
+	}
+}
+
 func TestLevelFiltering(t *testing.T) {
 	logPath, cleanup := setupLogger(t, LevelWarn)
 	defer cleanup()
