@@ -211,6 +211,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		// Eagerly rescan so a just-started agent's working indicator does not
+		// wait up to one ticker interval (~5s) to appear.
+		if cmd := a.eagerScanTmuxActivity(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.TabClosed:
 		logging.Info("Tab closed: %d", msg.Index)
@@ -227,6 +232,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.TabReattached:
 		cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
 		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
+		// Eagerly rescan so a reattached agent's working indicator does not
+		// wait up to one ticker interval (~5s) to appear.
+		if cmd := a.eagerScanTmuxActivity(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.TabStateChanged:
 		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
