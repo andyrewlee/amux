@@ -29,6 +29,10 @@ const (
 	// SnapshotStaleAfter controls how long a shared activity snapshot is trusted
 	// after its timestamp before followers ignore it.
 	SnapshotStaleAfter = 10 * time.Second
+	// SnapshotFutureSkewTolerance caps how far in the future a shared snapshot
+	// timestamp may be (clock skew) before it is treated as stale rather than
+	// fresh, mirroring OwnerFutureSkewTolerance for the owner lease.
+	SnapshotFutureSkewTolerance = 2 * time.Second
 )
 
 // OwnerLease is the cross-instance activity-scan owner lease stored in tmux
@@ -117,13 +121,21 @@ func ReadSnapshot(opts tmux.Options, now time.Time, expectedEpoch int64) (map[st
 	if expectedEpoch > 0 && snapshotEpoch != expectedEpoch {
 		return nil, false, nil
 	}
-	if at.After(now) {
-		return parsed, true, nil
-	}
-	if now.Sub(at) > SnapshotStaleAfter {
+	if !snapshotFresh(at, now) {
 		return nil, false, nil
 	}
 	return parsed, true, nil
+}
+
+// snapshotFresh reports whether a snapshot timestamped at is fresh relative to
+// now, tolerating only small forward clock skew. A far-future timestamp (a peer
+// whose clock runs minutes/hours ahead) would otherwise pin every follower to a
+// stale active set indefinitely, ignoring SnapshotStaleAfter.
+func snapshotFresh(at, now time.Time) bool {
+	if at.After(now) {
+		return at.Sub(now) <= SnapshotFutureSkewTolerance
+	}
+	return now.Sub(at) <= SnapshotStaleAfter
 }
 
 // EncodeSnapshot serializes the active-workspace set with epoch and timestamp.
