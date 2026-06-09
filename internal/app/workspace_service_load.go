@@ -129,6 +129,13 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 				if !s.shouldSurfaceWorkspace(path, ws) {
 					continue
 				}
+				wsID := string(ws.ID())
+				discoveredSet[wsID] = true
+				if s.isDeleteInFlight(wsID) {
+					// A workspace being deleted must not be re-imported by a
+					// concurrent rescan racing the delete; the delete flow owns it.
+					continue
+				}
 				// Set the default assistant for newly discovered workspaces. Note:
 				// UpsertFromDiscovery below merges with stored metadata, where stored
 				// metadata takes precedence if non-empty. This is intentional — stored
@@ -136,10 +143,16 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 				if strings.TrimSpace(ws.Assistant) == "" {
 					ws.Assistant = s.resolvedDefaultAssistant()
 				}
-				discoveredSet[string(ws.ID())] = true
 				if s.store != nil {
-					if err := s.store.UpsertFromDiscovery(ws); err != nil {
-						logging.Warn("Failed to import workspace %s: %v", ws.Name, err)
+					var upsertErr error
+					imported := s.runUnlessDeleteInFlight(wsID, func() {
+						upsertErr = s.store.UpsertFromDiscovery(ws)
+					})
+					if !imported {
+						continue
+					}
+					if upsertErr != nil {
+						logging.Warn("Failed to import workspace %s: %v", ws.Name, upsertErr)
 					}
 				}
 			}
@@ -157,14 +170,26 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 				if ws == nil {
 					continue
 				}
+				if s.isDeleteInFlight(string(ws.ID())) {
+					// Leave a workspace mid-delete untouched: neither archival Save
+					// path below should run while the delete flow is removing it.
+					continue
+				}
 				if !s.shouldSurfaceWorkspace(path, ws) {
 					if !ws.Archived {
-						ws.Archived = true
-						ws.ArchivedAt = time.Now()
-						if s.store != nil {
-							if err := s.store.Save(ws); err != nil {
-								logging.Warn("Failed to archive unmanaged workspace %s: %v", ws.Name, err)
+						var saveErr error
+						saved := s.runUnlessDeleteInFlight(string(ws.ID()), func() {
+							ws.Archived = true
+							ws.ArchivedAt = time.Now()
+							if s.store != nil {
+								saveErr = s.store.Save(ws)
 							}
+						})
+						if !saved {
+							continue
+						}
+						if saveErr != nil {
+							logging.Warn("Failed to archive unmanaged workspace %s: %v", ws.Name, saveErr)
 						}
 					}
 					continue
@@ -173,12 +198,19 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 					continue
 				}
 				if !ws.Archived {
-					ws.Archived = true
-					ws.ArchivedAt = time.Now()
-					if s.store != nil {
-						if err := s.store.Save(ws); err != nil {
-							logging.Warn("Failed to archive workspace %s: %v", ws.Name, err)
+					var saveErr error
+					saved := s.runUnlessDeleteInFlight(string(ws.ID()), func() {
+						ws.Archived = true
+						ws.ArchivedAt = time.Now()
+						if s.store != nil {
+							saveErr = s.store.Save(ws)
 						}
+					})
+					if !saved {
+						continue
+					}
+					if saveErr != nil {
+						logging.Warn("Failed to archive workspace %s: %v", ws.Name, saveErr)
 					}
 				}
 			}

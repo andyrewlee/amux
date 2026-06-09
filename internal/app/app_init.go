@@ -158,6 +158,7 @@ func New(version, commit, date string) (*App, error) {
 	// Let the service's load/rescan path consult the App's delete-in-flight guard
 	// so it can skip workspaces that are being deleted (used by the rescan guard).
 	workspaceService.deleteInFlight = app.isWorkspaceDeleteInFlight
+	workspaceService.deleteInFlightGuard = app.runUnlessWorkspaceDeleteInFlight
 
 	return app, nil
 }

@@ -45,6 +45,9 @@ type workspaceService struct {
 	// wired to the App's guard in app_init; nil when the service is constructed
 	// directly (e.g. in tests) and then treated as "never in flight".
 	deleteInFlight func(wsID string) bool
+	// deleteInFlightGuard runs a store mutation only when the workspace is not
+	// mid-delete, keeping the check atomic with App delete-state updates.
+	deleteInFlightGuard func(wsID string, fn func()) bool
 }
 
 // isDeleteInFlight reports whether the workspace is mid-delete. It is nil-safe so
@@ -52,6 +55,22 @@ type workspaceService struct {
 // flight.
 func (s *workspaceService) isDeleteInFlight(wsID string) bool {
 	return s != nil && s.deleteInFlight != nil && s.deleteInFlight(wsID)
+}
+
+func (s *workspaceService) runUnlessDeleteInFlight(wsID string, fn func()) bool {
+	if s == nil {
+		return false
+	}
+	if s.deleteInFlightGuard != nil {
+		return s.deleteInFlightGuard(wsID, fn)
+	}
+	if s.isDeleteInFlight(wsID) {
+		return false
+	}
+	if fn != nil {
+		fn()
+	}
+	return true
 }
 
 func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string) *workspaceService {
