@@ -69,6 +69,9 @@ func main() {
 		time.Sleep(startupDelay)
 	}
 
+	// Match full-screen terminal apps that ask their host to deliver wheel
+	// events to stdin instead of using outer scrollback.
+	fmt.Fprint(os.Stdout, "\x1b[?1000h\x1b[?1006h")
 	// \r\n because the terminal is now raw (no NL->CRNL output translation).
 	fmt.Fprint(os.Stdout, readyBanner+"\r\n")
 

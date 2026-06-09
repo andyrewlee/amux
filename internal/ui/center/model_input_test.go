@@ -139,6 +139,67 @@ func TestUpdateKeyPgUpScrollsOneLineOnShortTerminal(t *testing.T) {
 	}
 }
 
+func TestUpdateCtrlUDoesNotScrollCenterTerminalHistory(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(80, 3)
+	for i := 0; i < 10; i++ {
+		term.Write([]byte("line\n"))
+	}
+	tab := &Tab{
+		ID:        TabID("tab-ctrl-u-scroll"),
+		Assistant: "claude",
+		Workspace: ws,
+		Terminal:  term,
+		Agent:     &appPty.Agent{Terminal: &appPty.Terminal{}},
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+	m.focused = true
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+
+	tab.mu.Lock()
+	offset, _ := tab.Terminal.GetScrollInfo()
+	tab.mu.Unlock()
+	if offset != 0 {
+		t.Fatalf("expected raw Ctrl+U to pass through without scrolling, got offset %d", offset)
+	}
+}
+
+func TestUpdateCtrlDReturnsCenterTerminalToLiveOutput(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	term := vterm.New(80, 3)
+	for i := 0; i < 10; i++ {
+		term.Write([]byte("line\n"))
+	}
+	term.ScrollView(2)
+	tab := &Tab{
+		ID:        TabID("tab-ctrl-d-scroll"),
+		Assistant: "claude",
+		Workspace: ws,
+		Terminal:  term,
+		Agent:     &appPty.Agent{Terminal: &appPty.Terminal{}},
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+	m.focused = true
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+
+	tab.mu.Lock()
+	offset, _ := tab.Terminal.GetScrollInfo()
+	tab.mu.Unlock()
+	if offset != 0 {
+		t.Fatalf("expected raw Ctrl+D input to return to live output, got offset %d", offset)
+	}
+}
+
 func TestTabActorScrollPageScrollsOneLineOnShortTerminal(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")

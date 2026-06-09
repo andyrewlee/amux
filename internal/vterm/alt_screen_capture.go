@@ -1,20 +1,21 @@
 package vterm
 
-// captureScreenToScrollback copies the visible alt-screen frame into the
+// captureScreenToScrollback copies the visible screen frame into the
 // scrollback buffer. It trims leading/trailing blank rows and clips each row
 // to the current terminal width so only what was actually visible is stored.
-// This is called before erase-display in alt-screen mode so that TUI content
-// (e.g. Claude Code plan mode) is preserved for amux scroll-back. A dedup
-// check avoids storing identical consecutive frames.
-func (v *VTerm) captureScreenToScrollback() {
+// This is called before selected full-screen redraw clears so TUI/chat content
+// is preserved for amux scroll-back. A dedup check avoids storing identical
+// consecutive frames. It reports whether there was a visible frame worth
+// preserving, even if that frame was already present in scrollback.
+func (v *VTerm) captureScreenToScrollback() bool {
 	lines := v.visibleCaptureFrame()
 	if len(lines) == 0 {
 		v.clearPendingRestoredAltScreenCapture()
-		return
+		return false
 	}
 	oldViewOffset := v.ViewOffset
 	if v.matchesPendingRestoredAltScreenCapture(lines) {
-		return
+		return true
 	}
 	pendingAdded := v.transitionPendingRestoredAltScreenCapture(lines)
 	v.clearPendingRestoredAltScreenCapture()
@@ -23,7 +24,7 @@ func (v *VTerm) captureScreenToScrollback() {
 			v.adjustAnchoredViewOffset(pendingAdded - dedupRemoved)
 		}
 		v.trimScrollback()
-		return
+		return true
 	}
 	removed, dropped, transitioned := v.transitionTrackedAltScreenCapture(lines)
 	if !transitioned {
@@ -47,7 +48,7 @@ func (v *VTerm) captureScreenToScrollback() {
 		}
 		deductOffset()
 		v.trimScrollback()
-		return
+		return true
 	}
 
 	// Partial overlap detection — skip lines already in scrollback from scrollUp
@@ -65,6 +66,7 @@ func (v *VTerm) captureScreenToScrollback() {
 		v.adjustAnchoredViewOffset(pendingAdded - removed + added)
 	}
 	v.trimScrollback()
+	return true
 }
 
 func (v *VTerm) visibleCaptureFrame() [][]Cell {

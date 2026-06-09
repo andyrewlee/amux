@@ -31,7 +31,7 @@ func (m *Model) CanConsumeWheel() bool {
 		return tab.DiffViewer.CanConsumeWheel()
 	}
 	if tab.Terminal != nil {
-		return tab.Terminal.MaxViewOffset() > 0
+		return tab.Terminal.MouseReportingEnabled() || tab.Terminal.MaxViewOffset() > 0
 	}
 	return false
 }

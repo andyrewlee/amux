@@ -1,5 +1,16 @@
 package vterm
 
+// MouseReportingEnabled reports whether the hosted terminal application has
+// requested mouse event reporting.
+func (v *VTerm) MouseReportingEnabled() bool {
+	return v != nil && v.mouseTrackingMode != 0
+}
+
+// MouseSGRMode reports whether SGR extended mouse coordinates are enabled.
+func (v *VTerm) MouseSGRMode() bool {
+	return v != nil && v.mouseSGRMode
+}
+
 // CursorRenderState is the cached cursor state from the previous render frame,
 // used to detect cursor-only changes and mark the affected lines dirty.
 type CursorRenderState struct {

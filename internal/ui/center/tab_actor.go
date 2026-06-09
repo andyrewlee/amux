@@ -27,6 +27,7 @@ const (
 	tabEventScrollToTop
 	tabEventDiffInput
 	tabEventSendInput
+	tabEventSendMouse
 	tabEventPaste
 	tabEventWriteOutput
 )
@@ -196,6 +197,8 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		m.handleDiffInput(ev)
 	case tabEventSendInput:
 		m.handleSendInput(ev)
+	case tabEventSendMouse:
+		m.handleSendMouse(ev)
 	case tabEventPaste:
 		m.handlePaste(ev)
 	case tabEventWriteOutput:
@@ -262,9 +265,29 @@ func (m *Model) handleSendInput(ev tabEvent) {
 	m.sendToTerminal(ev.tab, string(ev.input), ev.tabID, ev.workspaceID, "Input")
 }
 
+func (m *Model) handleSendMouse(ev tabEvent) {
+	m.sendMouseToTerminal(ev.tab, string(ev.input), ev.tabID, ev.workspaceID)
+}
+
 func (m *Model) handlePaste(ev tabEvent) {
 	if ev.pasteText != "" {
 		m.sendToTerminal(ev.tab, "\x1b[200~"+ev.pasteText+"\x1b[201~", ev.tabID, ev.workspaceID, "Paste")
+	}
+}
+
+func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspaceID string) {
+	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil || data == "" {
+		return
+	}
+	if err := tab.Agent.Terminal.SendString(data); err != nil {
+		logging.Warn("Mouse input failed for tab %s: %v", tab.ID, err)
+		tab.mu.Lock()
+		tab.Running = false
+		tab.Detached = true
+		tab.mu.Unlock()
+		if m.msgSink != nil {
+			m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
+		}
 	}
 }
 

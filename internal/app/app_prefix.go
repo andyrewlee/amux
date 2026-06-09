@@ -145,7 +145,18 @@ func (a *App) prefixInputToken(msg tea.KeyPressMsg) (string, bool) {
 }
 
 func (a *App) prefixCommands() []prefixCommand {
-	return prefixCommandTable
+	commands := append([]prefixCommand(nil), prefixCommandTable...)
+	if a.centerScrollPrefixActive() {
+		commands = append(commands, prefixCommand{Sequence: []string{"u"}, Desc: "scroll up", Action: "scroll_up"})
+		for i := range commands {
+			if len(commands[i].Sequence) == 1 && commands[i].Sequence[0] == "d" {
+				commands[i].Desc = "scroll down"
+				commands[i].Action = "scroll_down"
+				break
+			}
+		}
+	}
+	return commands
 }
 
 // matchingPrefixCommands intentionally does not apply prefixActionVisible.
@@ -182,18 +193,20 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 		return a.focusPaneLeft()
 	case "focus_right":
 		return a.focusPaneRight()
+	case "scroll_up":
+		if a.centerScrollPrefixActive() {
+			a.center.ScrollActiveTerminalPage(1)
+		}
+		return nil
+	case "scroll_down":
+		if a.centerScrollPrefixActive() {
+			a.center.ScrollActiveTerminalPage(-1)
+		}
+		return nil
 	case "add_project":
 		return func() tea.Msg { return messages.ShowAddProjectDialog{} }
 	case "delete_workspace":
-		if a.activeWorkspace == nil || a.activeProject == nil {
-			return a.requireWorkspaceSelection("delete workspace")
-		}
-		return func() tea.Msg {
-			return messages.ShowDeleteWorkspaceDialog{
-				Project:   a.activeProject,
-				Workspace: a.activeWorkspace,
-			}
-		}
+		return a.deleteWorkspaceCommand()
 	case "open_settings":
 		return func() tea.Msg { return messages.ShowSettingsDialog{} }
 	case "quit":
@@ -238,6 +251,25 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 		return a.dispatchTabAction(a.center.RestartActiveTab, a.sidebarTerminal.RestartActiveTab)
 	default:
 		return nil
+	}
+}
+
+func (a *App) centerScrollPrefixActive() bool {
+	return a != nil &&
+		a.focusedPane == messages.PaneCenter &&
+		a.center != nil &&
+		a.center.HasActiveTerminal()
+}
+
+func (a *App) deleteWorkspaceCommand() tea.Cmd {
+	if a.activeWorkspace == nil || a.activeProject == nil {
+		return a.requireWorkspaceSelection("delete workspace")
+	}
+	return func() tea.Msg {
+		return messages.ShowDeleteWorkspaceDialog{
+			Project:   a.activeProject,
+			Workspace: a.activeWorkspace,
+		}
 	}
 }
 

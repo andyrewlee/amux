@@ -206,6 +206,22 @@ func (m *Model) SendToTerminal(s string) {
 	}
 }
 
+// ScrollActiveTerminalPage scrolls the active terminal by one page-sized step.
+// A positive direction scrolls up into history; a negative direction scrolls
+// down toward live output.
+func (m *Model) ScrollActiveTerminalPage(direction int) {
+	if direction == 0 {
+		return
+	}
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return
+	}
+	tab := tabs[activeIdx]
+	m.scrollTerminalPage(tab, direction)
+}
+
 // GetTabsInfo returns information about current tabs for persistence
 func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 	var result []data.TabInfo
@@ -293,6 +309,22 @@ func (m *Model) HasDiffViewer() bool {
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
 	return tab.DiffViewer != nil
+}
+
+// HasActiveTerminal reports whether the active tab has a terminal viewport.
+func (m *Model) HasActiveTerminal() bool {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return false
+	}
+	tab := tabs[activeIdx]
+	if tab.isClosed() {
+		return false
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	return tab.Terminal != nil
 }
 
 // CloseAllTabs is deprecated - tabs now persist per-workspace

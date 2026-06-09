@@ -365,6 +365,56 @@ func TestRunPrefixAction_DeleteWorkspaceRequiresSelection(t *testing.T) {
 	}
 }
 
+func TestHandlePrefixScrollsFocusedCenterTerminal(t *testing.T) {
+	app, tab := newScrollableCenterWheelHarness(t)
+	before, _ := tab.Terminal.GetScrollInfo()
+
+	status, cmd := app.handlePrefixCommand(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	if status != prefixMatchComplete {
+		t.Fatalf("expected prefix d to complete, got %v", status)
+	}
+	if cmd != nil {
+		t.Fatalf("expected prefix d center scroll to be synchronous, got %v", cmd)
+	}
+	afterDown, _ := tab.Terminal.GetScrollInfo()
+	if afterDown >= before {
+		t.Fatalf("expected prefix d to scroll toward bottom, before=%d after=%d", before, afterDown)
+	}
+
+	app.prefixSequence = nil
+	status, cmd = app.handlePrefixCommand(tea.KeyPressMsg{Code: 'u', Text: "u"})
+	if status != prefixMatchComplete {
+		t.Fatalf("expected prefix u to complete, got %v", status)
+	}
+	if cmd != nil {
+		t.Fatalf("expected prefix u center scroll to be synchronous, got %v", cmd)
+	}
+	afterUp, _ := tab.Terminal.GetScrollInfo()
+	if afterUp <= afterDown {
+		t.Fatalf("expected prefix u to scroll up into history, afterDown=%d afterUp=%d", afterDown, afterUp)
+	}
+}
+
+func TestHandlePrefixDDeletesWorkspaceOutsideCenterTerminal(t *testing.T) {
+	app, ws, _ := newPrefixTestApp(t)
+	project := &data.Project{Name: "p", Path: "/repo/ws"}
+	app.activeProject = project
+	app.activeWorkspace = ws
+	app.focusedPane = messages.PaneDashboard
+
+	status, cmd := app.handlePrefixCommand(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	if status != prefixMatchComplete {
+		t.Fatalf("expected prefix d to complete, got %v", status)
+	}
+	if cmd == nil {
+		t.Fatal("expected prefix d outside center terminal to return delete command")
+	}
+	msg := cmd()
+	if _, ok := msg.(messages.ShowDeleteWorkspaceDialog); !ok {
+		t.Fatalf("expected ShowDeleteWorkspaceDialog from prefix d, got %T", msg)
+	}
+}
+
 func TestRunPrefixAction_FocusLeftPartialApp_NoPanic(t *testing.T) {
 	app, _, _ := newPrefixTestApp(t)
 	app.focusedPane = messages.PaneCenter
