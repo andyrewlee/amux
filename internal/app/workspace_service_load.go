@@ -43,6 +43,11 @@ func (s *workspaceService) LoadProjects(loadToken int) tea.Cmd {
 
 			var workspaces []data.Workspace
 			for _, ws := range storedWorkspaces {
+				// Finish any delete that was tombstoned but interrupted before the
+				// metadata was removed, instead of surfacing a dir-less ghost.
+				if s.finishInterruptedDelete(ws) {
+					continue
+				}
 				if !s.shouldSurfaceWorkspace(path, ws) {
 					continue
 				}

@@ -282,6 +282,13 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 		}
 
+		// Validation passed, so this delete will proceed. Write a durable tombstone
+		// FIRST so that if the process quits/crashes between here and the metadata
+		// removal, startup recovery can finish the delete rather than surfacing a
+		// dir-less ghost workspace. store.Delete removes the whole metadata dir,
+		// clearing the tombstone on success.
+		s.markDeleteTombstone(ws.ID())
+
 		warning, failMsg := s.removeWorktreeAndBranchLocked(project, ws, projectPath, wsID, fail)
 		if failMsg != nil {
 			return failMsg

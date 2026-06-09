@@ -68,8 +68,12 @@ func TestPersistAllWorkspacesNowSavesExplicitlyEmptyTabs(t *testing.T) {
 	}
 }
 
-func TestPersistAllWorkspacesNowSavesDeleteInFlightWorkspace(t *testing.T) {
-	ws := data.NewWorkspace("test-ws", "main", "main", "/repo", "/repo")
+func TestPersistAllWorkspacesNowSkipsDeleteInFlightWorkspace(t *testing.T) {
+	// Shutdown must not save a workspace while its delete is in flight. The delete
+	// can remove the worktree and metadata while shutdown persistence is still
+	// collecting state, and a later save would recreate dir-less metadata.
+	wsRoot := t.TempDir()
+	ws := data.NewWorkspace("test-ws", "feature", "main", "/repo", wsRoot)
 	wsID := string(ws.ID())
 
 	storeRoot := t.TempDir()
@@ -95,12 +99,8 @@ func TestPersistAllWorkspacesNowSavesDeleteInFlightWorkspace(t *testing.T) {
 
 	app.persistAllWorkspacesNow()
 
-	loaded, err := store.Load(ws.ID())
-	if err != nil {
-		t.Fatalf("load after persist: %v", err)
-	}
-	if len(loaded.OpenTabs) == 0 {
-		t.Fatal("expected delete-in-flight workspace tabs to be persisted on shutdown")
+	if _, err := store.Load(ws.ID()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected delete-in-flight workspace metadata to remain absent, err=%v", err)
 	}
 }
 
