@@ -323,6 +323,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 					Project:   project,
 					Workspace: ws,
 					Err:       err,
+					Warning:   warning,
 				}
 			}
 		}

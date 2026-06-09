@@ -47,6 +47,7 @@ func TestDeleteWorkspace_StoreDeleteFailureReportsPartialSuccess(t *testing.T) {
 
 	mock := &mockGitOps{
 		removeWorkspace: func(repoPath, workspacePath string) error { return nil },
+		deleteBranch:    func(repoPath, branch string) error { return errors.New("branch checked out elsewhere") },
 	}
 	store := &failingDeleteStore{deleteErr: errors.New("metadata delete boom")}
 
@@ -63,6 +64,9 @@ func TestDeleteWorkspace_StoreDeleteFailureReportsPartialSuccess(t *testing.T) {
 	}
 	if deleted.Err == nil {
 		t.Fatal("expected the store.Delete error to be preserved")
+	}
+	if deleted.Warning == "" {
+		t.Fatal("expected branch-delete warning to be preserved with metadata error")
 	}
 	if store.saved == nil || !store.saved.Archived {
 		t.Fatalf("expected surviving metadata to be archived, got %+v", store.saved)
