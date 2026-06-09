@@ -302,8 +302,10 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 		// but never kill sessions for a delete that failed and left the workspace.
 		s.killWorkspaceSessionsForDelete(wsID)
 
+		var warning string
 		if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
 			logging.Warn("workspace delete branch cleanup failed workspace_id=%s branch=%s error=%v", wsID, ws.Branch, err)
+			warning = fmt.Sprintf("workspace deleted but branch %s was left behind: %v", ws.Branch, err)
 		}
 		if s.store != nil {
 			if err := s.store.Delete(ws.ID()); err != nil {
@@ -335,6 +337,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 		return messages.WorkspaceDeleted{
 			Project:   project,
 			Workspace: ws,
+			Warning:   warning,
 		}
 	}
 }

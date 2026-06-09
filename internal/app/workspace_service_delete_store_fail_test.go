@@ -107,3 +107,36 @@ func TestDeleteWorkspace_StoreDeleteAndArchiveFailureReportsFailure(t *testing.T
 		t.Fatalf("expected archive fallback to be attempted, got %+v", store.saved)
 	}
 }
+
+// TestDeleteWorkspace_BranchDeleteFailureSurfacesWarning proves a failed branch
+// delete is reported (not silently logged): the delete still succeeds but the
+// returned WorkspaceDeleted carries a Warning so the user is told the branch was
+// left behind.
+func TestDeleteWorkspace_BranchDeleteFailureSurfacesWarning(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error { return nil },
+		deleteBranch:    func(repoPath, branch string) error { return errors.New("branch checked out elsewhere") },
+	}
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	msg := svc.DeleteWorkspace(project, ws)()
+	deleted, ok := msg.(messages.WorkspaceDeleted)
+	if !ok {
+		t.Fatalf("expected WorkspaceDeleted (delete still succeeds), got %T", msg)
+	}
+	if deleted.Warning == "" {
+		t.Fatal("expected a non-empty Warning when branch delete fails")
+	}
+}
