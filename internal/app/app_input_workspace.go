@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -119,8 +120,37 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	}
+	if msg.Err != nil {
+		a.removeWorkspaceFromLoadedProjects(msg.Workspace)
+		if a.dashboard != nil {
+			a.dashboard.SetProjects(a.projects)
+		}
+		if errCmd := common.ReportError(errorContext(errorServiceWorkspace, "removing workspace metadata"), msg.Err, ""); errCmd != nil {
+			cmds = append(cmds, errCmd)
+		}
+		return cmds
+	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds
+}
+
+func (a *App) removeWorkspaceFromLoadedProjects(ws *data.Workspace) {
+	if ws == nil {
+		return
+	}
+	wsID := string(ws.ID())
+	for i := range a.projects {
+		workspaces := a.projects[i].Workspaces
+		filtered := workspaces[:0]
+		for j := range workspaces {
+			candidate := &workspaces[j]
+			if string(candidate.ID()) == wsID || candidate.Root == ws.Root {
+				continue
+			}
+			filtered = append(filtered, workspaces[j])
+		}
+		a.projects[i].Workspaces = filtered
+	}
 }
 
 // handleWorkspaceDeleteFailed handles the WorkspaceDeleteFailed message.

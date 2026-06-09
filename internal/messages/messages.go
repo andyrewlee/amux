@@ -47,6 +47,7 @@ type WorkspaceCreateFailed struct {
 type WorkspaceDeleted struct {
 	Project   *data.Project
 	Workspace *data.Workspace
+	Err       error
 }
 
 // WorkspaceDeleteFailed is sent when a workspace deletion fails

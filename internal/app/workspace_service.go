@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -309,9 +310,18 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 				// Worktree and branch are already gone; because loading is store-
 				// first and shouldSurfaceWorkspace never stats the root, a surviving
 				// metadata dir resurfaces the just-deleted workspace on the next load,
-				// pointing at a missing worktree. Surface the failure so the user can
-				// retry instead of being left with a phantom workspace.
-				return fail("remove_metadata", err)
+				// pointing at a missing worktree. Archive the surviving metadata as a
+				// durable fallback, then return the deleted message so UI cleanup still
+				// runs, with the metadata error attached for reporting.
+				logging.Warn("workspace delete metadata cleanup failed workspace_id=%s error=%v", wsID, err)
+				if archiveErr := s.archiveDeletedWorkspaceMetadata(ws); archiveErr != nil {
+					return fail("remove_metadata", errors.Join(err, archiveErr))
+				}
+				return messages.WorkspaceDeleted{
+					Project:   project,
+					Workspace: ws,
+					Err:       err,
+				}
 			}
 		}
 		logging.Info(
@@ -338,6 +348,19 @@ func (s *workspaceService) killWorkspaceSessionsForDelete(wsID string) {
 func workspacePathGone(path string) bool {
 	_, err := os.Stat(path)
 	return os.IsNotExist(err)
+}
+
+func (s *workspaceService) archiveDeletedWorkspaceMetadata(ws *data.Workspace) error {
+	if s == nil || s.store == nil || ws == nil {
+		return nil
+	}
+	archived := *ws
+	archived.Archived = true
+	archived.ArchivedAt = time.Now()
+	if err := s.store.Save(&archived); err != nil {
+		return fmt.Errorf("archive deleted workspace metadata: %w", err)
+	}
+	return nil
 }
 
 // RemoveProject removes a project from the registry (does not delete files).
