@@ -181,6 +181,20 @@ func (m *Model) isProjectActive(p *data.Project) bool {
 	return m.activeWorkspaceIDs[string(mainWS.ID())]
 }
 
+// projectRowActive reports whether a project header row should render as active.
+// A project being deleted is never active even if its main workspace still has
+// an active agent — the delete supersedes the active styling, otherwise a
+// deleting project would render with active color (a status desync).
+func (m *Model) projectRowActive(activityWorkspaceID string, main *data.Workspace) bool {
+	if activityWorkspaceID == "" || !m.activeWorkspaceIDs[activityWorkspaceID] {
+		return false
+	}
+	if main != nil && m.deletingWorkspaces[main.Root] {
+		return false
+	}
+	return true
+}
+
 // getMainWorkspace returns the primary or main branch workspace for a project
 func (m *Model) getMainWorkspace(p *data.Project) *data.Workspace {
 	if p == nil {

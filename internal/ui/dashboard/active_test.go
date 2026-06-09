@@ -102,3 +102,23 @@ func TestDashboardHomeActive(t *testing.T) {
 		t.Errorf("expected activeRoot to be empty after ShowWelcome")
 	}
 }
+
+func TestDashboardProjectRowActive_DeletingSupersedesActive(t *testing.T) {
+	t.Parallel()
+	main := &data.Workspace{Name: "p", Branch: "main", Repo: "/p", Root: "/p"}
+	mainID := string(main.ID())
+
+	m := New()
+	m.activeWorkspaceIDs = map[string]bool{mainID: true}
+
+	if !m.projectRowActive(mainID, main) {
+		t.Fatal("expected an active main workspace to render the project row active")
+	}
+
+	// Mark the project deleting: the row must no longer render active even though
+	// the workspace is still in the active set.
+	m.deletingWorkspaces = map[string]bool{main.Root: true}
+	if m.projectRowActive(mainID, main) {
+		t.Fatal("a deleting project must not render active")
+	}
+}
