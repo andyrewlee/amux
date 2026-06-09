@@ -147,13 +147,10 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 			}
 		}
 
-		createUnlock := s.lockRepoGit(project.Path)
-		createErr := s.gitOps.CreateWorkspace(project.Path, workspacePath, branch, base)
-		createUnlock()
-		if createErr != nil {
+		if err := s.createWorkspaceLocked(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
-				Err:       createErr,
+				Err:       err,
 			}
 		}
 
@@ -181,6 +178,13 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		// Return immediately for async setup
 		return messages.WorkspaceCreated{Workspace: ws}
 	}
+}
+
+func (s *workspaceService) createWorkspaceLocked(repoPath, workspacePath, branch, base string) error {
+	unlock := s.lockRepoGit(repoPath)
+	defer unlock()
+
+	return s.gitOps.CreateWorkspace(repoPath, workspacePath, branch, base)
 }
 
 // RunSetupAsync runs setup scripts asynchronously and returns a WorkspaceSetupComplete message.
