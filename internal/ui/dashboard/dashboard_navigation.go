@@ -26,6 +26,59 @@ func (m *Model) findSelectableRow(from, dir int) int {
 	return -1
 }
 
+// selectedWorkspaceIDAt returns the workspace ID of the row at idx, or "" if that
+// row is not a workspace row. Read before SetProjects mutates m.rows.
+func (m *Model) selectedWorkspaceIDAt(idx int) string {
+	if idx < 0 || idx >= len(m.rows) {
+		return ""
+	}
+	row := m.rows[idx]
+	if row.Type == RowWorkspace && row.Workspace != nil {
+		return string(row.Workspace.ID())
+	}
+	return ""
+}
+
+// workspaceRowIndex returns the index of the workspace row with the given ID, or
+// -1 if no such row exists in the current rows.
+func (m *Model) workspaceRowIndex(wsID string) int {
+	for i := range m.rows {
+		row := m.rows[i]
+		if row.Type == RowWorkspace && row.Workspace != nil && string(row.Workspace.ID()) == wsID {
+			return i
+		}
+	}
+	return -1
+}
+
+// resolveCursorAfterRebuild re-anchors the cursor to the workspace selected
+// before the rebuild. If that workspace is gone (deleted), it falls back to the
+// nearest selectable row at or ABOVE the previous index — the predecessor — so
+// repeated deletes walk upward instead of chasing the successor. A no-op when no
+// workspace was selected; rebuildRows' clamp then governs.
+func (m *Model) resolveCursorAfterRebuild(prevCursor int, selectedID string) {
+	if selectedID == "" {
+		return
+	}
+	if idx := m.workspaceRowIndex(selectedID); idx != -1 {
+		m.cursor = idx
+		return
+	}
+	// The selected workspace is gone. Land on the nearest selectable row strictly
+	// ABOVE its old slot (the predecessor) — not the successor that shifted up into
+	// that slot — so repeated deletes walk upward instead of chewing downward.
+	start := prevCursor - 1
+	if start > len(m.rows)-1 {
+		start = len(m.rows) - 1
+	}
+	if start < 0 {
+		return
+	}
+	if prev := m.findSelectableRow(start, -1); prev != -1 {
+		m.cursor = prev
+	}
+}
+
 // moveCursor moves the cursor by delta, skipping non-selectable rows
 func (m *Model) moveCursor(delta int) {
 	if len(m.rows) == 0 {
