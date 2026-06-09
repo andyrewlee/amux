@@ -163,8 +163,13 @@ func (m *Model) Focused() bool {
 func (m *Model) SetProjects(projects []data.Project) {
 	prevCursor := m.cursor
 	prevOffset := m.scrollOffset
+	// Capture the selected workspace's identity before the rebuild so a delete
+	// (or reorder) re-anchors selection to that workspace rather than letting the
+	// same index silently slide onto the row that was below it.
+	selectedID := m.selectedWorkspaceIDAt(prevCursor)
 	m.projects = projects
 	m.rebuildRows()
+	m.resolveCursorAfterRebuild(prevCursor, selectedID)
 	if m.cursor == prevCursor {
 		m.scrollOffset = prevOffset
 		m.clampScrollOffset()
