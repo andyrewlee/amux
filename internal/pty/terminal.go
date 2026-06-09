@@ -177,6 +177,7 @@ func (t *Terminal) Close() error {
 			case <-done:
 				// Process exited cleanly.
 			case <-time.After(terminalCloseTimeout):
+				logging.Warn("agent did not exit within %s of SIGTERM; escalating to SIGKILL (pid %d)", terminalCloseTimeout, leaderPID)
 				_ = process.ForceKillProcess(leaderPID)
 				<-done
 			}

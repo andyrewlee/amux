@@ -12,6 +12,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -192,6 +193,12 @@ func (m *AgentManager) CloseAgent(agent *Agent) error {
 		agent.Terminal.Close()
 	}
 
+	wsID := ""
+	if agent.Workspace != nil {
+		wsID = string(agent.Workspace.ID())
+	}
+	logging.Info("agent closed: type=%s session=%s workspace=%s", agent.Type, agent.Session, wsID)
+
 	// Remove from list
 	if agent.Workspace != nil {
 		m.mu.Lock()
@@ -215,6 +222,14 @@ func (m *AgentManager) CloseAll() {
 	m.agents = make(map[data.WorkspaceID][]*Agent)
 	m.mu.Unlock()
 
+	total := 0
+	for _, agents := range agentsByWorkspace {
+		total += len(agents)
+	}
+	if total > 0 {
+		logging.Info("closing all %d agents across %d workspaces", total, len(agentsByWorkspace))
+	}
+
 	for _, agents := range agentsByWorkspace {
 		for _, agent := range agents {
 			if agent.Terminal != nil {
@@ -234,6 +249,9 @@ func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace) {
 	agents := m.agents[wsID]
 	delete(m.agents, wsID)
 	m.mu.Unlock()
+	if len(agents) > 0 {
+		logging.Info("closing %d agents for workspace %s", len(agents), wsID)
+	}
 	for _, agent := range agents {
 		if agent.Terminal != nil {
 			agent.Terminal.Close()
