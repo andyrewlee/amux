@@ -17,10 +17,12 @@ type killRecordingTmuxOps struct {
 	stubTmuxOps
 	killTagsCalls int
 	killWsCalls   int
+	lastKillTags  map[string]string
 }
 
-func (k *killRecordingTmuxOps) KillSessionsMatchingTags(map[string]string, tmux.Options) (bool, error) {
+func (k *killRecordingTmuxOps) KillSessionsMatchingTags(tags map[string]string, _ tmux.Options) (bool, error) {
 	k.killTagsCalls++
+	k.lastKillTags = tags
 	return false, nil
 }
 
@@ -117,4 +119,40 @@ func TestHandleWorkspaceDeleted_NoTrailingSessionKill(t *testing.T) {
 		t.Fatalf("handleWorkspaceDeleted must not re-kill sessions after the trailing cleanup was removed; KillSessionsMatchingTags=%d KillWorkspaceSessions=%d",
 			ops.killTagsCalls, ops.killWsCalls)
 	}
+}
+
+// TestKillWorkspaceSessionsSync_InstanceScoped proves the delete kill is scoped
+// to this instance and no longer uses the instance-blind prefix kill, so a
+// workspace shared with another amux process is not torn down across instances.
+func TestKillWorkspaceSessionsSync_InstanceScoped(t *testing.T) {
+	t.Run("scopes tag match to instance and drops prefix kill", func(t *testing.T) {
+		ops := &killRecordingTmuxOps{}
+		app := &App{tmuxService: ops, instanceID: "inst-A"}
+
+		app.killWorkspaceSessionsSync("ws-1")
+
+		if ops.killWsCalls != 0 {
+			t.Fatalf("expected no prefix KillWorkspaceSessions (it ignores instance), got %d", ops.killWsCalls)
+		}
+		if ops.lastKillTags["@amux_instance"] != "inst-A" {
+			t.Fatalf("expected @amux_instance scoping, got tags %v", ops.lastKillTags)
+		}
+		if ops.lastKillTags["@amux_workspace"] != "ws-1" {
+			t.Fatalf("expected @amux_workspace tag, got %v", ops.lastKillTags)
+		}
+	})
+
+	t.Run("empty instanceID keeps broad match", func(t *testing.T) {
+		ops := &killRecordingTmuxOps{}
+		app := &App{tmuxService: ops, instanceID: ""}
+
+		app.killWorkspaceSessionsSync("ws-1")
+
+		if _, ok := ops.lastKillTags["@amux_instance"]; ok {
+			t.Fatalf("empty instanceID must not add @amux_instance, got %v", ops.lastKillTags)
+		}
+		if ops.lastKillTags["@amux_workspace"] != "ws-1" {
+			t.Fatalf("expected @amux_workspace tag even when broad, got %v", ops.lastKillTags)
+		}
+	})
 }
