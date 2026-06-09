@@ -119,6 +119,11 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		if a.tmuxAvailable {
+			if cmd := a.scanTmuxActivityNow(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 		if cmd := a.persistWorkspaceTabs(string(msg.Workspace.ID())); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
