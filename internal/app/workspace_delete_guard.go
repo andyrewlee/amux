@@ -33,6 +33,24 @@ func (a *App) isWorkspaceDeleteInFlight(wsID string) bool {
 	return a.deletingWorkspaceIDs[wsID]
 }
 
+// snapshotDeletingWorkspaceIDs returns a copy of the IDs currently marked
+// delete-in-flight. The RLock is required because callers like
+// collectKnownWorkspaceIDs run on the Update goroutine while the map is also
+// mutated from worker goroutines.
+func (a *App) snapshotDeletingWorkspaceIDs() map[string]bool {
+	a.deletingWorkspaceMu.RLock()
+	defer a.deletingWorkspaceMu.RUnlock()
+
+	if len(a.deletingWorkspaceIDs) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(a.deletingWorkspaceIDs))
+	for id := range a.deletingWorkspaceIDs {
+		out[id] = true
+	}
+	return out
+}
+
 // runUnlessWorkspaceDeleteInFlight runs fn while holding a shared delete-state
 // lock only when wsID is not currently marked delete-in-flight. Holding the
 // lock across fn keeps the check and side effect atomic with respect to

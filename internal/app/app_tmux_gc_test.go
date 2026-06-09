@@ -349,3 +349,16 @@ func TestGcOrphanedTmuxSessions_NoSessions(t *testing.T) {
 		t.Fatalf("expected 0 killed, got %d", result.Killed)
 	}
 }
+
+func TestCollectKnownWorkspaceIDs_IncludesDeleting(t *testing.T) {
+	ws := data.Workspace{Repo: "/repo-d", Root: "/repo-d/ws-delete"}
+	deletingID := string(ws.ID())
+	app := &App{
+		deletingWorkspaceIDs: map[string]bool{deletingID: true},
+	}
+
+	ids := app.collectKnownWorkspaceIDs()
+	if !ids[deletingID] {
+		t.Fatalf("expected delete-in-flight workspace ID %s to be included even when absent from projects", deletingID)
+	}
+}
