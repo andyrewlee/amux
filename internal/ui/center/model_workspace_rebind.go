@@ -48,31 +48,9 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 		return nil
 	}
 
-	newTabs := m.tabsByWorkspace[newID]
-	oldActive, oldActiveOK := m.activeTabByWorkspace[oldID]
-	newActive, newActiveOK := m.activeTabByWorkspace[newID]
-	merged, migratedActive := mergeTabsByID(newTabs, oldTabs, oldActive)
-
-	m.tabsByWorkspace[newID] = merged
-	delete(m.tabsByWorkspace, oldID)
-	if oldActiveOK && (!newActiveOK || len(newTabs) == 0) {
-		if migratedActive < 0 {
-			migratedActive = 0
-		}
-		if len(merged) == 0 {
-			migratedActive = 0
-		} else if migratedActive >= len(merged) {
-			migratedActive = len(merged) - 1
-		}
-		m.activeTabByWorkspace[newID] = migratedActive
-	} else if newActiveOK {
-		if len(merged) == 0 {
-			m.activeTabByWorkspace[newID] = 0
-		} else if newActive >= len(merged) {
-			m.activeTabByWorkspace[newID] = len(merged) - 1
-		}
-	}
-	delete(m.activeTabByWorkspace, oldID)
+	merged := common.RebindTabMaps(m.tabsByWorkspace, m.activeTabByWorkspace, oldID, newID,
+		func(t *Tab) TabID { return t.ID },
+		func(t *Tab) bool { return t == nil })
 
 	if m.workspace != nil && m.workspaceID() == oldID {
 		m.setWorkspace(current)
@@ -98,10 +76,4 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 
 	m.noteTabsChanged()
 	return common.SafeBatch(cmds...)
-}
-
-func mergeTabsByID(existing, incoming []*Tab, incomingActive int) ([]*Tab, int) {
-	return common.MergeByID(existing, incoming, incomingActive,
-		func(t *Tab) TabID { return t.ID },
-		func(t *Tab) bool { return t == nil })
 }

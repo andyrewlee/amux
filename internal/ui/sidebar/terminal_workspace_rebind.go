@@ -32,31 +32,9 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		return nil
 	}
 
-	newTabs := m.tabsByWorkspace[newID]
-	oldActive, oldActiveOK := m.activeTabByWorkspace[oldID]
-	newActive, newActiveOK := m.activeTabByWorkspace[newID]
-	merged, migratedActive := mergeTerminalTabsByID(newTabs, oldTabs, oldActive)
-
-	m.tabsByWorkspace[newID] = merged
-	delete(m.tabsByWorkspace, oldID)
-	if oldActiveOK && (!newActiveOK || len(newTabs) == 0) {
-		if migratedActive < 0 {
-			migratedActive = 0
-		}
-		if len(merged) == 0 {
-			migratedActive = 0
-		} else if migratedActive >= len(merged) {
-			migratedActive = len(merged) - 1
-		}
-		m.activeTabByWorkspace[newID] = migratedActive
-	} else if newActiveOK {
-		if len(merged) == 0 {
-			m.activeTabByWorkspace[newID] = 0
-		} else if newActive >= len(merged) {
-			m.activeTabByWorkspace[newID] = len(merged) - 1
-		}
-	}
-	delete(m.activeTabByWorkspace, oldID)
+	merged := common.RebindTabMaps(m.tabsByWorkspace, m.activeTabByWorkspace, oldID, newID,
+		func(t *TerminalTab) TerminalTabID { return t.ID },
+		func(t *TerminalTab) bool { return t == nil })
 
 	if m.pendingCreation[oldID] {
 		m.pendingCreation[newID] = true
@@ -85,10 +63,4 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 	}
 
 	return common.SafeBatch(cmds...)
-}
-
-func mergeTerminalTabsByID(existing, incoming []*TerminalTab, incomingActive int) ([]*TerminalTab, int) {
-	return common.MergeByID(existing, incoming, incomingActive,
-		func(t *TerminalTab) TerminalTabID { return t.ID },
-		func(t *TerminalTab) bool { return t == nil })
 }

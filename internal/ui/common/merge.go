@@ -39,3 +39,48 @@ func MergeByID[T any, K comparable](existing, incoming []T, incomingActive int, 
 
 	return merged, migratedActive
 }
+
+// RebindTabMaps migrates a workspace's tab slice and active-tab index from oldID
+// to newID across the two per-workspace maps: it merges any tabs already present
+// under newID (via MergeByID), writes the result under newID, deletes oldID from
+// both maps, and clamps the surviving active index. It returns the merged slice.
+//
+// Callers keep their own surrounding logic (the "seen but empty" special case,
+// workspace-pointer fixups, PTY restarts) and delegate only this reconciliation,
+// which was byte-identical between the center and sidebar panes — so a clamp fix
+// now happens once instead of being mirrored.
+func RebindTabMaps[T any, K comparable](
+	tabsByWorkspace map[string][]T,
+	activeByWorkspace map[string]int,
+	oldID, newID string,
+	id func(T) K, isNil func(T) bool,
+) []T {
+	oldTabs := tabsByWorkspace[oldID]
+	newTabs := tabsByWorkspace[newID]
+	oldActive, oldActiveOK := activeByWorkspace[oldID]
+	newActive, newActiveOK := activeByWorkspace[newID]
+	merged, migratedActive := MergeByID(newTabs, oldTabs, oldActive, id, isNil)
+
+	tabsByWorkspace[newID] = merged
+	delete(tabsByWorkspace, oldID)
+	switch {
+	case oldActiveOK && (!newActiveOK || len(newTabs) == 0):
+		if migratedActive < 0 {
+			migratedActive = 0
+		}
+		if len(merged) == 0 {
+			migratedActive = 0
+		} else if migratedActive >= len(merged) {
+			migratedActive = len(merged) - 1
+		}
+		activeByWorkspace[newID] = migratedActive
+	case newActiveOK:
+		if len(merged) == 0 {
+			activeByWorkspace[newID] = 0
+		} else if newActive >= len(merged) {
+			activeByWorkspace[newID] = len(merged) - 1
+		}
+	}
+	delete(activeByWorkspace, oldID)
+	return merged
+}
