@@ -18,9 +18,11 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		return nil
 	}
 	a.markWorkspaceDeleteInFlight(msg.Workspace, true)
-	if cleanup := a.cleanupWorkspaceTmuxSessions(msg.Workspace); cleanup != nil {
-		cmds = append(cmds, cleanup)
-	}
+	// Do NOT kill the workspace's tmux sessions here. All real delete validation
+	// (primary-checkout guard, repo/path checks, worktree removal) runs later in
+	// the async DeleteWorkspace cmd; killing up-front means a rejected or failed
+	// delete still destroys live agent sessions and scrollback. The kill now runs
+	// only on the confirmed-success path in handleWorkspaceDeleted.
 	if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, true); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -89,6 +91,11 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		// reaped agent session cannot keep it shown as active by tag alone.
 		delete(a.tmuxActiveWorkspaceIDs, string(msg.Workspace.ID()))
 		a.syncActiveWorkspacesToDashboard()
+		// Navigate home only now that the delete is confirmed (moved off the
+		// up-front deleteWorkspace path so a failed delete leaves the user put).
+		if a.activeWorkspace != nil && a.activeWorkspace.Root == msg.Workspace.Root {
+			a.goHome()
+		}
 		delete(a.dirtyWorkspaces, string(msg.Workspace.ID()))
 		if cleanup := a.cleanupWorkspaceTmuxSessions(msg.Workspace); cleanup != nil {
 			cmds = append(cmds, cleanup)

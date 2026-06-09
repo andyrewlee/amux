@@ -94,11 +94,11 @@ func (a *App) runSetupAsync(ws *data.Workspace) tea.Cmd {
 	return a.workspaceService.RunSetupAsync(ws)
 }
 
-// deleteWorkspace deletes a workspace.
+// deleteWorkspace deletes a workspace. The user is NOT navigated home here: that
+// happens only once the delete is confirmed (handleWorkspaceDeleted), so a
+// rejected or failed delete does not bounce the user out of a workspace it left
+// intact.
 func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd {
-	if a.activeWorkspace != nil && ws != nil && a.activeWorkspace.Root == ws.Root {
-		a.goHome()
-	}
 	if a.workspaceService == nil {
 		return nil
 	}
