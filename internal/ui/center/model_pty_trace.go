@@ -48,6 +48,27 @@ func ptyTraceDir() string {
 	return os.TempDir()
 }
 
+// ptyTraceFileName builds the trace filename for an assistant. The assistant
+// token is lowercased, trimmed, and reduced to [a-z0-9_-] (other runes become
+// '-'), falling back to "agent" when empty — so a codex/cline/gemini trace is
+// labeled correctly instead of the old hardcoded "claude".
+func ptyTraceFileName(assistant, tabID, ts string) string {
+	token := strings.ToLower(strings.TrimSpace(assistant))
+	if token == "" {
+		token = "agent"
+	} else {
+		token = strings.Map(func(r rune) rune {
+			switch {
+			case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
+				return r
+			default:
+				return '-'
+			}
+		}, token)
+	}
+	return fmt.Sprintf("amux-pty-%s-%s-%s.log", token, tabID, ts)
+}
+
 func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
 	if tab == nil || !ptyTraceAllowed(tab.Assistant) {
 		return
@@ -62,7 +83,7 @@ func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
 
 	if tab.ptyTraceFile == nil {
 		dir := ptyTraceDir()
-		name := fmt.Sprintf("amux-pty-claude-%s-%s.log", tab.ID, time.Now().Format("20060102-150405"))
+		name := ptyTraceFileName(tab.Assistant, string(tab.ID), time.Now().Format("20060102-150405"))
 		path := filepath.Join(dir, name)
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if err != nil {
