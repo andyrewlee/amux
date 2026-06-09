@@ -129,6 +129,11 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 				if !s.shouldSurfaceWorkspace(path, ws) {
 					continue
 				}
+				if s.isDeleteInFlight(string(ws.ID())) {
+					// A workspace being deleted must not be re-imported by a
+					// concurrent rescan racing the delete; the delete flow owns it.
+					continue
+				}
 				// Set the default assistant for newly discovered workspaces. Note:
 				// UpsertFromDiscovery below merges with stored metadata, where stored
 				// metadata takes precedence if non-empty. This is intentional — stored
@@ -155,6 +160,11 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 
 			for _, ws := range storedWorkspaces {
 				if ws == nil {
+					continue
+				}
+				if s.isDeleteInFlight(string(ws.ID())) {
+					// Leave a workspace mid-delete untouched: neither archival Save
+					// path below should run while the delete flow is removing it.
 					continue
 				}
 				if !s.shouldSurfaceWorkspace(path, ws) {

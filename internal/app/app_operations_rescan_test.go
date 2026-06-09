@@ -185,3 +185,53 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 		t.Fatalf("expected no persisted workspaces, got %d", len(ids))
 	}
 }
+
+func TestRescanWorkspaces_SkipsDeleteInFlight(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	tmp := t.TempDir()
+	registry := data.NewRegistry(filepath.Join(tmp, "projects.json"))
+	if err := registry.AddProject(repo); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	ghost := &data.Workspace{
+		Name: "ghost",
+		Repo: repo,
+		Root: filepath.Join(workspacesRoot, filepath.Base(repo), "ghost"),
+	}
+	if err := store.Save(ghost); err != nil {
+		t.Fatalf("Save ghost workspace: %v", err)
+	}
+
+	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
+	// Mark the ghost as mid-delete: an unmanaged workspace would normally be
+	// archived by rescan, but a delete-in-flight one must be left untouched.
+	workspaceService.deleteInFlight = func(id string) bool {
+		return id == string(ghost.ID())
+	}
+	app := &App{workspaceService: workspaceService}
+
+	rescanMsg := app.rescanWorkspaces()()
+	if _, ok := rescanMsg.(messages.RefreshDashboard); !ok {
+		t.Fatalf("expected RefreshDashboard from rescan, got %T", rescanMsg)
+	}
+
+	loaded, err := store.Load(ghost.ID())
+	if err != nil {
+		t.Fatalf("Load ghost workspace: %v", err)
+	}
+	if loaded.Archived {
+		t.Fatalf("delete-in-flight workspace must not be archived by rescan")
+	}
+}
