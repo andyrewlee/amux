@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -115,9 +116,31 @@ func (t *Terminal) SendString(s string) error {
 	if err != nil {
 		logging.Error("SendString failed: %v", err)
 	} else {
-		logging.Debug("SendString wrote %d bytes: %q", n, s)
+		// Log a control-byte classification, never the literal input: SendString
+		// is the single funnel for all agent input, which can contain pasted
+		// secrets (API keys, passwords) and prompt text.
+		logging.Debug("SendString wrote %d bytes (%s)", n, controlByteHint(s))
 	}
 	return err
+}
+
+// controlByteHint summarizes the control framing of agent input for debug logs
+// without recording any literal bytes.
+func controlByteHint(s string) string {
+	var hints []string
+	if strings.Contains(s, "\x1b[200~") || strings.Contains(s, "\x1b[201~") {
+		hints = append(hints, "paste")
+	}
+	if strings.ContainsRune(s, 0x0d) {
+		hints = append(hints, "cr")
+	}
+	if strings.ContainsRune(s, 0x03) {
+		hints = append(hints, "ctrl-c")
+	}
+	if len(hints) == 0 {
+		return "text"
+	}
+	return strings.Join(hints, "+")
 }
 
 // Close closes the terminal
