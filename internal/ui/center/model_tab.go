@@ -232,6 +232,26 @@ func (t *Tab) clearCatchUpLocked() {
 	t.catchUpTargetBytes = 0
 }
 
+// resetActorWriteStateLocked resets all per-(re)attach actor-write and parser
+// state for a terminal that is being attached or recreated. The caller must
+// hold t.mu and t.Terminal must be non-nil (the final line reads
+// t.Terminal.ParserCarryState()). This sequence was duplicated byte-for-byte at
+// the reattach and recreate sites; a field addition or ordering fix now happens
+// once rather than being mirrored across both.
+func (t *Tab) resetActorWriteStateLocked() {
+	t.parserResetPending = false
+	t.settlePTYBytesLocked(t.actorQueuedBytes)
+	t.actorQueuedBytes = 0
+	t.actorWritesPending = 0
+	t.actorWriteEpoch++
+	t.clearCatchUpLocked()
+	t.pendingOutputBytes = len(t.pendingOutput)
+	t.overflowTrimCarry = vterm.ParserCarryState{}
+	t.ptyNoiseTrailing = nil
+	t.actorQueuedNoiseTrailing = t.actorQueuedNoiseTrailing[:0]
+	t.actorQueuedCarry = t.Terminal.ParserCarryState()
+}
+
 func (t *Tab) expireCatchUpLocked() {
 	if t == nil {
 		return
