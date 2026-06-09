@@ -102,6 +102,53 @@ func workspaceIDForRepo(repo string) string {
 	return string(ws.ID())
 }
 
+// deleteSelectedWorkspace opens the delete-workspace dialog for the active
+// workspace via the leader sequence and confirms it. The confirm dialog defaults
+// to "No" (cursor on index 1), so "h" moves the selection to "Yes" before Enter.
+func deleteSelectedWorkspace(t *testing.T, session *PTYSession, timeout time.Duration) {
+	t.Helper()
+	sendPrefixCommand(t, session, "d")
+	waitForUIContains(t, session, "Delete Workspace", timeout)
+	if err := session.SendString("h"); err != nil {
+		t.Fatalf("select Yes in delete dialog: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := session.SendString("\r"); err != nil {
+		t.Fatalf("confirm delete: %v", err)
+	}
+}
+
+// waitForNoAgentSessions polls until no @amux agent sessions remain, proving the
+// deleted workspace's agent pane was actually torn down through the real handler.
+func waitForNoAgentSessions(t *testing.T, opts tmux.Options, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		sessions, err := tmux.ListSessionsMatchingTags(map[string]string{
+			"@amux":      "1",
+			"@amux_type": "agent",
+		}, opts)
+		if err == nil && len(sessions) == 0 {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for agent sessions to be torn down\n%s", tmuxSessionDebug(opts))
+}
+
+// waitForUIAbsent polls until needle disappears from the rendered screen.
+func waitForUIAbsent(t *testing.T, session *PTYSession, needle string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !stringsContains(session.ScreenASCII(), needle) {
+			return
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for %q to disappear from the screen:\n%s", needle, session.ScreenASCII())
+}
+
 func waitForTerminalSessionCount(t *testing.T, opts tmux.Options, wsID string, count int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
