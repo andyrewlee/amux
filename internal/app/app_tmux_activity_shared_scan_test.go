@@ -52,6 +52,9 @@ func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *
 				Tags: map[string]string{},
 			}},
 		},
+		// Pre-seed one prior non-live observation so this single scan reaches the
+		// demotion hysteresis threshold and still demotes the dead session.
+		activityMissBySession: map[string]int{"session-a": activityDemotionMissThreshold - 1},
 	}
 
 	infoBySession := map[string]activity.SessionInfo{
