@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sync"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -53,6 +54,20 @@ type workspaceService struct {
 	// only after worktree removal succeeds, so failed deletes leave live sessions
 	// intact.
 	killWorkspaceSessions func(wsID string)
+	// repoGitLocks serializes git worktree/branch mutations per repository (keyed
+	// by normalized project path) so concurrent create/delete of workspaces in the
+	// same repo do not contend on .git locks (index.lock / packed-refs).
+	repoGitLocks sync.Map
+}
+
+// lockRepoGit acquires the per-repo git mutation lock and returns the unlock
+// closure. Callers must hold it only around git CLI mutations, not over the
+// flock-serialized metadata store.
+func (s *workspaceService) lockRepoGit(repoPath string) func() {
+	actual, _ := s.repoGitLocks.LoadOrStore(data.NormalizePath(repoPath), &sync.Mutex{})
+	mu, _ := actual.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // isDeleteInFlight reports whether the workspace is mid-delete. It is nil-safe so
