@@ -66,32 +66,36 @@ type Tab struct {
 	readerActive     bool // Guard to ensure only one PTY read loop per tab
 	// Buffer PTY output to avoid rendering partial screen updates.
 
-	pendingOutput            []byte
-	pendingOutputBytes       int
-	catchUpPendingOutput     bool
-	catchUpTargetBytes       uint64
-	ptyBytesReceived         uint64
-	ptyBytesSettled          uint64
-	ptyNoiseTrailing         []byte
-	flushScheduled           bool
-	lastOutputAt             time.Time
-	lastVisibleOutput        time.Time
-	pendingVisibleOutput     bool
-	pendingVisibleSeq        uint64
-	activityDigest           [16]byte
-	activityDigestInit       bool
-	lastActivityTagAt        time.Time
-	activityANSIState        ansiActivityState
-	lastInputTagAt           time.Time
-	lastUserInputAt          time.Time
-	bootstrapActivity        bool
-	bootstrapLastOutputAt    time.Time
-	flushPendingSince        time.Time
-	postWriteVisibleState    uint32
-	lastPromptInputAt        time.Time
-	lastPromptSubmitAt       time.Time
-	pendingSubmitPasteEcho   string
-	overflowTrimCarry        vterm.ParserCarryState
+	pendingOutput          []byte
+	pendingOutputBytes     int
+	catchUpPendingOutput   bool
+	catchUpTargetBytes     uint64
+	ptyBytesReceived       uint64
+	ptyBytesSettled        uint64
+	ptyNoiseTrailing       []byte
+	flushScheduled         bool
+	lastOutputAt           time.Time
+	lastVisibleOutput      time.Time
+	pendingVisibleOutput   bool
+	pendingVisibleSeq      uint64
+	activityDigest         [16]byte
+	activityDigestInit     bool
+	lastActivityTagAt      time.Time
+	activityANSIState      ansiActivityState
+	lastInputTagAt         time.Time
+	lastUserInputAt        time.Time
+	bootstrapActivity      bool
+	bootstrapLastOutputAt  time.Time
+	flushPendingSince      time.Time
+	postWriteVisibleState  uint32
+	lastPromptInputAt      time.Time
+	lastPromptSubmitAt     time.Time
+	pendingSubmitPasteEcho string
+	overflowTrimCarry      vterm.ParserCarryState
+	// Throttle + accumulator for the overflow-drop Warn so a sustained overflow
+	// logs at most once per overflowLogThrottle with the aggregated byte count.
+	lastOverflowLogAt        time.Time
+	overflowDroppedSinceLog  int
 	parserResetPending       bool
 	actorWritesPending       int
 	actorQueuedBytes         int

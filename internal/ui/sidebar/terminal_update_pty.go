@@ -13,6 +13,24 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
+// overflowLogThrottle bounds how often a sustained PTY overflow logs.
+const overflowLogThrottle = 2 * time.Second
+
+// noteOverflowDropLocked accumulates dropped overflow bytes and reports whether a
+// throttled overflow Warn should be emitted now (caller logs outside the lock),
+// returning the aggregated dropped-byte total. The caller must hold ts.mu.
+func (ts *TerminalState) noteOverflowDropLocked(droppedBytes int) (logNow bool, total int) {
+	ts.overflowDroppedSinceLog += droppedBytes
+	now := time.Now()
+	if ts.lastOverflowLogAt.IsZero() || now.Sub(ts.lastOverflowLogAt) >= overflowLogThrottle {
+		total = ts.overflowDroppedSinceLog
+		ts.overflowDroppedSinceLog = 0
+		ts.lastOverflowLogAt = now
+		return true, total
+	}
+	return false, 0
+}
+
 // handlePTYOutput buffers incoming PTY data and schedules a flush.
 func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 	wsID := msg.WorkspaceID
@@ -50,7 +68,11 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 		if retainedStart > prevPendingLen {
 			ts.ptyNoiseTrailing = nil
 		}
+		overflowLogNow, overflowDroppedTotal := ts.noteOverflowDropLocked(retainedStart)
 		ts.mu.Unlock()
+		if overflowLogNow {
+			logging.Warn("Sidebar PTY output overflow for workspace %s tab %s: dropped %d bytes (buffer cap %d)", wsID, tabID, overflowDroppedTotal, ptyMaxBufferedBytes)
+		}
 	}
 	ts.lastOutputAt = time.Now()
 	if !ts.flushScheduled {

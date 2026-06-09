@@ -6,12 +6,32 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
+
+// overflowLogThrottle bounds how often a sustained PTY overflow logs.
+const overflowLogThrottle = 2 * time.Second
+
+// noteOverflowDropLocked accumulates dropped overflow bytes and reports whether a
+// throttled overflow Warn should be emitted now (the caller logs outside the
+// lock). It returns the aggregated dropped-byte total to report when logNow is
+// true. The caller must hold tab.mu.
+func (t *Tab) noteOverflowDropLocked(droppedBytes int) (logNow bool, total int) {
+	t.overflowDroppedSinceLog += droppedBytes
+	now := time.Now()
+	if t.lastOverflowLogAt.IsZero() || now.Sub(t.lastOverflowLogAt) >= overflowLogThrottle {
+		total = t.overflowDroppedSinceLog
+		t.overflowDroppedSinceLog = 0
+		t.lastOverflowLogAt = now
+		return true, total
+	}
+	return false, 0
+}
 
 // updatePTYOutput handles PTYOutput.
 func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
@@ -106,7 +126,11 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				tab.ptyNoiseTrailing = nil
 				tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
 			}
+			overflowLogNow, overflowDroppedTotal := tab.noteOverflowDropLocked(retainedStart)
 			tab.mu.Unlock()
+			if overflowLogNow {
+				logging.Warn("PTY output overflow for tab %s: dropped %d bytes (buffer cap %d)", tab.ID, overflowDroppedTotal, ptyMaxBufferedBytes)
+			}
 		}
 		perf.Count("pty_output_bytes", int64(len(msg.Data)))
 		now := time.Now()
