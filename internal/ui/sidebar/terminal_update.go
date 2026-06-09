@@ -47,100 +47,11 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	case tea.MouseWheelMsg:
-		if !m.focused {
-			return m, nil
-		}
-		ts := m.getTerminal()
-		if ts == nil || ts.VTerm == nil {
-			return m, nil
-		}
-		ts.mu.Lock()
-		delta := common.ScrollDeltaForHeight(ts.VTerm.Height, 8) // ~12.5% of viewport
-		if msg.Button == tea.MouseWheelUp {
-			ts.VTerm.ScrollView(delta)
-		} else if msg.Button == tea.MouseWheelDown {
-			ts.VTerm.ScrollView(-delta)
-		}
-		ts.mu.Unlock()
-		return m, nil
+		return m.handleMouseWheel(msg)
 	case tea.PasteMsg:
-		if !m.focused {
-			return m, nil
-		}
-		ts := m.getTerminal()
-		if ts == nil || ts.Terminal == nil {
-			return m, nil
-		}
-
-		// Handle bracketed paste - send entire content at once with escape sequences
-		text := msg.Content
-		bracketedText := "\x1b[200~" + text + "\x1b[201~"
-		if err := ts.Terminal.SendString(bracketedText); err != nil {
-			logging.Warn("Sidebar paste failed: %v", err)
-			m.detachState(ts, false)
-		}
-		logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
-		return m, nil
+		return m.handlePaste(msg)
 	case tea.KeyPressMsg:
-		if !m.focused {
-			return m, nil
-		}
-
-		ts := m.getTerminal()
-		if ts == nil || ts.Terminal == nil {
-			return m, nil
-		}
-
-		// Check if this is Cmd+C (copy command)
-		k := msg.Key()
-		isCopyKey := k.Mod.Contains(tea.ModSuper) && k.Code == 'c'
-
-		// Handle explicit Cmd+C to copy current selection
-		if isCopyKey {
-			ts.mu.Lock()
-			text := ""
-			if ts.VTerm != nil && ts.VTerm.HasSelection() {
-				text = ts.VTerm.SelectedText()
-			}
-			ts.mu.Unlock()
-			common.CopyToClipboardWithLog(text, "Cmd+C sidebar")
-			return m, nil // Don't forward to terminal, don't clear selection
-		}
-
-		// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
-		switch msg.Key().Code {
-		case tea.KeyPgUp:
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
-			}
-			ts.mu.Unlock()
-			return m, nil
-
-		case tea.KeyPgDown:
-			ts.mu.Lock()
-			if ts.VTerm != nil {
-				ts.VTerm.ScrollView(-common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
-			}
-			ts.mu.Unlock()
-			return m, nil
-		}
-
-		// If scrolled, any typing goes back to live and sends key
-		ts.mu.Lock()
-		if ts.VTerm != nil && ts.VTerm.IsScrolled() {
-			ts.VTerm.ScrollViewToBottom()
-		}
-		ts.mu.Unlock()
-
-		// Forward ALL keys to terminal (no Ctrl interceptions)
-		input := common.KeyToBytes(msg)
-		if len(input) > 0 {
-			if err := ts.Terminal.SendString(string(input)); err != nil {
-				logging.Warn("Sidebar input failed: %v", err)
-				m.detachState(ts, false)
-			}
-		}
+		return m.handleKeyPress(msg)
 
 	case messages.SidebarPTYOutput:
 		if cmd := m.handlePTYOutput(msg); cmd != nil {
@@ -189,4 +100,111 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	}
 
 	return m, common.SafeBatch(cmds...)
+}
+
+// handleMouseWheel scrolls the sidebar terminal viewport.
+func (m *TerminalModel) handleMouseWheel(msg tea.MouseWheelMsg) (*TerminalModel, tea.Cmd) {
+	if !m.focused {
+		return m, nil
+	}
+	ts := m.getTerminal()
+	if ts == nil || ts.VTerm == nil {
+		return m, nil
+	}
+	ts.mu.Lock()
+	delta := common.ScrollDeltaForHeight(ts.VTerm.Height, 8) // ~12.5% of viewport
+	if msg.Button == tea.MouseWheelUp {
+		ts.VTerm.ScrollView(delta)
+	} else if msg.Button == tea.MouseWheelDown {
+		ts.VTerm.ScrollView(-delta)
+	}
+	ts.mu.Unlock()
+	return m, nil
+}
+
+// handlePaste forwards a bracketed paste to the sidebar terminal.
+func (m *TerminalModel) handlePaste(msg tea.PasteMsg) (*TerminalModel, tea.Cmd) {
+	if !m.focused {
+		return m, nil
+	}
+	ts := m.getTerminal()
+	if ts == nil || ts.Terminal == nil {
+		return m, nil
+	}
+
+	// Handle bracketed paste - send entire content at once with escape sequences
+	text := msg.Content
+	bracketedText := "\x1b[200~" + text + "\x1b[201~"
+	if err := ts.Terminal.SendString(bracketedText); err != nil {
+		logging.Warn("Sidebar paste failed: %v", err)
+		m.detachState(ts, false)
+	}
+	logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
+	return m, nil
+}
+
+// handleKeyPress handles Cmd+C copy, PgUp/PgDown scrollback, and forwards all
+// other keys to the terminal. It always returns (m, nil) — the original case had
+// no trailing return and fell through to an empty batch.
+func (m *TerminalModel) handleKeyPress(msg tea.KeyPressMsg) (*TerminalModel, tea.Cmd) {
+	if !m.focused {
+		return m, nil
+	}
+
+	ts := m.getTerminal()
+	if ts == nil || ts.Terminal == nil {
+		return m, nil
+	}
+
+	// Check if this is Cmd+C (copy command)
+	k := msg.Key()
+	isCopyKey := k.Mod.Contains(tea.ModSuper) && k.Code == 'c'
+
+	// Handle explicit Cmd+C to copy current selection
+	if isCopyKey {
+		ts.mu.Lock()
+		text := ""
+		if ts.VTerm != nil && ts.VTerm.HasSelection() {
+			text = ts.VTerm.SelectedText()
+		}
+		ts.mu.Unlock()
+		common.CopyToClipboardWithLog(text, "Cmd+C sidebar")
+		return m, nil // Don't forward to terminal, don't clear selection
+	}
+
+	// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
+	switch msg.Key().Code {
+	case tea.KeyPgUp:
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollView(common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
+		}
+		ts.mu.Unlock()
+		return m, nil
+
+	case tea.KeyPgDown:
+		ts.mu.Lock()
+		if ts.VTerm != nil {
+			ts.VTerm.ScrollView(-common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
+		}
+		ts.mu.Unlock()
+		return m, nil
+	}
+
+	// If scrolled, any typing goes back to live and sends key
+	ts.mu.Lock()
+	if ts.VTerm != nil && ts.VTerm.IsScrolled() {
+		ts.VTerm.ScrollViewToBottom()
+	}
+	ts.mu.Unlock()
+
+	// Forward ALL keys to terminal (no Ctrl interceptions)
+	input := common.KeyToBytes(msg)
+	if len(input) > 0 {
+		if err := ts.Terminal.SendString(string(input)); err != nil {
+			logging.Warn("Sidebar input failed: %v", err)
+			m.detachState(ts, false)
+		}
+	}
+	return m, nil
 }
