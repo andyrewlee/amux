@@ -298,3 +298,64 @@ func TestHandleTabEvent_SelectionClearEmitsRedrawOnlyWhenSelectionChanged(t *tes
 		})
 	}
 }
+
+func TestHandleTabEvent_WriteOutputDropsStaleEpoch(t *testing.T) {
+	m := newTestModel()
+	tab := &Tab{
+		ID:                 TabID("tab-stale-epoch"),
+		Assistant:          "codex",
+		Terminal:           vterm.New(80, 24),
+		actorWriteEpoch:    8,
+		actorWritesPending: 1,
+	}
+	tab.Terminal.Write([]byte("BASE"))
+	baseline := tab.Terminal.Render()
+
+	flushes, refreshes := 0, 0
+	m.msgSink = func(msg tea.Msg) {
+		switch msg.(type) {
+		case PTYFlush:
+			flushes++
+		case PTYCursorRefresh:
+			refreshes++
+		}
+	}
+
+	// Stale write (epoch 7 != tab epoch 8) must be dropped before touching the
+	// terminal — this is the sole defense against applying a now-stale chunk to
+	// a freshly reset/rebound terminal.
+	m.handleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: "ws",
+		tabID:       tab.ID,
+		kind:        tabEventWriteOutput,
+		output:      []byte("STALE"),
+		writeEpoch:  7,
+	})
+
+	if got := tab.Terminal.Render(); got != baseline {
+		t.Fatalf("stale write mutated the terminal; render changed")
+	}
+	if tab.actorWritesPending != 1 {
+		t.Fatalf("stale write should not decrement pending, got %d", tab.actorWritesPending)
+	}
+	if flushes != 0 || refreshes != 0 {
+		t.Fatalf("stale write should emit nothing, got flushes=%d refreshes=%d", flushes, refreshes)
+	}
+
+	// Positive control: a matching epoch applies the write and decrements pending.
+	m.handleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: "ws",
+		tabID:       tab.ID,
+		kind:        tabEventWriteOutput,
+		output:      []byte("LIVE"),
+		writeEpoch:  tab.actorWriteEpoch,
+	})
+	if got := tab.Terminal.Render(); got == baseline {
+		t.Fatalf("matching-epoch write should have mutated the terminal")
+	}
+	if tab.actorWritesPending != 0 {
+		t.Fatalf("matching-epoch write should decrement pending to 0, got %d", tab.actorWritesPending)
+	}
+}
