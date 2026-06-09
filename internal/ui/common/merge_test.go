@@ -53,3 +53,48 @@ func eq(a, b []string) bool {
 	}
 	return true
 }
+
+func TestRebindTabMaps_ClampsActiveIndex(t *testing.T) {
+	t.Parallel()
+	id := func(s string) string { return s }
+	isNil := func(s string) bool { return s == "" }
+
+	t.Run("migrates old active when new has none", func(t *testing.T) {
+		tabs := map[string][]string{"old": {"a", "b"}}
+		active := map[string]int{"old": 1}
+		merged := RebindTabMaps(tabs, active, "old", "new", id, isNil)
+		if len(merged) != 2 {
+			t.Fatalf("merged = %v", merged)
+		}
+		if active["new"] != 1 {
+			t.Fatalf("active[new] = %d, want 1", active["new"])
+		}
+		if _, ok := tabs["old"]; ok {
+			t.Fatal("old tab key not deleted")
+		}
+		if _, ok := active["old"]; ok {
+			t.Fatal("old active key not deleted")
+		}
+	})
+
+	t.Run("clamps new active out of range after merge", func(t *testing.T) {
+		tabs := map[string][]string{"old": {"x", "y"}, "new": {"x"}}
+		active := map[string]int{"old": 0, "new": 5}
+		merged := RebindTabMaps(tabs, active, "old", "new", id, isNil)
+		if got, want := active["new"], len(merged)-1; got != want {
+			t.Fatalf("active[new] = %d, want clamp to %d (merged=%v)", got, want, merged)
+		}
+	})
+
+	t.Run("empty merged yields active 0", func(t *testing.T) {
+		tabs := map[string][]string{"old": {}, "new": {}}
+		active := map[string]int{"old": 3, "new": 2}
+		merged := RebindTabMaps(tabs, active, "old", "new", id, isNil)
+		if len(merged) != 0 {
+			t.Fatalf("merged = %v", merged)
+		}
+		if active["new"] != 0 {
+			t.Fatalf("active[new] = %d, want 0", active["new"])
+		}
+	})
+}
