@@ -85,6 +85,9 @@ func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) te
 // handleWorkspaceDeleted handles the WorkspaceDeleted message.
 func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	var cmds []tea.Cmd
+	if msg.Warning != "" {
+		cmds = append(cmds, a.toast.ShowWarning(msg.Warning))
+	}
 	if msg.Workspace != nil {
 		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
 		// Drop the deleted workspace from the active set now rather than waiting
