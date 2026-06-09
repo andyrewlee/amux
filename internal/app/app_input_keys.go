@@ -20,6 +20,11 @@ func (a *App) syncActiveWorkspacesToDashboard() {
 		return
 	}
 	for wsID := range a.tmuxActiveWorkspaceIDs {
+		// A scan completing after a delete began must not re-publish the workspace
+		// as active; the delete-in-flight guard keeps the dashboard consistent.
+		if a.isWorkspaceDeleteInFlight(wsID) {
+			continue
+		}
 		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)

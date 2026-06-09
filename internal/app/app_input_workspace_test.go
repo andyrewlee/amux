@@ -32,3 +32,21 @@ func TestHandleWorkspaceDeletedClearsDirtyWorkspaceMarker(t *testing.T) {
 		t.Fatal("expected dirty workspace marker to be cleared on delete success")
 	}
 }
+
+func TestSyncActiveWorkspacesToDashboard_SkipsDeleteInFlight(t *testing.T) {
+	wsA := &data.Workspace{Repo: "/repo", Root: "/repo/a"}
+	wsB := &data.Workspace{Repo: "/repo", Root: "/repo/b"}
+	idA, idB := string(wsA.ID()), string(wsB.ID())
+
+	app := &App{
+		tmuxActivitySettled:    true,
+		tmuxActiveWorkspaceIDs: map[string]bool{idA: true, idB: true},
+		dashboard:              dashboard.New(),
+	}
+	app.markWorkspaceDeleteInFlight(wsA, true)
+	app.syncActiveWorkspacesToDashboard()
+
+	if got := dashboardActiveWorkspaceCount(app.dashboard); got != 1 {
+		t.Fatalf("expected 1 active workspace (delete-in-flight wsA excluded), got %d", got)
+	}
+}

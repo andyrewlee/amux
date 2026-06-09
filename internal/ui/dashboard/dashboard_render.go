@@ -38,8 +38,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		status := ""
 		statusText := ""
 		dirty := false
-		active := row.ActivityWorkspaceID != "" && m.activeWorkspaceIDs[row.ActivityWorkspaceID]
 		main := row.MainWorkspace
+		active := m.projectRowActive(row.ActivityWorkspaceID, main)
 		if main != nil {
 			if m.deletingWorkspaces[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
