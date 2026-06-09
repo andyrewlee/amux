@@ -41,6 +41,17 @@ type workspaceService struct {
 	workspacesRoot     string
 	gitOps             GitOperations
 	gitPathWaitTimeout time.Duration
+	// deleteInFlight reports whether a workspace is currently mid-delete. It is
+	// wired to the App's guard in app_init; nil when the service is constructed
+	// directly (e.g. in tests) and then treated as "never in flight".
+	deleteInFlight func(wsID string) bool
+}
+
+// isDeleteInFlight reports whether the workspace is mid-delete. It is nil-safe so
+// a service built without the predicate (tests) treats every workspace as not in
+// flight.
+func (s *workspaceService) isDeleteInFlight(wsID string) bool {
+	return s != nil && s.deleteInFlight != nil && s.deleteInFlight(wsID)
 }
 
 func newWorkspaceService(registry ProjectRegistry, store WorkspaceStore, scripts *process.ScriptRunner, workspacesRoot string) *workspaceService {
