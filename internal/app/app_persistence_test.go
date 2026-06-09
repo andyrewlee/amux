@@ -69,7 +69,12 @@ func TestPersistAllWorkspacesNowSavesExplicitlyEmptyTabs(t *testing.T) {
 }
 
 func TestPersistAllWorkspacesNowSavesDeleteInFlightWorkspace(t *testing.T) {
-	ws := data.NewWorkspace("test-ws", "main", "main", "/repo", "/repo")
+	// A delete-in-flight workspace whose worktree still exists is re-saved on
+	// shutdown to preserve its UI tab state in case the delete is rejected. (When
+	// the worktree is already gone, the re-save is skipped — see the dir-less case
+	// in TestPersistAllWorkspacesNow_SkipsDirlessDeleteInFlight.)
+	wsRoot := t.TempDir()
+	ws := data.NewWorkspace("test-ws", "feature", "main", "/repo", wsRoot)
 	wsID := string(ws.ID())
 
 	storeRoot := t.TempDir()

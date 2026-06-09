@@ -163,6 +163,14 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 		// Ordering is intentional: clear delete-in-flight first so the
 		// persistence requeue below is not suppressed.
 		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
+		// Clear the delete tombstone only when the worktree is still present (the
+		// delete failed before removing it, so the workspace stays usable). If the
+		// worktree is already gone — e.g. metadata removal failed after the worktree
+		// was deleted — leave the tombstone so startup recovery finishes the delete
+		// rather than resurfacing a dir-less ghost.
+		if a.workspaceService != nil && dirExists(msg.Workspace.Root) {
+			a.workspaceService.clearDeleteTombstone(msg.Workspace.ID())
+		}
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}

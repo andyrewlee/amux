@@ -22,6 +22,14 @@ func (a *App) persistAllWorkspacesNow() {
 		for i := range project.Workspaces {
 			ws := &project.Workspaces[i]
 			wsID := string(ws.ID())
+			// A workspace whose delete is in flight and whose worktree is already
+			// gone must not be re-saved on shutdown: doing so resurrects dir-less
+			// metadata that the next launch surfaces as a ghost. A delete-in-flight
+			// workspace whose dir still exists IS re-saved to preserve its UI tabs
+			// in case the delete is rejected.
+			if a.isWorkspaceDeleteInFlight(wsID) && !dirExists(ws.Root) {
+				continue
+			}
 			tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)
 			if len(tabs) == 0 && !a.center.HasWorkspaceState(wsID) {
 				continue
