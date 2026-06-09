@@ -79,3 +79,28 @@ func TestHandleWorkspaceDeleteFailedRequestsFreshActivityScan(t *testing.T) {
 		t.Fatal("expected failed delete to request a fresh tmux activity scan")
 	}
 }
+
+func TestHandleWorkspaceDeleted_ClearsActiveWorkspace(t *testing.T) {
+	wsDel := data.NewWorkspace("del", "del", "main", "/repo", "/repo/del")
+	wsKeep := data.NewWorkspace("keep", "keep", "main", "/repo", "/repo/keep")
+	idDel, idKeep := string(wsDel.ID()), string(wsKeep.ID())
+
+	app := &App{
+		dashboard:              dashboard.New(),
+		center:                 center.New(nil),
+		sidebar:                sidebar.NewTabbedSidebar(),
+		sidebarTerminal:        sidebar.NewTerminalModel(),
+		tmuxActivitySettled:    true,
+		tmuxActiveWorkspaceIDs: map[string]bool{idDel: true, idKeep: true},
+		deletingWorkspaceIDs:   map[string]bool{idDel: true},
+	}
+
+	app.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: wsDel})
+
+	if app.tmuxActiveWorkspaceIDs[idDel] {
+		t.Fatal("expected deleted workspace cleared from the active set")
+	}
+	if !app.tmuxActiveWorkspaceIDs[idKeep] {
+		t.Fatal("expected surviving workspace to remain in the active set")
+	}
+}

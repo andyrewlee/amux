@@ -84,6 +84,11 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
 		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
+		// Drop the deleted workspace from the active set now rather than waiting
+		// for the async loadProjects -> scan reconcile, so a killed-but-not-yet-
+		// reaped agent session cannot keep it shown as active by tag alone.
+		delete(a.tmuxActiveWorkspaceIDs, string(msg.Workspace.ID()))
+		a.syncActiveWorkspacesToDashboard()
 		delete(a.dirtyWorkspaces, string(msg.Workspace.ID()))
 		if cleanup := a.cleanupWorkspaceTmuxSessions(msg.Workspace); cleanup != nil {
 			cmds = append(cmds, cleanup)
