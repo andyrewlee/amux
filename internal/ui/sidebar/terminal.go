@@ -57,6 +57,10 @@ type TerminalState struct {
 	flushScheduled    bool
 	lastOutputAt      time.Time
 	flushPendingSince time.Time
+	// Throttle + accumulator for the overflow-drop Warn (at most one per
+	// overflowLogThrottle with the aggregated dropped-byte count).
+	lastOverflowLogAt       time.Time
+	overflowDroppedSinceLog int
 
 	// Selection state
 	Selection          common.SelectionState
