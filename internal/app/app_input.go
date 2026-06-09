@@ -11,7 +11,6 @@ import (
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
@@ -35,34 +34,24 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// side-effect free while still enforcing single-pane cursor ownership.
 	a.syncPaneFocusFlags()
 
-	if perf.Enabled() {
-		switch msg.(type) {
-		case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.PasteMsg:
-			a.markInput()
-		}
+	// Overlay/dialog input guards consume the message before the main routing.
+	if res, consumed := a.handlePreSwitchInput(msg, &cmds); consumed {
+		return a, res
 	}
 
-	if handled, cmd := a.handleDialogResultMsg(msg); handled {
-		return a, cmd
-	}
-	if a.handleErrorOverlayDismiss(msg) {
-		return a, nil
-	}
-
-	// Handle toast updates
-	if _, ok := msg.(common.ToastDismissed); ok {
-		newToast, cmd := a.toast.Update(msg)
-		a.toast = newToast
-		cmds = append(cmds, cmd)
-	}
-
-	if a.handleDialogInput(msg, &cmds) {
+	if a.updateTabMsg(msg, &cmds) {
 		return a, common.SafeBatch(cmds...)
 	}
-	if a.handleFilePickerInput(msg, &cmds) {
+	if a.updateTmuxMsg(msg, &cmds) {
 		return a, common.SafeBatch(cmds...)
 	}
-	if a.handleSettingsDialogInput(msg, &cmds) {
+	if a.updateWorkspaceLifecycleMsg(msg, &cmds) {
+		return a, common.SafeBatch(cmds...)
+	}
+	if a.updateDialogShowMsg(msg, &cmds) {
+		return a, common.SafeBatch(cmds...)
+	}
+	if a.updateUpgradeMsg(msg, &cmds) {
 		return a, common.SafeBatch(cmds...)
 	}
 
@@ -91,162 +80,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case messages.ProjectsLoaded:
-		cmds = append(cmds, a.handleProjectsLoaded(msg)...)
-
-	case messages.WorkspaceActivated:
-		cmds = append(cmds, a.handleWorkspaceActivated(msg)...)
-
-	case messages.ShowWelcome:
-		a.goHome()
-
-	case messages.ShowCommandsPalette:
-		if cmd := a.openCommandsPalette(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.ToggleKeymapHints:
-		a.setKeymapHintsEnabled(!a.config.UI.ShowKeymapHints)
-		if err := a.config.SaveUISettings(); err != nil {
-			cmds = append(cmds, a.toast.ShowWarning("Failed to save keymap setting"))
-		}
-
-	case messages.ShowQuitDialog:
-		a.showQuitDialog()
-
-	case messages.RefreshDashboard:
-		cmds = append(cmds, a.loadProjects())
-
-	case messages.RescanWorkspaces:
-		cmds = append(cmds, a.rescanWorkspaces())
-
-	case messages.WorkspaceCreatedWithWarning:
-		cmds = append(cmds, a.handleWorkspaceCreatedWithWarning(msg)...)
-
-	case messages.WorkspaceCreated:
-		cmds = append(cmds, a.handleWorkspaceCreated(msg)...)
-
-	case messages.WorkspaceSetupComplete:
-		if cmd := a.handleWorkspaceSetupComplete(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.WorkspaceCreateFailed:
-		if cmd := a.handleWorkspaceCreateFailed(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.GitStatusResult:
-		if cmd := a.handleGitStatusResult(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.ShowAddProjectDialog:
-		a.handleShowAddProjectDialog()
-
-	case messages.ShowCreateWorkspaceDialog:
-		a.handleShowCreateWorkspaceDialog(msg)
-
-	case messages.ShowDeleteWorkspaceDialog:
-		a.handleShowDeleteWorkspaceDialog(msg)
-
-	case messages.ShowRemoveProjectDialog:
-		a.handleShowRemoveProjectDialog(msg)
-
-	case messages.ShowSelectAssistantDialog:
-		a.handleShowSelectAssistantDialog()
-
-	case messages.ShowSettingsDialog:
-		a.handleShowSettingsDialog()
-
-	case messages.ShowCleanupTmuxDialog:
-		a.handleShowCleanupTmuxDialog()
-
-	case common.ThemePreview:
-		if cmd := a.handleThemePreview(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case common.SettingsResult:
-		if cmd := a.handleSettingsResult(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.CreateWorkspace:
-		cmds = append(cmds, a.handleCreateWorkspace(msg)...)
-
-	case messages.DeleteWorkspace:
-		cmds = append(cmds, a.handleDeleteWorkspace(msg)...)
-
-	case messages.CleanupTmuxSessions:
-		if cmd := a.cleanupAllTmuxSessions(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.AddProject:
-		cmds = append(cmds, a.addProject(msg.Path))
-
-	case messages.RemoveProject:
-		cmds = append(cmds, a.removeProject(msg.Project))
-
-	case messages.OpenDiff:
-		if cmd := a.handleOpenDiff(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.CloseTab:
-		cmd := a.center.CloseActiveTab()
-		cmds = append(cmds, cmd)
-
-	case messages.LaunchAgent:
-		if cmd := a.handleLaunchAgent(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.TabCreated:
-		if cmd := a.handleTabCreated(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
-		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		// Eagerly rescan so a just-started agent's working indicator does not
-		// wait up to one ticker interval (~5s) to appear.
-		if cmd := a.eagerScanTmuxActivity(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.TabClosed:
-		logging.Info("Tab closed: %d", msg.Index)
-		if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.TabDetached:
-		logging.Info("Tab detached: %d", msg.Index)
-		if cmd := a.handleTabDetached(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.TabReattached:
-		cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
-		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
-		// Eagerly rescan so a reattached agent's working indicator does not
-		// wait up to one ticker interval (~5s) to appear.
-		if cmd := a.eagerScanTmuxActivity(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.TabStateChanged:
-		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
-
-	case messages.TabSelectionChanged:
-		cmds = append(cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
-
-	case persistDebounceMsg:
-		cmds = append(cmds, a.handlePersistDebounce(msg))
-
 	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
 		if cmd := a.handlePTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -257,20 +90,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, startCmd)
 		}
 
-	case center.TabInputFailed:
-		cmds = append(cmds, a.handleTabInputFailed(msg)...)
-
 	case messages.Toast:
-		switch msg.Level {
-		case messages.ToastSuccess:
-			cmds = append(cmds, a.toast.ShowSuccess(msg.Message))
-		case messages.ToastError:
-			cmds = append(cmds, a.toast.ShowError(msg.Message))
-		case messages.ToastWarning:
-			cmds = append(cmds, a.toast.ShowWarning(msg.Message))
-		default:
-			cmds = append(cmds, a.toast.ShowInfo(msg.Message))
-		}
+		cmds = append(cmds, a.showToast(msg))
 
 	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed, sidebar.SidebarSelectionScrollTick:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
@@ -279,72 +100,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sidebar.OpenFileInEditor:
 		if cmd := a.handleOpenFileInEditor(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case dashboard.SpinnerTickMsg:
-		cmds = append(cmds, a.handleSpinnerTick(msg)...)
-
-	case messages.GitStatusTick:
-		cmds = append(cmds, a.handleGitStatusTick()...)
-
-	case messages.OrphanGCTick:
-		cmds = append(cmds, a.handleOrphanGCTick()...)
-
-	case messages.PTYWatchdogTick:
-		cmds = append(cmds, a.handlePTYWatchdogTick()...)
-	case tmuxActivityTick:
-		cmds = append(cmds, a.handleTmuxActivityTick(msg)...)
-	case tmuxActivityResult:
-		cmds = append(cmds, a.handleTmuxActivityResult(msg)...)
-	case tmuxAvailableResult:
-		cmds = append(cmds, a.handleTmuxAvailableResult(msg)...)
-	case messages.TmuxSyncTick:
-		cmds = append(cmds, a.handleTmuxSyncTick(msg)...)
-
-	case tmuxTabsSyncResult:
-		cmds = append(cmds, a.handleTmuxTabsSyncResult(msg)...)
-	case tmuxTabsDiscoverResult:
-		cmds = append(cmds, a.handleTmuxTabsDiscoverResult(msg)...)
-	case tmuxSidebarDiscoverResult:
-		cmds = append(cmds, a.handleTmuxSidebarDiscoverResult(msg)...)
-	case orphanGCResult:
-		a.handleOrphanGCResult(msg)
-	case staleDetachedAgentGCResult:
-		a.handleStaleDetachedAgentGCResult(msg)
-	case sessionCountResult:
-		a.handleSessionCountResult(msg)
-
-	case messages.FileWatcherEvent:
-		cmds = append(cmds, a.handleFileWatcherEvent(msg)...)
-
-	case messages.StateWatcherEvent:
-		cmds = append(cmds, a.handleStateWatcherEvent(msg)...)
-
-	case messages.WorkspaceDeleted:
-		cmds = append(cmds, a.handleWorkspaceDeleted(msg)...)
-
-	case messages.ProjectRemoved:
-		cmds = append(cmds, a.toast.ShowSuccess("Project removed"))
-		cmds = append(cmds, a.loadProjects())
-
-	case messages.WorkspaceDeleteFailed:
-		if cmd := a.handleWorkspaceDeleteFailed(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.UpdateCheckComplete:
-		if cmd := a.handleUpdateCheckComplete(msg); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.TriggerUpgrade:
-		if cmd := a.handleTriggerUpgrade(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-
-	case messages.UpgradeComplete:
-		if cmd := a.handleUpgradeComplete(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
@@ -363,6 +118,20 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return a, common.SafeBatch(cmds...)
+}
+
+// showToast routes a Toast message to the matching toast severity.
+func (a *App) showToast(msg messages.Toast) tea.Cmd {
+	switch msg.Level {
+	case messages.ToastSuccess:
+		return a.toast.ShowSuccess(msg.Message)
+	case messages.ToastError:
+		return a.toast.ShowError(msg.Message)
+	case messages.ToastWarning:
+		return a.toast.ShowWarning(msg.Message)
+	default:
+		return a.toast.ShowInfo(msg.Message)
+	}
 }
 
 func (a *App) handleTabDetached(msg messages.TabDetached) tea.Cmd {
