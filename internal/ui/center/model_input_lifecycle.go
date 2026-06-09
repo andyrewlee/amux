@@ -213,6 +213,11 @@ func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, t
 	tab.mu.Lock()
 	tab.Running = false
 	tab.Detached = false
+	// Clear the in-flight reattach guard too: this is the only stop/detach
+	// transition that did not, leaving a tab wedged if a stopped message lands
+	// while a reattach is in flight (all reattach gates bail on this flag, so the
+	// user could no longer reattach a tab that now shows stopped).
+	tab.reattachInFlight = false
 	tab.mu.Unlock()
 	tab.resetActivityANSIState()
 	return m, common.SafeBatch(func() tea.Msg {
