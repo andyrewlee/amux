@@ -72,35 +72,40 @@ func TestWorkspaceStore_LockWorkspaceIDsUsesDeterministicOrder(t *testing.T) {
 		unlockRegistryFile(heldHigh)
 	}()
 
-	done := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
 		locks, lockErr := store.lockWorkspaceIDs(highID, lowID)
 		if lockErr != nil {
-			t.Errorf("lockWorkspaceIDs() error = %v", lockErr)
-			close(done)
+			done <- lockErr
 			return
 		}
 		unlockRegistryFiles(locks)
-		close(done)
+		done <- nil
 	}()
 
 	time.Sleep(100 * time.Millisecond)
 
-	lowAcquired := make(chan *os.File, 1)
+	type lockResult struct {
+		file *os.File
+		err  error
+	}
+	lowAcquired := make(chan lockResult, 1)
 	go func() {
 		lowFile, lockErr := lockRegistryFile(store.workspaceLockPath(lowID), false)
 		if lockErr != nil {
-			t.Errorf("lockRegistryFile(lowID) error = %v", lockErr)
-			lowAcquired <- nil
+			lowAcquired <- lockResult{err: lockErr}
 			return
 		}
-		lowAcquired <- lowFile
+		lowAcquired <- lockResult{file: lowFile}
 	}()
 
 	select {
-	case lowFile := <-lowAcquired:
-		if lowFile != nil {
-			unlockRegistryFile(lowFile)
+	case result := <-lowAcquired:
+		if result.err != nil {
+			t.Fatalf("lockRegistryFile(lowID) error = %v", result.err)
+		}
+		if result.file != nil {
+			unlockRegistryFile(result.file)
 		}
 		t.Fatalf("expected lowID lock to be held while waiting on highID")
 	case <-time.After(100 * time.Millisecond):
@@ -111,8 +116,23 @@ func TestWorkspaceStore_LockWorkspaceIDsUsesDeterministicOrder(t *testing.T) {
 	heldHigh = nil
 
 	select {
-	case <-done:
+	case lockErr := <-done:
+		if lockErr != nil {
+			t.Fatalf("lockWorkspaceIDs() error = %v", lockErr)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("lockWorkspaceIDs() did not complete after releasing highID lock")
+	}
+
+	select {
+	case result := <-lowAcquired:
+		if result.err != nil {
+			t.Fatalf("lockRegistryFile(lowID) error = %v", result.err)
+		}
+		if result.file != nil {
+			unlockRegistryFile(result.file)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("lockRegistryFile(lowID) did not complete after releasing ordered locks")
 	}
 }
