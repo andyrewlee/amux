@@ -40,6 +40,26 @@ func (a *App) cleanupWorkspaceTmuxSessions(ws *data.Workspace) tea.Cmd {
 	}
 }
 
+// killWorkspaceSessionsSync synchronously tears down a workspace's tmux sessions
+// by tag. The delete path calls this after validation passes but before removing
+// the worktree, so the agent process group (CWD = worktree root) is gone before
+// its directory is. No-op when tmux is unavailable.
+func (a *App) killWorkspaceSessionsSync(wsID string) {
+	if a.tmuxService == nil || wsID == "" {
+		return
+	}
+	tags := map[string]string{
+		"@amux":           "1",
+		"@amux_workspace": wsID,
+	}
+	if _, err := a.tmuxService.KillSessionsMatchingTags(tags, a.tmuxOptions); err != nil {
+		logging.Warn("Failed to kill tmux sessions for workspace %s before worktree removal: %v", wsID, err)
+	}
+	if err := a.tmuxService.KillWorkspaceSessions(wsID, a.tmuxOptions); err != nil {
+		logging.Warn("Failed to kill tmux sessions for workspace %s before worktree removal: %v", wsID, err)
+	}
+}
+
 func (a *App) cleanupAllTmuxSessions() tea.Cmd {
 	opts := a.tmuxOptions
 	svc := a.tmuxService

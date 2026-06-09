@@ -274,6 +274,16 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 		}
 
+		// Validation passed, so this delete will proceed. Tear down the workspace's
+		// tmux sessions before removing the worktree: the agent pane's CWD is the
+		// worktree root, so killing the process group first avoids removing a
+		// directory still held by a live process (and the spurious remove warnings
+		// that follow). The kill happens only here, after validation — never on a
+		// rejected delete.
+		if s.killWorkspaceSessions != nil {
+			s.killWorkspaceSessions(wsID)
+		}
+
 		if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
 			if !git.IsUnregisteredWorkspacePathError(err) {
 				return fail("remove_worktree", err)
