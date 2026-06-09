@@ -78,3 +78,69 @@ func TestUpdatePtyTabReattachResult_AppliesForLiveReattach(t *testing.T) {
 		t.Fatalf("a live reattach should apply: Running=%v Detached=%v", running, detached)
 	}
 }
+
+// TestUpdatePtyTabReattachResult_AppliesForDetachedRestart proves an explicit
+// restart result can revive a detached tab while its restart is still in flight.
+func TestUpdatePtyTabReattachResult_AppliesForDetachedRestart(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:               TabID("tab-detached-restart"),
+		Assistant:        "claude",
+		Workspace:        ws,
+		SessionName:      "amux-ws-sess",
+		Detached:         true,
+		Running:          false,
+		reattachInFlight: true,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+
+	agent := &appPty.Agent{Workspace: ws, Session: "amux-ws-sess"}
+	m.updatePtyTabReattachResult(ptyTabReattachResult{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       agent,
+	})
+
+	tab.mu.Lock()
+	running, detached := tab.Running, tab.Detached
+	gotAgent := tab.Agent
+	tab.mu.Unlock()
+	if !running || detached {
+		t.Fatalf("a detached restart should apply: Running=%v Detached=%v", running, detached)
+	}
+	if gotAgent != agent {
+		t.Fatal("restart agent was not bound to the tab")
+	}
+}
+
+func TestRestartActiveTabMarksRestartInFlight(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tab := &Tab{
+		ID:          TabID("tab-restart-inflight"),
+		Assistant:   "claude",
+		Workspace:   ws,
+		SessionName: "amux-ws-sess",
+		Detached:    true,
+		Running:     false,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	cmd := m.RestartActiveTab()
+	if cmd == nil {
+		t.Fatal("expected restart command for detached tab")
+	}
+
+	tab.mu.Lock()
+	inFlight := tab.reattachInFlight
+	tab.mu.Unlock()
+	if !inFlight {
+		t.Fatal("expected restart to mark reattachInFlight")
+	}
+}

@@ -81,9 +81,9 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	}
 	// Reject a result for a tab that was explicitly detached while this reattach
 	// was in flight: detachTab clears reattachInFlight and sets Detached, so a
-	// live reattach (reattachInFlight=true) still applies, but a user-detached
-	// tab is not silently resurrected. Release the freshly created agent/PTY so
-	// it does not leak.
+	// live reattach/restart (reattachInFlight=true) still applies, but a
+	// user-detached tab is not silently resurrected. Release the freshly created
+	// agent/PTY so it does not leak.
 	tab.mu.Lock()
 	staleDetached := tab.Detached && !tab.reattachInFlight
 	tab.mu.Unlock()
