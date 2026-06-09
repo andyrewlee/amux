@@ -65,23 +65,57 @@ func TestHandlePTYOutput_OverflowEmitsThrottledWarn(t *testing.T) {
 	}
 }
 
+func TestHandlePTYOutput_OverflowWarnReportsActualTrimmedBytes(t *testing.T) {
+	dir := t.TempDir()
+	if err := logging.Initialize(dir, logging.LevelWarn); err != nil {
+		t.Fatalf("logging init: %v", err)
+	}
+	defer logging.Close()
+
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+	wsID := string(ws.ID())
+	tabID := TerminalTabID("term-overflow")
+	state := &TerminalState{VTerm: vterm.New(80, 24)}
+	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+
+	controlSeq := []byte("\x1b[>1;10;0c")
+	chunk := append([]byte{}, controlSeq...)
+	chunk = append(chunk, bytes.Repeat([]byte("x"), ptyMaxBufferedBytes+1-len(controlSeq))...)
+	_ = m.handlePTYOutput(messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Data: chunk})
+
+	logging.Close()
+	logText := readLogText(t, dir)
+	if !strings.Contains(logText, "dropped 10 bytes") {
+		t.Fatalf("expected overflow Warn to report dropped 10 bytes, log:\n%s", logText)
+	}
+}
+
 func countLogLines(t *testing.T, dir, needle string) int {
+	t.Helper()
+	logText := readLogText(t, dir)
+	count := 0
+	for _, line := range strings.Split(logText, "\n") {
+		if strings.Contains(line, needle) {
+			count++
+		}
+	}
+	return count
+}
+
+func readLogText(t *testing.T, dir string) string {
 	t.Helper()
 	matches, err := filepath.Glob(filepath.Join(dir, "amux-*.log"))
 	if err != nil || len(matches) == 0 {
 		t.Fatalf("no log file written in %s (err=%v)", dir, err)
 	}
-	count := 0
+	var out strings.Builder
 	for _, p := range matches {
 		b, readErr := os.ReadFile(p)
 		if readErr != nil {
 			t.Fatalf("read log: %v", readErr)
 		}
-		for _, line := range strings.Split(string(b), "\n") {
-			if strings.Contains(line, needle) {
-				count++
-			}
-		}
+		out.Write(b)
 	}
-	return count
+	return out.String()
 }

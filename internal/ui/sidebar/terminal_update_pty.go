@@ -19,8 +19,8 @@ const overflowLogThrottle = 2 * time.Second
 // noteOverflowDropLocked accumulates dropped overflow bytes and reports whether a
 // throttled overflow Warn should be emitted now (caller logs outside the lock),
 // returning the aggregated dropped-byte total. The caller must hold ts.mu.
-func (ts *TerminalState) noteOverflowDropLocked(overflow int) (logNow bool, total int) {
-	ts.overflowDroppedSinceLog += overflow
+func (ts *TerminalState) noteOverflowDropLocked(droppedBytes int) (logNow bool, total int) {
+	ts.overflowDroppedSinceLog += droppedBytes
 	now := time.Now()
 	if ts.lastOverflowLogAt.IsZero() || now.Sub(ts.lastOverflowLogAt) >= overflowLogThrottle {
 		total = ts.overflowDroppedSinceLog
@@ -68,7 +68,7 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 		if retainedStart > prevPendingLen {
 			ts.ptyNoiseTrailing = nil
 		}
-		overflowLogNow, overflowDroppedTotal := ts.noteOverflowDropLocked(overflow)
+		overflowLogNow, overflowDroppedTotal := ts.noteOverflowDropLocked(retainedStart)
 		ts.mu.Unlock()
 		if overflowLogNow {
 			logging.Warn("Sidebar PTY output overflow for workspace %s tab %s: dropped %d bytes (buffer cap %d)", wsID, tabID, overflowDroppedTotal, ptyMaxBufferedBytes)

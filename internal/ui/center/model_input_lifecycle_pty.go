@@ -21,8 +21,8 @@ const overflowLogThrottle = 2 * time.Second
 // throttled overflow Warn should be emitted now (the caller logs outside the
 // lock). It returns the aggregated dropped-byte total to report when logNow is
 // true. The caller must hold tab.mu.
-func (t *Tab) noteOverflowDropLocked(overflow int) (logNow bool, total int) {
-	t.overflowDroppedSinceLog += overflow
+func (t *Tab) noteOverflowDropLocked(droppedBytes int) (logNow bool, total int) {
+	t.overflowDroppedSinceLog += droppedBytes
 	now := time.Now()
 	if t.lastOverflowLogAt.IsZero() || now.Sub(t.lastOverflowLogAt) >= overflowLogThrottle {
 		total = t.overflowDroppedSinceLog
@@ -126,7 +126,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				tab.ptyNoiseTrailing = nil
 				tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
 			}
-			overflowLogNow, overflowDroppedTotal := tab.noteOverflowDropLocked(overflow)
+			overflowLogNow, overflowDroppedTotal := tab.noteOverflowDropLocked(retainedStart)
 			tab.mu.Unlock()
 			if overflowLogNow {
 				logging.Warn("PTY output overflow for tab %s: dropped %d bytes (buffer cap %d)", tab.ID, overflowDroppedTotal, ptyMaxBufferedBytes)
