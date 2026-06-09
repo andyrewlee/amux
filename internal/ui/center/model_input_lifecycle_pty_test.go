@@ -445,3 +445,45 @@ func TestUpdatePTYFlush_SuppressesImmediateUserInputEcho(t *testing.T) {
 		t.Fatalf("expected user-input echo not to set lastActivityTagAt, got %v", tab.lastActivityTagAt)
 	}
 }
+
+func TestUpdatePTYFlush_RebufferPreservesOrderWithTrailingPending(t *testing.T) {
+	m := newTestModel()
+	m.setTabActorReady()
+	m.tabEvents = make(chan tabEvent, 1)
+	m.tabEvents <- tabEvent{kind: tabEventWriteOutput} // fill queue so sendTabEvent fails
+
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+
+	// head exceeds the active drain chunk so the flush leaves a non-empty
+	// remainder; tail makes prepend-vs-append distinguishable (the existing
+	// rebuffer test seeds pendingOutput==chunk, an empty tail that cannot).
+	head := bytes.Repeat([]byte("H"), ptyFlushChunkSizeActive+8)
+	tail := []byte("TAILxyz")
+	original := append(append([]byte(nil), head...), tail...)
+
+	tab := &Tab{
+		ID:                 TabID("tab-order"),
+		Assistant:          "codex",
+		Workspace:          ws,
+		Terminal:           vterm.New(80, 24),
+		Running:            true,
+		pendingOutput:      append([]byte(nil), original...),
+		pendingOutputBytes: len(original),
+		actorWritesPending: 1,
+		actorWriteEpoch:    11,
+	}
+	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.activeTabByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+
+	if !bytes.Equal(tab.pendingOutput, original) {
+		t.Fatalf("rebuffer must restore original stream order (prepend); len=%d endsWithTail=%v",
+			len(tab.pendingOutput), bytes.HasSuffix(tab.pendingOutput, tail))
+	}
+	if !bytes.HasSuffix(tab.pendingOutput, tail) {
+		t.Fatalf("tail no longer at the end — chunk was appended, reordering the stream")
+	}
+}
