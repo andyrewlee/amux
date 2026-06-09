@@ -51,6 +51,7 @@ type TmuxOps interface {
 	KillSession(sessionName string, opts tmux.Options) error
 	KillSessionsMatchingTags(tags map[string]string, opts tmux.Options) (bool, error)
 	KillSessionsWithPrefix(prefix string, opts tmux.Options) error
+	KillSessionsWithPrefixMissingTag(prefix, tag string, opts tmux.Options) error
 	KillWorkspaceSessions(wsID string, opts tmux.Options) error
 	SetMonitorActivityOn(opts tmux.Options) error
 	SetStatusOff(opts tmux.Options) error

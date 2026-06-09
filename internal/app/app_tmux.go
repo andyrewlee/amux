@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -22,11 +23,27 @@ func (a *App) killWorkspaceSessionsSync(wsID string) {
 		"@amux":           "1",
 		"@amux_workspace": wsID,
 	}
+	// Scope to this instance. Workspace IDs are sha1(repo+root), so the same
+	// workspace carries the same @amux_workspace tag across every amux process on
+	// the host (the user orchestrates many). Without an @amux_instance filter,
+	// deleting a workspace shared with another instance would kill that instance's
+	// live agent. An empty instanceID (legacy/untagged) keeps the broad behavior
+	// so single-instance cleanup of pre-existing untagged sessions still works.
+	if strings.TrimSpace(a.instanceID) != "" {
+		tags["@amux_instance"] = a.instanceID
+	}
 	if _, err := a.tmuxService.KillSessionsMatchingTags(tags, a.tmuxOptions); err != nil {
 		logging.Warn("Failed to kill tmux sessions for workspace %s before worktree removal: %v", wsID, err)
 	}
-	if err := a.tmuxService.KillWorkspaceSessions(wsID, a.tmuxOptions); err != nil {
-		logging.Warn("Failed to kill tmux sessions for workspace %s before worktree removal: %v", wsID, err)
+	prefix := tmux.SessionName("amux", wsID) + "-"
+	if strings.TrimSpace(a.instanceID) == "" {
+		if err := a.tmuxService.KillWorkspaceSessions(wsID, a.tmuxOptions); err != nil {
+			logging.Warn("Failed to kill tmux legacy sessions for workspace %s before worktree removal: %v", wsID, err)
+		}
+		return
+	}
+	if err := a.tmuxService.KillSessionsWithPrefixMissingTag(prefix, "@amux_instance", a.tmuxOptions); err != nil {
+		logging.Warn("Failed to kill legacy tmux sessions for workspace %s before worktree removal: %v", wsID, err)
 	}
 }
 
