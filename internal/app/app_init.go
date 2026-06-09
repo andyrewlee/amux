@@ -154,6 +154,11 @@ func New(version, commit, date string) (*App, error) {
 	if stateWatcher != nil {
 		app.supervisor.Start("app.state_watcher", stateWatcher.Run, supervisor.WithBackoff(supervisorBackoff))
 	}
+
+	// Let the service's load/rescan path consult the App's delete-in-flight guard
+	// so it can skip workspaces that are being deleted (used by the rescan guard).
+	workspaceService.deleteInFlight = app.isWorkspaceDeleteInFlight
+
 	return app, nil
 }
 
