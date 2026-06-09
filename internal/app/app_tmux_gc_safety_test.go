@@ -1,7 +1,7 @@
 package app
 
 import (
-	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -61,7 +61,7 @@ func TestGcOrphanedTmuxSessions_SkipsAttachedOrphans(t *testing.T) {
 			return []tmux.SessionTagValues{
 				{Name: "attached-orphan", Tags: map[string]string{
 					"@amux_workspace":  "dead-ws",
-					"@amux_created_at": fmt.Sprintf("%d", staleTS),
+					"@amux_created_at": strconv.FormatInt(staleTS, 10),
 				}},
 			}, nil
 		},
@@ -97,7 +97,7 @@ func TestGcOrphanedTmuxSessions_SkipsRecentOrphans(t *testing.T) {
 			return []tmux.SessionTagValues{
 				{Name: "recent-orphan", Tags: map[string]string{
 					"@amux_workspace":  "dead-ws",
-					"@amux_created_at": fmt.Sprintf("%d", recentTS),
+					"@amux_created_at": strconv.FormatInt(recentTS, 10),
 				}},
 			}, nil
 		},
@@ -130,7 +130,7 @@ func TestGcOrphanedTmuxSessions_KillsStaleDetachedOrphans(t *testing.T) {
 			return []tmux.SessionTagValues{
 				{Name: "stale-orphan", Tags: map[string]string{
 					"@amux_workspace":  "dead-ws",
-					"@amux_created_at": fmt.Sprintf("%d", staleTS),
+					"@amux_created_at": strconv.FormatInt(staleTS, 10),
 				}},
 			}, nil
 		},
@@ -213,5 +213,43 @@ func TestGcOrphanedTmuxSessions_UsesInstanceScopedMatchWhenInstanceIDSet(t *test
 	}
 	if capturedMatch["@amux_instance"] != "test-instance-123" {
 		t.Fatalf("expected @amux_instance=test-instance-123, got %v", capturedMatch["@amux_instance"])
+	}
+}
+
+func TestGcOrphanedTmuxSessions_SkipsDeleteInFlightOrphan(t *testing.T) {
+	now := time.Now()
+	staleTS := now.Add(-2 * time.Minute).Unix()
+
+	ops := &gcOrphanOps{
+		sessionsWithTags: func(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
+			return []tmux.SessionTagValues{
+				{Name: "deleting-orphan", Tags: map[string]string{
+					"@amux_workspace":  "dead-ws",
+					"@amux_created_at": strconv.FormatInt(staleTS, 10),
+				}},
+			}, nil
+		},
+		sessionHasClients: func(name string, opts tmux.Options) (bool, error) {
+			return false, nil // detached
+		},
+	}
+	app := newGCTestApp(ops)
+	// dead-ws is mid-delete and already absent from a.projects; orphan GC must
+	// treat it as known and leave its session for the orderly delete cleanup.
+	app.deletingWorkspaceIDs = map[string]bool{"dead-ws": true}
+
+	msg := app.gcOrphanedTmuxSessions()()
+	result, ok := msg.(orphanGCResult)
+	if !ok {
+		t.Fatalf("expected orphanGCResult, got %T", msg)
+	}
+	if result.Err != nil {
+		t.Fatalf("GC error: %v", result.Err)
+	}
+	if result.Killed != 0 {
+		t.Fatalf("expected 0 killed for a delete-in-flight orphan, got %d", result.Killed)
+	}
+	if len(ops.killed) != 0 {
+		t.Fatalf("expected no sessions killed, got %v", ops.killed)
 	}
 }

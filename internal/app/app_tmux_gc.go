@@ -43,6 +43,13 @@ func (a *App) collectKnownWorkspaceIDs() map[string]bool {
 	for id := range a.creatingWorkspaceIDs {
 		ids[id] = true
 	}
+	// A workspace mid-delete may already be absent from a.projects (loadProjects
+	// replaces it after each WorkspaceDeleted), so without this a concurrently
+	// scheduled orphan GC would see its session as unknown and kill it — racing
+	// the orderly cleanup, and on a failed delete killing a still-needed agent.
+	for id := range a.snapshotDeletingWorkspaceIDs() {
+		ids[id] = true
+	}
 	return ids
 }
 
