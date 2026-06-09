@@ -306,7 +306,12 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 		}
 		if s.store != nil {
 			if err := s.store.Delete(ws.ID()); err != nil {
-				logging.Warn("workspace delete metadata cleanup failed workspace_id=%s error=%v", wsID, err)
+				// Worktree and branch are already gone; because loading is store-
+				// first and shouldSurfaceWorkspace never stats the root, a surviving
+				// metadata dir resurfaces the just-deleted workspace on the next load,
+				// pointing at a missing worktree. Surface the failure so the user can
+				// retry instead of being left with a phantom workspace.
+				return fail("remove_metadata", err)
 			}
 		}
 		logging.Info(
