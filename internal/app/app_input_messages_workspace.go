@@ -17,6 +17,16 @@ import (
 
 // handleProjectsLoaded processes the ProjectsLoaded message.
 func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
+	// Drop a stale reload: under rapid/batch deletes multiple LoadProjects
+	// goroutines are in flight with no ordering, and an older one (started before
+	// a later delete's store.Delete completed) would otherwise overwrite a.projects
+	// and resurrect the deleted workspace. Zero-token messages apply (back-compat).
+	if msg.LoadToken != 0 && msg.LoadToken < a.lastAppliedProjectsLoadToken {
+		return nil
+	}
+	if msg.LoadToken > a.lastAppliedProjectsLoadToken {
+		a.lastAppliedProjectsLoadToken = msg.LoadToken
+	}
 	a.projects = msg.Projects
 	a.projectsLoaded = true
 	var cmds []tea.Cmd

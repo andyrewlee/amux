@@ -18,6 +18,11 @@ const (
 // ProjectsLoaded is sent when projects have been loaded/reloaded
 type ProjectsLoaded struct {
 	Projects []data.Project
+	// LoadToken identifies the load generation; handleProjectsLoaded drops a
+	// result older than the last applied one so out-of-order reloads (e.g. under
+	// rapid deletes) cannot resurrect a just-deleted workspace. Zero applies
+	// unconditionally (back-compat).
+	LoadToken int
 }
 
 // WorkspaceActivated is sent when a workspace is selected

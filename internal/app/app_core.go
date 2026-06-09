@@ -139,12 +139,16 @@ type App struct {
 	instanceID                string                            // Immutable after init; safe for read-only access from Cmd goroutines.
 
 	// Workspace persistence debounce
-	dirtyWorkspaces       map[string]bool
-	deletingWorkspaceMu   sync.RWMutex
-	deletingWorkspaceIDs  map[string]bool
-	persistToken          int
-	localWorkspaceSaveMu  sync.Mutex
-	localWorkspaceSavesAt map[string]localWorkspaceSaveMarker
+	dirtyWorkspaces      map[string]bool
+	deletingWorkspaceMu  sync.RWMutex
+	deletingWorkspaceIDs map[string]bool
+	persistToken         int
+	// projectsLoadToken is the next load generation to issue; lastApplied is the
+	// highest applied, so handleProjectsLoaded can drop out-of-order reloads.
+	projectsLoadToken            int
+	lastAppliedProjectsLoadToken int
+	localWorkspaceSaveMu         sync.Mutex
+	localWorkspaceSavesAt        map[string]localWorkspaceSaveMarker
 
 	// Workspaces in creation flow (not yet loaded into projects list)
 	creatingWorkspaceIDs map[string]bool
