@@ -283,9 +283,13 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	}
 	tab.mu.Lock()
 	running := tab.Running
+	reattachInFlight := tab.reattachInFlight
 	sessionName := tab.SessionName
 	if sessionName == "" && tab.Agent != nil {
 		sessionName = tab.Agent.Session
+	}
+	if !running && !reattachInFlight {
+		tab.reattachInFlight = true
 	}
 	tab.mu.Unlock()
 	if running {
@@ -295,6 +299,9 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 				Level:   messages.ToastInfo,
 			}
 		}
+	}
+	if reattachInFlight {
+		return nil
 	}
 	ws := tab.Workspace
 	tabID := tab.ID
