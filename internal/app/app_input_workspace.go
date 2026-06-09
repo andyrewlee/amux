@@ -97,9 +97,11 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 			a.goHome()
 		}
 		delete(a.dirtyWorkspaces, string(msg.Workspace.ID()))
-		if cleanup := a.cleanupWorkspaceTmuxSessions(msg.Workspace); cleanup != nil {
-			cmds = append(cmds, cleanup)
-		}
+		// No trailing tmux cleanup here: the validated delete path already tore
+		// down this workspace's sessions before removing the worktree. Re-running
+		// it after the delete-in-flight flag is cleared would, on a delete-then-
+		// recreate at the same project+name (same wsID, same session names), match
+		// and kill the brand-new agent session by tag.
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
