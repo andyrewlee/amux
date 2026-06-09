@@ -13,6 +13,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -37,8 +38,11 @@ type Model struct {
 	tabActorReady         uint32
 	tabActorHeartbeat     int64
 	tabActorRedrawPending uint32
-	flushLoadSampleAt     time.Time
-	cachedBusyTabCount    int
+	// tabActorStalled gates a single stall/recovery log per episode so the
+	// otherwise-silent degradation to synchronous direct-send is observable.
+	tabActorStalled    uint32
+	flushLoadSampleAt  time.Time
+	cachedBusyTabCount int
 
 	// Layout
 	width           int
@@ -166,6 +170,11 @@ func (m *Model) isTabActorReady() bool {
 	}
 	if time.Since(time.Unix(0, lastBeat)) > tabActorStallTimeout {
 		atomic.StoreUint32(&m.tabActorReady, 0)
+		// CAS-gate so a stall logs exactly once per episode even though the hot
+		// read path calls this on every keystroke/scroll/write.
+		if atomic.CompareAndSwapUint32(&m.tabActorStalled, 0, 1) {
+			logging.Warn("tab actor stalled (>%s since last heartbeat); falling back to direct send", tabActorStallTimeout)
+		}
 		return false
 	}
 	return true
@@ -174,6 +183,9 @@ func (m *Model) isTabActorReady() bool {
 func (m *Model) setTabActorReady() {
 	atomic.StoreInt64(&m.tabActorHeartbeat, time.Now().UnixNano())
 	atomic.StoreUint32(&m.tabActorReady, 1)
+	// Clear any prior stall episode without logging a recovery: this is a fresh
+	// (re)attach, not a heartbeat-driven recovery.
+	atomic.StoreUint32(&m.tabActorStalled, 0)
 }
 
 func (m *Model) noteTabActorHeartbeat() {
@@ -189,6 +201,10 @@ func (m *Model) noteTabActorHeartbeat() {
 	}
 	if atomic.LoadUint32(&m.tabActorReady) == 0 {
 		atomic.StoreUint32(&m.tabActorReady, 1)
+	}
+	// A heartbeat after a stall episode is a genuine recovery; log it once.
+	if atomic.CompareAndSwapUint32(&m.tabActorStalled, 1, 0) {
+		logging.Info("tab actor recovered")
 	}
 }
 
