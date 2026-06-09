@@ -61,6 +61,18 @@ func (a *App) triggerTmuxActivityScan() tea.Cmd {
 	}
 }
 
+// eagerScanTmuxActivity schedules an immediate activity rescan when tmux is
+// available, used on agent tab start/reattach so a freshly running agent does
+// not wait up to one full ticker interval (~5s) before its working indicator
+// can appear. It coalesces with any in-flight scan via scanTmuxActivityNow and
+// no-ops when tmux is unavailable to avoid churn.
+func (a *App) eagerScanTmuxActivity() tea.Cmd {
+	if !a.tmuxAvailable {
+		return nil
+	}
+	return a.scanTmuxActivityNow()
+}
+
 func (a *App) scanTmuxActivityNow() tea.Cmd {
 	if a.tmuxActivityScanInFlight {
 		a.tmuxActivityRescanPending = true
