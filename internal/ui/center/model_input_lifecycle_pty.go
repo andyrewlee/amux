@@ -209,8 +209,6 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 			writeOutput := false
 			hasMoreBuffered := false
 			visibleSeq := uint64(0)
-			tagSessionName := ""
-			var tagTimestamp int64
 			parserResetPending := false
 			actorWritesPending := 0
 			tab.mu.Lock()
@@ -273,143 +271,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 				tab.mu.Unlock()
 			}
 			if writeOutput && len(chunk) > 0 {
-				if m.isTabActorReady() {
-					prevPending := 0
-					prevEpoch := uint64(0)
-					prevCarry := vterm.ParserCarryState{}
-					var nextCarry vterm.ParserCarryState
-					prevNoiseTrailing := []byte(nil)
-					nextNoiseTrailing := []byte(nil)
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						prevPending = tab.actorWritesPending
-						prevEpoch = tab.actorWriteEpoch
-						prevCarry = tab.actorQueuedCarry
-						prevNoiseTrailing = append(prevNoiseTrailing, tab.actorQueuedNoiseTrailing...)
-						seedCarry := tab.Terminal.ParserCarryState()
-						if prevPending > 0 {
-							seedCarry = prevCarry
-						}
-						previewTrailing := append([]byte(nil), tab.ptyNoiseTrailing...)
-						if prevPending > 0 {
-							previewTrailing = append(previewTrailing[:0], tab.actorQueuedNoiseTrailing...)
-						}
-						filteredPreview := ptyio.FilterKnownPTYNoiseStream(chunk, &previewTrailing)
-						nextCarry = vterm.AdvanceParserCarryState(seedCarry, filteredPreview)
-						nextNoiseTrailing = append(nextNoiseTrailing, previewTrailing...)
-						tab.actorWritesPending = prevPending + 1
-						tab.actorQueuedBytes += len(chunk)
-						tab.actorQueuedCarry = nextCarry
-						tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], nextNoiseTrailing...)
-					}
-					tab.mu.Unlock()
-					if !m.sendTabEvent(tabEvent{
-						tab:             tab,
-						workspaceID:     msg.WorkspaceID,
-						tabID:           msg.TabID,
-						kind:            tabEventWriteOutput,
-						output:          chunk,
-						writeEpoch:      prevEpoch,
-						catchUp:         catchUp,
-						hasMoreBuffered: hasMoreBuffered,
-						visibleSeq:      visibleSeq,
-					}) {
-						rebuffered := false
-						dropWrite := false
-						syncFallbackChunkSize := 0
-						tab.mu.Lock()
-						if tab.actorWriteEpoch == prevEpoch && tab.actorWritesPending > 0 {
-							tab.actorWritesPending--
-							if tab.actorQueuedBytes >= len(chunk) {
-								tab.actorQueuedBytes -= len(chunk)
-							} else {
-								tab.actorQueuedBytes = 0
-							}
-							if tab.isClosed() {
-								dropWrite = true
-							} else if tab.actorWritesPending > 0 {
-								rebuffered = true
-								tab.actorQueuedCarry = prevCarry
-								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
-								restored := make([]byte, 0, len(chunk)+len(tab.pendingOutput))
-								restored = append(restored, chunk...)
-								restored = append(restored, tab.pendingOutput...)
-								tab.pendingOutput = restored
-								tab.pendingOutputBytes = len(tab.pendingOutput)
-							} else if catchUp && len(chunk) > ptyFlushChunkSizeActive {
-								syncFallbackChunkSize = ptyFlushChunkSizeActive
-								tab.actorQueuedCarry = prevCarry
-								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
-								restored := make([]byte, 0, len(chunk)-syncFallbackChunkSize+len(tab.pendingOutput))
-								restored = append(restored, chunk[syncFallbackChunkSize:]...)
-								restored = append(restored, tab.pendingOutput...)
-								tab.pendingOutput = restored
-								tab.pendingOutputBytes = len(tab.pendingOutput)
-								hasMoreBuffered = len(tab.pendingOutput) > 0
-							}
-						} else if tab.actorWriteEpoch != prevEpoch || tab.isClosed() {
-							dropWrite = true
-						}
-						tab.mu.Unlock()
-						if syncFallbackChunkSize > 0 {
-							chunk = chunk[:syncFallbackChunkSize]
-						}
-						if !rebuffered && !dropWrite {
-							processedBytes := len(chunk)
-							filteredLen := 0
-							filterApplied := false
-							suppressRedraw := false
-							tab.mu.Lock()
-							if tab.Terminal != nil {
-								filteredLen, suppressRedraw, tagSessionName, tagTimestamp = m.applyPTYChunkLocked(tab, chunk, hasMoreBuffered, visibleSeq)
-								filterApplied = true
-								tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
-								tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
-							}
-							tab.mu.Unlock()
-							if !suppressRedraw {
-								cmds = append(cmds, m.scheduleChatCursorRefresh(tab, msg.WorkspaceID, time.Now()))
-							}
-							perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-							if filterApplied {
-								filteredBytes := processedBytes - filteredLen
-								if filteredBytes > 0 {
-									perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-								}
-							}
-						}
-					}
-				} else {
-					processedBytes := len(chunk)
-					filteredLen := 0
-					filterApplied := false
-					suppressRedraw := false
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						filteredLen, suppressRedraw, tagSessionName, tagTimestamp = m.applyPTYChunkLocked(tab, chunk, hasMoreBuffered, visibleSeq)
-						filterApplied = true
-					}
-					tab.mu.Unlock()
-					if !suppressRedraw {
-						cmds = append(cmds, m.scheduleChatCursorRefresh(tab, msg.WorkspaceID, time.Now()))
-					}
-					perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-					if filterApplied {
-						filteredBytes := processedBytes - filteredLen
-						if filteredBytes > 0 {
-							perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-						}
-					}
-				}
-				if tagSessionName != "" {
-					opts := m.tmuxOpts
-					sessionName := tagSessionName
-					timestamp := strconv.FormatInt(tagTimestamp, 10)
-					cmds = append(cmds, func() tea.Msg {
-						_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
-						return nil
-					})
-				}
+				cmds = append(cmds, m.dispatchFlushChunk(tab, msg, chunk, hasMoreBuffered, visibleSeq, catchUp)...)
 			}
 			tab.mu.Lock()
 			catchUpStillActive := tab.catchUpActiveLocked()
@@ -435,6 +297,103 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 		}
 	}
 	return common.SafeBatch(cmds...)
+}
+
+// dispatchFlushChunk delivers a flush chunk either through the tab actor (the
+// fast path) or via a synchronous apply, handling actor enqueue, send-failure
+// rollback, the synchronous apply, and publishing the last-output activity tag.
+// It returns the commands to batch (cursor refresh + tag write).
+func (m *Model) dispatchFlushChunk(tab *Tab, msg PTYFlush, chunk []byte, hasMoreBuffered bool, visibleSeq uint64, catchUp bool) []tea.Cmd {
+	var cmds []tea.Cmd
+	tagSessionName := ""
+	var tagTimestamp int64
+	if m.isTabActorReady() {
+		cmds, tagSessionName, tagTimestamp = m.dispatchFlushChunkViaActor(tab, msg, chunk, hasMoreBuffered, visibleSeq, catchUp)
+	} else {
+		var cmd tea.Cmd
+		cmd, tagSessionName, tagTimestamp = m.applyFlushChunkSync(tab, msg.WorkspaceID, chunk, hasMoreBuffered, visibleSeq, false)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if tagSessionName != "" {
+		opts := m.tmuxOpts
+		sessionName := tagSessionName
+		timestamp := strconv.FormatInt(tagTimestamp, 10)
+		cmds = append(cmds, func() tea.Msg {
+			_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
+			return nil
+		})
+	}
+	return cmds
+}
+
+// dispatchFlushChunkViaActor enqueues the chunk and sends it to the tab actor.
+// A successful send returns no commands (the actor applies it asynchronously).
+// A failed send is rolled back; if the rollback leaves the chunk to apply, it is
+// applied synchronously here. Returns any cursor-refresh command and the activity
+// tag to publish.
+func (m *Model) dispatchFlushChunkViaActor(tab *Tab, msg PTYFlush, chunk []byte, hasMoreBuffered bool, visibleSeq uint64, catchUp bool) (cmds []tea.Cmd, tagSessionName string, tagTimestamp int64) {
+	prevEpoch, prevCarry, prevNoiseTrailing := enqueueActorWrite(tab, chunk)
+	if m.sendTabEvent(tabEvent{
+		tab:             tab,
+		workspaceID:     msg.WorkspaceID,
+		tabID:           msg.TabID,
+		kind:            tabEventWriteOutput,
+		output:          chunk,
+		writeEpoch:      prevEpoch,
+		catchUp:         catchUp,
+		hasMoreBuffered: hasMoreBuffered,
+		visibleSeq:      visibleSeq,
+	}) {
+		return nil, "", 0
+	}
+	var rebuffered, dropWrite bool
+	chunk, hasMoreBuffered, rebuffered, dropWrite = recoverFailedActorSend(
+		tab, chunk, prevEpoch, prevCarry, prevNoiseTrailing, catchUp, hasMoreBuffered,
+	)
+	if rebuffered || dropWrite {
+		return nil, "", 0
+	}
+	cmd, tagSessionName, tagTimestamp := m.applyFlushChunkSync(tab, msg.WorkspaceID, chunk, hasMoreBuffered, visibleSeq, true)
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return cmds, tagSessionName, tagTimestamp
+}
+
+// applyFlushChunkSync writes a flush chunk to the terminal on the UI goroutine
+// (the synchronous fallback used when the actor is not ready, or after an actor
+// send-failure rollback that leaves the chunk to apply directly). When
+// updateActorCarry is set (post-rollback actor path) it also snapshots the actor
+// queued carry/noise so a later actor write resumes from the applied state. It
+// returns an optional cursor-refresh command and the activity tag to publish.
+func (m *Model) applyFlushChunkSync(tab *Tab, workspaceID string, chunk []byte, hasMoreBuffered bool, visibleSeq uint64, updateActorCarry bool) (cmd tea.Cmd, tagSessionName string, tagTimestamp int64) {
+	processedBytes := len(chunk)
+	filteredLen := 0
+	filterApplied := false
+	suppressRedraw := false
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		filteredLen, suppressRedraw, tagSessionName, tagTimestamp = m.applyPTYChunkLocked(tab, chunk, hasMoreBuffered, visibleSeq)
+		filterApplied = true
+		if updateActorCarry {
+			tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
+			tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
+		}
+	}
+	tab.mu.Unlock()
+	if !suppressRedraw {
+		cmd = m.scheduleChatCursorRefresh(tab, workspaceID, time.Now())
+	}
+	perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+	if filterApplied {
+		filteredBytes := processedBytes - filteredLen
+		if filteredBytes > 0 {
+			perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+		}
+	}
+	return cmd, tagSessionName, tagTimestamp
 }
 
 // applyPTYChunkLocked filters chunk for known PTY noise, writes it to the

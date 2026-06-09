@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 func (m *Model) handleWriteOutput(ev tabEvent) {
@@ -86,6 +87,111 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 		requestFlush = finalizeActorWriteLocked(tab)
 	}
 	return filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp
+}
+
+// enqueueActorWrite optimistically advances the actor-write accounting for a
+// chunk about to be dispatched to the tab actor: it captures the prior epoch,
+// queued carry, and queued noise trailing (returned so a failed send can roll
+// back), advances the queued parser carry/noise across the chunk, and bumps the
+// pending/queued counters. It manages tab.mu itself and makes no mutation when
+// tab.Terminal == nil (the symmetric apply side bails the same way).
+func enqueueActorWrite(tab *Tab, chunk []byte) (prevEpoch uint64, prevCarry vterm.ParserCarryState, prevNoiseTrailing []byte) {
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if tab.Terminal == nil {
+		return 0, vterm.ParserCarryState{}, nil
+	}
+	prevPending := tab.actorWritesPending
+	prevEpoch = tab.actorWriteEpoch
+	prevCarry = tab.actorQueuedCarry
+	prevNoiseTrailing = append(prevNoiseTrailing, tab.actorQueuedNoiseTrailing...)
+	seedCarry := tab.Terminal.ParserCarryState()
+	if prevPending > 0 {
+		seedCarry = prevCarry
+	}
+	previewTrailing := append([]byte(nil), tab.ptyNoiseTrailing...)
+	if prevPending > 0 {
+		previewTrailing = append(previewTrailing[:0], tab.actorQueuedNoiseTrailing...)
+	}
+	filteredPreview := ptyio.FilterKnownPTYNoiseStream(chunk, &previewTrailing)
+	nextCarry := vterm.AdvanceParserCarryState(seedCarry, filteredPreview)
+	nextNoiseTrailing := append([]byte(nil), previewTrailing...)
+	tab.actorWritesPending = prevPending + 1
+	tab.actorQueuedBytes += len(chunk)
+	tab.actorQueuedCarry = nextCarry
+	tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], nextNoiseTrailing...)
+	return prevEpoch, prevCarry, prevNoiseTrailing
+}
+
+// recoverFailedActorSend rolls back an actor-write enqueue when sendTabEvent
+// could not deliver the chunk. It undoes the pending/queued bump and decides what
+// the caller should do: rebuffer the chunk ahead of pendingOutput (another write
+// is still in flight), drop it (epoch advanced or tab closed), or fall back to a
+// synchronous apply (optionally truncated to the active chunk size in catch-up).
+// It manages tab.mu itself and returns the chunk to apply synchronously, the
+// (possibly updated) hasMoreBuffered, and whether the write was rebuffered or
+// dropped (either of which means the caller must not apply it).
+func recoverFailedActorSend(
+	tab *Tab,
+	chunk []byte,
+	prevEpoch uint64,
+	prevCarry vterm.ParserCarryState,
+	prevNoiseTrailing []byte,
+	catchUp bool,
+	hasMoreBuffered bool,
+) (chunkToApply []byte, hasMore, rebuffered, dropWrite bool) {
+	hasMore = hasMoreBuffered
+	syncFallbackChunkSize := 0
+	tab.mu.Lock()
+	switch {
+	case tab.actorWriteEpoch == prevEpoch && tab.actorWritesPending > 0:
+		tab.actorWritesPending--
+		if tab.actorQueuedBytes >= len(chunk) {
+			tab.actorQueuedBytes -= len(chunk)
+		} else {
+			tab.actorQueuedBytes = 0
+		}
+		switch {
+		case tab.isClosed():
+			dropWrite = true
+		case tab.actorWritesPending > 0:
+			rebuffered = true
+			tab.restoreActorCarryLocked(prevCarry, prevNoiseTrailing)
+			tab.prependPendingOutputLocked(chunk)
+		case catchUp && len(chunk) > ptyFlushChunkSizeActive:
+			syncFallbackChunkSize = ptyFlushChunkSizeActive
+			tab.restoreActorCarryLocked(prevCarry, prevNoiseTrailing)
+			tab.prependPendingOutputLocked(chunk[syncFallbackChunkSize:])
+			hasMore = len(tab.pendingOutput) > 0
+		}
+	case tab.actorWriteEpoch != prevEpoch || tab.isClosed():
+		dropWrite = true
+	}
+	tab.mu.Unlock()
+	chunkToApply = chunk
+	if syncFallbackChunkSize > 0 {
+		chunkToApply = chunk[:syncFallbackChunkSize]
+	}
+	return chunkToApply, hasMore, rebuffered, dropWrite
+}
+
+// restoreActorCarryLocked restores the actor queued parser carry / noise trailing
+// to a previously captured state (used when rolling back a failed actor send).
+// Caller holds tab.mu.
+func (tab *Tab) restoreActorCarryLocked(prevCarry vterm.ParserCarryState, prevNoiseTrailing []byte) {
+	tab.actorQueuedCarry = prevCarry
+	tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
+}
+
+// prependPendingOutputLocked restores chunk to the front of pendingOutput so a
+// rolled-back write is re-flushed before newer buffered output. Caller holds
+// tab.mu.
+func (tab *Tab) prependPendingOutputLocked(chunk []byte) {
+	restored := make([]byte, 0, len(chunk)+len(tab.pendingOutput))
+	restored = append(restored, chunk...)
+	restored = append(restored, tab.pendingOutput...)
+	tab.pendingOutput = restored
+	tab.pendingOutputBytes = len(tab.pendingOutput)
 }
 
 // finalizeActorWriteLocked snapshots the parser carry/noise state after the last
