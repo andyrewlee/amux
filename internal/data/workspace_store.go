@@ -183,6 +183,10 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 		if err := s.deleteWorkspaceDir(oldID); err != nil {
 			logging.Warn("Failed to remove old workspace metadata %s: %v", oldID, err)
 		}
+		// Both id and oldID flocks are held here; remove the stale oldID lock file
+		// inside that critical section. Never remove id.lock — id is the live
+		// workspace we just wrote.
+		s.removeWorkspaceLockFile(oldID)
 	}
 	ws.storeID = id
 	return nil
@@ -198,7 +202,14 @@ func (s *WorkspaceStore) Delete(id WorkspaceID) error {
 		return err
 	}
 	defer unlockRegistryFiles(lockFiles)
-	return s.deleteWorkspaceDir(id)
+	if err := s.deleteWorkspaceDir(id); err != nil {
+		return err
+	}
+	// Remove the leaked sibling <id>.lock while still holding the exclusive flock
+	// (before the deferred unlock), so the rendezvous file does not accumulate for
+	// every created-then-deleted workspace.
+	s.removeWorkspaceLockFile(id)
+	return nil
 }
 
 // ListByRepo returns all workspaces for a given repository path

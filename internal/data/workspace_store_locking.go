@@ -1,9 +1,13 @@
 package data
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 func (s *WorkspaceStore) lockWorkspaceIDs(ids ...WorkspaceID) ([]*os.File, error) {
@@ -48,4 +52,15 @@ func unlockRegistryFiles(files []*os.File) {
 func (s *WorkspaceStore) deleteWorkspaceDir(id WorkspaceID) error {
 	dir := filepath.Join(s.root, string(id))
 	return os.RemoveAll(dir)
+}
+
+// removeWorkspaceLockFile unlinks the sibling <id>.lock rendezvous file. It MUST
+// be called while the caller still holds the exclusive flock on that file: any
+// waiter is blocked and re-OpenFiles a fresh inode after release, so removing the
+// path here does not break flock mutual exclusion. Unlinking after releasing the
+// lock would. A missing file is not an error (already cleaned, or never created).
+func (s *WorkspaceStore) removeWorkspaceLockFile(id WorkspaceID) {
+	if err := os.Remove(s.workspaceLockPath(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		logging.Warn("Failed to remove workspace lock file for %s: %v", id, err)
+	}
 }
