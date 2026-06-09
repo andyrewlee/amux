@@ -37,6 +37,40 @@ func KillSessionsWithPrefix(prefix string, opts Options) error {
 	return firstErr
 }
 
+// KillSessionsWithPrefixMissingTag kills sessions with a matching name prefix
+// only when the given session option is empty. This is used for legacy amux
+// sessions created before @amux_instance existed; modern sessions owned by other
+// app instances are left alone.
+func KillSessionsWithPrefixMissingTag(prefix, tag string, opts Options) error {
+	if prefix == "" || tag == "" {
+		return nil
+	}
+	sessions, err := ListSessions(opts)
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	for _, name := range sessions {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		value, err := SessionTagValue(name, tag, opts)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if strings.TrimSpace(value) != "" {
+			continue
+		}
+		if err := KillSession(name, opts); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // KillWorkspaceSessions kills all sessions for a workspace ID.
 func KillWorkspaceSessions(wsID string, opts Options) error {
 	if wsID == "" {

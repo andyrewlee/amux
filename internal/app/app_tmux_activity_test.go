@@ -43,7 +43,10 @@ func (s stubTmuxOps) KillSession(string, tmux.Options) error               { ret
 func (s stubTmuxOps) KillSessionsMatchingTags(map[string]string, tmux.Options) (bool, error) {
 	return false, nil
 }
-func (s stubTmuxOps) KillSessionsWithPrefix(string, tmux.Options) error        { return nil }
+func (s stubTmuxOps) KillSessionsWithPrefix(string, tmux.Options) error { return nil }
+func (s stubTmuxOps) KillSessionsWithPrefixMissingTag(string, string, tmux.Options) error {
+	return nil
+}
 func (s stubTmuxOps) KillWorkspaceSessions(string, tmux.Options) error         { return nil }
 func (s stubTmuxOps) SetMonitorActivityOn(tmux.Options) error                  { return nil }
 func (s stubTmuxOps) SetStatusOff(tmux.Options) error                          { return nil }
@@ -368,9 +371,12 @@ func (s *scriptedActivityTmuxOps) KillSessionsMatchingTags(map[string]string, tm
 	return false, nil
 }
 func (s *scriptedActivityTmuxOps) KillSessionsWithPrefix(string, tmux.Options) error { return nil }
-func (s *scriptedActivityTmuxOps) KillWorkspaceSessions(string, tmux.Options) error  { return nil }
-func (s *scriptedActivityTmuxOps) SetMonitorActivityOn(tmux.Options) error           { return nil }
-func (s *scriptedActivityTmuxOps) SetStatusOff(tmux.Options) error                   { return nil }
+func (s *scriptedActivityTmuxOps) KillSessionsWithPrefixMissingTag(string, string, tmux.Options) error {
+	return nil
+}
+func (s *scriptedActivityTmuxOps) KillWorkspaceSessions(string, tmux.Options) error { return nil }
+func (s *scriptedActivityTmuxOps) SetMonitorActivityOn(tmux.Options) error          { return nil }
+func (s *scriptedActivityTmuxOps) SetStatusOff(tmux.Options) error                  { return nil }
 
 func (s *scriptedActivityTmuxOps) CapturePaneTail(string, int, tmux.Options) (string, bool) {
 	if len(s.contentByScan) == 0 {

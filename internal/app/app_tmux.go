@@ -35,10 +35,16 @@ func (a *App) killWorkspaceSessionsSync(wsID string) {
 	if _, err := a.tmuxService.KillSessionsMatchingTags(tags, a.tmuxOptions); err != nil {
 		logging.Warn("Failed to kill tmux sessions for workspace %s before worktree removal: %v", wsID, err)
 	}
-	// Deliberately NOT calling KillWorkspaceSessions(wsID): it kills by the
-	// amux-<wsID>- name prefix, which has no instance component and would re-kill
-	// every instance's sessions, defeating the instance scoping above. The tag
-	// match covers all correctly-tagged sessions for this instance.
+	prefix := tmux.SessionName("amux", wsID) + "-"
+	if strings.TrimSpace(a.instanceID) == "" {
+		if err := a.tmuxService.KillWorkspaceSessions(wsID, a.tmuxOptions); err != nil {
+			logging.Warn("Failed to kill tmux legacy sessions for workspace %s before worktree removal: %v", wsID, err)
+		}
+		return
+	}
+	if err := a.tmuxService.KillSessionsWithPrefixMissingTag(prefix, "@amux_instance", a.tmuxOptions); err != nil {
+		logging.Warn("Failed to kill legacy tmux sessions for workspace %s before worktree removal: %v", wsID, err)
+	}
 }
 
 func (a *App) cleanupAllTmuxSessions() tea.Cmd {

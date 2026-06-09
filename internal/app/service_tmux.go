@@ -57,6 +57,10 @@ func (tmuxOps) KillSessionsWithPrefix(prefix string, opts tmux.Options) error {
 	return tmux.KillSessionsWithPrefix(prefix, opts)
 }
 
+func (tmuxOps) KillSessionsWithPrefixMissingTag(prefix, tag string, opts tmux.Options) error {
+	return tmux.KillSessionsWithPrefixMissingTag(prefix, tag, opts)
+}
+
 func (tmuxOps) KillWorkspaceSessions(wsID string, opts tmux.Options) error {
 	return tmux.KillWorkspaceSessions(wsID, opts)
 }
