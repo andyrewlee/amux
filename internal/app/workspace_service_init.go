@@ -48,6 +48,11 @@ type workspaceService struct {
 	// deleteInFlightGuard runs a store mutation only when the workspace is not
 	// mid-delete, keeping the check atomic with App delete-state updates.
 	deleteInFlightGuard func(wsID string, fn func()) bool
+	// killWorkspaceSessions synchronously tears down a workspace's tmux sessions.
+	// Wired in app_init; nil in directly-constructed services (a no-op). Called
+	// only after worktree removal succeeds, so failed deletes leave live sessions
+	// intact.
+	killWorkspaceSessions func(wsID string)
 }
 
 // isDeleteInFlight reports whether the workspace is mid-delete. It is nil-safe so

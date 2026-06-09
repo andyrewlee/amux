@@ -159,6 +159,9 @@ func New(version, commit, date string) (*App, error) {
 	// so it can skip workspaces that are being deleted (used by the rescan guard).
 	workspaceService.deleteInFlight = app.isWorkspaceDeleteInFlight
 	workspaceService.deleteInFlightGuard = app.runUnlessWorkspaceDeleteInFlight
+	// Let the delete path tear down workspace tmux sessions after worktree
+	// removal succeeds, without killing live sessions for failed deletes.
+	workspaceService.killWorkspaceSessions = app.killWorkspaceSessionsSync
 
 	return app, nil
 }

@@ -276,9 +276,13 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 
 		if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
 			if !git.IsUnregisteredWorkspacePathError(err) {
+				if workspacePathGone(ws.Root) {
+					s.killWorkspaceSessionsForDelete(wsID)
+				}
 				return fail("remove_worktree", err)
 			}
 			if _, statErr := os.Stat(ws.Root); os.IsNotExist(statErr) {
+				s.killWorkspaceSessionsForDelete(wsID)
 				return fail("remove_worktree", err)
 			} else if statErr != nil {
 				return fail("remove_worktree", errors.Join(err, statErr))
@@ -291,6 +295,11 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			}
 			logging.Warn("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
 		}
+
+		// The worktree removal has succeeded or an owned stale path was cleaned up.
+		// Tear down any remaining workspace tmux sessions before metadata deletion,
+		// but never kill sessions for a delete that failed and left the workspace.
+		s.killWorkspaceSessionsForDelete(wsID)
 
 		if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
 			logging.Warn("workspace delete branch cleanup failed workspace_id=%s branch=%s error=%v", wsID, ws.Branch, err)
@@ -313,6 +322,17 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			Workspace: ws,
 		}
 	}
+}
+
+func (s *workspaceService) killWorkspaceSessionsForDelete(wsID string) {
+	if s != nil && s.killWorkspaceSessions != nil {
+		s.killWorkspaceSessions(wsID)
+	}
+}
+
+func workspacePathGone(path string) bool {
+	_, err := os.Stat(path)
+	return os.IsNotExist(err)
 }
 
 // RemoveProject removes a project from the registry (does not delete files).
