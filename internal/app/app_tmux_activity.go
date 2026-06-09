@@ -239,7 +239,10 @@ func (a *App) fetchAndSyncActivitySessionStates(
 		return nil, nil, err
 	}
 	// Mutates infoBySession so IsRunningSession sees corrected statuses.
-	stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts)
+	if a.activityMissBySession == nil {
+		a.activityMissBySession = make(map[string]int)
+	}
+	stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts, a.activityMissBySession)
 	return sessions, stoppedTabs, nil
 }
 
@@ -318,11 +321,37 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 // ActiveWorkspaceIDsFromTags call (which filters via IsRunningSession) sees corrected
 // statuses. It returns TabSessionStatus messages for sessions whose status changed
 // from a running-like state to stopped.
+// activityDemotionMissThreshold is the number of consecutive non-live activity
+// observations required before a running session is demoted to stopped. A single
+// best-effort AllSessionStates call can miss a live session under load, so one
+// miss must not tear down a working background agent.
+const activityDemotionMissThreshold = 2
+
+// recordSessionMiss increments the consecutive-non-live counter for a session and,
+// once the hysteresis threshold is reached, marks it stopped. It returns the
+// (possibly updated) info and whether a stopped message should be emitted — true
+// only on the transition from a running-like status.
+func recordSessionMiss(missBySession map[string]int, sessionName string, info activity.SessionInfo) (activity.SessionInfo, bool) {
+	// A nil counter disables hysteresis (single-miss demotion). The production
+	// caller always passes a real map; some unit tests opt out to assert the
+	// per-observation decision directly.
+	if missBySession != nil {
+		missBySession[sessionName]++
+		if missBySession[sessionName] < activityDemotionMissThreshold {
+			return info, false
+		}
+	}
+	wasRunningLike := activity.IsRunningSession(info, true)
+	info.Status = "stopped"
+	return info, wasRunningLike
+}
+
 func syncActivitySessionStates(
 	infoBySession map[string]activity.SessionInfo,
 	sessions []activity.TaggedSession,
 	svc TmuxOps,
 	opts tmux.Options,
+	missBySession map[string]int,
 ) []messages.TabSessionStatus {
 	stoppedTabs := make([]messages.TabSessionStatus, 0)
 	if svc == nil || len(infoBySession) == 0 {
@@ -351,13 +380,13 @@ func syncActivitySessionStates(
 		if !ok {
 			continue
 		}
-		isRunningLikeStatus := activity.IsRunningSession(info, true)
 
 		state := allStates[sessionName] // zero value if missing (Exists=false)
 
 		if !state.Exists || !state.HasLivePane {
-			info.Status = "stopped"
-			if isRunningLikeStatus {
+			var emit bool
+			info, emit = recordSessionMiss(missBySession, sessionName, info)
+			if emit {
 				if wsID := strings.TrimSpace(info.WorkspaceID); wsID != "" {
 					stoppedTabs = append(stoppedTabs, messages.TabSessionStatus{
 						WorkspaceID: wsID,
@@ -366,23 +395,28 @@ func syncActivitySessionStates(
 					})
 				}
 			}
-		} else if strings.EqualFold(info.Status, "stopped") {
-			info.Status = "running"
+		} else {
+			// Live again: reset the miss counter and revive a previously-stopped
+			// session so it is no longer treated as dead.
+			delete(missBySession, sessionName)
+			if strings.EqualFold(info.Status, "stopped") {
+				info.Status = "running"
+			}
 		}
 		infoBySession[sessionName] = info
 	}
 
-	// Sessions that no longer appear in list-sessions are no longer running.
+	// Sessions that no longer appear in list-sessions are non-live this scan; the
+	// same hysteresis applies before demoting them.
 	for sessionName, info := range infoBySession {
 		if _, ok := checked[sessionName]; ok {
 			continue
 		}
-		isRunningLikeStatus := activity.IsRunningSession(info, true)
-		if isRunningLikeStatus {
-			info.Status = "stopped"
-			infoBySession[sessionName] = info
-			wsID := strings.TrimSpace(info.WorkspaceID)
-			if wsID != "" {
+		var emit bool
+		info, emit = recordSessionMiss(missBySession, sessionName, info)
+		infoBySession[sessionName] = info
+		if emit {
+			if wsID := strings.TrimSpace(info.WorkspaceID); wsID != "" {
 				stoppedTabs = append(stoppedTabs, messages.TabSessionStatus{
 					WorkspaceID: wsID,
 					SessionName: sessionName,

@@ -136,7 +136,10 @@ type App struct {
 	tmuxInstallHint           string
 	tmuxActiveWorkspaceIDs    map[string]bool
 	sessionActivityStates     map[string]*activity.SessionState // Per-session hysteresis state
-	instanceID                string                            // Immutable after init; safe for read-only access from Cmd goroutines.
+	// activityMissBySession counts consecutive non-live activity observations per
+	// session so a single transient miss does not demote a working agent.
+	activityMissBySession map[string]int
+	instanceID            string // Immutable after init; safe for read-only access from Cmd goroutines.
 
 	// Workspace persistence debounce
 	dirtyWorkspaces      map[string]bool

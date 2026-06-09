@@ -121,6 +121,7 @@ func TestSyncActivitySessionStates_NilSvc(t *testing.T) {
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		nil,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 0 {
 		t.Fatalf("expected empty result with nil svc, got %d", len(result))
@@ -138,6 +139,7 @@ func TestSyncActivitySessionStates_EmptyInfoBySession(t *testing.T) {
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 0 {
 		t.Fatalf("expected empty result with empty infoBySession, got %d", len(result))
@@ -156,6 +158,7 @@ func TestSyncActivitySessionStates_AllSessionStatesError(t *testing.T) {
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 0 {
 		t.Fatalf("expected empty result on AllSessionStates error, got %d", len(result))
@@ -180,6 +183,7 @@ func TestSyncActivitySessionStates_RunningSessionDeadPane(t *testing.T) {
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 stopped tab, got %d", len(result))
@@ -205,6 +209,7 @@ func TestSyncActivitySessionStates_RunningSessionDisappeared(t *testing.T) {
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 stopped tab for disappeared session, got %d", len(result))
@@ -231,6 +236,7 @@ func TestSyncActivitySessionStates_StoppedSessionRevived(t *testing.T) {
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 0 {
 		t.Fatalf("expected no stopped emissions for revived session, got %d", len(result))
@@ -253,6 +259,7 @@ func TestSyncActivitySessionStates_AlreadyStoppedDisappeared(t *testing.T) {
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 0 {
 		t.Fatalf("expected no duplicate stopped emission, got %d", len(result))
@@ -272,6 +279,7 @@ func TestSyncActivitySessionStates_TaggedNotInInfo(t *testing.T) {
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "unknown"}}},
 		svc,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 0 {
 		t.Fatalf("expected no stopped emissions for unknown session, got %d", len(result))
@@ -291,6 +299,7 @@ func TestSyncActivitySessionStates_InfoNotInTaggedRunning(t *testing.T) {
 		[]activity.TaggedSession{}, // no tagged sessions
 		svc,
 		tmux.Options{},
+		nil,
 	)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 stopped tab for orphan running session, got %d", len(result))
