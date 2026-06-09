@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -71,6 +73,48 @@ func TestCreateWorkspaceGitFailureIncludesPendingWorkspace(t *testing.T) {
 	}
 	if !errors.Is(failed.Err, gitErr) {
 		t.Fatalf("expected git error, got %v", failed.Err)
+	}
+}
+
+func TestCreateWorkspacePanicReleasesRepoGitLock(t *testing.T) {
+	project := data.NewProject("/tmp/repo")
+	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+
+	createCalls := 0
+	secondErr := errors.New("second create reached")
+	svc.gitOps = &mockGitOps{
+		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+			createCalls++
+			if createCalls == 1 {
+				panic("git worktree add panicked")
+			}
+			return secondErr
+		},
+	}
+
+	msg := svc.CreateWorkspace(project, "feature", "main")()
+	if failed, ok := msg.(messages.WorkspaceCreateFailed); !ok {
+		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+	} else if failed.Err == nil {
+		t.Fatal("expected panic recovery error, got nil")
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		done <- svc.CreateWorkspace(project, "feature-two", "main")()
+	}()
+
+	select {
+	case msg := <-done:
+		failed, ok := msg.(messages.WorkspaceCreateFailed)
+		if !ok {
+			t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+		}
+		if !errors.Is(failed.Err, secondErr) {
+			t.Fatalf("expected second create error, got %v", failed.Err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("second create blocked, repo git lock was not released")
 	}
 }
 

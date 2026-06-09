@@ -147,7 +147,7 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 			}
 		}
 
-		if err := s.gitOps.CreateWorkspace(project.Path, workspacePath, branch, base); err != nil {
+		if err := s.createWorkspaceLocked(project.Path, workspacePath, branch, base); err != nil {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -178,6 +178,13 @@ func (s *workspaceService) CreateWorkspace(project *data.Project, name, base str
 		// Return immediately for async setup
 		return messages.WorkspaceCreated{Workspace: ws}
 	}
+}
+
+func (s *workspaceService) createWorkspaceLocked(repoPath, workspacePath, branch, base string) error {
+	unlock := s.lockRepoGit(repoPath)
+	defer unlock()
+
+	return s.gitOps.CreateWorkspace(repoPath, workspacePath, branch, base)
 }
 
 // RunSetupAsync runs setup scripts asynchronously and returns a WorkspaceSetupComplete message.
@@ -275,37 +282,9 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 		}
 
-		if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
-			if !git.IsUnregisteredWorkspacePathError(err) {
-				if workspacePathGone(ws.Root) {
-					s.killWorkspaceSessionsForDelete(wsID)
-				}
-				return fail("remove_worktree", err)
-			}
-			if _, statErr := os.Stat(ws.Root); os.IsNotExist(statErr) {
-				s.killWorkspaceSessionsForDelete(wsID)
-				return fail("remove_worktree", err)
-			} else if statErr != nil {
-				return fail("remove_worktree", errors.Join(err, statErr))
-			}
-			if !isManagedWorkspaceChildPathForProject(s.workspacesRoot, project, ws.Root) {
-				return fail("remove_worktree", err)
-			}
-			if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
-				return fail("remove_worktree", errors.Join(err, cleanupErr))
-			}
-			logging.Warn("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
-		}
-
-		// The worktree removal has succeeded or an owned stale path was cleaned up.
-		// Tear down any remaining workspace tmux sessions before metadata deletion,
-		// but never kill sessions for a delete that failed and left the workspace.
-		s.killWorkspaceSessionsForDelete(wsID)
-
-		var warning string
-		if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
-			logging.Warn("workspace delete branch cleanup failed workspace_id=%s branch=%s error=%v", wsID, ws.Branch, err)
-			warning = fmt.Sprintf("workspace deleted but branch %s was left behind: %v", ws.Branch, err)
+		warning, failMsg := s.removeWorktreeAndBranchLocked(project, ws, projectPath, wsID, fail)
+		if failMsg != nil {
+			return failMsg
 		}
 		if s.store != nil {
 			if err := s.store.Delete(ws.ID()); err != nil {
@@ -364,6 +343,66 @@ func (s *workspaceService) archiveDeletedWorkspaceMetadata(ws *data.Workspace) e
 	if err := s.store.Save(&archived); err != nil {
 		return fmt.Errorf("archive deleted workspace metadata: %w", err)
 	}
+	return nil
+}
+
+// removeWorktreeAndBranchLocked runs the git mutations (worktree remove + branch
+// delete) under the per-repo lock so concurrent same-repo deletes do not contend
+// on .git locks. It returns a non-fatal branch-delete warning and a failure
+// message that is non-nil only when the worktree removal hard-failed; the caller
+// then returns it and skips metadata removal.
+func (s *workspaceService) removeWorktreeAndBranchLocked(
+	project *data.Project, ws *data.Workspace, projectPath, wsID string,
+	fail func(stage string, err error) tea.Msg,
+) (warning string, failMsg tea.Msg) {
+	unlock := s.lockRepoGit(projectPath)
+	defer unlock()
+
+	if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
+		if failMsg := s.handleStaleRemoveError(project, ws, wsID, err, fail); failMsg != nil {
+			return "", failMsg
+		}
+	}
+
+	// The worktree removal has succeeded or an owned stale path was cleaned up.
+	// Tear down any remaining workspace tmux sessions before metadata deletion,
+	// but never kill sessions for a delete that failed and left the workspace.
+	s.killWorkspaceSessionsForDelete(wsID)
+
+	if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
+		logging.Warn("workspace delete branch cleanup failed workspace_id=%s branch=%s error=%v", wsID, ws.Branch, err)
+		warning = fmt.Sprintf("workspace deleted but branch %s was left behind: %v", ws.Branch, err)
+	}
+	return warning, nil
+}
+
+// handleStaleRemoveError resolves a RemoveWorkspace error. It returns a non-nil
+// failure message when the removal genuinely failed, or nil when an unregistered
+// worktree path was reconciled by a managed stale-path cleanup.
+func (s *workspaceService) handleStaleRemoveError(
+	project *data.Project, ws *data.Workspace, wsID string, err error,
+	fail func(stage string, err error) tea.Msg,
+) tea.Msg {
+	if !git.IsUnregisteredWorkspacePathError(err) {
+		if workspacePathGone(ws.Root) {
+			s.killWorkspaceSessionsForDelete(wsID)
+		}
+		return fail("remove_worktree", err)
+	}
+	if _, statErr := os.Stat(ws.Root); statErr != nil {
+		if os.IsNotExist(statErr) {
+			s.killWorkspaceSessionsForDelete(wsID)
+			return fail("remove_worktree", err)
+		}
+		return fail("remove_worktree", errors.Join(err, statErr))
+	}
+	if !isManagedWorkspaceChildPathForProject(s.workspacesRoot, project, ws.Root) {
+		return fail("remove_worktree", err)
+	}
+	if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
+		return fail("remove_worktree", errors.Join(err, cleanupErr))
+	}
+	logging.Warn("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
 	return nil
 }
 
