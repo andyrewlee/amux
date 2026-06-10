@@ -2,6 +2,7 @@ package center
 
 import (
 	"context"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,14 +34,16 @@ func TestUpdatePTYFlush_StaleActorHeartbeatForcesParserResetFallback(t *testing.
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                 TabID("tab-1"),
-		Assistant:          "codex",
-		Workspace:          ws,
-		Terminal:           vterm.New(80, 24),
-		Running:            true,
-		pendingOutput:      []byte("visible"),
-		lastOutputAt:       time.Now().Add(-time.Second),
-		flushPendingSince:  time.Now().Add(-time.Second),
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput:     []byte("visible"),
+			LastOutputAt:      time.Now().Add(-time.Second),
+			FlushPendingSince: time.Now().Add(-time.Second),
+		},
 		parserResetPending: true,
 		actorWritesPending: 1,
 	}
@@ -56,10 +59,10 @@ func TestUpdatePTYFlush_StaleActorHeartbeatForcesParserResetFallback(t *testing.
 	if tab.actorWritesPending != 0 {
 		t.Fatalf("expected stale actor flush to clear actorWritesPending, got %d", tab.actorWritesPending)
 	}
-	if len(tab.pendingOutput) == 0 {
+	if len(tab.PendingOutput) == 0 {
 		t.Fatal("expected pending output to remain queued for the follow-up flush")
 	}
-	if !tab.flushScheduled {
+	if !tab.FlushScheduled {
 		t.Fatal("expected follow-up flush to be scheduled after stale actor fallback")
 	}
 }

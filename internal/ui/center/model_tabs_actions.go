@@ -53,7 +53,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	// via CloseAgent() above; leaving the pointer intact is safe.
 	tab.DiffViewer = nil
 	tab.Terminal = nil
-	tab.cachedSnap = nil
+	tab.CachedSnap = nil
 	tab.Workspace = nil
 	tab.Running = false
 	tab.resetPTYStateLocked()

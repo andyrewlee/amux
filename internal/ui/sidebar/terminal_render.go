@@ -164,9 +164,9 @@ func (m *TerminalModel) TerminalLayerWithCursorOwner(cursorOwner bool) *composit
 	if !cursorOwner {
 		showCursor = false
 	}
-	if ts.cachedSnap != nil && ts.cachedVersion == version && ts.cachedShowCursor == showCursor {
+	if ts.CachedSnap != nil && ts.CachedVersion == version && ts.CachedShowCursor == showCursor {
 		perf.Count("vterm_snapshot_cache_hit", 1)
-		return compositor.NewVTermLayer(ts.cachedSnap)
+		return compositor.NewVTermLayer(ts.CachedSnap)
 	}
 
 	// Do not pass the previous snapshot for reuse: NewVTermSnapshotWithCache
@@ -178,9 +178,9 @@ func (m *TerminalModel) TerminalLayerWithCursorOwner(cursorOwner bool) *composit
 	}
 	perf.Count("vterm_snapshot_cache_miss", 1)
 
-	ts.cachedSnap = snap
-	ts.cachedVersion = version
-	ts.cachedShowCursor = showCursor
+	ts.CachedSnap = snap
+	ts.CachedVersion = version
+	ts.CachedShowCursor = showCursor
 	return compositor.NewVTermLayer(snap)
 }
 
@@ -235,14 +235,16 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 	// Tab management hints
 	items = append(items, m.helpItem("C-Spc t t", "new term"))
 	if m.HasMultipleTabs() {
-		items = append(items,
+		items = append(
+			items,
 			m.helpItem("C-Spc t n", "next"),
 			m.helpItem("C-Spc t p", "prev"),
 			m.helpItem("C-Spc t x", "close"),
 		)
 	}
 	if hasTerm {
-		items = append(items,
+		items = append(
+			items,
 			m.helpItem("C-Spc t d", "detach"),
 			m.helpItem("C-Spc t r", "reattach"),
 			m.helpItem("C-Spc t s", "restart"),
@@ -250,7 +252,8 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 	}
 
 	if hasTerm {
-		items = append(items,
+		items = append(
+			items,
 			m.helpItem("PgUp", "half up"),
 			m.helpItem("PgDn", "half down"),
 		)

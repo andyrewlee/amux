@@ -2,6 +2,7 @@ package center
 
 import (
 	"bytes"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -179,11 +180,13 @@ func TestUpdatePTYOutput_ResetsActivityStateAfterOverflowCarryTrim(t *testing.T)
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Running:           true,
-		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		Running:   true,
+		State: ptyio.State{
+			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
+		},
 		activityANSIState: ansiActivityCSI,
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
@@ -195,11 +198,11 @@ func TestUpdatePTYOutput_ResetsActivityStateAfterOverflowCarryTrim(t *testing.T)
 		Data:        []byte("31mX"),
 	})
 
-	if string(tab.pendingOutput) != "X" {
-		t.Fatalf("expected overflow carry trim to retain visible suffix, got %q", tab.pendingOutput)
+	if string(tab.PendingOutput) != "X" {
+		t.Fatalf("expected overflow carry trim to retain visible suffix, got %q", tab.PendingOutput)
 	}
-	if tab.overflowTrimCarry != (vterm.ParserCarryState{}) {
-		t.Fatalf("expected overflow trim carry cleared, got %+v", tab.overflowTrimCarry)
+	if tab.OverflowTrimCarry != (vterm.ParserCarryState{}) {
+		t.Fatalf("expected overflow trim carry cleared, got %+v", tab.OverflowTrimCarry)
 	}
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activity ANSI state reset to text, got %v", tab.activityANSIState)
@@ -240,8 +243,8 @@ func TestUpdatePTYOutput_EndsBootstrapAfterQuietGap(t *testing.T) {
 		t.Fatal("expected bootstrapActivity to end after quiet gap before new output")
 	}
 
-	tab.lastOutputAt = time.Now().Add(-time.Second)
-	tab.flushPendingSince = tab.lastOutputAt
+	tab.LastOutputAt = time.Now().Add(-time.Second)
+	tab.FlushPendingSince = tab.LastOutputAt
 	m.tabEvents = nil
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 	if tab.lastVisibleOutput.IsZero() {
@@ -272,8 +275,8 @@ func TestUpdatePTYFlush_TagsVisibleScreenDelta(t *testing.T) {
 		TabID:       tab.ID,
 		Data:        []byte("visible output"),
 	})
-	tab.lastOutputAt = time.Now().Add(-time.Second)
-	tab.flushPendingSince = tab.lastOutputAt
+	tab.LastOutputAt = time.Now().Add(-time.Second)
+	tab.FlushPendingSince = tab.LastOutputAt
 	m.tabEvents = nil
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 
@@ -288,8 +291,8 @@ func TestUpdatePTYFlush_TagsVisibleScreenDelta(t *testing.T) {
 		TabID:       tab.ID,
 		Data:        []byte("\nmore visible output"),
 	})
-	tab.lastOutputAt = time.Now().Add(-time.Second)
-	tab.flushPendingSince = tab.lastOutputAt
+	tab.LastOutputAt = time.Now().Add(-time.Second)
+	tab.FlushPendingSince = tab.LastOutputAt
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 	if tab.lastVisibleOutput.IsZero() {
 		t.Fatalf("expected second visible delta flush to set lastVisibleOutput")
@@ -323,8 +326,8 @@ func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
 		TabID:       tab.ID,
 		Data:        []byte("stable"),
 	})
-	tab.lastOutputAt = time.Now().Add(-time.Second)
-	tab.flushPendingSince = tab.lastOutputAt
+	tab.LastOutputAt = time.Now().Add(-time.Second)
+	tab.FlushPendingSince = tab.LastOutputAt
 	m.tabEvents = nil
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 	firstVisible := tab.lastVisibleOutput
@@ -341,8 +344,8 @@ func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
 		TabID:       tab.ID,
 		Data:        []byte("\rstable"),
 	})
-	tab.lastOutputAt = time.Now().Add(-time.Second)
-	tab.flushPendingSince = tab.lastOutputAt
+	tab.LastOutputAt = time.Now().Add(-time.Second)
+	tab.FlushPendingSince = tab.LastOutputAt
 	m.tabEvents = nil
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 
@@ -365,12 +368,14 @@ func TestUpdatePTYFlush_RebuffersChunkAfterActorFallbackWithOlderPendingWrites(t
 	prevCarry := vterm.ParserCarryState{Mode: vterm.ParserCarryCSIParam}
 	chunk := []byte("1mX\nproc(1) malloc")
 	tab := &Tab{
-		ID:                       TabID("tab-1"),
-		Assistant:                "codex",
-		Workspace:                ws,
-		Terminal:                 vterm.New(80, 24),
-		Running:                  true,
-		pendingOutput:            append([]byte(nil), chunk...),
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput: append([]byte(nil), chunk...),
+		},
 		actorWritesPending:       1,
 		actorWriteEpoch:          11,
 		actorQueuedCarry:         prevCarry,
@@ -392,11 +397,11 @@ func TestUpdatePTYFlush_RebuffersChunkAfterActorFallbackWithOlderPendingWrites(t
 	if !bytes.Equal(tab.actorQueuedNoiseTrailing, prevNoiseTrailing) {
 		t.Fatalf("expected queued noise trailing restored to %q, got %q", prevNoiseTrailing, tab.actorQueuedNoiseTrailing)
 	}
-	if !bytes.Equal(tab.pendingOutput, chunk) {
-		t.Fatalf("expected chunk to be rebuffered for in-order retry, got %q", tab.pendingOutput)
+	if !bytes.Equal(tab.PendingOutput, chunk) {
+		t.Fatalf("expected chunk to be rebuffered for in-order retry, got %q", tab.PendingOutput)
 	}
-	if len(tab.ptyNoiseTrailing) != 0 {
-		t.Fatalf("expected no synchronous fallback write while older actor writes remain, got trailing %q", tab.ptyNoiseTrailing)
+	if len(tab.NoiseTrailing) != 0 {
+		t.Fatalf("expected no synchronous fallback write while older actor writes remain, got trailing %q", tab.NoiseTrailing)
 	}
 	if tab.Terminal.ParserCarryState() != (vterm.ParserCarryState{}) {
 		t.Fatalf("expected terminal parser state unchanged until actor backlog drains, got %+v", tab.Terminal.ParserCarryState())
@@ -425,8 +430,8 @@ func TestUpdatePTYFlush_SuppressesImmediateUserInputEcho(t *testing.T) {
 		TabID:       tab.ID,
 		Data:        []byte("echoed input"),
 	})
-	tab.lastOutputAt = time.Now().Add(-time.Second)
-	tab.flushPendingSince = tab.lastOutputAt
+	tab.LastOutputAt = time.Now().Add(-time.Second)
+	tab.FlushPendingSince = tab.LastOutputAt
 	m.tabEvents = nil
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 	_ = m.updatePTYOutput(PTYOutput{
@@ -434,8 +439,8 @@ func TestUpdatePTYFlush_SuppressesImmediateUserInputEcho(t *testing.T) {
 		TabID:       tab.ID,
 		Data:        []byte("still echoed input"),
 	})
-	tab.lastOutputAt = time.Now().Add(-time.Second)
-	tab.flushPendingSince = tab.lastOutputAt
+	tab.LastOutputAt = time.Now().Add(-time.Second)
+	tab.FlushPendingSince = tab.LastOutputAt
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 
 	if !tab.lastVisibleOutput.IsZero() {
@@ -463,12 +468,14 @@ func TestUpdatePTYFlush_RebufferPreservesOrderWithTrailingPending(t *testing.T) 
 	original := append(append([]byte(nil), head...), tail...)
 
 	tab := &Tab{
-		ID:                 TabID("tab-order"),
-		Assistant:          "codex",
-		Workspace:          ws,
-		Terminal:           vterm.New(80, 24),
-		Running:            true,
-		pendingOutput:      append([]byte(nil), original...),
+		ID:        TabID("tab-order"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput: append([]byte(nil), original...),
+		},
 		pendingOutputBytes: len(original),
 		actorWritesPending: 1,
 		actorWriteEpoch:    11,
@@ -479,11 +486,11 @@ func TestUpdatePTYFlush_RebufferPreservesOrderWithTrailingPending(t *testing.T) 
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 
-	if !bytes.Equal(tab.pendingOutput, original) {
+	if !bytes.Equal(tab.PendingOutput, original) {
 		t.Fatalf("rebuffer must restore original stream order (prepend); len=%d endsWithTail=%v",
-			len(tab.pendingOutput), bytes.HasSuffix(tab.pendingOutput, tail))
+			len(tab.PendingOutput), bytes.HasSuffix(tab.PendingOutput, tail))
 	}
-	if !bytes.HasSuffix(tab.pendingOutput, tail) {
+	if !bytes.HasSuffix(tab.PendingOutput, tail) {
 		t.Fatalf("tail no longer at the end — chunk was appended, reordering the stream")
 	}
 }

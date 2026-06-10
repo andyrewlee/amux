@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -17,12 +18,14 @@ func TestTerminalLayerTracksFreshSubmitPromptBeforeStableCursorLearned(t *testin
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-fresh-submit-before-anchor"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		lastOutputAt:      time.Now(),
+		ID:        TabID("tab-chat-fresh-submit-before-anchor"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 		lastVisibleOutput: time.Now(),
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
@@ -31,7 +34,7 @@ func TestTerminalLayerTracksFreshSubmitPromptBeforeStableCursorLearned(t *testin
 	m.Focus()
 
 	recordLocalInputEchoWindow(tab, "\r", time.Now())
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
@@ -60,15 +63,17 @@ func TestTerminalLayerTracksIndentedSubmitRedrawBeforePostSubmitOutput(t *testin
 	term.Screen[11][0] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-indented-submit-redraw"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		stableCursorSet:   true,
-		stableCursorX:     10,
-		stableCursorY:     10,
-		lastOutputAt:      time.Now().Add(-time.Millisecond),
+		ID:              TabID("tab-chat-indented-submit-redraw"),
+		Assistant:       "codex",
+		Workspace:       ws,
+		Terminal:        term,
+		Running:         true,
+		stableCursorSet: true,
+		stableCursorX:   10,
+		stableCursorY:   10,
+		State: ptyio.State{
+			LastOutputAt: time.Now().Add(-time.Millisecond),
+		},
 		lastVisibleOutput: time.Now().Add(-time.Millisecond),
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
@@ -104,12 +109,14 @@ func TestTerminalLayerDoesNotLearnInitialCursorFromBlankControlOnlyJump(t *testi
 	term.CursorY = 4
 
 	tab := &Tab{
-		ID:           TabID("tab-chat-initial-blank-control-jump"),
-		Assistant:    "codex",
-		Workspace:    ws,
-		Terminal:     term,
-		Running:      true,
-		lastOutputAt: time.Now().Add(-tabActiveWindow - time.Millisecond),
+		ID:        TabID("tab-chat-initial-blank-control-jump"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: time.Now().Add(-tabActiveWindow - time.Millisecond),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 	m.activeTabByWorkspace[wsID] = 0
@@ -139,12 +146,14 @@ func TestTerminalLayerAllowsSecondToLastRowCursorInShortRestrictedViewport(t *te
 	term.Screen[4][1] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-short-pane-second-last-row"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		lastOutputAt:      time.Now(),
+		ID:        TabID("tab-chat-short-pane-second-last-row"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 		lastVisibleOutput: time.Now(),
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}

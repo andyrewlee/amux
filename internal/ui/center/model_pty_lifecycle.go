@@ -21,38 +21,38 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 		return nil
 	}
 	tab.mu.Lock()
-	if tab.readerActive {
-		if tab.ptyMsgCh == nil || tab.readerCancel == nil {
-			tab.readerActive = false
+	if tab.ReaderActive {
+		if tab.MsgCh == nil || tab.ReaderCancel == nil {
+			tab.ReaderActive = false
 		} else {
 			tab.mu.Unlock()
 			return nil
 		}
 	}
 	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
-		tab.readerActive = false
+		tab.ReaderActive = false
 		tab.mu.Unlock()
 		return nil
 	}
-	tab.readerActive = true
-	tab.ptyRestartBackoff = 0
-	atomic.StoreInt64(&tab.ptyHeartbeat, time.Now().UnixNano())
+	tab.ReaderActive = true
+	tab.RestartBackoff = 0
+	atomic.StoreInt64(&tab.Heartbeat, time.Now().UnixNano())
 
-	if tab.readerCancel != nil {
-		close(tab.readerCancel)
+	if tab.ReaderCancel != nil {
+		close(tab.ReaderCancel)
 	}
-	tab.readerCancel = make(chan struct{})
-	tab.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
+	tab.ReaderCancel = make(chan struct{})
+	tab.MsgCh = make(chan tea.Msg, ptyReadQueueSize)
 
 	term := tab.Agent.Terminal
 	tabID := tab.ID
-	cancel := tab.readerCancel
-	msgCh := tab.ptyMsgCh
+	cancel := tab.ReaderCancel
+	msgCh := tab.MsgCh
 	tab.mu.Unlock()
 
 	safego.Go("center.pty_reader", func() {
 		defer m.markPTYReaderStopped(tab)
-		ptyio.RunPTYReader(term, msgCh, cancel, &tab.ptyHeartbeat, ptyio.PTYReaderConfig{
+		ptyio.RunPTYReader(term, msgCh, cancel, &tab.Heartbeat, ptyio.PTYReaderConfig{
 			Label:           "center.pty_read_loop",
 			ReadBufferSize:  ptyReadBufferSize,
 			ReadQueueSize:   ptyReadQueueSize,
@@ -89,14 +89,14 @@ func (m *Model) stopPTYReader(tab *Tab) {
 		return
 	}
 	tab.mu.Lock()
-	if tab.readerCancel != nil {
-		close(tab.readerCancel)
-		tab.readerCancel = nil
+	if tab.ReaderCancel != nil {
+		close(tab.ReaderCancel)
+		tab.ReaderCancel = nil
 	}
-	tab.readerActive = false
-	tab.ptyMsgCh = nil
+	tab.ReaderActive = false
+	tab.MsgCh = nil
 	tab.mu.Unlock()
-	atomic.StoreInt64(&tab.ptyHeartbeat, 0)
+	atomic.StoreInt64(&tab.Heartbeat, 0)
 }
 
 func (m *Model) markPTYReaderStopped(tab *Tab) {
@@ -104,8 +104,8 @@ func (m *Model) markPTYReaderStopped(tab *Tab) {
 		return
 	}
 	tab.mu.Lock()
-	tab.readerActive = false
-	tab.ptyMsgCh = nil
+	tab.ReaderActive = false
+	tab.MsgCh = nil
 	tab.mu.Unlock()
-	atomic.StoreInt64(&tab.ptyHeartbeat, 0)
+	atomic.StoreInt64(&tab.Heartbeat, 0)
 }

@@ -168,9 +168,9 @@ func (m *Model) setActiveTerminalCursorVisibility(visible bool) {
 	}
 	// Invalidate cached snapshot so focus transitions cannot reuse stale
 	// cursor-painted frames.
-	tab.cachedSnap = nil
-	tab.cachedVersion = 0
-	tab.cachedShowCursor = false
+	tab.CachedSnap = nil
+	tab.CachedVersion = 0
+	tab.CachedShowCursor = false
 	tab.cachedRecentLocalInput = false
 	tab.cachedRestrictCursor = false
 }
@@ -207,7 +207,7 @@ func (m *Model) Close() {
 			tab.resetPTYStateLocked()
 			tab.DiffViewer = nil
 			tab.Terminal = nil
-			tab.cachedSnap = nil
+			tab.CachedSnap = nil
 			tab.Workspace = nil
 			tab.Running = false
 			tab.mu.Unlock()

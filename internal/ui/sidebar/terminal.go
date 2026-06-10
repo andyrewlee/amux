@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -12,7 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -46,39 +45,18 @@ type TerminalState struct {
 	SessionName      string
 	mu               sync.Mutex
 
+	// ptyio.State holds the shared PTY buffering/reader/restart/snapshot
+	// bookkeeping (locking owned by mu, as documented on the type).
+	ptyio.State
+
 	// Track last size to avoid unnecessary resizes
 	lastWidth  int
 	lastHeight int
-
-	// PTY output buffering
-	pendingOutput     []byte
-	ptyNoiseTrailing  []byte
-	overflowTrimCarry vterm.ParserCarryState
-	flushScheduled    bool
-	lastOutputAt      time.Time
-	flushPendingSince time.Time
-	// Throttle + accumulator for the overflow-drop Warn (at most one per
-	// overflowLogThrottle with the aggregated dropped-byte count).
-	lastOverflowLogAt       time.Time
-	overflowDroppedSinceLog int
 
 	// Selection state
 	Selection          common.SelectionState
 	selectionScroll    common.SelectionScrollState
 	selectionLastTermX int
-
-	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
-	cachedSnap       *compositor.VTermSnapshot
-	cachedVersion    uint64
-	cachedShowCursor bool
-
-	readerActive      bool
-	ptyMsgCh          chan tea.Msg
-	readerCancel      chan struct{}
-	ptyRestartBackoff time.Duration
-	ptyHeartbeat      int64
-	ptyRestartCount   int
-	ptyRestartSince   time.Time
 }
 
 // terminalTabHitKind identifies the type of tab bar click target
@@ -319,6 +297,6 @@ func (m *TerminalModel) setActiveTerminalCursorVisibility(visible bool) {
 	}
 	// Invalidate cached snapshot so focus transitions cannot reuse stale
 	// cursor-painted frames.
-	ts.cachedSnap = nil
-	ts.cachedVersion = 0
+	ts.CachedSnap = nil
+	ts.CachedVersion = 0
 }

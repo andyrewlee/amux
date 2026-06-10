@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"strings"
 	"testing"
 
@@ -67,13 +68,15 @@ func TestUpdatePtyTabReattachResult_LoadsPaneCaptureIntoVisibleScreen(t *testing
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 	tab := &Tab{
-		ID:            TabID("tab-reattach-pane-capture"),
-		Assistant:     "codex",
-		Workspace:     ws,
-		Terminal:      term,
-		pendingOutput: []byte("buffered"),
+		ID:        TabID("tab-reattach-pane-capture"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 	}
-	tab.pendingOutputBytes = len(tab.pendingOutput)
+	tab.pendingOutputBytes = len(tab.PendingOutput)
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
@@ -101,8 +104,8 @@ func TestUpdatePtyTabReattachResult_LoadsPaneCaptureIntoVisibleScreen(t *testing
 	if got := tab.Terminal.Screen[1][0].Rune; got != 's' {
 		t.Fatalf("expected second visible row to start with screen data, got %q", got)
 	}
-	if len(tab.pendingOutput) != 0 || tab.pendingOutputBytes != 0 {
-		t.Fatalf("expected full-pane restore to clear preserved PTY backlog, got %q (%d bytes)", tab.pendingOutput, tab.pendingOutputBytes)
+	if len(tab.PendingOutput) != 0 || tab.pendingOutputBytes != 0 {
+		t.Fatalf("expected full-pane restore to clear preserved PTY backlog, got %q (%d bytes)", tab.PendingOutput, tab.pendingOutputBytes)
 	}
 }
 
@@ -187,13 +190,15 @@ func TestUpdatePtyTabReattachResult_NonAuthoritativeEmptyCapturePreservesExistin
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 	tab := &Tab{
-		ID:            TabID("tab-reattach-snapshot-fallback"),
-		Assistant:     "codex",
-		Workspace:     ws,
-		Terminal:      term,
-		pendingOutput: []byte("buffered"),
+		ID:        TabID("tab-reattach-snapshot-fallback"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 	}
-	tab.pendingOutputBytes = len(tab.pendingOutput)
+	tab.pendingOutputBytes = len(tab.PendingOutput)
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
@@ -216,8 +221,8 @@ func TestUpdatePtyTabReattachResult_NonAuthoritativeEmptyCapturePreservesExistin
 	if got := tab.Terminal.Screen[0][0].Rune; got != 's' {
 		t.Fatalf("expected existing visible frame to remain untouched, got %q", got)
 	}
-	if len(tab.pendingOutput) != len([]byte("buffered")) || tab.pendingOutputBytes != len([]byte("buffered")) {
-		t.Fatalf("expected non-authoritative fallback to preserve PTY backlog, got %q (%d bytes)", tab.pendingOutput, tab.pendingOutputBytes)
+	if len(tab.PendingOutput) != len([]byte("buffered")) || tab.pendingOutputBytes != len([]byte("buffered")) {
+		t.Fatalf("expected non-authoritative fallback to preserve PTY backlog, got %q (%d bytes)", tab.PendingOutput, tab.pendingOutputBytes)
 	}
 }
 
@@ -340,15 +345,17 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 	tabID := TabID("tab-existing-pane-capture")
 	m.tabsByWorkspace[wsID] = []*Tab{
 		{
-			ID:            tabID,
-			Name:          "codex",
-			Assistant:     "codex",
-			Workspace:     ws,
-			Terminal:      term,
-			pendingOutput: []byte("buffered"),
+			ID:        tabID,
+			Name:      "codex",
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			State: ptyio.State{
+				PendingOutput: []byte("buffered"),
+			},
 		},
 	}
-	m.tabsByWorkspace[wsID][0].pendingOutputBytes = len(m.tabsByWorkspace[wsID][0].pendingOutput)
+	m.tabsByWorkspace[wsID][0].pendingOutputBytes = len(m.tabsByWorkspace[wsID][0].PendingOutput)
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
 		Workspace:         ws,
@@ -378,8 +385,8 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 	if got := tab.Terminal.Screen[1][0].Rune; got != 's' {
 		t.Fatalf("expected second visible row to start with screen data, got %q", got)
 	}
-	if len(tab.pendingOutput) != 0 || tab.pendingOutputBytes != 0 {
-		t.Fatalf("expected full-pane restore to clear preserved PTY backlog, got %q (%d bytes)", tab.pendingOutput, tab.pendingOutputBytes)
+	if len(tab.PendingOutput) != 0 || tab.pendingOutputBytes != 0 {
+		t.Fatalf("expected full-pane restore to clear preserved PTY backlog, got %q (%d bytes)", tab.PendingOutput, tab.pendingOutputBytes)
 	}
 }
 

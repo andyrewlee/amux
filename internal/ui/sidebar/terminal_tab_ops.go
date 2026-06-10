@@ -90,7 +90,7 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 			tab.State.Terminal.Close()
 		}
 		tab.State.Running = false
-		tab.State.ptyRestartBackoff = 0
+		tab.State.RestartBackoff = 0
 		tab.State.mu.Unlock()
 	}
 

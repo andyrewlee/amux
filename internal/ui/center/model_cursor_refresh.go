@@ -33,7 +33,7 @@ func nextChatCursorRefreshDelayLocked(tab *Tab, now time.Time) (time.Duration, b
 		}
 	}
 	if isTabCursorOutputActiveLocked(tab, now) {
-		if remaining := tabActiveWindow - now.Sub(tab.lastOutputAt); remaining > 0 &&
+		if remaining := tabActiveWindow - now.Sub(tab.LastOutputAt); remaining > 0 &&
 			(!pending || remaining < delay) {
 			delay = remaining
 			pending = true
@@ -47,9 +47,9 @@ func invalidateCursorSnapshotCacheLocked(tab *Tab) {
 	if tab == nil {
 		return
 	}
-	tab.cachedSnap = nil
-	tab.cachedVersion = 0
-	tab.cachedShowCursor = false
+	tab.CachedSnap = nil
+	tab.CachedVersion = 0
+	tab.CachedShowCursor = false
 	tab.cachedRecentLocalInput = false
 	tab.cachedRestrictCursor = false
 }
@@ -68,7 +68,7 @@ func resetChatCursorActivityStateLocked(tab *Tab) {
 	tab.stableCursorVersion = 0
 	tab.lastRestrictedVersion = 0
 	tab.pendingIdleCursorRelearn = false
-	tab.lastOutputAt = time.Time{}
+	tab.LastOutputAt = time.Time{}
 	tab.lastUserInputAt = time.Time{}
 	tab.lastPromptInputAt = time.Time{}
 	tab.lastPromptSubmitAt = time.Time{}

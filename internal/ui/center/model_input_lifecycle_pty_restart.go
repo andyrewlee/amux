@@ -24,8 +24,8 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 		termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
-		if tab.Terminal != nil && len(tab.ptyNoiseTrailing) > 0 {
-			trailing := ptyio.DrainKnownPTYNoiseTrailing(&tab.ptyNoiseTrailing)
+		if tab.Terminal != nil && len(tab.NoiseTrailing) > 0 {
+			trailing := ptyio.DrainKnownPTYNoiseTrailing(&tab.NoiseTrailing)
 			flushDone := perf.Time("pty_flush")
 			tab.Terminal.Write(trailing)
 			flushDone()
@@ -47,18 +47,18 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			shouldRestart := true
 			var backoff time.Duration
 			tab.mu.Lock()
-			if tab.ptyRestartSince.IsZero() || time.Since(tab.ptyRestartSince) > ptyRestartWindow {
-				tab.ptyRestartSince = time.Now()
-				tab.ptyRestartCount = 0
+			if tab.RestartSince.IsZero() || time.Since(tab.RestartSince) > ptyRestartWindow {
+				tab.RestartSince = time.Now()
+				tab.RestartCount = 0
 			}
-			tab.ptyRestartCount++
-			if tab.ptyRestartCount > ptyRestartMax {
+			tab.RestartCount++
+			if tab.RestartCount > ptyRestartMax {
 				shouldRestart = false
 				tab.Running = false
 				tab.Detached = true
-				tab.ptyRestartBackoff = 0
+				tab.RestartBackoff = 0
 			} else {
-				backoff = tab.ptyRestartBackoff
+				backoff = tab.RestartBackoff
 				if backoff <= 0 {
 					backoff = 200 * time.Millisecond
 				} else {
@@ -67,7 +67,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 						backoff = 5 * time.Second
 					}
 				}
-				tab.ptyRestartBackoff = backoff
+				tab.RestartBackoff = backoff
 			}
 			tab.mu.Unlock()
 			if shouldRestart {
@@ -87,9 +87,9 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			tab.mu.Lock()
 			tab.Running = false
 			tab.Detached = true
-			tab.ptyRestartBackoff = 0
-			tab.ptyRestartCount = 0
-			tab.ptyRestartSince = time.Time{}
+			tab.RestartBackoff = 0
+			tab.RestartCount = 0
+			tab.RestartSince = time.Time{}
 			tab.mu.Unlock()
 			logging.Info("PTY stopped for tab %s, marking detached: %v", msg.TabID, msg.Err)
 			cmds = append(cmds, func() tea.Msg {
@@ -110,7 +110,7 @@ func (m *Model) updatePTYRestart(msg PTYRestart) tea.Cmd {
 	tab.resetActivityANSIState()
 	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
 		tab.mu.Lock()
-		tab.ptyRestartBackoff = 0
+		tab.RestartBackoff = 0
 		tab.mu.Unlock()
 		return nil
 	}

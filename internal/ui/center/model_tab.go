@@ -9,13 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/diff"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -63,18 +61,16 @@ type Tab struct {
 	closed           uint32
 	closing          uint32
 	Running          bool // Whether the agent is actively running
-	readerActive     bool // Guard to ensure only one PTY read loop per tab
-	// Buffer PTY output to avoid rendering partial screen updates.
 
-	pendingOutput          []byte
+	// ptyio.State holds the shared PTY buffering/reader/restart/snapshot
+	// bookkeeping (locking owned by mu, as documented on the type).
+	ptyio.State
+
 	pendingOutputBytes     int
 	catchUpPendingOutput   bool
 	catchUpTargetBytes     uint64
 	ptyBytesReceived       uint64
 	ptyBytesSettled        uint64
-	ptyNoiseTrailing       []byte
-	flushScheduled         bool
-	lastOutputAt           time.Time
 	lastVisibleOutput      time.Time
 	pendingVisibleOutput   bool
 	pendingVisibleSeq      uint64
@@ -86,16 +82,11 @@ type Tab struct {
 	lastUserInputAt        time.Time
 	bootstrapActivity      bool
 	bootstrapLastOutputAt  time.Time
-	flushPendingSince      time.Time
 	postWriteVisibleState  uint32
 	lastPromptInputAt      time.Time
 	lastPromptSubmitAt     time.Time
 	pendingSubmitPasteEcho string
-	overflowTrimCarry      vterm.ParserCarryState
-	// Throttle + accumulator for the overflow-drop Warn so a sustained overflow
-	// logs at most once per overflowLogThrottle with the aggregated byte count.
-	lastOverflowLogAt        time.Time
-	overflowDroppedSinceLog  int
+
 	parserResetPending       bool
 	actorWritesPending       int
 	actorQueuedBytes         int
@@ -104,26 +95,16 @@ type Tab struct {
 	actorQueuedNoiseTrailing []byte
 	ptyRows                  int
 	ptyCols                  int
-	ptyMsgCh                 chan tea.Msg
-	readerCancel             chan struct{}
 	// Mouse selection state
 	Selection          common.SelectionState
 	selectionScroll    common.SelectionScrollState
 	selectionLastTermX int
 
-	ptyTraceFile      *os.File
-	ptyTraceBytes     int
-	ptyTraceClosed    bool
-	ptyRestartBackoff time.Duration
-	ptyHeartbeat      int64
-	ptyRestartCount   int
-	ptyRestartSince   time.Time
-	lastFocusedAt     time.Time
+	ptyTraceFile   *os.File
+	ptyTraceBytes  int
+	ptyTraceClosed bool
+	lastFocusedAt  time.Time
 
-	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
-	cachedSnap               *compositor.VTermSnapshot
-	cachedVersion            uint64
-	cachedShowCursor         bool
 	cachedRecentLocalInput   bool
 	cachedRestrictCursor     bool
 	cursorRefreshGen         uint64
@@ -219,12 +200,12 @@ func (t *Tab) resetPTYStateLocked() {
 	if t == nil {
 		return
 	}
-	t.pendingOutput = nil
+	t.PendingOutput = nil
 	t.pendingOutputBytes = 0
 	t.clearCatchUpLocked()
 	t.ptyBytesReceived = 0
 	t.ptyBytesSettled = 0
-	t.ptyNoiseTrailing = nil
+	t.NoiseTrailing = nil
 	t.actorQueuedBytes = 0
 }
 
@@ -249,9 +230,9 @@ func (t *Tab) resetActorWriteStateLocked() {
 	t.actorWritesPending = 0
 	t.actorWriteEpoch++
 	t.clearCatchUpLocked()
-	t.pendingOutputBytes = len(t.pendingOutput)
-	t.overflowTrimCarry = vterm.ParserCarryState{}
-	t.ptyNoiseTrailing = nil
+	t.pendingOutputBytes = len(t.PendingOutput)
+	t.OverflowTrimCarry = vterm.ParserCarryState{}
+	t.NoiseTrailing = nil
 	t.actorQueuedNoiseTrailing = t.actorQueuedNoiseTrailing[:0]
 	t.actorQueuedCarry = t.Terminal.ParserCarryState()
 }
@@ -435,7 +416,7 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 		tab.resetPTYStateLocked()
 		tab.DiffViewer = nil
 		tab.Terminal = nil
-		tab.cachedSnap = nil
+		tab.CachedSnap = nil
 		tab.Workspace = nil
 		tab.Running = false
 		tab.mu.Unlock()

@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/messages"
@@ -75,11 +76,13 @@ func TestDetachTab_ClearsCatchUpPendingOutput(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		ID:                   TabID("tab-3"),
-		Assistant:            "claude",
-		Workspace:            ws,
-		Running:              true,
-		pendingOutput:        []byte("buffered"),
+		ID:        TabID("tab-3"),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 		catchUpPendingOutput: true,
 		Agent:                &appPty.Agent{Workspace: ws},
 	}
@@ -93,7 +96,7 @@ func TestDetachTab_ClearsCatchUpPendingOutput(t *testing.T) {
 	if tab.catchUpPendingOutput {
 		t.Fatal("expected catch-up latch to clear on detach")
 	}
-	if tab.pendingOutput != nil {
-		t.Fatalf("expected pending output cleared on detach, got %q", tab.pendingOutput)
+	if tab.PendingOutput != nil {
+		t.Fatalf("expected pending output cleared on detach, got %q", tab.PendingOutput)
 	}
 }

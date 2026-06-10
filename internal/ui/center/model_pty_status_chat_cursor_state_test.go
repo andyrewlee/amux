@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func TestTerminalLayerUpdatesStoredCursorWhenIdlePromptMovesAfterVersionChange(t
 		t.Fatal("expected initial terminal layer snapshot")
 	}
 
-	tab.lastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
+	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	tab.lastVisibleOutput = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	term.Write([]byte("\x1b[11;5H"))
 
@@ -115,12 +116,14 @@ func TestTerminalLayerAllowsBracketedPasteAsRecentLocalInput(t *testing.T) {
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:           TabID("tab-chat-bracketed-paste"),
-		Assistant:    "codex",
-		Workspace:    ws,
-		Terminal:     term,
-		Running:      true,
-		lastOutputAt: time.Now(),
+		ID:        TabID("tab-chat-bracketed-paste"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 	m.activeTabByWorkspace[wsID] = 0
@@ -170,7 +173,7 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 	}
 
 	term.Write([]byte("\x1b[11;5Hprompt"))
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
 
 	restricted := m.TerminalLayer()
@@ -185,7 +188,7 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 			restricted.Snap.CursorX, restricted.Snap.CursorY)
 	}
 
-	tab.lastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
+	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	tab.lastVisibleOutput = time.Now().Add(-tabActiveWindow - time.Millisecond)
 
 	idle := m.TerminalLayer()
@@ -228,7 +231,7 @@ func TestTerminalLayerPreservesStoredMultilineCursorAcrossRestrictedArtifact(t *
 	m.SetWorkspace(ws)
 	m.Focus()
 
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
 
 	layer := m.TerminalLayer()
@@ -258,15 +261,17 @@ func TestTerminalLayerTracksEnterAsRecentPromptInputForWrappedPrompt(t *testing.
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-enter-wrapped-prompt"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		stableCursorSet:   true,
-		stableCursorX:     2,
-		stableCursorY:     9,
-		lastOutputAt:      time.Now(),
+		ID:              TabID("tab-chat-enter-wrapped-prompt"),
+		Assistant:       "codex",
+		Workspace:       ws,
+		Terminal:        term,
+		Running:         true,
+		stableCursorSet: true,
+		stableCursorX:   2,
+		stableCursorY:   9,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 		lastVisibleOutput: time.Now(),
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
@@ -303,15 +308,17 @@ func TestTerminalLayerTracksCtrlCAsRecentPromptInputForWrappedPrompt(t *testing.
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-ctrlc-wrapped-prompt"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		stableCursorSet:   true,
-		stableCursorX:     2,
-		stableCursorY:     9,
-		lastOutputAt:      time.Now(),
+		ID:              TabID("tab-chat-ctrlc-wrapped-prompt"),
+		Assistant:       "codex",
+		Workspace:       ws,
+		Terminal:        term,
+		Running:         true,
+		stableCursorSet: true,
+		stableCursorX:   2,
+		stableCursorY:   9,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 		lastVisibleOutput: time.Now(),
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
@@ -363,7 +370,7 @@ func TestTerminalLayerKeepsRestrictedCursorAfterSubmitWhenOutputJumpsAway(t *tes
 	m.Focus()
 
 	recordLocalInputEchoWindow(tab, "\r", time.Now())
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
 
 	layer := m.TerminalLayer()
@@ -408,7 +415,7 @@ func TestTerminalLayerKeepsRestrictedCursorWhenSubmitOutputJumpsToLeftEdge(t *te
 	m.Focus()
 
 	recordLocalInputEchoWindow(tab, "\r", time.Now())
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
 
 	layer := m.TerminalLayer()
@@ -456,7 +463,7 @@ func TestTerminalLayerRelearnsCursorAfterControlOnlyMoveGoesIdle(t *testing.T) {
 	term.CursorX = 4
 	term.CursorY = 10
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 
 	restricted := m.TerminalLayer()
 	if restricted == nil || restricted.Snap == nil {
@@ -473,7 +480,7 @@ func TestTerminalLayerRelearnsCursorAfterControlOnlyMoveGoesIdle(t *testing.T) {
 		t.Fatal("expected control-only restricted render to arm idle cursor relearn")
 	}
 
-	tab.lastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
+	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
 
 	idle := m.TerminalLayer()
 	if idle == nil || idle.Snap == nil {
