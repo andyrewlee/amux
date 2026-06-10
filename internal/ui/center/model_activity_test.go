@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -122,10 +123,12 @@ func TestIsTabActiveUsesVisibleOutputOnly(t *testing.T) {
 
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:         "claude",
-		Workspace:         ws,
-		Running:           true,
-		lastOutputAt:      now.Add(-1 * time.Second),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: now.Add(-1 * time.Second),
+		},
 		lastVisibleOutput: time.Time{},
 	}
 	if m.IsTabActive(tab) {
@@ -137,10 +140,12 @@ func TestIsTabActiveIgnoresBufferedOutputWithoutVisibleDelta(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:         "claude",
-		Workspace:         ws,
-		Running:           true,
-		pendingOutput:     []byte("buffered"),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 		lastVisibleOutput: time.Time{},
 	}
 	if m.IsTabActive(tab) {

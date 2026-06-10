@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -22,15 +23,17 @@ func TestTerminalLayerSanitizesStoredSyntheticCursorGlyph(t *testing.T) {
 	}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-stored-synthetic-cursor"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		stableCursorSet:   true,
-		stableCursorX:     4,
-		stableCursorY:     10,
-		lastOutputAt:      time.Now(),
+		ID:              TabID("tab-chat-stored-synthetic-cursor"),
+		Assistant:       "codex",
+		Workspace:       ws,
+		Terminal:        term,
+		Running:         true,
+		stableCursorSet: true,
+		stableCursorX:   4,
+		stableCursorY:   10,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 		lastVisibleOutput: time.Now(),
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}

@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -303,12 +304,14 @@ func TestTerminalLayerShowsCursorForChatTabWithRecentOutput(t *testing.T) {
 
 	m.tabsByWorkspace[wsID] = []*Tab{
 		{
-			ID:           TabID("tab-chat-recent-output"),
-			Assistant:    "codex",
-			Workspace:    ws,
-			Terminal:     term,
-			Running:      true,
-			lastOutputAt: time.Now(),
+			ID:        TabID("tab-chat-recent-output"),
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			Running:   true,
+			State: ptyio.State{
+				LastOutputAt: time.Now(),
+			},
 		},
 	}
 	m.activeTabByWorkspace[wsID] = 0

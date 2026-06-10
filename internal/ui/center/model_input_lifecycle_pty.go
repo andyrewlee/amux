@@ -22,12 +22,12 @@ const overflowLogThrottle = 2 * time.Second
 // lock). It returns the aggregated dropped-byte total to report when logNow is
 // true. The caller must hold tab.mu.
 func (t *Tab) noteOverflowDropLocked(droppedBytes int) (logNow bool, total int) {
-	t.overflowDroppedSinceLog += droppedBytes
+	t.OverflowDroppedSinceLog += droppedBytes
 	now := time.Now()
-	if t.lastOverflowLogAt.IsZero() || now.Sub(t.lastOverflowLogAt) >= overflowLogThrottle {
-		total = t.overflowDroppedSinceLog
-		t.overflowDroppedSinceLog = 0
-		t.lastOverflowLogAt = now
+	if t.LastOverflowLogAt.IsZero() || now.Sub(t.LastOverflowLogAt) >= overflowLogThrottle {
+		total = t.OverflowDroppedSinceLog
+		t.OverflowDroppedSinceLog = 0
+		t.LastOverflowLogAt = now
 		return true, total
 	}
 	return false, 0
@@ -41,26 +41,26 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		m.tracePTYOutput(tab, msg.Data)
 		data := msg.Data
 		tab.mu.Lock()
-		if tab.overflowTrimCarry != (vterm.ParserCarryState{}) {
-			data, tab.overflowTrimCarry = ptyio.TrimPTYOverflowPrefix(data, 0, tab.overflowTrimCarry)
+		if tab.OverflowTrimCarry != (vterm.ParserCarryState{}) {
+			data, tab.OverflowTrimCarry = ptyio.TrimPTYOverflowPrefix(data, 0, tab.OverflowTrimCarry)
 			tab.activityANSIState = ansiActivityText
 		}
 		tab.mu.Unlock()
-		prevPendingLen := len(tab.pendingOutput)
+		prevPendingLen := len(tab.PendingOutput)
 		activityData := data
 		activityState := ansiActivityText
 		activityStateSet := false
-		tab.pendingOutput = append(tab.pendingOutput, data...)
+		tab.PendingOutput = append(tab.PendingOutput, data...)
 		tab.mu.Lock()
-		tab.pendingOutputBytes = len(tab.pendingOutput)
+		tab.pendingOutputBytes = len(tab.PendingOutput)
 		tab.ptyBytesReceived += uint64(len(data))
 		tab.mu.Unlock()
-		if len(tab.pendingOutput) > ptyMaxBufferedBytes {
-			overflow := len(tab.pendingOutput) - ptyMaxBufferedBytes
+		if len(tab.PendingOutput) > ptyMaxBufferedBytes {
+			overflow := len(tab.PendingOutput) - ptyMaxBufferedBytes
 			perf.Count("pty_output_drop_bytes", int64(overflow))
 			perf.Count("pty_output_drop", 1)
 			seed := vterm.ParserCarryState{}
-			combinedLen := len(tab.pendingOutput)
+			combinedLen := len(tab.PendingOutput)
 			resetNow := false
 			if m.isTabActorReady() {
 				tab.mu.Lock()
@@ -91,7 +91,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 						tab.parserResetPending = false
 						tab.actorQueuedCarry = vterm.ParserCarryState{}
 						tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
-						tab.ptyNoiseTrailing = nil
+						tab.NoiseTrailing = nil
 					} else {
 						seed = tab.Terminal.ParserCarryState()
 					}
@@ -100,7 +100,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				}
 				tab.mu.Unlock()
 			}
-			retained, overflowCarry := ptyio.TrimPTYOverflowPrefix(tab.pendingOutput, overflow, seed)
+			retained, overflowCarry := ptyio.TrimPTYOverflowPrefix(tab.PendingOutput, overflow, seed)
 			retainedStart := combinedLen - len(retained)
 			chunkStart := prevPendingLen
 			if retainedStart > chunkStart {
@@ -111,7 +111,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 					activityData = data[dropFromMsg:]
 				}
 			}
-			tab.pendingOutput = append([]byte(nil), retained...)
+			tab.PendingOutput = append([]byte(nil), retained...)
 			activityPrefixLen := len(retained) - len(activityData)
 			if activityPrefixLen < 0 {
 				activityPrefixLen = 0
@@ -119,11 +119,11 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 			_, activityState = hasVisiblePTYOutput(retained[:activityPrefixLen], ansiActivityText)
 			activityStateSet = true
 			tab.mu.Lock()
-			tab.pendingOutputBytes = len(tab.pendingOutput)
+			tab.pendingOutputBytes = len(tab.PendingOutput)
 			tab.settlePTYBytesLocked(overflow)
-			tab.overflowTrimCarry = overflowCarry
+			tab.OverflowTrimCarry = overflowCarry
 			if resetNow && retainedStart > chunkStart {
-				tab.ptyNoiseTrailing = nil
+				tab.NoiseTrailing = nil
 				tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
 			}
 			overflowLogNow, overflowDroppedTotal := tab.noteOverflowDropLocked(retainedStart)
@@ -134,7 +134,7 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		}
 		perf.Count("pty_output_bytes", int64(len(msg.Data)))
 		now := time.Now()
-		tab.lastOutputAt = now
+		tab.LastOutputAt = now
 		if m.isChatTab(tab) {
 			tab.mu.Lock()
 			if tab.bootstrapActivity &&
@@ -155,9 +155,9 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 				tab.mu.Unlock()
 			}
 		}
-		if !tab.flushScheduled {
-			tab.flushScheduled = true
-			tab.flushPendingSince = tab.lastOutputAt
+		if !tab.FlushScheduled {
+			tab.FlushScheduled = true
+			tab.FlushPendingSince = tab.LastOutputAt
 			quiet, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
 			tabID := msg.TabID // Capture for closure
 			cmds = append(cmds, common.SafeTick(quiet, func(t time.Time) tea.Msg {
@@ -183,10 +183,10 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 		catchUp := isActive && tab.catchUpActiveLocked()
 		tab.mu.Unlock()
 		now := time.Now()
-		quietFor := now.Sub(tab.lastOutputAt)
+		quietFor := now.Sub(tab.LastOutputAt)
 		pendingFor := time.Duration(0)
-		if !tab.flushPendingSince.IsZero() {
-			pendingFor = now.Sub(tab.flushPendingSince)
+		if !tab.FlushPendingSince.IsZero() {
+			pendingFor = now.Sub(tab.FlushPendingSince)
 		}
 		quiet, maxInterval := m.flushTiming(tab, isActive)
 		if quietFor < quiet && pendingFor < maxInterval {
@@ -195,16 +195,16 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 				delay = time.Millisecond
 			}
 			tabID := msg.TabID
-			tab.flushScheduled = true
+			tab.FlushScheduled = true
 			cmds = append(cmds, common.SafeTick(delay, func(t time.Time) tea.Msg {
 				return PTYFlush{WorkspaceID: msg.WorkspaceID, TabID: tabID, CatchUp: catchUp}
 			}))
 			return common.SafeBatch(cmds...)
 		}
 
-		tab.flushScheduled = false
-		tab.flushPendingSince = time.Time{}
-		if len(tab.pendingOutput) > 0 {
+		tab.FlushScheduled = false
+		tab.FlushPendingSince = time.Time{}
+		if len(tab.PendingOutput) > 0 {
 			var chunk []byte
 			writeOutput := false
 			hasMoreBuffered := false
@@ -215,7 +215,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 			if tab.Terminal != nil {
 				parserResetPending = tab.parserResetPending
 				actorWritesPending = tab.actorWritesPending
-				chunkSize := len(tab.pendingOutput)
+				chunkSize := len(tab.PendingOutput)
 				maxChunk := ptyFlushChunkSize
 				if isActive {
 					maxChunk = ptyFlushChunkSizeActive
@@ -229,11 +229,11 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					chunkSize = maxChunk
 				}
 				if !parserResetPending && chunkSize > 0 {
-					chunk = append(chunk, tab.pendingOutput[:chunkSize]...)
-					copy(tab.pendingOutput, tab.pendingOutput[chunkSize:])
-					tab.pendingOutput = tab.pendingOutput[:len(tab.pendingOutput)-chunkSize]
-					tab.pendingOutputBytes = len(tab.pendingOutput)
-					hasMoreBuffered = len(tab.pendingOutput) > 0
+					chunk = append(chunk, tab.PendingOutput[:chunkSize]...)
+					copy(tab.PendingOutput, tab.PendingOutput[chunkSize:])
+					tab.PendingOutput = tab.PendingOutput[:len(tab.PendingOutput)-chunkSize]
+					tab.pendingOutputBytes = len(tab.PendingOutput)
+					hasMoreBuffered = len(tab.PendingOutput) > 0
 					visibleSeq = tab.pendingVisibleSeq
 					writeOutput = true
 				}
@@ -241,8 +241,8 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 			tab.mu.Unlock()
 			if parserResetPending {
 				if actorWritesPending > 0 && m.isTabActorReady() {
-					tab.flushScheduled = true
-					tab.flushPendingSince = time.Now()
+					tab.FlushScheduled = true
+					tab.FlushPendingSince = time.Now()
 					delay, _ := m.flushTiming(tab, m.isActiveTab(msg.WorkspaceID, msg.TabID))
 					if delay < time.Millisecond {
 						delay = time.Millisecond
@@ -259,7 +259,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 						tab.settlePTYBytesLocked(tab.actorQueuedBytes)
 						tab.actorQueuedBytes = 0
 						tab.actorWriteEpoch++
-						tab.ptyNoiseTrailing = nil
+						tab.NoiseTrailing = nil
 					}
 					tab.Terminal.ResetParserState()
 					tab.activityANSIState = ansiActivityText
@@ -276,14 +276,14 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 			tab.mu.Lock()
 			catchUpStillActive := tab.catchUpActiveLocked()
 			tab.mu.Unlock()
-			if len(tab.pendingOutput) == 0 {
-				tab.pendingOutput = tab.pendingOutput[:0]
+			if len(tab.PendingOutput) == 0 {
+				tab.PendingOutput = tab.PendingOutput[:0]
 				tab.mu.Lock()
 				tab.pendingOutputBytes = 0
 				tab.mu.Unlock()
 			} else {
-				tab.flushScheduled = true
-				tab.flushPendingSince = time.Now()
+				tab.FlushScheduled = true
+				tab.FlushPendingSince = time.Now()
 				tabID := msg.TabID
 				quietNext, _ := m.flushTiming(tab, isActive)
 				delay := quietNext
@@ -379,7 +379,7 @@ func (m *Model) applyFlushChunkSync(tab *Tab, workspaceID string, chunk []byte, 
 		filterApplied = true
 		if updateActorCarry {
 			tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
-			tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
+			tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.NoiseTrailing...)
 		}
 	}
 	tab.mu.Unlock()
@@ -402,7 +402,7 @@ func (m *Model) applyFlushChunkSync(tab *Tab, workspaceID string, chunk []byte, 
 // tab.Terminal != nil. It returns the filtered byte count, whether the
 // post-write redraw should be suppressed, and the activity tag to publish.
 func (m *Model) applyPTYChunkLocked(tab *Tab, chunk []byte, hasMoreBuffered bool, visibleSeq uint64) (filteredLen int, suppressRedraw bool, tagSessionName string, tagTimestamp int64) {
-	filtered := ptyio.FilterKnownPTYNoiseStream(chunk, &tab.ptyNoiseTrailing)
+	filtered := ptyio.FilterKnownPTYNoiseStream(chunk, &tab.NoiseTrailing)
 	filteredLen = len(filtered)
 	if len(filtered) > 0 {
 		flushDone := perf.Time("pty_flush")

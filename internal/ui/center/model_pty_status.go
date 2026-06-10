@@ -76,15 +76,15 @@ func isTabCursorOutputActiveLocked(tab *Tab, now time.Time) bool {
 	if tab == nil || tab.Detached || !tab.Running || tab.bootstrapActivity {
 		return false
 	}
-	if tab.lastOutputAt.IsZero() || now.Sub(tab.lastOutputAt) >= tabActiveWindow {
+	if tab.LastOutputAt.IsZero() || now.Sub(tab.LastOutputAt) >= tabActiveWindow {
 		return false
 	}
 	// Ignore output that is still attributable to the user's own recent edit.
 	// That prevents wrapped multiline prompts from becoming cursor-restricted
 	// after the short local-input window expires.
 	if !tab.lastUserInputAt.IsZero() &&
-		!tab.lastOutputAt.Before(tab.lastUserInputAt) &&
-		tab.lastOutputAt.Sub(tab.lastUserInputAt) <= localInputEchoSuppressWindow &&
+		!tab.LastOutputAt.Before(tab.lastUserInputAt) &&
+		tab.LastOutputAt.Sub(tab.lastUserInputAt) <= localInputEchoSuppressWindow &&
 		(tab.lastVisibleOutput.IsZero() || !tab.lastVisibleOutput.After(tab.lastUserInputAt)) {
 		return false
 	}
@@ -155,10 +155,10 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 				continue
 			}
 			tab.mu.Lock()
-			readerActive := tab.readerActive
+			readerActive := tab.ReaderActive
 			tab.mu.Unlock()
 			if readerActive {
-				lastBeat := atomic.LoadInt64(&tab.ptyHeartbeat)
+				lastBeat := atomic.LoadInt64(&tab.Heartbeat)
 				if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > ptyReaderStallTimeout {
 					logging.Warn("PTY reader stalled for tab %s; restarting", tab.ID)
 					m.stopPTYReader(tab)
@@ -223,15 +223,15 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	// Cache key: (version, showCursor, recentLocalInput, restrictCursor) for chat
 	// tabs. Both recent local input and recent PTY activity can change cursor
 	// policy without a PTY version bump.
-	if tab.cachedSnap != nil &&
-		tab.cachedVersion == version &&
-		tab.cachedShowCursor == showCursor &&
+	if tab.CachedSnap != nil &&
+		tab.CachedVersion == version &&
+		tab.CachedShowCursor == showCursor &&
 		(!isChat ||
 			(tab.cachedRecentLocalInput == recentLocalInput &&
 				tab.cachedRestrictCursor == restrictCursor)) {
 		// Reuse cached snapshot
 		perf.Count("vterm_snapshot_cache_hit", 1)
-		return compositor.NewVTermLayer(tab.cachedSnap)
+		return compositor.NewVTermLayer(tab.CachedSnap)
 	}
 
 	// Create new snapshot while holding the lock.
@@ -292,9 +292,9 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	perf.Count("vterm_snapshot_cache_miss", 1)
 
 	// Cache the snapshot
-	tab.cachedSnap = snap
-	tab.cachedVersion = version
-	tab.cachedShowCursor = showCursor
+	tab.CachedSnap = snap
+	tab.CachedVersion = version
+	tab.CachedShowCursor = showCursor
 	tab.cachedRecentLocalInput = recentLocalInput
 	tab.cachedRestrictCursor = restrictCursor
 

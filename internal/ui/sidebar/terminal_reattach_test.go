@@ -237,7 +237,7 @@ func TestHandleTerminalCreated_LoadsPaneCaptureBeforeStartingReader(t *testing.T
 	if tab.State.VTerm.CursorX != 5 || tab.State.VTerm.CursorY != 2 {
 		t.Fatalf("expected explicit pane cursor to be restored, got (%d,%d)", tab.State.VTerm.CursorX, tab.State.VTerm.CursorY)
 	}
-	if tab.State.readerActive {
+	if tab.State.ReaderActive {
 		t.Fatal("expected reader not to start without a PTY terminal")
 	}
 }

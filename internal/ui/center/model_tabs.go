@@ -230,7 +230,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			if msg.CaptureFullPane {
 				// A full tmux pane snapshot supersedes any preserved local PTY
 				// backlog for this terminal state.
-				tab.pendingOutput = nil
+				tab.PendingOutput = nil
 				ptyio.RestorePaneCapture(
 					tab.Terminal,
 					msg.ScrollbackCapture,

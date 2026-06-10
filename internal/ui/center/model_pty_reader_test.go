@@ -2,6 +2,7 @@ package center
 
 import (
 	"fmt"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -14,10 +15,12 @@ func TestFlushTiming_InactiveBackpressureRespectsHardCap(t *testing.T) {
 	wsID := string(ws.ID())
 	width, height := 80, 24
 	tab := &Tab{
-		ID:            TabID("tab-main"),
-		Workspace:     ws,
-		Terminal:      vterm.New(width, height),
-		pendingOutput: make([]byte, ptyBackpressureMultiplier*width*height+1),
+		ID:        TabID("tab-main"),
+		Workspace: ws,
+		Terminal:  vterm.New(width, height),
+		State: ptyio.State{
+			PendingOutput: make([]byte, ptyBackpressureMultiplier*width*height+1),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -26,9 +29,11 @@ func TestFlushTiming_InactiveBackpressureRespectsHardCap(t *testing.T) {
 	busyTabs := make([]*Tab, 0, ptyVeryHeavyLoadTabThreshold)
 	for i := 0; i < ptyVeryHeavyLoadTabThreshold; i++ {
 		busyTabs = append(busyTabs, &Tab{
-			ID:            TabID(fmt.Sprintf("tab-busy-%d", i)),
-			Workspace:     heavyWS,
-			pendingOutput: []byte{'x'},
+			ID:        TabID(fmt.Sprintf("tab-busy-%d", i)),
+			Workspace: heavyWS,
+			State: ptyio.State{
+				PendingOutput: []byte{'x'},
+			},
 		})
 	}
 	m.tabsByWorkspace[heavyWSID] = busyTabs

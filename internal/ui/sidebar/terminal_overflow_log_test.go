@@ -29,7 +29,7 @@ func TestNoteOverflowDropLocked_ThrottlesAndAggregates(t *testing.T) {
 	if ln, _ := ts.noteOverflowDropLocked(25); ln {
 		t.Fatal("third drop within the throttle window should be suppressed")
 	}
-	ts.lastOverflowLogAt = time.Now().Add(-2 * overflowLogThrottle)
+	ts.LastOverflowLogAt = time.Now().Add(-2 * overflowLogThrottle)
 	logNow, total = ts.noteOverflowDropLocked(10)
 	if !logNow {
 		t.Fatal("a drop after the throttle window should log")

@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,11 +15,13 @@ func TestTabSelectionChangedCmd_FlushesBufferedActiveTab(t *testing.T) {
 	wsID := string(ws.ID())
 
 	tab := &Tab{
-		ID:                 TabID("tab-1"),
-		Assistant:          "claude",
-		Workspace:          ws,
-		Running:            true,
-		pendingOutput:      []byte("buffered"),
+		ID:        TabID("tab-1"),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 		pendingOutputBytes: len("buffered"),
 		ptyBytesReceived:   uint64(len("buffered")),
 	}
@@ -33,7 +36,7 @@ func TestTabSelectionChangedCmd_FlushesBufferedActiveTab(t *testing.T) {
 	if !tab.catchUpPendingOutput {
 		t.Fatalf("expected tab selection change to latch catch-up state")
 	}
-	if got, want := tab.catchUpTargetBytes, uint64(len(tab.pendingOutput)); got != want {
+	if got, want := tab.catchUpTargetBytes, uint64(len(tab.PendingOutput)); got != want {
 		t.Fatalf("catch-up target bytes = %d, want %d", got, want)
 	}
 

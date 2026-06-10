@@ -112,7 +112,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 			// The tmux snapshot is now the source of truth for the restored frame.
 			// Any preserved local PTY backlog may already be represented there and
 			// would duplicate on the next flush if we kept it alive.
-			tab.pendingOutput = nil
+			tab.PendingOutput = nil
 			ptyio.RestorePaneCapture(
 				tab.Terminal,
 				msg.ScrollbackCapture,

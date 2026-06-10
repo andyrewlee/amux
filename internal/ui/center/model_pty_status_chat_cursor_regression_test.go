@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -147,12 +148,14 @@ func TestTerminalLayerRestrictsMidScreenCursorDuringControlOnlyOutput(t *testing
 
 	m.tabsByWorkspace[wsID] = []*Tab{
 		{
-			ID:           TabID("tab-chat-control-only-output"),
-			Assistant:    "codex",
-			Workspace:    ws,
-			Terminal:     term,
-			Running:      true,
-			lastOutputAt: time.Now(),
+			ID:        TabID("tab-chat-control-only-output"),
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			Running:   true,
+			State: ptyio.State{
+				LastOutputAt: time.Now(),
+			},
 		},
 	}
 	m.activeTabByWorkspace[wsID] = 0
@@ -178,12 +181,14 @@ func TestTerminalLayerAllowsRecentLocalInputDespiteRecentControlOnlyOutput(t *te
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-control-only-local-edit"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		lastOutputAt:      time.Now(),
+		ID:        TabID("tab-chat-control-only-local-edit"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 		lastPromptInputAt: time.Now(),
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
@@ -227,7 +232,9 @@ func TestTerminalLayerIgnoresRecentLocalEchoOutputAfterInputWindowExpires(t *tes
 		Running:           true,
 		lastUserInputAt:   now.Add(-600 * time.Millisecond),
 		lastPromptInputAt: now.Add(-600 * time.Millisecond),
-		lastOutputAt:      now.Add(-550 * time.Millisecond),
+		State: ptyio.State{
+			LastOutputAt: now.Add(-550 * time.Millisecond),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 	m.activeTabByWorkspace[wsID] = 0
@@ -288,12 +295,14 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 	term.CursorY = 11
 
 	tab := &Tab{
-		ID:           TabID("tab-chat-anchor-update"),
-		Assistant:    "codex",
-		Workspace:    ws,
-		Terminal:     term,
-		Running:      true,
-		lastOutputAt: time.Now(),
+		ID:        TabID("tab-chat-anchor-update"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 	m.activeTabByWorkspace[wsID] = 0
@@ -318,7 +327,7 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 	tab.mu.Unlock()
 
 	term.Write([]byte("a"))
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 	tab.lastUserInputAt = time.Now()
 	tab.lastPromptInputAt = tab.lastUserInputAt
 	second := m.TerminalLayer()
@@ -334,7 +343,7 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 	}
 
 	term.Write([]byte("\x1b[1;20H"))
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
 	tab.lastUserInputAt = time.Now().Add(-localInputEchoSuppressWindow - time.Millisecond)
 	tab.lastPromptInputAt = tab.lastUserInputAt
@@ -350,7 +359,7 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 			second.Snap.CursorX, second.Snap.CursorY, third.Snap.CursorX, third.Snap.CursorY)
 	}
 
-	tab.lastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
+	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	tab.lastVisibleOutput = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	fourth := m.TerminalLayer()
 	if fourth == nil || fourth.Snap == nil {

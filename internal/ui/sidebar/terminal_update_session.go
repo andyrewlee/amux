@@ -123,9 +123,9 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.UserDetached = false
 	ts.reattachInFlight = false
 	ts.SessionName = msg.SessionName
-	ts.pendingOutput = nil
-	ts.ptyNoiseTrailing = nil
-	ts.overflowTrimCarry = vterm.ParserCarryState{}
+	ts.PendingOutput = nil
+	ts.NoiseTrailing = nil
+	ts.OverflowTrimCarry = vterm.ParserCarryState{}
 	ts.lastWidth = termWidth
 	ts.lastHeight = termHeight
 	ts.mu.Unlock()
@@ -188,7 +188,7 @@ func (m *TerminalModel) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) te
 				tab.State.Terminal.Close()
 			}
 			tab.State.Running = false
-			tab.State.ptyRestartBackoff = 0
+			tab.State.RestartBackoff = 0
 			tab.State.mu.Unlock()
 		}
 	}

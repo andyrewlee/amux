@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -49,14 +50,16 @@ func TestUpdatePtyTabReattachResult_ResetsStableCursor(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          vterm.New(80, 24),
-		stableCursorSet:   true,
-		stableCursorX:     7,
-		stableCursorY:     20,
-		lastOutputAt:      time.Now(),
+		ID:              TabID("tab-1"),
+		Assistant:       "codex",
+		Workspace:       ws,
+		Terminal:        vterm.New(80, 24),
+		stableCursorSet: true,
+		stableCursorX:   7,
+		stableCursorY:   20,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 		lastUserInputAt:   time.Now(),
 		lastPromptInputAt: time.Now(),
 		lastVisibleOutput: time.Now(),
@@ -86,7 +89,7 @@ func TestUpdatePtyTabReattachResult_ResetsStableCursor(t *testing.T) {
 	if !tab.lastVisibleOutput.IsZero() {
 		t.Fatal("expected visible-activity state to clear on reattach")
 	}
-	if !tab.lastOutputAt.IsZero() {
+	if !tab.LastOutputAt.IsZero() {
 		t.Fatal("expected recent output state to clear on reattach")
 	}
 }
@@ -98,11 +101,13 @@ func TestUpdatePtyTabReattachResult_PreservesParserCarryOnExistingTerminal(t *te
 	term := vterm.New(80, 24)
 	term.Write([]byte{0x1b})
 	tab := &Tab{
-		ID:            TabID("tab-reattach-carry"),
-		Assistant:     "codex",
-		Workspace:     ws,
-		Terminal:      term,
-		pendingOutput: []byte("[31mHello"),
+		ID:        TabID("tab-reattach-carry"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		State: ptyio.State{
+			PendingOutput: []byte("[31mHello"),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -124,7 +129,7 @@ func TestUpdatePtyTabReattachResult_PreservesParserCarryOnExistingTerminal(t *te
 	if got := tab.actorQueuedCarry; got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
 		t.Fatalf("expected actor queued carry to match preserved parser carry, got %+v", got)
 	}
-	if got := string(tab.pendingOutput); got != "[31mHello" {
+	if got := string(tab.PendingOutput); got != "[31mHello" {
 		t.Fatalf("expected buffered continuation bytes to survive reattach, got %q", got)
 	}
 }
@@ -139,7 +144,9 @@ func TestUpdatePtyTabReattachResult_ClearsCatchUpPendingOutput(t *testing.T) {
 		Workspace:            ws,
 		Terminal:             vterm.New(80, 24),
 		catchUpPendingOutput: true,
-		pendingOutput:        []byte("buffered"),
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -193,7 +200,9 @@ func TestHandlePtyTabCreated_ExistingClearsCatchUpPendingOutput(t *testing.T) {
 		Workspace:            ws,
 		Terminal:             vterm.New(80, 24),
 		catchUpPendingOutput: true,
-		pendingOutput:        []byte("buffered"),
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -219,11 +228,13 @@ func TestHandlePtyTabCreated_ExistingPreservesParserCarry(t *testing.T) {
 	term := vterm.New(80, 24)
 	term.Write([]byte{0x1b})
 	tab := &Tab{
-		ID:            TabID("tab-created-carry"),
-		Assistant:     "codex",
-		Workspace:     ws,
-		Terminal:      term,
-		pendingOutput: []byte("[31mHello"),
+		ID:        TabID("tab-created-carry"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		State: ptyio.State{
+			PendingOutput: []byte("[31mHello"),
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -247,7 +258,7 @@ func TestHandlePtyTabCreated_ExistingPreservesParserCarry(t *testing.T) {
 	if got := tab.actorQueuedCarry; got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
 		t.Fatalf("expected actor queued carry to match preserved parser carry, got %+v", got)
 	}
-	if got := string(tab.pendingOutput); got != "[31mHello" {
+	if got := string(tab.PendingOutput); got != "[31mHello" {
 		t.Fatalf("expected buffered continuation bytes to survive existing create path, got %q", got)
 	}
 }
@@ -287,14 +298,16 @@ func TestHandlePtyTabCreated_ExistingResetsStableCursor(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          vterm.New(80, 24),
-		stableCursorSet:   true,
-		stableCursorX:     7,
-		stableCursorY:     20,
-		lastOutputAt:      time.Now(),
+		ID:              TabID("tab-1"),
+		Assistant:       "codex",
+		Workspace:       ws,
+		Terminal:        vterm.New(80, 24),
+		stableCursorSet: true,
+		stableCursorX:   7,
+		stableCursorY:   20,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 		lastUserInputAt:   time.Now(),
 		lastPromptInputAt: time.Now(),
 		lastVisibleOutput: time.Now(),
@@ -326,7 +339,7 @@ func TestHandlePtyTabCreated_ExistingResetsStableCursor(t *testing.T) {
 	if !tab.lastVisibleOutput.IsZero() {
 		t.Fatal("expected visible-activity state to clear on existing tab create path")
 	}
-	if !tab.lastOutputAt.IsZero() {
+	if !tab.LastOutputAt.IsZero() {
 		t.Fatal("expected recent output state to clear on existing tab create path")
 	}
 }
@@ -340,7 +353,9 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 		Assistant:         "codex",
 		Workspace:         ws,
 		activityANSIState: ansiActivityOSC,
-		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
+		State: ptyio.State{
+			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -352,8 +367,8 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on PTY stop, got %v", tab.activityANSIState)
 	}
-	if tab.overflowTrimCarry != (vterm.ParserCarryState{Mode: vterm.ParserCarryCSI}) {
-		t.Fatalf("expected overflowTrimCarry preserved on PTY stop, got %+v", tab.overflowTrimCarry)
+	if tab.OverflowTrimCarry != (vterm.ParserCarryState{Mode: vterm.ParserCarryCSI}) {
+		t.Fatalf("expected overflowTrimCarry preserved on PTY stop, got %+v", tab.OverflowTrimCarry)
 	}
 
 	_ = m.updatePTYOutput(PTYOutput{
@@ -361,8 +376,8 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 		TabID:       tab.ID,
 		Data:        []byte("31mHello"),
 	})
-	if string(tab.pendingOutput) != "Hello" {
-		t.Fatalf("expected post-stop continuation to trim to visible text, got %q", tab.pendingOutput)
+	if string(tab.PendingOutput) != "Hello" {
+		t.Fatalf("expected post-stop continuation to trim to visible text, got %q", tab.PendingOutput)
 	}
 }
 
@@ -375,7 +390,9 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 		Assistant:         "codex",
 		Workspace:         ws,
 		activityANSIState: ansiActivityCSI,
-		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
+		State: ptyio.State{
+			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -387,8 +404,8 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 	if tab.activityANSIState != ansiActivityText {
 		t.Fatalf("expected activityANSIState reset to text on PTY restart, got %v", tab.activityANSIState)
 	}
-	if tab.overflowTrimCarry != (vterm.ParserCarryState{Mode: vterm.ParserCarryCSI}) {
-		t.Fatalf("expected overflowTrimCarry preserved on PTY restart, got %+v", tab.overflowTrimCarry)
+	if tab.OverflowTrimCarry != (vterm.ParserCarryState{Mode: vterm.ParserCarryCSI}) {
+		t.Fatalf("expected overflowTrimCarry preserved on PTY restart, got %+v", tab.OverflowTrimCarry)
 	}
 
 	_ = m.updatePTYOutput(PTYOutput{
@@ -396,8 +413,8 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 		TabID:       tab.ID,
 		Data:        []byte("31mHello"),
 	})
-	if string(tab.pendingOutput) != "Hello" {
-		t.Fatalf("expected post-restart continuation to trim to visible text, got %q", tab.pendingOutput)
+	if string(tab.PendingOutput) != "Hello" {
+		t.Fatalf("expected post-restart continuation to trim to visible text, got %q", tab.PendingOutput)
 	}
 }
 
@@ -406,10 +423,12 @@ func TestUpdatePTYStopped_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-da-stop"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
+		ID:        TabID("tab-da-stop"),
+		Assistant: "codex",
+		Workspace: ws,
+		State: ptyio.State{
+			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -420,8 +439,8 @@ func TestUpdatePTYStopped_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 		Data:        []byte("[>1;10;0cvisible"),
 	})
 
-	if string(tab.pendingOutput) != "visible" {
-		t.Fatalf("expected secondary DA continuation trimmed after stop, got %q", tab.pendingOutput)
+	if string(tab.PendingOutput) != "visible" {
+		t.Fatalf("expected secondary DA continuation trimmed after stop, got %q", tab.PendingOutput)
 	}
 }
 
@@ -430,10 +449,12 @@ func TestUpdatePTYRestart_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-da-restart"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		overflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
+		ID:        TabID("tab-da-restart"),
+		Assistant: "codex",
+		Workspace: ws,
+		State: ptyio.State{
+			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -444,7 +465,7 @@ func TestUpdatePTYRestart_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 		Data:        []byte("[>1;10;0cvisible"),
 	})
 
-	if string(tab.pendingOutput) != "visible" {
-		t.Fatalf("expected secondary DA continuation trimmed after restart, got %q", tab.pendingOutput)
+	if string(tab.PendingOutput) != "visible" {
+		t.Fatalf("expected secondary DA continuation trimmed after restart, got %q", tab.PendingOutput)
 	}
 }

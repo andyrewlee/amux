@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -15,12 +16,14 @@ func TestTerminalLayerShowsCursorWhileNonCodexChatTabStreaming(t *testing.T) {
 
 	m.tabsByWorkspace[wsID] = []*Tab{
 		{
-			ID:           TabID("tab-chat-streaming-claude"),
-			Assistant:    "claude",
-			Workspace:    ws,
-			Terminal:     term,
-			Running:      true,
-			lastOutputAt: time.Now(),
+			ID:        TabID("tab-chat-streaming-claude"),
+			Assistant: "claude",
+			Workspace: ws,
+			Terminal:  term,
+			Running:   true,
+			State: ptyio.State{
+				LastOutputAt: time.Now(),
+			},
 		},
 	}
 	m.activeTabByWorkspace[wsID] = 0
@@ -44,12 +47,14 @@ func TestTerminalLayerShowsCursorWhileCodexChatTabStreaming(t *testing.T) {
 
 	m.tabsByWorkspace[wsID] = []*Tab{
 		{
-			ID:           TabID("tab-chat-streaming-codex-control"),
-			Assistant:    "codex",
-			Workspace:    ws,
-			Terminal:     term,
-			Running:      true,
-			lastOutputAt: time.Now(),
+			ID:        TabID("tab-chat-streaming-codex-control"),
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			Running:   true,
+			State: ptyio.State{
+				LastOutputAt: time.Now(),
+			},
 		},
 	}
 	m.activeTabByWorkspace[wsID] = 0

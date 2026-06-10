@@ -1,6 +1,7 @@
 package center
 
 import (
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
@@ -20,7 +21,9 @@ func TestUpdatePTYCursorRefresh_SchedulesWhileCursorTimersPending(t *testing.T) 
 		Running:           true,
 		lastVisibleOutput: time.Now(),
 		lastPromptInputAt: time.Now(),
-		cachedSnap:        &compositor.VTermSnapshot{},
+		State: ptyio.State{
+			CachedSnap: &compositor.VTermSnapshot{},
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -28,7 +31,7 @@ func TestUpdatePTYCursorRefresh_SchedulesWhileCursorTimersPending(t *testing.T) 
 	if cmd == nil {
 		t.Fatal("expected cursor refresh tick to be scheduled while cursor timers are pending")
 	}
-	if tab.cachedSnap != nil {
+	if tab.CachedSnap != nil {
 		t.Fatal("expected cursor refresh to invalidate cached snapshot")
 	}
 	if tab.cursorRefreshGen == 0 {
@@ -85,7 +88,9 @@ func TestUpdatePTYCursorRefresh_RequestPreservesPendingTimer(t *testing.T) {
 		Terminal:          vterm.New(80, 24),
 		Running:           true,
 		lastVisibleOutput: now,
-		cachedSnap:        &compositor.VTermSnapshot{},
+		State: ptyio.State{
+			CachedSnap: &compositor.VTermSnapshot{},
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -100,7 +105,7 @@ func TestUpdatePTYCursorRefresh_RequestPreservesPendingTimer(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected refresh request to reuse the existing pending timer")
 	}
-	if tab.cachedSnap != nil {
+	if tab.CachedSnap != nil {
 		t.Fatal("expected refresh request to invalidate cached snapshot")
 	}
 	if tab.cursorRefreshGen != firstGen {
@@ -119,11 +124,13 @@ func TestUpdatePTYCursorRefresh_InvalidatesCachedSnapshotForNonChatTabs(t *testi
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:         TabID("tab-cursor-refresh-non-chat"),
-		Assistant:  "bash",
-		Workspace:  ws,
-		Terminal:   vterm.New(80, 24),
-		cachedSnap: &compositor.VTermSnapshot{},
+		ID:        TabID("tab-cursor-refresh-non-chat"),
+		Assistant: "bash",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		State: ptyio.State{
+			CachedSnap: &compositor.VTermSnapshot{},
+		},
 	}
 	m.tabsByWorkspace[wsID] = []*Tab{tab}
 
@@ -131,7 +138,7 @@ func TestUpdatePTYCursorRefresh_InvalidatesCachedSnapshotForNonChatTabs(t *testi
 	if cmd != nil {
 		t.Fatal("expected non-chat cursor refresh not to schedule chat timers")
 	}
-	if tab.cachedSnap != nil {
+	if tab.CachedSnap != nil {
 		t.Fatal("expected non-chat cursor refresh to invalidate cached snapshot")
 	}
 }
