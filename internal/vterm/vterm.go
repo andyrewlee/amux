@@ -114,9 +114,14 @@ type VTerm struct {
 	syncPreserveViewport bool
 
 	// Render cache for live screen (ViewOffset == 0)
-	renderCache    []string
-	renderDirty    []bool
-	renderDirtyAll bool
+	renderCache []string
+	// Epoch-based dirty tracking (see cache.go): a line is dirty when its
+	// epoch (or the global epoch) is newer than the last clear.
+	renderEpoch        uint64
+	renderLineEpoch    []uint64
+	renderGlobalEpoch  uint64
+	renderCleanEpoch   uint64
+	renderDirtyScratch []bool
 
 	// Version counter for snapshot caching - increments on visible content/cursor changes.
 	// UI-driven cursor visibility (ShowCursor) is handled by the snapshot cache key.
