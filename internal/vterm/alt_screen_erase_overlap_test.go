@@ -275,13 +275,13 @@ func TestAltScreenErasePartialOverlapReservesFullFrameOnResizeGrow(t *testing.T)
 
 	vt.Write([]byte("\x1b[2J"))
 
-	if vt.altScreenCaptureLen != 2 {
-		t.Fatalf("captureLen = %d, want 2", vt.altScreenCaptureLen)
+	if vt.altCapture.frameLen != 2 {
+		t.Fatalf("captureLen = %d, want 2", vt.altCapture.frameLen)
 	}
-	if vt.altScreenCaptureDropLen != 1 {
-		t.Fatalf("dropLen = %d, want 1", vt.altScreenCaptureDropLen)
+	if vt.altCapture.dropLen != 1 {
+		t.Fatalf("dropLen = %d, want 1", vt.altCapture.dropLen)
 	}
-	if !vt.altScreenCaptureTracked {
+	if !vt.altCapture.tracked {
 		t.Fatal("expected partial-overlap capture to stay tracked")
 	}
 
@@ -349,7 +349,8 @@ func TestResizeGrowReservesTrackedCaptureEndOffset(t *testing.T) {
 		return line
 	}
 
-	vt.Scrollback = append(vt.Scrollback,
+	vt.Scrollback = append(
+		vt.Scrollback,
 		makeLine("hist1"),
 		makeLine("hist2"),
 		makeLine("cap1"),
@@ -357,10 +358,10 @@ func TestResizeGrowReservesTrackedCaptureEndOffset(t *testing.T) {
 		makeLine("cap3"),
 		makeLine("tail"),
 	)
-	vt.altScreenCaptureLen = 3
-	vt.altScreenCaptureDropLen = 3
-	vt.altScreenCaptureTracked = true
-	vt.altScreenCaptureEndOffset = 1
+	vt.altCapture.frameLen = 3
+	vt.altCapture.dropLen = 3
+	vt.altCapture.tracked = true
+	vt.altCapture.endOffset = 1
 
 	vt.Resize(5, 5)
 
@@ -405,8 +406,8 @@ func TestScrollUpCustomScrollRegionPreservesTrackedAltScreenCaptureReplacement(t
 	vt.scrollUp(1)
 	vt.Screen[3] = makeLine("four")
 
-	if vt.altScreenCaptureEndOffset != 1 {
-		t.Fatalf("endOffset = %d, want 1 after region scroll", vt.altScreenCaptureEndOffset)
+	if vt.altCapture.endOffset != 1 {
+		t.Fatalf("endOffset = %d, want 1 after region scroll", vt.altCapture.endOffset)
 	}
 
 	vt.captureScreenToScrollback()
@@ -437,8 +438,8 @@ func TestAltScreenDropRecaptureResetsEndOffset(t *testing.T) {
 	vt.Write([]byte("AAA\r\nBBB\r\nCCC\r\nDDD\r\nEEE"))
 	vt.Write([]byte("\x1b[2J"))
 
-	if vt.altScreenCaptureLen != 3 {
-		t.Fatalf("cycle 1: captureLen = %d, want 3", vt.altScreenCaptureLen)
+	if vt.altCapture.frameLen != 3 {
+		t.Fatalf("cycle 1: captureLen = %d, want 3", vt.altCapture.frameLen)
 	}
 
 	// Cycle 2: completely different content — forces drop+recapture
@@ -446,9 +447,9 @@ func TestAltScreenDropRecaptureResetsEndOffset(t *testing.T) {
 	vt.Write([]byte("PPP\r\nQQQ\r\nRRR\r\nSSS\r\nTTT"))
 	vt.Write([]byte("\x1b[2J"))
 
-	if vt.altScreenCaptureEndOffset != 0 {
+	if vt.altCapture.endOffset != 0 {
 		t.Fatalf("cycle 2: endOffset = %d after drop+recapture, want 0",
-			vt.altScreenCaptureEndOffset)
+			vt.altCapture.endOffset)
 	}
 
 	// Cycle 3: same as cycle 2 — should match cleanly

@@ -1,5 +1,7 @@
 package vterm
 
+import "github.com/andyrewlee/amux/internal/logging"
+
 // captureScreenToScrollback copies the visible screen frame into the
 // scrollback buffer. It trims leading/trailing blank rows and clips each row
 // to the current terminal width so only what was actually visible is stored.
@@ -40,11 +42,11 @@ func (v *VTerm) captureScreenToScrollback() bool {
 
 	// Dedup: skip if these lines match the tail of scrollback
 	if matchesScrollbackTail(v.Scrollback, lines) {
-		v.altScreenCaptureLen = len(lines)
-		v.altScreenCaptureDropLen = 0
-		v.altScreenCaptureTracked = len(dropped) > 0 && captureRowsMatch(lines, dropped, v.Width)
-		if v.altScreenCaptureTracked {
-			v.altScreenCaptureDropLen = len(lines)
+		v.altCapture.frameLen = len(lines)
+		v.altCapture.dropLen = 0
+		v.altCapture.tracked = len(dropped) > 0 && captureRowsMatch(lines, dropped, v.Width)
+		if v.altCapture.tracked {
+			v.altCapture.dropLen = len(lines)
 		}
 		deductOffset()
 		v.trimScrollback()
@@ -59,9 +61,9 @@ func (v *VTerm) captureScreenToScrollback() bool {
 		v.Scrollback = append(v.Scrollback, CopyLine(line))
 		added++
 	}
-	v.altScreenCaptureLen = len(lines)
-	v.altScreenCaptureDropLen = added
-	v.altScreenCaptureTracked = true
+	v.altCapture.frameLen = len(lines)
+	v.altCapture.dropLen = added
+	v.altCapture.tracked = true
 	if oldViewOffset > 0 {
 		v.adjustAnchoredViewOffset(pendingAdded - removed + added)
 	}
@@ -125,26 +127,23 @@ func isVisiblyBlankLine(line []Cell) bool {
 // if scrollUp has appended lines after them (tracked by
 // altScreenCaptureEndOffset); untracked captures must still match the tail.
 func (v *VTerm) matchesTrackedAltScreenCapture(lines [][]Cell) (bool, int) {
-	if v.altScreenCaptureLen <= 0 || v.altScreenCaptureLen != len(lines) {
+	if v.altCapture.frameLen <= 0 || v.altCapture.frameLen != len(lines) {
 		return false, 0
 	}
-	if !v.altScreenCaptureTracked {
+	if !v.altCapture.tracked {
 		if matchesScrollbackTail(v.Scrollback, lines) {
 			return true, 0
 		}
 		return false, 0
 	}
-	total := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
+	total := v.altCapture.frameLen + v.altCapture.endOffset
 	sb := len(v.Scrollback)
 	if sb < total {
-		v.altScreenCaptureLen = 0
-		v.altScreenCaptureDropLen = 0
-		v.altScreenCaptureTracked = false
-		v.altScreenCaptureEndOffset = 0
+		v.altCapture.resetInvalid("scrollback shrank below tracked frame")
 		return false, 0
 	}
 	captureStart := sb - total
-	for i := 0; i < v.altScreenCaptureLen; i++ {
+	for i := 0; i < v.altCapture.frameLen; i++ {
 		if !linesEqual(v.Scrollback[captureStart+i], lines[i]) {
 			return false, 0
 		}
@@ -162,15 +161,17 @@ func (v *VTerm) matchesTrackedAltScreenCapture(lines [][]Cell) (bool, int) {
 // a tracked frame by moving them into transcript order ahead of that frame.
 // Any prefix that already matches the existing history tail is dropped.
 func (v *VTerm) foldTrackedAltScreenTrailing(captureStart int) int {
-	trailing := v.altScreenCaptureEndOffset
+	trailing := v.altCapture.endOffset
 	if trailing <= 0 {
 		return 0
 	}
 
-	captureEnd := captureStart + v.altScreenCaptureLen
+	captureEnd := captureStart + v.altCapture.frameLen
 	trailingStart := captureEnd
 	if trailingStart < 0 || trailingStart > len(v.Scrollback) || trailingStart+trailing > len(v.Scrollback) {
-		v.altScreenCaptureEndOffset = 0
+		logging.Warn("alt-screen capture: trailing range out of bounds (start=%d trailing=%d scrollback=%d)",
+			trailingStart, trailing, len(v.Scrollback))
+		v.altCapture.endOffset = 0
 		return 0
 	}
 
@@ -184,7 +185,7 @@ func (v *VTerm) foldTrackedAltScreenTrailing(captureStart int) int {
 	reordered = append(reordered, trailingLines[overlap:]...)
 	reordered = append(reordered, captureLines...)
 	v.Scrollback = reordered
-	v.altScreenCaptureEndOffset = 0
+	v.altCapture.endOffset = 0
 
 	return overlap
 }
@@ -195,55 +196,42 @@ func (v *VTerm) foldTrackedAltScreenTrailing(captureStart int) int {
 // we remove from its tracked position and preserve any overlap prefix plus
 // trailing scrollUp lines.
 func (v *VTerm) dropTrackedAltScreenCapture() (int, [][]Cell) {
-	if v.altScreenCaptureLen <= 0 || !v.altScreenCaptureTracked {
-		if v.altScreenCaptureLen <= 0 {
-			v.altScreenCaptureDropLen = 0
-			v.altScreenCaptureEndOffset = 0
-			return 0, nil
-		}
-		v.altScreenCaptureLen = 0
-		v.altScreenCaptureDropLen = 0
-		v.altScreenCaptureEndOffset = 0
+	if v.altCapture.frameLen <= 0 || !v.altCapture.tracked {
+		v.altCapture.reset()
 		return 0, nil
 	}
-	if v.altScreenCaptureDropLen <= 0 || v.altScreenCaptureDropLen > v.altScreenCaptureLen {
-		v.altScreenCaptureLen = 0
-		v.altScreenCaptureDropLen = 0
-		v.altScreenCaptureTracked = false
-		v.altScreenCaptureEndOffset = 0
+	if v.altCapture.dropLen <= 0 || v.altCapture.dropLen > v.altCapture.frameLen {
+		v.altCapture.resetInvalid("drop length out of range")
 		return 0, nil
 	}
-	total := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
+	total := v.altCapture.frameLen + v.altCapture.endOffset
 	if len(v.Scrollback) < total {
-		v.altScreenCaptureLen = 0
-		v.altScreenCaptureDropLen = 0
-		v.altScreenCaptureTracked = false
-		v.altScreenCaptureEndOffset = 0
+		v.altCapture.resetInvalid("scrollback shrank below tracked frame")
 		return 0, nil
 	}
 	captureStart := len(v.Scrollback) - total
-	captureEnd := captureStart + v.altScreenCaptureLen
-	dropStart := captureEnd - v.altScreenCaptureDropLen
+	captureEnd := captureStart + v.altCapture.frameLen
+	dropStart := captureEnd - v.altCapture.dropLen
 
 	// Copy the removed rows so the returned slice doesn't alias the
 	// Scrollback backing array — a subsequent append could overwrite it.
 	src := v.Scrollback[dropStart:captureEnd]
 	removedRows := make([][]Cell, len(src))
 	copy(removedRows, src)
-	removed := v.altScreenCaptureDropLen
+	removed := v.altCapture.dropLen
 
 	// Remove the tracked suffix from the frame while preserving any overlapping
 	// prefix that was already in scrollback and any trailing scrollUp lines.
 	v.Scrollback = append(v.Scrollback[:dropStart], v.Scrollback[captureEnd:]...)
-	v.altScreenCaptureLen = 0
-	v.altScreenCaptureDropLen = 0
-	v.altScreenCaptureTracked = false
+	v.altCapture.frameLen = 0
+	v.altCapture.dropLen = 0
+	v.altCapture.tracked = false
 
 	// Dedup scrollUp trailing lines against pre-capture scrollback.
 	// After removal, trailing lines are at [dropStart, dropStart+endOffset).
 	dedupRemoved := v.dedupScrollUpTrailing(dropStart)
 	removed += dedupRemoved
-	v.altScreenCaptureEndOffset = 0
+	v.altCapture.endOffset = 0
 
 	return removed, removedRows
 }
@@ -253,7 +241,7 @@ func (v *VTerm) dropTrackedAltScreenCapture() (int, [][]Cell) {
 // suffix->prefix shift of it. This keeps transcript-style fullscreen redraws
 // (for example Claude review output) from dropping earlier text on each erase.
 func (v *VTerm) transitionTrackedAltScreenCapture(lines [][]Cell) (int, [][]Cell, bool) {
-	if len(lines) == 0 || !v.altScreenCaptureTracked || v.altScreenCaptureLen <= 0 {
+	if len(lines) == 0 || !v.altCapture.tracked || v.altCapture.frameLen <= 0 {
 		return 0, nil, false
 	}
 	captureStart, captureEnd, dropStart, oldLines, ok := v.trackedAltScreenCapture()
@@ -275,22 +263,22 @@ func (v *VTerm) transitionTrackedAltScreenCapture(lines [][]Cell) (int, [][]Cell
 		return 0, nil, false
 	}
 
-	overlapPrefixLen := len(oldLines) - v.altScreenCaptureDropLen
+	overlapPrefixLen := len(oldLines) - v.altCapture.dropLen
 	if overlapPrefixLen > scrolledOff {
 		overlapPrefixLen = scrolledOff
 	}
 	preserveRows := oldLines[overlapPrefixLen:scrolledOff]
 	coveredByTrailing := 0
-	if v.altScreenCaptureEndOffset > 0 {
+	if v.altCapture.endOffset > 0 {
 		trailingStart := captureEnd
-		trailingEnd := trailingStart + v.altScreenCaptureEndOffset
+		trailingEnd := trailingStart + v.altCapture.endOffset
 		if trailingStart >= 0 && trailingEnd <= len(v.Scrollback) {
 			coveredByTrailing = scrollbackTailOverlap(v.Scrollback[trailingStart:trailingEnd], preserveRows)
 		}
 	}
 	preserveAdded := len(preserveRows) - coveredByTrailing
-	if preserveAdded > v.altScreenCaptureDropLen {
-		preserveAdded = v.altScreenCaptureDropLen
+	if preserveAdded > v.altCapture.dropLen {
+		preserveAdded = v.altCapture.dropLen
 	}
 	removeStart := dropStart + preserveAdded
 	if removeStart > captureEnd {
@@ -303,39 +291,33 @@ func (v *VTerm) transitionTrackedAltScreenCapture(lines [][]Cell) (int, [][]Cell
 	removed := len(src)
 
 	v.Scrollback = append(v.Scrollback[:removeStart], v.Scrollback[captureEnd:]...)
-	v.altScreenCaptureLen = 0
-	v.altScreenCaptureDropLen = 0
-	v.altScreenCaptureTracked = false
+	v.altCapture.frameLen = 0
+	v.altCapture.dropLen = 0
+	v.altCapture.tracked = false
 
 	dedupRemoved := v.dedupScrollUpTrailing(removeStart)
 	removed += dedupRemoved
-	v.altScreenCaptureEndOffset = 0
+	v.altCapture.endOffset = 0
 
 	return removed, removedRows, true
 }
 
 func (v *VTerm) trackedAltScreenCapture() (int, int, int, [][]Cell, bool) {
-	if v.altScreenCaptureLen <= 0 || !v.altScreenCaptureTracked {
+	if v.altCapture.frameLen <= 0 || !v.altCapture.tracked {
 		return 0, 0, 0, nil, false
 	}
-	if v.altScreenCaptureDropLen <= 0 || v.altScreenCaptureDropLen > v.altScreenCaptureLen {
-		v.altScreenCaptureLen = 0
-		v.altScreenCaptureDropLen = 0
-		v.altScreenCaptureTracked = false
-		v.altScreenCaptureEndOffset = 0
+	if v.altCapture.dropLen <= 0 || v.altCapture.dropLen > v.altCapture.frameLen {
+		v.altCapture.resetInvalid("drop length out of range")
 		return 0, 0, 0, nil, false
 	}
-	total := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
+	total := v.altCapture.frameLen + v.altCapture.endOffset
 	if len(v.Scrollback) < total {
-		v.altScreenCaptureLen = 0
-		v.altScreenCaptureDropLen = 0
-		v.altScreenCaptureTracked = false
-		v.altScreenCaptureEndOffset = 0
+		v.altCapture.resetInvalid("scrollback shrank below tracked frame")
 		return 0, 0, 0, nil, false
 	}
 	captureStart := len(v.Scrollback) - total
-	captureEnd := captureStart + v.altScreenCaptureLen
-	dropStart := captureEnd - v.altScreenCaptureDropLen
+	captureEnd := captureStart + v.altCapture.frameLen
+	dropStart := captureEnd - v.altCapture.dropLen
 	return captureStart, captureEnd, dropStart, v.Scrollback[captureStart:captureEnd], true
 }
 
@@ -345,9 +327,9 @@ func (v *VTerm) trackedAltScreenCapture() (int, int, int, [][]Cell, bool) {
 // tracked frame, where the trailing scrollUp rows already belong after the
 // remaining history and only an overlap against that history needs pruning.
 func (v *VTerm) dedupScrollUpTrailing(preCaptureLen int) int {
-	trailing := v.altScreenCaptureEndOffset
+	trailing := v.altCapture.endOffset
 	if trailing <= 0 {
-		v.altScreenCaptureEndOffset = 0
+		v.altCapture.endOffset = 0
 		return 0
 	}
 
@@ -373,7 +355,7 @@ func (v *VTerm) dedupScrollUpTrailing(preCaptureLen int) int {
 
 	// Remove the overlapping prefix from the trailing lines
 	v.Scrollback = append(v.Scrollback[:trailingStart], v.Scrollback[trailingStart+overlap:]...)
-	v.altScreenCaptureEndOffset = trailing - overlap
+	v.altCapture.endOffset = trailing - overlap
 	return overlap
 }
 
@@ -383,10 +365,7 @@ func (v *VTerm) invalidateAltScreenCapture() {
 }
 
 func (v *VTerm) invalidateTrackedAltScreenCapture() {
-	v.altScreenCaptureLen = 0
-	v.altScreenCaptureDropLen = 0
-	v.altScreenCaptureTracked = false
-	v.altScreenCaptureEndOffset = 0
+	v.altCapture.reset()
 }
 
 // captureRowsMatch compares lines with captured rows using the current terminal width.

@@ -70,10 +70,10 @@ func TestAltScreenEraseDedupedHistoryIsPreserved(t *testing.T) {
 	if vt.Scrollback[0][0].Rune != 'f' {
 		t.Fatalf("expected existing history to remain, got %q", vt.Scrollback[0][0].Rune)
 	}
-	if vt.altScreenCaptureLen != 1 {
-		t.Fatalf("expected deduped frame reserved for resize, got %d", vt.altScreenCaptureLen)
+	if vt.altCapture.frameLen != 1 {
+		t.Fatalf("expected deduped frame reserved for resize, got %d", vt.altCapture.frameLen)
 	}
-	if vt.altScreenCaptureTracked {
+	if vt.altCapture.tracked {
 		t.Fatalf("expected deduped frame not tracked as removable capture")
 	}
 
@@ -274,8 +274,8 @@ func TestAltScreenEraseDedupedFrameRemainsReservedOnResizeGrow(t *testing.T) {
 	vt.Write([]byte("frame"))
 	vt.Write([]byte("\x1b[2J"))
 
-	if vt.altScreenCaptureLen != 1 {
-		t.Fatalf("expected deduped frame to stay reserved, got %d", vt.altScreenCaptureLen)
+	if vt.altCapture.frameLen != 1 {
+		t.Fatalf("expected deduped frame to stay reserved, got %d", vt.altCapture.frameLen)
 	}
 
 	vt.Resize(5, 3)
