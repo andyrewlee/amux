@@ -20,8 +20,7 @@ func (m *Model) directSendToTerminal(tab *Tab, data, label string) (*Model, bool
 	if err := tab.Agent.Terminal.SendString(data); err != nil {
 		logging.Warn("%s failed for tab %s: %v", label, tab.ID, err)
 		tab.mu.Lock()
-		tab.Running = false
-		tab.Detached = true
+		tab.markDetachedLocked()
 		tab.mu.Unlock()
 		wsID := m.workspaceID()
 		return m, false, func() tea.Msg {

@@ -195,8 +195,7 @@ func (m *Model) SendToTerminal(s string) {
 		if err := agent.Terminal.SendString(s); err != nil {
 			logging.Warn("SendToTerminal failed for tab %s: %v", tab.ID, err)
 			tab.mu.Lock()
-			tab.Running = false
-			tab.Detached = true
+			tab.markDetachedLocked()
 			tab.mu.Unlock()
 		}
 	}

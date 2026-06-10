@@ -47,8 +47,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			tab.mu.Lock()
 			backoff, shouldRestart := tab.State.NextRestartBackoffLocked(ptyRestartWindow, ptyRestartMax)
 			if !shouldRestart {
-				tab.Running = false
-				tab.Detached = true
+				tab.markDetachedLocked()
 			}
 			tab.mu.Unlock()
 			if shouldRestart {
@@ -66,8 +65,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			}
 		} else {
 			tab.mu.Lock()
-			tab.Running = false
-			tab.Detached = true
+			tab.markDetachedLocked()
 			tab.State.ResetRestartBackoffLocked()
 			tab.mu.Unlock()
 			logging.Info("PTY stopped for tab %s, marking detached: %v", msg.TabID, msg.Err)
