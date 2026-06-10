@@ -26,11 +26,13 @@ func TestScrollDuringSyncTogglesPreserveViewport(t *testing.T) {
 	}
 
 	v.ScrollView(3)
+	v.NoteSyncViewportInteraction()
 	if !v.syncPreserveViewport {
 		t.Fatal("scrolling up during sync must anchor the viewport")
 	}
 
 	v.ScrollViewToBottom()
+	v.NoteSyncViewportInteraction()
 	if v.syncPreserveViewport {
 		t.Fatal("scrolling back to offset 0 during sync must release the anchor")
 	}

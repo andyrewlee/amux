@@ -183,10 +183,12 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 		if termY < 0 {
 			// Dragging above viewport - scroll up into history
 			ts.VTerm.ScrollView(1)
+			ts.VTerm.NoteSyncViewportInteraction()
 			termY = 0
 		} else if termY >= termHeight {
 			// Dragging below viewport - scroll down toward live
 			ts.VTerm.ScrollView(-1)
+			ts.VTerm.NoteSyncViewportInteraction()
 			termY = termHeight - 1
 		}
 
@@ -268,6 +270,7 @@ func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick
 		return nil
 	}
 	ts.VTerm.ScrollView(ts.selectionScroll.ScrollDir)
+	ts.VTerm.NoteSyncViewportInteraction()
 
 	// Update selection endpoint to viewport edge
 	edgeY := 0

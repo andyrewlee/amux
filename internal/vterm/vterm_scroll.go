@@ -75,11 +75,17 @@ func (v *VTerm) clampViewOffsetToCurrentMax() {
 	}
 }
 
-func (v *VTerm) noteSyncViewportInteraction(oldOffset int) {
+// NoteSyncViewportInteraction records a viewport interaction during
+// synchronized output. Scrolled into history, the frozen viewport stays
+// anchored when the sync ends; back at the live view, the anchor is released
+// and recorded hidden growth is discarded. This is an explicit API called by
+// the UI scroll paths (mousewheel/keys) rather than a hidden side effect of
+// the viewport math: programmatic ViewOffset changes do not touch the anchor
+// unless their call site opts in.
+func (v *VTerm) NoteSyncViewportInteraction() {
 	if v == nil || !v.syncActive {
 		return
 	}
-	_ = oldOffset
 	v.syncPreserveViewport = v.ViewOffset > 0
 }
 
@@ -110,7 +116,6 @@ func (v *VTerm) ScrollView(delta int) {
 	oldOffset := v.ViewOffset
 	v.ViewOffset += delta
 	v.clampViewOffsetToCurrentMax()
-	v.noteSyncViewportInteraction(oldOffset)
 	if v.ViewOffset != oldOffset {
 		v.bumpVersion()
 	}
@@ -121,7 +126,6 @@ func (v *VTerm) ScrollViewTo(offset int) {
 	oldOffset := v.ViewOffset
 	v.ViewOffset = offset
 	v.clampViewOffsetToCurrentMax()
-	v.noteSyncViewportInteraction(oldOffset)
 	if v.ViewOffset != oldOffset {
 		v.bumpVersion()
 	}
@@ -131,7 +135,6 @@ func (v *VTerm) ScrollViewTo(offset int) {
 func (v *VTerm) ScrollViewToTop() {
 	oldOffset := v.ViewOffset
 	v.ViewOffset = v.currentMaxViewOffset()
-	v.noteSyncViewportInteraction(oldOffset)
 	if v.ViewOffset != oldOffset {
 		v.bumpVersion()
 	}
@@ -141,7 +144,6 @@ func (v *VTerm) ScrollViewToTop() {
 func (v *VTerm) ScrollViewToBottom() {
 	oldOffset := v.ViewOffset
 	v.ViewOffset = 0
-	v.noteSyncViewportInteraction(oldOffset)
 	if v.ViewOffset != oldOffset {
 		v.bumpVersion()
 	}

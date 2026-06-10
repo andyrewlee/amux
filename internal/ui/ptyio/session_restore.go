@@ -70,6 +70,9 @@ func RestoreScrollbackCapture(
 		return
 	}
 	term.ScrollViewToBottom()
+	// Restore lands on the live view; release any sync viewport anchor so a
+	// sync that ends right after restore does not re-scroll into history.
+	term.NoteSyncViewportInteraction()
 	term.PrependScrollbackWithSize(data, captureCols, captureRows)
 	if currentCols > 0 && currentRows > 0 && (term.Width != currentCols || term.Height != currentRows) {
 		term.Resize(currentCols, currentRows)
