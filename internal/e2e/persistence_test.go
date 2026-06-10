@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -125,68 +124,6 @@ func sendPrefixSequence(t *testing.T, session *PTYSession, keys ...string) {
 		}
 		time.Sleep(prefixInterKeyDelay)
 	}
-}
-
-func waitForSessionTypes(t *testing.T, opts tmux.Options, want map[string]bool, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	prefix := tmux.SessionName("amux") + "-"
-	for time.Now().Before(deadline) {
-		sessions, err := tmux.ListSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
-		if err != nil {
-			if hasSessionsWithPrefix(t, opts, prefix, len(want)) {
-				return
-			}
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		if len(sessions) == 0 {
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		types := map[string]bool{}
-		for _, session := range sessions {
-			value, err := tmux.SessionTagValue(session, "@amux_type", opts)
-			if err != nil {
-				continue
-			}
-			types[strings.TrimSpace(value)] = true
-		}
-		ok := true
-		for typ := range want {
-			if !types[typ] {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	t.Fatalf("timeout waiting for tmux session types %v", want)
-}
-
-func waitForUIContains(t *testing.T, session *PTYSession, needle string, timeout time.Duration) {
-	t.Helper()
-	if err := session.WaitForContains(needle, timeout); err != nil {
-		t.Fatalf("waiting for %q: %v", needle, err)
-	}
-}
-
-func hasSessionsWithPrefix(t *testing.T, opts tmux.Options, prefix string, minCount int) bool {
-	t.Helper()
-	sessions, err := tmux.ListSessions(opts)
-	if err != nil {
-		return false
-	}
-	count := 0
-	for _, name := range sessions {
-		if strings.HasPrefix(name, prefix) {
-			count++
-		}
-	}
-	return count >= minCount
 }
 
 func writeRegistry(t *testing.T, home, repo string) {
