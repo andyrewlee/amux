@@ -115,10 +115,17 @@ func isBranchAlreadyExistsError(err error, branch string) bool {
 	if branch == "" {
 		return false
 	}
+	// Classify through the structured error: a failed git invocation with the
+	// branch-exists message on stderr. Matching is restricted to stderr (never
+	// the command line) so a branch name appearing in argv cannot false-match.
+	var gitErr *Error
+	if !errors.As(err, &gitErr) || gitErr.ExitCode == 0 {
+		return false
+	}
 	// Normalize backtick quoting to a single straight quote so we match git's
 	// "a branch named '<x>'" and "branch '<x>'" phrasings without enumerating
 	// quote permutations.
-	msg := strings.ReplaceAll(strings.ToLower(err.Error()), "`", "'")
+	msg := strings.ReplaceAll(strings.ToLower(gitErr.Stderr), "`", "'")
 	if strings.Contains(msg, "a branch named '"+branch+"' already exists") {
 		return true
 	}

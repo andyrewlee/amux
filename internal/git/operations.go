@@ -40,25 +40,26 @@ func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) 
 		if ctxErr := gitCommandContextErrorWithKill(ctx, err, args, killedByContext); ctxErr != nil {
 			return "", ctxErr
 		}
-		// Include stderr in error for debugging
-		if stderr.Len() > 0 {
-			return "", &Error{
-				Command: strings.Join(args, " "),
-				Stderr:  stderr.String(),
-				Err:     err,
-			}
-		}
-		return "", err
+		// Every non-context failure is structured so callers can classify by
+		// exit code and stderr.
+		return "", newGitError(args, stderr.String(), err)
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// Error wraps git command errors with additional context
+// Error wraps git command errors with structured context: the exact argv,
+// the process exit code, and captured stderr. Callers classify failures by
+// matching ExitCode/Stderr through errors.As instead of parsing the prose of
+// Error().
 type Error struct {
-	Command string
-	Stderr  string
-	Err     error
+	Command string   // joined args, for display
+	Args    []string // exact argv passed to git
+	// ExitCode is the git process exit code; -1 when the process did not run
+	// or did not exit normally.
+	ExitCode int
+	Stderr   string
+	Err      error
 }
 
 func (e *Error) Error() string {
@@ -67,6 +68,22 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error {
 	return e.Err
+}
+
+// newGitError builds a structured Error for a failed git invocation.
+func newGitError(args []string, stderr string, err error) *Error {
+	exitCode := -1
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		exitCode = exitErr.ExitCode()
+	}
+	return &Error{
+		Command:  strings.Join(args, " "),
+		Args:     append([]string(nil), args...),
+		ExitCode: exitCode,
+		Stderr:   stderr,
+		Err:      err,
+	}
 }
 
 // IsGitRepository checks if the given path is a git repository
@@ -114,11 +131,7 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	// Only return error if there's actual stderr output indicating a problem
 	// and no stdout (which would indicate the command worked but returned non-zero)
 	if stderr.Len() > 0 && stdout.Len() == 0 {
-		return "", &Error{
-			Command: strings.Join(args, " "),
-			Stderr:  stderr.String(),
-			Err:     err,
-		}
+		return "", newGitError(args, stderr.String(), err)
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
@@ -143,14 +156,7 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 		if ctxErr := gitCommandContextErrorWithKill(ctx, err, args, killedByContext); ctxErr != nil {
 			return nil, ctxErr
 		}
-		if stderr.Len() > 0 {
-			return nil, &Error{
-				Command: strings.Join(args, " "),
-				Stderr:  stderr.String(),
-				Err:     err,
-			}
-		}
-		return nil, err
+		return nil, newGitError(args, stderr.String(), err)
 	}
 
 	return stdout.Bytes(), nil
