@@ -401,3 +401,44 @@ func TestSupervisor_ConcurrentStart(t *testing.T) {
 		t.Errorf("expected 10 workers started, got %d", count)
 	}
 }
+
+func TestSupervisor_StopWithTimeoutStuckWorker(t *testing.T) {
+	ctx := context.Background()
+	s := New(ctx)
+
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+	s.Start("stuck", func(ctx context.Context) error {
+		started <- struct{}{}
+		<-release // ignores ctx cancellation
+		return nil
+	}, WithRestartPolicy(RestartNever))
+	s.Start("polite", func(ctx context.Context) error {
+		started <- struct{}{}
+		<-ctx.Done()
+		return nil
+	}, WithRestartPolicy(RestartNever))
+	// Both workers must be inside their run functions before Stop cancels the
+	// context, otherwise the supervisor loop exits before ever calling them.
+	<-started
+	<-started
+
+	done := make(chan bool, 1)
+	go func() {
+		done <- s.StopWithTimeout(100 * time.Millisecond)
+	}()
+
+	select {
+	case clean := <-done:
+		if clean {
+			t.Fatalf("expected StopWithTimeout to report a stuck worker")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("StopWithTimeout hung on a stuck worker")
+	}
+
+	if got := s.runningWorkers(); len(got) != 1 || got[0] != "stuck" {
+		t.Fatalf("expected only the stuck worker to remain, got %v", got)
+	}
+	close(release)
+}
