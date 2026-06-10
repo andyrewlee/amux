@@ -13,24 +13,6 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
-// overflowLogThrottle bounds how often a sustained PTY overflow logs.
-const overflowLogThrottle = 2 * time.Second
-
-// noteOverflowDropLocked accumulates dropped overflow bytes and reports whether a
-// throttled overflow Warn should be emitted now (caller logs outside the lock),
-// returning the aggregated dropped-byte total. The caller must hold ts.mu.
-func (ts *TerminalState) noteOverflowDropLocked(droppedBytes int) (logNow bool, total int) {
-	ts.OverflowDroppedSinceLog += droppedBytes
-	now := time.Now()
-	if ts.LastOverflowLogAt.IsZero() || now.Sub(ts.LastOverflowLogAt) >= overflowLogThrottle {
-		total = ts.OverflowDroppedSinceLog
-		ts.OverflowDroppedSinceLog = 0
-		ts.LastOverflowLogAt = now
-		return true, total
-	}
-	return false, 0
-}
-
 // handlePTYOutput buffers incoming PTY data and schedules a flush.
 func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 	wsID := msg.WorkspaceID
@@ -42,9 +24,7 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 	ts := tab.State
 	data := msg.Data
 	ts.mu.Lock()
-	if ts.OverflowTrimCarry != (vterm.ParserCarryState{}) {
-		data, ts.OverflowTrimCarry = ptyio.TrimPTYOverflowPrefix(data, 0, ts.OverflowTrimCarry)
-	}
+	data, _ = ts.State.ConsumeOverflowCarryLocked(data)
 	ts.mu.Unlock()
 	prevPendingLen := len(ts.PendingOutput)
 	ts.PendingOutput = append(ts.PendingOutput, data...)
@@ -53,22 +33,20 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 		perf.Count("sidebar_pty_drop_bytes", int64(overflow))
 		perf.Count("sidebar_pty_drop", 1)
 		seed := vterm.ParserCarryState{}
-		combinedLen := len(ts.PendingOutput)
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			seed = ts.VTerm.ParserCarryState()
 			ts.VTerm.ResetParserState()
 		}
 		ts.mu.Unlock()
-		retained, overflowCarry := ptyio.TrimPTYOverflowPrefix(ts.PendingOutput, overflow, seed)
-		retainedStart := combinedLen - len(retained)
-		ts.PendingOutput = append([]byte(nil), retained...)
+		retained, overflowCarry, retainedStart := ptyio.TrimOverflow(ts.PendingOutput, ptyMaxBufferedBytes, seed)
+		ts.PendingOutput = retained
 		ts.mu.Lock()
 		ts.OverflowTrimCarry = overflowCarry
 		if retainedStart > prevPendingLen {
 			ts.NoiseTrailing = nil
 		}
-		overflowLogNow, overflowDroppedTotal := ts.noteOverflowDropLocked(retainedStart)
+		overflowLogNow, overflowDroppedTotal := ts.NoteOverflowDropLocked(retainedStart)
 		ts.mu.Unlock()
 		if overflowLogNow {
 			logging.Warn("Sidebar PTY output overflow for workspace %s tab %s: dropped %d bytes (buffer cap %d)", wsID, tabID, overflowDroppedTotal, ptyMaxBufferedBytes)
@@ -95,18 +73,8 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		return nil
 	}
 	ts := tab.State
-	now := time.Now()
-	quietFor := now.Sub(ts.LastOutputAt)
-	pendingFor := time.Duration(0)
-	if !ts.FlushPendingSince.IsZero() {
-		pendingFor = now.Sub(ts.FlushPendingSince)
-	}
 	quiet, maxInterval := m.flushTiming()
-	if quietFor < quiet && pendingFor < maxInterval {
-		delay := quiet - quietFor
-		if delay < time.Millisecond {
-			delay = time.Millisecond
-		}
+	if delay, deferred := ts.State.FlushDelay(time.Now(), quiet, maxInterval); deferred {
 		ts.FlushScheduled = true
 		return common.SafeTick(delay, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
@@ -115,7 +83,18 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 
 	ts.FlushScheduled = false
 	ts.FlushPendingSince = time.Time{}
-	if len(ts.PendingOutput) == 0 || !flushSidebarPendingOutput(ts) {
+	if len(ts.PendingOutput) == 0 {
+		return nil
+	}
+	var consumed bool
+	ts.mu.Lock()
+	if ts.VTerm != nil {
+		chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
+		_ = ts.State.WriteFilteredChunkLocked(ts.VTerm.Write, chunk)
+		consumed = true
+	}
+	ts.mu.Unlock()
+	if !consumed {
 		return nil
 	}
 	if len(ts.PendingOutput) == 0 {
@@ -131,35 +110,6 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 	return common.SafeTick(delay, func(t time.Time) tea.Msg {
 		return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 	})
-}
-
-func flushSidebarPendingOutput(ts *TerminalState) bool {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if ts.VTerm == nil {
-		return false
-	}
-	chunkSize := len(ts.PendingOutput)
-	if chunkSize > ptyFlushChunkSize {
-		chunkSize = ptyFlushChunkSize
-	}
-	chunk := append([]byte(nil), ts.PendingOutput[:chunkSize]...)
-	copy(ts.PendingOutput, ts.PendingOutput[chunkSize:])
-	ts.PendingOutput = ts.PendingOutput[:len(ts.PendingOutput)-chunkSize]
-	processedBytes := len(chunk)
-	filtered := ptyio.FilterKnownPTYNoiseStream(chunk, &ts.NoiseTrailing)
-	filteredBytes := processedBytes - len(filtered)
-	perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-	if filteredBytes > 0 {
-		perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-	}
-	if len(filtered) > 0 {
-		flushDone := perf.Time("pty_flush")
-		ts.VTerm.Write(filtered)
-		flushDone()
-		perf.Count("pty_flush_bytes", int64(len(filtered)))
-	}
-	return true
 }
 
 // handlePTYStopped handles PTY reader exit, restarting with backoff or marking detached.
