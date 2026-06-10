@@ -22,10 +22,10 @@ func (a *App) composeDashboardPane(canvas *lipgloss.Canvas, leftGutter, topGutte
 		dashContentHeight = 1
 	}
 	dashContent := clampLines(a.dashboard.View(), dashContentWidth, dashContentHeight)
-	if dashDrawable := a.dashboardContent.get(dashContent, leftGutter+1, topGutter+1); dashDrawable != nil {
+	if dashDrawable := a.renderCache.dashboardContent.get(dashContent, leftGutter+1, topGutter+1); dashDrawable != nil {
 		canvas.Compose(dashDrawable)
 	}
-	for _, border := range a.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight) {
+	for _, border := range a.renderCache.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight) {
 		canvas.Compose(border)
 	}
 }
@@ -45,7 +45,7 @@ func (a *App) composeCenterPane(canvas *lipgloss.Canvas, leftGutter, topGutter, 
 		return
 	}
 	// Fallback to string-based rendering with borders (no caching - content changes)
-	a.centerChrome.Invalidate()
+	a.renderCache.centerChrome.Invalidate()
 	var centerContent string
 	if a.center.HasTabs() {
 		centerContent = a.center.View()
@@ -79,7 +79,7 @@ func (a *App) composeCenterTerminalLayer(canvas *lipgloss.Canvas, centerX, topGu
 	canvas.Compose(positionedTermLayer)
 
 	// Draw borders without touching the content area.
-	for _, border := range a.centerBorders.get(centerX, topGutter, centerWidth, centerHeight) {
+	for _, border := range a.renderCache.centerBorders.get(centerX, topGutter, centerWidth, centerHeight) {
 		canvas.Compose(border)
 	}
 
@@ -90,13 +90,13 @@ func (a *App) composeCenterTerminalLayer(canvas *lipgloss.Canvas, centerX, topGu
 
 	// Tab bar (top of content area).
 	tabBar := clampLines(a.center.TabBarView(), contentWidth, termOffsetY-1)
-	if tabBarDrawable := a.centerTabBar.get(tabBar, termX, topGutter+1); tabBarDrawable != nil {
+	if tabBarDrawable := a.renderCache.centerTabBar.get(tabBar, termX, topGutter+1); tabBarDrawable != nil {
 		canvas.Compose(tabBarDrawable)
 	}
 
 	// Status line (directly below terminal content).
 	if status := clampLines(a.center.ActiveTerminalStatusLine(), contentWidth, 1); status != "" {
-		if statusDrawable := a.centerStatus.get(status, termX, termY+termH); statusDrawable != nil {
+		if statusDrawable := a.renderCache.centerStatus.get(status, termX, termY+termH); statusDrawable != nil {
 			canvas.Compose(statusDrawable)
 		}
 	}
@@ -111,7 +111,7 @@ func (a *App) composeCenterTerminalLayer(canvas *lipgloss.Canvas, centerX, topGu
 	if helpY <= termY {
 		return
 	}
-	if helpDrawable := a.centerHelp.get(helpContent, termX, helpY); helpDrawable != nil {
+	if helpDrawable := a.renderCache.centerHelp.get(helpContent, termX, helpY); helpDrawable != nil {
 		canvas.Compose(helpDrawable)
 	}
 }
@@ -149,7 +149,7 @@ func (a *App) composeSidebarPane(canvas *lipgloss.Canvas, leftGutter, topGutter 
 	}
 
 	a.composeSidebarTerminalPane(canvas, sidebarX, bottomY, contentWidth, bottomContentHeight, blockingOverlayVisible, setTerminalCursor)
-	for _, border := range a.sidebarBottomBorders.get(sidebarX, bottomY, sidebarWidth, bottomPaneHeight) {
+	for _, border := range a.renderCache.sidebarBottomBorders.get(sidebarX, bottomY, sidebarWidth, bottomPaneHeight) {
 		canvas.Compose(border)
 	}
 }
@@ -169,7 +169,7 @@ func (a *App) composeSidebarTopPane(canvas *lipgloss.Canvas, sidebarX, topGutter
 		tabBarHeight = 1
 		tabBarContent := clampLines(tabBar, contentWidth, 1)
 		tabBarY := topGutter + 1 // Inside the border
-		if tabBarDrawable := a.sidebarTopTabBar.get(tabBarContent, sidebarX+2, tabBarY); tabBarDrawable != nil {
+		if tabBarDrawable := a.renderCache.sidebarTopTabBar.get(tabBarContent, sidebarX+2, tabBarY); tabBarDrawable != nil {
 			canvas.Compose(tabBarDrawable)
 		}
 	}
@@ -180,10 +180,10 @@ func (a *App) composeSidebarTopPane(canvas *lipgloss.Canvas, sidebarX, topGutter
 		sidebarContentHeight = 1
 	}
 	topContent := clampLines(a.sidebar.ContentView(), contentWidth, sidebarContentHeight)
-	if topDrawable := a.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1+tabBarHeight); topDrawable != nil {
+	if topDrawable := a.renderCache.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1+tabBarHeight); topDrawable != nil {
 		canvas.Compose(topDrawable)
 	}
-	for _, border := range a.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight) {
+	for _, border := range a.renderCache.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight) {
 		canvas.Compose(border)
 	}
 }
@@ -195,7 +195,7 @@ func (a *App) composeSidebarTerminalPane(canvas *lipgloss.Canvas, sidebarX, bott
 	termLayer := a.sidebarTerminal.TerminalLayerWithCursorOwner(sidebarOwnsCursor)
 	if termLayer == nil {
 		bottomContent := clampLines(a.sidebarTerminal.View(), contentWidth, bottomContentHeight)
-		if bottomDrawable := a.sidebarBottomContent.get(bottomContent, sidebarX+2, bottomY+1); bottomDrawable != nil {
+		if bottomDrawable := a.renderCache.sidebarBottomContent.get(bottomContent, sidebarX+2, bottomY+1); bottomDrawable != nil {
 			canvas.Compose(bottomDrawable)
 		}
 		return
@@ -216,7 +216,7 @@ func (a *App) composeSidebarTerminalPane(canvas *lipgloss.Canvas, sidebarX, bott
 		tabBarHeight = 1
 		tabBarContent := clampLines(tabBar, contentWidth, 1)
 		tabBarY := bottomY + 1 // Inside the border
-		if tabBarDrawable := a.sidebarBottomTabBar.get(tabBarContent, originX, tabBarY); tabBarDrawable != nil {
+		if tabBarDrawable := a.renderCache.sidebarBottomTabBar.get(tabBarContent, originX, tabBarY); tabBarDrawable != nil {
 			canvas.Compose(tabBarDrawable)
 		}
 	}
@@ -255,7 +255,7 @@ func (a *App) composeSidebarTerminalPane(canvas *lipgloss.Canvas, sidebarX, bott
 	canvas.Compose(positioned)
 
 	if status != "" {
-		if statusDrawable := a.sidebarBottomStatus.get(status, originX, originY+termH); statusDrawable != nil {
+		if statusDrawable := a.renderCache.sidebarBottomStatus.get(status, originX, originY+termH); statusDrawable != nil {
 			canvas.Compose(statusDrawable)
 		}
 	}
@@ -263,12 +263,12 @@ func (a *App) composeSidebarTerminalPane(canvas *lipgloss.Canvas, sidebarX, bott
 	if len(helpLines) > 0 {
 		helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
 		helpY := originY + bottomContentHeight - len(helpLines) - tabBarHeight
-		if helpDrawable := a.sidebarBottomHelp.get(helpContent, originX, helpY); helpDrawable != nil {
+		if helpDrawable := a.renderCache.sidebarBottomHelp.get(helpContent, originX, helpY); helpDrawable != nil {
 			canvas.Compose(helpDrawable)
 		}
 	} else if status == "" && bottomContentHeight > termH+tabBarHeight {
 		blank := strings.Repeat(" ", contentWidth)
-		if blankDrawable := a.sidebarBottomHelp.get(blank, originX, originY+bottomContentHeight-1-tabBarHeight); blankDrawable != nil {
+		if blankDrawable := a.renderCache.sidebarBottomHelp.get(blank, originX, originY+bottomContentHeight-1-tabBarHeight); blankDrawable != nil {
 			canvas.Compose(blankDrawable)
 		}
 	}

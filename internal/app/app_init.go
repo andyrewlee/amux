@@ -18,7 +18,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
@@ -40,9 +39,7 @@ func newAppShell(cfg *config.Config) *App {
 		toast:                common.NewToastModel(),
 		focusedPane:          messages.PaneDashboard,
 		keymap:               DefaultKeyMap(),
-		dashboardChrome:      &compositor.ChromeCache{},
-		centerChrome:         &compositor.ChromeCache{},
-		sidebarChrome:        &compositor.ChromeCache{},
+		renderCache:          newRenderCacheState(),
 		tmuxActivity:         newTmuxActivityState(),
 		lifecycle:            newWorkspaceLifecycleState(),
 		maxAttachedAgentTabs: maxAttachedAgentTabsFromEnv(),
