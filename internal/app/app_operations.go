@@ -14,8 +14,8 @@ func (a *App) loadProjects() tea.Cmd {
 	if a.workspaceService == nil {
 		return nil
 	}
-	a.projectsLoadToken++
-	return a.workspaceService.LoadProjects(a.projectsLoadToken)
+	a.lifecycle.projectsLoadToken++
+	return a.workspaceService.LoadProjects(a.lifecycle.projectsLoadToken)
 }
 
 // rescanWorkspaces discovers git worktrees and updates the workspace store.

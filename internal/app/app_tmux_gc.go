@@ -40,7 +40,7 @@ func (a *App) collectKnownWorkspaceIDs() map[string]bool {
 			ids[string(a.projects[i].Workspaces[j].ID())] = true
 		}
 	}
-	for id := range a.creatingWorkspaceIDs {
+	for id := range a.lifecycle.creating {
 		ids[id] = true
 	}
 	// A workspace mid-delete may already be absent from a.projects (loadProjects
