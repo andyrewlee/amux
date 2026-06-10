@@ -54,11 +54,11 @@ type ParserCarryState struct {
 	UTF8Remaining int
 }
 
+// AdvanceParserCarryState models parser continuity across chunk boundaries.
+// It is the single shared state machine for this: PTY overflow trimming
+// (internal/ui/ptyio) and speculative actor carry previews both consume it
+// directly rather than maintaining copies.
 func AdvanceParserCarryState(seed ParserCarryState, data []byte) ParserCarryState {
-	// Keep this state machine aligned with internal/ui/common/pty_overflow_trim.
-	// Both model parser continuity across chunk boundaries; if one changes
-	// without the other, overflow trimming and speculative actor carry previews
-	// will diverge.
 	state := seed
 	for i := 0; i < len(data); i++ {
 		b := data[i]
