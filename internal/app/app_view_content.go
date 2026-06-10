@@ -46,26 +46,6 @@ func (a *App) centerPaneContentOrigin() (x, y int) {
 	return a.layout.LeftGutter() + a.layout.DashboardWidth() + gapX + frameX/2, a.layout.TopGutter() + frameY/2
 }
 
-func (a *App) goHome() {
-	a.showWelcome = true
-	a.activeWorkspace = nil
-	if a.center != nil {
-		a.center.SetWorkspace(nil)
-	}
-	if a.sidebar != nil {
-		a.sidebar.SetWorkspace(nil)
-		a.sidebar.SetGitStatus(nil)
-	}
-	if a.sidebarTerminal != nil {
-		_ = a.sidebarTerminal.SetWorkspace(nil)
-	}
-	if a.dashboard != nil {
-		a.dashboard.ClearActiveRoot()
-	}
-	a.centerBtnFocused = false
-	a.centerBtnIndex = 0
-}
-
 // renderWorkspaceInfo renders information about the active workspace
 func (a *App) renderWorkspaceInfo() string {
 	ws := a.activeWorkspace
