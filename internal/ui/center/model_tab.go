@@ -66,11 +66,37 @@ type Tab struct {
 	// bookkeeping (locking owned by mu, as documented on the type).
 	ptyio.State
 
-	pendingOutputBytes     int
-	catchUpPendingOutput   bool
-	catchUpTargetBytes     uint64
-	ptyBytesReceived       uint64
-	ptyBytesSettled        uint64
+	pendingOutputBytes   int
+	catchUpPendingOutput bool
+	catchUpTargetBytes   uint64
+	ptyBytesReceived     uint64
+	ptyBytesSettled      uint64
+
+	// Embedded state groups; fields are promoted so accesses read the same as
+	// before the decomposition. Locking follows the same rule as the flat
+	// fields did: guarded by mu unless documented atomic.
+	tabActivityState
+	tabActorWriteState
+	tabCursorState
+
+	ptyRows int
+	ptyCols int
+	// Mouse selection state
+	Selection          common.SelectionState
+	selectionScroll    common.SelectionScrollState
+	selectionLastTermX int
+
+	ptyTraceFile   *os.File
+	ptyTraceBytes  int
+	ptyTraceClosed bool
+	lastFocusedAt  time.Time
+
+	createdAt int64 // Unix timestamp for ordering; persisted in workspace.json
+}
+
+// tabActivityState groups chat-activity detection state: visible-output
+// tracking, the activity digest, bootstrap windows and prompt timing.
+type tabActivityState struct {
 	lastVisibleOutput      time.Time
 	pendingVisibleOutput   bool
 	pendingVisibleSeq      uint64
@@ -82,29 +108,27 @@ type Tab struct {
 	lastUserInputAt        time.Time
 	bootstrapActivity      bool
 	bootstrapLastOutputAt  time.Time
-	postWriteVisibleState  uint32
+	postWriteVisibleState  uint32 // atomic
 	lastPromptInputAt      time.Time
 	lastPromptSubmitAt     time.Time
 	pendingSubmitPasteEcho string
+}
 
+// tabActorWriteState groups the tab-actor write pipeline state: queued write
+// accounting and the parser carry/reset flow (see model_tab_phase.go for how
+// parserResetPending gates flushing).
+type tabActorWriteState struct {
 	parserResetPending       bool
 	actorWritesPending       int
 	actorQueuedBytes         int
 	actorWriteEpoch          uint64
 	actorQueuedCarry         vterm.ParserCarryState
 	actorQueuedNoiseTrailing []byte
-	ptyRows                  int
-	ptyCols                  int
-	// Mouse selection state
-	Selection          common.SelectionState
-	selectionScroll    common.SelectionScrollState
-	selectionLastTermX int
+}
 
-	ptyTraceFile   *os.File
-	ptyTraceBytes  int
-	ptyTraceClosed bool
-	lastFocusedAt  time.Time
-
+// tabCursorState groups cursor stabilization/refresh state used by the chat
+// cursor overlay.
+type tabCursorState struct {
 	cachedRecentLocalInput   bool
 	cachedRestrictCursor     bool
 	cursorRefreshGen         uint64
@@ -116,7 +140,6 @@ type Tab struct {
 	stableCursorVersion      uint64
 	lastRestrictedVersion    uint64
 	pendingIdleCursorRelearn bool
-	createdAt                int64 // Unix timestamp for ordering; persisted in workspace.json
 }
 
 func (t *Tab) isClosed() bool {

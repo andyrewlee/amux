@@ -69,13 +69,15 @@ func TestTerminalLayerWithCursorOwner_DoesNotLearnStableCursorWhenNotOwner(t *te
 	term.CursorY = 11
 
 	tab := &Tab{
-		ID:              TabID("tab-chat-owner-stable"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		stableCursorSet: true,
-		stableCursorX:   1,
-		stableCursorY:   11,
+		ID:        TabID("tab-chat-owner-stable"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   1,
+			stableCursorY:   11,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0

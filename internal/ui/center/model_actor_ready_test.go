@@ -45,8 +45,10 @@ func TestUpdatePTYFlush_StaleActorHeartbeatForcesParserResetFallback(t *testing.
 			LastOutputAt:      time.Now().Add(-time.Second),
 			FlushPendingSince: time.Now().Add(-time.Second),
 		},
-		parserResetPending: true,
-		actorWritesPending: 1,
+		tabActorWriteState: tabActorWriteState{
+			parserResetPending: true,
+			actorWritesPending: 1,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0

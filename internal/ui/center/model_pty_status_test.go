@@ -15,7 +15,6 @@ func TestTerminalLayerForcesVisibleCursorForChatTabs(t *testing.T) {
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
 	term.Write([]byte("\x1b[?25l"))
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat"),
@@ -27,7 +26,6 @@ func TestTerminalLayerForcesVisibleCursorForChatTabs(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -52,7 +50,6 @@ func TestTerminalLayerLetsChatAppOwnSyntheticCursorWhenHidden(t *testing.T) {
 	term.CursorX = 2
 	term.CursorY = 2
 	term.Screen[2][2] = vterm.Cell{Rune: '█', Width: 1}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-owned-cursor"),
@@ -64,7 +61,6 @@ func TestTerminalLayerLetsChatAppOwnSyntheticCursorWhenHidden(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -90,7 +86,6 @@ func TestTerminalLayerLetsChatAppOwnSteadyBarCursorWhenHidden(t *testing.T) {
 		Width: 1,
 		Style: vterm.Style{Reverse: true},
 	}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-owned-steady-bar-cursor"),
@@ -102,7 +97,6 @@ func TestTerminalLayerLetsChatAppOwnSteadyBarCursorWhenHidden(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -124,7 +118,6 @@ func TestTerminalLayerPreservesCursorForLiteralBlockTextWhenHidden(t *testing.T)
 	term.CursorX = 2
 	term.CursorY = 2
 	term.Screen[2][2] = vterm.Cell{Rune: '▌', Width: 1}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-literal-block-text"),
@@ -136,7 +129,6 @@ func TestTerminalLayerPreservesCursorForLiteralBlockTextWhenHidden(t *testing.T)
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -155,22 +147,22 @@ func TestTerminalLayerPreservesCursorForStoredLiteralFullBlockWhenHidden(t *test
 	term.CursorX = 0
 	term.CursorY = 3
 	term.Screen[2][2] = vterm.Cell{Rune: '█', Width: 1}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
-			ID:              TabID("tab-chat-stored-literal-full-block"),
-			Assistant:       "claude",
-			Workspace:       ws,
-			Terminal:        term,
-			stableCursorSet: true,
-			stableCursorX:   2,
-			stableCursorY:   2,
+			ID:        TabID("tab-chat-stored-literal-full-block"),
+			Assistant: "claude",
+			Workspace: ws,
+			Terminal:  term,
+			tabCursorState: tabCursorState{
+				stableCursorSet: true,
+				stableCursorX:   2,
+				stableCursorY:   2,
+			},
 		},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -189,7 +181,6 @@ func TestTerminalLayerIgnoresUnrelatedSyntheticGlyphWhenCursorHidden(t *testing.
 	term.CursorX = 0
 	term.CursorY = 3
 	term.Screen[2][2] = vterm.Cell{Rune: '█', Width: 1}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-unrelated-cursor-glyph"),
@@ -201,7 +192,6 @@ func TestTerminalLayerIgnoresUnrelatedSyntheticGlyphWhenCursorHidden(t *testing.
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -217,7 +207,6 @@ func TestTerminalLayerPreservesCursorHiddenForNonChatTabs(t *testing.T) {
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
 	term.Write([]byte("\x1b[?25l"))
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-non-chat"),
@@ -229,7 +218,6 @@ func TestTerminalLayerPreservesCursorHiddenForNonChatTabs(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -271,22 +259,22 @@ func TestTerminalLayerShowsCursorForIdleBootstrapChatTab(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
-			ID:                    TabID("tab-chat-bootstrap"),
-			Assistant:             "codex",
-			Workspace:             ws,
-			Terminal:              term,
-			Running:               true,
-			bootstrapActivity:     true,
-			bootstrapLastOutputAt: time.Now(),
+			ID:        TabID("tab-chat-bootstrap"),
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			Running:   true,
+			tabActivityState: tabActivityState{
+				bootstrapActivity:     true,
+				bootstrapLastOutputAt: time.Now(),
+			},
 		},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -301,7 +289,6 @@ func TestTerminalLayerShowsCursorForChatTabWithRecentOutput(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-recent-output"),
@@ -317,7 +304,6 @@ func TestTerminalLayerShowsCursorForChatTabWithRecentOutput(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -339,7 +325,6 @@ func TestTerminalLayerNormalizesSyntheticCursorCellForChatTabs(t *testing.T) {
 		Width: 1,
 		Style: vterm.Style{Blink: true},
 	}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-artifact"),
@@ -351,7 +336,6 @@ func TestTerminalLayerNormalizesSyntheticCursorCellForChatTabs(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -409,7 +393,6 @@ func TestTerminalLayerKeepsSyntheticCursorCellForNonChatTabs(t *testing.T) {
 		Width: 1,
 		Style: vterm.Style{Blink: true},
 	}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-non-chat-artifact"),
@@ -421,7 +404,6 @@ func TestTerminalLayerKeepsSyntheticCursorCellForNonChatTabs(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -445,7 +427,6 @@ func TestTerminalLayerClearsBlinkAttributesForChatTabs(t *testing.T) {
 		Width: 1,
 		Style: vterm.Style{Blink: true},
 	}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-blink"),
@@ -457,7 +438,6 @@ func TestTerminalLayerClearsBlinkAttributesForChatTabs(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -477,7 +457,6 @@ func TestTerminalLayerPreservesBlinkAttributesForNonChatTabs(t *testing.T) {
 		Width: 1,
 		Style: vterm.Style{Blink: true},
 	}
-
 	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-non-chat-blink"),
@@ -489,7 +468,6 @@ func TestTerminalLayerPreservesBlinkAttributesForNonChatTabs(t *testing.T) {
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")

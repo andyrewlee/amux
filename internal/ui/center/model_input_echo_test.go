@@ -79,8 +79,10 @@ func TestRecordLocalInputEchoWindow_TypingSetsButEnterKeepsPromptWindowOnly(t *t
 
 func TestRecordLocalInputEchoWindow_ClearsBootstrapPhaseOnUserInput(t *testing.T) {
 	tab := &Tab{
-		bootstrapActivity:     true,
-		bootstrapLastOutputAt: time.Now(),
+		tabActivityState: tabActivityState{
+			bootstrapActivity:     true,
+			bootstrapLastOutputAt: time.Now(),
+		},
 	}
 
 	recordLocalInputEchoWindow(tab, "x", time.Now())

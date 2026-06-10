@@ -15,22 +15,22 @@ func TestTerminalLayerUpdatesStoredCursorWhenIdlePromptMovesAfterVersionChange(t
 	term := vterm.New(20, 12)
 	term.CursorX = 1
 	term.CursorY = 11
-
 	tab := &Tab{
-		ID:              TabID("tab-chat-idle-prompt-move"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   1,
-		stableCursorY:   11,
+		ID:        TabID("tab-chat-idle-prompt-move"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   1,
+			stableCursorY:   11,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	seed := m.TerminalLayer()
 	if seed == nil || seed.Snap == nil {
 		t.Fatal("expected initial terminal layer snapshot")
@@ -39,7 +39,6 @@ func TestTerminalLayerUpdatesStoredCursorWhenIdlePromptMovesAfterVersionChange(t
 	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	tab.lastVisibleOutput = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	term.Write([]byte("\x1b[11;5H"))
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected updated terminal layer snapshot")
@@ -65,18 +64,21 @@ func TestTerminalLayerPreservesStoredCursorAcrossTemporaryScrollback(t *testing.
 	}
 	term.CursorX = 2
 	term.CursorY = 11
-
 	tab := &Tab{
-		ID:                  TabID("tab-chat-scrollback-stable"),
-		Assistant:           "codex",
-		Workspace:           ws,
-		Terminal:            term,
-		Running:             true,
-		stableCursorSet:     true,
-		stableCursorX:       2,
-		stableCursorY:       11,
-		stableCursorVersion: term.Version(),
-		lastVisibleOutput:   time.Now(),
+		ID:        TabID("tab-chat-scrollback-stable"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet:     true,
+			stableCursorX:       2,
+			stableCursorY:       11,
+			stableCursorVersion: term.Version(),
+		},
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -113,7 +115,6 @@ func TestTerminalLayerAllowsBracketedPasteAsRecentLocalInput(t *testing.T) {
 	term.CursorX = 4
 	term.CursorY = 10
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
-
 	tab := &Tab{
 		ID:        TabID("tab-chat-bracketed-paste"),
 		Assistant: "codex",
@@ -130,7 +131,6 @@ func TestTerminalLayerAllowsBracketedPasteAsRecentLocalInput(t *testing.T) {
 	m.Focus()
 
 	recordLocalInputEchoWindow(tab, "\x1b[200~hello\x1b[201~", time.Now())
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -150,22 +150,22 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 	term := vterm.New(20, 24)
 	term.CursorX = 1
 	term.CursorY = 23
-
 	tab := &Tab{
-		ID:              TabID("tab-chat-idle-multiline-relearn"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   1,
-		stableCursorY:   23,
+		ID:        TabID("tab-chat-idle-multiline-relearn"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   1,
+			stableCursorY:   23,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	seed := m.TerminalLayer()
 	if seed == nil || seed.Snap == nil {
 		t.Fatal("expected seeded terminal layer snapshot")
@@ -174,7 +174,6 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 	term.Write([]byte("\x1b[11;5Hprompt"))
 	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
-
 	restricted := m.TerminalLayer()
 	if restricted == nil || restricted.Snap == nil {
 		t.Fatal("expected restricted terminal layer snapshot")
@@ -188,7 +187,6 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 
 	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	tab.lastVisibleOutput = time.Now().Add(-tabActiveWindow - time.Millisecond)
-
 	idle := m.TerminalLayer()
 	if idle == nil || idle.Snap == nil {
 		t.Fatal("expected idle terminal layer snapshot")
@@ -197,8 +195,7 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 		t.Fatal("expected idle multiline prompt cursor to become visible")
 	}
 	if idle.Snap.CursorX != term.CursorX || idle.Snap.CursorY != term.CursorY {
-		t.Fatalf("expected idle render to re-learn live multiline prompt cursor at (%d,%d), got (%d,%d)",
-			term.CursorX, term.CursorY, idle.Snap.CursorX, idle.Snap.CursorY)
+		t.Fatalf("expected idle render to re-learn live multiline prompt cursor at (%d,%d), got (%d,%d)", term.CursorX, term.CursorY, idle.Snap.CursorX, idle.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != term.CursorX || tab.stableCursorY != term.CursorY {
 		t.Fatalf("expected stored cursor to update to idle multiline prompt, got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
@@ -212,16 +209,17 @@ func TestTerminalLayerPreservesStoredMultilineCursorAcrossRestrictedArtifact(t *
 	term := vterm.New(20, 24)
 	term.CursorX = 19
 	term.CursorY = 23
-
 	tab := &Tab{
-		ID:              TabID("tab-chat-restricted-stored-multiline"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   4,
-		stableCursorY:   10,
+		ID:        TabID("tab-chat-restricted-stored-multiline"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   4,
+			stableCursorY:   10,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -230,7 +228,6 @@ func TestTerminalLayerPreservesStoredMultilineCursorAcrossRestrictedArtifact(t *
 
 	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -239,12 +236,10 @@ func TestTerminalLayerPreservesStoredMultilineCursorAcrossRestrictedArtifact(t *
 		t.Fatal("expected stored multiline cursor to remain visible during restricted output")
 	}
 	if layer.Snap.CursorX != 4 || layer.Snap.CursorY != 10 {
-		t.Fatalf("expected restricted render to keep stored cursor at (4,10), got (%d,%d)",
-			layer.Snap.CursorX, layer.Snap.CursorY)
+		t.Fatalf("expected restricted render to keep stored cursor at (4,10), got (%d,%d)", layer.Snap.CursorX, layer.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != 4 || tab.stableCursorY != 10 {
-		t.Fatalf("expected stored multiline cursor anchor to survive restricted render, got set=%v pos=(%d,%d)",
-			tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
+		t.Fatalf("expected stored multiline cursor anchor to survive restricted render, got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
 	}
 }
 
@@ -256,20 +251,23 @@ func TestTerminalLayerTracksEnterAsRecentPromptInputForWrappedPrompt(t *testing.
 	term.CursorX = 4
 	term.CursorY = 10
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
-
 	tab := &Tab{
-		ID:              TabID("tab-chat-enter-wrapped-prompt"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   2,
-		stableCursorY:   9,
+		ID:        TabID("tab-chat-enter-wrapped-prompt"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   2,
+			stableCursorY:   9,
+		},
 		State: ptyio.State{
 			LastOutputAt: time.Now(),
 		},
-		lastVisibleOutput: time.Now(),
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -277,7 +275,6 @@ func TestTerminalLayerTracksEnterAsRecentPromptInputForWrappedPrompt(t *testing.
 	m.Focus()
 
 	recordLocalInputEchoWindow(tab, "\r", time.Now())
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -286,12 +283,10 @@ func TestTerminalLayerTracksEnterAsRecentPromptInputForWrappedPrompt(t *testing.
 		t.Fatal("expected wrapped prompt cursor to remain visible after Enter")
 	}
 	if layer.Snap.CursorX != 4 || layer.Snap.CursorY != 10 {
-		t.Fatalf("expected Enter redraw to use live wrapped prompt cursor at (4,10), got (%d,%d)",
-			layer.Snap.CursorX, layer.Snap.CursorY)
+		t.Fatalf("expected Enter redraw to use live wrapped prompt cursor at (4,10), got (%d,%d)", layer.Snap.CursorX, layer.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != 4 || tab.stableCursorY != 10 {
-		t.Fatalf("expected Enter redraw to update stored cursor to (4,10), got set=%v pos=(%d,%d)",
-			tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
+		t.Fatalf("expected Enter redraw to update stored cursor to (4,10), got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
 	}
 }
 
@@ -303,20 +298,23 @@ func TestTerminalLayerTracksCtrlCAsRecentPromptInputForWrappedPrompt(t *testing.
 	term.CursorX = 4
 	term.CursorY = 10
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
-
 	tab := &Tab{
-		ID:              TabID("tab-chat-ctrlc-wrapped-prompt"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   2,
-		stableCursorY:   9,
+		ID:        TabID("tab-chat-ctrlc-wrapped-prompt"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   2,
+			stableCursorY:   9,
+		},
 		State: ptyio.State{
 			LastOutputAt: time.Now(),
 		},
-		lastVisibleOutput: time.Now(),
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -324,7 +322,6 @@ func TestTerminalLayerTracksCtrlCAsRecentPromptInputForWrappedPrompt(t *testing.
 	m.Focus()
 
 	recordLocalInputEchoWindow(tab, "\x03", time.Now())
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -333,12 +330,10 @@ func TestTerminalLayerTracksCtrlCAsRecentPromptInputForWrappedPrompt(t *testing.
 		t.Fatal("expected wrapped prompt cursor to remain visible after Ctrl-C")
 	}
 	if layer.Snap.CursorX != 4 || layer.Snap.CursorY != 10 {
-		t.Fatalf("expected Ctrl-C redraw to use live wrapped prompt cursor at (4,10), got (%d,%d)",
-			layer.Snap.CursorX, layer.Snap.CursorY)
+		t.Fatalf("expected Ctrl-C redraw to use live wrapped prompt cursor at (4,10), got (%d,%d)", layer.Snap.CursorX, layer.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != 4 || tab.stableCursorY != 10 {
-		t.Fatalf("expected Ctrl-C redraw to update stored cursor to (4,10), got set=%v pos=(%d,%d)",
-			tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
+		t.Fatalf("expected Ctrl-C redraw to update stored cursor to (4,10), got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
 	}
 }
 
@@ -350,16 +345,17 @@ func TestTerminalLayerKeepsRestrictedCursorAfterSubmitWhenOutputJumpsAway(t *tes
 	term.CursorX = 18
 	term.CursorY = 4
 	term.Screen[4][18] = vterm.Cell{Rune: 'x', Width: 1}
-
 	tab := &Tab{
-		ID:              TabID("tab-chat-submit-output-restrict"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   2,
-		stableCursorY:   9,
+		ID:        TabID("tab-chat-submit-output-restrict"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   2,
+			stableCursorY:   9,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -369,7 +365,6 @@ func TestTerminalLayerKeepsRestrictedCursorAfterSubmitWhenOutputJumpsAway(t *tes
 	recordLocalInputEchoWindow(tab, "\r", time.Now())
 	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -378,12 +373,10 @@ func TestTerminalLayerKeepsRestrictedCursorAfterSubmitWhenOutputJumpsAway(t *tes
 		t.Fatal("expected stored cursor to remain visible during submit-triggered output")
 	}
 	if layer.Snap.CursorX != 2 || layer.Snap.CursorY != 9 {
-		t.Fatalf("expected submit-time output to keep stored cursor at (2,9), got (%d,%d)",
-			layer.Snap.CursorX, layer.Snap.CursorY)
+		t.Fatalf("expected submit-time output to keep stored cursor at (2,9), got (%d,%d)", layer.Snap.CursorX, layer.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != 2 || tab.stableCursorY != 9 {
-		t.Fatalf("expected submit-time output not to overwrite stored cursor, got set=%v pos=(%d,%d)",
-			tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
+		t.Fatalf("expected submit-time output not to overwrite stored cursor, got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
 	}
 }
 
@@ -395,16 +388,17 @@ func TestTerminalLayerKeepsRestrictedCursorWhenSubmitOutputJumpsToLeftEdge(t *te
 	term.CursorX = 0
 	term.CursorY = 10
 	term.Screen[10][0] = vterm.Cell{Rune: 'x', Width: 1}
-
 	tab := &Tab{
-		ID:              TabID("tab-chat-submit-output-left-edge"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   10,
-		stableCursorY:   9,
+		ID:        TabID("tab-chat-submit-output-left-edge"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   10,
+			stableCursorY:   9,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -414,7 +408,6 @@ func TestTerminalLayerKeepsRestrictedCursorWhenSubmitOutputJumpsToLeftEdge(t *te
 	recordLocalInputEchoWindow(tab, "\r", time.Now())
 	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
@@ -423,12 +416,10 @@ func TestTerminalLayerKeepsRestrictedCursorWhenSubmitOutputJumpsToLeftEdge(t *te
 		t.Fatal("expected stored cursor to remain visible during left-edge submit output")
 	}
 	if layer.Snap.CursorX != 10 || layer.Snap.CursorY != 9 {
-		t.Fatalf("expected left-edge submit output to keep stored cursor at (10,9), got (%d,%d)",
-			layer.Snap.CursorX, layer.Snap.CursorY)
+		t.Fatalf("expected left-edge submit output to keep stored cursor at (10,9), got (%d,%d)", layer.Snap.CursorX, layer.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != 10 || tab.stableCursorY != 9 {
-		t.Fatalf("expected left-edge submit output not to overwrite stored cursor, got set=%v pos=(%d,%d)",
-			tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
+		t.Fatalf("expected left-edge submit output not to overwrite stored cursor, got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
 	}
 }
 
@@ -440,17 +431,18 @@ func TestTerminalLayerRelearnsCursorAfterControlOnlyMoveGoesIdle(t *testing.T) {
 	term.CursorX = 2
 	term.CursorY = 20
 	term.Screen[20][2] = vterm.Cell{Rune: 'x', Width: 1}
-
 	tab := &Tab{
-		ID:                  TabID("tab-chat-control-only-idle-relearn"),
-		Assistant:           "codex",
-		Workspace:           ws,
-		Terminal:            term,
-		Running:             true,
-		stableCursorSet:     true,
-		stableCursorX:       2,
-		stableCursorY:       20,
-		stableCursorVersion: term.Version(),
+		ID:        TabID("tab-chat-control-only-idle-relearn"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet:     true,
+			stableCursorX:       2,
+			stableCursorY:       20,
+			stableCursorVersion: term.Version(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -461,7 +453,6 @@ func TestTerminalLayerRelearnsCursorAfterControlOnlyMoveGoesIdle(t *testing.T) {
 	term.CursorY = 10
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 	tab.LastOutputAt = time.Now()
-
 	restricted := m.TerminalLayer()
 	if restricted == nil || restricted.Snap == nil {
 		t.Fatal("expected restricted terminal layer snapshot")
@@ -470,15 +461,13 @@ func TestTerminalLayerRelearnsCursorAfterControlOnlyMoveGoesIdle(t *testing.T) {
 		t.Fatal("expected restricted render to keep a visible stored cursor")
 	}
 	if restricted.Snap.CursorX != 2 || restricted.Snap.CursorY != 20 {
-		t.Fatalf("expected restricted render to keep stored cursor at (2,20), got (%d,%d)",
-			restricted.Snap.CursorX, restricted.Snap.CursorY)
+		t.Fatalf("expected restricted render to keep stored cursor at (2,20), got (%d,%d)", restricted.Snap.CursorX, restricted.Snap.CursorY)
 	}
 	if !tab.pendingIdleCursorRelearn {
 		t.Fatal("expected control-only restricted render to arm idle cursor relearn")
 	}
 
 	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
-
 	idle := m.TerminalLayer()
 	if idle == nil || idle.Snap == nil {
 		t.Fatal("expected idle terminal layer snapshot")
@@ -487,12 +476,10 @@ func TestTerminalLayerRelearnsCursorAfterControlOnlyMoveGoesIdle(t *testing.T) {
 		t.Fatal("expected idle cursor to become visible after control-only move")
 	}
 	if idle.Snap.CursorX != 4 || idle.Snap.CursorY != 10 {
-		t.Fatalf("expected idle render to re-learn live cursor at (4,10), got (%d,%d)",
-			idle.Snap.CursorX, idle.Snap.CursorY)
+		t.Fatalf("expected idle render to re-learn live cursor at (4,10), got (%d,%d)", idle.Snap.CursorX, idle.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != 4 || tab.stableCursorY != 10 {
-		t.Fatalf("expected stored cursor to update to re-learned live cursor, got set=%v pos=(%d,%d)",
-			tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
+		t.Fatalf("expected stored cursor to update to re-learned live cursor, got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
 	}
 	if tab.pendingIdleCursorRelearn {
 		t.Fatal("expected idle cursor relearn to clear the pending flag")

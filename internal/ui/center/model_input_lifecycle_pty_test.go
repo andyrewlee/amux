@@ -35,13 +35,11 @@ func TestHasVisiblePTYOutput(t *testing.T) {
 
 func TestHasVisiblePTYOutput_SplitControlSequenceAcrossChunks(t *testing.T) {
 	state := ansiActivityText
-
 	got, next := hasVisiblePTYOutput([]byte("\x1b[?2004"), state)
 	if got {
 		t.Fatal("expected split control prefix to be non-visible")
 	}
 	state = next
-
 	got, next = hasVisiblePTYOutput([]byte("h"), state)
 	if got {
 		t.Fatal("expected split control suffix to be non-visible")
@@ -124,13 +122,11 @@ func TestUpdatePTYOutput_DoesNotTagControlOnlyOutput(t *testing.T) {
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
-
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
 		TabID:       tab.ID,
 		Data:        []byte("\x1b[?2004h\x1b[?2004l"),
 	})
-
 	if !tab.lastActivityTagAt.IsZero() {
 		t.Fatalf("expected lastActivityTagAt to remain zero for control-only output, got %v", tab.lastActivityTagAt)
 	}
@@ -148,22 +144,22 @@ func TestUpdatePTYOutput_TagsVisibleOutput(t *testing.T) {
 	wsID := string(ws.ID())
 	before := time.Now().Add(-2 * activityTagThrottle)
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		SessionName:       "amux-test-session",
-		Running:           true,
-		lastActivityTagAt: before,
+		ID:          TabID("tab-1"),
+		Assistant:   "codex",
+		Workspace:   ws,
+		SessionName: "amux-test-session",
+		Running:     true,
+		tabActivityState: tabActivityState{
+			lastActivityTagAt: before,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
-
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
 		TabID:       tab.ID,
 		Data:        []byte("visible output"),
 	})
-
 	if !tab.lastVisibleOutput.IsZero() {
 		t.Fatalf("expected lastVisibleOutput to remain zero until flush, got %v", tab.lastVisibleOutput)
 	}
@@ -187,17 +183,17 @@ func TestUpdatePTYOutput_ResetsActivityStateAfterOverflowCarryTrim(t *testing.T)
 		State: ptyio.State{
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 		},
-		activityANSIState: ansiActivityCSI,
+		tabActivityState: tabActivityState{
+			activityANSIState: ansiActivityCSI,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
-
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
 		TabID:       tab.ID,
 		Data:        []byte("31mX"),
 	})
-
 	if string(tab.PendingOutput) != "X" {
 		t.Fatalf("expected overflow carry trim to retain visible suffix, got %q", tab.PendingOutput)
 	}
@@ -217,19 +213,20 @@ func TestUpdatePTYOutput_EndsBootstrapAfterQuietGap(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                    TabID("tab-1"),
-		Assistant:             "codex",
-		Workspace:             ws,
-		SessionName:           "amux-test-session",
-		Terminal:              vterm.New(80, 24),
-		Running:               true,
-		bootstrapActivity:     true,
-		bootstrapLastOutputAt: time.Now().Add(-(bootstrapQuietGap + 200*time.Millisecond)),
+		ID:          TabID("tab-1"),
+		Assistant:   "codex",
+		Workspace:   ws,
+		SessionName: "amux-test-session",
+		Terminal:    vterm.New(80, 24),
+		Running:     true,
+		tabActivityState: tabActivityState{
+			bootstrapActivity:     true,
+			bootstrapLastOutputAt: time.Now().Add(-(bootstrapQuietGap + 200*time.Millisecond)),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
-
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
 		TabID:       tab.ID,
@@ -258,18 +255,19 @@ func TestUpdatePTYFlush_TagsVisibleScreenDelta(t *testing.T) {
 	wsID := string(ws.ID())
 	before := time.Now().Add(-2 * activityTagThrottle)
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		SessionName:       "amux-test-session",
-		Terminal:          vterm.New(80, 24),
-		Running:           true,
-		lastActivityTagAt: before,
+		ID:          TabID("tab-1"),
+		Assistant:   "codex",
+		Workspace:   ws,
+		SessionName: "amux-test-session",
+		Terminal:    vterm.New(80, 24),
+		Running:     true,
+		tabActivityState: tabActivityState{
+			lastActivityTagAt: before,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
-
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
 		TabID:       tab.ID,
@@ -279,7 +277,6 @@ func TestUpdatePTYFlush_TagsVisibleScreenDelta(t *testing.T) {
 	tab.FlushPendingSince = tab.LastOutputAt
 	m.tabEvents = nil
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
-
 	if tab.lastVisibleOutput.IsZero() {
 		t.Fatalf("expected first visible delta flush to set lastVisibleOutput")
 	}
@@ -320,7 +317,6 @@ func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
-
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
 		TabID:       tab.ID,
@@ -338,7 +334,6 @@ func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
 	if firstTag.IsZero() {
 		t.Fatalf("expected initial visible output to set activity tag timestamp")
 	}
-
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
 		TabID:       tab.ID,
@@ -348,7 +343,6 @@ func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
 	tab.FlushPendingSince = tab.LastOutputAt
 	m.tabEvents = nil
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
-
 	if !tab.lastVisibleOutput.Equal(firstVisible) {
 		t.Fatalf("expected unchanged rendered content not to refresh lastVisibleOutput: before=%v after=%v", firstVisible, tab.lastVisibleOutput)
 	}
@@ -362,7 +356,6 @@ func TestUpdatePTYFlush_RebuffersChunkAfterActorFallbackWithOlderPendingWrites(t
 	m.setTabActorReady()
 	m.tabEvents = make(chan tabEvent, 1)
 	m.tabEvents <- tabEvent{kind: tabEventWriteOutput}
-
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	prevCarry := vterm.ParserCarryState{Mode: vterm.ParserCarryCSIParam}
@@ -376,18 +369,18 @@ func TestUpdatePTYFlush_RebuffersChunkAfterActorFallbackWithOlderPendingWrites(t
 		State: ptyio.State{
 			PendingOutput: append([]byte(nil), chunk...),
 		},
-		actorWritesPending:       1,
-		actorWriteEpoch:          11,
-		actorQueuedCarry:         prevCarry,
-		actorQueuedNoiseTrailing: []byte("queued-noise"),
+		tabActorWriteState: tabActorWriteState{
+			actorWritesPending:       1,
+			actorWriteEpoch:          11,
+			actorQueuedCarry:         prevCarry,
+			actorQueuedNoiseTrailing: []byte("queued-noise"),
+		},
 	}
 	prevNoiseTrailing := append([]byte(nil), tab.actorQueuedNoiseTrailing...)
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
-
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
-
 	if tab.actorWritesPending != 1 {
 		t.Fatalf("expected older queued write to remain pending, got %d", tab.actorWritesPending)
 	}
@@ -413,18 +406,19 @@ func TestUpdatePTYFlush_SuppressesImmediateUserInputEcho(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:              TabID("tab-1"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		SessionName:     "amux-test-session",
-		Terminal:        vterm.New(80, 24),
-		Running:         true,
-		lastUserInputAt: time.Now(),
+		ID:          TabID("tab-1"),
+		Assistant:   "codex",
+		Workspace:   ws,
+		SessionName: "amux-test-session",
+		Terminal:    vterm.New(80, 24),
+		Running:     true,
+		tabActivityState: tabActivityState{
+			lastUserInputAt: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
-
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
 		TabID:       tab.ID,
@@ -442,7 +436,6 @@ func TestUpdatePTYFlush_SuppressesImmediateUserInputEcho(t *testing.T) {
 	tab.LastOutputAt = time.Now().Add(-time.Second)
 	tab.FlushPendingSince = tab.LastOutputAt
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
-
 	if !tab.lastVisibleOutput.IsZero() {
 		t.Fatalf("expected user-input echo not to set lastVisibleOutput, got %v", tab.lastVisibleOutput)
 	}
@@ -456,7 +449,6 @@ func TestUpdatePTYFlush_RebufferPreservesOrderWithTrailingPending(t *testing.T) 
 	m.setTabActorReady()
 	m.tabEvents = make(chan tabEvent, 1)
 	m.tabEvents <- tabEvent{kind: tabEventWriteOutput} // fill queue so sendTabEvent fails
-
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 
@@ -466,7 +458,6 @@ func TestUpdatePTYFlush_RebufferPreservesOrderWithTrailingPending(t *testing.T) 
 	head := bytes.Repeat([]byte("H"), ptyFlushChunkSizeActive+8)
 	tail := []byte("TAILxyz")
 	original := append(append([]byte(nil), head...), tail...)
-
 	tab := &Tab{
 		ID:        TabID("tab-order"),
 		Assistant: "codex",
@@ -477,18 +468,17 @@ func TestUpdatePTYFlush_RebufferPreservesOrderWithTrailingPending(t *testing.T) 
 			PendingOutput: append([]byte(nil), original...),
 		},
 		pendingOutputBytes: len(original),
-		actorWritesPending: 1,
-		actorWriteEpoch:    11,
+		tabActorWriteState: tabActorWriteState{
+			actorWritesPending: 1,
+			actorWriteEpoch:    11,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
-
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
-
 	if !bytes.Equal(tab.PendingOutput, original) {
-		t.Fatalf("rebuffer must restore original stream order (prepend); len=%d endsWithTail=%v",
-			len(tab.PendingOutput), bytes.HasSuffix(tab.PendingOutput, tail))
+		t.Fatalf("rebuffer must restore original stream order (prepend); len=%d endsWithTail=%v", len(tab.PendingOutput), bytes.HasSuffix(tab.PendingOutput, tail))
 	}
 	if !bytes.HasSuffix(tab.PendingOutput, tail) {
 		t.Fatalf("tail no longer at the end — chunk was appended, reordering the stream")

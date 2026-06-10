@@ -104,12 +104,14 @@ func TestHandleTabEvent_WriteOutputEmitsPostWriteRedrawForChatAndActiveTabs(t *t
 func TestHandleTabEvent_WriteOutputPreservesCatchUpForParserResetRetry(t *testing.T) {
 	m := newTestModel()
 	tab := &Tab{
-		ID:                 TabID("tab-write-output-catch-up-retry"),
-		Assistant:          "codex",
-		Terminal:           vterm.New(80, 24),
-		actorWriteEpoch:    7,
-		actorWritesPending: 1,
-		parserResetPending: true,
+		ID:        TabID("tab-write-output-catch-up-retry"),
+		Assistant: "codex",
+		Terminal:  vterm.New(80, 24),
+		tabActorWriteState: tabActorWriteState{
+			actorWriteEpoch:    7,
+			actorWritesPending: 1,
+			parserResetPending: true,
+		},
 	}
 
 	var gotFlush PTYFlush
@@ -145,11 +147,13 @@ func TestHandleTabEvent_WriteOutputPreservesCatchUpForParserResetRetry(t *testin
 func TestHandleTabEvent_WriteOutputSuppressesRedrawUntilCatchUpTarget(t *testing.T) {
 	m := newTestModel()
 	tab := &Tab{
-		ID:                   TabID("tab-write-output-catch-up-redraw"),
-		Assistant:            "codex",
-		Terminal:             vterm.New(80, 24),
-		actorWritesPending:   2,
-		actorQueuedBytes:     2,
+		ID:        TabID("tab-write-output-catch-up-redraw"),
+		Assistant: "codex",
+		Terminal:  vterm.New(80, 24),
+		tabActorWriteState: tabActorWriteState{
+			actorWritesPending: 2,
+			actorQueuedBytes:   2,
+		},
 		catchUpPendingOutput: true,
 		catchUpTargetBytes:   2,
 		ptyBytesReceived:     2,
@@ -302,11 +306,13 @@ func TestHandleTabEvent_SelectionClearEmitsRedrawOnlyWhenSelectionChanged(t *tes
 func TestHandleTabEvent_WriteOutputDropsStaleEpoch(t *testing.T) {
 	m := newTestModel()
 	tab := &Tab{
-		ID:                 TabID("tab-stale-epoch"),
-		Assistant:          "codex",
-		Terminal:           vterm.New(80, 24),
-		actorWriteEpoch:    8,
-		actorWritesPending: 1,
+		ID:        TabID("tab-stale-epoch"),
+		Assistant: "codex",
+		Terminal:  vterm.New(80, 24),
+		tabActorWriteState: tabActorWriteState{
+			actorWriteEpoch:    8,
+			actorWritesPending: 1,
+		},
 	}
 	tab.Terminal.Write([]byte("BASE"))
 	baseline := tab.Terminal.Render()

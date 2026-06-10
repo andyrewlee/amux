@@ -23,18 +23,22 @@ func TestTerminalLayerSanitizesStoredSyntheticCursorGlyph(t *testing.T) {
 	}
 
 	tab := &Tab{
-		ID:              TabID("tab-chat-stored-synthetic-cursor"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   4,
-		stableCursorY:   10,
+		ID:        TabID("tab-chat-stored-synthetic-cursor"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   4,
+			stableCursorY:   10,
+		},
 		State: ptyio.State{
 			LastOutputAt: time.Now(),
 		},
-		lastVisibleOutput: time.Now(),
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
