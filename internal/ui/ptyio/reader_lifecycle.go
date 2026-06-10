@@ -109,3 +109,51 @@ func (st *State) ReaderStalled(mu sync.Locker, stallTimeout time.Duration) bool 
 	lastBeat := atomic.LoadInt64(&st.Heartbeat)
 	return lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > stallTimeout
 }
+
+// Reader-restart backoff policy: restarts are counted within a rolling
+// window; each retry doubles the delay from RestartBackoffInitial up to
+// RestartBackoffCap, and once the per-window restart budget is exhausted the
+// caller should stop restarting and mark the terminal detached.
+const (
+	// RestartBackoffInitial is the first reader-restart delay.
+	RestartBackoffInitial = 200 * time.Millisecond
+	// RestartBackoffCap bounds the exponential reader-restart delay.
+	RestartBackoffCap = 5 * time.Second
+)
+
+// NextRestartBackoffLocked advances the restart-backoff state and returns the
+// delay before the next restart attempt. ok is false once more than
+// maxRestarts attempts happened inside the rolling window — the caller should
+// give up instead of restarting. The caller must hold the state lock.
+func (st *State) NextRestartBackoffLocked(window time.Duration, maxRestarts int) (backoff time.Duration, ok bool) {
+	now := time.Now()
+	if st.RestartSince.IsZero() || now.Sub(st.RestartSince) > window {
+		st.RestartSince = now
+		st.RestartCount = 0
+	}
+	st.RestartCount++
+	if st.RestartCount > maxRestarts {
+		st.RestartBackoff = 0
+		return 0, false
+	}
+	backoff = st.RestartBackoff
+	if backoff <= 0 {
+		backoff = RestartBackoffInitial
+	} else {
+		backoff *= 2
+		if backoff > RestartBackoffCap {
+			backoff = RestartBackoffCap
+		}
+	}
+	st.RestartBackoff = backoff
+	return backoff, true
+}
+
+// ResetRestartBackoffLocked clears restart-backoff state, e.g. when the
+// terminal is detached and restarts no longer apply. The caller must hold the
+// state lock.
+func (st *State) ResetRestartBackoffLocked() {
+	st.RestartBackoff = 0
+	st.RestartCount = 0
+	st.RestartSince = time.Time{}
+}

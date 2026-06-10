@@ -183,32 +183,13 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	ts.mu.Unlock()
 	m.stopPTYReader(ts)
 	if termAlive {
-		shouldRestart := true
-		var backoff time.Duration
 		ts.mu.Lock()
-		if ts.RestartSince.IsZero() || time.Since(ts.RestartSince) > ptyRestartWindow {
-			ts.RestartSince = time.Now()
-			ts.RestartCount = 0
-		}
-		ts.RestartCount++
-		if ts.RestartCount > ptyRestartMax {
-			shouldRestart = false
+		backoff, shouldRestart := ts.State.NextRestartBackoffLocked(ptyRestartWindow, ptyRestartMax)
+		if !shouldRestart {
 			ts.Running = false
 			// Mark as detached (tmux session may still be alive)
 			ts.Detached = true
 			ts.UserDetached = false
-			ts.RestartBackoff = 0
-		} else {
-			backoff = ts.RestartBackoff
-			if backoff <= 0 {
-				backoff = 200 * time.Millisecond
-			} else {
-				backoff *= 2
-				if backoff > 5*time.Second {
-					backoff = 5 * time.Second
-				}
-			}
-			ts.RestartBackoff = backoff
 		}
 		ts.mu.Unlock()
 		if shouldRestart {
@@ -226,9 +207,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 		// Mark as detached - tmux session may still be alive
 		ts.Detached = true
 		ts.UserDetached = false
-		ts.RestartBackoff = 0
-		ts.RestartCount = 0
-		ts.RestartSince = time.Time{}
+		ts.State.ResetRestartBackoffLocked()
 		ts.mu.Unlock()
 		logging.Info("Sidebar PTY stopped for workspace %s tab %s, marking detached: %v", wsID, tabID, msg.Err)
 	}
