@@ -64,13 +64,13 @@ func TestAltScreenCaptureRedrawsNeverDuplicateFrames(t *testing.T) {
 			v.Write(frame(current))
 
 			// Invariants on the tracking fields after every redraw.
-			if v.altScreenCaptureLen < 0 || v.altScreenCaptureDropLen < 0 || v.altScreenCaptureEndOffset < 0 {
+			if v.altCapture.frameLen < 0 || v.altCapture.dropLen < 0 || v.altCapture.endOffset < 0 {
 				t.Fatalf("trial %d step %d: negative capture tracking: len=%d drop=%d end=%d",
-					trial, step, v.altScreenCaptureLen, v.altScreenCaptureDropLen, v.altScreenCaptureEndOffset)
+					trial, step, v.altCapture.frameLen, v.altCapture.dropLen, v.altCapture.endOffset)
 			}
-			if v.altScreenCaptureLen+v.altScreenCaptureEndOffset > len(v.Scrollback) {
+			if v.altCapture.frameLen+v.altCapture.endOffset > len(v.Scrollback) {
 				t.Fatalf("trial %d step %d: capture tracking exceeds scrollback: len=%d end=%d scrollback=%d",
-					trial, step, v.altScreenCaptureLen, v.altScreenCaptureEndOffset, len(v.Scrollback))
+					trial, step, v.altCapture.frameLen, v.altCapture.endOffset, len(v.Scrollback))
 			}
 
 			lines := scrollbackLines(v)

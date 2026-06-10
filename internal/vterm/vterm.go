@@ -37,12 +37,9 @@ type VTerm struct {
 	// AllowAltScreenScrollback keeps scrollback active even in alt screen.
 	// Useful for tmux-backed sessions where scrollback should remain available.
 	AllowAltScreenScrollback bool
-	// altScreenCaptureLen tracks the full reserved frame length in scrollback.
-	altScreenCaptureLen int
-	// altScreenCaptureDropLen tracks the removable suffix for the reserved frame.
-	altScreenCaptureDropLen   int
-	altScreenCaptureTracked   bool
-	altScreenCaptureEndOffset int
+	// altCapture tracks the alt-screen frame currently reserved in scrollback
+	// (see altScreenCaptureState).
+	altCapture altScreenCaptureState
 	// altScreenRestorePending tracks a freshly restored alt-screen frame until
 	// the first attached clear-screen redraw so it is not re-captured as new
 	// scrollback.
@@ -207,12 +204,12 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 	if height > oldHeight && revealHistoryOnGrow && v.scrollbackEnabled() && v.ViewOffset == 0 {
 		added := height - oldHeight
 		restore := added
-		reserved := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
+		reserved := v.altCapture.frameLen + v.altCapture.endOffset
 		if reserved > len(v.Scrollback) {
 			reserved = 0
-			v.altScreenCaptureLen = 0
-			v.altScreenCaptureTracked = false
-			v.altScreenCaptureEndOffset = 0
+			v.altCapture.frameLen = 0
+			v.altCapture.tracked = false
+			v.altCapture.endOffset = 0
 		}
 		available := len(v.Scrollback) - reserved
 		if restore > available {
