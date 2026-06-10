@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"sort"
 	"sync"
 	"time"
 
@@ -66,18 +67,25 @@ func WithSleep(fn func(time.Duration)) Option {
 	}
 }
 
+// StopTimeout bounds how long Stop waits for workers to exit. A worker that
+// ignores context cancellation must not be able to wedge app shutdown.
+const StopTimeout = 5 * time.Second
+
 // Supervisor manages worker lifecycles with restart policies.
 type Supervisor struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	onError func(name string, err error)
+
+	mu      sync.Mutex
+	running map[string]int
 }
 
 // New creates a supervisor bound to the parent context.
 func New(parent context.Context) *Supervisor {
 	ctx, cancel := context.WithCancel(parent)
-	return &Supervisor{ctx: ctx, cancel: cancel}
+	return &Supervisor{ctx: ctx, cancel: cancel, running: make(map[string]int)}
 }
 
 // Context returns the supervisor context.
@@ -85,13 +93,60 @@ func (s *Supervisor) Context() context.Context {
 	return s.ctx
 }
 
-// Stop cancels all workers and waits for them to exit.
+// Stop cancels all workers and waits up to StopTimeout for them to exit,
+// logging which workers failed to stop in time.
 func (s *Supervisor) Stop() {
 	if s == nil {
 		return
 	}
+	s.StopWithTimeout(StopTimeout)
+}
+
+// StopWithTimeout cancels all workers and waits up to timeout for them to
+// exit. On timeout it logs the workers still running and returns false.
+func (s *Supervisor) StopWithTimeout(timeout time.Duration) bool {
+	if s == nil {
+		return true
+	}
 	s.cancel()
-	s.wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		logging.Error("supervisor: timed out after %s waiting for workers to exit: %v", timeout, s.runningWorkers())
+		return false
+	}
+}
+
+// runningWorkers returns the names of workers that have not exited yet.
+func (s *Supervisor) runningWorkers() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	names := make([]string, 0, len(s.running))
+	for name, count := range s.running {
+		if count > 0 {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (s *Supervisor) markRunning(name string, delta int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running == nil {
+		s.running = make(map[string]int)
+	}
+	s.running[name] += delta
+	if s.running[name] <= 0 {
+		delete(s.running, name)
+	}
 }
 
 // SetErrorHandler registers a handler for worker errors.
@@ -124,8 +179,10 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 	}
 
 	s.wg.Add(1)
+	s.markRunning(name, 1)
 	go func() {
 		defer s.wg.Done()
+		defer s.markRunning(name, -1)
 		restarts := 0
 		backoff := cfg.backoff
 		for {
