@@ -145,12 +145,14 @@ func (m *Model) helpLines(contentWidth int) []string {
 
 	hasTabs := len(m.getTabs()) > 0
 	if m.workspace != nil {
-		items = append(items,
+		items = append(
+			items,
 			m.helpItem("C-Spc t a", "new agent tab"),
 		)
 	}
 	if hasTabs {
-		items = append(items,
+		items = append(
+			items,
 			m.helpItem("C-Spc t x", "close"),
 			m.helpItem("C-Spc t d", "detach"),
 			m.helpItem("C-Spc t r", "reattach"),

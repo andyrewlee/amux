@@ -81,13 +81,15 @@ func TestTabSelectionChangedCmd_FlushesActorQueuedActiveTab(t *testing.T) {
 	wsID := string(ws.ID())
 
 	tab := &Tab{
-		ID:                 TabID("tab-actor-queued"),
-		Assistant:          "claude",
-		Workspace:          ws,
-		Running:            true,
-		actorWritesPending: 1,
-		actorQueuedBytes:   12,
-		ptyBytesReceived:   12,
+		ID:        TabID("tab-actor-queued"),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		tabActorWriteState: tabActorWriteState{
+			actorWritesPending: 1,
+			actorQueuedBytes:   12,
+		},
+		ptyBytesReceived: 12,
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0

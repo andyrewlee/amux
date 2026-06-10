@@ -14,13 +14,15 @@ func TestUpdatePTYCursorRefresh_SchedulesWhileCursorTimersPending(t *testing.T) 
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-cursor-refresh"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          vterm.New(80, 24),
-		Running:           true,
-		lastVisibleOutput: time.Now(),
-		lastPromptInputAt: time.Now(),
+		ID:        TabID("tab-cursor-refresh"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+			lastPromptInputAt: time.Now(),
+		},
 		State: ptyio.State{
 			CachedSnap: &compositor.VTermSnapshot{},
 		},
@@ -45,12 +47,14 @@ func TestScheduleChatCursorRefresh_DeduplicatesLaterRefreshDeadline(t *testing.T
 	wsID := string(ws.ID())
 	now := time.Now()
 	tab := &Tab{
-		ID:                TabID("tab-cursor-refresh-dedupe"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          vterm.New(80, 24),
-		Running:           true,
-		lastVisibleOutput: now,
+		ID:        TabID("tab-cursor-refresh-dedupe"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now,
+		},
 	}
 
 	first := m.scheduleChatCursorRefresh(tab, wsID, now)
@@ -82,12 +86,14 @@ func TestUpdatePTYCursorRefresh_RequestPreservesPendingTimer(t *testing.T) {
 	wsID := string(ws.ID())
 	now := time.Now()
 	tab := &Tab{
-		ID:                TabID("tab-cursor-refresh-request"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          vterm.New(80, 24),
-		Running:           true,
-		lastVisibleOutput: now,
+		ID:        TabID("tab-cursor-refresh-request"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now,
+		},
 		State: ptyio.State{
 			CachedSnap: &compositor.VTermSnapshot{},
 		},

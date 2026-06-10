@@ -15,10 +15,12 @@ func TestUpdatePtyTabReattachResult_ResetsActivityANSIState(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		activityANSIState: ansiActivityString,
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		tabActivityState: tabActivityState{
+			activityANSIState: ansiActivityString,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
@@ -50,19 +52,23 @@ func TestUpdatePtyTabReattachResult_ResetsStableCursor(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:              TabID("tab-1"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        vterm.New(80, 24),
-		stableCursorSet: true,
-		stableCursorX:   7,
-		stableCursorY:   20,
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   7,
+			stableCursorY:   20,
+		},
 		State: ptyio.State{
 			LastOutputAt: time.Now(),
 		},
-		lastUserInputAt:   time.Now(),
-		lastPromptInputAt: time.Now(),
-		lastVisibleOutput: time.Now(),
+		tabActivityState: tabActivityState{
+			lastUserInputAt:   time.Now(),
+			lastPromptInputAt: time.Now(),
+			lastVisibleOutput: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
@@ -168,10 +174,12 @@ func TestHandlePtyTabCreated_ExistingResetsActivityANSIState(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		activityANSIState: ansiActivityOSC,
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		tabActivityState: tabActivityState{
+			activityANSIState: ansiActivityOSC,
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
@@ -298,19 +306,23 @@ func TestHandlePtyTabCreated_ExistingResetsStableCursor(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:              TabID("tab-1"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        vterm.New(80, 24),
-		stableCursorSet: true,
-		stableCursorX:   7,
-		stableCursorY:   20,
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   7,
+			stableCursorY:   20,
+		},
 		State: ptyio.State{
 			LastOutputAt: time.Now(),
 		},
-		lastUserInputAt:   time.Now(),
-		lastPromptInputAt: time.Now(),
-		lastVisibleOutput: time.Now(),
+		tabActivityState: tabActivityState{
+			lastUserInputAt:   time.Now(),
+			lastPromptInputAt: time.Now(),
+			lastVisibleOutput: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
@@ -349,10 +361,12 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		activityANSIState: ansiActivityOSC,
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		tabActivityState: tabActivityState{
+			activityANSIState: ansiActivityOSC,
+		},
 		State: ptyio.State{
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 		},
@@ -386,10 +400,12 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-1"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		activityANSIState: ansiActivityCSI,
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		tabActivityState: tabActivityState{
+			activityANSIState: ansiActivityCSI,
+		},
 		State: ptyio.State{
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 		},

@@ -26,7 +26,9 @@ func TestTerminalLayerTracksFreshSubmitPromptBeforeStableCursorLearned(t *testin
 		State: ptyio.State{
 			LastOutputAt: time.Now(),
 		},
-		lastVisibleOutput: time.Now(),
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -63,18 +65,22 @@ func TestTerminalLayerTracksIndentedSubmitRedrawBeforePostSubmitOutput(t *testin
 	term.Screen[11][0] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:              TabID("tab-chat-indented-submit-redraw"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		Running:         true,
-		stableCursorSet: true,
-		stableCursorX:   10,
-		stableCursorY:   10,
+		ID:        TabID("tab-chat-indented-submit-redraw"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   10,
+			stableCursorY:   10,
+		},
 		State: ptyio.State{
 			LastOutputAt: time.Now().Add(-time.Millisecond),
 		},
-		lastVisibleOutput: time.Now().Add(-time.Millisecond),
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now().Add(-time.Millisecond),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -154,7 +160,9 @@ func TestTerminalLayerAllowsSecondToLastRowCursorInShortRestrictedViewport(t *te
 		State: ptyio.State{
 			LastOutputAt: time.Now(),
 		},
-		lastVisibleOutput: time.Now(),
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
