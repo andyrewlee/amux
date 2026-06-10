@@ -121,3 +121,27 @@ func (a *App) removeProject(project *data.Project) tea.Cmd {
 	}
 	return a.workspaceService.RemoveProject(project)
 }
+
+// goHome is the explicit "no active workspace" state transition: it clears the
+// active workspace and resets every pane that renders workspace-scoped state.
+// It runs only from message handlers (workspace deleted, project removed,
+// selection rebind), never from view code.
+func (a *App) goHome() {
+	a.showWelcome = true
+	a.activeWorkspace = nil
+	if a.center != nil {
+		a.center.SetWorkspace(nil)
+	}
+	if a.sidebar != nil {
+		a.sidebar.SetWorkspace(nil)
+		a.sidebar.SetGitStatus(nil)
+	}
+	if a.sidebarTerminal != nil {
+		_ = a.sidebarTerminal.SetWorkspace(nil)
+	}
+	if a.dashboard != nil {
+		a.dashboard.ClearActiveRoot()
+	}
+	a.centerBtnFocused = false
+	a.centerBtnIndex = 0
+}
