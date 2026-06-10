@@ -96,8 +96,8 @@ func TestPersistAllWorkspacesNowSkipsDeleteInFlightWorkspace(t *testing.T) {
 		workspaceService: svc,
 		projects:         []data.Project{{Name: "p", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
 		lifecycle: workspaceLifecycleState{
-			dirty:    make(map[string]bool),
-			deleting: map[string]bool{wsID: true},
+			dirty:  make(map[string]bool),
+			phases: map[string]lifecyclePhase{wsID: lifecycleDeleting},
 		},
 	}
 
@@ -130,8 +130,8 @@ func TestPersistWorkspaceTabsInitializesDirtyMap(t *testing.T) {
 func TestPersistWorkspaceTabsSkipsDeleteInFlightWorkspace(t *testing.T) {
 	app := &App{
 		lifecycle: workspaceLifecycleState{
-			dirty:    make(map[string]bool),
-			deleting: map[string]bool{"ws-123": true},
+			dirty:  make(map[string]bool),
+			phases: map[string]lifecyclePhase{"ws-123": lifecycleDeleting},
 		},
 	}
 
@@ -189,7 +189,7 @@ func TestHandlePersistDebounceSkipsDeleteInFlightWorkspace(t *testing.T) {
 		lifecycle: workspaceLifecycleState{
 			persistToken: 1,
 			dirty:        map[string]bool{wsID: true},
-			deleting:     map[string]bool{wsID: true},
+			phases:       map[string]lifecyclePhase{wsID: lifecycleDeleting},
 			localSavesAt: make(map[string]localWorkspaceSaveMarker),
 		},
 	}
@@ -230,7 +230,7 @@ func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
 		lifecycle: workspaceLifecycleState{
 			persistToken: 1,
 			dirty:        map[string]bool{wsID: true},
-			deleting:     map[string]bool{wsID: true},
+			phases:       map[string]lifecyclePhase{wsID: lifecycleDeleting},
 			localSavesAt: make(map[string]localWorkspaceSaveMarker),
 		},
 	}

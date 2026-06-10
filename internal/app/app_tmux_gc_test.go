@@ -63,7 +63,7 @@ func TestCollectKnownWorkspaceIDs_IncludesCreating(t *testing.T) {
 	creatingID := string(ws.ID())
 	app := &App{
 		lifecycle: workspaceLifecycleState{
-			creating: map[string]bool{creatingID: true},
+			phases: map[string]lifecyclePhase{creatingID: lifecycleCreating},
 		},
 	}
 
@@ -357,7 +357,7 @@ func TestCollectKnownWorkspaceIDs_IncludesDeleting(t *testing.T) {
 	deletingID := string(ws.ID())
 	app := &App{
 		lifecycle: workspaceLifecycleState{
-			deleting: map[string]bool{deletingID: true},
+			phases: map[string]lifecyclePhase{deletingID: lifecycleDeleting},
 		},
 	}
 

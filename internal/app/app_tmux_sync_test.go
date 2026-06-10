@@ -77,7 +77,7 @@ func TestHandleTmuxTabsSyncResult_SaveAndDeleteMarkAreAtomic(t *testing.T) {
 		workspaceService: svc,
 		projects:         []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
 		lifecycle: workspaceLifecycleState{
-			deleting: make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
 		},
 	}
 

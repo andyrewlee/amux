@@ -1,20 +1,65 @@
 package app
 
-import "sync"
+import (
+	"sync"
 
-// workspaceLifecycleState groups the workspace create/delete/persist
-// bookkeeping that previously lived as loose fields on App. The creating and
-// dirty maps are touched only from App.Update handlers (single writer); the
-// deleting map and local-save markers are also read from Cmd/worker
-// goroutines, so they carry their own locks.
+	"github.com/andyrewlee/amux/internal/logging"
+)
+
+// lifecyclePhase is a workspace's position in the create/delete lifecycle.
+// Workspaces not present in the phase map are active: loaded, with no
+// lifecycle operation in flight.
+type lifecyclePhase uint8
+
+const (
+	lifecycleActive lifecyclePhase = iota
+	// lifecycleCreating: create accepted, worktree/metadata still being built;
+	// the workspace is not in the projects list yet.
+	lifecycleCreating
+	// lifecycleDeleting: delete accepted, teardown in flight.
+	lifecycleDeleting
+)
+
+func (p lifecyclePhase) String() string {
+	switch p {
+	case lifecycleCreating:
+		return "creating"
+	case lifecycleDeleting:
+		return "deleting"
+	default:
+		return "active"
+	}
+}
+
+// lifecycleTransitionAllowed is the transition table: creating and deleting
+// are mutually exclusive, entered only from active, and always allowed to
+// settle back to active. Same-phase moves are idempotent no-ops.
+func lifecycleTransitionAllowed(from, to lifecyclePhase) bool {
+	if from == to {
+		return true
+	}
+	switch from {
+	case lifecycleActive:
+		return true
+	case lifecycleCreating, lifecycleDeleting:
+		return to == lifecycleActive
+	default:
+		return false
+	}
+}
+
+// workspaceLifecycleState holds the workspace create/delete/persist
+// bookkeeping. The phase map is the explicit lifecycle state machine; the
+// dirty set is deliberately NOT a phase, because a dirty marker must survive
+// a delete that later fails (the failed-delete handler requeues persistence),
+// so dirty coexists with deleting.
 type workspaceLifecycleState struct {
-	// creating tracks workspaces in the creation flow that have not been
-	// loaded into the projects list yet.
-	creating map[string]bool
-	// deletingMu guards deleting; see markDeleting/isDeleting.
-	deletingMu sync.RWMutex
-	deleting   map[string]bool
+	// phaseMu guards phases; the deleting phase is read from Cmd/worker
+	// goroutines via the App guard helpers.
+	phaseMu sync.RWMutex
+	phases  map[string]lifecyclePhase
 	// dirty tracks workspaces with unsaved tab state (persist debounce).
+	// Touched only from App.Update handlers (single writer).
 	dirty map[string]bool
 	// persistToken is the current persist-debounce generation.
 	persistToken persistToken
@@ -29,27 +74,130 @@ type workspaceLifecycleState struct {
 
 func newWorkspaceLifecycleState() workspaceLifecycleState {
 	return workspaceLifecycleState{
-		creating:     make(map[string]bool),
-		deleting:     make(map[string]bool),
+		phases:       make(map[string]lifecyclePhase),
 		dirty:        make(map[string]bool),
 		localSavesAt: make(map[string]localWorkspaceSaveMarker),
 	}
 }
 
-// markCreating records a workspace as create-in-flight.
-func (w *workspaceLifecycleState) markCreating(wsID string) {
+// transition moves wsID to a new phase, rejecting (and logging) moves the
+// transition table does not allow — e.g. deleting → creating.
+func (w *workspaceLifecycleState) transition(wsID string, to lifecyclePhase) bool {
 	if wsID == "" {
-		return
+		return false
 	}
-	if w.creating == nil {
-		w.creating = make(map[string]bool)
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	if w.phases == nil {
+		w.phases = make(map[string]lifecyclePhase)
 	}
-	w.creating[wsID] = true
+	from := w.phases[wsID]
+	if !lifecycleTransitionAllowed(from, to) {
+		logging.Warn("workspace lifecycle: rejected transition %s -> %s for workspace %s", from, to, wsID)
+		return false
+	}
+	if to == lifecycleActive {
+		delete(w.phases, wsID)
+	} else {
+		w.phases[wsID] = to
+	}
+	return true
 }
 
-// clearCreating removes a workspace from the create-in-flight set.
+// phase returns the workspace's current lifecycle phase.
+func (w *workspaceLifecycleState) phase(wsID string) lifecyclePhase {
+	w.phaseMu.RLock()
+	defer w.phaseMu.RUnlock()
+	return w.phases[wsID]
+}
+
+// markCreating records a workspace as create-in-flight. It reports whether
+// the transition was accepted (rejected when the workspace is mid-delete).
+func (w *workspaceLifecycleState) markCreating(wsID string) bool {
+	return w.transition(wsID, lifecycleCreating)
+}
+
+// clearCreating settles a creating workspace back to active. A workspace in
+// any other phase is left untouched.
 func (w *workspaceLifecycleState) clearCreating(wsID string) {
-	delete(w.creating, wsID)
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	if w.phases[wsID] == lifecycleCreating {
+		delete(w.phases, wsID)
+	}
+}
+
+// isCreating reports whether a workspace is currently create-in-flight.
+func (w *workspaceLifecycleState) isCreating(wsID string) bool {
+	return w.phase(wsID) == lifecycleCreating
+}
+
+// markDeleting sets or clears the delete-in-flight phase for a workspace.
+// Setting is rejected while the workspace is mid-create; clearing only
+// settles a deleting workspace (it never stomps another phase).
+func (w *workspaceLifecycleState) markDeleting(wsID string, deleting bool) {
+	if deleting {
+		w.transition(wsID, lifecycleDeleting)
+		return
+	}
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	if w.phases[wsID] == lifecycleDeleting {
+		delete(w.phases, wsID)
+	}
+}
+
+// isDeleting reports whether a workspace is currently delete-in-flight.
+func (w *workspaceLifecycleState) isDeleting(wsID string) bool {
+	if wsID == "" {
+		return false
+	}
+	return w.phase(wsID) == lifecycleDeleting
+}
+
+// snapshotPhase returns a copy of the IDs currently in the given phase. The
+// RLock is required because callers like collectKnownWorkspaceIDs run on the
+// Update goroutine while the map is also mutated from worker goroutines.
+func (w *workspaceLifecycleState) snapshotPhase(phase lifecyclePhase) map[string]bool {
+	w.phaseMu.RLock()
+	defer w.phaseMu.RUnlock()
+	var out map[string]bool
+	for id, p := range w.phases {
+		if p != phase {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]bool)
+		}
+		out[id] = true
+	}
+	return out
+}
+
+// snapshotDeleting returns a copy of the IDs currently delete-in-flight.
+func (w *workspaceLifecycleState) snapshotDeleting() map[string]bool {
+	return w.snapshotPhase(lifecycleDeleting)
+}
+
+// snapshotCreating returns a copy of the IDs currently create-in-flight.
+func (w *workspaceLifecycleState) snapshotCreating() map[string]bool {
+	return w.snapshotPhase(lifecycleCreating)
+}
+
+// runUnlessDeleting runs fn while holding the shared phase lock only when
+// wsID is not currently delete-in-flight. Holding the lock across fn keeps
+// the check and side effect atomic with respect to markDeleting.
+func (w *workspaceLifecycleState) runUnlessDeleting(wsID string, fn func()) bool {
+	w.phaseMu.RLock()
+	defer w.phaseMu.RUnlock()
+
+	if wsID == "" || w.phases[wsID] == lifecycleDeleting {
+		return false
+	}
+	if fn != nil {
+		fn()
+	}
+	return true
 }
 
 // markDirty records a workspace as having unsaved tab state.
@@ -61,67 +209,4 @@ func (w *workspaceLifecycleState) markDirty(wsID string) {
 		w.dirty = make(map[string]bool)
 	}
 	w.dirty[wsID] = true
-}
-
-// markDeleting sets or clears the delete-in-flight flag for a workspace.
-func (w *workspaceLifecycleState) markDeleting(wsID string, deleting bool) {
-	w.deletingMu.Lock()
-	defer w.deletingMu.Unlock()
-
-	if wsID == "" {
-		return
-	}
-	if w.deleting == nil {
-		w.deleting = make(map[string]bool)
-	}
-	if deleting {
-		w.deleting[wsID] = true
-		return
-	}
-	delete(w.deleting, wsID)
-}
-
-// isDeleting reports whether a workspace is currently delete-in-flight.
-func (w *workspaceLifecycleState) isDeleting(wsID string) bool {
-	w.deletingMu.RLock()
-	defer w.deletingMu.RUnlock()
-
-	if wsID == "" || w.deleting == nil {
-		return false
-	}
-	return w.deleting[wsID]
-}
-
-// snapshotDeleting returns a copy of the IDs currently marked
-// delete-in-flight. The RLock is required because callers like
-// collectKnownWorkspaceIDs run on the Update goroutine while the map is also
-// mutated from worker goroutines.
-func (w *workspaceLifecycleState) snapshotDeleting() map[string]bool {
-	w.deletingMu.RLock()
-	defer w.deletingMu.RUnlock()
-
-	if len(w.deleting) == 0 {
-		return nil
-	}
-	out := make(map[string]bool, len(w.deleting))
-	for id := range w.deleting {
-		out[id] = true
-	}
-	return out
-}
-
-// runUnlessDeleting runs fn while holding the shared delete-state lock only
-// when wsID is not currently marked delete-in-flight. Holding the lock across
-// fn keeps the check and side effect atomic with respect to markDeleting.
-func (w *workspaceLifecycleState) runUnlessDeleting(wsID string, fn func()) bool {
-	w.deletingMu.RLock()
-	defer w.deletingMu.RUnlock()
-
-	if wsID == "" || w.deleting[wsID] {
-		return false
-	}
-	if fn != nil {
-		fn()
-	}
-	return true
 }

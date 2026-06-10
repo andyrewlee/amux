@@ -17,8 +17,8 @@ func TestMarkWorkspaceDeleteInFlightPreservesDirtyState(t *testing.T) {
 
 	app := &App{
 		lifecycle: workspaceLifecycleState{
-			dirty:    map[string]bool{wsID: true},
-			deleting: make(map[string]bool),
+			dirty:  map[string]bool{wsID: true},
+			phases: make(map[string]lifecyclePhase),
 		},
 	}
 
@@ -39,8 +39,8 @@ func TestHandleWorkspaceDeleteFailedRequeuesWorkspacePersistence(t *testing.T) {
 	app := &App{
 		dashboard: dashboard.New(),
 		lifecycle: workspaceLifecycleState{
-			dirty:    make(map[string]bool),
-			deleting: map[string]bool{wsID: true},
+			dirty:  make(map[string]bool),
+			phases: map[string]lifecyclePhase{wsID: lifecycleDeleting},
 		},
 	}
 
@@ -65,7 +65,7 @@ func TestWorkspaceDeleteInFlightConcurrentAccess(t *testing.T) {
 
 	app := &App{
 		lifecycle: workspaceLifecycleState{
-			deleting: make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
 		},
 	}
 
@@ -104,7 +104,7 @@ func TestWorkspaceDeleteInFlightConcurrentAccess(t *testing.T) {
 func TestRunUnlessWorkspaceDeleteInFlightSkipsWhenDeleting(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
 	wsID := string(ws.ID())
-	app := &App{lifecycle: workspaceLifecycleState{deleting: map[string]bool{wsID: true}}}
+	app := &App{lifecycle: workspaceLifecycleState{phases: map[string]lifecyclePhase{wsID: lifecycleDeleting}}}
 
 	ran := false
 	ok := app.runUnlessWorkspaceDeleteInFlight(wsID, func() {
@@ -121,7 +121,7 @@ func TestRunUnlessWorkspaceDeleteInFlightSkipsWhenDeleting(t *testing.T) {
 func TestRunUnlessWorkspaceDeleteInFlightBlocksDeleteMarkUntilCallbackReturns(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
 	wsID := string(ws.ID())
-	app := &App{lifecycle: workspaceLifecycleState{deleting: make(map[string]bool)}}
+	app := &App{lifecycle: workspaceLifecycleState{phases: make(map[string]lifecyclePhase)}}
 
 	entered := make(chan struct{})
 	release := make(chan struct{})
