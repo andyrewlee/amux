@@ -36,8 +36,8 @@ func TestTerminalLayerSanitizesStoredSyntheticCursorGlyph(t *testing.T) {
 		},
 		lastVisibleOutput: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 

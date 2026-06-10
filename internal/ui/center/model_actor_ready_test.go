@@ -48,8 +48,8 @@ func TestUpdatePTYFlush_StaleActorHeartbeatForcesParserResetFallback(t *testing.
 		parserResetPending: true,
 		actorWritesPending: 1,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})

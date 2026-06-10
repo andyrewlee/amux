@@ -45,8 +45,8 @@ func TestRebindWorkspaceIDMigratesTerminalState(t *testing.T) {
 			Running: false,
 		},
 	}
-	m.tabsByWorkspace[oldID] = []*TerminalTab{tab}
-	m.activeTabByWorkspace[oldID] = 0
+	m.tabs.ByWorkspace[oldID] = []*TerminalTab{tab}
+	m.tabs.ActiveByWorkspace[oldID] = 0
 	m.pendingCreation[oldID] = true
 
 	cmd := m.RebindWorkspaceID(oldWS, newWS)
@@ -56,17 +56,17 @@ func TestRebindWorkspaceIDMigratesTerminalState(t *testing.T) {
 	if m.workspace != newWS {
 		t.Fatal("expected active workspace pointer to be rebound")
 	}
-	if _, ok := m.tabsByWorkspace[oldID]; ok {
+	if _, ok := m.tabs.ByWorkspace[oldID]; ok {
 		t.Fatalf("expected old workspace key %q to be removed", oldID)
 	}
-	gotTabs := m.tabsByWorkspace[newID]
+	gotTabs := m.tabs.ByWorkspace[newID]
 	if len(gotTabs) != 1 || gotTabs[0] != tab {
 		t.Fatalf("expected migrated terminal tab under new workspace key, got %d", len(gotTabs))
 	}
-	if got := m.activeTabByWorkspace[newID]; got != 0 {
+	if got := m.tabs.ActiveByWorkspace[newID]; got != 0 {
 		t.Fatalf("expected active tab index 0, got %d", got)
 	}
-	if _, ok := m.activeTabByWorkspace[oldID]; ok {
+	if _, ok := m.tabs.ActiveByWorkspace[oldID]; ok {
 		t.Fatalf("expected old active-tab key %q to be removed", oldID)
 	}
 	if !m.pendingCreation[newID] {

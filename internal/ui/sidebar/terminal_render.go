@@ -401,7 +401,7 @@ func (m *TerminalModel) SetSize(width, height int) {
 	termWidth, termHeight := m.terminalContentSize()
 
 	// Resize all terminal vtems across all workspaces only if size changed
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab.State == nil {
 				continue

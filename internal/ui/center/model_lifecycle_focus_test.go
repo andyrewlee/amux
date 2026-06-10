@@ -22,8 +22,8 @@ func TestFocusSyncsActiveDiffViewerFocus(t *testing.T) {
 		DiffViewer: dv,
 	}
 	wsID := string(ws.ID())
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	m.Focus()
 	if !dv.Focused() {

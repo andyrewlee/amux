@@ -122,8 +122,8 @@ func TestUpdatePTYOutput_DoesNotTagControlOnlyOutput(t *testing.T) {
 		SessionName: "amux-test-session",
 		Running:     true,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
@@ -155,8 +155,8 @@ func TestUpdatePTYOutput_TagsVisibleOutput(t *testing.T) {
 		Running:           true,
 		lastActivityTagAt: before,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
@@ -189,8 +189,8 @@ func TestUpdatePTYOutput_ResetsActivityStateAfterOverflowCarryTrim(t *testing.T)
 		},
 		activityANSIState: ansiActivityCSI,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	_ = m.updatePTYOutput(PTYOutput{
 		WorkspaceID: wsID,
@@ -226,8 +226,8 @@ func TestUpdatePTYOutput_EndsBootstrapAfterQuietGap(t *testing.T) {
 		bootstrapActivity:     true,
 		bootstrapLastOutputAt: time.Now().Add(-(bootstrapQuietGap + 200*time.Millisecond)),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYOutput(PTYOutput{
@@ -266,8 +266,8 @@ func TestUpdatePTYFlush_TagsVisibleScreenDelta(t *testing.T) {
 		Running:           true,
 		lastActivityTagAt: before,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYOutput(PTYOutput{
@@ -317,8 +317,8 @@ func TestUpdatePTYFlush_DoesNotTagUnchangedVisibleScreen(t *testing.T) {
 		Terminal:    vterm.New(80, 24),
 		Running:     true,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYOutput(PTYOutput{
@@ -382,8 +382,8 @@ func TestUpdatePTYFlush_RebuffersChunkAfterActorFallbackWithOlderPendingWrites(t
 		actorQueuedNoiseTrailing: []byte("queued-noise"),
 	}
 	prevNoiseTrailing := append([]byte(nil), tab.actorQueuedNoiseTrailing...)
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
@@ -421,8 +421,8 @@ func TestUpdatePTYFlush_SuppressesImmediateUserInputEcho(t *testing.T) {
 		Running:         true,
 		lastUserInputAt: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYOutput(PTYOutput{
@@ -480,8 +480,8 @@ func TestUpdatePTYFlush_RebufferPreservesOrderWithTrailingPending(t *testing.T) 
 		actorWritesPending: 1,
 		actorWriteEpoch:    11,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})

@@ -29,7 +29,7 @@ func TestHandlePtyTabCreated_DoesNotRetargetExistingTabOnSessionReuse(t *testing
 		SessionName: reusedSession,
 		Running:     true,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{existing}
+	m.tabs.ByWorkspace[wsID] = []*Tab{existing}
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
 		Workspace: ws,
@@ -41,7 +41,7 @@ func TestHandlePtyTabCreated_DoesNotRetargetExistingTabOnSessionReuse(t *testing
 		Activate:  true,
 	})
 
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if len(tabs) != 2 {
 		t.Fatalf("expected new tab to be added without mutating existing tab, got %d tabs", len(tabs))
 	}

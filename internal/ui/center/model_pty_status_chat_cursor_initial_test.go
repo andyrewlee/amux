@@ -28,8 +28,8 @@ func TestTerminalLayerTracksFreshSubmitPromptBeforeStableCursorLearned(t *testin
 		},
 		lastVisibleOutput: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -76,8 +76,8 @@ func TestTerminalLayerTracksIndentedSubmitRedrawBeforePostSubmitOutput(t *testin
 		},
 		lastVisibleOutput: time.Now().Add(-time.Millisecond),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -118,8 +118,8 @@ func TestTerminalLayerDoesNotLearnInitialCursorFromBlankControlOnlyJump(t *testi
 			LastOutputAt: time.Now().Add(-tabActiveWindow - time.Millisecond),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -156,8 +156,8 @@ func TestTerminalLayerAllowsSecondToLastRowCursorInShortRestrictedViewport(t *te
 		},
 		lastVisibleOutput: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 

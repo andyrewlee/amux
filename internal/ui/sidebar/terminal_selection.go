@@ -76,17 +76,17 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 	}
 
 	// Remove tab from slice
-	m.tabsByWorkspace[wtID] = append(tabs[:idx], tabs[idx+1:]...)
+	m.tabs.ByWorkspace[wtID] = append(tabs[:idx], tabs[idx+1:]...)
 
 	// Adjust active index
 	activeIdx := m.getActiveTabIdx()
-	newLen := len(m.tabsByWorkspace[wtID])
+	newLen := len(m.tabs.ByWorkspace[wtID])
 	if newLen == 0 {
-		m.activeTabByWorkspace[wtID] = 0
+		m.tabs.ActiveByWorkspace[wtID] = 0
 	} else if activeIdx >= newLen {
-		m.activeTabByWorkspace[wtID] = newLen - 1
+		m.tabs.ActiveByWorkspace[wtID] = newLen - 1
 	} else if idx < activeIdx {
-		m.activeTabByWorkspace[wtID] = activeIdx - 1
+		m.tabs.ActiveByWorkspace[wtID] = activeIdx - 1
 	}
 
 	m.refreshTerminalSize()

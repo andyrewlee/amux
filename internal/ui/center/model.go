@@ -26,8 +26,7 @@ type Model struct {
 	workspaceIDCached     string
 	workspaceIDRepo       string
 	workspaceIDRoot       string
-	tabsByWorkspace       map[string][]*Tab // tabs per workspace ID
-	activeTabByWorkspace  map[string]int    // active tab index per workspace
+	tabs                  common.TabSet[*Tab] // tabs + active index per workspace ID
 	focused               bool
 	canFocusRight         bool
 	tabsRevision          uint64

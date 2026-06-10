@@ -42,7 +42,7 @@ func TestUpdatePtyTabReattachResult_NormalizesCapturedPaneLFForChatTabs(t *testi
 		Assistant: "codex",
 		Workspace: ws,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -78,7 +78,7 @@ func TestUpdatePtyTabReattachResult_LoadsPaneCaptureIntoVisibleScreen(t *testing
 		},
 	}
 	tab.pendingOutputBytes = len(tab.PendingOutput)
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -120,7 +120,7 @@ func TestUpdatePtyTabReattachResult_ReconcilesPostAttachHistoryAfterFullPaneRest
 		Workspace: ws,
 		Terminal:  vterm.New(20, 2),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:                 wsID,
@@ -158,7 +158,7 @@ func TestUpdatePtyTabReattachResult_ResizesExistingTerminalBeforeFullPaneRestore
 		Workspace: ws,
 		Terminal:  term,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -200,7 +200,7 @@ func TestUpdatePtyTabReattachResult_NonAuthoritativeEmptyCapturePreservesExistin
 		},
 	}
 	tab.pendingOutputBytes = len(tab.PendingOutput)
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID: wsID,
@@ -242,7 +242,7 @@ func TestUpdatePtyTabReattachResult_PreservesExistingAltScreenStateWithoutSnapsh
 		Workspace: ws,
 		Terminal:  term,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -288,7 +288,7 @@ func TestHandlePtyTabCreated_NewTabNormalizesCapturedPaneLFForChatTabs(t *testin
 		CaptureFullPane:   true,
 	})
 
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if len(tabs) != 1 {
 		t.Fatalf("expected 1 tab, got %d", len(tabs))
 	}
@@ -318,7 +318,7 @@ func TestHandlePtyTabCreated_LoadsPaneCaptureIntoVisibleScreen(t *testing.T) {
 		CaptureFullPane:   true,
 	})
 
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if len(tabs) != 1 {
 		t.Fatalf("expected 1 tab, got %d", len(tabs))
 	}
@@ -344,7 +344,7 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 	tabID := TabID("tab-existing-pane-capture")
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        tabID,
 			Name:      "codex",
@@ -356,7 +356,7 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 			},
 		},
 	}
-	m.tabsByWorkspace[wsID][0].pendingOutputBytes = len(m.tabsByWorkspace[wsID][0].PendingOutput)
+	m.tabs.ByWorkspace[wsID][0].pendingOutputBytes = len(m.tabs.ByWorkspace[wsID][0].PendingOutput)
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
 		Workspace:         ws,
@@ -370,7 +370,7 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 		CaptureFullPane:   true,
 	})
 
-	tab := m.tabsByWorkspace[wsID][0]
+	tab := m.tabs.ByWorkspace[wsID][0]
 	if tab.Terminal == nil {
 		t.Fatal("expected terminal to be preserved")
 	}
@@ -397,7 +397,7 @@ func TestHandlePtyTabCreated_ResizesExistingTerminalBeforeFullPaneRestore(t *tes
 	wsID := string(ws.ID())
 	term := vterm.New(4, 2)
 	tabID := TabID("tab-existing-pane-resize")
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        tabID,
 			Name:      "codex",
@@ -419,7 +419,7 @@ func TestHandlePtyTabCreated_ResizesExistingTerminalBeforeFullPaneRestore(t *tes
 		CaptureFullPane:   true,
 	})
 
-	tab := m.tabsByWorkspace[wsID][0]
+	tab := m.tabs.ByWorkspace[wsID][0]
 	if tab.Terminal == nil {
 		t.Fatal("expected terminal to be preserved")
 	}

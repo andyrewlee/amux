@@ -20,7 +20,7 @@ func TestHandlePTYStopped_PreservesOverflowTrimCarry(t *testing.T) {
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	_ = m.handlePTYStopped(messages.SidebarPTYStopped{
 		WorkspaceID: wsID,
@@ -51,7 +51,7 @@ func TestHandlePTYRestart_PreservesOverflowTrimCarry(t *testing.T) {
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	_ = m.handlePTYRestart(messages.SidebarPTYRestart{
 		WorkspaceID: wsID,
@@ -82,7 +82,7 @@ func TestHandlePTYStopped_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	_ = m.handlePTYStopped(messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID)})
 	_ = m.handlePTYOutput(messages.SidebarPTYOutput{
@@ -106,7 +106,7 @@ func TestHandlePTYRestart_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	_ = m.handlePTYRestart(messages.SidebarPTYRestart{WorkspaceID: wsID, TabID: string(tabID)})
 	_ = m.handlePTYOutput(messages.SidebarPTYOutput{

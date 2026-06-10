@@ -14,7 +14,7 @@ func TestTerminalLayerShowsCursorWhileNonCodexChatTabStreaming(t *testing.T) {
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-streaming-claude"),
 			Assistant: "claude",
@@ -26,7 +26,7 @@ func TestTerminalLayerShowsCursorWhileNonCodexChatTabStreaming(t *testing.T) {
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -45,7 +45,7 @@ func TestTerminalLayerShowsCursorWhileCodexChatTabStreaming(t *testing.T) {
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-streaming-codex-control"),
 			Assistant: "codex",
@@ -57,7 +57,7 @@ func TestTerminalLayerShowsCursorWhileCodexChatTabStreaming(t *testing.T) {
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -78,7 +78,7 @@ func TestTerminalLayerHidesChatCursorOutsideInputSectionWithoutStoredCursor(t *t
 	term.CursorX = 19
 	term.CursorY = 0
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:                TabID("tab-chat-unanchored-top-right"),
 			Assistant:         "codex",
@@ -88,7 +88,7 @@ func TestTerminalLayerHidesChatCursorOutsideInputSectionWithoutStoredCursor(t *t
 			lastVisibleOutput: time.Now(),
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -110,7 +110,7 @@ func TestTerminalLayerUsesLiveCursorInAltScreenChatTab(t *testing.T) {
 	term.CursorX = 10
 	term.CursorY = 4
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:              TabID("tab-chat-alt-screen"),
 			Assistant:       "codex",
@@ -121,7 +121,7 @@ func TestTerminalLayerUsesLiveCursorInAltScreenChatTab(t *testing.T) {
 			stableCursorY:   11,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -145,7 +145,7 @@ func TestTerminalLayerUsesStoredChatCursorWhenLiveCursorLeavesInputSection(t *te
 	term.CursorX = 19
 	term.CursorY = 0
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:                TabID("tab-chat-anchored-input"),
 			Assistant:         "codex",
@@ -158,7 +158,7 @@ func TestTerminalLayerUsesStoredChatCursorWhenLiveCursorLeavesInputSection(t *te
 			stableCursorY:     11,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -183,7 +183,7 @@ func TestTerminalLayerKeepsStoredChatCursorWhenLiveCursorFallsOnBlankCorner(t *t
 	term.CursorY = 11
 	term.Screen[11][19] = vterm.Cell{Rune: ' ', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:              TabID("tab-chat-corner-artifact"),
 			Assistant:       "codex",
@@ -194,7 +194,7 @@ func TestTerminalLayerKeepsStoredChatCursorWhenLiveCursorFallsOnBlankCorner(t *t
 			stableCursorY:   11,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -226,8 +226,8 @@ func TestTerminalLayerAllowsBlankCornerCursorAfterRecentLocalInput(t *testing.T)
 		Terminal:          term,
 		lastPromptInputAt: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -263,8 +263,8 @@ func TestTerminalLayerShowsBlankCornerPromptWithoutRecentLocalInput(t *testing.T
 		Workspace: ws,
 		Terminal:  term,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 

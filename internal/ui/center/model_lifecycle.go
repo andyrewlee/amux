@@ -13,13 +13,12 @@ import (
 // New creates a new center pane model.
 func New(cfg *config.Config) *Model {
 	return &Model{
-		tabsByWorkspace:      make(map[string][]*Tab),
-		activeTabByWorkspace: make(map[string]int),
-		config:               cfg,
-		agentManager:         appPty.NewAgentManager(cfg),
-		styles:               common.DefaultStyles(),
-		tabEvents:            make(chan tabEvent, 4096),
-		tmuxOpts:             tmux.DefaultOptions(),
+		tabs:         common.NewTabSet[*Tab](),
+		config:       cfg,
+		agentManager: appPty.NewAgentManager(cfg),
+		styles:       common.DefaultStyles(),
+		tabEvents:    make(chan tabEvent, 4096),
+		tmuxOpts:     tmux.DefaultOptions(),
 	}
 }
 
@@ -82,7 +81,7 @@ func (m *Model) SetShowKeymapHints(show bool) {
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
 	// Propagate to all viewers in tabs
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil {
 				continue
@@ -129,7 +128,7 @@ func (m *Model) SetSize(width, height int) {
 	viewerHeight := termHeight
 
 	// Update all terminals across all workspaces
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			tab.mu.Lock()
 			if tab.Terminal != nil {
@@ -194,7 +193,7 @@ func (m *Model) syncActiveDiffViewerFocus(focused bool) {
 
 // Close cleans up all resources.
 func (m *Model) Close() {
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			tab.markClosing()
 			m.stopPTYReader(tab)

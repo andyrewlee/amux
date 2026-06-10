@@ -60,8 +60,8 @@ func TestUpdatePTYOutput_OverflowEmitsThrottledWarn(t *testing.T) {
 	m.SetWorkspace(ws)
 	wsID := string(ws.ID())
 	tab := &Tab{ID: TabID("overflow-tab"), Workspace: ws, Terminal: vterm.New(80, 24), Running: true}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	overflowChunk := bytes.Repeat([]byte("x"), ptyMaxBufferedBytes+4096)
 	_ = m.updatePTYOutput(PTYOutput{WorkspaceID: wsID, TabID: tab.ID, Data: overflowChunk})
@@ -90,8 +90,8 @@ func TestUpdatePTYOutput_OverflowWarnReportsActualTrimmedBytes(t *testing.T) {
 	m.SetWorkspace(ws)
 	wsID := string(ws.ID())
 	tab := &Tab{ID: TabID("overflow-tab"), Workspace: ws, Terminal: vterm.New(80, 24), Running: true}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	controlSeq := []byte("\x1b[>1;10;0c")
 	chunk := append([]byte{}, controlSeq...)

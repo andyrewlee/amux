@@ -38,7 +38,7 @@ func TestIsTabActiveChatOnly(t *testing.T) {
 		Running:           true,
 		lastVisibleOutput: now.Add(-1 * time.Second),
 	}
-	m.tabsByWorkspace[string(ws.ID())] = []*Tab{activeChat}
+	m.tabs.ByWorkspace[string(ws.ID())] = []*Tab{activeChat}
 
 	if !m.IsTabActive(activeChat) {
 		t.Fatalf("expected chat tab to be active with recent output")
@@ -92,8 +92,8 @@ func TestGetActiveWorkspaceIDsChatOnly(t *testing.T) {
 		lastVisibleOutput: now.Add(-1 * time.Second),
 	}
 
-	m.tabsByWorkspace[string(ws1.ID())] = []*Tab{activeChat}
-	m.tabsByWorkspace[string(ws2.ID())] = []*Tab{viewer}
+	m.tabs.ByWorkspace[string(ws1.ID())] = []*Tab{activeChat}
+	m.tabs.ByWorkspace[string(ws2.ID())] = []*Tab{viewer}
 
 	ids := m.GetActiveWorkspaceIDs()
 	if len(ids) != 1 || ids[0] != string(ws1.ID()) {

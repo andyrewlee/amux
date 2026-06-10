@@ -24,8 +24,8 @@ func TestUpdateTabSessionStatus_StoppedClearsReattachInFlight(t *testing.T) {
 		reattachInFlight: true,
 		Agent:            &appPty.Agent{Workspace: ws, Session: "amux-ws-sess"},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	m.updateTabSessionStatus(messages.TabSessionStatus{
 		Status:      "stopped",

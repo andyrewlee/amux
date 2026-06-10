@@ -24,8 +24,8 @@ func TestUpdatePTYFlush_UsesLargerChunkForActiveTab(t *testing.T) {
 			PendingOutput:     bytes.Repeat([]byte("x"), ptyFlushChunkSizeActive+17),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
@@ -53,8 +53,8 @@ func TestUpdatePTYFlush_CatchUpWithoutActorKeepsActiveChunkCap(t *testing.T) {
 		catchUpTargetBytes:   ptyFlushChunkSizeActive + 17,
 		ptyBytesReceived:     ptyFlushChunkSizeActive + 17,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID, CatchUp: true})
@@ -86,8 +86,8 @@ func TestUpdatePTYFlush_FastForwardsCatchUpActiveTabViaActor(t *testing.T) {
 		catchUpTargetBytes:   uint64(len(payload)),
 		ptyBytesReceived:     uint64(len(payload)),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID, CatchUp: true})
@@ -134,8 +134,8 @@ func TestUpdatePTYFlush_CatchUpUsesBoundedActorChunk(t *testing.T) {
 		catchUpTargetBytes:   uint64(len(payload)),
 		ptyBytesReceived:     uint64(len(payload)),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID, CatchUp: true})
@@ -182,8 +182,8 @@ func TestUpdatePTYFlush_PendingCatchUpOverridesStaleFlushMessage(t *testing.T) {
 		catchUpTargetBytes:   uint64(len(payload)),
 		ptyBytesReceived:     uint64(len(payload)),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
@@ -222,8 +222,8 @@ func TestUpdatePTYFlush_StaleCatchUpMessageDoesNotRelatchAfterBacklogDrains(t *t
 			FlushPendingSince: time.Now().Add(-time.Second),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID, CatchUp: true})
@@ -268,8 +268,8 @@ func TestUpdatePTYFlush_UsesBaseChunkForInactiveTab(t *testing.T) {
 			PendingOutput:     bytes.Repeat([]byte("x"), ptyFlushChunkSize+17),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{active, inactive}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{active, inactive}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: inactive.ID})
@@ -303,8 +303,8 @@ func TestUpdatePTYFlush_CatchUpHintIgnoredWhenTabIsNoLongerActive(t *testing.T) 
 		catchUpTargetBytes:   ptyFlushChunkSize + 17,
 		ptyBytesReceived:     ptyFlushChunkSize + 17,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{active, inactive}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{active, inactive}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: inactive.ID})
@@ -340,8 +340,8 @@ func TestUpdatePTYFlush_CatchUpFallsBackToActiveChunkWhenActorQueueIsFull(t *tes
 		catchUpTargetBytes:   uint64(len(payload)),
 		ptyBytesReceived:     uint64(len(payload)),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID, CatchUp: true})
@@ -386,8 +386,8 @@ func TestUpdatePTYFlush_CatchUpClearsAfterInitialBacklogPass(t *testing.T) {
 		catchUpTargetBytes:   uint64(len(initialBacklog)),
 		ptyBytesReceived:     uint64(len(initialBacklog) + len(steadyState)),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID, CatchUp: true})

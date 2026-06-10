@@ -26,8 +26,8 @@ func setupTerminalOwnerModel(t *testing.T) *TerminalModel {
 		Name:  "Terminal 1",
 		State: ts,
 	}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	return m
 }
 

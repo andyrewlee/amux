@@ -39,9 +39,9 @@ func TestEnforceAttachedAgentTabLimit_DetachesLeastRecentlyFocused(t *testing.T)
 		createdAt:     now.Add(-45 * time.Minute).Unix(),
 	}
 
-	m.tabsByWorkspace[ws1ID] = []*Tab{oldest, active}
-	m.tabsByWorkspace[ws2ID] = []*Tab{mid}
-	m.activeTabByWorkspace[ws1ID] = 1
+	m.tabs.ByWorkspace[ws1ID] = []*Tab{oldest, active}
+	m.tabs.ByWorkspace[ws2ID] = []*Tab{mid}
+	m.tabs.ActiveByWorkspace[ws1ID] = 1
 	m.workspace = ws1
 
 	detached, _ := m.EnforceAttachedAgentTabLimit(2)
@@ -91,8 +91,8 @@ func TestEnforceAttachedAgentTabLimit_UsesCreatedAtWhenFocusIsUnknown(t *testing
 		createdAt:     now.Unix(),
 	}
 
-	m.tabsByWorkspace[wsID] = []*Tab{older, newer, active}
-	m.activeTabByWorkspace[wsID] = 2
+	m.tabs.ByWorkspace[wsID] = []*Tab{older, newer, active}
+	m.tabs.ActiveByWorkspace[wsID] = 2
 	m.workspace = ws
 
 	detached, _ := m.EnforceAttachedAgentTabLimit(2)
@@ -133,8 +133,8 @@ func TestEnforceAttachedAgentTabLimit_ZeroDisablesEnforcement(t *testing.T) {
 		createdAt:     now.Add(-30 * time.Minute).Unix(),
 	}
 
-	m.tabsByWorkspace[wsID] = []*Tab{tabA, tabB}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tabA, tabB}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	detached, cmds := m.EnforceAttachedAgentTabLimit(0)
@@ -172,8 +172,8 @@ func TestEnforceAttachedAgentTabLimit_DetachesWhenConfigIsNilFallback(t *testing
 		createdAt:     now.Add(-30 * time.Minute).Unix(),
 	}
 
-	m.tabsByWorkspace[wsID] = []*Tab{first, second}
-	m.activeTabByWorkspace[wsID] = 1
+	m.tabs.ByWorkspace[wsID] = []*Tab{first, second}
+	m.tabs.ActiveByWorkspace[wsID] = 1
 	m.workspace = ws
 
 	detached, _ := m.EnforceAttachedAgentTabLimit(1)

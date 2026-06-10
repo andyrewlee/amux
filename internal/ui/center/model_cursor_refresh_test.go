@@ -25,7 +25,7 @@ func TestUpdatePTYCursorRefresh_SchedulesWhileCursorTimersPending(t *testing.T) 
 			CachedSnap: &compositor.VTermSnapshot{},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	cmd := m.updatePTYCursorRefresh(PTYCursorRefresh{WorkspaceID: wsID, TabID: tab.ID})
 	if cmd == nil {
@@ -92,7 +92,7 @@ func TestUpdatePTYCursorRefresh_RequestPreservesPendingTimer(t *testing.T) {
 			CachedSnap: &compositor.VTermSnapshot{},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	first := m.scheduleChatCursorRefresh(tab, wsID, now)
 	if first == nil {
@@ -132,7 +132,7 @@ func TestUpdatePTYCursorRefresh_InvalidatesCachedSnapshotForNonChatTabs(t *testi
 			CachedSnap: &compositor.VTermSnapshot{},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	cmd := m.updatePTYCursorRefresh(PTYCursorRefresh{WorkspaceID: wsID, TabID: tab.ID})
 	if cmd != nil {

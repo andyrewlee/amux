@@ -55,7 +55,7 @@ func TestHandlePTYOutput_OverflowEmitsThrottledWarn(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := TerminalTabID("term-overflow")
 	state := &TerminalState{VTerm: vterm.New(80, 24)}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	overflowChunk := bytes.Repeat([]byte("x"), ptyMaxBufferedBytes+4096)
 	_ = m.handlePTYOutput(messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Data: overflowChunk})
@@ -79,7 +79,7 @@ func TestHandlePTYOutput_OverflowWarnReportsActualTrimmedBytes(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := TerminalTabID("term-overflow")
 	state := &TerminalState{VTerm: vterm.New(80, 24)}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	controlSeq := []byte("\x1b[>1;10;0c")
 	chunk := append([]byte{}, controlSeq...)

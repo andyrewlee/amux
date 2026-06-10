@@ -26,8 +26,8 @@ func TestTabSelectionChangedCmd_FlushesBufferedActiveTab(t *testing.T) {
 		pendingOutputBytes: len("buffered"),
 		ptyBytesReceived:   uint64(len("buffered")),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.tabSelectionChangedCmd(true)
@@ -89,8 +89,8 @@ func TestTabSelectionChangedCmd_FlushesActorQueuedActiveTab(t *testing.T) {
 		actorQueuedBytes:   12,
 		ptyBytesReceived:   12,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.tabSelectionChangedCmd(true)

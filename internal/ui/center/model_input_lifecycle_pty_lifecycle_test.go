@@ -20,7 +20,7 @@ func TestUpdatePtyTabReattachResult_ResetsActivityANSIState(t *testing.T) {
 		Workspace:         ws,
 		activityANSIState: ansiActivityString,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID: wsID,
@@ -64,7 +64,7 @@ func TestUpdatePtyTabReattachResult_ResetsStableCursor(t *testing.T) {
 		lastPromptInputAt: time.Now(),
 		lastVisibleOutput: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID: wsID,
@@ -109,7 +109,7 @@ func TestUpdatePtyTabReattachResult_PreservesParserCarryOnExistingTerminal(t *te
 			PendingOutput: []byte("[31mHello"),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	if got := tab.Terminal.ParserCarryState(); got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
 		t.Fatalf("expected precondition escape carry, got %+v", got)
@@ -148,7 +148,7 @@ func TestUpdatePtyTabReattachResult_ClearsCatchUpPendingOutput(t *testing.T) {
 			PendingOutput: []byte("buffered"),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID: wsID,
@@ -173,7 +173,7 @@ func TestHandlePtyTabCreated_ExistingResetsActivityANSIState(t *testing.T) {
 		Workspace:         ws,
 		activityANSIState: ansiActivityOSC,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
 		Workspace: ws,
@@ -204,7 +204,7 @@ func TestHandlePtyTabCreated_ExistingClearsCatchUpPendingOutput(t *testing.T) {
 			PendingOutput: []byte("buffered"),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
 		Workspace: ws,
@@ -236,7 +236,7 @@ func TestHandlePtyTabCreated_ExistingPreservesParserCarry(t *testing.T) {
 			PendingOutput: []byte("[31mHello"),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	if got := tab.Terminal.ParserCarryState(); got != (vterm.ParserCarryState{Mode: vterm.ParserCarryEscape}) {
 		t.Fatalf("expected precondition escape carry, got %+v", got)
@@ -288,8 +288,8 @@ func TestHandlePtyTabCreated_RejectsMissingTabID(t *testing.T) {
 	if errMsg.Err == nil || errMsg.Err.Error() != "missing tab id" {
 		t.Fatalf("expected missing tab id error, got %v", errMsg.Err)
 	}
-	if len(m.tabsByWorkspace[wsID]) != 0 {
-		t.Fatalf("expected no tabs to be created on missing tab id, got %d", len(m.tabsByWorkspace[wsID]))
+	if len(m.tabs.ByWorkspace[wsID]) != 0 {
+		t.Fatalf("expected no tabs to be created on missing tab id, got %d", len(m.tabs.ByWorkspace[wsID]))
 	}
 }
 
@@ -312,7 +312,7 @@ func TestHandlePtyTabCreated_ExistingResetsStableCursor(t *testing.T) {
 		lastPromptInputAt: time.Now(),
 		lastVisibleOutput: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
 		Workspace: ws,
@@ -357,7 +357,7 @@ func TestUpdatePTYStopped_ResetsActivityANSIState(t *testing.T) {
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_ = m.updatePTYStopped(PTYStopped{
 		WorkspaceID: wsID,
@@ -394,7 +394,7 @@ func TestUpdatePTYRestart_ResetsActivityANSIState(t *testing.T) {
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryCSI},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_ = m.updatePTYRestart(PTYRestart{
 		WorkspaceID: wsID,
@@ -430,7 +430,7 @@ func TestUpdatePTYStopped_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_ = m.updatePTYStopped(PTYStopped{WorkspaceID: wsID, TabID: tab.ID})
 	_ = m.updatePTYOutput(PTYOutput{
@@ -456,7 +456,7 @@ func TestUpdatePTYRestart_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 			OverflowTrimCarry: vterm.ParserCarryState{Mode: vterm.ParserCarryEscape},
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_ = m.updatePTYRestart(PTYRestart{WorkspaceID: wsID, TabID: tab.ID})
 	_ = m.updatePTYOutput(PTYOutput{

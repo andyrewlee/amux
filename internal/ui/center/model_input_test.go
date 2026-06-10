@@ -19,8 +19,8 @@ func TestUpdatePasteWithoutAttachedTerminalDoesNotTagActivity(t *testing.T) {
 		Workspace:   ws,
 		SessionName: "session-1",
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 	m.focused = true
 
@@ -40,8 +40,8 @@ func TestUpdatePasteActorFallbackWithoutTerminalDoesNotTagActivity(t *testing.T)
 		Workspace:   ws,
 		SessionName: "session-1",
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 	m.focused = true
 
@@ -64,8 +64,8 @@ func TestUpdatePasteQueuedDoesNotStampLocalInputWindow(t *testing.T) {
 		Workspace:   ws,
 		SessionName: "session-paste-queued",
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 	m.focused = true
 
@@ -92,8 +92,8 @@ func TestUpdateQueuedKeyInputDoesNotStampLocalInputWindow(t *testing.T) {
 		SessionName: "session-key-queued",
 		Agent:       &appPty.Agent{Terminal: &appPty.Terminal{}},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 	m.focused = true
 
@@ -124,8 +124,8 @@ func TestUpdateKeyPgUpScrollsOneLineOnShortTerminal(t *testing.T) {
 		Terminal:  term,
 		Agent:     &appPty.Agent{Terminal: &appPty.Terminal{}},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 	m.focused = true
 
@@ -154,8 +154,8 @@ func TestUpdateCtrlUDoesNotScrollCenterTerminalHistory(t *testing.T) {
 		Terminal:  term,
 		Agent:     &appPty.Agent{Terminal: &appPty.Terminal{}},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 	m.focused = true
 
@@ -185,8 +185,8 @@ func TestUpdateCtrlDReturnsCenterTerminalToLiveOutput(t *testing.T) {
 		Terminal:  term,
 		Agent:     &appPty.Agent{Terminal: &appPty.Terminal{}},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 	m.focused = true
 
@@ -214,8 +214,8 @@ func TestTabActorScrollPageScrollsOneLineOnShortTerminal(t *testing.T) {
 		Workspace: ws,
 		Terminal:  term,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 	m.focused = true
 

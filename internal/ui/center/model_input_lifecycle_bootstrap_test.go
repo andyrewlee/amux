@@ -22,8 +22,8 @@ func TestUpdatePTYOutput_DoesNotExtendBootstrapOnEachChunk(t *testing.T) {
 		bootstrapActivity:     true,
 		bootstrapLastOutputAt: bootstrapAt,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYOutput(PTYOutput{
