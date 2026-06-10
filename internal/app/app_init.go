@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -32,25 +31,24 @@ import (
 // component construction and ordering changes are exercised by harness runs.
 func newAppShell(cfg *config.Config) *App {
 	app := &App{
-		config:                 cfg,
-		layout:                 layout.NewManager(),
-		dashboard:              dashboard.New(),
-		center:                 center.New(cfg),
-		sidebar:                sidebar.NewTabbedSidebar(),
-		sidebarTerminal:        sidebar.NewTerminalModel(),
-		toast:                  common.NewToastModel(),
-		focusedPane:            messages.PaneDashboard,
-		keymap:                 DefaultKeyMap(),
-		dashboardChrome:        &compositor.ChromeCache{},
-		centerChrome:           &compositor.ChromeCache{},
-		sidebarChrome:          &compositor.ChromeCache{},
-		tmuxActiveWorkspaceIDs: make(map[string]bool),
-		sessionActivityStates:  make(map[string]*activity.SessionState),
-		dirtyWorkspaces:        make(map[string]bool),
-		deletingWorkspaceIDs:   make(map[string]bool),
-		localWorkspaceSavesAt:  make(map[string]localWorkspaceSaveMarker),
-		creatingWorkspaceIDs:   make(map[string]bool),
-		maxAttachedAgentTabs:   maxAttachedAgentTabsFromEnv(),
+		config:                cfg,
+		layout:                layout.NewManager(),
+		dashboard:             dashboard.New(),
+		center:                center.New(cfg),
+		sidebar:               sidebar.NewTabbedSidebar(),
+		sidebarTerminal:       sidebar.NewTerminalModel(),
+		toast:                 common.NewToastModel(),
+		focusedPane:           messages.PaneDashboard,
+		keymap:                DefaultKeyMap(),
+		dashboardChrome:       &compositor.ChromeCache{},
+		centerChrome:          &compositor.ChromeCache{},
+		sidebarChrome:         &compositor.ChromeCache{},
+		tmuxActivity:          newTmuxActivityState(),
+		dirtyWorkspaces:       make(map[string]bool),
+		deletingWorkspaceIDs:  make(map[string]bool),
+		localWorkspaceSavesAt: make(map[string]localWorkspaceSaveMarker),
+		creatingWorkspaceIDs:  make(map[string]bool),
+		maxAttachedAgentTabs:  maxAttachedAgentTabsFromEnv(),
 	}
 	app.styles = common.DefaultStyles()
 	// Propagate styles to all components (they may have been created with a
@@ -270,8 +268,8 @@ func (a *App) startPTYWatchdog() tea.Cmd {
 
 // startTmuxSyncTicker returns a command that ticks for tmux session reconciliation.
 func (a *App) startTmuxSyncTicker() tea.Cmd {
-	a.tmuxSyncToken++
-	token := a.tmuxSyncToken
+	a.tmuxActivity.syncToken++
+	token := a.tmuxActivity.syncToken
 	return common.SafeTick(a.tmuxSyncInterval(), func(time.Time) tea.Msg {
 		return messages.TmuxSyncTick{Token: token}
 	})

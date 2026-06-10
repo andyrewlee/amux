@@ -17,13 +17,13 @@ func TestTmuxActivityScan_PrefilterErrorStillAllowsStaleFallback(t *testing.T) {
 	ops.prefilterErr = errors.New("prefilter unavailable")
 	ops.lastOutputAge = activity.OutputWindow + time.Second
 
-	app.sessionActivityStates[ops.sessionName] = &activity.SessionState{
+	app.tmuxActivity.sessionStates[ops.sessionName] = &activity.SessionState{
 		Initialized: true,
 		Score:       activity.ScoreThreshold - 2,
 	}
 
 	runImmediateTmuxActivityScan(t, app)
-	if !app.tmuxActiveWorkspaceIDs[wsID] {
+	if !app.tmuxActivity.activeWorkspaceIDs[wsID] {
 		t.Fatalf("expected workspace %s active via stale-tag fallback when prefilter is unavailable", wsID)
 	}
 }

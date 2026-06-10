@@ -54,7 +54,9 @@ func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *
 		},
 		// Pre-seed one prior non-live observation so this single scan reaches the
 		// demotion hysteresis threshold and still demotes the dead session.
-		activityMissBySession: map[string]int{"session-a": activityDemotionMissThreshold - 1},
+		tmuxActivity: tmuxActivityState{
+			missBySession: map[string]int{"session-a": activityDemotionMissThreshold - 1},
+		},
 	}
 
 	infoBySession := map[string]activity.SessionInfo{
@@ -246,8 +248,7 @@ func TestRunTmuxActivityScan_OwnerResolutionErrorLeavesRoleUnknown(t *testing.T)
 
 func TestHandleTmuxActivityResult_AppliesStoppedTabsWhenSkipApply(t *testing.T) {
 	app := &App{
-		tmuxActivityToken:        7,
-		tmuxActivityScanInFlight: true,
+		tmuxActivity: tmuxActivityState{token: 7, scanInFlight: true},
 	}
 
 	expected := messages.TabSessionStatus{
@@ -263,7 +264,7 @@ func TestHandleTmuxActivityResult_AppliesStoppedTabsWhenSkipApply(t *testing.T) 
 	if len(cmds) != 1 {
 		t.Fatalf("expected stopped-tab command to be enqueued, got %d cmds", len(cmds))
 	}
-	if app.tmuxActivityScanInFlight {
+	if app.tmuxActivity.scanInFlight {
 		t.Fatal("expected scan in-flight flag to be cleared")
 	}
 
@@ -279,8 +280,7 @@ func TestHandleTmuxActivityResult_AppliesStoppedTabsWhenSkipApply(t *testing.T) 
 
 func TestHandleTmuxActivityResult_AppliesStoppedTabsWhenErrSet(t *testing.T) {
 	app := &App{
-		tmuxActivityToken:        8,
-		tmuxActivityScanInFlight: true,
+		tmuxActivity: tmuxActivityState{token: 8, scanInFlight: true},
 	}
 
 	expected := messages.TabSessionStatus{
@@ -296,7 +296,7 @@ func TestHandleTmuxActivityResult_AppliesStoppedTabsWhenErrSet(t *testing.T) {
 	if len(cmds) != 1 {
 		t.Fatalf("expected stopped-tab command to be enqueued despite scan error, got %d cmds", len(cmds))
 	}
-	if app.tmuxActivityScanInFlight {
+	if app.tmuxActivity.scanInFlight {
 		t.Fatal("expected scan in-flight flag to be cleared")
 	}
 	msg := cmds[0]()

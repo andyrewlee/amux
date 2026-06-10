@@ -10,18 +10,20 @@ import (
 
 func TestHandleTmuxActivityResult_OwnerTransitionErrorResetsHysteresis(t *testing.T) {
 	app := &App{
-		tmuxActivityToken:        5,
-		tmuxActivityScanInFlight: true,
-		tmuxActivityOwnershipSet: true,
-		tmuxActivityScannerOwner: false,
-		tmuxActivityOwnerEpoch:   1,
-		sessionActivityStates: map[string]*activity.SessionState{
-			"stale-session": {},
+		tmuxActivity: tmuxActivityState{
+			token:        5,
+			scanInFlight: true,
+			ownershipSet: true,
+			scannerOwner: false,
+			ownerEpoch:   1,
+			sessionStates: map[string]*activity.SessionState{
+				"stale-session": {},
+			},
+			settled:            true,
+			settledScans:       2,
+			activeWorkspaceIDs: map[string]bool{"ws-stale": true},
 		},
-		tmuxActivitySettled:      true,
-		tmuxActivitySettledScans: 2,
-		tmuxActiveWorkspaceIDs:   map[string]bool{"ws-stale": true},
-		dashboard:                dashboard.New(),
+		dashboard: dashboard.New(),
 	}
 	app.syncActiveWorkspacesToDashboard()
 
@@ -32,11 +34,11 @@ func TestHandleTmuxActivityResult_OwnerTransitionErrorResetsHysteresis(t *testin
 		ScannerEpoch: 2,
 		Err:          errors.New("owner scan failed"),
 	})
-	if len(app.sessionActivityStates) != 0 {
-		t.Fatalf("expected hysteresis reset on owner transition despite scan error, got %v", app.sessionActivityStates)
+	if len(app.tmuxActivity.sessionStates) != 0 {
+		t.Fatalf("expected hysteresis reset on owner transition despite scan error, got %v", app.tmuxActivity.sessionStates)
 	}
-	if len(app.tmuxActiveWorkspaceIDs) != 0 {
-		t.Fatalf("expected stale active-workspace map cleared on owner transition, got %v", app.tmuxActiveWorkspaceIDs)
+	if len(app.tmuxActivity.activeWorkspaceIDs) != 0 {
+		t.Fatalf("expected stale active-workspace map cleared on owner transition, got %v", app.tmuxActivity.activeWorkspaceIDs)
 	}
 	if got := dashboardActiveWorkspaceCount(app.dashboard); got != 0 {
 		t.Fatalf("expected dashboard activity cleared on owner transition, got %d", got)
@@ -52,14 +54,14 @@ func TestHandleTmuxActivityResult_OwnerTransitionErrorResetsHysteresis(t *testin
 			"new-session": {},
 		},
 	})
-	if len(app.sessionActivityStates) != 1 {
-		t.Fatalf("expected only fresh owner state after recovery scan, got %v", app.sessionActivityStates)
+	if len(app.tmuxActivity.sessionStates) != 1 {
+		t.Fatalf("expected only fresh owner state after recovery scan, got %v", app.tmuxActivity.sessionStates)
 	}
-	if _, ok := app.sessionActivityStates["stale-session"]; ok {
-		t.Fatalf("expected stale pre-transition state to remain cleared, got %v", app.sessionActivityStates)
+	if _, ok := app.tmuxActivity.sessionStates["stale-session"]; ok {
+		t.Fatalf("expected stale pre-transition state to remain cleared, got %v", app.tmuxActivity.sessionStates)
 	}
-	if !app.tmuxActiveWorkspaceIDs["ws-new"] {
-		t.Fatalf("expected recovered owner activity to apply, got %v", app.tmuxActiveWorkspaceIDs)
+	if !app.tmuxActivity.activeWorkspaceIDs["ws-new"] {
+		t.Fatalf("expected recovered owner activity to apply, got %v", app.tmuxActivity.activeWorkspaceIDs)
 	}
 }
 
@@ -72,16 +74,18 @@ func TestHandleTmuxActivityResult_OwnerTransitionResetsSettlement(t *testing.T) 
 	dash := dashboard.New()
 	dash.SetActiveWorkspaces(map[string]bool{"ws-old": true})
 	app := &App{
-		tmuxActivityToken:        7,
-		tmuxActivityScanInFlight: true,
-		tmuxActivityOwnershipSet: true,
-		tmuxActivityScannerOwner: false,
-		tmuxActivityOwnerEpoch:   1,
-		sessionActivityStates:    map[string]*activity.SessionState{},
-		tmuxActivitySettled:      true,
-		tmuxActivitySettledScans: 2,
-		tmuxActiveWorkspaceIDs:   map[string]bool{"ws-old": true},
-		dashboard:                dash,
+		tmuxActivity: tmuxActivityState{
+			token:              7,
+			scanInFlight:       true,
+			ownershipSet:       true,
+			scannerOwner:       false,
+			ownerEpoch:         1,
+			sessionStates:      map[string]*activity.SessionState{},
+			settled:            true,
+			settledScans:       2,
+			activeWorkspaceIDs: map[string]bool{"ws-old": true},
+		},
+		dashboard: dash,
 	}
 
 	// Follower->owner transition (epoch bump). The owner scan succeeds and reports
@@ -95,19 +99,19 @@ func TestHandleTmuxActivityResult_OwnerTransitionResetsSettlement(t *testing.T) 
 		ActiveWorkspaceIDs: map[string]bool{"ws-new": true},
 		UpdatedStates:      map[string]*activity.SessionState{},
 	})
-	if app.tmuxActivitySettled {
+	if app.tmuxActivity.settled {
 		t.Fatal("expected settlement reset on owner transition")
 	}
-	if app.tmuxActivitySettledScans != 1 {
-		t.Fatalf("expected settle scans to restart at 1 after the transition scan, got %d", app.tmuxActivitySettledScans)
+	if app.tmuxActivity.settledScans != 1 {
+		t.Fatalf("expected settle scans to restart at 1 after the transition scan, got %d", app.tmuxActivity.settledScans)
 	}
 	if got := dashboardActiveWorkspaceCount(dash); got != 0 {
 		t.Fatalf("expected transient active set withheld while unsettled, got %d", got)
 	}
 
 	// Second successful owner scan re-settles and republishes the active set.
-	app.tmuxActivityToken = 8
-	app.tmuxActivityScanInFlight = true
+	app.tmuxActivity.token = 8
+	app.tmuxActivity.scanInFlight = true
 	app.handleTmuxActivityResult(tmuxActivityResult{
 		Token:              8,
 		RoleKnown:          true,
@@ -116,7 +120,7 @@ func TestHandleTmuxActivityResult_OwnerTransitionResetsSettlement(t *testing.T) 
 		ActiveWorkspaceIDs: map[string]bool{"ws-new": true},
 		UpdatedStates:      map[string]*activity.SessionState{},
 	})
-	if !app.tmuxActivitySettled {
+	if !app.tmuxActivity.settled {
 		t.Fatal("expected owner to re-settle after two successful scans")
 	}
 	if got := dashboardActiveWorkspaceCount(dash); got != 1 {

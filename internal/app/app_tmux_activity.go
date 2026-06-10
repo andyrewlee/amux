@@ -34,8 +34,8 @@ type tmuxActivityResult struct {
 // snapshotActivityStates creates a deep copy of session activity states for use in a goroutine.
 // This avoids concurrent map access between the Update loop and Cmd goroutines.
 func (a *App) snapshotActivityStates() map[string]*activity.SessionState {
-	snapshot := make(map[string]*activity.SessionState, len(a.sessionActivityStates))
-	for name, state := range a.sessionActivityStates {
+	snapshot := make(map[string]*activity.SessionState, len(a.tmuxActivity.sessionStates))
+	for name, state := range a.tmuxActivity.sessionStates {
 		// Copy the struct to avoid sharing pointers
 		stateCopy := *state
 		snapshot[name] = &stateCopy
@@ -44,19 +44,19 @@ func (a *App) snapshotActivityStates() map[string]*activity.SessionState {
 }
 
 func (a *App) startTmuxActivityTicker() tea.Cmd {
-	a.tmuxActivityToken++
+	a.tmuxActivity.token++
 	return a.scheduleTmuxActivityTick()
 }
 
 func (a *App) scheduleTmuxActivityTick() tea.Cmd {
-	token := a.tmuxActivityToken
+	token := a.tmuxActivity.token
 	return common.SafeTick(tmuxActivityInterval, func(time.Time) tea.Msg {
 		return tmuxActivityTick{Token: token}
 	})
 }
 
 func (a *App) triggerTmuxActivityScan() tea.Cmd {
-	token := a.tmuxActivityToken
+	token := a.tmuxActivity.token
 	return func() tea.Msg {
 		return tmuxActivityTick{Token: token}
 	}
@@ -75,14 +75,14 @@ func (a *App) eagerScanTmuxActivity() tea.Cmd {
 }
 
 func (a *App) scanTmuxActivityNow() tea.Cmd {
-	if a.tmuxActivityScanInFlight {
-		a.tmuxActivityRescanPending = true
+	if a.tmuxActivity.scanInFlight {
+		a.tmuxActivity.rescanPending = true
 		return nil
 	}
-	a.tmuxActivityScanInFlight = true
-	a.tmuxActivityRescanPending = false
-	a.tmuxActivityToken++
-	scanToken := a.tmuxActivityToken
+	a.tmuxActivity.scanInFlight = true
+	a.tmuxActivity.rescanPending = false
+	a.tmuxActivity.token++
+	scanToken := a.tmuxActivity.token
 	infoBySession := a.tabSessionInfoByName()
 	statesSnapshot := a.snapshotActivityStates()
 	opts := a.tmuxOptions
@@ -96,22 +96,22 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 }
 
 func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
-	if msg.Token != a.tmuxActivityToken {
+	if msg.Token != a.tmuxActivity.token {
 		return []tea.Cmd{a.scheduleTmuxActivityTick()}
 	}
 	if !a.tmuxAvailable {
 		return []tea.Cmd{a.scheduleTmuxActivityTick()}
 	}
-	if a.tmuxActivityScanInFlight {
-		a.tmuxActivityRescanPending = true
+	if a.tmuxActivity.scanInFlight {
+		a.tmuxActivity.rescanPending = true
 		return []tea.Cmd{a.scheduleTmuxActivityTick()}
 	}
-	a.tmuxActivityScanInFlight = true
-	a.tmuxActivityRescanPending = false
+	a.tmuxActivity.scanInFlight = true
+	a.tmuxActivity.rescanPending = false
 	// Increment token for this scan so out-of-order results are rejected.
 	// Each scan gets a unique token; only the most recent result is applied.
-	a.tmuxActivityToken++
-	scanToken := a.tmuxActivityToken
+	a.tmuxActivity.token++
+	scanToken := a.tmuxActivity.token
 	sessionInfo := a.tabSessionInfoByName()
 	statesSnapshot := a.snapshotActivityStates()
 	opts := a.tmuxOptions
@@ -253,10 +253,10 @@ func (a *App) fetchAndSyncActivitySessionStates(
 		return nil, nil, err
 	}
 	// Mutates infoBySession so IsRunningSession sees corrected statuses.
-	if a.activityMissBySession == nil {
-		a.activityMissBySession = make(map[string]int)
+	if a.tmuxActivity.missBySession == nil {
+		a.tmuxActivity.missBySession = make(map[string]int)
 	}
-	stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts, a.activityMissBySession)
+	stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts, a.tmuxActivity.missBySession)
 	return sessions, stoppedTabs, nil
 }
 
@@ -264,9 +264,9 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 	a.tmuxCheckDone = true
 	a.tmuxAvailable = msg.available
 	a.tmuxInstallHint = msg.installHint
-	a.tmuxActivitySettled = false
-	a.tmuxActivitySettledScans = 0
-	a.tmuxActiveWorkspaceIDs = make(map[string]bool)
+	a.tmuxActivity.settled = false
+	a.tmuxActivity.settledScans = 0
+	a.tmuxActivity.activeWorkspaceIDs = make(map[string]bool)
 	a.syncActiveWorkspacesToDashboard()
 	if !msg.available {
 		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
