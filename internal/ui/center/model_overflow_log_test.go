@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -19,19 +20,19 @@ import (
 func TestNoteOverflowDropLocked_ThrottlesAndAggregates(t *testing.T) {
 	tab := &Tab{}
 
-	logNow, total := tab.noteOverflowDropLocked(100)
+	logNow, total := tab.NoteOverflowDropLocked(100)
 	if !logNow || total != 100 {
 		t.Fatalf("first drop should log immediately with its total, got logNow=%v total=%d", logNow, total)
 	}
-	if ln, _ := tab.noteOverflowDropLocked(50); ln {
+	if ln, _ := tab.NoteOverflowDropLocked(50); ln {
 		t.Fatal("second drop within the throttle window should be suppressed")
 	}
-	if ln, _ := tab.noteOverflowDropLocked(25); ln {
+	if ln, _ := tab.NoteOverflowDropLocked(25); ln {
 		t.Fatal("third drop within the throttle window should be suppressed")
 	}
 	// Simulate the throttle window elapsing.
-	tab.LastOverflowLogAt = time.Now().Add(-2 * overflowLogThrottle)
-	logNow, total = tab.noteOverflowDropLocked(10)
+	tab.LastOverflowLogAt = time.Now().Add(-2 * ptyio.OverflowLogThrottle)
+	logNow, total = tab.NoteOverflowDropLocked(10)
 	if !logNow {
 		t.Fatal("a drop after the throttle window should log")
 	}
