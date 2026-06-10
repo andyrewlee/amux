@@ -16,7 +16,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
@@ -139,24 +138,8 @@ type App struct {
 	lastInputAt         time.Time
 	pendingInputLatency bool
 
-	// Chrome caches for layer-based rendering
-	dashboardChrome      *compositor.ChromeCache
-	centerChrome         *compositor.ChromeCache
-	sidebarChrome        *compositor.ChromeCache
-	dashboardContent     drawableCache
-	dashboardBorders     borderCache
-	sidebarTopTabBar     drawableCache
-	sidebarTopContent    drawableCache
-	sidebarBottomContent drawableCache
-	sidebarBottomTabBar  drawableCache
-	sidebarBottomStatus  drawableCache
-	sidebarBottomHelp    drawableCache
-	sidebarTopBorders    borderCache
-	sidebarBottomBorders borderCache
-	centerTabBar         drawableCache
-	centerStatus         drawableCache
-	centerHelp           drawableCache
-	centerBorders        borderCache
+	// renderCache holds the chrome/drawable caches for layer-based rendering.
+	renderCache renderCacheState
 
 	// External message pump (for PTY readers)
 	externalMsgs     chan tea.Msg
