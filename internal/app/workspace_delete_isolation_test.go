@@ -19,6 +19,7 @@ func (s *recordingWorkspaceStore) ListByRepo(string) ([]*data.Workspace, error) 
 func (s *recordingWorkspaceStore) ListByRepoIncludingArchived(string) ([]*data.Workspace, error) {
 	return nil, nil
 }
+
 func (s *recordingWorkspaceStore) LoadMetadataFor(*data.Workspace) (bool, error) { return false, nil }
 func (s *recordingWorkspaceStore) UpsertFromDiscovery(*data.Workspace) error     { return nil }
 
@@ -79,7 +80,7 @@ func TestHandleTmuxTabsSyncResult_DeleteInFlightIsolatesSibling(t *testing.T) {
 			Workspaces: []data.Workspace{*wsA, *wsB},
 		}},
 		lifecycle: workspaceLifecycleState{
-			deleting: make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
 		},
 	}
 	app.markWorkspaceDeleteInFlight(wsA, true)
@@ -149,7 +150,7 @@ func TestKillWorkspaceSessionsSync_TagArgsAreWorkspaceScoped(t *testing.T) {
 func TestWorkspaceDeleteInFlight_PerWorkspaceIsolation(t *testing.T) {
 	wsA := data.NewWorkspace("a", "a", "main", "/repo", "/repo/a")
 	wsB := data.NewWorkspace("b", "b", "main", "/repo", "/repo/b")
-	app := &App{lifecycle: workspaceLifecycleState{deleting: make(map[string]bool)}}
+	app := &App{lifecycle: workspaceLifecycleState{phases: make(map[string]lifecyclePhase)}}
 
 	app.markWorkspaceDeleteInFlight(wsA, true)
 	if !app.isWorkspaceDeleteInFlight(string(wsA.ID())) {

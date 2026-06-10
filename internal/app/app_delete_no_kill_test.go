@@ -116,7 +116,7 @@ func TestHandleWorkspaceDeleted_NoTrailingSessionKill(t *testing.T) {
 		tmuxService:     ops,
 		tmuxOptions:     tmux.Options{},
 		lifecycle: workspaceLifecycleState{
-			deleting: map[string]bool{string(ws.ID()): true},
+			phases: map[string]lifecyclePhase{string(ws.ID()): lifecycleDeleting},
 		},
 	}
 

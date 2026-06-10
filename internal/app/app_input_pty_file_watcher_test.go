@@ -58,8 +58,8 @@ func TestHandleFileWatcherEvent_ActiveWorkspaceRequestsFullStatus(t *testing.T) 
 		dashboard:       dashboard.New(),
 		activeWorkspace: active,
 		lifecycle: workspaceLifecycleState{
-			dirty:    make(map[string]bool),
-			creating: make(map[string]bool),
+			dirty:  make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
 		},
 	}
 
@@ -101,8 +101,8 @@ func TestHandleFileWatcherEvent_InactiveWorkspaceRequestsFastStatus(t *testing.T
 		dashboard:       dashboard.New(),
 		activeWorkspace: active,
 		lifecycle: workspaceLifecycleState{
-			dirty:    make(map[string]bool),
-			creating: make(map[string]bool),
+			dirty:  make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
 		},
 	}
 
@@ -143,8 +143,8 @@ func TestHandleGitStatusTick_ActiveWorkspaceCacheMissRequestsFullStatus(t *testi
 		dashboard:       dashboard.New(),
 		activeWorkspace: active,
 		lifecycle: workspaceLifecycleState{
-			dirty:    make(map[string]bool),
-			creating: make(map[string]bool),
+			dirty:  make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
 		},
 	}
 
@@ -189,8 +189,8 @@ func TestHandleGitStatusTick_ActiveWorkspaceCachedStatusSkipsRefresh(t *testing.
 		dashboard:       dashboard.New(),
 		activeWorkspace: active,
 		lifecycle: workspaceLifecycleState{
-			dirty:    make(map[string]bool),
-			creating: make(map[string]bool),
+			dirty:  make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
 		},
 	}
 

@@ -21,8 +21,8 @@ func TestHandleWorkspaceDeletedClearsDirtyWorkspaceMarker(t *testing.T) {
 		sidebar:         sidebar.NewTabbedSidebar(),
 		sidebarTerminal: sidebar.NewTerminalModel(),
 		lifecycle: workspaceLifecycleState{
-			dirty:    map[string]bool{wsID: true},
-			deleting: map[string]bool{wsID: true},
+			dirty:  map[string]bool{wsID: true},
+			phases: map[string]lifecyclePhase{wsID: lifecycleDeleting},
 		},
 	}
 
@@ -101,7 +101,7 @@ func TestHandleWorkspaceDeleted_ClearsActiveWorkspace(t *testing.T) {
 			activeWorkspaceIDs: map[string]bool{idDel: true, idKeep: true},
 		},
 		lifecycle: workspaceLifecycleState{
-			deleting: map[string]bool{idDel: true},
+			phases: map[string]lifecyclePhase{idDel: lifecycleDeleting},
 		},
 	}
 
@@ -130,8 +130,8 @@ func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testi
 		sidebarTerminal: sidebar.NewTerminalModel(),
 		activeWorkspace: wsDel,
 		lifecycle: workspaceLifecycleState{
-			dirty:    map[string]bool{wsID: true},
-			deleting: map[string]bool{wsID: true},
+			dirty:  map[string]bool{wsID: true},
+			phases: map[string]lifecyclePhase{wsID: lifecycleDeleting},
 		},
 	}
 	app.dashboard.SetProjects(app.projects)
