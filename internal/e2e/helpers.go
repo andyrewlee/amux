@@ -16,14 +16,6 @@ import (
 // testutil.Consistently so deadline handling and failure messaging stay
 // uniform across tests.
 
-// Poll intervals for the wait helpers (centralized into timeouts.go by the
-// follow-up timeouts PR).
-const (
-	sessionPollInterval = 200 * time.Millisecond
-	screenPollInterval  = 150 * time.Millisecond
-	condPollInterval    = 10 * time.Millisecond
-)
-
 // agentSessionTags matches the tmux sessions amux creates for agent tabs.
 var agentSessionTags = map[string]string{
 	"@amux":      "1",

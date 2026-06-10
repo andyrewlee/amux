@@ -13,11 +13,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-const (
-	persistenceTimeout  = 15 * time.Second
-	prefixInterKeyDelay = 15 * time.Millisecond
-)
-
 func TestTmuxPersistenceKeepsSessions(t *testing.T) {
 	skipIfNoGit(t)
 	skipIfNoTmux(t)
