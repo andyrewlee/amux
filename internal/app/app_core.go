@@ -133,11 +133,11 @@ type App struct {
 	dirtyWorkspaces      map[string]bool
 	deletingWorkspaceMu  sync.RWMutex
 	deletingWorkspaceIDs map[string]bool
-	persistToken         int
+	persistToken         persistToken
 	// projectsLoadToken is the next load generation to issue; lastApplied is the
 	// highest applied, so handleProjectsLoaded can drop out-of-order reloads.
-	projectsLoadToken            int
-	lastAppliedProjectsLoadToken int
+	projectsLoadToken            projectsLoadToken
+	lastAppliedProjectsLoadToken projectsLoadToken
 	localWorkspaceSaveMu         sync.Mutex
 	localWorkspaceSavesAt        map[string]localWorkspaceSaveMarker
 
