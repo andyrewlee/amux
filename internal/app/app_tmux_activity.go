@@ -136,45 +136,9 @@ func (a *App) runTmuxActivityScan(
 		return tmuxActivityResult{Token: scanToken, Err: activity.ErrTmuxUnavailable}
 	}
 
-	now := time.Now()
-	ownerEpoch := int64(0)
-	sharedRoleKnown := false
-	if a.sharedTmuxActivityEnabled() {
-		role, sharedActive, applyShared, epoch, err := a.resolveTmuxActivityScanRole(opts, now)
-		if err != nil {
-			if !tmux.IsNoServerError(err) {
-				logging.Warn("tmux activity ownership resolution failed; falling back to local scan: %v", err)
-			}
-		} else if role == tmuxActivityRoleFollower {
-			_, stoppedTabs, syncErr := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
-			if syncErr != nil {
-				logging.Warn("tmux activity follower session-state sync failed: %v", syncErr)
-			}
-			if !applyShared {
-				return tmuxActivityResult{
-					Token:        scanToken,
-					SkipApply:    true,
-					StoppedTabs:  stoppedTabs,
-					ScannerOwner: false,
-					ScannerEpoch: epoch,
-					RoleKnown:    true,
-				}
-			}
-			if sharedActive == nil {
-				sharedActive = make(map[string]bool)
-			}
-			return tmuxActivityResult{
-				Token:              scanToken,
-				ActiveWorkspaceIDs: sharedActive,
-				StoppedTabs:        stoppedTabs,
-				ScannerOwner:       false,
-				ScannerEpoch:       epoch,
-				RoleKnown:          true,
-			}
-		} else {
-			sharedRoleKnown = true
-			ownerEpoch = epoch
-		}
+	ownerEpoch, sharedRoleKnown, followerResult := a.resolveScanRole(scanToken, infoBySession, opts, svc)
+	if followerResult != nil {
+		return *followerResult
 	}
 
 	sessions, stoppedTabs, err := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
@@ -206,41 +170,117 @@ func (a *App) runTmuxActivityScan(
 		RoleKnown:          sharedRoleKnown,
 	}
 	if sharedRoleKnown {
-		if result.ScannerEpoch <= 0 {
-			result.ScannerEpoch = 1
-		}
-		publishAt := time.Now()
-		canPublish, leaseEpoch, err := a.canPublishTmuxActivitySnapshot(opts, result.ScannerEpoch, publishAt)
-		if err != nil {
-			logging.Warn("tmux activity lease revalidation failed before snapshot publish: %v", err)
-			// Conservative fallback: if ownership cannot be revalidated, skip
-			// applying local activity to avoid split-brain ownership effects.
-			result.ScannerOwner = false
-			result.SkipApply = true
-		} else if canPublish {
-			if err := a.publishTmuxActivitySnapshot(opts, active, result.ScannerEpoch, publishAt); err != nil {
-				if errors.Is(err, errTmuxActivityOwnershipLostAfterPublish) {
-					result.ScannerOwner = false
-					result.SkipApply = true
-					_, leaseEpoch, checkErr := a.canPublishTmuxActivitySnapshot(opts, result.ScannerEpoch, time.Now())
-					if checkErr != nil {
-						logging.Warn("tmux activity lease revalidation failed after ownership loss: %v", checkErr)
-					} else if leaseEpoch > 0 {
-						result.ScannerEpoch = leaseEpoch
-					}
-				} else {
-					logging.Warn("tmux activity snapshot publish failed: %v", err)
-				}
-			}
-		} else {
-			result.ScannerOwner = false
-			result.SkipApply = true
-			if leaseEpoch > 0 {
-				result.ScannerEpoch = leaseEpoch
-			}
-		}
+		a.publishActivitySnapshot(&result, active, opts)
 	}
 	return result
+}
+
+// resolveScanRole resolves shared-scan ownership for this scan. It returns the
+// owner epoch and whether the shared role is known. When this instance is a
+// follower it also returns the complete follower result to send instead of
+// running a local scan; resolution errors fall back to an ownerless local scan.
+func (a *App) resolveScanRole(
+	scanToken activityScanToken,
+	infoBySession map[string]activity.SessionInfo,
+	opts tmux.Options,
+	svc TmuxOps,
+) (ownerEpoch int64, roleKnown bool, followerResult *tmuxActivityResult) {
+	if !a.sharedTmuxActivityEnabled() {
+		return 0, false, nil
+	}
+	role, sharedActive, applyShared, epoch, err := a.resolveTmuxActivityScanRole(opts, time.Now())
+	if err != nil {
+		if !tmux.IsNoServerError(err) {
+			logging.Warn("tmux activity ownership resolution failed; falling back to local scan: %v", err)
+		}
+		return 0, false, nil
+	}
+	if role == tmuxActivityRoleFollower {
+		result := a.runFollowerScan(scanToken, infoBySession, sharedActive, applyShared, epoch, opts, svc)
+		return epoch, true, &result
+	}
+	return epoch, true, nil
+}
+
+// runFollowerScan handles the non-owner path: it still syncs per-session
+// states (so stopped tabs are detected locally) and then either applies the
+// owner's published active set or skips applying when that snapshot is stale.
+func (a *App) runFollowerScan(
+	scanToken activityScanToken,
+	infoBySession map[string]activity.SessionInfo,
+	sharedActive map[string]bool,
+	applyShared bool,
+	epoch int64,
+	opts tmux.Options,
+	svc TmuxOps,
+) tmuxActivityResult {
+	_, stoppedTabs, syncErr := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
+	if syncErr != nil {
+		logging.Warn("tmux activity follower session-state sync failed: %v", syncErr)
+	}
+	if !applyShared {
+		return tmuxActivityResult{
+			Token:        scanToken,
+			SkipApply:    true,
+			StoppedTabs:  stoppedTabs,
+			ScannerOwner: false,
+			ScannerEpoch: epoch,
+			RoleKnown:    true,
+		}
+	}
+	if sharedActive == nil {
+		sharedActive = make(map[string]bool)
+	}
+	return tmuxActivityResult{
+		Token:              scanToken,
+		ActiveWorkspaceIDs: sharedActive,
+		StoppedTabs:        stoppedTabs,
+		ScannerOwner:       false,
+		ScannerEpoch:       epoch,
+		RoleKnown:          true,
+	}
+}
+
+// publishActivitySnapshot revalidates the ownership lease and publishes the
+// owner's active set to the shared snapshot. On lease loss or revalidation
+// failure it demotes the result in place to a skip-apply follower result so
+// two instances never both apply locally-scanned activity (split brain).
+func (a *App) publishActivitySnapshot(result *tmuxActivityResult, active map[string]bool, opts tmux.Options) {
+	if result.ScannerEpoch <= 0 {
+		result.ScannerEpoch = 1
+	}
+	publishAt := time.Now()
+	canPublish, leaseEpoch, err := a.canPublishTmuxActivitySnapshot(opts, result.ScannerEpoch, publishAt)
+	if err != nil {
+		logging.Warn("tmux activity lease revalidation failed before snapshot publish: %v", err)
+		// Conservative fallback: if ownership cannot be revalidated, skip
+		// applying local activity to avoid split-brain ownership effects.
+		result.ScannerOwner = false
+		result.SkipApply = true
+		return
+	}
+	if !canPublish {
+		result.ScannerOwner = false
+		result.SkipApply = true
+		if leaseEpoch > 0 {
+			result.ScannerEpoch = leaseEpoch
+		}
+		return
+	}
+	if err := a.publishTmuxActivitySnapshot(opts, active, result.ScannerEpoch, publishAt); err != nil {
+		if errors.Is(err, errTmuxActivityOwnershipLostAfterPublish) {
+			result.ScannerOwner = false
+			result.SkipApply = true
+			_, leaseEpoch, checkErr := a.canPublishTmuxActivitySnapshot(opts, result.ScannerEpoch, time.Now())
+			if checkErr != nil {
+				logging.Warn("tmux activity lease revalidation failed after ownership loss: %v", checkErr)
+			} else if leaseEpoch > 0 {
+				result.ScannerEpoch = leaseEpoch
+			}
+			return
+		}
+		logging.Warn("tmux activity snapshot publish failed: %v", err)
+	}
 }
 
 func (a *App) fetchAndSyncActivitySessionStates(
