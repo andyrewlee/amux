@@ -10,7 +10,7 @@ type tmuxActivityState struct {
 	// syncToken dedups tmux session-reconcile ticker generations (TmuxSyncTick).
 	syncToken int
 	// token dedups activity ticker generations (tmuxActivityTick).
-	token int
+	token activityScanToken
 	// scanInFlight and rescanPending coalesce overlapping scan requests: a
 	// request that arrives mid-scan marks rescanPending instead of spawning a
 	// second scan.

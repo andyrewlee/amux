@@ -15,11 +15,11 @@ import (
 )
 
 type tmuxActivityTick struct {
-	Token int
+	Token activityScanToken
 }
 
 type tmuxActivityResult struct {
-	Token              int
+	Token              activityScanToken
 	ActiveWorkspaceIDs map[string]bool
 	UpdatedStates      map[string]*activity.SessionState // Updated hysteresis states to merge
 	RemovedStates      []string                          // Session states pruned this scan (delete on merge)
@@ -126,7 +126,7 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 }
 
 func (a *App) runTmuxActivityScan(
-	scanToken int,
+	scanToken activityScanToken,
 	infoBySession map[string]activity.SessionInfo,
 	statesSnapshot map[string]*activity.SessionState,
 	opts tmux.Options,

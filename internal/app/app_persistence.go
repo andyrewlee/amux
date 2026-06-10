@@ -47,7 +47,7 @@ func (a *App) persistAllWorkspacesNow() {
 
 // persistDebounceMsg is sent after the debounce period to trigger actual save.
 type persistDebounceMsg struct {
-	token int
+	token persistToken
 }
 
 // persistWorkspaceTabs marks a workspace dirty and schedules a debounced save.

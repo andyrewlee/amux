@@ -21,11 +21,12 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	// goroutines are in flight with no ordering, and an older one (started before
 	// a later delete's store.Delete completed) would otherwise overwrite a.projects
 	// and resurrect the deleted workspace. Zero-token messages apply (back-compat).
-	if msg.LoadToken != 0 && msg.LoadToken < a.lastAppliedProjectsLoadToken {
+	loadToken := projectsLoadToken(msg.LoadToken)
+	if loadToken != 0 && loadToken < a.lastAppliedProjectsLoadToken {
 		return nil
 	}
-	if msg.LoadToken > a.lastAppliedProjectsLoadToken {
-		a.lastAppliedProjectsLoadToken = msg.LoadToken
+	if loadToken > a.lastAppliedProjectsLoadToken {
+		a.lastAppliedProjectsLoadToken = loadToken
 	}
 	a.projects = msg.Projects
 	a.projectsLoaded = true

@@ -14,10 +14,10 @@ import (
 )
 
 // LoadProjects loads all registered projects and their workspaces.
-func (s *workspaceService) LoadProjects(loadToken int) tea.Cmd {
+func (s *workspaceService) LoadProjects(loadToken projectsLoadToken) tea.Cmd {
 	return func() tea.Msg {
 		if s == nil || s.registry == nil {
-			return messages.ProjectsLoaded{LoadToken: loadToken}
+			return messages.ProjectsLoaded{LoadToken: int(loadToken)}
 		}
 		paths, err := s.registry.Projects()
 		if err != nil {
@@ -101,7 +101,7 @@ func (s *workspaceService) LoadProjects(loadToken int) tea.Cmd {
 			projects = append(projects, *project)
 		}
 
-		return messages.ProjectsLoaded{Projects: projects, LoadToken: loadToken}
+		return messages.ProjectsLoaded{Projects: projects, LoadToken: int(loadToken)}
 	}
 }
 
