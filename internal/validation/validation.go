@@ -21,20 +21,28 @@ func (e *ValidationError) Error() string {
 // workspaceNameRegex matches valid workspace/branch names
 var workspaceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
+// validateIdentifier applies the shared name rule (non-empty, max 100 chars,
+// letter/number start, [a-zA-Z0-9._-] body) used by workspace and assistant
+// names. field labels the error messages.
+func validateIdentifier(field, value string) error {
+	if value == "" {
+		return &ValidationError{Field: field, Message: field + " cannot be empty"}
+	}
+	if len(value) > 100 {
+		return &ValidationError{Field: field, Message: field + " too long (max 100 characters)"}
+	}
+	if !workspaceNameRegex.MatchString(value) {
+		return &ValidationError{Field: field, Message: field + " must start with letter/number and contain only letters, numbers, dots, dashes, or underscores"}
+	}
+	return nil
+}
+
 // ValidateWorkspaceName validates a workspace name
 func ValidateWorkspaceName(name string) error {
 	name = strings.TrimSpace(name)
 
-	if name == "" {
-		return &ValidationError{Field: "name", Message: "name cannot be empty"}
-	}
-
-	if len(name) > 100 {
-		return &ValidationError{Field: "name", Message: "name too long (max 100 characters)"}
-	}
-
-	if !workspaceNameRegex.MatchString(name) {
-		return &ValidationError{Field: "name", Message: "name must start with letter/number and contain only letters, numbers, dots, dashes, or underscores"}
+	if err := validateIdentifier("name", name); err != nil {
+		return err
 	}
 
 	// Disallow consecutive dots (..)
@@ -134,21 +142,7 @@ func ValidateBaseRef(ref string) error {
 
 // ValidateAssistant validates an assistant name
 func ValidateAssistant(assistant string) error {
-	assistant = strings.TrimSpace(assistant)
-
-	if assistant == "" {
-		return &ValidationError{Field: "assistant", Message: "assistant cannot be empty"}
-	}
-
-	if len(assistant) > 100 {
-		return &ValidationError{Field: "assistant", Message: "assistant too long (max 100 characters)"}
-	}
-
-	if !workspaceNameRegex.MatchString(assistant) {
-		return &ValidationError{Field: "assistant", Message: "assistant must start with letter/number and contain only letters, numbers, dots, dashes, or underscores"}
-	}
-
-	return nil
+	return validateIdentifier("assistant", strings.TrimSpace(assistant))
 }
 
 // SanitizeInput removes potentially dangerous characters from input

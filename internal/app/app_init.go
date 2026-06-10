@@ -13,6 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/supervisor"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -21,6 +22,7 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/amux/internal/ui/theme"
 )
 
 // newAppShell constructs an App with its UI components built and wired in the
@@ -29,6 +31,10 @@ import (
 // layers the services on top; the headless harness uses the shell directly so
 // component construction and ordering changes are exercised by harness runs.
 func newAppShell(cfg *config.Config) *App {
+	// Explicit one-time package setup (no package init side effects): install
+	// the default theme and arm perf profiling from the environment.
+	theme.Init()
+	perf.Init()
 	app := &App{
 		config:               cfg,
 		layout:               layout.NewManager(),

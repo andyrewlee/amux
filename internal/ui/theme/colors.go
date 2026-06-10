@@ -11,31 +11,45 @@ import (
 // themePtr holds the active color theme, protected by atomic access.
 var themePtr atomic.Pointer[Theme]
 
-func init() {
+// Init installs the default theme. The app calls this explicitly during
+// construction (rather than relying on package init side effects); direct
+// library/test use is still safe because currentTheme falls back lazily.
+func Init() {
 	t := GetTheme(ThemeGruvbox)
 	themePtr.Store(&t)
 }
 
+// currentTheme returns the active theme, installing the default on first use
+// when Init was not called.
+func currentTheme() *Theme {
+	if t := themePtr.Load(); t != nil {
+		return t
+	}
+	t := GetTheme(ThemeGruvbox)
+	themePtr.CompareAndSwap(nil, &t)
+	return themePtr.Load()
+}
+
 // Theme-dependent color accessors (read from the current theme atomically).
 
-func ColorBackground() color.Color    { return themePtr.Load().Colors.Background }
-func ColorForeground() color.Color    { return themePtr.Load().Colors.Foreground }
-func ColorMuted() color.Color         { return themePtr.Load().Colors.Muted }
-func ColorBorder() color.Color        { return themePtr.Load().Colors.Border }
-func ColorBorderFocused() color.Color { return themePtr.Load().Colors.BorderFocused }
+func ColorBackground() color.Color    { return currentTheme().Colors.Background }
+func ColorForeground() color.Color    { return currentTheme().Colors.Foreground }
+func ColorMuted() color.Color         { return currentTheme().Colors.Muted }
+func ColorBorder() color.Color        { return currentTheme().Colors.Border }
+func ColorBorderFocused() color.Color { return currentTheme().Colors.BorderFocused }
 
-func ColorPrimary() color.Color   { return themePtr.Load().Colors.Primary }
-func ColorSecondary() color.Color { return themePtr.Load().Colors.Secondary }
-func ColorSuccess() color.Color   { return themePtr.Load().Colors.Success }
-func ColorWarning() color.Color   { return themePtr.Load().Colors.Warning }
-func ColorError() color.Color     { return themePtr.Load().Colors.Error }
-func ColorInfo() color.Color      { return themePtr.Load().Colors.Info }
+func ColorPrimary() color.Color   { return currentTheme().Colors.Primary }
+func ColorSecondary() color.Color { return currentTheme().Colors.Secondary }
+func ColorSuccess() color.Color   { return currentTheme().Colors.Success }
+func ColorWarning() color.Color   { return currentTheme().Colors.Warning }
+func ColorError() color.Color     { return currentTheme().Colors.Error }
+func ColorInfo() color.Color      { return currentTheme().Colors.Info }
 
-func ColorSurface0() color.Color { return themePtr.Load().Colors.Surface0 }
-func ColorSurface1() color.Color { return themePtr.Load().Colors.Surface1 }
-func ColorSurface2() color.Color { return themePtr.Load().Colors.Surface2 }
+func ColorSurface0() color.Color { return currentTheme().Colors.Surface0 }
+func ColorSurface1() color.Color { return currentTheme().Colors.Surface1 }
+func ColorSurface2() color.Color { return currentTheme().Colors.Surface2 }
 
-func ColorSelection() color.Color { return themePtr.Load().Colors.Selection }
+func ColorSelection() color.Color { return currentTheme().Colors.Selection }
 
 // Agent colors remain constant across themes for brand recognition.
 var (
@@ -52,7 +66,7 @@ var (
 
 // GetCurrentTheme returns the currently active theme.
 func GetCurrentTheme() Theme {
-	return *themePtr.Load()
+	return *currentTheme()
 }
 
 // SetCurrentTheme atomically applies a new theme.
