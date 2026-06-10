@@ -69,43 +69,19 @@ type Theme struct {
 
 // AvailableThemes returns all predefined themes, grouped by family.
 func AvailableThemes() []Theme {
-	return []Theme{
-		// Gruvbox family (default)
-		GruvboxTheme(),
-		GruvboxLightTheme(),
-		// Tokyo Night
-		TokyoNightTheme(),
-		// Catppuccin family
-		CatppuccinTheme(),
-		CatppuccinLatteTheme(),
-		// Rosé Pine family
-		RosePineTheme(),
-		RosePineDawnTheme(),
-		// Solarized family
-		SolarizedTheme(),
-		SolarizedLightTheme(),
-		// One family (Atom)
-		OneDarkTheme(),
-		OneLightTheme(),
-		// GitHub family
-		GitHubDarkTheme(),
-		GitHubLightTheme(),
-		// Standalone dark themes
-		DraculaTheme(),
-		NordTheme(),
-		MonokaiTheme(),
-		KanagawaTheme(),
-		EverforestTheme(),
-		AyuDarkTheme(),
+	themes := make([]Theme, len(themePalettes))
+	for i, p := range themePalettes {
+		themes[i] = p.build()
 	}
+	return themes
 }
 
 // GetTheme returns a theme by ID, defaulting to Gruvbox.
 func GetTheme(id ThemeID) Theme {
-	for _, t := range AvailableThemes() {
-		if t.ID == id {
-			return t
+	for _, p := range themePalettes {
+		if p.id == id {
+			return p.build()
 		}
 	}
-	return GruvboxTheme()
+	return GetTheme(ThemeGruvbox)
 }

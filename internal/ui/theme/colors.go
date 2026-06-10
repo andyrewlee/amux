@@ -12,7 +12,7 @@ import (
 var themePtr atomic.Pointer[Theme]
 
 func init() {
-	t := GruvboxTheme()
+	t := GetTheme(ThemeGruvbox)
 	themePtr.Store(&t)
 }
 
