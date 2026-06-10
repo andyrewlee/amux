@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/andyrewlee/amux/internal/logging"
+
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
@@ -52,20 +54,48 @@ func DefaultConfig() (*Config, error) {
 		return nil, err
 	}
 
-	// loadAssistantOverrides and loadUISettings each read the config file
-	// independently. This is intentional: each loader fails independently and
-	// returns safe defaults, keeping the two subsystems decoupled.
+	// The config file is parsed exactly once; each section loader receives
+	// its slice of the parsed structure. A corrupted file therefore surfaces
+	// one warning here instead of two independent silent default fallbacks.
+	file, err := readConfigFile(paths.ConfigPath)
+	if err != nil {
+		logging.Warn("config: failed to parse %s; using defaults: %v", paths.ConfigPath, err)
+	}
+
 	assistants := defaultAssistants()
-	loadAssistantOverrides(paths.ConfigPath, assistants)
+	applyAssistantOverrides(assistants, file.Assistants)
 
 	cfg := &Config{
 		Paths:         paths,
 		PortStart:     6200,
 		PortRangeSize: 10,
-		UI:            loadUISettings(paths.ConfigPath),
+		UI:            applyUISettings(defaultUISettings(), file.UI),
 		Assistants:    assistants,
 	}
 	return cfg, nil
+}
+
+// configFile is the single on-disk config schema.
+type configFile struct {
+	Assistants map[string]assistantConfigRaw `json:"assistants"`
+	UI         uiSettingsRaw                 `json:"ui"`
+}
+
+// readConfigFile parses the config file once. A missing file is not an
+// error; a corrupted file returns the parse error along with zero contents.
+func readConfigFile(path string) (configFile, error) {
+	var file configFile
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return file, nil
+		}
+		return file, err
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		return configFile{}, err
+	}
+	return file, nil
 }
 
 // AssistantNames returns assistant IDs in deterministic display order.
@@ -143,20 +173,10 @@ func defaultAssistants() map[string]AssistantConfig {
 	}
 }
 
-func loadAssistantOverrides(path string, assistants map[string]AssistantConfig) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-
-	var raw struct {
-		Assistants map[string]assistantConfigRaw `json:"assistants"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return
-	}
-
-	for name, override := range raw.Assistants {
+// applyAssistantOverrides overlays parsed config-file assistant entries onto
+// the built-in defaults.
+func applyAssistantOverrides(assistants map[string]AssistantConfig, overrides map[string]assistantConfigRaw) {
+	for name, override := range overrides {
 		normalized := normalizeAssistantName(name)
 		if normalized == "" {
 			continue
