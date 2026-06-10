@@ -40,9 +40,11 @@ func TestSyncActiveWorkspacesToDashboard_SkipsDeleteInFlight(t *testing.T) {
 	idA, idB := string(wsA.ID()), string(wsB.ID())
 
 	app := &App{
-		tmuxActivitySettled:    true,
-		tmuxActiveWorkspaceIDs: map[string]bool{idA: true, idB: true},
-		dashboard:              dashboard.New(),
+		tmuxActivity: tmuxActivityState{
+			settled:            true,
+			activeWorkspaceIDs: map[string]bool{idA: true, idB: true},
+		},
+		dashboard: dashboard.New(),
 	}
 	app.markWorkspaceDeleteInFlight(wsA, true)
 	app.syncActiveWorkspacesToDashboard()
@@ -56,10 +58,12 @@ func TestHandleWorkspaceDeleteFailedRequestsFreshActivityScan(t *testing.T) {
 	ws := &data.Workspace{Repo: "/repo", Root: "/repo/a"}
 	wsID := string(ws.ID())
 	app := &App{
-		tmuxActivitySettled:    true,
-		tmuxActiveWorkspaceIDs: map[string]bool{wsID: true},
-		tmuxAvailable:          true,
-		dashboard:              dashboard.New(),
+		tmuxActivity: tmuxActivityState{
+			settled:            true,
+			activeWorkspaceIDs: map[string]bool{wsID: true},
+		},
+		tmuxAvailable: true,
+		dashboard:     dashboard.New(),
 	}
 
 	app.markWorkspaceDeleteInFlight(ws, true)
@@ -75,7 +79,7 @@ func TestHandleWorkspaceDeleteFailedRequestsFreshActivityScan(t *testing.T) {
 	if got := dashboardActiveWorkspaceCount(app.dashboard); got != 0 {
 		t.Fatalf("expected cached active state to stay filtered until fresh scan, got %d", got)
 	}
-	if !app.tmuxActivityScanInFlight {
+	if !app.tmuxActivity.scanInFlight {
 		t.Fatal("expected failed delete to request a fresh tmux activity scan")
 	}
 }
@@ -86,21 +90,23 @@ func TestHandleWorkspaceDeleted_ClearsActiveWorkspace(t *testing.T) {
 	idDel, idKeep := string(wsDel.ID()), string(wsKeep.ID())
 
 	app := &App{
-		dashboard:              dashboard.New(),
-		center:                 center.New(nil),
-		sidebar:                sidebar.NewTabbedSidebar(),
-		sidebarTerminal:        sidebar.NewTerminalModel(),
-		tmuxActivitySettled:    true,
-		tmuxActiveWorkspaceIDs: map[string]bool{idDel: true, idKeep: true},
-		deletingWorkspaceIDs:   map[string]bool{idDel: true},
+		dashboard:       dashboard.New(),
+		center:          center.New(nil),
+		sidebar:         sidebar.NewTabbedSidebar(),
+		sidebarTerminal: sidebar.NewTerminalModel(),
+		tmuxActivity: tmuxActivityState{
+			settled:            true,
+			activeWorkspaceIDs: map[string]bool{idDel: true, idKeep: true},
+		},
+		deletingWorkspaceIDs: map[string]bool{idDel: true},
 	}
 
 	app.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: wsDel})
 
-	if app.tmuxActiveWorkspaceIDs[idDel] {
+	if app.tmuxActivity.activeWorkspaceIDs[idDel] {
 		t.Fatal("expected deleted workspace cleared from the active set")
 	}
-	if !app.tmuxActiveWorkspaceIDs[idKeep] {
+	if !app.tmuxActivity.activeWorkspaceIDs[idKeep] {
 		t.Fatal("expected surviving workspace to remain in the active set")
 	}
 }

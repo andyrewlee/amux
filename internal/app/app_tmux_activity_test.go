@@ -54,43 +54,44 @@ func (s stubTmuxOps) CapturePaneTail(string, int, tmux.Options) (string, bool) {
 func (s stubTmuxOps) ContentHash(string) [16]byte                              { return [16]byte{} }
 
 func TestScanTmuxActivityNow_QueuesWhenInFlight(t *testing.T) {
-	app := &App{tmuxActivityScanInFlight: true}
+	app := &App{tmuxActivity: tmuxActivityState{scanInFlight: true}}
 	cmd := app.scanTmuxActivityNow()
 	if cmd != nil {
 		t.Fatal("expected nil cmd when scan already in flight")
 	}
-	if !app.tmuxActivityRescanPending {
+	if !app.tmuxActivity.rescanPending {
 		t.Fatal("expected pending rescan to be queued")
 	}
 }
 
 func TestHandleTmuxActivityTick_QueuesWhenInFlight(t *testing.T) {
 	app := &App{
-		tmuxActivityToken:        7,
-		tmuxAvailable:            true,
-		tmuxActivityScanInFlight: true,
+		tmuxActivity:  tmuxActivityState{token: 7, scanInFlight: true},
+		tmuxAvailable: true,
 	}
 	cmds := app.handleTmuxActivityTick(tmuxActivityTick{Token: 7})
 	if len(cmds) != 1 {
 		t.Fatalf("expected only ticker reschedule while in flight, got %d cmds", len(cmds))
 	}
-	if !app.tmuxActivityRescanPending {
+	if !app.tmuxActivity.rescanPending {
 		t.Fatal("expected pending rescan to be queued")
 	}
-	if app.tmuxActivityToken != 7 {
-		t.Fatalf("expected token unchanged while in flight, got %d", app.tmuxActivityToken)
+	if app.tmuxActivity.token != 7 {
+		t.Fatalf("expected token unchanged while in flight, got %d", app.tmuxActivity.token)
 	}
 }
 
 func TestHandleTmuxActivityResult_ConsumesPendingRescan(t *testing.T) {
 	app := &App{
-		tmuxActivityToken:         2,
-		tmuxAvailable:             true,
-		tmuxActivityScanInFlight:  true,
-		tmuxActivityRescanPending: true,
-		sessionActivityStates:     make(map[string]*activity.SessionState),
-		tmuxActiveWorkspaceIDs:    make(map[string]bool),
-		dashboard:                 dashboard.New(),
+		tmuxActivity: tmuxActivityState{
+			token:              2,
+			scanInFlight:       true,
+			rescanPending:      true,
+			sessionStates:      make(map[string]*activity.SessionState),
+			activeWorkspaceIDs: make(map[string]bool),
+		},
+		tmuxAvailable: true,
+		dashboard:     dashboard.New(),
 	}
 	cmds := app.handleTmuxActivityResult(tmuxActivityResult{
 		Token:              2,
@@ -100,13 +101,13 @@ func TestHandleTmuxActivityResult_ConsumesPendingRescan(t *testing.T) {
 	if len(cmds) == 0 {
 		t.Fatal("expected pending rescan command to be enqueued")
 	}
-	if app.tmuxActivityToken != 3 {
-		t.Fatalf("expected next scan token to be allocated, got %d", app.tmuxActivityToken)
+	if app.tmuxActivity.token != 3 {
+		t.Fatalf("expected next scan token to be allocated, got %d", app.tmuxActivity.token)
 	}
-	if !app.tmuxActivityScanInFlight {
+	if !app.tmuxActivity.scanInFlight {
 		t.Fatal("expected follow-up scan to be marked in flight")
 	}
-	if app.tmuxActivityRescanPending {
+	if app.tmuxActivity.rescanPending {
 		t.Fatal("expected pending flag to be cleared")
 	}
 }
@@ -428,13 +429,15 @@ func newActivityTestAppWithScriptedTmux(contentByScan []string) (*App, string) {
 				"codex": {},
 			},
 		},
-		projects:               []data.Project{project},
-		tmuxService:            tmuxOps,
-		tmuxOptions:            tmux.Options{},
-		tmuxAvailable:          true,
-		dashboard:              dashboard.New(),
-		sessionActivityStates:  make(map[string]*activity.SessionState),
-		tmuxActiveWorkspaceIDs: make(map[string]bool),
+		projects:      []data.Project{project},
+		tmuxService:   tmuxOps,
+		tmuxOptions:   tmux.Options{},
+		tmuxAvailable: true,
+		dashboard:     dashboard.New(),
+		tmuxActivity: tmuxActivityState{
+			sessionStates:      make(map[string]*activity.SessionState),
+			activeWorkspaceIDs: make(map[string]bool),
+		},
 	}
 	return app, wsID
 }
@@ -467,7 +470,7 @@ func TestTmuxActivityScan_KnownFreshUnchangedRemainsInactiveAcrossScans(t *testi
 
 	for i := 0; i < 5; i++ {
 		runImmediateTmuxActivityScan(t, app)
-		if app.tmuxActiveWorkspaceIDs[wsID] {
+		if app.tmuxActivity.activeWorkspaceIDs[wsID] {
 			t.Fatalf("scan %d: expected workspace %s to remain inactive on unchanged output", i+1, wsID)
 		}
 	}
@@ -481,17 +484,17 @@ func TestTmuxActivityScan_KnownFreshConsecutiveDeltasBecomeActive(t *testing.T) 
 	})
 
 	runImmediateTmuxActivityScan(t, app)
-	if app.tmuxActiveWorkspaceIDs[wsID] {
+	if app.tmuxActivity.activeWorkspaceIDs[wsID] {
 		t.Fatalf("expected workspace %s inactive after baseline scan", wsID)
 	}
 
 	runImmediateTmuxActivityScan(t, app)
-	if app.tmuxActiveWorkspaceIDs[wsID] {
+	if app.tmuxActivity.activeWorkspaceIDs[wsID] {
 		t.Fatalf("expected workspace %s inactive after first delta scan", wsID)
 	}
 
 	runImmediateTmuxActivityScan(t, app)
-	if !app.tmuxActiveWorkspaceIDs[wsID] {
+	if !app.tmuxActivity.activeWorkspaceIDs[wsID] {
 		t.Fatalf("expected workspace %s active after second consecutive delta", wsID)
 	}
 }

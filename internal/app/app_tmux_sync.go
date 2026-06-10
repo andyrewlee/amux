@@ -15,7 +15,7 @@ import (
 // 2) status sync for known tabs.
 // The default 7s tick interval and per-command 5s timeout bound worst-case latency.
 func (a *App) handleTmuxSyncTick(msg messages.TmuxSyncTick) []tea.Cmd {
-	if msg.Token != a.tmuxSyncToken {
+	if msg.Token != a.tmuxActivity.syncToken {
 		return nil
 	}
 	var cmds []tea.Cmd

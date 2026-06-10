@@ -74,11 +74,10 @@ func TestGcStaleDetachedAgentSessions_RunsWhenFollower(t *testing.T) {
 		rows: []tmux.SessionTagValues{},
 	}
 	app := &App{
-		tmuxAvailable:            true,
-		instanceID:               "instance-a",
-		tmuxActivityOwnershipSet: true,
-		tmuxActivityScannerOwner: false,
-		tmuxService:              ops,
+		tmuxAvailable: true,
+		instanceID:    "instance-a",
+		tmuxActivity:  tmuxActivityState{ownershipSet: true, scannerOwner: false},
+		tmuxService:   ops,
 	}
 	cmd := app.gcStaleDetachedAgentSessions()
 	if cmd == nil {

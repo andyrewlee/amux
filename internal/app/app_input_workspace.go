@@ -93,7 +93,7 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		// Drop the deleted workspace from the active set now rather than waiting
 		// for the async loadProjects -> scan reconcile, so a killed-but-not-yet-
 		// reaped agent session cannot keep it shown as active by tag alone.
-		delete(a.tmuxActiveWorkspaceIDs, string(msg.Workspace.ID()))
+		delete(a.tmuxActivity.activeWorkspaceIDs, string(msg.Workspace.ID()))
 		a.syncActiveWorkspacesToDashboard()
 		// Navigate home only now that the delete is confirmed (moved off the
 		// up-front deleteWorkspace path so a failed delete leaves the user put).

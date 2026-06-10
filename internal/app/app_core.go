@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -120,26 +119,15 @@ type App struct {
 	prefixToken    int
 	prefixSequence []string
 
-	tmuxSyncToken             int
-	tmuxActivityToken         int
-	tmuxActivityScanInFlight  bool
-	tmuxActivityRescanPending bool
-	tmuxActivitySettled       bool
-	tmuxActivitySettledScans  int
-	tmuxActivityScannerOwner  bool
-	tmuxActivityOwnershipSet  bool
-	tmuxActivityOwnerEpoch    int64
-	tmuxOptions               tmux.Options
-	tmuxAvailable             bool
-	tmuxCheckDone             bool
-	projectsLoaded            bool
-	tmuxInstallHint           string
-	tmuxActiveWorkspaceIDs    map[string]bool
-	sessionActivityStates     map[string]*activity.SessionState // Per-session hysteresis state
-	// activityMissBySession counts consecutive non-live activity observations per
-	// session so a single transient miss does not demote a working agent.
-	activityMissBySession map[string]int
-	instanceID            string // Immutable after init; safe for read-only access from Cmd goroutines.
+	// tmuxActivity holds tmux activity-scan bookkeeping (tokens, coalescing,
+	// shared-scan ownership, per-session hysteresis).
+	tmuxActivity    tmuxActivityState
+	tmuxOptions     tmux.Options
+	tmuxAvailable   bool
+	tmuxCheckDone   bool
+	projectsLoaded  bool
+	tmuxInstallHint string
+	instanceID      string // Immutable after init; safe for read-only access from Cmd goroutines.
 
 	// Workspace persistence debounce
 	dirtyWorkspaces      map[string]bool
