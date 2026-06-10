@@ -16,12 +16,14 @@ func TestHandleWorkspaceDeletedClearsDirtyWorkspaceMarker(t *testing.T) {
 	wsID := string(ws.ID())
 
 	app := &App{
-		dashboard:            dashboard.New(),
-		center:               center.New(nil),
-		sidebar:              sidebar.NewTabbedSidebar(),
-		sidebarTerminal:      sidebar.NewTerminalModel(),
-		dirtyWorkspaces:      map[string]bool{wsID: true},
-		deletingWorkspaceIDs: map[string]bool{wsID: true},
+		dashboard:       dashboard.New(),
+		center:          center.New(nil),
+		sidebar:         sidebar.NewTabbedSidebar(),
+		sidebarTerminal: sidebar.NewTerminalModel(),
+		lifecycle: workspaceLifecycleState{
+			dirty:    map[string]bool{wsID: true},
+			deleting: map[string]bool{wsID: true},
+		},
 	}
 
 	app.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: ws})
@@ -29,7 +31,7 @@ func TestHandleWorkspaceDeletedClearsDirtyWorkspaceMarker(t *testing.T) {
 	if app.isWorkspaceDeleteInFlight(wsID) {
 		t.Fatal("expected delete-in-flight marker to be cleared on delete success")
 	}
-	if app.dirtyWorkspaces[wsID] {
+	if app.lifecycle.dirty[wsID] {
 		t.Fatal("expected dirty workspace marker to be cleared on delete success")
 	}
 }
@@ -98,7 +100,9 @@ func TestHandleWorkspaceDeleted_ClearsActiveWorkspace(t *testing.T) {
 			settled:            true,
 			activeWorkspaceIDs: map[string]bool{idDel: true, idKeep: true},
 		},
-		deletingWorkspaceIDs: map[string]bool{idDel: true},
+		lifecycle: workspaceLifecycleState{
+			deleting: map[string]bool{idDel: true},
+		},
 	}
 
 	app.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: wsDel})
@@ -119,14 +123,16 @@ func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testi
 	wsID := string(wsDel.ID())
 
 	app := &App{
-		projects:             []data.Project{*project},
-		dashboard:            dashboard.New(),
-		center:               center.New(nil),
-		sidebar:              sidebar.NewTabbedSidebar(),
-		sidebarTerminal:      sidebar.NewTerminalModel(),
-		activeWorkspace:      wsDel,
-		dirtyWorkspaces:      map[string]bool{wsID: true},
-		deletingWorkspaceIDs: map[string]bool{wsID: true},
+		projects:        []data.Project{*project},
+		dashboard:       dashboard.New(),
+		center:          center.New(nil),
+		sidebar:         sidebar.NewTabbedSidebar(),
+		sidebarTerminal: sidebar.NewTerminalModel(),
+		activeWorkspace: wsDel,
+		lifecycle: workspaceLifecycleState{
+			dirty:    map[string]bool{wsID: true},
+			deleting: map[string]bool{wsID: true},
+		},
 	}
 	app.dashboard.SetProjects(app.projects)
 
@@ -147,7 +153,7 @@ func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testi
 	if app.isWorkspaceDeleteInFlight(wsID) {
 		t.Fatal("expected delete-in-flight marker cleared")
 	}
-	if app.dirtyWorkspaces[wsID] {
+	if app.lifecycle.dirty[wsID] {
 		t.Fatal("expected dirty marker cleared")
 	}
 	if len(cmds) == 0 {

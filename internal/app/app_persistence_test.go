@@ -53,7 +53,9 @@ func TestPersistAllWorkspacesNowSavesExplicitlyEmptyTabs(t *testing.T) {
 		center:           c,
 		workspaceService: svc,
 		projects:         []data.Project{{Name: "p", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
-		dirtyWorkspaces:  make(map[string]bool),
+		lifecycle: workspaceLifecycleState{
+			dirty: make(map[string]bool),
+		},
 	}
 
 	app.persistAllWorkspacesNow()
@@ -90,11 +92,13 @@ func TestPersistAllWorkspacesNowSkipsDeleteInFlightWorkspace(t *testing.T) {
 
 	svc := newWorkspaceService(nil, store, nil, "")
 	app := &App{
-		center:               c,
-		workspaceService:     svc,
-		projects:             []data.Project{{Name: "p", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
-		dirtyWorkspaces:      make(map[string]bool),
-		deletingWorkspaceIDs: map[string]bool{wsID: true},
+		center:           c,
+		workspaceService: svc,
+		projects:         []data.Project{{Name: "p", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
+		lifecycle: workspaceLifecycleState{
+			dirty:    make(map[string]bool),
+			deleting: map[string]bool{wsID: true},
+		},
 	}
 
 	app.persistAllWorkspacesNow()
@@ -106,32 +110,36 @@ func TestPersistAllWorkspacesNowSkipsDeleteInFlightWorkspace(t *testing.T) {
 
 func TestPersistWorkspaceTabsInitializesDirtyMap(t *testing.T) {
 	app := &App{
-		dirtyWorkspaces: nil, // explicitly nil
+		lifecycle: workspaceLifecycleState{
+			dirty: nil, // explicitly nil
+		},
 	}
 
 	cmd := app.persistWorkspaceTabs("ws-123")
 	if cmd == nil {
 		t.Fatal("expected a debounce command, got nil")
 	}
-	if app.dirtyWorkspaces == nil {
+	if app.lifecycle.dirty == nil {
 		t.Fatal("expected dirtyWorkspaces to be initialized")
 	}
-	if !app.dirtyWorkspaces["ws-123"] {
+	if !app.lifecycle.dirty["ws-123"] {
 		t.Fatal("expected ws-123 to be marked dirty")
 	}
 }
 
 func TestPersistWorkspaceTabsSkipsDeleteInFlightWorkspace(t *testing.T) {
 	app := &App{
-		dirtyWorkspaces:      make(map[string]bool),
-		deletingWorkspaceIDs: map[string]bool{"ws-123": true},
+		lifecycle: workspaceLifecycleState{
+			dirty:    make(map[string]bool),
+			deleting: map[string]bool{"ws-123": true},
+		},
 	}
 
 	cmd := app.persistWorkspaceTabs("ws-123")
 	if cmd != nil {
 		t.Fatal("expected no debounce command for deleting workspace")
 	}
-	if app.dirtyWorkspaces["ws-123"] {
+	if app.lifecycle.dirty["ws-123"] {
 		t.Fatal("did not expect deleting workspace to be marked dirty")
 	}
 }
@@ -141,8 +149,10 @@ func TestHandlePersistDebounceSkipsWhenPersistenceDependenciesMissing(t *testing
 	app := &App{
 		center:           nil,
 		workspaceService: newWorkspaceService(nil, nil, nil, ""),
-		persistToken:     1,
-		dirtyWorkspaces:  map[string]bool{"ws": true},
+		lifecycle: workspaceLifecycleState{
+			persistToken: 1,
+			dirty:        map[string]bool{"ws": true},
+		},
 	}
 	cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1})
 	if cmd != nil {
@@ -153,8 +163,10 @@ func TestHandlePersistDebounceSkipsWhenPersistenceDependenciesMissing(t *testing
 	app2 := &App{
 		center:           center.New(nil),
 		workspaceService: nil,
-		persistToken:     1,
-		dirtyWorkspaces:  map[string]bool{"ws": true},
+		lifecycle: workspaceLifecycleState{
+			persistToken: 1,
+			dirty:        map[string]bool{"ws": true},
+		},
 	}
 	cmd2 := app2.handlePersistDebounce(persistDebounceMsg{token: 1})
 	if cmd2 != nil {
@@ -171,20 +183,22 @@ func TestHandlePersistDebounceSkipsDeleteInFlightWorkspace(t *testing.T) {
 	svc := newWorkspaceService(nil, store, nil, "")
 
 	app := &App{
-		center:                center.New(nil),
-		workspaceService:      svc,
-		projects:              []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
-		persistToken:          1,
-		dirtyWorkspaces:       map[string]bool{wsID: true},
-		deletingWorkspaceIDs:  map[string]bool{wsID: true},
-		localWorkspaceSavesAt: make(map[string]localWorkspaceSaveMarker),
+		center:           center.New(nil),
+		workspaceService: svc,
+		projects:         []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
+		lifecycle: workspaceLifecycleState{
+			persistToken: 1,
+			dirty:        map[string]bool{wsID: true},
+			deleting:     map[string]bool{wsID: true},
+			localSavesAt: make(map[string]localWorkspaceSaveMarker),
+		},
 	}
 
 	cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1})
 	if cmd != nil {
 		t.Fatal("expected nil cmd when only dirty workspace is delete-in-flight")
 	}
-	if !app.dirtyWorkspaces[wsID] {
+	if !app.lifecycle.dirty[wsID] {
 		t.Fatal("expected dirty marker to remain while workspace delete is in-flight")
 	}
 	if _, err := store.Load(ws.ID()); !errors.Is(err, fs.ErrNotExist) {
@@ -209,20 +223,22 @@ func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
 	})
 
 	app := &App{
-		center:                c,
-		dashboard:             dashboard.New(),
-		workspaceService:      svc,
-		projects:              []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
-		persistToken:          1,
-		dirtyWorkspaces:       map[string]bool{wsID: true},
-		deletingWorkspaceIDs:  map[string]bool{wsID: true},
-		localWorkspaceSavesAt: make(map[string]localWorkspaceSaveMarker),
+		center:           c,
+		dashboard:        dashboard.New(),
+		workspaceService: svc,
+		projects:         []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
+		lifecycle: workspaceLifecycleState{
+			persistToken: 1,
+			dirty:        map[string]bool{wsID: true},
+			deleting:     map[string]bool{wsID: true},
+			localSavesAt: make(map[string]localWorkspaceSaveMarker),
+		},
 	}
 
 	if cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1}); cmd != nil {
 		t.Fatal("expected nil cmd while workspace delete is in-flight")
 	}
-	if !app.dirtyWorkspaces[wsID] {
+	if !app.lifecycle.dirty[wsID] {
 		t.Fatal("expected dirty marker to remain while delete is in-flight")
 	}
 
@@ -236,7 +252,7 @@ func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
 		t.Fatal("expected delete-in-flight marker to be cleared on delete failure")
 	}
 
-	persistCmd := app.handlePersistDebounce(persistDebounceMsg{token: app.persistToken})
+	persistCmd := app.handlePersistDebounce(persistDebounceMsg{token: app.lifecycle.persistToken})
 	if persistCmd == nil {
 		t.Fatal("expected debounced persistence command after delete failure requeue")
 	}
@@ -251,7 +267,7 @@ func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
 	if len(loaded.OpenTabs) == 0 {
 		t.Fatal("expected workspace tabs to be persisted after delete failure requeue")
 	}
-	if app.dirtyWorkspaces[wsID] {
+	if app.lifecycle.dirty[wsID] {
 		t.Fatal("expected workspace to be cleared from dirty set after save")
 	}
 }

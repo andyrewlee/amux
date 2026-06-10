@@ -135,8 +135,10 @@ func TestPersistAllWorkspacesNow_SkipsDeleteInFlight(t *testing.T) {
 			Name: "repo", Path: "/repo",
 			Workspaces: []data.Workspace{*gone, *live, *kept},
 		}},
-		dirtyWorkspaces:      make(map[string]bool),
-		deletingWorkspaceIDs: map[string]bool{string(gone.ID()): true, string(live.ID()): true},
+		lifecycle: workspaceLifecycleState{
+			dirty:    make(map[string]bool),
+			deleting: map[string]bool{string(gone.ID()): true, string(live.ID()): true},
+		},
 	}
 
 	app.persistAllWorkspacesNow()

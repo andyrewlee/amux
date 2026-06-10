@@ -109,13 +109,15 @@ func TestHandleWorkspaceDeleted_NoTrailingSessionKill(t *testing.T) {
 
 	ops := &killRecordingTmuxOps{}
 	app := &App{
-		dashboard:            dashboard.New(),
-		center:               center.New(nil),
-		sidebar:              sidebar.NewTabbedSidebar(),
-		sidebarTerminal:      sidebar.NewTerminalModel(),
-		tmuxService:          ops,
-		tmuxOptions:          tmux.Options{},
-		deletingWorkspaceIDs: map[string]bool{string(ws.ID()): true},
+		dashboard:       dashboard.New(),
+		center:          center.New(nil),
+		sidebar:         sidebar.NewTabbedSidebar(),
+		sidebarTerminal: sidebar.NewTerminalModel(),
+		tmuxService:     ops,
+		tmuxOptions:     tmux.Options{},
+		lifecycle: workspaceLifecycleState{
+			deleting: map[string]bool{string(ws.ID()): true},
+		},
 	}
 
 	cmds := app.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: ws})

@@ -36,7 +36,7 @@ func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWit
 	var cmds []tea.Cmd
 	a.err = fmt.Errorf("workspace created with warning: %s", msg.Warning)
 	if msg.Workspace != nil {
-		delete(a.creatingWorkspaceIDs, string(msg.Workspace.ID()))
+		a.lifecycle.clearCreating(string(msg.Workspace.ID()))
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -49,7 +49,7 @@ func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWit
 func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
-		delete(a.creatingWorkspaceIDs, string(msg.Workspace.ID()))
+		a.lifecycle.clearCreating(string(msg.Workspace.ID()))
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -71,7 +71,7 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
-		delete(a.creatingWorkspaceIDs, string(msg.Workspace.ID()))
+		a.lifecycle.clearCreating(string(msg.Workspace.ID()))
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -100,7 +100,7 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if a.activeWorkspace != nil && a.activeWorkspace.Root == msg.Workspace.Root {
 			a.goHome()
 		}
-		delete(a.dirtyWorkspaces, string(msg.Workspace.ID()))
+		delete(a.lifecycle.dirty, string(msg.Workspace.ID()))
 		// No trailing tmux cleanup here: the validated delete path already tore
 		// down this workspace's sessions before removing the worktree. Re-running
 		// it after the delete-in-flight flag is cleared would, on a delete-then-
