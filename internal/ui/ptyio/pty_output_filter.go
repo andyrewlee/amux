@@ -6,50 +6,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// FilterKnownPTYNoise removes known host-runtime diagnostic lines that should
-// not be rendered inside interactive agent prompts.
-func FilterKnownPTYNoise(data []byte) []byte {
-	if len(data) == 0 || !mightContainMallocDiagnostic(data) {
-		return data
-	}
-
-	out := make([]byte, 0, len(data))
-	removed := false
-	start := 0
-
-	for start < len(data) {
-		rel := bytes.IndexByte(data[start:], '\n')
-		end := len(data)
-		hasNewline := false
-		if rel >= 0 {
-			end = start + rel
-			hasNewline = true
-		}
-
-		line := data[start:end]
-		// PTY chunks may end mid-line; avoid filtering incomplete trailing
-		// fragments because the remainder may arrive in a future flush.
-		if !hasNewline {
-			out = append(out, line...)
-			break
-		}
-		trimmed := bytes.TrimRight(line, "\r")
-		if isMacOSMallocDiagnosticLine(trimmed) {
-			removed = true
-		} else {
-			out = append(out, line...)
-			out = append(out, '\n')
-		}
-
-		start = end + 1
-	}
-
-	if !removed {
-		return data
-	}
-	return out
-}
-
 // DrainKnownPTYNoiseTrailing flushes any carried line fragment at stream end.
 func DrainKnownPTYNoiseTrailing(trailing *[]byte) []byte {
 	if trailing == nil || len(*trailing) == 0 {
@@ -64,7 +20,19 @@ func DrainKnownPTYNoiseTrailing(trailing *[]byte) []byte {
 // trailing diagnostic fragment between chunks so split lines can be removed.
 func FilterKnownPTYNoiseStream(data []byte, trailing *[]byte) []byte {
 	if trailing == nil {
-		return FilterKnownPTYNoise(data)
+		// Stateless call: filter with a local, discarded carry. An incomplete
+		// trailing fragment is passed through unfiltered — the remainder may
+		// arrive in a chunk this caller will never see, so holding it back
+		// would lose output.
+		var local []byte
+		filtered := FilterKnownPTYNoiseStream(data, &local)
+		if len(local) > 0 {
+			out := make([]byte, 0, len(filtered)+len(local))
+			out = append(out, filtered...)
+			out = append(out, local...)
+			return out
+		}
+		return filtered
 	}
 
 	carried := 0
