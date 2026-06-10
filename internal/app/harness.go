@@ -10,10 +10,6 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
-	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
-	"github.com/andyrewlee/amux/internal/ui/dashboard"
-	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -93,23 +89,31 @@ func newMonitorHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 	return h
 }
 
-func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
-	centerModel := center.New(cfg)
-	centerModel.SetShowKeymapHints(opts.ShowKeymapHints)
+// newHarnessApp builds a services-off App through the real constructor path
+// (newAppShell), so the harness exercises the same component construction and
+// wiring order as the production app, then applies harness geometry/focus.
+func newHarnessApp(cfg *config.Config, opts HarnessOptions, focused messages.PaneType) *App {
+	app := newAppShell(cfg)
+	app.setKeymapHintsEnabled(opts.ShowKeymapHints)
+	app.width = opts.Width
+	app.height = opts.Height
+	app.focusedPane = focused
+	app.layout.Resize(opts.Width, opts.Height)
+	return app
+}
 
-	dash := dashboard.New()
-	dash.SetShowKeymapHints(opts.ShowKeymapHints)
-	sideTerm := sidebar.NewTerminalModel()
-	sideTerm.SetShowKeymapHints(opts.ShowKeymapHints)
-
-	layoutMgr := layout.NewManager()
-	layoutMgr.Resize(opts.Width, opts.Height)
-
-	ws := &data.Workspace{
+func harnessWorkspace() *data.Workspace {
+	return &data.Workspace{
 		Name: "primary",
 		Repo: "/repo/primary",
 		Root: "/repo/primary/ws",
 	}
+}
+
+func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
+	app := newHarnessApp(cfg, opts, messages.PaneCenter)
+
+	ws := harnessWorkspace()
 	project := data.Project{Name: "primary", Path: ws.Repo}
 
 	tabs := make([]*center.Tab, 0, opts.Tabs)
@@ -123,34 +127,13 @@ func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 			Terminal:  term,
 			Running:   true,
 		}
-		centerModel.AddTab(tab)
+		app.center.AddTab(tab)
 		tabs = append(tabs, tab)
 	}
-	centerModel.SetWorkspace(ws)
+	app.center.SetWorkspace(ws)
 
-	dash.SetProjects([]data.Project{project})
+	app.dashboard.SetProjects([]data.Project{project})
 
-	tabbedSidebar := sidebar.NewTabbedSidebar()
-	tabbedSidebar.SetShowKeymapHints(opts.ShowKeymapHints)
-
-	app := &App{
-		config:          cfg,
-		layout:          layoutMgr,
-		dashboard:       dash,
-		center:          centerModel,
-		sidebar:         tabbedSidebar,
-		sidebarTerminal: sideTerm,
-		styles:          common.DefaultStyles(),
-		width:           opts.Width,
-		height:          opts.Height,
-		toast:           common.NewToastModel(),
-		focusedPane:     messages.PaneCenter,
-		dashboardChrome: &compositor.ChromeCache{},
-		centerChrome:    &compositor.ChromeCache{},
-		sidebarChrome:   &compositor.ChromeCache{},
-	}
-
-	app.layout.Resize(opts.Width, opts.Height)
 	app.updateLayout()
 
 	return &Harness{
@@ -166,49 +149,16 @@ func newCenterHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 }
 
 func newSidebarHarness(cfg *config.Config, opts HarnessOptions) *Harness {
-	centerModel := center.New(cfg)
-	centerModel.SetShowKeymapHints(opts.ShowKeymapHints)
+	app := newHarnessApp(cfg, opts, messages.PaneSidebarTerminal)
 
-	dash := dashboard.New()
-	dash.SetShowKeymapHints(opts.ShowKeymapHints)
-	side := sidebar.NewTabbedSidebar()
-	side.SetShowKeymapHints(opts.ShowKeymapHints)
-	sideTerm := sidebar.NewTerminalModel()
-	sideTerm.SetShowKeymapHints(opts.ShowKeymapHints)
-
-	layoutMgr := layout.NewManager()
-	layoutMgr.Resize(opts.Width, opts.Height)
-
-	ws := &data.Workspace{
-		Name: "primary",
-		Repo: "/repo/primary",
-		Root: "/repo/primary/ws",
-	}
+	ws := harnessWorkspace()
 	project := data.Project{Name: "primary", Path: ws.Repo}
 
-	dash.SetProjects([]data.Project{project})
+	app.dashboard.SetProjects([]data.Project{project})
 
-	app := &App{
-		config:          cfg,
-		layout:          layoutMgr,
-		dashboard:       dash,
-		center:          centerModel,
-		sidebar:         side,
-		sidebarTerminal: sideTerm,
-		styles:          common.DefaultStyles(),
-		width:           opts.Width,
-		height:          opts.Height,
-		toast:           common.NewToastModel(),
-		focusedPane:     messages.PaneSidebarTerminal,
-		dashboardChrome: &compositor.ChromeCache{},
-		centerChrome:    &compositor.ChromeCache{},
-		sidebarChrome:   &compositor.ChromeCache{},
-	}
-
-	app.layout.Resize(opts.Width, opts.Height)
 	app.updateLayout()
 
-	sideTerm.AddTerminalForHarness(ws)
+	app.sidebarTerminal.AddTerminalForHarness(ws)
 
 	return &Harness{
 		app:          app,
@@ -218,7 +168,7 @@ func newSidebarHarness(cfg *config.Config, opts HarnessOptions) *Harness {
 		newlineEvery: opts.NewlineEvery,
 		payloadBuf:   make([]byte, 0, opts.PayloadBytes+32),
 		spinner:      []byte{'|', '/', '-', '\\'},
-		sidebarTerm:  sideTerm,
+		sidebarTerm:  app.sidebarTerminal,
 	}
 }
 
