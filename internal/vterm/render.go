@@ -193,13 +193,14 @@ func (v *VTerm) renderScreenCached(screen [][]Cell) string {
 
 	// Invalidate cursor lines if cursor state changed
 	if v.ShowCursor != v.lastShowCursor || v.CursorHiddenForRender() != v.lastCursorHidden || v.CursorX != v.lastCursorX || v.CursorY != v.lastCursorY {
+		epoch := v.bumpRenderEpoch()
 		// Mark old cursor line dirty
-		if v.lastCursorY >= 0 && v.lastCursorY < len(v.renderDirty) {
-			v.renderDirty[v.lastCursorY] = true
+		if v.lastCursorY >= 0 && v.lastCursorY < len(v.renderLineEpoch) {
+			v.renderLineEpoch[v.lastCursorY] = epoch
 		}
 		// Mark new cursor line dirty
-		if v.CursorY >= 0 && v.CursorY < len(v.renderDirty) {
-			v.renderDirty[v.CursorY] = true
+		if v.CursorY >= 0 && v.CursorY < len(v.renderLineEpoch) {
+			v.renderLineEpoch[v.CursorY] = epoch
 		}
 		v.lastShowCursor = v.ShowCursor
 		v.lastCursorHidden = v.CursorHiddenForRender()
@@ -209,15 +210,15 @@ func (v *VTerm) renderScreenCached(screen [][]Cell) string {
 
 	lines := make([]string, len(screen))
 	for y, row := range screen {
-		if v.renderDirtyAll || v.renderDirty[y] || v.renderCache[y] == "" {
+		if v.lineDirty(y) || v.renderCache[y] == "" {
 			lines[y] = v.renderRow(row, y)
 			v.renderCache[y] = lines[y]
-			v.renderDirty[y] = false
 		} else {
 			lines[y] = v.renderCache[y]
 		}
 	}
-	v.renderDirtyAll = false
+	// The cached render pass consumed all outstanding dirtiness.
+	v.ClearDirty()
 
 	out := strings.Join(lines, "\n")
 	return out + "\x1b[0m"
