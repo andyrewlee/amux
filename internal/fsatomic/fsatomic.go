@@ -1,0 +1,87 @@
+// Package fsatomic provides crash-safe single-file persistence: data is
+// written to a temp file in the target directory, synced to disk, and then
+// atomically moved over the target. On Windows, where rename-over-existing is
+// not atomic, the existing file is shuffled to a .bak first and restored on
+// failure; readers that care about mid-replace crashes can fall back to that
+// .bak.
+package fsatomic
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+)
+
+// WriteFile atomically replaces path with data. The temp file is created in
+// path's directory so the final rename never crosses filesystems.
+func WriteFile(path string, data []byte, perm os.FileMode) error {
+	return writeFileForGOOS(runtime.GOOS, path, data, perm)
+}
+
+func writeFileForGOOS(goos, path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	if goos == "windows" {
+		if err := replaceFileWindows(path, tmpPath); err != nil {
+			return err
+		}
+	} else if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
+}
+
+// replaceFileWindows replaces path with tmpPath via a backup shuffle:
+// existing file → .bak, temp → path, then the .bak is removed. On a failed
+// final rename the backup is restored so the previous contents survive.
+func replaceFileWindows(path, tmpPath string) error {
+	backupPath := path + ".bak"
+	hadPrimary := false
+	if _, err := os.Stat(path); err == nil {
+		hadPrimary = true
+		if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Rename(path, backupPath); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		if hadPrimary {
+			_ = os.Rename(backupPath, path)
+		}
+		return err
+	}
+	_ = os.Remove(backupPath)
+	return nil
+}
