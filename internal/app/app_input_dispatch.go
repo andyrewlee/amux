@@ -11,10 +11,37 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
 
-// The four updateXMsg sub-dispatchers below carve App.update's message switch
+// The updateXMsg sub-dispatchers below carve App.update's message switch
 // into themed groups so the central routing function stays under the complexity
 // ratchet. Each returns true (and appends to cmds) when it handled the message;
 // the message types are disjoint across dispatchers, so call order is irrelevant.
+//
+// Routing map — which dispatcher owns a message type, and where its handlers
+// live (see MESSAGE_FLOW.md for the create/activate and delete sequences):
+//
+//	handlePreSwitchInput   dialog/file-picker/settings/toast/overlay input
+//	                       → app_input_dialogs.go
+//	updateUpgradeMsg       UpdateCheckComplete, TriggerUpgrade, UpgradeComplete
+//	                       → service_update.go
+//	updateTabMsg           OpenDiff, CloseTab, LaunchAgent, TabCreated/Closed/
+//	                       Detached/Reattached/StateChanged/SelectionChanged,
+//	                       persistDebounceMsg, center.TabInputFailed
+//	                       → app_input_messages_center.go, app_persistence.go
+//	updateTmuxMsg          CleanupTmuxSessions, SpinnerTick, GitStatusTick,
+//	                       OrphanGCTick, PTYWatchdogTick, tmuxActivityTick/
+//	                       Result, tmuxAvailableResult, TmuxSyncTick,
+//	                       tmuxTabsSyncResult, tmuxTabs/SidebarDiscoverResult,
+//	                       orphanGCResult, staleDetachedAgentGCResult
+//	                       → app_tmux*.go
+//	updateWorkspaceLifecycleMsg  ProjectsLoaded, WorkspaceActivated/Created/
+//	                       CreatedWithWarning/CreateFailed/SetupComplete,
+//	                       CreateWorkspace, DeleteWorkspace, WorkspaceDeleted/
+//	                       DeleteFailed, AddProject/RemoveProject/ProjectRemoved,
+//	                       RefreshDashboard, RescanWorkspaces, GitStatusResult,
+//	                       FileWatcherEvent, StateWatcherEvent
+//	                       → app_input_messages_workspace.go, app_input_workspace.go
+//	updateDialogShowMsg    Show* dialog requests, ThemePreview, SettingsResult
+//	                       → app_input_dialogs.go
 
 // handlePreSwitchInput runs the overlay/dialog guards that may consume a message
 // before the main routing switch. It returns the resulting command and true when
