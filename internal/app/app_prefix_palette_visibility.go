@@ -25,6 +25,8 @@ func (a *App) prefixActionVisible(action string) bool {
 			return false
 		}
 		return !a.tmuxCheckDone || a.tmuxAvailable
+	case "scroll_up", "scroll_down":
+		return a.centerScrollPrefixActive()
 	case "delete_workspace":
 		return a.activeWorkspace != nil && a.activeProject != nil
 	case "next_tab", "prev_tab":

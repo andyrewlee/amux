@@ -160,41 +160,35 @@ func (m *Model) handleTerminalCtrlKey(msg tea.KeyPressMsg, tab *Tab) (*Model, te
 }
 
 func (m *Model) handleScrollbackKey(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd, bool) {
-	switch msg.Key().Code {
-	case tea.KeyPgUp:
-		if m.isTabActorReady() && m.sendTabEvent(tabEvent{
-			tab:         tab,
-			workspaceID: m.workspaceID(),
-			tabID:       tab.ID,
-			kind:        tabEventScrollPage,
-			scrollPage:  1,
-		}) {
-			return m, nil, true
-		}
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			m.scrollTerminalViewLocked(tab, common.ScrollDeltaForHeight(tab.Terminal.Height, 4))
-		}
-		tab.mu.Unlock()
-		return m, nil, true
-	case tea.KeyPgDown:
-		if m.isTabActorReady() && m.sendTabEvent(tabEvent{
-			tab:         tab,
-			workspaceID: m.workspaceID(),
-			tabID:       tab.ID,
-			kind:        tabEventScrollPage,
-			scrollPage:  -1,
-		}) {
-			return m, nil, true
-		}
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			m.scrollTerminalViewLocked(tab, -common.ScrollDeltaForHeight(tab.Terminal.Height, 4))
-		}
-		tab.mu.Unlock()
-		return m, nil, true
+	switch {
+	case msg.Key().Code == tea.KeyPgUp:
+		return m.scrollTerminalPage(tab, 1), nil, true
+	case msg.Key().Code == tea.KeyPgDown:
+		return m.scrollTerminalPage(tab, -1), nil, true
 	}
 	return m, nil, false
+}
+
+func (m *Model) scrollTerminalPage(tab *Tab, scrollPage int) *Model {
+	if tab == nil || scrollPage == 0 {
+		return m
+	}
+	if m.isTabActorReady() && m.sendTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: m.workspaceID(),
+		tabID:       tab.ID,
+		kind:        tabEventScrollPage,
+		scrollPage:  scrollPage,
+	}) {
+		return m
+	}
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		delta := common.ScrollDeltaForHeight(tab.Terminal.Height, 4)
+		m.scrollTerminalViewLocked(tab, delta*scrollPage)
+	}
+	tab.mu.Unlock()
+	return m
 }
 
 func (m *Model) scrollToBottomOnType(tab *Tab) {

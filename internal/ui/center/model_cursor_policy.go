@@ -13,4 +13,5 @@ func (m *Model) applyTerminalCursorPolicyLocked(tab *Tab) {
 	// directly, so this stays false for every tab.
 	tab.Terminal.IgnoreCursorVisibilityControls = false
 	tab.Terminal.TreatLFAsCRLF = isChat
+	tab.Terminal.CaptureNormalScreenOnClear = isChat
 }

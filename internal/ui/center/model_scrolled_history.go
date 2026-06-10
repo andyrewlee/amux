@@ -17,7 +17,7 @@ func scrolledChatHistoryScrollbackLen(term *vterm.VTerm) int {
 }
 
 func scrolledChatHistoryMaxViewOffset(term *vterm.VTerm) int {
-	if term == nil || term.AltScreen {
+	if term == nil || (term.AltScreen && !term.CaptureNormalScreenOnClear) {
 		return 0
 	}
 	scrollbackLen := scrolledChatHistoryScrollbackLen(term)
@@ -51,7 +51,7 @@ func scrolledChatHistoryEffectiveViewOffset(term *vterm.VTerm) int {
 }
 
 func scrolledChatHistoryVisibleRange(term *vterm.VTerm, height int) (startLine, endLine int, ok bool) {
-	if term == nil || term.ViewOffset <= 0 || term.AltScreen {
+	if term == nil || term.ViewOffset <= 0 || (term.AltScreen && !term.CaptureNormalScreenOnClear) {
 		return 0, 0, false
 	}
 	if height <= 0 {
@@ -179,7 +179,7 @@ func (m *Model) displayedScrollInfoLocked(tab *Tab) (offset, maxOffset int) {
 //
 // Caller must hold tab.mu.
 func applyScrolledChatHistoryViewLocked(term *vterm.VTerm, snap *compositor.VTermSnapshot) {
-	if term == nil || snap == nil || snap.ViewOffset <= 0 || term.AltScreen {
+	if term == nil || snap == nil || snap.ViewOffset <= 0 || (term.AltScreen && !term.CaptureNormalScreenOnClear) {
 		return
 	}
 

@@ -86,6 +86,9 @@ func (p *Parser) getParam(idx, def int) int {
 }
 
 func (p *Parser) executeCSI(final byte) {
+	if p.vt.preserveScrollbackOnNextClear3 && !(final == 'J' && p.getParam(0, 0) == 3) {
+		p.vt.preserveScrollbackOnNextClear3 = false
+	}
 	switch final {
 	case 'A': // CUU - cursor up
 		p.vt.moveCursor(-p.getParam(0, 1), 0)

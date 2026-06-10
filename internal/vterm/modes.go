@@ -63,7 +63,21 @@ func (p *Parser) executeMode(set bool) {
 			p.vt.setSynchronizedOutput(set)
 		case 2004: // Bracketed paste mode
 			// Ignore
+		case 1000, 1002, 1003: // XTerm mouse reporting modes
+			p.vt.setMouseTrackingMode(param, set)
+		case 1006: // SGR extended mouse coordinates
+			p.vt.mouseSGRMode = set
 		}
+	}
+}
+
+func (v *VTerm) setMouseTrackingMode(mode int, enabled bool) {
+	if enabled {
+		v.mouseTrackingMode = mode
+		return
+	}
+	if v.mouseTrackingMode == mode {
+		v.mouseTrackingMode = 0
 	}
 }
 

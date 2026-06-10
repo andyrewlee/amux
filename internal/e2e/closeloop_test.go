@@ -89,13 +89,13 @@ func TestCloseLoopKeystrokeDeliveryToRawAgent(t *testing.T) {
 	// input, so waiting for it gates the test against premature sends (bug #4).
 	waitForUIContains(t, session, "FAKEAGENT READY", closeLoopTimeout)
 
-	// Type into the focused agent. amux must forward a literal CR (0x0D) — this
-	// is the exact path that dropped Cline's Enter and raced Codex's fast CR.
-	if err := session.SendString("hello\r"); err != nil {
+	// Type into the focused agent. amux must forward a literal CR (0x0D), Ctrl+U
+	// (0x15), and Ctrl+D (0x04) through the real TUI/tmux/raw-agent path.
+	if err := session.SendBytes([]byte{'h', 'e', 'l', 'l', 'o', 0x0d, 0x15, 0x04}); err != nil {
 		t.Fatalf("send keystrokes: %v", err)
 	}
 
-	want := []byte{'h', 'e', 'l', 'l', 'o', 0x0d}
+	want := []byte{'h', 'e', 'l', 'l', 'o', 0x0d, 0x15, 0x04}
 	got, ok := waitForFileBytes(logPath, want, closeLoopTimeout)
 	if !ok {
 		t.Fatalf("agent did not receive intact keystrokes via amux\n got: % x\nwant: % x\n\nscreen:\n%s",
@@ -103,5 +103,31 @@ func TestCloseLoopKeystrokeDeliveryToRawAgent(t *testing.T) {
 	}
 	if !bytes.Contains(got, []byte{0x0d}) {
 		t.Fatalf("Enter was not delivered as a literal carriage return (0x0D); got % x", got)
+	}
+	if !bytes.Contains(got, []byte{0x15, 0x04}) {
+		t.Fatalf("Ctrl+U/Ctrl+D were not delivered as literal control bytes; got % x", got)
+	}
+
+	// Some terminals send Ctrl+U/Ctrl+D using the CSI-u keyboard protocol once
+	// the app requests keyboard enhancements. Verify those enhanced key reports
+	// still become the control bytes a raw agent expects.
+	if err := session.SendString("\x1b[117;5u\x1b[100;5u"); err != nil {
+		t.Fatalf("send enhanced ctrl keys: %v", err)
+	}
+	wantEnhanced := append(want, 0x15, 0x04)
+	got, ok = waitForFileBytes(logPath, wantEnhanced, closeLoopTimeout)
+	if !ok {
+		t.Fatalf("agent did not receive enhanced Ctrl+U/Ctrl+D via amux\n got: % x\nwant: % x\n\nscreen:\n%s",
+			got, wantEnhanced, session.ScreenASCII())
+	}
+
+	wheelInput := centerPaneWheelUpInput(120, 30, 2, 3)
+	if err := session.SendString(wheelInput.outer); err != nil {
+		t.Fatalf("send mouse wheel: %v", err)
+	}
+	got, ok = waitForFileBytes(logPath, []byte(wheelInput.forwarded), closeLoopTimeout)
+	if !ok {
+		t.Fatalf("agent did not receive forwarded wheel input via amux\n got: % x\nwant: % x\nouter: % x\n\nscreen:\n%s",
+			got, []byte(wheelInput.forwarded), []byte(wheelInput.outer), session.ScreenASCII())
 	}
 }

@@ -335,6 +335,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	isChat := m.isChatTab(tab)
 	term.IgnoreCursorVisibilityControls = false
 	term.TreatLFAsCRLF = isChat
+	term.CaptureNormalScreenOnClear = isChat
 	if msg.CaptureFullPane {
 		ptyio.RestorePaneCapture(
 			term,

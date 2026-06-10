@@ -57,6 +57,10 @@ type VTerm struct {
 	// Origin mode (DECOM) - cursor positions are relative to scroll region.
 	OriginMode bool
 
+	// Mouse reporting modes requested by the hosted terminal application.
+	mouseTrackingMode int
+	mouseSGRMode      bool
+
 	// Current style for new characters
 	CurrentStyle Style
 
@@ -93,6 +97,12 @@ type VTerm struct {
 	// TreatLFAsCRLF makes bare LF advance to the next line and return to column 0.
 	// This is useful for some chat agents that emit LF-only streams.
 	TreatLFAsCRLF bool
+	// CaptureNormalScreenOnClear preserves chat-style full-screen redraw frames
+	// that use normal-screen CSI 2J/3J instead of the alternate screen.
+	CaptureNormalScreenOnClear bool
+	// preserveScrollbackOnNextClear3 is a one-shot guard for redraw sequences
+	// that capture on CSI 2J and immediately follow with CSI 3J.
+	preserveScrollbackOnNextClear3 bool
 
 	// Synchronized output (DEC mode 2026)
 	syncActive        bool

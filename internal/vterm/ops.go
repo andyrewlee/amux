@@ -144,6 +144,10 @@ func (v *VTerm) backspace() {
 func (v *VTerm) eraseDisplay(mode int) {
 	switch mode {
 	case 0: // Cursor to end
+		if v.CursorX == 0 && v.CursorY == 0 && v.shouldCaptureScreenOnClear() {
+			captured := v.captureScreenToScrollback()
+			v.preserveScrollbackOnNextClear3 = v.syncActive && captured
+		}
 		// Clear from cursor to end of line
 		if v.CursorY < len(v.Screen) {
 			for x := v.CursorX; x < v.Width; x++ {
@@ -175,12 +179,13 @@ func (v *VTerm) eraseDisplay(mode int) {
 			}
 		}
 		v.markDirtyRange(0, v.CursorY)
-	case 2, 3: // Entire display (3 also clears scrollback)
+	case 2, 3: // Entire display (3 normally also clears scrollback)
 		// Capture non-blank screen lines to scrollback before erasing,
 		// so TUI content (like Claude Code plan mode) is preserved for
-		// amux scroll. Only in alt screen with AllowAltScreenScrollback.
-		if mode == 2 && v.AltScreen && v.AllowAltScreenScrollback {
-			v.captureScreenToScrollback()
+		// amux scroll.
+		if mode == 2 && v.shouldCaptureScreenOnClear() {
+			captured := v.captureScreenToScrollback()
+			v.preserveScrollbackOnNextClear3 = v.syncActive && captured
 		}
 		for y := 0; y < v.Height; y++ {
 			if y < len(v.Screen) {
@@ -188,11 +193,23 @@ func (v *VTerm) eraseDisplay(mode int) {
 			}
 		}
 		if mode == 3 {
-			v.Scrollback = v.Scrollback[:0]
-			v.invalidateAltScreenCapture()
+			if v.preserveScrollbackOnNextClear3 {
+				v.preserveScrollbackOnNextClear3 = false
+			} else {
+				v.Scrollback = v.Scrollback[:0]
+				v.invalidateAltScreenCapture()
+			}
+		}
+		if mode != 2 {
+			v.preserveScrollbackOnNextClear3 = false
 		}
 		v.markDirtyRange(0, v.Height-1)
 	}
+}
+
+func (v *VTerm) shouldCaptureScreenOnClear() bool {
+	return (v.AltScreen && v.AllowAltScreenScrollback) ||
+		(!v.AltScreen && v.CaptureNormalScreenOnClear)
 }
 
 // eraseLine clears parts of the current line

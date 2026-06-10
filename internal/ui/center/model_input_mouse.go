@@ -1,12 +1,14 @@
 package center
 
 import (
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/diff"
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 // updateMouseClick handles tea.MouseClickMsg in the Update switch.
@@ -214,6 +216,9 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 	if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 		return m, cmd
 	}
+	if model, cmd, handled := m.forwardMouseWheelToTerminal(msg, tab); handled {
+		return model, cmd
+	}
 
 	delta := 0
 	tab.mu.Lock()
@@ -256,6 +261,64 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 		tab.mu.Unlock()
 	}
 	return m, nil
+}
+
+func (m *Model) forwardMouseWheelToTerminal(msg tea.MouseWheelMsg, tab *Tab) (*Model, tea.Cmd, bool) {
+	if tab == nil {
+		return m, nil, false
+	}
+	termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
+	if !inBounds {
+		return m, nil, false
+	}
+
+	input := ""
+	tab.mu.Lock()
+	if tab.Terminal != nil {
+		input = mouseWheelInputSequence(tab.Terminal, msg.Button, termX, termY)
+	}
+	tab.mu.Unlock()
+	if input == "" {
+		return m, nil, false
+	}
+
+	if m.isTabActorReady() {
+		if m.sendTabEvent(tabEvent{
+			tab:         tab,
+			workspaceID: m.workspaceID(),
+			tabID:       tab.ID,
+			kind:        tabEventSendMouse,
+			input:       []byte(input),
+		}) {
+			return m, nil, true
+		}
+	}
+	model, sent, cmd := m.directSendToTerminal(tab, input, "Mouse wheel")
+	return model, cmd, sent || cmd != nil
+}
+
+func mouseWheelInputSequence(term *vterm.VTerm, button tea.MouseButton, termX, termY int) string {
+	if term == nil || !term.MouseReportingEnabled() || termX < 0 || termY < 0 {
+		return ""
+	}
+	buttonCode := 0
+	switch button {
+	case tea.MouseWheelUp:
+		buttonCode = 64
+	case tea.MouseWheelDown:
+		buttonCode = 65
+	default:
+		return ""
+	}
+	x := termX + 1
+	y := termY + 1
+	if term.MouseSGRMode() {
+		return fmt.Sprintf("\x1b[<%d;%d;%dM", buttonCode, x, y)
+	}
+	if x > 223 || y > 223 {
+		return ""
+	}
+	return string([]byte{0x1b, '[', 'M', byte(buttonCode + 32), byte(x + 32), byte(y + 32)})
 }
 
 func (m *Model) getDiffViewer(tab *Tab) *diff.Model {

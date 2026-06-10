@@ -216,6 +216,9 @@ func (p *Parser) parseByte(b byte) {
 }
 
 func (p *Parser) parseGround(b byte) {
+	if b != 0x1b {
+		p.vt.preserveScrollbackOnNextClear3 = false
+	}
 	// Handle UTF-8 continuation if we're in the middle of a sequence
 	if p.utf8Len > 0 {
 		if b >= 0x80 && b <= 0xBF {
@@ -286,6 +289,9 @@ func decodeUTF8(b []byte) rune {
 }
 
 func (p *Parser) parseEscape(b byte) {
+	if b != '[' {
+		p.vt.preserveScrollbackOnNextClear3 = false
+	}
 	switch b {
 	case '[': // CSI
 		p.state = stateCSI
@@ -324,6 +330,9 @@ func (p *Parser) parseEscape(b byte) {
 		p.vt.CurrentStyle = Style{}
 		p.vt.CursorX = 0
 		p.vt.CursorY = 0
+		p.vt.mouseTrackingMode = 0
+		p.vt.mouseSGRMode = false
+		p.vt.preserveScrollbackOnNextClear3 = false
 		p.state = stateGround
 	case '=', '>': // DECKPAM/DECKPNM (keypad modes)
 		p.state = stateGround
