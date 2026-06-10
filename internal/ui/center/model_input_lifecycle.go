@@ -134,9 +134,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	}
 	tab.Agent = msg.Agent
 	tab.SessionName = msg.Agent.Session
-	tab.Detached = false
-	tab.reattachInFlight = false
-	tab.Running = true
+	tab.markAttachedLocked()
 	resetChatCursorActivityStateLocked(tab)
 	tab.resetActorWriteStateLocked()
 	tab.bootstrapActivity = true
@@ -176,12 +174,8 @@ func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, te
 		return m, nil
 	}
 	tab.mu.Lock()
-	tab.Running = false
-	tab.reattachInFlight = false
-	// Any stopped reattach clears Detached so the tab shows as stopped.
-	if msg.Stopped {
-		tab.Detached = false
-	}
+	// A stopped reattach also clears Detached so the tab shows as stopped.
+	tab.markReattachFailedLocked(msg.Stopped)
 	tab.mu.Unlock()
 	logging.Warn("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
 	action := msg.Action
@@ -223,13 +217,7 @@ func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, t
 		_ = m.agentManager.CloseAgent(agent)
 	}
 	tab.mu.Lock()
-	tab.Running = false
-	tab.Detached = false
-	// Clear the in-flight reattach guard too: this is the only stop/detach
-	// transition that did not, leaving a tab wedged if a stopped message lands
-	// while a reattach is in flight (all reattach gates bail on this flag, so the
-	// user could no longer reattach a tab that now shows stopped).
-	tab.reattachInFlight = false
+	tab.markStoppedLocked()
 	tab.mu.Unlock()
 	tab.resetActivityANSIState()
 	return m, common.SafeBatch(func() tea.Msg {

@@ -40,9 +40,7 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	}
 	m.stopPTYReader(tab)
 	tab.mu.Lock()
-	tab.Running = false
-	tab.Detached = true
-	tab.reattachInFlight = false
+	tab.markDetachedEndingReattachLocked()
 	tab.resetPTYStateLocked()
 	if tab.Agent != nil && tab.SessionName == "" {
 		tab.SessionName = tab.Agent.Session

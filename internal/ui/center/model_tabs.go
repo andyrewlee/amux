@@ -256,8 +256,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.Workspace = msg.Workspace
 		tab.Agent = msg.Agent
 		tab.SessionName = msg.Agent.Session
-		tab.Detached = false
-		tab.Running = true
+		tab.markAttachedLocked()
 		tab.resetActorWriteStateLocked()
 		m.applyTerminalCursorPolicyLocked(tab)
 		if tab.createdAt == 0 {
