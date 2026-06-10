@@ -12,12 +12,12 @@ import (
 )
 
 func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
-	if msg.Token != a.tmuxActivityToken {
+	if msg.Token != a.tmuxActivity.token {
 		// Stale result from an older scan; ignore to avoid overwriting newer state.
 		return nil
 	}
 
-	a.tmuxActivityScanInFlight = false
+	a.tmuxActivity.scanInFlight = false
 	a.updateTmuxActivityOwnershipState(msg)
 
 	var cmds []tea.Cmd
@@ -33,8 +33,8 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 		}
 	}
 
-	if a.tmuxActivityRescanPending && a.tmuxAvailable {
-		a.tmuxActivityRescanPending = false
+	if a.tmuxActivity.rescanPending && a.tmuxAvailable {
+		a.tmuxActivity.rescanPending = false
 		if scanCmd := a.scanTmuxActivityNow(); scanCmd != nil {
 			cmds = append(cmds, scanCmd)
 		}
@@ -47,14 +47,14 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 		return
 	}
 
-	previousRoleSet := a.tmuxActivityOwnershipSet
-	previousOwner := a.tmuxActivityScannerOwner
-	previousEpoch := a.tmuxActivityOwnerEpoch
+	previousRoleSet := a.tmuxActivity.ownershipSet
+	previousOwner := a.tmuxActivity.scannerOwner
+	previousEpoch := a.tmuxActivity.ownerEpoch
 
-	a.tmuxActivityOwnershipSet = true
-	a.tmuxActivityScannerOwner = msg.ScannerOwner
+	a.tmuxActivity.ownershipSet = true
+	a.tmuxActivity.scannerOwner = msg.ScannerOwner
 	if msg.ScannerEpoch > 0 {
-		a.tmuxActivityOwnerEpoch = msg.ScannerEpoch
+		a.tmuxActivity.ownerEpoch = msg.ScannerEpoch
 	}
 
 	if !previousRoleSet || previousOwner != msg.ScannerOwner || (msg.ScannerEpoch > 0 && previousEpoch != msg.ScannerEpoch) {
@@ -62,7 +62,7 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 		if msg.ScannerOwner {
 			role = "owner"
 		}
-		logging.Info("tmux activity role=%s epoch=%d instance=%s", role, a.tmuxActivityOwnerEpoch, strings.TrimSpace(a.instanceID))
+		logging.Info("tmux activity role=%s epoch=%d instance=%s", role, a.tmuxActivity.ownerEpoch, strings.TrimSpace(a.instanceID))
 	}
 
 	if !isTmuxActivityOwnerTransition(previousRoleSet, previousOwner, previousEpoch, msg) {
@@ -71,10 +71,10 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 
 	// Reset local hysteresis when entering owner mode so we never reuse state
 	// created under an older owner epoch.
-	a.sessionActivityStates = make(map[string]*activity.SessionState)
+	a.tmuxActivity.sessionStates = make(map[string]*activity.SessionState)
 	// Clear follower/shared activity immediately. If the first owner scan fails,
 	// stale follower markers should not remain visible.
-	a.tmuxActiveWorkspaceIDs = make(map[string]bool)
+	a.tmuxActivity.activeWorkspaceIDs = make(map[string]bool)
 	// Re-enter the unsettled state so this transient empty set is not published as
 	// authoritative. While !settled, syncActiveWorkspacesToDashboard short-circuits
 	// to an empty publish that the dashboard treats as "not yet known" rather than a
@@ -82,8 +82,8 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 	// the handoff and the new owner's first scans. applyTmuxActivityPayload re-settles
 	// after tmuxActivitySettleScans successful owner scans, repopulating indicators.
 	// Mirrors the tmux-availability reset in scanTmuxActivity.
-	a.tmuxActivitySettled = false
-	a.tmuxActivitySettledScans = 0
+	a.tmuxActivity.settled = false
+	a.tmuxActivity.settledScans = 0
 	a.syncActiveWorkspacesToDashboard()
 }
 
@@ -122,19 +122,19 @@ func (a *App) applyTmuxActivityPayload(msg tmuxActivityResult) tea.Cmd {
 	}
 	// Merge updated hysteresis states back on the main thread.
 	for name, state := range msg.UpdatedStates {
-		a.sessionActivityStates[name] = state
+		a.tmuxActivity.sessionStates[name] = state
 	}
 	// Prune states the scan dropped after they went unseen long enough; this
 	// bounds the otherwise monotonic growth of sessionActivityStates (deleted
 	// workspaces' sessions never reappear in the scan). Delete after the merge so
 	// a same-scan re-add cannot be undone.
 	for _, name := range msg.RemovedStates {
-		delete(a.sessionActivityStates, name)
+		delete(a.tmuxActivity.sessionStates, name)
 	}
-	a.tmuxActiveWorkspaceIDs = msg.ActiveWorkspaceIDs
-	a.tmuxActivitySettledScans++
-	if a.tmuxActivitySettledScans >= tmuxActivitySettleScans {
-		a.tmuxActivitySettled = true
+	a.tmuxActivity.activeWorkspaceIDs = msg.ActiveWorkspaceIDs
+	a.tmuxActivity.settledScans++
+	if a.tmuxActivity.settledScans >= tmuxActivitySettleScans {
+		a.tmuxActivity.settled = true
 	}
 	a.syncActiveWorkspacesToDashboard()
 	return a.dashboard.StartSpinnerIfNeeded()

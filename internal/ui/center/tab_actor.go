@@ -278,8 +278,7 @@ func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID, 
 	if err := tab.Agent.Terminal.SendString(data); err != nil {
 		logging.Warn("%s failed for tab %s: %v", label, tab.ID, err)
 		tab.mu.Lock()
-		tab.Running = false
-		tab.Detached = true
+		tab.markDetachedLocked()
 		tab.mu.Unlock()
 		if m.msgSink != nil {
 			m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})

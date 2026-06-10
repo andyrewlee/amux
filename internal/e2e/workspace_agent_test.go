@@ -9,8 +9,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-const workspaceAgentTimeout = 30 * time.Second
-
 func TestWorkspaceCreateAgentTabStaysRunning(t *testing.T) {
 	skipIfNoGit(t)
 	skipIfNoTmux(t)

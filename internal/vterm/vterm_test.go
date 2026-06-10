@@ -346,15 +346,16 @@ func TestTrimScrollbackPreservesTrackedAltScreenCapturePosition(t *testing.T) {
 	for i := 0; i < MaxScrollback-1; i++ {
 		vt.Scrollback = append(vt.Scrollback, makeLine("old"))
 	}
-	vt.Scrollback = append(vt.Scrollback,
+	vt.Scrollback = append(
+		vt.Scrollback,
 		makeLine("cap1"),
 		makeLine("cap2"),
 		makeLine("tail"),
 	)
-	vt.altScreenCaptureLen = 2
-	vt.altScreenCaptureDropLen = 2
-	vt.altScreenCaptureTracked = true
-	vt.altScreenCaptureEndOffset = 1
+	vt.altCapture.frameLen = 2
+	vt.altCapture.dropLen = 2
+	vt.altCapture.tracked = true
+	vt.altCapture.endOffset = 1
 
 	vt.trimScrollback()
 

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -13,22 +15,26 @@ func TestUpdatePTYCursorRefresh_SchedulesWhileCursorTimersPending(t *testing.T) 
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                TabID("tab-cursor-refresh"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          vterm.New(80, 24),
-		Running:           true,
-		lastVisibleOutput: time.Now(),
-		lastPromptInputAt: time.Now(),
-		cachedSnap:        &compositor.VTermSnapshot{},
+		ID:        TabID("tab-cursor-refresh"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+			lastPromptInputAt: time.Now(),
+		},
+		State: ptyio.State{
+			CachedSnap: &compositor.VTermSnapshot{},
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	cmd := m.updatePTYCursorRefresh(PTYCursorRefresh{WorkspaceID: wsID, TabID: tab.ID})
 	if cmd == nil {
 		t.Fatal("expected cursor refresh tick to be scheduled while cursor timers are pending")
 	}
-	if tab.cachedSnap != nil {
+	if tab.CachedSnap != nil {
 		t.Fatal("expected cursor refresh to invalidate cached snapshot")
 	}
 	if tab.cursorRefreshGen == 0 {
@@ -42,12 +48,14 @@ func TestScheduleChatCursorRefresh_DeduplicatesLaterRefreshDeadline(t *testing.T
 	wsID := string(ws.ID())
 	now := time.Now()
 	tab := &Tab{
-		ID:                TabID("tab-cursor-refresh-dedupe"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          vterm.New(80, 24),
-		Running:           true,
-		lastVisibleOutput: now,
+		ID:        TabID("tab-cursor-refresh-dedupe"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now,
+		},
 	}
 
 	first := m.scheduleChatCursorRefresh(tab, wsID, now)
@@ -79,15 +87,19 @@ func TestUpdatePTYCursorRefresh_RequestPreservesPendingTimer(t *testing.T) {
 	wsID := string(ws.ID())
 	now := time.Now()
 	tab := &Tab{
-		ID:                TabID("tab-cursor-refresh-request"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          vterm.New(80, 24),
-		Running:           true,
-		lastVisibleOutput: now,
-		cachedSnap:        &compositor.VTermSnapshot{},
+		ID:        TabID("tab-cursor-refresh-request"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now,
+		},
+		State: ptyio.State{
+			CachedSnap: &compositor.VTermSnapshot{},
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	first := m.scheduleChatCursorRefresh(tab, wsID, now)
 	if first == nil {
@@ -100,7 +112,7 @@ func TestUpdatePTYCursorRefresh_RequestPreservesPendingTimer(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected refresh request to reuse the existing pending timer")
 	}
-	if tab.cachedSnap != nil {
+	if tab.CachedSnap != nil {
 		t.Fatal("expected refresh request to invalidate cached snapshot")
 	}
 	if tab.cursorRefreshGen != firstGen {
@@ -119,19 +131,21 @@ func TestUpdatePTYCursorRefresh_InvalidatesCachedSnapshotForNonChatTabs(t *testi
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:         TabID("tab-cursor-refresh-non-chat"),
-		Assistant:  "bash",
-		Workspace:  ws,
-		Terminal:   vterm.New(80, 24),
-		cachedSnap: &compositor.VTermSnapshot{},
+		ID:        TabID("tab-cursor-refresh-non-chat"),
+		Assistant: "bash",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		State: ptyio.State{
+			CachedSnap: &compositor.VTermSnapshot{},
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	cmd := m.updatePTYCursorRefresh(PTYCursorRefresh{WorkspaceID: wsID, TabID: tab.ID})
 	if cmd != nil {
 		t.Fatal("expected non-chat cursor refresh not to schedule chat timers")
 	}
-	if tab.cachedSnap != nil {
+	if tab.CachedSnap != nil {
 		t.Fatal("expected non-chat cursor refresh to invalidate cached snapshot")
 	}
 }

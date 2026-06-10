@@ -20,7 +20,7 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 		return nil
 	}
 
-	oldTabs, ok := m.tabsByWorkspace[oldID]
+	oldTabs, ok := m.tabs.ByWorkspace[oldID]
 	if !ok {
 		if m.workspace != nil && m.workspaceID() == oldID {
 			m.setWorkspace(current)
@@ -31,16 +31,16 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 	// tabs, which is distinct from the !ok case above (workspace never seen).
 	// Migrate this "seen but empty" state to preserve the semantic difference.
 	if len(oldTabs) == 0 {
-		if _, exists := m.tabsByWorkspace[newID]; !exists {
-			m.tabsByWorkspace[newID] = []*Tab{}
+		if _, exists := m.tabs.ByWorkspace[newID]; !exists {
+			m.tabs.ByWorkspace[newID] = []*Tab{}
 		}
-		if activeIdx, hasOldActive := m.activeTabByWorkspace[oldID]; hasOldActive {
-			if _, hasNewActive := m.activeTabByWorkspace[newID]; !hasNewActive {
-				m.activeTabByWorkspace[newID] = activeIdx
+		if activeIdx, hasOldActive := m.tabs.ActiveByWorkspace[oldID]; hasOldActive {
+			if _, hasNewActive := m.tabs.ActiveByWorkspace[newID]; !hasNewActive {
+				m.tabs.ActiveByWorkspace[newID] = activeIdx
 			}
-			delete(m.activeTabByWorkspace, oldID)
+			delete(m.tabs.ActiveByWorkspace, oldID)
 		}
-		delete(m.tabsByWorkspace, oldID)
+		delete(m.tabs.ByWorkspace, oldID)
 		if m.workspace != nil && m.workspaceID() == oldID {
 			m.setWorkspace(current)
 		}
@@ -48,7 +48,7 @@ func (m *Model) RebindWorkspaceID(previous, current *data.Workspace) tea.Cmd {
 		return nil
 	}
 
-	merged := common.RebindTabMaps(m.tabsByWorkspace, m.activeTabByWorkspace, oldID, newID,
+	merged := common.RebindTabMaps(m.tabs.ByWorkspace, m.tabs.ActiveByWorkspace, oldID, newID,
 		func(t *Tab) TabID { return t.ID },
 		func(t *Tab) bool { return t == nil })
 

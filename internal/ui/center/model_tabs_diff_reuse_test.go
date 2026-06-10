@@ -21,7 +21,7 @@ func TestCreateDiffTab_ReusesExistingTabForSamePathAndMode(t *testing.T) {
 	wsID := string(ws.ID())
 	m.SetWorkspace(ws)
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat"),
 			Name:      "claude",
@@ -37,16 +37,16 @@ func TestCreateDiffTab_ReusesExistingTabForSamePathAndMode(t *testing.T) {
 			DiffViewer: diff.New(ws, &git.Change{Path: "main.go", Kind: git.ChangeModified}, git.DiffModeUnstaged, 80, 24),
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	cmd := m.createDiffTab(&git.Change{Path: "./main.go", Kind: git.ChangeModified}, git.DiffModeUnstaged, ws)
 	if cmd == nil {
 		t.Fatal("expected reuse command for existing diff tab")
 	}
-	if got := len(m.tabsByWorkspace[wsID]); got != 2 {
+	if got := len(m.tabs.ByWorkspace[wsID]); got != 2 {
 		t.Fatalf("expected existing diff tab reuse, got %d tabs", got)
 	}
-	if got := m.activeTabByWorkspace[wsID]; got != 1 {
+	if got := m.tabs.ActiveByWorkspace[wsID]; got != 1 {
 		t.Fatalf("expected existing diff tab to become active, got index %d", got)
 	}
 
@@ -101,7 +101,7 @@ func TestReuseDiffTab_RefreshesChangeKindBeforeReload(t *testing.T) {
 	m.SetWorkspace(ws)
 
 	dv := diff.New(ws, &git.Change{Path: "main.go", Kind: git.ChangeUntracked}, git.DiffModeUnstaged, 80, 24)
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:         TabID("tab-diff"),
 			Name:       "Diff: main.go",
@@ -110,7 +110,7 @@ func TestReuseDiffTab_RefreshesChangeKindBeforeReload(t *testing.T) {
 			DiffViewer: dv,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	mustRunGit(t, repo, "add", "main.go")
 	mustRunGit(t, repo, "commit", "-m", "track main.go")

@@ -71,22 +71,22 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 			tab.State.Terminal.Close()
 		}
 		tab.State.Running = false
-		tab.State.ptyRestartBackoff = 0
+		tab.State.RestartBackoff = 0
 		tab.State.mu.Unlock()
 	}
 
 	// Remove tab from slice
-	m.tabsByWorkspace[wtID] = append(tabs[:idx], tabs[idx+1:]...)
+	m.tabs.ByWorkspace[wtID] = append(tabs[:idx], tabs[idx+1:]...)
 
 	// Adjust active index
 	activeIdx := m.getActiveTabIdx()
-	newLen := len(m.tabsByWorkspace[wtID])
+	newLen := len(m.tabs.ByWorkspace[wtID])
 	if newLen == 0 {
-		m.activeTabByWorkspace[wtID] = 0
+		m.tabs.ActiveByWorkspace[wtID] = 0
 	} else if activeIdx >= newLen {
-		m.activeTabByWorkspace[wtID] = newLen - 1
+		m.tabs.ActiveByWorkspace[wtID] = newLen - 1
 	} else if idx < activeIdx {
-		m.activeTabByWorkspace[wtID] = activeIdx - 1
+		m.tabs.ActiveByWorkspace[wtID] = activeIdx - 1
 	}
 
 	m.refreshTerminalSize()
@@ -183,10 +183,12 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 		if termY < 0 {
 			// Dragging above viewport - scroll up into history
 			ts.VTerm.ScrollView(1)
+			ts.VTerm.NoteSyncViewportInteraction()
 			termY = 0
 		} else if termY >= termHeight {
 			// Dragging below viewport - scroll down toward live
 			ts.VTerm.ScrollView(-1)
+			ts.VTerm.NoteSyncViewportInteraction()
 			termY = termHeight - 1
 		}
 
@@ -268,6 +270,7 @@ func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick
 		return nil
 	}
 	ts.VTerm.ScrollView(ts.selectionScroll.ScrollDir)
+	ts.VTerm.NoteSyncViewportInteraction()
 
 	// Update selection endpoint to viewport edge
 	edgeY := 0

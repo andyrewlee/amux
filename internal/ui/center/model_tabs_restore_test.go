@@ -20,7 +20,7 @@ func TestAddDetachedTab_SetsLastFocusedFromCreatedAt(t *testing.T) {
 		CreatedAt:   createdAt,
 	})
 
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if len(tabs) != 1 {
 		t.Fatalf("expected 1 tab, got %d", len(tabs))
 	}
@@ -47,7 +47,7 @@ func TestAddPlaceholderTab_SetsLastFocusedFromCreatedAt(t *testing.T) {
 		CreatedAt: createdAt,
 	})
 
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if len(tabs) != 1 {
 		t.Fatalf("expected 1 tab, got %d", len(tabs))
 	}
@@ -79,7 +79,7 @@ func TestRestoreTabsFromWorkspace_MarksReattachInFlightForRunningTabs(t *testing
 		t.Fatalf("expected restore command for running tab")
 	}
 
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if len(tabs) != 1 {
 		t.Fatalf("expected 1 restored tab, got %d", len(tabs))
 	}
@@ -111,7 +111,7 @@ func TestAutoReattachActiveTabOnSelection_SkipsRestoreInFlightPlaceholder(t *tes
 
 	_ = m.RestoreTabsFromWorkspace(ws)
 	m.workspace = ws
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	if cmd := m.autoReattachActiveTabOnSelection(); cmd != nil {
 		t.Fatalf("expected auto reattach to skip while restore reattach is in flight")

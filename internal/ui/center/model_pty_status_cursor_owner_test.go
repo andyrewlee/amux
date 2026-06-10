@@ -12,7 +12,7 @@ func TestTerminalLayerWithCursorOwner_HidesCursorWhenNotOwner(t *testing.T) {
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-owner"),
 			Assistant: "codex",
@@ -20,7 +20,7 @@ func TestTerminalLayerWithCursorOwner_HidesCursorWhenNotOwner(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -39,7 +39,7 @@ func TestTerminalLayerWithCursorOwner_ShowsCursorWhenOwner(t *testing.T) {
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-owner"),
 			Assistant: "codex",
@@ -47,7 +47,7 @@ func TestTerminalLayerWithCursorOwner_ShowsCursorWhenOwner(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -69,16 +69,18 @@ func TestTerminalLayerWithCursorOwner_DoesNotLearnStableCursorWhenNotOwner(t *te
 	term.CursorY = 11
 
 	tab := &Tab{
-		ID:              TabID("tab-chat-owner-stable"),
-		Assistant:       "codex",
-		Workspace:       ws,
-		Terminal:        term,
-		stableCursorSet: true,
-		stableCursorX:   1,
-		stableCursorY:   11,
+		ID:        TabID("tab-chat-owner-stable"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   1,
+			stableCursorY:   11,
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 

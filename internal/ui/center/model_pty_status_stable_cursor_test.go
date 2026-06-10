@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -22,19 +24,25 @@ func TestTerminalLayerSanitizesStoredSyntheticCursorGlyph(t *testing.T) {
 	}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-stored-synthetic-cursor"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		stableCursorSet:   true,
-		stableCursorX:     4,
-		stableCursorY:     10,
-		lastOutputAt:      time.Now(),
-		lastVisibleOutput: time.Now(),
+		ID:        TabID("tab-chat-stored-synthetic-cursor"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabCursorState: tabCursorState{
+			stableCursorSet: true,
+			stableCursorX:   4,
+			stableCursorY:   10,
+		},
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 

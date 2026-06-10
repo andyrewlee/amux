@@ -62,7 +62,9 @@ func TestCollectKnownWorkspaceIDs_IncludesCreating(t *testing.T) {
 	ws := data.Workspace{Repo: "/repo-c", Root: "/repo-c/ws-create"}
 	creatingID := string(ws.ID())
 	app := &App{
-		creatingWorkspaceIDs: map[string]bool{creatingID: true},
+		lifecycle: workspaceLifecycleState{
+			phases: map[string]lifecyclePhase{creatingID: lifecycleCreating},
+		},
 	}
 
 	ids := app.collectKnownWorkspaceIDs()
@@ -354,7 +356,9 @@ func TestCollectKnownWorkspaceIDs_IncludesDeleting(t *testing.T) {
 	ws := data.Workspace{Repo: "/repo-d", Root: "/repo-d/ws-delete"}
 	deletingID := string(ws.ID())
 	app := &App{
-		deletingWorkspaceIDs: map[string]bool{deletingID: true},
+		lifecycle: workspaceLifecycleState{
+			phases: map[string]lifecyclePhase{deletingID: lifecycleDeleting},
+		},
 	}
 
 	ids := app.collectKnownWorkspaceIDs()

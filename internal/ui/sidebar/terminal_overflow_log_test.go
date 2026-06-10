@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -19,18 +21,18 @@ import (
 func TestNoteOverflowDropLocked_ThrottlesAndAggregates(t *testing.T) {
 	ts := &TerminalState{}
 
-	logNow, total := ts.noteOverflowDropLocked(100)
+	logNow, total := ts.NoteOverflowDropLocked(100)
 	if !logNow || total != 100 {
 		t.Fatalf("first drop should log immediately with its total, got logNow=%v total=%d", logNow, total)
 	}
-	if ln, _ := ts.noteOverflowDropLocked(50); ln {
+	if ln, _ := ts.NoteOverflowDropLocked(50); ln {
 		t.Fatal("second drop within the throttle window should be suppressed")
 	}
-	if ln, _ := ts.noteOverflowDropLocked(25); ln {
+	if ln, _ := ts.NoteOverflowDropLocked(25); ln {
 		t.Fatal("third drop within the throttle window should be suppressed")
 	}
-	ts.lastOverflowLogAt = time.Now().Add(-2 * overflowLogThrottle)
-	logNow, total = ts.noteOverflowDropLocked(10)
+	ts.LastOverflowLogAt = time.Now().Add(-2 * ptyio.OverflowLogThrottle)
+	logNow, total = ts.NoteOverflowDropLocked(10)
 	if !logNow {
 		t.Fatal("a drop after the throttle window should log")
 	}
@@ -53,7 +55,7 @@ func TestHandlePTYOutput_OverflowEmitsThrottledWarn(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := TerminalTabID("term-overflow")
 	state := &TerminalState{VTerm: vterm.New(80, 24)}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	overflowChunk := bytes.Repeat([]byte("x"), ptyMaxBufferedBytes+4096)
 	_ = m.handlePTYOutput(messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Data: overflowChunk})
@@ -77,7 +79,7 @@ func TestHandlePTYOutput_OverflowWarnReportsActualTrimmedBytes(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := TerminalTabID("term-overflow")
 	state := &TerminalState{VTerm: vterm.New(80, 24)}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	controlSeq := []byte("\x1b[>1;10;0c")
 	chunk := append([]byte{}, controlSeq...)

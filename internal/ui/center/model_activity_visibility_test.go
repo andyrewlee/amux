@@ -11,12 +11,14 @@ func TestNoteVisibleActivityLocked_StaleVisibleSeqKeepsPendingFlag(t *testing.T)
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             vterm.New(40, 4),
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    2,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(40, 4),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    2,
+		},
 	}
 
 	tab.mu.Lock()
@@ -39,13 +41,15 @@ func TestNoteVisibleActivityLocked_ScrolledViewportStillDetectsLiveOutput(t *tes
 	term.ScrollView(1) // User is viewing older content.
 
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             term,
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
-		activityDigestInit:   true,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+			activityDigestInit:   true,
+		},
 	}
 
 	tab.mu.Lock()
@@ -77,13 +81,15 @@ func TestNoteVisibleActivityLocked_SuppressesBootstrapOutputAfterReattach(t *tes
 	ws := newTestWorkspace("ws", "/repo/ws")
 	term := vterm.New(20, 3)
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             term,
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
-		bootstrapActivity:    true,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+			bootstrapActivity:    true,
+		},
 	}
 
 	term.Write([]byte("bootstrap\n"))
@@ -114,12 +120,14 @@ func TestNoteVisibleActivityLocked_RecordsWhenBootstrapInactive(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	term := vterm.New(20, 3)
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             term,
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+		},
 	}
 
 	term.Write([]byte("real-output\n"))
@@ -138,12 +146,14 @@ func TestNoteVisibleActivityLocked_SubmittedPasteSuppressionDoesNotLeakOnInvisib
 	ws := newTestWorkspace("ws", "/repo/ws")
 	term := vterm.New(20, 4)
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             term,
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+		},
 	}
 
 	recordLocalInputEchoWindow(tab, "\x1b[200~first\r\nsecond\r\x1b[201~", time.Now())
@@ -189,7 +199,7 @@ func TestNoteVisibleActivityLocked_SubmittedPasteSuppressionDoesNotLeakOnInvisib
 }
 
 func TestConsumeSubmittedPasteEchoLocked_ClearsPendingOnVisibleMismatch(t *testing.T) {
-	tab := &Tab{pendingSubmitPasteEcho: "first\nsecond"}
+	tab := &Tab{tabActivityState: tabActivityState{pendingSubmitPasteEcho: "first\nsecond"}}
 
 	if consumeSubmittedPasteEchoLocked(tab, []byte("agent: ready\n")) {
 		t.Fatal("expected visible mismatch not to be treated as consumed paste echo")

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 )
@@ -32,12 +34,14 @@ func TestIsTabActiveChatOnly(t *testing.T) {
 
 	ws := newTestWorkspace("ws", "/repo/ws")
 	activeChat := &Tab{
-		Assistant:         "claude",
-		Workspace:         ws,
-		Running:           true,
-		lastVisibleOutput: now.Add(-1 * time.Second),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now.Add(-1 * time.Second),
+		},
 	}
-	m.tabsByWorkspace[string(ws.ID())] = []*Tab{activeChat}
+	m.tabs.ByWorkspace[string(ws.ID())] = []*Tab{activeChat}
 
 	if !m.IsTabActive(activeChat) {
 		t.Fatalf("expected chat tab to be active with recent output")
@@ -50,21 +54,25 @@ func TestIsTabActiveIgnoresDetachedAndNonChat(t *testing.T) {
 
 	ws := newTestWorkspace("ws", "/repo/ws")
 	nonChat := &Tab{
-		Assistant:         "vim",
-		Workspace:         ws,
-		Running:           true,
-		lastVisibleOutput: now.Add(-1 * time.Second),
+		Assistant: "vim",
+		Workspace: ws,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now.Add(-1 * time.Second),
+		},
 	}
 	if m.IsTabActive(nonChat) {
 		t.Fatalf("expected non-chat tab to be inactive even with output")
 	}
 
 	detached := &Tab{
-		Assistant:         "claude",
-		Workspace:         ws,
-		Running:           true,
-		Detached:          true,
-		lastVisibleOutput: now.Add(-1 * time.Second),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		Detached:  true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now.Add(-1 * time.Second),
+		},
 	}
 	if m.IsTabActive(detached) {
 		t.Fatalf("expected detached chat tab to be inactive")
@@ -79,20 +87,24 @@ func TestGetActiveWorkspaceIDsChatOnly(t *testing.T) {
 	ws2 := newTestWorkspace("ws2", "/repo/ws2")
 
 	activeChat := &Tab{
-		Assistant:         "claude",
-		Workspace:         ws1,
-		Running:           true,
-		lastVisibleOutput: now.Add(-1 * time.Second),
+		Assistant: "claude",
+		Workspace: ws1,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now.Add(-1 * time.Second),
+		},
 	}
 	viewer := &Tab{
-		Assistant:         "viewer",
-		Workspace:         ws2,
-		Running:           true,
-		lastVisibleOutput: now.Add(-1 * time.Second),
+		Assistant: "viewer",
+		Workspace: ws2,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now.Add(-1 * time.Second),
+		},
 	}
 
-	m.tabsByWorkspace[string(ws1.ID())] = []*Tab{activeChat}
-	m.tabsByWorkspace[string(ws2.ID())] = []*Tab{viewer}
+	m.tabs.ByWorkspace[string(ws1.ID())] = []*Tab{activeChat}
+	m.tabs.ByWorkspace[string(ws2.ID())] = []*Tab{viewer}
 
 	ids := m.GetActiveWorkspaceIDs()
 	if len(ids) != 1 || ids[0] != string(ws1.ID()) {
@@ -106,10 +118,12 @@ func TestIsTabActiveIdle(t *testing.T) {
 
 	ws := newTestWorkspace("ws", "/repo/ws")
 	idle := &Tab{
-		Assistant:         "claude",
-		Workspace:         ws,
-		Running:           true,
-		lastVisibleOutput: now.Add(-3 * time.Second),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: now.Add(-3 * time.Second),
+		},
 	}
 	if m.IsTabActive(idle) {
 		t.Fatalf("expected idle chat tab to be inactive")
@@ -122,11 +136,15 @@ func TestIsTabActiveUsesVisibleOutputOnly(t *testing.T) {
 
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:         "claude",
-		Workspace:         ws,
-		Running:           true,
-		lastOutputAt:      now.Add(-1 * time.Second),
-		lastVisibleOutput: time.Time{},
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: now.Add(-1 * time.Second),
+		},
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Time{},
+		},
 	}
 	if m.IsTabActive(tab) {
 		t.Fatal("expected tab with no visible output timestamp to be inactive")
@@ -137,11 +155,15 @@ func TestIsTabActiveIgnoresBufferedOutputWithoutVisibleDelta(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:         "claude",
-		Workspace:         ws,
-		Running:           true,
-		pendingOutput:     []byte("buffered"),
-		lastVisibleOutput: time.Time{},
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Time{},
+		},
 	}
 	if m.IsTabActive(tab) {
 		t.Fatal("expected buffered output without visible delta timestamp to be inactive")

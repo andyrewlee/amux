@@ -47,6 +47,7 @@ type stats struct {
 }
 
 func main() {
+	perf.Init()
 	startPprof()
 
 	mode := flag.String("mode", app.HarnessCenter, "render mode: center, sidebar, or monitor")

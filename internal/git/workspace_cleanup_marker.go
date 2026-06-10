@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,6 +60,16 @@ func readWorkspaceCleanupState(workspacePath string) (workspaceCleanupState, boo
 	trimmed := strings.TrimSpace(string(content))
 	if trimmed == "" {
 		return workspaceCleanupState{}, false, fmt.Errorf("empty workspace cleanup marker: %s", markerPath)
+	}
+	// Current format: versioned JSON. Legacy formats (ambiguous prose,
+	// single-line prefixed paths, key=value) remain readable below but are
+	// never written anymore.
+	if strings.HasPrefix(trimmed, "{") {
+		state, err := parseWorkspaceCleanupMarkerJSON(trimmed, markerPath)
+		if err != nil {
+			return workspaceCleanupState{}, false, err
+		}
+		return state, true, nil
 	}
 	if trimmed == "pruned workspace cleanup pending" {
 		return workspaceCleanupState{LegacyAmbiguous: true}, true, nil
@@ -178,17 +189,61 @@ func writeWorkspaceCleanupState(workspacePath string, state workspaceCleanupStat
 		return clearPrunedWorkspaceRetryMarker(workspacePath)
 	}
 
-	var builder strings.Builder
-	fmt.Fprintf(&builder, "repo_path=%s\n", state.RepoPath)
-	fmt.Fprintf(&builder, "cleanup_path=%s\n", state.CleanupPath)
-	fmt.Fprintf(&builder, "needs_unregister=%t\n", state.NeedsUnregister)
-	fmt.Fprintf(&builder, "workspace_git_ref=%s\n", state.WorkspaceGitRef)
-	fmt.Fprintf(&builder, "workspace_git_ref_mtime_unix_nano=%d\n", state.WorkspaceGitRefModTime)
-	if state.WorkspaceFingerprint != "" {
-		fmt.Fprintf(&builder, "workspace_fingerprint=%s\n", state.WorkspaceFingerprint)
+	payload, err := json.Marshal(workspaceCleanupMarkerFile{
+		Version:                workspaceCleanupMarkerVersion,
+		RepoPath:               state.RepoPath,
+		CleanupPath:            state.CleanupPath,
+		NeedsUnregister:        state.NeedsUnregister,
+		WorkspaceGitRef:        state.WorkspaceGitRef,
+		WorkspaceGitRefModTime: state.WorkspaceGitRefModTime,
+		WorkspaceFingerprint:   state.WorkspaceFingerprint,
+	})
+	if err != nil {
+		return fmt.Errorf("encode workspace cleanup marker: %w", err)
 	}
-	payload := []byte(builder.String())
 	return writeRetryMarkerFile(prunedWorkspaceRetryMarkerPath(workspacePath), payload, 0o600)
+}
+
+// workspaceCleanupMarkerVersion is the current on-disk marker format version.
+const workspaceCleanupMarkerVersion = 1
+
+// workspaceCleanupMarkerFile is the versioned JSON codec for the cleanup
+// marker. Read-side support for the legacy formats (prose, prefixed
+// single-line, key=value) lives in readWorkspaceCleanupState; only this
+// format is written.
+type workspaceCleanupMarkerFile struct {
+	Version                int    `json:"version"`
+	RepoPath               string `json:"repo_path,omitempty"`
+	CleanupPath            string `json:"cleanup_path,omitempty"`
+	NeedsUnregister        bool   `json:"needs_unregister"`
+	WorkspaceGitRef        string `json:"workspace_git_ref,omitempty"`
+	WorkspaceGitRefModTime int64  `json:"workspace_git_ref_mtime_unix_nano,omitempty"`
+	WorkspaceFingerprint   string `json:"workspace_fingerprint,omitempty"`
+}
+
+func parseWorkspaceCleanupMarkerJSON(trimmed, markerPath string) (workspaceCleanupState, error) {
+	var file workspaceCleanupMarkerFile
+	dec := json.NewDecoder(strings.NewReader(trimmed))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&file); err != nil {
+		return workspaceCleanupState{}, fmt.Errorf("invalid workspace cleanup marker %s: %w", markerPath, err)
+	}
+	if file.Version != workspaceCleanupMarkerVersion {
+		return workspaceCleanupState{}, fmt.Errorf("unsupported workspace cleanup marker version %d in %s", file.Version, markerPath)
+	}
+	state := workspaceCleanupState{
+		NeedsUnregister:        file.NeedsUnregister,
+		WorkspaceGitRef:        file.WorkspaceGitRef,
+		WorkspaceGitRefModTime: file.WorkspaceGitRefModTime,
+		WorkspaceFingerprint:   file.WorkspaceFingerprint,
+	}
+	if file.RepoPath != "" {
+		state.RepoPath = filepath.Clean(file.RepoPath)
+	}
+	if file.CleanupPath != "" {
+		state.CleanupPath = filepath.Clean(file.CleanupPath)
+	}
+	return state, nil
 }
 
 func writeRetryMarkerFileAtomically(path string, payload []byte, perm os.FileMode) error {

@@ -29,7 +29,8 @@ func runGit(t *testing.T, dir string, args ...string) string {
 		}
 	}
 
-	cmd.Env = append(env,
+	cmd.Env = append(
+		env,
 		"GIT_AUTHOR_NAME=Test",
 		"GIT_AUTHOR_EMAIL=test@example.com",
 		"GIT_COMMITTER_NAME=Test",

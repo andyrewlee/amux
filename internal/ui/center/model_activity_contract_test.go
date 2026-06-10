@@ -11,13 +11,15 @@ func TestActivityContract_ReattachBootstrapSuppressedThenRealOutputMarksActive(t
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             vterm.New(40, 5),
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
-		bootstrapActivity:    true,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(40, 5),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+			bootstrapActivity:    true,
+		},
 	}
 
 	tab.Terminal.Write([]byte("bootstrap prompt\n"))
@@ -53,12 +55,14 @@ func TestActivityContract_TypingEchoSuppressedButRealOutputAfterWindowCounts(t *
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             vterm.New(40, 5),
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(40, 5),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+		},
 	}
 
 	now := time.Now()
@@ -93,12 +97,14 @@ func TestActivityContract_BracketedPasteDoesNotSuppressImmediateRealOutput(t *te
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             vterm.New(40, 5),
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(40, 5),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+		},
 	}
 
 	now := time.Now()
@@ -126,12 +132,14 @@ func TestActivityContract_SubmittedBracketedPasteEchoSuppressesPromptEchoActivit
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             vterm.New(40, 5),
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(40, 5),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+		},
 	}
 
 	now := time.Now()
@@ -181,12 +189,14 @@ func TestActivityContract_PromptOnlyBracketedPasteSuppressesPromptEchoActivity(t
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		Assistant:            "codex",
-		Workspace:            ws,
-		Terminal:             vterm.New(40, 5),
-		Running:              true,
-		pendingVisibleOutput: true,
-		pendingVisibleSeq:    1,
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(40, 5),
+		Running:   true,
+		tabActivityState: tabActivityState{
+			pendingVisibleOutput: true,
+			pendingVisibleSeq:    1,
+		},
 	}
 
 	now := time.Now()

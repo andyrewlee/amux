@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const closeLoopTimeout = 30 * time.Second
-
 // requireRealTmux skips the test only when tmux is genuinely unusable. It avoids
 // the shared ensureTmuxServer probe, whose bare `start-server` races against an
 // empty server self-exiting and so skips even where tmux works fine. Here a

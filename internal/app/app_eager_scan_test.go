@@ -14,20 +14,20 @@ func TestUpdate_TabReattachedSchedulesEagerScan(t *testing.T) {
 	app := &App{tmuxAvailable: true}
 
 	app.update(messages.TabReattached{WorkspaceID: "ws-a"})
-	if !app.tmuxActivityScanInFlight {
+	if !app.tmuxActivity.scanInFlight {
 		t.Fatal("expected an eager scan to be scheduled on TabReattached")
 	}
-	if app.tmuxActivityToken != 1 {
-		t.Fatalf("expected scan token incremented to 1, got %d", app.tmuxActivityToken)
+	if app.tmuxActivity.token != 1 {
+		t.Fatalf("expected scan token incremented to 1, got %d", app.tmuxActivity.token)
 	}
 
 	// A second reattach while the first scan is in flight must coalesce: no new
 	// token, only a pending rescan.
 	app.update(messages.TabReattached{WorkspaceID: "ws-b"})
-	if app.tmuxActivityToken != 1 {
-		t.Fatalf("expected in-flight reattach to coalesce (token stays 1), got %d", app.tmuxActivityToken)
+	if app.tmuxActivity.token != 1 {
+		t.Fatalf("expected in-flight reattach to coalesce (token stays 1), got %d", app.tmuxActivity.token)
 	}
-	if !app.tmuxActivityRescanPending {
+	if !app.tmuxActivity.rescanPending {
 		t.Fatal("expected in-flight second reattach to set rescan-pending")
 	}
 }
@@ -41,11 +41,11 @@ func TestUpdate_TabCreatedSchedulesEagerScan(t *testing.T) {
 	}
 
 	app.update(messages.TabCreated{Name: "claude"})
-	if !app.tmuxActivityScanInFlight {
+	if !app.tmuxActivity.scanInFlight {
 		t.Fatal("expected an eager scan to be scheduled on TabCreated")
 	}
-	if app.tmuxActivityToken != 1 {
-		t.Fatalf("expected scan token incremented to 1, got %d", app.tmuxActivityToken)
+	if app.tmuxActivity.token != 1 {
+		t.Fatalf("expected scan token incremented to 1, got %d", app.tmuxActivity.token)
 	}
 }
 
@@ -55,10 +55,10 @@ func TestUpdate_TabReattachedNoScanWhenTmuxUnavailable(t *testing.T) {
 	app := &App{tmuxAvailable: false}
 
 	app.update(messages.TabReattached{WorkspaceID: "ws-a"})
-	if app.tmuxActivityScanInFlight {
+	if app.tmuxActivity.scanInFlight {
 		t.Fatal("expected no scan scheduled when tmux is unavailable")
 	}
-	if app.tmuxActivityToken != 0 {
-		t.Fatalf("expected scan token untouched, got %d", app.tmuxActivityToken)
+	if app.tmuxActivity.token != 0 {
+		t.Fatalf("expected scan token untouched, got %d", app.tmuxActivity.token)
 	}
 }

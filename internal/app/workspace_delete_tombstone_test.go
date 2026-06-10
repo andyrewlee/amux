@@ -28,6 +28,7 @@ func (s *failingTombstoneWorkspaceStore) LoadMetadataFor(*data.Workspace) (bool,
 func (s *failingTombstoneWorkspaceStore) UpsertFromDiscovery(*data.Workspace) error { return nil }
 func (s *failingTombstoneWorkspaceStore) Save(*data.Workspace) error                { return nil }
 func (s *failingTombstoneWorkspaceStore) Delete(data.WorkspaceID) error             { return s.deleteErr }
+
 func (s *failingTombstoneWorkspaceStore) ResolvedDefaultAssistant() string {
 	return data.DefaultAssistant
 }
@@ -135,8 +136,10 @@ func TestPersistAllWorkspacesNow_SkipsDeleteInFlight(t *testing.T) {
 			Name: "repo", Path: "/repo",
 			Workspaces: []data.Workspace{*gone, *live, *kept},
 		}},
-		dirtyWorkspaces:      make(map[string]bool),
-		deletingWorkspaceIDs: map[string]bool{string(gone.ID()): true, string(live.ID()): true},
+		lifecycle: workspaceLifecycleState{
+			dirty:  make(map[string]bool),
+			phases: map[string]lifecyclePhase{string(gone.ID()): lifecycleDeleting, string(live.ID()): lifecycleDeleting},
+		},
 	}
 
 	app.persistAllWorkspacesNow()

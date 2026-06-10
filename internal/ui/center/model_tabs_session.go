@@ -40,9 +40,7 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	}
 	m.stopPTYReader(tab)
 	tab.mu.Lock()
-	tab.Running = false
-	tab.Detached = true
-	tab.reattachInFlight = false
+	tab.markDetachedEndingReattachLocked()
 	tab.resetPTYStateLocked()
 	if tab.Agent != nil && tab.SessionName == "" {
 		tab.SessionName = tab.Agent.Session
@@ -75,7 +73,7 @@ func (m *Model) DetachTabByID(wsID string, tabID TabID) tea.Cmd {
 	if wsID == "" {
 		return nil
 	}
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	for idx, tab := range tabs {
 		if tab == nil || tab.isClosed() || tab.ID != tabID {
 			continue
@@ -171,7 +169,7 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 		return nil
 	}
 	wsID := string(ws.ID())
-	if len(m.tabsByWorkspace[wsID]) > 0 {
+	if len(m.tabs.ByWorkspace[wsID]) > 0 {
 		return nil
 	}
 
@@ -227,8 +225,8 @@ func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) te
 		return nil
 	}
 	wsID := string(ws.ID())
-	existing := make(map[string]struct{}, len(m.tabsByWorkspace[wsID]))
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	existing := make(map[string]struct{}, len(m.tabs.ByWorkspace[wsID]))
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab == nil || tab.isClosed() {
 			continue
 		}

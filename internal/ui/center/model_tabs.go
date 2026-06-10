@@ -184,7 +184,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	initialCols, initialRows := ptyio.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 
 	wsID := string(msg.Workspace.ID())
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	var existing *Tab
 	existingIdx := -1
 	if msg.TabID != "" {
@@ -230,7 +230,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			if msg.CaptureFullPane {
 				// A full tmux pane snapshot supersedes any preserved local PTY
 				// backlog for this terminal state.
-				tab.pendingOutput = nil
+				tab.PendingOutput = nil
 				ptyio.RestorePaneCapture(
 					tab.Terminal,
 					msg.ScrollbackCapture,
@@ -256,8 +256,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.Workspace = msg.Workspace
 		tab.Agent = msg.Agent
 		tab.SessionName = msg.Agent.Session
-		tab.Detached = false
-		tab.Running = true
+		tab.markAttachedLocked()
 		tab.resetActorWriteStateLocked()
 		m.applyTerminalCursorPolicyLocked(tab)
 		if tab.createdAt == 0 {
@@ -376,8 +375,8 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	}
 
 	// Add tab to the workspace's tab list
-	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-	createdIdx := len(m.tabsByWorkspace[wsID]) - 1
+	m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
+	createdIdx := len(m.tabs.ByWorkspace[wsID]) - 1
 	if msg.Activate {
 		m.setActiveTabIdxForWorkspace(wsID, createdIdx)
 	}

@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -17,7 +16,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
@@ -120,41 +118,18 @@ type App struct {
 	prefixToken    int
 	prefixSequence []string
 
-	tmuxSyncToken             int
-	tmuxActivityToken         int
-	tmuxActivityScanInFlight  bool
-	tmuxActivityRescanPending bool
-	tmuxActivitySettled       bool
-	tmuxActivitySettledScans  int
-	tmuxActivityScannerOwner  bool
-	tmuxActivityOwnershipSet  bool
-	tmuxActivityOwnerEpoch    int64
-	tmuxOptions               tmux.Options
-	tmuxAvailable             bool
-	tmuxCheckDone             bool
-	projectsLoaded            bool
-	tmuxInstallHint           string
-	tmuxActiveWorkspaceIDs    map[string]bool
-	sessionActivityStates     map[string]*activity.SessionState // Per-session hysteresis state
-	// activityMissBySession counts consecutive non-live activity observations per
-	// session so a single transient miss does not demote a working agent.
-	activityMissBySession map[string]int
-	instanceID            string // Immutable after init; safe for read-only access from Cmd goroutines.
+	// tmuxActivity holds tmux activity-scan bookkeeping (tokens, coalescing,
+	// shared-scan ownership, per-session hysteresis).
+	tmuxActivity    tmuxActivityState
+	tmuxOptions     tmux.Options
+	tmuxAvailable   bool
+	tmuxCheckDone   bool
+	projectsLoaded  bool
+	tmuxInstallHint string
+	instanceID      string // Immutable after init; safe for read-only access from Cmd goroutines.
 
-	// Workspace persistence debounce
-	dirtyWorkspaces      map[string]bool
-	deletingWorkspaceMu  sync.RWMutex
-	deletingWorkspaceIDs map[string]bool
-	persistToken         int
-	// projectsLoadToken is the next load generation to issue; lastApplied is the
-	// highest applied, so handleProjectsLoaded can drop out-of-order reloads.
-	projectsLoadToken            int
-	lastAppliedProjectsLoadToken int
-	localWorkspaceSaveMu         sync.Mutex
-	localWorkspaceSavesAt        map[string]localWorkspaceSaveMarker
-
-	// Workspaces in creation flow (not yet loaded into projects list)
-	creatingWorkspaceIDs map[string]bool
+	// lifecycle holds workspace create/delete/persist bookkeeping.
+	lifecycle workspaceLifecycleState
 
 	// Terminal capabilities
 	keyboardEnhancements tea.KeyboardEnhancementsMsg
@@ -163,24 +138,8 @@ type App struct {
 	lastInputAt         time.Time
 	pendingInputLatency bool
 
-	// Chrome caches for layer-based rendering
-	dashboardChrome      *compositor.ChromeCache
-	centerChrome         *compositor.ChromeCache
-	sidebarChrome        *compositor.ChromeCache
-	dashboardContent     drawableCache
-	dashboardBorders     borderCache
-	sidebarTopTabBar     drawableCache
-	sidebarTopContent    drawableCache
-	sidebarBottomContent drawableCache
-	sidebarBottomTabBar  drawableCache
-	sidebarBottomStatus  drawableCache
-	sidebarBottomHelp    drawableCache
-	sidebarTopBorders    borderCache
-	sidebarBottomBorders borderCache
-	centerTabBar         drawableCache
-	centerStatus         drawableCache
-	centerHelp           drawableCache
-	centerBorders        borderCache
+	// renderCache holds the chrome/drawable caches for layer-based rendering.
+	renderCache renderCacheState
 
 	// External message pump (for PTY readers)
 	externalMsgs     chan tea.Msg

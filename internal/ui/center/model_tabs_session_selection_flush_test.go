@@ -3,6 +3,8 @@ package center
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
@@ -14,16 +16,18 @@ func TestTabSelectionChangedCmd_FlushesBufferedActiveTab(t *testing.T) {
 	wsID := string(ws.ID())
 
 	tab := &Tab{
-		ID:                 TabID("tab-1"),
-		Assistant:          "claude",
-		Workspace:          ws,
-		Running:            true,
-		pendingOutput:      []byte("buffered"),
+		ID:        TabID("tab-1"),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 		pendingOutputBytes: len("buffered"),
 		ptyBytesReceived:   uint64(len("buffered")),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.tabSelectionChangedCmd(true)
@@ -33,7 +37,7 @@ func TestTabSelectionChangedCmd_FlushesBufferedActiveTab(t *testing.T) {
 	if !tab.catchUpPendingOutput {
 		t.Fatalf("expected tab selection change to latch catch-up state")
 	}
-	if got, want := tab.catchUpTargetBytes, uint64(len(tab.pendingOutput)); got != want {
+	if got, want := tab.catchUpTargetBytes, uint64(len(tab.PendingOutput)); got != want {
 		t.Fatalf("catch-up target bytes = %d, want %d", got, want)
 	}
 
@@ -77,16 +81,18 @@ func TestTabSelectionChangedCmd_FlushesActorQueuedActiveTab(t *testing.T) {
 	wsID := string(ws.ID())
 
 	tab := &Tab{
-		ID:                 TabID("tab-actor-queued"),
-		Assistant:          "claude",
-		Workspace:          ws,
-		Running:            true,
-		actorWritesPending: 1,
-		actorQueuedBytes:   12,
-		ptyBytesReceived:   12,
+		ID:        TabID("tab-actor-queued"),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		tabActorWriteState: tabActorWriteState{
+			actorWritesPending: 1,
+			actorQueuedBytes:   12,
+		},
+		ptyBytesReceived: 12,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.tabSelectionChangedCmd(true)

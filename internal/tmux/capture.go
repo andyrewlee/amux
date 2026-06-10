@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -89,6 +90,21 @@ func sessionPaneID(sessionName string, opts Options) (string, error) {
 	return firstAlive, nil
 }
 
+// parseTabFields splits a tab-separated tmux -F output line into trimmed
+// fields and verifies it has at least want of them. It exists so positional
+// indexing into tmux output can never panic and malformed lines surface as
+// errors instead of silent zero values.
+func parseTabFields(line string, want int) ([]string, error) {
+	parts := strings.Split(line, "\t")
+	if len(parts) < want {
+		return nil, fmt.Errorf("malformed tmux output line: got %d fields, want at least %d: %q", len(parts), want, line)
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts, nil
+}
+
 func paneCursorPosition(paneID string, opts Options) (int, int, bool, error) {
 	if paneID == "" {
 		return 0, 0, false, nil
@@ -100,17 +116,14 @@ func paneCursorPosition(paneID string, opts Options) (int, int, bool, error) {
 		return 0, 0, false, err
 	}
 	for _, line := range parseOutputLines(output) {
-		parts := strings.Split(line, "\t")
-		if len(parts) < 3 {
+		parts, err := parseTabFields(line, 3)
+		if err != nil || parts[0] != paneID {
 			continue
 		}
-		if strings.TrimSpace(parts[0]) != paneID {
-			continue
-		}
-		cursorX, errX := strconv.Atoi(strings.TrimSpace(parts[1]))
-		cursorY, errY := strconv.Atoi(strings.TrimSpace(parts[2]))
+		cursorX, errX := strconv.Atoi(parts[1])
+		cursorY, errY := strconv.Atoi(parts[2])
 		if errX != nil || errY != nil {
-			return 0, 0, false, nil
+			return 0, 0, false, fmt.Errorf("malformed cursor position for pane %s: %q", paneID, line)
 		}
 		return cursorX, cursorY, true, nil
 	}
@@ -128,17 +141,14 @@ func paneSize(paneID string, opts Options) (int, int, bool, error) {
 		return 0, 0, false, err
 	}
 	for _, line := range parseOutputLines(output) {
-		parts := strings.Split(line, "\t")
-		if len(parts) < 3 {
+		parts, err := parseTabFields(line, 3)
+		if err != nil || parts[0] != paneID {
 			continue
 		}
-		if strings.TrimSpace(parts[0]) != paneID {
-			continue
-		}
-		cols, errCols := strconv.Atoi(strings.TrimSpace(parts[1]))
-		rows, errRows := strconv.Atoi(strings.TrimSpace(parts[2]))
+		cols, errCols := strconv.Atoi(parts[1])
+		rows, errRows := strconv.Atoi(parts[2])
 		if errCols != nil || errRows != nil || cols <= 0 || rows <= 0 {
-			return 0, 0, false, nil
+			return 0, 0, false, fmt.Errorf("malformed pane size for pane %s: %q", paneID, line)
 		}
 		return cols, rows, true, nil
 	}

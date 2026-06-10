@@ -71,11 +71,28 @@ var (
 	initOnce   sync.Once
 )
 
-func init() {
+// Init reads the AMUX_PROFILE / AMUX_PROFILE_INTERVAL_MS environment and arms
+// profiling accordingly. The app calls this explicitly during construction;
+// it is idempotent, so library users and tests may also call it directly.
+func Init() {
 	initOnce.Do(func() {
 		enabled.Store(isEnabled())
 		logInterval.Store(int64(defaultLogInterval()))
 	})
+}
+
+// Reset clears all recorded stats and counters and re-reads the environment.
+// Intended for tests that toggle AMUX_PROFILE between cases.
+func Reset() {
+	statsMu.Lock()
+	statsMap = map[string]*stat{}
+	statsMu.Unlock()
+	countersMu.Lock()
+	counterMap = map[string]*counter{}
+	countersMu.Unlock()
+	lastLog.Store(0)
+	enabled.Store(isEnabled())
+	logInterval.Store(int64(defaultLogInterval()))
 }
 
 // Enabled reports whether profiling is enabled.

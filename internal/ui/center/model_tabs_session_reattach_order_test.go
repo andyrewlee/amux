@@ -108,8 +108,8 @@ func TestReattachActiveTab_CapturesSnapshotBeforeAttach(t *testing.T) {
 		Detached:    true,
 	}
 	m.workspace = ws
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	cmd := m.ReattachActiveTab()
 	if cmd == nil {

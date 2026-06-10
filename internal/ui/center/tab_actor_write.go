@@ -61,7 +61,7 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 // byte count, whether the filter ran, whether the redraw should be suppressed,
 // whether a follow-up flush is needed, and the activity tag to publish.
 func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64) {
-	output := ptyio.FilterKnownPTYNoiseStream(ev.output, &tab.ptyNoiseTrailing)
+	output := ptyio.FilterKnownPTYNoiseStream(ev.output, &tab.NoiseTrailing)
 	filteredLen = len(output)
 	filterApplied = true
 	if len(output) > 0 {
@@ -109,7 +109,7 @@ func enqueueActorWrite(tab *Tab, chunk []byte) (prevEpoch uint64, prevCarry vter
 	if prevPending > 0 {
 		seedCarry = prevCarry
 	}
-	previewTrailing := append([]byte(nil), tab.ptyNoiseTrailing...)
+	previewTrailing := append([]byte(nil), tab.NoiseTrailing...)
 	if prevPending > 0 {
 		previewTrailing = append(previewTrailing[:0], tab.actorQueuedNoiseTrailing...)
 	}
@@ -162,7 +162,7 @@ func recoverFailedActorSend(
 			syncFallbackChunkSize = ptyFlushChunkSizeActive
 			tab.restoreActorCarryLocked(prevCarry, prevNoiseTrailing)
 			tab.prependPendingOutputLocked(chunk[syncFallbackChunkSize:])
-			hasMore = len(tab.pendingOutput) > 0
+			hasMore = len(tab.PendingOutput) > 0
 		}
 	case tab.actorWriteEpoch != prevEpoch || tab.isClosed():
 		dropWrite = true
@@ -187,11 +187,11 @@ func (tab *Tab) restoreActorCarryLocked(prevCarry vterm.ParserCarryState, prevNo
 // rolled-back write is re-flushed before newer buffered output. Caller holds
 // tab.mu.
 func (tab *Tab) prependPendingOutputLocked(chunk []byte) {
-	restored := make([]byte, 0, len(chunk)+len(tab.pendingOutput))
+	restored := make([]byte, 0, len(chunk)+len(tab.PendingOutput))
 	restored = append(restored, chunk...)
-	restored = append(restored, tab.pendingOutput...)
-	tab.pendingOutput = restored
-	tab.pendingOutputBytes = len(tab.pendingOutput)
+	restored = append(restored, tab.PendingOutput...)
+	tab.PendingOutput = restored
+	tab.pendingOutputBytes = len(tab.PendingOutput)
 }
 
 // finalizeActorWriteLocked snapshots the parser carry/noise state after the last
@@ -199,11 +199,11 @@ func (tab *Tab) prependPendingOutputLocked(chunk []byte) {
 // Returns true when a follow-up flush should be requested. Caller holds tab.mu.
 func finalizeActorWriteLocked(tab *Tab) (requestFlush bool) {
 	tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
-	tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.ptyNoiseTrailing...)
+	tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.NoiseTrailing...)
 	if tab.parserResetPending {
 		tab.Terminal.ResetParserState()
 		tab.activityANSIState = ansiActivityText
-		tab.ptyNoiseTrailing = nil
+		tab.NoiseTrailing = nil
 		tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
 		tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
 		tab.parserResetPending = false

@@ -13,17 +13,19 @@ func TestUpdatePTYOutput_DoesNotExtendBootstrapOnEachChunk(t *testing.T) {
 	wsID := string(ws.ID())
 	bootstrapAt := time.Now().Add(-500 * time.Millisecond)
 	tab := &Tab{
-		ID:                    TabID("tab-1"),
-		Assistant:             "codex",
-		Workspace:             ws,
-		SessionName:           "amux-test-session",
-		Terminal:              vterm.New(80, 24),
-		Running:               true,
-		bootstrapActivity:     true,
-		bootstrapLastOutputAt: bootstrapAt,
+		ID:          TabID("tab-1"),
+		Assistant:   "codex",
+		Workspace:   ws,
+		SessionName: "amux-test-session",
+		Terminal:    vterm.New(80, 24),
+		Running:     true,
+		tabActivityState: tabActivityState{
+			bootstrapActivity:     true,
+			bootstrapLastOutputAt: bootstrapAt,
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYOutput(PTYOutput{

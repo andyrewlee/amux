@@ -14,7 +14,9 @@ func TestHandleTabDetached_PersistsSourceWorkspace(t *testing.T) {
 
 	app := &App{
 		activeWorkspace: active,
-		dirtyWorkspaces: map[string]bool{},
+		lifecycle: workspaceLifecycleState{
+			dirty: map[string]bool{},
+		},
 	}
 
 	cmd := app.handleTabDetached(messages.TabDetached{
@@ -24,10 +26,10 @@ func TestHandleTabDetached_PersistsSourceWorkspace(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected non-nil persist cmd")
 	}
-	if !app.dirtyWorkspaces[sourceWorkspaceID] {
+	if !app.lifecycle.dirty[sourceWorkspaceID] {
 		t.Fatalf("expected source workspace %q to be marked dirty", sourceWorkspaceID)
 	}
-	if app.dirtyWorkspaces[activeID] {
+	if app.lifecycle.dirty[activeID] {
 		t.Fatalf("did not expect active workspace %q to be marked dirty", activeID)
 	}
 }
@@ -38,14 +40,16 @@ func TestHandleTabDetached_FallsBackToActiveWorkspace(t *testing.T) {
 
 	app := &App{
 		activeWorkspace: active,
-		dirtyWorkspaces: map[string]bool{},
+		lifecycle: workspaceLifecycleState{
+			dirty: map[string]bool{},
+		},
 	}
 
 	cmd := app.handleTabDetached(messages.TabDetached{Index: 1})
 	if cmd == nil {
 		t.Fatal("expected non-nil persist cmd")
 	}
-	if !app.dirtyWorkspaces[activeID] {
+	if !app.lifecycle.dirty[activeID] {
 		t.Fatalf("expected active workspace %q to be marked dirty", activeID)
 	}
 }

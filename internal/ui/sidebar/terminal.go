@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -12,7 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -46,39 +45,18 @@ type TerminalState struct {
 	SessionName      string
 	mu               sync.Mutex
 
+	// ptyio.State holds the shared PTY buffering/reader/restart/snapshot
+	// bookkeeping (locking owned by mu, as documented on the type).
+	ptyio.State
+
 	// Track last size to avoid unnecessary resizes
 	lastWidth  int
 	lastHeight int
-
-	// PTY output buffering
-	pendingOutput     []byte
-	ptyNoiseTrailing  []byte
-	overflowTrimCarry vterm.ParserCarryState
-	flushScheduled    bool
-	lastOutputAt      time.Time
-	flushPendingSince time.Time
-	// Throttle + accumulator for the overflow-drop Warn (at most one per
-	// overflowLogThrottle with the aggregated dropped-byte count).
-	lastOverflowLogAt       time.Time
-	overflowDroppedSinceLog int
 
 	// Selection state
 	Selection          common.SelectionState
 	selectionScroll    common.SelectionScrollState
 	selectionLastTermX int
-
-	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
-	cachedSnap       *compositor.VTermSnapshot
-	cachedVersion    uint64
-	cachedShowCursor bool
-
-	readerActive      bool
-	ptyMsgCh          chan tea.Msg
-	readerCancel      chan struct{}
-	ptyRestartBackoff time.Duration
-	ptyHeartbeat      int64
-	ptyRestartCount   int
-	ptyRestartSince   time.Time
 }
 
 // terminalTabHitKind identifies the type of tab bar click target
@@ -108,10 +86,9 @@ type SidebarSelectionScrollTick struct {
 // TerminalModel is the Bubbletea model for the sidebar terminal section
 type TerminalModel struct {
 	// State per workspace - multiple tabs per workspace
-	tabsByWorkspace      map[string][]*TerminalTab
-	activeTabByWorkspace map[string]int
-	tabHits              []terminalTabHit // for mouse click handling
-	pendingCreation      map[string]bool  // tracks workspaces with tab creation in progress
+	tabs            common.TabSet[*TerminalTab]
+	tabHits         []terminalTabHit // for mouse click handling
+	pendingCreation map[string]bool  // tracks workspaces with tab creation in progress
 
 	// Current workspace
 	workspace *data.Workspace
@@ -138,11 +115,10 @@ type TerminalModel struct {
 // NewTerminalModel creates a new sidebar terminal model
 func NewTerminalModel() *TerminalModel {
 	return &TerminalModel{
-		tabsByWorkspace:      make(map[string][]*TerminalTab),
-		activeTabByWorkspace: make(map[string]int),
-		pendingCreation:      make(map[string]bool),
-		styles:               common.DefaultStyles(),
-		tmuxOpts:             tmux.DefaultOptions(),
+		tabs:            common.NewTabSet[*TerminalTab](),
+		pendingCreation: make(map[string]bool),
+		styles:          common.DefaultStyles(),
+		tmuxOpts:        tmux.DefaultOptions(),
 	}
 }
 
@@ -190,17 +166,17 @@ func (m *TerminalModel) setWorkspace(ws *data.Workspace) {
 
 // getTabs returns the tabs for the current workspace
 func (m *TerminalModel) getTabs() []*TerminalTab {
-	return m.tabsByWorkspace[m.workspaceID()]
+	return m.tabs.Tabs(m.workspaceID())
 }
 
 // getActiveTabIdx returns the active tab index for the current workspace
 func (m *TerminalModel) getActiveTabIdx() int {
-	return m.activeTabByWorkspace[m.workspaceID()]
+	return m.tabs.ActiveIdx(m.workspaceID())
 }
 
 // setActiveTabIdx sets the active tab index for the current workspace
 func (m *TerminalModel) setActiveTabIdx(idx int) {
-	m.activeTabByWorkspace[m.workspaceID()] = idx
+	m.tabs.SetActiveIdx(m.workspaceID(), idx)
 }
 
 // getActiveTab returns the active tab for the current workspace
@@ -224,7 +200,7 @@ func (m *TerminalModel) getTerminal() *TerminalState {
 
 // getTabByID returns the tab with the given ID, or nil if not found
 func (m *TerminalModel) getTabByID(wsID string, tabID TerminalTabID) *TerminalTab {
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab.ID == tabID {
 			return tab
 		}
@@ -248,33 +224,27 @@ func nextTerminalName(tabs []*TerminalTab) string {
 
 // NextTab switches to the next terminal tab (circular)
 func (m *TerminalModel) NextTab() {
-	tabs := m.getTabs()
-	if len(tabs) <= 1 {
+	if len(m.getTabs()) <= 1 {
 		return
 	}
-	idx := m.getActiveTabIdx()
-	idx = (idx + 1) % len(tabs)
-	m.setActiveTabIdx(idx)
-	m.refreshTerminalSize()
+	if _, ok := m.tabs.NextIdx(m.workspaceID()); ok {
+		m.refreshTerminalSize()
+	}
 }
 
 // PrevTab switches to the previous terminal tab (circular)
 func (m *TerminalModel) PrevTab() {
-	tabs := m.getTabs()
-	if len(tabs) <= 1 {
+	if len(m.getTabs()) <= 1 {
 		return
 	}
-	idx := m.getActiveTabIdx()
-	idx = (idx - 1 + len(tabs)) % len(tabs)
-	m.setActiveTabIdx(idx)
-	m.refreshTerminalSize()
+	if _, ok := m.tabs.PrevIdx(m.workspaceID()); ok {
+		m.refreshTerminalSize()
+	}
 }
 
 // SelectTab selects a tab by index
 func (m *TerminalModel) SelectTab(idx int) {
-	tabs := m.getTabs()
-	if idx >= 0 && idx < len(tabs) {
-		m.setActiveTabIdx(idx)
+	if m.tabs.SelectIdx(m.workspaceID(), idx) {
 		m.refreshTerminalSize()
 	}
 }
@@ -319,6 +289,6 @@ func (m *TerminalModel) setActiveTerminalCursorVisibility(visible bool) {
 	}
 	// Invalidate cached snapshot so focus transitions cannot reuse stale
 	// cursor-painted frames.
-	ts.cachedSnap = nil
-	ts.cachedVersion = 0
+	ts.CachedSnap = nil
+	ts.CachedVersion = 0
 }

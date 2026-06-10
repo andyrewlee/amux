@@ -52,16 +52,16 @@ func (a *App) markLocalWorkspaceSavePath(path string) {
 		return
 	}
 	now := time.Now()
-	a.localWorkspaceSaveMu.Lock()
-	if a.localWorkspaceSavesAt == nil {
-		a.localWorkspaceSavesAt = make(map[string]localWorkspaceSaveMarker)
+	a.lifecycle.localSaveMu.Lock()
+	if a.lifecycle.localSavesAt == nil {
+		a.lifecycle.localSavesAt = make(map[string]localWorkspaceSaveMarker)
 	}
-	pruneOldLocalWorkspaceSavesLocked(a.localWorkspaceSavesAt, now)
-	a.localWorkspaceSavesAt[normalized] = localWorkspaceSaveMarker{
+	pruneOldLocalWorkspaceSavesLocked(a.lifecycle.localSavesAt, now)
+	a.lifecycle.localSavesAt[normalized] = localWorkspaceSaveMarker{
 		at:          now,
 		fingerprint: fingerprint,
 	}
-	a.localWorkspaceSaveMu.Unlock()
+	a.lifecycle.localSaveMu.Unlock()
 }
 
 func (a *App) shouldSuppressWorkspaceReload(paths []string, now time.Time) bool {
@@ -78,14 +78,14 @@ func (a *App) shouldSuppressWorkspaceReload(paths []string, now time.Time) bool 
 	}
 	var toCheck []pathMarker
 
-	a.localWorkspaceSaveMu.Lock()
-	if len(a.localWorkspaceSavesAt) == 0 {
-		a.localWorkspaceSaveMu.Unlock()
+	a.lifecycle.localSaveMu.Lock()
+	if len(a.lifecycle.localSavesAt) == 0 {
+		a.lifecycle.localSaveMu.Unlock()
 		return false
 	}
-	pruneOldLocalWorkspaceSavesLocked(a.localWorkspaceSavesAt, now)
-	if len(a.localWorkspaceSavesAt) == 0 {
-		a.localWorkspaceSaveMu.Unlock()
+	pruneOldLocalWorkspaceSavesLocked(a.lifecycle.localSavesAt, now)
+	if len(a.lifecycle.localSavesAt) == 0 {
+		a.lifecycle.localSaveMu.Unlock()
 		return false
 	}
 	for _, raw := range paths {
@@ -93,19 +93,19 @@ func (a *App) shouldSuppressWorkspaceReload(paths []string, now time.Time) bool 
 		if path == "" {
 			continue
 		}
-		marker, ok := a.localWorkspaceSavesAt[path]
+		marker, ok := a.lifecycle.localSavesAt[path]
 		if !ok {
-			a.localWorkspaceSaveMu.Unlock()
+			a.lifecycle.localSaveMu.Unlock()
 			return false
 		}
 		delta := now.Sub(marker.at)
 		if delta < 0 || delta > localWorkspaceReloadSuppressWindow {
-			a.localWorkspaceSaveMu.Unlock()
+			a.lifecycle.localSaveMu.Unlock()
 			return false
 		}
 		toCheck = append(toCheck, pathMarker{path: path, marker: marker})
 	}
-	a.localWorkspaceSaveMu.Unlock()
+	a.lifecycle.localSaveMu.Unlock()
 
 	// Perform filesystem I/O outside the critical section.
 	for _, pm := range toCheck {

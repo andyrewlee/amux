@@ -1,15 +1,13 @@
 package sidebar
 
 import (
-	"sync/atomic"
-	"time"
+	"io"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -81,19 +79,19 @@ func (m *TerminalModel) createTerminalStateForTabWithSizeAndRefresh(
 	}
 
 	// ts already initialized above, just need tabs lookup
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	tab := &TerminalTab{
 		ID:    tabID,
 		Name:  nextTerminalName(tabs),
 		State: ts,
 	}
-	m.tabsByWorkspace[wsID] = append(tabs, tab)
+	m.tabs.ByWorkspace[wsID] = append(tabs, tab)
 
 	// Clear pending creation flag now that tab exists
 	delete(m.pendingCreation, wsID)
 
 	// Set as active tab (switch to new tab)
-	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
+	m.tabs.ActiveByWorkspace[wsID] = len(m.tabs.ByWorkspace[wsID]) - 1
 
 	if refresh {
 		m.refreshTerminalSize()
@@ -116,77 +114,45 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 		return nil
 	}
 	ts := tab.State
-	ts.mu.Lock()
-	if ts.readerActive {
-		if ts.ptyMsgCh == nil || ts.readerCancel == nil {
-			ts.readerActive = false
-		} else {
-			ts.mu.Unlock()
-			return nil
-		}
-	}
-	if ts.Terminal == nil || !ts.Running {
-		ts.readerActive = false
-		ts.mu.Unlock()
-		return nil
-	}
-
-	if ts.readerCancel != nil {
-		close(ts.readerCancel)
-	}
-	ts.readerCancel = make(chan struct{})
-	ts.ptyMsgCh = make(chan tea.Msg, ptyReadQueueSize)
-	ts.readerActive = true
-	ts.ptyRestartBackoff = 0
-	atomic.StoreInt64(&ts.ptyHeartbeat, time.Now().UnixNano())
-
-	term := ts.Terminal
-	cancel := ts.readerCancel
-	msgCh := ts.ptyMsgCh
-	ts.mu.Unlock()
-
-	safego.Go("sidebar.pty_reader", func() {
-		defer m.markPTYReaderStopped(ts)
-		ptyio.RunPTYReader(term, msgCh, cancel, &ts.ptyHeartbeat, ptyio.PTYReaderConfig{
+	ts.State.StartReader(&ts.mu, ptyio.StartReaderOptions{
+		AcquireTerm: func() io.Reader {
+			if ts.Terminal == nil || !ts.Running {
+				return nil
+			}
+			return ts.Terminal
+		},
+		Config: ptyio.PTYReaderConfig{
 			Label:           "sidebar.pty_read_loop",
 			ReadBufferSize:  ptyReadBufferSize,
 			ReadQueueSize:   ptyReadQueueSize,
 			FrameInterval:   ptyFrameInterval,
 			MaxPendingBytes: ptyMaxPendingBytes,
-		}, ptyio.PTYMsgFactory{
+		},
+		Factory: ptyio.PTYMsgFactory{
 			Output: func(data []byte) tea.Msg {
 				return messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Data: data}
 			},
 			Stopped: func(err error) tea.Msg {
 				return messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID), Err: err}
 			},
-		})
-	})
-	safego.Go("sidebar.pty_forward", func() {
-		m.forwardPTYMsgs(msgCh)
+		},
+		ReaderLabel:  "sidebar.pty_reader",
+		ForwardLabel: "sidebar.pty_forward",
+		Forward:      m.forwardPTYMsgs,
 	})
 	return nil
 }
 
 // StartPTYReaders ensures PTY readers are running for all tabs.
 func (m *TerminalModel) StartPTYReaders() tea.Cmd {
-	for wsID, tabs := range m.tabsByWorkspace {
+	for wsID, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil {
 				continue
 			}
-			ts := tab.State
-			if ts != nil {
-				ts.mu.Lock()
-				readerActive := ts.readerActive
-				ts.mu.Unlock()
-				if readerActive {
-					lastBeat := atomic.LoadInt64(&ts.ptyHeartbeat)
-					if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > ptyReaderStallTimeout {
-						logging.Warn("Sidebar PTY reader stalled for workspace %s tab %s; restarting", wsID, tab.ID)
-						m.stopPTYReader(ts)
-					}
-				}
+			if ts := tab.State; ts != nil && ts.State.ReaderStalled(&ts.mu, ptyReaderStallTimeout) {
+				logging.Warn("Sidebar PTY reader stalled for workspace %s tab %s; restarting", wsID, tab.ID)
+				m.stopPTYReader(ts)
 			}
 			_ = m.startPTYReader(wsID, tab.ID)
 		}
@@ -196,7 +162,7 @@ func (m *TerminalModel) StartPTYReaders() tea.Cmd {
 
 // CloseTerminal closes all terminal tabs for the given workspace
 func (m *TerminalModel) CloseTerminal(wsID string) {
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	for _, tab := range tabs {
 		if tab.State != nil {
 			m.stopPTYReader(tab.State)
@@ -205,18 +171,17 @@ func (m *TerminalModel) CloseTerminal(wsID string) {
 				tab.State.Terminal.Close()
 			}
 			tab.State.Running = false
-			tab.State.ptyRestartBackoff = 0
+			tab.State.RestartBackoff = 0
 			tab.State.mu.Unlock()
 		}
 	}
-	delete(m.tabsByWorkspace, wsID)
-	delete(m.activeTabByWorkspace, wsID)
+	m.tabs.DeleteWorkspace(wsID)
 	delete(m.pendingCreation, wsID)
 }
 
 // CloseAll closes all terminals
 func (m *TerminalModel) CloseAll() {
-	for wsID := range m.tabsByWorkspace {
+	for wsID := range m.tabs.ByWorkspace {
 		m.CloseTerminal(wsID)
 	}
 }
@@ -225,15 +190,7 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	if ts == nil {
 		return
 	}
-	ts.mu.Lock()
-	if ts.readerCancel != nil {
-		close(ts.readerCancel)
-		ts.readerCancel = nil
-	}
-	ts.readerActive = false
-	ts.ptyMsgCh = nil
-	ts.mu.Unlock()
-	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
+	ts.State.StopReader(&ts.mu)
 }
 
 func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
@@ -247,23 +204,12 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	ts.Running = false
 	ts.Detached = true
 	ts.UserDetached = userInitiated
-	ts.pendingOutput = nil
-	ts.ptyNoiseTrailing = nil
+	ts.PendingOutput = nil
+	ts.NoiseTrailing = nil
 	ts.mu.Unlock()
 	if term != nil {
 		term.Close()
 	}
-}
-
-func (m *TerminalModel) markPTYReaderStopped(ts *TerminalState) {
-	if ts == nil {
-		return
-	}
-	ts.mu.Lock()
-	ts.readerActive = false
-	ts.ptyMsgCh = nil
-	ts.mu.Unlock()
-	atomic.StoreInt64(&ts.ptyHeartbeat, 0)
 }
 
 // SendToTerminal sends a string directly to the current terminal

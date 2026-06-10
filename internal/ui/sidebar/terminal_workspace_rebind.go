@@ -20,7 +20,7 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		return nil
 	}
 
-	oldTabs, ok := m.tabsByWorkspace[oldID]
+	oldTabs, ok := m.tabs.ByWorkspace[oldID]
 	if !ok || len(oldTabs) == 0 {
 		if m.workspace != nil && string(m.workspace.ID()) == oldID {
 			m.workspace = current
@@ -32,7 +32,7 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		return nil
 	}
 
-	merged := common.RebindTabMaps(m.tabsByWorkspace, m.activeTabByWorkspace, oldID, newID,
+	merged := common.RebindTabMaps(m.tabs.ByWorkspace, m.tabs.ActiveByWorkspace, oldID, newID,
 		func(t *TerminalTab) TerminalTabID { return t.ID },
 		func(t *TerminalTab) bool { return t == nil })
 

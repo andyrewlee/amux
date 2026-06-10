@@ -14,7 +14,7 @@ func TestReattachPrependsScrollbackWhenCaptureExcludesScreen(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 
-	m.tabsByWorkspace[wsID] = []*TerminalTab{
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
 		{
 			ID: tabID,
 			State: &TerminalState{
@@ -24,7 +24,7 @@ func TestReattachPrependsScrollbackWhenCaptureExcludesScreen(t *testing.T) {
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	msg := SidebarTerminalReattachResult{
@@ -55,7 +55,7 @@ func TestReattachHistoryOnlyResizesExistingVTermBeforeRecordingSize(t *testing.T
 	tabID := generateTerminalTabID()
 	oldWidth, oldHeight := 6, 2
 
-	m.tabsByWorkspace[wsID] = []*TerminalTab{
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
 		{
 			ID: tabID,
 			State: &TerminalState{
@@ -68,7 +68,7 @@ func TestReattachHistoryOnlyResizesExistingVTermBeforeRecordingSize(t *testing.T
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	msg := SidebarTerminalReattachResult{
@@ -103,7 +103,7 @@ func TestReattachLoadsPaneCapture(t *testing.T) {
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 
-	m.tabsByWorkspace[wsID] = []*TerminalTab{
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
 		{
 			ID: tabID,
 			State: &TerminalState{
@@ -114,7 +114,7 @@ func TestReattachLoadsPaneCapture(t *testing.T) {
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	msg := SidebarTerminalReattachResult{
@@ -156,7 +156,7 @@ func TestReattachReconcilesPostAttachHistoryAfterFullPaneRestore(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 
-	m.tabsByWorkspace[wsID] = []*TerminalTab{
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
 		{
 			ID: tabID,
 			State: &TerminalState{
@@ -167,7 +167,7 @@ func TestReattachReconcilesPostAttachHistoryAfterFullPaneRestore(t *testing.T) {
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	msg := SidebarTerminalReattachResult{
@@ -237,7 +237,7 @@ func TestHandleTerminalCreated_LoadsPaneCaptureBeforeStartingReader(t *testing.T
 	if tab.State.VTerm.CursorX != 5 || tab.State.VTerm.CursorY != 2 {
 		t.Fatalf("expected explicit pane cursor to be restored, got (%d,%d)", tab.State.VTerm.CursorX, tab.State.VTerm.CursorY)
 	}
-	if tab.State.readerActive {
+	if tab.State.ReaderActive {
 		t.Fatal("expected reader not to start without a PTY terminal")
 	}
 }
@@ -284,7 +284,7 @@ func TestReattachBlankPaneCaptureClearsStaleFrame(t *testing.T) {
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 
-	m.tabsByWorkspace[wsID] = []*TerminalTab{
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
 		{
 			ID: tabID,
 			State: &TerminalState{
@@ -295,7 +295,7 @@ func TestReattachBlankPaneCaptureClearsStaleFrame(t *testing.T) {
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	msg := SidebarTerminalReattachResult{
@@ -338,7 +338,7 @@ func TestReattachPreservesExistingAltScreenStateWithoutSnapshotModes(t *testing.
 	term.SavedCursorY = 1
 	term.SavedStyle = vterm.Style{Bold: true}
 
-	m.tabsByWorkspace[wsID] = []*TerminalTab{
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
 		{
 			ID: tabID,
 			State: &TerminalState{
@@ -349,7 +349,7 @@ func TestReattachPreservesExistingAltScreenStateWithoutSnapshotModes(t *testing.
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	msg := SidebarTerminalReattachResult{

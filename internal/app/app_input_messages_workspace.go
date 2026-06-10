@@ -21,11 +21,12 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	// goroutines are in flight with no ordering, and an older one (started before
 	// a later delete's store.Delete completed) would otherwise overwrite a.projects
 	// and resurrect the deleted workspace. Zero-token messages apply (back-compat).
-	if msg.LoadToken != 0 && msg.LoadToken < a.lastAppliedProjectsLoadToken {
+	loadToken := projectsLoadToken(msg.LoadToken)
+	if loadToken != 0 && loadToken < a.lifecycle.lastAppliedProjectsLoadToken {
 		return nil
 	}
-	if msg.LoadToken > a.lastAppliedProjectsLoadToken {
-		a.lastAppliedProjectsLoadToken = msg.LoadToken
+	if loadToken > a.lifecycle.lastAppliedProjectsLoadToken {
+		a.lifecycle.lastAppliedProjectsLoadToken = loadToken
 	}
 	a.projects = msg.Projects
 	a.projectsLoaded = true
@@ -97,7 +98,7 @@ func (a *App) rebindActiveSelection() []tea.Cmd {
 			if shouldHydrateTabs && oldID != newID && hadPreviousWorkspaceState {
 				shouldHydrateTabs = false
 			}
-			if shouldHydrateTabs && a.dirtyWorkspaces != nil && a.dirtyWorkspaces[wsIDCurrent] {
+			if shouldHydrateTabs && a.lifecycle.dirty != nil && a.lifecycle.dirty[wsIDCurrent] {
 				shouldHydrateTabs = false
 			}
 			if shouldHydrateTabs {
@@ -369,7 +370,7 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 		pending := a.workspaceService.pendingWorkspace(msg.Project, name, base)
 		if pending != nil {
 			pending.Assistant = assistant
-			a.creatingWorkspaceIDs[string(pending.ID())] = true
+			a.lifecycle.markCreating(string(pending.ID()))
 			if cmd := a.dashboard.SetWorkspaceCreating(pending, true); cmd != nil {
 				cmds = append(cmds, cmd)
 			}

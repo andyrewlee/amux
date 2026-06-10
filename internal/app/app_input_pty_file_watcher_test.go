@@ -54,11 +54,13 @@ func TestHandleFileWatcherEvent_ActiveWorkspaceRequestsFullStatus(t *testing.T) 
 	}
 	stub := &fileWatcherGitStatusStub{}
 	app := &App{
-		gitStatus:            stub,
-		dashboard:            dashboard.New(),
-		activeWorkspace:      active,
-		dirtyWorkspaces:      make(map[string]bool),
-		creatingWorkspaceIDs: make(map[string]bool),
+		gitStatus:       stub,
+		dashboard:       dashboard.New(),
+		activeWorkspace: active,
+		lifecycle: workspaceLifecycleState{
+			dirty:  make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
+		},
 	}
 
 	cmds := app.handleFileWatcherEvent(messages.FileWatcherEvent{Root: active.Root})
@@ -95,11 +97,13 @@ func TestHandleFileWatcherEvent_InactiveWorkspaceRequestsFastStatus(t *testing.T
 	otherRoot := "/tmp/repo/ws-other"
 	stub := &fileWatcherGitStatusStub{}
 	app := &App{
-		gitStatus:            stub,
-		dashboard:            dashboard.New(),
-		activeWorkspace:      active,
-		dirtyWorkspaces:      make(map[string]bool),
-		creatingWorkspaceIDs: make(map[string]bool),
+		gitStatus:       stub,
+		dashboard:       dashboard.New(),
+		activeWorkspace: active,
+		lifecycle: workspaceLifecycleState{
+			dirty:  make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
+		},
 	}
 
 	cmds := app.handleFileWatcherEvent(messages.FileWatcherEvent{Root: otherRoot})
@@ -135,11 +139,13 @@ func TestHandleGitStatusTick_ActiveWorkspaceCacheMissRequestsFullStatus(t *testi
 	}
 	stub := &fileWatcherGitStatusStub{}
 	app := &App{
-		gitStatus:            stub,
-		dashboard:            dashboard.New(),
-		activeWorkspace:      active,
-		dirtyWorkspaces:      make(map[string]bool),
-		creatingWorkspaceIDs: make(map[string]bool),
+		gitStatus:       stub,
+		dashboard:       dashboard.New(),
+		activeWorkspace: active,
+		lifecycle: workspaceLifecycleState{
+			dirty:  make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
+		},
 	}
 
 	cmds := app.handleGitStatusTick()
@@ -179,11 +185,13 @@ func TestHandleGitStatusTick_ActiveWorkspaceCachedStatusSkipsRefresh(t *testing.
 		},
 	}
 	app := &App{
-		gitStatus:            stub,
-		dashboard:            dashboard.New(),
-		activeWorkspace:      active,
-		dirtyWorkspaces:      make(map[string]bool),
-		creatingWorkspaceIDs: make(map[string]bool),
+		gitStatus:       stub,
+		dashboard:       dashboard.New(),
+		activeWorkspace: active,
+		lifecycle: workspaceLifecycleState{
+			dirty:  make(map[string]bool),
+			phases: make(map[string]lifecyclePhase),
+		},
 	}
 
 	cmds := app.handleGitStatusTick()

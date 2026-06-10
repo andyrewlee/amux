@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/testutil"
@@ -33,19 +35,23 @@ func TestUpdatePTYFlush_StaleActorHeartbeatForcesParserResetFallback(t *testing.
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:                 TabID("tab-1"),
-		Assistant:          "codex",
-		Workspace:          ws,
-		Terminal:           vterm.New(80, 24),
-		Running:            true,
-		pendingOutput:      []byte("visible"),
-		lastOutputAt:       time.Now().Add(-time.Second),
-		flushPendingSince:  time.Now().Add(-time.Second),
-		parserResetPending: true,
-		actorWritesPending: 1,
+		ID:        TabID("tab-1"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  vterm.New(80, 24),
+		Running:   true,
+		State: ptyio.State{
+			PendingOutput:     []byte("visible"),
+			LastOutputAt:      time.Now().Add(-time.Second),
+			FlushPendingSince: time.Now().Add(-time.Second),
+		},
+		tabActorWriteState: tabActorWriteState{
+			parserResetPending: true,
+			actorWritesPending: 1,
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
@@ -56,10 +62,10 @@ func TestUpdatePTYFlush_StaleActorHeartbeatForcesParserResetFallback(t *testing.
 	if tab.actorWritesPending != 0 {
 		t.Fatalf("expected stale actor flush to clear actorWritesPending, got %d", tab.actorWritesPending)
 	}
-	if len(tab.pendingOutput) == 0 {
+	if len(tab.PendingOutput) == 0 {
 		t.Fatal("expected pending output to remain queued for the follow-up flush")
 	}
-	if !tab.flushScheduled {
+	if !tab.FlushScheduled {
 		t.Fatal("expected follow-up flush to be scheduled after stale actor fallback")
 	}
 }

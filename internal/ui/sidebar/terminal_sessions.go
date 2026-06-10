@@ -16,7 +16,7 @@ func (m *TerminalModel) tabBySession(wsID, sessionName string) *TerminalTab {
 	if sessionName == "" {
 		return nil
 	}
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab.State != nil && tab.State.SessionName == sessionName {
 			return tab
 		}
@@ -62,7 +62,7 @@ func (m *TerminalModel) AddTabsFromSessions(ws *data.Workspace, sessions []strin
 		tabID := generateTerminalTabID()
 		tab := &TerminalTab{
 			ID:   tabID,
-			Name: nextTerminalName(m.tabsByWorkspace[wsID]),
+			Name: nextTerminalName(m.tabs.ByWorkspace[wsID]),
 			State: &TerminalState{
 				SessionName:      sessionName,
 				Running:          false,
@@ -70,9 +70,9 @@ func (m *TerminalModel) AddTabsFromSessions(ws *data.Workspace, sessions []strin
 				reattachInFlight: true,
 			},
 		}
-		m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-		if len(m.tabsByWorkspace[wsID]) == 1 {
-			m.activeTabByWorkspace[wsID] = 0
+		m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
+		if len(m.tabs.ByWorkspace[wsID]) == 1 {
+			m.tabs.ActiveByWorkspace[wsID] = 0
 		}
 		cmds = append(cmds, m.attachToSession(ws, tabID, sessionName, true, "reattach"))
 	}
@@ -101,16 +101,16 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 		tabID := generateTerminalTabID()
 		tab := &TerminalTab{
 			ID:   tabID,
-			Name: nextTerminalName(m.tabsByWorkspace[wsID]),
+			Name: nextTerminalName(m.tabs.ByWorkspace[wsID]),
 			State: &TerminalState{
 				SessionName: session.Name,
 				Running:     false,
 				Detached:    true,
 			},
 		}
-		m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-		if len(m.tabsByWorkspace[wsID]) == 1 {
-			m.activeTabByWorkspace[wsID] = 0
+		m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
+		if len(m.tabs.ByWorkspace[wsID]) == 1 {
+			m.tabs.ActiveByWorkspace[wsID] = 0
 		}
 		if session.Attach {
 			if tab.State != nil {

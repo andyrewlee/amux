@@ -39,8 +39,8 @@ func setupScrollModel(t *testing.T) (*TerminalModel, *TerminalState) {
 		Name:  "Terminal 1",
 		State: ts,
 	}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	// width=80, height=26 → terminal viewport = 80x24 (minus tabBar=1, statusReserve=1)
 	m.width = 80
 	m.height = 26

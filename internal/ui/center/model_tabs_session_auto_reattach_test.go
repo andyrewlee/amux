@@ -18,8 +18,8 @@ func TestAutoReattachActiveTabOnSelection_SkipsAttachedTab(t *testing.T) {
 		Running:   true,
 		Detached:  false,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.autoReattachActiveTabOnSelection()
@@ -41,8 +41,8 @@ func TestAutoReattachActiveTabOnSelection_ReattachesDetachedTab(t *testing.T) {
 		Detached:    true,
 		SessionName: "sess-detached",
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.autoReattachActiveTabOnSelection()
@@ -71,8 +71,8 @@ func TestReattachActiveTab_SkipsAttachedNonAssistantTab(t *testing.T) {
 		Running:   true,
 		Detached:  false,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.ReattachActiveTab()
@@ -95,8 +95,8 @@ func TestReattachActiveTab_DeduplicatesInFlight(t *testing.T) {
 		reattachInFlight: true,
 		SessionName:      "sess-inflight",
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.ReattachActiveTab()
@@ -118,8 +118,8 @@ func TestReattachActiveTab_AllowsStoppedTab(t *testing.T) {
 		Detached:    false,
 		SessionName: "sess-stopped",
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.ReattachActiveTab()
@@ -149,8 +149,8 @@ func TestReattachActiveTab_ClearsInFlightOnFailureAndSuccess(t *testing.T) {
 		Detached:    true,
 		SessionName: "sess-unknown",
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.ReattachActiveTab()
@@ -184,8 +184,8 @@ func TestTabSelectionChangedCmd_SkipsNoOpSelection(t *testing.T) {
 		Workspace: ws,
 		Running:   true,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.tabSelectionChangedCmd(false)
@@ -211,8 +211,8 @@ func TestTabSelectionChangedCmd_RunsOnSelectionChange(t *testing.T) {
 		Workspace: ws,
 		Running:   true,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab1, tab2}
-	m.activeTabByWorkspace[wsID] = 1
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab1, tab2}
+	m.tabs.ActiveByWorkspace[wsID] = 1
 	m.workspace = ws
 
 	cmd := m.tabSelectionChangedCmd(true)

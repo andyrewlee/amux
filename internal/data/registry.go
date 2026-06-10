@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/andyrewlee/amux/internal/fsatomic"
 )
 
 // Registry manages the projects.json file for persistent project tracking
@@ -125,15 +127,7 @@ func (r *Registry) saveUnlocked(paths []string) error {
 		return err
 	}
 
-	tempPath := r.path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
-		return err
-	}
-	if err := replaceFile(tempPath, r.path); err != nil {
-		_ = os.Remove(tempPath)
-		return err
-	}
-	return nil
+	return fsatomic.WriteFile(r.path, data, 0o644)
 }
 
 // AddProject adds a project path to the registry

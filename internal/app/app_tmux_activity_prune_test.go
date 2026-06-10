@@ -12,12 +12,14 @@ import (
 // bounding the growth of sessionActivityStates.
 func TestApplyTmuxActivityPayload_PrunesRemovedStates(t *testing.T) {
 	app := &App{
-		sessionActivityStates: map[string]*activity.SessionState{
-			"keep": {Score: activity.ScoreThreshold},
-			"drop": {Score: activity.ScoreThreshold},
+		tmuxActivity: tmuxActivityState{
+			sessionStates: map[string]*activity.SessionState{
+				"keep": {Score: activity.ScoreThreshold},
+				"drop": {Score: activity.ScoreThreshold},
+			},
+			activeWorkspaceIDs: map[string]bool{},
 		},
-		tmuxActiveWorkspaceIDs: map[string]bool{},
-		dashboard:              dashboard.New(),
+		dashboard: dashboard.New(),
 	}
 
 	app.applyTmuxActivityPayload(tmuxActivityResult{
@@ -28,10 +30,10 @@ func TestApplyTmuxActivityPayload_PrunesRemovedStates(t *testing.T) {
 		RemovedStates: []string{"drop"},
 	})
 
-	if _, ok := app.sessionActivityStates["drop"]; ok {
+	if _, ok := app.tmuxActivity.sessionStates["drop"]; ok {
 		t.Fatal("expected pruned session state to be deleted")
 	}
-	state, ok := app.sessionActivityStates["keep"]
+	state, ok := app.tmuxActivity.sessionStates["keep"]
 	if !ok {
 		t.Fatal("expected kept session state to remain")
 	}
@@ -46,9 +48,11 @@ func TestApplyTmuxActivityPayload_PrunesRemovedStates(t *testing.T) {
 // lists pruned (omitted-from-updatedStates) sessions.
 func TestApplyTmuxActivityPayload_RemoveRunsAfterMerge(t *testing.T) {
 	app := &App{
-		sessionActivityStates:  map[string]*activity.SessionState{},
-		tmuxActiveWorkspaceIDs: map[string]bool{},
-		dashboard:              dashboard.New(),
+		tmuxActivity: tmuxActivityState{
+			sessionStates:      map[string]*activity.SessionState{},
+			activeWorkspaceIDs: map[string]bool{},
+		},
+		dashboard: dashboard.New(),
 	}
 
 	app.applyTmuxActivityPayload(tmuxActivityResult{
@@ -59,7 +63,7 @@ func TestApplyTmuxActivityPayload_RemoveRunsAfterMerge(t *testing.T) {
 		RemovedStates: []string{"x"},
 	})
 
-	if _, ok := app.sessionActivityStates["x"]; ok {
+	if _, ok := app.tmuxActivity.sessionStates["x"]; ok {
 		t.Fatal("expected removal to run after merge (delete wins)")
 	}
 }

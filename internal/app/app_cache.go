@@ -51,3 +51,34 @@ func (c *borderCache) get(x, y, width, height int) []*compositor.StringDrawable 
 	c.drawables = borderDrawables(x, y, width, height)
 	return c.drawables
 }
+
+// renderCacheState groups the chrome/drawable caches used by layer-based
+// rendering. Each cache is keyed on the inputs that produced it and reused
+// across frames until those inputs change.
+type renderCacheState struct {
+	dashboardChrome      *compositor.ChromeCache
+	centerChrome         *compositor.ChromeCache
+	sidebarChrome        *compositor.ChromeCache
+	dashboardContent     drawableCache
+	dashboardBorders     borderCache
+	sidebarTopTabBar     drawableCache
+	sidebarTopContent    drawableCache
+	sidebarBottomContent drawableCache
+	sidebarBottomTabBar  drawableCache
+	sidebarBottomStatus  drawableCache
+	sidebarBottomHelp    drawableCache
+	sidebarTopBorders    borderCache
+	sidebarBottomBorders borderCache
+	centerTabBar         drawableCache
+	centerStatus         drawableCache
+	centerHelp           drawableCache
+	centerBorders        borderCache
+}
+
+func newRenderCacheState() renderCacheState {
+	return renderCacheState{
+		dashboardChrome: &compositor.ChromeCache{},
+		centerChrome:    &compositor.ChromeCache{},
+		sidebarChrome:   &compositor.ChromeCache{},
+	}
+}

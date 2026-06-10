@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -22,8 +24,8 @@ func TestTerminalLayerRecomputesCachedBlankCornerPromptAfterRecentLocalInput(t *
 		Workspace: ws,
 		Terminal:  term,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -68,15 +70,17 @@ func TestTerminalLayerRecomputesCachedPromptWhenVisibleActivityEnds(t *testing.T
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-cached-activity-idle"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		lastVisibleOutput: time.Now(),
+		ID:        TabID("tab-chat-cached-activity-idle"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now(),
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -113,17 +117,19 @@ func TestTerminalLayerHidesBlankCornerArtifactWhileVisiblyActiveWithoutStoredCur
 	term.CursorY = 11
 	term.Screen[11][0] = vterm.Cell{Rune: ' ', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
-			ID:                TabID("tab-chat-active-corner-artifact"),
-			Assistant:         "codex",
-			Workspace:         ws,
-			Terminal:          term,
-			Running:           true,
-			lastVisibleOutput: time.Now(),
+			ID:        TabID("tab-chat-active-corner-artifact"),
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			Running:   true,
+			tabActivityState: tabActivityState{
+				lastVisibleOutput: time.Now(),
+			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -145,17 +151,19 @@ func TestTerminalLayerRestrictsMidScreenCursorDuringControlOnlyOutput(t *testing
 	term.CursorY = 4
 	term.Screen[4][4] = vterm.Cell{Rune: 'x', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
-			ID:           TabID("tab-chat-control-only-output"),
-			Assistant:    "codex",
-			Workspace:    ws,
-			Terminal:     term,
-			Running:      true,
-			lastOutputAt: time.Now(),
+			ID:        TabID("tab-chat-control-only-output"),
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			Running:   true,
+			State: ptyio.State{
+				LastOutputAt: time.Now(),
+			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -178,16 +186,20 @@ func TestTerminalLayerAllowsRecentLocalInputDespiteRecentControlOnlyOutput(t *te
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-control-only-local-edit"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		lastOutputAt:      time.Now(),
-		lastPromptInputAt: time.Now(),
+		ID:        TabID("tab-chat-control-only-local-edit"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
+		tabActivityState: tabActivityState{
+			lastPromptInputAt: time.Now(),
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -220,17 +232,21 @@ func TestTerminalLayerIgnoresRecentLocalEchoOutputAfterInputWindowExpires(t *tes
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-local-echo-expired"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		lastUserInputAt:   now.Add(-600 * time.Millisecond),
-		lastPromptInputAt: now.Add(-600 * time.Millisecond),
-		lastOutputAt:      now.Add(-550 * time.Millisecond),
+		ID:        TabID("tab-chat-local-echo-expired"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastUserInputAt:   now.Add(-600 * time.Millisecond),
+			lastPromptInputAt: now.Add(-600 * time.Millisecond),
+		},
+		State: ptyio.State{
+			LastOutputAt: now.Add(-550 * time.Millisecond),
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -255,18 +271,20 @@ func TestTerminalLayerPreservesRealBlockGlyphAtStoredCursorPosition(t *testing.T
 	term.CursorY = 0
 	term.Screen[11][3] = vterm.Cell{Rune: '█', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
-			ID:              TabID("tab-chat-stored-block-glyph"),
-			Assistant:       "codex",
-			Workspace:       ws,
-			Terminal:        term,
-			stableCursorSet: true,
-			stableCursorX:   3,
-			stableCursorY:   11,
+			ID:        TabID("tab-chat-stored-block-glyph"),
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			tabCursorState: tabCursorState{
+				stableCursorSet: true,
+				stableCursorX:   3,
+				stableCursorY:   11,
+			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -288,15 +306,17 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 	term.CursorY = 11
 
 	tab := &Tab{
-		ID:           TabID("tab-chat-anchor-update"),
-		Assistant:    "codex",
-		Workspace:    ws,
-		Terminal:     term,
-		Running:      true,
-		lastOutputAt: time.Now(),
+		ID:        TabID("tab-chat-anchor-update"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		State: ptyio.State{
+			LastOutputAt: time.Now(),
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -318,7 +338,7 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 	tab.mu.Unlock()
 
 	term.Write([]byte("a"))
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 	tab.lastUserInputAt = time.Now()
 	tab.lastPromptInputAt = tab.lastUserInputAt
 	second := m.TerminalLayer()
@@ -334,7 +354,7 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 	}
 
 	term.Write([]byte("\x1b[1;20H"))
-	tab.lastOutputAt = time.Now()
+	tab.LastOutputAt = time.Now()
 	tab.lastVisibleOutput = time.Now()
 	tab.lastUserInputAt = time.Now().Add(-localInputEchoSuppressWindow - time.Millisecond)
 	tab.lastPromptInputAt = tab.lastUserInputAt
@@ -350,7 +370,7 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 			second.Snap.CursorX, second.Snap.CursorY, third.Snap.CursorX, third.Snap.CursorY)
 	}
 
-	tab.lastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
+	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	tab.lastVisibleOutput = time.Now().Add(-tabActiveWindow - time.Millisecond)
 	fourth := m.TerminalLayer()
 	if fourth == nil || fourth.Snap == nil {
@@ -375,15 +395,17 @@ func TestTerminalLayerTreatsWrappedMultilinePromptAsInputSection(t *testing.T) {
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
 	tab := &Tab{
-		ID:                TabID("tab-chat-multiline-prompt"),
-		Assistant:         "codex",
-		Workspace:         ws,
-		Terminal:          term,
-		Running:           true,
-		lastVisibleOutput: time.Now().Add(-tabActiveWindow - time.Millisecond),
+		ID:        TabID("tab-chat-multiline-prompt"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+		tabActivityState: tabActivityState{
+			lastVisibleOutput: time.Now().Add(-tabActiveWindow - time.Millisecond),
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -414,17 +436,19 @@ func TestTerminalLayerKeepsVisiblyActiveChatCursorRestrictedToBottomInputBand(t 
 	term.CursorY = 10
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
-			ID:                TabID("tab-chat-running-midscreen-cursor"),
-			Assistant:         "codex",
-			Workspace:         ws,
-			Terminal:          term,
-			Running:           true,
-			lastVisibleOutput: time.Now(),
+			ID:        TabID("tab-chat-running-midscreen-cursor"),
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			Running:   true,
+			tabActivityState: tabActivityState{
+				lastVisibleOutput: time.Now(),
+			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 

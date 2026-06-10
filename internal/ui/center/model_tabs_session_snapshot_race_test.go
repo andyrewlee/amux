@@ -110,8 +110,8 @@ func TestReattachActiveTab_DiscardsPreAttachSnapshotWhenSessionRecreated(t *test
 		Detached:    true,
 	}
 	m.workspace = ws
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	msg := m.ReattachActiveTab()()
 	result, ok := msg.(ptyTabReattachResult)
@@ -348,8 +348,8 @@ func TestReattachActiveTab_DiscardsPreAttachSnapshotWhenSessionBecomesActive(t *
 		Detached:    true,
 	}
 	m.workspace = ws
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	msg := m.ReattachActiveTab()()
 	result, ok := msg.(ptyTabReattachResult)
@@ -462,8 +462,8 @@ func TestReattachActiveTab_DiscardsPreAttachSnapshotWhenSessionBecomesShared(t *
 		Detached:    true,
 	}
 	m.workspace = ws
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	msg := m.ReattachActiveTab()()
 	result, ok := msg.(ptyTabReattachResult)

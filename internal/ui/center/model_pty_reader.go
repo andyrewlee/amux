@@ -20,7 +20,7 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	if tab.Terminal != nil {
 		termWidth = tab.Terminal.Width
 		termHeight = tab.Terminal.Height
-		pendingLen = len(tab.pendingOutput)
+		pendingLen = len(tab.PendingOutput)
 	}
 	tab.mu.Unlock()
 
@@ -80,13 +80,13 @@ func (m *Model) busyPTYTabCount(now time.Time) int {
 		return m.cachedBusyTabCount
 	}
 	count := 0
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
 			tab.mu.Lock()
-			busy := tab.readerActive || len(tab.pendingOutput) > 0
+			busy := tab.ReaderActive || len(tab.PendingOutput) > 0
 			tab.mu.Unlock()
 			if busy {
 				count++

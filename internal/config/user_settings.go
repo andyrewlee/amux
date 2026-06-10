@@ -25,39 +25,32 @@ func defaultUISettings() UISettings {
 	}
 }
 
-func loadUISettings(path string) UISettings {
-	settings := defaultUISettings()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return settings
-	}
+// uiSettingsRaw is the on-disk shape of the "ui" config section. Pointer
+// fields distinguish "absent" from zero values.
+type uiSettingsRaw struct {
+	ShowKeymapHints  *bool   `json:"show_keymap_hints"`
+	Theme            *string `json:"theme"`
+	TmuxServer       *string `json:"tmux_server"`
+	TmuxConfigPath   *string `json:"tmux_config"`
+	TmuxSyncInterval *string `json:"tmux_sync_interval"`
+}
 
-	var raw struct {
-		UI struct {
-			ShowKeymapHints  *bool   `json:"show_keymap_hints"`
-			Theme            *string `json:"theme"`
-			TmuxServer       *string `json:"tmux_server"`
-			TmuxConfigPath   *string `json:"tmux_config"`
-			TmuxSyncInterval *string `json:"tmux_sync_interval"`
-		} `json:"ui"`
+// applyUISettings overlays the parsed config-file section onto the defaults.
+func applyUISettings(settings UISettings, raw uiSettingsRaw) UISettings {
+	if raw.ShowKeymapHints != nil {
+		settings.ShowKeymapHints = *raw.ShowKeymapHints
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return settings
+	if raw.Theme != nil {
+		settings.Theme = *raw.Theme
 	}
-	if raw.UI.ShowKeymapHints != nil {
-		settings.ShowKeymapHints = *raw.UI.ShowKeymapHints
+	if raw.TmuxServer != nil {
+		settings.TmuxServer = *raw.TmuxServer
 	}
-	if raw.UI.Theme != nil {
-		settings.Theme = *raw.UI.Theme
+	if raw.TmuxConfigPath != nil {
+		settings.TmuxConfigPath = *raw.TmuxConfigPath
 	}
-	if raw.UI.TmuxServer != nil {
-		settings.TmuxServer = *raw.UI.TmuxServer
-	}
-	if raw.UI.TmuxConfigPath != nil {
-		settings.TmuxConfigPath = *raw.UI.TmuxConfigPath
-	}
-	if raw.UI.TmuxSyncInterval != nil {
-		settings.TmuxSyncInterval = *raw.UI.TmuxSyncInterval
+	if raw.TmuxSyncInterval != nil {
+		settings.TmuxSyncInterval = *raw.TmuxSyncInterval
 	}
 	return settings
 }
@@ -103,5 +96,9 @@ func (c *Config) PersistedUISettings() UISettings {
 	if c == nil || c.Paths == nil {
 		return defaultUISettings()
 	}
-	return loadUISettings(c.Paths.ConfigPath)
+	file, err := readConfigFile(c.Paths.ConfigPath)
+	if err != nil {
+		return defaultUISettings()
+	}
+	return applyUISettings(defaultUISettings(), file.UI)
 }

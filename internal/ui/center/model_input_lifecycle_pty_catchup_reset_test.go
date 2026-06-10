@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -22,10 +24,12 @@ func TestUpdatePTYFlush_StaleCatchUpMessageIgnoredAfterReattachReset(t *testing.
 		Workspace:            ws,
 		Terminal:             vterm.New(80, 24),
 		catchUpPendingOutput: true,
-		pendingOutput:        []byte("old buffered output"),
+		State: ptyio.State{
+			PendingOutput: []byte("old buffered output"),
+		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
@@ -37,9 +41,9 @@ func TestUpdatePTYFlush_StaleCatchUpMessageIgnoredAfterReattachReset(t *testing.
 	})
 
 	payload := bytes.Repeat([]byte("x"), ptyFlushChunkSizeCatchUp+17)
-	tab.pendingOutput = append([]byte(nil), payload...)
-	tab.lastOutputAt = time.Now().Add(-time.Second)
-	tab.flushPendingSince = time.Now().Add(-time.Second)
+	tab.PendingOutput = append([]byte(nil), payload...)
+	tab.LastOutputAt = time.Now().Add(-time.Second)
+	tab.FlushPendingSince = time.Now().Add(-time.Second)
 
 	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID, CatchUp: true})
 

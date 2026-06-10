@@ -9,13 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/diff"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -63,18 +61,42 @@ type Tab struct {
 	closed           uint32
 	closing          uint32
 	Running          bool // Whether the agent is actively running
-	readerActive     bool // Guard to ensure only one PTY read loop per tab
-	// Buffer PTY output to avoid rendering partial screen updates.
 
-	pendingOutput          []byte
-	pendingOutputBytes     int
-	catchUpPendingOutput   bool
-	catchUpTargetBytes     uint64
-	ptyBytesReceived       uint64
-	ptyBytesSettled        uint64
-	ptyNoiseTrailing       []byte
-	flushScheduled         bool
-	lastOutputAt           time.Time
+	// ptyio.State holds the shared PTY buffering/reader/restart/snapshot
+	// bookkeeping (locking owned by mu, as documented on the type).
+	ptyio.State
+
+	pendingOutputBytes   int
+	catchUpPendingOutput bool
+	catchUpTargetBytes   uint64
+	ptyBytesReceived     uint64
+	ptyBytesSettled      uint64
+
+	// Embedded state groups; fields are promoted so accesses read the same as
+	// before the decomposition. Locking follows the same rule as the flat
+	// fields did: guarded by mu unless documented atomic.
+	tabActivityState
+	tabActorWriteState
+	tabCursorState
+
+	ptyRows int
+	ptyCols int
+	// Mouse selection state
+	Selection          common.SelectionState
+	selectionScroll    common.SelectionScrollState
+	selectionLastTermX int
+
+	ptyTraceFile   *os.File
+	ptyTraceBytes  int
+	ptyTraceClosed bool
+	lastFocusedAt  time.Time
+
+	createdAt int64 // Unix timestamp for ordering; persisted in workspace.json
+}
+
+// tabActivityState groups chat-activity detection state: visible-output
+// tracking, the activity digest, bootstrap windows and prompt timing.
+type tabActivityState struct {
 	lastVisibleOutput      time.Time
 	pendingVisibleOutput   bool
 	pendingVisibleSeq      uint64
@@ -86,44 +108,27 @@ type Tab struct {
 	lastUserInputAt        time.Time
 	bootstrapActivity      bool
 	bootstrapLastOutputAt  time.Time
-	flushPendingSince      time.Time
-	postWriteVisibleState  uint32
+	postWriteVisibleState  uint32 // atomic
 	lastPromptInputAt      time.Time
 	lastPromptSubmitAt     time.Time
 	pendingSubmitPasteEcho string
-	overflowTrimCarry      vterm.ParserCarryState
-	// Throttle + accumulator for the overflow-drop Warn so a sustained overflow
-	// logs at most once per overflowLogThrottle with the aggregated byte count.
-	lastOverflowLogAt        time.Time
-	overflowDroppedSinceLog  int
+}
+
+// tabActorWriteState groups the tab-actor write pipeline state: queued write
+// accounting and the parser carry/reset flow (see model_tab_phase.go for how
+// parserResetPending gates flushing).
+type tabActorWriteState struct {
 	parserResetPending       bool
 	actorWritesPending       int
 	actorQueuedBytes         int
 	actorWriteEpoch          uint64
 	actorQueuedCarry         vterm.ParserCarryState
 	actorQueuedNoiseTrailing []byte
-	ptyRows                  int
-	ptyCols                  int
-	ptyMsgCh                 chan tea.Msg
-	readerCancel             chan struct{}
-	// Mouse selection state
-	Selection          common.SelectionState
-	selectionScroll    common.SelectionScrollState
-	selectionLastTermX int
+}
 
-	ptyTraceFile      *os.File
-	ptyTraceBytes     int
-	ptyTraceClosed    bool
-	ptyRestartBackoff time.Duration
-	ptyHeartbeat      int64
-	ptyRestartCount   int
-	ptyRestartSince   time.Time
-	lastFocusedAt     time.Time
-
-	// Snapshot cache for VTermLayer - avoid recreating snapshot when terminal unchanged
-	cachedSnap               *compositor.VTermSnapshot
-	cachedVersion            uint64
-	cachedShowCursor         bool
+// tabCursorState groups cursor stabilization/refresh state used by the chat
+// cursor overlay.
+type tabCursorState struct {
 	cachedRecentLocalInput   bool
 	cachedRestrictCursor     bool
 	cursorRefreshGen         uint64
@@ -135,7 +140,6 @@ type Tab struct {
 	stableCursorVersion      uint64
 	lastRestrictedVersion    uint64
 	pendingIdleCursorRelearn bool
-	createdAt                int64 // Unix timestamp for ordering; persisted in workspace.json
 }
 
 func (t *Tab) isClosed() bool {
@@ -219,12 +223,12 @@ func (t *Tab) resetPTYStateLocked() {
 	if t == nil {
 		return
 	}
-	t.pendingOutput = nil
+	t.PendingOutput = nil
 	t.pendingOutputBytes = 0
 	t.clearCatchUpLocked()
 	t.ptyBytesReceived = 0
 	t.ptyBytesSettled = 0
-	t.ptyNoiseTrailing = nil
+	t.NoiseTrailing = nil
 	t.actorQueuedBytes = 0
 }
 
@@ -249,9 +253,9 @@ func (t *Tab) resetActorWriteStateLocked() {
 	t.actorWritesPending = 0
 	t.actorWriteEpoch++
 	t.clearCatchUpLocked()
-	t.pendingOutputBytes = len(t.pendingOutput)
-	t.overflowTrimCarry = vterm.ParserCarryState{}
-	t.ptyNoiseTrailing = nil
+	t.pendingOutputBytes = len(t.PendingOutput)
+	t.OverflowTrimCarry = vterm.ParserCarryState{}
+	t.NoiseTrailing = nil
 	t.actorQueuedNoiseTrailing = t.actorQueuedNoiseTrailing[:0]
 	t.actorQueuedCarry = t.Terminal.ParserCarryState()
 }
@@ -307,12 +311,12 @@ func (t *Tab) settlePTYBytesLocked(n int) (before, after bool) {
 
 // getTabs returns the tabs for the current workspace
 func (m *Model) getTabs() []*Tab {
-	return m.tabsByWorkspace[m.workspaceID()]
+	return m.tabs.ByWorkspace[m.workspaceID()]
 }
 
 // getTabByID returns the tab with the given ID, or nil if not found
 func (m *Model) getTabByID(wsID string, tabID TabID) *Tab {
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab.ID == tabID && !tab.isClosed() {
 			return tab
 		}
@@ -325,7 +329,7 @@ func (m *Model) getTabBySession(wsID, sessionName string) *Tab {
 	if sessionName == "" {
 		return nil
 	}
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab == nil || tab.isClosed() {
 			continue
 		}
@@ -341,7 +345,7 @@ func (m *Model) getTabBySession(wsID, sessionName string) *Tab {
 
 // getActiveTabIdx returns the active tab index for the current workspace
 func (m *Model) getActiveTabIdx() int {
-	return m.activeTabByWorkspace[m.workspaceID()]
+	return m.tabs.ActiveByWorkspace[m.workspaceID()]
 }
 
 // setActiveTabIdx sets the active tab index for the current workspace
@@ -353,13 +357,13 @@ func (m *Model) setActiveTabIdxForWorkspace(wsID string, idx int) {
 	if wsID == "" {
 		return
 	}
-	m.activeTabByWorkspace[wsID] = idx
+	m.tabs.ActiveByWorkspace[wsID] = idx
 	m.syncPostWriteVisibility()
 	m.markTabFocused(wsID, idx)
 }
 
 func (m *Model) markTabFocused(wsID string, idx int) {
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if idx < 0 || idx >= len(tabs) {
 		return
 	}
@@ -393,9 +397,9 @@ func (m *Model) syncPostWriteVisibility() {
 	activeWSID := m.workspaceID()
 	activeIdx := -1
 	if activeWSID != "" {
-		activeIdx = m.activeTabByWorkspace[activeWSID]
+		activeIdx = m.tabs.ActiveByWorkspace[activeWSID]
 	}
-	for wsID, tabs := range m.tabsByWorkspace {
+	for wsID, tabs := range m.tabs.ByWorkspace {
 		for idx, tab := range tabs {
 			if tab == nil || tab.isClosed() {
 				continue
@@ -408,9 +412,9 @@ func (m *Model) syncPostWriteVisibility() {
 // removeTab removes a tab at index from the current workspace
 func (m *Model) removeTab(idx int) {
 	wsID := m.workspaceID()
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if idx >= 0 && idx < len(tabs) {
-		m.tabsByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)
+		m.tabs.ByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)
 		m.noteTabsChanged()
 	}
 }
@@ -423,7 +427,7 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 	wsID := string(ws.ID())
 
 	// Close resources for each tab before removing
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		tab.markClosing()
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
@@ -435,15 +439,14 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 		tab.resetPTYStateLocked()
 		tab.DiffViewer = nil
 		tab.Terminal = nil
-		tab.cachedSnap = nil
+		tab.CachedSnap = nil
 		tab.Workspace = nil
 		tab.Running = false
 		tab.mu.Unlock()
 		tab.markClosed()
 	}
 
-	delete(m.tabsByWorkspace, wsID)
-	delete(m.activeTabByWorkspace, wsID)
+	m.tabs.DeleteWorkspace(wsID)
 	m.noteTabsChanged()
 
 	// Also cleanup agents for this workspace

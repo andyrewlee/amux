@@ -50,8 +50,8 @@ func TestPerfScenario(t *testing.T) {
 		Terminal:  vterm.New(120, 40),
 		Running:   true,
 	}
-	m.tabsByWorkspace[wtID] = []*Tab{tab}
-	m.activeTabByWorkspace[wtID] = 0
+	m.tabs.ByWorkspace[wtID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wtID] = 0
 	m.SetSize(120, 40)
 	m.SetOffset(0)
 	m.Focus()

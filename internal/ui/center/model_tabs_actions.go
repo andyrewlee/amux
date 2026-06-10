@@ -53,7 +53,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	// via CloseAgent() above; leaving the pointer intact is safe.
 	tab.DiffViewer = nil
 	tab.Terminal = nil
-	tab.cachedSnap = nil
+	tab.CachedSnap = nil
 	tab.Workspace = nil
 	tab.Running = false
 	tab.resetPTYStateLocked()
@@ -98,20 +98,16 @@ func (m *Model) hasActiveAgent() bool {
 
 // nextTab switches to the next tab
 func (m *Model) nextTab() {
-	tabs := m.getTabs()
-	if len(tabs) > 0 {
-		m.setActiveTabIdx((m.getActiveTabIdx() + 1) % len(tabs))
+	// TabSet owns the circular index math; setActiveTabIdx re-applies the
+	// index to run the center-specific side effects (focus + visibility sync).
+	if idx, ok := m.tabs.NextIdx(m.workspaceID()); ok {
+		m.setActiveTabIdx(idx)
 	}
 }
 
 // prevTab switches to the previous tab
 func (m *Model) prevTab() {
-	tabs := m.getTabs()
-	if len(tabs) > 0 {
-		idx := m.getActiveTabIdx() - 1
-		if idx < 0 {
-			idx = len(tabs) - 1
-		}
+	if idx, ok := m.tabs.PrevIdx(m.workspaceID()); ok {
 		m.setActiveTabIdx(idx)
 	}
 }
@@ -199,8 +195,7 @@ func (m *Model) SendToTerminal(s string) {
 		if err := agent.Terminal.SendString(s); err != nil {
 			logging.Warn("SendToTerminal failed for tab %s: %v", tab.ID, err)
 			tab.mu.Lock()
-			tab.Running = false
-			tab.Detached = true
+			tab.markDetachedLocked()
 			tab.mu.Unlock()
 		}
 	}
@@ -242,7 +237,7 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 // GetTabsInfoForWorkspace returns tab information for a specific workspace ID.
 func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 	var result []data.TabInfo
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	for _, tab := range tabs {
 		if tab == nil {
 			continue
@@ -269,13 +264,13 @@ func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 			CreatedAt:   tab.createdAt,
 		})
 	}
-	return result, m.activeTabByWorkspace[wsID]
+	return result, m.tabs.ActiveByWorkspace[wsID]
 }
 
 // HasWorkspaceState reports whether the model has tab state for a workspace.
 // True means tabs were explicitly managed (even if currently empty).
 func (m *Model) HasWorkspaceState(wsID string) bool {
-	_, ok := m.tabsByWorkspace[wsID]
+	_, ok := m.tabs.ByWorkspace[wsID]
 	return ok
 }
 

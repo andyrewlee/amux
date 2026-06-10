@@ -98,9 +98,7 @@ func TestFakeAgentRecordsRawCarriageReturn(t *testing.T) {
 		defer mu.Unlock()
 		return bytes.Contains(out.Bytes(), []byte("FAKEAGENT READY"))
 	}
-	if !waitForCond(bannerSeen, 5*time.Second) {
-		t.Fatal("fake agent never signaled readiness")
-	}
+	waitForCond(t, bannerSeen, 5*time.Second, "fake agent never signaled readiness")
 
 	// Deliver text + a literal CR the way amux delivers agent input. In raw mode
 	// the agent must record 0x0D, not a line-discipline-translated NL.
@@ -113,33 +111,4 @@ func TestFakeAgentRecordsRawCarriageReturn(t *testing.T) {
 	if !ok {
 		t.Fatalf("fake agent did not record raw bytes\n got: % x\nwant: % x", got, want)
 	}
-}
-
-// waitForCond polls cond until it is true or the timeout elapses.
-func waitForCond(cond func() bool, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return true
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return cond()
-}
-
-// waitForFileBytes polls path until it contains want, returning the last-read
-// contents and whether want was found.
-func waitForFileBytes(path string, want []byte, timeout time.Duration) ([]byte, bool) {
-	var last []byte
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if b, err := os.ReadFile(path); err == nil {
-			last = b
-			if bytes.Contains(b, want) {
-				return b, true
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return last, false
 }

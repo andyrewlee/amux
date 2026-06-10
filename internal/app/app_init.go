@@ -8,22 +8,61 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/supervisor"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/compositor"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/amux/internal/ui/theme"
 )
+
+// newAppShell constructs an App with its UI components built and wired in the
+// same order the real app uses, but with no services attached: no supervisor,
+// no watchers, no tmux/git/update services, and no background commands. New
+// layers the services on top; the headless harness uses the shell directly so
+// component construction and ordering changes are exercised by harness runs.
+func newAppShell(cfg *config.Config) *App {
+	// Explicit one-time package setup (no package init side effects): install
+	// the default theme and arm perf profiling from the environment.
+	theme.Init()
+	perf.Init()
+	app := &App{
+		config:               cfg,
+		layout:               layout.NewManager(),
+		dashboard:            dashboard.New(),
+		center:               center.New(cfg),
+		sidebar:              sidebar.NewTabbedSidebar(),
+		sidebarTerminal:      sidebar.NewTerminalModel(),
+		toast:                common.NewToastModel(),
+		focusedPane:          messages.PaneDashboard,
+		keymap:               DefaultKeyMap(),
+		renderCache:          newRenderCacheState(),
+		tmuxActivity:         newTmuxActivityState(),
+		lifecycle:            newWorkspaceLifecycleState(),
+		maxAttachedAgentTabs: maxAttachedAgentTabsFromEnv(),
+	}
+	app.styles = common.DefaultStyles()
+	// Propagate styles to all components (they may have been created with a
+	// different current theme).
+	app.dashboard.SetStyles(app.styles)
+	app.sidebar.SetStyles(app.styles)
+	app.sidebarTerminal.SetStyles(app.styles)
+	app.center.SetStyles(app.styles)
+	app.toast.SetStyles(app.styles)
+	if cfg != nil {
+		app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
+	}
+	return app
+}
 
 // New creates a new App instance.
 func New(version, commit, date string) (*App, error) {
@@ -83,46 +122,29 @@ func New(version, commit, date string) (*App, error) {
 		stateWatcher = nil
 	}
 
+	// Apply saved theme before creating components and styles.
+	common.SetCurrentTheme(common.ThemeID(cfg.UI.Theme))
+
 	ctx := context.Background()
-	app := &App{
-		config:                 cfg,
-		workspaceService:       workspaceService,
-		gitStatus:              gitStatus,
-		tmuxService:            tmuxSvc,
-		updateService:          updateSvc,
-		fileWatcher:            fileWatcher,
-		fileWatcherCh:          fileWatcherCh,
-		fileWatcherErr:         fileWatcherErr,
-		stateWatcher:           stateWatcher,
-		stateWatcherCh:         stateWatcherCh,
-		stateWatcherErr:        stateWatcherErr,
-		layout:                 layout.NewManager(),
-		dashboard:              dashboard.New(),
-		center:                 center.New(cfg),
-		sidebar:                sidebar.NewTabbedSidebar(),
-		sidebarTerminal:        sidebar.NewTerminalModel(),
-		toast:                  common.NewToastModel(),
-		focusedPane:            messages.PaneDashboard,
-		showWelcome:            true,
-		keymap:                 DefaultKeyMap(),
-		dashboardChrome:        &compositor.ChromeCache{},
-		centerChrome:           &compositor.ChromeCache{},
-		sidebarChrome:          &compositor.ChromeCache{},
-		version:                version,
-		commit:                 commit,
-		buildDate:              date,
-		externalMsgs:           make(chan tea.Msg, externalMsgBuffer),
-		externalCritical:       make(chan tea.Msg, externalCriticalBuffer),
-		ctx:                    ctx,
-		tmuxOptions:            tmuxOpts,
-		tmuxActiveWorkspaceIDs: make(map[string]bool),
-		sessionActivityStates:  make(map[string]*activity.SessionState),
-		dirtyWorkspaces:        make(map[string]bool),
-		deletingWorkspaceIDs:   make(map[string]bool),
-		localWorkspaceSavesAt:  make(map[string]localWorkspaceSaveMarker),
-		creatingWorkspaceIDs:   make(map[string]bool),
-		maxAttachedAgentTabs:   maxAttachedAgentTabsFromEnv(),
-	}
+	app := newAppShell(cfg)
+	app.workspaceService = workspaceService
+	app.gitStatus = gitStatus
+	app.tmuxService = tmuxSvc
+	app.updateService = updateSvc
+	app.fileWatcher = fileWatcher
+	app.fileWatcherCh = fileWatcherCh
+	app.fileWatcherErr = fileWatcherErr
+	app.stateWatcher = stateWatcher
+	app.stateWatcherCh = stateWatcherCh
+	app.stateWatcherErr = stateWatcherErr
+	app.showWelcome = true
+	app.version = version
+	app.commit = commit
+	app.buildDate = date
+	app.externalMsgs = make(chan tea.Msg, externalMsgBuffer)
+	app.externalCritical = make(chan tea.Msg, externalCriticalBuffer)
+	app.ctx = ctx
+	app.tmuxOptions = tmuxOpts
 	app.instanceID = newInstanceID()
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()
@@ -131,16 +153,6 @@ func New(version, commit, date string) (*App, error) {
 	app.sidebarTerminal.SetMsgSink(app.enqueueExternalMsg)
 	app.center.SetInstanceID(app.instanceID)
 	app.sidebarTerminal.SetInstanceID(app.instanceID)
-	// Apply saved theme before creating styles
-	common.SetCurrentTheme(common.ThemeID(cfg.UI.Theme))
-	app.styles = common.DefaultStyles()
-	// Propagate styles to all components (they were created with default theme)
-	app.dashboard.SetStyles(app.styles)
-	app.sidebar.SetStyles(app.styles)
-	app.sidebarTerminal.SetStyles(app.styles)
-	app.center.SetStyles(app.styles)
-	app.toast.SetStyles(app.styles)
-	app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	// Propagate tmux config to components
 	app.center.SetTmuxOptions(tmuxOpts)
 	app.sidebarTerminal.SetTmuxOptions(tmuxOpts)
@@ -256,8 +268,8 @@ func (a *App) startPTYWatchdog() tea.Cmd {
 
 // startTmuxSyncTicker returns a command that ticks for tmux session reconciliation.
 func (a *App) startTmuxSyncTicker() tea.Cmd {
-	a.tmuxSyncToken++
-	token := a.tmuxSyncToken
+	a.tmuxActivity.syncToken++
+	token := a.tmuxActivity.syncToken
 	return common.SafeTick(a.tmuxSyncInterval(), func(time.Time) tea.Msg {
 		return messages.TmuxSyncTick{Token: token}
 	})

@@ -15,7 +15,7 @@ const tabActiveWindow = 2 * time.Second
 
 // HasRunningAgents returns whether any tab has an active agent across workspaces.
 func (m *Model) HasRunningAgents() bool {
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab.isClosed() {
 				continue
@@ -34,7 +34,7 @@ func (m *Model) HasRunningAgents() bool {
 // HasActiveAgents returns whether any tab has emitted output recently.
 // This is used to drive UI activity indicators without relying on process liveness alone.
 func (m *Model) HasActiveAgents() bool {
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if m.IsTabActive(tab) {
 				return true
@@ -76,15 +76,15 @@ func isTabCursorOutputActiveLocked(tab *Tab, now time.Time) bool {
 	if tab == nil || tab.Detached || !tab.Running || tab.bootstrapActivity {
 		return false
 	}
-	if tab.lastOutputAt.IsZero() || now.Sub(tab.lastOutputAt) >= tabActiveWindow {
+	if tab.LastOutputAt.IsZero() || now.Sub(tab.LastOutputAt) >= tabActiveWindow {
 		return false
 	}
 	// Ignore output that is still attributable to the user's own recent edit.
 	// That prevents wrapped multiline prompts from becoming cursor-restricted
 	// after the short local-input window expires.
 	if !tab.lastUserInputAt.IsZero() &&
-		!tab.lastOutputAt.Before(tab.lastUserInputAt) &&
-		tab.lastOutputAt.Sub(tab.lastUserInputAt) <= localInputEchoSuppressWindow &&
+		!tab.LastOutputAt.Before(tab.lastUserInputAt) &&
+		tab.LastOutputAt.Sub(tab.lastUserInputAt) <= localInputEchoSuppressWindow &&
 		(tab.lastVisibleOutput.IsZero() || !tab.lastVisibleOutput.After(tab.lastUserInputAt)) {
 		return false
 	}
@@ -93,7 +93,7 @@ func isTabCursorOutputActiveLocked(tab *Tab, now time.Time) bool {
 
 // HasActiveAgentsInWorkspace returns whether any tab in a workspace is actively outputting.
 func (m *Model) HasActiveAgentsInWorkspace(wsID string) bool {
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if m.IsTabActive(tab) {
 			return true
 		}
@@ -104,7 +104,7 @@ func (m *Model) HasActiveAgentsInWorkspace(wsID string) bool {
 // GetActiveWorkspaceRoots returns all workspace root paths with active agents.
 func (m *Model) GetActiveWorkspaceRoots() []string {
 	var active []string
-	for wsID, tabs := range m.tabsByWorkspace {
+	for wsID, tabs := range m.tabs.ByWorkspace {
 		if m.HasActiveAgentsInWorkspace(wsID) {
 			// Get the root path from one of the tabs
 			for _, tab := range tabs {
@@ -121,7 +121,7 @@ func (m *Model) GetActiveWorkspaceRoots() []string {
 // GetActiveWorkspaceIDs returns all workspace IDs with active agents.
 func (m *Model) GetActiveWorkspaceIDs() []string {
 	var active []string
-	for wsID := range m.tabsByWorkspace {
+	for wsID := range m.tabs.ByWorkspace {
 		if m.HasActiveAgentsInWorkspace(wsID) {
 			active = append(active, wsID)
 		}
@@ -133,7 +133,7 @@ func (m *Model) GetActiveWorkspaceIDs() []string {
 // This includes agents that are running but idle (waiting at prompt).
 func (m *Model) GetRunningWorkspaceRoots() []string {
 	var running []string
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if !m.isChatTab(tab) {
 				continue
@@ -149,16 +149,16 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 
 // StartPTYReaders starts reading from all PTYs across all workspaces
 func (m *Model) StartPTYReaders() tea.Cmd {
-	for wtID, tabs := range m.tabsByWorkspace {
+	for wtID, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
 			tab.mu.Lock()
-			readerActive := tab.readerActive
+			readerActive := tab.ReaderActive
 			tab.mu.Unlock()
 			if readerActive {
-				lastBeat := atomic.LoadInt64(&tab.ptyHeartbeat)
+				lastBeat := atomic.LoadInt64(&tab.Heartbeat)
 				if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > ptyReaderStallTimeout {
 					logging.Warn("PTY reader stalled for tab %s; restarting", tab.ID)
 					m.stopPTYReader(tab)
@@ -223,15 +223,15 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	// Cache key: (version, showCursor, recentLocalInput, restrictCursor) for chat
 	// tabs. Both recent local input and recent PTY activity can change cursor
 	// policy without a PTY version bump.
-	if tab.cachedSnap != nil &&
-		tab.cachedVersion == version &&
-		tab.cachedShowCursor == showCursor &&
+	if tab.CachedSnap != nil &&
+		tab.CachedVersion == version &&
+		tab.CachedShowCursor == showCursor &&
 		(!isChat ||
 			(tab.cachedRecentLocalInput == recentLocalInput &&
 				tab.cachedRestrictCursor == restrictCursor)) {
 		// Reuse cached snapshot
 		perf.Count("vterm_snapshot_cache_hit", 1)
-		return compositor.NewVTermLayer(tab.cachedSnap)
+		return compositor.NewVTermLayer(tab.CachedSnap)
 	}
 
 	// Create new snapshot while holding the lock.
@@ -292,9 +292,9 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	perf.Count("vterm_snapshot_cache_miss", 1)
 
 	// Cache the snapshot
-	tab.cachedSnap = snap
-	tab.cachedVersion = version
-	tab.cachedShowCursor = showCursor
+	tab.CachedSnap = snap
+	tab.CachedVersion = version
+	tab.CachedShowCursor = showCursor
 	tab.cachedRecentLocalInput = recentLocalInput
 	tab.cachedRestrictCursor = restrictCursor
 

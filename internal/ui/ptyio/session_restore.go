@@ -45,7 +45,15 @@ func RestorePaneCapture(
 	if term.Width != restoreCols || term.Height != restoreRows {
 		term.Resize(restoreCols, restoreRows)
 	}
-	term.LoadPaneCaptureWithCursorAndModes(data, cursorX, cursorY, hasCursor, SessionRestorePaneModeState(mode))
+	term.LoadSnapshot(vterm.TerminalSnapshot{
+		Data:      data,
+		Cols:      restoreCols,
+		Rows:      restoreRows,
+		CursorX:   cursorX,
+		CursorY:   cursorY,
+		HasCursor: hasCursor,
+		ModeState: SessionRestorePaneModeState(mode),
+	})
 	if restoreCols != currentCols || restoreRows != currentRows {
 		prevScrollbackLen := len(term.Scrollback)
 		if mode.AltScreen && currentRows > restoreRows {
@@ -57,7 +65,11 @@ func RestorePaneCapture(
 			}
 		}
 	}
-	term.AppendScrollbackDeltaWithSize(postAttachScrollback, restoreCols, restoreRows, visibleHistoryRows)
+	term.AppendDelta(vterm.TerminalSnapshot{
+		Data: postAttachScrollback,
+		Cols: restoreCols,
+		Rows: restoreRows,
+	}, visibleHistoryRows)
 }
 
 func RestoreScrollbackCapture(
@@ -70,7 +82,10 @@ func RestoreScrollbackCapture(
 		return
 	}
 	term.ScrollViewToBottom()
-	term.PrependScrollbackWithSize(data, captureCols, captureRows)
+	// Restore lands on the live view; release any sync viewport anchor so a
+	// sync that ends right after restore does not re-scroll into history.
+	term.NoteSyncViewportInteraction()
+	term.PrependHistory(vterm.TerminalSnapshot{Data: data, Cols: captureCols, Rows: captureRows})
 	if currentCols > 0 && currentRows > 0 && (term.Width != currentCols || term.Height != currentRows) {
 		term.Resize(currentCols, currentRows)
 	}
@@ -86,4 +101,21 @@ func ResizeTerminalForSessionRestore(term *vterm.VTerm, cols, rows int) {
 		return
 	}
 	term.Resize(cols, rows)
+}
+
+// TerminalSnapshotFromPane converts a tmux pane snapshot into the vterm
+// snapshot type. tmux deliberately does not depend on vterm, so this boundary
+// conversion lives here; the missing-mode-state policy is made explicit the
+// same way SessionRestorePaneModeState does it (no tmux state → preserve the
+// terminal's existing modes).
+func TerminalSnapshotFromPane(snap tmux.PaneSnapshot) vterm.TerminalSnapshot {
+	return vterm.TerminalSnapshot{
+		Data:      snap.Data,
+		Cols:      snap.Cols,
+		Rows:      snap.Rows,
+		CursorX:   snap.CursorX,
+		CursorY:   snap.CursorY,
+		HasCursor: snap.HasCursor,
+		ModeState: SessionRestorePaneModeState(snap.ModeState),
+	}
 }

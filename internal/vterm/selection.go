@@ -72,7 +72,7 @@ func (v *VTerm) SetSelection(startX, startLine, endX, endLine int, active, rect 
 	v.selEndLine = endLine
 	v.selActive = active
 	v.selRect = rect
-	v.renderDirtyAll = true
+	v.renderGlobalEpoch = v.bumpRenderEpoch()
 	v.bumpVersion()
 }
 
@@ -83,7 +83,7 @@ func (v *VTerm) ClearSelection() {
 	}
 	v.selActive = false
 	v.selRect = false
-	v.renderDirtyAll = true
+	v.renderGlobalEpoch = v.bumpRenderEpoch()
 	v.bumpVersion()
 }
 
@@ -121,7 +121,7 @@ func (v *VTerm) shiftSelectionAfterTrim(trim int) {
 		prevStartLine != v.selStartLine ||
 		prevEndX != v.selEndX ||
 		prevEndLine != v.selEndLine {
-		v.renderDirtyAll = true
+		v.renderGlobalEpoch = v.bumpRenderEpoch()
 		v.bumpVersion()
 	}
 }

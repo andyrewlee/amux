@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/fsatomic"
+
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
@@ -170,13 +172,9 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 
-	// Write to temp file first, then rename for atomic operation
-	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
-		return fmt.Errorf("save workspace %s: %w", id, err)
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		os.Remove(tempPath) // Clean up temp file on rename failure
+	// Atomic replace (temp + fsync + rename) so a crash mid-save can never
+	// leave a truncated workspace.json behind.
+	if err := fsatomic.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 	if oldID != "" {

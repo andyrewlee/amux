@@ -2,7 +2,6 @@ package tmux
 
 import (
 	"strconv"
-	"strings"
 )
 
 func capturePaneSnapshotData(paneID string, opts Options) ([]byte, error) {
@@ -108,20 +107,20 @@ func paneSnapshotMetadataForPane(paneID string, opts Options) (paneSnapshotMetad
 		return paneSnapshotMetadata{}, err
 	}
 	for _, line := range parseOutputLines(output) {
-		parts := strings.Split(line, "\t")
-		if len(parts) < 12 || strings.TrimSpace(parts[0]) != paneID {
+		parts, err := parseTabFields(line, 12)
+		if err != nil || parts[0] != paneID {
 			continue
 		}
 		meta := paneSnapshotMetadata{}
-		cols, errCols := strconv.Atoi(strings.TrimSpace(parts[1]))
-		rows, errRows := strconv.Atoi(strings.TrimSpace(parts[2]))
+		cols, errCols := strconv.Atoi(parts[1])
+		rows, errRows := strconv.Atoi(parts[2])
 		if errCols == nil && errRows == nil && cols > 0 && rows > 0 {
 			meta.Cols = cols
 			meta.Rows = rows
 			meta.HasSize = true
 		}
-		cursorX, errCursorX := strconv.Atoi(strings.TrimSpace(parts[3]))
-		cursorY, errCursorY := strconv.Atoi(strings.TrimSpace(parts[4]))
+		cursorX, errCursorX := strconv.Atoi(parts[3])
+		cursorY, errCursorY := strconv.Atoi(parts[4])
 		if errCursorX == nil && errCursorY == nil {
 			meta.CursorX = cursorX
 			meta.CursorY = cursorY

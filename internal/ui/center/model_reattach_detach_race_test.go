@@ -23,8 +23,8 @@ func TestUpdatePtyTabReattachResult_RejectsResultForDetachedTab(t *testing.T) {
 		// ...which cleared the in-flight flag (detachTab does this).
 		reattachInFlight: false,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	staleAgent := &appPty.Agent{Workspace: ws, Session: "amux-ws-sess"}
 	m.updatePtyTabReattachResult(ptyTabReattachResult{
@@ -61,8 +61,8 @@ func TestUpdatePtyTabReattachResult_AppliesForLiveReattach(t *testing.T) {
 		Running:          false,
 		reattachInFlight: true, // a reattach IS in flight
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	agent := &appPty.Agent{Workspace: ws, Session: "amux-ws-sess"}
 	m.updatePtyTabReattachResult(ptyTabReattachResult{
@@ -94,8 +94,8 @@ func TestUpdatePtyTabReattachResult_AppliesForDetachedRestart(t *testing.T) {
 		Running:          false,
 		reattachInFlight: true,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	agent := &appPty.Agent{Workspace: ws, Session: "amux-ws-sess"}
 	m.updatePtyTabReattachResult(ptyTabReattachResult{
@@ -128,8 +128,8 @@ func TestRestartActiveTabMarksRestartInFlight(t *testing.T) {
 		Detached:    true,
 		Running:     false,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	cmd := m.RestartActiveTab()

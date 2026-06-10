@@ -236,7 +236,7 @@ func TestGcOrphanedTmuxSessions_SkipsDeleteInFlightOrphan(t *testing.T) {
 	app := newGCTestApp(ops)
 	// dead-ws is mid-delete and already absent from a.projects; orphan GC must
 	// treat it as known and leave its session for the orderly delete cleanup.
-	app.deletingWorkspaceIDs = map[string]bool{"dead-ws": true}
+	app.lifecycle.phases = map[string]lifecyclePhase{"dead-ws": lifecycleDeleting}
 
 	msg := app.gcOrphanedTmuxSessions()()
 	result, ok := msg.(orphanGCResult)

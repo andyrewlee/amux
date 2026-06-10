@@ -137,21 +137,33 @@ branch refs/heads/feature-branch
 }
 
 func TestIsBranchAlreadyExistsError(t *testing.T) {
-	err := errors.New("fatal: a branch named 'feature-a' already exists")
+	gitErr := func(stderr string) error {
+		return &Error{Command: "worktree add", ExitCode: 128, Stderr: stderr, Err: errors.New("exit status 128")}
+	}
+	err := gitErr("fatal: a branch named 'feature-a' already exists")
 	if !isBranchAlreadyExistsError(err, "feature-a") {
 		t.Fatalf("expected branch already exists error to match")
 	}
-	if !isBranchAlreadyExistsError(errors.New("fatal: a branch named `feature-a` already exists"), "feature-a") {
+	if !isBranchAlreadyExistsError(gitErr("fatal: a branch named `feature-a` already exists"), "feature-a") {
 		t.Fatalf("expected backtick-quoted branch error to match after normalization")
 	}
 	if isBranchAlreadyExistsError(err, "feature-b") {
 		t.Fatalf("expected non-matching branch name to return false")
 	}
-	if isBranchAlreadyExistsError(errors.New("fatal: branch lock failed"), "feature-a") {
+	if isBranchAlreadyExistsError(gitErr("fatal: branch lock failed"), "feature-a") {
 		t.Fatalf("expected unrelated branch error to return false")
 	}
-	if isBranchAlreadyExistsError(errors.New("fatal: already exists"), "") {
+	if isBranchAlreadyExistsError(gitErr("fatal: already exists"), "") {
 		t.Fatalf("expected empty branch name to return false")
+	}
+	// Unstructured errors never classify: the branch-exists decision flows
+	// through the structured Error's stderr/exit code only.
+	if isBranchAlreadyExistsError(errors.New("fatal: a branch named 'feature-a' already exists"), "feature-a") {
+		t.Fatalf("expected plain (non-*Error) error to return false")
+	}
+	// The branch name appearing only in the command line must not match.
+	if isBranchAlreadyExistsError(&Error{Command: "worktree add -b feature-a", ExitCode: 128, Stderr: "fatal: permission denied"}, "feature-a") {
+		t.Fatalf("expected command-line-only match to return false")
 	}
 }
 
@@ -171,7 +183,7 @@ func TestCreateWorkspace_RetryUsesFreshContext(t *testing.T) {
 			if got, want := strings.Join(args, " "), "worktree add -b feature-ws /tmp/ws HEAD"; got != want {
 				t.Fatalf("first call args = %q, want %q", got, want)
 			}
-			return "", errors.New("fatal: a branch named 'feature-ws' already exists")
+			return "", &Error{Command: "worktree add", ExitCode: 128, Stderr: "fatal: a branch named 'feature-ws' already exists", Err: errors.New("exit status 128")}
 		case 2:
 			if firstCtx == nil {
 				t.Fatalf("expected first context to be captured")

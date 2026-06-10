@@ -23,7 +23,7 @@ func TestReattach_UsesCaptureSizeBeforeResizingForHistoryOnly(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 
-	m.tabsByWorkspace[wsID] = []*TerminalTab{
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
 		{
 			ID: tabID,
 			State: &TerminalState{
@@ -34,7 +34,7 @@ func TestReattach_UsesCaptureSizeBeforeResizingForHistoryOnly(t *testing.T) {
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_, _ = m.Update(SidebarTerminalReattachResult{
@@ -245,8 +245,8 @@ func TestHandleReattachResult_UsesSnapshotSizeBeforeSidebarLayout(t *testing.T) 
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 	m.workspace = ws
-	m.tabsByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: &TerminalState{SessionName: "session-1"}}}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: &TerminalState{SessionName: "session-1"}}}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	var gotRows, gotCols uint16
 	setTerminalSizeFn = func(term *pty.Terminal, rows, cols uint16) error {

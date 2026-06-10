@@ -103,7 +103,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	sessionName := tab.SessionName
 	canReattach := detached || !running
 	if canReattach && !reattachInFlight {
-		tab.reattachInFlight = true
+		_ = tab.beginReattachLocked()
 	}
 	tab.mu.Unlock()
 	if !canReattach {
@@ -114,7 +114,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	}
 	if m.config == nil || m.config.Assistants == nil {
 		tab.mu.Lock()
-		tab.reattachInFlight = false
+		tab.endReattachLocked()
 		tab.mu.Unlock()
 		return func() tea.Msg {
 			return messages.Toast{
@@ -125,7 +125,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	}
 	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
 		tab.mu.Lock()
-		tab.reattachInFlight = false
+		tab.endReattachLocked()
 		tab.mu.Unlock()
 		return func() tea.Msg {
 			return messages.Toast{
@@ -289,7 +289,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		sessionName = tab.Agent.Session
 	}
 	if !running && !reattachInFlight {
-		tab.reattachInFlight = true
+		_ = tab.beginReattachLocked()
 	}
 	tab.mu.Unlock()
 	if running {

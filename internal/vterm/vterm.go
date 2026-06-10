@@ -37,12 +37,9 @@ type VTerm struct {
 	// AllowAltScreenScrollback keeps scrollback active even in alt screen.
 	// Useful for tmux-backed sessions where scrollback should remain available.
 	AllowAltScreenScrollback bool
-	// altScreenCaptureLen tracks the full reserved frame length in scrollback.
-	altScreenCaptureLen int
-	// altScreenCaptureDropLen tracks the removable suffix for the reserved frame.
-	altScreenCaptureDropLen   int
-	altScreenCaptureTracked   bool
-	altScreenCaptureEndOffset int
+	// altCapture tracks the alt-screen frame currently reserved in scrollback
+	// (see altScreenCaptureState).
+	altCapture altScreenCaptureState
 	// altScreenRestorePending tracks a freshly restored alt-screen frame until
 	// the first attached clear-screen redraw so it is not re-captured as new
 	// scrollback.
@@ -107,9 +104,14 @@ type VTerm struct {
 	syncPreserveViewport bool
 
 	// Render cache for live screen (ViewOffset == 0)
-	renderCache    []string
-	renderDirty    []bool
-	renderDirtyAll bool
+	renderCache []string
+	// Epoch-based dirty tracking (see cache.go): a line is dirty when its
+	// epoch (or the global epoch) is newer than the last clear.
+	renderEpoch        uint64
+	renderLineEpoch    []uint64
+	renderGlobalEpoch  uint64
+	renderCleanEpoch   uint64
+	renderDirtyScratch []bool
 
 	// Version counter for snapshot caching - increments on visible content/cursor changes.
 	// UI-driven cursor visibility (ShowCursor) is handled by the snapshot cache key.
@@ -197,12 +199,12 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 	if height > oldHeight && revealHistoryOnGrow && v.scrollbackEnabled() && v.ViewOffset == 0 {
 		added := height - oldHeight
 		restore := added
-		reserved := v.altScreenCaptureLen + v.altScreenCaptureEndOffset
+		reserved := v.altCapture.frameLen + v.altCapture.endOffset
 		if reserved > len(v.Scrollback) {
 			reserved = 0
-			v.altScreenCaptureLen = 0
-			v.altScreenCaptureTracked = false
-			v.altScreenCaptureEndOffset = 0
+			v.altCapture.frameLen = 0
+			v.altCapture.tracked = false
+			v.altCapture.endOffset = 0
 		}
 		available := len(v.Scrollback) - reserved
 		if restore > available {

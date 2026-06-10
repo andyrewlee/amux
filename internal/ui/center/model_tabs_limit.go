@@ -35,7 +35,7 @@ func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) ([]DetachedTabInfo
 
 	attachedCount := 0
 	candidates := make([]attachedTabCandidate, 0)
-	for wsID, tabs := range m.tabsByWorkspace {
+	for wsID, tabs := range m.tabs.ByWorkspace {
 		for idx, tab := range tabs {
 			if tab == nil || tab.isClosed() || !m.isChatTab(tab) {
 				continue

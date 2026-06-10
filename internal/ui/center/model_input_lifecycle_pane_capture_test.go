@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -40,7 +42,7 @@ func TestUpdatePtyTabReattachResult_NormalizesCapturedPaneLFForChatTabs(t *testi
 		Assistant: "codex",
 		Workspace: ws,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -67,14 +69,16 @@ func TestUpdatePtyTabReattachResult_LoadsPaneCaptureIntoVisibleScreen(t *testing
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 	tab := &Tab{
-		ID:            TabID("tab-reattach-pane-capture"),
-		Assistant:     "codex",
-		Workspace:     ws,
-		Terminal:      term,
-		pendingOutput: []byte("buffered"),
+		ID:        TabID("tab-reattach-pane-capture"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 	}
-	tab.pendingOutputBytes = len(tab.pendingOutput)
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	tab.pendingOutputBytes = len(tab.PendingOutput)
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -101,8 +105,8 @@ func TestUpdatePtyTabReattachResult_LoadsPaneCaptureIntoVisibleScreen(t *testing
 	if got := tab.Terminal.Screen[1][0].Rune; got != 's' {
 		t.Fatalf("expected second visible row to start with screen data, got %q", got)
 	}
-	if len(tab.pendingOutput) != 0 || tab.pendingOutputBytes != 0 {
-		t.Fatalf("expected full-pane restore to clear preserved PTY backlog, got %q (%d bytes)", tab.pendingOutput, tab.pendingOutputBytes)
+	if len(tab.PendingOutput) != 0 || tab.pendingOutputBytes != 0 {
+		t.Fatalf("expected full-pane restore to clear preserved PTY backlog, got %q (%d bytes)", tab.PendingOutput, tab.pendingOutputBytes)
 	}
 }
 
@@ -116,7 +120,7 @@ func TestUpdatePtyTabReattachResult_ReconcilesPostAttachHistoryAfterFullPaneRest
 		Workspace: ws,
 		Terminal:  vterm.New(20, 2),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:                 wsID,
@@ -154,7 +158,7 @@ func TestUpdatePtyTabReattachResult_ResizesExistingTerminalBeforeFullPaneRestore
 		Workspace: ws,
 		Terminal:  term,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -187,14 +191,16 @@ func TestUpdatePtyTabReattachResult_NonAuthoritativeEmptyCapturePreservesExistin
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 	tab := &Tab{
-		ID:            TabID("tab-reattach-snapshot-fallback"),
-		Assistant:     "codex",
-		Workspace:     ws,
-		Terminal:      term,
-		pendingOutput: []byte("buffered"),
+		ID:        TabID("tab-reattach-snapshot-fallback"),
+		Assistant: "codex",
+		Workspace: ws,
+		Terminal:  term,
+		State: ptyio.State{
+			PendingOutput: []byte("buffered"),
+		},
 	}
-	tab.pendingOutputBytes = len(tab.pendingOutput)
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	tab.pendingOutputBytes = len(tab.PendingOutput)
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID: wsID,
@@ -216,8 +222,8 @@ func TestUpdatePtyTabReattachResult_NonAuthoritativeEmptyCapturePreservesExistin
 	if got := tab.Terminal.Screen[0][0].Rune; got != 's' {
 		t.Fatalf("expected existing visible frame to remain untouched, got %q", got)
 	}
-	if len(tab.pendingOutput) != len([]byte("buffered")) || tab.pendingOutputBytes != len([]byte("buffered")) {
-		t.Fatalf("expected non-authoritative fallback to preserve PTY backlog, got %q (%d bytes)", tab.pendingOutput, tab.pendingOutputBytes)
+	if len(tab.PendingOutput) != len([]byte("buffered")) || tab.pendingOutputBytes != len([]byte("buffered")) {
+		t.Fatalf("expected non-authoritative fallback to preserve PTY backlog, got %q (%d bytes)", tab.PendingOutput, tab.pendingOutputBytes)
 	}
 }
 
@@ -236,7 +242,7 @@ func TestUpdatePtyTabReattachResult_PreservesExistingAltScreenStateWithoutSnapsh
 		Workspace: ws,
 		Terminal:  term,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -282,7 +288,7 @@ func TestHandlePtyTabCreated_NewTabNormalizesCapturedPaneLFForChatTabs(t *testin
 		CaptureFullPane:   true,
 	})
 
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if len(tabs) != 1 {
 		t.Fatalf("expected 1 tab, got %d", len(tabs))
 	}
@@ -312,7 +318,7 @@ func TestHandlePtyTabCreated_LoadsPaneCaptureIntoVisibleScreen(t *testing.T) {
 		CaptureFullPane:   true,
 	})
 
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if len(tabs) != 1 {
 		t.Fatalf("expected 1 tab, got %d", len(tabs))
 	}
@@ -338,17 +344,19 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 	tabID := TabID("tab-existing-pane-capture")
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
-			ID:            tabID,
-			Name:          "codex",
-			Assistant:     "codex",
-			Workspace:     ws,
-			Terminal:      term,
-			pendingOutput: []byte("buffered"),
+			ID:        tabID,
+			Name:      "codex",
+			Assistant: "codex",
+			Workspace: ws,
+			Terminal:  term,
+			State: ptyio.State{
+				PendingOutput: []byte("buffered"),
+			},
 		},
 	}
-	m.tabsByWorkspace[wsID][0].pendingOutputBytes = len(m.tabsByWorkspace[wsID][0].pendingOutput)
+	m.tabs.ByWorkspace[wsID][0].pendingOutputBytes = len(m.tabs.ByWorkspace[wsID][0].PendingOutput)
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
 		Workspace:         ws,
@@ -362,7 +370,7 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 		CaptureFullPane:   true,
 	})
 
-	tab := m.tabsByWorkspace[wsID][0]
+	tab := m.tabs.ByWorkspace[wsID][0]
 	if tab.Terminal == nil {
 		t.Fatal("expected terminal to be preserved")
 	}
@@ -378,8 +386,8 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 	if got := tab.Terminal.Screen[1][0].Rune; got != 's' {
 		t.Fatalf("expected second visible row to start with screen data, got %q", got)
 	}
-	if len(tab.pendingOutput) != 0 || tab.pendingOutputBytes != 0 {
-		t.Fatalf("expected full-pane restore to clear preserved PTY backlog, got %q (%d bytes)", tab.pendingOutput, tab.pendingOutputBytes)
+	if len(tab.PendingOutput) != 0 || tab.pendingOutputBytes != 0 {
+		t.Fatalf("expected full-pane restore to clear preserved PTY backlog, got %q (%d bytes)", tab.PendingOutput, tab.pendingOutputBytes)
 	}
 }
 
@@ -389,7 +397,7 @@ func TestHandlePtyTabCreated_ResizesExistingTerminalBeforeFullPaneRestore(t *tes
 	wsID := string(ws.ID())
 	term := vterm.New(4, 2)
 	tabID := TabID("tab-existing-pane-resize")
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        tabID,
 			Name:      "codex",
@@ -411,7 +419,7 @@ func TestHandlePtyTabCreated_ResizesExistingTerminalBeforeFullPaneRestore(t *tes
 		CaptureFullPane:   true,
 	})
 
-	tab := m.tabsByWorkspace[wsID][0]
+	tab := m.tabs.ByWorkspace[wsID][0]
 	if tab.Terminal == nil {
 		t.Fatal("expected terminal to be preserved")
 	}
