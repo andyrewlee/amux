@@ -19,7 +19,7 @@ func (m *TerminalModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	}
 
 	wsID := m.workspaceID()
-	if len(m.tabsByWorkspace[wsID]) > 0 {
+	if len(m.tabs.ByWorkspace[wsID]) > 0 {
 		// Tabs already exist for this workspace
 		m.refreshTerminalSize()
 		return nil
@@ -95,14 +95,14 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 	}
 
 	// Remove tab from slice
-	m.tabsByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)
+	m.tabs.ByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)
 
 	// Adjust active index
-	newLen := len(m.tabsByWorkspace[wsID])
+	newLen := len(m.tabs.ByWorkspace[wsID])
 	if newLen == 0 {
-		m.activeTabByWorkspace[wsID] = 0
+		m.tabs.ActiveByWorkspace[wsID] = 0
 	} else if idx >= newLen {
-		m.activeTabByWorkspace[wsID] = newLen - 1
+		m.tabs.ActiveByWorkspace[wsID] = newLen - 1
 	}
 
 	m.refreshTerminalSize()
@@ -143,7 +143,7 @@ func (m *TerminalModel) AddTerminalForHarness(ws *data.Workspace) {
 	}
 	m.setWorkspace(ws)
 	wsID := m.workspaceID()
-	if len(m.tabsByWorkspace[wsID]) > 0 {
+	if len(m.tabs.ByWorkspace[wsID]) > 0 {
 		return
 	}
 	termWidth, termHeight := m.TerminalSize()
@@ -159,8 +159,8 @@ func (m *TerminalModel) AddTerminalForHarness(ws *data.Workspace) {
 			lastHeight: termHeight,
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*TerminalTab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 }
 
 // WriteToTerminal writes bytes to the active terminal while holding the lock.

@@ -86,10 +86,9 @@ type SidebarSelectionScrollTick struct {
 // TerminalModel is the Bubbletea model for the sidebar terminal section
 type TerminalModel struct {
 	// State per workspace - multiple tabs per workspace
-	tabsByWorkspace      map[string][]*TerminalTab
-	activeTabByWorkspace map[string]int
-	tabHits              []terminalTabHit // for mouse click handling
-	pendingCreation      map[string]bool  // tracks workspaces with tab creation in progress
+	tabs            common.TabSet[*TerminalTab]
+	tabHits         []terminalTabHit // for mouse click handling
+	pendingCreation map[string]bool  // tracks workspaces with tab creation in progress
 
 	// Current workspace
 	workspace *data.Workspace
@@ -116,11 +115,10 @@ type TerminalModel struct {
 // NewTerminalModel creates a new sidebar terminal model
 func NewTerminalModel() *TerminalModel {
 	return &TerminalModel{
-		tabsByWorkspace:      make(map[string][]*TerminalTab),
-		activeTabByWorkspace: make(map[string]int),
-		pendingCreation:      make(map[string]bool),
-		styles:               common.DefaultStyles(),
-		tmuxOpts:             tmux.DefaultOptions(),
+		tabs:            common.NewTabSet[*TerminalTab](),
+		pendingCreation: make(map[string]bool),
+		styles:          common.DefaultStyles(),
+		tmuxOpts:        tmux.DefaultOptions(),
 	}
 }
 
@@ -168,17 +166,17 @@ func (m *TerminalModel) setWorkspace(ws *data.Workspace) {
 
 // getTabs returns the tabs for the current workspace
 func (m *TerminalModel) getTabs() []*TerminalTab {
-	return m.tabsByWorkspace[m.workspaceID()]
+	return m.tabs.Tabs(m.workspaceID())
 }
 
 // getActiveTabIdx returns the active tab index for the current workspace
 func (m *TerminalModel) getActiveTabIdx() int {
-	return m.activeTabByWorkspace[m.workspaceID()]
+	return m.tabs.ActiveIdx(m.workspaceID())
 }
 
 // setActiveTabIdx sets the active tab index for the current workspace
 func (m *TerminalModel) setActiveTabIdx(idx int) {
-	m.activeTabByWorkspace[m.workspaceID()] = idx
+	m.tabs.SetActiveIdx(m.workspaceID(), idx)
 }
 
 // getActiveTab returns the active tab for the current workspace
@@ -202,7 +200,7 @@ func (m *TerminalModel) getTerminal() *TerminalState {
 
 // getTabByID returns the tab with the given ID, or nil if not found
 func (m *TerminalModel) getTabByID(wsID string, tabID TerminalTabID) *TerminalTab {
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab.ID == tabID {
 			return tab
 		}
@@ -226,33 +224,27 @@ func nextTerminalName(tabs []*TerminalTab) string {
 
 // NextTab switches to the next terminal tab (circular)
 func (m *TerminalModel) NextTab() {
-	tabs := m.getTabs()
-	if len(tabs) <= 1 {
+	if len(m.getTabs()) <= 1 {
 		return
 	}
-	idx := m.getActiveTabIdx()
-	idx = (idx + 1) % len(tabs)
-	m.setActiveTabIdx(idx)
-	m.refreshTerminalSize()
+	if _, ok := m.tabs.NextIdx(m.workspaceID()); ok {
+		m.refreshTerminalSize()
+	}
 }
 
 // PrevTab switches to the previous terminal tab (circular)
 func (m *TerminalModel) PrevTab() {
-	tabs := m.getTabs()
-	if len(tabs) <= 1 {
+	if len(m.getTabs()) <= 1 {
 		return
 	}
-	idx := m.getActiveTabIdx()
-	idx = (idx - 1 + len(tabs)) % len(tabs)
-	m.setActiveTabIdx(idx)
-	m.refreshTerminalSize()
+	if _, ok := m.tabs.PrevIdx(m.workspaceID()); ok {
+		m.refreshTerminalSize()
+	}
 }
 
 // SelectTab selects a tab by index
 func (m *TerminalModel) SelectTab(idx int) {
-	tabs := m.getTabs()
-	if idx >= 0 && idx < len(tabs) {
-		m.setActiveTabIdx(idx)
+	if m.tabs.SelectIdx(m.workspaceID(), idx) {
 		m.refreshTerminalSize()
 	}
 }

@@ -30,8 +30,8 @@ func TestUpdateKeyPgUpScrollsOneLineOnShortTerminal(t *testing.T) {
 	m := NewTerminalModel()
 	m.workspace = ws
 	m.focused = true
-	m.tabsByWorkspace[string(ws.ID())] = []*TerminalTab{tab}
-	m.activeTabByWorkspace[string(ws.ID())] = 0
+	m.tabs.ByWorkspace[string(ws.ID())] = []*TerminalTab{tab}
+	m.tabs.ActiveByWorkspace[string(ws.ID())] = 0
 
 	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
 

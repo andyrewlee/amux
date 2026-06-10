@@ -80,7 +80,7 @@ func (m *Model) busyPTYTabCount(now time.Time) int {
 		return m.cachedBusyTabCount
 	}
 	count := 0
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil || tab.isClosed() {
 				continue

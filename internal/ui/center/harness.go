@@ -5,20 +5,20 @@ func (m *Model) AddTab(tab *Tab) {
 	if m == nil || tab == nil || tab.Workspace == nil {
 		return
 	}
-	if m.tabsByWorkspace == nil {
-		m.tabsByWorkspace = make(map[string][]*Tab)
+	if m.tabs.ByWorkspace == nil {
+		m.tabs.ByWorkspace = make(map[string][]*Tab)
 	}
-	if m.activeTabByWorkspace == nil {
-		m.activeTabByWorkspace = make(map[string]int)
+	if m.tabs.ActiveByWorkspace == nil {
+		m.tabs.ActiveByWorkspace = make(map[string]int)
 	}
 	wtID := string(tab.Workspace.ID())
 	if tab.Terminal != nil {
 		tab.Terminal.IgnoreCursorVisibilityControls = false
 	}
-	m.tabsByWorkspace[wtID] = append(m.tabsByWorkspace[wtID], tab)
+	m.tabs.ByWorkspace[wtID] = append(m.tabs.ByWorkspace[wtID], tab)
 	m.noteTabsChanged()
-	if _, ok := m.activeTabByWorkspace[wtID]; !ok {
-		m.activeTabByWorkspace[wtID] = 0
+	if _, ok := m.tabs.ActiveByWorkspace[wtID]; !ok {
+		m.tabs.ActiveByWorkspace[wtID] = 0
 	}
 }
 

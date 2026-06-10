@@ -78,7 +78,7 @@ func (m *Model) findOpenDiffTab(ws *data.Workspace, changePath string, mode git.
 		return -1, nil
 	}
 	wsID := string(ws.ID())
-	for idx, tab := range m.tabsByWorkspace[wsID] {
+	for idx, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab == nil || tab.isClosed() {
 			continue
 		}
@@ -97,7 +97,7 @@ func (m *Model) reuseDiffTab(ws *data.Workspace, idx int, tab *Tab, change *git.
 		return nil
 	}
 	wsID := string(ws.ID())
-	activeChanged := m.activeTabByWorkspace[wsID] != idx
+	activeChanged := m.tabs.ActiveByWorkspace[wsID] != idx
 	m.setActiveTabIdxForWorkspace(wsID, idx)
 
 	var cmds []tea.Cmd
@@ -151,12 +151,12 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 		lastFocusedAt: time.Now(),
 	}
 
-	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-	m.setActiveTabIdxForWorkspace(wsID, len(m.tabsByWorkspace[wsID])-1)
+	m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
+	m.setActiveTabIdxForWorkspace(wsID, len(m.tabs.ByWorkspace[wsID])-1)
 	m.noteTabsChanged()
 
 	return common.SafeBatch(
 		dv.Init(),
-		func() tea.Msg { return messages.TabCreated{Index: m.activeTabByWorkspace[wsID], Name: displayName} },
+		func() tea.Msg { return messages.TabCreated{Index: m.tabs.ActiveByWorkspace[wsID], Name: displayName} },
 	)
 }

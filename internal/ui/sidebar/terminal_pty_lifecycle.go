@@ -79,19 +79,19 @@ func (m *TerminalModel) createTerminalStateForTabWithSizeAndRefresh(
 	}
 
 	// ts already initialized above, just need tabs lookup
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	tab := &TerminalTab{
 		ID:    tabID,
 		Name:  nextTerminalName(tabs),
 		State: ts,
 	}
-	m.tabsByWorkspace[wsID] = append(tabs, tab)
+	m.tabs.ByWorkspace[wsID] = append(tabs, tab)
 
 	// Clear pending creation flag now that tab exists
 	delete(m.pendingCreation, wsID)
 
 	// Set as active tab (switch to new tab)
-	m.activeTabByWorkspace[wsID] = len(m.tabsByWorkspace[wsID]) - 1
+	m.tabs.ActiveByWorkspace[wsID] = len(m.tabs.ByWorkspace[wsID]) - 1
 
 	if refresh {
 		m.refreshTerminalSize()
@@ -145,7 +145,7 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 
 // StartPTYReaders ensures PTY readers are running for all tabs.
 func (m *TerminalModel) StartPTYReaders() tea.Cmd {
-	for wsID, tabs := range m.tabsByWorkspace {
+	for wsID, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil {
 				continue
@@ -162,7 +162,7 @@ func (m *TerminalModel) StartPTYReaders() tea.Cmd {
 
 // CloseTerminal closes all terminal tabs for the given workspace
 func (m *TerminalModel) CloseTerminal(wsID string) {
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	for _, tab := range tabs {
 		if tab.State != nil {
 			m.stopPTYReader(tab.State)
@@ -175,14 +175,13 @@ func (m *TerminalModel) CloseTerminal(wsID string) {
 			tab.State.mu.Unlock()
 		}
 	}
-	delete(m.tabsByWorkspace, wsID)
-	delete(m.activeTabByWorkspace, wsID)
+	m.tabs.DeleteWorkspace(wsID)
 	delete(m.pendingCreation, wsID)
 }
 
 // CloseAll closes all terminals
 func (m *TerminalModel) CloseAll() {
-	for wsID := range m.tabsByWorkspace {
+	for wsID := range m.tabs.ByWorkspace {
 		m.CloseTerminal(wsID)
 	}
 }

@@ -23,8 +23,8 @@ func TestTerminalLayerRecomputesCachedBlankCornerPromptAfterRecentLocalInput(t *
 		Workspace: ws,
 		Terminal:  term,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -76,8 +76,8 @@ func TestTerminalLayerRecomputesCachedPromptWhenVisibleActivityEnds(t *testing.T
 		Running:           true,
 		lastVisibleOutput: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -114,7 +114,7 @@ func TestTerminalLayerHidesBlankCornerArtifactWhileVisiblyActiveWithoutStoredCur
 	term.CursorY = 11
 	term.Screen[11][0] = vterm.Cell{Rune: ' ', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:                TabID("tab-chat-active-corner-artifact"),
 			Assistant:         "codex",
@@ -124,7 +124,7 @@ func TestTerminalLayerHidesBlankCornerArtifactWhileVisiblyActiveWithoutStoredCur
 			lastVisibleOutput: time.Now(),
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -146,7 +146,7 @@ func TestTerminalLayerRestrictsMidScreenCursorDuringControlOnlyOutput(t *testing
 	term.CursorY = 4
 	term.Screen[4][4] = vterm.Cell{Rune: 'x', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-control-only-output"),
 			Assistant: "codex",
@@ -158,7 +158,7 @@ func TestTerminalLayerRestrictsMidScreenCursorDuringControlOnlyOutput(t *testing
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -191,8 +191,8 @@ func TestTerminalLayerAllowsRecentLocalInputDespiteRecentControlOnlyOutput(t *te
 		},
 		lastPromptInputAt: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -236,8 +236,8 @@ func TestTerminalLayerIgnoresRecentLocalEchoOutputAfterInputWindowExpires(t *tes
 			LastOutputAt: now.Add(-550 * time.Millisecond),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -262,7 +262,7 @@ func TestTerminalLayerPreservesRealBlockGlyphAtStoredCursorPosition(t *testing.T
 	term.CursorY = 0
 	term.Screen[11][3] = vterm.Cell{Rune: '█', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:              TabID("tab-chat-stored-block-glyph"),
 			Assistant:       "codex",
@@ -273,7 +273,7 @@ func TestTerminalLayerPreservesRealBlockGlyphAtStoredCursorPosition(t *testing.T
 			stableCursorY:   11,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -304,8 +304,8 @@ func TestTerminalLayerTracksStoredChatCursorAcrossLiveCursorJumps(t *testing.T) 
 			LastOutputAt: time.Now(),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -391,8 +391,8 @@ func TestTerminalLayerTreatsWrappedMultilinePromptAsInputSection(t *testing.T) {
 		Running:           true,
 		lastVisibleOutput: time.Now().Add(-tabActiveWindow - time.Millisecond),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -423,7 +423,7 @@ func TestTerminalLayerKeepsVisiblyActiveChatCursorRestrictedToBottomInputBand(t 
 	term.CursorY = 10
 	term.Screen[10][4] = vterm.Cell{Rune: 'x', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:                TabID("tab-chat-running-midscreen-cursor"),
 			Assistant:         "codex",
@@ -433,7 +433,7 @@ func TestTerminalLayerKeepsVisiblyActiveChatCursorRestrictedToBottomInputBand(t 
 			lastVisibleOutput: time.Now(),
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 

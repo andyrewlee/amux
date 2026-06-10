@@ -22,7 +22,7 @@ func TestFlushTiming_InactiveBackpressureRespectsHardCap(t *testing.T) {
 			PendingOutput: make([]byte, ptyBackpressureMultiplier*width*height+1),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	heavyWS := newTestWorkspace("ws-heavy", "/repo/ws-heavy")
 	heavyWSID := string(heavyWS.ID())
@@ -36,7 +36,7 @@ func TestFlushTiming_InactiveBackpressureRespectsHardCap(t *testing.T) {
 			},
 		})
 	}
-	m.tabsByWorkspace[heavyWSID] = busyTabs
+	m.tabs.ByWorkspace[heavyWSID] = busyTabs
 
 	quiet, maxInterval := m.flushTiming(tab, false)
 	if quiet != ptyFlushInactiveMaxIntervalCap {

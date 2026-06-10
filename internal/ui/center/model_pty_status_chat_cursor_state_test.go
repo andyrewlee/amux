@@ -26,8 +26,8 @@ func TestTerminalLayerUpdatesStoredCursorWhenIdlePromptMovesAfterVersionChange(t
 		stableCursorX:   1,
 		stableCursorY:   11,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -78,8 +78,8 @@ func TestTerminalLayerPreservesStoredCursorAcrossTemporaryScrollback(t *testing.
 		stableCursorVersion: term.Version(),
 		lastVisibleOutput:   time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -124,8 +124,8 @@ func TestTerminalLayerAllowsBracketedPasteAsRecentLocalInput(t *testing.T) {
 			LastOutputAt: time.Now(),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -161,8 +161,8 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 		stableCursorX:   1,
 		stableCursorY:   23,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -223,8 +223,8 @@ func TestTerminalLayerPreservesStoredMultilineCursorAcrossRestrictedArtifact(t *
 		stableCursorX:   4,
 		stableCursorY:   10,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -271,8 +271,8 @@ func TestTerminalLayerTracksEnterAsRecentPromptInputForWrappedPrompt(t *testing.
 		},
 		lastVisibleOutput: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -318,8 +318,8 @@ func TestTerminalLayerTracksCtrlCAsRecentPromptInputForWrappedPrompt(t *testing.
 		},
 		lastVisibleOutput: time.Now(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -361,8 +361,8 @@ func TestTerminalLayerKeepsRestrictedCursorAfterSubmitWhenOutputJumpsAway(t *tes
 		stableCursorX:   2,
 		stableCursorY:   9,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -406,8 +406,8 @@ func TestTerminalLayerKeepsRestrictedCursorWhenSubmitOutputJumpsToLeftEdge(t *te
 		stableCursorX:   10,
 		stableCursorY:   9,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -452,8 +452,8 @@ func TestTerminalLayerRelearnsCursorAfterControlOnlyMoveGoesIdle(t *testing.T) {
 		stableCursorY:       20,
 		stableCursorVersion: term.Version(),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 

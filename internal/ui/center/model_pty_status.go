@@ -15,7 +15,7 @@ const tabActiveWindow = 2 * time.Second
 
 // HasRunningAgents returns whether any tab has an active agent across workspaces.
 func (m *Model) HasRunningAgents() bool {
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab.isClosed() {
 				continue
@@ -34,7 +34,7 @@ func (m *Model) HasRunningAgents() bool {
 // HasActiveAgents returns whether any tab has emitted output recently.
 // This is used to drive UI activity indicators without relying on process liveness alone.
 func (m *Model) HasActiveAgents() bool {
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if m.IsTabActive(tab) {
 				return true
@@ -93,7 +93,7 @@ func isTabCursorOutputActiveLocked(tab *Tab, now time.Time) bool {
 
 // HasActiveAgentsInWorkspace returns whether any tab in a workspace is actively outputting.
 func (m *Model) HasActiveAgentsInWorkspace(wsID string) bool {
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if m.IsTabActive(tab) {
 			return true
 		}
@@ -104,7 +104,7 @@ func (m *Model) HasActiveAgentsInWorkspace(wsID string) bool {
 // GetActiveWorkspaceRoots returns all workspace root paths with active agents.
 func (m *Model) GetActiveWorkspaceRoots() []string {
 	var active []string
-	for wsID, tabs := range m.tabsByWorkspace {
+	for wsID, tabs := range m.tabs.ByWorkspace {
 		if m.HasActiveAgentsInWorkspace(wsID) {
 			// Get the root path from one of the tabs
 			for _, tab := range tabs {
@@ -121,7 +121,7 @@ func (m *Model) GetActiveWorkspaceRoots() []string {
 // GetActiveWorkspaceIDs returns all workspace IDs with active agents.
 func (m *Model) GetActiveWorkspaceIDs() []string {
 	var active []string
-	for wsID := range m.tabsByWorkspace {
+	for wsID := range m.tabs.ByWorkspace {
 		if m.HasActiveAgentsInWorkspace(wsID) {
 			active = append(active, wsID)
 		}
@@ -133,7 +133,7 @@ func (m *Model) GetActiveWorkspaceIDs() []string {
 // This includes agents that are running but idle (waiting at prompt).
 func (m *Model) GetRunningWorkspaceRoots() []string {
 	var running []string
-	for _, tabs := range m.tabsByWorkspace {
+	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if !m.isChatTab(tab) {
 				continue
@@ -149,7 +149,7 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 
 // StartPTYReaders starts reading from all PTYs across all workspaces
 func (m *Model) StartPTYReaders() tea.Cmd {
-	for wtID, tabs := range m.tabsByWorkspace {
+	for wtID, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab == nil || tab.isClosed() {
 				continue

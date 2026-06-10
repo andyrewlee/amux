@@ -15,7 +15,7 @@ func TestAddTabsFromSessionsDedupes(t *testing.T) {
 	if len(cmds) != 2 {
 		t.Fatalf("expected 2 cmds, got %d", len(cmds))
 	}
-	if got := len(m.tabsByWorkspace[wsID]); got != 2 {
+	if got := len(m.tabs.ByWorkspace[wsID]); got != 2 {
 		t.Fatalf("expected 2 tabs, got %d", got)
 	}
 
@@ -23,7 +23,7 @@ func TestAddTabsFromSessionsDedupes(t *testing.T) {
 	if len(cmds) != 0 {
 		t.Fatalf("expected 0 cmds on duplicate add, got %d", len(cmds))
 	}
-	if got := len(m.tabsByWorkspace[wsID]); got != 2 {
+	if got := len(m.tabs.ByWorkspace[wsID]); got != 2 {
 		t.Fatalf("expected 2 tabs after dedupe, got %d", got)
 	}
 }
@@ -40,7 +40,7 @@ func TestAddTabsFromSessionInfosAttachRespectsFlag(t *testing.T) {
 	if len(cmds) != 2 {
 		t.Fatalf("expected 2 cmds for attachable sessions, got %d", len(cmds))
 	}
-	if got := len(m.tabsByWorkspace[wsID]); got != 2 {
+	if got := len(m.tabs.ByWorkspace[wsID]); got != 2 {
 		t.Fatalf("expected 2 tabs, got %d", got)
 	}
 }

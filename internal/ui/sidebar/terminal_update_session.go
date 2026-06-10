@@ -179,7 +179,7 @@ func (m *TerminalModel) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) te
 		return nil
 	}
 	wsID := string(msg.Workspace.ID())
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	for _, tab := range tabs {
 		if tab.State != nil {
 			m.stopPTYReader(tab.State)
@@ -192,8 +192,7 @@ func (m *TerminalModel) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) te
 			tab.State.mu.Unlock()
 		}
 	}
-	delete(m.tabsByWorkspace, wsID)
-	delete(m.activeTabByWorkspace, wsID)
+	m.tabs.DeleteWorkspace(wsID)
 	delete(m.pendingCreation, wsID)
 	return nil
 }

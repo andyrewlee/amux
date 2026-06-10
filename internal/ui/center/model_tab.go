@@ -288,12 +288,12 @@ func (t *Tab) settlePTYBytesLocked(n int) (before, after bool) {
 
 // getTabs returns the tabs for the current workspace
 func (m *Model) getTabs() []*Tab {
-	return m.tabsByWorkspace[m.workspaceID()]
+	return m.tabs.ByWorkspace[m.workspaceID()]
 }
 
 // getTabByID returns the tab with the given ID, or nil if not found
 func (m *Model) getTabByID(wsID string, tabID TabID) *Tab {
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab.ID == tabID && !tab.isClosed() {
 			return tab
 		}
@@ -306,7 +306,7 @@ func (m *Model) getTabBySession(wsID, sessionName string) *Tab {
 	if sessionName == "" {
 		return nil
 	}
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		if tab == nil || tab.isClosed() {
 			continue
 		}
@@ -322,7 +322,7 @@ func (m *Model) getTabBySession(wsID, sessionName string) *Tab {
 
 // getActiveTabIdx returns the active tab index for the current workspace
 func (m *Model) getActiveTabIdx() int {
-	return m.activeTabByWorkspace[m.workspaceID()]
+	return m.tabs.ActiveByWorkspace[m.workspaceID()]
 }
 
 // setActiveTabIdx sets the active tab index for the current workspace
@@ -334,13 +334,13 @@ func (m *Model) setActiveTabIdxForWorkspace(wsID string, idx int) {
 	if wsID == "" {
 		return
 	}
-	m.activeTabByWorkspace[wsID] = idx
+	m.tabs.ActiveByWorkspace[wsID] = idx
 	m.syncPostWriteVisibility()
 	m.markTabFocused(wsID, idx)
 }
 
 func (m *Model) markTabFocused(wsID string, idx int) {
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if idx < 0 || idx >= len(tabs) {
 		return
 	}
@@ -374,9 +374,9 @@ func (m *Model) syncPostWriteVisibility() {
 	activeWSID := m.workspaceID()
 	activeIdx := -1
 	if activeWSID != "" {
-		activeIdx = m.activeTabByWorkspace[activeWSID]
+		activeIdx = m.tabs.ActiveByWorkspace[activeWSID]
 	}
-	for wsID, tabs := range m.tabsByWorkspace {
+	for wsID, tabs := range m.tabs.ByWorkspace {
 		for idx, tab := range tabs {
 			if tab == nil || tab.isClosed() {
 				continue
@@ -389,9 +389,9 @@ func (m *Model) syncPostWriteVisibility() {
 // removeTab removes a tab at index from the current workspace
 func (m *Model) removeTab(idx int) {
 	wsID := m.workspaceID()
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	if idx >= 0 && idx < len(tabs) {
-		m.tabsByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)
+		m.tabs.ByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)
 		m.noteTabsChanged()
 	}
 }
@@ -404,7 +404,7 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 	wsID := string(ws.ID())
 
 	// Close resources for each tab before removing
-	for _, tab := range m.tabsByWorkspace[wsID] {
+	for _, tab := range m.tabs.ByWorkspace[wsID] {
 		tab.markClosing()
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
@@ -423,8 +423,7 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 		tab.markClosed()
 	}
 
-	delete(m.tabsByWorkspace, wsID)
-	delete(m.activeTabByWorkspace, wsID)
+	m.tabs.DeleteWorkspace(wsID)
 	m.noteTabsChanged()
 
 	// Also cleanup agents for this workspace

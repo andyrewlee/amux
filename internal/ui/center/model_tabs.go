@@ -184,7 +184,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	initialCols, initialRows := ptyio.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 
 	wsID := string(msg.Workspace.ID())
-	tabs := m.tabsByWorkspace[wsID]
+	tabs := m.tabs.ByWorkspace[wsID]
 	var existing *Tab
 	existingIdx := -1
 	if msg.TabID != "" {
@@ -377,8 +377,8 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	}
 
 	// Add tab to the workspace's tab list
-	m.tabsByWorkspace[wsID] = append(m.tabsByWorkspace[wsID], tab)
-	createdIdx := len(m.tabsByWorkspace[wsID]) - 1
+	m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
+	createdIdx := len(m.tabs.ByWorkspace[wsID]) - 1
 	if msg.Activate {
 		m.setActiveTabIdxForWorkspace(wsID, createdIdx)
 	}

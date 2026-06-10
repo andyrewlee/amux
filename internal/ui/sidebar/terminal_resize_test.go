@@ -12,14 +12,14 @@ func TestTerminalResizesOnKeymapHintToggle(t *testing.T) {
 	m := NewTerminalModel()
 	m.workspace = wt
 	wtID := string(wt.ID())
-	m.tabsByWorkspace[wtID] = []*TerminalTab{
+	m.tabs.ByWorkspace[wtID] = []*TerminalTab{
 		{
 			ID:    "tab-1",
 			Name:  "Terminal 1",
 			State: &TerminalState{VTerm: vterm.New(10, 5)},
 		},
 	}
-	m.activeTabByWorkspace[wtID] = 0
+	m.tabs.ActiveByWorkspace[wtID] = 0
 
 	m.SetSize(80, 20)
 	ts := m.getTerminal()

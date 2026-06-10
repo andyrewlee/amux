@@ -28,8 +28,8 @@ func TestUpdatePTYFlush_StaleCatchUpMessageIgnoredAfterReattachReset(t *testing.
 			PendingOutput: []byte("old buffered output"),
 		},
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{

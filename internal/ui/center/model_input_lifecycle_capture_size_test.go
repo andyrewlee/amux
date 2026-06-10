@@ -31,7 +31,7 @@ func TestUpdatePtyTabReattachResult_UsesSnapshotSizeBeforeResizingToCurrentSize(
 		Workspace: ws,
 		Terminal:  vterm.New(snapshotWidth, snapshotHeight),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -87,7 +87,7 @@ func TestHandlePtyTabCreated_UsesSnapshotSizeBeforeResizingToCurrentSize(t *test
 		SnapshotRows:      snapshotHeight,
 	})
 
-	tab := m.tabsByWorkspace[wsID][0]
+	tab := m.tabs.ByWorkspace[wsID][0]
 	if got := tab.Terminal.Width; got != current.Width {
 		t.Fatalf("expected terminal width %d after live resize, got %d", current.Width, got)
 	}
@@ -116,7 +116,7 @@ func TestUpdatePtyTabReattachResult_UsesCaptureSizeBeforeResizingForHistoryOnly(
 		Workspace: ws,
 		Terminal:  vterm.New(current.Width, current.Height),
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -166,7 +166,7 @@ func TestHandlePtyTabCreated_UsesCaptureSizeBeforeResizingForHistoryOnly(t *test
 		CaptureFullPane:   false,
 	})
 
-	tab := m.tabsByWorkspace[wsID][0]
+	tab := m.tabs.ByWorkspace[wsID][0]
 	if got := tab.Terminal.Width; got != current.Width {
 		t.Fatalf("expected terminal width %d after live resize, got %d", current.Width, got)
 	}
@@ -195,7 +195,7 @@ func TestUpdatePtyTabReattachResult_UsesLiveDefaultPTYSizeBeforeFirstLayout(t *t
 		Assistant: "codex",
 		Workspace: ws,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
 		WorkspaceID:       wsID,
@@ -237,7 +237,7 @@ func TestHandlePtyTabCreated_UsesLiveDefaultPTYSizeBeforeFirstLayout(t *testing.
 		CaptureFullPane:   false,
 	})
 
-	tab := m.tabsByWorkspace[wsID][0]
+	tab := m.tabs.ByWorkspace[wsID][0]
 	if tab.ptyRows != current.Height || tab.ptyCols != current.Width {
 		t.Fatalf("expected live PTY size %dx%d before first layout, got %dx%d", current.Width, current.Height, tab.ptyCols, tab.ptyRows)
 	}

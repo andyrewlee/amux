@@ -16,7 +16,7 @@ func TestTerminalLayerForcesVisibleCursorForChatTabs(t *testing.T) {
 	term := vterm.New(10, 3)
 	term.Write([]byte("\x1b[?25l"))
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat"),
 			Assistant: "codex",
@@ -24,7 +24,7 @@ func TestTerminalLayerForcesVisibleCursorForChatTabs(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -53,7 +53,7 @@ func TestTerminalLayerLetsChatAppOwnSyntheticCursorWhenHidden(t *testing.T) {
 	term.CursorY = 2
 	term.Screen[2][2] = vterm.Cell{Rune: '█', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-owned-cursor"),
 			Assistant: "claude",
@@ -61,7 +61,7 @@ func TestTerminalLayerLetsChatAppOwnSyntheticCursorWhenHidden(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -91,7 +91,7 @@ func TestTerminalLayerLetsChatAppOwnSteadyBarCursorWhenHidden(t *testing.T) {
 		Style: vterm.Style{Reverse: true},
 	}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-owned-steady-bar-cursor"),
 			Assistant: "claude",
@@ -99,7 +99,7 @@ func TestTerminalLayerLetsChatAppOwnSteadyBarCursorWhenHidden(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -125,7 +125,7 @@ func TestTerminalLayerPreservesCursorForLiteralBlockTextWhenHidden(t *testing.T)
 	term.CursorY = 2
 	term.Screen[2][2] = vterm.Cell{Rune: '▌', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-literal-block-text"),
 			Assistant: "claude",
@@ -133,7 +133,7 @@ func TestTerminalLayerPreservesCursorForLiteralBlockTextWhenHidden(t *testing.T)
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -156,7 +156,7 @@ func TestTerminalLayerPreservesCursorForStoredLiteralFullBlockWhenHidden(t *test
 	term.CursorY = 3
 	term.Screen[2][2] = vterm.Cell{Rune: '█', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:              TabID("tab-chat-stored-literal-full-block"),
 			Assistant:       "claude",
@@ -167,7 +167,7 @@ func TestTerminalLayerPreservesCursorForStoredLiteralFullBlockWhenHidden(t *test
 			stableCursorY:   2,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -190,7 +190,7 @@ func TestTerminalLayerIgnoresUnrelatedSyntheticGlyphWhenCursorHidden(t *testing.
 	term.CursorY = 3
 	term.Screen[2][2] = vterm.Cell{Rune: '█', Width: 1}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-unrelated-cursor-glyph"),
 			Assistant: "claude",
@@ -198,7 +198,7 @@ func TestTerminalLayerIgnoresUnrelatedSyntheticGlyphWhenCursorHidden(t *testing.
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -218,7 +218,7 @@ func TestTerminalLayerPreservesCursorHiddenForNonChatTabs(t *testing.T) {
 	term := vterm.New(10, 3)
 	term.Write([]byte("\x1b[?25l"))
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-non-chat"),
 			Assistant: "bash",
@@ -226,7 +226,7 @@ func TestTerminalLayerPreservesCursorHiddenForNonChatTabs(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -272,7 +272,7 @@ func TestTerminalLayerShowsCursorForIdleBootstrapChatTab(t *testing.T) {
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:                    TabID("tab-chat-bootstrap"),
 			Assistant:             "codex",
@@ -283,7 +283,7 @@ func TestTerminalLayerShowsCursorForIdleBootstrapChatTab(t *testing.T) {
 			bootstrapLastOutputAt: time.Now(),
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -302,7 +302,7 @@ func TestTerminalLayerShowsCursorForChatTabWithRecentOutput(t *testing.T) {
 	wsID := string(ws.ID())
 	term := vterm.New(10, 3)
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-recent-output"),
 			Assistant: "codex",
@@ -314,7 +314,7 @@ func TestTerminalLayerShowsCursorForChatTabWithRecentOutput(t *testing.T) {
 			},
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -340,7 +340,7 @@ func TestTerminalLayerNormalizesSyntheticCursorCellForChatTabs(t *testing.T) {
 		Style: vterm.Style{Blink: true},
 	}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-artifact"),
 			Assistant: "codex",
@@ -348,7 +348,7 @@ func TestTerminalLayerNormalizesSyntheticCursorCellForChatTabs(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -376,7 +376,7 @@ func TestTerminalLayerPreservesNonBlinkingBlockElementTextAtLiveCursor(t *testin
 		Rune:  '▌',
 		Width: 1,
 	}
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-real-block-text"),
 			Assistant: "codex",
@@ -384,7 +384,7 @@ func TestTerminalLayerPreservesNonBlinkingBlockElementTextAtLiveCursor(t *testin
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 	layer := m.TerminalLayer()
@@ -410,7 +410,7 @@ func TestTerminalLayerKeepsSyntheticCursorCellForNonChatTabs(t *testing.T) {
 		Style: vterm.Style{Blink: true},
 	}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-non-chat-artifact"),
 			Assistant: "bash",
@@ -418,7 +418,7 @@ func TestTerminalLayerKeepsSyntheticCursorCellForNonChatTabs(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -446,7 +446,7 @@ func TestTerminalLayerClearsBlinkAttributesForChatTabs(t *testing.T) {
 		Style: vterm.Style{Blink: true},
 	}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-blink"),
 			Assistant: "codex",
@@ -454,7 +454,7 @@ func TestTerminalLayerClearsBlinkAttributesForChatTabs(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
@@ -478,7 +478,7 @@ func TestTerminalLayerPreservesBlinkAttributesForNonChatTabs(t *testing.T) {
 		Style: vterm.Style{Blink: true},
 	}
 
-	m.tabsByWorkspace[wsID] = []*Tab{
+	m.tabs.ByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-non-chat-blink"),
 			Assistant: "bash",
@@ -486,7 +486,7 @@ func TestTerminalLayerPreservesBlinkAttributesForNonChatTabs(t *testing.T) {
 			Terminal:  term,
 		},
 	}
-	m.activeTabByWorkspace[wsID] = 0
+	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
 
