@@ -29,7 +29,7 @@ jobs:
         run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ steps.golangci_version.outputs.version }}
           install-mode: goinstall
@@ -165,7 +165,7 @@ jobs:
         run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
 
       - name: Strict lint (changed code only)
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ steps.golangci_version.outputs.version }}
           install-mode: goinstall
