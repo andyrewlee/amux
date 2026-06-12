@@ -83,6 +83,20 @@ func TestWorkspaceCleanupMarkerRejectsUnknownVersion(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCleanupMarkerRejectsIncompleteJSON(t *testing.T) {
+	dir := t.TempDir()
+	ws := filepath.Join(dir, "ws")
+
+	writeMarker(t, ws, `{"version":1,"cleanup_path":"/tmp/ws.amux-cleanup"}`)
+	if _, _, err := readWorkspaceCleanupState(ws); err == nil {
+		t.Fatal("expected missing needs_unregister to be rejected")
+	}
+	writeMarker(t, ws, `{"version":1,"needs_unregister":false}`)
+	if _, _, err := readWorkspaceCleanupState(ws); err == nil {
+		t.Fatal("expected marker with no cleanup action to be rejected")
+	}
+}
+
 func TestWorkspaceCleanupMarkerRejectsNonUTF8Paths(t *testing.T) {
 	dir := t.TempDir()
 	ws := filepath.Join(dir, "ws")

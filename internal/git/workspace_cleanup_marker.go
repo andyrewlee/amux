@@ -192,11 +192,12 @@ func writeWorkspaceCleanupState(workspacePath string, state workspaceCleanupStat
 		return clearPrunedWorkspaceRetryMarker(workspacePath)
 	}
 
+	needsUnregister := state.NeedsUnregister
 	payload, err := json.Marshal(workspaceCleanupMarkerFile{
 		Version:                workspaceCleanupMarkerVersion,
 		RepoPath:               state.RepoPath,
 		CleanupPath:            state.CleanupPath,
-		NeedsUnregister:        state.NeedsUnregister,
+		NeedsUnregister:        &needsUnregister,
 		WorkspaceGitRef:        state.WorkspaceGitRef,
 		WorkspaceGitRefModTime: state.WorkspaceGitRefModTime,
 		WorkspaceFingerprint:   state.WorkspaceFingerprint,
@@ -218,7 +219,7 @@ type workspaceCleanupMarkerFile struct {
 	Version                int    `json:"version"`
 	RepoPath               string `json:"repo_path,omitempty"`
 	CleanupPath            string `json:"cleanup_path,omitempty"`
-	NeedsUnregister        bool   `json:"needs_unregister"`
+	NeedsUnregister        *bool  `json:"needs_unregister"`
 	WorkspaceGitRef        string `json:"workspace_git_ref,omitempty"`
 	WorkspaceGitRefModTime int64  `json:"workspace_git_ref_mtime_unix_nano,omitempty"`
 	WorkspaceFingerprint   string `json:"workspace_fingerprint,omitempty"`
@@ -234,8 +235,11 @@ func parseWorkspaceCleanupMarkerJSON(trimmed, markerPath string) (workspaceClean
 	if file.Version != workspaceCleanupMarkerVersion {
 		return workspaceCleanupState{}, fmt.Errorf("unsupported workspace cleanup marker version %d in %s", file.Version, markerPath)
 	}
+	if file.NeedsUnregister == nil {
+		return workspaceCleanupState{}, fmt.Errorf("incomplete workspace cleanup marker %s: missing needs_unregister", markerPath)
+	}
 	state := workspaceCleanupState{
-		NeedsUnregister:        file.NeedsUnregister,
+		NeedsUnregister:        *file.NeedsUnregister,
 		WorkspaceGitRef:        file.WorkspaceGitRef,
 		WorkspaceGitRefModTime: file.WorkspaceGitRefModTime,
 		WorkspaceFingerprint:   file.WorkspaceFingerprint,
@@ -245,6 +249,9 @@ func parseWorkspaceCleanupMarkerJSON(trimmed, markerPath string) (workspaceClean
 	}
 	if file.CleanupPath != "" {
 		state.CleanupPath = filepath.Clean(file.CleanupPath)
+	}
+	if state.CleanupPath == "" && !state.NeedsUnregister {
+		return workspaceCleanupState{}, fmt.Errorf("incomplete workspace cleanup marker %s: no cleanup action", markerPath)
 	}
 	return state, nil
 }
