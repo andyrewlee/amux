@@ -73,12 +73,15 @@ func writeRedrawAssistant(t *testing.T, home, name string) string {
 	// Keep this as a plain normal-screen redraw. tmux 3.6a coalesces DEC 2026
 	// synchronized output before it reaches attached clients, so intermediate
 	// old-frame rows are not available for amux to capture in this e2e.
+	// The short pause lets older tmux releases flush the old frame to attached
+	// clients before the clear arrives.
 	script := `#!/bin/sh
 printf 'REDRAW READY\r\n'
 IFS= read -r _
 for i in 00 01 02 03 04 05 06 07 08 09 10 11; do
   printf 'old-frame-%s\r\n' "$i"
 done
+sleep 0.1
 printf '\033[2J'
 for i in 00 01 02 03 04 05 06 07 08 09 10 11; do
   printf 'new-frame-%s\r\n' "$i"
