@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,13 +177,13 @@ func writeWorkspaceCleanupState(workspacePath string, state workspaceCleanupStat
 	}
 	if state.RepoPath != "" {
 		if !utf8.ValidString(state.RepoPath) {
-			return fmt.Errorf("refusing to persist non-UTF-8 workspace cleanup repo path")
+			return errors.New("refusing to persist non-UTF-8 workspace cleanup repo path")
 		}
 		state.RepoPath = filepath.Clean(state.RepoPath)
 	}
 	if state.CleanupPath != "" {
 		if !utf8.ValidString(state.CleanupPath) {
-			return fmt.Errorf("refusing to persist non-UTF-8 workspace cleanup path")
+			return errors.New("refusing to persist non-UTF-8 workspace cleanup path")
 		}
 		if !isSafeWorkspaceCleanupPath(state.CleanupPath) {
 			return fmt.Errorf("refusing to persist unsafe workspace cleanup path: %s", state.CleanupPath)
