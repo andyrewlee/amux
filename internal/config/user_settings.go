@@ -96,9 +96,6 @@ func (c *Config) PersistedUISettings() UISettings {
 	if c == nil || c.Paths == nil {
 		return defaultUISettings()
 	}
-	file, err := readConfigFile(c.Paths.ConfigPath)
-	if err != nil {
-		return defaultUISettings()
-	}
+	file, _ := readConfigFile(c.Paths.ConfigPath)
 	return applyUISettings(defaultUISettings(), file.UI)
 }
