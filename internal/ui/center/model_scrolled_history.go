@@ -122,7 +122,6 @@ func (m *Model) clampScrolledChatHistoryViewOffsetLocked(tab *Tab) {
 	if maxOffset == 0 {
 		tab.Terminal.ScrollViewToBottom()
 		tab.Terminal.NoteSyncViewportInteraction()
-		tab.Terminal.NoteSyncViewportInteraction()
 		return
 	}
 	if tab.Terminal.ViewOffset > maxOffset {
@@ -146,6 +145,7 @@ func (m *Model) scrollTerminalToBottomLocked(tab *Tab) {
 		return
 	}
 	tab.Terminal.ScrollViewToBottom()
+	tab.Terminal.NoteSyncViewportInteraction()
 }
 
 func (m *Model) scrollTerminalToTopLocked(tab *Tab) {
