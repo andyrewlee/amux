@@ -63,7 +63,13 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	return "git " + e.Command + ": " + e.Stderr
+	if e.Stderr != "" {
+		return "git " + e.Command + ": " + e.Stderr
+	}
+	if e.Err != nil {
+		return "git " + e.Command + ": " + e.Err.Error()
+	}
+	return "git " + e.Command
 }
 
 func (e *Error) Unwrap() error {
