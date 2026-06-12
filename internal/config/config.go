@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -54,12 +56,11 @@ func DefaultConfig() (*Config, error) {
 		return nil, err
 	}
 
-	// The config file is parsed exactly once; each section loader receives
-	// its slice of the parsed structure. A corrupted file therefore surfaces
-	// one warning here instead of two independent silent default fallbacks.
+	// The config file is read exactly once; section decode errors are isolated
+	// so valid sections can still override their defaults.
 	file, err := readConfigFile(paths.ConfigPath)
 	if err != nil {
-		logging.Warn("config: failed to parse %s; using defaults: %v", paths.ConfigPath, err)
+		logging.Warn("config: failed to parse %s; using valid sections and defaults: %v", paths.ConfigPath, err)
 	}
 
 	assistants := defaultAssistants()
@@ -81,8 +82,14 @@ type configFile struct {
 	UI         uiSettingsRaw                 `json:"ui"`
 }
 
-// readConfigFile parses the config file once. A missing file is not an
-// error; a corrupted file returns the parse error along with zero contents.
+type configFileSections struct {
+	Assistants json.RawMessage `json:"assistants"`
+	UI         json.RawMessage `json:"ui"`
+}
+
+// readConfigFile reads the config file once. A missing file is not an error;
+// malformed top-level JSON returns zero contents, while per-section decode
+// errors leave unrelated sections available to callers.
 func readConfigFile(path string) (configFile, error) {
 	var file configFile
 	data, err := os.ReadFile(path)
@@ -92,10 +99,29 @@ func readConfigFile(path string) (configFile, error) {
 		}
 		return file, err
 	}
-	if err := json.Unmarshal(data, &file); err != nil {
+	var sections configFileSections
+	if err := json.Unmarshal(data, &sections); err != nil {
 		return configFile{}, err
 	}
-	return file, nil
+
+	var errs []error
+	if len(sections.Assistants) > 0 {
+		var assistants map[string]assistantConfigRaw
+		if err := json.Unmarshal(sections.Assistants, &assistants); err != nil {
+			errs = append(errs, fmt.Errorf("assistants: %w", err))
+		} else {
+			file.Assistants = assistants
+		}
+	}
+	if len(sections.UI) > 0 {
+		var ui uiSettingsRaw
+		if err := json.Unmarshal(sections.UI, &ui); err != nil {
+			errs = append(errs, fmt.Errorf("ui: %w", err))
+		} else {
+			file.UI = ui
+		}
+	}
+	return file, errors.Join(errs...)
 }
 
 // AssistantNames returns assistant IDs in deterministic display order.

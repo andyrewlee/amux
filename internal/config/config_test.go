@@ -87,6 +87,90 @@ func TestDefaultConfigLoadsAssistantOverrides(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigKeepsAssistantOverridesWhenUISectionIsInvalid(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".amux", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+	  "assistants": {
+	    "myagent": {
+	      "command": "myagent",
+	      "interrupt_count": 3
+	    }
+	  },
+	  "ui": {
+	    "show_keymap_hints": "true"
+	  }
+	}`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := DefaultConfig()
+	if err != nil {
+		t.Fatalf("DefaultConfig() error = %v", err)
+	}
+
+	custom, ok := cfg.Assistants["myagent"]
+	if !ok {
+		t.Fatalf("expected valid assistant override to survive invalid ui section")
+	}
+	if custom.Command != "myagent" || custom.InterruptCount != 3 {
+		t.Fatalf("custom assistant = %+v, want command myagent and interrupt_count 3", custom)
+	}
+	if cfg.UI.ShowKeymapHints {
+		t.Fatalf("ShowKeymapHints = true, want default false after invalid ui section")
+	}
+}
+
+func TestDefaultConfigKeepsUISettingsWhenAssistantSectionIsInvalid(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".amux", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content := `{
+	  "assistants": {
+	    "myagent": {
+	      "command": "myagent",
+	      "interrupt_count": "3"
+	    }
+	  },
+	  "ui": {
+	    "show_keymap_hints": true,
+	    "tmux_server": "amux-test"
+	  }
+	}`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := DefaultConfig()
+	if err != nil {
+		t.Fatalf("DefaultConfig() error = %v", err)
+	}
+	if _, ok := cfg.Assistants["myagent"]; ok {
+		t.Fatalf("expected invalid assistant section to be ignored")
+	}
+	if !cfg.UI.ShowKeymapHints {
+		t.Fatalf("ShowKeymapHints = false, want true from valid ui section")
+	}
+	if cfg.UI.TmuxServer != "amux-test" {
+		t.Fatalf("TmuxServer = %q, want %q", cfg.UI.TmuxServer, "amux-test")
+	}
+
+	persisted := cfg.PersistedUISettings()
+	if !persisted.ShowKeymapHints || persisted.TmuxServer != "amux-test" {
+		t.Fatalf("PersistedUISettings() = %+v, want valid ui section despite assistant error", persisted)
+	}
+}
+
 func TestDefaultConfigIgnoresDefaultAssistantSetting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
