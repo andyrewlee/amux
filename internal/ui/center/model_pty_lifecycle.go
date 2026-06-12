@@ -65,10 +65,3 @@ func (m *Model) stopPTYReader(tab *Tab) {
 	}
 	tab.State.StopReader(&tab.mu)
 }
-
-func (m *Model) markPTYReaderStopped(tab *Tab) {
-	if tab == nil {
-		return
-	}
-	tab.State.MarkReaderStopped(&tab.mu)
-}
