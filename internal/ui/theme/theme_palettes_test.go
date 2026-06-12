@@ -44,3 +44,15 @@ func TestThemePalettesComplete(t *testing.T) {
 		t.Fatal("unknown theme must fall back to gruvbox")
 	}
 }
+
+func TestInitDoesNotOverwriteSelectedTheme(t *testing.T) {
+	prev := GetCurrentTheme().ID
+	defer SetCurrentTheme(prev)
+
+	SetCurrentTheme(ThemeTokyoNight)
+	Init()
+
+	if got := GetCurrentTheme().ID; got != ThemeTokyoNight {
+		t.Fatalf("current theme after Init() = %q, want %q", got, ThemeTokyoNight)
+	}
+}

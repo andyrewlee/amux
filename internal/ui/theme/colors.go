@@ -11,12 +11,13 @@ import (
 // themePtr holds the active color theme, protected by atomic access.
 var themePtr atomic.Pointer[Theme]
 
-// Init installs the default theme. The app calls this explicitly during
-// construction (rather than relying on package init side effects); direct
-// library/test use is still safe because currentTheme falls back lazily.
+// Init installs the default theme if no theme has been selected yet. The app
+// calls this explicitly during construction (rather than relying on package
+// init side effects); direct library/test use is still safe because
+// currentTheme falls back lazily.
 func Init() {
 	t := GetTheme(ThemeGruvbox)
-	themePtr.Store(&t)
+	themePtr.CompareAndSwap(nil, &t)
 }
 
 // currentTheme returns the active theme, installing the default on first use
