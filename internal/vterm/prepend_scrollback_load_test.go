@@ -21,6 +21,25 @@ func TestLoadPaneCapture_RestoresVisibleScreenAndScrollback(t *testing.T) {
 	}
 }
 
+func TestLoadSnapshot_UsesSnapshotGeometry(t *testing.T) {
+	t.Parallel()
+	vt := New(4, 2)
+
+	vt.LoadSnapshot(TerminalSnapshot{
+		Data:      []byte("abcde\nfghi"),
+		Cols:      5,
+		Rows:      2,
+		ModeState: PaneModeState{PreserveExistingState: true},
+	})
+
+	if vt.Width != 5 || vt.Height != 2 {
+		t.Fatalf("expected snapshot geometry 5x2, got %dx%d", vt.Width, vt.Height)
+	}
+	if got := plainLine(vt.Screen[0]); got != "abcde" {
+		t.Fatalf("expected first screen row parsed at snapshot width, got %q", got)
+	}
+}
+
 func TestLoadPaneCapture_RestoresCurrentStyle(t *testing.T) {
 	t.Parallel()
 	vt := New(20, 2)
