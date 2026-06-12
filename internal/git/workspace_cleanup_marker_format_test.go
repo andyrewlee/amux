@@ -82,3 +82,19 @@ func TestWorkspaceCleanupMarkerRejectsUnknownVersion(t *testing.T) {
 		t.Fatal("expected unknown marker version to be rejected")
 	}
 }
+
+func TestWorkspaceCleanupMarkerRejectsNonUTF8Paths(t *testing.T) {
+	dir := t.TempDir()
+	ws := filepath.Join(dir, "ws")
+	badPath := string([]byte{'/', 't', 'm', 'p', '/', 0xff})
+
+	if err := writeWorkspaceCleanupState(ws, workspaceCleanupState{CleanupPath: badPath}); err == nil {
+		t.Fatal("expected non-UTF-8 cleanup path to be rejected")
+	}
+	if err := writeWorkspaceCleanupState(ws, workspaceCleanupState{
+		RepoPath:        badPath,
+		NeedsUnregister: true,
+	}); err == nil {
+		t.Fatal("expected non-UTF-8 repo path to be rejected")
+	}
+}
