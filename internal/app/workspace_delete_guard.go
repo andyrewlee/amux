@@ -5,11 +5,11 @@ import "github.com/andyrewlee/amux/internal/data"
 // Thin App wrappers over workspaceLifecycleState's delete-in-flight guard;
 // these exist so the workspace service can be wired to App methods in app_init.
 
-func (a *App) markWorkspaceDeleteInFlight(ws *data.Workspace, deleting bool) {
+func (a *App) markWorkspaceDeleteInFlight(ws *data.Workspace, deleting bool) bool {
 	if ws == nil {
-		return
+		return false
 	}
-	a.lifecycle.markDeleting(string(ws.ID()), deleting)
+	return a.lifecycle.markDeleting(string(ws.ID()), deleting)
 }
 
 func (a *App) isWorkspaceDeleteInFlight(wsID string) bool {

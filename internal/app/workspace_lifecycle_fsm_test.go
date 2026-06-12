@@ -101,6 +101,73 @@ func TestLifecycleCreateWhileProjectsLoading(t *testing.T) {
 	}
 }
 
+func TestHandleCreateWorkspaceStopsWhenLifecycleRejectsCreate(t *testing.T) {
+	workspacesRoot := t.TempDir()
+	project := data.NewProject("/repo")
+	service := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	pending := service.pendingWorkspace(project, "feature", "main")
+	if pending == nil {
+		t.Fatal("expected pending workspace")
+	}
+
+	app := &App{
+		lifecycle:        newWorkspaceLifecycleState(),
+		dashboard:        dashboard.New(),
+		workspaceService: service,
+	}
+	app.lifecycle.markDeleting(string(pending.ID()), true)
+
+	cmds := app.handleCreateWorkspace(messages.CreateWorkspace{
+		Project:   project,
+		Name:      "feature",
+		Base:      "main",
+		Assistant: "claude",
+	})
+	if len(cmds) != 1 {
+		t.Fatalf("expected only the create-failed command, got %d commands", len(cmds))
+	}
+	msg := cmds[0]()
+	failed, ok := msg.(messages.WorkspaceCreateFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+	}
+	if failed.Workspace == nil || failed.Workspace.ID() != pending.ID() {
+		t.Fatalf("expected failed pending workspace %s, got %#v", pending.ID(), failed.Workspace)
+	}
+	if failed.Err == nil {
+		t.Fatal("expected lifecycle rejection error")
+	}
+	if !app.lifecycle.isDeleting(string(pending.ID())) {
+		t.Fatal("expected deleting phase to remain active after rejected create")
+	}
+	if app.lifecycle.isCreating(string(pending.ID())) {
+		t.Fatal("expected rejected create not to mark workspace creating")
+	}
+}
+
+func TestHandleDeleteWorkspaceStopsWhenLifecycleRejectsDelete(t *testing.T) {
+	project := data.NewProject("/repo")
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	app := &App{
+		lifecycle: newWorkspaceLifecycleState(),
+		dashboard: dashboard.New(),
+	}
+	if !app.lifecycle.markCreating(string(ws.ID())) {
+		t.Fatal("expected setup create phase accepted")
+	}
+
+	cmds := app.handleDeleteWorkspace(messages.DeleteWorkspace{Project: project, Workspace: ws})
+	if len(cmds) != 0 {
+		t.Fatalf("expected rejected delete to queue no commands, got %d", len(cmds))
+	}
+	if !app.lifecycle.isCreating(string(ws.ID())) {
+		t.Fatal("expected creating phase to remain active after rejected delete")
+	}
+	if app.lifecycle.isDeleting(string(ws.ID())) {
+		t.Fatal("expected rejected delete not to mark workspace deleting")
+	}
+}
+
 // TestLifecycleDeleteWhilePersisting exercises the deleting phase against the
 // persistence paths concurrently (the guard methods are read from Cmd/worker
 // goroutines while Update-handler transitions run); run with -race.
