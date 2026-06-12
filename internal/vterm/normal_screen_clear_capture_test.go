@@ -20,6 +20,33 @@ func TestNormalScreenClearCapturesChatRedrawFrame(t *testing.T) {
 	}
 }
 
+func TestNormalScreenSynchronizedRedrawCapturesFullPreClearFrame(t *testing.T) {
+	t.Parallel()
+	vt := New(20, 16)
+	vt.CaptureNormalScreenOnClear = true
+	vt.TreatLFAsCRLF = true
+
+	vt.Write([]byte("REDRAW READY\r\ngo\r\n\x1b[?2026h"))
+	for _, suffix := range []string{"00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"} {
+		vt.Write([]byte("old-frame-" + suffix + "\r\n"))
+	}
+	vt.Write([]byte("\x1b[2J\x1b[3J"))
+	for _, suffix := range []string{"00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"} {
+		vt.Write([]byte("new-frame-" + suffix + "\r\n"))
+	}
+	vt.Write([]byte("\x1b[?2026l"))
+
+	if len(vt.Scrollback) < 14 {
+		t.Fatalf("expected prompt plus old frame rows in scrollback, got %d", len(vt.Scrollback))
+	}
+	if got := lineText(vt.Scrollback[2]); got != "old-frame-00" {
+		t.Fatalf("expected first old frame row in scrollback, got %q", got)
+	}
+	if got := lineText(vt.Scrollback[13]); got != "old-frame-11" {
+		t.Fatalf("expected last old frame row in scrollback, got %q", got)
+	}
+}
+
 func TestNormalScreenHomeEraseToEndCapturesChatRedrawFrame(t *testing.T) {
 	t.Parallel()
 	vt := New(12, 4)
