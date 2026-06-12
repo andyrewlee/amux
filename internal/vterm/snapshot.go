@@ -33,6 +33,16 @@ type TerminalSnapshot struct {
 // LoadSnapshot replaces the terminal's screen and scrollback with the
 // snapshot content, applying cursor and mode state.
 func (v *VTerm) LoadSnapshot(snap TerminalSnapshot) {
+	cols, rows := v.Width, v.Height
+	if snap.Cols > 0 {
+		cols = snap.Cols
+	}
+	if snap.Rows > 0 {
+		rows = snap.Rows
+	}
+	if cols != v.Width || rows != v.Height {
+		v.ResizeWithoutHistoryReveal(cols, rows)
+	}
 	v.LoadPaneCaptureWithCursorAndModes(snap.Data, snap.CursorX, snap.CursorY, snap.HasCursor, snap.ModeState)
 }
 
