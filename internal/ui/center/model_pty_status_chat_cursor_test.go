@@ -1,10 +1,10 @@
 package center
 
 import (
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 

@@ -2,10 +2,11 @@ package center
 
 import (
 	"context"
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 
 	tea "charm.land/bubbletea/v2"
 

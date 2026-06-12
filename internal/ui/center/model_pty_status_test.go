@@ -1,11 +1,11 @@
 package center
 
 import (
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/ui/diff"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -376,7 +376,6 @@ func TestTerminalLayerPreservesNonBlinkingBlockElementTextAtLiveCursor(t *testin
 		Rune:  '▌',
 		Width: 1,
 	}
-
 	m.tabsByWorkspace[wsID] = []*Tab{
 		{
 			ID:        TabID("tab-chat-real-block-text"),
@@ -388,7 +387,6 @@ func TestTerminalLayerPreservesNonBlinkingBlockElementTextAtLiveCursor(t *testin
 	m.activeTabByWorkspace[wsID] = 0
 	m.SetWorkspace(ws)
 	m.Focus()
-
 	layer := m.TerminalLayer()
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")

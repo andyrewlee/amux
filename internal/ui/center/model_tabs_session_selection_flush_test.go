@@ -1,8 +1,9 @@
 package center
 
 import (
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 
 	tea "charm.land/bubbletea/v2"
 

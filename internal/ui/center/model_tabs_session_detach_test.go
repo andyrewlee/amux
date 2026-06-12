@@ -1,11 +1,11 @@
 package center
 
 import (
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func TestDetachTab_EmitsWorkspaceAwareMessage(t *testing.T) {
