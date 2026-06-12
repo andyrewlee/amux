@@ -1,10 +1,10 @@
 package center
 
 import (
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -51,8 +51,7 @@ func TestTerminalLayerUpdatesStoredCursorWhenIdlePromptMovesAfterVersionChange(t
 		t.Fatalf("expected moved idle prompt cursor at (4,10), got (%d,%d)", layer.Snap.CursorX, layer.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != 4 || tab.stableCursorY != 10 {
-		t.Fatalf("expected stored cursor to update to moved idle prompt, got set=%v pos=(%d,%d)",
-			tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
+		t.Fatalf("expected stored cursor to update to moved idle prompt, got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
 	}
 }
 
@@ -184,8 +183,7 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 		t.Fatal("expected stored cursor to remain visible while output is restricted")
 	}
 	if restricted.Snap.CursorX != 1 || restricted.Snap.CursorY != 23 {
-		t.Fatalf("expected restricted render to keep stored cursor at (1,23), got (%d,%d)",
-			restricted.Snap.CursorX, restricted.Snap.CursorY)
+		t.Fatalf("expected restricted render to keep stored cursor at (1,23), got (%d,%d)", restricted.Snap.CursorX, restricted.Snap.CursorY)
 	}
 
 	tab.LastOutputAt = time.Now().Add(-tabActiveWindow - time.Millisecond)
@@ -203,8 +201,7 @@ func TestTerminalLayerRelearnsStoredCursorFromIdleMultilinePromptAfterRestricted
 			term.CursorX, term.CursorY, idle.Snap.CursorX, idle.Snap.CursorY)
 	}
 	if !tab.stableCursorSet || tab.stableCursorX != term.CursorX || tab.stableCursorY != term.CursorY {
-		t.Fatalf("expected stored cursor to update to idle multiline prompt, got set=%v pos=(%d,%d)",
-			tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
+		t.Fatalf("expected stored cursor to update to idle multiline prompt, got set=%v pos=(%d,%d)", tab.stableCursorSet, tab.stableCursorX, tab.stableCursorY)
 	}
 }
 

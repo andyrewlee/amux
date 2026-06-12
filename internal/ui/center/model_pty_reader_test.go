@@ -2,9 +2,9 @@ package center
 
 import (
 	"fmt"
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 

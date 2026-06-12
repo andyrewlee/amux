@@ -115,51 +115,51 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 
 	ts.FlushScheduled = false
 	ts.FlushPendingSince = time.Time{}
-	if len(ts.PendingOutput) > 0 {
-		var consumed bool
-		ts.mu.Lock()
-		if ts.VTerm != nil {
-			chunkSize := len(ts.PendingOutput)
-			if chunkSize > ptyFlushChunkSize {
-				chunkSize = ptyFlushChunkSize
-			}
-			chunk := append([]byte(nil), ts.PendingOutput[:chunkSize]...)
-			copy(ts.PendingOutput, ts.PendingOutput[chunkSize:])
-			ts.PendingOutput = ts.PendingOutput[:len(ts.PendingOutput)-chunkSize]
-			processedBytes := len(chunk)
-			filtered := ptyio.FilterKnownPTYNoiseStream(chunk, &ts.NoiseTrailing)
-			filteredBytes := processedBytes - len(filtered)
-			perf.Count("pty_flush_bytes_processed", int64(processedBytes))
-			if filteredBytes > 0 {
-				perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
-			}
-			if len(filtered) > 0 {
-				flushDone := perf.Time("pty_flush")
-				ts.VTerm.Write(filtered)
-				flushDone()
-				perf.Count("pty_flush_bytes", int64(len(filtered)))
-			}
-			consumed = true
-		}
-		ts.mu.Unlock()
-		if !consumed {
-			return nil
-		}
-		if len(ts.PendingOutput) == 0 {
-			ts.PendingOutput = ts.PendingOutput[:0]
-		} else {
-			ts.FlushScheduled = true
-			ts.FlushPendingSince = time.Now()
-			delay, _ := m.flushTiming()
-			if delay < time.Millisecond {
-				delay = time.Millisecond
-			}
-			return common.SafeTick(delay, func(t time.Time) tea.Msg {
-				return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
-			})
-		}
+	if len(ts.PendingOutput) == 0 || !flushSidebarPendingOutput(ts) {
+		return nil
 	}
-	return nil
+	if len(ts.PendingOutput) == 0 {
+		ts.PendingOutput = ts.PendingOutput[:0]
+		return nil
+	}
+	ts.FlushScheduled = true
+	ts.FlushPendingSince = time.Now()
+	delay, _ := m.flushTiming()
+	if delay < time.Millisecond {
+		delay = time.Millisecond
+	}
+	return common.SafeTick(delay, func(t time.Time) tea.Msg {
+		return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
+	})
+}
+
+func flushSidebarPendingOutput(ts *TerminalState) bool {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.VTerm == nil {
+		return false
+	}
+	chunkSize := len(ts.PendingOutput)
+	if chunkSize > ptyFlushChunkSize {
+		chunkSize = ptyFlushChunkSize
+	}
+	chunk := append([]byte(nil), ts.PendingOutput[:chunkSize]...)
+	copy(ts.PendingOutput, ts.PendingOutput[chunkSize:])
+	ts.PendingOutput = ts.PendingOutput[:len(ts.PendingOutput)-chunkSize]
+	processedBytes := len(chunk)
+	filtered := ptyio.FilterKnownPTYNoiseStream(chunk, &ts.NoiseTrailing)
+	filteredBytes := processedBytes - len(filtered)
+	perf.Count("pty_flush_bytes_processed", int64(processedBytes))
+	if filteredBytes > 0 {
+		perf.Count("pty_flush_bytes_filtered", int64(filteredBytes))
+	}
+	if len(filtered) > 0 {
+		flushDone := perf.Time("pty_flush")
+		ts.VTerm.Write(filtered)
+		flushDone()
+		perf.Count("pty_flush_bytes", int64(len(filtered)))
+	}
+	return true
 }
 
 // handlePTYStopped handles PTY reader exit, restarting with backoff or marking detached.
