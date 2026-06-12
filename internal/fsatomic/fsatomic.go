@@ -13,7 +13,9 @@ import (
 )
 
 // WriteFile atomically replaces path with data. The temp file is created in
-// path's directory so the final rename never crosses filesystems.
+// path's directory so the final rename never crosses filesystems. Replacement
+// files keep os.CreateTemp's private permissions; perm is accepted for parity
+// with os.WriteFile but is never used to widen access beyond the process umask.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
 	return writeFileForGOOS(runtime.GOOS, path, data, perm)
 }
@@ -32,10 +34,6 @@ func writeFileForGOOS(goos, path string, data []byte, perm os.FileMode) error {
 		}
 	}()
 
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return err
-	}
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err

@@ -69,6 +69,40 @@ func TestWorkspaceStore_SaveLoadDelete(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStore_LoadsWindowsBackupWhenPrimaryMissing(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+	ws := &Workspace{
+		Name: "recoverable",
+		Repo: "/home/user/repo",
+		Root: "/home/user/.amux/workspaces/recoverable",
+		Env:  map[string]string{"SECRET": "kept"},
+	}
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	id := ws.ID()
+	path := store.workspacePath(id)
+	if err := os.Rename(path, path+".bak"); err != nil {
+		t.Fatalf("move primary to backup: %v", err)
+	}
+
+	ids, err := store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(ids) != 1 || ids[0] != id {
+		t.Fatalf("List() ids = %v, want [%s]", ids, id)
+	}
+	loaded, err := store.Load(id)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Env["SECRET"] != "kept" {
+		t.Fatalf("loaded Env[SECRET] = %q, want kept", loaded.Env["SECRET"])
+	}
+}
+
 func TestWorkspaceStore_List(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

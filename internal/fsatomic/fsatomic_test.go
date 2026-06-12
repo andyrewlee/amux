@@ -37,6 +37,22 @@ func TestWriteFileReplacesAtomically(t *testing.T) {
 	}
 }
 
+func TestWriteFileKeepsPrivatePermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	if err := WriteFile(path, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		t.Fatalf("expected no group/other permissions, got %03o", mode)
+	}
+}
+
 func TestWriteFileWindowsBackupShuffle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")

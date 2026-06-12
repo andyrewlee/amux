@@ -62,6 +62,10 @@ func (s *WorkspaceStore) workspacePath(id WorkspaceID) string {
 	return filepath.Join(s.root, string(id), workspaceFilename)
 }
 
+func (s *WorkspaceStore) workspaceBackupPath(id WorkspaceID) string {
+	return s.workspacePath(id) + ".bak"
+}
+
 func (s *WorkspaceStore) workspaceLockPath(id WorkspaceID) string {
 	return filepath.Join(s.root, string(id)+".lock")
 }
@@ -82,12 +86,22 @@ func (s *WorkspaceStore) List() ([]WorkspaceID, error) {
 			continue
 		}
 		// Check if workspace.json exists in this directory
-		wsPath := filepath.Join(s.root, entry.Name(), workspaceFilename)
-		if _, err := os.Stat(wsPath); err == nil {
+		id := WorkspaceID(entry.Name())
+		if s.workspaceMetadataExists(id) {
 			ids = append(ids, WorkspaceID(entry.Name()))
 		}
 	}
 	return ids, nil
+}
+
+func (s *WorkspaceStore) workspaceMetadataExists(id WorkspaceID) bool {
+	if _, err := os.Stat(s.workspacePath(id)); err == nil {
+		return true
+	}
+	if _, err := os.Stat(s.workspaceBackupPath(id)); err == nil {
+		return true
+	}
+	return false
 }
 
 // Load loads a workspace by its ID
@@ -99,8 +113,7 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 	if err := validateWorkspaceID(id); err != nil {
 		return nil, err
 	}
-	path := s.workspacePath(id)
-	data, err := os.ReadFile(path)
+	data, err := s.readWorkspaceMetadata(id)
 	if err != nil {
 		return nil, fmt.Errorf("read workspace %s: %w", id, err)
 	}
@@ -136,6 +149,20 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 	}
 
 	return ws, nil
+}
+
+func (s *WorkspaceStore) readWorkspaceMetadata(id WorkspaceID) ([]byte, error) {
+	data, err := os.ReadFile(s.workspacePath(id))
+	if os.IsNotExist(err) {
+		backupData, backupErr := os.ReadFile(s.workspaceBackupPath(id))
+		if backupErr == nil {
+			return backupData, nil
+		}
+		if !os.IsNotExist(backupErr) {
+			return nil, backupErr
+		}
+	}
+	return data, err
 }
 
 // Save saves a workspace to the store using atomic write
