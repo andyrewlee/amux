@@ -18,7 +18,10 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		logging.Warn("DeleteWorkspace received with nil project or workspace")
 		return nil
 	}
-	a.markWorkspaceDeleteInFlight(msg.Workspace, true)
+	if !a.markWorkspaceDeleteInFlight(msg.Workspace, true) {
+		logging.Warn("DeleteWorkspace rejected while workspace %s is in another lifecycle phase", msg.Workspace.ID())
+		return nil
+	}
 	// Do NOT kill the workspace's tmux sessions here. All real delete validation
 	// (primary-checkout guard, repo/path checks, worktree removal) runs later in
 	// the async DeleteWorkspace cmd; killing up-front means a rejected or failed

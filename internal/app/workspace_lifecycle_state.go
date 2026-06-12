@@ -135,16 +135,16 @@ func (w *workspaceLifecycleState) isCreating(wsID string) bool {
 // markDeleting sets or clears the delete-in-flight phase for a workspace.
 // Setting is rejected while the workspace is mid-create; clearing only
 // settles a deleting workspace (it never stomps another phase).
-func (w *workspaceLifecycleState) markDeleting(wsID string, deleting bool) {
+func (w *workspaceLifecycleState) markDeleting(wsID string, deleting bool) bool {
 	if deleting {
-		w.transition(wsID, lifecycleDeleting)
-		return
+		return w.transition(wsID, lifecycleDeleting)
 	}
 	w.phaseMu.Lock()
 	defer w.phaseMu.Unlock()
 	if w.phases[wsID] == lifecycleDeleting {
 		delete(w.phases, wsID)
 	}
+	return true
 }
 
 // isDeleting reports whether a workspace is currently delete-in-flight.
