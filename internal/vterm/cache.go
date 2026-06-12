@@ -47,6 +47,10 @@ func (v *VTerm) invalidateRenderCache() {
 	v.bumpVersion()
 }
 
+func (v *VTerm) liveRenderCacheActive() bool {
+	return v.ViewOffset == 0 && !v.syncActive
+}
+
 // DirtyLines returns the dirty line flags and whether all lines are dirty.
 // This is used by VTermLayer for optimized rendering.
 func (v *VTerm) DirtyLines() ([]bool, bool) {
@@ -63,6 +67,9 @@ func (v *VTerm) DirtyLines() ([]bool, bool) {
 
 // ClearDirty resets dirty tracking state after a render.
 func (v *VTerm) ClearDirty() {
+	if !v.liveRenderCacheActive() {
+		return
+	}
 	v.renderDirtyAll = false
 	for i := range v.renderDirty {
 		v.renderDirty[i] = false
@@ -72,6 +79,9 @@ func (v *VTerm) ClearDirty() {
 // ClearDirtyWithCursor resets dirty tracking state and updates cursor tracking.
 // This should be called after snapshotting to track cursor position changes.
 func (v *VTerm) ClearDirtyWithCursor(showCursor bool) {
+	if !v.liveRenderCacheActive() {
+		return
+	}
 	v.renderDirtyAll = false
 	for i := range v.renderDirty {
 		v.renderDirty[i] = false
