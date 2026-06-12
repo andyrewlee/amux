@@ -141,29 +141,44 @@ func TestUTF8ContinuationAcrossArbitrarySplits(t *testing.T) {
 func TestRenderCacheNeverChangesOutput(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewSource(7))
-	v := New(30, 6)
+	warm := New(30, 6)
+	cold := New(30, 6)
 
-	ops := []func(int){
-		func(i int) { v.Write([]byte(fmt.Sprintf("line %d output\r\n", i))) },
-		func(i int) { v.Write([]byte(fmt.Sprintf("\x1b[%d;%dHX", 1+rng.Intn(6), 1+rng.Intn(30)))) },
-		func(i int) { v.Write([]byte("\x1b[31mred\x1b[0m")) },
-		func(i int) { v.ScrollView(1) },
-		func(i int) { v.ScrollViewToBottom() },
+	applyOp := func(v *VTerm, op, step, row, col int) {
+		switch op {
+		case 0:
+			v.Write([]byte(fmt.Sprintf("line %d output\r\n", step)))
+		case 1:
+			v.Write([]byte(fmt.Sprintf("\x1b[%d;%dHX", row, col)))
+		case 2:
+			v.Write([]byte("\x1b[31mred\x1b[0m"))
+		case 3:
+			v.ScrollView(1)
+		case 4:
+			v.ScrollViewToBottom()
+		default:
+			t.Fatalf("unknown op %d", op)
+		}
 	}
 
 	for step := 0; step < 200; step++ {
-		ops[rng.Intn(len(ops))](step)
+		op := rng.Intn(5)
+		row := 1 + rng.Intn(6)
+		col := 1 + rng.Intn(30)
+		applyOp(warm, op, step, row, col)
+		applyOp(cold, op, step, row, col)
 
-		cached := v.Render()
-		v.ClearDirty()
-		again := v.Render()
+		cached := warm.Render()
+		warm.ClearDirty()
+		again := warm.Render()
 		if cached != again {
 			t.Fatalf("step %d: second cached render differs from first", step)
 		}
-		v.invalidateRenderCache()
-		fresh := v.Render()
+		cold.invalidateRenderCache()
+		fresh := cold.Render()
 		if cached != fresh {
 			t.Fatalf("step %d: cached render differs from cache-invalidated render\ncached:\n%q\nfresh:\n%q", step, cached, fresh)
 		}
+		cold.ClearDirty()
 	}
 }
