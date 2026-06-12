@@ -70,18 +70,19 @@ func writeRedrawAssistant(t *testing.T, home, name string) string {
 		t.Fatalf("mkdir bin: %v", err)
 	}
 	scriptPath := filepath.Join(binDir, name)
+	// Keep this as a plain normal-screen redraw. tmux 3.6a coalesces DEC 2026
+	// synchronized output before it reaches attached clients, so intermediate
+	// old-frame rows are not available for amux to capture in this e2e.
 	script := `#!/bin/sh
 printf 'REDRAW READY\r\n'
 IFS= read -r _
-printf '\033[?2026h'
 for i in 00 01 02 03 04 05 06 07 08 09 10 11; do
   printf 'old-frame-%s\r\n' "$i"
 done
-printf '\033[2J\033[3J'
+printf '\033[2J'
 for i in 00 01 02 03 04 05 06 07 08 09 10 11; do
   printf 'new-frame-%s\r\n' "$i"
 done
-printf '\033[?2026l'
 sleep 1000
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
