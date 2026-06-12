@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 const prunedWorkspaceCleanupRetryMetadataName = ".amux-pruned-worktree-retry"
@@ -174,10 +175,18 @@ func writeWorkspaceCleanupState(workspacePath string, state workspaceCleanupStat
 		return fmt.Errorf("refusing to persist legacy-ambiguous workspace cleanup state for %s", workspacePath)
 	}
 	if state.RepoPath != "" {
+		if !utf8.ValidString(state.RepoPath) {
+			return fmt.Errorf("refusing to persist non-UTF-8 workspace cleanup repo path")
+		}
 		state.RepoPath = filepath.Clean(state.RepoPath)
 	}
-	if state.CleanupPath != "" && !isSafeWorkspaceCleanupPath(state.CleanupPath) {
-		return fmt.Errorf("refusing to persist unsafe workspace cleanup path: %s", state.CleanupPath)
+	if state.CleanupPath != "" {
+		if !utf8.ValidString(state.CleanupPath) {
+			return fmt.Errorf("refusing to persist non-UTF-8 workspace cleanup path")
+		}
+		if !isSafeWorkspaceCleanupPath(state.CleanupPath) {
+			return fmt.Errorf("refusing to persist unsafe workspace cleanup path: %s", state.CleanupPath)
+		}
 	}
 	if !state.NeedsUnregister && state.CleanupPath == "" {
 		return clearPrunedWorkspaceRetryMarker(workspacePath)
