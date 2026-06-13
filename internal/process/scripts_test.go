@@ -22,6 +22,27 @@ func writeWorkspaceConfig(t *testing.T, repoPath, content string) {
 	}
 }
 
+// useTempTrust repoints the runner's trust registry at an isolated temp dir so
+// tests never touch the real ~/.amux registry. Returns the registry so callers
+// can grant or withhold trust explicitly.
+func useTempTrust(t *testing.T, runner *ScriptRunner) *ScriptTrust {
+	t.Helper()
+	trust := NewScriptTrust(t.TempDir())
+	runner.trust = trust
+	return trust
+}
+
+// trustRepo records the current .amux/workspaces.json content of repoPath as
+// approved, so existing tests that expect repo-supplied commands to run keep
+// passing through the new gate.
+func trustRepo(t *testing.T, runner *ScriptRunner, repoPath string) {
+	t.Helper()
+	useTempTrust(t, runner)
+	if err := runner.TrustRepoScripts(repoPath); err != nil {
+		t.Fatalf("TrustRepoScripts(%s): %v", repoPath, err)
+	}
+}
+
 func TestScriptRunnerLoadConfigMissing(t *testing.T) {
 	repo := t.TempDir()
 	runner := NewScriptRunner(6200, 10)
@@ -107,6 +128,7 @@ func TestScriptRunnerRunSetupAndEnv(t *testing.T) {
 }`)
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	wt := &data.Workspace{
 		Name:   "feature-1",
 		Branch: "feature-1",
@@ -137,6 +159,7 @@ func TestScriptRunnerRunSetupFailure(t *testing.T) {
 }`)
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	if err := runner.RunSetup(wt); err == nil {
@@ -153,6 +176,7 @@ func TestScriptRunnerRunScriptConfigAndWorkspaceScripts(t *testing.T) {
 }`)
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	_, err := runner.RunScript(wt, ScriptRun)
@@ -163,7 +187,9 @@ func TestScriptRunnerRunScriptConfigAndWorkspaceScripts(t *testing.T) {
 		t.Fatalf("expected run.txt to be created: %v", err)
 	}
 
-	// Now test workspace scripts fallback when config missing.
+	// Now test workspace scripts fallback when config missing. The user-entered
+	// ws.Scripts.Run path is NOT gated by trust: even though the repo config was
+	// just rewritten (and is no longer trusted), this still runs.
 	writeWorkspaceConfig(t, repo, `{}`)
 	wt.Scripts = data.ScriptsConfig{Run: "printf run-workspace > run-workspace.txt"}
 	_, err = runner.RunScript(wt, ScriptRun)
@@ -198,6 +224,7 @@ func TestScriptRunnerStop(t *testing.T) {
 }`)
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	wt := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	if _, err := runner.RunScript(wt, ScriptRun); err != nil {
@@ -260,6 +287,7 @@ func TestScriptRunnerUsesNormalizedWorkspaceKey(t *testing.T) {
 	writeWorkspaceConfig(t, repo, `{"run": "sleep 5"}`)
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	ws1 := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	if _, err := runner.RunScript(ws1, ScriptRun); err != nil {
@@ -284,6 +312,7 @@ func TestScriptRunnerRunScriptNonconcurrentStopFailure(t *testing.T) {
 	writeWorkspaceConfig(t, repo, `{"run": "sleep 5"}`)
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	ws := &data.Workspace{Repo: repo, Root: wsRoot, ScriptMode: "nonconcurrent"}
 
 	// Start a script first
@@ -319,6 +348,7 @@ func TestScriptRunnerRunScriptNonconcurrentIgnoresBenignStopRace(t *testing.T) {
 	writeWorkspaceConfig(t, repo, `{"run": "sleep 5"}`)
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	ws := &data.Workspace{Repo: repo, Root: wsRoot, ScriptMode: "nonconcurrent"}
 
 	// Start a script first

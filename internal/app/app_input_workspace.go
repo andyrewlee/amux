@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -65,6 +67,14 @@ func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 // handleWorkspaceSetupComplete handles the WorkspaceSetupComplete message.
 func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) tea.Cmd {
 	if msg.Err != nil {
+		// Distinguish a trust skip (the repo's .amux/workspaces.json scripts were
+		// deliberately not run because the repo isn't trusted yet) from a genuine
+		// setup failure, so the user knows nothing executed and why.
+		if errors.Is(msg.Err, process.ErrScriptsNotTrusted) {
+			return a.toast.ShowWarning(fmt.Sprintf(
+				"Skipped .amux/workspaces.json scripts for %s: repo not trusted yet (scripts run only after you trust this repo)",
+				msg.Workspace.Name))
+		}
 		return a.toast.ShowWarning(fmt.Sprintf("Setup failed for %s: %v", msg.Workspace.Name, msg.Err))
 	}
 	return nil

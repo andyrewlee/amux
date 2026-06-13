@@ -52,6 +52,13 @@ func TestScriptRunner_StopAll(t *testing.T) {
 	writeWorkspaceConfig(t, repoB, `{"run": "sleep 30"}`)
 
 	runner := NewScriptRunner(6200, 10)
+	useTempTrust(t, runner)
+	if err := runner.TrustRepoScripts(repoA); err != nil {
+		t.Fatalf("TrustRepoScripts(A): %v", err)
+	}
+	if err := runner.TrustRepoScripts(repoB); err != nil {
+		t.Fatalf("TrustRepoScripts(B): %v", err)
+	}
 	wsA := &data.Workspace{Repo: repoA, Root: rootA}
 	wsB := &data.Workspace{Repo: repoB, Root: rootB}
 
@@ -114,6 +121,7 @@ func TestScriptRunner_StopForceKillsStuckProcess(t *testing.T) {
 	readyPath := filepath.Join(t.TempDir(), "ready")
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	ws := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	runner.killProcessGroup = func(pid int, _ KillOptions) error {
@@ -218,11 +226,15 @@ func TestScriptRunner_NonconcurrentRestartKeepsNewEntry(t *testing.T) {
 	wsRoot := t.TempDir()
 
 	runner := NewScriptRunner(6200, 10)
+	useTempTrust(t, runner)
 	ws := &data.Workspace{Repo: repo, Root: wsRoot, ScriptMode: "nonconcurrent"}
 
 	// Run #1: fast-exiting body. Its monitor goroutine will fire (cmd.Wait
 	// returns) and attempt to delete the map entry for this workspace.
 	writeWorkspaceConfig(t, repo, `{"run": "exit 0"}`)
+	if err := runner.TrustRepoScripts(repo); err != nil {
+		t.Fatalf("TrustRepoScripts(#1): %v", err)
+	}
 	if _, err := runner.RunScript(ws, ScriptRun); err != nil {
 		t.Fatalf("RunScript(#1) error = %v", err)
 	}
@@ -230,7 +242,11 @@ func TestScriptRunner_NonconcurrentRestartKeepsNewEntry(t *testing.T) {
 	// Run #2: long-lived body for the same workspace. In nonconcurrent mode
 	// RunScript first Stops the prior run, then registers this one. The monitor
 	// guard must stop run #1's (now stale) monitor from deleting run #2's entry.
+	// Re-trust because the config content (and thus its approved hash) changed.
 	writeWorkspaceConfig(t, repo, `{"run": "sleep 30"}`)
+	if err := runner.TrustRepoScripts(repo); err != nil {
+		t.Fatalf("TrustRepoScripts(#2): %v", err)
+	}
 	cmd2, err := runner.RunScript(ws, ScriptRun)
 	if err != nil {
 		t.Fatalf("RunScript(#2) error = %v", err)

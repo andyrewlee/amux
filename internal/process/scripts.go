@@ -28,6 +28,12 @@ const (
 
 const configFilename = "workspaces.json"
 
+// ErrScriptsNotTrusted is returned (wrapped) when a repo's .amux/workspaces.json
+// supplies commands but the user has not approved the current content of that
+// file. It is the sentinel callers test with errors.Is to distinguish a trust
+// skip from a genuine setup failure.
+var ErrScriptsNotTrusted = errors.New("project scripts not trusted")
+
 // scriptStopTimeout is how long Stop waits for the background cmd.Wait monitor
 // to observe process exit before escalating to a direct SIGKILL.
 // Kept as a var so tests can shorten it.
@@ -111,6 +117,7 @@ type ScriptRunner struct {
 	running          map[string]*runningScript // workspace root -> running process
 	pendingRelease   map[string]pendingPortRelease
 	killProcessGroup func(pid int, opts KillOptions) error
+	trust            *ScriptTrust // per-user approval registry for repo-supplied scripts
 }
 
 type runningScript struct {
@@ -141,26 +148,36 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 		running:          make(map[string]*runningScript),
 		pendingRelease:   make(map[string]pendingPortRelease),
 		killProcessGroup: KillProcessGroup,
+		trust:            defaultScriptTrust(),
 	}
 }
 
 // LoadConfig loads the workspace configuration from the repo
 func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
+	config, _, err := r.loadConfigRaw(repoPath)
+	return config, err
+}
+
+// loadConfigRaw loads the workspace configuration and also returns the raw file
+// bytes, so the trust check can hash exactly what was parsed without a second
+// disk read. A missing file yields an empty config and nil bytes (nothing to
+// trust or run).
+func (r *ScriptRunner) loadConfigRaw(repoPath string) (*WorkspaceConfig, []byte, error) {
 	configPath := filepath.Join(repoPath, ".amux", configFilename)
 
 	fileData, err := os.ReadFile(configPath)
 	if os.IsNotExist(err) {
-		return &WorkspaceConfig{}, nil
+		return &WorkspaceConfig{}, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var config WorkspaceConfig
 	if err := json.Unmarshal(fileData, &config); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &config, nil
+	return &config, fileData, nil
 }
 
 // RunSetup runs the setup scripts for a workspace
@@ -168,9 +185,16 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 	if err := validateScriptWorkspace(ws); err != nil {
 		return err
 	}
-	config, err := r.LoadConfig(ws.Repo)
+	config, raw, err := r.loadConfigRaw(ws.Repo)
 	if err != nil {
 		return err
+	}
+
+	// Gate repo-supplied commands behind recorded per-repo consent. Until the
+	// user trusts the current content of .amux/workspaces.json, execute nothing
+	// and return the sentinel (fail-closed).
+	if len(config.SetupWorkspace) > 0 && !r.trust.IsTrusted(ws.Repo, raw) {
+		return fmt.Errorf("%s (%q): %w", ws.Repo, config.SetupWorkspace[0], ErrScriptsNotTrusted)
 	}
 
 	env := r.envBuilder.BuildEnv(ws)
@@ -212,27 +236,39 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		return nil, err
 	}
 
-	config, err := r.LoadConfig(ws.Repo)
+	config, raw, err := r.loadConfigRaw(ws.Repo)
 	if err != nil {
 		return nil, err
 	}
 
+	// fromRepoConfig is true only when the command came from the repo's
+	// .amux/workspaces.json (config.RunScript/config.ArchiveScript), false when
+	// it fell back to ws.Scripts.* (user-entered in the amux UI). Only the
+	// repo-supplied case is gated behind trust.
 	var cmdStr string
+	var fromRepoConfig bool
 	switch scriptType {
 	case ScriptRun:
-		cmdStr = config.RunScript
-		if cmdStr == "" {
+		if config.RunScript != "" {
+			cmdStr, fromRepoConfig = config.RunScript, true
+		} else {
 			cmdStr = ws.Scripts.Run
 		}
 	case ScriptArchive:
-		cmdStr = config.ArchiveScript
-		if cmdStr == "" {
+		if config.ArchiveScript != "" {
+			cmdStr, fromRepoConfig = config.ArchiveScript, true
+		} else {
 			cmdStr = ws.Scripts.Archive
 		}
 	}
 
 	if cmdStr == "" {
 		return nil, fmt.Errorf("no %s script configured", scriptType)
+	}
+
+	// Gate only repo-supplied commands; user-entered ws.Scripts.* always run.
+	if fromRepoConfig && !r.trust.IsTrusted(ws.Repo, raw) {
+		return nil, fmt.Errorf("%s (%q): %w", ws.Repo, cmdStr, ErrScriptsNotTrusted)
 	}
 
 	// Check for existing process in non-concurrent mode
@@ -270,6 +306,22 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	})
 
 	return cmd, nil
+}
+
+// TrustRepoScripts records the current content of repoPath's
+// .amux/workspaces.json as approved, so subsequent RunSetup/RunScript calls
+// execute its repo-supplied commands. Approval is content-bound: any later edit
+// to the file re-gates execution until the user trusts it again. A repo with no
+// config file is a no-op (nothing to trust).
+func (r *ScriptRunner) TrustRepoScripts(repoPath string) error {
+	_, raw, err := r.loadConfigRaw(repoPath)
+	if err != nil {
+		return err
+	}
+	if raw == nil {
+		return nil
+	}
+	return r.trust.Trust(repoPath, raw)
 }
 
 // Stop stops the running script for a workspace

@@ -2,15 +2,62 @@ package app
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
+
+// TestHandleWorkspaceSetupComplete_TrustSkipToast proves the setup-complete
+// handler distinguishes a trust skip (ErrScriptsNotTrusted) from a generic
+// setup failure, naming .amux/workspaces.json so the user knows what was
+// skipped and why.
+func TestHandleWorkspaceSetupComplete_TrustSkipToast(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	app := &App{toast: common.NewToastModel()}
+
+	wrapped := fmt.Errorf("/repo (%q): %w", "touch marker", process.ErrScriptsNotTrusted)
+	if cmd := app.handleWorkspaceSetupComplete(messages.WorkspaceSetupComplete{
+		Workspace: ws,
+		Err:       wrapped,
+	}); cmd == nil {
+		t.Fatal("expected a warning toast command for a trust-skip error")
+	}
+
+	view := app.toast.View()
+	if !strings.Contains(view, ".amux/workspaces.json") {
+		t.Fatalf("trust-skip toast should name .amux/workspaces.json, got: %q", view)
+	}
+	if strings.Contains(view, "Setup failed") {
+		t.Fatalf("trust-skip toast must not use the generic 'Setup failed' wording, got: %q", view)
+	}
+}
+
+// TestHandleWorkspaceSetupComplete_GenericFailureToast proves non-trust errors
+// keep the generic "Setup failed" branch.
+func TestHandleWorkspaceSetupComplete_GenericFailureToast(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	app := &App{toast: common.NewToastModel()}
+
+	if cmd := app.handleWorkspaceSetupComplete(messages.WorkspaceSetupComplete{
+		Workspace: ws,
+		Err:       errors.New("boom"),
+	}); cmd == nil {
+		t.Fatal("expected a warning toast command for a generic setup failure")
+	}
+
+	view := app.toast.View()
+	if !strings.Contains(view, "Setup failed") {
+		t.Fatalf("generic failure toast should say 'Setup failed', got: %q", view)
+	}
+}
 
 func TestHandleWorkspaceDeletedClearsDirtyWorkspaceMarker(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
