@@ -34,6 +34,26 @@ const configFilename = "workspaces.json"
 // skip from a genuine setup failure.
 var ErrScriptsNotTrusted = errors.New("project scripts not trusted")
 
+// ErrScriptsChangedSincePrompt is returned when a user approves script content
+// after the repo config changed from the content that originally triggered the prompt.
+var ErrScriptsChangedSincePrompt = errors.New("project scripts changed since trust prompt")
+
+// ScriptsNotTrustedError carries the hash of the repo config content that was
+// blocked, so the UI can bind a later approval to the exact reviewed content.
+type ScriptsNotTrustedError struct {
+	Repo       string
+	Command    string
+	ConfigHash string
+}
+
+func (e *ScriptsNotTrustedError) Error() string {
+	return fmt.Sprintf("%s (%q): %v", e.Repo, e.Command, ErrScriptsNotTrusted)
+}
+
+func (e *ScriptsNotTrustedError) Unwrap() error {
+	return ErrScriptsNotTrusted
+}
+
 // scriptStopTimeout is how long Stop waits for the background cmd.Wait monitor
 // to observe process exit before escalating to a direct SIGKILL.
 // Kept as a var so tests can shorten it.
@@ -194,7 +214,11 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 	// user trusts the current content of .amux/workspaces.json, execute nothing
 	// and return the sentinel (fail-closed).
 	if len(config.SetupWorkspace) > 0 && !r.trust.IsTrusted(ws.Repo, raw) {
-		return fmt.Errorf("%s (%q): %w", ws.Repo, config.SetupWorkspace[0], ErrScriptsNotTrusted)
+		return &ScriptsNotTrustedError{
+			Repo:       ws.Repo,
+			Command:    config.SetupWorkspace[0],
+			ConfigHash: hashConfig(raw),
+		}
 	}
 
 	env := r.envBuilder.BuildEnv(ws)
@@ -268,7 +292,11 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 
 	// Gate only repo-supplied commands; user-entered ws.Scripts.* always run.
 	if fromRepoConfig && !r.trust.IsTrusted(ws.Repo, raw) {
-		return nil, fmt.Errorf("%s (%q): %w", ws.Repo, cmdStr, ErrScriptsNotTrusted)
+		return nil, &ScriptsNotTrustedError{
+			Repo:       ws.Repo,
+			Command:    cmdStr,
+			ConfigHash: hashConfig(raw),
+		}
 	}
 
 	// Check for existing process in non-concurrent mode
@@ -320,6 +348,22 @@ func (r *ScriptRunner) TrustRepoScripts(repoPath string) error {
 	}
 	if raw == nil {
 		return nil
+	}
+	return r.trust.Trust(repoPath, raw)
+}
+
+// TrustRepoScriptsIfHash records trust only if the repo config still matches the
+// content hash that originally triggered the user approval prompt.
+func (r *ScriptRunner) TrustRepoScriptsIfHash(repoPath, expectedHash string) error {
+	_, raw, err := r.loadConfigRaw(repoPath)
+	if err != nil {
+		return err
+	}
+	if raw == nil {
+		return nil
+	}
+	if expectedHash != "" && hashConfig(raw) != expectedHash {
+		return ErrScriptsChangedSincePrompt
 	}
 	return r.trust.Trust(repoPath, raw)
 }

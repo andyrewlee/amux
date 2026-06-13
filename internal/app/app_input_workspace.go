@@ -71,9 +71,18 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 		// deliberately not run because the repo isn't trusted yet) from a genuine
 		// setup failure, so the user knows nothing executed and why.
 		if errors.Is(msg.Err, process.ErrScriptsNotTrusted) {
-			return a.toast.ShowWarning(fmt.Sprintf(
+			var trustErr *process.ScriptsNotTrustedError
+			var configHash string
+			if errors.As(msg.Err, &trustErr) {
+				configHash = trustErr.ConfigHash
+			}
+			toastCmd := a.toast.ShowWarning(fmt.Sprintf(
 				"Skipped .amux/workspaces.json scripts for %s: repo not trusted yet (scripts run only after you trust this repo)",
 				msg.Workspace.Name))
+			dialogCmd := func() tea.Msg {
+				return messages.ShowTrustScriptsDialog{Workspace: msg.Workspace, ConfigHash: configHash}
+			}
+			return common.SafeBatch(toastCmd, dialogCmd)
 		}
 		return a.toast.ShowWarning(fmt.Sprintf("Setup failed for %s: %v", msg.Workspace.Name, msg.Err))
 	}

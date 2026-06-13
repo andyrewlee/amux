@@ -95,6 +95,14 @@ func (a *App) runSetupAsync(ws *data.Workspace) tea.Cmd {
 	return a.workspaceService.RunSetupAsync(ws)
 }
 
+// trustRepoScriptsAndRunSetupAsync trusts the reviewed repo script config and retries setup.
+func (a *App) trustRepoScriptsAndRunSetupAsync(ws *data.Workspace, expectedHash string) tea.Cmd {
+	if a.workspaceService == nil {
+		return nil
+	}
+	return a.workspaceService.TrustRepoScriptsAndRunSetupAsync(ws, expectedHash)
+}
+
 // deleteWorkspace deletes a workspace. The user is NOT navigated home here: that
 // happens only once the delete is confirmed (handleWorkspaceDeleted), so a
 // rejected or failed delete does not bounce the user out of a workspace it left

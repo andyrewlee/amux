@@ -21,7 +21,7 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 	}
 	logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 	switch result.ID {
-	case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
+	case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogTrustScripts, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
 		return true, common.SafeCmd(a.handleDialogResult(result))
 	}
 	// If not an App-level dialog, let it fall through to components.
@@ -99,9 +99,11 @@ func (a *App) handleSettingsDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	project := a.dialogProject
 	workspace := a.dialogWorkspace
+	trustScriptsHash := a.dialogTrustScriptsHash
 	a.dialog = nil
 	a.dialogProject = nil
 	a.dialogWorkspace = nil
+	a.dialogTrustScriptsHash = ""
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
@@ -155,6 +157,11 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 					Workspace: ws,
 				}
 			}
+		}
+
+	case DialogTrustScripts:
+		if workspace != nil {
+			return a.trustRepoScriptsAndRunSetupAsync(workspace, trustScriptsHash)
 		}
 
 	case DialogRemoveProject:

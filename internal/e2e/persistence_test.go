@@ -91,6 +91,9 @@ func quitApp(t *testing.T, session *PTYSession) {
 	t.Helper()
 	sendPrefixCommand(t, session, "q")
 	waitForUIContains(t, session, "Quit AMUX", persistenceTimeout)
+	if err := session.SendString("h"); err != nil {
+		t.Fatalf("select quit confirmation: %v", err)
+	}
 	if err := session.SendString("\r"); err != nil {
 		t.Fatalf("confirm quit: %v", err)
 	}

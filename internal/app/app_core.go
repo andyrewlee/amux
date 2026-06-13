@@ -27,6 +27,7 @@ const (
 	DialogAddProject      = "add_project"
 	DialogCreateWorkspace = "create_workspace"
 	DialogDeleteWorkspace = "delete_workspace"
+	DialogTrustScripts    = "trust_scripts"
 	DialogRemoveProject   = "remove_project"
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
@@ -86,8 +87,9 @@ type App struct {
 	toast *common.ToastModel
 
 	// Dialog context
-	dialogProject   *data.Project
-	dialogWorkspace *data.Workspace
+	dialogProject          *data.Project
+	dialogWorkspace        *data.Workspace
+	dialogTrustScriptsHash string
 	// Pending workspace creation context while selecting assistant.
 	pendingWorkspaceProject *data.Project
 	pendingWorkspaceName    string

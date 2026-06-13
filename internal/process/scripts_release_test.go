@@ -65,6 +65,7 @@ func TestScriptRunnerReleaseWorkspaceGatedByRunningSetup(t *testing.T) {
 	ws := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
 	done := make(chan error, 1)
 	go func() {
 		done <- runner.RunSetup(ws)
