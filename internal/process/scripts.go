@@ -66,9 +66,33 @@ func isBenignStopError(err error) bool {
 }
 
 func (r *ScriptRunner) clearRunningEntry(key string) {
+	var releaseRoot string
 	r.mu.Lock()
 	delete(r.running, key)
+	if root, ok := r.pendingRelease[key]; ok {
+		releaseRoot = root
+		delete(r.pendingRelease, key)
+	}
 	r.mu.Unlock()
+	if releaseRoot != "" && r.portAllocator != nil {
+		r.portAllocator.ReleasePort(releaseRoot)
+	}
+}
+
+func (r *ScriptRunner) finishRunningEntry(key string, running *runningScript) {
+	var releaseRoot string
+	r.mu.Lock()
+	if current, ok := r.running[key]; ok && current == running {
+		delete(r.running, key)
+		if root, pending := r.pendingRelease[key]; pending {
+			releaseRoot = root
+			delete(r.pendingRelease, key)
+		}
+	}
+	r.mu.Unlock()
+	if releaseRoot != "" && r.portAllocator != nil {
+		r.portAllocator.ReleasePort(releaseRoot)
+	}
 }
 
 // WorkspaceConfig holds per-project workspace configuration
@@ -84,6 +108,7 @@ type ScriptRunner struct {
 	portAllocator    *PortAllocator
 	envBuilder       *EnvBuilder
 	running          map[string]*runningScript // workspace root -> running process
+	pendingRelease   map[string]string         // normalized workspace root -> raw workspace root
 	killProcessGroup func(pid int, opts KillOptions) error
 }
 
@@ -99,6 +124,7 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 		portAllocator:    ports,
 		envBuilder:       NewEnvBuilder(ports),
 		running:          make(map[string]*runningScript),
+		pendingRelease:   make(map[string]string),
 		killProcessGroup: KillProcessGroup,
 	}
 }
@@ -158,11 +184,7 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 
 		err := cmd.Wait()
 		close(running.done)
-		r.mu.Lock()
-		if current, ok := r.running[key]; ok && current == running {
-			delete(r.running, key)
-		}
-		r.mu.Unlock()
+		r.finishRunningEntry(key, running)
 		if err != nil {
 			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, stderr.String(), err)
 		}
@@ -233,11 +255,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		if err := cmd.Wait(); err != nil {
 			slog.Debug("script process exited with error", "error", err)
 		}
-		r.mu.Lock()
-		if current, ok := r.running[key]; ok && current == running {
-			delete(r.running, key)
-		}
-		r.mu.Unlock()
+		r.finishRunningEntry(key, running)
 	})
 
 	return cmd, nil
@@ -318,7 +336,14 @@ func (r *ScriptRunner) ReleaseWorkspace(ws *data.Workspace) {
 	if validateScriptWorkspace(ws) != nil {
 		return
 	}
-	if r.IsRunning(ws) {
+	key := scriptWorkspaceKey(ws)
+	r.mu.Lock()
+	_, running := r.running[key]
+	if running {
+		r.pendingRelease[key] = ws.Root
+	}
+	r.mu.Unlock()
+	if running {
 		return
 	}
 	if r.portAllocator != nil {

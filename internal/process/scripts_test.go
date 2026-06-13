@@ -464,6 +464,9 @@ func TestScriptRunnerReleaseWorkspaceGatedByRunningSetup(t *testing.T) {
 	if runner.IsRunning(ws) {
 		t.Fatal("expected setup running entry to be cleared after completion")
 	}
+	if _, ok := runner.portAllocator.GetPort(ws.Root); ok {
+		t.Fatal("expected pending release to drop setup port after completion")
+	}
 }
 
 func waitForFile(path string, timeout time.Duration) error {

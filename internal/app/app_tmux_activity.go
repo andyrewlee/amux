@@ -408,7 +408,11 @@ func syncActivitySessionStates(
 	missBySession map[string]int,
 ) []messages.TabSessionStatus {
 	stoppedTabs := make([]messages.TabSessionStatus, 0)
-	if svc == nil || len(infoBySession) == 0 {
+	if len(infoBySession) == 0 {
+		clear(missBySession)
+		return stoppedTabs
+	}
+	if svc == nil {
 		return stoppedTabs
 	}
 

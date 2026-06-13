@@ -93,3 +93,13 @@ func TestSyncActivitySessionStates_PrunesMissForClosedSession(t *testing.T) {
 		t.Fatalf("closed session must be pruned from missBySession, still have %d", miss[sessionName])
 	}
 }
+
+func TestSyncActivitySessionStates_PrunesMissWhenLastSessionCloses(t *testing.T) {
+	miss := map[string]int{"amux-ws-sess": 1}
+
+	syncActivitySessionStates(map[string]activity.SessionInfo{}, nil, stubTmuxOps{}, tmux.Options{}, miss)
+
+	if len(miss) != 0 {
+		t.Fatalf("expected final closed session to prune miss counters, got %v", miss)
+	}
+}
