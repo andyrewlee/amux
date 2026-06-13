@@ -199,7 +199,9 @@ func TestStateWatcher_RegisterWatchesRootAndExistingDirs(t *testing.T) {
 		return nil
 	}
 
-	sw.register()
+	if err := sw.register(); err != nil {
+		t.Fatalf("register: %v", err)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -217,10 +219,10 @@ func TestStateWatcher_RegisterWatchesRootAndExistingDirs(t *testing.T) {
 	}
 }
 
-func TestStateWatcher_ConstructorToleratesUnreadableMetadataDir(t *testing.T) {
+func TestStateWatcher_RegisterReportsMetadataRootFailure(t *testing.T) {
 	// A metadata root whose Add fails must NOT make construction fatal; it should
-	// degrade to logged best-effort inside register (modeled on git.NewFileWatcher
-	// being logged-and-niled rather than fatal).
+	// fail at deferred registration time so Run can surface disabled sync through
+	// the supervisor instead of staying alive on an unregistered watcher.
 	root := t.TempDir()
 	sw, err := newStateWatcher("", root, nil)
 	if err != nil {
@@ -231,8 +233,25 @@ func TestStateWatcher_ConstructorToleratesUnreadableMetadataDir(t *testing.T) {
 		return errors.New("injected add failure")
 	}
 
-	// register() must not panic and must not propagate the failure.
-	sw.register()
+	if err := sw.register(); err == nil {
+		t.Fatal("expected register to report metadata root watch failure")
+	}
+}
+
+func TestStateWatcher_RegisterReportsRegistryDirFailure(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "projects.json")
+	sw, err := newStateWatcher(registryPath, "", nil)
+	if err != nil {
+		t.Fatalf("constructor must not fail on registry dir issues: %v", err)
+	}
+	defer sw.Close()
+	sw.addWatchFn = func(_ *fsnotify.Watcher, _ string) error {
+		return errors.New("injected add failure")
+	}
+
+	if err := sw.register(); err == nil {
+		t.Fatal("expected register to report registry dir watch failure")
+	}
 }
 
 func TestStateWatcher_RunEmitsStartupReconcile(t *testing.T) {

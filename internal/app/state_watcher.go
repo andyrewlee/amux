@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -69,23 +70,30 @@ func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason st
 // register performs the deferred filesystem registration: it adds the registry
 // directory and the metadata root + existing workspace dirs to the watcher.
 // It is idempotent (fsnotify.Add and the metadataDirs guard tolerate repeats),
-// so a supervised restart of Run re-runs it safely. Add failures are logged and
-// swallowed (best-effort), matching how git.NewFileWatcher failures degrade.
-func (sw *stateWatcher) register() {
+// so a supervised restart of Run re-runs it safely. Root Add failures are
+// returned so the supervisor can surface disabled sync instead of leaving a
+// running watcher that observes nothing; child Add failures remain best-effort.
+func (sw *stateWatcher) register() error {
 	if sw.registryDir != "" {
 		if err := sw.addWatch(sw.registryDir); err != nil {
 			logging.Warn("state watcher: registry dir watch failed path=%s error=%v", sw.registryDir, err)
+			return fmt.Errorf("state watcher registry dir watch failed for %s: %w", sw.registryDir, err)
 		}
 	}
 	if sw.metadataRoot != "" {
-		sw.watchMetadataRoot()
+		if err := sw.watchMetadataRoot(); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (sw *stateWatcher) Run(ctx context.Context) error {
 	// Register watches after construction so the ReadDir + per-dir Add loop runs
 	// off the first-paint path.
-	sw.register()
+	if err := sw.register(); err != nil {
+		return err
+	}
 	// One-shot reconcile: a metadata change in the construct->register window is
 	// not reported by fsnotify (the path was not yet watched), so trigger a
 	// single state reload now to guarantee nothing is permanently missed.
@@ -153,15 +161,15 @@ func (sw *stateWatcher) addWatch(path string) error {
 // watchMetadataRoot watches the root directory and any existing children.
 // All failures are best-effort: a missed root/child Add is logged, not fatal,
 // since registration now runs off the construction path.
-func (sw *stateWatcher) watchMetadataRoot() {
+func (sw *stateWatcher) watchMetadataRoot() error {
 	if err := sw.addWatch(sw.metadataRoot); err != nil {
 		logging.Warn("state watcher: metadata root watch failed path=%s error=%v", sw.metadataRoot, err)
-		return
+		return fmt.Errorf("state watcher metadata root watch failed for %s: %w", sw.metadataRoot, err)
 	}
 	entries, err := os.ReadDir(sw.metadataRoot)
 	if err != nil {
 		// Root may not exist yet; that's fine.
-		return
+		return nil
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -172,6 +180,7 @@ func (sw *stateWatcher) watchMetadataRoot() {
 			logging.Debug("state watcher: best-effort watch failed path=%s error=%v", child, err)
 		}
 	}
+	return nil
 }
 
 // watchMetadataDir registers a child directory for watching.
