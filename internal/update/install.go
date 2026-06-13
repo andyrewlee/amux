@@ -11,6 +11,9 @@ import (
 	"strings"
 )
 
+// renameFile is a seam for tests to inject rename failures.
+var renameFile = os.Rename
+
 // ExtractBinary extracts the amux binary from a tar.gz archive.
 // Returns the path to the extracted binary.
 func ExtractBinary(archivePath, destDir string) (string, error) {
@@ -96,21 +99,29 @@ func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 
 	// Create backup of current binary
 	backupPath := currentBinaryPath + ".bak"
-	if err := os.Rename(currentBinaryPath, backupPath); err != nil {
+	if err := renameFile(currentBinaryPath, backupPath); err != nil {
 		return fmt.Errorf("backing up current binary: %w", err)
 	}
 
 	// Atomically replace with staged binary (same filesystem, so rename works)
-	if err := os.Rename(stagedPath, currentBinaryPath); err != nil {
-		// Try to restore backup
-		_ = os.Rename(backupPath, currentBinaryPath)
-		return fmt.Errorf("installing new binary: %w", err)
+	if err := renameFile(stagedPath, currentBinaryPath); err != nil {
+		if restoreErr := renameFile(backupPath, currentBinaryPath); restoreErr != nil {
+			return fmt.Errorf(
+				"installing new binary: %w; restoring backup also failed: %w (your previous binary is at %s — restore it manually with: mv %s %s)",
+				err, restoreErr, backupPath, shellQuote(backupPath), shellQuote(currentBinaryPath),
+			)
+		}
+		return fmt.Errorf("installing new binary: %w (previous binary restored)", err)
 	}
 
 	// Remove backup
 	_ = os.Remove(backupPath)
 
 	return nil
+}
+
+func shellQuote(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 // copyFile copies a file from src to dst, preserving executable permissions.
