@@ -88,7 +88,11 @@ func runTUI() {
 	}
 	defer logging.Close()
 
-	cleanupStaleTestTmuxSockets()
+	// Sweep stale test/e2e tmux sockets off the launch-critical path: each stale
+	// socket costs a blocking net.Dial (75ms timeout), so run the janitor in a
+	// panic-safe background goroutine instead of before app.New/p.Run. Cleanup
+	// still happens, just not before first paint.
+	safego.Go("tmux_socket_janitor", cleanupStaleTestTmuxSockets)
 
 	logging.Info("Starting amux")
 

@@ -15,9 +15,13 @@ import (
 
 const staleSocketDialTimeout = 75 * time.Millisecond
 
+// tmuxSocketDirsFn resolves the directories the janitor sweeps. It is a package
+// var so tests can point it at a temp dir instead of the real tmux sockets.
+var tmuxSocketDirsFn = tmuxSocketDirs
+
 func cleanupStaleTestTmuxSockets() {
 	removed := 0
-	for _, dir := range tmuxSocketDirs() {
+	for _, dir := range tmuxSocketDirsFn() {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
