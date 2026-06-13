@@ -276,10 +276,17 @@ func (m *Model) handlePaste(ev tabEvent) {
 }
 
 func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspaceID string) {
-	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil || data == "" {
+	if tab == nil || data == "" {
 		return
 	}
-	if err := tab.Agent.Terminal.SendString(data); err != nil {
+	tab.mu.Lock()
+	agent := tab.Agent
+	closed := tab.isClosed()
+	tab.mu.Unlock()
+	if closed || agent == nil || agent.Terminal == nil {
+		return
+	}
+	if err := agent.Terminal.SendString(data); err != nil {
 		logging.Warn("Mouse input failed for tab %s: %v", tab.ID, err)
 		tab.mu.Lock()
 		tab.Running = false
@@ -292,13 +299,17 @@ func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspac
 }
 
 func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID, label string) {
-	if tab == nil || tab.Agent == nil || tab.Agent.Terminal == nil {
+	if tab == nil || data == "" {
 		return
 	}
-	if data == "" {
+	tab.mu.Lock()
+	agent := tab.Agent
+	closed := tab.isClosed()
+	tab.mu.Unlock()
+	if closed || agent == nil || agent.Terminal == nil {
 		return
 	}
-	if err := tab.Agent.Terminal.SendString(data); err != nil {
+	if err := agent.Terminal.SendString(data); err != nil {
 		logging.Warn("%s failed for tab %s: %v", label, tab.ID, err)
 		tab.mu.Lock()
 		tab.markDetachedLocked()

@@ -57,7 +57,7 @@ type Tab struct {
 	reattachInFlight bool
 	Terminal         *vterm.VTerm // Virtual terminal emulator with scrollback
 	DiffViewer       *diff.Model  // Native diff viewer (replaces PTY-based viewer)
-	mu               sync.Mutex   // Protects Terminal
+	mu               sync.Mutex   // Protects Terminal, Agent, Running, Detached, Workspace, DiffViewer and the embedded state groups
 	closed           uint32
 	closing          uint32
 	Running          bool // Whether the agent is actively running
