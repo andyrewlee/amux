@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 type stateWatcher struct {
@@ -34,6 +36,12 @@ type stateWatcher struct {
 	addWatchFn func(w *fsnotify.Watcher, dir string) error // test hook; nil = use watcher.Add
 }
 
+// newStateWatcher constructs the watcher in O(1): it only creates the
+// fsnotify.Watcher and records the paths to watch. The actual filesystem
+// registration (the registry-dir Add plus the metadata-root ReadDir and
+// per-workspace-dir Add loop) is deferred to register(), called once at the
+// start of Run so it runs off the first-paint path. Registration failures are
+// best-effort there, not fatal here.
 func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason string, paths []string)) (*stateWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -49,25 +57,49 @@ func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason st
 	if registryPath != "" {
 		sw.registryPath = filepath.Clean(registryPath)
 		sw.registryDir = filepath.Dir(sw.registryPath)
-		if err := watcher.Add(sw.registryDir); err != nil {
-			_ = watcher.Close()
-			return nil, err
-		}
 	}
 
 	if metadataRoot != "" {
 		sw.metadataRoot = filepath.Clean(metadataRoot)
 		sw.metadataDirs = make(map[string]struct{})
-		if err := sw.watchMetadataRoot(); err != nil {
-			_ = watcher.Close()
-			return nil, err
-		}
 	}
 
 	return sw, nil
 }
 
+// register performs the deferred filesystem registration: it adds the registry
+// directory and the metadata root + existing workspace dirs to the watcher.
+// It is idempotent (fsnotify.Add and the metadataDirs guard tolerate repeats),
+// so a supervised restart of Run re-runs it safely. Root Add failures are
+// returned so the supervisor can surface disabled sync instead of leaving a
+// running watcher that observes nothing; child Add failures remain best-effort.
+func (sw *stateWatcher) register() error {
+	if sw.registryDir != "" {
+		if err := sw.addWatch(sw.registryDir); err != nil {
+			logging.Warn("state watcher: registry dir watch failed path=%s error=%v", sw.registryDir, err)
+			return fmt.Errorf("state watcher registry dir watch failed for %s: %w", sw.registryDir, err)
+		}
+	}
+	if sw.metadataRoot != "" {
+		if err := sw.watchMetadataRoot(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (sw *stateWatcher) Run(ctx context.Context) error {
+	// Register watches after construction so the ReadDir + per-dir Add loop runs
+	// off the first-paint path.
+	if err := sw.register(); err != nil {
+		return err
+	}
+	// One-shot reconcile: a metadata change in the construct->register window is
+	// not reported by fsnotify (the path was not yet watched), so trigger a
+	// single state reload now to guarantee nothing is permanently missed.
+	if sw.metadataRoot != "" || sw.registryPath != "" {
+		sw.scheduleNotify("workspaces", "")
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -127,9 +159,12 @@ func (sw *stateWatcher) addWatch(path string) error {
 }
 
 // watchMetadataRoot watches the root directory and any existing children.
+// All failures are best-effort: a missed root/child Add is logged, not fatal,
+// since registration now runs off the construction path.
 func (sw *stateWatcher) watchMetadataRoot() error {
 	if err := sw.addWatch(sw.metadataRoot); err != nil {
-		return err
+		logging.Warn("state watcher: metadata root watch failed path=%s error=%v", sw.metadataRoot, err)
+		return fmt.Errorf("state watcher metadata root watch failed for %s: %w", sw.metadataRoot, err)
 	}
 	entries, err := os.ReadDir(sw.metadataRoot)
 	if err != nil {
@@ -142,7 +177,7 @@ func (sw *stateWatcher) watchMetadataRoot() error {
 		}
 		child := filepath.Join(sw.metadataRoot, entry.Name())
 		if err := sw.watchMetadataDir(child); err != nil {
-			slog.Debug("best-effort watch failed", "path", child, "error", err)
+			logging.Debug("state watcher: best-effort watch failed path=%s error=%v", child, err)
 		}
 	}
 	return nil
@@ -204,7 +239,7 @@ func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 		if event.Op&(fsnotify.Create|fsnotify.Rename) != 0 {
 			if sw.looksLikeDir(name) {
 				if err := sw.watchMetadataDir(name); err != nil {
-					slog.Debug("best-effort watch failed", "path", name, "error", err)
+					logging.Debug("state watcher: best-effort watch failed path=%s error=%v", name, err)
 				}
 			}
 			return true
