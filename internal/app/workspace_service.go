@@ -14,6 +14,7 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
@@ -192,6 +193,31 @@ func (s *workspaceService) RunSetupAsync(ws *data.Workspace) tea.Cmd {
 	return func() tea.Msg {
 		if s == nil || s.scripts == nil {
 			return messages.WorkspaceSetupComplete{Workspace: ws}
+		}
+		if err := s.scripts.RunSetup(ws); err != nil {
+			return messages.WorkspaceSetupComplete{Workspace: ws, Err: err}
+		}
+		return messages.WorkspaceSetupComplete{Workspace: ws}
+	}
+}
+
+// TrustRepoScriptsAndRunSetupAsync records trust for the reviewed repo config and retries setup.
+func (s *workspaceService) TrustRepoScriptsAndRunSetupAsync(ws *data.Workspace, expectedHash string) tea.Cmd {
+	return func() tea.Msg {
+		if s == nil || s.scripts == nil {
+			return messages.WorkspaceSetupComplete{Workspace: ws}
+		}
+		if ws == nil {
+			return messages.WorkspaceSetupComplete{Workspace: ws, Err: errors.New("workspace is required")}
+		}
+		if err := s.scripts.TrustRepoScriptsIfHash(ws.Repo, expectedHash); err != nil {
+			if errors.Is(err, process.ErrScriptsChangedSincePrompt) {
+				if setupErr := s.scripts.RunSetup(ws); setupErr != nil {
+					return messages.WorkspaceSetupComplete{Workspace: ws, Err: setupErr}
+				}
+				return messages.WorkspaceSetupComplete{Workspace: ws}
+			}
+			return messages.WorkspaceSetupComplete{Workspace: ws, Err: err}
 		}
 		if err := s.scripts.RunSetup(ws); err != nil {
 			return messages.WorkspaceSetupComplete{Workspace: ws, Err: err}

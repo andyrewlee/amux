@@ -224,6 +224,12 @@ type ShowDeleteWorkspaceDialog struct {
 	Workspace *data.Workspace
 }
 
+// ShowTrustScriptsDialog requests confirmation before trusting repo scripts.
+type ShowTrustScriptsDialog struct {
+	Workspace  *data.Workspace
+	ConfigHash string
+}
+
 // ShowRemoveProjectDialog requests showing the remove project confirmation
 type ShowRemoveProjectDialog struct {
 	Project *data.Project

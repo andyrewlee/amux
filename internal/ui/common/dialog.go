@@ -41,10 +41,11 @@ type Dialog struct {
 	options []string
 
 	// State
-	visible   bool
-	input     textinput.Model
-	cursor    int
-	confirmed bool
+	visible       bool
+	input         textinput.Model
+	cursor        int
+	defaultCursor int
+	confirmed     bool
 
 	// Input transformation and validation
 	inputTransform InputTransformFunc
@@ -90,12 +91,13 @@ func NewInputDialog(id, title, placeholder string) *Dialog {
 // NewConfirmDialog creates a new confirmation dialog
 func NewConfirmDialog(id, title, message string) *Dialog {
 	return &Dialog{
-		id:      id,
-		dtype:   DialogConfirm,
-		title:   title,
-		message: message,
-		options: []string{"Yes", "No"},
-		cursor:  1, // Default to "No"
+		id:            id,
+		dtype:         DialogConfirm,
+		title:         title,
+		message:       message,
+		options:       []string{"Yes", "No"},
+		cursor:        1,
+		defaultCursor: 1,
 	}
 }
 
@@ -109,6 +111,15 @@ func NewSelectDialog(id, title, message string, options []string) *Dialog {
 		options: options,
 		cursor:  0,
 	}
+}
+
+// SetDefaultOption sets the option selected whenever the dialog is shown.
+func (d *Dialog) SetDefaultOption(index int) {
+	if d == nil || index < 0 || index >= len(d.options) {
+		return
+	}
+	d.defaultCursor = index
+	d.cursor = index
 }
 
 // fuzzyMatch returns true if pattern fuzzy-matches target (case-insensitive)
@@ -165,7 +176,7 @@ func (d *Dialog) Show() {
 	d.visible = true
 	d.confirmed = false
 	d.validationErr = ""
-	d.cursor = 0
+	d.cursor = d.defaultCursor
 	if d.dtype == DialogInput {
 		d.input.SetValue("")
 		d.input.Focus()

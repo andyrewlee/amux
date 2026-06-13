@@ -60,6 +60,25 @@ func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDi
 	a.dialog.Show()
 }
 
+// handleShowTrustScriptsDialog shows the repo script trust confirmation dialog.
+func (a *App) handleShowTrustScriptsDialog(msg messages.ShowTrustScriptsDialog) {
+	a.dialogWorkspace = msg.Workspace
+	a.dialogTrustScriptsHash = msg.ConfigHash
+	workspaceName := ""
+	if msg.Workspace != nil {
+		workspaceName = msg.Workspace.Name
+	}
+	a.dialog = common.NewConfirmDialog(
+		DialogTrustScripts,
+		"Trust Project Scripts",
+		fmt.Sprintf("Trust .amux/workspaces.json scripts for '%s' and run setup now?", workspaceName),
+	)
+	a.dialog.SetDefaultOption(1)
+	a.dialog.SetSize(a.width, a.height)
+	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	a.dialog.Show()
+}
+
 // handleShowRemoveProjectDialog shows the remove project dialog.
 func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog) {
 	a.dialogProject = msg.Project

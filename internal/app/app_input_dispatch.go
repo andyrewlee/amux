@@ -278,6 +278,8 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleShowCreateWorkspaceDialog(msg)
 	case messages.ShowDeleteWorkspaceDialog:
 		a.handleShowDeleteWorkspaceDialog(msg)
+	case messages.ShowTrustScriptsDialog:
+		a.handleShowTrustScriptsDialog(msg)
 	case messages.ShowRemoveProjectDialog:
 		a.handleShowRemoveProjectDialog(msg)
 	case messages.ShowSelectAssistantDialog:

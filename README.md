@@ -72,18 +72,26 @@ Start with [`ARCHITECTURE.md`](ARCHITECTURE.md) for the repo-level package map a
 
 ## Configuration
 
-Create `.amux/workspaces.json` in your project to run setup commands for new workspaces:
+Create `.amux/workspaces.json` in your project to define commands that amux runs for its workspaces:
 
 ```json
 {
   "setup-workspace": [
     "npm install",
     "cp $ROOT_WORKSPACE_PATH/.env.local .env.local"
-  ]
+  ],
+  "run": "npm start",
+  "archive": "tar -czf archive.tar.gz ."
 }
 ```
 
-Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`.
+- `setup-workspace` — commands run once when a new workspace is created.
+- `run` — the command started for a workspace's run script.
+- `archive` — the command run when a workspace is archived.
+
+Because these commands come from the repository, amux runs them only after you trust the repo. The first time a repo's `.amux/workspaces.json` would run (and every time its contents change), amux records the approved content of the file; until then those project-supplied scripts are skipped and you are notified, rather than executing arbitrary commands chosen by the repo's author. Editing `.amux/workspaces.json` invalidates the approval, so changed commands are re-gated until you trust the file again. (Run/archive scripts you enter yourself in the amux UI are your own input and are never gated.)
+
+Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`.
 
 ## Platform Support
 

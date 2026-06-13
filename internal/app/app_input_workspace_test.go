@@ -2,15 +2,191 @@ package app
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
+
+func workspaceSetupConfig(t *testing.T, repoPath, content string) {
+	t.Helper()
+	configDir := filepath.Join(repoPath, ".amux")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir .amux: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "workspaces.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write workspaces.json: %v", err)
+	}
+}
+
+func runCommandMessages(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		msgs := make([]tea.Msg, 0, len(batch))
+		for _, batchCmd := range batch {
+			if batchCmd != nil {
+				msgs = append(msgs, batchCmd())
+			}
+		}
+		return msgs
+	}
+	return []tea.Msg{msg}
+}
+
+// TestHandleWorkspaceSetupComplete_TrustSkipToast proves the setup-complete
+// handler distinguishes a trust skip (ErrScriptsNotTrusted) from a generic
+// setup failure, naming .amux/workspaces.json so the user knows what was
+// skipped and why, and prompts the user to trust the current repo config.
+func TestHandleWorkspaceSetupComplete_TrustSkipToastAndDialog(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	app := &App{toast: common.NewToastModel()}
+
+	wrapped := &process.ScriptsNotTrustedError{
+		Repo:       "/repo",
+		Command:    "touch marker",
+		ConfigHash: "abc123",
+	}
+	cmd := app.handleWorkspaceSetupComplete(messages.WorkspaceSetupComplete{
+		Workspace: ws,
+		Err:       wrapped,
+	})
+	if cmd == nil {
+		t.Fatal("expected a warning toast command for a trust-skip error")
+	}
+
+	view := app.toast.View()
+	if !strings.Contains(view, ".amux/workspaces.json") {
+		t.Fatalf("trust-skip toast should name .amux/workspaces.json, got: %q", view)
+	}
+	if strings.Contains(view, "Setup failed") {
+		t.Fatalf("trust-skip toast must not use the generic 'Setup failed' wording, got: %q", view)
+	}
+	var foundTrustPrompt bool
+	for _, msg := range runCommandMessages(cmd) {
+		prompt, ok := msg.(messages.ShowTrustScriptsDialog)
+		if ok && prompt.Workspace == ws {
+			if prompt.ConfigHash != "abc123" {
+				t.Fatalf("trust prompt hash = %q, want abc123", prompt.ConfigHash)
+			}
+			foundTrustPrompt = true
+		}
+	}
+	if !foundTrustPrompt {
+		t.Fatal("expected trust-skip command to open the repo script trust dialog")
+	}
+}
+
+// TestHandleWorkspaceSetupComplete_GenericFailureToast proves non-trust errors
+// keep the generic "Setup failed" branch.
+func TestHandleWorkspaceSetupComplete_GenericFailureToast(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	app := &App{toast: common.NewToastModel()}
+
+	if cmd := app.handleWorkspaceSetupComplete(messages.WorkspaceSetupComplete{
+		Workspace: ws,
+		Err:       errors.New("boom"),
+	}); cmd == nil {
+		t.Fatal("expected a warning toast command for a generic setup failure")
+	}
+
+	view := app.toast.View()
+	if !strings.Contains(view, "Setup failed") {
+		t.Fatalf("generic failure toast should say 'Setup failed', got: %q", view)
+	}
+}
+
+func TestHandleDialogResultTrustScriptsTrustsAndRetriesSetup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	marker := filepath.Join(wsRoot, "setup-ran")
+	workspaceSetupConfig(t, repo, `{"setup-workspace":["touch `+marker+`"]}`)
+	ws := data.NewWorkspace("feature", "feature", "main", repo, wsRoot)
+
+	scripts := process.NewScriptRunner(6200, 10)
+	err := scripts.RunSetup(ws)
+	var trustErr *process.ScriptsNotTrustedError
+	if !errors.As(err, &trustErr) {
+		t.Fatalf("expected initial setup to be blocked by trust gate, got %v", err)
+	}
+	app := &App{
+		workspaceService:       newWorkspaceService(nil, nil, scripts, ""),
+		dialog:                 common.NewConfirmDialog(DialogTrustScripts, "Trust", "Trust scripts?"),
+		dialogWorkspace:        ws,
+		dialogTrustScriptsHash: trustErr.ConfigHash,
+	}
+
+	cmd := app.handleDialogResult(common.DialogResult{ID: DialogTrustScripts, Confirmed: true})
+	if cmd == nil {
+		t.Fatal("expected trust confirmation to return a setup retry command")
+	}
+	msg, ok := cmd().(messages.WorkspaceSetupComplete)
+	if !ok {
+		t.Fatalf("expected WorkspaceSetupComplete, got %T", msg)
+	}
+	if msg.Err != nil {
+		t.Fatalf("trust-and-retry setup failed: %v", msg.Err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("expected trusted setup command to run: %v", err)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatalf("remove marker: %v", err)
+	}
+	if err := scripts.RunSetup(ws); err != nil {
+		t.Fatalf("expected repo config to remain trusted after dialog confirmation: %v", err)
+	}
+}
+
+func TestTrustScriptsRetryRejectsChangedConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	originalMarker := filepath.Join(wsRoot, "original")
+	changedMarker := filepath.Join(wsRoot, "changed")
+	workspaceSetupConfig(t, repo, `{"setup-workspace":["touch `+originalMarker+`"]}`)
+	ws := data.NewWorkspace("feature", "feature", "main", repo, wsRoot)
+
+	scripts := process.NewScriptRunner(6200, 10)
+	err := scripts.RunSetup(ws)
+	var trustErr *process.ScriptsNotTrustedError
+	if !errors.As(err, &trustErr) {
+		t.Fatalf("expected initial setup to be blocked by trust gate, got %v", err)
+	}
+
+	workspaceSetupConfig(t, repo, `{"setup-workspace":["touch `+changedMarker+`"]}`)
+	service := newWorkspaceService(nil, nil, scripts, "")
+	msg, ok := service.TrustRepoScriptsAndRunSetupAsync(ws, trustErr.ConfigHash)().(messages.WorkspaceSetupComplete)
+	if !ok {
+		t.Fatalf("expected WorkspaceSetupComplete, got %T", msg)
+	}
+	var changedTrustErr *process.ScriptsNotTrustedError
+	if !errors.As(msg.Err, &changedTrustErr) {
+		t.Fatalf("expected changed config to be re-gated with a trust error, got %v", msg.Err)
+	}
+	if changedTrustErr.ConfigHash == trustErr.ConfigHash {
+		t.Fatal("expected changed config trust prompt to carry a new hash")
+	}
+	if _, err := os.Stat(originalMarker); !os.IsNotExist(err) {
+		t.Fatalf("original setup command should not run after stale approval, stat err=%v", err)
+	}
+	if _, err := os.Stat(changedMarker); !os.IsNotExist(err) {
+		t.Fatalf("changed setup command should not run under stale approval, stat err=%v", err)
+	}
+}
 
 func TestHandleWorkspaceDeletedClearsDirtyWorkspaceMarker(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
