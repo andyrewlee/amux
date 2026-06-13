@@ -23,7 +23,10 @@ func (m *Model) HasRunningAgents() bool {
 			if !m.isChatTab(tab) {
 				continue
 			}
-			if tab.Running {
+			tab.mu.Lock()
+			running := tab.Running
+			tab.mu.Unlock()
+			if running {
 				return true
 			}
 		}
@@ -138,8 +141,15 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 			if !m.isChatTab(tab) {
 				continue
 			}
-			if tab.Running && tab.Workspace != nil {
-				running = append(running, tab.Workspace.Root)
+			tab.mu.Lock()
+			isRunning := tab.Running
+			var root string
+			if tab.Workspace != nil {
+				root = tab.Workspace.Root
+			}
+			tab.mu.Unlock()
+			if isRunning && root != "" {
+				running = append(running, root)
 				break // Only need one per workspace
 			}
 		}
