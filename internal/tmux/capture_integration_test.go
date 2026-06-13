@@ -45,6 +45,27 @@ func TestCapturePaneTail_ResolvesActivePaneID(t *testing.T) {
 	}
 }
 
+func TestCapturePaneTail_CapturesDetachedSession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	// createSession makes a detached session (new-session -d, no attached
+	// client). The session-target fast path must capture its pane content; if
+	// it can't, the pane-ID fallback must. Either way the known content returns.
+	createSession(t, opts, "tail-detached", "echo detached-marker; sleep 300")
+
+	var text string
+	if !eventually(5*time.Second, func() bool {
+		out, ok := CapturePaneTail("tail-detached", 10, opts)
+		if ok {
+			text = out
+		}
+		return ok && strings.Contains(text, "detached-marker")
+	}) {
+		t.Fatalf("expected detached-session tail to contain %q, got %q", "detached-marker", text)
+	}
+}
+
 func TestSessionPaneID_ResolvesForDetachedSession(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)

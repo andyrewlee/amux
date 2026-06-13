@@ -378,18 +378,30 @@ func CapturePaneTail(sessionName string, lines int, opts Options) (string, bool)
 	if sessionName == "" || lines <= 0 {
 		return "", false
 	}
-	paneID, err := sessionPaneID(sessionName, opts)
-	if err != nil || paneID == "" {
-		return "", false
-	}
 	startLine := -lines
-	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", paneID, "-S", strconv.Itoa(startLine))
-	defer cancel()
+	// Fast path: target the session's active pane directly — one fork. This is
+	// the dominant per-scan cost (called per working agent on the 5s cadence), so
+	// we avoid the extra sessionPaneID forks (has-session + list-panes) here.
+	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", sessionTarget(sessionName), "-S", strconv.Itoa(startLine))
 	output, err := cmd.Output()
-	if err != nil {
+	cancel()
+	if err == nil {
+		// Normalize: trim trailing whitespace and trailing empty lines.
+		return strings.TrimRight(string(output), " \t\n\r"), true
+	}
+	// Fallback: resolve the pane ID explicitly (handles tmux versions / detached
+	// sessions where session-target capture misbehaves), then capture. This
+	// reproduces exactly the old 3-fork behavior so the detached-session caveat
+	// that motivated pane-ID targeting can't regress.
+	paneID, perr := sessionPaneID(sessionName, opts)
+	if perr != nil || paneID == "" {
 		return "", false
 	}
-	// Normalize: trim trailing whitespace from each line and trailing empty lines
-	text := strings.TrimRight(string(output), " \t\n\r")
-	return text, true
+	cmd2, cancel2 := tmuxCommand(opts, "capture-pane", "-p", "-t", paneID, "-S", strconv.Itoa(startLine))
+	defer cancel2()
+	out2, err2 := cmd2.Output()
+	if err2 != nil {
+		return "", false
+	}
+	return strings.TrimRight(string(out2), " \t\n\r"), true
 }
