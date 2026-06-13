@@ -127,6 +127,9 @@ func (a *App) removeProject(project *data.Project) tea.Cmd {
 // It runs only from message handlers (workspace deleted, project removed,
 // selection rebind), never from view code.
 func (a *App) goHome() {
+	if a.fileWatcher != nil && a.activeWorkspace != nil {
+		a.fileWatcher.Unwatch(a.activeWorkspace.Root)
+	}
 	a.showWelcome = true
 	a.activeWorkspace = nil
 	if a.center != nil {

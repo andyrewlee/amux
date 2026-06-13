@@ -8,8 +8,42 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 )
+
+func TestGoHomeReleasesActiveWorkspaceFileWatch(t *testing.T) {
+	root := t.TempDir()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "index"), nil, 0o644); err != nil {
+		t.Fatalf("write git index: %v", err)
+	}
+
+	fileWatcher, err := git.NewFileWatcher(nil)
+	if err != nil {
+		t.Fatalf("NewFileWatcher: %v", err)
+	}
+	defer func() {
+		_ = fileWatcher.Close()
+	}()
+	if err := fileWatcher.Watch(root); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	app := &App{
+		activeWorkspace: data.NewWorkspace("feature", "feature", "main", root, root),
+		fileWatcher:     fileWatcher,
+	}
+
+	app.goHome()
+
+	if fileWatcher.IsWatching(root) {
+		t.Fatal("expected goHome to release active workspace file watch")
+	}
+}
 
 func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 	skipIfNoGit(t)
