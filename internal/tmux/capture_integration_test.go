@@ -45,6 +45,76 @@ func TestCapturePaneTail_ResolvesActivePaneID(t *testing.T) {
 	}
 }
 
+func TestCapturePaneTail_CapturesDetachedSession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	// createSession makes a detached session (new-session -d, no attached
+	// client). The session-target fast path must capture its pane content; if
+	// it can't, the pane-ID fallback must. Either way the known content returns.
+	createSession(t, opts, "tail-detached", "echo detached-marker; sleep 300")
+
+	var text string
+	if !eventually(5*time.Second, func() bool {
+		out, ok := CapturePaneTail("tail-detached", 10, opts)
+		if ok {
+			text = out
+		}
+		return ok && strings.Contains(text, "detached-marker")
+	}) {
+		t.Fatalf("expected detached-session tail to contain %q, got %q", "detached-marker", text)
+	}
+}
+
+func TestCapturePaneTail_FallsBackFromDeadActivePane(t *testing.T) {
+	opts := realTmuxServerWithKeepalive(t)
+
+	createSession(t, opts, "tail-dead-active", "exec sh")
+	args := tmuxArgs(opts, "set-option", "-t", "tail-dead-active", "remain-on-exit", "on")
+	cmd := exec.Command("tmux", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("set remain-on-exit: %v\n%s", err, out)
+	}
+
+	args = tmuxArgs(opts, "split-window", "-d", "-t", "tail-dead-active", "printf live-marker; sleep 300")
+	cmd = exec.Command("tmux", args...)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("split-window: %v\n%s", err, out)
+	}
+
+	args = tmuxArgs(opts, "send-keys", "-t", "tail-dead-active:.0", "printf dead-marker; exit", "C-m")
+	cmd = exec.Command("tmux", args...)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("send-keys: %v\n%s", err, out)
+	}
+
+	if !eventually(5*time.Second, func() bool {
+		args := tmuxArgs(opts, "display-message", "-p", "-t", "tail-dead-active:.0", "#{pane_dead}")
+		cmd := exec.Command("tmux", args...)
+		out, err := cmd.Output()
+		return err == nil && strings.TrimSpace(string(out)) == "1"
+	}) {
+		t.Fatal("timed out waiting for active pane to become dead")
+	}
+
+	var text string
+	if !eventually(5*time.Second, func() bool {
+		out, ok := CapturePaneTail("tail-dead-active", 10, opts)
+		if ok {
+			text = out
+		}
+		return ok && strings.Contains(text, "live-marker")
+	}) {
+		t.Fatalf("expected live fallback pane capture to contain %q, got %q", "live-marker", text)
+	}
+	if strings.Contains(text, "dead-marker") {
+		t.Fatalf("expected dead active pane to be ignored, got %q", text)
+	}
+}
+
 func TestSessionPaneID_ResolvesForDetachedSession(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)
