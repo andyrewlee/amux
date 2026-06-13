@@ -90,6 +90,16 @@ func sessionPaneID(sessionName string, opts Options) (string, error) {
 	return firstAlive, nil
 }
 
+func sessionActivePaneLive(sessionName string, opts Options) bool {
+	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", sessionTarget(sessionName), "#{pane_dead}")
+	defer cancel()
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(output)) == "0"
+}
+
 // parseTabFields splits a tab-separated tmux -F output line into trimmed
 // fields and verifies it has at least want of them. It exists so positional
 // indexing into tmux output can never panic and malformed lines surface as
@@ -379,15 +389,17 @@ func CapturePaneTail(sessionName string, lines int, opts Options) (string, bool)
 		return "", false
 	}
 	startLine := -lines
-	// Fast path: target the session's active pane directly — one fork. This is
-	// the dominant per-scan cost (called per working agent on the 5s cadence), so
-	// we avoid the extra sessionPaneID forks (has-session + list-panes) here.
-	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", sessionTarget(sessionName), "-S", strconv.Itoa(startLine))
-	output, err := cmd.Output()
-	cancel()
-	if err == nil {
-		// Normalize: trim trailing whitespace and trailing empty lines.
-		return strings.TrimRight(string(output), " \t\n\r"), true
+	// Fast path: target the session's active pane directly after confirming it is
+	// live. If the active pane is dead (remain-on-exit or a dead split), fall back
+	// to sessionPaneID so we preserve the old first-live-pane behavior.
+	if sessionActivePaneLive(sessionName, opts) {
+		cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", sessionTarget(sessionName), "-S", strconv.Itoa(startLine))
+		output, err := cmd.Output()
+		cancel()
+		if err == nil {
+			// Normalize: trim trailing whitespace and trailing empty lines.
+			return strings.TrimRight(string(output), " \t\n\r"), true
+		}
 	}
 	// Fallback: resolve the pane ID explicitly (handles tmux versions / detached
 	// sessions where session-target capture misbehaves), then capture. This
