@@ -38,7 +38,11 @@ func Run(name string, fn func()) {
 			panicHandlerMu.RUnlock()
 			if handler != nil {
 				func() {
-					defer func() { _ = recover() }()
+					defer func() {
+						if hr := recover(); hr != nil {
+							logging.Error("panic handler itself panicked for %s: %v", label, hr)
+						}
+					}()
 					handler(label, r, stack)
 				}()
 			}

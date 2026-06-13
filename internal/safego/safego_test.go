@@ -71,6 +71,43 @@ func TestRun_PanicHandlerPanicIsRecovered(t *testing.T) {
 	})
 }
 
+func TestRun_PanicHandlerPanicIsLogged(t *testing.T) {
+	var (
+		mu            sync.Mutex
+		handlerCalled bool
+	)
+	SetPanicHandler(func(name string, recovered any, stack []byte) {
+		mu.Lock()
+		handlerCalled = true
+		mu.Unlock()
+		panic("handler panic")
+	})
+	defer SetPanicHandler(nil)
+
+	returned := make(chan struct{})
+	go func() {
+		// If the handler-panic were not recovered+logged inside Run, this
+		// goroutine would crash the process; reaching the close proves Run
+		// recovered the handler-internal panic and returned normally.
+		Run("worker", func() {
+			panic("original panic")
+		})
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return after the panic handler itself panicked")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !handlerCalled {
+		t.Fatal("panic handler was never invoked, so the handler-panic log path was not exercised")
+	}
+}
+
 func TestRun_EmptyName(t *testing.T) {
 	var (
 		mu          sync.Mutex
