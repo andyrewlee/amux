@@ -68,9 +68,10 @@ func isBenignStopError(err error) bool {
 func (r *ScriptRunner) clearRunningEntry(key string) {
 	var releaseRoot string
 	r.mu.Lock()
+	current := r.running[key]
 	delete(r.running, key)
-	if root, ok := r.pendingRelease[key]; ok {
-		releaseRoot = root
+	if pending, ok := r.pendingRelease[key]; ok && pending.running == current {
+		releaseRoot = pending.root
 		delete(r.pendingRelease, key)
 	}
 	r.mu.Unlock()
@@ -84,8 +85,8 @@ func (r *ScriptRunner) finishRunningEntry(key string, running *runningScript) {
 	r.mu.Lock()
 	if current, ok := r.running[key]; ok && current == running {
 		delete(r.running, key)
-		if root, pending := r.pendingRelease[key]; pending {
-			releaseRoot = root
+		if pending, ok := r.pendingRelease[key]; ok && pending.running == running {
+			releaseRoot = pending.root
 			delete(r.pendingRelease, key)
 		}
 	}
@@ -108,13 +109,27 @@ type ScriptRunner struct {
 	portAllocator    *PortAllocator
 	envBuilder       *EnvBuilder
 	running          map[string]*runningScript // workspace root -> running process
-	pendingRelease   map[string]string         // normalized workspace root -> raw workspace root
+	pendingRelease   map[string]pendingPortRelease
 	killProcessGroup func(pid int, opts KillOptions) error
 }
 
 type runningScript struct {
 	cmd  *exec.Cmd
 	done chan struct{}
+}
+
+type pendingPortRelease struct {
+	root    string
+	running *runningScript
+}
+
+func (r *ScriptRunner) setRunningEntry(key string, running *runningScript) {
+	r.mu.Lock()
+	if _, exists := r.running[key]; exists {
+		delete(r.pendingRelease, key)
+	}
+	r.running[key] = running
+	r.mu.Unlock()
 }
 
 // NewScriptRunner creates a new script runner
@@ -124,7 +139,7 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 		portAllocator:    ports,
 		envBuilder:       NewEnvBuilder(ports),
 		running:          make(map[string]*runningScript),
-		pendingRelease:   make(map[string]string),
+		pendingRelease:   make(map[string]pendingPortRelease),
 		killProcessGroup: KillProcessGroup,
 	}
 }
@@ -178,9 +193,7 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 			done: make(chan struct{}),
 		}
 		key := scriptWorkspaceKey(ws)
-		r.mu.Lock()
-		r.running[key] = running
-		r.mu.Unlock()
+		r.setRunningEntry(key, running)
 
 		err := cmd.Wait()
 		close(running.done)
@@ -245,9 +258,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		done: make(chan struct{}),
 	}
 	key := scriptWorkspaceKey(ws)
-	r.mu.Lock()
-	r.running[key] = running
-	r.mu.Unlock()
+	r.setRunningEntry(key, running)
 
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
@@ -338,12 +349,12 @@ func (r *ScriptRunner) ReleaseWorkspace(ws *data.Workspace) {
 	}
 	key := scriptWorkspaceKey(ws)
 	r.mu.Lock()
-	_, running := r.running[key]
-	if running {
-		r.pendingRelease[key] = ws.Root
+	running, isRunning := r.running[key]
+	if isRunning {
+		r.pendingRelease[key] = pendingPortRelease{root: ws.Root, running: running}
 	}
 	r.mu.Unlock()
-	if running {
+	if isRunning {
 		return
 	}
 	if r.portAllocator != nil {
