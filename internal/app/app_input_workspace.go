@@ -120,6 +120,14 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if a.fileWatcher != nil {
 			a.fileWatcher.Unwatch(msg.Workspace.Root)
 		}
+		// Release the deleted workspace's port allocation. The worktree and its
+		// scripts are already torn down on this confirmed-delete path; the runner
+		// no-ops the release if a script were somehow still running, so a live
+		// script's port can't be stranded. Without this the allocator's map keeps
+		// one entry per workspace that ever ran a script.
+		if a.workspaceService != nil {
+			a.workspaceService.ReleaseWorkspacePort(msg.Workspace)
+		}
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
 		if cmd != nil {

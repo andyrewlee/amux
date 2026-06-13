@@ -384,6 +384,48 @@ func TestScriptRunnerStop_TimeoutDoesNotBlockAfterForceKill(t *testing.T) {
 	}
 }
 
+// TestScriptRunnerReleaseWorkspace proves a workspace's port allocation is
+// released (dropped from the allocator) once no script is running for it.
+func TestScriptRunnerReleaseWorkspace(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	ws := &data.Workspace{Repo: repo, Root: wsRoot}
+
+	runner := NewScriptRunner(6200, 10)
+
+	// Allocate a port range for the workspace, as BuildEnv would during a run.
+	runner.portAllocator.AllocatePort(ws.Root)
+	if _, ok := runner.portAllocator.GetPort(ws.Root); !ok {
+		t.Fatalf("expected port to be allocated for %s", ws.Root)
+	}
+
+	runner.ReleaseWorkspace(ws)
+
+	if _, ok := runner.portAllocator.GetPort(ws.Root); ok {
+		t.Fatalf("expected port allocation to be released for %s", ws.Root)
+	}
+}
+
+// TestScriptRunnerReleaseWorkspaceGatedByRunning proves the release is a no-op
+// while a script is still running, so it can never strand a live script's port.
+func TestScriptRunnerReleaseWorkspaceGatedByRunning(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	ws := &data.Workspace{Repo: repo, Root: wsRoot}
+
+	runner := NewScriptRunner(6200, 10)
+	runner.portAllocator.AllocatePort(ws.Root)
+
+	// Simulate a script still running for this workspace.
+	runner.running[scriptWorkspaceKey(ws)] = &runningScript{}
+
+	runner.ReleaseWorkspace(ws)
+
+	if _, ok := runner.portAllocator.GetPort(ws.Root); !ok {
+		t.Fatalf("release must not strand a running script's port; allocation was dropped")
+	}
+}
+
 func waitForFile(path string, timeout time.Duration) error {
 	deadline := time.After(timeout)
 	for {

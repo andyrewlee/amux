@@ -6,6 +6,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
@@ -33,6 +34,43 @@ func TestHandleWorkspaceDeletedClearsDirtyWorkspaceMarker(t *testing.T) {
 	}
 	if app.lifecycle.dirty[wsID] {
 		t.Fatal("expected dirty workspace marker to be cleared on delete success")
+	}
+}
+
+// TestHandleWorkspaceDeleted_ReleasesPortAllocation proves the confirmed-delete
+// path releases the workspace's port allocation through the workspace service so
+// the allocator's map does not retain an entry per deleted workspace.
+func TestHandleWorkspaceDeleted_ReleasesPortAllocation(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	ws := data.NewWorkspace("feature", "feature", "main", repo, wsRoot)
+
+	scripts := process.NewScriptRunner(6200, 10)
+	// RunSetup builds the env (and thus allocates the port range) even with no
+	// configured setup commands, mirroring a workspace that has run scripts.
+	if err := scripts.RunSetup(ws); err != nil {
+		t.Fatalf("RunSetup() error = %v", err)
+	}
+	if _, ok := scripts.PortAllocated(ws); !ok {
+		t.Fatalf("expected port to be allocated after RunSetup")
+	}
+
+	app := &App{
+		dashboard:        dashboard.New(),
+		center:           center.New(nil),
+		sidebar:          sidebar.NewTabbedSidebar(),
+		sidebarTerminal:  sidebar.NewTerminalModel(),
+		workspaceService: newWorkspaceService(nil, nil, scripts, ""),
+		lifecycle: workspaceLifecycleState{
+			dirty:  map[string]bool{},
+			phases: map[string]lifecyclePhase{},
+		},
+	}
+
+	app.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: ws})
+
+	if _, ok := scripts.PortAllocated(ws); ok {
+		t.Fatal("expected port allocation released on workspace delete")
 	}
 }
 

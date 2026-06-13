@@ -480,5 +480,16 @@ func syncActivitySessionStates(
 		}
 	}
 
+	// Prune miss counters for sessions that are no longer open. infoBySession is
+	// rebuilt fresh each scan from currently-open tabs, so any missBySession key
+	// absent from it belongs to a closed tab/workspace. Mirrors the sessionStates
+	// prune (app_tmux_activity_result.go) so both maps shed teardown leftovers on
+	// the same signal instead of growing unbounded over a long session.
+	for sessionName := range missBySession {
+		if _, ok := infoBySession[sessionName]; !ok {
+			delete(missBySession, sessionName)
+		}
+	}
+
 	return stoppedTabs
 }

@@ -279,6 +279,34 @@ func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
 	return ok
 }
 
+// PortAllocated reports the port base allocated for the workspace, and whether
+// one is currently held. It mirrors PortAllocator.GetPort so callers (and the
+// delete path's tests) can observe release without reaching into the allocator.
+func (r *ScriptRunner) PortAllocated(ws *data.Workspace) (int, bool) {
+	if validateScriptWorkspace(ws) != nil || r.portAllocator == nil {
+		return 0, false
+	}
+	return r.portAllocator.GetPort(ws.Root)
+}
+
+// ReleaseWorkspace releases the workspace's port allocation once no script is
+// running for it, so a deleted workspace's port-range entry does not leak in the
+// allocator's map for the lifetime of the process. It is a no-op while a script
+// is still running so a release can never strand a live script's port; the
+// caller (workspace delete) tears scripts down first. The allocator is keyed by
+// the raw ws.Root (see EnvBuilder.PortRange), so release uses ws.Root directly.
+func (r *ScriptRunner) ReleaseWorkspace(ws *data.Workspace) {
+	if validateScriptWorkspace(ws) != nil {
+		return
+	}
+	if r.IsRunning(ws) {
+		return
+	}
+	if r.portAllocator != nil {
+		r.portAllocator.ReleasePort(ws.Root)
+	}
+}
+
 // StopAll stops all running scripts
 func (r *ScriptRunner) StopAll() {
 	r.mu.Lock()
