@@ -3,6 +3,10 @@
 package process
 
 import (
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -16,6 +20,21 @@ import (
 // prove a child actually died, not just that the running map was cleared.
 func processGone(pid int) bool {
 	return syscall.Kill(pid, 0) == syscall.ESRCH
+}
+
+func TestScriptRunnerStopIgnoresTermHelper(t *testing.T) {
+	if os.Getenv("AMUX_SCRIPT_HELPER") != "1" {
+		return
+	}
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, syscall.SIGTERM)
+	if readyPath := os.Getenv("AMUX_SCRIPT_HELPER_READY"); readyPath != "" {
+		if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
+			os.Exit(2)
+		}
+	}
+	for range term {
+	}
 }
 
 // TestScriptRunner_StopAll proves StopAll kills every running child and clears
@@ -84,49 +103,97 @@ func TestScriptRunner_StopAll(t *testing.T) {
 	}
 }
 
-// TestScriptRunner_StopForceKillsStuckProcess proves Stop's real
-// SIGTERM->SIGKILL escalation against a process that ignores SIGTERM. The body
-// traps TERM, so KillProcessGroup's SIGTERM is swallowed, running.done never
-// closes within the (shortened) scriptStopTimeout, and Stop must escalate via
-// the real ForceKillProcess (SIGKILL). We do NOT stub killProcessGroup here —
-// the point is to exercise the genuine escalation end to end.
+// TestScriptRunner_StopForceKillsStuckProcess proves Stop's own
+// SIGTERM->SIGKILL timeout fallback against a process that ignores SIGTERM.
+// The body traps TERM, so the initial termination is swallowed, running.done
+// never closes within the (shortened) scriptStopTimeout, and Stop must escalate
+// via the real ForceKillProcess (SIGKILL).
 func TestScriptRunner_StopForceKillsStuckProcess(t *testing.T) {
 	repo := t.TempDir()
 	wsRoot := t.TempDir()
-
-	writeWorkspaceConfig(t, repo, `{"run": "trap '' TERM; sleep 60"}`)
+	readyPath := filepath.Join(t.TempDir(), "ready")
 
 	runner := NewScriptRunner(6200, 10)
 	ws := &data.Workspace{Repo: repo, Root: wsRoot}
 
-	// Shorten the escalation timeout so the SIGTERM grace window passes quickly;
-	// keep it small but above KillProcessGroup's own 200ms SIGTERM grace so the
-	// real escalation path (not the done channel) is what fires.
+	runner.killProcessGroup = func(pid int, _ KillOptions) error {
+		pgid, err := syscall.Getpgid(pid)
+		if err == syscall.ESRCH {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		err = syscall.Kill(-pgid, syscall.SIGTERM)
+		if err == syscall.ESRCH {
+			return nil
+		}
+		return err
+	}
+
+	// Shorten Stop's escalation timeout. The stubbed killProcessGroup sends only
+	// SIGTERM and never performs its own SIGKILL escalation, so a missing
+	// ForceKillProcess call in Stop would leave this process alive.
 	prevTimeout := scriptStopTimeout
-	scriptStopTimeout = 300 * time.Millisecond
+	scriptStopTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { scriptStopTimeout = prevTimeout })
 
-	cmd, err := runner.RunScript(ws, ScriptRun)
+	cmd := exec.Command(os.Args[0], "-test.run=TestScriptRunnerStopIgnoresTermHelper", "--")
+	cmd.Env = append(os.Environ(), "AMUX_SCRIPT_HELPER=1", "AMUX_SCRIPT_HELPER_READY="+readyPath)
+	SetProcessGroup(cmd)
+	err := cmd.Start()
 	if err != nil {
-		t.Fatalf("RunScript() error = %v", err)
+		t.Fatalf("Start helper: %v", err)
 	}
 	pid := cmd.Process.Pid
-
-	// Backstop so a failure here never leaks the "sleep 60".
-	t.Cleanup(func() { _ = ForceKillProcess(pid) })
-
-	if !runner.IsRunning(ws) {
-		t.Fatal("expected script to be running")
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatalf("Getpgid(%d): %v", pid, err)
+	}
+	if pgid != pid {
+		t.Fatalf("expected script process group %d to match pid %d", pgid, pid)
 	}
 
+	// Backstop so a failure here never leaks the helper process.
+	t.Cleanup(func() { _ = ForceKillProcess(pid) })
+
+	key := scriptWorkspaceKey(ws)
+	done := make(chan struct{})
+	runner.setRunningEntry(key, &runningScript{
+		cmd:  cmd,
+		done: done, // Never closes: forces Stop's timeout branch.
+	})
+
+	testutil.Eventually(t, 2*time.Second, 20*time.Millisecond, func() bool {
+		_, statErr := os.Stat(readyPath)
+		return statErr == nil
+	}, "script did not install TERM trap")
+
+	started := time.Now()
 	if err := runner.Stop(ws); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
+	if elapsed := time.Since(started); elapsed < scriptStopTimeout {
+		t.Fatalf("Stop() returned before scriptStopTimeout: elapsed=%s timeout=%s", elapsed, scriptStopTimeout)
+	}
 
 	// The SIGTERM-ignoring process must have been SIGKILLed by the escalation.
-	testutil.Eventually(t, 2*time.Second, 20*time.Millisecond, func() bool {
-		return processGone(pid)
-	}, "SIGTERM-ignoring process (pid %d) still running; escalation to SIGKILL did not reap it", pid)
+	waited := make(chan error, 1)
+	go func() {
+		waited <- cmd.Wait()
+	}()
+	select {
+	case err := <-waited:
+		if err == nil {
+			t.Fatal("expected helper to exit from SIGKILL, got nil Wait error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("SIGTERM-ignoring process (pid %d) still running; escalation to SIGKILL did not reap it", pid)
+	}
+	close(done)
+	if !processGone(pid) {
+		t.Fatalf("SIGTERM-ignoring process (pid %d) was reaped but still appears alive", pid)
+	}
 
 	if runner.IsRunning(ws) {
 		t.Fatal("expected runner entry cleared after Stop force-kill")
