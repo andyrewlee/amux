@@ -12,6 +12,10 @@ import (
 	"runtime"
 )
 
+// renameFile is a test seam over os.Rename so the rename-failure restore branch
+// can be exercised. Production never reassigns it.
+var renameFile = os.Rename
+
 // WriteFile atomically replaces path with data. The temp file is created in
 // path's directory so the final rename never crosses filesystems. Replacement
 // files keep os.CreateTemp's private permissions; perm is accepted for parity
@@ -50,7 +54,7 @@ func writeFileForGOOS(goos, path string, data []byte, perm os.FileMode) error {
 		if err := replaceFileWindows(path, tmpPath); err != nil {
 			return err
 		}
-	} else if err := os.Rename(tmpPath, path); err != nil {
+	} else if err := renameFile(tmpPath, path); err != nil {
 		return err
 	}
 	cleanup = false
@@ -68,15 +72,15 @@ func replaceFileWindows(path, tmpPath string) error {
 		if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		if err := os.Rename(path, backupPath); err != nil {
+		if err := renameFile(path, backupPath); err != nil {
 			return err
 		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := renameFile(tmpPath, path); err != nil {
 		if hadPrimary {
-			_ = os.Rename(backupPath, path)
+			_ = renameFile(backupPath, path)
 		}
 		return err
 	}
