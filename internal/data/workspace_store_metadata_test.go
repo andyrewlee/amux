@@ -268,6 +268,145 @@ func TestWorkspaceStore_UpsertFromDiscovery_PreservesDiscoveredAssistantWhenStor
 	}
 }
 
+func TestWorkspaceStore_UpsertFromDiscovery_StoreWinsAndClearsArchived(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	// Stored workspace carries user-owned metadata and is archived.
+	stored := &Workspace{
+		Name:       "kept-name",
+		Branch:     "old-branch",
+		Repo:       "/repo",
+		Root:       "/root",
+		Assistant:  "codex",
+		Scripts:    ScriptsConfig{Setup: "npm install", Run: "npm start", Archive: "cleanup.sh"},
+		ScriptMode: "concurrent",
+		Env:        map[string]string{"API_KEY": "secret123"},
+		OpenTabs: []TabInfo{
+			{Assistant: "codex", Name: "codex", SessionName: "session-x", Status: "running"},
+		},
+		Archived:   true,
+		ArchivedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := store.Save(stored); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	// Discovery re-finds the same workspace (same Repo/Root → same ID) but with
+	// a new Branch and no metadata.
+	discovered := &Workspace{
+		Name:   "discovered-name",
+		Branch: "new-branch",
+		Repo:   "/repo",
+		Root:   "/root",
+	}
+	if err := store.UpsertFromDiscovery(discovered); err != nil {
+		t.Fatalf("UpsertFromDiscovery() error = %v", err)
+	}
+
+	loaded, err := store.Load(stored.ID())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	// Store-owned fields survive the rescan.
+	if loaded.Scripts.Setup != "npm install" || loaded.Scripts.Run != "npm start" || loaded.Scripts.Archive != "cleanup.sh" {
+		t.Errorf("Scripts = %#v, want stored scripts preserved", loaded.Scripts)
+	}
+	if loaded.ScriptMode != "concurrent" {
+		t.Errorf("ScriptMode = %q, want concurrent (store-owned)", loaded.ScriptMode)
+	}
+	if loaded.Env["API_KEY"] != "secret123" {
+		t.Errorf("Env[API_KEY] = %q, want secret123 (store-owned)", loaded.Env["API_KEY"])
+	}
+	if len(loaded.OpenTabs) != 1 || loaded.OpenTabs[0].SessionName != "session-x" {
+		t.Errorf("OpenTabs = %#v, want stored tab preserved", loaded.OpenTabs)
+	}
+	if loaded.Assistant != "codex" {
+		t.Errorf("Assistant = %q, want codex (store-owned)", loaded.Assistant)
+	}
+	if loaded.Name != "kept-name" {
+		t.Errorf("Name = %q, want kept-name (store-owned when non-empty)", loaded.Name)
+	}
+
+	// Discovery updates Branch and clears Archived.
+	if loaded.Branch != "new-branch" {
+		t.Errorf("Branch = %q, want new-branch (discovery-updated)", loaded.Branch)
+	}
+	if loaded.Archived {
+		t.Errorf("Archived = true, want cleared by discovery")
+	}
+	if !loaded.ArchivedAt.IsZero() {
+		t.Errorf("ArchivedAt = %v, want zero after un-archive", loaded.ArchivedAt)
+	}
+}
+
+func TestWorkspaceStore_UpsertFromDiscovery_RebindDeletesOldID(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	// Plant stored metadata under a legacy directory whose name is NOT the
+	// canonical Repo+Root hash, so discovery is found via the fallback scan and
+	// the recomputed ID differs (forcing the rebind-delete branch).
+	legacyID := WorkspaceID("legacy_rebind_id")
+	dir := filepath.Join(root, string(legacyID))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	legacyMetadata := `{
+		"name": "rebind-ws",
+		"branch": "old-branch",
+		"repo": "/repo",
+		"root": "/root",
+		"assistant": "codex",
+		"env": {"API_KEY": "secret123"}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(legacyMetadata), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	discovered := &Workspace{
+		Name:   "rebind-ws",
+		Branch: "new-branch",
+		Repo:   "/repo",
+		Root:   "/root",
+	}
+	if err := store.UpsertFromDiscovery(discovered); err != nil {
+		t.Fatalf("UpsertFromDiscovery() error = %v", err)
+	}
+
+	// The recomputed canonical ID differs from the legacy one.
+	newID := (Workspace{Repo: "/repo", Root: "/root"}).ID()
+	if newID == legacyID {
+		t.Fatalf("test setup: legacy and canonical IDs must differ")
+	}
+
+	// Exactly one workspace remains — the rebound canonical record. The old
+	// legacy dir must be gone (no orphan).
+	ids, err := store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("List() = %v, want exactly one workspace after rebind", ids)
+	}
+	if ids[0] != newID {
+		t.Fatalf("remaining id = %s, want canonical %s", ids[0], newID)
+	}
+
+	// Store-owned metadata survives the rebind; Branch is discovery-updated.
+	loaded, err := store.Load(newID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Env["API_KEY"] != "secret123" {
+		t.Errorf("Env[API_KEY] = %q, want secret123 preserved across rebind", loaded.Env["API_KEY"])
+	}
+	if loaded.Branch != "new-branch" {
+		t.Errorf("Branch = %q, want new-branch", loaded.Branch)
+	}
+}
+
 func TestWorkspaceStore_LoadMetadataFor_CorruptedFile(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

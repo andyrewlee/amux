@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/andyrewlee/amux/internal/fsatomic"
 )
 
 // Update atomically loads a workspace, passes it to fn for modification, and
@@ -81,12 +83,10 @@ func (s *WorkspaceStore) saveWorkspaceLocked(id WorkspaceID, ws *Workspace) erro
 	if err != nil {
 		return err
 	}
-	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		_ = os.Remove(tempPath)
+	// Atomic replace (temp + fsync + rename, with backup recovery on platforms
+	// that need it), matching Save. The caller already holds the workspace lock.
+	// A crash mid-save can never leave a truncated workspace.json behind.
+	if err := fsatomic.WriteFile(path, data, 0o644); err != nil {
 		return err
 	}
 	return nil
