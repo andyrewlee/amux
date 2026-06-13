@@ -9,11 +9,8 @@ fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-echo "amux pre-commit: checking formatting..."
-bad=$(gofmt -l .)
-if [[ -n "$bad" ]]; then
-  echo "gofmt: these files need formatting:"
-  echo "$bad"
+echo "amux pre-commit: checking formatting (gofumpt)..."
+if ! make fmt-check; then
   echo "(run 'make fmt' to fix)"
   exit 1
 fi
