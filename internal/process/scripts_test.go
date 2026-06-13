@@ -426,6 +426,46 @@ func TestScriptRunnerReleaseWorkspaceGatedByRunning(t *testing.T) {
 	}
 }
 
+func TestScriptRunnerReleaseWorkspaceGatedByRunningSetup(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	configDir := filepath.Join(repo, ".amux")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	config := `{"setup-workspace":["sleep 0.2"]}`
+	if err := os.WriteFile(filepath.Join(configDir, configFilename), []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	ws := &data.Workspace{Repo: repo, Root: wsRoot}
+
+	runner := NewScriptRunner(6200, 10)
+	done := make(chan error, 1)
+	go func() {
+		done <- runner.RunSetup(ws)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for !runner.IsRunning(ws) {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for setup script to be tracked as running")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	runner.ReleaseWorkspace(ws)
+
+	if _, ok := runner.portAllocator.GetPort(ws.Root); !ok {
+		t.Fatalf("release must not strand a running setup script's port; allocation was dropped")
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("RunSetup() error = %v", err)
+	}
+	if runner.IsRunning(ws) {
+		t.Fatal("expected setup running entry to be cleared after completion")
+	}
+}
+
 func waitForFile(path string, timeout time.Duration) error {
 	deadline := time.After(timeout)
 	for {

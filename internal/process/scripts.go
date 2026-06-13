@@ -144,7 +144,26 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 
-		if err := cmd.Run(); err != nil {
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		running := &runningScript{
+			cmd:  cmd,
+			done: make(chan struct{}),
+		}
+		key := scriptWorkspaceKey(ws)
+		r.mu.Lock()
+		r.running[key] = running
+		r.mu.Unlock()
+
+		err := cmd.Wait()
+		close(running.done)
+		r.mu.Lock()
+		if current, ok := r.running[key]; ok && current == running {
+			delete(r.running, key)
+		}
+		r.mu.Unlock()
+		if err != nil {
 			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, stderr.String(), err)
 		}
 	}
