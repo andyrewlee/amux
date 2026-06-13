@@ -62,3 +62,44 @@ func TestSyncActivitySessionStates_LiveResetsMissCounter(t *testing.T) {
 		t.Fatalf("a live observation must reset the miss counter, still have %d", miss[sessionName])
 	}
 }
+
+// TestSyncActivitySessionStates_PrunesMissForClosedSession proves a session that
+// accumulated a miss counter while open has that entry removed once it is no
+// longer present in infoBySession (its tab/workspace was closed). Without the
+// prune, missBySession would retain the orphaned key forever.
+func TestSyncActivitySessionStates_PrunesMissForClosedSession(t *testing.T) {
+	const sessionName = "amux-ws-sess"
+	info := map[string]activity.SessionInfo{
+		sessionName: {Status: "running", WorkspaceID: "ws"},
+	}
+	sessions := []activity.TaggedSession{{Session: tmux.SessionActivity{Name: sessionName}}}
+	deadSvc := stubTmuxOps{allStates: map[string]tmux.SessionState{}}
+	miss := map[string]int{}
+
+	// One non-live observation records a miss for the open session.
+	syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
+	if miss[sessionName] != 1 {
+		t.Fatalf("expected 1 miss after one non-live observation, got %d", miss[sessionName])
+	}
+
+	// The tab/workspace closed: infoBySession (rebuilt fresh each scan) no longer
+	// contains the session. The next scan must prune the orphaned miss entry.
+	closedInfo := map[string]activity.SessionInfo{
+		"amux-other-sess": {Status: "running", WorkspaceID: "other"},
+	}
+	closedSessions := []activity.TaggedSession{{Session: tmux.SessionActivity{Name: "amux-other-sess"}}}
+	syncActivitySessionStates(closedInfo, closedSessions, deadSvc, tmux.Options{}, miss)
+	if _, ok := miss[sessionName]; ok {
+		t.Fatalf("closed session must be pruned from missBySession, still have %d", miss[sessionName])
+	}
+}
+
+func TestSyncActivitySessionStates_PrunesMissWhenLastSessionCloses(t *testing.T) {
+	miss := map[string]int{"amux-ws-sess": 1}
+
+	syncActivitySessionStates(map[string]activity.SessionInfo{}, nil, stubTmuxOps{}, tmux.Options{}, miss)
+
+	if len(miss) != 0 {
+		t.Fatalf("expected final closed session to prune miss counters, got %v", miss)
+	}
+}

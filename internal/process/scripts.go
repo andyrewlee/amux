@@ -66,9 +66,34 @@ func isBenignStopError(err error) bool {
 }
 
 func (r *ScriptRunner) clearRunningEntry(key string) {
+	var releaseRoot string
 	r.mu.Lock()
+	current := r.running[key]
 	delete(r.running, key)
+	if pending, ok := r.pendingRelease[key]; ok && pending.running == current {
+		releaseRoot = pending.root
+		delete(r.pendingRelease, key)
+	}
 	r.mu.Unlock()
+	if releaseRoot != "" && r.portAllocator != nil {
+		r.portAllocator.ReleasePort(releaseRoot)
+	}
+}
+
+func (r *ScriptRunner) finishRunningEntry(key string, running *runningScript) {
+	var releaseRoot string
+	r.mu.Lock()
+	if current, ok := r.running[key]; ok && current == running {
+		delete(r.running, key)
+		if pending, ok := r.pendingRelease[key]; ok && pending.running == running {
+			releaseRoot = pending.root
+			delete(r.pendingRelease, key)
+		}
+	}
+	r.mu.Unlock()
+	if releaseRoot != "" && r.portAllocator != nil {
+		r.portAllocator.ReleasePort(releaseRoot)
+	}
 }
 
 // WorkspaceConfig holds per-project workspace configuration
@@ -84,12 +109,27 @@ type ScriptRunner struct {
 	portAllocator    *PortAllocator
 	envBuilder       *EnvBuilder
 	running          map[string]*runningScript // workspace root -> running process
+	pendingRelease   map[string]pendingPortRelease
 	killProcessGroup func(pid int, opts KillOptions) error
 }
 
 type runningScript struct {
 	cmd  *exec.Cmd
 	done chan struct{}
+}
+
+type pendingPortRelease struct {
+	root    string
+	running *runningScript
+}
+
+func (r *ScriptRunner) setRunningEntry(key string, running *runningScript) {
+	r.mu.Lock()
+	if _, exists := r.running[key]; exists {
+		delete(r.pendingRelease, key)
+	}
+	r.running[key] = running
+	r.mu.Unlock()
 }
 
 // NewScriptRunner creates a new script runner
@@ -99,6 +139,7 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 		portAllocator:    ports,
 		envBuilder:       NewEnvBuilder(ports),
 		running:          make(map[string]*runningScript),
+		pendingRelease:   make(map[string]pendingPortRelease),
 		killProcessGroup: KillProcessGroup,
 	}
 }
@@ -144,7 +185,20 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 
-		if err := cmd.Run(); err != nil {
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		running := &runningScript{
+			cmd:  cmd,
+			done: make(chan struct{}),
+		}
+		key := scriptWorkspaceKey(ws)
+		r.setRunningEntry(key, running)
+
+		err := cmd.Wait()
+		close(running.done)
+		r.finishRunningEntry(key, running)
+		if err != nil {
 			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, stderr.String(), err)
 		}
 	}
@@ -204,9 +258,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		done: make(chan struct{}),
 	}
 	key := scriptWorkspaceKey(ws)
-	r.mu.Lock()
-	r.running[key] = running
-	r.mu.Unlock()
+	r.setRunningEntry(key, running)
 
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
@@ -214,11 +266,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		if err := cmd.Wait(); err != nil {
 			slog.Debug("script process exited with error", "error", err)
 		}
-		r.mu.Lock()
-		if current, ok := r.running[key]; ok && current == running {
-			delete(r.running, key)
-		}
-		r.mu.Unlock()
+		r.finishRunningEntry(key, running)
 	})
 
 	return cmd, nil
@@ -277,6 +325,41 @@ func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
 	defer r.mu.Unlock()
 	_, ok := r.running[key]
 	return ok
+}
+
+// PortAllocated reports the port base allocated for the workspace, and whether
+// one is currently held. It mirrors PortAllocator.GetPort so callers (and the
+// delete path's tests) can observe release without reaching into the allocator.
+func (r *ScriptRunner) PortAllocated(ws *data.Workspace) (int, bool) {
+	if validateScriptWorkspace(ws) != nil || r.portAllocator == nil {
+		return 0, false
+	}
+	return r.portAllocator.GetPort(ws.Root)
+}
+
+// ReleaseWorkspace releases the workspace's port allocation once no script is
+// running for it, so a deleted workspace's port-range entry does not leak in the
+// allocator's map for the lifetime of the process. It is a no-op while a script
+// is still running so a release can never strand a live script's port; the
+// caller (workspace delete) tears scripts down first. The allocator is keyed by
+// the raw ws.Root (see EnvBuilder.PortRange), so release uses ws.Root directly.
+func (r *ScriptRunner) ReleaseWorkspace(ws *data.Workspace) {
+	if validateScriptWorkspace(ws) != nil {
+		return
+	}
+	key := scriptWorkspaceKey(ws)
+	r.mu.Lock()
+	running, isRunning := r.running[key]
+	if isRunning {
+		r.pendingRelease[key] = pendingPortRelease{root: ws.Root, running: running}
+	}
+	r.mu.Unlock()
+	if isRunning {
+		return
+	}
+	if r.portAllocator != nil {
+		r.portAllocator.ReleasePort(ws.Root)
+	}
 }
 
 // StopAll stops all running scripts

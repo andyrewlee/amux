@@ -445,3 +445,13 @@ func (s *workspaceService) StopAll() {
 	}
 	s.scripts.StopAll()
 }
+
+// ReleaseWorkspacePort releases the deleted workspace's port allocation. The
+// ScriptRunner gates the release on no script running for the workspace, so a
+// release here cannot strand a live script's port.
+func (s *workspaceService) ReleaseWorkspacePort(ws *data.Workspace) {
+	if s == nil || s.scripts == nil || ws == nil {
+		return
+	}
+	s.scripts.ReleaseWorkspace(ws)
+}
