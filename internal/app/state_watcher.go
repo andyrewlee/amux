@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +10,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 type stateWatcher struct {
@@ -73,7 +74,7 @@ func newStateWatcher(registryPath, metadataRoot string, onChanged func(reason st
 func (sw *stateWatcher) register() {
 	if sw.registryDir != "" {
 		if err := sw.addWatch(sw.registryDir); err != nil {
-			slog.Warn("state watcher: registry dir watch failed", "path", sw.registryDir, "error", err)
+			logging.Warn("state watcher: registry dir watch failed path=%s error=%v", sw.registryDir, err)
 		}
 	}
 	if sw.metadataRoot != "" {
@@ -154,7 +155,7 @@ func (sw *stateWatcher) addWatch(path string) error {
 // since registration now runs off the construction path.
 func (sw *stateWatcher) watchMetadataRoot() {
 	if err := sw.addWatch(sw.metadataRoot); err != nil {
-		slog.Warn("state watcher: metadata root watch failed", "path", sw.metadataRoot, "error", err)
+		logging.Warn("state watcher: metadata root watch failed path=%s error=%v", sw.metadataRoot, err)
 		return
 	}
 	entries, err := os.ReadDir(sw.metadataRoot)
@@ -168,7 +169,7 @@ func (sw *stateWatcher) watchMetadataRoot() {
 		}
 		child := filepath.Join(sw.metadataRoot, entry.Name())
 		if err := sw.watchMetadataDir(child); err != nil {
-			slog.Debug("best-effort watch failed", "path", child, "error", err)
+			logging.Debug("state watcher: best-effort watch failed path=%s error=%v", child, err)
 		}
 	}
 }
@@ -229,7 +230,7 @@ func (sw *stateWatcher) handleMetadataEvent(event fsnotify.Event) bool {
 		if event.Op&(fsnotify.Create|fsnotify.Rename) != 0 {
 			if sw.looksLikeDir(name) {
 				if err := sw.watchMetadataDir(name); err != nil {
-					slog.Debug("best-effort watch failed", "path", name, "error", err)
+					logging.Debug("state watcher: best-effort watch failed path=%s error=%v", name, err)
 				}
 			}
 			return true
