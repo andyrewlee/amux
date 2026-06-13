@@ -290,11 +290,11 @@ func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	if running.cmd != nil && running.cmd.Process != nil {
 		pid := running.cmd.Process.Pid
 		err := r.killProcessGroup(pid, KillOptions{})
-		if isBenignStopError(err) {
-			r.clearRunningEntry(key)
-			return nil
-		}
 		if err != nil {
+			if isBenignStopError(err) {
+				r.clearRunningEntry(key)
+				return nil
+			}
 			return err
 		}
 		if running.done == nil {
