@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -14,6 +16,12 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
+
+// supervisorErrorToastInterval throttles repeated worker-error toasts so a
+// worker failing on a tight restart loop does not emit a toast every cycle. The
+// first error for a worker always notifies; subsequent ones are suppressed
+// until this interval elapses.
+const supervisorErrorToastInterval = 30 * time.Second
 
 func (a *App) SetMsgSender(send func(tea.Msg)) {
 	if send == nil {
@@ -131,10 +139,23 @@ func (a *App) installSupervisorErrorHandler() {
 	if a == nil || a.supervisor == nil {
 		return
 	}
+	var (
+		mu           sync.Mutex
+		lastNotified = make(map[string]time.Time)
+	)
 	a.supervisor.SetErrorHandler(func(name string, err error) {
 		if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return
 		}
+		now := time.Now()
+		mu.Lock()
+		last, seen := lastNotified[name]
+		if seen && now.Sub(last) < supervisorErrorToastInterval {
+			mu.Unlock()
+			return // throttled: this worker toasted too recently
+		}
+		lastNotified[name] = now
+		mu.Unlock()
 		a.enqueueExternalMsg(messages.Error{
 			Err:     fmt.Errorf("worker %s: %w", name, err),
 			Context: errorContext(errorServiceSupervisor, "worker"),

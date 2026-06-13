@@ -27,6 +27,7 @@ type options struct {
 	maxBackoff  time.Duration
 	onError     func(name string, err error)
 	sleep       func(time.Duration)
+	now         func() time.Time
 }
 
 // Option configures supervisor worker behavior.
@@ -64,6 +65,14 @@ func WithMaxBackoff(d time.Duration) Option {
 func WithSleep(fn func(time.Duration)) Option {
 	return func(o *options) {
 		o.sleep = fn
+	}
+}
+
+// withNow overrides the clock used to measure how long a worker ran (useful for
+// deterministic tests of the backoff-reset logic).
+func withNow(fn func() time.Time) Option {
+	return func(o *options) {
+		o.now = fn
 	}
 }
 
@@ -166,7 +175,7 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 		policy:     RestartOnError,
 		backoff:    200 * time.Millisecond,
 		maxBackoff: 3 * time.Second,
-		sleep:      time.Sleep,
+		now:        time.Now,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -176,6 +185,9 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 	}
 	if cfg.maxBackoff <= 0 {
 		cfg.maxBackoff = cfg.backoff
+	}
+	if cfg.now == nil {
+		cfg.now = time.Now
 	}
 
 	s.wg.Add(1)
@@ -189,6 +201,7 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 			if s.ctx.Err() != nil {
 				return
 			}
+			start := cfg.now()
 			err := runSafe(s.ctx, name, fn)
 			if s.ctx.Err() != nil {
 				return
@@ -199,14 +212,21 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 			if !shouldRestart(err, cfg.policy) {
 				return
 			}
+			// A worker that survived longer than maxBackoff looks recovered:
+			// reset the delay so the next failure restarts fast instead of
+			// staying pinned at the capped backoff forever. The restart count
+			// remains cumulative for WithMaxRestarts.
+			if cfg.now().Sub(start) > cfg.maxBackoff {
+				backoff = cfg.backoff
+			}
 			restarts++
 			if cfg.maxRestarts > 0 && restarts > cfg.maxRestarts {
 				logging.Error("supervisor: %s exceeded max restarts (%d)", name, cfg.maxRestarts)
 				return
 			}
 			if backoff > 0 {
-				if cfg.sleep != nil {
-					cfg.sleep(backoff)
+				if !sleepCtx(s.ctx, cfg, backoff) {
+					return // context canceled during backoff
 				}
 				if backoff < cfg.maxBackoff {
 					backoff *= 2
@@ -217,6 +237,25 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 			}
 		}
 	}()
+}
+
+// sleepCtx waits for d or context cancellation. Returns false if canceled.
+// cfg.sleep, when set by a test, replaces the timer entirely (tests stub it to
+// a no-op, so cancellation during the wait is irrelevant there; we still report
+// cancellation if the context is already done so the loop exits promptly).
+func sleepCtx(ctx context.Context, cfg options, d time.Duration) bool {
+	if cfg.sleep != nil {
+		cfg.sleep(d)
+		return ctx.Err() == nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 func shouldRestart(err error, policy RestartPolicy) bool {
