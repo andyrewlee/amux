@@ -3,6 +3,7 @@ package update
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -316,5 +317,146 @@ func TestInstallBinaryCrossDir(t *testing.T) {
 	}
 	if string(content) != "new binary content" {
 		t.Errorf("Expected 'new binary content', got %s", string(content))
+	}
+}
+
+func TestInstallBinaryBackupFails(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	srcPath := filepath.Join(tmpDir, "new-amux")
+	if err := os.WriteFile(srcPath, []byte("new"), 0o755); err != nil {
+		t.Fatalf("Failed to create source: %v", err)
+	}
+	destPath := filepath.Join(tmpDir, "amux")
+	if err := os.WriteFile(destPath, []byte("old"), 0o755); err != nil {
+		t.Fatalf("Failed to create dest: %v", err)
+	}
+	backupPath := destPath + ".bak"
+
+	injected := errors.New("injected backup failure")
+	t.Cleanup(func() { renameFile = os.Rename })
+	renameFile = func(oldpath, newpath string) error {
+		// Fail the backup-create rename: current binary -> .bak
+		if oldpath == destPath && newpath == backupPath {
+			return injected
+		}
+		return os.Rename(oldpath, newpath)
+	}
+
+	err := InstallBinary(srcPath, destPath)
+	if err == nil {
+		t.Fatal("InstallBinary() should have failed when backup rename fails")
+	}
+	if !strings.Contains(err.Error(), "backing up current binary") {
+		t.Errorf("Expected error to mention backing up, got: %v", err)
+	}
+
+	// Current binary still exists with original content
+	content, readErr := os.ReadFile(destPath)
+	if readErr != nil {
+		t.Fatalf("Current binary should still exist: %v", readErr)
+	}
+	if string(content) != "old" {
+		t.Errorf("Expected current binary to remain 'old', got %q", string(content))
+	}
+
+	// No backup file should exist
+	if _, statErr := os.Stat(backupPath); !os.IsNotExist(statErr) {
+		t.Error("No backup file should exist after backup rename failure")
+	}
+}
+
+func TestInstallBinarySwapFailsRestoreSucceeds(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	srcPath := filepath.Join(tmpDir, "new-amux")
+	if err := os.WriteFile(srcPath, []byte("new"), 0o755); err != nil {
+		t.Fatalf("Failed to create source: %v", err)
+	}
+	destPath := filepath.Join(tmpDir, "amux")
+	if err := os.WriteFile(destPath, []byte("old"), 0o755); err != nil {
+		t.Fatalf("Failed to create dest: %v", err)
+	}
+	stagedPath := filepath.Join(tmpDir, ".amux-upgrade-new")
+
+	injected := errors.New("injected swap failure")
+	t.Cleanup(func() { renameFile = os.Rename })
+	renameFile = func(oldpath, newpath string) error {
+		// Fail only the swap: staged -> current binary. Restore is allowed.
+		if oldpath == stagedPath && newpath == destPath {
+			return injected
+		}
+		return os.Rename(oldpath, newpath)
+	}
+
+	err := InstallBinary(srcPath, destPath)
+	if err == nil {
+		t.Fatal("InstallBinary() should have failed when swap rename fails")
+	}
+	if !strings.Contains(err.Error(), "previous binary restored") {
+		t.Errorf("Expected error to mention restore, got: %v", err)
+	}
+
+	// Target restored to original content
+	content, readErr := os.ReadFile(destPath)
+	if readErr != nil {
+		t.Fatalf("Target should be restored: %v", readErr)
+	}
+	if string(content) != "old" {
+		t.Errorf("Expected target restored to 'old', got %q", string(content))
+	}
+
+	// Staged file cleaned up by defer
+	if _, statErr := os.Stat(stagedPath); !os.IsNotExist(statErr) {
+		t.Error("Staged file should have been cleaned up")
+	}
+}
+
+func TestInstallBinarySwapFailsRestoreFails(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	srcPath := filepath.Join(tmpDir, "new-amux")
+	if err := os.WriteFile(srcPath, []byte("new"), 0o755); err != nil {
+		t.Fatalf("Failed to create source: %v", err)
+	}
+	destPath := filepath.Join(tmpDir, "amux")
+	if err := os.WriteFile(destPath, []byte("old"), 0o755); err != nil {
+		t.Fatalf("Failed to create dest: %v", err)
+	}
+	stagedPath := filepath.Join(tmpDir, ".amux-upgrade-new")
+	backupPath := destPath + ".bak"
+
+	swapErr := errors.New("injected swap failure")
+	restoreErr := errors.New("injected restore failure")
+	t.Cleanup(func() { renameFile = os.Rename })
+	renameFile = func(oldpath, newpath string) error {
+		// Fail the swap (staged -> current) and the restore (backup -> current).
+		if oldpath == stagedPath && newpath == destPath {
+			return swapErr
+		}
+		if oldpath == backupPath && newpath == destPath {
+			return restoreErr
+		}
+		return os.Rename(oldpath, newpath)
+	}
+
+	err := InstallBinary(srcPath, destPath)
+	if err == nil {
+		t.Fatal("InstallBinary() should have failed when both swap and restore fail")
+	}
+	if !strings.Contains(err.Error(), backupPath) {
+		t.Errorf("Expected error to name backup path %q, got: %v", backupPath, err)
+	}
+	if !strings.Contains(err.Error(), "mv ") {
+		t.Errorf("Expected error to include a manual mv recovery hint, got: %v", err)
+	}
+
+	// Backup file still holds the original binary content
+	content, readErr := os.ReadFile(backupPath)
+	if readErr != nil {
+		t.Fatalf("Backup file should still exist: %v", readErr)
+	}
+	if string(content) != "old" {
+		t.Errorf("Expected backup to retain 'old', got %q", string(content))
 	}
 }
