@@ -142,6 +142,7 @@ func (fw *FileWatcher) Unwatch(root string) {
 
 	delete(fw.watching, root)
 	delete(fw.watchPaths, root)
+	delete(fw.lastChange, root)
 }
 
 // run processes file system events

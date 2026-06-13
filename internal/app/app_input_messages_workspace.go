@@ -252,6 +252,14 @@ func canonicalPathForMatch(path string) string {
 func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cmd {
 	var cmds []tea.Cmd
 	centerFocusQueuedReattach := false
+	// Capture the previously-active workspace root before it is overwritten so
+	// its file watch can be released below: the watcher follows the single
+	// active workspace, so the prior root must be unwatched on switch or its OS
+	// watch descriptor leaks for the rest of the session.
+	var previousActiveRoot string
+	if a.activeWorkspace != nil {
+		previousActiveRoot = a.activeWorkspace.Root
+	}
 	a.activeProject = msg.Project
 	a.activeWorkspace = msg.Workspace
 	a.showWelcome = false
@@ -321,6 +329,13 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		cmds = append(cmds, a.requestGitStatusFull(msg.Workspace.Root))
 		// Set up file watching for this workspace
 		if a.fileWatcher != nil {
+			// Release the previously-active workspace's watch before watching the
+			// new one. Without this, switching workspaces leaks an OS watch
+			// descriptor per distinct workspace until the watch limit is hit and
+			// git-status watching is disabled app-wide. Unwatch is idempotent.
+			if previousActiveRoot != "" && previousActiveRoot != msg.Workspace.Root {
+				a.fileWatcher.Unwatch(previousActiveRoot)
+			}
 			if err := a.fileWatcher.Watch(msg.Workspace.Root); err != nil {
 				logging.Warn("File watcher error: %v", err)
 				if errors.Is(err, git.ErrWatchLimit) && a.fileWatcherErr == nil {
