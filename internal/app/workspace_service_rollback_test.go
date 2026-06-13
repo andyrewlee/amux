@@ -3,7 +3,9 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -42,12 +44,124 @@ func TestRollbackWorkspaceCreationCleansRecoverableUnregisteredWorkspace(t *test
 	}
 
 	project := &data.Project{Name: "repo-link", Path: projectPath}
-	rollbackWorkspaceCreation(mock, workspacesRoot, project, projectPath, workspacePath, "feature")
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	svc.rollbackWorkspaceCreation(project, projectPath, workspacePath, "feature")
 
 	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
 		t.Fatalf("expected stale workspace path to be removed, err=%v", err)
 	}
 	if deleteBranchCalls != 1 {
 		t.Fatalf("deleteBranch calls = %d, want 1", deleteBranchCalls)
+	}
+}
+
+// TestRollbackWorkspaceCreationSerializesAgainstSameRepoGitMutation asserts that
+// a rollback does not run its RemoveWorkspace/DeleteBranch git mutations while a
+// concurrent locked git op for the same repo is still in flight. Both must hold
+// lockRepoGit(repoPath), so the fake should never observe overlapping calls.
+func TestRollbackWorkspaceCreationSerializesAgainstSameRepoGitMutation(t *testing.T) {
+	const repoPath = "/tmp/repo-serialize"
+	workspacesRoot := "/tmp/workspaces"
+	workspacePath := filepath.Join(workspacesRoot, "repo-serialize", "feature")
+
+	var (
+		mu             sync.Mutex
+		active         bool // a fake git op is currently executing
+		overlap        bool // two fake git ops were active at once
+		order          []string
+		createBlocking = make(chan struct{}) // closed to release the in-flight create
+		createEntered  = make(chan struct{}) // closed once the create holds the lock
+	)
+
+	enter := func(name string) {
+		mu.Lock()
+		if active {
+			overlap = true
+		}
+		active = true
+		order = append(order, name)
+		mu.Unlock()
+	}
+	leave := func() {
+		mu.Lock()
+		active = false
+		mu.Unlock()
+	}
+
+	mock := &mockGitOps{
+		createWorkspace: func(_, _, _, _ string) error {
+			enter("create")
+			defer leave()
+			close(createEntered)
+			<-createBlocking // hold the repo lock until released
+			return nil
+		},
+		removeWorkspace: func(_, _ string) error {
+			enter("rollback-remove")
+			defer leave()
+			return nil
+		},
+		deleteBranch: func(_, _ string) error {
+			enter("rollback-branch")
+			defer leave()
+			return nil
+		},
+	}
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	project := &data.Project{Name: "repo-serialize", Path: repoPath}
+
+	createDone := make(chan struct{})
+	go func() {
+		defer close(createDone)
+		// Holds lockRepoGit(repoPath) for the whole call (blocks until released).
+		_ = svc.createWorkspaceLocked(repoPath, workspacePath, "feature", "main")
+	}()
+
+	// Wait until the create is confirmed holding the lock.
+	<-createEntered
+
+	rollbackDone := make(chan struct{})
+	go func() {
+		defer close(rollbackDone)
+		svc.rollbackWorkspaceCreation(project, repoPath, workspacePath, "feature")
+	}()
+
+	// Give the rollback goroutine a chance to attempt acquiring the lock; it must
+	// block on lockRepoGit, so RemoveWorkspace must not have run yet.
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	premature := false
+	for _, name := range order {
+		if name == "rollback-remove" {
+			premature = true
+		}
+	}
+	mu.Unlock()
+	if premature {
+		close(createBlocking)
+		t.Fatal("rollback RemoveWorkspace ran while the create still held the repo lock")
+	}
+
+	// Release the create; the rollback should now proceed.
+	close(createBlocking)
+	<-createDone
+	<-rollbackDone
+
+	mu.Lock()
+	defer mu.Unlock()
+	if overlap {
+		t.Fatalf("fake git ops overlapped; rollback did not serialize against the create: order=%v", order)
+	}
+	want := []string{"create", "rollback-remove", "rollback-branch"}
+	if len(order) != len(want) {
+		t.Fatalf("call order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("call order = %v, want %v", order, want)
+		}
 	}
 }
