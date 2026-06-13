@@ -108,7 +108,7 @@ func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 		if restoreErr := renameFile(backupPath, currentBinaryPath); restoreErr != nil {
 			return fmt.Errorf(
 				"installing new binary: %w; restoring backup also failed: %w (your previous binary is at %s — restore it manually with: mv %s %s)",
-				err, restoreErr, backupPath, backupPath, currentBinaryPath,
+				err, restoreErr, backupPath, shellQuote(backupPath), shellQuote(currentBinaryPath),
 			)
 		}
 		return fmt.Errorf("installing new binary: %w (previous binary restored)", err)
@@ -118,6 +118,10 @@ func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 	_ = os.Remove(backupPath)
 
 	return nil
+}
+
+func shellQuote(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 // copyFile copies a file from src to dst, preserving executable permissions.

@@ -259,7 +259,7 @@ func TestInstallBinary(t *testing.T) {
 	}
 
 	// Create destination binary
-	destPath := filepath.Join(tmpDir, "amux")
+	destPath := filepath.Join(tmpDir, "am ux'bin")
 	if err := os.WriteFile(destPath, []byte("old binary"), 0o755); err != nil {
 		t.Fatalf("Failed to create dest: %v", err)
 	}
@@ -447,8 +447,9 @@ func TestInstallBinarySwapFailsRestoreFails(t *testing.T) {
 	if !strings.Contains(err.Error(), backupPath) {
 		t.Errorf("Expected error to name backup path %q, got: %v", backupPath, err)
 	}
-	if !strings.Contains(err.Error(), "mv ") {
-		t.Errorf("Expected error to include a manual mv recovery hint, got: %v", err)
+	wantHint := "mv " + shellQuote(backupPath) + " " + shellQuote(destPath)
+	if !strings.Contains(err.Error(), wantHint) {
+		t.Errorf("Expected error to include quoted manual recovery hint %q, got: %v", wantHint, err)
 	}
 
 	// Backup file still holds the original binary content
