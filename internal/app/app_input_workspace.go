@@ -115,6 +115,11 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if a.gitStatus != nil {
 			a.gitStatus.Invalidate(msg.Workspace.Root)
 		}
+		// Release the deleted workspace's file watch: the worktree is gone, so
+		// keeping the OS watch descriptor only leaks it. Unwatch is idempotent.
+		if a.fileWatcher != nil {
+			a.fileWatcher.Unwatch(msg.Workspace.Root)
+		}
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
 		if cmd != nil {

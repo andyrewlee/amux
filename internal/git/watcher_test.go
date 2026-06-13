@@ -240,6 +240,114 @@ func TestFileWatcher(t *testing.T) {
 	})
 }
 
+func newGitRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "index"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	return root
+}
+
+func TestFileWatcherUnwatchReleasesState(t *testing.T) {
+	root := newGitRoot(t)
+
+	fw, err := NewFileWatcher(nil)
+	if err != nil {
+		t.Fatalf("NewFileWatcher() error = %v", err)
+	}
+	defer func() {
+		_ = fw.Close()
+	}()
+
+	if err := fw.Watch(root); err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+	if fw.watchCount == 0 {
+		t.Fatalf("expected watchCount to increment after Watch, got 0")
+	}
+	// Simulate a debounced change recording a lastChange entry, mirroring Run.
+	fw.mu.Lock()
+	fw.lastChange[root] = time.Now()
+	fw.mu.Unlock()
+
+	fw.Unwatch(root)
+
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	if fw.watchCount != 0 {
+		t.Fatalf("expected watchCount = 0 after Unwatch, got %d", fw.watchCount)
+	}
+	if _, ok := fw.watching[root]; ok {
+		t.Fatalf("expected watching[root] removed after Unwatch")
+	}
+	if _, ok := fw.watchPaths[root]; ok {
+		t.Fatalf("expected watchPaths[root] removed after Unwatch")
+	}
+	if _, ok := fw.lastChange[root]; ok {
+		t.Fatalf("expected lastChange[root] removed after Unwatch (M2 leak)")
+	}
+}
+
+// TestFileWatcherSwitchChurnBounded is the regression guard for the watch leak:
+// repeatedly switching between two workspace roots (Unwatch(prev) + Watch(next),
+// mirroring the workspace-switch path) must not grow watchCount with the number
+// of switches.
+func TestFileWatcherSwitchChurnBounded(t *testing.T) {
+	rootA := newGitRoot(t)
+	rootB := newGitRoot(t)
+
+	fw, err := NewFileWatcher(nil)
+	if err != nil {
+		t.Fatalf("NewFileWatcher() error = %v", err)
+	}
+	defer func() {
+		_ = fw.Close()
+	}()
+
+	if err := fw.Watch(rootA); err != nil {
+		t.Fatalf("Watch(A) error = %v", err)
+	}
+
+	// Establish the single-active-workspace ceiling: exactly one root watched.
+	fw.mu.Lock()
+	maxCount := fw.watchCount
+	fw.mu.Unlock()
+
+	current := rootA
+	const switches = 50
+	for i := 0; i < switches; i++ {
+		next := rootB
+		if current == rootB {
+			next = rootA
+		}
+		fw.Unwatch(current)
+		if err := fw.Watch(next); err != nil {
+			t.Fatalf("Watch() error on switch %d: %v", i, err)
+		}
+		current = next
+
+		fw.mu.Lock()
+		count := fw.watchCount
+		fw.mu.Unlock()
+		if count > maxCount {
+			t.Fatalf("watchCount grew to %d on switch %d (ceiling %d); watch leak", count, i, maxCount)
+		}
+	}
+
+	// After churn, only the final active root is watched.
+	fw.Unwatch(current)
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	if fw.watchCount != 0 {
+		t.Fatalf("expected watchCount = 0 after final Unwatch, got %d", fw.watchCount)
+	}
+}
+
 // waitForNotifyCount polls c until it reaches at least want or the timeout
 // elapses, failing the test on timeout. Used in place of a fixed sleep plus an
 // immediate Load, which is flaky on slow CI and wastes time on fast machines.
