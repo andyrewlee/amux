@@ -30,6 +30,16 @@ case "$ARCH" in
     ;;
 esac
 
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo ""
+  fi
+}
+
 # Get latest version from GitHub API
 get_latest_version() {
   curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | 
@@ -59,6 +69,31 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 # Download and extract
 echo "Downloading ${DOWNLOAD_URL}..."
 curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${FILENAME}"
+
+# Verify checksum against the release's published checksums.txt
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
+echo "Fetching checksums..."
+curl -fsSL "$CHECKSUMS_URL" -o "${TMP_DIR}/checksums.txt"
+
+EXPECTED=$(grep " ${FILENAME}\$" "${TMP_DIR}/checksums.txt" | awk '{print $1}')
+if [ -z "$EXPECTED" ]; then
+  echo "Error: no checksum entry for ${FILENAME} in checksums.txt"
+  exit 1
+fi
+
+ACTUAL=$(sha256_of "${TMP_DIR}/${FILENAME}")
+if [ -z "$ACTUAL" ]; then
+  echo "Error: neither sha256sum nor shasum found; cannot verify download"
+  exit 1
+fi
+
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+  echo "Error: checksum mismatch for ${FILENAME}"
+  echo "  expected: $EXPECTED"
+  echo "  actual:   $ACTUAL"
+  exit 1
+fi
+echo "Checksum verified."
 
 echo "Extracting..."
 tar -xzf "${TMP_DIR}/${FILENAME}" -C "$TMP_DIR"
