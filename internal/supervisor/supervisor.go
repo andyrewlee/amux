@@ -213,11 +213,11 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 				return
 			}
 			// A worker that survived longer than maxBackoff looks recovered:
-			// reset so the next failure restarts fast (and the restart counter)
-			// instead of staying pinned at the capped backoff forever.
+			// reset the delay so the next failure restarts fast instead of
+			// staying pinned at the capped backoff forever. The restart count
+			// remains cumulative for WithMaxRestarts.
 			if cfg.now().Sub(start) > cfg.maxBackoff {
 				backoff = cfg.backoff
-				restarts = 0
 			}
 			restarts++
 			if cfg.maxRestarts > 0 && restarts > cfg.maxRestarts {

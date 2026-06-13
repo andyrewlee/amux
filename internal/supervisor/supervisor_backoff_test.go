@@ -113,3 +113,51 @@ func TestSupervisor_BackoffResetsAfterRecovery(t *testing.T) {
 		t.Errorf("expected backoff to reset to base 20ms after recovery, got %v", sleeps[1])
 	}
 }
+
+func TestSupervisor_BackoffRecoveryKeepsMaxRestartsCumulative(t *testing.T) {
+	ctx := context.Background()
+	s := New(ctx)
+	defer s.Stop()
+
+	var (
+		mu     sync.Mutex
+		clock  = time.Unix(0, 0)
+		tooFar = make(chan struct{})
+		once   sync.Once
+	)
+	now := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return clock
+	}
+	advance := func(d time.Duration) {
+		mu.Lock()
+		clock = clock.Add(d)
+		mu.Unlock()
+	}
+
+	var callCount int32
+	s.Start("recovering", func(ctx context.Context) error {
+		count := atomic.AddInt32(&callCount, 1)
+		if count > 3 {
+			once.Do(func() { close(tooFar) })
+		}
+		advance(10 * time.Second)
+		return errors.New("fail")
+	},
+		WithRestartPolicy(RestartOnError),
+		WithMaxRestarts(2),
+		WithBackoff(20*time.Millisecond),
+		WithMaxBackoff(2*time.Second),
+		withNow(now),
+		WithSleep(func(time.Duration) {}),
+	)
+
+	testutil.WaitForAtomic(t, func() int32 { return atomic.LoadInt32(&callCount) }, 3, time.Second)
+
+	select {
+	case <-tooFar:
+		t.Fatalf("expected max restarts to stop after 3 calls, got at least %d", atomic.LoadInt32(&callCount))
+	case <-time.After(50 * time.Millisecond):
+	}
+}
