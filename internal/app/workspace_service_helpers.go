@@ -46,14 +46,20 @@ func cleanupStaleWorkspacePath(workspacePath string) error {
 	return os.RemoveAll(workspacePath)
 }
 
-func rollbackWorkspaceCreation(
-	gitOps GitOperations,
-	workspacesRoot string,
+// rollbackWorkspaceCreation undoes a partially-created workspace by removing the
+// worktree and deleting the branch. It holds the per-repo git lock across both
+// mutations so a rollback racing a concurrent same-repo create/delete cannot
+// contend on git's .git locks (index.lock / packed-refs). Callers must NOT hold
+// lockRepoGit(repoPath) when invoking this, or it self-deadlocks.
+func (s *workspaceService) rollbackWorkspaceCreation(
 	project *data.Project,
 	repoPath, workspacePath, branch string,
 ) {
-	if err := gitOps.RemoveWorkspace(repoPath, workspacePath); err != nil {
-		if git.IsUnregisteredWorkspacePathError(err) && isManagedWorkspacePathForProject(workspacesRoot, project, workspacePath) {
+	unlock := s.lockRepoGit(repoPath)
+	defer unlock()
+
+	if err := s.gitOps.RemoveWorkspace(repoPath, workspacePath); err != nil {
+		if git.IsUnregisteredWorkspacePathError(err) && isManagedWorkspacePathForProject(s.workspacesRoot, project, workspacePath) {
 			cleanupErr := cleanupStaleWorkspacePath(workspacePath)
 			if cleanupErr == nil {
 				goto branchCleanup
@@ -63,7 +69,7 @@ func rollbackWorkspaceCreation(
 		logging.Warn("Failed to roll back workspace %s: %v", workspacePath, err)
 	}
 branchCleanup:
-	if err := gitOps.DeleteBranch(repoPath, branch); err != nil {
+	if err := s.gitOps.DeleteBranch(repoPath, branch); err != nil {
 		logging.Warn("Failed to roll back branch %s: %v", branch, err)
 	}
 }
