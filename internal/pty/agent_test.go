@@ -119,7 +119,7 @@ func TestAgentManager_CloseAgent(t *testing.T) {
 
 	// Manually add an agent (bypassing tmux/pty creation)
 	agent := &Agent{
-		Type:      AgentClaude,
+		Type:      AgentType("claude"),
 		Terminal:  nil, // no real terminal
 		Workspace: ws,
 		Session:   "test-session",
@@ -162,7 +162,7 @@ func TestAgentManager_CloseAgent_WithTerminal(t *testing.T) {
 	}
 
 	agent := &Agent{
-		Type:      AgentClaude,
+		Type:      AgentType("claude"),
 		Terminal:  term,
 		Workspace: ws,
 		Session:   "test-session",
@@ -193,7 +193,7 @@ func TestAgentManager_CloseAgent_NilWorkspace(t *testing.T) {
 	m := NewAgentManager(testConfig())
 
 	agent := &Agent{
-		Type:      AgentClaude,
+		Type:      AgentType("claude"),
 		Terminal:  nil,
 		Workspace: nil,
 		Session:   "test-session",
@@ -222,8 +222,8 @@ func TestAgentManager_CloseAll(t *testing.T) {
 		t.Fatalf("failed to create term2: %v", err)
 	}
 
-	agent1 := &Agent{Type: AgentClaude, Terminal: term1, Workspace: ws1, Session: "s1"}
-	agent2 := &Agent{Type: AgentCodex, Terminal: term2, Workspace: ws2, Session: "s2"}
+	agent1 := &Agent{Type: AgentType("claude"), Terminal: term1, Workspace: ws1, Session: "s1"}
+	agent2 := &Agent{Type: AgentType("codex"), Terminal: term2, Workspace: ws2, Session: "s2"}
 
 	m.mu.Lock()
 	m.agents[ws1.ID()] = []*Agent{agent1}
@@ -268,8 +268,8 @@ func TestAgentManager_CloseWorkspaceAgents(t *testing.T) {
 		t.Fatalf("failed to create term2: %v", err)
 	}
 
-	agent1 := &Agent{Type: AgentClaude, Terminal: term1, Workspace: ws1, Session: "s1"}
-	agent2 := &Agent{Type: AgentCodex, Terminal: term2, Workspace: ws2, Session: "s2"}
+	agent1 := &Agent{Type: AgentType("claude"), Terminal: term1, Workspace: ws1, Session: "s1"}
+	agent2 := &Agent{Type: AgentType("codex"), Terminal: term2, Workspace: ws2, Session: "s2"}
 
 	m.mu.Lock()
 	m.agents[ws1.ID()] = []*Agent{agent1}
@@ -324,7 +324,7 @@ func TestAgentManager_SendInterrupt(t *testing.T) {
 	defer term.Close()
 
 	agent := &Agent{
-		Type:     AgentCodex,
+		Type:     AgentType("codex"),
 		Terminal: term,
 		Config: config.AssistantConfig{
 			InterruptCount: 1,
@@ -347,7 +347,7 @@ func TestAgentManager_SendInterrupt_MultipleWithDelay(t *testing.T) {
 	defer term.Close()
 
 	agent := &Agent{
-		Type:     AgentClaude,
+		Type:     AgentType("claude"),
 		Terminal: term,
 		Config: config.AssistantConfig{
 			InterruptCount:   3,
@@ -365,7 +365,7 @@ func TestAgentManager_SendInterrupt_NilTerminal(t *testing.T) {
 	m := NewAgentManager(testConfig())
 
 	agent := &Agent{
-		Type:     AgentClaude,
+		Type:     AgentType("claude"),
 		Terminal: nil,
 		Config: config.AssistantConfig{
 			InterruptCount: 2,
@@ -389,7 +389,7 @@ func TestAgentManager_SendInterrupt_ZeroCount(t *testing.T) {
 	defer term.Close()
 
 	agent := &Agent{
-		Type:     AgentClaude,
+		Type:     AgentType("claude"),
 		Terminal: term,
 		Config: config.AssistantConfig{
 			InterruptCount: 0, // zero means no interrupts sent
@@ -416,8 +416,8 @@ func TestAgentManager_MultipleAgentsPerWorkspace(t *testing.T) {
 		t.Fatalf("failed to create term2: %v", err)
 	}
 
-	agent1 := &Agent{Type: AgentClaude, Terminal: term1, Workspace: ws, Session: "s1"}
-	agent2 := &Agent{Type: AgentCodex, Terminal: term2, Workspace: ws, Session: "s2"}
+	agent1 := &Agent{Type: AgentType("claude"), Terminal: term1, Workspace: ws, Session: "s1"}
+	agent2 := &Agent{Type: AgentType("codex"), Terminal: term2, Workspace: ws, Session: "s2"}
 
 	wsID := ws.ID()
 	m.mu.Lock()
@@ -442,20 +442,17 @@ func TestAgentManager_MultipleAgentsPerWorkspace(t *testing.T) {
 	term2.Close()
 }
 
-func TestAgentType_Constants(t *testing.T) {
-	// Verify agent type constants are distinct
-	types := []AgentType{
-		AgentClaude, AgentCodex, AgentGemini, AgentAmp,
-		AgentOpencode, AgentDroid, AgentCline, AgentCursor, AgentPi,
+func TestAgentType_ConfigBridge(t *testing.T) {
+	// Smoke-test the config->AgentType bridge: agent types are derived from the
+	// canonical config registry rather than a hand-synced constant list, so a
+	// registry name must round-trip through AgentType to its string. The
+	// distinctness/non-emptiness invariant is owned by config's
+	// TestAgentRegistryIsCanonical, not here.
+	names := config.AgentNames()
+	if len(names) == 0 {
+		t.Fatal("config.AgentNames() returned no agents")
 	}
-	seen := make(map[AgentType]bool)
-	for _, at := range types {
-		if seen[at] {
-			t.Errorf("duplicate agent type: %s", at)
-		}
-		seen[at] = true
-		if at == "" {
-			t.Error("agent type should not be empty")
-		}
+	if got := string(AgentType(names[0])); got != names[0] {
+		t.Errorf("AgentType round-trip mismatch: got %q, want %q", got, names[0])
 	}
 }

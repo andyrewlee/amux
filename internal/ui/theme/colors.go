@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/andyrewlee/amux/internal/config"
 )
 
 // themePtr holds the active color theme, protected by atomic access.
@@ -65,6 +67,21 @@ var (
 	ColorPi       = lipgloss.Color("#0e0e11")
 )
 
+// agentColors maps canonical agent names to their brand palette color. Lookups
+// are gated by config.IsRegisteredAgent so the roster stays in lockstep with
+// the canonical registry; any unmapped registry name falls back to ColorPrimary.
+var agentColors = map[string]color.Color{
+	"claude":   ColorClaude,
+	"codex":    ColorCodex,
+	"gemini":   ColorGemini,
+	"amp":      ColorAmp,
+	"opencode": ColorOpencode,
+	"droid":    ColorDroid,
+	"cline":    ColorCline,
+	"cursor":   ColorCursor,
+	"pi":       ColorPi,
+}
+
 // GetCurrentTheme returns the currently active theme.
 func GetCurrentTheme() Theme {
 	return *currentTheme()
@@ -76,30 +93,16 @@ func SetCurrentTheme(id ThemeID) {
 	themePtr.Store(&t)
 }
 
-// AgentColor returns the color for a given agent type
+// AgentColor returns the brand color for a registered agent, falling back to
+// ColorPrimary for unknown agents. Membership is resolved via the canonical
+// registry so the supported roster stays in sync with config and the chat tab.
 func AgentColor(agent string) color.Color {
-	switch agent {
-	case "claude":
-		return ColorClaude
-	case "codex":
-		return ColorCodex
-	case "gemini":
-		return ColorGemini
-	case "amp":
-		return ColorAmp
-	case "opencode":
-		return ColorOpencode
-	case "droid":
-		return ColorDroid
-	case "cline":
-		return ColorCline
-	case "cursor":
-		return ColorCursor
-	case "pi":
-		return ColorPi
-	default:
-		return ColorPrimary()
+	if config.IsRegisteredAgent(agent) {
+		if c, ok := agentColors[agent]; ok {
+			return c
+		}
 	}
+	return ColorPrimary()
 }
 
 // HexColor converts a color.Color into a #RRGGBB string.
