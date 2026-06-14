@@ -194,38 +194,6 @@ func parseDiff(path, content string) *DiffResult {
 	return result
 }
 
-// GetCombinedDiff returns the combined diff for a file that has both staged and unstaged changes
-func GetCombinedDiff(repoPath, path string) (*DiffResult, error) {
-	// Get staged changes
-	staged, err := GetFileDiff(repoPath, path, DiffModeStaged)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get unstaged changes
-	unstaged, err := GetFileDiff(repoPath, path, DiffModeUnstaged)
-	if err != nil {
-		return nil, err
-	}
-
-	// If both have content, combine them
-	if !staged.Empty && !unstaged.Empty {
-		return &DiffResult{
-			Path:    path,
-			Content: "=== Staged Changes ===\n" + staged.Content + "\n\n=== Unstaged Changes ===\n" + unstaged.Content,
-			Hunks:   append(staged.Hunks, unstaged.Hunks...),
-			Binary:  staged.Binary || unstaged.Binary,
-			Large:   staged.Large || unstaged.Large,
-		}, nil
-	}
-
-	// Return whichever has content
-	if !staged.Empty {
-		return staged, nil
-	}
-	return unstaged, nil
-}
-
 // HunkCount returns the number of hunks in the diff
 func (d *DiffResult) HunkCount() int {
 	return len(d.Hunks)
