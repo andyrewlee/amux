@@ -5,22 +5,40 @@ import (
 
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
+)
+
+// Shared PTY tuning constants identical to the center pane live in
+// internal/ui/ptyio (ptyio.PtyFlushQuiet etc.); they are aliased here so the
+// call sites keep their short package-local names.
+const (
+	ptyFlushQuiet         = ptyio.PtyFlushQuiet
+	ptyFlushChunkSize     = ptyio.PtyFlushChunkSize
+	ptyReadBufferSize     = ptyio.PtyReadBufferSize
+	ptyFrameInterval      = ptyio.PtyFrameInterval
+	ptyReaderStallTimeout = ptyio.PtyReaderStallTimeout
+	ptyRestartMax         = ptyio.PtyRestartMax
+	ptyRestartWindow      = ptyio.PtyRestartWindow
 )
 
 const (
-	ptyFlushQuiet         = 12 * time.Millisecond
-	ptyFlushMaxInterval   = 50 * time.Millisecond
-	ptyFlushQuietAlt      = 30 * time.Millisecond
-	ptyFlushMaxAlt        = 120 * time.Millisecond
-	ptyFlushChunkSize     = 32 * 1024
-	ptyReadBufferSize     = 32 * 1024
-	ptyReadQueueSize      = 32
-	ptyFrameInterval      = time.Second / 24
-	ptyMaxPendingBytes    = 256 * 1024
-	ptyReaderStallTimeout = 10 * time.Second
-	ptyMaxBufferedBytes   = 4 * 1024 * 1024
-	ptyRestartMax         = 5
-	ptyRestartWindow      = time.Minute
+	// Diverges from center (48ms): the sidebar drives a single terminal, so it
+	// can afford a slightly looser flush ceiling than center's N-tab cadence.
+	ptyFlushMaxInterval = 50 * time.Millisecond
+	// Diverges from center (24ms): single-terminal catch-up has no competing
+	// tabs, so the quiet period can be longer to coalesce more output.
+	ptyFlushQuietAlt = 30 * time.Millisecond
+	// Diverges from center (96ms): paired with ptyFlushQuietAlt, the sidebar
+	// tolerates higher catch-up latency for a single terminal.
+	ptyFlushMaxAlt = 120 * time.Millisecond
+	// Diverges from center (64): a single terminal needs a shallower read queue.
+	ptyReadQueueSize = 32
+	// Diverges from center (512K): one terminal needs fewer in-flight pending
+	// bytes than center's shared multi-tab backpressure budget.
+	ptyMaxPendingBytes = 256 * 1024
+	// Diverges from center (8M): a single terminal needs a smaller buffered
+	// ceiling before overflow trimming.
+	ptyMaxBufferedBytes = 4 * 1024 * 1024
 )
 
 // SidebarTerminalCreated is a message for terminal creation
