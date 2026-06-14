@@ -1,6 +1,7 @@
 package compositor
 
 import (
+	"image/color"
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -75,6 +76,272 @@ func TestVTermSnapshotHonorsCursorHideOutsideAltScreen(t *testing.T) {
 	}
 	if !snap.CursorHidden {
 		t.Fatal("expected CursorHidden = true after \\x1b[?25l outside alt screen")
+	}
+}
+
+func TestAnsiColorRGBA(t *testing.T) {
+	tests := []struct {
+		name                   string
+		idx                    ansiColor
+		wantR, wantG, wantB, a uint32
+	}{
+		{
+			name:  "palette index 0 is black, opaque",
+			idx:   0,
+			wantR: 0, wantG: 0, wantB: 0, a: 65535,
+		},
+		{
+			name:  "palette index 1 is red (205,49,49) scaled by 257",
+			idx:   1,
+			wantR: 205 * 257, wantG: 49 * 257, wantB: 49 * 257, a: 65535,
+		},
+		{
+			name:  "palette index 7 is white (229,229,229)",
+			idx:   7,
+			wantR: 229 * 257, wantG: 229 * 257, wantB: 229 * 257, a: 65535,
+		},
+		{
+			name:  "palette index 15 is bright white (255,255,255)",
+			idx:   15,
+			wantR: 65535, wantG: 65535, wantB: 65535, a: 65535,
+		},
+		{
+			name:  "cube lower bound index 16 is black",
+			idx:   16,
+			wantR: 0, wantG: 0, wantB: 0, a: 65535,
+		},
+		{
+			name:  "cube index 21 is pure blue (b level 255)",
+			idx:   21,
+			wantR: 0, wantG: 0, wantB: 255 * 257, a: 65535,
+		},
+		{
+			name:  "cube index 196 is pure red (r level 255)",
+			idx:   196,
+			wantR: 255 * 257, wantG: 0, wantB: 0, a: 65535,
+		},
+		{
+			name:  "cube index 46 is pure green (g level 255)",
+			idx:   46,
+			wantR: 0, wantG: 255 * 257, wantB: 0, a: 65535,
+		},
+		{
+			name: "cube interior index 59 uses 55+level*40 ramp",
+			idx:  59,
+			// 59-16=43 -> r=(43/36)%6=1, g=(43/6)%6=1, b=43%6=1
+			// each level = 55 + 1*40 = 95
+			wantR: 95 * 257, wantG: 95 * 257, wantB: 95 * 257, a: 65535,
+		},
+		{
+			name:  "cube upper bound index 231 is white",
+			idx:   231,
+			wantR: 255 * 257, wantG: 255 * 257, wantB: 255 * 257, a: 65535,
+		},
+		{
+			name:  "grayscale lower bound index 232 is gray 8",
+			idx:   232,
+			wantR: 8 * 257, wantG: 8 * 257, wantB: 8 * 257, a: 65535,
+		},
+		{
+			name: "grayscale interior index 243 is gray 118",
+			idx:  243,
+			// 8 + (243-232)*10 = 8 + 110 = 118
+			wantR: 118 * 257, wantG: 118 * 257, wantB: 118 * 257, a: 65535,
+		},
+		{
+			name: "grayscale upper bound index 255 is gray 238",
+			idx:  255,
+			// 8 + (255-232)*10 = 238
+			wantR: 238 * 257, wantG: 238 * 257, wantB: 238 * 257, a: 65535,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, g, b, a := tt.idx.RGBA()
+			if r != tt.wantR || g != tt.wantG || b != tt.wantB || a != tt.a {
+				t.Errorf("ansiColor(%d).RGBA() = (%d,%d,%d,%d), want (%d,%d,%d,%d)",
+					uint32(tt.idx), r, g, b, a, tt.wantR, tt.wantG, tt.wantB, tt.a)
+			}
+			// Alpha is always fully opaque across the whole range.
+			if a != 65535 {
+				t.Errorf("ansiColor(%d) alpha = %d, want 65535", uint32(tt.idx), a)
+			}
+		})
+	}
+}
+
+// TestAnsiColorRGBAGrayscaleIsAchromatic asserts every grayscale index produces
+// equal R/G/B channels (the defining property of gray).
+func TestAnsiColorRGBAGrayscaleIsAchromatic(t *testing.T) {
+	for idx := ansiColor(232); idx <= 255; idx++ {
+		r, g, b, _ := idx.RGBA()
+		if r != g || g != b {
+			t.Errorf("grayscale index %d not achromatic: (%d,%d,%d)", uint32(idx), r, g, b)
+		}
+	}
+}
+
+// TestAnsiColorRGBAImplementsColor ensures ansiColor satisfies color.Color so it
+// can be used as a uv.Style foreground/background.
+func TestAnsiColorRGBAImplementsColor(t *testing.T) {
+	var _ color.Color = ansiColor(1)
+}
+
+func TestVTermLayerDrawNilSnapshotIsNoop(t *testing.T) {
+	screen := &bufferScreen{Buffer: uv.NewBuffer(2, 1)}
+	sentinel := &uv.Cell{Content: "Z", Width: 1}
+	screen.Fill(sentinel)
+
+	// Nil snapshot must not panic and must not write anything.
+	layer := NewVTermLayer(nil)
+	layer.Draw(screen, screen.Bounds())
+
+	for x := 0; x < 2; x++ {
+		if got := screen.CellAt(x, 0).Content; got != "Z" {
+			t.Errorf("nil-snapshot Draw modified cell %d: got %q, want sentinel", x, got)
+		}
+	}
+}
+
+func TestVTermLayerDrawEmptyScreenIsNoop(t *testing.T) {
+	screen := &bufferScreen{Buffer: uv.NewBuffer(2, 1)}
+	sentinel := &uv.Cell{Content: "Z", Width: 1}
+	screen.Fill(sentinel)
+
+	// A snapshot whose Screen slice is empty must short-circuit before writing.
+	layer := NewVTermLayer(&VTermSnapshot{Width: 2, Height: 1})
+	layer.Draw(screen, screen.Bounds())
+
+	for x := 0; x < 2; x++ {
+		if got := screen.CellAt(x, 0).Content; got != "Z" {
+			t.Errorf("empty-screen Draw modified cell %d: got %q, want sentinel", x, got)
+		}
+	}
+}
+
+func TestVTermLayerDrawRendersGlyphs(t *testing.T) {
+	term := vterm.New(3, 2)
+	term.Screen[0] = vterm.MakeBlankLine(3)
+	term.Screen[1] = vterm.MakeBlankLine(3)
+	term.Screen[0][0] = vterm.Cell{Rune: 'a', Width: 1}
+	term.Screen[0][1] = vterm.Cell{Rune: 'b', Width: 1}
+	term.Screen[1][0] = vterm.Cell{Rune: 'c', Width: 1}
+
+	snap := NewVTermSnapshot(term, false)
+	if snap == nil {
+		t.Fatal("expected snapshot, got nil")
+	}
+	layer := NewVTermLayer(snap)
+
+	screen := &bufferScreen{Buffer: uv.NewBuffer(3, 2)}
+	layer.Draw(screen, screen.Bounds())
+
+	want := map[[2]int]string{
+		{0, 0}: "a", {1, 0}: "b", {0, 1}: "c",
+	}
+	for pos, ch := range want {
+		if got := screen.CellAt(pos[0], pos[1]).Content; got != ch {
+			t.Errorf("cell (%d,%d) = %q, want %q", pos[0], pos[1], got, ch)
+		}
+	}
+}
+
+func TestVTermLayerDrawZeroRuneBecomesSpace(t *testing.T) {
+	term := vterm.New(1, 1)
+	// A zero-rune cell (width 1) should render as a space, not NUL.
+	term.Screen[0] = []vterm.Cell{{Rune: 0, Width: 1}}
+
+	snap := NewVTermSnapshot(term, false)
+	if snap == nil {
+		t.Fatal("expected snapshot, got nil")
+	}
+	layer := NewVTermLayer(snap)
+
+	screen := &bufferScreen{Buffer: uv.NewBuffer(1, 1)}
+	layer.Draw(screen, screen.Bounds())
+
+	if got := screen.CellAt(0, 0).Content; got != " " {
+		t.Errorf("zero rune cell = %q, want space", got)
+	}
+}
+
+func TestVTermLayerDrawClampsToSnapshotDimensions(t *testing.T) {
+	// Snapshot is 2x1 but the draw region is larger; only 2 cells get written.
+	term := vterm.New(2, 1)
+	term.Screen[0] = []vterm.Cell{{Rune: 'x', Width: 1}, {Rune: 'y', Width: 1}}
+
+	snap := NewVTermSnapshot(term, false)
+	if snap == nil {
+		t.Fatal("expected snapshot, got nil")
+	}
+	layer := NewVTermLayer(snap)
+
+	screen := &bufferScreen{Buffer: uv.NewBuffer(4, 1)}
+	sentinel := &uv.Cell{Content: "Z", Width: 1}
+	screen.Fill(sentinel)
+	layer.Draw(screen, screen.Bounds())
+
+	if got := screen.CellAt(0, 0).Content; got != "x" {
+		t.Errorf("cell (0,0) = %q, want %q", got, "x")
+	}
+	if got := screen.CellAt(1, 0).Content; got != "y" {
+		t.Errorf("cell (1,0) = %q, want %q", got, "y")
+	}
+	// Cells beyond the snapshot width must remain untouched.
+	for x := 2; x < 4; x++ {
+		if got := screen.CellAt(x, 0).Content; got != "Z" {
+			t.Errorf("cell (%d,0) past snapshot width = %q, want sentinel", x, got)
+		}
+	}
+}
+
+func TestPositionedVTermLayerDrawNilLayerIsNoop(t *testing.T) {
+	screen := &bufferScreen{Buffer: uv.NewBuffer(2, 1)}
+	sentinel := &uv.Cell{Content: "Z", Width: 1}
+	screen.Fill(sentinel)
+
+	// A nil embedded VTermLayer must not panic and must write nothing.
+	layer := &PositionedVTermLayer{VTermLayer: nil, Width: 2, Height: 1}
+	layer.Draw(screen, screen.Bounds())
+
+	for x := 0; x < 2; x++ {
+		if got := screen.CellAt(x, 0).Content; got != "Z" {
+			t.Errorf("nil-layer Draw modified cell %d: got %q, want sentinel", x, got)
+		}
+	}
+}
+
+func TestPositionedVTermLayerDrawRendersAtOffset(t *testing.T) {
+	term := vterm.New(1, 1)
+	term.Screen[0] = []vterm.Cell{{Rune: 'q', Width: 1}}
+
+	snap := NewVTermSnapshot(term, false)
+	if snap == nil {
+		t.Fatal("expected snapshot, got nil")
+	}
+
+	screen := &bufferScreen{Buffer: uv.NewBuffer(3, 2)}
+	sentinel := &uv.Cell{Content: "Z", Width: 1}
+	screen.Fill(sentinel)
+
+	layer := &PositionedVTermLayer{
+		VTermLayer: NewVTermLayer(snap),
+		PosX:       2,
+		PosY:       1,
+		Width:      1,
+		Height:     1,
+	}
+	// The Rectangle argument is ignored by PositionedVTermLayer.Draw in favor of
+	// the layer's own PosX/PosY, so pass an arbitrary one.
+	layer.Draw(screen, uv.Rect(0, 0, 3, 2))
+
+	if got := screen.CellAt(2, 1).Content; got != "q" {
+		t.Errorf("offset cell (2,1) = %q, want %q", got, "q")
+	}
+	// Origin cell must remain untouched: PositionedVTermLayer ignores r.Min.
+	if got := screen.CellAt(0, 0).Content; got != "Z" {
+		t.Errorf("origin cell (0,0) = %q, want sentinel (untouched)", got)
 	}
 }
 
