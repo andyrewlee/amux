@@ -83,6 +83,11 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 	// When compositing layers, we must draw ALL cells every frame.
 	// The dirty line optimization only works for single-layer rendering.
 	// Ultraviolet's cell-level diffing handles the actual screen updates.
+	//
+	// SetCell copies the cell value (ultraviolet's Line.Set does `l[x] = *c`),
+	// so a single local cell can be reused across every iteration instead of
+	// renting one from a sync.Pool per cell per frame.
+	var uvCell uv.Cell
 	for y := 0; y < height && y < len(snap.Screen); y++ {
 		row := snap.Screen[y]
 		if row == nil {
@@ -95,29 +100,24 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 			// For continuation cells (part of wide character), write an empty cell
 			// to clear any stale content at that position from previous renders.
 			if cell.Width == 0 {
-				uvCell := getCell()
-				uvCell.Content = ""
-				uvCell.Width = 0
-				s.SetCell(posX+x, posY+y, uvCell)
-				putCell(uvCell)
+				uvCell = uv.Cell{Content: "", Width: 0}
+				s.SetCell(posX+x, posY+y, &uvCell)
 				continue
 			}
 
-			// Build the ultraviolet cell from pool
-			uvCell := cellToUVSnapshot(cell, snap, x, y)
+			// Build the ultraviolet cell into the reused local.
+			cellToUVSnapshot(&uvCell, cell, snap, x, y)
 
-			// Set cell at screen position (ultraviolet copies the value)
-			s.SetCell(posX+x, posY+y, uvCell)
-
-			// Return cell to pool for reuse
-			putCell(uvCell)
+			// Set cell at screen position (ultraviolet copies the value).
+			s.SetCell(posX+x, posY+y, &uvCell)
 		}
 	}
 }
 
-// cellToUVSnapshot converts a vterm.Cell to a pooled uv.Cell.
-// Caller must call putCell() after passing to SetCell.
-func cellToUVSnapshot(cell vterm.Cell, snap *VTermSnapshot, x, y int) *uv.Cell {
+// cellToUVSnapshot fills uvCell with the ultraviolet representation of a
+// vterm.Cell. It fully overwrites uvCell so the same value can be reused
+// across draw iterations.
+func cellToUVSnapshot(uvCell *uv.Cell, cell vterm.Cell, snap *VTermSnapshot, x, y int) {
 	style := cell.Style
 
 	// Apply selection and cursor reverse (selection has precedence over cursor)
@@ -138,11 +138,11 @@ func cellToUVSnapshot(cell vterm.Cell, snap *VTermSnapshot, x, y int) *uv.Cell {
 		r = ' '
 	}
 
-	uvCell := getCell()
-	uvCell.Content = runeToString(r)
-	uvCell.Style = vtermStyleToUV(style)
-	uvCell.Width = cell.Width
-	return uvCell
+	*uvCell = uv.Cell{
+		Content: runeToString(r),
+		Style:   vtermStyleToUV(style),
+		Width:   cell.Width,
+	}
 }
 
 // inSelectionSnapshot checks if a coordinate is within the snapshot's selection.
