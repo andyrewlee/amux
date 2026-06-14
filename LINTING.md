@@ -19,6 +19,31 @@ This runs:
 
 CI enforces the same lint checks in `.github/workflows/ci.yml`.
 
+## One-Time Setup: Pinned golangci-lint
+
+`make lint` / `make devcheck` need the golangci-lint version pinned in
+`.golangci-version`. A system golangci-lint is frequently the wrong version and
+fails confusingly: a v2.x binary cannot read this repo's v1 `.golangci.yml`
+(`unsupported version of the configuration`), and even a prebuilt v1.64.8 can be
+rejected because it was built with an older Go than the `go.mod` target
+(`build Go < target Go`).
+
+Run this once (and again only if `.golangci-version` changes):
+
+```bash
+make lint-tools
+```
+
+It builds the pinned version **from source** with your local Go toolchain into
+the gitignored `./.cache/bin/`. It is idempotent (a no-op when the local binary
+already reports the pinned version) and never deletes an existing good binary.
+
+`make lint`, `make lint-strict`, and `make lint-strict-new` then prefer
+`./.cache/bin/golangci-lint` when it matches `.golangci-version`, otherwise they
+fall back to a `golangci-lint` on `PATH`. CI is unaffected: it has no
+`./.cache/bin` binary (it is gitignored) and uses `golangci-lint-action`, so the
+Makefile resolves to the action-installed `PATH` binary there.
+
 ## Phase 2: Strict Ratchet
 
 Phase 2 is enabled as a stricter profile in `.golangci.strict.yml`.
@@ -118,6 +143,7 @@ Escalation is path-based and automated by CI jobs. For local confidence, use:
 For any non-trivial code change, agents should run:
 
 ```bash
+make lint-tools   # one-time; idempotent, builds the pinned linter into ./.cache/bin
 make devcheck
 ```
 
