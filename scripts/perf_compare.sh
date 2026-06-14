@@ -53,7 +53,12 @@ PY
   local baseline_var="${prefix}_${name}_P95_MS"
   local baseline="${!baseline_var:-}"
   if [[ -z "$baseline" ]]; then
-    echo "No baseline set for ${baseline_var}; skipping comparison."
+    if [[ "${PERF_STRICT:-0}" == "1" ]]; then
+      echo "No baseline set for ${baseline_var}; PERF_STRICT=1 requires one (measured=${measured_ms}ms)." >&2
+      failures=$((failures + 1))
+    else
+      echo "No baseline set for ${baseline_var}; skipping comparison (set PERF_STRICT=1 to fail instead)."
+    fi
     return
   fi
 

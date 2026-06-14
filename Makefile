@@ -10,7 +10,7 @@ HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 
-.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden
+.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -67,6 +67,17 @@ harness-presets: harness-center harness-sidebar harness-monitor
 #   go test ./internal/app -run Golden -update
 harness-golden:
 	go test ./internal/app -count=1 -run Golden
+
+# perf-check runs the host-native perf self-check: it drives each harness
+# preset and compares the measured p95 against the checked-in baselines for the
+# current ${GOOS}_${GOARCH} (on this machine, DARWIN_ARM64_*). It is the local
+# gate for render-path changes that PR-time CI does not cover for darwin-arm64.
+# Set PERF_STRICT=1 to fail (rather than silently skip) when a baseline for a
+# preset is missing. Re-baseline the DARWIN_ARM64_* values on the dev machine
+# before relying on this as a hard gate; the checked-in numbers may be
+# placeholders.
+perf-check:
+	bash scripts/perf_compare.sh
 
 check-golangci-version:
 	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
@@ -179,6 +190,7 @@ help:
 	@echo "  harness-monitor - Run monitor harness preset"
 	@echo "  harness-presets - Run all harness presets"
 	@echo "  harness-golden  - Run byte-exact golden-frame snapshot tests (pure render; -update to regenerate)"
+	@echo "  perf-check      - Compare harness p95 against host baselines (DARWIN_ARM64_* here; PERF_STRICT=1 to fail on missing baseline)"
 	@echo "  release-check - Run tests and harness smoke checks"
 	@echo "  release-tag   - Create an annotated tag (VERSION=vX.Y.Z)"
 	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"
