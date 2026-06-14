@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -16,8 +15,6 @@ type fileWatcherGitStatusStub struct {
 	refreshFastRoots []string
 	cacheByRoot      map[string]*git.StatusResult
 }
-
-func (s *fileWatcherGitStatusStub) Run(context.Context) error { return nil }
 
 func (s *fileWatcherGitStatusStub) GetCached(root string) *git.StatusResult {
 	if s.cacheByRoot == nil {

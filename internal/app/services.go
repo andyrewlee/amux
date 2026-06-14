@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -30,7 +29,6 @@ type WorkspaceStore interface {
 
 // GitStatusService provides cached status reads and fresh refreshes.
 type GitStatusService interface {
-	Run(ctx context.Context) error
 	GetCached(root string) *git.StatusResult
 	UpdateCache(root string, status *git.StatusResult)
 	Invalidate(root string)

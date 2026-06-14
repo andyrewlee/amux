@@ -1,8 +1,6 @@
 package app
 
 import (
-	"context"
-
 	"github.com/andyrewlee/amux/internal/git"
 )
 
@@ -12,13 +10,6 @@ type gitStatusService struct {
 
 func newGitStatusService(manager *git.StatusManager) *gitStatusService {
 	return &gitStatusService{manager: manager}
-}
-
-func (s *gitStatusService) Run(ctx context.Context) error {
-	if s == nil || s.manager == nil {
-		return nil
-	}
-	return s.manager.Run(ctx)
 }
 
 func (s *gitStatusService) GetCached(root string) *git.StatusResult {
