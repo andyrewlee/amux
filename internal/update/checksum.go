@@ -10,18 +10,11 @@ import (
 
 // VerifyChecksum verifies a file's SHA256 checksum.
 func VerifyChecksum(filepath, expectedChecksum string) error {
-	f, err := os.Open(filepath)
+	actualChecksum, err := hashFile(filepath)
 	if err != nil {
-		return fmt.Errorf("opening file: %w", err)
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("reading file: %w", err)
+		return err
 	}
 
-	actualChecksum := hex.EncodeToString(h.Sum(nil))
 	if actualChecksum != expectedChecksum {
 		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum, actualChecksum)
 	}
@@ -29,9 +22,9 @@ func VerifyChecksum(filepath, expectedChecksum string) error {
 	return nil
 }
 
-// ComputeChecksum computes the SHA256 checksum of a file.
-func ComputeChecksum(filepath string) (string, error) {
-	f, err := os.Open(filepath)
+// hashFile computes the SHA256 checksum of a file and returns it as a hex string.
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("opening file: %w", err)
 	}
