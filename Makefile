@@ -25,7 +25,7 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 GOLANGCI ?= golangci-lint
 lint lint-strict lint-strict-new lint-ci-parity check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test bench lint lint-tools lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
+.PHONY: build install test bench lint lint-tools lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -35,12 +35,31 @@ install: build
 
 test:
 	go test ./...
+	@$(MAKE) --no-print-directory tmux-skip-check
 
 devcheck:
 	go vet ./...
 	go test ./...
+	@$(MAKE) --no-print-directory tmux-skip-check
 	$(MAKE) harness-golden
 	$(MAKE) lint
+
+# tmux-skip-check surfaces real-tmux/e2e tests that SILENTLY skip (no usable
+# tmux server). `make test` and `make devcheck` go green even when these tests
+# skip, giving false-green confidence that input/send behavior was exercised
+# when it was not (see AGENTS.md). This re-runs only the tmux/e2e packages with
+# -v so the per-test `--- SKIP:` lines are emitted (plain `go test` hides them).
+# Note: -v is part of Go's test cache key, so this re-run does NOT share the
+# cache of the preceding plain `go test ./...`; it re-executes those two
+# packages once per source change (bounded to internal/tmux + internal/e2e, and
+# a `(cached)` hit on any repeat with unchanged sources). It counts skipped
+# tests and prints a non-fatal NOTE: the count feeds an informational echo
+# only, so the exit code of `test`/`devcheck` is unchanged.
+tmux-skip-check:
+	@skipped=$$(go test ./internal/tmux ./internal/e2e -v 2>/dev/null | grep -c '^--- SKIP:' || true); \
+	if [ "$$skipped" -gt 0 ]; then \
+		echo "NOTE: $$skipped real-tmux/e2e tests skipped (tmux server unavailable or environment-restricted) — run inside tmux and use \`make verify-loop\` to exercise input/send end-to-end."; \
+	fi
 
 # verify-loop drives a real keystroke through amux's actual input path into a
 # real raw-mode agent and asserts the bytes (including a literal carriage
@@ -194,6 +213,7 @@ help:
 	@echo "Available targets:"
 	@echo "  build      - Build the binary"
 	@echo "  test       - Run all tests"
+	@echo "  devcheck   - vet + tests + golden harness + lint (warns when real-tmux/e2e tests skip)"
 	@echo "  lint       - Run golangci-lint and file length checks (max 500 lines)"
 	@echo "  lint-tools - Build the pinned golangci-lint (.golangci-version) into ./.cache/bin (idempotent)"
 	@echo "  lint-strict - Run stricter lint profile across the whole repo"
@@ -207,6 +227,7 @@ help:
 	@echo "  run        - Build and run"
 	@echo "  dev        - Run with hot reload (requires air)"
 	@echo "  verify-loop - Drive a real keystroke through amux into a raw-mode agent (close-the-loop input gate; requires tmux)"
+	@echo "  tmux-skip-check - Warn (non-fatal) when real-tmux/e2e tests silently skip (no tmux server)"
 	@echo "  bench      - Run rendering benchmarks"
 	@echo "  harness-center  - Run center harness preset"
 	@echo "  harness-sidebar - Run sidebar harness preset (deep scrollback)"
