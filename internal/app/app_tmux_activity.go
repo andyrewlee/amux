@@ -369,12 +369,6 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 	return infoBySession
 }
 
-// syncActivitySessionStates reconciles the in-memory session info map with live
-// tmux state. It mutates infoBySession in place — setting Status to "stopped" for
-// dead/disappeared sessions and "running" for revived ones — so that the subsequent
-// ActiveWorkspaceIDsFromTags call (which filters via IsRunningSession) sees corrected
-// statuses. It returns TabSessionStatus messages for sessions whose status changed
-// from a running-like state to stopped.
 // activityDemotionMissThreshold is the number of consecutive non-live activity
 // observations required before a running session is demoted to stopped. A single
 // best-effort AllSessionStates call can miss a live session under load, so one
@@ -400,6 +394,12 @@ func recordSessionMiss(missBySession map[string]int, sessionName string, info ac
 	return info, wasRunningLike
 }
 
+// syncActivitySessionStates reconciles the in-memory session info map with live
+// tmux state. It mutates infoBySession in place — setting Status to "stopped" for
+// dead/disappeared sessions and "running" for revived ones — so that the subsequent
+// ActiveWorkspaceIDsFromTags call (which filters via IsRunningSession) sees corrected
+// statuses. It returns TabSessionStatus messages for sessions whose status changed
+// from a running-like state to stopped.
 func syncActivitySessionStates(
 	infoBySession map[string]activity.SessionInfo,
 	sessions []activity.TaggedSession,
