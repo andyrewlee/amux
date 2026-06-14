@@ -61,6 +61,7 @@ func main() {
 	newlineEvery := flag.Int("newline-every", 0, "emit newline every N frames (0 disables)")
 	showKeymapHints := flag.Bool("keymap-hints", false, "render keymap hints")
 	minVisible := flag.Int("assert-min-visible", 0, "fail (exit 1) if the final rendered frame has fewer than this many visible glyphs; 0 disables. Guards against renders that produce empty/garbage frames without crashing.")
+	dumpFrame := flag.String("dump-frame", "", "write the final rendered view (full ANSI) to this path; empty disables. Lets callers diff/golden the exact frame an agent sees.")
 	flag.Parse()
 
 	opts := app.HarnessOptions{
@@ -90,6 +91,7 @@ func main() {
 	startAll := time.Now()
 
 	var lastVisible int
+	var lastContent string
 	for i := 0; i < totalFrames; i++ {
 		h.Step(i)
 		start := time.Now()
@@ -97,6 +99,14 @@ func main() {
 		if i >= *warmup {
 			durations = append(durations, time.Since(start))
 			lastVisible = visibleRuneCount(view.Content)
+			lastContent = view.Content
+		}
+	}
+
+	if *dumpFrame != "" {
+		if err := os.WriteFile(*dumpFrame, []byte(lastContent), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "harness: dump-frame write failed: %v\n", err)
+			os.Exit(1)
 		}
 	}
 

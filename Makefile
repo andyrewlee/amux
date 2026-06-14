@@ -10,7 +10,7 @@ HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 
-.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets
+.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -24,6 +24,7 @@ test:
 devcheck:
 	go vet ./...
 	go test ./...
+	$(MAKE) harness-golden
 	$(MAKE) lint
 
 # verify-loop drives a real keystroke through amux's actual input path into a
@@ -57,6 +58,15 @@ harness-sidebar:
 	go run ./cmd/amux-harness -mode sidebar -tabs 16 -hot-tabs 1 -payload-bytes 64 -newline-every 1 -frames $(HARNESS_SCROLLBACK_FRAMES) -warmup $(HARNESS_WARMUP) -width $(HARNESS_WIDTH) -height $(HARNESS_HEIGHT)
 
 harness-presets: harness-center harness-sidebar harness-monitor
+
+# harness-golden runs the byte-exact golden-frame snapshot tests. Pure render
+# (no tmux/PTY): it builds each harness preset, drives it to the final frame,
+# and diffs view.Content against internal/app/testdata/golden/*.frame. This
+# catches border/color/off-by-one/truncation regressions that -assert-min-visible
+# misses. Regenerate goldens after an intentional render change with:
+#   go test ./internal/app -run Golden -update
+harness-golden:
+	go test ./internal/app -count=1 -run Golden
 
 check-golangci-version:
 	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
@@ -168,6 +178,7 @@ help:
 	@echo "  harness-sidebar - Run sidebar harness preset (deep scrollback)"
 	@echo "  harness-monitor - Run monitor harness preset"
 	@echo "  harness-presets - Run all harness presets"
+	@echo "  harness-golden  - Run byte-exact golden-frame snapshot tests (pure render; -update to regenerate)"
 	@echo "  release-check - Run tests and harness smoke checks"
 	@echo "  release-tag   - Create an annotated tag (VERSION=vX.Y.Z)"
 	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"
