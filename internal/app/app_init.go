@@ -25,6 +25,16 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/theme"
 )
 
+// newFileWatcherFn and newStateWatcherFn are construction seams for the file and
+// state watchers. They default to the real constructors and exist only so tests
+// can force a construction failure and pin that the app degrades gracefully (nil
+// watchers, disabled flags set) instead of panicking. Production never reassigns
+// them.
+var (
+	newFileWatcherFn  = git.NewFileWatcher
+	newStateWatcherFn = newStateWatcher
+)
+
 // newAppShell constructs an App with its UI components built and wired in the
 // same order the real app uses, but with no services attached: no supervisor,
 // no watchers, no tmux/git/update services, and no background commands. New
@@ -94,7 +104,7 @@ func New(version, commit, date string) (*App, error) {
 	fileWatcherCh := make(chan messages.FileWatcherEvent, 10)
 
 	// Create file watcher with callback that sends to channel
-	fileWatcher, fileWatcherErr := git.NewFileWatcher(func(root string) {
+	fileWatcher, fileWatcherErr := newFileWatcherFn(func(root string) {
 		select {
 		case fileWatcherCh <- messages.FileWatcherEvent{Root: root}:
 		default:
@@ -110,7 +120,7 @@ func New(version, commit, date string) (*App, error) {
 	stateWatcherCh := make(chan messages.StateWatcherEvent, 10)
 
 	// Create state watcher with callback that sends to channel
-	stateWatcher, stateWatcherErr := newStateWatcher(cfg.Paths.RegistryPath, cfg.Paths.MetadataRoot, func(reason string, paths []string) {
+	stateWatcher, stateWatcherErr := newStateWatcherFn(cfg.Paths.RegistryPath, cfg.Paths.MetadataRoot, func(reason string, paths []string) {
 		select {
 		case stateWatcherCh <- messages.StateWatcherEvent{Reason: reason, Paths: paths}:
 		default:
@@ -194,13 +204,25 @@ func (a *App) Init() tea.Cmd {
 		a.startStateWatcher(),
 		a.checkForUpdates(),
 	}
+	cmds = append(cmds, a.watcherWarningCmds()...)
+	return common.SafeBatch(cmds...)
+}
+
+// watcherWarningCmds returns the warning-toast commands for any watcher that
+// failed to construct, in a fixed order: file watcher first, then state watcher.
+// It is split out of Init so the warning-queuing behavior is directly testable
+// (Init folds these into a tea.Batch, whose contents cannot be inspected). The
+// slice has exactly one entry per set watcher-err flag and is empty when both
+// watchers came up cleanly.
+func (a *App) watcherWarningCmds() []tea.Cmd {
+	var cmds []tea.Cmd
 	if a.fileWatcherErr != nil {
 		cmds = append(cmds, a.toast.ShowWarning("File watching disabled; git status may be stale"))
 	}
 	if a.stateWatcherErr != nil {
 		cmds = append(cmds, a.toast.ShowWarning("Workspace sync disabled; other instances may be stale"))
 	}
-	return common.SafeBatch(cmds...)
+	return cmds
 }
 
 // checkForUpdates starts a background check for updates.
