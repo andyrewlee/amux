@@ -6,9 +6,95 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// TestWorkspaceStore_UpsertFromDiscovery_NoLostUpdateUnderConcurrency pins the
+// atomicity guarantee: a discovery rescan that updates Branch must not clobber a
+// store-owned field (OpenTabs) that a logically-concurrent writer commits while
+// the rescan is in flight. Before routing the merge through the locked
+// reload+merge+save, UpsertFromDiscovery read the stored metadata WITHOUT the
+// flock, so an interleaved AppendOpenTab could land between that read and the
+// final Save and be silently dropped — a lost update. The reload-under-lock
+// closes that window. Many rounds make the race surface reliably under -race.
+func TestWorkspaceStore_UpsertFromDiscovery_NoLostUpdateUnderConcurrency(t *testing.T) {
+	const rounds = 60
+
+	for round := 0; round < rounds; round++ {
+		root := t.TempDir()
+		store := NewWorkspaceStore(root)
+
+		seed := &Workspace{
+			Name:   "ws",
+			Branch: "old-branch",
+			Repo:   "/repo",
+			Root:   "/root",
+			Env:    map[string]string{"KEEP": "me"},
+		}
+		if err := store.Save(seed); err != nil {
+			t.Fatalf("round %d: Save() error = %v", round, err)
+		}
+		id := seed.ID()
+
+		// Two logically-concurrent writers touching different fields:
+		//   - discovery updates Branch (and preserves store-owned fields),
+		//   - the tab writer appends an OpenTab (a store-owned field).
+		// Neither field may be lost: with the unlocked read-modify-write, the
+		// discovery's stale pre-lock snapshot would overwrite the appended tab.
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			discovered := &Workspace{
+				Name:   "ws",
+				Branch: "new-branch",
+				Repo:   "/repo",
+				Root:   "/root",
+			}
+			if err := store.UpsertFromDiscovery(discovered); err != nil {
+				t.Errorf("round %d: UpsertFromDiscovery() error = %v", round, err)
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			tab := TabInfo{
+				Assistant:   "claude",
+				Name:        "claude",
+				SessionName: "session-x",
+				Status:      "running",
+				CreatedAt:   time.Now().Unix(),
+			}
+			if err := store.AppendOpenTab(id, tab); err != nil {
+				t.Errorf("round %d: AppendOpenTab() error = %v", round, err)
+			}
+		}()
+
+		wg.Wait()
+
+		loaded, err := store.Load(id)
+		if err != nil {
+			t.Fatalf("round %d: Load() error = %v", round, err)
+		}
+		// The appended tab must survive regardless of interleaving — the discovery
+		// rescan must not have clobbered the concurrently-committed store-owned field.
+		if len(loaded.OpenTabs) != 1 || loaded.OpenTabs[0].SessionName != "session-x" {
+			t.Fatalf("round %d: OpenTabs = %#v, want the appended tab preserved (lost update)", round, loaded.OpenTabs)
+		}
+		// The discovery's Branch update must also have landed (it always wins last
+		// or first, but it must not be dropped).
+		if loaded.Branch != "new-branch" && loaded.Branch != "old-branch" {
+			t.Fatalf("round %d: Branch = %q, want one of the two writers' values", round, loaded.Branch)
+		}
+		// The store-owned Env seeded before either writer must never be lost.
+		if loaded.Env["KEEP"] != "me" {
+			t.Fatalf("round %d: Env[KEEP] = %q, want seeded value preserved", round, loaded.Env["KEEP"])
+		}
+	}
+}
 
 func TestWorkspaceStore_SaveLoadDelete(t *testing.T) {
 	root := t.TempDir()

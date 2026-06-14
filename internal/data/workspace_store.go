@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/andyrewlee/amux/internal/fsatomic"
 
@@ -288,56 +287,6 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 	s.applyWorkspaceDefaults(ws)
 
 	return true, nil
-}
-
-// UpsertFromDiscovery merges a discovered workspace into the store.
-// Store metadata wins; discovery updates Repo/Root/Branch (and Name if empty).
-// Archived state is cleared on discovery.
-func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
-	if discovered == nil {
-		return nil
-	}
-
-	stored, storedID, err := s.findStoredWorkspace(discovered.Repo, discovered.Root)
-	if err != nil {
-		return err
-	}
-
-	if stored == nil {
-		if discovered.Created.IsZero() {
-			discovered.Created = time.Now()
-		}
-		s.applyWorkspaceDefaults(discovered)
-		return s.Save(discovered)
-	}
-
-	merged := *stored
-	merged.Repo = discovered.Repo
-	merged.Root = discovered.Root
-	merged.Branch = discovered.Branch
-	if merged.Name == "" {
-		merged.Name = discovered.Name
-	}
-	if merged.Assistant == "" {
-		merged.Assistant = discovered.Assistant
-	}
-	if merged.Created.IsZero() && !discovered.Created.IsZero() {
-		merged.Created = discovered.Created
-	}
-	merged.Archived = false
-	merged.ArchivedAt = time.Time{}
-	s.applyWorkspaceDefaults(&merged)
-
-	newID := merged.ID()
-	if err := s.Save(&merged); err != nil {
-		return err
-	}
-	if storedID != "" && storedID != newID {
-		if err := s.Delete(storedID); err != nil {
-			logging.Warn("Failed to remove old workspace metadata %s: %v", storedID, err)
-		}
-	}
-	return nil
 }
 
 func (s *WorkspaceStore) applyWorkspaceDefaults(ws *Workspace) {
