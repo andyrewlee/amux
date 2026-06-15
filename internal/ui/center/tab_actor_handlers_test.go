@@ -16,17 +16,15 @@ import (
 // tabActorRedraw marker methods
 // ---------------------------------------------------------------------------
 
-// TestTabActorRedraw_MarkerMethods exercises the two marker methods directly.
-// They are intentionally no-ops, but the compiler-level guarantee that they
-// implement the critical-external-msg contract is the load-bearing behavior:
-// the actor relies on these markers so its redraw nudge survives msg eviction.
+// TestTabActorRedraw_MarkerMethods exercises the marker method directly. It is
+// intentionally a no-op, but the compiler-level guarantee that it implements the
+// critical-external-msg contract is the load-bearing behavior: the actor relies
+// on this marker so its redraw nudge is routed through the critical queue.
 func TestTabActorRedraw_MarkerMethods(t *testing.T) {
 	r := tabActorRedraw{}
-	// Direct calls must not panic and must remain no-ops (nothing to observe).
-	// Interface satisfaction is covered by
-	// TestTabActorRedraw_IsNonEvictingCriticalExternalMsg.
+	// Direct call must not panic and must remain a no-op (nothing to observe).
+	// Interface satisfaction is covered by TestTabActorRedraw_IsCriticalExternalMsg.
 	r.MarkCriticalExternalMsg()
-	r.MarkNonEvictingCriticalExternalMsg()
 }
 
 // ---------------------------------------------------------------------------

@@ -55,28 +55,14 @@ func (a *App) tryEnqueueExternalMsg(msg tea.Msg) bool {
 		return false
 	}
 	if isCriticalExternalMsg(msg) {
-		_, nonEvicting := msg.(common.NonEvictingCriticalExternalMsg)
+		// Critical messages are non-evicting: if the critical queue is full they
+		// drop themselves rather than evicting a queued non-critical message.
 		select {
 		case a.externalCritical <- msg:
 			return true
 		default:
-			if nonEvicting {
-				perf.Count("external_msg_drop_critical", 1)
-				return false
-			}
-			// Critical channel full - try to drop a non-critical message to make room
-			select {
-			case <-a.externalMsgs:
-				perf.Count("external_msg_drop_noncritical", 1)
-			default:
-			}
-			select {
-			case a.externalCritical <- msg:
-				return true
-			default:
-				perf.Count("external_msg_drop_critical", 1)
-				return false
-			}
+			perf.Count("external_msg_drop_critical", 1)
+			return false
 		}
 	}
 	select {

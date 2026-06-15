@@ -250,13 +250,10 @@ func TestShouldPostTabActorRedraw(t *testing.T) {
 	}
 }
 
-func TestTabActorRedraw_IsNonEvictingCriticalExternalMsg(t *testing.T) {
+func TestTabActorRedraw_IsCriticalExternalMsg(t *testing.T) {
 	var msg any = tabActorRedraw{}
 	if _, ok := msg.(common.CriticalExternalMsg); !ok {
 		t.Fatal("expected tabActorRedraw to implement CriticalExternalMsg")
-	}
-	if _, ok := msg.(common.NonEvictingCriticalExternalMsg); !ok {
-		t.Fatal("expected tabActorRedraw to implement NonEvictingCriticalExternalMsg")
 	}
 }
 

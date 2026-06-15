@@ -131,7 +131,7 @@ func logSoakPerf(t *testing.T, stats []perf.StatSnapshot, counters []perf.Counte
 	}
 	for _, c := range counters {
 		switch c.Name {
-		case "external_msg_drop", "external_msg_drop_noncritical", "external_msg_drop_critical":
+		case "external_msg_drop", "external_msg_drop_critical":
 			t.Logf("soak counter %s=%d", c.Name, c.Value)
 		}
 	}
