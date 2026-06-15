@@ -7,6 +7,11 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// AgentPickerDialogID is the dialog ID assigned to the agent selection dialog
+// produced by NewAgentPicker. The app layer matches on it to route confirm
+// results, and dialog rendering branches on it for the picker's custom layout.
+const AgentPickerDialogID = "agent-picker"
+
 // NewAgentPicker creates a new agent selection dialog with fuzzy filtering
 func NewAgentPicker(options []string) *Dialog {
 	optionNames := normalizeAssistantOptions(options)
@@ -27,7 +32,7 @@ func NewAgentPicker(options []string) *Dialog {
 	fi.SetVirtualCursor(false)
 
 	return &Dialog{
-		id:              "agent-picker",
+		id:              AgentPickerDialogID,
 		dtype:           DialogSelect,
 		title:           "New Agent",
 		message:         "Select agent type:",
