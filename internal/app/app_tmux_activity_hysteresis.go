@@ -13,12 +13,6 @@ import (
 // Concurrency safety: built synchronously in the Update loop.
 func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 	infoBySession := make(map[string]activity.SessionInfo)
-	assistants := map[string]struct{}{}
-	if a.config != nil {
-		for name := range a.config.Assistants {
-			assistants[name] = struct{}{}
-		}
-	}
 	for _, project := range a.projects {
 		for i := range project.Workspaces {
 			ws := &project.Workspaces[i]
@@ -32,7 +26,10 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 					status = "running"
 				}
 				assistant := strings.TrimSpace(tab.Assistant)
-				_, isChat := assistants[assistant]
+				// Single source of truth for chat-classification so activity
+				// detection and the center renderer agree, including when no
+				// config is loaded (empty-config falls back to the registry).
+				isChat := a.config.IsChatAssistant(assistant)
 				infoBySession[name] = activity.SessionInfo{
 					Status:      status,
 					WorkspaceID: string(ws.ID()),
