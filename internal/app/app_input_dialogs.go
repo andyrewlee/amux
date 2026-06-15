@@ -237,9 +237,7 @@ func (a *App) showQuitDialog() {
 		"Quit AMUX",
 		"Are you sure you want to quit?",
 	)
-	a.dialog.SetSize(a.width, a.height)
-	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-	a.dialog.Show()
+	a.presentDialog(a.dialog)
 }
 
 // handleUpdateCheckComplete handles the UpdateCheckComplete message.

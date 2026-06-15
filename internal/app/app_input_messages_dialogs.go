@@ -12,6 +12,22 @@ import (
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
+// presentDialog applies the common show-time setup (size + keymap hints) and
+// makes the dialog visible. Centralizing this keeps every Show*Dialog handler
+// from repeating the SetSize/SetShowKeymapHints/Show trailer.
+func (a *App) presentDialog(d *common.Dialog) {
+	d.SetSize(a.width, a.height)
+	d.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	d.Show()
+}
+
+// presentFilePicker is the *common.FilePicker sibling of presentDialog.
+func (a *App) presentFilePicker(fp *common.FilePicker) {
+	fp.SetSize(a.width, a.height)
+	fp.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
+	fp.Show()
+}
+
 // handleShowAddProjectDialog shows the add project file picker.
 func (a *App) handleShowAddProjectDialog() {
 	logging.Info("Showing Add Project file picker")
@@ -22,9 +38,7 @@ func (a *App) handleShowAddProjectDialog() {
 	a.filePicker = common.NewFilePicker(DialogAddProject, home, true)
 	a.filePicker.SetTitle("Add Project")
 	a.filePicker.SetPrimaryActionLabel("Add as project")
-	a.filePicker.SetSize(a.width, a.height)
-	a.filePicker.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-	a.filePicker.Show()
+	a.presentFilePicker(a.filePicker)
 }
 
 // handleShowCreateWorkspaceDialog shows the create workspace dialog.
@@ -41,9 +55,7 @@ func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDi
 		}
 		return ""
 	})
-	a.dialog.SetSize(a.width, a.height)
-	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-	a.dialog.Show()
+	a.presentDialog(a.dialog)
 }
 
 // handleShowDeleteWorkspaceDialog shows the delete workspace dialog.
@@ -55,9 +67,7 @@ func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDi
 		"Delete Workspace",
 		fmt.Sprintf("Delete workspace '%s' and its branch?", msg.Workspace.Name),
 	)
-	a.dialog.SetSize(a.width, a.height)
-	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-	a.dialog.Show()
+	a.presentDialog(a.dialog)
 }
 
 // handleShowTrustScriptsDialog shows the repo script trust confirmation dialog.
@@ -74,9 +84,7 @@ func (a *App) handleShowTrustScriptsDialog(msg messages.ShowTrustScriptsDialog) 
 		fmt.Sprintf("Trust .amux/workspaces.json scripts for '%s' and run setup now?", workspaceName),
 	)
 	a.dialog.SetDefaultOption(1)
-	a.dialog.SetSize(a.width, a.height)
-	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-	a.dialog.Show()
+	a.presentDialog(a.dialog)
 }
 
 // handleShowRemoveProjectDialog shows the remove project dialog.
@@ -91,9 +99,7 @@ func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog
 		"Remove Project",
 		fmt.Sprintf("Remove project '%s' from AMUX? This won't delete any files.", projectName),
 	)
-	a.dialog.SetSize(a.width, a.height)
-	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-	a.dialog.Show()
+	a.presentDialog(a.dialog)
 }
 
 // handleShowSelectAssistantDialog shows the select assistant dialog.
@@ -102,9 +108,7 @@ func (a *App) handleShowSelectAssistantDialog() {
 		return
 	}
 	a.dialog = common.NewAgentPicker(a.assistantNames())
-	a.dialog.SetSize(a.width, a.height)
-	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-	a.dialog.Show()
+	a.presentDialog(a.dialog)
 }
 
 // handleShowCleanupTmuxDialog shows the tmux cleanup dialog.
@@ -117,9 +121,7 @@ func (a *App) handleShowCleanupTmuxDialog() {
 		"Cleanup tmux sessions",
 		fmt.Sprintf("Kill all amux-* tmux sessions on server %q?", a.tmuxOptions.ServerName),
 	)
-	a.dialog.SetSize(a.width, a.height)
-	a.dialog.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
-	a.dialog.Show()
+	a.presentDialog(a.dialog)
 }
 
 // handleShowSettingsDialog shows the settings dialog.
