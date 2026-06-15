@@ -20,8 +20,8 @@ func TestVTermLayerSelectionCursorOverlap(t *testing.T) {
 	}
 
 	cell := snap.Screen[0][0]
-	uvCell := cellToUVSnapshot(cell, snap, 0, 0)
-	defer putCell(uvCell)
+	var uvCell uv.Cell
+	cellToUVSnapshot(&uvCell, cell, snap, 0, 0)
 
 	if uvCell.Style.Attrs&uv.AttrReverse == 0 {
 		t.Fatalf("expected reverse attribute for selection+cursor overlap")
