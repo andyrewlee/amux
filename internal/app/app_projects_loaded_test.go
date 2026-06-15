@@ -17,7 +17,7 @@ func TestHandleProjectsLoadedRebindsActiveWorkspace(t *testing.T) {
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	oldWS.Assistant = "claude"
 	project := data.NewProject(repo)
-	project.AddWorkspace(*oldWS)
+	project.Workspaces = append(project.Workspaces, *oldWS)
 
 	app := &App{
 		dashboard:       dashboard.New(),
@@ -31,7 +31,7 @@ func TestHandleProjectsLoadedRebindsActiveWorkspace(t *testing.T) {
 	newWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	newWS.Assistant = "codex"
 	newProject := data.NewProject(repo)
-	newProject.AddWorkspace(*newWS)
+	newProject.Workspaces = append(newProject.Workspaces, *newWS)
 
 	msg := messages.ProjectsLoaded{Projects: []data.Project{*newProject}}
 	app.handleProjectsLoaded(msg)
@@ -56,7 +56,7 @@ func TestHandleProjectsLoadedClearsMissingActiveWorkspace(t *testing.T) {
 
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	project := data.NewProject(repo)
-	project.AddWorkspace(*oldWS)
+	project.Workspaces = append(project.Workspaces, *oldWS)
 
 	app := &App{
 		dashboard:       dashboard.New(),
@@ -135,7 +135,7 @@ func TestHandleProjectsLoadedRebindsActiveWorkspaceByCanonicalPathsOnIDMiss(t *t
 
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
 	oldProject := data.NewProject(relRepo)
-	oldProject.AddWorkspace(*oldWS)
+	oldProject.Workspaces = append(oldProject.Workspaces, *oldWS)
 
 	app := &App{
 		dashboard:       dashboard.New(),
@@ -149,7 +149,7 @@ func TestHandleProjectsLoadedRebindsActiveWorkspaceByCanonicalPathsOnIDMiss(t *t
 	newWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
 	newWS.Assistant = "codex"
 	newProject := data.NewProject(absRepo)
-	newProject.AddWorkspace(*newWS)
+	newProject.Workspaces = append(newProject.Workspaces, *newWS)
 
 	msg := messages.ProjectsLoaded{Projects: []data.Project{*newProject}}
 	app.handleProjectsLoaded(msg)

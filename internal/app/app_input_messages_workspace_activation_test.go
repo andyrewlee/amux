@@ -14,7 +14,7 @@ import (
 func TestHandleWorkspaceActivated_AutoFocusCenterQueuesSingleReattach(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo")
 	project := data.NewProject("/repo")
-	project.AddWorkspace(*ws)
+	project.Workspaces = append(project.Workspaces, *ws)
 
 	centerModel := center.New(nil)
 	centerModel.SetWorkspace(ws)

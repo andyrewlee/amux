@@ -38,12 +38,12 @@ func TestHandleProjectsLoadedCanonicalRebindMigratesCenterAndSidebarTerminalTabs
 
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
 	oldProject := data.NewProject(relRepo)
-	oldProject.AddWorkspace(*oldWS)
+	oldProject.Workspaces = append(oldProject.Workspaces, *oldWS)
 	activeOld := &oldProject.Workspaces[0]
 
 	newWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
 	newProject := data.NewProject(absRepo)
-	newProject.AddWorkspace(*newWS)
+	newProject.Workspaces = append(newProject.Workspaces, *newWS)
 
 	centerModel := center.New(nil)
 	centerModel.SetWorkspace(activeOld)
@@ -108,12 +108,12 @@ func TestHandleProjectsLoadedCanonicalRebindMigratesDirtyWorkspaceID(t *testing.
 
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
 	oldProject := data.NewProject(relRepo)
-	oldProject.AddWorkspace(*oldWS)
+	oldProject.Workspaces = append(oldProject.Workspaces, *oldWS)
 	activeOld := &oldProject.Workspaces[0]
 
 	newWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
 	newProject := data.NewProject(absRepo)
-	newProject.AddWorkspace(*newWS)
+	newProject.Workspaces = append(newProject.Workspaces, *newWS)
 
 	oldID := string(activeOld.ID())
 	newID := string(newWS.ID())
@@ -179,7 +179,7 @@ func TestRebindActiveSelection_DoesNotRehydratePersistedTabsOnCanonicalIDMigrati
 
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
 	oldProject := data.NewProject(relRepo)
-	oldProject.AddWorkspace(*oldWS)
+	oldProject.Workspaces = append(oldProject.Workspaces, *oldWS)
 
 	reloadedWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
 	reloadedWS.OpenTabs = []data.TabInfo{
@@ -191,7 +191,7 @@ func TestRebindActiveSelection_DoesNotRehydratePersistedTabsOnCanonicalIDMigrati
 		},
 	}
 	reloadedProject := data.NewProject(absRepo)
-	reloadedProject.AddWorkspace(*reloadedWS)
+	reloadedProject.Workspaces = append(reloadedProject.Workspaces, *reloadedWS)
 
 	centerModel := center.New(&config.Config{
 		Assistants: map[string]config.AssistantConfig{
@@ -268,11 +268,11 @@ func TestRebindActiveSelectionRewatchesActiveWorkspaceRootOnCanonicalIDChange(t 
 
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", relRepo, relRoot)
 	oldProject := data.NewProject(relRepo)
-	oldProject.AddWorkspace(*oldWS)
+	oldProject.Workspaces = append(oldProject.Workspaces, *oldWS)
 
 	newWS := data.NewWorkspace("feature", "feat-branch", "main", absRepo, absRoot)
 	newProject := data.NewProject(absRepo)
-	newProject.AddWorkspace(*newWS)
+	newProject.Workspaces = append(newProject.Workspaces, *newWS)
 
 	fileWatcher, err := git.NewFileWatcher(func(string) {})
 	if err != nil {

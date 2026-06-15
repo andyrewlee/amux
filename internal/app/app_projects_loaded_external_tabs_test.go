@@ -17,7 +17,7 @@ func TestRebindActiveSelection_MergesExternalTabsForStatefulWorkspace(t *testing
 
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	oldProject := data.NewProject(repo)
-	oldProject.AddWorkspace(*oldWS)
+	oldProject.Workspaces = append(oldProject.Workspaces, *oldWS)
 
 	reloadedWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	reloadedWS.OpenTabs = []data.TabInfo{
@@ -35,7 +35,7 @@ func TestRebindActiveSelection_MergesExternalTabsForStatefulWorkspace(t *testing
 		},
 	}
 	reloadedProject := data.NewProject(repo)
-	reloadedProject.AddWorkspace(*reloadedWS)
+	reloadedProject.Workspaces = append(reloadedProject.Workspaces, *reloadedWS)
 
 	centerModel := center.New(&config.Config{
 		Assistants: map[string]config.AssistantConfig{
@@ -90,7 +90,7 @@ func TestRebindActiveSelection_DoesNotRehydratePersistedTabsWhenWorkspaceStateEx
 
 	oldWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	oldProject := data.NewProject(repo)
-	oldProject.AddWorkspace(*oldWS)
+	oldProject.Workspaces = append(oldProject.Workspaces, *oldWS)
 
 	reloadedWS := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	reloadedWS.OpenTabs = []data.TabInfo{
@@ -102,7 +102,7 @@ func TestRebindActiveSelection_DoesNotRehydratePersistedTabsWhenWorkspaceStateEx
 		},
 	}
 	reloadedProject := data.NewProject(repo)
-	reloadedProject.AddWorkspace(*reloadedWS)
+	reloadedProject.Workspaces = append(reloadedProject.Workspaces, *reloadedWS)
 
 	centerModel := center.New(&config.Config{
 		Assistants: map[string]config.AssistantConfig{

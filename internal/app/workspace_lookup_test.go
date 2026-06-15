@@ -12,7 +12,7 @@ func TestFindWorkspaceByID_PrefersActiveWorkspace(t *testing.T) {
 
 	ws := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	project := data.NewProject(repo)
-	project.AddWorkspace(*ws)
+	project.Workspaces = append(project.Workspaces, *ws)
 
 	// activeWorkspace is a distinct pointer with the same identity
 	active := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
@@ -41,7 +41,7 @@ func TestFindWorkspaceByID_FallsBackToProjects(t *testing.T) {
 
 	ws := data.NewWorkspace("feature", "feat-branch", "main", repo, root)
 	project := data.NewProject(repo)
-	project.AddWorkspace(*ws)
+	project.Workspaces = append(project.Workspaces, *ws)
 
 	app := &App{
 		projects:        []data.Project{*project},
