@@ -29,6 +29,15 @@ func sessionLatestActivitySeconds(sessionName string, opts Options) (int64, erro
 	if err != nil {
 		return 0, err
 	}
+	return latestActivitySeconds(lines), nil
+}
+
+// latestActivitySeconds returns the maximum positive window_activity timestamp
+// across the given tmux `list-windows -F "#{window_activity}"` output lines.
+// Blank lines, non-numeric values, and non-positive timestamps are skipped.
+// It is the pure parse half of sessionLatestActivitySeconds so the
+// max-over-windows logic is unit-testable without a live tmux server.
+func latestActivitySeconds(lines []string) int64 {
 	var latest int64
 	for _, line := range lines {
 		activityRaw := strings.TrimSpace(line)
@@ -43,7 +52,7 @@ func sessionLatestActivitySeconds(sessionName string, opts Options) (int64, erro
 			latest = activitySeconds
 		}
 	}
-	return latest, nil
+	return latest
 }
 
 // SessionActiveWithin reports whether any window in the session had tmux
@@ -89,7 +98,22 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
+	return parseActiveAgentSessions(lines, window, time.Now(), applyWindow), nil
+}
+
+// parseActiveAgentSessions is the pure parse/filter/dedup half of
+// ActiveAgentSessionsByActivity. It takes the raw tab-separated
+// `list-windows -a` output (session_name, window_activity, @amux,
+// @amux_workspace, @amux_tab, @amux_type) and returns one SessionActivity per
+// qualifying session, keeping the workspace/tab/type/tagged metadata seen
+// across the session's windows. Lines are kept when the session is tagged
+// (@amux set and not "0") or, as a fallback, its name carries the "amux-"
+// prefix; sessions whose type is set to something other than "agent" are
+// dropped, as are lines with a blank/non-numeric/non-positive activity stamp.
+// When applyWindow is true, lines older than window relative to now are
+// dropped. Extracting it lets the prefix special case, type filter, malformed
+// skip, and keep-most-recent dedup be unit-tested without a live tmux server.
+func parseActiveAgentSessions(lines []string, window time.Duration, now time.Time, applyWindow bool) []SessionActivity {
 	latest := make(map[string]SessionActivity)
 	for _, line := range lines {
 		parts := strings.Split(line, "\t")
@@ -148,13 +172,13 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 		}
 	}
 	if len(latest) == 0 {
-		return nil, nil
+		return nil
 	}
 	sessions := make([]SessionActivity, 0, len(latest))
 	for _, session := range latest {
 		sessions = append(sessions, session)
 	}
-	return sessions, nil
+	return sessions
 }
 
 // SetMonitorActivityOn enables tmux monitor-activity globally.
