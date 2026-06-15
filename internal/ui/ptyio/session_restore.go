@@ -102,20 +102,3 @@ func ResizeTerminalForSessionRestore(term *vterm.VTerm, cols, rows int) {
 	}
 	term.Resize(cols, rows)
 }
-
-// TerminalSnapshotFromPane converts a tmux pane snapshot into the vterm
-// snapshot type. tmux deliberately does not depend on vterm, so this boundary
-// conversion lives here; the missing-mode-state policy is made explicit the
-// same way SessionRestorePaneModeState does it (no tmux state → preserve the
-// terminal's existing modes).
-func TerminalSnapshotFromPane(snap tmux.PaneSnapshot) vterm.TerminalSnapshot {
-	return vterm.TerminalSnapshot{
-		Data:      snap.Data,
-		Cols:      snap.Cols,
-		Rows:      snap.Rows,
-		CursorX:   snap.CursorX,
-		CursorY:   snap.CursorY,
-		HasCursor: snap.HasCursor,
-		ModeState: SessionRestorePaneModeState(snap.ModeState),
-	}
-}
