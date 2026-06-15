@@ -6,14 +6,17 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// ActiveWorkspaceIDsFromTags uses the @amux_last_output_at tag when present.
+// activeIDsFromTags uses the @amux_last_output_at tag when present.
 // Sessions with missing tags always fall back to screen-delta hysteresis
 // (compatibility mode). Sessions with stale tags fall back when they have
 // recent tmux window activity (or if that prefilter is unavailable).
 // Fresh tags are trusted only when tmux reports recent window activity
 // (or if that prefilter is unavailable), preventing control-sequence noise
 // from holding sessions in an always-active state.
-func ActiveWorkspaceIDsFromTags(
+//
+// It is a 2-return convenience wrapper over activeWorkspaceIDsFromTags for
+// same-package tests; production calls ActiveWorkspaceIDsFromTagsWithRemoved.
+func activeIDsFromTags(
 	infoBySession map[string]SessionInfo,
 	sessions []TaggedSession,
 	recentActivityBySession map[string]bool,
@@ -26,9 +29,10 @@ func ActiveWorkspaceIDsFromTags(
 	return active, updated
 }
 
-// ActiveWorkspaceIDsFromTagsWithRemoved is ActiveWorkspaceIDsFromTags but also
-// returns the names of session states pruned this scan (unseen beyond
-// pruneAfterScans) so the caller can delete them from its persistent map.
+// ActiveWorkspaceIDsFromTagsWithRemoved is the production entry point. It
+// returns the active workspace IDs, updated session states, and the names of
+// session states pruned this scan (unseen beyond pruneAfterScans) so the caller
+// can delete them from its persistent map.
 func ActiveWorkspaceIDsFromTagsWithRemoved(
 	infoBySession map[string]SessionInfo,
 	sessions []TaggedSession,
@@ -247,11 +251,14 @@ func PrepareStaleTagFallbackState(sessionName string, states map[string]*Session
 	state.LastActiveAt = time.Time{}
 }
 
-// ActiveWorkspaceIDsWithHysteresis uses screen-delta detection with hysteresis
+// activeIDsWithHysteresis uses screen-delta detection with hysteresis
 // to determine which workspaces have actively working agents. This prevents
 // false positives from periodic terminal refreshes (like sponsor messages).
 // Returns both the active workspace IDs and the updated session states.
-func ActiveWorkspaceIDsWithHysteresis(
+//
+// It is a 2-return convenience wrapper over activeWorkspaceIDsWithHysteresisWithSeen
+// for same-package tests; production routes through activeWorkspaceIDsFromTags.
+func activeIDsWithHysteresis(
 	infoBySession map[string]SessionInfo,
 	sessions []tmux.SessionActivity,
 	states map[string]*SessionState,
