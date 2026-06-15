@@ -75,6 +75,26 @@ go run ./cmd/amux-harness -mode center -frames 1 -warmup 0 -dump-frame /tmp/fram
 The file contains the raw ANSI bytes the agent sees — `cat /tmp/frame.txt` to
 eyeball it, `diff` two dumps to spot a regression, or feed it into a golden.
 
+#### Rendering an overlay
+
+Adding or altering a dialog/overlay is the most common UI change. The harness can
+put the App into an overlay state so the frame exercises `composeOverlays`
+instead of only the base pane. Pass `-overlay` (or set `HarnessOptions.Overlay`):
+
+```bash
+go run ./cmd/amux-harness -mode center -frames 1 -warmup 0 -overlay dialog -dump-frame /tmp/frame.txt
+```
+
+Supported overlays are the deterministic, filesystem-independent ones:
+`dialog` (confirm dialog), `settings` (settings dialog), and `prefix` (prefix
+command palette). The file picker (reads the real filesystem) and the toast
+(wall-clock-gated visibility) are intentionally excluded because their frames are
+not byte-stable. Each overlay has a golden frame
+(`internal/app/testdata/golden/overlay_*.frame`) guarded by
+`TestHarnessGoldenFrames`; regenerate after an intentional overlay render change
+with `go test ./internal/app -run Golden -update` and commit the refreshed
+`testdata`.
+
 See `go doc ./cmd/amux-harness` for all `-mode` values, flags, and the
 `AMUX_PPROF` profiling hook.
 

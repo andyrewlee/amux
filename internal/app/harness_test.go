@@ -138,6 +138,19 @@ func TestNewMonitorHarness_DiffersFromSidebarOnlyInMode(t *testing.T) {
 	}
 }
 
+func TestNewHarness_RejectsUnknownOverlay(t *testing.T) {
+	_, err := NewHarness(HarnessOptions{
+		Mode:    HarnessCenter,
+		Overlay: "setting",
+	})
+	if err == nil {
+		t.Fatal("expected unknown overlay to fail harness init")
+	}
+	if !strings.Contains(err.Error(), `unknown overlay "setting"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // TestBuildPayload_FormatAndLength exercises the payload formatting across a
 // range of sizes and frame numbers. Every payload must start with the framed
 // header and be padded out to at least payloadBytes.

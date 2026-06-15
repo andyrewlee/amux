@@ -11,7 +11,7 @@ import (
 )
 
 // updateGolden regenerates the checked-in golden frames instead of asserting
-// against them. Run `go test ./internal/app/... -run Golden -update` after an
+// against them. Run `go test ./internal/app -run Golden -update` after an
 // intentional render change, then commit the refreshed testdata.
 var updateGolden = flag.Bool("update", false, "update golden frame files")
 
@@ -97,6 +97,45 @@ func goldenPresets() []goldenPreset {
 				PayloadBytes:    48,
 				NewlineEvery:    0,
 				ShowKeymapHints: true,
+			},
+			steps: steps,
+		},
+		// Overlay presets. Adding/altering a dialog or overlay is the most
+		// common UI change an agent makes, so each of these snapshots a distinct
+		// composeOverlays path (dialog, settings, prefix palette) over the same
+		// center base pane. Only deterministic, filesystem-independent overlays
+		// are golden-able; the file picker (reads the real filesystem) and the
+		// toast (wall-clock visibility) are deliberately omitted.
+		{
+			name: "overlay_dialog",
+			opts: HarnessOptions{
+				Mode:    HarnessCenter,
+				Tabs:    8,
+				Width:   width,
+				Height:  height,
+				Overlay: HarnessOverlayDialog,
+			},
+			steps: steps,
+		},
+		{
+			name: "overlay_settings",
+			opts: HarnessOptions{
+				Mode:    HarnessCenter,
+				Tabs:    8,
+				Width:   width,
+				Height:  height,
+				Overlay: HarnessOverlaySettings,
+			},
+			steps: steps,
+		},
+		{
+			name: "overlay_prefix",
+			opts: HarnessOptions{
+				Mode:    HarnessCenter,
+				Tabs:    8,
+				Width:   width,
+				Height:  height,
+				Overlay: HarnessOverlayPrefix,
 			},
 			steps: steps,
 		},
@@ -257,15 +296,17 @@ func TestGoldenLineDiff(t *testing.T) {
 
 func assertDistinctFrames(t *testing.T, frames map[string]string) {
 	t.Helper()
-	names := []string{"center", "sidebar", "monitor"}
+	// Every preset (base panes and overlays) must render a distinct frame, or
+	// its golden would not actually distinguish one render path from another.
+	names := make([]string, 0, len(frames))
+	for _, p := range goldenPresets() {
+		if _, ok := frames[p.name]; ok {
+			names = append(names, p.name)
+		}
+	}
 	for i := 0; i < len(names); i++ {
 		for j := i + 1; j < len(names); j++ {
-			a, okA := frames[names[i]]
-			b, okB := frames[names[j]]
-			if !okA || !okB {
-				continue
-			}
-			if a == b {
+			if frames[names[i]] == frames[names[j]] {
 				t.Errorf("presets %q and %q rendered byte-identical frames; pick args that diverge so each golden guards a distinct path",
 					names[i], names[j])
 			}

@@ -24,6 +24,11 @@ type HarnessOptions struct {
 	PayloadBytes    int
 	NewlineEvery    int
 	ShowKeymapHints bool
+	// Overlay, when non-empty, puts the App into the corresponding overlay
+	// state (dialog/settings/prefix/...) after the base pane is built, so the
+	// rendered frame exercises composeOverlays instead of only base-pane chrome.
+	// See applyHarnessOverlay in harness_overlay.go for the accepted values.
+	Overlay string
 }
 
 // HarnessMode values.
@@ -64,6 +69,9 @@ func NewHarness(opts HarnessOptions) (*Harness, error) {
 	if opts.PayloadBytes <= 0 {
 		opts.PayloadBytes = 64
 	}
+	if err := validateHarnessOverlay(opts.Overlay); err != nil {
+		return nil, err
+	}
 
 	cfg, err := config.DefaultConfig()
 	if err != nil {
@@ -99,6 +107,7 @@ func newHarnessApp(cfg *config.Config, opts HarnessOptions, focused messages.Pan
 	app.height = opts.Height
 	app.focusedPane = focused
 	app.layout.Resize(opts.Width, opts.Height)
+	applyHarnessOverlay(app, opts.Overlay)
 	return app
 }
 
