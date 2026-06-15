@@ -69,8 +69,29 @@ func ptyTraceFileName(assistant, tabID, ts string) string {
 	return fmt.Sprintf("amux-pty-%s-%s-%s.log", token, tabID, ts)
 }
 
+// tracePTYOutput records bytes flowing FROM the agent TO amux (PTY output) into
+// the per-tab trace file. The chunk line is tagged "RECV" so the direction is
+// distinguishable from input (see tracePTYInput).
 func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
-	if tab == nil || !ptyTraceAllowed(tab.Assistant) {
+	m.tracePTY(tab, "RECV", data)
+}
+
+// tracePTYInput records bytes flowing FROM amux TO the agent (keystrokes,
+// pastes, and the 50ms-delayed Enter / hex 0D carriage return) into the same
+// per-tab trace file as the output direction. The chunk line is tagged "SEND"
+// so a 'my Enter didn't register' / keystroke-forwarding bug can be debugged at
+// the byte level. Both directions share ptyTraceAllowed, ptyTraceDir, and the
+// ptyTraceLimit budget so the trace stays bounded.
+func (m *Model) tracePTYInput(tab *Tab, data []byte) {
+	m.tracePTY(tab, "SEND", data)
+}
+
+// tracePTY is the shared, direction-tagged writer behind tracePTYOutput and
+// tracePTYInput. direction is a short marker ("RECV"/"SEND") that prefixes the
+// chunk header so both dimensions of the PTY pipeline interleave in one trace
+// file while remaining distinguishable.
+func (m *Model) tracePTY(tab *Tab, direction string, data []byte) {
+	if tab == nil || len(data) == 0 || !ptyTraceAllowed(tab.Assistant) {
 		return
 	}
 
@@ -85,9 +106,15 @@ func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
 		dir := ptyTraceDir()
 		name := ptyTraceFileName(tab.Assistant, string(tab.ID), time.Now().Format("20060102-150405"))
 		path := filepath.Join(dir, name)
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			logging.Warn("PTY trace open failed: %v", err)
+			tab.ptyTraceClosed = true
+			return
+		}
+		if err := file.Chmod(0o600); err != nil {
+			_ = file.Close()
+			logging.Warn("PTY trace chmod failed: %v", err)
 			tab.ptyTraceClosed = true
 			return
 		}
@@ -117,7 +144,7 @@ func (m *Model) tracePTYOutput(tab *Tab, data []byte) {
 		data = data[:remaining]
 	}
 
-	_, _ = tab.ptyTraceFile.Write([]byte(fmt.Sprintf("chunk offset=%d bytes=%d\n", tab.ptyTraceBytes, len(data))))
+	_, _ = tab.ptyTraceFile.Write([]byte(fmt.Sprintf("%s chunk offset=%d bytes=%d\n", direction, tab.ptyTraceBytes, len(data))))
 	_, _ = tab.ptyTraceFile.Write([]byte(hex.Dump(data)))
 	tab.ptyTraceBytes += len(data)
 
