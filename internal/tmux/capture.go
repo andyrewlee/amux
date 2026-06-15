@@ -125,7 +125,15 @@ func paneCursorPosition(paneID string, opts Options) (int, int, bool, error) {
 	if err != nil {
 		return 0, 0, false, err
 	}
-	for _, line := range parseOutputLines(output) {
+	return parsePaneCursor(parseOutputLines(output), paneID)
+}
+
+// parsePaneCursor extracts the cursor position for paneID from tmux list-panes
+// output lines formatted as "#{pane_id}\t#{cursor_x}\t#{cursor_y}". Lines for
+// other panes (or malformed field counts) are skipped; non-numeric cursor
+// fields surface as an error. Returns ok=false when no line matches paneID.
+func parsePaneCursor(lines []string, paneID string) (int, int, bool, error) {
+	for _, line := range lines {
 		parts, err := parseTabFields(line, 3)
 		if err != nil || parts[0] != paneID {
 			continue
@@ -150,7 +158,16 @@ func paneSize(paneID string, opts Options) (int, int, bool, error) {
 	if err != nil {
 		return 0, 0, false, err
 	}
-	for _, line := range parseOutputLines(output) {
+	return parsePaneSize(parseOutputLines(output), paneID)
+}
+
+// parsePaneSize extracts the cell dimensions for paneID from tmux list-panes
+// output lines formatted as "#{pane_id}\t#{pane_width}\t#{pane_height}". Lines
+// for other panes (or malformed field counts) are skipped; non-numeric or
+// zero/negative dimensions surface as an error. Returns ok=false when no line
+// matches paneID.
+func parsePaneSize(lines []string, paneID string) (int, int, bool, error) {
+	for _, line := range lines {
 		parts, err := parseTabFields(line, 3)
 		if err != nil || parts[0] != paneID {
 			continue
