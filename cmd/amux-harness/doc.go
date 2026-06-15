@@ -7,7 +7,10 @@
 //
 // Useful flags: -tabs, -hot-tabs (tabs receiving animated output), -payload-bytes
 // (bytes written per hot tab per frame), -newline-every, -frames (measured
-// frames), -warmup (warmup frames to ignore), -width, -height, -keymap-hints.
+// frames), -warmup (warmup frames to ignore), -width, -height, -keymap-hints,
+// -dump-frame (write the final rendered view as raw ANSI bytes to a path — the
+// exact frame an agent sees; `cat`/diff it to inspect, or feed it into a golden),
+// -assert-min-visible (fail if the final frame has fewer than N visible glyphs).
 //
 // Set AMUX_PPROF=1/true, a port, or a listen address to start net/http/pprof
 // (default 127.0.0.1:6060 for 1/true). Fetch CPU profiles from the pprof

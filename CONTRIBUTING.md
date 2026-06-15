@@ -63,6 +63,18 @@ failure, run the matching mode with the CI shape, e.g. center:
 go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4
 ```
 
+#### Inspecting a rendered frame
+
+To see exactly what the UI rendered (instead of guessing), dump the final frame
+with `-dump-frame`:
+
+```bash
+go run ./cmd/amux-harness -mode center -frames 1 -warmup 0 -dump-frame /tmp/frame.txt
+```
+
+The file contains the raw ANSI bytes the agent sees — `cat /tmp/frame.txt` to
+eyeball it, `diff` two dumps to spot a regression, or feed it into a golden.
+
 See `go doc ./cmd/amux-harness` for all `-mode` values, flags, and the
 `AMUX_PPROF` profiling hook.
 
