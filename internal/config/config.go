@@ -37,17 +37,9 @@ type assistantConfigRaw struct {
 
 const fallbackDefaultAssistant = "claude"
 
-var preferredAssistantOrder = []string{
-	"claude",
-	"codex",
-	"gemini",
-	"amp",
-	"opencode",
-	"droid",
-	"cline",
-	"cursor",
-	"pi",
-}
+// preferredAssistantOrder is the agent display order, derived from the canonical
+// AgentRegistry so it cannot drift from the rest of the roster.
+var preferredAssistantOrder = AgentNames()
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() (*Config, error) {
@@ -149,54 +141,18 @@ func (c *Config) ResolvedDefaultAssistant() string {
 	return canonicalDefaultAssistant(fallbackDefaultAssistant, c.Assistants)
 }
 
+// defaultAssistants builds the built-in assistant configs from the canonical
+// AgentRegistry so the roster stays in lockstep with every other consumer.
 func defaultAssistants() map[string]AssistantConfig {
-	return map[string]AssistantConfig{
-		"claude": {
-			Command:          "claude",
-			InterruptCount:   2,
-			InterruptDelayMs: 200,
-		},
-		"codex": {
-			Command:          "codex",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
-		"gemini": {
-			Command:          "gemini",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
-		"amp": {
-			Command:          "amp",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
-		"opencode": {
-			Command:          "opencode",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
-		"droid": {
-			Command:          "droid",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
-		"cline": {
-			Command:          "cline",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
-		"cursor": {
-			Command:          "agent",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
-		"pi": {
-			Command:          "pi",
-			InterruptCount:   1,
-			InterruptDelayMs: 0,
-		},
+	assistants := make(map[string]AssistantConfig, len(AgentRegistry))
+	for _, def := range AgentRegistry {
+		assistants[def.Name] = AssistantConfig{
+			Command:          def.DefaultCommand,
+			InterruptCount:   def.InterruptCount,
+			InterruptDelayMs: def.InterruptDelayMs,
+		}
 	}
+	return assistants
 }
 
 // applyAssistantOverrides overlays parsed config-file assistant entries onto

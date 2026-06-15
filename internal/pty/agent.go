@@ -16,20 +16,11 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// AgentType represents the type of AI agent
+// AgentType represents the type of AI agent. Concrete agent identifiers are not
+// enumerated here: the canonical roster lives in the config.AgentRegistry, and
+// the runtime resolves agents by their assistant-name string (see
+// CreateAgentWithTags). Keeping the names in one place avoids hand-synced lists.
 type AgentType string
-
-const (
-	AgentClaude   AgentType = "claude"
-	AgentCodex    AgentType = "codex"
-	AgentGemini   AgentType = "gemini"
-	AgentAmp      AgentType = "amp"
-	AgentOpencode AgentType = "opencode"
-	AgentDroid    AgentType = "droid"
-	AgentCline    AgentType = "cline"
-	AgentCursor   AgentType = "cursor"
-	AgentPi       AgentType = "pi"
-)
 
 // Agent represents a running AI agent instance
 type Agent struct {
