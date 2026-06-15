@@ -147,11 +147,11 @@ func TestResolveTmuxActivityScanRole_FollowerWithoutSnapshotSkipsApply(t *testin
 	}
 }
 
-func TestResolveTmuxActivityScanRole_OwnerResolveDoesNotRenewHeartbeat(t *testing.T) {
+func TestResolveTmuxActivityScanRole_OwnerResolveRenewsHeartbeatAtScanStart(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := gcTestServer(t)
 
-	owner := &App{instanceID: "owner-no-resolve-heartbeat"}
+	owner := &App{instanceID: "owner-resolve-heartbeat"}
 	now := time.Now()
 	_, _, _, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
 	if err != nil {
@@ -170,7 +170,10 @@ func TestResolveTmuxActivityScanRole_OwnerResolveDoesNotRenewHeartbeat(t *testin
 		t.Fatalf("parse heartbeat before resolve: %v", err)
 	}
 
-	role, _, _, renewedEpoch, err := owner.resolveTmuxActivityScanRole(opts, now.Add(2*time.Second))
+	// A long scan: re-resolving 2s later (beyond the heartbeat tick) must push
+	// the heartbeat forward so the lease cannot expire mid-scan.
+	renewAt := now.Add(2 * time.Second)
+	role, _, _, renewedEpoch, err := owner.resolveTmuxActivityScanRole(opts, renewAt)
 	if err != nil {
 		t.Fatalf("resolve owner role again: %v", err)
 	}
@@ -189,8 +192,24 @@ func TestResolveTmuxActivityScanRole_OwnerResolveDoesNotRenewHeartbeat(t *testin
 	if err != nil {
 		t.Fatalf("parse heartbeat after resolve: %v", err)
 	}
-	if afterHeartbeat != beforeHeartbeat {
-		t.Fatalf("expected owner resolve to keep heartbeat at %d, got %d", beforeHeartbeat, afterHeartbeat)
+	if afterHeartbeat != renewAt.UnixMilli() {
+		t.Fatalf("expected owner resolve to renew heartbeat to %d, got %d", renewAt.UnixMilli(), afterHeartbeat)
+	}
+	if afterHeartbeat <= beforeHeartbeat {
+		t.Fatalf("expected owner resolve to advance heartbeat past %d, got %d", beforeHeartbeat, afterHeartbeat)
+	}
+
+	// Ownership must remain single-owner after the scan-start renew: re-reading
+	// the lease shows the same owner/epoch, just a fresher heartbeat.
+	lease, err := activity.ReadOwnerLease(opts)
+	if err != nil {
+		t.Fatalf("read owner lease: %v", err)
+	}
+	if lease.OwnerID != owner.instanceID {
+		t.Fatalf("expected lease owner %q, got %q", owner.instanceID, lease.OwnerID)
+	}
+	if lease.Epoch != epoch {
+		t.Fatalf("expected lease epoch %d, got %d", epoch, lease.Epoch)
 	}
 }
 

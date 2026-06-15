@@ -47,6 +47,17 @@ func (a *App) resolveTmuxActivityScanRole(
 		if epoch < 1 {
 			epoch = 1
 		}
+		// Renew the heartbeat at scan START, not only after publish. A scan can
+		// outlive the lease TTL (~7s) while the heartbeat tick (~5s) is gated
+		// behind the scan; without renewing up front a long scan lets the lease
+		// expire mid-scan and a follower legitimately claims it, causing
+		// ownership flapping (spinner blanking, duplicate scans). The heartbeat
+		// is a single tmux global-option write owned solely by this instance,
+		// and publish still re-validates ownership/epoch before its own renew,
+		// so refreshing here cannot create a second owner or a double-renew race.
+		if err := activity.RenewOwnerLeaseHeartbeat(opts, now); err != nil {
+			return tmuxActivityRoleOwner, nil, false, epoch, err
+		}
 		return tmuxActivityRoleOwner, nil, false, epoch, nil
 	}
 
