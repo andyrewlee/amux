@@ -3,11 +3,29 @@ package update
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/andyrewlee/amux/internal/logging"
 )
+
+// upgradeDeps holds the package-level functions Upgrade depends on, wired
+// through function fields so the orchestration can be unit-tested without
+// network access or replacing the running binary. NewUpdater defaults every
+// field to the real implementation; tests override individual fields.
+type upgradeDeps struct {
+	isHomebrewBuild func() bool
+	isGoInstall     func() bool
+	findAsset       func(*Release) *Asset
+	currentBinary   func() (string, error)
+	canWrite        func(string) bool
+	fetchChecksums  func(*Release) (map[string]string, error)
+	download        func(url string, w io.Writer) error
+	verify          func(path, sum string) error
+	extract         func(archive, dir string) (string, error)
+	install         func(src, dst string) error
+}
 
 // CheckResult contains the result of an update check.
 type CheckResult struct {
@@ -24,15 +42,29 @@ type Updater struct {
 	commit  string
 	date    string
 	github  *GitHubClient
+	deps    upgradeDeps
 }
 
 // NewUpdater creates a new Updater.
 func NewUpdater(version, commit, date string) *Updater {
+	github := NewGitHubClient()
 	return &Updater{
 		version: version,
 		commit:  commit,
 		date:    date,
-		github:  NewGitHubClient(),
+		github:  github,
+		deps: upgradeDeps{
+			isHomebrewBuild: IsHomebrewBuild,
+			isGoInstall:     IsGoInstall,
+			findAsset:       FindPlatformAsset,
+			currentBinary:   GetCurrentBinaryPath,
+			canWrite:        CanWrite,
+			fetchChecksums:  github.FetchChecksums,
+			download:        github.DownloadAsset,
+			verify:          VerifyChecksum,
+			extract:         ExtractBinary,
+			install:         InstallBinary,
+		},
 	}
 }
 
@@ -88,34 +120,34 @@ func (u *Updater) Upgrade(release *Release) error {
 		return errors.New("no release to upgrade to")
 	}
 
-	if IsHomebrewBuild() {
+	if u.deps.isHomebrewBuild() {
 		return errors.New("installed via Homebrew; run: brew upgrade amux")
 	}
 
 	// Check if go install user
-	if IsGoInstall() {
+	if u.deps.isGoInstall() {
 		return errors.New("installed via 'go install'; run: go install github.com/andyrewlee/amux/cmd/amux@latest")
 	}
 
 	// Find the platform asset
-	asset := FindPlatformAsset(release)
+	asset := u.deps.findAsset(release)
 	if asset == nil {
 		return errors.New("no binary available for this platform")
 	}
 
 	// Get current binary path
-	currentBinary, err := GetCurrentBinaryPath()
+	currentBinary, err := u.deps.currentBinary()
 	if err != nil {
 		return fmt.Errorf("getting current binary path: %w", err)
 	}
 
 	// Check write permission
-	if !CanWrite(currentBinary) {
+	if !u.deps.canWrite(currentBinary) {
 		return fmt.Errorf("no write permission to %s; try running with sudo", currentBinary)
 	}
 
 	// Fetch checksums
-	checksums, err := u.github.FetchChecksums(release)
+	checksums, err := u.deps.fetchChecksums(release)
 	if err != nil {
 		return fmt.Errorf("fetching checksums: %w", err)
 	}
@@ -140,7 +172,7 @@ func (u *Updater) Upgrade(release *Release) error {
 	}
 
 	logging.Info("Downloading %s", asset.Name)
-	if err := u.github.DownloadAsset(asset.BrowserDownloadURL, archiveFile); err != nil {
+	if err := u.deps.download(asset.BrowserDownloadURL, archiveFile); err != nil {
 		archiveFile.Close()
 		return fmt.Errorf("downloading: %w", err)
 	}
@@ -148,20 +180,20 @@ func (u *Updater) Upgrade(release *Release) error {
 
 	// Verify checksum
 	logging.Info("Verifying checksum")
-	if err := VerifyChecksum(archivePath, expectedChecksum); err != nil {
+	if err := u.deps.verify(archivePath, expectedChecksum); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
 	// Extract binary
 	logging.Info("Extracting binary")
-	newBinary, err := ExtractBinary(archivePath, tmpDir)
+	newBinary, err := u.deps.extract(archivePath, tmpDir)
 	if err != nil {
 		return fmt.Errorf("extracting binary: %w", err)
 	}
 
 	// Install binary
 	logging.Info("Installing to %s", currentBinary)
-	if err := InstallBinary(newBinary, currentBinary); err != nil {
+	if err := u.deps.install(newBinary, currentBinary); err != nil {
 		return fmt.Errorf("installing binary: %w", err)
 	}
 
