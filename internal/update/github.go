@@ -44,6 +44,7 @@ type GitHubClient struct {
 	httpClient *http.Client
 	owner      string
 	repo       string
+	baseURL    string
 }
 
 // NewGitHubClient creates a new GitHub client.
@@ -52,14 +53,31 @@ func NewGitHubClient() *GitHubClient {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		owner: GitHubOwner,
-		repo:  GitHubRepo,
+		owner:   GitHubOwner,
+		repo:    GitHubRepo,
+		baseURL: GitHubAPIBase,
+	}
+}
+
+// newGitHubClientForTest creates a GitHub client whose API base URL and HTTP
+// client are injectable, so tests can point FetchLatestRelease at an
+// httptest.Server. It is unexported and intended for tests only; production
+// callers use NewGitHubClient.
+func newGitHubClientForTest(baseURL string, httpClient *http.Client) *GitHubClient {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
+	return &GitHubClient{
+		httpClient: httpClient,
+		owner:      GitHubOwner,
+		repo:       GitHubRepo,
+		baseURL:    baseURL,
 	}
 }
 
 // FetchLatestRelease fetches the latest release from GitHub.
 func (c *GitHubClient) FetchLatestRelease() (*Release, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", GitHubAPIBase, c.owner, c.repo)
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", c.baseURL, c.owner, c.repo)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
