@@ -10,7 +10,22 @@ HARNESS_SCROLLBACK_FRAMES ?= 600
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 
-.PHONY: build install test bench lint lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
+# GOLANGCI resolves to the repo-local pinned golangci-lint (built from source by
+# `make lint-tools` into the gitignored ./.cache/bin) when it exists AND reports
+# the exact version in .golangci-version; otherwise it falls back to a PATH
+# golangci-lint. This keeps CI unaffected: CI has no ./.cache/bin binary (it is
+# gitignored and uses golangci-lint-action), so it resolves to the PATH binary
+# the action installs.
+#
+# The probe is scoped to the lint targets via a target-specific := assignment so
+# that unrelated targets (build/test/run/vet/...) never pay the shell-out cost,
+# and the := form evaluates it exactly once per lint invocation (a plain
+# recursive GOLANGCI = $(shell ...) would re-run the probe on every $(GOLANGCI)
+# expansion, which lint-strict-new/lint-ci-parity reference multiple times).
+GOLANGCI ?= golangci-lint
+lint lint-strict lint-strict-new lint-ci-parity check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
+
+.PHONY: build install test bench lint lint-tools lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -80,33 +95,40 @@ perf-check:
 	bash scripts/perf_compare.sh
 
 check-golangci-version:
-	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
+	@command -v $(GOLANGCI) >/dev/null 2>&1 || (echo "golangci-lint is required: run 'make lint-tools' to build the pinned version locally, or install from https://golangci-lint.run/welcome/install/"; exit 1)
 	@want_raw="$$(cat .golangci-version)"; \
 	want="$${want_raw#v}"; \
-	have_raw="$$(golangci-lint version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
+	have_raw="$$($(GOLANGCI) version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
 	have="$${have_raw#v}"; \
 	if [ "$$have" != "$$want" ]; then \
-		echo "WARNING: golangci-lint $${have_raw:-unknown} installed but .golangci-version pins $$want_raw (CI uses $$want_raw; diagnostics may differ)"; \
+		echo "WARNING: golangci-lint $${have_raw:-unknown} resolved but .golangci-version pins $$want_raw (run 'make lint-tools' to build the pinned version; diagnostics may differ)"; \
 	fi
 
+# lint-tools self-bootstraps the pinned golangci-lint (from .golangci-version)
+# from source into the gitignored ./.cache/bin so `make lint` just works even
+# when the system golangci-lint is the wrong version. Idempotent: a no-op when
+# the local binary already reports the pinned version.
+lint-tools:
+	bash scripts/install-golangci-lint.sh
+
 lint: check-golangci-version
-	golangci-lint run
+	$(GOLANGCI) run
 	$(MAKE) check-file-length
 
 lint-strict: check-golangci-version
-	golangci-lint run -c .golangci.strict.yml
+	$(GOLANGCI) run -c .golangci.strict.yml
 
 lint-strict-new: check-golangci-version
 	@if [ -n "$(BASE)" ]; then \
 		echo "Running strict lint against changes since $(BASE)"; \
-		golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$(BASE)" --timeout=10m; \
+		$(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$(BASE)" --timeout=10m; \
 	else \
 		echo "Running strict lint on current unstaged/staged changes (--new)"; \
-		golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m; \
+		$(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m; \
 	fi
 
 lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored local directory (/.cache/).
-	@command -v golangci-lint >/dev/null 2>&1 || (echo "golangci-lint is required (install: https://golangci-lint.run/welcome/install/)"; exit 1)
+	@command -v $(GOLANGCI) >/dev/null 2>&1 || (echo "golangci-lint is required: run 'make lint-tools' to build the pinned version locally, or install from https://golangci-lint.run/welcome/install/"; exit 1)
 	@BASE_REF="$${BASE_REF:-origin/main}"; \
 	CACHE_ROOT="$${CACHE_ROOT:-$$(pwd)/.cache}"; \
 	GO_CACHE_DIR="$$CACHE_ROOT/go-build"; \
@@ -116,11 +138,11 @@ lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored loc
 		BASE=$$(git merge-base HEAD "$$BASE_REF"); \
 		echo "Running CI-parity strict lint against changes since $$BASE_REF ($$BASE)"; \
 		OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
-		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
+		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
 				cat "$$OUTPUT"; \
 				if grep -q "no go files to analyze" "$$OUTPUT"; then \
 					echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
-					if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$$BASE" --timeout=10m --tests=false; then \
+					if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$$BASE" --timeout=10m --tests=false; then \
 						exit 1; \
 					fi; \
 				else \
@@ -131,11 +153,11 @@ lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored loc
 	else \
 		echo "Base ref $$BASE_REF not found; falling back to strict lint on current unstaged/staged changes"; \
 		OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
-		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m >"$$OUTPUT" 2>&1; then \
+		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m >"$$OUTPUT" 2>&1; then \
 			cat "$$OUTPUT"; \
 			if grep -q "no go files to analyze" "$$OUTPUT"; then \
 				echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
-				if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" golangci-lint run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m --tests=false; then \
+				if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m --tests=false; then \
 					exit 1; \
 				fi; \
 			else \
@@ -173,6 +195,7 @@ help:
 	@echo "  build      - Build the binary"
 	@echo "  test       - Run all tests"
 	@echo "  lint       - Run golangci-lint and file length checks (max 500 lines)"
+	@echo "  lint-tools - Build the pinned golangci-lint (.golangci-version) into ./.cache/bin (idempotent)"
 	@echo "  lint-strict - Run stricter lint profile across the whole repo"
 	@echo "  lint-strict-new - Run stricter lint profile only on changed code (optionally BASE=<git-rev>)"
 	@echo "  lint-ci-parity - Run strict changed-code lint using merge-base with BASE_REF (default origin/main)"
