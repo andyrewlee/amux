@@ -289,8 +289,7 @@ func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspac
 	if err := agent.Terminal.SendString(data); err != nil {
 		logging.Warn("Mouse input failed for tab %s: %v", tab.ID, err)
 		tab.mu.Lock()
-		tab.Running = false
-		tab.Detached = true
+		tab.markDetachedLocked()
 		tab.mu.Unlock()
 		if m.msgSink != nil {
 			m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
