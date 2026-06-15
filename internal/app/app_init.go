@@ -80,7 +80,7 @@ func New(version, commit, date string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	applyTmuxEnvFromConfig(cfg, false)
+	applyTmuxEnvFromConfig(cfg)
 	tmuxOpts := tmux.DefaultOptions()
 
 	// Ensure directories exist
@@ -307,15 +307,8 @@ func (a *App) tmuxSyncInterval() time.Duration {
 	return interval
 }
 
-func applyTmuxEnvFromConfig(cfg *config.Config, force bool) {
+func applyTmuxEnvFromConfig(cfg *config.Config) {
 	if cfg == nil {
-		return
-	}
-	if force {
-		setEnvOrUnset(config.WorkspacesRootEnvVar, cfg.Paths.WorkspacesRoot)
-		setEnvOrUnset("AMUX_TMUX_SERVER", cfg.UI.TmuxServer)
-		setEnvOrUnset("AMUX_TMUX_CONFIG", cfg.UI.TmuxConfigPath)
-		setEnvOrUnset("AMUX_TMUX_SYNC_INTERVAL", cfg.UI.TmuxSyncInterval)
 		return
 	}
 	setEnvIfNonEmpty(config.WorkspacesRootEnvVar, cfg.Paths.WorkspacesRoot)
