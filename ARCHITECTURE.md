@@ -18,10 +18,11 @@ boundaries and command discipline between the app pump and the panes, see
 Dependencies point downward. Most UI code reaches OS and process boundaries
 through the tmux/pty/git/data layers. UI packages may still own
 interaction-local adapters when the behavior is part of a widget boundary, such
-as clipboard writes and file-picker filesystem reads in `internal/ui/common`, PTY
-tracing in `internal/ui/center`, and shell plumbing in the sidebar terminal.
-Shared process, persistence, git, tmux, and PTY behavior belongs in the lower
-layers.
+as clipboard writes and file-picker filesystem reads in `internal/ui/common`,
+per-tab PTY tracing in `internal/ui/center`, and shell plumbing in the sidebar
+terminal. Shared process, persistence, git, tmux, and PTY behavior — including the
+shared PTY/tmux read-loop and session plumbing in `internal/ui/ptyio` — belongs in
+the lower layers.
 
 ```
             cmd/amux            cmd/amux-harness
@@ -32,7 +33,7 @@ layers.
                  |   `-- internal/ui/{dashboard, center, sidebar, diff}
                  |              |
                  |              v
-                 |       internal/ui/{compositor, layout, common}
+                 |       internal/ui/{compositor, layout, common, ptyio, theme}
                  v              |
    internal/{tmux, pty, git,    v
      data, update, config,  internal/vterm   (terminal emulator)
@@ -58,12 +59,15 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/ui/diff` | Scrollable, syntax-aware git diff viewer (a center tab) | `model.go` |
 | `internal/ui/compositor` | Composes vterm snapshots + UI layers into a frame; delta ANSI | `canvas.go` |
 | `internal/ui/layout` | Pane geometry and layout modes | `manager.go` |
-| `internal/ui/common` | Shared theming, widgets, selection, PTY/tmux plumbing | `theme.go`, `pty_reader.go` |
+| `internal/ui/common` | Shared widgets (dialogs, file picker), selection, clipboard; re-exports theme | `dialog.go`, `theme_reexport.go` |
+| `internal/ui/ptyio` | Shared PTY/tmux plumbing: read loop, output filtering/trimming, flush/chunk tuning consts, session bootstrap/restore | `doc.go`, `pty_reader.go`, `tuning.go` |
+| `internal/ui/theme` | Color palette, theme registry, icons, and lipgloss styles | `colors.go`, `theme.go`, `icons.go` |
 | `internal/vterm` | Terminal emulator: ANSI/VT parsing → cell grid + scrollback → ANSI | `vterm.go` |
 | `internal/tmux` | tmux CLI wrapper: sessions, capture, resize, activity tags | `tmux.go` |
 | `internal/pty` | Pseudo-terminals backing hosted agents (Agent, Terminal) | `agent.go` |
 | `internal/git` | git worktree-per-workspace model: worktrees, branches, diff, watcher | `operations.go`, `workspace.go` |
 | `internal/data` | Workspace record persistence (atomic JSON via WorkspaceStore) | `workspace_store.go` |
+| `internal/fsatomic` | Crash-safe single-file writes: temp-write, fsync, atomic rename-over (with .bak restore on Windows) | `fsatomic.go` |
 | `internal/update` | Self-update: version check, download, verify, install | `updater.go` |
 | `internal/config` | Configuration: assistants, UI settings, resolved paths | `config.go` |
 | `internal/supervisor` | Named background workers with restart/backoff and error surfacing | `supervisor.go` |
@@ -73,4 +77,5 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/logging` | File-based logger; the output channel for internal packages | `logger.go` |
 | `internal/messages` | Shared Bubble Tea message vocabulary between pump and panes | `messages.go` |
 | `internal/validation` | Input/path guards (assistant, base ref, project path, workspace) | `validation.go` |
+| `internal/testutil` | Shared test polling helpers (deadline/poll loops with consistent failure messaging) | `wait.go` |
 | `internal/e2e` | PTY-driven end-to-end tests exercising the real binary | (tests) |
