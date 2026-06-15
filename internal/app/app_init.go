@@ -83,8 +83,8 @@ func New(version, commit, date string) (*App, error) {
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
 	workspaceService := newWorkspaceService(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot)
 
-	// Create status manager (callback will be nil, we use it for caching only)
-	statusManager := git.NewStatusManager(nil)
+	// Create status manager (used for synchronous status caching only).
+	statusManager := git.NewStatusManager()
 	gitStatus := newGitStatusService(statusManager)
 
 	var tmuxSvc TmuxOps = tmuxOps{}
@@ -157,9 +157,6 @@ func New(version, commit, date string) (*App, error) {
 	app.center.SetTmuxOptions(tmuxOpts)
 	app.sidebarTerminal.SetTmuxOptions(tmuxOpts)
 	app.supervisor.Start("center.tab_actor", app.center.RunTabActor, supervisor.WithRestartPolicy(supervisor.RestartAlways))
-	if app.gitStatus != nil {
-		app.supervisor.Start("git.status_manager", app.gitStatus.Run)
-	}
 	if fileWatcher != nil {
 		app.supervisor.Start("git.file_watcher", fileWatcher.Run, supervisor.WithBackoff(supervisorBackoff))
 	}
