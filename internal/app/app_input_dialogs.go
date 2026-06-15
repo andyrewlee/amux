@@ -20,8 +20,7 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 		return false, nil
 	}
 	logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
-	switch result.ID {
-	case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogTrustScripts, DialogRemoveProject, DialogSelectAssistant, common.AgentPickerDialogID, DialogQuit, DialogCleanupTmux:
+	if isAppDialogID(result.ID) {
 		return true, common.SafeCmd(a.handleDialogResult(result))
 	}
 	// If not an App-level dialog, let it fall through to components.
@@ -105,6 +104,14 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	a.dialogWorkspace = nil
 	a.dialogTrustScriptsHash = ""
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
+
+	// Defensive: handleDialogResult only knows how to act on IDs in the shared
+	// registry. Routing already gates on isAppDialogID, so an unknown ID here
+	// signals the behavioral switch below and the registry have drifted.
+	if !isAppDialogID(result.ID) {
+		logging.Warn("handleDialogResult called with non-App dialog ID: %s", result.ID)
+		return nil
+	}
 
 	if !result.Confirmed {
 		if result.ID == DialogSelectAssistant || result.ID == common.AgentPickerDialogID {
