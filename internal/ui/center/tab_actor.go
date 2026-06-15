@@ -1,3 +1,23 @@
+// Tab-actor concurrency invariants. The tab actor (RunTabActor) serializes all
+// mutations to a tab's Terminal so that PTY-reader goroutines, the Bubble Tea
+// update loop, and selection/scroll handlers never touch the same terminal
+// concurrently. When editing this package, preserve these rules:
+//
+//  1. Single write path. Every tab terminal write goes through RunTabActor via a
+//     tabEvent (sendTabEvent -> handleTabEvent), or — only when the actor channel
+//     cannot accept the event — through the synchronous fallback in
+//     recoverFailedActorSend. Never call tab.WriteToTerminal or other terminal
+//     mutators directly from Update; that bypasses the actor and races the reader.
+//
+//  2. Backpressure contract. shouldDropTabEvent sheds load only for the
+//     selection/scroll class of events (selection-update, selection-scroll-tick,
+//     scroll-by, scroll-page) once tabEvents is >=75% full; those are coalescible
+//     UI gestures. tabEventWriteOutput is NEVER dropped — losing output corrupts
+//     the terminal — and the closed-tab guard in sendTabEvent returns true (treat
+//     as delivered) for write events so callers do not re-buffer them.
+//
+// See internal/app/MESSAGE_FLOW.md and internal/app/ARCHITECTURE.md (Invariants)
+// for the broader External-message rules these constraints fit inside.
 package center
 
 import (
