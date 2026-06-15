@@ -6,8 +6,15 @@
 git clone https://github.com/andyrewlee/amux.git
 cd amux
 ./scripts/install-hooks.sh
+make lint-tools   # one-time: builds the pinned golangci-lint into ./.cache/bin
 make run
 ```
+
+Run `make lint-tools` once before your first `make devcheck` or `git commit`.
+It builds the linter version pinned in `.golangci-version` into the gitignored
+`./.cache/bin`; a stock `golangci-lint` from `PATH` is likely the wrong major
+version (v2.x) and fails confusingly against this repo's v1 config. See
+[LINTING.md](LINTING.md) for the full rationale.
 
 Run the local checks that mirror CI:
 
@@ -16,8 +23,6 @@ make devcheck
 ```
 
 `make devcheck` is the required pre-PR gate: it runs vet, tests, and lint (including file-length checks).
-
-`golangci-lint` is required locally. Install instructions: https://golangci-lint.run/welcome/install/
 
 For the hot-reload inner loop, `make dev` runs [`air`](https://github.com/air-verse/air) using the repo's `.air.toml`. Install it once with:
 
