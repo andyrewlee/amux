@@ -14,7 +14,7 @@ func SessionNamesWithClients(opts Options) (map[string]bool, error) {
 	}
 	cmd, cancel := tmuxCommand(opts, "list-clients", "-F", "#{session_name}")
 	defer cancel()
-	output, err := cmd.CombinedOutput()
+	output, err := runTmuxCmdCombined(cmd)
 	if err != nil {
 		if isExitCode1(err) {
 			stderr := strings.TrimSpace(string(output))
@@ -74,7 +74,7 @@ func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
 	}
 	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", "#{session_name}\t#{session_created}")
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		return 0, err
 	}

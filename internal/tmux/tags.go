@@ -73,7 +73,7 @@ func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow
 	}
 	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", format)
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		if isExitCode1(err) {
 			return nil, keys, nil
@@ -167,7 +167,7 @@ func SetSessionTagValues(sessionName string, tags []OptionValue, opts Options) e
 
 	cmd, cancel := tmuxCommand(opts, args...)
 	defer cancel()
-	output, err := cmd.CombinedOutput()
+	output, err := runTmuxCmdCombined(cmd)
 	if err != nil {
 		if isExitCode1(err) {
 			stderr := strings.TrimSpace(string(output))
