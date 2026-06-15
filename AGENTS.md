@@ -10,5 +10,6 @@
 - Formatting baseline includes `gofumpt`; use `make fmt` for style-only cleanup.
 - Phase 2 strict lint: run `make lint-strict-new` for changed-code ratcheting before finalizing substantial edits.
 - Phase 3 CI gate is automated (no PR-body parsing). For local confidence, run path-relevant checks (`make harness-presets`, `go test ./internal/tmux ./internal/e2e`) when touching those areas.
+- Render-path changes: run `make perf-check` to self-verify on this host. It drives each harness preset and compares the measured p95 against the checked-in `${GOOS}_${GOARCH}` baselines (here, `DARWIN_ARM64_*` in `scripts/perf_baselines.env`) — PR-time CI only runs the perf job on Linux via cron, so the darwin-arm64 baselines have no automated gate. Set `PERF_STRICT=1` to fail (instead of silently skip) when a preset's baseline is missing. The checked-in `DARWIN_ARM64_*` numbers may be placeholders; re-baseline them on the dev machine before relying on `make perf-check` as a hard gate.
 - Lint policy source of truth: `LINTING.md`.
 - Release: use `make release VERSION=vX.Y.Z` (runs tests + harness, tags, pushes). Tag push triggers GitHub Actions release.
