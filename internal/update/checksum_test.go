@@ -20,9 +20,9 @@ func TestVerifyChecksum(t *testing.T) {
 	expectedChecksum := "a948904f2f0f479b8f8564cbf12dac6b0c2e2dae5b8d8e6a0c3a5c9f0e1d2c3b"
 
 	// First compute the actual checksum
-	actualChecksum, err := ComputeChecksum(testFile)
+	actualChecksum, err := hashFile(testFile)
 	if err != nil {
-		t.Fatalf("ComputeChecksum() error = %v", err)
+		t.Fatalf("hashFile() error = %v", err)
 	}
 
 	// Now verify with the actual checksum (should pass)
@@ -38,7 +38,7 @@ func TestVerifyChecksum(t *testing.T) {
 	}
 }
 
-func TestComputeChecksum(t *testing.T) {
+func TestHashFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.txt")
 
@@ -47,15 +47,15 @@ func TestComputeChecksum(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	checksum, err := ComputeChecksum(testFile)
+	checksum, err := hashFile(testFile)
 	if err != nil {
-		t.Fatalf("ComputeChecksum() error = %v", err)
+		t.Fatalf("hashFile() error = %v", err)
 	}
 
 	// SHA256 of empty file
 	emptyChecksum := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	if checksum != emptyChecksum {
-		t.Errorf("ComputeChecksum() of empty file = %s, want %s", checksum, emptyChecksum)
+		t.Errorf("hashFile() of empty file = %s, want %s", checksum, emptyChecksum)
 	}
 }
 
@@ -66,9 +66,9 @@ func TestVerifyChecksumFileNotFound(t *testing.T) {
 	}
 }
 
-func TestComputeChecksumFileNotFound(t *testing.T) {
-	_, err := ComputeChecksum("/nonexistent/file")
+func TestHashFileFileNotFound(t *testing.T) {
+	_, err := hashFile("/nonexistent/file")
 	if err == nil {
-		t.Error("ComputeChecksum() should fail for nonexistent file")
+		t.Error("hashFile() should fail for nonexistent file")
 	}
 }
