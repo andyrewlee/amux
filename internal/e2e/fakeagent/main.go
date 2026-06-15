@@ -23,6 +23,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -32,6 +33,48 @@ import (
 // readyBanner is emitted once the agent is in raw mode and ready for input.
 // Tests wait for it before typing so input is never sent prematurely.
 const readyBanner = "FAKEAGENT READY"
+
+// syncer is the subset of *os.File the recorder needs to flush after each read.
+// Extracting it lets recordStream accept an in-memory writer in tests while the
+// real run passes the log file, whose Sync makes the appended bytes pollable.
+type syncer interface {
+	io.Writer
+	Sync() error
+}
+
+// readyBannerBytes returns the exact bytes the agent emits once raw mode is
+// active. \r\n (not \n) because the terminal is raw, so the kernel performs no
+// NL->CRNL output translation and the banner must carry its own carriage return.
+func readyBannerBytes() []byte {
+	return []byte(readyBanner + "\r\n")
+}
+
+// recordStream is the load-bearing recorder: it copies every byte read from in
+// to log, flushing (Sync) after each non-empty read so a polling test observes
+// bytes deterministically, and returns when the reader reports an error.
+//
+// It must preserve bytes verbatim — in particular an embedded carriage return
+// (0x0D) — because that is exactly what proves a real keystroke (hex 0D, not the
+// named Enter key) reached a raw-mode agent. io.EOF is treated as a clean end of
+// stream and reported as nil; any other read error is returned. A read that
+// yields n>0 before signaling an error still records that partial buffer.
+func recordStream(in io.Reader, log syncer) error {
+	buf := make([]byte, 256)
+	for {
+		n, readErr := in.Read(buf)
+		if n > 0 {
+			if _, werr := log.Write(buf[:n]); werr == nil {
+				_ = log.Sync() // flush per read so tests can poll deterministically
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				return nil
+			}
+			return readErr
+		}
+	}
+}
 
 func main() {
 	var startupDelay time.Duration
@@ -72,19 +115,7 @@ func main() {
 	// Match full-screen terminal apps that ask their host to deliver wheel
 	// events to stdin instead of using outer scrollback.
 	fmt.Fprint(os.Stdout, "\x1b[?1000h\x1b[?1006h")
-	// \r\n because the terminal is now raw (no NL->CRNL output translation).
-	fmt.Fprint(os.Stdout, readyBanner+"\r\n")
+	os.Stdout.Write(readyBannerBytes())
 
-	buf := make([]byte, 256)
-	for {
-		n, readErr := os.Stdin.Read(buf)
-		if n > 0 {
-			if _, werr := log.Write(buf[:n]); werr == nil {
-				_ = log.Sync() // flush per read so tests can poll deterministically
-			}
-		}
-		if readErr != nil {
-			return
-		}
-	}
+	_ = recordStream(os.Stdin, log)
 }
