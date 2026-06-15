@@ -209,3 +209,57 @@ func TestIsScrolledTracksScrollViewTo(t *testing.T) {
 		t.Error("expected IsScrolled false when scrollback is empty")
 	}
 }
+
+func TestMaxViewOffset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		vt         *VTerm
+		scrollback int
+		want       int
+	}{
+		{
+			name: "nil receiver",
+			vt:   nil,
+			want: 0,
+		},
+		{
+			name: "no scrollback",
+			vt:   New(5, 3),
+			want: 0,
+		},
+		{
+			name:       "with scrollback",
+			vt:         New(5, 3),
+			scrollback: 6,
+			want:       6,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if tt.vt != nil && tt.scrollback > 0 {
+				addScrollbackLines(tt.vt, tt.scrollback)
+			}
+			if got := tt.vt.MaxViewOffset(); got != tt.want {
+				t.Fatalf("MaxViewOffset() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMaxViewOffsetUsesFrozenSyncSnapshot(t *testing.T) {
+	t.Parallel()
+	vt := New(5, 2)
+	addScrollbackLines(vt, 3)
+
+	vt.setSynchronizedOutput(true)
+	// Live scrollback grows during sync; MaxViewOffset reports the frozen length.
+	vt.Scrollback = append(vt.Scrollback, MakeBlankLine(5), MakeBlankLine(5))
+
+	if got := vt.MaxViewOffset(); got != 3 {
+		t.Fatalf("MaxViewOffset() during sync = %d, want 3 (frozen scrollback)", got)
+	}
+}

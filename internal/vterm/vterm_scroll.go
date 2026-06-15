@@ -62,6 +62,16 @@ func (v *VTerm) currentMaxViewOffset() int {
 	return scrollbackLen
 }
 
+// MaxViewOffset returns the maximum scrollback offset for the current buffers.
+// Used by the sidebar/center wheel handlers to decide whether scrollback exists.
+func (v *VTerm) MaxViewOffset() int {
+	if v == nil {
+		return 0
+	}
+	_, scrollbackLen := v.RenderBuffers()
+	return scrollbackLen
+}
+
 func (v *VTerm) clampViewOffsetToCurrentMax() {
 	if v == nil {
 		return
