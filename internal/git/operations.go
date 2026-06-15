@@ -168,10 +168,6 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 	return stdout.Bytes(), nil
 }
 
-func gitCommandContextError(ctx context.Context, runErr error, args []string) error {
-	return gitCommandContextErrorWithKillForGOOS(ctx, runtime.GOOS, runErr, args, false)
-}
-
 func gitCommandContextErrorWithKill(ctx context.Context, runErr error, args []string, killedByContext bool) error {
 	return gitCommandContextErrorWithKillForGOOS(ctx, runtime.GOOS, runErr, args, killedByContext)
 }
@@ -193,16 +189,6 @@ func gitAllowFailureCommandContextErrorWithKill(
 	)
 }
 
-func gitAllowFailureCommandContextErrorForGOOS(
-	ctx context.Context,
-	goos string,
-	runErr error,
-	args []string,
-	stdoutLen int,
-) error {
-	return gitAllowFailureCommandContextErrorWithKillForGOOS(ctx, goos, runErr, args, stdoutLen, false)
-}
-
 func gitAllowFailureCommandContextErrorWithKillForGOOS(
 	ctx context.Context,
 	goos string,
@@ -215,10 +201,6 @@ func gitAllowFailureCommandContextErrorWithKillForGOOS(
 		return nil
 	}
 	return gitCommandContextErrorWithKillForGOOS(ctx, goos, runErr, args, killedByContext)
-}
-
-func gitCommandContextErrorForGOOS(ctx context.Context, goos string, runErr error, args []string) error {
-	return gitCommandContextErrorWithKillForGOOS(ctx, goos, runErr, args, false)
 }
 
 func gitCommandContextErrorWithKillForGOOS(
@@ -239,7 +221,7 @@ func gitCommandContextErrorWithKillForGOOS(
 		return nil
 	}
 	if err := ctx.Err(); err != nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
-		if killedByContext || isCommandContextTerminationExitCodeForGOOS(goos, exitErr.ExitCode()) {
+		if killedByContext || isCommandContextTerminationExitCode(exitErr.ExitCode()) {
 			return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 		}
 	}
@@ -247,10 +229,6 @@ func gitCommandContextErrorWithKillForGOOS(
 }
 
 func isCommandContextTerminationExitCode(exitCode int) bool {
-	return isCommandContextTerminationExitCodeForGOOS(runtime.GOOS, exitCode)
-}
-
-func isCommandContextTerminationExitCodeForGOOS(_ string, exitCode int) bool {
 	return exitCode == -1
 }
 
