@@ -118,10 +118,11 @@ func TestAgentStateString(t *testing.T) {
 	}
 }
 
-// TestLastWorkingAtRecorded drives activeWorkspaceIDsWithHysteresisWithSeen
-// via a mock CaptureFn (changing content → active) and asserts that
-// LastWorkingAt was set on the returned state (proving Step 2 records it).
-func TestLastWorkingAtRecorded(t *testing.T) {
+// TestLastWorkingAtRecordsRealWorkOnly drives
+// activeWorkspaceIDsWithHysteresisWithSeen via a mock CaptureFn and asserts
+// that initialization does not count as finished work, while a real content
+// delta does.
+func TestLastWorkingAtRecordsRealWorkOnly(t *testing.T) {
 	infoBySession := map[string]SessionInfo{
 		"amux-ws1-tab-1": {WorkspaceID: "ws1", IsChat: true},
 	}
@@ -151,14 +152,26 @@ func TestLastWorkingAtRecorded(t *testing.T) {
 	if state == nil {
 		t.Fatal("expected updated state after first scan")
 	}
-	if state.LastWorkingAt.IsZero() {
-		t.Fatal("expected LastWorkingAt to be set when session is active")
+	if !state.LastWorkingAt.IsZero() {
+		t.Fatal("expected first-scan baseline to not set LastWorkingAt")
 	}
 
 	// ClassifyState on the returned state must report Working.
 	got := ClassifyState(state, time.Now())
 	if got != StateWorking {
 		t.Errorf("ClassifyState after active scan = %v, want StateWorking", got)
+	}
+
+	active, updated = activeIDsWithHysteresis(infoBySession, sessions, updated, tmux.Options{}, captureFn, hashFn)
+	if !active["ws1"] {
+		t.Fatal("expected ws1 to stay active after content delta")
+	}
+	state = updated["amux-ws1-tab-1"]
+	if state == nil {
+		t.Fatal("expected updated state after second scan")
+	}
+	if state.LastWorkingAt.IsZero() {
+		t.Fatal("expected LastWorkingAt to be set after a real content delta")
 	}
 }
 

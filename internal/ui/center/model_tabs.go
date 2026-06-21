@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/rivo/uniseg"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
@@ -93,13 +94,37 @@ type ptyTabReattachFailed struct {
 }
 
 func truncateDisplayName(name string) string {
-	// Count/slice by rune, not byte, so multibyte/CJK names are never cut
-	// mid-rune (which would render as a replacement glyph).
-	r := []rune(name)
-	if len(r) > 20 {
-		return "..." + string(r[len(r)-17:])
+	const (
+		maxWidth     = 20
+		prefix       = "..."
+		suffixBudget = maxWidth - len(prefix)
+	)
+	if uniseg.StringWidth(name) <= maxWidth {
+		return name
 	}
-	return name
+
+	clusters := make([]string, 0, len(name))
+	widths := make([]int, 0, len(name))
+	rest := name
+	state := -1
+	for len(rest) > 0 {
+		var cluster string
+		var width int
+		cluster, rest, width, state = uniseg.FirstGraphemeClusterInString(rest, state)
+		clusters = append(clusters, cluster)
+		widths = append(widths, width)
+	}
+
+	width := 0
+	start := len(clusters)
+	for i := len(clusters) - 1; i >= 0; i-- {
+		if width+widths[i] > suffixBudget {
+			break
+		}
+		width += widths[i]
+		start = i
+	}
+	return prefix + strings.Join(clusters[start:], "")
 }
 
 // createAgentTab creates a new agent tab

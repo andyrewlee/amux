@@ -4,12 +4,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rivo/uniseg"
+
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
-// TestTruncateDisplayName exercises the rune-length-based trailing-tail policy:
-// names of 20 runes or fewer are returned verbatim, while longer names are
-// rewritten as "..." plus the trailing 17 runes.
+// TestTruncateDisplayName exercises the display-width-based trailing-tail
+// policy: names 20 cells or narrower are returned verbatim, while wider names
+// are rewritten as "..." plus a suffix that fits the remaining cell budget.
 func TestTruncateDisplayName(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -41,7 +43,12 @@ func TestTruncateDisplayName(t *testing.T) {
 		{
 			name:  "multibyte name truncates on rune boundary",
 			input: strings.Repeat("界", 21),
-			want:  "..." + strings.Repeat("界", 17),
+			want:  "..." + strings.Repeat("界", 8),
+		},
+		{
+			name:  "twenty-cell multibyte name kept verbatim",
+			input: strings.Repeat("界", 10),
+			want:  strings.Repeat("界", 10),
 		},
 	}
 	for _, tt := range tests {
@@ -55,7 +62,7 @@ func TestTruncateDisplayName(t *testing.T) {
 }
 
 // TestTruncateDisplayName_BoundaryLengths is a property check across the cutover:
-// the result is never longer than 20 runes, and a truncated result always begins
+// the result is never wider than 20 cells, and a truncated result always begins
 // with the "..." marker while preserving the original suffix.
 func TestTruncateDisplayName_BoundaryLengths(t *testing.T) {
 	for n := 0; n <= 40; n++ {
@@ -73,8 +80,8 @@ func TestTruncateDisplayName_BoundaryLengths(t *testing.T) {
 			}
 			continue
 		}
-		if gotRunes := len([]rune(got)); gotRunes != 20 {
-			t.Fatalf("len=%d: truncated result %q has rune length %d, want 20", n, got, gotRunes)
+		if gotWidth := uniseg.StringWidth(got); gotWidth > 20 {
+			t.Fatalf("len=%d: truncated result %q has display width %d, want <= 20", n, got, gotWidth)
 		}
 		if !strings.HasPrefix(got, "...") {
 			t.Fatalf("len=%d: truncated result %q must start with ...", n, got)

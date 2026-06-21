@@ -305,6 +305,7 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 		}
 		// Observed this scan: it is not a candidate for unseen-pruning.
 		state.UnseenScans = 0
+		observedWork := false
 
 		// Capture pane content and compute hash
 		content, captureOK := captureFn(session.Name, CaptureTail, opts)
@@ -330,6 +331,7 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 				// so hold duration doesn't apply to single changes below threshold
 				if state.Score >= ScoreThreshold {
 					state.LastActiveAt = now
+					observedWork = true
 				}
 			} else {
 				// No change - decay score
@@ -360,7 +362,9 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 		}
 
 		if isActive {
-			state.LastWorkingAt = now
+			if observedWork {
+				state.LastWorkingAt = now
+			}
 			workspaceID := WorkspaceIDForSession(session, info, ok)
 			if workspaceID != "" {
 				active[workspaceID] = true

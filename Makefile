@@ -47,16 +47,16 @@ devcheck:
 # tmux-skip-check surfaces real-tmux/e2e tests that SILENTLY skip (no usable
 # tmux server). `make test` and `make devcheck` go green even when these tests
 # skip, giving false-green confidence that input/send behavior was exercised
-# when it was not (see AGENTS.md). This re-runs only the tmux/e2e packages with
+# when it was not (see AGENTS.md). This re-runs only the tmux/e2e/app packages with
 # -v so the per-test `--- SKIP:` lines are emitted (plain `go test` hides them).
 # Note: -v is part of Go's test cache key, so this re-run does NOT share the
-# cache of the preceding plain `go test ./...`; it re-executes those two
-# packages once per source change (bounded to internal/tmux + internal/e2e, and
-# a `(cached)` hit on any repeat with unchanged sources). It counts skipped
+# cache of the preceding plain `go test ./...`; it re-executes those packages
+# once per source change (bounded to internal/tmux + internal/e2e + internal/app,
+# and a `(cached)` hit on any repeat with unchanged sources). It counts skipped
 # tests and prints a non-fatal NOTE: the count feeds an informational echo
 # only, so the exit code of `test`/`devcheck` is unchanged.
 tmux-skip-check:
-	@skipped=$$(go test ./internal/tmux ./internal/e2e -v 2>/dev/null | grep -c '^--- SKIP:' || true); \
+	@skipped=$$(go test ./internal/tmux ./internal/e2e ./internal/app -v 2>/dev/null | grep -c '^--- SKIP:' || true); \
 	if [ "$$skipped" -gt 0 ]; then \
 		if [ "$${STRICT_TMUX:-}" = "1" ]; then \
 			echo "ERROR: $$skipped real-tmux/e2e tests skipped while STRICT_TMUX=1 (tmux is expected to be present here)."; \
