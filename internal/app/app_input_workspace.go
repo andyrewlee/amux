@@ -107,10 +107,13 @@ func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) te
 // handleWorkspaceDeleted handles the WorkspaceDeleted message.
 func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	var cmds []tea.Cmd
+	var postDeleteLoad tea.Cmd
 	if msg.Warning != "" {
 		cmds = append(cmds, a.toast.ShowWarning(msg.Warning))
 	}
 	if msg.Workspace != nil {
+		postDeleteLoad = a.loadProjects()
+		a.lifecycle.markDeletedUntilProjectsLoad(string(msg.Workspace.ID()), msg.Workspace.Root, a.lifecycle.projectsLoadToken)
 		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
 		// Drop the deleted workspace from the active set now rather than waiting
 		// for the async loadProjects -> scan reconcile, so a killed-but-not-yet-
@@ -147,6 +150,10 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if a.workspaceService != nil {
 			a.workspaceService.ReleaseWorkspacePort(msg.Workspace)
 		}
+		a.removeWorkspaceFromLoadedProjects(msg.Workspace)
+		if a.dashboard != nil {
+			a.dashboard.SetProjects(a.projects)
+		}
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
 		if cmd != nil {
@@ -166,9 +173,15 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if errCmd := common.ReportError(errorContext(errorServiceWorkspace, "removing workspace metadata"), msg.Err, ""); errCmd != nil {
 			cmds = append(cmds, errCmd)
 		}
+		if postDeleteLoad != nil {
+			cmds = append(cmds, postDeleteLoad)
+		}
 		return cmds
 	}
-	cmds = append(cmds, a.loadProjects())
+	if postDeleteLoad == nil {
+		postDeleteLoad = a.loadProjects()
+	}
+	cmds = append(cmds, postDeleteLoad)
 	return cmds
 }
 
@@ -215,6 +228,9 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 			}
 		}
 		if cmd := a.persistWorkspaceTabs(string(msg.Workspace.ID())); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if cmd := a.loadProjects(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}

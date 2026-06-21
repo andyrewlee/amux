@@ -28,6 +28,9 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	if loadToken > a.lifecycle.lastAppliedProjectsLoadToken {
 		a.lifecycle.lastAppliedProjectsLoadToken = loadToken
 	}
+	loadedIdentities := projectLoadWorkspaceIdentities(msg.Projects)
+	msg.Projects = a.filterDeletedWorkspacesFromProjectLoad(msg.Projects, loadToken)
+	a.lifecycle.clearDeletedProjectLoadBarriersThrough(loadToken, loadedIdentities)
 	a.projects = msg.Projects
 	a.projectsLoaded = true
 	var cmds []tea.Cmd
@@ -49,6 +52,38 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	return cmds
 }
 
+func (a *App) filterDeletedWorkspacesFromProjectLoad(projects []data.Project, loadToken projectsLoadToken) []data.Project {
+	for i := range projects {
+		project := &projects[i]
+		filtered := project.Workspaces[:0]
+		for j := range project.Workspaces {
+			ws := project.Workspaces[j]
+			if a.lifecycle.shouldFilterDeletedWorkspace(string(ws.ID()), ws.Root, loadToken) {
+				continue
+			}
+			filtered = append(filtered, ws)
+		}
+		project.Workspaces = filtered
+	}
+	return projects
+}
+
+func projectLoadWorkspaceIdentities(projects []data.Project) map[string]bool {
+	identities := make(map[string]bool)
+	for i := range projects {
+		for j := range projects[i].Workspaces {
+			ws := projects[i].Workspaces[j]
+			if id := string(ws.ID()); id != "" {
+				identities[id] = true
+			}
+			if ws.Root != "" {
+				identities[ws.Root] = true
+			}
+		}
+	}
+	return identities
+}
+
 func (a *App) rebindActiveSelection() []tea.Cmd {
 	var cmds []tea.Cmd
 	if a.activeWorkspace != nil {
@@ -59,6 +94,9 @@ func (a *App) rebindActiveSelection() []tea.Cmd {
 			ws, project = a.findWorkspaceAndProjectByCanonicalPaths(previous.Repo, previous.Root)
 		}
 		if ws == nil {
+			if a.lifecycle.isDeletingWorkspace(wsID, previous.Root) {
+				return cmds
+			}
 			a.goHome()
 			a.activeProject = nil
 			return cmds

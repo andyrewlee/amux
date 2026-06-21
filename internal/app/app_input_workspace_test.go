@@ -342,6 +342,12 @@ func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testi
 		center:          center.New(nil),
 		sidebar:         sidebar.NewTabbedSidebar(),
 		sidebarTerminal: sidebar.NewTerminalModel(),
+		workspaceService: newWorkspaceService(
+			nil,
+			nil,
+			nil,
+			"",
+		),
 		activeWorkspace: wsDel,
 		lifecycle: workspaceLifecycleState{
 			dirty:  map[string]bool{wsID: true},
@@ -372,5 +378,15 @@ func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testi
 	}
 	if len(cmds) == 0 {
 		t.Fatal("expected metadata error to be reported")
+	}
+
+	staleProject := data.NewProject("/repo")
+	staleProject.Workspaces = []data.Workspace{*wsDel, *wsKeep}
+	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*staleProject}})
+	if len(app.projects) != 1 || len(app.projects[0].Workspaces) != 1 {
+		t.Fatalf("expected stale reload to keep deleted workspace hidden, got %+v", app.projects)
+	}
+	if got := app.projects[0].Workspaces[0].Root; got != wsKeep.Root {
+		t.Fatalf("expected stale reload survivor %q, got %q", wsKeep.Root, got)
 	}
 }

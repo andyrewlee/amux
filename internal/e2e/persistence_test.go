@@ -223,21 +223,30 @@ func skipIfNoTmux(t *testing.T) {
 func ensureTmuxServer(t *testing.T) {
 	t.Helper()
 	server := fmt.Sprintf("amux-e2e-check-%d", time.Now().UnixNano())
-	args := []string{"-L", server, "start-server"}
+	args := []string{"-L", server, "-f", "/dev/null", "new-session", "-d", "-s", "_keepalive", "sleep", "300"}
 	cmd := exec.Command("tmux", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Skipf("tmux server socket unavailable: %v\n%s", err, out)
 	}
+	args = []string{"-L", server, "-f", "/dev/null", "set-option", "-s", "exit-empty", "off"}
+	cmd = exec.Command("tmux", args...)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("tmux server option unavailable: %v\n%s", err, out)
+	}
 	t.Cleanup(func() {
 		killTmuxServer(t, server)
 	})
-	args = []string{"-L", server, "show-options", "-g"}
+	args = []string{"-L", server, "-f", "/dev/null", "show-options", "-g"}
 	cmd = exec.Command("tmux", args...)
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Skipf("tmux server socket unreachable: %v\n%s", err, out)
 	}
+	args = []string{"-L", server, "-f", "/dev/null", "kill-session", "-t", "_keepalive"}
+	cmd = exec.Command("tmux", args...)
+	_ = cmd.Run()
 }
 
 func killTmuxServer(t *testing.T, server string) {

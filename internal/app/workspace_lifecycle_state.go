@@ -56,8 +56,9 @@ func lifecycleTransitionAllowed(from, to lifecyclePhase) bool {
 type workspaceLifecycleState struct {
 	// phaseMu guards phases; the deleting phase is read from Cmd/worker
 	// goroutines via the App guard helpers.
-	phaseMu sync.RWMutex
-	phases  map[string]lifecyclePhase
+	phaseMu        sync.RWMutex
+	phases         map[string]lifecyclePhase
+	deletingRootID map[string]string
 	// dirty tracks workspaces with unsaved tab state (persist debounce).
 	// Touched only from App.Update handlers (single writer).
 	dirty map[string]bool
@@ -67,6 +68,11 @@ type workspaceLifecycleState struct {
 	// the highest applied, so handleProjectsLoaded can drop stale reloads.
 	projectsLoadToken            projectsLoadToken
 	lastAppliedProjectsLoadToken projectsLoadToken
+	// deletedUntilProjectsLoadToken keeps a successfully deleted workspace hidden
+	// from project-load snapshots until the post-delete reload has applied.
+	// Keys include both workspace IDs and root paths because ID normalization can
+	// change after the worktree path is removed.
+	deletedUntilProjectsLoadToken map[string]projectsLoadToken
 	// localSaveMu guards localSavesAt (written from Cmd goroutines).
 	localSaveMu  sync.Mutex
 	localSavesAt map[string]localWorkspaceSaveMarker
@@ -74,9 +80,11 @@ type workspaceLifecycleState struct {
 
 func newWorkspaceLifecycleState() workspaceLifecycleState {
 	return workspaceLifecycleState{
-		phases:       make(map[string]lifecyclePhase),
-		dirty:        make(map[string]bool),
-		localSavesAt: make(map[string]localWorkspaceSaveMarker),
+		phases:                        make(map[string]lifecyclePhase),
+		deletingRootID:                make(map[string]string),
+		dirty:                         make(map[string]bool),
+		deletedUntilProjectsLoadToken: make(map[string]projectsLoadToken),
+		localSavesAt:                  make(map[string]localWorkspaceSaveMarker),
 	}
 }
 
@@ -91,6 +99,10 @@ func (w *workspaceLifecycleState) transition(wsID string, to lifecyclePhase) boo
 	if w.phases == nil {
 		w.phases = make(map[string]lifecyclePhase)
 	}
+	return w.transitionLocked(wsID, to)
+}
+
+func (w *workspaceLifecycleState) transitionLocked(wsID string, to lifecyclePhase) bool {
 	from := w.phases[wsID]
 	if !lifecycleTransitionAllowed(from, to) {
 		logging.Warn("workspace lifecycle: rejected transition %s -> %s for workspace %s", from, to, wsID)
@@ -147,12 +159,57 @@ func (w *workspaceLifecycleState) markDeleting(wsID string, deleting bool) bool 
 	return true
 }
 
+func (w *workspaceLifecycleState) markDeletingWorkspace(wsID, root string, deleting bool) bool {
+	if root == "" {
+		return w.markDeleting(wsID, deleting)
+	}
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	if w.phases == nil {
+		w.phases = make(map[string]lifecyclePhase)
+	}
+	if w.deletingRootID == nil {
+		w.deletingRootID = make(map[string]string)
+	}
+	if deleting {
+		if !w.transitionLocked(wsID, lifecycleDeleting) {
+			return false
+		}
+		w.deletingRootID[root] = wsID
+		return true
+	}
+	if markedID := w.deletingRootID[root]; markedID != "" {
+		delete(w.phases, markedID)
+		delete(w.deletingRootID, root)
+	}
+	if w.phases[wsID] == lifecycleDeleting {
+		delete(w.phases, wsID)
+	}
+	return true
+}
+
 // isDeleting reports whether a workspace is currently delete-in-flight.
 func (w *workspaceLifecycleState) isDeleting(wsID string) bool {
 	if wsID == "" {
 		return false
 	}
 	return w.phase(wsID) == lifecycleDeleting
+}
+
+func (w *workspaceLifecycleState) isDeletingWorkspace(wsID, root string) bool {
+	if wsID == "" && root == "" {
+		return false
+	}
+	w.phaseMu.RLock()
+	defer w.phaseMu.RUnlock()
+	if wsID != "" && w.phases[wsID] == lifecycleDeleting {
+		return true
+	}
+	if root != "" {
+		markedID := w.deletingRootID[root]
+		return markedID != "" && w.phases[markedID] == lifecycleDeleting
+	}
+	return false
 }
 
 // snapshotPhase returns a copy of the IDs currently in the given phase. The
@@ -198,6 +255,63 @@ func (w *workspaceLifecycleState) runUnlessDeleting(wsID string, fn func()) bool
 		fn()
 	}
 	return true
+}
+
+func (w *workspaceLifecycleState) markDeletedUntilProjectsLoad(wsID, root string, token projectsLoadToken) {
+	if token == 0 || (wsID == "" && root == "") {
+		return
+	}
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	if w.deletedUntilProjectsLoadToken == nil {
+		w.deletedUntilProjectsLoadToken = make(map[string]projectsLoadToken)
+	}
+	if wsID != "" {
+		w.deletedUntilProjectsLoadToken[wsID] = token
+	}
+	if root != "" {
+		w.deletedUntilProjectsLoadToken[root] = token
+	}
+}
+
+func (w *workspaceLifecycleState) shouldFilterDeletedWorkspace(wsID, root string, loadToken projectsLoadToken) bool {
+	if wsID == "" && root == "" {
+		return false
+	}
+	w.phaseMu.RLock()
+	defer w.phaseMu.RUnlock()
+	if wsID != "" && w.phases[wsID] == lifecycleDeleting {
+		return true
+	}
+	if root != "" {
+		markedID := w.deletingRootID[root]
+		if markedID != "" && w.phases[markedID] == lifecycleDeleting {
+			return true
+		}
+	}
+	for _, identity := range []string{wsID, root} {
+		if identity == "" {
+			continue
+		}
+		until, ok := w.deletedUntilProjectsLoadToken[identity]
+		if ok && (loadToken == 0 || loadToken <= until) {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *workspaceLifecycleState) clearDeletedProjectLoadBarriersThrough(loadToken projectsLoadToken, loadedIdentities map[string]bool) {
+	if loadToken == 0 {
+		return
+	}
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	for wsID, until := range w.deletedUntilProjectsLoadToken {
+		if until <= loadToken && !loadedIdentities[wsID] {
+			delete(w.deletedUntilProjectsLoadToken, wsID)
+		}
+	}
 }
 
 // markDirty records a workspace as having unsaved tab state.

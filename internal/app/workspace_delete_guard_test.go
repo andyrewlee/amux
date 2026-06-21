@@ -35,13 +35,21 @@ func TestMarkWorkspaceDeleteInFlightPreservesDirtyState(t *testing.T) {
 func TestHandleWorkspaceDeleteFailedRequeuesWorkspacePersistence(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
 	wsID := string(ws.ID())
+	project := data.NewProject("/repo")
+	project.Workspaces = []data.Workspace{*ws}
 
 	app := &App{
-		dashboard: dashboard.New(),
+		dashboard:        dashboard.New(),
+		workspaceService: newWorkspaceService(&fakeProjectRegistry{}, nil, nil, ""),
 		lifecycle: workspaceLifecycleState{
 			dirty:  make(map[string]bool),
 			phases: map[string]lifecyclePhase{wsID: lifecycleDeleting},
 		},
+	}
+
+	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*project}})
+	if len(app.projects) != 1 || len(app.projects[0].Workspaces) != 0 {
+		t.Fatalf("expected in-flight delete reload to hide workspace, got %+v", app.projects)
 	}
 
 	cmd := app.handleWorkspaceDeleteFailed(messages.WorkspaceDeleteFailed{
@@ -56,6 +64,17 @@ func TestHandleWorkspaceDeleteFailedRequeuesWorkspacePersistence(t *testing.T) {
 	}
 	if !app.lifecycle.dirty[wsID] {
 		t.Fatal("expected workspace persistence to be re-queued on delete failure")
+	}
+	if app.lifecycle.projectsLoadToken == 0 {
+		t.Fatal("expected delete failure to schedule a project reload")
+	}
+
+	app.handleProjectsLoaded(messages.ProjectsLoaded{
+		Projects:  []data.Project{*project},
+		LoadToken: int(app.lifecycle.projectsLoadToken),
+	})
+	if len(app.projects) != 1 || len(app.projects[0].Workspaces) != 1 {
+		t.Fatalf("expected reload after failed delete to restore workspace, got %+v", app.projects)
 	}
 }
 

@@ -58,6 +58,27 @@ func TestLifecycleRejectsCreateWhileDeleting(t *testing.T) {
 	}
 }
 
+func TestLifecycleClearsDeletingByWorkspaceRoot(t *testing.T) {
+	st := newWorkspaceLifecycleState()
+	root := "/repo/.amux/workspaces/feature"
+
+	if !st.markDeletingWorkspace("pre-delete-id", root, true) {
+		t.Fatal("expected delete marker to be accepted")
+	}
+	if !st.isDeletingWorkspace("different-id", root) {
+		t.Fatal("expected root identity to report delete in flight")
+	}
+	if !st.markDeletingWorkspace("post-delete-id", root, false) {
+		t.Fatal("expected delete marker clear to be accepted")
+	}
+	if st.isDeleting("pre-delete-id") {
+		t.Fatal("expected original delete phase to be cleared by root identity")
+	}
+	if st.isDeletingWorkspace("post-delete-id", root) {
+		t.Fatal("expected root identity to be settled after clear")
+	}
+}
+
 // TestLifecycleCreateWhileProjectsLoading proves the message interleaving that
 // motivated the creating phase: a workspace marked create-in-flight stays in
 // that phase across a ProjectsLoaded that does not yet contain it, and only

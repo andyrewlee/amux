@@ -36,12 +36,29 @@ func waitForUIContains(t *testing.T, session *PTYSession, needle string, timeout
 	}
 }
 
-// waitForUIAbsent polls until needle disappears from the rendered screen.
-func waitForUIAbsent(t *testing.T, session *PTYSession, needle string, timeout time.Duration) {
+// waitForUIConsistentlyAbsent waits until needle has remained absent for the
+// full stableFor window. This is for async UI paths where a transient blank or
+// reload frame should not be mistaken for the settled state.
+func waitForUIConsistentlyAbsent(t *testing.T, session *PTYSession, needle string, timeout, stableFor time.Duration) {
 	t.Helper()
-	if err := session.WaitForAbsent(needle, timeout); err != nil {
-		t.Fatalf("waiting for %q to disappear: %v", needle, err)
+	deadline := time.Now().Add(timeout)
+	var stableSince time.Time
+	lastScreen := session.ScreenASCII()
+	for time.Now().Before(deadline) {
+		lastScreen = session.ScreenASCII()
+		if stringsContains(lastScreen, needle) {
+			stableSince = time.Time{}
+		} else {
+			if stableSince.IsZero() {
+				stableSince = time.Now()
+			}
+			if time.Since(stableSince) >= stableFor {
+				return
+			}
+		}
+		time.Sleep(screenPollInterval)
 	}
+	t.Fatalf("timeout waiting for %q to stay absent for %s\n\nScreen:\n%s", needle, stableFor, lastScreen)
 }
 
 // waitForCond polls cond until it returns true, failing the test with the

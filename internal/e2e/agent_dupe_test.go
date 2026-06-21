@@ -35,19 +35,8 @@ func TestWorkspaceCreateAgentsHaveDistinctSessions(t *testing.T) {
 
 	waitForUIContains(t, session, filepath.Base(repo), workspaceAgentTimeout)
 
-	createWorkspaceFromDashboard(t, session, "feature")
-	waitForUIContains(t, session, "feature", workspaceAgentTimeout)
-
-	// Select the newly created workspace (one row above "New").
-	if err := session.SendString("k"); err != nil {
-		t.Fatalf("move to workspace row: %v", err)
-	}
-	if err := session.SendString("\r"); err != nil {
-		t.Fatalf("activate workspace: %v", err)
-	}
-	waitForUIContains(t, session, "[New agent]", workspaceAgentTimeout)
-
-	createAgentTabWithSelection(t, session, 0, workspaceAgentTimeout) // claude
+	createWorkspaceAndOpenAgentPicker(t, session, "feature", workspaceAgentTimeout)
+	selectAgentFromPicker(t, session, 0) // claude
 	if err := session.WaitForAbsent("New Agent", 3*time.Second); err != nil {
 		t.Fatalf("wait for picker close: %v", err)
 	}
@@ -71,6 +60,11 @@ func createAgentTabWithSelection(t *testing.T, session *PTYSession, down int, ti
 	t.Helper()
 	sendPrefixSequence(t, session, "t", "a")
 	waitForUIContains(t, session, "New Agent", timeout)
+	selectAgentFromPicker(t, session, down)
+}
+
+func selectAgentFromPicker(t *testing.T, session *PTYSession, down int) {
+	t.Helper()
 	for i := 0; i < down; i++ {
 		if err := session.SendString("\t"); err != nil {
 			t.Fatalf("select agent option: %v", err)

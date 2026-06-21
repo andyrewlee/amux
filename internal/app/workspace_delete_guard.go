@@ -9,7 +9,7 @@ func (a *App) markWorkspaceDeleteInFlight(ws *data.Workspace, deleting bool) boo
 	if ws == nil {
 		return false
 	}
-	return a.lifecycle.markDeleting(string(ws.ID()), deleting)
+	return a.lifecycle.markDeletingWorkspace(string(ws.ID()), ws.Root, deleting)
 }
 
 func (a *App) isWorkspaceDeleteInFlight(wsID string) bool {

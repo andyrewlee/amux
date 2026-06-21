@@ -54,9 +54,17 @@ devcheck:
 # once per source change (bounded to internal/tmux + internal/e2e + internal/app,
 # and a `(cached)` hit on any repeat with unchanged sources). It counts skipped
 # tests and prints a non-fatal NOTE: the count feeds an informational echo
-# only, so the exit code of `test`/`devcheck` is unchanged.
+# only, so the exit code of `test`/`devcheck` is unchanged. PTY-backed tmux
+# attach probes are allowed to skip on hosts that cannot attach a client; this
+# gate is for the real-tmux/e2e coverage that should run when tmux is present.
 tmux-skip-check:
-	@skipped=$$(go test ./internal/tmux ./internal/e2e ./internal/app -v 2>/dev/null | grep -c '^--- SKIP:' || true); \
+	@skipped=$$(go test ./internal/tmux ./internal/e2e ./internal/app -v 2>/dev/null | awk '\
+		/^[[:space:]]+[^[:space:]]+\.go:[0-9]+:/ { reason=$$0 } \
+		/^--- SKIP:/ { \
+			if (reason !~ /cannot start PTY-backed tmux attach|client never attached|signal permissions restricted in this environment/) skipped++; \
+			reason=""; \
+		} \
+		END { print skipped + 0 }'); \
 	if [ "$$skipped" -gt 0 ]; then \
 		if [ "$${STRICT_TMUX:-}" = "1" ]; then \
 			echo "ERROR: $$skipped real-tmux/e2e tests skipped while STRICT_TMUX=1 (tmux is expected to be present here)."; \

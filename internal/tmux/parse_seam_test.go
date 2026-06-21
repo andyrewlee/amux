@@ -96,6 +96,20 @@ func TestParseActiveAgentSessions(t *testing.T) {
 			},
 		},
 		{
+			name:  "trimmed blank type field is allowed",
+			lines: []string{"amux-trimmed\t" + act + "\t1\tws\tab"},
+			want: map[string]SessionActivity{
+				"amux-trimmed": {Name: "amux-trimmed", WorkspaceID: "ws", TabID: "ab", Type: "", Tagged: true},
+			},
+		},
+		{
+			name:  "trimmed untagged prefix row is allowed",
+			lines: []string{"amux-trimmed-prefix\t" + act},
+			want: map[string]SessionActivity{
+				"amux-trimmed-prefix": {Name: "amux-trimmed-prefix", Tagged: false},
+			},
+		},
+		{
 			name:  "too few fields skipped",
 			lines: []string{"only\ttwo\tfields"},
 			want:  map[string]SessionActivity{},

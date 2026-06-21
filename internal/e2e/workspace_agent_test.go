@@ -34,19 +34,8 @@ func TestWorkspaceCreateAgentTabStaysRunning(t *testing.T) {
 
 	waitForUIContains(t, session, filepath.Base(repo), workspaceAgentTimeout)
 
-	createWorkspaceFromDashboard(t, session, "feature")
-	waitForUIContains(t, session, "feature", workspaceAgentTimeout)
-
-	// Select the newly created workspace (one row above "New").
-	if err := session.SendString("k"); err != nil {
-		t.Fatalf("move to workspace row: %v", err)
-	}
-	if err := session.SendString("\r"); err != nil {
-		t.Fatalf("activate workspace: %v", err)
-	}
-	waitForUIContains(t, session, "[New agent]", workspaceAgentTimeout)
-
-	createAgentTab(t, session)
+	createWorkspaceAndOpenAgentPicker(t, session, "feature", workspaceAgentTimeout)
+	selectAgentFromPicker(t, session, 0)
 	waitForUIContains(t, session, "claude", workspaceAgentTimeout)
 
 	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
@@ -84,30 +73,18 @@ func TestWorkspaceDeleteTearsDownAgent(t *testing.T) {
 
 	waitForUIContains(t, session, filepath.Base(repo), workspaceAgentTimeout)
 
-	createWorkspaceFromDashboard(t, session, "feature")
-	waitForUIContains(t, session, "feature", workspaceAgentTimeout)
-
-	// Select the newly created workspace (one row above "New") and activate it.
-	if err := session.SendString("k"); err != nil {
-		t.Fatalf("move to workspace row: %v", err)
-	}
-	if err := session.SendString("\r"); err != nil {
-		t.Fatalf("activate workspace: %v", err)
-	}
-	waitForUIContains(t, session, "[New agent]", workspaceAgentTimeout)
-
-	createAgentTab(t, session)
+	createWorkspaceAndOpenAgentPicker(t, session, "feature", workspaceAgentTimeout)
+	selectAgentFromPicker(t, session, 0)
 	waitForUIContains(t, session, "claude", workspaceAgentTimeout)
 
 	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
 	waitForAgentSessions(t, opts, workspaceAgentTimeout)
 
 	// Delete the workspace through the real UI while the agent is live.
-	deleteSelectedWorkspace(t, session, workspaceAgentTimeout)
+	deleteSelectedWorkspace(t, session, "feature", workspaceAgentTimeout)
 
 	// The agent's tmux session must be torn down and the workspace must leave the
 	// dashboard (which also removes its agent tab from view).
 	waitForNoAgentSessions(t, opts, workspaceAgentTimeout)
-	waitForUIAbsent(t, session, "feature", workspaceAgentTimeout)
-	assertScreenNeverContains(t, session, []string{"feature"}, 3*time.Second)
+	waitForUIConsistentlyAbsent(t, session, "feature", workspaceAgentTimeout, 3*time.Second)
 }

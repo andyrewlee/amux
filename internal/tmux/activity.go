@@ -110,6 +110,8 @@ func ActiveAgentSessionsByActivity(window time.Duration, opts Options) ([]Sessio
 // (@amux set and not "0") or, as a fallback, its name carries the "amux-"
 // prefix; sessions whose type is set to something other than "agent" are
 // dropped, as are lines with a blank/non-numeric/non-positive activity stamp.
+// tmux omits trailing blank format fields after parseOutputLines trims output,
+// so metadata fields after window_activity are optional and default to blank.
 // When applyWindow is true, lines older than window relative to now are
 // dropped. Extracting it lets the prefix special case, type filter, malformed
 // skip, and keep-most-recent dedup be unit-tested without a live tmux server.
@@ -117,24 +119,30 @@ func parseActiveAgentSessions(lines []string, window time.Duration, now time.Tim
 	latest := make(map[string]SessionActivity)
 	for _, line := range lines {
 		parts := strings.Split(line, "\t")
-		if len(parts) < 6 {
+		if len(parts) < 2 {
 			continue
 		}
 		sessionName := strings.TrimSpace(parts[0])
-		amux := strings.TrimSpace(parts[2])
+		field := func(i int) string {
+			if i >= len(parts) {
+				return ""
+			}
+			return strings.TrimSpace(parts[i])
+		}
+		amux := field(2)
 		tagged := amux != "" && amux != "0"
 		if !tagged {
 			if !strings.HasPrefix(sessionName, "amux-") {
 				continue
 			}
 		}
-		workspaceID := strings.TrimSpace(parts[3])
-		tabID := strings.TrimSpace(parts[4])
-		sessionType := strings.TrimSpace(parts[5])
+		workspaceID := field(3)
+		tabID := field(4)
+		sessionType := field(5)
 		if sessionType != "" && sessionType != "agent" {
 			continue
 		}
-		activityRaw := strings.TrimSpace(parts[1])
+		activityRaw := field(1)
 		if activityRaw == "" {
 			continue
 		}

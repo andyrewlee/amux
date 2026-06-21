@@ -20,11 +20,20 @@ func skipIfNoTmux(t *testing.T) {
 
 func ensureTmuxServer(t *testing.T, opts Options) {
 	t.Helper()
-	args := tmuxArgs(opts, "start-server")
+	// A bare start-server can exit immediately when no sessions exist. Create a
+	// detached keepalive session so the isolated server remains reachable for
+	// the subsequent integration test commands.
+	args := tmuxArgs(opts, "new-session", "-d", "-s", "_keepalive", "sleep", "300")
 	cmd := exec.Command("tmux", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Skipf("tmux server socket unavailable: %v\n%s", err, out)
+	}
+	args = tmuxArgs(opts, "set-option", "-s", "exit-empty", "off")
+	cmd = exec.Command("tmux", args...)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("tmux server option unavailable: %v\n%s", err, out)
 	}
 	// Verify the server is reachable.
 	args = tmuxArgs(opts, "show-options", "-g")
@@ -33,6 +42,9 @@ func ensureTmuxServer(t *testing.T, opts Options) {
 	if err != nil {
 		t.Skipf("tmux server socket unreachable: %v\n%s", err, out)
 	}
+	args = tmuxArgs(opts, "kill-session", "-t", "_keepalive")
+	cmd = exec.Command("tmux", args...)
+	_ = cmd.Run()
 }
 
 // testServer returns Options pointing at an isolated tmux server and registers
