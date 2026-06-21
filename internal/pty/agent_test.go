@@ -392,10 +392,12 @@ func TestAgentManager_SendInterrupt_ZeroCount(t *testing.T) {
 		Type:     AgentType("claude"),
 		Terminal: term,
 		Config: config.AssistantConfig{
-			InterruptCount: 0, // zero means no interrupts sent
+			InterruptCount: 0, // unconfigured: floors to a single interrupt
 		},
 	}
 
+	// A zero/unset InterruptCount must still deliver one Ctrl-C so a user's
+	// interrupt is never silently swallowed (e.g. for viewer agents).
 	err = m.SendInterrupt(agent)
 	if err != nil {
 		t.Errorf("SendInterrupt with zero count should succeed, got %v", err)
