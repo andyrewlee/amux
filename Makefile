@@ -58,6 +58,10 @@ devcheck:
 tmux-skip-check:
 	@skipped=$$(go test ./internal/tmux ./internal/e2e -v 2>/dev/null | grep -c '^--- SKIP:' || true); \
 	if [ "$$skipped" -gt 0 ]; then \
+		if [ "$${STRICT_TMUX:-}" = "1" ]; then \
+			echo "ERROR: $$skipped real-tmux/e2e tests skipped while STRICT_TMUX=1 (tmux is expected to be present here)."; \
+			exit 1; \
+		fi; \
 		echo "NOTE: $$skipped real-tmux/e2e tests skipped (tmux server unavailable or environment-restricted) — run inside tmux and use \`make verify-loop\` to exercise input/send end-to-end."; \
 	fi
 

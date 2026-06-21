@@ -151,6 +151,9 @@ jobs:
       - name: Test (app, real tmux)
         run: go test ./internal/app -count=1
 
+      - name: Assert no real-tmux tests skipped
+        run: STRICT_TMUX=1 make tmux-skip-check
+
   lint-strict-pr:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
