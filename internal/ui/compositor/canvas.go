@@ -139,28 +139,9 @@ func inSelection(sel SelectionRegion, x, y int) bool {
 	if !sel.Active {
 		return false
 	}
-
-	startX, startY := sel.StartX, sel.StartY
-	endX, endY := sel.EndX, sel.EndY
-
-	if startY > endY || (startY == endY && startX > endX) {
-		startX, endX = endX, startX
-		startY, endY = endY, startY
-	}
-
-	if y < startY || y > endY {
-		return false
-	}
-	if y == startY && y == endY {
-		return x >= startX && x <= endX
-	}
-	if y == startY {
-		return x >= startX
-	}
-	if y == endY {
-		return x <= endX
-	}
-	return true
+	startX, startY, endX, endY := vterm.NormalizeSelectionRange(
+		sel.StartX, sel.StartY, sel.EndX, sel.EndY)
+	return vterm.SelectionContains(startX, startY, endX, endY, x, y)
 }
 
 // Render converts the canvas to an ANSI string.
@@ -181,11 +162,8 @@ func (c *Canvas) Render() string {
 			if cell.Width == 0 {
 				continue
 			}
-			style := cell.Style
 			// Prevent underline-on-spaces from rendering as scanlines.
-			if style.Underline && (cell.Rune == 0 || cell.Rune == ' ') {
-				style.Underline = false
-			}
+			style := vterm.SuppressBlankUnderline(cell.Rune, cell.Style)
 			if style != lastStyle {
 				// Use full style for first cell (after reset), delta for subsequent
 				if firstCell {
@@ -196,11 +174,7 @@ func (c *Canvas) Render() string {
 				lastStyle = style
 			}
 			firstCell = false
-			r := cell.Rune
-			if r == 0 {
-				r = ' '
-			}
-			b.WriteRune(r)
+			b.WriteRune(vterm.RenderableRune(cell.Rune))
 		}
 		if y < c.Height-1 {
 			b.WriteRune('\n')

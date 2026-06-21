@@ -129,14 +129,9 @@ func cellToUVSnapshot(uvCell *uv.Cell, cell vterm.Cell, snap *VTermSnapshot, x, 
 	}
 
 	// Suppress underline on blank cells (prevents visual scanlines)
-	if style.Underline && (cell.Rune == 0 || cell.Rune == ' ') {
-		style.Underline = false
-	}
+	style = vterm.SuppressBlankUnderline(cell.Rune, style)
 
-	r := cell.Rune
-	if r == 0 {
-		r = ' '
-	}
+	r := vterm.RenderableRune(cell.Rune)
 
 	*uvCell = uv.Cell{
 		Content: runeToString(r),
@@ -150,28 +145,9 @@ func inSelectionSnapshot(snap *VTermSnapshot, x, y int) bool {
 	if snap == nil || !snap.SelActive {
 		return false
 	}
-
-	startX, startY := snap.SelStartX, snap.SelStartY
-	endX, endY := snap.SelEndX, snap.SelEndY
-
-	if startY > endY || (startY == endY && startX > endX) {
-		startX, endX = endX, startX
-		startY, endY = endY, startY
-	}
-
-	if y < startY || y > endY {
-		return false
-	}
-	if y == startY && y == endY {
-		return x >= startX && x <= endX
-	}
-	if y == startY {
-		return x >= startX
-	}
-	if y == endY {
-		return x <= endX
-	}
-	return true
+	startX, startY, endX, endY := vterm.NormalizeSelectionRange(
+		snap.SelStartX, snap.SelStartY, snap.SelEndX, snap.SelEndY)
+	return vterm.SelectionContains(startX, startY, endX, endY, x, y)
 }
 
 // vtermStyleToUV converts a vterm.Style to ultraviolet's Style.

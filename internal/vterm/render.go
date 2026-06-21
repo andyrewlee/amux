@@ -365,13 +365,30 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 }
 
 func suppressBlankUnderline(cell Cell, style Style) Style {
-	// Some TUIs leave underline enabled while clearing rows; underline on spaces
-	// renders as scanlines, so drop it for blank cells at render time.
+	return SuppressBlankUnderline(cell.Rune, style)
+}
+
+// SuppressBlankUnderline drops the underline attribute when rune r is blank
+// (NUL or space). Some TUIs leave underline enabled while clearing rows;
+// underline on spaces renders as scanlines, so it is removed for blank cells at
+// render time. The rule is shared by the live renderer and both compositor
+// render paths so they stay pixel-identical.
+func SuppressBlankUnderline(r rune, style Style) Style {
 	if !style.Underline {
 		return style
 	}
-	if cell.Rune == 0 || cell.Rune == ' ' {
+	if r == 0 || r == ' ' {
 		style.Underline = false
 	}
 	return style
+}
+
+// RenderableRune substitutes a NUL rune (an unwritten cell) with a space so it
+// renders as blank rather than a control character. Other runes pass through
+// unchanged. Shared by the live renderer and the compositor render paths.
+func RenderableRune(r rune) rune {
+	if r == 0 {
+		return ' '
+	}
+	return r
 }
