@@ -132,10 +132,12 @@ lint-tools:
 
 lint: check-golangci-version
 	$(GOLANGCI) run
+	$(GOLANGCI) fmt --diff
 	$(MAKE) check-file-length
 
 lint-strict: check-golangci-version
 	$(GOLANGCI) run -c .golangci.strict.yml
+	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 
 lint-strict-new: check-golangci-version
 	@if [ -n "$(BASE)" ]; then \
@@ -145,6 +147,7 @@ lint-strict-new: check-golangci-version
 		echo "Running strict lint on current unstaged/staged changes (--new)"; \
 		$(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m; \
 	fi
+	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 
 lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored local directory (/.cache/).
 	@command -v $(GOLANGCI) >/dev/null 2>&1 || (echo "golangci-lint is required: run 'make lint-tools' to build the pinned version locally, or install from https://golangci-lint.run/welcome/install/"; exit 1)
@@ -185,6 +188,7 @@ lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored loc
 		fi; \
 		trap - EXIT INT TERM; rm -f "$$OUTPUT"; \
 	fi
+	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 
 check-file-length:
 	@echo "Checking file lengths (max 500 lines)..."

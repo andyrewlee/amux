@@ -12,9 +12,9 @@ make run
 
 Run `make lint-tools` once before your first `make devcheck` or `git commit`.
 It builds the linter version pinned in `.golangci-version` into the gitignored
-`./.cache/bin`; a stock `golangci-lint` from `PATH` is likely the wrong major
-version (v2.x) and fails confusingly against this repo's v1 config. See
-[LINTING.md](LINTING.md) for the full rationale.
+`./.cache/bin`; a stock `golangci-lint` from `PATH` may be a different version
+from CI and produce different diagnostics. See [LINTING.md](LINTING.md) for the
+full rationale.
 
 The minimum supported Go is **1.26** (the `go` directive in `go.mod`); any Go
 1.26.x patch release builds the repo, so no `GOTOOLCHAIN` override is needed.

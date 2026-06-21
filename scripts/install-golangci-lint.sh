@@ -3,12 +3,11 @@
 # install-golangci-lint.sh — self-bootstrap the pinned golangci-lint.
 #
 # The version is the single source of truth in .golangci-version. A system
-# golangci-lint is often the wrong version: a v2.x binary cannot read this
-# repo's v1 .golangci.yml ("unsupported version of the configuration"), and even
-# a prebuilt v1.64.8 can be rejected because it was built with an older Go than
-# the go.mod target ("build Go < target Go"). Building the pinned version FROM
-# SOURCE with the local Go toolchain into a repo-local, gitignored dir sidesteps
-# both problems.
+# golangci-lint is often a different version from the repo pin, and prebuilt
+# binaries can be rejected when they were built with an older Go than the go.mod
+# target ("build Go < target Go"). Building the pinned version FROM SOURCE with
+# the local Go toolchain into a repo-local, gitignored dir sidesteps both
+# problems.
 #
 # This script is idempotent: if ./.cache/bin/golangci-lint already reports the
 # pinned version it does nothing and never deletes an existing good binary.
@@ -51,8 +50,14 @@ command -v go >/dev/null 2>&1 || {
 }
 
 mkdir -p "$bindir"
-echo "install-golangci-lint: building github.com/golangci/golangci-lint@$want into $bindir"
-GOBIN="$bindir" go install "github.com/golangci/golangci-lint/cmd/golangci-lint@$want"
+major="${want_bare%%.*}"
+module="github.com/golangci/golangci-lint/cmd/golangci-lint"
+if [[ "$major" =~ ^[0-9]+$ && "$major" -ge 2 ]]; then
+  module="github.com/golangci/golangci-lint/v${major}/cmd/golangci-lint"
+fi
+
+echo "install-golangci-lint: building $module@$want into $bindir"
+GOBIN="$bindir" go install "$module@$want"
 
 # Confirm the freshly built binary reports the pinned version.
 got_raw="$("$binary" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"

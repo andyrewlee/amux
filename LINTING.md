@@ -23,9 +23,8 @@ CI enforces the same lint checks in `.github/workflows/ci.yml`.
 
 `make lint` / `make devcheck` need the golangci-lint version pinned in
 `.golangci-version`. A system golangci-lint is frequently the wrong version and
-fails confusingly: a v2.x binary cannot read this repo's v1 `.golangci.yml`
-(`unsupported version of the configuration`), and even a prebuilt v1.64.8 can be
-rejected because it was built with an older Go than the `go.mod` target
+can produce different diagnostics from CI. A prebuilt binary can also be
+rejected when it was built with an older Go than the `go.mod` target
 (`build Go < target Go`).
 
 Run this once (and again only if `.golangci-version` changes):

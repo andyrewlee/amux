@@ -113,8 +113,8 @@ pre-push lint-parity gate the project relies on for quality.
 
 Run `make lint-tools` once before your first `make devcheck` or `git commit`.
 It builds the linter pinned in `.golangci-version` into the gitignored
-`./.cache/bin`; a stock `golangci-lint` from `PATH` is likely the wrong major
-version for this repo's v1 config. See [LINTING.md](LINTING.md) and
+`./.cache/bin`; a stock `golangci-lint` from `PATH` may be a different version
+from CI and produce different diagnostics. See [LINTING.md](LINTING.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Operations
