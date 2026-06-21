@@ -170,6 +170,7 @@ func TestClassifyWorkspaceStates(t *testing.T) {
 		active        map[string]bool
 		updated       map[string]*SessionState
 		infoBySession map[string]SessionInfo
+		sessions      []TaggedSession
 		want          map[string]AgentState
 	}{
 		{
@@ -207,6 +208,39 @@ func TestClassifyWorkspaceStates(t *testing.T) {
 			want:          map[string]AgentState{},
 		},
 		{
+			name:   "tagged session outside local metadata gets StateDone",
+			active: map[string]bool{},
+			updated: map[string]*SessionState{
+				"external-sess": {LastWorkingAt: now.Add(-DoneWindow / 2)},
+			},
+			infoBySession: map[string]SessionInfo{},
+			sessions: []TaggedSession{{
+				Session: tmux.SessionActivity{
+					Name:        "external-sess",
+					WorkspaceID: "ws-external",
+					Type:        "agent",
+					Tagged:      true,
+				},
+			}},
+			want: map[string]AgentState{"ws-external": StateDone},
+		},
+		{
+			name:   "tagged session can derive workspace from session name",
+			active: map[string]bool{},
+			updated: map[string]*SessionState{
+				"amux-ws-name-tab-1": {LastWorkingAt: now.Add(-DoneWindow / 2)},
+			},
+			infoBySession: map[string]SessionInfo{},
+			sessions: []TaggedSession{{
+				Session: tmux.SessionActivity{
+					Name:   "amux-ws-name-tab-1",
+					Type:   "agent",
+					Tagged: true,
+				},
+			}},
+			want: map[string]AgentState{"ws": StateDone},
+		},
+		{
 			name:          "session without workspace ID is skipped",
 			active:        map[string]bool{},
 			updated:       map[string]*SessionState{"sess5": {LastWorkingAt: now.Add(-DoneWindow / 2)}},
@@ -217,7 +251,7 @@ func TestClassifyWorkspaceStates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ClassifyWorkspaceStates(tt.active, tt.updated, tt.infoBySession, now)
+			got := ClassifyWorkspaceStates(tt.active, tt.updated, tt.infoBySession, tt.sessions, now)
 			if len(got) != len(tt.want) {
 				t.Errorf("ClassifyWorkspaceStates() len = %d, want %d; got %v", len(got), len(tt.want), got)
 				return

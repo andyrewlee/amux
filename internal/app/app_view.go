@@ -3,6 +3,8 @@ package app
 import (
 	"fmt"
 	"runtime/debug"
+	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -100,7 +102,7 @@ func (a *App) viewLayerBased() tea.View {
 		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
 	}
 	if a.center != nil {
-		if title := a.center.FocusedAgentTitle(); title != "" {
+		if title := sanitizedWindowTitle(a.center.FocusedAgentTitle()); title != "" {
 			view.WindowTitle = title
 		}
 	}
@@ -147,4 +149,43 @@ func (a *App) viewLayerBased() tea.View {
 	view.SetContent(syncBegin + canvas.Render() + syncEnd)
 	view.Cursor = cursor
 	return view
+}
+
+const maxWindowTitleRunes = 128
+
+func sanitizedWindowTitle(title string) string {
+	if title == "" {
+		return ""
+	}
+	var b strings.Builder
+	written := 0
+	for len(title) > 0 && written < maxWindowTitleRunes {
+		r, size := utf8.DecodeRuneInString(title)
+		if r == utf8.RuneError && size == 1 {
+			raw := title[0]
+			title = title[1:]
+			if isTerminalControlByte(raw) {
+				continue
+			}
+		} else {
+			title = title[size:]
+		}
+		if isTerminalControlRune(r) {
+			continue
+		}
+		if b.Len() == 0 {
+			b.Grow(len(title))
+		}
+		b.WriteRune(r)
+		written++
+	}
+	return b.String()
+}
+
+func isTerminalControlByte(b byte) bool {
+	return b <= 0x1f || b == 0x7f || (b >= 0x80 && b <= 0x9f)
+}
+
+func isTerminalControlRune(r rune) bool {
+	return r <= 0x1f || r == 0x7f || (r >= 0x80 && r <= 0x9f)
 }

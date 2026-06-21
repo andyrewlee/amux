@@ -162,7 +162,7 @@ func (a *App) runTmuxActivityScan(
 	result := tmuxActivityResult{
 		Token:              scanToken,
 		ActiveWorkspaceIDs: active,
-		AgentStates:        activity.ClassifyWorkspaceStates(active, updatedStates, infoBySession, time.Now()),
+		AgentStates:        activity.ClassifyWorkspaceStates(active, updatedStates, infoBySession, sessions, time.Now()),
 		UpdatedStates:      updatedStates,
 		RemovedStates:      removedStates,
 		StoppedTabs:        stoppedTabs,
