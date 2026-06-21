@@ -337,7 +337,7 @@ var tmuxEnvKeys = []string{
 
 // pinTmuxEnv registers cleanups that restore every managed env var to its
 // pre-test value, so mutations made by applyTmuxEnvFromConfig do not leak across
-// tests regardless of which branch ran.
+// tests.
 func pinTmuxEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range tmuxEnvKeys {
@@ -368,9 +368,8 @@ func TestApplyTmuxEnvFromConfig_NilConfigIsNoOp(t *testing.T) {
 	for _, key := range tmuxEnvKeys {
 		t.Setenv(key, "sentinel-"+key)
 	}
-	// A nil config must leave the environment untouched on both force settings.
-	applyTmuxEnvFromConfig(nil, false)
-	applyTmuxEnvFromConfig(nil, true)
+	// A nil config must leave the environment untouched.
+	applyTmuxEnvFromConfig(nil)
 	for _, key := range tmuxEnvKeys {
 		if got := os.Getenv(key); got != "sentinel-"+key {
 			t.Errorf("nil config mutated %s to %q", key, got)
@@ -378,7 +377,7 @@ func TestApplyTmuxEnvFromConfig_NilConfigIsNoOp(t *testing.T) {
 	}
 }
 
-func TestApplyTmuxEnvFromConfig_NonForce_OnlySetsNonEmpty(t *testing.T) {
+func TestApplyTmuxEnvFromConfig_OnlySetsNonEmpty(t *testing.T) {
 	pinTmuxEnv(t)
 	// Pre-seed values that should survive because the config leaves them empty.
 	t.Setenv("AMUX_TMUX_CONFIG", "preexisting-config")
@@ -391,7 +390,7 @@ func TestApplyTmuxEnvFromConfig_NonForce_OnlySetsNonEmpty(t *testing.T) {
 	}
 
 	cfg := cfgWithTmux("amux-server", "", "", "/tmp/ws-root")
-	applyTmuxEnvFromConfig(cfg, false)
+	applyTmuxEnvFromConfig(cfg)
 
 	// Non-empty config fields are applied.
 	if got := os.Getenv("AMUX_TMUX_SERVER"); got != "amux-server" {
@@ -400,7 +399,7 @@ func TestApplyTmuxEnvFromConfig_NonForce_OnlySetsNonEmpty(t *testing.T) {
 	if got := os.Getenv(config.WorkspacesRootEnvVar); got != "/tmp/ws-root" {
 		t.Errorf("%s = %q, want %q", config.WorkspacesRootEnvVar, got, "/tmp/ws-root")
 	}
-	// Empty config fields must NOT clobber preexisting values in non-force mode.
+	// Empty config fields must NOT clobber preexisting values.
 	if got := os.Getenv("AMUX_TMUX_CONFIG"); got != "preexisting-config" {
 		t.Errorf("AMUX_TMUX_CONFIG = %q, want preexisting value preserved", got)
 	}
@@ -409,31 +408,16 @@ func TestApplyTmuxEnvFromConfig_NonForce_OnlySetsNonEmpty(t *testing.T) {
 	}
 }
 
-func TestApplyTmuxEnvFromConfig_Force_UnsetsEmptyFields(t *testing.T) {
-	pinTmuxEnv(t)
-	// Pre-seed values that force mode must clear because the config is empty.
-	for _, key := range tmuxEnvKeys {
-		t.Setenv(key, "stale-"+key)
-	}
-
-	cfg := cfgWithTmux("", "", "", "")
-	applyTmuxEnvFromConfig(cfg, true)
-
-	for _, key := range tmuxEnvKeys {
-		if got, ok := os.LookupEnv(key); ok {
-			t.Errorf("force mode left %s set to %q, want unset", key, got)
-		}
-	}
-}
-
-func TestApplyTmuxEnvFromConfig_Force_SetsAndOverwritesNonEmptyFields(t *testing.T) {
+// TestApplyTmuxEnvFromConfig_OverwritesNonEmptyFields verifies that non-empty
+// config fields overwrite any preexisting env values.
+func TestApplyTmuxEnvFromConfig_OverwritesNonEmptyFields(t *testing.T) {
 	pinTmuxEnv(t)
 	for _, key := range tmuxEnvKeys {
 		t.Setenv(key, "stale-"+key)
 	}
 
 	cfg := cfgWithTmux("srv", "/etc/tmux.conf", "9s", "/var/ws")
-	applyTmuxEnvFromConfig(cfg, true)
+	applyTmuxEnvFromConfig(cfg)
 
 	want := map[string]string{
 		"AMUX_TMUX_SERVER":          "srv",
@@ -443,14 +427,14 @@ func TestApplyTmuxEnvFromConfig_Force_SetsAndOverwritesNonEmptyFields(t *testing
 	}
 	for key, exp := range want {
 		if got := os.Getenv(key); got != exp {
-			t.Errorf("force overwrite %s = %q, want %q", key, got, exp)
+			t.Errorf("overwrite %s = %q, want %q", key, got, exp)
 		}
 	}
 }
 
 // TestApplyTmuxEnvFromConfig_TrimsWhitespace verifies the trimming contract is
 // honored through the helpers: a whitespace-only field is treated as empty
-// (preserved in non-force mode) while a padded value is stored trimmed.
+// (the preexisting value is preserved) while a padded value is stored trimmed.
 func TestApplyTmuxEnvFromConfig_TrimsWhitespace(t *testing.T) {
 	pinTmuxEnv(t)
 	t.Setenv("AMUX_TMUX_SERVER", "keepme")
@@ -459,7 +443,7 @@ func TestApplyTmuxEnvFromConfig_TrimsWhitespace(t *testing.T) {
 	}
 
 	cfg := cfgWithTmux("   ", "  /padded/path  ", "", "")
-	applyTmuxEnvFromConfig(cfg, false)
+	applyTmuxEnvFromConfig(cfg)
 
 	// Whitespace-only server is treated as empty: the preexisting value survives.
 	if got := os.Getenv("AMUX_TMUX_SERVER"); got != "keepme" {
