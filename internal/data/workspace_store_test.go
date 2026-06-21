@@ -16,9 +16,11 @@ import (
 // store-owned field (OpenTabs) that a logically-concurrent writer commits while
 // the rescan is in flight. Before routing the merge through the locked
 // reload+merge+save, UpsertFromDiscovery read the stored metadata WITHOUT the
-// flock, so an interleaved AppendOpenTab could land between that read and the
-// final Save and be silently dropped — a lost update. The reload-under-lock
-// closes that window. Many rounds make the race surface reliably under -race.
+// flock, so an interleaved tab Save could land between that read and the final
+// Save and be silently dropped — a lost update. The reload-under-lock closes
+// that window. The concurrent tab writer here uses the production append path
+// (load, set OpenTabs, Save — see app_persistence.go) rather than any dedicated
+// store method. Many rounds make the race surface reliably under -race.
 func TestWorkspaceStore_UpsertFromDiscovery_NoLostUpdateUnderConcurrency(t *testing.T) {
 	const rounds = 60
 
@@ -40,7 +42,8 @@ func TestWorkspaceStore_UpsertFromDiscovery_NoLostUpdateUnderConcurrency(t *test
 
 		// Two logically-concurrent writers touching different fields:
 		//   - discovery updates Branch (and preserves store-owned fields),
-		//   - the tab writer appends an OpenTab (a store-owned field).
+		//   - the tab writer appends an OpenTab (a store-owned field) via the
+		//     production load+Save path.
 		// Neither field may be lost: with the unlocked read-modify-write, the
 		// discovery's stale pre-lock snapshot would overwrite the appended tab.
 		var wg sync.WaitGroup
@@ -68,8 +71,14 @@ func TestWorkspaceStore_UpsertFromDiscovery_NoLostUpdateUnderConcurrency(t *test
 				Status:      "running",
 				CreatedAt:   time.Now().Unix(),
 			}
-			if err := store.AppendOpenTab(id, tab); err != nil {
-				t.Errorf("round %d: AppendOpenTab() error = %v", round, err)
+			loaded, err := store.Load(id)
+			if err != nil {
+				t.Errorf("round %d: Load() error = %v", round, err)
+				return
+			}
+			loaded.OpenTabs = append(loaded.OpenTabs, tab)
+			if err := store.Save(loaded); err != nil {
+				t.Errorf("round %d: Save(tab) error = %v", round, err)
 			}
 		}()
 

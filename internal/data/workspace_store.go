@@ -216,6 +216,31 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 	return nil
 }
 
+// saveWorkspaceLocked writes workspace metadata atomically. Unlike Save it does
+// not acquire the workspace flock — the caller must already hold it (the
+// discovery merge path holds the lock across its whole reload+merge+save).
+func (s *WorkspaceStore) saveWorkspaceLocked(id WorkspaceID, ws *Workspace) error {
+	if ws == nil {
+		return errors.New("workspace is required")
+	}
+	path := s.workspacePath(id)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(ws, "", "  ")
+	if err != nil {
+		return err
+	}
+	// Atomic replace (temp + fsync + rename, with backup recovery on platforms
+	// that need it), matching Save. The caller already holds the workspace lock.
+	// A crash mid-save can never leave a truncated workspace.json behind.
+	if err := fsatomic.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Delete removes a workspace from the store
 func (s *WorkspaceStore) Delete(id WorkspaceID) error {
 	if err := validateWorkspaceID(id); err != nil {
