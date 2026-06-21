@@ -12,7 +12,7 @@ func capturePaneSnapshotData(paneID string, opts Options) ([]byte, error) {
 	// -t: target pane by globally unique pane ID
 	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-e", "-N", "-S", "-", "-t", paneID)
 	defer cancel()
-	return cmd.Output()
+	return runTmuxCmd(cmd)
 }
 
 func paneSnapshotInfoForPane(
@@ -102,7 +102,7 @@ func paneSnapshotMetadataForPane(paneID string, opts Options) (paneSnapshotMetad
 		"#{pane_id}\t#{pane_width}\t#{pane_height}\t#{cursor_x}\t#{cursor_y}\t#{alternate_on}\t#{alternate_saved_x}\t#{alternate_saved_y}\t#{cursor_flag}\t#{origin_flag}\t#{scroll_region_upper}\t#{scroll_region_lower}",
 	)
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		return paneSnapshotMetadata{}, err
 	}
