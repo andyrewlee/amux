@@ -1,10 +1,10 @@
 package git
 
 import (
-	"os"
 	"os/exec"
-	"strings"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 // skipIfNoGit skips the test if git is not installed
@@ -15,41 +15,13 @@ func skipIfNoGit(t *testing.T) {
 	}
 }
 
+// runGit and initRepo delegate to the shared testutil fixtures so the
+// git-env filtering, pinned author identity, and single-commit repo setup live
+// in one place (testutil.RunGit / testutil.InitRepo).
 func runGit(t *testing.T, dir string, args ...string) string {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-
-	// Filter out GIT_ environment variables that might be set by pre-push hooks
-	var env []string
-	for _, e := range os.Environ() {
-		if !strings.HasPrefix(e, "GIT_DIR=") &&
-			!strings.HasPrefix(e, "GIT_WORK_TREE=") &&
-			!strings.HasPrefix(e, "GIT_INDEX_FILE=") {
-			env = append(env, e)
-		}
-	}
-
-	cmd.Env = append(
-		env,
-		"GIT_AUTHOR_NAME=Test",
-		"GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=Test",
-		"GIT_COMMITTER_EMAIL=test@example.com",
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
-	}
-	return strings.TrimSpace(string(out))
+	return testutil.RunGit(t, dir, args...)
 }
 
 func initRepo(t *testing.T) string {
-	root := t.TempDir()
-	runGit(t, root, "init", "-b", "main")
-	if err := os.WriteFile(root+"/README.md", []byte("init"), 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-	runGit(t, root, "add", "README.md")
-	runGit(t, root, "commit", "-m", "init")
-	return root
+	return testutil.InitRepo(t)
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 // initTestRepo builds a minimal real git repository with a single commit on the
@@ -15,15 +16,7 @@ import (
 // DiscoverWorkspaces) are exercised against repositories like this one, mirroring
 // the convention used by service_git_test.go for methods that shell out.
 func initTestRepo(t *testing.T, branch string) string {
-	t.Helper()
-	repo := t.TempDir()
-	runGit(t, repo, "init", "-b", branch)
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
-		t.Fatalf("write README: %v", err)
-	}
-	runGit(t, repo, "add", "README.md")
-	runGit(t, repo, "commit", "-m", "init")
-	return repo
+	return testutil.InitRepoWithBranch(t, branch)
 }
 
 // TestDefaultGitOpsCreateWorkspace drives defaultGitOps.CreateWorkspace, the
