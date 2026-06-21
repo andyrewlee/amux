@@ -63,7 +63,7 @@ func sessionPaneID(sessionName string, opts Options) (string, error) {
 	// empty pane_id for detached sessions on some tmux versions.
 	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{pane_id}\t#{pane_active}\t#{pane_dead}")
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		return "", err
 	}
@@ -93,7 +93,7 @@ func sessionPaneID(sessionName string, opts Options) (string, error) {
 func sessionActivePaneLive(sessionName string, opts Options) bool {
 	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", sessionTarget(sessionName), "#{pane_dead}")
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		return false
 	}
@@ -121,7 +121,7 @@ func paneSize(paneID string, opts Options) (int, int, bool, error) {
 	}
 	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", paneID, "-F", "#{pane_id}\t#{pane_width}\t#{pane_height}")
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		return 0, 0, false, err
 	}
@@ -261,7 +261,7 @@ func paneCoversVisibleWindow(paneID string, opts Options) (bool, error) {
 	}
 	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", paneID, "-F", "#{pane_id}")
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		return false, err
 	}
@@ -326,7 +326,7 @@ func CapturePane(sessionName string, opts Options) ([]byte, error) {
 	// -t: target pane by globally unique pane ID
 	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-e", "-N", "-S", "-", "-E", "-1", "-t", paneID)
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +378,7 @@ func CapturePaneTail(sessionName string, lines int, opts Options) (string, bool)
 	// to sessionPaneID so we preserve the old first-live-pane behavior.
 	if sessionActivePaneLive(sessionName, opts) {
 		cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", sessionTarget(sessionName), "-S", strconv.Itoa(startLine))
-		output, err := cmd.Output()
+		output, err := runTmuxCmd(cmd)
 		cancel()
 		if err == nil {
 			// Normalize: trim trailing whitespace and trailing empty lines.
@@ -395,7 +395,7 @@ func CapturePaneTail(sessionName string, lines int, opts Options) (string, bool)
 	}
 	cmd2, cancel2 := tmuxCommand(opts, "capture-pane", "-p", "-t", paneID, "-S", strconv.Itoa(startLine))
 	defer cancel2()
-	out2, err2 := cmd2.Output()
+	out2, err2 := runTmuxCmd(cmd2)
 	if err2 != nil {
 		return "", false
 	}
