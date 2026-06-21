@@ -7,6 +7,8 @@
 package fsatomic
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,6 +24,18 @@ var renameFile = os.Rename
 // with os.WriteFile but is never used to widen access beyond the process umask.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
 	return writeFileForGOOS(runtime.GOOS, path, data, perm)
+}
+
+// WriteJSON marshals v as two-space-indented JSON and atomically writes it to
+// path via WriteFile (temp + fsync + atomic rename). The indent matches the
+// on-disk format amux uses for every metadata file, so callers no longer repeat
+// the marshal-then-WriteFile dance.
+func WriteJSON(path string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("fsatomic: marshal %s: %w", path, err)
+	}
+	return WriteFile(path, data, 0o644)
 }
 
 func writeFileForGOOS(goos, path string, data []byte, perm os.FileMode) error {

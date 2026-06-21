@@ -86,13 +86,9 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["tmux_sync_interval"] = settings.TmuxSyncInterval
 	payload["ui"] = ui
 
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return err
-	}
 	// Crash-safe write (temp + fsync + atomic rename) so a crash mid-save can't
 	// leave a torn config.json, matching the rest of amux's persistence.
-	return fsatomic.WriteFile(path, data, 0o644)
+	return fsatomic.WriteJSON(path, payload)
 }
 
 // SaveUISettings persists UI settings to the config file.

@@ -7,6 +7,50 @@ import (
 	"testing"
 )
 
+func TestWriteJSONMarshalsIndentedAndReplacesAtomically(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	type payload struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+	if err := WriteJSON(path, payload{Name: "amux", Count: 2}); err != nil {
+		t.Fatalf("WriteJSON error = %v", err)
+	}
+
+	// Byte-for-byte parity with json.MarshalIndent(v, "", "  ") and no trailing
+	// newline, so existing on-disk files are unchanged.
+	want := "{\n  \"name\": \"amux\",\n  \"count\": 2\n}"
+	if got, _ := os.ReadFile(path); string(got) != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+
+	// Overwrite leaves no temp files behind (atomic replace).
+	if err := WriteJSON(path, payload{Name: "x", Count: 9}); err != nil {
+		t.Fatalf("WriteJSON overwrite error = %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected only the target file, found %d entries", len(entries))
+	}
+}
+
+func TestWriteJSONReturnsMarshalError(t *testing.T) {
+	// A channel cannot be marshaled; WriteJSON must surface the error and never
+	// create the target file.
+	path := filepath.Join(t.TempDir(), "bad.json")
+	if err := WriteJSON(path, make(chan int)); err == nil {
+		t.Fatal("expected marshal error, got nil")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("target should not exist after marshal failure, stat err = %v", err)
+	}
+}
+
 func TestWriteFileReplacesAtomically(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")

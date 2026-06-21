@@ -193,14 +193,9 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 
-	data, err := json.MarshalIndent(ws, "", "  ")
-	if err != nil {
-		return fmt.Errorf("save workspace %s: %w", id, err)
-	}
-
 	// Atomic replace (temp + fsync + rename) so a crash mid-save can never
 	// leave a truncated workspace.json behind.
-	if err := fsatomic.WriteFile(path, data, 0o644); err != nil {
+	if err := fsatomic.WriteJSON(path, ws); err != nil {
 		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 	if oldID != "" {
@@ -228,14 +223,10 @@ func (s *WorkspaceStore) saveWorkspaceLocked(id WorkspaceID, ws *Workspace) erro
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(ws, "", "  ")
-	if err != nil {
-		return err
-	}
 	// Atomic replace (temp + fsync + rename, with backup recovery on platforms
 	// that need it), matching Save. The caller already holds the workspace lock.
 	// A crash mid-save can never leave a truncated workspace.json behind.
-	if err := fsatomic.WriteFile(path, data, 0o644); err != nil {
+	if err := fsatomic.WriteJSON(path, ws); err != nil {
 		return err
 	}
 	return nil

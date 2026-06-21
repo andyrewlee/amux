@@ -122,12 +122,7 @@ func (r *Registry) saveUnlocked(paths []string) error {
 		}
 	}
 
-	data, err := json.MarshalIndent(registry, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return fsatomic.WriteFile(r.path, data, 0o644)
+	return fsatomic.WriteJSON(r.path, registry)
 }
 
 // AddProject adds a project path to the registry

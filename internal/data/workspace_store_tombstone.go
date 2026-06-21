@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/andyrewlee/amux/internal/fsatomic"
 )
 
 // deletingMarkerName is the per-workspace delete tombstone. It lives inside the
@@ -18,7 +20,9 @@ func (s *WorkspaceStore) deletingMarkerPath(id WorkspaceID) string {
 }
 
 // MarkDeleting writes a durable tombstone for id before destructive delete steps
-// begin. The marker is written atomically (temp file + rename).
+// begin. The marker is written crash-safely (temp + fsync + atomic rename) via
+// fsatomic, so an interrupted delete can never leave a torn marker that startup
+// recovery would reject.
 func (s *WorkspaceStore) MarkDeleting(id WorkspaceID) error {
 	if err := validateWorkspaceID(id); err != nil {
 		return err
@@ -27,16 +31,7 @@ func (s *WorkspaceStore) MarkDeleting(id WorkspaceID) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	marker := s.deletingMarkerPath(id)
-	tmp := marker + ".tmp"
-	if err := os.WriteFile(tmp, []byte("1"), 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, marker); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return fsatomic.WriteFile(s.deletingMarkerPath(id), []byte("1"), 0o644)
 }
 
 // IsDeleting reports whether a delete tombstone exists for id.
