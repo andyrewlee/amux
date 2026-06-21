@@ -102,8 +102,15 @@ AMUX requires `tmux` and is supported on Linux/macOS. Windows is not supported.
 ```bash
 git clone https://github.com/andyrewlee/amux.git
 cd amux
+make lint-tools   # one-time: builds the pinned golangci-lint into ./.cache/bin
 make run
 ```
+
+Run `make lint-tools` once before your first `make devcheck` or `git commit`.
+It builds the linter pinned in `.golangci-version` into the gitignored
+`./.cache/bin`; a stock `golangci-lint` from `PATH` is likely the wrong major
+version for this repo's v1 config. See [LINTING.md](LINTING.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Operations
 
