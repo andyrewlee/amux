@@ -16,7 +16,18 @@ if ! make fmt-check; then
 fi
 
 echo "amux pre-commit: running golangci-lint..."
-golangci-lint run
+# Route lint through `make lint` so it resolves the pinned ./.cache/bin
+# golangci-lint matched to .golangci-version (via the Makefile GOLANGCI probe)
+# and runs check-golangci-version first. A bare `golangci-lint run` from PATH is
+# frequently the wrong version and fails confusingly (a v2.x binary cannot read
+# this repo's v1 .golangci.yml: "unsupported version of the configuration"); the
+# make path prefers the pinned binary when present and surfaces the actionable
+# "run make lint-tools" guidance before that confusing config error, rather than
+# leaving it as the last word. See LINTING.md.
+#
+# NOTE: `make lint` also runs check-file-length on the whole tree, which is
+# harmless and complements the staged-only guard below.
+make lint
 
 echo "amux pre-commit: checking file lengths (max 500 lines)..."
 staged_go_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
