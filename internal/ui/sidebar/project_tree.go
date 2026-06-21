@@ -255,12 +255,20 @@ func (m *ProjectTree) rebuildFlatList() {
 	}
 }
 
-// reloadTree reloads the entire tree from disk
+// reloadTree reloads the entire tree from disk, preserving which directories
+// were expanded and the cursor position so a refresh (or hidden-toggle) picks up
+// new files without collapsing the whole view back to the top level.
 func (m *ProjectTree) reloadTree() {
 	if m.workspace == nil {
 		m.root = nil
 		m.flatNodes = nil
 		return
+	}
+
+	expanded := m.collectExpandedPaths()
+	selectedPath := ""
+	if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
+		selectedPath = m.flatNodes[m.cursor].Path
 	}
 
 	m.root = &ProjectTreeNode{
@@ -272,7 +280,47 @@ func (m *ProjectTree) reloadTree() {
 	}
 
 	m.expandNode(m.root)
+	m.restoreExpansion(m.root, expanded)
 	m.rebuildFlatList()
+
+	if selectedPath != "" {
+		for i, node := range m.flatNodes {
+			if node.Path == selectedPath {
+				m.cursor = i
+				break
+			}
+		}
+	}
+}
+
+// collectExpandedPaths returns the set of directory paths currently expanded.
+func (m *ProjectTree) collectExpandedPaths() map[string]bool {
+	expanded := map[string]bool{}
+	if m.root == nil {
+		return expanded
+	}
+	var collect func(n *ProjectTreeNode)
+	collect = func(n *ProjectTreeNode) {
+		if n.IsDir && n.Expanded {
+			expanded[n.Path] = true
+		}
+		for _, child := range n.Children {
+			collect(child)
+		}
+	}
+	collect(m.root)
+	return expanded
+}
+
+// restoreExpansion re-expands directories (by path) that were expanded before a
+// reload and still exist on disk.
+func (m *ProjectTree) restoreExpansion(node *ProjectTreeNode, expanded map[string]bool) {
+	for _, child := range node.Children {
+		if child.IsDir && expanded[child.Path] {
+			m.expandNode(child)
+			m.restoreExpansion(child, expanded)
+		}
+	}
 }
 
 func (m *ProjectTree) visibleHeight() int {
