@@ -1,11 +1,14 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 func TestWorkspaceFirstActivation_DoesNotFlashTabActive(t *testing.T) {
@@ -21,7 +24,8 @@ func TestWorkspaceFirstActivation_DoesNotFlashTabActive(t *testing.T) {
 	// Emit a small startup line, then idle. This mirrors real sessions that have
 	// existing content but no current work.
 	binDir := writeStubAssistantScript(t, home, "claude", "#!/bin/sh\necho booted\nsleep 1000\n")
-	server := "amux-e2e-first-activation"
+	server := fmt.Sprintf("amux-e2e-first-activation-%d", time.Now().UnixNano())
+	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
 	defer killTmuxServer(t, server)
 
 	env := sessionEnv(binDir, server)
@@ -43,6 +47,7 @@ func TestWorkspaceFirstActivation_DoesNotFlashTabActive(t *testing.T) {
 	waitForUIContains(t, first, "[New agent]", workspaceAgentTimeout)
 	createAgentTab(t, first)
 	waitForUIContains(t, first, "claude", workspaceAgentTimeout)
+	waitForAgentSessions(t, opts, workspaceAgentTimeout)
 	quitApp(t, first)
 	if err := first.WaitForExit(persistenceTimeout); err != nil {
 		t.Fatalf("waiting first exit: %v", err)
