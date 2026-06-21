@@ -157,6 +157,32 @@ func (v *VTerm) makeScreen(width, height int) [][]Cell {
 	return screen
 }
 
+// resizeRows builds a new buffer of the given height from old, preserving each
+// existing row's content. A row already at least width wide is reused as-is
+// (it may stay wider than width, so resizing back up can restore content); a
+// narrower row is expanded into a fresh blank line of the new width; rows with
+// no source content are blank-filled. Used to resize the screen, alt screen,
+// and synchronized-output snapshot identically.
+func resizeRows(old [][]Cell, width, height int) [][]Cell {
+	rows := make([][]Cell, height)
+	for y := 0; y < height; y++ {
+		if y < len(old) && len(old[y]) > 0 {
+			// Preserve the original row content (may be wider than new width)
+			// but ensure it's at least as wide as new width.
+			if len(old[y]) >= width {
+				rows[y] = old[y]
+			} else {
+				// Expand row to new width.
+				rows[y] = MakeBlankLine(width)
+				copy(rows[y], old[y])
+			}
+		} else {
+			rows[y] = MakeBlankLine(width)
+		}
+	}
+	return rows
+}
+
 // Resize handles terminal resize.
 func (v *VTerm) Resize(width, height int) {
 	v.resize(width, height, true)
@@ -232,23 +258,7 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 
 	// Resize screen buffer - preserve full row content to allow restoring
 	// on resize back to larger width
-	newScreen := make([][]Cell, height)
-	for y := 0; y < height; y++ {
-		if y < len(v.Screen) && len(v.Screen[y]) > 0 {
-			// Preserve the original row content (may be wider than new width)
-			// but ensure it's at least as wide as new width
-			if len(v.Screen[y]) >= width {
-				newScreen[y] = v.Screen[y]
-			} else {
-				// Expand row to new width
-				newScreen[y] = MakeBlankLine(width)
-				copy(newScreen[y], v.Screen[y])
-			}
-		} else {
-			newScreen[y] = MakeBlankLine(width)
-		}
-	}
-	v.Screen = newScreen
+	v.Screen = resizeRows(v.Screen, width, height)
 
 	// Update dimensions
 	v.Width = width
@@ -273,39 +283,13 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 
 	// Also resize alt screen if it exists - preserve full row content
 	if v.altScreenBuf != nil {
-		newAlt := make([][]Cell, height)
-		for y := 0; y < height; y++ {
-			if y < len(v.altScreenBuf) && len(v.altScreenBuf[y]) > 0 {
-				if len(v.altScreenBuf[y]) >= width {
-					newAlt[y] = v.altScreenBuf[y]
-				} else {
-					newAlt[y] = MakeBlankLine(width)
-					copy(newAlt[y], v.altScreenBuf[y])
-				}
-			} else {
-				newAlt[y] = MakeBlankLine(width)
-			}
-		}
-		v.altScreenBuf = newAlt
+		v.altScreenBuf = resizeRows(v.altScreenBuf, width, height)
 	}
 	v.clampAltSavedCursor()
 
 	// Keep synchronized output snapshot aligned with new size - preserve full row content
 	if v.syncScreen != nil {
-		newSync := make([][]Cell, height)
-		for y := 0; y < height; y++ {
-			if y < len(v.syncScreen) && len(v.syncScreen[y]) > 0 {
-				if len(v.syncScreen[y]) >= width {
-					newSync[y] = v.syncScreen[y]
-				} else {
-					newSync[y] = MakeBlankLine(width)
-					copy(newSync[y], v.syncScreen[y])
-				}
-			} else {
-				newSync[y] = MakeBlankLine(width)
-			}
-		}
-		v.syncScreen = newSync
+		v.syncScreen = resizeRows(v.syncScreen, width, height)
 	}
 	if hadPendingRestoredAltScreen {
 		if v.AltScreen {

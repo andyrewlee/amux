@@ -159,10 +159,7 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 		endX := term.SelEndX()
 
 		// Normalize so start is before end.
-		if startLine > endLine || (startLine == endLine && startX > endX) {
-			startLine, endLine = endLine, startLine
-			startX, endX = endX, startX
-		}
+		startX, startLine, endX, endLine = vterm.NormalizeSelectionRange(startX, startLine, endX, endLine)
 
 		visibleStartLine := term.ScreenYToAbsoluteLine(0)
 		visibleEndLine := term.ScreenYToAbsoluteLine(height - 1)

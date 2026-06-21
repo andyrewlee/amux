@@ -7,6 +7,39 @@ func (v *VTerm) HasSelection() bool {
 	return v.selActive
 }
 
+// NormalizeSelectionRange orders the two endpoints so that (startX, startY)
+// comes before (endX, endY) in reading order (top-to-bottom, left-to-right on
+// the same row) and returns them. Coordinates may be in any consistent space
+// (screen-relative or absolute lines) as long as both endpoints use the same.
+func NormalizeSelectionRange(startX, startY, endX, endY int) (int, int, int, int) {
+	if startY > endY || (startY == endY && startX > endX) {
+		return endX, endY, startX, startY
+	}
+	return startX, startY, endX, endY
+}
+
+// SelectionContains reports whether cell (x, y) falls inside the linear
+// selection bounded by (startX, startY)..(endX, endY). The bounds MUST already
+// be normalized (see NormalizeSelectionRange) so start precedes end. The first
+// row of the range starts at startX, the last row ends at endX, and any rows in
+// between are fully selected. This is the rectangular-selection-free contains
+// test shared by the live renderer and the compositor snapshot paths.
+func SelectionContains(startX, startY, endX, endY, x, y int) bool {
+	if y < startY || y > endY {
+		return false
+	}
+	if y == startY && y == endY {
+		return x >= startX && x <= endX
+	}
+	if y == startY {
+		return x >= startX
+	}
+	if y == endY {
+		return x <= endX
+	}
+	return true
+}
+
 // IsInSelection checks if coordinate (x, screenY) is within the selection.
 // screenY is a screen-relative coordinate (0 to Height-1).
 func (v *VTerm) IsInSelection(x, screenY int) bool {
@@ -18,18 +51,14 @@ func (v *VTerm) IsInSelection(x, screenY int) bool {
 	absLine := v.ScreenYToAbsoluteLine(screenY)
 
 	// Normalize selection so start is before end.
-	startX, startLine := v.selStartX, v.selStartLine
-	endX, endLine := v.selEndX, v.selEndLine
-	if startLine > endLine || (startLine == endLine && startX > endX) {
-		startX, endX = endX, startX
-		startLine, endLine = endLine, startLine
-	}
+	startX, startLine, endX, endLine := NormalizeSelectionRange(
+		v.selStartX, v.selStartLine, v.selEndX, v.selEndLine)
 
-	// Check if (x, absLine) is in selection range
-	if absLine < startLine || absLine > endLine {
-		return false
-	}
 	if v.selRect {
+		// Rectangular selection: every row in range shares the same column span.
+		if absLine < startLine || absLine > endLine {
+			return false
+		}
 		minX := startX
 		maxX := endX
 		if minX > maxX {
@@ -37,21 +66,7 @@ func (v *VTerm) IsInSelection(x, screenY int) bool {
 		}
 		return x >= minX && x <= maxX
 	}
-	if startLine == endLine {
-		minX := startX
-		maxX := endX
-		if minX > maxX {
-			minX, maxX = maxX, minX
-		}
-		return x >= minX && x <= maxX
-	}
-	if absLine == startLine {
-		return x >= startX
-	}
-	if absLine == endLine {
-		return x <= endX
-	}
-	return true
+	return SelectionContains(startX, startLine, endX, endLine, x, absLine)
 }
 
 // SetSelection stores selection coordinates for rendering with highlight.
@@ -153,10 +168,7 @@ func (v *VTerm) GetTextRange(startX, startLine, endX, endLine int) string {
 	}
 
 	// Normalize selection so start is before end.
-	if startLine > endLine || (startLine == endLine && startX > endX) {
-		startX, endX = endX, startX
-		startLine, endLine = endLine, startLine
-	}
+	startX, startLine, endX, endLine = NormalizeSelectionRange(startX, startLine, endX, endLine)
 
 	if startLine < 0 {
 		startLine = 0
