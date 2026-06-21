@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
@@ -35,11 +36,9 @@ type staleDetachedAgentGCResult struct {
 // by the app. Must be called on the Update goroutine.
 func (a *App) collectKnownWorkspaceIDs() map[string]bool {
 	ids := make(map[string]bool)
-	for i := range a.projects {
-		for j := range a.projects[i].Workspaces {
-			ids[string(a.projects[i].Workspaces[j].ID())] = true
-		}
-	}
+	a.eachWorkspace(func(ws *data.Workspace, _ *data.Project) {
+		ids[string(ws.ID())] = true
+	})
 	for id := range a.lifecycle.snapshotCreating() {
 		ids[id] = true
 	}

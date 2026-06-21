@@ -46,6 +46,24 @@ func (a *App) centerPaneContentOrigin() (x, y int) {
 	return a.layout.LeftGutter() + a.layout.DashboardWidth() + gapX + frameX/2, a.layout.TopGutter() + frameY/2
 }
 
+// renderCenterButton renders the center button at idx from the given button
+// slice, applying the focused (bold foreground) style when that button is the
+// currently focused one and the muted inactive style otherwise. It returns an
+// empty string when idx is out of range so callers can render fixed-arity
+// layouts without bounds checks.
+func (a *App) renderCenterButton(buttons []centerButton, idx int) string {
+	if idx < 0 || idx >= len(buttons) {
+		return ""
+	}
+	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground()).Bold(true)
+	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted())
+	style := inactiveStyle
+	if a.centerBtnFocused && a.centerBtnIndex == idx {
+		style = activeStyle
+	}
+	return style.Render(buttons[idx].label)
+}
+
 // renderWorkspaceInfo renders information about the active workspace
 func (a *App) renderWorkspaceInfo() string {
 	ws := a.activeWorkspace
@@ -59,14 +77,8 @@ func (a *App) renderWorkspaceInfo() string {
 		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
 	}
 
-	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground()).Bold(true)
-	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted())
-
-	btnStyle := inactiveStyle
-	if a.centerBtnFocused && a.centerBtnIndex == 0 {
-		btnStyle = activeStyle
-	}
-	agentBtn := btnStyle.Render("[New agent]")
+	buttons := centerButtonsFor(centerButtonsWorkspace)
+	agentBtn := a.renderCenterButton(buttons, 0)
 	content += "\n" + agentBtn
 	if a.config.UI.ShowKeymapHints {
 		content += "\n" + a.styles.Help.Render("C-Spc t a:new agent")
@@ -92,20 +104,9 @@ func (a *App) welcomeContent() string {
 	b.WriteString(logoStyle.Render(logo))
 	b.WriteString("\n\n")
 
-	activeStyle := lipgloss.NewStyle().Foreground(common.ColorForeground()).Bold(true)
-	inactiveStyle := lipgloss.NewStyle().Foreground(common.ColorMuted())
-
-	addProjectStyle := inactiveStyle
-	settingsStyle := inactiveStyle
-	if a.centerBtnFocused {
-		if a.centerBtnIndex == 0 {
-			addProjectStyle = activeStyle
-		} else if a.centerBtnIndex == 1 {
-			settingsStyle = activeStyle
-		}
-	}
-	addProject := addProjectStyle.Render("[Add project]")
-	settingsBtn := settingsStyle.Render("[Settings]")
+	buttons := centerButtonsFor(centerButtonsWelcome)
+	addProject := a.renderCenterButton(buttons, 0)
+	settingsBtn := a.renderCenterButton(buttons, 1)
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, addProject, "  ", settingsBtn))
 	b.WriteString("\n")
 	if a.config.UI.ShowKeymapHints {

@@ -43,12 +43,9 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	if countCmd := a.logSessionCount(); countCmd != nil {
 		cmds = append(cmds, countCmd)
 	}
-	for i := range a.projects {
-		for j := range a.projects[i].Workspaces {
-			ws := &a.projects[i].Workspaces[j]
-			cmds = append(cmds, a.requestGitStatus(ws.Root))
-		}
-	}
+	a.eachWorkspace(func(ws *data.Workspace, _ *data.Project) {
+		cmds = append(cmds, a.requestGitStatus(ws.Root))
+	})
 	return cmds
 }
 
@@ -170,16 +167,16 @@ func (a *App) findWorkspaceAndProjectByID(id string) (*data.Workspace, *data.Pro
 	if id == "" {
 		return nil, nil
 	}
-	for i := range a.projects {
-		project := &a.projects[i]
-		for j := range project.Workspaces {
-			ws := &project.Workspaces[j]
-			if string(ws.ID()) == id {
-				return ws, project
-			}
+	var foundWs *data.Workspace
+	var foundProject *data.Project
+	a.eachWorkspaceUntil(func(ws *data.Workspace, project *data.Project) bool {
+		if string(ws.ID()) == id {
+			foundWs, foundProject = ws, project
+			return true
 		}
-	}
-	return nil, nil
+		return false
+	})
+	return foundWs, foundProject
 }
 
 func (a *App) findWorkspaceAndProjectByCanonicalPaths(repoPath, rootPath string) (*data.Workspace, *data.Project) {
@@ -188,25 +185,24 @@ func (a *App) findWorkspaceAndProjectByCanonicalPaths(repoPath, rootPath string)
 	if targetRepo == "" && targetRoot == "" {
 		return nil, nil
 	}
-	for i := range a.projects {
-		project := &a.projects[i]
-		for j := range project.Workspaces {
-			ws := &project.Workspaces[j]
-			repoCanonical := canonicalPathForMatch(ws.Repo)
-			rootCanonical := canonicalPathForMatch(ws.Root)
-			if targetRoot != "" && rootCanonical != targetRoot {
-				continue
-			}
-			if targetRepo != "" && repoCanonical != targetRepo {
-				continue
-			}
-			if targetRoot == "" && targetRepo != "" && repoCanonical != targetRepo {
-				continue
-			}
-			return ws, project
+	var foundWs *data.Workspace
+	var foundProject *data.Project
+	a.eachWorkspaceUntil(func(ws *data.Workspace, project *data.Project) bool {
+		repoCanonical := canonicalPathForMatch(ws.Repo)
+		rootCanonical := canonicalPathForMatch(ws.Root)
+		if targetRoot != "" && rootCanonical != targetRoot {
+			return false
 		}
-	}
-	return nil, nil
+		if targetRepo != "" && repoCanonical != targetRepo {
+			return false
+		}
+		if targetRoot == "" && targetRepo != "" && repoCanonical != targetRepo {
+			return false
+		}
+		foundWs, foundProject = ws, project
+		return true
+	})
+	return foundWs, foundProject
 }
 
 func (a *App) findProjectByPath(path string) *data.Project {
