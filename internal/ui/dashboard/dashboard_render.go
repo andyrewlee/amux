@@ -39,18 +39,26 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		status := ""
 		statusText := ""
 		dirty := false
+		done := false
 		main := row.MainWorkspace
 		active := m.projectRowActive(row.ActivityWorkspaceID, main)
 		if main != nil {
 			if m.deletingWorkspaces[main.Root] {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				statusText = m.styles.StatusPending.Render(frame + " deleting")
+			} else if !active &&
+				row.ActivityWorkspaceID != "" &&
+				m.agentStates[row.ActivityWorkspaceID] == activity.StateDone &&
+				!m.doneAcked[row.ActivityWorkspaceID] {
+				done = true
 			} else if s, ok := m.statusCache[main.Root]; ok && !s.Clean {
 				dirty = true
 			}
 		}
 		if statusText != "" {
 			status = " " + statusText
+		} else if done {
+			status = " " + m.styles.StatusPending.Render("done")
 		}
 
 		// Project headers are selectable to access main branch

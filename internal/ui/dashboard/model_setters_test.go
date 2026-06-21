@@ -261,6 +261,38 @@ func TestDashboardDoneRender(t *testing.T) {
 	})
 }
 
+func TestDashboardDoneRenderForProjectMainWorkspace(t *testing.T) {
+	m := New()
+	project := makeProject()
+	m.SetProjects([]data.Project{project})
+	m.SetSize(80, 40)
+
+	var projectRow *Row
+	for i := range m.rows {
+		if m.rows[i].Type == RowProject {
+			projectRow = &m.rows[i]
+			break
+		}
+	}
+	if projectRow == nil {
+		t.Fatal("expected project row")
+	}
+	wsID := projectRow.ActivityWorkspaceID
+
+	m.SetActiveWorkspaces(map[string]bool{})
+	m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+	rendered := m.renderRow(*projectRow, false)
+	if !strings.Contains(rendered, "done") {
+		t.Fatalf("expected project row to contain 'done', got %q", rendered)
+	}
+
+	m.ackDone(wsID)
+	rendered = m.renderRow(*projectRow, false)
+	if strings.Contains(rendered, " done") {
+		t.Fatalf("expected acked project-row done state to be hidden, got %q", rendered)
+	}
+}
+
 func TestDashboardSetStyles(t *testing.T) {
 	t.Run("replaces stored styles", func(t *testing.T) {
 		m := New()
