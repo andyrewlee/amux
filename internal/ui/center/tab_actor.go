@@ -305,6 +305,7 @@ func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspac
 	if closed || agent == nil || agent.Terminal == nil {
 		return
 	}
+	m.tracePTYInput(tab, []byte(data))
 	if err := agent.Terminal.SendString(data); err != nil {
 		logging.Warn("Mouse input failed for tab %s: %v", tab.ID, err)
 		tab.mu.Lock()
@@ -327,6 +328,7 @@ func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID, 
 	if closed || agent == nil || agent.Terminal == nil {
 		return
 	}
+	m.tracePTYInput(tab, []byte(data))
 	if err := agent.Terminal.SendString(data); err != nil {
 		logging.Warn("%s failed for tab %s: %v", label, tab.ID, err)
 		tab.mu.Lock()
