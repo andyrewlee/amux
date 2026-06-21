@@ -72,15 +72,22 @@ func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
 	if !exists {
 		return 0, nil
 	}
-	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", sessionTarget(sessionName), "#{session_created}")
+	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", "#{session_name}\t#{session_created}")
 	defer cancel()
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, err
 	}
-	raw := strings.TrimSpace(string(output))
-	if raw == "" {
-		return 0, nil
+	for _, line := range parseOutputLines(output) {
+		name, raw, ok := strings.Cut(line, "\t")
+		if !ok || name != sessionName {
+			continue
+		}
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return 0, nil
+		}
+		return strconv.ParseInt(raw, 10, 64)
 	}
-	return strconv.ParseInt(raw, 10, 64)
+	return 0, nil
 }
