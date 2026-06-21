@@ -28,13 +28,19 @@ jobs:
         id: golangci_version
         run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
 
-      - name: Lint
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ steps.golangci_version.outputs.version }}
           install-mode: goinstall
+          install-only: true
           verify: false
-          args: --timeout=10m
+
+      - name: Lint
+        run: golangci-lint run --timeout=10m
+
+      - name: Format check
+        run: golangci-lint fmt --diff
 
       - name: File length guard (max 500 lines)
         run: |
@@ -164,13 +170,19 @@ jobs:
         id: golangci_version
         run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
 
-      - name: Strict lint (changed code only)
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ steps.golangci_version.outputs.version }}
           install-mode: goinstall
+          install-only: true
           verify: false
-          args: --config=.golangci.strict.yml --enable=funlen --enable=gocyclo --enable=nestif --new-from-rev=${{ github.event.pull_request.base.sha }} --timeout=10m
+
+      - name: Strict lint (changed code only)
+        run: golangci-lint run --config=.golangci.strict.yml --enable=funlen --enable=gocyclo --enable=nestif --new-from-rev=${{ github.event.pull_request.base.sha }} --timeout=10m
+
+      - name: Strict format check
+        run: golangci-lint fmt --config=.golangci.strict.yml --diff
 
   macos-build:
     # Minimal darwin coverage on push to main only (macOS minutes are ~10x

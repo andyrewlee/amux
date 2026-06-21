@@ -177,21 +177,21 @@ func recoverFailedActorSend(
 
 // restoreActorCarryLocked restores the actor queued parser carry / noise trailing
 // to a previously captured state (used when rolling back a failed actor send).
-// Caller holds tab.mu.
-func (tab *Tab) restoreActorCarryLocked(prevCarry vterm.ParserCarryState, prevNoiseTrailing []byte) {
-	tab.actorQueuedCarry = prevCarry
-	tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
+// Caller holds t.mu.
+func (t *Tab) restoreActorCarryLocked(prevCarry vterm.ParserCarryState, prevNoiseTrailing []byte) {
+	t.actorQueuedCarry = prevCarry
+	t.actorQueuedNoiseTrailing = append(t.actorQueuedNoiseTrailing[:0], prevNoiseTrailing...)
 }
 
 // prependPendingOutputLocked restores chunk to the front of pendingOutput so a
 // rolled-back write is re-flushed before newer buffered output. Caller holds
-// tab.mu.
-func (tab *Tab) prependPendingOutputLocked(chunk []byte) {
-	restored := make([]byte, 0, len(chunk)+len(tab.PendingOutput))
+// t.mu.
+func (t *Tab) prependPendingOutputLocked(chunk []byte) {
+	restored := make([]byte, 0, len(chunk)+len(t.PendingOutput))
 	restored = append(restored, chunk...)
-	restored = append(restored, tab.PendingOutput...)
-	tab.PendingOutput = restored
-	tab.pendingOutputBytes = len(tab.PendingOutput)
+	restored = append(restored, t.PendingOutput...)
+	t.PendingOutput = restored
+	t.pendingOutputBytes = len(t.PendingOutput)
 }
 
 // finalizeActorWriteLocked snapshots the parser carry/noise state after the last
