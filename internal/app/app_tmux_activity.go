@@ -189,7 +189,7 @@ func (a *App) resolveScanRole(
 	if !a.sharedTmuxActivityEnabled() {
 		return 0, false, nil
 	}
-	role, sharedActive, applyShared, epoch, err := a.resolveTmuxActivityScanRole(opts, time.Now())
+	role, sharedActive, sharedStates, applyShared, epoch, err := a.resolveTmuxActivityScanRole(opts, time.Now())
 	if err != nil {
 		if !tmux.IsNoServerError(err) {
 			logging.Warn("tmux activity ownership resolution failed; falling back to local scan: %v", err)
@@ -197,7 +197,7 @@ func (a *App) resolveScanRole(
 		return 0, false, nil
 	}
 	if role == tmuxActivityRoleFollower {
-		result := a.runFollowerScan(scanToken, infoBySession, sharedActive, applyShared, epoch, opts, svc)
+		result := a.runFollowerScan(scanToken, infoBySession, sharedActive, sharedStates, applyShared, epoch, opts, svc)
 		return epoch, true, &result
 	}
 	return epoch, true, nil
@@ -210,6 +210,7 @@ func (a *App) runFollowerScan(
 	scanToken activityScanToken,
 	infoBySession map[string]activity.SessionInfo,
 	sharedActive map[string]bool,
+	sharedStates map[string]activity.AgentState,
 	applyShared bool,
 	epoch int64,
 	opts tmux.Options,
@@ -232,9 +233,18 @@ func (a *App) runFollowerScan(
 	if sharedActive == nil {
 		sharedActive = make(map[string]bool)
 	}
+	if sharedStates == nil {
+		sharedStates = make(map[string]activity.AgentState, len(sharedActive))
+		for wsID, active := range sharedActive {
+			if active {
+				sharedStates[wsID] = activity.StateWorking
+			}
+		}
+	}
 	return tmuxActivityResult{
 		Token:              scanToken,
 		ActiveWorkspaceIDs: sharedActive,
+		AgentStates:        sharedStates,
 		StoppedTabs:        stoppedTabs,
 		ScannerOwner:       false,
 		ScannerEpoch:       epoch,
@@ -268,7 +278,7 @@ func (a *App) publishActivitySnapshot(result *tmuxActivityResult, active map[str
 		}
 		return
 	}
-	if err := a.publishTmuxActivitySnapshot(opts, active, result.ScannerEpoch, publishAt); err != nil {
+	if err := a.publishTmuxActivitySnapshot(opts, active, result.AgentStates, result.ScannerEpoch, publishAt); err != nil {
 		if errors.Is(err, errTmuxActivityOwnershipLostAfterPublish) {
 			result.ScannerOwner = false
 			result.SkipApply = true

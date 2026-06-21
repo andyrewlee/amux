@@ -47,8 +47,7 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 			_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
 		})
 	}
-	if len(pendingClip) > 0 {
-		clip := string(pendingClip)
+	if clip, ok := common.OSC52ClipboardText(pendingClip); ok {
 		safego.Go("center.osc52_clipboard", func() {
 			common.CopyToClipboardWithLog(clip, "agent OSC52")
 		})

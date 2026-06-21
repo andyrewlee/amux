@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+const maxOSC52ClipboardBytes = 64 * 1024
+
 // dispatchOSC parses a buffered OSC payload (the bytes between "ESC ]" and the
 // terminator) and applies recognized commands to the VTerm. Unrecognized or
 // malformed sequences are ignored.
@@ -24,8 +26,14 @@ func (p *Parser) dispatchOSC() {
 		if !ok || data == "?" {
 			return // query or malformed — ignore
 		}
+		if base64.StdEncoding.DecodedLen(len(data)) > maxOSC52ClipboardBytes {
+			return
+		}
 		decoded, err := base64.StdEncoding.DecodeString(data)
 		if err != nil {
+			return
+		}
+		if len(decoded) > maxOSC52ClipboardBytes {
 			return
 		}
 		p.vt.setPendingClipboard(decoded)

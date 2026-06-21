@@ -17,7 +17,7 @@ func TestResolveTmuxActivityScanRole_OwnerFollowerSnapshotEpoch(t *testing.T) {
 	owner := &App{instanceID: "owner-instance"}
 	now := time.Now()
 
-	role, shared, applyShared, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
+	role, shared, states, applyShared, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
 	if err != nil {
 		t.Fatalf("resolve owner role: %v", err)
 	}
@@ -30,17 +30,21 @@ func TestResolveTmuxActivityScanRole_OwnerFollowerSnapshotEpoch(t *testing.T) {
 	if len(shared) != 0 {
 		t.Fatalf("expected no shared snapshot for owner path, got %v", shared)
 	}
+	if len(states) != 0 {
+		t.Fatalf("expected no shared states for owner path, got %v", states)
+	}
 	if epoch < 1 {
 		t.Fatalf("expected epoch >= 1, got %d", epoch)
 	}
 
 	active := map[string]bool{"ws-a": true, "ws-b": true}
-	if err := owner.publishTmuxActivitySnapshot(opts, active, epoch, now); err != nil {
+	agentStates := map[string]activity.AgentState{"ws-a": activity.StateWorking, "ws-b": activity.StateDone}
+	if err := owner.publishTmuxActivitySnapshot(opts, active, agentStates, epoch, now); err != nil {
 		t.Fatalf("publish snapshot: %v", err)
 	}
 
 	follower := &App{instanceID: "follower-instance"}
-	role, shared, applyShared, followerEpoch, err := follower.resolveTmuxActivityScanRole(opts, now.Add(500*time.Millisecond))
+	role, shared, states, applyShared, followerEpoch, err := follower.resolveTmuxActivityScanRole(opts, now.Add(500*time.Millisecond))
 	if err != nil {
 		t.Fatalf("resolve follower role: %v", err)
 	}
@@ -56,8 +60,11 @@ func TestResolveTmuxActivityScanRole_OwnerFollowerSnapshotEpoch(t *testing.T) {
 	if !shared["ws-a"] || !shared["ws-b"] {
 		t.Fatalf("expected shared active snapshot, got %v", shared)
 	}
+	if states["ws-a"] != activity.StateWorking || states["ws-b"] != activity.StateDone {
+		t.Fatalf("expected shared semantic states, got %v", states)
+	}
 
-	role, _, _, renewedEpoch, err := owner.resolveTmuxActivityScanRole(opts, now.Add(time.Second))
+	role, _, _, _, renewedEpoch, err := owner.resolveTmuxActivityScanRole(opts, now.Add(time.Second))
 	if err != nil {
 		t.Fatalf("resolve owner renew: %v", err)
 	}
@@ -93,7 +100,7 @@ func TestPublishTmuxActivitySnapshot_ReturnsOwnershipLostAfterPublish(t *testing
 	if err := activity.WriteOwnerLease(opts, "owner-b", 9, now); err != nil {
 		t.Fatalf("write owner lease: %v", err)
 	}
-	err := app.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, 9, now)
+	err := app.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, nil, 9, now)
 	if !errors.Is(err, errTmuxActivityOwnershipLostAfterPublish) {
 		t.Fatalf("expected ownership-loss error, got %v", err)
 	}
@@ -105,11 +112,11 @@ func TestReadTmuxActivitySnapshot_EpochMismatchReturnsNotOK(t *testing.T) {
 
 	owner := &App{instanceID: "owner-epoch"}
 	now := time.Now()
-	_, _, _, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
+	_, _, _, _, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
 	if err != nil {
 		t.Fatalf("resolve owner role: %v", err)
 	}
-	if err := owner.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, epoch, now); err != nil {
+	if err := owner.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, nil, epoch, now); err != nil {
 		t.Fatalf("publish snapshot: %v", err)
 	}
 
@@ -132,7 +139,7 @@ func TestResolveTmuxActivityScanRole_FollowerWithoutSnapshotSkipsApply(t *testin
 	}
 
 	app := &App{instanceID: "follower-only"}
-	role, shared, applyShared, epoch, err := app.resolveTmuxActivityScanRole(opts, now.Add(200*time.Millisecond))
+	role, shared, states, applyShared, epoch, err := app.resolveTmuxActivityScanRole(opts, now.Add(200*time.Millisecond))
 	if err != nil {
 		t.Fatalf("resolve role: %v", err)
 	}
@@ -141,6 +148,9 @@ func TestResolveTmuxActivityScanRole_FollowerWithoutSnapshotSkipsApply(t *testin
 	}
 	if applyShared {
 		t.Fatalf("expected follower to skip apply when snapshot missing, got shared=%v", shared)
+	}
+	if len(states) != 0 {
+		t.Fatalf("expected no semantic states when snapshot missing, got %v", states)
 	}
 	if epoch != 7 {
 		t.Fatalf("expected follower epoch 7, got %d", epoch)
@@ -153,11 +163,11 @@ func TestResolveTmuxActivityScanRole_OwnerResolveRenewsHeartbeatAtScanStart(t *t
 
 	owner := &App{instanceID: "owner-resolve-heartbeat"}
 	now := time.Now()
-	_, _, _, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
+	_, _, _, _, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
 	if err != nil {
 		t.Fatalf("resolve owner role: %v", err)
 	}
-	if err := owner.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, epoch, now); err != nil {
+	if err := owner.publishTmuxActivitySnapshot(opts, map[string]bool{"ws-a": true}, nil, epoch, now); err != nil {
 		t.Fatalf("publish snapshot: %v", err)
 	}
 
@@ -173,7 +183,7 @@ func TestResolveTmuxActivityScanRole_OwnerResolveRenewsHeartbeatAtScanStart(t *t
 	// A long scan: re-resolving 2s later (beyond the heartbeat tick) must push
 	// the heartbeat forward so the lease cannot expire mid-scan.
 	renewAt := now.Add(2 * time.Second)
-	role, _, _, renewedEpoch, err := owner.resolveTmuxActivityScanRole(opts, renewAt)
+	role, _, _, _, renewedEpoch, err := owner.resolveTmuxActivityScanRole(opts, renewAt)
 	if err != nil {
 		t.Fatalf("resolve owner role again: %v", err)
 	}
@@ -232,6 +242,40 @@ func TestEncodeDecodeTmuxActivitySnapshot_EncodesWorkspaceIDsSafely(t *testing.T
 	}
 	if !active["ws-with,comma"] || !active["ws/with space"] {
 		t.Fatalf("expected decoded workspace IDs with delimiters, got %v", active)
+	}
+}
+
+func TestEncodeDecodeTmuxActivitySnapshot_WithSemanticStates(t *testing.T) {
+	now := time.Now()
+	raw := activity.EncodeSnapshotWithStates(
+		map[string]bool{"ws-active": true},
+		map[string]activity.AgentState{
+			"ws-active": activity.StateWorking,
+			"ws-done":   activity.StateDone,
+			"ws-idle":   activity.StateIdle,
+		},
+		8,
+		now,
+	)
+
+	active, states, epoch, at, ok := activity.DecodeSnapshotWithStates(raw)
+	if !ok {
+		t.Fatalf("expected state snapshot to decode, raw=%q", raw)
+	}
+	if epoch != 8 {
+		t.Fatalf("expected epoch 8, got %d", epoch)
+	}
+	if at.UnixMilli() != now.UnixMilli() {
+		t.Fatalf("expected timestamp %d, got %d", now.UnixMilli(), at.UnixMilli())
+	}
+	if !active["ws-active"] {
+		t.Fatalf("expected active workspace to decode, got %v", active)
+	}
+	if states["ws-active"] != activity.StateWorking || states["ws-done"] != activity.StateDone {
+		t.Fatalf("expected working/done states to decode, got %v", states)
+	}
+	if _, ok := states["ws-idle"]; ok {
+		t.Fatalf("idle states should be omitted from snapshot, got %v", states)
 	}
 }
 

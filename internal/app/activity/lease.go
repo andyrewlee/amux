@@ -43,6 +43,11 @@ type OwnerLease struct {
 	Epoch       int64
 }
 
+type activitySnapshotPayload struct {
+	Active []string          `json:"active"`
+	States map[string]string `json:"states,omitempty"`
+}
+
 // OwnerLeaseAlive reports whether lease is a live owner lease at now, tolerating
 // small forward clock skew but expiring stale or far-future heartbeats.
 func OwnerLeaseAlive(lease OwnerLease, now time.Time) bool {
@@ -110,21 +115,29 @@ func RenewOwnerLeaseHeartbeat(opts tmux.Options, now time.Time) error {
 // ReadSnapshot reads the shared active-workspaces snapshot, returning ok=false
 // when it is missing, malformed, from a different epoch, or stale.
 func ReadSnapshot(opts tmux.Options, now time.Time, expectedEpoch int64) (map[string]bool, bool, error) {
+	active, _, ok, err := ReadSnapshotWithStates(opts, now, expectedEpoch)
+	return active, ok, err
+}
+
+// ReadSnapshotWithStates reads the shared activity snapshot, including optional
+// semantic agent states for newer owners. Legacy active-only snapshots decode
+// with a nil states map.
+func ReadSnapshotWithStates(opts tmux.Options, now time.Time, expectedEpoch int64) (map[string]bool, map[string]AgentState, bool, error) {
 	raw, err := tmux.GlobalOptionValue(SnapshotOption, opts)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
-	parsed, snapshotEpoch, at, ok := DecodeSnapshot(raw)
+	parsed, states, snapshotEpoch, at, ok := DecodeSnapshotWithStates(raw)
 	if !ok {
-		return nil, false, nil
+		return nil, nil, false, nil
 	}
 	if expectedEpoch > 0 && snapshotEpoch != expectedEpoch {
-		return nil, false, nil
+		return nil, nil, false, nil
 	}
 	if !snapshotFresh(at, now) {
-		return nil, false, nil
+		return nil, nil, false, nil
 	}
-	return parsed, true, nil
+	return parsed, states, true, nil
 }
 
 // snapshotFresh reports whether a snapshot timestamped at is fresh relative to
@@ -143,6 +156,47 @@ func EncodeSnapshot(active map[string]bool, epoch int64, now time.Time) string {
 	if epoch < 1 {
 		epoch = 1
 	}
+	ids := snapshotActiveIDs(active)
+	encodedPayload, err := json.Marshal(ids)
+	if err != nil {
+		encodedPayload = []byte("[]")
+	}
+	payload := "j:" + base64.RawURLEncoding.EncodeToString(encodedPayload)
+	return strconv.FormatInt(epoch, 10) + ";" + strconv.FormatInt(now.UnixMilli(), 10) + ";" + payload
+}
+
+// EncodeSnapshotWithStates serializes the active-workspace set plus optional
+// per-workspace semantic states with epoch and timestamp.
+func EncodeSnapshotWithStates(active map[string]bool, states map[string]AgentState, epoch int64, now time.Time) string {
+	if len(states) == 0 {
+		return EncodeSnapshot(active, epoch, now)
+	}
+	if epoch < 1 {
+		epoch = 1
+	}
+	payload := activitySnapshotPayload{
+		Active: snapshotActiveIDs(active),
+		States: make(map[string]string, len(states)),
+	}
+	for wsID, state := range states {
+		trimmed := strings.TrimSpace(wsID)
+		if trimmed == "" || state == StateIdle {
+			continue
+		}
+		payload.States[trimmed] = state.String()
+	}
+	if len(payload.States) == 0 {
+		payload.States = nil
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		encodedPayload = []byte(`{"active":[]}`)
+	}
+	encoded := "s:" + base64.RawURLEncoding.EncodeToString(encodedPayload)
+	return strconv.FormatInt(epoch, 10) + ";" + strconv.FormatInt(now.UnixMilli(), 10) + ";" + encoded
+}
+
+func snapshotActiveIDs(active map[string]bool) []string {
 	ids := make([]string, 0, len(active))
 	for wsID, isActive := range active {
 		if isActive {
@@ -153,41 +207,47 @@ func EncodeSnapshot(active map[string]bool, epoch int64, now time.Time) string {
 		}
 	}
 	sort.Strings(ids)
-	encodedPayload, err := json.Marshal(ids)
-	if err != nil {
-		encodedPayload = []byte("[]")
-	}
-	payload := "j:" + base64.RawURLEncoding.EncodeToString(encodedPayload)
-	return strconv.FormatInt(epoch, 10) + ";" + strconv.FormatInt(now.UnixMilli(), 10) + ";" + payload
+	return ids
 }
 
 // DecodeSnapshot parses an encoded snapshot, accepting both the JSON payload and
 // legacy comma-delimited formats. Returns ok=false on malformed input.
 func DecodeSnapshot(raw string) (map[string]bool, int64, time.Time, bool) {
+	active, _, epoch, at, ok := DecodeSnapshotWithStates(raw)
+	return active, epoch, at, ok
+}
+
+// DecodeSnapshotWithStates parses an encoded snapshot and optional semantic
+// states, accepting both current and legacy active-only payloads.
+func DecodeSnapshotWithStates(raw string) (map[string]bool, map[string]AgentState, int64, time.Time, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, 0, time.Time{}, false
+		return nil, nil, 0, time.Time{}, false
 	}
 	parts := strings.SplitN(raw, ";", 3)
 	if len(parts) != 3 {
-		return nil, 0, time.Time{}, false
+		return nil, nil, 0, time.Time{}, false
 	}
 	epoch, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
 	if err != nil || epoch <= 0 {
-		return nil, 0, time.Time{}, false
+		return nil, nil, 0, time.Time{}, false
 	}
 	timestampMS, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
 	if err != nil || timestampMS <= 0 {
-		return nil, 0, time.Time{}, false
+		return nil, nil, 0, time.Time{}, false
 	}
 	active := make(map[string]bool)
 	payload := strings.TrimSpace(parts[2])
 	if payload == "" {
-		return active, epoch, time.UnixMilli(timestampMS), true
+		return active, nil, epoch, time.UnixMilli(timestampMS), true
+	}
+	if strings.HasPrefix(payload, "s:") {
+		active, states, ok := decodeSnapshotStatePayload(payload)
+		return active, states, epoch, time.UnixMilli(timestampMS), ok
 	}
 	if strings.HasPrefix(payload, "j:") {
 		if parsed, ok := decodeSnapshotJSONPayload(payload); ok {
-			return parsed, epoch, time.UnixMilli(timestampMS), true
+			return parsed, nil, epoch, time.UnixMilli(timestampMS), true
 		}
 	}
 
@@ -199,7 +259,7 @@ func DecodeSnapshot(raw string) (map[string]bool, int64, time.Time, bool) {
 		}
 	}
 	if len(legacyCandidates) == 0 {
-		return active, epoch, time.UnixMilli(timestampMS), true
+		return active, nil, epoch, time.UnixMilli(timestampMS), true
 	}
 
 	// Legacy payloads: comma-delimited plain IDs with optional b:<base64(id)> entries.
@@ -224,7 +284,7 @@ func DecodeSnapshot(raw string) (map[string]bool, int64, time.Time, bool) {
 		}
 		active[wsID] = true
 	}
-	return active, epoch, time.UnixMilli(timestampMS), true
+	return active, nil, epoch, time.UnixMilli(timestampMS), true
 }
 
 // decodeSnapshotJSONPayload decodes a "j:"-prefixed base64 JSON array of
@@ -247,4 +307,39 @@ func decodeSnapshotJSONPayload(payload string) (map[string]bool, bool) {
 		active[wsID] = true
 	}
 	return active, true
+}
+
+func decodeSnapshotStatePayload(payload string) (map[string]bool, map[string]AgentState, bool) {
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(payload, "s:"))
+	if err != nil {
+		return nil, nil, false
+	}
+	var raw activitySnapshotPayload
+	if err := json.Unmarshal(decoded, &raw); err != nil {
+		return nil, nil, false
+	}
+	active := make(map[string]bool)
+	for _, candidate := range raw.Active {
+		wsID := strings.TrimSpace(candidate)
+		if wsID != "" {
+			active[wsID] = true
+		}
+	}
+	states := make(map[string]AgentState, len(raw.States))
+	for wsID, rawState := range raw.States {
+		trimmed := strings.TrimSpace(wsID)
+		if trimmed == "" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(rawState)) {
+		case StateWorking.String():
+			states[trimmed] = StateWorking
+		case StateDone.String():
+			states[trimmed] = StateDone
+		}
+	}
+	if len(states) == 0 {
+		states = nil
+	}
+	return active, states, true
 }

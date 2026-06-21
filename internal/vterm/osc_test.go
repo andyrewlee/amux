@@ -1,6 +1,10 @@
 package vterm
 
-import "testing"
+import (
+	"encoding/base64"
+	"strings"
+	"testing"
+)
 
 // TestOSC covers OSC sequence parsing: title capture (OSC 0/1/2), working
 // directory (OSC 7), clipboard (OSC 52), and the ST-termination bug fix.
@@ -106,5 +110,18 @@ func TestOSC(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOSC52OversizedPayloadIgnored(t *testing.T) {
+	t.Parallel()
+
+	payload := strings.Repeat("x", maxOSC52ClipboardBytes+1)
+	encoded := base64.StdEncoding.EncodeToString([]byte(payload))
+	v := New(80, 24)
+	v.Write([]byte("\x1b]52;c;" + encoded + "\x07"))
+
+	if got := v.TakePendingClipboard(); got != nil {
+		t.Fatalf("expected oversized OSC52 payload to be ignored, got %d bytes", len(got))
 	}
 }

@@ -37,7 +37,16 @@ func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *
 	if err := activity.WriteOwnerLease(opts, "shared-owner", 3, now); err != nil {
 		t.Fatalf("write owner lease: %v", err)
 	}
-	if err := tmux.SetGlobalOptionValue(activity.SnapshotOption, activity.EncodeSnapshot(map[string]bool{"ws-shared": true}, 3, now), opts); err != nil {
+	if err := tmux.SetGlobalOptionValue(
+		activity.SnapshotOption,
+		activity.EncodeSnapshotWithStates(
+			map[string]bool{"ws-shared": true},
+			map[string]activity.AgentState{"ws-shared": activity.StateDone},
+			3,
+			now,
+		),
+		opts,
+	); err != nil {
 		t.Fatalf("set shared snapshot: %v", err)
 	}
 
@@ -81,6 +90,9 @@ func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *
 	}
 	if !result.ActiveWorkspaceIDs["ws-shared"] {
 		t.Fatalf("expected shared snapshot activity to be applied, got %v", result.ActiveWorkspaceIDs)
+	}
+	if result.AgentStates["ws-shared"] != activity.StateDone {
+		t.Fatalf("expected shared done state to be applied, got %v", result.AgentStates)
 	}
 	if len(result.StoppedTabs) != 1 {
 		t.Fatalf("expected one stopped tab update, got %d", len(result.StoppedTabs))

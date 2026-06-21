@@ -76,6 +76,7 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 	// Clear follower/shared activity immediately. If the first owner scan fails,
 	// stale follower markers should not remain visible.
 	a.tmuxActivity.activeWorkspaceIDs = make(map[string]bool)
+	a.tmuxActivity.agentStates = make(map[string]activity.AgentState)
 	// Re-enter the unsettled state so this transient empty set is not published as
 	// authoritative. While !settled, syncActiveWorkspacesToDashboard short-circuits
 	// to an empty publish that the dashboard treats as "not yet known" rather than a

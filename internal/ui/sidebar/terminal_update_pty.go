@@ -97,8 +97,7 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		consumed = true
 	}
 	ts.mu.Unlock()
-	if len(pendingClip) > 0 {
-		clip := string(pendingClip)
+	if clip, ok := common.OSC52ClipboardText(pendingClip); ok {
 		safego.Go("sidebar.osc52_clipboard", func() {
 			common.CopyToClipboardWithLog(clip, "agent OSC52 (sidebar)")
 		})
