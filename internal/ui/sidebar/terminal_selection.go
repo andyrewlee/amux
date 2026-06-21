@@ -165,42 +165,18 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 
 	ts.mu.Lock()
 	if ts.Selection.Active && ts.VTerm != nil {
-		termWidth := ts.VTerm.Width
-		termHeight := ts.VTerm.Height
-
-		// Clamp X to terminal bounds
-		if termX < 0 {
-			termX = 0
-		}
-		if termX >= termWidth {
-			termX = termWidth - 1
-		}
-
-		// Set scroll direction from unclamped Y before clamping
-		ts.selectionScroll.SetDirection(termY, termHeight)
-
-		// Auto-scroll when dragging at edges
-		if termY < 0 {
-			// Dragging above viewport - scroll up into history
-			ts.VTerm.ScrollView(1)
-			ts.VTerm.NoteSyncViewportInteraction()
-			termY = 0
-		} else if termY >= termHeight {
-			// Dragging below viewport - scroll down toward live
-			ts.VTerm.ScrollView(-1)
-			ts.VTerm.NoteSyncViewportInteraction()
-			termY = termHeight - 1
-		}
-
-		// Convert to absolute line and update selection
-		absLine := ts.VTerm.ScreenYToAbsoluteLine(termY)
-		common.ExtendSelection(ts.VTerm, &ts.Selection, termX, absLine)
-
-		// Store last X for tick-based endpoint updates
-		ts.selectionLastTermX = termX
+		needTick, gen := common.DragSelect(
+			ts.VTerm,
+			&ts.Selection,
+			&ts.selectionScroll,
+			termX, termY, ts.VTerm.Width, ts.VTerm.Height,
+			&ts.selectionLastTermX,
+			ts.VTerm.ScrollViewAndNote,
+			ts.VTerm.ScreenYToAbsoluteLine,
+		)
 
 		// Start tick loop for continuous scrolling if needed
-		if needTick, gen := ts.selectionScroll.NeedsTick(); needTick {
+		if needTick {
 			activeTab := m.getActiveTab()
 			if activeTab != nil {
 				wsID := m.workspaceID()
@@ -269,17 +245,15 @@ func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick
 		ts.mu.Unlock()
 		return nil
 	}
-	ts.VTerm.ScrollView(ts.selectionScroll.ScrollDir)
-	ts.VTerm.NoteSyncViewportInteraction()
-
-	// Update selection endpoint to viewport edge
-	edgeY := 0
-	if ts.selectionScroll.ScrollDir < 0 {
-		edgeY = ts.VTerm.Height - 1
-	}
-	absLine := ts.VTerm.ScreenYToAbsoluteLine(edgeY)
-	endX := ts.selectionLastTermX
-	common.ExtendSelection(ts.VTerm, &ts.Selection, endX, absLine)
+	common.SelectionScrollTickStep(
+		ts.VTerm,
+		&ts.Selection,
+		&ts.selectionScroll,
+		ts.VTerm.Height,
+		ts.selectionLastTermX,
+		ts.VTerm.ScrollViewAndNote,
+		ts.VTerm.ScreenYToAbsoluteLine,
+	)
 
 	ts.mu.Unlock()
 

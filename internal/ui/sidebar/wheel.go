@@ -1,5 +1,7 @@
 package sidebar
 
+import "github.com/andyrewlee/amux/internal/vterm"
+
 // CanConsumeWheel reports whether the active sidebar tab has meaningful wheel
 // scroll content. This avoids hover-wheel focus steals from empty panes.
 func (m *TabbedSidebar) CanConsumeWheel() bool {
@@ -32,7 +34,7 @@ func (m *TerminalModel) CanConsumeWheel() bool {
 	}
 	tab.State.mu.Lock()
 	defer tab.State.mu.Unlock()
-	return tab.State.VTerm != nil && tab.State.VTerm.MaxViewOffset() > 0
+	return vterm.VTermHasScrollback(tab.State.VTerm)
 }
 
 func (m *Model) canConsumeWheel() bool {

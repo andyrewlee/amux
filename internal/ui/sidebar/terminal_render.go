@@ -262,8 +262,10 @@ func (m *TerminalModel) helpLines(contentWidth int) []string {
 	return common.WrapHelpItems(items, contentWidth)
 }
 
-// tabBarHeight is the height of the terminal tab bar (single line, no borders)
-const tabBarHeight = 1
+// tabBarHeight is the height of the terminal tab bar (single line, no borders).
+// It aliases the shared common.TabBarHeight so the center and sidebar panes
+// stay in lockstep.
+const tabBarHeight = common.TabBarHeight
 
 // statusLineReserve keeps space for the status line even when hidden.
 const statusLineReserve = 1

@@ -263,3 +263,76 @@ func TestMaxViewOffsetUsesFrozenSyncSnapshot(t *testing.T) {
 		t.Fatalf("MaxViewOffset() during sync = %d, want 3 (frozen scrollback)", got)
 	}
 }
+
+func TestVTermHasScrollback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		vt         *VTerm
+		scrollback int
+		want       bool
+	}{
+		{name: "nil receiver", vt: nil, want: false},
+		{name: "no scrollback", vt: New(5, 3), want: false},
+		{name: "one scrollback row", vt: New(5, 3), scrollback: 1, want: true},
+		{name: "many scrollback rows", vt: New(5, 3), scrollback: 42, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if tt.vt != nil && tt.scrollback > 0 {
+				addScrollbackLines(tt.vt, tt.scrollback)
+			}
+			if got := VTermHasScrollback(tt.vt); got != tt.want {
+				t.Fatalf("VTermHasScrollback() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestScrollViewAndNote verifies the helper moves the viewport exactly like
+// ScrollView and records the interaction like NoteSyncViewportInteraction, so
+// the two paired calls stay equivalent to the inlined pair.
+func TestScrollViewAndNote(t *testing.T) {
+	t.Parallel()
+
+	t.Run("moves viewport like ScrollView", func(t *testing.T) {
+		t.Parallel()
+		vt := New(80, 24)
+		addScrollbackLines(vt, 100)
+
+		vt.ScrollViewAndNote(30)
+		if vt.ViewOffset != 30 {
+			t.Fatalf("ViewOffset = %d, want 30", vt.ViewOffset)
+		}
+		vt.ScrollViewAndNote(-10)
+		if vt.ViewOffset != 20 {
+			t.Fatalf("ViewOffset = %d after scroll back, want 20", vt.ViewOffset)
+		}
+	})
+
+	t.Run("clamps like ScrollView", func(t *testing.T) {
+		t.Parallel()
+		vt := New(80, 24)
+		addScrollbackLines(vt, 5)
+
+		vt.ScrollViewAndNote(9999)
+		if vt.ViewOffset != 5 {
+			t.Fatalf("ViewOffset = %d, want clamp to max 5", vt.ViewOffset)
+		}
+	})
+
+	t.Run("notes interaction during sync while scrolled", func(t *testing.T) {
+		t.Parallel()
+		vt := New(80, 24)
+		addScrollbackLines(vt, 100)
+		vt.setSynchronizedOutput(true)
+
+		vt.ScrollViewAndNote(10)
+		if !vt.syncPreserveViewport {
+			t.Error("expected syncPreserveViewport set after scrolling into history during sync")
+		}
+	})
+}

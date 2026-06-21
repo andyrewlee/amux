@@ -85,34 +85,21 @@ func (m *Model) handleSelectionUpdate(ev tabEvent) {
 	if !tab.Selection.Active || tab.Terminal == nil {
 		return
 	}
-	termWidth := tab.Terminal.Width
-	termHeight := tab.Terminal.Height
-	termX := ev.termX
-	termY := ev.termY
 
-	if termX < 0 {
-		termX = 0
-	}
-	if termX >= termWidth {
-		termX = termWidth - 1
-	}
+	needTick, gen := common.DragSelect(
+		tab.Terminal,
+		&tab.Selection,
+		&tab.selectionScroll,
+		ev.termX, ev.termY, tab.Terminal.Width, tab.Terminal.Height,
+		&tab.selectionLastTermX,
+		func(delta int) { m.scrollTerminalViewLocked(tab, delta) },
+		func(screenY int) int {
+			absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, screenY)
+			return absLine
+		},
+	)
 
-	// Set scroll direction from unclamped Y before clamping
-	tab.selectionScroll.SetDirection(termY, termHeight)
-
-	if termY < 0 {
-		m.scrollTerminalViewLocked(tab, 1)
-		termY = 0
-	} else if termY >= termHeight {
-		m.scrollTerminalViewLocked(tab, -1)
-		termY = termHeight - 1
-	}
-
-	absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, termY)
-	common.ExtendSelection(tab.Terminal, &tab.Selection, termX, absLine)
-
-	tab.selectionLastTermX = termX
-	if needTick, gen := tab.selectionScroll.NeedsTick(); needTick && m.msgSink != nil {
+	if needTick && m.msgSink != nil {
 		m.msgSink(selectionTickRequest{
 			workspaceID: ev.workspaceID,
 			tabID:       ev.tabID,
@@ -149,16 +136,18 @@ func (m *Model) handleSelectionScrollTick(ev tabEvent) {
 		tab.mu.Unlock()
 		return
 	}
-	m.scrollTerminalViewLocked(tab, tab.selectionScroll.ScrollDir)
-
-	// Update selection endpoint to viewport edge
-	edgeY := 0
-	if tab.selectionScroll.ScrollDir < 0 {
-		edgeY = tab.Terminal.Height - 1
-	}
-	absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, edgeY)
-	endX := tab.selectionLastTermX
-	common.ExtendSelection(tab.Terminal, &tab.Selection, endX, absLine)
+	common.SelectionScrollTickStep(
+		tab.Terminal,
+		&tab.Selection,
+		&tab.selectionScroll,
+		tab.Terminal.Height,
+		tab.selectionLastTermX,
+		func(delta int) { m.scrollTerminalViewLocked(tab, delta) },
+		func(screenY int) int {
+			absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, screenY)
+			return absLine
+		},
+	)
 
 	tab.mu.Unlock()
 	if m.msgSink != nil {

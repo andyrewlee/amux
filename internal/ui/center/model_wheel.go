@@ -1,5 +1,7 @@
 package center
 
+import "github.com/andyrewlee/amux/internal/vterm"
+
 // CanConsumeWheel reports whether the active center tab can meaningfully handle
 // mouse-wheel input. Detached chat tabs count so wheel-driven focus can trigger
 // reattach; otherwise a tab must have scrollable diff or terminal content.
@@ -31,7 +33,7 @@ func (m *Model) CanConsumeWheel() bool {
 		return tab.DiffViewer.CanConsumeWheel()
 	}
 	if tab.Terminal != nil {
-		return tab.Terminal.MouseReportingEnabled() || tab.Terminal.MaxViewOffset() > 0
+		return tab.Terminal.MouseReportingEnabled() || vterm.VTermHasScrollback(tab.Terminal)
 	}
 	return false
 }
