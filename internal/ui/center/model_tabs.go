@@ -93,8 +93,11 @@ type ptyTabReattachFailed struct {
 }
 
 func truncateDisplayName(name string) string {
-	if len(name) > 20 {
-		return "..." + name[len(name)-17:]
+	// Count/slice by rune, not byte, so multibyte/CJK names are never cut
+	// mid-rune (which would render as a replacement glyph).
+	r := []rune(name)
+	if len(r) > 20 {
+		return "..." + string(r[len(r)-17:])
 	}
 	return name
 }

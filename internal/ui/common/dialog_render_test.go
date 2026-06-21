@@ -167,6 +167,15 @@ func TestDialogViewSelectFilterEnabled(t *testing.T) {
 	}
 }
 
+func TestFuzzyMatchHandlesMultibyteRunes(t *testing.T) {
+	if !fuzzyMatch("日語", "日本語") {
+		t.Fatal("expected fuzzyMatch to match multibyte runes in order")
+	}
+	if fuzzyMatch("語日", "日本語") {
+		t.Fatal("expected fuzzyMatch to preserve rune order")
+	}
+}
+
 // TestDialogHelpText exercises every branch of helpText, including the
 // filter-enabled vs. plain select cases and the default fall-through for an
 // unset dialog type.

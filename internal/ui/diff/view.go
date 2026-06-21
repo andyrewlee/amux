@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -260,37 +261,29 @@ func (m *Model) renderLine(lineNum int, line git.DiffLine, numWidth, contentWidt
 			Foreground(common.ColorForeground())
 	}
 
-	// Handle line wrapping
-	if m.wrap && len(content) > contentWidth {
+	// Handle line wrapping. Width checks and slicing are display-width and
+	// grapheme aware (ansi.*) so multibyte/CJK content is never cut mid-rune.
+	if m.wrap && ansi.StringWidth(content) > contentWidth {
 		content = m.wrapLine(content, contentWidth)
-	} else if len(content) > contentWidth {
-		// Truncate with ellipsis
+	} else if ansi.StringWidth(content) > contentWidth {
+		// Truncate with ellipsis (ansi.Truncate keeps the tail within width).
 		if contentWidth > 3 {
-			content = content[:contentWidth-3] + "..."
+			content = ansi.Truncate(content, contentWidth, "...")
 		}
 	}
 
 	return lineNumStr + " " + contentStyle.Render(content)
 }
 
-// wrapLine wraps a long line to fit within width
+// wrapLine wraps a long line to fit within width, breaking on display-cell
+// (not byte) boundaries and indenting continuation lines.
 func (m *Model) wrapLine(content string, width int) string {
-	if len(content) <= width {
+	if ansi.StringWidth(content) <= width {
 		return content
 	}
 
-	var wrapped strings.Builder
-	for i := 0; i < len(content); i += width {
-		end := i + width
-		if end > len(content) {
-			end = len(content)
-		}
-		if i > 0 {
-			wrapped.WriteString("\n    ") // Indent continuation lines
-		}
-		wrapped.WriteString(content[i:end])
-	}
-	return wrapped.String()
+	segments := strings.Split(ansi.Hardwrap(content, width, false), "\n")
+	return strings.Join(segments, "\n    ") // Indent continuation lines
 }
 
 // renderFooter renders the footer with keybindings and scroll info

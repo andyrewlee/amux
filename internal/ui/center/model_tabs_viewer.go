@@ -137,10 +137,7 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 	dv.SetFocused(true)
 
 	wsID := string(ws.ID())
-	displayName := "Diff: " + change.Path
-	if len(displayName) > 20 {
-		displayName = "..." + displayName[len(displayName)-17:]
-	}
+	displayName := truncateDisplayName("Diff: " + change.Path)
 
 	tab := &Tab{
 		ID:            generateTabID(),

@@ -204,8 +204,12 @@ func TestUpdateEscClosesDialog(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("esc should emit a SettingsResult command")
 	}
-	if _, ok := cmd().(SettingsResult); !ok {
+	result, ok := cmd().(SettingsResult)
+	if !ok {
 		t.Fatalf("expected SettingsResult, got %T", cmd())
+	}
+	if !result.Canceled {
+		t.Fatal("esc SettingsResult should be marked canceled")
 	}
 }
 

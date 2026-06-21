@@ -146,6 +146,7 @@ func (m *ProjectTree) helpLines(contentWidth int) []string {
 		m.helpItem("j/↓", "down"),
 		m.helpItem("h/←", "collapse"),
 		m.helpItem("l/→", "expand"),
+		m.helpItem("enter/o", "open"),
 		m.helpItem(".", "hidden"),
 		m.helpItem("r", "refresh"),
 	}

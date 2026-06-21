@@ -187,18 +187,17 @@ func TestInputClickOnHeaderIsNoOpOpen(t *testing.T) {
 	m := newInputModel(t)
 	start := m.cursor
 
-	// Y=4 maps to displayItems[3], which is the "Unstaged" header. rowIndexAt
-	// still resolves the row, but openCurrentItem must refuse to open a header.
+	// Y=4 maps to displayItems[3], which is the "Unstaged" header. Header clicks
+	// are ignored completely so the visible cursor stays on an actionable row.
 	_, cmd := m.Update(tea.MouseClickMsg{X: 2, Y: 4, Button: tea.MouseLeft})
-	if m.cursor != 3 {
-		t.Fatalf("expected click on header row to set cursor to header index 3, got %d", m.cursor)
+	if m.cursor != start {
+		t.Fatalf("expected click on header row to keep cursor at %d, got %d", start, m.cursor)
 	}
 	if cmd != nil {
 		if msg := cmd(); msg != nil {
 			t.Fatalf("expected no OpenDiff when clicking a header, got %T", msg)
 		}
 	}
-	_ = start
 }
 
 func TestInputClickOutsideRowsIsNoOp(t *testing.T) {

@@ -10,8 +10,12 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
-// SettingsResult is sent when the settings dialog is closed.
-type SettingsResult struct{}
+// SettingsResult is sent when the settings dialog is closed. Canceled is true
+// when the user dismissed via Esc (revert any live theme preview) rather than
+// confirming via [Close].
+type SettingsResult struct {
+	Canceled bool
+}
 
 // ThemePreview is sent when user navigates through themes for live preview.
 type ThemePreview struct {
@@ -128,7 +132,7 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			s.visible = false
-			return s, func() tea.Msg { return SettingsResult{} }
+			return s, func() tea.Msg { return SettingsResult{Canceled: true} }
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", " "))):
 			return s.handleSelect()

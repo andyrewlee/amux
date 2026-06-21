@@ -108,6 +108,11 @@ func (t *ScriptTrust) Trust(repoPath string, configContent []byte) error {
 		return nil
 	}
 	key := data.NormalizePath(repoPath)
+	if key == "" {
+		// Mirror IsTrusted's guard: an empty key can never be matched, so
+		// recording one would "succeed" while granting no real trust.
+		return nil
+	}
 	entries := t.load()
 	entries[key] = hashConfig(configContent)
 

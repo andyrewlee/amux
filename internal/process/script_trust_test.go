@@ -29,6 +29,21 @@ func TestScriptTrustTrustThenTrusted(t *testing.T) {
 	}
 }
 
+func TestScriptTrustEmptyPathDoesNotWriteRegistry(t *testing.T) {
+	dir := t.TempDir()
+	trust := NewScriptTrust(dir)
+
+	if err := trust.Trust("", []byte(`{"setup-workspace":["touch marker"]}`)); err != nil {
+		t.Fatalf("Trust(empty) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, trustRegistryFilename)); !os.IsNotExist(err) {
+		t.Fatalf("expected no trust registry for empty path, stat err = %v", err)
+	}
+	if trust.IsTrusted("", []byte(`{"setup-workspace":["touch marker"]}`)) {
+		t.Fatal("empty repo path must never be trusted")
+	}
+}
+
 func TestScriptTrustInvalidatedWhenContentChanges(t *testing.T) {
 	trust := NewScriptTrust(t.TempDir())
 	repo := t.TempDir()

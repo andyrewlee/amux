@@ -127,15 +127,16 @@ func fuzzyMatch(pattern, target string) bool {
 	if pattern == "" {
 		return true
 	}
-	pattern = strings.ToLower(pattern)
-	target = strings.ToLower(target)
+	// Match by rune, not byte, so multibyte/CJK names filter correctly.
+	pr := []rune(strings.ToLower(pattern))
+	tr := []rune(strings.ToLower(target))
 	pi := 0
-	for ti := 0; ti < len(target) && pi < len(pattern); ti++ {
-		if target[ti] == pattern[pi] {
+	for ti := 0; ti < len(tr) && pi < len(pr); ti++ {
+		if tr[ti] == pr[pi] {
 			pi++
 		}
 	}
-	return pi == len(pattern)
+	return pi == len(pr)
 }
 
 // SetInputTransform sets a transform function that will be applied to input text
