@@ -30,7 +30,7 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 
 	if stored == nil {
 		if discovered.Created.IsZero() {
-			discovered.Created = time.Now()
+			discovered.Created = s.clock()
 		}
 		s.applyWorkspaceDefaults(discovered)
 		return s.Save(discovered)
@@ -66,7 +66,7 @@ func (s *WorkspaceStore) mergeDiscoveryLocked(discovered *Workspace, storedID Wo
 			return err
 		}
 		if discovered.Created.IsZero() {
-			discovered.Created = time.Now()
+			discovered.Created = s.clock()
 		}
 		s.applyWorkspaceDefaults(discovered)
 		if discovered.ID() == storedID {

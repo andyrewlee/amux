@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/fsatomic"
 
@@ -20,6 +21,10 @@ const workspaceFilename = "workspace.json"
 type WorkspaceStore struct {
 	root             string // ~/.amux/workspaces-metadata
 	defaultAssistant string
+	// now supplies the current time when stamping Created on freshly discovered
+	// workspaces. It defaults to time.Now and is overridable in tests so
+	// discovery timestamps can be asserted deterministically.
+	now func() time.Time
 }
 
 // NewWorkspaceStore creates a new workspace store
@@ -27,7 +32,17 @@ func NewWorkspaceStore(root string) *WorkspaceStore {
 	return &WorkspaceStore{
 		root:             root,
 		defaultAssistant: DefaultAssistant,
+		now:              time.Now,
 	}
+}
+
+// clock returns the store's current time, falling back to time.Now when the
+// store was built without the constructor (e.g. a zero-value literal).
+func (s *WorkspaceStore) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 // SetDefaultAssistant updates the assistant used when applying defaults while loading metadata.
