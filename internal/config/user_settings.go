@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/andyrewlee/amux/internal/fsatomic"
 )
 
 // UISettings stores user-facing display preferences.
@@ -80,7 +82,9 @@ func saveUISettings(path string, settings UISettings) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	// Crash-safe write (temp + fsync + atomic rename) so a crash mid-save can't
+	// leave a torn config.json, matching the rest of amux's persistence.
+	return fsatomic.WriteFile(path, data, 0o644)
 }
 
 // SaveUISettings persists UI settings to the config file.
