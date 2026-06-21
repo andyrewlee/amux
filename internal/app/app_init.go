@@ -62,16 +62,40 @@ func newAppShell(cfg *config.Config) *App {
 	}
 	app.styles = common.DefaultStyles()
 	// Propagate styles to all components (they may have been created with a
-	// different current theme).
-	app.dashboard.SetStyles(app.styles)
-	app.sidebar.SetStyles(app.styles)
-	app.sidebarTerminal.SetStyles(app.styles)
-	app.center.SetStyles(app.styles)
-	app.toast.SetStyles(app.styles)
+	// different current theme). filePicker is nil at construction, so its
+	// nil-guarded branch in propagateStyles is intentionally skipped here.
+	app.propagateStyles()
 	if cfg != nil {
 		app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 	}
 	return app
+}
+
+// propagateStyles fans the current a.styles out to every UI component that
+// accepts styles. Each component is nil-guarded so the same helper is correct
+// both at construction (where filePicker is nil and is intentionally skipped)
+// and after a live theme change (where filePicker may be present). Only
+// components exposing SetStyles are included; the modal dialog and settings
+// dialog do not and are deliberately omitted.
+func (a *App) propagateStyles() {
+	if a.dashboard != nil {
+		a.dashboard.SetStyles(a.styles)
+	}
+	if a.sidebar != nil {
+		a.sidebar.SetStyles(a.styles)
+	}
+	if a.sidebarTerminal != nil {
+		a.sidebarTerminal.SetStyles(a.styles)
+	}
+	if a.center != nil {
+		a.center.SetStyles(a.styles)
+	}
+	if a.toast != nil {
+		a.toast.SetStyles(a.styles)
+	}
+	if a.filePicker != nil {
+		a.filePicker.SetStyles(a.styles)
+	}
 }
 
 // New creates a new App instance.

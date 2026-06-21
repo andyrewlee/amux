@@ -9,6 +9,59 @@ import (
 
 const paneNone messages.PaneType = -1
 
+// dispatchToPane forwards a mouse message to the child component for the given
+// pane: it translates the pointer coordinates into the pane's local space (the
+// sidebar terminal needs no adjustment and is forwarded unchanged), calls the
+// child's Update, stores the returned model back, and returns the child's Cmd.
+// It returns nil for an unrecognized pane. Callers layer any focus/SafeBatch
+// behavior on top of the returned Cmd, so this helper performs no focus
+// bookkeeping itself. The concrete message type is preserved through the
+// coordinate adjust so each child's own type switch still matches.
+func (a *App) dispatchToPane(pane messages.PaneType, msg tea.Msg) tea.Cmd {
+	switch pane {
+	case messages.PaneDashboard:
+		newDashboard, cmd := a.dashboard.Update(a.adjustMouseMsg(pane, msg))
+		a.dashboard = newDashboard
+		return cmd
+	case messages.PaneCenter:
+		newCenter, cmd := a.center.Update(a.adjustMouseMsg(pane, msg))
+		a.center = newCenter
+		return cmd
+	case messages.PaneSidebar:
+		newSidebar, cmd := a.sidebar.Update(a.adjustMouseMsg(pane, msg))
+		a.sidebar = newSidebar
+		return cmd
+	case messages.PaneSidebarTerminal:
+		// The sidebar terminal renders in screen space, so its message is
+		// forwarded without coordinate translation.
+		newTerm, cmd := a.sidebarTerminal.Update(msg)
+		a.sidebarTerminal = newTerm
+		return cmd
+	}
+	return nil
+}
+
+// adjustMouseMsg returns a copy of the mouse message with its X/Y translated
+// into the target pane's local coordinate space via adjustMouseXY, preserving
+// the concrete message type. Non-mouse messages are returned unchanged.
+func (a *App) adjustMouseMsg(pane messages.PaneType, msg tea.Msg) tea.Msg {
+	switch m := msg.(type) {
+	case tea.MouseClickMsg:
+		m.X, m.Y = a.adjustMouseXY(pane, m.X, m.Y)
+		return m
+	case tea.MouseWheelMsg:
+		m.X, m.Y = a.adjustMouseXY(pane, m.X, m.Y)
+		return m
+	case tea.MouseMotionMsg:
+		m.X, m.Y = a.adjustMouseXY(pane, m.X, m.Y)
+		return m
+	case tea.MouseReleaseMsg:
+		m.X, m.Y = a.adjustMouseXY(pane, m.X, m.Y)
+		return m
+	}
+	return msg
+}
+
 // routeMouseClick routes mouse click events to the appropriate pane.
 func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	if a.prefixPaletteContainsPoint(msg.X, msg.Y) {
@@ -35,36 +88,16 @@ func (a *App) routeMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		return focusCmd
 	}
 
-	switch targetPane {
-	case messages.PaneDashboard:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneDashboard, msg.X, msg.Y)
-		newDashboard, cmd := a.dashboard.Update(adjusted)
-		a.dashboard = newDashboard
-		return common.SafeBatch(focusCmd, cmd)
-	case messages.PaneCenter:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneCenter, msg.X, msg.Y)
-		newCenter, cmd := a.center.Update(adjusted)
-		a.center = newCenter
-		return common.SafeBatch(focusCmd, cmd)
-	case messages.PaneSidebarTerminal:
-		newTerm, cmd := a.sidebarTerminal.Update(msg)
-		a.sidebarTerminal = newTerm
+	cmd := a.dispatchToPane(targetPane, msg)
+	if targetPane == messages.PaneSidebarTerminal {
 		// If the click returned a command (e.g., CreateNewTab from "+ New" button),
 		// skip focusCmd to avoid double terminal creation.
 		if cmd != nil {
 			return cmd
 		}
 		return focusCmd
-	case messages.PaneSidebar:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneSidebar, msg.X, msg.Y)
-		newSidebar, cmd := a.sidebar.Update(adjusted)
-		a.sidebar = newSidebar
-		return common.SafeBatch(focusCmd, cmd)
 	}
-	return focusCmd
+	return common.SafeBatch(focusCmd, cmd)
 }
 
 func (a *App) handleMouseMsg(msg tea.Msg) tea.Cmd {
@@ -142,28 +175,8 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 	}
 
 	switch targetPane {
-	case messages.PaneDashboard:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneDashboard, msg.X, msg.Y)
-		newDashboard, cmd := a.dashboard.Update(adjusted)
-		a.dashboard = newDashboard
-		return common.SafeBatch(focusCmd, cmd)
-	case messages.PaneCenter:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneCenter, msg.X, msg.Y)
-		newCenter, cmd := a.center.Update(adjusted)
-		a.center = newCenter
-		return common.SafeBatch(focusCmd, cmd)
-	case messages.PaneSidebarTerminal:
-		newTerm, cmd := a.sidebarTerminal.Update(msg)
-		a.sidebarTerminal = newTerm
-		return common.SafeBatch(focusCmd, cmd)
-	case messages.PaneSidebar:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneSidebar, msg.X, msg.Y)
-		newSidebar, cmd := a.sidebar.Update(adjusted)
-		a.sidebar = newSidebar
-		return common.SafeBatch(focusCmd, cmd)
+	case messages.PaneDashboard, messages.PaneCenter, messages.PaneSidebar, messages.PaneSidebarTerminal:
+		return common.SafeBatch(focusCmd, a.dispatchToPane(targetPane, msg))
 	}
 	return nil
 }
@@ -194,28 +207,8 @@ func (a *App) routeMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 		}
 	}
 	switch targetPane {
-	case messages.PaneDashboard:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneDashboard, msg.X, msg.Y)
-		newDashboard, cmd := a.dashboard.Update(adjusted)
-		a.dashboard = newDashboard
-		return cmd
-	case messages.PaneCenter:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneCenter, msg.X, msg.Y)
-		newCenter, cmd := a.center.Update(adjusted)
-		a.center = newCenter
-		return cmd
-	case messages.PaneSidebarTerminal:
-		newTerm, cmd := a.sidebarTerminal.Update(msg)
-		a.sidebarTerminal = newTerm
-		return cmd
-	case messages.PaneSidebar:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneSidebar, msg.X, msg.Y)
-		newSidebar, cmd := a.sidebar.Update(adjusted)
-		a.sidebar = newSidebar
-		return cmd
+	case messages.PaneDashboard, messages.PaneCenter, messages.PaneSidebar, messages.PaneSidebarTerminal:
+		return a.dispatchToPane(targetPane, msg)
 	}
 	return nil
 }
@@ -233,28 +226,8 @@ func (a *App) routeMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 		}
 	}
 	switch targetPane {
-	case messages.PaneDashboard:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneDashboard, msg.X, msg.Y)
-		newDashboard, cmd := a.dashboard.Update(adjusted)
-		a.dashboard = newDashboard
-		return cmd
-	case messages.PaneCenter:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneCenter, msg.X, msg.Y)
-		newCenter, cmd := a.center.Update(adjusted)
-		a.center = newCenter
-		return cmd
-	case messages.PaneSidebarTerminal:
-		newTerm, cmd := a.sidebarTerminal.Update(msg)
-		a.sidebarTerminal = newTerm
-		return cmd
-	case messages.PaneSidebar:
-		adjusted := msg
-		adjusted.X, adjusted.Y = a.adjustMouseXY(messages.PaneSidebar, msg.X, msg.Y)
-		newSidebar, cmd := a.sidebar.Update(adjusted)
-		a.sidebar = newSidebar
-		return cmd
+	case messages.PaneDashboard, messages.PaneCenter, messages.PaneSidebar, messages.PaneSidebarTerminal:
+		return a.dispatchToPane(targetPane, msg)
 	}
 	return nil
 }

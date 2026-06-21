@@ -159,15 +159,8 @@ func (a *App) applyTheme(theme common.ThemeID) {
 	a.config.UI.Theme = string(theme)
 	a.settingsThemeDirty = theme != a.settingsThemePersistedTheme
 	a.styles = common.DefaultStyles()
-	// Propagate styles to all components
-	a.dashboard.SetStyles(a.styles)
-	a.sidebar.SetStyles(a.styles)
-	a.sidebarTerminal.SetStyles(a.styles)
-	a.center.SetStyles(a.styles)
-	a.toast.SetStyles(a.styles)
-	if a.filePicker != nil {
-		a.filePicker.SetStyles(a.styles)
-	}
+	// Propagate styles to all components.
+	a.propagateStyles()
 }
 
 // handleThemePreview handles live theme preview.

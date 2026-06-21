@@ -171,28 +171,68 @@ func (a *App) handlePrefixTimeout(msg prefixTimeoutMsg) {
 	}
 }
 
-// centerButtonCount returns the number of buttons shown on the current center screen
-func (a *App) centerButtonCount() int {
+// centerButton describes one focusable button on a tab-less center screen: the
+// label rendered in the pane and the message its activation emits.
+type centerButton struct {
+	label string
+	msg   tea.Msg
+}
+
+// centerButtonState selects which tab-less center screen's button set to use.
+type centerButtonState int
+
+const (
+	// centerButtonsNone is a screen with no focusable buttons.
+	centerButtonsNone centerButtonState = iota
+	// centerButtonsWelcome is the welcome screen: [Add project], [Settings].
+	centerButtonsWelcome
+	// centerButtonsWorkspace is the active-workspace screen: [New agent].
+	centerButtonsWorkspace
+)
+
+// centerButtonsFor is the single source of truth for the center pane's
+// focusable buttons in a given tab-less state. The slice order matches both the
+// rendered left-to-right (or top-to-bottom) layout and the centerBtnIndex used
+// by keyboard navigation and activation. Renderers pass their own fixed state;
+// the keyboard path resolves the current state via currentCenterButtonState.
+func centerButtonsFor(state centerButtonState) []centerButton {
+	switch state {
+	case centerButtonsWelcome:
+		return []centerButton{
+			{label: "[Add project]", msg: messages.ShowAddProjectDialog{}},
+			{label: "[Settings]", msg: messages.ShowSettingsDialog{}},
+		}
+	case centerButtonsWorkspace:
+		return []centerButton{
+			{label: "[New agent]", msg: messages.ShowSelectAssistantDialog{}},
+		}
+	}
+	return nil
+}
+
+// currentCenterButtonState maps the live app flags to the active center button
+// screen, mirroring the original showWelcome-then-activeWorkspace precedence.
+func (a *App) currentCenterButtonState() centerButtonState {
 	if a.showWelcome {
-		return 2 // [Add project], [Settings]
+		return centerButtonsWelcome
 	}
 	if a.activeWorkspace != nil {
-		return 1 // [New agent]
+		return centerButtonsWorkspace
 	}
-	return 0
+	return centerButtonsNone
+}
+
+// centerButtonCount returns the number of buttons shown on the current center screen
+func (a *App) centerButtonCount() int {
+	return len(centerButtonsFor(a.currentCenterButtonState()))
 }
 
 // activateCenterButton activates the currently focused center button
 func (a *App) activateCenterButton() tea.Cmd {
-	if a.showWelcome {
-		switch a.centerBtnIndex {
-		case 0:
-			return func() tea.Msg { return messages.ShowAddProjectDialog{} }
-		case 1:
-			return func() tea.Msg { return messages.ShowSettingsDialog{} }
-		}
-	} else if a.activeWorkspace != nil {
-		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+	buttons := centerButtonsFor(a.currentCenterButtonState())
+	if a.centerBtnIndex < 0 || a.centerBtnIndex >= len(buttons) {
+		return nil
 	}
-	return nil
+	msg := buttons[a.centerBtnIndex].msg
+	return func() tea.Msg { return msg }
 }
