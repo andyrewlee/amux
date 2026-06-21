@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -131,11 +132,36 @@ func (a *App) applyTmuxActivityPayload(msg tmuxActivityResult) tea.Cmd {
 	for _, name := range msg.RemovedStates {
 		delete(a.tmuxActivity.sessionStates, name)
 	}
+	prevStates := a.tmuxActivity.agentStates
+	doneCount := countWorkingToDone(prevStates, msg.AgentStates)
 	a.tmuxActivity.activeWorkspaceIDs = msg.ActiveWorkspaceIDs
+	a.tmuxActivity.agentStates = msg.AgentStates
 	a.tmuxActivity.settledScans++
 	if a.tmuxActivity.settledScans >= tmuxActivitySettleScans {
 		a.tmuxActivity.settled = true
 	}
 	a.syncActiveWorkspacesToDashboard()
-	return a.dashboard.StartSpinnerIfNeeded()
+	spinner := a.dashboard.StartSpinnerIfNeeded()
+	if doneCount > 0 && a.toast != nil {
+		msgText := "Agent finished"
+		if doneCount > 1 {
+			msgText = fmt.Sprintf("%d agents finished", doneCount)
+		}
+		return common.SafeBatch(a.toast.ShowInfo(msgText), spinner)
+	}
+	return spinner
+}
+
+// countWorkingToDone counts the number of workspaces that transitioned from
+// StateWorking to StateDone between prev and next. Only strict working→done
+// transitions are counted to avoid spurious toasts on first scan (when prev is
+// empty and a workspace may already read StateDone).
+func countWorkingToDone(prev, next map[string]activity.AgentState) int {
+	count := 0
+	for wsID, st := range next {
+		if st == activity.StateDone && prev[wsID] == activity.StateWorking {
+			count++
+		}
+	}
+	return count
 }

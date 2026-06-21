@@ -3,6 +3,7 @@ package dashboard
 import (
 	"charm.land/lipgloss/v2"
 
+	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -100,6 +101,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		statusText := ""
 		dirty := false
 		working := false
+		done := false
 
 		// Check deletion state first
 		if m.deletingWorkspaces[row.Workspace.Root] {
@@ -111,11 +113,17 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if row.ActivityWorkspaceID != "" && m.activeWorkspaceIDs[row.ActivityWorkspaceID] {
 			// Active agents - color change only, no spinner
 			working = true
+		} else if row.ActivityWorkspaceID != "" &&
+			m.agentStates[row.ActivityWorkspaceID] == activity.StateDone &&
+			!m.doneAcked[row.ActivityWorkspaceID] {
+			done = true
 		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {
 			dirty = true
 		}
 		if statusText != "" {
 			status = " " + statusText
+		} else if done {
+			status = " " + m.styles.StatusPending.Render("done")
 		}
 
 		// Determine row style based on selection and active state

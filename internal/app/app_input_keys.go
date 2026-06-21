@@ -17,6 +17,7 @@ func (a *App) syncActiveWorkspacesToDashboard() {
 	activeWorkspaces := make(map[string]bool)
 	if !a.tmuxActivity.settled {
 		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
+		a.dashboard.SetAgentStates(nil)
 		return
 	}
 	for wsID := range a.tmuxActivity.activeWorkspaceIDs {
@@ -28,6 +29,7 @@ func (a *App) syncActiveWorkspacesToDashboard() {
 		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
+	a.dashboard.SetAgentStates(a.tmuxActivity.agentStates)
 }
 
 // handleKeyPress handles keyboard input

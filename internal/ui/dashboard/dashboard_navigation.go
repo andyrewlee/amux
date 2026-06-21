@@ -160,6 +160,17 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	return -1, false
 }
 
+// ackDone marks a workspace's "done" indicator as seen so it stops rendering.
+func (m *Model) ackDone(wsID string) {
+	if wsID == "" {
+		return
+	}
+	if m.doneAcked == nil {
+		m.doneAcked = make(map[string]bool)
+	}
+	m.doneAcked[wsID] = true
+}
+
 // activateCurrentRow returns a command to activate the currently selected row.
 // This is called automatically on cursor movement for instant content switching.
 // Returns nil for rows that shouldn't auto-activate (like RowCreate which opens a dialog).
@@ -183,6 +194,7 @@ func (m *Model) activateCurrentRow() tea.Cmd {
 			}
 		}
 		if mainWS != nil {
+			m.ackDone(string(mainWS.ID()))
 			return func() tea.Msg {
 				return messages.WorkspaceActivated{
 					Project:   row.Project,
@@ -192,6 +204,9 @@ func (m *Model) activateCurrentRow() tea.Cmd {
 		}
 		return nil
 	case RowWorkspace:
+		if row.Workspace != nil {
+			m.ackDone(string(row.Workspace.ID()))
+		}
 		return func() tea.Msg {
 			return messages.WorkspaceActivated{
 				Project:   row.Project,

@@ -20,6 +20,7 @@ type tmuxActivityTick struct {
 type tmuxActivityResult struct {
 	Token              activityScanToken
 	ActiveWorkspaceIDs map[string]bool
+	AgentStates        map[string]activity.AgentState    // per-workspace semantic states; nil for followers
 	UpdatedStates      map[string]*activity.SessionState // Updated hysteresis states to merge
 	RemovedStates      []string                          // Session states pruned this scan (delete on merge)
 	StoppedTabs        []messages.TabSessionStatus
@@ -161,6 +162,7 @@ func (a *App) runTmuxActivityScan(
 	result := tmuxActivityResult{
 		Token:              scanToken,
 		ActiveWorkspaceIDs: active,
+		AgentStates:        activity.ClassifyWorkspaceStates(active, updatedStates, infoBySession, time.Now()),
 		UpdatedStates:      updatedStates,
 		RemovedStates:      removedStates,
 		StoppedTabs:        stoppedTabs,

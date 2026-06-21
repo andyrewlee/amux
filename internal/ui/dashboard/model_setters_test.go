@@ -1,10 +1,12 @@
 package dashboard
 
 import (
+	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -167,6 +169,98 @@ func TestDashboardSetShowKeymapHints(t *testing.T) {
 	})
 }
 
+func TestDashboardSetAgentStates(t *testing.T) {
+	t.Run("stores provided map", func(t *testing.T) {
+		m := New()
+		states := map[string]activity.AgentState{"ws-a": activity.StateWorking, "ws-b": activity.StateDone}
+		m.SetAgentStates(states)
+		if len(m.agentStates) != 2 {
+			t.Fatalf("expected 2 agent state entries, got %d", len(m.agentStates))
+		}
+		if m.agentStates["ws-a"] != activity.StateWorking {
+			t.Fatalf("expected ws-a to be StateWorking")
+		}
+		if m.agentStates["ws-b"] != activity.StateDone {
+			t.Fatalf("expected ws-b to be StateDone")
+		}
+	})
+
+	t.Run("nil map clears states without panic", func(t *testing.T) {
+		m := New()
+		m.SetAgentStates(map[string]activity.AgentState{"ws-a": activity.StateDone})
+		m.SetAgentStates(nil)
+		if m.agentStates != nil {
+			t.Fatalf("expected agentStates to be nil after clearing")
+		}
+		// Reading a nil map must not panic.
+		if m.agentStates["ws-a"] != activity.StateIdle {
+			t.Fatalf("expected nil map to return zero value (StateIdle) for any key")
+		}
+	})
+
+	t.Run("replaces previous states", func(t *testing.T) {
+		m := New()
+		m.SetAgentStates(map[string]activity.AgentState{"old": activity.StateWorking})
+		m.SetAgentStates(map[string]activity.AgentState{"new": activity.StateDone})
+		if _, ok := m.agentStates["old"]; ok {
+			t.Fatalf("expected previous states to be replaced, 'old' still present")
+		}
+		if m.agentStates["new"] != activity.StateDone {
+			t.Fatalf("expected 'new' to be StateDone after replacement")
+		}
+	})
+}
+
+// TestDashboardDoneRender verifies that a workspace row with StateDone renders a
+// "done" status text and does NOT trigger the working style.
+func TestDashboardDoneRender(t *testing.T) {
+	m := New()
+	project := makeProject()
+	m.SetProjects([]data.Project{project})
+	m.SetSize(80, 40)
+
+	// Find the workspace row for "feature" and get its ActivityWorkspaceID.
+	var wsRow *Row
+	for i := range m.rows {
+		if m.rows[i].Type == RowWorkspace {
+			wsRow = &m.rows[i]
+			break
+		}
+	}
+	if wsRow == nil {
+		t.Fatal("expected at least one workspace row")
+	}
+	wsID := wsRow.ActivityWorkspaceID
+
+	t.Run("done state renders done text", func(t *testing.T) {
+		m.SetActiveWorkspaces(map[string]bool{})
+		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		rendered := m.renderRow(*wsRow, false)
+		if !strings.Contains(rendered, "done") {
+			t.Fatalf("expected rendered row to contain 'done', got %q", rendered)
+		}
+	})
+
+	t.Run("working state does not render done text", func(t *testing.T) {
+		m.SetActiveWorkspaces(map[string]bool{wsID: true})
+		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		rendered := m.renderRow(*wsRow, false)
+		// When working, the "done" status text should not appear.
+		if strings.Contains(rendered, " done") {
+			t.Fatalf("working workspace must not render 'done' text, got %q", rendered)
+		}
+	})
+
+	t.Run("idle state does not render done text", func(t *testing.T) {
+		m.SetActiveWorkspaces(map[string]bool{})
+		m.SetAgentStates(map[string]activity.AgentState{})
+		rendered := m.renderRow(*wsRow, false)
+		if strings.Contains(rendered, " done") {
+			t.Fatalf("idle workspace must not render 'done' text, got %q", rendered)
+		}
+	})
+}
+
 func TestDashboardSetStyles(t *testing.T) {
 	t.Run("replaces stored styles", func(t *testing.T) {
 		m := New()
@@ -199,6 +293,100 @@ func TestDashboardSetStyles(t *testing.T) {
 		}
 		if got := m.styles.SelectedRow.GetBackground(); got != lipgloss.Color("#445566") {
 			t.Fatalf("expected SelectedRow background #445566, got %v", got)
+		}
+	})
+}
+
+// TestDashboardDoneAck verifies the "done until seen" ack state machine.
+func TestDashboardDoneAck(t *testing.T) {
+	// Helper: find the first RowWorkspace in m.rows and return its index and
+	// ActivityWorkspaceID. Skips the project's main workspace (RowProject row).
+	findWSRow := func(m *Model) (idx int, wsID string) {
+		for i, row := range m.rows {
+			if row.Type == RowWorkspace {
+				return i, row.ActivityWorkspaceID
+			}
+		}
+		return -1, ""
+	}
+
+	t.Run("done state renders done before ack", func(t *testing.T) {
+		m := New()
+		m.SetProjects([]data.Project{makeProject()})
+		m.SetSize(80, 40)
+
+		idx, wsID := findWSRow(m)
+		if idx < 0 {
+			t.Fatal("expected at least one workspace row")
+		}
+
+		m.SetActiveWorkspaces(map[string]bool{})
+		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+
+		rendered := m.renderRow(m.rows[idx], false)
+		if !strings.Contains(rendered, "done") {
+			t.Fatalf("expected rendered row to contain 'done' before ack, got %q", rendered)
+		}
+	})
+
+	t.Run("done indicator clears after activateCurrentRow", func(t *testing.T) {
+		m := New()
+		m.SetProjects([]data.Project{makeProject()})
+		m.SetSize(80, 40)
+
+		idx, wsID := findWSRow(m)
+		if idx < 0 {
+			t.Fatal("expected at least one workspace row")
+		}
+
+		m.SetActiveWorkspaces(map[string]bool{})
+		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+
+		// Simulate user navigating to the workspace row — this is the "seen" event.
+		m.cursor = idx
+		_ = m.activateCurrentRow()
+
+		rendered := m.renderRow(m.rows[idx], false)
+		if strings.Contains(rendered, " done") {
+			t.Fatalf("expected 'done' to be hidden after ack via activateCurrentRow, got %q", rendered)
+		}
+	})
+
+	t.Run("reset-on-working cycle makes done visible again", func(t *testing.T) {
+		m := New()
+		m.SetProjects([]data.Project{makeProject()})
+		m.SetSize(80, 40)
+
+		idx, wsID := findWSRow(m)
+		if idx < 0 {
+			t.Fatal("expected at least one workspace row")
+		}
+
+		m.SetActiveWorkspaces(map[string]bool{})
+
+		// Mark done and ack it.
+		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		m.cursor = idx
+		_ = m.activateCurrentRow()
+
+		// Confirm acked — not rendering "done".
+		if strings.Contains(m.renderRow(m.rows[idx], false), " done") {
+			t.Fatalf("expected 'done' hidden after ack")
+		}
+
+		// A new work cycle starts — SetAgentStates with StateWorking must clear the ack.
+		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateWorking})
+		if m.doneAcked[wsID] {
+			t.Fatalf("expected doneAcked to be cleared when workspace transitions to StateWorking")
+		}
+
+		// Workspace finishes again — back to StateDone (not active).
+		m.SetActiveWorkspaces(map[string]bool{})
+		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+
+		rendered := m.renderRow(m.rows[idx], false)
+		if !strings.Contains(rendered, "done") {
+			t.Fatalf("expected 'done' to render again after reset-on-working cycle, got %q", rendered)
 		}
 	})
 }

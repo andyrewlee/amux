@@ -196,6 +196,9 @@ func (c *tagClassifier) classifyFreshOutput(snapshot TaggedSession, info Session
 	}
 	c.seenChatSessions[name] = true
 	if workspaceID := WorkspaceIDForSession(snapshot.Session, info, ok); workspaceID != "" {
+		if st := c.states[name]; st != nil {
+			st.LastWorkingAt = c.now
+		}
 		c.active[workspaceID] = true
 	}
 }
@@ -357,6 +360,7 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 		}
 
 		if isActive {
+			state.LastWorkingAt = now
 			workspaceID := WorkspaceIDForSession(session, info, ok)
 			if workspaceID != "" {
 				active[workspaceID] = true

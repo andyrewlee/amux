@@ -28,6 +28,9 @@ type tmuxActivityState struct {
 	// activeWorkspaceIDs is the latest set of workspace IDs with active agent
 	// sessions, as published by the most recent scan.
 	activeWorkspaceIDs map[string]bool
+	// agentStates holds the per-workspace semantic agent states (Working/Done/Idle)
+	// as computed by the most recent owner scan.
+	agentStates map[string]activity.AgentState
 	// sessionStates holds per-session activity hysteresis state.
 	sessionStates map[string]*activity.SessionState
 	// missBySession counts consecutive non-live activity observations per
@@ -38,6 +41,7 @@ type tmuxActivityState struct {
 func newTmuxActivityState() tmuxActivityState {
 	return tmuxActivityState{
 		activeWorkspaceIDs: make(map[string]bool),
+		agentStates:        make(map[string]activity.AgentState),
 		sessionStates:      make(map[string]*activity.SessionState),
 		missBySession:      make(map[string]int),
 	}

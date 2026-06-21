@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -82,7 +83,9 @@ type Model struct {
 	spinnerActive      bool                       // Whether spinner ticks are active
 
 	// Agent activity state
-	activeWorkspaceIDs map[string]bool // Workspace IDs with active agents (synced from center)
+	activeWorkspaceIDs map[string]bool                // Workspace IDs with active agents (synced from center)
+	agentStates        map[string]activity.AgentState // Per-workspace semantic agent states
+	doneAcked          map[string]bool                // Workspace IDs whose "done" indicator has been seen by the user
 
 	// Styles
 	styles common.Styles
@@ -97,6 +100,7 @@ func New() *Model {
 		creatingWorkspaces: make(map[string]*data.Workspace),
 		deletingWorkspaces: make(map[string]bool),
 		activeWorkspaceIDs: make(map[string]bool),
+		doneAcked:          make(map[string]bool),
 		cursor:             0,
 		focused:            true,
 		styles:             common.DefaultStyles(),
@@ -106,6 +110,18 @@ func New() *Model {
 // SetActiveWorkspaces updates the set of workspaces with active agents.
 func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 	m.activeWorkspaceIDs = active
+}
+
+// SetAgentStates updates the per-workspace semantic agent states.
+// It also clears the doneAcked flag for any workspace that has started
+// working again, so the next "done" is visible to the user.
+func (m *Model) SetAgentStates(states map[string]activity.AgentState) {
+	m.agentStates = states
+	for wsID, st := range states {
+		if st == activity.StateWorking {
+			delete(m.doneAcked, wsID)
+		}
+	}
 }
 
 // InvalidateStatus marks a workspace's cached status stale.
