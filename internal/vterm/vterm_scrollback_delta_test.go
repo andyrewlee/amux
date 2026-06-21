@@ -79,3 +79,18 @@ func TestAppendScrollbackDeltaWithSize_PrefersLatestRepeatedRetainedSuffix(t *te
 		t.Fatalf("expected second retained row to remain B, got %q", got)
 	}
 }
+
+func TestAppendScrollbackDeltaLineEqualComparesGraphemeCluster(t *testing.T) {
+	t.Parallel()
+
+	plain := []Cell{{Rune: 'e', Width: 1}}
+	combined := []Cell{{
+		Rune:            'e',
+		Width:           1,
+		GraphemeCluster: string([]rune{'e', 0x0301}),
+	}}
+
+	if appendScrollbackDeltaLineEqual(plain, combined) {
+		t.Fatal("appendScrollbackDeltaLineEqual treated plain and combined grapheme cells as equal")
+	}
+}

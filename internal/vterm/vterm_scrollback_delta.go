@@ -80,7 +80,10 @@ func appendScrollbackDeltaLineEqual(a, b []Cell) bool {
 		return false
 	}
 	for i := 0; i <= last; i++ {
-		if a[i].Rune != b[i].Rune || a[i].Style != b[i].Style || a[i].Width != b[i].Width {
+		if a[i].Rune != b[i].Rune ||
+			a[i].GraphemeCluster != b[i].GraphemeCluster ||
+			a[i].Style != b[i].Style ||
+			a[i].Width != b[i].Width {
 			return false
 		}
 	}
