@@ -273,13 +273,7 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 			continue
 		}
 
-		if cell.Rune == 0 {
-			buf.WriteRune(' ')
-		} else if cell.GraphemeCluster != "" {
-			buf.WriteString(cell.GraphemeCluster)
-		} else {
-			buf.WriteRune(cell.Rune)
-		}
+		writeCellContent(&buf, cell)
 	}
 
 	return buf.String()
@@ -350,11 +344,7 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 				continue
 			}
 
-			if cell.Rune == 0 {
-				buf.WriteRune(' ')
-			} else {
-				buf.WriteRune(cell.Rune)
-			}
+			writeCellContent(&buf, cell)
 		}
 
 		if i < v.Height-1 {
@@ -368,6 +358,16 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 
 func suppressBlankUnderline(cell Cell, style Style) Style {
 	return SuppressBlankUnderline(cell.Rune, style)
+}
+
+func writeCellContent(buf *strings.Builder, cell Cell) {
+	if cell.Rune == 0 {
+		buf.WriteRune(' ')
+	} else if cell.GraphemeCluster != "" {
+		buf.WriteString(cell.GraphemeCluster)
+	} else {
+		buf.WriteRune(cell.Rune)
+	}
 }
 
 // SuppressBlankUnderline drops the underline attribute when rune r is blank

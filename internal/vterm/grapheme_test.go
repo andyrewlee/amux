@@ -108,6 +108,25 @@ func TestGraphemeRenderUsesCluster(t *testing.T) {
 	}
 }
 
+func TestGraphemeRenderUsesClusterInScrollback(t *testing.T) {
+	t.Parallel()
+
+	eAcute := string([]rune{'e', 0x0301})
+	vt := New(20, 2)
+	vt.Scrollback = [][]Cell{{
+		{
+			Rune:            'e',
+			Width:           1,
+			GraphemeCluster: eAcute,
+		},
+	}}
+	vt.ViewOffset = 1
+
+	if got := vt.Render(); !strings.Contains(got, eAcute) {
+		t.Fatalf("Render() scrolled = %q, want rendered grapheme cluster %q", got, eAcute)
+	}
+}
+
 func TestLinesEqualComparesGraphemeCluster(t *testing.T) {
 	t.Parallel()
 
