@@ -275,6 +275,8 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 
 		if cell.Rune == 0 {
 			buf.WriteRune(' ')
+		} else if cell.GraphemeCluster != "" {
+			buf.WriteString(cell.GraphemeCluster)
 		} else {
 			buf.WriteRune(cell.Rune)
 		}

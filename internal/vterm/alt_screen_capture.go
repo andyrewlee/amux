@@ -443,13 +443,17 @@ func frameShiftOverlap(oldLines, newLines [][]Cell) int {
 	return 0
 }
 
-// linesEqual returns true if two cell slices have identical runes and styles.
+// linesEqual returns true if two cell slices have identical visible content and
+// styles.
 func linesEqual(a, b []Cell) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if a[i].Rune != b[i].Rune || a[i].Style != b[i].Style {
+		if a[i].Rune != b[i].Rune ||
+			a[i].GraphemeCluster != b[i].GraphemeCluster ||
+			a[i].Width != b[i].Width ||
+			a[i].Style != b[i].Style {
 			return false
 		}
 	}

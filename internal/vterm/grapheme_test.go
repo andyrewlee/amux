@@ -1,6 +1,7 @@
 package vterm
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -91,6 +92,34 @@ func TestGraphemeSelectionCopy(t *testing.T) {
 	got := vt.GetTextRange(0, 0, 0, 0)
 	if got != eAcute {
 		t.Errorf("GetTextRange = %q, want %q", got, eAcute)
+	}
+}
+
+func TestGraphemeRenderUsesCluster(t *testing.T) {
+	t.Parallel()
+
+	eAcute := string([]rune{'e', 0x0301})
+	vt := New(20, 5)
+	vt.putChar('e')
+	vt.putChar(0x0301)
+
+	if got := vt.Render(); !strings.Contains(got, eAcute) {
+		t.Fatalf("Render() = %q, want rendered grapheme cluster %q", got, eAcute)
+	}
+}
+
+func TestLinesEqualComparesGraphemeCluster(t *testing.T) {
+	t.Parallel()
+
+	plain := DefaultCell()
+	plain.Rune = 'e'
+	plain.Width = 1
+
+	combined := plain
+	combined.GraphemeCluster = string([]rune{'e', 0x0301})
+
+	if linesEqual([]Cell{plain}, []Cell{combined}) {
+		t.Fatal("linesEqual treated plain and combined grapheme cells as equal")
 	}
 }
 
