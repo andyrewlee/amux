@@ -133,6 +133,13 @@ func (m *Model) forwardKeyToTerminal(msg tea.KeyPressMsg, tab *Tab) (*Model, tea
 
 func (m *Model) handleTerminalCtrlKey(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd, bool) {
 	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c"))):
+		// Route Ctrl-C through the per-agent interrupt so agents that need more
+		// than one Ctrl-C (e.g. Claude: InterruptCount 2, 200ms apart) are
+		// actually interrupted. A plain key-forward only ever sends one 0x03.
+		// Preserve the raw-key path's snap-to-bottom side effect.
+		m.scrollToBottomOnType(tab)
+		return m, m.interruptActiveAgentCmd(tab), true
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
 		before := m.getActiveTabIdx()
 		m.nextTab()
@@ -157,6 +164,28 @@ func (m *Model) handleTerminalCtrlKey(msg tea.KeyPressMsg, tab *Tab) (*Model, te
 		return m, common.SafeBatch(stamp, m.userInputActivityTagCmd(tab)), true
 	}
 	return m, nil, false
+}
+
+// interruptActiveAgentCmd sends the agent's configured interrupt sequence
+// (count + inter-press delay) off the Bubble Tea update loop, since the delay
+// between presses must not block rendering. It also re-tags user-input activity
+// so the working indicator updates promptly.
+func (m *Model) interruptActiveAgentCmd(tab *Tab) tea.Cmd {
+	agent := tab.Agent
+	if agent == nil || m.agentManager == nil {
+		return nil
+	}
+	interrupt := func() tea.Msg {
+		_ = m.agentManager.SendInterrupt(agent)
+		return nil
+	}
+	// Mirror the raw-key path's bookkeeping for the 0x03 it would have sent:
+	// record the local-input echo window and re-tag user-input activity.
+	return common.SafeBatch(
+		interrupt,
+		m.noteLocalInput(tab, m.workspaceID(), "\x03", time.Now()),
+		m.userInputActivityTagCmd(tab),
+	)
 }
 
 func (m *Model) handleScrollbackKey(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd, bool) {

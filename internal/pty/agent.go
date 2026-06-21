@@ -256,13 +256,22 @@ func (m *AgentManager) SendInterrupt(agent *Agent) error {
 		return nil
 	}
 
-	// Send multiple interrupts if configured (e.g., for Claude)
-	for i := 0; i < agent.Config.InterruptCount; i++ {
+	// A single Ctrl-C is the floor: an unconfigured agent (e.g. a viewer with a
+	// zero-value AssistantConfig) must still receive one interrupt, otherwise the
+	// user's Ctrl-C would be silently swallowed.
+	count := agent.Config.InterruptCount
+	if count < 1 {
+		count = 1
+	}
+
+	// Send multiple interrupts if configured (e.g., for Claude, which needs two
+	// Ctrl-C presses within a short window to actually interrupt).
+	for i := 0; i < count; i++ {
 		if err := agent.Terminal.SendInterrupt(); err != nil {
 			return err
 		}
 		// Add delay between interrupts if configured
-		if i < agent.Config.InterruptCount-1 && agent.Config.InterruptDelayMs > 0 {
+		if i < count-1 && agent.Config.InterruptDelayMs > 0 {
 			time.Sleep(time.Duration(agent.Config.InterruptDelayMs) * time.Millisecond)
 		}
 	}
