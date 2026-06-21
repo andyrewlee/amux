@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-const maxOSC52ClipboardBytes = 64 * 1024
+const (
+	maxOSCMetadataBytes    = 4 * 1024
+	maxOSC52ClipboardBytes = 64 * 1024
+)
 
 // dispatchOSC parses a buffered OSC payload (the bytes between "ESC ]" and the
 // terminator) and applies recognized commands to the VTerm. Unrecognized or
@@ -18,8 +21,14 @@ func (p *Parser) dispatchOSC() {
 	}
 	switch cmd {
 	case "0", "1", "2": // window / icon / tab title
+		if len(rest) > maxOSCMetadataBytes {
+			return
+		}
 		p.vt.setOSCTitle(rest)
 	case "7": // working directory
+		if len(rest) > maxOSCMetadataBytes {
+			return
+		}
 		p.vt.setOSCWorkingDir(rest)
 	case "52": // clipboard: <selection>;<base64-or-?>
 		_, data, ok := strings.Cut(rest, ";")

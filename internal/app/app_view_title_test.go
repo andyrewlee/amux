@@ -21,3 +21,22 @@ func TestSanitizedWindowTitle_CapsLength(t *testing.T) {
 		t.Fatalf("sanitizedWindowTitle() length = %d, want %d", len(got), maxWindowTitleRunes)
 	}
 }
+
+func TestFocusedWindowTitle_FallsBackWhenEmpty(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+	}{
+		{name: "empty", title: ""},
+		{name: "controls only", title: "\x00\x1b" + string(rune(0x9c))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := focusedWindowTitle(tt.title)
+			if got != fallbackWindowTitle {
+				t.Fatalf("focusedWindowTitle(%q) = %q, want %q", tt.title, got, fallbackWindowTitle)
+			}
+		})
+	}
+}

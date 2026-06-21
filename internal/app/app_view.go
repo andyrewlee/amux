@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	syncBegin = "\x1b[?2026h"
-	syncEnd   = "\x1b[?2026l"
+	fallbackWindowTitle = "amux"
+	syncBegin           = "\x1b[?2026h"
+	syncEnd             = "\x1b[?2026l"
 )
 
 // View renders the application using layer-based composition.
@@ -44,6 +45,7 @@ func (a *App) view() tea.View {
 		view.BackgroundColor = common.ColorBackground()
 		view.ForegroundColor = common.ColorForeground()
 		view.KeyboardEnhancements.ReportEventTypes = true
+		view.WindowTitle = fallbackWindowTitle
 		return view
 	}
 
@@ -82,6 +84,7 @@ func (a *App) fallbackView() tea.View {
 		AltScreen:       true,
 		BackgroundColor: common.ColorBackground(),
 		ForegroundColor: common.ColorForeground(),
+		WindowTitle:     fallbackWindowTitle,
 	}
 	msg := "A rendering error occurred."
 	if a.err != nil {
@@ -100,11 +103,10 @@ func (a *App) viewLayerBased() tea.View {
 		BackgroundColor:      common.ColorBackground(),
 		ForegroundColor:      common.ColorForeground(),
 		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
+		WindowTitle:          fallbackWindowTitle,
 	}
 	if a.center != nil {
-		if title := sanitizedWindowTitle(a.center.FocusedAgentTitle()); title != "" {
-			view.WindowTitle = title
-		}
+		view.WindowTitle = focusedWindowTitle(a.center.FocusedAgentTitle())
 	}
 	var terminalCursor *tea.Cursor
 	setTerminalCursor := func(x, y int) {
@@ -152,6 +154,13 @@ func (a *App) viewLayerBased() tea.View {
 }
 
 const maxWindowTitleRunes = 128
+
+func focusedWindowTitle(title string) string {
+	if sanitized := sanitizedWindowTitle(title); sanitized != "" {
+		return sanitized
+	}
+	return fallbackWindowTitle
+}
 
 func sanitizedWindowTitle(title string) string {
 	if title == "" {

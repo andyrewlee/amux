@@ -125,3 +125,31 @@ func TestOSC52OversizedPayloadIgnored(t *testing.T) {
 		t.Fatalf("expected oversized OSC52 payload to be ignored, got %d bytes", len(got))
 	}
 }
+
+func TestOSCOversizedMetadataIgnored(t *testing.T) {
+	t.Parallel()
+
+	t.Run("title", func(t *testing.T) {
+		t.Parallel()
+
+		v := New(80, 24)
+		v.Write([]byte("\x1b]0;initial\x07"))
+		v.Write([]byte("\x1b]0;" + strings.Repeat("x", maxOSCMetadataBytes+1) + "\x07"))
+
+		if got := v.Title(); got != "initial" {
+			t.Fatalf("Title() after oversized OSC title = %q, want %q", got, "initial")
+		}
+	})
+
+	t.Run("working directory", func(t *testing.T) {
+		t.Parallel()
+
+		v := New(80, 24)
+		v.Write([]byte("\x1b]7;file://host/repo\x07"))
+		v.Write([]byte("\x1b]7;" + strings.Repeat("x", maxOSCMetadataBytes+1) + "\x07"))
+
+		if got := v.WorkingDir(); got != "file://host/repo" {
+			t.Fatalf("WorkingDir() after oversized OSC cwd = %q, want %q", got, "file://host/repo")
+		}
+	})
+}
