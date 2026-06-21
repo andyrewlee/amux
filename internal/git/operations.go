@@ -17,11 +17,6 @@ const defaultGitTimeout = 5 * time.Second
 
 var runGitCommandAfterWaitHook func()
 
-// RunGit executes a git command in the specified directory.
-func RunGit(dir string, args ...string) (string, error) {
-	return RunGitCtx(context.Background(), dir, args...)
-}
-
 // RunGitCtx executes a git command in the specified directory with context.
 func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := ensureGitTimeout(ctx)
@@ -98,19 +93,9 @@ func IsGitRepository(path string) bool {
 	return err == nil
 }
 
-// GetRepoRoot returns the root directory of the git repository
-func GetRepoRoot(path string) (string, error) {
-	return RunGitCtx(context.Background(), path, "rev-parse", "--show-toplevel")
-}
-
 // GetCurrentBranch returns the current branch name
 func GetCurrentBranch(path string) (string, error) {
 	return RunGitCtx(context.Background(), path, "rev-parse", "--abbrev-ref", "HEAD")
-}
-
-// GetRemoteURL returns the URL of the specified remote
-func GetRemoteURL(path, remote string) (string, error) {
-	return RunGitCtx(context.Background(), path, "remote", "get-url", remote)
 }
 
 // RunGitAllowFailureCtx executes git and returns stdout even if exit code is non-zero.

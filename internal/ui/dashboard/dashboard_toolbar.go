@@ -33,20 +33,18 @@ func (m *Model) toolbarCommand(kind toolbarButtonKind) tea.Cmd {
 	}
 }
 
-// renderToolbar renders the action buttons toolbar
+// renderToolbar renders the action buttons toolbar as a single row of buttons.
 func (m *Model) renderToolbar() string {
 	m.toolbarHits = m.toolbarHits[:0]
 
 	buttonHeight := 1
 	gap := 1
-	columns := 3
 	items := m.toolbarItems()
-	visibleItems := m.toolbarVisibleItems(items)
-	if len(visibleItems) == 0 {
+	if len(items) == 0 {
 		return ""
 	}
-	if m.toolbarIndex >= len(visibleItems) {
-		m.toolbarIndex = len(visibleItems) - 1
+	if m.toolbarIndex >= len(items) {
+		m.toolbarIndex = len(items) - 1
 	}
 
 	activeStyle := lipgloss.NewStyle().
@@ -55,51 +53,39 @@ func (m *Model) renderToolbar() string {
 	inactiveStyle := lipgloss.NewStyle().
 		Foreground(common.ColorMuted())
 
-	var rows []string
-	for rowStart := 0; rowStart < len(visibleItems); rowStart += columns {
-		var row strings.Builder
-		rowX := 0
-		rowIndex := rowStart / columns
-		for col := 0; col < columns && rowStart+col < len(visibleItems); col++ {
-			if col > 0 {
-				row.WriteString(strings.Repeat(" ", gap))
-				rowX += gap
-			}
-			itemIndex := rowStart + col
-			item := visibleItems[itemIndex]
-			label := "[" + item.label + "]"
-			style := inactiveStyle
-			if m.toolbarFocused && itemIndex == m.toolbarIndex {
-				style = activeStyle
-			}
-			rendered := style.Render(label)
-			width := lipgloss.Width(rendered)
-			m.toolbarHits = append(m.toolbarHits, toolbarButton{
-				kind: item.kind,
-				region: common.HitRegion{
-					X:      rowX,
-					Y:      rowIndex,
-					Width:  width,
-					Height: buttonHeight,
-				},
-			})
-			row.WriteString(rendered)
-			rowX += width
+	var row strings.Builder
+	rowX := 0
+	for i, item := range items {
+		if i > 0 {
+			row.WriteString(strings.Repeat(" ", gap))
+			rowX += gap
 		}
-		rows = append(rows, row.String())
+		label := "[" + item.label + "]"
+		style := inactiveStyle
+		if m.toolbarFocused && i == m.toolbarIndex {
+			style = activeStyle
+		}
+		rendered := style.Render(label)
+		width := lipgloss.Width(rendered)
+		m.toolbarHits = append(m.toolbarHits, toolbarButton{
+			kind: item.kind,
+			region: common.HitRegion{
+				X:      rowX,
+				Y:      0,
+				Width:  width,
+				Height: buttonHeight,
+			},
+		})
+		row.WriteString(rendered)
+		rowX += width
 	}
 
-	return strings.Join(rows, "\n")
-}
-
-func (m *Model) toolbarVisibleItems(items []toolbarItem) []toolbarItem {
-	return items
+	return row.String()
 }
 
 // toolbarHeight returns the current toolbar height (always single row)
 func (m *Model) toolbarHeight() int {
-	visibleItems := m.toolbarVisibleItems(m.toolbarItems())
-	if len(visibleItems) == 0 {
+	if len(m.toolbarItems()) == 0 {
 		return 0
 	}
 	return 1

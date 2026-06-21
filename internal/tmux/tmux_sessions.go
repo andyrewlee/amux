@@ -80,28 +80,6 @@ func KillWorkspaceSessions(wsID string, opts Options) error {
 	return KillSessionsWithPrefix(prefix, opts)
 }
 
-// AmuxSessionsByWorkspace returns all @amux=1 sessions grouped by their
-// @amux_workspace value. Sessions without a workspace tag are omitted.
-func AmuxSessionsByWorkspace(opts Options) (map[string][]string, error) {
-	rows, err := SessionsWithTags(
-		map[string]string{"@amux": "1"},
-		[]string{"@amux_workspace"},
-		opts,
-	)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string][]string)
-	for _, row := range rows {
-		wsID := row.Tags["@amux_workspace"]
-		if wsID == "" {
-			continue
-		}
-		out[wsID] = append(out[wsID], row.Name)
-	}
-	return out, nil
-}
-
 // ListSessionsMatchingTags returns sessions matching all provided tags.
 func ListSessionsMatchingTags(tags map[string]string, opts Options) ([]string, error) {
 	if len(tags) == 0 {

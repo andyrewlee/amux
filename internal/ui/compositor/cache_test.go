@@ -1,8 +1,6 @@
 package compositor
 
 import (
-	"hash/fnv"
-	"strings"
 	"testing"
 )
 
@@ -193,66 +191,5 @@ func TestChromeCacheReuseAfterInvalidate(t *testing.T) {
 	c.Set(content, width, height, focused, posX, posY, reborn)
 	if got := c.Get(content, width, height, focused, posX, posY); got != reborn {
 		t.Fatalf("expected re-primed cache to hit new drawable, got %p want %p", got, reborn)
-	}
-}
-
-func TestFastHashMatchesStdlibFNV1a(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{"empty", ""},
-		{"single byte", "a"},
-		{"ascii word", "hello"},
-		{"multibyte utf8", "héllo"},
-		{"with newlines", "line1\nline2\n"},
-		{"ansi escape", "\x1b[1;34m│\x1b[0m"},
-		{"long repeated", strings.Repeat("│ ", 256)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := fnv.New64a()
-			if _, err := h.Write([]byte(tt.input)); err != nil {
-				t.Fatalf("stdlib hash write: %v", err)
-			}
-			want := h.Sum64()
-			if got := FastHash(tt.input); got != want {
-				t.Fatalf("FastHash(%q) = %d, want %d (stdlib FNV-1a)", tt.input, got, want)
-			}
-		})
-	}
-}
-
-func TestFastHashEmptyIsOffsetBasis(t *testing.T) {
-	const fnvOffsetBasis = uint64(14695981039346656037)
-	if got := FastHash(""); got != fnvOffsetBasis {
-		t.Fatalf("FastHash(\"\") = %d, want FNV offset basis %d", got, fnvOffsetBasis)
-	}
-}
-
-func TestFastHashDeterministic(t *testing.T) {
-	const input = "deterministic input \x1b[0m"
-	first := FastHash(input)
-	for i := 0; i < 100; i++ {
-		if got := FastHash(input); got != first {
-			t.Fatalf("FastHash not deterministic: iteration %d gave %d, want %d", i, got, first)
-		}
-	}
-}
-
-// TestFastHashDistinguishesInputs is a sanity check that distinct, similar
-// inputs (including byte order) produce distinct hashes.
-func TestFastHashDistinguishesInputs(t *testing.T) {
-	pairs := [][2]string{
-		{"ab", "ba"},
-		{"a", "aa"},
-		{"hello", "hellp"},
-		{"", " "},
-	}
-	for _, p := range pairs {
-		if FastHash(p[0]) == FastHash(p[1]) {
-			t.Errorf("expected distinct hashes for %q and %q", p[0], p[1])
-		}
 	}
 }

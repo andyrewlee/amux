@@ -5,10 +5,7 @@
 package compositor
 
 import (
-	"strconv"
 	"strings"
-
-	"github.com/mattn/go-runewidth"
 
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -84,33 +81,6 @@ func (c *Canvas) SetCell(x, y int, cell vterm.Cell) {
 		return
 	}
 	c.Cells[y][x] = cell
-}
-
-// DrawText draws a string starting at the given position.
-func (c *Canvas) DrawText(x, y int, text string, style vterm.Style) {
-	if y < 0 || y >= c.Height {
-		return
-	}
-
-	col := x
-	for _, r := range text {
-		if col >= c.Width {
-			break
-		}
-		width := runewidth.RuneWidth(r)
-		if width <= 0 {
-			continue
-		}
-		if col+width > c.Width {
-			break
-		}
-		cell := vterm.Cell{Rune: r, Width: width, Style: style}
-		c.SetCell(col, y, cell)
-		if width == 2 {
-			c.SetCell(col+1, y, vterm.Cell{Width: 0, Style: style})
-		}
-		col += width
-	}
 }
 
 // CursorState holds cursor position and visibility for DrawScreen.
@@ -283,17 +253,4 @@ func RenderSnapshotWithCanvas(canvas *Canvas, snap *VTermSnapshot, width, height
 		},
 	)
 	return canvas.Render()
-}
-
-// HexColor converts a #RRGGBB string to a vterm.Color.
-func HexColor(hex string) vterm.Color {
-	hex = strings.TrimPrefix(hex, "#")
-	if len(hex) != 6 {
-		return vterm.Color{Type: vterm.ColorDefault}
-	}
-	value, err := strconv.ParseUint(hex, 16, 32)
-	if err != nil {
-		return vterm.Color{Type: vterm.ColorDefault}
-	}
-	return vterm.Color{Type: vterm.ColorRGB, Value: uint32(value)}
 }

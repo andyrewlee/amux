@@ -16,10 +16,6 @@ import (
 // — is exercised behind skipIfNoTmux against an isolated test server, matching
 // the convention in clients_test.go / tags_test.go and the *_integration_test.go
 // siblings (testServer / createSession / setTag helpers).
-//
-// AmuxSessionsByWorkspace already retains its existing live coverage in
-// tmux_integration_test.go; this file intentionally does not duplicate that
-// grouping coverage here.
 
 // ---------------------------------------------------------------------------
 // Exec-free guards: these never reach tmux, so they run even without tmux.

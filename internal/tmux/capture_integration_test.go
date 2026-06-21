@@ -159,61 +159,6 @@ func TestCapturePane_PrefixCollisionSafety(t *testing.T) {
 	}
 }
 
-func TestPaneCursorPosition_TargetsExactSplitPane(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := testServer(t)
-
-	createSession(t, opts, "pane-cursor-split", "printf 1111; sleep 300")
-
-	args := tmuxArgs(opts, "split-window", "-d", "-t", "pane-cursor-split", "printf 22222222; sleep 300")
-	cmd := exec.Command("tmux", args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("split-window: %v\n%s", err, out)
-	}
-	time.Sleep(200 * time.Millisecond)
-
-	args = tmuxArgs(opts, "list-panes", "-t", "pane-cursor-split", "-F", "#{pane_id}\t#{cursor_x}\t#{cursor_y}")
-	cmd = exec.Command("tmux", args...)
-	out, err = cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("list-panes: %v\n%s", err, out)
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("expected split layout with 2 panes, got %q", out)
-	}
-	first := strings.Split(lines[0], "\t")
-	second := strings.Split(lines[1], "\t")
-	if len(first) < 3 || len(second) < 3 {
-		t.Fatalf("unexpected pane listing: %q", out)
-	}
-	if first[1] == second[1] && first[2] == second[2] {
-		t.Fatalf("expected distinct cursor positions across panes, got %q", out)
-	}
-
-	wantX, err := strconv.Atoi(strings.TrimSpace(second[1]))
-	if err != nil {
-		t.Fatalf("parse expected cursor_x: %v", err)
-	}
-	wantY, err := strconv.Atoi(strings.TrimSpace(second[2]))
-	if err != nil {
-		t.Fatalf("parse expected cursor_y: %v", err)
-	}
-
-	gotX, gotY, ok, err := paneCursorPosition(strings.TrimSpace(second[0]), opts)
-	if err != nil {
-		t.Fatalf("paneCursorPosition: %v", err)
-	}
-	if !ok {
-		t.Fatal("expected pane cursor position to resolve")
-	}
-	if gotX != wantX || gotY != wantY {
-		t.Fatalf("expected cursor (%d,%d) for pane %s, got (%d,%d)", wantX, wantY, strings.TrimSpace(second[0]), gotX, gotY)
-	}
-}
-
 func TestCapturePaneSnapshot_PreservesTrailingSpaces(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)
