@@ -68,8 +68,7 @@ type selectionTickRequest struct {
 
 type tabActorRedraw struct{}
 
-func (tabActorRedraw) MarkCriticalExternalMsg()            {}
-func (tabActorRedraw) MarkNonEvictingCriticalExternalMsg() {}
+func (tabActorRedraw) MarkCriticalExternalMsg() {}
 
 type tabDiffCmd struct{ cmd tea.Cmd }
 

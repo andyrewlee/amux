@@ -17,16 +17,6 @@ func (criticalTestMsg) MarkCriticalExternalMsg() {}
 
 var _ common.CriticalExternalMsg = criticalTestMsg{}
 
-type nonEvictingCriticalTestMsg struct{}
-
-func (nonEvictingCriticalTestMsg) MarkCriticalExternalMsg()            {}
-func (nonEvictingCriticalTestMsg) MarkNonEvictingCriticalExternalMsg() {}
-
-var (
-	_ common.CriticalExternalMsg            = nonEvictingCriticalTestMsg{}
-	_ common.NonEvictingCriticalExternalMsg = nonEvictingCriticalTestMsg{}
-)
-
 func TestEnqueueExternalMsgDropsWhenFull(t *testing.T) {
 	a := &App{externalMsgs: make(chan tea.Msg, 1)}
 
@@ -88,17 +78,7 @@ func TestEnqueueExternalMsgRoutesCriticalInterfaceToCriticalQueue(t *testing.T) 
 	}
 }
 
-func TestNonEvictingCriticalInterfaceImpliesCriticalRouting(t *testing.T) {
-	var msg any = nonEvictingCriticalTestMsg{}
-	if _, ok := msg.(common.NonEvictingCriticalExternalMsg); !ok {
-		t.Fatal("expected test message to implement NonEvictingCriticalExternalMsg")
-	}
-	if _, ok := msg.(common.CriticalExternalMsg); !ok {
-		t.Fatal("expected NonEvictingCriticalExternalMsg to imply CriticalExternalMsg")
-	}
-}
-
-func TestEnqueueExternalMsg_NonEvictingCriticalDoesNotDropNormalQueue(t *testing.T) {
+func TestEnqueueExternalMsg_FullCriticalQueueDoesNotDropNormalQueue(t *testing.T) {
 	a := &App{
 		externalMsgs:     make(chan tea.Msg, 1),
 		externalCritical: make(chan tea.Msg, 1),
@@ -107,7 +87,11 @@ func TestEnqueueExternalMsg_NonEvictingCriticalDoesNotDropNormalQueue(t *testing
 	a.externalMsgs <- testMsg("normal")
 	a.externalCritical <- criticalTestMsg{}
 
-	a.enqueueExternalMsg(nonEvictingCriticalTestMsg{})
+	// Critical messages are non-evicting: enqueuing one while the critical queue
+	// is full must drop the new message rather than evict the normal queue.
+	if a.tryEnqueueExternalMsg(criticalTestMsg{}) {
+		t.Fatal("expected enqueue to fail when critical queue is full")
+	}
 
 	if got := len(a.externalMsgs); got != 1 {
 		t.Fatalf("expected normal queue length to remain 1, got %d", got)
