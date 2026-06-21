@@ -1,0 +1,1213 @@
+# amux Feature Audit
+
+Total user stories: **144**
+
+
+## Dashboard
+
+### DASH-01 — Home/Welcome row  `[Pass]`
+- **Story:** As a user, I want a Home row at the top of the dashboard, so that I can see the welcome screen with no workspace active.
+- **Expected:** '[amux]' is the first selectable row. Selecting it (Enter/click) emits ShowWelcome and renders the welcome screen; bold+primary when no workspace active.
+- **Source:** dashboard/model.go; dashboard_render.go
+- **Tests:** dashboard/model_actions_test.go, active_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** dashboard_state.go:64-67 makes RowHome the first row ({Type: RowHome}); renderRow dashboard_render.go:20-34 renders '[amux]' and, when activeRoot=="", applies Bold + ColorPrimary (lines 28-33). handleEnter/activateCurrentRow (dashboard_navigation.go:173-174, 215-216) emit messages.ShowWelcome for RowHome. Update sets activeRoot="" on ShowWelcome (model_update.go:107-108). Tested by TestDashboardHandleEnterHome and TestDashboardHomeActive.
+
+### DASH-02 — Project rows  `[Pass]`
+- **Story:** As a user, I want each project shown as a selectable row, so that I can navigate and manage projects.
+- **Expected:** Each project is one row showing its name + main-workspace status (dirty/deleting). Enter/click activates the project's main/primary workspace.
+- **Source:** dashboard/dashboard_state.go; dashboard_render.go
+- **Tests:** dashboard/model_actions_test.go, click_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** rebuildRows (dashboard_state.go:77-82) appends one RowProject per project. renderRow RowProject (dashboard_render.go:36-93) shows project name + main-workspace status: 'deleting' spinner when m.deletingWorkspaces[main.Root] (line 44-46) and dirty color when statusCache shows !Clean (line 47-49). handleEnter for RowProject activates main/primary workspace via WorkspaceActivated (dashboard_navigation.go:217-235). Tested by TestDashboardHandleEnterProjectSelectsMain and TestMouseClickOnRows.
+
+### DASH-03 — Workspace rows  `[Pass]`
+- **Story:** As a user, I want child workspaces listed under their project, so that I can select a specific branch workspace.
+- **Expected:** Non-main workspaces appear indented, sorted newest-first then by name. Each shows name + status (creating/deleting spinner, activity, dirty). Enter/click activates it.
+- **Source:** dashboard/dashboard_state.go; dashboard_render.go
+- **Tests:** dashboard/model_actions_test.go, model_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** rebuildRows (dashboard_state.go:84-96) iterates sortedWorkspaces, skipping main/primary, appending RowWorkspace. sortedWorkspaces (dashboard_state.go:159-167) sorts Created.After (newest-first) then by Name then Root. renderRow RowWorkspace (dashboard_render.go:95-155) uses a 2-space prefix (unstyledPrefix+styledPrefix) for indentation vs project's 1-space, and shows creating/deleting spinner (lines 105-110), active color (111-113), or dirty color (114-116). Enter activates via WorkspaceActivated (dashboard_navigation.go:236-242). Tested by TestDashboardHandleEnterWorkspace.
+
+### DASH-04 — '+ New' workspace row  `[Pass]`
+- **Story:** As a user, I want a '+ New' row per project, so that I can create a workspace from the dashboard.
+- **Expected:** A selectable '+ New' row follows each project; Enter/click opens the Create Workspace dialog.
+- **Source:** dashboard/dashboard_state.go; dashboard_render.go
+- **Tests:** dashboard/model_actions_test.go, click_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** rebuildRows (dashboard_state.go:98-101) appends a RowCreate after each project's workspaces. renderRow RowCreate (dashboard_render.go:157-164) renders the Add icon + ' New '. handleEnter for RowCreate emits messages.ShowCreateWorkspaceDialog{Project} (dashboard_navigation.go:243-246). Tested by TestDashboardHandleEnterCreate and the click test 'click Create button triggers ShowCreateWorkspaceDialog'.
+
+### DASH-05 — Vertical navigation (j/k/arrows)  `[Pass]`
+- **Story:** As a user, I want to move up/down through rows, so that I can select workspaces with the keyboard.
+- **Expected:** j/Down and k/Up move one selectable row, skipping spacer rows; selected row highlighted; movement auto-activates (preview) the new row.
+- **Source:** dashboard/dashboard_navigation.go; model_update.go
+- **Tests:** dashboard/model_test.go, model_cursor_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** handleNavKey (model_update.go:142-153) maps j/down and k/up to moveCursor(±1) then returns m.activateCurrentRow() (preview). moveCursor (dashboard_navigation.go:82-107) walks via findSelectableRow, skipping RowSpacer (isSelectable line 11-13). Selected row highlight in renderRow (selected branch). Tested by TestMoveCursorRowByRow (spacer skipping) and TestDashboardArrowKeyActivatesWorkspace (movement emits WorkspaceActivated).
+
+### DASH-06 — Half-page scroll (PgUp/PgDn, Ctrl-U/D)  `[Pass]`
+- **Story:** As a user with many workspaces, I want half-page jumps, so that I can move quickly.
+- **Expected:** PageDown/Ctrl+D and PageUp/Ctrl+U move ~half the visible height, skipping spacers; clamps at the first/last selectable row (no dead-end). (Toolbar focus is reached via j/Down only.)
+- **Source:** dashboard/model_update.go
+- **Tests:** dashboard/model_cursor_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** handleNavKey (model_update.go:154-169) maps pgdown/ctrl+d and pgup/ctrl+u to moveCursor(±visibleHeight/2) then activateCurrentRow; delta floored at 1. moveCursor skips spacers. NOTE: the catalog's clause 'PgDn at the last row transitions focus to the toolbar' is inaccurate — the pgdown case never sets m.toolbarFocused; only the j/down case does that (model_update.go:142-146). PgDn simply stops at the last selectable row, which is reasonable (no dead-end); the toolbar inaccuracy is a catalog overstatement, not a code defect, so this is a Pass.
+
+### DASH-07 — Jump to top/bottom (g/G)  `[Pass]`
+- **Story:** As a user, I want to jump to the first/last row, so that I can reach Home or the newest workspace fast.
+- **Expected:** 'g' jumps to first selectable (Home); 'G' jumps to last selectable row.
+- **Source:** dashboard/model_update.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** handleNavKey (model_update.go:176-187): 'G' sets cursor to findSelectableRow(len-1, -1) (last selectable) and activates; 'g' sets cursor to findSelectableRow(0, 1) (first selectable = Home) and activates. Distinct key bindings, no conflict. Help line labels 'g top' / 'G bottom' (dashboard_render.go:207-208) match behavior.
+
+### DASH-08 — Activate workspace (Enter/click)  `[Pass]`
+- **Story:** As a user, I want to activate a workspace, so that the center pane shows its agents.
+- **Expected:** Enter on a workspace/project row emits WorkspaceActivated; Enter on Home emits ShowWelcome; the activated workspace becomes 'active'.
+- **Source:** dashboard/dashboard_navigation.go
+- **Tests:** dashboard/model_actions_test.go, click_test.go; e2e/workspace_agent_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** handleEnter (dashboard_navigation.go:208-250): RowWorkspace/RowProject emit messages.WorkspaceActivated, RowHome emits messages.ShowWelcome, RowCreate emits ShowCreateWorkspaceDialog. Update on WorkspaceActivated sets m.activeRoot=msg.Workspace.Root (model_update.go:102-105), making it 'active'. Mouse left-click also routes to handleEnter (model_update.go:71-72). Tested by TestDashboardHandleEnter* and TestMouseClickOnRows.
+
+### DASH-09 — Delete workspace via 'D'  `[Pass]`
+- **Story:** As a user, I want to press D to delete the selected workspace, so that I can remove a branch by keyboard.
+- **Expected:** On a workspace row, 'D' opens the Delete Workspace dialog; on a project row, 'D' opens Remove Project; lowercase 'd' is ignored.
+- **Source:** dashboard/dashboard_navigation.go
+- **Tests:** dashboard/model_actions_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** handleNavKey binds 'D' (uppercase only) to handleDelete (model_update.go:172-173). handleDelete (dashboard_navigation.go:253-276): RowWorkspace -> ShowDeleteWorkspaceDialog, RowProject -> ShowRemoveProjectDialog, else nil. Lowercase 'd' has no binding so it is ignored. Explicitly tested by TestDashboardDeleteKeyBinding ('lowercase d ignored', 'uppercase D triggers delete', 'triggers remove on project').
+
+### DASH-10 — Delete via row 'x' icon (mouse)  `[Pass]`
+- **Story:** As a user, I want a delete 'x' on the selected row, so that I can delete with the mouse.
+- **Expected:** The selected workspace/project row shows an 'x' delete icon; clicking it opens the matching delete/remove dialog.
+- **Source:** dashboard/dashboard_render.go; model_update.go
+- **Tests:** dashboard/click_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** renderRow reserves a 3-char delete slot and, when the row is selected, renders ' <Close> ' and records m.deleteIconX (dashboard_render.go:70-93 for project, 132-153 for workspace). Mouse left-click handler (model_update.go:54-68) detects clicks where contentX is within [deleteIconX, deleteIconX+3) on the currently-selected RowProject/RowWorkspace and calls handleDelete(), opening the matching delete/remove dialog. Only the selected row exposes the icon (deleteSlot stays blank otherwise).
+
+### DASH-11 — Rescan workspaces (r)  `[Pass]`
+- **Story:** As a user, I want to refresh the workspace list, so that externally-created worktrees appear.
+- **Expected:** Pressing 'r' emits RescanWorkspaces, triggering an async worktree scan; dashboard updates with new/removed workspaces. ('g' is jump-to-top, not rescan.)
+- **Source:** dashboard/dashboard_navigation.go
+- **Tests:** app/app_operations_rescan_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** handleNavKey binds 'r' to m.refresh() (model_update.go:174-175); refresh emits messages.RescanWorkspaces{} (dashboard_navigation.go:279-281). Help line labels 'r rescan' (dashboard_render.go:206). NOTE: the catalog's 'r/g' is inaccurate — 'g' is bound to jump-to-top (model_update.go:182-187), NOT rescan. Only 'r' triggers a rescan. The code is internally consistent and correct (help text matches behavior), so the 'g' claim is a catalog error, not a code defect; the rescan-via-r feature works.
+
+### DASH-12 — Toolbar Commands button  `[Pass]`
+- **Story:** As a user, I want a [Commands] button, so that I can open the command palette without keybindings.
+- **Expected:** j/Down from the last row focuses the toolbar; Left/Right or h/l move between buttons; Enter/click on [Commands] opens the command palette. (No Tab binding.)
+- **Source:** dashboard/dashboard_toolbar.go; model_update.go
+- **Tests:** dashboard/toolbar_click_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** handleNavKey j/down transitions to toolbar when at last selectable row (model_update.go:142-146: sets toolbarFocused=true, toolbarIndex=0). handleToolbarKey (model_update.go:120-135) maps left/h and right/l to wrap toolbarIndex, and enter to toolbarCommand. toolbarCommand(toolbarCommands) emits messages.ShowCommandsPalette (dashboard_toolbar.go:25-29). Click also opens it (handleToolbarClick + TestToolbarClick). NOTE: the catalog's 'Tab' is inaccurate — no 'tab' binding exists in the dashboard or app keymap; the toolbar is reached via j/down only. Code is correct; 'Tab' is a catalog overstate…
+
+### DASH-13 — Toolbar Settings button  `[Pass]`
+- **Story:** As a user, I want a [Settings] button, so that I can open settings from the dashboard.
+- **Expected:** Enter/click on [Settings] opens the Settings dialog.
+- **Source:** dashboard/dashboard_toolbar.go
+- **Tests:** dashboard/toolbar_click_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** toolbarItems includes {toolbarSettings, 'Settings'} (dashboard_toolbar.go:18-23). handleToolbarKey enter -> toolbarCommand (model_update.go:132-134); handleToolbarClick -> toolbarCommand on the clicked button (dashboard_toolbar.go:129-136). toolbarCommand(toolbarSettings) emits messages.ShowSettingsDialog (dashboard_toolbar.go:30-31). Tested by TestToolbarClick 'click Settings button' asserting ShowSettingsDialog.
+
+### DASH-14 — Mouse wheel scroll + click select  `[Pass]`
+- **Story:** As a user, I want wheel scroll and click selection, so that I can use a mouse/trackpad.
+- **Expected:** Wheel moves cursor ~10% of pane height and auto-activates; left-click on a selectable row selects+activates it; clicks on borders ignored.
+- **Source:** dashboard/model_update.go
+- **Tests:** dashboard/click_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** MouseWheelMsg handler (model_update.go:18-30): delta = common.ScrollDeltaForHeight(visibleHeight, 10) = max(1, height/10) (~10%, scroll.go:5-11); wheel up/down moveCursor(∓delta) then activateCurrentRow (auto-activate). Left-click selects+activates selectable rows via handleEnter (model_update.go:32-73); non-selectable rows are ignored (line 50-52). rowIndexAt returns false for border/out-of-bounds clicks (dashboard_navigation.go:113-161). Tested by TestRowIndexAt and TestClickOutsideContentArea (borders ignored).
+
+### DASH-15 — Creating/Deleting spinners  `[Pass]`
+- **Story:** As a user, I want progress feedback during create/delete, so that I know an operation is in flight.
+- **Expected:** Rows being created show an animated spinner + 'creating'; deleting rows show spinner + 'deleting' (updates ~80ms); delete status overrides active styling.
+- **Source:** dashboard/dashboard_render.go; dashboard_state.go
+- **Tests:** dashboard/dashboard_state_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** renderRow shows animated SpinnerFrame(m.spinnerFrame) + ' creating'/' deleting' for creating/deleting workspaces (dashboard_render.go:105-110 workspace, 44-46 project). spinnerInterval = 80ms (model.go:17); SpinnerTickMsg advances spinnerFrame while creating/deleting maps are non-empty (model_update.go:85-92; tickSpinner dashboard_state.go:14-18). Deletion is checked FIRST in the if/else chain so deleting overrides active styling (working stays false; dashboard_render.go:105-116). projectRowActive also returns false for a deleting project (dashboard_state.go:188-196). Tested by TestDashboardP…
+
+### DASH-16 — Git dirty indicator  `[Pass]`
+- **Story:** As a user, I want to see which workspaces have uncommitted changes, so that I can spot ones needing attention.
+- **Expected:** When git status is not clean, the row text renders in muted/secondary colour (when not selected/active). Status cached and invalidated on update.
+- **Source:** dashboard/dashboard_render.go; model.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** applyDirtyForeground (dashboard_render.go:9-16) sets common.ColorSecondary() when dirty && !active && !selected; called for both project (line 68) and workspace (line 131) rows. dirty is set from statusCache when !s.Clean (dashboard_render.go:47-49, 114-116). InvalidateStatus (model.go:114-119) keeps dirty sticky until a fresh clean result arrives, and GitStatusResult updates the cache (model_update.go:97-100). Catalog 'muted/secondary' maps to ColorSecondary — accurate.
+
+### DASH-17 — Active workspace + agent-activity indicator  `[Pass]`
+- **Story:** As a user, I want the active workspace and workspaces with running agents highlighted, so that I know my context.
+- **Expected:** Active row renders in primary colour; workspaces with running chat agents (activeWorkspaceIDs) render in active style.
+- **Source:** dashboard/dashboard_render.go; dashboard_state.go
+- **Tests:** dashboard/active_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Active workspace: when selected+working renderRow uses ColorPrimary (dashboard_render.go:124-127); when active-not-selected it uses styles.ActiveWorkspace (line 128-129). 'working' is set from row.ActivityWorkspaceID present in m.activeWorkspaceIDs (line 111-113), populated via SetActiveWorkspaces from center (model.go:107-109). Project rows go active via projectRowActive only when the main workspace is in activeWorkspaceIDs and not deleting (dashboard_state.go:188-196). Tested by TestDashboardIsProjectActive and TestDashboardProjectRowActive_DeletingSupersedesActive.
+
+### DASH-18 — Auto-scroll keeps cursor visible  `[Pass]`
+- **Story:** As a user, I want the list to scroll so my selection stays on screen, so that I never lose my place.
+- **Expected:** scrollOffset adjusts so the cursor stays within the viewport; clamped so it never exceeds rows minus visible height.
+- **Source:** dashboard/model_update.go; dashboard_state.go
+- **Tests:** dashboard/click_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** View() adjusts scrollOffset so cursor stays visible (model_update.go:210-215: clamps below cursor and above cursor-visibleHeight+1). clampScrollOffset (dashboard_state.go:126-137) caps at maxOffset = len(rows)-visibleHeight (>=0) and floors at 0; called from rebuildRows and SetProjects. Regression-tested by TestClickAfterDeleteAndAddProject and TestSetProjectsPreservesScrollOffset (click_test.go).
+
+### DASH-19 — Cursor anchor after deletion  `[Pass]`
+- **Story:** As a user, I want the cursor to land on the predecessor after delete, so that repeated D deletes walk upward intuitively.
+- **Expected:** After a delete rebuild, cursor re-anchors to the row above the deleted one (predecessor), not the successor.
+- **Source:** dashboard/dashboard_navigation.go
+- **Tests:** dashboard/dashboard_cursor_anchor_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** SetProjects captures selectedWorkspaceIDAt(prevCursor) before rebuild, then resolveCursorAfterRebuild re-anchors (model.go:163-177). resolveCursorAfterRebuild (dashboard_navigation.go:59-80): if the workspace still exists, cursor follows it by ID; if gone, it lands on the nearest selectable row strictly ABOVE the old slot (predecessor) via findSelectableRow(prevCursor-1, -1). Explicitly tested by TestSetProjects_AnchorsCursorToPredecessorOnDelete (verifies it lands on predecessor, not successor).
+
+### DASH-20 — Long-name truncation + resize  `[Pass]`
+- **Story:** As a user, I want names truncated and layout to adapt on resize, so that the dashboard stays readable.
+- **Expected:** Names exceeding available width are truncated with ellipsis accounting for status/delete-icon/borders; SetSize recomputes layout.
+- **Source:** dashboard/dashboard_render.go; model.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** renderRow truncates names with '…' when lipgloss.Width(name) > maxNameWidth, where maxNameWidth accounts for width-3 (border/padding), status width, deleteSlotWidth(3), and prefix width (dashboard_render.go:77-86 project, 139-148 workspace). SetSize stores width/height (model.go:142-145) used by visibleHeight, rowIndexAt, and all width math, so layout recomputes on resize. Truncation loops removing runes until it fits maxNameWidth-1, leaving room for the ellipsis.
+
+### DASH-21 — Keymap hints line  `[Pass]`
+- **Story:** As a user, I want a hints line of keybindings, so that I can learn controls in place.
+- **Expected:** When showKeymapHints is on, a wrapped hint line shows k/j, enter, D, r, g/G, C-Space, C-Space S, C-Space q.
+- **Source:** dashboard/dashboard_render.go; model.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** helpLines (dashboard_render.go:191-216) builds: k/↑ up, j/↓ down, enter open, then D (delete on RowWorkspace / remove on RowProject, lines 197-204), r rescan, g top, G bottom, C-Space Commands, C-Space S Settings, C-Space q quit; wrapped via common.WrapHelpItems(items, contentWidth). Gated by showKeymapHints in helpLineCount (dashboard_render.go:180-189) and View() (model_update.go:250). All hints listed in the catalog are present and labels match the actual key bindings.
+
+
+## Center
+
+### CTR-01 — Create agent tab (C-Space t a)  `[Pass]`
+- **Story:** As a user, I want to create an agent tab, so that I can run Claude/Codex/etc in parallel.
+- **Expected:** C-Space t a opens the assistant picker; selecting one spawns a tmux session running the agent, creates a vterm, captures scrollback, adds the tab, makes it active.
+- **Source:** center/model_tabs.go; app/app_prefix.go
+- **Tests:** center/model_tabs_test.go, model_tabs_session_add_test.go; e2e/workspace_agent_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/app_prefix.go:35 maps `t a`->`new_agent_tab`; runPrefixAction (app_prefix.go:217-224) guards workspace/tmux and emits ShowSelectAssistantDialog. center/model_tabs.go:103-166 createAgentTabWithSession spawns the tmux session via CreateAgentWithTags, captures scrollback (line 149 tmux.CapturePane), and handlePtyTabCreated (lines 168-389) creates the vterm, adds the tab to ByWorkspace, and activates it (Activate:true -> setActiveTabIdxForWorkspace). Matches expected_behavior.
+
+### CTR-02 — Create terminal tab (C-Space t t)  `[Pass]`
+- **Story:** As a user, I want a plain terminal tab, so that I can run a shell without an agent.
+- **Expected:** C-Space t t creates a terminal tab in the sidebar terminal model (workspace-global, no sidebar focus needed).
+- **Source:** app/app_prefix.go; sidebar/terminal_tab_ops.go
+- **Tests:** sidebar/terminal_tab_ops_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/app_prefix.go:36 maps `t t`->`new_terminal_tab`; runPrefixAction (lines 225-233) routes unconditionally to a.sidebarTerminal.CreateNewTab() with the comment 'Intentionally global to the workspace (no sidebar focus required)'. sidebar/terminal_tab_ops.go CreateNewTab (line 59) creates a terminal tab for the current workspace. No focusedPane check is applied, so it is workspace-global as claimed.
+
+### CTR-03 — Next/Prev tab (C-Space t n / t p)  `[Pass]`
+- **Story:** As a user, I want to cycle tabs, so that I can move between agents.
+- **Expected:** t n / t p cycle circularly via TabSet Next/PrevIdx, set active idx, trigger selection-change (auto-reattach if detached) and persist.
+- **Source:** center/model_tabs_actions.go
+- **Tests:** center/model_tabs_actions_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_tabs_actions.go:100-113 nextTab/prevTab use m.tabs.NextIdx/PrevIdx (circular TabSet math) then setActiveTabIdx. Public wrappers NextTab/PrevTab (lines 153-163) call tabSelectionCommand()->tabSelectionChangedCmd(true) which (model_tabs_session.go:96-114) batches TabSelectionChanged, flushActiveTabBacklogCmd, and autoReattachActiveTabOnSelection (auto-reattach if detached). app_prefix.go cycleTab persists via persistActiveWorkspaceTabs. Matches.
+
+### CTR-04 — Jump to tab by number (C-Space 1-9)  `[Pass]`
+- **Story:** As a user, I want to jump to a tab by digit, so that I can switch quickly.
+- **Expected:** In prefix mode, 1-9 selects that tab (0-indexed); only shown when center has multiple tabs; terminates prefix immediately.
+- **Source:** app/app_prefix.go; center/model_tabs_actions.go
+- **Tests:** app/app_prefix_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/app_prefix.go:105-108 in prefix mode a single digit '1'-'9' returns prefixMatchComplete with prefixSelectTab(digit-'1') (0-indexed). prefixSelectTab (lines 316-323) calls center.SelectTab(index) which is 0-indexed (model_tabs_actions.go:171-178). The palette only lists '1-9' when showNumericTabJump() returns len(tabs)>1 (app_prefix_palette_visibility.go:51-57). Prefix terminates immediately via exitPrefix on prefixMatchComplete (app_input_keys.go:69-71). Matches.
+
+### CTR-05 — Close tab (C-Space t x)  `[Pass]`
+- **Story:** As a user, I want to close the active tab, so that I can clean up finished agents.
+- **Expected:** t x marks tab closing, stops PTY reader, closes agent, clears refs, removes from slice, adjusts active idx, async-kills the tmux session; emits TabClosed.
+- **Source:** center/model_tabs_actions.go
+- **Tests:** center/model_tabs_actions_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_tabs_actions.go:24-91 closeTabAt: tab.markClosing() (line 31), stopPTYReader (line 37), CloseAgent (line 41), clears DiffViewer/Terminal/CachedSnap/Workspace refs and resetPTYStateLocked (lines 50-59), markClosed, removeTab, adjusts active idx (lines 67-75), emits TabClosed (line 78), and async-kills tmux via tea.Batch(closedCmd, killCmd) when sessionName!='' (lines 82-88). A detached tab still has SessionName set so its session is also killed. Matches.
+
+### CTR-06 — Detach tab (C-Space t d)  `[Pass]`
+- **Story:** As a user, I want to detach a tab while keeping its tmux session alive, so that I can reconnect later.
+- **Expected:** t d stops the PTY reader, marks detached, saves SessionName, closes the PTY client but does NOT kill tmux; indicator goes muted; reattachable.
+- **Source:** center/model_tabs_session.go
+- **Tests:** center/model_tabs_session_detach_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_tabs_session.go:14-61 detachTab: gates non-chat/diff tabs with an info toast, stopPTYReader (line 41), markDetachedEndingReattachLocked + resetPTYStateLocked (lines 43-44), saves SessionName from Agent.Session if empty (lines 45-47), CloseAgent (does NOT kill tmux), emits TabDetached. renderTabBar (model_render_tabbar.go:74-106) renders detached tabs with ColorMuted indicator/name. Reattachable via ReattachActiveTab. Matches.
+
+### CTR-07 — Reattach detached tab (C-Space t r)  `[Pass]`
+- **Story:** As a user, I want to reattach a detached session, so that I can resume a backgrounded agent.
+- **Expected:** t r queries the tmux session, captures scrollback/snapshot, creates a new PTY client (not session), updates the tab in place by TabID, restarts the reader. Also auto-reattaches on tab select.
+- **Source:** center/model_tabs_session_reattach.go
+- **Tests:** center/model_tabs_session_reattach_order_test.go, auto_reattach_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_tabs_session_reattach.go:88-265 ReattachActiveTab queries session state (sessionStateForFn), captures bootstrap snapshot/scrollback, calls CreateAgentWithTags (uses tmux new-session -Ads = attach-if-exists, a new client not a new session) and returns ptyTabReattachResult; updatePtyTabReattachResult updates the tab in place by TabID and restarts the reader. autoReattachActiveTabOnSelection (model_tabs_session.go:146-163) auto-reattaches detached tabs on selection. Matches.
+
+### CTR-08 — Restart tab (C-Space t s)  `[Pass]`
+- **Story:** As a user, I want to restart a stopped/detached agent fresh, so that I can resurrect a crashed agent.
+- **Expected:** t s kills the old tmux session (if any), creates a brand-new one, starts a fresh agent PTY, updates tab in place — clean slate vs reattach.
+- **Source:** center/model_tabs_session_reattach.go
+- **Tests:** center/model_tabs_session_reattach_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_tabs_session_reattach.go:267-380 RestartActiveTab: emits 'Tab is still running' toast if running, otherwise stopPTYReader, closes existing Agent, then in the async cmd killSessionFn(sessionName) (line 334) kills the old session and CreateAgentWithTags creates a brand-new session+agent (clean slate, fresh scrollback capture lines 366-367). Distinct from reattach which preserves the existing session. Matches.
+
+### CTR-09 — Attached-agent tab limit auto-detach  `[Pass]`
+- **Story:** As a user, I want idle agent tabs auto-detached at a limit, so that I don't run too many agents at once.
+- **Expected:** EnforceAttachedAgentTabLimit sorts attached chat tabs by lastFocusedAt and auto-detaches the excess; the focused tab is protected; non-chat tabs ignored.
+- **Source:** center/model_tabs_limit.go; app/app_attached_limit.go
+- **Tests:** center/model_tabs_limit_test.go; app/app_attached_limit_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_tabs_limit.go:27-111 EnforceAttachedAgentTabLimit: returns early when maxAttached<=0; iterates all ByWorkspace tabs, counts attached chat tabs (skips non-chat via !isChatTab line 40, and detached/non-running via attached check line 44/49); protects the focused tab (wsID==activeWorkspaceID && idx==activeTabIdx, lines 53-55); sorts candidates by lastFocusedAt (oldest first, lines 73-89) and detaches the excess via detachTab. Matches.
+
+### CTR-10 — Tab bar rendering + indicators  `[Pass]`
+- **Story:** As a user, I want a compact tab bar with status, so that I can see which agents are running/disconnected.
+- **Expected:** Single-line bar: brand-colour running/idle dot, assistant name (muted if disconnected), close ×, active-tab highlight, '+New' on right; hit regions for clicks.
+- **Source:** center/model_render_tabbar.go
+- **Tests:** center/model_render_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_render_tabbar.go:12-168 renderTabBar: single-line bar; brand-colour Running/Idle dot indicator for chat tabs (lines 53-58, AgentColor), muted name/indicator when disconnected (lines 93-106), active-tab highlight via ActiveTab style + Surface2 bg (lines 70-89), close 'x' (× lines 64/87/107), and '+ New' button on the right (line 150); registers tabHit regions (tabHitTab/tabHitClose/tabHitPlus) for clicks. Matches.
+
+### CTR-11 — Tab bar mouse (switch/close/new)  `[Pass]`
+- **Story:** As a user, I want to click the tab bar, so that I can switch/close/create tabs by mouse.
+- **Expected:** Click close-button region closes; click tab region selects+flushes; click '+New' opens the assistant picker.
+- **Source:** center/model_render_tabbar.go; model_input_mouse.go
+- **Tests:** center/model_input_mouse_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_render_tabbar.go:170-208 handleTabBarClick checks close-button hit regions first (lines 189-193 -> closeTabAt), then tab regions (tabHitTab -> setActiveTabIdx + tabSelectionChangedCmd which flushes, lines 200-203) and '+ New'/empty (tabHitPlus -> ShowSelectAssistantDialog, line 198-199). model_input_mouse.go:18-23 routes left-clicks to handleTabBarClick even without an active agent. Matches.
+
+### CTR-12 — Wheel scroll terminal scrollback  `[Pass]`
+- **Story:** As a user, I want to wheel-scroll terminal history, so that I can review past output.
+- **Expected:** Wheel up/down on an active terminal scrolls scrollback by delta lines, clamped to max; routed via tab-actor (sync fallback). Diff viewer wheel checked first.
+- **Source:** center/model_input_mouse.go; model_scrolled_history.go
+- **Tests:** center/selection_scroll_test.go; e2e/mouse_scroll_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_input_mouse.go:205-264 updateMouseWheel: first dispatchDiffInput (line 216, diff viewer checked first), then forwardMouseWheelToTerminal (mouse-reporting passthrough), then scrolls scrollback by delta=ScrollDeltaForHeight(height,8) (~12.5% height) clamped, routed via tab-actor tabEventScrollBy with a sync scrollTerminalViewLocked fallback (lines 230-261). Catalog says 'by delta lines, clamped to max' — accurate.
+
+### CTR-13 — Keyboard page scroll (PgUp/PgDn)  `[Pass]`
+- **Story:** As a user, I want PgUp/PgDn to scroll history, so that I can review output by keyboard.
+- **Expected:** PgUp scrolls up, PgDn down by ~¼ height (via tab-actor); typing any other key snaps back to the live bottom.
+- **Source:** center/model_input_keys.go; model_scrolled_history.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_input_keys.go:162-170 handleScrollbackKey maps PgUp->scrollTerminalPage(+1), PgDn->scrollTerminalPage(-1); scrollTerminalPage (lines 172-192) and tab_actor.go:248-252 handleScrollPage both use ScrollDeltaForHeight(height,4)=~1/4 height (not up to 1/2, but the '~1/4-1/2' wording is an imprecise overstatement; behaviour is sound). forwardKeyToTerminal (lines 122-132) calls scrollToBottomOnType for any non-scroll/non-ctrl key, snapping back to live bottom. Matches.
+
+### CTR-14 — Mouse text selection + copy  `[Pass]`
+- **Story:** As a user, I want to drag-select terminal text and copy it, so that I can reuse output.
+- **Expected:** Click starts selection, drag extends (auto-scrolls when out of bounds), release auto-copies to clipboard; Cmd+C copies the active selection without clearing.
+- **Source:** center/model_input_mouse.go; tab_actor_selection.go
+- **Tests:** center/selection_test.go, tab_actor_selection_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_input_mouse.go:15-202 selection start/update/release: release auto-copies via CopyToClipboardWithLog (line 200) / tabEventSelectionFinish->handleSelectionFinish (tab_actor_selection.go:124-143) which copies; drag auto-scrolls at out-of-bounds Y (lines 134-140). Cmd+C: model_input_keys.go:36-62 handleCopyKey sends tabEventSelectionCopy->handleSelectionCopy (tab_actor_selection.go:42-53) which copies WITHOUT clearing the selection (distinct from handleSelectionClearAndNotify). tab_actor.go:197-198 confirms the mapping. Matches.
+
+### CTR-15 — Scrolled chat-history view  `[Pass]`
+- **Story:** As a user, I want scrollback to show only history while scrolled up, so that live output doesn't intrude while reading.
+- **Expected:** For chat tabs with ViewOffset>0, the screen is replaced by a scrollback-only snapshot; cursor/selection rebased to the visible range.
+- **Source:** center/model_scrolled_history.go; model_render.go
+- **Tests:** center/model_scrolled_history_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_scrolled_history.go:182-215 applyScrolledChatHistoryViewLocked replaces the snapshot Screen with a scrollback-only window when ViewOffset>0 for chat tabs; model_render.go:51-52 calls it for chat tabs in View(). rebaseScrolledChatSelection (lines 217-279) rebases the selection to the visible range, and displayedScreenYToAbsoluteLineLocked (lines 104-112) rebases cursor/click mapping. Matches.
+
+### CTR-16 — Open diff viewer tab  `[Pass]`
+- **Story:** As a user, I want to open a git diff in a tab, so that I can review file changes inside amux.
+- **Expected:** An OpenDiff message creates/reuses a diff tab (diff.Model) replacing the terminal in that tab; diff loads async; tab remains switchable/closable.
+- **Source:** center/model_input.go; diff/model.go
+- **Tests:** center/model_tabs_diff_reuse_test.go; app/app_input_open_diff_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_input.go:131-132 routes messages.OpenDiff to updateOpenDiff (model_input_lifecycle.go:229-234) -> createDiffTab. model_tabs_viewer.go:118-162 createDiffTab reuses an existing matching diff tab (findOpenDiffTab/MatchesSource) or creates a new Tab with a diff.Model DiffViewer (no PTY/Agent), appends it and activates it; dv.Init() loads the diff async (diff/model.go:61-119). The tab is switchable (in ByWorkspace) and closable (no Agent, closeTabAt works). Matches.
+
+### CTR-17 — Diff viewer scroll + hunk nav  `[Pass]`
+- **Story:** As a user, I want to scroll a diff and jump hunks, so that I can review efficiently.
+- **Expected:** j/k line scroll; PgDn/Ctrl+D & PgUp/Ctrl+U half-page; g/Home top, G/End bottom; n/p next/prev hunk; w toggles wrap.
+- **Source:** diff/model.go; wheel.go
+- **Tests:** diff/model_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** diff/model.go:150-184 Update handles j/down & k/up (1 line), pgdown/ctrl+d & pgup/ctrl+u (ScrollDeltaForHeight(visibleHeight,2)=half-page), g/home (scroll=0 top), G/end (scrollToBottom), n/p next/prevHunk (lines 171-174, with wrap-around at lines 248-252/271-275), w toggles wrap. wheel.go CanConsumeWheel gates wheel focus. All keys in the catalog are implemented exactly. Matches.
+
+### CTR-18 — Diff viewer rendering  `[Pass]`
+- **Story:** As a user, I want colour-coded diffs, so that I can spot additions/removals quickly.
+- **Expected:** Added green, removed red, context gray, header bold; clipped/wrapped to width; untracked shows full content; binary/large(>2MB) show warnings; loading/error states.
+- **Source:** diff/view.go
+- **Tests:** diff/view_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** diff/view.go:233-274 renderLine colours add=ColorSuccess(green), delete=ColorError(red), header=ColorInfo bold, default=foreground/gray; wraps (m.wrap) or truncates with ellipsis to contentWidth (lines 264-271). View() dispatches loading/error/empty/binary('Binary file - cannot display diff' line 96)/large('File too large to display (> 2MB)' line 111)/no-changes states. Untracked content is loaded via GetUntrackedFileContent (model.go:109-110) and rendered as full content. Matches.
+
+### CTR-19 — Diff viewer close (q/esc)  `[Pass]`
+- **Story:** As a user, I want to close the diff and return to the terminal, so that I can resume the agent.
+- **Expected:** q/Esc in a diff tab sends CloseTab, returning to the terminal (or closing the tab if created only for the diff).
+- **Source:** diff/model.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** diff/model.go:181-182 q/esc returns messages.CloseTab{}. app/app_input_dispatch.go:111-112 routes CloseTab to center.CloseActiveTab() -> closeCurrentTab/closeTabAt, removing the diff tab and (via active-idx adjustment) returning to the prior terminal tab. When prefix is inactive, Esc/q pass through to the center pane (app_input_keys.go:59-128), reaching the diff model. Matches.
+
+### CTR-20 — Tab restore on workspace open  `[Pass]`
+- **Story:** As a user, I want my agent tabs restored when reopening a workspace, so that I don't recreate them.
+- **Expected:** RestoreTabsFromWorkspace reads OpenTabs, creates detached placeholders, async-reattaches each to its saved tmux session; success attaches+starts reader, failure stays detached with a toast.
+- **Source:** center/model_tabs_restore.go; model_tabs_session.go
+- **Tests:** center/model_tabs_restore_test.go; e2e/persistence_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_tabs_session.go:165-217 RestoreTabsFromWorkspace iterates ws.OpenTabs, skips unknown assistants and 'stopped' status; for 'detached' adds a detached placeholder (addDetachedTab), otherwise addPlaceholderTab (Detached+reattachInFlight, model_tabs_restore.go:62-111) and reattachToSession async. On reattach failure updatePtyTabReattachFailed (model_input_lifecycle.go:170-200) marks the tab failed/detached and shows a ToastWarning. Matches.
+
+### CTR-21 — Selection-change backlog flush  `[Pass]`
+- **Story:** As a user, I want switching to a busy tab to jump to latest output, so that I see new activity immediately.
+- **Expected:** On selection change, a catch-up flush replays buffered output at accelerated pace to jump the viewport to the live bottom.
+- **Source:** center/model_tabs_session.go
+- **Tests:** center/model_tabs_session_selection_flush_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_tabs_session.go:116-144 flushActiveTabBacklogCmd latches catch-up (latchCatchUpLocked) on selection change and emits PTYFlush{CatchUp:true}. model_input_lifecycle_pty.go:192-196 uses the larger ptyFlushChunkSizeCatchUp so the catch-up flush replays buffered output at accelerated pace to jump to the live bottom. Verified by model_tabs_session_selection_flush_test.go which asserts catch-up latch + PTYFlush{CatchUp:true}. Matches.
+
+### CTR-22 — Center keymap hints  `[Pass]`
+- **Story:** As a user, I want center-pane hints, so that I can learn tab/scroll commands in place.
+- **Expected:** helpLines lists C-Space t a/x/d/r/s, t p/n, 1-9, PgUp/PgDn; wrapped to width; gated by showKeymapHints.
+- **Source:** center/model_render.go
+- **Tests:** center/model_render_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** center/model_render.go:143-168 helpLines: 'C-Spc t a' (when workspace set) and when hasTabs: 't x'(close), 't d'(detach), 't r'(reattach), 't s'(restart), 't p'(prev), 't n'(next), 'C-Spc 1-9'(jump tab), 'PgUp'(scroll up), 'PgDn'(scroll down); wrapped via WrapHelpItems(items, contentWidth). View() (lines 78-81) sets helpLines=nil unless m.showKeymapHints. Matches the catalogued list (a/x/d/r/s, p/n, 1-9, PgUp/PgDn).
+
+
+## Sidebar
+
+### SIDE-01 — Browse workspace file tree  `[Pass]`
+- **Story:** As a user, I want to explore the workspace directory tree, so that I can locate project files.
+- **Expected:** Project tab shows a hierarchical file/dir list with a cursor; navigate with j/k or wheel.
+- **Source:** sidebar/project_tree.go; project_tree_view.go
+- **Tests:** sidebar/project_tree_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/ui/sidebar/project_tree.go:95-99 handles j/k & up/down via moveCursor; lines 74-83 handle MouseWheelUp/Down via moveCursor(±delta). project_tree_view.go:32-84 renders a flattened hierarchical node list with a cursor indicator (Icons.Cursor) and indentation per node.Depth. reloadTree (project_tree.go:259-276) builds the tree from workspace.Root.
+
+### SIDE-02 — Expand/collapse directories  `[Pass]`
+- **Story:** As a user, I want to expand/collapse directories, so that I can focus on relevant parts.
+- **Expected:** l/Right expands, h/Left collapses; indicator shows expanded/collapsed; dirs sorted before files.
+- **Source:** sidebar/project_tree.go
+- **Tests:** sidebar/project_tree_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** project_tree.go:103-111 l/right calls expandNode+rebuild; lines 112-128 h/left collapses an expanded dir else moves cursor to parent. expandNode (178-223) sorts dirs and files separately (sort.Slice 213-218) then appends dirs first then files (line 221). View (project_tree_view.go:50-59) shows DirOpen/DirClosed/File icons indicating expanded/collapsed state.
+
+### SIDE-03 — Open file from tree  `[Pass]`
+- **Story:** As a user, I want to open a file from the tree, so that I can view/edit it.
+- **Expected:** enter/o/click on a file emits an open message routing the file to the center pane.
+- **Source:** sidebar/project_tree.go
+- **Tests:** sidebar/project_tree_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** project_tree.go:101-102 enter/o calls handleEnter; mouse left-click (85-93) sets cursor then handleEnter. handleEnter (143-169): for a file node it returns a cmd emitting OpenFileInEditor{Path, Workspace} (163-168), which routes to the center pane. Directories toggle expansion instead (149-158).
+
+### SIDE-04 — Toggle hidden files  `[Pass]`
+- **Story:** As a user, I want to show/hide dotfiles, so that I can control tree clutter.
+- **Expected:** '.' toggles hidden-file visibility; tree re-filters, preserving navigation where possible.
+- **Source:** sidebar/project_tree.go
+- **Tests:** sidebar/project_tree_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** project_tree.go:129-132 '.' flips m.showHidden and calls reloadTree(); expandNode (192-195) skips dotfiles when !showHidden. Default showHidden=true (NewProjectTree, line 48), confirmed by project_tree_test.go:375-376. Catalog wording 'preserving navigation where possible' is imprecise — reloadTree (259-276) rebuilds the whole tree (re-expands only root, collapsing previously-expanded dirs); cursor is only clamped via rebuildFlatList (250-255). This is functional, sound UX (a deliberate refresh), so it is a Pass with a catalog wording note, not a defect.
+
+### SIDE-05 — Refresh file tree  `[Pass]`
+- **Story:** As a user, I want to reload the tree from disk, so that external changes appear.
+- **Expected:** 'r' re-reads and re-sorts the root directory.
+- **Source:** sidebar/project_tree.go
+- **Tests:** sidebar/project_tree_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** project_tree.go:133-135 'r' calls reloadTree(), which re-creates root and calls expandNode (re-reads os.ReadDir at 183) and re-sorts (213-218). project_tree_test.go:389-399 (TestProjectTreeUpdateRefreshKeepsNodes) verifies refresh re-reads and preserves node count with no spurious cmd.
+
+### SIDE-06 — Git changes view (staged/unstaged/untracked)  `[Pass]`
+- **Story:** As a user, I want to see staged/unstaged/untracked files, so that I can manage my git workflow.
+- **Expected:** Changes tab shows three counted sections with per-file status codes (M/A/D/R/U), colour-coded.
+- **Source:** sidebar/model.go; model_view.go
+- **Tests:** sidebar/model_view_test.go, rebuild_display_list_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** model.go rebuildDisplayList (63-161) builds three sections Staged/Unstaged/Untracked, each with a counted header e.g. 'Staged (N)' (102,118,134). model_view.go renderChanges (113-177) renders headers via SidebarHeader and each file with a color-coded single-char status: StatusModified/Added/Deleted/Renamed/Untracked (135-148) via item.change.KindString() (151). Status codes M/A/D/R/U map to git.Change kinds.
+
+### SIDE-07 — Filter git changes (/)  `[Pass]`
+- **Story:** As a user, I want to filter the changes list by filename, so that I can find files fast.
+- **Expected:** '/' enters filter mode; typing filters case-insensitively; enter/esc exits; header shows 'filter: <q>'.
+- **Source:** sidebar/model_input.go; model_view.go
+- **Tests:** sidebar/model_input_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** model_input.go:84-89 '/' sets filterMode and focuses filterInput. In filter mode (17-39): esc clears+exits, enter exits keeping query, other keys feed filterInput and rebuild with case-insensitive match (model.go:75 strings.Contains(ToLower,ToLower)). Header: model_view.go:69-78 shows '/'+input while typing, and 'filter: <q>' (75-77) once a non-empty query is active. Minor wording note: the literal 'filter: <q>' prefix only shows after exiting filter mode (a persisted-filter indicator), while live typing shows '/<input>'; both are present and coherent.
+
+### SIDE-08 — Navigate changes + open diff  `[Pass]`
+- **Story:** As a user, I want to move through changes and open a file's diff, so that I can review exactly what changed.
+- **Expected:** j/k move (skipping headers); enter/space/o emits OpenDiff with change + mode (staged/unstaged) + workspace.
+- **Source:** sidebar/model_input.go
+- **Tests:** sidebar/model_input_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** model_input.go moveCursor (144-179) skips header items in both directions. enter/space/o (line 80) calls openCurrentItem (96-117) which emits messages.OpenDiff{Change, Mode, Workspace} (110-116); Mode is the item's git.DiffModeStaged/Unstaged set in rebuildDisplayList (108,124,141). Header/nil items are no-ops (102-104).
+
+### SIDE-09 — Refresh git status (g)  `[Pass]`
+- **Story:** As a user, I want to refresh git status, so that the sidebar stays current.
+- **Expected:** 'g' triggers async GetStatus; UI updates on GitStatusResult.
+- **Source:** sidebar/model_input.go
+- **Tests:** sidebar/model_input_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** model_input.go:82-83 'g' calls refreshStatus (182-192) which returns an async cmd running git.GetStatus(root) and emitting messages.GitStatusResult{Root,Status,Err}. UI updates via SetGitStatus (model_lifecycle.go:68-71) which stores status and rebuilds the display list. Catalog wording 'GetStatus' matches git.GetStatus.
+
+### SIDE-10 — Branch + change statistics header  `[Pass]`
+- **Story:** As a user, I want to see the branch and changed-file/line counts, so that I can gauge scope.
+- **Expected:** Changes tab shows 'branch: <name>' and '<N> changed files' with optional '+X -Y' line stats.
+- **Source:** sidebar/model_view.go
+- **Tests:** sidebar/model_view_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** model_view.go renderChanges: branch line 'branch: '+BranchName (62-66); count '<N> changed files' via GetDirtyCount (87-88); optional '+X' (StatusAdded) and '-Y' (StatusDeleted) line stats gated on HasLineStats && (TotalAdded>0||TotalDeleted>0) (89-100).
+
+### SIDE-11 — Switch sidebar tabs (1 Changes / 2 Project)  `[Pass]`
+- **Story:** As a user, I want to switch between Changes and Project views, so that I can reach files or git status.
+- **Expected:** '1' selects Changes, '2' selects Project; click tab label switches; active tab highlighted; only focused tab gets keys.
+- **Source:** sidebar/tabs.go
+- **Tests:** sidebar/tabs_test.go, tabs_view_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** tabs.go: '1'=>TabChanges, '2'=>TabProject only when m.focused (148-158); MouseLeft on Y==0 inside a tabHit region switches tabs (91-107); renderTabBar highlights the active tab with activeTabStyle vs muted inactive (211-235). updateFocus (178-192) focuses only the active inner model so only the focused tab receives keys; inner models also guard on m.focused (model_input.go:71, project_tree.go:69).
+
+### SIDE-12 — Embedded terminal pane  `[Pass]`
+- **Story:** As a user, I want a terminal embedded in the sidebar, so that I can run shell commands without leaving amux.
+- **Expected:** Sidebar shows terminal tabs with a tab bar (+New) and terminal content; focus/blur controls cursor + key routing.
+- **Source:** sidebar/terminal.go; terminal_render.go
+- **Tests:** sidebar/terminal_test.go, terminal_render_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** terminal_render.go renderTabBar (15-137) draws a single-line tab bar with a '+ New' button (120-134) and per-tab close affordance; View (310-381) renders tab bar + VTerm content. Focus/Blur (terminal.go:258-273) toggle cursor visibility via setActiveTerminalCursorVisibility (280-294). Key routing gated on m.focused (terminal_update.go:107,129,151). Real composition draws TabBarView + TerminalLayer + StatusLine + HelpLines (app_view_panes.go:213-225).
+
+### SIDE-13 — Create/close/switch terminal tabs  `[Pass]`
+- **Story:** As a user, I want multiple terminal tabs I can create/close/switch, so that I can run several shells.
+- **Expected:** +New / C-Space t t creates 'Terminal N'; ×/C-Space t x closes (kills unattached session after ~1.2s); C-Space t n/p cycle circularly.
+- **Source:** sidebar/terminal.go; terminal_selection.go; terminal_tab_ops.go
+- **Tests:** sidebar/terminal_tab_ops_test.go, terminal_selection_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** '+ New' click and C-Space t t both create tabs: handleTabBarClick (terminal_selection.go:41-42) -> CreateNewTab; app_prefix.go:233 routes 'new_terminal_tab' to sidebarTerminal.CreateNewTab. Names 'Terminal N' via nextTerminalName (terminal.go:212-223). Close via × hit region (terminal_selection.go:27-35 closeTabAt) or C-Space t x (app_prefix.go:239-241); closeSessionIfUnattached kills an unattached session after a 1200ms deadline (terminal_tab_ops.go:115-137). NextTab/PrevTab cycle circularly via TabSet NextIdx/PrevIdx (terminal.go:226-243), reachable via C-Space t n/p (app_prefix.go:235-237 …
+
+### SIDE-14 — Terminal input + bracketed paste  `[Pass]`
+- **Story:** As a user, I want to type commands and paste into the terminal, so that I can run shell work.
+- **Expected:** All keys (except PgUp/PgDn) forward to the PTY; Cmd+C copies selection (not interrupt); bracketed paste supported.
+- **Source:** sidebar/terminal_update.go
+- **Tests:** sidebar/terminal_update_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** terminal_update.go handleKeyPress (151-214) forwards all keys to the PTY (207-213) except PgUp/PgDown (178-196) which scroll. Cmd+C (isCopyKey: ModSuper && code 'c', 162-163) copies the current selection and does NOT forward to the terminal (166-175), so it is a copy, not SIGINT. handlePaste (128-146) wraps content in bracketed-paste markers \x1b[200~ ... \x1b[201~ and sends it.
+
+### SIDE-15 — Terminal scrollback (PgUp/PgDn + wheel)  `[Pass]`
+- **Story:** As a user, I want to scroll terminal history, so that I can review past output.
+- **Expected:** PgUp/PgDn scroll half-screen; wheel scrolls ~12.5% height; 'SCROLL: N/M lines up' indicator; any keystroke returns to live.
+- **Source:** sidebar/terminal_update.go; terminal_render.go
+- **Tests:** sidebar/terminal_scroll_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** terminal_update.go: PgUp/PgDown scroll by ScrollDeltaForHeight(Height,2) ~= half screen (182,191). handleMouseWheel (106-125) uses ScrollDeltaForHeight(Height,8) ~= 12.5%. Indicator 'SCROLL: N/M lines up' rendered when IsScrolled (terminal_render.go StatusLine 195-202 and View 344-351 via formatScrollPos 425-430). Any other keystroke snaps back: handleKeyPress (199-204) calls ScrollViewToBottom when IsScrolled before forwarding.
+
+### SIDE-16 — Terminal text selection + copy  `[Pass]`
+- **Story:** As a user, I want to select and copy terminal text, so that I can reuse output.
+- **Expected:** Click-drag selects (auto-scroll at edges); release copies to clipboard; Cmd+C copies current selection; highlight shown.
+- **Source:** sidebar/terminal_selection.go
+- **Tests:** sidebar/terminal_selection_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** terminal_selection.go: handleMouseClick (100-145) starts a selection; handleMouseMotion (148-217) extends and auto-scrolls at viewport edges (183-193) with a continuing tick loop (203-212); handleMouseRelease (220-251) copies selection text to clipboard via CopyToClipboardWithLog (248) keeping the highlight (242). Cmd+C copies current selection (terminal_update.go:166-175). VTerm.SetSelection/ExtendSelection drive the highlight.
+
+### SIDE-17 — Terminal status indicators  `[Pass]`
+- **Story:** As a user, I want to see terminal status, so that I know if it's scrolled/detached/stopped.
+- **Expected:** Shows 'SCROLL', 'DETACHED' (orange), or 'STOPPED' (red) above the help bar.
+- **Source:** sidebar/terminal_render.go; terminal_update_pty.go
+- **Tests:** sidebar/terminal_update_pty_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** terminal_render.go StatusLine (188-218): SCROLL (ColorInfo) when IsScrolled, DETACHED (ColorWarning/orange) when ts.Detached, STOPPED (ColorError/red) when !Running. app_view_panes.go:224-225 renders StatusLine above HelpLines in the real sidebar bottom pane composition, matching 'above the help bar'. Note: the standalone View() only inlines SCROLL, but the production path uses StatusLine, so DETACHED/STOPPED do display.
+
+### SIDE-18 — Terminal detach/reattach/restart  `[Pass]`
+- **Story:** As a user, I want to detach/reattach/restart sidebar terminals, so that I can manage long-running shells.
+- **Expected:** C-Space t d closes PTY client but keeps tmux; t r reattaches (captures scrollback); t s kills+recreates the session.
+- **Source:** sidebar/terminal_pty_attach.go; terminal_update_session.go
+- **Tests:** sidebar/terminal_reattach_test.go, terminal_update_session_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** DetachActiveTab (terminal_pty_attach.go:183-190) -> detachState (terminal_pty_lifecycle.go:196-213) stops the reader, closes the PTY client (term.Close) and marks Detached but does NOT kill tmux. ReattachActiveTab (193-213) re-attaches via attachToSession action='reattach', capturing scrollback (captureExistingSessionBootstrap / captureSessionHistory 306-339). RestartActiveTab (216-238) detaches, KillSession (236), then attachToSession action='restart' creating a fresh session. C-Space t d/r/s route via dispatchTabAction (app_prefix.go:243-251).
+
+### SIDE-19 — Terminal session persistence across workspace switch  `[Pass]`
+- **Story:** As a user, I want terminals to persist across workspace switches, so that I can resume seamlessly.
+- **Expected:** On workspace switch, terminals with matching workspace ID are preserved; PTY reader stops but tmux survives; reattaches on return with scrollback.
+- **Source:** sidebar/terminal_workspace_rebind.go; terminal_sessions.go
+- **Tests:** sidebar/terminal_workspace_rebind_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Tabs are keyed by workspace ID in m.tabs.ByWorkspace[wsID] (terminal.go:168-180), so switching workspaces leaves the prior workspace's tabs intact in the map. RebindWorkspaceID (terminal_workspace_rebind.go:12-66) migrates tabs to a new ID and restarts only running readers (54-62). On reattach, scrollback is restored (terminal_update_session.go handleReattachResult 78-142 RestorePaneCapture/RestoreScrollbackCapture). Test terminal_workspace_rebind_test.go verifies state migration and that a non-running terminal yields no restart cmd while tmux survives.
+
+### SIDE-20 — Terminal PTY auto-restart with backoff  `[Pass]`
+- **Story:** As a user, I want terminals to recover from transient reader failures, so that a glitch doesn't kill my session.
+- **Expected:** On reader exit, restart with exponential backoff; after the failure limit it marks detached; tmux session survives.
+- **Source:** sidebar/terminal_update_pty.go
+- **Tests:** sidebar/terminal_update_pty_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** terminal_update_pty.go handlePTYStopped (116-165): if the underlying terminal is still alive it computes NextRestartBackoffLocked(window,max) (137) and schedules a SidebarPTYRestart tick (149-151); once shouldRestart is false it sets Running=false and Detached=true (140-143) — i.e. after the failure limit it marks detached. tmux session is left alive (comment 142, no KillSession). handlePTYRestart (168-181) restarts the reader if the terminal is still open.
+
+### SIDE-21 — Wheel-consumption focus detection  `[Pass]`
+- **Story:** As a user, I want empty panes to not steal wheel focus, so that scrolling targets the right pane.
+- **Expected:** CanConsumeWheel returns false for empty Changes/Project/terminal-without-scrollback, preventing wheel-focus theft.
+- **Source:** sidebar/wheel.go
+- **Tests:** sidebar/wheel_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** wheel.go: TabbedSidebar.CanConsumeWheel dispatches to the active tab (5-17). Changes canConsumeWheel returns false when gitStatus nil/clean or <=1 selectable item (38-49); ProjectTree returns false when no workspace or <=1 flatNode (51-56); TerminalModel returns false unless the active VTerm has MaxViewOffset()>0 (20-36). All guard against empty/non-scrollable panes stealing wheel focus. Wording note: it also returns false for a single-row (non-empty) pane, which is a superset of 'empty' but a sound choice since a 1-row pane cannot scroll.
+
+### SIDE-22 — Per-tab help hints  `[Pass]`
+- **Story:** As a user, I want context help per sidebar tab, so that I can discover shortcuts.
+- **Expected:** Project: k/j, h/l, ., r. Changes: k/j, /. Terminal: C-Space t t/n/p/x/d/r/s, PgUp/PgDn. Gated by showKeymapHints.
+- **Source:** sidebar/project_tree_view.go; model_view.go; terminal_render.go
+- **Tests:** sidebar/project_tree_view_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Project hints: project_tree_view.go helpLines (143-152) k/up, j/down, h/collapse, l/expand, '.' hidden, 'r' refresh; gated by showKeymapHints (101-103,156-158). Changes hints: model_view.go helpLines (187-194) k/up, j/down, '/' filter; gated (26-28,196-204). Terminal hints: terminal_render.go helpLines (229-263) 'C-Spc t t' always, t n/p/x when HasMultipleTabs, t d/r/s when a terminal exists, plus PgUp/PgDn; gated via helpLinesForLayout (271-287). All match the catalogued per-tab hint sets.
+
+
+## Workspace
+
+### WS-01 — Add project (file picker)  `[Pass]`
+- **Story:** As a user, I want to add a git repo as a project, so that amux can manage its workspaces.
+- **Expected:** Pick a local repo path via the file picker; validated to contain .git; added to the projects registry; appears in the dashboard.
+- **Source:** app/workspace_service.go; data/registry.go
+- **Tests:** app/workspace_service_add_project_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_service.go:22-73 AddProject expands ~, calls validation.ValidateProjectPath (validation/validation.go:75-116 stats path + checks .git exists at :110-113), then git.IsGitRepository (git/operations.go:96-99 runs `git rev-parse --git-dir`), adds to registry via s.registry.AddProject, returns messages.RefreshDashboard{} which dispatch (app_input_dispatch.go:212-213) routes to loadProjects() so the project appears in the dashboard.
+
+### WS-02 — Remove project  `[Pass]`
+- **Story:** As a user, I want to remove a project, so that it no longer appears in amux.
+- **Expected:** Project removed from registry; its workspaces remain in metadata but orphaned; active workspace cleared if it belonged to it; no files deleted.
+- **Source:** app/workspace_service.go; app_operations.go
+- **Tests:** —
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_service.go:443-459 RemoveProject only calls registry.RemoveProject(project.Path) (data/registry.go:168-202, filters projects.json) and emits ProjectRemoved; no workspace metadata is deleted, so workspaces remain orphaned in metadata. app/app_operations.go:118-131 removeProject calls a.goHome() when a.activeWorkspace.Repo == project.Path, clearing the active workspace. No files deleted.
+
+### WS-03 — Create workspace (worktree + branch)  `[Pass]`
+- **Story:** As a user, I want to create a workspace backed by a git worktree on a new branch, so that agents work in isolation.
+- **Expected:** Provide name/base/assistant; worktree created under ~/.amux/workspaces/<project>/<name> on a new branch from base; metadata saved; setup scripts queued; appears in dashboard.
+- **Source:** app/workspace_service.go; git/workspace.go
+- **Tests:** app/workspace_service_test.go; e2e/workspace_agent_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_service.go:77-182 CreateWorkspace resolves base (workspace_service_paths.go:55-65), builds pending ws under managed root filepath.Join(projectRoot,name) (:67-84), validates name/base/assistant, calls gitOps.CreateWorkspace (git/workspace.go:30-61 `git worktree add -b branch path base`), saves metadata via store.Save, returns WorkspaceCreated. app/app_input_workspace.go:54-65 handleWorkspaceCreated then queues runSetupAsync (setup scripts) and loadProjects (appears in dashboard). Managed root resolves to ~/.amux/workspaces/<project>/<name> (config/paths.go:30).
+
+### WS-04 — Delete workspace (full cleanup)  `[Pass]`
+- **Story:** As a user, I want to delete a workspace, so that its worktree, branch, metadata, and tmux sessions are cleaned up.
+- **Expected:** Confirm; tombstone written first; marked delete-in-flight; worktree removed; branch deleted; metadata removed; tmux sessions killed; failed deletes leave it intact.
+- **Source:** app/workspace_service.go; git/workspace.go
+- **Tests:** app/workspace_service_delete_test.go; e2e/workspace_agent_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Delete confirmation dialog (app/app_input_messages_dialogs.go:62-70 NewConfirmDialog 'Delete workspace ... and its branch?') defaults to the SAFE 'No' option (ui/common/dialog.go:92-102 cursor:1, defaultCursor:1) — not the dangerous option. app/workspace_service.go:286-355 DeleteWorkspace rejects primary checkout, writes tombstone FIRST (:316 markDeleteTombstone), removes worktree+branch under lock (:387-410), kills tmux sessions after worktree removal (:403), removes metadata via store.Delete (:323); on failure handleWorkspaceDeleteFailed (app_input_workspace.go:195-225) clears in-flight and…
+
+### WS-05 — Archive workspace when worktree gone  `[Pass]`
+- **Story:** As a user, I want workspaces whose worktrees vanished to be archived, so that the dashboard reflects reality.
+- **Expected:** During rescan, workspaces not discovered on disk are marked Archived with a timestamp and hidden from the main list.
+- **Source:** app/workspace_service_load.go
+- **Tests:** app/app_operations_rescan_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_service_load.go:174-221 RescanWorkspaces iterates ListByRepoIncludingArchived; workspaces not in discoveredSet and not already Archived are marked ws.Archived=true with ws.ArchivedAt=time.Now() then Save (:205-220). app/workspace_service_load.go:38 LoadProjects uses ListByRepo (data/workspace_store.go:265-267 -> listByRepo includeArchived=false), which skips archived at workspace_store.go:410-412, so archived workspaces are hidden from the main list.
+
+### WS-06 — Rescan/import existing worktrees  `[Pass]`
+- **Story:** As a user, I want rescan to import externally-created worktrees, so that I don't have to recreate them.
+- **Expected:** 'git worktree list --porcelain' per project; discovered worktrees upserted (default assistant if new); missing ones archived; respects delete-in-flight guard.
+- **Source:** app/workspace_service_load.go; git/workspace.go
+- **Tests:** app/app_operations_rescan_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_service_load.go:109-226 RescanWorkspaces calls git.DiscoverWorkspaces -> git/workspace.go:256-265 runs `git worktree list --porcelain` per project (parseWorktreeList :268-318). New workspaces get default assistant when ws.Assistant empty (:148-150) and UpsertFromDiscovery applies defaults for new records (data/workspace_store_discovery.go:31-37); existing stored Assistant wins (:86-88). Missing worktrees archived (:174-221). delete-in-flight guarded via isDeleteInFlight/runUnlessDeleteInFlight (:139,153,178,186,207).
+
+### WS-07 — Load projects/workspaces on startup  `[Pass]`
+- **Story:** As a user, I want everything loaded on startup, so that the dashboard shows all projects/workspaces.
+- **Expected:** LoadProjects reads registry, loads metadata, synthesizes primary checkout, recovers completed deletes from tombstones, restores UI state; stale reloads dropped via load tokens.
+- **Source:** app/workspace_service_load.go
+- **Tests:** app/app_operations_test.go, app_projects_load_token_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_service_load.go:17-106 LoadProjects reads registry.Projects (:22), loads stored metadata via store.ListByRepo (:38), recovers interrupted deletes from tombstones via finishInterruptedDelete (:48 -> workspace_delete_tombstone.go:62-84), synthesizes primary checkout from GetCurrentBranch when absent (:69-98) and restores its UI state via LoadMetadataFor/Save (:85-95). Stale reloads dropped by load tokens: handleProjectsLoaded drops loadToken < lastApplied (app_input_messages_workspace.go:24-30).
+
+### WS-08 — Setup scripts on create (trust-gated)  `[Pass]`
+- **Story:** As a maintainer, I want setup-workspace scripts to run on create, so that env setup is automated.
+- **Expected:** RunSetup loads .amux/workspaces.json; setup-workspace commands run only if the repo is trusted (fail-closed); run sequentially in workspace root with env vars; failure reported, workspace stays usable.
+- **Source:** app/workspace_service.go; process/scripts.go
+- **Tests:** process/scripts_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** process/scripts.go:204-255 RunSetup loads .amux/workspaces.json (loadConfigRaw :185-201), and when config.SetupWorkspace is non-empty it returns ScriptsNotTrustedError unless trust.IsTrusted (:216-222) — fail-closed. ScriptTrust.IsTrusted (script_trust.go:88-101) returns false on missing/corrupt registry (load :62-83 logs+returns empty map). Setup commands run sequentially in ws.Root (cmd.Dir, :229) with env from EnvBuilder.BuildEnv (env.go:24-50). Failure is returned and surfaced as a toast (app_input_workspace.go:68-90) while the workspace stays usable.
+
+### WS-09 — Run/archive scripts + output  `[Pass]`
+- **Story:** As a user, I want to run a workspace's run/archive script and see output, so that I can build/serve/archive.
+- **Expected:** Run/archive command launched in workspace root with env vars as an `sh -c` subprocess (monitored via safego); user-entered scripts bypass the trust gate; repo-config scripts are gated.
+- **Source:** process/scripts.go; env.go
+- **Tests:** process/scripts_test.go, scripts_trust_gate_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** process/scripts.go:258-337 RunScript launches the command in ws.Root (cmd.Dir, :312) with EnvBuilder env (:309,313). Repo-config scripts (config.RunScript/ArchiveScript) set fromRepoConfig=true and are trust-gated (:272-300); user-entered ws.Scripts.* fall through with fromRepoConfig=false and always run (:278-286,293). CATALOG IMPRECISION: expected_behavior says 'in a tmux pane' but RunScript actually uses exec.Command("sh","-c",cmdStr) as a plain subprocess (:311) monitored via safego.Go — not tmux. The functional contract (workspace root, env vars, user-vs-repo trust gating) is correct, so…
+
+### WS-10 — Base ref selection/resolution  `[Pass]`
+- **Story:** As a user, I want to pick (or auto-resolve) the base ref, so that the workspace branches from the right point.
+- **Expected:** Optional base; if empty tries main/master/develop/dev, then remote tracking, then symbolic-ref default, falling back to HEAD; stored in metadata.
+- **Source:** app/workspace_service.go; git/branch.go
+- **Tests:** git/branch_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_service_paths.go:55-65 resolveBase returns a non-empty trimmed base as-is, else calls git.GetBaseBranch falling back to 'HEAD' on error. git/branch.go:15-54 GetBaseBranch tries local main/master/develop/dev (:17-24), then remote origin/<candidate> (:27-33), then symbolic-ref refs/remotes/origin/HEAD resolved locally/remotely (:36-51), erroring otherwise (:53). Base is validated (ValidateBaseRef) and stored in ws.Base (workspace_service.go:101,109,117).
+
+### WS-11 — Metadata persistence + restore  `[Pass]`
+- **Story:** As a user, I want workspace config/tabs to persist across restarts, so that I don't lose state.
+- **Expected:** Atomic write to ~/.amux/workspaces-metadata/<id>/workspace.json (temp+fsync+rename); includes name/branch/base/repo/root/assistant/scripts/env/openTabs/activeTab/archived; backup recovery on corruption.
+- **Source:** data/workspace_store.go; workspace.go
+- **Tests:** data/workspace_store_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** data/workspace_store.go:60-62 workspacePath = root/<id>/workspace.json where root is ~/.amux/workspaces-metadata (config/paths.go:32). Save (:168-217) marshals name/branch/base/repo/root/assistant/scripts/env/openTabs/activeTab/archived (data/workspace.go:50-82 struct tags) and writes atomically via fsatomic.WriteFile (temp + tmp.Sync() fsync + os.Rename, fsatomic.go:27-62). Read path falls back to <id>/workspace.json.bak on corruption (workspaceMetadataExists :96-104, backup recovery). Matches expected behavior.
+
+### WS-12 — Primary checkout as a workspace  `[Pass]`
+- **Story:** As a user, I want the main repo checkout shown as a workspace, so that I can work the primary branch too.
+- **Expected:** Synthesized workspace where Root==Repo; always exists (never deleted); current HEAD branch; listed first; UI state can persist.
+- **Source:** app/workspace_service_load.go; data/workspace.go
+- **Tests:** app/app_projects_loaded_canonical_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_service_load.go:60-98 synthesizes a primary workspace with root==repo==path and branch=GetCurrentBranch, prepended so it is listed first (:96 append([]data.Workspace{*primaryWs}, workspaces...)). data/workspace.go:100-107 IsPrimaryCheckout returns root==repo. Never deleted: DeleteWorkspace fails on ws.IsPrimaryCheckout() (workspace_service.go:286-288). UI state persists via store.LoadMetadataFor/Save (:85-95).
+
+### WS-13 — Lifecycle FSM + reload guard  `[Pass]`
+- **Story:** As the system, I want create/delete/rescan races prevented, so that workspace state can't corrupt.
+- **Expected:** States active/creating/deleting (mutually exclusive, settle back to active); delete-in-flight blocks rescan import; stale LoadProjects dropped by token; guarded by a phase-map RWMutex plus per-repo mutex and per-workspace flock.
+- **Source:** app/workspace_lifecycle_state.go; workspace_reload_guard.go
+- **Tests:** app/workspace_lifecycle_fsm_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_lifecycle_state.go:14-49 defines phases active/creating/deleting with a transition table making creating/deleting mutually exclusive, entered only from active, always allowed back to active (:37-49). Delete-in-flight blocks rescan import (workspace_service_load.go:139,153,178). Stale LoadProjects dropped by token (app_input_messages_workspace.go:24-30). Concurrency is guarded by phaseMu sync.RWMutex over the phase map (:59,89-105), per-repo sync.Mutex repoGitLocks (workspace_service_init.go:66-68), and per-workspace flock files (data/workspace_store.go:186,249). CATALOG IMPRECIS…
+
+### WS-14 — Managed-root path scoping  `[Pass]`
+- **Story:** As the system, I want workspaces scoped to a managed dir, so that cleanup/validation can't touch the repo root.
+- **Expected:** Workspaces under ~/.amux/workspaces/<project>/<workspace>; paths validated within the project root; strict nesting prevents deleting the project root.
+- **Source:** app/workspace_paths.go
+- **Tests:** app/workspace_paths_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app/workspace_paths.go:40-141 scopes workspaces under workspacesRoot/<projectSegment> (managedProjectRoots :40-76; default ~/.amux/workspaces per config/paths.go:30). isManagedWorkspacePathForProject (:92-105) validates paths within the managed roots; create and delete both enforce it (workspace_service.go:144-149,307-309). Destructive stale-cleanup uses isManagedWorkspaceChildPathForProject -> isPathWithin (:111-141) which excludes rel=='.' (strict nesting) so the project root itself can never be recursively deleted.
+
+
+## Palette
+
+### PAL-01 — Open command palette (C-Space)  `[Pass]`
+- **Story:** As a user, I want C-Space to open a command palette, so that I can run commands without memorizing keys.
+- **Expected:** C-Space opens a bottom palette of grouped root commands (General, Tabs); stays open until a command completes, Esc, or timeout.
+- **Source:** app/app_prefix.go; app_input_keys.go; app_prefix_palette.go
+- **Tests:** app/app_prefix_palette_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** keybindings.go:32-35 binds keymap.Prefix to both 'ctrl+@' and 'ctrl+space' (Ctrl-Space is reported either way). app_input_keys.go:42-56 calls enterPrefix() when not active. app_prefix.go:53-57 enterPrefix sets prefixActive and schedules a timeout via refreshPrefixTimeout (defaults.go:8 prefixTimeout = 3*time.Second). The palette renders grouped root commands (app_prefix_palette.go:233-240 group titles 'Tabs' for 't', 'General' otherwise). It stays open: a complete leaf or numeric exits via exitPrefix (app_input_keys.go:69-71), Esc cancels (app_input_keys.go:60-65), and the 3s timeout closes i…
+
+### PAL-02 — Narrowing + leaf execution  `[Pass]`
+- **Story:** As a user, I want sequences to narrow then execute on a unique leaf, so that multi-key commands feel predictable.
+- **Expected:** Typing a token narrows the palette; a unique leaf (e.g. t a) executes immediately; ambiguous prefixes stay in narrowing mode.
+- **Source:** app/app_prefix.go
+- **Tests:** app/app_prefix_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app_prefix.go:100-130 handlePrefixCommand appends the typed token, computes matchingPrefixCommands, and only returns prefixMatchComplete when 'exactCount == 1 && len(matches) == 1' (a unique leaf), e.g. ['t','a'] -> new_agent_tab. matchingPrefixCommands (app_prefix.go:165-188) prefix-matches so an ambiguous token like 't' returns 8 matches and stays prefixMatchPartial (narrowing), keeping the palette open (app_input_keys.go:72-74). TestNextPrefixPaletteChoices/visibility tests (app_prefix_palette_test.go) corroborate narrowing under 't'.
+
+### PAL-03 — Backspace undo / Esc cancel  `[Pass]`
+- **Story:** As a user, I want Backspace to undo and Esc to cancel, so that I can correct or abort a sequence.
+- **Expected:** Backspace pops the last token (stays at root as harmless undo); Esc exits prefix mode without forwarding the key to the terminal.
+- **Source:** app/app_prefix.go; app_input_keys.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Backspace: app_prefix.go:92-98 pops the last token when the sequence is non-empty and returns prefixMatchPartial, keeping the palette open; with an empty sequence it pops nothing and still returns partial (harmless undo at root). prefixInputToken (app_prefix.go:133-138) maps both KeyBackspace and KeyDelete to 'backspace'. Esc: app_input_keys.go:60-65 — when prefixActive and code is KeyEsc/KeyEscape it calls exitPrefix() and returns nil, so it does NOT fall through to the pane-routing switch (lines 81-138), i.e. the Esc is not forwarded to the terminal.
+
+### PAL-04 — C-Space reset / double C-Space literal NUL  `[Pass]`
+- **Story:** As a user, I want C-Space again to reset, and C-Space C-Space to send a literal NUL, so that terminal apps can receive Ctrl-Space.
+- **Expected:** With a sequence started, C-Space resets to root; with empty sequence, a second C-Space sends NUL (0x00) to the focused terminal and exits prefix.
+- **Source:** app/app_input_keys.go; app_prefix.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app_input_keys.go:43-53: when the prefix is already active and len(prefixSequence)==0, a second prefix key calls sendPrefixToTerminal() then exitPrefix(); otherwise (non-empty sequence) it resets prefixSequence=nil and refreshes the timeout (reset to root). sendPrefixToTerminal (app_prefix.go:326-332) sends the literal NUL byte '\x00' to the focused center or sidebar terminal. The palette footer text matches: app_prefix_palette.go:64 'Esc cancel | Backspace undo | C-Space reset | C-Space C-Space sends literal'.
+
+### PAL-05 — Open Settings (C-Space S)  `[Pass]`
+- **Story:** As a user, I want C-Space S to open settings, so that I can configure the app.
+- **Expected:** Sequence S opens the Settings dialog (theme, version/update).
+- **Source:** app/app_prefix.go; app_input_messages_dialogs.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** prefixCommandTable maps Sequence ['S'] -> Action 'open_settings' (app_prefix.go:30). runPrefixAction 'open_settings' emits messages.ShowSettingsDialog{} (app_prefix.go:210-211). handleShowSettingsDialog (app_input_messages_dialogs.go:128-148) builds the Settings dialog with the current theme and version/update info (NewSettingsDialog + SetUpdateInfo). Note 'S' is the uppercase token; prefixInputToken keys on the literal text so lowercase 's' would not match — consistent with the catalog's C-Space S.
+
+### PAL-06 — Quit (C-Space q)  `[Pass]`
+- **Story:** As a user, I want C-Space q to quit, so that I can exit safely.
+- **Expected:** Sequence q shows a quit confirmation dialog; confirm proceeds to shutdown.
+- **Source:** app/app_prefix.go; app_input_dialogs.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** prefixCommandTable maps ['q'] -> 'quit' (app_prefix.go:31). runPrefixAction 'quit' calls showQuitDialog() (app_prefix.go:212-214). showQuitDialog (app_input_dialogs.go:238-248) builds NewConfirmDialog(DialogQuit, 'Quit AMUX', 'Are you sure you want to quit?'), which defaults cursor to 1 = 'No' (dialog.go:98-100), a safe default. On confirm, handleDialogResult DialogQuit (app_input_dialogs.go:222-229) persists tabs, calls Shutdown(), sets quitting, and returns tea.Quit. dialog_update.go:58 only confirms when cursor==0 (Yes); Esc returns Confirmed:false (dialog_update.go:28-31).
+
+### PAL-07 — Cleanup tmux (C-Space K)  `[Pass]`
+- **Story:** As a user, I want C-Space K to clean up amux tmux sessions, so that I can clear stale sessions.
+- **Expected:** Sequence K shows a confirmation; confirm kills all @amux-tagged and amux-* sessions on the server; a success toast confirms the cleanup.
+- **Source:** app/app_prefix.go; app_tmux.go
+- **Tests:** app/app_tmux_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** ['K'] -> 'cleanup_tmux' (app_prefix.go:32); runPrefixAction emits messages.ShowCleanupTmuxDialog{} (app_prefix.go:215-216). handleShowCleanupTmuxDialog (app_input_messages_dialogs.go:114-125) builds a NewConfirmDialog 'Kill all amux-* tmux sessions on server %q?' defaulting to No (dialog.go:98-100). On confirm, DialogCleanupTmux emits messages.CleanupTmuxSessions (app_input_dialogs.go:231-232), handled at app_input_dispatch.go:166-169 -> cleanupAllTmuxSessions (app_tmux.go:50-72), which kills @amux=1-tagged sessions then amux-* prefixed sessions and emits a success/warning Toast. Catalog impr…
+
+
+## Navigation
+
+### NAV-01 — Focus left/right pane (C-Space h / l)  `[Pass]`
+- **Story:** As a user, I want to move focus between panes by keyboard, so that I can drive everything from the keyboard.
+- **Expected:** C-Space h/l move focus one pane left/right (relative directional movement, not absolute targets); prefix exits after.
+- **Source:** app/app_prefix.go; app_focus_sync.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_prefix.go:33-34 maps h->focus_left and l->focus_right; runPrefixAction (app_prefix.go:192-195) calls a.focusPaneLeft()/a.focusPaneRight(). app_ui.go:47-58 focusPaneLeft moves one pane left (Center->Dashboard, Sidebar/SidebarTerminal->Center-if-shown-else-Dashboard); app_ui.go:61-76 focusPaneRight moves one pane right (Dashboard->Center-if-shown-else-Sidebar, Center->Sidebar). Both actions return prefixMatchComplete, and app_input_keys.go:69-71 calls a.exitPrefix() on complete, so 'prefix exits after' holds. Visibility is correctly gated: prefixActionVisible (app_prefix_palett…
+
+### NAV-02 — Center scroll via palette (C-Space u / d)  `[Pass]`
+- **Story:** As a user, I want C-Space u/d to page-scroll center output, so that I can review logs by keyboard.
+- **Expected:** When center has an active terminal, the palette exposes u=scroll up / d=scroll down a page; otherwise d maps to delete-workspace.
+- **Source:** app/app_prefix.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_prefix.go:147-160 prefixCommands(): when centerScrollPrefixActive() it appends {u, 'scroll up', scroll_up} and rewrites the existing single-key 'd' command's Desc/Action to 'scroll down'/'scroll_down'; otherwise 'd' stays 'delete workspace' (base table app_prefix.go:29). centerScrollPrefixActive (app_prefix.go:257-262) requires focusedPane==PaneCenter and center.HasActiveTerminal(). runPrefixAction (app_prefix.go:196-205): 'scroll_up' -> ScrollActiveTerminalPage(1), 'scroll_down' -> ScrollActiveTerminalPage(-1), each re-guarded by centerScrollPrefixActive(). ScrollActiveTermi…
+
+### NAV-03 — Numeric tab jump shown contextually  `[Pass]`
+- **Story:** As a user, I want the palette to offer 1-9 jump only when useful, so that the menu stays relevant.
+- **Expected:** The Tabs group lists '1-9 jump tab' only when the center has multiple tabs (showNumericTabJump).
+- **Source:** app/app_prefix_palette.go; app_prefix_palette_visibility.go
+- **Tests:** app/app_prefix_palette_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_prefix_palette_visibility.go:51-57 showNumericTabJump() returns len(tabs) > 1 via a.center.GetTabsInfo(). app_prefix_palette.go:165-178 adds the '1-9 jump tab' choice to the 'Tabs' group only when showNumericTabJump() is true (creating the Tabs group if absent). Test TestRenderPrefixPalette_FiltersUnavailableRootCommands (app_prefix_palette_test.go:69-87) asserts '1-9' is absent with Tabs:1. Matches the expected behavior.
+
+
+## Dialogs
+
+### DLG-01 — File picker (navigate/filter/select)  `[Pass]`
+- **Story:** As a user, I want a file picker to choose a project dir, so that I can add a project by browsing.
+- **Expected:** Starts at HOME; arrows/wheel move; type to fuzzy-filter; Tab autocompletes into a dir; Backspace goes to parent; Ctrl+H toggles hidden; Enter/'Add as project' confirms; Esc/Cancel aborts.
+- **Source:** common/filepicker.go; filepicker_navigation.go
+- **Tests:** common/filepicker_test.go, filepicker_navigation_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_input_messages_dialogs.go:34-41 builds NewFilePicker(DialogAddProject, home, true) starting at os.UserHomeDir(), title 'Add Project', primary label 'Add as project'. internal/ui/common/filepicker.go:139-147 wheel up/down move cursor; :213-215 Tab calls handleAutocomplete (filepicker_navigation.go:297-315: enters dir or fills name); :232-235 Backspace -> handleBackspace (filepicker_navigation.go:134-172 goes to parent when input equals base path or empty); :237-241 ctrl+h toggles showHidden; :204-208 Esc emits Confirmed:false; :210-211 Enter -> handleEnter. applyFilter (filepi…
+
+### DLG-02 — Create Workspace dialog + live validation  `[Pass]`
+- **Story:** As a user, I want a validated name input, so that I can't create an invalid workspace.
+- **Expected:** Single-line input with per-keystroke validation; red error below input on invalid names; Enter blocked while invalid; OK/Cancel buttons; Esc cancels.
+- **Source:** common/dialog.go; app/app_input_messages_dialogs.go
+- **Tests:** common/dialog_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_input_messages_dialogs.go:47-58 NewInputDialog 'Create Workspace' with SetInputValidate running ValidateWorkspaceName per call. dialog_update.go:127-139 runs inputValidate on every keystroke after input.Update; :39-41 Enter is blocked while validationErr != ''; dialog_update.go:197-199 click-OK also blocked while invalid. dialog_render.go:143-146 renders validationErr in ColorError() (red) directly below the input. renderInputButtonsLine (dialog_render.go:220-243) renders OK/Cancel; dialog_update.go:28-32 Esc cancels.
+
+### DLG-03 — Delete Workspace confirmation  `[Pass]`
+- **Story:** As a user, I want to confirm before deleting a workspace + branch, so that I don't lose work accidentally.
+- **Expected:** Confirm dialog 'Delete workspace "<name>" and its branch?'; Yes/No with h/l/tab/click; default No.
+- **Source:** common/dialog.go; app/app_input_messages_dialogs.go
+- **Tests:** common/dialog_confirm_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app_input_messages_dialogs.go:65-69 NewConfirmDialog message "Delete workspace '%s' and its branch?". dialog.go:92-102 NewConfirmDialog sets options [Yes,No] with cursor/defaultCursor=1 (No) => safe default; no SetDefaultOption override here. dialog_update.go:114-122 h/left->cursor0(Yes), l/right->cursor1(No), :89-98 tab cycles; handleClick dialog_update.go:209-213 click selects; Enter returns Confirmed: cursor==0. Catalog uses double-quotes around name vs code single-quotes — cosmetic wording only.
+
+### DLG-04 — Trust Scripts confirmation  `[Pass]`
+- **Story:** As a user, I want to confirm trusting a repo's scripts, so that I control which repo commands run.
+- **Expected:** Dialog 'Trust .amux/workspaces.json scripts for "<ws>" and run setup now?'; default No; Yes records approval and runs setup.
+- **Source:** app/app_input_messages_dialogs.go
+- **Tests:** process/scripts_trust_gate_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app_input_messages_dialogs.go:81-87 NewConfirmDialog message "Trust .amux/workspaces.json scripts for '%s' and run setup now?" then SetDefaultOption(1). options are [Yes(0),No(1)] (dialog.go:98), so SetDefaultOption(1) selects 'No' (safe, redundant with the constructor default). On Yes, app_input_dialogs.go:169-172 case DialogTrustScripts calls trustRepoScriptsAndRunSetupAsync (app_operations.go:99-104 -> workspaceService.TrustRepoScriptsAndRunSetupAsync) which records approval and runs setup.
+
+### DLG-05 — Remove Project confirmation  `[Pass]`
+- **Story:** As a user, I want to confirm removing a project, so that I don't drop a project by mistake.
+- **Expected:** Dialog 'Remove project "<name>" from AMUX? This won't delete any files.'; default No.
+- **Source:** app/app_input_messages_dialogs.go
+- **Tests:** —
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app_input_messages_dialogs.go:97-102 NewConfirmDialog message "Remove project '%s' from AMUX? This won't delete any files."; no SetDefaultOption so defaultCursor=1 (No) per dialog.go:99-100. On Yes, app_input_dialogs.go:174-182 emits messages.RemoveProject. Wording matches catalog exactly.
+
+### DLG-06 — Select Assistant / agent picker  `[Pass]`
+- **Story:** As a user, I want to pick an assistant for a new agent tab, so that I can choose which agent runs.
+- **Expected:** 'New Agent' picker lists available assistants with static brand-colour markers; fuzzy filter; up/down/tab navigate; Enter selects; Esc cancels.
+- **Source:** common/agent_picker.go; dialog_update.go
+- **Tests:** common/dialog_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** common/agent_picker.go:16-45 NewAgentPicker(options []string) builds a DialogSelect titled 'New Agent', message 'Select agent type:', filterEnabled with fuzzy filter (fi placeholder 'Type to filter...'). dialog_update.go:89-112 tab/down and shift+tab/up navigate filteredIndices; :61-86 Enter selects; :28-32 Esc cancels. CATALOG IMPRECISION: 'running indicators' overstated — renderAgentPickerOptions agent_picker.go:71 renders Icons.Running colored by AgentColor(opt) UNCONDITIONALLY for every option; NewAgentPicker only receives names (app_input_messages_dialogs.go:110 passes a.assistantNames()…
+
+### DLG-07 — Quit + Cleanup-tmux confirmations  `[Pass]`
+- **Story:** As a user, I want explicit confirmations for quit and tmux cleanup, so that destructive actions are deliberate.
+- **Expected:** Quit: 'Are you sure you want to quit?'. Cleanup: 'Kill all amux-* tmux sessions on server "<name>"?'. Both default No; Esc cancels.
+- **Source:** app/app_input_dialogs.go; app_input_messages_dialogs.go
+- **Tests:** —
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** app_input_dialogs.go:238-248 showQuitDialog -> NewConfirmDialog 'Quit AMUX' message 'Are you sure you want to quit?'. app_input_messages_dialogs.go:115-125 handleShowCleanupTmuxDialog -> NewConfirmDialog message 'Kill all amux-* tmux sessions on server %q?'. Both via NewConfirmDialog so defaultCursor=1 (No); dialog_update.go:28-32 Esc cancels both. On Quit-Yes app_input_dialogs.go:222-229 persists tabs, Shutdown, tea.Quit.
+
+### DLG-08 — Safe defaults + modal input blocking  `[Pass]`
+- **Story:** As a user, I want dialogs to default to the safe option and block background input, so that I focus on the modal.
+- **Expected:** Dangerous confirmations default to No; while a dialog/file-picker/settings/error is visible, keyboard+click route to the modal (wheel excepted).
+- **Source:** common/dialog.go; app/app_input_dialogs.go; app_input_mouse.go
+- **Tests:** common/dialog_confirm_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Safe defaults: every NewConfirmDialog defaults cursor to 1=No (dialog.go:99-100); SetDefaultOption(1) in trust dialog also = No. Modal blocking: app_input.go:38-40 handlePreSwitchInput runs before key/mouse routing and returns consumed=true for dialog/filepicker/settings input (app_input_dispatch.go:71-79; handleOverlayInput app_input_dialogs.go:46-64 consumes KeyPress/MouseClick/wheel/motion/release). Wheel over modals is explicitly blocked in app_input_mouse.go:112-119 (dialog/filepicker/settings/err). Minor note: while only the error overlay is up, app_input_dialogs.go:32-42 handleErrorOve…
+
+### DLG-09 — Toast notifications (info/success/warn/error)  `[Pass]`
+- **Story:** As a user, I want transient status toasts, so that I get feedback without modal interruption.
+- **Expected:** Info/success ~3s, warning ~4s, error ~5s; level icon + colour; auto-dismiss; rendered at a fixed bottom-center position.
+- **Source:** common/toast.go
+- **Tests:** common/toast_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** common/toast.go: ShowInfo 3s (:74-76), ShowSuccess 3s (:64-66), ShowWarning 4s (:79-81), ShowError 5s (:69-71) — matches catalog 'info/success ~3s, warning ~4s, error ~5s'. View() (:106-124) sets level icon+style per type; Show (:50-61) schedules SafeTick auto-dismiss; Visible()/View() expire via showUntil. CATALOG IMPRECISION: rendered bottom-CENTER, not a 'corner' (app_view_overlays.go:60-76: x=(width-toastWidth)/2, y=height-2-prefixOverlayHeight). Fixed position is correct UX; 'corner' is just wording.
+
+### DLG-10 — Error overlay dismiss  `[Pass]`
+- **Story:** As a user, I want to dismiss an error overlay easily, so that I can return to work.
+- **Expected:** When an error overlay shows, any click or key dismisses it and restores normal input handling.
+- **Source:** app/app_input_dialogs.go; app_input_keys.go
+- **Tests:** —
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Key dismiss: app_input_keys.go:35-39 handleKeyPress clears a.err on ANY key (error message is not consumed by handlePreSwitchInput so it reaches handleKeyPress). Click dismiss: app_input_dialogs.go:32-42 handleErrorOverlayDismiss clears a.err on MouseLeft. Overlay text app_view_overlays.go:98 instructs 'Press any key to dismiss.' Note: only left-click dismisses (right/middle click is not handled), but 'any key' and left-click both work, satisfying the cataloged behavior.
+
+
+## Settings
+
+### SET-01 — Theme selection + live preview  `[Pass]`
+- **Story:** As a user, I want to browse themes with live preview, so that I can customize appearance before committing.
+- **Expected:** Settings lists themes; up/down (or click) cycles with immediate live preview via ThemePreview; not persisted until the dialog closes.
+- **Source:** common/settings.go; settings_render.go
+- **Tests:** common/settings_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/ui/common/settings.go:202-223 (handleNext/handlePrev cycle themeCursor and emit ThemePreview{Theme,Session}); settings.go:153-159 (handleSelect commits cursor theme + emits ThemePreview); settings.go:244-253 (handleClick sets themeCursor from hit region and selects). App side: internal/app/app_input_messages_dialogs.go:173-182 handleThemePreview calls applyTheme, which (lines 156-169) mutates only in-memory a.config.UI.Theme + restyles components; it does NOT call SaveUISettings. Disk persistence is deferred: persistSettingsThemeIfDirty (lines 184-195) calls config.SaveUISettings() o…
+
+### SET-02 — Version info + update trigger  `[Pass]`
+- **Story:** As a user, I want to see my version and update if newer, so that I can stay current.
+- **Expected:** Shows current version (or 'Development build'); if an update is available, '[Update to vX]' triggers the upgrade flow.
+- **Source:** common/settings.go; app/app_input_messages_dialogs.go
+- **Tests:** common/settings_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/ui/common/settings_render.go:57-61 renders '  Development build' when currentVersion is empty or 'dev', else '  <version>'. settings_render.go:66-74 renders '  [Update to <latestVersion>]' only when s.updateAvailable, registering a hit region. internal/ui/common/settings.go:161-165 handleSelect on settingsItemUpdate (when updateAvailable) hides the dialog and emits messages.TriggerUpgrade{}. internal/app/app_input_dialogs.go:276-307 handleTriggerUpgrade runs the real upgrade flow (svc.Check + svc.Upgrade) and emits UpgradeComplete; app_input_dialogs.go:310-323 shows success/error toa…
+
+### SET-03 — Section navigation + close (persist)  `[Pass]`
+- **Story:** As a user, I want Tab/Shift+Tab navigation and a Close that saves, so that I can move through and persist settings.
+- **Expected:** Tab/Shift+Tab cycle Theme→Update→Close (Update skipped if unavailable; Version is a non-interactive label, not a stop); Esc or Close saves theme to config and closes.
+- **Source:** common/settings.go; settings_render.go
+- **Tests:** common/settings_nav_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/ui/common/settings.go:136-141 binds tab->handleNextSection and shift+tab->handlePrevSection. The focusable enum (settings.go:24-28) is exactly Theme(0), Update(1), Close(2) -- there is NO focusable 'Version' item; Version is a display-only section (settings_render.go:56-64). handleNextSection/handlePrevSection (settings.go:175-198) skip Update when !updateAvailable and wrap around, confirmed by settings_nav_test.go:94-158. Esc (settings.go:129-131) and Close (settings.go:167-169) both set visible=false and emit SettingsResult{}, which routes to handleSettingsResult (internal/app/app_…
+
+
+## Mouse
+
+### MOU-01 — Click to focus pane  `[Pass]`
+- **Story:** As a user, I want to click a pane to focus it, so that I can switch focus by mouse.
+- **Expected:** Left-click in any visible pane moves keyboard focus there; coordinates translated to pane-local for handling.
+- **Source:** app/app_input_mouse.go; app_focus_sync.go
+- **Tests:** app/app_input_mouse_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_input_mouse.go:13-68 routeMouseClick: on tea.MouseLeft with a hit target it calls a.focusPane(targetPane) (line 24-26), which sets a.focusedPane and runs syncPaneFocusFlags (app_ui.go:18-19 -> setFocusedPane). Coordinates are translated to pane-local via adjustMouseXY for Dashboard/Center/Sidebar (lines 41/47/62, helper at 88-102: dashboard subtracts LeftGutter+TopGutter, center subtracts TopGutter, sidebar via adjustSidebarMouseXY). paneForPoint (262-311) restricts hits to visible pane interiors and intentionally returns paneNone for the outer gutter and inter-pane gaps (273…
+
+### MOU-02 — Wheel routing to pane under pointer  `[Pass]`
+- **Story:** As a user, I want the wheel to scroll the pane under the pointer, so that scrolling targets what I'm looking at.
+- **Expected:** Wheel routes to the hovered pane if it can scroll, else the focused pane; blocked while modals/toasts are visible; palette region is click-inert.
+- **Source:** app/app_input_mouse.go
+- **Tests:** e2e/mouse_scroll_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_input_mouse.go:105-169 routeMouseWheel: palette region consumed first (106-110, prefixPaletteContainsPoint); modal/error/toast overlays blocked next (112-119 covering dialog, filePicker, settingsDialog, a.err, and toastCoversPoint -> app_view_overlays.go:216); then targetPane defaults to focusedPane and retargets to the hovered pane only when canRetargetWheelToPane returns true (127-137, 171-182 delegating to each model's CanConsumeWheel), with Dashboard hover deliberately not retargeted (130-132) because dashboard wheel auto-activates rows. Confirmed by e2e/mouse_scroll_test…
+
+### MOU-03 — Welcome / workspace-info link clicks  `[Pass]`
+- **Story:** As a user, I want clickable links on the welcome and workspace-info screens, so that I can act without keybindings.
+- **Expected:** Click '[Settings]'/'[Add project]' on welcome opens those dialogs; click '[New agent]' on workspace info opens the agent picker.
+- **Source:** app/app_ui_click.go
+- **Tests:** app/app_ui_click_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_ui_click.go:48-94 handleWelcomeClick matches '[Settings]' -> messages.ShowSettingsDialog (66-77) and '[Add project]' -> messages.ShowAddProjectDialog (79-90), using centered hit-region math (offsetY/lineOffsetX via centerOffset) that mirrors renderWelcome's lipgloss.Place (app_view_content.go:79-87). handleWorkspaceInfoClick (96-120) matches '[New agent]' -> messages.ShowSelectAssistantDialog (105-115) with raw idx/i math because renderWorkspaceInfo content is left-aligned and the button has no leading indent (app_view_content.go:69-70). The three link strings exist verbatim …
+
+
+## Agents
+
+### AGT-01 — Launch Claude agent  `[Pass]`
+- **Story:** As a user, I want to launch Claude, so that I can interact with the primary agent.
+- **Expected:** C-Space t a → pick 'claude' → spawns a tmux session running 'claude', creates an attached tab with the agent PTY, shows working indicator.
+- **Source:** config/agents.go; center/model_tabs.go; pty/agent.go
+- **Tests:** e2e/workspace_agent_test.go, persistence_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/ui/app/app_prefix.go:35,217-224 maps C-Space t a -> action new_agent_tab, which (after workspace + tmux checks) emits messages.ShowSelectAssistantDialog{} (the assistant picker). Selecting an assistant calls center.createAgentTab -> createAgentTabWithSession (internal/ui/center/model_tabs.go:103-166) which spawns a tmux session via agentManager.CreateAgentWithTags (internal/pty/agent.go:71-128, builds tmux client cmd running assistantCfg.Command), captures scrollback with tmux.CapturePane, then handlePtyTabCreated (model_tabs.go:316-388) creates a vterm.New, appends the Tab with Runn…
+
+### AGT-02 — Launch any registered agent  `[Pass]`
+- **Story:** As a user, I want to launch any of the 9 supported agents (claude, codex, gemini, amp, opencode, droid, cline, cursor, pi), so that I can choose my preferred AI.
+- **Expected:** Registry lists all 9 in display order with default command + interrupt config; chosen from the assistant picker.
+- **Source:** config/agents.go
+- **Tests:** config/agents_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/config/agents.go:18-28 declares AgentRegistry with exactly 9 entries in display order: claude, codex, gemini, amp, opencode, droid, cline, cursor, pi, each with DefaultCommand + InterruptCount + InterruptDelayMs. AgentNames() (agents.go:42-48) returns them in registry order, and preferredAssistantOrder (config.go:42) derives from it. TestAgentRegistryIsCanonical (internal/config/agents_test.go:45-103) enforces that defaultAssistants, preferredAssistantOrder, and IsRegisteredAgent all equal the registry set and preserve order. Note: cursor's DefaultCommand is 'agent' (not 'cursor'), b…
+
+### AGT-03 — Override agent command/interrupt in config  `[Pass]`
+- **Story:** As a user, I want to override an agent's command and interrupt behavior, so that I can use custom binaries or stop semantics.
+- **Expected:** config.json assistants[name].command/interrupt_count/interrupt_delay_ms override built-in defaults (empty command disables); applied at launch/interrupt.
+- **Source:** config/config.go; pty/agent.go
+- **Tests:** config/agents_test.go; pty/agent_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/config/config.go:173-205 applyAssistantOverrides overlays config.json assistants[name].command / interrupt_count / interrupt_delay_ms onto the built-in defaults; the overridden command is used at launch (agent.go:72,101 reads m.config.Assistants[type].Command). 'Empty command disables' holds for a *new* custom assistant: with no built-in default and an empty override command, cfg.Command stays "" and line 194-196 'continue' skips inserting it into the map (test TestDefaultConfigLoadsAssistantOverrides confirms overrides at config_test.go:35-88). Caveat: the interrupt_count/interrupt_…
+
+### AGT-04 — Type + Enter delivered to agent  `[Pass]`
+- **Story:** As a user, I want my keystrokes and Enter to reach the agent intact, so that I can drive it.
+- **Expected:** Keystrokes route via the tab actor (or direct fallback) to Terminal.SendString; Enter is delivered as \r (0x0D); activity tagged.
+- **Source:** center/model_input_keys.go; pty/terminal.go
+- **Tests:** e2e/sendkeys_realagent_test.go, closeloop_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** common/keys.go:62-63 KeyToBytes maps tea.KeyEnter -> []byte{'\r'} (0x0D). In center/model_input_keys.go:213-242 sendKeyToTerminal computes input=KeyToBytes(msg) and routes it via tabEvent{kind:tabEventSendInput} to the actor, which writes it verbatim through Terminal.SendString (center/tab_actor.go:217,284,320-332 -> pty/terminal.go:114 Write); on actor-not-ready it falls back to directSendStamped. Activity is tagged via userInputActivityTagCmd. The \r reaches the agent unmodified.
+
+### AGT-05 — Editing keys + paste  `[Pass]`
+- **Story:** As a user, I want arrow/editing keys and paste to work, so that I can edit prompts and paste content.
+- **Expected:** Letters/arrows/backspace/Ctrl+A/E/K/U etc. convert to bytes and send immediately; paste wrapped in bracketed-paste; local echo suppressed for instant feedback.
+- **Source:** common/keys.go; center/model_input_echo.go
+- **Tests:** center/model_input_echo_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** common/keys.go:9-58 converts Ctrl+A/E/K/U (0x01/0x05/0x0b/0x15) and arrows/backspace (0x7f) to bytes sent immediately via sendKeyToTerminal. Paste is wrapped in bracketed-paste: center/model_input.go:83,89,96,103 and tab_actor.go:293 send "\x1b[200~"+content+"\x1b[201~". Local echo suppression: model_input_echo.go:156-188 shouldSuppressLocalEchoInput returns true for readline control bytes (isReadlineEditingControlInput, line 74-96 includes Ctrl+A/E/K/U), editing escape sequences, backspace/tab, and single printable runes; recordLocalInputEchoWindow (line 226-250) records the echo window. Cov…
+
+### AGT-06 — Send Escape  `[Pass]`
+- **Story:** As a user, I want Esc delivered to the agent, so that I can cancel/exit modes in the agent UI.
+- **Expected:** Esc sends 0x1b to the terminal immediately.
+- **Source:** common/keys.go; center/model_input_keys.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Esc reaches the agent as 0x1b via two paths. center/model_input_keys.go:151-157 handles the 'ctrl+[' binding (Escape on most terminals) by sending directSendStamped(tab, "\x1b", ...). If Escape arrives as tea.KeyEscape instead, it falls through to sendKeyToTerminal -> common/keys.go:73-74 which maps tea.KeyEscape -> []byte{0x1b}. Either way a single 0x1b byte is delivered immediately. Matches the expected behavior.
+
+### AGT-07 — Interrupt with Ctrl-C (per-agent count)  `[Verified]`
+- **Story:** As a user, I want Ctrl-C to interrupt the agent, so that I can stop long operations.
+- **Expected:** Ctrl+C sends 0x03; claude sends 2 signals with 200ms delay, others send 1, per registry/config.
+- **Source:** center/model_input_keys.go; pty/agent.go; config/agents.go
+- **Tests:** pty/agent_test.go
+- **Test method:** code-trace + new unit tests + e2e verify-loop
+- **Result:** The expected per-agent behavior ('claude sends 2 signals with 200ms delay, others 1, per registry/config') is implemented ONLY in pty/agent.go:254-271 AgentManager.SendInterrupt, which is never called from any live keypress path — grep of internal/ (excluding *_test.go, pty/agent.go, tmux/send.go) finds zero callers; its only callers are pty/agent_test.go:334-399. In the live TUI, Ctrl+C with the center focused goes app/app_input_keys.go:125-127 (a.center.Update) -> center/model_input_keys.go:122-132 forwardKeyToTerminal -> handleTerminalCtrlKey (line 134-160) which only special-cases ctrl+n/…
+- **Error:** [medium] Per-agent interrupt count/delay is not applied to the live Ctrl+C keystroke: every agent receives a single 0x03, never the configured double-interrupt. For claude this is user-visible: claude's TUI requires two Ctrl-C presses ('press Ctrl-C again to interrupt') within a short window, which is exactly why InterruptCount:2 / InterruptDelayMs:200 exist — but a single user Ctrl-C will not interrupt it. The KeyMap.Interrupt binding is also defined but never wired, reinforcing that the intended behavior was meant to exist and was lost. Catalog's expected_behavior overstates reality.  | suggested fix: In center/model_input_keys.go handleTerminalCtrlKey, add a ctrl+c case for chat/agent tabs that resolves the active tab's assistant config (tab.Agent.Config.InterruptCount / InterruptDelayMs) and sends 0x03 that many times with the configured delay between sends (mirroring pty/agent.go AgentManager.SendInterrupt), rather than letting it fall through to the single-byte KeyToBytes path. Equivalently, route Ctrl+C through agentManager.SendInterrupt for the active agent. Then wire app/keybindings.go KeyMap.Interrupt or remove it to avoid the misleading dead binding.
+- **Fix:** Wired live Ctrl+C in center handleTerminalCtrlKey to route through AgentManager.SendInterrupt off the UI thread, honoring per-agent InterruptCount/InterruptDelayMs (claude=2 @200ms); floored SendInterrupt to >=1 so viewers still receive one interrupt; preserved snap-to-bottom + 0x03 echo window + activity tag. (pty/agent.go, center/model_input_keys.go)
+- **Re-test:** PASS: new TestCenterCtrlCRoutesToAgentInterrupt + TestInterruptActiveAgentCmdNilSafe pass; pty SendInterrupt tests pass; full 'go test ./...' green; 'make verify-loop' (real keystroke -> raw agent) green; 'make devcheck' green.
+
+
+## Activity
+
+### ACT-01 — Working indicator when agent active  `[Pass]`
+- **Story:** As a user, I want a working indicator while an agent processes, so that I know it isn't hung.
+- **Expected:** A periodic (~5s, eager on tab create) tmux activity scan detects visible PTY output, sets activeWorkspaceIDs, and renders a working indicator (the dashboard uses a colour change; the animated spinner is only for create/delete).
+- **Source:** app/app_tmux_activity.go; activity/*.go
+- **Tests:** e2e/activity_restore_test.go; app/app_tmux_activity_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Periodic scan: defaults.go:36 `tmuxActivityInterval = 5 * time.Second`; ticker scheduled via app_tmux_activity.go:50-55 (scheduleTmuxActivityTick) and re-armed each tick (handleTmuxActivityTick:99,121). Eager-on-create: app_input_dispatch.go:117-129 calls a.eagerScanTmuxActivity() on messages.TabCreated (and :140-147 on TabReattached); eagerScanTmuxActivity (app_tmux_activity.go:69-74) coalesces with in-flight scans via scanTmuxActivityNow. Visible-PTY-output detection: runTmuxActivityScan (app_tmux_activity.go:127-175) -> activity.ActiveWorkspaceIDsFromTagsWithRemoved (logic.go:48-94) classi…
+
+### ACT-02 — Idle indicator after output stops  `[Pass]`
+- **Story:** As a user, I want the indicator to clear when the agent goes idle, so that I know it awaits input.
+- **Expected:** After the settle window with no visible output, hysteresis marks the tab idle and the spinner disappears.
+- **Source:** app/app_tmux_activity_hysteresis.go; activity/*.go
+- **Tests:** app/app_tmux_activity_settle_test.go, hysteresis_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Idle clearing is implemented via screen-delta hysteresis with an output window and a hold/settle period, not a literal one-shot timer. types.go:19 OutputWindow=2s, :28 HoldDuration=6s, :15 ScoreThreshold=3. logic.go:319-345 bumps score on content change and decays (score--) on unchanged/failed captures; logic.go:351-357 a session stays active while score>=threshold OR within HoldDuration of LastActiveAt, then drops out of the active set when both lapse — so after output stops, the next scans decay the session and the working indicator clears. PrepareStaleTagFallbackState (logic.go:239-252) an…
+
+### ACT-03 — Single-scanner leader lease (multi-instance)  `[Pass]`
+- **Story:** As a user running multiple amux instances, I want one scanner at a time, so that tmux isn't hammered.
+- **Expected:** Activity scan acquires a leader lease in tmux global options; owner heartbeats ~5s, followers read its snapshot; stale owners lose the lease via epoch numbering.
+- **Source:** app/app_tmux_activity_shared.go; activity/lease.go
+- **Tests:** app/app_tmux_activity_test.go; activity/lease_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Single-scanner leader lease is implemented in tmux global options. activity/lease.go:15-20 defines OwnerOption '@amux_activity_owner', HeartbeatOption, EpochOption, SnapshotOption. resolveTmuxActivityScanRole (app_tmux_activity_shared.go:25-85): if a live foreign lease exists -> follower reads the owner's snapshot (ReadSnapshot, lease.go:112-128, epoch+freshness checked); if this instance owns the live lease -> renews heartbeat (RenewOwnerLeaseHeartbeat) and scans; otherwise claims ownership by writing epoch=lease.Epoch+1 (write-then-confirm-read, :64-84) since tmux options offer no atomic CA…
+
+
+## Persistence
+
+### PERS-01 — Agent sessions survive amux restart  `[Pass]`
+- **Story:** As a user, I want agents to keep running in tmux after amux exits, so that I can reconnect later.
+- **Expected:** Agents run in named tmux sessions that persist after amux closes; on restart amux finds them by name and reattaches.
+- **Source:** pty/agent.go; tmux
+- **Tests:** e2e/persistence_test.go, sidebar_terminal_discovery_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/pty/agent.go:77 builds a deterministic session name via tmux.SessionName("amux", ws.ID(), agentType); agent.go:103-109 creates the PTY through tmux.NewClientCommand with DetachExisting:true, so the agent runs inside a named tmux session that outlives the amux process. On restart, RestoreTabsFromWorkspace (internal/ui/center/model_tabs_session.go:167-217) reads each persisted TabInfo.SessionName and reattaches via reattachToSession -> sessionStateForFn(sessionName) (model_tabs_restore.go:122-140); if the session no longer exists/has no live pane it falls back gracefully. Discovery/rea…
+
+### PERS-02 — Restore tabs + active tab on restart  `[Pass]`
+- **Story:** As a user, I want my open tabs and active tab restored on restart, so that I continue where I left off.
+- **Expected:** Tab list + active index persisted (debounced) to workspace.json; on restart center recreates placeholders and reattaches each in order.
+- **Source:** app/app_persistence.go; center/model_tabs_restore.go
+- **Tests:** e2e/persistence_test.go; center/model_tabs_restore_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Persistence is debounced and token-guarded: persistWorkspaceTabs (internal/app/app_persistence.go:54-67) marks dirty, bumps persistToken, and schedules SafeTick(persistDebounce=500ms, defaults.go:23); handlePersistDebounce (app_persistence.go:88-150) drops stale tokens and writes ws.OpenTabs + ws.ActiveTabIndex from center.GetTabsInfoForWorkspace. On restart, RestoreTabsFromWorkspace (internal/ui/center/model_tabs_session.go:167-217) iterates ws.OpenTabs in order, creating detached placeholders (addPlaceholderTab) and queuing reattachToSession per tab, then re-derives the active index (lastBe…
+
+### PERS-03 — Reattach restores pane snapshot/scrollback  `[Pass]`
+- **Story:** As a user, I want history restored on reattach, so that I don't lose prior output.
+- **Expected:** Reattach captures the tmux pane snapshot (or scrollback for stopped sessions) and restores it into the terminal before live output.
+- **Source:** center/model_tabs_session_reattach.go; ptyio/session_restore.go
+- **Tests:** center/model_tabs_session_reattach_history_size_test.go; ptyio/session_restore_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** On reattach, model_tabs_restore.go:150-200 captures either a full pane snapshot (captureExistingSessionBootstrap, bootstrap.CaptureFullPane) or, for stopped/non-matching sessions, scrollback via captureSessionHistory. The result (ptyTabReattachResult) is applied in internal/ui/center/model_tabs.go:234 (ptyio.RestorePaneCapture) and :248 (ptyio.RestoreScrollbackCapture), also in model_input_lifecycle.go:116/130, BEFORE the live PTY reader is (re)started. ptyio/session_restore.go:30-92 implements RestorePaneCapture (LoadSnapshot of pane data + cursor/mode + post-attach delta) and RestoreScrollb…
+
+### PERS-04 — Auto-detach excess attached agent tabs  `[Pass]`
+- **Story:** As a user, I want old agent tabs auto-detached past a limit, so that I don't exhaust PTY resources.
+- **Expected:** AMUX_MAX_ATTACHED_AGENT_TABS bounds attached chat tabs; on exceed, least-recently-focused tabs auto-detach (session stays live) and the change persists.
+- **Source:** app/app_attached_limit.go; center/model_tabs_limit.go
+- **Tests:** app/app_attached_limit_test.go; center/model_tabs_limit_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** maxAttachedAgentTabsFromEnv (internal/app/app_attached_limit.go:16-34) parses AMUX_MAX_ATTACHED_AGENT_TABS (default 6 via defaults.go:58; 0 disables). enforceAttachedAgentTabLimit (app_attached_limit.go:36-63) calls center.EnforceAttachedAgentTabLimit then persists every affected workspace via persistWorkspaceTabs (line 58). center/model_tabs_limit.go:27-111 counts attached (!Detached && Running) chat tabs, skips the focused tab in the active workspace (lines 53-55), sorts candidates by lastFocusedAt (LRU, lines 73-89), and detaches the excess via detachTab. detachTab (model_tabs_session.go:1…
+
+### PERS-05 — Multi-instance orphan-GC safety  `[Pass]`
+- **Story:** As a user running multiple instances, I want GC to not kill another instance's live workspace sessions, so that concurrent use is safe.
+- **Expected:** Orphan GC only kills sessions for unknown workspace IDs after a grace period and instance scoping, never a peer's active workspace.
+- **Source:** app/app_tmux_gc.go
+- **Tests:** e2e/multi_instance_gc_test.go; app/app_tmux_gc_safety_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Orphan GC is instance-scoped: amuxSessionsByWorkspace (internal/app/app_tmux_gc.go:201-204) adds @amux_instance=a.instanceID to the tmux tag match (instanceID is always set at init, app_init.go:158; sessions are tagged with @amux_instance at creation, app_tmux.go:32-33), so a peer instance's sessions are never even enumerated. killOrphanedSessions (app_tmux_gc.go:224-261) skips any session whose workspace ID is in knownIDs (line 230); collectKnownWorkspaceIDs (lines 36-54) deliberately includes creating AND deleting workspace IDs to avoid racing orderly cleanup. It also enforces a 30s grace p…
+
+
+## Trust
+
+### TRUST-01 — First-run trust prompt for repo scripts  `[Pass]`
+- **Story:** As a user, I want to approve a repo's scripts before they run, so that I review commands the repo author chose.
+- **Expected:** When repo-supplied setup/run/archive commands (from .amux/workspaces.json) are not approved, execution is blocked with ScriptsNotTrustedError and the Trust Scripts dialog is shown.
+- **Source:** process/scripts.go; script_trust.go; app/app_input_dialogs.go
+- **Tests:** process/scripts_test.go, scripts_trust_gate_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/process/scripts.go:216-222 (RunSetup) and :294-300 (RunScript) return *ScriptsNotTrustedError{Repo,Command,ConfigHash} when len(config.SetupWorkspace)>0 / fromRepoConfig and !r.trust.IsTrusted(ws.Repo,raw). The error wraps the ErrScriptsNotTrusted sentinel (scripts.go:49-55). On the UI side internal/app/app_input_workspace.go:73-85 catches errors.Is(msg.Err, process.ErrScriptsNotTrusted), shows a warning toast AND batches a messages.ShowTrustScriptsDialog carrying the blocked ConfigHash; internal/app/app_input_messages_dialogs.go:74-88 presents the Trust Project Scripts confirm dialo…
+
+### TRUST-02 — Re-gate on .amux/workspaces.json change  `[Pass]`
+- **Story:** As a user, I want edits to the scripts file to require re-approval, so that changed commands can't run silently.
+- **Expected:** Trust is a SHA-256 of file content; IsTrusted returns false when the hash changes; trusting refuses if content changed since the prompt.
+- **Source:** process/script_trust.go; scripts.go
+- **Tests:** process/script_trust_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Trust key is the hex SHA-256 of the exact config bytes: hashConfig (internal/process/script_trust.go:54-57) and IsTrusted compares approved==hashConfig(configContent) (script_trust.go:88-101), so any byte change flips it to false (test TestScriptTrustInvalidatedWhenContentChanges, script_trust_test.go:32-48). On approval, TrustRepoScriptsIfHash (internal/process/scripts.go:357-369) re-reads the file and returns ErrScriptsChangedSincePrompt without recording trust if hashConfig(raw)!=expectedHash. The app retry (internal/app/workspace_service.go:213-221) then still calls RunSetup, which re-gat…
+
+### TRUST-03 — User-entered scripts bypass the gate  `[Pass]`
+- **Story:** As a user, I want scripts I type in the UI to run without prompts, so that I don't self-gate my own input.
+- **Expected:** Run/archive from ws.Scripts (user input) run directly; only repo-config-sourced commands pass through the trust gate.
+- **Source:** process/scripts.go
+- **Tests:** process/scripts_trust_gate_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** In internal/process/scripts.go:272-300, fromRepoConfig is set true only when config.RunScript/config.ArchiveScript (loaded from .amux/workspaces.json) are non-empty (:277, :283); when they are empty it falls back to ws.Scripts.Run / ws.Scripts.Archive (user-entered in UI) with fromRepoConfig staying false (:279, :285). The trust gate at :294 is `if fromRepoConfig && !r.trust.IsTrusted(...)`, so user-entered scripts always run ungated. Verified by TestScriptRunnerWsScriptsRunWithoutTrust (internal/process/scripts_trust_gate_test.go:83-105): with an empty (untrusted) registry, ws.Scripts.Run st…
+
+### TRUST-04 — Persistent trust registry (fail-closed)  `[Pass]`
+- **Story:** As a user, I want approvals to persist and default-deny, so that I don't re-approve trusted repos and untrusted ones never run.
+- **Expected:** Approvals (repo→hash) written atomically to ~/.amux/trusted-scripts.json; missing/corrupt file → empty map (fail-closed).
+- **Source:** process/script_trust.go; config/paths.go
+- **Tests:** process/script_trust_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Registry is per-repo->hash map persisted to <home>/trusted-scripts.json (internal/process/script_trust.go:18,36-51; home resolved via config.DefaultPaths -> ~/.amux in internal/config/paths.go:26-34). Trust() writes atomically via fsatomic.WriteFile (script_trust.go:106-122), which does temp-file + Sync + rename (internal/fsatomic/fsatomic.go:27-62). load() is fail-closed: missing file -> empty map (script_trust.go:66-69), unreadable or unparseable -> empty map + logged warning (script_trust.go:70-78), nil map normalized to empty (:79-81); IsTrusted returns false for any repo not present and …
+
+
+## Update
+
+### UPD-01 — Version check vs GitHub latest  `[Pass]`
+- **Story:** As a user, I want to know when a newer amux exists, so that I can stay current.
+- **Expected:** Updater.Check queries GitHub latest release, compares semver; skips Homebrew/dev builds; returns current/latest/available/notes.
+- **Source:** update/updater.go; github.go; version.go
+- **Tests:** update/updater_test.go, version_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/update/updater.go:72-115 Check(): IsHomebrewBuild() short-circuits at :73-79 (returns UpdateAvailable:false), IsDevBuild(u.version) short-circuits at :81-87; otherwise FetchLatestRelease (github.go:79-108) then ParseVersion of both (updater.go:94-102) and currentVer.LessThan(latestVer) semver compare (:104). Returns CurrentVersion/LatestVersion/UpdateAvailable/ReleaseNotes(Body)/Release (:108-114). version.go:19 semverRegex + Compare()/comparePrerelease() implement real semver (prerelease lower precedence, numeric identifiers). IsDevBuild treats ''/dev/none/unknown as dev (version.go…
+
+### UPD-02 — Download + checksum verification  `[Pass]`
+- **Story:** As a user, I want updates verified against checksums, so that corrupt/tampered binaries are rejected.
+- **Expected:** Upgrade fetches checksums.txt, downloads the platform asset, verifies SHA-256; mismatch aborts.
+- **Source:** update/updater.go; checksum.go
+- **Tests:** update/updater_test.go, checksum_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/update/updater.go Upgrade(): fetchChecksums (:150), looks up the platform asset's checksum and aborts if absent ('checksum not found', :155-158), downloads the platform asset to a temp file (:168-179), then VerifyChecksum (:182-185) aborts with 'checksum verification failed' on mismatch. github.go FetchChecksums (:138-172) downloads checksums.txt and parseChecksums maps filename->sha256. checksum.go VerifyChecksum (:12-23) does SHA-256 via hashFile and errors on mismatch. updater_upgrade_test.go TestUpgradeChecksumMismatchNeverInstalls + TestUpgradeHappyPathOrder pin verify strictly …
+
+### UPD-03 — Safe extract + atomic install w/ rollback  `[Pass]`
+- **Story:** As a user, I want a failed update to never break my binary, so that I can recover.
+- **Expected:** Extract only the 'amux' entry (0755); stage in target dir (avoid EXDEV); back up to .bak; atomic rename; restore .bak on failure.
+- **Source:** update/install.go; updater.go
+- **Tests:** update/updater_upgrade_test.go, extract_hostile_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/update/install.go ExtractBinary (:19-73): only entries whose filepath.Base=="amux" are extracted (:45-47), non-regular entries (symlinks/dirs) skipped via TypeReg filter (:50), written 0o755 (:55); errors 'amux binary not found in archive' if none (:68-69). extract_hostile_test.go confirms ../.. and absolute paths are collapsed to destDir and symlinks rejected. InstallBinary (:78-121): stages new binary as .amux-upgrade-new in target dir to avoid EXDEV (:92-97), backs up current to .bak (:101-102), atomic renameFile staged->current (:107), and on swap failure restores .bak (:108-114)…
+
+### UPD-04 — Install-method + permission guards  `[Pass]`
+- **Story:** As a user, I want correct guidance for my install method/permissions, so that I update the right way.
+- **Expected:** Homebrew → 'brew upgrade amux'; go install → 'go install ...@latest'; no write permission → 'try sudo'.
+- **Source:** update/install.go; buildinfo.go; updater.go
+- **Tests:** update/updater_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/update/updater.go Upgrade(): Homebrew guard returns 'installed via Homebrew; run: brew upgrade amux' (:123-125); go-install guard returns 'installed via go install; run: go install github.com/andyrewlee/amux/cmd/amux@latest' (:128-130); write-permission guard returns 'no write permission to %s; try running with sudo' (:145-147). buildinfo.go IsHomebrewBuild (:10-13) reads ldflags var; install.go IsGoInstall/isGoInstallPath (:165-185) checks GOPATH/bin containment; CanWrite (:188-206) probes file and parent dir. Catalog phrasings 'go install ...@latest' and 'try sudo' are accurate par…
+
+
+## Tmux
+
+### TMUX-01 — Session creation with tags + per-session options  `[Pass]`
+- **Story:** As a user, I want each agent/terminal in its own tagged tmux session, so that lifecycles are isolated and discoverable.
+- **Expected:** new-session -As creates/attaches; sets @amux tags (workspace/tab/type/assistant/instance/owner/lease); disables prefix/status/mouse per session; attaches.
+- **Source:** tmux/command.go; tmux.go
+- **Tests:** tmux/send_test.go, create_pipeline_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/tmux/command.go:43 builds `new-session -A%ss` (atomic create/attach; -d only when DetachExisting); lines 48-49 set per-session `prefix None`/`prefix2 None`; line 51 `status off` (HideStatus); line 54 `mouse off` (DisableMouse); line 60 `-w monitor-activity on`; appendSessionTags (lines 73-93) writes @amux=1 plus @amux_workspace/@amux_tab/@amux_type/@amux_assistant/@amux_created_at/@amux_instance/@amux_session_owner(TagSessionOwner)/@amux_session_lease_ms(TagSessionLeaseAt). Line 68 attaches with `attach -t` (or `-dt`). SessionTags struct at tmux.go:35-44 carries all listed fields. Ma…
+
+### TMUX-02 — Session discovery from live tmux  `[Pass]`
+- **Story:** As a user, I want amux to find tagged sessions (incl. from other instances), so that I can reattach and manage them.
+- **Expected:** Queries sessions by @amux/@amux_workspace/@amux_type tags and hydrates tabs/terminals from the results.
+- **Source:** app/app_tmux_discover.go; tmux/tags.go
+- **Tests:** app/app_tmux_discover_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_tmux_discover.go:55-60 builds match {@amux:1,@amux_workspace:<id>,@amux_type:agent} and calls svc.SessionsWithTags to hydrate tabs; lines 137-142 do the same with @amux_type:terminal for sidebar terminals. tmux/tags.go:29-59 SessionsWithTags queries `list-sessions -F` for the requested tag keys (tags.go:61-84). No @amux_instance filter is applied in discovery, so sessions from other instances are also found, matching 'incl. from other instances'. Tabs/terminals are hydrated into data.TabInfo / sidebar.SessionAttachInfo (lines 90-96, 171-182).
+
+### TMUX-03 — Session state + activity queries  `[Pass]`
+- **Story:** As a user, I want to know which sessions are alive/active, so that I see running vs dead agents.
+- **Expected:** AllSessionStates aggregates pane-dead per session; activity queries use window_activity timestamps and an activity window.
+- **Source:** tmux/tmux.go; activity.go
+- **Tests:** tmux/tmux_test.go, activity_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/tmux/tmux.go:110-145 AllSessionStates runs `list-panes -a -F "#{session_name}\t#{pane_dead}"` and parseSessionStates aggregates per session: Exists=true for any appearance, HasLivePane=true once any pane reports pane_dead=="0". internal/tmux/activity.go:91-102 ActiveAgentSessionsByActivity uses `#{window_activity}` timestamps via list-windows -a; activityWithinWindow (activity.go:10-19) applies the activity window (with +1s second-resolution slack). Matches expected_behavior.
+
+### TMUX-04 — Periodic sync ticker (discover+status+GC)  `[Pass]`
+- **Story:** As a user, I want session changes reflected without manual refresh, so that the UI stays accurate.
+- **Expected:** TmuxSyncTick (default ~7s) discovers tabs, syncs pane status, and runs orphan GC; token-guarded against stale messages.
+- **Source:** app/app_tmux_sync.go; app_tmux_discover.go
+- **Tests:** app/app_tmux_sync_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_init.go:288-295 startTmuxSyncTicker bumps syncToken and ticks via common.SafeTick(a.tmuxSyncInterval()); default tmuxSyncDefaultInterval = 7*time.Second (internal/app/defaults.go:17). handleTmuxSyncTick (app_tmux_sync.go:17-37) drops stale ticks (msg.Token != syncToken, line 18), then for each sync workspace runs discoverWorkspaceTabsFromTmux + syncWorkspaceTabsFromTmux and gcOrphanedTmuxSessions (lines 24-33), then reschedules. Discover+status-sync+orphan-GC and token guard all present, ~7s default.
+
+### TMUX-05 — Cleanup command kills amux sessions  `[Pass]`
+- **Story:** As a user, I want one action to kill all amux sessions, so that I can reset cleanly.
+- **Expected:** Confirmed C-Space K kills @amux=1-tagged sessions and amux-* prefixed sessions; a success toast confirms the cleanup (no count).
+- **Source:** app/app_tmux.go; app_prefix.go
+- **Tests:** app/app_tmux_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** C-Space K binds to action cleanup_tmux (internal/app/app_prefix.go:32, dispatched at :215-216 emitting ShowCleanupTmuxDialog). Confirmation dialog (app_input_messages_dialogs.go:115-124) uses NewConfirmDialog whose options are ["Yes","No"] with defaultCursor=1 -> 'No' (internal/ui/common/dialog.go:98-100), a safe default for a destructive action. cleanupAllTmuxSessions (app_tmux.go:50-71) kills @amux:1-tagged sessions (KillSessionsMatchingTags, line 57) AND amux-* prefixed sessions (KillSessionsWithPrefix, lines 63-64) and emits a success/warning Toast. NOTE: the catalog's 'toast reports the …
+
+### TMUX-06 — Orphan + stale-detached GC  `[Pass]`
+- **Story:** As a user, I want sessions for deleted workspaces / crashed idle agents cleaned up, so that tmux doesn't accumulate junk.
+- **Expected:** Orphan GC kills sessions for unknown workspace IDs after grace; stale-detached GC kills unattached idle agent sessions past TTL; instance-scoped.
+- **Source:** app/app_tmux_gc.go
+- **Tests:** app/app_tmux_gc_test.go, app_tmux_gc_safety_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/app/app_tmux_gc.go: orphan GC (gcOrphanedTmuxSessions :58-77 -> killOrphanedSessions :224-261) kills tmux sessions whose @amux_workspace is not in collectKnownWorkspaceIDs, but skips sessions younger than orphanSessionGracePeriod (30s, :15,:243,:263-272) and skips attached sessions (:246-252). Stale-detached GC (gcStaleDetachedAgentSessions :79-190) kills unattached idle agent sessions older than detachedAgentStaleAfter (24h, defaults.go:65) -- with a 72h live-pane extension (defaults.go:69, :177) -- skipping attached/fresh. Both are instance-scoped via @amux_instance (amuxSessionsBy…
+
+### TMUX-07 — monitor-activity enabled globally + per-session  `[Pass]`
+- **Story:** As a user, I want activity timestamps tracked, so that busy/idle detection works.
+- **Expected:** set-option -g monitor-activity on at startup/server change; per-session -w monitor-activity on at create.
+- **Source:** tmux/activity.go; command.go
+- **Tests:** tmux/activity_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** Global: SetMonitorActivityOn runs `set-option -g monitor-activity on` (internal/tmux/activity.go:187-189) and is invoked when tmux availability is (re)established at startup (internal/app/app_tmux_activity.go:325-330 inside handleTmuxAvailableResult). Per-session: command.go:60 emits `set-option -t <session> -w monitor-activity on` at create. Catalog phrase 'startup/server change' is a slight imprecision (the global set fires on the tmux-available result rather than a distinct server-change handler), but the implemented behavior matches the stated intent and the code comment (activity.go:88-9…
+
+### TMUX-08 — Missing-tmux detection + install hint  `[Pass]`
+- **Story:** As a user, I want a clear message if tmux is missing, so that I know how to install it.
+- **Expected:** EnsureAvailable LookPaths tmux; on absence shows an OS-specific install hint (brew/apt/dnf/pacman); tab actions blocked with a toast.
+- **Source:** tmux/tmux.go; app/app_prefix.go
+- **Tests:** (trace)
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/tmux/tmux.go:66-71 EnsureAvailable uses exec.LookPath("tmux") and on absence returns an error embedding InstallHint(). InstallHint (tmux.go:73-82) is OS-specific: darwin -> 'macOS: brew install tmux', linux -> 'Linux: sudo apt install tmux  (or dnf/pacman/etc.)', default -> generic PATH hint. Tab-creation actions are blocked with an error toast when !tmuxAvailable: app_prefix.go:221-223 (new_agent_tab) and :229-231 (new_terminal_tab) both return toast.ShowError('tmux required to create tabs. '+installHint). Catalog's '(brew/apt/dnf/pacman)' overstates the linux branch (apt is primary…
+
+### TMUX-09 — Stale test-socket janitor on startup  `[Pass]`
+- **Story:** As a user, I want stale tmux test sockets cleaned at startup, so that amux starts quickly.
+- **Expected:** Background scan of /tmp/tmux-* removes dead amux-test-*/amux-e2e-check-* sockets (75ms dial probe).
+- **Source:** cmd/amux/tmux_socket_janitor.go
+- **Tests:** cmd/amux/tmux_socket_janitor_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** cmd/amux/tmux_socket_janitor.go: cleanupStaleTestTmuxSockets (:22-56) sweeps tmuxSocketDirs (/tmp/tmux-<uid> and /private/tmp/tmux-<uid>, :58-74), and for socket-mode entries prefixed amux-test- or amux-e2e-check- (:34) removes those that fail a 75ms unix dial probe (isLiveUnixSocket, :76-84; staleSocketDialTimeout = 75*time.Millisecond, :16). It runs in the background at startup via safego.Go("tmux_socket_janitor", cleanupStaleTestTmuxSockets) (cmd/amux/main.go:95). Matches expected_behavior.
+
+
+## Ops
+
+### OPS-01 — Daily log file + retention  `[Pass]`
+- **Story:** As an operator, I want daily logs with retention, so that I can debug without unbounded disk use.
+- **Expected:** Logs at ~/.amux/logs/amux-YYYY-MM-DD.log; AMUX_LOG_RETENTION_DAYS (default 14) prunes older files; AMUX_LOG_LEVEL sets verbosity.
+- **Source:** logging/logger.go; cmd/amux/main.go
+- **Tests:** logging/logger_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/logging/logger.go:72 builds the daily path fmt.Sprintf("%s%s%s", logPrefix="amux-", time.Now().Format("2006-01-02"), ".log") under logDir, which cmd/amux/main.go:81 sets to filepath.Join(home, ".amux", "logs"). Retention: logRetentionDays() (logger.go:88-98) reads AMUX_LOG_RETENTION_DAYS with defaultRetentionDays=14 (logger.go:55), and pruneOldLogs() (logger.go:100-124) removes any amux-*.log whose parsed date is Before(now - retentionDays). Level: cmd/amux/main.go:82-85 reads AMUX_LOG_LEVEL via logging.ParseLevel (logger.go:138-151), defaulting to LevelInfo when unset/unrecognized. …
+
+### OPS-02 — Profiling + pprof + signal dumps  `[Pass]`
+- **Story:** As an operator, I want runtime profiling/diagnostics toggles, so that I can investigate perf/hangs.
+- **Expected:** AMUX_PROFILE emits timing snapshots (interval via AMUX_PROFILE_INTERVAL_MS); AMUX_PPROF exposes pprof on 127.0.0.1; AMUX_DEBUG_SIGNALS + SIGUSR1 dumps goroutines.
+- **Source:** cmd/amux/main.go; perf/perf.go
+- **Tests:** perf/perf_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** AMUX_PROFILE: internal/perf/perf.go:340-351 isEnabled() reads AMUX_PROFILE (off for ""/0/false/no, on otherwise); maybeLog() (perf.go:178-207) emits periodic 'PERF ...' timing/counter snapshots via logging.Info. Interval: defaultLogInterval() (perf.go:353-361) reads AMUX_PROFILE_INTERVAL_MS, defaultIntervalMs=5000 (perf.go:18). Wired live: perf.Init() called at internal/app/app_init.go:47, perf.Time/Count instrumented across center/sidebar/compositor, perf.Flush("shutdown") at internal/app/app_shutdown.go:26. AMUX_PPROF: cmd/amux/main.go:160-183 startPprof() serves net/http/pprof on 127.0.0.1…
+
+### OPS-03 — PTY byte-level tracing  `[Pass]`
+- **Story:** As an operator, I want byte-level SEND/RECV traces, so that I can debug dropped/delayed input.
+- **Expected:** AMUX_PTY_TRACE=1 or assistant list writes traces (RECV=agent→amux, SEND=amux→agent incl. delayed CR) to the log/temp dir.
+- **Source:** center/model_pty_trace.go; README Operations
+- **Tests:** center/model_pty_trace_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/ui/center/model_pty_trace.go:16-41 ptyTraceAllowed reads AMUX_PTY_TRACE: enabled for 1/true/yes/all/*, or when the value is a comma-separated list containing the tab's assistant (case-insensitive). RECV (agent->amux) via tracePTYOutput (lines 75-77, called from model_input_lifecycle_pty.go:22); SEND (amux->agent) via tracePTYInput (lines 85-87, called from model_input.go:20 and tab_actor.go:308,331 sendToTerminal/sendMouseToTerminal which forward all keystrokes including the Enter/CR). ptyTraceDir() (lines 43-49) writes to the log dir, falling back to os.TempDir() when logging is dis…
+
+
+## Config
+
+### OPS-04 — Config + data locations under ~/.amux  `[Pass]`
+- **Story:** As a user, I want standard config/data locations, so that I know where state lives.
+- **Expected:** ~/.amux: config.json, projects.json, workspaces/, workspaces-metadata/, trusted-scripts.json, logs/; dirs created at startup.
+- **Source:** config/paths.go; config.go
+- **Tests:** config/paths_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** internal/config/paths.go:11-35 defines Paths with Home=~/.amux, WorkspacesRoot=~/.amux/workspaces, RegistryPath=~/.amux/projects.json, MetadataRoot=~/.amux/workspaces-metadata, ConfigPath=~/.amux/config.json. EnsureDirectories (paths.go:38-52) creates Home, WorkspacesRoot, MetadataRoot at startup; called from app.New (internal/app/app_init.go:87) on the launch path (cmd/amux/main.go:101). logs/ is created separately by logging.Initialize via os.MkdirAll (internal/logging/logger.go:60-61), invoked from runTUI at cmd/amux/main.go:81-86. trusted-scripts.json lives under paths.Home (internal/proc…
+
+### OPS-05 — config.json assistants + UI settings persist  `[Verified]`
+- **Story:** As a user, I want assistants and UI prefs configurable + persisted, so that they survive restarts.
+- **Expected:** config.json 'assistants' (command/interrupt) and 'ui' (show_keymap_hints, theme, tmux_server, tmux_config, tmux_sync_interval); per-section decode isolation; atomic save.
+- **Source:** config/config.go; user_settings.go
+- **Tests:** config/config_test.go, user_settings_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** config.json schema (internal/config/config.go:71-117) reads 'assistants' (command/interrupt_count/interrupt_delay_ms, raw at config.go:32-36) and 'ui' (internal/config/user_settings.go:30-36: show_keymap_hints, theme, tmux_server, tmux_config->TmuxConfigPath, tmux_sync_interval). Per-section decode isolation is real: readConfigFile unmarshals each section independently and joins errors so a bad section does not poison others (config.go:99-116); tests TestDefaultConfigKeepsAssistantOverridesWhenUISectionIsInvalid / ...WhenAssistantSectionIsInvalid (config_test.go:90,130) confirm. Note: the cat…
+- **Error:** [low] config.json was saved via plain os.WriteFile (not atomic), inconsistent with the rest of amux's crash-safe persistence (workspace.json, trusted-scripts.json); risk of a torn config.json on crash.
+- **Fix:** saveUISettings now writes via internal/fsatomic.WriteFile (temp + fsync + atomic rename) instead of os.WriteFile. (config/user_settings.go)
+- **Re-test:** PASS: internal/config tests green; full 'go test ./...' green; 'make devcheck' green.
+
+### OPS-06 — Custom tmux server name (env/config)  `[Pass]`
+- **Story:** As a user, I want a custom tmux server name, so that I can run isolated amux instances.
+- **Expected:** AMUX_TMUX_SERVER (or ui.tmux_server) overrides default 'amux'; passed via -S to all tmux commands.
+- **Source:** tmux/tmux.go; config/user_settings.go
+- **Tests:** tmux/tmux_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** tmux.DefaultOptions reads AMUX_TMUX_SERVER and defaults to 'amux' when empty (internal/tmux/tmux.go:48-52). ui.tmux_server is wired in by app_init.applyTmuxEnvFromConfig, which sets the AMUX_TMUX_SERVER env var from cfg.UI.TmuxServer (internal/app/app_init.go:310-318 via env_helpers.setEnvIfNonEmpty:8-14) before DefaultOptions runs (app_init.go:83-84). The server name is applied to every tmux command through tmuxArgs/tmuxCommand (tmux.go:173-193). Catalog wording error: it says 'passed via -S', but the code uses -L (socket NAME) at tmux.go:176 and tmux.go:165, confirmed by tmux_test.go:337 ex…
+
+### OPS-07 — CLI: --version and TTY guard  `[Pass]`
+- **Story:** As a user, I want --version and a clear non-TTY error, so that I can script checks and get feedback when run non-interactively.
+- **Expected:** --version/-v prints version/commit/date and exits 0; if any of stdin/stdout/stderr is not a TTY, prints a requires-TTY message and exits 1.
+- **Source:** cmd/amux/main.go
+- **Tests:** cmd/amux/main_test.go
+- **Test method:** code-trace (Phase 2 multi-agent verify)
+- **Result:** cmd/amux/main.go:37-40: when isVersionInvocation(args) (exactly one arg == --version or -v, main.go:59-61) it prints 'amux %s (commit: %s, built: %s)' with version/commit/date and os.Exit(0). Non-TTY guard: main.go:47-54 calls shouldLaunchTUI(stdin,stdout,stderr) which requires ALL THREE TTYs (main.go:63-65); if any is non-TTY it prints nonInteractiveMessage() ('amux starts an interactive terminal UI and requires stdin, stdout, and stderr to be TTYs', main.go:74-76) and os.Exit(1). Behavior matches the catalog; tested by TestIsVersionInvocation (main_test.go:46), TestNonInteractiveMessage (87…
+

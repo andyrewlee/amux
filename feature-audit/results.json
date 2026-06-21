@@ -1,0 +1,870 @@
+{
+  "ACT-01": {
+    "errors_found": "",
+    "result": "Periodic scan: defaults.go:36 `tmuxActivityInterval = 5 * time.Second`; ticker scheduled via app_tmux_activity.go:50-55 (scheduleTmuxActivityTick) and re-armed each tick (handleTmuxActivityTick:99,121). Eager-on-create: app_input_dispatch.go:117-129 calls a.eagerScanTmuxActivity() on messages.TabCreated (and :140-147 on TabReattached); eagerScanTmuxActivity (app_tmux_activity.go:69-74) coalesces with in-flight scans via scanTmuxActivityNow. Visible-PTY-output detection: runTmuxActivityScan (app_tmux_activity.go:127-175) -> activity.ActiveWorkspaceIDsFromTagsWithRemoved (logic.go:48-94) classi\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "ACT-02": {
+    "errors_found": "",
+    "result": "Idle clearing is implemented via screen-delta hysteresis with an output window and a hold/settle period, not a literal one-shot timer. types.go:19 OutputWindow=2s, :28 HoldDuration=6s, :15 ScoreThreshold=3. logic.go:319-345 bumps score on content change and decays (score--) on unchanged/failed captures; logic.go:351-357 a session stays active while score>=threshold OR within HoldDuration of LastActiveAt, then drops out of the active set when both lapse \u2014 so after output stops, the next scans decay the session and the working indicator clears. PrepareStaleTagFallbackState (logic.go:239-252) an\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "ACT-03": {
+    "errors_found": "",
+    "result": "Single-scanner leader lease is implemented in tmux global options. activity/lease.go:15-20 defines OwnerOption '@amux_activity_owner', HeartbeatOption, EpochOption, SnapshotOption. resolveTmuxActivityScanRole (app_tmux_activity_shared.go:25-85): if a live foreign lease exists -> follower reads the owner's snapshot (ReadSnapshot, lease.go:112-128, epoch+freshness checked); if this instance owns the live lease -> renews heartbeat (RenewOwnerLeaseHeartbeat) and scans; otherwise claims ownership by writing epoch=lease.Epoch+1 (write-then-confirm-read, :64-84) since tmux options offer no atomic CA\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "AGT-01": {
+    "errors_found": "",
+    "result": "internal/ui/app/app_prefix.go:35,217-224 maps C-Space t a -> action new_agent_tab, which (after workspace + tmux checks) emits messages.ShowSelectAssistantDialog{} (the assistant picker). Selecting an assistant calls center.createAgentTab -> createAgentTabWithSession (internal/ui/center/model_tabs.go:103-166) which spawns a tmux session via agentManager.CreateAgentWithTags (internal/pty/agent.go:71-128, builds tmux client cmd running assistantCfg.Command), captures scrollback with tmux.CapturePane, then handlePtyTabCreated (model_tabs.go:316-388) creates a vterm.New, appends the Tab with Runn\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "AGT-02": {
+    "errors_found": "",
+    "result": "internal/config/agents.go:18-28 declares AgentRegistry with exactly 9 entries in display order: claude, codex, gemini, amp, opencode, droid, cline, cursor, pi, each with DefaultCommand + InterruptCount + InterruptDelayMs. AgentNames() (agents.go:42-48) returns them in registry order, and preferredAssistantOrder (config.go:42) derives from it. TestAgentRegistryIsCanonical (internal/config/agents_test.go:45-103) enforces that defaultAssistants, preferredAssistantOrder, and IsRegisteredAgent all equal the registry set and preserve order. Note: cursor's DefaultCommand is 'agent' (not 'cursor'), b\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "AGT-03": {
+    "errors_found": "",
+    "result": "internal/config/config.go:173-205 applyAssistantOverrides overlays config.json assistants[name].command / interrupt_count / interrupt_delay_ms onto the built-in defaults; the overridden command is used at launch (agent.go:72,101 reads m.config.Assistants[type].Command). 'Empty command disables' holds for a *new* custom assistant: with no built-in default and an empty override command, cfg.Command stays \"\" and line 194-196 'continue' skips inserting it into the map (test TestDefaultConfigLoadsAssistantOverrides confirms overrides at config_test.go:35-88). Caveat: the interrupt_count/interrupt_\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "AGT-04": {
+    "errors_found": "",
+    "result": "common/keys.go:62-63 KeyToBytes maps tea.KeyEnter -> []byte{'\\r'} (0x0D). In center/model_input_keys.go:213-242 sendKeyToTerminal computes input=KeyToBytes(msg) and routes it via tabEvent{kind:tabEventSendInput} to the actor, which writes it verbatim through Terminal.SendString (center/tab_actor.go:217,284,320-332 -> pty/terminal.go:114 Write); on actor-not-ready it falls back to directSendStamped. Activity is tagged via userInputActivityTagCmd. The \\r reaches the agent unmodified.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "AGT-05": {
+    "errors_found": "",
+    "result": "common/keys.go:9-58 converts Ctrl+A/E/K/U (0x01/0x05/0x0b/0x15) and arrows/backspace (0x7f) to bytes sent immediately via sendKeyToTerminal. Paste is wrapped in bracketed-paste: center/model_input.go:83,89,96,103 and tab_actor.go:293 send \"\\x1b[200~\"+content+\"\\x1b[201~\". Local echo suppression: model_input_echo.go:156-188 shouldSuppressLocalEchoInput returns true for readline control bytes (isReadlineEditingControlInput, line 74-96 includes Ctrl+A/E/K/U), editing escape sequences, backspace/tab, and single printable runes; recordLocalInputEchoWindow (line 226-250) records the echo window. Cov\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "AGT-06": {
+    "errors_found": "",
+    "result": "Esc reaches the agent as 0x1b via two paths. center/model_input_keys.go:151-157 handles the 'ctrl+[' binding (Escape on most terminals) by sending directSendStamped(tab, \"\\x1b\", ...). If Escape arrives as tea.KeyEscape instead, it falls through to sendKeyToTerminal -> common/keys.go:73-74 which maps tea.KeyEscape -> []byte{0x1b}. Either way a single 0x1b byte is delivered immediately. Matches the expected behavior.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "AGT-07": {
+    "errors_found": "[medium] Per-agent interrupt count/delay is not applied to the live Ctrl+C keystroke: every agent receives a single 0x03, never the configured double-interrupt. For claude this is user-visible: claude's TUI requires two Ctrl-C presses ('press Ctrl-C again to interrupt') within a short window, which is exactly why InterruptCount:2 / InterruptDelayMs:200 exist \u2014 but a single user Ctrl-C will not interrupt it. The KeyMap.Interrupt binding is also defined but never wired, reinforcing that the intended behavior was meant to exist and was lost. Catalog's expected_behavior overstates reality.  | suggested fix: In center/model_input_keys.go handleTerminalCtrlKey, add a ctrl+c case for chat/agent tabs that resolves the active tab's assistant config (tab.Agent.Config.InterruptCount / InterruptDelayMs) and sends 0x03 that many times with the configured delay between sends (mirroring pty/agent.go AgentManager.SendInterrupt), rather than letting it fall through to the single-byte KeyToBytes path. Equivalently, route Ctrl+C through agentManager.SendInterrupt for the active agent. Then wire app/keybindings.go KeyMap.Interrupt or remove it to avoid the misleading dead binding.",
+    "fix_applied": "Wired live Ctrl+C in center handleTerminalCtrlKey to route through AgentManager.SendInterrupt off the UI thread, honoring per-agent InterruptCount/InterruptDelayMs (claude=2 @200ms); floored SendInterrupt to >=1 so viewers still receive one interrupt; preserved snap-to-bottom + 0x03 echo window + activity tag. (pty/agent.go, center/model_input_keys.go)",
+    "result": "The expected per-agent behavior ('claude sends 2 signals with 200ms delay, others 1, per registry/config') is implemented ONLY in pty/agent.go:254-271 AgentManager.SendInterrupt, which is never called from any live keypress path \u2014 grep of internal/ (excluding *_test.go, pty/agent.go, tmux/send.go) finds zero callers; its only callers are pty/agent_test.go:334-399. In the live TUI, Ctrl+C with the center focused goes app/app_input_keys.go:125-127 (a.center.Update) -> center/model_input_keys.go:122-132 forwardKeyToTerminal -> handleTerminalCtrlKey (line 134-160) which only special-cases ctrl+n/\u2026",
+    "retest_result": "PASS: new TestCenterCtrlCRoutesToAgentInterrupt + TestInterruptActiveAgentCmdNilSafe pass; pty SendInterrupt tests pass; full 'go test ./...' green; 'make verify-loop' (real keystroke -> raw agent) green; 'make devcheck' green.",
+    "status": "Verified",
+    "test_method": "code-trace + new unit tests + e2e verify-loop"
+  },
+  "CTR-01": {
+    "errors_found": "",
+    "result": "app/app_prefix.go:35 maps `t a`->`new_agent_tab`; runPrefixAction (app_prefix.go:217-224) guards workspace/tmux and emits ShowSelectAssistantDialog. center/model_tabs.go:103-166 createAgentTabWithSession spawns the tmux session via CreateAgentWithTags, captures scrollback (line 149 tmux.CapturePane), and handlePtyTabCreated (lines 168-389) creates the vterm, adds the tab to ByWorkspace, and activates it (Activate:true -> setActiveTabIdxForWorkspace). Matches expected_behavior.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-02": {
+    "errors_found": "",
+    "result": "app/app_prefix.go:36 maps `t t`->`new_terminal_tab`; runPrefixAction (lines 225-233) routes unconditionally to a.sidebarTerminal.CreateNewTab() with the comment 'Intentionally global to the workspace (no sidebar focus required)'. sidebar/terminal_tab_ops.go CreateNewTab (line 59) creates a terminal tab for the current workspace. No focusedPane check is applied, so it is workspace-global as claimed.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-03": {
+    "errors_found": "",
+    "result": "center/model_tabs_actions.go:100-113 nextTab/prevTab use m.tabs.NextIdx/PrevIdx (circular TabSet math) then setActiveTabIdx. Public wrappers NextTab/PrevTab (lines 153-163) call tabSelectionCommand()->tabSelectionChangedCmd(true) which (model_tabs_session.go:96-114) batches TabSelectionChanged, flushActiveTabBacklogCmd, and autoReattachActiveTabOnSelection (auto-reattach if detached). app_prefix.go cycleTab persists via persistActiveWorkspaceTabs. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-04": {
+    "errors_found": "",
+    "result": "app/app_prefix.go:105-108 in prefix mode a single digit '1'-'9' returns prefixMatchComplete with prefixSelectTab(digit-'1') (0-indexed). prefixSelectTab (lines 316-323) calls center.SelectTab(index) which is 0-indexed (model_tabs_actions.go:171-178). The palette only lists '1-9' when showNumericTabJump() returns len(tabs)>1 (app_prefix_palette_visibility.go:51-57). Prefix terminates immediately via exitPrefix on prefixMatchComplete (app_input_keys.go:69-71). Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-05": {
+    "errors_found": "",
+    "result": "center/model_tabs_actions.go:24-91 closeTabAt: tab.markClosing() (line 31), stopPTYReader (line 37), CloseAgent (line 41), clears DiffViewer/Terminal/CachedSnap/Workspace refs and resetPTYStateLocked (lines 50-59), markClosed, removeTab, adjusts active idx (lines 67-75), emits TabClosed (line 78), and async-kills tmux via tea.Batch(closedCmd, killCmd) when sessionName!='' (lines 82-88). A detached tab still has SessionName set so its session is also killed. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-06": {
+    "errors_found": "",
+    "result": "center/model_tabs_session.go:14-61 detachTab: gates non-chat/diff tabs with an info toast, stopPTYReader (line 41), markDetachedEndingReattachLocked + resetPTYStateLocked (lines 43-44), saves SessionName from Agent.Session if empty (lines 45-47), CloseAgent (does NOT kill tmux), emits TabDetached. renderTabBar (model_render_tabbar.go:74-106) renders detached tabs with ColorMuted indicator/name. Reattachable via ReattachActiveTab. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-07": {
+    "errors_found": "",
+    "result": "center/model_tabs_session_reattach.go:88-265 ReattachActiveTab queries session state (sessionStateForFn), captures bootstrap snapshot/scrollback, calls CreateAgentWithTags (uses tmux new-session -Ads = attach-if-exists, a new client not a new session) and returns ptyTabReattachResult; updatePtyTabReattachResult updates the tab in place by TabID and restarts the reader. autoReattachActiveTabOnSelection (model_tabs_session.go:146-163) auto-reattaches detached tabs on selection. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-08": {
+    "errors_found": "",
+    "result": "center/model_tabs_session_reattach.go:267-380 RestartActiveTab: emits 'Tab is still running' toast if running, otherwise stopPTYReader, closes existing Agent, then in the async cmd killSessionFn(sessionName) (line 334) kills the old session and CreateAgentWithTags creates a brand-new session+agent (clean slate, fresh scrollback capture lines 366-367). Distinct from reattach which preserves the existing session. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-09": {
+    "errors_found": "",
+    "result": "center/model_tabs_limit.go:27-111 EnforceAttachedAgentTabLimit: returns early when maxAttached<=0; iterates all ByWorkspace tabs, counts attached chat tabs (skips non-chat via !isChatTab line 40, and detached/non-running via attached check line 44/49); protects the focused tab (wsID==activeWorkspaceID && idx==activeTabIdx, lines 53-55); sorts candidates by lastFocusedAt (oldest first, lines 73-89) and detaches the excess via detachTab. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-10": {
+    "errors_found": "",
+    "result": "center/model_render_tabbar.go:12-168 renderTabBar: single-line bar; brand-colour Running/Idle dot indicator for chat tabs (lines 53-58, AgentColor), muted name/indicator when disconnected (lines 93-106), active-tab highlight via ActiveTab style + Surface2 bg (lines 70-89), close 'x' (\u00d7 lines 64/87/107), and '+ New' button on the right (line 150); registers tabHit regions (tabHitTab/tabHitClose/tabHitPlus) for clicks. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-11": {
+    "errors_found": "",
+    "result": "center/model_render_tabbar.go:170-208 handleTabBarClick checks close-button hit regions first (lines 189-193 -> closeTabAt), then tab regions (tabHitTab -> setActiveTabIdx + tabSelectionChangedCmd which flushes, lines 200-203) and '+ New'/empty (tabHitPlus -> ShowSelectAssistantDialog, line 198-199). model_input_mouse.go:18-23 routes left-clicks to handleTabBarClick even without an active agent. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-12": {
+    "errors_found": "",
+    "result": "center/model_input_mouse.go:205-264 updateMouseWheel: first dispatchDiffInput (line 216, diff viewer checked first), then forwardMouseWheelToTerminal (mouse-reporting passthrough), then scrolls scrollback by delta=ScrollDeltaForHeight(height,8) (~12.5% height) clamped, routed via tab-actor tabEventScrollBy with a sync scrollTerminalViewLocked fallback (lines 230-261). Catalog says 'by delta lines, clamped to max' \u2014 accurate.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-13": {
+    "errors_found": "",
+    "result": "center/model_input_keys.go:162-170 handleScrollbackKey maps PgUp->scrollTerminalPage(+1), PgDn->scrollTerminalPage(-1); scrollTerminalPage (lines 172-192) and tab_actor.go:248-252 handleScrollPage both use ScrollDeltaForHeight(height,4)=~1/4 height (not up to 1/2, but the '~1/4-1/2' wording is an imprecise overstatement; behaviour is sound). forwardKeyToTerminal (lines 122-132) calls scrollToBottomOnType for any non-scroll/non-ctrl key, snapping back to live bottom. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-14": {
+    "errors_found": "",
+    "result": "center/model_input_mouse.go:15-202 selection start/update/release: release auto-copies via CopyToClipboardWithLog (line 200) / tabEventSelectionFinish->handleSelectionFinish (tab_actor_selection.go:124-143) which copies; drag auto-scrolls at out-of-bounds Y (lines 134-140). Cmd+C: model_input_keys.go:36-62 handleCopyKey sends tabEventSelectionCopy->handleSelectionCopy (tab_actor_selection.go:42-53) which copies WITHOUT clearing the selection (distinct from handleSelectionClearAndNotify). tab_actor.go:197-198 confirms the mapping. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-15": {
+    "errors_found": "",
+    "result": "center/model_scrolled_history.go:182-215 applyScrolledChatHistoryViewLocked replaces the snapshot Screen with a scrollback-only window when ViewOffset>0 for chat tabs; model_render.go:51-52 calls it for chat tabs in View(). rebaseScrolledChatSelection (lines 217-279) rebases the selection to the visible range, and displayedScreenYToAbsoluteLineLocked (lines 104-112) rebases cursor/click mapping. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-16": {
+    "errors_found": "",
+    "result": "center/model_input.go:131-132 routes messages.OpenDiff to updateOpenDiff (model_input_lifecycle.go:229-234) -> createDiffTab. model_tabs_viewer.go:118-162 createDiffTab reuses an existing matching diff tab (findOpenDiffTab/MatchesSource) or creates a new Tab with a diff.Model DiffViewer (no PTY/Agent), appends it and activates it; dv.Init() loads the diff async (diff/model.go:61-119). The tab is switchable (in ByWorkspace) and closable (no Agent, closeTabAt works). Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-17": {
+    "errors_found": "",
+    "result": "diff/model.go:150-184 Update handles j/down & k/up (1 line), pgdown/ctrl+d & pgup/ctrl+u (ScrollDeltaForHeight(visibleHeight,2)=half-page), g/home (scroll=0 top), G/end (scrollToBottom), n/p next/prevHunk (lines 171-174, with wrap-around at lines 248-252/271-275), w toggles wrap. wheel.go CanConsumeWheel gates wheel focus. All keys in the catalog are implemented exactly. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-18": {
+    "errors_found": "",
+    "result": "diff/view.go:233-274 renderLine colours add=ColorSuccess(green), delete=ColorError(red), header=ColorInfo bold, default=foreground/gray; wraps (m.wrap) or truncates with ellipsis to contentWidth (lines 264-271). View() dispatches loading/error/empty/binary('Binary file - cannot display diff' line 96)/large('File too large to display (> 2MB)' line 111)/no-changes states. Untracked content is loaded via GetUntrackedFileContent (model.go:109-110) and rendered as full content. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-19": {
+    "errors_found": "",
+    "result": "diff/model.go:181-182 q/esc returns messages.CloseTab{}. app/app_input_dispatch.go:111-112 routes CloseTab to center.CloseActiveTab() -> closeCurrentTab/closeTabAt, removing the diff tab and (via active-idx adjustment) returning to the prior terminal tab. When prefix is inactive, Esc/q pass through to the center pane (app_input_keys.go:59-128), reaching the diff model. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-20": {
+    "errors_found": "",
+    "result": "center/model_tabs_session.go:165-217 RestoreTabsFromWorkspace iterates ws.OpenTabs, skips unknown assistants and 'stopped' status; for 'detached' adds a detached placeholder (addDetachedTab), otherwise addPlaceholderTab (Detached+reattachInFlight, model_tabs_restore.go:62-111) and reattachToSession async. On reattach failure updatePtyTabReattachFailed (model_input_lifecycle.go:170-200) marks the tab failed/detached and shows a ToastWarning. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-21": {
+    "errors_found": "",
+    "result": "center/model_tabs_session.go:116-144 flushActiveTabBacklogCmd latches catch-up (latchCatchUpLocked) on selection change and emits PTYFlush{CatchUp:true}. model_input_lifecycle_pty.go:192-196 uses the larger ptyFlushChunkSizeCatchUp so the catch-up flush replays buffered output at accelerated pace to jump to the live bottom. Verified by model_tabs_session_selection_flush_test.go which asserts catch-up latch + PTYFlush{CatchUp:true}. Matches.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "CTR-22": {
+    "errors_found": "",
+    "result": "center/model_render.go:143-168 helpLines: 'C-Spc t a' (when workspace set) and when hasTabs: 't x'(close), 't d'(detach), 't r'(reattach), 't s'(restart), 't p'(prev), 't n'(next), 'C-Spc 1-9'(jump tab), 'PgUp'(scroll up), 'PgDn'(scroll down); wrapped via WrapHelpItems(items, contentWidth). View() (lines 78-81) sets helpLines=nil unless m.showKeymapHints. Matches the catalogued list (a/x/d/r/s, p/n, 1-9, PgUp/PgDn).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-01": {
+    "errors_found": "",
+    "result": "dashboard_state.go:64-67 makes RowHome the first row ({Type: RowHome}); renderRow dashboard_render.go:20-34 renders '[amux]' and, when activeRoot==\"\", applies Bold + ColorPrimary (lines 28-33). handleEnter/activateCurrentRow (dashboard_navigation.go:173-174, 215-216) emit messages.ShowWelcome for RowHome. Update sets activeRoot=\"\" on ShowWelcome (model_update.go:107-108). Tested by TestDashboardHandleEnterHome and TestDashboardHomeActive.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-02": {
+    "errors_found": "",
+    "result": "rebuildRows (dashboard_state.go:77-82) appends one RowProject per project. renderRow RowProject (dashboard_render.go:36-93) shows project name + main-workspace status: 'deleting' spinner when m.deletingWorkspaces[main.Root] (line 44-46) and dirty color when statusCache shows !Clean (line 47-49). handleEnter for RowProject activates main/primary workspace via WorkspaceActivated (dashboard_navigation.go:217-235). Tested by TestDashboardHandleEnterProjectSelectsMain and TestMouseClickOnRows.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-03": {
+    "errors_found": "",
+    "result": "rebuildRows (dashboard_state.go:84-96) iterates sortedWorkspaces, skipping main/primary, appending RowWorkspace. sortedWorkspaces (dashboard_state.go:159-167) sorts Created.After (newest-first) then by Name then Root. renderRow RowWorkspace (dashboard_render.go:95-155) uses a 2-space prefix (unstyledPrefix+styledPrefix) for indentation vs project's 1-space, and shows creating/deleting spinner (lines 105-110), active color (111-113), or dirty color (114-116). Enter activates via WorkspaceActivated (dashboard_navigation.go:236-242). Tested by TestDashboardHandleEnterWorkspace.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-04": {
+    "errors_found": "",
+    "result": "rebuildRows (dashboard_state.go:98-101) appends a RowCreate after each project's workspaces. renderRow RowCreate (dashboard_render.go:157-164) renders the Add icon + ' New '. handleEnter for RowCreate emits messages.ShowCreateWorkspaceDialog{Project} (dashboard_navigation.go:243-246). Tested by TestDashboardHandleEnterCreate and the click test 'click Create button triggers ShowCreateWorkspaceDialog'.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-05": {
+    "errors_found": "",
+    "result": "handleNavKey (model_update.go:142-153) maps j/down and k/up to moveCursor(\u00b11) then returns m.activateCurrentRow() (preview). moveCursor (dashboard_navigation.go:82-107) walks via findSelectableRow, skipping RowSpacer (isSelectable line 11-13). Selected row highlight in renderRow (selected branch). Tested by TestMoveCursorRowByRow (spacer skipping) and TestDashboardArrowKeyActivatesWorkspace (movement emits WorkspaceActivated).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-06": {
+    "errors_found": "",
+    "result": "handleNavKey (model_update.go:154-169) maps pgdown/ctrl+d and pgup/ctrl+u to moveCursor(\u00b1visibleHeight/2) then activateCurrentRow; delta floored at 1. moveCursor skips spacers. NOTE: the catalog's clause 'PgDn at the last row transitions focus to the toolbar' is inaccurate \u2014 the pgdown case never sets m.toolbarFocused; only the j/down case does that (model_update.go:142-146). PgDn simply stops at the last selectable row, which is reasonable (no dead-end); the toolbar inaccuracy is a catalog overstatement, not a code defect, so this is a Pass.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-07": {
+    "errors_found": "",
+    "result": "handleNavKey (model_update.go:176-187): 'G' sets cursor to findSelectableRow(len-1, -1) (last selectable) and activates; 'g' sets cursor to findSelectableRow(0, 1) (first selectable = Home) and activates. Distinct key bindings, no conflict. Help line labels 'g top' / 'G bottom' (dashboard_render.go:207-208) match behavior.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-08": {
+    "errors_found": "",
+    "result": "handleEnter (dashboard_navigation.go:208-250): RowWorkspace/RowProject emit messages.WorkspaceActivated, RowHome emits messages.ShowWelcome, RowCreate emits ShowCreateWorkspaceDialog. Update on WorkspaceActivated sets m.activeRoot=msg.Workspace.Root (model_update.go:102-105), making it 'active'. Mouse left-click also routes to handleEnter (model_update.go:71-72). Tested by TestDashboardHandleEnter* and TestMouseClickOnRows.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-09": {
+    "errors_found": "",
+    "result": "handleNavKey binds 'D' (uppercase only) to handleDelete (model_update.go:172-173). handleDelete (dashboard_navigation.go:253-276): RowWorkspace -> ShowDeleteWorkspaceDialog, RowProject -> ShowRemoveProjectDialog, else nil. Lowercase 'd' has no binding so it is ignored. Explicitly tested by TestDashboardDeleteKeyBinding ('lowercase d ignored', 'uppercase D triggers delete', 'triggers remove on project').",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-10": {
+    "errors_found": "",
+    "result": "renderRow reserves a 3-char delete slot and, when the row is selected, renders ' <Close> ' and records m.deleteIconX (dashboard_render.go:70-93 for project, 132-153 for workspace). Mouse left-click handler (model_update.go:54-68) detects clicks where contentX is within [deleteIconX, deleteIconX+3) on the currently-selected RowProject/RowWorkspace and calls handleDelete(), opening the matching delete/remove dialog. Only the selected row exposes the icon (deleteSlot stays blank otherwise).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-11": {
+    "errors_found": "",
+    "result": "handleNavKey binds 'r' to m.refresh() (model_update.go:174-175); refresh emits messages.RescanWorkspaces{} (dashboard_navigation.go:279-281). Help line labels 'r rescan' (dashboard_render.go:206). NOTE: the catalog's 'r/g' is inaccurate \u2014 'g' is bound to jump-to-top (model_update.go:182-187), NOT rescan. Only 'r' triggers a rescan. The code is internally consistent and correct (help text matches behavior), so the 'g' claim is a catalog error, not a code defect; the rescan-via-r feature works.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-12": {
+    "errors_found": "",
+    "result": "handleNavKey j/down transitions to toolbar when at last selectable row (model_update.go:142-146: sets toolbarFocused=true, toolbarIndex=0). handleToolbarKey (model_update.go:120-135) maps left/h and right/l to wrap toolbarIndex, and enter to toolbarCommand. toolbarCommand(toolbarCommands) emits messages.ShowCommandsPalette (dashboard_toolbar.go:25-29). Click also opens it (handleToolbarClick + TestToolbarClick). NOTE: the catalog's 'Tab' is inaccurate \u2014 no 'tab' binding exists in the dashboard or app keymap; the toolbar is reached via j/down only. Code is correct; 'Tab' is a catalog overstate\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-13": {
+    "errors_found": "",
+    "result": "toolbarItems includes {toolbarSettings, 'Settings'} (dashboard_toolbar.go:18-23). handleToolbarKey enter -> toolbarCommand (model_update.go:132-134); handleToolbarClick -> toolbarCommand on the clicked button (dashboard_toolbar.go:129-136). toolbarCommand(toolbarSettings) emits messages.ShowSettingsDialog (dashboard_toolbar.go:30-31). Tested by TestToolbarClick 'click Settings button' asserting ShowSettingsDialog.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-14": {
+    "errors_found": "",
+    "result": "MouseWheelMsg handler (model_update.go:18-30): delta = common.ScrollDeltaForHeight(visibleHeight, 10) = max(1, height/10) (~10%, scroll.go:5-11); wheel up/down moveCursor(\u2213delta) then activateCurrentRow (auto-activate). Left-click selects+activates selectable rows via handleEnter (model_update.go:32-73); non-selectable rows are ignored (line 50-52). rowIndexAt returns false for border/out-of-bounds clicks (dashboard_navigation.go:113-161). Tested by TestRowIndexAt and TestClickOutsideContentArea (borders ignored).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-15": {
+    "errors_found": "",
+    "result": "renderRow shows animated SpinnerFrame(m.spinnerFrame) + ' creating'/' deleting' for creating/deleting workspaces (dashboard_render.go:105-110 workspace, 44-46 project). spinnerInterval = 80ms (model.go:17); SpinnerTickMsg advances spinnerFrame while creating/deleting maps are non-empty (model_update.go:85-92; tickSpinner dashboard_state.go:14-18). Deletion is checked FIRST in the if/else chain so deleting overrides active styling (working stays false; dashboard_render.go:105-116). projectRowActive also returns false for a deleting project (dashboard_state.go:188-196). Tested by TestDashboardP\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-16": {
+    "errors_found": "",
+    "result": "applyDirtyForeground (dashboard_render.go:9-16) sets common.ColorSecondary() when dirty && !active && !selected; called for both project (line 68) and workspace (line 131) rows. dirty is set from statusCache when !s.Clean (dashboard_render.go:47-49, 114-116). InvalidateStatus (model.go:114-119) keeps dirty sticky until a fresh clean result arrives, and GitStatusResult updates the cache (model_update.go:97-100). Catalog 'muted/secondary' maps to ColorSecondary \u2014 accurate.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-17": {
+    "errors_found": "",
+    "result": "Active workspace: when selected+working renderRow uses ColorPrimary (dashboard_render.go:124-127); when active-not-selected it uses styles.ActiveWorkspace (line 128-129). 'working' is set from row.ActivityWorkspaceID present in m.activeWorkspaceIDs (line 111-113), populated via SetActiveWorkspaces from center (model.go:107-109). Project rows go active via projectRowActive only when the main workspace is in activeWorkspaceIDs and not deleting (dashboard_state.go:188-196). Tested by TestDashboardIsProjectActive and TestDashboardProjectRowActive_DeletingSupersedesActive.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-18": {
+    "errors_found": "",
+    "result": "View() adjusts scrollOffset so cursor stays visible (model_update.go:210-215: clamps below cursor and above cursor-visibleHeight+1). clampScrollOffset (dashboard_state.go:126-137) caps at maxOffset = len(rows)-visibleHeight (>=0) and floors at 0; called from rebuildRows and SetProjects. Regression-tested by TestClickAfterDeleteAndAddProject and TestSetProjectsPreservesScrollOffset (click_test.go).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-19": {
+    "errors_found": "",
+    "result": "SetProjects captures selectedWorkspaceIDAt(prevCursor) before rebuild, then resolveCursorAfterRebuild re-anchors (model.go:163-177). resolveCursorAfterRebuild (dashboard_navigation.go:59-80): if the workspace still exists, cursor follows it by ID; if gone, it lands on the nearest selectable row strictly ABOVE the old slot (predecessor) via findSelectableRow(prevCursor-1, -1). Explicitly tested by TestSetProjects_AnchorsCursorToPredecessorOnDelete (verifies it lands on predecessor, not successor).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-20": {
+    "errors_found": "",
+    "result": "renderRow truncates names with '\u2026' when lipgloss.Width(name) > maxNameWidth, where maxNameWidth accounts for width-3 (border/padding), status width, deleteSlotWidth(3), and prefix width (dashboard_render.go:77-86 project, 139-148 workspace). SetSize stores width/height (model.go:142-145) used by visibleHeight, rowIndexAt, and all width math, so layout recomputes on resize. Truncation loops removing runes until it fits maxNameWidth-1, leaving room for the ellipsis.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DASH-21": {
+    "errors_found": "",
+    "result": "helpLines (dashboard_render.go:191-216) builds: k/\u2191 up, j/\u2193 down, enter open, then D (delete on RowWorkspace / remove on RowProject, lines 197-204), r rescan, g top, G bottom, C-Space Commands, C-Space S Settings, C-Space q quit; wrapped via common.WrapHelpItems(items, contentWidth). Gated by showKeymapHints in helpLineCount (dashboard_render.go:180-189) and View() (model_update.go:250). All hints listed in the catalog are present and labels match the actual key bindings.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-01": {
+    "errors_found": "",
+    "result": "internal/app/app_input_messages_dialogs.go:34-41 builds NewFilePicker(DialogAddProject, home, true) starting at os.UserHomeDir(), title 'Add Project', primary label 'Add as project'. internal/ui/common/filepicker.go:139-147 wheel up/down move cursor; :213-215 Tab calls handleAutocomplete (filepicker_navigation.go:297-315: enters dir or fills name); :232-235 Backspace -> handleBackspace (filepicker_navigation.go:134-172 goes to parent when input equals base path or empty); :237-241 ctrl+h toggles showHidden; :204-208 Esc emits Confirmed:false; :210-211 Enter -> handleEnter. applyFilter (filepi\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-02": {
+    "errors_found": "",
+    "result": "internal/app/app_input_messages_dialogs.go:47-58 NewInputDialog 'Create Workspace' with SetInputValidate running ValidateWorkspaceName per call. dialog_update.go:127-139 runs inputValidate on every keystroke after input.Update; :39-41 Enter is blocked while validationErr != ''; dialog_update.go:197-199 click-OK also blocked while invalid. dialog_render.go:143-146 renders validationErr in ColorError() (red) directly below the input. renderInputButtonsLine (dialog_render.go:220-243) renders OK/Cancel; dialog_update.go:28-32 Esc cancels.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-03": {
+    "errors_found": "",
+    "result": "app_input_messages_dialogs.go:65-69 NewConfirmDialog message \"Delete workspace '%s' and its branch?\". dialog.go:92-102 NewConfirmDialog sets options [Yes,No] with cursor/defaultCursor=1 (No) => safe default; no SetDefaultOption override here. dialog_update.go:114-122 h/left->cursor0(Yes), l/right->cursor1(No), :89-98 tab cycles; handleClick dialog_update.go:209-213 click selects; Enter returns Confirmed: cursor==0. Catalog uses double-quotes around name vs code single-quotes \u2014 cosmetic wording only.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-04": {
+    "errors_found": "",
+    "result": "app_input_messages_dialogs.go:81-87 NewConfirmDialog message \"Trust .amux/workspaces.json scripts for '%s' and run setup now?\" then SetDefaultOption(1). options are [Yes(0),No(1)] (dialog.go:98), so SetDefaultOption(1) selects 'No' (safe, redundant with the constructor default). On Yes, app_input_dialogs.go:169-172 case DialogTrustScripts calls trustRepoScriptsAndRunSetupAsync (app_operations.go:99-104 -> workspaceService.TrustRepoScriptsAndRunSetupAsync) which records approval and runs setup.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-05": {
+    "errors_found": "",
+    "result": "app_input_messages_dialogs.go:97-102 NewConfirmDialog message \"Remove project '%s' from AMUX? This won't delete any files.\"; no SetDefaultOption so defaultCursor=1 (No) per dialog.go:99-100. On Yes, app_input_dialogs.go:174-182 emits messages.RemoveProject. Wording matches catalog exactly.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-06": {
+    "errors_found": "",
+    "result": "common/agent_picker.go:16-45 NewAgentPicker(options []string) builds a DialogSelect titled 'New Agent', message 'Select agent type:', filterEnabled with fuzzy filter (fi placeholder 'Type to filter...'). dialog_update.go:89-112 tab/down and shift+tab/up navigate filteredIndices; :61-86 Enter selects; :28-32 Esc cancels. CATALOG IMPRECISION: 'running indicators' overstated \u2014 renderAgentPickerOptions agent_picker.go:71 renders Icons.Running colored by AgentColor(opt) UNCONDITIONALLY for every option; NewAgentPicker only receives names (app_input_messages_dialogs.go:110 passes a.assistantNames()\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-07": {
+    "errors_found": "",
+    "result": "app_input_dialogs.go:238-248 showQuitDialog -> NewConfirmDialog 'Quit AMUX' message 'Are you sure you want to quit?'. app_input_messages_dialogs.go:115-125 handleShowCleanupTmuxDialog -> NewConfirmDialog message 'Kill all amux-* tmux sessions on server %q?'. Both via NewConfirmDialog so defaultCursor=1 (No); dialog_update.go:28-32 Esc cancels both. On Quit-Yes app_input_dialogs.go:222-229 persists tabs, Shutdown, tea.Quit.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-08": {
+    "errors_found": "",
+    "result": "Safe defaults: every NewConfirmDialog defaults cursor to 1=No (dialog.go:99-100); SetDefaultOption(1) in trust dialog also = No. Modal blocking: app_input.go:38-40 handlePreSwitchInput runs before key/mouse routing and returns consumed=true for dialog/filepicker/settings input (app_input_dispatch.go:71-79; handleOverlayInput app_input_dialogs.go:46-64 consumes KeyPress/MouseClick/wheel/motion/release). Wheel over modals is explicitly blocked in app_input_mouse.go:112-119 (dialog/filepicker/settings/err). Minor note: while only the error overlay is up, app_input_dialogs.go:32-42 handleErrorOve\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-09": {
+    "errors_found": "",
+    "result": "common/toast.go: ShowInfo 3s (:74-76), ShowSuccess 3s (:64-66), ShowWarning 4s (:79-81), ShowError 5s (:69-71) \u2014 matches catalog 'info/success ~3s, warning ~4s, error ~5s'. View() (:106-124) sets level icon+style per type; Show (:50-61) schedules SafeTick auto-dismiss; Visible()/View() expire via showUntil. CATALOG IMPRECISION: rendered bottom-CENTER, not a 'corner' (app_view_overlays.go:60-76: x=(width-toastWidth)/2, y=height-2-prefixOverlayHeight). Fixed position is correct UX; 'corner' is just wording.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "DLG-10": {
+    "errors_found": "",
+    "result": "Key dismiss: app_input_keys.go:35-39 handleKeyPress clears a.err on ANY key (error message is not consumed by handlePreSwitchInput so it reaches handleKeyPress). Click dismiss: app_input_dialogs.go:32-42 handleErrorOverlayDismiss clears a.err on MouseLeft. Overlay text app_view_overlays.go:98 instructs 'Press any key to dismiss.' Note: only left-click dismisses (right/middle click is not handled), but 'any key' and left-click both work, satisfying the cataloged behavior.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "MOU-01": {
+    "errors_found": "",
+    "result": "internal/app/app_input_mouse.go:13-68 routeMouseClick: on tea.MouseLeft with a hit target it calls a.focusPane(targetPane) (line 24-26), which sets a.focusedPane and runs syncPaneFocusFlags (app_ui.go:18-19 -> setFocusedPane). Coordinates are translated to pane-local via adjustMouseXY for Dashboard/Center/Sidebar (lines 41/47/62, helper at 88-102: dashboard subtracts LeftGutter+TopGutter, center subtracts TopGutter, sidebar via adjustSidebarMouseXY). paneForPoint (262-311) restricts hits to visible pane interiors and intentionally returns paneNone for the outer gutter and inter-pane gaps (273\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "MOU-02": {
+    "errors_found": "",
+    "result": "internal/app/app_input_mouse.go:105-169 routeMouseWheel: palette region consumed first (106-110, prefixPaletteContainsPoint); modal/error/toast overlays blocked next (112-119 covering dialog, filePicker, settingsDialog, a.err, and toastCoversPoint -> app_view_overlays.go:216); then targetPane defaults to focusedPane and retargets to the hovered pane only when canRetargetWheelToPane returns true (127-137, 171-182 delegating to each model's CanConsumeWheel), with Dashboard hover deliberately not retargeted (130-132) because dashboard wheel auto-activates rows. Confirmed by e2e/mouse_scroll_test\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "MOU-03": {
+    "errors_found": "",
+    "result": "internal/app/app_ui_click.go:48-94 handleWelcomeClick matches '[Settings]' -> messages.ShowSettingsDialog (66-77) and '[Add project]' -> messages.ShowAddProjectDialog (79-90), using centered hit-region math (offsetY/lineOffsetX via centerOffset) that mirrors renderWelcome's lipgloss.Place (app_view_content.go:79-87). handleWorkspaceInfoClick (96-120) matches '[New agent]' -> messages.ShowSelectAssistantDialog (105-115) with raw idx/i math because renderWorkspaceInfo content is left-aligned and the button has no leading indent (app_view_content.go:69-70). The three link strings exist verbatim \u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "NAV-01": {
+    "errors_found": "",
+    "result": "internal/app/app_prefix.go:33-34 maps h->focus_left and l->focus_right; runPrefixAction (app_prefix.go:192-195) calls a.focusPaneLeft()/a.focusPaneRight(). app_ui.go:47-58 focusPaneLeft moves one pane left (Center->Dashboard, Sidebar/SidebarTerminal->Center-if-shown-else-Dashboard); app_ui.go:61-76 focusPaneRight moves one pane right (Dashboard->Center-if-shown-else-Sidebar, Center->Sidebar). Both actions return prefixMatchComplete, and app_input_keys.go:69-71 calls a.exitPrefix() on complete, so 'prefix exits after' holds. Visibility is correctly gated: prefixActionVisible (app_prefix_palett\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "NAV-02": {
+    "errors_found": "",
+    "result": "internal/app/app_prefix.go:147-160 prefixCommands(): when centerScrollPrefixActive() it appends {u, 'scroll up', scroll_up} and rewrites the existing single-key 'd' command's Desc/Action to 'scroll down'/'scroll_down'; otherwise 'd' stays 'delete workspace' (base table app_prefix.go:29). centerScrollPrefixActive (app_prefix.go:257-262) requires focusedPane==PaneCenter and center.HasActiveTerminal(). runPrefixAction (app_prefix.go:196-205): 'scroll_up' -> ScrollActiveTerminalPage(1), 'scroll_down' -> ScrollActiveTerminalPage(-1), each re-guarded by centerScrollPrefixActive(). ScrollActiveTermi\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "NAV-03": {
+    "errors_found": "",
+    "result": "internal/app/app_prefix_palette_visibility.go:51-57 showNumericTabJump() returns len(tabs) > 1 via a.center.GetTabsInfo(). app_prefix_palette.go:165-178 adds the '1-9 jump tab' choice to the 'Tabs' group only when showNumericTabJump() is true (creating the Tabs group if absent). Test TestRenderPrefixPalette_FiltersUnavailableRootCommands (app_prefix_palette_test.go:69-87) asserts '1-9' is absent with Tabs:1. Matches the expected behavior.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "OPS-01": {
+    "errors_found": "",
+    "result": "internal/logging/logger.go:72 builds the daily path fmt.Sprintf(\"%s%s%s\", logPrefix=\"amux-\", time.Now().Format(\"2006-01-02\"), \".log\") under logDir, which cmd/amux/main.go:81 sets to filepath.Join(home, \".amux\", \"logs\"). Retention: logRetentionDays() (logger.go:88-98) reads AMUX_LOG_RETENTION_DAYS with defaultRetentionDays=14 (logger.go:55), and pruneOldLogs() (logger.go:100-124) removes any amux-*.log whose parsed date is Before(now - retentionDays). Level: cmd/amux/main.go:82-85 reads AMUX_LOG_LEVEL via logging.ParseLevel (logger.go:138-151), defaulting to LevelInfo when unset/unrecognized. \u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "OPS-02": {
+    "errors_found": "",
+    "result": "AMUX_PROFILE: internal/perf/perf.go:340-351 isEnabled() reads AMUX_PROFILE (off for \"\"/0/false/no, on otherwise); maybeLog() (perf.go:178-207) emits periodic 'PERF ...' timing/counter snapshots via logging.Info. Interval: defaultLogInterval() (perf.go:353-361) reads AMUX_PROFILE_INTERVAL_MS, defaultIntervalMs=5000 (perf.go:18). Wired live: perf.Init() called at internal/app/app_init.go:47, perf.Time/Count instrumented across center/sidebar/compositor, perf.Flush(\"shutdown\") at internal/app/app_shutdown.go:26. AMUX_PPROF: cmd/amux/main.go:160-183 startPprof() serves net/http/pprof on 127.0.0.1\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "OPS-03": {
+    "errors_found": "",
+    "result": "internal/ui/center/model_pty_trace.go:16-41 ptyTraceAllowed reads AMUX_PTY_TRACE: enabled for 1/true/yes/all/*, or when the value is a comma-separated list containing the tab's assistant (case-insensitive). RECV (agent->amux) via tracePTYOutput (lines 75-77, called from model_input_lifecycle_pty.go:22); SEND (amux->agent) via tracePTYInput (lines 85-87, called from model_input.go:20 and tab_actor.go:308,331 sendToTerminal/sendMouseToTerminal which forward all keystrokes including the Enter/CR). ptyTraceDir() (lines 43-49) writes to the log dir, falling back to os.TempDir() when logging is dis\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "OPS-04": {
+    "errors_found": "",
+    "result": "internal/config/paths.go:11-35 defines Paths with Home=~/.amux, WorkspacesRoot=~/.amux/workspaces, RegistryPath=~/.amux/projects.json, MetadataRoot=~/.amux/workspaces-metadata, ConfigPath=~/.amux/config.json. EnsureDirectories (paths.go:38-52) creates Home, WorkspacesRoot, MetadataRoot at startup; called from app.New (internal/app/app_init.go:87) on the launch path (cmd/amux/main.go:101). logs/ is created separately by logging.Initialize via os.MkdirAll (internal/logging/logger.go:60-61), invoked from runTUI at cmd/amux/main.go:81-86. trusted-scripts.json lives under paths.Home (internal/proc\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "OPS-05": {
+    "errors_found": "[low] config.json was saved via plain os.WriteFile (not atomic), inconsistent with the rest of amux's crash-safe persistence (workspace.json, trusted-scripts.json); risk of a torn config.json on crash.",
+    "fix_applied": "saveUISettings now writes via internal/fsatomic.WriteFile (temp + fsync + atomic rename) instead of os.WriteFile. (config/user_settings.go)",
+    "result": "config.json schema (internal/config/config.go:71-117) reads 'assistants' (command/interrupt_count/interrupt_delay_ms, raw at config.go:32-36) and 'ui' (internal/config/user_settings.go:30-36: show_keymap_hints, theme, tmux_server, tmux_config->TmuxConfigPath, tmux_sync_interval). Per-section decode isolation is real: readConfigFile unmarshals each section independently and joins errors so a bad section does not poison others (config.go:99-116); tests TestDefaultConfigKeepsAssistantOverridesWhenUISectionIsInvalid / ...WhenAssistantSectionIsInvalid (config_test.go:90,130) confirm. Note: the cat\u2026",
+    "retest_result": "PASS: internal/config tests green; full 'go test ./...' green; 'make devcheck' green.",
+    "status": "Verified",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "OPS-06": {
+    "errors_found": "",
+    "result": "tmux.DefaultOptions reads AMUX_TMUX_SERVER and defaults to 'amux' when empty (internal/tmux/tmux.go:48-52). ui.tmux_server is wired in by app_init.applyTmuxEnvFromConfig, which sets the AMUX_TMUX_SERVER env var from cfg.UI.TmuxServer (internal/app/app_init.go:310-318 via env_helpers.setEnvIfNonEmpty:8-14) before DefaultOptions runs (app_init.go:83-84). The server name is applied to every tmux command through tmuxArgs/tmuxCommand (tmux.go:173-193). Catalog wording error: it says 'passed via -S', but the code uses -L (socket NAME) at tmux.go:176 and tmux.go:165, confirmed by tmux_test.go:337 ex\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "OPS-07": {
+    "errors_found": "",
+    "result": "cmd/amux/main.go:37-40: when isVersionInvocation(args) (exactly one arg == --version or -v, main.go:59-61) it prints 'amux %s (commit: %s, built: %s)' with version/commit/date and os.Exit(0). Non-TTY guard: main.go:47-54 calls shouldLaunchTUI(stdin,stdout,stderr) which requires ALL THREE TTYs (main.go:63-65); if any is non-TTY it prints nonInteractiveMessage() ('amux starts an interactive terminal UI and requires stdin, stdout, and stderr to be TTYs', main.go:74-76) and os.Exit(1). Behavior matches the catalog; tested by TestIsVersionInvocation (main_test.go:46), TestNonInteractiveMessage (87\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PAL-01": {
+    "errors_found": "",
+    "result": "keybindings.go:32-35 binds keymap.Prefix to both 'ctrl+@' and 'ctrl+space' (Ctrl-Space is reported either way). app_input_keys.go:42-56 calls enterPrefix() when not active. app_prefix.go:53-57 enterPrefix sets prefixActive and schedules a timeout via refreshPrefixTimeout (defaults.go:8 prefixTimeout = 3*time.Second). The palette renders grouped root commands (app_prefix_palette.go:233-240 group titles 'Tabs' for 't', 'General' otherwise). It stays open: a complete leaf or numeric exits via exitPrefix (app_input_keys.go:69-71), Esc cancels (app_input_keys.go:60-65), and the 3s timeout closes i\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PAL-02": {
+    "errors_found": "",
+    "result": "app_prefix.go:100-130 handlePrefixCommand appends the typed token, computes matchingPrefixCommands, and only returns prefixMatchComplete when 'exactCount == 1 && len(matches) == 1' (a unique leaf), e.g. ['t','a'] -> new_agent_tab. matchingPrefixCommands (app_prefix.go:165-188) prefix-matches so an ambiguous token like 't' returns 8 matches and stays prefixMatchPartial (narrowing), keeping the palette open (app_input_keys.go:72-74). TestNextPrefixPaletteChoices/visibility tests (app_prefix_palette_test.go) corroborate narrowing under 't'.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PAL-03": {
+    "errors_found": "",
+    "result": "Backspace: app_prefix.go:92-98 pops the last token when the sequence is non-empty and returns prefixMatchPartial, keeping the palette open; with an empty sequence it pops nothing and still returns partial (harmless undo at root). prefixInputToken (app_prefix.go:133-138) maps both KeyBackspace and KeyDelete to 'backspace'. Esc: app_input_keys.go:60-65 \u2014 when prefixActive and code is KeyEsc/KeyEscape it calls exitPrefix() and returns nil, so it does NOT fall through to the pane-routing switch (lines 81-138), i.e. the Esc is not forwarded to the terminal.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PAL-04": {
+    "errors_found": "",
+    "result": "app_input_keys.go:43-53: when the prefix is already active and len(prefixSequence)==0, a second prefix key calls sendPrefixToTerminal() then exitPrefix(); otherwise (non-empty sequence) it resets prefixSequence=nil and refreshes the timeout (reset to root). sendPrefixToTerminal (app_prefix.go:326-332) sends the literal NUL byte '\\x00' to the focused center or sidebar terminal. The palette footer text matches: app_prefix_palette.go:64 'Esc cancel | Backspace undo | C-Space reset | C-Space C-Space sends literal'.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PAL-05": {
+    "errors_found": "",
+    "result": "prefixCommandTable maps Sequence ['S'] -> Action 'open_settings' (app_prefix.go:30). runPrefixAction 'open_settings' emits messages.ShowSettingsDialog{} (app_prefix.go:210-211). handleShowSettingsDialog (app_input_messages_dialogs.go:128-148) builds the Settings dialog with the current theme and version/update info (NewSettingsDialog + SetUpdateInfo). Note 'S' is the uppercase token; prefixInputToken keys on the literal text so lowercase 's' would not match \u2014 consistent with the catalog's C-Space S.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PAL-06": {
+    "errors_found": "",
+    "result": "prefixCommandTable maps ['q'] -> 'quit' (app_prefix.go:31). runPrefixAction 'quit' calls showQuitDialog() (app_prefix.go:212-214). showQuitDialog (app_input_dialogs.go:238-248) builds NewConfirmDialog(DialogQuit, 'Quit AMUX', 'Are you sure you want to quit?'), which defaults cursor to 1 = 'No' (dialog.go:98-100), a safe default. On confirm, handleDialogResult DialogQuit (app_input_dialogs.go:222-229) persists tabs, calls Shutdown(), sets quitting, and returns tea.Quit. dialog_update.go:58 only confirms when cursor==0 (Yes); Esc returns Confirmed:false (dialog_update.go:28-31).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PAL-07": {
+    "errors_found": "",
+    "result": "['K'] -> 'cleanup_tmux' (app_prefix.go:32); runPrefixAction emits messages.ShowCleanupTmuxDialog{} (app_prefix.go:215-216). handleShowCleanupTmuxDialog (app_input_messages_dialogs.go:114-125) builds a NewConfirmDialog 'Kill all amux-* tmux sessions on server %q?' defaulting to No (dialog.go:98-100). On confirm, DialogCleanupTmux emits messages.CleanupTmuxSessions (app_input_dialogs.go:231-232), handled at app_input_dispatch.go:166-169 -> cleanupAllTmuxSessions (app_tmux.go:50-72), which kills @amux=1-tagged sessions then amux-* prefixed sessions and emits a success/warning Toast. Catalog impr\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PERS-01": {
+    "errors_found": "",
+    "result": "internal/pty/agent.go:77 builds a deterministic session name via tmux.SessionName(\"amux\", ws.ID(), agentType); agent.go:103-109 creates the PTY through tmux.NewClientCommand with DetachExisting:true, so the agent runs inside a named tmux session that outlives the amux process. On restart, RestoreTabsFromWorkspace (internal/ui/center/model_tabs_session.go:167-217) reads each persisted TabInfo.SessionName and reattaches via reattachToSession -> sessionStateForFn(sessionName) (model_tabs_restore.go:122-140); if the session no longer exists/has no live pane it falls back gracefully. Discovery/rea\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PERS-02": {
+    "errors_found": "",
+    "result": "Persistence is debounced and token-guarded: persistWorkspaceTabs (internal/app/app_persistence.go:54-67) marks dirty, bumps persistToken, and schedules SafeTick(persistDebounce=500ms, defaults.go:23); handlePersistDebounce (app_persistence.go:88-150) drops stale tokens and writes ws.OpenTabs + ws.ActiveTabIndex from center.GetTabsInfoForWorkspace. On restart, RestoreTabsFromWorkspace (internal/ui/center/model_tabs_session.go:167-217) iterates ws.OpenTabs in order, creating detached placeholders (addPlaceholderTab) and queuing reattachToSession per tab, then re-derives the active index (lastBe\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PERS-03": {
+    "errors_found": "",
+    "result": "On reattach, model_tabs_restore.go:150-200 captures either a full pane snapshot (captureExistingSessionBootstrap, bootstrap.CaptureFullPane) or, for stopped/non-matching sessions, scrollback via captureSessionHistory. The result (ptyTabReattachResult) is applied in internal/ui/center/model_tabs.go:234 (ptyio.RestorePaneCapture) and :248 (ptyio.RestoreScrollbackCapture), also in model_input_lifecycle.go:116/130, BEFORE the live PTY reader is (re)started. ptyio/session_restore.go:30-92 implements RestorePaneCapture (LoadSnapshot of pane data + cursor/mode + post-attach delta) and RestoreScrollb\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PERS-04": {
+    "errors_found": "",
+    "result": "maxAttachedAgentTabsFromEnv (internal/app/app_attached_limit.go:16-34) parses AMUX_MAX_ATTACHED_AGENT_TABS (default 6 via defaults.go:58; 0 disables). enforceAttachedAgentTabLimit (app_attached_limit.go:36-63) calls center.EnforceAttachedAgentTabLimit then persists every affected workspace via persistWorkspaceTabs (line 58). center/model_tabs_limit.go:27-111 counts attached (!Detached && Running) chat tabs, skips the focused tab in the active workspace (lines 53-55), sorts candidates by lastFocusedAt (LRU, lines 73-89), and detaches the excess via detachTab. detachTab (model_tabs_session.go:1\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "PERS-05": {
+    "errors_found": "",
+    "result": "Orphan GC is instance-scoped: amuxSessionsByWorkspace (internal/app/app_tmux_gc.go:201-204) adds @amux_instance=a.instanceID to the tmux tag match (instanceID is always set at init, app_init.go:158; sessions are tagged with @amux_instance at creation, app_tmux.go:32-33), so a peer instance's sessions are never even enumerated. killOrphanedSessions (app_tmux_gc.go:224-261) skips any session whose workspace ID is in knownIDs (line 230); collectKnownWorkspaceIDs (lines 36-54) deliberately includes creating AND deleting workspace IDs to avoid racing orderly cleanup. It also enforces a 30s grace p\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SET-01": {
+    "errors_found": "",
+    "result": "internal/ui/common/settings.go:202-223 (handleNext/handlePrev cycle themeCursor and emit ThemePreview{Theme,Session}); settings.go:153-159 (handleSelect commits cursor theme + emits ThemePreview); settings.go:244-253 (handleClick sets themeCursor from hit region and selects). App side: internal/app/app_input_messages_dialogs.go:173-182 handleThemePreview calls applyTheme, which (lines 156-169) mutates only in-memory a.config.UI.Theme + restyles components; it does NOT call SaveUISettings. Disk persistence is deferred: persistSettingsThemeIfDirty (lines 184-195) calls config.SaveUISettings() o\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SET-02": {
+    "errors_found": "",
+    "result": "internal/ui/common/settings_render.go:57-61 renders '  Development build' when currentVersion is empty or 'dev', else '  <version>'. settings_render.go:66-74 renders '  [Update to <latestVersion>]' only when s.updateAvailable, registering a hit region. internal/ui/common/settings.go:161-165 handleSelect on settingsItemUpdate (when updateAvailable) hides the dialog and emits messages.TriggerUpgrade{}. internal/app/app_input_dialogs.go:276-307 handleTriggerUpgrade runs the real upgrade flow (svc.Check + svc.Upgrade) and emits UpgradeComplete; app_input_dialogs.go:310-323 shows success/error toa\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SET-03": {
+    "errors_found": "",
+    "result": "internal/ui/common/settings.go:136-141 binds tab->handleNextSection and shift+tab->handlePrevSection. The focusable enum (settings.go:24-28) is exactly Theme(0), Update(1), Close(2) -- there is NO focusable 'Version' item; Version is a display-only section (settings_render.go:56-64). handleNextSection/handlePrevSection (settings.go:175-198) skip Update when !updateAvailable and wrap around, confirmed by settings_nav_test.go:94-158. Esc (settings.go:129-131) and Close (settings.go:167-169) both set visible=false and emit SettingsResult{}, which routes to handleSettingsResult (internal/app/app_\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-01": {
+    "errors_found": "",
+    "result": "internal/ui/sidebar/project_tree.go:95-99 handles j/k & up/down via moveCursor; lines 74-83 handle MouseWheelUp/Down via moveCursor(\u00b1delta). project_tree_view.go:32-84 renders a flattened hierarchical node list with a cursor indicator (Icons.Cursor) and indentation per node.Depth. reloadTree (project_tree.go:259-276) builds the tree from workspace.Root.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-02": {
+    "errors_found": "",
+    "result": "project_tree.go:103-111 l/right calls expandNode+rebuild; lines 112-128 h/left collapses an expanded dir else moves cursor to parent. expandNode (178-223) sorts dirs and files separately (sort.Slice 213-218) then appends dirs first then files (line 221). View (project_tree_view.go:50-59) shows DirOpen/DirClosed/File icons indicating expanded/collapsed state.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-03": {
+    "errors_found": "",
+    "result": "project_tree.go:101-102 enter/o calls handleEnter; mouse left-click (85-93) sets cursor then handleEnter. handleEnter (143-169): for a file node it returns a cmd emitting OpenFileInEditor{Path, Workspace} (163-168), which routes to the center pane. Directories toggle expansion instead (149-158).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-04": {
+    "errors_found": "",
+    "result": "project_tree.go:129-132 '.' flips m.showHidden and calls reloadTree(); expandNode (192-195) skips dotfiles when !showHidden. Default showHidden=true (NewProjectTree, line 48), confirmed by project_tree_test.go:375-376. Catalog wording 'preserving navigation where possible' is imprecise \u2014 reloadTree (259-276) rebuilds the whole tree (re-expands only root, collapsing previously-expanded dirs); cursor is only clamped via rebuildFlatList (250-255). This is functional, sound UX (a deliberate refresh), so it is a Pass with a catalog wording note, not a defect.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-05": {
+    "errors_found": "",
+    "result": "project_tree.go:133-135 'r' calls reloadTree(), which re-creates root and calls expandNode (re-reads os.ReadDir at 183) and re-sorts (213-218). project_tree_test.go:389-399 (TestProjectTreeUpdateRefreshKeepsNodes) verifies refresh re-reads and preserves node count with no spurious cmd.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-06": {
+    "errors_found": "",
+    "result": "model.go rebuildDisplayList (63-161) builds three sections Staged/Unstaged/Untracked, each with a counted header e.g. 'Staged (N)' (102,118,134). model_view.go renderChanges (113-177) renders headers via SidebarHeader and each file with a color-coded single-char status: StatusModified/Added/Deleted/Renamed/Untracked (135-148) via item.change.KindString() (151). Status codes M/A/D/R/U map to git.Change kinds.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-07": {
+    "errors_found": "",
+    "result": "model_input.go:84-89 '/' sets filterMode and focuses filterInput. In filter mode (17-39): esc clears+exits, enter exits keeping query, other keys feed filterInput and rebuild with case-insensitive match (model.go:75 strings.Contains(ToLower,ToLower)). Header: model_view.go:69-78 shows '/'+input while typing, and 'filter: <q>' (75-77) once a non-empty query is active. Minor wording note: the literal 'filter: <q>' prefix only shows after exiting filter mode (a persisted-filter indicator), while live typing shows '/<input>'; both are present and coherent.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-08": {
+    "errors_found": "",
+    "result": "model_input.go moveCursor (144-179) skips header items in both directions. enter/space/o (line 80) calls openCurrentItem (96-117) which emits messages.OpenDiff{Change, Mode, Workspace} (110-116); Mode is the item's git.DiffModeStaged/Unstaged set in rebuildDisplayList (108,124,141). Header/nil items are no-ops (102-104).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-09": {
+    "errors_found": "",
+    "result": "model_input.go:82-83 'g' calls refreshStatus (182-192) which returns an async cmd running git.GetStatus(root) and emitting messages.GitStatusResult{Root,Status,Err}. UI updates via SetGitStatus (model_lifecycle.go:68-71) which stores status and rebuilds the display list. Catalog wording 'GetStatus' matches git.GetStatus.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-10": {
+    "errors_found": "",
+    "result": "model_view.go renderChanges: branch line 'branch: '+BranchName (62-66); count '<N> changed files' via GetDirtyCount (87-88); optional '+X' (StatusAdded) and '-Y' (StatusDeleted) line stats gated on HasLineStats && (TotalAdded>0||TotalDeleted>0) (89-100).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-11": {
+    "errors_found": "",
+    "result": "tabs.go: '1'=>TabChanges, '2'=>TabProject only when m.focused (148-158); MouseLeft on Y==0 inside a tabHit region switches tabs (91-107); renderTabBar highlights the active tab with activeTabStyle vs muted inactive (211-235). updateFocus (178-192) focuses only the active inner model so only the focused tab receives keys; inner models also guard on m.focused (model_input.go:71, project_tree.go:69).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-12": {
+    "errors_found": "",
+    "result": "terminal_render.go renderTabBar (15-137) draws a single-line tab bar with a '+ New' button (120-134) and per-tab close affordance; View (310-381) renders tab bar + VTerm content. Focus/Blur (terminal.go:258-273) toggle cursor visibility via setActiveTerminalCursorVisibility (280-294). Key routing gated on m.focused (terminal_update.go:107,129,151). Real composition draws TabBarView + TerminalLayer + StatusLine + HelpLines (app_view_panes.go:213-225).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-13": {
+    "errors_found": "",
+    "result": "'+ New' click and C-Space t t both create tabs: handleTabBarClick (terminal_selection.go:41-42) -> CreateNewTab; app_prefix.go:233 routes 'new_terminal_tab' to sidebarTerminal.CreateNewTab. Names 'Terminal N' via nextTerminalName (terminal.go:212-223). Close via \u00d7 hit region (terminal_selection.go:27-35 closeTabAt) or C-Space t x (app_prefix.go:239-241); closeSessionIfUnattached kills an unattached session after a 1200ms deadline (terminal_tab_ops.go:115-137). NextTab/PrevTab cycle circularly via TabSet NextIdx/PrevIdx (terminal.go:226-243), reachable via C-Space t n/p (app_prefix.go:235-237 \u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-14": {
+    "errors_found": "",
+    "result": "terminal_update.go handleKeyPress (151-214) forwards all keys to the PTY (207-213) except PgUp/PgDown (178-196) which scroll. Cmd+C (isCopyKey: ModSuper && code 'c', 162-163) copies the current selection and does NOT forward to the terminal (166-175), so it is a copy, not SIGINT. handlePaste (128-146) wraps content in bracketed-paste markers \\x1b[200~ ... \\x1b[201~ and sends it.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-15": {
+    "errors_found": "",
+    "result": "terminal_update.go: PgUp/PgDown scroll by ScrollDeltaForHeight(Height,2) ~= half screen (182,191). handleMouseWheel (106-125) uses ScrollDeltaForHeight(Height,8) ~= 12.5%. Indicator 'SCROLL: N/M lines up' rendered when IsScrolled (terminal_render.go StatusLine 195-202 and View 344-351 via formatScrollPos 425-430). Any other keystroke snaps back: handleKeyPress (199-204) calls ScrollViewToBottom when IsScrolled before forwarding.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-16": {
+    "errors_found": "",
+    "result": "terminal_selection.go: handleMouseClick (100-145) starts a selection; handleMouseMotion (148-217) extends and auto-scrolls at viewport edges (183-193) with a continuing tick loop (203-212); handleMouseRelease (220-251) copies selection text to clipboard via CopyToClipboardWithLog (248) keeping the highlight (242). Cmd+C copies current selection (terminal_update.go:166-175). VTerm.SetSelection/ExtendSelection drive the highlight.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-17": {
+    "errors_found": "",
+    "result": "terminal_render.go StatusLine (188-218): SCROLL (ColorInfo) when IsScrolled, DETACHED (ColorWarning/orange) when ts.Detached, STOPPED (ColorError/red) when !Running. app_view_panes.go:224-225 renders StatusLine above HelpLines in the real sidebar bottom pane composition, matching 'above the help bar'. Note: the standalone View() only inlines SCROLL, but the production path uses StatusLine, so DETACHED/STOPPED do display.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-18": {
+    "errors_found": "",
+    "result": "DetachActiveTab (terminal_pty_attach.go:183-190) -> detachState (terminal_pty_lifecycle.go:196-213) stops the reader, closes the PTY client (term.Close) and marks Detached but does NOT kill tmux. ReattachActiveTab (193-213) re-attaches via attachToSession action='reattach', capturing scrollback (captureExistingSessionBootstrap / captureSessionHistory 306-339). RestartActiveTab (216-238) detaches, KillSession (236), then attachToSession action='restart' creating a fresh session. C-Space t d/r/s route via dispatchTabAction (app_prefix.go:243-251).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-19": {
+    "errors_found": "",
+    "result": "Tabs are keyed by workspace ID in m.tabs.ByWorkspace[wsID] (terminal.go:168-180), so switching workspaces leaves the prior workspace's tabs intact in the map. RebindWorkspaceID (terminal_workspace_rebind.go:12-66) migrates tabs to a new ID and restarts only running readers (54-62). On reattach, scrollback is restored (terminal_update_session.go handleReattachResult 78-142 RestorePaneCapture/RestoreScrollbackCapture). Test terminal_workspace_rebind_test.go verifies state migration and that a non-running terminal yields no restart cmd while tmux survives.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-20": {
+    "errors_found": "",
+    "result": "terminal_update_pty.go handlePTYStopped (116-165): if the underlying terminal is still alive it computes NextRestartBackoffLocked(window,max) (137) and schedules a SidebarPTYRestart tick (149-151); once shouldRestart is false it sets Running=false and Detached=true (140-143) \u2014 i.e. after the failure limit it marks detached. tmux session is left alive (comment 142, no KillSession). handlePTYRestart (168-181) restarts the reader if the terminal is still open.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-21": {
+    "errors_found": "",
+    "result": "wheel.go: TabbedSidebar.CanConsumeWheel dispatches to the active tab (5-17). Changes canConsumeWheel returns false when gitStatus nil/clean or <=1 selectable item (38-49); ProjectTree returns false when no workspace or <=1 flatNode (51-56); TerminalModel returns false unless the active VTerm has MaxViewOffset()>0 (20-36). All guard against empty/non-scrollable panes stealing wheel focus. Wording note: it also returns false for a single-row (non-empty) pane, which is a superset of 'empty' but a sound choice since a 1-row pane cannot scroll.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "SIDE-22": {
+    "errors_found": "",
+    "result": "Project hints: project_tree_view.go helpLines (143-152) k/up, j/down, h/collapse, l/expand, '.' hidden, 'r' refresh; gated by showKeymapHints (101-103,156-158). Changes hints: model_view.go helpLines (187-194) k/up, j/down, '/' filter; gated (26-28,196-204). Terminal hints: terminal_render.go helpLines (229-263) 'C-Spc t t' always, t n/p/x when HasMultipleTabs, t d/r/s when a terminal exists, plus PgUp/PgDn; gated via helpLinesForLayout (271-287). All match the catalogued per-tab hint sets.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-01": {
+    "errors_found": "",
+    "result": "internal/tmux/command.go:43 builds `new-session -A%ss` (atomic create/attach; -d only when DetachExisting); lines 48-49 set per-session `prefix None`/`prefix2 None`; line 51 `status off` (HideStatus); line 54 `mouse off` (DisableMouse); line 60 `-w monitor-activity on`; appendSessionTags (lines 73-93) writes @amux=1 plus @amux_workspace/@amux_tab/@amux_type/@amux_assistant/@amux_created_at/@amux_instance/@amux_session_owner(TagSessionOwner)/@amux_session_lease_ms(TagSessionLeaseAt). Line 68 attaches with `attach -t` (or `-dt`). SessionTags struct at tmux.go:35-44 carries all listed fields. Ma\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-02": {
+    "errors_found": "",
+    "result": "internal/app/app_tmux_discover.go:55-60 builds match {@amux:1,@amux_workspace:<id>,@amux_type:agent} and calls svc.SessionsWithTags to hydrate tabs; lines 137-142 do the same with @amux_type:terminal for sidebar terminals. tmux/tags.go:29-59 SessionsWithTags queries `list-sessions -F` for the requested tag keys (tags.go:61-84). No @amux_instance filter is applied in discovery, so sessions from other instances are also found, matching 'incl. from other instances'. Tabs/terminals are hydrated into data.TabInfo / sidebar.SessionAttachInfo (lines 90-96, 171-182).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-03": {
+    "errors_found": "",
+    "result": "internal/tmux/tmux.go:110-145 AllSessionStates runs `list-panes -a -F \"#{session_name}\\t#{pane_dead}\"` and parseSessionStates aggregates per session: Exists=true for any appearance, HasLivePane=true once any pane reports pane_dead==\"0\". internal/tmux/activity.go:91-102 ActiveAgentSessionsByActivity uses `#{window_activity}` timestamps via list-windows -a; activityWithinWindow (activity.go:10-19) applies the activity window (with +1s second-resolution slack). Matches expected_behavior.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-04": {
+    "errors_found": "",
+    "result": "internal/app/app_init.go:288-295 startTmuxSyncTicker bumps syncToken and ticks via common.SafeTick(a.tmuxSyncInterval()); default tmuxSyncDefaultInterval = 7*time.Second (internal/app/defaults.go:17). handleTmuxSyncTick (app_tmux_sync.go:17-37) drops stale ticks (msg.Token != syncToken, line 18), then for each sync workspace runs discoverWorkspaceTabsFromTmux + syncWorkspaceTabsFromTmux and gcOrphanedTmuxSessions (lines 24-33), then reschedules. Discover+status-sync+orphan-GC and token guard all present, ~7s default.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-05": {
+    "errors_found": "",
+    "result": "C-Space K binds to action cleanup_tmux (internal/app/app_prefix.go:32, dispatched at :215-216 emitting ShowCleanupTmuxDialog). Confirmation dialog (app_input_messages_dialogs.go:115-124) uses NewConfirmDialog whose options are [\"Yes\",\"No\"] with defaultCursor=1 -> 'No' (internal/ui/common/dialog.go:98-100), a safe default for a destructive action. cleanupAllTmuxSessions (app_tmux.go:50-71) kills @amux:1-tagged sessions (KillSessionsMatchingTags, line 57) AND amux-* prefixed sessions (KillSessionsWithPrefix, lines 63-64) and emits a success/warning Toast. NOTE: the catalog's 'toast reports the \u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-06": {
+    "errors_found": "",
+    "result": "internal/app/app_tmux_gc.go: orphan GC (gcOrphanedTmuxSessions :58-77 -> killOrphanedSessions :224-261) kills tmux sessions whose @amux_workspace is not in collectKnownWorkspaceIDs, but skips sessions younger than orphanSessionGracePeriod (30s, :15,:243,:263-272) and skips attached sessions (:246-252). Stale-detached GC (gcStaleDetachedAgentSessions :79-190) kills unattached idle agent sessions older than detachedAgentStaleAfter (24h, defaults.go:65) -- with a 72h live-pane extension (defaults.go:69, :177) -- skipping attached/fresh. Both are instance-scoped via @amux_instance (amuxSessionsBy\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-07": {
+    "errors_found": "",
+    "result": "Global: SetMonitorActivityOn runs `set-option -g monitor-activity on` (internal/tmux/activity.go:187-189) and is invoked when tmux availability is (re)established at startup (internal/app/app_tmux_activity.go:325-330 inside handleTmuxAvailableResult). Per-session: command.go:60 emits `set-option -t <session> -w monitor-activity on` at create. Catalog phrase 'startup/server change' is a slight imprecision (the global set fires on the tmux-available result rather than a distinct server-change handler), but the implemented behavior matches the stated intent and the code comment (activity.go:88-9\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-08": {
+    "errors_found": "",
+    "result": "internal/tmux/tmux.go:66-71 EnsureAvailable uses exec.LookPath(\"tmux\") and on absence returns an error embedding InstallHint(). InstallHint (tmux.go:73-82) is OS-specific: darwin -> 'macOS: brew install tmux', linux -> 'Linux: sudo apt install tmux  (or dnf/pacman/etc.)', default -> generic PATH hint. Tab-creation actions are blocked with an error toast when !tmuxAvailable: app_prefix.go:221-223 (new_agent_tab) and :229-231 (new_terminal_tab) both return toast.ShowError('tmux required to create tabs. '+installHint). Catalog's '(brew/apt/dnf/pacman)' overstates the linux branch (apt is primary\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TMUX-09": {
+    "errors_found": "",
+    "result": "cmd/amux/tmux_socket_janitor.go: cleanupStaleTestTmuxSockets (:22-56) sweeps tmuxSocketDirs (/tmp/tmux-<uid> and /private/tmp/tmux-<uid>, :58-74), and for socket-mode entries prefixed amux-test- or amux-e2e-check- (:34) removes those that fail a 75ms unix dial probe (isLiveUnixSocket, :76-84; staleSocketDialTimeout = 75*time.Millisecond, :16). It runs in the background at startup via safego.Go(\"tmux_socket_janitor\", cleanupStaleTestTmuxSockets) (cmd/amux/main.go:95). Matches expected_behavior.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TRUST-01": {
+    "errors_found": "",
+    "result": "internal/process/scripts.go:216-222 (RunSetup) and :294-300 (RunScript) return *ScriptsNotTrustedError{Repo,Command,ConfigHash} when len(config.SetupWorkspace)>0 / fromRepoConfig and !r.trust.IsTrusted(ws.Repo,raw). The error wraps the ErrScriptsNotTrusted sentinel (scripts.go:49-55). On the UI side internal/app/app_input_workspace.go:73-85 catches errors.Is(msg.Err, process.ErrScriptsNotTrusted), shows a warning toast AND batches a messages.ShowTrustScriptsDialog carrying the blocked ConfigHash; internal/app/app_input_messages_dialogs.go:74-88 presents the Trust Project Scripts confirm dialo\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TRUST-02": {
+    "errors_found": "",
+    "result": "Trust key is the hex SHA-256 of the exact config bytes: hashConfig (internal/process/script_trust.go:54-57) and IsTrusted compares approved==hashConfig(configContent) (script_trust.go:88-101), so any byte change flips it to false (test TestScriptTrustInvalidatedWhenContentChanges, script_trust_test.go:32-48). On approval, TrustRepoScriptsIfHash (internal/process/scripts.go:357-369) re-reads the file and returns ErrScriptsChangedSincePrompt without recording trust if hashConfig(raw)!=expectedHash. The app retry (internal/app/workspace_service.go:213-221) then still calls RunSetup, which re-gat\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TRUST-03": {
+    "errors_found": "",
+    "result": "In internal/process/scripts.go:272-300, fromRepoConfig is set true only when config.RunScript/config.ArchiveScript (loaded from .amux/workspaces.json) are non-empty (:277, :283); when they are empty it falls back to ws.Scripts.Run / ws.Scripts.Archive (user-entered in UI) with fromRepoConfig staying false (:279, :285). The trust gate at :294 is `if fromRepoConfig && !r.trust.IsTrusted(...)`, so user-entered scripts always run ungated. Verified by TestScriptRunnerWsScriptsRunWithoutTrust (internal/process/scripts_trust_gate_test.go:83-105): with an empty (untrusted) registry, ws.Scripts.Run st\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "TRUST-04": {
+    "errors_found": "",
+    "result": "Registry is per-repo->hash map persisted to <home>/trusted-scripts.json (internal/process/script_trust.go:18,36-51; home resolved via config.DefaultPaths -> ~/.amux in internal/config/paths.go:26-34). Trust() writes atomically via fsatomic.WriteFile (script_trust.go:106-122), which does temp-file + Sync + rename (internal/fsatomic/fsatomic.go:27-62). load() is fail-closed: missing file -> empty map (script_trust.go:66-69), unreadable or unparseable -> empty map + logged warning (script_trust.go:70-78), nil map normalized to empty (:79-81); IsTrusted returns false for any repo not present and \u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "UPD-01": {
+    "errors_found": "",
+    "result": "internal/update/updater.go:72-115 Check(): IsHomebrewBuild() short-circuits at :73-79 (returns UpdateAvailable:false), IsDevBuild(u.version) short-circuits at :81-87; otherwise FetchLatestRelease (github.go:79-108) then ParseVersion of both (updater.go:94-102) and currentVer.LessThan(latestVer) semver compare (:104). Returns CurrentVersion/LatestVersion/UpdateAvailable/ReleaseNotes(Body)/Release (:108-114). version.go:19 semverRegex + Compare()/comparePrerelease() implement real semver (prerelease lower precedence, numeric identifiers). IsDevBuild treats ''/dev/none/unknown as dev (version.go\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "UPD-02": {
+    "errors_found": "",
+    "result": "internal/update/updater.go Upgrade(): fetchChecksums (:150), looks up the platform asset's checksum and aborts if absent ('checksum not found', :155-158), downloads the platform asset to a temp file (:168-179), then VerifyChecksum (:182-185) aborts with 'checksum verification failed' on mismatch. github.go FetchChecksums (:138-172) downloads checksums.txt and parseChecksums maps filename->sha256. checksum.go VerifyChecksum (:12-23) does SHA-256 via hashFile and errors on mismatch. updater_upgrade_test.go TestUpgradeChecksumMismatchNeverInstalls + TestUpgradeHappyPathOrder pin verify strictly \u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "UPD-03": {
+    "errors_found": "",
+    "result": "internal/update/install.go ExtractBinary (:19-73): only entries whose filepath.Base==\"amux\" are extracted (:45-47), non-regular entries (symlinks/dirs) skipped via TypeReg filter (:50), written 0o755 (:55); errors 'amux binary not found in archive' if none (:68-69). extract_hostile_test.go confirms ../.. and absolute paths are collapsed to destDir and symlinks rejected. InstallBinary (:78-121): stages new binary as .amux-upgrade-new in target dir to avoid EXDEV (:92-97), backs up current to .bak (:101-102), atomic renameFile staged->current (:107), and on swap failure restores .bak (:108-114)\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "UPD-04": {
+    "errors_found": "",
+    "result": "internal/update/updater.go Upgrade(): Homebrew guard returns 'installed via Homebrew; run: brew upgrade amux' (:123-125); go-install guard returns 'installed via go install; run: go install github.com/andyrewlee/amux/cmd/amux@latest' (:128-130); write-permission guard returns 'no write permission to %s; try running with sudo' (:145-147). buildinfo.go IsHomebrewBuild (:10-13) reads ldflags var; install.go IsGoInstall/isGoInstallPath (:165-185) checks GOPATH/bin containment; CanWrite (:188-206) probes file and parent dir. Catalog phrasings 'go install ...@latest' and 'try sudo' are accurate par\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-01": {
+    "errors_found": "",
+    "result": "app/workspace_service.go:22-73 AddProject expands ~, calls validation.ValidateProjectPath (validation/validation.go:75-116 stats path + checks .git exists at :110-113), then git.IsGitRepository (git/operations.go:96-99 runs `git rev-parse --git-dir`), adds to registry via s.registry.AddProject, returns messages.RefreshDashboard{} which dispatch (app_input_dispatch.go:212-213) routes to loadProjects() so the project appears in the dashboard.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-02": {
+    "errors_found": "",
+    "result": "app/workspace_service.go:443-459 RemoveProject only calls registry.RemoveProject(project.Path) (data/registry.go:168-202, filters projects.json) and emits ProjectRemoved; no workspace metadata is deleted, so workspaces remain orphaned in metadata. app/app_operations.go:118-131 removeProject calls a.goHome() when a.activeWorkspace.Repo == project.Path, clearing the active workspace. No files deleted.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-03": {
+    "errors_found": "",
+    "result": "app/workspace_service.go:77-182 CreateWorkspace resolves base (workspace_service_paths.go:55-65), builds pending ws under managed root filepath.Join(projectRoot,name) (:67-84), validates name/base/assistant, calls gitOps.CreateWorkspace (git/workspace.go:30-61 `git worktree add -b branch path base`), saves metadata via store.Save, returns WorkspaceCreated. app/app_input_workspace.go:54-65 handleWorkspaceCreated then queues runSetupAsync (setup scripts) and loadProjects (appears in dashboard). Managed root resolves to ~/.amux/workspaces/<project>/<name> (config/paths.go:30).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-04": {
+    "errors_found": "",
+    "result": "Delete confirmation dialog (app/app_input_messages_dialogs.go:62-70 NewConfirmDialog 'Delete workspace ... and its branch?') defaults to the SAFE 'No' option (ui/common/dialog.go:92-102 cursor:1, defaultCursor:1) \u2014 not the dangerous option. app/workspace_service.go:286-355 DeleteWorkspace rejects primary checkout, writes tombstone FIRST (:316 markDeleteTombstone), removes worktree+branch under lock (:387-410), kills tmux sessions after worktree removal (:403), removes metadata via store.Delete (:323); on failure handleWorkspaceDeleteFailed (app_input_workspace.go:195-225) clears in-flight and\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-05": {
+    "errors_found": "",
+    "result": "app/workspace_service_load.go:174-221 RescanWorkspaces iterates ListByRepoIncludingArchived; workspaces not in discoveredSet and not already Archived are marked ws.Archived=true with ws.ArchivedAt=time.Now() then Save (:205-220). app/workspace_service_load.go:38 LoadProjects uses ListByRepo (data/workspace_store.go:265-267 -> listByRepo includeArchived=false), which skips archived at workspace_store.go:410-412, so archived workspaces are hidden from the main list.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-06": {
+    "errors_found": "",
+    "result": "app/workspace_service_load.go:109-226 RescanWorkspaces calls git.DiscoverWorkspaces -> git/workspace.go:256-265 runs `git worktree list --porcelain` per project (parseWorktreeList :268-318). New workspaces get default assistant when ws.Assistant empty (:148-150) and UpsertFromDiscovery applies defaults for new records (data/workspace_store_discovery.go:31-37); existing stored Assistant wins (:86-88). Missing worktrees archived (:174-221). delete-in-flight guarded via isDeleteInFlight/runUnlessDeleteInFlight (:139,153,178,186,207).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-07": {
+    "errors_found": "",
+    "result": "app/workspace_service_load.go:17-106 LoadProjects reads registry.Projects (:22), loads stored metadata via store.ListByRepo (:38), recovers interrupted deletes from tombstones via finishInterruptedDelete (:48 -> workspace_delete_tombstone.go:62-84), synthesizes primary checkout from GetCurrentBranch when absent (:69-98) and restores its UI state via LoadMetadataFor/Save (:85-95). Stale reloads dropped by load tokens: handleProjectsLoaded drops loadToken < lastApplied (app_input_messages_workspace.go:24-30).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-08": {
+    "errors_found": "",
+    "result": "process/scripts.go:204-255 RunSetup loads .amux/workspaces.json (loadConfigRaw :185-201), and when config.SetupWorkspace is non-empty it returns ScriptsNotTrustedError unless trust.IsTrusted (:216-222) \u2014 fail-closed. ScriptTrust.IsTrusted (script_trust.go:88-101) returns false on missing/corrupt registry (load :62-83 logs+returns empty map). Setup commands run sequentially in ws.Root (cmd.Dir, :229) with env from EnvBuilder.BuildEnv (env.go:24-50). Failure is returned and surfaced as a toast (app_input_workspace.go:68-90) while the workspace stays usable.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-09": {
+    "errors_found": "",
+    "result": "process/scripts.go:258-337 RunScript launches the command in ws.Root (cmd.Dir, :312) with EnvBuilder env (:309,313). Repo-config scripts (config.RunScript/ArchiveScript) set fromRepoConfig=true and are trust-gated (:272-300); user-entered ws.Scripts.* fall through with fromRepoConfig=false and always run (:278-286,293). CATALOG IMPRECISION: expected_behavior says 'in a tmux pane' but RunScript actually uses exec.Command(\"sh\",\"-c\",cmdStr) as a plain subprocess (:311) monitored via safego.Go \u2014 not tmux. The functional contract (workspace root, env vars, user-vs-repo trust gating) is correct, so\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-10": {
+    "errors_found": "",
+    "result": "app/workspace_service_paths.go:55-65 resolveBase returns a non-empty trimmed base as-is, else calls git.GetBaseBranch falling back to 'HEAD' on error. git/branch.go:15-54 GetBaseBranch tries local main/master/develop/dev (:17-24), then remote origin/<candidate> (:27-33), then symbolic-ref refs/remotes/origin/HEAD resolved locally/remotely (:36-51), erroring otherwise (:53). Base is validated (ValidateBaseRef) and stored in ws.Base (workspace_service.go:101,109,117).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-11": {
+    "errors_found": "",
+    "result": "data/workspace_store.go:60-62 workspacePath = root/<id>/workspace.json where root is ~/.amux/workspaces-metadata (config/paths.go:32). Save (:168-217) marshals name/branch/base/repo/root/assistant/scripts/env/openTabs/activeTab/archived (data/workspace.go:50-82 struct tags) and writes atomically via fsatomic.WriteFile (temp + tmp.Sync() fsync + os.Rename, fsatomic.go:27-62). Read path falls back to <id>/workspace.json.bak on corruption (workspaceMetadataExists :96-104, backup recovery). Matches expected behavior.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-12": {
+    "errors_found": "",
+    "result": "app/workspace_service_load.go:60-98 synthesizes a primary workspace with root==repo==path and branch=GetCurrentBranch, prepended so it is listed first (:96 append([]data.Workspace{*primaryWs}, workspaces...)). data/workspace.go:100-107 IsPrimaryCheckout returns root==repo. Never deleted: DeleteWorkspace fails on ws.IsPrimaryCheckout() (workspace_service.go:286-288). UI state persists via store.LoadMetadataFor/Save (:85-95).",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-13": {
+    "errors_found": "",
+    "result": "app/workspace_lifecycle_state.go:14-49 defines phases active/creating/deleting with a transition table making creating/deleting mutually exclusive, entered only from active, always allowed back to active (:37-49). Delete-in-flight blocks rescan import (workspace_service_load.go:139,153,178). Stale LoadProjects dropped by token (app_input_messages_workspace.go:24-30). Concurrency is guarded by phaseMu sync.RWMutex over the phase map (:59,89-105), per-repo sync.Mutex repoGitLocks (workspace_service_init.go:66-68), and per-workspace flock files (data/workspace_store.go:186,249). CATALOG IMPRECIS\u2026",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  },
+  "WS-14": {
+    "errors_found": "",
+    "result": "app/workspace_paths.go:40-141 scopes workspaces under workspacesRoot/<projectSegment> (managedProjectRoots :40-76; default ~/.amux/workspaces per config/paths.go:30). isManagedWorkspacePathForProject (:92-105) validates paths within the managed roots; create and delete both enforce it (workspace_service.go:144-149,307-309). Destructive stale-cleanup uses isManagedWorkspaceChildPathForProject -> isPathWithin (:111-141) which excludes rel=='.' (strict nesting) so the project root itself can never be recursively deleted.",
+    "status": "Pass",
+    "test_method": "code-trace (Phase 2 multi-agent verify)"
+  }
+}
