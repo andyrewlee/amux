@@ -99,6 +99,11 @@ func (a *App) viewLayerBased() tea.View {
 		ForegroundColor:      common.ColorForeground(),
 		KeyboardEnhancements: tea.KeyboardEnhancements{ReportEventTypes: true},
 	}
+	if a.center != nil {
+		if title := a.center.FocusedAgentTitle(); title != "" {
+			view.WindowTitle = title
+		}
+	}
 	var terminalCursor *tea.Cursor
 	setTerminalCursor := func(x, y int) {
 		if x < 0 || y < 0 || x >= a.width || y >= a.height {

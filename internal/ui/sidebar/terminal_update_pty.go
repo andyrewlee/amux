@@ -8,6 +8,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -87,13 +88,21 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		return nil
 	}
 	var consumed bool
+	var pendingClip []byte
 	ts.mu.Lock()
 	if ts.VTerm != nil {
 		chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
 		_ = ts.State.WriteFilteredChunkLocked(ts.VTerm.Write, chunk)
+		pendingClip = ts.VTerm.TakePendingClipboard()
 		consumed = true
 	}
 	ts.mu.Unlock()
+	if len(pendingClip) > 0 {
+		clip := string(pendingClip)
+		safego.Go("sidebar.osc52_clipboard", func() {
+			common.CopyToClipboardWithLog(clip, "agent OSC52 (sidebar)")
+		})
+	}
 	if !consumed {
 		return nil
 	}

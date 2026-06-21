@@ -6,6 +6,7 @@ import (
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -20,11 +21,12 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		filterApplied  bool
 		requestFlush   bool
 		suppressRedraw bool
+		pendingClip    []byte
 	)
 	tab.mu.Lock()
 	staleWrite := ev.writeEpoch != tab.actorWriteEpoch
 	if !staleWrite && tab.Terminal != nil {
-		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp = m.applyActorWriteLocked(tab, ev, processedBytes)
+		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp, pendingClip = m.applyActorWriteLocked(tab, ev, processedBytes)
 	}
 	tab.mu.Unlock()
 	if staleWrite {
@@ -45,6 +47,12 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 			_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
 		})
 	}
+	if len(pendingClip) > 0 {
+		clip := string(pendingClip)
+		safego.Go("center.osc52_clipboard", func() {
+			common.CopyToClipboardWithLog(clip, "agent OSC52")
+		})
+	}
 	if requestFlush && m.msgSink != nil {
 		m.msgSink(PTYFlush{WorkspaceID: ev.workspaceID, TabID: ev.tabID, CatchUp: ev.catchUp})
 	}
@@ -59,8 +67,9 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 // catch-up settlement, and emits the inside-lock flush counters. The caller
 // holds tab.mu and has verified tab.Terminal != nil. It returns the filtered
 // byte count, whether the filter ran, whether the redraw should be suppressed,
-// whether a follow-up flush is needed, and the activity tag to publish.
-func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64) {
+// whether a follow-up flush is needed, the activity tag to publish, and any
+// clipboard payload captured from an OSC 52 write (to be drained off the lock).
+func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64, pendingClip []byte) {
 	output := ptyio.FilterKnownPTYNoiseStream(ev.output, &tab.NoiseTrailing)
 	filteredLen = len(output)
 	filterApplied = true
@@ -70,6 +79,7 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 		flushDone()
 		perf.Count("pty_flush_bytes", int64(len(output)))
 	}
+	pendingClip = tab.Terminal.TakePendingClipboard()
 	// Activity state intentionally tracks visible terminal mutations only.
 	// Noise-only chunks are filtered above and must not update activity tags.
 	tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, ev.hasMoreBuffered, ev.visibleSeq, output)
@@ -86,7 +96,7 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 	if tab.actorWritesPending == 0 {
 		requestFlush = finalizeActorWriteLocked(tab)
 	}
-	return filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp
+	return filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp, pendingClip
 }
 
 // enqueueActorWrite optimistically advances the actor-write accounting for a

@@ -157,6 +157,27 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 	return running
 }
 
+// FocusedAgentTitle returns the OSC-reported window title of the currently
+// displayed agent tab, or "" when there is none. Reads the tab's VTerm under
+// tab.mu (the VTerm has no internal lock).
+func (m *Model) FocusedAgentTitle() string {
+	tabs := m.getTabs()
+	idx := m.getActiveTabIdx()
+	if idx < 0 || idx >= len(tabs) {
+		return ""
+	}
+	tab := tabs[idx]
+	if tab == nil {
+		return ""
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if tab.Terminal == nil {
+		return ""
+	}
+	return tab.Terminal.Title()
+}
+
 // StartPTYReaders starts reading from all PTYs across all workspaces
 func (m *Model) StartPTYReaders() tea.Cmd {
 	for wtID, tabs := range m.tabs.ByWorkspace {
