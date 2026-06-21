@@ -80,8 +80,20 @@ func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow
 		}
 		return nil, keys, err
 	}
+	return parseSessionTagRows(parseOutputLines(output), keys), keys, nil
+}
+
+// parseSessionTagRows is the pure parse half of listSessionsWithTags. It takes
+// the `list-sessions -F` output lines (session_name followed by one
+// tagFieldSeparator-joined field per requested key, in the same order as keys)
+// and returns one sessionTagRow per line. When a line has fewer fields than
+// expected — for example a session missing trailing tags — the off-by-one
+// guard (i+1 >= len(parts)) records those keys as empty strings rather than
+// panicking. Extracting it makes the separator split and the empty-tag
+// off-by-one branch unit-testable without a live tmux server.
+func parseSessionTagRows(lines, keys []string) []sessionTagRow {
 	var rows []sessionTagRow
-	for _, line := range parseOutputLines(output) {
+	for _, line := range lines {
 		parts := strings.Split(line, tagFieldSeparator)
 		if len(parts) == 0 {
 			continue
@@ -99,7 +111,7 @@ func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow
 		}
 		rows = append(rows, row)
 	}
-	return rows, keys, nil
+	return rows
 }
 
 func matchesTags(row sessionTagRow, tags map[string]string, orderedKeys []string) bool {

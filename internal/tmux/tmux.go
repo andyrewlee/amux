@@ -115,6 +115,17 @@ func AllSessionStates(opts Options) (map[string]SessionState, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseSessionStates(lines), nil
+}
+
+// parseSessionStates is the pure parse/aggregate half of AllSessionStates. It
+// takes the raw `list-panes -a -F "#{session_name}\t#{pane_dead}"` output and
+// returns one SessionState per session: Exists is true for any session that
+// appears, and HasLivePane is true once any of the session's panes reports
+// pane_dead=="0". Aggregating across multiple panes per session is the
+// genuinely bug-prone part, so it lives here to be unit-tested without a live
+// tmux server.
+func parseSessionStates(lines []string) map[string]SessionState {
 	states := make(map[string]SessionState)
 	for _, line := range lines {
 		parts := strings.SplitN(line, "\t", 2)
@@ -130,7 +141,7 @@ func AllSessionStates(opts Options) (map[string]SessionState, error) {
 		}
 		states[name] = st
 	}
-	return states, nil
+	return states
 }
 
 func SessionStateFor(sessionName string, opts Options) (SessionState, error) {
