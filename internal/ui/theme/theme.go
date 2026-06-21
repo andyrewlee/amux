@@ -53,11 +53,9 @@ type ThemeColors struct {
 	Surface0 color.Color
 	Surface1 color.Color
 	Surface2 color.Color
-	Surface3 color.Color
 
 	// Selection/highlight
 	Selection color.Color
-	Highlight color.Color
 }
 
 // Theme represents a complete color theme.

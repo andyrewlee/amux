@@ -3,7 +3,6 @@ package data
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"regexp"
 	"time"
 )
 
@@ -84,16 +83,9 @@ type Workspace struct {
 // WorkspaceID is a unique identifier based on repo+root hash
 type WorkspaceID string
 
-var workspaceIDRegex = regexp.MustCompile("^[a-f0-9]{16}$")
-
 // ID returns a unique identifier for the workspace based on its repo and root paths
 func (w Workspace) ID() WorkspaceID {
 	return workspaceIDFromIdentity(workspaceIdentity(w.Repo, w.Root))
-}
-
-// IsValidWorkspaceID reports whether the id matches the canonical workspace ID format.
-func IsValidWorkspaceID(id WorkspaceID) bool {
-	return workspaceIDRegex.MatchString(string(id))
 }
 
 // IsPrimaryCheckout returns true if this is the primary checkout

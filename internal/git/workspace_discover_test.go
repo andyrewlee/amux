@@ -14,7 +14,7 @@ import (
 // branchExists reports whether the given branch resolves in repo.
 func branchExists(t *testing.T, repo, branch string) bool {
 	t.Helper()
-	_, err := RunGit(repo, "rev-parse", "--verify", "refs/heads/"+branch)
+	_, err := RunGitCtx(context.Background(), repo, "rev-parse", "--verify", "refs/heads/"+branch)
 	return err == nil
 }
 

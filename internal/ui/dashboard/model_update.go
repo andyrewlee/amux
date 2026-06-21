@@ -76,7 +76,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if !m.focused {
 			return m, nil
 		}
-		toolbarItems := m.toolbarVisibleItems(m.toolbarItems())
+		toolbarItems := m.toolbarItems()
 		if m.toolbarFocused {
 			return m.handleToolbarKey(msg, toolbarItems)
 		}

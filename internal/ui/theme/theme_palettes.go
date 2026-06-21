@@ -2,7 +2,7 @@ package theme
 
 import "charm.land/lipgloss/v2"
 
-// themePalette is the data behind one theme: its identity plus the 17 hex
+// themePalette is the data behind one theme: its identity plus its hex
 // colors. A single builder (build) expands a palette into a Theme, replacing
 // the previous near-identical per-theme constructor functions.
 type themePalette struct {
@@ -11,8 +11,8 @@ type themePalette struct {
 
 	background, foreground, muted, border, borderFocused string
 	primary, secondary, success, warning, errorC, info   string
-	surface0, surface1, surface2, surface3               string
-	selection, highlight                                 string
+	surface0, surface1, surface2                         string
+	selection                                            string
 }
 
 func (p themePalette) build() Theme {
@@ -36,10 +36,8 @@ func (p themePalette) build() Theme {
 			Surface0: lipgloss.Color(p.surface0),
 			Surface1: lipgloss.Color(p.surface1),
 			Surface2: lipgloss.Color(p.surface2),
-			Surface3: lipgloss.Color(p.surface3),
 
 			Selection: lipgloss.Color(p.selection),
-			Highlight: lipgloss.Color(p.highlight),
 		},
 	}
 }
@@ -64,9 +62,7 @@ var themePalettes = []themePalette{
 		surface0:      "#282828",
 		surface1:      "#3c3836",
 		surface2:      "#504945",
-		surface3:      "#665c54",
 		selection:     "#504945",
-		highlight:     "#665c54",
 	},
 	{
 		id:            ThemeGruvboxLight,
@@ -85,9 +81,7 @@ var themePalettes = []themePalette{
 		surface0:      "#fbf1c7",
 		surface1:      "#f2e5bc",
 		surface2:      "#ebdbb2",
-		surface3:      "#d5c4a1",
 		selection:     "#ebdbb2",
-		highlight:     "#f2e5bc",
 	},
 	{
 		id:            ThemeTokyoNight,
@@ -106,9 +100,7 @@ var themePalettes = []themePalette{
 		surface0:      "#1a1b26",
 		surface1:      "#1f2335",
 		surface2:      "#24283b",
-		surface3:      "#292e42",
 		selection:     "#33467c",
-		highlight:     "#3d59a1",
 	},
 	{
 		id:            ThemeCatppuccin,
@@ -127,9 +119,7 @@ var themePalettes = []themePalette{
 		surface0:      "#1e1e2e",
 		surface1:      "#181825",
 		surface2:      "#313244",
-		surface3:      "#45475a",
 		selection:     "#45475a",
-		highlight:     "#585b70",
 	},
 	{
 		id:            ThemeCatppuccinLatte,
@@ -148,9 +138,7 @@ var themePalettes = []themePalette{
 		surface0:      "#eff1f5",
 		surface1:      "#e6e9ef",
 		surface2:      "#ccd0da",
-		surface3:      "#bcc0cc",
 		selection:     "#ccd0da",
-		highlight:     "#e6e9ef",
 	},
 	{
 		id:            ThemeRosePine,
@@ -169,9 +157,7 @@ var themePalettes = []themePalette{
 		surface0:      "#191724",
 		surface1:      "#1f1d2e",
 		surface2:      "#26233a",
-		surface3:      "#403d52",
 		selection:     "#403d52",
-		highlight:     "#524f67",
 	},
 	{
 		id:            ThemeRosePineDawn,
@@ -190,9 +176,7 @@ var themePalettes = []themePalette{
 		surface0:      "#faf4ed",
 		surface1:      "#fffaf3",
 		surface2:      "#f2e9e1",
-		surface3:      "#dfdad9",
 		selection:     "#f2e9e1",
-		highlight:     "#fffaf3",
 	},
 	{
 		id:            ThemeSolarized,
@@ -211,9 +195,7 @@ var themePalettes = []themePalette{
 		surface0:      "#002b36",
 		surface1:      "#073642",
 		surface2:      "#094656",
-		surface3:      "#586e75",
 		selection:     "#094656",
-		highlight:     "#073642",
 	},
 	{
 		id:            ThemeSolarizedLight,
@@ -232,9 +214,7 @@ var themePalettes = []themePalette{
 		surface0:      "#fdf6e3",
 		surface1:      "#eee8d5",
 		surface2:      "#e4dcc8",
-		surface3:      "#d6cfb9",
 		selection:     "#eee8d5",
-		highlight:     "#e4dcc8",
 	},
 	{
 		id:            ThemeOneDark,
@@ -253,9 +233,7 @@ var themePalettes = []themePalette{
 		surface0:      "#282c34",
 		surface1:      "#2c323c",
 		surface2:      "#3e4451",
-		surface3:      "#4b5263",
 		selection:     "#3e4451",
-		highlight:     "#4b5263",
 	},
 	{
 		id:            ThemeOneLight,
@@ -274,9 +252,7 @@ var themePalettes = []themePalette{
 		surface0:      "#fafafa",
 		surface1:      "#f0f0f1",
 		surface2:      "#e5e5e6",
-		surface3:      "#d4d4d5",
 		selection:     "#e5e5e6",
-		highlight:     "#f0f0f1",
 	},
 	{
 		id:            ThemeGitHubDark,
@@ -295,9 +271,7 @@ var themePalettes = []themePalette{
 		surface0:      "#0d1117",
 		surface1:      "#161b22",
 		surface2:      "#21262d",
-		surface3:      "#30363d",
 		selection:     "#264f78",
-		highlight:     "#21262d",
 	},
 	{
 		id:            ThemeGitHubLight,
@@ -316,9 +290,7 @@ var themePalettes = []themePalette{
 		surface0:      "#ffffff",
 		surface1:      "#f6f8fa",
 		surface2:      "#eaeef2",
-		surface3:      "#d0d7de",
 		selection:     "#ddf4ff",
-		highlight:     "#eaeef2",
 	},
 	{
 		id:            ThemeDracula,
@@ -337,9 +309,7 @@ var themePalettes = []themePalette{
 		surface0:      "#282a36",
 		surface1:      "#2d303e",
 		surface2:      "#343746",
-		surface3:      "#44475a",
 		selection:     "#44475a",
-		highlight:     "#6272a4",
 	},
 	{
 		id:            ThemeNord,
@@ -358,9 +328,7 @@ var themePalettes = []themePalette{
 		surface0:      "#2e3440",
 		surface1:      "#3b4252",
 		surface2:      "#434c5e",
-		surface3:      "#4c566a",
 		selection:     "#434c5e",
-		highlight:     "#4c566a",
 	},
 	{
 		id:            ThemeMonokai,
@@ -379,9 +347,7 @@ var themePalettes = []themePalette{
 		surface0:      "#272822",
 		surface1:      "#3e3d32",
 		surface2:      "#49483e",
-		surface3:      "#75715e",
 		selection:     "#49483e",
-		highlight:     "#3e3d32",
 	},
 	{
 		id:            ThemeKanagawa,
@@ -400,9 +366,7 @@ var themePalettes = []themePalette{
 		surface0:      "#1f1f28",
 		surface1:      "#2a2a37",
 		surface2:      "#363646",
-		surface3:      "#54546d",
 		selection:     "#2d4f67",
-		highlight:     "#363646",
 	},
 	{
 		id:            ThemeEverforest,
@@ -421,9 +385,7 @@ var themePalettes = []themePalette{
 		surface0:      "#2d353b",
 		surface1:      "#3d484d",
 		surface2:      "#475258",
-		surface3:      "#505a60",
 		selection:     "#475258",
-		highlight:     "#3d484d",
 	},
 	{
 		id:            ThemeAyuDark,
@@ -442,8 +404,6 @@ var themePalettes = []themePalette{
 		surface0:      "#0a0e14",
 		surface1:      "#0d1016",
 		surface2:      "#1d242c",
-		surface3:      "#273747",
 		selection:     "#273747",
-		highlight:     "#1d242c",
 	},
 }

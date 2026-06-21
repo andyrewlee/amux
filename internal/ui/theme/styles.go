@@ -5,8 +5,7 @@ import "charm.land/lipgloss/v2"
 // Styles contains all the application styles
 type Styles struct {
 	// Layout - Pane borders and structure
-	Pane        lipgloss.Style
-	FocusedPane lipgloss.Style
+	Pane lipgloss.Style
 
 	// Text hierarchy
 	Title    lipgloss.Style // App name, section headers
@@ -86,11 +85,6 @@ func DefaultStyles() Styles {
 		Pane: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ColorBorder()).
-			Padding(0, 1),
-
-		FocusedPane: lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder()).
-			BorderForeground(ColorBorderFocused()).
 			Padding(0, 1),
 
 		// Text hierarchy

@@ -101,18 +101,6 @@ func NewConfirmDialog(id, title, message string) *Dialog {
 	}
 }
 
-// NewSelectDialog creates a new selection dialog
-func NewSelectDialog(id, title, message string, options []string) *Dialog {
-	return &Dialog{
-		id:      id,
-		dtype:   DialogSelect,
-		title:   title,
-		message: message,
-		options: options,
-		cursor:  0,
-	}
-}
-
 // SetDefaultOption sets the option selected whenever the dialog is shown.
 func (d *Dialog) SetDefaultOption(index int) {
 	if d == nil || index < 0 || index >= len(d.options) {

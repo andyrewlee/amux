@@ -1,6 +1,7 @@
 package center
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,7 +151,7 @@ func TestReuseDiffTab_RefreshesChangeKindBeforeReload(t *testing.T) {
 
 func mustRunGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	if _, err := git.RunGit(dir, args...); err != nil {
+	if _, err := git.RunGitCtx(context.Background(), dir, args...); err != nil {
 		t.Fatalf("git %s failed: %v", strings.Join(args, " "), err)
 	}
 }

@@ -36,58 +36,6 @@ func TestIsGitRepository(t *testing.T) {
 	})
 }
 
-func TestGetRepoRoot(t *testing.T) {
-	skipIfNoGit(t)
-
-	t.Run("valid repo", func(t *testing.T) {
-		repo := initRepo(t)
-		root, err := GetRepoRoot(repo)
-		if err != nil {
-			t.Fatalf("GetRepoRoot() error = %v", err)
-		}
-
-		// Normalize symlinks for comparison
-		rootEval := root
-		if eval, err := filepath.EvalSymlinks(root); err == nil {
-			rootEval = eval
-		}
-		repoEval := repo
-		if eval, err := filepath.EvalSymlinks(repo); err == nil {
-			repoEval = eval
-		}
-		if rootEval != repoEval {
-			t.Fatalf("GetRepoRoot() = %s, want %s", rootEval, repoEval)
-		}
-	})
-
-	t.Run("subdirectory of repo", func(t *testing.T) {
-		repo := initRepo(t)
-		subdir := filepath.Join(repo, "subdir")
-		if err := os.MkdirAll(subdir, 0o755); err != nil {
-			t.Fatalf("mkdir subdir: %v", err)
-		}
-
-		root, err := GetRepoRoot(subdir)
-		if err != nil {
-			t.Fatalf("GetRepoRoot() error = %v", err)
-		}
-
-		rootEval, _ := filepath.EvalSymlinks(root)
-		repoEval, _ := filepath.EvalSymlinks(repo)
-		if rootEval != repoEval {
-			t.Fatalf("GetRepoRoot() from subdir = %s, want %s", rootEval, repoEval)
-		}
-	})
-
-	t.Run("non-repo directory", func(t *testing.T) {
-		nonRepo := t.TempDir()
-		_, err := GetRepoRoot(nonRepo)
-		if err == nil {
-			t.Fatalf("GetRepoRoot() should fail for non-repo")
-		}
-	})
-}
-
 func TestGetCurrentBranch(t *testing.T) {
 	skipIfNoGit(t)
 
@@ -120,39 +68,6 @@ func TestGetCurrentBranch(t *testing.T) {
 		_, err := GetCurrentBranch(nonRepo)
 		if err == nil {
 			t.Fatalf("GetCurrentBranch() should fail for non-repo")
-		}
-	})
-}
-
-func TestGetRemoteURL(t *testing.T) {
-	skipIfNoGit(t)
-
-	t.Run("existing remote", func(t *testing.T) {
-		repo := initRepo(t)
-		runGit(t, repo, "remote", "add", "origin", "https://example.com/repo.git")
-
-		remote, err := GetRemoteURL(repo, "origin")
-		if err != nil {
-			t.Fatalf("GetRemoteURL() error = %v", err)
-		}
-		if remote != "https://example.com/repo.git" {
-			t.Fatalf("GetRemoteURL() = %s, want https://example.com/repo.git", remote)
-		}
-	})
-
-	t.Run("non-existent remote", func(t *testing.T) {
-		repo := initRepo(t)
-		_, err := GetRemoteURL(repo, "nonexistent")
-		if err == nil {
-			t.Fatalf("GetRemoteURL() should fail for non-existent remote")
-		}
-	})
-
-	t.Run("non-repo directory", func(t *testing.T) {
-		nonRepo := t.TempDir()
-		_, err := GetRemoteURL(nonRepo, "origin")
-		if err == nil {
-			t.Fatalf("GetRemoteURL() should fail for non-repo")
 		}
 	})
 }

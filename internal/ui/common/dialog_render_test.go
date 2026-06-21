@@ -14,7 +14,6 @@ func TestDialogViewHiddenReturnsEmpty(t *testing.T) {
 	}{
 		{name: "input", dlg: NewInputDialog("id", "Title", "Placeholder")},
 		{name: "confirm", dlg: NewConfirmDialog("id", "Title", "Message")},
-		{name: "select", dlg: NewSelectDialog("id", "Title", "Msg", []string{"A", "B"})},
 		{name: "agent-picker", dlg: NewAgentPicker([]string{"claude", "codex"})},
 	}
 
@@ -61,13 +60,6 @@ func TestDialogViewVisibleRendersContent(t *testing.T) {
 				return NewConfirmDialog("quit", "Quit?", "Are you sure?")
 			},
 			wantContains: []string{"Quit?", "Are you sure?", "Yes", "No"},
-		},
-		{
-			name: "select dialog shows title, message and options",
-			dlg: func() *Dialog {
-				return NewSelectDialog("act", "Action", "Pick one:", []string{"Edit", "Delete"})
-			},
-			wantContains: []string{"Action", "Pick one:", "Edit", "Delete"},
 		},
 	}
 
@@ -191,13 +183,6 @@ func TestDialogHelpText(t *testing.T) {
 			want: "h/l or tab: choose • enter: confirm • esc: cancel",
 		},
 		{
-			name: "select dialog without filter",
-			setup: func() *Dialog {
-				return NewSelectDialog("id", "Title", "Msg", []string{"A", "B"})
-			},
-			want: "↑/↓ or tab: move • enter: select • esc: cancel",
-		},
-		{
 			name: "select dialog with filter",
 			setup: func() *Dialog {
 				return NewAgentPicker([]string{"claude"})
@@ -221,26 +206,5 @@ func TestDialogHelpText(t *testing.T) {
 				t.Fatalf("helpText() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-// TestDialogHelpTextSelectFilterToggle verifies the select dialog's help text
-// switches based solely on whether the fuzzy filter is enabled.
-func TestDialogHelpTextSelectFilterToggle(t *testing.T) {
-	d := NewSelectDialog("id", "Title", "Msg", []string{"A", "B"})
-
-	plain := d.helpText()
-	if strings.Contains(plain, "type to filter") {
-		t.Fatalf("plain select should not mention filtering, got %q", plain)
-	}
-
-	// Enabling the filter must switch to the filter-aware help string.
-	d.filterEnabled = true
-	filtered := d.helpText()
-	if !strings.HasPrefix(filtered, "type to filter") {
-		t.Fatalf("filter-enabled select should mention filtering, got %q", filtered)
-	}
-	if filtered == plain {
-		t.Fatalf("expected help text to change when filter is enabled")
 	}
 }

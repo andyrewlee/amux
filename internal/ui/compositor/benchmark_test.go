@@ -381,17 +381,6 @@ func BenchmarkChromeCacheMiss(b *testing.B) {
 	}
 }
 
-// BenchmarkFastHash benchmarks the hash function
-func BenchmarkFastHash(b *testing.B) {
-	content := strings.Repeat("\x1b[1;34m│\x1b[0m "+strings.Repeat(" ", 76)+" \x1b[1;34m│\x1b[0m\n", 23)
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = FastHash(content)
-	}
-}
-
 // BenchmarkSnapshotCacheHit simulates cache hit by reusing a snapshot
 func BenchmarkSnapshotCacheHit(b *testing.B) {
 	sizes := []struct {

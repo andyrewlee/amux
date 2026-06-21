@@ -7,10 +7,10 @@ import (
 )
 
 // This file covers the pane-metadata helpers in capture.go that were missing
-// dedicated coverage: the exec-free input guards for paneCursorPosition,
-// paneSize, SessionPaneSnapshotInfo, SessionPaneID, SessionPaneSize and
-// ResizePaneToSize, plus the subprocess-backed read-back paths for paneSize,
-// SessionPaneSize and SessionPaneSnapshotInfo against an isolated tmux server.
+// dedicated coverage: the exec-free input guards for paneSize,
+// SessionPaneSnapshotInfo, SessionPaneID, SessionPaneSize and ResizePaneToSize,
+// plus the subprocess-backed read-back paths for paneSize, SessionPaneSize and
+// SessionPaneSnapshotInfo against an isolated tmux server.
 //
 // The exec-free guards (empty pane/session name, non-positive resize
 // dimensions) short-circuit before any tmux command runs, so they are asserted
@@ -18,29 +18,14 @@ import (
 // reuse the same testServer/createSession harness as the sibling integration
 // tests and use real read-back assertions, never bare "did not crash" bodies.
 //
-// The exec-only happy paths for paneCursorPosition, SessionPaneID,
-// CapturePaneSnapshot and ResizePaneToSize already have dedicated coverage in
+// The exec-only happy paths for SessionPaneID, CapturePaneSnapshot and
+// ResizePaneToSize already have dedicated coverage in
 // capture_integration_test.go; this file deliberately fills the remaining gaps
 // rather than duplicating them.
 
 // ---------------------------------------------------------------------------
 // Exec-free guard tests (no subprocess; portable)
 // ---------------------------------------------------------------------------
-
-func TestPaneCursorPosition_EmptyPaneIDShortCircuits(t *testing.T) {
-	// An empty pane ID returns the zero cursor with ok=false before any tmux
-	// command runs, so this is deterministic without a live server.
-	x, y, ok, err := paneCursorPosition("", Options{})
-	if err != nil {
-		t.Fatalf("expected nil error for empty pane ID, got %v", err)
-	}
-	if ok {
-		t.Fatalf("expected ok=false for empty pane ID, got ok=true")
-	}
-	if x != 0 || y != 0 {
-		t.Fatalf("expected zero cursor (0,0) for empty pane ID, got (%d,%d)", x, y)
-	}
-}
 
 func TestPaneSize_EmptyPaneIDShortCircuits(t *testing.T) {
 	// An empty pane ID returns zero size with ok=false before any tmux command.

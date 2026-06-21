@@ -54,7 +54,7 @@ func TestCreateWorkspaceReusesExistingBranch(t *testing.T) {
 	}
 	defer func() { _ = RemoveWorkspace(repo, reusedPath) }()
 
-	branch, err := RunGit(reusedPath, "rev-parse", "--abbrev-ref", "HEAD")
+	branch, err := RunGitCtx(context.Background(), reusedPath, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		t.Fatalf("RunGit(reusedPath) error = %v", err)
 	}
@@ -167,7 +167,7 @@ func TestRemoveWorkspaceTimeoutFallsBackToPrune(t *testing.T) {
 		t.Fatalf("expected workspace path to be removed, err=%v", err)
 	}
 
-	output, err := RunGit(repo, "worktree", "list", "--porcelain")
+	output, err := RunGitCtx(context.Background(), repo, "worktree", "list", "--porcelain")
 	if err != nil {
 		t.Fatalf("RunGit(worktree list) error = %v", err)
 	}
@@ -215,14 +215,14 @@ func TestRemoveWorkspaceTimeoutWithMissingGitDirStillPrunes(t *testing.T) {
 		t.Fatalf("timed-out remove calls = %d, want 1", removeCalls)
 	}
 
-	output, err := RunGit(repo, "worktree", "list", "--porcelain")
+	output, err := RunGitCtx(context.Background(), repo, "worktree", "list", "--porcelain")
 	if err != nil {
 		t.Fatalf("RunGit(worktree list) error = %v", err)
 	}
 	if strings.Contains(output, workspacePath) {
 		t.Fatalf("expected workspace %q to be pruned, output:\n%s", workspacePath, output)
 	}
-	if _, err := RunGit(repo, "branch", "-D", branch); err != nil {
+	if _, err := RunGitCtx(context.Background(), repo, "branch", "-D", branch); err != nil {
 		t.Fatalf("expected branch delete to succeed after prune, got %v", err)
 	}
 }
@@ -269,7 +269,7 @@ func TestRemoveWorkspaceTimeoutDoesNotUnregisterOtherMissingWorktrees(t *testing
 		t.Fatalf("expected target workspace path to be removed, err=%v", err)
 	}
 
-	output, err := RunGit(repo, "worktree", "list", "--porcelain")
+	output, err := RunGitCtx(context.Background(), repo, "worktree", "list", "--porcelain")
 	if err != nil {
 		t.Fatalf("RunGit(worktree list) error = %v", err)
 	}
@@ -280,7 +280,7 @@ func TestRemoveWorkspaceTimeoutDoesNotUnregisterOtherMissingWorktrees(t *testing
 	if !strings.Contains(output, otherPath) && !strings.Contains(output, normalizedOtherPath) {
 		t.Fatalf("expected unrelated missing worktree %q to remain registered, output:\n%s", otherPath, output)
 	}
-	if _, err := RunGit(repo, "branch", "-D", otherBranch); err == nil {
+	if _, err := RunGitCtx(context.Background(), repo, "branch", "-D", otherBranch); err == nil {
 		t.Fatalf("expected branch delete for %q to fail while other worktree remains registered", otherBranch)
 	}
 }

@@ -25,8 +25,7 @@ func TestThemePalettesComplete(t *testing.T) {
 			"Border": c.Border, "BorderFocused": c.BorderFocused, "Primary": c.Primary,
 			"Secondary": c.Secondary, "Success": c.Success, "Warning": c.Warning,
 			"Error": c.Error, "Info": c.Info, "Surface0": c.Surface0, "Surface1": c.Surface1,
-			"Surface2": c.Surface2, "Surface3": c.Surface3, "Selection": c.Selection,
-			"Highlight": c.Highlight,
+			"Surface2": c.Surface2, "Selection": c.Selection,
 		} {
 			if col == nil {
 				t.Fatalf("theme %s: color %s is nil", th.ID, name)

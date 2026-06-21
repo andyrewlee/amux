@@ -92,28 +92,6 @@ func TestParseLevel(t *testing.T) {
 	}
 }
 
-func TestSetLevelTogglesDebug(t *testing.T) {
-	logPath, cleanup := setupLogger(t, LevelInfo)
-	defer cleanup()
-
-	Debug("suppressed at info")
-	SetLevel(LevelDebug)
-	Debug("visible after setlevel")
-	cleanup()
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
-	}
-	content := string(data)
-	if strings.Contains(content, "suppressed at info") {
-		t.Fatalf("debug line should be suppressed at INFO level: %q", content)
-	}
-	if !strings.Contains(content, "DEBUG: visible after setlevel") {
-		t.Fatalf("expected debug line after SetLevel(LevelDebug), got: %q", content)
-	}
-}
-
 func TestLevelFiltering(t *testing.T) {
 	logPath, cleanup := setupLogger(t, LevelWarn)
 	defer cleanup()

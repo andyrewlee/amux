@@ -150,15 +150,6 @@ func ParseLevel(name string) (Level, bool) {
 	}
 }
 
-// SetLevel updates the minimum severity the default logger emits.
-func SetLevel(level Level) {
-	if defaultLogger != nil {
-		defaultLogger.mu.Lock()
-		defaultLogger.level = level
-		defaultLogger.mu.Unlock()
-	}
-}
-
 // log writes a log entry
 func log(level Level, format string, args ...any) {
 	if defaultLogger == nil {

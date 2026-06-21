@@ -8,7 +8,6 @@ var Icons = struct {
 	Dirty   string
 	Running string
 	Idle    string
-	Pending string
 
 	// Actions
 	Add    string
@@ -34,10 +33,6 @@ var Icons = struct {
 	DirOpen   string
 	DirClosed string
 
-	// Tab states
-	TabActive   string
-	TabInactive string
-
 	// Spinner frames for loading animation
 	Spinner []string
 }{
@@ -46,7 +41,6 @@ var Icons = struct {
 	Dirty:   "●",
 	Running: "●",
 	Idle:    "○",
-	Pending: "◌",
 
 	// Actions
 	Add:    "+",
@@ -71,10 +65,6 @@ var Icons = struct {
 	Home:      "~",
 	DirOpen:   "▼",
 	DirClosed: "▶",
-
-	// Tab states
-	TabActive:   "●",
-	TabInactive: "○",
 
 	// Spinner frames (braille pattern animation)
 	Spinner: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
