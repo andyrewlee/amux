@@ -19,6 +19,14 @@ make devcheck
 
 `golangci-lint` is required locally. Install instructions: https://golangci-lint.run/welcome/install/
 
+For the hot-reload inner loop, `make dev` runs [`air`](https://github.com/air-verse/air) using the repo's `.air.toml`. Install it once with:
+
+```bash
+go install github.com/air-verse/air@latest
+```
+
+Ensure `$(go env GOPATH)/bin` is on your `PATH`; otherwise `make dev` prints this same install hint and exits.
+
 For style-only cleanup, run:
 
 ```bash
