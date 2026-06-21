@@ -29,6 +29,10 @@ const (
 	DialogDeleteWorkspace = "delete_workspace"
 	DialogTrustScripts    = "trust_scripts"
 	DialogRemoveProject   = "remove_project"
+	// DialogSelectAssistant is the legacy ID for the assistant-selection flow.
+	// The dialog itself is built by common.NewAgentPicker and carries
+	// common.AgentPickerDialogID at runtime; handleDialogResult still matches
+	// DialogSelectAssistant alongside it so older callers keep routing.
 	DialogSelectAssistant = "select_assistant"
 	DialogQuit            = "quit"
 	DialogCleanupTmux     = "cleanup_tmux"

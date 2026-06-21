@@ -21,7 +21,7 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 	}
 	logging.Info("Received DialogResult: id=%s confirmed=%v", result.ID, result.Confirmed)
 	switch result.ID {
-	case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogTrustScripts, DialogRemoveProject, DialogSelectAssistant, "agent-picker", DialogQuit, DialogCleanupTmux:
+	case DialogAddProject, DialogCreateWorkspace, DialogDeleteWorkspace, DialogTrustScripts, DialogRemoveProject, DialogSelectAssistant, common.AgentPickerDialogID, DialogQuit, DialogCleanupTmux:
 		return true, common.SafeCmd(a.handleDialogResult(result))
 	}
 	// If not an App-level dialog, let it fall through to components.
@@ -107,7 +107,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
 
 	if !result.Confirmed {
-		if result.ID == DialogSelectAssistant || result.ID == "agent-picker" {
+		if result.ID == DialogSelectAssistant || result.ID == common.AgentPickerDialogID {
 			a.pendingWorkspaceProject = nil
 			a.pendingWorkspaceName = ""
 			a.pendingWorkspaceBase = ""
@@ -174,7 +174,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 		}
 
-	case DialogSelectAssistant, "agent-picker":
+	case DialogSelectAssistant, common.AgentPickerDialogID:
 		assistant := result.Value
 		if err := validation.ValidateAssistant(assistant); err != nil {
 			return func() tea.Msg {

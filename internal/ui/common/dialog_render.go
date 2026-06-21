@@ -174,7 +174,7 @@ func (d *Dialog) renderLines() []string {
 }
 
 func (d *Dialog) renderOptionsLines(baseLine int) []string {
-	if d.id == "agent-picker" {
+	if d.id == AgentPickerDialogID {
 		return d.renderAgentPickerOptions(baseLine)
 	}
 	return []string{d.renderHorizontalOptionsLine(baseLine)}
