@@ -2,8 +2,11 @@ package app
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -149,7 +152,8 @@ func TestHarnessGoldenFrames(t *testing.T) {
 				t.Errorf("%s: rendered frame does not match golden %s.\n"+
 					"If this change is intentional, regenerate with:\n"+
 					"  go test ./internal/app/... -run Golden -update\n"+
-					"got %d bytes, want %d bytes", p.name, path, len(got), len(want))
+					"got %d bytes, want %d bytes\n%s",
+					p.name, path, len(got), len(want), goldenLineDiff(got, string(want)))
 			}
 		})
 	}
@@ -160,6 +164,95 @@ func TestHarnessGoldenFrames(t *testing.T) {
 	if !*updateGolden {
 		assertDistinctFrames(t, frames)
 	}
+}
+
+// goldenLineDiff renders a localized, human-readable diff between a rendered
+// frame and its golden so a failing agent can see WHERE the frame diverged
+// (which row, border cell, or SGR/color run) instead of only byte counts. It
+// splits both on "\n", finds the first differing line, and quotes the got/want
+// for that line plus a couple of leading context lines, escaping non-printing
+// bytes (ANSI escapes, control chars) via strconv.Quote so the runs are legible
+// in plain test output. It is dependency-free and intentionally cheap.
+func goldenLineDiff(got, want string) string {
+	gotLines := strings.Split(got, "\n")
+	wantLines := strings.Split(want, "\n")
+
+	first := firstDiffLine(gotLines, wantLines)
+	if first < 0 {
+		// Contents are equal line-by-line; the byte difference is a trailing
+		// newline or an extra/missing final line. Report the line-count delta.
+		return fmt.Sprintf("first diff: line count differs (got %d lines, want %d lines)",
+			len(gotLines), len(wantLines))
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "first diff at line %d (1-based):\n", first+1)
+	// A small leading window helps locate the divergence in a busy frame.
+	const context = 2
+	start := first - context
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < first; i++ {
+		fmt.Fprintf(&b, "  line %d: %s\n", i+1, strconv.Quote(lineAt(gotLines, i)))
+	}
+	fmt.Fprintf(&b, "  line %d got:  %s\n", first+1, strconv.Quote(lineAt(gotLines, first)))
+	fmt.Fprintf(&b, "  line %d want: %s", first+1, strconv.Quote(lineAt(wantLines, first)))
+	return b.String()
+}
+
+// firstDiffLine returns the index of the first line that differs between got
+// and want, or -1 when every overlapping line matches (lengths may still
+// differ, which the caller reports separately).
+func firstDiffLine(got, want []string) int {
+	n := len(got)
+	if len(want) < n {
+		n = len(want)
+	}
+	for i := 0; i < n; i++ {
+		if got[i] != want[i] {
+			return i
+		}
+	}
+	// Every overlapping line matched; any remaining byte difference is a
+	// line-count delta, which the caller reports.
+	return -1
+}
+
+// lineAt returns lines[i] or a sentinel when i is out of range, so the diff can
+// show that one side ran out of lines without panicking.
+func lineAt(lines []string, i int) string {
+	if i < 0 || i >= len(lines) {
+		return "<no such line>"
+	}
+	return lines[i]
+}
+
+func TestGoldenLineDiff(t *testing.T) {
+	t.Run("reports first differing line with quoted got/want", func(t *testing.T) {
+		got := "row0\nrow1\x1b[31mRED\nrow2"
+		want := "row0\nrow1\x1b[32mGREEN\nrow2"
+		out := goldenLineDiff(got, want)
+		if !strings.Contains(out, "first diff at line 2") {
+			t.Fatalf("expected diff to localize line 2, got:\n%s", out)
+		}
+		// The ANSI escape must be escaped (no raw ESC byte) so it is legible.
+		if strings.ContainsRune(out, '\x1b') {
+			t.Fatalf("expected escape byte to be quoted, got raw ESC in:\n%s", out)
+		}
+		if !strings.Contains(out, `\x1b[31mRED`) || !strings.Contains(out, `\x1b[32mGREEN`) {
+			t.Fatalf("expected quoted got/want SGR runs, got:\n%s", out)
+		}
+	})
+
+	t.Run("reports line-count delta when overlapping lines match", func(t *testing.T) {
+		got := "a\nb\nc"
+		want := "a\nb"
+		out := goldenLineDiff(got, want)
+		if !strings.Contains(out, "line count differs") {
+			t.Fatalf("expected line-count delta report, got:\n%s", out)
+		}
+	})
 }
 
 func assertDistinctFrames(t *testing.T, frames map[string]string) {
