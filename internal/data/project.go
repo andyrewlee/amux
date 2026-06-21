@@ -19,28 +19,3 @@ func NewProject(path string) *Project {
 		Workspaces: []Workspace{},
 	}
 }
-
-// AddWorkspace adds a workspace to the project
-func (p *Project) AddWorkspace(ws Workspace) {
-	p.Workspaces = append(p.Workspaces, ws)
-}
-
-// FindWorkspace finds a workspace by its root path
-func (p *Project) FindWorkspace(root string) *Workspace {
-	for i := range p.Workspaces {
-		if p.Workspaces[i].Root == root {
-			return &p.Workspaces[i]
-		}
-	}
-	return nil
-}
-
-// FindWorkspaceByName finds a workspace by its name
-func (p *Project) FindWorkspaceByName(name string) *Workspace {
-	for i := range p.Workspaces {
-		if p.Workspaces[i].Name == name {
-			return &p.Workspaces[i]
-		}
-	}
-	return nil
-}
