@@ -198,7 +198,7 @@ func tmuxCommand(opts Options, args ...string) (*exec.Cmd, context.CancelFunc) {
 func runTmux(opts Options, args ...string) error {
 	cmd, cancel := tmuxCommand(opts, args...)
 	defer cancel()
-	if err := cmd.Run(); err != nil {
+	if _, err := runTmuxCmd(cmd); err != nil {
 		if isExitCode1(err) {
 			return nil
 		}
@@ -215,7 +215,7 @@ func runTmux(opts Options, args ...string) error {
 func listTmux(opts Options, args ...string) ([]string, error) {
 	cmd, cancel := tmuxCommand(opts, args...)
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		if isExitCode1(err) {
 			return nil, nil
@@ -228,7 +228,7 @@ func listTmux(opts Options, args ...string) ([]string, error) {
 func hasSession(sessionName string, opts Options) (bool, error) {
 	cmd, cancel := tmuxCommand(opts, "has-session", "-t", sessionTarget(sessionName))
 	defer cancel()
-	if err := cmd.Run(); err != nil {
+	if _, err := runTmuxCmd(cmd); err != nil {
 		if isExitCode1(err) {
 			return false, nil
 		}
@@ -320,7 +320,7 @@ func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 	}
 	cmd, cancel := tmuxCommand(opts, "show-options", "-t", exactSessionOptionTarget(sessionName), "-v", key)
 	defer cancel()
-	output, err := cmd.Output()
+	output, err := runTmuxCmd(cmd)
 	if err != nil {
 		if isExitCode1(err) {
 			return "", nil
@@ -345,7 +345,7 @@ func GlobalOptionValue(key string, opts Options) (string, error) {
 	}
 	cmd, cancel := tmuxCommand(opts, "show-options", "-g", "-v", key)
 	defer cancel()
-	output, err := cmd.CombinedOutput()
+	output, err := runTmuxCmdCombined(cmd)
 	if err != nil {
 		if isExitCode1(err) {
 			if isOptionMissingStderr(string(output)) {
@@ -375,7 +375,7 @@ func SetGlobalOptionValue(key, value string, opts Options) error {
 	}
 	cmd, cancel := tmuxCommand(opts, "set-option", "-g", key, value)
 	defer cancel()
-	output, err := cmd.CombinedOutput()
+	output, err := runTmuxCmdCombined(cmd)
 	if err != nil {
 		if isExitCode1(err) {
 			stderr := strings.TrimSpace(string(output))
@@ -424,7 +424,7 @@ func SetGlobalOptionValues(values []OptionValue, opts Options) error {
 	}
 	cmd, cancel := tmuxCommand(opts, args...)
 	defer cancel()
-	output, err := cmd.CombinedOutput()
+	output, err := runTmuxCmdCombined(cmd)
 	if err != nil {
 		if isExitCode1(err) {
 			stderr := strings.TrimSpace(string(output))

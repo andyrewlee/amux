@@ -32,7 +32,7 @@ func GlobalOptionValues(keys []string, opts Options) (map[string]string, error) 
 	format := strings.Join(formatParts, separator)
 	cmd, cancel := tmuxCommand(opts, "display-message", "-p", format)
 	defer cancel()
-	output, err := cmd.CombinedOutput()
+	output, err := runTmuxCmdCombined(cmd)
 	if err != nil {
 		// Unlike show-options -g -v, display-message does not provide a reliable
 		// "missing option" sentinel. Treat exit 1 as an operational error.
