@@ -2,8 +2,10 @@ package diff
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/andyrewlee/amux/internal/git"
 )
@@ -202,5 +204,25 @@ func TestViewMultibyteWrap(t *testing.T) {
 
 	if out == "" {
 		t.Fatal("View() returned empty string for multibyte wrapped diff")
+	}
+}
+
+func TestViewMultibyteOverflowProducesValidUTF8(t *testing.T) {
+	longContent := strings.Repeat("日本語アイウエオ", 30)
+
+	for _, wrap := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wrap=%v", wrap), func(t *testing.T) {
+			m := newSizedModel()
+			m.wrap = wrap
+			m.diff = &git.DiffResult{
+				Lines: []git.DiffLine{
+					{Kind: git.DiffLineAdd, Content: longContent},
+				},
+			}
+
+			if out := m.View(); !utf8.ValidString(out) {
+				t.Fatalf("View() produced invalid UTF-8 with wrap=%v", wrap)
+			}
+		})
 	}
 }

@@ -90,12 +90,16 @@ func (fp *FilePicker) applyFilter() {
 		}
 	}
 
+	// Clamp the cursor to the last valid row (not one past it) so the selection
+	// stays visible as the filter narrows, then re-sync the scroll window so a
+	// prior scroll offset can't leave the (now shorter) list rendered empty.
 	if fp.cursor >= len(fp.filteredIdx) {
-		fp.cursor = min(fp.cursor, len(fp.filteredIdx))
+		fp.cursor = len(fp.filteredIdx) - 1
 	}
 	if fp.cursor < 0 {
 		fp.cursor = 0
 	}
+	fp.ensureVisible()
 }
 
 // handlePathInput checks if the input is a navigable path

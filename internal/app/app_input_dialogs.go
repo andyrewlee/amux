@@ -125,18 +125,20 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 
 	switch result.ID {
 	case DialogAddProject:
-		if result.Value != "" {
-			path := validation.SanitizeInput(result.Value)
-			logging.Info("Adding project from dialog: %s", path)
-			if err := validation.ValidateProjectPath(path); err != nil {
-				logging.Warn("Project path validation failed: %v", err)
-				return func() tea.Msg {
-					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating project path")}
-				}
-			}
+		if result.Value == "" {
+			// Confirming an empty path must not silently close with no feedback.
+			return a.toast.ShowWarning("Project path is required")
+		}
+		path := validation.SanitizeInput(result.Value)
+		logging.Info("Adding project from dialog: %s", path)
+		if err := validation.ValidateProjectPath(path); err != nil {
+			logging.Warn("Project path validation failed: %v", err)
 			return func() tea.Msg {
-				return messages.AddProject{Path: path}
+				return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating project path")}
 			}
+		}
+		return func() tea.Msg {
+			return messages.AddProject{Path: path}
 		}
 
 	case DialogCreateWorkspace:

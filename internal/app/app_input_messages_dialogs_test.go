@@ -54,6 +54,49 @@ func TestHandleThemePreview_PersistsOnCloseOnly(t *testing.T) {
 	}
 }
 
+func TestHandleSettingsResult_CancelRevertsPreviewWithoutSave(t *testing.T) {
+	prevTheme := common.GetCurrentTheme().ID
+	defer common.SetCurrentTheme(prevTheme)
+
+	h, err := NewHarness(HarnessOptions{
+		Mode:   HarnessCenter,
+		Width:  120,
+		Height: 40,
+	})
+	if err != nil {
+		t.Fatalf("NewHarness returned error: %v", err)
+	}
+
+	configPath := filepath.Join(t.TempDir(), "amux-config.json")
+	h.app.config.Paths.ConfigPath = configPath
+	originalTheme := common.ThemeID(h.app.config.UI.Theme)
+	previewTheme := common.ThemeTokyoNight
+	if previewTheme == originalTheme {
+		previewTheme = common.ThemeGruvbox
+	}
+	h.app.handleShowSettingsDialog()
+	session := h.app.settingsDialogSession
+
+	_ = h.app.handleThemePreview(common.ThemePreview{Theme: previewTheme, Session: session})
+	if common.ThemeID(h.app.config.UI.Theme) != previewTheme {
+		t.Fatalf("expected preview theme to apply, got %q", h.app.config.UI.Theme)
+	}
+
+	cmd := h.app.handleSettingsResult(common.SettingsResult{Canceled: true})
+	if cmd != nil {
+		t.Fatal("expected canceled settings close to skip persistence")
+	}
+	if got := common.ThemeID(h.app.config.UI.Theme); got != originalTheme {
+		t.Fatalf("canceled settings close theme = %q, want original %q", got, originalTheme)
+	}
+	if h.app.settingsThemeDirty {
+		t.Fatal("expected canceled settings close to clear dirty flag")
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("expected canceled settings close not to write config, stat err=%v", err)
+	}
+}
+
 func TestHandleSettingsResult_SaveFailureShowsWarningToast(t *testing.T) {
 	prevTheme := common.GetCurrentTheme().ID
 	defer common.SetCurrentTheme(prevTheme)

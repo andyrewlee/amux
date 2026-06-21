@@ -86,6 +86,8 @@ type App struct {
 	// Theme persistence state for settings dialog exits.
 	settingsThemePersistedTheme common.ThemeID
 	settingsThemeDirty          bool
+	// Theme that was active when the settings dialog opened, restored on Esc.
+	settingsThemeOriginal common.ThemeID
 
 	// Overlays
 	toast *common.ToastModel

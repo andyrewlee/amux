@@ -61,7 +61,19 @@ func (m *Model) SetWorkspace(ws *data.Workspace) {
 	m.scrollOffset = 0
 	m.filterQuery = ""
 	m.filterInput.SetValue("")
+	// Fully exit filter mode (mirroring Blur) so a workspace switch mid-filter
+	// doesn't leave a phantom filter capturing subsequent keystrokes.
+	if m.filterMode {
+		m.filterMode = false
+		m.filterInput.Blur()
+	}
 	m.rebuildDisplayList()
+}
+
+// FilterActive reports whether the Changes view is currently in filter-input
+// mode (used so the tab bar doesn't steal digit keys meant for the filter).
+func (m *Model) FilterActive() bool {
+	return m.filterMode
 }
 
 // SetGitStatus sets the git status.

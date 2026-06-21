@@ -15,6 +15,7 @@ var helpItemTexts = []struct{ key, desc string }{
 	{"j/↓", "down"},
 	{"h/←", "collapse"},
 	{"l/→", "expand"},
+	{"enter/o", "open"},
 	{".", "hidden"},
 	{"r", "refresh"},
 }
@@ -73,8 +74,8 @@ func TestProjectTreeHelpLinesWrapByWidth(t *testing.T) {
 		// reason documents the wrapping boundary being exercised.
 		reason string
 	}{
-		{name: "very narrow puts each item on its own line", width: 4, wantLines: 6, reason: "6 items, none fit together"},
-		{name: "wide fits everything on one line", width: 500, wantLines: 1, reason: "all 6 items fit"},
+		{name: "very narrow puts each item on its own line", width: 4, wantLines: 7, reason: "7 items, none fit together"},
+		{name: "wide fits everything on one line", width: 500, wantLines: 1, reason: "all 7 items fit"},
 		{name: "zero width single joined line", width: 0, wantLines: 1, reason: "WrapHelpItems joins with no wrap"},
 		{name: "negative width single joined line", width: -10, wantLines: 1, reason: "WrapHelpItems joins with no wrap"},
 	}

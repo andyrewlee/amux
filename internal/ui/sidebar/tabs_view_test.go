@@ -235,6 +235,20 @@ func TestUpdateNumberKeysIgnoredWhenUnfocused(t *testing.T) {
 	}
 }
 
+func TestUpdateNumberKeysIgnoredWhileChangesFilterActive(t *testing.T) {
+	s := newTestTabbedSidebar(t)
+	s.Focus()
+	s.SetActiveTab(TabChanges)
+	s.changes.filterMode = true
+	s.changes.filterInput.Focus()
+
+	updated, _ := s.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+
+	if updated.ActiveTab() != TabChanges {
+		t.Fatalf("filter-active number key should not switch tabs, got %d", updated.ActiveTab())
+	}
+}
+
 func TestUpdateMouseClickOnTabBarSwitchesTabs(t *testing.T) {
 	s := newTestTabbedSidebar(t)
 	s.SetSize(40, 20)

@@ -139,6 +139,9 @@ func (c *Config) IsAssistantKnown(assistant string) bool {
 // loaded it consults the config map; otherwise it falls back to the canonical
 // agent registry rather than reporting false for every agent.
 func (c *Config) IsChatAssistant(name string) bool {
+	// Normalize so casing/whitespace agree with IsAssistantKnown and the
+	// registry, both of which key on the normalized (lowercased) name.
+	name = normalizeAssistantName(name)
 	if c != nil && len(c.Assistants) > 0 {
 		_, ok := c.Assistants[name]
 		return ok

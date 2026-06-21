@@ -86,8 +86,12 @@ func TestHandleSelectClose(t *testing.T) {
 	if d.Visible() {
 		t.Fatal("selecting Close should hide the dialog")
 	}
-	if _, ok := cmd().(SettingsResult); !ok {
+	result, ok := cmd().(SettingsResult)
+	if !ok {
 		t.Fatalf("expected SettingsResult, got %T", cmd())
+	}
+	if result.Canceled {
+		t.Fatal("Close SettingsResult should not be marked canceled")
 	}
 }
 

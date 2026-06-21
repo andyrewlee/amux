@@ -150,6 +150,22 @@ func TestDiffLoaded_IgnoresStaleLoadCompletion(t *testing.T) {
 	}
 }
 
+func TestDiffLoaded_WithResultErrorShowsError(t *testing.T) {
+	m := &Model{}
+
+	updated, _ := m.Update(diffLoaded{diff: &git.DiffResult{Error: "fatal: bad revision"}})
+
+	if updated.err == nil {
+		t.Fatal("expected DiffResult.Error to populate model error")
+	}
+	if updated.err.Error() != "fatal: bad revision" {
+		t.Fatalf("model error = %q, want %q", updated.err.Error(), "fatal: bad revision")
+	}
+	if updated.diff != nil {
+		t.Fatalf("expected errored diff not to be retained, got %+v", updated.diff)
+	}
+}
+
 func TestPageScrollUsesMinimumOneLine(t *testing.T) {
 	m := newModelWithDiff(4, 10, nil)
 	m.focused = true

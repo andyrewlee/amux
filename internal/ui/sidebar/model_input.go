@@ -63,6 +63,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !ok {
 				return m, nil
 			}
+			// Ignore clicks on section headers: they aren't actionable, and
+			// moving the cursor onto one makes the selection visually vanish
+			// (headers render no cursor) while opening nothing.
+			if idx < 0 || idx >= len(m.displayItems) || m.displayItems[idx].isHeader {
+				return m, nil
+			}
 			m.cursor = idx
 			return m, m.openCurrentItem()
 		}

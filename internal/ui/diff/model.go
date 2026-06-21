@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"errors"
 	"path/filepath"
 
 	"charm.land/bubbles/v2/key"
@@ -128,6 +129,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
+			return m, nil
+		}
+		// git diff failures are carried in DiffResult.Error with a nil Go error;
+		// surface them via the error view instead of rendering "No changes".
+		if msg.diff != nil && msg.diff.Error != "" {
+			m.err = errors.New(msg.diff.Error)
 			return m, nil
 		}
 		m.err = nil

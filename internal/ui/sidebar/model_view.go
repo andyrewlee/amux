@@ -188,7 +188,9 @@ func (m *Model) helpLines(contentWidth int) []string {
 	items := []string{
 		m.helpItem("k/↑", "up"),
 		m.helpItem("j/↓", "down"),
+		m.helpItem("enter/o", "open"),
 		m.helpItem("/", "filter"),
+		m.helpItem("g", "refresh"),
 	}
 	return common.WrapHelpItems(items, contentWidth)
 }

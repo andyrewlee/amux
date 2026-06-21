@@ -7,9 +7,9 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 )
 
-// TestTruncateDisplayName exercises the byte-length-based trailing-tail policy:
-// names of 20 bytes or fewer are returned verbatim, while longer names are
-// rewritten as "..." plus the trailing 17 bytes (a 20-byte result).
+// TestTruncateDisplayName exercises the rune-length-based trailing-tail policy:
+// names of 20 runes or fewer are returned verbatim, while longer names are
+// rewritten as "..." plus the trailing 17 runes.
 func TestTruncateDisplayName(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -38,6 +38,11 @@ func TestTruncateDisplayName(t *testing.T) {
 			input: "abcdefghijklmnopqrstuvwxyz",
 			want:  "...jklmnopqrstuvwxyz",
 		},
+		{
+			name:  "multibyte name truncates on rune boundary",
+			input: strings.Repeat("界", 21),
+			want:  "..." + strings.Repeat("界", 17),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -50,7 +55,7 @@ func TestTruncateDisplayName(t *testing.T) {
 }
 
 // TestTruncateDisplayName_BoundaryLengths is a property check across the cutover:
-// the result is never longer than 20 bytes, and a truncated result always begins
+// the result is never longer than 20 runes, and a truncated result always begins
 // with the "..." marker while preserving the original suffix.
 func TestTruncateDisplayName_BoundaryLengths(t *testing.T) {
 	for n := 0; n <= 40; n++ {
@@ -68,13 +73,13 @@ func TestTruncateDisplayName_BoundaryLengths(t *testing.T) {
 			}
 			continue
 		}
-		if len(got) != 20 {
-			t.Fatalf("len=%d: truncated result %q has length %d, want 20", n, got, len(got))
+		if gotRunes := len([]rune(got)); gotRunes != 20 {
+			t.Fatalf("len=%d: truncated result %q has rune length %d, want 20", n, got, gotRunes)
 		}
 		if !strings.HasPrefix(got, "...") {
 			t.Fatalf("len=%d: truncated result %q must start with ...", n, got)
 		}
-		// The trailing 17 bytes of the original survive verbatim.
+		// The trailing 17 bytes of the ASCII original survive verbatim.
 		if want := input[len(input)-17:]; !strings.HasSuffix(got, want) {
 			t.Fatalf("len=%d: truncated result %q must end with original tail %q", n, got, want)
 		}

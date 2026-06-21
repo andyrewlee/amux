@@ -128,6 +128,7 @@ func (a *App) handleShowCleanupTmuxDialog() {
 func (a *App) handleShowSettingsDialog() {
 	persistedUI := a.config.PersistedUISettings()
 	a.settingsThemePersistedTheme = common.ThemeID(persistedUI.Theme)
+	a.settingsThemeOriginal = common.ThemeID(a.config.UI.Theme)
 	a.settingsThemeDirty = common.ThemeID(a.config.UI.Theme) != a.settingsThemePersistedTheme
 	a.settingsDialogSession++
 	a.settingsDialog = common.NewSettingsDialog(
@@ -195,7 +196,16 @@ func (a *App) persistSettingsThemeIfDirty() tea.Cmd {
 }
 
 // handleSettingsResult handles settings dialog close.
-func (a *App) handleSettingsResult(_ common.SettingsResult) tea.Cmd {
+func (a *App) handleSettingsResult(res common.SettingsResult) tea.Cmd {
+	if res.Canceled {
+		// Esc cancels: revert any live theme preview to what was active when the
+		// dialog opened and do not persist.
+		a.applyTheme(a.settingsThemeOriginal)
+		a.settingsThemeDirty = false
+		a.settingsDialog = nil
+		a.settingsDialogSession++
+		return nil
+	}
 	if a.settingsDialog != nil {
 		a.applyTheme(a.settingsDialog.SelectedTheme())
 	}

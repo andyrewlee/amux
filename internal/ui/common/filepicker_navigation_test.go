@@ -23,6 +23,31 @@ func writeFile(t *testing.T, path string) {
 	}
 }
 
+func TestFilePickerApplyFilterClampsCursorAndScroll(t *testing.T) {
+	tmp := t.TempDir()
+	mkdirAll(t, filepath.Join(tmp, "alpha"))
+	mkdirAll(t, filepath.Join(tmp, "beta"))
+	mkdirAll(t, filepath.Join(tmp, "gamma"))
+
+	fp := NewFilePicker("id", tmp, true)
+	fp.Show()
+	fp.cursor = len(fp.filteredIdx) - 1
+	fp.scrollOffset = len(fp.filteredIdx) - 1
+	fp.input.SetValue("alpha")
+
+	fp.applyFilter()
+
+	if len(fp.filteredIdx) != 1 {
+		t.Fatalf("filteredIdx length = %d, want 1", len(fp.filteredIdx))
+	}
+	if fp.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0 after filtering to one item", fp.cursor)
+	}
+	if fp.scrollOffset != 0 {
+		t.Fatalf("scrollOffset = %d, want 0 after cursor clamp", fp.scrollOffset)
+	}
+}
+
 func TestFilePickerHandleOpenFromInput(t *testing.T) {
 	t.Run("empty input is a no-op", func(t *testing.T) {
 		tmp := t.TempDir()

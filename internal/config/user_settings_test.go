@@ -191,25 +191,26 @@ func TestSaveUISettingsOverwritesExistingUISection(t *testing.T) {
 	}
 }
 
-func TestSaveUISettingsRecoversFromMalformedExistingFile(t *testing.T) {
-	// A corrupt existing file must not block a save; unmarshal errors are
-	// swallowed and the payload is rebuilt from scratch.
+func TestSaveUISettingsRefusesMalformedExistingFile(t *testing.T) {
+	// A corrupt existing file must not be overwritten because it may contain
+	// hand-edited sections that the tolerant loader skipped.
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte("}{ not json at all"), 0o644); err != nil {
+	original := []byte("}{ not json at all")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	settings := UISettings{Theme: "gruvbox", ShowKeymapHints: true, TmuxSyncInterval: "2s"}
-	if err := saveUISettings(path, settings); err != nil {
-		t.Fatalf("saveUISettings() error = %v", err)
+	if err := saveUISettings(path, settings); err == nil {
+		t.Fatal("saveUISettings() error = nil, want non-nil for malformed existing config")
 	}
 
-	file, err := readConfigFile(path)
+	got, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("readConfigFile() error = %v", err)
+		t.Fatalf("ReadFile() error = %v", err)
 	}
-	if got := applyUISettings(defaultUISettings(), file.UI); got != settings {
-		t.Errorf("settings after recovery = %+v, want %+v", got, settings)
+	if string(got) != string(original) {
+		t.Fatalf("config file was modified despite malformed JSON: got %q want %q", got, original)
 	}
 }
 

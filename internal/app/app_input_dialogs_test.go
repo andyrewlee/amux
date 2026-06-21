@@ -126,3 +126,20 @@ func TestAppUpdate_FilePickerVisibleConsumesWheel(t *testing.T) {
 		t.Fatalf("expected wheel input to move file picker selection to beta, got %q", after)
 	}
 }
+
+func TestHandleDialogResult_AddProjectEmptyShowsWarning(t *testing.T) {
+	app := &App{toast: common.NewToastModel()}
+
+	cmd := app.handleDialogResult(common.DialogResult{
+		ID:        DialogAddProject,
+		Confirmed: true,
+		Value:     "",
+	})
+
+	if cmd == nil {
+		t.Fatal("expected warning toast command")
+	}
+	if view := ansi.Strip(app.toast.View()); !strings.Contains(view, "Project path is required") {
+		t.Fatalf("expected project path warning toast, got %q", view)
+	}
+}

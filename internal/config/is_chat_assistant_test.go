@@ -20,6 +20,12 @@ func TestIsChatAssistant(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "nil config falls back to registry after normalization",
+			cfg:       nil,
+			assistant: "  CLAUDE  ",
+			want:      true,
+		},
+		{
 			name:      "nil config falls back to registry: unknown agent is not chat",
 			cfg:       nil,
 			assistant: "totally-unknown",
@@ -60,6 +66,14 @@ func TestIsChatAssistant(t *testing.T) {
 				"codex":  {Command: "codex"},
 			}},
 			assistant: "codex",
+			want:      true,
+		},
+		{
+			name: "non-empty config: assistant name is normalized",
+			cfg: &Config{Assistants: map[string]AssistantConfig{
+				"codex": {Command: "codex"},
+			}},
+			assistant: "  CODEX  ",
 			want:      true,
 		},
 	}
