@@ -23,4 +23,26 @@ echo "amux pre-push: running headless UI harness (center)..."
 go run ./cmd/amux-harness "${center_args[@]}"
 
 echo "amux pre-push: running tests..."
-go test ./internal/e2e
+go test ./internal/e2e -count=1
+
+# Every test in internal/e2e calls t.Skip when tmux is missing/unusable, so the
+# `go test` above can go green having exercised nothing. Apply the project's
+# anti-false-green discipline here too (see AGENTS.md, `make tmux-skip-check`):
+# pre-flight a throwaway `tmux -L` server exactly like `make verify-loop` does
+# and, if it can't run, surface a clear warning that the push was NOT validated
+# end-to-end. A missing/unusable tmux is intentionally non-fatal — it must not
+# block valid pushes from CI-less envs; it just must not silently pass as green.
+e2e_validated=1
+if ! command -v tmux >/dev/null 2>&1; then
+  e2e_validated=0
+else
+  probe_server="amux-pre-push-e2e-check-$$"
+  if ! tmux -L "$probe_server" new-session -d -s probe "sleep 5" >/dev/null 2>&1; then
+    e2e_validated=0
+  fi
+  tmux -L "$probe_server" kill-server >/dev/null 2>&1 || true
+fi
+if [[ "$e2e_validated" -eq 0 ]]; then
+  echo "amux pre-push: WARNING: e2e tests SKIPPED — tmux unusable, push not validated end-to-end" >&2
+  echo "amux pre-push: run inside a usable tmux and \`make verify-loop\` to exercise input/send end-to-end." >&2
+fi
