@@ -269,7 +269,7 @@ func TestGitCommandContextErrorDoesNotMaskExitErrorAfterLateCancel(t *testing.T)
 
 	cancel()
 
-	if ctxErr := gitCommandContextError(ctx, err, []string{"status"}); ctxErr != nil {
+	if ctxErr := gitCommandContextErrorWithKill(ctx, err, []string{"status"}, false); ctxErr != nil {
 		t.Fatalf("expected late cancellation to preserve original exit error, got %v", ctxErr)
 	}
 }
@@ -296,12 +296,13 @@ func TestGitAllowFailureCommandContextErrorForWindowsPreservesOutputExitOne(t *t
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if ctxErr := gitAllowFailureCommandContextErrorForGOOS(
+	if ctxErr := gitAllowFailureCommandContextErrorWithKillForGOOS(
 		ctx,
 		"windows",
 		err,
 		[]string{"diff", "--no-index", "--no-color", "--", left, right},
 		1,
+		false,
 	); ctxErr != nil {
 		t.Fatalf("expected allow-failure output to suppress ambiguous windows timeout mapping, got %v", ctxErr)
 	}
@@ -329,12 +330,13 @@ func TestGitAllowFailureCommandContextErrorForWindowsWithoutKillDoesNotMapTimeou
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ctxErr := gitAllowFailureCommandContextErrorForGOOS(
+	ctxErr := gitAllowFailureCommandContextErrorWithKillForGOOS(
 		ctx,
 		"windows",
 		err,
 		[]string{"diff", "--no-index", "--no-color", "--", left, right},
 		0,
+		false,
 	)
 	if ctxErr != nil {
 		t.Fatalf("expected ordinary exit error to remain unmapped without kill evidence, got %v", ctxErr)
@@ -436,11 +438,12 @@ func TestGitCommandContextErrorForWindowsWithoutKillDoesNotMapTimeout(t *testing
 	defer cancel()
 	time.Sleep(2 * time.Millisecond)
 
-	ctxErr := gitCommandContextErrorForGOOS(
+	ctxErr := gitCommandContextErrorWithKillForGOOS(
 		ctx,
 		"windows",
 		err,
 		[]string{"diff", "--no-index", "--no-color", "--", left, right},
+		false,
 	)
 	if ctxErr != nil {
 		t.Fatalf("expected ordinary exit error to remain unmapped without kill evidence, got %v", ctxErr)
