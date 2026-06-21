@@ -16,6 +16,9 @@ It builds the linter version pinned in `.golangci-version` into the gitignored
 version (v2.x) and fails confusingly against this repo's v1 config. See
 [LINTING.md](LINTING.md) for the full rationale.
 
+The minimum supported Go is **1.26** (the `go` directive in `go.mod`); any Go
+1.26.x patch release builds the repo, so no `GOTOOLCHAIN` override is needed.
+
 Run the local checks that mirror CI:
 
 ```bash

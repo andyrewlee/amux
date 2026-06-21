@@ -47,7 +47,7 @@ Or via the install script:
 curl -fsSL https://raw.githubusercontent.com/andyrewlee/amux/main/install.sh | sh
 ```
 
-Or with Go:
+Or with Go (requires Go 1.26 or newer):
 
 ```bash
 go install github.com/andyrewlee/amux/cmd/amux@latest
