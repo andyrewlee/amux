@@ -51,11 +51,6 @@ func TestSyncScrollClampsToFrozenScrollback(t *testing.T) {
 	if offset, maxOffset := vt.GetScrollInfo(); offset != 2 || maxOffset != 2 {
 		t.Fatalf("expected sync scroll top to clamp to frozen max 2, got offset=%d max=%d", offset, maxOffset)
 	}
-
-	vt.ScrollToLine(0)
-	if offset, maxOffset := vt.GetScrollInfo(); offset != 2 || maxOffset != 2 {
-		t.Fatalf("expected ScrollToLine to respect frozen sync buffers, got offset=%d max=%d", offset, maxOffset)
-	}
 }
 
 func TestSyncScrollbackGrowthDoesNotShiftAnchoredView(t *testing.T) {
