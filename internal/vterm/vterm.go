@@ -72,6 +72,11 @@ type VTerm struct {
 	// Response writer for terminal queries (DSR, DA, etc.)
 	responseWriter ResponseWriter
 
+	// OSC-captured state (set by the parser; consumed by the owning UI layer).
+	oscTitle         string
+	oscWorkingDir    string
+	pendingClipboard []byte
+
 	// Selection state for copy/paste highlighting
 	// Uses absolute line numbers (0 = first scrollback line)
 	selActive               bool
@@ -319,6 +324,25 @@ func (v *VTerm) respond(data []byte) {
 		v.responseWriter(data)
 	}
 }
+
+// Title returns the most recent window/tab title reported via OSC 0/1/2.
+func (v *VTerm) Title() string { return v.oscTitle }
+
+// WorkingDir returns the most recent working directory reported via OSC 7
+// (raw payload, e.g. "file://host/path").
+func (v *VTerm) WorkingDir() string { return v.oscWorkingDir }
+
+// TakePendingClipboard returns and clears any clipboard payload captured from an
+// OSC 52 write. Returns nil when none is pending.
+func (v *VTerm) TakePendingClipboard() []byte {
+	b := v.pendingClipboard
+	v.pendingClipboard = nil
+	return b
+}
+
+func (v *VTerm) setOSCTitle(s string)         { v.oscTitle = s }
+func (v *VTerm) setOSCWorkingDir(s string)    { v.oscWorkingDir = s }
+func (v *VTerm) setPendingClipboard(b []byte) { v.pendingClipboard = b }
 
 // ParserCarryState reports any in-flight parser state from previously flushed
 // PTY bytes. Callers must provide external synchronization.

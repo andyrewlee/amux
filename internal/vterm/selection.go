@@ -244,6 +244,10 @@ func (v *VTerm) GetTextRange(startX, startLine, endX, endLine int) string {
 				if row[x].Width == 0 {
 					continue
 				}
+				if g := row[x].GraphemeCluster; g != "" {
+					result.WriteString(g)
+					continue
+				}
 				r := row[x].Rune
 				if r == 0 {
 					r = ' '

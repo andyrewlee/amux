@@ -9,22 +9,29 @@ func (v *VTerm) putChar(r rune) {
 
 	// Combining characters (width 0) attach to previous cell
 	if width == 0 {
-		// Find previous cell to attach to
 		prevX := v.CursorX - 1
 		prevY := v.CursorY
 		if prevX < 0 && prevY > 0 {
 			prevY--
 			prevX = v.Width - 1
 		}
+		// Step back over a wide-char continuation cell to its base cell.
+		if prevY >= 0 && prevY < len(v.Screen) {
+			line := v.Screen[prevY]
+			if prevX > 0 && prevX < len(line) && line[prevX].Width == 0 {
+				prevX--
+			}
+		}
 		if prevY >= 0 && prevY < len(v.Screen) && prevX >= 0 && prevX < len(v.Screen[prevY]) {
-			// Append combining character to previous cell's rune
-			// Note: This stores combined as a single rune which works for simple cases
-			// For full combining support, Cell.Rune would need to be a string
 			cell := &v.Screen[prevY][prevX]
-			// Skip if previous cell is a continuation cell (Width==0)
-			// For non-continuation cells, we could append combining chars
-			// Full support would require storing multiple runes per cell
-			_ = cell // Currently no-op for combining characters
+			if cell.Rune != 0 { // never attach to a blank/continuation marker
+				base := cell.GraphemeCluster
+				if base == "" {
+					base = string(cell.Rune)
+				}
+				cell.GraphemeCluster = base + string(r)
+				v.markDirtyLine(prevY)
+			}
 		}
 		return // Don't advance cursor for combining chars
 	}

@@ -33,6 +33,10 @@ type Cell struct {
 	Rune  rune
 	Style Style
 	Width int // 1 normal, 2 wide, 0 continuation
+	// GraphemeCluster, when non-empty, is the full grapheme (base rune plus
+	// combining marks) for this cell. Empty means "use Rune". Readers that emit
+	// text should prefer it; width/layout logic still uses Rune + Width.
+	GraphemeCluster string
 }
 
 // DefaultCell returns a blank cell

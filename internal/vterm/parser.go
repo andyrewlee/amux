@@ -342,11 +342,11 @@ func (p *Parser) parseEscape(b byte) {
 }
 
 func (p *Parser) parseOSC(b byte) {
-	if b == 0x07 || b == 0x1b { // BEL or ESC terminates
+	if b == 0x07 || b == 0x1b { // BEL or ESC (ST) terminates
+		p.executeOSC()
 		if b == 0x1b {
-			p.state = stateEscape // Will see \ next
+			p.state = stateEscape // consume the trailing '\' of ST
 		} else {
-			p.executeOSC()
 			p.state = stateGround
 		}
 		return
@@ -355,11 +355,7 @@ func (p *Parser) parseOSC(b byte) {
 }
 
 func (p *Parser) executeOSC() {
-	// OSC sequences - ignore for now
-	// Could handle:
-	// - OSC 0;title - set window title
-	// - OSC 10;color - query/set foreground
-	// - OSC 11;color - query/set background
+	p.dispatchOSC()
 }
 
 func (p *Parser) parseDCS(b byte) {
