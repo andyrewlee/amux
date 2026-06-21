@@ -1,15 +1,13 @@
 package center
 
-import "github.com/andyrewlee/amux/internal/config"
-
 func (m *Model) assistantIsChat(assistant string) bool {
-	if m != nil && m.config != nil && len(m.config.Assistants) > 0 {
-		_, ok := m.config.Assistants[assistant]
-		return ok
+	if m == nil {
+		return false
 	}
-	// Fallback when no config is loaded: consult the canonical agent registry
-	// so the supported roster stays in lockstep with config/theme.
-	return config.IsRegisteredAgent(assistant)
+	// Delegate to the single source of truth so activity detection and center
+	// rendering classify chat agents identically, including the empty-config
+	// path where it falls back to the canonical agent registry.
+	return m.config.IsChatAssistant(assistant)
 }
 
 func tabHasDiffViewerLocked(tab *Tab) bool {

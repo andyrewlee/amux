@@ -133,6 +133,19 @@ func (c *Config) IsAssistantKnown(assistant string) bool {
 	return ok
 }
 
+// IsChatAssistant reports whether name should be treated as a chat agent. It is
+// the single source of truth for this predicate so activity detection and the
+// center renderer agree even on the empty-config path: when assistants are
+// loaded it consults the config map; otherwise it falls back to the canonical
+// agent registry rather than reporting false for every agent.
+func (c *Config) IsChatAssistant(name string) bool {
+	if c != nil && len(c.Assistants) > 0 {
+		_, ok := c.Assistants[name]
+		return ok
+	}
+	return IsRegisteredAgent(name)
+}
+
 // ResolvedDefaultAssistant returns a valid default assistant name.
 func (c *Config) ResolvedDefaultAssistant() string {
 	if c == nil {
