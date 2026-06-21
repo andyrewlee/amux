@@ -114,11 +114,9 @@ func (m *TerminalModel) handleMouseWheel(msg tea.MouseWheelMsg) (*TerminalModel,
 	ts.mu.Lock()
 	delta := common.ScrollDeltaForHeight(ts.VTerm.Height, 8) // ~12.5% of viewport
 	if msg.Button == tea.MouseWheelUp {
-		ts.VTerm.ScrollView(delta)
-		ts.VTerm.NoteSyncViewportInteraction()
+		ts.VTerm.ScrollViewAndNote(delta)
 	} else if msg.Button == tea.MouseWheelDown {
-		ts.VTerm.ScrollView(-delta)
-		ts.VTerm.NoteSyncViewportInteraction()
+		ts.VTerm.ScrollViewAndNote(-delta)
 	}
 	ts.mu.Unlock()
 	return m, nil
@@ -179,8 +177,7 @@ func (m *TerminalModel) handleKeyPress(msg tea.KeyPressMsg) (*TerminalModel, tea
 	case tea.KeyPgUp:
 		ts.mu.Lock()
 		if ts.VTerm != nil {
-			ts.VTerm.ScrollView(common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
-			ts.VTerm.NoteSyncViewportInteraction()
+			ts.VTerm.ScrollViewAndNote(common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
 		}
 		ts.mu.Unlock()
 		return m, nil
@@ -188,8 +185,7 @@ func (m *TerminalModel) handleKeyPress(msg tea.KeyPressMsg) (*TerminalModel, tea
 	case tea.KeyPgDown:
 		ts.mu.Lock()
 		if ts.VTerm != nil {
-			ts.VTerm.ScrollView(-common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
-			ts.VTerm.NoteSyncViewportInteraction()
+			ts.VTerm.ScrollViewAndNote(-common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
 		}
 		ts.mu.Unlock()
 		return m, nil

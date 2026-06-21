@@ -131,8 +131,8 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 		borderLeft   = 1
 		paddingLeft  = 1
 		borderTop    = 1
-		tabBarHeight = 1 // compact tabs (no borders, single line)
-		baseOverhead = 4 // borders (2) + tab bar (1) + status line reserve (1)
+		tabBarHeight = common.TabBarHeight // compact tabs (no borders, single line)
+		baseOverhead = 4                   // borders (2) + tab bar (1) + status line reserve (1)
 	)
 
 	width := m.contentWidth()

@@ -119,30 +119,19 @@ func (m *Model) updateMouseMotion(msg tea.MouseMotionMsg) (*Model, tea.Cmd) {
 	}
 	tab.mu.Lock()
 	if tab.Selection.Active && tab.Terminal != nil {
-		termWidth := tab.Terminal.Width
-		termHeight := tab.Terminal.Height
-		if termX < 0 {
-			termX = 0
-		}
-		if termX >= termWidth {
-			termX = termWidth - 1
-		}
-
-		// Set scroll direction from unclamped Y before clamping
-		tab.selectionScroll.SetDirection(termY, termHeight)
-
-		if termY < 0 {
-			m.scrollTerminalViewLocked(tab, 1)
-			termY = 0
-		} else if termY >= termHeight {
-			m.scrollTerminalViewLocked(tab, -1)
-			termY = termHeight - 1
-		}
-		absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, termY)
-		common.ExtendSelection(tab.Terminal, &tab.Selection, termX, absLine)
-
-		tab.selectionLastTermX = termX
-		if needTick, gen := tab.selectionScroll.NeedsTick(); needTick {
+		needTick, gen := common.DragSelect(
+			tab.Terminal,
+			&tab.Selection,
+			&tab.selectionScroll,
+			termX, termY, tab.Terminal.Width, tab.Terminal.Height,
+			&tab.selectionLastTermX,
+			func(delta int) { m.scrollTerminalViewLocked(tab, delta) },
+			func(screenY int) int {
+				absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, screenY)
+				return absLine
+			},
+		)
+		if needTick {
 			wsID := m.workspaceID()
 			tabID := tab.ID
 			cmds = append(cmds, common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
@@ -384,21 +373,23 @@ func (m *Model) updateSelectionScrollTick(msg selectionScrollTick) tea.Cmd {
 		tab.mu.Unlock()
 		return nil
 	}
-	m.scrollTerminalViewLocked(tab, tab.selectionScroll.ScrollDir)
-
-	// Update selection endpoint to viewport edge
-	edgeY := 0
-	if tab.selectionScroll.ScrollDir < 0 {
-		edgeY = tab.Terminal.Height - 1
-	}
-	absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, edgeY)
-	endX := tab.selectionLastTermX
-	common.ExtendSelection(tab.Terminal, &tab.Selection, endX, absLine)
+	common.SelectionScrollTickStep(
+		tab.Terminal,
+		&tab.Selection,
+		&tab.selectionScroll,
+		tab.Terminal.Height,
+		tab.selectionLastTermX,
+		func(delta int) { m.scrollTerminalViewLocked(tab, delta) },
+		func(screenY int) int {
+			absLine, _ := m.displayedScreenYToAbsoluteLineLocked(tab, screenY)
+			return absLine
+		},
+	)
 
 	tab.mu.Unlock()
 	tabID := msg.TabID
 	wtID := msg.WorkspaceID
-	cmds = append(cmds, common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
+	cmds = append(cmds, common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
 		return selectionScrollTick{WorkspaceID: wtID, TabID: tabID, Gen: msg.Gen}
 	}))
 	return common.SafeBatch(cmds...)
