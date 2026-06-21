@@ -10,6 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestGoHomeReleasesActiveWorkspaceFileWatch(t *testing.T) {
@@ -331,18 +332,9 @@ func skipIfNoGit(t *testing.T) {
 	}
 }
 
+// runGit delegates to the shared testutil fixture (git-env filtering + pinned
+// author identity); the package-level name is kept so existing call sites are
+// unchanged.
 func runGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=Test",
-		"GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=Test",
-		"GIT_COMMITTER_EMAIL=test@example.com",
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
-	}
+	testutil.RunGit(t, dir, args...)
 }
