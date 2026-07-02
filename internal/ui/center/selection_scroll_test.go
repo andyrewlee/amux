@@ -106,6 +106,7 @@ func TestTabActor_SelectionScrollTick_ScrollsUp(t *testing.T) {
 		t.Fatal("expected scroll to be active")
 	}
 	gen := tab.selectionScroll.Gen
+	seq := tab.selectionScroll.TickSeq
 	tab.mu.Unlock()
 
 	// Should have sent a selectionTickRequest
@@ -118,6 +119,9 @@ func TestTabActor_SelectionScrollTick_ScrollsUp(t *testing.T) {
 	}
 	if tickReq.gen != gen {
 		t.Fatalf("tick request gen=%d, expected %d", tickReq.gen, gen)
+	}
+	if tickReq.seq != seq {
+		t.Fatalf("tick request seq=%d, expected %d", tickReq.seq, seq)
 	}
 
 	// Process scroll tick via tab actor
@@ -132,6 +136,7 @@ func TestTabActor_SelectionScrollTick_ScrollsUp(t *testing.T) {
 		tabID:       tab.ID,
 		kind:        tabEventSelectionScrollTick,
 		gen:         gen,
+		seq:         seq,
 	})
 
 	tab.mu.Lock()
@@ -197,6 +202,7 @@ func TestTabActor_SelectionScrollTick_ScrollsDown(t *testing.T) {
 		t.Fatalf("expected ScrollDir=-1 (down), got %d", tab.selectionScroll.ScrollDir)
 	}
 	gen := tab.selectionScroll.Gen
+	seq := tab.selectionScroll.TickSeq
 	scrollBefore, _ := tab.Terminal.GetScrollInfo()
 	tab.mu.Unlock()
 
@@ -208,6 +214,7 @@ func TestTabActor_SelectionScrollTick_ScrollsDown(t *testing.T) {
 		tabID:       tab.ID,
 		kind:        tabEventSelectionScrollTick,
 		gen:         gen,
+		seq:         seq,
 	})
 
 	tab.mu.Lock()
@@ -245,6 +252,7 @@ func TestTabActor_SelectionScrollTick_StopsAfterFinish(t *testing.T) {
 
 	tab.mu.Lock()
 	gen := tab.selectionScroll.Gen
+	seq := tab.selectionScroll.TickSeq
 	tab.mu.Unlock()
 
 	// Finish selection (mouse release)
@@ -257,7 +265,7 @@ func TestTabActor_SelectionScrollTick_StopsAfterFinish(t *testing.T) {
 	sinkMsgs = nil
 	m.handleTabEvent(tabEvent{
 		tab: tab, workspaceID: wtID, tabID: tab.ID,
-		kind: tabEventSelectionScrollTick, gen: gen,
+		kind: tabEventSelectionScrollTick, gen: gen, seq: seq,
 	})
 
 	// Should NOT have requested another tick
@@ -287,6 +295,7 @@ func TestTabActor_SelectionScrollTick_StopsAfterClear(t *testing.T) {
 
 	tab.mu.Lock()
 	gen := tab.selectionScroll.Gen
+	seq := tab.selectionScroll.TickSeq
 	tab.mu.Unlock()
 
 	// Clear selection (e.g., user types a key)
@@ -299,7 +308,7 @@ func TestTabActor_SelectionScrollTick_StopsAfterClear(t *testing.T) {
 	sinkMsgs = nil
 	m.handleTabEvent(tabEvent{
 		tab: tab, workspaceID: wtID, tabID: tab.ID,
-		kind: tabEventSelectionScrollTick, gen: gen,
+		kind: tabEventSelectionScrollTick, gen: gen, seq: seq,
 	})
 
 	for _, msg := range sinkMsgs {
@@ -328,6 +337,7 @@ func TestTabActor_SelectionScrollTick_Continuous(t *testing.T) {
 
 	tab.mu.Lock()
 	gen := tab.selectionScroll.Gen
+	seq := tab.selectionScroll.TickSeq
 	tab.mu.Unlock()
 
 	// Simulate 5 consecutive ticks
@@ -335,7 +345,7 @@ func TestTabActor_SelectionScrollTick_Continuous(t *testing.T) {
 		sinkMsgs = nil
 		m.handleTabEvent(tabEvent{
 			tab: tab, workspaceID: wtID, tabID: tab.ID,
-			kind: tabEventSelectionScrollTick, gen: gen,
+			kind: tabEventSelectionScrollTick, gen: gen, seq: seq,
 		})
 
 		hasTickReq := false
@@ -348,6 +358,7 @@ func TestTabActor_SelectionScrollTick_Continuous(t *testing.T) {
 		if !hasTickReq {
 			t.Fatalf("tick %d: expected continuation tick request", i)
 		}
+		seq++
 	}
 
 	// Verify accumulated scrolling
@@ -379,12 +390,13 @@ func TestTabActor_SelectionScrollTick_EndpointTracksX(t *testing.T) {
 
 	tab.mu.Lock()
 	gen := tab.selectionScroll.Gen
+	seq := tab.selectionScroll.TickSeq
 	tab.mu.Unlock()
 
 	// Process tick
 	m.handleTabEvent(tabEvent{
 		tab: tab, workspaceID: wtID, tabID: tab.ID,
-		kind: tabEventSelectionScrollTick, gen: gen,
+		kind: tabEventSelectionScrollTick, gen: gen, seq: seq,
 	})
 
 	tab.mu.Lock()

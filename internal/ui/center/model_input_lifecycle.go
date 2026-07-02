@@ -248,7 +248,7 @@ func (m *Model) updateTabSelectionResult(msg tabSelectionResult) (*Model, tea.Cm
 // updateSelectionTickRequest handles selectionTickRequest.
 func (m *Model) updateSelectionTickRequest(msg selectionTickRequest) (*Model, tea.Cmd) {
 	cmd := common.SafeTick(100*time.Millisecond, func(time.Time) tea.Msg {
-		return selectionScrollTick{WorkspaceID: msg.workspaceID, TabID: msg.tabID, Gen: msg.gen}
+		return selectionScrollTick{WorkspaceID: msg.workspaceID, TabID: msg.tabID, Gen: msg.gen, Seq: msg.seq}
 	})
 	return m, cmd
 }

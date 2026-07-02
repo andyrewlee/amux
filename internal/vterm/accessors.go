@@ -75,6 +75,7 @@ func (v *VTerm) SelEndY() int {
 // Version returns the current version counter.
 // This increments whenever visible content changes.
 func (v *VTerm) Version() uint64 {
+	v.maybeReleaseStaleSync()
 	return v.version
 }
 

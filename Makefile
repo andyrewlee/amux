@@ -61,7 +61,7 @@ tmux-skip-check:
 	@skipped=$$(go test ./internal/tmux ./internal/e2e ./internal/app -v 2>/dev/null | awk '\
 		/^[[:space:]]+[^[:space:]]+\.go:[0-9]+:/ { reason=$$0 } \
 		/^--- SKIP:/ { \
-			if (reason !~ /cannot start PTY-backed tmux attach|client never attached|signal permissions restricted in this environment/) skipped++; \
+			if (reason !~ /cannot start PTY-backed tmux attach|client never attached|signal permissions restricted in this environment|tmux version does not emit DEC 2026 synchronized-output markers/) skipped++; \
 			reason=""; \
 		} \
 		END { print skipped + 0 }'); \

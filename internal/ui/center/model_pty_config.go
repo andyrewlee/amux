@@ -104,4 +104,5 @@ type selectionScrollTick struct {
 	WorkspaceID string
 	TabID       TabID
 	Gen         uint64
+	Seq         uint64
 }

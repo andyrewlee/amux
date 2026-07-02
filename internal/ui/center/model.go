@@ -2,7 +2,9 @@
 // strip, per-tab PTY I/O and flushing, the diff viewer, and mouse/keyboard
 // text selection. It is the largest UI subsystem; tab work is serialized
 // through a per-model actor (see tab_actor.go) and output is parsed by
-// internal/vterm.
+// internal/vterm. For the streaming/scrolling model (flush pipeline, DEC 2026
+// frame atomicity, viewport anchoring, chat history view, drag auto-scroll)
+// see SCROLLING.md in this package.
 package center
 
 import (

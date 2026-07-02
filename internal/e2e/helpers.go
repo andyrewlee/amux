@@ -99,14 +99,17 @@ func waitForAgentSessions(t *testing.T, opts tmux.Options, timeout time.Duration
 	return sessions
 }
 
-// waitForNoAgentSessions polls until no @amux agent sessions remain, proving the
-// deleted workspace's agent pane was actually torn down through the real handler.
-func waitForNoAgentSessions(t *testing.T, opts tmux.Options, timeout time.Duration) {
+func waitForNoAgentSessionsForWorkspace(t *testing.T, opts tmux.Options, wsID string, timeout time.Duration) {
 	t.Helper()
+	tags := map[string]string{
+		"@amux":           "1",
+		"@amux_type":      "agent",
+		"@amux_workspace": wsID,
+	}
 	testutil.Eventually(t, timeout, sessionPollInterval, func() bool {
-		sessions, err := tmux.ListSessionsMatchingTags(agentSessionTags, opts)
+		sessions, err := tmux.ListSessionsMatchingTags(tags, opts)
 		return err == nil && len(sessions) == 0
-	}, "timeout waiting for agent sessions to be torn down\n%s", lazyString(func() string { return tmuxSessionDebug(opts) }))
+	}, "timeout waiting for agent sessions for workspace %s to be torn down\n%s", wsID, lazyString(func() string { return tmuxSessionDebug(opts) }))
 }
 
 func waitForTerminalSessionCount(t *testing.T, opts tmux.Options, wsID string, count int, timeout time.Duration) {
