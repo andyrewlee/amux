@@ -35,13 +35,17 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 	command = "unset TMUX TMUX_PANE; " + command
 	cmd := shellQuote(command)
 
-	// Use atomic new-session -A to create/attach. Only pass -d when detaching others.
-	detachFlag := ""
-	if detachExisting {
-		detachFlag = "d"
-	}
-	create := fmt.Sprintf("%s new-session -A%ss %s -c %s sh -lc %s",
-		base, detachFlag, session, dir, cmd)
+	// Ensure the session/server exists without attaching yet. tmux computes
+	// client features at attach time, so the server option below must be set
+	// while the server is alive but before the final attach command.
+	ensureSession := fmt.Sprintf("(%s has-session -t %s 2>/dev/null || %s new-session -ds %s -c %s sh -lc %s || %s has-session -t %s 2>/dev/null)",
+		base, sessionTgt, base, session, dir, cmd, base, sessionTgt)
+
+	// Advertise DEC 2026 synchronized-output support before attaching. The
+	// indexed slot keeps repeated session creates idempotent on amux's
+	// dedicated server; the pattern matches the TERM amux sets for attach PTYs.
+	// Swallowed on tmux < 3.2 (no terminal-features).
+	syncFeatureSet := "(" + base + " set-option -s 'terminal-features[16]' 'xterm*:sync' 2>/dev/null || true)"
 
 	var settings strings.Builder
 	// Disable tmux prefix for this session only (not global) to make it transparent
@@ -67,7 +71,7 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 	}
 	attach := fmt.Sprintf("%s attach %s %s", base, attachFlag, sessionTgt)
 
-	return fmt.Sprintf("%s && %s%s", create, settings.String(), attach)
+	return fmt.Sprintf("%s && %s && %s%s", ensureSession, syncFeatureSet, settings.String(), attach)
 }
 
 func appendSessionTags(settings *strings.Builder, base, session string, tags SessionTags) {

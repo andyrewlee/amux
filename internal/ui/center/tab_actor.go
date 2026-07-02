@@ -62,6 +62,7 @@ type tabEvent struct {
 	inBounds        bool
 	delta           int
 	gen             uint64
+	seq             uint64
 	notifyCopy      bool
 	scrollPage      int
 	diffMsg         tea.Msg
@@ -84,6 +85,7 @@ type selectionTickRequest struct {
 	workspaceID string
 	tabID       TabID
 	gen         uint64
+	seq         uint64
 }
 
 type tabActorRedraw struct{}
@@ -125,6 +127,19 @@ func (m *Model) sendTabEvent(ev tabEvent) bool {
 		perf.Count("tab_event_drop", 1)
 	}
 	return false
+}
+
+// dispatchOrHandleTabEvent delivers ev to the tab actor, or handles it
+// synchronously on the caller's goroutine when the actor is not ready or its
+// queue rejected the event. Both routes run the same per-kind handler under
+// tab.mu, so gesture behavior cannot diverge between the actor path and the
+// fallback path. Use this for coalescible UI gestures (selection, scroll);
+// terminal writes have their own rollback-aware fallback (recoverFailedActorSend).
+func (m *Model) dispatchOrHandleTabEvent(ev tabEvent) {
+	if m.isTabActorReady() && m.sendTabEvent(ev) {
+		return
+	}
+	m.handleTabEvent(ev)
 }
 
 func shouldDropTabEvent(ch chan tabEvent, kind tabEventKind) bool {
@@ -265,19 +280,23 @@ func (m *Model) handleScrollToTop(ev tabEvent) {
 }
 
 func (m *Model) handleDiffInput(ev tabEvent) {
-	tab := ev.tab
+	cmd := m.updateDiffViewer(ev.tab, ev.diffMsg)
+	if cmd != nil && m.msgSink != nil {
+		m.msgSink(tabDiffCmd{cmd: cmd})
+	}
+}
+
+func (m *Model) updateDiffViewer(tab *Tab, msg tea.Msg) tea.Cmd {
 	tab.mu.Lock()
 	dv := tab.DiffViewer
 	if dv == nil {
 		tab.mu.Unlock()
-		return
+		return nil
 	}
-	newDV, cmd := dv.Update(ev.diffMsg)
+	newDV, cmd := dv.Update(msg)
 	tab.DiffViewer = newDV
 	tab.mu.Unlock()
-	if cmd != nil && m.msgSink != nil {
-		m.msgSink(tabDiffCmd{cmd: cmd})
-	}
+	return cmd
 }
 
 func (m *Model) handleSendInput(ev tabEvent) {

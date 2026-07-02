@@ -86,14 +86,16 @@ func TestDragSelect(t *testing.T) {
 			wantNeedTick:    true,
 		},
 		{
-			name:  "already-active tick loop does not request another",
+			// Motion while a chain is active re-requests the expected tick
+			// sequence (self-healing when a tick was shed by a queue).
+			name:  "already-active tick loop re-requests the chain",
 			termX: 10, termY: -3,
 			startDir: 1, startActive: true,
 			wantScrollDelta: 1,
 			wantAbsScreenY:  0,
 			wantLastTermX:   10,
 			wantDir:         1,
-			wantNeedTick:    false,
+			wantNeedTick:    true,
 		},
 	}
 
@@ -107,7 +109,7 @@ func TestDragSelect(t *testing.T) {
 			var gotScreenY int
 			lastTermX := -999
 
-			needTick, gen := DragSelect(
+			needTick, gen, seq := DragSelect(
 				v, sel, scrollState,
 				tt.termX, tt.termY, termWidth, termHeight,
 				&lastTermX,
@@ -140,6 +142,9 @@ func TestDragSelect(t *testing.T) {
 			}
 			if needTick && gen == 0 {
 				t.Error("needTick true but gen is zero")
+			}
+			if needTick && seq == 0 {
+				t.Error("needTick true but seq is zero")
 			}
 		})
 	}

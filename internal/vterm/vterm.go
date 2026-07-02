@@ -4,6 +4,8 @@
 // like, feeding the compositor and the center/sidebar UI models.
 package vterm
 
+import "time"
+
 const MaxScrollback = 10000
 
 // ResponseWriter is called when the terminal needs to send a response back to the PTY
@@ -107,7 +109,10 @@ type VTerm struct {
 	preserveScrollbackOnNextClear3 bool
 
 	// Synchronized output (DEC mode 2026)
-	syncActive        bool
+	syncActive bool
+	// syncStartedAt is when the open sync region began; used by the stall
+	// failsafe (SyncStallTimeout) to force-release a sync whose end never came.
+	syncStartedAt     time.Time
 	syncScreen        [][]Cell
 	syncScrollbackLen int
 	syncDeferTrim     bool
@@ -310,6 +315,7 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 
 // Write processes input bytes from PTY
 func (v *VTerm) Write(data []byte) {
+	v.maybeReleaseStaleSync()
 	v.parser.Parse(data)
 }
 

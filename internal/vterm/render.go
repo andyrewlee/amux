@@ -17,8 +17,11 @@ func (v *VTerm) Render() string {
 }
 
 // RenderBuffers returns the current screen buffer and scrollback length.
-// During synchronized output, it returns the frozen snapshot.
+// During synchronized output, it returns the frozen snapshot. As a failsafe it
+// force-releases a sync region whose end marker is overdue (SyncStallTimeout)
+// so a writer that died mid-frame cannot freeze the terminal forever.
 func (v *VTerm) RenderBuffers() ([][]Cell, int) {
+	v.maybeReleaseStaleSync()
 	if v.syncActive && v.syncScreen != nil {
 		scrollbackLen := v.syncScrollbackLen
 		if scrollbackLen > len(v.Scrollback) {
