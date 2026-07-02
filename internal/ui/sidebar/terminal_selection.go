@@ -165,7 +165,7 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 
 	ts.mu.Lock()
 	if ts.Selection.Active && ts.VTerm != nil {
-		needTick, gen := common.DragSelect(
+		needTick, gen, seq := common.DragSelect(
 			ts.VTerm,
 			&ts.Selection,
 			&ts.selectionScroll,
@@ -182,7 +182,7 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 				wsID := m.workspaceID()
 				tabID := activeTab.ID
 				cmd = common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
-					return SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+					return SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
 				})
 			}
 		}
@@ -241,7 +241,7 @@ func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick
 	}
 	ts := tab.State
 	ts.mu.Lock()
-	if !ts.Selection.Active || ts.VTerm == nil || !ts.selectionScroll.HandleTick(msg.Gen) {
+	if !ts.Selection.Active || ts.VTerm == nil || !ts.selectionScroll.HandleTick(msg.Gen, msg.Seq) {
 		ts.mu.Unlock()
 		return nil
 	}
@@ -254,13 +254,14 @@ func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick
 		ts.VTerm.ScrollViewAndNote,
 		ts.VTerm.ScreenYToAbsoluteLine,
 	)
+	nextSeq := ts.selectionScroll.TickSeq
 
 	ts.mu.Unlock()
 
 	wsID := msg.WorkspaceID
 	tabID := msg.TabID
 	return common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
-		return SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: msg.Gen}
+		return SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: msg.Gen, Seq: nextSeq}
 	})
 }
 

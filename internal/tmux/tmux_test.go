@@ -143,9 +143,16 @@ func TestNewClientCommand(t *testing.T) {
 		DetachExisting: true,
 	})
 
-	// Should use atomic new-session -Ad
-	if !strings.Contains(cmd, "new-session -Ads") {
-		t.Error("Command should use atomic new-session -Ads")
+	// Should create detached before the final attach so server options can be
+	// set before tmux computes client features.
+	if !strings.Contains(cmd, "has-session -t '=test-session'") {
+		t.Error("Command should check for an existing session")
+	}
+	if strings.Count(cmd, "has-session -t '=test-session'") < 2 {
+		t.Error("Command should retry has-session after detached create races")
+	}
+	if !strings.Contains(cmd, "new-session -ds") {
+		t.Error("Command should create the session detached before attaching")
 	}
 
 	// Should disable prefix per-session (not globally) with exact-match target
@@ -160,11 +167,6 @@ func TestNewClientCommand(t *testing.T) {
 	if !strings.Contains(cmd, "attach -dt") {
 		t.Error("Command should use attach -dt to detach other clients")
 	}
-	// Should use new-session -Ad when detaching
-	if !strings.Contains(cmd, "new-session -Ads") {
-		t.Error("Command should use new-session -Ads when detaching")
-	}
-
 	// Should use && not ; for chaining
 	if !strings.Contains(cmd, " && ") {
 		t.Error("Command should chain with && not ;")
@@ -177,6 +179,25 @@ func TestNewClientCommand(t *testing.T) {
 	// Should run pane command via sh -lc
 	if !strings.Contains(cmd, "sh -lc 'unset TMUX TMUX_PANE; echo hello'") {
 		t.Error("Command should run pane command via sh -lc with tmux env sanitized")
+	}
+
+	// Should advertise DEC 2026 sync support before attaching so tmux wraps
+	// redraws in sync markers (prevents partial-frame flicker in the vterm).
+	syncSet := "set-option -s 'terminal-features[16]' 'xterm*:sync'"
+	syncIdx := strings.Index(cmd, syncSet)
+	createIdx := strings.Index(cmd, "new-session -ds")
+	attachIdx := strings.Index(cmd, "attach -dt")
+	if syncIdx < 0 {
+		t.Error("Command should set the sync terminal-feature")
+	}
+	if !strings.Contains(cmd, "|| true) &&") {
+		t.Error("sync terminal-feature fallback should be grouped before continuing")
+	}
+	if createIdx >= 0 && syncIdx < createIdx {
+		t.Error("sync terminal-feature should be set after detached session create keeps the server alive")
+	}
+	if attachIdx >= 0 && syncIdx > attachIdx {
+		t.Error("sync terminal-feature must be set before attach (features are computed at attach time)")
 	}
 }
 
@@ -273,11 +294,21 @@ func TestNewClientCommandSharedAttach(t *testing.T) {
 	if !strings.Contains(cmd, "attach -t") {
 		t.Error("Command should attach without detaching other clients")
 	}
-	if strings.Contains(cmd, "new-session -Ads") {
-		t.Error("Command should not detach on new-session when detachExisting=false")
+	if !strings.Contains(cmd, "new-session -ds") {
+		t.Error("Command should create detached before shared attach")
 	}
-	if !strings.Contains(cmd, "new-session -As") {
-		t.Error("Command should use new-session -As when detachExisting=false")
+	syncSet := "set-option -s 'terminal-features[16]' 'xterm*:sync'"
+	syncIdx := strings.Index(cmd, syncSet)
+	createIdx := strings.Index(cmd, "new-session -ds")
+	attachIdx := strings.Index(cmd, "attach -t")
+	if syncIdx < 0 {
+		t.Error("Command should set the sync terminal-feature")
+	}
+	if createIdx >= 0 && syncIdx < createIdx {
+		t.Error("sync terminal-feature should be set after detached create keeps the server alive")
+	}
+	if attachIdx >= 0 && syncIdx > attachIdx {
+		t.Error("sync terminal-feature must be set before shared attach")
 	}
 }
 

@@ -86,7 +86,7 @@ func (m *Model) handleSelectionUpdate(ev tabEvent) {
 		return
 	}
 
-	needTick, gen := common.DragSelect(
+	needTick, gen, seq := common.DragSelect(
 		tab.Terminal,
 		&tab.Selection,
 		&tab.selectionScroll,
@@ -104,6 +104,7 @@ func (m *Model) handleSelectionUpdate(ev tabEvent) {
 			workspaceID: ev.workspaceID,
 			tabID:       ev.tabID,
 			gen:         gen,
+			seq:         seq,
 		})
 	}
 }
@@ -132,7 +133,7 @@ func (m *Model) handleSelectionFinish(ev tabEvent) {
 func (m *Model) handleSelectionScrollTick(ev tabEvent) {
 	tab := ev.tab
 	tab.mu.Lock()
-	if !tab.Selection.Active || tab.Terminal == nil || !tab.selectionScroll.HandleTick(ev.gen) {
+	if !tab.Selection.Active || tab.Terminal == nil || !tab.selectionScroll.HandleTick(ev.gen, ev.seq) {
 		tab.mu.Unlock()
 		return
 	}
@@ -148,6 +149,7 @@ func (m *Model) handleSelectionScrollTick(ev tabEvent) {
 			return absLine
 		},
 	)
+	nextSeq := tab.selectionScroll.TickSeq
 
 	tab.mu.Unlock()
 	if m.msgSink != nil {
@@ -155,6 +157,7 @@ func (m *Model) handleSelectionScrollTick(ev tabEvent) {
 			workspaceID: ev.workspaceID,
 			tabID:       ev.tabID,
 			gen:         ev.gen,
+			seq:         nextSeq,
 		})
 	}
 }

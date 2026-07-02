@@ -7,6 +7,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/diff"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -86,6 +87,27 @@ func TestUpdateOpenDiff_CreatesDiffTab(t *testing.T) {
 	}
 	if m.tabs.ActiveByWorkspace[wsID] != 0 {
 		t.Fatalf("expected the new diff tab to become active, got %d", m.tabs.ActiveByWorkspace[wsID])
+	}
+}
+
+func TestDispatchDiffInputFallbackReturnsCommand(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	m.SetWorkspace(ws)
+	dv := diff.New(ws, &git.Change{Path: "pkg/foo.go", Kind: git.ChangeModified}, git.DiffModeUnstaged, 80, 24)
+	dv.SetFocused(true)
+	tab := &Tab{ID: TabID("diff-tab"), Workspace: ws, Assistant: "diff", DiffViewer: dv}
+
+	handled, cmd := m.dispatchDiffInput(tab, tea.KeyPressMsg{Code: 'q', Text: "q"})
+	if !handled {
+		t.Fatal("expected diff input to be handled")
+	}
+	if cmd == nil {
+		t.Fatal("expected fallback diff input to return close command")
+	}
+	msg := cmd()
+	if _, ok := msg.(messages.CloseTab); !ok {
+		t.Fatalf("expected CloseTab command, got %T", msg)
 	}
 }
 

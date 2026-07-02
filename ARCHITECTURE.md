@@ -11,7 +11,10 @@ For the runtime detail of the app package — lifecycle, PTY flow, tmux activity
 tagging, and persistence invariants — see
 [internal/app/ARCHITECTURE.md](internal/app/ARCHITECTURE.md). For the message
 boundaries and command discipline between the app pump and the panes, see
-[internal/app/MESSAGE_FLOW.md](internal/app/MESSAGE_FLOW.md).
+[internal/app/MESSAGE_FLOW.md](internal/app/MESSAGE_FLOW.md). For the
+streaming/scrolling model — flush pipeline, DEC 2026 frame atomicity, viewport
+anchoring, and drag auto-scroll — see
+[internal/ui/center/SCROLLING.md](internal/ui/center/SCROLLING.md).
 
 ## Dependency direction
 

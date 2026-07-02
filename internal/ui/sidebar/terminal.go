@@ -81,6 +81,7 @@ type SidebarSelectionScrollTick struct {
 	WorkspaceID string
 	TabID       TerminalTabID
 	Gen         uint64
+	Seq         uint64
 }
 
 // TerminalModel is the Bubbletea model for the sidebar terminal section
