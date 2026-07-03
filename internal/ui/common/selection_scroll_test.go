@@ -54,12 +54,15 @@ func TestNeedsTick_StartsLoop(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(-1, 24) // above viewport
 
-	need, gen := s.NeedsTick()
+	need, gen, seq := s.NeedsTick()
 	if !need {
 		t.Fatal("expected NeedsTick to return true")
 	}
 	if gen != 1 {
 		t.Fatalf("expected gen=1, got %d", gen)
+	}
+	if seq != 1 {
+		t.Fatalf("expected seq=1, got %d", seq)
 	}
 	if !s.Active {
 		t.Fatal("expected Active=true after NeedsTick")
@@ -69,25 +72,36 @@ func TestNeedsTick_StartsLoop(t *testing.T) {
 	}
 }
 
-func TestNeedsTick_NoOpWhenActive(t *testing.T) {
+func TestNeedsTick_ReRequestsCurrentSequenceWhileActive(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(-1, 24)
 
-	need1, gen1 := s.NeedsTick()
+	need1, gen1, seq1 := s.NeedsTick()
 	if !need1 {
 		t.Fatal("first NeedsTick should return true")
 	}
 
-	// Second call while Active — should be no-op
-	need2, gen2 := s.NeedsTick()
-	if need2 {
-		t.Fatal("second NeedsTick should return false (already active)")
+	// A second drag motion re-requests the same tick. If the first request was
+	// dropped, this replaces it; if both arrive, the sequence check rejects the
+	// duplicate after the first one advances the chain.
+	need2, gen2, seq2 := s.NeedsTick()
+	if !need2 {
+		t.Fatal("second NeedsTick should re-request the chain")
 	}
-	if gen2 != 0 {
-		t.Fatalf("expected gen=0 when not needed, got %d", gen2)
+	if gen2 != gen1 {
+		t.Fatalf("active chain should keep generation %d, got %d", gen1, gen2)
 	}
-	if s.Gen != gen1 {
-		t.Fatalf("Gen should not change, was %d now %d", gen1, s.Gen)
+	if seq2 != seq1 {
+		t.Fatalf("active chain should re-request sequence %d, got %d", seq1, seq2)
+	}
+	if !s.HandleTick(gen2, seq2) {
+		t.Fatal("current chain generation should be accepted")
+	}
+	if s.HandleTick(gen1, seq1) {
+		t.Fatal("duplicate tick sequence should be rejected")
+	}
+	if !s.Active {
+		t.Fatal("duplicate tick should not stop the current chain")
 	}
 }
 
@@ -95,12 +109,15 @@ func TestNeedsTick_NoOpWhenNoScroll(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(12, 24) // in bounds
 
-	need, gen := s.NeedsTick()
+	need, gen, seq := s.NeedsTick()
 	if need {
 		t.Fatal("NeedsTick should return false when ScrollDir=0")
 	}
 	if gen != 0 {
 		t.Fatalf("expected gen=0, got %d", gen)
+	}
+	if seq != 0 {
+		t.Fatalf("expected seq=0, got %d", seq)
 	}
 	if s.Active {
 		t.Fatal("Active should remain false")
@@ -110,9 +127,9 @@ func TestNeedsTick_NoOpWhenNoScroll(t *testing.T) {
 func TestHandleTick_ValidTick(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(-1, 24)
-	_, gen := s.NeedsTick()
+	_, gen, seq := s.NeedsTick()
 
-	ok := s.HandleTick(gen)
+	ok := s.HandleTick(gen, seq)
 	if !ok {
 		t.Fatal("HandleTick should return true for matching gen")
 	}
@@ -121,29 +138,51 @@ func TestHandleTick_ValidTick(t *testing.T) {
 	}
 }
 
-func TestHandleTick_StaleTick(t *testing.T) {
+func TestHandleTick_StaleTickDoesNotStopCurrentChain(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(-1, 24)
-	_, gen := s.NeedsTick()
+	_, gen, seq := s.NeedsTick()
 
 	// Simulate stale tick (wrong gen)
-	ok := s.HandleTick(gen + 1)
+	ok := s.HandleTick(gen+1, seq)
 	if ok {
 		t.Fatal("HandleTick should return false for mismatched gen")
 	}
-	if s.Active {
-		t.Fatal("Active should be false after stale tick")
+	if !s.Active {
+		t.Fatal("Active should remain true after stale tick")
+	}
+	if !s.HandleTick(gen, seq) {
+		t.Fatal("current generation should still be accepted after stale tick")
+	}
+}
+
+func TestHandleTick_DuplicateSequenceDoesNotStopCurrentChain(t *testing.T) {
+	var s SelectionScrollState
+	s.SetDirection(-1, 24)
+	_, gen, seq := s.NeedsTick()
+
+	if !s.HandleTick(gen, seq) {
+		t.Fatal("first tick should be accepted")
+	}
+	if s.HandleTick(gen, seq) {
+		t.Fatal("duplicate tick sequence should be rejected")
+	}
+	if !s.Active {
+		t.Fatal("duplicate tick should not stop current chain")
+	}
+	if !s.HandleTick(gen, seq+1) {
+		t.Fatal("next tick sequence should be accepted")
 	}
 }
 
 func TestHandleTick_AfterReset(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(-1, 24)
-	_, gen := s.NeedsTick()
+	_, gen, seq := s.NeedsTick()
 
 	s.Reset()
 
-	ok := s.HandleTick(gen)
+	ok := s.HandleTick(gen, seq)
 	if ok {
 		t.Fatal("HandleTick should return false after Reset (gen mismatch)")
 	}
@@ -152,12 +191,12 @@ func TestHandleTick_AfterReset(t *testing.T) {
 func TestHandleTick_DirectionCleared(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(-1, 24)
-	_, gen := s.NeedsTick()
+	_, gen, seq := s.NeedsTick()
 
 	// Mouse moved back into viewport
 	s.SetDirection(12, 24)
 
-	ok := s.HandleTick(gen)
+	ok := s.HandleTick(gen, seq)
 	if ok {
 		t.Fatal("HandleTick should return false when ScrollDir=0")
 	}
@@ -169,13 +208,13 @@ func TestHandleTick_DirectionCleared(t *testing.T) {
 func TestHandleTick_DirectionChanged(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(-1, 24) // above → +1
-	_, gen := s.NeedsTick()
+	_, gen, seq := s.NeedsTick()
 
 	// Direction changed without going through center
 	s.SetDirection(30, 24) // below → -1
 
 	// Tick should still be valid (gen matches, dir != 0, active)
-	ok := s.HandleTick(gen)
+	ok := s.HandleTick(gen, seq)
 	if !ok {
 		t.Fatal("HandleTick should still be valid when direction changed but gen matches")
 	}
@@ -206,13 +245,13 @@ func TestReset(t *testing.T) {
 func TestReset_AllowsNewTickLoop(t *testing.T) {
 	var s SelectionScrollState
 	s.SetDirection(-1, 24)
-	_, gen1 := s.NeedsTick()
+	_, gen1, _ := s.NeedsTick()
 
 	s.Reset()
 
 	// Should be able to start a new tick loop
 	s.SetDirection(-1, 24)
-	need, gen2 := s.NeedsTick()
+	need, gen2, _ := s.NeedsTick()
 	if !need {
 		t.Fatal("should be able to start new tick loop after Reset")
 	}
@@ -231,29 +270,30 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// 2. First motion triggers tick loop
-	need, gen := s.NeedsTick()
+	need, gen, seq := s.NeedsTick()
 	if !need {
 		t.Fatal("step 2: expected NeedsTick=true")
 	}
 
 	// 3. Multiple ticks while mouse is held still
 	for i := 0; i < 5; i++ {
-		ok := s.HandleTick(gen)
+		ok := s.HandleTick(gen, seq)
 		if !ok {
 			t.Fatalf("step 3 tick %d: expected HandleTick=true", i)
 		}
+		seq++
 	}
 
 	// 4. Mouse released → Reset
 	s.Reset()
-	ok := s.HandleTick(gen)
+	ok := s.HandleTick(gen, seq)
 	if ok {
 		t.Fatal("step 4: HandleTick should fail after Reset")
 	}
 
 	// 5. New selection starts and drags below viewport
 	s.SetDirection(30, 24)
-	need2, gen2 := s.NeedsTick()
+	need2, gen2, seq2 := s.NeedsTick()
 	if !need2 {
 		t.Fatal("step 5: expected new tick loop")
 	}
@@ -265,19 +305,13 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// 6. Old gen tick should be rejected
-	ok = s.HandleTick(gen)
+	ok = s.HandleTick(gen, seq)
 	if ok {
 		t.Fatal("step 6: old gen should be rejected")
 	}
 
-	// 7. New gen tick should work (need to restart since HandleTick
-	//    with wrong gen set Active=false)
-	s.SetDirection(30, 24) // re-set direction
-	need3, gen3 := s.NeedsTick()
-	if !need3 {
-		t.Fatal("step 7: expected NeedsTick=true after re-activation")
-	}
-	ok = s.HandleTick(gen3)
+	// 7. New gen tick should still work after the old gen was ignored.
+	ok = s.HandleTick(gen2, seq2)
 	if !ok {
 		t.Fatal("step 7: HandleTick with correct gen should succeed")
 	}

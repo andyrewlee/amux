@@ -12,6 +12,10 @@ const SelectionScrollTickInterval = 100 * time.Millisecond
 type SelectionScrollState struct {
 	// Gen is a generation counter used to invalidate stale tick loops.
 	Gen uint64
+	// TickSeq is the next tick sequence expected for Gen. Duplicate requests for
+	// the same sequence are harmless: the first tick advances TickSeq and later
+	// copies are ignored without stopping the loop.
+	TickSeq uint64
 	// ScrollDir is +1 (scroll up into history) or -1 (scroll down toward
 	// live output) or 0 (no auto-scroll).
 	ScrollDir int
@@ -31,27 +35,41 @@ func (s *SelectionScrollState) SetDirection(termY, termHeight int) {
 	}
 }
 
-// NeedsTick returns (true, gen) when a new tick loop should be started.
-// It bumps the generation counter and marks the state active. If a tick
-// loop is already running or scrolling is not needed, it returns (false, 0).
-func (s *SelectionScrollState) NeedsTick() (bool, uint64) {
-	if s.ScrollDir != 0 && !s.Active {
+// NeedsTick reports whether the caller should schedule an auto-scroll tick and,
+// if so, returns the current generation and next expected tick sequence.
+// Motions while a loop is already active re-request the same generation/sequence
+// instead of invalidating the live timer. If a request was dropped, the next
+// motion can replace it; if both copies arrive, HandleTick accepts whichever
+// one arrives first and rejects the duplicate by sequence number.
+func (s *SelectionScrollState) NeedsTick() (bool, uint64, uint64) {
+	if s.ScrollDir == 0 {
+		return false, 0, 0
+	}
+	if !s.Active || s.TickSeq == 0 {
 		s.Active = true
 		s.Gen++
-		return true, s.Gen
+		s.TickSeq = 1
 	}
-	return false, 0
+	return true, s.Gen, s.TickSeq
 }
 
 // HandleTick checks whether an incoming tick with the given generation is
-// still valid. Returns true if the tick loop should continue (caller
-// should scroll and schedule the next tick). Returns false if the tick
-// loop should stop (generation mismatch, direction cleared, or not active).
-func (s *SelectionScrollState) HandleTick(gen uint64) bool {
-	if s.Gen != gen || s.ScrollDir == 0 || !s.Active {
+// still valid. Returns true if the tick loop should continue (caller should
+// scroll and schedule the next tick). Stale generations or duplicate sequences
+// are ignored without stopping the current generation; explicit stop conditions
+// (direction cleared or inactive state) end the loop.
+func (s *SelectionScrollState) HandleTick(gen, seq uint64) bool {
+	if !s.Active {
+		return false
+	}
+	if s.ScrollDir == 0 {
 		s.Active = false
 		return false
 	}
+	if s.Gen != gen || s.TickSeq != seq {
+		return false
+	}
+	s.TickSeq++
 	return true
 }
 

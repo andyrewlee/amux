@@ -84,6 +84,7 @@ func TestSelectionScrollTick_DragAboveViewport(t *testing.T) {
 		t.Fatal("expected scroll tick loop to be active")
 	}
 	gen := ts.selectionScroll.Gen
+	seq := ts.selectionScroll.TickSeq
 	ts.mu.Unlock()
 
 	// Scroll to a known position first so we can verify the tick scrolls
@@ -93,7 +94,7 @@ func TestSelectionScrollTick_DragAboveViewport(t *testing.T) {
 	ts.mu.Unlock()
 
 	// Process the tick message
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
 	_, cmd = m.Update(tickMsg)
 
 	if cmd == nil {
@@ -145,11 +146,12 @@ func TestSelectionScrollTick_DragBelowViewport(t *testing.T) {
 		t.Fatalf("expected ScrollDir=-1 (down), got %d", ts.selectionScroll.ScrollDir)
 	}
 	gen := ts.selectionScroll.Gen
+	seq := ts.selectionScroll.TickSeq
 	scrollBefore, _ := ts.VTerm.GetScrollInfo()
 	ts.mu.Unlock()
 
 	// Process tick
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
 	_, cmd = m.Update(tickMsg)
 
 	if cmd == nil {
@@ -179,6 +181,7 @@ func TestSelectionScrollTick_StopsOnRelease(t *testing.T) {
 
 	ts.mu.Lock()
 	gen := ts.selectionScroll.Gen
+	seq := ts.selectionScroll.TickSeq
 	ts.mu.Unlock()
 
 	// Release mouse
@@ -186,7 +189,7 @@ func TestSelectionScrollTick_StopsOnRelease(t *testing.T) {
 	m, _ = m.Update(release)
 
 	// Process tick with old gen → should be rejected
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
 	_, cmd := m.Update(tickMsg)
 
 	if cmd != nil {
@@ -208,6 +211,7 @@ func TestSelectionScrollTick_StopsOnNewClick(t *testing.T) {
 
 	ts.mu.Lock()
 	gen := ts.selectionScroll.Gen
+	seq := ts.selectionScroll.TickSeq
 	ts.mu.Unlock()
 
 	// New click (starts new selection, resets scroll)
@@ -215,7 +219,7 @@ func TestSelectionScrollTick_StopsOnNewClick(t *testing.T) {
 	m, _ = m.Update(click2)
 
 	// Old tick should be rejected
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
 	_, cmd := m.Update(tickMsg)
 
 	if cmd != nil {
@@ -237,16 +241,18 @@ func TestSelectionScrollTick_ContinuousScrolling(t *testing.T) {
 
 	ts.mu.Lock()
 	gen := ts.selectionScroll.Gen
+	seq := ts.selectionScroll.TickSeq
 	ts.mu.Unlock()
 
 	// Simulate 5 consecutive ticks (mouse held still)
 	for i := 0; i < 5; i++ {
-		tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+		tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
 		var cmd tea.Cmd
 		m, cmd = m.Update(tickMsg)
 		if cmd == nil {
 			t.Fatalf("tick %d: expected next tick command (continuous scrolling)", i)
 		}
+		seq++
 	}
 
 	// Verify we've scrolled multiple lines
@@ -287,10 +293,11 @@ func TestSelectionScrollTick_EndpointTracksLastX(t *testing.T) {
 
 	ts.mu.Lock()
 	gen := ts.selectionScroll.Gen
+	seq := ts.selectionScroll.TickSeq
 	ts.mu.Unlock()
 
 	// Process tick
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen}
+	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
 	_, _ = m.Update(tickMsg)
 
 	// Verify endpoint X matches the last motion X

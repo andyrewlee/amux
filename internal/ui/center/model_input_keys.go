@@ -40,24 +40,13 @@ func (m *Model) handleCopyKey(msg tea.KeyPressMsg, tabs []*Tab, activeIdx int) (
 		return m, nil, false
 	}
 	tab := tabs[activeIdx]
-	if m.isTabActorReady() {
-		if m.sendTabEvent(tabEvent{
-			tab:         tab,
-			workspaceID: m.workspaceID(),
-			tabID:       tab.ID,
-			kind:        tabEventSelectionCopy,
-			notifyCopy:  true,
-		}) {
-			return m, nil, true
-		}
-	}
-	tab.mu.Lock()
-	text := ""
-	if tab.Terminal != nil && tab.Terminal.HasSelection() {
-		text = tab.Terminal.SelectedText()
-	}
-	tab.mu.Unlock()
-	common.CopyToClipboardWithLog(text, "Cmd+C clipboard")
+	m.dispatchOrHandleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: m.workspaceID(),
+		tabID:       tab.ID,
+		kind:        tabEventSelectionCopy,
+		notifyCopy:  true,
+	})
 	return m, nil, true
 }
 
@@ -66,24 +55,12 @@ func (m *Model) clearSelectionOnType(tabs []*Tab, activeIdx int) {
 		return
 	}
 	tab := tabs[activeIdx]
-	sent := false
-	if m.isTabActorReady() {
-		sent = m.sendTabEvent(tabEvent{
-			tab:         tab,
-			workspaceID: m.workspaceID(),
-			tabID:       tab.ID,
-			kind:        tabEventSelectionClear,
-		})
-	}
-	if !sent {
-		tab.mu.Lock()
-		if tab.Terminal != nil {
-			tab.Terminal.ClearSelection()
-		}
-		tab.Selection = common.SelectionState{}
-		tab.selectionScroll.Reset()
-		tab.mu.Unlock()
-	}
+	m.dispatchOrHandleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: m.workspaceID(),
+		tabID:       tab.ID,
+		kind:        tabEventSelectionClear,
+	})
 }
 
 func (m *Model) forwardKeyToActiveTab(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd) {
@@ -202,41 +179,23 @@ func (m *Model) scrollTerminalPage(tab *Tab, scrollPage int) *Model {
 	if tab == nil || scrollPage == 0 {
 		return m
 	}
-	if m.isTabActorReady() && m.sendTabEvent(tabEvent{
+	m.dispatchOrHandleTabEvent(tabEvent{
 		tab:         tab,
 		workspaceID: m.workspaceID(),
 		tabID:       tab.ID,
 		kind:        tabEventScrollPage,
 		scrollPage:  scrollPage,
-	}) {
-		return m
-	}
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		delta := common.ScrollDeltaForHeight(tab.Terminal.Height, 4)
-		m.scrollTerminalViewLocked(tab, delta*scrollPage)
-	}
-	tab.mu.Unlock()
+	})
 	return m
 }
 
 func (m *Model) scrollToBottomOnType(tab *Tab) {
-	sent := false
-	if m.isTabActorReady() {
-		sent = m.sendTabEvent(tabEvent{
-			tab:         tab,
-			workspaceID: m.workspaceID(),
-			tabID:       tab.ID,
-			kind:        tabEventScrollToBottom,
-		})
-	}
-	if !sent {
-		tab.mu.Lock()
-		if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-			m.scrollTerminalToBottomLocked(tab)
-		}
-		tab.mu.Unlock()
-	}
+	m.dispatchOrHandleTabEvent(tabEvent{
+		tab:         tab,
+		workspaceID: m.workspaceID(),
+		tabID:       tab.ID,
+		kind:        tabEventScrollToBottom,
+	})
 }
 
 func (m *Model) sendKeyToTerminal(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd) {

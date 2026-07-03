@@ -2,6 +2,7 @@ package vterm
 
 import (
 	"testing"
+	"time"
 )
 
 // addScrollbackLines appends n blank scrollback rows so that
@@ -144,7 +145,9 @@ func TestScrollViewToDuringSync(t *testing.T) {
 	addScrollbackLines(vt, 100)
 
 	// Freeze the viewport at a smaller scrollback length than the live buffer.
+	// syncStartedAt must be fresh or the stall failsafe releases the sync.
 	vt.syncActive = true
+	vt.syncStartedAt = time.Now()
 	vt.syncScreen = vt.Screen
 	vt.syncScrollbackLen = 20
 

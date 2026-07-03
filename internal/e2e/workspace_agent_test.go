@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -59,6 +60,8 @@ func TestWorkspaceDeleteTearsDownAgent(t *testing.T) {
 	binDir := writeStubAssistant(t, home, "claude")
 	server := fmt.Sprintf("amux-e2e-%d", time.Now().UnixNano())
 	defer killTmuxServer(t, server)
+	workspaceRoot := filepath.Join(home, ".amux", "workspaces", filepath.Base(repo), "feature")
+	workspaceID := string(data.NewWorkspace("feature", "feature", "main", repo, workspaceRoot).ID())
 
 	env := sessionEnv(binDir, server)
 	env = append(env, "AMUX_TMUX_SYNC_INTERVAL=1s")
@@ -85,6 +88,6 @@ func TestWorkspaceDeleteTearsDownAgent(t *testing.T) {
 
 	// The agent's tmux session must be torn down and the workspace must leave the
 	// dashboard (which also removes its agent tab from view).
-	waitForNoAgentSessions(t, opts, workspaceAgentTimeout)
+	waitForNoAgentSessionsForWorkspace(t, opts, workspaceID, workspaceAgentTimeout)
 	waitForUIConsistentlyAbsent(t, session, "feature", workspaceAgentTimeout, 3*time.Second)
 }

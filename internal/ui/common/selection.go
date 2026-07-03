@@ -27,8 +27,8 @@ type SelectionState struct {
 // The two closures absorb the only per-pane divergence: scroll performs the
 // pane's viewport move (center's chat-history-aware scroll vs the sidebar's raw
 // ScrollView+note), and screenYToAbs maps a screen row to an absolute line.
-// The returned (needTick, gen) come straight from scrollState.NeedsTick(); the
-// caller owns scheduling the actual tick command.
+// The returned (needTick, gen, seq) come straight from
+// scrollState.NeedsTick(); the caller owns scheduling the actual tick command.
 func DragSelect(
 	v *vterm.VTerm,
 	sel *SelectionState,
@@ -37,7 +37,7 @@ func DragSelect(
 	lastTermX *int,
 	scroll func(delta int),
 	screenYToAbs func(screenY int) int,
-) (needTick bool, gen uint64) {
+) (needTick bool, gen, seq uint64) {
 	if termX < 0 {
 		termX = 0
 	}
@@ -67,8 +67,8 @@ func DragSelect(
 // it scrolls the viewport one line in scrollState.ScrollDir and extends the
 // selection endpoint to the now-exposed viewport edge. The caller must hold the
 // owning tab/terminal mutex and must have already validated the tick via
-// scrollState.HandleTick (which confirms the generation, direction, and active
-// state) plus sel.Active and a non-nil v.
+// scrollState.HandleTick (which confirms the generation, tick sequence,
+// direction, and active state) plus sel.Active and a non-nil v.
 //
 // The edge row is the top of the viewport when scrolling up into history and
 // the bottom (termHeight-1) when scrolling down toward live; screenYToAbs maps
