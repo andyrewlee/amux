@@ -186,6 +186,10 @@ func (sw *stateWatcher) watchMetadataRoot() error {
 // watchMetadataDir registers a child directory for watching.
 func (sw *stateWatcher) watchMetadataDir(dir string) error {
 	sw.mu.Lock()
+	if sw.closed {
+		sw.mu.Unlock()
+		return nil
+	}
 	if _, ok := sw.metadataDirs[dir]; ok {
 		sw.mu.Unlock()
 		return nil
@@ -198,6 +202,10 @@ func (sw *stateWatcher) watchMetadataDir(dir string) error {
 	}
 
 	sw.mu.Lock()
+	if sw.closed {
+		sw.mu.Unlock()
+		return nil
+	}
 	sw.metadataDirs[dir] = struct{}{}
 	sw.mu.Unlock()
 	return nil

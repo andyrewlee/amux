@@ -100,6 +100,84 @@ func TestStateWatcher_WatchesNewWorkspaceDirectory(t *testing.T) {
 	}
 }
 
+func TestStateWatcher_WatchMetadataDirSkipsClosedWatcher(t *testing.T) {
+	root := t.TempDir()
+	newDir := filepath.Join(root, "newdir")
+
+	called := false
+	sw := &stateWatcher{
+		metadataRoot: root,
+		metadataDirs: make(map[string]struct{}),
+		closed:       true,
+		addWatchFn: func(_ *fsnotify.Watcher, _ string) error {
+			called = true
+			return nil
+		},
+	}
+
+	if err := sw.watchMetadataDir(newDir); err != nil {
+		t.Fatalf("watchMetadataDir: %v", err)
+	}
+	if called {
+		t.Fatal("expected closed watcher to skip addWatch")
+	}
+	sw.mu.Lock()
+	_, tracked := sw.metadataDirs[newDir]
+	sw.mu.Unlock()
+	if tracked {
+		t.Fatal("expected closed watcher to not track new metadata dir")
+	}
+}
+
+func TestStateWatcher_WatchMetadataDirDoesNotTrackAfterClose(t *testing.T) {
+	root := t.TempDir()
+	newDir := filepath.Join(root, "newdir")
+
+	addStarted := make(chan struct{})
+	releaseAdd := make(chan struct{})
+	sw := &stateWatcher{
+		metadataRoot: root,
+		metadataDirs: make(map[string]struct{}),
+		addWatchFn: func(_ *fsnotify.Watcher, _ string) error {
+			close(addStarted)
+			<-releaseAdd
+			return nil
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sw.watchMetadataDir(newDir)
+	}()
+
+	select {
+	case <-addStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for addWatch")
+	}
+
+	if err := sw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	close(releaseAdd)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("watchMetadataDir: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for watchMetadataDir")
+	}
+
+	sw.mu.Lock()
+	_, tracked := sw.metadataDirs[newDir]
+	sw.mu.Unlock()
+	if tracked {
+		t.Fatal("expected metadata dir to not be tracked after Close")
+	}
+}
+
 func TestStateWatcher_NotifiesOnRegistryWrite(t *testing.T) {
 	dir := t.TempDir()
 	registryPath := filepath.Join(dir, "projects.json")
