@@ -3,6 +3,8 @@ package update
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,4 +172,51 @@ func TestExtractBinaryHostileArchives(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtractBinaryOutputCloseFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "extracted")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatalf("Failed to create dest dir: %v", err)
+	}
+
+	archivePath := filepath.Join(tmpDir, "test.tar.gz")
+	writeTarGz(t, archivePath, []tarEntry{{
+		name:    "amux",
+		content: []byte("#!/bin/sh\necho hello\n"),
+	}})
+
+	injectedErr := errors.New("injected close failure")
+	originalOpenExtractFile := openExtractFile
+	t.Cleanup(func() { openExtractFile = originalOpenExtractFile })
+	openExtractFile = func(name string, flag int, perm os.FileMode) (io.WriteCloser, error) {
+		if filepath.Base(name) != "amux" {
+			t.Fatalf("openExtractFile path = %q, want basename amux", name)
+		}
+		return closeFailureWriter{err: injectedErr}, nil
+	}
+
+	_, err := ExtractBinary(archivePath, destDir)
+	if err == nil {
+		t.Fatal("ExtractBinary() should fail when output close fails")
+	}
+	if !strings.Contains(err.Error(), "closing extracted binary") {
+		t.Fatalf("ExtractBinary() error = %v, want closing extracted binary", err)
+	}
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("ExtractBinary() error = %v, want wrapped injected error", err)
+	}
+}
+
+type closeFailureWriter struct {
+	err error
+}
+
+func (w closeFailureWriter) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (w closeFailureWriter) Close() error {
+	return w.err
 }

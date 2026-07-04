@@ -14,6 +14,11 @@ import (
 // renameFile is a seam for tests to inject rename failures.
 var renameFile = os.Rename
 
+// openExtractFile is a seam for tests to inject extraction close failures.
+var openExtractFile = func(name string, flag int, perm os.FileMode) (io.WriteCloser, error) {
+	return os.OpenFile(name, flag, perm)
+}
+
 // ExtractBinary extracts the amux binary from a tar.gz archive.
 // Returns the path to the extracted binary.
 func ExtractBinary(archivePath, destDir string) (string, error) {
@@ -52,16 +57,18 @@ func ExtractBinary(archivePath, destDir string) (string, error) {
 		}
 
 		binaryPath = filepath.Join(destDir, "amux")
-		outFile, err := os.OpenFile(binaryPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+		outFile, err := openExtractFile(binaryPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 		if err != nil {
 			return "", fmt.Errorf("creating output file: %w", err)
 		}
 
 		if _, err := io.Copy(outFile, tr); err != nil {
-			outFile.Close()
+			_ = outFile.Close()
 			return "", fmt.Errorf("extracting binary: %w", err)
 		}
-		outFile.Close()
+		if err := outFile.Close(); err != nil {
+			return "", fmt.Errorf("closing extracted binary: %w", err)
+		}
 		break
 	}
 
