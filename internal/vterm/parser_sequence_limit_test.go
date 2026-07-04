@@ -20,6 +20,21 @@ func TestParserOversizedOSCSequenceDiscardedUntilTerminator(t *testing.T) {
 	}
 }
 
+func TestParserOversizedOSCMalformedEscapeDoesNotDispatch(t *testing.T) {
+	t.Parallel()
+
+	vt := New(20, 2)
+	vt.Write([]byte("\x1b]0;initial\x07"))
+	vt.Write([]byte("\x1b]0;" + strings.Repeat("x", maxOSCSequenceBytes+1) + "\x1b[0mOK"))
+
+	if got := vt.Title(); got != "initial" {
+		t.Fatalf("Title() after oversized malformed OSC = %q, want %q", got, "initial")
+	}
+	if got := lineText(vt.Screen[0]); got != "OK" {
+		t.Fatalf("oversized malformed OSC leaked to screen: row 0 = %q, want %q", got, "OK")
+	}
+}
+
 func TestParserOversizedCSISequenceDiscardedUntilFinal(t *testing.T) {
 	t.Parallel()
 

@@ -120,7 +120,17 @@ func TestAdvanceParserCarryState_ModeTransitions(t *testing.T) {
 		{
 			name:     "OSC ESC begins string terminator",
 			data:     []byte{0x1b, ']', '0', ';', 't', 0x1b},
-			wantMode: ParserCarryEscape,
+			wantMode: ParserCarryOSCEscape,
+		},
+		{
+			name:     "OSC ST terminator returns to text",
+			data:     []byte("\x1b]0;t\x1b\\"),
+			wantMode: ParserCarryText,
+		},
+		{
+			name:     "OSC ESC bracket aborts OSC and enters CSI",
+			data:     []byte("\x1b]0;t\x1b["),
+			wantMode: ParserCarryCSI,
 		},
 		{
 			name:     "DCS swallows bytes until ESC",
@@ -130,7 +140,12 @@ func TestAdvanceParserCarryState_ModeTransitions(t *testing.T) {
 		{
 			name:     "DCS ESC begins string terminator",
 			data:     []byte{0x1b, 'P', 'q', 0x1b},
-			wantMode: ParserCarryEscape,
+			wantMode: ParserCarryDCSEscape,
+		},
+		{
+			name:     "DCS ST terminator returns to text",
+			data:     []byte("\x1bPq\x1b\\"),
+			wantMode: ParserCarryText,
 		},
 		{
 			name:     "charset designation byte returns to text",
@@ -262,7 +277,9 @@ func TestAdvanceParserCarryState_EmptyAndNil(t *testing.T) {
 		{Mode: ParserCarryEscape},
 		{Mode: ParserCarryCSIParam},
 		{Mode: ParserCarryOSC},
+		{Mode: ParserCarryOSCEscape},
 		{Mode: ParserCarryDCS},
+		{Mode: ParserCarryDCSEscape},
 		{Mode: ParserCarryText, UTF8Remaining: 2},
 	}
 
@@ -319,7 +336,9 @@ func TestAdvanceParserCarryState_AgreesWithLiveParser(t *testing.T) {
 		[]byte("\x1b[3"),
 		[]byte("\x1b[38;5"),
 		[]byte("\x1b]0;t"),
+		[]byte("\x1b]0;t\x1b"),
 		{0x1b, 'P', 'q'},
+		[]byte("\x1bPq\x1b"),
 		{0x1b, '('},
 		{0xE2, 0x82}, // partial 3-byte utf8
 		{0xF0},       // 4-byte lead only
@@ -407,11 +426,11 @@ func TestExecuteOSC_DirectCallIsInert(t *testing.T) {
 	}
 }
 
-// TestParseDCS_SwallowsUntilESC drives parseDCS byte by byte and asserts it
+// TestParseDCS_SwallowsUntilST drives parseDCS byte by byte and asserts it
 // stays in the DCS state while consuming arbitrary payload bytes and only
-// transitions to the escape state when it sees ESC (the start of the ST
+// transitions to the escape-pending state when it sees ESC (the start of the ST
 // terminator).
-func TestParseDCS_SwallowsUntilESC(t *testing.T) {
+func TestParseDCS_SwallowsUntilST(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -422,9 +441,10 @@ func TestParseDCS_SwallowsUntilESC(t *testing.T) {
 		{name: "stays in dcs on letters", payload: []byte("qabc"), wantState: stateDCS},
 		{name: "stays in dcs on digits and semicolons", payload: []byte("0;1;2"), wantState: stateDCS},
 		{name: "stays in dcs on control bytes other than esc", payload: []byte{0x07, 0x0a, 0x0d}, wantState: stateDCS},
-		{name: "esc transitions to escape", payload: []byte{'q', 0x1b}, wantState: stateEscape},
-		{name: "esc as first byte transitions to escape", payload: []byte{0x1b}, wantState: stateEscape},
-		{name: "bytes after esc stop being swallowed", payload: []byte{'x', 0x1b}, wantState: stateEscape},
+		{name: "esc transitions to escape-pending", payload: []byte{'q', 0x1b}, wantState: stateDCSEscape},
+		{name: "esc as first byte transitions to escape-pending", payload: []byte{0x1b}, wantState: stateDCSEscape},
+		{name: "non-ST byte after esc resumes DCS", payload: []byte{'x', 0x1b, '['}, wantState: stateDCS},
+		{name: "ST terminator returns to ground", payload: []byte{'x', 0x1b, '\\'}, wantState: stateGround},
 	}
 
 	for _, tc := range tests {
@@ -435,7 +455,7 @@ func TestParseDCS_SwallowsUntilESC(t *testing.T) {
 			p.state = stateDCS
 
 			for _, b := range tc.payload {
-				p.parseDCS(b)
+				p.parseByte(b)
 			}
 
 			if p.state != tc.wantState {

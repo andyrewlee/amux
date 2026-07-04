@@ -126,6 +126,61 @@ func TestOSC52OversizedPayloadIgnored(t *testing.T) {
 	}
 }
 
+func TestOSCMalformedEscapeDoesNotDispatch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("title", func(t *testing.T) {
+		t.Parallel()
+
+		v := New(80, 24)
+		v.Write([]byte("\x1b]0;malformed\x1b[0mX"))
+
+		if got := v.Title(); got != "" {
+			t.Fatalf("Title() after malformed OSC = %q, want empty", got)
+		}
+		screen := v.VisibleScreen()
+		if got := screen[0][0].Rune; got != 'X' {
+			t.Fatalf("first visible rune after malformed OSC = %q, want X", got)
+		}
+	})
+
+	t.Run("clipboard", func(t *testing.T) {
+		t.Parallel()
+
+		v := New(80, 24)
+		v.Write([]byte("\x1b]52;c;aGk=\x1b[0mX"))
+
+		if got := v.TakePendingClipboard(); got != nil {
+			t.Fatalf("TakePendingClipboard() after malformed OSC = %q, want nil", string(got))
+		}
+		screen := v.VisibleScreen()
+		if got := screen[0][0].Rune; got != 'X' {
+			t.Fatalf("first visible rune after malformed OSC = %q, want X", got)
+		}
+	})
+}
+
+func TestOSCSTTerminatorCanSplitAcrossWrites(t *testing.T) {
+	t.Parallel()
+
+	v := New(80, 24)
+	v.Write([]byte("\x1b]52;c;aGk=\x1b"))
+	if got := v.TakePendingClipboard(); got != nil {
+		t.Fatalf("TakePendingClipboard() before ST completion = %q, want nil", string(got))
+	}
+	if got := v.ParserCarryState().Mode; got != ParserCarryOSCEscape {
+		t.Fatalf("carry mode before ST completion = %d, want ParserCarryOSCEscape", got)
+	}
+
+	v.Write([]byte("\\"))
+	if got := v.TakePendingClipboard(); string(got) != "hi" {
+		t.Fatalf("TakePendingClipboard() after split ST = %q, want hi", string(got))
+	}
+	if got := v.ParserCarryState(); got != (ParserCarryState{}) {
+		t.Fatalf("carry after split ST = %+v, want zero", got)
+	}
+}
+
 func TestOSCOversizedMetadataIgnored(t *testing.T) {
 	t.Parallel()
 
