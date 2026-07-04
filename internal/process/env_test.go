@@ -1,6 +1,7 @@
 package process
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -99,5 +100,52 @@ func TestEnvBuilder_NilPortAllocator(t *testing.T) {
 		if strings.HasPrefix(e, "AMUX_PORT=") {
 			t.Error("Should not have AMUX_PORT with nil allocator")
 		}
+	}
+}
+
+func TestEnvBuilder_NilWorkspace(t *testing.T) {
+	builder := NewEnvBuilder(NewPortAllocator(6200, 10))
+
+	wantLen := len(os.Environ())
+	env := builder.BuildEnv(nil)
+	if len(env) != wantLen {
+		t.Fatalf("BuildEnv(nil) returned %d entries, want current environment length %d", len(env), wantLen)
+	}
+
+	envMap := builder.BuildEnvMap(nil)
+	if len(envMap) != 0 {
+		t.Fatalf("BuildEnvMap(nil) = %#v, want empty map", envMap)
+	}
+}
+
+func TestEnvBuilder_NilReceiver(t *testing.T) {
+	var builder *EnvBuilder
+	wt := &data.Workspace{
+		Name:   "feature-1",
+		Branch: "feature-1",
+		Repo:   "/home/user/repo",
+		Root:   "/home/user/.amux/workspaces/feature-1",
+	}
+
+	env := builder.BuildEnv(wt)
+	foundName := false
+	for _, e := range env {
+		if strings.HasPrefix(e, "AMUX_WORKSPACE_NAME=") {
+			foundName = true
+		}
+		if strings.HasPrefix(e, "AMUX_PORT=") {
+			t.Fatal("nil EnvBuilder receiver should not add AMUX_PORT")
+		}
+	}
+	if !foundName {
+		t.Fatal("nil EnvBuilder receiver should still add workspace variables")
+	}
+
+	envMap := builder.BuildEnvMap(wt)
+	if envMap["AMUX_WORKSPACE_NAME"] != "feature-1" {
+		t.Fatalf("AMUX_WORKSPACE_NAME = %q, want feature-1", envMap["AMUX_WORKSPACE_NAME"])
+	}
+	if _, ok := envMap["AMUX_PORT"]; ok {
+		t.Fatal("nil EnvBuilder receiver should not add AMUX_PORT to map")
 	}
 }

@@ -23,6 +23,9 @@ func NewEnvBuilder(ports *PortAllocator) *EnvBuilder {
 // BuildEnv creates environment variables for a workspace
 func (b *EnvBuilder) BuildEnv(ws *data.Workspace) []string {
 	env := os.Environ()
+	if ws == nil {
+		return env
+	}
 
 	// Add workspace-specific variables
 	env = append(env,
@@ -33,7 +36,7 @@ func (b *EnvBuilder) BuildEnv(ws *data.Workspace) []string {
 	)
 
 	// Add port allocation
-	if b.portAllocator != nil {
+	if b != nil && b.portAllocator != nil {
 		port, rangeEnd := b.portAllocator.PortRange(ws.Root)
 		env = append(env,
 			fmt.Sprintf("AMUX_PORT=%d", port),
@@ -52,13 +55,16 @@ func (b *EnvBuilder) BuildEnv(ws *data.Workspace) []string {
 // BuildEnvMap creates a map of environment variables
 func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace) map[string]string {
 	envMap := make(map[string]string)
+	if ws == nil {
+		return envMap
+	}
 
 	envMap["AMUX_WORKSPACE_NAME"] = ws.Name
 	envMap["AMUX_WORKSPACE_ROOT"] = ws.Root
 	envMap["AMUX_WORKSPACE_BRANCH"] = ws.Branch
 	envMap["ROOT_WORKSPACE_PATH"] = ws.Repo
 
-	if b.portAllocator != nil {
+	if b != nil && b.portAllocator != nil {
 		port, rangeEnd := b.portAllocator.PortRange(ws.Root)
 		envMap["AMUX_PORT"] = strconv.Itoa(port)
 		envMap["AMUX_PORT_RANGE"] = fmt.Sprintf("%d-%d", port, rangeEnd)
