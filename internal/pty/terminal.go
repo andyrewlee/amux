@@ -180,6 +180,11 @@ func (t *Terminal) Close() error {
 	t.cmd = nil
 	t.mu.Unlock()
 
+	closeTimeout := terminalCloseTimeout
+	killProcessGroup := terminalKillProcessGroup
+	forceKillProcess := terminalForceKillProcess
+	waitCommand := terminalWaitCommand
+
 	if ptyFile != nil {
 		_ = ptyFile.Close()
 	}
@@ -188,27 +193,27 @@ func (t *Terminal) Close() error {
 		proc := cmd.Process
 		if proc != nil {
 			leaderPID := proc.Pid
-			_ = terminalKillProcessGroup(leaderPID, process.KillOptions{})
+			_ = killProcessGroup(leaderPID, process.KillOptions{})
 			// Wait with timeout, escalate to SIGKILL if needed.
 			done := make(chan struct{})
 			go func() {
-				_ = terminalWaitCommand(cmd)
+				_ = waitCommand(cmd)
 				close(done)
 			}()
 			select {
 			case <-done:
 				// Process exited cleanly.
-			case <-time.After(terminalCloseTimeout):
-				logging.Warn("agent did not exit within %s of SIGTERM; escalating to SIGKILL (pid %d)", terminalCloseTimeout, leaderPID)
-				_ = terminalForceKillProcess(leaderPID)
+			case <-time.After(closeTimeout):
+				logging.Warn("agent did not exit within %s of SIGTERM; escalating to SIGKILL (pid %d)", closeTimeout, leaderPID)
+				_ = forceKillProcess(leaderPID)
 				select {
 				case <-done:
-				case <-time.After(terminalCloseTimeout):
-					logging.Error("agent did not exit within %s of SIGKILL; abandoning wait (pid %d)", terminalCloseTimeout, leaderPID)
+				case <-time.After(closeTimeout):
+					logging.Error("agent did not exit within %s of SIGKILL; abandoning wait (pid %d)", closeTimeout, leaderPID)
 				}
 			}
 		} else {
-			_ = terminalWaitCommand(cmd)
+			_ = waitCommand(cmd)
 		}
 	}
 
