@@ -308,6 +308,10 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 		}
 
+		if err := s.stopWorkspaceScriptsForDelete(ws); err != nil {
+			return fail("stop_scripts", err)
+		}
+
 		// Validation passed, so this delete will proceed. Write a durable tombstone
 		// FIRST so that if the process quits/crashes between here and the metadata
 		// removal, startup recovery can finish the delete rather than surfacing a
@@ -353,6 +357,13 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			Warning:   warning,
 		}
 	}
+}
+
+func (s *workspaceService) stopWorkspaceScriptsForDelete(ws *data.Workspace) error {
+	if s == nil || s.scripts == nil {
+		return nil
+	}
+	return s.scripts.Stop(ws)
 }
 
 func (s *workspaceService) killWorkspaceSessionsForDelete(wsID string) {
