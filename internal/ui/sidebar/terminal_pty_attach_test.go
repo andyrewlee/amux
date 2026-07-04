@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,56 @@ import (
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
+
+func TestCreateTerminalTabRejectsInvalidShell(t *testing.T) {
+	oldNewPTYWithSizeFn := newPTYWithSizeFn
+	defer func() {
+		newPTYWithSizeFn = oldNewPTYWithSizeFn
+	}()
+	t.Setenv("SHELL", "zsh")
+
+	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
+		t.Fatal("newPTYWithSizeFn should not be called with invalid SHELL")
+		return nil, nil
+	}
+
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+
+	msg := m.createTerminalTab(ws)()
+	failed, ok := msg.(SidebarTerminalCreateFailed)
+	if !ok {
+		t.Fatalf("expected SidebarTerminalCreateFailed, got %T", msg)
+	}
+	if failed.Err == nil || !strings.Contains(failed.Err.Error(), "absolute path") {
+		t.Fatalf("expected absolute-path error, got %v", failed.Err)
+	}
+}
+
+func TestAttachToSessionRejectsInvalidShell(t *testing.T) {
+	oldNewPTYWithSizeFn := newPTYWithSizeFn
+	defer func() {
+		newPTYWithSizeFn = oldNewPTYWithSizeFn
+	}()
+	t.Setenv("SHELL", "zsh")
+
+	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
+		t.Fatal("newPTYWithSizeFn should not be called with invalid SHELL")
+		return nil, nil
+	}
+
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-invalid-shell"), "session-1", true, "reattach")()
+	failed, ok := msg.(SidebarTerminalReattachFailed)
+	if !ok {
+		t.Fatalf("expected SidebarTerminalReattachFailed, got %T", msg)
+	}
+	if failed.Err == nil || !strings.Contains(failed.Err.Error(), "absolute path") {
+		t.Fatalf("expected absolute-path error, got %v", failed.Err)
+	}
+}
 
 func TestCreateTerminalTab_FallsBackToHistoryWhenPreAttachResizeFails(t *testing.T) {
 	oldEnsureTmuxAvailableFn := ensureTmuxAvailableFn

@@ -6,7 +6,6 @@ package pty
 import (
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -90,15 +89,15 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	}
 
 	// Create terminal with agent command, falling back to shell on exit
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
+	loginShellCommand, err := LoginShellCommandFromEnv()
+	if err != nil {
+		return nil, err
 	}
 
 	// Execute agent, then reset terminal state and drop to shell
 	// Reset sequence: stty sane (terminal modes), exit alt screen, show cursor, reset attrs, RIS
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
-	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; exec %s -l", assistantCfg.Command, shell)
+	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; %s", assistantCfg.Command, loginShellCommand)
 
 	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 		WorkDir:        ws.Root,

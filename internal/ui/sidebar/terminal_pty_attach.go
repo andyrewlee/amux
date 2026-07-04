@@ -2,8 +2,6 @@ package sidebar
 
 import (
 	"errors"
-	"fmt"
-	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -91,9 +89,9 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	root := ws.Root
 
 	return func() tea.Msg {
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/bash"
+		loginShellCommand, err := pty.LoginShellCommandFromEnv()
+		if err != nil {
+			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
 		if err := ensureTmuxAvailableFn(); err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
@@ -131,7 +129,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		}
 		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
-			Command:        fmt.Sprintf("exec %s -l", shell),
+			Command:        loginShellCommand,
 			Options:        opts,
 			Tags:           tags,
 			DetachExisting: true,
@@ -245,15 +243,20 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	opts := m.tmuxOpts
 	termWidth, termHeight := m.sessionBootstrapViewportSize()
 	attachWidth, attachHeight := m.terminalContentSize()
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
+	loginShellCommand, shellErr := pty.LoginShellCommandFromEnv()
 	env := []string{"COLORTERM=truecolor"}
 	wsID := string(ws.ID())
 	root := ws.Root
 	instanceID := m.instanceID
 	return func() tea.Msg {
+		if shellErr != nil {
+			return SidebarTerminalReattachFailed{
+				WorkspaceID: wsID,
+				TabID:       tabID,
+				Err:         shellErr,
+				Action:      action,
+			}
+		}
 		if err := ensureTmuxAvailableFn(); err != nil {
 			return SidebarTerminalReattachFailed{
 				WorkspaceID: wsID,
@@ -309,7 +312,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		}
 		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
-			Command:        fmt.Sprintf("exec %s -l", shell),
+			Command:        loginShellCommand,
 			Options:        opts,
 			Tags:           tags,
 			DetachExisting: detachExisting,
