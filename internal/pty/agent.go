@@ -182,6 +182,9 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 
 // CloseAgent closes an agent
 func (m *AgentManager) CloseAgent(agent *Agent) error {
+	if agent == nil {
+		return nil
+	}
 	if agent.Terminal != nil {
 		agent.Terminal.Close()
 	}
@@ -225,7 +228,7 @@ func (m *AgentManager) CloseAll() {
 
 	for _, agents := range agentsByWorkspace {
 		for _, agent := range agents {
-			if agent.Terminal != nil {
+			if agent != nil && agent.Terminal != nil {
 				agent.Terminal.Close()
 			}
 		}
@@ -246,7 +249,7 @@ func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace) {
 		logging.Info("closing %d agents for workspace %s", len(agents), wsID)
 	}
 	for _, agent := range agents {
-		if agent.Terminal != nil {
+		if agent != nil && agent.Terminal != nil {
 			agent.Terminal.Close()
 		}
 	}
@@ -254,7 +257,7 @@ func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace) {
 
 // SendInterrupt sends an interrupt to an agent
 func (m *AgentManager) SendInterrupt(agent *Agent) error {
-	if agent.Terminal == nil {
+	if agent == nil || agent.Terminal == nil {
 		return nil
 	}
 
