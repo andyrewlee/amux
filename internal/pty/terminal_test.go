@@ -2,10 +2,14 @@ package pty
 
 import (
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/process"
 )
 
 func TestNew_EchoCommand(t *testing.T) {
@@ -221,6 +225,65 @@ func TestTerminal_CloseIdempotent(t *testing.T) {
 	}
 	if err := term.Close(); err != nil {
 		t.Errorf("second Close failed: %v", err)
+	}
+}
+
+func TestTerminal_CloseDoesNotBlockAfterForceKillTimeout(t *testing.T) {
+	prevTimeout := terminalCloseTimeout
+	prevKillProcessGroup := terminalKillProcessGroup
+	prevForceKillProcess := terminalForceKillProcess
+	prevWaitCommand := terminalWaitCommand
+	t.Cleanup(func() {
+		terminalCloseTimeout = prevTimeout
+		terminalKillProcessGroup = prevKillProcessGroup
+		terminalForceKillProcess = prevForceKillProcess
+		terminalWaitCommand = prevWaitCommand
+	})
+
+	terminalCloseTimeout = 20 * time.Millisecond
+	terminalKillProcessGroup = func(int, process.KillOptions) error { return nil }
+
+	forceKilled := make(chan int, 1)
+	terminalForceKillProcess = func(pid int) error {
+		forceKilled <- pid
+		return nil
+	}
+
+	releaseWait := make(chan struct{})
+	terminalWaitCommand = func(*exec.Cmd) error {
+		<-releaseWait
+		return nil
+	}
+	t.Cleanup(func() { close(releaseWait) })
+
+	const pid = 99_999_999
+	term := &Terminal{
+		cmd: &exec.Cmd{
+			Process: &os.Process{Pid: pid},
+		},
+	}
+
+	closed := make(chan error, 1)
+	go func() {
+		closed <- term.Close()
+	}()
+
+	select {
+	case got := <-forceKilled:
+		if got != pid {
+			t.Fatalf("ForceKillProcess pid = %d, want %d", got, pid)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Close did not reach force-kill path")
+	}
+
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Close blocked after force-kill timeout")
 	}
 }
 

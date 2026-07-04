@@ -15,9 +15,17 @@ import (
 	"github.com/andyrewlee/amux/internal/process"
 )
 
-// terminalCloseTimeout is how long Close waits for cmd.Wait after SIGTERM/SIGKILL
-// before escalating to a direct SIGKILL.
-const terminalCloseTimeout = 5 * time.Second
+// terminalCloseTimeout is how long Close waits for cmd.Wait after process
+// termination before escalating and before giving up on a stuck waiter.
+var terminalCloseTimeout = 5 * time.Second
+
+var (
+	terminalKillProcessGroup = process.KillProcessGroup
+	terminalForceKillProcess = process.ForceKillProcess
+	terminalWaitCommand      = func(cmd *exec.Cmd) error {
+		return cmd.Wait()
+	}
+)
 
 // Terminal wraps a PTY with an associated command
 type Terminal struct {
@@ -180,11 +188,11 @@ func (t *Terminal) Close() error {
 		proc := cmd.Process
 		if proc != nil {
 			leaderPID := proc.Pid
-			_ = process.KillProcessGroup(leaderPID, process.KillOptions{})
+			_ = terminalKillProcessGroup(leaderPID, process.KillOptions{})
 			// Wait with timeout, escalate to SIGKILL if needed.
 			done := make(chan struct{})
 			go func() {
-				_ = cmd.Wait()
+				_ = terminalWaitCommand(cmd)
 				close(done)
 			}()
 			select {
@@ -192,11 +200,15 @@ func (t *Terminal) Close() error {
 				// Process exited cleanly.
 			case <-time.After(terminalCloseTimeout):
 				logging.Warn("agent did not exit within %s of SIGTERM; escalating to SIGKILL (pid %d)", terminalCloseTimeout, leaderPID)
-				_ = process.ForceKillProcess(leaderPID)
-				<-done
+				_ = terminalForceKillProcess(leaderPID)
+				select {
+				case <-done:
+				case <-time.After(terminalCloseTimeout):
+					logging.Error("agent did not exit within %s of SIGKILL; abandoning wait (pid %d)", terminalCloseTimeout, leaderPID)
+				}
 			}
 		} else {
-			_ = cmd.Wait()
+			_ = terminalWaitCommand(cmd)
 		}
 	}
 
