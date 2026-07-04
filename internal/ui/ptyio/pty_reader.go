@@ -1,7 +1,9 @@
 package ptyio
 
 import (
+	"errors"
 	"io"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -10,7 +12,14 @@ import (
 	"github.com/andyrewlee/amux/internal/safego"
 )
 
-const ptyIdleHeartbeatInterval = time.Second
+const (
+	ptyIdleHeartbeatInterval = time.Second
+	ptyReadDeadlineInterval  = 250 * time.Millisecond
+)
+
+type readDeadliner interface {
+	SetReadDeadline(time.Time) error
+}
 
 // PTYReaderConfig configures the shared PTY read loop.
 type PTYReaderConfig struct {
@@ -56,15 +65,34 @@ func RunPTYReader(
 	errCh := make(chan error, 1)
 
 	safego.Go(cfg.Label, func() {
+		deadliner, deadlineSupported := r.(readDeadliner)
+		defer func() {
+			if deadlineSupported {
+				_ = deadliner.SetReadDeadline(time.Time{})
+			}
+			close(dataCh)
+		}()
 		buf := make([]byte, cfg.ReadBufferSize)
 		for {
+			select {
+			case <-cancel:
+				return
+			default:
+			}
+			if deadlineSupported {
+				if err := deadliner.SetReadDeadline(time.Now().Add(ptyReadDeadlineInterval)); err != nil {
+					deadlineSupported = false
+				}
+			}
 			n, err := r.Read(buf)
 			if err != nil {
+				if isReadTimeout(err) {
+					continue
+				}
 				select {
 				case errCh <- err:
 				default:
 				}
-				close(dataCh)
 				return
 			}
 			if n == 0 {
@@ -164,6 +192,17 @@ func RunPTYReader(
 			beat()
 		}
 	}
+}
+
+func isReadTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var timeout interface{ Timeout() bool }
+	return errors.As(err, &timeout) && timeout.Timeout()
 }
 
 // SendPTYMsg sends msg on msgCh, returning false if cancel fires first.

@@ -104,6 +104,20 @@ func (t *Terminal) Read(p []byte) (int, error) {
 	return ptyFile.Read(p)
 }
 
+// SetReadDeadline sets the deadline for future Read calls.
+func (t *Terminal) SetReadDeadline(deadline time.Time) error {
+	t.mu.Lock()
+	closed := t.closed
+	ptyFile := t.ptyFile
+	t.mu.Unlock()
+
+	if closed || ptyFile == nil {
+		return io.ErrClosedPipe
+	}
+
+	return ptyFile.SetReadDeadline(deadline)
+}
+
 // SendInterrupt sends Ctrl+C to the terminal
 func (t *Terminal) SendInterrupt() error {
 	_, err := t.Write([]byte{0x03})

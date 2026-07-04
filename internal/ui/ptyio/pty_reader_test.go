@@ -39,6 +39,38 @@ type testOutputMsg struct{ data []byte }
 
 type testStoppedMsg struct{ err error }
 
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string { return "deadline exceeded" }
+func (timeoutErr) Timeout() bool { return true }
+
+type deadlinePollingReader struct {
+	deadlineSet chan struct{}
+	cleared     chan struct{}
+	onceSet     sync.Once
+	onceCleared sync.Once
+}
+
+func newDeadlinePollingReader() *deadlinePollingReader {
+	return &deadlinePollingReader{
+		deadlineSet: make(chan struct{}),
+		cleared:     make(chan struct{}),
+	}
+}
+
+func (r *deadlinePollingReader) SetReadDeadline(deadline time.Time) error {
+	if deadline.IsZero() {
+		r.onceCleared.Do(func() { close(r.cleared) })
+		return nil
+	}
+	r.onceSet.Do(func() { close(r.deadlineSet) })
+	return nil
+}
+
+func (r *deadlinePollingReader) Read([]byte) (int, error) {
+	return 0, timeoutErr{}
+}
+
 type collectedPTY struct {
 	outputs []testOutputMsg
 	stops   []testStoppedMsg
@@ -199,5 +231,28 @@ func TestRunPTYReaderClosesOnceOnCancel(t *testing.T) {
 	}
 	if len(got.stops) != 0 {
 		t.Fatalf("got %d Stopped msgs on cancel, want 0 (cancel path sends no Stopped)", len(got.stops))
+	}
+}
+
+func TestRunPTYReaderCancelWakesDeadlineReader(t *testing.T) {
+	cancel := make(chan struct{})
+	reader := newDeadlinePollingReader()
+	go func() {
+		<-reader.deadlineSet
+		close(cancel)
+	}()
+
+	got := runReaderAndForward(t, reader, cancel, baseReaderCfg())
+
+	if len(got.outputs) != 0 {
+		t.Fatalf("got %d outputs on cancel, want 0", len(got.outputs))
+	}
+	if len(got.stops) != 0 {
+		t.Fatalf("got %d Stopped msgs on cancel, want 0", len(got.stops))
+	}
+	select {
+	case <-reader.cleared:
+	case <-time.After(2 * time.Second):
+		t.Fatal("read deadline was not cleared when reader exited")
 	}
 }
