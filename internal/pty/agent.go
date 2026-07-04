@@ -68,6 +68,9 @@ func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, sess
 
 // CreateAgentWithTags creates a new agent for the given workspace with tmux tags.
 func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*Agent, error) {
+	if ws == nil {
+		return nil, errors.New("workspace is required")
+	}
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)

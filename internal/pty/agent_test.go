@@ -101,6 +101,18 @@ func TestAgentManager_CreateAgent_UnknownType(t *testing.T) {
 	}
 }
 
+func TestAgentManager_CreateAgent_NilWorkspace(t *testing.T) {
+	m := NewAgentManager(testConfig())
+
+	_, err := m.CreateAgent(nil, AgentType("claude"), "", 24, 80)
+	if err == nil {
+		t.Fatal("expected error for nil workspace")
+	}
+	if got := err.Error(); got != "workspace is required" {
+		t.Errorf("unexpected error message: %q", got)
+	}
+}
+
 func TestAgentManager_CreateViewerWithTags_NilWorkspace(t *testing.T) {
 	m := NewAgentManager(testConfig())
 
