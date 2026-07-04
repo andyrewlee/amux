@@ -189,18 +189,18 @@ func CanWrite(path string) bool {
 	// Try to open for writing
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err == nil {
-		f.Close()
+		_ = f.Close()
 		return true
 	}
 
 	// Check if parent directory is writable (for rename operation)
 	dir := filepath.Dir(path)
-	testFile := filepath.Join(dir, ".amux-write-test")
-	f, err = os.Create(testFile)
+	f, err = os.CreateTemp(dir, ".amux-write-test-*")
 	if err != nil {
 		return false
 	}
-	f.Close()
-	os.Remove(testFile)
-	return true
+	testFile := f.Name()
+	closeErr := f.Close()
+	_ = os.Remove(testFile)
+	return closeErr == nil
 }

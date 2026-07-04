@@ -150,6 +150,37 @@ func TestCanWrite(t *testing.T) {
 	}
 }
 
+func TestCanWriteDoesNotClobberFixedProbePath(t *testing.T) {
+	dir := t.TempDir()
+	sentinelPath := filepath.Join(dir, ".amux-write-test")
+	sentinelContent := []byte("keep me")
+	if err := os.WriteFile(sentinelPath, sentinelContent, 0o600); err != nil {
+		t.Fatalf("failed to create sentinel file: %v", err)
+	}
+
+	if !CanWrite(filepath.Join(dir, "missing-amux")) {
+		t.Fatal("CanWrite() should report writable parent directory")
+	}
+
+	got, err := os.ReadFile(sentinelPath)
+	if err != nil {
+		t.Fatalf("failed to read sentinel file: %v", err)
+	}
+	if string(got) != string(sentinelContent) {
+		t.Fatalf("sentinel content changed: got %q, want %q", got, sentinelContent)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("failed to read temp dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".amux-write-test-") {
+			t.Fatalf("temporary write probe was not cleaned up: %s", entry.Name())
+		}
+	}
+}
+
 func TestExtractBinary(t *testing.T) {
 	tmpDir := t.TempDir()
 
