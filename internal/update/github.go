@@ -20,6 +20,12 @@ const (
 	GitHubAPIBase = "https://api.github.com"
 )
 
+var (
+	maxReleaseResponseBytes int64 = 1 * 1024 * 1024
+	maxChecksumBytes        int64 = 256 * 1024
+	maxAssetDownloadBytes   int64 = 128 * 1024 * 1024
+)
+
 // Release represents a GitHub release.
 type Release struct {
 	TagName     string    `json:"tag_name"`
@@ -99,8 +105,13 @@ func (c *GitHubClient) FetchLatestRelease() (*Release, error) {
 		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 
+	body, err := readAllLimited(resp.Body, maxReleaseResponseBytes, "release response")
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
 	var release Release
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.Unmarshal(body, &release); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 
@@ -125,9 +136,11 @@ func (c *GitHubClient) DownloadAsset(url string, w io.Writer) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
+	if resp.ContentLength > maxAssetDownloadBytes {
+		return fmt.Errorf("asset exceeds %d byte limit", maxAssetDownloadBytes)
+	}
 
-	_, err = io.Copy(w, resp.Body)
-	if err != nil {
+	if err := copyLimited(w, resp.Body, maxAssetDownloadBytes, "asset"); err != nil {
 		return fmt.Errorf("writing: %w", err)
 	}
 
@@ -163,12 +176,43 @@ func (c *GitHubClient) FetchChecksums(release *Release) (map[string]string, erro
 		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readAllLimited(resp.Body, maxChecksumBytes, "checksums")
 	if err != nil {
 		return nil, fmt.Errorf("reading checksums: %w", err)
 	}
 
 	return parseChecksums(string(body)), nil
+}
+
+func readAllLimited(r io.Reader, maxBytes int64, label string) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d byte limit", label, maxBytes)
+	}
+	return body, nil
+}
+
+func copyLimited(w io.Writer, r io.Reader, maxBytes int64, label string) error {
+	n, err := io.Copy(w, io.LimitReader(r, maxBytes))
+	if err != nil {
+		return err
+	}
+	if n < maxBytes {
+		return nil
+	}
+
+	var probe [1]byte
+	extra, err := r.Read(probe[:])
+	if extra > 0 {
+		return fmt.Errorf("%s exceeds %d byte limit", label, maxBytes)
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
 }
 
 // parseChecksums parses GoReleaser checksums.txt format.

@@ -105,6 +105,22 @@ func TestFetchLatestReleaseMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestFetchLatestReleaseRejectsOversizedBody(t *testing.T) {
+	withTempInt64(t, &maxReleaseResponseBytes, 8)
+	c, _ := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"tag_name":"v1.2.3"}`))
+	})
+
+	_, err := c.FetchLatestRelease()
+	if err == nil {
+		t.Fatal("FetchLatestRelease() expected oversized response error, got nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "release response exceeds") {
+		t.Errorf("error = %q, want oversized release response", got)
+	}
+}
+
 func TestDownloadAssetSuccess(t *testing.T) {
 	payload := []byte("binary-asset-bytes")
 	c, srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -136,6 +152,49 @@ func TestDownloadAssetNon200(t *testing.T) {
 	}
 }
 
+func TestDownloadAssetRejectsOversizedContentLength(t *testing.T) {
+	withTempInt64(t, &maxAssetDownloadBytes, 8)
+	c, srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "9")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	var buf bytes.Buffer
+	err := c.DownloadAsset(srv.URL+"/dl/amux.tar.gz", &buf)
+	if err == nil {
+		t.Fatal("DownloadAsset() expected oversized content-length error, got nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "asset exceeds") {
+		t.Errorf("error = %q, want oversized asset", got)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("DownloadAsset() wrote %d bytes after oversized Content-Length", buf.Len())
+	}
+}
+
+func TestDownloadAssetRejectsOversizedStream(t *testing.T) {
+	withTempInt64(t, &maxAssetDownloadBytes, 8)
+	c, srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		_, _ = w.Write([]byte("012345678"))
+	})
+
+	var buf bytes.Buffer
+	err := c.DownloadAsset(srv.URL+"/dl/amux.tar.gz", &buf)
+	if err == nil {
+		t.Fatal("DownloadAsset() expected oversized stream error, got nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "asset exceeds") {
+		t.Errorf("error = %q, want oversized asset", got)
+	}
+	if buf.Len() != 8 {
+		t.Fatalf("DownloadAsset() wrote %d bytes, want capped 8", buf.Len())
+	}
+}
+
 func TestFetchChecksumsSuccess(t *testing.T) {
 	const body = "abc123  amux_1.2.3_linux_amd64.tar.gz\n" +
 		"def456  amux_1.2.3_darwin_arm64.tar.gz\n"
@@ -157,6 +216,26 @@ func TestFetchChecksumsSuccess(t *testing.T) {
 	}
 	if got := sums["amux_1.2.3_darwin_arm64.tar.gz"]; got != "def456" {
 		t.Errorf("darwin checksum = %q, want %q", got, "def456")
+	}
+}
+
+func TestFetchChecksumsRejectsOversizedBody(t *testing.T) {
+	withTempInt64(t, &maxChecksumBytes, 8)
+	c, srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("012345678"))
+	})
+
+	rel := &Release{Assets: []Asset{
+		{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/dl/checksums.txt"},
+	}}
+
+	_, err := c.FetchChecksums(rel)
+	if err == nil {
+		t.Fatal("FetchChecksums() expected oversized response error, got nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "checksums exceeds") {
+		t.Errorf("error = %q, want oversized checksums", got)
 	}
 }
 
@@ -192,4 +271,11 @@ func TestFetchChecksumsNon200(t *testing.T) {
 	if got := err.Error(); !strings.HasPrefix(got, "unexpected status:") {
 		t.Errorf("error = %q, want prefix %q", got, "unexpected status:")
 	}
+}
+
+func withTempInt64(t *testing.T, target *int64, value int64) {
+	t.Helper()
+	original := *target
+	*target = value
+	t.Cleanup(func() { *target = original })
 }
