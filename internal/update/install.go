@@ -14,6 +14,20 @@ import (
 // renameFile is a seam for tests to inject rename failures.
 var renameFile = os.Rename
 
+type syncWriteCloser interface {
+	io.WriteCloser
+	Sync() error
+}
+
+var (
+	openCopySourceFile = func(name string) (io.ReadCloser, error) {
+		return os.Open(name)
+	}
+	openCopyDestFile = func(name string, flag int, perm os.FileMode) (syncWriteCloser, error) {
+		return os.OpenFile(name, flag, perm)
+	}
+)
+
 // openExtractFile is a seam for tests to inject extraction close failures.
 var openExtractFile = func(name string, flag int, perm os.FileMode) (io.WriteCloser, error) {
 	return os.OpenFile(name, flag, perm)
@@ -133,23 +147,32 @@ func shellQuote(path string) string {
 
 // copyFile copies a file from src to dst, preserving executable permissions.
 func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
+	srcFile, err := openCopySourceFile(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	dstFile, err := openCopyDestFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		_ = dstFile.Close()
 		return err
 	}
 
-	return dstFile.Sync()
+	if err := dstFile.Sync(); err != nil {
+		_ = dstFile.Close()
+		return err
+	}
+
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("closing destination file: %w", err)
+	}
+
+	return nil
 }
 
 // GetCurrentBinaryPath returns the path to the currently running binary.
