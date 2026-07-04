@@ -163,7 +163,15 @@ func (s *Supervisor) SetErrorHandler(handler func(name string, err error)) {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.onError = handler
+}
+
+func (s *Supervisor) errorHandler() func(name string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.onError
 }
 
 // Start runs a worker under supervision.
@@ -181,7 +189,7 @@ func (s *Supervisor) Start(name string, fn func(context.Context) error, opts ...
 		opt(&cfg)
 	}
 	if cfg.onError == nil {
-		cfg.onError = s.onError
+		cfg.onError = s.errorHandler()
 	}
 	if cfg.maxBackoff <= 0 {
 		cfg.maxBackoff = cfg.backoff

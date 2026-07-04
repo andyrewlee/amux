@@ -345,6 +345,44 @@ func TestSupervisor_SetErrorHandler_Nil(t *testing.T) {
 	s.SetErrorHandler(func(name string, err error) {})
 }
 
+func TestSupervisor_SetErrorHandlerConcurrentStart(t *testing.T) {
+	ctx := context.Background()
+	s := New(ctx)
+	defer s.Stop()
+
+	const attempts = 100
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			s.SetErrorHandler(func(name string, err error) {})
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			s.Start("worker", func(ctx context.Context) error {
+				return nil
+			}, WithRestartPolicy(RestartNever))
+		}()
+	}
+
+	close(start)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for concurrent SetErrorHandler/Start calls")
+	}
+}
+
 func TestWithOptions(t *testing.T) {
 	// Just verify the option functions don't panic
 	opts := []Option{
