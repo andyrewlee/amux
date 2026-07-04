@@ -3,6 +3,7 @@ package update
 import (
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -180,6 +181,45 @@ func TestUpgradeChecksumMismatchNeverInstalls(t *testing.T) {
 	for _, c := range calls {
 		if c == "install" {
 			t.Fatalf("install appears in call order after failed verify: %v", calls)
+		}
+	}
+}
+
+func TestUpgradeArchiveCloseFailureNeverVerifies(t *testing.T) {
+	var calls []string
+	deps := recordingDeps(&calls)
+	deps.download = func(_ string, w io.Writer) error {
+		calls = append(calls, "download")
+		f, ok := w.(*os.File)
+		if !ok {
+			t.Fatalf("download writer = %T, want *os.File", w)
+		}
+		if _, err := f.Write([]byte("partial archive")); err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+		return nil
+	}
+	verified := false
+	deps.verify = func(string, string) error {
+		verified = true
+		calls = append(calls, "verify")
+		return nil
+	}
+	u := upgraderWith(deps)
+
+	err := u.Upgrade(&Release{TagName: "v1.0.0"})
+	if err == nil || !strings.Contains(err.Error(), "closing archive file") {
+		t.Fatalf("expected archive close error, got: %v", err)
+	}
+	if verified {
+		t.Fatal("verify must never run when archive close fails")
+	}
+	for _, c := range calls {
+		if c == "verify" {
+			t.Fatalf("verify appears in call order after failed close: %v", calls)
 		}
 	}
 }

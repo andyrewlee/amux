@@ -176,7 +176,9 @@ func (u *Updater) Upgrade(release *Release) error {
 		archiveFile.Close()
 		return fmt.Errorf("downloading: %w", err)
 	}
-	archiveFile.Close()
+	if err := archiveFile.Close(); err != nil {
+		return fmt.Errorf("closing archive file: %w", err)
+	}
 
 	// Verify checksum
 	logging.Info("Verifying checksum")
