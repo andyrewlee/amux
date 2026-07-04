@@ -5,13 +5,22 @@ import (
 	"strings"
 )
 
+const (
+	maxCSIParamBytes = 1024
+	maxCSIParams     = 128
+)
+
 func (p *Parser) parseCSI(b byte) {
 	switch {
 	case b >= '0' && b <= '9':
-		p.paramBuf.WriteByte(b)
+		if !p.appendCSIParamByte(b) {
+			return
+		}
 		p.state = stateCSIParam
 	case b == ';':
-		p.pushParam()
+		if !p.pushParam() {
+			return
+		}
 		p.state = stateCSIParam
 	case b == '?', b == '>', b == '!', b == '<':
 		p.intermediate = b
@@ -20,7 +29,10 @@ func (p *Parser) parseCSI(b byte) {
 		p.csiIntermediate = b
 		p.state = stateCSIParam
 	case b >= 0x40 && b <= 0x7e: // Final byte
-		p.pushParam()
+		if !p.pushParam() {
+			p.state = stateGround
+			return
+		}
 		p.executeCSI(b)
 		p.state = stateGround
 	case b == 0x1b: // Escape interrupts
@@ -36,15 +48,24 @@ func (p *Parser) parseCSI(b byte) {
 func (p *Parser) parseCSIParam(b byte) {
 	switch {
 	case b >= '0' && b <= '9':
-		p.paramBuf.WriteByte(b)
+		if !p.appendCSIParamByte(b) {
+			return
+		}
 	case b == ';':
-		p.pushParam()
+		if !p.pushParam() {
+			return
+		}
 	case b == ':': // Sub-parameter separator
-		p.paramBuf.WriteByte(b)
+		if !p.appendCSIParamByte(b) {
+			return
+		}
 	case b >= 0x20 && b <= 0x2f: // Intermediate bytes (e.g. '$')
 		p.csiIntermediate = b
 	case b >= 0x40 && b <= 0x7e: // Final byte
-		p.pushParam()
+		if !p.pushParam() {
+			p.state = stateGround
+			return
+		}
 		p.executeCSI(b)
 		p.state = stateGround
 	case b == 0x1b: // Escape interrupts
@@ -54,7 +75,46 @@ func (p *Parser) parseCSIParam(b byte) {
 	}
 }
 
-func (p *Parser) pushParam() {
+func (p *Parser) parseCSIIgnore(b byte) {
+	switch {
+	case b == 0x1b:
+		p.state = stateEscape
+	case b >= 0x40 && b <= 0x7e:
+		p.state = stateGround
+	}
+}
+
+func (p *Parser) resetCSI() {
+	p.params = p.params[:0]
+	p.paramBuf.Reset()
+	p.intermediate = 0
+	p.csiIntermediate = 0
+}
+
+func (p *Parser) discardCSI() {
+	p.resetCSI()
+	p.state = stateCSIIgnore
+}
+
+func (p *Parser) appendCSIParamByte(b byte) bool {
+	if p.paramBuf.Len() >= maxCSIParamBytes {
+		p.discardCSI()
+		return false
+	}
+	p.paramBuf.WriteByte(b)
+	return true
+}
+
+func (p *Parser) appendParam(v int) bool {
+	if len(p.params) >= maxCSIParams {
+		p.discardCSI()
+		return false
+	}
+	p.params = append(p.params, v)
+	return true
+}
+
+func (p *Parser) pushParam() bool {
 	if p.paramBuf.Len() > 0 {
 		s := p.paramBuf.String()
 		// Handle sub-parameters (colon-separated values like "38:2:255:128:0")
@@ -62,20 +122,29 @@ func (p *Parser) pushParam() {
 			parts := strings.Split(s, ":")
 			for _, part := range parts {
 				if part == "" {
-					p.params = append(p.params, 0)
+					if !p.appendParam(0) {
+						return false
+					}
 				} else {
 					val, _ := strconv.Atoi(part)
-					p.params = append(p.params, val)
+					if !p.appendParam(val) {
+						return false
+					}
 				}
 			}
 		} else {
 			val, _ := strconv.Atoi(s)
-			p.params = append(p.params, val)
+			if !p.appendParam(val) {
+				return false
+			}
 		}
 	} else {
-		p.params = append(p.params, 0)
+		if !p.appendParam(0) {
+			return false
+		}
 	}
 	p.paramBuf.Reset()
+	return true
 }
 
 func (p *Parser) getParam(idx, def int) int {

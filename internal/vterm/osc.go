@@ -8,6 +8,7 @@ import (
 const (
 	maxOSCMetadataBytes    = 4 * 1024
 	maxOSC52ClipboardBytes = 64 * 1024
+	maxOSCSequenceBytes    = ((maxOSC52ClipboardBytes + 2) / 3 * 4) + 1024
 )
 
 // dispatchOSC parses a buffered OSC payload (the bytes between "ESC ]" and the

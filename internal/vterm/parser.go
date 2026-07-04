@@ -15,6 +15,8 @@ const (
 	stateOSC
 	stateDCS
 	stateCharset
+	stateCSIIgnore
+	stateOSCIgnore
 )
 
 // Parser handles ANSI escape sequence parsing
@@ -161,12 +163,14 @@ func (p *Parser) CarryState() ParserCarryState {
 		mode = ParserCarryCSI
 	case stateCSIParam:
 		mode = ParserCarryCSIParam
-	case stateOSC:
+	case stateOSC, stateOSCIgnore:
 		mode = ParserCarryOSC
 	case stateDCS:
 		mode = ParserCarryDCS
 	case stateCharset:
 		mode = ParserCarryCharset
+	case stateCSIIgnore:
+		mode = ParserCarryCSIParam
 	}
 
 	remaining := 0
@@ -207,6 +211,10 @@ func (p *Parser) parseByte(b byte) {
 		p.parseCSIParam(b)
 	case stateOSC:
 		p.parseOSC(b)
+	case stateCSIIgnore:
+		p.parseCSIIgnore(b)
+	case stateOSCIgnore:
+		p.parseOSCIgnore(b)
 	case stateDCS:
 		p.parseDCS(b)
 	case stateCharset:
@@ -295,10 +303,7 @@ func (p *Parser) parseEscape(b byte) {
 	switch b {
 	case '[': // CSI
 		p.state = stateCSI
-		p.params = p.params[:0]
-		p.paramBuf.Reset()
-		p.intermediate = 0
-		p.csiIntermediate = 0
+		p.resetCSI()
 	case ']': // OSC
 		p.state = stateOSC
 		p.oscBuf.Reset()
@@ -351,11 +356,25 @@ func (p *Parser) parseOSC(b byte) {
 		}
 		return
 	}
+	if p.oscBuf.Len() >= maxOSCSequenceBytes {
+		p.oscBuf.Reset()
+		p.state = stateOSCIgnore
+		return
+	}
 	p.oscBuf.WriteByte(b)
 }
 
 func (p *Parser) executeOSC() {
 	p.dispatchOSC()
+}
+
+func (p *Parser) parseOSCIgnore(b byte) {
+	switch b {
+	case 0x07:
+		p.state = stateGround
+	case 0x1b:
+		p.state = stateEscape
+	}
 }
 
 func (p *Parser) parseDCS(b byte) {
