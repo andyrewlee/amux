@@ -1,6 +1,8 @@
 package center
 
 import (
+	"bytes"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -13,8 +15,8 @@ import (
 func (m *Model) updateKeyPress(msg tea.KeyPressMsg) (*Model, tea.Cmd) {
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
-	logging.Debug("Center received key: %s, focused=%v, hasTabs=%v, numTabs=%d",
-		msg.String(), m.focused, m.hasActiveAgent(), len(tabs))
+	logging.Debug("Center received key: focused=%v, hasTabs=%v, numTabs=%d",
+		m.focused, m.hasActiveAgent(), len(tabs))
 
 	// Cmd+C copies the current selection without forwarding or clearing it.
 	if model, cmd, handled := m.handleCopyKey(msg, tabs, activeIdx); handled {
@@ -201,10 +203,10 @@ func (m *Model) scrollToBottomOnType(tab *Tab) {
 func (m *Model) sendKeyToTerminal(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd) {
 	input := common.KeyToBytes(msg)
 	if len(input) == 0 {
-		logging.Debug("keyToBytes returned empty for: %s", msg.String())
+		logging.Debug("keyToBytes returned empty")
 		return m, nil
 	}
-	logging.Debug("Sending to terminal: %q (len=%d)", input, len(input))
+	logging.Debug("Sending to terminal: len=%d (%s)", len(input), terminalInputHint(input))
 
 	var cmds []tea.Cmd
 	queued := false
@@ -228,6 +230,25 @@ func (m *Model) sendKeyToTerminal(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cm
 	}
 	cmds = append(cmds, m.userInputActivityTagCmd(tab))
 	return m, common.SafeBatch(cmds...)
+}
+
+// terminalInputHint summarizes terminal input for debug logs without recording
+// literal bytes, since input can contain prompts, passwords, or pasted secrets.
+func terminalInputHint(input []byte) string {
+	var hints []string
+	if bytes.Contains(input, []byte("\x1b[200~")) || bytes.Contains(input, []byte("\x1b[201~")) {
+		hints = append(hints, "paste")
+	}
+	if bytes.Contains(input, []byte{0x0d}) {
+		hints = append(hints, "cr")
+	}
+	if bytes.Contains(input, []byte{0x03}) {
+		hints = append(hints, "ctrl-c")
+	}
+	if len(hints) == 0 {
+		return "text"
+	}
+	return strings.Join(hints, "+")
 }
 
 // directSendStamped sends data straight to the terminal. It returns halt=true

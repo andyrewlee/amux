@@ -9,6 +9,27 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
+func TestTerminalInputHintDoesNotExposeLiteralInput(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []byte
+		want  string
+	}{
+		{name: "plain text", input: []byte("secret prompt"), want: "text"},
+		{name: "carriage return", input: []byte("secret prompt\r"), want: "cr"},
+		{name: "ctrl c", input: []byte{0x03}, want: "ctrl-c"},
+		{name: "bracketed paste with return", input: []byte("\x1b[200~secret\r\x1b[201~"), want: "paste+cr"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := terminalInputHint(tt.input); got != tt.want {
+				t.Fatalf("terminalInputHint() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUpdatePasteWithoutAttachedTerminalDoesNotTagActivity(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
