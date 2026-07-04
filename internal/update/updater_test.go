@@ -89,6 +89,12 @@ func TestFindPlatformAsset(t *testing.T) {
 	_ = asset
 }
 
+func TestFindPlatformAssetNilRelease(t *testing.T) {
+	if asset := FindPlatformAsset(nil); asset != nil {
+		t.Fatalf("FindPlatformAsset(nil) = %#v, want nil", asset)
+	}
+}
+
 func TestParseChecksums(t *testing.T) {
 	content := `abc123def456  amux_1.0.0_darwin_amd64.tar.gz
 789xyz000111  amux_1.0.0_linux_amd64.tar.gz

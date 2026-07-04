@@ -149,6 +149,10 @@ func (c *GitHubClient) DownloadAsset(url string, w io.Writer) error {
 
 // FetchChecksums downloads and returns the checksums.txt content.
 func (c *GitHubClient) FetchChecksums(release *Release) (map[string]string, error) {
+	if release == nil {
+		return nil, errors.New("release is required")
+	}
+
 	var checksumURL string
 	for _, asset := range release.Assets {
 		if asset.Name == "checksums.txt" {
@@ -246,6 +250,10 @@ func GetPlatformAssetName(version string) string {
 
 // FindPlatformAsset finds the appropriate asset for the current platform.
 func FindPlatformAsset(release *Release) *Asset {
+	if release == nil {
+		return nil
+	}
+
 	expectedName := GetPlatformAssetName(release.TagName)
 	for i := range release.Assets {
 		if release.Assets[i].Name == expectedName {

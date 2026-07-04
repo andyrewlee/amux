@@ -255,6 +255,18 @@ func TestFetchChecksumsMissingAsset(t *testing.T) {
 	}
 }
 
+func TestFetchChecksumsNilRelease(t *testing.T) {
+	c := newGitHubClientForTest("http://unused.invalid", http.DefaultClient)
+
+	_, err := c.FetchChecksums(nil)
+	if err == nil {
+		t.Fatal("FetchChecksums() expected error for nil release, got nil")
+	}
+	if got := err.Error(); got != "release is required" {
+		t.Errorf("error = %q, want %q", got, "release is required")
+	}
+}
+
 func TestFetchChecksumsNon200(t *testing.T) {
 	c, srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
