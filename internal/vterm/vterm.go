@@ -290,6 +290,7 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 		v.CursorY = height - 1
 	}
 	v.clampCursor()
+	v.clampSavedCursor()
 
 	// Also resize alt screen if it exists - preserve full row content
 	if v.altScreenBuf != nil {

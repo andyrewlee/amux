@@ -307,6 +307,30 @@ func TestRestoreCursor(t *testing.T) {
 	}
 }
 
+func TestRestoreSavedCursorClampedAfterResize(t *testing.T) {
+	t.Parallel()
+	vt := New(10, 5)
+	vt.CursorX = 9
+	vt.CursorY = 4
+	vt.saveCursor()
+
+	vt.Resize(4, 2)
+	vt.CursorX = 0
+	vt.CursorY = 0
+	vt.restoreCursor()
+
+	if vt.CursorX != 3 || vt.CursorY != 1 {
+		t.Fatalf("cursor restored to (%d,%d), want clamped (3,1)", vt.CursorX, vt.CursorY)
+	}
+	vt.Write([]byte("X"))
+	if got := vt.Screen[1][3].Rune; got != 'X' {
+		t.Fatalf("clamped restore write landed at rune %q, want X at bottom-right cell", got)
+	}
+	if vt.SavedCursorX != 3 || vt.SavedCursorY != 1 {
+		t.Fatalf("saved cursor = (%d,%d), want clamped (3,1)", vt.SavedCursorX, vt.SavedCursorY)
+	}
+}
+
 // TestSaveRestoreCursorRoundTrip exercises the DECSC/DECRC pair end to end: a
 // save followed by cursor movement and a restore returns to the saved state,
 // proving restore reads the snapshot and not the intervening cursor.

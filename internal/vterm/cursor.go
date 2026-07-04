@@ -44,6 +44,24 @@ func (v *VTerm) clampAltSavedCursor() {
 	}
 }
 
+func (v *VTerm) clampSavedCursor() {
+	if v.Width < 1 || v.Height < 1 {
+		return
+	}
+	if v.SavedCursorX < 0 {
+		v.SavedCursorX = 0
+	}
+	if v.SavedCursorX >= v.Width {
+		v.SavedCursorX = v.Width - 1
+	}
+	if v.SavedCursorY < 0 {
+		v.SavedCursorY = 0
+	}
+	if v.SavedCursorY >= v.Height {
+		v.SavedCursorY = v.Height - 1
+	}
+}
+
 // setCursorPos sets cursor position (1-indexed input, converts to 0-indexed)
 func (v *VTerm) setCursorPos(row, col int) {
 	prevX, prevY := v.CursorX, v.CursorY
@@ -140,6 +158,7 @@ func (v *VTerm) saveCursor() {
 // restoreCursor restores cursor position and attributes
 func (v *VTerm) restoreCursor() {
 	prevX, prevY := v.CursorX, v.CursorY
+	v.clampSavedCursor()
 	v.CursorX = v.SavedCursorX
 	v.CursorY = v.SavedCursorY
 	v.CurrentStyle = v.SavedStyle
