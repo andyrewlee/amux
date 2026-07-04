@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -142,4 +143,47 @@ func TestHandleDialogResult_AddProjectEmptyShowsWarning(t *testing.T) {
 	if view := ansi.Strip(app.toast.View()); !strings.Contains(view, "Project path is required") {
 		t.Fatalf("expected project path warning toast, got %q", view)
 	}
+}
+
+func TestHandleDialogResultLogDoesNotIncludeRawValue(t *testing.T) {
+	logPath := initAppDialogTestLogger(t)
+	const secret = "secret-dialog-result-token"
+
+	app := &App{toast: common.NewToastModel()}
+	cmd := app.handleDialogResult(common.DialogResult{
+		ID:        DialogCreateWorkspace,
+		Confirmed: true,
+		Value:     secret,
+	})
+	if cmd != nil {
+		t.Fatal("expected no command when create-workspace dialog has no project context")
+	}
+
+	content := readAppDialogTestLog(t, logPath)
+	if strings.Contains(content, secret) {
+		t.Fatalf("app dialog log leaked raw value %q: %s", secret, content)
+	}
+	if !strings.Contains(content, "value_len=") {
+		t.Fatalf("expected app dialog log to keep value length metadata, got: %s", content)
+	}
+}
+
+func initAppDialogTestLogger(t *testing.T) string {
+	t.Helper()
+
+	if err := logging.Initialize(t.TempDir(), logging.LevelDebug); err != nil {
+		t.Fatalf("logging.Initialize: %v", err)
+	}
+	t.Cleanup(func() { _ = logging.Close() })
+	return logging.GetLogPath()
+}
+
+func readAppDialogTestLog(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q): %v", path, err)
+	}
+	return string(data)
 }

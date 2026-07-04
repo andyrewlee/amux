@@ -32,7 +32,7 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			logging.Info("Dialog Enter pressed: id=%s value=%s", d.id, d.input.Value())
+			logging.Info("Dialog Enter pressed: id=%s type=%d", d.id, d.dtype)
 			switch d.dtype {
 			case DialogInput:
 				// Block Enter if validation fails
@@ -42,7 +42,7 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				d.visible = false
 				value := d.input.Value()
 				id := d.id
-				logging.Info("Dialog returning InputResult: id=%s value=%s", id, value)
+				logging.Info("Dialog returning InputResult: id=%s value_len=%d", id, len(value))
 				return d, func() tea.Msg {
 					return DialogResult{
 						ID:        id,

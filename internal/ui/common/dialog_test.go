@@ -1,11 +1,14 @@
 package common
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 func TestDialogCursorHiddenWhenNotVisible(t *testing.T) {
@@ -254,6 +257,56 @@ func TestDialogInputClickCancel(t *testing.T) {
 	if dialogResult.Confirmed {
 		t.Fatalf("expected Confirmed=false, got true")
 	}
+}
+
+func TestDialogInputLogsDoNotIncludeRawValue(t *testing.T) {
+	logPath := initDialogTestLogger(t)
+	const secret = "secret-dialog-value-123"
+
+	d := NewInputDialog("create_workspace", "Create Workspace", "Enter workspace name...")
+	d.Show()
+	d.input.SetValue(secret)
+
+	_, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected Enter to produce a DialogResult command")
+	}
+	msg := cmd()
+	result, ok := msg.(DialogResult)
+	if !ok {
+		t.Fatalf("expected DialogResult, got %T", msg)
+	}
+	if result.Value != secret {
+		t.Fatalf("DialogResult.Value = %q, want original secret", result.Value)
+	}
+
+	content := readDialogTestLog(t, logPath)
+	if strings.Contains(content, secret) {
+		t.Fatalf("dialog log leaked raw value %q: %s", secret, content)
+	}
+	if !strings.Contains(content, "value_len=") {
+		t.Fatalf("expected dialog log to keep value length metadata, got: %s", content)
+	}
+}
+
+func initDialogTestLogger(t *testing.T) string {
+	t.Helper()
+
+	if err := logging.Initialize(t.TempDir(), logging.LevelDebug); err != nil {
+		t.Fatalf("logging.Initialize: %v", err)
+	}
+	t.Cleanup(func() { _ = logging.Close() })
+	return logging.GetLogPath()
+}
+
+func readDialogTestLog(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q): %v", path, err)
+	}
+	return string(data)
 }
 
 // longMessage returns a message long enough to word-wrap in a dialog with

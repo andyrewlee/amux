@@ -103,7 +103,7 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	a.dialogProject = nil
 	a.dialogWorkspace = nil
 	a.dialogTrustScriptsHash = ""
-	logging.Debug("Dialog result: id=%s confirmed=%v value=%s", result.ID, result.Confirmed, result.Value)
+	logging.Debug("Dialog result: id=%s confirmed=%v value_len=%d", result.ID, result.Confirmed, len(result.Value))
 
 	// Defensive: handleDialogResult only knows how to act on IDs in the shared
 	// registry. Routing already gates on isAppDialogID, so an unknown ID here
