@@ -103,7 +103,7 @@ func main() {
 	}
 
 	if *dumpFrame != "" {
-		if err := os.WriteFile(*dumpFrame, []byte(lastContent), 0o644); err != nil {
+		if err := writeDumpFrame(*dumpFrame, lastContent); err != nil {
 			fmt.Fprintf(os.Stderr, "harness: dump-frame write failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -122,6 +122,10 @@ func main() {
 	fmt.Printf("total=%s avg=%s p50=%s p95=%s p99=%s min=%s max=%s fps=%.2f\n",
 		total, s.avg, s.p50, s.p95, s.p99, s.min, s.max, fps(durations))
 	perf.Flush("harness")
+}
+
+func writeDumpFrame(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
 func summarize(durations []time.Duration) stats {
