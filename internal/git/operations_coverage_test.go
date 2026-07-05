@@ -246,8 +246,8 @@ func TestRunGitAllowFailureCtxNilContext(t *testing.T) {
 	skipIfNoGit(t)
 
 	left, right, _, _ := writeDiffFixtures(t)
-	//nolint:staticcheck // intentionally passing nil to exercise the defaulting path
-	out, err := RunGitAllowFailureCtx(nil, filepath.Dir(left), "diff", "--no-index", "--no-color", "--", left, right)
+	var nilCtx context.Context // intentionally nil to exercise the defaulting path.
+	out, err := RunGitAllowFailureCtx(nilCtx, filepath.Dir(left), "diff", "--no-index", "--no-color", "--", left, right)
 	if err != nil {
 		t.Fatalf("RunGitAllowFailureCtx(nil ctx) unexpected error = %v", err)
 	}
@@ -261,10 +261,8 @@ func TestRunGitAllowFailureCtxNilContext(t *testing.T) {
 // to the GOOS-specific implementation on the host platform.
 func TestGitAllowFailureCommandContextErrorWithKill(t *testing.T) {
 	t.Run("nil context returns nil", func(t *testing.T) {
-		//nolint:staticcheck // intentionally passing nil ctx to exercise the guard
-		if err := gitAllowFailureCommandContextErrorWithKill(
-			nil, errors.New("x"), []string{"status"}, 0, false,
-		); err != nil {
+		var nilCtx context.Context // intentionally nil to exercise the guard.
+		if err := gitAllowFailureCommandContextErrorWithKill(nilCtx, errors.New("x"), []string{"status"}, 0, false); err != nil {
 			t.Fatalf("expected nil for nil context, got %v", err)
 		}
 	})
