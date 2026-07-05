@@ -106,7 +106,7 @@ func (m *Model) tracePTY(tab *Tab, direction string, data []byte) {
 		dir := ptyTraceDir()
 		name := ptyTraceFileName(tab.Assistant, string(tab.ID), time.Now().Format("20060102-150405"))
 		path := filepath.Join(dir, name)
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		file, err := openPTYTraceFile(dir, name)
 		if err != nil {
 			logging.Warn("PTY trace open failed: %v", err)
 			tab.ptyTraceClosed = true
@@ -153,4 +153,24 @@ func (m *Model) tracePTY(tab *Tab, direction string, data []byte) {
 		_ = tab.ptyTraceFile.Close()
 		tab.ptyTraceClosed = true
 	}
+}
+
+func openPTYTraceFile(dir, name string) (*os.File, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open trace directory: %w", err)
+	}
+	file, openErr := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	closeErr := root.Close()
+	if openErr != nil {
+		if closeErr != nil {
+			logging.Warn("PTY trace directory close failed after open error: %v", closeErr)
+		}
+		return nil, fmt.Errorf("open trace file: %w", openErr)
+	}
+	if closeErr != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("close trace directory: %w", closeErr)
+	}
+	return file, nil
 }
