@@ -20,7 +20,8 @@ type syncWriteCloser interface {
 }
 
 var (
-	maxExtractedBinaryBytes int64 = 128 * 1024 * 1024
+	maxExtractedBinaryBytes  int64 = 128 * 1024 * 1024
+	maxExtractedArchiveBytes int64 = 256 * 1024 * 1024
 
 	openCopySourceFile = func(name string) (io.ReadCloser, error) {
 		return os.Open(name)
@@ -33,6 +34,36 @@ var (
 // openExtractFile is a seam for tests to inject extraction close failures.
 var openExtractFile = func(name string, flag int, perm os.FileMode) (io.WriteCloser, error) {
 	return os.OpenFile(name, flag, perm)
+}
+
+type extractedArchiveLimitReader struct {
+	reader io.Reader
+	max    int64
+	read   int64
+	probe  [1]byte
+}
+
+func (r *extractedArchiveLimitReader) Read(p []byte) (int, error) {
+	if r.max < 0 {
+		return 0, fmt.Errorf("archive exceeds %d byte uncompressed limit", r.max)
+	}
+	if r.read >= r.max {
+		n, err := r.reader.Read(r.probe[:])
+		if n > 0 {
+			r.read += int64(n)
+			return 0, fmt.Errorf("archive exceeds %d byte uncompressed limit", r.max)
+		}
+		return 0, err
+	}
+
+	remaining := r.max - r.read
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+
+	n, err := r.reader.Read(p)
+	r.read += int64(n)
+	return n, err
 }
 
 // ExtractBinary extracts the amux binary from a tar.gz archive.
@@ -50,7 +81,10 @@ func ExtractBinary(archivePath, destDir string) (string, error) {
 	}
 	defer gzr.Close()
 
-	tr := tar.NewReader(gzr)
+	tr := tar.NewReader(&extractedArchiveLimitReader{
+		reader: gzr,
+		max:    maxExtractedArchiveBytes,
+	})
 	var binaryPath string
 
 	for {
@@ -84,7 +118,7 @@ func ExtractBinary(archivePath, destDir string) (string, error) {
 			return "", fmt.Errorf("creating output file: %w", err)
 		}
 
-		if _, err := io.Copy(outFile, tr); err != nil {
+		if err := copyTarEntry(outFile, tr, header.Size); err != nil {
 			_ = outFile.Close()
 			return "", fmt.Errorf("extracting binary: %w", err)
 		}
@@ -99,6 +133,39 @@ func ExtractBinary(archivePath, destDir string) (string, error) {
 	}
 
 	return binaryPath, nil
+}
+
+func copyTarEntry(w io.Writer, r io.Reader, size int64) error {
+	var buf [32 * 1024]byte
+	remaining := size
+	for remaining > 0 {
+		chunk := int64(len(buf))
+		if remaining < chunk {
+			chunk = remaining
+		}
+
+		n, readErr := r.Read(buf[:chunk])
+		if n > 0 {
+			written, writeErr := w.Write(buf[:n])
+			if writeErr != nil {
+				return writeErr
+			}
+			if written != n {
+				return io.ErrShortWrite
+			}
+			remaining -= int64(n)
+		}
+		if readErr != nil {
+			if readErr == io.EOF && remaining == 0 {
+				return nil
+			}
+			return readErr
+		}
+		if n == 0 {
+			return io.ErrNoProgress
+		}
+	}
+	return nil
 }
 
 // InstallBinary performs an atomic replacement of the current binary.

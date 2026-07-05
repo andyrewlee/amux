@@ -236,6 +236,66 @@ func TestExtractBinaryRejectsOversizedBinary(t *testing.T) {
 	}
 }
 
+func TestExtractBinaryAllowsSmallSkippedEntriesBeforeBinary(t *testing.T) {
+	withTempInt64(t, &maxExtractedArchiveBytes, 4096)
+
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "extracted")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatalf("Failed to create dest dir: %v", err)
+	}
+
+	binaryContent := []byte("#!/bin/sh\necho hello\n")
+	archivePath := filepath.Join(tmpDir, "test.tar.gz")
+	writeTarGz(t, archivePath, []tarEntry{
+		{name: "LICENSE", content: []byte("MIT\n")},
+		{name: "README.md", content: []byte("# amux\n")},
+		{name: "amux_1.0.0_darwin_arm64/amux", content: binaryContent},
+	})
+
+	extractedPath, err := ExtractBinary(archivePath, destDir)
+	if err != nil {
+		t.Fatalf("ExtractBinary() error = %v", err)
+	}
+	if extractedPath != filepath.Join(destDir, "amux") {
+		t.Fatalf("ExtractBinary() path = %q, want dest amux", extractedPath)
+	}
+	content, err := os.ReadFile(extractedPath)
+	if err != nil {
+		t.Fatalf("Failed to read extracted file: %v", err)
+	}
+	if string(content) != string(binaryContent) {
+		t.Fatalf("Extracted content mismatch")
+	}
+}
+
+func TestExtractBinaryRejectsOversizedSkippedEntryBeforeBinary(t *testing.T) {
+	withTempInt64(t, &maxExtractedArchiveBytes, 1024)
+
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "extracted")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatalf("Failed to create dest dir: %v", err)
+	}
+
+	archivePath := filepath.Join(tmpDir, "test.tar.gz")
+	writeTarGz(t, archivePath, []tarEntry{
+		{name: "README.md", content: []byte(strings.Repeat("x", 1024))},
+		{name: "amux", content: []byte("#!/bin/sh\necho hello\n")},
+	})
+
+	_, err := ExtractBinary(archivePath, destDir)
+	if err == nil {
+		t.Fatal("ExtractBinary() expected uncompressed archive limit error, got nil")
+	}
+	if !strings.Contains(err.Error(), "uncompressed limit") {
+		t.Fatalf("ExtractBinary() error = %v, want uncompressed archive limit", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(destDir, "amux")); !os.IsNotExist(statErr) {
+		t.Fatalf("oversized skipped entry should not create output file, stat err = %v", statErr)
+	}
+}
+
 type closeFailureWriter struct {
 	err error
 }
