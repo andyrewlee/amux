@@ -1,7 +1,7 @@
 package center
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"strings"
 	"time"
 
@@ -195,7 +195,7 @@ func (m *Model) noteVisibleActivityLockedWithOutput(
 
 func visibleScreenDigest(term *vterm.VTerm) [16]byte {
 	if term == nil {
-		return md5.Sum(nil)
+		return visibleDigestHash(nil)
 	}
 
 	// Use the live screen buffer, not the current viewport. If user scrolls
@@ -230,5 +230,12 @@ func visibleScreenDigest(term *vterm.VTerm) [16]byte {
 		}
 		b.WriteByte('\n')
 	}
-	return md5.Sum([]byte(b.String()))
+	return visibleDigestHash([]byte(b.String()))
+}
+
+func visibleDigestHash(content []byte) [16]byte {
+	hash := sha256.Sum256(content)
+	var digest [16]byte
+	copy(digest[:], hash[:16])
+	return digest
 }

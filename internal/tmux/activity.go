@@ -1,7 +1,7 @@
 package tmux
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"strconv"
 	"strings"
 	"time"
@@ -203,5 +203,8 @@ func SetStatusOff(opts Options) error {
 
 // ContentHash returns a fast hash of the content for change detection.
 func ContentHash(content string) [16]byte {
-	return md5.Sum([]byte(content))
+	hash := sha256.Sum256([]byte(content))
+	var digest [16]byte
+	copy(digest[:], hash[:16])
+	return digest
 }

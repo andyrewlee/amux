@@ -1,7 +1,7 @@
 package tmux
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"os/exec"
 	"strings"
 	"testing"
@@ -79,7 +79,7 @@ func TestSessionLatestActivity_EmptyNameReturnsNoActivity(t *testing.T) {
 // ContentHash (pure)
 // ---------------------------------------------------------------------------
 
-func TestContentHash_MatchesMD5(t *testing.T) {
+func TestContentHash_MatchesSHA256Prefix(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
@@ -94,7 +94,7 @@ func TestContentHash_MatchesMD5(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ContentHash(tt.content)
-			want := md5.Sum([]byte(tt.content))
+			want := sha256Prefix16(tt.content)
 			if got != want {
 				t.Fatalf("ContentHash(%q) = %x, want %x", tt.content, got, want)
 			}
@@ -124,16 +124,22 @@ func TestContentHash_IsDeterministicAndSensitive(t *testing.T) {
 
 func TestContentHash_NonZeroForKnownInput(t *testing.T) {
 	// The fixed [16]byte width is guaranteed by the return type; assert instead
-	// on a concrete, non-zero hash so the test exercises real behavior. md5 of
-	// "anything" is a stable known value.
+	// on a concrete, non-zero hash so the test exercises real behavior.
 	got := ContentHash("anything")
 	if got == ([16]byte{}) {
 		t.Fatal("expected a non-zero hash for non-empty input")
 	}
-	want := md5.Sum([]byte("anything"))
+	want := sha256Prefix16("anything")
 	if got != want {
 		t.Fatalf("ContentHash(\"anything\") = %x, want %x", got, want)
 	}
+}
+
+func sha256Prefix16(content string) [16]byte {
+	hash := sha256.Sum256([]byte(content))
+	var digest [16]byte
+	copy(digest[:], hash[:16])
+	return digest
 }
 
 // ---------------------------------------------------------------------------

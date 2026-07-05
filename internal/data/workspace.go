@@ -1,7 +1,7 @@
 package data
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"time"
 )
@@ -120,6 +120,6 @@ func NewWorkspace(name, branch, base, repo, root string) *Workspace {
 }
 
 func workspaceIDFromIdentity(identity string) WorkspaceID {
-	hash := sha1.Sum([]byte(identity))
+	hash := sha256.Sum256([]byte(identity))
 	return WorkspaceID(hex.EncodeToString(hash[:8]))
 }
