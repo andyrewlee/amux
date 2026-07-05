@@ -236,7 +236,9 @@ func TestTmuxSyncInterval(t *testing.T) {
 		{name: "empty string uses default", envSet: true, envVal: "", want: tmuxSyncDefaultInterval},
 		{name: "whitespace only uses default", envSet: true, envVal: "   ", want: tmuxSyncDefaultInterval},
 		{name: "valid duration is parsed", envSet: true, envVal: "2s", want: 2 * time.Second},
-		{name: "valid duration with surrounding spaces is trimmed", envSet: true, envVal: "  500ms  ", want: 500 * time.Millisecond},
+		{name: "minimum duration is parsed", envSet: true, envVal: tmuxSyncMinInterval.String(), want: tmuxSyncMinInterval},
+		{name: "valid duration with surrounding spaces is trimmed", envSet: true, envVal: "  750ms  ", want: 750 * time.Millisecond},
+		{name: "tiny positive duration clamps to minimum", envSet: true, envVal: "1ns", want: tmuxSyncMinInterval},
 		{name: "unparseable value falls back to default", envSet: true, envVal: "not-a-duration", want: tmuxSyncDefaultInterval},
 		{name: "zero duration falls back to default", envSet: true, envVal: "0s", want: tmuxSyncDefaultInterval},
 		{name: "negative duration falls back to default", envSet: true, envVal: "-5s", want: tmuxSyncDefaultInterval},
@@ -286,11 +288,11 @@ func TestStartPTYWatchdog_ReturnsNonNilCmd(t *testing.T) {
 
 // TestStartTmuxSyncTicker_AllocatesAndThreadsToken pins the only non-trivial
 // behavior of the tmux sync ticker: each call bumps syncToken, and the token the
-// scheduler will eventually deliver matches the freshly-allocated value. Setting
-// a sub-millisecond interval via the AMUX_TMUX_SYNC_INTERVAL seam lets the tick
-// fire immediately so the delivered message can be asserted without a long wait.
+// scheduler will eventually deliver matches the freshly-allocated value. The
+// configured interval uses the minimum floor so the assertion remains bounded
+// without exercising sub-minimum hot-loop behavior.
 func TestStartTmuxSyncTicker_AllocatesAndThreadsToken(t *testing.T) {
-	t.Setenv("AMUX_TMUX_SYNC_INTERVAL", "1ms")
+	t.Setenv("AMUX_TMUX_SYNC_INTERVAL", tmuxSyncMinInterval.String())
 	app := &App{}
 
 	cmd := app.startTmuxSyncTicker()

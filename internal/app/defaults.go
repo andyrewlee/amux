@@ -16,6 +16,10 @@ const (
 	// tmuxSyncDefaultInterval is the fallback interval for tmux session reconciliation.
 	tmuxSyncDefaultInterval = 7 * time.Second
 
+	// tmuxSyncMinInterval bounds user-configured sync intervals so malformed
+	// env/config values cannot turn reconciliation into a hot loop.
+	tmuxSyncMinInterval = 500 * time.Millisecond
+
 	// gitPathWaitInterval is the polling interval when waiting for a new worktree to expose .git.
 	gitPathWaitInterval = 100 * time.Millisecond
 

@@ -328,6 +328,10 @@ func (a *App) tmuxSyncInterval() time.Duration {
 		logging.Warn("Invalid AMUX_TMUX_SYNC_INTERVAL=%q; using %s", value, tmuxSyncDefaultInterval)
 		return tmuxSyncDefaultInterval
 	}
+	if interval < tmuxSyncMinInterval {
+		logging.Warn("AMUX_TMUX_SYNC_INTERVAL=%q is below minimum %s; using %s", value, tmuxSyncMinInterval, tmuxSyncMinInterval)
+		return tmuxSyncMinInterval
+	}
 	return interval
 }
 
