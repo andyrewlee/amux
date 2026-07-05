@@ -396,6 +396,18 @@ func TestCountUntrackedLines(t *testing.T) {
 		}
 	})
 
+	t.Run("path outside repo root skipped", func(t *testing.T) {
+		outsidePath := filepath.Join(filepath.Dir(dir), "outside.txt")
+		if err := os.WriteFile(outsidePath, []byte("outside\ncontent\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c := Change{Path: "../outside.txt", Kind: ChangeUntracked}
+		got := countUntrackedLines(dir, []Change{c})
+		if got != 0 {
+			t.Errorf("got %d, want 0 (outside path should be skipped)", got)
+		}
+	})
+
 	t.Run("directory skipped", func(t *testing.T) {
 		subdir := filepath.Join(dir, "subdir")
 		if err := os.Mkdir(subdir, 0o755); err != nil {

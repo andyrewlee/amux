@@ -3,6 +3,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -124,51 +125,87 @@ func getDiffNumstat(repoPath string, staged bool) (added, deleted int, err error
 // Binary files (null byte in first 8KB) and files larger than 1MB are skipped.
 func countUntrackedLines(repoPath string, untracked []Change) int {
 	const maxSize = 1 << 20 // 1MB
+	root, err := os.OpenRoot(repoPath)
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = root.Close() }()
+
 	total := 0
 	for _, c := range untracked {
-		p := filepath.Join(repoPath, c.Path)
-		info, err := os.Lstat(p)
+		relPath := filepath.FromSlash(c.Path)
+		info, err := root.Lstat(relPath)
 		if err != nil || !info.Mode().IsRegular() || info.Size() > maxSize {
 			continue
 		}
-		f, err := os.Open(p)
+		f, err := root.Open(relPath)
 		if err != nil {
 			continue
 		}
-		// Read first 8KB to check for binary content
-		head := make([]byte, 8192)
-		n, _ := f.Read(head)
-		if n == 0 {
-			f.Close()
+
+		openedInfo, err := f.Stat()
+		if err != nil || !openedInfo.Mode().IsRegular() || openedInfo.Size() > maxSize {
+			_ = f.Close()
 			continue
 		}
-		if bytes.ContainsRune(head[:n], 0) {
-			f.Close()
+
+		lines, ok := countLinesInUntrackedFile(f)
+		if err := f.Close(); err != nil {
 			continue
 		}
-		// Count newlines in head
-		lines := bytes.Count(head[:n], []byte{'\n'})
-		lastByte := head[n-1]
-		// Count remaining newlines
-		buf := make([]byte, 32*1024)
-		for {
-			nr, err := f.Read(buf)
-			if nr > 0 {
-				lines += bytes.Count(buf[:nr], []byte{'\n'})
-				lastByte = buf[nr-1]
-			}
-			if err != nil {
-				break
-			}
+		if ok {
+			total += lines
 		}
-		f.Close()
-		// Count final line if file is non-empty and lacks trailing newline
-		if n > 0 && lastByte != '\n' {
-			lines++
-		}
-		total += lines
 	}
 	return total
+}
+
+func countLinesInUntrackedFile(f *os.File) (int, bool) {
+	// Read first 8KB to check for binary content.
+	head := make([]byte, 8192)
+	n, err := f.Read(head)
+	if err != nil && err != io.EOF {
+		return 0, false
+	}
+	if n == 0 {
+		return 0, false
+	}
+	if bytes.ContainsRune(head[:n], 0) {
+		return 0, false
+	}
+
+	lines := bytes.Count(head[:n], []byte{'\n'})
+	lastByte := head[n-1]
+	if err == io.EOF {
+		if lastByte != '\n' {
+			lines++
+		}
+		return lines, true
+	}
+
+	buf := make([]byte, 32*1024)
+	for {
+		nr, readErr := f.Read(buf)
+		if nr > 0 {
+			lines += bytes.Count(buf[:nr], []byte{'\n'})
+			lastByte = buf[nr-1]
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				return 0, false
+			}
+			break
+		}
+		if nr == 0 {
+			return 0, false
+		}
+	}
+
+	// Count final line if file is non-empty and lacks trailing newline.
+	if lastByte != '\n' {
+		lines++
+	}
+	return lines, true
 }
 
 // parseStatusPorcelain parses git status --porcelain=v1 -z output
