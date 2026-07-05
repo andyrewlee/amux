@@ -111,7 +111,10 @@ func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 	// Stage the new binary in the same directory as the target to avoid
 	// cross-filesystem rename failures (EXDEV)
 	targetDir := filepath.Dir(currentBinaryPath)
-	stagedPath := filepath.Join(targetDir, ".amux-upgrade-new")
+	stagedPath, err := uniqueUpgradeTempPath(targetDir, ".amux-upgrade-new-*")
+	if err != nil {
+		return fmt.Errorf("creating staging path: %w", err)
+	}
 
 	if err := copyFile(newBinaryPath, stagedPath); err != nil {
 		return fmt.Errorf("staging new binary: %w", err)
@@ -119,7 +122,11 @@ func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 	defer os.Remove(stagedPath) // Clean up on failure
 
 	// Create backup of current binary
-	backupPath := currentBinaryPath + ".bak"
+	backupPattern := "." + filepath.Base(currentBinaryPath) + ".bak-*"
+	backupPath, err := uniqueUpgradeTempPath(targetDir, backupPattern)
+	if err != nil {
+		return fmt.Errorf("creating backup path: %w", err)
+	}
 	if err := renameFile(currentBinaryPath, backupPath); err != nil {
 		return fmt.Errorf("backing up current binary: %w", err)
 	}
@@ -139,6 +146,22 @@ func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 	_ = os.Remove(backupPath)
 
 	return nil
+}
+
+func uniqueUpgradeTempPath(dir, pattern string) (string, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", err
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", err
+	}
+	if err := os.Remove(name); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 func shellQuote(path string) string {
