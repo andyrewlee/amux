@@ -21,10 +21,12 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/term"
@@ -76,6 +78,36 @@ func recordStream(in io.Reader, log syncer) error {
 	}
 }
 
+func openLogFile(logPath string) (*os.File, func() error, error) {
+	if logPath == "" {
+		return nil, nil, errors.New("log path is empty")
+	}
+	absPath, err := filepath.Abs(logPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve log path: %w", err)
+	}
+	dir := filepath.Dir(absPath)
+	name := filepath.Base(absPath)
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return nil, nil, fmt.Errorf("log path %q has no file name", logPath)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open log directory: %w", err)
+	}
+	log, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		_ = root.Close()
+		return nil, nil, fmt.Errorf("open log file: %w", err)
+	}
+	if err := log.Chmod(0o600); err != nil {
+		_ = log.Close()
+		_ = root.Close()
+		return nil, nil, fmt.Errorf("set log permissions: %w", err)
+	}
+	return log, root.Close, nil
+}
+
 func main() {
 	var startupDelay time.Duration
 	flag.DurationVar(&startupDelay, "startup-delay", 0,
@@ -88,12 +120,13 @@ func main() {
 		os.Exit(2)
 	}
 
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	log, closeLogRoot, err := openLogFile(logPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fakeagent: open log:", err)
 		os.Exit(2)
 	}
-	defer log.Close()
+	defer func() { _ = closeLogRoot() }()
+	defer func() { _ = log.Close() }()
 
 	// Put stdin into raw mode so received bytes are untranslated. Without this a
 	// carriage return would be read as NL and the test could not tell hex 0D from

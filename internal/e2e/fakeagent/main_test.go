@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -29,6 +31,61 @@ func TestReadyBannerBytesEndsWithCRLF(t *testing.T) {
 	// NL->CRNL translation, so the banner must carry its own carriage return.
 	if got[len(got)-2] != '\r' || got[len(got)-1] != '\n' {
 		t.Fatalf("banner must end with CRLF, got %q", got)
+	}
+}
+
+func TestOpenLogFileCreatesPrivateLog(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "received.log")
+	log, closeRoot, err := openLogFile(logPath)
+	if err != nil {
+		t.Fatalf("openLogFile returned error: %v", err)
+	}
+	closed := false
+	t.Cleanup(func() {
+		if closed {
+			return
+		}
+		_ = log.Close()
+		_ = closeRoot()
+	})
+
+	if _, err := log.Write([]byte("hello")); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	if err := log.Close(); err != nil {
+		t.Fatalf("close log: %v", err)
+	}
+	if err := closeRoot(); err != nil {
+		t.Fatalf("close log root: %v", err)
+	}
+	closed = true
+
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("stat log: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("log mode = %#o, want 0600", got)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !bytes.Equal(got, []byte("hello")) {
+		t.Fatalf("log contents = %q, want hello", got)
+	}
+}
+
+func TestOpenLogFileRejectsEmptyPath(t *testing.T) {
+	log, closeRoot, err := openLogFile("")
+	if err == nil {
+		if log != nil {
+			_ = log.Close()
+		}
+		if closeRoot != nil {
+			_ = closeRoot()
+		}
+		t.Fatal("openLogFile succeeded with an empty path")
 	}
 }
 
