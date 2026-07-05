@@ -64,6 +64,22 @@ func TestMarkClosing(t *testing.T) {
 	})
 }
 
+func TestNormalizePTYAccountingIgnoresNegativeCounters(t *testing.T) {
+	tab := &Tab{
+		pendingOutputBytes: -10,
+		ptyBytesSettled:    42,
+		tabActorWriteState: tabActorWriteState{
+			actorQueuedBytes: -5,
+		},
+	}
+
+	tab.normalizePTYAccountingLocked()
+
+	if tab.ptyBytesReceived != 42 {
+		t.Fatalf("ptyBytesReceived = %d, want settled count 42", tab.ptyBytesReceived)
+	}
+}
+
 func TestSetActiveTabIdx(t *testing.T) {
 	t.Run("records index for the active workspace", func(t *testing.T) {
 		m := newTestModel()

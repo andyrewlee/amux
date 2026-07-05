@@ -209,14 +209,19 @@ func (t *Tab) normalizePTYAccountingLocked() {
 	if t.ptyBytesReceived < t.ptyBytesSettled {
 		t.ptyBytesReceived = t.ptyBytesSettled
 	}
-	outstanding := uint64(t.pendingOutputBytes)
-	if t.actorQueuedBytes > 0 {
-		outstanding += uint64(t.actorQueuedBytes)
-	}
+	outstanding := nonNegativeByteCount(t.pendingOutputBytes)
+	outstanding += nonNegativeByteCount(t.actorQueuedBytes)
 	minReceived := t.ptyBytesSettled + outstanding
 	if t.ptyBytesReceived < minReceived {
 		t.ptyBytesReceived = minReceived
 	}
+}
+
+func nonNegativeByteCount(v int) uint64 {
+	if v <= 0 {
+		return 0
+	}
+	return uint64(v)
 }
 
 func (t *Tab) resetPTYStateLocked() {
