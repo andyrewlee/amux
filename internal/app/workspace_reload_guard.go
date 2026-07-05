@@ -134,11 +134,18 @@ func pruneOldLocalWorkspaceSavesLocked(saves map[string]localWorkspaceSaveMarker
 // shouldSuppressWorkspaceReload to return false (not suppress). This is the
 // safe/conservative direction so the race is benign.
 func workspaceMetadataFingerprint(path string) (workspaceFileFingerprint, bool) {
-	info, err := os.Stat(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return workspaceFileFingerprint{}, false
+	}
+	defer func() { _ = root.Close() }()
+
+	name := filepath.Base(path)
+	info, err := root.Stat(name)
 	if err != nil || info.IsDir() {
 		return workspaceFileFingerprint{}, false
 	}
-	data, err := os.ReadFile(path)
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return workspaceFileFingerprint{}, false
 	}
