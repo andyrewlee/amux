@@ -29,10 +29,11 @@ var (
 
 // Terminal wraps a PTY with an associated command
 type Terminal struct {
-	mu      sync.Mutex
-	ptyFile *os.File
-	cmd     *exec.Cmd
-	closed  bool
+	mu       sync.Mutex
+	ptyFile  *os.File
+	cmd      *exec.Cmd
+	waitDone <-chan struct{}
+	closed   bool
 }
 
 // New creates a new terminal with the given command.
@@ -62,10 +63,25 @@ func NewWithSize(command, dir string, env []string, rows, cols uint16) (*Termina
 		return nil, err
 	}
 
-	return &Terminal{
+	term := &Terminal{
 		ptyFile: ptmx,
 		cmd:     cmd,
-	}, nil
+	}
+	term.startWaitMonitor(cmd)
+	return term, nil
+}
+
+func (t *Terminal) startWaitMonitor(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	waitDone := make(chan struct{})
+	t.waitDone = waitDone
+	waitCommand := terminalWaitCommand
+	go func() {
+		_ = waitCommand(cmd)
+		close(waitDone)
+	}()
 }
 
 // SetSize sets the terminal size
@@ -176,6 +192,7 @@ func (t *Terminal) Close() error {
 	t.closed = true
 	ptyFile := t.ptyFile
 	cmd := t.cmd
+	waitDone := t.waitDone
 	t.ptyFile = nil
 	t.cmd = nil
 	t.mu.Unlock()
@@ -190,28 +207,32 @@ func (t *Terminal) Close() error {
 	}
 
 	if cmd != nil {
+		if waitComplete(waitDone) {
+			return nil
+		}
+
 		proc := cmd.Process
+		if waitDone == nil && proc != nil {
+			waitDone = waitCommandAsync(cmd, waitCommand)
+		}
 		if proc != nil {
 			leaderPID := proc.Pid
 			_ = killProcessGroup(leaderPID, process.KillOptions{})
 			// Wait with timeout, escalate to SIGKILL if needed.
-			done := make(chan struct{})
-			go func() {
-				_ = waitCommand(cmd)
-				close(done)
-			}()
 			select {
-			case <-done:
+			case <-waitDone:
 				// Process exited cleanly.
 			case <-time.After(closeTimeout):
 				logging.Warn("agent did not exit within %s of SIGTERM; escalating to SIGKILL (pid %d)", closeTimeout, leaderPID)
 				_ = forceKillProcess(leaderPID)
 				select {
-				case <-done:
+				case <-waitDone:
 				case <-time.After(closeTimeout):
 					logging.Error("agent did not exit within %s of SIGKILL; abandoning wait (pid %d)", closeTimeout, leaderPID)
 				}
 			}
+		} else if waitDone != nil {
+			<-waitDone
 		} else {
 			_ = waitCommand(cmd)
 		}
@@ -220,17 +241,45 @@ func (t *Terminal) Close() error {
 	return nil
 }
 
+func waitComplete(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
+}
+
+func waitCommandAsync(cmd *exec.Cmd, waitCommand func(*exec.Cmd) error) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		_ = waitCommand(cmd)
+		close(done)
+	}()
+	return done
+}
+
 // Running returns whether the terminal is still running
 func (t *Terminal) Running() bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	closed := t.closed
+	cmd := t.cmd
+	waitDone := t.waitDone
+	t.mu.Unlock()
 
-	if t.closed || t.cmd == nil {
+	if closed || cmd == nil {
 		return false
 	}
 
-	// Check if process is still running
-	return t.cmd.ProcessState == nil
+	if waitDone != nil {
+		return !waitComplete(waitDone)
+	}
+
+	// Manually constructed Terminals in tests may not have a wait monitor.
+	return cmd.ProcessState == nil
 }
 
 // IsClosed returns whether the terminal has been closed
