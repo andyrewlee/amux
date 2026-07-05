@@ -113,7 +113,7 @@ func worktreeAdminDirForWorkspace(ctx context.Context, repoPath, workspacePath s
 		}
 		adminDir := filepath.Join(worktreesDir, entry.Name())
 		gitdirFile := filepath.Join(adminDir, "gitdir")
-		gitdirBytes, err := os.ReadFile(gitdirFile)
+		gitdirBytes, err := readFileInParentRoot(gitdirFile)
 		if os.IsNotExist(err) {
 			continue
 		}

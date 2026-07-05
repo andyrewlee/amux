@@ -258,14 +258,14 @@ func parseWorkspaceCleanupMarkerJSON(trimmed, markerPath string) (workspaceClean
 }
 
 func readWorkspaceCleanupMarkerFile(markerPath string) ([]byte, error) {
-	content, err := os.ReadFile(markerPath)
+	content, err := readFileInParentRoot(markerPath)
 	if err == nil {
 		return content, nil
 	}
 	if !os.IsNotExist(err) {
 		return nil, err
 	}
-	return os.ReadFile(retryMarkerBackupPath(markerPath))
+	return readFileInParentRoot(retryMarkerBackupPath(markerPath))
 }
 
 func clearPrunedWorkspaceRetryMarker(workspacePath string) error {
@@ -337,7 +337,7 @@ func ensureWorkspaceCleanupRetryMetadataWithContext(
 }
 
 func readWorkspaceCleanupRetryMetadata(workspacePath string) (workspaceCleanupRetryMetadata, bool, error) {
-	content, err := os.ReadFile(workspaceCleanupRetryMetadataPath(workspacePath))
+	content, err := readFileInParentRoot(workspaceCleanupRetryMetadataPath(workspacePath))
 	if err == nil {
 		trimmed := strings.TrimSpace(string(content))
 		switch trimmed {

@@ -221,14 +221,10 @@ func cleanupFinalizeStep(r *workspaceCleanupRun) (workspaceCleanupPhase, error) 
 
 func workspaceGitRefFingerprint(workspacePath string) (gitRef string, modTimeUnixNano int64, ok bool, err error) {
 	gitFile := filepath.Join(workspacePath, ".git")
-	info, statErr := os.Stat(gitFile)
-	if os.IsNotExist(statErr) {
+	info, content, readErr := statAndReadFileInParentRoot(gitFile)
+	if os.IsNotExist(readErr) {
 		return "", 0, false, nil
 	}
-	if statErr != nil {
-		return "", 0, false, statErr
-	}
-	content, readErr := os.ReadFile(gitFile)
 	if readErr != nil {
 		return "", 0, false, readErr
 	}
