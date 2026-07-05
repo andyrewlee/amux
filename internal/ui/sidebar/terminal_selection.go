@@ -68,7 +68,7 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 		tab.State.mu.Lock()
 		sessionName = tab.State.SessionName
 		if tab.State.Terminal != nil {
-			tab.State.Terminal.Close()
+			closeTerminalForSidebar(tab.State.Terminal, "tab close")
 		}
 		tab.State.Running = false
 		tab.State.RestartBackoff = 0

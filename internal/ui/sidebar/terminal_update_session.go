@@ -190,7 +190,7 @@ func (m *TerminalModel) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) te
 			m.stopPTYReader(tab.State)
 			tab.State.mu.Lock()
 			if tab.State.Terminal != nil {
-				tab.State.Terminal.Close()
+				closeTerminalForSidebar(tab.State.Terminal, "workspace deletion")
 			}
 			tab.State.Running = false
 			tab.State.RestartBackoff = 0

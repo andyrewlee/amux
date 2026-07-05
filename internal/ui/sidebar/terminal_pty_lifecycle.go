@@ -170,7 +170,7 @@ func (m *TerminalModel) CloseTerminal(wsID string) {
 			m.stopPTYReader(tab.State)
 			tab.State.mu.Lock()
 			if tab.State.Terminal != nil {
-				tab.State.Terminal.Close()
+				closeTerminalForSidebar(tab.State.Terminal, "workspace close")
 			}
 			tab.State.Running = false
 			tab.State.RestartBackoff = 0
@@ -195,6 +195,15 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 	ts.State.StopReader(&ts.mu)
 }
 
+func closeTerminalForSidebar(term *pty.Terminal, reason string) {
+	if term == nil {
+		return
+	}
+	if err := term.Close(); err != nil {
+		logging.Warn("Sidebar terminal close failed during %s: %v", reason, err)
+	}
+}
+
 func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	if ts == nil {
 		return
@@ -210,7 +219,7 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	ts.NoiseTrailing = nil
 	ts.mu.Unlock()
 	if term != nil {
-		term.Close()
+		closeTerminalForSidebar(term, "detach")
 	}
 }
 

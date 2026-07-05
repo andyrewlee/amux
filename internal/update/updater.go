@@ -173,7 +173,12 @@ func (u *Updater) Upgrade(release *Release) error {
 
 	logging.Info("Downloading %s", asset.Name)
 	if err := u.deps.download(asset.BrowserDownloadURL, archiveFile); err != nil {
-		archiveFile.Close()
+		if closeErr := archiveFile.Close(); closeErr != nil {
+			return errors.Join(
+				fmt.Errorf("downloading: %w", err),
+				fmt.Errorf("closing archive file after failed download: %w", closeErr),
+			)
+		}
 		return fmt.Errorf("downloading: %w", err)
 	}
 	if err := archiveFile.Close(); err != nil {

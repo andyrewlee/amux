@@ -224,6 +224,47 @@ func TestUpgradeArchiveCloseFailureNeverVerifies(t *testing.T) {
 	}
 }
 
+func TestUpgradeDownloadFailureReportsArchiveCloseFailure(t *testing.T) {
+	var calls []string
+	deps := recordingDeps(&calls)
+	deps.download = func(_ string, w io.Writer) error {
+		calls = append(calls, "download")
+		f, ok := w.(*os.File)
+		if !ok {
+			t.Fatalf("download writer = %T, want *os.File", w)
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+		return errors.New("download failed")
+	}
+	verified := false
+	deps.verify = func(string, string) error {
+		verified = true
+		calls = append(calls, "verify")
+		return nil
+	}
+	u := upgraderWith(deps)
+
+	err := u.Upgrade(&Release{TagName: "v1.0.0"})
+	if err == nil {
+		t.Fatal("expected download/close error, got nil")
+	}
+	for _, want := range []string{"downloading", "download failed", "closing archive file after failed download"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expected error containing %q, got: %v", want, err)
+		}
+	}
+	if verified {
+		t.Fatal("verify must never run when download fails")
+	}
+	for _, c := range calls {
+		if c == "verify" {
+			t.Fatalf("verify appears in call order after failed download: %v", calls)
+		}
+	}
+}
+
 // TestUpgradeHappyPathOrder pins the orchestration order, proving in particular
 // that verify runs strictly before extract and install (verify -> extract ->
 // install), so an install-before-verify regression cannot pass.

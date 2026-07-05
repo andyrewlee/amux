@@ -114,8 +114,14 @@ func main() {
 
 	// Match full-screen terminal apps that ask their host to deliver wheel
 	// events to stdin instead of using outer scrollback.
-	fmt.Fprint(os.Stdout, "\x1b[?1000h\x1b[?1006h")
-	os.Stdout.Write(readyBannerBytes())
+	if _, err := fmt.Fprint(os.Stdout, "\x1b[?1000h\x1b[?1006h"); err != nil {
+		fmt.Fprintln(os.Stderr, "fakeagent: write mouse mode:", err)
+		os.Exit(2)
+	}
+	if _, err := os.Stdout.Write(readyBannerBytes()); err != nil {
+		fmt.Fprintln(os.Stderr, "fakeagent: write ready banner:", err)
+		os.Exit(2)
+	}
 
 	_ = recordStream(os.Stdin, log)
 }

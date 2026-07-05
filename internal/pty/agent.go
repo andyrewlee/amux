@@ -190,8 +190,9 @@ func (m *AgentManager) CloseAgent(agent *Agent) error {
 	if agent == nil {
 		return nil
 	}
+	var closeErr error
 	if agent.Terminal != nil {
-		agent.Terminal.Close()
+		closeErr = agent.Terminal.Close()
 	}
 
 	wsID := ""
@@ -213,6 +214,9 @@ func (m *AgentManager) CloseAgent(agent *Agent) error {
 		}
 	}
 
+	if closeErr != nil {
+		return fmt.Errorf("closing agent terminal: %w", closeErr)
+	}
 	return nil
 }
 
@@ -234,7 +238,9 @@ func (m *AgentManager) CloseAll() {
 	for _, agents := range agentsByWorkspace {
 		for _, agent := range agents {
 			if agent != nil && agent.Terminal != nil {
-				agent.Terminal.Close()
+				if err := agent.Terminal.Close(); err != nil {
+					logging.Warn("closing agent terminal failed: %v", err)
+				}
 			}
 		}
 	}
@@ -255,7 +261,9 @@ func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace) {
 	}
 	for _, agent := range agents {
 		if agent != nil && agent.Terminal != nil {
-			agent.Terminal.Close()
+			if err := agent.Terminal.Close(); err != nil {
+				logging.Warn("closing workspace agent terminal failed: workspace=%s error=%v", wsID, err)
+			}
 		}
 	}
 }
