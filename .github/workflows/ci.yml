@@ -21,6 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
+          # setup-go v6 reads go.mod's toolchain directive, keeping CI on the patched Go 1.26 toolchain.
           go-version-file: go.mod
           cache: true
 
@@ -109,6 +110,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
+          # setup-go v6 reads go.mod's toolchain directive, keeping CI on the patched Go 1.26 toolchain.
           go-version-file: go.mod
           cache: true
 
@@ -166,6 +168,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
+          # setup-go v6 reads go.mod's toolchain directive, keeping CI on the patched Go 1.26 toolchain.
           go-version-file: go.mod
           cache: true
 
@@ -201,6 +204,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
+          # setup-go v6 reads go.mod's toolchain directive, keeping CI on the patched Go 1.26 toolchain.
           go-version-file: go.mod
           cache: true
 

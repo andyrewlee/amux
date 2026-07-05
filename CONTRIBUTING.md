@@ -16,8 +16,12 @@ It builds the linter version pinned in `.golangci-version` into the gitignored
 from CI and produce different diagnostics. See [LINTING.md](LINTING.md) for the
 full rationale.
 
-The minimum supported Go is **1.26** (the `go` directive in `go.mod`); any Go
-1.26.x patch release builds the repo, so no `GOTOOLCHAIN` override is needed.
+The minimum supported Go family is **1.26** (the `go` directive in `go.mod`).
+The `toolchain` directive in `go.mod` pins the patched Go 1.26 toolchain used
+for local checks, CI, and releases. With the standard `GOTOOLCHAIN=auto`
+setting, the `go` command switches to that patched toolchain automatically. If
+you force `GOTOOLCHAIN=local`, install the pinned patch release yourself before
+running repo checks.
 
 Run the local checks that mirror CI:
 
