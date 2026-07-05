@@ -184,7 +184,7 @@ func copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	dstFile, err := openCopyDestFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	dstFile, err := openCopyDestFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o755)
 	if err != nil {
 		return err
 	}
