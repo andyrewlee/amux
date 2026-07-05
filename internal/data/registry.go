@@ -66,10 +66,10 @@ func (r *Registry) Save(paths []string) error {
 }
 
 func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
-	data, err := os.ReadFile(r.path)
+	data, err := readRegistryFile(r.path)
 	if os.IsNotExist(err) {
 		backupPath := r.backupPath()
-		backupData, backupErr := os.ReadFile(backupPath)
+		backupData, backupErr := readRegistryFile(backupPath)
 		if os.IsNotExist(backupErr) {
 			return []string{}, false, nil
 		}
@@ -92,7 +92,7 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 	}
 
 	backupPath := r.backupPath()
-	backupData, backupErr := os.ReadFile(backupPath)
+	backupData, backupErr := readRegistryFile(backupPath)
 	if backupErr != nil {
 		return nil, false, errors.Join(parseErr, fmt.Errorf("read backup %s: %w", backupPath, backupErr))
 	}
@@ -101,6 +101,25 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 		return nil, false, errors.Join(parseErr, fmt.Errorf("parse backup %s: %w", backupPath, backupParseErr))
 	}
 	return backupPaths, true, nil
+}
+
+func readRegistryFile(path string) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := root.ReadFile(filepath.Base(path))
+	closeErr := root.Close()
+	if readErr != nil {
+		if closeErr != nil {
+			return nil, errors.Join(readErr, fmt.Errorf("close registry directory: %w", closeErr))
+		}
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close registry directory: %w", closeErr)
+	}
+	return data, nil
 }
 
 func (r *Registry) saveUnlocked(paths []string) error {

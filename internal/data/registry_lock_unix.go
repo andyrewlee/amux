@@ -10,7 +10,7 @@ import (
 )
 
 func lockRegistryFile(lockPath string, shared bool) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+	if err := mkdirAllPrivate(filepath.Dir(lockPath)); err != nil {
 		return nil, err
 	}
 	flag := syscall.LOCK_EX
@@ -19,18 +19,24 @@ func lockRegistryFile(lockPath string, shared bool) (*os.File, error) {
 	}
 
 	for {
-		file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+		root, file, lockName, err := openRegistryLockRoot(lockPath)
 		if err != nil {
 			return nil, err
 		}
 		if err := syscall.Flock(int(file.Fd()), flag); err != nil {
+			_ = root.Close()
 			_ = file.Close()
 			return nil, err
 		}
-		current, err := registryLockFileCurrent(file, lockPath)
+		current, err := registryLockFileCurrent(file, root, lockName)
+		closeErr := root.Close()
 		if err != nil {
 			unlockRegistryFile(file)
 			return nil, err
+		}
+		if closeErr != nil {
+			unlockRegistryFile(file)
+			return nil, closeErr
 		}
 		if current {
 			return file, nil
@@ -47,12 +53,12 @@ func unlockRegistryFile(file *os.File) {
 	_ = file.Close()
 }
 
-func registryLockFileCurrent(file *os.File, lockPath string) (bool, error) {
+func registryLockFileCurrent(file *os.File, root *os.Root, lockName string) (bool, error) {
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return false, err
 	}
-	pathInfo, err := os.Stat(lockPath)
+	pathInfo, err := root.Stat(lockName)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

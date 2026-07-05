@@ -10,10 +10,18 @@ import (
 // Best-effort lock on Windows. We open the lockfile to signal intent, but
 // we don't enforce exclusive locking across processes here.
 func lockRegistryFile(lockPath string, shared bool) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+	if err := mkdirAllPrivate(filepath.Dir(lockPath)); err != nil {
 		return nil, err
 	}
-	return os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	root, file, _, err := openRegistryLockRoot(lockPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := root.Close(); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 func unlockRegistryFile(file *os.File) {
