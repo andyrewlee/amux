@@ -69,8 +69,9 @@ func Initialize(logDir string, level Level) error {
 		}
 	}
 
-	logPath := filepath.Join(logDir, fmt.Sprintf("%s%s%s", logPrefix, time.Now().Format(logDateLayout), logSuffix))
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	logName := fmt.Sprintf("%s%s%s", logPrefix, time.Now().Format(logDateLayout), logSuffix)
+	logPath := filepath.Join(logDir, logName)
+	file, err := openLogFileInDir(logDir, logName)
 	if err != nil {
 		return err
 	}
@@ -83,6 +84,30 @@ func Initialize(logDir string, level Level) error {
 	}
 
 	return nil
+}
+
+func openLogFileInDir(logDir, logName string) (*os.File, error) {
+	root, err := os.OpenRoot(logDir)
+	if err != nil {
+		return nil, fmt.Errorf("open log directory: %w", err)
+	}
+	file, openErr := root.OpenFile(logName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	closeErr := root.Close()
+	if openErr != nil {
+		if closeErr != nil {
+			return nil, fmt.Errorf("open log file: %w; close log directory: %w", openErr, closeErr)
+		}
+		return nil, fmt.Errorf("open log file: %w", openErr)
+	}
+	if closeErr != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("close log directory: %w", closeErr)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("set log file permissions: %w", err)
+	}
+	return file, nil
 }
 
 func logRetentionDays() int {

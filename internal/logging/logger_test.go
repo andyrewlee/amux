@@ -66,6 +66,31 @@ func TestInitializeCreatesPrivateLogFile(t *testing.T) {
 	}
 }
 
+func TestInitializeTightensExistingLogFile(t *testing.T) {
+	logDir := t.TempDir()
+	logPath := filepath.Join(logDir, logPrefix+"2000-01-01"+logSuffix)
+	if err := os.WriteFile(logPath, []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logName := filepath.Base(logPath)
+	file, err := openLogFileInDir(logDir, logName)
+	if err != nil {
+		t.Fatalf("openLogFileInDir failed: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("Stat failed: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("expected existing log file mode 0600, got %03o", mode)
+	}
+}
+
 func TestInitializeCreatesPrivateLogDir(t *testing.T) {
 	logDir := filepath.Join(t.TempDir(), "logs")
 	if err := Initialize(logDir, LevelInfo); err != nil {
