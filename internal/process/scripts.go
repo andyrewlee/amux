@@ -183,9 +183,7 @@ func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
 // disk read. A missing file yields an empty config and nil bytes (nothing to
 // trust or run).
 func (r *ScriptRunner) loadConfigRaw(repoPath string) (*WorkspaceConfig, []byte, error) {
-	configPath := filepath.Join(repoPath, ".amux", configFilename)
-
-	fileData, err := os.ReadFile(configPath)
+	fileData, err := readWorkspaceConfigFile(repoPath)
 	if os.IsNotExist(err) {
 		return &WorkspaceConfig{}, nil, nil
 	}
@@ -198,6 +196,25 @@ func (r *ScriptRunner) loadConfigRaw(repoPath string) (*WorkspaceConfig, []byte,
 		return nil, nil, err
 	}
 	return &config, fileData, nil
+}
+
+func readWorkspaceConfigFile(repoPath string) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Join(repoPath, ".amux"))
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := root.ReadFile(configFilename)
+	closeErr := root.Close()
+	if readErr != nil {
+		if closeErr != nil {
+			return nil, errors.Join(readErr, fmt.Errorf("close workspace config directory: %w", closeErr))
+		}
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close workspace config directory: %w", closeErr)
+	}
+	return data, nil
 }
 
 // RunSetup runs the setup scripts for a workspace
