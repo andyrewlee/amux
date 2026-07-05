@@ -188,6 +188,7 @@ func tmuxCommand(opts Options, args ...string) (*exec.Cmd, context.CancelFunc) {
 		timeout = opts.CommandTimeout
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	// #nosec G204 -- tmux is the fixed executable; dynamic values are passed as argv, not shell text.
 	cmd := exec.CommandContext(ctx, "tmux", tmuxArgs(opts, args...)...)
 	return cmd, cancel
 }
