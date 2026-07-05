@@ -54,6 +54,14 @@ func TestDeleteBranch(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "deletes a branch that starts with dash",
+			setup: func(t *testing.T, repo string) string {
+				runGit(t, repo, "update-ref", "refs/heads/-feature", "HEAD")
+				return "-feature"
+			},
+			wantErr: false,
+		},
+		{
 			name: "errors on a missing branch",
 			setup: func(t *testing.T, _ string) string {
 				return "does-not-exist"
@@ -119,8 +127,8 @@ func TestDeleteBranchClassifiesUnderlyingError(t *testing.T) {
 	defer func() { runGitCtx = origRunGitCtx }()
 
 	wantErr := &Error{
-		Command:  "branch -D feature",
-		Args:     []string{"branch", "-D", "feature"},
+		Command:  "branch -D -- feature",
+		Args:     []string{"branch", "-D", "--", "feature"},
 		ExitCode: 1,
 		Stderr:   "error: branch 'feature' not found",
 		Err:      errors.New("exit status 1"),
@@ -138,7 +146,7 @@ func TestDeleteBranchClassifiesUnderlyingError(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("DeleteBranch() error = %v, want %v", err, wantErr)
 	}
-	if got, want := strings.Join(gotArgs, " "), "branch -D feature"; got != want {
+	if got, want := strings.Join(gotArgs, " "), "branch -D -- feature"; got != want {
 		t.Fatalf("git args = %q, want %q", got, want)
 	}
 

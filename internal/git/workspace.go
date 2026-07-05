@@ -246,7 +246,7 @@ func validateUnregisteredWorkspacePath(workspacePath string) error {
 func DeleteBranch(repoPath, branch string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
-	_, err := runGitCtx(ctx, repoPath, "branch", "-D", branch)
+	_, err := runGitCtx(ctx, repoPath, "branch", "-D", "--", branch)
 	return err
 }
 
