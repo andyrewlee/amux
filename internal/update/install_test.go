@@ -137,6 +137,38 @@ func TestInstallBinaryCrossDir(t *testing.T) {
 	}
 }
 
+func TestInstallBinaryNonExecutableSourceInstallsExecutable(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	srcPath := filepath.Join(tmpDir, "new-amux")
+	if err := os.WriteFile(srcPath, []byte("new binary"), 0o600); err != nil {
+		t.Fatalf("Failed to create source: %v", err)
+	}
+	destPath := filepath.Join(tmpDir, "amux")
+	if err := os.WriteFile(destPath, []byte("old binary"), 0o755); err != nil {
+		t.Fatalf("Failed to create dest: %v", err)
+	}
+
+	if err := InstallBinary(srcPath, destPath); err != nil {
+		t.Fatalf("InstallBinary() error = %v", err)
+	}
+
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		t.Fatalf("Stat(src) error = %v", err)
+	}
+	if srcInfo.Mode()&0o111 != 0 {
+		t.Fatalf("source mode = %03o, want no executable bits", srcInfo.Mode().Perm())
+	}
+	destInfo, err := os.Stat(destPath)
+	if err != nil {
+		t.Fatalf("Stat(dest) error = %v", err)
+	}
+	if destInfo.Mode()&0o111 == 0 {
+		t.Fatalf("dest mode = %03o, want executable bits", destInfo.Mode().Perm())
+	}
+}
+
 func TestInstallBinaryBackupFails(t *testing.T) {
 	tmpDir := t.TempDir()
 

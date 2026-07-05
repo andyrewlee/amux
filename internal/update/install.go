@@ -24,16 +24,16 @@ var (
 	maxExtractedArchiveBytes int64 = 256 * 1024 * 1024
 
 	openCopySourceFile = func(name string) (io.ReadCloser, error) {
-		return os.Open(name)
+		return openFileReadInParentRoot(name)
 	}
 	openCopyDestFile = func(name string, flag int, perm os.FileMode) (syncWriteCloser, error) {
-		return os.OpenFile(name, flag, perm)
+		return openFileInParentRoot(name, flag, perm)
 	}
 )
 
 // openExtractFile is a seam for tests to inject extraction close failures.
 var openExtractFile = func(name string, flag int, perm os.FileMode) (io.WriteCloser, error) {
-	return os.OpenFile(name, flag, perm)
+	return openFileInParentRoot(name, flag, perm)
 }
 
 type extractedArchiveLimitReader struct {
@@ -69,7 +69,7 @@ func (r *extractedArchiveLimitReader) Read(p []byte) (int, error) {
 // ExtractBinary extracts the amux binary from a tar.gz archive.
 // Returns the path to the extracted binary.
 func ExtractBinary(archivePath, destDir string) (string, error) {
-	f, err := os.Open(archivePath)
+	f, err := openFileReadInParentRoot(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("opening archive: %w", err)
 	}
@@ -172,15 +172,10 @@ func copyTarEntry(w io.Writer, r io.Reader, size int64) error {
 // It stages the new binary in the same directory as the target to avoid
 // cross-filesystem rename issues, then uses rename to atomically swap.
 func InstallBinary(newBinaryPath, currentBinaryPath string) error {
-	// Ensure the new binary exists and is executable
-	info, err := os.Stat(newBinaryPath)
-	if err != nil {
+	// Ensure the new binary exists. The staged copy below is created with
+	// executable permissions, so the source file itself does not need mutation.
+	if _, err := os.Stat(newBinaryPath); err != nil {
 		return fmt.Errorf("checking new binary: %w", err)
-	}
-	if info.Mode()&0o111 == 0 {
-		if err := os.Chmod(newBinaryPath, 0o755); err != nil {
-			return fmt.Errorf("setting executable permission: %w", err)
-		}
 	}
 
 	// Stage the new binary in the same directory as the target to avoid
@@ -315,7 +310,7 @@ func isGoInstallPath(binPath string) bool {
 // CanWrite checks if we have write permission to the binary path.
 func CanWrite(path string) bool {
 	// Try to open for writing
-	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	f, err := openFileInParentRoot(path, os.O_WRONLY, 0)
 	if err == nil {
 		_ = f.Close()
 		return true

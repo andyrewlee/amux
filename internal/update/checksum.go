@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"os"
 )
 
 // VerifyChecksum verifies a file's SHA256 checksum.
@@ -24,7 +23,7 @@ func VerifyChecksum(filepath, expectedChecksum string) error {
 
 // hashFile computes the SHA256 checksum of a file and returns it as a hex string.
 func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := openFileReadInParentRoot(path)
 	if err != nil {
 		return "", fmt.Errorf("opening file: %w", err)
 	}

@@ -166,7 +166,7 @@ func (u *Updater) Upgrade(release *Release) error {
 
 	// Download archive
 	archivePath := filepath.Join(tmpDir, asset.Name)
-	archiveFile, err := os.Create(archivePath)
+	archiveFile, err := openFileInParentRoot(archivePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("creating archive file: %w", err)
 	}
