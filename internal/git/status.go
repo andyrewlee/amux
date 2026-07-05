@@ -187,8 +187,11 @@ func countLinesInUntrackedFile(f *os.File) (int, bool) {
 	for {
 		nr, readErr := f.Read(buf)
 		if nr > 0 {
-			lines += bytes.Count(buf[:nr], []byte{'\n'})
-			lastByte = buf[nr-1]
+			chunk := buf[:nr]
+			lines += bytes.Count(chunk, []byte{'\n'})
+			for _, b := range chunk {
+				lastByte = b
+			}
 		}
 		if readErr != nil {
 			if readErr != io.EOF {
