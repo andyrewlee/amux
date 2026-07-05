@@ -38,6 +38,11 @@ type AgentManager struct {
 	tmuxOptions tmux.Options
 }
 
+const (
+	maxInterruptCount = 5
+	maxInterruptDelay = 2 * time.Second
+)
+
 // NewAgentManager creates a new agent manager
 func NewAgentManager(cfg *config.Config) *AgentManager {
 	return &AgentManager{
@@ -261,13 +266,7 @@ func (m *AgentManager) SendInterrupt(agent *Agent) error {
 		return nil
 	}
 
-	// A single Ctrl-C is the floor: an unconfigured agent (e.g. a viewer with a
-	// zero-value AssistantConfig) must still receive one interrupt, otherwise the
-	// user's Ctrl-C would be silently swallowed.
-	count := agent.Config.InterruptCount
-	if count < 1 {
-		count = 1
-	}
+	count, delay := interruptSettings(agent.Config)
 
 	// Send multiple interrupts if configured (e.g., for Claude, which needs two
 	// Ctrl-C presses within a short window to actually interrupt).
@@ -276,10 +275,33 @@ func (m *AgentManager) SendInterrupt(agent *Agent) error {
 			return err
 		}
 		// Add delay between interrupts if configured
-		if i < count-1 && agent.Config.InterruptDelayMs > 0 {
-			time.Sleep(time.Duration(agent.Config.InterruptDelayMs) * time.Millisecond)
+		if i < count-1 && delay > 0 {
+			time.Sleep(delay)
 		}
 	}
 
 	return nil
+}
+
+func interruptSettings(cfg config.AssistantConfig) (int, time.Duration) {
+	// A single Ctrl-C is the floor: an unconfigured agent (e.g. a viewer with a
+	// zero-value AssistantConfig) must still receive one interrupt, otherwise the
+	// user's Ctrl-C would be silently swallowed.
+	count := cfg.InterruptCount
+	if count < 1 {
+		count = 1
+	}
+	if count > maxInterruptCount {
+		count = maxInterruptCount
+	}
+
+	delayMs := cfg.InterruptDelayMs
+	if delayMs <= 0 {
+		return count, 0
+	}
+	maxDelayMs := int(maxInterruptDelay / time.Millisecond)
+	if delayMs > maxDelayMs {
+		delayMs = maxDelayMs
+	}
+	return count, time.Duration(delayMs) * time.Millisecond
 }
