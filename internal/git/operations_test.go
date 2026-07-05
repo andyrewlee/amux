@@ -170,6 +170,68 @@ func TestRunGitCtxTimeoutErrorFromKilledProcess(t *testing.T) {
 	}
 }
 
+func TestFilteredGitEnvDropsGitProcessEnv(t *testing.T) {
+	denied := []string{
+		"GIT_DIR",
+		"GIT_WORK_TREE",
+		"GIT_INDEX_FILE",
+		"GIT_COMMON_DIR",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_CEILING_DIRECTORIES",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM",
+	}
+	for _, key := range denied {
+		t.Setenv(key, "poison")
+	}
+	t.Setenv("AMUX_FILTERED_GIT_ENV_KEEP", "keep")
+
+	env := envMap(filteredGitEnv())
+	for _, key := range denied {
+		if _, ok := env[key]; ok {
+			t.Fatalf("filteredGitEnv kept %s", key)
+		}
+	}
+	if got := env["AMUX_FILTERED_GIT_ENV_KEEP"]; got != "keep" {
+		t.Fatalf("filteredGitEnv dropped non-Git env, got %q", got)
+	}
+}
+
+func TestRunGitCtxIgnoresParentGitEnv(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := initRepo(t)
+	poisonDir := t.TempDir()
+	for _, key := range []string{
+		"GIT_DIR",
+		"GIT_WORK_TREE",
+		"GIT_INDEX_FILE",
+		"GIT_COMMON_DIR",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_CEILING_DIRECTORIES",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM",
+	} {
+		t.Setenv(key, poisonDir)
+	}
+
+	got, err := RunGitCtx(context.Background(), repo, "rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Fatalf("RunGitCtx() error = %v", err)
+	}
+	gotPath, err := filepath.EvalSymlinks(got)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(got) error = %v", err)
+	}
+	wantPath, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(repo) error = %v", err)
+	}
+	if gotPath != wantPath {
+		t.Fatalf("RunGitCtx() = %q, want %q", gotPath, wantPath)
+	}
+}
+
 func TestGitCommandContextErrorDoesNotMaskExitErrorAfterLateCancel(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell exit status command is unix-specific")
@@ -256,6 +318,17 @@ func TestGitAllowFailureCommandContextErrorForWindowsWithoutKillDoesNotMapTimeou
 	if ctxErr != nil {
 		t.Fatalf("expected ordinary exit error to remain unmapped without kill evidence, got %v", ctxErr)
 	}
+}
+
+func envMap(env []string) map[string]string {
+	out := make(map[string]string, len(env))
+	for _, kv := range env {
+		key, value, ok := strings.Cut(kv, "=")
+		if ok {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func TestGitAllowFailureCommandContextErrorForWindowsMapsTimeoutWhenKilled(t *testing.T) {

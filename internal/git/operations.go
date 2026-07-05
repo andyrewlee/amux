@@ -286,11 +286,29 @@ func filteredGitEnv() []string {
 	// and ignore any parent git process environment (e.g. when running in hooks)
 	var env []string
 	for _, e := range os.Environ() {
-		if !strings.HasPrefix(e, "GIT_DIR=") &&
-			!strings.HasPrefix(e, "GIT_WORK_TREE=") &&
-			!strings.HasPrefix(e, "GIT_INDEX_FILE=") {
+		if !isGitProcessEnv(e) {
 			env = append(env, e)
 		}
 	}
 	return env
+}
+
+func isGitProcessEnv(kv string) bool {
+	key, _, ok := strings.Cut(kv, "=")
+	if !ok {
+		key = kv
+	}
+	switch key {
+	case "GIT_DIR",
+		"GIT_WORK_TREE",
+		"GIT_INDEX_FILE",
+		"GIT_COMMON_DIR",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_CEILING_DIRECTORIES",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM":
+		return true
+	default:
+		return false
+	}
 }
