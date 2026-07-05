@@ -46,6 +46,18 @@ func TestParseVersion(t *testing.T) {
 			input:   "v1.2",
 			wantErr: true,
 		},
+		{
+			input:   "v999999999999999999999.0.0",
+			wantErr: true,
+		},
+		{
+			input:   "v1.999999999999999999999.0",
+			wantErr: true,
+		},
+		{
+			input:   "v1.0.999999999999999999999",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -92,6 +104,16 @@ func TestVersionCompare(t *testing.T) {
 		{"v1.0.0-alpha", "v1.0.0-1", 1},            // non-numeric > numeric
 		{"v1.0.0-alpha.1", "v1.0.0-alpha.1.1", -1}, // shorter < longer when prefix equal
 		{"v1.0.0-alpha.1.1", "v1.0.0-alpha.1", 1},  // longer > shorter
+		{
+			"v1.0.0-rc.999999999999999999999",
+			"v1.0.0-rc.1000000000000000000000",
+			-1,
+		},
+		{
+			"v1.0.0-999999999999999999999",
+			"v1.0.0-alpha",
+			-1,
+		},
 	}
 
 	for _, tt := range tests {

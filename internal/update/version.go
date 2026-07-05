@@ -26,9 +26,18 @@ func ParseVersion(s string) (Version, error) {
 		return Version{}, fmt.Errorf("invalid version format: %s", s)
 	}
 
-	major, _ := strconv.Atoi(matches[1])
-	minor, _ := strconv.Atoi(matches[2])
-	patch, _ := strconv.Atoi(matches[3])
+	major, err := parseVersionComponent("major", matches[1])
+	if err != nil {
+		return Version{}, err
+	}
+	minor, err := parseVersionComponent("minor", matches[2])
+	if err != nil {
+		return Version{}, err
+	}
+	patch, err := parseVersionComponent("patch", matches[3])
+	if err != nil {
+		return Version{}, err
+	}
 	prerelease := ""
 	if len(matches) > 4 {
 		prerelease = matches[4]
@@ -41,6 +50,14 @@ func ParseVersion(s string) (Version, error) {
 		Prerelease: prerelease,
 		Raw:        s,
 	}, nil
+}
+
+func parseVersionComponent(name, value string) (int, error) {
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s version %q: %w", name, value, err)
+	}
+	return n, nil
 }
 
 // String returns the version string with "v" prefix.
@@ -112,23 +129,17 @@ func comparePrerelease(a, b string) int {
 
 // compareIdentifier compares two prerelease identifiers per semver spec.
 func compareIdentifier(a, b string) int {
-	aNum, aIsNum := strconv.Atoi(a)
-	bNum, bIsNum := strconv.Atoi(b)
+	aIsNum := isNumericIdentifier(a)
+	bIsNum := isNumericIdentifier(b)
 
 	switch {
-	case aIsNum == nil && bIsNum == nil:
+	case aIsNum && bIsNum:
 		// Both numeric: compare as integers
-		if aNum < bNum {
-			return -1
-		}
-		if aNum > bNum {
-			return 1
-		}
-		return 0
-	case aIsNum == nil:
+		return compareNumericIdentifier(a, b)
+	case aIsNum:
 		// a is numeric, b is not: numeric has lower precedence
 		return -1
-	case bIsNum == nil:
+	case bIsNum:
 		// b is numeric, a is not: numeric has lower precedence
 		return 1
 	default:
@@ -141,6 +152,42 @@ func compareIdentifier(a, b string) int {
 		}
 		return 0
 	}
+}
+
+func isNumericIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func compareNumericIdentifier(a, b string) int {
+	a = strings.TrimLeft(a, "0")
+	b = strings.TrimLeft(b, "0")
+	if a == "" {
+		a = "0"
+	}
+	if b == "" {
+		b = "0"
+	}
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	return 0
 }
 
 // LessThan returns true if v < other.
