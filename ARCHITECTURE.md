@@ -76,6 +76,7 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/supervisor` | Named background workers with restart/backoff and error surfacing | `supervisor.go` |
 | `internal/process` | Cross-platform process-group teardown (kill agent process trees) | `treekill_unix.go` |
 | `internal/safego` | Panic-safe goroutine helpers with a pluggable panic handler | `safego.go` |
+| `internal/pprofhttp` | Opt-in pprof HTTP server wiring with explicit mux and timeouts | `server.go` |
 | `internal/perf` | Opt-in counters/timers for the harness and perf baselines | `perf.go` |
 | `internal/logging` | File-based logger; the output channel for internal packages | `logger.go` |
 | `internal/messages` | Shared Bubble Tea message vocabulary between pump and panes | `messages.go` |

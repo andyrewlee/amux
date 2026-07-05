@@ -5,13 +5,10 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime/pprof"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -21,6 +18,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/app"
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/pprofhttp"
 	"github.com/andyrewlee/amux/internal/safego"
 )
 
@@ -158,25 +156,15 @@ func mouseEventFilter(m tea.Model, msg tea.Msg) tea.Msg {
 }
 
 func startPprof() {
-	raw := strings.TrimSpace(os.Getenv("AMUX_PPROF"))
-	if raw == "" {
+	addr, ok := pprofhttp.AddrFromEnvValue(os.Getenv("AMUX_PPROF"))
+	if !ok {
 		return
 	}
-	switch strings.ToLower(raw) {
-	case "0", "false", "no":
-		return
-	}
-
-	addr := raw
-	if raw == "1" || strings.ToLower(raw) == "true" {
-		addr = "127.0.0.1:6060"
-	} else if _, err := strconv.Atoi(raw); err == nil {
-		addr = "127.0.0.1:" + raw
-	}
+	server := pprofhttp.NewServer(addr)
 
 	safego.Go("pprof", func() {
 		logging.Info("pprof listening on %s", addr)
-		if err := http.ListenAndServe(addr, nil); err != nil {
+		if err := server.ListenAndServe(); err != nil {
 			logging.Warn("pprof server stopped: %v", err)
 		}
 	})

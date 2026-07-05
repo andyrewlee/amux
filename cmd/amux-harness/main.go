@@ -5,18 +5,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"regexp"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 	"unicode"
 
 	"github.com/andyrewlee/amux/internal/app"
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/pprofhttp"
 )
 
 // ansiCSI matches CSI escape sequences so we can count actually-visible glyphs
@@ -181,25 +178,15 @@ func fps(durations []time.Duration) float64 {
 }
 
 func startPprof() {
-	raw := strings.TrimSpace(os.Getenv("AMUX_PPROF"))
-	if raw == "" {
+	addr, ok := pprofhttp.AddrFromEnvValue(os.Getenv("AMUX_PPROF"))
+	if !ok {
 		return
 	}
-	switch strings.ToLower(raw) {
-	case "0", "false", "no":
-		return
-	}
-
-	addr := raw
-	if raw == "1" || strings.ToLower(raw) == "true" {
-		addr = "127.0.0.1:6060"
-	} else if _, err := strconv.Atoi(raw); err == nil {
-		addr = "127.0.0.1:" + raw
-	}
+	server := pprofhttp.NewServer(addr)
 
 	go func() {
 		fmt.Fprintf(os.Stderr, "pprof listening on %s\n", addr)
-		if err := http.ListenAndServe(addr, nil); err != nil {
+		if err := server.ListenAndServe(); err != nil {
 			fmt.Fprintf(os.Stderr, "pprof server stopped: %v\n", err)
 		}
 	}()
