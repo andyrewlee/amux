@@ -53,6 +53,19 @@ func TestInitializeAndLogWrites(t *testing.T) {
 	}
 }
 
+func TestInitializeCreatesPrivateLogFile(t *testing.T) {
+	logPath, cleanup := setupLogger(t, LevelInfo)
+	defer cleanup()
+
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("Stat failed: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		t.Fatalf("expected log file to have no group or other permissions, got %03o", mode)
+	}
+}
+
 func TestSetEnabledDisablesLogging(t *testing.T) {
 	logPath, cleanup := setupLogger(t, LevelDebug)
 	defer cleanup()
