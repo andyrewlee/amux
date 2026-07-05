@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,7 +75,7 @@ func waitForFileBytes(path string, want []byte, timeout time.Duration) ([]byte, 
 	var last []byte
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if b, err := os.ReadFile(path); err == nil {
+		if b, err := readFileBytes(path); err == nil {
 			last = b
 			if bytes.Contains(b, want) {
 				return b, true
@@ -83,6 +84,15 @@ func waitForFileBytes(path string, want []byte, timeout time.Duration) ([]byte, 
 		time.Sleep(condPollInterval)
 	}
 	return last, false
+}
+
+func readFileBytes(path string) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(filepath.Base(path))
 }
 
 func waitForAgentSessions(t *testing.T, opts tmux.Options, timeout time.Duration) []string {
