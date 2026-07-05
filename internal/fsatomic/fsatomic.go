@@ -14,14 +14,22 @@ import (
 	"runtime"
 )
 
-// renameFile is a test seam over os.Rename so the rename-failure restore branch
-// can be exercised. Production never reassigns it.
-var renameFile = os.Rename
+var (
+	// renameFile is a test seam over os.Rename so the rename-failure restore
+	// branch can be exercised. Production never reassigns it.
+	renameFile = os.Rename
+
+	// syncParentDir is a test seam over directory fsync so durability and
+	// failure handling can be exercised without relying on host filesystems.
+	syncParentDir = syncDir
+)
 
 // WriteFile atomically replaces path with data. The temp file is created in
-// path's directory so the final rename never crosses filesystems. Replacement
-// files keep os.CreateTemp's private permissions; perm is accepted for parity
-// with os.WriteFile but is never used to widen access beyond the process umask.
+// path's directory so the final rename never crosses filesystems. On POSIX,
+// both the file and the parent directory are synced so the renamed directory
+// entry is durable after return. Replacement files keep os.CreateTemp's private
+// permissions; perm is accepted for parity with os.WriteFile but is never used
+// to widen access beyond the process umask.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
 	return writeFileForGOOS(runtime.GOOS, path, data, perm)
 }
@@ -71,8 +79,30 @@ func writeFileForGOOS(goos, path string, data []byte, perm os.FileMode) error {
 	} else if err := renameFile(tmpPath, path); err != nil {
 		return err
 	}
+	if err := syncParentDirForGOOS(goos, dir); err != nil {
+		return fmt.Errorf("sync directory %s: %w", dir, err)
+	}
 	cleanup = false
 	return nil
+}
+
+func syncParentDirForGOOS(goos, dir string) error {
+	if goos == "windows" {
+		return nil
+	}
+	return syncParentDir(dir)
+}
+
+func syncDir(dir string) error {
+	file, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 // replaceFileWindows replaces path with tmpPath via a backup shuffle:

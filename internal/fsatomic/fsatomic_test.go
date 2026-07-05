@@ -98,6 +98,65 @@ func TestWriteFileKeepsPrivatePermissions(t *testing.T) {
 	}
 }
 
+func TestWriteFileUnixSyncsParentDirectoryAfterRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	t.Cleanup(func() { syncParentDir = syncDir })
+	calls := 0
+	syncParentDir = func(got string) error {
+		calls++
+		if got != dir {
+			t.Fatalf("sync dir = %q, want %q", got, dir)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("target should exist before parent sync: %v", err)
+		}
+		return nil
+	}
+
+	if err := writeFileForGOOS("linux", path, []byte("new"), 0o644); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("sync calls = %d, want 1", calls)
+	}
+}
+
+func TestWriteFileUnixParentSyncFailureIsReturned(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	t.Cleanup(func() { syncParentDir = syncDir })
+	sentinel := errors.New("sync failed")
+	syncParentDir = func(string) error {
+		return sentinel
+	}
+
+	err := writeFileForGOOS("linux", path, []byte("new"), 0o644)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("WriteFile error = %v, want %v", err, sentinel)
+	}
+	if got, _ := os.ReadFile(path); string(got) != "new" {
+		t.Fatalf("content = %q, want new (rename already happened)", got)
+	}
+}
+
+func TestWriteFileWindowsSkipsParentDirectorySync(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	t.Cleanup(func() { syncParentDir = syncDir })
+	syncParentDir = func(string) error {
+		t.Fatal("windows path should not sync parent directory")
+		return nil
+	}
+
+	if err := writeFileForGOOS("windows", path, []byte("new"), 0o644); err != nil {
+		t.Fatalf("windows-path WriteFile error = %v", err)
+	}
+}
+
 func TestWriteFileWindowsBackupShuffle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
