@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -45,7 +46,15 @@ func (b *EnvBuilder) BuildEnv(ws *data.Workspace) []string {
 	}
 
 	// Add custom environment from workspace
-	for k, v := range ws.Env {
+	keys := make([]string, 0, len(ws.Env))
+	for k := range ws.Env {
+		if !isReservedScriptEnvKey(k) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := ws.Env[k]
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
@@ -71,8 +80,25 @@ func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace) map[string]string {
 	}
 
 	for k, v := range ws.Env {
+		if isReservedScriptEnvKey(k) {
+			continue
+		}
 		envMap[k] = v
 	}
 
 	return envMap
+}
+
+func isReservedScriptEnvKey(key string) bool {
+	switch key {
+	case "AMUX_WORKSPACE_NAME",
+		"AMUX_WORKSPACE_ROOT",
+		"AMUX_WORKSPACE_BRANCH",
+		"ROOT_WORKSPACE_PATH",
+		"AMUX_PORT",
+		"AMUX_PORT_RANGE":
+		return true
+	default:
+		return false
+	}
 }

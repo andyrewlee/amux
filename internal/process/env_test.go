@@ -84,6 +84,72 @@ func TestEnvBuilder_BuildEnvMap(t *testing.T) {
 	}
 }
 
+func TestEnvBuilder_CustomEnvCannotOverrideReservedEnv(t *testing.T) {
+	ports := NewPortAllocator(6200, 10)
+	builder := NewEnvBuilder(ports)
+
+	wt := &data.Workspace{
+		Name:   "feature-1",
+		Branch: "feature-branch",
+		Repo:   "/home/user/repo",
+		Root:   "/home/user/.amux/workspaces/feature-1",
+		Env: map[string]string{
+			"AMUX_WORKSPACE_NAME":   "poison-name",
+			"AMUX_WORKSPACE_ROOT":   "poison-root",
+			"AMUX_WORKSPACE_BRANCH": "poison-branch",
+			"ROOT_WORKSPACE_PATH":   "poison-repo",
+			"AMUX_PORT":             "1",
+			"AMUX_PORT_RANGE":       "1-2",
+			"CUSTOM_VAR":            "custom-value",
+		},
+	}
+
+	env := envSliceMap(builder.BuildEnv(wt))
+	envMap := builder.BuildEnvMap(wt)
+	checks := map[string]string{
+		"AMUX_WORKSPACE_NAME":   "feature-1",
+		"AMUX_WORKSPACE_ROOT":   "/home/user/.amux/workspaces/feature-1",
+		"AMUX_WORKSPACE_BRANCH": "feature-branch",
+		"ROOT_WORKSPACE_PATH":   "/home/user/repo",
+		"AMUX_PORT":             "6200",
+		"AMUX_PORT_RANGE":       "6200-6209",
+		"CUSTOM_VAR":            "custom-value",
+	}
+	for key, wantValue := range checks {
+		if got := env[key]; got != wantValue {
+			t.Errorf("BuildEnv()[%s] = %q, want %q", key, got, wantValue)
+		}
+		if got := envMap[key]; got != wantValue {
+			t.Errorf("BuildEnvMap()[%s] = %q, want %q", key, got, wantValue)
+		}
+	}
+}
+
+func TestEnvBuilder_CustomEnvOrderIsDeterministic(t *testing.T) {
+	builder := NewEnvBuilder(nil)
+	wt := &data.Workspace{
+		Name:   "feature-1",
+		Branch: "feature-branch",
+		Repo:   "/home/user/repo",
+		Root:   "/home/user/.amux/workspaces/feature-1",
+		Env: map[string]string{
+			"CUSTOM_B": "b",
+			"CUSTOM_A": "a",
+		},
+	}
+
+	env := builder.BuildEnv(wt)
+	if len(env) < 2 {
+		t.Fatalf("BuildEnv() returned %d entries, want at least 2", len(env))
+	}
+	if got := env[len(env)-2]; got != "CUSTOM_A=a" {
+		t.Fatalf("second-to-last env = %q, want CUSTOM_A=a", got)
+	}
+	if got := env[len(env)-1]; got != "CUSTOM_B=b" {
+		t.Fatalf("last env = %q, want CUSTOM_B=b", got)
+	}
+}
+
 func TestEnvBuilder_NilPortAllocator(t *testing.T) {
 	builder := NewEnvBuilder(nil)
 
@@ -148,4 +214,15 @@ func TestEnvBuilder_NilReceiver(t *testing.T) {
 	if _, ok := envMap["AMUX_PORT"]; ok {
 		t.Fatal("nil EnvBuilder receiver should not add AMUX_PORT to map")
 	}
+}
+
+func envSliceMap(env []string) map[string]string {
+	out := make(map[string]string, len(env))
+	for _, kv := range env {
+		key, value, ok := strings.Cut(kv, "=")
+		if ok {
+			out[key] = value
+		}
+	}
+	return out
 }
