@@ -20,6 +20,8 @@ type syncWriteCloser interface {
 }
 
 var (
+	maxExtractedBinaryBytes int64 = 128 * 1024 * 1024
+
 	openCopySourceFile = func(name string) (io.ReadCloser, error) {
 		return os.Open(name)
 	}
@@ -68,6 +70,12 @@ func ExtractBinary(archivePath, destDir string) (string, error) {
 
 		if header.Typeflag != tar.TypeReg {
 			continue
+		}
+		if header.Size < 0 {
+			return "", fmt.Errorf("amux binary has invalid size %d", header.Size)
+		}
+		if header.Size > maxExtractedBinaryBytes {
+			return "", fmt.Errorf("amux binary exceeds %d byte limit", maxExtractedBinaryBytes)
 		}
 
 		binaryPath = filepath.Join(destDir, "amux")

@@ -209,6 +209,33 @@ func TestExtractBinaryOutputCloseFailure(t *testing.T) {
 	}
 }
 
+func TestExtractBinaryRejectsOversizedBinary(t *testing.T) {
+	withTempInt64(t, &maxExtractedBinaryBytes, 8)
+
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "extracted")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatalf("Failed to create dest dir: %v", err)
+	}
+
+	archivePath := filepath.Join(tmpDir, "test.tar.gz")
+	writeTarGz(t, archivePath, []tarEntry{{
+		name:    "amux",
+		content: []byte("012345678"),
+	}})
+
+	_, err := ExtractBinary(archivePath, destDir)
+	if err == nil {
+		t.Fatal("ExtractBinary() expected oversized binary error, got nil")
+	}
+	if !strings.Contains(err.Error(), "amux binary exceeds 8 byte limit") {
+		t.Fatalf("ExtractBinary() error = %v, want oversized binary limit", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(destDir, "amux")); !os.IsNotExist(statErr) {
+		t.Fatalf("oversized binary should not create output file, stat err = %v", statErr)
+	}
+}
+
 type closeFailureWriter struct {
 	err error
 }
