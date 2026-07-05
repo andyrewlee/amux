@@ -169,13 +169,14 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 				SessionOwner: m.instanceID,
 				LeaseAtMS:    time.Now().UnixMilli(),
 			}
+			ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
 			agent, err := createAgentWithTagsFn(
 				m.agentManager,
 				ws,
 				appPty.AgentType(assistant),
 				sessionName,
-				uint16(attachHeight),
-				uint16(attachWidth),
+				ptyRows,
+				ptyCols,
 				tags,
 			)
 			if err != nil {
@@ -217,13 +218,14 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 		captureCols := termWidth
 		captureRows := termHeight
 		var postAttachScrollback []byte
+		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
 		agent, err := createAgentWithTagsFn(
 			m.agentManager,
 			ws,
 			appPty.AgentType(assistant),
 			sessionName,
-			uint16(attachHeight),
-			uint16(attachWidth),
+			ptyRows,
+			ptyCols,
 			tags,
 		)
 		if err != nil {
@@ -343,13 +345,14 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 			SessionOwner: m.instanceID,
 			LeaseAtMS:    time.Now().UnixMilli(),
 		}
+		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
 		agent, err := createAgentWithTagsFn(
 			m.agentManager,
 			ws,
 			appPty.AgentType(assistant),
 			sessionName,
-			uint16(termHeight),
-			uint16(termWidth),
+			ptyRows,
+			ptyCols,
 			tags,
 		)
 		if err != nil {

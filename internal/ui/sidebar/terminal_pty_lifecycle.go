@@ -73,8 +73,10 @@ func (m *TerminalModel) createTerminalStateForTabWithSizeAndRefresh(
 	}
 	ts.VTerm = vt
 	if term != nil && resizeTerminal {
-		if err := setTerminalSizeFn(term, uint16(termHeight), uint16(termWidth)); err != nil {
-			logging.Debug("Initial terminal resize failed: %v", err)
+		if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
+			if err := setTerminalSizeFn(term, ptyRows, ptyCols); err != nil {
+				logging.Debug("Initial terminal resize failed: %v", err)
+			}
 		}
 	}
 

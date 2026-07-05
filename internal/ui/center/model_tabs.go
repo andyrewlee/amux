@@ -162,7 +162,8 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			SessionOwner: m.instanceID,
 			LeaseAtMS:    now.UnixMilli(),
 		}
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, uint16(termHeight), uint16(termWidth), tags)
+		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
+		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, ptyRows, ptyCols, tags)
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}

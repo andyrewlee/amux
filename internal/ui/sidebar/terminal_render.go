@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
@@ -415,7 +416,9 @@ func (m *TerminalModel) SetSize(width, height int) {
 				ts.lastHeight = termHeight
 				ts.VTerm.Resize(termWidth, termHeight)
 				if ts.Terminal != nil {
-					_ = setTerminalSizeFn(ts.Terminal, uint16(termHeight), uint16(termWidth))
+					if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
+						_ = setTerminalSizeFn(ts.Terminal, ptyRows, ptyCols)
+					}
 				}
 			}
 			ts.mu.Unlock()

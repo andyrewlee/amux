@@ -134,7 +134,8 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			Tags:           tags,
 			DetachExisting: true,
 		})
-		term, err := newPTYWithSizeFn(command, root, env, uint16(attachHeight), uint16(attachWidth))
+		ptyRows, ptyCols, _ := pty.WinsizeFromInts(attachHeight, attachWidth)
+		term, err := newPTYWithSizeFn(command, root, env, ptyRows, ptyCols)
 		if err != nil {
 			if reuseExistingSession {
 				rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
@@ -317,7 +318,8 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			Tags:           tags,
 			DetachExisting: detachExisting,
 		})
-		term, err := newPTYWithSizeFn(command, root, env, uint16(attachHeight), uint16(attachWidth))
+		ptyRows, ptyCols, _ := pty.WinsizeFromInts(attachHeight, attachWidth)
+		term, err := newPTYWithSizeFn(command, root, env, ptyRows, ptyCols)
 		if err != nil {
 			if action == "reattach" {
 				rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)

@@ -13,6 +13,7 @@ import (
 	"github.com/creack/pty"
 
 	"github.com/andyrewlee/amux/internal/process"
+	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -99,9 +100,10 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 		cmd.Env = append(cmd.Env, opts.Env...)
 	}
 
+	ptyRows, ptyCols, _ := appPty.WinsizeFromInts(opts.Height, opts.Width)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
-		Cols: uint16(opts.Width),
-		Rows: uint16(opts.Height),
+		Cols: ptyCols,
+		Rows: ptyRows,
 	})
 	if err != nil {
 		cleanupBin()

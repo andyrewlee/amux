@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/diff"
@@ -46,7 +47,8 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 			SessionOwner: m.instanceID,
 			LeaseAtMS:    time.Now().UnixMilli(),
 		}
-		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, uint16(termHeight), uint16(termWidth), tags)
+		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
+		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, ptyRows, ptyCols, tags)
 		if err != nil {
 			logging.Error("Failed to create vim viewer: %v", err)
 			return messages.Error{Err: err, Context: "creating vim viewer"}

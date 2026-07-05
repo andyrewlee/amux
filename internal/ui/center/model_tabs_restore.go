@@ -154,13 +154,14 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 		captureCols := termWidth
 		captureRows := termHeight
 		var postAttachScrollback []byte
+		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
 		agent, err := createAgentWithTagsFn(
 			m.agentManager,
 			ws,
 			appPty.AgentType(assistant),
 			sessionName,
-			uint16(attachHeight),
-			uint16(attachWidth),
+			ptyRows,
+			ptyCols,
 			tags,
 		)
 		if err != nil {

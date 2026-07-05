@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -69,7 +70,9 @@ func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cm
 		m.refreshTerminalSize()
 	}
 	if msg.Terminal != nil && (initialWidth != currentWidth || initialHeight != currentHeight) {
-		_ = setTerminalSizeFn(msg.Terminal, uint16(currentHeight), uint16(currentWidth))
+		if ptyRows, ptyCols, ok := pty.WinsizeFromInts(currentHeight, currentWidth); ok {
+			_ = setTerminalSizeFn(msg.Terminal, ptyRows, ptyCols)
+		}
 	}
 	return m.startPTYReader(msg.WorkspaceID, msg.TabID)
 }
@@ -136,7 +139,9 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 				_, _ = t.Write(data)
 			}
 		})
-		_ = setTerminalSizeFn(msg.Terminal, uint16(termHeight), uint16(termWidth))
+		if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
+			_ = setTerminalSizeFn(msg.Terminal, ptyRows, ptyCols)
+		}
 	}
 	return m.startPTYReader(msg.WorkspaceID, tab.ID)
 }

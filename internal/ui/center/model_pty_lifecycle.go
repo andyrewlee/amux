@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
@@ -54,7 +55,11 @@ func (m *Model) resizePTY(tab *Tab, rows, cols int) {
 	if tab.ptyRows == rows && tab.ptyCols == cols {
 		return
 	}
-	_ = tab.Agent.Terminal.SetSize(uint16(rows), uint16(cols))
+	ptyRows, ptyCols, ok := appPty.WinsizeFromInts(rows, cols)
+	if !ok {
+		return
+	}
+	_ = tab.Agent.Terminal.SetSize(ptyRows, ptyCols)
 	tab.ptyRows = rows
 	tab.ptyCols = cols
 }
