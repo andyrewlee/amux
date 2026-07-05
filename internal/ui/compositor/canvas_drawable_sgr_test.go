@@ -251,11 +251,29 @@ func TestApplySGR(t *testing.T) {
 			},
 		},
 		{
+			name:   "38;5;n clamps oversized foreground index",
+			params: ansi.Params{ansi.Param(38), ansi.Param(5), ansi.Param(999)},
+			check: func(t *testing.T, got uv.Style) {
+				if !colorEqualRGBA(t, got.Fg, ansiColor(255)) {
+					t.Errorf("expected clamped ansi color 255, got %#v", got.Fg)
+				}
+			},
+		},
+		{
 			name:   "38;2;r;g;b sets truecolor foreground",
 			params: ansi.Params{ansi.Param(38), ansi.Param(2), ansi.Param(10), ansi.Param(20), ansi.Param(30)},
 			check: func(t *testing.T, got uv.Style) {
 				if !colorEqualRGBA(t, got.Fg, rgbColorVal{10, 20, 30}) {
 					t.Errorf("expected rgb(10,20,30), got %#v", got.Fg)
+				}
+			},
+		},
+		{
+			name:   "38;2;r;g;b clamps foreground components",
+			params: ansi.Params{ansi.Param(38), ansi.Param(2), ansi.Param(-1), ansi.Param(256), ansi.Param(999)},
+			check: func(t *testing.T, got uv.Style) {
+				if !colorEqualRGBA(t, got.Fg, rgbColorVal{0, 255, 255}) {
+					t.Errorf("expected clamped rgb(0,255,255), got %#v", got.Fg)
 				}
 			},
 		},
@@ -269,11 +287,29 @@ func TestApplySGR(t *testing.T) {
 			},
 		},
 		{
+			name:   "48;5;n clamps oversized background index",
+			params: ansi.Params{ansi.Param(48), ansi.Param(5), ansi.Param(999)},
+			check: func(t *testing.T, got uv.Style) {
+				if !colorEqualRGBA(t, got.Bg, ansiColor(255)) {
+					t.Errorf("expected clamped ansi color 255 bg, got %#v", got.Bg)
+				}
+			},
+		},
+		{
 			name:   "48;2;r;g;b sets truecolor background",
 			params: ansi.Params{ansi.Param(48), ansi.Param(2), ansi.Param(1), ansi.Param(2), ansi.Param(3)},
 			check: func(t *testing.T, got uv.Style) {
 				if !colorEqualRGBA(t, got.Bg, rgbColorVal{1, 2, 3}) {
 					t.Errorf("expected rgb(1,2,3) bg, got %#v", got.Bg)
+				}
+			},
+		},
+		{
+			name:   "48;2;r;g;b clamps background components",
+			params: ansi.Params{ansi.Param(48), ansi.Param(2), ansi.Param(255), ansi.Param(300), ansi.Param(0)},
+			check: func(t *testing.T, got uv.Style) {
+				if !colorEqualRGBA(t, got.Bg, rgbColorVal{255, 255, 0}) {
+					t.Errorf("expected clamped rgb(255,255,0) bg, got %#v", got.Bg)
 				}
 			},
 		},

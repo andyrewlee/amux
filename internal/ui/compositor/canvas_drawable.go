@@ -139,13 +139,13 @@ func applySGR(style uv.Style, params ansi.Params) uv.Style {
 				mode, _, _ := params.Param(i+1, 0)
 				if mode == 5 {
 					idx, _, _ := params.Param(i+2, 0)
-					style.Fg = ansiColor(idx)
+					style.Fg = sgrIndexedColor(idx)
 					i += 2
 				} else if mode == 2 && i+4 < len(params) {
 					rv, _, _ := params.Param(i+2, 0)
 					gv, _, _ := params.Param(i+3, 0)
 					bv, _, _ := params.Param(i+4, 0)
-					style.Fg = rgbColorVal{uint8(rv), uint8(gv), uint8(bv)}
+					style.Fg = rgbColorVal{sgrColorComponent(rv), sgrColorComponent(gv), sgrColorComponent(bv)}
 					i += 4
 				}
 			}
@@ -159,13 +159,13 @@ func applySGR(style uv.Style, params ansi.Params) uv.Style {
 				mode, _, _ := params.Param(i+1, 0)
 				if mode == 5 {
 					idx, _, _ := params.Param(i+2, 0)
-					style.Bg = ansiColor(idx)
+					style.Bg = sgrIndexedColor(idx)
 					i += 2
 				} else if mode == 2 && i+4 < len(params) {
 					rv, _, _ := params.Param(i+2, 0)
 					gv, _, _ := params.Param(i+3, 0)
 					bv, _, _ := params.Param(i+4, 0)
-					style.Bg = rgbColorVal{uint8(rv), uint8(gv), uint8(bv)}
+					style.Bg = rgbColorVal{sgrColorComponent(rv), sgrColorComponent(gv), sgrColorComponent(bv)}
 					i += 4
 				}
 			}
@@ -178,6 +178,30 @@ func applySGR(style uv.Style, params ansi.Params) uv.Style {
 		}
 	}
 	return style
+}
+
+func sgrIndexedColor(v int) ansiColor {
+	return ansiColor(sgrColorIndex(v))
+}
+
+func sgrColorIndex(v int) uint32 {
+	if v <= 0 {
+		return 0
+	}
+	if v >= 255 {
+		return 255
+	}
+	return uint32(v)
+}
+
+func sgrColorComponent(v int) uint8 {
+	if v <= 0 {
+		return 0
+	}
+	if v >= 255 {
+		return 255
+	}
+	return uint8(v)
 }
 
 // rgbColorVal is an RGB color value.
