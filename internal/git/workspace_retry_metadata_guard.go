@@ -23,21 +23,28 @@ func workspaceCleanupRetryFingerprintWithContext(ctx context.Context, workspaceP
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	root, err := os.OpenRoot(workspacePath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+
 	hasher := sha256.New()
 	retryMetadataPath := workspaceCleanupRetryMetadataPath(workspacePath)
-	err := filepath.WalkDir(workspacePath, func(path string, d fs.DirEntry, err error) error {
+	retryMetadataRel, err := filepath.Rel(workspacePath, retryMetadataPath)
+	if err != nil {
+		return "", err
+	}
+	retryMetadataRel = filepath.ToSlash(retryMetadataRel)
+	err = fs.WalkDir(root.FS(), ".", func(relPath string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if path == retryMetadataPath {
+		if relPath == retryMetadataRel {
 			return nil
-		}
-		relPath, err := filepath.Rel(workspacePath, path)
-		if err != nil {
-			return err
 		}
 		if relPath == "." && d.IsDir() {
 			return nil
@@ -58,7 +65,7 @@ func workspaceCleanupRetryFingerprintWithContext(ctx context.Context, workspaceP
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			target, err := os.Readlink(path)
+			target, err := root.Readlink(filepath.FromSlash(relPath))
 			if err != nil {
 				return err
 			}
@@ -68,7 +75,7 @@ func workspaceCleanupRetryFingerprintWithContext(ctx context.Context, workspaceP
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			content, err := os.ReadFile(path)
+			content, err := root.ReadFile(filepath.FromSlash(relPath))
 			if err != nil {
 				return err
 			}

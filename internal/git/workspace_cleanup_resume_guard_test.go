@@ -145,6 +145,29 @@ func TestRemoveWorkspaceRejectsRecreatedWorktreeEvenWhenGitRefLooksTheSame(t *te
 	}
 }
 
+func TestWorkspaceCleanupRetryFingerprintRejectsEscapingGitSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	workspacePath := filepath.Join(tmpDir, "workspace")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	outsideGit := filepath.Join(tmpDir, "outside-git")
+	if err := os.WriteFile(outsideGit, []byte("gitdir: /tmp/outside-admin\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(outsideGit) error = %v", err)
+	}
+	if err := os.Symlink(outsideGit, filepath.Join(workspacePath, ".git")); err != nil {
+		t.Fatalf("Symlink(.git) error = %v", err)
+	}
+
+	fingerprint, err := workspaceCleanupRetryFingerprint(workspacePath)
+	if err == nil {
+		t.Fatal("workspaceCleanupRetryFingerprint() expected escaping .git symlink error, got nil")
+	}
+	if fingerprint != "" {
+		t.Fatalf("workspaceCleanupRetryFingerprint() fingerprint = %q, want empty on error", fingerprint)
+	}
+}
+
 func TestRemoveWorkspaceRejectsNoFingerprintMarkerWhenRetryMetadataFingerprintMismatches(t *testing.T) {
 	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
 	origUnregisterWorktreeCtx := unregisterWorktreeCtx
