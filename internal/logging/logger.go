@@ -58,7 +58,7 @@ const (
 
 // Initialize sets up the default logger
 func Initialize(logDir string, level Level) error {
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
 		return err
 	}
 

@@ -113,6 +113,13 @@ func TestSaveUISettingsCreatesParentDirectories(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected config file at %q, stat error = %v", path, err)
 	}
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("expected config parent directory: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		t.Fatalf("expected config parent to be private, got mode %03o", mode)
+	}
 }
 
 func TestSaveUISettingsPreservesUnrelatedSections(t *testing.T) {

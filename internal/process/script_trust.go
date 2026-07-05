@@ -116,7 +116,7 @@ func (t *ScriptTrust) Trust(repoPath string, configContent []byte) error {
 	entries := t.load()
 	entries[key] = hashConfig(configContent)
 
-	if err := os.MkdirAll(filepath.Dir(t.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(t.path), 0o700); err != nil {
 		return err
 	}
 	return fsatomic.WriteJSON(t.path, entries)

@@ -164,6 +164,28 @@ func TestWorkspaceStore_SaveLoadDelete(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStoreCreatesPrivateMetadataDir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "metadata")
+	store := NewWorkspaceStore(root)
+	ws := &Workspace{
+		Name: "private",
+		Repo: "/home/user/repo",
+		Root: "/home/user/.amux/workspaces/private",
+		Env:  map[string]string{"SECRET": "value"},
+	}
+
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	info, err := os.Stat(filepath.Join(root, string(ws.ID())))
+	if err != nil {
+		t.Fatalf("Stat(metadata dir) error = %v", err)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		t.Fatalf("expected workspace metadata dir to be private, got mode %03o", mode)
+	}
+}
+
 func TestWorkspaceStore_LoadsWindowsBackupWhenPrimaryMissing(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

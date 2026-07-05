@@ -41,6 +41,32 @@ func TestRegistry_LoadSave(t *testing.T) {
 	}
 }
 
+func TestRegistryCreatesPrivateState(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateDir := filepath.Join(tmpDir, "state")
+	registryPath := filepath.Join(stateDir, "projects.json")
+
+	r := NewRegistry(registryPath)
+	if err := r.Save([]string{"/path/to/project"}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	dirInfo, err := os.Stat(stateDir)
+	if err != nil {
+		t.Fatalf("Stat(state dir) error = %v", err)
+	}
+	if mode := dirInfo.Mode().Perm(); mode&0o077 != 0 {
+		t.Fatalf("expected registry dir to be private, got mode %03o", mode)
+	}
+	lockInfo, err := os.Stat(registryPath + ".lock")
+	if err != nil {
+		t.Fatalf("Stat(lock file) error = %v", err)
+	}
+	if mode := lockInfo.Mode().Perm(); mode&0o077 != 0 {
+		t.Fatalf("expected registry lock to be private, got mode %03o", mode)
+	}
+}
+
 func TestRegistry_AddProject(t *testing.T) {
 	tmpDir := t.TempDir()
 	registryPath := filepath.Join(tmpDir, "projects.json")

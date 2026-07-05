@@ -28,5 +28,8 @@ func TestPathsEnsureDirectories(t *testing.T) {
 		if !info.IsDir() {
 			t.Fatalf("expected %s to be a directory", dir)
 		}
+		if mode := info.Mode().Perm(); mode&0o077 != 0 {
+			t.Fatalf("expected %s to be private, got mode %03o", dir, mode)
+		}
 	}
 }

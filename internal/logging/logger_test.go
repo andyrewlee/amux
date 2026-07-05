@@ -66,6 +66,25 @@ func TestInitializeCreatesPrivateLogFile(t *testing.T) {
 	}
 }
 
+func TestInitializeCreatesPrivateLogDir(t *testing.T) {
+	logDir := filepath.Join(t.TempDir(), "logs")
+	if err := Initialize(logDir, LevelInfo); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	defer func() {
+		_ = Close()
+		defaultLogger = nil
+	}()
+
+	info, err := os.Stat(logDir)
+	if err != nil {
+		t.Fatalf("Stat failed: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		t.Fatalf("expected log dir to have no group or other permissions, got %03o", mode)
+	}
+}
+
 func TestSetEnabledDisablesLogging(t *testing.T) {
 	logPath, cleanup := setupLogger(t, LevelDebug)
 	defer cleanup()

@@ -204,7 +204,7 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 	}
 	defer unlockRegistryFiles(lockFiles)
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
 
@@ -235,7 +235,7 @@ func (s *WorkspaceStore) saveWorkspaceLocked(id WorkspaceID, ws *Workspace) erro
 	}
 	path := s.workspacePath(id)
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	// Atomic replace (temp + fsync + rename, with backup recovery on platforms

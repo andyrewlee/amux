@@ -29,6 +29,24 @@ func TestScriptTrustTrustThenTrusted(t *testing.T) {
 	}
 }
 
+func TestScriptTrustCreatesPrivateRegistryDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "amux-state")
+	trust := NewScriptTrust(dir)
+	repo := t.TempDir()
+	content := []byte(`{"setup-workspace":["touch marker"]}`)
+
+	if err := trust.Trust(repo, content); err != nil {
+		t.Fatalf("Trust() error = %v", err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", dir, err)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		t.Fatalf("expected trust registry dir to be private, got mode %03o", mode)
+	}
+}
+
 func TestScriptTrustEmptyPathDoesNotWriteRegistry(t *testing.T) {
 	dir := t.TempDir()
 	trust := NewScriptTrust(dir)

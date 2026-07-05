@@ -10,7 +10,7 @@ import (
 )
 
 func lockRegistryFile(lockPath string, shared bool) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 		return nil, err
 	}
 	flag := syscall.LOCK_EX
@@ -19,7 +19,7 @@ func lockRegistryFile(lockPath string, shared bool) (*os.File, error) {
 	}
 
 	for {
-		file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+		file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			return nil, err
 		}

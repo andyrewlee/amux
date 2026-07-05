@@ -106,7 +106,7 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 func (r *Registry) saveUnlocked(paths []string) error {
 	paths = normalizeAndDedupeProjectPaths(paths)
 	dir := filepath.Dir(r.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 
