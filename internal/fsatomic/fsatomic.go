@@ -94,7 +94,7 @@ func syncParentDirForGOOS(goos, dir string) error {
 }
 
 func syncDir(dir string) error {
-	file, err := os.Open(dir)
+	file, err := openDirInParentRoot(dir)
 	if err != nil {
 		return err
 	}
@@ -103,6 +103,28 @@ func syncDir(dir string) error {
 		return err
 	}
 	return file.Close()
+}
+
+func openDirInParentRoot(dir string) (*os.File, error) {
+	parent := filepath.Dir(dir)
+	name := filepath.Base(dir)
+	if parent == dir {
+		name = "."
+	}
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		return nil, err
+	}
+	file, openErr := root.Open(name)
+	closeErr := root.Close()
+	if openErr != nil {
+		return nil, openErr
+	}
+	if closeErr != nil {
+		_ = file.Close()
+		return nil, closeErr
+	}
+	return file, nil
 }
 
 // replaceFileWindows replaces path with tmpPath via a backup shuffle:
