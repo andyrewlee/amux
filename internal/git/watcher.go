@@ -262,7 +262,7 @@ func (fw *FileWatcher) addWatchPath(path string) (watchTarget, error) {
 }
 
 func readGitDirFromFile(gitPath string) (string, error) {
-	data, err := os.ReadFile(gitPath)
+	data, err := readGitFile(gitPath)
 	if err != nil {
 		return "", err
 	}
@@ -282,6 +282,25 @@ func readGitDirFromFile(gitPath string) (string, error) {
 		gitDir = filepath.Join(filepath.Dir(gitPath), gitDir)
 	}
 	return filepath.Clean(gitDir), nil
+}
+
+func readGitFile(path string) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := root.ReadFile(filepath.Base(path))
+	closeErr := root.Close()
+	if readErr != nil {
+		if closeErr != nil {
+			return nil, errors.Join(readErr, fmt.Errorf("close git file directory: %w", closeErr))
+		}
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close git file directory: %w", closeErr)
+	}
+	return data, nil
 }
 
 // Close stops the watcher and releases resources
