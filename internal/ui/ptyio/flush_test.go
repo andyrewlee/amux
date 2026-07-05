@@ -262,8 +262,8 @@ func TestFlushDelay(t *testing.T) {
 			FlushPendingSince: base, // pendingFor = 5ms < maxInterval
 		}
 		now := base.Add(5 * time.Millisecond)
-		delay, defer_ := st.FlushDelay(now, quiet, maxInterval)
-		if !defer_ {
+		delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval)
+		if !shouldDefer {
 			t.Fatalf("defer = false, want true while still receiving output")
 		}
 		if want := quiet - 5*time.Millisecond; delay != want {
@@ -278,8 +278,8 @@ func TestFlushDelay(t *testing.T) {
 		}
 		// quietFor = quiet-500µs, so remaining = 500µs which clamps up to 1ms.
 		now := base.Add(quiet - 500*time.Microsecond)
-		delay, defer_ := st.FlushDelay(now, quiet, maxInterval)
-		if !defer_ {
+		delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval)
+		if !shouldDefer {
 			t.Fatalf("defer = false, want true (still within quiet period)")
 		}
 		if delay != time.Millisecond {
@@ -293,8 +293,8 @@ func TestFlushDelay(t *testing.T) {
 			FlushPendingSince: base,
 		}
 		now := base.Add(quiet) // quietFor == quiet, not < quiet
-		delay, defer_ := st.FlushDelay(now, quiet, maxInterval)
-		if defer_ {
+		delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval)
+		if shouldDefer {
 			t.Fatalf("defer = true, want false once quiet period elapsed")
 		}
 		if delay != 0 {
@@ -308,8 +308,8 @@ func TestFlushDelay(t *testing.T) {
 			FlushPendingSince: base,                            // pending a long time
 		}
 		now := base.Add(maxInterval + time.Millisecond) // pendingFor >= maxInterval
-		delay, defer_ := st.FlushDelay(now, quiet, maxInterval)
-		if defer_ {
+		delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval)
+		if shouldDefer {
 			t.Fatalf("defer = true, want false once maxInterval exceeded")
 		}
 		if delay != 0 {
@@ -323,8 +323,8 @@ func TestFlushDelay(t *testing.T) {
 			// FlushPendingSince left zero -> pendingFor = 0 < maxInterval
 		}
 		now := base.Add(2 * time.Millisecond)
-		delay, defer_ := st.FlushDelay(now, quiet, maxInterval)
-		if !defer_ {
+		delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval)
+		if !shouldDefer {
 			t.Fatalf("defer = false, want true (quiet period not elapsed, no pending age)")
 		}
 		if want := quiet - 2*time.Millisecond; delay != want {

@@ -3,6 +3,7 @@ package tmux
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -362,14 +363,7 @@ func TestParseSessionTagRows(t *testing.T) {
 	sep := tagFieldSeparator
 
 	join := func(parts ...string) string {
-		out := ""
-		for i, p := range parts {
-			if i > 0 {
-				out += sep
-			}
-			out += p
-		}
-		return out
+		return strings.Join(parts, sep)
 	}
 
 	tests := []struct {

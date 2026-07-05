@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 
@@ -224,7 +225,7 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 	gcSetTag(t, opts, "known-sess", "@amux", "1")
 	gcSetTag(t, opts, "known-sess", "@amux_workspace", knownID)
 
-	staleCreatedAt := fmt.Sprintf("%d", time.Now().Add(-2*time.Minute).Unix())
+	staleCreatedAt := strconv.FormatInt(time.Now().Add(-2*time.Minute).Unix(), 10)
 
 	gcSetTag(t, opts, "orphan1", "@amux", "1")
 	gcSetTag(t, opts, "orphan1", "@amux_workspace", "dead-ws-1")
@@ -281,7 +282,7 @@ func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.
 	skipIfNoTmux(t)
 	opts := gcTestServer(t)
 
-	staleCreatedAt := fmt.Sprintf("%d", time.Now().Add(-2*time.Minute).Unix())
+	staleCreatedAt := strconv.FormatInt(time.Now().Add(-2*time.Minute).Unix(), 10)
 
 	// Create an orphan tagged for a different instance.
 	gcCreateSession(t, opts, "other-orphan", "sleep 300")
