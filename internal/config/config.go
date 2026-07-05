@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -84,7 +85,7 @@ type configFileSections struct {
 // errors leave unrelated sections available to callers.
 func readConfigFile(path string) (configFile, error) {
 	var file configFile
-	data, err := os.ReadFile(path)
+	data, err := readConfigPath(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return file, nil
@@ -114,6 +115,27 @@ func readConfigFile(path string) (configFile, error) {
 		}
 	}
 	return file, errors.Join(errs...)
+}
+
+func readConfigPath(path string) ([]byte, error) {
+	dir := filepath.Dir(path)
+	name := filepath.Base(path)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := root.ReadFile(name)
+	closeErr := root.Close()
+	if readErr != nil {
+		if closeErr != nil {
+			return nil, fmt.Errorf("read config file: %w; close config directory: %w", readErr, closeErr)
+		}
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close config directory: %w", closeErr)
+	}
+	return data, nil
 }
 
 // AssistantNames returns assistant IDs in deterministic display order.

@@ -65,7 +65,7 @@ func saveUISettings(path string, settings UISettings) error {
 	}
 
 	payload := map[string]any{}
-	if existing, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(existing)) > 0 {
+	if existing, err := readConfigPath(path); err == nil && len(bytes.TrimSpace(existing)) > 0 {
 		// Refuse to clobber an existing-but-unparseable config: the loader
 		// tolerates malformed JSON (falls back to defaults), so blindly
 		// overwriting here would silently drop unrelated sections the user
