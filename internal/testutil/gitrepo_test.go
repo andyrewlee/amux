@@ -1,7 +1,9 @@
 package testutil
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,6 +26,13 @@ func TestInitRepoCreatesCommittedRepoOnBranch(t *testing.T) {
 	files := RunGit(t, root, "ls-files")
 	if !strings.Contains(files, "README.md") {
 		t.Fatalf("tracked files = %q, want README.md", files)
+	}
+	info, err := os.Stat(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatalf("stat README: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("README mode = %#o, want 0600", got)
 	}
 	// The pinned identity is applied (no dependence on global git config).
 	if author := RunGit(t, root, "log", "-1", "--format=%an"); author != "Test" {

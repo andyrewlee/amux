@@ -61,7 +61,7 @@ func InitRepoWithBranch(t gitTB, branch string) string {
 	t.Helper()
 	root := t.TempDir()
 	RunGit(t, root, "init", "-b", branch)
-	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("init\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("init\n"), 0o600); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
 	RunGit(t, root, "add", "README.md")
