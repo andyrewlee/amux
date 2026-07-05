@@ -127,6 +127,10 @@ func ValidateBaseRef(ref string) error {
 		return &ValidationError{Field: "base", Message: "base reference too long"}
 	}
 
+	if strings.HasPrefix(ref, "-") {
+		return &ValidationError{Field: "base", Message: "base reference cannot start with '-'"}
+	}
+
 	// Basic format validation - allow common patterns
 	// refs/heads/*, refs/remotes/*, origin/*, HEAD, branch names
 	if strings.Contains(ref, "..") {

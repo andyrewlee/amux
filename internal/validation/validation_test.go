@@ -89,6 +89,8 @@ func TestValidateBaseRef(t *testing.T) {
 		{"valid remote branch", "origin/main", false},
 		{"valid refs format", "refs/heads/main", false},
 		{"empty", "", true},
+		{"starts with dash", "-bad", true},
+		{"option-like", "--help", true},
 		{"contains ..", "main..HEAD", true},
 		{"contains space", "main branch", true},
 		{"contains tab", "main\tbranch", true},

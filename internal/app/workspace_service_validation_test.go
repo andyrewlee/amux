@@ -121,31 +121,35 @@ func TestCreateWorkspaceRejectsInvalidName(t *testing.T) {
 }
 
 func TestCreateWorkspaceRejectsInvalidBaseRef(t *testing.T) {
-	var createCalled bool
-	mock := &mockGitOps{
-		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
-			createCalled = true
-			return nil
-		},
-	}
+	for _, base := range []string{"bad ref", "--help"} {
+		t.Run(base, func(t *testing.T) {
+			var createCalled bool
+			mock := &mockGitOps{
+				createWorkspace: func(repoPath, workspacePath, branch, base string) error {
+					createCalled = true
+					return nil
+				},
+			}
 
-	project := data.NewProject("/tmp/repo")
-	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
-	svc.gitOps = mock
-	msg := svc.CreateWorkspace(project, "feature", "bad ref")()
+			project := data.NewProject("/tmp/repo")
+			svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
+			svc.gitOps = mock
+			msg := svc.CreateWorkspace(project, "feature", base)()
 
-	failed, ok := msg.(messages.WorkspaceCreateFailed)
-	if !ok {
-		t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
-	}
-	if failed.Workspace == nil {
-		t.Fatal("expected pending workspace in validation failure")
-	}
-	if failed.Err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if createCalled {
-		t.Fatal("CreateWorkspace should not have been called")
+			failed, ok := msg.(messages.WorkspaceCreateFailed)
+			if !ok {
+				t.Fatalf("expected WorkspaceCreateFailed, got %T", msg)
+			}
+			if failed.Workspace == nil {
+				t.Fatal("expected pending workspace in validation failure")
+			}
+			if failed.Err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if createCalled {
+				t.Fatal("CreateWorkspace should not have been called")
+			}
+		})
 	}
 }
 
