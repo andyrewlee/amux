@@ -180,7 +180,7 @@ func TestCreateWorkspace_RetryUsesFreshContext(t *testing.T) {
 		switch call {
 		case 1:
 			firstCtx = ctx
-			if got, want := strings.Join(args, " "), "worktree add -b feature-ws /tmp/ws HEAD"; got != want {
+			if got, want := strings.Join(args, " "), "worktree add -b feature-ws -- /tmp/ws HEAD"; got != want {
 				t.Fatalf("first call args = %q, want %q", got, want)
 			}
 			return "", &Error{Command: "worktree add", ExitCode: 128, Stderr: "fatal: a branch named 'feature-ws' already exists", Err: errors.New("exit status 128")}
@@ -191,7 +191,7 @@ func TestCreateWorkspace_RetryUsesFreshContext(t *testing.T) {
 			if ctx == firstCtx {
 				t.Fatalf("expected retry to use a fresh context")
 			}
-			if got, want := strings.Join(args, " "), "worktree add /tmp/ws feature-ws"; got != want {
+			if got, want := strings.Join(args, " "), "worktree add -- /tmp/ws feature-ws"; got != want {
 				t.Fatalf("retry args = %q, want %q", got, want)
 			}
 			return "", nil
@@ -226,7 +226,7 @@ func TestCreateWorkspaceClearsOrphanedCleanupMarker(t *testing.T) {
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
-		if got, want := strings.Join(args, " "), "worktree add -b feature-ws "+workspacePath+" HEAD"; got != want {
+		if got, want := strings.Join(args, " "), "worktree add -b feature-ws -- "+workspacePath+" HEAD"; got != want {
 			t.Fatalf("worktree add args = %q, want %q", got, want)
 		}
 		return "", nil

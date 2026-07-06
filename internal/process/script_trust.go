@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -21,6 +22,8 @@ const trustRegistryFilename = "trusted-scripts.json"
 // content the user has explicitly approved. It maps a normalized repo path to
 // the hex SHA-256 of the config content that was approved, so any later edit to
 // the repo's config invalidates the approval (the hash no longer matches).
+// That hash pins only the .amux/workspaces.json content itself; it does not
+// pin other repo files that an approved command may execute.
 //
 // The security property it enforces: repo-supplied executable config keys
 // (config.SetupWorkspace / config.RunScript / config.ArchiveScript loaded from
@@ -39,13 +42,13 @@ func NewScriptTrust(dir string) *ScriptTrust {
 
 // defaultScriptTrust returns a registry rooted at the amux home dir, resolved
 // the same way internal/config resolves the data/config dir (no hardcoded
-// ~/.amux). On any resolution error it falls back to a relative path so the
-// registry simply never matches (fail-closed) rather than panicking at startup.
+// ~/.amux). On any resolution error it returns an empty-path sentinel that
+// never trusts and refuses to record approvals.
 func defaultScriptTrust() *ScriptTrust {
 	paths, err := config.DefaultPaths()
 	if err != nil || paths == nil {
 		logging.Warn("Could not resolve amux home for script trust registry: %v", err)
-		return NewScriptTrust(".")
+		return &ScriptTrust{path: ""}
 	}
 	return NewScriptTrust(paths.Home)
 }
@@ -60,7 +63,7 @@ func hashConfig(configContent []byte) string {
 // an unreadable or unparseable file yields an empty map and a logged warning, so
 // callers fail closed.
 func (t *ScriptTrust) load() map[string]string {
-	if t == nil {
+	if t == nil || t.path == "" {
 		return map[string]string{}
 	}
 	raw, err := os.ReadFile(t.path)
@@ -106,6 +109,9 @@ func (t *ScriptTrust) IsTrusted(repoPath string, configContent []byte) bool {
 func (t *ScriptTrust) Trust(repoPath string, configContent []byte) error {
 	if t == nil {
 		return nil
+	}
+	if t.path == "" {
+		return errors.New("script trust registry unavailable: amux home could not be resolved")
 	}
 	key := data.NormalizePath(repoPath)
 	if key == "" {

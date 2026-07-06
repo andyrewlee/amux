@@ -1,9 +1,12 @@
 package process
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/data"
 )
 
 func TestScriptTrustNotTrustedUntilApproved(t *testing.T) {
@@ -94,6 +97,42 @@ func TestScriptTrustCorruptRegistryFailsClosed(t *testing.T) {
 	// Must not panic and must fail closed.
 	if trust.IsTrusted(repo, content) {
 		t.Fatal("expected a corrupt registry to fail closed (not trusted)")
+	}
+}
+
+func TestScriptTrustSentinelIgnoresCWDRegistry(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+
+	repo := t.TempDir()
+	content := []byte(`{"setup-workspace":["touch marker"]}`)
+	entries := map[string]string{
+		data.NormalizePath(repo): hashConfig(content),
+	}
+	raw, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshal registry: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, trustRegistryFilename), raw, 0o600); err != nil {
+		t.Fatalf("write hostile cwd registry: %v", err)
+	}
+
+	trust := &ScriptTrust{path: ""}
+	if trust.IsTrusted(repo, content) {
+		t.Fatal("sentinel trust must ignore matching registries in the current directory")
+	}
+}
+
+func TestScriptTrustSentinelTrustErrorsAndWritesNothing(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+
+	trust := &ScriptTrust{path: ""}
+	if err := trust.Trust(t.TempDir(), []byte(`{"setup-workspace":["touch marker"]}`)); err == nil {
+		t.Fatal("expected sentinel Trust() to return an error")
+	}
+	if _, err := os.Stat(filepath.Join(cwd, trustRegistryFilename)); !os.IsNotExist(err) {
+		t.Fatalf("expected sentinel Trust() to write no registry, stat err = %v", err)
 	}
 }
 
