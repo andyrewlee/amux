@@ -41,10 +41,13 @@ func (p *PortAllocator) AllocatePort(workspaceRoot string) int {
 }
 
 func (p *PortAllocator) nextAvailablePortLocked() int {
-	if n := len(p.freeBases); n > 0 {
+	used := p.usedRangesLocked()
+	for n := len(p.freeBases); n > 0; n = len(p.freeBases) {
 		port := p.freeBases[n-1]
 		p.freeBases = p.freeBases[:n-1]
-		return port
+		if p.rangeAvailable(port, used) {
+			return port
+		}
 	}
 
 	if p.rangeFits(p.nextPort) {
@@ -54,12 +57,13 @@ func (p *PortAllocator) nextAvailablePortLocked() int {
 	}
 
 	if p.rangeSize > 0 {
-		used := make(map[int]bool, len(p.allocated))
-		for _, base := range p.allocated {
-			used[base] = true
-		}
 		for base := p.portStart; p.rangeFits(base); base += p.rangeSize {
-			if !used[base] {
+			if p.rangeAvailable(base, used) {
+				return base
+			}
+		}
+		for base := 1; p.rangeFits(base); base++ {
+			if p.rangeAvailable(base, used) {
 				return base
 			}
 		}
@@ -69,7 +73,33 @@ func (p *PortAllocator) nextAvailablePortLocked() int {
 
 func (p *PortAllocator) rangeFits(base int) bool {
 	const maxPort = 65535
-	return p.rangeSize > 0 && base <= maxPort && base+p.rangeSize-1 <= maxPort
+	return p.rangeSize > 0 && base >= 1 && base <= maxPort && base+p.rangeSize-1 <= maxPort
+}
+
+func (p *PortAllocator) usedRangesLocked() []portRange {
+	used := make([]portRange, 0, len(p.allocated))
+	for _, base := range p.allocated {
+		used = append(used, portRange{start: base, end: base + p.rangeSize - 1})
+	}
+	return used
+}
+
+func (p *PortAllocator) rangeAvailable(base int, used []portRange) bool {
+	if !p.rangeFits(base) {
+		return false
+	}
+	end := base + p.rangeSize - 1
+	for _, existing := range used {
+		if base <= existing.end && end >= existing.start {
+			return false
+		}
+	}
+	return true
+}
+
+type portRange struct {
+	start int
+	end   int
 }
 
 // GetPort returns the allocated port for a workspace
