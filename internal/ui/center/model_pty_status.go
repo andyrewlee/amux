@@ -265,11 +265,10 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 		return compositor.NewVTermLayer(tab.CachedSnap)
 	}
 
-	// Create new snapshot while holding the lock.
-	// Do not pass the previous snapshot for reuse: NewVTermSnapshotWithCache
-	// mutates the provided snapshot/rows in-place, which can mutate a snapshot
-	// already handed to a previously returned layer.
-	snap := compositor.NewVTermSnapshot(tab.Terminal, showCursor)
+	// Chat post-processing below is safe with double buffering: scrolled history
+	// forces a full copy, cursor sanitation touches force-dirtied cursor rows,
+	// and blink clearing is idempotent for unchanged terminal cells.
+	snap := tab.SnapshotBuffer.Snapshot(tab.Terminal, showCursor)
 	if snap == nil {
 		return nil
 	}

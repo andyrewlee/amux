@@ -444,7 +444,7 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace) {
 		tab.resetPTYStateLocked()
 		tab.DiffViewer = nil
 		tab.Terminal = nil
-		tab.CachedSnap = nil
+		tab.ResetSnapshotCache()
 		tab.Workspace = nil
 		tab.Running = false
 		tab.mu.Unlock()

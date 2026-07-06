@@ -116,6 +116,36 @@ func BenchmarkVTermSnapshotDirtyReuse(b *testing.B) {
 	}
 }
 
+// BenchmarkSnapshotDoubleBuffer benchmarks live-path dirty reuse with alias-safe buffering.
+func BenchmarkSnapshotDoubleBuffer(b *testing.B) {
+	sizes := []struct {
+		name          string
+		width, height int
+	}{
+		{"80x24", 80, 24},
+		{"120x40", 120, 40},
+	}
+
+	for _, size := range sizes {
+		b.Run(size.name, func(b *testing.B) {
+			term := setupVTerm(size.width, size.height)
+			var buf SnapshotDoubleBuffer
+			_ = buf.Snapshot(term, true)
+
+			moveCursor := []byte("\x1b[2;1H")
+			writeChar := []byte("X")
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				term.Write(moveCursor)
+				term.Write(writeChar)
+				_ = buf.Snapshot(term, true)
+			}
+		})
+	}
+}
+
 // BenchmarkCanvasRender benchmarks the Canvas.Render ANSI output generation
 func BenchmarkCanvasRender(b *testing.B) {
 	sizes := []struct {

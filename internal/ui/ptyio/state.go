@@ -57,4 +57,16 @@ type State struct {
 	CachedSnap       *compositor.VTermSnapshot
 	CachedVersion    uint64
 	CachedShowCursor bool
+	SnapshotBuffer   compositor.SnapshotDoubleBuffer
+}
+
+// ResetSnapshotCache clears cached render snapshots and the reusable snapshot buffers.
+func (s *State) ResetSnapshotCache() {
+	if s == nil {
+		return
+	}
+	s.CachedSnap = nil
+	s.CachedVersion = 0
+	s.CachedShowCursor = false
+	s.SnapshotBuffer.Reset()
 }

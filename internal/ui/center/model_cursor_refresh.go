@@ -47,9 +47,7 @@ func invalidateCursorSnapshotCacheLocked(tab *Tab) {
 	if tab == nil {
 		return
 	}
-	tab.CachedSnap = nil
-	tab.CachedVersion = 0
-	tab.CachedShowCursor = false
+	tab.ResetSnapshotCache()
 	tab.cachedRecentLocalInput = false
 	tab.cachedRestrictCursor = false
 }
