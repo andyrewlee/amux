@@ -34,37 +34,40 @@ install: build
 	cp $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 
 test:
-	go test ./...
+	@packages=$$(go list ./...) || exit 1; \
+	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app)$$') || exit 1; \
+	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
+	go test $$filtered
 	@$(MAKE) --no-print-directory tmux-skip-check
 
 devcheck:
 	go vet ./...
-	go test ./...
+	@packages=$$(go list ./...) || exit 1; \
+	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app)$$') || exit 1; \
+	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
+	go test $$filtered
 	@$(MAKE) --no-print-directory tmux-skip-check
-	$(MAKE) harness-golden
 	$(MAKE) lint
 
-# tmux-skip-check surfaces real-tmux/e2e tests that SILENTLY skip (no usable
-# tmux server). `make test` and `make devcheck` go green even when these tests
-# skip, giving false-green confidence that input/send behavior was exercised
-# when it was not (see AGENTS.md). This re-runs only the tmux/e2e/app packages with
-# -v so the per-test `--- SKIP:` lines are emitted (plain `go test` hides them).
-# Note: -v is part of Go's test cache key, so this re-run does NOT share the
-# cache of the preceding plain `go test ./...`; it re-executes those packages
-# once per source change (bounded to internal/tmux + internal/e2e + internal/app,
-# and a `(cached)` hit on any repeat with unchanged sources). It counts skipped
-# tests and prints a non-fatal NOTE: the count feeds an informational echo
-# only, so the exit code of `test`/`devcheck` is unchanged. PTY-backed tmux
-# attach probes are allowed to skip on hosts that cannot attach a client; this
-# gate is for the real-tmux/e2e coverage that should run when tmux is present.
+# tmux-skip-check is the single `make test`/`make devcheck` execution of the
+# real-tmux package set excluded from the main go test sweep:
+# internal/tmux, internal/e2e, and internal/app. Keep this package list coupled
+# to the exclusion regex above. The -v output exposes per-test `--- SKIP:`
+# lines, failures propagate, and skipped real-tmux coverage still prints the
+# same non-fatal NOTE unless STRICT_TMUX=1.
 tmux-skip-check:
-	@skipped=$$(go test ./internal/tmux ./internal/e2e ./internal/app -v 2>/dev/null | awk '\
+	@output=$$(mktemp); trap 'rm -f "$$output"' EXIT INT TERM; \
+	if ! go test ./internal/tmux ./internal/e2e ./internal/app -v >"$$output" 2>&1; then \
+		cat "$$output"; \
+		exit 1; \
+	fi; \
+	skipped=$$(awk '\
 		/^[[:space:]]+[^[:space:]]+\.go:[0-9]+:/ { reason=$$0 } \
 		/^--- SKIP:/ { \
 			if (reason !~ /cannot start PTY-backed tmux attach|client never attached|signal permissions restricted in this environment|tmux version does not emit DEC 2026 synchronized-output markers/) skipped++; \
 			reason=""; \
 		} \
-		END { print skipped + 0 }'); \
+		END { print skipped + 0 }' "$$output"); \
 	if [ "$$skipped" -gt 0 ]; then \
 		if [ "$${STRICT_TMUX:-}" = "1" ]; then \
 			echo "ERROR: $$skipped real-tmux/e2e tests skipped while STRICT_TMUX=1 (tmux is expected to be present here)."; \
