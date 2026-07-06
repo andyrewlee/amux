@@ -265,10 +265,15 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 		return compositor.NewVTermLayer(tab.CachedSnap)
 	}
 
-	// Chat post-processing below is safe with double buffering: scrolled history
-	// forces a full copy, cursor sanitation touches force-dirtied cursor rows,
-	// and blink clearing is idempotent for unchanged terminal cells.
-	snap := tab.SnapshotBuffer.Snapshot(tab.Terminal, showCursor)
+	var snap *compositor.VTermSnapshot
+	if isChat {
+		// Chat post-processing mutates snapshot rows after creation, so keep the
+		// reusable raw buffers out of this path.
+		snap = compositor.NewVTermSnapshot(tab.Terminal, showCursor)
+	} else {
+		// SnapshotDoubleBuffer reuses rows without mutating the last handed-out layer.
+		snap = tab.SnapshotBuffer.Snapshot(tab.Terminal, showCursor)
+	}
 	if snap == nil {
 		return nil
 	}
