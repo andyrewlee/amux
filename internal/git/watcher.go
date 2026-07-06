@@ -21,17 +21,20 @@ import (
 type FileWatcher struct {
 	mu sync.Mutex
 
-	watcher     *fsnotify.Watcher
-	watching    map[string]bool // workspace root -> watching
-	watchPaths  map[string][]watchTarget
-	pathToRoot  map[string]string
-	onChanged   func(root string)
-	closeOnce   sync.Once
-	debounce    time.Duration
-	lastChange  map[string]time.Time
-	watchCount  int
-	disabled    bool
-	disabledErr error
+	watcher         *fsnotify.Watcher
+	watching        map[string]bool // workspace root -> watching
+	watchPaths      map[string][]watchTarget
+	pathToRoot      map[string]string
+	onChanged       func(root string)
+	closeOnce       sync.Once
+	debounce        time.Duration
+	lastChange      map[string]time.Time
+	pendingTimers   map[string]*time.Timer
+	timerGeneration map[string]uint64
+	watchCount      int
+	closed          bool
+	disabled        bool
+	disabledErr     error
 }
 
 type watchTarget struct {
@@ -49,13 +52,15 @@ func NewFileWatcher(onChanged func(root string)) (*FileWatcher, error) {
 	}
 
 	fw := &FileWatcher{
-		watcher:    watcher,
-		watching:   make(map[string]bool),
-		watchPaths: make(map[string][]watchTarget),
-		pathToRoot: make(map[string]string),
-		onChanged:  onChanged,
-		debounce:   500 * time.Millisecond,
-		lastChange: make(map[string]time.Time),
+		watcher:         watcher,
+		watching:        make(map[string]bool),
+		watchPaths:      make(map[string][]watchTarget),
+		pathToRoot:      make(map[string]string),
+		onChanged:       onChanged,
+		debounce:        500 * time.Millisecond,
+		lastChange:      make(map[string]time.Time),
+		pendingTimers:   make(map[string]*time.Timer),
+		timerGeneration: make(map[string]uint64),
 	}
 
 	return fw, nil
@@ -143,6 +148,7 @@ func (fw *FileWatcher) Unwatch(root string) {
 	delete(fw.watching, root)
 	delete(fw.watchPaths, root)
 	delete(fw.lastChange, root)
+	fw.stopPendingTimerLocked(root)
 }
 
 // run processes file system events
@@ -164,22 +170,7 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 				continue
 			}
 
-			// Debounce: ignore if we just triggered for this root
-			fw.mu.Lock()
-			if lastChange, ok := fw.lastChange[root]; ok {
-				if time.Since(lastChange) < fw.debounce {
-					perf.Count("git_watcher_debounce_drop", 1)
-					fw.mu.Unlock()
-					continue
-				}
-			}
-			fw.lastChange[root] = time.Now()
-			fw.mu.Unlock()
-
-			// Trigger callback
-			if fw.onChanged != nil {
-				fw.onChanged(root)
-			}
+			fw.handleChange(root)
 
 		case err, ok := <-fw.watcher.Errors:
 			if !ok {
@@ -190,6 +181,66 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (fw *FileWatcher) handleChange(root string) {
+	now := time.Now()
+	var callback func(string)
+
+	fw.mu.Lock()
+	if lastChange, ok := fw.lastChange[root]; !ok || now.Sub(lastChange) >= fw.debounce {
+		fw.stopPendingTimerLocked(root)
+		fw.lastChange[root] = now
+		callback = fw.onChanged
+	} else {
+		perf.Count("git_watcher_debounce_drop", 1)
+		fw.armTrailingTimerLocked(root)
+	}
+	fw.mu.Unlock()
+
+	if callback != nil {
+		callback(root)
+	}
+}
+
+func (fw *FileWatcher) armTrailingTimerLocked(root string) {
+	if timer, ok := fw.pendingTimers[root]; ok {
+		timer.Stop()
+		delete(fw.pendingTimers, root)
+	}
+	fw.timerGeneration[root]++
+	generation := fw.timerGeneration[root]
+	fw.pendingTimers[root] = time.AfterFunc(fw.debounce, func() {
+		fw.fireTrailing(root, generation)
+	})
+}
+
+func (fw *FileWatcher) fireTrailing(root string, generation uint64) {
+	now := time.Now()
+	var callback func(string)
+
+	fw.mu.Lock()
+	if fw.closed || fw.disabled || !fw.watching[root] || fw.timerGeneration[root] != generation {
+		fw.mu.Unlock()
+		return
+	}
+	delete(fw.pendingTimers, root)
+	delete(fw.timerGeneration, root)
+	fw.lastChange[root] = now
+	callback = fw.onChanged
+	fw.mu.Unlock()
+
+	if callback != nil {
+		callback(root)
+	}
+}
+
+func (fw *FileWatcher) stopPendingTimerLocked(root string) {
+	if timer, ok := fw.pendingTimers[root]; ok {
+		timer.Stop()
+		delete(fw.pendingTimers, root)
+	}
+	delete(fw.timerGeneration, root)
 }
 
 // findRoot finds the workspace root for a given path
@@ -288,6 +339,14 @@ func readGitDirFromFile(gitPath string) (string, error) {
 func (fw *FileWatcher) Close() error {
 	var err error
 	fw.closeOnce.Do(func() {
+		fw.mu.Lock()
+		fw.closed = true
+		for root, timer := range fw.pendingTimers {
+			timer.Stop()
+			delete(fw.pendingTimers, root)
+		}
+		clear(fw.timerGeneration)
+		fw.mu.Unlock()
 		err = fw.watcher.Close()
 	})
 	return err

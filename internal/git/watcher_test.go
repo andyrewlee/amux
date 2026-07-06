@@ -2,11 +2,14 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestFileWatcher(t *testing.T) {
@@ -346,6 +349,112 @@ func TestFileWatcherSwitchChurnBounded(t *testing.T) {
 	if fw.watchCount != 0 {
 		t.Fatalf("expected watchCount = 0 after final Unwatch, got %d", fw.watchCount)
 	}
+}
+
+func TestFileWatcherTrailingDebounceAfterBurst(t *testing.T) {
+	root := newGitRoot(t)
+	var notifyCount atomic.Int32
+
+	fw, err := NewFileWatcher(func(r string) {
+		if r == root {
+			notifyCount.Add(1)
+		}
+	})
+	if err != nil {
+		t.Fatalf("NewFileWatcher() error = %v", err)
+	}
+	defer func() {
+		_ = fw.Close()
+	}()
+	fw.debounce = 20 * time.Millisecond
+
+	if err := fw.Watch(root); err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	fw.handleChange(root)
+	for i := 0; i < 5; i++ {
+		fw.handleChange(root)
+	}
+
+	testutil.WaitForAtomic(t, notifyCount.Load, int32(2), time.Second)
+	testutil.Consistently(t, 3*fw.debounce, time.Millisecond, func() string {
+		if got := notifyCount.Load(); got != 2 {
+			return fmt.Sprintf("notify count = %d, want exactly 2", got)
+		}
+		return ""
+	})
+}
+
+func TestFileWatcherUnwatchCancelsTrailingDebounce(t *testing.T) {
+	root := newGitRoot(t)
+	var notifyCount atomic.Int32
+
+	fw, err := NewFileWatcher(func(r string) {
+		if r == root {
+			notifyCount.Add(1)
+		}
+	})
+	if err != nil {
+		t.Fatalf("NewFileWatcher() error = %v", err)
+	}
+	defer func() {
+		_ = fw.Close()
+	}()
+	fw.debounce = 20 * time.Millisecond
+
+	if err := fw.Watch(root); err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	fw.handleChange(root)
+	fw.handleChange(root)
+	if got := notifyCount.Load(); got != 1 {
+		t.Fatalf("notify count after leading fire = %d, want 1", got)
+	}
+
+	fw.Unwatch(root)
+	testutil.Consistently(t, 3*fw.debounce, time.Millisecond, func() string {
+		if got := notifyCount.Load(); got != 1 {
+			return fmt.Sprintf("notify count = %d after Unwatch, want 1", got)
+		}
+		return ""
+	})
+}
+
+func TestFileWatcherCloseCancelsTrailingDebounce(t *testing.T) {
+	root := newGitRoot(t)
+	var notifyCount atomic.Int32
+
+	fw, err := NewFileWatcher(func(r string) {
+		if r == root {
+			notifyCount.Add(1)
+		}
+	})
+	if err != nil {
+		t.Fatalf("NewFileWatcher() error = %v", err)
+	}
+	fw.debounce = 20 * time.Millisecond
+
+	if err := fw.Watch(root); err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+
+	fw.handleChange(root)
+	fw.handleChange(root)
+	if got := notifyCount.Load(); got != 1 {
+		t.Fatalf("notify count after leading fire = %d, want 1", got)
+	}
+
+	if err := fw.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	testutil.Consistently(t, 3*fw.debounce, time.Millisecond, func() string {
+		if got := notifyCount.Load(); got != 1 {
+			return fmt.Sprintf("notify count = %d after Close, want 1", got)
+		}
+		return ""
+	})
 }
 
 // waitForNotifyCount polls c until it reaches at least want or the timeout
