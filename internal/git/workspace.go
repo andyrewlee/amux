@@ -34,7 +34,7 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 
 	// Create branch from base and checkout into workspace path
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
-	_, err := runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, workspacePath, base)
+	_, err := runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, "--", workspacePath, base)
 	cancel()
 	if err == nil {
 		return nil
@@ -47,7 +47,7 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 	// Retry with a fresh timeout context so a slow first attempt does not
 	// consume the entire budget for the fallback path.
 	retryCtx, retryCancel := context.WithTimeout(context.Background(), worktreeTimeout)
-	_, retryErr := runGitCtx(retryCtx, repoPath, "worktree", "add", workspacePath, branch)
+	_, retryErr := runGitCtx(retryCtx, repoPath, "worktree", "add", "--", workspacePath, branch)
 	retryCancel()
 	if retryErr != nil {
 		firstErrMsg := err.Error()
