@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -121,6 +122,22 @@ func TestPortAllocator_ExhaustionScanStaysInRange(t *testing.T) {
 
 func portRangesOverlap(startA, endA, startB, endB int) bool {
 	return startA <= endB && endA >= startB
+}
+
+func TestPortAllocator_FullExhaustionPanics(t *testing.T) {
+	p := NewPortAllocator(1, 32768)
+
+	if got := p.AllocatePort("/workspace-1"); got != 1 {
+		t.Fatalf("AllocatePort(first) = %d, want 1", got)
+	}
+	defer func() {
+		recovered := recover()
+		err, ok := recovered.(error)
+		if !ok || !errors.Is(err, ErrPortRangeExhausted) {
+			t.Fatalf("panic = %v, want ErrPortRangeExhausted", recovered)
+		}
+	}()
+	p.AllocatePort("/workspace-2")
 }
 
 func TestPortAllocator_PortRange(t *testing.T) {

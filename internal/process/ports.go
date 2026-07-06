@@ -1,8 +1,12 @@
 package process
 
 import (
+	"errors"
 	"sync"
 )
+
+// ErrPortRangeExhausted reports that no valid, non-overlapping port range remains.
+var ErrPortRangeExhausted = errors.New("port allocator exhausted")
 
 // PortAllocator manages port allocation for workspaces
 type PortAllocator struct {
@@ -68,7 +72,7 @@ func (p *PortAllocator) nextAvailablePortLocked() int {
 			}
 		}
 	}
-	return p.portStart
+	panic(ErrPortRangeExhausted)
 }
 
 func (p *PortAllocator) rangeFits(base int) bool {
