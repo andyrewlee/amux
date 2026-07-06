@@ -34,12 +34,18 @@ install: build
 	cp $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 
 test:
-	go test $$(go list ./... | grep -v -E '/internal/(tmux|e2e|app)$$')
+	@packages=$$(go list ./...) || exit 1; \
+	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app)$$') || exit 1; \
+	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
+	go test $$filtered
 	@$(MAKE) --no-print-directory tmux-skip-check
 
 devcheck:
 	go vet ./...
-	go test $$(go list ./... | grep -v -E '/internal/(tmux|e2e|app)$$')
+	@packages=$$(go list ./...) || exit 1; \
+	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app)$$') || exit 1; \
+	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
+	go test $$filtered
 	@$(MAKE) --no-print-directory tmux-skip-check
 	$(MAKE) lint
 
