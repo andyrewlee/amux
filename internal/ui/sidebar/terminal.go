@@ -290,6 +290,5 @@ func (m *TerminalModel) setActiveTerminalCursorVisibility(visible bool) {
 	}
 	// Invalidate cached snapshot so focus transitions cannot reuse stale
 	// cursor-painted frames.
-	ts.CachedSnap = nil
-	ts.CachedVersion = 0
+	ts.ResetSnapshotCache()
 }

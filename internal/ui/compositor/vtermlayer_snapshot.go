@@ -32,6 +32,11 @@ func NewVTermSnapshot(term *vterm.VTerm, showCursor bool) *VTermSnapshot {
 // lines from a previous snapshot when dirty line tracking allows.
 // MUST be called while holding the appropriate lock on the VTerm.
 func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSnapshot) *VTermSnapshot {
+	return newVTermSnapshot(term, showCursor, prev, nil)
+}
+
+//nolint:gocyclo,funlen // Existing snapshot assembly stays centralized so cache and double-buffer paths share exact behavior.
+func newVTermSnapshot(term *vterm.VTerm, showCursor bool, prev *VTermSnapshot, extraDirty []bool) *VTermSnapshot {
 	if term == nil {
 		return nil
 	}
@@ -97,7 +102,7 @@ func NewVTermSnapshotWithCache(term *vterm.VTerm, showCursor bool, prev *VTermSn
 
 		visible, _ := term.RenderBuffers()
 		for y := 0; y < height; y++ {
-			needsCopy := dirtyLines[y]
+			needsCopy := dirtyLines[y] || (extraDirty != nil && y < len(extraDirty) && extraDirty[y])
 			if screen[y] == nil || len(screen[y]) != width {
 				needsCopy = true
 			}
