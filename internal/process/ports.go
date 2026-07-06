@@ -10,6 +10,7 @@ type PortAllocator struct {
 	portStart int
 	rangeSize int
 	allocated map[string]int // workspace root -> port base
+	freeBases []int
 	nextPort  int
 }
 
@@ -33,12 +34,42 @@ func (p *PortAllocator) AllocatePort(workspaceRoot string) int {
 		return port
 	}
 
-	// Allocate new port range
-	port := p.nextPort
+	port := p.nextAvailablePortLocked()
 	p.allocated[workspaceRoot] = port
-	p.nextPort += p.rangeSize
 
 	return port
+}
+
+func (p *PortAllocator) nextAvailablePortLocked() int {
+	if n := len(p.freeBases); n > 0 {
+		port := p.freeBases[n-1]
+		p.freeBases = p.freeBases[:n-1]
+		return port
+	}
+
+	if p.rangeFits(p.nextPort) {
+		port := p.nextPort
+		p.nextPort += p.rangeSize
+		return port
+	}
+
+	if p.rangeSize > 0 {
+		used := make(map[int]bool, len(p.allocated))
+		for _, base := range p.allocated {
+			used[base] = true
+		}
+		for base := p.portStart; p.rangeFits(base); base += p.rangeSize {
+			if !used[base] {
+				return base
+			}
+		}
+	}
+	return p.portStart
+}
+
+func (p *PortAllocator) rangeFits(base int) bool {
+	const maxPort = 65535
+	return p.rangeSize > 0 && base <= maxPort && base+p.rangeSize-1 <= maxPort
 }
 
 // GetPort returns the allocated port for a workspace
@@ -50,11 +81,14 @@ func (p *PortAllocator) GetPort(workspaceRoot string) (int, bool) {
 	return port, ok
 }
 
-// ReleasePort releases the port allocation for a workspace
+// ReleasePort releases the port allocation for a workspace so the base can be reused.
 func (p *PortAllocator) ReleasePort(workspaceRoot string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if base, ok := p.allocated[workspaceRoot]; ok {
+		p.freeBases = append(p.freeBases, base)
+	}
 	delete(p.allocated, workspaceRoot)
 }
 

@@ -61,6 +61,58 @@ func TestPortAllocator_ReleasePort(t *testing.T) {
 	}
 }
 
+func TestPortAllocator_ReusesReleasedBase(t *testing.T) {
+	p := NewPortAllocator(6200, 10)
+
+	if got := p.AllocatePort("/workspace-a"); got != 6200 {
+		t.Fatalf("AllocatePort(A) = %d, want 6200", got)
+	}
+	p.ReleasePort("/workspace-a")
+	if got := p.AllocatePort("/workspace-b"); got != 6200 {
+		t.Fatalf("AllocatePort(B after release) = %d, want 6200", got)
+	}
+	if got := p.AllocatePort("/workspace-c"); got != 6210 {
+		t.Fatalf("AllocatePort(C) = %d, want 6210", got)
+	}
+}
+
+func TestPortAllocator_SameRootRecreateDoesNotLeak(t *testing.T) {
+	p := NewPortAllocator(6200, 10)
+
+	for i := 0; i < 100; i++ {
+		if got := p.AllocatePort("/workspace"); got != 6200 {
+			t.Fatalf("iteration %d AllocatePort(/workspace) = %d, want 6200", i, got)
+		}
+		p.ReleasePort("/workspace")
+	}
+	if got := p.AllocatePort("/fresh"); got != 6200 {
+		t.Fatalf("AllocatePort(/fresh) = %d, want 6200", got)
+	}
+	if got := p.AllocatePort("/fresh-2"); got >= 6230 {
+		t.Fatalf("next fresh base ran away to %d", got)
+	}
+}
+
+func TestPortAllocator_ExhaustionScanStaysInRange(t *testing.T) {
+	p := NewPortAllocator(65500, 10)
+
+	for i, want := range []int{65500, 65510, 65520} {
+		if got := p.AllocatePort(fmt.Sprintf("/workspace-%d", i)); got != want {
+			t.Fatalf("AllocatePort(%d) = %d, want %d", i, got, want)
+		}
+	}
+	p.ReleasePort("/workspace-1")
+	if got := p.AllocatePort("/workspace-reused"); got != 65510 {
+		t.Fatalf("AllocatePort(reused) = %d, want 65510", got)
+	}
+	if got := p.AllocatePort("/workspace-exhausted"); got != 65500 {
+		t.Fatalf("AllocatePort(exhausted) = %d, want 65500 last-resort base", got)
+	}
+	if port, rangeEnd := p.PortRange("/workspace-exhausted"); port != 65500 || rangeEnd > 65535 {
+		t.Fatalf("PortRange(exhausted) = (%d, %d), want base 65500 and end <= 65535", port, rangeEnd)
+	}
+}
+
 func TestPortAllocator_PortRange(t *testing.T) {
 	p := NewPortAllocator(6200, 10)
 
@@ -128,6 +180,38 @@ func TestPortAllocator_ConcurrentAccess(t *testing.T) {
 			t.Errorf("overlapping ranges: [%d, %d] and [%d, %d]",
 				sorted[i-1], prevEnd, sorted[i], sorted[i]+rangeSize-1)
 		}
+	}
+}
+
+func TestPortAllocator_ConcurrentAllocateRelease(t *testing.T) {
+	const (
+		workers   = 8
+		cycles    = 100
+		portStart = 6200
+		rangeSize = 10
+	)
+	p := NewPortAllocator(portStart, rangeSize)
+	errCh := make(chan string, workers*cycles)
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			root := fmt.Sprintf("/workspace-%d", i)
+			for j := 0; j < cycles; j++ {
+				base := p.AllocatePort(root)
+				if base < portStart || base > 65535 || (base-portStart)%rangeSize != 0 {
+					errCh <- fmt.Sprintf("worker %d cycle %d got invalid base %d", i, j, base)
+				}
+				p.ReleasePort(root)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
 	}
 }
 
