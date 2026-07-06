@@ -106,22 +106,9 @@ func TestPortAllocator_ExhaustionScanStaysInRange(t *testing.T) {
 	if got := p.AllocatePort("/workspace-reused"); got != 65510 {
 		t.Fatalf("AllocatePort(reused) = %d, want 65510", got)
 	}
-	got := p.AllocatePort("/workspace-exhausted")
-	if got+9 > 65535 {
-		t.Fatalf("AllocatePort(exhausted) = %d, range end exceeds 65535", got)
-	}
-	for _, live := range []int{65500, 65510, 65520} {
-		if portRangesOverlap(got, got+9, live, live+9) {
-			t.Fatalf("AllocatePort(exhausted) = %d overlaps live base %d", got, live)
-		}
-	}
-	if port, rangeEnd := p.PortRange("/workspace-exhausted"); port != got || rangeEnd > 65535 {
-		t.Fatalf("PortRange(exhausted) = (%d, %d), want base %d and end <= 65535", port, rangeEnd, got)
-	}
-}
-
-func portRangesOverlap(startA, endA, startB, endB int) bool {
-	return startA <= endB && endA >= startB
+	expectPortExhaustionPanic(t, func() {
+		p.AllocatePort("/workspace-exhausted")
+	})
 }
 
 func TestPortAllocator_FullExhaustionPanics(t *testing.T) {
@@ -130,6 +117,13 @@ func TestPortAllocator_FullExhaustionPanics(t *testing.T) {
 	if got := p.AllocatePort("/workspace-1"); got != 1 {
 		t.Fatalf("AllocatePort(first) = %d, want 1", got)
 	}
+	expectPortExhaustionPanic(t, func() {
+		p.AllocatePort("/workspace-2")
+	})
+}
+
+func expectPortExhaustionPanic(t *testing.T, fn func()) {
+	t.Helper()
 	defer func() {
 		recovered := recover()
 		err, ok := recovered.(error)
@@ -137,7 +131,7 @@ func TestPortAllocator_FullExhaustionPanics(t *testing.T) {
 			t.Fatalf("panic = %v, want ErrPortRangeExhausted", recovered)
 		}
 	}()
-	p.AllocatePort("/workspace-2")
+	fn()
 }
 
 func TestPortAllocator_PortRange(t *testing.T) {

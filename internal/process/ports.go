@@ -66,11 +66,6 @@ func (p *PortAllocator) nextAvailablePortLocked() int {
 				return base
 			}
 		}
-		for base := 1; p.rangeFits(base); base++ {
-			if p.rangeAvailable(base, used) {
-				return base
-			}
-		}
 	}
 	panic(ErrPortRangeExhausted)
 }
