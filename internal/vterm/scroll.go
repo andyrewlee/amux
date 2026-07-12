@@ -24,7 +24,12 @@ func (v *VTerm) scrollUp(n int) {
 		added := 0
 		for i := top; i < bottom; i++ {
 			if i < len(v.Screen) {
-				v.Scrollback = append(v.Scrollback, CopyLine(v.Screen[i]))
+				// Move (not copy) the row: the shift and blank-fill loops
+				// below reassign every Screen slot in [ScrollTop, ScrollBottom),
+				// so after this append the appended slice is the sole live
+				// reference (snapshot/render paths copy cell contents, never
+				// retain Screen row headers).
+				v.Scrollback = append(v.Scrollback, v.Screen[i])
 				added++
 			}
 		}
