@@ -3,6 +3,7 @@ package update
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,86 @@ func TestUpdaterCheckHomebrewBuild(t *testing.T) {
 	}
 	if result.UpdateAvailable {
 		t.Errorf("Homebrew build should not have updates available")
+	}
+}
+
+func TestUpdaterCheckComparesVersions(t *testing.T) {
+	// Guard the homebrew build global exactly like TestUpdaterCheckHomebrewBuild
+	// so a homebrew-tagged build environment can't short-circuit Check before it
+	// reaches the version comparison under test.
+	original := homebrewBuild
+	t.Cleanup(func() { homebrewBuild = original })
+	homebrewBuild = ""
+
+	mustParse := func(s string) Version {
+		v, err := ParseVersion(s)
+		if err != nil {
+			t.Fatalf("ParseVersion(%q) failed: %v", s, err)
+		}
+		return v
+	}
+
+	tests := []struct {
+		name          string
+		current       string
+		tag           string
+		fetchErr      error
+		wantErr       string // substring the returned error must contain; "" means no error
+		wantAvailable bool
+	}{
+		{name: "newer available", current: "v1.2.3", tag: "v1.2.4", wantAvailable: true},
+		{name: "equal", current: "v1.2.3", tag: "v1.2.3", wantAvailable: false},
+		{name: "older (downgrade never offered)", current: "v1.2.3", tag: "v1.2.2", wantAvailable: false},
+		{name: "malformed latest tag", current: "v1.2.3", tag: "not-a-version", wantErr: "parsing latest version"},
+		{name: "malformed current version", current: "garbage", tag: "v1.2.4", wantErr: "parsing current version"},
+		{name: "fetch error", current: "v1.2.3", tag: "v1.2.4", fetchErr: errors.New("boom"), wantErr: "fetching latest release"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := NewUpdater(tt.current, "none", "unknown")
+			release := &Release{TagName: tt.tag, Body: "notes for " + tt.name}
+			u.fetchLatestRelease = func() (*Release, error) {
+				if tt.fetchErr != nil {
+					return nil, tt.fetchErr
+				}
+				return release, nil
+			}
+
+			result, err := u.Check()
+
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("Check() error = nil, want error containing %q", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Check() error = %q, want substring %q", err.Error(), tt.wantErr)
+				}
+				if result != nil {
+					t.Fatalf("Check() result = %#v, want nil on error", result)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Check() unexpected error = %v", err)
+			}
+			if result.UpdateAvailable != tt.wantAvailable {
+				t.Errorf("UpdateAvailable = %v, want %v", result.UpdateAvailable, tt.wantAvailable)
+			}
+			if want := mustParse(tt.current).String(); result.CurrentVersion != want {
+				t.Errorf("CurrentVersion = %q, want %q", result.CurrentVersion, want)
+			}
+			if want := mustParse(tt.tag).String(); result.LatestVersion != want {
+				t.Errorf("LatestVersion = %q, want %q", result.LatestVersion, want)
+			}
+			if result.ReleaseNotes != release.Body {
+				t.Errorf("ReleaseNotes = %q, want %q", result.ReleaseNotes, release.Body)
+			}
+			if result.Release != release {
+				t.Errorf("Release = %p, want same pointer %p", result.Release, release)
+			}
+		})
 	}
 }
 

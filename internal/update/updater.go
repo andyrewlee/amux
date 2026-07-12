@@ -45,6 +45,10 @@ type Updater struct {
 	date    string
 	github  *GitHubClient
 	deps    upgradeDeps
+	// fetchLatestRelease mirrors the upgradeDeps function-field pattern so
+	// Check's version-compare logic can be unit-tested without network access.
+	// NewUpdater defaults it to github.FetchLatestRelease; tests override it.
+	fetchLatestRelease func() (*Release, error)
 }
 
 // NewUpdater creates a new Updater.
@@ -71,6 +75,7 @@ func NewUpdater(version, commit, date string) *Updater {
 			extract:  ExtractBinary,
 			install:  InstallBinary,
 		},
+		fetchLatestRelease: github.FetchLatestRelease,
 	}
 }
 
@@ -92,7 +97,7 @@ func (u *Updater) Check() (*CheckResult, error) {
 		}, nil
 	}
 
-	release, err := u.github.FetchLatestRelease()
+	release, err := u.fetchLatestRelease()
 	if err != nil {
 		return nil, fmt.Errorf("fetching latest release: %w", err)
 	}
