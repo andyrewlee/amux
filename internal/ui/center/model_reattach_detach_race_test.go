@@ -144,3 +144,30 @@ func TestRestartActiveTabMarksRestartInFlight(t *testing.T) {
 		t.Fatal("expected restart to mark reattachInFlight")
 	}
 }
+
+// TestUpdatePtyTabReattachResult_ClosesAgentWhenTabGone proves a reattach
+// result that lands after its tab was closed (getTabByID returns nil) releases
+// the freshly created agent instead of leaking its PTY.
+func TestUpdatePtyTabReattachResult_ClosesAgentWhenTabGone(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+	// No tab registered for wsID: the tab was closed while reattach was in flight.
+
+	term, err := appPty.New("cat >/dev/null", t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("creating terminal: %v", err)
+	}
+	t.Cleanup(func() { _ = term.Close() })
+
+	orphanAgent := &appPty.Agent{Workspace: ws, Session: "amux-ws-sess", Terminal: term}
+	m.updatePtyTabReattachResult(ptyTabReattachResult{
+		WorkspaceID: wsID,
+		TabID:       TabID("tab-closed-mid-reattach"),
+		Agent:       orphanAgent,
+	})
+
+	if !term.IsClosed() {
+		t.Fatal("agent terminal must be closed when the reattach result has no tab to apply to")
+	}
+}

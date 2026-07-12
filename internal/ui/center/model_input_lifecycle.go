@@ -76,7 +76,15 @@ func (m *Model) sessionRestoreLiveSize(captureFullPane bool, captureCols, captur
 // updatePtyTabReattachResult handles ptyTabReattachResult.
 func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, tea.Cmd) {
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
-	if tab == nil || msg.Agent == nil {
+	if tab == nil {
+		// The tab was closed (or its workspace deleted) while the reattach was
+		// in flight: release the freshly created agent/PTY so it does not leak.
+		if msg.Agent != nil {
+			_ = m.agentManager.CloseAgent(msg.Agent)
+		}
+		return m, nil
+	}
+	if msg.Agent == nil {
 		return m, nil
 	}
 	// Reject a result for a tab that was explicitly detached while this reattach
