@@ -67,6 +67,7 @@ func newAppShell(cfg *config.Config) *App {
 	app.propagateStyles()
 	if cfg != nil {
 		app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
+		app.dashboard.SetNotifyOnDone(cfg.UI.NotifyOnDone)
 	}
 	return app
 }

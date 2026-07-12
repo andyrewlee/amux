@@ -44,6 +44,7 @@ func TestSaveUISettingsWritesAllFields(t *testing.T) {
 				TmuxServer:       "amux-test",
 				TmuxConfigPath:   "/tmp/tmux.conf",
 				TmuxSyncInterval: "5s",
+				NotifyOnDone:     true,
 			},
 		},
 		{
@@ -88,6 +89,9 @@ func TestSaveUISettingsWritesAllFields(t *testing.T) {
 			}
 			if got := ui["tmux_sync_interval"]; got != tt.settings.TmuxSyncInterval {
 				t.Errorf("tmux_sync_interval = %#v, want %#v", got, tt.settings.TmuxSyncInterval)
+			}
+			if got := ui["notify_on_done"]; got != tt.settings.NotifyOnDone {
+				t.Errorf("notify_on_done = %#v, want %#v", got, tt.settings.NotifyOnDone)
 			}
 
 			// What we wrote must round-trip back through the read path.

@@ -17,6 +17,9 @@ type UISettings struct {
 	TmuxServer       string
 	TmuxConfigPath   string
 	TmuxSyncInterval string
+	// NotifyOnDone rings a terminal bell when an agent finishes. Default off so
+	// existing users are not surprised by sound.
+	NotifyOnDone bool
 }
 
 func defaultUISettings() UISettings {
@@ -26,6 +29,7 @@ func defaultUISettings() UISettings {
 		TmuxServer:       "",
 		TmuxConfigPath:   "",
 		TmuxSyncInterval: "",
+		NotifyOnDone:     false,
 	}
 }
 
@@ -37,6 +41,7 @@ type uiSettingsRaw struct {
 	TmuxServer       *string `json:"tmux_server"`
 	TmuxConfigPath   *string `json:"tmux_config"`
 	TmuxSyncInterval *string `json:"tmux_sync_interval"`
+	NotifyOnDone     *bool   `json:"notify_on_done"`
 }
 
 // applyUISettings overlays the parsed config-file section onto the defaults.
@@ -55,6 +60,9 @@ func applyUISettings(settings UISettings, raw uiSettingsRaw) UISettings {
 	}
 	if raw.TmuxSyncInterval != nil {
 		settings.TmuxSyncInterval = *raw.TmuxSyncInterval
+	}
+	if raw.NotifyOnDone != nil {
+		settings.NotifyOnDone = *raw.NotifyOnDone
 	}
 	return settings
 }
@@ -84,6 +92,7 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["tmux_server"] = settings.TmuxServer
 	ui["tmux_config"] = settings.TmuxConfigPath
 	ui["tmux_sync_interval"] = settings.TmuxSyncInterval
+	ui["notify_on_done"] = settings.NotifyOnDone
 	payload["ui"] = ui
 
 	// Crash-safe write (temp + fsync + atomic rename) so a crash mid-save can't

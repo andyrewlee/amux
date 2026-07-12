@@ -17,6 +17,17 @@ type SpinnerTickMsg struct{}
 // spinnerInterval is how often the spinner updates
 const spinnerInterval = 80 * time.Millisecond
 
+// bellSequence is the ASCII BEL control byte (0x07). Written verbatim to the
+// program output it rings the user's terminal bell.
+const bellSequence = "\a"
+
+// bellCmd rings the terminal bell. tea.Raw writes the byte straight to the
+// program's output buffer (via the RawMsg path), bypassing the alt-screen
+// canvas so the BEL reaches the real terminal rather than a rendered cell.
+func bellCmd() tea.Cmd {
+	return tea.Raw(bellSequence)
+}
+
 // RowType identifies the type of row in the dashboard
 type RowType int
 
@@ -86,6 +97,7 @@ type Model struct {
 	activeWorkspaceIDs map[string]bool                // Workspace IDs with active agents (synced from center)
 	agentStates        map[string]activity.AgentState // Per-workspace semantic agent states
 	doneAcked          map[string]bool                // Workspace IDs whose "done" indicator has been seen by the user
+	notifyOnDone       bool                           // Ring a terminal bell on the unacked Working→Done edge
 
 	// Styles
 	styles common.Styles
@@ -112,16 +124,41 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 	m.activeWorkspaceIDs = active
 }
 
+// SetNotifyOnDone controls whether a terminal bell fires when a workspace
+// transitions Working→Done (the same edge the "done" indicator surfaces).
+func (m *Model) SetNotifyOnDone(enabled bool) {
+	m.notifyOnDone = enabled
+}
+
 // SetAgentStates updates the per-workspace semantic agent states.
 // It also clears the doneAcked flag for any workspace that has started
 // working again, so the next "done" is visible to the user.
-func (m *Model) SetAgentStates(states map[string]activity.AgentState) {
+//
+// It returns a bell command exactly once per unacked Working→Done edge when
+// notify-on-done is enabled: the previous state is compared against the new one
+// so a workspace that stays Done across frames does not re-bell. A frame with
+// several simultaneous edges still rings a single bell.
+func (m *Model) SetAgentStates(states map[string]activity.AgentState) tea.Cmd {
+	prev := m.agentStates
 	m.agentStates = states
+	bell := false
 	for wsID, st := range states {
-		if st == activity.StateWorking {
+		switch st {
+		case activity.StateWorking:
 			delete(m.doneAcked, wsID)
+		case activity.StateDone:
+			// Fire only on the fresh, unacked Working→Done transition. Gating on
+			// prev == Working de-dupes steady-state Done (prev is already Done)
+			// and skips Idle/absent→Done, which is not a finish the user watched.
+			if m.notifyOnDone && prev[wsID] == activity.StateWorking && !m.doneAcked[wsID] {
+				bell = true
+			}
 		}
 	}
+	if bell {
+		return bellCmd()
+	}
+	return nil
 }
 
 // InvalidateStatus marks a workspace's cached status stale.
