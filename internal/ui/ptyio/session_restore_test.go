@@ -10,19 +10,12 @@ import (
 func TestRestorePaneCapture_ViewportGrowthCountsOnlyRevealedHistoryRows(t *testing.T) {
 	term := vterm.New(20, 2)
 
-	RestorePaneCapture(
-		term,
-		[]byte("history\nscreen one\nscreen two\n"),
-		[]byte("older\nhistory\n"),
-		0,
-		0,
-		false,
-		tmux.PaneModeState{},
-		20,
-		2,
-		20,
-		5,
-	)
+	RestorePaneCapture(term, SessionRestoreCapture{
+		ScrollbackCapture:           []byte("history\nscreen one\nscreen two\n"),
+		PostAttachScrollbackCapture: []byte("older\nhistory\n"),
+		SnapshotCols:                20,
+		SnapshotRows:                2,
+	}, 20, 5)
 
 	if len(term.Scrollback) != 1 {
 		t.Fatalf("expected only the truly new history row to be appended after viewport growth, got %d rows", len(term.Scrollback))
@@ -39,19 +32,11 @@ func TestRestorePaneCapture_DropsStaleParserCarryBeforeNewClientRedraw(t *testin
 	term := vterm.New(20, 2)
 	term.Write([]byte("\x1b"))
 
-	RestorePaneCapture(
-		term,
-		[]byte("history\nscreen one\nscreen two\n"),
-		nil,
-		0,
-		0,
-		false,
-		tmux.PaneModeState{},
-		20,
-		2,
-		20,
-		2,
-	)
+	RestorePaneCapture(term, SessionRestoreCapture{
+		ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
+		SnapshotCols:      20,
+		SnapshotRows:      2,
+	}, 20, 2)
 
 	if got := term.ParserCarryState(); got != (vterm.ParserCarryState{}) {
 		t.Fatalf("expected full-pane restore to drop stale parser carry before the new tmux client attaches, got %+v", got)
@@ -69,19 +54,12 @@ func TestRestorePaneCapture_DropsStaleParserCarryBeforeNewClientRedraw(t *testin
 func TestRestorePaneCapture_DoesNotDuplicateHistoryWhenViewportShrinks(t *testing.T) {
 	term := vterm.New(20, 2)
 
-	RestorePaneCapture(
-		term,
-		[]byte("history\nscreen zero\nscreen one\nscreen two\n"),
-		[]byte("history\nscreen zero\n"),
-		0,
-		0,
-		false,
-		tmux.PaneModeState{},
-		20,
-		3,
-		20,
-		2,
-	)
+	RestorePaneCapture(term, SessionRestoreCapture{
+		ScrollbackCapture:           []byte("history\nscreen zero\nscreen one\nscreen two\n"),
+		PostAttachScrollbackCapture: []byte("history\nscreen zero\n"),
+		SnapshotCols:                20,
+		SnapshotRows:                3,
+	}, 20, 2)
 
 	if term.Width != 20 || term.Height != 2 {
 		t.Fatalf("expected restored terminal resized to the live viewport, got %dx%d", term.Width, term.Height)
@@ -106,19 +84,12 @@ func TestRestorePaneCapture_DoesNotDuplicateHistoryWhenViewportShrinks(t *testin
 func TestRestorePaneCapture_DoesNotDuplicateHistoryWhenViewportGrows(t *testing.T) {
 	term := vterm.New(20, 2)
 
-	RestorePaneCapture(
-		term,
-		[]byte("history\nscreen one\nscreen two\n"),
-		[]byte("history\nscreen one\n"),
-		0,
-		0,
-		false,
-		tmux.PaneModeState{},
-		20,
-		2,
-		20,
-		3,
-	)
+	RestorePaneCapture(term, SessionRestoreCapture{
+		ScrollbackCapture:           []byte("history\nscreen one\nscreen two\n"),
+		PostAttachScrollbackCapture: []byte("history\nscreen one\n"),
+		SnapshotCols:                20,
+		SnapshotRows:                2,
+	}, 20, 3)
 
 	if term.Width != 20 || term.Height != 3 {
 		t.Fatalf("expected restored terminal resized to the larger live viewport, got %dx%d", term.Width, term.Height)
@@ -134,19 +105,12 @@ func TestRestorePaneCapture_DoesNotDuplicateHistoryWhenViewportGrows(t *testing.
 func TestRestorePaneCapture_DoesNotDuplicateVisibleTailWhenResizeChangesDuringAttach(t *testing.T) {
 	term := vterm.New(20, 2)
 
-	RestorePaneCapture(
-		term,
-		[]byte("history\nscreen one\nscreen two\n"),
-		[]byte("history\nscreen one\nscreen two\n"),
-		0,
-		0,
-		false,
-		tmux.PaneModeState{},
-		20,
-		2,
-		20,
-		3,
-	)
+	RestorePaneCapture(term, SessionRestoreCapture{
+		ScrollbackCapture:           []byte("history\nscreen one\nscreen two\n"),
+		PostAttachScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
+		SnapshotCols:                20,
+		SnapshotRows:                2,
+	}, 20, 3)
 
 	if len(term.Scrollback) != 0 {
 		t.Fatalf("expected visible post-attach rows to stay out of scrollback after resize, got %d", len(term.Scrollback))
@@ -162,19 +126,12 @@ func TestRestorePaneCapture_DoesNotDuplicateVisibleTailWhenResizeChangesDuringAt
 func TestRestorePaneCapture_ReconcilesDeltaAtSnapshotWidthAfterResize(t *testing.T) {
 	term := vterm.New(8, 2)
 
-	RestorePaneCapture(
-		term,
-		[]byte("history\n12345678\nabcdefgh\n"),
-		[]byte("history\n12345678\n"),
-		0,
-		0,
-		false,
-		tmux.PaneModeState{},
-		8,
-		2,
-		4,
-		2,
-	)
+	RestorePaneCapture(term, SessionRestoreCapture{
+		ScrollbackCapture:           []byte("history\n12345678\nabcdefgh\n"),
+		PostAttachScrollbackCapture: []byte("history\n12345678\n"),
+		SnapshotCols:                8,
+		SnapshotRows:                2,
+	}, 4, 2)
 
 	if term.Width != 4 || term.Height != 2 {
 		t.Fatalf("expected restore resized to the narrower live viewport, got %dx%d", term.Width, term.Height)
@@ -190,24 +147,20 @@ func TestRestorePaneCapture_ReconcilesDeltaAtSnapshotWidthAfterResize(t *testing
 func TestRestorePaneCapture_AltScreenViewportGrowthDoesNotRevealHistory(t *testing.T) {
 	term := vterm.New(8, 2)
 
-	RestorePaneCapture(
-		term,
-		[]byte("older\nmenu one\nmenu two\n"),
-		nil,
-		0,
-		1,
-		true,
-		tmux.PaneModeState{
+	RestorePaneCapture(term, SessionRestoreCapture{
+		ScrollbackCapture: []byte("older\nmenu one\nmenu two\n"),
+		SnapshotCursorX:   0,
+		SnapshotCursorY:   1,
+		SnapshotHasCursor: true,
+		SnapshotModeState: tmux.PaneModeState{
 			HasState:     true,
 			AltScreen:    true,
 			ScrollTop:    0,
 			ScrollBottom: 2,
 		},
-		8,
-		2,
-		8,
-		4,
-	)
+		SnapshotCols: 8,
+		SnapshotRows: 2,
+	}, 8, 4)
 
 	if !term.AltScreen {
 		t.Fatal("expected restored pane to remain in alt-screen mode")

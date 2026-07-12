@@ -159,21 +159,23 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		}
 
 		return SidebarTerminalCreated{
-			WorkspaceID:          wsID,
-			TabID:                tabID,
-			Terminal:             term,
-			SessionName:          sessionName,
-			Scrollback:           scrollback,
-			PostAttachScrollback: postAttachScrollback,
-			CaptureCols:          captureCols,
-			CaptureRows:          captureRows,
-			CaptureFullPane:      captureFullPane,
-			SnapshotCols:         snapshot.Cols,
-			SnapshotRows:         snapshot.Rows,
-			SnapshotCursorX:      snapshot.CursorX,
-			SnapshotCursorY:      snapshot.CursorY,
-			SnapshotHasCursor:    snapshot.HasCursor,
-			SnapshotModeState:    snapshot.ModeState,
+			WorkspaceID: wsID,
+			TabID:       tabID,
+			Terminal:    term,
+			SessionName: sessionName,
+			CaptureCols: captureCols,
+			CaptureRows: captureRows,
+			SessionRestoreCapture: ptyio.SessionRestoreCapture{
+				ScrollbackCapture:           scrollback,
+				PostAttachScrollbackCapture: postAttachScrollback,
+				CaptureFullPane:             captureFullPane,
+				SnapshotCols:                snapshot.Cols,
+				SnapshotRows:                snapshot.Rows,
+				SnapshotCursorX:             snapshot.CursorX,
+				SnapshotCursorY:             snapshot.CursorY,
+				SnapshotHasCursor:           snapshot.HasCursor,
+				SnapshotModeState:           snapshot.ModeState,
+			},
 		}
 	}
 }
@@ -351,21 +353,23 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			scrollback, _ = capturePaneFn(sessionName, opts)
 		}
 		return SidebarTerminalReattachResult{
-			WorkspaceID:          wsID,
-			TabID:                tabID,
-			Terminal:             term,
-			SessionName:          sessionName,
-			Scrollback:           scrollback,
-			PostAttachScrollback: postAttachScrollback,
-			CaptureCols:          captureCols,
-			CaptureRows:          captureRows,
-			CaptureFullPane:      captureFullPane,
-			SnapshotCols:         snapshot.Cols,
-			SnapshotRows:         snapshot.Rows,
-			SnapshotCursorX:      snapshot.CursorX,
-			SnapshotCursorY:      snapshot.CursorY,
-			SnapshotHasCursor:    snapshot.HasCursor,
-			SnapshotModeState:    snapshot.ModeState,
+			WorkspaceID: wsID,
+			TabID:       tabID,
+			Terminal:    term,
+			SessionName: sessionName,
+			CaptureCols: captureCols,
+			CaptureRows: captureRows,
+			SessionRestoreCapture: ptyio.SessionRestoreCapture{
+				ScrollbackCapture:           scrollback,
+				PostAttachScrollbackCapture: postAttachScrollback,
+				CaptureFullPane:             captureFullPane,
+				SnapshotCols:                snapshot.Cols,
+				SnapshotRows:                snapshot.Rows,
+				SnapshotCursorX:             snapshot.CursorX,
+				SnapshotCursorY:             snapshot.CursorY,
+				SnapshotHasCursor:           snapshot.HasCursor,
+				SnapshotModeState:           snapshot.ModeState,
+			},
 		}
 	}
 }

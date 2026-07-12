@@ -121,19 +121,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 			// Any preserved local PTY backlog may already be represented there and
 			// would duplicate on the next flush if we kept it alive.
 			tab.PendingOutput = nil
-			ptyio.RestorePaneCapture(
-				tab.Terminal,
-				msg.ScrollbackCapture,
-				msg.PostAttachScrollbackCapture,
-				msg.SnapshotCursorX,
-				msg.SnapshotCursorY,
-				msg.SnapshotHasCursor,
-				msg.SnapshotModeState,
-				msg.SnapshotCols,
-				msg.SnapshotRows,
-				cols,
-				rows,
-			)
+			ptyio.RestorePaneCapture(tab.Terminal, msg.SessionRestoreCapture, cols, rows)
 		} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
 			ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 		} else if m.width > 0 && m.height > 0 {

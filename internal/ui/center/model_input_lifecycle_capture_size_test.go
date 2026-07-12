@@ -34,15 +34,17 @@ func TestUpdatePtyTabReattachResult_UsesSnapshotSizeBeforeResizingToCurrentSize(
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:       wsID,
-		TabID:             tab.ID,
-		Agent:             &appPty.Agent{Session: "sess-reattach-snapshot-size"},
-		Rows:              snapshotHeight,
-		Cols:              snapshotWidth,
-		ScrollbackCapture: capture,
-		CaptureFullPane:   true,
-		SnapshotCols:      snapshotWidth,
-		SnapshotRows:      snapshotHeight,
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-snapshot-size"},
+		Rows:        snapshotHeight,
+		Cols:        snapshotWidth,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: capture,
+			CaptureFullPane:   true,
+			SnapshotCols:      snapshotWidth,
+			SnapshotRows:      snapshotHeight,
+		},
 	})
 
 	if got := tab.Terminal.Width; got != current.Width {
@@ -74,17 +76,19 @@ func TestHandlePtyTabCreated_UsesSnapshotSizeBeforeResizingToCurrentSize(t *test
 	wsID := string(ws.ID())
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
-		Workspace:         ws,
-		Assistant:         "codex",
-		Agent:             &appPty.Agent{Session: "sess-created-snapshot-size"},
-		TabID:             TabID("tab-created-snapshot-size"),
-		Rows:              snapshotHeight,
-		Cols:              snapshotWidth,
-		Activate:          true,
-		ScrollbackCapture: capture,
-		CaptureFullPane:   true,
-		SnapshotCols:      snapshotWidth,
-		SnapshotRows:      snapshotHeight,
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created-snapshot-size"},
+		TabID:     TabID("tab-created-snapshot-size"),
+		Rows:      snapshotHeight,
+		Cols:      snapshotWidth,
+		Activate:  true,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: capture,
+			CaptureFullPane:   true,
+			SnapshotCols:      snapshotWidth,
+			SnapshotRows:      snapshotHeight,
+		},
 	})
 
 	tab := m.tabs.ByWorkspace[wsID][0]
@@ -119,13 +123,15 @@ func TestUpdatePtyTabReattachResult_UsesCaptureSizeBeforeResizingForHistoryOnly(
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:       wsID,
-		TabID:             tab.ID,
-		Agent:             &appPty.Agent{Session: "sess-reattach-history-size"},
-		Rows:              captureHeight,
-		Cols:              captureWidth,
-		ScrollbackCapture: capture,
-		CaptureFullPane:   false,
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-history-size"},
+		Rows:        captureHeight,
+		Cols:        captureWidth,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: capture,
+			CaptureFullPane:   false,
+		},
 	})
 
 	if got := tab.Terminal.Width; got != current.Width {
@@ -155,15 +161,17 @@ func TestHandlePtyTabCreated_UsesCaptureSizeBeforeResizingForHistoryOnly(t *test
 	wsID := string(ws.ID())
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
-		Workspace:         ws,
-		Assistant:         "codex",
-		Agent:             &appPty.Agent{Session: "sess-created-history-size"},
-		TabID:             TabID("tab-created-history-size"),
-		Rows:              captureHeight,
-		Cols:              captureWidth,
-		Activate:          true,
-		ScrollbackCapture: capture,
-		CaptureFullPane:   false,
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created-history-size"},
+		TabID:     TabID("tab-created-history-size"),
+		Rows:      captureHeight,
+		Cols:      captureWidth,
+		Activate:  true,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: capture,
+			CaptureFullPane:   false,
+		},
 	})
 
 	tab := m.tabs.ByWorkspace[wsID][0]
@@ -198,13 +206,15 @@ func TestUpdatePtyTabReattachResult_UsesLiveDefaultPTYSizeBeforeFirstLayout(t *t
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:       wsID,
-		TabID:             tab.ID,
-		Agent:             &appPty.Agent{Session: "sess-reattach-startup-live-size", Terminal: &appPty.Terminal{}},
-		Rows:              captureHeight,
-		Cols:              captureWidth,
-		ScrollbackCapture: capture,
-		CaptureFullPane:   false,
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-startup-live-size", Terminal: &appPty.Terminal{}},
+		Rows:        captureHeight,
+		Cols:        captureWidth,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: capture,
+			CaptureFullPane:   false,
+		},
 	})
 
 	if tab.ptyRows != current.Height || tab.ptyCols != current.Width {
@@ -226,15 +236,17 @@ func TestHandlePtyTabCreated_UsesLiveDefaultPTYSizeBeforeFirstLayout(t *testing.
 	wsID := string(ws.ID())
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
-		Workspace:         ws,
-		Assistant:         "codex",
-		Agent:             &appPty.Agent{Session: "sess-created-startup-live-size", Terminal: &appPty.Terminal{}},
-		TabID:             TabID("tab-created-startup-live-size"),
-		Rows:              captureHeight,
-		Cols:              captureWidth,
-		Activate:          true,
-		ScrollbackCapture: capture,
-		CaptureFullPane:   false,
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created-startup-live-size", Terminal: &appPty.Terminal{}},
+		TabID:     TabID("tab-created-startup-live-size"),
+		Rows:      captureHeight,
+		Cols:      captureWidth,
+		Activate:  true,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: capture,
+			CaptureFullPane:   false,
+		},
 	})
 
 	tab := m.tabs.ByWorkspace[wsID][0]

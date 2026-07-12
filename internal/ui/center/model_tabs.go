@@ -49,40 +49,24 @@ func nextAssistantName(assistant string, tabs []*Tab) string {
 }
 
 type ptyTabCreateResult struct {
-	Workspace                   *data.Workspace
-	Assistant                   string
-	DisplayName                 string
-	Agent                       *appPty.Agent
-	TabID                       TabID
-	Activate                    bool
-	Rows                        int
-	Cols                        int
-	ScrollbackCapture           []byte
-	PostAttachScrollbackCapture []byte
-	CaptureFullPane             bool
-	SnapshotCols                int
-	SnapshotRows                int
-	SnapshotCursorX             int
-	SnapshotCursorY             int
-	SnapshotHasCursor           bool
-	SnapshotModeState           tmux.PaneModeState
+	Workspace   *data.Workspace
+	Assistant   string
+	DisplayName string
+	Agent       *appPty.Agent
+	TabID       TabID
+	Activate    bool
+	Rows        int
+	Cols        int
+	ptyio.SessionRestoreCapture
 }
 
 type ptyTabReattachResult struct {
-	WorkspaceID                 string
-	TabID                       TabID
-	Agent                       *appPty.Agent
-	Rows                        int
-	Cols                        int
-	ScrollbackCapture           []byte
-	PostAttachScrollbackCapture []byte
-	CaptureFullPane             bool
-	SnapshotCols                int
-	SnapshotRows                int
-	SnapshotCursorX             int
-	SnapshotCursorY             int
-	SnapshotHasCursor           bool
-	SnapshotModeState           tmux.PaneModeState
+	WorkspaceID string
+	TabID       TabID
+	Agent       *appPty.Agent
+	Rows        int
+	Cols        int
+	ptyio.SessionRestoreCapture
 }
 
 type ptyTabReattachFailed struct {
@@ -174,18 +158,20 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 		scrollback, _ := tmux.CapturePane(sessionName, m.tmuxOpts)
 
 		return ptyTabCreateResult{
-			Workspace:         ws,
-			Assistant:         assistant,
-			Agent:             agent,
-			TabID:             tabID,
-			DisplayName:       displayName,
-			Activate:          activate,
-			Rows:              captureRows,
-			Cols:              captureCols,
-			ScrollbackCapture: scrollback,
-			CaptureFullPane:   false,
-			SnapshotCols:      termWidth,
-			SnapshotRows:      termHeight,
+			Workspace:   ws,
+			Assistant:   assistant,
+			Agent:       agent,
+			TabID:       tabID,
+			DisplayName: displayName,
+			Activate:    activate,
+			Rows:        captureRows,
+			Cols:        captureCols,
+			SessionRestoreCapture: ptyio.SessionRestoreCapture{
+				ScrollbackCapture: scrollback,
+				CaptureFullPane:   false,
+				SnapshotCols:      termWidth,
+				SnapshotRows:      termHeight,
+			},
 		}
 	}
 }
@@ -256,19 +242,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				// A full tmux pane snapshot supersedes any preserved local PTY
 				// backlog for this terminal state.
 				tab.PendingOutput = nil
-				ptyio.RestorePaneCapture(
-					tab.Terminal,
-					msg.ScrollbackCapture,
-					msg.PostAttachScrollbackCapture,
-					msg.SnapshotCursorX,
-					msg.SnapshotCursorY,
-					msg.SnapshotHasCursor,
-					msg.SnapshotModeState,
-					msg.SnapshotCols,
-					msg.SnapshotRows,
-					cols,
-					rows,
-				)
+				ptyio.RestorePaneCapture(tab.Terminal, msg.SessionRestoreCapture, cols, rows)
 			} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
 				ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 			} else if m.width > 0 && m.height > 0 {
@@ -361,19 +335,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	term.TreatLFAsCRLF = isChat
 	term.CaptureNormalScreenOnClear = isChat
 	if msg.CaptureFullPane {
-		ptyio.RestorePaneCapture(
-			term,
-			msg.ScrollbackCapture,
-			msg.PostAttachScrollbackCapture,
-			msg.SnapshotCursorX,
-			msg.SnapshotCursorY,
-			msg.SnapshotHasCursor,
-			msg.SnapshotModeState,
-			msg.SnapshotCols,
-			msg.SnapshotRows,
-			cols,
-			rows,
-		)
+		ptyio.RestorePaneCapture(term, msg.SessionRestoreCapture, cols, rows)
 	} else {
 		ptyio.RestoreScrollbackCapture(term, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 	}

@@ -27,36 +27,45 @@ func SessionRestorePaneModeState(mode tmux.PaneModeState) vterm.PaneModeState {
 	}
 }
 
-func RestorePaneCapture(
-	term *vterm.VTerm,
-	data []byte,
-	postAttachScrollback []byte,
-	cursorX, cursorY int,
-	hasCursor bool,
-	mode tmux.PaneModeState,
-	snapshotCols, snapshotRows int,
-	currentCols, currentRows int,
-) {
+// SessionRestoreCapture is the pane snapshot captured at (re)attach time and
+// replayed into a fresh vterm by RestorePaneCapture.
+//
+// Invariant: a new snapshot field is a one-line addition here plus the
+// producer struct literals — the message structs embed this type, so the
+// field is promoted everywhere without touching consumer signatures.
+type SessionRestoreCapture struct {
+	ScrollbackCapture           []byte
+	PostAttachScrollbackCapture []byte
+	CaptureFullPane             bool
+	SnapshotCols                int
+	SnapshotRows                int
+	SnapshotCursorX             int
+	SnapshotCursorY             int
+	SnapshotHasCursor           bool
+	SnapshotModeState           tmux.PaneModeState
+}
+
+func RestorePaneCapture(term *vterm.VTerm, c SessionRestoreCapture, currentCols, currentRows int) {
 	if term == nil {
 		return
 	}
-	restoreCols, restoreRows := SessionSnapshotSize(true, snapshotCols, snapshotRows, currentCols, currentRows)
+	restoreCols, restoreRows := SessionSnapshotSize(true, c.SnapshotCols, c.SnapshotRows, currentCols, currentRows)
 	visibleHistoryRows := 0
 	if term.Width != restoreCols || term.Height != restoreRows {
 		term.Resize(restoreCols, restoreRows)
 	}
 	term.LoadSnapshot(vterm.TerminalSnapshot{
-		Data:      data,
+		Data:      c.ScrollbackCapture,
 		Cols:      restoreCols,
 		Rows:      restoreRows,
-		CursorX:   cursorX,
-		CursorY:   cursorY,
-		HasCursor: hasCursor,
-		ModeState: SessionRestorePaneModeState(mode),
+		CursorX:   c.SnapshotCursorX,
+		CursorY:   c.SnapshotCursorY,
+		HasCursor: c.SnapshotHasCursor,
+		ModeState: SessionRestorePaneModeState(c.SnapshotModeState),
 	})
 	if restoreCols != currentCols || restoreRows != currentRows {
 		prevScrollbackLen := len(term.Scrollback)
-		if mode.AltScreen && currentRows > restoreRows {
+		if c.SnapshotModeState.AltScreen && currentRows > restoreRows {
 			term.ResizeWithoutHistoryReveal(currentCols, currentRows)
 		} else {
 			term.Resize(currentCols, currentRows)
@@ -66,7 +75,7 @@ func RestorePaneCapture(
 		}
 	}
 	term.AppendDelta(vterm.TerminalSnapshot{
-		Data: postAttachScrollback,
+		Data: c.PostAttachScrollbackCapture,
 		Cols: restoreCols,
 		Rows: restoreRows,
 	}, visibleHistoryRows)

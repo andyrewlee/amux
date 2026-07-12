@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
@@ -43,21 +42,13 @@ const (
 
 // SidebarTerminalCreated is a message for terminal creation
 type SidebarTerminalCreated struct {
-	WorkspaceID          string
-	TabID                TerminalTabID
-	Terminal             *pty.Terminal
-	SessionName          string
-	Scrollback           []byte
-	PostAttachScrollback []byte
-	CaptureCols          int
-	CaptureRows          int
-	CaptureFullPane      bool
-	SnapshotCols         int
-	SnapshotRows         int
-	SnapshotCursorX      int
-	SnapshotCursorY      int
-	SnapshotHasCursor    bool
-	SnapshotModeState    tmux.PaneModeState
+	WorkspaceID string
+	TabID       TerminalTabID
+	Terminal    *pty.Terminal
+	SessionName string
+	CaptureCols int
+	CaptureRows int
+	ptyio.SessionRestoreCapture
 }
 
 // SidebarTerminalCreateFailed is a message for terminal creation failure
@@ -67,21 +58,13 @@ type SidebarTerminalCreateFailed struct {
 }
 
 type SidebarTerminalReattachResult struct {
-	WorkspaceID          string
-	TabID                TerminalTabID
-	Terminal             *pty.Terminal
-	SessionName          string
-	Scrollback           []byte
-	PostAttachScrollback []byte
-	CaptureCols          int
-	CaptureRows          int
-	CaptureFullPane      bool
-	SnapshotCols         int
-	SnapshotRows         int
-	SnapshotCursorX      int
-	SnapshotCursorY      int
-	SnapshotHasCursor    bool
-	SnapshotModeState    tmux.PaneModeState
+	WorkspaceID string
+	TabID       TerminalTabID
+	Terminal    *pty.Terminal
+	SessionName string
+	CaptureCols int
+	CaptureRows int
+	ptyio.SessionRestoreCapture
 }
 
 type SidebarTerminalReattachFailed struct {
