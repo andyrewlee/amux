@@ -1,11 +1,11 @@
 package vterm
 
-import "github.com/mattn/go-runewidth"
+import "github.com/clipperhouse/displaywidth"
 
 // putChar places a character at current cursor position
 func (v *VTerm) putChar(r rune) {
 	lineY := v.CursorY
-	width := runewidth.RuneWidth(r)
+	width := displaywidth.Rune(r)
 
 	// Combining characters (width 0) attach to previous cell
 	if width == 0 {
