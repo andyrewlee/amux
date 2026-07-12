@@ -38,6 +38,11 @@ type Dialog struct {
 	dtype   DialogType
 	title   string
 	message string
+	// warning is optional informational text rendered below message on confirm
+	// dialogs (e.g. the trust dialog's in-repo script indirection notice). Its
+	// absence never implies "safe"; callers only set it to warn, never to
+	// reassure.
+	warning string
 	options []string
 
 	// State
@@ -108,6 +113,17 @@ func (d *Dialog) SetDefaultOption(index int) {
 	}
 	d.defaultCursor = index
 	d.cursor = index
+}
+
+// SetWarning sets optional informational warning text rendered below the
+// message on a confirm dialog. Passing "" clears it. This is purely advisory
+// (e.g. surfacing in-repo script indirection at trust time); an empty warning
+// must never be read or presented as a safety guarantee.
+func (d *Dialog) SetWarning(text string) {
+	if d == nil {
+		return
+	}
+	d.warning = text
 }
 
 // fuzzyMatch returns true if pattern fuzzy-matches target (case-insensitive)

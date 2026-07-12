@@ -3,11 +3,13 @@ package app
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/validation"
 )
@@ -75,8 +77,10 @@ func (a *App) handleShowTrustScriptsDialog(msg messages.ShowTrustScriptsDialog) 
 	a.dialogWorkspace = msg.Workspace
 	a.dialogTrustScriptsHash = msg.ConfigHash
 	workspaceName := ""
+	repoRoot := ""
 	if msg.Workspace != nil {
 		workspaceName = msg.Workspace.Name
+		repoRoot = msg.Workspace.Repo
 	}
 	a.dialog = common.NewConfirmDialog(
 		DialogTrustScripts,
@@ -84,7 +88,73 @@ func (a *App) handleShowTrustScriptsDialog(msg messages.ShowTrustScriptsDialog) 
 		fmt.Sprintf("Trust .amux/workspaces.json scripts for '%s' and run setup now?", workspaceName),
 	)
 	a.dialog.SetDefaultOption(1)
+	// Informational only: surface in-repo scripts the approved commands reach
+	// into, which the trust gate's manifest hash cannot cover. This changes no
+	// gating; an empty warning is NOT a safety guarantee (see
+	// scriptIndirectionWarning / process.ReferencesInRepoFiles).
+	if warning := scriptIndirectionWarning(a.repoScriptCommandsForTrust(repoRoot), repoRoot); warning != "" {
+		a.dialog.SetWarning(warning)
+	}
 	a.presentDialog(a.dialog)
+}
+
+// repoScriptCommandsForTrust returns the repo-supplied commands from repo's
+// .amux/workspaces.json (setup-workspace/run/archive — the same commands the
+// trust gate hashes), best-effort and read-only, for the trust dialog's
+// indirection warning. It never gates: a nil service, empty repo, or load error
+// simply yields no commands (and therefore no warning). It does not hash and so
+// cannot disagree with what the gate hashed.
+func (a *App) repoScriptCommandsForTrust(repo string) []string {
+	if a.workspaceService == nil || a.workspaceService.scripts == nil || repo == "" {
+		return nil
+	}
+	config, err := a.workspaceService.scripts.LoadConfig(repo)
+	if err != nil || config == nil {
+		return nil
+	}
+	commands := append([]string(nil), config.SetupWorkspace...)
+	if config.RunScript != "" {
+		commands = append(commands, config.RunScript)
+	}
+	if config.ArchiveScript != "" {
+		commands = append(commands, config.ArchiveScript)
+	}
+	return commands
+}
+
+// scriptIndirectionWarning builds the trust dialog's advisory text about
+// commands that reach into in-repo files the manifest hash cannot pin. It runs
+// the shipped, already-tested detector (process.ReferencesInRepoFiles /
+// CommandIsUnresolvable) over the repo-supplied commands and reports what it
+// found. It returns "" only when the detector found neither a referenced file
+// nor an unresolvable construct — which is explicitly NOT a guarantee the
+// commands run no repo code (the detector's contract), so the empty case renders
+// nothing rather than any reassurance. It never authorizes or blocks anything.
+func scriptIndirectionWarning(commands []string, repoRoot string) string {
+	var refs []string
+	seen := make(map[string]struct{})
+	unresolvable := false
+	for _, cmd := range commands {
+		if process.CommandIsUnresolvable(cmd) {
+			unresolvable = true
+		}
+		for _, ref := range process.ReferencesInRepoFiles(cmd, repoRoot) {
+			if _, dup := seen[ref]; dup {
+				continue
+			}
+			seen[ref] = struct{}{}
+			refs = append(refs, ref)
+		}
+	}
+
+	var lines []string
+	if len(refs) > 0 {
+		lines = append(lines, "Runs in-repo scripts amux can't re-verify after approval: "+strings.Join(refs, ", "))
+	}
+	if unresolvable {
+		lines = append(lines, "One or more commands use variables/globs — amux can't list every file they run.")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // handleShowRemoveProjectDialog shows the remove project dialog.
