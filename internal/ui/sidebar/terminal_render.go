@@ -6,7 +6,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
@@ -165,22 +164,7 @@ func (m *TerminalModel) TerminalLayerWithCursorOwner(cursorOwner bool) *composit
 	if !cursorOwner {
 		showCursor = false
 	}
-	if ts.CachedSnap != nil && ts.CachedVersion == version && ts.CachedShowCursor == showCursor {
-		perf.Count("vterm_snapshot_cache_hit", 1)
-		return compositor.NewVTermLayer(ts.CachedSnap)
-	}
-
-	// SnapshotDoubleBuffer reuses rows without mutating the last handed-out layer.
-	snap := ts.SnapshotBuffer.Snapshot(ts.VTerm, showCursor)
-	if snap == nil {
-		return nil
-	}
-	perf.Count("vterm_snapshot_cache_miss", 1)
-
-	ts.CachedSnap = snap
-	ts.CachedVersion = version
-	ts.CachedShowCursor = showCursor
-	return compositor.NewVTermLayer(snap)
+	return ts.State.CachedSnapshotLayerLocked(ts.VTerm, version, showCursor)
 }
 
 // StatusLine returns the status line for the active terminal.

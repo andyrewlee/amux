@@ -116,21 +116,19 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 		return nil
 	}
 	ts := tab.State
-	ts.State.StartReader(&ts.mu, ptyio.StartReaderOptions{
-		AcquireTerm: func() io.Reader {
+	ts.State.StartReader(&ts.mu, ptyio.StartReaderOptionsFor(
+		ptyio.ReaderNamespace{
+			LabelPrefix:     "sidebar",
+			ReadQueueSize:   ptyReadQueueSize,
+			MaxPendingBytes: ptyMaxPendingBytes,
+		},
+		func() io.Reader {
 			if ts.Terminal == nil || !ts.Running {
 				return nil
 			}
 			return ts.Terminal
 		},
-		Config: ptyio.PTYReaderConfig{
-			Label:           "sidebar.pty_read_loop",
-			ReadBufferSize:  ptyReadBufferSize,
-			ReadQueueSize:   ptyReadQueueSize,
-			FrameInterval:   ptyFrameInterval,
-			MaxPendingBytes: ptyMaxPendingBytes,
-		},
-		Factory: ptyio.PTYMsgFactory{
+		ptyio.PTYMsgFactory{
 			Output: func(data []byte) tea.Msg {
 				return messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Data: data}
 			},
@@ -138,10 +136,8 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 				return messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID), Err: err}
 			},
 		},
-		ReaderLabel:  "sidebar.pty_reader",
-		ForwardLabel: "sidebar.pty_forward",
-		Forward:      m.forwardPTYMsgs,
-	})
+		m.forwardPTYMsgs,
+	))
 	return nil
 }
 

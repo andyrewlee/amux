@@ -228,6 +228,9 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	if !cursorOwner {
 		showCursor = false
 	}
+	if !isChat {
+		return tab.State.CachedSnapshotLayerLocked(tab.Terminal, version, showCursor)
+	}
 	now := time.Now()
 	recentLocalInput := false
 	restrictCursor := false
