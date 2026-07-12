@@ -25,7 +25,11 @@ jobs:
       - name: Run harness presets + compare baselines
         run: scripts/perf_compare.sh
         env:
-          PERF_TOLERANCE: '0.10'
+          # Shared ubuntu-latest runners show large run-to-run variance (a 55%
+          # p95 swing was observed across three runs within six minutes), so
+          # the CI tolerance is much looser than the 10% local default; the
+          # darwin dev-machine gate stays tight.
+          PERF_TOLERANCE: '0.50'
           PERF_STRICT: '1'
           HARNESS_FRAMES: '300'
           HARNESS_WARMUP: '30'
