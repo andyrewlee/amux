@@ -3,10 +3,14 @@ package git
 // This file is a compile-checked API skeleton for the design spike
 // "Minimal safe git write-back surface (commit / merge from the UI)", which
 // lives with the maintainer's planning notes under plans/design/. It declares
-// the proposed v1 write-back signatures as unexported stubs so their shapes are
-// validated by the Go compiler, without shipping any wired production code:
-// nothing here is exported, keybound, or invoked. Delete or promote these once
-// the feature is actually built.
+// the still-unbuilt v1 write-back signatures as unexported stubs so their shapes
+// are validated by the Go compiler, without shipping any wired production code:
+// nothing here is exported, keybound, or invoked. Delete or promote each stub
+// once its feature is actually built.
+//
+// Action 1 (commit-all) has shipped: it is the exported git.CommitAll in
+// writeback.go, so its design stub has been removed. The merge/abort stubs below
+// remain skeletons pending plan 026.
 
 import (
 	"context"
@@ -18,14 +22,6 @@ import (
 // It exists only so the skeleton has observable, testable behavior; the real
 // implementation replaces these stubs entirely.
 var errWritebackDesignNotImplemented = errors.New("git write-back: not implemented (design skeleton)")
-
-// commitAllDesign is the proposed CommitAll: stage everything in workspaceRoot
-// (git add -A) and commit it with message (git commit -m <message>). See
-// Action 1 in the design doc.
-func commitAllDesign(ctx context.Context, workspaceRoot, message string) error {
-	_, _, _ = ctx, workspaceRoot, message
-	return errWritebackDesignNotImplemented
-}
 
 // mergeWorkspaceBranchDesign is the proposed MergeWorkspaceBranch: merge branch
 // into the branch already checked out in repoPath (git merge --no-ff -- <branch>).
@@ -45,7 +41,6 @@ func abortMergeDesign(ctx context.Context, repoPath string) error {
 // Compile-time signature guards: if the proposed API shape drifts, the build
 // breaks here before any test runs.
 var (
-	_ func(context.Context, string, string) error = commitAllDesign
 	_ func(context.Context, string, string) error = mergeWorkspaceBranchDesign
 	_ func(context.Context, string) error         = abortMergeDesign
 )
@@ -56,9 +51,6 @@ var (
 func TestWritebackDesignAPISkeleton(t *testing.T) {
 	ctx := context.Background()
 
-	if err := commitAllDesign(ctx, "/ws", "msg"); !errors.Is(err, errWritebackDesignNotImplemented) {
-		t.Fatalf("commitAllDesign: got %v, want not-implemented sentinel", err)
-	}
 	if err := mergeWorkspaceBranchDesign(ctx, "/repo", "branch"); !errors.Is(err, errWritebackDesignNotImplemented) {
 		t.Fatalf("mergeWorkspaceBranchDesign: got %v, want not-implemented sentinel", err)
 	}

@@ -6,7 +6,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // loadProjects loads all registered projects and their workspaces.
@@ -24,6 +26,41 @@ func (a *App) rescanWorkspaces() tea.Cmd {
 		return nil
 	}
 	return a.workspaceService.RescanWorkspaces()
+}
+
+// commitWorkspaceAsync stages and commits every change in ws.Root with message,
+// off the UI goroutine, reporting the outcome as messages.WorkspaceCommitted.
+// The commit runs on ws's own branch through the hardened git.CommitAll; it
+// never merges, pushes, or checks out the base branch. commitAllFn is a seam so
+// tests can assert the wiring without touching a real repo.
+func (a *App) commitWorkspaceAsync(ws *data.Workspace, message string) tea.Cmd {
+	if ws == nil {
+		return nil
+	}
+	commit := a.commitAllFn
+	if commit == nil {
+		commit = git.CommitAll
+	}
+	ctx := a.ctx
+	root := ws.Root
+	return func() tea.Msg {
+		return messages.WorkspaceCommitted{Workspace: ws, Err: commit(ctx, root, message)}
+	}
+}
+
+// handleWorkspaceCommitted reports a commit-all outcome: on failure via
+// ReportError; on success a toast plus a full git-status refresh so the sidebar
+// diff/status view reflects the now-clean tree.
+func (a *App) handleWorkspaceCommitted(msg messages.WorkspaceCommitted) tea.Cmd {
+	if msg.Err != nil {
+		return common.ReportError("committing workspace changes", msg.Err, "Commit failed: "+msg.Err.Error())
+	}
+	var cmds []tea.Cmd
+	cmds = append(cmds, a.toast.ShowSuccess("Committed changes"))
+	if msg.Workspace != nil {
+		cmds = append(cmds, a.requestGitStatusFull(msg.Workspace.Root))
+	}
+	return common.SafeBatch(cmds...)
 }
 
 // requestGitStatus requests git status for a workspace using fast mode (skips line stats).

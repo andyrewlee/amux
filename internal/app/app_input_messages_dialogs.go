@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -67,6 +68,30 @@ func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDi
 		"Delete Workspace",
 		fmt.Sprintf("Delete workspace '%s' and its branch?", msg.Workspace.Name),
 	)
+	a.presentDialog(a.dialog)
+}
+
+// handleShowCommitWorkspaceDialog shows the commit-message input dialog for a
+// workspace's changes. The message the user types is the confirmation gesture;
+// on confirm handleDialogResult stages and commits via git.CommitAll. Esc
+// cancels. Live validation mirrors the create-workspace dialog (sanitize, then
+// only flag a non-empty value); an empty message is refused by CommitAll.
+func (a *App) handleShowCommitWorkspaceDialog(msg messages.ShowCommitWorkspaceDialog) {
+	a.dialogWorkspace = msg.Workspace
+	a.dialog = common.NewInputDialog(DialogCommitWorkspace, "Commit changes", "Commit message...")
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return "" // Don't show an error for empty input; block on confirm.
+		}
+		// Defense-in-depth: the message is the argv value of -m so a leading '-'
+		// is never parsed as a flag, but keep the value shape consistent with
+		// ValidateBaseRef and warn the user before they commit.
+		if strings.HasPrefix(s, "-") {
+			return "commit message cannot start with '-'"
+		}
+		return ""
+	})
 	a.presentDialog(a.dialog)
 }
 

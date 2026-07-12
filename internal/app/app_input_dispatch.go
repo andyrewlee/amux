@@ -246,6 +246,10 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleWorkspaceDeleteFailed(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case messages.WorkspaceCommitted:
+		if cmd := a.handleWorkspaceCommitted(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case messages.FileWatcherEvent:
 		*cmds = append(*cmds, a.handleFileWatcherEvent(msg)...)
 	case messages.StateWatcherEvent:
@@ -278,6 +282,8 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleShowCreateWorkspaceDialog(msg)
 	case messages.ShowDeleteWorkspaceDialog:
 		a.handleShowDeleteWorkspaceDialog(msg)
+	case messages.ShowCommitWorkspaceDialog:
+		a.handleShowCommitWorkspaceDialog(msg)
 	case messages.ShowTrustScriptsDialog:
 		a.handleShowTrustScriptsDialog(msg)
 	case messages.ShowRemoveProjectDialog:

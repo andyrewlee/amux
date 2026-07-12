@@ -27,6 +27,7 @@ const (
 	DialogAddProject      = "add_project"
 	DialogCreateWorkspace = "create_workspace"
 	DialogDeleteWorkspace = "delete_workspace"
+	DialogCommitWorkspace = "commit_workspace"
 	DialogTrustScripts    = "trust_scripts"
 	DialogRemoveProject   = "remove_project"
 	// DialogSelectAssistant is the legacy ID for the assistant-selection flow.
@@ -100,6 +101,11 @@ type App struct {
 	pendingWorkspaceProject *data.Project
 	pendingWorkspaceName    string
 	pendingWorkspaceBase    string
+
+	// commitAllFn is the git commit-all seam. Nil in production (falls back to
+	// git.CommitAll); tests install a fake to assert the dialog→commit wiring
+	// without a real repo.
+	commitAllFn func(context.Context, string, string) error
 
 	// Git status management
 	fileWatcher     *git.FileWatcher

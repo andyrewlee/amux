@@ -168,6 +168,13 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 		}
 
+	case DialogCommitWorkspace:
+		if workspace != nil {
+			// Message is the argv value of -m; sanitize control chars but never
+			// shell-interpolate. CommitAll rejects an empty message.
+			return a.commitWorkspaceAsync(workspace, validation.SanitizeInput(result.Value))
+		}
+
 	case DialogTrustScripts:
 		if workspace != nil {
 			return a.trustRepoScriptsAndRunSetupAsync(workspace, trustScriptsHash)
