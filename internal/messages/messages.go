@@ -236,6 +236,20 @@ type ShowTrustScriptsDialog struct {
 	ConfigHash string
 }
 
+// ShowCommitWorkspaceDialog requests showing the commit-message input dialog
+// for a workspace's changes (git commit-all).
+type ShowCommitWorkspaceDialog struct {
+	Workspace *data.Workspace
+}
+
+// WorkspaceCommitted is sent when a commit-all attempt finishes. Err is non-nil
+// on failure (surfaced via ReportError); on success the sidebar diff/status view
+// is refreshed for the workspace.
+type WorkspaceCommitted struct {
+	Workspace *data.Workspace
+	Err       error
+}
+
 // ShowRemoveProjectDialog requests showing the remove project confirmation
 type ShowRemoveProjectDialog struct {
 	Project *data.Project

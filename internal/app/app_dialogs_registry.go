@@ -16,6 +16,7 @@ var appDialogIDList = []string{
 	DialogCreateWorkspace,
 	DialogDeleteWorkspace,
 	DialogRenameWorkspace,
+	DialogCommitWorkspace,
 	DialogTrustScripts,
 	DialogRemoveProject,
 	DialogSelectAssistant,
