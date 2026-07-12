@@ -36,6 +36,37 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 	return cmds
 }
 
+// handleRenameWorkspace handles the RenameWorkspace message: a Tier-1 label
+// rename. It updates only the workspace's display Name via the store — the git
+// branch, worktree, and workspace ID() are untouched — then reloads projects so
+// the dashboard and sidebar labels refresh.
+func (a *App) handleRenameWorkspace(msg messages.RenameWorkspace) []tea.Cmd {
+	if msg.Workspace == nil {
+		logging.Warn("RenameWorkspace received with nil workspace")
+		return nil
+	}
+	if a.workspaceService == nil || a.workspaceService.store == nil {
+		return nil
+	}
+	if err := a.workspaceService.store.Rename(msg.Workspace.ID(), msg.NewName); err != nil {
+		if cmd := common.ReportError(errorContext(errorServiceWorkspace, "renaming workspace"), err, ""); cmd != nil {
+			return []tea.Cmd{cmd}
+		}
+		return nil
+	}
+	// Reflect the new label immediately on the in-memory active workspace so the
+	// header updates without waiting for the async reload.
+	if a.activeWorkspace != nil && a.activeWorkspace.Root == msg.Workspace.Root {
+		a.activeWorkspace.Name = msg.NewName
+	}
+	var cmds []tea.Cmd
+	if cmd := a.toast.ShowSuccess("Renamed workspace to " + msg.NewName); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	cmds = append(cmds, a.loadProjects())
+	return cmds
+}
+
 // handleWorkspaceCreatedWithWarning handles the WorkspaceCreatedWithWarning message.
 func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWithWarning) []tea.Cmd {
 	var cmds []tea.Cmd

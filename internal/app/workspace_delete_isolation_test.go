@@ -30,8 +30,9 @@ func (s *recordingWorkspaceStore) Save(ws *data.Workspace) error {
 	return nil
 }
 
-func (s *recordingWorkspaceStore) Delete(data.WorkspaceID) error    { return nil }
-func (s *recordingWorkspaceStore) ResolvedDefaultAssistant() string { return data.DefaultAssistant }
+func (s *recordingWorkspaceStore) Delete(data.WorkspaceID) error         { return nil }
+func (s *recordingWorkspaceStore) Rename(data.WorkspaceID, string) error { return nil }
+func (s *recordingWorkspaceStore) ResolvedDefaultAssistant() string      { return data.DefaultAssistant }
 
 func (s *recordingWorkspaceStore) saved() []string {
 	s.mu.Lock()

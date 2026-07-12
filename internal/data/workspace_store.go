@@ -13,6 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/fsatomic"
 
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/validation"
 )
 
 const workspaceFilename = "workspace.json"
@@ -223,6 +224,33 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 		s.removeWorkspaceLockFile(oldID)
 	}
 	ws.storeID = id
+	return nil
+}
+
+// Rename updates a workspace's human-facing Name only. Repo/Root/Branch and
+// therefore ID() are unchanged, so no tmux session, tag, worktree, or in-memory
+// map keyed on the ID is affected (Tier-1 label rename). The newName is trimmed
+// and validated with the same rule as workspace creation, then the record is
+// saved in place atomically — because Repo/Root are untouched, ws.ID() == id and
+// Save takes its in-place branch (no flock migration, no old-record deletion).
+func (s *WorkspaceStore) Rename(id WorkspaceID, newName string) error {
+	newName = strings.TrimSpace(newName)
+	if err := validation.ValidateWorkspaceName(newName); err != nil {
+		return err
+	}
+	ws, err := s.Load(id)
+	if err != nil {
+		return fmt.Errorf("rename workspace %s: %w", id, err)
+	}
+	// No-op guard: renaming to the current name would only rewrite the file and
+	// emit a spurious watch event.
+	if ws.Name == newName {
+		return nil
+	}
+	ws.Name = newName
+	if err := s.Save(ws); err != nil {
+		return fmt.Errorf("rename workspace %s: %w", id, err)
+	}
 	return nil
 }
 

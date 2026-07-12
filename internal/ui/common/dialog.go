@@ -139,6 +139,16 @@ func (d *Dialog) SetInputValidate(fn InputValidateFunc) *Dialog {
 	return d
 }
 
+// SetInputValue prefills the input field's current value so a dialog opened for
+// editing (e.g. rename) renders the existing value ready to edit. It affects
+// input dialogs only. Call it after Show(), which resets the input to empty.
+func (d *Dialog) SetInputValue(s string) {
+	if d == nil || d.dtype != DialogInput {
+		return
+	}
+	d.input.SetValue(s)
+}
+
 // transformInputMsg applies the input transform to key press and paste messages
 func (d *Dialog) transformInputMsg(msg tea.Msg) tea.Msg {
 	switch m := msg.(type) {

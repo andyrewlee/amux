@@ -27,6 +27,7 @@ const (
 	DialogAddProject      = "add_project"
 	DialogCreateWorkspace = "create_workspace"
 	DialogDeleteWorkspace = "delete_workspace"
+	DialogRenameWorkspace = "rename_workspace"
 	DialogTrustScripts    = "trust_scripts"
 	DialogRemoveProject   = "remove_project"
 	// DialogSelectAssistant is the legacy ID for the assistant-selection flow.
