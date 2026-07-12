@@ -139,11 +139,6 @@ func (w *workspaceLifecycleState) clearCreating(wsID string) {
 	}
 }
 
-// isCreating reports whether a workspace is currently create-in-flight.
-func (w *workspaceLifecycleState) isCreating(wsID string) bool {
-	return w.phase(wsID) == lifecycleCreating
-}
-
 // markDeleting sets or clears the delete-in-flight phase for a workspace.
 // Setting is rejected while the workspace is mid-create; clearing only
 // settles a deleting workspace (it never stomps another phase).

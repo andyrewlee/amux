@@ -144,7 +144,7 @@ func TestLastWorkingAtRecordsRealWorkOnly(t *testing.T) {
 	states := map[string]*SessionState{}
 
 	// First scan: initializes state (score set to threshold, immediately active).
-	active, updated := activeIDsWithHysteresis(infoBySession, sessions, states, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, tmux.Options{}, captureFn, hashFn)
 	if !active["ws1"] {
 		t.Fatal("expected ws1 to be active after initialization scan")
 	}
@@ -162,7 +162,7 @@ func TestLastWorkingAtRecordsRealWorkOnly(t *testing.T) {
 		t.Errorf("ClassifyState after active scan = %v, want StateWorking", got)
 	}
 
-	active, updated = activeIDsWithHysteresis(infoBySession, sessions, updated, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ = activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, updated, nil, tmux.Options{}, captureFn, hashFn)
 	if !active["ws1"] {
 		t.Fatal("expected ws1 to stay active after content delta")
 	}

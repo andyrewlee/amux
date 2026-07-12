@@ -35,8 +35,8 @@ func TestPrepareWorkspacePathForCreatePreservesUnregisterFromRetryMetadata(t *te
 	if err := os.WriteFile(filepath.Join(adminDir, "gitdir"), []byte(filepath.Join(workspacePath, ".git")+"\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(gitdir) error = %v", err)
 	}
-	if err := ensureWorkspaceCleanupRetryMetadata(workspacePath, repoPath, true); err != nil {
-		t.Fatalf("ensureWorkspaceCleanupRetryMetadata() error = %v", err)
+	if _, err := ensureWorkspaceCleanupRetryMetadataWithContext(context.Background(), workspacePath, repoPath, true); err != nil {
+		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
 
 	runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
@@ -103,8 +103,8 @@ func TestPrepareWorkspacePathForCreateUsesRepoPathStoredInRetryMetadata(t *testi
 	if err := os.WriteFile(filepath.Join(adminDir, "gitdir"), []byte(filepath.Join(workspacePath, ".git")+"\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(gitdir) error = %v", err)
 	}
-	if err := ensureWorkspaceCleanupRetryMetadata(workspacePath, originalRepoPath, true); err != nil {
-		t.Fatalf("ensureWorkspaceCleanupRetryMetadata() error = %v", err)
+	if _, err := ensureWorkspaceCleanupRetryMetadataWithContext(context.Background(), workspacePath, originalRepoPath, true); err != nil {
+		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
 
 	runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
@@ -161,8 +161,8 @@ func TestPrepareWorkspacePathForCreateRejectsReusedPathFromRetryMetadata(t *test
 	if err := os.WriteFile(filepath.Join(workspacePath, "old.txt"), []byte("old"), 0o644); err != nil {
 		t.Fatalf("WriteFile(old.txt) error = %v", err)
 	}
-	if err := ensureWorkspaceCleanupRetryMetadata(workspacePath, repoPath, false); err != nil {
-		t.Fatalf("ensureWorkspaceCleanupRetryMetadata() error = %v", err)
+	if _, err := ensureWorkspaceCleanupRetryMetadataWithContext(context.Background(), workspacePath, repoPath, false); err != nil {
+		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
 	if err := os.Remove(filepath.Join(workspacePath, "old.txt")); err != nil {
 		t.Fatalf("Remove(old.txt) error = %v", err)

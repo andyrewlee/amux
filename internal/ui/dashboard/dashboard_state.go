@@ -169,18 +169,6 @@ func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 	return workspaces
 }
 
-// isProjectActive returns true if the project's primary workspace is active.
-func (m *Model) isProjectActive(p *data.Project) bool {
-	if p == nil {
-		return false
-	}
-	mainWS := m.getMainWorkspace(p)
-	if mainWS == nil {
-		return false
-	}
-	return m.activeWorkspaceIDs[string(mainWS.ID())]
-}
-
 // projectRowActive reports whether a project header row should render as active.
 // A project being deleted is never active even if its main workspace still has
 // an active agent — the delete supersedes the active styling, otherwise a

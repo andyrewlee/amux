@@ -294,8 +294,8 @@ func TestCreateWorkspaceRejectsReusedPathDuringPendingCleanup(t *testing.T) {
 	if err := os.MkdirAll(stagedPath, 0o755); err != nil {
 		t.Fatalf("MkdirAll(stagedPath) error = %v", err)
 	}
-	if err := ensurePrunedWorkspaceRetryMarker(workspacePath, stagedPath); err != nil {
-		t.Fatalf("ensurePrunedWorkspaceRetryMarker() error = %v", err)
+	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{CleanupPath: filepath.Clean(stagedPath)}); err != nil {
+		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 
 	err := CreateWorkspace("/tmp/repo", workspacePath, "feature-ws", "HEAD")

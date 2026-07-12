@@ -6,29 +6,6 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// activeIDsFromTags uses the @amux_last_output_at tag when present.
-// Sessions with missing tags always fall back to screen-delta hysteresis
-// (compatibility mode). Sessions with stale tags fall back when they have
-// recent tmux window activity (or if that prefilter is unavailable).
-// Fresh tags are trusted only when tmux reports recent window activity
-// (or if that prefilter is unavailable), preventing control-sequence noise
-// from holding sessions in an always-active state.
-//
-// It is a 2-return convenience wrapper over activeWorkspaceIDsFromTags for
-// same-package tests; production calls ActiveWorkspaceIDsFromTagsWithRemoved.
-func activeIDsFromTags(
-	infoBySession map[string]SessionInfo,
-	sessions []TaggedSession,
-	recentActivityBySession map[string]bool,
-	states map[string]*SessionState,
-	opts tmux.Options,
-	captureFn CaptureFn,
-	hashFn HashFn,
-) (map[string]bool, map[string]*SessionState) {
-	active, updated, _ := activeWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, states, opts, captureFn, hashFn)
-	return active, updated
-}
-
 // ActiveWorkspaceIDsFromTagsWithRemoved is the production entry point. It
 // returns the active workspace IDs, updated session states, and the names of
 // session states pruned this scan (unseen beyond pruneAfterScans) so the caller
@@ -45,6 +22,13 @@ func ActiveWorkspaceIDsFromTagsWithRemoved(
 	return activeWorkspaceIDsFromTags(infoBySession, sessions, recentActivityBySession, states, opts, captureFn, hashFn)
 }
 
+// activeWorkspaceIDsFromTags uses the @amux_last_output_at tag when present.
+// Sessions with missing tags always fall back to screen-delta hysteresis
+// (compatibility mode). Sessions with stale tags fall back when they have
+// recent tmux window activity (or if that prefilter is unavailable).
+// Fresh tags are trusted only when tmux reports recent window activity
+// (or if that prefilter is unavailable), preventing control-sequence noise
+// from holding sessions in an always-active state.
 func activeWorkspaceIDsFromTags(
 	infoBySession map[string]SessionInfo,
 	sessions []TaggedSession,
@@ -254,25 +238,10 @@ func PrepareStaleTagFallbackState(sessionName string, states map[string]*Session
 	state.LastActiveAt = time.Time{}
 }
 
-// activeIDsWithHysteresis uses screen-delta detection with hysteresis
-// to determine which workspaces have actively working agents. This prevents
-// false positives from periodic terminal refreshes (like sponsor messages).
-// Returns both the active workspace IDs and the updated session states.
-//
-// It is a 2-return convenience wrapper over activeWorkspaceIDsWithHysteresisWithSeen
-// for same-package tests; production routes through activeWorkspaceIDsFromTags.
-func activeIDsWithHysteresis(
-	infoBySession map[string]SessionInfo,
-	sessions []tmux.SessionActivity,
-	states map[string]*SessionState,
-	opts tmux.Options,
-	captureFn CaptureFn,
-	hashFn HashFn,
-) (map[string]bool, map[string]*SessionState) {
-	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, opts, captureFn, hashFn)
-	return active, updated
-}
-
+// activeWorkspaceIDsWithHysteresisWithSeen uses screen-delta detection with
+// hysteresis to determine which workspaces have actively working agents. This
+// prevents false positives from periodic terminal refreshes (like sponsor
+// messages).
 func activeWorkspaceIDsWithHysteresisWithSeen(
 	infoBySession map[string]SessionInfo,
 	sessions []tmux.SessionActivity,

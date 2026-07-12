@@ -120,7 +120,7 @@ func TestReadTmuxActivitySnapshot_EpochMismatchReturnsNotOK(t *testing.T) {
 		t.Fatalf("publish snapshot: %v", err)
 	}
 
-	shared, ok, err := activity.ReadSnapshot(opts, now, epoch+1)
+	shared, _, ok, err := activity.ReadSnapshotWithStates(opts, now, epoch+1)
 	if err != nil {
 		t.Fatalf("read snapshot: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestEncodeDecodeTmuxActivitySnapshot_EncodesWorkspaceIDsSafely(t *testing.T
 		"ws/with space": true,
 	}, 7, now)
 
-	active, epoch, at, ok := activity.DecodeSnapshot(raw)
+	active, _, epoch, at, ok := activity.DecodeSnapshotWithStates(raw)
 	if !ok {
 		t.Fatalf("expected snapshot to decode, raw=%q", raw)
 	}
@@ -281,7 +281,7 @@ func TestEncodeDecodeTmuxActivitySnapshot_WithSemanticStates(t *testing.T) {
 
 func TestDecodeTmuxActivitySnapshot_LegacyUnencodedWorkspaceIDs(t *testing.T) {
 	raw := "3;1700000000000;ws-a,ws-b"
-	active, epoch, at, ok := activity.DecodeSnapshot(raw)
+	active, _, epoch, at, ok := activity.DecodeSnapshotWithStates(raw)
 	if !ok {
 		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
 	}
@@ -298,7 +298,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyUnencodedWorkspaceIDs(t *testing.T) {
 
 func TestDecodeTmuxActivitySnapshot_LegacyBEncodedWorkspaceIDs(t *testing.T) {
 	raw := "3;1700000000000;b:d3MtYQ,b:d3MtYg"
-	active, epoch, at, ok := activity.DecodeSnapshot(raw)
+	active, _, epoch, at, ok := activity.DecodeSnapshotWithStates(raw)
 	if !ok {
 		t.Fatalf("expected legacy b:-encoded snapshot to decode, raw=%q", raw)
 	}
@@ -315,7 +315,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyBEncodedWorkspaceIDs(t *testing.T) {
 
 func TestDecodeTmuxActivitySnapshot_LegacyMixedEncodedAndPlainWorkspaceIDs(t *testing.T) {
 	raw := "3;1700000000000;b:d3MtYQ,ws-b"
-	active, _, _, ok := activity.DecodeSnapshot(raw)
+	active, _, _, _, ok := activity.DecodeSnapshotWithStates(raw)
 	if !ok {
 		t.Fatalf("expected mixed legacy snapshot to decode, raw=%q", raw)
 	}
@@ -329,7 +329,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyMixedEncodedAndPlainWorkspaceIDs(t *te
 
 func TestDecodeTmuxActivitySnapshot_LegacyPlainWorkspaceIDStartingWithJPrefix(t *testing.T) {
 	raw := "3;1700000000000;j:ws-plain,ws-b"
-	active, _, _, ok := activity.DecodeSnapshot(raw)
+	active, _, _, _, ok := activity.DecodeSnapshotWithStates(raw)
 	if !ok {
 		t.Fatalf("expected legacy plain snapshot to decode, raw=%q", raw)
 	}
@@ -340,7 +340,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyPlainWorkspaceIDStartingWithJPrefix(t 
 
 func TestDecodeTmuxActivitySnapshot_LegacyBPrefixIDsRemainLiteral(t *testing.T) {
 	raw := "3;1700000000000;b:workspace,ws-b"
-	active, _, _, ok := activity.DecodeSnapshot(raw)
+	active, _, _, _, ok := activity.DecodeSnapshotWithStates(raw)
 	if !ok {
 		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
 	}
@@ -354,7 +354,7 @@ func TestDecodeTmuxActivitySnapshot_LegacyBPrefixIDsRemainLiteral(t *testing.T) 
 
 func TestDecodeTmuxActivitySnapshot_LegacyBPrefixValidBase64Decodes(t *testing.T) {
 	raw := "3;1700000000000;b:d3M,ws-b"
-	active, _, _, ok := activity.DecodeSnapshot(raw)
+	active, _, _, _, ok := activity.DecodeSnapshotWithStates(raw)
 	if !ok {
 		t.Fatalf("expected legacy snapshot to decode, raw=%q", raw)
 	}

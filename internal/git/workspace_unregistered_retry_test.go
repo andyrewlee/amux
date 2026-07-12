@@ -223,8 +223,8 @@ func TestRemoveWorkspaceRejectsReusedPathFromRetryMetadata(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspacePath, "old.txt"), []byte("old"), 0o644); err != nil {
 		t.Fatalf("WriteFile(old.txt) error = %v", err)
 	}
-	if err := ensureWorkspaceCleanupRetryMetadata(workspacePath, "/tmp/repo", false); err != nil {
-		t.Fatalf("ensureWorkspaceCleanupRetryMetadata() error = %v", err)
+	if _, err := ensureWorkspaceCleanupRetryMetadataWithContext(context.Background(), workspacePath, "/tmp/repo", false); err != nil {
+		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
 	if err := os.Remove(filepath.Join(workspacePath, "old.txt")); err != nil {
 		t.Fatalf("Remove(old.txt) error = %v", err)

@@ -112,13 +112,6 @@ func RenewOwnerLeaseHeartbeat(opts tmux.Options, now time.Time) error {
 	return tmux.SetGlobalOptionValue(HeartbeatOption, strconv.FormatInt(now.UnixMilli(), 10), opts)
 }
 
-// ReadSnapshot reads the shared active-workspaces snapshot, returning ok=false
-// when it is missing, malformed, from a different epoch, or stale.
-func ReadSnapshot(opts tmux.Options, now time.Time, expectedEpoch int64) (map[string]bool, bool, error) {
-	active, _, ok, err := ReadSnapshotWithStates(opts, now, expectedEpoch)
-	return active, ok, err
-}
-
 // ReadSnapshotWithStates reads the shared activity snapshot, including optional
 // semantic agent states for newer owners. Legacy active-only snapshots decode
 // with a nil states map.
@@ -208,13 +201,6 @@ func snapshotActiveIDs(active map[string]bool) []string {
 	}
 	sort.Strings(ids)
 	return ids
-}
-
-// DecodeSnapshot parses an encoded snapshot, accepting both the JSON payload and
-// legacy comma-delimited formats. Returns ok=false on malformed input.
-func DecodeSnapshot(raw string) (map[string]bool, int64, time.Time, bool) {
-	active, _, epoch, at, ok := DecodeSnapshotWithStates(raw)
-	return active, epoch, at, ok
 }
 
 // DecodeSnapshotWithStates parses an encoded snapshot and optional semantic

@@ -114,8 +114,8 @@ func TestRemoveWorkspaceRecoversNoFingerprintMarkerWhenRetryMetadataRemains(t *t
 	if err := os.WriteFile(filepath.Join(workspacePath, "keep.txt"), []byte("keep"), 0o644); err != nil {
 		t.Fatalf("WriteFile(keep.txt) error = %v", err)
 	}
-	if err := ensureWorkspaceCleanupRetryMetadata(workspacePath, repoPath, true); err != nil {
-		t.Fatalf("ensureWorkspaceCleanupRetryMetadata() error = %v", err)
+	if _, err := ensureWorkspaceCleanupRetryMetadataWithContext(context.Background(), workspacePath, repoPath, true); err != nil {
+		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
 	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{
 		RepoPath:        repoPath,

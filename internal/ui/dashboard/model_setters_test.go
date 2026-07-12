@@ -86,7 +86,7 @@ func TestDashboardSetActiveWorkspaces(t *testing.T) {
 		}
 	})
 
-	t.Run("drives isProjectActive via main workspace id", func(t *testing.T) {
+	t.Run("SetActiveWorkspaces marks the main workspace id active", func(t *testing.T) {
 		m := New()
 		project := makeProject()
 		m.SetProjects([]data.Project{project})
@@ -97,12 +97,12 @@ func TestDashboardSetActiveWorkspaces(t *testing.T) {
 		}
 		id := string(main.ID())
 
-		if m.isProjectActive(&project) {
-			t.Fatalf("expected project inactive before SetActiveWorkspaces")
+		if m.activeWorkspaceIDs[id] {
+			t.Fatalf("expected main workspace inactive before SetActiveWorkspaces")
 		}
 		m.SetActiveWorkspaces(map[string]bool{id: true})
-		if !m.isProjectActive(&project) {
-			t.Fatalf("expected project active after marking its main workspace id %q active", id)
+		if !m.activeWorkspaceIDs[id] {
+			t.Fatalf("expected main workspace id %q active after SetActiveWorkspaces", id)
 		}
 	})
 }

@@ -12,10 +12,6 @@ import (
 
 var workspaceCleanupRetryFingerprintCtx = workspaceCleanupRetryFingerprintWithContext
 
-func workspaceCleanupRetryFingerprint(workspacePath string) (string, error) {
-	return workspaceCleanupRetryFingerprintCtx(context.Background(), workspacePath)
-}
-
 func workspaceCleanupRetryFingerprintWithContext(ctx context.Context, workspacePath string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()

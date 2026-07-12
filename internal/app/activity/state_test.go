@@ -31,7 +31,7 @@ func TestActiveWorkspaceIDsFromTags_StaleTagFallbackClearsHoldAndDecaysQuickly(t
 	captureFn := func(string, int, tmux.Options) (string, bool) { return "same", true }
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
-	active, _ := activeIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
+	active, _, _ := ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
 	if active["ws-stale-hold"] {
 		t.Fatal("expected stale-tag unchanged session to stop being active without hold carryover")
 	}
@@ -80,7 +80,7 @@ func TestActiveWorkspaceIDsFromTags_FreshOutputImmediatelyAfterInputSuppressed(t
 	}
 	hashFn := func(string) [16]byte { return [16]byte{2} }
 
-	active, updated := activeIDsFromTags(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, sessions, map[string]bool{}, states, tmux.Options{}, captureFn, hashFn)
 	if active["ws-echo"] {
 		t.Fatal("fresh output immediately after input should be treated as local echo, not activity")
 	}
@@ -129,7 +129,7 @@ func TestActiveWorkspaceIDsFromTags_RecentInputSuppressesStaleFallbackCapture(t 
 	}
 	hashFn := func(string) [16]byte { return [16]byte{2} }
 
-	active, updated := activeIDsFromTags(infoBySession, sessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, sessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
 	if active["ws-recent-input"] {
 		t.Fatal("stale-tag fallback should be suppressed while user input is recent")
 	}
@@ -156,7 +156,7 @@ func TestHysteresisInitDoesNotSetHoldTimer(t *testing.T) {
 	captureFn := func(string, int, tmux.Options) (string, bool) { return "output", true }
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
-	active, updated := activeIDsWithHysteresis(infoBySession, sessions, states, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, tmux.Options{}, captureFn, hashFn)
 	if !active["ws-init"] {
 		t.Fatal("expected newly discovered session to be active immediately")
 	}
@@ -170,7 +170,7 @@ func TestHysteresisInitDoesNotSetHoldTimer(t *testing.T) {
 
 	// No further output; should decay below threshold on the next scan
 	// without being held active.
-	active, _ = activeIDsWithHysteresis(infoBySession, sessions, updated, tmux.Options{}, captureFn, hashFn)
+	active, _, _ = activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, updated, nil, tmux.Options{}, captureFn, hashFn)
 	if active["ws-init"] {
 		t.Fatal("expected session to stop being active after one unchanged scan")
 	}
@@ -202,7 +202,7 @@ func TestActiveWorkspaceIDsFromTags_DoesNotResetFreshTagState(t *testing.T) {
 		LastOutputAt:  now.Add(-500 * time.Millisecond),
 		HasLastOutput: true,
 	}}
-	active, updated := activeIDsFromTags(infoBySession, freshSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, freshSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
 	if active["ws-tagged"] {
 		t.Fatal("expected single fresh-tag delta for known session to remain below active threshold")
 	}
@@ -223,7 +223,7 @@ func TestActiveWorkspaceIDsFromTags_DoesNotResetFreshTagState(t *testing.T) {
 		HasLastOutput: true,
 	}}
 	currentHash = changedHash
-	active, updated = activeIDsFromTags(infoBySession, staleSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ = ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, staleSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
 	for name, state := range updated {
 		states[name] = state
 	}
@@ -250,7 +250,7 @@ func TestActiveWorkspaceIDsFromTags_FreshTagSeedsFallbackBaseline(t *testing.T) 
 		LastOutputAt:  now.Add(-500 * time.Millisecond),
 		HasLastOutput: true,
 	}}
-	active, updated := activeIDsFromTags(infoBySession, freshSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, freshSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
 	if active["ws-fresh-seed"] {
 		t.Fatal("expected known fresh-tag baseline seeding to remain inactive")
 	}
@@ -274,7 +274,7 @@ func TestActiveWorkspaceIDsFromTags_FreshTagSeedsFallbackBaseline(t *testing.T) 
 		LastOutputAt:  now.Add(-10 * time.Second),
 		HasLastOutput: true,
 	}}
-	active, _ = activeIDsFromTags(infoBySession, staleSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
+	active, _, _ = ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, staleSessions, map[string]bool{sessionName: true}, states, tmux.Options{}, captureFn, hashFn)
 	if active["ws-fresh-seed"] {
 		t.Fatal("expected stale fallback with unchanged content to stay inactive after fresh-tag seeding")
 	}
@@ -304,7 +304,7 @@ func TestActiveWorkspaceIDsFromTags_StaleTagWithoutRecentActivitySkipsFallback(t
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
 	recentActivity := map[string]bool{}
-	active, updated := activeIDsFromTags(infoBySession, sessions, recentActivity, states, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, sessions, recentActivity, states, tmux.Options{}, captureFn, hashFn)
 
 	if captureCalls != 0 {
 		t.Fatalf("expected no capture fallback without recent activity, got %d calls", captureCalls)
@@ -347,7 +347,7 @@ func TestActiveWorkspaceIDsFromTags_KnownFreshUnchangedAcrossScansRemainInactive
 			LastOutputAt:  time.Now().Add(-500 * time.Millisecond),
 			HasLastOutput: true,
 		}}
-		active, updated := activeIDsFromTags(
+		active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(
 			infoBySession,
 			sessions,
 			map[string]bool{sessionName: true},
@@ -399,7 +399,7 @@ func TestActiveWorkspaceIDsFromTags_KnownFreshConsecutiveDeltasBecomeActive(t *t
 			LastOutputAt:  time.Now().Add(-400 * time.Millisecond),
 			HasLastOutput: true,
 		}}
-		active, updated := activeIDsFromTags(
+		active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(
 			infoBySession,
 			sessions,
 			map[string]bool{sessionName: true},
@@ -446,7 +446,7 @@ func TestActiveWorkspaceIDsFromTags_KnownFreshTagCaptureFailurePreservesActivity
 	}
 	captureFn := func(string, int, tmux.Options) (string, bool) { return "", false } // transient failure
 	hashFn := func(string) [16]byte { return hashValue }
-	active, updated := activeIDsFromTags(
+	active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(
 		infoBySession,
 		sessions,
 		map[string]bool{sessionName: true},

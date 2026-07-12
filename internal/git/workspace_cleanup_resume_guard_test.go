@@ -30,9 +30,9 @@ func TestRemoveWorkspaceRecoversMarkerWrittenBeforeRenameWithMatchingFingerprint
 	if err := os.WriteFile(filepath.Join(workspacePath, ".git"), []byte("gitdir: /tmp/original-admin\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
-	fingerprint, err := workspaceCleanupRetryFingerprint(workspacePath)
+	fingerprint, err := workspaceCleanupRetryFingerprintWithContext(context.Background(), workspacePath)
 	if err != nil {
-		t.Fatalf("workspaceCleanupRetryFingerprint() error = %v", err)
+		t.Fatalf("workspaceCleanupRetryFingerprintWithContext() error = %v", err)
 	}
 	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{
 		RepoPath:             "/tmp/repo",
@@ -98,9 +98,9 @@ func TestRemoveWorkspaceRejectsRecreatedWorktreeEvenWhenGitRefLooksTheSame(t *te
 	if err != nil {
 		t.Fatalf("Stat(.git) error = %v", err)
 	}
-	fingerprint, err := workspaceCleanupRetryFingerprint(workspacePath)
+	fingerprint, err := workspaceCleanupRetryFingerprintWithContext(context.Background(), workspacePath)
 	if err != nil {
-		t.Fatalf("workspaceCleanupRetryFingerprint() error = %v", err)
+		t.Fatalf("workspaceCleanupRetryFingerprintWithContext() error = %v", err)
 	}
 	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{
 		RepoPath:               "/tmp/repo",
@@ -159,12 +159,12 @@ func TestWorkspaceCleanupRetryFingerprintRejectsEscapingGitSymlink(t *testing.T)
 		t.Fatalf("Symlink(.git) error = %v", err)
 	}
 
-	fingerprint, err := workspaceCleanupRetryFingerprint(workspacePath)
+	fingerprint, err := workspaceCleanupRetryFingerprintWithContext(context.Background(), workspacePath)
 	if err == nil {
-		t.Fatal("workspaceCleanupRetryFingerprint() expected escaping .git symlink error, got nil")
+		t.Fatal("workspaceCleanupRetryFingerprintWithContext() expected escaping .git symlink error, got nil")
 	}
 	if fingerprint != "" {
-		t.Fatalf("workspaceCleanupRetryFingerprint() fingerprint = %q, want empty on error", fingerprint)
+		t.Fatalf("workspaceCleanupRetryFingerprintWithContext() fingerprint = %q, want empty on error", fingerprint)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestRemoveWorkspaceRejectsNoFingerprintMarkerWhenRetryMetadataFingerprintMi
 	if err := os.WriteFile(filepath.Join(workspacePath, "keep.txt"), []byte("keep"), 0o644); err != nil {
 		t.Fatalf("WriteFile(keep.txt) error = %v", err)
 	}
-	if err := ensureWorkspaceCleanupRetryMetadata(workspacePath, "/tmp/repo", false); err != nil {
-		t.Fatalf("ensureWorkspaceCleanupRetryMetadata() error = %v", err)
+	if _, err := ensureWorkspaceCleanupRetryMetadataWithContext(context.Background(), workspacePath, "/tmp/repo", false); err != nil {
+		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
 	if err := writeWorkspaceCleanupState(workspacePath, workspaceCleanupState{
 		RepoPath:    "/tmp/repo",

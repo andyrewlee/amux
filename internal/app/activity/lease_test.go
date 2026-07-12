@@ -93,7 +93,7 @@ func TestOwnerLeaseAlive(t *testing.T) {
 
 // TestEncodeSnapshot_DeterministicAndFilters confirms EncodeSnapshot sorts IDs,
 // drops inactive and blank entries, normalizes a sub-1 epoch to 1, and emits the
-// epoch;timestamp;j:<base64-json> shape that DecodeSnapshot round-trips.
+// epoch;timestamp;j:<base64-json> shape that DecodeSnapshotWithStates round-trips.
 func TestEncodeSnapshot_DeterministicAndFilters(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
@@ -129,7 +129,7 @@ func TestEncodeSnapshot_DeterministicAndFilters(t *testing.T) {
 		t.Fatalf("payload ids = %v, want sorted %v (full=%q)", gotIDs, wantIDs, encoded)
 	}
 
-	parsed, epoch, at, ok := DecodeSnapshot(encoded)
+	parsed, _, epoch, at, ok := DecodeSnapshotWithStates(encoded)
 	if !ok {
 		t.Fatal("expected EncodeSnapshot output to decode")
 	}
@@ -159,7 +159,7 @@ func TestEncodeSnapshot_Empty(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	encoded := EncodeSnapshot(map[string]bool{}, 5, now)
 
-	parsed, epoch, _, ok := DecodeSnapshot(encoded)
+	parsed, _, epoch, _, ok := DecodeSnapshotWithStates(encoded)
 	if !ok {
 		t.Fatal("expected empty snapshot to decode")
 	}
@@ -171,7 +171,7 @@ func TestEncodeSnapshot_Empty(t *testing.T) {
 	}
 }
 
-// TestDecodeSnapshot_Malformed covers the error paths that make DecodeSnapshot
+// TestDecodeSnapshot_Malformed covers the error paths that make DecodeSnapshotWithStates
 // report ok=false: empty input, wrong field count, and non-numeric / non-positive
 // epoch and timestamp fields.
 func TestDecodeSnapshot_Malformed(t *testing.T) {
@@ -192,9 +192,9 @@ func TestDecodeSnapshot_Malformed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			parsed, epoch, at, ok := DecodeSnapshot(tc.raw)
+			parsed, _, epoch, at, ok := DecodeSnapshotWithStates(tc.raw)
 			if ok {
-				t.Fatalf("DecodeSnapshot(%q) = ok, want ok=false", tc.raw)
+				t.Fatalf("DecodeSnapshotWithStates(%q) = ok, want ok=false", tc.raw)
 			}
 			if parsed != nil {
 				t.Fatalf("expected nil map on malformed input, got %v", parsed)
@@ -280,9 +280,9 @@ func TestDecodeSnapshot_PayloadFormats(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			parsed, epoch, at, ok := DecodeSnapshot(tc.raw)
+			parsed, _, epoch, at, ok := DecodeSnapshotWithStates(tc.raw)
 			if !ok {
-				t.Fatalf("DecodeSnapshot(%q) = ok=false, want ok=true", tc.raw)
+				t.Fatalf("DecodeSnapshotWithStates(%q) = ok=false, want ok=true", tc.raw)
 			}
 			if epoch != 2 {
 				t.Fatalf("expected epoch 2, got %d", epoch)
@@ -373,14 +373,14 @@ func TestSnapshotFresh(t *testing.T) {
 }
 
 // TestSnapshotFresh_RoundTripThroughEncodeDecode drives a far-future timestamp
-// through EncodeSnapshot/DecodeSnapshot to confirm the decoded timestamp still
+// through EncodeSnapshot/DecodeSnapshotWithStates to confirm the decoded timestamp still
 // trips the skew cap (no loss of precision flips the freshness decision).
 func TestSnapshotFresh_RoundTripThroughEncodeDecode(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	future := now.Add(time.Minute)
 
 	encoded := EncodeSnapshot(map[string]bool{"ws-a": true}, 3, future)
-	parsed, epoch, at, ok := DecodeSnapshot(encoded)
+	parsed, _, epoch, at, ok := DecodeSnapshotWithStates(encoded)
 	if !ok {
 		t.Fatal("expected snapshot to decode")
 	}

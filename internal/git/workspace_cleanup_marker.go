@@ -29,20 +29,6 @@ type workspaceCleanupRetryMetadata struct {
 	WorkspaceFingerprint string
 }
 
-func ensurePrunedWorkspaceRetryMarker(workspacePath, cleanupPath string) error {
-	return ensurePrunedWorkspaceRetryMarkerWithState(workspacePath, cleanupPath, false)
-}
-
-func ensurePrunedWorkspaceRetryMarkerWithState(workspacePath, cleanupPath string, unregisterPending bool) error {
-	state := workspaceCleanupState{
-		NeedsUnregister: unregisterPending,
-	}
-	if cleanupPath != "" {
-		state.CleanupPath = filepath.Clean(cleanupPath)
-	}
-	return writeWorkspaceCleanupState(workspacePath, state)
-}
-
 func readWorkspaceCleanupState(workspacePath string) (workspaceCleanupState, bool, error) {
 	markerPath := prunedWorkspaceRetryMarkerPath(workspacePath)
 	content, err := readWorkspaceCleanupMarkerFile(markerPath)
@@ -281,11 +267,6 @@ func clearPrunedWorkspaceRetryMarker(workspacePath string) error {
 
 func workspaceCleanupRetryMetadataPath(workspacePath string) string {
 	return filepath.Join(workspacePath, prunedWorkspaceCleanupRetryMetadataName)
-}
-
-func ensureWorkspaceCleanupRetryMetadata(workspacePath, repoPath string, needsUnregister bool) error {
-	_, err := ensureWorkspaceCleanupRetryMetadataWithContext(context.Background(), workspacePath, repoPath, needsUnregister)
-	return err
 }
 
 func ensureWorkspaceCleanupRetryMetadataWithContext(

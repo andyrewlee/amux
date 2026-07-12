@@ -1,7 +1,7 @@
 package center
 
-// ptyPhase is a Tab's PTY lifecycle phase. The phase is derived from the
-// underlying flags (Running/Detached/reattachInFlight) rather than stored:
+// A Tab's PTY lifecycle is held as the underlying flags
+// (Running/Detached/reattachInFlight) rather than a derived phase value:
 // Running and Detached are exported package API (the app, harness and
 // persistence read them), so the flags remain the storage while every
 // multi-field transition goes through the methods below. That keeps the
@@ -17,56 +17,6 @@ package center
 //	reattaching → running        (markAttachedLocked: reattach succeeded)
 //	reattaching → detached       (markDetachedEndingReattachLocked / reattach failed)
 //	reattaching → stopped        (markReattachFailedLocked(stopped=true))
-//
-// Related but deliberately separate: the actor-write parser flow. When PTY
-// overflow trims the buffer while actor writes are still queued, the cut
-// invalidates the parser state the queued writes were encoded against, so
-// parserResetPending is latched. Flushes then stall until the queued writes
-// drain (actorWritesPending reaches 0 and their bytes are settled into
-// ptyBytesSettled), the terminal parser is reset, and only then does normal
-// chunked flushing resume. That flow is parser/buffer state, not lifecycle
-// state, which is why parserResetPending is not part of ptyPhase.
-type ptyPhase uint8
-
-const (
-	// ptyPhaseStopped: no live PTY and no tmux session expected.
-	ptyPhaseStopped ptyPhase = iota
-	// ptyPhaseRunning: agent attached with a live PTY.
-	ptyPhaseRunning
-	// ptyPhaseDetached: PTY gone but the tmux session may still be alive.
-	ptyPhaseDetached
-	// ptyPhaseReattaching: a reattach is in flight (transition lock; all
-	// reattach gates bail while set).
-	ptyPhaseReattaching
-)
-
-func (p ptyPhase) String() string {
-	switch p {
-	case ptyPhaseRunning:
-		return "running"
-	case ptyPhaseDetached:
-		return "detached"
-	case ptyPhaseReattaching:
-		return "reattaching"
-	default:
-		return "stopped"
-	}
-}
-
-// ptyPhaseLocked derives the tab's current phase. The caller must hold t.mu
-// (or be on the single-writer Update goroutine).
-func (t *Tab) ptyPhaseLocked() ptyPhase {
-	switch {
-	case t.reattachInFlight:
-		return ptyPhaseReattaching
-	case t.Running:
-		return ptyPhaseRunning
-	case t.Detached:
-		return ptyPhaseDetached
-	default:
-		return ptyPhaseStopped
-	}
-}
 
 // markAttachedLocked transitions to running: the tab has a live PTY (fresh
 // launch or successful reattach). Clears any reattach lock.

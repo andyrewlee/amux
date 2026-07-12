@@ -111,7 +111,7 @@ func TestLifecycleCreateWhileProjectsLoading(t *testing.T) {
 	// A projects reload that does not include the half-created workspace must
 	// not clear the creating phase (the workspace is not loaded yet).
 	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*project}})
-	if !app.lifecycle.isCreating(wsID) {
+	if app.lifecycle.phase(wsID) != lifecycleCreating {
 		t.Fatal("expected creating phase to survive a projects reload")
 	}
 
@@ -161,7 +161,7 @@ func TestHandleCreateWorkspaceStopsWhenLifecycleRejectsCreate(t *testing.T) {
 	if !app.lifecycle.isDeleting(string(pending.ID())) {
 		t.Fatal("expected deleting phase to remain active after rejected create")
 	}
-	if app.lifecycle.isCreating(string(pending.ID())) {
+	if app.lifecycle.phase(string(pending.ID())) == lifecycleCreating {
 		t.Fatal("expected rejected create not to mark workspace creating")
 	}
 }
@@ -181,7 +181,7 @@ func TestHandleDeleteWorkspaceStopsWhenLifecycleRejectsDelete(t *testing.T) {
 	if len(cmds) != 0 {
 		t.Fatalf("expected rejected delete to queue no commands, got %d", len(cmds))
 	}
-	if !app.lifecycle.isCreating(string(ws.ID())) {
+	if app.lifecycle.phase(string(ws.ID())) != lifecycleCreating {
 		t.Fatal("expected creating phase to remain active after rejected delete")
 	}
 	if app.lifecycle.isDeleting(string(ws.ID())) {

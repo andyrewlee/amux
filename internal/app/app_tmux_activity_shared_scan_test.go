@@ -183,7 +183,7 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 		t.Fatalf("expected takeover epoch to remain 3, got %d", lease.Epoch)
 	}
 
-	shared, ok, err := activity.ReadSnapshot(opts, time.Now(), 3)
+	shared, _, ok, err := activity.ReadSnapshotWithStates(opts, time.Now(), 3)
 	if err != nil {
 		t.Fatalf("read snapshot after scan: %v", err)
 	}
