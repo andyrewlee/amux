@@ -96,6 +96,8 @@ Because these commands come from the repository, amux runs them only after you t
 
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`.
 
+Assistants: the AI agents amux can launch are configured per-user in `~/.amux/config.json`. You can add your own or override a built-in — see [docs/CONFIG.md](docs/CONFIG.md).
+
 ## Platform Support
 
 AMUX requires `tmux` and is supported on Linux/macOS. Windows is not supported.
