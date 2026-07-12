@@ -101,6 +101,15 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursor Cursor
 	if w <= 0 || h <= 0 {
 		return
 	}
+	// Normalize the selection bounds once instead of per cell: the start/end
+	// ordering is identical for every cell, so recomputing it in the per-cell
+	// loop is pure redundancy.
+	selActive := selection.Active
+	var selStartX, selStartY, selEndX, selEndY int
+	if selActive {
+		selStartX, selStartY, selEndX, selEndY = vterm.NormalizeSelectionRange(
+			selection.StartX, selection.StartY, selection.EndX, selection.EndY)
+	}
 	maxY := min(h, len(screen))
 	for row := 0; row < maxY; row++ {
 		line := screen[row]
@@ -110,7 +119,7 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursor Cursor
 			if cell.Width == 2 && col+1 >= w {
 				cell = vterm.DefaultCell()
 			}
-			if inSelection(selection, col, row) {
+			if selActive && vterm.SelectionContains(selStartX, selStartY, selEndX, selEndY, col, row) {
 				cell.Style.Reverse = !cell.Style.Reverse
 			}
 			targetX := x + col
@@ -133,15 +142,6 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursor Cursor
 			}
 		}
 	}
-}
-
-func inSelection(sel SelectionRegion, x, y int) bool {
-	if !sel.Active {
-		return false
-	}
-	startX, startY, endX, endY := vterm.NormalizeSelectionRange(
-		sel.StartX, sel.StartY, sel.EndX, sel.EndY)
-	return vterm.SelectionContains(startX, startY, endX, endY, x, y)
 }
 
 // Render converts the canvas to an ANSI string.

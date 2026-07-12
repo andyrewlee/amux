@@ -22,10 +22,87 @@ func TestVTermLayerSelectionCursorOverlap(t *testing.T) {
 
 	cell := snap.Screen[0][0]
 	var uvCell uv.Cell
-	cellToUVSnapshot(&uvCell, cell, snap, 0, 0)
+	// Precompute the selection containment the way DrawAt does (bounds are
+	// normalized once per frame and passed in).
+	selStartX, selStartY, selEndX, selEndY := vterm.NormalizeSelectionRange(
+		snap.SelStartX, snap.SelStartY, snap.SelEndX, snap.SelEndY)
+	inSel := snap.SelActive && vterm.SelectionContains(
+		selStartX, selStartY, selEndX, selEndY, 0, 0)
+	cellToUVSnapshot(&uvCell, cell, snap, 0, 0, inSel)
 
 	if uvCell.Style.Attrs&uv.AttrReverse == 0 {
 		t.Fatalf("expected reverse attribute for selection+cursor overlap")
+	}
+}
+
+// selectionSnapshot builds a blank w x h snapshot with an active selection.
+func selectionSnapshot(w, h, startX, startY, endX, endY int) *VTermSnapshot {
+	screen := make([][]vterm.Cell, h)
+	for y := range screen {
+		screen[y] = vterm.MakeBlankLine(w)
+	}
+	return &VTermSnapshot{
+		Screen:    screen,
+		Width:     w,
+		Height:    h,
+		SelActive: true,
+		SelStartX: startX,
+		SelStartY: startY,
+		SelEndX:   endX,
+		SelEndY:   endY,
+	}
+}
+
+// reversedCells draws the snapshot and returns which cells have the reverse
+// attribute (i.e. are rendered as selected).
+func reversedCells(t *testing.T, snap *VTermSnapshot, w, h int) map[[2]int]bool {
+	t.Helper()
+	screen := &bufferScreen{Buffer: uv.NewBuffer(w, h)}
+	NewVTermLayer(snap).Draw(screen, screen.Bounds())
+
+	got := make(map[[2]int]bool)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			cell := screen.CellAt(x, y)
+			if cell == nil {
+				t.Fatalf("expected cell at (%d,%d)", x, y)
+			}
+			got[[2]int{x, y}] = cell.Style.Attrs&uv.AttrReverse != 0
+		}
+	}
+	return got
+}
+
+// TestVTermLayerDrawMultiRowSelectionHighlight asserts a multi-row selection
+// highlights exactly the selected range, and that a reversed selection (end
+// before start) highlights the same cells as the forward one — normalization
+// is the only thing making end<start highlight correctly.
+func TestVTermLayerDrawMultiRowSelectionHighlight(t *testing.T) {
+	const w, h = 5, 3
+
+	// Forward selection: (1,0) through (3,1).
+	forward := reversedCells(t, selectionSnapshot(w, h, 1, 0, 3, 1), w, h)
+
+	// Exactly the selected range: row 0 from x=1, row 1 through x=3, row 2 none.
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			want := (y == 0 && x >= 1) || (y == 1 && x <= 3)
+			if forward[[2]int{x, y}] != want {
+				t.Errorf("forward selection at (%d,%d): reverse=%v, want %v",
+					x, y, forward[[2]int{x, y}], want)
+			}
+		}
+	}
+
+	// Reversed selection: same endpoints with end before start.
+	reversed := reversedCells(t, selectionSnapshot(w, h, 3, 1, 1, 0), w, h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if reversed[[2]int{x, y}] != forward[[2]int{x, y}] {
+				t.Errorf("reversed selection at (%d,%d): reverse=%v, want %v (same as forward)",
+					x, y, reversed[[2]int{x, y}], forward[[2]int{x, y}])
+			}
+		}
 	}
 }
 
