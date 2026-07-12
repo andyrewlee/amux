@@ -31,7 +31,7 @@ make devcheck
 
 `make devcheck` is the required pre-PR gate: it runs vet, tests, and lint (including file-length checks).
 
-For the hot-reload inner loop, `make dev` runs [`air`](https://github.com/air-verse/air) using the repo's `.air.toml`. Install it once with:
+For the inner loop, launch the TUI with `make run` in a real terminal — amux requires stdin, stdout, and stderr to all be TTYs, so it only runs directly in your terminal. `air` cannot host the TUI: it launches the rebuilt binary with stdin on `/dev/null`, which fails that TTY check, so `make dev` is not a hot-reload TUI loop. Use it instead for automatic rebuilds and compile-error feedback while you edit — run `make dev` in a second pane alongside `make run`. It runs [`air`](https://github.com/air-verse/air) with the repo's `.air.toml` and rebuilds on save. Install it once with:
 
 ```bash
 go install github.com/air-verse/air@latest

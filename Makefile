@@ -226,10 +226,14 @@ clean:
 run: build
 	./$(BINARY_NAME)
 
+# dev runs air to rebuild on save and surface compile errors. It does NOT host
+# the TUI: air launches the rebuilt binary with stdin on /dev/null, which fails
+# amux's stdin/stdout/stderr TTY check. Run `make run` in a real terminal for the
+# TUI; keep `make dev` in a second pane for build feedback while you edit.
 dev:
 	@command -v air >/dev/null 2>&1 || { \
 		echo "make dev: 'air' not found on PATH." >&2; \
-		echo "Install the hot-reload runner with:" >&2; \
+		echo "Install the rebuild-on-save runner with:" >&2; \
 		echo "  go install github.com/air-verse/air@latest" >&2; \
 		echo "(then ensure \$$(go env GOPATH)/bin is on your PATH)." >&2; \
 		exit 1; \
@@ -252,7 +256,7 @@ help:
 	@echo "  vet        - Run go vet"
 	@echo "  clean      - Remove build artifacts"
 	@echo "  run        - Build and run"
-	@echo "  dev        - Run with hot reload (requires air: go install github.com/air-verse/air@latest)"
+	@echo "  dev        - Rebuild + compile-error feedback on save via air; does NOT run the TUI (use 'make run')"
 	@echo "  verify-loop - Drive a real keystroke through amux into a raw-mode agent (close-the-loop input gate; requires tmux)"
 	@echo "  tmux-skip-check - Warn (non-fatal) when real-tmux/e2e tests silently skip (no tmux server)"
 	@echo "  bench      - Run rendering benchmarks"
