@@ -41,9 +41,11 @@ func TestReattach_UsesCaptureSizeBeforeResizingForHistoryOnly(t *testing.T) {
 		WorkspaceID: wsID,
 		TabID:       tabID,
 		SessionName: "session-1",
-		Scrollback:  capture,
 		CaptureCols: captureWidth,
 		CaptureRows: captureHeight,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: capture,
+		},
 	})
 
 	tab := m.getTabByID(wsID, tabID)
@@ -82,9 +84,11 @@ func TestHandleTerminalCreated_UsesCaptureSizeBeforeResizingForHistoryOnly(t *te
 		WorkspaceID: wsID,
 		TabID:       tabID,
 		SessionName: "session-created",
-		Scrollback:  capture,
 		CaptureCols: captureWidth,
 		CaptureRows: captureHeight,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: capture,
+		},
 	})
 
 	tab := m.getTabByID(wsID, tabID)
@@ -175,14 +179,16 @@ func TestHandleTerminalCreated_DelaysPTYResizeUntilAfterFullPaneRestore(t *testi
 	}
 
 	_, _ = m.Update(SidebarTerminalCreated{
-		WorkspaceID:     wsID,
-		TabID:           tabID,
-		SessionName:     "session-full-pane",
-		Terminal:        &pty.Terminal{},
-		Scrollback:      []byte("history\nscreen one\nscreen two\n"),
-		CaptureFullPane: true,
-		SnapshotCols:    snapshotWidth,
-		SnapshotRows:    2,
+		WorkspaceID: wsID,
+		TabID:       tabID,
+		SessionName: "session-full-pane",
+		Terminal:    &pty.Terminal{},
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
+			CaptureFullPane:   true,
+			SnapshotCols:      snapshotWidth,
+			SnapshotRows:      2,
+		},
 	})
 
 	if resizeCalls == 0 {
@@ -209,14 +215,16 @@ func TestHandleTerminalCreated_UsesSnapshotSizeBeforeSidebarLayout(t *testing.T)
 	}
 
 	_, _ = m.Update(SidebarTerminalCreated{
-		WorkspaceID:     wsID,
-		TabID:           tabID,
-		SessionName:     "session-full-pane",
-		Terminal:        &pty.Terminal{},
-		Scrollback:      []byte("history\nscreen one\nscreen two\n"),
-		CaptureFullPane: true,
-		SnapshotCols:    18,
-		SnapshotRows:    4,
+		WorkspaceID: wsID,
+		TabID:       tabID,
+		SessionName: "session-full-pane",
+		Terminal:    &pty.Terminal{},
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
+			CaptureFullPane:   true,
+			SnapshotCols:      18,
+			SnapshotRows:      4,
+		},
 	})
 
 	tab := m.getTabByID(wsID, tabID)
@@ -255,14 +263,16 @@ func TestHandleReattachResult_UsesSnapshotSizeBeforeSidebarLayout(t *testing.T) 
 	}
 
 	_, _ = m.Update(SidebarTerminalReattachResult{
-		WorkspaceID:     wsID,
-		TabID:           tabID,
-		SessionName:     "session-1",
-		Terminal:        &pty.Terminal{},
-		Scrollback:      []byte("history\nscreen one\nscreen two\n"),
-		CaptureFullPane: true,
-		SnapshotCols:    18,
-		SnapshotRows:    4,
+		WorkspaceID: wsID,
+		TabID:       tabID,
+		SessionName: "session-1",
+		Terminal:    &pty.Terminal{},
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
+			CaptureFullPane:   true,
+			SnapshotCols:      18,
+			SnapshotRows:      4,
+		},
 	})
 
 	tab := m.getTabByID(wsID, tabID)

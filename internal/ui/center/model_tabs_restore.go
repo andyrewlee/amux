@@ -10,6 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -184,20 +185,22 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
 		}
 		return ptyTabReattachResult{
-			WorkspaceID:                 string(ws.ID()),
-			TabID:                       tabID,
-			Agent:                       agent,
-			Rows:                        captureRows,
-			Cols:                        captureCols,
-			ScrollbackCapture:           scrollback,
-			PostAttachScrollbackCapture: postAttachScrollback,
-			CaptureFullPane:             captureFullPane,
-			SnapshotCols:                snapshot.Cols,
-			SnapshotRows:                snapshot.Rows,
-			SnapshotCursorX:             snapshot.CursorX,
-			SnapshotCursorY:             snapshot.CursorY,
-			SnapshotHasCursor:           snapshot.HasCursor,
-			SnapshotModeState:           snapshot.ModeState,
+			WorkspaceID: string(ws.ID()),
+			TabID:       tabID,
+			Agent:       agent,
+			Rows:        captureRows,
+			Cols:        captureCols,
+			SessionRestoreCapture: ptyio.SessionRestoreCapture{
+				ScrollbackCapture:           scrollback,
+				PostAttachScrollbackCapture: postAttachScrollback,
+				CaptureFullPane:             captureFullPane,
+				SnapshotCols:                snapshot.Cols,
+				SnapshotRows:                snapshot.Rows,
+				SnapshotCursorX:             snapshot.CursorX,
+				SnapshotCursorY:             snapshot.CursorY,
+				SnapshotHasCursor:           snapshot.HasCursor,
+				SnapshotModeState:           snapshot.ModeState,
+			},
 		}
 	}
 }

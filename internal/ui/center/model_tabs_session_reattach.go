@@ -191,15 +191,17 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			captureCols, captureRows := sessionHistoryCaptureSize(sessionName, attachWidth, attachHeight, opts)
 			scrollback, _ := capturePaneFn(sessionName, opts)
 			return ptyTabReattachResult{
-				WorkspaceID:       string(ws.ID()),
-				TabID:             tabID,
-				Agent:             agent,
-				Rows:              captureRows,
-				Cols:              captureCols,
-				ScrollbackCapture: scrollback,
-				CaptureFullPane:   false,
-				SnapshotCols:      attachWidth,
-				SnapshotRows:      attachHeight,
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Agent:       agent,
+				Rows:        captureRows,
+				Cols:        captureCols,
+				SessionRestoreCapture: ptyio.SessionRestoreCapture{
+					ScrollbackCapture: scrollback,
+					CaptureFullPane:   false,
+					SnapshotCols:      attachWidth,
+					SnapshotRows:      attachHeight,
+				},
 			}
 		}
 		tags := tmux.SessionTags{
@@ -248,20 +250,22 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
 		}
 		return ptyTabReattachResult{
-			WorkspaceID:                 string(ws.ID()),
-			TabID:                       tabID,
-			Agent:                       agent,
-			Rows:                        captureRows,
-			Cols:                        captureCols,
-			ScrollbackCapture:           scrollback,
-			PostAttachScrollbackCapture: postAttachScrollback,
-			CaptureFullPane:             captureFullPane,
-			SnapshotCols:                snapshot.Cols,
-			SnapshotRows:                snapshot.Rows,
-			SnapshotCursorX:             snapshot.CursorX,
-			SnapshotCursorY:             snapshot.CursorY,
-			SnapshotHasCursor:           snapshot.HasCursor,
-			SnapshotModeState:           snapshot.ModeState,
+			WorkspaceID: string(ws.ID()),
+			TabID:       tabID,
+			Agent:       agent,
+			Rows:        captureRows,
+			Cols:        captureCols,
+			SessionRestoreCapture: ptyio.SessionRestoreCapture{
+				ScrollbackCapture:           scrollback,
+				PostAttachScrollbackCapture: postAttachScrollback,
+				CaptureFullPane:             captureFullPane,
+				SnapshotCols:                snapshot.Cols,
+				SnapshotRows:                snapshot.Rows,
+				SnapshotCursorX:             snapshot.CursorX,
+				SnapshotCursorY:             snapshot.CursorY,
+				SnapshotHasCursor:           snapshot.HasCursor,
+				SnapshotModeState:           snapshot.ModeState,
+			},
 		}
 	}
 }
@@ -369,15 +373,17 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		captureCols, captureRows := sessionHistoryCaptureSize(sessionName, termWidth, termHeight, tmuxOpts)
 		scrollback, _ := capturePaneFn(sessionName, tmuxOpts)
 		return ptyTabReattachResult{
-			WorkspaceID:       string(ws.ID()),
-			TabID:             tabID,
-			Agent:             agent,
-			Rows:              captureRows,
-			Cols:              captureCols,
-			ScrollbackCapture: scrollback,
-			CaptureFullPane:   false,
-			SnapshotCols:      termWidth,
-			SnapshotRows:      termHeight,
+			WorkspaceID: string(ws.ID()),
+			TabID:       tabID,
+			Agent:       agent,
+			Rows:        captureRows,
+			Cols:        captureCols,
+			SessionRestoreCapture: ptyio.SessionRestoreCapture{
+				ScrollbackCapture: scrollback,
+				CaptureFullPane:   false,
+				SnapshotCols:      termWidth,
+				SnapshotRows:      termHeight,
+			},
 		}
 	}
 }

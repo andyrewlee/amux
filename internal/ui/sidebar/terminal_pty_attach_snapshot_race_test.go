@@ -113,11 +113,11 @@ func TestCreateTerminalTab_DiscardsPreAttachSnapshotWhenSessionRecreated(t *test
 	if created.CaptureFullPane {
 		t.Fatal("expected recreated session to discard the pre-attach snapshot")
 	}
-	if got := string(created.Scrollback); got != "post history" {
+	if got := string(created.ScrollbackCapture); got != "post history" {
 		t.Fatalf("expected post-attach history recapture after stale snapshot demotion, got %q", got)
 	}
-	if len(created.PostAttachScrollback) != 0 {
-		t.Fatalf("expected no reconciliation capture after demoting to history-only restore, got %q", string(created.PostAttachScrollback))
+	if len(created.PostAttachScrollbackCapture) != 0 {
+		t.Fatalf("expected no reconciliation capture after demoting to history-only restore, got %q", string(created.PostAttachScrollbackCapture))
 	}
 	if created.CaptureCols != 123 || created.CaptureRows != 45 {
 		t.Fatalf("expected history-only capture size 123x45, got %dx%d", created.CaptureCols, created.CaptureRows)
@@ -232,11 +232,11 @@ func TestAttachToSession_DiscardsPreAttachSnapshotWhenSessionRecreated(t *testin
 	if reattach.CaptureFullPane {
 		t.Fatal("expected recreated session to discard the pre-attach snapshot")
 	}
-	if got := string(reattach.Scrollback); got != "post history" {
+	if got := string(reattach.ScrollbackCapture); got != "post history" {
 		t.Fatalf("expected post-attach history recapture after stale snapshot demotion, got %q", got)
 	}
-	if len(reattach.PostAttachScrollback) != 0 {
-		t.Fatalf("expected no reconciliation capture after demoting to history-only restore, got %q", string(reattach.PostAttachScrollback))
+	if len(reattach.PostAttachScrollbackCapture) != 0 {
+		t.Fatalf("expected no reconciliation capture after demoting to history-only restore, got %q", string(reattach.PostAttachScrollbackCapture))
 	}
 	if reattach.CaptureCols != 123 || reattach.CaptureRows != 45 {
 		t.Fatalf("expected history-only capture size 123x45, got %dx%d", reattach.CaptureCols, reattach.CaptureRows)
@@ -346,11 +346,11 @@ func TestAttachToSession_DiscardsPreAttachSnapshotWhenSessionBecomesActive(t *te
 	if reattach.CaptureFullPane {
 		t.Fatal("expected activity after snapshot capture to demote sidebar restore back to history-only")
 	}
-	if got := string(reattach.Scrollback); got != "post history" {
+	if got := string(reattach.ScrollbackCapture); got != "post history" {
 		t.Fatalf("expected post-attach history recapture after stale snapshot demotion, got %q", got)
 	}
-	if len(reattach.PostAttachScrollback) != 0 {
-		t.Fatalf("expected no reconciliation delta after stale snapshot demotion, got %q", string(reattach.PostAttachScrollback))
+	if len(reattach.PostAttachScrollbackCapture) != 0 {
+		t.Fatalf("expected no reconciliation delta after stale snapshot demotion, got %q", string(reattach.PostAttachScrollbackCapture))
 	}
 	assertSidebarCallOrder(t, calls, "state", "clients", "activity", "info", "resize", "snapshot", "attach", "size", "scrollback")
 }
@@ -452,11 +452,11 @@ func TestAttachToSession_DiscardsPreAttachSnapshotWhenSessionBecomesShared(t *te
 	if reattach.CaptureFullPane {
 		t.Fatal("expected shared sidebar session after snapshot capture to demote back to history-only")
 	}
-	if got := string(reattach.Scrollback); got != "post history" {
+	if got := string(reattach.ScrollbackCapture); got != "post history" {
 		t.Fatalf("expected post-attach history recapture after shared-session demotion, got %q", got)
 	}
-	if len(reattach.PostAttachScrollback) != 0 {
-		t.Fatalf("expected no reconciliation delta after shared-session demotion, got %q", string(reattach.PostAttachScrollback))
+	if len(reattach.PostAttachScrollbackCapture) != 0 {
+		t.Fatalf("expected no reconciliation delta after shared-session demotion, got %q", string(reattach.PostAttachScrollbackCapture))
 	}
 	assertSidebarCallOrder(t, calls, "state", "clients", "activity", "info", "resize", "snapshot", "attach", "size", "scrollback")
 }

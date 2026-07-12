@@ -45,13 +45,15 @@ func TestUpdatePtyTabReattachResult_NormalizesCapturedPaneLFForChatTabs(t *testi
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:       wsID,
-		TabID:             tab.ID,
-		Agent:             &appPty.Agent{Session: "sess-reattach-lf"},
-		Rows:              24,
-		Cols:              80,
-		ScrollbackCapture: []byte("abc\nx"),
-		CaptureFullPane:   true,
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-lf"},
+		Rows:        24,
+		Cols:        80,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("abc\nx"),
+			CaptureFullPane:   true,
+		},
 	})
 
 	if tab.Terminal == nil {
@@ -81,13 +83,15 @@ func TestUpdatePtyTabReattachResult_LoadsPaneCaptureIntoVisibleScreen(t *testing
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:       wsID,
-		TabID:             tab.ID,
-		Agent:             &appPty.Agent{Session: "sess-reattach-pane-capture"},
-		Rows:              2,
-		Cols:              20,
-		ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
-		CaptureFullPane:   true,
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-pane-capture"},
+		Rows:        2,
+		Cols:        20,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
+			CaptureFullPane:   true,
+		},
 	})
 
 	if tab.Terminal == nil {
@@ -123,14 +127,16 @@ func TestUpdatePtyTabReattachResult_ReconcilesPostAttachHistoryAfterFullPaneRest
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:                 wsID,
-		TabID:                       tab.ID,
-		Agent:                       &appPty.Agent{Session: "sess-reattach-history-reconcile"},
-		Rows:                        2,
-		Cols:                        20,
-		ScrollbackCapture:           []byte("history\nscreen one\nscreen two\n"),
-		PostAttachScrollbackCapture: []byte("history\nscreen one\n"),
-		CaptureFullPane:             true,
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-history-reconcile"},
+		Rows:        2,
+		Cols:        20,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture:           []byte("history\nscreen one\nscreen two\n"),
+			PostAttachScrollbackCapture: []byte("history\nscreen one\n"),
+			CaptureFullPane:             true,
+		},
 	})
 
 	if len(tab.Terminal.Scrollback) != 2 {
@@ -161,13 +167,15 @@ func TestUpdatePtyTabReattachResult_ResizesExistingTerminalBeforeFullPaneRestore
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:       wsID,
-		TabID:             tab.ID,
-		Agent:             &appPty.Agent{Session: "sess-reattach-pane-resize"},
-		Rows:              2,
-		Cols:              8,
-		ScrollbackCapture: []byte("history\n12345678\nabcdefgh\n"),
-		CaptureFullPane:   true,
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-pane-resize"},
+		Rows:        2,
+		Cols:        8,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("history\n12345678\nabcdefgh\n"),
+			CaptureFullPane:   true,
+		},
 	})
 
 	if tab.Terminal == nil {
@@ -245,16 +253,18 @@ func TestUpdatePtyTabReattachResult_PreservesExistingAltScreenStateWithoutSnapsh
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	_, _ = m.updatePtyTabReattachResult(ptyTabReattachResult{
-		WorkspaceID:       wsID,
-		TabID:             tab.ID,
-		Agent:             &appPty.Agent{Session: "sess-reattach-missing-modes"},
-		Rows:              3,
-		Cols:              6,
-		ScrollbackCapture: []byte("one\ntwo\nthree\n"),
-		CaptureFullPane:   true,
-		SnapshotCursorX:   0,
-		SnapshotCursorY:   2,
-		SnapshotHasCursor: true,
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Agent:       &appPty.Agent{Session: "sess-reattach-missing-modes"},
+		Rows:        3,
+		Cols:        6,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("one\ntwo\nthree\n"),
+			CaptureFullPane:   true,
+			SnapshotCursorX:   0,
+			SnapshotCursorY:   2,
+			SnapshotHasCursor: true,
+		},
 	})
 
 	if !tab.Terminal.AltScreen {
@@ -277,15 +287,17 @@ func TestHandlePtyTabCreated_NewTabNormalizesCapturedPaneLFForChatTabs(t *testin
 	wsID := string(ws.ID())
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
-		Workspace:         ws,
-		Assistant:         "codex",
-		Agent:             &appPty.Agent{Session: "sess-created-lf"},
-		TabID:             TabID("tab-created-lf"),
-		Rows:              24,
-		Cols:              80,
-		Activate:          true,
-		ScrollbackCapture: []byte("abc\nx"),
-		CaptureFullPane:   true,
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created-lf"},
+		TabID:     TabID("tab-created-lf"),
+		Rows:      24,
+		Cols:      80,
+		Activate:  true,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("abc\nx"),
+			CaptureFullPane:   true,
+		},
 	})
 
 	tabs := m.tabs.ByWorkspace[wsID]
@@ -307,15 +319,17 @@ func TestHandlePtyTabCreated_LoadsPaneCaptureIntoVisibleScreen(t *testing.T) {
 	wsID := string(ws.ID())
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
-		Workspace:         ws,
-		Assistant:         "codex",
-		Agent:             &appPty.Agent{Session: "sess-created-pane-capture"},
-		TabID:             TabID("tab-created-pane-capture"),
-		Rows:              2,
-		Cols:              20,
-		Activate:          true,
-		ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
-		CaptureFullPane:   true,
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-created-pane-capture"},
+		TabID:     TabID("tab-created-pane-capture"),
+		Rows:      2,
+		Cols:      20,
+		Activate:  true,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
+			CaptureFullPane:   true,
+		},
 	})
 
 	tabs := m.tabs.ByWorkspace[wsID]
@@ -359,15 +373,17 @@ func TestHandlePtyTabCreated_ReplacesExistingTerminalWithPaneCapture(t *testing.
 	m.tabs.ByWorkspace[wsID][0].pendingOutputBytes = len(m.tabs.ByWorkspace[wsID][0].PendingOutput)
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
-		Workspace:         ws,
-		Assistant:         "codex",
-		Agent:             &appPty.Agent{Session: "sess-existing-pane-capture"},
-		TabID:             tabID,
-		Rows:              2,
-		Cols:              20,
-		Activate:          true,
-		ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
-		CaptureFullPane:   true,
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-existing-pane-capture"},
+		TabID:     tabID,
+		Rows:      2,
+		Cols:      20,
+		Activate:  true,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("history\nscreen one\nscreen two\n"),
+			CaptureFullPane:   true,
+		},
 	})
 
 	tab := m.tabs.ByWorkspace[wsID][0]
@@ -408,15 +424,17 @@ func TestHandlePtyTabCreated_ResizesExistingTerminalBeforeFullPaneRestore(t *tes
 	}
 
 	_ = m.handlePtyTabCreated(ptyTabCreateResult{
-		Workspace:         ws,
-		Assistant:         "codex",
-		Agent:             &appPty.Agent{Session: "sess-existing-pane-resize"},
-		TabID:             tabID,
-		Rows:              2,
-		Cols:              8,
-		Activate:          true,
-		ScrollbackCapture: []byte("history\n12345678\nabcdefgh\n"),
-		CaptureFullPane:   true,
+		Workspace: ws,
+		Assistant: "codex",
+		Agent:     &appPty.Agent{Session: "sess-existing-pane-resize"},
+		TabID:     tabID,
+		Rows:      2,
+		Cols:      8,
+		Activate:  true,
+		SessionRestoreCapture: ptyio.SessionRestoreCapture{
+			ScrollbackCapture: []byte("history\n12345678\nabcdefgh\n"),
+			CaptureFullPane:   true,
+		},
 	})
 
 	tab := m.tabs.ByWorkspace[wsID][0]

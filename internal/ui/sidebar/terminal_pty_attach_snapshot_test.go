@@ -115,10 +115,10 @@ func TestCreateTerminalTab_CapturesReusedSessionBeforeAttachAfterResize(t *testi
 	if !created.CaptureFullPane {
 		t.Fatal("expected reused session startup to restore a full-pane snapshot")
 	}
-	if got := string(created.Scrollback); got != "resized frame" {
+	if got := string(created.ScrollbackCapture); got != "resized frame" {
 		t.Fatalf("expected snapshot data from pre-attach capture, got %q", got)
 	}
-	if got := string(created.PostAttachScrollback); got != "fallback" {
+	if got := string(created.PostAttachScrollbackCapture); got != "fallback" {
 		t.Fatalf("expected post-attach history reconciliation capture, got %q", got)
 	}
 	if created.SnapshotCols != 77 || created.SnapshotRows != 19 {
@@ -311,10 +311,10 @@ func TestAttachToSession_CapturesReattachSnapshotBeforeAttach(t *testing.T) {
 	if !reattach.CaptureFullPane {
 		t.Fatal("expected reattach to carry a full-pane snapshot")
 	}
-	if got := string(reattach.Scrollback); got != "pre-attach frame" {
+	if got := string(reattach.ScrollbackCapture); got != "pre-attach frame" {
 		t.Fatalf("expected pre-attach snapshot data, got %q", got)
 	}
-	if got := string(reattach.PostAttachScrollback); got != "fallback" {
+	if got := string(reattach.PostAttachScrollbackCapture); got != "fallback" {
 		t.Fatalf("expected post-attach history reconciliation capture, got %q", got)
 	}
 	if reattach.SnapshotCols != 77 || reattach.SnapshotRows != 19 {

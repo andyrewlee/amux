@@ -230,14 +230,11 @@ func TestSessionRestorePaneModeState_PreservesExistingStateWhenNoCapturedState(t
 
 func TestRestorePaneCapture_NilTerminalIsNoOp(t *testing.T) {
 	// The early nil guard protects reused tabs whose VTerm is not yet live.
-	RestorePaneCapture(
-		nil,
-		[]byte("history\n"),
-		nil,
-		0, 0, false,
-		tmux.PaneModeState{},
-		20, 2, 20, 2,
-	)
+	RestorePaneCapture(nil, SessionRestoreCapture{
+		ScrollbackCapture: []byte("history\n"),
+		SnapshotCols:      20,
+		SnapshotRows:      2,
+	}, 20, 2)
 }
 
 func TestRestoreScrollbackCapture_NilTerminalIsNoOp(t *testing.T) {

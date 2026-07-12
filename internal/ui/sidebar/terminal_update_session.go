@@ -38,25 +38,13 @@ func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cm
 		ts.mu.Lock()
 		if ts.VTerm != nil {
 			if msg.CaptureFullPane {
-				ptyio.RestorePaneCapture(
-					ts.VTerm,
-					msg.Scrollback,
-					msg.PostAttachScrollback,
-					msg.SnapshotCursorX,
-					msg.SnapshotCursorY,
-					msg.SnapshotHasCursor,
-					msg.SnapshotModeState,
-					msg.SnapshotCols,
-					msg.SnapshotRows,
-					currentWidth,
-					currentHeight,
-				)
+				ptyio.RestorePaneCapture(ts.VTerm, msg.SessionRestoreCapture, currentWidth, currentHeight)
 				ts.lastWidth = currentWidth
 				ts.lastHeight = currentHeight
-			} else if len(msg.Scrollback) > 0 {
+			} else if len(msg.ScrollbackCapture) > 0 {
 				ptyio.RestoreScrollbackCapture(
 					ts.VTerm,
-					msg.Scrollback,
+					msg.ScrollbackCapture,
 					msg.CaptureCols,
 					msg.CaptureRows,
 					currentWidth,
@@ -92,24 +80,12 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	if ts.VTerm != nil {
 		ts.VTerm.AllowAltScreenScrollback = true
 		if msg.CaptureFullPane {
-			ptyio.RestorePaneCapture(
-				ts.VTerm,
-				msg.Scrollback,
-				msg.PostAttachScrollback,
-				msg.SnapshotCursorX,
-				msg.SnapshotCursorY,
-				msg.SnapshotHasCursor,
-				msg.SnapshotModeState,
-				msg.SnapshotCols,
-				msg.SnapshotRows,
-				termWidth,
-				termHeight,
-			)
+			ptyio.RestorePaneCapture(ts.VTerm, msg.SessionRestoreCapture, termWidth, termHeight)
 		} else {
-			if len(msg.Scrollback) > 0 && len(ts.VTerm.Scrollback) == 0 {
+			if len(msg.ScrollbackCapture) > 0 && len(ts.VTerm.Scrollback) == 0 {
 				ptyio.RestoreScrollbackCapture(
 					ts.VTerm,
-					msg.Scrollback,
+					msg.ScrollbackCapture,
 					msg.CaptureCols,
 					msg.CaptureRows,
 					termWidth,

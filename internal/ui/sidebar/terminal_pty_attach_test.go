@@ -155,7 +155,7 @@ func TestCreateTerminalTab_FallsBackToHistoryWhenPreAttachResizeFails(t *testing
 	if created.CaptureFullPane {
 		t.Fatal("expected resize failure to disable authoritative full-pane restore")
 	}
-	if got := string(created.Scrollback); got != "history only" {
+	if got := string(created.ScrollbackCapture); got != "history only" {
 		t.Fatalf("expected history-only fallback, got %q", got)
 	}
 	if created.CaptureCols != 123 || created.CaptureRows != 45 {
@@ -282,7 +282,7 @@ func TestAttachToSession_FallsBackToHistoryWhenPreAttachResizeFails(t *testing.T
 	if reattach.CaptureFullPane {
 		t.Fatal("expected resize failure to disable authoritative full-pane restore")
 	}
-	if got := string(reattach.Scrollback); got != "history only" {
+	if got := string(reattach.ScrollbackCapture); got != "history only" {
 		t.Fatalf("expected history-only fallback, got %q", got)
 	}
 	if reattach.CaptureCols != 123 || reattach.CaptureRows != 45 {
