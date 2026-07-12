@@ -2,6 +2,7 @@ package compositor
 
 import (
 	"image/color"
+	"sync"
 
 	uv "github.com/charmbracelet/ultraviolet"
 
@@ -208,13 +209,33 @@ func vtermColorToUV(c vterm.Color) color.Color {
 		// Use ANSI indexed colors
 		return ansiColor(c.Value)
 	case vterm.ColorRGB:
-		// Extract RGB components
-		r := uint8((c.Value >> 16) & 0xFF)
-		g := uint8((c.Value >> 8) & 0xFF)
-		b := uint8(c.Value & 0xFF)
-		return color.RGBA{R: r, G: g, B: b, A: 255}
+		return rgbToUV(c.Value)
 	}
 	return nil
+}
+
+// rgbColorCache memoizes color.Color interface values keyed by the 24-bit packed
+// RGB value. Boxing a color.RGBA into the color.Color interface allocates, and
+// vtermColorToUV runs twice per cell per frame; caching collapses that churn to
+// a bounded set since the same handful of colors dominate any given frame.
+var rgbColorCache sync.Map // uint32 -> color.Color
+
+// rgbToUV returns a cached color.Color for a 24-bit packed RGB value, building
+// (and boxing) it once on first use.
+func rgbToUV(v uint32) color.Color {
+	if cached, ok := rgbColorCache.Load(v); ok {
+		if col, ok := cached.(color.Color); ok {
+			return col
+		}
+	}
+	c := color.Color(color.RGBA{
+		R: uint8((v >> 16) & 0xFF),
+		G: uint8((v >> 8) & 0xFF),
+		B: uint8(v & 0xFF),
+		A: 255,
+	})
+	rgbColorCache.Store(v, c)
+	return c
 }
 
 // ansiColor returns an indexed ANSI color.

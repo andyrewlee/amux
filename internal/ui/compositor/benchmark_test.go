@@ -30,6 +30,25 @@ func setupVTerm(width, height int) *vterm.VTerm {
 	return term
 }
 
+// setupVTermTruecolor builds a VTerm of truecolor (RGB) cells for benchmarking.
+func setupVTermTruecolor(width, height int) *vterm.VTerm {
+	term := vterm.New(width, height)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			term.Screen[y][x] = vterm.Cell{
+				Rune:  rune('A' + (x+y)%26),
+				Width: 1,
+				Style: vterm.Style{
+					Fg:   vterm.Color{Type: vterm.ColorRGB, Value: uint32((x << 16) | (y << 8) | ((x + y) & 0xFF))},
+					Bg:   vterm.Color{Type: vterm.ColorRGB, Value: uint32((y << 16) | (x << 8) | ((x * y) & 0xFF))},
+					Bold: (x+y)%3 == 0,
+				},
+			}
+		}
+	}
+	return term
+}
+
 // setupVTermSnapshot creates a snapshot for benchmarking
 func setupVTermSnapshot(width, height int) *VTermSnapshot {
 	term := setupVTerm(width, height)
@@ -60,6 +79,22 @@ func BenchmarkVTermLayerDrawAt(b *testing.B) {
 				layer.Draw(screen, rect)
 			}
 		})
+	}
+}
+
+// BenchmarkVTermLayerDrawAtTruecolor benchmarks the draw path for a full-screen
+// truecolor (RGB) agent, guarding the ColorRGB conversion against per-cell allocs.
+func BenchmarkVTermLayerDrawAtTruecolor(b *testing.B) {
+	const width, height = 200, 60
+	snap := NewVTermSnapshot(setupVTermTruecolor(width, height), true)
+	layer := NewVTermLayer(snap)
+	screen := newMockScreen(width, height)
+	rect := image.Rect(0, 0, width, height)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		layer.Draw(screen, rect)
 	}
 }
 
