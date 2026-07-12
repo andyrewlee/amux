@@ -127,6 +127,7 @@ func (m *Model) TabBarView() string {
 
 // HelpLines returns the help lines for the given width, respecting visibility.
 func (m *Model) HelpLines(width int) []string {
+	m.helpBuilds++
 	if !m.showKeymapHints {
 		return nil
 	}
@@ -134,6 +135,25 @@ func (m *Model) HelpLines(width int) []string {
 		width = 1
 	}
 	return m.helpLines(width)
+}
+
+// HelpVersion returns the monotonic version of the inputs to HelpLines. The
+// compose layer in internal/app skips rebuilding the help string while this
+// version and the compose geometry are unchanged.
+func (m *Model) HelpVersion() uint64 {
+	return m.helpVersion
+}
+
+// markHelpDirty bumps helpVersion. It MUST be called by every update path
+// that changes HelpLines output; see the helpVersion field invariant.
+func (m *Model) markHelpDirty() {
+	m.helpVersion++
+}
+
+// HelpBuildCount reports how many times HelpLines has been invoked. Test
+// instrumentation for the compose-time skip gate; not for production use.
+func (m *Model) HelpBuildCount() uint64 {
+	return m.helpBuilds
 }
 
 func (m *Model) helpItem(key, desc string) string {

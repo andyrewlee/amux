@@ -24,14 +24,23 @@ import (
 // Model is the Bubbletea model for the center pane
 type Model struct {
 	// State
-	workspace             *data.Workspace
-	workspaceIDCached     string
-	workspaceIDRepo       string
-	workspaceIDRoot       string
-	tabs                  common.TabSet[*Tab] // tabs + active index per workspace ID
-	focused               bool
-	canFocusRight         bool
-	tabsRevision          uint64
+	workspace         *data.Workspace
+	workspaceIDCached string
+	workspaceIDRepo   string
+	workspaceIDRoot   string
+	tabs              common.TabSet[*Tab] // tabs + active index per workspace ID
+	focused           bool
+	canFocusRight     bool
+	tabsRevision      uint64
+	// helpVersion is a monotonic version of every input that shapes HelpLines
+	// output (tab count, workspace presence, keymap-hint visibility, styles,
+	// pane size). INVARIANT: every update path that changes what HelpLines
+	// renders MUST call markHelpDirty, or the compose-time gate in
+	// internal/app will keep reusing a stale help drawable.
+	helpVersion uint64
+	// helpBuilds counts HelpLines invocations; test instrumentation for the
+	// compose-time skip gate in internal/app.
+	helpBuilds            uint64
 	agentManager          *appPty.AgentManager
 	msgSink               func(tea.Msg)
 	msgSinkTry            func(tea.Msg) bool
@@ -236,6 +245,7 @@ func (m *Model) clearTabActorRedrawPending() {
 }
 
 func (m *Model) setWorkspace(ws *data.Workspace) {
+	m.markHelpDirty()
 	m.workspace = ws
 	m.workspaceIDCached = ""
 	m.workspaceIDRepo = ""
