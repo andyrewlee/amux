@@ -46,6 +46,50 @@ func TestGoHomeReleasesActiveWorkspaceFileWatch(t *testing.T) {
 	}
 }
 
+func TestRemoveProject_ClearsActiveWhenViewingRemovedProject(t *testing.T) {
+	repo := t.TempDir()
+	project := data.NewProject(repo)
+
+	app := &App{
+		activeWorkspace: data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "feature")),
+	}
+
+	cmd := app.removeProject(project)
+
+	if cmd != nil {
+		t.Fatalf("expected nil cmd with nil workspaceService, got %T", cmd)
+	}
+	if app.activeWorkspace != nil {
+		t.Fatalf("expected active workspace to be cleared, got %+v", app.activeWorkspace)
+	}
+	if !app.showWelcome {
+		t.Fatal("expected goHome to set showWelcome")
+	}
+}
+
+func TestRemoveProject_KeepsActiveWhenViewingDifferentProject(t *testing.T) {
+	repo := t.TempDir()
+	otherRepo := t.TempDir()
+	project := data.NewProject(repo)
+
+	active := data.NewWorkspace("feature", "feature", "main", otherRepo, filepath.Join(otherRepo, "feature"))
+	app := &App{
+		activeWorkspace: active,
+	}
+
+	cmd := app.removeProject(project)
+
+	if cmd != nil {
+		t.Fatalf("expected nil cmd with nil workspaceService, got %T", cmd)
+	}
+	if app.activeWorkspace != active {
+		t.Fatalf("expected active workspace to be untouched, got %+v", app.activeWorkspace)
+	}
+	if app.showWelcome {
+		t.Fatal("expected showWelcome to stay false when active workspace is kept")
+	}
+}
+
 func TestLoadProjects_StoreFirstMerge(t *testing.T) {
 	skipIfNoGit(t)
 
