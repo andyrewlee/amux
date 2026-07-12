@@ -102,9 +102,12 @@ func shouldPreferWorkspace(candidate, existing *Workspace) bool {
 	if existing.Created.After(candidate.Created) {
 		return false
 	}
-	if existing.Name == "" && candidate.Name != "" {
-		return true
-	}
+	// No standalone Name check here: workspaceMetadataQuality already counts
+	// Name, so a named record beats an otherwise-equal unnamed one via the
+	// quality comparison. A one-directional Name check ahead of it made an
+	// emptier-but-named record beat a richer unnamed one AND broke
+	// antisymmetry (both directions returned true, so the dedup winner
+	// depended on directory scan order).
 	if quality := workspaceMetadataQuality(candidate) - workspaceMetadataQuality(existing); quality != 0 {
 		return quality > 0
 	}

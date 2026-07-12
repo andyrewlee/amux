@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestRepoHintFromRawJSONHandlesEscapedQuotes(t *testing.T) {
@@ -210,5 +211,80 @@ func TestCanonicalLookupPath_ResolvesAbsoluteSymlinkPath(t *testing.T) {
 	want := NormalizePath(realRepo)
 	if got != want {
 		t.Fatalf("canonicalLookupPath(absolute symlink) = %q, want %q", got, want)
+	}
+}
+
+// TestWorkspaceMetadataQualityOrdering pins the relative scoring: a fuller
+// record must never score below an emptier one.
+func TestWorkspaceMetadataQualityOrdering(t *testing.T) {
+	empty := &Workspace{}
+	nameOnly := &Workspace{Name: "feature"}
+	rich := &Workspace{Branch: "feature", Base: "main", Assistant: "claude", Env: map[string]string{"K": "V"}}
+	full := &Workspace{Name: "feature", Branch: "feature", Base: "main", Assistant: "claude", ScriptMode: "nonconcurrent", Runtime: "local", Env: map[string]string{"K": "V"}, OpenTabs: []TabInfo{{}}}
+
+	if q := workspaceMetadataQuality(nil); q != 0 {
+		t.Fatalf("quality(nil) = %d, want 0", q)
+	}
+	qEmpty, qName, qRich, qFull := workspaceMetadataQuality(empty), workspaceMetadataQuality(nameOnly), workspaceMetadataQuality(rich), workspaceMetadataQuality(full)
+	if !(qEmpty < qName && qName < qRich && qRich < qFull) {
+		t.Fatalf("quality ordering broken: empty=%d nameOnly=%d rich=%d full=%d", qEmpty, qName, qRich, qFull)
+	}
+}
+
+// TestShouldPreferWorkspaceTiebreak pins the preference rules, including the
+// regression where a one-directional Name check let an emptier-but-named
+// record beat a richer unnamed one and broke antisymmetry.
+func TestShouldPreferWorkspaceTiebreak(t *testing.T) {
+	created := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	newer := created.Add(time.Hour)
+
+	stubNamed := &Workspace{Name: "feature", Created: created}
+	richUnnamed := &Workspace{Branch: "feature", Base: "main", Assistant: "claude", Env: map[string]string{"K": "V"}, Created: created}
+
+	tests := []struct {
+		name                string
+		candidate, existing *Workspace
+		want                bool
+	}{
+		{name: "nil existing always replaced", candidate: stubNamed, existing: nil, want: true},
+		{name: "nil candidate never preferred", candidate: nil, existing: stubNamed, want: false},
+		{name: "active candidate beats archived existing", candidate: &Workspace{Created: created}, existing: &Workspace{Archived: true, Created: created}, want: true},
+		{name: "archived candidate loses to active existing", candidate: &Workspace{Archived: true, Created: created}, existing: &Workspace{Created: created}, want: false},
+		{name: "newer created wins", candidate: &Workspace{Created: newer}, existing: &Workspace{Created: created}, want: true},
+		{name: "older created loses", candidate: &Workspace{Created: created}, existing: &Workspace{Created: newer}, want: false},
+		{name: "REGRESSION: emptier named stub must not replace richer unnamed record", candidate: stubNamed, existing: richUnnamed, want: false},
+		{name: "richer unnamed record replaces emptier named stub", candidate: richUnnamed, existing: stubNamed, want: true},
+		{name: "equal records: keep existing (deterministic)", candidate: stubNamed, existing: &Workspace{Name: "other", Created: created}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldPreferWorkspace(tt.candidate, tt.existing); got != tt.want {
+				t.Fatalf("shouldPreferWorkspace(%s) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestShouldPreferWorkspaceAntisymmetric pins that for any unequal pair at most
+// one direction prefers replacement — otherwise the dedup winner depends on
+// directory scan order.
+func TestShouldPreferWorkspaceAntisymmetric(t *testing.T) {
+	created := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	records := []*Workspace{
+		{Created: created},
+		{Name: "feature", Created: created},
+		{Branch: "feature", Base: "main", Assistant: "claude", Created: created},
+		{Name: "feature", Branch: "feature", Base: "main", Created: created},
+		{Archived: true, Created: created},
+	}
+	for i, a := range records {
+		for j, b := range records {
+			if i == j {
+				continue
+			}
+			if shouldPreferWorkspace(a, b) && shouldPreferWorkspace(b, a) {
+				t.Fatalf("not antisymmetric: records %d and %d both prefer replacing each other", i, j)
+			}
+		}
 	}
 }
