@@ -2,6 +2,7 @@ package common
 
 import (
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -26,10 +27,20 @@ type ThemePreview struct {
 type settingsItem int
 
 const (
-	settingsItemTheme  settingsItem = iota
-	settingsItemUpdate              // only shown when update available
+	settingsItemTheme settingsItem = iota
+	settingsItemTmuxServer
+	settingsItemTmuxConfig
+	settingsItemTmuxSync
+	settingsItemUpdate // only shown when update available
 	settingsItemClose
 )
+
+// isTmuxField reports whether item is one of the editable tmux text fields.
+func isTmuxField(item settingsItem) bool {
+	return item == settingsItemTmuxServer ||
+		item == settingsItemTmuxConfig ||
+		item == settingsItemTmuxSync
+}
 
 // SettingsDialog is a modal dialog for application settings.
 type SettingsDialog struct {
@@ -39,6 +50,13 @@ type SettingsDialog struct {
 
 	// Settings values
 	theme ThemeID
+
+	// tmux server / config / sync-interval values. These persist to
+	// UISettings and are exported as AMUX_TMUX_* env vars at launch, so
+	// edits here take effect on next start (surfaced by the section hint).
+	tmuxServer       string
+	tmuxConfigPath   string
+	tmuxSyncInterval string
 
 	// UI state
 	focusedItem settingsItem
@@ -63,7 +81,7 @@ type settingsHitRegion struct {
 }
 
 // NewSettingsDialog creates a new settings dialog with current values.
-func NewSettingsDialog(currentTheme ThemeID) *SettingsDialog {
+func NewSettingsDialog(currentTheme ThemeID, tmuxServer, tmuxConfig, tmuxSync string) *SettingsDialog {
 	themes := AvailableThemes()
 	themeCursor := 0
 	for i, t := range themes {
@@ -74,10 +92,13 @@ func NewSettingsDialog(currentTheme ThemeID) *SettingsDialog {
 	}
 
 	return &SettingsDialog{
-		theme:       currentTheme,
-		themes:      themes,
-		themeCursor: themeCursor,
-		focusedItem: settingsItemTheme,
+		theme:            currentTheme,
+		tmuxServer:       tmuxServer,
+		tmuxConfigPath:   tmuxConfig,
+		tmuxSyncInterval: tmuxSync,
+		themes:           themes,
+		themeCursor:      themeCursor,
+		focusedItem:      settingsItemTheme,
 	}
 }
 
@@ -93,6 +114,12 @@ func (s *SettingsDialog) SetSession(session int) {
 func (s *SettingsDialog) SelectedTheme() ThemeID {
 	return s.theme
 }
+
+// TmuxServer, TmuxConfigPath, and TmuxSyncInterval return the current (possibly
+// edited) tmux values so the app can persist them into UISettings on close.
+func (s *SettingsDialog) TmuxServer() string       { return s.tmuxServer }
+func (s *SettingsDialog) TmuxConfigPath() string   { return s.tmuxConfigPath }
+func (s *SettingsDialog) TmuxSyncInterval() string { return s.tmuxSyncInterval }
 
 func (s *SettingsDialog) SetSelectedTheme(theme ThemeID) {
 	s.theme = theme
@@ -129,11 +156,20 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		}
 
 	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+		// Esc always cancels, whatever is focused.
+		if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
 			s.visible = false
 			return s, func() tea.Msg { return SettingsResult{Canceled: true} }
+		}
 
+		// While a tmux text field is focused, printable keys (including j/k and
+		// space) are text, so only structural keys navigate. Handle it before the
+		// list-navigation switch so those characters are not swallowed as motions.
+		if isTmuxField(s.focusedItem) {
+			return s.handleTmuxFieldKey(msg)
+		}
+
+		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", " "))):
 			return s.handleSelect()
 
@@ -152,6 +188,89 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 	}
 
 	return s, nil
+}
+
+// handleTmuxFieldKey edits the focused tmux text field. Structural keys move
+// between fields/sections; backspace deletes; any other printable text is
+// appended (filtered to valid characters for the field).
+func (s *SettingsDialog) handleTmuxFieldKey(msg tea.KeyPressMsg) (*SettingsDialog, tea.Cmd) {
+	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down", "enter"))):
+		return s.handleNextSection()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "up"))):
+		return s.handlePrevSection()
+
+	case key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))):
+		s.deleteFocusedTmuxRune()
+		return s, nil
+	}
+
+	if msg.Text != "" {
+		s.appendFocusedTmuxText(msg.Text)
+	}
+	return s, nil
+}
+
+// appendFocusedTmuxText appends filtered text to the focused tmux field. The
+// sync-interval field only accepts characters that can appear in a Go duration
+// so the UI cannot persist a value the consumer would reject and silently
+// replace with its default.
+func (s *SettingsDialog) appendFocusedTmuxText(txt string) {
+	switch s.focusedItem {
+	case settingsItemTmuxServer:
+		s.tmuxServer += keepRunes(txt, isPrintableFieldRune)
+	case settingsItemTmuxConfig:
+		s.tmuxConfigPath += keepRunes(txt, isPrintableFieldRune)
+	case settingsItemTmuxSync:
+		s.tmuxSyncInterval += keepRunes(txt, isDurationRune)
+	}
+}
+
+// deleteFocusedTmuxRune removes the last rune from the focused tmux field.
+func (s *SettingsDialog) deleteFocusedTmuxRune() {
+	switch s.focusedItem {
+	case settingsItemTmuxServer:
+		s.tmuxServer = trimLastRune(s.tmuxServer)
+	case settingsItemTmuxConfig:
+		s.tmuxConfigPath = trimLastRune(s.tmuxConfigPath)
+	case settingsItemTmuxSync:
+		s.tmuxSyncInterval = trimLastRune(s.tmuxSyncInterval)
+	}
+}
+
+func keepRunes(s string, keep func(rune) bool) string {
+	var b strings.Builder
+	for _, r := range s {
+		if keep(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func trimLastRune(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:len(r)-1])
+}
+
+// isPrintableFieldRune accepts any printable rune (spaces included, so paths and
+// server names with spaces work) while rejecting control characters.
+func isPrintableFieldRune(r rune) bool {
+	return unicode.IsGraphic(r)
+}
+
+// isDurationRune accepts only characters that can appear in a Go duration string
+// (time.ParseDuration): digits, a decimal point, and lowercase unit letters
+// covering ns, us/µs, ms, s, m, and h.
+func isDurationRune(r rune) bool {
+	if r >= '0' && r <= '9' {
+		return true
+	}
+	return strings.ContainsRune(".nsuµmh", r)
 }
 
 func (s *SettingsDialog) handleSelect() (*SettingsDialog, tea.Cmd) {
@@ -191,9 +310,9 @@ func (s *SettingsDialog) handleNextSection() (*SettingsDialog, tea.Cmd) {
 // handlePrevSection moves focus to the previous section (Shift+Tab key).
 func (s *SettingsDialog) handlePrevSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem--
-	// Skip update item if no update available
+	// Skip update item if no update available, landing on the item before it.
 	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemTheme
+		s.focusedItem = settingsItemTmuxSync
 	}
 	if s.focusedItem < 0 {
 		s.focusedItem = settingsItemClose

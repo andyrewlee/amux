@@ -6,7 +6,7 @@ import (
 )
 
 func TestSettingsRenderUpdateAvailable(t *testing.T) {
-	dialog := NewSettingsDialog(ThemeAyuDark)
+	dialog := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	dialog.SetUpdateInfo("v0.0.10", "v0.0.11", true)
 
 	lines := dialog.renderLines()
@@ -17,7 +17,7 @@ func TestSettingsRenderUpdateAvailable(t *testing.T) {
 }
 
 func TestSettingsRenderUpdateHiddenWhenUnavailable(t *testing.T) {
-	dialog := NewSettingsDialog(ThemeAyuDark)
+	dialog := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	dialog.SetUpdateInfo("v0.0.10", "", false)
 
 	lines := dialog.renderLines()
@@ -28,7 +28,7 @@ func TestSettingsRenderUpdateHiddenWhenUnavailable(t *testing.T) {
 }
 
 func TestSettingsRenderHomebrewHint(t *testing.T) {
-	dialog := NewSettingsDialog(ThemeAyuDark)
+	dialog := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	dialog.SetUpdateInfo("v0.0.10", "", false)
 	dialog.SetUpdateHint("Installed via Homebrew - update with brew upgrade amux")
 
@@ -62,7 +62,7 @@ func TestSettingsDialogFrame(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dialog := NewSettingsDialog(ThemeAyuDark)
+			dialog := NewSettingsDialog(ThemeAyuDark, "", "", "")
 			dialog.SetSize(tt.width, tt.height)
 
 			frameX, frameY, offsetX, offsetY := dialog.dialogFrame()
@@ -152,7 +152,7 @@ func TestSettingsDialogBounds(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dialog := NewSettingsDialog(ThemeAyuDark)
+			dialog := NewSettingsDialog(ThemeAyuDark, "", "", "")
 			dialog.SetSize(tt.width, tt.height)
 
 			x, y, w, h := dialog.dialogBounds(tt.contentHeight)
@@ -184,7 +184,7 @@ func TestSettingsDialogBounds(t *testing.T) {
 // width/height always equal the content size plus the dialogFrame size,
 // tying the two functions together as a regression guard.
 func TestSettingsDialogBoundsConsistentWithFrame(t *testing.T) {
-	dialog := NewSettingsDialog(ThemeAyuDark)
+	dialog := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	dialog.SetSize(100, 50)
 
 	frameX, frameY, _, _ := dialog.dialogFrame()

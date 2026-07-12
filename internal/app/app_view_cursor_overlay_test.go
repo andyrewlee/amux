@@ -29,7 +29,7 @@ func TestViewHidesTerminalCursorWhenSettingsOverlayIsVisible(t *testing.T) {
 		t.Fatal("expected visible terminal cursor before overlay")
 	}
 
-	h.app.settingsDialog = common.NewSettingsDialog(common.ThemeTokyoNight)
+	h.app.settingsDialog = common.NewSettingsDialog(common.ThemeTokyoNight, "", "", "")
 	h.app.settingsDialog.Show()
 	h.app.settingsDialog.SetSize(h.app.width, h.app.height)
 

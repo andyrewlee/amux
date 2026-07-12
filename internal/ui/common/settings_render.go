@@ -53,6 +53,30 @@ func (s *SettingsDialog) renderLines() []string {
 	}
 	lines = append(lines, "")
 
+	// Tmux section. These persist to config and are read at launch, so the
+	// header carries a restart hint. Each field is an editable, focusable row.
+	lines = append(lines, label.Render("Tmux ")+muted.Render("(restart to apply)"))
+	tmuxFields := []struct {
+		item  settingsItem
+		name  string
+		value string
+	}{
+		{settingsItemTmuxServer, "Server", s.tmuxServer},
+		{settingsItemTmuxConfig, "Config", s.tmuxConfigPath},
+		{settingsItemTmuxSync, "Sync interval", s.tmuxSyncInterval},
+	}
+	for _, f := range tmuxFields {
+		style, prefix := muted, "  "
+		if s.focusedItem == f.item {
+			style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+			prefix = Icons.Cursor + " "
+		}
+		y := len(lines)
+		lines = append(lines, prefix+style.Render(f.name+": "+f.value))
+		s.addHit(f.item, -1, y)
+	}
+	lines = append(lines, "")
+
 	lines = append(lines, label.Render("Version"))
 	if s.currentVersion == "" || s.currentVersion == "dev" {
 		lines = append(lines, muted.Render("  Development build"))

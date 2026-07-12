@@ -7,7 +7,7 @@ import (
 )
 
 func TestHandleSelectTheme(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	if len(d.themes) < 2 {
 		t.Skip("need at least two themes")
 	}
@@ -29,7 +29,7 @@ func TestHandleSelectTheme(t *testing.T) {
 }
 
 func TestHandleSelectThemeCursorOutOfRangeStillPreviews(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	d.focusedItem = settingsItemTheme
 	d.themeCursor = len(d.themes) // out of range
 	before := d.theme
@@ -45,7 +45,7 @@ func TestHandleSelectThemeCursorOutOfRangeStillPreviews(t *testing.T) {
 }
 
 func TestHandleSelectUpdateAvailableTriggersUpgrade(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.SetUpdateInfo("v1", "v2", true)
 	d.Show()
 	d.focusedItem = settingsItemUpdate
@@ -63,7 +63,7 @@ func TestHandleSelectUpdateAvailableTriggersUpgrade(t *testing.T) {
 }
 
 func TestHandleSelectUpdateUnavailableIsNoop(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.SetUpdateInfo("v1", "", false)
 	d.Show()
 	d.focusedItem = settingsItemUpdate
@@ -78,7 +78,7 @@ func TestHandleSelectUpdateUnavailableIsNoop(t *testing.T) {
 }
 
 func TestHandleSelectClose(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.Show()
 	d.focusedItem = settingsItemClose
 
@@ -96,21 +96,21 @@ func TestHandleSelectClose(t *testing.T) {
 }
 
 func TestHandleNextSectionSkipsUpdateWhenUnavailable(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.updateAvailable = false
-	d.focusedItem = settingsItemTheme
+	d.focusedItem = settingsItemTmuxSync
 
 	_, _ = d.handleNextSection()
-	// Theme -> (skip Update) -> Close
+	// TmuxSync -> (skip Update) -> Close
 	if d.focusedItem != settingsItemClose {
 		t.Fatalf("focusedItem = %d, want settingsItemClose", d.focusedItem)
 	}
 }
 
 func TestHandleNextSectionVisitsUpdateWhenAvailable(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.updateAvailable = true
-	d.focusedItem = settingsItemTheme
+	d.focusedItem = settingsItemTmuxSync
 
 	_, _ = d.handleNextSection()
 	if d.focusedItem != settingsItemUpdate {
@@ -119,7 +119,7 @@ func TestHandleNextSectionVisitsUpdateWhenAvailable(t *testing.T) {
 }
 
 func TestHandleNextSectionWrapsFromClose(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.focusedItem = settingsItemClose
 
 	_, _ = d.handleNextSection()
@@ -129,19 +129,19 @@ func TestHandleNextSectionWrapsFromClose(t *testing.T) {
 }
 
 func TestHandlePrevSectionSkipsUpdateWhenUnavailable(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.updateAvailable = false
 	d.focusedItem = settingsItemClose
 
 	_, _ = d.handlePrevSection()
-	// Close -> Update(skip) -> Theme
-	if d.focusedItem != settingsItemTheme {
-		t.Fatalf("focusedItem = %d, want settingsItemTheme", d.focusedItem)
+	// Close -> Update(skip) -> TmuxSync
+	if d.focusedItem != settingsItemTmuxSync {
+		t.Fatalf("focusedItem = %d, want settingsItemTmuxSync", d.focusedItem)
 	}
 }
 
 func TestHandlePrevSectionVisitsUpdateWhenAvailable(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.updateAvailable = true
 	d.focusedItem = settingsItemClose
 
@@ -152,7 +152,7 @@ func TestHandlePrevSectionVisitsUpdateWhenAvailable(t *testing.T) {
 }
 
 func TestHandlePrevSectionWrapsFromTheme(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.focusedItem = settingsItemTheme
 
 	_, _ = d.handlePrevSection()
@@ -162,7 +162,7 @@ func TestHandlePrevSectionWrapsFromTheme(t *testing.T) {
 }
 
 func TestHandleNextInThemeSectionCycles(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	d.focusedItem = settingsItemTheme
 	d.themeCursor = len(d.themes) - 1 // at the end
 
@@ -180,7 +180,7 @@ func TestHandleNextInThemeSectionCycles(t *testing.T) {
 }
 
 func TestHandleNextOutsideThemeDelegatesToSection(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.focusedItem = settingsItemClose
 
 	_, cmd := d.handleNext()
@@ -194,7 +194,7 @@ func TestHandleNextOutsideThemeDelegatesToSection(t *testing.T) {
 }
 
 func TestHandlePrevInThemeSectionCyclesBackward(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	d.focusedItem = settingsItemTheme
 	d.themeCursor = 0 // at the start
 
@@ -212,13 +212,13 @@ func TestHandlePrevInThemeSectionCyclesBackward(t *testing.T) {
 }
 
 func TestHandlePrevOutsideThemeDelegatesToSection(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.focusedItem = settingsItemClose
 
 	_, cmd := d.handlePrev()
-	// Delegates to handlePrevSection: Close -> (skip Update) -> Theme.
-	if d.focusedItem != settingsItemTheme {
-		t.Fatalf("focusedItem = %d, want settingsItemTheme", d.focusedItem)
+	// Delegates to handlePrevSection: Close -> (skip Update) -> TmuxSync.
+	if d.focusedItem != settingsItemTmuxSync {
+		t.Fatalf("focusedItem = %d, want settingsItemTmuxSync", d.focusedItem)
 	}
 	if cmd != nil {
 		t.Fatal("section move should not emit a command")
@@ -226,7 +226,7 @@ func TestHandlePrevOutsideThemeDelegatesToSection(t *testing.T) {
 }
 
 func TestHandleNextThemeRoundTrip(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	d.focusedItem = settingsItemTheme
 
 	n := len(d.themes)

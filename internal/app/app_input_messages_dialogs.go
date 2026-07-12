@@ -133,6 +133,9 @@ func (a *App) handleShowSettingsDialog() {
 	a.settingsDialogSession++
 	a.settingsDialog = common.NewSettingsDialog(
 		common.ThemeID(a.config.UI.Theme),
+		a.config.UI.TmuxServer,
+		a.config.UI.TmuxConfigPath,
+		a.config.UI.TmuxSyncInterval,
 	)
 	a.settingsDialog.SetSession(a.settingsDialogSession)
 	a.settingsDialog.SetSize(a.width, a.height)
@@ -188,21 +191,56 @@ func (a *App) persistSettingsThemeIfDirty() tea.Cmd {
 	return nil
 }
 
+// applySettingsTmux copies the dialog's (possibly edited) tmux values into the
+// in-memory config and reports whether any changed. The values are read as
+// AMUX_TMUX_* env vars at launch, so persisting them here takes effect on the
+// next start (the dialog surfaces a "restart to apply" hint).
+func (a *App) applySettingsTmux(d *common.SettingsDialog) bool {
+	changed := false
+	if v := d.TmuxServer(); v != a.config.UI.TmuxServer {
+		a.config.UI.TmuxServer = v
+		changed = true
+	}
+	if v := d.TmuxConfigPath(); v != a.config.UI.TmuxConfigPath {
+		a.config.UI.TmuxConfigPath = v
+		changed = true
+	}
+	if v := d.TmuxSyncInterval(); v != a.config.UI.TmuxSyncInterval {
+		a.config.UI.TmuxSyncInterval = v
+		changed = true
+	}
+	return changed
+}
+
 // handleSettingsResult handles settings dialog close.
 func (a *App) handleSettingsResult(res common.SettingsResult) tea.Cmd {
 	if res.Canceled {
 		// Esc cancels: revert any live theme preview to what was active when the
-		// dialog opened and do not persist.
+		// dialog opened and do not persist. Tmux edits are dropped with it.
 		a.applyTheme(a.settingsThemeOriginal)
 		a.settingsThemeDirty = false
 		a.settingsDialog = nil
 		a.settingsDialogSession++
 		return nil
 	}
+	tmuxChanged := false
 	if a.settingsDialog != nil {
 		a.applyTheme(a.settingsDialog.SelectedTheme())
+		tmuxChanged = a.applySettingsTmux(a.settingsDialog)
 	}
 	a.settingsDialog = nil
 	a.settingsDialogSession++
-	return a.persistSettingsThemeIfDirty()
+	// A dirty theme save already persists the whole UI struct (tmux fields
+	// included, since applySettingsTmux wrote them). Only persist separately
+	// when tmux changed but the theme did not.
+	if a.settingsThemeDirty {
+		return a.persistSettingsThemeIfDirty()
+	}
+	if tmuxChanged {
+		if err := a.config.SaveUISettings(); err != nil {
+			logging.Warn("Failed to save tmux settings: %v", err)
+			return a.toast.ShowWarning("Failed to save tmux settings")
+		}
+	}
+	return nil
 }

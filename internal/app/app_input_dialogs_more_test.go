@@ -208,7 +208,7 @@ func TestHandleUpdateCheckComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDialogHarness(t)
-			h.app.settingsDialog = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme))
+			h.app.settingsDialog = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme), "", "", "")
 			h.app.settingsDialog.SetSize(h.app.width, h.app.height)
 			if tc.visible {
 				h.app.settingsDialog.Show()
@@ -311,7 +311,7 @@ func TestHandleUpgradeComplete(t *testing.T) {
 // dialog version line is refreshed on a successful upgrade only when visible.
 func TestHandleUpgradeComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 	h := newDialogHarness(t)
-	h.app.settingsDialog = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme))
+	h.app.settingsDialog = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme), "", "", "")
 	h.app.settingsDialog.SetSize(h.app.width, h.app.height)
 	h.app.settingsDialog.SetUpdateInfo("1.0.0", "2.0.0", true)
 	h.app.settingsDialog.Show()

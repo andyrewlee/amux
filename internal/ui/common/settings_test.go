@@ -25,7 +25,7 @@ func TestNewSettingsDialogPlacesCursorOnCurrentTheme(t *testing.T) {
 
 	// Pick the second theme so cursor != 0 proves the lookup ran.
 	want := themes[1].ID
-	d := NewSettingsDialog(want)
+	d := NewSettingsDialog(want, "", "", "")
 
 	if d.theme != want {
 		t.Fatalf("theme = %v, want %v", d.theme, want)
@@ -43,7 +43,7 @@ func TestNewSettingsDialogPlacesCursorOnCurrentTheme(t *testing.T) {
 
 func TestNewSettingsDialogUnknownThemeDefaultsCursorToZero(t *testing.T) {
 	// ThemeID("") is not a real theme, so the cursor lookup never matches.
-	d := NewSettingsDialog(ThemeID("does-not-exist"))
+	d := NewSettingsDialog(ThemeID("does-not-exist"), "", "", "")
 	if d.themeCursor != 0 {
 		t.Fatalf("themeCursor = %d, want 0 for unknown theme", d.themeCursor)
 	}
@@ -53,7 +53,7 @@ func TestNewSettingsDialogUnknownThemeDefaultsCursorToZero(t *testing.T) {
 }
 
 func TestShowHideVisible(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	if d.Visible() {
 		t.Fatal("new dialog should be hidden")
 	}
@@ -88,7 +88,7 @@ func TestSetSize(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := NewSettingsDialog(ThemeAyuDark)
+			d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 			d.SetSize(tt.w, tt.h)
 			if d.width != tt.w || d.height != tt.h {
 				t.Fatalf("SetSize(%d,%d) => width=%d height=%d", tt.w, tt.h, d.width, d.height)
@@ -98,7 +98,7 @@ func TestSetSize(t *testing.T) {
 }
 
 func TestCursorAlwaysNil(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	if d.Cursor() != nil {
 		t.Fatal("Cursor should always return nil")
 	}
@@ -111,7 +111,7 @@ func TestCursorAlwaysNil(t *testing.T) {
 func TestSetSession(t *testing.T) {
 	tests := []int{0, 1, 7, -3}
 	for _, sess := range tests {
-		d := NewSettingsDialog(ThemeAyuDark)
+		d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 		d.SetSession(sess)
 		if d.session != sess {
 			t.Fatalf("SetSession(%d) => session=%d", sess, d.session)
@@ -120,7 +120,7 @@ func TestSetSession(t *testing.T) {
 }
 
 func TestSetSessionFlowsIntoThemePreview(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.SetSession(42)
 	d.Show()
 
@@ -139,7 +139,7 @@ func TestSetSessionFlowsIntoThemePreview(t *testing.T) {
 }
 
 func TestSelectedThemeReturnsCurrent(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	if d.SelectedTheme() != ThemeAyuDark {
 		t.Fatalf("SelectedTheme = %v, want %v", d.SelectedTheme(), ThemeAyuDark)
 	}
@@ -150,7 +150,7 @@ func TestSetSelectedThemeKnownThemeMovesCursor(t *testing.T) {
 	if len(themes) < 2 {
 		t.Skip("need at least two themes")
 	}
-	d := NewSettingsDialog(themes[0].ID)
+	d := NewSettingsDialog(themes[0].ID, "", "", "")
 
 	want := themes[1].ID
 	d.SetSelectedTheme(want)
@@ -163,7 +163,7 @@ func TestSetSelectedThemeKnownThemeMovesCursor(t *testing.T) {
 }
 
 func TestSetSelectedThemeUnknownThemeLeavesCursor(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	// Move the cursor somewhere distinct first.
 	if len(d.themes) > 1 {
 		d.themeCursor = 1
@@ -182,7 +182,7 @@ func TestSetSelectedThemeUnknownThemeLeavesCursor(t *testing.T) {
 }
 
 func TestUpdateWhenHiddenIsNoop(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	// Not shown: every key is a no-op.
 	got, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got != d {
@@ -194,7 +194,7 @@ func TestUpdateWhenHiddenIsNoop(t *testing.T) {
 }
 
 func TestUpdateEscClosesDialog(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.Show()
 
 	_, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -214,7 +214,7 @@ func TestUpdateEscClosesDialog(t *testing.T) {
 }
 
 func TestUpdateEnterSelectsTheme(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.Show()
 
 	_, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -227,17 +227,17 @@ func TestUpdateEnterSelectsTheme(t *testing.T) {
 }
 
 func TestUpdateTabAdvancesSection(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.Show()
-	// No update available: Tab skips the update section straight to Close.
+	// From Theme, one Tab advances to the first tmux field.
 	_, _ = d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	if d.focusedItem != settingsItemClose {
-		t.Fatalf("focusedItem after Tab = %d, want settingsItemClose", d.focusedItem)
+	if d.focusedItem != settingsItemTmuxServer {
+		t.Fatalf("focusedItem after Tab = %d, want settingsItemTmuxServer", d.focusedItem)
 	}
 }
 
 func TestUpdateShiftTabRetreatsSection(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.Show()
 	// From theme, Shift+Tab wraps backwards to Close.
 	_, _ = d.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
@@ -247,7 +247,7 @@ func TestUpdateShiftTabRetreatsSection(t *testing.T) {
 }
 
 func TestUpdateDownCyclesTheme(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	d.Show()
 
 	_, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -263,7 +263,7 @@ func TestUpdateDownCyclesTheme(t *testing.T) {
 }
 
 func TestUpdateJKeyCyclesTheme(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	d.Show()
 
 	_, cmd := d.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -276,7 +276,7 @@ func TestUpdateJKeyCyclesTheme(t *testing.T) {
 }
 
 func TestUpdateUpCyclesThemeBackwards(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	d.Show()
 	// From cursor 0, up wraps to the last theme.
 	_, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyUp})
@@ -289,7 +289,7 @@ func TestUpdateUpCyclesThemeBackwards(t *testing.T) {
 }
 
 func TestUpdateKKeyCyclesThemeBackwards(t *testing.T) {
-	d := NewSettingsDialog(themeAt(t, 0))
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
 	d.Show()
 	_, _ = d.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	if d.themeCursor != len(d.themes)-1 {
@@ -298,7 +298,7 @@ func TestUpdateKKeyCyclesThemeBackwards(t *testing.T) {
 }
 
 func TestUpdateUnhandledKeyReturnsNil(t *testing.T) {
-	d := NewSettingsDialog(ThemeAyuDark)
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.Show()
 	before := d.focusedItem
 	_, cmd := d.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
@@ -307,5 +307,49 @@ func TestUpdateUnhandledKeyReturnsNil(t *testing.T) {
 	}
 	if d.focusedItem != before {
 		t.Fatal("unhandled key should not move focus")
+	}
+}
+
+func TestSettingsDialogEditsTmuxFields(t *testing.T) {
+	typeInto := func(d *SettingsDialog, s string) {
+		for _, r := range s {
+			d.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		}
+	}
+
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
+	d.Show()
+
+	// Tab from Theme focuses each tmux field in turn; typing edits the focused
+	// one. Characters like the letters here must not be swallowed as list motions.
+	if _, _ = d.Update(tea.KeyPressMsg{Code: tea.KeyTab}); d.focusedItem != settingsItemTmuxServer {
+		t.Fatalf("focus after Tab = %d, want settingsItemTmuxServer", d.focusedItem)
+	}
+	typeInto(d, "amux-srv")
+
+	if _, _ = d.Update(tea.KeyPressMsg{Code: tea.KeyTab}); d.focusedItem != settingsItemTmuxConfig {
+		t.Fatalf("focus after 2nd Tab = %d, want settingsItemTmuxConfig", d.focusedItem)
+	}
+	typeInto(d, "/tmp/tmux.conf")
+
+	if _, _ = d.Update(tea.KeyPressMsg{Code: tea.KeyTab}); d.focusedItem != settingsItemTmuxSync {
+		t.Fatalf("focus after 3rd Tab = %d, want settingsItemTmuxSync", d.focusedItem)
+	}
+	// The sync field only accepts Go-duration characters, so 'x' is dropped.
+	typeInto(d, "5x00ms")
+
+	if got := d.TmuxServer(); got != "amux-srv" {
+		t.Errorf("TmuxServer() = %q, want %q", got, "amux-srv")
+	}
+	if got := d.TmuxConfigPath(); got != "/tmp/tmux.conf" {
+		t.Errorf("TmuxConfigPath() = %q, want %q", got, "/tmp/tmux.conf")
+	}
+	if got := d.TmuxSyncInterval(); got != "500ms" {
+		t.Errorf("TmuxSyncInterval() = %q, want %q (invalid chars filtered)", got, "500ms")
+	}
+
+	// Backspace deletes the last rune of the focused field (sync interval).
+	if _, _ = d.Update(tea.KeyPressMsg{Code: tea.KeyBackspace}); d.TmuxSyncInterval() != "500m" {
+		t.Errorf("after backspace TmuxSyncInterval() = %q, want %q", d.TmuxSyncInterval(), "500m")
 	}
 }

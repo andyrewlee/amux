@@ -47,7 +47,7 @@ func applyHarnessOverlay(app *App, overlay string) {
 		// real ~/.amux/config.json, which would otherwise bake a machine-specific
 		// theme selection into testdata/golden and fail CI on a clean checkout.
 		// ThemeGruvbox matches the chrome theme.Init() installs in the harness.
-		app.settingsDialog = common.NewSettingsDialog(common.ThemeGruvbox)
+		app.settingsDialog = common.NewSettingsDialog(common.ThemeGruvbox, "", "", "")
 		app.settingsDialog.SetSize(app.width, app.height)
 		app.settingsDialog.SetUpdateInfo(app.version, "", false)
 		app.settingsDialog.Show()
