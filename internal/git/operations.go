@@ -17,12 +17,34 @@ const defaultGitTimeout = 5 * time.Second
 
 var runGitCommandAfterWaitHook func()
 
+// allowRepoGitHooks, when true, disables the hook/fsmonitor hardening so users
+// who rely on repo hooks (e.g. git-lfs post-checkout smudge) can opt back in.
+// Controlled by the AMUX_ALLOW_GIT_HOOKS environment variable, read once.
+var allowRepoGitHooks = os.Getenv("AMUX_ALLOW_GIT_HOOKS") == "1"
+
+// hardenedGitArgs prepends config flags that neutralize repo-controlled code
+// execution: post-checkout/pre-* hooks and core.fsmonitor (both of which name
+// programs git will execute). amux runs git in repositories it does not
+// control, and a repo delivered with a populated .git (hooks or
+// core.fsmonitor in .git/config) must not auto-run its code just because amux
+// touched it. It is a no-op when the user opted in via AMUX_ALLOW_GIT_HOOKS=1.
+func hardenedGitArgs(args []string) []string {
+	if allowRepoGitHooks {
+		return args
+	}
+	// core.hooksPath= (empty value) points git's hook lookup at an empty path
+	// so no repo hook is found or run; core.fsmonitor=false disables any
+	// repo-configured fsmonitor program.
+	prefix := []string{"-c", "core.hooksPath=", "-c", "core.fsmonitor=false"}
+	return append(prefix, args...)
+}
+
 // RunGitCtx executes a git command in the specified directory with context.
 func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", hardenedGitArgs(args)...)
 	cmd.Dir = dir
 	cmd.Env = filteredGitEnv()
 
@@ -104,7 +126,7 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", hardenedGitArgs(args)...)
 	cmd.Dir = dir
 	cmd.Env = filteredGitEnv()
 
@@ -134,7 +156,7 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", hardenedGitArgs(args)...)
 	cmd.Dir = dir
 	cmd.Env = filteredGitEnv()
 
