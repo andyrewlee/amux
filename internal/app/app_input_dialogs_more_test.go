@@ -293,9 +293,16 @@ func TestHandleUpgradeComplete(t *testing.T) {
 				t.Fatal("expected updateAvailable retained on failure")
 			}
 
-			// ShowError/ShowSuccess display the toast synchronously inside the
-			// handler; the returned cmd is only the deferred dismissal tick. So
-			// the toast is already visible without running cmd.
+			if tc.msg.Err != nil {
+				// The failure path routes through common.ReportError: the toast
+				// (and a logged messages.Error) arrive via the returned cmd.
+				assertReportErrorMessages(t, cmd, tc.wantToastText)
+				return
+			}
+
+			// ShowSuccess displays the toast synchronously inside the handler;
+			// the returned cmd is only the deferred dismissal tick. So the toast
+			// is already visible without running cmd.
 			if !h.app.toast.Visible() {
 				t.Fatal("expected toast to be visible after handleUpgradeComplete")
 			}
@@ -304,6 +311,37 @@ func TestHandleUpgradeComplete(t *testing.T) {
 				t.Fatalf("expected toast %q, got %q", tc.wantToastText, toastView)
 			}
 		})
+	}
+}
+
+// assertReportErrorMessages runs cmd and asserts it carries the ReportError
+// contract: a messages.Error marked Logged plus an error-level messages.Toast
+// containing wantText.
+func assertReportErrorMessages(t *testing.T, cmd tea.Cmd, wantText string) {
+	t.Helper()
+	var sawLoggedError, sawToast bool
+	for _, msg := range runCommandMessages(cmd) {
+		switch m := msg.(type) {
+		case messages.Error:
+			if !m.Logged {
+				t.Error("expected ReportError to mark the emitted messages.Error as Logged")
+			}
+			sawLoggedError = true
+		case messages.Toast:
+			if m.Level != messages.ToastError {
+				t.Errorf("toast level = %v, want ToastError", m.Level)
+			}
+			if !strings.Contains(m.Message, wantText) {
+				t.Errorf("toast = %q, want it to contain %q", m.Message, wantText)
+			}
+			sawToast = true
+		}
+	}
+	if !sawLoggedError {
+		t.Fatal("expected a logged messages.Error from the failure path")
+	}
+	if !sawToast {
+		t.Fatal("expected an error-level toast from the failure path")
 	}
 }
 

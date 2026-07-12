@@ -183,8 +183,7 @@ func (a *App) persistSettingsThemeIfDirty() tea.Cmd {
 		return nil
 	}
 	if err := a.config.SaveUISettings(); err != nil {
-		logging.Warn("Failed to save theme setting: %v", err)
-		return a.toast.ShowWarning("Failed to save theme setting")
+		return common.ReportError("saving theme setting", err, "Failed to save theme setting")
 	}
 	a.settingsThemePersistedTheme = common.ThemeID(a.config.UI.Theme)
 	a.settingsThemeDirty = false
@@ -238,8 +237,7 @@ func (a *App) handleSettingsResult(res common.SettingsResult) tea.Cmd {
 	}
 	if tmuxChanged {
 		if err := a.config.SaveUISettings(); err != nil {
-			logging.Warn("Failed to save tmux settings: %v", err)
-			return a.toast.ShowWarning("Failed to save tmux settings")
+			return common.ReportError("saving tmux settings", err, "Failed to save tmux settings")
 		}
 	}
 	return nil

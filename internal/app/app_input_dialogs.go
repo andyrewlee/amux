@@ -312,8 +312,7 @@ func (a *App) handleTriggerUpgrade() tea.Cmd {
 func (a *App) handleUpgradeComplete(msg messages.UpgradeComplete) tea.Cmd {
 	a.upgradeRunning = false
 	if msg.Err != nil {
-		logging.Error("Upgrade failed: %v", msg.Err)
-		return a.toast.ShowError("Upgrade failed: " + msg.Err.Error())
+		return common.ReportError("upgrading amux", msg.Err, "Upgrade failed: "+msg.Err.Error())
 	}
 	a.updateAvailable = nil
 	// Update settings dialog if visible

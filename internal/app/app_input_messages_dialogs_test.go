@@ -118,12 +118,9 @@ func TestHandleSettingsResult_SaveFailureShowsWarningToast(t *testing.T) {
 
 	cmd := h.app.handleSettingsResult(common.SettingsResult{})
 	if cmd == nil {
-		t.Fatal("expected warning toast cmd when close save fails")
+		t.Fatal("expected an error-report cmd when close save fails")
 	}
-
-	if view := h.app.toast.View(); !strings.Contains(view, "Failed to save theme setting") {
-		t.Fatalf("expected warning toast for save failure, got %q", view)
-	}
+	assertReportErrorMessages(t, cmd, "Failed to save theme setting")
 }
 
 func TestHandleSettingsResult_UnchangedThemeSkipsSave(t *testing.T) {
@@ -227,9 +224,7 @@ func TestHandleTriggerUpgrade_SaveFailureShowsWarningToast(t *testing.T) {
 	if !h.app.settingsThemeDirty {
 		t.Fatal("expected dirty flag to remain set after failed save")
 	}
-	if view := h.app.toast.View(); !strings.Contains(view, "Failed to save theme setting") {
-		t.Fatalf("expected warning toast for save failure, got %q", view)
-	}
+	assertReportErrorMessages(t, cmd, "Failed to save theme setting")
 }
 
 func TestHandleShowSettingsDialog_RefreshesPersistedThemeBaseline(t *testing.T) {

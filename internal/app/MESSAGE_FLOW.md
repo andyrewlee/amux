@@ -46,6 +46,15 @@ Rules:
 
 - Use `common.ReportError(...)` (or a thin wrapper) to log + toast + emit `messages.Error`.
 - `messages.Error` is handled in one place (`App.handleErrorMessage`) to keep error UX consistent.
+- Every *failure* of a user-initiated operation or a subsystem — e.g. a failed
+  settings save, a failed workspace setup, or a missing tmux — must go through
+  `ReportError` so it is logged and routed to `handleErrorMessage`.
+- Not every toast is an error: soft-validation and informational toasts are
+  intentionally *outside* `ReportError`. Bare `toast.ShowWarning`/`ShowError`
+  for preconditions ("select a workspace first", "project path is required") or
+  state notices ("session disconnected", "file watching disabled") stay as
+  toasts, since they are neither failures of an operation nor something to route
+  through the error overlay.
 
 ## Workspace Create → Activate Flow
 

@@ -320,7 +320,7 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 	a.tmuxActivity.activeWorkspaceIDs = make(map[string]bool)
 	a.syncActiveWorkspacesToDashboard()
 	if !msg.available {
-		return []tea.Cmd{a.toast.ShowError("tmux not installed. " + msg.installHint)}
+		return []tea.Cmd{common.ReportError("checking tmux availability", errors.New("tmux not installed"), "tmux not installed. "+msg.installHint)}
 	}
 	cmds := []tea.Cmd{a.scanTmuxActivityNow()}
 	if a.activeWorkspace != nil {

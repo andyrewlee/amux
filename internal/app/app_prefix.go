@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -219,7 +220,7 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 			return a.requireWorkspaceSelection("create agent tab")
 		}
 		if !a.tmuxAvailable {
-			return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
+			return common.ReportError("creating agent tab", errors.New("tmux not available"), "tmux required to create tabs. "+a.tmuxInstallHint)
 		}
 		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
 	case "new_terminal_tab":
@@ -227,7 +228,7 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 			return a.requireWorkspaceSelection("create terminal tab")
 		}
 		if !a.tmuxAvailable {
-			return a.toast.ShowError("tmux required to create tabs. " + a.tmuxInstallHint)
+			return common.ReportError("creating terminal tab", errors.New("tmux not available"), "tmux required to create tabs. "+a.tmuxInstallHint)
 		}
 		// Intentionally global to the workspace (no sidebar focus required).
 		return a.sidebarTerminal.CreateNewTab()

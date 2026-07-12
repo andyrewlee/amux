@@ -268,7 +268,7 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	case messages.ToggleKeymapHints:
 		a.setKeymapHintsEnabled(!a.config.UI.ShowKeymapHints)
 		if err := a.config.SaveUISettings(); err != nil {
-			*cmds = append(*cmds, a.toast.ShowWarning("Failed to save keymap setting"))
+			*cmds = append(*cmds, common.ReportError("saving keymap setting", err, "Failed to save keymap setting"))
 		}
 	case messages.ShowQuitDialog:
 		a.showQuitDialog()

@@ -84,7 +84,7 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 			}
 			return common.SafeBatch(toastCmd, dialogCmd)
 		}
-		return a.toast.ShowWarning(fmt.Sprintf("Setup failed for %s: %v", msg.Workspace.Name, msg.Err))
+		return common.ReportError(errorContext(errorServiceWorkspace, "running setup"), msg.Err, fmt.Sprintf("Setup failed for %s: %v", msg.Workspace.Name, msg.Err))
 	}
 	return nil
 }

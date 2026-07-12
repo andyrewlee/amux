@@ -34,12 +34,12 @@ func runCommandMessages(cmd tea.Cmd) []tea.Msg {
 		return nil
 	}
 	msg := cmd()
+	// Flatten nested batches (e.g. a handler batching a ReportError cmd, which
+	// is itself a batch) so callers see the leaf messages.
 	if batch, ok := msg.(tea.BatchMsg); ok {
-		msgs := make([]tea.Msg, 0, len(batch))
+		var msgs []tea.Msg
 		for _, batchCmd := range batch {
-			if batchCmd != nil {
-				msgs = append(msgs, batchCmd())
-			}
+			msgs = append(msgs, runCommandMessages(batchCmd)...)
 		}
 		return msgs
 	}
@@ -89,22 +89,48 @@ func TestHandleWorkspaceSetupComplete_TrustSkipToastAndDialog(t *testing.T) {
 	}
 }
 
-// TestHandleWorkspaceSetupComplete_GenericFailureToast proves non-trust errors
-// keep the generic "Setup failed" branch.
-func TestHandleWorkspaceSetupComplete_GenericFailureToast(t *testing.T) {
+// TestHandleWorkspaceSetupComplete_GenericFailureRoutesThroughReportError proves
+// non-trust setup failures route through common.ReportError: the returned batch
+// emits a logged messages.Error and an error-level toast whose text keeps the
+// unchanged generic "Setup failed" wording.
+func TestHandleWorkspaceSetupComplete_GenericFailureRoutesThroughReportError(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
 	app := &App{toast: common.NewToastModel()}
 
-	if cmd := app.handleWorkspaceSetupComplete(messages.WorkspaceSetupComplete{
+	cmd := app.handleWorkspaceSetupComplete(messages.WorkspaceSetupComplete{
 		Workspace: ws,
 		Err:       errors.New("boom"),
-	}); cmd == nil {
-		t.Fatal("expected a warning toast command for a generic setup failure")
+	})
+	if cmd == nil {
+		t.Fatal("expected an error-report command for a generic setup failure")
 	}
 
-	view := app.toast.View()
-	if !strings.Contains(view, "Setup failed") {
-		t.Fatalf("generic failure toast should say 'Setup failed', got: %q", view)
+	var sawLoggedError, sawFailureToast bool
+	for _, msg := range runCommandMessages(cmd) {
+		switch m := msg.(type) {
+		case messages.Error:
+			if !m.Logged {
+				t.Error("expected ReportError to mark the emitted messages.Error as Logged")
+			}
+			if m.Err == nil {
+				t.Error("expected emitted messages.Error to carry the underlying error")
+			}
+			sawLoggedError = true
+		case messages.Toast:
+			if m.Level != messages.ToastError {
+				t.Errorf("setup-failure toast level = %v, want ToastError", m.Level)
+			}
+			if !strings.Contains(m.Message, "Setup failed") {
+				t.Errorf("setup-failure toast should say 'Setup failed', got: %q", m.Message)
+			}
+			sawFailureToast = true
+		}
+	}
+	if !sawLoggedError {
+		t.Fatal("expected a logged messages.Error from the setup-failure path")
+	}
+	if !sawFailureToast {
+		t.Fatal("expected an error-level 'Setup failed' toast from the setup-failure path")
 	}
 }
 
