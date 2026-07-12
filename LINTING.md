@@ -132,7 +132,7 @@ Escalation is path-based and automated by CI jobs. For local confidence, use:
   - run `make harness-presets`
 - `internal/tmux/`, `internal/e2e/`, `internal/pty/`:
   - run `go test ./internal/tmux ./internal/e2e`
-- agent input/send path (`internal/tmux/send.go`, `internal/pty/`, keystroke forwarding):
+- agent input/send path (`internal/pty/terminal.go`, `internal/ui/center/tab_actor_write.go`, `internal/pty/`, keystroke forwarding):
   - run `make verify-loop` — drives a real keystroke through amux into a real raw-mode agent and asserts it arrives intact (incl. a literal CR). `make devcheck` alone is insufficient: the real-tmux tests skip there, so it gives a false green for send/Enter behavior.
 - lint policy files (`.golangci.yml`, `.golangci.strict.yml`, `LINTING.md`, `Makefile`, `.github/workflows/ci.yml`):
   - call out intent in PR summary
