@@ -121,6 +121,9 @@ from CI and produce different diagnostics. See [LINTING.md](LINTING.md) and
 ## Operations
 
 - Logs are written to `~/.amux/logs/amux-YYYY-MM-DD.log` (default retention 14 days). Override retention with `AMUX_LOG_RETENTION_DAYS`.
+- Log verbosity: set `AMUX_LOG_LEVEL=debug` (accepts `debug`/`info`/`warn`/`error`; default `info`) to change what gets written to the log — `debug` is the first thing to try when reporting or diagnosing a problem.
+- Attached-tab limit: set `AMUX_MAX_ATTACHED_AGENT_TABS` (default 6; `0` disables the limit) to change how many agent tabs keep live PTYs attached concurrently.
+- OSC 52 clipboard: set `AMUX_ENABLE_OSC52_CLIPBOARD=1` to let agent terminal output copy to your clipboard via OSC 52 (off by default because terminal output is untrusted; payloads over 64 KiB are ignored).
 - Perf profiling: set `AMUX_PROFILE=1` to emit periodic timing/counter snapshots; adjust cadence with `AMUX_PROFILE_INTERVAL_MS` (default 5000).
 - pprof: set `AMUX_PPROF=1` (or a port like `6061`) to expose `net/http/pprof` on `127.0.0.1`.
 - Debug signals: set `AMUX_DEBUG_SIGNALS=1` and send `SIGUSR1` to dump goroutines into the log.
