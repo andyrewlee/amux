@@ -153,6 +153,16 @@ func RunPTYReader(
 					}
 				}
 				if stoppedErr == nil {
+					// The inner goroutine sends the real read error on errCh
+					// and then closes dataCh, so both cases can be ready at
+					// once; drain the pending error before assuming clean EOF.
+					select {
+					case e := <-errCh:
+						stoppedErr = e
+					default:
+					}
+				}
+				if stoppedErr == nil {
 					stoppedErr = io.EOF
 				}
 				SendPTYMsg(msgCh, cancel, factory.Stopped(stoppedErr))
