@@ -81,6 +81,16 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 		height = snap.Height
 	}
 
+	// Normalize the selection bounds once per frame instead of per cell: the
+	// start/end ordering is identical for every cell, so recomputing it in the
+	// per-cell loop is pure redundancy.
+	selActive := snap.SelActive
+	var selStartX, selStartY, selEndX, selEndY int
+	if selActive {
+		selStartX, selStartY, selEndX, selEndY = vterm.NormalizeSelectionRange(
+			snap.SelStartX, snap.SelStartY, snap.SelEndX, snap.SelEndY)
+	}
+
 	// When compositing layers, we must draw ALL cells every frame.
 	// The dirty line optimization only works for single-layer rendering.
 	// Ultraviolet's cell-level diffing handles the actual screen updates.
@@ -107,7 +117,9 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 			}
 
 			// Build the ultraviolet cell into the reused local.
-			cellToUVSnapshot(&uvCell, cell, snap, x, y)
+			inSel := selActive && vterm.SelectionContains(
+				selStartX, selStartY, selEndX, selEndY, x, y)
+			cellToUVSnapshot(&uvCell, cell, snap, x, y, inSel)
 
 			// Set cell at screen position (ultraviolet copies the value).
 			s.SetCell(posX+x, posY+y, &uvCell)
@@ -117,12 +129,12 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 
 // cellToUVSnapshot fills uvCell with the ultraviolet representation of a
 // vterm.Cell. It fully overwrites uvCell so the same value can be reused
-// across draw iterations.
-func cellToUVSnapshot(uvCell *uv.Cell, cell vterm.Cell, snap *VTermSnapshot, x, y int) {
+// across draw iterations. inSel is precomputed by the caller (the selection
+// bounds are normalized once per frame in DrawAt, not per cell).
+func cellToUVSnapshot(uvCell *uv.Cell, cell vterm.Cell, snap *VTermSnapshot, x, y int, inSel bool) {
 	style := cell.Style
 
 	// Apply selection and cursor reverse (selection has precedence over cursor)
-	inSel := inSelectionSnapshot(snap, x, y)
 	cursorHere := snap.ShowCursor && !snap.CursorHidden &&
 		y == snap.CursorY && x == snap.CursorX && snap.ViewOffset == 0
 	if inSel || cursorHere {
@@ -147,16 +159,6 @@ func cellToUVSnapshot(uvCell *uv.Cell, cell vterm.Cell, snap *VTermSnapshot, x, 
 		Style:   vtermStyleToUV(style),
 		Width:   cell.Width,
 	}
-}
-
-// inSelectionSnapshot checks if a coordinate is within the snapshot's selection.
-func inSelectionSnapshot(snap *VTermSnapshot, x, y int) bool {
-	if snap == nil || !snap.SelActive {
-		return false
-	}
-	startX, startY, endX, endY := vterm.NormalizeSelectionRange(
-		snap.SelStartX, snap.SelStartY, snap.SelEndX, snap.SelEndY)
-	return vterm.SelectionContains(startX, startY, endX, endY, x, y)
 }
 
 // vtermStyleToUV converts a vterm.Style to ultraviolet's Style.
