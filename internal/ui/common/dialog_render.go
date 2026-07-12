@@ -150,6 +150,13 @@ func (d *Dialog) renderLines() []string {
 		lines = append(lines, line)
 	case DialogConfirm:
 		appendLines(d.message)
+		if d.warning != "" {
+			warnStyle := lipgloss.NewStyle().
+				Foreground(ColorWarning()).
+				MarginTop(1)
+			appendBlank(1)
+			appendLines(warnStyle.Render(d.warning))
+		}
 		appendBlank(1)
 		baseLine := d.renderedLineCount(lines)
 		lines = append(lines, d.renderOptionsLines(baseLine)...)

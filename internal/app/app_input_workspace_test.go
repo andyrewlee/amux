@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
@@ -211,6 +212,86 @@ func TestTrustScriptsRetryRejectsChangedConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(changedMarker); !os.IsNotExist(err) {
 		t.Fatalf("changed setup command should not run under stale approval, stat err=%v", err)
+	}
+}
+
+// newTrustDialogApp builds a minimal App whose workspaceService can load a
+// repo's .amux/workspaces.json, so the trust-dialog show handler can compute its
+// indirection warning. config is non-nil because presentDialog reads UI hints.
+func newTrustDialogApp() *App {
+	return &App{
+		config:           &config.Config{},
+		width:            120,
+		height:           40,
+		workspaceService: newWorkspaceService(nil, nil, process.NewScriptRunner(6200, 10), ""),
+	}
+}
+
+// TestHandleShowTrustScriptsDialog_WarnsOnInRepoScriptReference proves the trust
+// dialog surfaces in-repo files an approved command reaches into (via the
+// already-shipped process.ReferencesInRepoFiles detector), so the user knows the
+// manifest hash they approve does not cover those scripts' later contents. This
+// is informational only and changes nothing the trust gate blocks.
+func TestHandleShowTrustScriptsDialog_WarnsOnInRepoScriptReference(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "scripts"), 0o755); err != nil {
+		t.Fatalf("mkdir scripts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "scripts", "dev.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write dev.sh: %v", err)
+	}
+	workspaceSetupConfig(t, repo, `{"setup-workspace":["bash ./scripts/dev.sh"]}`)
+	ws := data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "ws"))
+
+	app := newTrustDialogApp()
+	app.handleShowTrustScriptsDialog(messages.ShowTrustScriptsDialog{Workspace: ws, ConfigHash: "hash"})
+
+	view := dialogView(t, app.dialog)
+	if !strings.Contains(view, "scripts/dev.sh") {
+		t.Fatalf("expected trust dialog to name the referenced in-repo script, got:\n%s", view)
+	}
+	if !strings.Contains(view, "re-verify") {
+		t.Fatalf("expected the indirection warning wording, got:\n%s", view)
+	}
+}
+
+// TestHandleShowTrustScriptsDialog_WarnsOnUnresolvableCommand proves a command
+// with expansion/glob constructs (which hide references from the static
+// detector) raises the "amux can't list every file" warning.
+func TestHandleShowTrustScriptsDialog_WarnsOnUnresolvableCommand(t *testing.T) {
+	repo := t.TempDir()
+	workspaceSetupConfig(t, repo, `{"run":"$MYVAR/foo"}`)
+	ws := data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "ws"))
+
+	app := newTrustDialogApp()
+	app.handleShowTrustScriptsDialog(messages.ShowTrustScriptsDialog{Workspace: ws, ConfigHash: "hash"})
+
+	view := dialogView(t, app.dialog)
+	if !strings.Contains(view, "variables/globs") {
+		t.Fatalf("expected unresolvable-command warning, got:\n%s", view)
+	}
+}
+
+// TestHandleShowTrustScriptsDialog_NoIndirectionMakesNoSafetyClaim proves that
+// when the detector finds neither a referenced file nor an unresolvable
+// construct, the dialog renders no extra warning AND no reassuring "safe" text:
+// an empty detector result is explicitly NOT a safety guarantee.
+func TestHandleShowTrustScriptsDialog_NoIndirectionMakesNoSafetyClaim(t *testing.T) {
+	repo := t.TempDir()
+	workspaceSetupConfig(t, repo, `{"setup-workspace":["echo hello"]}`)
+	ws := data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "ws"))
+
+	app := newTrustDialogApp()
+	app.handleShowTrustScriptsDialog(messages.ShowTrustScriptsDialog{Workspace: ws, ConfigHash: "hash"})
+
+	view := dialogView(t, app.dialog)
+	if strings.Contains(view, "re-verify") || strings.Contains(view, "variables/globs") {
+		t.Fatalf("expected no indirection warning for a plain command, got:\n%s", view)
+	}
+	for _, banned := range []string{"safe", "no in-repo", "nothing to run", "verified"} {
+		if strings.Contains(strings.ToLower(view), banned) {
+			t.Fatalf("dialog must not imply safety (%q), got:\n%s", banned, view)
+		}
 	}
 }
 
