@@ -1,6 +1,8 @@
 package git
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -174,6 +176,79 @@ func TestDiffLineKinds(t *testing.T) {
 	}
 	if !hasHeader {
 		t.Error("expected header lines")
+	}
+}
+
+func TestGetUntrackedFileContent_TextFile(t *testing.T) {
+	skipIfNoGit(t)
+	repo := initRepo(t)
+
+	content := "alpha\nbeta\ngamma\n"
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write file.txt: %v", err)
+	}
+
+	result, err := GetUntrackedFileContent(repo, "file.txt")
+	if err != nil {
+		t.Fatalf("GetUntrackedFileContent() error = %v", err)
+	}
+	if result.Error != "" {
+		t.Fatalf("Error = %q, want empty", result.Error)
+	}
+	if result.Binary {
+		t.Error("Binary = true, want false for a plain text file")
+	}
+	if result.Path != "file.txt" {
+		t.Errorf("Path = %q, want %q", result.Path, "file.txt")
+	}
+	if result.Empty {
+		t.Error("Empty = true, want false")
+	}
+
+	added := map[string]bool{}
+	for _, line := range result.Lines {
+		if line.Kind == DiffLineAdd {
+			added[strings.TrimPrefix(line.Content, "+")] = true
+		}
+	}
+	for _, want := range []string{"alpha", "beta", "gamma"} {
+		if !added[want] {
+			t.Errorf("Lines missing added line %q; added lines = %v", want, added)
+		}
+	}
+	if got := result.AddedLines(); got != 3 {
+		t.Errorf("AddedLines() = %d, want 3", got)
+	}
+	if got := result.DeletedLines(); got != 0 {
+		t.Errorf("DeletedLines() = %d, want 0", got)
+	}
+}
+
+func TestGetUntrackedFileContent_BinaryFile(t *testing.T) {
+	skipIfNoGit(t)
+	repo := initRepo(t)
+
+	// NUL bytes make git report "Binary files ... differ".
+	binary := []byte{0x00, 0x01, 0x02, 0xff, 0x00, 'P', 'N', 'G'}
+	if err := os.WriteFile(filepath.Join(repo, "blob.bin"), binary, 0o600); err != nil {
+		t.Fatalf("write blob.bin: %v", err)
+	}
+
+	result, err := GetUntrackedFileContent(repo, "blob.bin")
+	if err != nil {
+		t.Fatalf("GetUntrackedFileContent() error = %v", err)
+	}
+	if result.Error != "" {
+		t.Fatalf("Error = %q, want empty", result.Error)
+	}
+	if !result.Binary {
+		t.Fatal("Binary = false, want true for a NUL-containing file")
+	}
+	if result.Path != "blob.bin" {
+		t.Errorf("Path = %q, want %q", result.Path, "blob.bin")
+	}
+	if len(result.Lines) != 0 {
+		t.Errorf("Lines = %d entries, want none for binary short-circuit", len(result.Lines))
 	}
 }
 
