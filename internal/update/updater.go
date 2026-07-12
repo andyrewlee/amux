@@ -45,6 +45,12 @@ type Updater struct {
 	date    string
 	github  *GitHubClient
 	deps    upgradeDeps
+	// ForceDowngrade permits installing a release whose version is strictly
+	// lower than the running version. Default false (safe): Upgrade refuses
+	// downgrades so a re-pointed "latest" tag cannot roll back to an older,
+	// still validly-signed release. Callers set it only for deliberate,
+	// operator-driven downgrades.
+	ForceDowngrade bool
 	// fetchLatestRelease mirrors the upgradeDeps function-field pattern so
 	// Check's version-compare logic can be unit-tested without network access.
 	// NewUpdater defaults it to github.FetchLatestRelease; tests override it.
@@ -140,6 +146,15 @@ func (u *Updater) Upgrade(release *Release) error {
 		return errors.New("installed via 'go install'; run: go install github.com/andyrewlee/amux/cmd/amux@latest")
 	}
 
+	// Version-monotonicity guard: refuse to install a strictly-lower version
+	// than the one running unless explicitly forced. The signature chain below
+	// proves authenticity, not freshness; this closes the "validly-signed but
+	// older release re-pointed as latest" gap before anything is downloaded.
+	// Equal versions proceed (same-version reinstall is legitimate).
+	if err := u.checkDowngrade(release.TagName); err != nil {
+		return err
+	}
+
 	// Find the platform asset
 	asset := u.deps.findAsset(release)
 	if asset == nil {
@@ -229,5 +244,36 @@ func (u *Updater) Upgrade(release *Release) error {
 	}
 
 	logging.Info("Upgrade complete: %s", release.TagName)
+	return nil
+}
+
+// checkDowngrade returns an error when targetTag parses to a version strictly
+// lower than the running version, unless ForceDowngrade is set. Dev builds
+// have no comparable version, and an unparseable current or target version
+// cannot be compared; those cases proceed (the signature/checksum chain still
+// gates what gets installed).
+func (u *Updater) checkDowngrade(targetTag string) error {
+	if u.ForceDowngrade {
+		logging.Info("ForceDowngrade set; skipping version-monotonicity check for %s", targetTag)
+		return nil
+	}
+	if IsDevBuild(u.version) {
+		logging.Debug("Skipping downgrade check for dev build")
+		return nil
+	}
+	currentVer, err := ParseVersion(u.version)
+	if err != nil {
+		logging.Debug("Skipping downgrade check: cannot parse current version %q: %v", u.version, err)
+		return nil
+	}
+	targetVer, err := ParseVersion(targetTag)
+	if err != nil {
+		logging.Debug("Skipping downgrade check: cannot parse target version %q: %v", targetTag, err)
+		return nil
+	}
+	if targetVer.LessThan(currentVer) {
+		return fmt.Errorf("refusing to downgrade from %s to %s; set ForceDowngrade to override",
+			currentVer.String(), targetVer.String())
+	}
 	return nil
 }
