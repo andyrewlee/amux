@@ -236,3 +236,91 @@ func TestRunTmuxCmdSeamsDefaultToRealImpl(t *testing.T) {
 		t.Fatalf("default runTmuxCmdCombined should capture stdout+stderr, got %q err=%v", combined, err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// KillSession pane-PID error branch. Before the fix, a panePIDs error was
+// silently discarded and the reap loop skipped; now the lookup is retried
+// once, the failure is logged, and kill-session must still run regardless.
+// ---------------------------------------------------------------------------
+
+// killSessionSeam installs a runTmuxCmd fake that records every tmux
+// subcommand and dispatches on it: the pane-PID lookup commands
+// (has-session, list-panes) return the given errors (consumed in order, the
+// last one repeating), kill-session always succeeds.
+func killSessionSeam(t *testing.T, lookupErrs []error) *[]string {
+	t.Helper()
+	var subcommands []string
+	orig := runTmuxCmd
+	runTmuxCmd = func(cmd *exec.Cmd) ([]byte, error) {
+		sub := ""
+		for _, arg := range cmd.Args {
+			switch arg {
+			case "has-session", "list-panes", "kill-session":
+				sub = arg
+			}
+		}
+		subcommands = append(subcommands, sub)
+		if sub == "kill-session" {
+			return nil, nil
+		}
+		err := lookupErrs[0]
+		if len(lookupErrs) > 1 {
+			lookupErrs = lookupErrs[1:]
+		}
+		return nil, err
+	}
+	t.Cleanup(func() { runTmuxCmd = orig })
+	return &subcommands
+}
+
+func countString(items []string, want string) int {
+	n := 0
+	for _, item := range items {
+		if item == want {
+			n++
+		}
+	}
+	return n
+}
+
+func TestKillSession_PanePIDErrorIsRetriedAndKillSessionStillRuns(t *testing.T) {
+	skipIfNoTmux(t)
+	calls := killSessionSeam(t, []error{errors.New("lost server")})
+
+	if err := KillSession("amux-seam-kill", testOpts()); err != nil {
+		t.Fatalf("KillSession must not fail just because the pane-PID lookup failed, got %v", err)
+	}
+	got := *calls
+	// panePIDs fails at the has-session pre-check on both the initial attempt
+	// and the retry, so the error branch must show exactly two lookups.
+	if n := countString(got, "has-session"); n != 2 {
+		t.Fatalf("pane-PID lookup should be attempted twice (initial + retry), got %d has-session calls in %v", n, got)
+	}
+	if n := countString(got, "kill-session"); n != 1 {
+		t.Fatalf("kill-session must still run exactly once, got %d in %v", n, got)
+	}
+	if got[len(got)-1] != "kill-session" {
+		t.Fatalf("kill-session must be the final tmux command, got %v", got)
+	}
+}
+
+func TestKillSession_PanePIDRetrySucceedsAfterTransientError(t *testing.T) {
+	skipIfNoTmux(t)
+	calls := killSessionSeam(t, []error{errors.New("transient failure"), nil})
+
+	if err := KillSession("amux-seam-kill", testOpts()); err != nil {
+		t.Fatalf("KillSession should succeed when the retry recovers, got %v", err)
+	}
+	got := *calls
+	// First has-session errors; the retry's has-session succeeds and proceeds
+	// to list-panes (empty output: nothing to reap), then kill-session.
+	want := []string{"has-session", "has-session", "list-panes", "kill-session"}
+	if len(got) != len(want) {
+		t.Fatalf("expected commands %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("command %d: got %q want %q (full: %v)", i, got[i], want[i], got)
+		}
+	}
+}
