@@ -43,6 +43,11 @@ type State struct {
 	MsgCh        chan tea.Msg
 	ReaderCancel chan struct{}
 	ReaderActive bool
+	// ReaderGen identifies the current reader goroutine. StartReader increments
+	// it; a reader's exit cleanup only clears state when its generation is
+	// still current, so a slow-exiting stale reader cannot clobber its
+	// replacement's bookkeeping. Guarded by the embedder's mutex.
+	ReaderGen uint64
 	// Heartbeat is the last reader read time in nanoseconds. Atomic.
 	Heartbeat int64
 

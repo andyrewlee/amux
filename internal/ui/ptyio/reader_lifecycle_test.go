@@ -1,12 +1,15 @@
 package ptyio
 
 import (
+	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestStopReaderClearsStateAndSignalsCancel(t *testing.T) {
@@ -69,9 +72,10 @@ func TestMarkReaderStopped(t *testing.T) {
 		ReaderCancel: cancel,
 		MsgCh:        make(chan tea.Msg),
 		Heartbeat:    time.Now().UnixNano(),
+		ReaderGen:    1,
 	}
 
-	st.MarkReaderStopped(&mu)
+	st.MarkReaderStopped(&mu, 1)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -93,6 +97,30 @@ func TestMarkReaderStopped(t *testing.T) {
 	case <-st.ReaderCancel:
 		t.Fatal("ReaderCancel was closed by MarkReaderStopped, want left open")
 	default:
+	}
+}
+
+func TestMarkReaderStoppedStaleGenIsNoOp(t *testing.T) {
+	var mu sync.Mutex
+	st := &State{
+		ReaderActive: true,
+		ReaderCancel: make(chan struct{}),
+		MsgCh:        make(chan tea.Msg),
+		Heartbeat:    time.Now().UnixNano(),
+		ReaderGen:    2,
+	}
+	st.MarkReaderStopped(&mu, 1) // stale generation
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !st.ReaderActive {
+		t.Fatal("stale MarkReaderStopped cleared ReaderActive")
+	}
+	if st.MsgCh == nil {
+		t.Fatal("stale MarkReaderStopped cleared MsgCh")
+	}
+	if hb := atomic.LoadInt64(&st.Heartbeat); hb == 0 {
+		t.Fatal("stale MarkReaderStopped zeroed Heartbeat")
 	}
 }
 
@@ -303,4 +331,72 @@ func TestResetRestartBackoffLockedOnZeroValueIsIdempotent(t *testing.T) {
 	if st.RestartBackoff != 0 || st.RestartCount != 0 || !st.RestartSince.IsZero() {
 		t.Fatalf("zero-value State changed after reset: %+v", st)
 	}
+}
+
+// gatedReader blocks in Read until gate is closed, then returns io.EOF. It does
+// not implement SetReadDeadline, so RunPTYReader's inner read goroutine blocks
+// in r.Read exactly like a stalled PTY whose reader has not yet unwound.
+type gatedReader struct {
+	gate chan struct{}
+}
+
+func (g *gatedReader) Read([]byte) (int, error) {
+	<-g.gate
+	return 0, io.EOF
+}
+
+// TestStaleReaderExitDoesNotClobberReplacement drives the real
+// stall -> restart -> stale-defer-fires interleave through actual reader and
+// forwarder goroutines: a stalled reader is restarted, and when the stale
+// reader finally unwinds, its deferred MarkReaderStopped must not clear the
+// replacement reader's live bookkeeping.
+//
+// The restart is staged so the stale reader's cancel channel is closed inside
+// StartReader while it holds the mutex. That orders the stale goroutine's
+// deferred MarkReaderStopped strictly after the replacement's generation bump:
+// closing the cancel outside the lock (as an explicit StopReader would) lets
+// the stale cleanup race ahead of the bump and observe its own generation as
+// current, which would let this test pass even against the pre-fix code.
+func TestStaleReaderExitDoesNotClobberReplacement(t *testing.T) {
+	var mu sync.Mutex
+	st := &State{}
+
+	// Reader #1: live but stalled, blocked in Read.
+	gate1 := make(chan struct{})
+	hA := newStartReaderHarness(&gatedReader{gate: gate1})
+	st.StartReader(&mu, hA.opts)
+
+	// The stall detector marks the reader inactive while its goroutine is still
+	// alive; ReaderCancel is left in place for the restart to close.
+	mu.Lock()
+	st.ReaderActive = false
+	mu.Unlock()
+
+	// Reader #2: the replacement. StartReader closes reader #1's leftover cancel
+	// under the lock, so reader #1 unwinds and its deferred MarkReaderStopped
+	// runs against a State whose generation now belongs to reader #2.
+	gate2 := make(chan struct{})
+	hB := newStartReaderHarness(&gatedReader{gate: gate2})
+	st.StartReader(&mu, hB.opts)
+
+	// Reader #2's live bookkeeping must stay intact for the whole window during
+	// which reader #1's stale cleanup can fire. Pre-fix the stale defer clears
+	// ReaderActive/MsgCh; post-fix the generation guard makes it a no-op.
+	testutil.Consistently(t, 200*time.Millisecond, time.Millisecond, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		if !st.ReaderActive {
+			return "stale reader #1 exit cleared reader #2's ReaderActive"
+		}
+		if st.MsgCh == nil {
+			return "stale reader #1 exit cleared reader #2's MsgCh"
+		}
+		return ""
+	})
+
+	// Unwind both readers cleanly so no goroutine is left blocked in Read.
+	close(gate1)
+	hA.waitForward(t)
+	close(gate2)
+	hB.waitForward(t)
 }

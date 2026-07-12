@@ -58,13 +58,15 @@ func (st *State) StartReader(mu sync.Locker, opts StartReaderOptions) {
 	}
 	st.ReaderCancel = make(chan struct{})
 	st.MsgCh = make(chan tea.Msg, opts.Config.ReadQueueSize)
+	st.ReaderGen++
+	gen := st.ReaderGen
 
 	cancel := st.ReaderCancel
 	msgCh := st.MsgCh
 	mu.Unlock()
 
 	safego.Go(opts.ReaderLabel, func() {
-		defer st.MarkReaderStopped(mu)
+		defer st.MarkReaderStopped(mu, gen)
 		RunPTYReader(term, msgCh, cancel, &st.Heartbeat, opts.Config, opts.Factory)
 	})
 	safego.Go(opts.ForwardLabel, func() {
@@ -87,10 +89,16 @@ func (st *State) StopReader(mu sync.Locker) {
 }
 
 // MarkReaderStopped clears reader bookkeeping after the read loop has exited
-// on its own (RunPTYReader returned). The cancel channel is intentionally
+// on its own (RunPTYReader returned), but only when gen is still the current
+// reader generation. A stale reader that exits after a restart must not
+// clobber the replacement reader's state. The cancel channel is intentionally
 // left in place for the next StartReader to close.
-func (st *State) MarkReaderStopped(mu sync.Locker) {
+func (st *State) MarkReaderStopped(mu sync.Locker, gen uint64) {
 	mu.Lock()
+	if st.ReaderGen != gen {
+		mu.Unlock()
+		return
+	}
 	st.ReaderActive = false
 	st.MsgCh = nil
 	mu.Unlock()
