@@ -72,6 +72,31 @@ func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDi
 	a.presentDialog(a.dialog)
 }
 
+// handleShowRenameWorkspaceDialog shows the rename workspace input dialog,
+// prefilled with the workspace's current name for editing.
+func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDialog) {
+	if msg.Workspace == nil {
+		return
+	}
+	a.dialogProject = msg.Project
+	a.dialogWorkspace = msg.Workspace
+	a.dialog = common.NewInputDialog(DialogRenameWorkspace, "Rename Workspace", "Enter new workspace name...")
+	a.dialog.SetInputValidate(func(s string) string {
+		s = validation.SanitizeInput(s)
+		if s == "" {
+			return "" // Don't show error for empty input
+		}
+		if err := validation.ValidateWorkspaceName(s); err != nil {
+			return err.Error()
+		}
+		return ""
+	})
+	a.presentDialog(a.dialog)
+	// Prefill after presentDialog: Show() resets the input to empty, so the
+	// current name must be set afterward to render ready-to-edit.
+	a.dialog.SetInputValue(msg.Workspace.Name)
+}
+
 // handleShowTrustScriptsDialog shows the repo script trust confirmation dialog.
 func (a *App) handleShowTrustScriptsDialog(msg messages.ShowTrustScriptsDialog) {
 	a.dialogWorkspace = msg.Workspace

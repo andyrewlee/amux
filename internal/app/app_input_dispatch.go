@@ -233,6 +233,8 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		*cmds = append(*cmds, a.handleCreateWorkspace(msg)...)
 	case messages.DeleteWorkspace:
 		*cmds = append(*cmds, a.handleDeleteWorkspace(msg)...)
+	case messages.RenameWorkspace:
+		*cmds = append(*cmds, a.handleRenameWorkspace(msg)...)
 	case messages.AddProject:
 		*cmds = append(*cmds, a.addProject(msg.Path))
 	case messages.RemoveProject:
@@ -278,6 +280,8 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleShowCreateWorkspaceDialog(msg)
 	case messages.ShowDeleteWorkspaceDialog:
 		a.handleShowDeleteWorkspaceDialog(msg)
+	case messages.ShowRenameWorkspaceDialog:
+		a.handleShowRenameWorkspaceDialog(msg)
 	case messages.ShowTrustScriptsDialog:
 		a.handleShowTrustScriptsDialog(msg)
 	case messages.ShowRemoveProjectDialog:

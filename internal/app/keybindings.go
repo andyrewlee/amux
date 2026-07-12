@@ -10,6 +10,7 @@ type KeyMap struct {
 	// Dashboard
 	Enter        key.Binding
 	Delete       key.Binding
+	Rename       key.Binding
 	ToggleFilter key.Binding
 	Refresh      key.Binding
 
@@ -42,6 +43,10 @@ func DefaultKeyMap() KeyMap {
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete"),
+		),
+		Rename: key.NewBinding(
+			key.WithKeys("R"),
+			key.WithHelp("R", "rename"),
 		),
 		ToggleFilter: key.NewBinding(
 			key.WithKeys("f"),

@@ -213,6 +213,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		switch m.rows[m.cursor].Type {
 		case RowWorkspace:
+			items = append(items, m.helpItem("R", "rename"))
 			items = append(items, m.helpItem("D", "delete"))
 		case RowProject:
 			items = append(items, m.helpItem("D", "remove"))

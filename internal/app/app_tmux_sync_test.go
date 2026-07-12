@@ -51,6 +51,10 @@ func (s *blockingWorkspaceStore) Delete(id data.WorkspaceID) error {
 	return nil
 }
 
+func (s *blockingWorkspaceStore) Rename(id data.WorkspaceID, newName string) error {
+	return nil
+}
+
 func (s *blockingWorkspaceStore) ResolvedDefaultAssistant() string {
 	return data.DefaultAssistant
 }

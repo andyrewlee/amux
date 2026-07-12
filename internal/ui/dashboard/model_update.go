@@ -171,6 +171,8 @@ func (m *Model) handleNavKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*
 		return m, m.handleEnter()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("D"))):
 		return m, m.handleDelete()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("R"))):
+		return m, m.handleRename()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 		return m, m.refresh()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):

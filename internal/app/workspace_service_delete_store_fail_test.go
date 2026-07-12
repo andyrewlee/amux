@@ -29,8 +29,9 @@ func (s *failingDeleteStore) Save(ws *data.Workspace) error {
 	s.saved = &cp
 	return s.saveErr
 }
-func (s *failingDeleteStore) Delete(data.WorkspaceID) error    { return s.deleteErr }
-func (s *failingDeleteStore) ResolvedDefaultAssistant() string { return data.DefaultAssistant }
+func (s *failingDeleteStore) Delete(data.WorkspaceID) error         { return s.deleteErr }
+func (s *failingDeleteStore) Rename(data.WorkspaceID, string) error { return nil }
+func (s *failingDeleteStore) ResolvedDefaultAssistant() string      { return data.DefaultAssistant }
 
 // TestDeleteWorkspace_StoreDeleteFailureReportsPartialSuccess proves a
 // metadata-delete failure is reported without using the generic failed-delete

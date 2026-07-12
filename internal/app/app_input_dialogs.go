@@ -168,6 +168,25 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			}
 		}
 
+	case DialogRenameWorkspace:
+		if workspace != nil && result.Value != "" {
+			name := validation.SanitizeInput(result.Value)
+			if err := validation.ValidateWorkspaceName(name); err != nil {
+				return func() tea.Msg {
+					return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating workspace name")}
+				}
+			}
+			ws := workspace
+			proj := project
+			return func() tea.Msg {
+				return messages.RenameWorkspace{
+					Project:   proj,
+					Workspace: ws,
+					NewName:   name,
+				}
+			}
+		}
+
 	case DialogTrustScripts:
 		if workspace != nil {
 			return a.trustRepoScriptsAndRunSetupAsync(workspace, trustScriptsHash)

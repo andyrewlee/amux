@@ -224,6 +224,12 @@ type ShowDeleteWorkspaceDialog struct {
 	Workspace *data.Workspace
 }
 
+// ShowRenameWorkspaceDialog requests showing the rename workspace input dialog
+type ShowRenameWorkspaceDialog struct {
+	Project   *data.Project
+	Workspace *data.Workspace
+}
+
 // ShowTrustScriptsDialog requests confirmation before trusting repo scripts.
 type ShowTrustScriptsDialog struct {
 	Workspace  *data.Workspace
@@ -247,6 +253,15 @@ type CreateWorkspace struct {
 type DeleteWorkspace struct {
 	Project   *data.Project
 	Workspace *data.Workspace
+}
+
+// RenameWorkspace requests renaming a workspace's display label (Tier-1). Only
+// the human Name changes; the git branch, worktree, and workspace ID are left
+// untouched.
+type RenameWorkspace struct {
+	Project   *data.Project
+	Workspace *data.Workspace
+	NewName   string
 }
 
 // RemoveProject requests removing a project from the registry

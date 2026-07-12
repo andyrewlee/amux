@@ -442,3 +442,37 @@ func TestDialogConfirmClickNoWrappingMessage(t *testing.T) {
 		t.Fatalf("Expected Confirmed=false, got true")
 	}
 }
+
+func TestDialogSetInputValuePrefills(t *testing.T) {
+	d := NewInputDialog("rename", "Rename workspace", "Enter new name...")
+	// Show() resets the input to empty, so the prefill must land after it —
+	// mirroring how the rename dialog is wired (present, then prefill).
+	d.Show()
+	d.SetInputValue("existing-name")
+
+	if got := d.input.Value(); got != "existing-name" {
+		t.Fatalf("SetInputValue prefill = %q, want %q", got, "existing-name")
+	}
+
+	// Confirming emits the prefilled value as the DialogResult value.
+	_, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("expected a command from confirming the input dialog")
+	}
+	result, ok := cmd().(DialogResult)
+	if !ok {
+		t.Fatalf("expected DialogResult, got %T", cmd())
+	}
+	if result.Value != "existing-name" {
+		t.Fatalf("DialogResult.Value = %q, want %q", result.Value, "existing-name")
+	}
+}
+
+func TestDialogSetInputValueIgnoredForNonInput(t *testing.T) {
+	// A no-op on confirm dialogs: it must not panic or mutate anything.
+	d := NewConfirmDialog("confirm", "Title", "Message")
+	d.SetInputValue("ignored")
+	if got := d.input.Value(); got != "" {
+		t.Fatalf("confirm dialog input value = %q, want empty", got)
+	}
+}
