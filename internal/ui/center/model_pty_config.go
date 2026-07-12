@@ -67,12 +67,6 @@ type PTYOutput struct {
 	Data        []byte
 }
 
-// PTYTick triggers a PTY read
-type PTYTick struct {
-	WorkspaceID string
-	TabID       TabID
-}
-
 // PTYFlush applies buffered PTY output for a tab.
 type PTYFlush struct {
 	WorkspaceID string

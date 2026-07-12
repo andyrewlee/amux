@@ -80,7 +80,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case center.PTYOutput, center.PTYTick, center.PTYFlush, center.PTYStopped:
+	case center.PTYOutput, center.PTYFlush, center.PTYStopped:
 		if cmd := a.handlePTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -93,7 +93,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.Toast:
 		cmds = append(cmds, a.showToast(msg))
 
-	case messages.SidebarPTYOutput, messages.SidebarPTYTick, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed, sidebar.SidebarSelectionScrollTick:
+	case messages.SidebarPTYOutput, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed, sidebar.SidebarSelectionScrollTick:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
