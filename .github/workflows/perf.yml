@@ -26,6 +26,7 @@ jobs:
         run: scripts/perf_compare.sh
         env:
           PERF_TOLERANCE: '0.10'
+          PERF_STRICT: '1'
           HARNESS_FRAMES: '300'
           HARNESS_WARMUP: '30'
           HARNESS_SCROLLBACK_FRAMES: '600'

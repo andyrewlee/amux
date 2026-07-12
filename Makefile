@@ -122,9 +122,10 @@ harness-golden:
 # current ${GOOS}_${GOARCH} (on this machine, DARWIN_ARM64_*). It is the local
 # gate for render-path changes that PR-time CI does not cover for darwin-arm64.
 # Set PERF_STRICT=1 to fail (rather than silently skip) when a baseline for a
-# preset is missing. Re-baseline the DARWIN_ARM64_* values on the dev machine
-# before relying on this as a hard gate; the checked-in numbers may be
-# placeholders.
+# preset is missing. Baselines were measured on the target hosts (see
+# PERF_BASELINES.md); after an intentional render-path change, re-baseline by
+# running PERF_STRICT=1 make perf-check three times on a quiescent host and
+# committing the per-preset medians to scripts/perf_baselines.env.
 perf-check:
 	bash scripts/perf_compare.sh
 
