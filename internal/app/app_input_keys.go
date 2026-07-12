@@ -17,7 +17,7 @@ func (a *App) syncActiveWorkspacesToDashboard() {
 	activeWorkspaces := make(map[string]bool)
 	if !a.tmuxActivity.settled {
 		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
-		a.dashboard.SetAgentStates(nil)
+		a.emitDashboardStateCmd(a.dashboard.SetAgentStates(nil))
 		return
 	}
 	for wsID := range a.tmuxActivity.activeWorkspaceIDs {
@@ -29,7 +29,21 @@ func (a *App) syncActiveWorkspacesToDashboard() {
 		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
-	a.dashboard.SetAgentStates(a.tmuxActivity.agentStates)
+	a.emitDashboardStateCmd(a.dashboard.SetAgentStates(a.tmuxActivity.agentStates))
+}
+
+// emitDashboardStateCmd delivers a fire-and-forget command produced by a
+// dashboard state update (currently the opt-in agent-done bell) to the runtime.
+// syncActiveWorkspacesToDashboard is a void helper called from ~9 non-Update
+// sites, so the command is injected out-of-band via the external-message pump
+// rather than threaded back through every caller. A nil command is a no-op.
+func (a *App) emitDashboardStateCmd(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if msg := cmd(); msg != nil {
+		a.enqueueExternalMsg(msg)
+	}
 }
 
 // handleKeyPress handles keyboard input
