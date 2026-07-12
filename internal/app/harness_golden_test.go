@@ -102,10 +102,11 @@ func goldenPresets() []goldenPreset {
 		},
 		// Overlay presets. Adding/altering a dialog or overlay is the most
 		// common UI change an agent makes, so each of these snapshots a distinct
-		// composeOverlays path (dialog, settings, prefix palette) over the same
-		// center base pane. Only deterministic, filesystem-independent overlays
-		// are golden-able; the file picker (reads the real filesystem) and the
-		// toast (wall-clock visibility) are deliberately omitted.
+		// composeOverlays path (confirm dialog, settings, prefix palette, error
+		// overlay, input dialog) over the same center base pane. Only
+		// deterministic, filesystem-independent overlays are golden-able; the file
+		// picker (reads the real filesystem) and the toast (wall-clock visibility)
+		// are deliberately omitted.
 		{
 			name: "overlay_dialog",
 			opts: HarnessOptions{
@@ -136,6 +137,28 @@ func goldenPresets() []goldenPreset {
 				Width:   width,
 				Height:  height,
 				Overlay: HarnessOverlayPrefix,
+			},
+			steps: steps,
+		},
+		{
+			name: "overlay_error",
+			opts: HarnessOptions{
+				Mode:    HarnessCenter,
+				Tabs:    8,
+				Width:   width,
+				Height:  height,
+				Overlay: HarnessOverlayError,
+			},
+			steps: steps,
+		},
+		{
+			name: "overlay_input",
+			opts: HarnessOptions{
+				Mode:    HarnessCenter,
+				Tabs:    8,
+				Width:   width,
+				Height:  height,
+				Overlay: HarnessOverlayInput,
 			},
 			steps: steps,
 		},

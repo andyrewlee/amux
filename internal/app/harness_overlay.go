@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -13,6 +14,8 @@ const (
 	HarnessOverlayDialog   = "dialog"
 	HarnessOverlaySettings = "settings"
 	HarnessOverlayPrefix   = "prefix"
+	HarnessOverlayError    = "error"
+	HarnessOverlayInput    = "input"
 )
 
 // applyHarnessOverlay puts the App into the overlay state named by overlay so a
@@ -23,9 +26,10 @@ const (
 //
 // Only deterministic, filesystem-independent overlays are supported so the
 // rendered frame stays byte-stable for goldens: the confirm dialog, the settings
-// dialog, and the prefix command palette. (The file picker reads the real
-// filesystem and the toast's visibility is wall-clock gated, so neither yields a
-// reproducible golden; they are intentionally excluded.)
+// dialog, the prefix command palette, the error overlay, and the input dialog.
+// (The file picker reads the real filesystem and the toast's visibility is
+// wall-clock gated, so neither yields a reproducible golden; they are
+// intentionally excluded.)
 func applyHarnessOverlay(app *App, overlay string) {
 	switch overlay {
 	case HarnessOverlayNone:
@@ -49,12 +53,28 @@ func applyHarnessOverlay(app *App, overlay string) {
 		app.settingsDialog.Show()
 	case HarnessOverlayPrefix:
 		app.prefixActive = true
+	case HarnessOverlayError:
+		// renderErrorOverlay reads only a.err, so a fixed error string yields a
+		// byte-stable frame across machines and runs.
+		app.err = errors.New("harness: fixed error for golden rendering")
+	case HarnessOverlayInput:
+		// The workspace-name prompt: a real input-dialog call site, so the golden
+		// reflects production chrome. Left empty (placeholder only) and rendered
+		// with a real terminal cursor (SetVirtualCursor(false)), so no wall-clock
+		// blink leaks into the frame string.
+		app.dialog = common.NewInputDialog(
+			DialogCreateWorkspace,
+			"Create Workspace",
+			"Enter workspace name...",
+		)
+		app.presentDialog(app.dialog)
 	}
 }
 
 func validateHarnessOverlay(overlay string) error {
 	switch overlay {
-	case HarnessOverlayNone, HarnessOverlayDialog, HarnessOverlaySettings, HarnessOverlayPrefix:
+	case HarnessOverlayNone, HarnessOverlayDialog, HarnessOverlaySettings, HarnessOverlayPrefix,
+		HarnessOverlayError, HarnessOverlayInput:
 		return nil
 	default:
 		return fmt.Errorf("unknown overlay %q", overlay)

@@ -98,10 +98,10 @@ go run ./cmd/amux-harness -mode center -frames 1 -warmup 0 -overlay dialog -dump
 ```
 
 Supported overlays are the deterministic, filesystem-independent ones:
-`dialog` (confirm dialog), `settings` (settings dialog), and `prefix` (prefix
-command palette). The file picker (reads the real filesystem) and the toast
-(wall-clock-gated visibility) are intentionally excluded because their frames are
-not byte-stable. Each overlay has a golden frame
+`dialog` (confirm dialog), `settings` (settings dialog), `prefix` (prefix
+command palette), `error` (the error overlay), and `input` (input dialog). The
+file picker (reads the real filesystem) and the toast (wall-clock-gated
+visibility) are intentionally excluded because their frames are not byte-stable. Each overlay has a golden frame
 (`internal/app/testdata/golden/overlay_*.frame`) guarded by
 `TestHarnessGoldenFrames`; regenerate after an intentional overlay render change
 with `go test ./internal/app -run Golden -update` and commit the refreshed

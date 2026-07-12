@@ -57,7 +57,7 @@ func main() {
 	payloadBytes := flag.Int("payload-bytes", 64, "bytes written per hot tab per frame")
 	newlineEvery := flag.Int("newline-every", 0, "emit newline every N frames (0 disables)")
 	showKeymapHints := flag.Bool("keymap-hints", false, "render keymap hints")
-	overlay := flag.String("overlay", "", "render an overlay over the base pane: dialog, settings, or prefix (empty renders base pane only)")
+	overlay := flag.String("overlay", "", "render an overlay over the base pane: dialog, settings, prefix, error, or input (empty renders base pane only)")
 	minVisible := flag.Int("assert-min-visible", 0, "fail (exit 1) if the final rendered frame has fewer than this many visible glyphs; 0 disables. Guards against renders that produce empty/garbage frames without crashing.")
 	dumpFrame := flag.String("dump-frame", "", "write the final rendered view (full ANSI) to this path; empty disables. Lets callers diff/golden the exact frame an agent sees.")
 	flag.Parse()
