@@ -326,12 +326,6 @@ type SidebarPTYOutput struct {
 	Data        []byte
 }
 
-// SidebarPTYTick triggers a sidebar PTY read
-type SidebarPTYTick struct {
-	WorkspaceID string
-	TabID       string
-}
-
 // SidebarPTYFlush applies buffered PTY output for sidebar terminal
 type SidebarPTYFlush struct {
 	WorkspaceID string
@@ -343,17 +337,6 @@ type SidebarPTYStopped struct {
 	WorkspaceID string
 	TabID       string
 	Err         error
-}
-
-// SidebarTerminalCreated signals that the sidebar terminal was created
-type SidebarTerminalCreated struct {
-	WorkspaceID string
-}
-
-// SidebarTerminalTabCreated signals that a sidebar terminal tab was created
-type SidebarTerminalTabCreated struct {
-	WorkspaceID string
-	TabID       string
 }
 
 // UpdateCheckComplete is sent when the background update check finishes
