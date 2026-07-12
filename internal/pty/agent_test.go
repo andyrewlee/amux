@@ -1,8 +1,12 @@
 package pty
 
 import (
+	"fmt"
+	"os/exec"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -364,6 +368,86 @@ func TestAgentManager_MultipleAgentsPerWorkspace(t *testing.T) {
 
 	// Cleanup
 	term2.Close()
+}
+
+// TestAgentManager_CreateViewer_RegistersAgent exercises the successful
+// spawn-and-register path (env assembly, NewWithSize, registration under
+// ws.ID()) against a real, isolated tmux server. It skips when tmux is not
+// installed so tmux-less local runs stay green; CI runs it in the tmux job.
+func TestAgentManager_CreateViewer_RegistersAgent(t *testing.T) {
+	if err := tmux.EnsureAvailable(); err != nil {
+		t.Skipf("tmux unavailable: %v", err)
+	}
+
+	// Isolated tmux server so the test never touches the user's amux server.
+	serverName := fmt.Sprintf("amux-ptytest-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-L", serverName, "kill-server").Run()
+	})
+
+	m := NewAgentManager(testConfig())
+	m.SetTmuxOptions(tmux.Options{
+		ServerName:     serverName,
+		ConfigPath:     "/dev/null",
+		CommandTimeout: 5 * time.Second,
+	})
+
+	ws := &data.Workspace{
+		Name: "create-ws",
+		Root: t.TempDir(),
+		Repo: "/tmp/test-repo",
+	}
+	sessionName := fmt.Sprintf("amux-test-viewer-%d", time.Now().UnixNano())
+
+	agent, err := m.CreateViewer(ws, "cat", sessionName, 24, 80)
+	if err != nil {
+		t.Fatalf("CreateViewer failed: %v", err)
+	}
+	t.Cleanup(func() { _ = m.CloseAgent(agent) })
+
+	if agent == nil {
+		t.Fatal("CreateViewer returned nil agent")
+	}
+	if agent.Type != AgentType("viewer") {
+		t.Errorf("expected type %q, got %q", "viewer", agent.Type)
+	}
+	if agent.Session != sessionName {
+		t.Errorf("expected session %q, got %q", sessionName, agent.Session)
+	}
+	if agent.Workspace != ws {
+		t.Error("agent workspace should be the workspace it was created for")
+	}
+	if agent.Terminal == nil {
+		t.Fatal("agent terminal should be non-nil")
+	}
+
+	// Env assembly: the workspace vars must reach the spawned command.
+	env := agent.Terminal.cmd.Env
+	for _, want := range []string{"WORKSPACE_ROOT=" + ws.Root, "WORKSPACE_NAME=" + ws.Name} {
+		if !slices.Contains(env, want) {
+			t.Errorf("terminal env missing %q", want)
+		}
+	}
+
+	// Registration under ws.ID().
+	wsID := ws.ID()
+	m.mu.Lock()
+	registered := len(m.agents[wsID]) == 1 && m.agents[wsID][0] == agent
+	m.mu.Unlock()
+	if !registered {
+		t.Fatal("agent not registered under ws.ID()")
+	}
+
+	// CloseAgent removes it from the registry.
+	if err := m.CloseAgent(agent); err != nil {
+		t.Fatalf("CloseAgent failed: %v", err)
+	}
+	m.mu.Lock()
+	remaining := len(m.agents[wsID])
+	m.mu.Unlock()
+	if remaining != 0 {
+		t.Errorf("expected 0 agents after CloseAgent, got %d", remaining)
+	}
 }
 
 func TestAgentType_ConfigBridge(t *testing.T) {
