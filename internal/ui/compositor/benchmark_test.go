@@ -82,6 +82,40 @@ func BenchmarkVTermLayerDrawAt(b *testing.B) {
 	}
 }
 
+// BenchmarkVTermLayerDrawAtMostlyStatic measures repeated DrawAt of a
+// mostly-static 200x50 snapshot: a full screen of content where only one row
+// changed since the previous frame (DirtyLines carries a single entry, the
+// shape the snapshot double-buffer produces on an idle terminal that only the
+// spinner forced to re-render).
+//
+// DrawAt currently ignores DirtyLines and re-walks every cell every frame, so
+// this benchmark's per-op cost is dominated by the ~49 clean rows that never
+// changed. That is the per-frame amplification BenchmarkVTermLayerDrawAt does
+// not isolate: DrawAt above legitimately redraws everything, whereas here the
+// work is almost entirely redundant. If a future compose-layer change honors
+// DirtyLines to skip clean rows against a retained canvas, this same benchmark
+// reports the win (its cost should collapse toward a single dirty row).
+func BenchmarkVTermLayerDrawAtMostlyStatic(b *testing.B) {
+	const width, height = 200, 50
+	snap := setupVTermSnapshot(width, height)
+
+	// Simulate an idle frame: exactly one row changed since the last snapshot.
+	snap.AllDirty = false
+	dirty := make([]bool, height)
+	dirty[height/2] = true
+	snap.DirtyLines = dirty
+
+	layer := NewVTermLayer(snap)
+	screen := newMockScreen(width, height)
+	rect := image.Rect(0, 0, width, height)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		layer.Draw(screen, rect)
+	}
+}
+
 // BenchmarkVTermLayerDrawAtTruecolor benchmarks the draw path for a full-screen
 // truecolor (RGB) agent, guarding the ColorRGB conversion against per-cell allocs.
 func BenchmarkVTermLayerDrawAtTruecolor(b *testing.B) {
