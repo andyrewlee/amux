@@ -183,6 +183,45 @@ func TestLineEditDeleteChars(t *testing.T) {
 	}
 }
 
+// TestLineEditDeleteCharsCountExceedsRemainder verifies a DCH count larger
+// than the cells right of the cursor is clamped: it blanks from the cursor to
+// the end of the line and never touches cells left of the cursor.
+func TestLineEditDeleteCharsCountExceedsRemainder(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 3)
+	vt.Write([]byte("ABCDE"))
+	// Cursor to col 2 (1-indexed) on row 1 → (row=0, col=1).
+	vt.Write([]byte("\x1b[1;2H"))
+	// Delete far more chars than remain right of the cursor.
+	vt.Write([]byte("\x1b[99P"))
+
+	// Cols 1-7 blanked, col 0 ('A') preserved.
+	got := rowText(vt, 0)
+	want := "A"
+	if got != want {
+		t.Errorf("row 0 after oversized deleteChars = %q, want %q", got, want)
+	}
+}
+
+// TestLineEditDeleteCharsAtEndOfLineIsNoOp verifies DCH with the cursor on
+// the last column only clears that cell and leaves everything left of it.
+func TestLineEditDeleteCharsAtEndOfLineIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 3)
+	vt.Write([]byte("ABCDEFGH"))
+	// Cursor to the last col (1-indexed col 8) on row 1 → (row=0, col=7).
+	vt.Write([]byte("\x1b[1;8H"))
+	vt.Write([]byte("\x1b[5P"))
+
+	got := rowText(vt, 0)
+	want := "ABCDEFG"
+	if got != want {
+		t.Errorf("row 0 after deleteChars at line end = %q, want %q", got, want)
+	}
+}
+
 // TestLineEditEraseChars verifies eraseChars blanks cells in place without
 // shifting the rest of the line.
 func TestLineEditEraseChars(t *testing.T) {

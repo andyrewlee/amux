@@ -86,6 +86,14 @@ func (v *VTerm) deleteChars(n int) {
 	if v.CursorY >= len(v.Screen) {
 		return
 	}
+	// Clamp n to the cells from the cursor to end of line (xterm DCH
+	// semantics: DCH never affects cells left of the cursor).
+	if remaining := v.Width - v.CursorX; n > remaining {
+		n = remaining
+	}
+	if n <= 0 {
+		return
+	}
 	line := v.Screen[v.CursorY]
 	normalizeLine(line)
 
