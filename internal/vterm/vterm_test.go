@@ -410,3 +410,59 @@ func TestIncrementalCursorPositionedWrites(t *testing.T) {
 		t.Errorf("Expected 'Todo' at start of line")
 	}
 }
+
+// TestResizeShrinkKeepsCursorOnContentRow verifies a height shrink that
+// pushes top rows into scrollback decrements CursorY so the cursor stays on
+// the same content row (mirroring the grow path's compensation).
+func TestResizeShrinkKeepsCursorOnContentRow(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 10)
+	vt.Write([]byte("L0\r\nL1\r\nL2\r\nL3\r\nL4"))
+	// Cursor explicitly on row index 4.
+	vt.Write([]byte("\x1b[5;1H"))
+
+	vt.Resize(8, 6)
+
+	if vt.CursorY != 0 {
+		t.Fatalf("CursorY after shrink = %d, want 0", vt.CursorY)
+	}
+	if got := rowText(vt, vt.CursorY); got != "L4" {
+		t.Errorf("content row under cursor = %q, want %q", got, "L4")
+	}
+}
+
+// TestResizeShrinkClampsCursorAtTop verifies a shrink that moves more rows to
+// scrollback than the cursor's row index clamps CursorY at 0 without panic.
+func TestResizeShrinkClampsCursorAtTop(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 10)
+	vt.Write([]byte("L0\r\nL1"))
+	// Cursor on row index 1.
+	vt.Write([]byte("\x1b[2;1H"))
+
+	vt.Resize(8, 6)
+
+	if vt.CursorY != 0 {
+		t.Errorf("CursorY after shrink past cursor = %d, want 0 (clamped)", vt.CursorY)
+	}
+}
+
+// TestResizeShrinkCursorAtBottomUnchangedBehavior pins the already-correct
+// bottom-row case: cursor on the last row lands on the new last row.
+func TestResizeShrinkCursorAtBottomUnchangedBehavior(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 10)
+	vt.Write([]byte("\x1b[10;1Hbottom"))
+
+	vt.Resize(8, 6)
+
+	if vt.CursorY != 5 {
+		t.Errorf("CursorY after bottom-row shrink = %d, want 5", vt.CursorY)
+	}
+	if got := rowText(vt, 5); got != "bottom" {
+		t.Errorf("last row = %q, want %q", got, "bottom")
+	}
+}

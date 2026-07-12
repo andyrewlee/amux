@@ -237,6 +237,13 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 			}
 			v.anchorViewOffsetForAddedLines(added)
 			v.trimScrollback()
+			// Rows moved to scrollback shift remaining content up; keep the
+			// cursor on the same content row (mirrors the grow path's
+			// `v.CursorY += restore`).
+			v.CursorY -= added
+			if v.CursorY < 0 {
+				v.CursorY = 0
+			}
 		}
 	}
 
