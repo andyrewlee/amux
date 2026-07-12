@@ -359,6 +359,84 @@ func TestUpgradeSignatureRejectedNeverInstalls(t *testing.T) {
 	}
 }
 
+// TestUpgradeVersionMonotonicity covers the downgrade guard: equal and higher
+// targets proceed (reinstall stays legitimate), a strictly-lower target is
+// refused before download/extract/install run (same assertion style as
+// TestUpgradeSignatureRejectedNeverInstalls) unless ForceDowngrade is set,
+// and dev/unparseable current versions skip the check entirely.
+func TestUpgradeVersionMonotonicity(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentVersion string
+		targetTag      string
+		force          bool
+		wantErr        string // "" means Upgrade must succeed and install
+	}{
+		{
+			name:           "higher target proceeds",
+			currentVersion: "v1.0.0",
+			targetTag:      "v1.1.0",
+		},
+		{
+			name:           "equal target proceeds (reinstall allowed)",
+			currentVersion: "v1.0.0",
+			targetTag:      "v1.0.0",
+		},
+		{
+			name:           "strictly lower target blocked before download",
+			currentVersion: "v1.0.0",
+			targetTag:      "v0.9.0",
+			wantErr:        "refusing to downgrade from v1.0.0 to v0.9.0",
+		},
+		{
+			name:           "strictly lower target proceeds when forced",
+			currentVersion: "v1.0.0",
+			targetTag:      "v0.9.0",
+			force:          true,
+		},
+		{
+			name:           "dev build skips downgrade check",
+			currentVersion: "dev",
+			targetTag:      "v0.9.0",
+		},
+		{
+			name:           "unparseable current version skips downgrade check",
+			currentVersion: "1.0",
+			targetTag:      "v0.9.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls []string
+			u := upgraderWith(recordingDeps(&calls))
+			u.version = tt.currentVersion
+			u.ForceDowngrade = tt.force
+
+			err := u.Upgrade(&Release{TagName: tt.targetTag})
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Upgrade() error = %v, want success", err)
+				}
+				if indexOf(calls, "install") == -1 {
+					t.Fatalf("expected install to run, calls=%v", calls)
+				}
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got: %v", tt.wantErr, err)
+			}
+			for _, c := range calls {
+				if c == "download" || c == "extract" || c == "install" {
+					t.Fatalf("step %q ran after downgrade guard tripped: %v", c, calls)
+				}
+			}
+		})
+	}
+}
+
 func indexOf(s []string, target string) int {
 	for i, v := range s {
 		if v == target {
