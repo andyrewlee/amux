@@ -184,15 +184,38 @@ func TestRunPTYReaderClosesOnceOnError(t *testing.T) {
 	cancel := make(chan struct{})
 	got := runReaderAndForward(t, &scriptedReader{finalErr: errors.New("boom")}, cancel, baseReaderCfg())
 
-	// The terminal error may be the read error or io.EOF depending on whether
-	// the err channel or the closed data channel is observed first; both are
-	// non-nil. The contract under test is exactly-once close, asserted by
+	// The contract under test is exactly-once close, asserted by
 	// runReaderAndForward returning rather than hanging or panicking.
+	// (TestRunPTYReaderStoppedCarriesReadError covers the error identity.)
 	if len(got.stops) != 1 {
 		t.Fatalf("got %d Stopped msgs, want 1", len(got.stops))
 	}
 	if got.stops[0].err == nil {
 		t.Fatal("Stopped err = nil, want non-nil")
+	}
+}
+
+func TestRunPTYReaderStoppedCarriesReadError(t *testing.T) {
+	sentinel := errors.New("simulated EIO")
+	cancel := make(chan struct{})
+
+	// The chunks keep the outer loop busy on dataCh receives so that the
+	// inner goroutine's errCh send and its deferred close(dataCh) can both
+	// be ready when the outer loop re-enters its select; Go then picks a
+	// ready case at random. Run under -race -count=50: without the errCh
+	// drain in the closed-dataCh branch this intermittently reports io.EOF
+	// instead of the real read error.
+	chunks := make([][]byte, 64)
+	for i := range chunks {
+		chunks[i] = []byte{byte('a' + i%26)}
+	}
+	got := runReaderAndForward(t, &scriptedReader{chunks: chunks, finalErr: sentinel}, cancel, baseReaderCfg())
+
+	if len(got.stops) != 1 {
+		t.Fatalf("got %d Stopped msgs, want 1", len(got.stops))
+	}
+	if !errors.Is(got.stops[0].err, sentinel) {
+		t.Fatalf("Stopped err = %v, want sentinel %v (io.EOF means the real error was masked)", got.stops[0].err, sentinel)
 	}
 }
 
