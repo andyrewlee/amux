@@ -14,8 +14,11 @@ type VTermSnapshot struct {
 	ViewOffset   int
 	CursorHidden bool
 	ShowCursor   bool
-	Width        int
-	Height       int
+	// SuppressBlink strips the SGR blink attribute at draw time (chat tabs
+	// suppress assistant blink flicker without mutating snapshot rows).
+	SuppressBlink bool
+	Width         int
+	Height        int
 	// Selection state (used during rendering)
 	SelActive            bool
 	SelStartX, SelStartY int
@@ -149,6 +152,7 @@ func newVTermSnapshot(term *vterm.VTerm, showCursor bool, prev *VTermSnapshot, e
 	snap.ViewOffset = term.ViewOffset
 	snap.CursorHidden = term.CursorHiddenForRender()
 	snap.ShowCursor = showCursor
+	snap.SuppressBlink = false
 	snap.Width = width
 	snap.Height = height
 	snap.SelActive = term.SelActive()

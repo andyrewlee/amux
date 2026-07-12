@@ -131,6 +131,10 @@ func cellToUVSnapshot(uvCell *uv.Cell, cell vterm.Cell, snap *VTermSnapshot, x, 
 	// Suppress underline on blank cells (prevents visual scanlines)
 	style = vterm.SuppressBlankUnderline(cell.Rune, style)
 
+	if snap.SuppressBlink {
+		style.Blink = false
+	}
+
 	content := cell.GraphemeCluster
 	if content == "" {
 		r := vterm.RenderableRune(cell.Rune)

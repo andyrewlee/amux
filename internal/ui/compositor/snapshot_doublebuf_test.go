@@ -114,6 +114,31 @@ func TestSnapshotDoubleBufferNoChangeFrame(t *testing.T) {
 	requireRowPrefix(t, snap, 1, "stable")
 }
 
+func TestSnapshotDoubleBufferMarkRowStaleReCopiesMutatedRow(t *testing.T) {
+	term := vterm.New(8, 4)
+	var buf SnapshotDoubleBuffer
+
+	writeAt(term, 2, 0, "clean")
+	// Park the cursor off the mutated row so cursor-forced dirty tracking does
+	// not re-copy row 2 on its own; MarkRowStale must be the reason it re-copies.
+	term.Write([]byte("\x1b[1;1H"))
+	first := buf.Snapshot(term, true)
+	requireRowPrefix(t, first, 2, "clean")
+
+	// Mutate the handed-out row in place, then record it as stale.
+	first.Screen[2][0].Rune = 'X'
+	buf.MarkRowStale(2)
+
+	// No vterm change: without MarkRowStale, row 2 would be reused as-is when the
+	// double buffer cycles back to buffer 0 and the mutation would survive.
+	_ = buf.Snapshot(term, true)
+	third := buf.Snapshot(term, true)
+
+	if got := rowText(third, 2, 5); got != "clean" {
+		t.Fatalf("stale row not re-copied: row 2 = %q, want clean", got)
+	}
+}
+
 func writeAt(term *vterm.VTerm, row, col int, text string) {
 	term.Write([]byte(fmt.Sprintf("\x1b[%d;%dH%s", row+1, col+1, text)))
 }

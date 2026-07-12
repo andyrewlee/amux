@@ -43,6 +43,22 @@ func (d *SnapshotDoubleBuffer) Snapshot(term *vterm.VTerm, showCursor bool) *VTe
 	return snap
 }
 
+// MarkRowStale records that row y of the most recently handed-out snapshot was
+// mutated in place after creation (e.g. chat cursor sanitization), so the next
+// snapshot into that buffer must re-copy the row even if vterm dirty tracking
+// says it is clean. A nil stale mask already means "fully stale" and needs no
+// marking.
+func (d *SnapshotDoubleBuffer) MarkRowStale(y int) {
+	if !d.inited {
+		return
+	}
+	mask := d.stale[d.last]
+	if mask == nil || y < 0 || y >= len(mask) {
+		return
+	}
+	mask[y] = true
+}
+
 // Reset discards both buffers and all stale-row tracking.
 func (d *SnapshotDoubleBuffer) Reset() {
 	d.bufs = [2]*VTermSnapshot{}

@@ -266,12 +266,16 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	}
 
 	var snap *compositor.VTermSnapshot
-	if isChat {
-		// Chat post-processing mutates snapshot rows after creation, so keep the
-		// reusable raw buffers out of this path.
+	if isChat && tab.Terminal.ViewOffset != 0 {
+		// Scrolled chat history replaces snap.Screen wholesale
+		// (applyScrolledChatHistoryViewLocked), which is incompatible with
+		// buffer row reuse. Take a throwaway snapshot and restart reuse when
+		// the view returns to the live tail.
 		snap = compositor.NewVTermSnapshot(tab.Terminal, showCursor)
+		tab.SnapshotBuffer.Reset()
 	} else {
-		// SnapshotDoubleBuffer reuses rows without mutating the last handed-out layer.
+		// SnapshotDoubleBuffer reuses rows; post-creation cell mutations must
+		// go through MarkRowStale (see chat cursor sanitize below).
 		snap = tab.SnapshotBuffer.Snapshot(tab.Terminal, showCursor)
 	}
 	if snap == nil {
@@ -309,20 +313,18 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 				(tab.stableCursorX != liveCursorX || tab.stableCursorY != liveCursorY) {
 				sanitizeStoredChatCursorCell(snap, tab.stableCursorX, tab.stableCursorY)
 			}
+			// These sanitize calls mutate snapshot rows in place; mark them so the
+			// double buffer re-copies the rows next frame instead of reusing the
+			// mutated versions.
+			tab.SnapshotBuffer.MarkRowStale(liveCursorY)
+			if snap.ShowCursor && tab.stableCursorSet &&
+				(tab.stableCursorX != liveCursorX || tab.stableCursorY != liveCursorY) {
+				tab.SnapshotBuffer.MarkRowStale(tab.stableCursorY)
+			}
 		}
 
 		// Prevent residual flicker from SGR blink attributes in assistant output.
-		for y := range snap.Screen {
-			row := snap.Screen[y]
-			for x := range row {
-				if !row[x].Style.Blink {
-					continue
-				}
-				cell := row[x]
-				cell.Style.Blink = false
-				row[x] = cell
-			}
-		}
+		snap.SuppressBlink = true
 	}
 	perf.Count("vterm_snapshot_cache_miss", 1)
 

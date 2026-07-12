@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
+
 	"github.com/andyrewlee/amux/internal/ui/diff"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -442,8 +444,13 @@ func TestTerminalLayerClearsBlinkAttributesForChatTabs(t *testing.T) {
 	if layer == nil || layer.Snap == nil {
 		t.Fatal("expected terminal layer snapshot")
 	}
-	if layer.Snap.Screen[0][1].Style.Blink {
-		t.Fatal("expected blink attributes to be cleared for chat tabs")
+	if !layer.Snap.SuppressBlink {
+		t.Fatal("expected chat tab snapshot to request draw-time blink suppression")
+	}
+	buf := uv.NewScreenBuffer(term.Width, term.Height)
+	layer.Draw(buf, buf.Bounds())
+	if buf.CellAt(1, 0).Style.Attrs&uv.AttrBlink != 0 {
+		t.Fatal("expected blink attributes to be suppressed at draw time for chat tabs")
 	}
 }
 
