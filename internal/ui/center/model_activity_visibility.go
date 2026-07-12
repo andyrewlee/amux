@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -200,8 +201,14 @@ func visibleScreenDigest(term *vterm.VTerm) [16]byte {
 
 	// Use the live screen buffer, not the current viewport. If user scrolls
 	// back, viewport content can stay static while live output continues.
+	//
+	// Feed each row's runes straight into the hash instead of building a
+	// full-screen string first: the byte stream is identical (same UTF-8
+	// encoding, same trailing-blank trimming, same '\n' per row), but this
+	// avoids two full-screen allocations on every PTY flush.
 	screen, _ := term.RenderBuffers()
-	var b strings.Builder
+	hash := sha256.New()
+	var scratch []byte
 	for _, row := range screen {
 		last := len(row) - 1
 		for last >= 0 {
@@ -217,6 +224,7 @@ func visibleScreenDigest(term *vterm.VTerm) [16]byte {
 			}
 			break
 		}
+		scratch = scratch[:0]
 		for i := 0; i <= last; i++ {
 			cell := row[i]
 			if cell.Width == 0 {
@@ -226,11 +234,15 @@ func visibleScreenDigest(term *vterm.VTerm) [16]byte {
 			if r == 0 {
 				r = ' '
 			}
-			b.WriteRune(r)
+			scratch = utf8.AppendRune(scratch, r)
 		}
-		b.WriteByte('\n')
+		scratch = append(scratch, '\n')
+		hash.Write(scratch)
 	}
-	return visibleDigestHash([]byte(b.String()))
+	var sum [sha256.Size]byte
+	var digest [16]byte
+	copy(digest[:], hash.Sum(sum[:0])[:16])
+	return digest
 }
 
 func visibleDigestHash(content []byte) [16]byte {
