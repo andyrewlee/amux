@@ -156,7 +156,10 @@ func mouseEventFilter(m tea.Model, msg tea.Msg) tea.Msg {
 }
 
 func startPprof() {
-	addr, ok := pprofhttp.AddrFromEnvValue(os.Getenv("AMUX_PPROF"))
+	addr, ok, warning := pprofhttp.AddrFromEnvValue(os.Getenv("AMUX_PPROF"))
+	if warning != "" {
+		logging.Warn("pprof: %s", warning)
+	}
 	if !ok {
 		return
 	}

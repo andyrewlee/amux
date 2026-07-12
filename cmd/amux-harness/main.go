@@ -182,7 +182,10 @@ func fps(durations []time.Duration) float64 {
 }
 
 func startPprof() {
-	addr, ok := pprofhttp.AddrFromEnvValue(os.Getenv("AMUX_PPROF"))
+	addr, ok, warning := pprofhttp.AddrFromEnvValue(os.Getenv("AMUX_PPROF"))
+	if warning != "" {
+		fmt.Fprintf(os.Stderr, "pprof: %s\n", warning)
+	}
 	if !ok {
 		return
 	}
