@@ -87,6 +87,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			cmds = append(cmds, m.openCurrentItem())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
 			cmds = append(cmds, m.refreshStatus())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("c"))):
+			cmds = append(cmds, m.commitWorkspace())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
 			// Enter filter mode
 			m.filterMode = true
@@ -181,6 +183,26 @@ func (m *Model) moveCursor(delta int) {
 
 	if newCursor >= 0 && newCursor < len(m.displayItems) {
 		m.cursor = newCursor
+	}
+}
+
+// commitWorkspace opens the commit-all dialog for the focused workspace. It
+// pre-checks the tree per the write-back design: a nil or clean status has
+// nothing to commit (git commit on an empty index errors), so it shows a note
+// instead of opening the dialog. Otherwise it emits ShowCommitWorkspaceDialog;
+// the actual git.CommitAll runs only after the user confirms with a message.
+func (m *Model) commitWorkspace() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	if m.gitStatus == nil || m.gitStatus.Clean {
+		return func() tea.Msg {
+			return messages.Toast{Message: "Nothing to commit", Level: messages.ToastInfo}
+		}
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.ShowCommitWorkspaceDialog{Workspace: ws}
 	}
 }
 

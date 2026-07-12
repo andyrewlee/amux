@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -212,6 +213,53 @@ func TestInputClickOutsideRowsIsNoOp(t *testing.T) {
 	}
 	if m.cursor != before {
 		t.Fatalf("expected cursor unchanged on out-of-range click, got %d (was %d)", m.cursor, before)
+	}
+}
+
+func TestInputCommitKeyOpensDialogForFocusedWorkspace(t *testing.T) {
+	m := newInputModel(t) // dirty two-section status
+	ws := &data.Workspace{Name: "feature", Root: "/tmp/ws", Branch: "feature"}
+	m.SetWorkspace(ws)
+
+	_, cmd := m.Update(keyPress('c'))
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from commit key on a dirty tree")
+	}
+	msg := cmd()
+	show, ok := msg.(messages.ShowCommitWorkspaceDialog)
+	if !ok {
+		t.Fatalf("expected messages.ShowCommitWorkspaceDialog, got %T", msg)
+	}
+	if show.Workspace != ws {
+		t.Fatalf("ShowCommitWorkspaceDialog carried wrong workspace: %+v", show.Workspace)
+	}
+}
+
+func TestInputCommitKeyCleanTreeShowsNote(t *testing.T) {
+	m := New()
+	m.SetSize(80, 20)
+	m.Focus()
+	m.SetWorkspace(&data.Workspace{Name: "feature", Root: "/tmp/ws"})
+	m.SetGitStatus(&git.StatusResult{Clean: true})
+
+	_, cmd := m.Update(keyPress('c'))
+	if cmd == nil {
+		t.Fatal("expected a note cmd when committing a clean tree")
+	}
+	toast, ok := cmd().(messages.Toast)
+	if !ok {
+		t.Fatalf("expected messages.Toast for a clean tree, got %T", cmd())
+	}
+	if toast.Message != "Nothing to commit" {
+		t.Fatalf("unexpected clean-tree toast: %q", toast.Message)
+	}
+}
+
+func TestInputCommitKeyNoWorkspaceIsNoOp(t *testing.T) {
+	m := newInputModel(t) // dirty status but no workspace set
+	_, cmd := m.Update(keyPress('c'))
+	if cmd != nil {
+		t.Fatalf("expected nil cmd for commit key with no workspace, got a cmd emitting %T", cmd())
 	}
 }
 

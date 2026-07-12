@@ -189,6 +189,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("k/↑", "up"),
 		m.helpItem("j/↓", "down"),
 		m.helpItem("enter/o", "open"),
+		m.helpItem("c", "commit"),
 		m.helpItem("/", "filter"),
 		m.helpItem("g", "refresh"),
 	}
