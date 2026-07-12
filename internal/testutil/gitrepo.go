@@ -61,6 +61,13 @@ func InitRepoWithBranch(t gitTB, branch string) string {
 	t.Helper()
 	root := t.TempDir()
 	RunGit(t, root, "init", "-b", branch)
+	// Pin a repo-local identity so any commit in this repo succeeds — including
+	// production code paths under test (e.g. git.CommitAll) that shell out with a
+	// clean env and cannot see RunGit's GIT_AUTHOR_*/GIT_COMMITTER_* injection.
+	// CI runners have no global git identity, so without this git aborts with
+	// "Author identity unknown".
+	RunGit(t, root, "config", "user.name", "Test")
+	RunGit(t, root, "config", "user.email", "test@example.com")
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("init\n"), 0o600); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
