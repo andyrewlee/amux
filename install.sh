@@ -8,6 +8,19 @@ REPO="andyrewlee/amux"
 BINARY="amux"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
+# Minisign public key used to verify the detached signature over checksums.txt
+# before any checksum is trusted.
+# PLACEHOLDER: the operator fills in the real base64 public key when the
+# release signing keypair is provisioned (see the release runbook); it must
+# match minisignPublicKey in internal/update/pubkey.go. While empty, signature
+# verification cannot run and this script fails closed (see below).
+MINISIGN_PUBKEY=""
+
+# AMUX_ALLOW_UNVERIFIED=1 lets the install proceed on checksum-only
+# verification when signature verification cannot run (minisign not installed,
+# signature asset missing, or no public key embedded above). It never bypasses
+# an actual failed signature check. Default: fail closed.
+
 # Detect OS
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$OS" in
@@ -29,6 +42,20 @@ case "$ARCH" in
     exit 1
     ;;
 esac
+
+# Called when signature verification cannot run at all; honors
+# AMUX_ALLOW_UNVERIFIED (returns to continue on checksum-only) and otherwise
+# fails closed.
+skip_or_die() {
+  if [ "${AMUX_ALLOW_UNVERIFIED:-0}" = "1" ]; then
+    echo "Warning: $1; continuing with checksum-only verification (AMUX_ALLOW_UNVERIFIED=1)." >&2
+    return 0
+  fi
+  echo "Error: $1." >&2
+  echo "Refusing to install without signature verification." >&2
+  echo "Install minisign (https://jedisct1.github.io/minisign/) or set AMUX_ALLOW_UNVERIFIED=1 to proceed with checksum-only verification, at your own risk." >&2
+  exit 1
+}
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -74,6 +101,25 @@ curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${FILENAME}"
 CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
 echo "Fetching checksums..."
 curl -fsSL "$CHECKSUMS_URL" -o "${TMP_DIR}/checksums.txt"
+
+# Verify the minisign signature over checksums.txt before trusting any
+# checksum in it. The checksum below stays as a second layer; the signature is
+# what proves the checksums came from the release signing key rather than
+# from whoever controls the release assets.
+MINISIG_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt.minisig"
+echo "Fetching signature..."
+if ! curl -fsSL "$MINISIG_URL" -o "${TMP_DIR}/checksums.txt.minisig"; then
+  skip_or_die "could not download release signature (checksums.txt.minisig)"
+elif [ -z "$MINISIGN_PUBKEY" ]; then
+  skip_or_die "no release signing public key embedded in this installer"
+elif ! command -v minisign >/dev/null 2>&1; then
+  skip_or_die "minisign not found; cannot verify the release signature"
+elif ! minisign -V -P "$MINISIGN_PUBKEY" -m "${TMP_DIR}/checksums.txt" -x "${TMP_DIR}/checksums.txt.minisig" >/dev/null 2>&1; then
+  echo "Error: signature verification FAILED for checksums.txt — the release may have been tampered with." >&2
+  exit 1
+else
+  echo "Signature verified."
+fi
 
 EXPECTED=$(grep " ${FILENAME}\$" "${TMP_DIR}/checksums.txt" | awk '{print $1}')
 if [ -z "$EXPECTED" ]; then

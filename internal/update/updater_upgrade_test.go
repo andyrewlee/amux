@@ -21,14 +21,19 @@ func recordingDeps(calls *[]string) upgradeDeps {
 		},
 		currentBinary: func() (string, error) { *calls = append(*calls, "currentBinary"); return "/usr/local/bin/amux", nil },
 		canWrite:      func(string) bool { *calls = append(*calls, "canWrite"); return true },
-		fetchChecksums: func(*Release) (map[string]string, error) {
-			*calls = append(*calls, "fetchChecksums")
-			return map[string]string{"amux_1.0.0_test.tar.gz": "deadbeef"}, nil
+		fetchChecksumsRaw: func(*Release) ([]byte, error) {
+			*calls = append(*calls, "fetchChecksumsRaw")
+			return []byte("deadbeef  amux_1.0.0_test.tar.gz\n"), nil
 		},
-		download: func(string, io.Writer) error { *calls = append(*calls, "download"); return nil },
-		verify:   func(string, string) error { *calls = append(*calls, "verify"); return nil },
-		extract:  func(string, string) (string, error) { *calls = append(*calls, "extract"); return "/tmp/amux", nil },
-		install:  func(string, string) error { *calls = append(*calls, "install"); return nil },
+		fetchSignature: func(*Release) ([]byte, error) {
+			*calls = append(*calls, "fetchSignature")
+			return []byte("untrusted comment: fake\nc2ln\n"), nil
+		},
+		verifySignature: func([]byte, []byte) error { *calls = append(*calls, "verifySignature"); return nil },
+		download:        func(string, io.Writer) error { *calls = append(*calls, "download"); return nil },
+		verify:          func(string, string) error { *calls = append(*calls, "verify"); return nil },
+		extract:         func(string, string) (string, error) { *calls = append(*calls, "extract"); return "/tmp/amux", nil },
+		install:         func(string, string) error { *calls = append(*calls, "install"); return nil },
 	}
 }
 
@@ -86,21 +91,39 @@ func TestUpgradeGuardsAndErrors(t *testing.T) {
 			name:       "no write permission",
 			mutate:     func(d *upgradeDeps) { d.canWrite = func(string) bool { return false } },
 			wantErr:    "no write permission",
-			wantNoCall: "fetchChecksums",
+			wantNoCall: "fetchChecksumsRaw",
 		},
 		{
 			name: "fetch checksums error",
 			mutate: func(d *upgradeDeps) {
-				d.fetchChecksums = func(*Release) (map[string]string, error) { return nil, errors.New("net down") }
+				d.fetchChecksumsRaw = func(*Release) ([]byte, error) { return nil, errors.New("net down") }
 			},
 			wantErr:    "fetching checksums",
 			wantNoCall: "download",
 		},
 		{
+			name: "missing signature asset",
+			mutate: func(d *upgradeDeps) {
+				d.fetchSignature = func(*Release) ([]byte, error) {
+					return nil, errors.New("checksums.txt.minisig not found in release")
+				}
+			},
+			wantErr:    "fetching release signature",
+			wantNoCall: "download",
+		},
+		{
+			name: "signature verification fails",
+			mutate: func(d *upgradeDeps) {
+				d.verifySignature = func([]byte, []byte) error { return errors.New("invalid signature") }
+			},
+			wantErr:    "release signature verification failed",
+			wantNoCall: "download",
+		},
+		{
 			name: "checksum not found for asset",
 			mutate: func(d *upgradeDeps) {
-				d.fetchChecksums = func(*Release) (map[string]string, error) {
-					return map[string]string{"some-other-asset.tar.gz": "abc"}, nil
+				d.fetchChecksumsRaw = func(*Release) ([]byte, error) {
+					return []byte("abc  some-other-asset.tar.gz\n"), nil
 				}
 			},
 			wantErr:    "checksum not found",
@@ -278,7 +301,8 @@ func TestUpgradeHappyPathOrder(t *testing.T) {
 
 	want := []string{
 		"isHomebrewBuild", "isGoInstall", "findAsset", "currentBinary", "canWrite",
-		"fetchChecksums", "download", "verify", "extract", "install",
+		"fetchChecksumsRaw", "fetchSignature", "verifySignature",
+		"download", "verify", "extract", "install",
 	}
 	if len(calls) != len(want) {
 		t.Fatalf("call sequence length mismatch: got %v, want %v", calls, want)
@@ -293,6 +317,45 @@ func TestUpgradeHappyPathOrder(t *testing.T) {
 	extractIdx := indexOf(calls, "extract")
 	if !(verifyIdx < extractIdx && extractIdx < installIdx) {
 		t.Errorf("expected verify(%d) < extract(%d) < install(%d)", verifyIdx, extractIdx, installIdx)
+	}
+
+	// The release signature must be verified before anything is downloaded,
+	// i.e. before any checksum from the (signed) checksums file is trusted.
+	sigIdx, downloadIdx := indexOf(calls, "verifySignature"), indexOf(calls, "download")
+	if !(sigIdx < downloadIdx) {
+		t.Errorf("expected verifySignature(%d) < download(%d)", sigIdx, downloadIdx)
+	}
+}
+
+// TestUpgradeSignatureRejectedNeverInstalls is the signature-gate counterpart
+// to the checksum-mismatch safety test: a rejected release signature must stop
+// the upgrade before download, extract, or install run.
+func TestUpgradeSignatureRejectedNeverInstalls(t *testing.T) {
+	var calls []string
+	deps := recordingDeps(&calls)
+	deps.verifySignature = func([]byte, []byte) error {
+		calls = append(calls, "verifySignature")
+		return errors.New("invalid signature")
+	}
+	installed := false
+	deps.install = func(string, string) error {
+		installed = true
+		calls = append(calls, "install")
+		return nil
+	}
+	u := upgraderWith(deps)
+
+	err := u.Upgrade(&Release{TagName: "v1.0.0"})
+	if err == nil || !strings.Contains(err.Error(), "release signature verification failed") {
+		t.Fatalf("expected signature verification error, got: %v", err)
+	}
+	if installed {
+		t.Fatal("install must never run when signature verification fails")
+	}
+	for _, c := range calls {
+		if c == "download" || c == "extract" || c == "install" {
+			t.Fatalf("step %q ran after failed signature verification: %v", c, calls)
+		}
 	}
 }
 
@@ -320,7 +383,9 @@ func TestNewUpdaterWiresRealDeps(t *testing.T) {
 		{"findAsset", d.findAsset == nil},
 		{"currentBinary", d.currentBinary == nil},
 		{"canWrite", d.canWrite == nil},
-		{"fetchChecksums", d.fetchChecksums == nil},
+		{"fetchChecksumsRaw", d.fetchChecksumsRaw == nil},
+		{"fetchSignature", d.fetchSignature == nil},
+		{"verifySignature", d.verifySignature == nil},
 		{"download", d.download == nil},
 		{"verify", d.verify == nil},
 		{"extract", d.extract == nil},

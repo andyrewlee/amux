@@ -33,6 +33,33 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+signs:
+  # Detached minisign signature over checksums.txt, so clients can verify the
+  # checksums were produced by the release signing key and not just fetched
+  # from the same (potentially compromised) release channel.
+  #
+  # -l pins minisign's legacy (non-prehashed) "Ed" signature format, which is
+  # what the embedded verifier (internal/update/signature.go) and install.sh
+  # expect. Do not drop -l: the default prehashed "ED" format will not verify.
+  #
+  # MINISIGN_SECRET_KEY_FILE is materialized by CI from a GitHub Actions
+  # secret (see .github/workflows/release.yml); the key never lives in-repo.
+  - id: checksums
+    cmd: minisign
+    args:
+      [
+        "-S",
+        "-l",
+        "-s",
+        "{{ .Env.MINISIGN_SECRET_KEY_FILE }}",
+        "-m",
+        "${artifact}",
+        "-x",
+        "${signature}",
+      ]
+    artifacts: checksum
+    signature: "${artifact}.minisig"
+
 changelog:
   sort: asc
   filters:

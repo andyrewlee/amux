@@ -25,6 +25,24 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install minisign
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+
+      - name: Materialize minisign signing key
+        # The signing key comes from a GitHub Actions secret and is written
+        # only to the ephemeral runner temp dir with owner-only permissions —
+        # never printed, never placed in the workspace. Generate the keypair
+        # offline with `minisign -G -W` (unencrypted secret key) so signing
+        # can run non-interactively, and store the full secret key file
+        # contents in the MINISIGN_SECRET_KEY secret.
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -32,3 +50,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINISIGN_SECRET_KEY_FILE: ${{ runner.temp }}/minisign.key

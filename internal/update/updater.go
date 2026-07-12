@@ -15,16 +15,18 @@ import (
 // network access or replacing the running binary. NewUpdater defaults every
 // field to the real implementation; tests override individual fields.
 type upgradeDeps struct {
-	isHomebrewBuild func() bool
-	isGoInstall     func() bool
-	findAsset       func(*Release) *Asset
-	currentBinary   func() (string, error)
-	canWrite        func(string) bool
-	fetchChecksums  func(*Release) (map[string]string, error)
-	download        func(url string, w io.Writer) error
-	verify          func(path, sum string) error
-	extract         func(archive, dir string) (string, error)
-	install         func(src, dst string) error
+	isHomebrewBuild   func() bool
+	isGoInstall       func() bool
+	findAsset         func(*Release) *Asset
+	currentBinary     func() (string, error)
+	canWrite          func(string) bool
+	fetchChecksumsRaw func(*Release) ([]byte, error)
+	fetchSignature    func(*Release) ([]byte, error)
+	verifySignature   func(message, sig []byte) error
+	download          func(url string, w io.Writer) error
+	verify            func(path, sum string) error
+	extract           func(archive, dir string) (string, error)
+	install           func(src, dst string) error
 }
 
 // CheckResult contains the result of an update check.
@@ -54,16 +56,20 @@ func NewUpdater(version, commit, date string) *Updater {
 		date:    date,
 		github:  github,
 		deps: upgradeDeps{
-			isHomebrewBuild: IsHomebrewBuild,
-			isGoInstall:     IsGoInstall,
-			findAsset:       FindPlatformAsset,
-			currentBinary:   GetCurrentBinaryPath,
-			canWrite:        CanWrite,
-			fetchChecksums:  github.FetchChecksums,
-			download:        github.DownloadAsset,
-			verify:          VerifyChecksum,
-			extract:         ExtractBinary,
-			install:         InstallBinary,
+			isHomebrewBuild:   IsHomebrewBuild,
+			isGoInstall:       IsGoInstall,
+			findAsset:         FindPlatformAsset,
+			currentBinary:     GetCurrentBinaryPath,
+			canWrite:          CanWrite,
+			fetchChecksumsRaw: github.FetchChecksumsRaw,
+			fetchSignature:    github.FetchSignature,
+			verifySignature: func(message, sig []byte) error {
+				return verifyReleaseSignature(version, message, sig)
+			},
+			download: github.DownloadAsset,
+			verify:   VerifyChecksum,
+			extract:  ExtractBinary,
+			install:  InstallBinary,
 		},
 	}
 }
@@ -146,12 +152,25 @@ func (u *Updater) Upgrade(release *Release) error {
 		return fmt.Errorf("no write permission to %s; try running with sudo", currentBinary)
 	}
 
-	// Fetch checksums
-	checksums, err := u.deps.fetchChecksums(release)
+	// Fetch the raw checksums and their detached minisign signature. The
+	// signature must verify over the exact raw bytes before any checksum is
+	// trusted; only then are the checksums parsed and used.
+	rawChecksums, err := u.deps.fetchChecksumsRaw(release)
 	if err != nil {
 		return fmt.Errorf("fetching checksums: %w", err)
 	}
 
+	sig, err := u.deps.fetchSignature(release)
+	if err != nil {
+		return fmt.Errorf("fetching release signature: %w", err)
+	}
+
+	logging.Info("Verifying release signature")
+	if err := u.deps.verifySignature(rawChecksums, sig); err != nil {
+		return fmt.Errorf("release signature verification failed: %w", err)
+	}
+
+	checksums := parseChecksums(string(rawChecksums))
 	expectedChecksum, ok := checksums[asset.Name]
 	if !ok {
 		return fmt.Errorf("checksum not found for %s", asset.Name)

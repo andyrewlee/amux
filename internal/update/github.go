@@ -23,6 +23,7 @@ const (
 var (
 	maxReleaseResponseBytes int64 = 1 * 1024 * 1024
 	maxChecksumBytes        int64 = 256 * 1024
+	maxSignatureBytes       int64 = 16 * 1024
 	maxAssetDownloadBytes   int64 = 128 * 1024 * 1024
 )
 
@@ -147,24 +148,46 @@ func (c *GitHubClient) DownloadAsset(url string, w io.Writer) error {
 	return nil
 }
 
-// FetchChecksums downloads and returns the checksums.txt content.
+// FetchChecksums downloads and returns the parsed checksums.txt content.
 func (c *GitHubClient) FetchChecksums(release *Release) (map[string]string, error) {
+	raw, err := c.FetchChecksumsRaw(release)
+	if err != nil {
+		return nil, err
+	}
+	return parseChecksums(string(raw)), nil
+}
+
+// FetchChecksumsRaw downloads the raw checksums.txt bytes from the release.
+// Callers that verify the release signature must use these exact bytes as the
+// signed message; parsing first would discard the signed input.
+func (c *GitHubClient) FetchChecksumsRaw(release *Release) ([]byte, error) {
+	return c.fetchNamedAsset(release, "checksums.txt", maxChecksumBytes, "checksums")
+}
+
+// FetchSignature downloads the detached minisign signature over checksums.txt.
+func (c *GitHubClient) FetchSignature(release *Release) ([]byte, error) {
+	return c.fetchNamedAsset(release, "checksums.txt.minisig", maxSignatureBytes, "signature")
+}
+
+// fetchNamedAsset downloads the release asset with the given exact name,
+// bounding the response body at maxBytes.
+func (c *GitHubClient) fetchNamedAsset(release *Release, name string, maxBytes int64, label string) ([]byte, error) {
 	if release == nil {
 		return nil, errors.New("release is required")
 	}
 
-	var checksumURL string
+	var assetURL string
 	for _, asset := range release.Assets {
-		if asset.Name == "checksums.txt" {
-			checksumURL = asset.BrowserDownloadURL
+		if asset.Name == name {
+			assetURL = asset.BrowserDownloadURL
 			break
 		}
 	}
-	if checksumURL == "" {
-		return nil, errors.New("checksums.txt not found in release")
+	if assetURL == "" {
+		return nil, fmt.Errorf("%s not found in release", name)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, checksumURL, nil)
+	req, err := http.NewRequest(http.MethodGet, assetURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -172,7 +195,7 @@ func (c *GitHubClient) FetchChecksums(release *Release) (map[string]string, erro
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetching checksums: %w", err)
+		return nil, fmt.Errorf("fetching %s: %w", label, err)
 	}
 	defer resp.Body.Close()
 
@@ -180,12 +203,12 @@ func (c *GitHubClient) FetchChecksums(release *Release) (map[string]string, erro
 		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 
-	body, err := readAllLimited(resp.Body, maxChecksumBytes, "checksums")
+	body, err := readAllLimited(resp.Body, maxBytes, label)
 	if err != nil {
-		return nil, fmt.Errorf("reading checksums: %w", err)
+		return nil, fmt.Errorf("reading %s: %w", label, err)
 	}
 
-	return parseChecksums(string(body)), nil
+	return body, nil
 }
 
 func readAllLimited(r io.Reader, maxBytes int64, label string) ([]byte, error) {
