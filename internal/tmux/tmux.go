@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/process"
 )
 
@@ -265,13 +266,15 @@ func KillSession(sessionName string, opts Options) error {
 	if err := EnsureAvailable(); err != nil {
 		return err
 	}
-	// Kill process trees in each pane before killing the session.
-	// This prevents orphaned processes (e.g. node/turbo/pnpm trees)
-	// that survive SIGHUP from tmux kill-session.
-	if pids, err := panePIDs(sessionName, opts); err == nil {
-		for _, pid := range pids {
-			_ = process.KillProcessGroup(pid, process.KillOptions{})
+	// Kill each pane's process tree first: node/turbo/pnpm trees survive the SIGHUP from kill-session.
+	pids, err := panePIDs(sessionName, opts)
+	if err != nil { // retry once — a transient list-panes failure may clear
+		if pids, err = panePIDs(sessionName, opts); err != nil {
+			logging.Warn("KillSession %q: pane-PID lookup failed after retry; skipping process-tree reap: %v", sessionName, err)
 		}
+	}
+	for _, pid := range pids {
+		_ = process.KillProcessGroup(pid, process.KillOptions{})
 	}
 	return runTmux(opts, "kill-session", "-t", sessionTarget(sessionName))
 }
