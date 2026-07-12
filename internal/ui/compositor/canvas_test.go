@@ -1,10 +1,43 @@
 package compositor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/vterm"
 )
+
+func TestCanvasRenderEmitsGraphemeCluster(t *testing.T) {
+	canvas := NewCanvas(2, 1)
+	// "é" as base rune 'e' plus combining acute accent U+0301, stored the way
+	// vterm stores clusters: base rune + full cluster string.
+	cluster := "e\u0301"
+	canvas.SetCell(0, 0, vterm.Cell{Rune: 'e', Width: 1, GraphemeCluster: cluster})
+
+	out := canvas.Render()
+	if !strings.Contains(out, cluster) {
+		t.Fatalf("expected render output to contain full grapheme cluster %q (U+0301 bytes 0xCC 0x81), got %q", cluster, out)
+	}
+}
+
+func TestCanvasRenderEmptyClusterFallsBackToRenderableRune(t *testing.T) {
+	canvas := NewCanvas(2, 1)
+	canvas.SetCell(0, 0, vterm.Cell{Rune: 'x', Width: 1})
+	canvas.SetCell(1, 0, vterm.Cell{Rune: 0, Width: 1})
+
+	out := canvas.Render()
+	if !strings.Contains(out, "x") {
+		t.Fatalf("expected fallback to emit rune 'x', got %q", out)
+	}
+	// A zero rune with no cluster must render as RenderableRune(0) == ' ',
+	// never as a NUL byte.
+	if strings.ContainsRune(out, 0) {
+		t.Fatalf("expected NUL rune to render as space via RenderableRune, got %q", out)
+	}
+	if !strings.Contains(out, "x ") {
+		t.Fatalf("expected zero-rune cell to fall back to a space after 'x', got %q", out)
+	}
+}
 
 func TestCanvasRenderSuppressesUnderlineOnBlankCells(t *testing.T) {
 	canvas := NewCanvas(3, 1)

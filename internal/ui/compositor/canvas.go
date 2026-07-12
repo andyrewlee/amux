@@ -174,7 +174,11 @@ func (c *Canvas) Render() string {
 				lastStyle = style
 			}
 			firstCell = false
-			b.WriteRune(vterm.RenderableRune(cell.Rune))
+			if cell.GraphemeCluster != "" {
+				b.WriteString(cell.GraphemeCluster)
+			} else {
+				b.WriteRune(vterm.RenderableRune(cell.Rune))
+			}
 		}
 		if y < c.Height-1 {
 			b.WriteRune('\n')
