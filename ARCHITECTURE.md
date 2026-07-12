@@ -46,6 +46,17 @@ the lower layers.
         internal/{safego, perf, logging, messages, validation}
 ```
 
+### External render-engine coupling
+
+`internal/ui/compositor` imports `github.com/charmbracelet/ultraviolet`
+directly on the core render path (`vtermlayer.go`, `pool.go`,
+`canvas_drawable.go`). ultraviolet has no semver releases; its go.mod
+pseudo-version is whatever `charm.land/bubbletea/v2` requires (MVS picks
+bubbletea's pin). Keep the pin in lockstep with bubbletea: upgrade bubbletea
+and let `go mod tidy` pull the matching ultraviolet — never bump ultraviolet
+on its own, because a mismatched pair can break rendering with no compiler
+warning.
+
 ## Packages
 
 The table is hand-maintained; keep it in sync when adding or moving a package.

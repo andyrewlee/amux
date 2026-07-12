@@ -9,6 +9,10 @@ require (
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/atotto/clipboard v0.1.4
+	// ultraviolet is Charm's untagged pre-release render engine. Its
+	// pseudo-version is driven by charm.land/bubbletea/v2 (MVS selects
+	// bubbletea's requirement). Do NOT bump it independently of bubbletea — a
+	// mismatched pair can break internal/ui/compositor with no compiler warning.
 	github.com/charmbracelet/ultraviolet v0.0.0-20260703014108-f5a850f9c2b7
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/term v0.2.2
