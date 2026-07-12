@@ -294,3 +294,83 @@ func TestEraseLineMode2ReplacesWholeLine(t *testing.T) {
 		t.Fatalf("mode 2 produced line of len %d, want width %d", len(vt.Screen[0]), vt.Width)
 	}
 }
+
+// TestNewlineBelowScrollRegionDoesNotScroll verifies a line feed while the
+// cursor sits below a partial scroll region moves the cursor down without
+// scrolling the region (DEC/xterm semantics).
+func TestNewlineBelowScrollRegionDoesNotScroll(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 6)
+	vt.Write([]byte("TOP"))
+	// Region rows 1-3 (DECSTBM is 1-indexed inclusive): ScrollTop=1, ScrollBottom=4.
+	vt.Write([]byte("\x1b[2;4r"))
+	vt.Write([]byte("\x1b[2;1HR1\x1b[3;1HR2\x1b[4;1HR3"))
+	// Below the region: row index 4 >= ScrollBottom.
+	vt.Write([]byte("\x1b[5;1H"))
+	vt.Write([]byte("S1\r\n"))
+	vt.Write([]byte("S2"))
+
+	for y, want := range map[int]string{1: "R1", 2: "R2", 3: "R3"} {
+		if got := rowText(vt, y); got != want {
+			t.Errorf("region row %d = %q, want %q (region scrolled)", y, got, want)
+		}
+	}
+	if vt.CursorY != 5 {
+		t.Errorf("CursorY after LF below region = %d, want 5", vt.CursorY)
+	}
+	if got := rowText(vt, 5); got != "S2" {
+		t.Errorf("row 5 = %q, want %q", got, "S2")
+	}
+}
+
+// TestNewlineBelowScrollRegionClampsAtLastRow verifies a line feed with the
+// cursor already on the last screen row (below the region) stays put and does
+// not scroll the region.
+func TestNewlineBelowScrollRegionClampsAtLastRow(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 6)
+	vt.Write([]byte("\x1b[2;4r"))
+	vt.Write([]byte("\x1b[2;1HR1\x1b[3;1HR2\x1b[4;1HR3"))
+	vt.Write([]byte("\x1b[6;1H"))
+	vt.Write([]byte("\n"))
+
+	if vt.CursorY != 5 {
+		t.Errorf("CursorY after LF on last row = %d, want 5 (clamped)", vt.CursorY)
+	}
+	for y, want := range map[int]string{1: "R1", 2: "R2", 3: "R3"} {
+		if got := rowText(vt, y); got != want {
+			t.Errorf("region row %d = %q, want %q (region scrolled)", y, got, want)
+		}
+	}
+}
+
+// TestAutoWrapBelowScrollRegionDoesNotScroll verifies printing past the right
+// margin below a partial scroll region wraps to the next row without
+// scrolling the region.
+func TestAutoWrapBelowScrollRegionDoesNotScroll(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 6)
+	vt.Write([]byte("\x1b[2;4r"))
+	vt.Write([]byte("\x1b[2;1HR1\x1b[3;1HR2\x1b[4;1HR3"))
+	vt.Write([]byte("\x1b[5;1H"))
+	// 9 chars on an 8-wide row: auto-wrap fires after the 8th.
+	vt.Write([]byte("ABCDEFGHI"))
+
+	for y, want := range map[int]string{1: "R1", 2: "R2", 3: "R3"} {
+		if got := rowText(vt, y); got != want {
+			t.Errorf("region row %d = %q, want %q (region scrolled)", y, got, want)
+		}
+	}
+	if got := rowText(vt, 4); got != "ABCDEFGH" {
+		t.Errorf("row 4 = %q, want %q", got, "ABCDEFGH")
+	}
+	if got := rowText(vt, 5); got != "I" {
+		t.Errorf("row 5 = %q, want %q (wrapped char)", got, "I")
+	}
+	if vt.CursorY != 5 {
+		t.Errorf("CursorY after wrap below region = %d, want 5", vt.CursorY)
+	}
+}

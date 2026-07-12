@@ -48,21 +48,13 @@ func (v *VTerm) putChar(r rune) {
 			v.markDirtyLine(v.CursorY)
 		}
 		v.CursorX = 0
-		v.CursorY++
-		if v.CursorY >= v.ScrollBottom {
-			v.scrollUp(1)
-			v.CursorY = v.ScrollBottom - 1
-		}
+		v.advanceLineFeed()
 	}
 
 	// Normal auto-wrap check
 	if v.CursorX >= v.Width {
 		v.CursorX = 0
-		v.CursorY++
-		if v.CursorY >= v.ScrollBottom {
-			v.scrollUp(1)
-			v.CursorY = v.ScrollBottom - 1
-		}
+		v.advanceLineFeed()
 	}
 
 	// Place the character
@@ -110,14 +102,28 @@ func (v *VTerm) putChar(r rune) {
 	v.CursorX += width
 }
 
-// newline moves cursor down, scrolling if needed
-func (v *VTerm) newline() {
-	prevX, prevY := v.CursorX, v.CursorY
+// advanceLineFeed moves the cursor down one row for LF/auto-wrap.
+// At the bottom margin it scrolls the region; below the region it moves
+// toward the last screen row without scrolling (DEC/xterm semantics).
+func (v *VTerm) advanceLineFeed() {
+	if v.CursorY >= v.ScrollBottom {
+		// Cursor is below the scroll region: never scroll from here.
+		if v.CursorY < v.Height-1 {
+			v.CursorY++
+		}
+		return
+	}
 	v.CursorY++
 	if v.CursorY >= v.ScrollBottom {
 		v.scrollUp(1)
 		v.CursorY = v.ScrollBottom - 1
 	}
+}
+
+// newline moves cursor down, scrolling if needed
+func (v *VTerm) newline() {
+	prevX, prevY := v.CursorX, v.CursorY
+	v.advanceLineFeed()
 	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
