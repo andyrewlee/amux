@@ -75,11 +75,13 @@ func (m *Model) SetCanFocusRight(can bool) {
 // SetShowKeymapHints controls whether helper text is rendered.
 func (m *Model) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
+	m.markHelpDirty()
 }
 
 // SetStyles updates the component's styles (for theme changes).
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
+	m.markHelpDirty()
 	// Propagate to all viewers in tabs
 	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
@@ -117,6 +119,7 @@ func (m *Model) SetMsgSinkTry(sink func(tea.Msg) bool) {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.markHelpDirty()
 
 	// Use centralized metrics for terminal sizing
 	tm := m.terminalMetrics()

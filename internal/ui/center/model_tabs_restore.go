@@ -54,6 +54,7 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 	term.CaptureNormalScreenOnClear = isChat
 	wsID := string(ws.ID())
 	m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
+	m.markHelpDirty()
 }
 
 // addPlaceholderTab synchronously creates a placeholder tab in the correct slice
@@ -107,6 +108,7 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 	term.CaptureNormalScreenOnClear = isChat
 	wsID := string(ws.ID())
 	m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
+	m.markHelpDirty()
 	return tabID, sessionName
 }
 

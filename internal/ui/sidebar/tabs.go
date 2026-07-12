@@ -40,6 +40,15 @@ type TabbedSidebar struct {
 	changes     *Model
 	projectTree *ProjectTree
 	tabHits     []tabHit
+	// tabBarVersion is a monotonic version of every input that shapes the
+	// tab bar render (active tab, styles/theme). INVARIANT: every update path
+	// that changes what renderTabBar produces MUST call markTabBarDirty, or
+	// the compose-time gate in internal/app will keep reusing a stale tab bar
+	// drawable.
+	tabBarVersion uint64
+	// tabBarBuilds counts TabBarView invocations; test instrumentation for
+	// the compose-time skip gate in internal/app.
+	tabBarBuilds uint64
 
 	workspace       *data.Workspace
 	focused         bool
@@ -70,6 +79,7 @@ func (m *TabbedSidebar) SetShowKeymapHints(show bool) {
 // SetStyles updates the component's styles (for theme changes).
 func (m *TabbedSidebar) SetStyles(styles common.Styles) {
 	m.styles = styles
+	m.markTabBarDirty()
 	m.changes.SetStyles(styles)
 	m.projectTree.SetStyles(styles)
 }
@@ -96,9 +106,11 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 					switch hit.kind {
 					case tabHitChanges:
 						m.activeTab = TabChanges
+						m.markTabBarDirty()
 						m.updateFocus()
 					case tabHitProject:
 						m.activeTab = TabProject
+						m.markTabBarDirty()
 						m.updateFocus()
 					}
 					return m, nil
@@ -151,10 +163,12 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			switch {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("1"))):
 				m.activeTab = TabChanges
+				m.markTabBarDirty()
 				m.updateFocus()
 				return m, nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("2"))):
 				m.activeTab = TabProject
+				m.markTabBarDirty()
 				m.updateFocus()
 				return m, nil
 			}
@@ -285,7 +299,28 @@ func (m *TabbedSidebar) View() string {
 
 // TabBarView returns only the tab bar view (for compositor)
 func (m *TabbedSidebar) TabBarView() string {
+	m.tabBarBuilds++
 	return m.renderTabBar()
+}
+
+// TabBarVersion returns the monotonic version of the inputs to TabBarView.
+// The compose layer in internal/app skips rebuilding the tab bar string
+// while this version and the compose geometry are unchanged.
+func (m *TabbedSidebar) TabBarVersion() uint64 {
+	return m.tabBarVersion
+}
+
+// markTabBarDirty bumps tabBarVersion. It MUST be called by every update
+// path that changes renderTabBar output; see the tabBarVersion field
+// invariant.
+func (m *TabbedSidebar) markTabBarDirty() {
+	m.tabBarVersion++
+}
+
+// TabBarBuildCount reports how many times TabBarView has been invoked. Test
+// instrumentation for the compose-time skip gate; not for production use.
+func (m *TabbedSidebar) TabBarBuildCount() uint64 {
+	return m.tabBarBuilds
 }
 
 // ContentView returns only the content view without tab bar (for compositor)
@@ -357,6 +392,7 @@ func (m *TabbedSidebar) ActiveTab() SidebarTab {
 // SetActiveTab sets the active tab
 func (m *TabbedSidebar) SetActiveTab(tab SidebarTab) {
 	m.activeTab = tab
+	m.markTabBarDirty()
 	m.updateFocus()
 }
 
@@ -367,6 +403,7 @@ func (m *TabbedSidebar) NextTab() {
 	} else {
 		m.activeTab = TabChanges
 	}
+	m.markTabBarDirty()
 	m.updateFocus()
 }
 
@@ -377,6 +414,7 @@ func (m *TabbedSidebar) PrevTab() {
 	} else {
 		m.activeTab = TabChanges
 	}
+	m.markTabBarDirty()
 	m.updateFocus()
 }
 

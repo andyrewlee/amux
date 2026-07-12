@@ -101,18 +101,28 @@ func (a *App) composeCenterTerminalLayer(canvas *lipgloss.Canvas, centerX, topGu
 		}
 	}
 
-	// Help lines at bottom of pane.
-	helpLines := a.center.HelpLines(contentWidth)
-	if len(helpLines) == 0 {
-		return
+	// Help lines at bottom of pane. The gate skips the help string build
+	// entirely while the center model reports the same help version at the
+	// same compose geometry; see Model.helpVersion for the dirtiness
+	// invariant. helpY depends on topGutter+centerHeight only through their
+	// sum, so the sum is what the geometry key carries.
+	helpGate := &a.renderCache.centerHelpGate
+	helpGeom := [4]int{termX, termY, contentWidth, topGutter + centerHeight}
+	if version := a.center.HelpVersion(); !helpGate.clean(version, helpGeom) {
+		rendered := false
+		if helpLines := a.center.HelpLines(contentWidth); len(helpLines) > 0 {
+			helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
+			helpY := topGutter + centerHeight - 1 - len(helpLines)
+			if helpY > termY {
+				rendered = a.renderCache.centerHelp.get(helpContent, termX, helpY) != nil
+			}
+		}
+		helpGate.record(version, helpGeom, rendered)
 	}
-	helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
-	helpY := topGutter + centerHeight - 1 - len(helpLines)
-	if helpY <= termY {
-		return
-	}
-	if helpDrawable := a.renderCache.centerHelp.get(helpContent, termX, helpY); helpDrawable != nil {
-		canvas.Compose(helpDrawable)
+	if helpGate.rendered {
+		if helpDrawable := a.renderCache.centerHelp.drawable; helpDrawable != nil {
+			canvas.Compose(helpDrawable)
+		}
 	}
 }
 
@@ -162,14 +172,25 @@ func (a *App) composeSidebarTopPane(canvas *lipgloss.Canvas, sidebarX, topGutter
 		topContentHeight = 1
 	}
 
-	// Sidebar tab bar (Changes/Project tabs)
-	tabBar := a.sidebar.TabBarView()
+	// Sidebar tab bar (Changes/Project tabs). The gate skips the tab bar
+	// string build entirely while the sidebar reports the same tab bar
+	// version at the same compose geometry; see TabbedSidebar.tabBarVersion
+	// for the dirtiness invariant.
+	tabBarY := topGutter + 1 // Inside the border
+	tabBarGate := &a.renderCache.sidebarTopTabBarGate
+	tabBarGeom := [4]int{sidebarX + 2, tabBarY, contentWidth, 1}
+	if version := a.sidebar.TabBarVersion(); !tabBarGate.clean(version, tabBarGeom) {
+		rendered := false
+		if tabBar := a.sidebar.TabBarView(); tabBar != "" {
+			tabBarContent := clampLines(tabBar, contentWidth, 1)
+			rendered = a.renderCache.sidebarTopTabBar.get(tabBarContent, sidebarX+2, tabBarY) != nil
+		}
+		tabBarGate.record(version, tabBarGeom, rendered)
+	}
 	tabBarHeight := 0
-	if tabBar != "" {
+	if tabBarGate.rendered {
 		tabBarHeight = 1
-		tabBarContent := clampLines(tabBar, contentWidth, 1)
-		tabBarY := topGutter + 1 // Inside the border
-		if tabBarDrawable := a.renderCache.sidebarTopTabBar.get(tabBarContent, sidebarX+2, tabBarY); tabBarDrawable != nil {
+		if tabBarDrawable := a.renderCache.sidebarTopTabBar.drawable; tabBarDrawable != nil {
 			canvas.Compose(tabBarDrawable)
 		}
 	}

@@ -383,6 +383,7 @@ func (m *Model) markTabFocused(wsID string, idx int) {
 
 func (m *Model) noteTabsChanged() {
 	m.tabsRevision++
+	m.markHelpDirty()
 	m.syncPostWriteVisibility()
 }
 
