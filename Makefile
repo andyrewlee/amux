@@ -25,7 +25,7 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 GOLANGCI ?= golangci-lint
 lint lint-strict lint-strict-new lint-ci-parity check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test test-race tidy-check ci bench lint lint-tools lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
+.PHONY: build install test test-race tidy-check govulncheck ci bench lint lint-tools lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -59,12 +59,18 @@ tidy-check:
 	go mod tidy
 	git diff --exit-code go.mod go.sum
 
+# govulncheck scans for known vulnerabilities using the same pinned version CI
+# uses (keep GOVULNCHECK_VERSION in sync with .github/workflows/ci.yml).
+GOVULNCHECK_VERSION ?= v1.1.4
+govulncheck:
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
 # ci is the local mirror of the CI `test` job's gate set: devcheck (vet +
-# tests + lint + file-length) plus the race and tidy gates that devcheck
-# skips. Keep this target in sync with .github/workflows/ci.yml — if CI gains
-# a gate, add it here. Not mirrored locally (yet): govulncheck and the
-# harness/perf smoke steps.
-ci: devcheck test-race tidy-check
+# tests + lint + file-length) plus the race, tidy, and govulncheck gates that
+# devcheck skips. Keep this target in sync with .github/workflows/ci.yml — if
+# CI gains a gate, add it here. Not mirrored locally (yet): the harness/perf
+# smoke steps.
+ci: devcheck test-race tidy-check govulncheck
 
 devcheck:
 	go vet ./...
@@ -272,7 +278,8 @@ help:
 	@echo "  test       - Run all tests"
 	@echo "  test-race  - Run go test -race over CI's package set (slow; mirrors CI's race gate)"
 	@echo "  tidy-check - Run go mod tidy and fail if go.mod/go.sum change (mirrors CI's tidy gate)"
-	@echo "  ci         - Full local CI mirror: devcheck + test-race + tidy-check"
+	@echo "  govulncheck - Scan for known vulnerabilities with the CI-pinned govulncheck (mirrors CI's vuln gate)"
+	@echo "  ci         - Full local CI mirror: devcheck + test-race + tidy-check + govulncheck"
 	@echo "  devcheck   - vet + tests + golden harness + lint (warns when real-tmux/e2e tests skip)"
 	@echo "  lint       - Run golangci-lint and file length checks (max 500 lines)"
 	@echo "  lint-tools - Build the pinned golangci-lint (.golangci-version) into ./.cache/bin (idempotent)"

@@ -35,7 +35,7 @@ make devcheck
 make ci
 ```
 
-`make ci` runs `devcheck` plus `make test-race` (CI's race gate; slow) and `make tidy-check` (CI's tidy gate). CI's govulncheck and harness smoke steps are not mirrored locally.
+`make ci` runs `devcheck` plus `make test-race` (CI's race gate; slow), `make tidy-check` (CI's tidy gate), and `make govulncheck` (CI's vulnerability scan, using the same pinned govulncheck version — it also works standalone to reproduce a CI vuln failure). CI's harness smoke steps are not mirrored locally.
 
 For the inner loop, launch the TUI with `make run` in a real terminal — amux requires stdin, stdout, and stderr to all be TTYs, so it only runs directly in your terminal. `air` cannot host the TUI: it launches the rebuilt binary with stdin on `/dev/null`, which fails that TTY check, so `make dev` is not a hot-reload TUI loop. Use it instead for automatic rebuilds and compile-error feedback while you edit — run `make dev` in a second pane alongside `make run`. It runs [`air`](https://github.com/air-verse/air) with the repo's `.air.toml` and rebuilds on save. Install it once with:
 
