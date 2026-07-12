@@ -112,26 +112,37 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 	return closeSessionIfUnattached(sessionName, opts)
 }
 
+// Test-only injection seams for closeSessionIfUnattached. Production defaults
+// stay wired to the real tmux functions / real time; mirrors the runTmuxCmd
+// var-seam precedent in internal/tmux/tmux_runner.go. No production path may
+// reassign these.
+var (
+	closeSessionHasClientsFn = tmux.SessionHasClients
+	closeKillSessionFn       = tmux.KillSession
+	closeSessionSleep        = time.Sleep
+	closeSessionPollDeadline = 1200 * time.Millisecond
+)
+
 func closeSessionIfUnattached(sessionName string, opts tmux.Options) tea.Cmd {
 	return func() tea.Msg {
 		if sessionName == "" {
 			return nil
 		}
-		deadline := time.Now().Add(1200 * time.Millisecond)
+		deadline := time.Now().Add(closeSessionPollDeadline)
 		for {
-			hasClients, err := tmux.SessionHasClients(sessionName, opts)
+			hasClients, err := closeSessionHasClientsFn(sessionName, opts)
 			if err != nil {
 				return nil
 			}
 			if !hasClients {
-				_ = tmux.KillSession(sessionName, opts)
+				_ = closeKillSessionFn(sessionName, opts)
 				return nil
 			}
 			if time.Now().After(deadline) {
 				// Shared or still-attached session; keep it alive.
 				return nil
 			}
-			time.Sleep(75 * time.Millisecond)
+			closeSessionSleep(75 * time.Millisecond)
 		}
 	}
 }
