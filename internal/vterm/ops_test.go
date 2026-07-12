@@ -374,3 +374,56 @@ func TestAutoWrapBelowScrollRegionDoesNotScroll(t *testing.T) {
 		t.Errorf("CursorY after wrap below region = %d, want 5", vt.CursorY)
 	}
 }
+
+// TestPutCharVS16WidensBaseCell verifies that a VS16 (U+FE0F) emoji variation
+// selector retroactively widens its base cell to 2 columns, writes a
+// continuation cell, and advances the cursor past both columns.
+func TestPutCharVS16WidensBaseCell(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 3)
+	vt.Write([]byte("❤️")) // ❤️ = heart + VS16
+
+	if got := vt.Screen[0][0].Width; got != 2 {
+		t.Errorf("base cell Width = %d, want 2", got)
+	}
+	if got := vt.Screen[0][1].Width; got != 0 {
+		t.Errorf("continuation cell Width = %d, want 0", got)
+	}
+	if got := vt.Screen[0][0].GraphemeCluster; got != "❤️" {
+		t.Errorf("base cell GraphemeCluster = %q, want %q", got, "❤️")
+	}
+	if vt.CursorX != 2 {
+		t.Errorf("CursorX = %d, want 2 (cursor advanced past both columns)", vt.CursorX)
+	}
+}
+
+// TestPutCharVS16ThenTextAligns verifies text following a VS16 emoji cluster
+// lands after the emoji's two columns, not shifted left onto it.
+func TestPutCharVS16ThenTextAligns(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 3)
+	vt.Write([]byte("❤️X")) // ❤️X
+
+	if got := vt.Screen[0][2].Rune; got != 'X' {
+		t.Errorf("Screen[0][2].Rune = %q, want 'X' (text shifted onto emoji)", got)
+	}
+}
+
+// TestPutCharPlainCombiningStillWidth1 verifies an ordinary width-0 combining
+// mark (not VS16) still leaves the base cell at width 1 with no cursor
+// advance — only VS16 widens.
+func TestPutCharPlainCombiningStillWidth1(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 3)
+	vt.Write([]byte("é")) // é = e + combining acute accent
+
+	if got := vt.Screen[0][0].Width; got != 1 {
+		t.Errorf("base cell Width = %d, want 1", got)
+	}
+	if vt.CursorX != 1 {
+		t.Errorf("CursorX = %d, want 1", vt.CursorX)
+	}
+}

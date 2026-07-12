@@ -30,6 +30,34 @@ func (v *VTerm) putChar(r rune) {
 					base = string(cell.Rune)
 				}
 				cell.GraphemeCluster = base + string(r)
+				// VS16 (emoji variation selector) upgrades a narrow base
+				// glyph to a full-width emoji: retroactively widen the base
+				// cell to 2 columns, mirroring the wide-char path below.
+				if r == 0xFE0F && cell.Width == 1 && prevX+1 < v.Width && prevX+1 < len(v.Screen[prevY]) {
+					cell.Width = 2
+
+					// Clear any wide char that starts at the continuation
+					// position (same guard the wide path uses).
+					nextCell := v.Screen[prevY][prevX+1]
+					if nextCell.Width == 2 && prevX+2 < v.Width {
+						v.Screen[prevY][prevX+2] = DefaultCell()
+					}
+
+					v.Screen[prevY][prevX+1] = Cell{
+						Rune:  0, // Continuation marker
+						Style: cell.Style,
+						Width: 0, // Continuation cell
+					}
+
+					// The base was placed at CursorX-1 and the cursor already
+					// advanced past it by 1; widening it to 2 columns means
+					// the cursor must move one more column right. Only when
+					// the base cell is immediately left of the cursor — after
+					// a wrap to a previous row the cursor has already moved on.
+					if prevY == v.CursorY && prevX == v.CursorX-1 {
+						v.CursorX++
+					}
+				}
 				v.markDirtyLine(prevY)
 			}
 		}
