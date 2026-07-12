@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -251,5 +252,40 @@ func TestGcOrphanedTmuxSessions_SkipsDeleteInFlightOrphan(t *testing.T) {
 	}
 	if len(ops.killed) != 0 {
 		t.Fatalf("expected no sessions killed, got %v", ops.killed)
+	}
+}
+
+func TestGcOrphanedTmuxSessions_FailsClosedOnClientCheckError(t *testing.T) {
+	now := time.Now()
+	staleTS := now.Add(-2 * time.Minute).Unix()
+
+	ops := &gcOrphanOps{
+		sessionsWithTags: func(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
+			return []tmux.SessionTagValues{
+				{Name: "unverifiable-orphan", Tags: map[string]string{
+					"@amux_workspace":  "dead-ws",
+					"@amux_created_at": strconv.FormatInt(staleTS, 10),
+				}},
+			}, nil
+		},
+		sessionHasClients: func(name string, opts tmux.Options) (bool, error) {
+			return false, errors.New("list-clients raced session teardown")
+		},
+	}
+	app := newGCTestApp(ops)
+
+	msg := app.gcOrphanedTmuxSessions()()
+	result, ok := msg.(orphanGCResult)
+	if !ok {
+		t.Fatalf("expected orphanGCResult, got %T", msg)
+	}
+	if result.Err != nil {
+		t.Fatalf("GC error: %v", result.Err)
+	}
+	if result.Killed != 0 {
+		t.Fatalf("expected 0 killed on unverifiable client check, got %d", result.Killed)
+	}
+	if len(ops.killed) != 0 {
+		t.Fatalf("expected no kills on unverifiable client check, got %v", ops.killed)
 	}
 }

@@ -244,7 +244,10 @@ func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, kn
 			}
 			hasClients, err := a.tmuxService.SessionHasClients(ws.Name, opts)
 			if err != nil {
+				// Fail closed: never kill a session we could not confirm is
+				// client-free (matches gcStaleDetachedAgentSessions).
 				logging.Warn("orphan GC: failed to check clients for %s: %v", ws.Name, err)
+				continue
 			}
 			if hasClients {
 				continue
