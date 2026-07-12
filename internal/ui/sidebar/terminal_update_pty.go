@@ -125,33 +125,26 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	}
 	ts.mu.Unlock()
 	m.stopPTYReader(ts)
-	if termAlive {
-		ts.mu.Lock()
-		backoff, shouldRestart := ts.State.NextRestartBackoffLocked(ptyRestartWindow, ptyRestartMax)
-		if !shouldRestart {
-			ts.Running = false
-			// Mark as detached (tmux session may still be alive)
-			ts.Detached = true
-			ts.UserDetached = false
-		}
-		ts.mu.Unlock()
-		if shouldRestart {
-			restartTab := msg.TabID
-			restartWt := msg.WorkspaceID
-			logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restarting in %s: %v", wsID, tabID, backoff, msg.Err)
-			return common.SafeTick(backoff, func(time.Time) tea.Msg {
-				return messages.SidebarPTYRestart{WorkspaceID: restartWt, TabID: restartTab}
-			})
-		}
-		logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restart limit reached, marking detached: %v", wsID, tabID, msg.Err)
-	} else {
-		ts.mu.Lock()
+	ts.mu.Lock()
+	shouldRestart, backoff := ts.State.DecidePTYRestartLocked(termAlive, ptyRestartWindow, ptyRestartMax)
+	if !shouldRestart {
 		ts.Running = false
-		// Mark as detached - tmux session may still be alive
+		// Mark as detached (tmux session may still be alive)
 		ts.Detached = true
 		ts.UserDetached = false
-		ts.State.ResetRestartBackoffLocked()
-		ts.mu.Unlock()
+	}
+	ts.mu.Unlock()
+	if shouldRestart {
+		restartTab := msg.TabID
+		restartWt := msg.WorkspaceID
+		logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restarting in %s: %v", wsID, tabID, backoff, msg.Err)
+		return common.SafeTick(backoff, func(time.Time) tea.Msg {
+			return messages.SidebarPTYRestart{WorkspaceID: restartWt, TabID: restartTab}
+		})
+	}
+	if termAlive {
+		logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restart limit reached, marking detached: %v", wsID, tabID, msg.Err)
+	} else {
 		logging.Info("Sidebar PTY stopped for workspace %s tab %s, marking detached: %v", wsID, tabID, msg.Err)
 	}
 	return nil

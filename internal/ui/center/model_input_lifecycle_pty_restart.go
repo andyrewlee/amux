@@ -43,31 +43,26 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			})
 		}
 		tab.resetActivityANSIState()
-		if termAlive {
-			tab.mu.Lock()
-			backoff, shouldRestart := tab.State.NextRestartBackoffLocked(ptyRestartWindow, ptyRestartMax)
-			if !shouldRestart {
-				tab.markDetachedLocked()
-			}
-			tab.mu.Unlock()
-			if shouldRestart {
-				tabID := msg.TabID
-				wtID := msg.WorkspaceID
-				cmds = append(cmds, common.SafeTick(backoff, func(time.Time) tea.Msg {
-					return PTYRestart{WorkspaceID: wtID, TabID: tabID}
-				}))
-				logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
-			} else {
-				logging.Warn("PTY stopped for tab %s; restart limit reached, marking detached: %v", msg.TabID, msg.Err)
-				cmds = append(cmds, func() tea.Msg {
-					return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
-				})
-			}
-		} else {
-			tab.mu.Lock()
+		tab.mu.Lock()
+		shouldRestart, backoff := tab.State.DecidePTYRestartLocked(termAlive, ptyRestartWindow, ptyRestartMax)
+		if !shouldRestart {
 			tab.markDetachedLocked()
-			tab.State.ResetRestartBackoffLocked()
-			tab.mu.Unlock()
+		}
+		tab.mu.Unlock()
+		switch {
+		case shouldRestart:
+			tabID := msg.TabID
+			wtID := msg.WorkspaceID
+			cmds = append(cmds, common.SafeTick(backoff, func(time.Time) tea.Msg {
+				return PTYRestart{WorkspaceID: wtID, TabID: tabID}
+			}))
+			logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
+		case termAlive:
+			logging.Warn("PTY stopped for tab %s; restart limit reached, marking detached: %v", msg.TabID, msg.Err)
+			cmds = append(cmds, func() tea.Msg {
+				return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
+			})
+		default:
 			logging.Info("PTY stopped for tab %s, marking detached: %v", msg.TabID, msg.Err)
 			cmds = append(cmds, func() tea.Msg {
 				return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
