@@ -1,6 +1,8 @@
 package center
 
 import (
+	"crypto/sha256"
+	"strings"
 	"testing"
 	"time"
 
@@ -195,6 +197,115 @@ func TestNoteVisibleActivityLocked_SubmittedPasteSuppressionDoesNotLeakOnInvisib
 	}
 	if pending {
 		t.Fatal("expected pendingVisibleOutput to clear after the invisible follow-up flush")
+	}
+}
+
+// referenceVisibleScreenDigest is the original string-then-hash implementation
+// of visibleScreenDigest, kept here as the equivalence reference. If the
+// digest's content-selection rules ever change, this reference must change in
+// lockstep — it exists to pin the byte stream fed to the hash.
+func referenceVisibleScreenDigest(term *vterm.VTerm) [16]byte {
+	if term == nil {
+		return visibleDigestHash(nil)
+	}
+	screen, _ := term.RenderBuffers()
+	var b strings.Builder
+	for _, row := range screen {
+		last := len(row) - 1
+		for last >= 0 {
+			cell := row[last]
+			if cell.Width == 0 {
+				last--
+				continue
+			}
+			r := cell.Rune
+			if r == 0 || r == ' ' {
+				last--
+				continue
+			}
+			break
+		}
+		for i := 0; i <= last; i++ {
+			cell := row[i]
+			if cell.Width == 0 {
+				continue
+			}
+			r := cell.Rune
+			if r == 0 {
+				r = ' '
+			}
+			b.WriteRune(r)
+		}
+		b.WriteByte('\n')
+	}
+	hash := sha256.Sum256([]byte(b.String()))
+	var digest [16]byte
+	copy(digest[:], hash[:16])
+	return digest
+}
+
+func TestVisibleScreenDigest_MatchesStringReference(t *testing.T) {
+	cases := []struct {
+		name  string
+		cols  int
+		rows  int
+		write string
+	}{
+		{
+			name: "representative screen",
+			cols: 20,
+			rows: 8,
+			write: "hello world\r\n" +
+				"wide: 漢字 テスト\r\n" +
+				"\r\n" +
+				"trailing blanks   \r\n" +
+				"emoji ☕️ done\r\n" +
+				"accents: éüß",
+		},
+		{
+			name:  "empty screen",
+			cols:  10,
+			rows:  3,
+			write: "",
+		},
+		{
+			name:  "wide chars at row end",
+			cols:  8,
+			rows:  2,
+			write: "abcdef漢\r\n漢字漢字",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			term := vterm.New(tc.cols, tc.rows)
+			if tc.write != "" {
+				term.Write([]byte(tc.write))
+			}
+			got := visibleScreenDigest(term)
+			want := referenceVisibleScreenDigest(term)
+			if got != want {
+				t.Fatalf("visibleScreenDigest = %x, reference = %x", got, want)
+			}
+		})
+	}
+
+	if got, want := visibleScreenDigest(nil), referenceVisibleScreenDigest(nil); got != want {
+		t.Fatalf("nil terminal: visibleScreenDigest = %x, reference = %x", got, want)
+	}
+}
+
+func BenchmarkVisibleScreenDigest(b *testing.B) {
+	term := vterm.New(200, 50)
+	line := strings.Repeat("abcdefghij", 19) + "wide 漢字 end"
+	lines := make([]string, 50)
+	for i := range lines {
+		lines[i] = line
+	}
+	term.Write([]byte(strings.Join(lines, "\r\n")))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = visibleScreenDigest(term)
 	}
 }
 
