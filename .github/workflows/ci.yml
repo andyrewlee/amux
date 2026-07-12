@@ -153,6 +153,12 @@ jobs:
       - name: Test (app, real tmux)
         run: go test ./internal/app -count=1
 
+      # internal/pty's agent/viewer create path short-circuits at
+      # tmux.EnsureAvailable() in the tmux-less `test` job, so its tmux-gated
+      # create tests only run here, where tmux is installed.
+      - name: Test (pty, real tmux)
+        run: go test ./internal/pty -count=1
+
       - name: Assert no real-tmux tests skipped
         run: STRICT_TMUX=1 make tmux-skip-check
 
