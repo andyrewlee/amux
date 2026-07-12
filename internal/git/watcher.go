@@ -22,7 +22,8 @@ type FileWatcher struct {
 	mu sync.Mutex
 
 	watcher         *fsnotify.Watcher
-	watching        map[string]bool // workspace root -> watching
+	addWatch        func(path string) error // seam for watcher.Add; overridable in tests
+	watching        map[string]bool         // workspace root -> watching
 	watchPaths      map[string][]watchTarget
 	pathToRoot      map[string]string
 	onChanged       func(root string)
@@ -53,6 +54,7 @@ func NewFileWatcher(onChanged func(root string)) (*FileWatcher, error) {
 
 	fw := &FileWatcher{
 		watcher:         watcher,
+		addWatch:        watcher.Add,
 		watching:        make(map[string]bool),
 		watchPaths:      make(map[string][]watchTarget),
 		pathToRoot:      make(map[string]string),
@@ -293,23 +295,31 @@ func (fw *FileWatcher) addWatchPath(path string) (watchTarget, error) {
 	if err != nil {
 		return watchTarget{}, err
 	}
-	if err := fw.watcher.Add(path); err != nil {
-		if isWatchLimitError(err) {
-			if !fw.disabled {
-				fw.disabled = true
-				// Wrap the sentinel only; include fsnotify detail as text to avoid
-				// changing matching semantics with a multi-error wrapper.
-				fw.disabledErr = fmt.Errorf("%w: %s", ErrWatchLimit, err.Error())
-				perf.Count("git_watcher_watch_limit", 1)
-				logging.Warn("File watcher limit reached; disabling watcher: %v", err)
-			}
-			if fw.disabledErr != nil {
-				return watchTarget{}, fw.disabledErr
-			}
+	if err := fw.addWatch(path); err != nil {
+		if derr := fw.disableOnWatchLimit(err); derr != nil {
+			return watchTarget{}, derr
 		}
 		return watchTarget{}, err
 	}
 	return watchTarget{path: path, isDir: info.IsDir()}, nil
+}
+
+// disableOnWatchLimit disables the watcher (once) when err is a watch-limit
+// error and returns the sentinel-wrapped disabled error; it returns nil for
+// non-limit errors so callers propagate err unchanged.
+func (fw *FileWatcher) disableOnWatchLimit(err error) error {
+	if !isWatchLimitError(err) {
+		return nil
+	}
+	if !fw.disabled {
+		fw.disabled = true
+		// Wrap the sentinel only; include fsnotify detail as text to avoid
+		// changing matching semantics with a multi-error wrapper.
+		fw.disabledErr = fmt.Errorf("%w: %s", ErrWatchLimit, err.Error())
+		perf.Count("git_watcher_watch_limit", 1)
+		logging.Warn("File watcher limit reached; disabling watcher: %v", err)
+	}
+	return fw.disabledErr
 }
 
 func readGitDirFromFile(gitPath string) (string, error) {
