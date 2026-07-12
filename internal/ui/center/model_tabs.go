@@ -7,7 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/rivo/uniseg"
+	"github.com/clipperhouse/displaywidth"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
@@ -99,20 +99,16 @@ func truncateDisplayName(name string) string {
 		prefix       = "..."
 		suffixBudget = maxWidth - len(prefix)
 	)
-	if uniseg.StringWidth(name) <= maxWidth {
+	if displaywidth.String(name) <= maxWidth {
 		return name
 	}
 
 	clusters := make([]string, 0, len(name))
 	widths := make([]int, 0, len(name))
-	rest := name
-	state := -1
-	for len(rest) > 0 {
-		var cluster string
-		var width int
-		cluster, rest, width, state = uniseg.FirstGraphemeClusterInString(rest, state)
-		clusters = append(clusters, cluster)
-		widths = append(widths, width)
+	graphemes := displaywidth.StringGraphemes(name)
+	for graphemes.Next() {
+		clusters = append(clusters, graphemes.Value())
+		widths = append(widths, graphemes.Width())
 	}
 
 	width := 0

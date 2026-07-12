@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rivo/uniseg"
+	"github.com/clipperhouse/displaywidth"
 
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -80,7 +80,7 @@ func TestTruncateDisplayName_BoundaryLengths(t *testing.T) {
 			}
 			continue
 		}
-		if gotWidth := uniseg.StringWidth(got); gotWidth > 20 {
+		if gotWidth := displaywidth.String(got); gotWidth > 20 {
 			t.Fatalf("len=%d: truncated result %q has display width %d, want <= 20", n, got, gotWidth)
 		}
 		if !strings.HasPrefix(got, "...") {
@@ -90,6 +90,31 @@ func TestTruncateDisplayName_BoundaryLengths(t *testing.T) {
 		if want := input[len(input)-17:]; !strings.HasSuffix(got, want) {
 			t.Fatalf("len=%d: truncated result %q must end with original tail %q", n, got, want)
 		}
+	}
+}
+
+// TestTruncateDisplayName_WideGlyphs confirms the tail-keeping policy holds for
+// non-ASCII names whose grapheme clusters occupy two display cells each: an
+// over-budget emoji or CJK name is rewritten to a "..."-prefixed suffix that
+// never exceeds the 20-cell budget.
+func TestTruncateDisplayName_WideGlyphs(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "emoji-heavy name", input: strings.Repeat("😀", 15)},
+		{name: "cjk name", input: strings.Repeat("日本語", 8)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateDisplayName(tt.input)
+			if w := displaywidth.String(got); w > 20 {
+				t.Fatalf("truncateDisplayName(%q) width = %d, want <= 20", tt.input, w)
+			}
+			if !strings.HasPrefix(got, "...") {
+				t.Fatalf("truncateDisplayName(%q) = %q, want a \"...\" prefix", tt.input, got)
+			}
+		})
 	}
 }
 
