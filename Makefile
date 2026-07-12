@@ -25,7 +25,7 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 GOLANGCI ?= golangci-lint
 lint lint-strict lint-strict-new lint-ci-parity check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test bench lint lint-tools lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
+.PHONY: build install test test-race tidy-check ci bench lint lint-tools lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -39,6 +39,32 @@ test:
 	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
 	go test $$filtered
 	@$(MAKE) --no-print-directory tmux-skip-check
+
+# test-race mirrors CI's "Test (race)" step: `go test -race` over CI's package
+# set, which excludes only internal/e2e and internal/tmux. Note this is wider
+# than `make test`/`make devcheck` (their filter also excludes internal/app) —
+# keep this filter coupled to .github/workflows/ci.yml, not to the test filter
+# above. Race runs are slow; that is why this is a separate target rather than
+# part of devcheck (same reasoning as verify-loop).
+test-race:
+	@packages=$$(go list ./...) || exit 1; \
+	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e)$$') || exit 1; \
+	echo "go test -race $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
+	go test -race $$filtered
+
+# tidy-check mirrors CI's "Tidy check" step: it fails when go.mod/go.sum are
+# not tidy. Note it runs `go mod tidy`, so an untidy module is rewritten in
+# your working tree — inspect `git diff go.mod go.sum` on failure.
+tidy-check:
+	go mod tidy
+	git diff --exit-code go.mod go.sum
+
+# ci is the local mirror of the CI `test` job's gate set: devcheck (vet +
+# tests + lint + file-length) plus the race and tidy gates that devcheck
+# skips. Keep this target in sync with .github/workflows/ci.yml — if CI gains
+# a gate, add it here. Not mirrored locally (yet): govulncheck and the
+# harness/perf smoke steps.
+ci: devcheck test-race tidy-check
 
 devcheck:
 	go vet ./...
@@ -244,6 +270,9 @@ help:
 	@echo "Available targets:"
 	@echo "  build      - Build the binary"
 	@echo "  test       - Run all tests"
+	@echo "  test-race  - Run go test -race over CI's package set (slow; mirrors CI's race gate)"
+	@echo "  tidy-check - Run go mod tidy and fail if go.mod/go.sum change (mirrors CI's tidy gate)"
+	@echo "  ci         - Full local CI mirror: devcheck + test-race + tidy-check"
 	@echo "  devcheck   - vet + tests + golden harness + lint (warns when real-tmux/e2e tests skip)"
 	@echo "  lint       - Run golangci-lint and file length checks (max 500 lines)"
 	@echo "  lint-tools - Build the pinned golangci-lint (.golangci-version) into ./.cache/bin (idempotent)"

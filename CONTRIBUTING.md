@@ -23,13 +23,19 @@ setting, the `go` command switches to that patched toolchain automatically. If
 you force `GOTOOLCHAIN=local`, install the pinned patch release yourself before
 running repo checks.
 
-Run the local checks that mirror CI:
+Run the fast local checks:
 
 ```bash
 make devcheck
 ```
 
-`make devcheck` is the required pre-PR gate: it runs vet, tests, and lint (including file-length checks).
+`make devcheck` is the required pre-PR gate: it runs vet, tests, and lint (including file-length checks). It is the fast **subset** of CI, not the whole of it — CI additionally enforces the race detector and `go mod tidy` cleanliness. For the full local CI mirror, run:
+
+```bash
+make ci
+```
+
+`make ci` runs `devcheck` plus `make test-race` (CI's race gate; slow) and `make tidy-check` (CI's tidy gate). CI's govulncheck and harness smoke steps are not mirrored locally.
 
 For the inner loop, launch the TUI with `make run` in a real terminal — amux requires stdin, stdout, and stderr to all be TTYs, so it only runs directly in your terminal. `air` cannot host the TUI: it launches the rebuilt binary with stdin on `/dev/null`, which fails that TTY check, so `make dev` is not a hot-reload TUI loop. Use it instead for automatic rebuilds and compile-error feedback while you edit — run `make dev` in a second pane alongside `make run`. It runs [`air`](https://github.com/air-verse/air) with the repo's `.air.toml` and rebuilds on save. Install it once with:
 
@@ -54,6 +60,9 @@ make lint-strict-new
 Pull requests are CI-gated (automated). For local confidence before opening a PR:
 
 - always: `make devcheck`, `make lint-strict-new`
+- if touching concurrency (supervisor workers, PTY read loops, watchers, activity leases, anything with goroutines/channels/mutexes): `make test-race` — CI runs the race detector and `make devcheck` does not, so this is the most common green-local/red-CI surprise
+- after any dependency change (adding/removing an import, editing `go.mod`): `make tidy-check` — CI fails on an untidy `go.mod`/`go.sum` even when `devcheck` passes
+- before opening a PR you want green on the first push: `make ci` (devcheck + test-race + tidy-check, the full local CI mirror; slow)
 - if touching `internal/ui/`, `internal/vterm/`, or `cmd/amux-harness/`: `make harness-presets`
 - if touching `internal/tmux/`, `internal/e2e/`, or `internal/pty/`: `go test ./internal/tmux ./internal/e2e`
 - if touching the agent input/send path (`internal/pty/terminal.go`, `internal/ui/center/tab_actor_write.go`, `internal/pty/`, agent keystroke forwarding): `make verify-loop` — proves a real agent receives keystrokes end-to-end (incl. a literal CR); `make devcheck` does not, since the real-tmux tests skip there
