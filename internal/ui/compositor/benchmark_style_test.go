@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andyrewlee/amux/internal/vterm"
 	uv "github.com/charmbracelet/ultraviolet"
+
+	"github.com/andyrewlee/amux/internal/vterm"
 )
 
 func BenchmarkStyleDeltaANSI(b *testing.B) {
