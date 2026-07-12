@@ -64,6 +64,8 @@ Each workspace tracks a repo checkout and its metadata. For local workflows, wor
 
 Start with [`ARCHITECTURE.md`](ARCHITECTURE.md) for the repo-level package map and dependency direction. Then `internal/app/ARCHITECTURE.md` covers lifecycle, PTY flow, tmux tagging, and persistence invariants, and `internal/app/MESSAGE_FLOW.md` documents message boundaries and command discipline.
 
+External orchestration: the supported tmux-level contract is documented in [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md).
+
 ## Features
 
 - **Parallel agents**: Launch multiple agents within main repo and within workspaces
