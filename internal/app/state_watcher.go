@@ -15,6 +15,15 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
+// debounceTimer is the minimal timer surface stateWatcher relies on for its
+// coalescing debounce. *time.Timer satisfies it in production; tests inject a
+// fake via newTimer to fire the debounce deterministically instead of sleeping
+// past a real timer.
+type debounceTimer interface {
+	Reset(d time.Duration) bool
+	Stop() bool
+}
+
 type stateWatcher struct {
 	watcher *fsnotify.Watcher
 
@@ -26,14 +35,15 @@ type stateWatcher struct {
 	debounce  time.Duration
 
 	mu            sync.Mutex
-	timer         *time.Timer
+	timer         debounceTimer
 	pendingReason string
 	pendingPaths  map[string]struct{}
 	closed        bool
 	closeOnce     sync.Once
 	metadataDirs  map[string]struct{}
 
-	addWatchFn func(w *fsnotify.Watcher, dir string) error // test hook; nil = use watcher.Add
+	addWatchFn func(w *fsnotify.Watcher, dir string) error   // test hook; nil = use watcher.Add
+	newTimer   func(d time.Duration, f func()) debounceTimer // test seam; nil = time.AfterFunc
 }
 
 // newStateWatcher constructs the watcher in O(1): it only creates the
@@ -311,11 +321,21 @@ func (sw *stateWatcher) scheduleNotify(reason, path string) {
 		sw.pendingPaths[path] = struct{}{}
 	}
 	if sw.timer == nil {
-		sw.timer = time.AfterFunc(sw.debounce, sw.fire)
+		sw.timer = sw.armTimer(sw.debounce, sw.fire)
 	} else {
 		sw.timer.Reset(sw.debounce)
 	}
 	sw.mu.Unlock()
+}
+
+// armTimer constructs the debounce timer, honoring the newTimer test seam. A nil
+// seam — the production default and any struct-literal construction — uses the
+// real time.AfterFunc, so behavior is unchanged outside tests.
+func (sw *stateWatcher) armTimer(d time.Duration, f func()) debounceTimer {
+	if sw.newTimer != nil {
+		return sw.newTimer(d, f)
+	}
+	return time.AfterFunc(d, f)
 }
 
 func (sw *stateWatcher) fire() {

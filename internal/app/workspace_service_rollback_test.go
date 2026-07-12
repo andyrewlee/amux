@@ -72,6 +72,7 @@ func TestRollbackWorkspaceCreationSerializesAgainstSameRepoGitMutation(t *testin
 		order          []string
 		createBlocking = make(chan struct{}) // closed to release the in-flight create
 		createEntered  = make(chan struct{}) // closed once the create holds the lock
+		removeEntered  = make(chan struct{}) // closed once the rollback's RemoveWorkspace runs
 	)
 
 	enter := func(name string) {
@@ -98,6 +99,7 @@ func TestRollbackWorkspaceCreationSerializesAgainstSameRepoGitMutation(t *testin
 			return nil
 		},
 		removeWorkspace: func(_, _ string) error {
+			close(removeEntered) // signal entry so the test synchronizes on the fake, not a sleep
 			enter("rollback-remove")
 			defer leave()
 			return nil
@@ -129,24 +131,29 @@ func TestRollbackWorkspaceCreationSerializesAgainstSameRepoGitMutation(t *testin
 		svc.rollbackWorkspaceCreation(project, repoPath, workspacePath, "feature")
 	}()
 
-	// Give the rollback goroutine a chance to attempt acquiring the lock; it must
-	// block on lockRepoGit, so RemoveWorkspace must not have run yet.
-	time.Sleep(50 * time.Millisecond)
-	mu.Lock()
-	premature := false
-	for _, name := range order {
-		if name == "rollback-remove" {
-			premature = true
-		}
-	}
-	mu.Unlock()
-	if premature {
+	// The rollback must block on lockRepoGit(repoPath), which the create provably
+	// holds (we waited for createEntered). RemoveWorkspace therefore cannot have
+	// run: this non-blocking check is anchored to the held lock, not to wall-clock
+	// time, so it is deterministic rather than a race against a fixed sleep.
+	select {
+	case <-removeEntered:
 		close(createBlocking)
 		t.Fatal("rollback RemoveWorkspace ran while the create still held the repo lock")
+	default:
 	}
 
 	// Release the create; the rollback should now proceed.
 	close(createBlocking)
+
+	// Confirm RemoveWorkspace ran only after the lock was free (positive sync on
+	// the fake's entry, with a failsafe so a regression fails fast instead of
+	// hanging).
+	select {
+	case <-removeEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for rollback RemoveWorkspace after releasing the create lock")
+	}
+
 	<-createDone
 	<-rollbackDone
 
