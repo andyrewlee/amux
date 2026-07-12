@@ -34,6 +34,44 @@ type SessionBootstrapFns struct {
 	CapturePaneSnapshot     func(string, tmux.Options) (tmux.PaneSnapshot, error)
 }
 
+// SessionBootstrap bundles a SessionBootstrapFns (and the pane-capture fn) with
+// the bootstrap operations that consume them, so each caller constructs a single
+// instance from its own test-seam vars and invokes the operations as methods
+// instead of re-declaring a parallel set of package-level wrappers. The instance
+// is value-typed and cheap: callers rebuild it per call from their seam vars so a
+// test override of a seam var flows through the next operation.
+type SessionBootstrap struct {
+	Fns         SessionBootstrapFns
+	CapturePane func(string, tmux.Options) ([]byte, error)
+}
+
+// CaptureExisting captures a pre-attach full-pane bootstrap snapshot of an
+// existing session, using the standard full-pane quiet window.
+func (s SessionBootstrap) CaptureExisting(sessionName string, cols, rows int, opts tmux.Options) SessionBootstrapCapture {
+	return CaptureExistingSessionBootstrap(sessionName, cols, rows, FullPaneCaptureQuietWindow, opts, s.Fns)
+}
+
+// SnapshotStillMatches reports whether the captured bootstrap snapshot is still
+// authoritative for the session.
+func (s SessionBootstrap) SnapshotStillMatches(sessionName string, bootstrap SessionBootstrapCapture, opts tmux.Options) bool {
+	return BootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts, s.Fns)
+}
+
+// Rollback restores the pane size mutated while capturing the bootstrap snapshot.
+func (s SessionBootstrap) Rollback(sessionName string, bootstrap SessionBootstrapCapture, opts tmux.Options) {
+	RollbackExistingSessionBootstrap(sessionName, bootstrap, opts, s.Fns)
+}
+
+// HistoryCaptureSize resolves the capture dimensions for a history fallback.
+func (s SessionBootstrap) HistoryCaptureSize(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) (int, int) {
+	return SessionHistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts, s.Fns)
+}
+
+// CaptureHistory captures the session scrollback plus its capture dimensions.
+func (s SessionBootstrap) CaptureHistory(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) ([]byte, int, int) {
+	return CaptureSessionHistory(sessionName, fallbackCols, fallbackRows, opts, s.Fns, s.CapturePane)
+}
+
 func SessionBootstrapExclusive(sessionName string, quietWindow time.Duration, opts tmux.Options, fns SessionBootstrapFns) bool {
 	hasClients, clientsErr := fns.SessionHasClients(sessionName, opts)
 	recentActivity, activityErr := fns.SessionActiveWithin(sessionName, quietWindow, opts)

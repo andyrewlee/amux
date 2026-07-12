@@ -42,39 +42,45 @@ var (
 
 type sessionBootstrapCapture = ptyio.SessionBootstrapCapture
 
-func sessionBootstrapFns() ptyio.SessionBootstrapFns {
-	return ptyio.SessionBootstrapFns{
-		SessionHasClients:       sessionHasClientsFn,
-		SessionClientCount:      sessionClientCountFn,
-		SessionActiveWithin:     sessionActiveWithinFn,
-		SessionLatestActivity:   sessionLatestActivityFn,
-		SessionCreatedAt:        sessionCreatedAtFn,
-		SessionPaneID:           sessionPaneIDFn,
-		SessionPaneSnapshotInfo: sessionPaneSnapshotInfoFn,
-		SessionPaneSize:         sessionPaneSizeFn,
-		ResizePaneToSize:        resizePaneToSizeFn,
-		CapturePaneSnapshot:     capturePaneSnapshotFn,
+// sessionBootstrap builds a ptyio.SessionBootstrap from this package's seam
+// vars. It is rebuilt per call (reading the seam vars each time) so a test that
+// overrides a seam var still flows through the next bootstrap operation.
+func sessionBootstrap() ptyio.SessionBootstrap {
+	return ptyio.SessionBootstrap{
+		Fns: ptyio.SessionBootstrapFns{
+			SessionHasClients:       sessionHasClientsFn,
+			SessionClientCount:      sessionClientCountFn,
+			SessionActiveWithin:     sessionActiveWithinFn,
+			SessionLatestActivity:   sessionLatestActivityFn,
+			SessionCreatedAt:        sessionCreatedAtFn,
+			SessionPaneID:           sessionPaneIDFn,
+			SessionPaneSnapshotInfo: sessionPaneSnapshotInfoFn,
+			SessionPaneSize:         sessionPaneSizeFn,
+			ResizePaneToSize:        resizePaneToSizeFn,
+			CapturePaneSnapshot:     capturePaneSnapshotFn,
+		},
+		CapturePane: capturePaneFn,
 	}
 }
 
 func captureExistingSessionBootstrap(sessionName string, cols, rows int, opts tmux.Options) sessionBootstrapCapture {
-	return ptyio.CaptureExistingSessionBootstrap(sessionName, cols, rows, ptyio.FullPaneCaptureQuietWindow, opts, sessionBootstrapFns())
+	return sessionBootstrap().CaptureExisting(sessionName, cols, rows, opts)
 }
 
 func bootstrapSnapshotStillMatchesSession(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) bool {
-	return ptyio.BootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts, sessionBootstrapFns())
+	return sessionBootstrap().SnapshotStillMatches(sessionName, bootstrap, opts)
 }
 
 func rollbackExistingSessionBootstrap(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) {
-	ptyio.RollbackExistingSessionBootstrap(sessionName, bootstrap, opts, sessionBootstrapFns())
+	sessionBootstrap().Rollback(sessionName, bootstrap, opts)
 }
 
 func sessionHistoryCaptureSize(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) (int, int) {
-	return ptyio.SessionHistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns())
+	return sessionBootstrap().HistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts)
 }
 
 func captureSessionHistory(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) ([]byte, int, int) {
-	return ptyio.CaptureSessionHistory(sessionName, fallbackCols, fallbackRows, opts, sessionBootstrapFns(), capturePaneFn)
+	return sessionBootstrap().CaptureHistory(sessionName, fallbackCols, fallbackRows, opts)
 }
 
 func (m *Model) sessionBootstrapViewportSize() (int, int) {
