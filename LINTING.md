@@ -13,7 +13,8 @@ make devcheck
 This runs:
 
 - `go vet ./...`
-- `go test ./...`
+- `go test` on all packages except `internal/tmux`, `internal/e2e`, and
+  `internal/app` (those run separately via a real-tmux skip check)
 - `golangci-lint run`
 - file length guard (`*.go` files must be <= 500 lines)
 
@@ -105,7 +106,7 @@ Focus areas:
 - correctness and safety (`errcheck`, `govet`, `staticcheck`, `unused`, `errorlint`)
 - mechanical consistency (`gofumpt`, `gofmt`, `goimports`, `copyloopvar`)
 - dependency and output discipline (`depguard`, `forbidigo`)
-- hygiene (`nolintlint`, `misspell`, `unconvert`, `ineffassign`, `gosimple`, `whitespace`)
+- hygiene (`nolintlint`, `misspell`, `unconvert`, `ineffassign`, `whitespace`) — the simplification checks formerly provided by a standalone S-series linter are folded into `staticcheck` under the pinned golangci-lint (see `.golangci-version`), not a separate linter
 - test helper quality (`thelper`)
 
 ## `nolint` Policy

@@ -13,6 +13,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "github.com/charmbracelet/ultraviolet"
     groups:
       # The Charm stack moves fast and spans two module prefixes; batch it
       # into a single PR so updates don't arrive piecemeal.

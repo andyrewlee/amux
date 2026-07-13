@@ -92,6 +92,19 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
 - `run` — the command started for a workspace's run script.
 - `archive` — the command run when a workspace is archived.
 
+### Environment available to workspace scripts
+
+`setup-workspace`, `run`, and `archive` scripts run with these variables set, in addition to your normal shell environment:
+
+| Variable | Meaning |
+|----------|---------|
+| `AMUX_WORKSPACE_NAME` | The workspace name |
+| `AMUX_WORKSPACE_ROOT` | The workspace worktree path |
+| `AMUX_WORKSPACE_BRANCH` | The workspace's git branch |
+| `ROOT_WORKSPACE_PATH` | The source repository root (also shown in the example above) |
+| `AMUX_PORT` | An allocated per-workspace port — bind dev servers here to avoid collisions across parallel workspaces |
+| `AMUX_PORT_RANGE` | The `start-end` port range allocated to this workspace |
+
 Because these commands come from the repository, amux runs them only after you trust the repo. The first time a repo's `.amux/workspaces.json` would run (and every time its contents change), amux records the approved content of the file; until then those project-supplied scripts are skipped and you are notified, rather than executing arbitrary commands chosen by the repo's author. Editing `.amux/workspaces.json` invalidates the approval, so changed commands are re-gated until you trust the file again. (Run/archive scripts you enter yourself in the amux UI are your own input and are never gated.)
 
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`.
