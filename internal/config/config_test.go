@@ -260,3 +260,70 @@ func TestAssistantNamesOrder(t *testing.T) {
 		t.Fatalf("expected custom assistants to be sorted at end, got %v", got)
 	}
 }
+
+// TestCanonicalDefaultAssistantDirectMatch confirms the direct-match branch:
+// when the candidate normalizes to a name present in the assistants map, it
+// is returned as-is.
+func TestCanonicalDefaultAssistantDirectMatch(t *testing.T) {
+	assistants := map[string]AssistantConfig{
+		"claude": {Command: "claude"},
+		"codex":  {Command: "codex"},
+	}
+	if got := canonicalDefaultAssistant("claude", assistants); got != "claude" {
+		t.Fatalf("canonicalDefaultAssistant() = %q, want %q", got, "claude")
+	}
+}
+
+// TestCanonicalDefaultAssistantFallsBackToFallbackConstant covers the second
+// branch: the candidate is missing from the map, but fallbackDefaultAssistant
+// is present, so it wins over any other ordered entry. This branch is only
+// reachable by calling canonicalDefaultAssistant directly with a candidate
+// other than fallbackDefaultAssistant -- ResolvedDefaultAssistant always
+// passes fallbackDefaultAssistant as the candidate, so it can't isolate this
+// case from the direct-match branch above.
+func TestCanonicalDefaultAssistantFallsBackToFallbackConstant(t *testing.T) {
+	assistants := map[string]AssistantConfig{
+		fallbackDefaultAssistant: {Command: fallbackDefaultAssistant},
+		"codex":                  {Command: "codex"},
+	}
+	if got := canonicalDefaultAssistant("unknown-agent", assistants); got != fallbackDefaultAssistant {
+		t.Fatalf("canonicalDefaultAssistant() = %q, want %q", got, fallbackDefaultAssistant)
+	}
+}
+
+// TestResolvedDefaultAssistantFallsBackToFirstOrdered covers the third
+// branch: fallbackDefaultAssistant itself is absent from the map, so
+// resolution falls through to the first name in preferred display order.
+func TestResolvedDefaultAssistantFallsBackToFirstOrdered(t *testing.T) {
+	assistants := map[string]AssistantConfig{
+		"codex":  {Command: "codex"},
+		"gemini": {Command: "gemini"},
+	}
+	cfg := &Config{Assistants: assistants}
+
+	want := orderedAssistantNames(assistants)
+	if len(want) == 0 {
+		t.Fatal("orderedAssistantNames() returned no names; test fixture invalid")
+	}
+	if got := cfg.ResolvedDefaultAssistant(); got != want[0] {
+		t.Fatalf("ResolvedDefaultAssistant() = %q, want %q", got, want[0])
+	}
+	if got := cfg.ResolvedDefaultAssistant(); got == fallbackDefaultAssistant {
+		t.Fatalf("ResolvedDefaultAssistant() = %q, should not equal omitted fallback %q", got, fallbackDefaultAssistant)
+	}
+}
+
+// TestResolvedDefaultAssistantFallsBackToFallbackConstantWhenAssistantsEmpty
+// covers the final branch: an empty/nil assistants map has no candidates at
+// all, so resolution returns the fallbackDefaultAssistant constant verbatim.
+func TestResolvedDefaultAssistantFallsBackToFallbackConstantWhenAssistantsEmpty(t *testing.T) {
+	cfg := &Config{Assistants: nil}
+	if got := cfg.ResolvedDefaultAssistant(); got != fallbackDefaultAssistant {
+		t.Fatalf("ResolvedDefaultAssistant() = %q, want %q", got, fallbackDefaultAssistant)
+	}
+
+	cfg = &Config{Assistants: map[string]AssistantConfig{}}
+	if got := cfg.ResolvedDefaultAssistant(); got != fallbackDefaultAssistant {
+		t.Fatalf("ResolvedDefaultAssistant() with empty map = %q, want %q", got, fallbackDefaultAssistant)
+	}
+}

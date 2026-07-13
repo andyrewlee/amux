@@ -226,6 +226,53 @@ func TestWorkspaceStore_ListByRepo_NormalizesSymlinks(t *testing.T) {
 	}
 }
 
+// TestWorkspaceStore_ListByRepoIncludingArchived_IncludesArchived asserts the
+// inverse of TestWorkspaceStore_ListByRepo_SkipsArchived: ListByRepo excludes
+// archived workspaces, but ListByRepoIncludingArchived (used by the
+// load/reattach path) returns both live and archived workspaces for the repo.
+func TestWorkspaceStore_ListByRepoIncludingArchived_IncludesArchived(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	repo := "/home/user/repo"
+
+	active := &Workspace{Name: "active", Repo: repo, Root: "/path/to/active"}
+	archived := &Workspace{Name: "old", Repo: repo, Root: "/path/to/old", Archived: true}
+
+	if err := store.Save(active); err != nil {
+		t.Fatalf("Save(active) error = %v", err)
+	}
+	if err := store.Save(archived); err != nil {
+		t.Fatalf("Save(archived) error = %v", err)
+	}
+
+	liveOnly, err := store.ListByRepo(repo)
+	if err != nil {
+		t.Fatalf("ListByRepo() error = %v", err)
+	}
+	if len(liveOnly) != 1 {
+		t.Fatalf("expected 1 workspace from ListByRepo, got %d", len(liveOnly))
+	}
+	if liveOnly[0].Name != "active" {
+		t.Errorf("ListByRepo() returned %s, want active", liveOnly[0].Name)
+	}
+
+	both, err := store.ListByRepoIncludingArchived(repo)
+	if err != nil {
+		t.Fatalf("ListByRepoIncludingArchived() error = %v", err)
+	}
+	if len(both) != 2 {
+		t.Fatalf("expected 2 workspaces from ListByRepoIncludingArchived, got %d", len(both))
+	}
+	names := map[string]bool{}
+	for _, ws := range both {
+		names[ws.Name] = true
+	}
+	if !names["active"] || !names["old"] {
+		t.Errorf("ListByRepoIncludingArchived() = %v, want both active and old", names)
+	}
+}
+
 func TestWorkspaceStore_LoadRejectsInvalidWorkspaceID(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)
