@@ -62,11 +62,11 @@ func GetFileDiff(repoPath, path string, mode DiffMode) (*DiffResult, error) {
 
 	switch mode {
 	case DiffModeStaged:
-		args = []string{"diff", "--cached", "--no-color", "--no-ext-diff", "-U3", "--", path}
+		args = []string{"diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", "-U3", "--", path}
 	case DiffModeUnstaged:
-		args = []string{"diff", "--no-color", "--no-ext-diff", "-U3", "--", path}
+		args = []string{"diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U3", "--", path}
 	default:
-		args = []string{"diff", "--no-color", "--no-ext-diff", "-U3", "--", path}
+		args = []string{"diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U3", "--", path}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
