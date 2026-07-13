@@ -199,6 +199,22 @@ func TestCSISemicolonParameterParsing(t *testing.T) {
 	}
 }
 
+func TestSGRTruecolorClampsOutOfRangeComponent(t *testing.T) {
+	t.Parallel()
+	vt := New(80, 24)
+
+	// A component above 255 must clamp instead of overflowing into the
+	// adjacent channel when packed into Color.Value.
+	vt.Write([]byte("\x1b[38;2;255;300;0m"))
+	if vt.CurrentStyle.Fg.Type != ColorRGB {
+		t.Errorf("Expected ColorRGB, got %v", vt.CurrentStyle.Fg.Type)
+	}
+	expected := uint32(255)<<16 | uint32(255)<<8 | uint32(0)
+	if vt.CurrentStyle.Fg.Value != expected {
+		t.Errorf("Expected clamped RGB value %#06x, got %#06x", expected, vt.CurrentStyle.Fg.Value)
+	}
+}
+
 func TestVersionBumpsOnCursorMoveAndAltScreenCursorHide(t *testing.T) {
 	t.Parallel()
 	vt := New(10, 5)

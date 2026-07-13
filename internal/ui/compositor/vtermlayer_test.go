@@ -143,6 +143,33 @@ func TestVTermLayerClearsContinuationCells(t *testing.T) {
 	}
 }
 
+// TestVTermLayerBlanksWideGlyphOnLastColumn asserts DrawAt substitutes a
+// blank for a Width==2 cell that lands on the last visible column (e.g. after
+// a narrowing resize leaves a wide glyph at width-1), matching canvas.go's
+// DrawScreen guard (cell.Width == 2 && col+1 >= w).
+func TestVTermLayerBlanksWideGlyphOnLastColumn(t *testing.T) {
+	screen := [][]vterm.Cell{
+		{vterm.DefaultCell(), {Rune: '中', Width: 2}},
+	}
+	snap := &VTermSnapshot{
+		Screen: screen,
+		Width:  2,
+		Height: 1,
+	}
+	layer := NewVTermLayer(snap)
+
+	s := &bufferScreen{Buffer: uv.NewBuffer(2, 1)}
+	layer.Draw(s, s.Bounds())
+
+	cell := s.CellAt(1, 0)
+	if cell == nil {
+		t.Fatalf("expected cell to be written at last column")
+	}
+	if cell.Width != 1 || cell.Content != " " {
+		t.Fatalf("expected blank single-width cell at last column, got width=%d content=%q", cell.Width, cell.Content)
+	}
+}
+
 func TestVTermSnapshotHonorsCursorHideOutsideAltScreen(t *testing.T) {
 	term := vterm.New(10, 3)
 	term.Write([]byte("\x1b[?25l")) // hide cursor outside alt screen
