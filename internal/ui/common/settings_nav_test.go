@@ -95,13 +95,25 @@ func TestHandleSelectClose(t *testing.T) {
 	}
 }
 
-func TestHandleNextSectionSkipsUpdateWhenUnavailable(t *testing.T) {
+func TestHandleNextSectionReachesAssistantsAfterTmux(t *testing.T) {
 	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
-	d.updateAvailable = false
 	d.focusedItem = settingsItemTmuxSync
 
 	_, _ = d.handleNextSection()
-	// TmuxSync -> (skip Update) -> Close
+	// TmuxSync -> Assistants (never skipped; only Update is conditionally
+	// skipped when no update is available).
+	if d.focusedItem != settingsItemAssistants {
+		t.Fatalf("focusedItem = %d, want settingsItemAssistants", d.focusedItem)
+	}
+}
+
+func TestHandleNextSectionSkipsUpdateWhenUnavailable(t *testing.T) {
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
+	d.updateAvailable = false
+	d.focusedItem = settingsItemAssistants
+
+	_, _ = d.handleNextSection()
+	// Assistants -> (skip Update) -> Close
 	if d.focusedItem != settingsItemClose {
 		t.Fatalf("focusedItem = %d, want settingsItemClose", d.focusedItem)
 	}
@@ -110,7 +122,7 @@ func TestHandleNextSectionSkipsUpdateWhenUnavailable(t *testing.T) {
 func TestHandleNextSectionVisitsUpdateWhenAvailable(t *testing.T) {
 	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.updateAvailable = true
-	d.focusedItem = settingsItemTmuxSync
+	d.focusedItem = settingsItemAssistants
 
 	_, _ = d.handleNextSection()
 	if d.focusedItem != settingsItemUpdate {
@@ -134,9 +146,9 @@ func TestHandlePrevSectionSkipsUpdateWhenUnavailable(t *testing.T) {
 	d.focusedItem = settingsItemClose
 
 	_, _ = d.handlePrevSection()
-	// Close -> Update(skip) -> TmuxSync
-	if d.focusedItem != settingsItemTmuxSync {
-		t.Fatalf("focusedItem = %d, want settingsItemTmuxSync", d.focusedItem)
+	// Close -> Update(skip) -> Assistants
+	if d.focusedItem != settingsItemAssistants {
+		t.Fatalf("focusedItem = %d, want settingsItemAssistants", d.focusedItem)
 	}
 }
 
@@ -216,9 +228,9 @@ func TestHandlePrevOutsideThemeDelegatesToSection(t *testing.T) {
 	d.focusedItem = settingsItemClose
 
 	_, cmd := d.handlePrev()
-	// Delegates to handlePrevSection: Close -> (skip Update) -> TmuxSync.
-	if d.focusedItem != settingsItemTmuxSync {
-		t.Fatalf("focusedItem = %d, want settingsItemTmuxSync", d.focusedItem)
+	// Delegates to handlePrevSection: Close -> (skip Update) -> Assistants.
+	if d.focusedItem != settingsItemAssistants {
+		t.Fatalf("focusedItem = %d, want settingsItemAssistants", d.focusedItem)
 	}
 	if cmd != nil {
 		t.Fatal("section move should not emit a command")

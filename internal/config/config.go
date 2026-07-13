@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/andyrewlee/amux/internal/fsatomic"
 	"github.com/andyrewlee/amux/internal/logging"
 
 	"github.com/andyrewlee/amux/internal/validation"
@@ -276,4 +278,49 @@ func canonicalDefaultAssistant(candidate string, assistants map[string]Assistant
 
 func normalizeAssistantName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
+}
+
+// SaveAssistants persists the current in-memory Assistants map to the
+// "assistants" config-file section, so a Settings-dialog edit to an
+// assistant's command survives a restart. It mirrors SaveUISettings (the only
+// existing config-save path before this): read-modify-write via
+// fsatomic.WriteJSON, refusing to touch a malformed existing file rather than
+// silently dropping the unrelated "ui" section a hand-edit may have added.
+func (c *Config) SaveAssistants() error {
+	if c == nil || c.Paths == nil {
+		return nil
+	}
+	return saveAssistants(c.Paths.ConfigPath, c.Assistants)
+}
+
+func saveAssistants(path string, assistants map[string]AssistantConfig) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+
+	payload := map[string]any{}
+	if existing, err := readConfigPath(path); err == nil && len(bytes.TrimSpace(existing)) > 0 {
+		// Refuse to clobber an existing-but-unparseable config: the loader
+		// tolerates malformed JSON (falls back to defaults), so blindly
+		// overwriting here would silently drop unrelated sections (e.g. "ui").
+		if err := json.Unmarshal(existing, &payload); err != nil {
+			return fmt.Errorf("refusing to overwrite malformed config %s: %w", path, err)
+		}
+	}
+
+	out := make(map[string]any, len(assistants))
+	for name, cfg := range assistants {
+		entry := map[string]any{"command": cfg.Command}
+		if cfg.InterruptCount > 0 {
+			entry["interrupt_count"] = cfg.InterruptCount
+		}
+		if cfg.InterruptDelayMs > 0 {
+			entry["interrupt_delay_ms"] = cfg.InterruptDelayMs
+		}
+		out[name] = entry
+	}
+	payload["assistants"] = out
+
+	// Crash-safe write (temp + fsync + atomic rename), matching saveUISettings.
+	return fsatomic.WriteJSON(path, payload)
 }

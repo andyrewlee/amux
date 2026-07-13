@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
@@ -256,6 +257,7 @@ func (a *App) handleShowSettingsDialog() {
 		a.config.UI.TmuxConfigPath,
 		a.config.UI.TmuxSyncInterval,
 	)
+	a.settingsDialog.SetAssistants(a.config.AssistantNames(), assistantCommandMap(a.config.Assistants))
 	a.settingsDialog.SetSession(a.settingsDialogSession)
 	a.settingsDialog.SetSize(a.width, a.height)
 
@@ -330,11 +332,46 @@ func (a *App) applySettingsTmux(d *common.SettingsDialog) bool {
 	return changed
 }
 
+// assistantCommandMap flattens an assistants config map to name->command, the
+// shape SettingsDialog.SetAssistants wants (it only exposes command editing;
+// interrupt tuning stays config.json-only, per plan 031's scoped first cut).
+func assistantCommandMap(assistants map[string]config.AssistantConfig) map[string]string {
+	commands := make(map[string]string, len(assistants))
+	for name, cfg := range assistants {
+		commands[name] = cfg.Command
+	}
+	return commands
+}
+
+// applySettingsAssistants copies the dialog's (possibly edited) assistant
+// commands into the in-memory config and reports whether any changed. A
+// blank edited command is never persisted (never leave an assistant
+// unlaunchable); unknown names are ignored (this first cut only edits
+// existing roster entries, see SettingsDialog.assistantNames).
+func (a *App) applySettingsAssistants(d *common.SettingsDialog) bool {
+	changed := false
+	for name, cmd := range d.AssistantCommands() {
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			continue
+		}
+		cfg, ok := a.config.Assistants[name]
+		if !ok || cfg.Command == cmd {
+			continue
+		}
+		cfg.Command = cmd
+		a.config.Assistants[name] = cfg
+		changed = true
+	}
+	return changed
+}
+
 // handleSettingsResult handles settings dialog close.
 func (a *App) handleSettingsResult(res common.SettingsResult) tea.Cmd {
 	if res.Canceled {
 		// Esc cancels: revert any live theme preview to what was active when the
-		// dialog opened and do not persist. Tmux edits are dropped with it.
+		// dialog opened and do not persist. Tmux and assistant edits are dropped
+		// with it (the in-memory config is only mutated below, on confirm).
 		a.applyTheme(a.settingsThemeOriginal)
 		a.settingsThemeDirty = false
 		a.settingsDialog = nil
@@ -342,22 +379,33 @@ func (a *App) handleSettingsResult(res common.SettingsResult) tea.Cmd {
 		return nil
 	}
 	tmuxChanged := false
+	assistantsChanged := false
 	if a.settingsDialog != nil {
 		a.applyTheme(a.settingsDialog.SelectedTheme())
 		tmuxChanged = a.applySettingsTmux(a.settingsDialog)
+		assistantsChanged = a.applySettingsAssistants(a.settingsDialog)
 	}
 	a.settingsDialog = nil
 	a.settingsDialogSession++
+
 	// A dirty theme save already persists the whole UI struct (tmux fields
 	// included, since applySettingsTmux wrote them). Only persist separately
-	// when tmux changed but the theme did not.
+	// when tmux changed but the theme did not. Assistants live in a different
+	// config-file section (SaveAssistants, not SaveUISettings), so it is
+	// always persisted independently of the theme/tmux save above.
+	var saveCmd tea.Cmd
 	if a.settingsThemeDirty {
-		return a.persistSettingsThemeIfDirty()
-	}
-	if tmuxChanged {
+		saveCmd = a.persistSettingsThemeIfDirty()
+	} else if tmuxChanged {
 		if err := a.config.SaveUISettings(); err != nil {
-			return common.ReportError("saving tmux settings", err, "Failed to save tmux settings")
+			saveCmd = common.ReportError("saving tmux settings", err, "Failed to save tmux settings")
 		}
 	}
-	return nil
+	var assistantsSaveCmd tea.Cmd
+	if assistantsChanged {
+		if err := a.config.SaveAssistants(); err != nil {
+			assistantsSaveCmd = common.ReportError("saving assistants", err, "Failed to save assistant settings")
+		}
+	}
+	return common.SafeBatch(saveCmd, assistantsSaveCmd)
 }

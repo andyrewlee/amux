@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -48,6 +49,11 @@ func applyHarnessOverlay(app *App, overlay string) {
 		// theme selection into testdata/golden and fail CI on a clean checkout.
 		// ThemeGruvbox matches the chrome theme.Init() installs in the harness.
 		app.settingsDialog = common.NewSettingsDialog(common.ThemeGruvbox, "", "", "")
+		// Use the canonical built-in registry (not app.config.Assistants) for the
+		// same reason as ThemeGruvbox above: app.config is loaded from the real
+		// ~/.amux/config.json, whose "assistants" overrides are machine-specific
+		// and would make the golden frame non-reproducible across checkouts.
+		app.settingsDialog.SetAssistants(config.AgentNames(), harnessAssistantCommands())
 		app.settingsDialog.SetSize(app.width, app.height)
 		app.settingsDialog.SetUpdateInfo(app.version, "", false)
 		app.settingsDialog.Show()
@@ -69,6 +75,18 @@ func applyHarnessOverlay(app *App, overlay string) {
 		)
 		app.presentDialog(app.dialog)
 	}
+}
+
+// harnessAssistantCommands returns the built-in registry's default commands,
+// keyed by name, for the settings overlay's Assistants section. Built from
+// config.AgentRegistry (a compile-time constant) rather than a loaded Config
+// so it never varies by machine or config.json contents.
+func harnessAssistantCommands() map[string]string {
+	commands := make(map[string]string, len(config.AgentRegistry))
+	for _, def := range config.AgentRegistry {
+		commands[def.Name] = def.DefaultCommand
+	}
+	return commands
 }
 
 func validateHarnessOverlay(overlay string) error {
