@@ -85,7 +85,7 @@ func (s *SettingsDialog) clampScrollOffset(fullHits []settingsHitRegion, bodyLen
 		return 0
 	}
 
-	if idx := focusedBodyIndex(fullHits, s.focusedItem, s.themeCursor); idx >= 0 {
+	if idx := focusedBodyIndex(fullHits, s.focusedItem, s.themeCursor, s.assistantCursor); idx >= 0 {
 		switch {
 		case idx < s.scrollOffset:
 			s.scrollOffset = idx
@@ -107,12 +107,21 @@ func (s *SettingsDialog) clampScrollOffset(fullHits []settingsHitRegion, bodyLen
 // header) of the currently focused item using the hit regions renderLines
 // already records for every focusable row. It returns -1 when the focused
 // item has no body row (settingsItemClose, rendered in the fixed footer).
-func focusedBodyIndex(hits []settingsHitRegion, focused settingsItem, themeCursor int) int {
+//
+// settingsItemTheme and settingsItemAssistants each pack multiple rows under
+// one settingsItem (themeCursor / assistantCursor selects which), so a
+// matching item alone is not enough to identify the row -- both cursors must
+// also be checked, or focus would always resolve to the first hit recorded
+// for that item regardless of which row is actually selected.
+func focusedBodyIndex(hits []settingsHitRegion, focused settingsItem, themeCursor, assistantCursor int) int {
 	for _, h := range hits {
 		if h.item != focused {
 			continue
 		}
 		if focused == settingsItemTheme && h.index != themeCursor {
+			continue
+		}
+		if focused == settingsItemAssistants && h.index != assistantCursor {
 			continue
 		}
 		return h.region.Y - settingsHeaderLines

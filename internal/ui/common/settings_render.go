@@ -77,6 +77,25 @@ func (s *SettingsDialog) renderLines() []string {
 	}
 	lines = append(lines, "")
 
+	// Assistants section: one row per roster entry (name + editable command).
+	// Only rendered when a roster was set via SetAssistants (production always
+	// sets one; dialogs built directly in tests without it simply show no
+	// rows, matching how an empty theme/update list would render).
+	if len(s.assistantNames) > 0 {
+		lines = append(lines, label.Render("Assistants"))
+		for i, name := range s.assistantNames {
+			style, prefix := muted, "  "
+			if s.focusedItem == settingsItemAssistants && i == s.assistantCursor {
+				style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+				prefix = Icons.Cursor + " "
+			}
+			y := len(lines)
+			lines = append(lines, prefix+style.Render(name+": "+s.assistantCommands[name]))
+			s.addHit(settingsItemAssistants, i, y)
+		}
+		lines = append(lines, "")
+	}
+
 	lines = append(lines, label.Render("Version"))
 	if s.currentVersion == "" || s.currentVersion == "dev" {
 		lines = append(lines, muted.Render("  Development build"))

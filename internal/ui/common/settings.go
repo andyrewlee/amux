@@ -31,6 +31,7 @@ const (
 	settingsItemTmuxServer
 	settingsItemTmuxConfig
 	settingsItemTmuxSync
+	settingsItemAssistants
 	settingsItemUpdate // only shown when update available
 	settingsItemClose
 )
@@ -57,6 +58,17 @@ type SettingsDialog struct {
 	tmuxServer       string
 	tmuxConfigPath   string
 	tmuxSyncInterval string
+
+	// Assistant roster values. assistantNames is the fixed, ordered display
+	// list for the dialog's lifetime (set via SetAssistants); assistantCommands
+	// holds the (possibly edited) command string per assistant name, persisted
+	// to the config's "assistants" map on close. Only an existing assistant's
+	// command is editable in this first cut -- adding a brand-new assistant
+	// name needs a different input model (a name field plus validation) and is
+	// deferred; see plan 031.
+	assistantNames    []string
+	assistantCommands map[string]string
+	assistantCursor   int
 
 	// UI state
 	focusedItem settingsItem
@@ -174,6 +186,9 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		// list-navigation switch so those characters are not swallowed as motions.
 		if isTmuxField(s.focusedItem) {
 			return s.handleTmuxFieldKey(msg)
+		}
+		if isAssistantsField(s.focusedItem) {
+			return s.handleAssistantFieldKey(msg)
 		}
 
 		switch {
@@ -319,7 +334,7 @@ func (s *SettingsDialog) handlePrevSection() (*SettingsDialog, tea.Cmd) {
 	s.focusedItem--
 	// Skip update item if no update available, landing on the item before it.
 	if s.focusedItem == settingsItemUpdate && !s.updateAvailable {
-		s.focusedItem = settingsItemTmuxSync
+		s.focusedItem = settingsItemAssistants
 	}
 	if s.focusedItem < 0 {
 		s.focusedItem = settingsItemClose
@@ -381,6 +396,9 @@ func (s *SettingsDialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 			s.focusedItem = hit.item
 			if hit.item == settingsItemTheme && hit.index >= 0 {
 				s.themeCursor = hit.index
+			}
+			if hit.item == settingsItemAssistants && hit.index >= 0 {
+				s.assistantCursor = hit.index
 			}
 			_, cmd := s.handleSelect()
 			return cmd
