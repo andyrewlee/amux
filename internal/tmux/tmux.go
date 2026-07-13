@@ -17,6 +17,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/process"
+	"github.com/andyrewlee/amux/internal/shellutil"
 )
 
 type Options struct {
@@ -163,10 +164,10 @@ func SessionStateFor(sessionName string, opts Options) (SessionState, error) {
 func tmuxBase(opts Options) string {
 	base := "tmux"
 	if opts.ServerName != "" {
-		base = fmt.Sprintf("%s -L %s", base, shellQuote(opts.ServerName))
+		base = fmt.Sprintf("%s -L %s", base, shellutil.ShellQuote(opts.ServerName))
 	}
 	if opts.ConfigPath != "" {
-		base = fmt.Sprintf("%s -f %s", base, shellQuote(opts.ConfigPath))
+		base = fmt.Sprintf("%s -f %s", base, shellutil.ShellQuote(opts.ConfigPath))
 	}
 	return base
 }
@@ -490,11 +491,4 @@ func parseOutputLines(output []byte) []string {
 		}
 	}
 	return result
-}
-
-func shellQuote(value string) string {
-	if value == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

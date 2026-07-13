@@ -92,5 +92,6 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/logging` | File-based logger; the output channel for internal packages | `logger.go` |
 | `internal/messages` | Shared Bubble Tea message vocabulary between pump and panes | `messages.go` |
 | `internal/validation` | Input/path guards (assistant, base ref, project path, workspace) | `validation.go` |
+| `internal/shellutil` | Shared shell-quoting primitive (POSIX single-quote escaping) | `shellutil.go` |
 | `internal/testutil` | Shared test polling helpers (deadline/poll loops with consistent failure messaging) | `wait.go` |
 | `internal/e2e` | PTY-driven end-to-end tests exercising the real binary | (tests) |

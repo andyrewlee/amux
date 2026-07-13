@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/shellutil"
 )
 
 func TestInstallBinary(t *testing.T) {
@@ -312,7 +314,7 @@ func TestInstallBinarySwapFailsRestoreFails(t *testing.T) {
 	if !strings.Contains(err.Error(), backupPath) {
 		t.Errorf("Expected error to name backup path %q, got: %v", backupPath, err)
 	}
-	wantHint := "mv " + shellQuote(backupPath) + " " + shellQuote(destPath)
+	wantHint := "mv " + shellutil.ShellQuote(backupPath) + " " + shellutil.ShellQuote(destPath)
 	if !strings.Contains(err.Error(), wantHint) {
 		t.Errorf("Expected error to include quoted manual recovery hint %q, got: %v", wantHint, err)
 	}
