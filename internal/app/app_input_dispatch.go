@@ -25,7 +25,8 @@ import (
 //	                       → service_update.go
 //	updateTabMsg           OpenDiff, CloseTab, LaunchAgent, TabCreated/Closed/
 //	                       Detached/Reattached/StateChanged/SelectionChanged,
-//	                       persistDebounceMsg, center.TabInputFailed
+//	                       persistDebounceMsg, persistSaveFailedMsg,
+//	                       center.TabInputFailed
 //	                       → app_input_messages_center.go, app_persistence.go
 //	updateTmuxMsg          CleanupTmuxSessions, SpinnerTick, GitStatusTick,
 //	                       OrphanGCTick, PTYWatchdogTick, tmuxActivityTick/
@@ -151,6 +152,8 @@ func (a *App) updateTabMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		*cmds = append(*cmds, a.persistWorkspaceTabs(msg.WorkspaceID))
 	case persistDebounceMsg:
 		*cmds = append(*cmds, a.handlePersistDebounce(msg))
+	case persistSaveFailedMsg:
+		*cmds = append(*cmds, a.handlePersistSaveFailed(msg))
 	case center.TabInputFailed:
 		*cmds = append(*cmds, a.handleTabInputFailed(msg)...)
 	default:
