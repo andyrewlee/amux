@@ -271,3 +271,120 @@ func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
 		t.Fatal("expected workspace to be cleared from dirty set after save")
 	}
 }
+
+// TestHandlePersistDebounceReDirtiesWorkspaceOnSaveFailure proves a failed
+// debounced Save is not silently dropped: the save goroutine reports the
+// failure via persistSaveFailedMsg (it must not touch a.lifecycle.dirty
+// itself — that's App state, single-writer on the Update loop), and
+// handlePersistSaveFailed — the Update-loop handler for that message —
+// re-dirties the workspace so a later debounce or clean shutdown retries it.
+func TestHandlePersistDebounceReDirtiesWorkspaceOnSaveFailure(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	wsID := string(ws.ID())
+
+	store := &failingDeleteStore{saveErr: errors.New("disk full")}
+	svc := newWorkspaceService(nil, store, nil, "")
+
+	c := center.New(nil)
+	c.SetWorkspace(ws)
+	c.AddTab(&center.Tab{
+		Name:      "agent",
+		Assistant: "claude",
+		Workspace: ws,
+	})
+
+	app := &App{
+		center:           c,
+		workspaceService: svc,
+		projects:         []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
+		lifecycle: workspaceLifecycleState{
+			persistToken: 1,
+			dirty:        map[string]bool{wsID: true},
+			localSavesAt: make(map[string]localWorkspaceSaveMarker),
+		},
+	}
+
+	cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1})
+	if cmd == nil {
+		t.Fatal("expected a save command for the dirty workspace")
+	}
+	// handlePersistDebounce clears the dirty marker synchronously at
+	// snapshot-collection time; the save itself (and any re-dirty on
+	// failure) happens later, when the returned Cmd runs.
+	if app.lifecycle.dirty[wsID] {
+		t.Fatal("expected dirty marker cleared at snapshot time, before save runs")
+	}
+
+	msg := cmd()
+	if store.saved == nil {
+		t.Fatal("expected Save to have been called")
+	}
+	failMsg, ok := msg.(persistSaveFailedMsg)
+	if !ok {
+		t.Fatalf("expected persistSaveFailedMsg on save failure, got %T", msg)
+	}
+	if len(failMsg.workspaceIDs) != 1 || failMsg.workspaceIDs[0] != wsID {
+		t.Fatalf("expected failed workspace IDs to be [%s], got %v", wsID, failMsg.workspaceIDs)
+	}
+
+	// The Update loop (not the save goroutine) performs the re-dirty.
+	reDirtyCmd := app.handlePersistSaveFailed(failMsg)
+	if reDirtyCmd == nil {
+		t.Fatal("expected a rescheduled debounce command after save failure")
+	}
+	if !app.lifecycle.dirty[wsID] {
+		t.Fatal("expected workspace to be re-dirtied after save failure")
+	}
+}
+
+// TestHandlePersistDebounceSuccessDoesNotReDirty is the control case for
+// TestHandlePersistDebounceReDirtiesWorkspaceOnSaveFailure: a successful save
+// must not emit persistSaveFailedMsg and must leave the workspace clean.
+func TestHandlePersistDebounceSuccessDoesNotReDirty(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	wsID := string(ws.ID())
+
+	storeRoot := t.TempDir()
+	store := data.NewWorkspaceStore(storeRoot)
+	svc := newWorkspaceService(nil, store, nil, "")
+
+	c := center.New(nil)
+	c.SetWorkspace(ws)
+	c.AddTab(&center.Tab{
+		Name:      "agent",
+		Assistant: "claude",
+		Workspace: ws,
+	})
+
+	app := &App{
+		center:           c,
+		workspaceService: svc,
+		projects:         []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
+		lifecycle: workspaceLifecycleState{
+			persistToken: 1,
+			dirty:        map[string]bool{wsID: true},
+			localSavesAt: make(map[string]localWorkspaceSaveMarker),
+		},
+	}
+
+	cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1})
+	if cmd == nil {
+		t.Fatal("expected a save command for the dirty workspace")
+	}
+
+	msg := cmd()
+	if msg != nil {
+		t.Fatalf("expected nil tea.Msg on successful save, got %T", msg)
+	}
+	if app.lifecycle.dirty[wsID] {
+		t.Fatal("expected workspace to remain clean after a successful save")
+	}
+
+	loaded, err := store.Load(ws.ID())
+	if err != nil {
+		t.Fatalf("load after persistence: %v", err)
+	}
+	if len(loaded.OpenTabs) == 0 {
+		t.Fatal("expected workspace tabs to be persisted")
+	}
+}

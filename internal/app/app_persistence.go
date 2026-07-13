@@ -50,6 +50,17 @@ type persistDebounceMsg struct {
 	token persistToken
 }
 
+// persistSaveFailedMsg is returned by the debounced-save Cmd goroutine when one
+// or more workspace saves fail. a.lifecycle.dirty is App state and must be
+// mutated only on the Update loop (see workspaceLifecycleState.dirty's doc
+// comment: "Touched only from App.Update handlers (single writer)"), so the
+// goroutine cannot re-mark a workspace dirty itself. It reports the failure
+// via this message instead; handlePersistSaveFailed does the actual re-dirty
+// on the Update loop.
+type persistSaveFailedMsg struct {
+	workspaceIDs []string
+}
+
 // persistWorkspaceTabs marks a workspace dirty and schedules a debounced save.
 func (a *App) persistWorkspaceTabs(wsID string) tea.Cmd {
 	if wsID == "" {
@@ -128,6 +139,7 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	}
 	service := a.workspaceService
 	return func() tea.Msg {
+		var failedIDs []string
 		for _, snap := range snapshots {
 			wsID := string(snap.ID())
 			var saveErr error
@@ -139,12 +151,34 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 			}
 			if saveErr != nil {
 				logging.Warn("Failed to save workspace tabs: %v", saveErr)
+				// Do not touch a.lifecycle.dirty here — this runs in a Cmd
+				// goroutine, not on the Update loop. Report the failure via a
+				// message so handlePersistSaveFailed can re-dirty safely.
+				failedIDs = append(failedIDs, wsID)
 			} else {
 				// Marker bookkeeping is intentionally outside delete-state guard.
 				// Delete safety is enforced by the guarded Save above.
 				a.markLocalWorkspaceSaveForID(wsID)
 			}
 		}
-		return nil
+		if len(failedIDs) == 0 {
+			return nil
+		}
+		return persistSaveFailedMsg{workspaceIDs: failedIDs}
 	}
+}
+
+// handlePersistSaveFailed re-marks workspaces dirty after their debounced save
+// failed, so the next debounce (or clean shutdown) retries the save. This is
+// the Update-loop counterpart to the persistSaveFailedMsg emitted from the
+// save goroutine above: persistWorkspaceTabs mutates a.lifecycle.dirty, and it
+// must only ever be called from here, not from that goroutine.
+func (a *App) handlePersistSaveFailed(msg persistSaveFailedMsg) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, wsID := range msg.workspaceIDs {
+		if cmd := a.persistWorkspaceTabs(wsID); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return common.SafeBatch(cmds...)
 }
