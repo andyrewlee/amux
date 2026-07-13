@@ -44,7 +44,12 @@ func (a *App) composeCenterPane(canvas *lipgloss.Canvas, leftGutter, topGutter, 
 		a.composeCenterTerminalLayer(canvas, centerX, topGutter, centerWidth, centerHeight, termLayer, centerOwnsCursor, setTerminalCursor)
 		return
 	}
-	// Fallback to string-based rendering with borders (no caching - content changes)
+	// Fallback to string-based rendering with borders. The content string still
+	// has to be rebuilt each frame (it can change — e.g. the diff viewer while
+	// scrolling), but it is content-keyed through drawableCache so a stable
+	// pane (the common case: unfocused/no-tab center pane renders byte-identical
+	// content every frame) reuses the same *StringDrawable and amortizes its
+	// one-time cell parse across frames instead of re-parsing on every compose.
 	a.renderCache.centerChrome.Invalidate()
 	var centerContent string
 	if a.center.HasTabs() {
@@ -53,8 +58,9 @@ func (a *App) composeCenterPane(canvas *lipgloss.Canvas, leftGutter, topGutter, 
 		centerContent = a.renderCenterPaneContent()
 	}
 	centerView := buildBorderedPane(centerContent, centerWidth, centerHeight)
-	centerDrawable := compositor.NewStringDrawable(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter)
-	canvas.Compose(centerDrawable)
+	if centerDrawable := a.renderCache.centerContent.get(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter); centerDrawable != nil {
+		canvas.Compose(centerDrawable)
+	}
 }
 
 // composeCenterTerminalLayer draws the center pane's direct VTerm layer plus its
