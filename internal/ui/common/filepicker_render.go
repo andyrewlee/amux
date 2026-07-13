@@ -22,33 +22,16 @@ func (fp *FilePicker) View() string {
 const filePickerContentWidth = 55
 
 func (fp *FilePicker) dialogStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorPrimary()).
-		Padding(1, 2).
-		Width(filePickerContentWidth)
+	return dialogBorderStyle(filePickerContentWidth)
 }
 
 func (fp *FilePicker) dialogFrame() (frameX, frameY, offsetX, offsetY int) {
-	frameX, frameY = fp.dialogStyle().GetFrameSize()
-	offsetX = frameX / 2
-	offsetY = frameY / 2
-	return frameX, frameY, offsetX, offsetY
+	return dialogFrameOffsets(fp.dialogStyle())
 }
 
 func (fp *FilePicker) dialogBounds(contentHeight int) (x, y, w, h int) {
 	frameX, frameY, _, _ := fp.dialogFrame()
-	w = filePickerContentWidth + frameX
-	h = contentHeight + frameY
-	x = (fp.width - w) / 2
-	y = (fp.height - h) / 2
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	return x, y, w, h
+	return centerDialogBounds(fp.width, fp.height, filePickerContentWidth, frameX, frameY, contentHeight)
 }
 
 func (fp *FilePicker) renderLines() []string {

@@ -5,22 +5,12 @@ import (
 )
 
 func (s *SettingsDialog) dialogFrame() (frameX, frameY, offsetX, offsetY int) {
-	frameX, frameY = s.dialogStyle().GetFrameSize()
-	return frameX, frameY, frameX / 2, frameY / 2
+	return dialogFrameOffsets(s.dialogStyle())
 }
 
 func (s *SettingsDialog) dialogBounds(contentHeight int) (x, y, w, h int) {
-	contentWidth := s.dialogContentWidth()
 	frameX, frameY, _, _ := s.dialogFrame()
-	w, h = contentWidth+frameX, contentHeight+frameY
-	x, y = (s.width-w)/2, (s.height-h)/2
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	return x, y, w, h
+	return centerDialogBounds(s.width, s.height, s.dialogContentWidth(), frameX, frameY, contentHeight)
 }
 
 func (s *SettingsDialog) addHit(item settingsItem, index, y int) {
