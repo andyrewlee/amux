@@ -25,7 +25,7 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 GOLANGCI ?= golangci-lint
 lint lint-strict lint-strict-new lint-ci-parity check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test test-race tidy-check govulncheck ci bench lint lint-tools lint-strict lint-strict-new lint-ci-parity check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
+.PHONY: build install test test-race tidy-check govulncheck ci bench lint lint-tools lint-strict lint-strict-new lint-ci-parity lint-config-drift check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -79,6 +79,7 @@ devcheck:
 	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
 	go test $$filtered
 	@$(MAKE) --no-print-directory tmux-skip-check
+	$(MAKE) lint-config-drift
 	$(MAKE) lint
 
 # tmux-skip-check is the single `make test`/`make devcheck` execution of the
@@ -242,6 +243,22 @@ check-file-length:
 	@echo "Checking file lengths (max 500 lines)..."
 	@find . -name '*.go' -exec wc -l {} + | awk '!/total$$/ && $$1 > 500 { print "ERROR: " $$2 " has " $$1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
 
+# lint-config-drift guards the invariant that .golangci.strict.yml is
+# .golangci.yml verbatim plus strict-only additions (every baseline line is
+# present in strict). golangci-lint v2 has no config `extends`, so this is the
+# only thing stopping the shared region from silently drifting apart when
+# someone edits a shared rule in only one file. Uses process substitution,
+# hence the target-specific bash SHELL (the Makefile's default recipe shell
+# is /bin/sh, which on some platforms is dash and doesn't support `<(...)`).
+lint-config-drift: SHELL := bash
+lint-config-drift: ## Fail if strict lint config drifts from the baseline
+	@missing="$$(comm -23 <(sort .golangci.yml) <(sort .golangci.strict.yml))"; \
+	if [ -n "$$missing" ]; then \
+		echo "ERROR: .golangci.strict.yml is missing baseline lines (drift):"; \
+		echo "$$missing"; \
+		exit 1; \
+	fi
+
 fmt:
 	$(GOFUMPT) -extra -w .
 	goimports -w .
@@ -286,6 +303,7 @@ help:
 	@echo "  lint-strict - Run stricter lint profile across the whole repo"
 	@echo "  lint-strict-new - Run stricter lint profile only on changed code (optionally BASE=<git-rev>)"
 	@echo "  lint-ci-parity - Run strict changed-code lint using merge-base with BASE_REF (default origin/main)"
+	@echo "  lint-config-drift - Fail if .golangci.strict.yml is missing lines present in .golangci.yml (baseline drift)"
 	@echo "  check-file-length - Check Go file lengths only (max 500 lines)"
 	@echo "  fmt        - Format code with gofumpt and goimports"
 	@echo "  fmt-check  - Check gofumpt formatting (for CI)"
