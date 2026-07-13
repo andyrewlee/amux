@@ -376,7 +376,21 @@ func TestResizeGrowReservesTrackedCaptureEndOffset(t *testing.T) {
 	}
 }
 
-func TestScrollUpCustomScrollRegionPreservesTrackedAltScreenCaptureReplacement(t *testing.T) {
+// TestScrollUpCustomScrollRegionSkipsTrackedAltScreenCaptureBookkeeping
+// covers a scroll region with a non-zero top margin (ScrollTop=1, i.e. row 0
+// is excluded, as a TUI would do to pin a status line) on the alt screen with
+// AllowAltScreenScrollback. Per plan 046 (only feed scrollback when the
+// scroll region is top-anchored), scrollUp must not treat a line scrolled off
+// a partial region's top margin as having reached the top of the physical
+// screen: it must not append to Scrollback and must not bump
+// altCapture.endOffset. Previously this test asserted the opposite (endOffset
+// became 1 and the scrolled-off "one" row was preserved) — that pinned the
+// bug this plan fixes. With the fix, the next captureScreenToScrollback finds
+// no tracked-frame overlap with the fully-redrawn screen (frameShiftOverlap
+// requires an exact suffix/prefix match, and "one" is gone from row 0) and
+// falls back to the same drop-and-replace path already covered by
+// TestAltScreenEraseNoOverlapWhenContentDiffers.
+func TestScrollUpCustomScrollRegionSkipsTrackedAltScreenCaptureBookkeeping(t *testing.T) {
 	t.Parallel()
 	vt := New(10, 4)
 	vt.AllowAltScreenScrollback = true
@@ -406,13 +420,13 @@ func TestScrollUpCustomScrollRegionPreservesTrackedAltScreenCaptureReplacement(t
 	vt.scrollUp(1)
 	vt.Screen[3] = makeLine("four")
 
-	if vt.altCapture.endOffset != 1 {
-		t.Fatalf("endOffset = %d, want 1 after region scroll", vt.altCapture.endOffset)
+	if vt.altCapture.endOffset != 0 {
+		t.Fatalf("endOffset = %d, want 0 (non-top-anchored region scroll must not feed capture bookkeeping)", vt.altCapture.endOffset)
 	}
 
 	vt.captureScreenToScrollback()
 
-	want := []string{"one", "status", "two", "three", "four"}
+	want := []string{"status", "two", "three", "four"}
 	if len(vt.Scrollback) != len(want) {
 		dumpScrollback(t, vt)
 		t.Fatalf("scrollback length = %d, want %d", len(vt.Scrollback), len(want))
