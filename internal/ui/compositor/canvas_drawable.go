@@ -7,6 +7,14 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// parsedCell is a single decoded grapheme from a StringDrawable's content,
+// ready to be blitted onto the screen without re-parsing ANSI sequences.
+type parsedCell struct {
+	content string
+	style   uv.Style
+	width   int
+}
+
 // StringDrawable wraps a styled ANSI string to implement uv.Drawable.
 // This allows string-based content to be composed onto a lipgloss.Canvas.
 type StringDrawable struct {
@@ -15,21 +23,31 @@ type StringDrawable struct {
 	width   int
 	height  int
 	lines   []string
+	cells   [][]parsedCell
 }
 
 // Ensure StringDrawable implements uv.Drawable
 var _ uv.Drawable = (*StringDrawable)(nil)
 
 // NewStringDrawable creates a drawable from a styled string at the given position.
+//
+// ANSI decoding (SGR styling + grapheme segmentation) happens once here
+// rather than on every Draw call, since content is immutable per instance
+// and drawableCache/borderCache reuse the same *StringDrawable across frames
+// for byte-identical content.
 func NewStringDrawable(content string, x, y int) *StringDrawable {
 	lines := strings.Split(content, "\n")
 	width := 0
+	totalWidth := 0
 	for _, line := range lines {
-		if w := ansi.StringWidth(line); w > width {
+		w := ansi.StringWidth(line)
+		totalWidth += w
+		if w > width {
 			width = w
 		}
 	}
-	return &StringDrawable{
+
+	d := &StringDrawable{
 		content: content,
 		x:       x,
 		y:       y,
@@ -37,35 +55,32 @@ func NewStringDrawable(content string, x, y int) *StringDrawable {
 		height:  len(lines),
 		lines:   lines,
 	}
-}
 
-// Draw renders the string onto the screen buffer.
-func (d *StringDrawable) Draw(screen uv.Screen, r uv.Rectangle) {
-	if d.content == "" {
-		return
+	if content == "" {
+		return d
 	}
 
 	p := ansi.GetParser()
 	defer ansi.PutParser(p)
 
+	// Total cell count across all lines never exceeds the sum of display
+	// widths (every grapheme is at least 1 column wide), so totalWidth gives
+	// an exact-or-over capacity bound. Cells for all lines share one flat
+	// backing array, sized once, to keep allocations to a small constant
+	// number instead of one growing slice per line.
+	cells := make([][]parsedCell, len(lines))
+	flat := make([]parsedCell, 0, totalWidth)
 	var style uv.Style
 	var state byte
-	for lineIdx, line := range d.lines {
-		screenY := d.y + lineIdx
-		if screenY < r.Min.Y || screenY >= r.Max.Y {
-			continue
-		}
-
-		// Parse ANSI styled string and write cells
-		screenX := d.x
-
+	for lineIdx, line := range lines {
+		start := len(flat)
 		for len(line) > 0 {
-			seq, width, n, newState := ansi.DecodeSequence(line, state, p)
+			seq, w, n, newState := ansi.DecodeSequence(line, state, p)
 			if n == 0 {
 				break
 			}
 
-			if width == 0 {
+			if w == 0 {
 				// Control sequence - check for SGR
 				cmd := ansi.Cmd(p.Command())
 				if cmd.Final() == 'm' {
@@ -73,19 +88,43 @@ func (d *StringDrawable) Draw(screen uv.Screen, r uv.Rectangle) {
 				}
 			} else {
 				// Printable grapheme
-				if screenX >= r.Min.X && screenX < r.Max.X {
-					cell := getCell()
-					cell.Content = seq
-					cell.Style = style
-					cell.Width = width
-					screen.SetCell(screenX, screenY, cell)
-					putCell(cell)
-				}
-				screenX += width
+				flat = append(flat, parsedCell{content: seq, style: style, width: w})
 			}
 
 			line = line[n:]
 			state = newState
+		}
+		cells[lineIdx] = flat[start:len(flat):len(flat)]
+	}
+	d.cells = cells
+
+	return d
+}
+
+// Draw renders the string onto the screen buffer by blitting the cells
+// parsed once in NewStringDrawable.
+func (d *StringDrawable) Draw(screen uv.Screen, r uv.Rectangle) {
+	if d.content == "" {
+		return
+	}
+
+	for lineIdx, lineCells := range d.cells {
+		screenY := d.y + lineIdx
+		if screenY < r.Min.Y || screenY >= r.Max.Y {
+			continue
+		}
+
+		screenX := d.x
+		for _, pc := range lineCells {
+			if screenX >= r.Min.X && screenX < r.Max.X {
+				cell := getCell()
+				cell.Content = pc.content
+				cell.Style = pc.style
+				cell.Width = pc.width
+				screen.SetCell(screenX, screenY, cell)
+				putCell(cell)
+			}
+			screenX += pc.width
 		}
 	}
 }

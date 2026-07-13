@@ -101,6 +101,7 @@ type renderCacheState struct {
 	sidebarBottomHelp    drawableCache
 	sidebarTopBorders    borderCache
 	sidebarBottomBorders borderCache
+	centerContent        drawableCache
 	centerTabBar         drawableCache
 	centerStatus         drawableCache
 	centerHelp           drawableCache
