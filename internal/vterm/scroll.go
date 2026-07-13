@@ -14,8 +14,11 @@ func (v *VTerm) scrollUp(n int) {
 		n = regionHeight
 	}
 
-	// Capture lines to scrollback (skip alt screen unless explicitly enabled)
-	if v.scrollbackEnabled() {
+	// Capture lines to scrollback (skip alt screen unless explicitly enabled;
+	// only a top-anchored region feeds scrollback per xterm/DEC semantics —
+	// lines scrolled off a partial region's top margin are discarded, not
+	// saved, since they never reached the top of the physical screen).
+	if v.scrollbackEnabled() && v.ScrollTop == 0 {
 		top := v.ScrollTop
 		bottom := top + n
 		if bottom > v.ScrollBottom {
