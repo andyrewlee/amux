@@ -98,6 +98,21 @@ func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDi
 	a.dialog.SetInputValue(msg.Workspace.Name)
 }
 
+// handleShowWorkspaceEnvDialog shows the workspace environment-variable
+// editor, seeded from a copy of the workspace's current Env with reserved
+// keys (process.IsReservedScriptEnvKey -- the AMUX_*/ROOT_* names env.go
+// injects) excluded up front, so they can never appear as an editable or
+// removable row. Mirrors handleShowRenameWorkspaceDialog's show-time setup.
+func (a *App) handleShowWorkspaceEnvDialog(msg messages.ShowWorkspaceEnvDialog) {
+	if msg.Workspace == nil {
+		return
+	}
+	a.envDialogWorkspace = msg.Workspace
+	a.envDialog = common.NewEnvDialog(filterReservedEnv(msg.Workspace.Env))
+	a.envDialog.SetSize(a.width, a.height)
+	a.envDialog.Show()
+}
+
 // handleShowCommitWorkspaceDialog shows the commit-message input dialog for a
 // workspace's changes. The message the user types is the confirmation gesture;
 // on confirm handleDialogResult stages and commits via git.CommitAll. Esc
@@ -408,4 +423,56 @@ func (a *App) handleSettingsResult(res common.SettingsResult) tea.Cmd {
 		}
 	}
 	return common.SafeBatch(saveCmd, assistantsSaveCmd)
+}
+
+// filterReservedEnv drops any reserved-key (process.IsReservedScriptEnvKey)
+// or blank-key entry from env, returning a fresh map. It is used both to seed
+// the env dialog (so a reserved key can never appear as an editable row) and,
+// defensively, again right before persisting the dialog's read-back map --
+// the one place that actually writes ws.Env -- so "reserved keys are never
+// written" holds even if a future change to EnvDialog ever let one slip
+// through the seed-time filter.
+func filterReservedEnv(env map[string]string) map[string]string {
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		if k == "" || process.IsReservedScriptEnvKey(k) {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// handleEnvDialogResult handles the workspace env dialog's close. On cancel,
+// every edit is discarded: no mutation, no persist, matching the settings
+// dialog's Esc contract (handleSettingsResult above). On confirm, the edited
+// map is filtered (see filterReservedEnv) and persisted via
+// WorkspaceStore.SetEnv -- the same load-fresh-then-save shape
+// handleRenameWorkspace's store.Rename call uses for its Tier-1 field update,
+// so a stale in-memory copy held for the dialog's lifetime cannot clobber a
+// field another in-flight operation changed concurrently.
+func (a *App) handleEnvDialogResult(res common.EnvDialogResult) tea.Cmd {
+	ws := a.envDialogWorkspace
+	a.envDialogWorkspace = nil
+	dialog := a.envDialog
+	a.envDialog = nil
+
+	if res.Canceled || ws == nil || dialog == nil {
+		return nil
+	}
+	env := filterReservedEnv(dialog.Env())
+
+	if a.workspaceService == nil || a.workspaceService.store == nil {
+		return nil
+	}
+	if err := a.workspaceService.store.SetEnv(ws.ID(), env); err != nil {
+		return common.ReportError(errorContext(errorServiceWorkspace, "saving workspace environment"), err, "")
+	}
+	// Reflect the change immediately on the in-memory active workspace, like
+	// handleRenameWorkspace does for Name, so the app's own view of the
+	// workspace does not go stale until the next reload.
+	if a.activeWorkspace != nil && a.activeWorkspace.Root == ws.Root {
+		a.activeWorkspace.Env = env
+	}
+	return a.toast.ShowSuccess("Updated environment for " + ws.Name)
 }

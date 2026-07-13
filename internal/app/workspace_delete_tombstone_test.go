@@ -29,6 +29,9 @@ func (s *failingTombstoneWorkspaceStore) UpsertFromDiscovery(*data.Workspace) er
 func (s *failingTombstoneWorkspaceStore) Save(*data.Workspace) error                { return nil }
 func (s *failingTombstoneWorkspaceStore) Delete(data.WorkspaceID) error             { return s.deleteErr }
 func (s *failingTombstoneWorkspaceStore) Rename(data.WorkspaceID, string) error     { return nil }
+func (s *failingTombstoneWorkspaceStore) SetEnv(data.WorkspaceID, map[string]string) error {
+	return nil
+}
 
 func (s *failingTombstoneWorkspaceStore) ResolvedDefaultAssistant() string {
 	return data.DefaultAssistant

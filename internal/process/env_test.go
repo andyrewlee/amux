@@ -216,6 +216,32 @@ func TestEnvBuilder_NilReceiver(t *testing.T) {
 	}
 }
 
+// TestIsReservedScriptEnvKey_MatchesUnexported pins the exported wrapper's
+// only contract: it must agree with isReservedScriptEnvKey for every name
+// BuildEnv actually injects, plus an arbitrary non-reserved name, so the
+// workspace env editor (internal/ui/common's EnvDialog, via internal/app)
+// cannot drift from the list this package enforces at injection time.
+func TestIsReservedScriptEnvKey_MatchesUnexported(t *testing.T) {
+	reserved := []string{
+		"AMUX_WORKSPACE_NAME",
+		"AMUX_WORKSPACE_ROOT",
+		"AMUX_WORKSPACE_BRANCH",
+		"ROOT_WORKSPACE_PATH",
+		"AMUX_PORT",
+		"AMUX_PORT_RANGE",
+	}
+	for _, key := range reserved {
+		if !IsReservedScriptEnvKey(key) {
+			t.Errorf("IsReservedScriptEnvKey(%q) = false, want true", key)
+		}
+	}
+	for _, key := range []string{"CUSTOM_VAR", "", "NODE_ENV"} {
+		if IsReservedScriptEnvKey(key) {
+			t.Errorf("IsReservedScriptEnvKey(%q) = true, want false", key)
+		}
+	}
+}
+
 func envSliceMap(env []string) map[string]string {
 	out := make(map[string]string, len(env))
 	for _, kv := range env {

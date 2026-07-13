@@ -25,6 +25,7 @@ type WorkspaceStore interface {
 	Save(workspace *data.Workspace) error
 	Delete(id data.WorkspaceID) error
 	Rename(id data.WorkspaceID, newName string) error
+	SetEnv(id data.WorkspaceID, env map[string]string) error
 	ResolvedDefaultAssistant() string
 }
 

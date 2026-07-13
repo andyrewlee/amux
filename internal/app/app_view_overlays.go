@@ -43,6 +43,15 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		canvas.Compose(settingsDrawable)
 	}
 
+	// Workspace env dialog overlay
+	if a.envDialog != nil && a.envDialog.Visible() {
+		envView := a.envDialog.View()
+		envWidth, envHeight := viewDimensions(envView)
+		x, y := a.centeredPosition(envWidth, envHeight)
+		envDrawable := compositor.NewStringDrawable(envView, x, y)
+		canvas.Compose(envDrawable)
+	}
+
 	// Prefix command palette
 	if a.prefixActive {
 		palette := a.renderPrefixPalette()
@@ -209,6 +218,7 @@ func (a *App) overlayVisible() bool {
 	return (a.dialog != nil && a.dialog.Visible()) ||
 		(a.filePicker != nil && a.filePicker.Visible()) ||
 		(a.settingsDialog != nil && a.settingsDialog.Visible()) ||
+		(a.envDialog != nil && a.envDialog.Visible()) ||
 		a.prefixActive ||
 		a.err != nil
 }

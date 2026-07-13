@@ -140,6 +140,9 @@ func (a *App) updateLayout() {
 	if a.settingsDialog != nil {
 		a.settingsDialog.SetSize(a.width, a.height)
 	}
+	if a.envDialog != nil {
+		a.envDialog.SetSize(a.width, a.height)
+	}
 }
 
 func (a *App) setKeymapHintsEnabled(enabled bool) {

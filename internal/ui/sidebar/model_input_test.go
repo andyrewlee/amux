@@ -263,6 +263,56 @@ func TestInputCommitKeyNoWorkspaceIsNoOp(t *testing.T) {
 	}
 }
 
+func TestInputEnvKeyOpensDialogForFocusedWorkspace(t *testing.T) {
+	m := newInputModel(t) // dirty two-section status
+	ws := &data.Workspace{Name: "feature", Root: "/tmp/ws", Branch: "feature"}
+	m.SetWorkspace(ws)
+
+	_, cmd := m.Update(keyPress('e'))
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from env key")
+	}
+	msg := cmd()
+	show, ok := msg.(messages.ShowWorkspaceEnvDialog)
+	if !ok {
+		t.Fatalf("expected messages.ShowWorkspaceEnvDialog, got %T", msg)
+	}
+	if show.Workspace != ws {
+		t.Fatalf("ShowWorkspaceEnvDialog carried wrong workspace: %+v", show.Workspace)
+	}
+}
+
+func TestInputEnvKeyCleanTreeStillOpensDialog(t *testing.T) {
+	// Unlike the commit key, the env key has no git-status precondition: env
+	// vars are independent of the working tree.
+	m := New()
+	m.SetSize(80, 20)
+	m.Focus()
+	ws := &data.Workspace{Name: "feature", Root: "/tmp/ws"}
+	m.SetWorkspace(ws)
+	m.SetGitStatus(&git.StatusResult{Clean: true})
+
+	_, cmd := m.Update(keyPress('e'))
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from env key on a clean tree")
+	}
+	show, ok := cmd().(messages.ShowWorkspaceEnvDialog)
+	if !ok {
+		t.Fatalf("expected messages.ShowWorkspaceEnvDialog, got %T", cmd())
+	}
+	if show.Workspace != ws {
+		t.Fatalf("ShowWorkspaceEnvDialog carried wrong workspace: %+v", show.Workspace)
+	}
+}
+
+func TestInputEnvKeyNoWorkspaceIsNoOp(t *testing.T) {
+	m := newInputModel(t) // dirty status but no workspace set
+	_, cmd := m.Update(keyPress('e'))
+	if cmd != nil {
+		t.Fatalf("expected nil cmd for env key with no workspace, got a cmd emitting %T", cmd())
+	}
+}
+
 func TestInputIgnoredWhenUnfocused(t *testing.T) {
 	m := New()
 	m.SetSize(80, 20)
