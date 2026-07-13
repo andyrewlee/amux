@@ -64,6 +64,13 @@ type SettingsDialog struct {
 	themes      []Theme
 	session     int
 
+	// scrollOffset is the first visible row of the scrollable body (the
+	// section between the fixed "Settings" header and the fixed "[Close]"
+	// footer). It is recomputed on every render (see composeVisibleLines in
+	// settings_scroll.go) so it always keeps the focused row in view,
+	// without requiring every navigation handler to update it explicitly.
+	scrollOffset int
+
 	// For mouse hit detection
 	hitRegions []settingsHitRegion
 
@@ -346,7 +353,12 @@ func (s *SettingsDialog) handlePrev() (*SettingsDialog, tea.Cmd) {
 }
 
 func (s *SettingsDialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
-	lines := s.renderLines()
+	// composeVisibleLines is what View() actually renders (a height-clamped,
+	// scroll-offset window of the body plus the always-visible footer), and
+	// it remaps s.hitRegions to match those on-screen coordinates. Using the
+	// raw, unclamped renderLines() here would let clicks resolve against
+	// rows that are currently scrolled out of view.
+	lines := s.composeVisibleLines()
 	contentHeight := len(lines)
 	if contentHeight == 0 {
 		return nil
@@ -381,7 +393,7 @@ func (s *SettingsDialog) View() string {
 	if !s.visible {
 		return ""
 	}
-	return s.dialogStyle().Render(strings.Join(s.renderLines(), "\n"))
+	return s.dialogStyle().Render(strings.Join(s.composeVisibleLines(), "\n"))
 }
 
 func (s *SettingsDialog) dialogContentWidth() int {
