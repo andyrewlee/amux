@@ -75,7 +75,7 @@ func (p *Parser) parseExtendedColor(i int, color *Color) int {
 			g := p.params[i+3]
 			b := p.params[i+4]
 			color.Type = ColorRGB
-			color.Value = uint32(r)<<16 | uint32(g)<<8 | uint32(b)
+			color.Value = clampColorComponent(r)<<16 | clampColorComponent(g)<<8 | clampColorComponent(b)
 			return i + 4
 		}
 	case 5: // 256 color
@@ -86,4 +86,19 @@ func (p *Parser) parseExtendedColor(i int, color *Color) int {
 		}
 	}
 	return i + 1
+}
+
+// clampColorComponent clamps a parsed SGR truecolor component to [0,255]
+// before it is packed into a Color.Value, mirroring the string-render path's
+// sgrColorComponent (internal/ui/compositor/canvas_drawable.go). Without this,
+// an out-of-range component (e.g. `\x1b[38;2;255;300;0m`) overflows into
+// adjacent channels when shifted and packed.
+func clampColorComponent(v int) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return uint32(v)
 }

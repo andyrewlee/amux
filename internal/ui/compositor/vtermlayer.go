@@ -108,6 +108,13 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 		for x := 0; x < width && x < len(row); x++ {
 			cell := row[x]
 
+			// A wide glyph landing on the last visible column can't render its
+			// second half; substitute a blank there instead of emitting a
+			// truncated wide cell. Mirrors canvas.go's DrawScreen guard.
+			if cell.Width == 2 && x+1 >= width {
+				cell = vterm.DefaultCell()
+			}
+
 			// For continuation cells (part of wide character), write an empty cell
 			// to clear any stale content at that position from previous renders.
 			if cell.Width == 0 {
