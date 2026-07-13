@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/andyrewlee/amux/internal/shellutil"
 )
 
 // ClientCommandParams holds the parameters for building a tmux client command.
@@ -26,14 +28,14 @@ func NewClientCommand(sessionName string, p ClientCommandParams) string {
 
 func clientCommand(sessionName, workDir, command string, opts Options, tags SessionTags, detachExisting bool) string {
 	base := tmuxBase(opts)
-	session := shellQuote(sessionName)
-	optionTgt := shellQuote(exactSessionOptionTarget(sessionName))
-	sessionTgt := shellQuote(sessionTarget(sessionName))
-	dir := shellQuote(workDir)
+	session := shellutil.ShellQuote(sessionName)
+	optionTgt := shellutil.ShellQuote(exactSessionOptionTarget(sessionName))
+	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
+	dir := shellutil.ShellQuote(workDir)
 	// Strip tmux-specific vars inside managed panes so `tmux` commands do not
 	// accidentally target the AMUX control server.
 	command = "unset TMUX TMUX_PANE; " + command
-	cmd := shellQuote(command)
+	cmd := shellutil.ShellQuote(command)
 
 	// Ensure the session/server exists without attaching yet. tmux computes
 	// client features at attach time, so the server option below must be set
@@ -58,7 +60,7 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 		settings.WriteString(fmt.Sprintf("%s set-option -t %s mouse off 2>/dev/null; ", base, optionTgt))
 	}
 	if opts.DefaultTerminal != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s default-terminal %s 2>/dev/null; ", base, optionTgt, shellQuote(opts.DefaultTerminal)))
+		settings.WriteString(fmt.Sprintf("%s set-option -t %s default-terminal %s 2>/dev/null; ", base, optionTgt, shellutil.ShellQuote(opts.DefaultTerminal)))
 	}
 	// Ensure activity timestamps update for window_activity-based tracking.
 	settings.WriteString(fmt.Sprintf("%s set-option -t %s -w monitor-activity on 2>/dev/null; ", base, optionTgt))
@@ -91,7 +93,7 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 	}
 	for _, e := range entries {
 		if e.value != "" {
-			settings.WriteString(fmt.Sprintf("%s set-option -t %s %s %s 2>/dev/null; ", base, session, e.key, shellQuote(e.value)))
+			settings.WriteString(fmt.Sprintf("%s set-option -t %s %s %s 2>/dev/null; ", base, session, e.key, shellutil.ShellQuote(e.value)))
 		}
 	}
 }

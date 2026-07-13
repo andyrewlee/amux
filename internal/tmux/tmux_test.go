@@ -85,28 +85,6 @@ func TestSanitize(t *testing.T) {
 	}
 }
 
-func TestShellQuote(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"", "''"},
-		{"hello", "'hello'"},
-		{"hello world", "'hello world'"},
-		{"it's", "'it'\\''s'"},
-		{"path/to/file", "'path/to/file'"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := shellQuote(tt.input)
-			if result != tt.expected {
-				t.Errorf("shellQuote(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestDefaultOptions(t *testing.T) {
 	opts := DefaultOptions()
 

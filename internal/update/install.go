@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/andyrewlee/amux/internal/shellutil"
 )
 
 // renameFile is a seam for tests to inject rename failures.
@@ -206,7 +208,7 @@ func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 		if restoreErr := renameFile(backupPath, currentBinaryPath); restoreErr != nil {
 			return fmt.Errorf(
 				"installing new binary: %w; restoring backup also failed: %w (your previous binary is at %s — restore it manually with: mv %s %s)",
-				err, restoreErr, backupPath, shellQuote(backupPath), shellQuote(currentBinaryPath),
+				err, restoreErr, backupPath, shellutil.ShellQuote(backupPath), shellutil.ShellQuote(currentBinaryPath),
 			)
 		}
 		return fmt.Errorf("installing new binary: %w (previous binary restored)", err)
@@ -232,10 +234,6 @@ func uniqueUpgradeTempPath(dir, pattern string) (string, error) {
 		return "", err
 	}
 	return name, nil
-}
-
-func shellQuote(path string) string {
-	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 // copyFile copies a file from src to dst, preserving executable permissions.

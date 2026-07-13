@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/andyrewlee/amux/internal/shellutil"
 )
 
 const defaultLoginShell = "/bin/bash"
@@ -27,9 +29,5 @@ func LoginShellCommand(shell string) (string, error) {
 	if !filepath.IsAbs(shell) {
 		return "", fmt.Errorf("SHELL must be an absolute path: %q", shell)
 	}
-	return "exec " + shellQuote(shell) + " -l", nil
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	return "exec " + shellutil.ShellQuote(shell) + " -l", nil
 }
