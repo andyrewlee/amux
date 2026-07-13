@@ -59,6 +59,11 @@ func (a *App) handleWorkspaceCommitted(msg messages.WorkspaceCommitted) tea.Cmd 
 	cmds = append(cmds, a.toast.ShowSuccess("Committed changes"))
 	if msg.Workspace != nil {
 		cmds = append(cmds, a.requestGitStatusFull(msg.Workspace.Root))
+		// A commit moves HEAD, which changes how far ahead of base it is; refresh
+		// the sidebar's ahead/behind badge so it doesn't show a stale count.
+		if a.sidebar != nil {
+			cmds = append(cmds, a.sidebar.RefreshAheadBehind())
+		}
 	}
 	return common.SafeBatch(cmds...)
 }

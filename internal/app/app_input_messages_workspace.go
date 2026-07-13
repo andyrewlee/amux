@@ -143,7 +143,9 @@ func (a *App) rebindActiveSelection() []tea.Cmd {
 			}
 		}
 		if a.sidebar != nil {
-			a.sidebar.SetWorkspace(ws)
+			if cmd := a.sidebar.SetWorkspace(ws); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		if a.sidebarTerminal != nil {
 			a.sidebarTerminal.SetWorkspacePreview(ws)
@@ -300,7 +302,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	a.centerBtnFocused = false
 	a.centerBtnIndex = 0
 	a.center.SetWorkspace(msg.Workspace)
-	a.sidebar.SetWorkspace(msg.Workspace)
+	if cmd := a.sidebar.SetWorkspace(msg.Workspace); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	// Discover shared tmux tabs first; restore/sync happens below.
 	if discoverCmd := a.discoverWorkspaceTabsFromTmux(msg.Workspace); discoverCmd != nil {

@@ -50,18 +50,23 @@ func (m *Model) View() string {
 	return result
 }
 
-// renderChanges renders the git changes with grouped display
+// renderChanges renders the git changes with grouped display, or the
+// branch-vs-base list when branch mode is active (see branch.go).
 func (m *Model) renderChanges() string {
-	if m.gitStatus == nil {
+	if !m.branchMode && m.gitStatus == nil {
 		return m.styles.Muted.Render("No status loaded")
 	}
 
 	var b strings.Builder
 
-	// Show branch info
+	// Show branch info + ahead/behind badge
 	if m.workspace != nil && m.workspace.Branch != "" {
 		b.WriteString(m.styles.Muted.Render("branch: "))
 		b.WriteString(m.styles.BranchName.Render(m.workspace.Branch))
+		if badge := m.renderAheadBehindBadge(); badge != "" {
+			b.WriteString(" ")
+			b.WriteString(badge)
+		}
 		b.WriteString("\n")
 	}
 
@@ -75,6 +80,10 @@ func (m *Model) renderChanges() string {
 		b.WriteString(m.styles.Muted.Render("filter: "))
 		b.WriteString(m.styles.BranchName.Render(m.filterQuery))
 		b.WriteString("\n")
+	}
+
+	if m.branchMode {
+		return b.String() + m.renderBranchSection()
 	}
 
 	if m.gitStatus.Clean {
@@ -99,7 +108,55 @@ func (m *Model) renderChanges() string {
 		}
 	}
 	b.WriteString("\n")
+	b.WriteString(m.renderDisplayItemRows())
 
+	return b.String()
+}
+
+// renderAheadBehindBadge renders the "↑N ↓M vs base" indicator, or "" when
+// there's nothing ahead/behind (mirrors the +/- line-stats convention above:
+// silent when zero) or the last AheadBehind fetch failed.
+func (m *Model) renderAheadBehindBadge() string {
+	if m.workspace == nil || m.aheadBehindErr != nil {
+		return ""
+	}
+	if m.ahead == 0 && m.behind == 0 {
+		return ""
+	}
+	var parts []string
+	if m.ahead > 0 {
+		parts = append(parts, m.styles.StatusAdded.Render("↑"+strconv.Itoa(m.ahead)))
+	}
+	if m.behind > 0 {
+		parts = append(parts, m.styles.StatusDeleted.Render("↓"+strconv.Itoa(m.behind)))
+	}
+	return strings.Join(parts, " ") + m.styles.Muted.Render(" vs base")
+}
+
+// renderBranchSection renders the branch-mode body: a loading/error/empty
+// state, or the summary line plus the shared displayItems rows.
+func (m *Model) renderBranchSection() string {
+	switch {
+	case m.branchLoading:
+		return "\n" + m.styles.Muted.Render("Loading changes vs base...")
+	case m.branchErr != nil:
+		return "\n" + m.styles.StatusDeleted.Render("Error: "+m.branchErr.Error())
+	case len(m.branchChanges) == 0:
+		return "\n" + m.styles.StatusClean.Render(common.Icons.Clean+" No commits ahead of base")
+	}
+
+	var b strings.Builder
+	b.WriteString(m.styles.Muted.Render(strconv.Itoa(len(m.branchChanges)) + " changed vs base"))
+	b.WriteString("\n")
+	b.WriteString(m.renderDisplayItemRows())
+	return b.String()
+}
+
+// renderDisplayItemRows renders the scrollable list of displayItems (section
+// headers and file rows). Shared by the working-tree and branch-mode lists,
+// which differ only in how displayItems was populated.
+func (m *Model) renderDisplayItemRows() string {
+	var b strings.Builder
 	visibleHeight := m.visibleHeight()
 
 	// Adjust scroll
@@ -123,58 +180,59 @@ func (m *Model) renderChanges() string {
 			headerStyle := m.styles.SidebarHeader
 			b.WriteString(headerStyle.Render(item.header))
 			b.WriteString("\n")
-		} else {
-			// File entry
-			cursor := common.Icons.CursorEmpty + " "
-			if i == m.cursor {
-				cursor = common.Icons.Cursor + " "
-			}
-
-			// Status indicator with color
-			var statusStyle lipgloss.Style
-			switch item.change.Kind {
-			case git.ChangeModified:
-				statusStyle = m.styles.StatusModified
-			case git.ChangeAdded:
-				statusStyle = m.styles.StatusAdded
-			case git.ChangeDeleted:
-				statusStyle = m.styles.StatusDeleted
-			case git.ChangeRenamed:
-				statusStyle = m.styles.StatusRenamed
-			case git.ChangeUntracked:
-				statusStyle = m.styles.StatusUntracked
-			default:
-				statusStyle = m.styles.Muted
-			}
-
-			// Use single-char status code for consistent alignment
-			statusCode := item.change.KindString()
-
-			// Build the prefix (cursor + status code)
-			prefix := cursor + statusStyle.Render(statusCode) + " "
-			prefixWidth := lipgloss.Width(prefix)
-
-			// Calculate max path width, leaving room for prefix
-			maxPathWidth := m.width - prefixWidth
-			if maxPathWidth < 5 {
-				maxPathWidth = 5
-			}
-
-			// Truncate path from left to fit, showing end of path (most relevant part)
-			displayPath := item.change.Path
-			pathWidth := lipgloss.Width(displayPath)
-			if pathWidth > maxPathWidth {
-				// Remove characters from start until it fits
-				runes := []rune(displayPath)
-				for len(runes) > 4 && lipgloss.Width(string(runes)) > maxPathWidth-3 {
-					runes = runes[1:]
-				}
-				displayPath = "..." + string(runes)
-			}
-
-			line := prefix + m.styles.FilePath.Render(displayPath)
-			b.WriteString(line + "\n")
+			continue
 		}
+
+		// File entry
+		cursor := common.Icons.CursorEmpty + " "
+		if i == m.cursor {
+			cursor = common.Icons.Cursor + " "
+		}
+
+		// Status indicator with color
+		var statusStyle lipgloss.Style
+		switch item.change.Kind {
+		case git.ChangeModified:
+			statusStyle = m.styles.StatusModified
+		case git.ChangeAdded:
+			statusStyle = m.styles.StatusAdded
+		case git.ChangeDeleted:
+			statusStyle = m.styles.StatusDeleted
+		case git.ChangeRenamed:
+			statusStyle = m.styles.StatusRenamed
+		case git.ChangeUntracked:
+			statusStyle = m.styles.StatusUntracked
+		default:
+			statusStyle = m.styles.Muted
+		}
+
+		// Use single-char status code for consistent alignment
+		statusCode := item.change.KindString()
+
+		// Build the prefix (cursor + status code)
+		prefix := cursor + statusStyle.Render(statusCode) + " "
+		prefixWidth := lipgloss.Width(prefix)
+
+		// Calculate max path width, leaving room for prefix
+		maxPathWidth := m.width - prefixWidth
+		if maxPathWidth < 5 {
+			maxPathWidth = 5
+		}
+
+		// Truncate path from left to fit, showing end of path (most relevant part)
+		displayPath := item.change.Path
+		pathWidth := lipgloss.Width(displayPath)
+		if pathWidth > maxPathWidth {
+			// Remove characters from start until it fits
+			runes := []rune(displayPath)
+			for len(runes) > 4 && lipgloss.Width(string(runes)) > maxPathWidth-3 {
+				runes = runes[1:]
+			}
+			displayPath = "..." + string(runes)
+		}
+
+		line := prefix + m.styles.FilePath.Render(displayPath)
+		b.WriteString(line + "\n")
 	}
 
 	return b.String()
@@ -190,6 +248,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("j/↓", "down"),
 		m.helpItem("enter/o", "open"),
 		m.helpItem("c", "commit"),
+		m.helpItem("b", "vs base"),
 		m.helpItem("/", "filter"),
 		m.helpItem("g", "refresh"),
 	}
