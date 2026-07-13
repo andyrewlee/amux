@@ -89,6 +89,16 @@ func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace) map[string]string {
 	return envMap
 }
 
+// IsReservedScriptEnvKey reports whether key is one of the reserved
+// AMUX_*/ROOT_* names BuildEnv/BuildEnvMap inject (see isReservedScriptEnvKey
+// below for the exact list). It is exported so callers outside this package
+// -- namely the workspace environment-variable editor -- can exclude reserved
+// keys before they are ever shown or persisted, without duplicating or
+// drifting from this list.
+func IsReservedScriptEnvKey(key string) bool {
+	return isReservedScriptEnvKey(key)
+}
+
 func isReservedScriptEnvKey(key string) bool {
 	switch key {
 	case "AMUX_WORKSPACE_NAME",

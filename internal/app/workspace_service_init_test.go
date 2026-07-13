@@ -191,6 +191,10 @@ func (f *fakeAssistantStore) Delete(data.WorkspaceID) error { panic("unexpected 
 
 func (f *fakeAssistantStore) Rename(data.WorkspaceID, string) error { panic("unexpected Rename") }
 
+func (f *fakeAssistantStore) SetEnv(data.WorkspaceID, map[string]string) error {
+	panic("unexpected SetEnv")
+}
+
 // TestWorkspaceServiceResolvedDefaultAssistant covers every branch of the
 // nil-safe resolver: a nil receiver and a nil store both fall back to the package
 // default, while a wired store is consulted verbatim.

@@ -55,6 +55,10 @@ func (s *blockingWorkspaceStore) Rename(id data.WorkspaceID, newName string) err
 	return nil
 }
 
+func (s *blockingWorkspaceStore) SetEnv(id data.WorkspaceID, env map[string]string) error {
+	return nil
+}
+
 func (s *blockingWorkspaceStore) ResolvedDefaultAssistant() string {
 	return data.DefaultAssistant
 }

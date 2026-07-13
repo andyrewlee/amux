@@ -90,6 +90,13 @@ type App struct {
 	settingsThemeDirty          bool
 	// Theme that was active when the settings dialog opened, restored on Esc.
 	settingsThemeOriginal common.ThemeID
+	// envDialog is the workspace environment-variable editor; envDialogWorkspace
+	// is the workspace it was opened for, read back in handleEnvDialogResult
+	// (mirroring dialogWorkspace's role for the generic Dialog, but tracked
+	// separately since a settings-style bespoke dialog isn't routed through
+	// a.dialogWorkspace).
+	envDialog          *common.EnvDialog
+	envDialogWorkspace *data.Workspace
 
 	// Overlays
 	toast *common.ToastModel

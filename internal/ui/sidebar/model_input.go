@@ -99,6 +99,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			cmds = append(cmds, m.commitWorkspace())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("b"))):
 			cmds = append(cmds, m.toggleBranchMode())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("e"))):
+			cmds = append(cmds, m.openEnvDialog())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
 			// Enter filter mode
 			m.filterMode = true
@@ -213,6 +215,20 @@ func (m *Model) commitWorkspace() tea.Cmd {
 	ws := m.workspace
 	return func() tea.Msg {
 		return messages.ShowCommitWorkspaceDialog{Workspace: ws}
+	}
+}
+
+// openEnvDialog opens the workspace environment-variable editor for the
+// focused workspace. Unlike commitWorkspace, it has no git-status
+// precondition -- env vars are independent of the working tree, so there is
+// nothing to pre-check before showing the dialog.
+func (m *Model) openEnvDialog() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.ShowWorkspaceEnvDialog{Workspace: ws}
 	}
 }
 

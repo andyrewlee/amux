@@ -249,6 +249,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("enter/o", "open"),
 		m.helpItem("c", "commit"),
 		m.helpItem("b", "vs base"),
+		m.helpItem("e", "env"),
 		m.helpItem("/", "filter"),
 		m.helpItem("g", "refresh"),
 	}

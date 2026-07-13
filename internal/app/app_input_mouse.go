@@ -145,6 +145,7 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 	if (a.dialog != nil && a.dialog.Visible()) ||
 		(a.filePicker != nil && a.filePicker.Visible()) ||
 		(a.settingsDialog != nil && a.settingsDialog.Visible()) ||
+		(a.envDialog != nil && a.envDialog.Visible()) ||
 		a.err != nil ||
 		a.toastCoversPoint(msg.X, msg.Y) {
 		// Modal, error, and toast overlays should block background scrolling.

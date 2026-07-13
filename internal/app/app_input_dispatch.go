@@ -41,7 +41,8 @@ import (
 //	                       RefreshDashboard, RescanWorkspaces, GitStatusResult,
 //	                       FileWatcherEvent, StateWatcherEvent
 //	                       → app_input_messages_workspace.go, app_input_workspace.go
-//	updateDialogShowMsg    Show* dialog requests, ThemePreview, SettingsResult
+//	updateDialogShowMsg    Show* dialog requests, ThemePreview, SettingsResult,
+//	                       EnvDialogResult
 //	                       → app_input_dialogs.go
 
 // handlePreSwitchInput runs the overlay/dialog guards that may consume a message
@@ -76,6 +77,9 @@ func (a *App) handlePreSwitchInput(msg tea.Msg, cmds *[]tea.Cmd) (tea.Cmd, bool)
 		return common.SafeBatch(*cmds...), true
 	}
 	if a.handleSettingsDialogInput(msg, cmds) {
+		return common.SafeBatch(*cmds...), true
+	}
+	if a.handleEnvDialogInput(msg, cmds) {
 		return common.SafeBatch(*cmds...), true
 	}
 	return nil, false
@@ -289,6 +293,8 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleShowDeleteWorkspaceDialog(msg)
 	case messages.ShowRenameWorkspaceDialog:
 		a.handleShowRenameWorkspaceDialog(msg)
+	case messages.ShowWorkspaceEnvDialog:
+		a.handleShowWorkspaceEnvDialog(msg)
 	case messages.ShowCommitWorkspaceDialog:
 		a.handleShowCommitWorkspaceDialog(msg)
 	case messages.ShowTrustScriptsDialog:
@@ -307,6 +313,10 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		}
 	case common.SettingsResult:
 		if cmd := a.handleSettingsResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case common.EnvDialogResult:
+		if cmd := a.handleEnvDialogResult(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
 	default:

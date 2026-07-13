@@ -94,6 +94,12 @@ func (a *App) handleSettingsDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	return consumed
 }
 
+func (a *App) handleEnvDialogInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
+	var consumed bool
+	a.envDialog, consumed = handleOverlayInput(a.envDialog, msg, cmds, false)
+	return consumed
+}
+
 // handleDialogResult handles dialog completion
 func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	project := a.dialogProject

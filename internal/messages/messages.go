@@ -230,6 +230,12 @@ type ShowRenameWorkspaceDialog struct {
 	Workspace *data.Workspace
 }
 
+// ShowWorkspaceEnvDialog requests showing the workspace environment-variable
+// editor for the given workspace.
+type ShowWorkspaceEnvDialog struct {
+	Workspace *data.Workspace
+}
+
 // ShowTrustScriptsDialog requests confirmation before trusting repo scripts.
 type ShowTrustScriptsDialog struct {
 	Workspace  *data.Workspace
