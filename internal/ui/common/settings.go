@@ -422,9 +422,5 @@ func (s *SettingsDialog) dialogContentWidth() int {
 }
 
 func (s *SettingsDialog) dialogStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorPrimary()).
-		Padding(1, 2).
-		Width(s.dialogContentWidth())
+	return dialogBorderStyle(s.dialogContentWidth())
 }

@@ -88,18 +88,11 @@ func (d *Dialog) dialogContentWidth() int {
 }
 
 func (d *Dialog) dialogStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorPrimary()).
-		Padding(1, 2).
-		Width(d.dialogContentWidth())
+	return dialogBorderStyle(d.dialogContentWidth())
 }
 
 func (d *Dialog) dialogFrame() (frameX, frameY, offsetX, offsetY int) {
-	frameX, frameY = d.dialogStyle().GetFrameSize()
-	offsetX = frameX / 2
-	offsetY = frameY / 2
-	return frameX, frameY, offsetX, offsetY
+	return dialogFrameOffsets(d.dialogStyle())
 }
 
 // renderedLineCount returns the number of content-area lines after the dialog
