@@ -366,6 +366,42 @@ func TestSetSessionTagValue_Roundtrip(t *testing.T) {
 	}
 }
 
+// TestTagAgentState_KeyPinned pins the @amux_agent_state tag key string. This
+// is part of the external orchestration contract (docs/ORCHESTRATION.md) — a
+// rename here must be a deliberate, documented breaking change, not an
+// incidental refactor.
+func TestTagAgentState_KeyPinned(t *testing.T) {
+	if TagAgentState != "@amux_agent_state" {
+		t.Fatalf("TagAgentState = %q, want %q", TagAgentState, "@amux_agent_state")
+	}
+}
+
+// TestSetSessionTagValue_AgentStateRoundtrip writes each documented
+// @amux_agent_state value (idle/working/done) through the same public
+// SetSessionTagValue path the activity scan's best-effort tag write uses, and
+// reads each back — proving the tag key/value pair actually round-trips
+// through tmux, not just that the Go constant string is correct.
+func TestSetSessionTagValue_AgentStateRoundtrip(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "sstv-agentstate", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	for _, want := range []string{"idle", "working", "done"} {
+		if err := SetSessionTagValue("sstv-agentstate", TagAgentState, want, opts); err != nil {
+			t.Fatalf("SetSessionTagValue(%q): %v", want, err)
+		}
+		got, err := SessionTagValue("sstv-agentstate", TagAgentState, opts)
+		if err != nil {
+			t.Fatalf("SessionTagValue: %v", err)
+		}
+		if got != want {
+			t.Fatalf("expected %q, got %q", want, got)
+		}
+	}
+}
+
 // TestSetSessionTagValues_MissingSessionIsNoError verifies the hasSession
 // pre-check short-circuits to nil (no spurious error) for a session that does
 // not exist, the "killed between create and tag" case.

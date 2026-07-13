@@ -23,6 +23,12 @@ const (
 	TagLastInputAt    = "@amux_last_input_at"
 	TagSessionOwner   = "@amux_session_owner"
 	TagSessionLeaseAt = "@amux_session_lease_ms"
+	// TagAgentState publishes the semantic per-session agent state
+	// ("idle"/"working"/"done", see activity.AgentState.String()) computed by
+	// the activity scan's hysteresis. Written best-effort on state transitions
+	// only (see app_tmux_activity_result.go); read-only telemetry for external
+	// orchestrators.
+	TagAgentState = "@amux_agent_state"
 )
 
 // SessionsWithTags returns sessions matching the provided tags, plus values for requested tag keys.
