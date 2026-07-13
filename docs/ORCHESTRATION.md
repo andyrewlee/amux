@@ -166,7 +166,8 @@ amux stores per-session metadata as tmux session options (`@amux_*`). Read one
 with `tmux show-options -t <bare-name> -v <key>` (bare name, no `=` — see above)
 or read them all with `tmux show-options -t <bare-name>`. The keys, set at
 session creation (`appendSessionTags`, `internal/tmux/command.go`) and updated at
-runtime (`internal/tmux/tags.go`, `internal/ui/center/model_input_lifecycle.go`):
+runtime (`internal/tmux/tags.go`, `internal/ui/center/model_input_lifecycle.go`,
+`internal/app/app_tmux_activity_result.go`):
 
 | Key | Meaning | Value format |
 |-----|---------|--------------|
@@ -181,12 +182,20 @@ runtime (`internal/tmux/tags.go`, `internal/ui/center/model_input_lifecycle.go`)
 | `@amux_session_lease_ms` | ownership lease timestamp | Unix **milliseconds** |
 | `@amux_last_output_at` | last observed agent output | Unix **milliseconds** |
 | `@amux_last_input_at` | last input amux delivered | Unix **milliseconds** |
+| `@amux_agent_state` | semantic agent state (idle/working/done) | `idle` \| `working` \| `done` |
 
 Note the unit split: `@amux_created_at` is in seconds; the activity/lease
 timestamps are in milliseconds. amux parses these back with
 `activity.ParseLastOutputAtTag` (`internal/app/activity/fetch.go`). The owner and
 lease tags coordinate ownership between concurrent amux instances; an external
 orchestrator should treat them as read-only telemetry and not forge them.
+
+`@amux_agent_state` is amux's own idle/working/done classification (the same
+hysteresis that drives the working indicator and the bell-on-done), published
+per session so an external orchestrator does not have to re-derive it from the
+raw timestamp tags above. It is read-only telemetry, written best-effort and
+only when the state actually changes (not on every scan), so a missing or
+momentarily stale value should be tolerated the same way as the other tags.
 
 ## Option B: a minimal CLI (recorded, not recommended)
 

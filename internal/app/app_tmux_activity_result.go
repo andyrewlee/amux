@@ -3,12 +3,14 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -122,6 +124,12 @@ func (a *App) applyTmuxActivityPayload(msg tmuxActivityResult) tea.Cmd {
 	if msg.ActiveWorkspaceIDs == nil {
 		msg.ActiveWorkspaceIDs = make(map[string]bool)
 	}
+	// Compute per-session @amux_agent_state transitions before merging: this
+	// reads a.tmuxActivity.sessionStates as it stood at the end of the previous
+	// scan (the "prev" side of the transition) against msg.UpdatedStates (the
+	// "next" side), which is keyed by session name and therefore gives a clean
+	// (session name, new state) pairing with no workspace-level ambiguity.
+	agentStateChanges := sessionAgentStateChanges(a.tmuxActivity.sessionStates, msg.UpdatedStates, time.Now())
 	// Merge updated hysteresis states back on the main thread.
 	for name, state := range msg.UpdatedStates {
 		a.tmuxActivity.sessionStates[name] = state
@@ -143,14 +151,67 @@ func (a *App) applyTmuxActivityPayload(msg tmuxActivityResult) tea.Cmd {
 	}
 	a.syncActiveWorkspacesToDashboard()
 	spinner := a.dashboard.StartSpinnerIfNeeded()
+	tagCmd := agentStateTagWriteCmd(agentStateChanges, a.tmuxOptions)
 	if doneCount > 0 && a.toast != nil {
 		msgText := "Agent finished"
 		if doneCount > 1 {
 			msgText = fmt.Sprintf("%d agents finished", doneCount)
 		}
-		return common.SafeBatch(a.toast.ShowInfo(msgText), spinner)
+		return common.SafeBatch(a.toast.ShowInfo(msgText), spinner, tagCmd)
 	}
-	return spinner
+	return common.SafeBatch(spinner, tagCmd)
+}
+
+// agentStateTagChange pairs a tmux session name with its newly classified
+// AgentState, used to coalesce @amux_agent_state tag writes to true state
+// transitions (see sessionAgentStateChanges).
+type agentStateTagChange struct {
+	sessionName string
+	state       activity.AgentState
+}
+
+// sessionAgentStateChanges classifies each session in updatedStates via
+// activity.ClassifyState (the same deterministic per-session classification
+// ClassifyWorkspaceStates and the dashboard indicators use) both before and
+// after this scan's update, and returns only the sessions whose classification
+// actually changed. This is the coalescing that keeps @amux_agent_state writes
+// bounded to real transitions instead of firing on every ~5s scan tick,
+// mirroring how the working->done toast (countWorkingToDone) only fires on
+// transition.
+func sessionAgentStateChanges(prevStates, updatedStates map[string]*activity.SessionState, now time.Time) []agentStateTagChange {
+	var changes []agentStateTagChange
+	for name, next := range updatedStates {
+		prevState := activity.ClassifyState(prevStates[name], now)
+		nextState := activity.ClassifyState(next, now)
+		if nextState != prevState {
+			changes = append(changes, agentStateTagChange{sessionName: name, state: nextState})
+		}
+	}
+	return changes
+}
+
+// setAgentStateTag is a seam over tmux.SetSessionTagValue so tests can assert
+// exactly which @amux_agent_state writes agentStateTagWriteCmd issues without a
+// live tmux server. Production always uses the real tmux.SetSessionTagValue.
+var setAgentStateTag = tmux.SetSessionTagValue
+
+// agentStateTagWriteCmd returns a best-effort command that publishes
+// @amux_agent_state for each changed session. Like the existing
+// @amux_last_output_at / @amux_last_input_at tag writes, failures are ignored
+// (external orchestrators tolerate a missing/stale tag) and the write happens
+// off the main Update-loop goroutine via the returned tea.Cmd — the session
+// names and target states were already resolved synchronously on the main
+// thread by sessionAgentStateChanges, so this closure touches no App state.
+func agentStateTagWriteCmd(changes []agentStateTagChange, opts tmux.Options) tea.Cmd {
+	if len(changes) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		for _, change := range changes {
+			_ = setAgentStateTag(change.sessionName, tmux.TagAgentState, change.state.String(), opts)
+		}
+		return nil
+	}
 }
 
 // countWorkingToDone counts the number of workspaces that transitioned from
