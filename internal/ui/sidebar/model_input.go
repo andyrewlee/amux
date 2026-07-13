@@ -40,6 +40,14 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case BranchChangesLoaded:
+		m.handleBranchChangesLoaded(msg)
+		return m, nil
+
+	case AheadBehindLoaded:
+		m.handleAheadBehindLoaded(msg)
+		return m, nil
+
 	case tea.MouseWheelMsg:
 		if !m.focused {
 			return m, nil
@@ -86,9 +94,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "space", "o"))):
 			cmds = append(cmds, m.openCurrentItem())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
-			cmds = append(cmds, m.refreshStatus())
+			cmds = append(cmds, m.refreshStatus(), m.refreshAheadBehind())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("c"))):
 			cmds = append(cmds, m.commitWorkspace())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("b"))):
+			cmds = append(cmds, m.toggleBranchMode())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
 			// Enter filter mode
 			m.filterMode = true
@@ -125,7 +135,7 @@ func (m *Model) openCurrentItem() tea.Cmd {
 }
 
 func (m *Model) rowIndexAt(screenY int) (int, bool) {
-	if m.gitStatus == nil || m.gitStatus.Clean {
+	if !m.branchMode && (m.gitStatus == nil || m.gitStatus.Clean) {
 		return -1, false
 	}
 	if len(m.displayItems) == 0 {

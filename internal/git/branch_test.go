@@ -2,6 +2,7 @@ package git
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -286,6 +287,189 @@ func TestGetBranchFileDiff(t *testing.T) {
 		}
 		if result != nil {
 			t.Errorf("GetBranchFileDiff() result = %+v, want nil on error", result)
+		}
+		if !strings.Contains(err.Error(), "unable to determine default branch") {
+			t.Errorf("error = %q, want it to mention default branch", err.Error())
+		}
+	})
+}
+
+func TestBranchChangesVsBase(t *testing.T) {
+	skipIfNoGit(t)
+
+	t.Run("lists added, modified, and deleted files vs base", func(t *testing.T) {
+		repo := initRepo(t)
+		writeFile(t, repo, "modified.go", "package main\n")
+		writeFile(t, repo, "removed.go", "package doomed\n\nfunc DoNotKeep() int { return 1 }\n")
+		runGit(t, repo, "add", "modified.go", "removed.go")
+		runGit(t, repo, "commit", "-m", "seed files")
+
+		runGit(t, repo, "checkout", "-b", "feature")
+		writeFile(t, repo, "modified.go", "package main\n\nfunc main() {}\n")
+		runGit(t, repo, "rm", "removed.go")
+		// Content deliberately dissimilar from removed.go so git's rename
+		// detection doesn't collapse this add+delete pair into a rename.
+		writeFile(t, repo, "added.go", "package brandnew\n\ntype Widget struct{ Count int }\n")
+		runGit(t, repo, "add", "modified.go", "added.go")
+		runGit(t, repo, "commit", "-m", "change files")
+
+		changes, err := BranchChangesVsBase(repo)
+		if err != nil {
+			t.Fatalf("BranchChangesVsBase() unexpected error: %v", err)
+		}
+		if len(changes) != 3 {
+			t.Fatalf("BranchChangesVsBase() returned %d changes, want 3: %+v", len(changes), changes)
+		}
+
+		byPath := make(map[string]Change, len(changes))
+		for _, c := range changes {
+			byPath[c.Path] = c
+		}
+
+		if c, ok := byPath["added.go"]; !ok || c.Kind != ChangeAdded {
+			t.Errorf("added.go = %+v, want ChangeAdded present", c)
+		}
+		if c, ok := byPath["modified.go"]; !ok || c.Kind != ChangeModified {
+			t.Errorf("modified.go = %+v, want ChangeModified present", c)
+		}
+		if c, ok := byPath["removed.go"]; !ok || c.Kind != ChangeDeleted {
+			t.Errorf("removed.go = %+v, want ChangeDeleted present", c)
+		}
+
+		// Sorted lexicographically, mirroring status parsing.
+		for i := 1; i < len(changes); i++ {
+			if changes[i-1].Path > changes[i].Path {
+				t.Errorf("changes not sorted: %q before %q", changes[i-1].Path, changes[i].Path)
+			}
+		}
+	})
+
+	t.Run("returns no changes for a branch with nothing ahead of base", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "checkout", "-b", "feature")
+
+		changes, err := BranchChangesVsBase(repo)
+		if err != nil {
+			t.Fatalf("BranchChangesVsBase() unexpected error: %v", err)
+		}
+		if len(changes) != 0 {
+			t.Errorf("BranchChangesVsBase() = %+v, want no changes", changes)
+		}
+	})
+
+	t.Run("propagates base-branch resolution error", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "branch", "-m", "main", "work")
+
+		changes, err := BranchChangesVsBase(repo)
+		if err == nil {
+			t.Fatalf("BranchChangesVsBase() error = nil, want error from base resolution (changes=%+v)", changes)
+		}
+		if changes != nil {
+			t.Errorf("BranchChangesVsBase() changes = %+v, want nil on error", changes)
+		}
+		if !strings.Contains(err.Error(), "unable to determine default branch") {
+			t.Errorf("error = %q, want it to mention default branch", err.Error())
+		}
+	})
+}
+
+func TestAheadBehind(t *testing.T) {
+	skipIfNoGit(t)
+
+	t.Run("counts commits ahead of base", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "checkout", "-b", "feature")
+		for i := 0; i < 3; i++ {
+			writeFile(t, repo, "file.txt", strings.Repeat("x", i+1))
+			runGit(t, repo, "add", "file.txt")
+			runGit(t, repo, "commit", "-m", "commit "+strconv.Itoa(i))
+		}
+
+		ahead, behind, err := AheadBehind(repo)
+		if err != nil {
+			t.Fatalf("AheadBehind() unexpected error: %v", err)
+		}
+		if ahead != 3 {
+			t.Errorf("ahead = %d, want 3", ahead)
+		}
+		if behind != 0 {
+			t.Errorf("behind = %d, want 0", behind)
+		}
+	})
+
+	t.Run("counts commits behind base", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "checkout", "-b", "feature")
+		// Base (main) picks up two commits the feature branch never sees.
+		runGit(t, repo, "checkout", "main")
+		for i := 0; i < 2; i++ {
+			writeFile(t, repo, "base.txt", strings.Repeat("y", i+1))
+			runGit(t, repo, "add", "base.txt")
+			runGit(t, repo, "commit", "-m", "base commit "+strconv.Itoa(i))
+		}
+		runGit(t, repo, "checkout", "feature")
+
+		ahead, behind, err := AheadBehind(repo)
+		if err != nil {
+			t.Fatalf("AheadBehind() unexpected error: %v", err)
+		}
+		if ahead != 0 {
+			t.Errorf("ahead = %d, want 0", ahead)
+		}
+		if behind != 2 {
+			t.Errorf("behind = %d, want 2", behind)
+		}
+	})
+
+	t.Run("counts both ahead and behind when diverged", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "checkout", "-b", "feature")
+		writeFile(t, repo, "feature.txt", "one\n")
+		runGit(t, repo, "add", "feature.txt")
+		runGit(t, repo, "commit", "-m", "feature commit")
+
+		runGit(t, repo, "checkout", "main")
+		writeFile(t, repo, "base.txt", "one\n")
+		runGit(t, repo, "add", "base.txt")
+		runGit(t, repo, "commit", "-m", "base commit")
+		runGit(t, repo, "checkout", "feature")
+
+		ahead, behind, err := AheadBehind(repo)
+		if err != nil {
+			t.Fatalf("AheadBehind() unexpected error: %v", err)
+		}
+		if ahead != 1 {
+			t.Errorf("ahead = %d, want 1", ahead)
+		}
+		if behind != 1 {
+			t.Errorf("behind = %d, want 1", behind)
+		}
+	})
+
+	t.Run("zero commits ahead or behind on a clean checkout of base", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "checkout", "-b", "feature")
+
+		ahead, behind, err := AheadBehind(repo)
+		if err != nil {
+			t.Fatalf("AheadBehind() unexpected error: %v", err)
+		}
+		if ahead != 0 || behind != 0 {
+			t.Errorf("ahead, behind = %d, %d, want 0, 0", ahead, behind)
+		}
+	})
+
+	t.Run("propagates base-branch resolution error", func(t *testing.T) {
+		repo := initRepo(t)
+		runGit(t, repo, "branch", "-m", "main", "work")
+
+		ahead, behind, err := AheadBehind(repo)
+		if err == nil {
+			t.Fatalf("AheadBehind() error = nil, want error from base resolution (ahead=%d behind=%d)", ahead, behind)
+		}
+		if ahead != 0 || behind != 0 {
+			t.Errorf("AheadBehind() ahead, behind = %d, %d, want 0, 0 on error", ahead, behind)
 		}
 		if !strings.Contains(err.Error(), "unable to determine default branch") {
 			t.Errorf("error = %q, want it to mention default branch", err.Error())

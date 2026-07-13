@@ -21,7 +21,8 @@ type displayItem struct {
 }
 
 // Model is the Bubbletea model for the sidebar pane
-// (rendering lives in model_view.go, input in model_input.go).
+// (rendering lives in model_view.go, input in model_input.go; branch-mode
+// fetch/render helpers live in branch.go).
 type Model struct {
 	// State
 	workspace    *data.Workspace
@@ -35,7 +36,25 @@ type Model struct {
 	filterQuery string
 	filterInput textinput.Model
 
-	// Display list (flattened from grouped status)
+	// Branch mode: when true, displayItems lists files changed vs base
+	// (BranchChangesVsBase) instead of working-tree status, feeding the
+	// existing DiffModeBranch diff viewer. Additive to staged/unstaged/
+	// untracked — toggled independently, off by default.
+	branchMode    bool
+	branchChanges []git.Change
+	branchLoading bool
+	branchErr     error
+	branchLoadID  int // guards a stale toggle-triggered fetch from clobbering a newer one
+
+	// Ahead/behind vs base (git.AheadBehind), refreshed on workspace switch
+	// and manual refresh; rendered as a badge regardless of branchMode.
+	ahead             int
+	behind            int
+	aheadBehindErr    error
+	aheadBehindLoadID int // guards a stale refresh from clobbering a newer one
+
+	// Display list (flattened from grouped status, or from branchChanges when
+	// branchMode is active)
 	displayItems []displayItem
 
 	// Layout
@@ -59,9 +78,16 @@ func New() *Model {
 	}
 }
 
-// rebuildDisplayList rebuilds the flat display list from grouped status.
+// rebuildDisplayList rebuilds the flat display list from grouped status, or
+// from branchChanges when branch mode is active (see branch.go).
 func (m *Model) rebuildDisplayList() {
 	m.displayItems = nil
+
+	if m.branchMode {
+		m.rebuildBranchDisplayList()
+		m.clampCursorToDisplayItems()
+		return
+	}
 
 	if m.gitStatus == nil || m.gitStatus.Clean {
 		return
@@ -143,6 +169,12 @@ func (m *Model) rebuildDisplayList() {
 		}
 	}
 
+	m.clampCursorToDisplayItems()
+}
+
+// clampCursorToDisplayItems keeps the cursor in bounds and off section
+// headers after displayItems changes shape (rebuild, filter, mode toggle).
+func (m *Model) clampCursorToDisplayItems() {
 	// Reset cursor if it's out of bounds
 	if m.cursor >= len(m.displayItems) {
 		m.cursor = len(m.displayItems) - 1
@@ -161,7 +193,7 @@ func (m *Model) rebuildDisplayList() {
 }
 
 func (m *Model) listHeaderLines() int {
-	if m.gitStatus == nil || m.gitStatus.Clean {
+	if !m.branchMode && (m.gitStatus == nil || m.gitStatus.Clean) {
 		return 0
 	}
 	header := 0

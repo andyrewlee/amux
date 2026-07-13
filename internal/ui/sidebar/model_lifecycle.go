@@ -49,12 +49,14 @@ func (m *Model) Focused() bool {
 	return m.focused
 }
 
-// SetWorkspace sets the active workspace.
-func (m *Model) SetWorkspace(ws *data.Workspace) {
+// SetWorkspace sets the active workspace. It returns a command that fetches
+// the ahead/behind badge for the new workspace (nil when ws is nil or this is
+// just a pointer rebind of the same workspace).
+func (m *Model) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	if sameWorkspaceByCanonicalPaths(m.workspace, ws) {
 		// Rebind pointer for metadata freshness without resetting UI state.
 		m.workspace = ws
-		return
+		return nil
 	}
 	m.workspace = ws
 	m.cursor = 0
@@ -67,7 +69,17 @@ func (m *Model) SetWorkspace(ws *data.Workspace) {
 		m.filterMode = false
 		m.filterInput.Blur()
 	}
+	// Branch-mode data (list + ahead/behind) belongs to the previous
+	// workspace; drop it rather than showing stale results under the new one.
+	m.branchMode = false
+	m.branchChanges = nil
+	m.branchErr = nil
+	m.branchLoading = false
+	m.ahead = 0
+	m.behind = 0
+	m.aheadBehindErr = nil
 	m.rebuildDisplayList()
+	return m.refreshAheadBehind()
 }
 
 // FilterActive reports whether the Changes view is currently in filter-input

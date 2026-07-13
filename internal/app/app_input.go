@@ -103,6 +103,18 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case sidebar.BranchChangesLoaded, sidebar.AheadBehindLoaded:
+		// Branch-vs-base list / ahead-behind badge fetch results: route back
+		// into the sidebar regardless of which of its tabs is active (see
+		// TabbedSidebar.Update's special-case for these two types).
+		if a.sidebar != nil {
+			newSidebar, cmd := a.sidebar.Update(msg)
+			a.sidebar = newSidebar
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 	case messages.Error:
 		if cmd := a.handleErrorMessage(msg); cmd != nil {
 			cmds = append(cmds, cmd)

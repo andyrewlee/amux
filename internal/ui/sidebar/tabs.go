@@ -98,6 +98,16 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 
 	// Handle tab switching on mouse click
 	switch msg := msg.(type) {
+	case BranchChangesLoaded, AheadBehindLoaded:
+		// Route straight to the Changes model regardless of which tab is
+		// active: these are background fetches (workspace switch, "g"
+		// refresh, branch-mode toggle) that must land even if the user has
+		// since switched to the Project tab, or the ahead/behind badge and
+		// branch list would go stale until the next fetch.
+		var cmd tea.Cmd
+		m.changes, cmd = m.changes.Update(msg)
+		return m, cmd
+
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft && msg.Y == 0 {
 			// Check if click is in tab bar
@@ -372,16 +382,24 @@ func (m *TabbedSidebar) Focused() bool {
 	return m.focused
 }
 
-// SetWorkspace sets the active workspace
-func (m *TabbedSidebar) SetWorkspace(ws *data.Workspace) {
+// SetWorkspace sets the active workspace. It returns the Changes view's
+// ahead/behind refresh command (nil for a no-op rebind); see Model.SetWorkspace.
+func (m *TabbedSidebar) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.workspace = ws
-	m.changes.SetWorkspace(ws)
+	cmd := m.changes.SetWorkspace(ws)
 	m.projectTree.SetWorkspace(ws)
+	return cmd
 }
 
 // SetGitStatus sets the git status (forwards to changes view)
 func (m *TabbedSidebar) SetGitStatus(status *git.StatusResult) {
 	m.changes.SetGitStatus(status)
+}
+
+// RefreshAheadBehind re-fetches the ahead/behind badge for the active
+// workspace (e.g. after a commit changes HEAD's distance from base).
+func (m *TabbedSidebar) RefreshAheadBehind() tea.Cmd {
+	return m.changes.refreshAheadBehind()
 }
 
 // ActiveTab returns the currently active tab
