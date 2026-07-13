@@ -23,19 +23,35 @@ var runGitCommandAfterWaitHook func()
 var allowRepoGitHooks = os.Getenv("AMUX_ALLOW_GIT_HOOKS") == "1"
 
 // hardenedGitArgs prepends config flags that neutralize repo-controlled code
-// execution: post-checkout/pre-* hooks and core.fsmonitor (both of which name
-// programs git will execute). amux runs git in repositories it does not
-// control, and a repo delivered with a populated .git (hooks or
-// core.fsmonitor in .git/config) must not auto-run its code just because amux
-// touched it. It is a no-op when the user opted in via AMUX_ALLOW_GIT_HOOKS=1.
+// execution on exactly three vectors: post-checkout/pre-* hooks
+// (core.hooksPath), core.fsmonitor, and gpg-signing on commit
+// (commit.gpgsign, which would otherwise run a repo-configured
+// gpg.program). amux runs git in repositories it does not control, and a
+// repo delivered with a populated .git (hooks, core.fsmonitor, or
+// commit.gpgsign+gpg.program in .git/config) must not auto-run its code just
+// because amux touched it. It is a no-op when the user opted in via
+// AMUX_ALLOW_GIT_HOOKS=1 — opting into repo hooks is opting into repo trust,
+// so signing is restored too.
+//
+// NOT neutralized: repo .gitattributes clean/smudge/process filter drivers
+// and diff/merge textconv/external-diff drivers named in-tree. Diff/browse
+// read paths pass --no-ext-diff/--no-textconv per call site instead (see
+// diff.go); there is no single git-wide flag to disable all attribute-driven
+// filter drivers, so that vector is a documented residual — see the
+// Maintenance notes in plans/045-sec-git-hardening-completeness.md.
 func hardenedGitArgs(args []string) []string {
 	if allowRepoGitHooks {
 		return args
 	}
 	// core.hooksPath= (empty value) points git's hook lookup at an empty path
 	// so no repo hook is found or run; core.fsmonitor=false disables any
-	// repo-configured fsmonitor program.
-	prefix := []string{"-c", "core.hooksPath=", "-c", "core.fsmonitor=false"}
+	// repo-configured fsmonitor program; commit.gpgsign=false stops `git
+	// commit` from invoking a repo-configured gpg.program.
+	prefix := []string{
+		"-c", "core.hooksPath=",
+		"-c", "core.fsmonitor=false",
+		"-c", "commit.gpgsign=false",
+	}
 	return append(prefix, args...)
 }
 

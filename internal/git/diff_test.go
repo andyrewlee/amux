@@ -3,6 +3,7 @@ package git
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -259,4 +260,82 @@ func TestDiffResult_HunkCount(t *testing.T) {
 	if result.HunkCount() != 3 {
 		t.Errorf("HunkCount() = %d, want 3", result.HunkCount())
 	}
+}
+
+// TestGetFileDiff_NoTextconv proves GetFileDiff passes --no-textconv (not just
+// that the flag appears in source): a repo-local diff driver is configured via
+// .gitattributes + git config, and the fixture script writes a sentinel string
+// that would show up in the diff content if textconv ran. It must not, for
+// every DiffMode arm (staged, unstaged, and the default fallthrough used by
+// DiffModeBoth/DiffModeBranch).
+func TestGetFileDiff_NoTextconv(t *testing.T) {
+	skipIfNoGit(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("sh textconv script is unix-specific")
+	}
+	repo := initRepo(t)
+
+	scriptPath := filepath.Join(repo, "fake-textconv.sh")
+	script := "#!/bin/sh\necho TEXTCONV_RAN\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake-textconv.sh: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("*.dat diff=faketextconv\n"), 0o600); err != nil {
+		t.Fatalf("write .gitattributes: %v", err)
+	}
+	runGit(t, repo, "config", "diff.faketextconv.textconv", scriptPath)
+
+	if err := os.WriteFile(filepath.Join(repo, "file.dat"), []byte("ORIGINAL_CONTENT\n"), 0o600); err != nil {
+		t.Fatalf("write file.dat: %v", err)
+	}
+	runGit(t, repo, "add", "file.dat", ".gitattributes")
+	runGit(t, repo, "commit", "-m", "add tracked diff-attributed file")
+
+	assertNoTextconv := func(t *testing.T, result *DiffResult, err error, wantSubstr string) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("GetFileDiff() error = %v", err)
+		}
+		if result.Error != "" {
+			t.Fatalf("Error = %q, want empty", result.Error)
+		}
+		if strings.Contains(result.Content, "TEXTCONV_RAN") {
+			t.Fatalf("diff content used textconv output (textconv was not suppressed): %q", result.Content)
+		}
+		if !strings.Contains(result.Content, wantSubstr) {
+			t.Fatalf("diff content missing raw content %q: %q", wantSubstr, result.Content)
+		}
+	}
+
+	t.Run("unstaged", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(repo, "file.dat"), []byte("CHANGED_CONTENT\n"), 0o600); err != nil {
+			t.Fatalf("write file.dat: %v", err)
+		}
+		result, err := GetFileDiff(repo, "file.dat", DiffModeUnstaged)
+		assertNoTextconv(t, result, err, "CHANGED_CONTENT")
+	})
+
+	t.Run("staged", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(repo, "file.dat"), []byte("STAGED_CONTENT\n"), 0o600); err != nil {
+			t.Fatalf("write file.dat: %v", err)
+		}
+		runGit(t, repo, "add", "file.dat")
+		result, err := GetFileDiff(repo, "file.dat", DiffModeStaged)
+		assertNoTextconv(t, result, err, "STAGED_CONTENT")
+
+		// Reset back to the committed original so subsequent subtests diff
+		// against a known unstaged baseline.
+		runGit(t, repo, "reset", "file.dat")
+		if err := os.WriteFile(filepath.Join(repo, "file.dat"), []byte("ORIGINAL_CONTENT\n"), 0o600); err != nil {
+			t.Fatalf("restore file.dat: %v", err)
+		}
+	})
+
+	t.Run("default mode (DiffModeBoth) suppresses textconv too", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(repo, "file.dat"), []byte("BOTH_MODE_CONTENT\n"), 0o600); err != nil {
+			t.Fatalf("write file.dat: %v", err)
+		}
+		result, err := GetFileDiff(repo, "file.dat", DiffModeBoth)
+		assertNoTextconv(t, result, err, "BOTH_MODE_CONTENT")
+	})
 }
