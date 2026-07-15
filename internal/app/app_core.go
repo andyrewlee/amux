@@ -12,6 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/supervisor"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/center"
@@ -53,6 +54,10 @@ type App struct {
 	gitStatus        GitStatusService
 	tmuxService      TmuxOps
 	updateService    UpdateService
+	// serviceRegistry durably tracks managed service process groups so they
+	// survive amux restarts as stoppable entities; the orphan reaper and the
+	// script runner share it. Nil in tests that construct App directly.
+	serviceRegistry *process.ServiceRegistry
 
 	// Limits
 	maxAttachedAgentTabs int
@@ -100,6 +105,12 @@ type App struct {
 
 	// Overlays
 	toast *common.ToastModel
+	// System-overload banner state, fed by the service reaper's periodic
+	// load sample (see handleServiceReapResult). When the machine is
+	// drowning, amux says so instead of surfacing mysterious tmux/git
+	// timeouts.
+	systemOverloaded  bool
+	systemLoadPerCore float64
 
 	// Dialog context
 	dialogProject          *data.Project

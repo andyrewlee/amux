@@ -9,11 +9,12 @@ const WorkspacesRootEnvVar = "AMUX_WORKSPACES_ROOT"
 
 // Paths holds all the file system paths used by the application
 type Paths struct {
-	Home           string // ~/.amux
-	WorkspacesRoot string // ~/.amux/workspaces
-	RegistryPath   string // ~/.amux/projects.json
-	MetadataRoot   string // ~/.amux/workspaces-metadata
-	ConfigPath     string // ~/.amux/config.json
+	Home                string // ~/.amux
+	WorkspacesRoot      string // ~/.amux/workspaces
+	RegistryPath        string // ~/.amux/projects.json
+	MetadataRoot        string // ~/.amux/workspaces-metadata
+	ConfigPath          string // ~/.amux/config.json
+	ServiceRegistryPath string // ~/.amux/service-registry.json
 }
 
 // DefaultPaths returns the default paths configuration
@@ -26,11 +27,12 @@ func DefaultPaths() (*Paths, error) {
 	amuxHome := filepath.Join(home, ".amux")
 
 	return &Paths{
-		Home:           amuxHome,
-		WorkspacesRoot: filepath.Join(amuxHome, "workspaces"),
-		RegistryPath:   filepath.Join(amuxHome, "projects.json"),
-		MetadataRoot:   filepath.Join(amuxHome, "workspaces-metadata"),
-		ConfigPath:     filepath.Join(amuxHome, "config.json"),
+		Home:                amuxHome,
+		WorkspacesRoot:      filepath.Join(amuxHome, "workspaces"),
+		RegistryPath:        filepath.Join(amuxHome, "projects.json"),
+		MetadataRoot:        filepath.Join(amuxHome, "workspaces-metadata"),
+		ConfigPath:          filepath.Join(amuxHome, "config.json"),
+		ServiceRegistryPath: filepath.Join(amuxHome, "service-registry.json"),
 	}, nil
 }
 

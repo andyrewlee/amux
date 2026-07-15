@@ -12,7 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/process"
 )
 
-func TestDeleteWorkspace_KillsSessionsAfterWorktreeRemoval(t *testing.T) {
+func TestDeleteWorkspace_KillsSessionsAndTearsDownBeforeWorktreeRemoval(t *testing.T) {
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
 	projectPath := filepath.Join(tmp, "repo")
@@ -22,7 +22,7 @@ func TestDeleteWorkspace_KillsSessionsAfterWorktreeRemoval(t *testing.T) {
 	}
 
 	order := 0
-	killOrder, removeOrder := -1, -1
+	killOrder, teardownOrder, removeOrder := -1, -1, -1
 	mock := &mockGitOps{
 		removeWorkspace: func(repoPath, workspacePath string) error {
 			order++
@@ -37,6 +37,14 @@ func TestDeleteWorkspace_KillsSessionsAfterWorktreeRemoval(t *testing.T) {
 		order++
 		killOrder = order
 	}
+	svc.teardownProcesses = func(root string) (process.TeardownResult, error) {
+		order++
+		teardownOrder = order
+		if root != workspacePath {
+			t.Fatalf("teardown root = %q, want %q", root, workspacePath)
+		}
+		return process.TeardownResult{}, nil
+	}
 
 	project := data.NewProject(projectPath)
 	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
@@ -45,14 +53,47 @@ func TestDeleteWorkspace_KillsSessionsAfterWorktreeRemoval(t *testing.T) {
 	if _, ok := msg.(messages.WorkspaceDeleted); !ok {
 		t.Fatalf("expected WorkspaceDeleted, got %T", msg)
 	}
-	if killOrder == -1 {
-		t.Fatal("expected workspace tmux sessions to be killed during delete")
+	if killOrder == -1 || teardownOrder == -1 || removeOrder == -1 {
+		t.Fatalf("expected kill, teardown, and removal to all run (kill=%d teardown=%d remove=%d)", killOrder, teardownOrder, removeOrder)
 	}
-	if removeOrder == -1 {
-		t.Fatal("expected the worktree to be removed during delete")
+	if !(killOrder < teardownOrder && teardownOrder < removeOrder) {
+		t.Fatalf("expected kill (%d) → teardown (%d) → worktree removal (%d)", killOrder, teardownOrder, removeOrder)
 	}
-	if killOrder <= removeOrder {
-		t.Fatalf("expected kill (order %d) after worktree removal (order %d)", killOrder, removeOrder)
+}
+
+func TestDeleteWorkspace_TeardownFailureAbortsDelete(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+
+	mock := &mockGitOps{
+		removeWorkspace: func(repoPath, workspacePath string) error {
+			t.Fatal("worktree removal must not run when process teardown fails")
+			return nil
+		},
+	}
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = mock
+	svc.killWorkspaceSessions = func(wsID string) {}
+	svc.teardownProcesses = func(root string) (process.TeardownResult, error) {
+		return process.TeardownResult{}, errors.New("survivors remain")
+	}
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	msg := svc.DeleteWorkspace(project, ws)()
+	failed, ok := msg.(messages.WorkspaceDeleteFailed)
+	if !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if failed.Err == nil {
+		t.Fatal("expected the teardown error to be surfaced")
 	}
 }
 
@@ -124,7 +165,7 @@ func TestDeleteWorkspace_StopsScriptsBeforeWorktreeRemoval(t *testing.T) {
 	}
 }
 
-func TestDeleteWorkspace_DoesNotKillSessionsWhenWorktreeRemovalFails(t *testing.T) {
+func TestDeleteWorkspace_KillsSessionsEvenWhenWorktreeRemovalFails(t *testing.T) {
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
 	projectPath := filepath.Join(tmp, "repo")
@@ -141,12 +182,50 @@ func TestDeleteWorkspace_DoesNotKillSessionsWhenWorktreeRemovalFails(t *testing.
 
 	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
 	svc.gitOps = mock
+	killed := false
 	svc.killWorkspaceSessions = func(wsID string) {
-		t.Fatal("failed delete must not kill workspace tmux sessions")
+		killed = true
 	}
 
 	project := data.NewProject(projectPath)
 	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+
+	msg := svc.DeleteWorkspace(project, ws)()
+	if _, ok := msg.(messages.WorkspaceDeleteFailed); !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	// Sessions die before worktree removal is attempted; a post-validation
+	// failure cannot resurrect them. This is the deliberate trade-off that
+	// keeps service stacks from running out of half-deleted worktrees.
+	if !killed {
+		t.Fatal("expected sessions killed before the failed worktree removal")
+	}
+}
+
+func TestDeleteWorkspace_ValidationFailureDoesNotKillSessions(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	otherRepo := filepath.Join(tmp, "other-repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = &mockGitOps{}
+	svc.killWorkspaceSessions = func(wsID string) {
+		t.Fatal("a delete rejected by validation must not kill workspace tmux sessions")
+	}
+	svc.teardownProcesses = func(root string) (process.TeardownResult, error) {
+		t.Fatal("a delete rejected by validation must not tear down processes")
+		return process.TeardownResult{}, nil
+	}
+
+	project := data.NewProject(projectPath)
+	// Workspace repo mismatching the project path fails validate_repo_match
+	// before any destructive step.
+	ws := data.NewWorkspace("feature", "feature", "main", otherRepo, workspacePath)
 
 	msg := svc.DeleteWorkspace(project, ws)()
 	if _, ok := msg.(messages.WorkspaceDeleteFailed); !ok {

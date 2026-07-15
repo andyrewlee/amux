@@ -116,6 +116,11 @@ func New(version, commit, date string) (*App, error) {
 	registry := data.NewRegistry(cfg.Paths.RegistryPath)
 	workspaces := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
+	// Track script-started service groups durably so a later amux process can
+	// still stop them — the in-memory running map alone is how service stacks
+	// used to outlive amux as untracked orphans.
+	serviceRegistry := process.NewServiceRegistry(cfg.Paths.ServiceRegistryPath)
+	scripts.AttachServiceRegistry(serviceRegistry)
 	workspaceService := newWorkspaceService(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot)
 
 	// Create status manager (used for synchronous status caching only).
@@ -203,9 +208,12 @@ func New(version, commit, date string) (*App, error) {
 	// so it can skip workspaces that are being deleted (used by the rescan guard).
 	workspaceService.deleteInFlight = app.isWorkspaceDeleteInFlight
 	workspaceService.deleteInFlightGuard = app.runUnlessWorkspaceDeleteInFlight
-	// Let the delete path tear down workspace tmux sessions after worktree
-	// removal succeeds, without killing live sessions for failed deletes.
+	// Let the delete path tear down workspace tmux sessions and orphaned
+	// service groups BEFORE worktree removal, so nothing is left running out
+	// of a directory that is about to disappear.
 	workspaceService.killWorkspaceSessions = app.killWorkspaceSessionsSync
+	workspaceService.teardownProcesses = process.TeardownWorkspaceProcesses
+	app.serviceRegistry = serviceRegistry
 
 	return app, nil
 }
@@ -221,6 +229,10 @@ func (a *App) Init() tea.Cmd {
 		a.startGitStatusTicker(),
 		a.startPTYWatchdog(),
 		a.startOrphanGCTicker(),
+		// One-shot startup pass: reap service stacks orphaned while amux was
+		// not running (a crash, a kill, a prune interrupted mid-teardown) and
+		// reconcile the durable service registry before anything trusts it.
+		a.reapOrphanedServiceProcesses(),
 		a.startTmuxActivityTicker(),
 		a.triggerTmuxActivityScan(),
 		a.startTmuxSyncTicker(),

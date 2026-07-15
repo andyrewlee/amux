@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -9,12 +10,28 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
 // composeOverlays adds overlay layers (dialogs, toasts, help, etc.) to the canvas.
 func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 	prefixOverlayHeight := 0
+
+	// System-overload banner: when the machine is drowning, name the real
+	// problem up top instead of letting it surface as mysterious tmux/git
+	// timeouts and multi-second input lag.
+	if a.systemOverloaded {
+		banner := a.renderOverloadBanner()
+		if banner != "" {
+			bannerWidth := lipgloss.Width(banner)
+			x := (a.width - bannerWidth) / 2
+			if x < 0 {
+				x = 0
+			}
+			canvas.Compose(compositor.NewStringDrawable(banner, x, 0))
+		}
+	}
 
 	// Dialog overlay
 	if a.dialog != nil && a.dialog.Visible() {
@@ -92,6 +109,24 @@ func (a *App) composeOverlays(canvas *lipgloss.Canvas) {
 		errDrawable := compositor.NewStringDrawable(errView, x, y)
 		canvas.Compose(errDrawable)
 	}
+}
+
+// renderOverloadBanner renders the one-line system-overload notice.
+func (a *App) renderOverloadBanner() string {
+	if a.width <= 0 {
+		return ""
+	}
+	msg := " System under heavy load — amux may respond slowly "
+	if a.systemLoadPerCore > 0 {
+		msg = " System under heavy load (" +
+			strconv.FormatFloat(a.systemLoadPerCore, 'f', 1, 64) +
+			"× cores) — amux may respond slowly "
+	}
+	style := lipgloss.NewStyle().
+		Foreground(common.ColorBackground()).
+		Background(common.ColorWarning()).
+		Bold(true)
+	return style.Render(clampLines(msg, a.width, 1))
 }
 
 // renderErrorOverlay returns the error overlay content.
