@@ -23,6 +23,10 @@ func (s *fileWatcherGitStatusStub) GetCached(root string) *git.StatusResult {
 	return s.cacheByRoot[root]
 }
 
+func (s *fileWatcherGitStatusStub) GetCachedBackground(root string) *git.StatusResult {
+	return s.GetCached(root)
+}
+
 func (s *fileWatcherGitStatusStub) UpdateCache(root string, status *git.StatusResult) {
 	if s.cacheByRoot == nil {
 		s.cacheByRoot = make(map[string]*git.StatusResult)
@@ -45,9 +49,11 @@ func (s *fileWatcherGitStatusStub) RefreshFast(root string) (*git.StatusResult, 
 }
 
 func TestHandleFileWatcherEvent_ActiveWorkspaceRequestsFullStatus(t *testing.T) {
+	// The status request skips roots that are gone from disk, so the
+	// workspace root must actually exist.
 	active := &data.Workspace{
 		Repo: "/tmp/repo",
-		Root: "/tmp/repo/ws-active",
+		Root: t.TempDir(),
 	}
 	stub := &fileWatcherGitStatusStub{}
 	app := &App{
@@ -89,9 +95,9 @@ func TestHandleFileWatcherEvent_ActiveWorkspaceRequestsFullStatus(t *testing.T) 
 func TestHandleFileWatcherEvent_InactiveWorkspaceRequestsFastStatus(t *testing.T) {
 	active := &data.Workspace{
 		Repo: "/tmp/repo",
-		Root: "/tmp/repo/ws-active",
+		Root: t.TempDir(),
 	}
-	otherRoot := "/tmp/repo/ws-other"
+	otherRoot := t.TempDir()
 	stub := &fileWatcherGitStatusStub{}
 	app := &App{
 		gitStatus:       stub,
@@ -132,7 +138,7 @@ func TestHandleFileWatcherEvent_InactiveWorkspaceRequestsFastStatus(t *testing.T
 func TestHandleGitStatusTick_ActiveWorkspaceCacheMissRequestsFullStatus(t *testing.T) {
 	active := &data.Workspace{
 		Repo: "/tmp/repo",
-		Root: "/tmp/repo/ws-active",
+		Root: t.TempDir(),
 	}
 	stub := &fileWatcherGitStatusStub{}
 	app := &App{

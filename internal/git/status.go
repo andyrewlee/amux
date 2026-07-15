@@ -62,7 +62,7 @@ type StatusResult struct {
 // TotalDeleted will be zero and HasLineStats will be false. Use this on hot paths
 // where only Clean/change lists matter.
 func GetStatusFast(repoPath string) (*StatusResult, error) {
-	output, err := RunGitRawCtx(context.Background(), repoPath,
+	output, err := RunGitRawCtx(WithRefreshSlot(context.Background()), repoPath,
 		"--no-optional-locks", "status", "--porcelain=v1", "-z", "-u")
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func GetStatusFast(repoPath string) (*StatusResult, error) {
 // GetStatus returns the git status for a repository using porcelain v1 -z format
 // This format handles spaces, unicode, and special characters in paths correctly
 func GetStatus(repoPath string) (*StatusResult, error) {
-	output, err := RunGitRawCtx(context.Background(), repoPath, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-u")
+	output, err := RunGitRawCtx(WithRefreshSlot(context.Background()), repoPath, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-u")
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func getDiffNumstat(repoPath string, staged bool) (added, deleted int, err error
 	if staged {
 		args = []string{"--no-optional-locks", "diff", "--cached", "--numstat"}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), diffNumstatTimeout)
+	ctx, cancel := context.WithTimeout(WithRefreshSlot(context.Background()), diffNumstatTimeout)
 	defer cancel()
 	output, err := RunGitCtx(ctx, repoPath, args...)
 	if err != nil {

@@ -19,7 +19,7 @@ func GetBaseBranch(repoPath string) (string, error) {
 	candidates := []string{"main", "master", "develop", "dev"}
 
 	for _, branch := range candidates {
-		_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
+		_, err := RunGitCtx(WithRefreshSlot(context.Background()), repoPath, "rev-parse", "--verify", branch)
 		if err == nil {
 			return branch, nil
 		}
@@ -28,25 +28,25 @@ func GetBaseBranch(repoPath string) (string, error) {
 	// Try remote tracking branches for common candidates
 	for _, branch := range candidates {
 		remote := "origin/" + branch
-		_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", remote)
+		_, err := RunGitCtx(WithRefreshSlot(context.Background()), repoPath, "rev-parse", "--verify", remote)
 		if err == nil {
 			return remote, nil
 		}
 	}
 
 	// Try to get the default branch from remote
-	output, err := RunGitCtx(context.Background(), repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
+	output, err := RunGitCtx(WithRefreshSlot(context.Background()), repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		// Output is like "refs/remotes/origin/main" or "refs/remotes/origin/feature/foo"
 		branch := strings.TrimPrefix(output, "refs/remotes/origin/")
 		// Verify the branch exists locally
-		_, err := RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", branch)
+		_, err := RunGitCtx(WithRefreshSlot(context.Background()), repoPath, "rev-parse", "--verify", branch)
 		if err == nil {
 			return branch, nil
 		}
 		// Try remote tracking branch for symbolic-ref result
 		remote := "origin/" + branch
-		_, err = RunGitCtx(context.Background(), repoPath, "rev-parse", "--verify", remote)
+		_, err = RunGitCtx(WithRefreshSlot(context.Background()), repoPath, "rev-parse", "--verify", remote)
 		if err == nil {
 			return remote, nil
 		}
@@ -64,7 +64,7 @@ func GetBranchFileDiff(repoPath, path string) (*DiffResult, error) {
 	mergeBase := resolveMergeBase(repoPath, base)
 
 	args := []string{"diff", "--no-color", "--no-ext-diff", "-U3", mergeBase + "...HEAD", "--", path}
-	ctx, cancel := context.WithTimeout(context.Background(), branchDiffTimeout)
+	ctx, cancel := context.WithTimeout(WithRefreshSlot(context.Background()), branchDiffTimeout)
 	defer cancel()
 	output, err := RunGitCtx(ctx, repoPath, args...)
 	if err != nil {
@@ -82,7 +82,7 @@ func GetBranchFileDiff(repoPath, path string) (*DiffResult, error) {
 // GetBranchFileDiff and BranchChangesVsBase so the two stay consistent about
 // which commit "vs base" means.
 func resolveMergeBase(repoPath, base string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), branchDiffTimeout)
+	ctx, cancel := context.WithTimeout(WithRefreshSlot(context.Background()), branchDiffTimeout)
 	defer cancel()
 	mergeBase, err := RunGitCtx(ctx, repoPath, "merge-base", base, "HEAD")
 	if err != nil {
@@ -103,7 +103,7 @@ func BranchChangesVsBase(repoPath string) ([]Change, error) {
 	}
 	mergeBase := resolveMergeBase(repoPath, base)
 
-	ctx, cancel := context.WithTimeout(context.Background(), branchDiffTimeout)
+	ctx, cancel := context.WithTimeout(WithRefreshSlot(context.Background()), branchDiffTimeout)
 	defer cancel()
 	output, err := RunGitCtx(ctx, repoPath, "diff", "--no-color", "--name-status", mergeBase+"...HEAD")
 	if err != nil {
@@ -156,7 +156,7 @@ func AheadBehind(repoPath string) (ahead, behind int, err error) {
 		return 0, 0, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), branchDiffTimeout)
+	ctx, cancel := context.WithTimeout(WithRefreshSlot(context.Background()), branchDiffTimeout)
 	defer cancel()
 	output, err := RunGitCtx(ctx, repoPath, "rev-list", "--left-right", "--count", base+"...HEAD")
 	if err != nil {
