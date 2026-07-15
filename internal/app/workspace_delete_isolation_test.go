@@ -35,7 +35,8 @@ func (s *recordingWorkspaceStore) Rename(data.WorkspaceID, string) error { retur
 func (s *recordingWorkspaceStore) SetEnv(data.WorkspaceID, map[string]string) error {
 	return nil
 }
-func (s *recordingWorkspaceStore) ResolvedDefaultAssistant() string { return data.DefaultAssistant }
+func (s *recordingWorkspaceStore) SetPinned(data.WorkspaceID, bool) error { return nil }
+func (s *recordingWorkspaceStore) ResolvedDefaultAssistant() string       { return data.DefaultAssistant }
 
 func (s *recordingWorkspaceStore) saved() []string {
 	s.mu.Lock()

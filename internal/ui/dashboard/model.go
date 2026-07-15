@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -72,6 +74,12 @@ type Model struct {
 	rows        []Row
 	activeRoot  string // Currently active workspace root
 	statusCache map[string]*git.StatusResult
+	// resourceLabels maps workspace root -> pre-rendered workload annotation
+	// (e.g. "1.2c"), derived once per reaper tick in SetResourceStats. Rows
+	// annotate heavy workloads so a forgotten dev stack burning CPU is
+	// visible at a glance; renderRow only does a map lookup, keeping the
+	// per-frame render path allocation-free for data that changes every 60s.
+	resourceLabels map[string]string
 
 	// UI state
 	cursor          int
@@ -109,6 +117,7 @@ func New() *Model {
 		projects:           []data.Project{},
 		rows:               []Row{},
 		statusCache:        make(map[string]*git.StatusResult),
+		resourceLabels:     make(map[string]string),
 		creatingWorkspaces: make(map[string]*data.Workspace),
 		deletingWorkspaces: make(map[string]bool),
 		activeWorkspaceIDs: make(map[string]bool),
@@ -117,6 +126,23 @@ func New() *Model {
 		focused:            true,
 		styles:             common.DefaultStyles(),
 	}
+}
+
+// resourceLabelThreshold is the %CPU (100 = one core) above which a
+// workspace's workload is annotated on its row. Lighter workloads stay
+// silent to keep rows quiet.
+const resourceLabelThreshold = 50.0
+
+// SetResourceStats replaces the per-workspace workload ledger, pre-rendering
+// the row annotations so the render path only looks them up.
+func (m *Model) SetResourceStats(stats map[string]process.WorkspaceStats) {
+	labels := make(map[string]string, len(stats))
+	for root, s := range stats {
+		if s.CPU >= resourceLabelThreshold {
+			labels[root] = fmt.Sprintf("%.1fc", s.CPU/100)
+		}
+	}
+	m.resourceLabels = labels
 }
 
 // SetActiveWorkspaces updates the set of workspaces with active agents.

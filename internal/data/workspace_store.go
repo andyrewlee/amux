@@ -155,6 +155,7 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 		ActiveTabIndex: raw.ActiveTabIndex,
 		Archived:       raw.Archived,
 		ArchivedAt:     parseCreated(raw.ArchivedAt),
+		Pinned:         raw.Pinned,
 	}
 	ws.storeID = id
 

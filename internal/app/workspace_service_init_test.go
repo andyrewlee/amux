@@ -195,6 +195,10 @@ func (f *fakeAssistantStore) SetEnv(data.WorkspaceID, map[string]string) error {
 	panic("unexpected SetEnv")
 }
 
+func (f *fakeAssistantStore) SetPinned(data.WorkspaceID, bool) error {
+	panic("unexpected SetPinned")
+}
+
 // TestWorkspaceServiceResolvedDefaultAssistant covers every branch of the
 // nil-safe resolver: a nil receiver and a nil store both fall back to the package
 // default, while a wired store is consulted verbatim.

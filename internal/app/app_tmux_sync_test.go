@@ -59,6 +59,10 @@ func (s *blockingWorkspaceStore) SetEnv(id data.WorkspaceID, env map[string]stri
 	return nil
 }
 
+func (s *blockingWorkspaceStore) SetPinned(id data.WorkspaceID, pinned bool) error {
+	return nil
+}
+
 func (s *blockingWorkspaceStore) ResolvedDefaultAssistant() string {
 	return data.DefaultAssistant
 }

@@ -25,6 +25,7 @@ type workspaceJSON struct {
 	Env            map[string]string `json:"env"`
 	OpenTabs       []TabInfo         `json:"open_tabs,omitempty"`
 	ActiveTabIndex int               `json:"active_tab_index"`
+	Pinned         bool              `json:"pinned,omitempty"`
 }
 
 // parseCreated parses a created timestamp from either time.Time format or string format
