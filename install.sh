@@ -9,12 +9,10 @@ BINARY="amux"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Minisign public key used to verify the detached signature over checksums.txt
-# before any checksum is trusted.
-# PLACEHOLDER: the operator fills in the real base64 public key when the
-# release signing keypair is provisioned (see the release runbook); it must
-# match minisignPublicKey in internal/update/pubkey.go. While empty, signature
-# verification cannot run and this script fails closed (see below).
-MINISIGN_PUBKEY=""
+# before any checksum is trusted. Must match minisignPublicKey in
+# internal/update/pubkey.go (both halves of the release signing keypair
+# provisioned 2026-07-16).
+MINISIGN_PUBKEY="RWQtWAYbPCb3AH9id1CLjcfy/KdeL6Uyo68qC6oKRJz1gyBOZS3Xm54P"
 
 # AMUX_ALLOW_UNVERIFIED=1 lets the install proceed on checksum-only
 # verification when signature verification cannot run (minisign not installed,

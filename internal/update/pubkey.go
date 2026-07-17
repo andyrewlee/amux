@@ -16,7 +16,7 @@ import (
 // A placeholder empty value disables signature verification ONLY for dev
 // builds via verifyReleaseSignature below — release (non-dev) builds fail
 // closed rather than silently skipping verification.
-var minisignPublicKey = ""
+var minisignPublicKey = "RWQtWAYbPCb3AH9id1CLjcfy/KdeL6Uyo68qC6oKRJz1gyBOZS3Xm54P"
 
 // verifyReleaseSignature enforces the release-signing policy for a build with
 // the given version string: with an embedded public key it verifies sig over
