@@ -10,27 +10,35 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
-// maxAttachedAgentTabsFromEnv parses AMUX_MAX_ATTACHED_AGENT_TABS.
-// Empty or invalid values fall back to defaultMaxAttachedAgentTabs.
+// attachedTabLimitFromEnv parses an attached-PTY limit from the named env var.
+// Empty or invalid values fall back to defaultLimit.
 // A value of 0 explicitly disables auto-detach enforcement.
-func maxAttachedAgentTabsFromEnv() int {
-	raw := strings.TrimSpace(os.Getenv("AMUX_MAX_ATTACHED_AGENT_TABS"))
+func attachedTabLimitFromEnv(envName string, defaultLimit int) int {
+	raw := strings.TrimSpace(os.Getenv(envName))
 	if raw == "" {
-		return defaultMaxAttachedAgentTabs
+		return defaultLimit
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil {
-		logging.Warn("Invalid AMUX_MAX_ATTACHED_AGENT_TABS=%q; using default %d", raw, defaultMaxAttachedAgentTabs)
-		return defaultMaxAttachedAgentTabs
+		logging.Warn("Invalid %s=%q; using default %d", envName, raw, defaultLimit)
+		return defaultLimit
 	}
 	if value < 0 {
-		logging.Warn("Invalid AMUX_MAX_ATTACHED_AGENT_TABS=%q; must be >= 0; using default %d", raw, defaultMaxAttachedAgentTabs)
-		return defaultMaxAttachedAgentTabs
+		logging.Warn("Invalid %s=%q; must be >= 0; using default %d", envName, raw, defaultLimit)
+		return defaultLimit
 	}
 	if value == 0 {
-		logging.Info("AMUX_MAX_ATTACHED_AGENT_TABS=0; auto-detach limit disabled")
+		logging.Info("%s=0; auto-detach limit disabled", envName)
 	}
 	return value
+}
+
+func maxAttachedAgentTabsFromEnv() int {
+	return attachedTabLimitFromEnv("AMUX_MAX_ATTACHED_AGENT_TABS", defaultMaxAttachedAgentTabs)
+}
+
+func maxAttachedTerminalTabsFromEnv() int {
+	return attachedTabLimitFromEnv("AMUX_MAX_ATTACHED_TERMINAL_TABS", defaultMaxAttachedTerminalTabs)
 }
 
 func (a *App) enforceAttachedAgentTabLimit() []tea.Cmd {
@@ -60,4 +68,21 @@ func (a *App) enforceAttachedAgentTabLimit() []tea.Cmd {
 		}
 	}
 	return cmds
+}
+
+// enforceAttachedTerminalTabLimit auto-detaches least-recently-used sidebar
+// terminal PTYs beyond the configured limit. Unlike agent tabs, terminal tabs
+// are not persisted per workspace: their tmux sessions are rediscovered by
+// tag on workspace activation and re-attached transparently, so no
+// persistence follow-up is needed here.
+func (a *App) enforceAttachedTerminalTabLimit() {
+	// 0 means disabled (unlimited attached terminal PTYs).
+	if a == nil || a.sidebarTerminal == nil || a.maxAttachedTerminalTabs <= 0 {
+		return
+	}
+	detached := a.sidebarTerminal.EnforceAttachedTerminalTabLimit(a.maxAttachedTerminalTabs)
+	if len(detached) == 0 {
+		return
+	}
+	logging.Info("Auto-detached %d sidebar terminals to enforce attached limit=%d", len(detached), a.maxAttachedTerminalTabs)
 }

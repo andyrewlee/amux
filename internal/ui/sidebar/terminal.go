@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -93,6 +94,9 @@ type TerminalModel struct {
 
 	// Current workspace
 	workspace *data.Workspace
+	// lastActiveAt records when each workspace was last selected, for
+	// least-recently-used ordering in EnforceAttachedTerminalTabLimit.
+	lastActiveAt map[string]time.Time
 
 	// Layout
 	width           int
@@ -118,6 +122,7 @@ func NewTerminalModel() *TerminalModel {
 	return &TerminalModel{
 		tabs:            common.NewTabSet[*TerminalTab](),
 		pendingCreation: make(map[string]bool),
+		lastActiveAt:    make(map[string]time.Time),
 		styles:          common.DefaultStyles(),
 		tmuxOpts:        tmux.DefaultOptions(),
 	}
@@ -163,6 +168,9 @@ func (m *TerminalModel) workspaceID() string {
 // setWorkspace sets the current workspace reference.
 func (m *TerminalModel) setWorkspace(ws *data.Workspace) {
 	m.workspace = ws
+	if ws != nil {
+		m.lastActiveAt[string(ws.ID())] = time.Now()
+	}
 }
 
 // getTabs returns the tabs for the current workspace

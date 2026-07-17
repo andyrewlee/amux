@@ -69,6 +69,12 @@ func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cm
 func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) tea.Cmd {
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab == nil || tab.State == nil {
+		// The tab was closed or its workspace deleted while the attach was in
+		// flight; close the orphaned PTY or its tmux client leaks for the
+		// session lifetime (and keeps the session "attached" forever).
+		if msg.Terminal != nil {
+			closeTerminalForSidebar(msg.Terminal, "reattach target gone")
+		}
 		return nil
 	}
 	ts := tab.State
@@ -175,5 +181,6 @@ func (m *TerminalModel) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) te
 	}
 	m.tabs.DeleteWorkspace(wsID)
 	delete(m.pendingCreation, wsID)
+	delete(m.lastActiveAt, wsID)
 	return nil
 }

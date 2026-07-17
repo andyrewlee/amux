@@ -45,10 +45,15 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 		DropBytesCounter: "sidebar_pty_drop_bytes",
 		DropCounter:      "sidebar_pty_drop",
 	})
-	ts.LastOutputAt = time.Now()
+	// Written under ts.mu because EnforceAttachedTerminalTabLimit reads it
+	// from under the same lock.
+	now := time.Now()
+	ts.mu.Lock()
+	ts.LastOutputAt = now
+	ts.mu.Unlock()
 	if !ts.FlushScheduled {
 		ts.FlushScheduled = true
-		ts.FlushPendingSince = ts.LastOutputAt
+		ts.FlushPendingSince = now
 		quiet, _ := m.flushTiming()
 		return common.SafeTick(quiet, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}

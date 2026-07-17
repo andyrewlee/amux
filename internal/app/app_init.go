@@ -46,19 +46,20 @@ func newAppShell(cfg *config.Config) *App {
 	theme.Init()
 	perf.Init()
 	app := &App{
-		config:               cfg,
-		layout:               layout.NewManager(),
-		dashboard:            dashboard.New(),
-		center:               center.New(cfg),
-		sidebar:              sidebar.NewTabbedSidebar(),
-		sidebarTerminal:      sidebar.NewTerminalModel(),
-		toast:                common.NewToastModel(),
-		focusedPane:          messages.PaneDashboard,
-		keymap:               DefaultKeyMap(),
-		renderCache:          newRenderCacheState(),
-		tmuxActivity:         newTmuxActivityState(),
-		lifecycle:            newWorkspaceLifecycleState(),
-		maxAttachedAgentTabs: maxAttachedAgentTabsFromEnv(),
+		config:                  cfg,
+		layout:                  layout.NewManager(),
+		dashboard:               dashboard.New(),
+		center:                  center.New(cfg),
+		sidebar:                 sidebar.NewTabbedSidebar(),
+		sidebarTerminal:         sidebar.NewTerminalModel(),
+		toast:                   common.NewToastModel(),
+		focusedPane:             messages.PaneDashboard,
+		keymap:                  DefaultKeyMap(),
+		renderCache:             newRenderCacheState(),
+		tmuxActivity:            newTmuxActivityState(),
+		lifecycle:               newWorkspaceLifecycleState(),
+		maxAttachedAgentTabs:    maxAttachedAgentTabsFromEnv(),
+		maxAttachedTerminalTabs: maxAttachedTerminalTabsFromEnv(),
 	}
 	app.styles = common.DefaultStyles()
 	// Propagate styles to all components (they may have been created with a

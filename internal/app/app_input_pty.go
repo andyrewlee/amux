@@ -8,6 +8,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
+	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
 // handlePTYMessages handles PTY-related messages for center pane.
@@ -21,6 +22,13 @@ func (a *App) handlePTYMessages(msg tea.Msg) tea.Cmd {
 func (a *App) handleSidebarPTYMessages(msg tea.Msg) tea.Cmd {
 	newSidebarTerminal, cmd := a.sidebarTerminal.Update(msg)
 	a.sidebarTerminal = newSidebarTerminal
+	switch msg.(type) {
+	case sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalReattachResult:
+		// These messages grow the attached-terminal count. The other
+		// enforcement trigger is workspace activation (see
+		// handleWorkspaceActivated), which changes which tabs are exempt.
+		a.enforceAttachedTerminalTabLimit()
+	}
 	return cmd
 }
 

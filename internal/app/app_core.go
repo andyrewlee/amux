@@ -55,7 +55,8 @@ type App struct {
 	updateService    UpdateService
 
 	// Limits
-	maxAttachedAgentTabs int
+	maxAttachedAgentTabs    int
+	maxAttachedTerminalTabs int
 
 	// State
 	projects        []data.Project

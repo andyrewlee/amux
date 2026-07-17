@@ -61,6 +61,12 @@ const (
 	// AMUX_MAX_ATTACHED_AGENT_TABS=0 disables the limit.
 	defaultMaxAttachedAgentTabs = 6
 
+	// defaultMaxAttachedTerminalTabs limits concurrently attached sidebar
+	// terminal PTYs the same way; sessions stay alive in tmux and re-attach
+	// transparently when their workspace is selected.
+	// AMUX_MAX_ATTACHED_TERMINAL_TABS=0 disables the limit.
+	defaultMaxAttachedTerminalTabs = 6
+
 	// orphanGCInterval controls how often the periodic tmux orphan GC runs.
 	orphanGCInterval = 60 * time.Second
 

@@ -20,6 +20,13 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		return nil
 	}
 
+	if stamp, ok := m.lastActiveAt[oldID]; ok {
+		if stamp.After(m.lastActiveAt[newID]) {
+			m.lastActiveAt[newID] = stamp
+		}
+		delete(m.lastActiveAt, oldID)
+	}
+
 	oldTabs, ok := m.tabs.ByWorkspace[oldID]
 	if !ok || len(oldTabs) == 0 {
 		if m.workspace != nil && string(m.workspace.ID()) == oldID {

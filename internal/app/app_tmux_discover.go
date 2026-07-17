@@ -260,11 +260,16 @@ func (a *App) handleTmuxSidebarDiscoverResult(msg tmuxSidebarDiscoverResult) []t
 	if ws == nil {
 		return nil
 	}
+	if a.activeWorkspace == nil || string(a.activeWorkspace.ID()) != msg.WorkspaceID {
+		// Stale result: the user switched workspaces while discovery ran.
+		// Attaching now would spend PTYs on a workspace the user just left
+		// and put eviction pressure on the attached-terminal limit; the next
+		// activation of that workspace re-runs discovery.
+		return nil
+	}
 	if len(msg.Sessions) == 0 {
-		if a.activeWorkspace != nil && string(a.activeWorkspace.ID()) == msg.WorkspaceID {
-			if cmd := a.sidebarTerminal.SetWorkspace(ws); cmd != nil {
-				return []tea.Cmd{cmd}
-			}
+		if cmd := a.sidebarTerminal.SetWorkspace(ws); cmd != nil {
+			return []tea.Cmd{cmd}
 		}
 		return nil
 	}

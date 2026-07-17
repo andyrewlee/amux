@@ -1,23 +1,17 @@
 package center
 
 import (
-	"sort"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // DetachedTabInfo identifies a tab detached by automatic limit enforcement.
 type DetachedTabInfo struct {
 	WorkspaceID string
 	TabID       TabID
-}
-
-type attachedTabCandidate struct {
-	workspaceID string
-	tabID       TabID
-	index       int
-	lastFocused time.Time
 }
 
 // EnforceAttachedAgentTabLimit detaches least-recently-focused chat tabs when
@@ -34,7 +28,7 @@ func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) ([]DetachedTabInfo
 	activeTabIdx := m.getActiveTabIdx()
 
 	attachedCount := 0
-	candidates := make([]attachedTabCandidate, 0)
+	candidates := make([]common.LRUTabCandidate[TabID], 0)
 	for wsID, tabs := range m.tabs.ByWorkspace {
 		for idx, tab := range tabs {
 			if tab == nil || tab.isClosed() || !m.isChatTab(tab) {
@@ -56,11 +50,11 @@ func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) ([]DetachedTabInfo
 			if lastFocused.IsZero() && createdAt > 0 {
 				lastFocused = time.Unix(createdAt, 0)
 			}
-			candidates = append(candidates, attachedTabCandidate{
-				workspaceID: wsID,
-				tabID:       tabID,
-				index:       idx,
-				lastFocused: lastFocused,
+			candidates = append(candidates, common.LRUTabCandidate[TabID]{
+				WorkspaceID: wsID,
+				Index:       idx,
+				LastActive:  lastFocused,
+				Payload:     tabID,
 			})
 		}
 	}
@@ -70,23 +64,7 @@ func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) ([]DetachedTabInfo
 		return nil, nil
 	}
 
-	sort.SliceStable(candidates, func(i, j int) bool {
-		left := candidates[i]
-		right := candidates[j]
-		if left.lastFocused.Equal(right.lastFocused) {
-			if left.workspaceID == right.workspaceID {
-				return left.index < right.index
-			}
-			return left.workspaceID < right.workspaceID
-		}
-		if left.lastFocused.IsZero() {
-			return true
-		}
-		if right.lastFocused.IsZero() {
-			return false
-		}
-		return left.lastFocused.Before(right.lastFocused)
-	})
+	common.SortLRUTabCandidates(candidates)
 
 	if excess > len(candidates) {
 		excess = len(candidates)
@@ -95,16 +73,16 @@ func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) ([]DetachedTabInfo
 	detached := make([]DetachedTabInfo, 0, excess)
 	var cmds []tea.Cmd
 	for _, candidate := range candidates[:excess] {
-		tab := m.getTabByID(candidate.workspaceID, candidate.tabID)
+		tab := m.getTabByID(candidate.WorkspaceID, candidate.Payload)
 		if tab == nil {
 			continue
 		}
-		if cmd := m.detachTab(tab, candidate.index); cmd != nil {
+		if cmd := m.detachTab(tab, candidate.Index); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		detached = append(detached, DetachedTabInfo{
-			WorkspaceID: candidate.workspaceID,
-			TabID:       candidate.tabID,
+			WorkspaceID: candidate.WorkspaceID,
+			TabID:       candidate.Payload,
 		})
 	}
 	return detached, cmds

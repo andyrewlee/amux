@@ -175,6 +175,7 @@ func (m *TerminalModel) CloseTerminal(wsID string) {
 	}
 	m.tabs.DeleteWorkspace(wsID)
 	delete(m.pendingCreation, wsID)
+	delete(m.lastActiveAt, wsID)
 }
 
 // CloseAll closes all terminals

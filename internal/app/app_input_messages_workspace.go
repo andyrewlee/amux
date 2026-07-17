@@ -392,6 +392,10 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		cmds = append(cmds, a.center.ReattachActiveTabIfDetached())
 	}
 	cmds = append(cmds, a.enforceAttachedAgentTabLimit()...)
+	// Re-check the terminal limit too: activation changes which workspace's
+	// terminals are exempt, so a workspace that grew over the limit while
+	// active becomes evictable only once the user switches away.
+	a.enforceAttachedTerminalTabLimit()
 	return cmds
 }
 

@@ -41,3 +41,35 @@ func TestMaxAttachedAgentTabsFromEnv_UsesPositiveValue(t *testing.T) {
 		t.Fatalf("expected 3, got %d", got)
 	}
 }
+
+func TestMaxAttachedTerminalTabsFromEnv_DefaultWhenUnset(t *testing.T) {
+	t.Setenv("AMUX_MAX_ATTACHED_TERMINAL_TABS", "")
+	got := maxAttachedTerminalTabsFromEnv()
+	if got != defaultMaxAttachedTerminalTabs {
+		t.Fatalf("expected default %d, got %d", defaultMaxAttachedTerminalTabs, got)
+	}
+}
+
+func TestMaxAttachedTerminalTabsFromEnv_DefaultOnInvalid(t *testing.T) {
+	t.Setenv("AMUX_MAX_ATTACHED_TERMINAL_TABS", "abc")
+	got := maxAttachedTerminalTabsFromEnv()
+	if got != defaultMaxAttachedTerminalTabs {
+		t.Fatalf("expected default %d, got %d", defaultMaxAttachedTerminalTabs, got)
+	}
+}
+
+func TestMaxAttachedTerminalTabsFromEnv_ZeroDisablesLimit(t *testing.T) {
+	t.Setenv("AMUX_MAX_ATTACHED_TERMINAL_TABS", "0")
+	got := maxAttachedTerminalTabsFromEnv()
+	if got != 0 {
+		t.Fatalf("expected 0 to disable limit, got %d", got)
+	}
+}
+
+func TestMaxAttachedTerminalTabsFromEnv_UsesPositiveValue(t *testing.T) {
+	t.Setenv("AMUX_MAX_ATTACHED_TERMINAL_TABS", "4")
+	got := maxAttachedTerminalTabsFromEnv()
+	if got != 4 {
+		t.Fatalf("expected 4, got %d", got)
+	}
+}
