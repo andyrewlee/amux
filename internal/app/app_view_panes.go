@@ -25,7 +25,7 @@ func (a *App) composeDashboardPane(canvas *lipgloss.Canvas, leftGutter, topGutte
 	if dashDrawable := a.renderCache.dashboardContent.get(dashContent, leftGutter+1, topGutter+1); dashDrawable != nil {
 		canvas.Compose(dashDrawable)
 	}
-	for _, border := range a.renderCache.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight) {
+	for _, border := range a.renderCache.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight, a.focusedPane == messages.PaneDashboard) {
 		canvas.Compose(border)
 	}
 }
@@ -57,7 +57,7 @@ func (a *App) composeCenterPane(canvas *lipgloss.Canvas, leftGutter, topGutter, 
 	} else {
 		centerContent = a.renderCenterPaneContent()
 	}
-	centerView := buildBorderedPane(centerContent, centerWidth, centerHeight)
+	centerView := buildBorderedPane(centerContent, centerWidth, centerHeight, a.focusedPane == messages.PaneCenter)
 	if centerDrawable := a.renderCache.centerContent.get(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter); centerDrawable != nil {
 		canvas.Compose(centerDrawable)
 	}
@@ -85,7 +85,7 @@ func (a *App) composeCenterTerminalLayer(canvas *lipgloss.Canvas, centerX, topGu
 	canvas.Compose(positionedTermLayer)
 
 	// Draw borders without touching the content area.
-	for _, border := range a.renderCache.centerBorders.get(centerX, topGutter, centerWidth, centerHeight) {
+	for _, border := range a.renderCache.centerBorders.get(centerX, topGutter, centerWidth, centerHeight, a.focusedPane == messages.PaneCenter) {
 		canvas.Compose(border)
 	}
 
@@ -165,7 +165,7 @@ func (a *App) composeSidebarPane(canvas *lipgloss.Canvas, leftGutter, topGutter 
 	}
 
 	a.composeSidebarTerminalPane(canvas, sidebarX, bottomY, contentWidth, bottomContentHeight, blockingOverlayVisible, setTerminalCursor)
-	for _, border := range a.renderCache.sidebarBottomBorders.get(sidebarX, bottomY, sidebarWidth, bottomPaneHeight) {
+	for _, border := range a.renderCache.sidebarBottomBorders.get(sidebarX, bottomY, sidebarWidth, bottomPaneHeight, a.focusedPane == messages.PaneSidebarTerminal) {
 		canvas.Compose(border)
 	}
 }
@@ -210,7 +210,7 @@ func (a *App) composeSidebarTopPane(canvas *lipgloss.Canvas, sidebarX, topGutter
 	if topDrawable := a.renderCache.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1+tabBarHeight); topDrawable != nil {
 		canvas.Compose(topDrawable)
 	}
-	for _, border := range a.renderCache.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight) {
+	for _, border := range a.renderCache.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight, a.focusedPane == messages.PaneSidebar) {
 		canvas.Compose(border)
 	}
 }
