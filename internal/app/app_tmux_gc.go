@@ -293,6 +293,9 @@ func (a *App) handleOrphanGCTick() []tea.Cmd {
 	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
 		cmds = append(cmds, gcCmd)
 	}
+	if reapCmd := a.reapOrphanedServiceProcesses(); reapCmd != nil {
+		cmds = append(cmds, reapCmd)
+	}
 	cmds = append(cmds, a.startOrphanGCTicker())
 	return cmds
 }

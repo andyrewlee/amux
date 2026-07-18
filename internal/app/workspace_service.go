@@ -312,11 +312,23 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return fail("stop_scripts", err)
 		}
 
-		// Validation passed, so this delete will proceed. Write a durable tombstone
-		// FIRST so that if the process quits/crashes between here and the metadata
-		// removal, startup recovery can finish the delete rather than surfacing a
-		// dir-less ghost workspace. store.Delete removes the whole metadata dir,
-		// clearing the tombstone on success.
+		// Kill the workspace's tmux sessions BEFORE removing the worktree, then
+		// kill any orphaned service groups still running out of it and verify
+		// none survive. Removing a worktree under live writers is how service
+		// stacks end up orphaned to PID 1 with a deleted cwd, unstoppable by
+		// path-based tooling. The trade-off is deliberate: a delete that fails
+		// after this point has already lost its sessions, which is recoverable;
+		// silently orphaned stacks are not.
+		s.killWorkspaceSessionsForDelete(wsID)
+		if failMsg := s.teardownWorkspaceProcessesForDelete(ws, wsID, fail); failMsg != nil {
+			return failMsg
+		}
+
+		// Validation and teardown passed, so this delete will proceed. Write a
+		// durable tombstone FIRST so that if the process quits/crashes between
+		// here and the metadata removal, startup recovery can finish the delete
+		// rather than surfacing a dir-less ghost workspace. store.Delete removes
+		// the whole metadata dir, clearing the tombstone on success.
 		s.markDeleteTombstone(ws.ID())
 
 		warning, failMsg := s.removeWorktreeAndBranchLocked(project, ws, projectPath, wsID, fail)
@@ -359,24 +371,6 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 	}
 }
 
-func (s *workspaceService) stopWorkspaceScriptsForDelete(ws *data.Workspace) error {
-	if s == nil || s.scripts == nil {
-		return nil
-	}
-	return s.scripts.Stop(ws)
-}
-
-func (s *workspaceService) killWorkspaceSessionsForDelete(wsID string) {
-	if s != nil && s.killWorkspaceSessions != nil {
-		s.killWorkspaceSessions(wsID)
-	}
-}
-
-func workspacePathGone(path string) bool {
-	_, err := os.Stat(path)
-	return os.IsNotExist(err)
-}
-
 func (s *workspaceService) archiveDeletedWorkspaceMetadata(ws *data.Workspace) error {
 	if s == nil || s.store == nil || ws == nil {
 		return nil
@@ -408,10 +402,9 @@ func (s *workspaceService) removeWorktreeAndBranchLocked(
 		}
 	}
 
-	// The worktree removal has succeeded or an owned stale path was cleaned up.
-	// Tear down any remaining workspace tmux sessions before metadata deletion,
-	// but never kill sessions for a delete that failed and left the workspace.
-	s.killWorkspaceSessionsForDelete(wsID)
+	// Sessions and orphaned service groups were already torn down before the
+	// worktree removal (see DeleteWorkspace), so nothing here can still hold
+	// the removed path.
 
 	if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
 		logging.Warn("workspace delete branch cleanup failed workspace_id=%s branch=%s error=%v", wsID, ws.Branch, err)
@@ -428,14 +421,10 @@ func (s *workspaceService) handleStaleRemoveError(
 	fail func(stage string, err error) tea.Msg,
 ) tea.Msg {
 	if !git.IsUnregisteredWorkspacePathError(err) {
-		if workspacePathGone(ws.Root) {
-			s.killWorkspaceSessionsForDelete(wsID)
-		}
 		return fail("remove_worktree", err)
 	}
 	if _, statErr := os.Stat(ws.Root); statErr != nil {
 		if os.IsNotExist(statErr) {
-			s.killWorkspaceSessionsForDelete(wsID)
 			return fail("remove_worktree", err)
 		}
 		return fail("remove_worktree", errors.Join(err, statErr))

@@ -47,7 +47,15 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 		cmds = append(cmds, countCmd)
 	}
 	a.eachWorkspace(func(ws *data.Workspace, _ *data.Project) {
-		cmds = append(cmds, a.requestGitStatus(ws.Root))
+		// The active workspace stays on the short-TTL path; every other
+		// workspace's status only decorates dashboard rows, so serve those
+		// from the background cache instead of fanning out one git
+		// subprocess per workspace on every project reload.
+		if a.activeWorkspace != nil && a.activeWorkspace.Root == ws.Root {
+			cmds = append(cmds, a.requestGitStatus(ws.Root))
+			return
+		}
+		cmds = append(cmds, a.requestGitStatusBackground(ws.Root))
 	})
 	return cmds
 }

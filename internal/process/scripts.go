@@ -91,34 +91,51 @@ func isBenignStopError(err error) bool {
 		strings.Contains(msg, "no such process")
 }
 
-func (r *ScriptRunner) clearRunningEntry(key string) {
+// clearRunningEntry removes the tracking for exactly the entry the caller
+// stopped. The compare against the current map entry is load-bearing: a Stop
+// racing finishRunningEntry plus an immediate RunScript restart must not
+// untrack (or de-register) the NEW service that replaced the stopped one.
+func (r *ScriptRunner) clearRunningEntry(key string, expected *runningScript) {
 	var releaseRoot string
+	cleared := false
 	r.mu.Lock()
-	current := r.running[key]
-	delete(r.running, key)
-	if pending, ok := r.pendingRelease[key]; ok && pending.running == current {
-		releaseRoot = pending.root
-		delete(r.pendingRelease, key)
+	if current, ok := r.running[key]; ok && current == expected {
+		delete(r.running, key)
+		cleared = true
+		if pending, ok := r.pendingRelease[key]; ok && pending.running == expected {
+			releaseRoot = pending.root
+			delete(r.pendingRelease, key)
+		}
 	}
+	reg := r.registry
 	r.mu.Unlock()
 	if releaseRoot != "" && r.portAllocator != nil {
 		r.portAllocator.ReleasePort(releaseRoot)
+	}
+	if cleared {
+		clearRegistryEntry(reg, key, expected)
 	}
 }
 
 func (r *ScriptRunner) finishRunningEntry(key string, running *runningScript) {
 	var releaseRoot string
+	cleared := false
 	r.mu.Lock()
 	if current, ok := r.running[key]; ok && current == running {
 		delete(r.running, key)
+		cleared = true
 		if pending, ok := r.pendingRelease[key]; ok && pending.running == running {
 			releaseRoot = pending.root
 			delete(r.pendingRelease, key)
 		}
 	}
+	reg := r.registry
 	r.mu.Unlock()
 	if releaseRoot != "" && r.portAllocator != nil {
 		r.portAllocator.ReleasePort(releaseRoot)
+	}
+	if cleared {
+		clearRegistryEntry(reg, key, running)
 	}
 }
 
@@ -138,6 +155,11 @@ type ScriptRunner struct {
 	pendingRelease   map[string]pendingPortRelease
 	killProcessGroup func(pid int, opts KillOptions) error
 	trust            *ScriptTrust // per-user approval registry for repo-supplied scripts
+	// registry, when attached, records each started script's process-group
+	// identity durably so a later amux process can still stop it. The running
+	// map alone dies with this process — exactly how service stacks used to
+	// outlive amux as untracked orphans.
+	registry *ServiceRegistry
 }
 
 type runningScript struct {
@@ -341,6 +363,19 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	key := scriptWorkspaceKey(ws)
 	r.setRunningEntry(key, running)
 
+	if reg := r.serviceRegistry(); reg != nil {
+		record := ServiceRecord{
+			WorkspaceRoot: key,
+			PID:           cmd.Process.Pid,
+			PGID:          cmd.Process.Pid, // SetProcessGroup makes the child its own group leader
+			Command:       "sh -c " + cmdStr,
+			StartedAt:     time.Now(),
+		}
+		if err := reg.Record(record); err != nil {
+			slog.Debug("service registry record failed", "error", err)
+		}
+	}
+
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
 		defer close(running.done)
@@ -383,49 +418,6 @@ func (r *ScriptRunner) TrustRepoScriptsIfHash(repoPath, expectedHash string) err
 		return ErrScriptsChangedSincePrompt
 	}
 	return r.trust.Trust(repoPath, raw)
-}
-
-// Stop stops the running script for a workspace
-func (r *ScriptRunner) Stop(ws *data.Workspace) error {
-	if err := validateScriptWorkspace(ws); err != nil {
-		return err
-	}
-
-	key := scriptWorkspaceKey(ws)
-	r.mu.Lock()
-	running, ok := r.running[key]
-	r.mu.Unlock()
-
-	if !ok {
-		return nil
-	}
-
-	if running.cmd != nil && running.cmd.Process != nil {
-		pid := running.cmd.Process.Pid
-		err := r.killProcessGroup(pid, KillOptions{})
-		if err != nil {
-			if isBenignStopError(err) {
-				r.clearRunningEntry(key)
-				return nil
-			}
-			return err
-		}
-		if running.done == nil {
-			r.clearRunningEntry(key)
-			return nil
-		}
-		// Wait briefly for the background cmd.Wait monitor to observe exit,
-		// then escalate to SIGKILL if needed.
-		select {
-		case <-running.done:
-			r.clearRunningEntry(key)
-		case <-time.After(scriptStopTimeout):
-			_ = ForceKillProcess(pid)
-			r.clearRunningEntry(key)
-		}
-	}
-
-	return nil
 }
 
 // IsRunning checks if a script is running for a workspace

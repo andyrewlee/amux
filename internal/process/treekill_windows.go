@@ -54,3 +54,11 @@ func ForceKillProcess(pid int) error {
 func SetProcessGroup(cmd *exec.Cmd) {
 	_ = cmd
 }
+
+// processGroupMatches cannot be verified without Unix process groups; the
+// kill paths that use it never run on Windows (Snapshot is unsupported), so
+// answering true keeps the shared code simple.
+func processGroupMatches(pid, expectedPGID int) bool {
+	_, _ = pid, expectedPGID
+	return true
+}

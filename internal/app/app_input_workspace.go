@@ -25,10 +25,11 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		return nil
 	}
 	// Do NOT kill the workspace's tmux sessions here. All real delete validation
-	// (primary-checkout guard, repo/path checks, worktree removal) runs later in
-	// the async DeleteWorkspace cmd; killing up-front means a rejected or failed
-	// delete still destroys live agent sessions and scrollback. The kill now runs
-	// only on the confirmed-success path in handleWorkspaceDeleted.
+	// (primary-checkout guard, repo/path checks) runs later in the async
+	// DeleteWorkspace cmd; killing before validation means a rejected delete
+	// still destroys live agent sessions and scrollback. Once validation passes,
+	// the service kills sessions and orphaned service groups BEFORE removing the
+	// worktree, so nothing keeps running out of a deleted directory.
 	if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, true); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -65,6 +66,65 @@ func (a *App) handleRenameWorkspace(msg messages.RenameWorkspace) []tea.Cmd {
 	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds
+}
+
+// workspacePinPersistFailed reverts an optimistic pin toggle whose store
+// write failed.
+type workspacePinPersistFailed struct {
+	Workspace *data.Workspace
+	Pinned    bool
+	Err       error
+}
+
+// handleToggleWorkspacePin flips a workspace's pinned flag. The in-memory
+// flip happens immediately on the Update goroutine — the dashboard row holds
+// this same Workspace pointer, so the badge updates on the next frame and a
+// second P press before persistence lands toggles back instead of re-applying
+// the stale value. The disk write runs in a tea.Cmd (store IO must not block
+// the update loop) and reverts the flip on failure.
+func (a *App) handleToggleWorkspacePin(msg messages.ToggleWorkspacePin) []tea.Cmd {
+	if msg.Workspace == nil {
+		logging.Warn("ToggleWorkspacePin received with nil workspace")
+		return nil
+	}
+	if a.workspaceService == nil || a.workspaceService.store == nil {
+		return nil
+	}
+	ws := msg.Workspace
+	pinned := !ws.Pinned
+	ws.Pinned = pinned
+	if a.activeWorkspace != nil && a.activeWorkspace.Root == ws.Root {
+		a.activeWorkspace.Pinned = pinned
+	}
+	var cmds []tea.Cmd
+	verb := "Pinned"
+	if !pinned {
+		verb = "Unpinned"
+	}
+	if cmd := a.toast.ShowSuccess(verb + " workspace " + ws.Name); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	store := a.workspaceService.store
+	id := ws.ID()
+	cmds = append(cmds, func() tea.Msg {
+		if err := store.SetPinned(id, pinned); err != nil {
+			return workspacePinPersistFailed{Workspace: ws, Pinned: pinned, Err: err}
+		}
+		return nil
+	})
+	return cmds
+}
+
+// handleWorkspacePinPersistFailed rolls back the optimistic flip and surfaces
+// the store error.
+func (a *App) handleWorkspacePinPersistFailed(msg workspacePinPersistFailed) tea.Cmd {
+	if msg.Workspace != nil {
+		msg.Workspace.Pinned = !msg.Pinned
+		if a.activeWorkspace != nil && a.activeWorkspace.Root == msg.Workspace.Root {
+			a.activeWorkspace.Pinned = !msg.Pinned
+		}
+	}
+	return common.ReportError(errorContext(errorServiceWorkspace, "pinning workspace"), msg.Err, "")
 }
 
 // handleWorkspaceCreatedWithWarning handles the WorkspaceCreatedWithWarning message.

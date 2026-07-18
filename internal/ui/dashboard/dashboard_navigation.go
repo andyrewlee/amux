@@ -310,6 +310,27 @@ func (m *Model) handleRename() tea.Cmd {
 	return nil
 }
 
+// handlePin toggles the pinned flag on the selected workspace row. Pinned
+// workspaces are deliberately long-running; lifecycle automation leaves them
+// alone. Only workspace rows can be pinned.
+func (m *Model) handlePin() tea.Cmd {
+	if m.cursor >= len(m.rows) {
+		return nil
+	}
+
+	row := m.rows[m.cursor]
+	if row.Type == RowWorkspace && row.Workspace != nil {
+		return func() tea.Msg {
+			return messages.ToggleWorkspacePin{
+				Project:   row.Project,
+				Workspace: row.Workspace,
+			}
+		}
+	}
+
+	return nil
+}
+
 // refresh requests a workspace rescan/import.
 func (m *Model) refresh() tea.Cmd {
 	return func() tea.Msg { return messages.RescanWorkspaces{} }

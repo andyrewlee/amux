@@ -70,6 +70,15 @@ func ForceKillProcess(pid int) error {
 	return syscall.Kill(-pid, syscall.SIGKILL)
 }
 
+// processGroupMatches reports whether pid still belongs to the expected
+// process group. Kill paths that derived a target from an earlier snapshot
+// use it as a cheap identity re-check: a PID recycled since the snapshot
+// almost never lands in the same group.
+func processGroupMatches(pid, expectedPGID int) bool {
+	pgid, err := syscall.Getpgid(pid)
+	return err == nil && pgid == expectedPGID
+}
+
 // SetProcessGroup configures a command to run in its own process group.
 func SetProcessGroup(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {

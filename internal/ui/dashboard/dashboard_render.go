@@ -51,7 +51,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 				m.agentStates[row.ActivityWorkspaceID] == activity.StateDone &&
 				!m.doneAcked[row.ActivityWorkspaceID] {
 				done = true
-			} else if s, ok := m.statusCache[main.Root]; ok && !s.Clean {
+			} else if s, ok := m.statusCache[main.Root]; ok && s != nil && !s.Clean {
 				dirty = true
 			}
 		}
@@ -125,13 +125,23 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			m.agentStates[row.ActivityWorkspaceID] == activity.StateDone &&
 			!m.doneAcked[row.ActivityWorkspaceID] {
 			done = true
-		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {
+		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && s != nil && !s.Clean {
 			dirty = true
 		}
 		if statusText != "" {
 			status = " " + statusText
 		} else if done {
 			status = " " + m.styles.StatusPending.Render("done")
+		}
+		// Annotate heavy workloads (pre-rendered in SetResourceStats) so a
+		// forgotten dev stack is visible without leaving the dashboard. The
+		// pin badge rides the status suffix rather than the name so name
+		// truncation can never trim it off.
+		if label, ok := m.resourceLabels[row.Workspace.Root]; ok {
+			status += " " + m.styles.StatusPending.Render(label)
+		}
+		if row.Workspace.Pinned {
+			status += " " + m.styles.StatusPending.Render(common.Icons.Pin)
 		}
 
 		// Determine row style based on selection and active state
@@ -214,6 +224,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 		switch m.rows[m.cursor].Type {
 		case RowWorkspace:
 			items = append(items, m.helpItem("R", "rename"))
+			items = append(items, m.helpItem("P", "pin"))
 			items = append(items, m.helpItem("D", "delete"))
 		case RowProject:
 			items = append(items, m.helpItem("D", "remove"))

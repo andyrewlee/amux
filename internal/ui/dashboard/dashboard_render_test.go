@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -268,4 +269,25 @@ func TestDashboardHelpLineCountClampsContentWidth(t *testing.T) {
 			t.Fatalf("width %d: expected positive help line count, got %d", width, got)
 		}
 	}
+}
+
+// TestNilStatusResultNeverPanicsRender pins the launch crash where a
+// GitStatusResult carrying a nil Status (no error) was cached and then
+// dereferenced by renderRow. The update must drop nil statuses, and the
+// render must survive a poisoned cache regardless.
+func TestNilStatusResultNeverPanicsRender(t *testing.T) {
+	m := New()
+	m.SetSize(60, 20)
+	m.SetProjects([]data.Project{makeProject()})
+
+	// Nil status through the normal update path must not be cached.
+	m.Update(messages.GitStatusResult{Root: "/repo/.amux/workspaces/feature", Status: nil})
+	if _, ok := m.statusCache["/repo/.amux/workspaces/feature"]; ok {
+		t.Fatal("nil status must not enter the status cache")
+	}
+
+	// Defense in depth: even a directly poisoned cache must render.
+	m.statusCache["/repo/.amux/workspaces/feature"] = nil
+	m.statusCache["/repo"] = nil
+	_ = m.View()
 }
