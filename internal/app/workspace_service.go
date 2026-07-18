@@ -67,6 +67,9 @@ func (s *workspaceService) AddProject(path string) tea.Cmd {
 			logging.Error("Failed to add project to registry: %v", err)
 			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "adding project")}
 		}
+		// Restore managed worktrees automatically when a previously removed
+		// project is re-added; removing it left those files on disk.
+		s.importManagedWorkspaces(path)
 
 		logging.Info("Project added successfully: %s", path)
 		return messages.RefreshDashboard{}
@@ -448,25 +451,6 @@ func (s *workspaceService) handleStaleRemoveError(
 	}
 	logging.Warn("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
 	return nil
-}
-
-// RemoveProject removes a project from the registry (does not delete files).
-func (s *workspaceService) RemoveProject(project *data.Project) tea.Cmd {
-	if project == nil {
-		return func() tea.Msg {
-			return messages.Error{Err: errors.New("missing project"), Context: errorContext(errorServiceWorkspace, "removing project")}
-		}
-	}
-
-	return func() tea.Msg {
-		if s == nil || s.registry == nil {
-			return messages.Error{Err: errors.New("registry unavailable"), Context: errorContext(errorServiceWorkspace, "removing project")}
-		}
-		if err := s.registry.RemoveProject(project.Path); err != nil {
-			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "removing project")}
-		}
-		return messages.ProjectRemoved{Path: project.Path}
-	}
 }
 
 func (s *workspaceService) Save(workspace *data.Workspace) error {

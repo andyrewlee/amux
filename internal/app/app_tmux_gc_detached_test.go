@@ -75,7 +75,7 @@ func TestGcStaleDetachedAgentSessions_RunsWhenFollower(t *testing.T) {
 	}
 	app := &App{
 		tmuxAvailable: true,
-		instanceID:    "instance-a",
+		instanceID:    "aaaaaaaaaaaaaaaa.1111111111111111",
 		tmuxActivity:  tmuxActivityState{ownershipSet: true, scannerOwner: false},
 		tmuxService:   ops,
 	}
@@ -97,19 +97,19 @@ func TestGcStaleDetachedAgentSessions_RunsWhenFollower(t *testing.T) {
 	if ops.lastMatch["@amux_type"] != "agent" {
 		t.Fatalf("expected @amux_type=agent, got %v", ops.lastMatch)
 	}
-	if ops.lastMatch["@amux_instance"] != "instance-a" {
-		t.Fatalf("expected instance-scoped match, got %v", ops.lastMatch)
+	if _, filtered := ops.lastMatch["@amux_instance"]; filtered {
+		t.Fatalf("expected ownership-aware GC to enumerate every instance, got %v", ops.lastMatch)
 	}
 }
 
-func TestGcStaleDetachedAgentSessions_FiltersByInstanceID(t *testing.T) {
+func TestGcStaleDetachedAgentSessions_EnumeratesEveryInstance(t *testing.T) {
 	ops := &detachedGCOps{
 		rows:      []tmux.SessionTagValues{},
 		allStates: map[string]tmux.SessionState{},
 	}
 	app := &App{
 		tmuxAvailable: true,
-		instanceID:    "instance-a",
+		instanceID:    "aaaaaaaaaaaaaaaa.1111111111111111",
 		tmuxService:   ops,
 	}
 	msg := app.gcStaleDetachedAgentSessions()()
@@ -126,18 +126,93 @@ func TestGcStaleDetachedAgentSessions_FiltersByInstanceID(t *testing.T) {
 	if ops.lastMatch["@amux_type"] != "agent" {
 		t.Fatalf("expected @amux_type=agent, got %v", ops.lastMatch)
 	}
-	if ops.lastMatch["@amux_instance"] != "instance-a" {
-		t.Fatalf("expected instance-scoped match, got %v", ops.lastMatch)
+	if _, filtered := ops.lastMatch["@amux_instance"]; filtered {
+		t.Fatalf("expected no instance filter, got %v", ops.lastMatch)
 	}
 }
 
 func TestGcStaleDetachedAgentSessions_RunsWhenOwnershipUnknown(t *testing.T) {
 	app := &App{
 		tmuxAvailable: true,
-		instanceID:    "instance-a",
+		instanceID:    "aaaaaaaaaaaaaaaa.1111111111111111",
 	}
 	if cmd := app.gcStaleDetachedAgentSessions(); cmd == nil {
 		t.Fatal("expected cmd when ownership is unknown")
+	}
+}
+
+func TestGcStaleDetachedAgentSessions_ProtectsOnlyLiveForeignOwner(t *testing.T) {
+	now := time.Now()
+	staleActivity := now.Add(-detachedAgentLivePaneStaleAfter - time.Hour)
+	for _, tt := range []struct {
+		name      string
+		heartbeat time.Time
+		wantKill  int
+		wantOwner int
+	}{
+		{name: "fresh owner", heartbeat: now, wantOwner: 1},
+		{name: "stale owner", heartbeat: now.Add(-sessionOwnerStaleAfter - time.Minute), wantKill: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ops := &detachedGCOps{
+				rows: []tmux.SessionTagValues{{
+					Name: "foreign-agent",
+					Tags: map[string]string{
+						"@amux_instance":                "aaaaaaaaaaaaaaaa.2222222222222222",
+						tmux.TagSessionOwnerHeartbeatAt: strconv.FormatInt(tt.heartbeat.UnixMilli(), 10),
+						tmux.TagLastOutputAt:            strconv.FormatInt(staleActivity.UnixMilli(), 10),
+					},
+				}},
+				allStates: map[string]tmux.SessionState{
+					"foreign-agent": {Exists: true, HasLivePane: true},
+				},
+				clients: map[string]bool{"foreign-agent": false},
+			}
+			app := &App{
+				tmuxAvailable: true,
+				instanceID:    "aaaaaaaaaaaaaaaa.1111111111111111",
+				tmuxService:   ops,
+			}
+			msg := app.gcStaleDetachedAgentSessions()()
+			result, ok := msg.(staleDetachedAgentGCResult)
+			if !ok {
+				t.Fatalf("GC returned %T, want staleDetachedAgentGCResult", msg)
+			}
+			if result.Killed != tt.wantKill || result.SkippedLiveOwner != tt.wantOwner {
+				t.Fatalf("result = %+v, want killed=%d live_owner=%d", result, tt.wantKill, tt.wantOwner)
+			}
+		})
+	}
+}
+
+func TestGcStaleDetachedAgentSessions_IgnoresDifferentStateNamespace(t *testing.T) {
+	stale := time.Now().Add(-detachedAgentLivePaneStaleAfter - time.Hour)
+	ops := &detachedGCOps{
+		rows: []tmux.SessionTagValues{{
+			Name: "other-profile-agent",
+			Tags: map[string]string{
+				"@amux_instance":     "bbbbbbbbbbbbbbbb.2222222222222222",
+				tmux.TagLastOutputAt: strconv.FormatInt(stale.UnixMilli(), 10),
+			},
+		}},
+		allStates: map[string]tmux.SessionState{
+			"other-profile-agent": {Exists: true, HasLivePane: true},
+		},
+		clients: map[string]bool{"other-profile-agent": false},
+	}
+	app := &App{
+		tmuxAvailable: true,
+		instanceID:    "aaaaaaaaaaaaaaaa.1111111111111111",
+		tmuxService:   ops,
+	}
+
+	msg := app.gcStaleDetachedAgentSessions()()
+	result, ok := msg.(staleDetachedAgentGCResult)
+	if !ok {
+		t.Fatalf("GC returned %T, want staleDetachedAgentGCResult", msg)
+	}
+	if result.Considered != 0 || result.Killed != 0 || len(ops.killed) != 0 {
+		t.Fatalf("different namespace was considered for stale GC: result=%+v killed=%v", result, ops.killed)
 	}
 }
 

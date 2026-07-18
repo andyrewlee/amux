@@ -25,6 +25,10 @@ func (tmuxOps) SessionsWithTags(match map[string]string, keys []string, opts tmu
 	return tmux.SessionsWithTags(match, keys, opts)
 }
 
+func (tmuxOps) SetSessionTagValueForSessions(sessionNames []string, key, value string, opts tmux.Options) error {
+	return tmux.SetSessionTagValueForSessions(sessionNames, key, value, opts)
+}
+
 func (tmuxOps) AllSessionStates(opts tmux.Options) (map[string]tmux.SessionState, error) {
 	return tmux.AllSessionStates(opts)
 }

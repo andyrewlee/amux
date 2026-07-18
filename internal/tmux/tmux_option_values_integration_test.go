@@ -37,6 +37,55 @@ func TestSetSessionTagValues_SetsSessionOptions(t *testing.T) {
 	}
 }
 
+func TestSetSessionTagValueForSessions_SetsEverySession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	sessions := []string{"heartbeat-a", "heartbeat-b"}
+	for _, session := range sessions {
+		createSession(t, opts, session, "sleep 300")
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	want := "1700000000456"
+	if err := SetSessionTagValueForSessions(sessions, TagSessionOwnerHeartbeatAt, want, opts); err != nil {
+		t.Fatalf("SetSessionTagValueForSessions: %v", err)
+	}
+	for _, session := range sessions {
+		got, err := SessionTagValue(session, TagSessionOwnerHeartbeatAt, opts)
+		if err != nil {
+			t.Fatalf("SessionTagValue(%s): %v", session, err)
+		}
+		if got != want {
+			t.Fatalf("%s heartbeat = %q, want %q", session, got, want)
+		}
+	}
+}
+
+func TestSetSessionTagValueForSessions_DoesNotPrefixMatchMissingSession(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+
+	createSession(t, opts, "heartbeat-target-10", "sleep 300")
+	time.Sleep(50 * time.Millisecond)
+
+	if err := SetSessionTagValueForSessions(
+		[]string{"heartbeat-target-1"},
+		TagSessionOwnerHeartbeatAt,
+		"1700000000456",
+		opts,
+	); err != nil {
+		t.Fatalf("SetSessionTagValueForSessions: %v", err)
+	}
+	got, err := SessionTagValue("heartbeat-target-10", TagSessionOwnerHeartbeatAt, opts)
+	if err != nil {
+		t.Fatalf("SessionTagValue: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("missing target prefix-matched heartbeat-target-10: heartbeat = %q", got)
+	}
+}
+
 func TestSetGlobalOptionValues_SetsGlobalOptions(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)

@@ -37,7 +37,8 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	if a.dashboard != nil {
 		a.dashboard.SetProjects(a.projects)
 	}
-	cmds = append(cmds, a.rebindActiveSelection()...)
+	cmds = append(cmds, a.rebindActiveSelectionForLoad(loadToken)...)
+	a.lifecycle.clearCreatedProjectLoadBarriersThrough(loadToken, loadedIdentities)
 	// Request git status for all workspaces
 	cmds = append(cmds, a.scanTmuxActivityNow())
 	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
@@ -85,6 +86,10 @@ func projectLoadWorkspaceIdentities(projects []data.Project) map[string]bool {
 }
 
 func (a *App) rebindActiveSelection() []tea.Cmd {
+	return a.rebindActiveSelectionForLoad(0)
+}
+
+func (a *App) rebindActiveSelectionForLoad(loadToken projectsLoadToken) []tea.Cmd {
 	var cmds []tea.Cmd
 	if a.activeWorkspace != nil {
 		previous := a.activeWorkspace
@@ -95,6 +100,9 @@ func (a *App) rebindActiveSelection() []tea.Cmd {
 		}
 		if ws == nil {
 			if a.lifecycle.isDeletingWorkspace(wsID, previous.Root) {
+				return cmds
+			}
+			if a.lifecycle.shouldRetainCreatedWorkspace(wsID, previous.Root, loadToken) {
 				return cmds
 			}
 			a.goHome()

@@ -24,12 +24,13 @@ type orphanGCResult struct {
 // staleDetachedAgentGCResult is returned after attempting to clean up stale
 // detached agent sessions.
 type staleDetachedAgentGCResult struct {
-	Considered      int
-	Killed          int
-	SkippedAttached int
-	SkippedFresh    int
-	SkippedLivePane int
-	Err             error
+	Considered       int
+	Killed           int
+	SkippedAttached  int
+	SkippedLiveOwner int
+	SkippedFresh     int
+	SkippedLivePane  int
+	Err              error
 }
 
 // collectKnownWorkspaceIDs returns the set of workspace IDs currently tracked
@@ -65,11 +66,12 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 		if svc == nil {
 			return orphanGCResult{Err: errTmuxUnavailable}
 		}
+		now := time.Now()
 		byWorkspace, err := a.amuxSessionsByWorkspace(opts)
 		if err != nil {
 			return orphanGCResult{Err: err}
 		}
-		now := time.Now()
+		a.refreshOwnedSessionHeartbeats(byWorkspace, now, opts)
 		killed := a.killOrphanedSessions(byWorkspace, knownIDs, now, opts)
 		return orphanGCResult{Killed: killed}
 	}
@@ -87,19 +89,16 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 		}
 
 		match := map[string]string{"@amux": "1", "@amux_type": "agent"}
-		if instanceID := strings.TrimSpace(a.instanceID); instanceID != "" {
-			// Detached-agent GC is instance-scoped so multiple amux instances do
-			// not race to kill each other's managed sessions.
-			match["@amux_instance"] = instanceID
-		}
 		rows, err := svc.SessionsWithTags(
 			match,
 			[]string{
+				"@amux_instance",
 				"@amux_created_at",
 				"session_activity",
 				tmux.TagLastOutputAt,
 				tmux.TagLastInputAt,
 				tmux.TagSessionLeaseAt,
+				tmux.TagSessionOwnerHeartbeatAt,
 			},
 			opts,
 		)
@@ -134,6 +133,9 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 			if sessionName == "" {
 				continue
 			}
+			if !instancesShareState(row.Tags["@amux_instance"], a.instanceID) {
+				continue
+			}
 			result.Considered++
 
 			hasClients := false
@@ -149,6 +151,10 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 			}
 			if hasClients {
 				result.SkippedAttached++
+				continue
+			}
+			if foreignSessionOwnerAlive(row.Tags, a.instanceID, now) {
+				result.SkippedLiveOwner++
 				continue
 			}
 
@@ -189,8 +195,10 @@ func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
 }
 
 type workspaceSession struct {
-	Name      string
-	CreatedAt int64
+	Name             string
+	CreatedAt        int64
+	InstanceID       string
+	OwnerHeartbeatAt time.Time
 }
 
 func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]workspaceSession, error) {
@@ -198,10 +206,13 @@ func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]workspace
 		return nil, errTmuxUnavailable
 	}
 	match := map[string]string{"@amux": "1"}
-	if a.instanceID != "" {
-		match["@amux_instance"] = a.instanceID
-	}
-	rows, err := a.tmuxService.SessionsWithTags(match, []string{"@amux_workspace", "@amux_created_at"}, opts)
+	rows, err := a.tmuxService.SessionsWithTags(match, []string{
+		"@amux_workspace",
+		"@amux_created_at",
+		"@amux_instance",
+		tmux.TagSessionLeaseAt,
+		tmux.TagSessionOwnerHeartbeatAt,
+	}, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -211,13 +222,61 @@ func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]workspace
 		if wsID == "" {
 			continue
 		}
+		rowInstanceID := strings.TrimSpace(row.Tags["@amux_instance"])
+		if !instancesShareState(rowInstanceID, a.instanceID) {
+			continue
+		}
 		var createdAt int64
 		if raw := strings.TrimSpace(row.Tags["@amux_created_at"]); raw != "" {
 			createdAt, _ = strconv.ParseInt(raw, 10, 64)
 		}
-		out[wsID] = append(out[wsID], workspaceSession{Name: row.Name, CreatedAt: createdAt})
+		out[wsID] = append(out[wsID], workspaceSession{
+			Name:             row.Name,
+			CreatedAt:        createdAt,
+			InstanceID:       rowInstanceID,
+			OwnerHeartbeatAt: sessionOwnerHeartbeatAt(row.Tags),
+		})
 	}
 	return out, nil
+}
+
+type sessionTagBatchSetter interface {
+	SetSessionTagValueForSessions(sessionNames []string, key, value string, opts tmux.Options) error
+}
+
+func (a *App) refreshOwnedSessionHeartbeats(byWorkspace map[string][]workspaceSession, now time.Time, opts tmux.Options) {
+	instanceID := strings.TrimSpace(a.instanceID)
+	if instanceID == "" || a.tmuxService == nil {
+		return
+	}
+	setter, ok := a.tmuxService.(sessionTagBatchSetter)
+	if !ok {
+		return
+	}
+	names := make([]string, 0)
+	for _, sessions := range byWorkspace {
+		for _, session := range sessions {
+			if session.InstanceID != instanceID || session.Name == "" {
+				continue
+			}
+			if !session.OwnerHeartbeatAt.IsZero() && !session.OwnerHeartbeatAt.After(now) &&
+				now.Sub(session.OwnerHeartbeatAt) < sessionOwnerHeartbeatInterval {
+				continue
+			}
+			names = append(names, session.Name)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	if err := setter.SetSessionTagValueForSessions(
+		names,
+		tmux.TagSessionOwnerHeartbeatAt,
+		strconv.FormatInt(now.UnixMilli(), 10),
+		opts,
+	); err != nil {
+		logging.Warn("session owner heartbeat refresh failed: %v", err)
+	}
 }
 
 func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, knownIDs map[string]bool, now time.Time, opts tmux.Options) int {
@@ -231,6 +290,9 @@ func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, kn
 		}
 		for _, ws := range sessions {
 			if ws.Name == "" {
+				continue
+			}
+			if foreignWorkspaceSessionOwnerAlive(ws, a.instanceID, now) {
 				continue
 			}
 			createdAt := ws.CreatedAt
@@ -252,6 +314,17 @@ func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, kn
 			if hasClients {
 				continue
 			}
+			state, err := a.tmuxService.SessionStateFor(ws.Name, opts)
+			if err != nil {
+				// A detached session can still be running an agent, build, or proof.
+				// Missing metadata is not enough evidence to terminate that work;
+				// only collect sessions whose panes are confirmed dead.
+				logging.Warn("orphan GC: failed to check pane liveness for %s: %v", ws.Name, err)
+				continue
+			}
+			if state.Exists && state.HasLivePane {
+				continue
+			}
 			if err := a.tmuxService.KillSession(ws.Name, opts); err != nil {
 				logging.Warn("orphan GC: failed to kill session %s: %v", ws.Name, err)
 				continue
@@ -260,6 +333,41 @@ func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, kn
 		}
 	}
 	return killed
+}
+
+func sessionOwnerHeartbeatAt(tags map[string]string) time.Time {
+	if heartbeat, ok := activity.ParseLastOutputAtTag(tags[tmux.TagSessionOwnerHeartbeatAt]); ok {
+		return heartbeat
+	}
+	// Compatibility fallback: current releases set the activity lease at
+	// create/reattach time, so a peer gets a safety window before the first
+	// dedicated owner heartbeat is written.
+	if lease, ok := activity.ParseLastOutputAtTag(tags[tmux.TagSessionLeaseAt]); ok {
+		return lease
+	}
+	return time.Time{}
+}
+
+func ownerHeartbeatAlive(heartbeatAt, now time.Time) bool {
+	if heartbeatAt.IsZero() {
+		return false
+	}
+	if heartbeatAt.After(now) {
+		return true // fail closed under clock skew
+	}
+	return now.Sub(heartbeatAt) <= sessionOwnerStaleAfter
+}
+
+func foreignWorkspaceSessionOwnerAlive(session workspaceSession, currentInstanceID string, now time.Time) bool {
+	owner := strings.TrimSpace(session.InstanceID)
+	current := strings.TrimSpace(currentInstanceID)
+	return owner != "" && owner != current && ownerHeartbeatAlive(session.OwnerHeartbeatAt, now)
+}
+
+func foreignSessionOwnerAlive(tags map[string]string, currentInstanceID string, now time.Time) bool {
+	owner := strings.TrimSpace(tags["@amux_instance"])
+	current := strings.TrimSpace(currentInstanceID)
+	return owner != "" && owner != current && ownerHeartbeatAlive(sessionOwnerHeartbeatAt(tags), now)
 }
 
 func isRecentOrphanSession(createdAt int64, now time.Time) bool {
@@ -304,10 +412,11 @@ func (a *App) handleStaleDetachedAgentGCResult(msg staleDetachedAgentGCResult) {
 	}
 	if msg.Killed > 0 {
 		logging.Info(
-			"detached agent GC: killed=%d considered=%d attached=%d fresh=%d live_pane=%d",
+			"detached agent GC: killed=%d considered=%d attached=%d live_owner=%d fresh=%d live_pane=%d",
 			msg.Killed,
 			msg.Considered,
 			msg.SkippedAttached,
+			msg.SkippedLiveOwner,
 			msg.SkippedFresh,
 			msg.SkippedLivePane,
 		)

@@ -90,6 +90,7 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 		{"@amux_instance", tags.InstanceID},
 		{TagSessionOwner, tags.SessionOwner},
 		{TagSessionLeaseAt, formatInt64Positive(tags.LeaseAtMS)},
+		{TagSessionOwnerHeartbeatAt, formatInt64Positive(tags.LeaseAtMS)},
 	}
 	for _, e := range entries {
 		if e.value != "" {

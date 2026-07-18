@@ -3,9 +3,11 @@
 package main
 
 import (
+	"context"
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -24,6 +26,31 @@ func shortSocketDir(t *testing.T) string {
 	tmuxSocketDirsFn = func() []string { return []string{dir} }
 	t.Cleanup(func() { tmuxSocketDirsFn = prev })
 	return dir
+}
+
+func TestIsTestTmuxSocketName(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		want bool
+	}{
+		{name: "amux-e2e-123", want: true},
+		{name: "amux-gctest-123", want: true},
+		{name: "amux-ptytest-123", want: true},
+		{name: "amux-sidebar-test-123", want: true},
+		{name: "amux-closeloop-check-123", want: true},
+		{name: "amux-create-pipeline-123", want: true},
+		{name: "amux-pre-push-e2e-check-123", want: true},
+		{name: "amux-verify-loop-check-123", want: true},
+		{name: "amux", want: false},
+		{name: "amux-user-server", want: false},
+		{name: "default", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTestTmuxSocketName(tt.name); got != tt.want {
+				t.Fatalf("isTestTmuxSocketName(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
 }
 
 // listenUnix creates a live unix socket at path and registers its cleanup.
@@ -87,6 +114,27 @@ func TestCleanupStaleTestTmuxSockets_KeepsLiveTestSocket(t *testing.T) {
 
 	if _, err := os.Stat(live); err != nil {
 		t.Fatalf("expected live test socket to be kept, stat err = %v", err)
+	}
+}
+
+func TestStaleSocketClassificationFailsClosed(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "refused is stale", err: syscall.ECONNREFUSED, want: true},
+		{name: "missing is stale", err: os.ErrNotExist, want: true},
+		{name: "timeout is unknown", err: context.DeadlineExceeded, want: false},
+		{name: "permission is unknown", err: os.ErrPermission, want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			wrapped := &net.OpError{Op: "dial", Net: "unix", Err: tt.err}
+			got := isDefinitivelyStaleSocketError(wrapped)
+			if got != tt.want {
+				t.Fatalf("stale classification for %v = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 

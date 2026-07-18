@@ -184,6 +184,19 @@ func gcSetTag(t *testing.T, opts tmux.Options, session, key, val string) {
 	}
 }
 
+func gcMarkSessionPaneDead(t *testing.T, opts tmux.Options, session string) {
+	t.Helper()
+	for _, args := range [][]string{
+		gcTmuxArgs(opts, "set-option", "-t", session, "remain-on-exit", "on"),
+		gcTmuxArgs(opts, "respawn-pane", "-k", "-t", session, "false"),
+	} {
+		cmd := exec.Command("tmux", args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("mark session %q pane dead: %v\n%s", session, err, out)
+		}
+	}
+}
+
 func gcHasSession(t *testing.T, opts tmux.Options, name string) bool {
 	t.Helper()
 	args := gcTmuxArgs(opts, "has-session", "-t", name)
@@ -215,10 +228,14 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 	knownWs := data.Workspace{Repo: "/test/repo", Root: "/test/repo/known"}
 	knownID := string(knownWs.ID())
 
-	// Create 3 sessions: 1 known, 2 orphans.
+	// Create 4 sessions: one known, two dead-pane orphans that are safe to
+	// collect, and one live-pane orphan whose process must survive.
 	gcCreateSession(t, opts, "known-sess", "sleep 300")
 	gcCreateSession(t, opts, "orphan1", "sleep 300")
 	gcCreateSession(t, opts, "orphan2", "sleep 300")
+	gcCreateSession(t, opts, "running-orphan", "sleep 300")
+	gcMarkSessionPaneDead(t, opts, "orphan1")
+	gcMarkSessionPaneDead(t, opts, "orphan2")
 	time.Sleep(50 * time.Millisecond)
 
 	// Tag all as @amux with different workspace IDs.
@@ -234,6 +251,10 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 	gcSetTag(t, opts, "orphan2", "@amux", "1")
 	gcSetTag(t, opts, "orphan2", "@amux_workspace", "dead-ws-2")
 	gcSetTag(t, opts, "orphan2", "@amux_created_at", staleCreatedAt)
+
+	gcSetTag(t, opts, "running-orphan", "@amux", "1")
+	gcSetTag(t, opts, "running-orphan", "@amux_workspace", "dead-ws-3")
+	gcSetTag(t, opts, "running-orphan", "@amux_created_at", staleCreatedAt)
 
 	app := &App{
 		tmuxAvailable:  true,
@@ -276,6 +297,9 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 	if gcHasSession(t, opts, "orphan2") {
 		t.Fatal("orphan2 should have been killed")
 	}
+	if !gcHasSession(t, opts, "running-orphan") {
+		t.Fatal("live-pane orphan was killed — its process should have survived GC")
+	}
 }
 
 func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.T) {
@@ -290,15 +314,16 @@ func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.
 
 	gcSetTag(t, opts, "other-orphan", "@amux", "1")
 	gcSetTag(t, opts, "other-orphan", "@amux_workspace", "dead-ws-other")
-	gcSetTag(t, opts, "other-orphan", "@amux_instance", "other-instance")
+	gcSetTag(t, opts, "other-orphan", "@amux_instance", "aaaaaaaaaaaaaaaa.2222222222222222")
 	gcSetTag(t, opts, "other-orphan", "@amux_created_at", staleCreatedAt)
+	gcSetTag(t, opts, "other-orphan", tmux.TagSessionOwnerHeartbeatAt, strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	app := &App{
 		tmuxAvailable:  true,
 		projectsLoaded: true,
 		tmuxOptions:    opts,
 		tmuxService:    tmuxOps{},
-		instanceID:     "my-instance",
+		instanceID:     "aaaaaaaaaaaaaaaa.1111111111111111",
 	}
 
 	cmd := app.gcOrphanedTmuxSessions()
@@ -315,7 +340,7 @@ func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.
 		t.Fatalf("GC error: %v", result.Err)
 	}
 	if result.Killed != 0 {
-		t.Fatalf("expected 0 killed (other instance), got %d", result.Killed)
+		t.Fatalf("expected 0 killed (live owner), got %d", result.Killed)
 	}
 
 	// Session from other instance must survive.

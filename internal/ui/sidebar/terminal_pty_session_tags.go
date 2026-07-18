@@ -123,6 +123,10 @@ func terminalTagChecks(tags tmux.SessionTags) []struct {
 			key  string
 			want string
 		}{key: tmux.TagSessionLeaseAt, want: strconv.FormatInt(tags.LeaseAtMS, 10)})
+		checks = append(checks, struct {
+			key  string
+			want string
+		}{key: tmux.TagSessionOwnerHeartbeatAt, want: strconv.FormatInt(tags.LeaseAtMS, 10)})
 	}
 	return checks
 }

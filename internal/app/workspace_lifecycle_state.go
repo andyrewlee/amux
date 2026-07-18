@@ -73,6 +73,10 @@ type workspaceLifecycleState struct {
 	// Keys include both workspace IDs and root paths because ID normalization can
 	// change after the worktree path is removed.
 	deletedUntilProjectsLoadToken map[string]projectsLoadToken
+	// createdUntilProjectsLoadToken protects a newly created/activated workspace
+	// from older in-flight project snapshots that began before its metadata was
+	// visible. Keys include both workspace IDs and root paths.
+	createdUntilProjectsLoadToken map[string]projectsLoadToken
 	// localSaveMu guards localSavesAt (written from Cmd goroutines).
 	localSaveMu  sync.Mutex
 	localSavesAt map[string]localWorkspaceSaveMarker
@@ -84,6 +88,7 @@ func newWorkspaceLifecycleState() workspaceLifecycleState {
 		deletingRootID:                make(map[string]string),
 		dirty:                         make(map[string]bool),
 		deletedUntilProjectsLoadToken: make(map[string]projectsLoadToken),
+		createdUntilProjectsLoadToken: make(map[string]projectsLoadToken),
 		localSavesAt:                  make(map[string]localWorkspaceSaveMarker),
 	}
 }
@@ -267,6 +272,63 @@ func (w *workspaceLifecycleState) markDeletedUntilProjectsLoad(wsID, root string
 	if root != "" {
 		w.deletedUntilProjectsLoadToken[root] = token
 	}
+}
+
+func (w *workspaceLifecycleState) markCreatedUntilProjectsLoad(wsID, root string, token projectsLoadToken) {
+	if token == 0 || (wsID == "" && root == "") {
+		return
+	}
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	if w.createdUntilProjectsLoadToken == nil {
+		w.createdUntilProjectsLoadToken = make(map[string]projectsLoadToken)
+	}
+	if wsID != "" {
+		w.createdUntilProjectsLoadToken[wsID] = token
+	}
+	if root != "" {
+		w.createdUntilProjectsLoadToken[root] = token
+	}
+}
+
+func (w *workspaceLifecycleState) shouldRetainCreatedWorkspace(wsID, root string, loadToken projectsLoadToken) bool {
+	if loadToken == 0 || (wsID == "" && root == "") {
+		return false
+	}
+	w.phaseMu.RLock()
+	defer w.phaseMu.RUnlock()
+	for _, identity := range []string{wsID, root} {
+		if identity == "" {
+			continue
+		}
+		if until, ok := w.createdUntilProjectsLoadToken[identity]; ok && loadToken <= until {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *workspaceLifecycleState) clearCreatedProjectLoadBarriersThrough(loadToken projectsLoadToken, loadedIdentities map[string]bool) {
+	if loadToken == 0 {
+		return
+	}
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	for identity, until := range w.createdUntilProjectsLoadToken {
+		if loadToken < until {
+			continue
+		}
+		if loadedIdentities[identity] || loadToken > until {
+			delete(w.createdUntilProjectsLoadToken, identity)
+		}
+	}
+}
+
+func (w *workspaceLifecycleState) clearCreatedProjectLoadBarrier(wsID, root string) {
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	delete(w.createdUntilProjectsLoadToken, wsID)
+	delete(w.createdUntilProjectsLoadToken, root)
 }
 
 func (w *workspaceLifecycleState) shouldFilterDeletedWorkspace(wsID, root string, loadToken projectsLoadToken) bool {

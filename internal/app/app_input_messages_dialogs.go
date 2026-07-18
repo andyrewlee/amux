@@ -232,7 +232,7 @@ func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog
 	a.dialog = common.NewConfirmDialog(
 		DialogRemoveProject,
 		"Remove Project",
-		fmt.Sprintf("Remove project '%s' from AMUX? This won't delete any files.", projectName),
+		fmt.Sprintf("Remove project '%s' from AMUX? Running agents and project scripts will stop; its repository and worktrees stay on disk.", projectName),
 	)
 	a.presentDialog(a.dialog)
 }

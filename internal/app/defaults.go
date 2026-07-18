@@ -70,6 +70,23 @@ const (
 	// orphanGCInterval controls how often the periodic tmux orphan GC runs.
 	orphanGCInterval = 60 * time.Second
 
+	// sessionOwnerHeartbeatInterval limits tmux writes while allowing peer amux
+	// processes to distinguish a live owner from a previous app launch.
+	sessionOwnerHeartbeatInterval = 30 * time.Second
+
+	// sessionOwnerStaleAfter allows two missed heartbeat intervals plus command
+	// scheduling jitter before a peer's detached sessions become collectible.
+	sessionOwnerStaleAfter = 2 * time.Minute
+
+	// metadataOrphanGracePeriod keeps a fresh record long enough for another
+	// amux process to finish registering its project/workspace before startup
+	// reconciliation considers the record unreachable.
+	metadataOrphanGracePeriod = time.Hour
+
+	// archivedMetadataRetention bounds how long metadata for a workspace that
+	// disappeared from git discovery is retained for possible rediscovery.
+	archivedMetadataRetention = 7 * 24 * time.Hour
+
 	// detachedAgentStaleAfter is the inactivity threshold for detached,
 	// clientless agent sessions before they are considered stale.
 	detachedAgentStaleAfter = 24 * time.Hour

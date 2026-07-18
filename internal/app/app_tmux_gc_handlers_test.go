@@ -127,6 +127,26 @@ func TestHandleOrphanGCTick_RunsBothGCAndRearmsTickerWhenReady(t *testing.T) {
 	}
 }
 
+func TestHandleTmuxAvailableResult_RunsStartupCleanupWhenProjectsReady(t *testing.T) {
+	app := &App{
+		projectsLoaded: true,
+		tmuxService:    tickGCOps{},
+	}
+
+	cmds := app.handleTmuxAvailableResult(tmuxAvailableResult{available: true})
+	if len(cmds) < 2 {
+		t.Fatalf("expected startup cleanup commands, got %d", len(cmds))
+	}
+	msg := cmds[len(cmds)-2]()
+	if _, ok := msg.(staleDetachedAgentGCResult); !ok {
+		t.Fatalf("penultimate startup command returned %T, want staleDetachedAgentGCResult", msg)
+	}
+	msg = cmds[len(cmds)-1]()
+	if _, ok := msg.(orphanGCResult); !ok {
+		t.Fatalf("last startup command returned %T, want orphanGCResult", msg)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // handleStaleDetachedAgentGCResult — logs the sweep outcome. We run it against
 // the real logging backend (pointed at a temp file) and read the emitted lines
