@@ -3,11 +3,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -31,7 +33,7 @@ func cleanupStaleTestTmuxSockets() {
 				continue
 			}
 			name := entry.Name()
-			if !strings.HasPrefix(name, "amux-test-") && !strings.HasPrefix(name, "amux-e2e-check-") {
+			if !isTestTmuxSocketName(name) {
 				continue
 			}
 			info, err := entry.Info()
@@ -42,7 +44,7 @@ func cleanupStaleTestTmuxSockets() {
 				continue
 			}
 			socketPath := filepath.Join(dir, name)
-			if isLiveUnixSocket(socketPath) {
+			if !isStaleUnixSocket(socketPath) {
 				continue
 			}
 			if err := os.Remove(socketPath); err == nil {
@@ -53,6 +55,25 @@ func cleanupStaleTestTmuxSockets() {
 	if removed > 0 {
 		logging.Info("Removed %d stale tmux test sockets", removed)
 	}
+}
+
+func isTestTmuxSocketName(name string) bool {
+	for _, prefix := range []string{
+		"amux-test-",
+		"amux-e2e-",
+		"amux-gctest-",
+		"amux-ptytest-",
+		"amux-sidebar-test-",
+		"amux-closeloop-check-",
+		"amux-create-pipeline-",
+		"amux-pre-push-e2e-check-",
+		"amux-verify-loop-check-",
+	} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func tmuxSocketDirs() []string {
@@ -73,12 +94,18 @@ func tmuxSocketDirs() []string {
 	return out
 }
 
-func isLiveUnixSocket(path string) bool {
+func isStaleUnixSocket(path string) bool {
 	dialer := net.Dialer{Timeout: staleSocketDialTimeout}
 	conn, err := dialer.Dial("unix", path)
-	if err != nil {
+	if err == nil {
+		_ = conn.Close()
 		return false
 	}
-	_ = conn.Close()
-	return true
+	// Fail closed unless the kernel definitively says the socket has no listener
+	// (or disappeared during the scan). A timeout can be a busy live server.
+	return isDefinitivelyStaleSocketError(err)
+}
+
+func isDefinitivelyStaleSocketError(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, os.ErrNotExist)
 }

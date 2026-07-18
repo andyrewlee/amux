@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +21,12 @@ import (
 
 // pollInterval is the fallback polling interval for WaitFor* methods.
 const pollInterval = 50 * time.Millisecond
+
+const (
+	e2eBuildDirPrefix     = "amux-e2e-bin-"
+	e2eBuildOwnerFilename = ".owner-pid"
+	legacyE2EBuildMaxAge  = 24 * time.Hour
+)
 
 type PTYSession struct {
 	cmd      *exec.Cmd
@@ -276,14 +284,21 @@ func buildAmuxBinary() (string, func(), error) {
 	}
 
 	buildOnce.Do(func() {
-		tmp, err := os.MkdirTemp("", "amux-e2e-bin-*")
+		tmp, err := os.MkdirTemp("", e2eBuildDirPrefix+"*")
 		if err != nil {
 			buildErr = err
+			return
+		}
+		ownerPath := filepath.Join(tmp, e2eBuildOwnerFilename)
+		if err := os.WriteFile(ownerPath, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			_ = os.RemoveAll(tmp)
+			buildErr = fmt.Errorf("write e2e build owner: %w", err)
 			return
 		}
 		out := filepath.Join(tmp, "amux")
 		root, err := repoRoot()
 		if err != nil {
+			_ = os.RemoveAll(tmp)
 			buildErr = err
 			return
 		}
@@ -292,6 +307,7 @@ func buildAmuxBinary() (string, func(), error) {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
+			_ = os.RemoveAll(tmp)
 			buildErr = err
 			return
 		}
@@ -302,14 +318,93 @@ func buildAmuxBinary() (string, func(), error) {
 		return "", func() {}, buildErr
 	}
 
-	cleanup := func() {
-		if buildPath == "" {
-			return
-		}
-		if os.Getenv("AMUX_E2E_CLEANUP_BIN") == "" {
-			return
-		}
-		_ = os.RemoveAll(filepath.Dir(buildPath))
+	// The binary is shared by every PTY session in this test process. Removing
+	// it from an individual session cleanup makes subsequent tests reuse a path
+	// that no longer exists, while never removing it leaks one directory per
+	// `go test` invocation. TestMain performs the process-scoped cleanup.
+	return buildPath, func() {}, nil
+}
+
+func cleanupBuiltAmuxBinary() error {
+	if buildPath == "" {
+		// An AMUX_E2E_BIN supplied by the caller is never owned by this test.
+		return nil
 	}
-	return buildPath, cleanup, nil
+	dir := filepath.Dir(buildPath)
+	if !strings.HasPrefix(filepath.Base(dir), e2eBuildDirPrefix) {
+		return fmt.Errorf("refusing to remove unexpected build directory %q", dir)
+	}
+	return os.RemoveAll(dir)
+}
+
+func cleanupStaleBuiltAmuxBinaries(tempRoot string, now time.Time) error {
+	return cleanupStaleBuiltAmuxBinariesWith(tempRoot, now, e2eBuildOwnerAlive)
+}
+
+func cleanupStaleBuiltAmuxBinariesWith(tempRoot string, now time.Time, ownerAlive func(int) bool) error {
+	entries, err := os.ReadDir(tempRoot)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), e2eBuildDirPrefix) {
+			continue
+		}
+		dir := filepath.Join(tempRoot, entry.Name())
+		useAgeGuard, liveOwner, ownerErr := classifyE2EBuildOwner(
+			filepath.Join(dir, e2eBuildOwnerFilename),
+			ownerAlive,
+		)
+		if ownerErr != nil {
+			errs = append(errs, fmt.Errorf("read owner for %s: %w", entry.Name(), ownerErr))
+			continue
+		}
+		if liveOwner {
+			continue
+		}
+		if useAgeGuard {
+			// Directories made by older tests have no owner marker. Retain fresh
+			// ones so a concurrently starting legacy test cannot be disrupted.
+			info, infoErr := entry.Info()
+			if infoErr != nil {
+				errs = append(errs, fmt.Errorf("stat legacy build %s: %w", entry.Name(), infoErr))
+				continue
+			}
+			if info.ModTime().After(now) || now.Sub(info.ModTime()) < legacyE2EBuildMaxAge {
+				continue
+			}
+		}
+		if removeErr := os.RemoveAll(dir); removeErr != nil {
+			errs = append(errs, fmt.Errorf("remove stale build %s: %w", entry.Name(), removeErr))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func classifyE2EBuildOwner(ownerPath string, ownerAlive func(int) bool) (useAgeGuard, liveOwner bool, err error) {
+	ownerData, err := os.ReadFile(ownerPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(ownerData)))
+	if parseErr != nil || pid <= 0 || ownerAlive == nil {
+		// A concurrent writer can expose a short-lived partial marker. Treat
+		// malformed markers like legacy directories and fail closed while they
+		// are fresh. A missing liveness probe follows the same safe path.
+		return true, false, nil
+	}
+	return false, ownerAlive(pid), nil
+}
+
+func e2eBuildOwnerAlive(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	err = process.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }

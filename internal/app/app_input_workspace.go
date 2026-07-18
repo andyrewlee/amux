@@ -24,6 +24,7 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		logging.Warn("DeleteWorkspace rejected while workspace %s is in another lifecycle phase", msg.Workspace.ID())
 		return nil
 	}
+	a.lifecycle.clearCreatedProjectLoadBarrier(string(msg.Workspace.ID()), msg.Workspace.Root)
 	// Do NOT kill the workspace's tmux sessions here. All real delete validation
 	// (primary-checkout guard, repo/path checks, worktree removal) runs later in
 	// the async DeleteWorkspace cmd; killing up-front means a rejected or failed
@@ -77,8 +78,20 @@ func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWit
 			cmds = append(cmds, cmd)
 		}
 	}
-	cmds = append(cmds, a.loadProjects())
+	cmds = append(cmds, a.loadProjectsAfterCreate(msg.Workspace))
 	return cmds
+}
+
+func (a *App) loadProjectsAfterCreate(ws *data.Workspace) tea.Cmd {
+	cmd := a.loadProjects()
+	if cmd != nil && ws != nil {
+		a.lifecycle.markCreatedUntilProjectsLoad(
+			string(ws.ID()),
+			ws.Root,
+			a.lifecycle.projectsLoadToken,
+		)
+	}
+	return cmd
 }
 
 // handleWorkspaceCreated handles the WorkspaceCreated message.
@@ -91,7 +104,7 @@ func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 		}
 		cmds = append(cmds, a.runSetupAsync(msg.Workspace))
 	}
-	cmds = append(cmds, a.loadProjects())
+	cmds = append(cmds, a.loadProjectsAfterCreate(msg.Workspace))
 	return cmds
 }
 

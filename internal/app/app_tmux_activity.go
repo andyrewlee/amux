@@ -341,5 +341,14 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 			return nil
 		})
 	}
+	// Availability and project loading race during Init. Scheduling both cleanup
+	// passes here complements handleProjectsLoaded, so whichever result arrives
+	// second performs reconciliation immediately instead of waiting for a tick.
+	if gcCmd := a.gcStaleDetachedAgentSessions(); gcCmd != nil {
+		cmds = append(cmds, gcCmd)
+	}
+	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
+		cmds = append(cmds, gcCmd)
+	}
 	return cmds
 }

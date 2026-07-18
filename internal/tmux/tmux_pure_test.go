@@ -188,6 +188,44 @@ func TestBuildMultiSetOptionArgs_DoesNotAliasScope(t *testing.T) {
 	}
 }
 
+func TestBuildSessionTagBatchArgs(t *testing.T) {
+	args, added := buildSessionTagBatchArgs(
+		[]string{" $1 ", "", "$2"},
+		" @amux_owner_heartbeat_ms ",
+		"123",
+	)
+	want := []string{
+		"set-option", "-t", "$1", "@amux_owner_heartbeat_ms", "123",
+		";",
+		"set-option", "-t", "$2", "@amux_owner_heartbeat_ms", "123",
+	}
+	if added != 2 || !reflect.DeepEqual(args, want) {
+		t.Fatalf("buildSessionTagBatchArgs() = (%#v, %d), want (%#v, 2)", args, added, want)
+	}
+
+	args, added = buildSessionTagBatchArgs([]string{"$1"}, " ", "123")
+	if added != 0 || len(args) != 0 {
+		t.Fatalf("blank key should produce no args, got (%#v, %d)", args, added)
+	}
+}
+
+func TestParseSessionOptionTargetsMatchesExactNamesAndValidIDs(t *testing.T) {
+	requested := map[string]struct{}{
+		"session-1": {},
+		"session-2": {},
+	}
+	got := parseSessionOptionTargets(requested, []string{
+		"session-10\t$10",
+		"session-1\t$1",
+		"session-2\tnot-an-id",
+		"malformed",
+	})
+	want := []string{"$1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseSessionOptionTargets() = %#v, want %#v", got, want)
+	}
+}
+
 // TestSessionStateFor_EmptyName covers the guard that returns a zero-value
 // SessionState before any tmux command (EnsureAvailable) is reached.
 func TestSessionStateFor_EmptyName(t *testing.T) {

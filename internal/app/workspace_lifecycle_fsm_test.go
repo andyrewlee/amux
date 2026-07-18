@@ -122,6 +122,70 @@ func TestLifecycleCreateWhileProjectsLoading(t *testing.T) {
 	}
 }
 
+func TestCreatedWorkspaceSurvivesOlderProjectLoadUntilConfirmed(t *testing.T) {
+	repo := "/repo"
+	primary := data.NewWorkspace("repo", "main", "", repo, repo)
+	created := data.NewWorkspace("feature", "feature", "main", repo, "/workspaces/feature")
+	project := data.NewProject(repo)
+	project.Workspaces = []data.Workspace{*primary, *created}
+
+	app := &App{
+		lifecycle:        newWorkspaceLifecycleState(),
+		tmuxActivity:     newTmuxActivityState(),
+		dashboard:        dashboard.New(),
+		center:           center.New(nil),
+		workspaceService: newWorkspaceService(nil, nil, nil, t.TempDir()),
+		projects:         []data.Project{*project},
+		activeProject:    project,
+		activeWorkspace:  created,
+	}
+	app.center.SetWorkspace(created)
+	app.lifecycle.projectsLoadToken = 2
+	if !app.lifecycle.markCreating(string(created.ID())) {
+		t.Fatal("expected create phase to be accepted")
+	}
+
+	app.handleWorkspaceCreated(messages.WorkspaceCreated{Workspace: created})
+	if got := app.lifecycle.projectsLoadToken; got != 3 {
+		t.Fatalf("post-create load token = %d, want 3", got)
+	}
+
+	older := data.NewProject(repo)
+	older.Workspaces = []data.Workspace{*primary}
+	app.handleProjectsLoaded(messages.ProjectsLoaded{
+		Projects:  []data.Project{*older},
+		LoadToken: 2,
+	})
+	if app.activeWorkspace == nil || app.activeWorkspace.ID() != created.ID() {
+		t.Fatal("older project snapshot cleared the newly created active workspace")
+	}
+	if app.showWelcome {
+		t.Fatal("older project snapshot returned the UI home")
+	}
+
+	confirmed := data.NewProject(repo)
+	confirmed.Workspaces = []data.Workspace{*primary, *created}
+	app.handleProjectsLoaded(messages.ProjectsLoaded{
+		Projects:  []data.Project{*confirmed},
+		LoadToken: 3,
+	})
+	if app.activeWorkspace == nil || app.activeWorkspace.ID() != created.ID() {
+		t.Fatal("post-create project snapshot did not retain the active workspace")
+	}
+	if len(app.lifecycle.createdUntilProjectsLoadToken) != 0 {
+		t.Fatalf("post-create barriers were not released: %v", app.lifecycle.createdUntilProjectsLoadToken)
+	}
+
+	// Once the confirming load lands, a later real removal must still go home.
+	app.handleProjectsLoaded(messages.ProjectsLoaded{
+		Projects:  []data.Project{*older},
+		LoadToken: 4,
+	})
+	if app.activeWorkspace != nil || !app.showWelcome {
+		t.Fatal("later confirmed removal did not clear the active workspace")
+	}
+}
+
 func TestHandleCreateWorkspaceStopsWhenLifecycleRejectsCreate(t *testing.T) {
 	workspacesRoot := t.TempDir()
 	project := data.NewProject("/repo")

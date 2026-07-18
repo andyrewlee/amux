@@ -181,7 +181,7 @@ func New(version, commit, date string) (*App, error) {
 	app.externalCritical = make(chan tea.Msg, externalCriticalBuffer)
 	app.ctx = ctx
 	app.tmuxOptions = tmuxOpts
-	app.instanceID = newInstanceID()
+	app.instanceID = newInstanceID(cfg.Paths.Home)
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()
 	// Route PTY messages through the app-level pump.

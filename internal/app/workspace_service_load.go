@@ -23,6 +23,13 @@ func (s *workspaceService) LoadProjects(loadToken projectsLoadToken) tea.Cmd {
 		if err != nil {
 			return messages.Error{Err: err, Context: errorContext(errorServiceWorkspace, "loading projects")}
 		}
+		paths = s.pruneMissingTemporaryProjects(paths)
+		// Metadata reconciliation scans every persisted record. Run it for the
+		// initial dashboard load rather than on each UI refresh; explicit project
+		// and workspace removals clean their own state immediately.
+		if loadToken <= 1 {
+			s.reconcileWorkspaceMetadata(paths)
+		}
 
 		var projects []data.Project
 		for _, path := range paths {
@@ -102,6 +109,40 @@ func (s *workspaceService) LoadProjects(loadToken projectsLoadToken) tea.Cmd {
 		}
 
 		return messages.ProjectsLoaded{Projects: projects, LoadToken: int(loadToken)}
+	}
+}
+
+// importManagedWorkspaces discovers and persists amux-owned worktrees for one
+// project. It is best-effort because registration has already succeeded; a
+// transient git/store error should not roll back a valid project addition.
+func (s *workspaceService) importManagedWorkspaces(path string) {
+	if s == nil || s.store == nil || s.gitOps == nil || !git.IsGitRepository(path) {
+		return
+	}
+	project := data.NewProject(path)
+	discovered, err := s.gitOps.DiscoverWorkspaces(project)
+	if err != nil {
+		logging.Warn("Failed to discover workspaces while adding %s: %v", path, err)
+		return
+	}
+	for i := range discovered {
+		ws := &discovered[i]
+		if !s.shouldSurfaceWorkspace(path, ws) {
+			continue
+		}
+		wsID := string(ws.ID())
+		if strings.TrimSpace(ws.Assistant) == "" {
+			ws.Assistant = s.resolvedDefaultAssistant()
+		}
+		var upsertErr error
+		if !s.runUnlessDeleteInFlight(wsID, func() {
+			upsertErr = s.store.UpsertFromDiscovery(ws)
+		}) {
+			continue
+		}
+		if upsertErr != nil {
+			logging.Warn("Failed to import workspace %s while adding %s: %v", ws.Name, path, upsertErr)
+		}
 	}
 }
 

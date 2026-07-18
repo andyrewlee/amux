@@ -2,8 +2,10 @@ package app
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -139,6 +141,41 @@ func TestRemoveProjectSuccess(t *testing.T) {
 	}
 }
 
+func TestRemoveProjectStopsProjectScriptsAndReleasesPorts(t *testing.T) {
+	repo := t.TempDir()
+	workspaceRoot := t.TempDir()
+	ws := data.NewWorkspace("feature", "feature", "main", repo, workspaceRoot)
+	ws.ScriptMode = "nonconcurrent"
+	ws.Scripts.Run = "sleep 30"
+
+	runner := process.NewScriptRunner(6300, 10)
+	t.Cleanup(func() { _ = runner.Stop(ws) })
+	if _, err := runner.RunScript(ws, process.ScriptRun); err != nil {
+		t.Fatalf("RunScript: %v", err)
+	}
+	if !runner.IsRunning(ws) {
+		t.Fatal("expected project script to be running before removal")
+	}
+	if _, allocated := runner.PortAllocated(ws); !allocated {
+		t.Fatal("expected project port to be allocated before removal")
+	}
+
+	reg := &fakeProjectRegistry{}
+	svc := newWorkspaceService(reg, nil, runner, "")
+	project := data.NewProject(repo)
+	project.Workspaces = []data.Workspace{*ws}
+	msg := svc.RemoveProject(project)()
+	if _, ok := msg.(messages.ProjectRemoved); !ok {
+		t.Fatalf("expected ProjectRemoved, got %T", msg)
+	}
+	if runner.IsRunning(ws) {
+		t.Fatal("project script remained running after removal")
+	}
+	if _, allocated := runner.PortAllocated(ws); allocated {
+		t.Fatal("project port remained allocated after removal")
+	}
+}
+
 // TestRemoveProjectSuccessWithRealRegistry exercises the success path end-to-end
 // against a real on-disk registry: a registered project is unregistered and the
 // projects.json no longer lists it.
@@ -174,6 +211,140 @@ func TestRemoveProjectSuccessWithRealRegistry(t *testing.T) {
 	}
 	if data.NormalizePath(paths[0]) != data.NormalizePath("/path/to/keep") {
 		t.Fatalf("expected remaining project /path/to/keep, got %q", paths[0])
+	}
+}
+
+func TestRemoveProjectCleansMetadataAndSessionsButLeavesFiles(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	workspaceRoot := filepath.Join(dir, "workspaces", "repo", "feature")
+	if err := os.MkdirAll(workspaceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := data.NewRegistry(filepath.Join(dir, "projects.json"))
+	if err := registry.AddProject(repo); err != nil {
+		t.Fatal(err)
+	}
+	store := data.NewWorkspaceStore(filepath.Join(dir, "metadata"))
+	ws := data.NewWorkspace("feature", "feature", "main", repo, workspaceRoot)
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newWorkspaceService(registry, store, nil, filepath.Join(dir, "workspaces"))
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) { killed = append(killed, id) }
+	msg := svc.RemoveProject(data.NewProject(repo))()
+	if _, ok := msg.(messages.ProjectRemoved); !ok {
+		t.Fatalf("expected ProjectRemoved, got %T", msg)
+	}
+	if _, err := store.Load(ws.ID()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("workspace metadata still exists, err = %v", err)
+	}
+	if len(killed) != 1 || killed[0] != string(ws.ID()) {
+		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
+	}
+	if _, err := os.Stat(workspaceRoot); err != nil {
+		t.Fatalf("RemoveProject deleted workspace files: %v", err)
+	}
+}
+
+func TestRemoveProjectCleansKnownSessionsWithoutMetadataStore(t *testing.T) {
+	repo := t.TempDir()
+	ws := data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "feature"))
+	project := data.NewProject(repo)
+	project.Workspaces = []data.Workspace{*ws}
+
+	svc := newWorkspaceService(&fakeProjectRegistry{}, nil, nil, "")
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) { killed = append(killed, id) }
+	msg := svc.RemoveProject(project)()
+	if _, ok := msg.(messages.ProjectRemoved); !ok {
+		t.Fatalf("expected ProjectRemoved, got %T", msg)
+	}
+	if len(killed) != 1 || killed[0] != string(ws.ID()) {
+		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
+	}
+}
+
+func TestPruneMissingTemporaryProjectsKeepsNonTemporaryMissingPaths(t *testing.T) {
+	missingTemp := filepath.Join(t.TempDir(), "gone", "repo")
+	missingNonTemp := filepath.Join(string(filepath.Separator), "amux-missing-volume", "repo")
+	registry := &fakeProjectRegistry{}
+	svc := newWorkspaceService(registry, nil, nil, "")
+
+	kept := svc.pruneMissingTemporaryProjects([]string{missingTemp, missingNonTemp})
+	if len(registry.removedPaths) != 1 || registry.removedPaths[0] != missingTemp {
+		t.Fatalf("removed paths = %v, want only %s", registry.removedPaths, missingTemp)
+	}
+	if len(kept) != 1 || kept[0] != missingNonTemp {
+		t.Fatalf("kept paths = %v, want only %s", kept, missingNonTemp)
+	}
+}
+
+func TestLoadProjectsReconcilesMetadataOnlyOnInitialLoad(t *testing.T) {
+	root := t.TempDir()
+	metadataRoot := filepath.Join(root, "metadata")
+	store := data.NewWorkspaceStore(metadataRoot)
+	ws := data.NewWorkspace(
+		"stale",
+		"stale",
+		"main",
+		filepath.Join(root, "unregistered-repo"),
+		filepath.Join(root, "workspaces", "stale"),
+	)
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	metadataPath := filepath.Join(metadataRoot, string(ws.ID()), "workspace.json")
+	old := time.Now().Add(-metadataOrphanGracePeriod - time.Hour)
+	if err := os.Chtimes(metadataPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newWorkspaceService(&fakeProjectRegistry{}, store, nil, filepath.Join(root, "workspaces"))
+	_ = svc.LoadProjects(2)()
+	if _, err := store.Load(ws.ID()); err != nil {
+		t.Fatalf("non-initial refresh pruned metadata: %v", err)
+	}
+
+	_ = svc.LoadProjects(1)()
+	if _, err := store.Load(ws.ID()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("initial load did not reconcile stale metadata: %v", err)
+	}
+}
+
+func TestPruneMissingTemporaryProjectCleansOwnedStateButLeavesWorkspaceFiles(t *testing.T) {
+	root := t.TempDir()
+	missingRepo := filepath.Join(root, "gone", "repo")
+	workspaceRoot := filepath.Join(root, "workspaces", "repo", "feature")
+	if err := os.MkdirAll(workspaceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := data.NewRegistry(filepath.Join(root, "projects.json"))
+	if err := registry.AddProject(missingRepo); err != nil {
+		t.Fatal(err)
+	}
+	store := data.NewWorkspaceStore(filepath.Join(root, "metadata"))
+	ws := data.NewWorkspace("feature", "feature", "main", missingRepo, workspaceRoot)
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newWorkspaceService(registry, store, nil, filepath.Join(root, "workspaces"))
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) { killed = append(killed, id) }
+	if kept := svc.pruneMissingTemporaryProjects([]string{missingRepo}); len(kept) != 0 {
+		t.Fatalf("kept vanished temp project: %v", kept)
+	}
+	if _, err := store.Load(ws.ID()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("workspace metadata still exists, err = %v", err)
+	}
+	if len(killed) != 1 || killed[0] != string(ws.ID()) {
+		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
+	}
+	if _, err := os.Stat(workspaceRoot); err != nil {
+		t.Fatalf("automatic registry cleanup deleted workspace files: %v", err)
 	}
 }
 

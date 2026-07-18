@@ -69,6 +69,7 @@ func TestTerminalTagChecks(t *testing.T) {
 				{key: "@amux", want: "1"},
 				{key: "@amux_created_at", want: "1"},
 				{key: tmux.TagSessionLeaseAt, want: "1"},
+				{key: tmux.TagSessionOwnerHeartbeatAt, want: "1"},
 			},
 		},
 		{
@@ -121,6 +122,7 @@ func TestTerminalTagChecks(t *testing.T) {
 				{key: "@amux_instance", want: "inst-9"},
 				{key: tmux.TagSessionOwner, want: "owner-x"},
 				{key: tmux.TagSessionLeaseAt, want: "1700000000123"},
+				{key: tmux.TagSessionOwnerHeartbeatAt, want: "1700000000123"},
 			},
 		},
 	}

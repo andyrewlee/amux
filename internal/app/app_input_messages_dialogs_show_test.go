@@ -295,6 +295,10 @@ func TestHandleShowRemoveProjectDialog_RendersProjectName(t *testing.T) {
 			if !strings.Contains(view, tc.wantName) {
 				t.Fatalf("expected %q in view, got %q", tc.wantName, view)
 			}
+			if tc.project != nil && (!strings.Contains(view, "Running agents and project scripts") ||
+				!strings.Contains(view, "repository and worktrees stay on disk")) {
+				t.Fatalf("expected workload and file-retention warning in view, got %q", view)
+			}
 
 			res := confirmResult(t, h.app.dialog)
 			if res.ID != DialogRemoveProject {
