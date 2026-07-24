@@ -108,16 +108,30 @@ func cleanupValidateStageStep(r *workspaceCleanupRun) (workspaceCleanupPhase, er
 	if !workspaceAlive {
 		return cleanupPhaseUnregister, nil
 	}
-	if stageErr == nil {
-		// Both the staged cleanup dir and the workspace path exist: ambiguous.
-		return cleanupPhaseDone, fmt.Errorf("workspace path %s exists while pending cleanup remains at %s", r.workspacePath, r.state.CleanupPath)
-	}
-	// Stage is gone but the workspace lives: only recoverable workspaces may
-	// proceed (they get re-staged by the remove phase).
+	// The workspace path is alive. Decide whether it is the workspace this
+	// cleanup owns (fingerprint match) or an unrelated stray that some
+	// background process recreated at the original path after staging — e.g. a
+	// package manager or watcher writing `<ws>/apps/...`, the exact shape that
+	// used to deadlock the delete forever ("workspace path X exists while
+	// pending cleanup remains at Y" on every retry).
 	canRecover, err := canRecoverPendingCleanupWorkspace(r.ctx, r.workspacePath, r.state)
 	if err != nil {
 		return cleanupPhaseDone, err
 	}
+	if stageErr == nil {
+		// Both the staged dir and a live path exist. This is a genuine
+		// ambiguity only when the live path IS this workspace re-created while
+		// cleanup was pending (staging should have moved it away) — refuse
+		// that. When the live path is instead an unrelated stray, the staged
+		// worktree is still ours to remove; proceed and leave the stray
+		// untouched rather than deadlocking.
+		if canRecover {
+			return cleanupPhaseDone, fmt.Errorf("workspace path %s exists while pending cleanup remains at %s", r.workspacePath, r.state.CleanupPath)
+		}
+		return cleanupPhaseUnregister, nil
+	}
+	// Stage is gone but the workspace lives: only recoverable workspaces may
+	// proceed (they get re-staged by the remove phase).
 	if !canRecover {
 		return cleanupPhaseDone, fmt.Errorf("workspace path %s exists while pending cleanup remains at %s", r.workspacePath, r.state.CleanupPath)
 	}

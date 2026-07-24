@@ -19,6 +19,13 @@ func (s *gitStatusService) GetCached(root string) *git.StatusResult {
 	return s.manager.GetCached(root)
 }
 
+func (s *gitStatusService) GetCachedBackground(root string) *git.StatusResult {
+	if s == nil || s.manager == nil {
+		return nil
+	}
+	return s.manager.GetCachedBackground(root)
+}
+
 func (s *gitStatusService) UpdateCache(root string, status *git.StatusResult) {
 	if s == nil || s.manager == nil {
 		return

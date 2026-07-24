@@ -91,11 +91,17 @@ settle it (see `TestLifecycleCreateWhileProjectsLoading`).
    (`app_input_workspace.go`): marks the workspace `deleting`
    (`lifecycle.markDeleting`), shows the dashboard spinner, and enqueues the
    async `workspaceService.DeleteWorkspace` cmd. Sessions are NOT killed here:
-   a rejected/failed delete must leave live agents intact.
-2. The service validates (primary-checkout guard, repo/path checks), writes a
-   durable delete tombstone, removes the worktree under the per-repo git lock,
-   kills the workspace's tmux sessions only after worktree removal succeeded,
-   deletes the branch (failure is a warning), then deletes metadata.
+   a delete rejected by validation must leave live agents intact.
+2. The service validates (primary-checkout guard, repo/path checks), stops
+   managed scripts, kills the workspace's tmux sessions, kills orphaned
+   service process groups still referencing the worktree and verifies none
+   survive (`teardownWorkspaceProcessesForDelete` — a failure here aborts the
+   delete before anything touches the worktree), writes a durable delete
+   tombstone, removes the worktree under the per-repo git lock, deletes the
+   branch (failure is a warning), then deletes metadata. Teardown running
+   BEFORE removal is deliberate: a post-validation failure has already lost
+   its sessions (recoverable), while removing a worktree under live writers
+   orphans service stacks to PID 1 with a deleted cwd (which is not).
 3. `messages.WorkspaceDeleted` → `handleWorkspaceDeleted`: settles the phase,
    drops the workspace from the active set, navigates home when it was the
    active workspace, clears its dirty marker, and reloads projects.

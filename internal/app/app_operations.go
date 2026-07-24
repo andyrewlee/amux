@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"os"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -68,11 +69,25 @@ func (a *App) handleWorkspaceCommitted(msg messages.WorkspaceCommitted) tea.Cmd 
 	return common.SafeBatch(cmds...)
 }
 
+// gitStatusRootGone reports whether the workspace root no longer exists, in
+// which case spawning git is pure waste: the command would run against a
+// deleted or prune-staged directory until its timeout, every refresh cycle,
+// for every vanished workspace. Only a definite not-exist counts — a
+// transient EACCES/EIO must fall through to git rather than silently blank
+// real status.
+func gitStatusRootGone(root string) bool {
+	_, err := os.Stat(root)
+	return os.IsNotExist(err)
+}
+
 // requestGitStatus requests git status for a workspace using fast mode (skips line stats).
+// A vanished root produces NO result message — an Err-free result with a nil
+// Status would be cached by consumers (dashboard statusCache) and blank or
+// crash render paths that trust cached statuses to be non-nil.
 func (a *App) requestGitStatus(root string) tea.Cmd {
 	return func() tea.Msg {
-		if a.gitStatus == nil {
-			return messages.GitStatusResult{Root: root}
+		if a.gitStatus == nil || gitStatusRootGone(root) {
+			return nil
 		}
 		status, err := a.gitStatus.RefreshFast(root)
 		if err == nil {
@@ -85,8 +100,8 @@ func (a *App) requestGitStatus(root string) tea.Cmd {
 // requestGitStatusFull requests git status with full line stats (for sidebar display).
 func (a *App) requestGitStatusFull(root string) tea.Cmd {
 	return func() tea.Msg {
-		if a.gitStatus == nil {
-			return messages.GitStatusResult{Root: root}
+		if a.gitStatus == nil || gitStatusRootGone(root) {
+			return nil
 		}
 		status, err := a.gitStatus.Refresh(root)
 		if err == nil {
@@ -94,6 +109,21 @@ func (a *App) requestGitStatusFull(root string) tea.Cmd {
 		}
 		return messages.GitStatusResult{Root: root, Status: status, Err: err}
 	}
+}
+
+// requestGitStatusBackground requests git status for a non-active workspace:
+// a background-TTL cache hit is served without spawning git, so repeated
+// project reloads do not fan out one git subprocess per workspace. Explicit
+// invalidation (watcher events, commits) bypasses the TTL as usual.
+func (a *App) requestGitStatusBackground(root string) tea.Cmd {
+	if a.gitStatus != nil {
+		if cached := a.gitStatus.GetCachedBackground(root); cached != nil {
+			return func() tea.Msg {
+				return messages.GitStatusResult{Root: root, Status: cached}
+			}
+		}
+	}
+	return a.requestGitStatus(root)
 }
 
 // requestGitStatusCached requests git status using cache if available.

@@ -271,7 +271,63 @@ func isAmbiguousWindowsAllowFailureCanceledExit(
 	return !killedByContext && errors.As(runErr, &exitErr) && exitErr.ExitCode() == 1
 }
 
+// gitSubprocessLimit bounds concurrent REFRESH git subprocesses — the
+// status/diff reads that fan out per workspace on timers and project loads.
+// Those used to spawn one git per workspace at once; on a loaded machine they
+// pile up, each runs to its timeout, and amux itself becomes a top CPU
+// consumer. Only spawns whose context carries the refresh-slot marker
+// contend: user-initiated mutations (worktree add/remove, commit, branch
+// delete) and other one-off commands never queue behind a background refresh
+// storm. Each subprocess holds a slot only for its own run, so nested spawns
+// inside one refresh (status → numstat) cannot deadlock the pool. Queued
+// commands wait inside their own deadline, so under overload they fail fast
+// instead of stacking.
+const gitSubprocessLimit = 4
+
+var gitSubprocessSlots = make(chan struct{}, gitSubprocessLimit)
+
+type refreshSlotKey struct{}
+
+// WithRefreshSlot marks ctx so git subprocesses spawned under it contend for
+// the bounded refresh pool. Status/diff read paths set it; see
+// gitSubprocessLimit.
+func WithRefreshSlot(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, refreshSlotKey{}, struct{}{})
+}
+
+func wantsRefreshSlot(ctx context.Context) bool {
+	return ctx != nil && ctx.Value(refreshSlotKey{}) != nil
+}
+
+// acquireGitSlot blocks until a subprocess slot frees up or ctx expires,
+// reporting whether the slot was acquired.
+func acquireGitSlot(ctx context.Context) bool {
+	if ctx == nil {
+		gitSubprocessSlots <- struct{}{}
+		return true
+	}
+	select {
+	case gitSubprocessSlots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func releaseGitSlot() {
+	<-gitSubprocessSlots
+}
+
 func runGitCommand(ctx context.Context, cmd *exec.Cmd) (bool, error) {
+	if wantsRefreshSlot(ctx) {
+		if !acquireGitSlot(ctx) {
+			return false, ctx.Err()
+		}
+		defer releaseGitSlot()
+	}
 	if ctx == nil {
 		return false, cmd.Run()
 	}

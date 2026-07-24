@@ -230,6 +230,13 @@ type ShowRenameWorkspaceDialog struct {
 	Workspace *data.Workspace
 }
 
+// ToggleWorkspacePin flips a workspace's pinned flag: pinned workspaces are
+// deliberately long-running and exempt from lifecycle automation.
+type ToggleWorkspacePin struct {
+	Project   *data.Project
+	Workspace *data.Workspace
+}
+
 // ShowWorkspaceEnvDialog requests showing the workspace environment-variable
 // editor for the given workspace.
 type ShowWorkspaceEnvDialog struct {

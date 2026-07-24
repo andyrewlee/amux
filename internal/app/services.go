@@ -26,12 +26,16 @@ type WorkspaceStore interface {
 	Delete(id data.WorkspaceID) error
 	Rename(id data.WorkspaceID, newName string) error
 	SetEnv(id data.WorkspaceID, env map[string]string) error
+	SetPinned(id data.WorkspaceID, pinned bool) error
 	ResolvedDefaultAssistant() string
 }
 
 // GitStatusService provides cached status reads and fresh refreshes.
 type GitStatusService interface {
 	GetCached(root string) *git.StatusResult
+	// GetCachedBackground reads the cache under the longer background TTL,
+	// for workspaces that are not active (dashboard decoration only).
+	GetCachedBackground(root string) *git.StatusResult
 	UpdateCache(root string, status *git.StatusResult)
 	Invalidate(root string)
 	Refresh(root string) (*git.StatusResult, error)

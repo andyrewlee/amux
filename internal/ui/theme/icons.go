@@ -14,6 +14,7 @@ var Icons = struct {
 	Delete string
 	Edit   string
 	Close  string
+	Pin    string
 
 	// Navigation
 	Cursor      string
@@ -47,6 +48,7 @@ var Icons = struct {
 	Delete: "×",
 	Edit:   "~",
 	Close:  "×",
+	Pin:    "⚲",
 
 	// Navigation
 	Cursor:      ">",

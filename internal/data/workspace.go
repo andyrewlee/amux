@@ -78,6 +78,11 @@ type Workspace struct {
 	// Lifecycle
 	Archived   bool      `json:"archived"`
 	ArchivedAt time.Time `json:"archived_at,omitempty"`
+	// Pinned marks a workspace as deliberately long-running: lifecycle
+	// automation (suspend policies, cleanup suggestions) must leave it alone,
+	// and the dashboard badges it so "still running on purpose" is visibly
+	// different from "forgotten".
+	Pinned bool `json:"pinned,omitempty"`
 }
 
 // WorkspaceID is a unique identifier based on repo+root hash

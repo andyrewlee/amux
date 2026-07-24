@@ -32,12 +32,15 @@ import (
 //	                       OrphanGCTick, PTYWatchdogTick, tmuxActivityTick/
 //	                       Result, tmuxAvailableResult, TmuxSyncTick,
 //	                       tmuxTabsSyncResult, tmuxTabs/SidebarDiscoverResult,
-//	                       orphanGCResult, staleDetachedAgentGCResult
-//	                       → app_tmux*.go
+//	                       orphanGCResult, staleDetachedAgentGCResult,
+//	                       serviceReapResult
+//	                       → app_tmux*.go, app_service_reaper.go
 //	updateWorkspaceLifecycleMsg  ProjectsLoaded, WorkspaceActivated/Created/
 //	                       CreatedWithWarning/CreateFailed/SetupComplete,
 //	                       CreateWorkspace, DeleteWorkspace, WorkspaceDeleted/
-//	                       DeleteFailed, AddProject/RemoveProject/ProjectRemoved,
+//	                       DeleteFailed, RenameWorkspace, ToggleWorkspacePin,
+//	                       workspacePinPersistFailed,
+//	                       AddProject/RemoveProject/ProjectRemoved,
 //	                       RefreshDashboard, RescanWorkspaces, GitStatusResult,
 //	                       FileWatcherEvent, StateWatcherEvent
 //	                       → app_input_messages_workspace.go, app_input_workspace.go
@@ -200,6 +203,10 @@ func (a *App) updateTmuxMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleOrphanGCResult(msg)
 	case staleDetachedAgentGCResult:
 		a.handleStaleDetachedAgentGCResult(msg)
+	case serviceReapResult:
+		if cmd := a.handleServiceReapResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case sessionCountResult:
 		a.handleSessionCountResult(msg)
 	default:
@@ -242,6 +249,12 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		*cmds = append(*cmds, a.handleDeleteWorkspace(msg)...)
 	case messages.RenameWorkspace:
 		*cmds = append(*cmds, a.handleRenameWorkspace(msg)...)
+	case messages.ToggleWorkspacePin:
+		*cmds = append(*cmds, a.handleToggleWorkspacePin(msg)...)
+	case workspacePinPersistFailed:
+		if cmd := a.handleWorkspacePinPersistFailed(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case messages.AddProject:
 		*cmds = append(*cmds, a.addProject(msg.Path))
 	case messages.RemoveProject:

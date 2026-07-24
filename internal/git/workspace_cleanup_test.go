@@ -170,7 +170,15 @@ func TestRemoveWorkspaceRecoversNoFingerprintMarkerWhenRetryMetadataRemains(t *t
 	}
 }
 
-func TestRemoveWorkspaceRejectsReappearedLivePathWhileStagedCleanupExists(t *testing.T) {
+// TestRemoveWorkspaceFinishesCleanupWhenUnrelatedStrayReappears covers the
+// real-world deadlock: after a workspace was staged for cleanup, a background
+// process (a package manager, a file watcher) recreates an unrelated stray at
+// the original path (e.g. `<ws>/apps/...`). The stray is not the recoverable
+// workspace — no git fingerprint match — so it must NOT block the delete.
+// The staged worktree (the thing actually marked for deletion) is removed and
+// the marker cleared, while the stray content is left untouched. Previously
+// this deadlocked forever with "pending cleanup remains".
+func TestRemoveWorkspaceFinishesCleanupWhenUnrelatedStrayReappears(t *testing.T) {
 	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
 	origUnregisterWorktreeCtx := unregisterWorktreeCtx
 	defer func() {
@@ -184,7 +192,8 @@ func TestRemoveWorkspaceRejectsReappearedLivePathWhileStagedCleanupExists(t *tes
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
 		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(workspacePath, "replacement.txt"), []byte("replacement"), 0o644); err != nil {
+	strayFile := filepath.Join(workspacePath, "replacement.txt")
+	if err := os.WriteFile(strayFile, []byte("replacement"), 0o644); err != nil {
 		t.Fatalf("WriteFile(replacement.txt) error = %v", err)
 	}
 	if err := os.MkdirAll(stagedPath, 0o755); err != nil {
@@ -198,21 +207,35 @@ func TestRemoveWorkspaceRejectsReappearedLivePathWhileStagedCleanupExists(t *tes
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 
+	// Real capability shape: repo present, worktree admin already gone, so
+	// unregister is a clean no-op and cleanup can finalize.
 	unregisterWorktreeCtx = func(context.Context, string, string) error {
-		t.Fatal("expected reappeared live path to be rejected before unregister")
 		return nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
-		t.Fatal("expected reappeared live path to be rejected before staged cleanup delete")
-		return nil
+	var removedPaths []string
+	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+		removedPaths = append(removedPaths, path)
+		return os.RemoveAll(path)
 	}
 
-	err := RemoveWorkspace("/tmp/repo", workspacePath)
-	if err == nil {
-		t.Fatal("expected RemoveWorkspace() to reject reappeared live path during pending cleanup")
+	if err := RemoveWorkspace("/tmp/repo", workspacePath); err != nil {
+		t.Fatalf("expected cleanup to finish past an unrelated stray, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "pending cleanup remains") {
-		t.Fatalf("expected pending cleanup conflict, got %v", err)
+	if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
+		t.Fatalf("expected staged path removed, err=%v", err)
+	}
+	if _, err := os.Stat(prunedWorkspaceRetryMarkerPath(workspacePath)); !os.IsNotExist(err) {
+		t.Fatalf("expected cleanup marker cleared, err=%v", err)
+	}
+	// The stray content must be preserved — cleanup only removes the staged
+	// worktree, never whatever reappeared at the original path.
+	if _, err := os.Stat(strayFile); err != nil {
+		t.Fatalf("expected stray content preserved, err=%v", err)
+	}
+	for _, p := range removedPaths {
+		if p == workspacePath {
+			t.Fatal("cleanup must not remove the reappeared workspace path itself")
+		}
 	}
 }
 

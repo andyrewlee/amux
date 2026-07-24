@@ -114,9 +114,14 @@ func TestHandleWorkspaceCommitted_ErrorReports(t *testing.T) {
 // TestHandleWorkspaceCommitted_SuccessToastsAndRefreshes asserts a successful
 // commit shows a success toast and requests a status refresh.
 func TestHandleWorkspaceCommitted_SuccessToastsAndRefreshes(t *testing.T) {
-	app := &App{toast: common.NewToastModel()}
+	// The refresh request needs a live service and an existing root: a
+	// vanished root (or absent service) now yields no result message at all,
+	// so a nil Status can never poison downstream caches.
+	root := t.TempDir()
+	stub := &fileWatcherGitStatusStub{}
+	app := &App{toast: common.NewToastModel(), gitStatus: stub}
 	cmd := app.handleWorkspaceCommitted(messages.WorkspaceCommitted{
-		Workspace: &data.Workspace{Root: "/tmp/ws"},
+		Workspace: &data.Workspace{Root: root},
 	})
 	if cmd == nil {
 		t.Fatal("expected a success command")
@@ -124,11 +129,9 @@ func TestHandleWorkspaceCommitted_SuccessToastsAndRefreshes(t *testing.T) {
 	if view := ansi.Strip(app.toast.View()); !strings.Contains(view, "Committed changes") {
 		t.Fatalf("expected success toast, got %q", view)
 	}
-	// A gitStatus refresh is queued (nil gitStatus service yields a bare result
-	// message keyed to the workspace Root).
 	sawStatus := false
 	for _, m := range runCommandMessages(cmd) {
-		if res, ok := m.(messages.GitStatusResult); ok && res.Root == "/tmp/ws" {
+		if res, ok := m.(messages.GitStatusResult); ok && res.Root == root && res.Status != nil {
 			sawStatus = true
 		}
 	}

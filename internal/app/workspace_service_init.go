@@ -51,9 +51,15 @@ type workspaceService struct {
 	deleteInFlightGuard func(wsID string, fn func()) bool
 	// killWorkspaceSessions synchronously tears down a workspace's tmux sessions.
 	// Wired in app_init; nil in directly-constructed services (a no-op). Called
-	// only after worktree removal succeeds, so failed deletes leave live sessions
-	// intact.
+	// before worktree removal so no session process can hold or repopulate the
+	// worktree while it is being deleted.
 	killWorkspaceSessions func(wsID string)
+	// teardownProcesses kills orphaned service process groups still referencing
+	// the workspace root and fails when any survive, making the delete
+	// transactional: stop services → kill sessions → kill survivors → verify →
+	// only then remove the worktree. Wired to process.TeardownWorkspaceProcesses
+	// in app_init; nil in directly-constructed services (a no-op).
+	teardownProcesses func(root string) (process.TeardownResult, error)
 	// repoGitLocks serializes git worktree/branch mutations per repository (keyed
 	// by normalized project path) so concurrent create/delete of workspaces in the
 	// same repo do not contend on .git locks (index.lock / packed-refs).

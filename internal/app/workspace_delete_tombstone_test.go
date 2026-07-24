@@ -32,6 +32,7 @@ func (s *failingTombstoneWorkspaceStore) Rename(data.WorkspaceID, string) error 
 func (s *failingTombstoneWorkspaceStore) SetEnv(data.WorkspaceID, map[string]string) error {
 	return nil
 }
+func (s *failingTombstoneWorkspaceStore) SetPinned(data.WorkspaceID, bool) error { return nil }
 
 func (s *failingTombstoneWorkspaceStore) ResolvedDefaultAssistant() string {
 	return data.DefaultAssistant
