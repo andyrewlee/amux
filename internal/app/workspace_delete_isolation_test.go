@@ -130,8 +130,12 @@ func TestKillWorkspaceSessionsSync_TagArgsAreWorkspaceScoped(t *testing.T) {
 	ops := &multiKillRecordingTmuxOps{}
 	app := &App{tmuxService: ops, instanceID: "inst-A"}
 
-	app.killWorkspaceSessionsSync("ws-A")
-	app.killWorkspaceSessionsSync("ws-B")
+	if err := app.killWorkspaceSessionsSync("ws-A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.killWorkspaceSessionsSync("ws-B"); err != nil {
+		t.Fatal(err)
+	}
 
 	if len(ops.allKillTags) != 2 {
 		t.Fatalf("expected exactly two kill calls, got %d", len(ops.allKillTags))
@@ -143,8 +147,8 @@ func TestKillWorkspaceSessionsSync_TagArgsAreWorkspaceScoped(t *testing.T) {
 		t.Fatalf("second cleanup must target ws-B, got @amux_workspace=%q", got)
 	}
 	for i, tags := range ops.allKillTags {
-		if tags["@amux_instance"] != "inst-A" {
-			t.Fatalf("call %d must stay instance-scoped, got %v", i, tags)
+		if _, ok := tags["@amux_instance"]; ok {
+			t.Fatalf("call %d must cover all instances, got %v", i, tags)
 		}
 	}
 }

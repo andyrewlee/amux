@@ -88,6 +88,16 @@ func (w Workspace) ID() WorkspaceID {
 	return workspaceIDFromIdentity(workspaceIdentity(w.Repo, w.Root))
 }
 
+// MetadataID returns the store key this workspace was loaded from. Legacy
+// records can live under an older key even though ID now computes a normalized
+// identity. New or unsaved workspaces fall back to their canonical ID.
+func (w Workspace) MetadataID() WorkspaceID {
+	if w.storeID != "" {
+		return w.storeID
+	}
+	return w.ID()
+}
+
 // IsPrimaryCheckout returns true if this is the primary checkout
 func (w Workspace) IsPrimaryCheckout() bool {
 	repo := NormalizePath(w.Repo)

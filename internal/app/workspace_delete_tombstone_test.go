@@ -2,15 +2,20 @@ package app
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
 )
 
 type failingTombstoneWorkspaceStore struct {
 	workspace *data.Workspace
 	deleteErr error
+	markErr   error
 	markCount int
 }
 
@@ -39,7 +44,7 @@ func (s *failingTombstoneWorkspaceStore) ResolvedDefaultAssistant() string {
 
 func (s *failingTombstoneWorkspaceStore) MarkDeleting(data.WorkspaceID) error {
 	s.markCount++
-	return nil
+	return s.markErr
 }
 
 func (s *failingTombstoneWorkspaceStore) IsDeleting(id data.WorkspaceID) bool {
@@ -53,6 +58,10 @@ func (s *failingTombstoneWorkspaceStore) ClearDeleting(data.WorkspaceID) error {
 func TestFinishInterruptedDelete_RemovesDirlessTombstoned(t *testing.T) {
 	store := data.NewWorkspaceStore(t.TempDir())
 	svc := newWorkspaceService(nil, store, nil, "")
+	svc.gitOps = &mockGitOps{deleteBranch: func(string, string) error {
+		t.Fatal("startup recovery must not delete a branch from a possibly replaced repository")
+		return nil
+	}}
 
 	// Worktree root deliberately does not exist (simulating a crash after the
 	// worktree was removed but before the metadata was).
@@ -63,12 +72,20 @@ func TestFinishInterruptedDelete_RemovesDirlessTombstoned(t *testing.T) {
 	if err := store.MarkDeleting(ws.ID()); err != nil {
 		t.Fatalf("MarkDeleting: %v", err)
 	}
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
 
 	if !svc.finishInterruptedDelete(ws) {
 		t.Fatal("expected recovery to finish the interrupted delete")
 	}
 	if _, err := store.Load(ws.ID()); err == nil {
 		t.Fatal("expected metadata removed by recovery")
+	}
+	if len(killed) != 1 || killed[0] != string(ws.ID()) {
+		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
 	}
 }
 
@@ -83,12 +100,130 @@ func TestFinishInterruptedDelete_SkipsDirlessTombstonedWhenMetadataDeleteFails(t
 		deleteErr: errors.New("metadata busy"),
 	}
 	svc := newWorkspaceService(nil, store, nil, "")
+	svc.gitOps = &mockGitOps{}
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
 
 	if !svc.finishInterruptedDelete(ws) {
 		t.Fatal("expected recovery to suppress a dir-less tombstoned workspace")
 	}
 	if store.markCount == 0 {
 		t.Fatal("expected failed cleanup to preserve the tombstone for a later retry")
+	}
+	if len(killed) != 1 || killed[0] != string(ws.ID()) {
+		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
+	}
+}
+
+func TestFinishInterruptedDelete_RetainsMetadataWhenSessionCleanupFails(t *testing.T) {
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := newWorkspaceService(nil, store, nil, "")
+	svc.gitOps = &mockGitOps{}
+	ws := data.NewWorkspace("gone", "feature", "main", "/repo", "/repo/.amux/gone")
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkDeleting(ws.ID()); err != nil {
+		t.Fatal(err)
+	}
+	svc.killWorkspaceSessions = func(string) error { return errors.New("tmux busy") }
+
+	if !svc.finishInterruptedDelete(ws) {
+		t.Fatal("expected recovery to suppress the dir-less tombstoned workspace")
+	}
+	if _, err := store.Load(ws.ID()); err != nil {
+		t.Fatalf("metadata must remain for a later cleanup retry: %v", err)
+	}
+	if !store.IsDeleting(ws.ID()) {
+		t.Fatal("delete tombstone must remain after session cleanup failure")
+	}
+}
+
+func TestFinishInterruptedDelete_RemovesLegacyMetadataIDAndSessions(t *testing.T) {
+	root := t.TempDir()
+	store := data.NewWorkspaceStore(root)
+	ws := data.NewWorkspace("gone", "feature", "main", "/repo", "/repo/.amux/gone")
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	canonicalID := ws.ID()
+	legacyID := data.WorkspaceID("legacy-workspace-id")
+	if err := os.Rename(
+		filepath.Join(root, string(canonicalID)),
+		filepath.Join(root, string(legacyID)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(legacyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.MetadataID() != legacyID {
+		t.Fatalf("metadata ID = %s, want %s", loaded.MetadataID(), legacyID)
+	}
+	// Simulate another amux instance migrating the record while this instance
+	// still holds a workspace value loaded from the legacy key.
+	canonicalCopy := data.NewWorkspace(loaded.Name, loaded.Branch, loaded.Base, loaded.Repo, loaded.Root)
+	canonicalCopy.OpenTabs = append([]data.TabInfo(nil), loaded.OpenTabs...)
+	if err := store.Save(canonicalCopy); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkDeleting(legacyID); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newWorkspaceService(nil, store, nil, "")
+	svc.gitOps = &mockGitOps{}
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
+	if !svc.finishInterruptedDelete(loaded) {
+		t.Fatal("expected recovery to finish legacy metadata delete")
+	}
+	if _, err := store.Load(legacyID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy metadata still exists: %v", err)
+	}
+	if _, err := store.Load(canonicalID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canonical metadata still exists: %v", err)
+	}
+	wantKilled := []string{string(legacyID), string(canonicalID)}
+	if !reflect.DeepEqual(killed, wantKilled) {
+		t.Fatalf("killed workspace IDs = %v, want %v", killed, wantKilled)
+	}
+}
+
+func TestDeleteWorkspace_AbortsWhenTombstoneWriteFails(t *testing.T) {
+	root := t.TempDir()
+	workspaceRoot := filepath.Join(root, "workspaces", "repo", "feature")
+	if err := os.MkdirAll(workspaceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ws := data.NewWorkspace("feature", "feature", "main", filepath.Join(root, "repo"), workspaceRoot)
+	store := &failingTombstoneWorkspaceStore{
+		workspace: ws,
+		markErr:   errors.New("metadata read-only"),
+	}
+	removeCalled := false
+	svc := newWorkspaceService(nil, store, nil, filepath.Join(root, "workspaces"))
+	svc.gitOps = &mockGitOps{removeWorkspace: func(string, string) error {
+		removeCalled = true
+		return nil
+	}}
+
+	msg := svc.DeleteWorkspace(data.NewProject(ws.Repo), ws)()
+	if _, ok := msg.(messages.WorkspaceDeleteFailed); !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if removeCalled {
+		t.Fatal("worktree removal must not begin without a durable tombstone")
+	}
+	if !dirExists(workspaceRoot) {
+		t.Fatal("workspace root must remain after tombstone failure")
 	}
 }
 

@@ -34,6 +34,7 @@ func TestWorkspaceStorePruneStaleReconcilesOwnedState(t *testing.T) {
 	orphanOld := NewWorkspace("orphan-old", "old", "main", unregisteredRepo, orphanRoot)
 	orphanFresh := NewWorkspace("orphan-fresh", "fresh", "main", unregisteredRepo, filepath.Join(orphanRoot, "fresh"))
 	missing := NewWorkspace("missing", "missing", "main", registeredRepo, filepath.Join(managedRoot, "repo", "missing"))
+	missing.OpenTabs = []TabInfo{{SessionName: "legacy-missing-session"}}
 	archived := NewWorkspace("archived", "archived", "main", registeredRepo, archivedRoot)
 	archived.Archived = true
 	archived.ArchivedAt = now.Add(-8 * 24 * time.Hour)
@@ -58,12 +59,17 @@ func TestWorkspaceStorePruneStaleReconcilesOwnedState(t *testing.T) {
 	}
 	unlockRegistryFiles(locks)
 
+	var missingCleanup WorkspacePruneCleanup
 	result, err := store.PruneStale(WorkspacePruneOptions{
 		RegisteredRepos:   []string{registeredRepo},
 		ManagedRoot:       managedRoot,
 		Now:               now,
 		OrphanGracePeriod: time.Hour,
 		ArchivedRetention: 7 * 24 * time.Hour,
+		BeforeMissingRootRemove: func(cleanup WorkspacePruneCleanup) error {
+			missingCleanup = cleanup
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("PruneStale: %v", err)
@@ -73,6 +79,12 @@ func TestWorkspaceStorePruneStaleReconcilesOwnedState(t *testing.T) {
 	}
 	if result.OrphanLocksRemoved != 1 {
 		t.Fatalf("orphan locks removed = %d, want 1", result.OrphanLocksRemoved)
+	}
+	if len(missingCleanup.WorkspaceIDs) != 1 || missingCleanup.WorkspaceIDs[0] != missing.ID() {
+		t.Fatalf("missing-root workspace IDs = %v, want [%s]", missingCleanup.WorkspaceIDs, missing.ID())
+	}
+	if len(missingCleanup.SessionNames) != 1 || missingCleanup.SessionNames[0] != "legacy-missing-session" {
+		t.Fatalf("missing-root session names = %v, want [legacy-missing-session]", missingCleanup.SessionNames)
 	}
 
 	for _, ws := range []*Workspace{orphanOld, missing, archived} {
@@ -90,6 +102,43 @@ func TestWorkspaceStorePruneStaleReconcilesOwnedState(t *testing.T) {
 	}
 	if _, err := os.Stat(store.workspaceLockPath(orphanLockID)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("orphan lock still exists, stat err = %v", err)
+	}
+}
+
+func TestWorkspaceStorePruneStaleRetainsMissingRootWhenCleanupFails(t *testing.T) {
+	root := t.TempDir()
+	managedRoot := filepath.Join(root, "workspaces")
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := NewWorkspaceStore(filepath.Join(root, "metadata"))
+	ws := NewWorkspace("missing", "missing", "main", repo, filepath.Join(managedRoot, "repo", "missing"))
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(store.workspacePath(ws.ID()), old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.PruneStale(WorkspacePruneOptions{
+		RegisteredRepos:   []string{repo},
+		ManagedRoot:       managedRoot,
+		Now:               time.Now(),
+		OrphanGracePeriod: time.Hour,
+		BeforeMissingRootRemove: func(WorkspacePruneCleanup) error {
+			return errors.New("tmux busy")
+		},
+	})
+	if err == nil {
+		t.Fatal("expected cleanup failure")
+	}
+	if result.MissingRootRemoved != 0 {
+		t.Fatalf("missing-root removed = %d, want 0", result.MissingRootRemoved)
+	}
+	if _, err := store.Load(ws.ID()); err != nil {
+		t.Fatalf("metadata must remain for a later cleanup retry: %v", err)
 	}
 }
 

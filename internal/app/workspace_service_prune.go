@@ -33,6 +33,16 @@ func (s *workspaceService) reconcileWorkspaceMetadata(registeredRepos []string) 
 		Now:               time.Now(),
 		OrphanGracePeriod: metadataOrphanGracePeriod,
 		ArchivedRetention: archivedMetadataRetention,
+		BeforeMissingRootRemove: func(cleanup data.WorkspacePruneCleanup) error {
+			var errs []error
+			for _, id := range cleanup.WorkspaceIDs {
+				errs = append(errs, s.killWorkspaceSessionsForDelete(string(id)))
+			}
+			if s.killWorkspaceSessionNames != nil && len(cleanup.SessionNames) > 0 {
+				errs = append(errs, s.killWorkspaceSessionNames(cleanup.SessionNames))
+			}
+			return errors.Join(errs...)
+		},
 	})
 	if err != nil {
 		logging.Warn("workspace metadata reconciliation completed with errors: %v", err)
@@ -103,7 +113,9 @@ func (s *workspaceService) removeProjectMetadata(repoPath string, knownWorkspace
 	}
 	killCollectedSessions := func() {
 		for id := range idsToKill {
-			s.killWorkspaceSessionsForDelete(id)
+			if err := s.killWorkspaceSessionsForDelete(id); err != nil {
+				logging.Warn("Project removed, but workspace sessions could not be fully stopped for %s: %v", id, err)
+			}
 		}
 	}
 	if s.store == nil {

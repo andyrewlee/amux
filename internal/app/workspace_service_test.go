@@ -233,7 +233,10 @@ func TestRemoveProjectCleansMetadataAndSessionsButLeavesFiles(t *testing.T) {
 
 	svc := newWorkspaceService(registry, store, nil, filepath.Join(dir, "workspaces"))
 	var killed []string
-	svc.killWorkspaceSessions = func(id string) { killed = append(killed, id) }
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
 	msg := svc.RemoveProject(data.NewProject(repo))()
 	if _, ok := msg.(messages.ProjectRemoved); !ok {
 		t.Fatalf("expected ProjectRemoved, got %T", msg)
@@ -257,7 +260,10 @@ func TestRemoveProjectCleansKnownSessionsWithoutMetadataStore(t *testing.T) {
 
 	svc := newWorkspaceService(&fakeProjectRegistry{}, nil, nil, "")
 	var killed []string
-	svc.killWorkspaceSessions = func(id string) { killed = append(killed, id) }
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
 	msg := svc.RemoveProject(project)()
 	if _, ok := msg.(messages.ProjectRemoved); !ok {
 		t.Fatalf("expected ProjectRemoved, got %T", msg)
@@ -303,6 +309,11 @@ func TestLoadProjectsReconcilesMetadataOnlyOnInitialLoad(t *testing.T) {
 	}
 
 	svc := newWorkspaceService(&fakeProjectRegistry{}, store, nil, filepath.Join(root, "workspaces"))
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
 	_ = svc.LoadProjects(2)()
 	if _, err := store.Load(ws.ID()); err != nil {
 		t.Fatalf("non-initial refresh pruned metadata: %v", err)
@@ -311,6 +322,54 @@ func TestLoadProjectsReconcilesMetadataOnlyOnInitialLoad(t *testing.T) {
 	_ = svc.LoadProjects(1)()
 	if _, err := store.Load(ws.ID()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("initial load did not reconcile stale metadata: %v", err)
+	}
+	if len(killed) != 0 {
+		t.Fatalf("unregistered metadata cleanup must not kill potentially foreign sessions, killed=%v", killed)
+	}
+}
+
+func TestLoadProjectsReconciliationKillsSessionsForMissingManagedRoot(t *testing.T) {
+	root := t.TempDir()
+	metadataRoot := filepath.Join(root, "metadata")
+	managedRoot := filepath.Join(root, "workspaces")
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := &fakeProjectRegistry{projectsValue: []string{repo}}
+	store := data.NewWorkspaceStore(metadataRoot)
+	ws := data.NewWorkspace("gone", "gone", "main", repo, filepath.Join(managedRoot, "repo", "gone"))
+	ws.OpenTabs = []data.TabInfo{{SessionName: "legacy-gone-session"}}
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	metadataPath := filepath.Join(metadataRoot, string(ws.ID()), "workspace.json")
+	old := time.Now().Add(-metadataOrphanGracePeriod - time.Hour)
+	if err := os.Chtimes(metadataPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newWorkspaceService(registry, store, nil, managedRoot)
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
+	var killedSessionNames []string
+	svc.killWorkspaceSessionNames = func(names []string) error {
+		killedSessionNames = append(killedSessionNames, names...)
+		return nil
+	}
+	_ = svc.LoadProjects(1)()
+
+	if _, err := store.Load(ws.ID()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("initial load did not reconcile missing-root metadata: %v", err)
+	}
+	if len(killed) != 1 || killed[0] != string(ws.ID()) {
+		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
+	}
+	if len(killedSessionNames) != 1 || killedSessionNames[0] != "legacy-gone-session" {
+		t.Fatalf("killed persisted sessions = %v, want [legacy-gone-session]", killedSessionNames)
 	}
 }
 
@@ -333,7 +392,10 @@ func TestPruneMissingTemporaryProjectCleansOwnedStateButLeavesWorkspaceFiles(t *
 
 	svc := newWorkspaceService(registry, store, nil, filepath.Join(root, "workspaces"))
 	var killed []string
-	svc.killWorkspaceSessions = func(id string) { killed = append(killed, id) }
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
 	if kept := svc.pruneMissingTemporaryProjects([]string{missingRepo}); len(kept) != 0 {
 		t.Fatalf("kept vanished temp project: %v", kept)
 	}
