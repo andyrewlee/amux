@@ -261,7 +261,7 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 		// was deleted — leave the tombstone so startup recovery finishes the delete
 		// rather than resurfacing a dir-less ghost.
 		if a.workspaceService != nil && dirExists(msg.Workspace.Root) {
-			a.workspaceService.clearDeleteTombstone(msg.Workspace.ID())
+			a.workspaceService.clearWorkspaceDeleteTombstones(msg.Workspace)
 		}
 		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
 			cmds = append(cmds, cmd)

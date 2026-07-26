@@ -320,14 +320,16 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 		// removal, startup recovery can finish the delete rather than surfacing a
 		// dir-less ghost workspace. store.Delete removes the whole metadata dir,
 		// clearing the tombstone on success.
-		s.markDeleteTombstone(ws.ID())
+		if err := s.markWorkspaceDeleteTombstones(ws); err != nil {
+			return fail("mark_deleting", err)
+		}
 
 		warning, failMsg := s.removeWorktreeAndBranchLocked(project, ws, projectPath, wsID, fail)
 		if failMsg != nil {
 			return failMsg
 		}
 		if s.store != nil {
-			if err := s.store.Delete(ws.ID()); err != nil {
+			if err := s.deleteWorkspaceMetadata(ws); err != nil {
 				// Worktree and branch are already gone; because loading is store-
 				// first and shouldSurfaceWorkspace never stats the root, a surviving
 				// metadata dir resurfaces the just-deleted workspace on the next load,
