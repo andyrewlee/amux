@@ -207,6 +207,7 @@ func New(version, commit, date string) (*App, error) {
 	// Let the delete path tear down workspace tmux sessions after worktree
 	// removal succeeds, without killing live sessions for failed deletes.
 	workspaceService.killWorkspaceSessions = app.killWorkspaceSessionsSync
+	workspaceService.killWorkspaceSessionNames = app.killWorkspaceSessionNamesSync
 
 	return app, nil
 }

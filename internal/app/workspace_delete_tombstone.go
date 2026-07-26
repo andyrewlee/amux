@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"strings"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
@@ -71,6 +72,29 @@ func (s *workspaceService) finishInterruptedDelete(ws *data.Workspace) bool {
 		// A surviving worktree means an earlier delete failed before removing it;
 		// do not finish the delete — the workspace must stay usable.
 		return false
+	}
+	// The prior process may have exited after removing the worktree but before
+	// reaching the normal session cleanup. The missing root plus durable
+	// tombstone proves deletion passed validation, so no live agent for this
+	// workspace is safe to retain.
+	if err := s.killWorkspaceSessionsForDeletedWorkspace(ws); err != nil {
+		logging.Warn("startup recovery: failed to stop sessions for interrupted delete workspace_id=%s error=%v", ws.ID(), err)
+		if markErr := td.MarkDeleting(ws.ID()); markErr != nil {
+			logging.Warn("startup recovery: failed to preserve delete tombstone workspace_id=%s error=%v", ws.ID(), markErr)
+		}
+		return true
+	}
+	if s.gitOps != nil {
+		repoPath := data.NormalizePath(ws.Repo)
+		branch := strings.TrimSpace(ws.Branch)
+		if repoPath != "" && branch != "" {
+			unlock := s.lockRepoGit(repoPath)
+			err := s.gitOps.DeleteBranch(repoPath, branch)
+			unlock()
+			if err != nil {
+				logging.Warn("startup recovery: failed to remove branch for interrupted delete workspace_id=%s branch=%s error=%v", ws.ID(), branch, err)
+			}
+		}
 	}
 	if err := s.store.Delete(ws.ID()); err != nil {
 		logging.Warn("startup recovery: failed to finish interrupted delete workspace_id=%s error=%v", ws.ID(), err)

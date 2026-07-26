@@ -349,7 +349,7 @@ func TestDeleteWorkspaceDoesNotDeleteMetadataOnSignalKilledRemoveFailure(t *test
 	}
 }
 
-func TestDeleteWorkspaceFailsWhenRemoveWorkspaceAlreadyMovedPathAside(t *testing.T) {
+func TestDeleteWorkspaceCompletesWhenRemoveWorkspaceAlreadyMovedPathAside(t *testing.T) {
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "workspaces")
 	projectPath := filepath.Join(tmp, "repo")
@@ -377,12 +377,8 @@ func TestDeleteWorkspaceFailsWhenRemoveWorkspaceAlreadyMovedPathAside(t *testing
 	svc.gitOps = mock
 	msg := svc.DeleteWorkspace(project, ws)()
 
-	failed, ok := msg.(messages.WorkspaceDeleteFailed)
-	if !ok {
-		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
-	}
-	if failed.Err == nil || !strings.Contains(failed.Err.Error(), "cleanup pending") {
-		t.Fatalf("expected staged-cleanup failure to be preserved, got %v", failed.Err)
+	if _, ok := msg.(messages.WorkspaceDeleted); !ok {
+		t.Fatalf("expected WorkspaceDeleted, got %T", msg)
 	}
 }
 

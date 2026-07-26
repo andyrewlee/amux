@@ -19,6 +19,17 @@ type WorkspacePruneOptions struct {
 	Now               time.Time
 	OrphanGracePeriod time.Duration
 	ArchivedRetention time.Duration
+	// BeforeMissingRootRemove runs while the workspace metadata is still
+	// present. Returning an error retains the record so cleanup can retry on a
+	// later reconciliation pass.
+	BeforeMissingRootRemove func(WorkspacePruneCleanup) error
+}
+
+// WorkspacePruneCleanup identifies sessions belonging to a missing-root
+// workspace. Both the stored and canonical IDs are included when they differ.
+type WorkspacePruneCleanup struct {
+	WorkspaceIDs []WorkspaceID
+	SessionNames []string
 }
 
 // WorkspacePruneResult reports what a reconciliation pass removed.
@@ -175,6 +186,20 @@ func (s *WorkspaceStore) pruneWorkspaceIfStale(
 	}
 	if reason == "" {
 		return "", nil
+	}
+	if reason == "missing_root" && options.BeforeMissingRootRemove != nil {
+		cleanup := WorkspacePruneCleanup{WorkspaceIDs: []WorkspaceID{id}}
+		if canonicalID := ws.ID(); canonicalID != "" && canonicalID != id {
+			cleanup.WorkspaceIDs = append(cleanup.WorkspaceIDs, canonicalID)
+		}
+		for _, tab := range ws.OpenTabs {
+			if name := strings.TrimSpace(tab.SessionName); name != "" {
+				cleanup.SessionNames = append(cleanup.SessionNames, name)
+			}
+		}
+		if err := options.BeforeMissingRootRemove(cleanup); err != nil {
+			return "", fmt.Errorf("clean up missing-root workspace: %w", err)
+		}
 	}
 	if err := s.deleteWorkspaceDir(id); err != nil {
 		return "", fmt.Errorf("delete %s metadata: %w", reason, err)

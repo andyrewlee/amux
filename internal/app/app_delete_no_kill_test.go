@@ -21,6 +21,7 @@ type killRecordingTmuxOps struct {
 	lastKillTags              map[string]string
 	lastMissingPrefix         string
 	lastMissingTag            string
+	killedSessionNames        []string
 }
 
 func (k *killRecordingTmuxOps) KillSessionsMatchingTags(tags map[string]string, _ tmux.Options) (bool, error) {
@@ -31,6 +32,11 @@ func (k *killRecordingTmuxOps) KillSessionsMatchingTags(tags map[string]string, 
 
 func (k *killRecordingTmuxOps) KillWorkspaceSessions(string, tmux.Options) error {
 	k.killWsCalls++
+	return nil
+}
+
+func (k *killRecordingTmuxOps) KillSession(name string, _ tmux.Options) error {
+	k.killedSessionNames = append(k.killedSessionNames, name)
 	return nil
 }
 
@@ -133,45 +139,46 @@ func TestHandleWorkspaceDeleted_NoTrailingSessionKill(t *testing.T) {
 	}
 }
 
-// TestKillWorkspaceSessionsSync_InstanceScoped proves the delete kill is scoped
-// to this instance and only uses a prefix fallback for legacy sessions that have
-// no @amux_instance tag, so a workspace shared with another amux process is not
-// torn down across instances.
-func TestKillWorkspaceSessionsSync_InstanceScoped(t *testing.T) {
-	t.Run("scopes tag match to instance and legacy prefix kill", func(t *testing.T) {
+// TestKillWorkspaceSessionsSync_AllInstances proves deletion tears down every
+// session for the workspace. A worktree is host-global, so retaining a session
+// merely because another amux instance created it leaves an agent running in a
+// deleted directory.
+func TestKillWorkspaceSessionsSync_AllInstances(t *testing.T) {
+	t.Run("uses a workspace-wide tag match and legacy prefix kill", func(t *testing.T) {
 		ops := &killRecordingTmuxOps{}
 		app := &App{tmuxService: ops, instanceID: "inst-A"}
 
-		app.killWorkspaceSessionsSync("ws-1")
+		if err := app.killWorkspaceSessionsSync("ws-1"); err != nil {
+			t.Fatal(err)
+		}
 
-		if ops.killWsCalls != 0 {
-			t.Fatalf("expected no prefix KillWorkspaceSessions (it ignores instance), got %d", ops.killWsCalls)
+		if ops.killWsCalls != 1 {
+			t.Fatalf("expected one workspace prefix cleanup, got %d", ops.killWsCalls)
 		}
-		if ops.killPrefixMissingTagCalls != 1 {
-			t.Fatalf("expected one legacy missing-tag prefix cleanup, got %d", ops.killPrefixMissingTagCalls)
+		if ops.killPrefixMissingTagCalls != 0 {
+			t.Fatalf("expected no instance-filtered legacy cleanup, got %d", ops.killPrefixMissingTagCalls)
 		}
-		if ops.lastMissingPrefix != tmux.SessionName("amux", "ws-1")+"-" || ops.lastMissingTag != "@amux_instance" {
-			t.Fatalf("unexpected legacy cleanup prefix/tag: %q %q", ops.lastMissingPrefix, ops.lastMissingTag)
-		}
-		if ops.lastKillTags["@amux_instance"] != "inst-A" {
-			t.Fatalf("expected @amux_instance scoping, got tags %v", ops.lastKillTags)
+		if _, ok := ops.lastKillTags["@amux_instance"]; ok {
+			t.Fatalf("delete cleanup must not be instance-scoped, got tags %v", ops.lastKillTags)
 		}
 		if ops.lastKillTags["@amux_workspace"] != "ws-1" {
 			t.Fatalf("expected @amux_workspace tag, got %v", ops.lastKillTags)
 		}
 	})
 
-	t.Run("empty instanceID keeps broad match", func(t *testing.T) {
+	t.Run("empty instance ID has the same workspace-wide behavior", func(t *testing.T) {
 		ops := &killRecordingTmuxOps{}
 		app := &App{tmuxService: ops, instanceID: ""}
 
-		app.killWorkspaceSessionsSync("ws-1")
+		if err := app.killWorkspaceSessionsSync("ws-1"); err != nil {
+			t.Fatal(err)
+		}
 
 		if _, ok := ops.lastKillTags["@amux_instance"]; ok {
 			t.Fatalf("empty instanceID must not add @amux_instance, got %v", ops.lastKillTags)
 		}
 		if ops.killWsCalls != 1 {
-			t.Fatalf("empty instanceID should keep broad workspace prefix cleanup, got %d", ops.killWsCalls)
+			t.Fatalf("expected broad workspace prefix cleanup, got %d", ops.killWsCalls)
 		}
 		if ops.killPrefixMissingTagCalls != 0 {
 			t.Fatalf("empty instanceID should not use missing-tag fallback, got %d", ops.killPrefixMissingTagCalls)
@@ -180,4 +187,16 @@ func TestKillWorkspaceSessionsSync_InstanceScoped(t *testing.T) {
 			t.Fatalf("expected @amux_workspace tag even when broad, got %v", ops.lastKillTags)
 		}
 	})
+}
+
+func TestKillWorkspaceSessionNamesSync_OnlyKillsAmuxNamespace(t *testing.T) {
+	ops := &killRecordingTmuxOps{}
+	app := &App{tmuxService: ops}
+
+	if err := app.killWorkspaceSessionNamesSync([]string{" amux-owned-agent ", "unrelated-session"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ops.killedSessionNames) != 1 || ops.killedSessionNames[0] != "amux-owned-agent" {
+		t.Fatalf("killed exact sessions = %v, want only amux-owned-agent", ops.killedSessionNames)
+	}
 }

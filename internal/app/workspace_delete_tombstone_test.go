@@ -53,6 +53,11 @@ func (s *failingTombstoneWorkspaceStore) ClearDeleting(data.WorkspaceID) error {
 func TestFinishInterruptedDelete_RemovesDirlessTombstoned(t *testing.T) {
 	store := data.NewWorkspaceStore(t.TempDir())
 	svc := newWorkspaceService(nil, store, nil, "")
+	branchDeleted := false
+	svc.gitOps = &mockGitOps{deleteBranch: func(repoPath, branch string) error {
+		branchDeleted = repoPath == "/repo" && branch == "feature"
+		return nil
+	}}
 
 	// Worktree root deliberately does not exist (simulating a crash after the
 	// worktree was removed but before the metadata was).
@@ -63,12 +68,23 @@ func TestFinishInterruptedDelete_RemovesDirlessTombstoned(t *testing.T) {
 	if err := store.MarkDeleting(ws.ID()); err != nil {
 		t.Fatalf("MarkDeleting: %v", err)
 	}
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
 
 	if !svc.finishInterruptedDelete(ws) {
 		t.Fatal("expected recovery to finish the interrupted delete")
 	}
 	if _, err := store.Load(ws.ID()); err == nil {
 		t.Fatal("expected metadata removed by recovery")
+	}
+	if len(killed) != 1 || killed[0] != string(ws.ID()) {
+		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
+	}
+	if !branchDeleted {
+		t.Fatal("expected recovery to retry interrupted branch cleanup")
 	}
 }
 
@@ -83,12 +99,45 @@ func TestFinishInterruptedDelete_SkipsDirlessTombstonedWhenMetadataDeleteFails(t
 		deleteErr: errors.New("metadata busy"),
 	}
 	svc := newWorkspaceService(nil, store, nil, "")
+	svc.gitOps = &mockGitOps{}
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
 
 	if !svc.finishInterruptedDelete(ws) {
 		t.Fatal("expected recovery to suppress a dir-less tombstoned workspace")
 	}
 	if store.markCount == 0 {
 		t.Fatal("expected failed cleanup to preserve the tombstone for a later retry")
+	}
+	if len(killed) != 1 || killed[0] != string(ws.ID()) {
+		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
+	}
+}
+
+func TestFinishInterruptedDelete_RetainsMetadataWhenSessionCleanupFails(t *testing.T) {
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := newWorkspaceService(nil, store, nil, "")
+	svc.gitOps = &mockGitOps{}
+	ws := data.NewWorkspace("gone", "feature", "main", "/repo", "/repo/.amux/gone")
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkDeleting(ws.ID()); err != nil {
+		t.Fatal(err)
+	}
+	svc.killWorkspaceSessions = func(string) error { return errors.New("tmux busy") }
+
+	if !svc.finishInterruptedDelete(ws) {
+		t.Fatal("expected recovery to suppress the dir-less tombstoned workspace")
+	}
+	if _, err := store.Load(ws.ID()); err != nil {
+		t.Fatalf("metadata must remain for a later cleanup retry: %v", err)
+	}
+	if !store.IsDeleting(ws.ID()) {
+		t.Fatal("delete tombstone must remain after session cleanup failure")
 	}
 }
 

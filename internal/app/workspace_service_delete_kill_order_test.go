@@ -33,9 +33,10 @@ func TestDeleteWorkspace_KillsSessionsAfterWorktreeRemoval(t *testing.T) {
 
 	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
 	svc.gitOps = mock
-	svc.killWorkspaceSessions = func(wsID string) {
+	svc.killWorkspaceSessions = func(wsID string) error {
 		order++
 		killOrder = order
+		return nil
 	}
 
 	project := data.NewProject(projectPath)
@@ -53,6 +54,78 @@ func TestDeleteWorkspace_KillsSessionsAfterWorktreeRemoval(t *testing.T) {
 	}
 	if killOrder <= removeOrder {
 		t.Fatalf("expected kill (order %d) after worktree removal (order %d)", killOrder, removeOrder)
+	}
+}
+
+func TestDeleteWorkspace_KillsPersistedLegacySessionNames(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
+	svc.gitOps = &mockGitOps{}
+	var killed []string
+	svc.killWorkspaceSessionNames = func(names []string) error {
+		killed = append(killed, names...)
+		return nil
+	}
+
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+	ws.OpenTabs = []data.TabInfo{
+		{SessionName: "amux-legacy-workspace-tab-a"},
+		{SessionName: "amux-legacy-workspace-tab-a"},
+		{SessionName: "amux-legacy-workspace-tab-b"},
+	}
+
+	msg := svc.DeleteWorkspace(project, ws)()
+	if _, ok := msg.(messages.WorkspaceDeleted); !ok {
+		t.Fatalf("expected WorkspaceDeleted, got %T", msg)
+	}
+	if len(killed) != 2 || killed[0] != "amux-legacy-workspace-tab-a" || killed[1] != "amux-legacy-workspace-tab-b" {
+		t.Fatalf("killed persisted sessions = %v", killed)
+	}
+}
+
+func TestDeleteWorkspace_RetainsMetadataWhenSessionCleanupFails(t *testing.T) {
+	tmp := t.TempDir()
+	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
+	projectPath := filepath.Join(tmp, "repo")
+	workspacePath := filepath.Join(workspacesRoot, "repo", "feature")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(tmp, "metadata"))
+	project := data.NewProject(projectPath)
+	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	branchDeleted := false
+	svc := newWorkspaceService(nil, store, nil, workspacesRoot)
+	svc.gitOps = &mockGitOps{deleteBranch: func(string, string) error {
+		branchDeleted = true
+		return nil
+	}}
+	svc.killWorkspaceSessions = func(string) error { return errors.New("tmux busy") }
+
+	msg := svc.DeleteWorkspace(project, ws)()
+	if _, ok := msg.(messages.WorkspaceDeleteFailed); !ok {
+		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	}
+	if _, err := store.Load(ws.ID()); err != nil {
+		t.Fatalf("metadata must remain for cleanup retry: %v", err)
+	}
+	if !store.IsDeleting(ws.ID()) {
+		t.Fatal("delete tombstone must remain for startup recovery")
+	}
+	if branchDeleted {
+		t.Fatal("branch deletion must wait until required session cleanup succeeds")
 	}
 }
 
@@ -141,8 +214,9 @@ func TestDeleteWorkspace_DoesNotKillSessionsWhenWorktreeRemovalFails(t *testing.
 
 	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
 	svc.gitOps = mock
-	svc.killWorkspaceSessions = func(wsID string) {
+	svc.killWorkspaceSessions = func(wsID string) error {
 		t.Fatal("failed delete must not kill workspace tmux sessions")
+		return nil
 	}
 
 	project := data.NewProject(projectPath)
@@ -175,16 +249,17 @@ func TestDeleteWorkspace_KillsSessionsWhenRemovalFailsAfterPathGone(t *testing.T
 	svc := newWorkspaceService(nil, nil, nil, workspacesRoot)
 	svc.gitOps = mock
 	killed := false
-	svc.killWorkspaceSessions = func(wsID string) {
+	svc.killWorkspaceSessions = func(wsID string) error {
 		killed = true
+		return nil
 	}
 
 	project := data.NewProject(projectPath)
 	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
 
 	msg := svc.DeleteWorkspace(project, ws)()
-	if _, ok := msg.(messages.WorkspaceDeleteFailed); !ok {
-		t.Fatalf("expected WorkspaceDeleteFailed, got %T", msg)
+	if _, ok := msg.(messages.WorkspaceDeleted); !ok {
+		t.Fatalf("expected WorkspaceDeleted, got %T", msg)
 	}
 	if !killed {
 		t.Fatal("expected sessions killed when removal failed after deleting workspace path")

@@ -53,7 +53,11 @@ type workspaceService struct {
 	// Wired in app_init; nil in directly-constructed services (a no-op). Called
 	// only after worktree removal succeeds, so failed deletes leave live sessions
 	// intact.
-	killWorkspaceSessions func(wsID string)
+	killWorkspaceSessions func(wsID string) error
+	// killWorkspaceSessionNames tears down exact persisted session names. This
+	// complements workspace-ID cleanup for sessions created before an ID
+	// normalization migration.
+	killWorkspaceSessionNames func(sessionNames []string) error
 	// repoGitLocks serializes git worktree/branch mutations per repository (keyed
 	// by normalized project path) so concurrent create/delete of workspaces in the
 	// same repo do not contend on .git locks (index.lock / packed-refs).

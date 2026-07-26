@@ -369,10 +369,11 @@ func (s *workspaceService) stopWorkspaceScriptsForDelete(ws *data.Workspace) err
 	return s.scripts.Stop(ws)
 }
 
-func (s *workspaceService) killWorkspaceSessionsForDelete(wsID string) {
+func (s *workspaceService) killWorkspaceSessionsForDelete(wsID string) error {
 	if s != nil && s.killWorkspaceSessions != nil {
-		s.killWorkspaceSessions(wsID)
+		return s.killWorkspaceSessions(wsID)
 	}
+	return nil
 }
 
 func workspacePathGone(path string) bool {
@@ -396,8 +397,8 @@ func (s *workspaceService) archiveDeletedWorkspaceMetadata(ws *data.Workspace) e
 // removeWorktreeAndBranchLocked runs the git mutations (worktree remove + branch
 // delete) under the per-repo lock so concurrent same-repo deletes do not contend
 // on .git locks. It returns a non-fatal branch-delete warning and a failure
-// message that is non-nil only when the worktree removal hard-failed; the caller
-// then returns it and skips metadata removal.
+// message when worktree removal or required session cleanup fails; the caller
+// then returns it and preserves metadata for a later retry.
 func (s *workspaceService) removeWorktreeAndBranchLocked(
 	project *data.Project, ws *data.Workspace, projectPath, wsID string,
 	fail func(stage string, err error) tea.Msg,
@@ -414,7 +415,9 @@ func (s *workspaceService) removeWorktreeAndBranchLocked(
 	// The worktree removal has succeeded or an owned stale path was cleaned up.
 	// Tear down any remaining workspace tmux sessions before metadata deletion,
 	// but never kill sessions for a delete that failed and left the workspace.
-	s.killWorkspaceSessionsForDelete(wsID)
+	if err := s.killWorkspaceSessionsForDeletedWorkspace(ws); err != nil {
+		return "", fail("stop_sessions", err)
+	}
 
 	if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
 		logging.Warn("workspace delete branch cleanup failed workspace_id=%s branch=%s error=%v", wsID, ws.Branch, err)
@@ -432,14 +435,13 @@ func (s *workspaceService) handleStaleRemoveError(
 ) tea.Msg {
 	if !git.IsUnregisteredWorkspacePathError(err) {
 		if workspacePathGone(ws.Root) {
-			s.killWorkspaceSessionsForDelete(wsID)
+			return nil
 		}
 		return fail("remove_worktree", err)
 	}
 	if _, statErr := os.Stat(ws.Root); statErr != nil {
 		if os.IsNotExist(statErr) {
-			s.killWorkspaceSessionsForDelete(wsID)
-			return fail("remove_worktree", err)
+			return nil
 		}
 		return fail("remove_worktree", errors.Join(err, statErr))
 	}
