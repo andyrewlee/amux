@@ -3,93 +3,67 @@ package sidebar
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-func TestAttachToSession_SharedClientFallsBackToHistoryOnly(t *testing.T) {
-	oldEnsureTmuxAvailableFn := ensureTmuxAvailableFn
-	oldSessionStateForFn := sessionStateForFn
-	oldSessionHasClientsFn := sessionHasClientsFn
-	oldSessionActiveWithinFn := sessionActiveWithinFn
-	oldSessionCreatedAtFn := sessionCreatedAtFn
-	oldSessionPaneIDFn := sessionPaneIDFn
-	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	oldNewPTYWithSizeFn := newPTYWithSizeFn
-	oldResizePaneToSizeFn := resizePaneToSizeFn
-	oldCapturePaneSnapshotFn := capturePaneSnapshotFn
-	oldCapturePaneFn := capturePaneFn
-	oldVerifyTerminalSessionTagsFn := verifyTerminalSessionTagsFn
-	defer func() {
-		ensureTmuxAvailableFn = oldEnsureTmuxAvailableFn
-		sessionStateForFn = oldSessionStateForFn
-		sessionHasClientsFn = oldSessionHasClientsFn
-		sessionActiveWithinFn = oldSessionActiveWithinFn
-		sessionCreatedAtFn = oldSessionCreatedAtFn
-		sessionPaneIDFn = oldSessionPaneIDFn
-		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
-		sessionPaneSizeFn = oldSessionPaneSizeFn
-		newPTYWithSizeFn = oldNewPTYWithSizeFn
-		resizePaneToSizeFn = oldResizePaneToSizeFn
-		capturePaneSnapshotFn = oldCapturePaneSnapshotFn
-		capturePaneFn = oldCapturePaneFn
-		verifyTerminalSessionTagsFn = oldVerifyTerminalSessionTagsFn
-	}()
+// installSidebarHistoryFallbackSeams wires a live session whose probe reports
+// the given ineligibility, so the bootstrap must fall back to replaying history
+// without ever resizing or snapshotting the pane.
+func installSidebarHistoryFallbackSeams(t *testing.T, calls *[]string, probe tmux.SessionProbe) {
+	t.Helper()
+	restoreAttachSeams(t)
 
-	calls := make([]string, 0, 5)
-	ensureTmuxAvailableFn = func() error {
-		return nil
-	}
+	ensureTmuxAvailableFn = func() error { return nil }
 	sessionStateForFn = func(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
-		calls = append(calls, "state")
+		*calls = append(*calls, "state")
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
-	sessionHasClientsFn = func(sessionName string, opts tmux.Options) (bool, error) {
-		calls = append(calls, "clients")
-		return true, nil
-	}
-	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-		calls = append(calls, "activity")
-		return false, nil
-	}
-	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
-		return 123, nil
-	}
-	sessionPaneIDFn = func(sessionName string, opts tmux.Options) (string, error) {
-		return "%1", nil
-	}
-	sessionPaneSnapshotInfoFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "info")
-		return 0, 0, false, nil
-	}
-	sessionPaneSizeFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "size")
-		return 123, 45, true, nil
-	}
-	resizePaneToSizeFn = func(sessionName string, cols, rows int, opts tmux.Options) error {
-		calls = append(calls, "resize")
+	probeSeq(calls, probe)
+	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+		*calls = append(*calls, "resize")
 		return nil
 	}
-	capturePaneSnapshotFn = func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-		calls = append(calls, "snapshot")
-		return tmux.PaneSnapshot{Data: []byte("should not use")}, nil
+	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+		*calls = append(*calls, "snapshot")
+		return []byte("should not use"), nil
 	}
-	capturePaneFn = func(sessionName string, opts tmux.Options) ([]byte, error) {
-		calls = append(calls, "scrollback")
+	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+		*calls = append(*calls, "scrollback")
+		return []byte("history only"), nil
+	}
+	capturePaneFn = func(string, tmux.Options) ([]byte, error) {
+		*calls = append(*calls, "scrollback")
 		return []byte("history only"), nil
 	}
 	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
-		calls = append(calls, "attach")
+		*calls = append(*calls, "attach")
 		return &pty.Terminal{}, nil
 	}
 	verifyTerminalSessionTagsFn = func(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
-		calls = append(calls, "verify")
+		*calls = append(*calls, "verify")
 		return nil
 	}
+}
+
+// assertNoPreAttachMutation asserts the fallback path never resized or
+// snapshotted the pane.
+func assertNoPreAttachMutation(t *testing.T, calls []string) {
+	t.Helper()
+	for _, call := range calls {
+		if call == "resize" || call == "snapshot" {
+			t.Fatalf("expected an ineligible session to avoid pre-attach resize/snapshot, got %v", calls)
+		}
+	}
+}
+
+func TestAttachToSession_SharedClientFallsBackToHistoryOnly(t *testing.T) {
+	var calls []string
+	shared := eligibleAttachProbe()
+	shared.ClientCount = 1
+	installSidebarHistoryFallbackSeams(t, &calls, shared)
 
 	m := NewTerminalModel()
 	m.width = 20
@@ -110,13 +84,15 @@ func TestAttachToSession_SharedClientFallsBackToHistoryOnly(t *testing.T) {
 	if reattach.CaptureCols != 123 || reattach.CaptureRows != 45 {
 		t.Fatalf("expected history-only capture size 123x45, got %dx%d", reattach.CaptureCols, reattach.CaptureRows)
 	}
-	attachIdx := -1
-	scrollbackIdx := -1
+
+	// The history capture has to happen after the attach: it is what reconciles
+	// anything the session emitted while the client was connecting.
+	attachIdx, scrollbackIdx := -1, -1
 	for i, call := range calls {
-		if call == "attach" {
+		switch call {
+		case "attach":
 			attachIdx = i
-		}
-		if call == "scrollback" {
+		case "scrollback":
 			scrollbackIdx = i
 		}
 	}
@@ -126,91 +102,15 @@ func TestAttachToSession_SharedClientFallsBackToHistoryOnly(t *testing.T) {
 	if scrollbackIdx < attachIdx {
 		t.Fatalf("expected shared-client fallback scrollback capture after attach, got call order %v", calls)
 	}
-	for _, call := range calls {
-		if call == "resize" || call == "snapshot" {
-			t.Fatalf("expected shared-client reattach to avoid pre-attach resize/snapshot, got %v", calls)
-		}
-	}
+	assertNoPreAttachMutation(t, calls)
 }
 
 func TestCreateTerminalTab_SnapshotIneligibleFallsBackWithoutResize(t *testing.T) {
-	oldEnsureTmuxAvailableFn := ensureTmuxAvailableFn
-	oldSessionStateForFn := sessionStateForFn
-	oldSessionHasClientsFn := sessionHasClientsFn
-	oldSessionActiveWithinFn := sessionActiveWithinFn
-	oldSessionCreatedAtFn := sessionCreatedAtFn
-	oldSessionPaneIDFn := sessionPaneIDFn
-	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	oldNewPTYWithSizeFn := newPTYWithSizeFn
-	oldResizePaneToSizeFn := resizePaneToSizeFn
-	oldCapturePaneSnapshotFn := capturePaneSnapshotFn
-	oldCapturePaneFn := capturePaneFn
-	oldVerifyTerminalSessionTagsFn := verifyTerminalSessionTagsFn
-	defer func() {
-		ensureTmuxAvailableFn = oldEnsureTmuxAvailableFn
-		sessionStateForFn = oldSessionStateForFn
-		sessionHasClientsFn = oldSessionHasClientsFn
-		sessionActiveWithinFn = oldSessionActiveWithinFn
-		sessionCreatedAtFn = oldSessionCreatedAtFn
-		sessionPaneIDFn = oldSessionPaneIDFn
-		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
-		sessionPaneSizeFn = oldSessionPaneSizeFn
-		newPTYWithSizeFn = oldNewPTYWithSizeFn
-		resizePaneToSizeFn = oldResizePaneToSizeFn
-		capturePaneSnapshotFn = oldCapturePaneSnapshotFn
-		capturePaneFn = oldCapturePaneFn
-		verifyTerminalSessionTagsFn = oldVerifyTerminalSessionTagsFn
-	}()
-
-	calls := make([]string, 0, 6)
-	ensureTmuxAvailableFn = func() error { return nil }
-	sessionStateForFn = func(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
-		calls = append(calls, "state")
-		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
-	}
-	sessionHasClientsFn = func(sessionName string, opts tmux.Options) (bool, error) {
-		calls = append(calls, "clients")
-		return false, nil
-	}
-	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-		calls = append(calls, "activity")
-		return false, nil
-	}
-	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
-		return 123, nil
-	}
-	sessionPaneIDFn = func(sessionName string, opts tmux.Options) (string, error) {
-		return "%1", nil
-	}
-	sessionPaneSnapshotInfoFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "info")
-		return 0, 0, false, nil
-	}
-	sessionPaneSizeFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "size")
-		return 123, 45, true, nil
-	}
-	resizePaneToSizeFn = func(sessionName string, cols, rows int, opts tmux.Options) error {
-		calls = append(calls, "resize")
-		return nil
-	}
-	capturePaneSnapshotFn = func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-		calls = append(calls, "snapshot")
-		return tmux.PaneSnapshot{}, errors.New("not whole window")
-	}
-	capturePaneFn = func(sessionName string, opts tmux.Options) ([]byte, error) {
-		calls = append(calls, "scrollback")
-		return []byte("history only"), nil
-	}
-	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
-		calls = append(calls, "attach")
-		return &pty.Terminal{}, nil
-	}
-	verifyTerminalSessionTagsFn = func(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
-		calls = append(calls, "verify")
-		return nil
-	}
+	var calls []string
+	// A pane with no VT mode metadata cannot anchor an authoritative snapshot.
+	ineligible := eligibleAttachProbe()
+	ineligible.PaneMeta.ModeState = tmux.PaneModeState{}
+	installSidebarHistoryFallbackSeams(t, &calls, ineligible)
 
 	m := NewTerminalModel()
 	m.width = 20
@@ -231,91 +131,14 @@ func TestCreateTerminalTab_SnapshotIneligibleFallsBackWithoutResize(t *testing.T
 	if created.CaptureCols != 123 || created.CaptureRows != 45 {
 		t.Fatalf("expected history-only capture size 123x45, got %dx%d", created.CaptureCols, created.CaptureRows)
 	}
-	for _, call := range calls {
-		if call == "resize" || call == "snapshot" {
-			t.Fatalf("expected snapshot ineligibility to skip pre-attach resize, got %v", calls)
-		}
-	}
+	assertNoPreAttachMutation(t, calls)
 }
 
 func TestAttachToSession_SnapshotIneligibleFallsBackWithoutResize(t *testing.T) {
-	oldEnsureTmuxAvailableFn := ensureTmuxAvailableFn
-	oldSessionStateForFn := sessionStateForFn
-	oldSessionHasClientsFn := sessionHasClientsFn
-	oldSessionActiveWithinFn := sessionActiveWithinFn
-	oldSessionCreatedAtFn := sessionCreatedAtFn
-	oldSessionPaneIDFn := sessionPaneIDFn
-	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	oldNewPTYWithSizeFn := newPTYWithSizeFn
-	oldResizePaneToSizeFn := resizePaneToSizeFn
-	oldCapturePaneSnapshotFn := capturePaneSnapshotFn
-	oldCapturePaneFn := capturePaneFn
-	oldVerifyTerminalSessionTagsFn := verifyTerminalSessionTagsFn
-	defer func() {
-		ensureTmuxAvailableFn = oldEnsureTmuxAvailableFn
-		sessionStateForFn = oldSessionStateForFn
-		sessionHasClientsFn = oldSessionHasClientsFn
-		sessionActiveWithinFn = oldSessionActiveWithinFn
-		sessionCreatedAtFn = oldSessionCreatedAtFn
-		sessionPaneIDFn = oldSessionPaneIDFn
-		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
-		sessionPaneSizeFn = oldSessionPaneSizeFn
-		newPTYWithSizeFn = oldNewPTYWithSizeFn
-		resizePaneToSizeFn = oldResizePaneToSizeFn
-		capturePaneSnapshotFn = oldCapturePaneSnapshotFn
-		capturePaneFn = oldCapturePaneFn
-		verifyTerminalSessionTagsFn = oldVerifyTerminalSessionTagsFn
-	}()
-
-	calls := make([]string, 0, 6)
-	ensureTmuxAvailableFn = func() error { return nil }
-	sessionStateForFn = func(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
-		calls = append(calls, "state")
-		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
-	}
-	sessionHasClientsFn = func(sessionName string, opts tmux.Options) (bool, error) {
-		calls = append(calls, "clients")
-		return false, nil
-	}
-	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-		calls = append(calls, "activity")
-		return false, nil
-	}
-	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
-		return 123, nil
-	}
-	sessionPaneIDFn = func(sessionName string, opts tmux.Options) (string, error) {
-		return "%1", nil
-	}
-	sessionPaneSnapshotInfoFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "info")
-		return 0, 0, false, nil
-	}
-	sessionPaneSizeFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "size")
-		return 123, 45, true, nil
-	}
-	resizePaneToSizeFn = func(sessionName string, cols, rows int, opts tmux.Options) error {
-		calls = append(calls, "resize")
-		return nil
-	}
-	capturePaneSnapshotFn = func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-		calls = append(calls, "snapshot")
-		return tmux.PaneSnapshot{}, errors.New("not whole window")
-	}
-	capturePaneFn = func(sessionName string, opts tmux.Options) ([]byte, error) {
-		calls = append(calls, "scrollback")
-		return []byte("history only"), nil
-	}
-	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
-		calls = append(calls, "attach")
-		return &pty.Terminal{}, nil
-	}
-	verifyTerminalSessionTagsFn = func(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
-		calls = append(calls, "verify")
-		return nil
-	}
+	var calls []string
+	ineligible := eligibleAttachProbe()
+	ineligible.PaneMeta.ModeState = tmux.PaneModeState{}
+	installSidebarHistoryFallbackSeams(t, &calls, ineligible)
 
 	m := NewTerminalModel()
 	m.width = 20
@@ -336,76 +159,28 @@ func TestAttachToSession_SnapshotIneligibleFallsBackWithoutResize(t *testing.T) 
 	if reattach.CaptureCols != 123 || reattach.CaptureRows != 45 {
 		t.Fatalf("expected history-only capture size 123x45, got %dx%d", reattach.CaptureCols, reattach.CaptureRows)
 	}
-	for _, call := range calls {
-		if call == "resize" || call == "snapshot" {
-			t.Fatalf("expected snapshot ineligibility to skip pre-attach resize, got %v", calls)
-		}
-	}
+	assertNoPreAttachMutation(t, calls)
 }
 
 func TestAttachToSession_AttachFailureRollsBackBootstrapResize(t *testing.T) {
-	oldEnsureTmuxAvailableFn := ensureTmuxAvailableFn
-	oldSessionStateForFn := sessionStateForFn
-	oldSessionHasClientsFn := sessionHasClientsFn
-	oldSessionActiveWithinFn := sessionActiveWithinFn
-	oldSessionCreatedAtFn := sessionCreatedAtFn
-	oldSessionPaneIDFn := sessionPaneIDFn
-	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	oldNewPTYWithSizeFn := newPTYWithSizeFn
-	oldResizePaneToSizeFn := resizePaneToSizeFn
-	oldCapturePaneSnapshotFn := capturePaneSnapshotFn
-	oldVerifyTerminalSessionTagsFn := verifyTerminalSessionTagsFn
-	defer func() {
-		ensureTmuxAvailableFn = oldEnsureTmuxAvailableFn
-		sessionStateForFn = oldSessionStateForFn
-		sessionHasClientsFn = oldSessionHasClientsFn
-		sessionActiveWithinFn = oldSessionActiveWithinFn
-		sessionCreatedAtFn = oldSessionCreatedAtFn
-		sessionPaneIDFn = oldSessionPaneIDFn
-		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
-		sessionPaneSizeFn = oldSessionPaneSizeFn
-		newPTYWithSizeFn = oldNewPTYWithSizeFn
-		resizePaneToSizeFn = oldResizePaneToSizeFn
-		capturePaneSnapshotFn = oldCapturePaneSnapshotFn
-		verifyTerminalSessionTagsFn = oldVerifyTerminalSessionTagsFn
-	}()
+	var calls []string
+	restoreAttachSeams(t)
 
-	calls := make([]string, 0, 8)
 	ensureTmuxAvailableFn = func() error { return nil }
 	sessionStateForFn = func(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
 		calls = append(calls, "state")
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
-	sessionHasClientsFn = func(sessionName string, opts tmux.Options) (bool, error) {
-		calls = append(calls, "clients")
-		return false, nil
-	}
-	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-		calls = append(calls, "activity")
-		return false, nil
-	}
-	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
-		return 123, nil
-	}
-	sessionPaneIDFn = func(sessionName string, opts tmux.Options) (string, error) {
-		return "%1", nil
-	}
-	sessionPaneSnapshotInfoFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "info")
-		return 91, 27, true, nil
-	}
-	sessionPaneSizeFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "size")
-		return 91, 27, true, nil
-	}
-	resizePaneToSizeFn = func(sessionName string, cols, rows int, opts tmux.Options) error {
+	// Still unattached and unchanged at the rollback probe, so the rollback is
+	// safe to perform.
+	probeSeq(&calls, eligibleAttachProbe())
+	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		calls = append(calls, "resize")
 		return nil
 	}
-	capturePaneSnapshotFn = func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
+	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		calls = append(calls, "snapshot")
-		return tmux.PaneSnapshot{Data: []byte("resized"), Cols: 77, Rows: 19}, nil
+		return []byte("resized"), nil
 	}
 	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
 		calls = append(calls, "attach")
@@ -429,7 +204,9 @@ func TestAttachToSession_AttachFailureRollsBackBootstrapResize(t *testing.T) {
 	if failed.Err == nil || failed.Err.Error() != "attach failed" {
 		t.Fatalf("expected attach failure, got %+v", failed)
 	}
-	assertSidebarCallOrder(t, calls, "clients", "activity", "info", "resize", "snapshot", "attach", "resize")
+	// The trailing resize is the rollback: a failed attach must not leave the
+	// pane at the size the aborted bootstrap set.
+	assertSidebarCallOrder(t, calls, "probe", "resize", "snapshot", "attach", "resize")
 }
 
 func assertSidebarCallOrder(t *testing.T, calls []string, expected ...string) {

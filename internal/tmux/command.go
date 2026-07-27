@@ -49,22 +49,7 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 	// Swallowed on tmux < 3.2 (no terminal-features).
 	syncFeatureSet := "(" + base + " set-option -s 'terminal-features[16]' 'xterm*:sync' 2>/dev/null || true)"
 
-	var settings strings.Builder
-	// Disable tmux prefix for this session only (not global) to make it transparent
-	settings.WriteString(fmt.Sprintf("%s set-option -t %s prefix None 2>/dev/null; ", base, optionTgt))
-	settings.WriteString(fmt.Sprintf("%s set-option -t %s prefix2 None 2>/dev/null; ", base, optionTgt))
-	if opts.HideStatus {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s status off 2>/dev/null; ", base, optionTgt))
-	}
-	if opts.DisableMouse {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s mouse off 2>/dev/null; ", base, optionTgt))
-	}
-	if opts.DefaultTerminal != "" {
-		settings.WriteString(fmt.Sprintf("%s set-option -t %s default-terminal %s 2>/dev/null; ", base, optionTgt, shellutil.ShellQuote(opts.DefaultTerminal)))
-	}
-	// Ensure activity timestamps update for window_activity-based tracking.
-	settings.WriteString(fmt.Sprintf("%s set-option -t %s -w monitor-activity on 2>/dev/null; ", base, optionTgt))
-	appendSessionTags(&settings, base, optionTgt, tags)
+	settings := sessionSettingArgs(optionTgt, opts, tags)
 
 	// Attach to the session, optionally detaching other clients.
 	attachFlag := "-t"
@@ -73,14 +58,81 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 	}
 	attach := fmt.Sprintf("%s attach %s %s", base, attachFlag, sessionTgt)
 
-	return fmt.Sprintf("%s && %s && %s%s", ensureSession, syncFeatureSet, settings.String(), attach)
+	// The settings are braced so their internal `||` fallback cannot bind to the
+	// preceding `&&`. Without the braces, sh's equal-precedence left-associative
+	// parsing makes a failed ensureSession fall through into the per-option
+	// fallback, spending a tmux round-trip per option against a session that does
+	// not exist.
+	return fmt.Sprintf("%s && %s && { %s}; %s", ensureSession, syncFeatureSet, settingsScript(base, settings), attach)
 }
 
-func appendSessionTags(settings *strings.Builder, base, session string, tags SessionTags) {
-	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Assistant == "" && tags.CreatedAt == 0 && tags.InstanceID == "" && tags.SessionOwner == "" && tags.LeaseAtMS == 0 {
-		return
+// sessionSettingArgs returns the argument list of every `set-option` amux applies
+// to a managed session, in apply order. Each entry is the argv that follows
+// `set-option`, so the same list can be rendered either chained into one tmux
+// invocation or as separate ones.
+func sessionSettingArgs(optionTgt string, opts Options, tags SessionTags) [][]string {
+	// Disable tmux prefix for this session only (not global) to make it transparent
+	settings := [][]string{
+		{"-t", optionTgt, "prefix", "None"},
+		{"-t", optionTgt, "prefix2", "None"},
 	}
-	settings.WriteString(fmt.Sprintf("%s set-option -t %s @amux 1 2>/dev/null; ", base, session))
+	if opts.HideStatus {
+		settings = append(settings, []string{"-t", optionTgt, "status", "off"})
+	}
+	if opts.DisableMouse {
+		settings = append(settings, []string{"-t", optionTgt, "mouse", "off"})
+	}
+	if opts.DefaultTerminal != "" {
+		settings = append(settings, []string{"-t", optionTgt, "default-terminal", shellutil.ShellQuote(opts.DefaultTerminal)})
+	}
+	// Ensure activity timestamps update for window_activity-based tracking.
+	settings = append(settings, []string{"-t", optionTgt, "-w", "monitor-activity", "on"})
+	return append(settings, sessionTagArgs(optionTgt, tags)...)
+}
+
+// settingsScript renders the session settings as shell text, always terminated
+// with "; " so the attach that follows runs regardless of the outcome.
+//
+// The happy path chains every set-option into a single tmux invocation using
+// tmux's own `;` command separator. That matters because amux runs one shared,
+// single-threaded tmux server: on a busy server each exec is a round-trip
+// costing tens to hundreds of milliseconds, and a reattach used to pay for ~20
+// of them here alone.
+//
+// tmux aborts a chained sequence at the first command that fails, so a single
+// option that a given tmux version rejects would skip every option after it. The
+// `||` fallback re-runs the same options one invocation at a time, each with its
+// own stderr suppressed, which is exactly the per-option best-effort behavior
+// this used to have. set-option is idempotent, so re-applying the ones that
+// already succeeded is harmless.
+func settingsScript(base string, settings [][]string) string {
+	if len(settings) == 0 {
+		return ""
+	}
+
+	var chained strings.Builder
+	chained.WriteString(base)
+	for i, args := range settings {
+		if i > 0 {
+			chained.WriteString(" ';'")
+		}
+		chained.WriteString(" set-option ")
+		chained.WriteString(strings.Join(args, " "))
+	}
+
+	var sequential strings.Builder
+	for _, args := range settings {
+		sequential.WriteString(fmt.Sprintf("%s set-option %s 2>/dev/null; ", base, strings.Join(args, " ")))
+	}
+
+	return fmt.Sprintf("{ %s; } 2>/dev/null || { %strue; }; ", chained.String(), sequential.String())
+}
+
+func sessionTagArgs(session string, tags SessionTags) [][]string {
+	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Assistant == "" && tags.CreatedAt == 0 && tags.InstanceID == "" && tags.SessionOwner == "" && tags.LeaseAtMS == 0 {
+		return nil
+	}
+	args := [][]string{{"-t", session, "@amux", "1"}}
 	entries := []struct{ key, value string }{
 		{"@amux_workspace", tags.WorkspaceID},
 		{"@amux_tab", tags.TabID},
@@ -94,9 +146,10 @@ func appendSessionTags(settings *strings.Builder, base, session string, tags Ses
 	}
 	for _, e := range entries {
 		if e.value != "" {
-			settings.WriteString(fmt.Sprintf("%s set-option -t %s %s %s 2>/dev/null; ", base, session, e.key, shellutil.ShellQuote(e.value)))
+			args = append(args, []string{"-t", session, e.key, shellutil.ShellQuote(e.value)})
 		}
 	}
+	return args
 }
 
 func formatInt64NonZero(v int64) string {

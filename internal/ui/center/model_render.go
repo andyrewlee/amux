@@ -306,19 +306,23 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 	if tab.Running && !tab.Detached {
 		return ""
 	}
-	status := ""
-	if tab.Detached {
-		status = " DETACHED "
-	} else if !tab.Running {
-		status = " STOPPED "
-	}
 	statusStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(common.ColorBackground()).
 		Background(common.ColorInfo())
+	// A reattach is several tmux round-trips against a server that is also
+	// pumping output for every other attached agent, so it can visibly take a
+	// moment. Saying so beats leaving DETACHED up, which reads as "nothing is
+	// happening" exactly when something is.
+	if tab.reattachInFlight {
+		return statusStyle.Render(" REATTACHING ")
+	}
+	status := ""
 	if tab.Detached {
+		status = " DETACHED "
 		statusStyle = statusStyle.Background(common.ColorWarning())
 	} else if !tab.Running {
+		status = " STOPPED "
 		statusStyle = statusStyle.Background(common.ColorError())
 	}
 	return statusStyle.Render(status)

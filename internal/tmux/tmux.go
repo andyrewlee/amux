@@ -240,14 +240,11 @@ func hasSession(sessionName string, opts Options) (bool, error) {
 	return true, nil
 }
 
+// hasLivePane reports whether any pane in the session is not dead. Its only
+// caller (SessionStateFor) has already established that the session exists, and
+// list-panes exits 1 for a missing session anyway, so it does no has-session
+// pre-check of its own.
 func hasLivePane(sessionName string, opts Options) (bool, error) {
-	exists, err := hasSession(sessionName, opts)
-	if err != nil {
-		return false, err
-	}
-	if !exists {
-		return false, nil
-	}
 	lines, err := listTmux(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{pane_dead}")
 	if err != nil {
 		return false, err

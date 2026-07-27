@@ -1,4 +1,4 @@
-package center
+package sidebar
 
 import (
 	"testing"
@@ -6,41 +6,38 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-func setKnownViewport(m *Model) {
-	m.width = 120
-	m.height = 40
-}
-
-// restoreReattachSeams snapshots every reattach/bootstrap seam var and restores
-// it when the test ends. Tests then assign only the seams they care about
-// instead of hand-rolling a save/restore block per seam. Because the seams are
+// restoreAttachSeams snapshots every attach/bootstrap seam var and restores it
+// when the test ends. Tests then assign only the seams they care about instead
+// of hand-rolling a save/restore block per seam. Because the seams are
 // package-level, tests using this must not call t.Parallel.
-func restoreReattachSeams(t *testing.T) {
+func restoreAttachSeams(t *testing.T) {
 	t.Helper()
+	oldEnsureTmuxAvailable := ensureTmuxAvailableFn
 	oldSessionStateFor := sessionStateForFn
 	oldProbeSession := probeSessionFn
-	oldKillSession := killSessionFn
+	oldNewPTYWithSize := newPTYWithSizeFn
 	oldResizePaneToSize := resizePaneToSizeFn
 	oldCapturePaneFullData := capturePaneFullDataFn
 	oldCapturePaneHistoryData := capturePaneHistoryDataFn
 	oldCapturePane := capturePaneFn
-	oldCreateAgentWithTags := createAgentWithTagsFn
+	oldVerifyTerminalSessionTags := verifyTerminalSessionTagsFn
 	t.Cleanup(func() {
+		ensureTmuxAvailableFn = oldEnsureTmuxAvailable
 		sessionStateForFn = oldSessionStateFor
 		probeSessionFn = oldProbeSession
-		killSessionFn = oldKillSession
+		newPTYWithSizeFn = oldNewPTYWithSize
 		resizePaneToSizeFn = oldResizePaneToSize
 		capturePaneFullDataFn = oldCapturePaneFullData
 		capturePaneHistoryDataFn = oldCapturePaneHistoryData
 		capturePaneFn = oldCapturePane
-		createAgentWithTagsFn = oldCreateAgentWithTags
+		verifyTerminalSessionTagsFn = oldVerifyTerminalSessionTags
 	})
 }
 
-// eligibleReattachProbe is a session probe that passes every bootstrap gate:
+// eligibleAttachProbe is a session probe that passes every bootstrap gate:
 // detached, quiet, a single live pane, complete metadata. Tests start from it
 // and change the one fact under test.
-func eligibleReattachProbe() tmux.SessionProbe {
+func eligibleAttachProbe() tmux.SessionProbe {
 	return tmux.SessionProbe{
 		Exists:           true,
 		CreatedAt:        111,
@@ -66,7 +63,9 @@ func eligibleReattachProbe() tmux.SessionProbe {
 func probeSeq(calls *[]string, probes ...tmux.SessionProbe) {
 	i := 0
 	probeSessionFn = func(string, tmux.Options) (tmux.SessionProbe, error) {
-		*calls = append(*calls, "probe")
+		if calls != nil {
+			*calls = append(*calls, "probe")
+		}
 		p := probes[i]
 		if i < len(probes)-1 {
 			i++

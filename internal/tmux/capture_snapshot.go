@@ -19,7 +19,7 @@ func paneSnapshotInfoForPane(
 	paneID string,
 	opts Options,
 	coversVisibleWindow func(string, Options) (bool, error),
-	metadata func(string, Options) (paneSnapshotMetadata, error),
+	metadata func(string, Options) (PaneSnapshotMeta, error),
 ) (int, int, bool, error) {
 	if paneID == "" {
 		return 0, 0, false, nil
@@ -48,7 +48,7 @@ func capturePaneSnapshotForPane(
 	paneID string,
 	opts Options,
 	captureData func(string, Options) ([]byte, error),
-	metadata func(string, Options) (paneSnapshotMetadata, error),
+	metadata func(string, Options) (PaneSnapshotMeta, error),
 ) (PaneSnapshot, error) {
 	before, err := metadata(paneID, opts)
 	if err != nil {
@@ -89,9 +89,9 @@ func capturePaneSnapshotForPane(
 	return snapshot, nil
 }
 
-func paneSnapshotMetadataForPane(paneID string, opts Options) (paneSnapshotMetadata, error) {
+func paneSnapshotMetadataForPane(paneID string, opts Options) (PaneSnapshotMeta, error) {
 	if paneID == "" {
-		return paneSnapshotMetadata{}, nil
+		return PaneSnapshotMeta{}, nil
 	}
 	cmd, cancel := tmuxCommand(
 		opts,
@@ -104,14 +104,14 @@ func paneSnapshotMetadataForPane(paneID string, opts Options) (paneSnapshotMetad
 	defer cancel()
 	output, err := runTmuxCmd(cmd)
 	if err != nil {
-		return paneSnapshotMetadata{}, err
+		return PaneSnapshotMeta{}, err
 	}
 	for _, line := range parseOutputLines(output) {
 		parts, err := parseTabFields(line, 12)
 		if err != nil || parts[0] != paneID {
 			continue
 		}
-		meta := paneSnapshotMetadata{}
+		meta := PaneSnapshotMeta{}
 		cols, errCols := strconv.Atoi(parts[1])
 		rows, errRows := strconv.Atoi(parts[2])
 		if errCols == nil && errRows == nil && cols > 0 && rows > 0 {
@@ -139,5 +139,5 @@ func paneSnapshotMetadataForPane(paneID string, opts Options) (paneSnapshotMetad
 		meta.ModeState = modeState
 		return meta, nil
 	}
-	return paneSnapshotMetadata{}, nil
+	return PaneSnapshotMeta{}, nil
 }

@@ -73,6 +73,9 @@ func SessionActiveWithin(sessionName string, window time.Duration, opts Options)
 
 // SessionLatestActivity reports the most recent tmux window_activity timestamp
 // for a session without applying any second-resolution slack.
+//
+// The reattach bootstrap reads this from a SessionProbe instead; this remains as
+// the independent reference the probe is cross-checked against.
 func SessionLatestActivity(sessionName string, opts Options) (time.Time, bool, error) {
 	latest, err := sessionLatestActivitySeconds(sessionName, opts)
 	if err != nil {

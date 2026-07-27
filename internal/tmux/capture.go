@@ -39,7 +39,11 @@ var (
 	errPaneSnapshotMetadataDrift  = errors.New("tmux pane snapshot metadata changed during capture")
 )
 
-type paneSnapshotMetadata struct {
+// PaneSnapshotMeta is the pane metadata a full-pane snapshot is validated
+// against: the geometry it was taken at, the cursor position to restore, and the
+// VT mode state. Comparing it before and after a capture is how a snapshot taken
+// across a change is detected and discarded.
+type PaneSnapshotMeta struct {
 	Cols      int
 	Rows      int
 	HasSize   bool
@@ -49,27 +53,29 @@ type paneSnapshotMetadata struct {
 	ModeState PaneModeState
 }
 
+// Eligible reports whether the metadata is complete enough to anchor a
+// full-pane snapshot: real dimensions plus the VT mode state needed to replay
+// alt-screen and scroll-region state into the local terminal.
+func (m PaneSnapshotMeta) Eligible() bool {
+	return m.HasSize && m.Cols > 0 && m.Rows > 0 && m.ModeState.HasState
+}
+
 // sessionPaneID resolves the active pane ID for a session using exact name matching.
 // Returns empty string if the session does not exist.
 func sessionPaneID(sessionName string, opts Options) (string, error) {
-	exists, err := hasSession(sessionName, opts)
-	if err != nil {
-		return "", err
-	}
-	if !exists {
-		return "", nil
-	}
 	// Use list-panes instead of display-message. display-message may return an
 	// empty pane_id for detached sessions on some tmux versions.
-	cmd, cancel := tmuxCommand(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{pane_id}\t#{pane_active}\t#{pane_dead}")
-	defer cancel()
-	output, err := runTmuxCmd(cmd)
+	//
+	// No has-session pre-check: list-panes exits 1 for a missing session, which
+	// listTmux maps to "no lines", yielding the same empty pane ID for half the
+	// tmux round-trips.
+	lines, err := listTmux(opts, "list-panes", "-t", sessionTarget(sessionName), "-F", "#{pane_id}\t#{pane_active}\t#{pane_dead}")
 	if err != nil {
 		return "", err
 	}
 
 	var firstAlive string
-	for _, line := range parseOutputLines(output) {
+	for _, line := range lines {
 		parts := strings.Split(line, "\t")
 		if len(parts) < 3 {
 			continue
@@ -152,6 +158,9 @@ func parsePaneSize(lines []string, paneID string) (int, int, bool, error) {
 // SessionPaneSnapshotInfo reports whether a session's active pane is eligible
 // for an authoritative full-pane snapshot, along with its current size. This
 // uses only pane metadata and does not capture pane history.
+//
+// The reattach bootstrap reads this from a SessionProbe instead; this remains as
+// the independent reference the probe is cross-checked against.
 func SessionPaneSnapshotInfo(sessionName string, opts Options) (int, int, bool, error) {
 	if sessionName == "" {
 		return 0, 0, false, nil
@@ -165,6 +174,9 @@ func SessionPaneSnapshotInfo(sessionName string, opts Options) (int, int, bool, 
 
 // SessionPaneID reports the active pane ID for a session using only tmux
 // metadata. Returns an empty string if the session does not exist.
+//
+// The reattach bootstrap reads this from a SessionProbe instead; this remains as
+// the independent reference the probe is cross-checked against.
 func SessionPaneID(sessionName string, opts Options) (string, error) {
 	if sessionName == "" {
 		return "", nil
@@ -175,6 +187,9 @@ func SessionPaneID(sessionName string, opts Options) (string, error) {
 // SessionPaneSize reports the current size of a session's active pane using
 // only tmux metadata. The returned size is independent of whether the pane is
 // eligible for authoritative full-pane snapshots.
+//
+// The reattach bootstrap reads this from a SessionProbe instead; this remains as
+// the independent reference the probe is cross-checked against.
 func SessionPaneSize(sessionName string, opts Options) (int, int, bool, error) {
 	if sessionName == "" {
 		return 0, 0, false, nil
@@ -280,15 +295,10 @@ func paneCoversVisibleWindow(paneID string, opts Options) (bool, error) {
 // ResizePaneToSize updates a managed session's window size to the given cell
 // dimensions before any new client attaches. This is used to capture an
 // authoritative snapshot at the size a reattached client will render.
+// A missing session needs no has-session pre-check: runTmux already treats
+// tmux's exit code 1 for a missing target as success.
 func ResizePaneToSize(sessionName string, cols, rows int, opts Options) error {
 	if sessionName == "" || cols <= 0 || rows <= 0 {
-		return nil
-	}
-	exists, err := hasSession(sessionName, opts)
-	if err != nil {
-		return err
-	}
-	if !exists {
 		return nil
 	}
 	return runTmux(
@@ -314,26 +324,12 @@ func CapturePane(sessionName string, opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if paneID == "" {
-		return nil, nil
-	}
-	// -p: output to stdout
-	// -e: include escape sequences (ANSI styling)
-	// -S -: start from beginning of history
-	// -N: preserve trailing spaces in each captured row. History-only callers
-	// also rely on this so post-attach deltas keep padded/status-bar rows intact.
-	// -E -1: end at last scrollback line (excludes visible screen)
-	// -t: target pane by globally unique pane ID
-	cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-e", "-N", "-S", "-", "-E", "-1", "-t", paneID)
-	defer cancel()
-	output, err := runTmuxCmd(cmd)
-	if err != nil {
-		return nil, err
-	}
-	if len(output) == 0 {
-		return nil, nil
-	}
-	return output, nil
+	// CapturePaneHistoryData does the capture itself. Both functions feed the
+	// same restore path — this one pre-attach by session name, that one
+	// post-attach from an already-probed pane ID — so they must capture with
+	// identical flags or the two halves of a restore would disagree. Sharing the
+	// one implementation is what guarantees that.
+	return CapturePaneHistoryData(paneID, opts)
 }
 
 // CapturePaneSnapshot captures the full tmux pane state (scrollback plus the

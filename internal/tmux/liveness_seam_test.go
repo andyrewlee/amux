@@ -24,11 +24,13 @@ type seamResult struct {
 }
 
 // livenessSeam installs a runTmuxCmd fake that dispatches on the tmux
-// subcommand (has-session / list-panes / list-clients) and records each call,
-// so multi-step reads — a has-session pre-check followed by the list — can be
-// driven per step without a server. It also pins the command shape: the
-// list-panes and list-clients invocations must carry the exact -F format the
-// production code relies on.
+// subcommand (has-session / list-panes / list-clients) and records each call, so
+// multi-step reads — SessionStateFor's has-session followed by list-panes — can
+// be driven per step without a server. Recording the calls also lets a test
+// assert which subcommands did *not* run, which is how the single-round-trip
+// reads below pin that no has-session pre-check crept back in. It pins the
+// command shape too: the list-panes and list-clients invocations must carry the
+// exact -F format the production code relies on.
 func livenessSeam(t *testing.T, responses map[string]seamResult) *[]string {
 	t.Helper()
 	var calls []string
@@ -86,14 +88,15 @@ func failOnAnyTmuxCall(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // hasLivePane: any pane_dead=="0" -> live; all "1" -> dead; exit 1 (session or
-// server gone) -> not live, no error; other error -> propagated.
-// hasLivePane never calls EnsureAvailable, so these run without tmux on PATH.
+// server gone) -> not live, no error; other error -> propagated. It reaches tmux
+// exactly once — list-panes' exit 1 already means "session gone", so there is no
+// has-session pre-check to drive. hasLivePane never calls EnsureAvailable, so
+// these run without tmux on PATH.
 // ---------------------------------------------------------------------------
 
 func TestHasLivePane_AllPanesLive(t *testing.T) {
 	livenessSeam(t, map[string]seamResult{
-		"has-session": {},
-		"list-panes":  {out: []byte("0\n0\n")},
+		"list-panes": {out: []byte("0\n0\n")},
 	})
 	live, err := hasLivePane("amux-live", testOpts())
 	if err != nil {
@@ -106,8 +109,7 @@ func TestHasLivePane_AllPanesLive(t *testing.T) {
 
 func TestHasLivePane_OneLivePaneAmongDeadIsLive(t *testing.T) {
 	livenessSeam(t, map[string]seamResult{
-		"has-session": {},
-		"list-panes":  {out: []byte("1\n0\n1\n")},
+		"list-panes": {out: []byte("1\n0\n1\n")},
 	})
 	live, err := hasLivePane("amux-mixed", testOpts())
 	if err != nil {
@@ -120,8 +122,7 @@ func TestHasLivePane_OneLivePaneAmongDeadIsLive(t *testing.T) {
 
 func TestHasLivePane_AllPanesDeadIsNotLive(t *testing.T) {
 	livenessSeam(t, map[string]seamResult{
-		"has-session": {},
-		"list-panes":  {out: []byte("1\n1\n")},
+		"list-panes": {out: []byte("1\n1\n")},
 	})
 	live, err := hasLivePane("amux-dead", testOpts())
 	if err != nil {
@@ -134,26 +135,27 @@ func TestHasLivePane_AllPanesDeadIsNotLive(t *testing.T) {
 
 func TestHasLivePane_SessionGoneExitCode1IsNotLiveNotError(t *testing.T) {
 	calls := livenessSeam(t, map[string]seamResult{
-		"has-session": {err: exitCode1Err(t)},
+		"list-panes": {err: exitCode1Err(t)},
 	})
 	live, err := hasLivePane("amux-gone", testOpts())
 	if err != nil {
-		t.Fatalf("exit 1 on has-session means session gone, not an error; got %v", err)
+		t.Fatalf("exit 1 on list-panes means session gone, not an error; got %v", err)
 	}
 	if live {
 		t.Fatalf("a missing session must not classify as live")
 	}
+	// list-panes' own exit 1 already answers "session gone", so the extra
+	// has-session round-trip this used to pay for must not come back.
 	for _, call := range *calls {
-		if call == "list-panes" {
-			t.Fatalf("list-panes must not run once has-session reports the session gone; calls %v", *calls)
+		if call == "has-session" {
+			t.Fatalf("has-session pre-check must not run; calls %v", *calls)
 		}
 	}
 }
 
 func TestHasLivePane_ListPanesExitCode1IsNotLiveNotError(t *testing.T) {
 	livenessSeam(t, map[string]seamResult{
-		"has-session": {},
-		"list-panes":  {err: exitCode1Err(t)},
+		"list-panes": {err: exitCode1Err(t)},
 	})
 	live, err := hasLivePane("amux-racy", testOpts())
 	if err != nil {
@@ -164,12 +166,13 @@ func TestHasLivePane_ListPanesExitCode1IsNotLiveNotError(t *testing.T) {
 	}
 }
 
-func TestHasLivePane_HasSessionOtherErrorPropagates(t *testing.T) {
+func TestSessionStateFor_HasSessionOtherErrorPropagates(t *testing.T) {
+	skipIfNoTmux(t)
 	want := errors.New("lost server")
 	livenessSeam(t, map[string]seamResult{
 		"has-session": {err: want},
 	})
-	if _, err := hasLivePane("amux-x", testOpts()); !errors.Is(err, want) {
+	if _, err := SessionStateFor("amux-x", testOpts()); !errors.Is(err, want) {
 		t.Fatalf("non-exit-1 has-session error must propagate, got %v", err)
 	}
 }
@@ -177,8 +180,7 @@ func TestHasLivePane_HasSessionOtherErrorPropagates(t *testing.T) {
 func TestHasLivePane_ListPanesOtherErrorPropagates(t *testing.T) {
 	want := errors.New("connection refused")
 	livenessSeam(t, map[string]seamResult{
-		"has-session": {},
-		"list-panes":  {err: want},
+		"list-panes": {err: want},
 	})
 	if _, err := hasLivePane("amux-x", testOpts()); !errors.Is(err, want) {
 		t.Fatalf("non-exit-1 list-panes error must propagate, got %v", err)
@@ -259,9 +261,9 @@ func TestSessionStateFor_OtherErrorPropagates(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SessionClientCount / SessionHasClients: attached-client guard. Neither calls
-// EnsureAvailable (the has-session pre-check and list-clients both go through
-// the runTmuxCmd seam), so these run without tmux on PATH.
+// SessionClientCount / SessionHasClients: attached-client guard. Both answer in
+// a single list-clients call — its exit 1 covers the missing-session case — and
+// neither calls EnsureAvailable, so these run without tmux on PATH.
 // ---------------------------------------------------------------------------
 
 func TestSessionClientCount_EmptyNameIsZeroWithoutExec(t *testing.T) {
@@ -274,25 +276,26 @@ func TestSessionClientCount_EmptyNameIsZeroWithoutExec(t *testing.T) {
 
 func TestSessionClientCount_SessionGoneIsZeroNotError(t *testing.T) {
 	calls := livenessSeam(t, map[string]seamResult{
-		"has-session": {err: exitCode1Err(t)},
+		"list-clients": {err: exitCode1Err(t)},
 	})
 	count, err := SessionClientCount("amux-gone", testOpts())
 	if err != nil {
-		t.Fatalf("exit 1 on has-session means session gone, not an error; got %v", err)
+		t.Fatalf("exit 1 on list-clients means session gone, not an error; got %v", err)
 	}
 	if count != 0 {
 		t.Fatalf("missing session must count 0 clients, got %d", count)
 	}
+	// The missing-session answer comes straight from list-clients' exit 1, so the
+	// extra has-session round-trip this used to pay for must not come back.
 	for _, call := range *calls {
-		if call == "list-clients" {
-			t.Fatalf("list-clients must not run for a missing session; calls %v", *calls)
+		if call == "has-session" {
+			t.Fatalf("has-session pre-check must not run; calls %v", *calls)
 		}
 	}
 }
 
 func TestSessionClientCount_CountsClientLines(t *testing.T) {
 	livenessSeam(t, map[string]seamResult{
-		"has-session":  {},
 		"list-clients": {out: []byte("client-0\nclient-1\nclient-2\n")},
 	})
 	count, err := SessionClientCount("amux-attached", testOpts())
@@ -306,7 +309,6 @@ func TestSessionClientCount_CountsClientLines(t *testing.T) {
 
 func TestSessionClientCount_ListClientsExitCode1IsZeroNotError(t *testing.T) {
 	livenessSeam(t, map[string]seamResult{
-		"has-session":  {},
 		"list-clients": {err: exitCode1Err(t)},
 	})
 	count, err := SessionClientCount("amux-racy", testOpts())
@@ -321,7 +323,6 @@ func TestSessionClientCount_ListClientsExitCode1IsZeroNotError(t *testing.T) {
 func TestSessionClientCount_OtherErrorPropagates(t *testing.T) {
 	want := errors.New("no server running on /tmp/x")
 	livenessSeam(t, map[string]seamResult{
-		"has-session":  {},
 		"list-clients": {err: want},
 	})
 	if _, err := SessionClientCount("amux-x", testOpts()); !errors.Is(err, want) {
@@ -331,7 +332,6 @@ func TestSessionClientCount_OtherErrorPropagates(t *testing.T) {
 
 func TestSessionHasClients_TrueWhenAttached(t *testing.T) {
 	livenessSeam(t, map[string]seamResult{
-		"has-session":  {},
 		"list-clients": {out: []byte("client-0\n")},
 	})
 	has, err := SessionHasClients("amux-attached", testOpts())
@@ -345,7 +345,6 @@ func TestSessionHasClients_TrueWhenAttached(t *testing.T) {
 
 func TestSessionHasClients_FalseWhenNoClients(t *testing.T) {
 	livenessSeam(t, map[string]seamResult{
-		"has-session":  {},
 		"list-clients": {out: []byte("")},
 	})
 	has, err := SessionHasClients("amux-detached", testOpts())
@@ -360,7 +359,7 @@ func TestSessionHasClients_FalseWhenNoClients(t *testing.T) {
 func TestSessionHasClients_ErrorPropagates(t *testing.T) {
 	want := errors.New("lost server")
 	livenessSeam(t, map[string]seamResult{
-		"has-session": {err: want},
+		"list-clients": {err: want},
 	})
 	has, err := SessionHasClients("amux-x", testOpts())
 	if !errors.Is(err, want) {

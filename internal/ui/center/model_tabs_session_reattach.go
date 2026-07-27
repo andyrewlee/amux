@@ -15,20 +15,14 @@ import (
 // These package-level indirections are test seams for reattach/bootstrap
 // paths. Tests that override them must not use t.Parallel within this package.
 var (
-	sessionStateForFn         = tmux.SessionStateFor
-	sessionHasClientsFn       = tmux.SessionHasClients
-	sessionClientCountFn      = tmux.SessionClientCount
-	sessionActiveWithinFn     = tmux.SessionActiveWithin
-	sessionLatestActivityFn   = tmux.SessionLatestActivity
-	sessionCreatedAtFn        = tmux.SessionCreatedAt
-	sessionPaneIDFn           = tmux.SessionPaneID
-	sessionPaneSnapshotInfoFn = tmux.SessionPaneSnapshotInfo
-	sessionPaneSizeFn         = tmux.SessionPaneSize
-	killSessionFn             = tmux.KillSession
-	resizePaneToSizeFn        = tmux.ResizePaneToSize
-	capturePaneSnapshotFn     = tmux.CapturePaneSnapshot
-	capturePaneFn             = tmux.CapturePane
-	createAgentWithTagsFn     = func(
+	sessionStateForFn        = tmux.SessionStateFor
+	probeSessionFn           = tmux.ProbeSession
+	killSessionFn            = tmux.KillSession
+	resizePaneToSizeFn       = tmux.ResizePaneToSize
+	capturePaneFullDataFn    = tmux.CapturePaneFullData
+	capturePaneHistoryDataFn = tmux.CapturePaneHistoryData
+	capturePaneFn            = tmux.CapturePane
+	createAgentWithTagsFn    = func(
 		manager *appPty.AgentManager,
 		ws *data.Workspace,
 		agentType appPty.AgentType,
@@ -48,18 +42,11 @@ type sessionBootstrapCapture = ptyio.SessionBootstrapCapture
 func sessionBootstrap() ptyio.SessionBootstrap {
 	return ptyio.SessionBootstrap{
 		Fns: ptyio.SessionBootstrapFns{
-			SessionHasClients:       sessionHasClientsFn,
-			SessionClientCount:      sessionClientCountFn,
-			SessionActiveWithin:     sessionActiveWithinFn,
-			SessionLatestActivity:   sessionLatestActivityFn,
-			SessionCreatedAt:        sessionCreatedAtFn,
-			SessionPaneID:           sessionPaneIDFn,
-			SessionPaneSnapshotInfo: sessionPaneSnapshotInfoFn,
-			SessionPaneSize:         sessionPaneSizeFn,
-			ResizePaneToSize:        resizePaneToSizeFn,
-			CapturePaneSnapshot:     capturePaneSnapshotFn,
+			ProbeSession:           probeSessionFn,
+			ResizePaneToSize:       resizePaneToSizeFn,
+			CapturePaneFullData:    capturePaneFullDataFn,
+			CapturePaneHistoryData: capturePaneHistoryDataFn,
 		},
-		CapturePane: capturePaneFn,
 	}
 }
 
