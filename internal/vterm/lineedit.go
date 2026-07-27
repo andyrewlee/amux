@@ -137,12 +137,12 @@ func normalizeLine(line []Cell) {
 		switch line[i].Width {
 		case 0:
 			// Continuation without a leading wide cell is invalid.
-			if i == 0 || line[i-1].Width != 2 {
+			if !IsWideContinuation(line, i) {
 				line[i] = DefaultCell()
 			}
 		case 2:
 			// If the continuation cell is missing, drop the wide glyph.
-			if i+1 >= len(line) || line[i+1].Width != 0 {
+			if !HasWideContinuation(line, i, len(line)) {
 				line[i] = DefaultCell()
 			}
 		}

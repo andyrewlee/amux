@@ -23,6 +23,44 @@ Every hop coalesces or throttles; none of them may reorder or drop output
 bytes (`tabEventWriteOutput` is never shed — see the invariants in
 `tab_actor.go`).
 
+### Wide glyphs (why lines don't drift left)
+
+`VTermLayer.DrawAt` writes only the *base* cell of a wide glyph. Ultraviolet's
+`Line.Set` stamps the zero-width placeholder for the second column itself, and
+it reads a write *to* a placeholder as "something is overwriting half of a wide
+glyph" — so writing the continuation cell explicitly blanks the base we just
+drew and leaves an orphan placeholder. The renderer emits nothing for a
+zero-width cell, so every cell after it lands one column to the left.
+
+A wide glyph is two cells — a base (`Width == 2`) and a continuation
+(`Width == 0`) — and a renderer must draw exactly one column per cell. Both
+halves can be orphaned, and each drifts the line a different way:
+
+- **Orphan continuation** (zero-width cell with no wide base at `x-1`, e.g. a
+  half-erased glyph): renderers emit nothing for it, so the line drifts
+  **left**. Ask `vterm.IsWideContinuation(row, x)`; draw a blank when false.
+- **Widowed base** (`Width == 2` whose continuation was overwritten, or pushed
+  out of the viewport by a resize — `resizeRows` keeps rows wider than the
+  viewport): it draws two columns where the buffer owns one, so the line drifts
+  **right**. Ask `vterm.HasWideContinuation(row, x, visibleWidth)`; substitute a
+  blank when false.
+
+Both guards are required at all four renderers: `VTermLayer.DrawAt`,
+`compositor.Canvas.DrawScreen`, and `vterm`'s `renderRow` /
+`renderWithScrollbackFrom`. `normalizeLine` enforces the same pair of rules on
+the write side (against `len(line)`), and the erase ops plus `putChar`'s
+wide-glyph wrap call it — or clear the stale half directly — so neither shape
+normally reaches a snapshot at all. The renderer guards are defense in depth,
+and they are load-bearing for rows that are legitimately wider than the
+viewport, where the write side cannot know the render width.
+
+Regression tests: `internal/ui/compositor/vtermlayer_widecell_test.go`,
+`internal/vterm/render_wide_orphan_test.go`,
+`internal/vterm/render_wide_widow_test.go`,
+`internal/vterm/erase_wide_normalize_test.go`,
+`internal/ui/center/model_scrolled_history_wide_test.go` (the scrolled chat
+path), and the composed-frame test `internal/app/harness_wide_glyph_test.go`.
+
 ### Frame atomicity (why agents don't flicker)
 
 A flush can land mid-repaint: the parser may have consumed a `2J` clear but

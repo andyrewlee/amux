@@ -116,7 +116,17 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursor Cursor
 		maxX := min(w, len(line))
 		for col := 0; col < maxX; col++ {
 			cell := line[col]
-			if cell.Width == 2 && col+1 >= w {
+			// A wide base that lost its second column — to a narrow overwrite
+			// or to a viewport edge — would draw two columns where the buffer
+			// now owns one, shifting the rest of the line right.
+			if cell.Width == 2 && !vterm.HasWideContinuation(line, col, w) {
+				cell = vterm.DefaultCell()
+			}
+			// Render skips zero-width cells, so a continuation column whose wide
+			// base is gone would silently pull the rest of the line one column
+			// left. Substitute a blank for orphans (VTermLayer.DrawAt does the
+			// same for the layer-based path).
+			if cell.Width == 0 && !vterm.IsWideContinuation(line, col) {
 				cell = vterm.DefaultCell()
 			}
 			if selActive && vterm.SelectionContains(selStartX, selStartY, selEndX, selEndY, col, row) {

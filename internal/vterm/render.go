@@ -271,8 +271,20 @@ func (v *VTerm) renderRow(row []Cell, y int) string {
 			lastReverse = inSel
 		}
 
-		// Skip continuation cells (part of wide character)
+		// Skip continuation cells (part of wide character). An orphan gets a
+		// blank instead: emitting nothing for it would shift the rest of the
+		// line one column left (see IsWideContinuation).
 		if cell.Width == 0 {
+			if IsWideContinuation(row, x) {
+				continue
+			}
+			buf.WriteByte(' ')
+			continue
+		}
+		// A wide base that lost its second column would render one column too
+		// wide, shifting the rest of the line right (see HasWideContinuation).
+		if cell.Width == 2 && !HasWideContinuation(row, x, v.Width) {
+			buf.WriteByte(' ')
 			continue
 		}
 
@@ -342,8 +354,18 @@ func (v *VTerm) renderWithScrollbackFrom(screen [][]Cell, scrollbackLen int) str
 				firstCell = false
 			}
 
-			// Skip continuation cells (part of wide character)
+			// Skip continuation cells (part of wide character). An orphan gets
+			// a blank instead; see IsWideContinuation.
 			if cell.Width == 0 {
+				if IsWideContinuation(row, x) {
+					continue
+				}
+				buf.WriteByte(' ')
+				continue
+			}
+			// A wide base that lost its second column; see HasWideContinuation.
+			if cell.Width == 2 && !HasWideContinuation(row, x, v.Width) {
+				buf.WriteByte(' ')
 				continue
 			}
 

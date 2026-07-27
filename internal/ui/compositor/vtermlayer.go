@@ -108,19 +108,31 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 		for x := 0; x < width && x < len(row); x++ {
 			cell := row[x]
 
-			// A wide glyph landing on the last visible column can't render its
-			// second half; substitute a blank there instead of emitting a
-			// truncated wide cell. Mirrors canvas.go's DrawScreen guard.
-			if cell.Width == 2 && x+1 >= width {
+			// A wide glyph that can't render its second half — it landed on the
+			// last visible column, or a narrow write took the continuation away
+			// — draws two columns where the buffer owns one, shifting the rest
+			// of the line right. Substitute a blank. Mirrors canvas.go.
+			if cell.Width == 2 && !vterm.HasWideContinuation(row, x, width) {
 				cell = vterm.DefaultCell()
 			}
 
-			// For continuation cells (part of wide character), write an empty cell
-			// to clear any stale content at that position from previous renders.
+			// Continuation column of a wide glyph. Do NOT write a zero-width cell
+			// here: ultraviolet's Line.Set already stamped a placeholder when the
+			// base cell was set, and it treats a *write* to a placeholder as
+			// "something is overwriting half of a wide glyph", which blanks the
+			// base cell we just drew. The result is a space plus an orphan
+			// placeholder, and since the renderer emits nothing for a zero-width
+			// cell, the rest of the line lands one column to the left. Skipping
+			// the write still clears stale content at this position, because
+			// setting the base cell rewrites the placeholder.
 			if cell.Width == 0 {
-				uvCell = uv.Cell{Content: "", Width: 0}
-				s.SetCell(posX+x, posY+y, &uvCell)
-				continue
+				if vterm.IsWideContinuation(row, x) {
+					continue
+				}
+				// Orphan placeholder with no wide base (e.g. a line edit erased
+				// the base). Draw a blank so the column still occupies a cell
+				// instead of collapsing the line leftward.
+				cell = vterm.DefaultCell()
 			}
 
 			// Build the ultraviolet cell into the reused local.
