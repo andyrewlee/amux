@@ -35,14 +35,10 @@ func TestWorkspaceCreateAgentsHaveDistinctSessions(t *testing.T) {
 
 	waitForUIContains(t, session, filepath.Base(repo), workspaceAgentTimeout)
 
-	createWorkspaceAndOpenAgentPicker(t, session, "feature", workspaceAgentTimeout)
-	selectAgentFromPicker(t, session, 0) // claude
-	if err := session.WaitForAbsent("New Agent", 3*time.Second); err != nil {
-		t.Fatalf("wait for picker close: %v", err)
-	}
-	createAgentTabWithSelection(t, session, 1, workspaceAgentTimeout) // codex
-
 	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
+	createWorkspaceWithAgent(t, session, "feature", opts, workspaceAgentTimeout) // claude
+	createAgentTabWithSelection(t, session, 1, workspaceAgentTimeout)            // codex
+
 	byAssistant := waitForAssistantSessions(t, opts, map[string]bool{"claude": true, "codex": true}, workspaceAgentTimeout)
 
 	uniqueSessions := make(map[string]struct{})
