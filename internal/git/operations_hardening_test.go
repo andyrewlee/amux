@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -27,7 +28,7 @@ func TestHardenedGitArgs(t *testing.T) {
 
 		got := hardenedGitArgs(args)
 		want := []string{
-			"-c", "core.hooksPath=",
+			"-c", "core.hooksPath=/dev/null",
 			"-c", "core.fsmonitor=false",
 			"-c", "commit.gpgsign=false",
 			"status", "--porcelain",
@@ -75,6 +76,79 @@ func TestHardenedGitArgs(t *testing.T) {
 			t.Fatalf("hardenedGitArgs(commit) under opt-in = %q, want no commit.gpgsign override at all", got)
 		}
 	})
+}
+
+// TestNoHooksPathIsUnwritable guards the property that keeps workspace roots
+// clean: hook-disabling must not be expressed as an empty core.hooksPath.
+// git-lfs re-installs its hooks on every filter invocation (filter-process and
+// smudge) using whatever core.hooksPath says, so an empty value makes it write
+// pre-push and friends into the current directory — i.e. into the root of every
+// new workspace.
+func TestNoHooksPathIsUnwritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("amux is Linux/macOS-only; /dev/null is unix-specific")
+	}
+
+	if noHooksPath == "" {
+		t.Fatal("noHooksPath is empty; tools that read core.hooksPath would resolve it to the working directory and litter hook files there")
+	}
+	if !filepath.IsAbs(noHooksPath) {
+		t.Fatalf("noHooksPath = %q, want an absolute path so it never resolves relative to the working directory", noHooksPath)
+	}
+	if err := os.WriteFile(filepath.Join(noHooksPath, "pre-push"), []byte("#!/bin/sh\n"), 0o755); err == nil {
+		t.Fatalf("wrote a hook into noHooksPath (%q); it must reject hook installs", noHooksPath)
+	}
+}
+
+// TestCreateWorkspaceLeavesNoStrayLFSHooks is the end-to-end guard for the same
+// property against the real git-lfs binary: creating a workspace in an
+// lfs-tracked repo must leave the worktree root clean while the lfs smudge
+// filter still runs.
+func TestCreateWorkspaceLeavesNoStrayLFSHooks(t *testing.T) {
+	skipIfNoGit(t)
+	if _, err := exec.LookPath("git-lfs"); err != nil {
+		t.Skip("git-lfs not installed")
+	}
+
+	prev := allowRepoGitHooks
+	allowRepoGitHooks = false
+	t.Cleanup(func() { allowRepoGitHooks = prev })
+
+	repo := initRepo(t)
+	runGit(t, repo, "lfs", "track", "*.bin")
+	if err := os.WriteFile(filepath.Join(repo, "a.bin"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatalf("write a.bin: %v", err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add lfs file")
+
+	base := currentBranchForTest(t, repo)
+	ws := filepath.Join(t.TempDir(), "wt")
+	if err := CreateWorkspace(repo, ws, "lfs-check", base); err != nil {
+		t.Fatalf("CreateWorkspace() error = %v", err)
+	}
+
+	// git-lfs re-installs these four hooks on every filter invocation, using
+	// whatever core.hooksPath resolves to.
+	for _, stray := range []string{"pre-push", "post-checkout", "post-commit", "post-merge"} {
+		if _, err := os.Stat(filepath.Join(ws, stray)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("stray git-lfs hook %q in workspace root; stat err = %v", stray, err)
+		}
+	}
+
+	// Hardening must not disable the lfs clean/smudge filters themselves.
+	got, err := os.ReadFile(filepath.Join(ws, "a.bin"))
+	if err != nil {
+		t.Fatalf("read a.bin: %v", err)
+	}
+	if string(got) != "hello\n" {
+		t.Errorf("a.bin = %q, want smudged content %q", got, "hello\n")
+	}
+}
+
+func currentBranchForTest(t *testing.T, repo string) string {
+	t.Helper()
+	return strings.TrimSpace(runGit(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
 }
 
 // writePostCheckoutHookSentinel installs an executable post-checkout hook in

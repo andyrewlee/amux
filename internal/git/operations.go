@@ -22,6 +22,22 @@ var runGitCommandAfterWaitHook func()
 // Controlled by the AMUX_ALLOW_GIT_HOOKS environment variable, read once.
 var allowRepoGitHooks = os.Getenv("AMUX_ALLOW_GIT_HOOKS") == "1"
 
+// noHooksPath is the core.hooksPath value used to disable repo hooks. It must
+// be a non-empty path that can never hold a hook and can never be written to.
+//
+// An empty value ("core.hooksPath=") also stops git from finding hooks, but it
+// breaks third-party tools that read core.hooksPath themselves: git-lfs
+// re-installs its hooks on every filter invocation (`git lfs filter-process`
+// and `git lfs smudge`, both driven by a repo's .gitattributes during
+// checkout), resolves the empty value to "" (a set-but-empty config value,
+// which it treats as a real path rather than as unset), and so
+// writes post-checkout/post-commit/post-merge/pre-push relative to the process
+// working directory. In an lfs-using repo that dropped four untracked hook
+// files into the root of every workspace amux created. Pointing at /dev/null
+// makes the same install attempt fail harmlessly and leaves the tree clean.
+// amux is Linux/macOS-only, so /dev/null is always present.
+const noHooksPath = "/dev/null"
+
 // hardenedGitArgs prepends config flags that neutralize repo-controlled code
 // execution on exactly three vectors: post-checkout/pre-* hooks
 // (core.hooksPath), core.fsmonitor, and gpg-signing on commit
@@ -43,12 +59,12 @@ func hardenedGitArgs(args []string) []string {
 	if allowRepoGitHooks {
 		return args
 	}
-	// core.hooksPath= (empty value) points git's hook lookup at an empty path
-	// so no repo hook is found or run; core.fsmonitor=false disables any
-	// repo-configured fsmonitor program; commit.gpgsign=false stops `git
-	// commit` from invoking a repo-configured gpg.program.
+	// core.hooksPath points git's hook lookup at noHooksPath so no repo hook is
+	// found or run; core.fsmonitor=false disables any repo-configured fsmonitor
+	// program; commit.gpgsign=false stops `git commit` from invoking a
+	// repo-configured gpg.program.
 	prefix := []string{
-		"-c", "core.hooksPath=",
+		"-c", "core.hooksPath=" + noHooksPath,
 		"-c", "core.fsmonitor=false",
 		"-c", "commit.gpgsign=false",
 	}
