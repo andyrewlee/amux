@@ -229,6 +229,17 @@ func shouldBufferPotentialDiagnosticFragment(line []byte) bool {
 	if len(line) == 0 {
 		return false
 	}
+	// Never withhold a fragment carrying a synchronized-output marker. The test
+	// below runs on ANSI-stripped text, so a redraw whose visible tail happens to
+	// read like a malloc diagnostic ("somefunc(42)") would take its ESC[?2026l
+	// with it into the carry — and the flush path deliberately ends chunks right
+	// after that marker, which puts it in this trailing line every time. Holding
+	// it back leaves the terminal frozen on the previous frame until the next
+	// chunk or vterm.SyncStallTimeout releases it. A real malloc diagnostic never
+	// contains one.
+	if bytes.Contains(line, syncMarkerPrefix) {
+		return false
+	}
 	if bytes.IndexByte(line, 0x1b) >= 0 {
 		line = []byte(ansi.Strip(string(line)))
 	}

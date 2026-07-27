@@ -21,9 +21,15 @@ const (
 
 // syncFlushTab builds an active tab whose quiet period has elapsed (so the
 // flush gate is past its first branch) while both partial-frame ceilings are
-// still far off. The elapsed window clears every quiet value flushTiming can
-// pick — including the longer alt-screen one — so a deferral in these tests can
-// only come from the partial-frame hold, never from the quiet period.
+// still far off, so a deferral in these tests can only come from the
+// partial-frame hold, never from the quiet period.
+//
+// The elapsed window clears the base and alt-screen quiet periods. flushTiming
+// can also return the backpressure floor and the inactive-tab multiples, which
+// are larger — these tabs are active and buffer far less than the backpressure
+// threshold, so neither is reachable here. If that ever changes,
+// TestUpdatePTYFlush_HoldsLoneSyncBegin would quietly become a test of the
+// quiet branch instead (the other three would fail loudly).
 func syncFlushTab(t *testing.T, id, pending string) (*Model, *Tab, string) {
 	t.Helper()
 	if ptyFlushQuietElapsed <= ptyFlushQuiet || ptyFlushQuietElapsed <= ptyFlushQuietAlt {
@@ -61,10 +67,16 @@ func syncFlushTab(t *testing.T, id, pending string) (*Model, *Tab, string) {
 func TestUpdatePTYFlush_HoldsLoneSyncBegin(t *testing.T) {
 	m, tab, wsID := syncFlushTab(t, "tab-sync-begin", testSyncBegin)
 
-	_ = m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
+	cmd := m.updatePTYFlush(PTYFlush{WorkspaceID: wsID, TabID: tab.ID})
 
 	if got, want := string(tab.PendingOutput), testSyncBegin; got != want {
 		t.Fatalf("pending output = %q, want the sync-begin still buffered", got)
+	}
+	// The hold is only bounded because it re-arms: without a retry tick the
+	// frame sits until the next PTYOutput happens to arrive, which is the stall
+	// the ceilings exist to prevent.
+	if cmd == nil {
+		t.Fatal("hold scheduled no retry tick")
 	}
 	if tab.Terminal.SyncActive() {
 		t.Fatal("terminal is sync-frozen, want the partial frame withheld")

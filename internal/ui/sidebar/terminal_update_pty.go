@@ -54,7 +54,7 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 	if !ts.FlushScheduled {
 		ts.FlushScheduled = true
 		ts.FlushPendingSince = now
-		quiet, _ := m.flushTiming()
+		quiet, _ := m.flushTimingFor(ts)
 		return common.SafeTick(quiet, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 		})
@@ -71,7 +71,7 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		return nil
 	}
 	ts := tab.State
-	quiet, maxInterval := m.flushTiming()
+	quiet, maxInterval := m.flushTimingFor(ts)
 	if delay, deferred := ts.State.FlushGate(time.Now(), quiet, maxInterval); deferred {
 		return common.SafeTick(delay, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
@@ -101,7 +101,7 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 	if !ts.State.RearmFlush(time.Now(), nil) {
 		return nil
 	}
-	delay, _ := m.flushTiming()
+	delay, _ := m.flushTimingFor(ts)
 	if delay < time.Millisecond {
 		delay = time.Millisecond
 	}

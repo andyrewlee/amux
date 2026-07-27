@@ -10,9 +10,13 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// flushTiming returns the appropriate flush timing
-func (m *TerminalModel) flushTiming() (time.Duration, time.Duration) {
-	ts := m.getTerminal()
+// flushTimingFor returns the flush timing for a specific terminal. Callers must
+// pass the terminal they are flushing, not the selected one: background
+// terminals keep streaming, and timing them by whatever happens
+// to be on screen gives an alt-screen terminal the faster non-alt cadence — and
+// the flush policy reads the quiet period to decide whether a caller asked for
+// a slower cadence (see ptyio.FlushDelay).
+func (m *TerminalModel) flushTimingFor(ts *TerminalState) (time.Duration, time.Duration) {
 	if ts == nil {
 		return ptyFlushQuiet, ptyFlushMaxInterval
 	}

@@ -55,8 +55,9 @@ func TrimOverflow(pending []byte, maxBuffered int, seed vterm.ParserCarryState) 
 // the terminal to hold the display steady, ESC[?2026l releases it. tmux wraps
 // every client redraw this way (amux advertises the sync terminal feature —
 // see internal/tmux/command.go), but it writes the client socket in ≤1KB
-// chunks, so any redraw bigger than that spans several reads: measured on a
-// streaming pane, 53% of reads end inside an open region.
+// chunks, so any redraw bigger than that spans several reads: on a captured
+// streaming pane roughly half the reads (46% of 567) leave the terminal inside
+// an open region.
 //
 // A flush that ends there hands the vterm half a frame. The vterm's freeze then
 // holds the *previous* frame, so the pane shows stale content and reports every
@@ -65,11 +66,12 @@ func TrimOverflow(pending []byte, maxBuffered int, seed vterm.ParserCarryState) 
 // So flushes end on frame boundaries: a flush stops at the last completed
 // region and leaves a partial frame buffered (TakeFlushChunkLocked), and when
 // nothing has completed there is nothing worth writing, so the flush waits
-// instead (FlushDelay). On the same streaming trace that takes flushes ending
-// mid-frame from 43% to ~1%, at an unchanged flush rate. Both waits are bounded
-// — the flush ceilings cap them, and a partial frame that reaches the terminal
-// anyway still has vterm.SyncStallTimeout behind it — so a writer that dies
-// mid-frame cannot stall the pane.
+// instead (FlushDelay). Replaying that captured stream through this path, 84 of
+// 456 flushes (18%) opened a mid-frame gap without the policy and none do with
+// it, at an identical flush count. Both waits are bounded — the flush ceilings
+// cap them, and a partial frame that reaches the terminal anyway still has
+// vterm.SyncStallTimeout behind it — so a writer that dies mid-frame cannot
+// stall the pane.
 
 // syncMarkerPrefix is the shared prefix of the DEC 2026 begin/end markers; the
 // byte after it selects which one — 'h' opens a region, 'l' closes it, and
@@ -85,17 +87,26 @@ var syncMarkerPrefix = []byte("\x1b[?2026")
 
 const (
 	// syncTailScanLimit bounds the marker scan so a large backlog does not pay
-	// for the whole buffer. It has to comfortably exceed one frame — a marker
-	// further back than this is invisible here, which for a sync-begin means the
-	// frame is flushed half-drawn after all — so it is sized for a full-screen
-	// truecolor repaint on a large pane rather than for the per-keystroke frames
-	// that motivated this. The scan stays cheap at that size: see
-	// BenchmarkScanSyncFrames, which is orders of magnitude under the cost of
-	// writing the same bytes to the vterm.
+	// for the whole buffer. It covers the redraws seen in practice with room to
+	// spare, but it is not a guarantee: a worst-case full-screen truecolor
+	// repaint (a 200x50 pane at ~20 bytes of SGR per cell) is several times this,
+	// and a marker further back than the window is invisible here. Both ways of
+	// being wrong about such a frame are bounded — a missed sync-begin flushes it
+	// half-drawn exactly as before this policy existed, and a missed sync-end
+	// holds it until a flush ceiling fires. Raising the limit costs scan time on
+	// every flush (see BenchmarkScanSyncFrames) to buy correctness for frames
+	// that large, which is why it is not simply set to the buffer cap.
 	syncTailScanLimit = 64 * 1024
 	// syncHoldRetry is how soon a flush held for a partial frame retries. The
 	// frame body that closes the region also restarts the quiet period, so this
 	// only needs to be short enough not to add visible latency itself.
+	//
+	// It is a rate/latency knob, and holds are common enough for it to matter:
+	// on a captured streaming pane a hold costs 2.7 retry ticks per flush (~61
+	// timer wakeups/sec for one busy tab) while the flush count itself is
+	// unchanged. Raising it trades those wakeups for up to that much extra delay
+	// in noticing a frame completed; the frame cannot be displayed until it does,
+	// so the cost is only in the noticing.
 	syncHoldRetry = 4 * time.Millisecond
 )
 
@@ -110,9 +121,9 @@ const (
 // goroutine twice per flush, and the backward form costs ~100x more per byte.
 //
 // It reads pending in isolation, which costs it two cases the vterm's parser
-// sees and it does not: a terminal already inside a region (only reachable once
-// a chunk cap has split a frame too large to fall back from), and a marker
-// split across the cut. Both report a buffer as ending outside a frame when it
+// sees and it does not: a terminal already inside a region — most often because
+// a flush ceiling fired on a partial frame, and also when a chunk cap split a
+// frame too large to fall back from — and a marker split across the cut. Both report a buffer as ending outside a frame when it
 // does not, and both cost at most the frozen frame that would have happened
 // anyway — never a dropped or reordered byte. Carrying that state would mean
 // threading the terminal through every flush call for cases that need a single
@@ -138,11 +149,17 @@ func scanSyncFrames(pending []byte) (safeLen int, hasCompleteFrame bool) {
 		switch window[i] {
 		case 'h':
 			open = true
+			i++
 		case 'l':
 			open = false
 			lastEnd = i + 1
+			i++
+		default:
+			// Not a terminator (a DECRQM '$' query, or an aborted prefix). Resume
+			// at this byte rather than past it: it may itself be the ESC opening
+			// the next marker, and skipping it would lose that marker. The next
+			// search still advances, so this cannot loop.
 		}
-		i++
 	}
 	hasCompleteFrame = lastEnd >= 0 && !open
 	switch {
@@ -155,11 +172,14 @@ func scanSyncFrames(pending []byte) (safeLen int, hasCompleteFrame bool) {
 	}
 }
 
-// FlushDelay implements the flush quiet-period policy: a flush is deferred
-// while output is still arriving (quietFor < quiet), or while the buffer holds
-// only the opening half of a synchronized-output frame, unless it has already
-// been pending longer than maxInterval. It returns the delay before the next
-// flush attempt and whether the flush should be deferred.
+// FlushDelay implements the flush quiet-period policy. A flush is deferred
+// while output is still arriving (quietFor < quiet), except that at the base
+// cadence a buffered complete synchronized-output frame goes out without
+// waiting. It is also deferred while the buffer holds only the opening half of
+// such a frame; that hold releases once either ceiling passes maxInterval —
+// pendingFor or quietFor, since pendingFor stays zero until a caller sets
+// FlushPendingSince. It returns the delay before the next flush attempt and
+// whether the flush should be deferred.
 func (st *State) FlushDelay(now time.Time, quiet, maxInterval time.Duration) (time.Duration, bool) {
 	quietFor := now.Sub(st.LastOutputAt)
 	pendingFor := time.Duration(0)
@@ -175,8 +195,9 @@ func (st *State) FlushDelay(now time.Time, quiet, maxInterval time.Duration) (ti
 	//
 	// Only at the base cadence, though. Every caller that wants a slower one —
 	// alt-screen timing, backpressure, the inactive-tab multipliers — asks by
-	// raising quiet above PtyFlushQuiet, and those exist to shed render work
-	// (an inactive tab flushes up to 12x less often). Skipping the wait for a
+	// raising quiet above PtyFlushQuiet, and those exist to shed render work (an
+	// inactive tab's quiet period is multiplied up to 12x; its ceiling grows less,
+	// being capped at ptyFlushInactiveMaxIntervalCap). Skipping the wait for a
 	// finished frame would undo precisely the throttling they asked for, and
 	// tmux brackets every redraw, so it would fire on nearly every flush.
 	earlyFrameFlush := hasCompleteFrame && quiet <= PtyFlushQuiet
@@ -202,10 +223,12 @@ func (st *State) FlushDelay(now time.Time, quiet, maxInterval time.Duration) (ti
 // non-positive maxChunk takes the whole buffer. The chunk also stops at the
 // last completed synchronized-output frame, so complete frames are displayed
 // now and a partial frame at the tail stays buffered instead of freezing the
-// terminal mid-redraw. A zero safe length is deliberately not clamped: that is
-// the case FlushDelay already held for as long as its ceilings allow, and
-// taking nothing would spin the flush tick forever. The caller must hold the
-// state lock.
+// terminal mid-redraw. A zero safe length is deliberately not clamped, and
+// taking nothing would spin the flush tick forever. That happens either because
+// FlushDelay already held this buffer for as long as its ceilings allow, or
+// because maxChunk cut inside the first frame while complete frames sit past
+// the cut — a buffer FlushDelay saw as safe. The caller must hold the state
+// lock.
 func (st *State) TakeFlushChunkLocked(maxChunk int) []byte {
 	chunkSize := len(st.PendingOutput)
 	if maxChunk > 0 && chunkSize > maxChunk {

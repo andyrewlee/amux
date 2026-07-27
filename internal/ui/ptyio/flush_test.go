@@ -365,6 +365,22 @@ func TestFlushDelay(t *testing.T) {
 		}
 	})
 
+	// The counterpart to the defer case below: without this, extending the
+	// partial-frame hold to cover unbracketed output too would go unnoticed, and
+	// every plain streaming write would wait for the ceiling instead of the quiet
+	// period — the exact latency regression this whole path exists to avoid.
+	t.Run("unbracketed output flushes once the quiet period elapses", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base,
+			FlushPendingSince: base,
+			PendingOutput:     []byte("plain streaming output"),
+		}
+		now := base.Add(quiet)
+		if delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval); shouldDefer {
+			t.Fatalf("defer = true (delay %v), want false — unbracketed output must not be held", delay)
+		}
+	})
+
 	t.Run("output without frame markers still waits out the quiet period", func(t *testing.T) {
 		st := &State{
 			LastOutputAt:      base,

@@ -41,18 +41,26 @@ blank frame. Three mechanisms prevent that:
    with no body.
 
 (3) is what makes (2) work, and it is not optional. tmux writes the client
-socket in ≤1KB chunks, so a redraw larger than that spans several reads —
-measured on a streaming pane, 53% of reads end inside an open region, and
-without (3) 43% of flushes hand the vterm half a frame. The freeze in (2) then
-holds the *previous* frame, so the pane shows stale content and reports every
-line dirty (a full repaint) until the next flush closes the region. With (3)
-that drops to ~1% of flushes, at the same flush rate.
+socket in ≤1KB chunks, so a redraw larger than that spans several reads — on a
+captured streaming pane roughly half the reads (46% of 567) leave the terminal
+inside an open region. The freeze in (2) then holds the *previous* frame, so a
+flush that ends there shows stale content and reports every line dirty (a full
+repaint) until the next flush closes the region. Replaying that captured stream
+through the flush path: 84 of 456 flushes (18%) opened a mid-frame gap without
+(3), none with it, at an identical flush count.
+
+Measure this with the vterm parser, not by counting marker bytes: markers split
+across reads make a byte counter drift, and it drifts in the direction that
+overstates the problem.
 
 A writer that brackets its frames also makes the flush quiet period redundant
 for that frame — the debounce exists to guess where a frame ends — so a
 completed frame flushes immediately instead of waiting the quiet period out.
-The reader's frame-interval coalescing upstream still caps how often that can
-happen, so this lowers latency without raising the flush rate.
+That applies at the base cadence only: callers ask for a slower one by raising
+the quiet period (alt-screen timing, backpressure, the inactive-tab
+multipliers), and those still get the debounce. The reader's frame-interval
+coalescing upstream caps how often the early flush can fire, so it lowers
+latency without raising the flush rate.
 
 Sync-end deliberately does **not** invalidate the render cache: dirty marks
 accumulated during the window are preserved because frozen renders skip

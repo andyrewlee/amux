@@ -325,3 +325,50 @@ func flushPipelineRoundTrip(t *testing.T, chunkCap int, wantNoGaps bool) {
 		t.Fatalf("stream corrupted: wrote %d bytes, want %d", len(written), len(stream))
 	}
 }
+
+// The flush path deliberately ends a chunk right after ESC[?2026l, which puts
+// the closing marker in the trailing line the noise filter inspects. That test
+// runs on ANSI-stripped text, so a redraw whose visible tail happens to read
+// like a macOS malloc diagnostic used to take the marker into the carry with it
+// — leaving the terminal frozen on the previous frame despite the flush having
+// written what it believed was a whole frame.
+func TestWriteFilteredChunkKeepsSyncEnd(t *testing.T) {
+	frame := "\x1b[?2026h\x1b[2Kredraw\r\nsomefunc(42)\x1b[?2026l"
+	st := &State{PendingOutput: []byte(frame)}
+	term := vterm.New(80, 24)
+
+	chunk := st.TakeFlushChunkLocked(0)
+	if safe, complete := scanSyncFrames(chunk); !complete || safe != len(chunk) {
+		t.Fatalf("scan says safe=%d complete=%v, want the whole frame", safe, complete)
+	}
+
+	st.WriteFilteredChunkLocked(term.Write, chunk)
+
+	if term.SyncActive() {
+		t.Fatalf("terminal left sync-frozen; noise filter withheld %q", st.NoiseTrailing)
+	}
+	if bytes.Contains(st.NoiseTrailing, syncMarkerPrefix) {
+		t.Fatalf("NoiseTrailing carries a sync marker: %q", st.NoiseTrailing)
+	}
+}
+
+// The scan resumes at a non-terminator byte rather than past it, so a marker
+// starting immediately after an aborted prefix is still seen. Malformed output
+// only, but the vterm's parser cancels the aborted sequence and honors the
+// second marker, and the scan has to agree with it.
+func TestScanSyncFramesMarkerAfterAbortedPrefix(t *testing.T) {
+	pending := []byte("\x1b[?2026hbody\x1b[?2026l\x1b[?2026\x1b[?2026hpartial")
+	safe, complete := scanSyncFrames(pending)
+	if want := len("\x1b[?2026hbody\x1b[?2026l"); safe != want {
+		t.Fatalf("safeLen = %d, want %d (stop at the completed frame)", safe, want)
+	}
+	if !complete {
+		t.Fatal("hasCompleteFrame = false, want true")
+	}
+
+	term := vterm.New(80, 24)
+	term.Write(pending[:safe])
+	if term.SyncActive() {
+		t.Fatal("terminal left mid-frame after writing the reported safe prefix")
+	}
+}
