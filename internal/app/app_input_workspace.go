@@ -26,6 +26,11 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		return nil
 	}
 	a.lifecycle.clearCreatedProjectLoadBarrier(string(msg.Workspace.ID()), msg.Workspace.Root)
+	// Disarm any auto-launch still pending for this workspace. Workspace IDs are
+	// derived from project+name, so a delete-then-recreate at the same name
+	// reuses the ID (see the recreate note in handleWorkspaceDeleted below) and a
+	// stale arming would otherwise fire against the new workspace.
+	a.clearPendingAgentLaunchFor(msg.Workspace)
 	// Do NOT kill the workspace's tmux sessions here. All real delete validation
 	// (primary-checkout guard, repo/path checks, worktree removal) runs later in
 	// the async DeleteWorkspace cmd; killing up-front means a rejected or failed
@@ -132,8 +137,10 @@ func (a *App) activateCreatedWorkspace(ws *data.Workspace) tea.Cmd {
 		return nil
 	}
 	if assistant := strings.TrimSpace(ws.Assistant); a.canAutoLaunchAssistant(assistant) {
-		a.pendingLaunchWorkspaceID = string(ws.ID())
-		a.pendingLaunchAssistant = assistant
+		if a.pendingLaunchAssistants == nil {
+			a.pendingLaunchAssistants = make(map[string]string)
+		}
+		a.pendingLaunchAssistants[string(ws.ID())] = assistant
 	}
 	// The projects reload carrying this workspace is still in flight, so the
 	// dashboard holds the selection until its row appears.
@@ -173,10 +180,20 @@ func (a *App) canAutoLaunchAssistant(assistant string) bool {
 // since the arming is already consumed by the time that window opens. Closing
 // it needs the center to dedupe against in-flight session names.
 func (a *App) hasPendingAgentLaunch(ws *data.Workspace) bool {
-	if ws == nil || a.pendingLaunchWorkspaceID == "" {
+	if ws == nil || len(a.pendingLaunchAssistants) == 0 {
 		return false
 	}
-	return string(ws.ID()) == a.pendingLaunchWorkspaceID
+	_, ok := a.pendingLaunchAssistants[string(ws.ID())]
+	return ok
+}
+
+// clearPendingAgentLaunchFor disarms a pending auto-launch when it belongs to
+// ws. Armings for other workspaces are left alone.
+func (a *App) clearPendingAgentLaunchFor(ws *data.Workspace) {
+	if ws == nil {
+		return
+	}
+	delete(a.pendingLaunchAssistants, string(ws.ID()))
 }
 
 // launchPendingAgent starts the assistant armed by activateCreatedWorkspace
@@ -186,9 +203,8 @@ func (a *App) launchPendingAgent(ws *data.Workspace) tea.Cmd {
 	if !a.hasPendingAgentLaunch(ws) {
 		return nil
 	}
-	assistant := a.pendingLaunchAssistant
-	a.pendingLaunchWorkspaceID = ""
-	a.pendingLaunchAssistant = ""
+	assistant := a.pendingLaunchAssistants[string(ws.ID())]
+	delete(a.pendingLaunchAssistants, string(ws.ID()))
 	if assistant == "" || a.center == nil {
 		return nil
 	}

@@ -62,7 +62,14 @@ func TestSelectWorkspace_UserNavigationCancelsPendingSelection(t *testing.T) {
 	m.Focus()
 	m.SelectWorkspace(string(created.ID()))
 
+	// Start below the first selectable row so 'k' demonstrably moves the cursor:
+	// pressing it on the top row would prove only "some key was handled".
+	m.moveCursor(1)
+	moved := m.cursor
 	m.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	if m.cursor == moved {
+		t.Fatal("expected 'k' to move the cursor; test would not prove navigation clears the selection")
+	}
 	if m.pendingSelectID != "" {
 		t.Fatalf("expected user navigation to drop the pending selection, got %q", m.pendingSelectID)
 	}
@@ -92,5 +99,72 @@ func TestSelectWorkspace_DoesNotReapplyAfterConsumption(t *testing.T) {
 
 	if got := m.selectedWorkspaceIDAt(m.cursor); got != movedTo {
 		t.Fatalf("expected cursor to stay on %q after reload, got %q", movedTo, got)
+	}
+}
+
+// Mouse input clears a pending selection too. Only the keyboard path was
+// covered, so dropping either mouse clear was silent.
+func TestSelectWorkspace_MouseInputCancelsPendingSelection(t *testing.T) {
+	existing := *data.NewWorkspace("ws1", "feature1", "main", "/repo", "/repo/ws1")
+	created := *data.NewWorkspace("ws2", "feature2", "main", "/repo", "/repo/ws2")
+	projects := []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{existing}}}
+
+	for _, tc := range []struct {
+		name string
+		msg  tea.Msg
+	}{
+		{"wheel", tea.MouseWheelMsg{Button: tea.MouseWheelDown}},
+		{"click", tea.MouseClickMsg{Button: tea.MouseLeft, X: 2, Y: 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New()
+			m.SetSize(80, 24)
+			m.SetProjects(projects)
+			m.Focus()
+			m.SelectWorkspace(string(created.ID()))
+
+			m.Update(tc.msg)
+
+			if m.pendingSelectID != "" {
+				t.Fatalf("expected %s input to drop the pending selection, got %q", tc.name, m.pendingSelectID)
+			}
+		})
+	}
+}
+
+// A pending selection whose row never appears (created-with-warning, or deleted
+// before its reload landed) must not linger. Workspace IDs are a hash of
+// project+name, so a later delete-then-recreate at the same name reproduces the
+// ID and a stranded selection would yank the cursor away long afterwards. The
+// dashboard cannot rely on input to clear it: this flow parks focus on the
+// center pane, and every input-side clear is gated on being focused.
+func TestSelectWorkspace_ExpiresWhenRowNeverArrives(t *testing.T) {
+	existing := *data.NewWorkspace("ws1", "feature1", "main", "/repo", "/repo/ws1")
+	ghost := *data.NewWorkspace("ghost", "ghost", "main", "/repo", "/repo/ghost")
+	projects := []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{existing}}}
+
+	m := New()
+	m.SetProjects(projects)
+	m.Blur() // this flow leaves the dashboard unfocused
+	m.SelectWorkspace(string(ghost.ID()))
+
+	for i := 0; i < pendingSelectMaxLoads; i++ {
+		if m.pendingSelectID == "" {
+			t.Fatalf("selection expired after %d reloads, before its row could arrive", i)
+		}
+		m.SetProjects(projects)
+	}
+
+	if m.pendingSelectID != "" {
+		t.Fatalf("expected the pending selection to expire after %d reloads, got %q",
+			pendingSelectMaxLoads, m.pendingSelectID)
+	}
+
+	// The recreated workspace must not inherit the abandoned selection.
+	withGhost := []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{existing, ghost}}}
+	m.cursor = 0
+	m.SetProjects(withGhost)
+	if got := m.selectedWorkspaceIDAt(m.cursor); got == string(ghost.ID()) {
+		t.Fatal("expected an expired selection not to grab the cursor when the row later appears")
 	}
 }

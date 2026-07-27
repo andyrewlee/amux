@@ -51,6 +51,11 @@ func (m *Model) workspaceRowIndex(wsID string) int {
 	return -1
 }
 
+// pendingSelectMaxLoads bounds how many project rebuilds a pending selection
+// may wait for. Two covers the reload the creation itself queued plus one
+// concurrent reload landing first.
+const pendingSelectMaxLoads = 2
+
 // SelectWorkspace moves the cursor onto the workspace row with the given ID. A
 // workspace that has no row yet (its projects reload is still in flight, as is
 // the case right after creation) is remembered and selected by the next
@@ -60,21 +65,42 @@ func (m *Model) SelectWorkspace(wsID string) {
 		return
 	}
 	m.pendingSelectID = wsID
+	m.pendingSelectLoads = pendingSelectMaxLoads
 	m.applyPendingSelection()
 }
 
-// applyPendingSelection lands the cursor on the pending workspace once its row
-// exists. It is a no-op while that row is still missing.
-func (m *Model) applyPendingSelection() {
+// clearPendingSelection drops a selection that is still waiting on a row.
+func (m *Model) clearPendingSelection() {
+	m.pendingSelectID = ""
+	m.pendingSelectLoads = 0
+}
+
+// applyPendingSelection lands the cursor on the pending workspace if its row
+// already exists. It reports whether the selection was consumed.
+func (m *Model) applyPendingSelection() bool {
 	if m.pendingSelectID == "" {
-		return
+		return false
 	}
 	idx := m.workspaceRowIndex(m.pendingSelectID)
 	if idx == -1 {
-		return
+		return false
 	}
 	m.cursor = idx
-	m.pendingSelectID = ""
+	m.clearPendingSelection()
+	return true
+}
+
+// applyPendingSelectionForLoad applies the pending selection against a freshly
+// rebuilt row set, and spends one of its bounded waits when the row still is
+// not there — so a row that never arrives cannot strand the ID (see the
+// pendingSelectLoads field comment).
+func (m *Model) applyPendingSelectionForLoad() {
+	if m.pendingSelectID == "" || m.applyPendingSelection() {
+		return
+	}
+	if m.pendingSelectLoads--; m.pendingSelectLoads <= 0 {
+		m.clearPendingSelection()
+	}
 }
 
 // resolveCursorAfterRebuild re-anchors the cursor to the workspace selected

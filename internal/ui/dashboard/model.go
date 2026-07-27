@@ -91,6 +91,15 @@ type Model struct {
 	// projects reload carrying it arrives, so the selection has to wait for the
 	// rebuild rather than being dropped.
 	pendingSelectID string
+	// pendingSelectLoads bounds how many rebuilds that wait may span. A creation
+	// that never yields a row (created-with-warning, deleted before its reload
+	// landed) would otherwise strand the ID for the session — and since a
+	// workspace ID is a hash of project+name, a later delete-then-recreate at the
+	// same name reproduces it and would yank the cursor off the user's row long
+	// afterwards. The dashboard cannot rely on input to clear it, because this
+	// flow deliberately parks focus on the center pane and every input-side
+	// clear is gated on being focused.
+	pendingSelectLoads int
 
 	// Loading state
 	creatingWorkspaces map[string]*data.Workspace // Workspaces currently being created
@@ -228,7 +237,7 @@ func (m *Model) SetProjects(projects []data.Project) {
 	m.projects = projects
 	m.rebuildRows()
 	m.resolveCursorAfterRebuild(prevCursor, selectedID)
-	m.applyPendingSelection()
+	m.applyPendingSelectionForLoad()
 	if m.cursor == prevCursor {
 		m.scrollOffset = prevOffset
 		m.clampScrollOffset()

@@ -110,11 +110,13 @@ type App struct {
 	pendingWorkspaceProject *data.Project
 	pendingWorkspaceName    string
 	pendingWorkspaceBase    string
-	// Assistant chosen during workspace creation, launched once that workspace
-	// is activated so creating a workspace lands the user in a live agent tab
-	// instead of making them re-pick the same assistant.
-	pendingLaunchWorkspaceID string
-	pendingLaunchAssistant   string
+	// Assistants chosen during workspace creation, keyed by workspace ID and
+	// launched once that workspace is activated, so creating a workspace lands
+	// the user in a live agent tab instead of making them re-pick the same
+	// assistant. Keyed rather than a single slot because creations are async and
+	// unordered: two started back to back are both in flight, and a single slot
+	// would let the second overwrite the first, leaving it with no agent.
+	pendingLaunchAssistants map[string]string
 
 	// commitAllFn is the git commit-all seam. Nil in production (falls back to
 	// git.CommitAll); tests install a fake to assert the dialog→commit wiring

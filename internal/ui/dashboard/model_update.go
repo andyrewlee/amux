@@ -21,7 +21,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		// Moving the cursor by hand outranks a selection still waiting on a
 		// workspace row, so a late reload cannot yank the user off their row.
-		m.pendingSelectID = ""
+		m.clearPendingSelection()
 		delta := common.ScrollDeltaForHeight(m.visibleHeight(), 10) // ~10% of visible
 		if msg.Button == tea.MouseWheelUp {
 			m.moveCursor(-delta)
@@ -36,7 +36,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if !m.focused {
 			return m, nil
 		}
-		m.pendingSelectID = ""
+		m.clearPendingSelection()
 		if msg.Button == tea.MouseLeft {
 			// Check toolbar clicks first
 			if cmd := m.handleToolbarClick(msg.X, msg.Y); cmd != nil {
@@ -80,7 +80,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if !m.focused {
 			return m, nil
 		}
-		m.pendingSelectID = ""
+		m.clearPendingSelection()
 		toolbarItems := m.toolbarItems()
 		if m.toolbarFocused {
 			return m.handleToolbarKey(msg, toolbarItems)
