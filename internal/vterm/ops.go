@@ -68,6 +68,12 @@ func (v *VTerm) putChar(r rune) {
 	if width == 2 && v.CursorX == v.Width-1 {
 		// Put a space in the last column and wrap
 		if v.CursorY >= 0 && v.CursorY < len(v.Screen) {
+			// The space may land on the continuation of a wide glyph based one
+			// column left; clear that base too, or it is left claiming a column
+			// it no longer owns and the line renders one column too wide.
+			if IsWideContinuation(v.Screen[v.CursorY], v.CursorX) {
+				v.Screen[v.CursorY][v.CursorX-1] = DefaultCell()
+			}
 			v.Screen[v.CursorY][v.CursorX] = Cell{
 				Rune:  ' ',
 				Style: v.CurrentStyle,
@@ -196,6 +202,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 					v.Screen[v.CursorY][x] = DefaultCell()
 				}
 			}
+			normalizeLine(v.Screen[v.CursorY])
 		}
 		// Clear all lines below
 		for y := v.CursorY + 1; y < v.Height; y++ {
@@ -218,6 +225,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 					v.Screen[v.CursorY][x] = DefaultCell()
 				}
 			}
+			normalizeLine(v.Screen[v.CursorY])
 		}
 		v.markDirtyRange(0, v.CursorY)
 	case 2, 3: // Entire display (3 normally also clears scrollback)
@@ -259,6 +267,9 @@ func (v *VTerm) eraseLine(mode int) {
 		return
 	}
 
+	// A partial erase can cut a wide glyph in half; normalizeLine drops the
+	// leftover half so the line keeps exactly one cell per column. Mode 2
+	// replaces the whole line with blanks, so it needs no normalization.
 	switch mode {
 	case 0: // Cursor to end
 		for x := v.CursorX; x < v.Width; x++ {
@@ -266,12 +277,14 @@ func (v *VTerm) eraseLine(mode int) {
 				v.Screen[v.CursorY][x] = DefaultCell()
 			}
 		}
+		normalizeLine(v.Screen[v.CursorY])
 	case 1: // Start to cursor
 		for x := 0; x <= v.CursorX && x < v.Width; x++ {
 			if x < len(v.Screen[v.CursorY]) {
 				v.Screen[v.CursorY][x] = DefaultCell()
 			}
 		}
+		normalizeLine(v.Screen[v.CursorY])
 	case 2: // Entire line
 		v.Screen[v.CursorY] = MakeBlankLine(v.Width)
 	}
