@@ -52,11 +52,8 @@ func TestMultiInstanceOrphanGCDoesNotKillNewWorkspace(t *testing.T) {
 
 	waitForUIContains(t, sessionA, filepath.Base(repo), 10*time.Second)
 
-	createWorkspaceAndOpenAgentPicker(t, sessionA, "feature-gc", 15*time.Second)
-	selectAgentFromPicker(t, sessionA, 0)
-	waitForUIContains(t, sessionA, "claude", 15*time.Second)
-
 	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
-	waitForAgentSessions(t, opts, 15*time.Second)
+	createWorkspaceWithAgent(t, sessionA, "feature-gc", opts, 15*time.Second)
+	waitForUIContains(t, sessionA, "claude", 15*time.Second)
 	assertAgentSessionsStayLive(t, opts, 8*time.Second)
 }

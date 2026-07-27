@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 func createWorkspaceFromDashboard(t *testing.T, session *PTYSession, name string) {
@@ -25,16 +26,27 @@ func createWorkspaceFromDashboard(t *testing.T, session *PTYSession, name string
 	}
 }
 
-func createWorkspaceAndOpenAgentPicker(t *testing.T, session *PTYSession, name string, timeout time.Duration) {
+// createWorkspaceWithAgent drives the dashboard create flow and picks the first
+// assistant. Creation activates the new workspace and launches that assistant,
+// so this returns with the agent tab already live — the caller does not have to
+// click into the workspace and pick the same agent a second time.
+//
+// It returns only once that agent's tmux session exists. The screen shows the
+// workspace name while creation is still running (the dashboard renders a
+// creating placeholder row), so waiting on text alone would hand back control
+// before the workspace is active — and a leader sequence sent then lands with
+// no active workspace and is answered with "select a workspace" instead of the
+// agent picker.
+func createWorkspaceWithAgent(t *testing.T, session *PTYSession, name string, opts tmux.Options, timeout time.Duration) {
 	t.Helper()
 	createWorkspaceFromDashboard(t, session, name)
 	waitForUIContains(t, session, "New Agent", timeout)
 	selectAgentFromPicker(t, session, 0)
+	if err := session.WaitForAbsent("New Agent", timeout); err != nil {
+		t.Fatalf("wait for agent picker to close: %v", err)
+	}
 	waitForUIContains(t, session, name, timeout)
-	selectWorkspaceRow(t, session, name, timeout)
-	waitForUIContains(t, session, "[New agent]", timeout)
-	clickVisibleLabel(t, session, "[New agent]", "New Agent", timeout)
-	waitForUIContains(t, session, "New Agent", timeout)
+	waitForAgentSessions(t, opts, timeout)
 }
 
 func createSidebarTerminalTab(t *testing.T, session *PTYSession) {
@@ -111,31 +123,4 @@ func workspaceRowY(t *testing.T, session *PTYSession, workspaceName string, time
 	}
 	t.Fatalf("timeout waiting for workspace row %q\n\nScreen:\n%s", workspaceName, lastScreen)
 	return 0
-}
-
-func clickVisibleLabel(t *testing.T, session *PTYSession, label, opened string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	var lastScreen string
-	for time.Now().Before(deadline) {
-		lastScreen = session.ScreenASCII()
-		for y, line := range strings.Split(lastScreen, "\n") {
-			if x := strings.Index(line, label); x >= 0 {
-				candidates := []int{y}
-				if y > 0 {
-					candidates = append(candidates, y-1)
-				}
-				for _, candidateY := range candidates {
-					if err := session.SendString(leftClickInput(x+1, candidateY)); err != nil {
-						t.Fatalf("click label %q: %v", label, err)
-					}
-					if session.WaitForContains(opened, 2*time.Second) == nil {
-						return
-					}
-				}
-			}
-		}
-		time.Sleep(screenPollInterval)
-	}
-	t.Fatalf("timeout clicking label %q to open %q\n\nScreen:\n%s", label, opened, lastScreen)
 }

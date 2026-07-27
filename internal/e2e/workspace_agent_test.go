@@ -35,12 +35,10 @@ func TestWorkspaceCreateAgentTabStaysRunning(t *testing.T) {
 
 	waitForUIContains(t, session, filepath.Base(repo), workspaceAgentTimeout)
 
-	createWorkspaceAndOpenAgentPicker(t, session, "feature", workspaceAgentTimeout)
-	selectAgentFromPicker(t, session, 0)
+	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
+	createWorkspaceWithAgent(t, session, "feature", opts, workspaceAgentTimeout)
 	waitForUIContains(t, session, "claude", workspaceAgentTimeout)
 
-	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
-	waitForAgentSessions(t, opts, workspaceAgentTimeout)
 	assertAgentSessionsStayLive(t, opts, 8*time.Second)
 	assertScreenNeverContains(t, session, []string{"STOPPED", "DETACHED"}, 5*time.Second)
 }
@@ -76,12 +74,9 @@ func TestWorkspaceDeleteTearsDownAgent(t *testing.T) {
 
 	waitForUIContains(t, session, filepath.Base(repo), workspaceAgentTimeout)
 
-	createWorkspaceAndOpenAgentPicker(t, session, "feature", workspaceAgentTimeout)
-	selectAgentFromPicker(t, session, 0)
-	waitForUIContains(t, session, "claude", workspaceAgentTimeout)
-
 	opts := tmux.Options{ServerName: server, ConfigPath: "/dev/null"}
-	waitForAgentSessions(t, opts, workspaceAgentTimeout)
+	createWorkspaceWithAgent(t, session, "feature", opts, workspaceAgentTimeout)
+	waitForUIContains(t, session, "claude", workspaceAgentTimeout)
 
 	// Delete the workspace through the real UI while the agent is live.
 	deleteSelectedWorkspace(t, session, "feature", workspaceAgentTimeout)

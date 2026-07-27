@@ -51,6 +51,32 @@ func (m *Model) workspaceRowIndex(wsID string) int {
 	return -1
 }
 
+// SelectWorkspace moves the cursor onto the workspace row with the given ID. A
+// workspace that has no row yet (its projects reload is still in flight, as is
+// the case right after creation) is remembered and selected by the next
+// rebuild instead of being dropped.
+func (m *Model) SelectWorkspace(wsID string) {
+	if wsID == "" {
+		return
+	}
+	m.pendingSelectID = wsID
+	m.applyPendingSelection()
+}
+
+// applyPendingSelection lands the cursor on the pending workspace once its row
+// exists. It is a no-op while that row is still missing.
+func (m *Model) applyPendingSelection() {
+	if m.pendingSelectID == "" {
+		return
+	}
+	idx := m.workspaceRowIndex(m.pendingSelectID)
+	if idx == -1 {
+		return
+	}
+	m.cursor = idx
+	m.pendingSelectID = ""
+}
+
 // resolveCursorAfterRebuild re-anchors the cursor to the workspace selected
 // before the rebuild. If that workspace is gone (deleted), it falls back to the
 // nearest selectable row at or ABOVE the previous index — the predecessor — so

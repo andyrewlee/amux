@@ -1,0 +1,229 @@
+package app
+
+import (
+	"testing"
+
+	"github.com/andyrewlee/amux/internal/config"
+	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/dashboard"
+	"github.com/andyrewlee/amux/internal/ui/layout"
+	"github.com/andyrewlee/amux/internal/ui/sidebar"
+)
+
+// A workspace created from the dialog already carries the assistant the user
+// picked, so creation must activate that workspace and arm its assistant rather
+// than dropping the user back on the dashboard to pick the same agent again.
+func TestHandleWorkspaceCreatedActivatesAndArmsAssistant(t *testing.T) {
+	project := data.NewProject("/repo")
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	ws.Assistant = "claude"
+
+	app := &App{
+		lifecycle: newWorkspaceLifecycleState(),
+		dashboard: dashboard.New(),
+	}
+	app.projects = []data.Project{*project}
+
+	cmds := app.handleWorkspaceCreated(messages.WorkspaceCreated{Workspace: ws})
+
+	var activated *messages.WorkspaceActivated
+	for _, cmd := range cmds {
+		if cmd == nil {
+			continue
+		}
+		if msg, ok := cmd().(messages.WorkspaceActivated); ok {
+			activated = &msg
+		}
+	}
+	if activated == nil {
+		t.Fatal("expected the created workspace to be activated")
+	}
+	if activated.Workspace != ws {
+		t.Fatalf("expected activation of the created workspace, got %v", activated.Workspace)
+	}
+	if activated.Project == nil || activated.Project.Path != "/repo" {
+		t.Fatalf("expected activation to carry the owning project, got %v", activated.Project)
+	}
+	if app.pendingLaunchWorkspaceID != string(ws.ID()) {
+		t.Fatalf("expected assistant armed for %s, got %q", ws.ID(), app.pendingLaunchWorkspaceID)
+	}
+	if app.pendingLaunchAssistant != "claude" {
+		t.Fatalf("expected armed assistant claude, got %q", app.pendingLaunchAssistant)
+	}
+}
+
+// Activating the workspace the assistant was armed for consumes the arming so
+// the agent is launched exactly once.
+func TestHandleWorkspaceActivatedConsumesArmedAssistant(t *testing.T) {
+	project := data.NewProject("/repo")
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	project.Workspaces = append(project.Workspaces, *ws)
+
+	layoutManager := layout.NewManager()
+	layoutManager.Resize(140, 40)
+
+	app := &App{
+		layout:                   layoutManager,
+		dashboard:                dashboard.New(),
+		center:                   center.New(nil),
+		sidebar:                  sidebar.NewTabbedSidebar(),
+		sidebarTerminal:          sidebar.NewTerminalModel(),
+		pendingLaunchWorkspaceID: string(ws.ID()),
+		pendingLaunchAssistant:   "claude",
+	}
+
+	app.handleWorkspaceActivated(messages.WorkspaceActivated{Project: project, Workspace: ws})
+
+	if app.pendingLaunchWorkspaceID != "" || app.pendingLaunchAssistant != "" {
+		t.Fatalf("expected armed assistant to be consumed, got %q/%q",
+			app.pendingLaunchWorkspaceID, app.pendingLaunchAssistant)
+	}
+}
+
+// Activating some other workspace while a creation is in flight must leave the
+// arming alone: the agent belongs to the workspace that was created.
+func TestLaunchPendingAgentIgnoresOtherWorkspaces(t *testing.T) {
+	created := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	other := data.NewWorkspace("other", "other", "main", "/repo", "/repo/other")
+
+	app := &App{
+		pendingLaunchWorkspaceID: string(created.ID()),
+		pendingLaunchAssistant:   "claude",
+	}
+
+	if cmd := app.launchPendingAgent(other); cmd != nil {
+		t.Fatal("expected no launch for an unrelated workspace")
+	}
+	if app.pendingLaunchWorkspaceID != string(created.ID()) {
+		t.Fatalf("expected arming to survive, got %q", app.pendingLaunchWorkspaceID)
+	}
+}
+
+// hasPendingAgentLaunch gates the activation-time tmux agent discovery, which
+// would otherwise race the launch and adopt its session into a second tab. It
+// must be true only for the workspace whose launch is still armed.
+func TestHasPendingAgentLaunchMatchesOnlyTheArmedWorkspace(t *testing.T) {
+	created := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	other := data.NewWorkspace("other", "other", "main", "/repo", "/repo/other")
+
+	app := &App{
+		pendingLaunchWorkspaceID: string(created.ID()),
+		pendingLaunchAssistant:   "claude",
+	}
+
+	if !app.hasPendingAgentLaunch(created) {
+		t.Fatal("expected the armed workspace to skip agent discovery")
+	}
+	if app.hasPendingAgentLaunch(other) {
+		t.Fatal("expected an unrelated workspace to still discover agent tabs")
+	}
+	if app.hasPendingAgentLaunch(nil) {
+		t.Fatal("expected no match for a nil workspace")
+	}
+
+	app.pendingLaunchWorkspaceID = ""
+	if app.hasPendingAgentLaunch(created) {
+		t.Fatal("expected discovery to resume once the launch is consumed")
+	}
+}
+
+// An unknown assistant (a stale value on the workspace record) must not arm a
+// launch; creation still activates the workspace.
+func TestActivateCreatedWorkspaceSkipsUnknownAssistant(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	ws.Assistant = "not-an-agent"
+
+	app := &App{
+		dashboard: dashboard.New(),
+		config: &config.Config{
+			Assistants: map[string]config.AssistantConfig{"claude": {Command: "claude"}},
+		},
+	}
+	app.projects = []data.Project{*data.NewProject("/repo")}
+
+	if cmd := app.activateCreatedWorkspace(ws); cmd == nil {
+		t.Fatal("expected the workspace to be activated anyway")
+	}
+	if app.pendingLaunchWorkspaceID != "" || app.pendingLaunchAssistant != "" {
+		t.Fatalf("expected no arming for an unknown assistant, got %q/%q",
+			app.pendingLaunchWorkspaceID, app.pendingLaunchAssistant)
+	}
+}
+
+// Agent tabs need tmux. Without it the explicit new-agent paths report an
+// install hint, so an auto-launch must not fire and fail on its own.
+func TestActivateCreatedWorkspaceSkipsLaunchWithoutTmux(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	ws.Assistant = "claude"
+
+	app := &App{dashboard: dashboard.New(), tmuxCheckDone: true, tmuxAvailable: false}
+	app.projects = []data.Project{*data.NewProject("/repo")}
+
+	if cmd := app.activateCreatedWorkspace(ws); cmd == nil {
+		t.Fatal("expected the workspace to be activated even without tmux")
+	}
+	if app.pendingLaunchWorkspaceID != "" || app.pendingLaunchAssistant != "" {
+		t.Fatalf("expected no arming without tmux, got %q/%q",
+			app.pendingLaunchWorkspaceID, app.pendingLaunchAssistant)
+	}
+}
+
+// A workspace whose project is not loaded must not be activated: that would
+// leave activeWorkspace set with a nil activeProject, disabling the
+// workspace-scoped commands.
+func TestActivateCreatedWorkspaceSkipsUnknownProject(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/gone", "/gone/feature")
+	ws.Assistant = "claude"
+
+	app := &App{dashboard: dashboard.New()}
+
+	if cmd := app.activateCreatedWorkspace(ws); cmd != nil {
+		t.Fatal("expected no activation for a workspace with no loaded project")
+	}
+	if app.pendingLaunchWorkspaceID != "" || app.pendingLaunchAssistant != "" {
+		t.Fatalf("expected no arming without an activation, got %q/%q",
+			app.pendingLaunchWorkspaceID, app.pendingLaunchAssistant)
+	}
+}
+
+// A layout too narrow to render the center pane must not take keyboard focus
+// when a tab is created: the auto-launch now creates a tab on every workspace
+// creation, and focusing a hidden pane would send keystrokes to an agent the
+// user cannot see.
+func TestHandleTabCreatedKeepsFocusWhenCenterHidden(t *testing.T) {
+	narrow := layout.NewManager()
+	narrow.Resize(60, 30)
+	if narrow.ShowCenter() {
+		t.Fatal("expected a 60-column layout to hide the center pane")
+	}
+
+	app := &App{layout: narrow, center: center.New(nil), dashboard: dashboard.New()}
+	app.setFocusedPane(messages.PaneDashboard)
+
+	app.handleTabCreated(messages.TabCreated{Name: "claude"})
+
+	if app.focusedPane != messages.PaneDashboard {
+		t.Fatalf("expected focus to stay on the dashboard, got %v", app.focusedPane)
+	}
+}
+
+// The same tab creation in a layout that does render the center pane still
+// focuses it, so the user lands in the agent they just started.
+func TestHandleTabCreatedFocusesVisibleCenter(t *testing.T) {
+	wide := layout.NewManager()
+	wide.Resize(140, 40)
+	if !wide.ShowCenter() {
+		t.Fatal("expected a 140-column layout to show the center pane")
+	}
+
+	app := &App{layout: wide, center: center.New(nil), dashboard: dashboard.New()}
+	app.setFocusedPane(messages.PaneDashboard)
+
+	app.handleTabCreated(messages.TabCreated{Name: "claude"})
+
+	if app.focusedPane != messages.PaneCenter {
+		t.Fatalf("expected focus to move to the center pane, got %v", app.focusedPane)
+	}
+}

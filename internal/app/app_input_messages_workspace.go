@@ -315,8 +315,10 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	}
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	// Discover shared tmux tabs first; restore/sync happens below.
-	if discoverCmd := a.discoverWorkspaceTabsFromTmux(msg.Workspace); discoverCmd != nil {
-		cmds = append(cmds, discoverCmd)
+	if !a.hasPendingAgentLaunch(msg.Workspace) {
+		if discoverCmd := a.discoverWorkspaceTabsFromTmux(msg.Workspace); discoverCmd != nil {
+			cmds = append(cmds, discoverCmd)
+		}
 	}
 	if discoverTermCmd := a.discoverSidebarTerminalsFromTmux(msg.Workspace); discoverTermCmd != nil {
 		cmds = append(cmds, discoverTermCmd)
@@ -404,6 +406,12 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	// terminals are exempt, so a workspace that grew over the limit while
 	// active becomes evictable only once the user switches away.
 	a.enforceAttachedTerminalTabLimit()
+	// Start the assistant picked during creation, now that this workspace owns
+	// the center pane. The tab this creates re-runs the limit checks above via
+	// TabCreated, so it is enforced against the new tab too.
+	if cmd := a.launchPendingAgent(msg.Workspace); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	return cmds
 }
 

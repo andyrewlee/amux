@@ -86,6 +86,11 @@ type Model struct {
 	toolbarFocused  bool            // Whether toolbar actions are focused
 	toolbarIndex    int             // Focused toolbar action index
 	deleteIconX     int             // X position of delete "x" icon for currently selected row
+	// pendingSelectID holds a workspace ID the cursor should land on as soon as
+	// that workspace has a row. A just-created workspace is activated before the
+	// projects reload carrying it arrives, so the selection has to wait for the
+	// rebuild rather than being dropped.
+	pendingSelectID string
 
 	// Loading state
 	creatingWorkspaces map[string]*data.Workspace // Workspaces currently being created
@@ -223,6 +228,7 @@ func (m *Model) SetProjects(projects []data.Project) {
 	m.projects = projects
 	m.rebuildRows()
 	m.resolveCursorAfterRebuild(prevCursor, selectedID)
+	m.applyPendingSelection()
 	if m.cursor == prevCursor {
 		m.scrollOffset = prevOffset
 		m.clampScrollOffset()

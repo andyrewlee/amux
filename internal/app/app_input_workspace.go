@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -103,9 +104,95 @@ func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 		cmds = append(cmds, a.runSetupAsync(msg.Workspace))
+		// Open the new workspace immediately and arm the assistant the user
+		// already picked in the create flow, so creation ends in a live agent
+		// tab instead of a dashboard row they must click into and re-pick.
+		if cmd := a.activateCreatedWorkspace(msg.Workspace); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	cmds = append(cmds, a.loadProjectsAfterCreate(msg.Workspace))
 	return cmds
+}
+
+// activateCreatedWorkspace returns a command activating a freshly created
+// workspace. The assistant recorded on the workspace is armed for launch and
+// fires from handleWorkspaceActivated, after the activation has switched the
+// center pane over, so the agent tab is created against the right workspace.
+func (a *App) activateCreatedWorkspace(ws *data.Workspace) tea.Cmd {
+	if ws == nil {
+		return nil
+	}
+	// Activating with an unresolvable project would leave activeWorkspace set
+	// and activeProject nil, which disables the workspace-scoped commands. Stay
+	// put instead and let the projects reload settle selection.
+	project := a.findProjectByPath(ws.Repo)
+	if project == nil {
+		logging.Warn("created workspace %s has no loaded project for %s; skipping activation", ws.ID(), ws.Repo)
+		return nil
+	}
+	if assistant := strings.TrimSpace(ws.Assistant); a.canAutoLaunchAssistant(assistant) {
+		a.pendingLaunchWorkspaceID = string(ws.ID())
+		a.pendingLaunchAssistant = assistant
+	}
+	// The projects reload carrying this workspace is still in flight, so the
+	// dashboard holds the selection until its row appears.
+	if a.dashboard != nil {
+		a.dashboard.SelectWorkspace(string(ws.ID()))
+	}
+	return func() tea.Msg {
+		return messages.WorkspaceActivated{Project: project, Workspace: ws}
+	}
+}
+
+// canAutoLaunchAssistant reports whether the assistant recorded on a new
+// workspace can be started for the user. Agent tabs need tmux, so a host
+// without it is left alone: the explicit new-agent paths report that with an
+// install hint rather than failing silently from an auto-launch. An unfinished
+// tmux check is treated as available — it settles during startup, long before
+// a workspace can be created, and assuming otherwise would skip the launch.
+func (a *App) canAutoLaunchAssistant(assistant string) bool {
+	if assistant == "" || !a.isKnownAssistant(assistant) {
+		return false
+	}
+	return a.tmuxAvailable || !a.tmuxCheckDone
+}
+
+// hasPendingAgentLaunch reports whether ws is a workspace created moments ago
+// whose assistant is about to be launched, which activation uses to skip the
+// tmux agent discovery it would otherwise queue in the same batch as the
+// launch. Both run concurrently, so a delayed scan could list the session the
+// launch just created and, finding no tab registered for it yet, adopt it into
+// a second tab bound to the same session. A workspace created this instant owns
+// no sessions this process did not just start, so the scan has nothing to find.
+//
+// This covers only that same-batch scan. The periodic sync tick
+// (handleTmuxSyncTick) runs the same discovery against the active workspace and
+// can still land inside the window between session creation and tab
+// registration — a pre-existing race shared with the manual new-agent flow,
+// since the arming is already consumed by the time that window opens. Closing
+// it needs the center to dedupe against in-flight session names.
+func (a *App) hasPendingAgentLaunch(ws *data.Workspace) bool {
+	if ws == nil || a.pendingLaunchWorkspaceID == "" {
+		return false
+	}
+	return string(ws.ID()) == a.pendingLaunchWorkspaceID
+}
+
+// launchPendingAgent starts the assistant armed by activateCreatedWorkspace
+// when ws is the workspace it was armed for. The arming is single-shot: it is
+// cleared whether or not a launch command is produced.
+func (a *App) launchPendingAgent(ws *data.Workspace) tea.Cmd {
+	if !a.hasPendingAgentLaunch(ws) {
+		return nil
+	}
+	assistant := a.pendingLaunchAssistant
+	a.pendingLaunchWorkspaceID = ""
+	a.pendingLaunchAssistant = ""
+	if assistant == "" || a.center == nil {
+		return nil
+	}
+	return a.handleLaunchAgent(messages.LaunchAgent{Assistant: assistant, Workspace: ws})
 }
 
 // handleWorkspaceSetupComplete handles the WorkspaceSetupComplete message.

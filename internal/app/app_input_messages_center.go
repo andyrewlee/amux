@@ -27,6 +27,13 @@ func (a *App) handleLaunchAgent(msg messages.LaunchAgent) tea.Cmd {
 func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 	logging.Info("Tab created: %s", msg.Name)
 	cmd := a.center.StartPTYReaders()
+	// A layout too narrow for the center pane does not render it, so moving
+	// keyboard focus there would type into a tab the user cannot see. The tab
+	// still runs; it takes focus once the center is visible again. This mirrors
+	// the visibility checks in workspace activation and pane navigation.
+	if a.layout != nil && !a.layout.ShowCenter() {
+		return cmd
+	}
 	if a.center != nil && a.center.HasDiffViewer() {
 		a.setFocusedPane(messages.PaneCenter)
 		return cmd
