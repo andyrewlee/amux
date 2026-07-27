@@ -27,7 +27,7 @@ bytes (`tabEventWriteOutput` is never shed — see the invariants in
 
 A flush can land mid-repaint: the parser may have consumed a `2J` clear but
 not yet the repaint that follows, and rendering that state shows a torn or
-blank frame. Two mechanisms prevent that:
+blank frame. Three mechanisms prevent that:
 
 1. The session bootstrap (`internal/tmux/command.go`) advertises the `sync`
    terminal feature for amux's client TERM before attaching, so tmux wraps
@@ -35,6 +35,24 @@ blank frame. Two mechanisms prevent that:
 2. `internal/vterm` freezes `RenderBuffers()` at the sync-begin snapshot until
    sync-end. Bytes parsed inside the window mutate the live buffers (and mark
    lines dirty) but are never rendered mid-frame.
+3. `ptyio`'s flush policy ends flushes on region boundaries
+   (`scanSyncFrames`): a chunk stops at the last completed region, and when
+   nothing has completed the flush waits rather than writing an opening marker
+   with no body.
+
+(3) is what makes (2) work, and it is not optional. tmux writes the client
+socket in ≤1KB chunks, so a redraw larger than that spans several reads —
+measured on a streaming pane, 53% of reads end inside an open region, and
+without (3) 43% of flushes hand the vterm half a frame. The freeze in (2) then
+holds the *previous* frame, so the pane shows stale content and reports every
+line dirty (a full repaint) until the next flush closes the region. With (3)
+that drops to ~1% of flushes, at the same flush rate.
+
+A writer that brackets its frames also makes the flush quiet period redundant
+for that frame — the debounce exists to guess where a frame ends — so a
+completed frame flushes immediately instead of waiting the quiet period out.
+The reader's frame-interval coalescing upstream still caps how often that can
+happen, so this lowers latency without raising the flush rate.
 
 Sync-end deliberately does **not** invalidate the render cache: dirty marks
 accumulated during the window are preserved because frozen renders skip

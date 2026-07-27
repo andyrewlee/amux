@@ -331,4 +331,140 @@ func TestFlushDelay(t *testing.T) {
 			t.Fatalf("delay = %v, want %v", delay, want)
 		}
 	})
+
+	// A quiet buffer holding only the opening half of a DEC 2026 frame must not
+	// be flushed: writing a lone sync-begin freezes the vterm on the stale frame
+	// and marks every line dirty until the region closes.
+	t.Run("holds a buffer that is only the opening half of a sync frame", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base,
+			FlushPendingSince: base,
+			PendingOutput:     []byte("\x1b[?2026h"),
+		}
+		now := base.Add(quiet) // quiet period fully elapsed
+		delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval)
+		if !shouldDefer {
+			t.Fatalf("defer = false, want true while the frame is still incomplete")
+		}
+		if delay != syncHoldRetry {
+			t.Fatalf("delay = %v, want %v (sync hold retry)", delay, syncHoldRetry)
+		}
+	})
+
+	// A bracketed frame states its own end, so it does not wait out the quiet
+	// period that exists to guess where unbracketed output stops.
+	t.Run("a completed frame flushes without waiting out the quiet period", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base,
+			FlushPendingSince: base,
+			PendingOutput:     []byte("\x1b[?2026hframe\x1b[?2026l"),
+		}
+		now := base.Add(time.Millisecond) // well inside the quiet period
+		if delay, shouldDefer := st.FlushDelay(now, PtyFlushQuiet, maxInterval); shouldDefer {
+			t.Fatalf("defer = true (delay %v), want false for a completed frame", delay)
+		}
+	})
+
+	t.Run("output without frame markers still waits out the quiet period", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base,
+			FlushPendingSince: base,
+			PendingOutput:     []byte("plain streaming output"),
+		}
+		now := base.Add(time.Millisecond)
+		if _, shouldDefer := st.FlushDelay(now, PtyFlushQuiet, maxInterval); !shouldDefer {
+			t.Fatal("defer = false, want true — unbracketed output still needs the debounce")
+		}
+	})
+
+	// A raised quiet period is how the panes throttle: alt-screen timing,
+	// backpressure, and the inactive-tab multipliers all slow the cadence that
+	// way. tmux brackets every redraw, so an early flush that ignored them would
+	// fire on nearly every flush and undo the throttle.
+	t.Run("a completed frame still waits when the caller slowed the cadence", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base,
+			FlushPendingSince: base,
+			PendingOutput:     []byte("\x1b[?2026hframe\x1b[?2026l"),
+		}
+		throttled := PtyFlushQuiet * 4 // e.g. an inactive tab
+		now := base.Add(time.Millisecond)
+		if _, shouldDefer := st.FlushDelay(now, throttled, maxInterval); !shouldDefer {
+			t.Fatal("defer = false, want true — a throttled cadence must still be honored")
+		}
+	})
+
+	// The early flush must not fire for a frame that has not finished, or it
+	// would defeat the partial-frame hold entirely.
+	t.Run("a partial frame does not trigger the early flush", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base,
+			FlushPendingSince: base,
+			PendingOutput:     []byte("\x1b[?2026h\x1b[2Khalf"),
+		}
+		now := base.Add(time.Millisecond)
+		if _, shouldDefer := st.FlushDelay(now, PtyFlushQuiet, maxInterval); !shouldDefer {
+			t.Fatal("defer = false, want true while the frame is incomplete")
+		}
+	})
+
+	t.Run("flushes once the sync region closes", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base,
+			FlushPendingSince: base,
+			PendingOutput:     []byte("\x1b[?2026hframe\x1b[?2026l"),
+		}
+		now := base.Add(quiet)
+		if delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval); shouldDefer {
+			t.Fatalf("defer = true (delay %v), want false for a complete sync frame", delay)
+		}
+	})
+
+	// A completed frame ahead of a freshly opened one must not wait: the take
+	// path splits at the boundary, so the gate has to let it through.
+	t.Run("does not hold when a completed frame is buffered ahead of a partial one", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base,
+			FlushPendingSince: base,
+			PendingOutput:     []byte("\x1b[?2026hone\x1b[?2026l\x1b[?2026h"),
+		}
+		now := base.Add(quiet)
+		if delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval); shouldDefer {
+			t.Fatalf("defer = true (delay %v), want false when a complete frame is ready", delay)
+		}
+	})
+
+	t.Run("flushes a partial frame once pendingFor exceeds maxInterval", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:      base.Add(maxInterval), // output still arriving
+			FlushPendingSince: base,
+			PendingOutput:     []byte("\x1b[?2026h"),
+		}
+		now := base.Add(maxInterval + time.Millisecond)
+		if delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval); shouldDefer {
+			t.Fatalf("defer = true (delay %v), want false once pendingFor bounds the hold", delay)
+		}
+	})
+
+	// The pendingFor ceiling alone cannot bound the hold: FlushPendingSince is
+	// zero until a caller sets it, which would otherwise hold forever.
+	t.Run("flushes a partial frame once quietFor exceeds maxInterval", func(t *testing.T) {
+		st := &State{
+			LastOutputAt:  base,
+			PendingOutput: []byte("\x1b[?2026h"),
+			// FlushPendingSince left zero -> pendingFor stays 0
+		}
+		now := base.Add(maxInterval + time.Millisecond)
+		if delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval); shouldDefer {
+			t.Fatalf("defer = true (delay %v), want false once the writer went quiet mid-frame", delay)
+		}
+	})
+
+	t.Run("empty buffer never holds for a partial frame", func(t *testing.T) {
+		st := &State{LastOutputAt: base, FlushPendingSince: base}
+		now := base.Add(quiet)
+		if delay, shouldDefer := st.FlushDelay(now, quiet, maxInterval); shouldDefer {
+			t.Fatalf("defer = true (delay %v), want false for an empty buffer", delay)
+		}
+	})
 }

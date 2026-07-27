@@ -25,8 +25,12 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	tab.mu.Unlock()
 
 	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs).
-	// SyncActive (DEC 2026) already handles partial updates via screen snapshots,
-	// so we don't need slower flush timing - it just makes streaming text feel laggy.
+	// A DEC 2026 writer does not need slower flush timing — that just makes
+	// streaming text feel laggy — because the flush policy keeps its frames
+	// whole by ending flushes on region boundaries (see scanSyncFrames in
+	// internal/ui/ptyio). Note the vterm's sync snapshot alone does not: it
+	// freezes on the *previous* frame, so a flush that opens a region without
+	// its body shows stale content until the next one.
 	if altScreen {
 		quiet = ptyFlushQuietAlt
 		maxInterval = ptyFlushMaxAlt
