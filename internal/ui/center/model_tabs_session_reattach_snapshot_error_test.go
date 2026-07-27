@@ -3,7 +3,6 @@ package center
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
@@ -11,67 +10,27 @@ import (
 )
 
 func TestReattachActiveTab_SnapshotCommandErrorFallsBackToHistoryOnly(t *testing.T) {
-	oldSessionStateForFn := sessionStateForFn
-	oldSessionHasClientsFn := sessionHasClientsFn
-	oldSessionActiveWithinFn := sessionActiveWithinFn
-	oldSessionCreatedAtFn := sessionCreatedAtFn
-	oldSessionPaneIDFn := sessionPaneIDFn
-	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	oldResizePaneToSizeFn := resizePaneToSizeFn
-	oldCapturePaneSnapshotFn := capturePaneSnapshotFn
-	oldCapturePaneFn := capturePaneFn
-	oldCreateAgentWithTagsFn := createAgentWithTagsFn
-	defer func() {
-		sessionStateForFn = oldSessionStateForFn
-		sessionHasClientsFn = oldSessionHasClientsFn
-		sessionActiveWithinFn = oldSessionActiveWithinFn
-		sessionCreatedAtFn = oldSessionCreatedAtFn
-		sessionPaneIDFn = oldSessionPaneIDFn
-		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
-		sessionPaneSizeFn = oldSessionPaneSizeFn
-		resizePaneToSizeFn = oldResizePaneToSizeFn
-		capturePaneSnapshotFn = oldCapturePaneSnapshotFn
-		capturePaneFn = oldCapturePaneFn
-		createAgentWithTagsFn = oldCreateAgentWithTagsFn
-	}()
+	var calls []string
+	restoreReattachSeams(t)
 
-	calls := make([]string, 0, 6)
 	sessionStateForFn = func(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
 		calls = append(calls, "state")
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
-	sessionHasClientsFn = func(sessionName string, opts tmux.Options) (bool, error) {
-		calls = append(calls, "clients")
-		return false, nil
-	}
-	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-		calls = append(calls, "activity")
-		return false, nil
-	}
-	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
-		return 123, nil
-	}
-	sessionPaneIDFn = func(sessionName string, opts tmux.Options) (string, error) {
-		return "%1", nil
-	}
-	sessionPaneSnapshotInfoFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "info")
-		return 91, 27, true, nil
-	}
-	sessionPaneSizeFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "size")
-		return 123, 45, true, nil
-	}
-	resizePaneToSizeFn = func(sessionName string, cols, rows int, opts tmux.Options) error {
+	probeSeq(&calls, eligibleReattachProbe())
+	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		calls = append(calls, "resize")
 		return nil
 	}
-	capturePaneSnapshotFn = func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
+	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		calls = append(calls, "snapshot")
-		return tmux.PaneSnapshot{}, errors.New("snapshot command failed")
+		return nil, errors.New("snapshot command failed")
 	}
-	capturePaneFn = func(sessionName string, opts tmux.Options) ([]byte, error) {
+	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+		calls = append(calls, "scrollback")
+		return []byte("history"), nil
+	}
+	capturePaneFn = func(string, tmux.Options) ([]byte, error) {
 		calls = append(calls, "scrollback")
 		return []byte("history"), nil
 	}
@@ -116,5 +75,7 @@ func TestReattachActiveTab_SnapshotCommandErrorFallsBackToHistoryOnly(t *testing
 	if result.Cols != 123 || result.Rows != 45 {
 		t.Fatalf("expected history-only capture size 123x45, got %dx%d", result.Cols, result.Rows)
 	}
-	assertCallOrder(t, calls, "state", "clients", "activity", "info", "resize", "snapshot", "resize", "attach", "size", "scrollback")
+	// The second resize is the rollback: a failed capture must not leave the pane
+	// at the size the aborted bootstrap set.
+	assertCallOrder(t, calls, "state", "probe", "resize", "snapshot", "resize", "attach", "scrollback")
 }

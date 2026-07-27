@@ -3,103 +3,137 @@ package sidebar
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-func TestCreateTerminalTab_CapturesReusedSessionBeforeAttachAfterResize(t *testing.T) {
-	oldEnsureTmuxAvailableFn := ensureTmuxAvailableFn
-	oldSessionStateForFn := sessionStateForFn
-	oldSessionHasClientsFn := sessionHasClientsFn
-	oldSessionClientCountFn := sessionClientCountFn
-	oldSessionActiveWithinFn := sessionActiveWithinFn
-	oldSessionLatestActivityFn := sessionLatestActivityFn
-	oldSessionCreatedAtFn := sessionCreatedAtFn
-	oldSessionPaneIDFn := sessionPaneIDFn
-	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	oldNewPTYWithSizeFn := newPTYWithSizeFn
-	oldResizePaneToSizeFn := resizePaneToSizeFn
-	oldCapturePaneSnapshotFn := capturePaneSnapshotFn
-	oldCapturePaneFn := capturePaneFn
-	oldVerifyTerminalSessionTagsFn := verifyTerminalSessionTagsFn
-	defer func() {
-		ensureTmuxAvailableFn = oldEnsureTmuxAvailableFn
-		sessionStateForFn = oldSessionStateForFn
-		sessionHasClientsFn = oldSessionHasClientsFn
-		sessionClientCountFn = oldSessionClientCountFn
-		sessionActiveWithinFn = oldSessionActiveWithinFn
-		sessionLatestActivityFn = oldSessionLatestActivityFn
-		sessionCreatedAtFn = oldSessionCreatedAtFn
-		sessionPaneIDFn = oldSessionPaneIDFn
-		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
-		sessionPaneSizeFn = oldSessionPaneSizeFn
-		newPTYWithSizeFn = oldNewPTYWithSizeFn
-		resizePaneToSizeFn = oldResizePaneToSizeFn
-		capturePaneSnapshotFn = oldCapturePaneSnapshotFn
-		capturePaneFn = oldCapturePaneFn
-		verifyTerminalSessionTagsFn = oldVerifyTerminalSessionTagsFn
-	}()
+// installSidebarSnapshotSeams wires an eligible session: the pre-attach resize
+// and full-pane capture both succeed, and the post-attach probe reports the
+// single attaching client so the snapshot survives validation. Resize and attach
+// calls record their dimensions so a test can pin what size each ran at.
+func installSidebarSnapshotSeams(t *testing.T, calls *[]string, snapshotData string) {
+	t.Helper()
+	restoreAttachSeams(t)
 
-	calls := make([]string, 0, 4)
-	ensureTmuxAvailableFn = func() error {
-		return nil
+	attached := eligibleAttachProbe()
+	attached.ClientCount = 1
+	// The pane ends up at the size the bootstrap resized it to, which is what the
+	// snapshot metadata must report.
+	sized := func(p tmux.SessionProbe) tmux.SessionProbe {
+		p.PaneCols, p.PaneRows = 77, 19
+		p.PaneMeta.Cols, p.PaneMeta.Rows = 77, 19
+		return p
 	}
+
+	ensureTmuxAvailableFn = func() error { return nil }
 	sessionStateForFn = func(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
-		calls = append(calls, "state")
+		*calls = append(*calls, "state")
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
-	sessionHasClientsFn = func(sessionName string, opts tmux.Options) (bool, error) {
-		calls = append(calls, "clients")
-		return false, nil
-	}
-	sessionClientCountFn = func(sessionName string, opts tmux.Options) (int, error) {
-		return 1, nil
-	}
-	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-		calls = append(calls, "activity")
-		return false, nil
-	}
-	sessionLatestActivityFn = func(sessionName string, opts tmux.Options) (time.Time, bool, error) {
-		return time.Time{}, false, nil
-	}
-	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
-		return 123, nil
-	}
-	sessionPaneIDFn = func(sessionName string, opts tmux.Options) (string, error) {
-		return "%1", nil
-	}
-	sessionPaneSnapshotInfoFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "info")
-		return 91, 27, true, nil
-	}
-	sessionPaneSizeFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "size")
-		return 77, 19, true, nil
-	}
-	resizePaneToSizeFn = func(sessionName string, cols, rows int, opts tmux.Options) error {
-		calls = append(calls, fmt.Sprintf("resize:%dx%d", cols, rows))
+	probeSeq(calls,
+		eligibleAttachProbe(),
+		sized(eligibleAttachProbe()),
+		sized(eligibleAttachProbe()),
+		sized(attached),
+	)
+	resizePaneToSizeFn = func(_ string, cols, rows int, _ tmux.Options) error {
+		*calls = append(*calls, fmt.Sprintf("resize:%dx%d", cols, rows))
 		return nil
 	}
-	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
-		calls = append(calls, fmt.Sprintf("attach:%dx%d", cols, rows))
-		return &pty.Terminal{}, nil
+	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+		*calls = append(*calls, "snapshot")
+		return []byte(snapshotData), nil
 	}
-	capturePaneSnapshotFn = func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-		calls = append(calls, "snapshot")
-		return tmux.PaneSnapshot{Data: []byte("resized frame"), Cols: 77, Rows: 19}, nil
-	}
-	capturePaneFn = func(sessionName string, opts tmux.Options) ([]byte, error) {
-		calls = append(calls, "scrollback")
+	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+		*calls = append(*calls, "scrollback")
 		return []byte("fallback"), nil
 	}
+	capturePaneFn = func(string, tmux.Options) ([]byte, error) {
+		*calls = append(*calls, "scrollback")
+		return []byte("fallback"), nil
+	}
+	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
+		*calls = append(*calls, fmt.Sprintf("attach:%dx%d", cols, rows))
+		return &pty.Terminal{}, nil
+	}
 	verifyTerminalSessionTagsFn = func(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
-		calls = append(calls, "verify")
+		*calls = append(*calls, "verify")
 		return nil
 	}
+}
+
+// assertSidebarSnapshotOrder pins the ordering the pre-attach snapshot depends
+// on: probe, then resize to the client's size, then snapshot, then attach, then
+// exactly one reconciliation history capture.
+func assertSidebarSnapshotOrder(t *testing.T, calls []string, termWidth, termHeight int) {
+	t.Helper()
+	expectedAttach := fmt.Sprintf("attach:%dx%d", termWidth, termHeight)
+	expectedResize := fmt.Sprintf("resize:%dx%d", termWidth, termHeight)
+
+	probeIdx, resizeIdx, snapshotIdx, attachIdx := -1, -1, -1, -1
+	scrollbackIdx, verifyIdx := -1, -1
+	snapshotCount, scrollbackCount := 0, 0
+	for i, call := range calls {
+		switch call {
+		case "probe":
+			if probeIdx == -1 {
+				probeIdx = i
+			}
+		case expectedResize:
+			if resizeIdx == -1 {
+				resizeIdx = i
+			}
+		case "snapshot":
+			snapshotCount++
+			if snapshotIdx == -1 {
+				snapshotIdx = i
+			}
+		case expectedAttach:
+			attachIdx = i
+		case "scrollback":
+			scrollbackCount++
+			if scrollbackIdx == -1 {
+				scrollbackIdx = i
+			}
+		case "verify":
+			verifyIdx = i
+		}
+	}
+
+	if probeIdx == -1 {
+		t.Fatalf("expected a bootstrap probe before the resize, got %v", calls)
+	}
+	if resizeIdx == -1 {
+		t.Fatalf("expected resize call %q, got %v", expectedResize, calls)
+	}
+	if attachIdx == -1 {
+		t.Fatalf("expected attach call %q, got %v", expectedAttach, calls)
+	}
+	if snapshotCount != 1 {
+		t.Fatalf("expected a single resized snapshot capture, got %v", calls)
+	}
+	if probeIdx > resizeIdx || resizeIdx > snapshotIdx {
+		t.Fatalf("expected probe before resize and snapshot after resize, got call order %v", calls)
+	}
+	if snapshotIdx > attachIdx {
+		t.Fatalf("expected the snapshot before the live attach, got call order %v", calls)
+	}
+	if scrollbackCount != 1 {
+		t.Fatalf("expected a single post-attach delta capture, got %v", calls)
+	}
+	if scrollbackIdx < attachIdx {
+		t.Fatalf("expected reconciliation history capture after attach, got %v", calls)
+	}
+	if verifyIdx != -1 && scrollbackIdx > verifyIdx {
+		t.Fatalf("expected history reconciliation before session tag verification, got %v", calls)
+	}
+}
+
+func TestCreateTerminalTab_CapturesReusedSessionBeforeAttachAfterResize(t *testing.T) {
+	var calls []string
+	installSidebarSnapshotSeams(t, &calls, "resized frame")
 
 	m := NewTerminalModel()
 	m.width = 20
@@ -124,178 +158,12 @@ func TestCreateTerminalTab_CapturesReusedSessionBeforeAttachAfterResize(t *testi
 	if created.SnapshotCols != 77 || created.SnapshotRows != 19 {
 		t.Fatalf("expected actual snapshot size 77x19, got %dx%d", created.SnapshotCols, created.SnapshotRows)
 	}
-
-	expectedAttach := fmt.Sprintf("attach:%dx%d", termWidth, termHeight)
-	expectedResize := fmt.Sprintf("resize:%dx%d", termWidth, termHeight)
-	clientsIdx := -1
-	activityIdx := -1
-	attachIdx := -1
-	resizeIdx := -1
-	for i, call := range calls {
-		if call == "clients" {
-			clientsIdx = i
-		}
-		if call == "activity" {
-			activityIdx = i
-		}
-		if call == expectedResize {
-			resizeIdx = i
-		}
-		if call == expectedAttach {
-			attachIdx = i
-		}
-	}
-	if attachIdx == -1 {
-		t.Fatalf("expected attach call %q, got %v", expectedAttach, calls)
-	}
-	if clientsIdx == -1 || activityIdx == -1 {
-		t.Fatalf("expected safety checks before snapshot, got %v", calls)
-	}
-	if resizeIdx == -1 {
-		t.Fatalf("expected resize call %q, got %v", expectedResize, calls)
-	}
-	snapshotCount := 0
-	infoIdx := -1
-	snapshotIdx := -1
-	for i, call := range calls {
-		if call == "info" {
-			infoIdx = i
-		}
-		if call != "snapshot" {
-			continue
-		}
-		snapshotCount++
-		if snapshotIdx == -1 {
-			snapshotIdx = i
-		}
-	}
-	if infoIdx == -1 {
-		t.Fatalf("expected bootstrap pane metadata lookup, got %v", calls)
-	}
-	if snapshotCount != 1 {
-		t.Fatalf("expected a single resized snapshot capture, got %v", calls)
-	}
-	if infoIdx > resizeIdx || resizeIdx > snapshotIdx {
-		t.Fatalf("expected metadata lookup before resize and final snapshot after resize, got call order %v", calls)
-	}
-	if snapshotIdx > attachIdx {
-		t.Fatalf("expected reused-session snapshot before attach, got call order %v", calls)
-	}
-	scrollbackIdx := -1
-	scrollbackCount := 0
-	verifyIdx := -1
-	for i, call := range calls {
-		if call == "scrollback" {
-			scrollbackCount++
-			if scrollbackIdx == -1 {
-				scrollbackIdx = i
-			}
-		}
-		if call == "verify" {
-			verifyIdx = i
-		}
-	}
-	if scrollbackCount != 1 {
-		t.Fatalf("expected a single post-attach delta capture, got %v", calls)
-	}
-	if scrollbackIdx < attachIdx {
-		t.Fatalf("expected reconciliation history capture after attach, got %v", calls)
-	}
-	if verifyIdx != -1 && scrollbackIdx > verifyIdx {
-		t.Fatalf("expected history reconciliation before session tag verification, got %v", calls)
-	}
+	assertSidebarSnapshotOrder(t, calls, termWidth, termHeight)
 }
 
 func TestAttachToSession_CapturesReattachSnapshotBeforeAttach(t *testing.T) {
-	oldEnsureTmuxAvailableFn := ensureTmuxAvailableFn
-	oldSessionStateForFn := sessionStateForFn
-	oldSessionHasClientsFn := sessionHasClientsFn
-	oldSessionClientCountFn := sessionClientCountFn
-	oldSessionActiveWithinFn := sessionActiveWithinFn
-	oldSessionLatestActivityFn := sessionLatestActivityFn
-	oldSessionCreatedAtFn := sessionCreatedAtFn
-	oldSessionPaneIDFn := sessionPaneIDFn
-	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	oldNewPTYWithSizeFn := newPTYWithSizeFn
-	oldResizePaneToSizeFn := resizePaneToSizeFn
-	oldCapturePaneSnapshotFn := capturePaneSnapshotFn
-	oldCapturePaneFn := capturePaneFn
-	oldVerifyTerminalSessionTagsFn := verifyTerminalSessionTagsFn
-	defer func() {
-		ensureTmuxAvailableFn = oldEnsureTmuxAvailableFn
-		sessionStateForFn = oldSessionStateForFn
-		sessionHasClientsFn = oldSessionHasClientsFn
-		sessionClientCountFn = oldSessionClientCountFn
-		sessionActiveWithinFn = oldSessionActiveWithinFn
-		sessionLatestActivityFn = oldSessionLatestActivityFn
-		sessionCreatedAtFn = oldSessionCreatedAtFn
-		sessionPaneIDFn = oldSessionPaneIDFn
-		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
-		sessionPaneSizeFn = oldSessionPaneSizeFn
-		newPTYWithSizeFn = oldNewPTYWithSizeFn
-		resizePaneToSizeFn = oldResizePaneToSizeFn
-		capturePaneSnapshotFn = oldCapturePaneSnapshotFn
-		capturePaneFn = oldCapturePaneFn
-		verifyTerminalSessionTagsFn = oldVerifyTerminalSessionTagsFn
-	}()
-
-	calls := make([]string, 0, 4)
-	ensureTmuxAvailableFn = func() error {
-		return nil
-	}
-	sessionStateForFn = func(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
-		calls = append(calls, "state")
-		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
-	}
-	sessionHasClientsFn = func(sessionName string, opts tmux.Options) (bool, error) {
-		calls = append(calls, "clients")
-		return false, nil
-	}
-	sessionClientCountFn = func(sessionName string, opts tmux.Options) (int, error) {
-		return 1, nil
-	}
-	sessionActiveWithinFn = func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-		calls = append(calls, "activity")
-		return false, nil
-	}
-	sessionLatestActivityFn = func(sessionName string, opts tmux.Options) (time.Time, bool, error) {
-		return time.Time{}, false, nil
-	}
-	sessionCreatedAtFn = func(sessionName string, opts tmux.Options) (int64, error) {
-		return 123, nil
-	}
-	sessionPaneIDFn = func(sessionName string, opts tmux.Options) (string, error) {
-		return "%1", nil
-	}
-	sessionPaneSnapshotInfoFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "info")
-		return 91, 27, true, nil
-	}
-	sessionPaneSizeFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-		calls = append(calls, "size")
-		return 77, 19, true, nil
-	}
-	resizePaneToSizeFn = func(sessionName string, cols, rows int, opts tmux.Options) error {
-		calls = append(calls, fmt.Sprintf("resize:%dx%d", cols, rows))
-		return nil
-	}
-	capturePaneSnapshotFn = func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-		calls = append(calls, "snapshot")
-		return tmux.PaneSnapshot{Data: []byte("pre-attach frame"), Cols: 77, Rows: 19}, nil
-	}
-	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
-		calls = append(calls, fmt.Sprintf("attach:%dx%d", cols, rows))
-		return &pty.Terminal{}, nil
-	}
-	capturePaneFn = func(sessionName string, opts tmux.Options) ([]byte, error) {
-		calls = append(calls, "scrollback")
-		return []byte("fallback"), nil
-	}
-	verifyTerminalSessionTagsFn = func(sessionName string, tags tmux.SessionTags, opts tmux.Options) error {
-		calls = append(calls, "verify")
-		return nil
-	}
+	var calls []string
+	installSidebarSnapshotSeams(t, &calls, "pre-attach frame")
 
 	m := NewTerminalModel()
 	m.width = 20
@@ -320,84 +188,5 @@ func TestAttachToSession_CapturesReattachSnapshotBeforeAttach(t *testing.T) {
 	if reattach.SnapshotCols != 77 || reattach.SnapshotRows != 19 {
 		t.Fatalf("expected actual snapshot size 77x19, got %dx%d", reattach.SnapshotCols, reattach.SnapshotRows)
 	}
-
-	expectedAttach := fmt.Sprintf("attach:%dx%d", termWidth, termHeight)
-	expectedResize := fmt.Sprintf("resize:%dx%d", termWidth, termHeight)
-	clientsIdx := -1
-	activityIdx := -1
-	attachIdx := -1
-	resizeIdx := -1
-	for i, call := range calls {
-		if call == "clients" {
-			clientsIdx = i
-		}
-		if call == "activity" {
-			activityIdx = i
-		}
-		if call == expectedAttach {
-			attachIdx = i
-		}
-		if call == expectedResize {
-			resizeIdx = i
-		}
-	}
-	if resizeIdx == -1 {
-		t.Fatalf("expected reattach resize call %q, got %v", expectedResize, calls)
-	}
-	if clientsIdx == -1 || activityIdx == -1 {
-		t.Fatalf("expected safety checks before pre-attach snapshot, got %v", calls)
-	}
-	if attachIdx == -1 {
-		t.Fatalf("expected attach call %q, got %v", expectedAttach, calls)
-	}
-	snapshotCount := 0
-	infoIdx := -1
-	snapshotIdx := -1
-	for i, call := range calls {
-		if call == "info" {
-			infoIdx = i
-		}
-		if call != "snapshot" {
-			continue
-		}
-		snapshotCount++
-		if snapshotIdx == -1 {
-			snapshotIdx = i
-		}
-	}
-	if infoIdx == -1 {
-		t.Fatalf("expected bootstrap pane metadata lookup, got %v", calls)
-	}
-	if snapshotCount != 1 {
-		t.Fatalf("expected a single resized snapshot capture, got %v", calls)
-	}
-	if infoIdx > resizeIdx || resizeIdx > snapshotIdx {
-		t.Fatalf("expected metadata lookup before resize and final snapshot after resize, got call order %v", calls)
-	}
-	if snapshotIdx > attachIdx {
-		t.Fatalf("expected reattach snapshot before live attach, got call order %v", calls)
-	}
-	scrollbackIdx := -1
-	scrollbackCount := 0
-	verifyIdx := -1
-	for i, call := range calls {
-		if call == "scrollback" {
-			scrollbackCount++
-			if scrollbackIdx == -1 {
-				scrollbackIdx = i
-			}
-		}
-		if call == "verify" {
-			verifyIdx = i
-		}
-	}
-	if scrollbackCount != 1 {
-		t.Fatalf("expected a single post-attach delta capture, got %v", calls)
-	}
-	if scrollbackIdx < attachIdx {
-		t.Fatalf("expected reconciliation history capture after attach, got %v", calls)
-	}
-	if verifyIdx != -1 && scrollbackIdx > verifyIdx {
-		t.Fatalf("expected history reconciliation before session tag verification, got %v", calls)
-	}
+	assertSidebarSnapshotOrder(t, calls, termWidth, termHeight)
 }

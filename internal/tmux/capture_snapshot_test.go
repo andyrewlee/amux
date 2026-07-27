@@ -16,8 +16,8 @@ func TestCapturePaneSnapshotForPane_RejectsModeMetadataErrors(t *testing.T) {
 			}
 			return []byte("snapshot frame"), nil
 		},
-		func(paneID string, opts Options) (paneSnapshotMetadata, error) {
-			return paneSnapshotMetadata{}, modeErr
+		func(paneID string, opts Options) (PaneSnapshotMeta, error) {
+			return PaneSnapshotMeta{}, modeErr
 		},
 	)
 	if !errors.Is(err, modeErr) {
@@ -30,8 +30,8 @@ func TestCapturePaneSnapshotForPane_RejectsModeMetadataErrors(t *testing.T) {
 		func(paneID string, opts Options) ([]byte, error) {
 			return []byte("snapshot frame"), nil
 		},
-		func(paneID string, opts Options) (paneSnapshotMetadata, error) {
-			return paneSnapshotMetadata{Cols: 80, Rows: 24, HasSize: true}, nil
+		func(paneID string, opts Options) (PaneSnapshotMeta, error) {
+			return PaneSnapshotMeta{Cols: 80, Rows: 24, HasSize: true}, nil
 		},
 	)
 	if !errors.Is(err, errPaneSnapshotModeState) {
@@ -46,8 +46,8 @@ func TestCapturePaneSnapshotForPane_PreservesPaneSizeMetadata(t *testing.T) {
 		func(paneID string, opts Options) ([]byte, error) {
 			return []byte("snapshot frame"), nil
 		},
-		func(paneID string, opts Options) (paneSnapshotMetadata, error) {
-			return paneSnapshotMetadata{
+		func(paneID string, opts Options) (PaneSnapshotMeta, error) {
+			return PaneSnapshotMeta{
 				Cols:      91,
 				Rows:      27,
 				HasSize:   true,
@@ -76,8 +76,8 @@ func TestCapturePaneSnapshotForPane_RejectsMissingPaneSizeMetadata(t *testing.T)
 		func(paneID string, opts Options) ([]byte, error) {
 			return []byte("snapshot frame"), nil
 		},
-		func(paneID string, opts Options) (paneSnapshotMetadata, error) {
-			return paneSnapshotMetadata{ModeState: PaneModeState{HasState: true}}, nil
+		func(paneID string, opts Options) (PaneSnapshotMeta, error) {
+			return PaneSnapshotMeta{ModeState: PaneModeState{HasState: true}}, nil
 		},
 	)
 	if !errors.Is(err, errPaneSnapshotSizeMetadata) {
@@ -93,8 +93,8 @@ func TestCapturePaneSnapshotForPane_PropagatesPaneSizeLookupErrors(t *testing.T)
 		func(paneID string, opts Options) ([]byte, error) {
 			return []byte("snapshot frame"), nil
 		},
-		func(paneID string, opts Options) (paneSnapshotMetadata, error) {
-			return paneSnapshotMetadata{}, sizeErr
+		func(paneID string, opts Options) (PaneSnapshotMeta, error) {
+			return PaneSnapshotMeta{}, sizeErr
 		},
 	)
 	if !errors.Is(err, sizeErr) {
@@ -110,9 +110,9 @@ func TestCapturePaneSnapshotForPane_RejectsMetadataDriftDuringCapture(t *testing
 		func(paneID string, opts Options) ([]byte, error) {
 			return []byte("snapshot frame"), nil
 		},
-		func(paneID string, opts Options) (paneSnapshotMetadata, error) {
+		func(paneID string, opts Options) (PaneSnapshotMeta, error) {
 			metadataCalls++
-			meta := paneSnapshotMetadata{
+			meta := PaneSnapshotMeta{
 				Cols:      91,
 				Rows:      27,
 				HasSize:   true,
@@ -139,8 +139,8 @@ func TestPaneSnapshotInfoForPane_RequiresModeMetadata(t *testing.T) {
 		func(paneID string, opts Options) (bool, error) {
 			return true, nil
 		},
-		func(paneID string, opts Options) (paneSnapshotMetadata, error) {
-			return paneSnapshotMetadata{Cols: 91, Rows: 27, HasSize: true}, nil
+		func(paneID string, opts Options) (PaneSnapshotMeta, error) {
+			return PaneSnapshotMeta{Cols: 91, Rows: 27, HasSize: true}, nil
 		},
 	)
 	if err != nil {
@@ -158,8 +158,8 @@ func TestPaneSnapshotInfoForPane_PreservesAuthoritativeSize(t *testing.T) {
 		func(paneID string, opts Options) (bool, error) {
 			return true, nil
 		},
-		func(paneID string, opts Options) (paneSnapshotMetadata, error) {
-			return paneSnapshotMetadata{
+		func(paneID string, opts Options) (PaneSnapshotMeta, error) {
+			return PaneSnapshotMeta{
 				Cols:      91,
 				Rows:      27,
 				HasSize:   true,

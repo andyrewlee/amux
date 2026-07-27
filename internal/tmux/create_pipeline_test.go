@@ -45,12 +45,22 @@ func TestClientCommandAppliesOptionsAndTagsOnRealTmux(t *testing.T) {
 		WorkDir: t.TempDir(),
 		Command: "sleep 300",
 		Options: Options{
-			ServerName:   opts.ServerName,
-			ConfigPath:   opts.ConfigPath,
-			HideStatus:   true,
-			DisableMouse: true,
+			ServerName:      opts.ServerName,
+			ConfigPath:      opts.ConfigPath,
+			HideStatus:      true,
+			DisableMouse:    true,
+			DefaultTerminal: "xterm-256color",
 		},
-		Tags:           SessionTags{WorkspaceID: "ws-create", Type: "agent", Assistant: "claude"},
+		Tags: SessionTags{
+			WorkspaceID:  "ws-create",
+			TabID:        "tab-create",
+			Type:         "agent",
+			Assistant:    "claude",
+			CreatedAt:    1700000000,
+			InstanceID:   "inst-create",
+			SessionOwner: "inst-create",
+			LeaseAtMS:    1700000000000,
+		},
 		DetachExisting: true,
 	})
 
@@ -61,20 +71,48 @@ func TestClientCommandAppliesOptionsAndTagsOnRealTmux(t *testing.T) {
 
 	waitForSessionExists(t, opts, session)
 
+	// Every option the pipeline sets, not a sample: these are now applied as one
+	// chained tmux invocation, so a single rejected command would silently skip
+	// every option after it. Checking only a few would leave that gap open.
 	checks := []struct{ key, want string }{
 		{"prefix", "None"},
+		{"prefix2", "None"},
 		{"status", "off"},
 		{"mouse", "off"},
+		{"default-terminal", "xterm-256color"},
 		{"@amux", "1"},
 		{"@amux_workspace", "ws-create"},
+		{"@amux_tab", "tab-create"},
 		{"@amux_type", "agent"},
 		{"@amux_assistant", "claude"},
+		{"@amux_created_at", "1700000000"},
+		{"@amux_instance", "inst-create"},
+		{TagSessionOwner, "inst-create"},
+		{TagSessionLeaseAt, "1700000000000"},
+		{TagSessionOwnerHeartbeatAt, "1700000000000"},
 	}
 	for _, c := range checks {
 		if got := showSessionOption(t, opts, session, c.key); got != c.want {
 			t.Errorf("session option %s = %q, want %q (a rejected set-option would no-op here)", c.key, got, c.want)
 		}
 	}
+
+	// monitor-activity is the only chained entry carrying a scope flag (-w), and
+	// the pre-attach quiet check depends on it. A mid-chain -w must scope to its
+	// own command and not leak into the entries that follow, which the tag checks
+	// above would catch.
+	if got := showWindowOption(t, opts, session, "monitor-activity"); got != "on" {
+		t.Errorf("window option monitor-activity = %q, want \"on\" — the activity-based quiet check depends on it", got)
+	}
+}
+
+func showWindowOption(t *testing.T, opts Options, session, key string) string {
+	t.Helper()
+	out, err := exec.Command("tmux", tmuxArgs(opts, "show-options", "-w", "-t", session, "-v", key)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("show-options -w %s on %s: %v\n%s", key, session, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func waitForSessionExists(t *testing.T, opts Options, session string) {

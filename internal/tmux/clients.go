@@ -42,15 +42,13 @@ func SessionHasClients(sessionName string, opts Options) (bool, error) {
 
 // SessionClientCount reports how many tmux clients are currently attached to a
 // session.
+//
+// A missing session needs no has-session pre-check: list-clients exits 1 for it,
+// which listTmux already maps to "no lines", and a session that does not exist
+// has no clients either way. Skipping the pre-check halves the tmux round-trips,
+// which matters because the reattach guards call this repeatedly.
 func SessionClientCount(sessionName string, opts Options) (int, error) {
 	if sessionName == "" {
-		return 0, nil
-	}
-	exists, err := hasSession(sessionName, opts)
-	if err != nil {
-		return 0, err
-	}
-	if !exists {
 		return 0, nil
 	}
 	lines, err := listTmux(opts, "list-clients", "-t", sessionTarget(sessionName), "-F", "#{client_name}")
@@ -61,24 +59,17 @@ func SessionClientCount(sessionName string, opts Options) (int, error) {
 }
 
 // SessionCreatedAt returns the tmux session creation timestamp (unix seconds).
+// A session that does not exist yields 0 with no error: the name simply does not
+// appear in the listing, so no has-session pre-check is needed.
 func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
 	if sessionName == "" {
 		return 0, nil
 	}
-	exists, err := hasSession(sessionName, opts)
+	lines, err := listTmux(opts, "list-sessions", "-F", "#{session_name}\t#{session_created}")
 	if err != nil {
 		return 0, err
 	}
-	if !exists {
-		return 0, nil
-	}
-	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", "#{session_name}\t#{session_created}")
-	defer cancel()
-	output, err := runTmuxCmd(cmd)
-	if err != nil {
-		return 0, err
-	}
-	for _, line := range parseOutputLines(output) {
+	for _, line := range lines {
 		name, raw, ok := strings.Cut(line, "\t")
 		if !ok || name != sessionName {
 			continue

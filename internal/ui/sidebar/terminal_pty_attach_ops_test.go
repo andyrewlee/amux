@@ -3,7 +3,6 @@ package sidebar
 import (
 	"errors"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -28,7 +27,7 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 		paneCols     int
 		paneRows     int
 		paneHasSize  bool
-		paneErr      error
+		probeErr     error
 		fallbackCols int
 		fallbackRows int
 		wantCols     int
@@ -45,11 +44,11 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 			wantRows:     45,
 		},
 		{
-			name:         "falls back when pane size query errors",
+			name:         "falls back when the session probe errors",
 			paneCols:     123,
 			paneRows:     45,
 			paneHasSize:  true,
-			paneErr:      errors.New("no such session"),
+			probeErr:     errors.New("no such session"),
 			fallbackCols: 80,
 			fallbackRows: 24,
 			wantCols:     80,
@@ -97,17 +96,22 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 		},
 	}
 
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	defer func() { sessionPaneSizeFn = oldSessionPaneSizeFn }()
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			restoreAttachSeams(t)
+
 			var gotSession string
 			var gotOpts tmux.Options
-			sessionPaneSizeFn = func(sessionName string, opts tmux.Options) (int, int, bool, error) {
+			probeSessionFn = func(sessionName string, opts tmux.Options) (tmux.SessionProbe, error) {
 				gotSession = sessionName
 				gotOpts = opts
-				return tt.paneCols, tt.paneRows, tt.paneHasSize, tt.paneErr
+				return tmux.SessionProbe{
+					Exists:      true,
+					PaneID:      "%1",
+					PaneCols:    tt.paneCols,
+					PaneRows:    tt.paneRows,
+					HasPaneSize: tt.paneHasSize,
+				}, tt.probeErr
 			}
 
 			opts := tmux.DefaultOptions()
@@ -116,10 +120,10 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 				t.Fatalf("expected %dx%d, got %dx%d", tt.wantCols, tt.wantRows, cols, rows)
 			}
 			if gotSession != "session-xyz" {
-				t.Fatalf("expected pane size query for session %q, got %q", "session-xyz", gotSession)
+				t.Fatalf("expected the probe to target session %q, got %q", "session-xyz", gotSession)
 			}
 			if gotOpts != opts {
-				t.Fatalf("expected pane size query to forward tmux options, got %+v", gotOpts)
+				t.Fatalf("expected the probe to forward tmux options, got %+v", gotOpts)
 			}
 		})
 	}
@@ -345,63 +349,34 @@ func TestRestartActiveTab_RunningEmitsToastWithoutKillingSession(t *testing.T) {
 
 // withReattachSeams installs no-op/successful tmux seams sufficient for a
 // "reattach" attachToSession command to run without touching real processes,
-// returning the given scrollback as the pane history. Every tmux seam reached
-// on the bootstrap/history-only path is stubbed (including the activity,
-// creation-time, and pane-id probes that fire whenever a live session is
-// present), so the command never shells out to a real tmux. Originals are
-// restored on test cleanup.
+// returning the given scrollback as the pane history. The session probe reports
+// a pane with no VT mode metadata, which makes the pre-attach snapshot
+// ineligible and puts the command on the history-only path: no resize and no
+// full-pane capture, just the history read. Originals are restored on cleanup.
 func withReattachSeams(t *testing.T, scrollback string) {
 	t.Helper()
-	oldEnsureTmuxAvailableFn := ensureTmuxAvailableFn
-	oldSessionStateForFn := sessionStateForFn
-	oldSessionHasClientsFn := sessionHasClientsFn
-	oldSessionActiveWithinFn := sessionActiveWithinFn
-	oldSessionCreatedAtFn := sessionCreatedAtFn
-	oldSessionPaneIDFn := sessionPaneIDFn
-	oldSessionPaneSnapshotInfoFn := sessionPaneSnapshotInfoFn
-	oldSessionPaneSizeFn := sessionPaneSizeFn
-	oldNewPTYWithSizeFn := newPTYWithSizeFn
-	oldCapturePaneSnapshotFn := capturePaneSnapshotFn
-	oldCapturePaneFn := capturePaneFn
-	oldVerifyTerminalSessionTagsFn := verifyTerminalSessionTagsFn
-	t.Cleanup(func() {
-		ensureTmuxAvailableFn = oldEnsureTmuxAvailableFn
-		sessionStateForFn = oldSessionStateForFn
-		sessionHasClientsFn = oldSessionHasClientsFn
-		sessionActiveWithinFn = oldSessionActiveWithinFn
-		sessionCreatedAtFn = oldSessionCreatedAtFn
-		sessionPaneIDFn = oldSessionPaneIDFn
-		sessionPaneSnapshotInfoFn = oldSessionPaneSnapshotInfoFn
-		sessionPaneSizeFn = oldSessionPaneSizeFn
-		newPTYWithSizeFn = oldNewPTYWithSizeFn
-		capturePaneSnapshotFn = oldCapturePaneSnapshotFn
-		capturePaneFn = oldCapturePaneFn
-		verifyTerminalSessionTagsFn = oldVerifyTerminalSessionTagsFn
-	})
+	restoreAttachSeams(t)
+
+	ineligible := eligibleAttachProbe()
+	ineligible.PaneID = "%0"
+	ineligible.PaneCols, ineligible.PaneRows = 80, 24
+	ineligible.PaneMeta = tmux.PaneSnapshotMeta{Cols: 80, Rows: 24, HasSize: true}
 
 	ensureTmuxAvailableFn = func() error { return nil }
 	sessionStateForFn = func(string, tmux.Options) (tmux.SessionState, error) {
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
-	sessionHasClientsFn = func(string, tmux.Options) (bool, error) { return false, nil }
-	// Stub the live-session probes (activity window, creation time, pane id)
-	// so the bootstrap path stays entirely off real tmux even when a session
-	// is reported present.
-	sessionActiveWithinFn = func(string, time.Duration, tmux.Options) (bool, error) {
-		return false, nil
+	probeSeq(nil, ineligible)
+	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+		t.Fatal("did not expect a resize on the history-only path")
+		return nil
 	}
-	sessionCreatedAtFn = func(string, tmux.Options) (int64, error) { return 0, nil }
-	sessionPaneIDFn = func(string, tmux.Options) (string, error) { return "%0", nil }
-	// Make the pre-attach snapshot ineligible so the command takes the
-	// history-only path (no resize/snapshot exec, just capturePane).
-	sessionPaneSnapshotInfoFn = func(string, tmux.Options) (int, int, bool, error) {
-		return 0, 0, false, nil
+	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+		t.Fatal("did not expect a full-pane capture on the history-only path")
+		return nil, nil
 	}
-	sessionPaneSizeFn = func(string, tmux.Options) (int, int, bool, error) {
-		return 80, 24, true, nil
-	}
-	capturePaneSnapshotFn = func(string, tmux.Options) (tmux.PaneSnapshot, error) {
-		return tmux.PaneSnapshot{}, errors.New("not whole window")
+	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+		return []byte(scrollback), nil
 	}
 	capturePaneFn = func(string, tmux.Options) ([]byte, error) {
 		return []byte(scrollback), nil

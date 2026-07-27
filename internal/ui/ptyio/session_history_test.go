@@ -7,12 +7,28 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
+// sizedProbe returns a probe reporting the given live pane size. A zero size
+// stands for "tmux could not tell us", which is what makes the caller's fallback
+// dimensions apply.
+func sizedProbe(cols, rows int) tmux.SessionProbe {
+	p := tmux.SessionProbe{Exists: true, CreatedAt: 1, PaneID: "%1", HasLivePane: true}
+	if cols > 0 && rows > 0 {
+		p.PaneCols, p.PaneRows, p.HasPaneSize = cols, rows, true
+		p.PaneMeta = tmux.PaneSnapshotMeta{Cols: cols, Rows: rows, HasSize: true}
+	}
+	return p
+}
+
+func staticProbe(p tmux.SessionProbe) func(string, tmux.Options) (tmux.SessionProbe, error) {
+	return func(string, tmux.Options) (tmux.SessionProbe, error) { return p, nil }
+}
+
 func TestSessionHistoryCaptureSize(t *testing.T) {
 	tests := []struct {
 		name         string
 		fallbackCols int
 		fallbackRows int
-		paneSize     func(string, tmux.Options) (int, int, bool, error)
+		probe        func(string, tmux.Options) (tmux.SessionProbe, error)
 		wantCols     int
 		wantRows     int
 	}{
@@ -20,28 +36,24 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 			name:         "live pane size overrides fallback",
 			fallbackCols: 80,
 			fallbackRows: 24,
-			paneSize: func(string, tmux.Options) (int, int, bool, error) {
-				return 120, 40, true, nil
-			},
-			wantCols: 120,
-			wantRows: 40,
+			probe:        staticProbe(sizedProbe(120, 40)),
+			wantCols:     120,
+			wantRows:     40,
 		},
 		{
 			name:         "missing pane size falls back",
 			fallbackCols: 80,
 			fallbackRows: 24,
-			paneSize: func(string, tmux.Options) (int, int, bool, error) {
-				return 0, 0, false, nil
-			},
-			wantCols: 80,
-			wantRows: 24,
+			probe:        staticProbe(sizedProbe(0, 0)),
+			wantCols:     80,
+			wantRows:     24,
 		},
 		{
-			name:         "pane size error falls back",
+			name:         "probe error falls back",
 			fallbackCols: 100,
 			fallbackRows: 30,
-			paneSize: func(string, tmux.Options) (int, int, bool, error) {
-				return 120, 40, true, errors.New("boom")
+			probe: func(string, tmux.Options) (tmux.SessionProbe, error) {
+				return sizedProbe(120, 40), errors.New("boom")
 			},
 			wantCols: 100,
 			wantRows: 30,
@@ -50,9 +62,9 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 			name:         "non-positive cols falls back",
 			fallbackCols: 100,
 			fallbackRows: 30,
-			paneSize: func(string, tmux.Options) (int, int, bool, error) {
-				return 0, 40, true, nil
-			},
+			probe: staticProbe(tmux.SessionProbe{
+				Exists: true, PaneID: "%1", HasPaneSize: true, PaneCols: 0, PaneRows: 40,
+			}),
 			wantCols: 100,
 			wantRows: 30,
 		},
@@ -60,9 +72,9 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 			name:         "non-positive rows falls back",
 			fallbackCols: 100,
 			fallbackRows: 30,
-			paneSize: func(string, tmux.Options) (int, int, bool, error) {
-				return 120, 0, true, nil
-			},
+			probe: staticProbe(tmux.SessionProbe{
+				Exists: true, PaneID: "%1", HasPaneSize: true, PaneCols: 120, PaneRows: 0,
+			}),
 			wantCols: 100,
 			wantRows: 30,
 		},
@@ -70,9 +82,9 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 			name:         "negative live size falls back",
 			fallbackCols: 64,
 			fallbackRows: 16,
-			paneSize: func(string, tmux.Options) (int, int, bool, error) {
-				return -1, -1, true, nil
-			},
+			probe: staticProbe(tmux.SessionProbe{
+				Exists: true, PaneID: "%1", HasPaneSize: true, PaneCols: -1, PaneRows: -1,
+			}),
 			wantCols: 64,
 			wantRows: 16,
 		},
@@ -80,18 +92,16 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 			name:         "zero fallback preserved when pane size unavailable",
 			fallbackCols: 0,
 			fallbackRows: 0,
-			paneSize: func(string, tmux.Options) (int, int, bool, error) {
-				return 0, 0, false, nil
-			},
-			wantCols: 0,
-			wantRows: 0,
+			probe:        staticProbe(sizedProbe(0, 0)),
+			wantCols:     0,
+			wantRows:     0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gotCols, gotRows := SessionHistoryCaptureSize("session-history", tt.fallbackCols, tt.fallbackRows, tmux.Options{}, SessionBootstrapFns{
-				SessionPaneSize: tt.paneSize,
+				ProbeSession: tt.probe,
 			})
 			if gotCols != tt.wantCols || gotRows != tt.wantRows {
 				t.Fatalf("SessionHistoryCaptureSize = (%d, %d), want (%d, %d)", gotCols, gotRows, tt.wantCols, tt.wantRows)
@@ -101,19 +111,20 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 }
 
 func TestCaptureSessionHistory_UsesLivePaneSize(t *testing.T) {
-	var capturedSession string
+	var capturedPane string
 	wantData := []byte("scrollback frame")
 	data, cols, rows := CaptureSessionHistory("session-history", 80, 24, tmux.Options{}, SessionBootstrapFns{
-		SessionPaneSize: func(string, tmux.Options) (int, int, bool, error) {
-			return 120, 40, true, nil
+		ProbeSession: staticProbe(sizedProbe(120, 40)),
+		CapturePaneHistoryData: func(paneID string, opts tmux.Options) ([]byte, error) {
+			capturedPane = paneID
+			return wantData, nil
 		},
-	}, func(sessionName string, opts tmux.Options) ([]byte, error) {
-		capturedSession = sessionName
-		return wantData, nil
 	})
 
-	if capturedSession != "session-history" {
-		t.Fatalf("capturePane received session %q, want %q", capturedSession, "session-history")
+	// The capture targets the pane the same probe resolved, so it cannot land on
+	// a different pane than the size it is interpreted at.
+	if capturedPane != "%1" {
+		t.Fatalf("capture targeted pane %q, want the probed pane %q", capturedPane, "%1")
 	}
 	if string(data) != string(wantData) {
 		t.Fatalf("CaptureSessionHistory data = %q, want %q", data, wantData)
@@ -125,11 +136,10 @@ func TestCaptureSessionHistory_UsesLivePaneSize(t *testing.T) {
 
 func TestCaptureSessionHistory_FallsBackToProvidedSize(t *testing.T) {
 	data, cols, rows := CaptureSessionHistory("session-history", 90, 28, tmux.Options{}, SessionBootstrapFns{
-		SessionPaneSize: func(string, tmux.Options) (int, int, bool, error) {
-			return 0, 0, false, nil
+		ProbeSession: staticProbe(sizedProbe(0, 0)),
+		CapturePaneHistoryData: func(string, tmux.Options) ([]byte, error) {
+			return []byte("frame"), nil
 		},
-	}, func(string, tmux.Options) ([]byte, error) {
-		return []byte("frame"), nil
 	})
 
 	if cols != 90 || rows != 28 {
@@ -142,11 +152,10 @@ func TestCaptureSessionHistory_FallsBackToProvidedSize(t *testing.T) {
 
 func TestCaptureSessionHistory_SwallowsCaptureErrorAndReturnsPartialData(t *testing.T) {
 	data, cols, rows := CaptureSessionHistory("session-history", 80, 24, tmux.Options{}, SessionBootstrapFns{
-		SessionPaneSize: func(string, tmux.Options) (int, int, bool, error) {
-			return 100, 30, true, nil
+		ProbeSession: staticProbe(sizedProbe(100, 30)),
+		CapturePaneHistoryData: func(string, tmux.Options) ([]byte, error) {
+			return []byte("partial"), errors.New("capture failed")
 		},
-	}, func(string, tmux.Options) ([]byte, error) {
-		return []byte("partial"), errors.New("capture failed")
 	})
 
 	// The capture error is intentionally swallowed; whatever bytes the callback
@@ -161,15 +170,31 @@ func TestCaptureSessionHistory_SwallowsCaptureErrorAndReturnsPartialData(t *test
 
 func TestCaptureSessionHistory_NilScrollbackOnEmptyCapture(t *testing.T) {
 	data, cols, rows := CaptureSessionHistory("session-history", 70, 20, tmux.Options{}, SessionBootstrapFns{
-		SessionPaneSize: func(string, tmux.Options) (int, int, bool, error) {
-			return 0, 0, false, nil
+		ProbeSession: staticProbe(sizedProbe(0, 0)),
+		CapturePaneHistoryData: func(string, tmux.Options) ([]byte, error) {
+			return nil, nil
 		},
-	}, func(string, tmux.Options) ([]byte, error) {
-		return nil, nil
 	})
 
 	if data != nil {
 		t.Fatalf("CaptureSessionHistory data = %q, want nil for empty capture", data)
+	}
+	if cols != 70 || rows != 20 {
+		t.Fatalf("CaptureSessionHistory size = (%d, %d), want fallback (70, 20)", cols, rows)
+	}
+}
+
+func TestCaptureSessionHistory_SkipsCaptureWhenNoPaneResolved(t *testing.T) {
+	data, cols, rows := CaptureSessionHistory("session-history", 70, 20, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession: staticProbe(tmux.SessionProbe{}),
+		CapturePaneHistoryData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture when the probe resolved no pane")
+			return nil, nil
+		},
+	})
+
+	if data != nil {
+		t.Fatalf("CaptureSessionHistory data = %q, want nil when no pane was resolved", data)
 	}
 	if cols != 70 || rows != 20 {
 		t.Fatalf("CaptureSessionHistory size = (%d, %d), want fallback (70, 20)", cols, rows)
@@ -181,6 +206,9 @@ func TestRollbackSessionBootstrap_RestoresOriginalSizeWhenSessionUnchanged(t *te
 		resizeCols, resizeRows int
 		resizeCalled           bool
 	)
+	unchanged := sizedProbe(80, 24)
+	unchanged.CreatedAt = 123
+
 	rollbackSessionBootstrap("session-history", SessionBootstrapCapture{
 		SessionCreatedAt: 123,
 		PaneID:           "%1",
@@ -188,15 +216,7 @@ func TestRollbackSessionBootstrap_RestoresOriginalSizeWhenSessionUnchanged(t *te
 		RollbackRows:     27,
 		NeedsRollback:    true,
 	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(string, tmux.Options) (int64, error) {
-			return 123, nil
-		},
-		SessionPaneID: func(string, tmux.Options) (string, error) {
-			return "%1", nil
-		},
-		SessionHasClients: func(string, tmux.Options) (bool, error) {
-			return false, nil
-		},
+		ProbeSession: staticProbe(unchanged),
 		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
 			resizeCalled = true
 			resizeCols, resizeRows = cols, rows
@@ -252,9 +272,9 @@ func TestRollbackSessionBootstrap_SkipsWhenRollbackNotNeeded(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rollbackSessionBootstrap("session-history", tt.bootstrap, tmux.Options{}, SessionBootstrapFns{
-				SessionCreatedAt: func(string, tmux.Options) (int64, error) {
-					t.Fatal("did not expect a generation check when rollback is unnecessary")
-					return 0, nil
+				ProbeSession: func(string, tmux.Options) (tmux.SessionProbe, error) {
+					t.Fatal("did not expect a probe when rollback is unnecessary")
+					return tmux.SessionProbe{}, nil
 				},
 				ResizePaneToSize: func(string, int, int, tmux.Options) error {
 					t.Fatal("did not expect a resize when rollback is unnecessary")
@@ -265,7 +285,7 @@ func TestRollbackSessionBootstrap_SkipsWhenRollbackNotNeeded(t *testing.T) {
 	}
 }
 
-func TestRollbackSessionBootstrap_SkipsWhenGenerationLookupFails(t *testing.T) {
+func TestRollbackSessionBootstrap_SkipsWhenProbeFails(t *testing.T) {
 	rollbackSessionBootstrap("session-history", SessionBootstrapCapture{
 		SessionCreatedAt: 123,
 		PaneID:           "%1",
@@ -273,42 +293,11 @@ func TestRollbackSessionBootstrap_SkipsWhenGenerationLookupFails(t *testing.T) {
 		RollbackRows:     27,
 		NeedsRollback:    true,
 	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(string, tmux.Options) (int64, error) {
-			return 0, errors.New("session gone")
-		},
-		SessionPaneID: func(string, tmux.Options) (string, error) {
-			return "%1", nil
-		},
-		SessionHasClients: func(string, tmux.Options) (bool, error) {
-			t.Fatal("did not expect a client check after generation lookup failed")
-			return false, nil
+		ProbeSession: func(string, tmux.Options) (tmux.SessionProbe, error) {
+			return tmux.SessionProbe{}, errors.New("session gone")
 		},
 		ResizePaneToSize: func(string, int, int, tmux.Options) error {
-			t.Fatal("did not expect a resize after generation lookup failed")
-			return nil
-		},
-	})
-}
-
-func TestRollbackSessionBootstrap_SkipsWhenClientCheckErrors(t *testing.T) {
-	rollbackSessionBootstrap("session-history", SessionBootstrapCapture{
-		SessionCreatedAt: 123,
-		PaneID:           "%1",
-		RollbackCols:     91,
-		RollbackRows:     27,
-		NeedsRollback:    true,
-	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(string, tmux.Options) (int64, error) {
-			return 123, nil
-		},
-		SessionPaneID: func(string, tmux.Options) (string, error) {
-			return "%1", nil
-		},
-		SessionHasClients: func(string, tmux.Options) (bool, error) {
-			return false, errors.New("query failed")
-		},
-		ResizePaneToSize: func(string, int, int, tmux.Options) error {
-			t.Fatal("did not expect a resize when the client check errored")
+			t.Fatal("did not expect a resize after the probe failed")
 			return nil
 		},
 	})

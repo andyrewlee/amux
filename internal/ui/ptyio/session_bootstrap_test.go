@@ -1,134 +1,314 @@
 package ptyio
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-func TestCaptureExistingSessionBootstrap_SkipsRollbackWhenClientsAppearAfterResize(t *testing.T) {
-	calls := make([]string, 0, 12)
-	hasClientsCalls := 0
+// eligibleProbe is a session probe that passes every bootstrap gate: detached,
+// quiet, single live pane, complete metadata. Tests start from it and change the
+// one fact under test.
+func eligibleProbe() tmux.SessionProbe {
+	return tmux.SessionProbe{
+		Exists:           true,
+		CreatedAt:        123,
+		ClientCount:      0,
+		PaneID:           "%1",
+		PaneCols:         91,
+		PaneRows:         27,
+		HasPaneSize:      true,
+		HasLivePane:      true,
+		SinglePaneWindow: true,
+		PaneMeta: tmux.PaneSnapshotMeta{
+			Cols:      91,
+			Rows:      27,
+			HasSize:   true,
+			ModeState: tmux.PaneModeState{HasState: true},
+		},
+	}
+}
+
+// probeScript returns a ProbeSession fn that hands out the given probes in
+// order, repeating the last one once exhausted, and records each call in calls.
+// The bootstrap's guards are a sequence of point-in-time reads, so scripting the
+// probes is how a test says "the session changed at step N".
+func probeScript(calls *[]string, probes ...tmux.SessionProbe) func(string, tmux.Options) (tmux.SessionProbe, error) {
+	i := 0
+	return func(string, tmux.Options) (tmux.SessionProbe, error) {
+		*calls = append(*calls, "probe")
+		p := probes[i]
+		if i < len(probes)-1 {
+			i++
+		}
+		return p, nil
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_CapturesQuietDetachedSession(t *testing.T) {
+	var calls []string
+	var resizedCols, resizedRows int
 	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
-		SessionHasClients: func(sessionName string, opts tmux.Options) (bool, error) {
-			calls = append(calls, "clients")
-			hasClientsCalls++
-			return hasClientsCalls >= 3, nil
-		},
-		SessionActiveWithin: func(sessionName string, quietWindow time.Duration, opts tmux.Options) (bool, error) {
-			calls = append(calls, "activity")
-			return false, nil
-		},
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%1", nil
-		},
-		SessionPaneSnapshotInfo: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			calls = append(calls, "info")
-			return 91, 27, true, nil
-		},
-		SessionPaneSize: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			return 0, 0, false, nil
-		},
-		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
+		ProbeSession: probeScript(&calls, eligibleProbe()),
+		ResizePaneToSize: func(_ string, cols, rows int, _ tmux.Options) error {
 			calls = append(calls, "resize")
+			resizedCols, resizedRows = cols, rows
 			return nil
 		},
-		CapturePaneSnapshot: func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-			t.Fatal("did not expect snapshot capture after exclusivity was lost")
-			return tmux.PaneSnapshot{}, nil
+		CapturePaneFullData: func(paneID string, _ tmux.Options) ([]byte, error) {
+			calls = append(calls, "capture")
+			if paneID != "%1" {
+				t.Fatalf("capture targeted pane %q, want the probed pane %q", paneID, "%1")
+			}
+			return []byte("frame"), nil
+		},
+	})
+
+	if !bootstrap.CaptureFullPane {
+		t.Fatalf("expected a quiet detached session to yield a full-pane bootstrap, got %+v", bootstrap)
+	}
+	if string(bootstrap.Snapshot.Data) != "frame" {
+		t.Fatalf("snapshot data = %q, want %q", bootstrap.Snapshot.Data, "frame")
+	}
+	if resizedCols != 80 || resizedRows != 24 {
+		t.Fatalf("resized to (%d, %d), want the attaching client's size (80, 24)", resizedCols, resizedRows)
+	}
+	// The pane size read before the resize is what a rollback must restore.
+	if bootstrap.RollbackCols != 91 || bootstrap.RollbackRows != 27 {
+		t.Fatalf("rollback size = (%d, %d), want the pre-resize size (91, 27)", bootstrap.RollbackCols, bootstrap.RollbackRows)
+	}
+	if !bootstrap.NeedsRollback {
+		t.Fatal("expected a resized pane to be marked as needing rollback")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_SkipsRollbackWhenClientsAppearAfterResize(t *testing.T) {
+	var calls []string
+	attached := eligibleProbe()
+	attached.ClientCount = 1
+
+	resizes := 0
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
+		// Quiet at the first checkpoint, a client attached by the post-resize one.
+		ProbeSession: probeScript(&calls, eligibleProbe(), attached),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error {
+			calls = append(calls, "resize")
+			resizes++
+			return nil
+		},
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture after exclusivity was lost")
+			return nil, nil
 		},
 	})
 
 	if bootstrap.CaptureFullPane {
 		t.Fatal("expected full-pane bootstrap to abort once another client attached")
 	}
-	resizeCalls := 0
-	for _, call := range calls {
-		if call == "resize" {
-			resizeCalls++
-		}
-	}
-	if resizeCalls != 1 {
-		t.Fatalf("expected exactly one resize without rollback after client attach, got %d calls: %v", resizeCalls, calls)
+	// Exactly one resize: the rollback must not fire, because resizing a pane a
+	// live client is now rendering would disrupt that client.
+	if resizes != 1 {
+		t.Fatalf("expected exactly one resize and no rollback, got %d resizes (calls %v)", resizes, calls)
 	}
 }
 
 func TestCaptureExistingSessionBootstrap_IgnoresResizeInducedActivity(t *testing.T) {
-	calls := make([]string, 0, 12)
-	activityCalls := 0
+	var calls []string
+	// The resize itself bumps window_activity, so every post-resize probe reports
+	// activity inside the quiet window. That must not abort the capture.
+	noisy := eligibleProbe()
+	noisy.LatestActivity = time.Now().Unix()
+
 	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
-		SessionHasClients: func(sessionName string, opts tmux.Options) (bool, error) {
-			calls = append(calls, "clients")
-			return false, nil
-		},
-		SessionActiveWithin: func(sessionName string, quietWindow time.Duration, opts tmux.Options) (bool, error) {
-			calls = append(calls, "activity")
-			activityCalls++
-			return activityCalls >= 3, nil
-		},
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%1", nil
-		},
-		SessionPaneSnapshotInfo: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			calls = append(calls, "info")
-			return 91, 27, true, nil
-		},
-		SessionPaneSize: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			return 0, 0, false, nil
-		},
-		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
-			calls = append(calls, "resize")
-			return nil
-		},
-		CapturePaneSnapshot: func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-			calls = append(calls, "snapshot")
-			return tmux.PaneSnapshot{Data: []byte("frame"), Cols: 80, Rows: 24}, nil
+		ProbeSession:     probeScript(&calls, eligibleProbe(), noisy),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error { return nil },
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			return []byte("frame"), nil
 		},
 	})
 
 	if !bootstrap.CaptureFullPane {
-		t.Fatalf("expected bootstrap snapshot to survive resize-induced activity, got %+v (calls=%v)", bootstrap, calls)
+		t.Fatalf("expected bootstrap snapshot to survive resize-induced activity, got %+v (calls %v)", bootstrap, calls)
 	}
 	if len(bootstrap.Snapshot.Data) == 0 {
 		t.Fatalf("expected snapshot data to be preserved, got %+v", bootstrap)
 	}
 }
 
-func TestCaptureExistingSessionBootstrap_StartsFreshnessWindowBeforeSnapshotReturns(t *testing.T) {
-	captureDelay := 25 * time.Millisecond
+func TestCaptureExistingSessionBootstrap_SkipsActiveSession(t *testing.T) {
+	var calls []string
+	active := eligibleProbe()
+	active.LatestActivity = time.Now().Unix()
+
 	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
-		SessionHasClients: func(sessionName string, opts tmux.Options) (bool, error) {
-			return false, nil
-		},
-		SessionActiveWithin: func(sessionName string, quietWindow time.Duration, opts tmux.Options) (bool, error) {
-			return false, nil
-		},
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			return "%1", nil
-		},
-		SessionPaneSnapshotInfo: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			return 91, 27, true, nil
-		},
-		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
+		ProbeSession: probeScript(&calls, active),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error {
+			t.Fatal("did not expect a resize on a session with recent activity")
 			return nil
 		},
-		CapturePaneSnapshot: func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture on a session with recent activity")
+			return nil, nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected recent activity to skip the pre-attach full-pane bootstrap")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_SkipsAttachedSession(t *testing.T) {
+	var calls []string
+	attached := eligibleProbe()
+	attached.ClientCount = 1
+
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, FullPaneCaptureQuietWindow, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession: probeScript(&calls, attached),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error {
+			t.Fatal("did not expect a resize while another client is attached")
+			return nil
+		},
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture while another client is attached")
+			return nil, nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected an attached session to skip the pre-attach full-pane bootstrap")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_SkipsSplitWindow(t *testing.T) {
+	var calls []string
+	// A split (or zoomed-split) window shares the resize with hidden siblings,
+	// so it is never eligible for the pre-attach resize-and-snapshot.
+	split := eligibleProbe()
+	split.SinglePaneWindow = false
+
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession: probeScript(&calls, split),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error {
+			t.Fatal("did not expect a resize for a split window")
+			return nil
+		},
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture for a split window")
+			return nil, nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected a split window to skip the pre-attach full-pane bootstrap")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_SkipsMissingModeState(t *testing.T) {
+	var calls []string
+	// Without VT mode state there is no way to replay alt-screen/scroll-region
+	// state, so the snapshot would seed a subtly wrong screen.
+	noMode := eligibleProbe()
+	noMode.PaneMeta.ModeState = tmux.PaneModeState{}
+
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession: probeScript(&calls, noMode),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error {
+			t.Fatal("did not expect a resize without pane mode metadata")
+			return nil
+		},
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture without pane mode metadata")
+			return nil, nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected missing mode metadata to skip the full-pane bootstrap")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_DiscardsSnapshotWhenSessionRecreated(t *testing.T) {
+	var calls []string
+	// Same name, new incarnation: different creation stamp and pane ID.
+	replacement := eligibleProbe()
+	replacement.CreatedAt = 456
+	replacement.PaneID = "%9"
+
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession:     probeScript(&calls, eligibleProbe(), replacement),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error { return nil },
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture from a replacement session")
+			return nil, nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected a recreated session to invalidate the bootstrap")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_DiscardsSnapshotOnMetadataDrift(t *testing.T) {
+	var calls []string
+	// The pane moved between the pre-capture and post-capture checkpoints, so the
+	// captured bytes describe no single coherent screen.
+	drifted := eligibleProbe()
+	drifted.PaneMeta.CursorY = 7
+
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession:     probeScript(&calls, eligibleProbe(), eligibleProbe(), drifted),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error { return nil },
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			return []byte("torn frame"), nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected pane metadata drift across the capture to discard the snapshot")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_SkipsWhenResizeFails(t *testing.T) {
+	var calls []string
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession: probeScript(&calls, eligibleProbe()),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error {
+			return errors.New("resize failed")
+		},
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture after the resize failed")
+			return nil, nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected a failed resize to skip the full-pane bootstrap")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_SkipsWhenProbeFails(t *testing.T) {
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession: func(string, tmux.Options) (tmux.SessionProbe, error) {
+			return tmux.SessionProbe{}, errors.New("no server")
+		},
+		ResizePaneToSize: func(string, int, int, tmux.Options) error {
+			t.Fatal("did not expect a resize when the session could not be probed")
+			return nil
+		},
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			t.Fatal("did not expect a capture when the session could not be probed")
+			return nil, nil
+		},
+	})
+	if bootstrap.CaptureFullPane {
+		t.Fatal("expected an unreadable session to fall back to history replay")
+	}
+}
+
+func TestCaptureExistingSessionBootstrap_StartsFreshnessWindowBeforeSnapshotReturns(t *testing.T) {
+	var calls []string
+	captureDelay := 25 * time.Millisecond
+	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
+		ProbeSession:     probeScript(&calls, eligibleProbe()),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error { return nil },
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
 			time.Sleep(captureDelay)
-			return tmux.PaneSnapshot{Data: []byte("frame"), Cols: 80, Rows: 24}, nil
+			return []byte("frame"), nil
 		},
 	})
 
@@ -142,35 +322,12 @@ func TestCaptureExistingSessionBootstrap_StartsFreshnessWindowBeforeSnapshotRetu
 }
 
 func TestCaptureExistingSessionBootstrap_SkipsUnknownViewportSize(t *testing.T) {
-	calls := make([]string, 0, 4)
+	var calls []string
 	bootstrap := CaptureExistingSessionBootstrap("session-race", 0, 0, 2*time.Second, tmux.Options{}, SessionBootstrapFns{
-		SessionHasClients: func(sessionName string, opts tmux.Options) (bool, error) {
-			calls = append(calls, "clients")
-			return false, nil
-		},
-		SessionActiveWithin: func(sessionName string, quietWindow time.Duration, opts tmux.Options) (bool, error) {
-			calls = append(calls, "activity")
-			return false, nil
-		},
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%1", nil
-		},
-		SessionPaneSnapshotInfo: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			calls = append(calls, "info")
-			return 91, 27, true, nil
-		},
-		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
-			calls = append(calls, "resize")
-			return nil
-		},
-		CapturePaneSnapshot: func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-			calls = append(calls, "snapshot")
-			return tmux.PaneSnapshot{Data: []byte("frame")}, nil
+		ProbeSession:     probeScript(&calls, eligibleProbe()),
+		ResizePaneToSize: func(string, int, int, tmux.Options) error { return nil },
+		CapturePaneFullData: func(string, tmux.Options) ([]byte, error) {
+			return []byte("frame"), nil
 		},
 	})
 
@@ -179,299 +336,5 @@ func TestCaptureExistingSessionBootstrap_SkipsUnknownViewportSize(t *testing.T) 
 	}
 	if len(calls) != 0 {
 		t.Fatalf("expected unknown viewport size to avoid tmux bootstrap work, got %v", calls)
-	}
-}
-
-func TestRollbackExistingSessionBootstrap_SkipsReplacementSession(t *testing.T) {
-	calls := make([]string, 0, 4)
-	RollbackExistingSessionBootstrap("session-race", SessionBootstrapCapture{
-		SessionCreatedAt: 123,
-		PaneID:           "%1",
-		RollbackCols:     91,
-		RollbackRows:     27,
-		NeedsRollback:    true,
-	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 456, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%9", nil
-		},
-		SessionHasClients: func(sessionName string, opts tmux.Options) (bool, error) {
-			t.Fatal("did not expect client check after generation mismatch")
-			return false, nil
-		},
-		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
-			t.Fatal("did not expect rollback resize for a replacement session")
-			return nil
-		},
-	})
-	if len(calls) != 2 {
-		t.Fatalf("expected only generation check before skipping rollback, got %v", calls)
-	}
-}
-
-func TestRollbackExistingSessionBootstrap_SkipsLiveSharedSession(t *testing.T) {
-	calls := make([]string, 0, 4)
-	RollbackExistingSessionBootstrap("session-race", SessionBootstrapCapture{
-		SessionCreatedAt: 123,
-		PaneID:           "%1",
-		RollbackCols:     91,
-		RollbackRows:     27,
-		NeedsRollback:    true,
-	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%1", nil
-		},
-		SessionHasClients: func(sessionName string, opts tmux.Options) (bool, error) {
-			calls = append(calls, "clients")
-			return true, nil
-		},
-		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
-			t.Fatal("did not expect rollback resize for a shared session")
-			return nil
-		},
-	})
-	if len(calls) != 3 {
-		t.Fatalf("expected generation and client checks before skipping rollback, got %v", calls)
-	}
-}
-
-func TestBootstrapSnapshotStillMatchesSession_RejectsRecentActivitySinceCapture(t *testing.T) {
-	calls := make([]string, 0, 4)
-	ok := BootstrapSnapshotStillMatchesSession("session-race", SessionBootstrapCapture{
-		Snapshot:         tmux.PaneSnapshot{Cols: 91, Rows: 27},
-		CaptureFullPane:  true,
-		SnapshotCaptured: time.Now().Add(-5 * time.Second),
-		SessionCreatedAt: 123,
-		PaneID:           "%1",
-	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%1", nil
-		},
-		SessionPaneSize: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			calls = append(calls, "size")
-			return 91, 27, true, nil
-		},
-		SessionActiveWithin: func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-			calls = append(calls, "activity")
-			if window < 4*time.Second {
-				t.Fatalf("expected activity recheck window to cover time since snapshot, got %s", window)
-			}
-			return true, nil
-		},
-	})
-	if ok {
-		t.Fatal("expected snapshot to be rejected once the pane became active after capture")
-	}
-	if len(calls) != 4 {
-		t.Fatalf("expected generation, size, and activity recheck, got %v", calls)
-	}
-}
-
-func TestBootstrapSnapshotStillMatchesSession_IgnoresSameSecondActivityBeforeSnapshot(t *testing.T) {
-	ok := BootstrapSnapshotStillMatchesSession("session-race", SessionBootstrapCapture{
-		Snapshot:         tmux.PaneSnapshot{Cols: 91, Rows: 27},
-		CaptureFullPane:  true,
-		SnapshotCaptured: time.Unix(12, 900_000_000),
-		SessionCreatedAt: 123,
-		PaneID:           "%1",
-	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			return "%1", nil
-		},
-		SessionPaneSize: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			return 91, 27, true, nil
-		},
-		SessionClientCount: func(sessionName string, opts tmux.Options) (int, error) {
-			return 1, nil
-		},
-		SessionLatestActivity: func(sessionName string, opts tmux.Options) (time.Time, bool, error) {
-			return time.Unix(12, 0), true, nil
-		},
-		SessionActiveWithin: func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-			t.Fatal("did not expect padded activity-window check when raw activity timestamp is available")
-			return false, nil
-		},
-	})
-	if !ok {
-		t.Fatal("expected same-second activity before snapshot to keep the snapshot valid")
-	}
-}
-
-func TestBootstrapSnapshotStillMatchesSession_RejectsLaterSecondActivitySinceCapture(t *testing.T) {
-	ok := BootstrapSnapshotStillMatchesSession("session-race", SessionBootstrapCapture{
-		Snapshot:         tmux.PaneSnapshot{Cols: 91, Rows: 27},
-		CaptureFullPane:  true,
-		SnapshotCaptured: time.Unix(12, 100_000_000),
-		SessionCreatedAt: 123,
-		PaneID:           "%1",
-	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			return "%1", nil
-		},
-		SessionPaneSize: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			return 91, 27, true, nil
-		},
-		SessionClientCount: func(sessionName string, opts tmux.Options) (int, error) {
-			return 1, nil
-		},
-		SessionLatestActivity: func(sessionName string, opts tmux.Options) (time.Time, bool, error) {
-			return time.Unix(13, 0), true, nil
-		},
-		SessionActiveWithin: func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-			t.Fatal("did not expect padded activity-window check when raw activity timestamp is available")
-			return false, nil
-		},
-	})
-	if ok {
-		t.Fatal("expected later-second activity after capture to invalidate the snapshot")
-	}
-}
-
-func TestBootstrapSnapshotStillMatchesSession_RejectsSharedSessionAfterCapture(t *testing.T) {
-	calls := make([]string, 0, 4)
-	ok := BootstrapSnapshotStillMatchesSession("session-race", SessionBootstrapCapture{
-		Snapshot:         tmux.PaneSnapshot{Cols: 91, Rows: 27},
-		CaptureFullPane:  true,
-		SnapshotCaptured: time.Now().Add(-5 * time.Second),
-		SessionCreatedAt: 123,
-		PaneID:           "%1",
-	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%1", nil
-		},
-		SessionPaneSize: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			calls = append(calls, "size")
-			return 91, 27, true, nil
-		},
-		SessionClientCount: func(sessionName string, opts tmux.Options) (int, error) {
-			calls = append(calls, "clients")
-			return 2, nil
-		},
-		SessionActiveWithin: func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-			t.Fatal("did not expect activity check after session became shared")
-			return false, nil
-		},
-	})
-	if ok {
-		t.Fatal("expected snapshot to be rejected once another tmux client attached")
-	}
-	if len(calls) != 4 {
-		t.Fatalf("expected generation, size, and shared-session recheck, got %v", calls)
-	}
-}
-
-func TestBootstrapSnapshotStillMatchesSession_RejectsPaneSizeChangeAfterCapture(t *testing.T) {
-	calls := make([]string, 0, 3)
-	ok := BootstrapSnapshotStillMatchesSession("session-race", SessionBootstrapCapture{
-		Snapshot:         tmux.PaneSnapshot{Cols: 91, Rows: 27},
-		CaptureFullPane:  true,
-		SnapshotCaptured: time.Now().Add(-5 * time.Second),
-		SessionCreatedAt: 123,
-		PaneID:           "%1",
-	}, tmux.Options{}, SessionBootstrapFns{
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%1", nil
-		},
-		SessionPaneSize: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			calls = append(calls, "size")
-			return 120, 40, true, nil
-		},
-		SessionClientCount: func(sessionName string, opts tmux.Options) (int, error) {
-			t.Fatal("did not expect shared-session check after size drift")
-			return 0, nil
-		},
-		SessionActiveWithin: func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-			t.Fatal("did not expect activity check after size drift")
-			return false, nil
-		},
-	})
-	if ok {
-		t.Fatal("expected snapshot to be rejected once pane size changed after capture")
-	}
-	if len(calls) != 3 {
-		t.Fatalf("expected generation and size recheck, got %v", calls)
-	}
-}
-
-func TestCaptureExistingSessionBootstrap_RechecksExclusivityBeforeResize(t *testing.T) {
-	calls := make([]string, 0, 8)
-	hasClientsCalls := 0
-	bootstrap := CaptureExistingSessionBootstrap("session-race", 80, 24, FullPaneCaptureQuietWindow, tmux.Options{}, SessionBootstrapFns{
-		SessionHasClients: func(sessionName string, opts tmux.Options) (bool, error) {
-			calls = append(calls, "clients")
-			hasClientsCalls++
-			return hasClientsCalls >= 2, nil
-		},
-		SessionActiveWithin: func(sessionName string, window time.Duration, opts tmux.Options) (bool, error) {
-			calls = append(calls, "activity")
-			return false, nil
-		},
-		SessionCreatedAt: func(sessionName string, opts tmux.Options) (int64, error) {
-			calls = append(calls, "created")
-			return 123, nil
-		},
-		SessionPaneID: func(sessionName string, opts tmux.Options) (string, error) {
-			calls = append(calls, "pane")
-			return "%1", nil
-		},
-		SessionPaneSnapshotInfo: func(sessionName string, opts tmux.Options) (int, int, bool, error) {
-			calls = append(calls, "info")
-			return 91, 27, true, nil
-		},
-		ResizePaneToSize: func(sessionName string, cols, rows int, opts tmux.Options) error {
-			calls = append(calls, "resize")
-			return nil
-		},
-		CapturePaneSnapshot: func(sessionName string, opts tmux.Options) (tmux.PaneSnapshot, error) {
-			calls = append(calls, "snapshot")
-			return tmux.PaneSnapshot{Data: []byte("frame")}, nil
-		},
-	})
-	if bootstrap.CaptureFullPane {
-		t.Fatal("expected shared-on-recheck session to skip pre-attach full-pane bootstrap")
-	}
-	for _, call := range calls {
-		if call == "resize" || call == "snapshot" {
-			t.Fatalf("expected exclusivity recheck to prevent resize/snapshot, got %v", calls)
-		}
-	}
-	want := []string{"clients", "activity", "created", "pane", "info", "clients", "activity"}
-	if len(calls) != len(want) {
-		t.Fatalf("call order = %v, want %v", calls, want)
-	}
-	for i := range want {
-		if calls[i] != want[i] {
-			t.Fatalf("call order = %v, want %v", calls, want)
-		}
 	}
 }
