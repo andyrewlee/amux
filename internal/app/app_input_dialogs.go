@@ -105,10 +105,12 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 	project := a.dialogProject
 	workspace := a.dialogWorkspace
 	trustScriptsHash := a.dialogTrustScriptsHash
+	mergeBase := a.dialogMergeBase
 	a.dialog = nil
 	a.dialogProject = nil
 	a.dialogWorkspace = nil
 	a.dialogTrustScriptsHash = ""
+	a.dialogMergeBase = ""
 	logging.Debug("Dialog result: id=%s confirmed=%v value_len=%d", result.ID, result.Confirmed, len(result.Value))
 
 	// Defensive: handleDialogResult only knows how to act on IDs in the shared
@@ -198,6 +200,22 @@ func (a *App) handleDialogResult(result common.DialogResult) tea.Cmd {
 			// Message is the argv value of -m; sanitize control chars but never
 			// shell-interpolate. CommitAll rejects an empty message.
 			return a.commitWorkspaceAsync(workspace, validation.SanitizeInput(result.Value))
+		}
+
+	case DialogMergeWorkspace:
+		if workspace != nil {
+			// mergeBase was resolved and verified against the primary checkout's
+			// HEAD before the dialog was shown; reuse it rather than re-deriving,
+			// so the merge reports the branch the user actually agreed to.
+			return a.mergeWorkspaceAsync(workspace, mergeBase)
+		}
+
+	case DialogMergeConflict:
+		// Confirmed means "Yes, abort"; declining leaves the merge in progress
+		// for the user to resolve themselves, which is handled by the early
+		// !result.Confirmed return above.
+		if workspace != nil {
+			return a.abortWorkspaceMergeAsync(workspace)
 		}
 
 	case DialogTrustScripts:

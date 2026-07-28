@@ -93,3 +93,24 @@ func (m *Model) SetGitStatus(status *git.StatusResult) {
 	m.gitStatus = status
 	m.rebuildDisplayList()
 }
+
+// SetScriptRunning records whether the `run` script for the workspace rooted at
+// root is live, so the Changes header can show it. The root is stored alongside
+// the flag and checked at render time: a state change for a workspace the user
+// has since navigated away from updates nothing visible, instead of labeling
+// the current workspace with another one's script state.
+func (m *Model) SetScriptRunning(root string, running bool) {
+	m.scriptRunningRoot = root
+	m.scriptRunning = running
+}
+
+// scriptRunningHere reports whether the run-script indicator applies to the
+// workspace currently displayed.
+func (m *Model) scriptRunningHere() bool {
+	if !m.scriptRunning || m.workspace == nil {
+		return false
+	}
+	indicated := canonicalWorkspacePath(m.scriptRunningRoot)
+	current := canonicalWorkspacePath(m.workspace.Root)
+	return indicated != "" && indicated == current
+}

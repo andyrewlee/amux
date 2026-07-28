@@ -67,6 +67,12 @@ func (m *Model) renderChanges() string {
 			b.WriteString(" ")
 			b.WriteString(badge)
 		}
+		// Only shown while the run script is live: an absent indicator means
+		// "not running", so there is nothing to render in the common case.
+		if m.scriptRunningHere() {
+			b.WriteString(" ")
+			b.WriteString(m.styles.StatusAdded.Render("[run]"))
+		}
 		b.WriteString("\n")
 	}
 
@@ -250,6 +256,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("c", "commit"),
 		m.helpItem("b", "vs base"),
 		m.helpItem("e", "env"),
+		m.helpItem("r", "run script"),
 		m.helpItem("/", "filter"),
 		m.helpItem("g", "refresh"),
 	}

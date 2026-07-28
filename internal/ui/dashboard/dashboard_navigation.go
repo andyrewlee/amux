@@ -362,6 +362,29 @@ func (m *Model) handleRename() tea.Cmd {
 	return nil
 }
 
+// handleMerge handles the merge key. Merge lives on the dashboard rather than
+// the sidebar because it mutates the project's primary checkout, not the
+// workspace worktree — the same locus as delete. Only workspace rows can be
+// merged; a project row has no branch to merge.
+//
+// Every precondition (is the base checked out? is this the primary checkout?)
+// is the App's to evaluate: it needs to shell out to git, which the dashboard
+// does not do. This only names the workspace.
+func (m *Model) handleMerge() tea.Cmd {
+	if m.cursor >= len(m.rows) {
+		return nil
+	}
+
+	row := m.rows[m.cursor]
+	if row.Type == RowWorkspace && row.Workspace != nil {
+		return func() tea.Msg {
+			return messages.MergeWorkspace{Workspace: row.Workspace}
+		}
+	}
+
+	return nil
+}
+
 // refresh requests a workspace rescan/import.
 func (m *Model) refresh() tea.Cmd {
 	return func() tea.Msg { return messages.RescanWorkspaces{} }

@@ -6,7 +6,7 @@ func TestLoadPaneCaptureWithCursorAndModes_ClampsAltSavedCursorAfterResize(t *te
 	t.Parallel()
 	vt := New(10, 3)
 	vt.Write([]byte("shell"))
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 
 	vt.LoadPaneCaptureWithCursorAndModes(
 		[]byte("menu one\nmenu two\nmenu tri\n"),

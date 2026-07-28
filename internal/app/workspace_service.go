@@ -14,7 +14,6 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/validation"
 )
 
@@ -191,44 +190,6 @@ func (s *workspaceService) createWorkspaceLocked(repoPath, workspacePath, branch
 	return s.gitOps.CreateWorkspace(repoPath, workspacePath, branch, base)
 }
 
-// RunSetupAsync runs setup scripts asynchronously and returns a WorkspaceSetupComplete message.
-func (s *workspaceService) RunSetupAsync(ws *data.Workspace) tea.Cmd {
-	return func() tea.Msg {
-		if s == nil || s.scripts == nil {
-			return messages.WorkspaceSetupComplete{Workspace: ws}
-		}
-		if err := s.scripts.RunSetup(ws); err != nil {
-			return messages.WorkspaceSetupComplete{Workspace: ws, Err: err}
-		}
-		return messages.WorkspaceSetupComplete{Workspace: ws}
-	}
-}
-
-// TrustRepoScriptsAndRunSetupAsync records trust for the reviewed repo config and retries setup.
-func (s *workspaceService) TrustRepoScriptsAndRunSetupAsync(ws *data.Workspace, expectedHash string) tea.Cmd {
-	return func() tea.Msg {
-		if s == nil || s.scripts == nil {
-			return messages.WorkspaceSetupComplete{Workspace: ws}
-		}
-		if ws == nil {
-			return messages.WorkspaceSetupComplete{Workspace: ws, Err: errors.New("workspace is required")}
-		}
-		if err := s.scripts.TrustRepoScriptsIfHash(ws.Repo, expectedHash); err != nil {
-			if errors.Is(err, process.ErrScriptsChangedSincePrompt) {
-				if setupErr := s.scripts.RunSetup(ws); setupErr != nil {
-					return messages.WorkspaceSetupComplete{Workspace: ws, Err: setupErr}
-				}
-				return messages.WorkspaceSetupComplete{Workspace: ws}
-			}
-			return messages.WorkspaceSetupComplete{Workspace: ws, Err: err}
-		}
-		if err := s.scripts.RunSetup(ws); err != nil {
-			return messages.WorkspaceSetupComplete{Workspace: ws, Err: err}
-		}
-		return messages.WorkspaceSetupComplete{Workspace: ws}
-	}
-}
-
 // DeleteWorkspace deletes a workspace.
 func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd {
 	// Defensive nil checks
@@ -315,6 +276,20 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return fail("stop_scripts", err)
 		}
 
+		// The archive script is the workspace's teardown hook, so it runs here:
+		// after the run script has been stopped (nothing is still writing) and
+		// while the worktree it operates on still exists. It is deliberately
+		// best-effort — a repo whose archive script is broken, or one the user has
+		// not trusted, must not make its workspaces undeletable.
+		//
+		// Delivery is at-least-once by construction. The script has to run before
+		// the worktree is removed, but removal can still fail afterwards, and the
+		// retried delete runs it again. There is no earlier point that is both
+		// after "this delete will definitely proceed" and before "the directory
+		// the script needs is gone", so archive scripts should be written to
+		// tolerate a repeat rather than assume exactly-once.
+		archiveWarning := s.runArchiveScriptForDelete(ws)
+
 		// Validation passed, so this delete will proceed. Write a durable tombstone
 		// FIRST so that if the process quits/crashes between here and the metadata
 		// removal, startup recovery can finish the delete rather than surfacing a
@@ -328,6 +303,7 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 		if failMsg != nil {
 			return failMsg
 		}
+		warning = joinWarnings(archiveWarning, warning)
 		if s.store != nil {
 			if err := s.deleteWorkspaceMetadata(ws); err != nil {
 				// Worktree and branch are already gone; because loading is store-
@@ -362,13 +338,6 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			Warning:   warning,
 		}
 	}
-}
-
-func (s *workspaceService) stopWorkspaceScriptsForDelete(ws *data.Workspace) error {
-	if s == nil || s.scripts == nil {
-		return nil
-	}
-	return s.scripts.Stop(ws)
 }
 
 func (s *workspaceService) killWorkspaceSessionsForDelete(wsID string) error {
@@ -462,21 +431,4 @@ func (s *workspaceService) Save(workspace *data.Workspace) error {
 		return nil
 	}
 	return s.store.Save(workspace)
-}
-
-func (s *workspaceService) StopAll() {
-	if s == nil || s.scripts == nil {
-		return
-	}
-	s.scripts.StopAll()
-}
-
-// ReleaseWorkspacePort releases the deleted workspace's port allocation. The
-// ScriptRunner gates the release on no script running for the workspace, so a
-// release here cannot strand a live script's port.
-func (s *workspaceService) ReleaseWorkspacePort(ws *data.Workspace) {
-	if s == nil || s.scripts == nil || ws == nil {
-		return
-	}
-	s.scripts.ReleaseWorkspace(ws)
 }

@@ -46,6 +46,13 @@ type Model struct {
 	branchErr     error
 	branchLoadID  int // guards a stale toggle-triggered fetch from clobbering a newer one
 
+	// scriptRunning mirrors whether the workspace's `run` script is live, as
+	// last reported by the app (which owns the ScriptRunner). It is keyed by
+	// workspace root rather than held as a bare bool so a state change that
+	// lands after the user has switched workspaces cannot mislabel the new one.
+	scriptRunningRoot string
+	scriptRunning     bool
+
 	// Ahead/behind vs base (git.AheadBehind), refreshed on workspace switch
 	// and manual refresh; rendered as a badge regardless of branchMode.
 	ahead             int

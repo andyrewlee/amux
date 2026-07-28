@@ -25,3 +25,9 @@ func runGit(t *testing.T, dir string, args ...string) string {
 func initRepo(t *testing.T) string {
 	return testutil.InitRepo(t)
 }
+
+// initRepoWithBranch is initRepo with a caller-chosen initial branch name, for
+// tests that need a default branch whose name is not a plain identifier.
+func initRepoWithBranch(t *testing.T, branch string) string {
+	return testutil.InitRepoWithBranch(t, branch)
+}

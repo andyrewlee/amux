@@ -101,7 +101,7 @@ func TestLoadPaneCapture_ReplacesAltScreenScrollback(t *testing.T) {
 	line := MakeBlankLine(20)
 	line[0] = Cell{Rune: 'h', Width: 1}
 	vt.Scrollback = append(vt.Scrollback, line)
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 
 	vt.LoadPaneCapture([]byte("screen one\nscreen two\n"))
 
@@ -151,7 +151,7 @@ func TestLoadPaneCapture_EmptyCaptureClearsAltScreenScrollback(t *testing.T) {
 	line := MakeBlankLine(20)
 	line[0] = Cell{Rune: 'h', Width: 1}
 	vt.Scrollback = append(vt.Scrollback, line)
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 	vt.Write([]byte("stale"))
 
 	vt.LoadPaneCaptureWithCursorAndModes(nil, 0, 0, true, PaneModeState{PreserveExistingState: true})
@@ -167,7 +167,7 @@ func TestLoadPaneCapture_EmptyCaptureClearsAltScreenScrollback(t *testing.T) {
 func TestLoadPaneCapture_ResetsTerminalModes(t *testing.T) {
 	t.Parallel()
 	vt := New(6, 3)
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 	vt.altScreenBuf[0][0] = Cell{Rune: 'x', Width: 1}
 	vt.ScrollTop = 1
 	vt.ScrollBottom = 2
@@ -218,7 +218,7 @@ func TestLoadPaneCapture_ResetsTerminalModes(t *testing.T) {
 func TestLoadPaneCapture_ResetModesAffectSubsequentWrites(t *testing.T) {
 	t.Parallel()
 	vt := New(6, 3)
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 	vt.ScrollTop = 1
 	vt.ScrollBottom = 2
 	vt.OriginMode = true

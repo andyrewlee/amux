@@ -60,6 +60,13 @@ Then run `amux` to open the dashboard.
 
 Each workspace tracks a repo checkout and its metadata. For local workflows, workspaces are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done.
 
+Both write actions are available from the UI, each behind an explicit confirmation:
+
+- **Commit** — press `c` in the Changes sidebar to stage everything in the workspace and commit it with a message you type. The commit lands on the workspace's own branch; amux never pushes.
+- **Merge** — press `M` on a workspace row in the dashboard to merge its branch into its base with `git merge --no-ff`. The merge happens in the project's primary checkout, so amux first checks that the base branch is already checked out there and refuses otherwise rather than moving your HEAD. On a conflict it lists the conflicted files and offers to abort; resolving them is yours to do in the terminal.
+
+Note that amux runs git with repository hooks disabled (see `AMUX_ALLOW_GIT_HOOKS` below), so your own `pre-commit` or `pre-merge` hooks will not fire on these actions.
+
 ## Architecture quick tour
 
 Start with [`ARCHITECTURE.md`](ARCHITECTURE.md) for the repo-level package map and dependency direction. Then `internal/app/ARCHITECTURE.md` covers lifecycle, PTY flow, tmux tagging, and persistence invariants, and `internal/app/MESSAGE_FLOW.md` documents message boundaries and command discipline.
@@ -89,8 +96,17 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
 ```
 
 - `setup-workspace` — commands run once when a new workspace is created.
-- `run` — the command started for a workspace's run script.
-- `archive` — the command run when a workspace is archived.
+- `run` — the command started for a workspace's run script. Press `r` in the
+  Changes sidebar to start it, and `r` again to stop it; a `[run]` marker sits
+  next to the branch name while it is live. Bind your dev server to `AMUX_PORT`
+  so parallel workspaces don't collide.
+- `archive` — the command run when a workspace is archived, i.e. just before its
+  worktree is deleted. It runs to completion (up to two minutes) in the worktree
+  while that directory still exists, after the run script has been stopped. It
+  is best-effort: if it fails or the repo isn't trusted yet, amux warns you and
+  deletes the workspace anyway, so a broken archive script can never strand a
+  workspace. Write it to tolerate running twice — if the delete itself fails
+  after the script has run, retrying the delete runs it again.
 
 ### Environment available to workspace scripts
 
