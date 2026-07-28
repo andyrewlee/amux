@@ -419,6 +419,7 @@ func (v *VTerm) applyPaneModeState(modeState PaneModeState) {
 		v.altScreenBuf = nil
 		v.altCursorX = 0
 		v.altCursorY = 0
+		v.discardStashedSavedCursor()
 		v.ScrollTop = 0
 		v.ScrollBottom = v.Height
 		v.OriginMode = false
@@ -455,6 +456,7 @@ func (v *VTerm) applyPaneModeState(modeState PaneModeState) {
 		v.altScreenBuf = nil
 		v.altCursorX = 0
 		v.altCursorY = 0
+		v.discardStashedSavedCursor()
 	}
 	scrollTop := modeState.ScrollTop
 	scrollBottom := modeState.ScrollBottom

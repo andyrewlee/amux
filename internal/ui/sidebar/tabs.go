@@ -396,6 +396,12 @@ func (m *TabbedSidebar) SetGitStatus(status *git.StatusResult) {
 	m.changes.SetGitStatus(status)
 }
 
+// SetScriptRunning forwards the run-script state for the workspace at root to
+// the changes view, which renders the indicator.
+func (m *TabbedSidebar) SetScriptRunning(root string, running bool) {
+	m.changes.SetScriptRunning(root, running)
+}
+
 // RefreshAheadBehind re-fetches the ahead/behind badge for the active
 // workspace (e.g. after a commit changes HEAD's distance from base).
 func (m *TabbedSidebar) RefreshAheadBehind() tea.Cmd {

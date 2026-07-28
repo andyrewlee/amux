@@ -256,6 +256,56 @@ type WorkspaceCommitted struct {
 	Err       error
 }
 
+// MergeWorkspace requests merging a workspace's branch into its base branch in
+// the project's primary checkout. The precondition check (is the base actually
+// checked out?) runs in the handler, before any confirm dialog is shown.
+//
+// The workspace alone identifies the merge: Repo names the primary checkout to
+// merge in, Branch what to merge, and Base what to merge into. No project is
+// carried because none is needed.
+type MergeWorkspace struct {
+	Workspace *data.Workspace
+}
+
+// ShowMergeWorkspaceDialog requests the merge confirmation dialog. Base is the
+// local branch the merge will land on, resolved and verified by the handler, so
+// the dialog can state the exact command that will run.
+type ShowMergeWorkspaceDialog struct {
+	Workspace *data.Workspace
+	Base      string
+}
+
+// MergeWorkspaceRefused reports that the merge precondition did not hold, so no
+// dialog is shown and nothing is written. Reason is the user-facing
+// explanation; Err is set only when the check itself failed (as opposed to
+// answering "no"), so the app can tell a refusal apart from a fault.
+type MergeWorkspaceRefused struct {
+	Workspace *data.Workspace
+	Reason    string
+	Err       error
+}
+
+// WorkspaceMerged is sent when a merge attempt finishes. A conflict arrives
+// here too, as an Err wrapping git.ErrMergeConflict, because a stopped merge is
+// an outcome the user must act on rather than a silent failure.
+type WorkspaceMerged struct {
+	Workspace *data.Workspace
+	Base      string
+	Err       error
+}
+
+// AbortWorkspaceMerge requests abandoning the merge left in progress in the
+// workspace's primary checkout.
+type AbortWorkspaceMerge struct {
+	Workspace *data.Workspace
+}
+
+// WorkspaceMergeAborted reports the outcome of an AbortWorkspaceMerge.
+type WorkspaceMergeAborted struct {
+	Workspace *data.Workspace
+	Err       error
+}
+
 // ShowRemoveProjectDialog requests showing the remove project confirmation
 type ShowRemoveProjectDialog struct {
 	Project *data.Project
@@ -325,16 +375,23 @@ type WorkspaceCreatedWithWarning struct {
 	Warning   string
 }
 
-// RunScript requests running a script for the active workspace
-type RunScript struct {
-	ScriptType string // "setup", "run", or "archive"
+// ToggleWorkspaceScript requests starting a workspace's `run` script, or
+// stopping it when it is already running. The app owns the ScriptRunner and so
+// decides which of the two applies; the sender only names the workspace.
+//
+// Only `run` is user-triggerable: `setup` fires automatically on workspace
+// creation and `archive` fires on delete, so neither needs a request message.
+type ToggleWorkspaceScript struct {
+	Workspace *data.Workspace
 }
 
-// ScriptOutput contains output from a running script
-type ScriptOutput struct {
-	Output string
-	Done   bool
-	Err    error
+// WorkspaceScriptStateChanged reports the outcome of a ToggleWorkspaceScript.
+// Running is the state the workspace's run script ended up in, so the sidebar
+// can show an accurate indicator even when the request failed.
+type WorkspaceScriptStateChanged struct {
+	Workspace *data.Workspace
+	Running   bool
+	Err       error
 }
 
 // GitStatusTick triggers periodic git status refresh

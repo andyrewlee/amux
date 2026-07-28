@@ -39,8 +39,13 @@ import (
 //	                       CreateWorkspace, DeleteWorkspace, WorkspaceDeleted/
 //	                       DeleteFailed, AddProject/RemoveProject/ProjectRemoved,
 //	                       RefreshDashboard, RescanWorkspaces, GitStatusResult,
+//	                       WorkspaceCommitted, MergeWorkspace/
+//	                       MergeWorkspaceRefused/WorkspaceMerged/
+//	                       WorkspaceMergeAborted, ToggleWorkspaceScript/
+//	                       WorkspaceScriptStateChanged,
 //	                       FileWatcherEvent, StateWatcherEvent
-//	                       → app_input_messages_workspace.go, app_input_workspace.go
+//	                       → app_input_messages_workspace.go, app_input_workspace.go,
+//	                         app_workspace_merge.go, app_workspace_scripts.go
 //	updateDialogShowMsg    Show* dialog requests, ThemePreview, SettingsResult,
 //	                       EnvDialogResult
 //	                       → app_input_dialogs.go
@@ -259,6 +264,30 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleWorkspaceCommitted(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case messages.MergeWorkspace:
+		if cmd := a.handleMergeWorkspace(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.MergeWorkspaceRefused:
+		if cmd := a.handleMergeWorkspaceRefused(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.WorkspaceMerged:
+		if cmd := a.handleWorkspaceMerged(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.WorkspaceMergeAborted:
+		if cmd := a.handleWorkspaceMergeAborted(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.ToggleWorkspaceScript:
+		if cmd := a.handleToggleWorkspaceScript(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.WorkspaceScriptStateChanged:
+		if cmd := a.handleWorkspaceScriptStateChanged(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case messages.FileWatcherEvent:
 		*cmds = append(*cmds, a.handleFileWatcherEvent(msg)...)
 	case messages.StateWatcherEvent:
@@ -297,6 +326,8 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleShowWorkspaceEnvDialog(msg)
 	case messages.ShowCommitWorkspaceDialog:
 		a.handleShowCommitWorkspaceDialog(msg)
+	case messages.ShowMergeWorkspaceDialog:
+		a.handleShowMergeWorkspaceDialog(msg)
 	case messages.ShowTrustScriptsDialog:
 		a.handleShowTrustScriptsDialog(msg)
 	case messages.ShowRemoveProjectDialog:

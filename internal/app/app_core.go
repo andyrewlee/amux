@@ -29,6 +29,8 @@ const (
 	DialogDeleteWorkspace = "delete_workspace"
 	DialogRenameWorkspace = "rename_workspace"
 	DialogCommitWorkspace = "commit_workspace"
+	DialogMergeWorkspace  = "merge_workspace"
+	DialogMergeConflict   = "merge_conflict"
 	DialogTrustScripts    = "trust_scripts"
 	DialogRemoveProject   = "remove_project"
 	// DialogSelectAssistant is the legacy ID for the assistant-selection flow.
@@ -106,6 +108,10 @@ type App struct {
 	dialogProject          *data.Project
 	dialogWorkspace        *data.Workspace
 	dialogTrustScriptsHash string
+	// dialogMergeBase is the local base branch the pending merge confirmation
+	// resolved and verified, carried to the confirm handler so it reports the
+	// same branch the user was shown.
+	dialogMergeBase string
 	// Pending workspace creation context while selecting assistant.
 	pendingWorkspaceProject *data.Project
 	pendingWorkspaceName    string
@@ -118,10 +124,14 @@ type App struct {
 	// would let the second overwrite the first, leaving it with no agent.
 	pendingLaunchAssistants map[string]string
 
-	// commitAllFn is the git commit-all seam. Nil in production (falls back to
-	// git.CommitAll); tests install a fake to assert the dialog→commit wiring
+	// Git write-back seams. All nil in production (each falls back to the real
+	// git.* function); tests install fakes to assert the dialog→git wiring
 	// without a real repo.
-	commitAllFn func(context.Context, string, string) error
+	commitAllFn        func(context.Context, string, string) error
+	mergeBranchFn      func(context.Context, string, string) error
+	abortMergeFn       func(context.Context, string) error
+	checkedOutBranchFn func(string) (string, error)
+	localBaseBranchFn  func(repoPath, base string) string
 
 	// Git status management
 	fileWatcher     *git.FileWatcher

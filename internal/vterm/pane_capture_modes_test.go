@@ -6,7 +6,7 @@ func TestLoadPaneCaptureWithCursorAndModes_PreservesActiveAltScreenBuffer(t *tes
 	t.Parallel()
 	vt := New(6, 3)
 	vt.Write([]byte("shell"))
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 	vt.Write([]byte("tui"))
 	vt.LoadPaneCaptureWithCursorAndModes(
 		[]byte("one\ntwo\nthree"),
@@ -99,7 +99,7 @@ func TestLoadPaneCaptureWithCursorAndModes_ClearsStaleAltScreenState(t *testing.
 	t.Parallel()
 	vt := New(8, 3)
 	vt.Write([]byte("oldhome"))
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 	vt.Write([]byte("oldtui"))
 	vt.ScrollTop = 1
 	vt.ScrollBottom = 2
@@ -361,7 +361,7 @@ func TestLoadPaneCaptureWithCursor_PreservesExistingAltScreenStateWhenModesUnkno
 	t.Parallel()
 	vt := New(6, 3)
 	vt.Write([]byte("shell"))
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 	vt.Write([]byte("tui"))
 
 	vt.LoadPaneCaptureWithCursorAndModes([]byte("one\ntwo\nthree"), 0, 2, true, PaneModeState{PreserveExistingState: true})
@@ -384,7 +384,7 @@ func TestLoadPaneCaptureWithCursorAndModes_DoesNotReplaceExistingMainBufferWithH
 	t.Parallel()
 	vt := New(8, 2)
 	vt.Write([]byte("oldhome"))
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 	vt.Write([]byte("oldtui"))
 
 	vt.LoadPaneCaptureWithCursorAndModes(
@@ -429,7 +429,7 @@ func TestLoadPaneCaptureWithCursorAndModes_PreservesExistingAltSavedCursorWhenOm
 	t.Parallel()
 	vt := New(8, 3)
 	vt.Write([]byte("shell"))
-	vt.enterAltScreen()
+	vt.enterAltScreen(true)
 	vt.altCursorX = 4
 	vt.altCursorY = 1
 	vt.Write([]byte("menu"))

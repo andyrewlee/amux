@@ -47,8 +47,20 @@ type VTerm struct {
 	// scrollback.
 	altScreenRestorePending [][]Cell
 	altScreenBuf            [][]Cell
-	altCursorX              int
-	altCursorY              int
+	// altCursorX/Y hold the primary-screen cursor stashed by mode 1049 on
+	// entry, restored on exit. This is the mode's own save slot, distinct from
+	// the DECSC slot below — an application can use both independently.
+	altCursorX int
+	altCursorY int
+	// primarySavedCursor holds the primary screen's DECSC slot while the
+	// alternate screen is active. Real terminals keep one saved-cursor per
+	// buffer, so a DECSC issued by a full-screen application must not clobber
+	// what the shell saved before the application started. Managed by
+	// stashPrimarySavedCursor / restorePrimarySavedCursor.
+	primarySavedCursor savedCursor
+	// inAltSavedCursor reports whether primarySavedCursor currently holds a
+	// stashed primary slot, so an unbalanced exit cannot restore a stale one.
+	inAltSavedCursor bool
 
 	// Scrolling region (for DECSTBM)
 	ScrollTop    int

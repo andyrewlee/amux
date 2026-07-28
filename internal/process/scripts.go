@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/safego"
 )
 
 // ScriptType identifies the type of script
@@ -37,6 +36,14 @@ var ErrScriptsNotTrusted = errors.New("project scripts not trusted")
 // ErrScriptsChangedSincePrompt is returned when a user approves script content
 // after the repo config changed from the content that originally triggered the prompt.
 var ErrScriptsChangedSincePrompt = errors.New("project scripts changed since trust prompt")
+
+// ErrNoScriptConfigured is returned (wrapped) when neither the repo's
+// .amux/workspaces.json nor the workspace's own Scripts field defines a command
+// for the requested script type. It is a sentinel rather than a bare error so
+// callers can treat "nothing to run" as benign — the archive-on-delete path
+// skips silently, while a user-triggered run reports it — instead of surfacing
+// it as a failure.
+var ErrNoScriptConfigured = errors.New("no script configured")
 
 // ScriptsNotTrustedError carries the hash of the repo config content that was
 // blocked, so the UI can bind a later approval to the exact reviewed content.
@@ -269,88 +276,6 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 	}
 
 	return nil
-}
-
-// RunScript runs a script for a workspace
-func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*exec.Cmd, error) {
-	if err := validateScriptWorkspace(ws); err != nil {
-		return nil, err
-	}
-
-	config, raw, err := r.loadConfigRaw(ws.Repo)
-	if err != nil {
-		return nil, err
-	}
-
-	// fromRepoConfig is true only when the command came from the repo's
-	// .amux/workspaces.json (config.RunScript/config.ArchiveScript), false when
-	// it fell back to ws.Scripts.* (user-entered in the amux UI). Only the
-	// repo-supplied case is gated behind trust.
-	var cmdStr string
-	var fromRepoConfig bool
-	switch scriptType {
-	case ScriptRun:
-		if config.RunScript != "" {
-			cmdStr, fromRepoConfig = config.RunScript, true
-		} else {
-			cmdStr = ws.Scripts.Run
-		}
-	case ScriptArchive:
-		if config.ArchiveScript != "" {
-			cmdStr, fromRepoConfig = config.ArchiveScript, true
-		} else {
-			cmdStr = ws.Scripts.Archive
-		}
-	}
-
-	if cmdStr == "" {
-		return nil, fmt.Errorf("no %s script configured", scriptType)
-	}
-
-	// Gate only repo-supplied commands; user-entered ws.Scripts.* always run.
-	if fromRepoConfig && !r.trust.IsTrusted(ws.Repo, raw) {
-		return nil, &ScriptsNotTrustedError{
-			Repo:       ws.Repo,
-			Command:    cmdStr,
-			ConfigHash: hashConfig(raw),
-		}
-	}
-
-	// Check for existing process in non-concurrent mode
-	if ws.ScriptMode == "nonconcurrent" {
-		if err := r.Stop(ws); !isBenignStopError(err) {
-			return nil, err
-		}
-	}
-
-	env := r.envBuilder.BuildEnv(ws)
-
-	cmd := exec.Command("sh", "-c", cmdStr)
-	cmd.Dir = ws.Root
-	cmd.Env = env
-	SetProcessGroup(cmd)
-
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	running := &runningScript{
-		cmd:  cmd,
-		done: make(chan struct{}),
-	}
-	key := scriptWorkspaceKey(ws)
-	r.setRunningEntry(key, running)
-
-	// Monitor in background
-	safego.Go("process.script_wait", func() {
-		defer close(running.done)
-		if err := cmd.Wait(); err != nil {
-			slog.Debug("script process exited with error", "error", err)
-		}
-		r.finishRunningEntry(key, running)
-	})
-
-	return cmd, nil
 }
 
 // TrustRepoScripts records the current content of repoPath's

@@ -101,6 +101,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			cmds = append(cmds, m.toggleBranchMode())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("e"))):
 			cmds = append(cmds, m.openEnvDialog())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
+			cmds = append(cmds, m.toggleRunScript())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
 			// Enter filter mode
 			m.filterMode = true
@@ -229,6 +231,21 @@ func (m *Model) openEnvDialog() tea.Cmd {
 	ws := m.workspace
 	return func() tea.Msg {
 		return messages.ShowWorkspaceEnvDialog{Workspace: ws}
+	}
+}
+
+// toggleRunScript asks the app to start the workspace's `run` script, or stop
+// it when it is already running. The sidebar does not decide which: it has no
+// ScriptRunner, and the mirrored scriptRunning flag is a display hint that can
+// lag a start/stop still in flight, so the app resolves the direction against
+// live state and reports back via WorkspaceScriptStateChanged.
+func (m *Model) toggleRunScript() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.ToggleWorkspaceScript{Workspace: ws}
 	}
 }
 

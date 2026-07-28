@@ -214,6 +214,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 		switch m.rows[m.cursor].Type {
 		case RowWorkspace:
 			items = append(items, m.helpItem("R", "rename"))
+			items = append(items, m.helpItem("M", "merge"))
 			items = append(items, m.helpItem("D", "delete"))
 		case RowProject:
 			items = append(items, m.helpItem("D", "remove"))

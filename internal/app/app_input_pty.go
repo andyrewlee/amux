@@ -40,6 +40,7 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 	}
 	// Refresh active workspace indicators even when no PTY output is flowing.
 	a.syncActiveWorkspacesToDashboard()
+	a.syncRunScriptIndicator()
 	cmds = append(cmds, a.startGitStatusTicker())
 	return cmds
 }

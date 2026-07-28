@@ -313,6 +313,10 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	if cmd := a.sidebar.SetWorkspace(msg.Workspace); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	// Bring the run-script indicator in line with the newly active workspace
+	// immediately, rather than letting the periodic reconcile show the previous
+	// workspace's state for up to a tick.
+	a.syncRunScriptIndicator()
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	// Discover shared tmux tabs first; restore/sync happens below.
 	if !a.hasPendingAgentLaunch(msg.Workspace) {
