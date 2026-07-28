@@ -55,12 +55,18 @@ type Tab struct {
 	Detached    bool
 	// reattachInFlight prevents overlapping reattach attempts for the same tab.
 	reattachInFlight bool
-	Terminal         *vterm.VTerm // Virtual terminal emulator with scrollback
-	DiffViewer       *diff.Model  // Native diff viewer (replaces PTY-based viewer)
-	mu               sync.Mutex   // Protects Terminal, Agent, Running, Detached, Workspace, DiffViewer and the embedded state groups
-	closed           uint32
-	closing          uint32
-	Running          bool // Whether the agent is actively running
+	// reattachStartedAt is when reattachInFlight was last acquired, used by the
+	// stalled-reattach sweep to release a lock whose outcome never arrived.
+	reattachStartedAt time.Time
+	// reattachEpoch increments on every acquisition so a result can be matched
+	// to the attempt that produced it; see beginReattachLocked.
+	reattachEpoch uint64
+	Terminal      *vterm.VTerm // Virtual terminal emulator with scrollback
+	DiffViewer    *diff.Model  // Native diff viewer (replaces PTY-based viewer)
+	mu            sync.Mutex   // Protects Terminal, Agent, Running, Detached, Workspace, DiffViewer and the embedded state groups
+	closed        uint32
+	closing       uint32
+	Running       bool // Whether the agent is actively running
 
 	// ptyio.State holds the shared PTY buffering/reader/restart/snapshot
 	// bookkeeping (locking owned by mu, as documented on the type).

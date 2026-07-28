@@ -41,7 +41,7 @@ func TestAddPlaceholderTab_SetsLastFocusedFromCreatedAt(t *testing.T) {
 	wsID := string(ws.ID())
 	createdAt := time.Now().Add(-2 * time.Hour).Unix()
 
-	_, _ = m.addPlaceholderTab(ws, data.TabInfo{
+	_, _, _ = m.addPlaceholderTab(ws, data.TabInfo{
 		Assistant: "claude",
 		Name:      "Claude",
 		CreatedAt: createdAt,

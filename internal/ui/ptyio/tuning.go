@@ -24,4 +24,13 @@ const (
 	PtyRestartMax = 5
 	// PtyRestartWindow is the sliding window for counting reader restarts.
 	PtyRestartWindow = time.Minute
+	// ReattachStallTimeout bounds how long a tab or terminal may hold its
+	// reattach lock. Both panes release that lock only when the reattach
+	// outcome comes back, so an outcome that is dropped, misrouted, or never
+	// produced pins the tab in the reattaching state and makes every retry
+	// no-op behind the same lock. A reattach is a handful of tmux round-trips
+	// against a shared, single-threaded server, so a loaded server can take
+	// seconds; this sits well past any real reattach so a sweep only ever
+	// releases a lost one, never a slow one.
+	ReattachStallTimeout = 45 * time.Second
 )

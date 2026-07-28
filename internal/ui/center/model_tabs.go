@@ -63,15 +63,19 @@ type ptyTabCreateResult struct {
 type ptyTabReattachResult struct {
 	WorkspaceID string
 	TabID       TabID
-	Agent       *appPty.Agent
-	Rows        int
-	Cols        int
+	// Epoch is the reattach generation this result was dispatched under; a
+	// result from a superseded attempt is dropped. See beginReattachLocked.
+	Epoch uint64
+	Agent *appPty.Agent
+	Rows  int
+	Cols  int
 	ptyio.SessionRestoreCapture
 }
 
 type ptyTabReattachFailed struct {
 	WorkspaceID string
 	TabID       TabID
+	Epoch       uint64
 	Err         error
 	Stopped     bool
 	Action      string

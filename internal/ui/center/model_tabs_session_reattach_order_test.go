@@ -137,7 +137,7 @@ func TestReattachToSession_CapturesSnapshotBeforeAttach(t *testing.T) {
 	setKnownViewport(m)
 	ws := newTestWorkspace("ws", "/repo/ws")
 
-	result, ok := m.reattachToSession(ws, TabID("tab-restore"), "codex", "session-restore")().(ptyTabReattachResult)
+	result, ok := m.reattachToSession(ws, TabID("tab-restore"), "codex", "session-restore", 1)().(ptyTabReattachResult)
 	if !ok {
 		t.Fatal("expected ptyTabReattachResult")
 	}

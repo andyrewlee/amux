@@ -1,5 +1,7 @@
 package center
 
+import "time"
+
 // A Tab's PTY lifecycle is held as the underlying flags
 // (Running/Detached/reattachInFlight) rather than a derived phase value:
 // Running and Detached are exported package API (the app, harness and
@@ -69,12 +71,33 @@ func (t *Tab) markReattachFailedLocked(stopped bool) {
 
 // beginReattachLocked acquires the reattach transition lock, reporting false
 // when a reattach is already in flight.
+//
+// The acquisition is stamped because the lock is only released by the reattach
+// outcome coming back. An outcome that is dropped, misrouted, or never produced
+// would otherwise pin the tab in the reattaching state for the rest of the
+// process lifetime — with every retry silently no-oping behind this same lock.
+// The stamp is what lets the periodic sweep tell a slow reattach from a lost
+// one; see SweepStalledReattaches.
+//
+// The epoch bump exists because that sweep makes retries possible while an
+// earlier attempt may still be running: without it, a slow attempt returning
+// after the retry would overwrite the newer attempt's agent with its own —
+// leaking a tmux client and pointing the tab at a PTY the retry already
+// superseded. Results carry the epoch they were dispatched under and are
+// dropped if a newer attempt has since started.
 func (t *Tab) beginReattachLocked() bool {
 	if t.reattachInFlight {
 		return false
 	}
 	t.reattachInFlight = true
+	t.reattachStartedAt = time.Now()
+	t.reattachEpoch++
 	return true
+}
+
+// reattachEpochLocked reports the current reattach generation.
+func (t *Tab) reattachEpochLocked() uint64 {
+	return t.reattachEpoch
 }
 
 // endReattachLocked releases the reattach transition lock without changing
