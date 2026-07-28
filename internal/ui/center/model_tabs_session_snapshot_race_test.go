@@ -126,7 +126,7 @@ func TestReattachToSession_DiscardsPreAttachSnapshotWhenSessionRecreated(t *test
 	setKnownViewport(m)
 	ws := newTestWorkspace("ws", "/repo/ws")
 
-	msg := m.reattachToSession(ws, TabID("tab-restore-race"), "codex", "session-race")()
+	msg := m.reattachToSession(ws, TabID("tab-restore-race"), "codex", "session-race", 1)()
 	result, ok := msg.(ptyTabReattachResult)
 	if !ok {
 		t.Fatalf("expected ptyTabReattachResult, got %T", msg)

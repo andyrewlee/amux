@@ -75,17 +75,40 @@ func (m *Model) sessionRestoreLiveSize(captureFullPane bool, captureCols, captur
 
 // updatePtyTabReattachResult handles ptyTabReattachResult.
 func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, tea.Cmd) {
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "reattach result")
 	if tab == nil {
 		// The tab was closed (or its workspace deleted) while the reattach was
 		// in flight: release the freshly created agent/PTY so it does not leak.
+		// Logged because this also silently discards a successful attach, which
+		// is indistinguishable from a hang if it ever happens to a live tab.
+		logging.Info("Discarding reattach result for unknown tab %s (workspace %s)", msg.TabID, msg.WorkspaceID)
+		if msg.Agent != nil {
+			_ = m.agentManager.CloseAgent(msg.Agent)
+		}
+		return m, nil
+	}
+	if superseded, _ := m.reattachSuperseded(tab, msg.Epoch); superseded {
+		// A newer reattach has started since this one was dispatched — possible
+		// once the stall sweep releases a lock. Applying this result would
+		// overwrite the newer attempt's agent with a stale one and leak the tmux
+		// client it replaced, so drop it and release what it created.
+		logging.Warn("Dropping superseded reattach result for tab %s (epoch %d)", msg.TabID, msg.Epoch)
 		if msg.Agent != nil {
 			_ = m.agentManager.CloseAgent(msg.Agent)
 		}
 		return m, nil
 	}
 	if msg.Agent == nil {
-		return m, nil
+		// A result with no agent cannot attach anything, but the reattach lock
+		// is still held: release it so the tab reads as detached and the user
+		// can retry instead of being stuck in REATTACHING forever.
+		tab.mu.Lock()
+		tab.markReattachFailedLocked(false)
+		tab.mu.Unlock()
+		logging.Warn("Reattach for tab %s returned no agent; releasing reattach lock", msg.TabID)
+		return m, func() tea.Msg {
+			return messages.TabStateChanged{WorkspaceID: wsID, TabID: string(msg.TabID)}
+		}
 	}
 	// Reject a result for a tab that was explicitly detached while this reattach
 	// was in flight: detachTab clears reattachInFlight and sets Detached, so a
@@ -140,7 +163,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 
 	if tab.Terminal != nil && msg.Agent.Terminal != nil {
 		agentTerm := msg.Agent.Terminal
-		workspaceID := msg.WorkspaceID
+		workspaceID := wsID
 		tabID := tab.ID
 		tab.Terminal.SetResponseWriter(func(data []byte) {
 			if len(data) == 0 || agentTerm == nil {
@@ -157,16 +180,21 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 
 	m.resizePTY(tab, rows, cols)
 
-	cmd := m.startPTYReader(msg.WorkspaceID, tab)
+	cmd := m.startPTYReader(wsID, tab)
 	return m, common.SafeBatch(cmd, func() tea.Msg {
-		return messages.TabReattached{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
+		return messages.TabReattached{WorkspaceID: wsID, TabID: string(msg.TabID)}
 	})
 }
 
 // updatePtyTabReattachFailed handles ptyTabReattachFailed.
 func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, tea.Cmd) {
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "reattach failure")
 	if tab == nil {
+		return m, nil
+	}
+	if superseded, _ := m.reattachSuperseded(tab, msg.Epoch); superseded {
+		// A newer attempt owns the tab now; this one's failure says nothing
+		// about it and must not release its lock or toast over it.
 		return m, nil
 	}
 	tab.mu.Lock()
@@ -186,13 +214,90 @@ func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, te
 		label = "Reattach"
 	}
 	return m, common.SafeBatch(func() tea.Msg {
-		return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
+		return messages.TabStateChanged{WorkspaceID: wsID, TabID: string(msg.TabID)}
 	}, func() tea.Msg {
 		return messages.Toast{
 			Message: fmt.Sprintf("%s failed: %v", label, msg.Err),
 			Level:   messages.ToastWarning,
 		}
 	})
+}
+
+// reattachSuperseded reports whether a reattach outcome belongs to an attempt
+// that a newer one has already replaced, along with the tab's current epoch.
+//
+// Epoch 0 means the outcome predates epoch tracking (or came from a tab that
+// never took the lock through beginReattachLocked); such an outcome is applied
+// as before rather than dropped, so the guard can only ever reject a message it
+// can positively identify as stale.
+func (m *Model) reattachSuperseded(tab *Tab, epoch uint64) (bool, uint64) {
+	tab.mu.Lock()
+	current := tab.reattachEpochLocked()
+	tab.mu.Unlock()
+	if epoch == 0 {
+		return false, current
+	}
+	return epoch != current, current
+}
+
+// SweepStalledReattaches releases reattach locks whose outcome never arrived.
+//
+// The reattach lock is normally released by ptyTabReattachResult or
+// ptyTabReattachFailed. If such a message is dropped, misrouted, or never
+// produced, the tab is pinned in the reattaching state forever: the badge never
+// changes and every retry — keypress or automatic — no-ops behind the lock it
+// is waiting on. This sweep is the backstop for all of those causes at once,
+// including ones added later, which is why it is a periodic scan of state
+// rather than a timer armed by each reattach path.
+//
+// It is not a cancellation: the reattach goroutine is untouched and a late
+// outcome still applies normally. All the sweep does is stop the tab from
+// claiming to be reattaching, so the user can act on it.
+func (m *Model) SweepStalledReattaches() tea.Cmd {
+	now := time.Now()
+	var cmds []tea.Cmd
+	var stalled int
+	for wsID, tabs := range m.tabs.ByWorkspace {
+		for _, tab := range tabs {
+			if tab == nil || tab.isClosed() {
+				continue
+			}
+			tab.mu.Lock()
+			// A running tab holds no meaningful lock even if the flag lingers,
+			// and a zero stamp means the flag was set outside beginReattachLocked
+			// — stamp it now rather than releasing something never timed.
+			stuck := false
+			switch {
+			case !tab.reattachInFlight || tab.Running:
+			case tab.reattachStartedAt.IsZero():
+				tab.reattachStartedAt = now
+			case now.Sub(tab.reattachStartedAt) > ptyio.ReattachStallTimeout:
+				tab.markReattachFailedLocked(false)
+				stuck = true
+			}
+			tabID := tab.ID
+			tab.mu.Unlock()
+			if !stuck {
+				continue
+			}
+			stalled++
+			logging.Warn("Reattach for tab %s produced no outcome within %s; releasing reattach lock", tabID, ptyio.ReattachStallTimeout)
+			cmds = append(cmds, func() tea.Msg {
+				return messages.TabStateChanged{WorkspaceID: wsID, TabID: string(tabID)}
+			})
+		}
+	}
+	if stalled == 0 {
+		return nil
+	}
+	cmds = append(cmds, func() tea.Msg {
+		return messages.Toast{
+			// Same spelling the help bar uses for this binding.
+			Message: "Reattach timed out; press C-Spc t r to retry",
+			Level:   messages.ToastWarning,
+		}
+	})
+	return common.SafeBatch(cmds...)
 }
 
 // updateTabSessionStatus handles messages.TabSessionStatus.

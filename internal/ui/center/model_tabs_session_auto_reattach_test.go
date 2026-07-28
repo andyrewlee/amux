@@ -100,8 +100,48 @@ func TestReattachActiveTab_DeduplicatesInFlight(t *testing.T) {
 	m.workspace = ws
 
 	cmd := m.ReattachActiveTab()
-	if cmd != nil {
-		t.Fatalf("expected nil cmd when reattachInFlight is already true")
+	if cmd == nil {
+		t.Fatalf("expected a toast cmd when reattachInFlight is already true")
+	}
+	// The dedup must not start a second reattach, but it must still say
+	// something: a silent keybinding makes a stuck tab look like a broken one.
+	toast, ok := cmd().(messages.Toast)
+	if !ok {
+		t.Fatalf("expected messages.Toast, got %T", cmd())
+	}
+	if toast.Message != "Reattach already in progress" {
+		t.Fatalf("unexpected toast message: %q", toast.Message)
+	}
+	tab.mu.Lock()
+	stillInFlight := tab.reattachInFlight
+	tab.mu.Unlock()
+	if !stillInFlight {
+		t.Fatalf("expected the in-flight reattach lock to be left untouched")
+	}
+}
+
+func TestAutoReattachOnSelection_SilentWhileReattachInFlight(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+
+	tab := &Tab{
+		ID:               TabID("tab-inflight"),
+		Assistant:        "claude",
+		Workspace:        ws,
+		Running:          false,
+		Detached:         true,
+		reattachInFlight: true,
+		SessionName:      "sess-inflight",
+	}
+	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+	m.tabs.ActiveByWorkspace[wsID] = 0
+	m.workspace = ws
+
+	// Automatic flows must not toast: selecting a reattaching tab is not a
+	// request for a second reattach.
+	if cmd := m.autoReattachActiveTabOnSelection(); cmd != nil {
+		t.Fatalf("expected nil cmd from the automatic path, got %T", cmd())
 	}
 }
 

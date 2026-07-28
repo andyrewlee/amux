@@ -155,8 +155,12 @@ func (m *Model) autoReattachActiveTabOnSelection() tea.Cmd {
 	}
 	tab.mu.Lock()
 	detached := tab.Detached
+	reattachInFlight := tab.reattachInFlight
 	tab.mu.Unlock()
-	if !detached {
+	// Automatic flows stay silent: ReattachActiveTab reports an in-flight
+	// reattach to the user, which is right for a keypress and noise for a tab
+	// switch.
+	if !detached || reattachInFlight {
 		return nil
 	}
 	return m.ReattachActiveTab()
@@ -200,8 +204,8 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 			continue
 		}
 		restoreCount++
-		tabID, sessionName := m.addPlaceholderTab(ws, tab)
-		cmds = append(cmds, m.reattachToSession(ws, tabID, tab.Assistant, sessionName))
+		tabID, sessionName, epoch := m.addPlaceholderTab(ws, tab)
+		cmds = append(cmds, m.reattachToSession(ws, tabID, tab.Assistant, sessionName, epoch))
 	}
 	if restoreCount > 0 {
 		desired := lastBeforeActive
@@ -262,8 +266,8 @@ func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) te
 			m.addDetachedTab(ws, tab)
 			continue
 		}
-		tabID, sn := m.addPlaceholderTab(ws, tab)
-		cmds = append(cmds, m.reattachToSession(ws, tabID, tab.Assistant, sn))
+		tabID, sn, epoch := m.addPlaceholderTab(ws, tab)
+		cmds = append(cmds, m.reattachToSession(ws, tabID, tab.Assistant, sn, epoch))
 	}
 	return common.SafeBatch(cmds...)
 }

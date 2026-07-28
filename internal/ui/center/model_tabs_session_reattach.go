@@ -98,12 +98,21 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	if canReattach && !reattachInFlight {
 		_ = tab.beginReattachLocked()
 	}
+	epoch := tab.reattachEpochLocked()
 	tab.mu.Unlock()
 	if !canReattach {
 		return nil
 	}
 	if reattachInFlight {
-		return nil
+		// Say so rather than no-op. A reattach that is genuinely in flight
+		// resolves on its own or is released by SweepStalledReattaches, but a
+		// silent keybinding makes a stuck tab look like a broken one.
+		return func() tea.Msg {
+			return messages.Toast{
+				Message: "Reattach already in progress",
+				Level:   messages.ToastInfo,
+			}
+		}
 	}
 	if m.config == nil || m.config.Assistants == nil {
 		tab.mu.Lock()
@@ -144,6 +153,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
+				Epoch:       epoch,
 				Err:         err,
 				Action:      "reattach",
 			}
@@ -176,6 +186,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 				return ptyTabReattachFailed{
 					WorkspaceID: string(ws.ID()),
 					TabID:       tabID,
+					Epoch:       epoch,
 					Err:         err,
 					Stopped:     true,
 					Action:      "reattach",
@@ -186,6 +197,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			return ptyTabReattachResult{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
+				Epoch:       epoch,
 				Agent:       agent,
 				Rows:        captureRows,
 				Cols:        captureCols,
@@ -228,6 +240,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
+				Epoch:       epoch,
 				Err:         err,
 				Action:      "reattach",
 			}
@@ -245,6 +258,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 		return ptyTabReattachResult{
 			WorkspaceID: string(ws.ID()),
 			TabID:       tabID,
+			Epoch:       epoch,
 			Agent:       agent,
 			Rows:        captureRows,
 			Cols:        captureCols,
@@ -290,6 +304,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	if !running && !reattachInFlight {
 		_ = tab.beginReattachLocked()
 	}
+	epoch := tab.reattachEpochLocked()
 	tab.mu.Unlock()
 	if running {
 		return func() tea.Msg {
@@ -356,6 +371,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
+				Epoch:       epoch,
 				Err:         err,
 				Stopped:     true,
 				Action:      "restart",
@@ -368,6 +384,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		return ptyTabReattachResult{
 			WorkspaceID: string(ws.ID()),
 			TabID:       tabID,
+			Epoch:       epoch,
 			Agent:       agent,
 			Rows:        captureRows,
 			Cols:        captureCols,

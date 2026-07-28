@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -43,8 +44,11 @@ type TerminalState struct {
 	Detached         bool
 	UserDetached     bool
 	reattachInFlight bool
-	SessionName      string
-	mu               sync.Mutex
+	// reattachStartedAt is when reattachInFlight was last acquired, used by the
+	// stalled-reattach sweep to release a lock whose outcome never arrived.
+	reattachStartedAt time.Time
+	SessionName       string
+	mu                sync.Mutex
 
 	// ptyio.State holds the shared PTY buffering/reader/restart/snapshot
 	// bookkeeping (locking owned by mu, as documented on the type).
@@ -215,6 +219,32 @@ func (m *TerminalModel) getTabByID(wsID string, tabID TerminalTabID) *TerminalTa
 		}
 	}
 	return nil
+}
+
+// resolveTabForResult finds the tab an async attach result belongs to,
+// preferring the workspace the result was stamped with and falling back to an
+// ID-only scan. It returns the key the tab is actually filed under, which is
+// the one follow-up work must use.
+//
+// TerminalTabIDs are process-unique, so the ID alone identifies a tab; the
+// workspace key is only a routing hint and can go stale between dispatch and
+// delivery. Missing on the pair used to drop the result, and because the
+// attach gate refuses to retry while reattachInFlight is set, a dropped result
+// left the terminal permanently unable to reattach.
+func (m *TerminalModel) resolveTabForResult(wsID string, tabID TerminalTabID, context string) (*TerminalTab, string) {
+	if tab := m.getTabByID(wsID, tabID); tab != nil {
+		return tab, wsID
+	}
+	for actualWsID, tabs := range m.tabs.ByWorkspace {
+		for _, tab := range tabs {
+			if tab == nil || tab.ID != tabID {
+				continue
+			}
+			logging.Warn("%s: terminal tab %s routed with workspace %s but filed under %s", context, tabID, wsID, actualWsID)
+			return tab, actualWsID
+		}
+	}
+	return nil, ""
 }
 
 // nextTerminalName returns the next available terminal name

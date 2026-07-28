@@ -67,7 +67,7 @@ func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cm
 
 // handleReattachResult applies the result of a terminal reattach operation.
 func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) tea.Cmd {
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "sidebar attach result")
 	if tab == nil || tab.State == nil {
 		// The tab was closed or its workspace deleted while the attach was in
 		// flight; close the orphaned PTY or its tmux client leaks for the
@@ -125,12 +125,12 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 			_ = setTerminalSizeFn(msg.Terminal, ptyRows, ptyCols)
 		}
 	}
-	return m.startPTYReader(msg.WorkspaceID, tab.ID)
+	return m.startPTYReader(wsID, tab.ID)
 }
 
 // handleReattachFailed handles a failed reattach attempt.
 func (m *TerminalModel) handleReattachFailed(msg SidebarTerminalReattachFailed) tea.Cmd {
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	tab, _ := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "sidebar attach failure")
 	if tab != nil && tab.State != nil {
 		ts := tab.State
 		ts.mu.Lock()

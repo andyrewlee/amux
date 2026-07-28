@@ -61,7 +61,7 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 // addPlaceholderTab synchronously creates a placeholder tab in the correct slice
 // position. The tab starts detached and non-running; an async reattach upgrades
 // it in-place (by TabID) without changing slice order.
-func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID, string) {
+func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID, string, uint64) {
 	tm := m.terminalMetrics()
 	termWidth := tm.Width
 	termHeight := tm.Height
@@ -90,19 +90,21 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 		ca = time.Now().Unix()
 	}
 	tab := &Tab{
-		ID:          tabID,
-		Name:        displayName,
-		Assistant:   info.Assistant,
-		Workspace:   ws,
-		SessionName: sessionName,
-		Detached:    true,
-		Running:     false,
-		// Placeholder tabs are immediately queued for async reattach.
-		reattachInFlight: true,
-		Terminal:         term,
-		createdAt:        ca,
-		lastFocusedAt:    time.Unix(ca, 0),
+		ID:            tabID,
+		Name:          displayName,
+		Assistant:     info.Assistant,
+		Workspace:     ws,
+		SessionName:   sessionName,
+		Detached:      true,
+		Running:       false,
+		Terminal:      term,
+		createdAt:     ca,
+		lastFocusedAt: time.Unix(ca, 0),
 	}
+	// Placeholder tabs are immediately queued for async reattach, so they are
+	// born holding the reattach lock. Take it the same way every other path
+	// does, so it is stamped and versioned rather than a bare flag.
+	_ = tab.beginReattachLocked()
 	isChat := m.isChatTab(tab)
 	term.IgnoreCursorVisibilityControls = false
 	term.TreatLFAsCRLF = isChat
@@ -110,13 +112,13 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 	wsID := string(ws.ID())
 	m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
 	m.markHelpDirty()
-	return tabID, sessionName
+	return tabID, sessionName, tab.reattachEpochLocked()
 }
 
 // reattachToSession returns a tea.Cmd that asynchronously connects a placeholder
 // tab to its tmux session. On success it produces ptyTabReattachResult which
 // updates the tab in-place (by TabID). On failure it produces ptyTabReattachFailed.
-func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, sessionName string) tea.Cmd {
+func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, sessionName string, epoch uint64) tea.Cmd {
 	termWidth, termHeight := m.sessionBootstrapViewportSize()
 	tm := m.terminalMetrics()
 	attachWidth := tm.Width
@@ -128,6 +130,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
+				Epoch:       epoch,
 				Err:         err,
 				Action:      "reattach",
 			}
@@ -136,6 +139,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
+				Epoch:       epoch,
 				Err:         errors.New("tmux session ended"),
 				Stopped:     true,
 				Action:      "reattach",
@@ -172,6 +176,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
+				Epoch:       epoch,
 				Err:         err,
 				Action:      "reattach",
 			}
@@ -189,6 +194,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 		return ptyTabReattachResult{
 			WorkspaceID: string(ws.ID()),
 			TabID:       tabID,
+			Epoch:       epoch,
 			Agent:       agent,
 			Rows:        captureRows,
 			Cols:        captureCols,

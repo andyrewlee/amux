@@ -40,7 +40,7 @@ func shouldAttachExistingTerminalTab(tab *TerminalTab) bool {
 	if ts.Running && ts.Terminal != nil && ts.VTerm != nil && !ts.Detached {
 		return false
 	}
-	ts.reattachInFlight = true
+	ts.beginReattachLocked()
 	return true
 }
 
@@ -64,12 +64,12 @@ func (m *TerminalModel) AddTabsFromSessions(ws *data.Workspace, sessions []strin
 			ID:   tabID,
 			Name: nextTerminalName(m.tabs.ByWorkspace[wsID]),
 			State: &TerminalState{
-				SessionName:      sessionName,
-				Running:          false,
-				Detached:         true,
-				reattachInFlight: true,
+				SessionName: sessionName,
+				Running:     false,
+				Detached:    true,
 			},
 		}
+		tab.State.beginReattachLocked()
 		m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
 		if len(m.tabs.ByWorkspace[wsID]) == 1 {
 			m.tabs.ActiveByWorkspace[wsID] = 0
@@ -115,7 +115,7 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 		if session.Attach {
 			if tab.State != nil {
 				tab.State.mu.Lock()
-				tab.State.reattachInFlight = true
+				tab.State.beginReattachLocked()
 				tab.State.mu.Unlock()
 			}
 			cmds = append(cmds, m.attachToSession(ws, tabID, session.Name, session.DetachExisting, "reattach"))

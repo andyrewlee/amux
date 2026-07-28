@@ -121,11 +121,20 @@ func (a *App) handlePTYWatchdogTick() []tea.Cmd {
 		if cmd := a.center.StartPTYReaders(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		// A tab whose reattach outcome never arrived holds its reattach lock
+		// forever and refuses every retry, so the same tick that keeps readers
+		// alive also frees tabs stuck mid-reattach.
+		if cmd := a.center.SweepStalledReattaches(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	if a.sidebarTerminal != nil {
 		if cmd := a.sidebarTerminal.StartPTYReaders(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		// Same hazard as the center pane: a terminal holding a stale reattach
+		// lock is refused by the attach gate forever.
+		a.sidebarTerminal.SweepStalledReattaches()
 	}
 	// Keep dashboard "working" state accurate even when agents go idle.
 	a.syncActiveWorkspacesToDashboard()

@@ -140,7 +140,7 @@ func TestReattachToSession_BusySessionCapturesHistoryAfterAttach(t *testing.T) {
 	setKnownViewport(m)
 	ws := newTestWorkspace("ws", "/repo/ws")
 
-	msg := m.reattachToSession(ws, TabID("tab-restore-busy"), "codex", "session-busy")()
+	msg := m.reattachToSession(ws, TabID("tab-restore-busy"), "codex", "session-busy", 1)()
 	result, ok := msg.(ptyTabReattachResult)
 	if !ok {
 		t.Fatalf("expected ptyTabReattachResult, got %T", msg)
