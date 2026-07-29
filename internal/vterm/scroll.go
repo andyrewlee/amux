@@ -24,17 +24,28 @@ func (v *VTerm) scrollUp(n int) {
 		if bottom > v.ScrollBottom {
 			bottom = v.ScrollBottom
 		}
+		if bottom > len(v.Screen) {
+			bottom = len(v.Screen)
+		}
+		// Move (not copy) the rows: the shift and blank-fill loops below
+		// reassign every Screen slot in [ScrollTop, ScrollBottom), so after
+		// this append the appended slice is the sole live reference
+		// (snapshot/render paths copy cell contents, never retain Screen row
+		// headers).
+		displaced := v.Screen[top:bottom]
+		// Synthesized history only, and only for a scroll that displaces the
+		// whole region at once: that is how tmux renders a repainting chat
+		// agent's scroll, and it is the only case where the displaced block is
+		// a frame whose tail is the agent's prompt box (see chrome_filter.go).
+		// A smaller scroll displaces rows from the middle of the transcript,
+		// where a trailing rule is content rather than chrome.
+		if v.AltScreen && v.AllowAltScreenScrollback && n >= regionHeight-1 {
+			displaced = trimCapturedChrome(displaced, v.Width)
+		}
 		added := 0
-		for i := top; i < bottom; i++ {
-			if i < len(v.Screen) {
-				// Move (not copy) the row: the shift and blank-fill loops
-				// below reassign every Screen slot in [ScrollTop, ScrollBottom),
-				// so after this append the appended slice is the sole live
-				// reference (snapshot/render paths copy cell contents, never
-				// retain Screen row headers).
-				v.Scrollback = append(v.Scrollback, v.Screen[i])
-				added++
-			}
+		for _, line := range displaced {
+			v.Scrollback = append(v.Scrollback, line)
+			added++
 		}
 		if added > 0 {
 			if v.altCapture.tracked && v.altCapture.frameLen > 0 &&

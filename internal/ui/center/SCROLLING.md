@@ -151,6 +151,22 @@ Invariant (pinned by `TestChatTab_DragUpAutoScroll_AnchorStableWhileStreaming`):
 while an agent repaints and scrollback churns through capture/dedup, an
 anchored chat view must not move except by explicit scroll steps.
 
+### Chrome is not transcript
+
+A captured frame carries the agent's prompt box and footer as well as its
+transcript, so storing frames verbatim bakes a stale prompt box into history
+every time one is captured — scrolling back then reads as prose interrupted by
+`❯` rows and full-width rules in the left gutter. `vterm/chrome_filter.go`
+drops everything from the frame's last horizontal rule downward before it
+reaches scrollback. A rule is the anchor because it is unambiguous: no line of
+prose is one glyph repeated across most of the terminal.
+
+Both synthesized-history entry points trim: `captureScreenToScrollback` (the
+`2J` path) and `scrollUp` (tmux renders a chat agent's scroll as a bulk
+client-side scroll, so the displaced block is itself a frame). Trimming is
+gated on `AltScreen && AllowAltScreenScrollback` — a real scrollback-backed
+program keeps every scrolled line, rules included.
+
 ## Gestures: one implementation per gesture
 
 All selection/scroll gestures are implemented once, as tab-actor handlers
