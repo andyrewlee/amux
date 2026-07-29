@@ -11,6 +11,11 @@ import "github.com/andyrewlee/amux/internal/logging"
 // preserving, even if that frame was already present in scrollback.
 func (v *VTerm) captureScreenToScrollback() bool {
 	lines := v.visibleCaptureFrame()
+	if v.AltScreen && v.AllowAltScreenScrollback {
+		// Synthesized history only: a repainting chat agent's frame carries its
+		// prompt box and footer, which are not transcript. See chrome_filter.go.
+		lines = trimCapturedChrome(lines, v.Width)
+	}
 	if len(lines) == 0 {
 		v.clearPendingRestoredAltScreenCapture()
 		return false
