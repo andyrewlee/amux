@@ -20,6 +20,15 @@ keep Bubble Tea, tmux, and PTY state consistent.
 3. Render
 - `App.View` composes dashboard + center + sidebar layers using layout
   measurements and compositor caches.
+- `App.View` reuses the complete prior frame for render-neutral PTY buffering
+  messages. The frame key covers everything those messages can change behind
+  `App.Update`'s back: the active center/sidebar vterm content versions, the
+  active tab's OSC title version (title updates never move the content version),
+  and center tab activity - the tab bar's working highlights, which the actor
+  sets for background tabs too, plus the active chat tab's cursor-trust window.
+  Inactive terminal *content* deliberately does not participate.
+- Anything else that a render-neutral message mutates must join that key or the
+  screen will hold a stale frame until an unrelated message arrives.
 - Render is derived from state only; no side effects.
 
 4. Shutdown

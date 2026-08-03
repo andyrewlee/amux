@@ -50,19 +50,37 @@ func (m *Model) HasActiveAgents() bool {
 // IsTabActive returns whether a specific tab has emitted output recently.
 // This is used for the tab bar spinner animation (shows activity, not just running state).
 func (m *Model) IsTabActive(tab *Tab) bool {
-	if tab == nil {
-		return false
-	}
-	if tab.isClosed() {
-		return false
-	}
-	if !m.isChatTab(tab) {
+	return m.isTabActiveAt(tab, time.Now())
+}
+
+// isTabActiveAt evaluates the whole predicate under one lock: ActivityVersion
+// calls it for every tab on every frame, so a second acquisition per tab is
+// pure overhead, and it needs one shared "now" across the tabs it compares.
+func (m *Model) isTabActiveAt(tab *Tab, now time.Time) bool {
+	if tab == nil || tab.isClosed() {
 		return false
 	}
 	tab.mu.Lock()
-	active := isTabVisiblyActiveLocked(tab, time.Now())
-	tab.mu.Unlock()
-	return active
+	defer tab.mu.Unlock()
+	if !m.isChatTabLocked(tab) {
+		return false
+	}
+	return isTabVisiblyActiveLocked(tab, now)
+}
+
+// isTabCursorOutputActiveAt is the chat-cursor half of the same question: it
+// reports the window TerminalLayerWithCursorOwner consults when deciding whether
+// to trust the live cursor. See isTabCursorOutputActiveLocked.
+func (m *Model) isTabCursorOutputActiveAt(tab *Tab, now time.Time) bool {
+	if tab == nil || tab.isClosed() {
+		return false
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if !m.isChatTabLocked(tab) {
+		return false
+	}
+	return isTabCursorOutputActiveLocked(tab, now)
 }
 
 func isTabVisiblyActiveLocked(tab *Tab, now time.Time) bool {
@@ -205,6 +223,56 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 // It snapshots terminal state under lock and reuses cached snapshots when valid.
 func (m *Model) TerminalLayer() *compositor.VTermLayer {
 	return m.TerminalLayerWithCursorOwner(true)
+}
+
+// VisibleTerminalVersions returns the active terminal's visible-content version
+// and its OSC title version. App's full-frame cache uses this small interface to
+// observe actor writes without treating output from inactive tabs as a reason to
+// rebuild the canvas. The title is reported separately because App renders it as
+// the window title while the content version deliberately ignores title updates.
+func (m *Model) VisibleTerminalVersions() (content, title uint64) {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return 0, 0
+	}
+	tab := tabs[activeIdx]
+	if tab == nil {
+		return 0, 0
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if tab.Terminal == nil {
+		return 0, 0
+	}
+	return tab.Terminal.Version(), tab.Terminal.TitleVersion()
+}
+
+// ActivityVersion fingerprints the frame inputs the center derives from tab
+// activity rather than from terminal content: the tab bar's per-tab working
+// highlight (bits 0..62, current workspace order) and the active chat tab's
+// cursor-trust window (bit 63). Both are time-based, and the PTY paths that move
+// them - buffered output, actor writes - never touch a vterm version, so App's
+// full-frame cache keys on this to avoid holding a stale frame. Tabs past the
+// 63rd get no bit; the tab bar cannot show that many at once anyway.
+func (m *Model) ActivityVersion() uint64 {
+	tabs := m.getTabs()
+	now := time.Now()
+	var fingerprint uint64
+	for i, tab := range tabs {
+		if i >= 63 {
+			break
+		}
+		if m.isTabActiveAt(tab, now) {
+			fingerprint |= 1 << uint(i)
+		}
+	}
+	if activeIdx := m.getActiveTabIdx(); activeIdx >= 0 && activeIdx < len(tabs) {
+		if m.isTabCursorOutputActiveAt(tabs[activeIdx], now) {
+			fingerprint |= 1 << 63
+		}
+	}
+	return fingerprint
 }
 
 // TerminalLayerWithCursorOwner returns a VTermLayer for the active terminal while

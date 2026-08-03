@@ -1,9 +1,63 @@
 package app
 
 import (
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
+
+// visibleFrameVersion is the small render-time key for visible state that can
+// mutate outside App.Update. All other visible app state invalidates the frame
+// cache synchronously in App.Update; the active center/sidebar vterm versions
+// cover actor writes and the synchronous PTY fallback without forcing inactive
+// terminal output to rebuild the full canvas.
+//
+// The two non-content fields exist because the center pane renders more than the
+// active terminal's cells: the window title comes from the active tab's OSC title
+// (which never moves the content version), and tab activity drives both the tab
+// bar's working highlight - including for background tabs the actor updates - and
+// the active chat tab's cursor-trust window.
+type visibleFrameVersion struct {
+	centerTerminal      uint64
+	centerTerminalTitle uint64
+	centerActivity      uint64
+	sidebarTerminal     uint64
+}
+
+// fullFrameCache sits at the App.View seam. Bubble Tea calls View after every
+// message, including raw PTY buffering messages that did not alter the visible
+// screen. Pane caches avoid rebuilding some strings, but still leave Canvas
+// clear/compose/render work. This cache makes a clean View an O(1) copy.
+//
+// valid is explicitly invalidated by visible App.Update messages. key catches
+// active vterm mutations performed by the tab actor or synchronous PTY paths.
+type fullFrameCache struct {
+	valid  bool
+	key    visibleFrameVersion
+	view   tea.View
+	builds uint64 // test/perf instrumentation
+	hits   uint64 // test/perf instrumentation
+}
+
+func (c *fullFrameCache) get(key visibleFrameVersion) (tea.View, bool) {
+	if !c.valid || c.key != key {
+		return tea.View{}, false
+	}
+	c.hits++
+	return c.view, true
+}
+
+func (c *fullFrameCache) store(key visibleFrameVersion, view tea.View) {
+	c.valid = true
+	c.key = key
+	c.view = view
+	c.builds++
+}
+
+func (c *fullFrameCache) invalidate() {
+	c.valid = false
+}
 
 type drawableCache struct {
 	content  string
@@ -90,6 +144,7 @@ func (g *paneGate) record(version uint64, geom [4]int, rendered bool) {
 // rendering. Each cache is keyed on the inputs that produced it and reused
 // across frames until those inputs change.
 type renderCacheState struct {
+	frame                fullFrameCache
 	dashboardChrome      *compositor.ChromeCache
 	centerChrome         *compositor.ChromeCache
 	sidebarChrome        *compositor.ChromeCache

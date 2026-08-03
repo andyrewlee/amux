@@ -101,7 +101,7 @@ type TabInputFailed struct {
 }
 
 func (m *Model) shouldPostWriteRedraw(tab *Tab) bool {
-	return tab != nil && (m.isChatTab(tab) || tab.postWriteVisible())
+	return tab != nil && tab.postWriteVisible()
 }
 
 func (m *Model) sendTabEvent(ev tabEvent) bool {

@@ -56,7 +56,9 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		m.msgSink(PTYFlush{WorkspaceID: ev.workspaceID, TabID: ev.tabID, CatchUp: ev.catchUp})
 	}
 	if !suppressRedraw && m.msgSink != nil && m.shouldPostWriteRedraw(tab) {
-		// Visible tabs need one redraw after actor-applied terminal writes.
+		// Only the visible tab needs a redraw after actor-applied terminal writes.
+		// Inactive tabs retain their vterm state and activity bookkeeping, but a
+		// redraw would rebuild an identical app frame.
 		m.msgSink(PTYCursorRefresh{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
 	}
 }

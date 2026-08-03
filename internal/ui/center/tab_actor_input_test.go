@@ -57,14 +57,15 @@ func TestSendToTerminal_EmitsCursorRefreshOnlyForChatTabs(t *testing.T) {
 	}
 }
 
-func TestHandleTabEvent_WriteOutputEmitsPostWriteRedrawForChatAndActiveTabs(t *testing.T) {
+func TestHandleTabEvent_WriteOutputEmitsPostWriteRedrawOnlyForVisibleTab(t *testing.T) {
 	tests := []struct {
 		name          string
 		assistant     string
 		visible       bool
 		wantRefreshes int
 	}{
-		{name: "chat background", assistant: "codex", wantRefreshes: 1},
+		{name: "chat background", assistant: "codex", wantRefreshes: 0},
+		{name: "chat visible", assistant: "codex", visible: true, wantRefreshes: 1},
 		{name: "non-chat visible", assistant: "bash", visible: true, wantRefreshes: 1},
 		{name: "non-chat background", assistant: "bash", wantRefreshes: 0},
 	}
@@ -158,6 +159,7 @@ func TestHandleTabEvent_WriteOutputSuppressesRedrawUntilCatchUpTarget(t *testing
 		catchUpTargetBytes:   2,
 		ptyBytesReceived:     2,
 	}
+	tab.setPostWriteVisible(true)
 
 	refreshes := 0
 	m.msgSink = func(msg tea.Msg) {
@@ -207,7 +209,8 @@ func TestShouldPostWriteRedraw(t *testing.T) {
 		visible   bool
 		want      bool
 	}{
-		{name: "chat background", assistant: "codex", want: true},
+		{name: "chat background", assistant: "codex", want: false},
+		{name: "chat visible", assistant: "codex", visible: true, want: true},
 		{name: "non-chat visible", assistant: "bash", visible: true, want: true},
 		{name: "non-chat background", assistant: "bash", want: false},
 	}

@@ -1,5 +1,7 @@
 package center
 
+import "time"
+
 // AddTab appends a tab to the model. Used by harness/test code that builds tabs manually.
 func (m *Model) AddTab(tab *Tab) {
 	if m == nil || tab == nil || tab.Workspace == nil {
@@ -29,5 +31,18 @@ func (t *Tab) WriteToTerminal(data []byte) {
 	}
 	t.mu.Lock()
 	t.Terminal.Write(data)
+	t.mu.Unlock()
+}
+
+// NoteVisibleOutput stamps the visible-activity clock the way the tab actor does
+// after applying a flush chunk. Harness/test code uses it to reproduce activity
+// on tabs it is not driving through the real PTY pipeline.
+func (t *Tab) NoteVisibleOutput(at time.Time) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.lastVisibleOutput = at
+	t.LastOutputAt = at
 	t.mu.Unlock()
 }
