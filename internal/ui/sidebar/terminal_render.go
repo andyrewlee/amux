@@ -146,6 +146,21 @@ func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
 	return m.TerminalLayerWithCursorOwner(true)
 }
 
+// VisibleTerminalVersion returns the active sidebar terminal's visible-content
+// version for App's full-frame cache key.
+func (m *TerminalModel) VisibleTerminalVersion() uint64 {
+	ts := m.getTerminal()
+	if ts == nil {
+		return 0
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.VTerm == nil {
+		return 0
+	}
+	return ts.VTerm.Version()
+}
+
 // TerminalLayerWithCursorOwner returns a VTermLayer for the active workspace
 // terminal while enforcing whether this pane currently owns cursor rendering.
 func (m *TerminalModel) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTermLayer {

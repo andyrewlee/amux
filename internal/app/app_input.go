@@ -16,15 +16,34 @@ import (
 
 // Update handles all messages with panic recovery.
 func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
+	if frameInvalidatedBy(msg) {
+		a.renderCache.frame.invalidate()
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			logging.Error("panic in app.Update: %v\n%s", r, debug.Stack())
 			a.err = fmt.Errorf("internal error: %v", r)
+			a.renderCache.frame.invalidate()
 			model = a
 			cmd = nil
 		}
 	}()
 	return a.update(msg)
+}
+
+// frameInvalidatedBy identifies messages whose Update work may change the
+// composed frame directly. Raw PTY output only buffers bytes, and PTY flushes
+// are covered by the active vterm versions in the full-frame cache key. Keeping
+// these high-frequency messages render-neutral prevents inactive tabs and
+// flush scheduling from rebuilding an unchanged screen.
+func frameInvalidatedBy(msg tea.Msg) bool {
+	switch msg.(type) {
+	case center.PTYOutput, center.PTYFlush,
+		messages.SidebarPTYOutput, messages.SidebarPTYFlush:
+		return false
+	default:
+		return true
+	}
 }
 
 func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {

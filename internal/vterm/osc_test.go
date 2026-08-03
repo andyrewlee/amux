@@ -208,3 +208,30 @@ func TestOSCOversizedMetadataIgnored(t *testing.T) {
 		}
 	})
 }
+
+// TestOSCTitleVersion pins the split between the content version and the title
+// version: render caches key the window title on TitleVersion precisely because
+// a title update leaves every cell untouched.
+func TestOSCTitleVersion(t *testing.T) {
+	t.Parallel()
+
+	v := New(80, 24)
+	v.Write([]byte("hello"))
+	contentBefore := v.Version()
+	titleBefore := v.TitleVersion()
+
+	v.Write([]byte("\x1b]0;working\x07"))
+
+	if got := v.Version(); got != contentBefore {
+		t.Fatalf("title-only write moved the content version: %d -> %d", contentBefore, got)
+	}
+	if got := v.TitleVersion(); got == titleBefore {
+		t.Fatalf("title-only write did not move the title version (still %d)", got)
+	}
+
+	titleAfter := v.TitleVersion()
+	v.Write([]byte("\x1b]0;working\x07"))
+	if got := v.TitleVersion(); got != titleAfter {
+		t.Fatalf("repeated identical title moved the title version: %d -> %d", titleAfter, got)
+	}
+}

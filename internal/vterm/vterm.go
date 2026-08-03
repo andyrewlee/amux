@@ -88,6 +88,7 @@ type VTerm struct {
 
 	// OSC-captured state (set by the parser; consumed by the owning UI layer).
 	oscTitle         string
+	titleVersion     uint64
 	oscWorkingDir    string
 	pendingClipboard []byte
 
@@ -354,6 +355,11 @@ func (v *VTerm) respond(data []byte) {
 // Title returns the most recent window/tab title reported via OSC 0/1/2.
 func (v *VTerm) Title() string { return v.oscTitle }
 
+// TitleVersion returns a counter that increments whenever the OSC title changes.
+// A title update leaves every cell alone, so Version() deliberately ignores it;
+// render caches that surface the title separately key on this instead.
+func (v *VTerm) TitleVersion() uint64 { return v.titleVersion }
+
 // WorkingDir returns the most recent working directory reported via OSC 7
 // (raw payload, e.g. "file://host/path").
 func (v *VTerm) WorkingDir() string { return v.oscWorkingDir }
@@ -366,7 +372,14 @@ func (v *VTerm) TakePendingClipboard() []byte {
 	return b
 }
 
-func (v *VTerm) setOSCTitle(s string)         { v.oscTitle = s }
+func (v *VTerm) setOSCTitle(s string) {
+	if v.oscTitle == s {
+		return
+	}
+	v.oscTitle = s
+	v.titleVersion++
+}
+
 func (v *VTerm) setOSCWorkingDir(s string)    { v.oscWorkingDir = s }
 func (v *VTerm) setPendingClipboard(b []byte) { v.pendingClipboard = b }
 

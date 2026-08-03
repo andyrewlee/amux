@@ -2,6 +2,7 @@ package center
 
 import (
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -110,7 +111,29 @@ func (m *Model) tabSelectionChangedCmd(changed bool) tea.Cmd {
 		},
 		m.flushActiveTabBacklogCmd(),
 		m.autoReattachActiveTabOnSelection(),
+		m.scheduleActiveChatCursorRefreshCmd(),
 	)
+}
+
+// scheduleActiveChatCursorRefreshCmd arms the timed chat-cursor refresh for the
+// tab that just became visible. Background tabs get no post-write redraw, so a
+// tab that was producing output while hidden arrives with a cursor policy that
+// only elapsed time can change and nothing scheduled to repaint it.
+func (m *Model) scheduleActiveChatCursorRefreshCmd() tea.Cmd {
+	wsID := m.workspaceID()
+	if wsID == "" {
+		return nil
+	}
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return nil
+	}
+	tab := tabs[activeIdx]
+	if tab == nil || tab.isClosed() {
+		return nil
+	}
+	return m.scheduleChatCursorRefresh(tab, wsID, time.Now())
 }
 
 func (m *Model) flushActiveTabBacklogCmd() tea.Cmd {

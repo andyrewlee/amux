@@ -29,6 +29,10 @@ func (a *App) View() (view tea.View) {
 		if r := recover(); r != nil {
 			logging.Error("panic in app.View: %v\n%s", r, debug.Stack())
 			a.err = fmt.Errorf("render error: %v", r)
+			// A half-built frame must not leave the last good frame reachable:
+			// the error view would otherwise be replaced by stale content on the
+			// next unchanged-key View.
+			a.renderCache.frame.invalidate()
 			view = a.fallbackView()
 		}
 	}()
@@ -37,6 +41,12 @@ func (a *App) View() (view tea.View) {
 
 func (a *App) view() tea.View {
 	defer perf.Time("view")()
+	frameVersion := a.visibleFrameVersion()
+	if cached, ok := a.renderCache.frame.get(frameVersion); ok {
+		perf.Count("full_frame_cache_hit", 1)
+		return a.finalizeView(cached)
+	}
+	perf.Count("full_frame_cache_miss", 1)
 
 	baseView := func() tea.View {
 		var view tea.View
@@ -52,17 +62,34 @@ func (a *App) view() tea.View {
 	if a.quitting {
 		view := baseView()
 		view.SetContent("Goodbye!\n")
-		return a.finalizeView(view)
+		return a.storeFrame(frameVersion, view)
 	}
 
 	if !a.ready {
 		view := baseView()
 		view.SetContent("Loading...")
-		return a.finalizeView(view)
+		return a.storeFrame(frameVersion, view)
 	}
 
 	// Use layer-based rendering
-	return a.finalizeView(a.viewLayerBased())
+	return a.storeFrame(frameVersion, a.viewLayerBased())
+}
+
+func (a *App) visibleFrameVersion() visibleFrameVersion {
+	var version visibleFrameVersion
+	if a.center != nil && a.layout != nil && a.layout.ShowCenter() {
+		version.centerTerminal, version.centerTerminalTitle = a.center.VisibleTerminalVersions()
+		version.centerActivity = a.center.ActivityVersion()
+	}
+	if a.sidebarTerminal != nil && a.layout != nil && a.layout.ShowSidebar() {
+		version.sidebarTerminal = a.sidebarTerminal.VisibleTerminalVersion()
+	}
+	return version
+}
+
+func (a *App) storeFrame(version visibleFrameVersion, view tea.View) tea.View {
+	a.renderCache.frame.store(version, view)
+	return a.finalizeView(view)
 }
 
 func (a *App) canvasFor(width, height int) *lipgloss.Canvas {
