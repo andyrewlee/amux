@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
 )
@@ -120,6 +121,33 @@ func TestFinishInterruptedDelete_SurfacesWorkspaceWhenBranchDeleteFails(t *testi
 	}
 	if !store.IsDeleting(ws.ID()) {
 		t.Fatal("tombstone must remain for a later retry")
+	}
+}
+
+// TestFinishInterruptedDelete_CompletesWhenBranchAlreadyGone proves that when
+// the branch was already deleted (e.g. a crash after branch delete but before
+// metadata removal), recovery treats the "branch not found" error as success
+// and finishes the delete instead of looping forever.
+func TestFinishInterruptedDelete_CompletesWhenBranchAlreadyGone(t *testing.T) {
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := newWorkspaceService(nil, store, nil, "")
+	svc.gitOps = &mockGitOps{deleteBranch: func(string, string) error {
+		return &git.Error{Command: "branch -D", ExitCode: 1, Stderr: "error: branch 'feature' not found", Err: errors.New("exit status 1")}
+	}}
+	ws := data.NewWorkspace("gone", "feature", "main", "/repo", "/repo/.amux/gone")
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.MarkDeleting(ws.ID()); err != nil {
+		t.Fatalf("MarkDeleting: %v", err)
+	}
+	svc.killWorkspaceSessions = func(string) error { return nil }
+
+	if !svc.finishInterruptedDelete(ws) {
+		t.Fatal("expected recovery to finish when branch is already gone")
+	}
+	if _, err := store.Load(ws.ID()); err == nil {
+		t.Fatal("expected metadata removed by recovery")
 	}
 }
 

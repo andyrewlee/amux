@@ -390,7 +390,7 @@ func (s *workspaceService) removeWorktreeAndBranchLocked(
 		return fail("stop_sessions", err)
 	}
 
-	if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
+	if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil && !git.IsBranchNotFoundError(err) {
 		return fail("delete_branch", err)
 	}
 	return nil

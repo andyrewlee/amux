@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
@@ -140,16 +141,19 @@ func (s *workspaceService) finishInterruptedDelete(ws *data.Workspace) bool {
 	// is held for parity with removeWorktreeAndBranchLocked so concurrent same-
 	// repo mutations don't contend on packed-refs.
 	if ws.Branch != "" && ws.Repo != "" {
-		unlock := s.lockRepoGit(ws.Repo)
-		err := s.gitOps.DeleteBranch(ws.Repo, ws.Branch)
-		unlock()
-		if err != nil {
+		var branchErr error
+		func() {
+			unlock := s.lockRepoGit(ws.Repo)
+			defer unlock()
+			branchErr = s.gitOps.DeleteBranch(ws.Repo, ws.Branch)
+		}()
+		if branchErr != nil && !git.IsBranchNotFoundError(branchErr) {
 			// Surface the workspace instead of suppressing it. The worktree is
 			// gone but the branch and metadata survive, so hiding the workspace
 			// creates a UI/disk mismatch (hidden now, reappears after restart).
 			// Surfacing lets the user see the incomplete delete and retry it;
 			// the tombstone stays so the next load retries the branch deletion.
-			logging.Warn("startup recovery: failed to delete branch %s workspace_id=%s error=%v", ws.Branch, metadataID, err)
+			logging.Warn("startup recovery: failed to delete branch %s workspace_id=%s error=%v", ws.Branch, metadataID, branchErr)
 			if markErr := s.markWorkspaceDeleteTombstones(ws); markErr != nil {
 				logging.Warn("startup recovery: failed to preserve delete tombstone workspace_id=%s error=%v", metadataID, markErr)
 			}
