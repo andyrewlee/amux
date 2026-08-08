@@ -132,7 +132,23 @@ func isBranchAlreadyExistsError(err error, branch string) bool {
 	if strings.Contains(msg, "branch '"+branch+"' already exists") {
 		return true
 	}
-	return strings.Contains(msg, "already exists") && strings.Contains(msg, branch)
+	return false
+}
+
+// IsBranchNotFoundError reports whether err is a "branch not found" error from
+// git branch -D. This makes branch deletion idempotent: a branch that was
+// already removed (e.g. by a prior crash after branch delete but before metadata
+// cleanup) should not block recovery.
+func IsBranchNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var gitErr *Error
+	if !errors.As(err, &gitErr) || gitErr.ExitCode == 0 {
+		return false
+	}
+	msg := strings.ReplaceAll(strings.ToLower(gitErr.Stderr), "`", "'")
+	return strings.Contains(msg, "not found")
 }
 
 // RemoveWorkspace removes a workspace backed by a git worktree

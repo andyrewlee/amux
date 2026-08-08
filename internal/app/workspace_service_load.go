@@ -216,9 +216,17 @@ func (s *workspaceService) RescanWorkspaces() tea.Cmd {
 				if ws == nil {
 					continue
 				}
-				if s.isDeleteInFlight(string(ws.ID())) {
+				wsID := string(ws.ID())
+				if s.isDeleteInFlight(wsID) {
 					// Leave a workspace mid-delete untouched: neither archival Save
 					// path below should run while the delete flow is removing it.
+					continue
+				}
+				if s.hasDeleteTombstone(ws) {
+					// A durable delete tombstone means recovery hasn't finished.
+					// The worktree may be gone (finishInterruptedDelete surfaced
+					// it), but archiving here would exclude it from listByRepo and
+					// permanently break the recovery loop.
 					continue
 				}
 				if !s.shouldSurfaceWorkspace(path, ws) {

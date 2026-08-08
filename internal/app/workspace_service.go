@@ -299,11 +299,10 @@ func (s *workspaceService) DeleteWorkspace(project *data.Project, ws *data.Works
 			return fail("mark_deleting", err)
 		}
 
-		warning, failMsg := s.removeWorktreeAndBranchLocked(project, ws, projectPath, wsID, fail)
-		if failMsg != nil {
+		if failMsg := s.removeWorktreeAndBranchLocked(project, ws, projectPath, wsID, fail); failMsg != nil {
 			return failMsg
 		}
-		warning = joinWarnings(archiveWarning, warning)
+		warning := archiveWarning
 		if s.store != nil {
 			if err := s.deleteWorkspaceMetadata(ws); err != nil {
 				// Worktree and branch are already gone; because loading is store-
@@ -367,19 +366,20 @@ func (s *workspaceService) archiveDeletedWorkspaceMetadata(ws *data.Workspace) e
 
 // removeWorktreeAndBranchLocked runs the git mutations (worktree remove + branch
 // delete) under the per-repo lock so concurrent same-repo deletes do not contend
-// on .git locks. It returns a non-fatal branch-delete warning and a failure
-// message when worktree removal or required session cleanup fails; the caller
-// then returns it and preserves metadata for a later retry.
+// on .git locks. It returns nil on full success, or a failure message when
+// worktree removal, session cleanup, or branch deletion fails. A branch-delete
+// failure is treated as an incomplete delete (not a silent warning) so the
+// tombstone and metadata survive for finishInterruptedDelete to retry.
 func (s *workspaceService) removeWorktreeAndBranchLocked(
 	project *data.Project, ws *data.Workspace, projectPath, wsID string,
 	fail func(stage string, err error) tea.Msg,
-) (warning string, failMsg tea.Msg) {
+) tea.Msg {
 	unlock := s.lockRepoGit(projectPath)
 	defer unlock()
 
 	if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
 		if failMsg := s.handleStaleRemoveError(project, ws, wsID, err, fail); failMsg != nil {
-			return "", failMsg
+			return failMsg
 		}
 	}
 
@@ -387,14 +387,13 @@ func (s *workspaceService) removeWorktreeAndBranchLocked(
 	// Tear down any remaining workspace tmux sessions before metadata deletion,
 	// but never kill sessions for a delete that failed and left the workspace.
 	if err := s.killWorkspaceSessionsForDeletedWorkspace(ws); err != nil {
-		return "", fail("stop_sessions", err)
+		return fail("stop_sessions", err)
 	}
 
-	if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil {
-		logging.Warn("workspace delete branch cleanup failed workspace_id=%s branch=%s error=%v", wsID, ws.Branch, err)
-		warning = fmt.Sprintf("workspace deleted but branch %s was left behind: %v", ws.Branch, err)
+	if err := s.gitOps.DeleteBranch(projectPath, ws.Branch); err != nil && !git.IsBranchNotFoundError(err) {
+		return fail("delete_branch", err)
 	}
-	return warning, nil
+	return nil
 }
 
 // handleStaleRemoveError resolves a RemoveWorkspace error. It returns a non-nil

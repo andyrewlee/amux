@@ -1,11 +1,33 @@
 package git
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestIsBranchNotFoundError(t *testing.T) {
+	gitErr := func(stderr string, exitCode int) error {
+		return &Error{Command: "branch -D", ExitCode: exitCode, Stderr: stderr, Err: errors.New("exit status")}
+	}
+	if !IsBranchNotFoundError(gitErr("error: branch 'feature' not found", 1)) {
+		t.Fatal("expected branch not found error to match")
+	}
+	if !IsBranchNotFoundError(gitErr("error: branch `feature` not found", 1)) {
+		t.Fatal("expected backtick-quoted not found to match after normalization")
+	}
+	if IsBranchNotFoundError(gitErr("error: branch lock failed", 1)) {
+		t.Fatal("unrelated error must not match")
+	}
+	if IsBranchNotFoundError(errors.New("branch not found")) {
+		t.Fatal("plain (non-*Error) error must not match")
+	}
+	if IsBranchNotFoundError(nil) {
+		t.Fatal("nil error must not match")
+	}
+}
 
 // writeFile writes content to a path inside repo, failing the test on error.
 func writeFile(t *testing.T, repo, name, content string) {

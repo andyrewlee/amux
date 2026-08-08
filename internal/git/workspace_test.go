@@ -165,6 +165,11 @@ func TestIsBranchAlreadyExistsError(t *testing.T) {
 	if isBranchAlreadyExistsError(&Error{Command: "worktree add -b feature-a", ExitCode: 128, Stderr: "fatal: permission denied"}, "feature-a") {
 		t.Fatalf("expected command-line-only match to return false")
 	}
+	// A path-exists error whose message ends with the branch name (managed
+	// workspace paths are <root>/<repo>/<branch>) must not be misclassified.
+	if isBranchAlreadyExistsError(gitErr("fatal: '/workspaces/repo/feature-a' already exists"), "feature-a") {
+		t.Fatalf("expected path-exists error to not match branch-exists classifier")
+	}
 }
 
 func TestCreateWorkspace_RetryUsesFreshContext(t *testing.T) {

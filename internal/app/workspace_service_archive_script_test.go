@@ -134,25 +134,3 @@ func TestDeleteWorkspace_NoArchiveScriptIsSilent(t *testing.T) {
 		t.Fatalf("delete with no archive script warned anyway: %q", deleted.Warning)
 	}
 }
-
-// TestJoinWarnings asserts a delete that produced both an archive warning and a
-// branch-cleanup warning surfaces both, rather than one silently winning.
-func TestJoinWarnings(t *testing.T) {
-	cases := []struct {
-		name  string
-		input []string
-		want  string
-	}{
-		{"none", []string{"", ""}, ""},
-		{"first only", []string{"archive failed", ""}, "archive failed"},
-		{"second only", []string{"", "branch not deleted"}, "branch not deleted"},
-		{"both", []string{"archive failed", "branch not deleted"}, "archive failed; branch not deleted"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := joinWarnings(tc.input...); got != tc.want {
-				t.Fatalf("joinWarnings(%q) = %q, want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-}
