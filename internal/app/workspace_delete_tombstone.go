@@ -64,6 +64,25 @@ func (s *workspaceService) clearDeleteTombstone(id data.WorkspaceID) {
 	}
 }
 
+// hasDeleteTombstone reports whether a durable delete tombstone exists for ws.
+// Used by RescanWorkspaces to avoid archiving a workspace whose recovery hasn't
+// finished, which would exclude it from listByRepo and break the retry loop.
+func (s *workspaceService) hasDeleteTombstone(ws *data.Workspace) bool {
+	if s == nil || s.store == nil || ws == nil {
+		return false
+	}
+	td, ok := s.store.(workspaceTombstoneStore)
+	if !ok {
+		return false
+	}
+	for _, id := range workspaceMetadataIDs(ws) {
+		if td.IsDeleting(id) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *workspaceService) clearWorkspaceDeleteTombstones(ws *data.Workspace) {
 	for _, id := range workspaceMetadataIDs(ws) {
 		s.clearDeleteTombstone(id)
@@ -117,9 +136,14 @@ func (s *workspaceService) finishInterruptedDelete(ws *data.Workspace) bool {
 	// so the branch is no longer checked out and git branch -D is safe. The
 	// tombstone proves this delete already passed validation, so the branch is
 	// amux's own. If the branch was already removed externally the delete fails
-	// harmlessly and the tombstone stays for a later retry.
+	// harmlessly and the tombstone stays for a later retry. The per-repo git lock
+	// is held for parity with removeWorktreeAndBranchLocked so concurrent same-
+	// repo mutations don't contend on packed-refs.
 	if ws.Branch != "" && ws.Repo != "" {
-		if err := s.gitOps.DeleteBranch(ws.Repo, ws.Branch); err != nil {
+		unlock := s.lockRepoGit(ws.Repo)
+		err := s.gitOps.DeleteBranch(ws.Repo, ws.Branch)
+		unlock()
+		if err != nil {
 			// Surface the workspace instead of suppressing it. The worktree is
 			// gone but the branch and metadata survive, so hiding the workspace
 			// creates a UI/disk mismatch (hidden now, reappears after restart).

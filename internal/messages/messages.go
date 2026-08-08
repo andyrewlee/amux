@@ -53,8 +53,8 @@ type WorkspaceDeleted struct {
 	Project   *data.Project
 	Workspace *data.Workspace
 	Err       error
-	// Warning is a non-fatal note (e.g. the branch could not be deleted). The
-	// workspace delete still succeeded; this is surfaced to the user as a toast.
+	// Warning is a non-fatal note (e.g. an archive script returned a warning).
+	// The workspace delete still succeeded; this is surfaced to the user as a toast.
 	Warning string
 }
 
