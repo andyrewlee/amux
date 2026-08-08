@@ -57,9 +57,10 @@ func (s *failingTombstoneWorkspaceStore) ClearDeleting(data.WorkspaceID) error {
 // removing the metadata instead of surfacing a ghost.
 func TestFinishInterruptedDelete_RemovesDirlessTombstoned(t *testing.T) {
 	store := data.NewWorkspaceStore(t.TempDir())
+	var deletedBranch string
 	svc := newWorkspaceService(nil, store, nil, "")
-	svc.gitOps = &mockGitOps{deleteBranch: func(string, string) error {
-		t.Fatal("startup recovery must not delete a branch from a possibly replaced repository")
+	svc.gitOps = &mockGitOps{deleteBranch: func(repoPath, branch string) error {
+		deletedBranch = branch
 		return nil
 	}}
 
@@ -86,6 +87,39 @@ func TestFinishInterruptedDelete_RemovesDirlessTombstoned(t *testing.T) {
 	}
 	if len(killed) != 1 || killed[0] != string(ws.ID()) {
 		t.Fatalf("killed sessions = %v, want [%s]", killed, ws.ID())
+	}
+	if deletedBranch != "feature" {
+		t.Fatalf("expected recovery to delete branch feature, got %q", deletedBranch)
+	}
+}
+
+// TestFinishInterruptedDelete_SurfacesWorkspaceWhenBranchDeleteFails proves
+// that when recovery cannot delete the branch, the workspace is surfaced
+// (returns false) rather than suppressed. This prevents a UI/disk mismatch
+// where the workspace is hidden in-session but its metadata survives on disk.
+func TestFinishInterruptedDelete_SurfacesWorkspaceWhenBranchDeleteFails(t *testing.T) {
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := newWorkspaceService(nil, store, nil, "")
+	svc.gitOps = &mockGitOps{deleteBranch: func(string, string) error {
+		return errors.New("branch locked")
+	}}
+	ws := data.NewWorkspace("stuck", "feature", "main", "/repo", "/repo/.amux/stuck")
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.MarkDeleting(ws.ID()); err != nil {
+		t.Fatalf("MarkDeleting: %v", err)
+	}
+	svc.killWorkspaceSessions = func(string) error { return nil }
+
+	if svc.finishInterruptedDelete(ws) {
+		t.Fatal("expected recovery to surface the workspace when branch delete fails, not suppress it")
+	}
+	if _, err := store.Load(ws.ID()); err != nil {
+		t.Fatalf("metadata must survive for retry: %v", err)
+	}
+	if !store.IsDeleting(ws.ID()) {
+		t.Fatal("tombstone must remain for a later retry")
 	}
 }
 

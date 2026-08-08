@@ -132,7 +132,7 @@ func isBranchAlreadyExistsError(err error, branch string) bool {
 	if strings.Contains(msg, "branch '"+branch+"' already exists") {
 		return true
 	}
-	return strings.Contains(msg, "already exists") && strings.Contains(msg, branch)
+	return false
 }
 
 // RemoveWorkspace removes a workspace backed by a git worktree

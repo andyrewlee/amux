@@ -75,8 +75,9 @@ func (s *workspaceService) clearWorkspaceDeleteTombstones(ws *data.Workspace) {
 // metadata was). It only fires when a tombstone exists AND the worktree is gone,
 // so a tombstone left by a delete that failed before removing the worktree (dir
 // still present) keeps the workspace usable. Returns true when the caller should
-// skip surfacing the workspace; a cleanup failure leaves the tombstone in place
-// for a later retry but must not resurrect dir-less metadata in the UI.
+// skip surfacing the workspace (the delete finished or cleanup is in progress
+// for already-removed state); returns false when the workspace should surface
+// because the branch could not be deleted and the user needs to see it.
 func (s *workspaceService) finishInterruptedDelete(ws *data.Workspace) bool {
 	if s == nil || s.store == nil || ws == nil {
 		return false
@@ -111,6 +112,25 @@ func (s *workspaceService) finishInterruptedDelete(ws *data.Workspace) bool {
 			logging.Warn("startup recovery: failed to preserve delete tombstone workspace_id=%s error=%v", metadataID, markErr)
 		}
 		return true
+	}
+	// Retry the branch deletion. The worktree is confirmed gone (checked above),
+	// so the branch is no longer checked out and git branch -D is safe. The
+	// tombstone proves this delete already passed validation, so the branch is
+	// amux's own. If the branch was already removed externally the delete fails
+	// harmlessly and the tombstone stays for a later retry.
+	if ws.Branch != "" && ws.Repo != "" {
+		if err := s.gitOps.DeleteBranch(ws.Repo, ws.Branch); err != nil {
+			// Surface the workspace instead of suppressing it. The worktree is
+			// gone but the branch and metadata survive, so hiding the workspace
+			// creates a UI/disk mismatch (hidden now, reappears after restart).
+			// Surfacing lets the user see the incomplete delete and retry it;
+			// the tombstone stays so the next load retries the branch deletion.
+			logging.Warn("startup recovery: failed to delete branch %s workspace_id=%s error=%v", ws.Branch, metadataID, err)
+			if markErr := s.markWorkspaceDeleteTombstones(ws); markErr != nil {
+				logging.Warn("startup recovery: failed to preserve delete tombstone workspace_id=%s error=%v", metadataID, markErr)
+			}
+			return false
+		}
 	}
 	if err := s.deleteWorkspaceMetadata(ws); err != nil {
 		logging.Warn("startup recovery: failed to finish interrupted delete workspace_id=%s error=%v", metadataID, err)

@@ -51,7 +51,6 @@ func TestDeleteWorkspace_StoreDeleteFailureReportsPartialSuccess(t *testing.T) {
 
 	mock := &mockGitOps{
 		removeWorkspace: func(repoPath, workspacePath string) error { return nil },
-		deleteBranch:    func(repoPath, branch string) error { return errors.New("branch checked out elsewhere") },
 	}
 	store := &failingDeleteStore{deleteErr: errors.New("metadata delete boom")}
 
@@ -68,9 +67,6 @@ func TestDeleteWorkspace_StoreDeleteFailureReportsPartialSuccess(t *testing.T) {
 	}
 	if deleted.Err == nil {
 		t.Fatal("expected the store.Delete error to be preserved")
-	}
-	if deleted.Warning == "" {
-		t.Fatal("expected branch-delete warning to be preserved with metadata error")
 	}
 	if store.saved == nil || !store.saved.Archived {
 		t.Fatalf("expected surviving metadata to be archived, got %+v", store.saved)
@@ -116,11 +112,11 @@ func TestDeleteWorkspace_StoreDeleteAndArchiveFailureReportsFailure(t *testing.T
 	}
 }
 
-// TestDeleteWorkspace_BranchDeleteFailureSurfacesWarning proves a failed branch
-// delete is reported (not silently logged): the delete still succeeds but the
-// returned WorkspaceDeleted carries a Warning so the user is told the branch was
-// left behind.
-func TestDeleteWorkspace_BranchDeleteFailureSurfacesWarning(t *testing.T) {
+// TestDeleteWorkspace_BranchDeleteFailureFailsDelete proves a failed branch
+// delete is treated as an incomplete delete: the delete fails (not silently
+// swallowed as a warning), so the tombstone and metadata survive for
+// finishInterruptedDelete to retry the branch deletion.
+func TestDeleteWorkspace_BranchDeleteFailureFailsDelete(t *testing.T) {
 	tmp := t.TempDir()
 	workspacesRoot := filepath.Join(tmp, "managed-workspaces")
 	projectPath := filepath.Join(tmp, "repo")
@@ -140,11 +136,11 @@ func TestDeleteWorkspace_BranchDeleteFailureSurfacesWarning(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", projectPath, workspacePath)
 
 	msg := svc.DeleteWorkspace(project, ws)()
-	deleted, ok := msg.(messages.WorkspaceDeleted)
+	failed, ok := msg.(messages.WorkspaceDeleteFailed)
 	if !ok {
-		t.Fatalf("expected WorkspaceDeleted (delete still succeeds), got %T", msg)
+		t.Fatalf("expected WorkspaceDeleteFailed when branch delete fails, got %T", msg)
 	}
-	if deleted.Warning == "" {
-		t.Fatal("expected a non-empty Warning when branch delete fails")
+	if failed.Err == nil {
+		t.Fatal("expected a non-nil error when branch delete fails")
 	}
 }
