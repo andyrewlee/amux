@@ -136,10 +136,11 @@ func (s *workspaceService) finishInterruptedDelete(ws *data.Workspace) bool {
 	// Retry the branch deletion. The worktree is confirmed gone (checked above),
 	// so the branch is no longer checked out and git branch -D is safe. The
 	// tombstone proves this delete already passed validation, so the branch is
-	// amux's own. If the branch was already removed externally the delete fails
-	// harmlessly and the tombstone stays for a later retry. The per-repo git lock
-	// is held for parity with removeWorktreeAndBranchLocked so concurrent same-
-	// repo mutations don't contend on packed-refs.
+	// amux's own. A "branch not found" error means the branch was already
+	// removed (e.g. a crash after branch delete), so it is treated as success.
+	// The per-repo git lock is held for parity with
+	// removeWorktreeAndBranchLocked so concurrent same-repo mutations don't
+	// contend on packed-refs.
 	if ws.Branch != "" && ws.Repo != "" {
 		var branchErr error
 		func() {

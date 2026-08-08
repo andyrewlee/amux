@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -95,19 +94,6 @@ func (s *workspaceService) runArchiveScriptForDelete(ws *data.Workspace) string 
 		logging.Warn("workspace archive script failed workspace_id=%s error=%v", ws.ID(), err)
 		return fmt.Sprintf("Archive script failed for %s: %v", ws.Name, err)
 	}
-}
-
-// joinWarnings combines non-empty warning strings into one line so a delete that
-// produced both an archive-script warning and a branch-cleanup warning surfaces
-// both rather than dropping one.
-func joinWarnings(warnings ...string) string {
-	present := make([]string, 0, len(warnings))
-	for _, w := range warnings {
-		if w != "" {
-			present = append(present, w)
-		}
-	}
-	return strings.Join(present, "; ")
 }
 
 func (s *workspaceService) StopAll() {

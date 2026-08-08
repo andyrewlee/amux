@@ -236,6 +236,61 @@ func TestRescanWorkspaces_SkipsDeleteInFlight(t *testing.T) {
 	}
 }
 
+// TestRescanWorkspaces_SkipsTombstonedWorkspace proves that a workspace with a
+// durable delete tombstone is not archived by rescan. Without this guard, the
+// tombstoned workspace would be excluded from ListByRepo and recovery would
+// never retry the branch deletion.
+func TestRescanWorkspaces_SkipsTombstonedWorkspace(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	tmp := t.TempDir()
+	registry := data.NewRegistry(filepath.Join(tmp, "projects.json"))
+	if err := registry.AddProject(repo); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+
+	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
+	workspacesRoot := filepath.Join(tmp, "workspaces")
+	ghost := &data.Workspace{
+		Name: "tombstoned",
+		Repo: repo,
+		Root: filepath.Join(workspacesRoot, filepath.Base(repo), "tombstoned"),
+	}
+	if err := store.Save(ghost); err != nil {
+		t.Fatalf("Save ghost workspace: %v", err)
+	}
+	if err := store.MarkDeleting(ghost.ID()); err != nil {
+		t.Fatalf("MarkDeleting: %v", err)
+	}
+
+	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
+	app := &App{workspaceService: workspaceService}
+
+	rescanMsg := app.rescanWorkspaces()()
+	if _, ok := rescanMsg.(messages.RefreshDashboard); !ok {
+		t.Fatalf("expected RefreshDashboard from rescan, got %T", rescanMsg)
+	}
+
+	loaded, err := store.Load(ghost.ID())
+	if err != nil {
+		t.Fatalf("Load ghost workspace: %v", err)
+	}
+	if loaded.Archived {
+		t.Fatal("tombstoned workspace must not be archived by rescan")
+	}
+	if !store.IsDeleting(ghost.ID()) {
+		t.Fatal("tombstone must survive rescan for recovery retry")
+	}
+}
+
 func TestRescanWorkspaces_GuardsArchiveWriteAgainstConcurrentDelete(t *testing.T) {
 	skipIfNoGit(t)
 
