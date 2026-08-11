@@ -110,6 +110,7 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 		WorkDir:        ws.Root,
 		Command:        fullCommand,
+		Environment:    env,
 		Options:        m.getTmuxOptions(),
 		Tags:           tags,
 		DetachExisting: true,
@@ -161,6 +162,7 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 		WorkDir:        ws.Root,
 		Command:        command,
+		Environment:    env,
 		Options:        m.getTmuxOptions(),
 		Tags:           tags,
 		DetachExisting: true,

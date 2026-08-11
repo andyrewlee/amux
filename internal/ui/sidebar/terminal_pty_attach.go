@@ -123,6 +123,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
 			Command:        loginShellCommand,
+			Environment:    env,
 			Options:        opts,
 			Tags:           tags,
 			DetachExisting: true,
@@ -309,6 +310,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
 			Command:        loginShellCommand,
+			Environment:    env,
 			Options:        opts,
 			Tags:           tags,
 			DetachExisting: detachExisting,

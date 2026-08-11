@@ -117,6 +117,7 @@ func TestNewClientCommand(t *testing.T) {
 	cmd := NewClientCommand("test-session", ClientCommandParams{
 		WorkDir:        "/tmp/work",
 		Command:        "echo hello",
+		Environment:    []string{"WORKSPACE_ROOT=/tmp/work", "WORKSPACE_NAME=demo"},
 		Options:        opts,
 		DetachExisting: true,
 	})
@@ -154,9 +155,11 @@ func TestNewClientCommand(t *testing.T) {
 	if !strings.Contains(cmd, "-L 'test-server'") {
 		t.Error("Command should include server name")
 	}
-	// Should run pane command via sh -lc
-	if !strings.Contains(cmd, "sh -lc 'unset TMUX TMUX_PANE; echo hello'") {
-		t.Error("Command should run pane command via sh -lc with tmux env sanitized")
+	// Should force the pane process into the requested cwd before starting the
+	// shell. tmux's own -c can fail after the server startup directory is
+	// deleted, so the explicit cd is the process-level fallback.
+	if !strings.Contains(cmd, `sh -c 'cd "$1" && shift && exec env "$@"' amux-chdir '/tmp/work' 'WORKSPACE_ROOT=/tmp/work' 'WORKSPACE_NAME=demo' sh -lc 'unset TMUX TMUX_PANE; echo hello'`) {
+		t.Error("Command should chdir via the shell trampoline before running the sanitized pane command")
 	}
 
 	// Should advertise DEC 2026 sync support before attaching so tmux wraps

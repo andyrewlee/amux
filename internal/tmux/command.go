@@ -12,6 +12,7 @@ import (
 type ClientCommandParams struct {
 	WorkDir        string
 	Command        string
+	Environment    []string
 	Options        Options
 	Tags           SessionTags
 	DetachExisting bool // Detach other clients attached to this session.
@@ -23,10 +24,10 @@ func NewClientCommand(sessionName string, p ClientCommandParams) string {
 	if p.Options == (Options{}) {
 		p.Options = DefaultOptions()
 	}
-	return clientCommand(sessionName, p.WorkDir, p.Command, p.Options, p.Tags, p.DetachExisting)
+	return clientCommand(sessionName, p.WorkDir, p.Command, p.Environment, p.Options, p.Tags, p.DetachExisting)
 }
 
-func clientCommand(sessionName, workDir, command string, opts Options, tags SessionTags, detachExisting bool) string {
+func clientCommand(sessionName, workDir, command string, environment []string, opts Options, tags SessionTags, detachExisting bool) string {
 	base := tmuxBase(opts)
 	session := shellutil.ShellQuote(sessionName)
 	optionTgt := shellutil.ShellQuote(exactSessionOptionTarget(sessionName))
@@ -36,12 +37,36 @@ func clientCommand(sessionName, workDir, command string, opts Options, tags Sess
 	// accidentally target the AMUX control server.
 	command = "unset TMUX TMUX_PANE; " + command
 	cmd := shellutil.ShellQuote(command)
+	paneEnvironment := make([]string, 0, len(environment))
+	for _, assignment := range environment {
+		if assignment != "" {
+			paneEnvironment = append(paneEnvironment, shellutil.ShellQuote(assignment))
+		}
+	}
+	paneEnvironmentArgs := ""
+	if len(paneEnvironment) > 0 {
+		paneEnvironmentArgs = " " + strings.Join(paneEnvironment, " ")
+	}
+	// The trampoline's $0 is a fixed label, $1 is workDir, and the remaining
+	// arguments are the environment assignments plus the final shell argv.
+	// Keeping values in positional parameters avoids evaluating any workspace
+	// path or environment value as shell source.
+	chdirScript := shellutil.ShellQuote(`cd "$1" && shift && exec env "$@"`)
+	paneCommand := fmt.Sprintf("sh -c %s amux-chdir %s%s sh -lc %s", chdirScript, dir, paneEnvironmentArgs, cmd)
 
 	// Ensure the session/server exists without attaching yet. tmux computes
 	// client features at attach time, so the server option below must be set
 	// while the server is alive but before the final attach command.
-	ensureSession := fmt.Sprintf("(%s has-session -t %s 2>/dev/null || %s new-session -ds %s -c %s sh -lc %s || %s has-session -t %s 2>/dev/null)",
-		base, sessionTgt, base, session, dir, cmd, base, sessionTgt)
+	// tmux keeps the server's original cwd open for its lifetime. If amux was
+	// launched from a managed workspace and that workspace is later deleted,
+	// tmux can leave a new pane in that deleted directory even when new-session
+	// receives an absolute -c path (observed on tmux 3.7b). Run the pane command
+	// through a POSIX-shell trampoline that performs a second, process-level
+	// chdir, so both fresh and already poisoned servers start the final shell in
+	// workDir. This intentionally avoids env -C, which is absent on macOS 14 and
+	// BusyBox-based Linux systems.
+	ensureSession := fmt.Sprintf("(%s has-session -t %s 2>/dev/null || %s new-session -ds %s -c %s %s || %s has-session -t %s 2>/dev/null)",
+		base, sessionTgt, base, session, dir, paneCommand, base, sessionTgt)
 
 	// Advertise DEC 2026 synchronized-output support before attaching. The
 	// indexed slot keeps repeated session creates idempotent on amux's

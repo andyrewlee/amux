@@ -2,7 +2,9 @@ package tmux
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +105,64 @@ func TestClientCommandAppliesOptionsAndTagsOnRealTmux(t *testing.T) {
 	// above would catch.
 	if got := showWindowOption(t, opts, session, "monitor-activity"); got != "on" {
 		t.Errorf("window option monitor-activity = %q, want \"on\" — the activity-based quiet check depends on it", got)
+	}
+}
+
+// TestClientCommandEscapesDeletedServerWorkingDirectory reproduces the tmux
+// failure that poisoned every workspace created after deleting the workspace
+// from which the shared server originally started. tmux accepts -c and records
+// it as session_path, but 3.7b still leaves the pane process in the deleted
+// server cwd. The explicit-cd trampoline must put the process in the new
+// workspace before the final shell (or agent) starts.
+func TestClientCommandEscapesDeletedServerWorkingDirectory(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+
+	serverDir := t.TempDir()
+	workspaceDir := t.TempDir()
+	serverName := fmt.Sprintf("amux-deleted-cwd-%d", time.Now().UnixNano())
+	opts := Options{ServerName: serverName, ConfigPath: "/dev/null", CommandTimeout: 5 * time.Second}
+
+	keep := exec.Command("tmux", tmuxArgs(opts, "new-session", "-d", "-s", "_keepalive", "sleep", "300")...)
+	keep.Dir = serverDir
+	if out, err := keep.CombinedOutput(); err != nil {
+		t.Skipf("tmux unusable: %v\n%s", err, out)
+	}
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-L", serverName, "kill-server").Run()
+	})
+
+	if err := os.Remove(serverDir); err != nil {
+		t.Fatalf("remove tmux server cwd: %v", err)
+	}
+
+	const session = "deleted-cwd-recovery"
+	cmdStr := NewClientCommand(session, ClientCommandParams{
+		WorkDir:     workspaceDir,
+		Command:     `test "$WORKSPACE_SENTINEL" = recovered && sleep 300`,
+		Environment: []string{"WORKSPACE_SENTINEL=recovered"},
+		Options:     opts,
+	})
+	// The final attach requires a controlling terminal. Session creation runs
+	// before it, so the attach error is intentionally ignored here.
+	_ = exec.Command("sh", "-c", cmdStr).Run()
+	waitForSessionExists(t, opts, session)
+
+	out, err := exec.Command("tmux", tmuxArgs(opts, "list-panes", "-t", session, "-F", "#{pane_current_path}")...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("read recovered pane cwd: %v\n%s", err, out)
+	}
+	got, err := filepath.EvalSymlinks(strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatalf("resolve recovered pane cwd %q: %v", strings.TrimSpace(string(out)), err)
+	}
+	want, err := filepath.EvalSymlinks(workspaceDir)
+	if err != nil {
+		t.Fatalf("resolve workspace cwd %q: %v", workspaceDir, err)
+	}
+	if got != want {
+		t.Fatalf("pane cwd = %q, want workspace cwd %q", got, want)
 	}
 }
 
