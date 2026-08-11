@@ -41,14 +41,18 @@ func (st *State) ConsumeOverflowCarryLocked(data []byte) ([]byte, bool) {
 
 // TrimOverflow applies the overflow policy to a pending buffer that exceeded
 // maxBuffered: it drops the overflow prefix at a parser-safe boundary
-// (seeded with the terminal's current parser carry state) and returns a fresh
-// copy of the retained bytes, the carry for the next chunk, and how many
-// bytes were dropped from the front.
+// (seeded with the terminal's current parser carry state), returns the retained
+// suffix directly, and reports the carry for the next chunk and how many bytes
+// were dropped from the front. Returning the suffix is important on the
+// fallback path: a sustained overflow must not allocate or copy the entire
+// multi-megabyte buffer for every incoming PTY chunk. A later append grows the
+// slice only when the suffix has exhausted the backing array's remaining
+// capacity, amortizing that occasional copy across many trims.
 func TrimOverflow(pending []byte, maxBuffered int, seed vterm.ParserCarryState) (retained []byte, carry vterm.ParserCarryState, droppedFromFront int) {
 	overflow := len(pending) - maxBuffered
 	retainedSlice, carry := TrimPTYOverflowPrefix(pending, overflow, seed)
 	droppedFromFront = len(pending) - len(retainedSlice)
-	return append([]byte(nil), retainedSlice...), carry, droppedFromFront
+	return retainedSlice, carry, droppedFromFront
 }
 
 // DEC 2026 synchronized output brackets one complete frame: ESC[?2026h tells

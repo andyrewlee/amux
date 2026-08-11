@@ -3,7 +3,7 @@ package center
 import "testing"
 
 func TestTabPTYPhaseTransitions(t *testing.T) {
-	tab := &Tab{}
+	tab := &Tab{discardDetachedPTYOutput: true}
 
 	assertPhase := func(label string, wantRunning, wantDetached, wantReattaching bool) {
 		t.Helper()
@@ -17,6 +17,9 @@ func TestTabPTYPhaseTransitions(t *testing.T) {
 
 	tab.markAttachedLocked()
 	assertPhase("after attach", true, false, false)
+	if tab.discardDetachedPTYOutput {
+		t.Fatal("attach should resume accepting PTY output")
+	}
 
 	tab.markDetachedLocked()
 	assertPhase("after detach", false, true, false)

@@ -20,6 +20,9 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
 	if tab != nil && !tab.isClosed() {
 		m.tracePTYOutput(tab, msg.Data)
+		if detachCmd, consumed := m.handleBackgroundPTYPressure(msg, tab); consumed {
+			return detachCmd
+		}
 		// resetNow bridges the actor-aware trim seed (SeedForTrim) to the
 		// overflow noise-reset accounting (OnOverflowLocked): both run inside
 		// AppendOutput and both need to know whether the terminal parser was
@@ -144,6 +147,82 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		}
 	}
 	return common.SafeBatch(cmds...)
+}
+
+// handleBackgroundPTYPressure releases a hidden live view when its buffered
+// output has remained above the pressure threshold. This is deliberately based
+// on backlog rather than whether the agent itself is busy: detaching closes
+// only amux's tmux client, while the tmux session and agent keep running.
+//
+// consumed reports that msg must not be appended. Besides a pressure detach,
+// it also discards PTYOutput messages that were already queued when an earlier
+// detach closed the reader.
+func (m *Model) handleBackgroundPTYPressure(msg PTYOutput, tab *Tab) (detachCmd tea.Cmd, consumed bool) {
+	if tab == nil {
+		return nil, false
+	}
+
+	isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
+	now := time.Now()
+	tab.mu.Lock()
+	if tab.Detached && tab.discardDetachedPTYOutput {
+		tab.mu.Unlock()
+		return nil, true
+	}
+	if isActive {
+		tab.backgroundPTYPressureSince = time.Time{}
+		tab.mu.Unlock()
+		return nil, false
+	}
+
+	projectedBacklog := len(tab.PendingOutput) + len(msg.Data)
+	if projectedBacklog < ptyBackgroundDetachThreshold {
+		tab.backgroundPTYPressureSince = time.Time{}
+		tab.mu.Unlock()
+		return nil, false
+	}
+	if tab.backgroundPTYPressureSince.IsZero() {
+		tab.backgroundPTYPressureSince = now
+	}
+	pressureSince := tab.backgroundPTYPressureSince
+	attached := tab.Running && tab.Agent != nil
+	sessionName := tab.SessionName
+	if sessionName == "" && tab.Agent != nil {
+		sessionName = tab.Agent.Session
+	}
+	tab.mu.Unlock()
+
+	// A single exceptionally large read must not pass through to the overflow
+	// path merely to wait out the grace period.
+	emergency := projectedBacklog >= ptyMaxBufferedBytes
+	if !attached || sessionName == "" || (!emergency && now.Sub(pressureSince) < ptyBackgroundDetachGrace) {
+		return nil, false
+	}
+	if !m.isChatTab(tab) {
+		return nil, false
+	}
+
+	for index, candidate := range m.tabs.ByWorkspace[msg.WorkspaceID] {
+		if candidate != tab {
+			continue
+		}
+		logging.Warn(
+			"detaching background tab %s after sustained PTY backlog: buffered %d bytes (agent continues in tmux session %s)",
+			tab.ID,
+			projectedBacklog,
+			sessionName,
+		)
+		perf.Count("pty_background_pressure_detach", 1)
+		detachCmd := m.detachTab(tab, index)
+		if detachCmd == nil {
+			return nil, false
+		}
+		tab.mu.Lock()
+		tab.discardDetachedPTYOutput = true
+		tab.mu.Unlock()
+		return detachCmd, true
+	}
+	return nil, false
 }
 
 // updatePTYFlush handles PTYFlush.

@@ -53,6 +53,14 @@ const (
 	// bursts from many tabs before overflow trimming kicks in.
 	ptyMaxBufferedBytes  = 8 * 1024 * 1024
 	tabActorStallTimeout = 10 * time.Second
+	// A background agent that continuously redraws can produce output faster
+	// than the intentionally throttled background flush cadence can consume it.
+	// Once that deficit is sustained, keeping the live PTY client attached only
+	// replays stale frames and grows the buffer. Detach the view before it reaches
+	// the overflow ceiling; the tmux session keeps running and selection
+	// automatically reattaches to its authoritative current screen.
+	ptyBackgroundDetachThreshold = 1024 * 1024
+	ptyBackgroundDetachGrace     = 2 * time.Second
 
 	// Backpressure thresholds (inspired by tmux's TTY_BLOCK_START/STOP)
 	// When pending output exceeds this, we throttle rendering frequency

@@ -77,6 +77,14 @@ type Tab struct {
 	catchUpTargetBytes   uint64
 	ptyBytesReceived     uint64
 	ptyBytesSettled      uint64
+	// backgroundPTYPressureSince is set while this hidden tab's output backlog
+	// remains above the pressure threshold. It distinguishes a brief burst from
+	// a producer that the background flush cadence cannot keep up with.
+	backgroundPTYPressureSince time.Time
+	// discardDetachedPTYOutput distinguishes a pressure detach from other PTY
+	// stop/restart transitions, whose final queued fragment may still be needed
+	// to complete a parser carry sequence.
+	discardDetachedPTYOutput bool
 
 	// Embedded state groups; fields are promoted so accesses read the same as
 	// before the decomposition. Locking follows the same rule as the flat
@@ -239,6 +247,7 @@ func (t *Tab) resetPTYStateLocked() {
 	t.clearCatchUpLocked()
 	t.ptyBytesReceived = 0
 	t.ptyBytesSettled = 0
+	t.backgroundPTYPressureSince = time.Time{}
 	t.NoiseTrailing = nil
 	t.actorQueuedBytes = 0
 }
@@ -384,6 +393,7 @@ func (m *Model) markTabFocused(wsID string, idx int) {
 	}
 	tab.mu.Lock()
 	tab.lastFocusedAt = time.Now()
+	tab.backgroundPTYPressureSince = time.Time{}
 	tab.mu.Unlock()
 }
 

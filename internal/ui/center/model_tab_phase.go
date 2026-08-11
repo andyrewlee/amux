@@ -26,6 +26,7 @@ func (t *Tab) markAttachedLocked() {
 	t.Detached = false
 	t.reattachInFlight = false
 	t.Running = true
+	t.discardDetachedPTYOutput = false
 }
 
 // markDetachedLocked transitions to detached: the PTY is gone but the tmux
@@ -56,6 +57,7 @@ func (t *Tab) markStoppedLocked() {
 	t.Running = false
 	t.Detached = false
 	t.reattachInFlight = false
+	t.discardDetachedPTYOutput = false
 }
 
 // markReattachFailedLocked records a failed reattach: the tab is no longer

@@ -174,18 +174,17 @@ func TestTrimOverflow(t *testing.T) {
 		}
 	})
 
-	t.Run("returns a fresh copy that does not alias the input", func(t *testing.T) {
+	t.Run("returns the retained suffix without copying", func(t *testing.T) {
 		pending := []byte("ABCDEFGH")
-		retained, _, _ := TrimOverflow(pending, 4, vterm.ParserCarryState{})
+		retained, _, dropped := TrimOverflow(pending, 4, vterm.ParserCarryState{})
 		if string(retained) != "EFGH" {
 			t.Fatalf("retained = %q, want %q", retained, "EFGH")
 		}
-		// Mutating the source must not affect the returned copy.
-		for i := range pending {
-			pending[i] = 'x'
+		if &retained[0] != &pending[dropped] {
+			t.Fatal("retained bytes should alias the parser-safe pending suffix")
 		}
-		if string(retained) != "EFGH" {
-			t.Fatalf("retained aliases input: got %q after mutating source", retained)
+		if string(pending) != "ABCDEFGH" {
+			t.Fatalf("pending mutated during trim: got %q", pending)
 		}
 	})
 
