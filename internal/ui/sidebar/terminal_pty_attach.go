@@ -20,7 +20,7 @@ var (
 	ensureTmuxAvailableFn       = tmux.EnsureAvailable
 	sessionStateForFn           = tmux.SessionStateFor
 	probeSessionFn              = tmux.ProbeSession
-	newPTYWithSizeFn            = pty.NewWithSize
+	newPTYWithSizeFn            = pty.NewTmuxClientWithSize
 	resizePaneToSizeFn          = tmux.ResizePaneToSize
 	capturePaneFullDataFn       = tmux.CapturePaneFullData
 	capturePaneHistoryDataFn    = tmux.CapturePaneHistoryData

@@ -1,6 +1,7 @@
 package pty
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -14,6 +15,11 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/process"
 )
+
+// tmuxClientWorkingDirectory is the stable cwd used by the process that invokes
+// tmux. The shared server inherits that process cwd when it first starts, so it
+// must never be a managed workspace that amux can later delete.
+const tmuxClientWorkingDirectory = "/"
 
 // terminalCloseTimeout is how long Close waits for cmd.Wait after process
 // termination before escalating and before giving up on a stuck waiter.
@@ -69,6 +75,29 @@ func NewWithSize(command, dir string, env []string, rows, cols uint16) (*Termina
 	}
 	term.startWaitMonitor(cmd)
 	return term, nil
+}
+
+// NewTmuxClientWithSize validates the pane's requested working directory, then
+// starts the outer tmux client from a stable directory. Validating first retains
+// the synchronous missing-workspace error that exec.Cmd.Dir provided when the
+// tmux client itself used to start inside the workspace.
+func NewTmuxClientWithSize(command, workDir string, env []string, rows, cols uint16) (*Terminal, error) {
+	info, err := os.Stat(workDir)
+	if err != nil {
+		return nil, fmt.Errorf("validate tmux working directory %q: %w", workDir, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("validate tmux working directory %q: not a directory", workDir)
+	}
+	// Use the same exec.Cmd.Dir chdir path as the real PTY so inaccessible
+	// directories fail synchronously on every supported platform. A separate
+	// probe is necessary because the tmux client itself must start from "/".
+	probe := exec.Command("sh", "-c", ":")
+	probe.Dir = workDir
+	if err := probe.Run(); err != nil {
+		return nil, fmt.Errorf("validate tmux working directory %q is accessible: %w", workDir, err)
+	}
+	return NewWithSize(command, tmuxClientWorkingDirectory, env, rows, cols)
 }
 
 func (t *Terminal) startWaitMonitor(cmd *exec.Cmd) {

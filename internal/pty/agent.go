@@ -115,7 +115,7 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		Tags:           tags,
 		DetachExisting: true,
 	})
-	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
+	term, err := NewTmuxClientWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
@@ -167,7 +167,7 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 		Tags:           tags,
 		DetachExisting: true,
 	})
-	term, err := NewWithSize(termCommand, ws.Root, env, rows, cols)
+	term, err := NewTmuxClientWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}

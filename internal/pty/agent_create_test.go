@@ -67,6 +67,9 @@ func TestAgentManager_CreateAgentWithTags_RegistersAgent(t *testing.T) {
 	if agent.Terminal == nil {
 		t.Fatal("agent terminal should be non-nil")
 	}
+	if got := agent.Terminal.cmd.Dir; got != tmuxClientWorkingDirectory {
+		t.Errorf("tmux client cwd = %q, want stable cwd %q", got, tmuxClientWorkingDirectory)
+	}
 
 	// Env assembly: the workspace vars and COLORTERM must reach the spawned command.
 	env := agent.Terminal.cmd.Env

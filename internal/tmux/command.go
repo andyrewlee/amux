@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,13 @@ func NewClientCommand(sessionName string, p ClientCommandParams) string {
 }
 
 func clientCommand(sessionName, workDir, command string, environment []string, opts Options, tags SessionTags, detachExisting bool) string {
+	// The tmux client process runs outside workDir so the shared server cannot
+	// inherit a deletable workspace cwd. Preserve the old behavior for relative
+	// config paths by resolving them against the workspace before constructing
+	// the command.
+	if opts.ConfigPath != "" && !filepath.IsAbs(opts.ConfigPath) {
+		opts.ConfigPath = filepath.Join(workDir, opts.ConfigPath)
+	}
 	base := tmuxBase(opts)
 	session := shellutil.ShellQuote(sessionName)
 	optionTgt := shellutil.ShellQuote(exactSessionOptionTarget(sessionName))

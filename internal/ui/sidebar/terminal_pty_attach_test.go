@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,6 +58,63 @@ func TestAttachToSessionRejectsInvalidShell(t *testing.T) {
 	}
 	if failed.Err == nil || !strings.Contains(failed.Err.Error(), "absolute path") {
 		t.Fatalf("expected absolute-path error, got %v", failed.Err)
+	}
+}
+
+func TestSidebarTmuxClientsValidateWorkspaceDirectory(t *testing.T) {
+	restoreAttachSeams(t)
+	t.Setenv("SHELL", "/bin/sh")
+
+	ensureTmuxAvailableFn = func() error { return nil }
+	sessionStateForFn = func(string, tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{}, nil
+	}
+	var clientDirs []string
+	newPTYWithSizeFn = func(command, dir string, env []string, rows, cols uint16) (*pty.Terminal, error) {
+		clientDirs = append(clientDirs, dir)
+		return &pty.Terminal{}, nil
+	}
+	verifyTerminalSessionTagsFn = func(string, tmux.SessionTags, tmux.Options) error { return nil }
+
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+	createdMsg := m.createTerminalTab(ws)()
+	if _, ok := createdMsg.(SidebarTerminalCreated); !ok {
+		t.Fatalf("expected SidebarTerminalCreated, got %T", createdMsg)
+	}
+	reattachMsg := m.attachToSession(ws, TerminalTabID("term-tab-stable-cwd"), "session-1", true, "restart")()
+	if _, ok := reattachMsg.(SidebarTerminalReattachResult); !ok {
+		t.Fatalf("expected SidebarTerminalReattachResult, got %T", reattachMsg)
+	}
+
+	if len(clientDirs) != 2 {
+		t.Fatalf("tmux client launch dirs = %v, want two launches", clientDirs)
+	}
+	for _, dir := range clientDirs {
+		if dir != ws.Root {
+			t.Errorf("tmux client validation directory = %q, want workspace %q", dir, ws.Root)
+		}
+	}
+}
+
+func TestCreateTerminalTabRejectsMissingWorkspaceDirectory(t *testing.T) {
+	restoreAttachSeams(t)
+	t.Setenv("SHELL", "/bin/sh")
+	ensureTmuxAvailableFn = func() error { return nil }
+	sessionStateForFn = func(string, tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{}, nil
+	}
+
+	missingRoot := filepath.Join(t.TempDir(), "missing")
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("missing", "main", "main", t.TempDir(), missingRoot)
+	msg := m.createTerminalTab(ws)()
+	failed, ok := msg.(SidebarTerminalCreateFailed)
+	if !ok {
+		t.Fatalf("expected SidebarTerminalCreateFailed, got %T", msg)
+	}
+	if failed.Err == nil || !strings.Contains(failed.Err.Error(), "validate tmux working directory") {
+		t.Fatalf("expected missing-directory validation error, got %v", failed.Err)
 	}
 }
 

@@ -182,6 +182,24 @@ func TestNewClientCommand(t *testing.T) {
 	}
 }
 
+func TestNewClientCommandResolvesRelativeConfigFromWorkspace(t *testing.T) {
+	cmd := NewClientCommand("test-session", ClientCommandParams{
+		WorkDir: "/tmp/work",
+		Command: "echo hello",
+		Options: Options{
+			ServerName: "test-server",
+			ConfigPath: "config/tmux.conf",
+		},
+	})
+
+	if !strings.Contains(cmd, "-f '/tmp/work/config/tmux.conf'") {
+		t.Fatalf("relative tmux config should resolve from the workspace: %s", cmd)
+	}
+	if strings.Contains(cmd, "-f 'config/tmux.conf'") {
+		t.Fatalf("relative tmux config must not resolve from the stable client cwd: %s", cmd)
+	}
+}
+
 func TestNewClientCommandWithTags(t *testing.T) {
 	opts := Options{
 		ServerName:      "test-server",

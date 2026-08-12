@@ -420,6 +420,9 @@ func TestAgentManager_CreateViewer_RegistersAgent(t *testing.T) {
 	if agent.Terminal == nil {
 		t.Fatal("agent terminal should be non-nil")
 	}
+	if got := agent.Terminal.cmd.Dir; got != tmuxClientWorkingDirectory {
+		t.Errorf("tmux client cwd = %q, want stable cwd %q", got, tmuxClientWorkingDirectory)
+	}
 
 	// Env assembly: the workspace vars must reach the spawned command.
 	env := agent.Terminal.cmd.Env
