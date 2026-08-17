@@ -22,7 +22,7 @@ func (v *VTerm) insertLines(n int) {
 	// Insert blank lines
 	for i := v.CursorY; i < v.CursorY+n && i < v.ScrollBottom; i++ {
 		if i < len(v.Screen) {
-			v.Screen[i] = MakeBlankLine(v.Width)
+			v.Screen[i] = v.makeEraseLine(v.Width)
 		}
 	}
 	v.markDirtyRange(v.ScrollTop, v.ScrollBottom-1)
@@ -50,7 +50,7 @@ func (v *VTerm) deleteLines(n int) {
 	// Fill bottom with blank lines
 	for i := v.ScrollBottom - n; i < v.ScrollBottom; i++ {
 		if i >= 0 && i < len(v.Screen) {
-			v.Screen[i] = MakeBlankLine(v.Width)
+			v.Screen[i] = v.makeEraseLine(v.Width)
 		}
 	}
 	v.markDirtyRange(v.ScrollTop, v.ScrollBottom-1)
@@ -72,9 +72,10 @@ func (v *VTerm) insertChars(n int) {
 	}
 
 	// Insert blanks
+	eraseC := v.eraseCell()
 	for i := v.CursorX; i < v.CursorX+n && i < v.Width; i++ {
 		if i < len(line) {
-			line[i] = DefaultCell()
+			line[i] = eraseC
 		}
 	}
 	normalizeLine(line)
@@ -105,9 +106,10 @@ func (v *VTerm) deleteChars(n int) {
 	}
 
 	// Fill end with blanks
+	eraseC := v.eraseCell()
 	for i := v.Width - n; i < v.Width; i++ {
 		if i >= 0 && i < len(line) {
-			line[i] = DefaultCell()
+			line[i] = eraseC
 		}
 	}
 	normalizeLine(line)
@@ -120,10 +122,11 @@ func (v *VTerm) eraseChars(n int) {
 		return
 	}
 	line := v.Screen[v.CursorY]
+	eraseC := v.eraseCell()
 
 	for i := v.CursorX; i < v.CursorX+n && i < v.Width; i++ {
 		if i < len(line) {
-			line[i] = DefaultCell()
+			line[i] = eraseC
 		}
 	}
 	normalizeLine(line)
@@ -138,12 +141,12 @@ func normalizeLine(line []Cell) {
 		case 0:
 			// Continuation without a leading wide cell is invalid.
 			if !IsWideContinuation(line, i) {
-				line[i] = DefaultCell()
+				line[i] = Cell{Rune: ' ', Width: 1, Style: line[i].Style}
 			}
 		case 2:
 			// If the continuation cell is missing, drop the wide glyph.
 			if !HasWideContinuation(line, i, len(line)) {
-				line[i] = DefaultCell()
+				line[i] = Cell{Rune: ' ', Width: 1, Style: line[i].Style}
 			}
 		}
 	}

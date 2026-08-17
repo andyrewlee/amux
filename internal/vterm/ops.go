@@ -187,8 +187,26 @@ func (v *VTerm) backspace() {
 	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
 
+func (v *VTerm) eraseCell() Cell {
+	return Cell{
+		Rune:  ' ',
+		Width: 1,
+		Style: Style{Bg: v.CurrentStyle.Bg},
+	}
+}
+
+func (v *VTerm) makeEraseLine(width int) []Cell {
+	line := make([]Cell, width)
+	c := v.eraseCell()
+	for i := range line {
+		line[i] = c
+	}
+	return line
+}
+
 // eraseDisplay clears parts of the display
 func (v *VTerm) eraseDisplay(mode int) {
+	eraseC := v.eraseCell()
 	switch mode {
 	case 0: // Cursor to end
 		if v.CursorX == 0 && v.CursorY == 0 && v.shouldCaptureScreenOnClear() {
@@ -199,7 +217,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 		if v.CursorY < len(v.Screen) {
 			for x := v.CursorX; x < v.Width; x++ {
 				if x < len(v.Screen[v.CursorY]) {
-					v.Screen[v.CursorY][x] = DefaultCell()
+					v.Screen[v.CursorY][x] = eraseC
 				}
 			}
 			normalizeLine(v.Screen[v.CursorY])
@@ -207,7 +225,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 		// Clear all lines below
 		for y := v.CursorY + 1; y < v.Height; y++ {
 			if y < len(v.Screen) {
-				v.Screen[y] = MakeBlankLine(v.Width)
+				v.Screen[y] = v.makeEraseLine(v.Width)
 			}
 		}
 		v.markDirtyRange(v.CursorY, v.Height-1)
@@ -215,14 +233,14 @@ func (v *VTerm) eraseDisplay(mode int) {
 		// Clear all lines above
 		for y := 0; y < v.CursorY; y++ {
 			if y < len(v.Screen) {
-				v.Screen[y] = MakeBlankLine(v.Width)
+				v.Screen[y] = v.makeEraseLine(v.Width)
 			}
 		}
 		// Clear from start of line to cursor
 		if v.CursorY < len(v.Screen) {
 			for x := 0; x <= v.CursorX && x < v.Width; x++ {
 				if x < len(v.Screen[v.CursorY]) {
-					v.Screen[v.CursorY][x] = DefaultCell()
+					v.Screen[v.CursorY][x] = eraseC
 				}
 			}
 			normalizeLine(v.Screen[v.CursorY])
@@ -238,7 +256,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 		}
 		for y := 0; y < v.Height; y++ {
 			if y < len(v.Screen) {
-				v.Screen[y] = MakeBlankLine(v.Width)
+				v.Screen[y] = v.makeEraseLine(v.Width)
 			}
 		}
 		if mode == 3 {
@@ -267,6 +285,7 @@ func (v *VTerm) eraseLine(mode int) {
 		return
 	}
 
+	eraseC := v.eraseCell()
 	// A partial erase can cut a wide glyph in half; normalizeLine drops the
 	// leftover half so the line keeps exactly one cell per column. Mode 2
 	// replaces the whole line with blanks, so it needs no normalization.
@@ -274,19 +293,19 @@ func (v *VTerm) eraseLine(mode int) {
 	case 0: // Cursor to end
 		for x := v.CursorX; x < v.Width; x++ {
 			if x < len(v.Screen[v.CursorY]) {
-				v.Screen[v.CursorY][x] = DefaultCell()
+				v.Screen[v.CursorY][x] = eraseC
 			}
 		}
 		normalizeLine(v.Screen[v.CursorY])
 	case 1: // Start to cursor
 		for x := 0; x <= v.CursorX && x < v.Width; x++ {
 			if x < len(v.Screen[v.CursorY]) {
-				v.Screen[v.CursorY][x] = DefaultCell()
+				v.Screen[v.CursorY][x] = eraseC
 			}
 		}
 		normalizeLine(v.Screen[v.CursorY])
 	case 2: // Entire line
-		v.Screen[v.CursorY] = MakeBlankLine(v.Width)
+		v.Screen[v.CursorY] = v.makeEraseLine(v.Width)
 	}
 	v.markDirtyLine(v.CursorY)
 }

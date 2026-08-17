@@ -69,7 +69,7 @@ func (v *VTerm) scrollUp(n int) {
 	// Fill bottom with blank lines
 	for i := v.ScrollBottom - n; i < v.ScrollBottom; i++ {
 		if i >= 0 && i < len(v.Screen) {
-			v.Screen[i] = MakeBlankLine(v.Width)
+			v.Screen[i] = v.makeEraseLine(v.Width)
 		}
 	}
 	v.markDirtyRange(v.ScrollTop, v.ScrollBottom-1)
@@ -97,7 +97,7 @@ func (v *VTerm) scrollDown(n int) {
 	// Fill top with blank lines
 	for i := v.ScrollTop; i < v.ScrollTop+n; i++ {
 		if i >= 0 && i < len(v.Screen) {
-			v.Screen[i] = MakeBlankLine(v.Width)
+			v.Screen[i] = v.makeEraseLine(v.Width)
 		}
 	}
 	v.markDirtyRange(v.ScrollTop, v.ScrollBottom-1)
