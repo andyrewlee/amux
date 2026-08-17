@@ -1,6 +1,10 @@
 package pty
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestLoginShellCommand(t *testing.T) {
 	tests := []struct {
@@ -65,5 +69,28 @@ func TestLoginShellCommandFromEnvDefault(t *testing.T) {
 	want := "exec '" + defaultLoginShell + "' -l"
 	if got != want {
 		t.Fatalf("LoginShellCommandFromEnv() = %q, want %q", got, want)
+	}
+}
+
+func TestAugmentPath(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	opencodeBin := tmpDir + "/.opencode/bin"
+	if err := os.MkdirAll(opencodeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	initialPath := "/usr/bin:/bin"
+	got := AugmentPath(initialPath, tmpDir)
+
+	if !strings.Contains(got, opencodeBin) {
+		t.Fatalf("AugmentPath(%q, %q) = %q, want it to contain %q", initialPath, tmpDir, got, opencodeBin)
+	}
+
+	// Calling again on the augmented path shouldn't duplicate the entry
+	second := AugmentPath(got, tmpDir)
+	if strings.Count(second, opencodeBin) != 1 {
+		t.Fatalf("AugmentPath duplicated entry: %q", second)
 	}
 }

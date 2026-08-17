@@ -99,6 +99,9 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		captureRows := attachHeight
 		reuseExistingSession := false
 		env := []string{"COLORTERM=truecolor"}
+		if path := pty.AugmentedPath(); path != "" {
+			env = append(env, "PATH="+path)
+		}
 		sessionName := tmux.SessionName("amux", wsID, string(tabID))
 		// Reuse scrollback if a prior tmux session with the same name exists
 		// (e.g., app restart with persisted tmux session).
@@ -241,7 +244,6 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	termWidth, termHeight := m.sessionBootstrapViewportSize()
 	attachWidth, attachHeight := m.terminalContentSize()
 	loginShellCommand, shellErr := pty.LoginShellCommandFromEnv()
-	env := []string{"COLORTERM=truecolor"}
 	wsID := string(ws.ID())
 	root := ws.Root
 	instanceID := m.instanceID
@@ -306,6 +308,10 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			bootstrap = captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
 			snapshot = bootstrap.Snapshot
 			captureFullPane = bootstrap.CaptureFullPane
+		}
+		env := []string{"COLORTERM=truecolor"}
+		if path := pty.AugmentedPath(); path != "" {
+			env = append(env, "PATH="+path)
 		}
 		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,

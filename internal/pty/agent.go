@@ -95,6 +95,9 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		"COLUMNS=", // Unset to force ioctl usage
 		"COLORTERM=truecolor",
 	}
+	if path := AugmentedPath(); path != "" {
+		env = append(env, "PATH="+path)
+	}
 
 	// Create terminal with agent command, falling back to shell on exit
 	loginShellCommand, err := LoginShellCommandFromEnv()
@@ -157,6 +160,9 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 		"WORKSPACE_NAME=" + ws.Name,
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
+	}
+	if path := AugmentedPath(); path != "" {
+		env = append(env, "PATH="+path)
 	}
 
 	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
