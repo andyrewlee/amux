@@ -16,10 +16,10 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           # setup-go v6 reads go.mod's toolchain directive, keeping CI on the patched Go 1.26 toolchain.
           go-version-file: go.mod
@@ -105,10 +105,10 @@ jobs:
         tmux: [apt, "3.6a"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           # setup-go v6 reads go.mod's toolchain directive, keeping CI on the patched Go 1.26 toolchain.
           go-version-file: go.mod
@@ -167,12 +167,12 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           # setup-go v6 reads go.mod's toolchain directive, keeping CI on the patched Go 1.26 toolchain.
           go-version-file: go.mod
@@ -205,10 +205,10 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           # setup-go v6 reads go.mod's toolchain directive, keeping CI on the patched Go 1.26 toolchain.
           go-version-file: go.mod
