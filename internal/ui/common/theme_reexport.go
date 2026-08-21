@@ -61,11 +61,12 @@ var (
 	Icons              = theme.Icons
 	ColorClaude        = theme.ColorClaude
 	ColorCodex         = theme.ColorCodex
-	ColorGemini        = theme.ColorGemini
-	ColorAmp           = theme.ColorAmp
 	ColorOpencode      = theme.ColorOpencode
 	ColorDroid         = theme.ColorDroid
-	ColorCline         = theme.ColorCline
 	ColorCursor        = theme.ColorCursor
 	ColorPi            = theme.ColorPi
+	ColorAntigravity   = theme.ColorAntigravity
+	ColorFx            = theme.ColorFx
+	ColorAmp           = theme.ColorAmp
+	ColorCline         = theme.ColorCline
 )

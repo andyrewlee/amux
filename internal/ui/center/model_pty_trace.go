@@ -50,7 +50,7 @@ func ptyTraceDir() string {
 
 // ptyTraceFileName builds the trace filename for an assistant. The assistant
 // token is lowercased, trimmed, and reduced to [a-z0-9_-] (other runes become
-// '-'), falling back to "agent" when empty — so a codex/cline/gemini trace is
+// '-'), falling back to "agent" when empty — so a codex/cline/antigravity trace is
 // labeled correctly instead of the old hardcoded "claude".
 func ptyTraceFileName(assistant, tabID, ts string) string {
 	token := strings.ToLower(strings.TrimSpace(assistant))

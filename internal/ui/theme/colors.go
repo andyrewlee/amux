@@ -56,30 +56,32 @@ func ColorSelection() color.Color { return currentTheme().Colors.Selection }
 
 // Agent colors remain constant across themes for brand recognition.
 var (
-	ColorClaude   = lipgloss.Color("#CC785C")
-	ColorCodex    = lipgloss.Color("#FFFFFF")
-	ColorGemini   = lipgloss.Color("#4285f4")
-	ColorAmp      = lipgloss.Color("#ED4C3D")
-	ColorOpencode = lipgloss.Color("#000000")
-	ColorDroid    = lipgloss.Color("#EE6018")
-	ColorCline    = lipgloss.Color("#101827")
-	ColorCursor   = lipgloss.Color("#1B1812")
-	ColorPi       = lipgloss.Color("#0e0e11")
+	ColorClaude      = lipgloss.Color("#CC785C")
+	ColorCodex       = lipgloss.Color("#FFFFFF")
+	ColorOpencode    = lipgloss.Color("#000000")
+	ColorDroid       = lipgloss.Color("#EE6018")
+	ColorCursor      = lipgloss.Color("#1B1812")
+	ColorPi          = lipgloss.Color("#0e0e11")
+	ColorAntigravity = lipgloss.Color("#4285f4")
+	ColorFx          = lipgloss.Color("#FF4081")
+	ColorAmp         = lipgloss.Color("#ED4C3D")
+	ColorCline       = lipgloss.Color("#101827")
 )
 
 // agentColors maps canonical agent names to their brand palette color. Lookups
 // are gated by config.IsRegisteredAgent so the roster stays in lockstep with
 // the canonical registry; any unmapped registry name falls back to ColorPrimary.
 var agentColors = map[string]color.Color{
-	"claude":   ColorClaude,
-	"codex":    ColorCodex,
-	"gemini":   ColorGemini,
-	"amp":      ColorAmp,
-	"opencode": ColorOpencode,
-	"droid":    ColorDroid,
-	"cline":    ColorCline,
-	"cursor":   ColorCursor,
-	"pi":       ColorPi,
+	"claude":      ColorClaude,
+	"codex":       ColorCodex,
+	"opencode":    ColorOpencode,
+	"droid":       ColorDroid,
+	"cursor":      ColorCursor,
+	"pi":          ColorPi,
+	"antigravity": ColorAntigravity,
+	"fx":          ColorFx,
+	"amp":         ColorAmp,
+	"cline":       ColorCline,
 }
 
 // GetCurrentTheme returns the currently active theme.

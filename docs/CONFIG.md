@@ -92,5 +92,5 @@ its interrupt behavior:
 }
 ```
 
-The built-in roster (default names) is: `claude`, `codex`, `gemini`, `amp`,
-`opencode`, `droid`, `cline`, `cursor`, `pi`.
+The built-in roster (default names) is: `claude`, `codex`, `opencode`, `droid`,
+`cursor`, `pi`, `antigravity`, `fx`, `amp`, `cline`.

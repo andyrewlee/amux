@@ -17,7 +17,7 @@ func TestPtyTraceFileName(t *testing.T) {
 		{"claude", "amux-pty-claude-"},
 		{"codex", "amux-pty-codex-"},
 		{"Cline", "amux-pty-cline-"},
-		{"  gemini  ", "amux-pty-gemini-"},
+		{"  antigravity  ", "amux-pty-antigravity-"},
 		{"open code", "amux-pty-open-code-"},
 		{"a/b\\c", "amux-pty-a-b-c-"},
 		{"", "amux-pty-agent-"},

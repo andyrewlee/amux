@@ -115,7 +115,7 @@ func TestValidateAssistant(t *testing.T) {
 	}{
 		{"claude", "claude", false},
 		{"codex", "codex", false},
-		{"gemini", "gemini", false},
+		{"antigravity", "antigravity", false},
 		{"opencode", "opencode", false},
 		{"custom assistant", "my-agent", false},
 		{"cursor", "cursor", false},

@@ -25,7 +25,7 @@
   },
   "AGT-02": {
     "errors_found": "",
-    "result": "internal/config/agents.go:18-28 declares AgentRegistry with exactly 9 entries in display order: claude, codex, gemini, amp, opencode, droid, cline, cursor, pi, each with DefaultCommand + InterruptCount + InterruptDelayMs. AgentNames() (agents.go:42-48) returns them in registry order, and preferredAssistantOrder (config.go:42) derives from it. TestAgentRegistryIsCanonical (internal/config/agents_test.go:45-103) enforces that defaultAssistants, preferredAssistantOrder, and IsRegisteredAgent all equal the registry set and preserve order. Note: cursor's DefaultCommand is 'agent' (not 'cursor'), b\u2026",
+    "result": "internal/config/agents.go:18-29 declares AgentRegistry with exactly 10 entries in display order: claude, codex, opencode, droid, cursor, pi, antigravity, fx, amp, cline, each with DefaultCommand + InterruptCount + InterruptDelayMs. AgentNames() (agents.go:43-49) returns them in registry order, and preferredAssistantOrder (config.go:45) derives from it. TestAgentRegistryIsCanonical (internal/config/agents_test.go:45-116) enforces that defaultAssistants, preferredAssistantOrder, and IsRegisteredAgent all equal the registry set and preserve order. Note: cursor's DefaultCommand is 'agent' (not 'cursor'), b\u2026",
     "status": "Pass",
     "test_method": "code-trace (Phase 2 multi-agent verify)"
   },
