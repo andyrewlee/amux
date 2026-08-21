@@ -78,6 +78,38 @@ func TestMouseWheelForwardsToMouseReportingTerminalInsteadOfLocalScroll(t *testi
 	}
 }
 
+func TestMouseWheelWithShiftScrollsLocallyDespiteMouseReporting(t *testing.T) {
+	// No tab actor: gestures run through the synchronous fallback, like the
+	// chat-history scroll tests below.
+	m, tab := setupSelectionModel(t)
+
+	tab.mu.Lock()
+	for i := 0; i < 40; i++ {
+		tab.Terminal.Write([]byte("line\n"))
+	}
+	tab.Terminal.Write([]byte("\x1b[?1000h\x1b[?1006h"))
+	tab.mu.Unlock()
+
+	tm := m.terminalMetrics()
+	_, _ = m.Update(tea.MouseWheelMsg{
+		Button: tea.MouseWheelUp,
+		X:      tm.ContentStartX + 2,
+		Y:      tm.ContentStartY + 3,
+		Mod:    tea.ModShift,
+	})
+
+	// With mouse reporting on and the pointer in bounds, an unguarded wheel
+	// would be forwarded and return before local scrolling (see the forwarding
+	// test above), leaving the offset at 0. Offset > 0 therefore proves the
+	// shift guard skipped forwarding.
+	tab.mu.Lock()
+	offset, _ := tab.Terminal.GetScrollInfo()
+	tab.mu.Unlock()
+	if offset == 0 {
+		t.Fatal("expected shift+wheel to scroll local scrollback despite mouse reporting")
+	}
+}
+
 func TestCanConsumeWheelWhenTerminalRequestedMouseReporting(t *testing.T) {
 	m, tab := setupSelectionModel(t)
 
