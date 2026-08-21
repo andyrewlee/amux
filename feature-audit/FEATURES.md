@@ -881,12 +881,12 @@ Total user stories: **144**
 - **Result:** internal/ui/app/app_prefix.go:35,217-224 maps C-Space t a -> action new_agent_tab, which (after workspace + tmux checks) emits messages.ShowSelectAssistantDialog{} (the assistant picker). Selecting an assistant calls center.createAgentTab -> createAgentTabWithSession (internal/ui/center/model_tabs.go:103-166) which spawns a tmux session via agentManager.CreateAgentWithTags (internal/pty/agent.go:71-128, builds tmux client cmd running assistantCfg.Command), captures scrollback with tmux.CapturePane, then handlePtyTabCreated (model_tabs.go:316-388) creates a vterm.New, appends the Tab with Runn…
 
 ### AGT-02 — Launch any registered agent  `[Pass]`
-- **Story:** As a user, I want to launch any of the 9 supported agents (claude, codex, gemini, amp, opencode, droid, cline, cursor, pi), so that I can choose my preferred AI.
-- **Expected:** Registry lists all 9 in display order with default command + interrupt config; chosen from the assistant picker.
+- **Story:** As a user, I want to launch any of the 10 supported agents (claude, codex, opencode, droid, cursor, pi, antigravity, fx, amp, cline), so that I can choose my preferred AI.
+- **Expected:** Registry lists all 10 in display order with default command + interrupt config; chosen from the assistant picker.
 - **Source:** config/agents.go
 - **Tests:** config/agents_test.go
 - **Test method:** code-trace (Phase 2 multi-agent verify)
-- **Result:** internal/config/agents.go:18-28 declares AgentRegistry with exactly 9 entries in display order: claude, codex, gemini, amp, opencode, droid, cline, cursor, pi, each with DefaultCommand + InterruptCount + InterruptDelayMs. AgentNames() (agents.go:42-48) returns them in registry order, and preferredAssistantOrder (config.go:42) derives from it. TestAgentRegistryIsCanonical (internal/config/agents_test.go:45-103) enforces that defaultAssistants, preferredAssistantOrder, and IsRegisteredAgent all equal the registry set and preserve order. Note: cursor's DefaultCommand is 'agent' (not 'cursor'), b…
+- **Result:** internal/config/agents.go:18-29 declares AgentRegistry with exactly 10 entries in display order: claude, codex, opencode, droid, cursor, pi, antigravity, fx, amp, cline, each with DefaultCommand + InterruptCount + InterruptDelayMs. AgentNames() (agents.go:43-49) returns them in registry order, and preferredAssistantOrder (config.go:45) derives from it. TestAgentRegistryIsCanonical (internal/config/agents_test.go:45-116) enforces that defaultAssistants, preferredAssistantOrder, and IsRegisteredAgent all equal the registry set and preserve order. Note: cursor's DefaultCommand is 'agent' (not 'cursor'), b…
 
 ### AGT-03 — Override agent command/interrupt in config  `[Pass]`
 - **Story:** As a user, I want to override an agent's command and interrupt behavior, so that I can use custom binaries or stop semantics.

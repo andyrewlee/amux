@@ -18,13 +18,14 @@ type AgentDef struct {
 var AgentRegistry = []AgentDef{
 	{Name: "claude", DefaultCommand: "claude", InterruptCount: 2, InterruptDelayMs: 200},
 	{Name: "codex", DefaultCommand: "codex", InterruptCount: 1, InterruptDelayMs: 0},
-	{Name: "gemini", DefaultCommand: "gemini", InterruptCount: 1, InterruptDelayMs: 0},
-	{Name: "amp", DefaultCommand: "amp", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "opencode", DefaultCommand: "opencode", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "droid", DefaultCommand: "droid", InterruptCount: 1, InterruptDelayMs: 0},
-	{Name: "cline", DefaultCommand: "cline", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "cursor", DefaultCommand: "agent", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "pi", DefaultCommand: "pi", InterruptCount: 1, InterruptDelayMs: 0},
+	{Name: "antigravity", DefaultCommand: "agy", InterruptCount: 1, InterruptDelayMs: 0},
+	{Name: "fx", DefaultCommand: "fx", InterruptCount: 1, InterruptDelayMs: 0},
+	{Name: "amp", DefaultCommand: "amp", InterruptCount: 1, InterruptDelayMs: 0},
+	{Name: "cline", DefaultCommand: "cline", InterruptCount: 1, InterruptDelayMs: 0},
 }
 
 // registeredAgentNames is the membership set derived from AgentRegistry,

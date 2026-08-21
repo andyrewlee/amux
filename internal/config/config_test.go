@@ -22,7 +22,7 @@ func TestDefaultConfig(t *testing.T) {
 	}
 
 	// Verify assistant configs referenced in README exist.
-	for _, name := range []string{"claude", "codex", "gemini", "amp", "opencode", "cline"} {
+	for _, name := range []string{"claude", "codex", "opencode", "droid", "cursor", "pi", "antigravity", "fx", "amp", "cline"} {
 		if _, ok := cfg.Assistants[name]; !ok {
 			t.Fatalf("DefaultConfig() missing assistant config for %s", name)
 		}
@@ -235,22 +235,23 @@ func TestDefaultConfigSkipsInvalidAssistantOverrideIDs(t *testing.T) {
 func TestAssistantNamesOrder(t *testing.T) {
 	cfg := &Config{
 		Assistants: map[string]AssistantConfig{
-			"zeta":     {Command: "zeta"},
-			"codex":    {Command: "codex"},
-			"claude":   {Command: "claude"},
-			"my-agent": {Command: "my-agent"},
-			"gemini":   {Command: "gemini"},
-			"amp":      {Command: "amp"},
-			"opencode": {Command: "opencode"},
-			"droid":    {Command: "droid"},
-			"cline":    {Command: "cline"},
-			"cursor":   {Command: "cursor"},
-			"pi":       {Command: "pi"},
+			"zeta":        {Command: "zeta"},
+			"codex":       {Command: "codex"},
+			"claude":      {Command: "claude"},
+			"my-agent":    {Command: "my-agent"},
+			"antigravity": {Command: "agy"},
+			"amp":         {Command: "amp"},
+			"opencode":    {Command: "opencode"},
+			"droid":       {Command: "droid"},
+			"cline":       {Command: "cline"},
+			"cursor":      {Command: "cursor"},
+			"pi":          {Command: "pi"},
+			"fx":          {Command: "fx"},
 		},
 	}
 
 	got := cfg.AssistantNames()
-	wantPrefix := []string{"claude", "codex", "gemini", "amp", "opencode", "droid", "cline", "cursor", "pi"}
+	wantPrefix := []string{"claude", "codex", "opencode", "droid", "cursor", "pi", "antigravity", "fx", "amp", "cline"}
 	for i, want := range wantPrefix {
 		if got[i] != want {
 			t.Fatalf("AssistantNames()[%d] = %q, want %q", i, got[i], want)
@@ -296,8 +297,8 @@ func TestCanonicalDefaultAssistantFallsBackToFallbackConstant(t *testing.T) {
 // resolution falls through to the first name in preferred display order.
 func TestResolvedDefaultAssistantFallsBackToFirstOrdered(t *testing.T) {
 	assistants := map[string]AssistantConfig{
-		"codex":  {Command: "codex"},
-		"gemini": {Command: "gemini"},
+		"codex":       {Command: "codex"},
+		"antigravity": {Command: "agy"},
 	}
 	cfg := &Config{Assistants: assistants}
 
