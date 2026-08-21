@@ -169,6 +169,17 @@ program keeps every scrolled line, rules included.
 
 ## Gestures: one implementation per gesture
 
+### Shift+wheel forces local scrollback
+
+When the hosted app enables mouse reporting (DECSET 1000/1002/1003), plain
+wheel events are forwarded to it as SGR/X10 sequences and amux's own scrollback
+does not move. **Shift+wheel bypasses that forwarding** and always scrolls
+`ViewOffset` locally (`updateMouseWheel` in `model_input_mouse.go`) — the same
+force-local convention as iTerm2, kitty, and xterm, so there is always a way
+to scroll regardless of what the embedded app does with the wheel. The diff
+viewer still sees shift+wheel first: it is amux's own UI and never forwards
+anything to the agent.
+
 All selection/scroll gestures are implemented once, as tab-actor handlers
 (`tab_actor_selection.go`, `tab_actor.go`), and every entry point routes
 through `dispatchOrHandleTabEvent`: actor queue when available, synchronous

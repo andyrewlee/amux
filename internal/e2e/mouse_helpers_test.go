@@ -41,3 +41,14 @@ func centerPaneWheelUpInput(width, height, termX, termY int) wheelInput {
 		forwarded: fmt.Sprintf("\x1b[<64;%d;%dM", termX+1, termY+1),
 	}
 }
+
+// centerPaneShiftWheelUpInput encodes shift+wheel-up (button 64 | shift bit 4)
+// in SGR mode at the given pane-local terminal coordinates.
+func centerPaneShiftWheelUpInput(width, height, termX, termY int) string {
+	l := layout.NewManager()
+	l.Resize(width, height)
+	centerStartX := l.LeftGutter() + l.DashboardWidth() + l.GapX()
+	screenX := centerStartX + 2 + termX
+	screenY := l.TopGutter() + 2 + termY
+	return fmt.Sprintf("\x1b[<68;%d;%dM", screenX+1, screenY+1)
+}

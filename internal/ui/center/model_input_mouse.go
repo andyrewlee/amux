@@ -119,8 +119,13 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 	if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 		return m, cmd
 	}
-	if m.forwardMouseWheelToTerminal(msg, tab) {
-		return m, nil
+	// Shift+wheel is the standard force-local-scroll override (iTerm2, kitty,
+	// xterm): it bypasses mouse-reporting forwarding so the user can always
+	// scroll amux's own scrollback, even when the hosted app wants the wheel.
+	if !msg.Mod.Contains(tea.ModShift) {
+		if m.forwardMouseWheelToTerminal(msg, tab) {
+			return m, nil
+		}
 	}
 
 	delta := 0

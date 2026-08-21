@@ -128,4 +128,32 @@ func TestCloseLoopKeystrokeDeliveryToRawAgent(t *testing.T) {
 		t.Fatalf("agent did not receive forwarded wheel input via amux\n got: % x\nwant: % x\nouter: % x\n\nscreen:\n%s",
 			got, []byte(wheelInput.forwarded), []byte(wheelInput.outer), session.ScreenASCII())
 	}
+
+	// Shift+wheel is the force-local override: amux must scroll its own
+	// scrollback instead of forwarding the event to the agent. Send it first,
+	// then a plain wheel at different coordinates: its forwarded bytes are
+	// unique in the agent log, so their arrival proves the shift event was
+	// already processed (PTY input is ordered), making the absence check
+	// race-free.
+	// amux throttles wheel events arriving within 15ms of each other
+	// (mouseEventFilter in cmd/amux), so pace both wheels past it — otherwise
+	// the shift+wheel could be dropped before reaching the guard.
+	time.Sleep(50 * time.Millisecond)
+	if err := session.SendString(centerPaneShiftWheelUpInput(120, 30, 2, 3)); err != nil {
+		t.Fatalf("send shift+wheel: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	secondWheel := centerPaneWheelUpInput(120, 30, 5, 7)
+	if err := session.SendString(secondWheel.outer); err != nil {
+		t.Fatalf("send second wheel: %v", err)
+	}
+	got, ok = waitForFileBytes(logPath, []byte(secondWheel.forwarded), closeLoopTimeout)
+	if !ok {
+		t.Fatalf("agent did not receive second forwarded wheel via amux\n got: % x\nwant: % x\nouter: % x\n\nscreen:\n%s",
+			got, []byte(secondWheel.forwarded), []byte(secondWheel.outer), session.ScreenASCII())
+	}
+	if bytes.Contains(got, []byte("\x1b[<68;")) {
+		t.Fatalf("shift+wheel was forwarded to the agent; want force-local scroll only\n got: % x\n\nscreen:\n%s",
+			got, session.ScreenASCII())
+	}
 }
