@@ -22,7 +22,7 @@ func TestDefaultConfig(t *testing.T) {
 	}
 
 	// Verify assistant configs referenced in README exist.
-	for _, name := range []string{"claude", "codex", "opencode", "droid", "cursor", "pi", "antigravity", "fx", "amp", "cline"} {
+	for _, name := range []string{"claude", "codex", "opencode", "droid", "cursor", "pi", "antigravity", "fx", "grok", "amp", "cline"} {
 		if _, ok := cfg.Assistants[name]; !ok {
 			t.Fatalf("DefaultConfig() missing assistant config for %s", name)
 		}
@@ -247,11 +247,12 @@ func TestAssistantNamesOrder(t *testing.T) {
 			"cursor":      {Command: "cursor"},
 			"pi":          {Command: "pi"},
 			"fx":          {Command: "fx"},
+			"grok":        {Command: "grok"},
 		},
 	}
 
 	got := cfg.AssistantNames()
-	wantPrefix := []string{"claude", "codex", "opencode", "droid", "cursor", "pi", "antigravity", "fx", "amp", "cline"}
+	wantPrefix := []string{"claude", "codex", "opencode", "droid", "cursor", "pi", "antigravity", "fx", "grok", "amp", "cline"}
 	for i, want := range wantPrefix {
 		if got[i] != want {
 			t.Fatalf("AssistantNames()[%d] = %q, want %q", i, got[i], want)

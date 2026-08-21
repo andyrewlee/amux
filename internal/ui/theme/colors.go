@@ -63,7 +63,8 @@ var (
 	ColorCursor      = lipgloss.Color("#1B1812")
 	ColorPi          = lipgloss.Color("#0e0e11")
 	ColorAntigravity = lipgloss.Color("#4285f4")
-	ColorFx          = lipgloss.Color("#FF4081")
+	ColorFx          = lipgloss.Color("#262626")
+	ColorGrok        = lipgloss.Color("#1E1F22")
 	ColorAmp         = lipgloss.Color("#ED4C3D")
 	ColorCline       = lipgloss.Color("#101827")
 )
@@ -80,6 +81,7 @@ var agentColors = map[string]color.Color{
 	"pi":          ColorPi,
 	"antigravity": ColorAntigravity,
 	"fx":          ColorFx,
+	"grok":        ColorGrok,
 	"amp":         ColorAmp,
 	"cline":       ColorCline,
 }

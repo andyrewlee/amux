@@ -24,6 +24,7 @@ var AgentRegistry = []AgentDef{
 	{Name: "pi", DefaultCommand: "pi", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "antigravity", DefaultCommand: "agy", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "fx", DefaultCommand: "fx", InterruptCount: 1, InterruptDelayMs: 0},
+	{Name: "grok", DefaultCommand: "grok", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "amp", DefaultCommand: "amp", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "cline", DefaultCommand: "cline", InterruptCount: 1, InterruptDelayMs: 0},
 }
