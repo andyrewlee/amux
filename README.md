@@ -76,7 +76,7 @@ External orchestration: the supported tmux-level contract is documented in [docs
 ## Features
 
 - **Parallel agents**: Launch multiple agents within main repo and within workspaces
-- **No wrappers**: Works with Claude Code, Codex, OpenCode, Droid, Cursor, Pi, Antigravity, FX, Amp, and Cline
+- **No wrappers**: Works with Claude Code, Codex, OpenCode, Droid, Cursor, Pi, Antigravity, FX, Grok, Amp, and Cline
 - **Keyboard + mouse**: Can be operated with just the keyboard or with a mouse
 - **All-in-one tool**: Run agents, view diffs, and access terminal
 

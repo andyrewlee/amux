@@ -67,6 +67,7 @@ var (
 	ColorPi            = theme.ColorPi
 	ColorAntigravity   = theme.ColorAntigravity
 	ColorFx            = theme.ColorFx
+	ColorGrok          = theme.ColorGrok
 	ColorAmp           = theme.ColorAmp
 	ColorCline         = theme.ColorCline
 )
