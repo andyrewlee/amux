@@ -56,7 +56,7 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 func (a *App) filterDeletedWorkspacesFromProjectLoad(projects []data.Project, loadToken projectsLoadToken) []data.Project {
 	for i := range projects {
 		project := &projects[i]
-		filtered := project.Workspaces[:0]
+		filtered := make([]data.Workspace, 0, len(project.Workspaces))
 		for j := range project.Workspaces {
 			ws := project.Workspaces[j]
 			if a.lifecycle.shouldFilterDeletedWorkspace(string(ws.ID()), ws.Root, loadToken) {
