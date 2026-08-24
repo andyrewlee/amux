@@ -21,6 +21,7 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		logging.Warn("DeleteWorkspace received with nil project or workspace")
 		return nil
 	}
+	msg.Workspace = snapshotWorkspaceForSave(msg.Workspace)
 	if !a.markWorkspaceDeleteInFlight(msg.Workspace, true) {
 		logging.Warn("DeleteWorkspace rejected while workspace %s is in another lifecycle phase", msg.Workspace.ID())
 		return nil
@@ -339,7 +340,7 @@ func (a *App) removeWorkspaceFromLoadedProjects(ws *data.Workspace) {
 	wsID := string(ws.ID())
 	for i := range a.projects {
 		workspaces := a.projects[i].Workspaces
-		filtered := workspaces[:0]
+		filtered := make([]data.Workspace, 0, len(workspaces))
 		for j := range workspaces {
 			candidate := &workspaces[j]
 			if string(candidate.ID()) == wsID || candidate.Root == ws.Root {
