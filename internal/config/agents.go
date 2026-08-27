@@ -22,6 +22,7 @@ var AgentRegistry = []AgentDef{
 	{Name: "droid", DefaultCommand: "droid", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "cursor", DefaultCommand: "agent", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "pi", DefaultCommand: "pi", InterruptCount: 1, InterruptDelayMs: 0},
+	{Name: "omp", DefaultCommand: "omp", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "antigravity", DefaultCommand: "agy", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "fx", DefaultCommand: "fx", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "grok", DefaultCommand: "grok", InterruptCount: 1, InterruptDelayMs: 0},

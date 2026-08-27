@@ -67,6 +67,7 @@ var (
 	ColorGrok        = lipgloss.Color("#1E1F22")
 	ColorAmp         = lipgloss.Color("#ED4C3D")
 	ColorCline       = lipgloss.Color("#101827")
+	ColorOmp         = lipgloss.Color("#f97316")
 )
 
 // agentColors maps canonical agent names to their brand palette color. Lookups
@@ -84,6 +85,7 @@ var agentColors = map[string]color.Color{
 	"grok":        ColorGrok,
 	"amp":         ColorAmp,
 	"cline":       ColorCline,
+	"omp":         ColorOmp,
 }
 
 // GetCurrentTheme returns the currently active theme.
