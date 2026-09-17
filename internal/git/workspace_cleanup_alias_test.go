@@ -63,7 +63,14 @@ func TestRemoveWorkspaceRejectsGitBearingManagedStaleWorkspace(t *testing.T) {
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
 		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(workspacePath, ".git"), []byte("gitdir: /tmp/admin\n"), 0o644); err != nil {
+	// A resolvable gitdir target means the directory may still be a live
+	// worktree of some repository: the guard must keep the hard error.
+	adminDir := filepath.Join(t.TempDir(), "admin")
+	if err := os.MkdirAll(adminDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(adminDir) error = %v", err)
+	}
+	gitFile := filepath.Join(workspacePath, ".git")
+	if err := os.WriteFile(gitFile, []byte("gitdir: "+adminDir+"\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
 
@@ -84,6 +91,55 @@ func TestRemoveWorkspaceRejectsGitBearingManagedStaleWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "has a .git file but is not a registered worktree") {
 		t.Fatalf("expected unmanaged .git error, got %v", err)
+	}
+	if _, statErr := os.Stat(gitFile); statErr != nil {
+		t.Fatalf("expected resolvable .git pointer to be preserved, err=%v", statErr)
+	}
+}
+
+func TestRemoveWorkspaceUnregistersDanglingGitPointerStaleWorkspace(t *testing.T) {
+	origRunGitCtx := runGitCtx
+	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
+	defer func() {
+		runGitCtx = origRunGitCtx
+		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
+	}()
+
+	repoPath := filepath.Join(t.TempDir(), "repo-real-name")
+	workspacePath := filepath.Join(t.TempDir(), ".amux", "workspaces", "repo-real-name", "delete")
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
+	}
+	// The repository moved away, so the .git pointer's gitdir target is gone.
+	danglingTarget := filepath.Join(t.TempDir(), "moved-repo", ".git", "worktrees", "delete")
+	gitFile := filepath.Join(workspacePath, ".git")
+	if err := os.WriteFile(gitFile, []byte("gitdir: "+danglingTarget+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.git) error = %v", err)
+	}
+
+	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
+			t.Fatalf("git args = %q, want %q", got, want)
+		}
+		return "", nil
+	}
+	removeWorkspacePathCtx = func(context.Context, string) error {
+		t.Fatal("expected dangling-pointer unregister to leave directory removal to the caller")
+		return nil
+	}
+
+	err := RemoveWorkspace(repoPath, workspacePath)
+	if err == nil {
+		t.Fatal("expected RemoveWorkspace() to return recoverable unregistered workspace error")
+	}
+	if !IsUnregisteredWorkspacePathError(err) {
+		t.Fatalf("expected ErrUnregisteredWorkspacePath, got %v", err)
+	}
+	if _, statErr := os.Stat(gitFile); !os.IsNotExist(statErr) {
+		t.Fatalf("expected dangling .git pointer to be unregistered, err=%v", statErr)
+	}
+	if _, statErr := os.Stat(workspacePath); statErr != nil {
+		t.Fatalf("expected workspace directory to remain for caller cleanup, err=%v", statErr)
 	}
 }
 

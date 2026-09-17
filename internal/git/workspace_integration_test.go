@@ -98,7 +98,10 @@ func TestRemoveWorkspaceRefusesUnmanagedFallbackCleanup(t *testing.T) {
 	skipIfNoGit(t)
 	repo := initRepo(t)
 
-	// Create a directory with a .git file that is NOT a registered worktree.
+	// Create a directory with a dangling .git pointer: the gitdir target no
+	// longer exists, so no repository owns the directory. The git layer must
+	// unregister the pointer and report the recoverable stale-workspace
+	// sentinel, but leave directory removal to the managed-root caller.
 	unmanaged := filepath.Join(t.TempDir(), "unmanaged-ws")
 	if err := os.MkdirAll(unmanaged, 0o755); err != nil {
 		t.Fatal(err)
@@ -109,10 +112,16 @@ func TestRemoveWorkspaceRefusesUnmanagedFallbackCleanup(t *testing.T) {
 
 	err := RemoveWorkspace(repo, unmanaged)
 	if err == nil {
-		t.Fatal("expected error for unmanaged worktree with .git file")
+		t.Fatal("expected recoverable error for dangling-pointer stale workspace")
 	}
-	if !strings.Contains(err.Error(), "not a registered worktree") {
-		t.Fatalf("unexpected error: %v", err)
+	if !IsUnregisteredWorkspacePathError(err) {
+		t.Fatalf("expected ErrUnregisteredWorkspacePath, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(unmanaged, ".git")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected dangling .git pointer to be unregistered, err=%v", statErr)
+	}
+	if _, statErr := os.Stat(unmanaged); statErr != nil {
+		t.Fatalf("expected directory to remain for caller cleanup, err=%v", statErr)
 	}
 }
 

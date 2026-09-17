@@ -321,6 +321,9 @@ func worktreeRemoveRecoveryTimeout() time.Duration {
 func cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath string) error {
 	gitFile := filepath.Join(workspacePath, ".git")
 	if _, statErr := os.Stat(gitFile); statErr == nil {
+		if unregisterErr := unregisterDanglingWorktreeGitFile(gitFile); unregisterErr != nil {
+			return errors.Join(validateUnregisteredWorkspacePath(workspacePath), unregisterErr)
+		}
 		return validateUnregisteredWorkspacePath(workspacePath)
 	} else if !os.IsNotExist(statErr) {
 		return statErr
@@ -345,6 +348,48 @@ func cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath string) 
 		)
 	}
 	return validateUnregisteredWorkspacePath(workspacePath)
+}
+
+// unregisterDanglingWorktreeGitFile removes a worktree `.git` pointer file whose
+// gitdir target no longer exists. A live worktree's .git file always points at
+// an existing admin directory, so a dangling target means no repository owns
+// the workspace directory anymore (e.g. the repo moved or the worktree admin
+// entry was pruned) and the path can safely be treated as an unregistered stale
+// workspace by the caller. Returns nil when the pointer is absent, still
+// resolvable, or not a parseable worktree pointer (ambiguous: keep the hard
+// error so nothing unmanaged is silently unregistered).
+func unregisterDanglingWorktreeGitFile(gitFile string) error {
+	target, ok := worktreeGitFileTarget(gitFile)
+	if !ok {
+		return nil
+	}
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		return nil
+	}
+	return os.Remove(gitFile)
+}
+
+// worktreeGitFileTarget parses a worktree `.git` file and returns the absolute
+// gitdir path it points at. ok is false when the file cannot be read or is not
+// a valid worktree pointer.
+func worktreeGitFileTarget(gitFile string) (string, bool) {
+	data, readErr := os.ReadFile(gitFile)
+	if readErr != nil {
+		return "", false
+	}
+	line := strings.TrimSpace(string(data))
+	const prefix = "gitdir:"
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	target := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if target == "" {
+		return "", false
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(gitFile), target)
+	}
+	return target, true
 }
 
 func managedWorkspacesRootAliases() []string {
