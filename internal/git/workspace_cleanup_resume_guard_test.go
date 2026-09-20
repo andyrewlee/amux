@@ -311,3 +311,46 @@ func TestRemoveWorkspaceTimeoutCancelsRetryFingerprintWithinRecoveryBudget(t *te
 		t.Fatalf("expected cleanup marker to remain absent after fingerprint timeout, err=%v", err)
 	}
 }
+
+func TestWorkspaceCleanupRetryFingerprintSkipsNestedDirectories(t *testing.T) {
+	workspacePath := filepath.Join(t.TempDir(), "workspace")
+	nestedDir := filepath.Join(workspacePath, "node_modules", "pkg")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(nestedDir) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspacePath, "root.txt"), []byte("root"), 0o644); err != nil {
+		t.Fatalf("WriteFile(root.txt) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "index.js"), []byte("console.log(1)"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.js) error = %v", err)
+	}
+
+	initialFingerprint, err := workspaceCleanupRetryFingerprintWithContext(context.Background(), workspacePath)
+	if err != nil {
+		t.Fatalf("workspaceCleanupRetryFingerprintWithContext() error = %v", err)
+	}
+
+	// Modifying a nested file must NOT alter the fingerprint because subdirectories are skipped.
+	if err := os.WriteFile(filepath.Join(nestedDir, "index.js"), []byte("console.log(2)"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.js update) error = %v", err)
+	}
+	nestedModifiedFingerprint, err := workspaceCleanupRetryFingerprintWithContext(context.Background(), workspacePath)
+	if err != nil {
+		t.Fatalf("workspaceCleanupRetryFingerprintWithContext() error = %v", err)
+	}
+	if initialFingerprint != nestedModifiedFingerprint {
+		t.Fatalf("expected fingerprint to remain identical when nested files change; got %q != %q", initialFingerprint, nestedModifiedFingerprint)
+	}
+
+	// Modifying a root-level file MUST alter the fingerprint.
+	if err := os.WriteFile(filepath.Join(workspacePath, "root.txt"), []byte("modified"), 0o644); err != nil {
+		t.Fatalf("WriteFile(root.txt update) error = %v", err)
+	}
+	rootModifiedFingerprint, err := workspaceCleanupRetryFingerprintWithContext(context.Background(), workspacePath)
+	if err != nil {
+		t.Fatalf("workspaceCleanupRetryFingerprintWithContext() error = %v", err)
+	}
+	if initialFingerprint == rootModifiedFingerprint {
+		t.Fatal("expected fingerprint to change when root file is modified")
+	}
+}

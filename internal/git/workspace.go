@@ -15,7 +15,7 @@ import (
 
 var (
 	worktreeTimeout         = 30 * time.Second
-	worktreeRecoveryReserve = 5 * time.Second
+	worktreeRecoveryReserve = 2 * time.Minute
 	runGitCtx               = RunGitCtx
 	unregisterWorktreeCtx   = unregisterWorktreeAdminDirWithContext
 	removeWorkspacePathCtx  = removeWorkspacePathWithContext
@@ -71,7 +71,7 @@ func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {
 		if retryMetadata.RepoPath != "" {
 			cleanupRepoPath = retryMetadata.RepoPath
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
 		defer cancel()
 		if err := persistAndResumeWorkspaceCleanup(
 			ctx,
@@ -90,7 +90,7 @@ func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {
 	if !marked {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
 	defer cancel()
 	if err := rejectReusedWorkspacePathDuringCleanup(workspacePath, state); err != nil {
 		return err
@@ -158,7 +158,7 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 		return err
 	}
 	if marked {
-		ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
 		defer cancel()
 		return resumeWorkspaceCleanup(ctx, repoPath, workspacePath, state)
 	}
@@ -219,7 +219,7 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 			if !isSafeWorkspaceCleanupPath(workspacePath) {
 				return fmt.Errorf("refusing to remove unsafe path: %s", workspacePath)
 			}
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), worktreeTimeout)
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
 			defer cleanupCancel()
 			return persistAndResumeWorkspaceCleanup(cleanupCtx, repoPath, workspacePath, false)
 		}

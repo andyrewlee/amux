@@ -78,6 +78,9 @@ func workspaceCleanupRetryFingerprintWithContext(ctx context.Context, workspaceP
 			hasher.Write(content)
 			hasher.Write([]byte{0})
 		}
+		if d.IsDir() {
+			return fs.SkipDir
+		}
 		return nil
 	})
 	if err != nil {

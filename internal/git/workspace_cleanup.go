@@ -338,7 +338,7 @@ func cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath string) 
 		if retryMetadata.RepoPath != "" {
 			cleanupRepoPath = retryMetadata.RepoPath
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
 		defer cancel()
 		return persistAndResumeWorkspaceCleanup(
 			ctx,
