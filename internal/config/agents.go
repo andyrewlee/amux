@@ -28,6 +28,8 @@ var AgentRegistry = []AgentDef{
 	{Name: "grok", DefaultCommand: "grok", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "amp", DefaultCommand: "amp", InterruptCount: 1, InterruptDelayMs: 0},
 	{Name: "cline", DefaultCommand: "cline", InterruptCount: 1, InterruptDelayMs: 0},
+	{Name: "devin", DefaultCommand: "devin", InterruptCount: 1, InterruptDelayMs: 0},
+	{Name: "prime-agent", DefaultCommand: "prime-agent", InterruptCount: 1, InterruptDelayMs: 0},
 }
 
 // registeredAgentNames is the membership set derived from AgentRegistry,
