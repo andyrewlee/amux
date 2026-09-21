@@ -68,6 +68,8 @@ var (
 	ColorAmp         = lipgloss.Color("#ED4C3D")
 	ColorCline       = lipgloss.Color("#101827")
 	ColorOmp         = lipgloss.Color("#f97316")
+	ColorDevin       = lipgloss.Color("#8B5CF6")
+	ColorPrimeAgent  = lipgloss.Color("#10B981")
 )
 
 // agentColors maps canonical agent names to their brand palette color. Lookups
@@ -86,6 +88,8 @@ var agentColors = map[string]color.Color{
 	"amp":         ColorAmp,
 	"cline":       ColorCline,
 	"omp":         ColorOmp,
+	"devin":       ColorDevin,
+	"prime-agent": ColorPrimeAgent,
 }
 
 // GetCurrentTheme returns the currently active theme.

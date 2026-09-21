@@ -93,4 +93,5 @@ its interrupt behavior:
 ```
 
 The built-in roster (default names) is: `claude`, `codex`, `opencode`, `droid`,
-`cursor`, `pi`, `omp`, `antigravity`, `fx`, `grok`, `amp`, `cline`.
+`cursor`, `pi`, `omp`, `antigravity`, `fx`, `grok`, `amp`, `cline`, `devin`,
+`prime-agent`.

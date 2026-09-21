@@ -70,4 +70,7 @@ var (
 	ColorGrok          = theme.ColorGrok
 	ColorAmp           = theme.ColorAmp
 	ColorCline         = theme.ColorCline
+	ColorOmp           = theme.ColorOmp
+	ColorDevin         = theme.ColorDevin
+	ColorPrimeAgent    = theme.ColorPrimeAgent
 )
